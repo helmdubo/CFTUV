@@ -4,7 +4,7 @@
 
 CFTUV (Constraint-First Trim UV) — Blender addon для полупроцедурной UV развёртки
 архитектурных ассетов (hard-surface environment geometry). Пользователь размечает
-mesh в 3D Viewer (sharp edges, seams, face selection), система строит граф 3D patches
+mesh в 3D Viewer (seams, face selection; sharp edges только для shading), система строит граф 3D patches
 и автоматически генерирует UV layout по правилам стыковки.
 
 Target: AA-AAA game production, trim sheet / tile workflow.
@@ -40,7 +40,7 @@ Single developer, in-house studio tool.
 
 ## Domain terminology
 
-- **Patch** — набор faces по flood fill, ограниченный seam/sharp/boundary edges
+- **Patch** — набор faces по flood fill, ограниченный seam/boundary edges
 - **PatchType** — dispatch key для UV стратегии: WALL, FLOOR, SLOPE
   (НЕ semantic description, а именно "какой алгоритм unwrap применять")
 - **Boundary Loop** — замкнутый контур boundary edges одного patch (OUTER или HOLE)
@@ -49,8 +49,9 @@ Single developer, in-house studio tool.
 - **SeamEdge** — связь между двумя соседними patches через общий шов
 - **Basis** — локальная система координат patch (basis_u = tangent, basis_v = bitangent)
 - **Core faces** — faces выделенные пользователем
-- **Full faces** — core + expanded до seam/sharp boundary (весь patch)
+- **Full faces** — core + expanded до seam boundary (весь patch)
 - **Two-Pass Unwrap** — unwrap cores → pin → unwrap full → dock → align
+- **Sharp Edge** — источник shading only; не участвует в patch split и не создаёт seam links
 
 ## Code conventions
 

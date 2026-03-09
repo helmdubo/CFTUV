@@ -14,6 +14,14 @@ class PatchType(str, Enum):
     SLOPE = "SLOPE"
 
 
+class WorldFacing(str, Enum):
+    """Coarse patch orientation relative to world Z."""
+
+    UP = "UP"
+    DOWN = "DOWN"
+    SIDE = "SIDE"
+
+
 class LoopKind(str, Enum):
     """Kind of closed boundary loop."""
 
@@ -63,6 +71,23 @@ class BoundaryChain:
 
 
 @dataclass
+class BoundaryCorner:
+    """Junction corner between two neighboring chains inside one loop."""
+
+    loop_vert_index: int = 0
+    vert_co: Vector = field(default_factory=lambda: Vector((0.0, 0.0, 0.0)))
+    prev_chain_index: int = 0
+    next_chain_index: int = 0
+    turn_angle_deg: float = 0.0
+    prev_role: FrameRole = FrameRole.FREE
+    next_role: FrameRole = FrameRole.FREE
+
+    @property
+    def corner_type(self) -> str:
+        return f"{self.prev_role.value}_TO_{self.next_role.value}"
+
+
+@dataclass
 class BoundaryLoop:
     """Closed boundary loop of a patch."""
 
@@ -71,6 +96,7 @@ class BoundaryLoop:
     kind: LoopKind = LoopKind.OUTER
     depth: int = 0
     chains: list[BoundaryChain] = field(default_factory=list)
+    corners: list[BoundaryCorner] = field(default_factory=list)
 
 
 @dataclass
@@ -84,6 +110,7 @@ class PatchNode:
     area: float = 0.0
     perimeter: float = 0.0
     patch_type: PatchType = PatchType.WALL
+    world_facing: WorldFacing = WorldFacing.SIDE
     basis_u: Vector = field(default_factory=lambda: Vector((1.0, 0.0, 0.0)))
     basis_v: Vector = field(default_factory=lambda: Vector((0.0, 0.0, 1.0)))
     boundary_loops: list[BoundaryLoop] = field(default_factory=list)
@@ -200,3 +227,4 @@ class PatchGraph:
                         stack.append(neighbor_id)
             components.append(component)
         return components
+

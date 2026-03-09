@@ -12,8 +12,10 @@ except ImportError:
 _GP_STYLES = {
     'Frame_H': (1.0, 0.85, 0.0, 1.0),
     'Frame_V': (0.0, 0.85, 0.85, 1.0),
-    'Frame_FREE': (0.5, 0.5, 0.5, 0.6),
-    'Frame_HOLE': (0.2, 0.2, 0.6, 0.8),
+    'Frame_FREE': (0.55, 0.55, 0.55, 0.7),
+    'Loops_Boundary': (1.0, 0.95, 0.95, 0.95),
+    'Loops_Holes': (0.2, 0.35, 0.85, 0.95),
+    'Overlay_Centers': (1.0, 1.0, 1.0, 1.0),
 }
 
 _BASIS_COLORS = {
@@ -29,6 +31,43 @@ def _enum_value(value):
 
 def _get_gp_debug_name(source_obj):
     return GP_DEBUG_PREFIX + source_obj.name
+
+
+def _lift_point(point, normal, offset=0.01):
+    if normal.length <= 1e-8:
+        return point.copy()
+    return point + normal.normalized() * offset
+
+
+def _lift_points(points, normal, offset=0.01):
+    return [_lift_point(point, normal, offset) for point in points]
+
+
+def _patch_enabled(node, settings_dict):
+    patch_type = _enum_value(node.patch_type)
+    key = {
+        PatchType.WALL.value: 'patches_wall',
+        PatchType.FLOOR.value: 'patches_floor',
+        PatchType.SLOPE.value: 'patches_slope',
+    }.get(patch_type)
+    return settings_dict.get(key, True) if key else True
+
+
+def _loop_enabled(loop, settings_dict):
+    loop_kind = _enum_value(loop.kind)
+    if loop_kind == LoopKind.HOLE.value:
+        return settings_dict.get('loops_holes', True)
+    return settings_dict.get('loops_boundary', True)
+
+
+def _chain_enabled(chain, settings_dict):
+    role = _enum_value(chain.frame_role)
+    key = {
+        FrameRole.H_FRAME.value: 'frame_h',
+        FrameRole.V_FRAME.value: 'frame_v',
+        FrameRole.FREE.value: 'frame_free',
+    }.get(role)
+    return settings_dict.get(key, True) if key else True
 
 
 def _get_or_create_gp_object(source_obj):
@@ -50,7 +89,7 @@ def _get_or_create_gp_object(source_obj):
 
 
 def _ensure_gp_layer(gp_data, layer_name, color_rgba):
-    mat_name = f"CFTUV_{layer_name}"
+    mat_name = f'CFTUV_{layer_name}'
     if mat_name in bpy.data.materials:
         mat = bpy.data.materials[mat_name]
     else:
@@ -61,9 +100,9 @@ def _ensure_gp_layer(gp_data, layer_name, color_rgba):
     mat.grease_pencil.show_fill = False
 
     mat_idx = None
-    for i, slot in enumerate(gp_data.materials):
+    for index, slot in enumerate(gp_data.materials):
         if slot and slot.name == mat_name:
-            mat_idx = i
+            mat_idx = index
             break
     if mat_idx is None:
         gp_data.materials.append(mat)
@@ -75,25 +114,22 @@ def _ensure_gp_layer(gp_data, layer_name, color_rgba):
     else:
         layer = gp_data.layers.new(layer_name, set_active=False)
 
-    if not layer.frames:
-        frame = layer.frames.new(0)
-    else:
-        frame = layer.frames[0]
-
+    frame = layer.frames[0] if layer.frames else layer.frames.new(0)
     return frame, mat_idx
 
 
-def _add_gp_stroke(frame, points, mat_idx, line_width=4):
+def _add_gp_stroke(frame, points, mat_idx, line_width=4, cyclic=False):
     if len(points) < 2:
         return
     stroke = frame.strokes.new()
     stroke.material_index = mat_idx
     stroke.line_width = line_width
+    stroke.use_cyclic = cyclic
     stroke.points.add(len(points))
-    for i, point in enumerate(points):
-        stroke.points[i].co = (point.x, point.y, point.z)
-        stroke.points[i].strength = 1.0
-        stroke.points[i].pressure = 1.0
+    for index, point in enumerate(points):
+        stroke.points[index].co = (point.x, point.y, point.z)
+        stroke.points[index].strength = 1.0
+        stroke.points[index].pressure = 1.0
 
 
 def clear_visualization(source_obj):
@@ -104,7 +140,7 @@ def clear_visualization(source_obj):
     if gp_name in bpy.data.grease_pencils:
         bpy.data.grease_pencils.remove(bpy.data.grease_pencils[gp_name])
 
-    mesh_name = GP_DEBUG_PREFIX + "Mesh_" + source_obj.name
+    mesh_name = GP_DEBUG_PREFIX + 'Mesh_' + source_obj.name
     if mesh_name in bpy.data.objects:
         obj = bpy.data.objects[mesh_name]
         mesh_data = obj.data
@@ -114,17 +150,17 @@ def clear_visualization(source_obj):
 
     for mat in list(bpy.data.materials):
         if (
-            mat.name.startswith("CFTUV_P")
-            or mat.name.startswith("CFTUV_Axis_")
-            or mat.name.startswith("CFTUV_Ch")
-            or mat.name.startswith("CFTUV_Lp")
-            or mat.name.startswith("CFTUV_Hl")
+            mat.name.startswith('CFTUV_P')
+            or mat.name.startswith('CFTUV_Axis_')
+            or mat.name.startswith('CFTUV_Frame_')
+            or mat.name.startswith('CFTUV_Loops_')
+            or mat.name.startswith('CFTUV_Overlay_')
         ) and mat.users == 0:
             bpy.data.materials.remove(mat)
 
 
 def _create_patch_mesh(graph: PatchGraph, source_obj):
-    mesh_name = GP_DEBUG_PREFIX + "Mesh_" + source_obj.name
+    mesh_name = GP_DEBUG_PREFIX + 'Mesh_' + source_obj.name
 
     if mesh_name in bpy.data.objects:
         old_obj = bpy.data.objects[mesh_name]
@@ -140,7 +176,7 @@ def _create_patch_mesh(graph: PatchGraph, source_obj):
     materials = []
 
     patch_ids = sorted(graph.nodes.keys())
-    for draw_idx, patch_id in enumerate(patch_ids):
+    for draw_index, patch_id in enumerate(patch_ids):
         node = graph.nodes[patch_id]
         offset = len(all_verts)
 
@@ -149,9 +185,9 @@ def _create_patch_mesh(graph: PatchGraph, source_obj):
 
         for tri in node.mesh_tris:
             all_faces.append(tuple(index + offset for index in tri))
-            face_mat_indices.append(draw_idx)
+            face_mat_indices.append(draw_index)
 
-        hue = (draw_idx * golden_ratio) % 1.0
+        hue = (draw_index * golden_ratio) % 1.0
         patch_type = _enum_value(node.patch_type)
         if patch_type == PatchType.WALL.value:
             sat, val, alpha = 0.8, 0.9, 0.4
@@ -159,7 +195,7 @@ def _create_patch_mesh(graph: PatchGraph, source_obj):
             sat, val, alpha = 0.5, 0.6, 0.3
         r, g, b = colorsys.hsv_to_rgb(hue, sat, val)
 
-        mat_name = f"CFTUV_P{draw_idx:03d}"
+        mat_name = f'CFTUV_P{draw_index:03d}'
         if mat_name in bpy.data.materials:
             mat = bpy.data.materials[mat_name]
         else:
@@ -189,24 +225,18 @@ def _create_patch_mesh(graph: PatchGraph, source_obj):
     mesh_obj.hide_render = True
 
 
-def _apply_layer_visibility(gp_data, dbg_settings):
-    grp_patches = dbg_settings.get('grp_patches', True)
-    grp_frame = dbg_settings.get('grp_frame', True)
-    grp_loops = dbg_settings.get('grp_loops', True)
-    grp_overlay = dbg_settings.get('grp_overlay', True)
-
+def apply_layer_visibility(gp_data, dbg_settings):
     mapping = {
-        'Patches_WALL': grp_patches and dbg_settings.get('patches_wall', True),
-        'Patches_FLOOR': grp_patches and dbg_settings.get('patches_floor', True),
-        'Patches_SLOPE': grp_patches and dbg_settings.get('patches_slope', True),
-        'Frame_H': grp_frame and dbg_settings.get('frame_h', True),
-        'Frame_V': grp_frame and dbg_settings.get('frame_v', True),
-        'Frame_FREE': grp_frame and dbg_settings.get('frame_free', True),
-        'Frame_HOLE': grp_frame and dbg_settings.get('frame_hole', True),
-        'Loops_Chains': grp_loops,
-        'Loops_Boundary': grp_loops,
-        'Loops_Holes': grp_loops,
-        'Overlay_Basis': grp_overlay,
+        'Patches_WALL': dbg_settings.get('patches_wall', True),
+        'Patches_FLOOR': dbg_settings.get('patches_floor', True),
+        'Patches_SLOPE': dbg_settings.get('patches_slope', True),
+        'Frame_H': dbg_settings.get('frame_h', True),
+        'Frame_V': dbg_settings.get('frame_v', True),
+        'Frame_FREE': dbg_settings.get('frame_free', True),
+        'Loops_Boundary': dbg_settings.get('loops_boundary', True),
+        'Loops_Holes': dbg_settings.get('loops_holes', True),
+        'Overlay_Basis': dbg_settings.get('overlay_basis', True),
+        'Overlay_Centers': dbg_settings.get('overlay_centers', True),
     }
     for layer_name, visible in mapping.items():
         if layer_name in gp_data.layers:
@@ -214,9 +244,10 @@ def _apply_layer_visibility(gp_data, dbg_settings):
 
 
 def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
+    settings_dict = settings_dict or {}
+
     gp_obj = _get_or_create_gp_object(source_obj)
     gp_data = gp_obj.data
-
     _create_patch_mesh(graph, source_obj)
 
     frames_and_mats = {}
@@ -234,7 +265,7 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
 
     basis_mats = {}
     for axis_key, color in _BASIS_COLORS.items():
-        mat_name = f"CFTUV_Axis_{axis_key}"
+        mat_name = f'CFTUV_Axis_{axis_key}'
         if mat_name in bpy.data.materials:
             mat = bpy.data.materials[mat_name]
         else:
@@ -245,57 +276,18 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
         mat.grease_pencil.show_fill = False
 
         mat_idx = None
-        for i, slot in enumerate(gp_data.materials):
+        for index, slot in enumerate(gp_data.materials):
             if slot and slot.name == mat_name:
-                mat_idx = i
+                mat_idx = index
                 break
         if mat_idx is None:
             gp_data.materials.append(mat)
             mat_idx = len(gp_data.materials) - 1
         basis_mats[axis_key] = mat_idx
 
-    loop_layer_names = ['Loops_Chains', 'Loops_Boundary', 'Loops_Holes']
-    loop_layers = {}
-    for layer_name in loop_layer_names:
-        if layer_name in gp_data.layers:
-            layer = gp_data.layers[layer_name]
-            layer.clear()
-        else:
-            layer = gp_data.layers.new(layer_name, set_active=False)
-        loop_layers[layer_name] = layer.frames[0] if layer.frames else layer.frames.new(0)
-
-    chain_counter = 0
-    loop_counter = 0
-    hole_counter = 0
-    golden_ratio = 0.618033988749895
-
-    def _get_element_mat(prefix, index, hue_offset, sat, val):
-        hue = ((index * golden_ratio) + hue_offset) % 1.0
-        r, g, b = colorsys.hsv_to_rgb(hue, sat, val)
-        mat_name = f"CFTUV_{prefix}{index:03d}"
-        if mat_name in bpy.data.materials:
-            mat = bpy.data.materials[mat_name]
-        else:
-            mat = bpy.data.materials.new(mat_name)
-        if not mat.grease_pencil:
-            bpy.data.materials.create_gpencil_data(mat)
-        mat.grease_pencil.color = (r, g, b, 1.0)
-        mat.grease_pencil.show_fill = False
-
-        mat_idx = None
-        for i, slot in enumerate(gp_data.materials):
-            if slot and slot.name == mat_name:
-                mat_idx = i
-                break
-        if mat_idx is None:
-            gp_data.materials.append(mat)
-            mat_idx = len(gp_data.materials) - 1
-        return mat_idx
-
-    patch_types = {PatchType.WALL.value, PatchType.FLOOR.value, PatchType.SLOPE.value}
     patch_layers = {}
-    for patch_type in patch_types:
-        layer_name = f"Patches_{patch_type}"
+    for patch_type in (PatchType.WALL.value, PatchType.FLOOR.value, PatchType.SLOPE.value):
+        layer_name = f'Patches_{patch_type}'
         if layer_name in gp_data.layers:
             layer = gp_data.layers[layer_name]
             layer.clear()
@@ -304,10 +296,11 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
         patch_layers[patch_type] = layer.frames[0] if layer.frames else layer.frames.new(0)
 
     patch_mat_indices = {}
-    for draw_idx, patch_id in enumerate(sorted(graph.nodes.keys())):
+    golden_ratio = 0.618033988749895
+    for draw_index, patch_id in enumerate(sorted(graph.nodes.keys())):
         node = graph.nodes[patch_id]
         patch_type = _enum_value(node.patch_type)
-        hue = (draw_idx * golden_ratio) % 1.0
+        hue = (draw_index * golden_ratio) % 1.0
         if patch_type == PatchType.WALL.value:
             sat, val = 0.8, 0.9
         elif patch_type == PatchType.SLOPE.value:
@@ -316,7 +309,7 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
             sat, val = 0.5, 0.6
         r, g, b = colorsys.hsv_to_rgb(hue, sat, val)
 
-        mat_name = f"CFTUV_P{draw_idx:03d}"
+        mat_name = f'CFTUV_P{draw_index:03d}'
         if mat_name in bpy.data.materials:
             mat = bpy.data.materials[mat_name]
         else:
@@ -329,28 +322,34 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
         mat.grease_pencil.show_stroke = False
 
         mat_idx = None
-        for i, slot in enumerate(gp_data.materials):
+        for slot_index, slot in enumerate(gp_data.materials):
             if slot and slot.name == mat_name:
-                mat_idx = i
+                mat_idx = slot_index
                 break
         if mat_idx is None:
             gp_data.materials.append(mat)
             mat_idx = len(gp_data.materials) - 1
         patch_mat_indices[patch_id] = mat_idx
 
+    centers_frame, centers_mat = frames_and_mats['Overlay_Centers']
+
     for patch_id in sorted(graph.nodes.keys()):
         node = graph.nodes[patch_id]
-        centroid = node.centroid
+        if not _patch_enabled(node, settings_dict):
+            continue
+
+        centroid = _lift_point(node.centroid, node.normal, 0.012)
         axis_len = 0.15
+        center_size = 0.045
 
         _add_gp_stroke(basis_frame, [centroid, centroid + node.basis_u * axis_len], basis_mats['U'], line_width=8)
         _add_gp_stroke(basis_frame, [centroid, centroid + node.basis_v * axis_len], basis_mats['V'], line_width=8)
         _add_gp_stroke(basis_frame, [centroid, centroid + node.normal * axis_len * 0.6], basis_mats['N'], line_width=6)
+        _add_gp_stroke(centers_frame, [centroid - node.basis_u * center_size, centroid + node.basis_u * center_size], centers_mat, line_width=5)
+        _add_gp_stroke(centers_frame, [centroid - node.basis_v * center_size, centroid + node.basis_v * center_size], centers_mat, line_width=5)
 
         patch_type = _enum_value(node.patch_type)
-        if patch_type not in patch_layers:
-            patch_type = PatchType.WALL.value
-        patch_frame = patch_layers[patch_type]
+        patch_frame = patch_layers.get(patch_type, patch_layers[PatchType.WALL.value])
         patch_mat = patch_mat_indices[patch_id]
         for tri in node.mesh_tris:
             if len(tri) < 3:
@@ -360,55 +359,43 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
             stroke.line_width = 1
             stroke.use_cyclic = True
             stroke.points.add(len(tri))
-            for i, vert_index in enumerate(tri):
+            for point_index, vert_index in enumerate(tri):
                 point = node.mesh_verts[vert_index]
-                stroke.points[i].co = (point.x, point.y, point.z)
-                stroke.points[i].strength = 1.0
-                stroke.points[i].pressure = 1.0
+                stroke.points[point_index].co = (point.x, point.y, point.z)
+                stroke.points[point_index].strength = 1.0
+                stroke.points[point_index].pressure = 1.0
 
-        for loop in node.boundary_loops:
-            for chain in loop.chains:
-                points = chain.vert_cos + [chain.vert_cos[0]] if chain.is_closed else chain.vert_cos
-                if len(points) < 2:
+        for boundary_loop in node.boundary_loops:
+            if _loop_enabled(boundary_loop, settings_dict):
+                loop_points = _lift_points(boundary_loop.vert_cos + [boundary_loop.vert_cos[0]], node.normal, 0.014)
+                if len(loop_points) >= 2:
+                    if _enum_value(boundary_loop.kind) == LoopKind.HOLE.value:
+                        frame, mat_idx = frames_and_mats['Loops_Holes']
+                        _add_gp_stroke(frame, loop_points, mat_idx, line_width=5)
+                    else:
+                        frame, mat_idx = frames_and_mats['Loops_Boundary']
+                        _add_gp_stroke(frame, loop_points, mat_idx, line_width=5)
+
+            for chain in boundary_loop.chains:
+                if not _chain_enabled(chain, settings_dict):
                     continue
-                kind = _enum_value(loop.kind)
+                raw_points = chain.vert_cos + [chain.vert_cos[0]] if chain.is_closed else chain.vert_cos
+                lifted_points = _lift_points(raw_points, node.normal, 0.01)
+                if len(lifted_points) < 2:
+                    continue
+
                 role = _enum_value(chain.frame_role)
-
-                if kind == LoopKind.HOLE.value:
-                    style, width = 'Frame_HOLE', 3
-                elif role == FrameRole.H_FRAME.value:
-                    style, width = 'Frame_H', 6
+                if role == FrameRole.H_FRAME.value:
+                    frame_name, line_width = 'Frame_H', 6
                 elif role == FrameRole.V_FRAME.value:
-                    style, width = 'Frame_V', 6
+                    frame_name, line_width = 'Frame_V', 6
                 else:
-                    style, width = 'Frame_FREE', 3
+                    frame_name, line_width = 'Frame_FREE', 3
+                frame, mat_idx = frames_and_mats[frame_name]
+                _add_gp_stroke(frame, lifted_points, mat_idx, line_width=line_width)
 
-                frame, mat_idx = frames_and_mats[style]
-                _add_gp_stroke(frame, points, mat_idx, line_width=width)
-
-            for chain in loop.chains:
-                if len(chain.vert_cos) < 2:
-                    continue
-                mat_idx = _get_element_mat('Ch', chain_counter, 0.0, 0.9, 0.85)
-                chain_counter += 1
-                points = chain.vert_cos + [chain.vert_cos[0]] if chain.is_closed else chain.vert_cos
-                _add_gp_stroke(loop_layers['Loops_Chains'], points, mat_idx, line_width=4)
-
-            if len(loop.vert_cos) < 3:
-                continue
-            if _enum_value(loop.kind) == LoopKind.HOLE.value:
-                mat_idx = _get_element_mat('Hl', hole_counter, 0.5, 0.6, 0.7)
-                hole_counter += 1
-                _add_gp_stroke(loop_layers['Loops_Holes'], loop.vert_cos + [loop.vert_cos[0]], mat_idx, line_width=5)
-            else:
-                mat_idx = _get_element_mat('Lp', loop_counter, 0.25, 0.85, 0.9)
-                loop_counter += 1
-                _add_gp_stroke(loop_layers['Loops_Boundary'], loop.vert_cos + [loop.vert_cos[0]], mat_idx, line_width=5)
-
-    if settings_dict:
-        _apply_layer_visibility(gp_data, settings_dict)
-
+    apply_layer_visibility(gp_data, settings_dict)
     return gp_obj
 
 
-__all__ = ['create_visualization', 'clear_visualization']
+__all__ = ['apply_layer_visibility', 'create_visualization', 'clear_visualization']

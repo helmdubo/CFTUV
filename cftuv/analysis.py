@@ -8,6 +8,7 @@ from mathutils import Vector
 
 try:
     from .constants import (
+        CORNER_ANGLE_THRESHOLD_DEG,
         FLOOR_THRESHOLD,
         FRAME_ALIGNMENT_THRESHOLD,
         NB_MESH_BORDER,
@@ -17,6 +18,7 @@ try:
     )
     from .model import (
         BoundaryChain,
+        BoundaryCorner,
         BoundaryLoop,
         ChainNeighborKind,
         FrameRole,
@@ -24,10 +26,12 @@ try:
         PatchGraph,
         PatchNode,
         PatchType,
+        WorldFacing,
         SeamEdge,
     )
 except ImportError:
     from constants import (
+        CORNER_ANGLE_THRESHOLD_DEG,
         FLOOR_THRESHOLD,
         FRAME_ALIGNMENT_THRESHOLD,
         NB_MESH_BORDER,
@@ -37,6 +41,7 @@ except ImportError:
     )
     from model import (
         BoundaryChain,
+        BoundaryCorner,
         BoundaryLoop,
         ChainNeighborKind,
         FrameRole,
@@ -44,6 +49,7 @@ except ImportError:
         PatchGraph,
         PatchNode,
         PatchType,
+        WorldFacing,
         SeamEdge,
     )
 
@@ -215,7 +221,8 @@ def _classify_patch(bm, face_indices):
     else:
         avg_normal = Vector((0.0, 0.0, 1.0))
 
-    up_dot = abs(avg_normal.dot(WORLD_UP))
+    signed_up_dot = avg_normal.dot(WORLD_UP)
+    up_dot = abs(signed_up_dot)
     if up_dot > FLOOR_THRESHOLD:
         patch_type = PatchType.FLOOR
     elif up_dot < WALL_THRESHOLD:
@@ -223,7 +230,14 @@ def _classify_patch(bm, face_indices):
     else:
         patch_type = PatchType.SLOPE
 
-    return patch_type, avg_normal, total_area, perimeter
+    if signed_up_dot > WALL_THRESHOLD:
+        world_facing = WorldFacing.UP
+    elif signed_up_dot < -WALL_THRESHOLD:
+        world_facing = WorldFacing.DOWN
+    else:
+        world_facing = WorldFacing.SIDE
+
+    return patch_type, world_facing, avg_normal, total_area, perimeter
 
 
 def _calc_surface_basis(normal, ref_up=WORLD_UP):
@@ -418,6 +432,8 @@ def _split_loop_into_chains_by_neighbor(loop_vert_cos, loop_edge_indices, loop_n
                 "edge_indices": list(loop_edge_indices),
                 "neighbor": neighbors[0],
                 "is_closed": True,
+                "start_loop_index": 0,
+                "end_loop_index": 0,
             }
         ]
 
@@ -446,6 +462,8 @@ def _split_loop_into_chains_by_neighbor(loop_vert_cos, loop_edge_indices, loop_n
                 "edge_indices": chain_edge_indices,
                 "neighbor": neighbors[v_start % edge_count],
                 "is_closed": False,
+                "start_loop_index": v_start % vertex_count,
+                "end_loop_index": v_end % vertex_count,
             }
         )
 
@@ -594,6 +612,79 @@ def _classify_chain_frame_role(chain_vert_cos, basis_u, basis_v, threshold=FRAME
     return FrameRole.FREE
 
 
+def _find_corner_reference_point(points, corner_co, reverse=False):
+    """Find a non-degenerate neighbor point around a chain junction."""
+
+    if reverse:
+        candidates = list(reversed(points[:-1]))
+    else:
+        candidates = list(points[1:])
+
+    for point in candidates:
+        if (point - corner_co).length_squared > 1e-12:
+            return point
+    return None
+
+
+
+def _measure_corner_turn_angle(corner_co, prev_point, next_point, basis_u, basis_v):
+    """Measure the turn angle at a chain junction in patch-local 2D space."""
+
+    if prev_point is None or next_point is None:
+        return 0.0
+
+    prev_vec_3d = corner_co - prev_point
+    next_vec_3d = next_point - corner_co
+    prev_vec = Vector((prev_vec_3d.dot(basis_u), prev_vec_3d.dot(basis_v)))
+    next_vec = Vector((next_vec_3d.dot(basis_u), next_vec_3d.dot(basis_v)))
+    if prev_vec.length_squared < 1e-12 or next_vec.length_squared < 1e-12:
+        return 0.0
+
+    return math.degrees(prev_vec.angle(next_vec, 0.0))
+
+
+
+def _build_loop_corners(boundary_loop, raw_chains, basis_u, basis_v):
+    """Build loop corners from neighboring chain junctions."""
+
+    chain_count = len(boundary_loop.chains)
+    if chain_count < 2:
+        return []
+
+    corners = []
+    for next_chain_index in range(chain_count):
+        prev_chain_index = (next_chain_index - 1) % chain_count
+        prev_chain = boundary_loop.chains[prev_chain_index]
+        next_chain = boundary_loop.chains[next_chain_index]
+        raw_next_chain = raw_chains[next_chain_index]
+
+        if next_chain.vert_cos:
+            corner_co = next_chain.vert_cos[0].copy()
+        elif prev_chain.vert_cos:
+            corner_co = prev_chain.vert_cos[-1].copy()
+        else:
+            corner_co = Vector((0.0, 0.0, 0.0))
+
+        prev_point = _find_corner_reference_point(prev_chain.vert_cos, corner_co, reverse=True)
+        next_point = _find_corner_reference_point(next_chain.vert_cos, corner_co, reverse=False)
+        turn_angle_deg = _measure_corner_turn_angle(corner_co, prev_point, next_point, basis_u, basis_v)
+
+        corners.append(
+            BoundaryCorner(
+                loop_vert_index=int(raw_next_chain.get("start_loop_index", 0)),
+                vert_co=corner_co,
+                prev_chain_index=prev_chain_index,
+                next_chain_index=next_chain_index,
+                turn_angle_deg=turn_angle_deg,
+                prev_role=prev_chain.frame_role,
+                next_role=next_chain.frame_role,
+            )
+        )
+
+    return corners
+
+
+
 def _compute_centroid(bm, face_indices):
     """Compute the patch centroid as an average over face vertices."""
 
@@ -674,6 +765,7 @@ def _build_boundary_loops(raw_loops, patch_face_indices, face_to_patch, patch_id
                 )
             )
 
+        boundary_loop.corners = _build_loop_corners(boundary_loop, raw_chains, basis_u, basis_v)
         boundary_loops.append(boundary_loop)
 
     return boundary_loops
@@ -811,7 +903,7 @@ def build_patch_graph(bm, face_indices, obj=None):
     patches_raw = _flood_fill_patches(bm, face_indices)
 
     for patch_id, patch_face_indices in enumerate(patches_raw):
-        patch_type, normal, area, perimeter = _classify_patch(bm, patch_face_indices)
+        patch_type, world_facing, normal, area, perimeter = _classify_patch(bm, patch_face_indices)
         basis_u, basis_v = _build_patch_basis(bm, patch_face_indices, patch_type, normal)
         patch_faces = [bm.faces[idx] for idx in patch_face_indices]
         raw_loops = _trace_boundary_loops(patch_faces)
@@ -826,6 +918,7 @@ def build_patch_graph(bm, face_indices, obj=None):
             area=area,
             perimeter=perimeter,
             patch_type=patch_type,
+            world_facing=world_facing,
             basis_u=basis_u,
             basis_v=basis_v,
             boundary_loops=[],
@@ -882,10 +975,15 @@ def format_patch_graph_report(graph, mesh_name=None):
     singles = 0
     total_loops = 0
     total_chains = 0
+    total_corners = 0
+    total_sharp_corners = 0
     total_holes = 0
     total_h = 0
     total_v = 0
     total_free = 0
+    total_up = 0
+    total_down = 0
+    total_side = 0
     total_patch_links = 0
     total_mesh_borders = 0
     total_self_seams = 0
@@ -896,6 +994,14 @@ def format_patch_graph_report(graph, mesh_name=None):
     for patch_id in sorted(graph.nodes.keys()):
         node = graph.nodes[patch_id]
         patch_type = _enum_value(node.patch_type)
+        world_facing = _enum_value(node.world_facing)
+        if world_facing == WorldFacing.UP.value:
+            total_up += 1
+        elif world_facing == WorldFacing.DOWN.value:
+            total_down += 1
+        else:
+            total_side += 1
+
         if patch_type == PatchType.WALL.value:
             walls += 1
         elif patch_type == PatchType.FLOOR.value:
@@ -907,6 +1013,7 @@ def format_patch_graph_report(graph, mesh_name=None):
             singles += 1
 
         chain_count = 0
+        corner_count = 0
         patch_roles = []
         loop_kinds = []
         loop_details = []
@@ -918,8 +1025,12 @@ def format_patch_graph_report(graph, mesh_name=None):
             if loop_kind == LoopKind.HOLE.value:
                 total_holes += 1
 
+            loop_corner_count = len(boundary_loop.corners)
             chain_count += len(boundary_loop.chains)
-            loop_details.append(f"    Loop {loop_index}: {loop_kind} | chains:{len(boundary_loop.chains)}")
+            corner_count += loop_corner_count
+            loop_details.append(
+                f"    Loop {loop_index}: {loop_kind} | chains:{len(boundary_loop.chains)} corners:{loop_corner_count}"
+            )
 
             for chain_index, chain in enumerate(boundary_loop.chains):
                 role = _enum_value(chain.frame_role)
@@ -949,18 +1060,30 @@ def format_patch_graph_report(graph, mesh_name=None):
                     f"edges:{len(chain.edge_indices)} | length:{_chain_length(chain):.4f}"
                 )
 
+            for corner_index, corner in enumerate(boundary_loop.corners):
+                total_corners += 1
+                is_sharp = corner.turn_angle_deg >= CORNER_ANGLE_THRESHOLD_DEG
+                if is_sharp:
+                    total_sharp_corners += 1
+
+                loop_details.append(
+                    f"      Corner {corner_index}: {corner.corner_type} | chains:{corner.prev_chain_index}->{corner.next_chain_index} | "
+                    f"turn:{corner.turn_angle_deg:.1f} | sharp:{'Y' if is_sharp else 'N'}"
+                )
+
         total_chains += chain_count
         lines.append(
-            f"  Patch {patch_id}: {patch_type} | {len(node.face_indices)}f | "
-            f"loops:{len(node.boundary_loops)}[{' '.join(loop_kinds)}] chains:{chain_count} | "
+            f"  Patch {patch_id}: {patch_type} | facing:{world_facing} | {len(node.face_indices)}f | "
+            f"loops:{len(node.boundary_loops)}[{' '.join(loop_kinds)}] chains:{chain_count} corners:{corner_count} | "
             f"roles:[{' '.join(patch_roles)}]"
         )
         lines.extend(loop_details)
 
     summary = (
         f"Patches: {total_patches} (W:{walls} F:{floors} S:{slopes} 1f:{singles}) | "
-        f"Loops: {total_loops} Chains: {total_chains} Holes: {total_holes} | "
+        f"Loops: {total_loops} Chains: {total_chains} Corners: {total_corners} Sharp:{total_sharp_corners} Holes: {total_holes} | "
         f"Roles: H:{total_h} V:{total_v} Free:{total_free} | "
+        f"Facing: Up:{total_up} Down:{total_down} Side:{total_side} | "
         f"Neighbors: Patch:{total_patch_links} Self:{total_self_seams} Border:{total_mesh_borders}"
     )
 

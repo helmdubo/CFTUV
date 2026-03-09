@@ -12,6 +12,7 @@ import bpy
 import bmesh
 import math
 import colorsys
+import json
 from mathutils import Vector
 from bpy.props import PointerProperty, IntProperty, FloatProperty, EnumProperty, BoolProperty, StringProperty
 
@@ -57,23 +58,31 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
     texture_size: IntProperty(name="Texture Size", default=_DEFAULT_UV_SETTINGS.texture_size, min=1)
     uv_scale: FloatProperty(name="Custom Scale Multiplier", default=_DEFAULT_UV_SETTINGS.uv_scale, min=0.0001)
     uv_range_limit: IntProperty(name="UV Range Limit (Tiles)", default=int(_DEFAULT_UV_SETTINGS.uv_range_limit), min=0)
-    # Debug state
-    dbg_active: BoolProperty(name="Analyze", default=False, description="Debug analysis mode")
+
+    dbg_active: BoolProperty(name="Analyze", default=False, description="PatchGraph debug mode")
     dbg_source_object: StringProperty(name="Debug Source", default="")
-    # Group toggles (expand/collapse + layer visibility)
+    dbg_face_indices: StringProperty(name="Debug Faces", default="")
+    dbg_stats_json: StringProperty(name="Debug Stats", default="{}")
+
     dbg_grp_patches: BoolProperty(name="Patches", default=True)
-    dbg_grp_frame: BoolProperty(name="Frame", default=True)
-    dbg_grp_loops: BoolProperty(name="Loop Types", default=True)
+    dbg_grp_frame: BoolProperty(name="Chain Roles", default=True)
+    dbg_grp_loops: BoolProperty(name="Loops", default=True)
     dbg_grp_overlay: BoolProperty(name="Overlay", default=True)
-    # Patches group
+
     dbg_patches_wall: BoolProperty(name="Wall", default=True)
     dbg_patches_floor: BoolProperty(name="Floor", default=True)
     dbg_patches_slope: BoolProperty(name="Slope", default=True)
-    # Frame group
+
     dbg_frame_h: BoolProperty(name="Horizontal", default=True)
     dbg_frame_v: BoolProperty(name="Vertical", default=True)
     dbg_frame_free: BoolProperty(name="Free", default=True)
-    dbg_frame_hole: BoolProperty(name="Holes", default=True)
+
+    dbg_loops_boundary: BoolProperty(name="Outer Boundary", default=True)
+    dbg_loops_holes: BoolProperty(name="Hole Boundary", default=True)
+
+
+    dbg_overlay_basis: BoolProperty(name="Basis", default=True)
+    dbg_overlay_centers: BoolProperty(name="Patch Centers", default=True)
 
 # ============================================================
 # GEOMETRY ANALYSIS
@@ -270,8 +279,190 @@ def _clear_gp_debug(source_obj):
 def create_debug_visualization(patch_graph, source_obj, dbg_settings=None):
     return cftuv_debug.create_visualization(patch_graph, source_obj, dbg_settings)
 
+
+def _collect_debug_settings(settings):
+    return {
+        'patches_wall': settings.dbg_patches_wall,
+        'patches_floor': settings.dbg_patches_floor,
+        'patches_slope': settings.dbg_patches_slope,
+        'frame_h': settings.dbg_frame_h,
+        'frame_v': settings.dbg_frame_v,
+        'frame_free': settings.dbg_frame_free,
+        'loops_boundary': settings.dbg_loops_boundary,
+        'loops_holes': settings.dbg_loops_holes,
+        'overlay_basis': settings.dbg_overlay_basis,
+        'overlay_centers': settings.dbg_overlay_centers,
+    }
+
+
+def _serialize_debug_face_indices(face_indices):
+    return ','.join(str(index) for index in sorted({int(index) for index in face_indices}))
+
+
+def _deserialize_debug_face_indices(raw_value):
+    if not raw_value:
+        return []
+    face_indices = []
+    for chunk in raw_value.split(','):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        try:
+            face_indices.append(int(chunk))
+        except ValueError:
+            continue
+    return face_indices
+
+
+def _compute_debug_stats(patch_graph):
+    stats = {
+        'totals': {'patches': len(patch_graph.nodes), 'loops': 0, 'chains': 0},
+        'patch_types': {},
+        'loop_kinds': {},
+        'chain_roles': {},
+    }
+
+    for patch_type in (PatchType.WALL.value, PatchType.FLOOR.value, PatchType.SLOPE.value):
+        stats['patch_types'][patch_type] = {'patches': 0, 'loops': 0, 'chains': 0}
+    for loop_kind in ('OUTER', 'HOLE'):
+        stats['loop_kinds'][loop_kind] = {'loops': 0, 'chains': 0}
+    for role in ('H_FRAME', 'V_FRAME', 'FREE'):
+        stats['chain_roles'][role] = {'chains': 0}
+
+    for node in patch_graph.nodes.values():
+        patch_type = node.patch_type.value if hasattr(node.patch_type, 'value') else str(node.patch_type)
+        patch_stats = stats['patch_types'].setdefault(patch_type, {'patches': 0, 'loops': 0, 'chains': 0})
+        patch_stats['patches'] += 1
+
+        for boundary_loop in node.boundary_loops:
+            stats['totals']['loops'] += 1
+            patch_stats['loops'] += 1
+            loop_kind = boundary_loop.kind.value if hasattr(boundary_loop.kind, 'value') else str(boundary_loop.kind)
+            loop_stats = stats['loop_kinds'].setdefault(loop_kind, {'loops': 0, 'chains': 0})
+            loop_stats['loops'] += 1
+
+            for chain in boundary_loop.chains:
+                stats['totals']['chains'] += 1
+                patch_stats['chains'] += 1
+                loop_stats['chains'] += 1
+                role = chain.frame_role.value if hasattr(chain.frame_role, 'value') else str(chain.frame_role)
+                role_stats = stats['chain_roles'].setdefault(role, {'chains': 0})
+                role_stats['chains'] += 1
+
+    return stats
+
+
+def _store_debug_stats(settings, patch_graph):
+    settings.dbg_stats_json = json.dumps(_compute_debug_stats(patch_graph), ensure_ascii=True, sort_keys=True)
+
+
+def _load_debug_stats(settings):
+    raw_value = settings.dbg_stats_json or '{}'
+    try:
+        return json.loads(raw_value)
+    except Exception:
+        return {}
+
+
+def _build_patch_graph_for_debug(context, source_obj, face_indices):
+    if not source_obj or source_obj.type != 'MESH' or not face_indices:
+        return None
+
+    active_obj = context.view_layer.objects.active
+    if active_obj and active_obj.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+    source_obj.hide_viewport = False
+    bpy.ops.object.select_all(action='DESELECT')
+    source_obj.select_set(True)
+    context.view_layer.objects.active = source_obj
+    bpy.ops.object.mode_set(mode='EDIT')
+
+    try:
+        bm = bmesh.from_edit_mesh(source_obj.data)
+        bm.faces.ensure_lookup_table()
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        return cftuv_analysis.build_patch_graph(bm, face_indices, source_obj)
+    finally:
+        if source_obj.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+
+def _activate_debug_result(context, source_obj, gp_obj):
+    source_obj.hide_viewport = True
+    if gp_obj is None:
+        return
+    bpy.ops.object.select_all(action='DESELECT')
+    gp_obj.select_set(True)
+    context.view_layer.objects.active = gp_obj
+
+
+def _refresh_debug_visualization(context, print_report=False):
+    s = context.scene.hotspotuv_settings
+    source_obj = bpy.data.objects.get(s.dbg_source_object) if s.dbg_source_object else None
+    face_indices = _deserialize_debug_face_indices(s.dbg_face_indices)
+    if source_obj is None or not face_indices:
+        return False
+
+    patch_graph = _build_patch_graph_for_debug(context, source_obj, face_indices)
+    if patch_graph is None:
+        return False
+
+    dbg_settings = _collect_debug_settings(s)
+    gp_obj = create_debug_visualization(patch_graph, source_obj, dbg_settings)
+    _store_debug_stats(s, patch_graph)
+    _activate_debug_result(context, source_obj, gp_obj)
+
+    if print_report:
+        lines, summary = cftuv_analysis.format_patch_graph_report(patch_graph, source_obj.name)
+        print('=' * 60)
+        print('CFTUV Debug Analysis [PatchGraph]')
+        print('=' * 60)
+        for line in lines:
+            print(line)
+        print('=' * 60)
+        return summary
+
+    return True
+
+
+def _sync_debug_visibility(context, settings):
+    source_name = settings.dbg_source_object
+    if not source_name:
+        return False
+
+    gp_name = GP_DEBUG_PREFIX + source_name
+    gp_obj = bpy.data.objects.get(gp_name)
+    if gp_obj is None or gp_obj.type != 'GPENCIL':
+        return False
+
+    cftuv_debug.apply_layer_visibility(gp_obj.data, _collect_debug_settings(settings))
+    return True
+
+
+def _activate_mesh_object(context, obj):
+    if obj is None or obj.type != 'MESH':
+        return False
+
+    active_obj = context.view_layer.objects.active
+    if active_obj and active_obj.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+    if obj.hide_viewport:
+        obj.hide_viewport = False
+
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+    return True
+
+
 def _enter_debug_mode(context, obj):
-    """Build PatchGraph analysis and print the text report to System Console."""
+    """Build PatchGraph analysis, print the report, and create GP debug layers."""
+    if not _activate_mesh_object(context, obj):
+        return None
+
     s = context.scene.hotspotuv_settings
     original_mode = obj.mode
 
@@ -290,29 +481,18 @@ def _enter_debug_mode(context, obj):
         if not sel_face_indices:
             return None
 
-    try:
-        patch_graph = cftuv_analysis.build_patch_graph(bm, sel_face_indices, obj)
-    finally:
-        if obj.mode != original_mode:
-            bpy.ops.object.mode_set(mode=original_mode)
+    if obj.mode != original_mode:
+        bpy.ops.object.mode_set(mode=original_mode)
 
     s.dbg_active = True
     s.dbg_source_object = obj.name
+    s.dbg_face_indices = _serialize_debug_face_indices(sel_face_indices)
 
-    lines, summary = cftuv_analysis.format_patch_graph_report(patch_graph, obj.name)
-
-    print("=" * 60)
-    print("CFTUV Debug Analysis [PatchGraph]")
-    print("=" * 60)
-    for line in lines:
-        print(line)
-    print("=" * 60)
-
-    return summary
+    return _refresh_debug_visualization(context, print_report=True)
 
 
 def _exit_debug_mode(context):
-    """Ãâ€™Ã‘â€¹Ã‘â€¦ÃÂ¾ÃÂ´ÃÂ¸Ã‘â€š ÃÂ¸ÃÂ· Ã‘â‚¬ÃÂµÃÂ¶ÃÂ¸ÃÂ¼ÃÂ° debug: ÃÂ¾Ã‘â€¡ÃÂ¸Ã‘â€°ÃÂ°ÃÂµÃ‘â€š GP-ÃÂ²ÃÂ¸ÃÂ·Ã‘Æ’ÃÂ°ÃÂ»ÃÂ¸ÃÂ·ÃÂ°Ã‘â€ ÃÂ¸Ã‘Å½ ÃÂ¸ Ã‘ÂÃÂ±Ã‘â‚¬ÃÂ°Ã‘ÂÃ‘â€¹ÃÂ²ÃÂ°ÃÂµÃ‘â€š state."""
+    """Exit debug mode, clear GP visualization, and reset tracked state."""
     s = context.scene.hotspotuv_settings
     source_name = s.dbg_source_object
     source_obj = bpy.data.objects.get(source_name) if source_name else None
@@ -332,6 +512,8 @@ def _exit_debug_mode(context):
 
     s.dbg_active = False
     s.dbg_source_object = ""
+    s.dbg_face_indices = ""
+    s.dbg_stats_json = "{}"
 
 
 class HOTSPOTUV_OT_DebugAnalysis(bpy.types.Operator):
@@ -350,23 +532,30 @@ class HOTSPOTUV_OT_DebugAnalysis(bpy.types.Operator):
 
     def execute(self, context):
         s = context.scene.hotspotuv_settings
-        
+        obj = context.active_object
+
         if s.dbg_active:
-            # OFF: exit debug mode
-            _exit_debug_mode(context)
-            self.report({"INFO"}, "Debug analysis OFF")
-        else:
-            # ON: enter debug mode
-            obj = context.active_object
-            if not obj or obj.type != 'MESH':
-                self.report({"WARNING"}, "Select a mesh object")
-                return {"CANCELLED"}
-            report = _enter_debug_mode(context, obj)
-            if report is None:
-                self.report({"WARNING"}, "No faces selected in Edit Mode")
-                return {"CANCELLED"}
-            self.report({"INFO"}, report)
-        
+            if obj and obj.type == 'MESH' and obj.name != s.dbg_source_object:
+                _exit_debug_mode(context)
+                report = _enter_debug_mode(context, obj)
+                if report is None:
+                    self.report({"WARNING"}, "No faces selected in Edit Mode")
+                    return {"CANCELLED"}
+                self.report({"INFO"}, report)
+            else:
+                _exit_debug_mode(context)
+                self.report({"INFO"}, "Debug analysis OFF")
+            return {"FINISHED"}
+
+        if not obj or obj.type != 'MESH':
+            self.report({"WARNING"}, "Select a mesh object")
+            return {"CANCELLED"}
+
+        report = _enter_debug_mode(context, obj)
+        if report is None:
+            self.report({"WARNING"}, "No faces selected in Edit Mode")
+            return {"CANCELLED"}
+        self.report({"INFO"}, report)
         return {"FINISHED"}
 
 
@@ -403,82 +592,61 @@ class HOTSPOTUV_OT_DebugClear(bpy.types.Operator):
         
         s.dbg_active = False
         s.dbg_source_object = ""
+        s.dbg_face_indices = ""
+        s.dbg_stats_json = "{}"
         self.report({"INFO"}, "Debug cleared")
         return {"FINISHED"}
 
 
 class HOTSPOTUV_OT_DebugToggleLayer(bpy.types.Operator):
-    """Toggle visibility of a GP debug layer directly from panel."""
+    """Toggle one visual debug component and update the active PatchGraph view."""
     bl_idname = "hotspotuv.debug_toggle_layer"
     bl_label = "Toggle Layer"
     bl_options = {"REGISTER", "UNDO"}
-    
+
     layer_name: StringProperty()
-    
+
+    _LAYER_TO_PROP = {
+        'Patches_WALL': 'dbg_patches_wall',
+        'Patches_FLOOR': 'dbg_patches_floor',
+        'Patches_SLOPE': 'dbg_patches_slope',
+        'Frame_H': 'dbg_frame_h',
+        'Frame_V': 'dbg_frame_v',
+        'Frame_FREE': 'dbg_frame_free',
+        'Loops_Boundary': 'dbg_loops_boundary',
+        'Loops_Holes': 'dbg_loops_holes',
+        'Overlay_Basis': 'dbg_overlay_basis',
+        'Overlay_Centers': 'dbg_overlay_centers',
+    }
+
     def execute(self, context):
         s = context.scene.hotspotuv_settings
-        source_name = s.dbg_source_object
-        if not source_name:
+        prop_name = self._LAYER_TO_PROP.get(self.layer_name)
+        if not prop_name:
             return {"CANCELLED"}
-        
-        gp_name = GP_DEBUG_PREFIX + source_name
-        if gp_name not in bpy.data.objects:
-            return {"CANCELLED"}
-        
-        gp_obj = bpy.data.objects[gp_name]
-        if gp_obj.type != 'GPENCIL':
-            return {"CANCELLED"}
-        
-        gp_data = gp_obj.data
-        if self.layer_name in gp_data.layers:
-            layer = gp_data.layers[self.layer_name]
-            layer.hide = not layer.hide
-        
+
+        setattr(s, prop_name, not getattr(s, prop_name, True))
+        if self.layer_name.startswith('Overlay_'):
+            _sync_debug_visibility(context, s)
+        else:
+            _refresh_debug_visualization(context, print_report=False)
         return {"FINISHED"}
 
 
 class HOTSPOTUV_OT_DebugToggleGroup(bpy.types.Operator):
-    """Toggle visibility of a debug layer group (Patches/Frame/Overlay)."""
+    """Toggle visibility of a debug component group and resync GP layers."""
     bl_idname = "hotspotuv.debug_toggle_group"
     bl_label = "Toggle Group"
     bl_options = {"REGISTER", "UNDO"}
-    
-    group_name: StringProperty()  # 'patches', 'frame', 'overlay'
-    
-    # Group ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ GP layer name prefixes
-    _GROUP_LAYERS = {
-        'patches': ['Patches_WALL', 'Patches_FLOOR', 'Patches_SLOPE'],
-        'frame': ['Frame_H', 'Frame_V', 'Frame_FREE', 'Frame_HOLE'],
-        'loops': ['Loops_Chains', 'Loops_Boundary', 'Loops_Holes'],
-        'overlay': ['Overlay_Basis'],
-    }
-    
+
+    group_name: StringProperty()
+
     def execute(self, context):
         s = context.scene.hotspotuv_settings
-        source_name = s.dbg_source_object
-        if not source_name:
-            return {"CANCELLED"}
-        
-        # Toggle the group setting
         prop_name = f"dbg_grp_{self.group_name}"
-        new_val = not getattr(s, prop_name, True)
-        setattr(s, prop_name, new_val)
-        
-        # Sync GP layer visibility
-        gp_name = GP_DEBUG_PREFIX + source_name
-        if gp_name not in bpy.data.objects:
-            return {"FINISHED"}
-        gp_obj = bpy.data.objects[gp_name]
-        if gp_obj.type != 'GPENCIL':
-            return {"FINISHED"}
-        gp_data = gp_obj.data
-        
-        layer_names = self._GROUP_LAYERS.get(self.group_name, [])
-        for ln in layer_names:
-            if ln in gp_data.layers:
-                gp_data.layers[ln].hide = not new_val
-        
+        setattr(s, prop_name, not getattr(s, prop_name, True))
         return {"FINISHED"}
+
 
 # ============================================================
 # HYBRID ALIGNMENT LOGIC
@@ -1998,97 +2166,95 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         layout.separator()
         col = layout.column(align=True)
         col.label(text="Debug:")
-        
-        # Analyze toggle button
+
+        analyze_name = s.dbg_source_object if s.dbg_active and s.dbg_source_object else ""
+        if not analyze_name:
+            obj = context.active_object
+            if obj and obj.type == 'MESH':
+                analyze_name = obj.name
+        analyze_text = f"Analyze: {analyze_name}" if analyze_name else "Analyze Mesh"
+
         if s.dbg_active:
-            col.operator("hotspotuv.debug_analysis", text="Analyze: ON", icon="PAUSE", depress=True)
+            col.operator("hotspotuv.debug_analysis", text=analyze_text, icon="PAUSE", depress=True)
         else:
-            col.operator("hotspotuv.debug_analysis", text="Analyze: OFF", icon="VIEWZOOM")
-        
-        # Layer controls ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â only visible when debug is active
+            col.operator("hotspotuv.debug_analysis", text=analyze_text, icon="VIEWZOOM")
+
         if s.dbg_active and s.dbg_source_object:
-            gp_name = GP_DEBUG_PREFIX + s.dbg_source_object
-            gp_obj = bpy.data.objects.get(gp_name)
-            has_gp = gp_obj is not None and gp_obj.type == 'GPENCIL'
-            
-            if has_gp:
-                gp_data = gp_obj.data
-                
-                # --- Patches group (collapsible) ---
-                box = col.box()
+            stats = _load_debug_stats(s)
+            totals = stats.get('totals', {})
+            patch_stats = stats.get('patch_types', {})
+            loop_stats = stats.get('loop_kinds', {})
+            chain_stats = stats.get('chain_roles', {})
+
+            def counts_text(data, keys):
+                parts = []
+                for key, suffix in keys:
+                    value = int(data.get(key, 0)) if isinstance(data, dict) else 0
+                    parts.append(f"{value}{suffix}")
+                return ' / '.join(parts)
+
+            def draw_component_group(box_col, group_name, label, icon_name, items):
+                box = box_col.box()
                 row = box.row(align=True)
-                icon = 'TRIA_DOWN' if s.dbg_grp_patches else 'TRIA_RIGHT'
+                expanded = getattr(s, f"dbg_grp_{group_name}")
+                icon = 'TRIA_DOWN' if expanded else 'TRIA_RIGHT'
                 op = row.operator("hotspotuv.debug_toggle_group", text="", icon=icon, emboss=False)
-                op.group_name = "patches"
-                row.label(text="Patches", icon="MESH_GRID")
-                if s.dbg_grp_patches:
-                    for ptype in (PatchType.WALL.value, PatchType.FLOOR.value, PatchType.SLOPE.value):
-                        layer_name = f"Patches_{ptype}"
-                        if layer_name in gp_data.layers:
-                            layer = gp_data.layers[layer_name]
-                            row = box.row(align=True)
-                            row.separator(factor=2.0)
-                            icon = 'HIDE_OFF' if not layer.hide else 'HIDE_ON'
-                            op = row.operator("hotspotuv.debug_toggle_layer", text="", icon=icon)
-                            op.layer_name = layer_name
-                            row.label(text=ptype.capitalize())
-                
-                # --- Frame group (collapsible) ---
-                box = col.box()
-                row = box.row(align=True)
-                icon = 'TRIA_DOWN' if s.dbg_grp_frame else 'TRIA_RIGHT'
-                op = row.operator("hotspotuv.debug_toggle_group", text="", icon=icon, emboss=False)
-                op.group_name = "frame"
-                row.label(text="Frame", icon="MOD_WIREFRAME")
-                if s.dbg_grp_frame:
-                    for fname, label in [('Frame_H', 'Horizontal'), ('Frame_V', 'Vertical'),
-                                         ('Frame_FREE', 'Free'), ('Frame_HOLE', 'Holes')]:
-                        if fname in gp_data.layers:
-                            layer = gp_data.layers[fname]
-                            row = box.row(align=True)
-                            row.separator(factor=2.0)
-                            icon = 'HIDE_OFF' if not layer.hide else 'HIDE_ON'
-                            op = row.operator("hotspotuv.debug_toggle_layer", text="", icon=icon)
-                            op.layer_name = fname
-                            row.label(text=label)
-                
-                # --- Loop Types group (collapsible) ---
-                box = col.box()
-                row = box.row(align=True)
-                icon = 'TRIA_DOWN' if s.dbg_grp_loops else 'TRIA_RIGHT'
-                op = row.operator("hotspotuv.debug_toggle_group", text="", icon=icon, emboss=False)
-                op.group_name = "loops"
-                row.label(text="Loop Types", icon="CURVE_BEZCIRCLE")
-                if s.dbg_grp_loops:
-                    for lname, label in [('Loops_Chains', 'Chains'), ('Loops_Boundary', 'Boundary'),
-                                         ('Loops_Holes', 'Holes')]:
-                        if lname in gp_data.layers:
-                            layer = gp_data.layers[lname]
-                            row = box.row(align=True)
-                            row.separator(factor=2.0)
-                            icon = 'HIDE_OFF' if not layer.hide else 'HIDE_ON'
-                            op = row.operator("hotspotuv.debug_toggle_layer", text="", icon=icon)
-                            op.layer_name = lname
-                            row.label(text=label)
-                
-                # --- Overlay group (collapsible) ---
-                box = col.box()
-                row = box.row(align=True)
-                icon = 'TRIA_DOWN' if s.dbg_grp_overlay else 'TRIA_RIGHT'
-                op = row.operator("hotspotuv.debug_toggle_group", text="", icon=icon, emboss=False)
-                op.group_name = "overlay"
-                row.label(text="Overlay", icon="ORIENTATION_LOCAL")
-                if s.dbg_grp_overlay:
-                    layer_name = "Overlay_Basis"
-                    if layer_name in gp_data.layers:
-                        layer = gp_data.layers[layer_name]
-                        row = box.row(align=True)
-                        row.separator(factor=2.0)
-                        icon = 'HIDE_OFF' if not layer.hide else 'HIDE_ON'
-                        op = row.operator("hotspotuv.debug_toggle_layer", text="", icon=icon)
-                        op.layer_name = layer_name
-                        row.label(text="Basis (U/V/N)")
-            
+                op.group_name = group_name
+                row.label(text=label, icon=icon_name)
+                if not expanded:
+                    return
+                for layer_name, prop_name, item_label in items:
+                    row = box.row(align=True)
+                    row.separator(factor=2.0)
+                    enabled = getattr(s, prop_name, True)
+                    icon = 'HIDE_OFF' if enabled else 'HIDE_ON'
+                    op = row.operator("hotspotuv.debug_toggle_layer", text="", icon=icon)
+                    op.layer_name = layer_name
+                    row.label(text=item_label)
+
+            draw_component_group(
+                col,
+                'patches',
+                f"Patch Types ({counts_text(totals, [('patches', 'p'), ('loops', 'l'), ('chains', 'c')])})",
+                'MESH_GRID',
+                [
+                    ('Patches_WALL', 'dbg_patches_wall', f"Wall ({counts_text(patch_stats.get('WALL', {}), [('patches', 'p'), ('loops', 'l'), ('chains', 'c')])})"),
+                    ('Patches_FLOOR', 'dbg_patches_floor', f"Floor ({counts_text(patch_stats.get('FLOOR', {}), [('patches', 'p'), ('loops', 'l'), ('chains', 'c')])})"),
+                    ('Patches_SLOPE', 'dbg_patches_slope', f"Slope ({counts_text(patch_stats.get('SLOPE', {}), [('patches', 'p'), ('loops', 'l'), ('chains', 'c')])})"),
+                ],
+            )
+            draw_component_group(
+                col,
+                'loops',
+                f"Loop Kinds ({counts_text(totals, [('loops', 'l'), ('chains', 'c')])})",
+                'CURVE_BEZCIRCLE',
+                [
+                    ('Loops_Boundary', 'dbg_loops_boundary', f"Outer ({counts_text(loop_stats.get('OUTER', {}), [('loops', 'l'), ('chains', 'c')])})"),
+                    ('Loops_Holes', 'dbg_loops_holes', f"Hole ({counts_text(loop_stats.get('HOLE', {}), [('loops', 'l'), ('chains', 'c')])})"),
+                ],
+            )
+            draw_component_group(
+                col,
+                'frame',
+                f"Chain Roles ({counts_text(totals, [('chains', 'c')])})",
+                'MOD_WIREFRAME',
+                [
+                    ('Frame_H', 'dbg_frame_h', f"H Frame ({counts_text(chain_stats.get('H_FRAME', {}), [('chains', 'c')])})"),
+                    ('Frame_V', 'dbg_frame_v', f"V Frame ({counts_text(chain_stats.get('V_FRAME', {}), [('chains', 'c')])})"),
+                    ('Frame_FREE', 'dbg_frame_free', f"Free ({counts_text(chain_stats.get('FREE', {}), [('chains', 'c')])})"),
+                ],
+            )
+            draw_component_group(
+                col,
+                'overlay',
+                'Overlay',
+                'ORIENTATION_LOCAL',
+                [
+                    ('Overlay_Basis', 'dbg_overlay_basis', 'Basis (U/V/N)'),
+                    ('Overlay_Centers', 'dbg_overlay_centers', 'Patch Centers'),
+                ],
+            )
+
             col.separator()
             col.operator("hotspotuv.debug_clear", text="Force Clear", icon="X")
 
