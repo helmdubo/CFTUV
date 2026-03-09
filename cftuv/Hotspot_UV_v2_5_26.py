@@ -15,30 +15,51 @@ import colorsys
 from mathutils import Vector
 from bpy.props import PointerProperty, IntProperty, FloatProperty, EnumProperty, BoolProperty, StringProperty
 
+try:
+    from cftuv.constants import (
+        CORNER_ANGLE_THRESHOLD_DEG,
+        FLOOR_THRESHOLD,
+        FRAME_ALIGNMENT_THRESHOLD,
+        GP_DEBUG_PREFIX,
+        NB_MESH_BORDER,
+        NB_SEAM_SELF,
+        WALL_THRESHOLD,
+        WORLD_UP,
+    )
+    from cftuv.model import FrameRole, LoopKind, PatchGraph, PatchNode, PatchType, SeamEdge, UVSettings
+except ImportError:
+    from constants import (
+        CORNER_ANGLE_THRESHOLD_DEG,
+        FLOOR_THRESHOLD,
+        FRAME_ALIGNMENT_THRESHOLD,
+        GP_DEBUG_PREFIX,
+        NB_MESH_BORDER,
+        NB_SEAM_SELF,
+        WALL_THRESHOLD,
+        WORLD_UP,
+    )
+    from model import FrameRole, LoopKind, PatchGraph, PatchNode, PatchType, SeamEdge, UVSettings
+
 # ============================================================
 # CONFIGURATION GLOBALS
 # ============================================================
 
-TARGET_TEXEL_DENSITY = 512
-TEXTURE_SIZE         = 2048
-UV_SCALE_MULTIPLIER  = 1.0
-FINAL_UV_SCALE       = 0.25
-UV_RANGE_LIMIT       = 16.0
-WORLD_UP             = Vector((0, 0, 1))
-
-# Boundary edge neighbor types
-NB_MESH_BORDER = -1   # край меша (1 face total)
-NB_SEAM_SELF   = -2   # seam/sharp внутри патча (обе faces в патче, UV cut)
+_DEFAULT_UV_SETTINGS = UVSettings()
+TARGET_TEXEL_DENSITY = _DEFAULT_UV_SETTINGS.texel_density
+TEXTURE_SIZE         = _DEFAULT_UV_SETTINGS.texture_size
+UV_SCALE_MULTIPLIER  = _DEFAULT_UV_SETTINGS.uv_scale
+FINAL_UV_SCALE       = _DEFAULT_UV_SETTINGS.final_scale
+UV_RANGE_LIMIT       = _DEFAULT_UV_SETTINGS.uv_range_limit
 
 # ============================================================
 # UI SETTINGS
 # ============================================================
 
 class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
-    target_texel_density: IntProperty(name="Target Texel Density (px/m)", default=512, min=1)
-    texture_size: IntProperty(name="Texture Size", default=2048, min=1)
-    uv_scale: FloatProperty(name="Custom Scale Multiplier", default=1.0, min=0.0001)
-    uv_range_limit: IntProperty(name="UV Range Limit (Tiles)", default=16, min=0)
+    target_texel_density: IntProperty(name="Target Texel Density (px/m)", default=_DEFAULT_UV_SETTINGS.texel_density, min=1)
+    texture_size: IntProperty(name="Texture Size", default=_DEFAULT_UV_SETTINGS.texture_size, min=1)
+    uv_scale: FloatProperty(name="Custom Scale Multiplier", default=_DEFAULT_UV_SETTINGS.uv_scale, min=0.0001)
+    uv_range_limit: IntProperty(name="UV Range Limit (Tiles)", default=int(_DEFAULT_UV_SETTINGS.uv_range_limit), min=0)
     # Debug state
     dbg_active: BoolProperty(name="Analyze", default=False, description="Debug analysis mode")
     dbg_source_object: StringProperty(name="Debug Source", default="")
@@ -58,12 +79,14 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
     dbg_frame_hole: BoolProperty(name="Holes", default=True)
 
 def _apply_settings_to_globals(settings: HOTSPOTUV_Settings):
+    runtime_settings = UVSettings.from_blender_settings(settings)
     global TARGET_TEXEL_DENSITY, TEXTURE_SIZE, UV_SCALE_MULTIPLIER, FINAL_UV_SCALE, UV_RANGE_LIMIT
-    TARGET_TEXEL_DENSITY = int(settings.target_texel_density)
-    TEXTURE_SIZE         = int(settings.texture_size)
-    UV_SCALE_MULTIPLIER  = float(settings.uv_scale)
-    UV_RANGE_LIMIT       = float(settings.uv_range_limit)
-    FINAL_UV_SCALE = (TARGET_TEXEL_DENSITY / TEXTURE_SIZE) * UV_SCALE_MULTIPLIER
+    TARGET_TEXEL_DENSITY = runtime_settings.texel_density
+    TEXTURE_SIZE         = runtime_settings.texture_size
+    UV_SCALE_MULTIPLIER  = runtime_settings.uv_scale
+    UV_RANGE_LIMIT       = runtime_settings.uv_range_limit
+    FINAL_UV_SCALE       = runtime_settings.final_scale
+    return runtime_settings
 
 # ============================================================
 # GEOMETRY ANALYSIS
@@ -74,7 +97,7 @@ class IslandInfo:
         self.faces = faces
         self.index = index
         self.avg_normal = Vector((0, 0, 1))
-        self.type = "WALL"
+        self.type = PatchType.WALL.value
         self.area = 0.0
         self.perimeter = 0.0
 
@@ -196,12 +219,12 @@ def analyze_island_properties(island_obj):
     island_obj.area = total_area
     island_obj.perimeter = perimeter
     up_dot = abs(avg_n.dot(WORLD_UP))
-    if up_dot > 0.9:
-        island_obj.type = "FLOOR"
-    elif up_dot < 0.3:
-        island_obj.type = "WALL"
+    if up_dot > FLOOR_THRESHOLD:
+        island_obj.type = PatchType.FLOOR.value
+    elif up_dot < WALL_THRESHOLD:
+        island_obj.type = PatchType.WALL.value
     else:
-        island_obj.type = "SLOPE"
+        island_obj.type = PatchType.SLOPE.value
 
 def build_edge_based_links(islands, bm):
     edge_to_islands = {}
@@ -407,7 +430,7 @@ def classify_loops_via_uv(loops, patch_faces, uv_layer):
         return
     
     if len(loops) == 1:
-        loops[0]['kind'] = 'OUTER'
+        loops[0]['kind'] = LoopKind.OUTER.value
         loops[0]['depth'] = 0
         return
     
@@ -503,9 +526,9 @@ def classify_loops_via_uv(loops, patch_faces, uv_layer):
         
         # depth == 0 (наружный контур) или четная вложенность (кольцо внутри кольца)
         if depth == 0 or depth % 2 == 0:
-            lp['kind'] = 'OUTER'
+            lp['kind'] = LoopKind.OUTER.value
         else:
-            lp['kind'] = 'HOLE'
+            lp['kind'] = LoopKind.HOLE.value
 
 
 def build_ordered_boundary_loops(boundary_edges):
@@ -567,7 +590,7 @@ def build_patch_basis(patch_faces):
     # find_island_up + calc_surface_basis(seed_face) ненадёжны на single-face
     # вытянутых quad-ах — seed_t/seed_b могут быть перепутаны.
     # Прямая проекция WORLD_UP на плоскость патча даёт однозначный результат.
-    if temp_island.type in ("WALL", "SLOPE"):
+    if temp_island.type in (PatchType.WALL.value, PatchType.SLOPE.value):
         n = temp_island.avg_normal
         up_proj = WORLD_UP - n * WORLD_UP.dot(n)
         if up_proj.length_squared > 1e-8:
@@ -598,7 +621,7 @@ def build_patch_basis(patch_faces):
     return centroid, temp_island.avg_normal, seed_t, seed_b, temp_island.type
 
 
-def find_loop_corners(loop_verts, angle_threshold_deg=30.0):
+def find_loop_corners(loop_verts, angle_threshold_deg=CORNER_ANGLE_THRESHOLD_DEG):
     """
     Находит угловые вершины boundary loop — точки, где цепочка
     резко поворачивает. Разбивает loop на сегменты по этим точкам.
@@ -672,7 +695,7 @@ def split_loop_into_segments(loop_verts, corners):
     return segments
 
 
-def classify_segment_frame_role(segment_verts, seed_t, seed_b, threshold=0.08):
+def classify_segment_frame_role(segment_verts, seed_t, seed_b, threshold=FRAME_ALIGNMENT_THRESHOLD):
     """
     Определяет роль СЕГМЕНТА boundary loop для frame.
     
@@ -681,7 +704,7 @@ def classify_segment_frame_role(segment_verts, seed_t, seed_b, threshold=0.08):
     FREE = диагональная или слишком короткая
     """
     if len(segment_verts) < 2:
-        return 'FREE'
+        return FrameRole.FREE.value
     
     us = [v.co.dot(seed_t) for v in segment_verts]
     vs = [v.co.dot(seed_b) for v in segment_verts]
@@ -691,17 +714,17 @@ def classify_segment_frame_role(segment_verts, seed_t, seed_b, threshold=0.08):
     
     total_extent = max(extent_u, extent_v)
     if total_extent < 1e-6:
-        return 'FREE'
+        return FrameRole.FREE.value
     
     ratio_v = extent_v / total_extent
     ratio_u = extent_u / total_extent
     
     if ratio_v < threshold:
-        return 'H_FRAME'
+        return FrameRole.H_FRAME.value
     if ratio_u < threshold:
-        return 'V_FRAME'
+        return FrameRole.V_FRAME.value
     
-    return 'FREE'
+    return FrameRole.FREE.value
 
 
 def analyze_all_patches(bm, base_faces, obj=None):
@@ -785,7 +808,7 @@ def analyze_all_patches(bm, base_faces, obj=None):
                 lp_segments.append({
                     'vert_cos': [v.co.copy() for v in seg_verts],
                     'frame_role': role,
-                    'loop_kind': lp.get('kind', 'OUTER')
+                    'loop_kind': lp.get('kind', LoopKind.OUTER.value)
                 })
             
             lp['segments'] = lp_segments
@@ -842,7 +865,7 @@ def analyze_all_patches(bm, base_faces, obj=None):
 # DEBUG VISUALIZATION (Grease Pencil)
 # ============================================================
 
-GP_DEBUG_PREFIX = "CFTUV_Debug_"
+
 
 # Layer names and RGBA colors — naming maps to panel groups
 _GP_STYLES = {
@@ -999,7 +1022,7 @@ def _create_patch_mesh(patch_results, source_obj):
         
         # Material
         hue = (pi * golden_ratio) % 1.0
-        if patch['type'] == 'WALL':
+        if patch['type'] == PatchType.WALL.value:
             sat, val, alpha = 0.8, 0.9, 0.4
         else:
             sat, val, alpha = 0.5, 0.6, 0.3
@@ -1174,7 +1197,7 @@ def create_debug_visualization(patch_results, source_obj, dbg_settings=None):
         return mat_idx
     
     # --- Patches layers per type (Patches_WALL, Patches_FLOOR, Patches_SLOPE) ---
-    patch_types = {'WALL', 'FLOOR', 'SLOPE'}
+    patch_types = {PatchType.WALL.value, PatchType.FLOOR.value, PatchType.SLOPE.value}
     patch_layers = {}  # type_name → (gp_frame, dict of patch_idx → mat_idx)
     golden_ratio = 0.618033988749895
     
@@ -1195,9 +1218,9 @@ def create_debug_visualization(patch_results, source_obj, dbg_settings=None):
     patch_mat_indices = []
     for pi, patch in enumerate(patch_results):
         hue = (pi * golden_ratio) % 1.0
-        if patch['type'] == 'WALL':
+        if patch['type'] == PatchType.WALL.value:
             sat, val = 0.8, 0.9
-        elif patch['type'] == 'SLOPE':
+        elif patch['type'] == PatchType.SLOPE.value:
             sat, val = 0.7, 0.75
         else:
             sat, val = 0.5, 0.6
@@ -1238,7 +1261,7 @@ def create_debug_visualization(patch_results, source_obj, dbg_settings=None):
         # Patches fill — into type-specific layer
         ptype = patch['type']
         if ptype not in patch_layers:
-            ptype = 'WALL'  # fallback
+            ptype = PatchType.WALL.value  # fallback
         p_frame = patch_layers[ptype]
         p_mat = patch_mat_indices[pi]
         m_verts = patch.get('mesh_verts', [])
@@ -1263,14 +1286,14 @@ def create_debug_visualization(patch_results, source_obj, dbg_settings=None):
                 vert_cos = seg.get('vert_cos', [])
                 if len(vert_cos) < 2:
                     continue
-                kind = seg.get('loop_kind', 'OUTER')
-                role = seg.get('frame_role', 'FREE')
+                kind = seg.get('loop_kind', LoopKind.OUTER.value)
+                role = seg.get('frame_role', FrameRole.FREE.value)
                 
-                if kind == 'HOLE':
+                if kind == LoopKind.HOLE.value:
                     style, width = 'Frame_HOLE', 3
-                elif role == 'H_FRAME':
+                elif role == FrameRole.H_FRAME.value:
                     style, width = 'Frame_H', 6
-                elif role == 'V_FRAME':
+                elif role == FrameRole.V_FRAME.value:
                     style, width = 'Frame_V', 6
                 else:
                     style, width = 'Frame_FREE', 3
@@ -1293,7 +1316,7 @@ def create_debug_visualization(patch_results, source_obj, dbg_settings=None):
             cos = lp.get('vert_cos', [])
             if len(cos) < 3:
                 continue
-            if lp.get('kind') == 'HOLE':
+            if lp.get('kind') == LoopKind.HOLE.value:
                 # Holes → separate layer
                 hm = _get_element_mat('Hl', hole_counter, 0.5, 0.6, 0.7, gp_data)
                 hole_counter += 1
@@ -1411,14 +1434,14 @@ def _enter_debug_mode(context, obj):
     print("=" * 60)
     
     total_patches = len(patch_results)
-    walls = sum(1 for p in patch_results if p['type'] == 'WALL')
-    floors = sum(1 for p in patch_results if p['type'] == 'FLOOR')
-    slopes = sum(1 for p in patch_results if p['type'] == 'SLOPE')
+    walls = sum(1 for p in patch_results if p['type'] == PatchType.WALL.value)
+    floors = sum(1 for p in patch_results if p['type'] == PatchType.FLOOR.value)
+    slopes = sum(1 for p in patch_results if p['type'] == PatchType.SLOPE.value)
     singles = sum(1 for p in patch_results if len(p['faces']) == 1)
-    total_h = sum(1 for p in patch_results for si in p['all_segments'] if si['frame_role'] == 'H_FRAME')
-    total_v = sum(1 for p in patch_results for si in p['all_segments'] if si['frame_role'] == 'V_FRAME')
-    total_free = sum(1 for p in patch_results for si in p['all_segments'] if si['frame_role'] == 'FREE')
-    total_holes = sum(1 for p in patch_results for lp in p['loops'] if lp['kind'] == 'HOLE')
+    total_h = sum(1 for p in patch_results for si in p['all_segments'] if si['frame_role'] == FrameRole.H_FRAME.value)
+    total_v = sum(1 for p in patch_results for si in p['all_segments'] if si['frame_role'] == FrameRole.V_FRAME.value)
+    total_free = sum(1 for p in patch_results for si in p['all_segments'] if si['frame_role'] == FrameRole.FREE.value)
+    total_holes = sum(1 for p in patch_results for lp in p['loops'] if lp['kind'] == LoopKind.HOLE.value)
     total_segs = sum(len(p['all_segments']) for p in patch_results)
     total_chains = sum(len(p.get('all_chains', [])) for p in patch_results)
     total_loops = sum(len(p['loops']) for p in patch_results)
@@ -3137,7 +3160,7 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
                 op.group_name = "patches"
                 row.label(text="Patches", icon="MESH_GRID")
                 if s.dbg_grp_patches:
-                    for ptype in ('WALL', 'FLOOR', 'SLOPE'):
+                    for ptype in (PatchType.WALL.value, PatchType.FLOOR.value, PatchType.SLOPE.value):
                         layer_name = f"Patches_{ptype}"
                         if layer_name in gp_data.layers:
                             layer = gp_data.layers[layer_name]
