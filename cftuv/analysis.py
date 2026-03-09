@@ -8,7 +8,6 @@ from mathutils import Vector
 
 try:
     from .constants import (
-        CORNER_ANGLE_THRESHOLD_DEG,
         FLOOR_THRESHOLD,
         FRAME_ALIGNMENT_THRESHOLD,
         NB_MESH_BORDER,
@@ -16,10 +15,19 @@ try:
         WALL_THRESHOLD,
         WORLD_UP,
     )
-    from .model import BoundaryChain, BoundaryLoop, FrameRole, LoopKind, PatchGraph, PatchNode, PatchType, SeamEdge
+    from .model import (
+        BoundaryChain,
+        BoundaryLoop,
+        ChainNeighborKind,
+        FrameRole,
+        LoopKind,
+        PatchGraph,
+        PatchNode,
+        PatchType,
+        SeamEdge,
+    )
 except ImportError:
     from constants import (
-        CORNER_ANGLE_THRESHOLD_DEG,
         FLOOR_THRESHOLD,
         FRAME_ALIGNMENT_THRESHOLD,
         NB_MESH_BORDER,
@@ -27,7 +35,17 @@ except ImportError:
         WALL_THRESHOLD,
         WORLD_UP,
     )
-    from model import BoundaryChain, BoundaryLoop, FrameRole, LoopKind, PatchGraph, PatchNode, PatchType, SeamEdge
+    from model import (
+        BoundaryChain,
+        BoundaryLoop,
+        ChainNeighborKind,
+        FrameRole,
+        LoopKind,
+        PatchGraph,
+        PatchNode,
+        PatchType,
+        SeamEdge,
+    )
 
 
 def _enum_value(value):
@@ -51,7 +69,7 @@ def _coerce_face_indices(bm, faces_or_indices):
 
 
 def get_expanded_islands(bm, initial_faces):
-    """ÃÂÃÂ°Ã‘â€¦ÃÂ¾ÃÂ´ÃÂ¸Ã‘â€š full/core islands ÃÂ´ÃÂ»Ã‘Â two-pass unwrap ÃÂ½ÃÂ° ÃÂ¾Ã‘ÂÃÂ½ÃÂ¾ÃÂ²ÃÂµ seam/sharp ÃÂ³Ã‘â‚¬ÃÂ°ÃÂ½ÃÂ¸Ã‘â€ ."""
+    """Build full/core islands for the two-pass unwrap pipeline."""
 
     initial_indices = _coerce_face_indices(bm, initial_faces)
     initial_set = set(initial_indices)
@@ -90,7 +108,7 @@ def get_expanded_islands(bm, initial_faces):
 
 
 def _flood_fill_patches(bm, face_indices):
-    """Flood fill patch-ÃÂµÃÂ¹, Ã‘â‚¬ÃÂ°ÃÂ·ÃÂ´ÃÂµÃÂ»Ã‘â€˜ÃÂ½ÃÂ½Ã‘â€¹Ã‘â€¦ seam/sharp edges."""
+    """Flood-fill face groups split by seam, sharp edges, and mesh borders."""
 
     face_indices = _coerce_face_indices(bm, face_indices)
     face_set = set(face_indices)
@@ -126,7 +144,7 @@ def _flood_fill_patches(bm, face_indices):
 
 
 def _find_island_up(patch_faces, avg_normal):
-    """Dual-strategy ÃÂ¿ÃÂ¾ÃÂ¸Ã‘ÂÃÂº ÃÂ»ÃÂ¾ÃÂºÃÂ°ÃÂ»Ã‘Å’ÃÂ½ÃÂ¾ÃÂ³ÃÂ¾ up-ÃÂ½ÃÂ°ÃÂ¿Ã‘â‚¬ÃÂ°ÃÂ²ÃÂ»ÃÂµÃÂ½ÃÂ¸Ã‘Â ÃÂ´ÃÂ»Ã‘Â patch."""
+    """Find a stable local up direction for patch classification."""
 
     edge_dirs = {}
     for face in patch_faces:
@@ -175,7 +193,7 @@ def _find_island_up(patch_faces, avg_normal):
 
 
 def _classify_patch(bm, face_indices):
-    """ÃÅ¡ÃÂ»ÃÂ°Ã‘ÂÃ‘ÂÃÂ¸Ã‘â€žÃÂ¸Ã‘â€ ÃÂ¸Ã‘â‚¬Ã‘Æ’ÃÂµÃ‘â€š patch ÃÂ¸ ÃÂ²Ã‘â€¹Ã‘â€¡ÃÂ¸Ã‘ÂÃÂ»Ã‘ÂÃÂµÃ‘â€š ÃÂ±ÃÂ°ÃÂ·ÃÂ¾ÃÂ²Ã‘â€¹ÃÂµ ÃÂ¼ÃÂµÃ‘â€šÃ‘â‚¬ÃÂ¸ÃÂºÃÂ¸."""
+    """Classify a patch as WALL, FLOOR, or SLOPE."""
 
     patch_faces = [bm.faces[idx] for idx in face_indices]
     patch_face_set = set(patch_faces)
@@ -219,7 +237,7 @@ def _calc_surface_basis(normal, ref_up=WORLD_UP):
 
 
 def _build_patch_basis(bm, face_indices, patch_type, normal):
-    """ÃÂ¡Ã‘â€šÃ‘â‚¬ÃÂ¾ÃÂ¸Ã‘â€š ÃÂ»ÃÂ¾ÃÂºÃÂ°ÃÂ»Ã‘Å’ÃÂ½Ã‘â€¹ÃÂ¹ basis_u / basis_v ÃÂ´ÃÂ»Ã‘Â patch."""
+    """Build a local orthogonal basis for the patch."""
 
     patch_faces = [bm.faces[idx] for idx in face_indices]
     island_up = _find_island_up(patch_faces, normal)
@@ -244,7 +262,7 @@ def _build_patch_basis(bm, face_indices, patch_type, normal):
 
 
 def _is_boundary_side(loop, patch_face_indices):
-    """ÃÅ¸Ã‘â‚¬ÃÂ¾ÃÂ²ÃÂµÃ‘â‚¬Ã‘ÂÃÂµÃ‘â€š, Ã‘ÂÃÂ²ÃÂ»Ã‘ÂÃÂµÃ‘â€šÃ‘ÂÃ‘Â ÃÂ»ÃÂ¸ ÃÂºÃÂ¾ÃÂ½ÃÂºÃ‘â‚¬ÃÂµÃ‘â€šÃÂ½ÃÂ°Ã‘Â face-side Ã‘â€¡ÃÂ°Ã‘ÂÃ‘â€šÃ‘Å’Ã‘Å½ boundary patch-ÃÂ°."""
+    """Check whether the loop side belongs to the patch boundary."""
 
     edge = loop.edge
     in_patch_count = sum(1 for linked_face in edge.link_faces if linked_face.index in patch_face_indices)
@@ -262,7 +280,7 @@ def _boundary_side_key(loop):
 
 
 def _find_next_boundary_side(loop, patch_face_indices):
-    """ÃËœÃÂ´Ã‘â€˜Ã‘â€š ÃÂ¿ÃÂ¾ patch boundary Ã‘â€¡ÃÂµÃ‘â‚¬ÃÂµÃÂ· face loops, ÃÂ½ÃÂµ Ã‘ÂÃ‘â€¦ÃÂ»ÃÂ¾ÃÂ¿Ã‘â€¹ÃÂ²ÃÂ°Ã‘Â SEAM_SELF."""
+    """Walk to the next boundary side around the same patch."""
 
     candidate = loop.link_loop_next
     safety = 0
@@ -294,7 +312,7 @@ def _find_next_boundary_side(loop, patch_face_indices):
 
 
 def _trace_boundary_loops(patch_faces):
-    """ÃÂ¡ÃÂ¾ÃÂ±ÃÂ¸Ã‘â‚¬ÃÂ°ÃÂµÃ‘â€š boundary loops ÃÂ¿ÃÂ¾ face-side topology ÃÂ¸ Ã‘ÂÃ‘â‚¬ÃÂ°ÃÂ·Ã‘Æ’ Ã‘ÂÃÂµÃ‘â‚¬ÃÂ¸ÃÂ°ÃÂ»ÃÂ¸ÃÂ·Ã‘Æ’ÃÂµÃ‘â€š ÃÂ¸Ã‘â€¦."""
+    """Trace ordered boundary loops for one patch."""
 
     patch_face_indices = {face.index for face in patch_faces}
     raw_loops = []
@@ -355,7 +373,7 @@ def _trace_boundary_loops(patch_faces):
 
 
 def _neighbor_for_side(edge_index, side_face_index, patch_face_indices, face_to_patch, patch_id, bm):
-    """ÃÅ¾ÃÂ¿Ã‘â‚¬ÃÂµÃÂ´ÃÂµÃÂ»Ã‘ÂÃÂµÃ‘â€š Ã‘â€šÃÂ¸ÃÂ¿ Ã‘ÂÃÂ¾Ã‘ÂÃÂµÃÂ´ÃÂ° ÃÂ´ÃÂ»Ã‘Â boundary side ÃÂ¿ÃÂ¾ Ã‘ÂÃ‘â€šÃÂ°ÃÂ±ÃÂ¸ÃÂ»Ã‘Å’ÃÂ½Ã‘â€¹ÃÂ¼ ÃÂ¸ÃÂ½ÃÂ´ÃÂµÃÂºÃ‘ÂÃÂ°ÃÂ¼."""
+    """Resolve the neighbor id for one boundary side."""
 
     edge = bm.edges[edge_index]
     if len(edge.link_faces) == 1:
@@ -377,7 +395,7 @@ def _neighbor_for_side(edge_index, side_face_index, patch_face_indices, face_to_
 
 
 def _split_loop_into_chains_by_neighbor(loop_vert_cos, loop_edge_indices, loop_neighbors):
-    """ÃÂ ÃÂ°ÃÂ·ÃÂ±ÃÂ¸ÃÂ²ÃÂ°ÃÂµÃ‘â€š boundary loop ÃÂ½ÃÂ° chains ÃÂ¿ÃÂ¾ Ã‘ÂÃÂ¼ÃÂµÃÂ½ÃÂµ Ã‘ÂÃÂ¾Ã‘ÂÃÂµÃÂ´ÃÂ½ÃÂµÃÂ³ÃÂ¾ patch/border/self-seam."""
+    """Split a boundary loop into chains when the neighbor changes."""
 
     vertex_count = len(loop_vert_cos)
     edge_count = len(loop_edge_indices)
@@ -435,7 +453,7 @@ def _split_loop_into_chains_by_neighbor(loop_vert_cos, loop_edge_indices, loop_n
 
 
 def _classify_raw_loops_via_uv(raw_loops, bm, patch_face_indices, uv_layer):
-    """ÃÅ¡ÃÂ»ÃÂ°Ã‘ÂÃ‘ÂÃÂ¸Ã‘â€žÃÂ¸Ã‘â€ ÃÂ¸Ã‘â‚¬Ã‘Æ’ÃÂµÃ‘â€š loops ÃÂ½ÃÂ° OUTER/HOLE Ã‘â€¡ÃÂµÃ‘â‚¬ÃÂµÃÂ· nesting ÃÂ² 2D UV."""
+    """Classify raw loops as OUTER or HOLE using temporary UV data."""
 
     if not raw_loops:
         return
@@ -551,72 +569,14 @@ def _classify_raw_loops_via_uv(raw_loops, bm, patch_face_indices, uv_layer):
         raw_loop["kind"] = LoopKind.OUTER if depth == 0 or depth % 2 == 0 else LoopKind.HOLE
 
 
-def _find_loop_corners(loop_vert_cos, angle_threshold_deg=CORNER_ANGLE_THRESHOLD_DEG):
-    """ÃÂÃÂ°Ã‘â€¦ÃÂ¾ÃÂ´ÃÂ¸Ã‘â€š corner vertices ÃÂ½ÃÂ° boundary loop."""
+def _classify_chain_frame_role(chain_vert_cos, basis_u, basis_v, threshold=FRAME_ALIGNMENT_THRESHOLD):
+    """Classify a boundary chain against the local patch basis."""
 
-    count = len(loop_vert_cos)
-    if count < 3:
-        return []
-
-    cos_threshold = math.cos(math.radians(angle_threshold_deg))
-    corners = []
-
-    for idx in range(count):
-        vert_prev = loop_vert_cos[(idx - 1) % count]
-        vert_curr = loop_vert_cos[idx]
-        vert_next = loop_vert_cos[(idx + 1) % count]
-
-        dir_prev = vert_curr - vert_prev
-        dir_next = vert_next - vert_curr
-
-        if dir_prev.length < 1e-8 or dir_next.length < 1e-8:
-            corners.append(idx)
-            continue
-
-        cos_angle = dir_prev.normalized().dot(dir_next.normalized())
-        if cos_angle < cos_threshold:
-            corners.append(idx)
-
-    return corners
-
-
-def _split_loop_into_segments(loop_vert_cos, corners):
-    """ÃÂ ÃÂ°ÃÂ·ÃÂ±ÃÂ¸ÃÂ²ÃÂ°ÃÂµÃ‘â€š ÃÂ·ÃÂ°ÃÂ¼ÃÂºÃÂ½Ã‘Æ’Ã‘â€šÃ‘â€¹ÃÂ¹ loop ÃÂ½ÃÂ° Ã‘ÂÃÂµÃÂ³ÃÂ¼ÃÂµÃÂ½Ã‘â€šÃ‘â€¹ ÃÂ¿ÃÂ¾ corner vertices."""
-
-    count = len(loop_vert_cos)
-    if not corners:
-        return [list(loop_vert_cos)]
-
-    segments = []
-    corner_count = len(corners)
-    for corner_index in range(corner_count):
-        start_idx = corners[corner_index]
-        end_idx = corners[(corner_index + 1) % corner_count]
-
-        segment = []
-        idx = start_idx
-        while True:
-            segment.append(loop_vert_cos[idx % count])
-            if idx % count == end_idx % count:
-                break
-            idx += 1
-            if len(segment) > count + 1:
-                break
-
-        if len(segment) >= 2:
-            segments.append(segment)
-
-    return segments
-
-
-def _classify_segment_frame_role(segment_vert_cos, basis_u, basis_v, threshold=FRAME_ALIGNMENT_THRESHOLD):
-    """ÃÅ¾ÃÂ¿Ã‘â‚¬ÃÂµÃÂ´ÃÂµÃÂ»Ã‘ÂÃÂµÃ‘â€š frame role Ã‘ÂÃÂµÃÂ³ÃÂ¼ÃÂµÃÂ½Ã‘â€šÃÂ° loop-ÃÂ°."""
-
-    if len(segment_vert_cos) < 2:
+    if len(chain_vert_cos) < 2:
         return FrameRole.FREE
 
-    us = [vert_co.dot(basis_u) for vert_co in segment_vert_cos]
-    vs = [vert_co.dot(basis_v) for vert_co in segment_vert_cos]
+    us = [vert_co.dot(basis_u) for vert_co in chain_vert_cos]
+    vs = [vert_co.dot(basis_v) for vert_co in chain_vert_cos]
 
     extent_u = max(us) - min(us)
     extent_v = max(vs) - min(vs)
@@ -635,7 +595,7 @@ def _classify_segment_frame_role(segment_vert_cos, basis_u, basis_v, threshold=F
 
 
 def _compute_centroid(bm, face_indices):
-    """Ãâ€™Ã‘â€¹Ã‘â€¡ÃÂ¸Ã‘ÂÃÂ»Ã‘ÂÃÂµÃ‘â€š centroid patch-ÃÂ° ÃÂºÃÂ°ÃÂº Ã‘ÂÃ‘â‚¬ÃÂµÃÂ´ÃÂ½ÃÂµÃÂµ ÃÂ¿ÃÂ¾ ÃÂ²ÃÂµÃ‘â‚¬Ã‘Ë†ÃÂ¸ÃÂ½ÃÂ°ÃÂ¼ faces."""
+    """Compute the patch centroid as an average over face vertices."""
 
     center = Vector((0.0, 0.0, 0.0))
     count = 0
@@ -648,7 +608,7 @@ def _compute_centroid(bm, face_indices):
 
 
 def _serialize_patch_geometry(bm, face_indices):
-    """ÃÂ¡ÃÂµÃ‘â‚¬ÃÂ¸ÃÂ°ÃÂ»ÃÂ¸ÃÂ·Ã‘Æ’ÃÂµÃ‘â€š ÃÂ³ÃÂµÃÂ¾ÃÂ¼ÃÂµÃ‘â€šÃ‘â‚¬ÃÂ¸Ã‘Å½ patch-ÃÂ° ÃÂ² verts/tris ÃÂ´ÃÂ»Ã‘Â debug ÃÂ¸ ÃÂ¾Ã‘â€šÃ‘â€¡Ã‘â€˜Ã‘â€šÃÂ¾ÃÂ²."""
+    """Serialize patch geometry into verts/tris for debug and reports."""
 
     vert_map = {}
     mesh_verts = []
@@ -674,7 +634,7 @@ def _serialize_patch_geometry(bm, face_indices):
 
 
 def _build_boundary_loops(raw_loops, patch_face_indices, face_to_patch, patch_id, basis_u, basis_v, bm):
-    """ÃÂ¡ÃÂµÃ‘â‚¬ÃÂ¸ÃÂ°ÃÂ»ÃÂ¸ÃÂ·Ã‘Æ’ÃÂµÃ‘â€š raw loops ÃÂ² BoundaryLoop/BoundaryChain Ã‘ÂÃ‘â€šÃ‘â‚¬Ã‘Æ’ÃÂºÃ‘â€šÃ‘Æ’Ã‘â‚¬Ã‘â€¹."""
+    """Serialize raw loop topology into BoundaryLoop and BoundaryChain objects."""
 
     boundary_loops = []
     patch_face_indices = set(patch_face_indices)
@@ -700,28 +660,18 @@ def _build_boundary_loops(raw_loops, patch_face_indices, face_to_patch, patch_id
             raw_loop.get("edge_indices", []),
             loop_neighbors,
         )
-        boundary_loop.chains = [
-            BoundaryChain(
-                vert_cos=[co.copy() for co in raw_chain.get("vert_cos", [])],
-                edge_indices=list(raw_chain.get("edge_indices", [])),
-                neighbor_patch_id=int(raw_chain.get("neighbor", NB_MESH_BORDER)),
-                is_closed=bool(raw_chain.get("is_closed", False)),
-                frame_role=FrameRole.FREE,
-            )
-            for raw_chain in raw_chains
-        ]
 
-        corners = _find_loop_corners(raw_loop.get("vert_cos", []))
-        segments = _split_loop_into_segments(raw_loop.get("vert_cos", []), corners)
-        boundary_loop.segments = []
-        for segment_vert_cos in segments:
-            frame_role = _classify_segment_frame_role(segment_vert_cos, basis_u, basis_v)
-            boundary_loop.segments.append(
-                {
-                    "vert_cos": [co.copy() for co in segment_vert_cos],
-                    "frame_role": frame_role,
-                    "loop_kind": boundary_loop.kind,
-                }
+        boundary_loop.chains = []
+        for raw_chain in raw_chains:
+            chain_vert_cos = [co.copy() for co in raw_chain.get("vert_cos", [])]
+            boundary_loop.chains.append(
+                BoundaryChain(
+                    vert_cos=chain_vert_cos,
+                    edge_indices=list(raw_chain.get("edge_indices", [])),
+                    neighbor_patch_id=int(raw_chain.get("neighbor", NB_MESH_BORDER)),
+                    is_closed=bool(raw_chain.get("is_closed", False)),
+                    frame_role=_classify_chain_frame_role(chain_vert_cos, basis_u, basis_v),
+                )
             )
 
         boundary_loops.append(boundary_loop)
@@ -730,10 +680,7 @@ def _build_boundary_loops(raw_loops, patch_face_indices, face_to_patch, patch_id
 
 
 def _classify_loops_outer_hole(bm, raw_patch_data, obj=None):
-    """ÃÅ¡ÃÂ»ÃÂ°Ã‘ÂÃ‘ÂÃÂ¸Ã‘â€žÃÂ¸Ã‘â€ ÃÂ¸Ã‘â‚¬Ã‘Æ’ÃÂµÃ‘â€š loops ÃÂ½ÃÂ° OUTER/HOLE Ã‘â€¡ÃÂµÃ‘â‚¬ÃÂµÃÂ· ÃÂ²Ã‘â‚¬ÃÂµÃÂ¼ÃÂµÃÂ½ÃÂ½Ã‘â€¹ÃÂ¹ unwrap.
-
-    ÃÂ­Ã‘â€šÃÂ¾ ÃÂµÃÂ´ÃÂ¸ÃÂ½Ã‘ÂÃ‘â€šÃÂ²ÃÂµÃÂ½ÃÂ½ÃÂ°Ã‘Â helper-Ã‘â€žÃ‘Æ’ÃÂ½ÃÂºÃ‘â€ ÃÂ¸Ã‘Â analysis.py Ã‘Â side effects ÃÂ² UV/selection state.
-    """
+    """Classify loops as OUTER or HOLE through a temporary UV unwrap."""
 
     if not raw_patch_data:
         return
@@ -805,7 +752,7 @@ def _classify_loops_outer_hole(bm, raw_patch_data, obj=None):
 
 
 def _build_seam_edges(face_to_patch, bm):
-    """ÃÂ¡Ã‘â€šÃ‘â‚¬ÃÂ¾ÃÂ¸Ã‘â€š SeamEdge Ã‘ÂÃÂ²Ã‘ÂÃÂ·ÃÂ¸ ÃÂ¼ÃÂµÃÂ¶ÃÂ´Ã‘Æ’ Ã‘ÂÃÂ¾Ã‘ÂÃÂµÃÂ´ÃÂ½ÃÂ¸ÃÂ¼ÃÂ¸ patch-ÃÂ°ÃÂ¼ÃÂ¸."""
+    """Build SeamEdge relations between neighboring patches."""
 
     seam_links = {}
 
@@ -849,7 +796,7 @@ def _build_seam_edges(face_to_patch, bm):
 
 
 def build_patch_graph(bm, face_indices, obj=None):
-    """ÃÂ¡Ã‘â€šÃ‘â‚¬ÃÂ¾ÃÂ¸Ã‘â€š ÃÂ¿ÃÂ¾ÃÂ»ÃÂ½Ã‘â€¹ÃÂ¹ PatchGraph ÃÂ¸ÃÂ· faces Ã‘â€šÃÂµÃÂºÃ‘Æ’Ã‘â€°ÃÂµÃÂ³ÃÂ¾ selection/ÃÂ¾ÃÂ¿ÃÂµÃ‘â‚¬ÃÂ°Ã‘â€ ÃÂ¸ÃÂ¸."""
+    """Build a PatchGraph from BMesh patch analysis."""
 
     bm.faces.ensure_lookup_table()
     bm.edges.ensure_lookup_table()
@@ -911,8 +858,20 @@ def build_patch_graph(bm, face_indices, obj=None):
     return patch_graph
 
 
-def format_patch_graph_report(graph):
-    """Ãâ€œÃÂ¾Ã‘â€šÃÂ¾ÃÂ²ÃÂ¸Ã‘â€š Ã‘ÂÃ‘â€šÃ‘â‚¬ÃÂ¾ÃÂºÃÂ¸ Ã‘â€šÃÂµÃÂºÃ‘ÂÃ‘â€šÃÂ¾ÃÂ²ÃÂ¾ÃÂ³ÃÂ¾ debug-ÃÂ¾Ã‘â€šÃ‘â€¡Ã‘â€˜Ã‘â€šÃÂ° ÃÂ´ÃÂ»Ã‘Â System Console."""
+def _chain_length(chain):
+    """Compute a polyline length for the debug report."""
+
+    if len(chain.vert_cos) < 2:
+        return 0.0
+
+    length = 0.0
+    for index in range(len(chain.vert_cos) - 1):
+        length += (chain.vert_cos[index + 1] - chain.vert_cos[index]).length
+    return length
+
+
+def format_patch_graph_report(graph, mesh_name=None):
+    """Build text lines for the System Console PatchGraph report."""
 
     lines = []
 
@@ -924,10 +883,15 @@ def format_patch_graph_report(graph):
     total_loops = 0
     total_chains = 0
     total_holes = 0
-    total_segments = 0
     total_h = 0
     total_v = 0
     total_free = 0
+    total_patch_links = 0
+    total_mesh_borders = 0
+    total_self_seams = 0
+
+    if mesh_name:
+        lines.append(f"Mesh: {mesh_name}")
 
     for patch_id in sorted(graph.nodes.keys()):
         node = graph.nodes[patch_id]
@@ -943,8 +907,7 @@ def format_patch_graph_report(graph):
             singles += 1
 
         chain_count = 0
-        roles = []
-        chain_neighbors = []
+        patch_roles = []
         loop_kinds = []
         loop_details = []
 
@@ -956,21 +919,13 @@ def format_patch_graph_report(graph):
                 total_holes += 1
 
             chain_count += len(boundary_loop.chains)
-            loop_chain_neighbors = []
-            for chain in boundary_loop.chains:
-                neighbor_label = f"nb={chain.neighbor_patch_id}"
-                chain_neighbors.append(neighbor_label)
-                loop_chain_neighbors.append(neighbor_label)
+            loop_details.append(f"    Loop {loop_index}: {loop_kind} | chains:{len(boundary_loop.chains)}")
 
-            loop_details.append(
-                f"    Loop {loop_index}: {loop_kind} | chains:{len(boundary_loop.chains)} "
-                f"[{' '.join(loop_chain_neighbors)}]"
-            )
+            for chain_index, chain in enumerate(boundary_loop.chains):
+                role = _enum_value(chain.frame_role)
+                neighbor_kind = _enum_value(chain.neighbor_kind)
+                neighbor_suffix = ''
 
-            for segment in boundary_loop.segments:
-                role = _enum_value(segment.get("frame_role", FrameRole.FREE))
-                roles.append(role)
-                total_segments += 1
                 if role == FrameRole.H_FRAME.value:
                     total_h += 1
                 elif role == FrameRole.V_FRAME.value:
@@ -978,19 +933,35 @@ def format_patch_graph_report(graph):
                 else:
                     total_free += 1
 
+                if neighbor_kind == ChainNeighborKind.PATCH.value:
+                    total_patch_links += 1
+                    neighbor_node = graph.nodes.get(chain.neighbor_patch_id)
+                    neighbor_type = _enum_value(neighbor_node.patch_type) if neighbor_node else 'UNKNOWN'
+                    neighbor_suffix = f" -> Patch {chain.neighbor_patch_id}:{neighbor_type}"
+                elif neighbor_kind == ChainNeighborKind.SEAM_SELF.value:
+                    total_self_seams += 1
+                else:
+                    total_mesh_borders += 1
+
+                patch_roles.append(role)
+                loop_details.append(
+                    f"      Chain {chain_index}: {role} | neighbor:{neighbor_kind}{neighbor_suffix} | "
+                    f"edges:{len(chain.edge_indices)} | length:{_chain_length(chain):.4f}"
+                )
+
         total_chains += chain_count
         lines.append(
             f"  Patch {patch_id}: {patch_type} | {len(node.face_indices)}f | "
             f"loops:{len(node.boundary_loops)}[{' '.join(loop_kinds)}] chains:{chain_count} | "
-            f"segs:[{' '.join(roles)}] | "
-            f"chains:[{' '.join(chain_neighbors)}]"
+            f"roles:[{' '.join(patch_roles)}]"
         )
         lines.extend(loop_details)
 
     summary = (
         f"Patches: {total_patches} (W:{walls} F:{floors} S:{slopes} 1f:{singles}) | "
         f"Loops: {total_loops} Chains: {total_chains} Holes: {total_holes} | "
-        f"Seg: {total_segments} H:{total_h} V:{total_v} Free:{total_free}"
+        f"Roles: H:{total_h} V:{total_v} Free:{total_free} | "
+        f"Neighbors: Patch:{total_patch_links} Self:{total_self_seams} Border:{total_mesh_borders}"
     )
 
     return lines, summary

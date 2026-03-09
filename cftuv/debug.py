@@ -367,12 +367,12 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
                 stroke.points[i].pressure = 1.0
 
         for loop in node.boundary_loops:
-            for segment in loop.segments:
-                vert_cos = segment.get('vert_cos', [])
-                if len(vert_cos) < 2:
+            for chain in loop.chains:
+                points = chain.vert_cos + [chain.vert_cos[0]] if chain.is_closed else chain.vert_cos
+                if len(points) < 2:
                     continue
-                kind = _enum_value(segment.get('loop_kind', LoopKind.OUTER))
-                role = _enum_value(segment.get('frame_role', FrameRole.FREE))
+                kind = _enum_value(loop.kind)
+                role = _enum_value(chain.frame_role)
 
                 if kind == LoopKind.HOLE.value:
                     style, width = 'Frame_HOLE', 3
@@ -384,7 +384,7 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
                     style, width = 'Frame_FREE', 3
 
                 frame, mat_idx = frames_and_mats[style]
-                _add_gp_stroke(frame, vert_cos, mat_idx, line_width=width)
+                _add_gp_stroke(frame, points, mat_idx, line_width=width)
 
             for chain in loop.chains:
                 if len(chain.vert_cos) < 2:

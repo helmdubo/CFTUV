@@ -7,7 +7,7 @@ from typing import Optional
 
 
 class PatchType(str, Enum):
-    """Dispatch key для выбора UV-стратегии."""
+    """Dispatch key for the patch UV strategy."""
 
     WALL = "WALL"
     FLOOR = "FLOOR"
@@ -15,23 +15,31 @@ class PatchType(str, Enum):
 
 
 class LoopKind(str, Enum):
-    """Тип boundary loop."""
+    """Kind of closed boundary loop."""
 
     OUTER = "OUTER"
     HOLE = "HOLE"
 
 
 class FrameRole(str, Enum):
-    """Роль boundary segment в frame-классификации."""
+    """Alignment role of a boundary chain in the local patch basis."""
 
     H_FRAME = "H_FRAME"
     V_FRAME = "V_FRAME"
     FREE = "FREE"
 
 
+class ChainNeighborKind(str, Enum):
+    """Topology class of a boundary chain neighbor."""
+
+    PATCH = "PATCH"
+    MESH_BORDER = "MESH_BORDER"
+    SEAM_SELF = "SEAM_SELF"
+
+
 @dataclass
 class BoundaryChain:
-    """Сегмент boundary loop с одним соседом."""
+    """Continuous part of a boundary loop with one neighbor."""
 
     vert_cos: list[Vector] = field(default_factory=list)
     edge_indices: list[int] = field(default_factory=list)
@@ -39,22 +47,35 @@ class BoundaryChain:
     is_closed: bool = False
     frame_role: FrameRole = FrameRole.FREE
 
+    @property
+    def neighbor_kind(self) -> ChainNeighborKind:
+        """Derive the neighbor kind from the encoded neighbor id."""
+
+        if self.neighbor_patch_id == -2:
+            return ChainNeighborKind.SEAM_SELF
+        if self.neighbor_patch_id == -1:
+            return ChainNeighborKind.MESH_BORDER
+        return ChainNeighborKind.PATCH
+
+    @property
+    def has_patch_neighbor(self) -> bool:
+        return self.neighbor_kind == ChainNeighborKind.PATCH
+
 
 @dataclass
 class BoundaryLoop:
-    """Замкнутый boundary loop патча."""
+    """Closed boundary loop of a patch."""
 
     vert_cos: list[Vector] = field(default_factory=list)
     edge_indices: list[int] = field(default_factory=list)
     kind: LoopKind = LoopKind.OUTER
     depth: int = 0
     chains: list[BoundaryChain] = field(default_factory=list)
-    segments: list[dict] = field(default_factory=list)
 
 
 @dataclass
 class PatchNode:
-    """Один patch в центральном IR."""
+    """Patch node stored inside the central PatchGraph IR."""
 
     patch_id: int
     face_indices: list[int]
@@ -72,7 +93,7 @@ class PatchNode:
 
 @dataclass
 class SeamEdge:
-    """Связь между двумя соседними патчами по общему шву."""
+    """Shared seam relation between two neighboring patches."""
 
     patch_a_id: int
     patch_b_id: int
@@ -84,7 +105,7 @@ class SeamEdge:
 
 @dataclass(frozen=True)
 class UVSettings:
-    """Иммутабельный snapshot UV-настроек."""
+    """Immutable snapshot of UV settings passed through the pipeline."""
 
     texel_density: int = 512
     texture_size: int = 2048
@@ -97,7 +118,7 @@ class UVSettings:
 
     @staticmethod
     def from_blender_settings(settings) -> "UVSettings":
-        """Собирает UVSettings из Blender PropertyGroup."""
+        """Build a UVSettings object from the Blender PropertyGroup."""
 
         return UVSettings(
             texel_density=int(settings.target_texel_density),
@@ -109,7 +130,7 @@ class UVSettings:
 
 @dataclass
 class PatchGraph:
-    """Центральный IR: узлы патчей, связи и быстрые lookup-таблицы."""
+    """Central IR with patch nodes, seam edges, and lookup tables."""
 
     nodes: dict[int, PatchNode] = field(default_factory=dict)
     edges: dict[tuple[int, int], SeamEdge] = field(default_factory=dict)
