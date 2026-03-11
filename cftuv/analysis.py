@@ -1047,16 +1047,17 @@ def format_patch_graph_report(graph, mesh_name=None):
                 if neighbor_kind == ChainNeighborKind.PATCH.value:
                     total_patch_links += 1
                     neighbor_node = graph.nodes.get(chain.neighbor_patch_id)
-                    neighbor_type = _enum_value(neighbor_node.patch_type) if neighbor_node else 'UNKNOWN'
-                    neighbor_suffix = f" -> Patch {chain.neighbor_patch_id}:{neighbor_type}"
+                    neighbor_semantic = graph.get_patch_semantic_key(chain.neighbor_patch_id) if neighbor_node else 'UNKNOWN'
+                    neighbor_suffix = f" -> Patch {chain.neighbor_patch_id}:{neighbor_semantic}"
                 elif neighbor_kind == ChainNeighborKind.SEAM_SELF.value:
                     total_self_seams += 1
                 else:
                     total_mesh_borders += 1
 
+                transition = graph.describe_chain_transition(patch_id, chain)
                 patch_roles.append(role)
                 loop_details.append(
-                    f"      Chain {chain_index}: {role} | neighbor:{neighbor_kind}{neighbor_suffix} | "
+                    f"      Chain {chain_index}: {role} | neighbor:{neighbor_kind}{neighbor_suffix} | transition:{transition} | "
                     f"edges:{len(chain.edge_indices)} | length:{_chain_length(chain):.4f}"
                 )
 

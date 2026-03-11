@@ -117,6 +117,12 @@ class PatchNode:
     mesh_verts: list[Vector] = field(default_factory=list)
     mesh_tris: list[tuple[int, int, int]] = field(default_factory=list)
 
+    @property
+    def semantic_key(self) -> str:
+        patch_type = self.patch_type.value if hasattr(self.patch_type, "value") else str(self.patch_type)
+        world_facing = self.world_facing.value if hasattr(self.world_facing, "value") else str(self.world_facing)
+        return f"{patch_type}.{world_facing}"
+
 
 @dataclass
 class SeamEdge:
@@ -182,6 +188,22 @@ class PatchGraph:
     def get_seam(self, patch_a: int, patch_b: int) -> Optional[SeamEdge]:
         key = (min(patch_a, patch_b), max(patch_a, patch_b))
         return self.edges.get(key)
+
+    def get_patch_semantic_key(self, patch_id: int) -> str:
+        node = self.nodes.get(patch_id)
+        if node is None:
+            return "UNKNOWN"
+        return node.semantic_key
+
+    def describe_chain_transition(self, owner_patch_id: int, chain: BoundaryChain) -> str:
+        owner_key = self.get_patch_semantic_key(owner_patch_id)
+        neighbor_kind = chain.neighbor_kind.value if hasattr(chain.neighbor_kind, "value") else str(chain.neighbor_kind)
+        if neighbor_kind == ChainNeighborKind.PATCH.value:
+            neighbor_key = self.get_patch_semantic_key(chain.neighbor_patch_id)
+            return f"{owner_key} -> {neighbor_key}"
+        if neighbor_kind == ChainNeighborKind.SEAM_SELF.value:
+            return f"{owner_key} -> {owner_key}"
+        return f"{owner_key} -> {neighbor_kind}"
 
     def traverse_bfs(self, root_id: int) -> list[list[int]]:
         visited = {root_id}

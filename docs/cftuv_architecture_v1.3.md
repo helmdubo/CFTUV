@@ -154,6 +154,18 @@ Split point = смена соседа.
 
 `neighbor_kind` - производное query API поверх `neighbor_patch_id`.
 
+`transition context` - производный semantic слой для boundary chain:
+
+- owner patch -> `PatchType.WorldFacing`
+- patch neighbor -> `NeighborPatchType.NeighborWorldFacing`
+- `MESH_BORDER` остаётся `... -> MESH_BORDER`, а `SEAM_SELF` семантически маппится в owner -> owner
+
+Примеры:
+
+- `WALL.SIDE -> FLOOR.UP`
+- `WALL.SIDE -> FLOOR.DOWN`
+- `WALL.SIDE -> WALL.SIDE` (для `SEAM_SELF`)
+
 ### BoundaryCorner
 
 `BoundaryCorner` - производная сущность внутри `BoundaryLoop`, а не отдельный граф.
@@ -218,6 +230,7 @@ Split point = смена соседа.
 - `perimeter`
 - `patch_type`
 - `world_facing`
+- `semantic_key` - производный label вида `WALL.SIDE` или `FLOOR.UP`
 - `basis_u`, `basis_v`
 - `boundary_loops`
 - `mesh_verts`, `mesh_tris`
@@ -352,6 +365,7 @@ Grease Pencil debug работает через semantic filters, а не чер
 - читать `PatchGraph`
 - читать/писать UV через `BMesh`
 - использовать `PatchType`, `WorldFacing`, `basis`, `loops`, `chains`, `corners`, `seam edges`
+- использовать chain transition context для trim decals / hotspot textures / seam-based semantic rules
 - не строить topology заново
 
 ### Что solve не делает
