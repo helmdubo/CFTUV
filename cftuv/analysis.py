@@ -99,7 +99,7 @@ def get_expanded_islands(bm, initial_faces):
                 core_faces.append(face)
 
             for edge in face.edges:
-                if edge.seam or not edge.smooth:
+                if edge.seam:
                     continue
                 for neighbor in edge.link_faces:
                     neighbor_idx = neighbor.index
@@ -114,7 +114,7 @@ def get_expanded_islands(bm, initial_faces):
 
 
 def _flood_fill_patches(bm, face_indices):
-    """Flood-fill face groups split by seam, sharp edges, and mesh borders."""
+    """Flood-fill face groups split by seam and mesh borders."""
 
     face_indices = _coerce_face_indices(bm, face_indices)
     face_set = set(face_indices)
@@ -135,7 +135,7 @@ def _flood_fill_patches(bm, face_indices):
             patch.append(face_idx)
 
             for edge in face.edges:
-                if edge.seam or not edge.smooth:
+                if edge.seam:
                     continue
                 for neighbor in edge.link_faces:
                     neighbor_idx = neighbor.index
@@ -284,7 +284,7 @@ def _is_boundary_side(loop, patch_face_indices):
         return True
     if in_patch_count == 1:
         return True
-    if in_patch_count >= 2 and (edge.seam or not edge.smooth):
+    if in_patch_count >= 2 and edge.seam:
         return True
     return False
 
@@ -394,7 +394,7 @@ def _neighbor_for_side(edge_index, side_face_index, patch_face_indices, face_to_
         return NB_MESH_BORDER
 
     in_patch_faces = [linked_face for linked_face in edge.link_faces if linked_face.index in patch_face_indices]
-    if len(in_patch_faces) >= 2 and (edge.seam or not edge.smooth):
+    if len(in_patch_faces) >= 2 and edge.seam:
         return NB_SEAM_SELF
 
     other_faces = [linked_face for linked_face in edge.link_faces if linked_face.index not in patch_face_indices]
@@ -408,7 +408,7 @@ def _neighbor_for_side(edge_index, side_face_index, patch_face_indices, face_to_
     return neighbor_patch_id
 
 
-def _split_loop_into_chains_by_neighbor(loop_vert_cos, loop_edge_indices, loop_neighbors):
+def _split_loop_into_chains_by_neighbor(loop_vert_indices, loop_vert_cos, loop_edge_indices, loop_side_face_indices, loop_neighbors):
     """Split a boundary loop into chains when the neighbor changes."""
 
     vertex_count = len(loop_vert_cos)
@@ -428,8 +428,10 @@ def _split_loop_into_chains_by_neighbor(loop_vert_cos, loop_edge_indices, loop_n
     if not split_indices:
         return [
             {
+                "vert_indices": list(loop_vert_indices),
                 "vert_cos": list(loop_vert_cos),
                 "edge_indices": list(loop_edge_indices),
+                "side_face_indices": list(loop_side_face_indices),
                 "neighbor": neighbors[0],
                 "is_closed": True,
                 "start_loop_index": 0,
@@ -443,23 +445,31 @@ def _split_loop_into_chains_by_neighbor(loop_vert_cos, loop_edge_indices, loop_n
         v_start = split_indices[split_idx]
         v_end = split_indices[(split_idx + 1) % split_count]
 
+        chain_vert_indices = []
         chain_vert_cos = []
         chain_edge_indices = []
+        chain_side_face_indices = []
         idx = v_start
         safety = 0
         while safety < vertex_count + 2:
             safety += 1
+            chain_vert_indices.append(loop_vert_indices[idx % vertex_count])
             chain_vert_cos.append(loop_vert_cos[idx % vertex_count])
             chain_edge_indices.append(loop_edge_indices[idx % edge_count])
+            chain_side_face_indices.append(loop_side_face_indices[idx % vertex_count])
             idx += 1
             if idx % vertex_count == v_end % vertex_count:
+                chain_vert_indices.append(loop_vert_indices[v_end % vertex_count])
                 chain_vert_cos.append(loop_vert_cos[v_end % vertex_count])
+                chain_side_face_indices.append(loop_side_face_indices[v_end % vertex_count])
                 break
 
         chains.append(
             {
+                "vert_indices": chain_vert_indices,
                 "vert_cos": chain_vert_cos,
                 "edge_indices": chain_edge_indices,
+                "side_face_indices": chain_side_face_indices,
                 "neighbor": neighbors[v_start % edge_count],
                 "is_closed": False,
                 "start_loop_index": v_start % vertex_count,
@@ -644,12 +654,44 @@ def _measure_corner_turn_angle(corner_co, prev_point, next_point, basis_u, basis
 
 
 
+def _build_geometric_loop_corners(boundary_loop, basis_u, basis_v):
+    """Build geometric corners directly from loop turns, even inside one FREE chain."""
+
+    vertex_count = len(boundary_loop.vert_cos)
+    if vertex_count < 3:
+        return []
+
+    corners = []
+    for loop_vert_index in range(vertex_count):
+        corner_co = boundary_loop.vert_cos[loop_vert_index].copy()
+        prev_point = boundary_loop.vert_cos[(loop_vert_index - 1) % vertex_count]
+        next_point = boundary_loop.vert_cos[(loop_vert_index + 1) % vertex_count]
+        turn_angle_deg = _measure_corner_turn_angle(corner_co, prev_point, next_point, basis_u, basis_v)
+        if turn_angle_deg < CORNER_ANGLE_THRESHOLD_DEG:
+            continue
+
+        corners.append(
+            BoundaryCorner(
+                loop_vert_index=loop_vert_index,
+                vert_index=boundary_loop.vert_indices[loop_vert_index] if loop_vert_index < len(boundary_loop.vert_indices) else -1,
+                vert_co=corner_co,
+                prev_chain_index=0,
+                next_chain_index=0,
+                turn_angle_deg=turn_angle_deg,
+                prev_role=FrameRole.FREE,
+                next_role=FrameRole.FREE,
+            )
+        )
+
+    return corners
+
+
 def _build_loop_corners(boundary_loop, raw_chains, basis_u, basis_v):
-    """Build loop corners from neighboring chain junctions."""
+    """Build loop corners from chain junctions or from geometric turns inside one loop."""
 
     chain_count = len(boundary_loop.chains)
     if chain_count < 2:
-        return []
+        return _build_geometric_loop_corners(boundary_loop, basis_u, basis_v)
 
     corners = []
     for next_chain_index in range(chain_count):
@@ -672,6 +714,7 @@ def _build_loop_corners(boundary_loop, raw_chains, basis_u, basis_v):
         corners.append(
             BoundaryCorner(
                 loop_vert_index=int(raw_next_chain.get("start_loop_index", 0)),
+                vert_index=int(raw_next_chain.get("vert_indices", [-1])[0]) if raw_next_chain.get("vert_indices") else -1,
                 vert_co=corner_co,
                 prev_chain_index=prev_chain_index,
                 next_chain_index=next_chain_index,
@@ -683,6 +726,21 @@ def _build_loop_corners(boundary_loop, raw_chains, basis_u, basis_v):
 
     return corners
 
+
+def _assign_loop_chain_endpoint_topology(boundary_loop):
+    """Attach start/end corner indices to every chain in one loop."""
+
+    for chain in boundary_loop.chains:
+        chain.start_corner_index = -1
+        chain.end_corner_index = -1
+
+    chain_count = len(boundary_loop.chains)
+    if chain_count < 2 or len(boundary_loop.corners) != chain_count:
+        return
+
+    for chain_index, chain in enumerate(boundary_loop.chains):
+        chain.start_corner_index = chain_index
+        chain.end_corner_index = (chain_index + 1) % chain_count
 
 
 def _compute_centroid(bm, face_indices):
@@ -736,8 +794,10 @@ def _build_boundary_loops(raw_loops, patch_face_indices, face_to_patch, patch_id
             loop_kind = LoopKind(loop_kind)
 
         boundary_loop = BoundaryLoop(
+            vert_indices=list(raw_loop.get("vert_indices", [])),
             vert_cos=[co.copy() for co in raw_loop.get("vert_cos", [])],
             edge_indices=list(raw_loop.get("edge_indices", [])),
+            side_face_indices=list(raw_loop.get("side_face_indices", [])),
             kind=loop_kind,
             depth=int(raw_loop.get("depth", 0)),
         )
@@ -747,8 +807,10 @@ def _build_boundary_loops(raw_loops, patch_face_indices, face_to_patch, patch_id
             for edge_index, side_face_index in zip(raw_loop.get("edge_indices", []), raw_loop.get("side_face_indices", []))
         ]
         raw_chains = _split_loop_into_chains_by_neighbor(
+            raw_loop.get("vert_indices", []),
             raw_loop.get("vert_cos", []),
             raw_loop.get("edge_indices", []),
+            raw_loop.get("side_face_indices", []),
             loop_neighbors,
         )
 
@@ -757,15 +819,20 @@ def _build_boundary_loops(raw_loops, patch_face_indices, face_to_patch, patch_id
             chain_vert_cos = [co.copy() for co in raw_chain.get("vert_cos", [])]
             boundary_loop.chains.append(
                 BoundaryChain(
+                    vert_indices=list(raw_chain.get("vert_indices", [])),
                     vert_cos=chain_vert_cos,
                     edge_indices=list(raw_chain.get("edge_indices", [])),
+                    side_face_indices=list(raw_chain.get("side_face_indices", [])),
                     neighbor_patch_id=int(raw_chain.get("neighbor", NB_MESH_BORDER)),
                     is_closed=bool(raw_chain.get("is_closed", False)),
                     frame_role=_classify_chain_frame_role(chain_vert_cos, basis_u, basis_v),
+                    start_loop_index=int(raw_chain.get("start_loop_index", 0)),
+                    end_loop_index=int(raw_chain.get("end_loop_index", 0)),
                 )
             )
 
         boundary_loop.corners = _build_loop_corners(boundary_loop, raw_chains, basis_u, basis_v)
+        _assign_loop_chain_endpoint_topology(boundary_loop)
         boundary_loops.append(boundary_loop)
 
     return boundary_loops
@@ -793,13 +860,8 @@ def _classify_loops_outer_hole(bm, raw_patch_data, obj=None):
 
     original_active_uv_name = None
     original_selection = [face.index for face in bm.faces if face.select]
-    original_seams = [edge.seam for edge in bm.edges]
 
     try:
-        for edge in bm.edges:
-            if not edge.smooth:
-                edge.seam = True
-
         bmesh.update_edit_mesh(obj.data)
         if obj.data.uv_layers.active:
             original_active_uv_name = obj.data.uv_layers.active.name
@@ -826,9 +888,6 @@ def _classify_loops_outer_hole(bm, raw_patch_data, obj=None):
 
             _classify_raw_loops_via_uv(raw_loops, bm, patch_face_indices, uv_layer)
     finally:
-        for edge_index, edge in enumerate(bm.edges):
-            edge.seam = original_seams[edge_index]
-
         if uv_layer is not None:
             bm.loops.layers.uv.remove(uv_layer)
 
@@ -849,6 +908,9 @@ def _build_seam_edges(face_to_patch, bm):
     seam_links = {}
 
     for edge in bm.edges:
+        if not edge.seam:
+            continue
+
         patch_ids = sorted({
             face_to_patch[face.index]
             for face in edge.link_faces
@@ -963,6 +1025,12 @@ def _chain_length(chain):
     return length
 
 
+def _format_chain_refs(chain_refs):
+    if not chain_refs:
+        return "[]"
+    return "[" + " ".join(f"L{loop_index}C{chain_index}" for loop_index, chain_index in chain_refs) + "]"
+
+
 def format_patch_graph_report(graph, mesh_name=None):
     """Build text lines for the System Console PatchGraph report."""
 
@@ -1035,7 +1103,7 @@ def format_patch_graph_report(graph, mesh_name=None):
             for chain_index, chain in enumerate(boundary_loop.chains):
                 role = _enum_value(chain.frame_role)
                 neighbor_kind = _enum_value(chain.neighbor_kind)
-                neighbor_suffix = ''
+                neighbor_suffix = ""
 
                 if role == FrameRole.H_FRAME.value:
                     total_h += 1
@@ -1047,7 +1115,7 @@ def format_patch_graph_report(graph, mesh_name=None):
                 if neighbor_kind == ChainNeighborKind.PATCH.value:
                     total_patch_links += 1
                     neighbor_node = graph.nodes.get(chain.neighbor_patch_id)
-                    neighbor_semantic = graph.get_patch_semantic_key(chain.neighbor_patch_id) if neighbor_node else 'UNKNOWN'
+                    neighbor_semantic = graph.get_patch_semantic_key(chain.neighbor_patch_id) if neighbor_node else "UNKNOWN"
                     neighbor_suffix = f" -> Patch {chain.neighbor_patch_id}:{neighbor_semantic}"
                 elif neighbor_kind == ChainNeighborKind.SEAM_SELF.value:
                     total_self_seams += 1
@@ -1055,9 +1123,14 @@ def format_patch_graph_report(graph, mesh_name=None):
                     total_mesh_borders += 1
 
                 transition = graph.describe_chain_transition(patch_id, chain)
+                endpoint_neighbors = graph.get_chain_endpoint_neighbors(patch_id, loop_index, chain_index)
+                start_corner = chain.start_corner_index if chain.start_corner_index >= 0 else "-"
+                end_corner = chain.end_corner_index if chain.end_corner_index >= 0 else "-"
                 patch_roles.append(role)
                 loop_details.append(
                     f"      Chain {chain_index}: {role} | neighbor:{neighbor_kind}{neighbor_suffix} | transition:{transition} | "
+                    f"verts:{chain.start_vert_index}->{chain.end_vert_index} | corners:{start_corner}->{end_corner} | "
+                    f"ep:start{_format_chain_refs(endpoint_neighbors['start'])} end{_format_chain_refs(endpoint_neighbors['end'])} | "
                     f"edges:{len(chain.edge_indices)} | length:{_chain_length(chain):.4f}"
                 )
 
@@ -1069,7 +1142,7 @@ def format_patch_graph_report(graph, mesh_name=None):
 
                 loop_details.append(
                     f"      Corner {corner_index}: {corner.corner_type} | chains:{corner.prev_chain_index}->{corner.next_chain_index} | "
-                    f"turn:{corner.turn_angle_deg:.1f} | sharp:{'Y' if is_sharp else 'N'}"
+                    f"vert:{corner.vert_index} | turn:{corner.turn_angle_deg:.1f} | sharp:{'Y' if is_sharp else 'N'}"
                 )
 
         total_chains += chain_count

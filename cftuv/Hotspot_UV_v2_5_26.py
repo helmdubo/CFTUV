@@ -43,6 +43,11 @@ try:
 except ImportError:
     import debug as cftuv_debug
 
+try:
+    from . import solve as cftuv_solve
+except ImportError:
+    import solve as cftuv_solve
+
 # ============================================================
 # CONFIGURATION GLOBALS
 # ============================================================
@@ -458,32 +463,56 @@ def _activate_mesh_object(context, obj):
     return True
 
 
-def _enter_debug_mode(context, obj):
-    """Build PatchGraph analysis, print the report, and create GP debug layers."""
+def _collect_face_indices_for_mesh(context, obj):
     if not _activate_mesh_object(context, obj):
-        return None
+        return []
 
-    s = context.scene.hotspotuv_settings
     original_mode = obj.mode
-
     if obj.mode != 'EDIT':
         bpy.ops.object.mode_set(mode='EDIT')
 
-    bm = bmesh.from_edit_mesh(obj.data)
-    bm.faces.ensure_lookup_table()
-    bm.verts.ensure_lookup_table()
-    bm.edges.ensure_lookup_table()
+    try:
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.faces.ensure_lookup_table()
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
 
-    if original_mode == 'OBJECT':
-        sel_face_indices = [face.index for face in bm.faces]
-    else:
-        sel_face_indices = [face.index for face in bm.faces if face.select]
-        if not sel_face_indices:
-            return None
+        if original_mode == 'OBJECT':
+            return [face.index for face in bm.faces]
 
-    if obj.mode != original_mode:
-        bpy.ops.object.mode_set(mode=original_mode)
+        return [face.index for face in bm.faces if face.select]
+    finally:
+        if obj.mode != original_mode:
+            bpy.ops.object.mode_set(mode=original_mode)
 
+
+def _resolve_flow_debug_target(context):
+    obj = context.active_object
+    if obj is not None and obj.type == 'MESH':
+        return obj, _collect_face_indices_for_mesh(context, obj)
+
+    s = context.scene.hotspotuv_settings
+    source_obj = bpy.data.objects.get(s.dbg_source_object) if s.dbg_source_object else None
+    face_indices = _deserialize_debug_face_indices(s.dbg_face_indices)
+    if source_obj is not None and face_indices:
+        return source_obj, face_indices
+
+    return None, []
+
+
+def _restore_face_selection(bm, face_indices):
+    face_index_set = {int(index) for index in face_indices}
+    for face in bm.faces:
+        face.select = face.index in face_index_set
+
+
+def _enter_debug_mode(context, obj):
+    """Build PatchGraph analysis, print the report, and create GP debug layers."""
+    sel_face_indices = _collect_face_indices_for_mesh(context, obj)
+    if not sel_face_indices:
+        return None
+
+    s = context.scene.hotspotuv_settings
     s.dbg_active = True
     s.dbg_source_object = obj.name
     s.dbg_face_indices = _serialize_debug_face_indices(sel_face_indices)
@@ -556,6 +585,88 @@ class HOTSPOTUV_OT_DebugAnalysis(bpy.types.Operator):
             self.report({"WARNING"}, "No faces selected in Edit Mode")
             return {"CANCELLED"}
         self.report({"INFO"}, report)
+        return {"FINISHED"}
+
+
+class HOTSPOTUV_OT_DebugFlow(bpy.types.Operator):
+    bl_idname = "hotspotuv.debug_flow"
+    bl_label = "Debug: Solve Flow"
+    bl_description = "Print Solve Phase 1 planner and conductivity map"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        s = context.scene.hotspotuv_settings
+        if s.dbg_source_object and s.dbg_face_indices:
+            return True
+        obj = context.active_object
+        return obj is not None and obj.type == 'MESH' and obj.mode in {'EDIT', 'OBJECT'}
+
+    def execute(self, context):
+        source_obj, face_indices = _resolve_flow_debug_target(context)
+        if source_obj is None or not face_indices:
+            self.report({"WARNING"}, "No faces selected in Edit Mode")
+            return {"CANCELLED"}
+
+        patch_graph = _build_patch_graph_for_debug(context, source_obj, face_indices)
+        if patch_graph is None:
+            self.report({"WARNING"}, "Failed to build PatchGraph")
+            return {"CANCELLED"}
+
+        solver_graph = cftuv_solve.build_solver_graph(patch_graph)
+        solve_plan = cftuv_solve.plan_solve_phase1(patch_graph, solver_graph)
+        lines, summary = cftuv_solve.format_solve_plan_report(patch_graph, solver_graph, solve_plan, source_obj.name)
+
+        print('=' * 60)
+        print('CFTUV Solve Flow [Phase1 Planner]')
+        print('=' * 60)
+        for line in lines:
+            print(line)
+        print('=' * 60)
+
+        self.report({"INFO"}, summary)
+        return {"FINISHED"}
+
+
+class HOTSPOTUV_OT_DebugScaffold(bpy.types.Operator):
+    bl_idname = "hotspotuv.debug_scaffold"
+    bl_label = "Debug: Scaffold Map"
+    bl_description = "Print ScaffoldMap coordinates for the current solve runtime state"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        s = context.scene.hotspotuv_settings
+        if s.dbg_source_object and s.dbg_face_indices:
+            return True
+        obj = context.active_object
+        return obj is not None and obj.type == 'MESH' and obj.mode in {'EDIT', 'OBJECT'}
+
+    def execute(self, context):
+        source_obj, face_indices = _resolve_flow_debug_target(context)
+        if source_obj is None or not face_indices:
+            self.report({"WARNING"}, "No faces selected in Edit Mode")
+            return {"CANCELLED"}
+
+        patch_graph = _build_patch_graph_for_debug(context, source_obj, face_indices)
+        if patch_graph is None:
+            self.report({"WARNING"}, "Failed to build PatchGraph")
+            return {"CANCELLED"}
+
+        solver_graph = cftuv_solve.build_solver_graph(patch_graph)
+        solve_plan = cftuv_solve.plan_solve_phase1(patch_graph, solver_graph)
+        settings = UVSettings.from_blender_settings(context.scene.hotspotuv_settings)
+        scaffold_map = cftuv_solve.build_root_scaffold_map(patch_graph, solve_plan, settings.final_scale)
+        lines, summary = cftuv_solve.format_root_scaffold_report(patch_graph, scaffold_map, source_obj.name)
+
+        print('=' * 60)
+        print('CFTUV Scaffold Debug [ScaffoldMap]')
+        print('=' * 60)
+        for line in lines:
+            print(line)
+        print('=' * 60)
+
+        self.report({"INFO"}, summary)
         return {"FINISHED"}
 
 
@@ -1793,6 +1904,77 @@ def normalize_uvs_to_origin(bm, uv_layer, settings):
 # OPERATORS
 # ============================================================
 
+class HOTSPOTUV_OT_SolvePhase1Preview(bpy.types.Operator):
+    bl_idname = "hotspotuv.solve_phase1_preview"
+    bl_label = "Solve Phase 1 Preview"
+    bl_description = "Experimental root-only ScaffoldMap UV preview with final conformal relax"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        s = context.scene.hotspotuv_settings
+        if s.dbg_source_object and s.dbg_face_indices:
+            return True
+        obj = context.active_object
+        return obj is not None and obj.type == 'MESH' and obj.mode in {'EDIT', 'OBJECT'}
+
+    def execute(self, context):
+        import traceback
+
+        source_obj, face_indices = _resolve_flow_debug_target(context)
+        if source_obj is None or not face_indices:
+            self.report({"WARNING"}, "No faces selected in Edit Mode")
+            return {"CANCELLED"}
+
+        original_mode = source_obj.mode
+
+        if not _activate_mesh_object(context, source_obj):
+            self.report({"WARNING"}, "Select a mesh object")
+            return {"CANCELLED"}
+        original_face_indices = []
+
+        try:
+            if source_obj.mode != 'EDIT':
+                bpy.ops.object.mode_set(mode='EDIT')
+
+            bm = bmesh.from_edit_mesh(source_obj.data)
+            bm.faces.ensure_lookup_table()
+            bm.verts.ensure_lookup_table()
+            bm.edges.ensure_lookup_table()
+            original_face_indices = [face.index for face in bm.faces if face.select]
+
+            patch_graph = cftuv_analysis.build_patch_graph(bm, face_indices, source_obj)
+            if patch_graph is None or not patch_graph.nodes:
+                self.report({"WARNING"}, "Failed to build PatchGraph")
+                return {"CANCELLED"}
+
+            solver_graph = cftuv_solve.build_solver_graph(patch_graph)
+            solve_plan = cftuv_solve.plan_solve_phase1(patch_graph, solver_graph)
+            settings = UVSettings.from_blender_settings(context.scene.hotspotuv_settings)
+            result = cftuv_solve.execute_phase1_preview(context, source_obj, bm, patch_graph, settings, solve_plan)
+
+            bm = bmesh.from_edit_mesh(source_obj.data)
+            bm.faces.ensure_lookup_table()
+            _restore_face_selection(bm, original_face_indices or face_indices)
+            bmesh.update_edit_mesh(source_obj.data)
+
+            self.report(
+                {"INFO"},
+                f"Solve Phase 1 preview | patches:{result['patches']} | roots:{result['supported_roots']} | children:{result['attached_children']} | scaffold points:{result['scaffold_points']} | uv loops:{result['pinned_uv_loops']} | quilts:{result['quilts']}"
+            )
+            return {"FINISHED"}
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, f"Solve Phase 1 preview failed: {exc}")
+            return {"CANCELLED"}
+        finally:
+            if source_obj and source_obj.mode != original_mode:
+                try:
+                    bpy.ops.object.mode_set(mode=original_mode)
+                except Exception:
+                    pass
+
+
 class HOTSPOTUV_OT_UnwrapFaces(bpy.types.Operator):
     bl_idname = "hotspotuv.unwrap_faces"
     bl_label = "UV Unwrap Faces"
@@ -2151,6 +2333,7 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         col = layout.column(align=True)
         col.label(text="Face Tools:")
         col.operator("hotspotuv.unwrap_faces", text="UV Unwrap Faces", icon="UV")
+        col.operator("hotspotuv.solve_phase1_preview", text="Solve Phase 1 Preview", icon="MOD_UVPROJECT")
 
         layout.separator()
         col = layout.column(align=True)
@@ -2178,6 +2361,19 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
             col.operator("hotspotuv.debug_analysis", text=analyze_text, icon="PAUSE", depress=True)
         else:
             col.operator("hotspotuv.debug_analysis", text=analyze_text, icon="VIEWZOOM")
+
+        flow_name = ""
+        flow_obj = context.active_object
+        if flow_obj and flow_obj.type == 'MESH':
+            flow_name = flow_obj.name
+        elif s.dbg_source_object:
+            flow_name = s.dbg_source_object
+        else:
+            flow_name = analyze_name
+        flow_text = f"Flow Debug: {flow_name}" if flow_name else "Flow Debug"
+        col.operator("hotspotuv.debug_flow", text=flow_text, icon="NODETREE")
+        scaffold_text = f"Scaffold Debug: {flow_name}" if flow_name else "Scaffold Debug"
+        col.operator("hotspotuv.debug_scaffold", text=scaffold_text, icon="DRIVER_DISTANCE")
 
         if s.dbg_active and s.dbg_source_object:
             stats = _load_debug_stats(s)
@@ -2258,7 +2454,7 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
             col.separator()
             col.operator("hotspotuv.debug_clear", text="Force Clear", icon="X")
 
-classes = (HOTSPOTUV_Settings, HOTSPOTUV_OT_UnwrapFaces, HOTSPOTUV_OT_ManualDock, HOTSPOTUV_OT_SelectSimilar, HOTSPOTUV_OT_StackSimilar, HOTSPOTUV_OT_DebugAnalysis, HOTSPOTUV_OT_DebugClear, HOTSPOTUV_OT_DebugToggleLayer, HOTSPOTUV_OT_DebugToggleGroup, HOTSPOTUV_PT_Panel)
+classes = (HOTSPOTUV_Settings, HOTSPOTUV_OT_SolvePhase1Preview, HOTSPOTUV_OT_UnwrapFaces, HOTSPOTUV_OT_ManualDock, HOTSPOTUV_OT_SelectSimilar, HOTSPOTUV_OT_StackSimilar, HOTSPOTUV_OT_DebugAnalysis, HOTSPOTUV_OT_DebugFlow, HOTSPOTUV_OT_DebugScaffold, HOTSPOTUV_OT_DebugClear, HOTSPOTUV_OT_DebugToggleLayer, HOTSPOTUV_OT_DebugToggleGroup, HOTSPOTUV_PT_Panel)
 
 def register():
     for cls in classes: bpy.utils.register_class(cls)

@@ -1,5 +1,5 @@
 # CFTUV Architecture - Practical Refactoring Plan
-## v1.3 - Hole Placement / Two-Pass Solve Update
+## v1.4 - ScaffoldMap / Flow-Driven Runtime Solve Update
 
 ## Принцип
 
@@ -22,7 +22,7 @@
 - `cftuv/debug.py` существует и читает `PatchGraph` напрямую.
 - `cftuv/__init__.py` уже работает как package entrypoint Blender addon.
 - `cftuv/Hotspot_UV_v2_5_26.py` пока остаётся рабочей точкой входа, UI-слоем и временным host-модулем.
-- `solve.py` и `operators.py` ещё не выделены в отдельные файлы.
+- `cftuv/solve.py` already exists as a planner/debug + runtime preview layer; `operators.py` is still not extracted.
 
 То есть архитектурная модель уже формализована, но runtime всё ещё частично живёт в монолите.
 
@@ -52,18 +52,20 @@ cftuv/
 |-- constants.py
 |-- analysis.py
 |-- debug.py
+|-- solve.py
 `-- Hotspot_UV_v2_5_26.py
 ```
+`operators.py` remains the next major extraction, while `solve.py` moves into ScaffoldMap-driven runtime solve.
 
-`solve.py` и `operators.py` остаются следующей крупной фазой.
 
 ---
 
 ## Поток данных
 
 ```text
-UI / Operators -> analysis.py -> PatchGraph -> solve.py
+UI / Operators -> analysis.py -> PatchGraph -> solve.py -> ScaffoldMap -> UV
                                  PatchGraph -> debug.py
+                                 PatchGraph -> solve.py -> SolverGraph -> ScaffoldMap
 ```
 
 Правило границ:
@@ -383,7 +385,7 @@ Grease Pencil debug работает через semantic filters, а не чер
 
 ## solve.py
 
-`solve.py` ещё не выделен, но его контракт уже зафиксирован.
+`solve.py` is already extracted, and its next step is to move from preview runtime to full ScaffoldMap-driven solve.
 
 Он должен:
 
@@ -786,13 +788,13 @@ GP_DEBUG_PREFIX = "CFTUV_Debug_"
 
 ### Phase 4 - next
 
-- extract `solve.py`
-- formalize `Solve Phase 1` through certainty field and `forest of quilts`
-- build solve-time `SolverGraph` as a filtered view over `PatchGraph`
-- migrate unwrap / dock / align logic
-- implement root selection, strongest-frontier propagation, and new-root restart logic
+- formalize `ScaffoldMap` as solve-level IR above `PatchGraph`
+- rewrite runtime solve from local patch preview to flow-driven quilt builder
+- keep `SolverGraph` as planning layer and add `ScaffoldMap` as construction layer
+- migrate unwrap / dock / align logic onto ScaffoldMap-driven runtime
+- implement root-at-origin, strongest-frontier propagation, and new-root restart logic in runtime
 - convert the operator layer into thin wrappers
-- start using `corners` and endpoint topology in pin / continuation workflow
+- start using `corners`, endpoint topology, and side-aware point keys in pin / continuation workflow
 
 ### Phase 5 - cleanup / stabilization
 
@@ -911,3 +913,212 @@ It is a planning debugger for the `certainty field / forest of quilts` policy.
 
 A separate `Solve Phase 1 Preview` operator is allowed to call the runtime preview tier.
 It is intentionally parallel to the legacy unwrap operator and does not replace it yet.
+
+
+---
+
+## ScaffoldMap addendum
+
+`ScaffoldMap` is the new solve-level IR that sits above `PatchGraph`.
+
+Rule of responsibility:
+
+- `PatchGraph` stores topology facts
+- `SolverGraph` stores planning / conductivity facts
+- `ScaffoldMap` stores constructed 2D placement facts
+
+The critical architectural rule is:
+
+- UV coordinates must be born from already placed `chain` / `corner` anchors
+- UV placement must not be derived from per-patch centroid projection once runtime solve starts
+
+### Why ScaffoldMap is needed
+
+The current preview proved that local patch projection is not enough.
+The cylinder `SEAM_SELF` case showed the real blocker:
+
+- one `BMVert` can correspond to two different UV-side positions
+- therefore solve cannot use plain `vert_index` as the only placement key
+- solve needs a side-aware 2D map before writing anything to BMesh UV
+
+### ScaffoldMap minimum content
+
+Minimal `ScaffoldMap v1` should contain:
+
+- `quilts`
+- `patch placements`
+- `chain placements`
+- `corner placements`
+- local patch bbox / extents
+- quilt-global transform (can start as identity)
+
+A point in ScaffoldMap must be addressed by a solve-side key, not by raw mesh vertex id alone.
+
+Minimum acceptable point key for `v1`:
+
+- `patch_id`
+- `loop_index`
+- `chain_index`
+- `source_point_index`
+
+Equivalent side-aware keys are allowed, but plain `vert_index` is not sufficient.
+
+Boundary serialization must also preserve side-aware face ownership:
+
+- `BoundaryLoop.side_face_indices`
+- `BoundaryChain.side_face_indices`
+
+These indices are required to transfer ScaffoldMap points into UV without collapsing `SEAM_SELF`.
+
+### Runtime build rule
+
+Runtime solve must follow `SolvePlan` as a build order, not just as a sorted patch list.
+
+That means:
+
+1. choose quilt root
+2. place root at UV origin `(0, 0)` in virtual 2D space
+3. build root frame scaffold chain-by-chain and corner-by-corner
+4. for each next `SolvePlan` step, attach target patch to the already placed owner chain
+5. extend the virtual scaffold map
+6. only after scaffold exists, transfer it into BMesh UV and run `Conformal` for unresolved vertices
+
+### Root / child runtime policy
+
+Root patch:
+
+- starts from its first chosen frame chain
+- first point may be `(0, 0)`
+- next points are built step-by-step from chain length and role
+- loop corners become explicit placed points in ScaffoldMap
+
+Child patch:
+
+- is not projected independently
+- is attached through `owner_chain -> target_chain` from `SolvePlan`
+- inherits its first concrete UV anchors from the already placed owner chain
+- extends the quilt scaffold from existing placed geometry
+
+Root scaffold walk rule:
+
+- root loop does not start from an arbitrary first chain
+- builder chooses a start chain by local chain score
+- then walks the loop by continuity from current chain to next chain
+- next segment direction is agreed through the corner turn between sequential chains
+- chain / corner / patch order must follow the same score-driven hierarchy used by solve planning
+
+### Conformal usage under ScaffoldMap
+
+`Conformal` is a late-stage completion tool.
+
+It may solve:
+
+- interior patch vertices
+- unresolved `FREE` chain interior samples
+- later, the internal field around `HOLE` loops
+
+It may not decide primary frame placement.
+
+### Observable implementation roadmap
+
+The first ScaffoldMap iterations must give visible output either in logs or in UV Editor.
+
+#### Iteration 1 - Root Scaffold Log
+
+Goal:
+
+- no UV write required
+- print the virtual 2D coordinates of the root patch scaffold
+
+Current status:
+
+- implemented as `Scaffold Debug` operator
+- prints root quilt scaffold coordinates into System Console
+- now supports `Corner v2` / geometric corners inside one `FREE` loop
+- can derive root `Span` segments from those geometric corners for simple frame-shaped loops
+
+Output:
+
+- quilt root id
+- placed corner coordinates
+- placed frame chain sample coordinates
+- patch bbox / extents
+
+This verifies that runtime construction already exists independently of BMesh UV.
+
+#### Iteration 2 - Root UV Preview
+
+Goal:
+
+- take the root scaffold from ScaffoldMap
+- write only root frame points into UV
+- pin them
+- run `Conformal` for the rest of the same patch
+
+Current status:
+
+- implemented as root-only `Solve Phase 1 Preview` runtime pass
+- uses `ScaffoldMap` root placements instead of centroid projection
+- writes side-aware scaffold points into UV, pins them, then runs `Conformal` for unresolved vertices
+
+Output:
+
+- visible root patch scaffold in UV Editor
+- log with supported root count, scaffold point count and pinned UV loop count
+
+#### Iteration 3 - Owner-Chain Anchored Child Scaffold
+
+Goal:
+
+- attach child patches through `owner_chain -> target_chain`
+- build quilt growth from already placed scaffold data
+- transfer root + supported child scaffolds into UV from one shared `ScaffoldMap`
+
+Current status:
+
+- runtime preview no longer uses coarse reference placement for child patches
+- child scaffold is now built from the already placed owner chain of the current quilt
+- target patch uses `target_chain` as entry anchor and continues by loop continuity and corner turns
+- unsupported patches still remain outside the placed scaffold and fall back to later iterations
+
+Output:
+
+- visible root + supported child quilt relation in UV Editor
+- log showing supported roots, attached child count and total scaffold point count
+
+#### Iteration 4 - Full H/V Quilt Runtime
+
+Goal:
+
+- build the entire quilt for patches whose scaffold is dominated by `H_FRAME / V_FRAME`
+- do not rely on centroid placement
+
+Output:
+
+- full multi-patch quilt visible in UV
+- log of quilt-local bboxes and final quilt bbox
+
+#### Iteration 5 - FREE and HOLE integration
+
+Goal:
+
+- bind `FREE` endpoints from already placed scaffold
+- let `Conformal` solve unresolved `FREE` interiors
+- bring back dedicated two-pass placement for `HOLE` loops
+
+Output:
+
+- mixed H/V/FREE patches become viable
+- patches with `HOLE` no longer depend on local projection
+
+### Future value of ScaffoldMap
+
+`ScaffoldMap` is not only a runtime helper. It is the natural base for future operators:
+
+- patch-local transform tools
+- chain reclassification (`FREE -> H/V`)
+- manual re-docking
+- patch bbox-aware placement tools
+- cached re-solve after local edits
+
+This means ScaffoldMap should be treated as a first-class architectural layer, not as a temporary preview cache.

@@ -49,11 +49,17 @@ class ChainNeighborKind(str, Enum):
 class BoundaryChain:
     """Continuous part of a boundary loop with one neighbor."""
 
+    vert_indices: list[int] = field(default_factory=list)
     vert_cos: list[Vector] = field(default_factory=list)
     edge_indices: list[int] = field(default_factory=list)
+    side_face_indices: list[int] = field(default_factory=list)
     neighbor_patch_id: int = -1
     is_closed: bool = False
     frame_role: FrameRole = FrameRole.FREE
+    start_loop_index: int = 0
+    end_loop_index: int = 0
+    start_corner_index: int = -1
+    end_corner_index: int = -1
 
     @property
     def neighbor_kind(self) -> ChainNeighborKind:
@@ -69,12 +75,21 @@ class BoundaryChain:
     def has_patch_neighbor(self) -> bool:
         return self.neighbor_kind == ChainNeighborKind.PATCH
 
+    @property
+    def start_vert_index(self) -> int:
+        return self.vert_indices[0] if self.vert_indices else -1
+
+    @property
+    def end_vert_index(self) -> int:
+        return self.vert_indices[-1] if self.vert_indices else -1
+
 
 @dataclass
 class BoundaryCorner:
     """Junction corner between two neighboring chains inside one loop."""
 
     loop_vert_index: int = 0
+    vert_index: int = -1
     vert_co: Vector = field(default_factory=lambda: Vector((0.0, 0.0, 0.0)))
     prev_chain_index: int = 0
     next_chain_index: int = 0
@@ -91,8 +106,10 @@ class BoundaryCorner:
 class BoundaryLoop:
     """Closed boundary loop of a patch."""
 
+    vert_indices: list[int] = field(default_factory=list)
     vert_cos: list[Vector] = field(default_factory=list)
     edge_indices: list[int] = field(default_factory=list)
+    side_face_indices: list[int] = field(default_factory=list)
     kind: LoopKind = LoopKind.OUTER
     depth: int = 0
     chains: list[BoundaryChain] = field(default_factory=list)
@@ -195,6 +212,52 @@ class PatchGraph:
             return "UNKNOWN"
         return node.semantic_key
 
+    def get_chain(self, patch_id: int, loop_index: int, chain_index: int) -> Optional[BoundaryChain]:
+        node = self.nodes.get(patch_id)
+        if node is None or loop_index < 0 or loop_index >= len(node.boundary_loops):
+            return None
+        boundary_loop = node.boundary_loops[loop_index]
+        if chain_index < 0 or chain_index >= len(boundary_loop.chains):
+            return None
+        return boundary_loop.chains[chain_index]
+
+    def find_chains_touching_vertex(
+        self,
+        patch_id: int,
+        vert_index: int,
+        exclude: Optional[tuple[int, int]] = None,
+    ) -> list[tuple[int, int]]:
+        node = self.nodes.get(patch_id)
+        if node is None or vert_index < 0:
+            return []
+
+        matches = []
+        for loop_index, boundary_loop in enumerate(node.boundary_loops):
+            for chain_index, chain in enumerate(boundary_loop.chains):
+                if exclude == (loop_index, chain_index):
+                    continue
+                if chain.start_vert_index == vert_index or chain.end_vert_index == vert_index:
+                    matches.append((loop_index, chain_index))
+        return matches
+
+    def get_chain_endpoint_neighbors(self, patch_id: int, loop_index: int, chain_index: int) -> dict[str, list[tuple[int, int]]]:
+        chain = self.get_chain(patch_id, loop_index, chain_index)
+        if chain is None:
+            return {"start": [], "end": []}
+
+        return {
+            "start": self.find_chains_touching_vertex(
+                patch_id,
+                chain.start_vert_index,
+                exclude=(loop_index, chain_index),
+            ),
+            "end": self.find_chains_touching_vertex(
+                patch_id,
+                chain.end_vert_index,
+                exclude=(loop_index, chain_index),
+            ),
+        }
+
     def describe_chain_transition(self, owner_patch_id: int, chain: BoundaryChain) -> str:
         owner_key = self.get_patch_semantic_key(owner_patch_id)
         neighbor_kind = chain.neighbor_kind.value if hasattr(chain.neighbor_kind, "value") else str(chain.neighbor_kind)
@@ -249,4 +312,3 @@ class PatchGraph:
                         stack.append(neighbor_id)
             components.append(component)
         return components
-
