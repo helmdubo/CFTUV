@@ -2362,7 +2362,26 @@ def _print_phase1_preview_quilt_report(quilt_index: int, patch_ids: list[int], s
     )
 
 
-def execute_phase1_preview(context, obj, bm, patch_graph: PatchGraph, settings, solve_plan: Optional[SolvePlan] = None) -> dict[str, int]:
+def _collect_phase1_unsupported_patch_ids(scaffold_map: ScaffoldMap) -> list[int]:
+    unsupported_patch_ids = set()
+    for quilt_scaffold in scaffold_map.quilts:
+        for patch_id, patch_placement in quilt_scaffold.patches.items():
+            if not _patch_scaffold_is_supported(patch_placement):
+                unsupported_patch_ids.add(patch_id)
+    return sorted(unsupported_patch_ids)
+
+
+
+def _execute_phase1_preview_impl(
+    context,
+    obj,
+    bm,
+    patch_graph: PatchGraph,
+    settings,
+    solve_plan: Optional[SolvePlan] = None,
+    run_conformal: bool = True,
+    keep_pins: bool = False,
+) -> dict[str, object]:
     import bmesh
     import bpy
 
@@ -2381,6 +2400,9 @@ def execute_phase1_preview(context, obj, bm, patch_graph: PatchGraph, settings, 
             'quilts': 0,
             'attached_children': 0,
             'invalid_scaffold_patches': 0,
+            'unsupported_patch_count': 0,
+            'unsupported_patch_ids': [],
+            'conformal_applied': 0,
         }
 
     bm.faces.ensure_lookup_table()
@@ -2390,6 +2412,9 @@ def execute_phase1_preview(context, obj, bm, patch_graph: PatchGraph, settings, 
     _clear_patch_pins(bm, patch_graph, uv_layer, patch_ids)
 
     scaffold_map = build_root_scaffold_map(patch_graph, solve_plan, settings.final_scale)
+    unsupported_patch_ids = _collect_phase1_unsupported_patch_ids(scaffold_map)
+    if unsupported_patch_ids:
+        print(f"[CFTUV][Phase1] Unsupported patches: {unsupported_patch_ids}")
     quilt_plan_by_index = {quilt.quilt_index: quilt for quilt in solve_plan.quilts} if solve_plan is not None else {}
 
     x_cursor = 0.0
@@ -2405,6 +2430,7 @@ def execute_phase1_preview(context, obj, bm, patch_graph: PatchGraph, settings, 
     invalid_scaffold_patches = 0
     quilt_margin = max(settings.final_scale * 2.0, 0.25)
     global_supported_patch_ids: set[int] = set()
+    conformal_applied = 0
 
     for quilt_scaffold in scaffold_map.quilts:
         quilt_plan = quilt_plan_by_index.get(quilt_scaffold.quilt_index)
@@ -2469,7 +2495,7 @@ def execute_phase1_preview(context, obj, bm, patch_graph: PatchGraph, settings, 
         bmesh.update_edit_mesh(obj.data)
         x_cursor += quilt_width + quilt_margin
 
-    if pinned_uv_loops > 0 and global_supported_patch_ids:
+    if run_conformal and pinned_uv_loops > 0 and global_supported_patch_ids:
         bm = bmesh.from_edit_mesh(obj.data)
         bm.faces.ensure_lookup_table()
         bm.verts.ensure_lookup_table()
@@ -2483,21 +2509,26 @@ def execute_phase1_preview(context, obj, bm, patch_graph: PatchGraph, settings, 
             f"patches={supported_patch_ids}"
         )
         bpy.ops.uv.unwrap(method='CONFORMAL', margin=0.0)
+        conformal_applied = 1
+        if not keep_pins:
+            bm = bmesh.from_edit_mesh(obj.data)
+            bm.faces.ensure_lookup_table()
+            bm.verts.ensure_lookup_table()
+            bm.edges.ensure_lookup_table()
+            uv_layer = bm.loops.layers.uv.verify()
+            _clear_patch_pins(bm, patch_graph, uv_layer, supported_patch_ids)
+            bmesh.update_edit_mesh(obj.data)
+    elif not run_conformal:
+        print(f"[CFTUV][Phase1] Transfer Only: quilts={len(scaffold_map.quilts)} patches={sorted(global_supported_patch_ids)}")
+
+    if not keep_pins:
         bm = bmesh.from_edit_mesh(obj.data)
         bm.faces.ensure_lookup_table()
         bm.verts.ensure_lookup_table()
         bm.edges.ensure_lookup_table()
         uv_layer = bm.loops.layers.uv.verify()
-        _clear_patch_pins(bm, patch_graph, uv_layer, supported_patch_ids)
+        _clear_patch_pins(bm, patch_graph, uv_layer, patch_ids)
         bmesh.update_edit_mesh(obj.data)
-
-    bm = bmesh.from_edit_mesh(obj.data)
-    bm.faces.ensure_lookup_table()
-    bm.verts.ensure_lookup_table()
-    bm.edges.ensure_lookup_table()
-    uv_layer = bm.loops.layers.uv.verify()
-    _clear_patch_pins(bm, patch_graph, uv_layer, patch_ids)
-    bmesh.update_edit_mesh(obj.data)
 
     return {
         'patches': len(patch_ids),
@@ -2512,7 +2543,38 @@ def execute_phase1_preview(context, obj, bm, patch_graph: PatchGraph, settings, 
         'quilts': len(scaffold_map.quilts),
         'attached_children': attached_children,
         'invalid_scaffold_patches': invalid_scaffold_patches,
+        'unsupported_patch_count': len(unsupported_patch_ids),
+        'unsupported_patch_ids': unsupported_patch_ids,
+        'conformal_applied': conformal_applied,
     }
+
+
+
+def execute_phase1_preview(context, obj, bm, patch_graph: PatchGraph, settings, solve_plan: Optional[SolvePlan] = None) -> dict[str, object]:
+    return _execute_phase1_preview_impl(
+        context,
+        obj,
+        bm,
+        patch_graph,
+        settings,
+        solve_plan,
+        run_conformal=True,
+        keep_pins=False,
+    )
+
+
+
+def execute_phase1_transfer_only(context, obj, bm, patch_graph: PatchGraph, settings, solve_plan: Optional[SolvePlan] = None) -> dict[str, object]:
+    return _execute_phase1_preview_impl(
+        context,
+        obj,
+        bm,
+        patch_graph,
+        settings,
+        solve_plan,
+        run_conformal=False,
+        keep_pins=True,
+    )
 
 
 def _format_patch_signature(graph: PatchGraph, patch_id: int) -> str:

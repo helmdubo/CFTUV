@@ -23,6 +23,7 @@ try:
         build_root_scaffold_map as mod_build_root_scaffold_map,
         build_solver_graph as mod_build_solver_graph,
         execute_phase1_preview as mod_execute_phase1_preview,
+        execute_phase1_transfer_only as mod_execute_phase1_transfer_only,
         format_root_scaffold_report as mod_format_root_scaffold_report,
         format_solve_plan_report as mod_format_solve_plan_report,
         plan_solve_phase1 as mod_plan_solve_phase1,
@@ -36,6 +37,7 @@ except ImportError:
             build_root_scaffold_map as mod_build_root_scaffold_map,
             build_solver_graph as mod_build_solver_graph,
             execute_phase1_preview as mod_execute_phase1_preview,
+            execute_phase1_transfer_only as mod_execute_phase1_transfer_only,
             format_root_scaffold_report as mod_format_root_scaffold_report,
             format_solve_plan_report as mod_format_solve_plan_report,
             plan_solve_phase1 as mod_plan_solve_phase1,
@@ -49,6 +51,7 @@ except ImportError:
         mod_build_root_scaffold_map = None
         mod_build_solver_graph = None
         mod_execute_phase1_preview = None
+        mod_execute_phase1_transfer_only = None
         mod_format_root_scaffold_report = None
         mod_format_solve_plan_report = None
         mod_plan_solve_phase1 = None
@@ -114,6 +117,7 @@ def _modular_runtime_available():
         mod_build_root_scaffold_map,
         mod_build_solver_graph,
         mod_execute_phase1_preview,
+        mod_execute_phase1_transfer_only,
         mod_format_root_scaffold_report,
         mod_format_solve_plan_report,
         mod_plan_solve_phase1,
@@ -3218,6 +3222,39 @@ class HOTSPOTUV_OT_ScaffoldDebug(bpy.types.Operator):
                 _restore_mode_and_selection(obj, original_mode, selected_face_indices)
 
 
+
+class HOTSPOTUV_OT_SolvePhase1TransferOnly(bpy.types.Operator):
+    bl_idname = "hotspotuv.solve_phase1_transfer_only"
+    bl_label = "Solve Phase 1 Transfer Only"
+    bl_description = "Write ScaffoldMap UVs without running Conformal and keep pins for inspection"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.type == 'MESH' and obj.mode in {'EDIT', 'OBJECT'}
+
+    def execute(self, context):
+        try:
+            obj, bm, patch_graph, solver_graph, solve_plan, settings, original_mode, selected_face_indices = _build_modular_solve_state(context)
+            stats = mod_execute_phase1_transfer_only(context, obj, bm, patch_graph, settings, solve_plan)
+            summary = (
+                f"Phase1 transfer_only quilts:{stats.get('quilts', 0)} roots:{stats.get('supported_roots', 0)} "
+                f"children:{stats.get('attached_children', 0)} invalid:{stats.get('invalid_scaffold_patches', 0)} "
+                f"unsupported:{stats.get('unsupported_patch_count', 0)} unresolved:{stats.get('unresolved_scaffold_points', 0)} "
+                f"missing:{stats.get('missing_uv_targets', 0)} conflicts:{stats.get('conflicting_uv_targets', 0)}"
+            )
+            print(f"[CFTUV][Phase1] Summary: {summary}")
+            self.report({"INFO"}, summary)
+            return {"FINISHED"}
+        except Exception as exc:
+            self.report({"ERROR"}, f"Solve Phase 1 Transfer Only failed: {exc}")
+            return {"CANCELLED"}
+        finally:
+            if 'obj' in locals() and 'original_mode' in locals() and 'selected_face_indices' in locals():
+                _restore_mode_and_selection(obj, original_mode, selected_face_indices)
+
+
 class HOTSPOTUV_OT_SolvePhase1Preview(bpy.types.Operator):
     bl_idname = "hotspotuv.solve_phase1_preview"
     bl_label = "Solve Phase 1 Preview"
@@ -3236,8 +3273,8 @@ class HOTSPOTUV_OT_SolvePhase1Preview(bpy.types.Operator):
             summary = (
                 f"Phase1 quilts:{stats.get('quilts', 0)} roots:{stats.get('supported_roots', 0)} "
                 f"children:{stats.get('attached_children', 0)} invalid:{stats.get('invalid_scaffold_patches', 0)} "
-                f"unresolved:{stats.get('unresolved_scaffold_points', 0)} missing:{stats.get('missing_uv_targets', 0)} "
-                f"conflicts:{stats.get('conflicting_uv_targets', 0)}"
+                f"unsupported:{stats.get('unsupported_patch_count', 0)} unresolved:{stats.get('unresolved_scaffold_points', 0)} "
+                f"missing:{stats.get('missing_uv_targets', 0)} conflicts:{stats.get('conflicting_uv_targets', 0)}"
             )
             print(f"[CFTUV][Phase1] Summary: {summary}")
             self.report({"INFO"}, summary)
@@ -3290,6 +3327,7 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         col.label(text="Debug:")
         col.operator("hotspotuv.flow_debug", text="Flow Debug", icon="SORTSIZE")
         col.operator("hotspotuv.scaffold_debug", text="Scaffold Debug", icon="MESH_GRID")
+        col.operator("hotspotuv.solve_phase1_transfer_only", text="Solve Phase 1 Transfer Only", icon="PINNED")
         col.operator("hotspotuv.solve_phase1_preview", text="Solve Phase 1 Preview", icon="UV")
 
         # Analyze toggle button
@@ -3385,7 +3423,7 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
             col.separator()
             col.operator("hotspotuv.debug_clear", text="Force Clear", icon="X")
 
-classes = (HOTSPOTUV_Settings, HOTSPOTUV_OT_UnwrapFaces, HOTSPOTUV_OT_ManualDock, HOTSPOTUV_OT_SelectSimilar, HOTSPOTUV_OT_StackSimilar, HOTSPOTUV_OT_DebugAnalysis, HOTSPOTUV_OT_FlowDebug, HOTSPOTUV_OT_ScaffoldDebug, HOTSPOTUV_OT_SolvePhase1Preview, HOTSPOTUV_OT_DebugClear, HOTSPOTUV_OT_DebugToggleLayer, HOTSPOTUV_OT_DebugToggleGroup, HOTSPOTUV_PT_Panel)
+classes = (HOTSPOTUV_Settings, HOTSPOTUV_OT_UnwrapFaces, HOTSPOTUV_OT_ManualDock, HOTSPOTUV_OT_SelectSimilar, HOTSPOTUV_OT_StackSimilar, HOTSPOTUV_OT_DebugAnalysis, HOTSPOTUV_OT_FlowDebug, HOTSPOTUV_OT_ScaffoldDebug, HOTSPOTUV_OT_SolvePhase1TransferOnly, HOTSPOTUV_OT_SolvePhase1Preview, HOTSPOTUV_OT_DebugClear, HOTSPOTUV_OT_DebugToggleLayer, HOTSPOTUV_OT_DebugToggleGroup, HOTSPOTUV_PT_Panel)
 
 def register():
     for cls in classes: bpy.utils.register_class(cls)
