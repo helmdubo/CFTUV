@@ -2279,7 +2279,10 @@ def _cf_is_adjacent(chain_a_idx, chain_b_idx, boundary_loop):
 def _cf_find_anchors(chain_ref, chain, graph, point_registry, vert_to_placements, placed_refs):
     """Ищет anchor UV для start и end вершин chain.
 
-    Same-patch: через corner adjacency (не берёт другую сторону SEAM_SELF).
+    Same-patch: через CORNER TOPOLOGY.
+    Corner однозначно определяет: prev_chain.end → next_chain.start.
+    Это корректно для SEAM_SELF, где vert_index дублируется в loop.
+
     Cross-patch: через vert_index (seam connection).
 
     Returns: (start_uv, end_uv, known_endpoints)
@@ -2295,37 +2298,42 @@ def _cf_find_anchors(chain_ref, chain, graph, point_registry, vert_to_placements
     start_uv = None
     end_uv = None
 
-    # --- Same-patch: corner adjacency only ---
-    for placed_ref in placed_refs:
-        if placed_ref[0] != patch_id or placed_ref[1] != loop_index:
-            continue
-        p_chain_idx = placed_ref[2]
-        if not _cf_is_adjacent(chain_index, p_chain_idx, boundary_loop):
-            continue
-        p_chain = boundary_loop.chains[p_chain_idx]
-        p_last = len(p_chain.vert_indices) - 1
+    # --- Same-patch: corner topology ---
+    # Corner: prev_chain.END → next_chain.START (через общую вершину угла)
+    #
+    # Если наш chain = next_chain в corner:
+    #   prev_chain уже размещён? → его последняя точка = наш start anchor
+    #
+    # Если наш chain = prev_chain в corner:
+    #   next_chain уже размещён? → его первая точка = наш end anchor
 
-        if start_uv is None:
-            if p_chain.end_vert_index == start_vert:
-                key = (placed_ref[0], placed_ref[1], placed_ref[2], p_last)
-                if key in point_registry:
-                    start_uv = point_registry[key]
-            elif p_chain.start_vert_index == start_vert:
-                key = (placed_ref[0], placed_ref[1], placed_ref[2], 0)
-                if key in point_registry:
-                    start_uv = point_registry[key]
+    for corner in boundary_loop.corners:
+        prev_ci = corner.prev_chain_index
+        next_ci = corner.next_chain_index
 
-        if end_uv is None:
-            if p_chain.end_vert_index == end_vert:
-                key = (placed_ref[0], placed_ref[1], placed_ref[2], p_last)
-                if key in point_registry:
-                    end_uv = point_registry[key]
-            elif p_chain.start_vert_index == end_vert:
-                key = (placed_ref[0], placed_ref[1], placed_ref[2], 0)
+        if next_ci == chain_index and start_uv is None:
+            # Наш chain = next → ищем anchor от prev_chain.end
+            prev_ref = (patch_id, loop_index, prev_ci)
+            if prev_ref in placed_refs:
+                p_chain = boundary_loop.chains[prev_ci]
+                p_last = len(p_chain.vert_indices) - 1
+                if p_last >= 0:
+                    key = (patch_id, loop_index, prev_ci, p_last)
+                    if key in point_registry:
+                        start_uv = point_registry[key]
+
+        if prev_ci == chain_index and end_uv is None:
+            # Наш chain = prev → ищем anchor от next_chain.start
+            next_ref = (patch_id, loop_index, next_ci)
+            if next_ref in placed_refs:
+                key = (patch_id, loop_index, next_ci, 0)
                 if key in point_registry:
                     end_uv = point_registry[key]
 
     # --- Cross-patch: vert_index match ---
+    # Для seam между разными patches: vert_index безопасен,
+    # т.к. стороны в разных patches, нет SEAM_SELF конфликта.
+
     if start_uv is None and start_vert >= 0 and start_vert in vert_to_placements:
         for other_ref, pt_idx in vert_to_placements[start_vert]:
             if other_ref[0] != patch_id:
@@ -2344,7 +2352,6 @@ def _cf_find_anchors(chain_ref, chain, graph, point_registry, vert_to_placements
 
     known = (1 if start_uv is not None else 0) + (1 if end_uv is not None else 0)
     return start_uv, end_uv, known
-
 
 def _cf_score_candidate(chain_ref, chain, node, known, graph, placed_in_patch):
     """Chain-level score для frontier candidate.
