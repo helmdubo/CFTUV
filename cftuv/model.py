@@ -47,7 +47,8 @@ class ChainNeighborKind(str, Enum):
 
 @dataclass
 class BoundaryChain:
-    """Continuous part of a boundary loop with one neighbor."""
+    """Continuous part of a boundary loop with one neighbor.
+    Chain — первичная единица placement в solve."""
 
     vert_indices: list[int] = field(default_factory=list)
     vert_cos: list[Vector] = field(default_factory=list)
@@ -86,7 +87,9 @@ class BoundaryChain:
 
 @dataclass
 class BoundaryCorner:
-    """Junction corner between two neighboring chains inside one loop."""
+    """Junction corner between two neighboring chains inside one loop.
+    Corner не имеет собственных координат — его позиция возникает
+    как результат размещения chains."""
 
     loop_vert_index: int = 0
     vert_index: int = -1
@@ -177,6 +180,36 @@ class UVSettings:
             uv_range_limit=float(settings.uv_range_limit),
         )
 
+
+# ============================================================
+# ScaffoldSegment — формализованная единица placement в solve
+# Замена анонимным dict-ам в _collect_patch_segments_for_loop()
+# Phase 3 forward-compatibility
+# ============================================================
+
+@dataclass
+class ScaffoldSegment:
+    """Formalized placement unit inside ScaffoldMap.
+
+    Replaces anonymous dicts with keys 'segment_index', 'role', 'source_kind', etc.
+    Used by solve.py chain frontier builder.
+
+    source_kind:
+        'chain' — segment corresponds to a real BoundaryChain
+        'span'  — segment derived from geometric corners of a single FREE loop
+    """
+
+    segment_index: int = 0
+    role: FrameRole = FrameRole.FREE
+    source_kind: str = "chain"
+    start_corner_index: int = -1
+    end_corner_index: int = -1
+    points: list[tuple[int, Vector]] = field(default_factory=list)
+
+
+# ============================================================
+# PatchGraph — центральный IR
+# ============================================================
 
 @dataclass
 class PatchGraph:
