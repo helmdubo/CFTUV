@@ -15,6 +15,44 @@ import colorsys
 from mathutils import Vector
 from bpy.props import PointerProperty, IntProperty, FloatProperty, EnumProperty, BoolProperty, StringProperty
 
+try:
+    from .analysis import build_patch_graph as mod_build_patch_graph, format_patch_graph_report as mod_format_patch_graph_report
+    from .debug import create_visualization as mod_create_visualization, clear_visualization as mod_clear_visualization
+    from .model import UVSettings as ModUVSettings
+    from .solve import (
+        build_root_scaffold_map as mod_build_root_scaffold_map,
+        build_solver_graph as mod_build_solver_graph,
+        execute_phase1_preview as mod_execute_phase1_preview,
+        format_root_scaffold_report as mod_format_root_scaffold_report,
+        format_solve_plan_report as mod_format_solve_plan_report,
+        plan_solve_phase1 as mod_plan_solve_phase1,
+    )
+except ImportError:
+    try:
+        from analysis import build_patch_graph as mod_build_patch_graph, format_patch_graph_report as mod_format_patch_graph_report
+        from debug import create_visualization as mod_create_visualization, clear_visualization as mod_clear_visualization
+        from model import UVSettings as ModUVSettings
+        from solve import (
+            build_root_scaffold_map as mod_build_root_scaffold_map,
+            build_solver_graph as mod_build_solver_graph,
+            execute_phase1_preview as mod_execute_phase1_preview,
+            format_root_scaffold_report as mod_format_root_scaffold_report,
+            format_solve_plan_report as mod_format_solve_plan_report,
+            plan_solve_phase1 as mod_plan_solve_phase1,
+        )
+    except ImportError:
+        mod_build_patch_graph = None
+        mod_format_patch_graph_report = None
+        mod_create_visualization = None
+        mod_clear_visualization = None
+        ModUVSettings = None
+        mod_build_root_scaffold_map = None
+        mod_build_solver_graph = None
+        mod_execute_phase1_preview = None
+        mod_format_root_scaffold_report = None
+        mod_format_solve_plan_report = None
+        mod_plan_solve_phase1 = None
+
 # ============================================================
 # CONFIGURATION GLOBALS
 # ============================================================
@@ -64,6 +102,114 @@ def _apply_settings_to_globals(settings: HOTSPOTUV_Settings):
     UV_SCALE_MULTIPLIER  = float(settings.uv_scale)
     UV_RANGE_LIMIT       = float(settings.uv_range_limit)
     FINAL_UV_SCALE = (TARGET_TEXEL_DENSITY / TEXTURE_SIZE) * UV_SCALE_MULTIPLIER
+
+
+def _modular_runtime_available():
+    return all((
+        mod_build_patch_graph,
+        mod_format_patch_graph_report,
+        mod_create_visualization,
+        mod_clear_visualization,
+        ModUVSettings,
+        mod_build_root_scaffold_map,
+        mod_build_solver_graph,
+        mod_execute_phase1_preview,
+        mod_format_root_scaffold_report,
+        mod_format_solve_plan_report,
+        mod_plan_solve_phase1,
+    ))
+
+
+def _build_modular_debug_settings(settings: HOTSPOTUV_Settings):
+    loops_visible = bool(settings.dbg_grp_loops)
+    overlay_visible = bool(settings.dbg_grp_overlay)
+    return {
+        'patches_wall': bool(settings.dbg_grp_patches and settings.dbg_patches_wall),
+        'patches_floor': bool(settings.dbg_grp_patches and settings.dbg_patches_floor),
+        'patches_slope': bool(settings.dbg_grp_patches and settings.dbg_patches_slope),
+        'frame_h': bool(settings.dbg_grp_frame and settings.dbg_frame_h),
+        'frame_v': bool(settings.dbg_grp_frame and settings.dbg_frame_v),
+        'frame_free': bool(settings.dbg_grp_frame and settings.dbg_frame_free),
+        'loops_boundary': loops_visible,
+        'loops_holes': bool(loops_visible and settings.dbg_frame_hole),
+        'overlay_basis': overlay_visible,
+        'overlay_centers': overlay_visible,
+    }
+
+
+def _print_console_report(title, lines, summary=None):
+    print('=' * 60)
+    print(title)
+    print('=' * 60)
+    for line in lines:
+        print(line)
+    if summary:
+        print('-' * 60)
+        print(summary)
+    print('=' * 60)
+
+
+def _capture_selected_face_indices(bm):
+    return [face.index for face in bm.faces if face.select]
+
+
+def _restore_selected_face_indices(bm, selected_face_indices):
+    selected_set = set(selected_face_indices)
+    for face in bm.faces:
+        face.select = face.index in selected_set
+
+
+def _prepare_modular_patch_graph(context, require_selection=True):
+    if not _modular_runtime_available():
+        raise RuntimeError('Modular CFTUV runtime is not available in this build')
+
+    obj = context.active_object
+    if obj is None or obj.type != 'MESH':
+        raise ValueError('Select a mesh object')
+
+    original_mode = obj.mode
+    if obj.mode != 'EDIT':
+        bpy.ops.object.mode_set(mode='EDIT')
+
+    bm = bmesh.from_edit_mesh(obj.data)
+    bm.faces.ensure_lookup_table()
+    bm.verts.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+
+    selected_face_indices = _capture_selected_face_indices(bm)
+    if original_mode == 'OBJECT':
+        face_indices = [face.index for face in bm.faces]
+    else:
+        face_indices = list(selected_face_indices)
+        if require_selection and not face_indices:
+            raise ValueError('No faces selected in Edit Mode')
+        if not face_indices:
+            face_indices = [face.index for face in bm.faces]
+
+    patch_graph = mod_build_patch_graph(bm, face_indices, obj)
+    return obj, bm, patch_graph, original_mode, selected_face_indices
+
+
+def _restore_mode_and_selection(obj, original_mode, selected_face_indices):
+    if obj is None or obj.name not in bpy.data.objects:
+        return
+
+    if obj.mode == 'EDIT':
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.faces.ensure_lookup_table()
+        _restore_selected_face_indices(bm, selected_face_indices)
+        bmesh.update_edit_mesh(obj.data)
+
+    if original_mode == 'OBJECT' and obj.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+
+def _build_modular_solve_state(context):
+    obj, bm, patch_graph, original_mode, selected_face_indices = _prepare_modular_patch_graph(context, require_selection=True)
+    solver_graph = mod_build_solver_graph(patch_graph)
+    solve_plan = mod_plan_solve_phase1(patch_graph, solver_graph)
+    settings = ModUVSettings.from_blender_settings(context.scene.hotspotuv_settings)
+    return obj, bm, patch_graph, solver_graph, solve_plan, settings, original_mode, selected_face_indices
 
 # ============================================================
 # GEOMETRY ANALYSIS
@@ -944,14 +1090,20 @@ def _add_gp_stroke(frame, points, mat_idx, line_width=4):
 
 
 def _clear_gp_debug(source_obj):
-    """Удаляет GP debug объект, patch mesh и per-patch materials."""
+    """??????? GP debug ??????, patch mesh ? debug materials."""
+    if mod_clear_visualization is not None:
+        try:
+            mod_clear_visualization(source_obj)
+            return
+        except Exception:
+            pass
+
     gp_name = _get_gp_debug_name(source_obj)
     if gp_name in bpy.data.objects:
         obj = bpy.data.objects[gp_name]
         bpy.data.objects.remove(obj, do_unlink=True)
     if gp_name in bpy.data.grease_pencils:
         bpy.data.grease_pencils.remove(bpy.data.grease_pencils[gp_name])
-    # Cleanup patch mesh
     mesh_name = GP_DEBUG_PREFIX + "Mesh_" + source_obj.name
     if mesh_name in bpy.data.objects:
         obj = bpy.data.objects[mesh_name]
@@ -959,7 +1111,6 @@ def _clear_gp_debug(source_obj):
         bpy.data.objects.remove(obj, do_unlink=True)
         if mesh_data and mesh_data.users == 0:
             bpy.data.meshes.remove(mesh_data)
-    # Cleanup per-patch materials
     for mat in list(bpy.data.materials):
         if (mat.name.startswith("CFTUV_P") or mat.name.startswith("CFTUV_Axis_") or
             mat.name.startswith("CFTUV_Ch") or mat.name.startswith("CFTUV_Lp") or
@@ -1336,96 +1487,31 @@ def _apply_layer_visibility(gp_data, dbg_settings):
 
 
 def _enter_debug_mode(context, obj):
-    """Входит в режим debug: анализ, создание GP."""
+    """?????? ? ????? debug: ?????? PatchGraph ? ??????? GP debug."""
     s = context.scene.hotspotuv_settings
-    was_object_mode = (obj.mode == 'OBJECT')
-    
-    if obj.mode != 'EDIT':
-        bpy.ops.object.mode_set(mode='EDIT')
-    
-    bm = bmesh.from_edit_mesh(obj.data)
-    bm.faces.ensure_lookup_table()
-    bm.verts.ensure_lookup_table()
-    bm.edges.ensure_lookup_table()
-    
-    # Object mode → все faces, Edit mode → только выделенные
-    if was_object_mode:
-        sel_faces = list(bm.faces)
-    else:
-        sel_faces = [f for f in bm.faces if f.select]
-        if not sel_faces:
+    try:
+        obj, bm, patch_graph, _original_mode, _selected_face_indices = _prepare_modular_patch_graph(context, require_selection=not (obj.mode == 'OBJECT'))
+    except ValueError:
+        if obj.mode != 'EDIT':
             bpy.ops.object.mode_set(mode='EDIT')
-            return None  # Signal: nothing selected
-    
-    original_seams = [e.seam for e in bm.edges]
-    for e in bm.edges:
-        if not e.smooth:
-            e.seam = True
-    
-    patch_results = analyze_all_patches(bm, sel_faces, obj)
-    
-    for i, e in enumerate(bm.edges):
-        e.seam = original_seams[i]
-    bmesh.update_edit_mesh(obj.data)
-    
+        return None
+
     bpy.ops.object.mode_set(mode='OBJECT')
-    
-    dbg_settings = {
-        'grp_patches': s.dbg_grp_patches,
-        'grp_frame': s.dbg_grp_frame,
-        'grp_loops': s.dbg_grp_loops,
-        'grp_overlay': s.dbg_grp_overlay,
-        'patches_wall': s.dbg_patches_wall,
-        'patches_floor': s.dbg_patches_floor,
-        'patches_slope': s.dbg_patches_slope,
-        'frame_h': s.dbg_frame_h,
-        'frame_v': s.dbg_frame_v,
-        'frame_free': s.dbg_frame_free,
-        'frame_hole': s.dbg_frame_hole,
-    }
-    
-    gp_obj = create_debug_visualization(patch_results, obj, dbg_settings)
-    
-    # Скрываем source mesh, выделяем GP debug object
+
+    dbg_settings = _build_modular_debug_settings(s)
+    gp_obj = mod_create_visualization(patch_graph, obj, dbg_settings)
+
     obj.hide_viewport = True
     bpy.ops.object.select_all(action='DESELECT')
     gp_obj.select_set(True)
     context.view_layer.objects.active = gp_obj
-    
-    # Track state
+
     s.dbg_active = True
     s.dbg_source_object = obj.name
-    
-    # Console log
-    print("=" * 60)
-    print("CFTUV Debug Analysis")
-    print("=" * 60)
-    for pi, p in enumerate(patch_results):
-        n_faces = len(p['faces'])
-        roles = [si['frame_role'] for si in p['all_segments']]
-        chains_info = [f"nb={c['neighbor']}" for c in p.get('all_chains', [])]
-        print(f"  Patch {pi}: {p['type']} | {n_faces}f | "
-              f"loops:{len(p['loops'])} chains:{len(p.get('all_chains',[]))} | "
-              f"segs:[{' '.join(roles)}] | "
-              f"chains:[{' '.join(chains_info)}]")
-    print("=" * 60)
-    
-    total_patches = len(patch_results)
-    walls = sum(1 for p in patch_results if p['type'] == 'WALL')
-    floors = sum(1 for p in patch_results if p['type'] == 'FLOOR')
-    slopes = sum(1 for p in patch_results if p['type'] == 'SLOPE')
-    singles = sum(1 for p in patch_results if len(p['faces']) == 1)
-    total_h = sum(1 for p in patch_results for si in p['all_segments'] if si['frame_role'] == 'H_FRAME')
-    total_v = sum(1 for p in patch_results for si in p['all_segments'] if si['frame_role'] == 'V_FRAME')
-    total_free = sum(1 for p in patch_results for si in p['all_segments'] if si['frame_role'] == 'FREE')
-    total_holes = sum(1 for p in patch_results for lp in p['loops'] if lp['kind'] == 'HOLE')
-    total_segs = sum(len(p['all_segments']) for p in patch_results)
-    total_chains = sum(len(p.get('all_chains', [])) for p in patch_results)
-    total_loops = sum(len(p['loops']) for p in patch_results)
-    
-    return (f"Patches: {total_patches} (W:{walls} F:{floors} S:{slopes} 1f:{singles}) | "
-            f"Loops: {total_loops} Chains: {total_chains} Holes: {total_holes} | "
-            f"Seg: {total_segs} H:{total_h} V:{total_v} Free:{total_free}")
+
+    lines, summary = mod_format_patch_graph_report(patch_graph, mesh_name=obj.name)
+    _print_console_report('CFTUV PatchGraph Analyze', lines, summary)
+    return summary
 
 
 def _exit_debug_mode(context):
@@ -1476,7 +1562,11 @@ class HOTSPOTUV_OT_DebugAnalysis(bpy.types.Operator):
             if not obj or obj.type != 'MESH':
                 self.report({"WARNING"}, "Select a mesh object")
                 return {"CANCELLED"}
-            report = _enter_debug_mode(context, obj)
+            try:
+                report = _enter_debug_mode(context, obj)
+            except Exception as exc:
+                self.report({"ERROR"}, f"Debug analysis failed: {exc}")
+                return {"CANCELLED"}
             if report is None:
                 self.report({"WARNING"}, "No faces selected in Edit Mode")
                 return {"CANCELLED"}
@@ -3075,6 +3165,91 @@ class HOTSPOTUV_OT_StackSimilar(bpy.types.Operator):
             self.report({"ERROR"}, f"Stack similar failed: {str(e)}")
             return {"CANCELLED"}
 
+class HOTSPOTUV_OT_FlowDebug(bpy.types.Operator):
+    bl_idname = "hotspotuv.flow_debug"
+    bl_label = "Flow Debug"
+    bl_description = "Build PatchGraph, SolvePlan and print flow report to System Console"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.type == 'MESH' and obj.mode in {'EDIT', 'OBJECT'}
+
+    def execute(self, context):
+        try:
+            obj, _bm, patch_graph, solver_graph, solve_plan, _settings, original_mode, selected_face_indices = _build_modular_solve_state(context)
+            lines, summary = mod_format_solve_plan_report(patch_graph, solver_graph, solve_plan, mesh_name=obj.name)
+            _print_console_report('CFTUV Flow Debug', lines, summary)
+            self.report({"INFO"}, summary)
+            return {"FINISHED"}
+        except Exception as exc:
+            self.report({"ERROR"}, f"Flow Debug failed: {exc}")
+            return {"CANCELLED"}
+        finally:
+            if 'obj' in locals() and 'original_mode' in locals() and 'selected_face_indices' in locals():
+                _restore_mode_and_selection(obj, original_mode, selected_face_indices)
+
+
+class HOTSPOTUV_OT_ScaffoldDebug(bpy.types.Operator):
+    bl_idname = "hotspotuv.scaffold_debug"
+    bl_label = "Scaffold Debug"
+    bl_description = "Build ScaffoldMap from SolvePlan and print scaffold report to System Console"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.type == 'MESH' and obj.mode in {'EDIT', 'OBJECT'}
+
+    def execute(self, context):
+        try:
+            obj, _bm, patch_graph, solver_graph, solve_plan, settings, original_mode, selected_face_indices = _build_modular_solve_state(context)
+            scaffold_map = mod_build_root_scaffold_map(patch_graph, solve_plan, settings.final_scale)
+            lines, summary = mod_format_root_scaffold_report(patch_graph, scaffold_map, mesh_name=obj.name)
+            _print_console_report('CFTUV Scaffold Debug', lines, summary)
+            self.report({"INFO"}, summary)
+            return {"FINISHED"}
+        except Exception as exc:
+            self.report({"ERROR"}, f"Scaffold Debug failed: {exc}")
+            return {"CANCELLED"}
+        finally:
+            if 'obj' in locals() and 'original_mode' in locals() and 'selected_face_indices' in locals():
+                _restore_mode_and_selection(obj, original_mode, selected_face_indices)
+
+
+class HOTSPOTUV_OT_SolvePhase1Preview(bpy.types.Operator):
+    bl_idname = "hotspotuv.solve_phase1_preview"
+    bl_label = "Solve Phase 1 Preview"
+    bl_description = "Write ScaffoldMap-driven preview UVs for the current selection"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.type == 'MESH' and obj.mode in {'EDIT', 'OBJECT'}
+
+    def execute(self, context):
+        try:
+            obj, bm, patch_graph, solver_graph, solve_plan, settings, original_mode, selected_face_indices = _build_modular_solve_state(context)
+            stats = mod_execute_phase1_preview(context, obj, bm, patch_graph, settings, solve_plan)
+            summary = (
+                f"Phase1 quilts:{stats.get('quilts', 0)} roots:{stats.get('supported_roots', 0)} "
+                f"children:{stats.get('attached_children', 0)} invalid:{stats.get('invalid_scaffold_patches', 0)} "
+                f"unresolved:{stats.get('unresolved_scaffold_points', 0)} missing:{stats.get('missing_uv_targets', 0)} "
+                f"conflicts:{stats.get('conflicting_uv_targets', 0)}"
+            )
+            print(f"[CFTUV][Phase1] Summary: {summary}")
+            self.report({"INFO"}, summary)
+            return {"FINISHED"}
+        except Exception as exc:
+            self.report({"ERROR"}, f"Solve Phase 1 Preview failed: {exc}")
+            return {"CANCELLED"}
+        finally:
+            if 'obj' in locals() and 'original_mode' in locals() and 'selected_face_indices' in locals():
+                _restore_mode_and_selection(obj, original_mode, selected_face_indices)
+
+
 # ============================================================
 # PANEL
 # ============================================================
@@ -3113,7 +3288,10 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         layout.separator()
         col = layout.column(align=True)
         col.label(text="Debug:")
-        
+        col.operator("hotspotuv.flow_debug", text="Flow Debug", icon="SORTSIZE")
+        col.operator("hotspotuv.scaffold_debug", text="Scaffold Debug", icon="MESH_GRID")
+        col.operator("hotspotuv.solve_phase1_preview", text="Solve Phase 1 Preview", icon="UV")
+
         # Analyze toggle button
         if s.dbg_active:
             col.operator("hotspotuv.debug_analysis", text="Analyze: ON", icon="PAUSE", depress=True)
@@ -3207,7 +3385,7 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
             col.separator()
             col.operator("hotspotuv.debug_clear", text="Force Clear", icon="X")
 
-classes = (HOTSPOTUV_Settings, HOTSPOTUV_OT_UnwrapFaces, HOTSPOTUV_OT_ManualDock, HOTSPOTUV_OT_SelectSimilar, HOTSPOTUV_OT_StackSimilar, HOTSPOTUV_OT_DebugAnalysis, HOTSPOTUV_OT_DebugClear, HOTSPOTUV_OT_DebugToggleLayer, HOTSPOTUV_OT_DebugToggleGroup, HOTSPOTUV_PT_Panel)
+classes = (HOTSPOTUV_Settings, HOTSPOTUV_OT_UnwrapFaces, HOTSPOTUV_OT_ManualDock, HOTSPOTUV_OT_SelectSimilar, HOTSPOTUV_OT_StackSimilar, HOTSPOTUV_OT_DebugAnalysis, HOTSPOTUV_OT_FlowDebug, HOTSPOTUV_OT_ScaffoldDebug, HOTSPOTUV_OT_SolvePhase1Preview, HOTSPOTUV_OT_DebugClear, HOTSPOTUV_OT_DebugToggleLayer, HOTSPOTUV_OT_DebugToggleGroup, HOTSPOTUV_PT_Panel)
 
 def register():
     for cls in classes: bpy.utils.register_class(cls)
