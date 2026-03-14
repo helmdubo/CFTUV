@@ -2402,6 +2402,7 @@ def _execute_phase1_preview_impl(
     quilt_margin = max(settings.final_scale * 2.0, 0.25)
     global_supported_patch_ids: set[int] = set()
     conformal_applied = 0
+    all_conformal_patch_ids: list[int] = []
 
     for quilt_scaffold in scaffold_map.quilts:
         quilt_plan = quilt_plan_by_index.get(quilt_scaffold.quilt_index)
@@ -2435,7 +2436,6 @@ def _execute_phase1_preview_impl(
             'pinned_uv_loops': 0,
             'invalid_scaffold_patches': 0,
         }
-        conformal_patch_ids = []
 
         for patch_id in quilt_patch_ids:
             patch_placement = quilt_scaffold.patches[patch_id]
@@ -2453,7 +2453,7 @@ def _execute_phase1_preview_impl(
                 quilt_stats[stat_key] += int(patch_stats.get(stat_key, 0))
 
             if int(patch_stats.get('resolved_scaffold_points', 0)) > 0:
-                conformal_patch_ids.append(patch_id)
+                all_conformal_patch_ids.append(patch_id)
 
             if int(patch_stats.get('pinned_uv_loops', 0)) <= 0:
                 continue
@@ -2474,46 +2474,37 @@ def _execute_phase1_preview_impl(
         invalid_scaffold_patches += quilt_stats['invalid_scaffold_patches']
         global_supported_patch_ids.update(quilt_apply_patch_ids)
 
-        bmesh.update_edit_mesh(obj.data)
-
-        # Per-patch conformal: отдельный unwrap для каждого patch.
-        # bpy.ops.uv.unwrap обрабатывает UV islands (разделённые seams),
-        # per-quilt вызов не гарантирует обработку всех islands.
-        if run_conformal and conformal_patch_ids:
-            for conf_patch_id in conformal_patch_ids:
-                bm = bmesh.from_edit_mesh(obj.data)
-                bm.faces.ensure_lookup_table()
-                bm.verts.ensure_lookup_table()
-                bm.edges.ensure_lookup_table()
-                uv_layer = bm.loops.layers.uv.verify()
-                _select_patch_faces(bm, patch_graph, [conf_patch_id])
-                _select_patch_uv_loops(bm, patch_graph, uv_layer, [conf_patch_id])
-                sel_faces = len(_collect_patch_face_indices(patch_graph, [conf_patch_id]))
-                sel_uv = _count_selected_patch_uv_loops(bm, patch_graph, uv_layer, [conf_patch_id])
-                pinned_count = sum(
-                    1 for f in bm.faces if f.select
-                    for lp in f.loops if lp[uv_layer].pin_uv
-                )
-                bmesh.update_edit_mesh(obj.data)
-                print(
-                    f"[CFTUV][Phase1] Quilt {quilt_scaffold.quilt_index} "
-                    f"Patch {conf_patch_id} Conformal: "
-                    f"faces={sel_faces} uv_loops={sel_uv} pinned={pinned_count}"
-                )
-                bpy.ops.uv.unwrap(method='CONFORMAL', fill_holes=False, margin=0.0)
-                conformal_applied += 1
-
-            if not keep_pins:
-                bm = bmesh.from_edit_mesh(obj.data)
-                bm.faces.ensure_lookup_table()
-                bm.verts.ensure_lookup_table()
-                bm.edges.ensure_lookup_table()
-                uv_layer = bm.loops.layers.uv.verify()
-                _clear_patch_pins(bm, patch_graph, uv_layer, quilt_apply_patch_ids)
-                bmesh.update_edit_mesh(obj.data)
-
         x_cursor += quilt_width + quilt_margin
 
+    # Финальный Conformal: один вызов ПОСЛЕ всех quilts.
+    # bmesh.update_edit_mesh вызывается один раз, потом bpy.ops.uv.unwrap
+    # без промежуточных bmesh операций — исключает перезапись результатов.
+    if run_conformal and all_conformal_patch_ids:
+        bmesh.update_edit_mesh(obj.data)
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.faces.ensure_lookup_table()
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        uv_layer = bm.loops.layers.uv.verify()
+        _select_patch_faces(bm, patch_graph, all_conformal_patch_ids)
+        _select_patch_uv_loops(bm, patch_graph, uv_layer, all_conformal_patch_ids)
+        sel_faces = sum(1 for f in bm.faces if f.select)
+        pinned_count = sum(
+            1 for f in bm.faces if f.select
+            for lp in f.loops if lp[uv_layer].pin_uv
+        )
+        unpinned_count = sum(
+            1 for f in bm.faces if f.select
+            for lp in f.loops if not lp[uv_layer].pin_uv
+        )
+        bmesh.update_edit_mesh(obj.data)
+        print(
+            f"[CFTUV][Phase1] Final Conformal: "
+            f"patches={all_conformal_patch_ids} faces={sel_faces} "
+            f"pinned={pinned_count} unpinned={unpinned_count}"
+        )
+        bpy.ops.uv.unwrap(method='CONFORMAL', fill_holes=False, margin=0.0)
+        conformal_applied += 1
 
     if run_conformal and unsupported_patch_ids:
         for patch_id in unsupported_patch_ids:
