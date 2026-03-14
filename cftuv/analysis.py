@@ -1167,7 +1167,10 @@ def _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v):
         return raw_chains
 
     raw_chain = raw_chains[0]
-    if _classify_chain_frame_role(raw_chain.get("vert_cos", []), basis_u, basis_v) != FrameRole.FREE:
+    # Любой single closed chain на OUTER loop нужно пробовать split.
+    # Ранее проверялся только FREE, но прямая стена (H_FRAME/V_FRAME)
+    # тоже может быть single chain если все edges имеют одного соседа.
+    if not raw_chain.get("is_closed", False):
         return raw_chains
 
     split_indices = _collect_geometric_split_indices(raw_loop.get("vert_cos", []), basis_u, basis_v)
