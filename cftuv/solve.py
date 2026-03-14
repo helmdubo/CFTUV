@@ -2494,7 +2494,7 @@ def _execute_phase1_preview_impl(
                 f"[CFTUV][Phase1] Quilt {quilt_scaffold.quilt_index} Per-Quilt Conformal: "
                 f"patches={conformal_patch_ids} faces={selected_face_count} uv_loops={selected_uv_count}"
             )
-            bpy.ops.uv.unwrap(method='CONFORMAL', margin=0.0)
+            bpy.ops.uv.unwrap(method='CONFORMAL', fill_holes=False, margin=0.0)
             conformal_applied += 1
 
             if not keep_pins:
@@ -2526,7 +2526,7 @@ def _execute_phase1_preview_impl(
                 f"[CFTUV][Phase1] Unsupported Patch {patch_id} Fallback Conformal: "
                 f"faces={selected_face_count} uv_loops={selected_uv_count}"
             )
-            bpy.ops.uv.unwrap(method='CONFORMAL', margin=0.0)
+            bpy.ops.uv.unwrap(method='CONFORMAL', fill_holes=False, margin=0.0)
             conformal_applied += 1
 
             bm = bmesh.from_edit_mesh(obj.data)
