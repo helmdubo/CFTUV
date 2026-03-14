@@ -985,8 +985,12 @@ def _count_patch_scaffold_points(patch_placement: ScaffoldPatchPlacement) -> int
 
 
 
-def _should_pin_scaffold_point(chain_placement: ScaffoldChainPlacement, point_index: int, point_count: int) -> bool:
+def _should_pin_scaffold_point(chain_placement: ScaffoldChainPlacement, point_index: int, point_count: int, conformal_patch: bool = False) -> bool:
     """Pin policy для scaffold points.
+
+    conformal_patch=True (FLOOR/SLOPE, все chains FREE):
+      Ничего не пинить — Conformal unwrap обработает весь patch свободно.
+      Scaffold placement задаёт начальные UV позиции, но не фиксирует их.
 
     H_FRAME/V_FRAME: все points запинены (жёсткий каркас).
     FREE chains:
@@ -995,6 +999,8 @@ def _should_pin_scaffold_point(chain_placement: ScaffoldChainPlacement, point_in
         Даёт conformal достаточно constraints без полного lock-down.
     """
     if point_count <= 0:
+        return False
+    if conformal_patch:
         return False
     if chain_placement.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
         return True
@@ -1054,6 +1060,14 @@ def _apply_patch_scaffold_to_uv(bm, graph: PatchGraph, uv_layer, patch_placement
             'closure_gap_count': len(patch_placement.gap_reports),
         }
 
+    # FLOOR/SLOPE с полностью FREE chains: не пинить, Conformal обработает
+    node = graph.nodes.get(patch_placement.patch_id)
+    conformal_patch = False
+    if node is not None:
+        conformal_patch = all(
+            cp.frame_role == FrameRole.FREE for cp in patch_placement.chain_placements
+        )
+
     target_samples: dict[tuple[int, int], list[Vector]] = {}
     pin_target_ids: set[tuple[int, int]] = set()
     scaffold_keys = set()
@@ -1070,7 +1084,7 @@ def _apply_patch_scaffold_to_uv(bm, graph: PatchGraph, uv_layer, patch_placement
                 continue
 
             shifted_uv = target_uv + uv_offset
-            should_pin = _should_pin_scaffold_point(chain_placement, point_index, point_count)
+            should_pin = _should_pin_scaffold_point(chain_placement, point_index, point_count, conformal_patch)
             for target in targets:
                 target_id = (target.face_index, target.vert_index)
                 target_samples.setdefault(target_id, []).append(shifted_uv.copy())
