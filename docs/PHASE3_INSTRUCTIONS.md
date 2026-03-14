@@ -1,129 +1,170 @@
-# Phase 3 — Пошаговые правки solve.py
-
-## 4 правки. Выполнять строго по порядку.
-
----
-
-## ПРАВКА 1: Новые поля ScaffoldPatchPlacement
-
-Открой solve.py, найди (Ctrl+F):
-
-```python
-    notes: tuple[str, ...] = ()
-```
-
-Это последняя строка dataclass `ScaffoldPatchPlacement`.
-СРАЗУ ПОСЛЕ неё добавь:
-
-```python
-    # Phase 3: envelope fields
-    status: str = "COMPLETE"
-    dependency_patches: tuple = ()
-    unplaced_chain_indices: tuple = ()
-    pinned: bool = False
-    origin_offset: tuple = (0.0, 0.0)  # sleeping field, Phase 5
-```
+# Phase 3 Instructions
+## Handoff Notes For The Next AI Session
 
 ---
 
-## ПРАВКА 2: build_order в ScaffoldQuiltPlacement
+## Important
 
-Найди:
+Старые инструкции вида "вставь блок перед `build_root_scaffold_map()`" больше не актуальны.
 
-```python
-    patches: dict[int, ScaffoldPatchPlacement] = field(default_factory=dict)
-```
+Phase 3 уже внедрена в кодовую базу. Этот файл теперь нужен как короткий handoff:
 
-Это внутри dataclass `ScaffoldQuiltPlacement`.
-СРАЗУ ПОСЛЕ добавь:
-
-```python
-    build_order: list = field(default_factory=list)
-```
+- что считать текущим baseline;
+- какие вещи уже стабилизированы;
+- куда смотреть в коде;
+- чего не нужно ломать при следующем фикс-проходе.
 
 ---
 
-## ПРАВКА 3: Вставить новые функции
+## Current Entry Points
 
-Найди:
+### analysis.py
 
-```python
-def build_root_scaffold_map(
-```
+Смотри в первую очередь:
 
-ПЕРЕД этой строкой вставь ВЕСЬ код из файла `phase3_chain_frontier.py`,
-начиная с `CHAIN_FRONTIER_THRESHOLD = 0.3` и до строки
-`return quilt_scaffold` (конец функции `build_quilt_scaffold_chain_frontier`).
+- `build_patch_graph()`
+- `_split_loop_into_chains_by_neighbor()`
+- `_classify_chain_frame_role()`
+- `_build_geometric_loop_corners()`
+- `_try_geometric_outer_loop_split()`
 
-НЕ вставляй закомментированный блок "ПРАВКА 4" из того файла.
+### solve.py
 
----
+Смотри в первую очередь:
 
-## ПРАВКА 4: Заменить build_root_scaffold_map
+- `build_solver_graph()`
+- `plan_solve_phase1()`
+- `build_quilt_scaffold_chain_frontier()`
+- `_cf_choose_seed_chain()`
+- `_cf_find_anchors()`
+- `_cf_resolve_candidate_anchors()`
+- `_cf_score_candidate()`
+- `_cf_place_chain()`
+- `_resolve_scaffold_uv_targets()`
+- `_apply_patch_scaffold_to_uv()`
+- `_execute_phase1_preview_impl()`
 
-Найди СУЩЕСТВУЮЩУЮ функцию `build_root_scaffold_map`.
-Она большая (30-50 строк). Замени ЕЁ ЦЕЛИКОМ на:
+### operators.py
 
-```python
-def build_root_scaffold_map(
-    graph: PatchGraph,
-    solve_plan: Optional[SolvePlan] = None,
-    final_scale: float = 1.0,
-) -> ScaffoldMap:
-    """Build ScaffoldMap using chain-first strongest-frontier algorithm."""
-    scaffold_map = ScaffoldMap()
-    if solve_plan is None:
-        return scaffold_map
+Смотри:
 
-    for quilt in solve_plan.quilts:
-        quilt_scaffold = build_quilt_scaffold_chain_frontier(graph, quilt, final_scale)
-        scaffold_map.quilts.append(quilt_scaffold)
-
-    return scaffold_map
-```
-
-Старый код build_root_scaffold_map (который строил patch-by-patch) удаляется.
-Старые функции (_build_root_patch_scaffold, _build_child_patch_scaffold и т.д.)
-можно оставить как мёртвый код — они больше не вызываются.
+- `_prepare_patch_graph()`
+- `validate_solver_input_mesh()`
 
 ---
 
-## Проверка
+## Current Stable Rules
 
-1. Сохрани solve.py
-2. Перезапусти Blender
-3. Выдели faces на Cylinder.007
-4. Нажми "Scaffold Debug" — должен показать новый формат с [Frontier] логами
-5. Нажми "Solve Phase 1 Preview" — должен работать с [Validate] и [Frontier] логами
+Эти правила уже доказали свою пользу и не должны откатываться без сильной причины.
 
-### Что должно быть в System Console:
-
-```
-[CFTUV][Frontier] Seed: P0 L0C2 H_FRAME (0.0000,0.0000)->(0.8331,0.0000)
-[CFTUV][Frontier] Step 1: P0 L0C3 V_FRAME score:1.80 ep:1
-[CFTUV][Frontier] Step 2: P0 L0C1 V_FRAME score:1.50 ep:1
-...
-[CFTUV][Frontier] Quilt 0: placed X/Y chains
-```
-
-Chains размещаются по score, не по порядку loop. H/V с anchors идут первыми.
-FREE без anchors остаются не размещёнными → Conformal доработает.
+1. Solve path остается chain-first strongest-frontier.
+2. Semantic/scoring работает только внутри текущего quilt.
+3. Между разными `PatchType` propagation не строится.
+4. `cross_patch + cross_patch` dual-anchor closure запрещен для раннего замыкания patch.
+5. Для H/V dual-anchor placement работают `axis_mismatch` / `span_mismatch` guards.
+6. Mesh preflight должен стопать solve на duplicate / non-manifold / degenerate topology.
+7. `OUTER` loop isolated patch может использовать geometric fallback split.
+8. `HOLE` loops в этот fallback не входят.
+9. UV transfer validation нельзя отключать ради "тихой" работы.
+10. Unsupported patches должны иметь fallback conformal pass, а не исчезать молча.
 
 ---
 
-## Если что-то сломалось
+## Current Known Debt
 
-Самые вероятные проблемы:
+Новый агент должен знать, что это еще не доведено:
 
-1. **ImportError** — убедись что новые функции вставлены ПЕРЕД build_root_scaffold_map,
-   а не после. Они используют _build_frame_chain_from_one_end и другие функции,
-   определённые выше в файле.
+1. Solve dataclasses пока живут в `solve.py`.
+2. Persistent `anchor_registry` в `ScaffoldMap` пока нет.
+3. Explicit `ContinuationEdge` пока нет.
+4. `ScaffoldSegment` legacy artifact еще лежит в `model.py`.
+5. `format_root_scaffold_report()` еще не равен полноценному frontier replay.
 
-2. **AttributeError: 'ScaffoldQuiltPlacement' has no attribute 'build_order'** —
-   Правка 2 не применена.
+---
 
-3. **AttributeError: 'ScaffoldPatchPlacement' has no attribute 'status'** —
-   Правка 1 не применена.
+## Current Known Problem Area
 
-4. **Validation mismatches** — новый builder строит scaffold иначе.
-   Если [Validate] показывает mismatches — скинь лог, разберёмся.
+Главная незакрытая тема на момент handoff:
+
+### Isolated single patch with holes
+
+Сценарий:
+
+- одна плоская wall patch;
+- outer loop теперь правильно режется в `H/V/FREE`;
+- scaffold строится;
+- но поздний `Conformal` может визуально почти не расслаблять interior.
+
+Что важно:
+
+- по логам `Conformal` реально вызывается;
+- значит проблема, скорее всего, уже в pin policy или слишком жестком scaffold boundary,
+  а не в отсутствии вызова `bpy.ops.uv.unwrap()`.
+
+То есть следующий агент должен смотреть не "почему unwrap skipped", а:
+
+- какие UV loops pinятся;
+- нужно ли для isolated quilt пинить весь `H_FRAME/V_FRAME` или только anchors/corners;
+- как не поломать multi-patch continuity.
+
+---
+
+## Recommended Next Debug Order
+
+Если следующий агент продолжает работу, идти лучше так:
+
+1. Проверить isolated single-patch case.
+2. Сравнить `resolved_scaffold_points`, `uv_targets`, `pinned`.
+3. Проверить визуальный эффект после `Patch X Conformal` логов.
+4. Чинить pin policy, а не откатывать frontier.
+5. Только потом улучшать report/debug layer.
+
+---
+
+## Validation Mesh Set
+
+После любых правок желательно снова прогонять эти классы кейсов:
+
+1. Tube / cylinder без caps, 2 vertical seams.
+2. Pseudo-cube with walls + caps.
+3. Semi-column:
+   - front wall
+   - back wall
+   - top cap
+   - bottom cap
+4. Isolated back wall patch.
+5. Isolated flat wall patch with inner window holes.
+
+Если правка ломает первые три кейса ради isolated wall, это почти наверняка плохой tradeoff.
+
+---
+
+## Practical Warning
+
+Если видишь странный UV-результат, сначала исключи mesh corruption:
+
+- duplicate faces;
+- bridge поверх существующего ngon;
+- non-manifold edges.
+
+Сейчас preflight это уже ловит, но при новых операторах или обходных путях этот gate
+можно случайно обойти.
+
+---
+
+## Short Summary For The Next Agent
+
+Phase 3 уже активна и в целом рабочая.
+
+Текущий baseline:
+
+- frontier стабилен;
+- wrap guards стабилизированы;
+- preflight работает;
+- target resolution и validation работают;
+- conformal вызывается per-patch.
+
+Текущая незакрытая задача:
+
+- isolated patch pinning / late conformal behavior после outer geometric split.
+

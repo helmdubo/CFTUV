@@ -1,384 +1,484 @@
 # CFTUV Architecture v2.0
-## Chain-First Strongest-Frontier
+## Actual Implementation State, March 2026
 
 ---
 
-## Принцип
+## Purpose
 
-**Не patch-first, не loop-first, а chain-first strongest-frontier.**
+Этот документ описывает не идеальную целевую архитектуру, а фактическое состояние
+рефакторинга после серии правок Phase 3 и стабилизации `analysis.py` / `solve.py`.
 
-Scaffold строится chain за chain. На каждом шаге из общего пула доступных chains
-берётся самый сильный. Пул не различает "chain того же patch" и "chain через seam" —
-это одинаковые кандидаты. Quilt растёт органически.
+Главная идея по-прежнему одна:
 
-Всё, что frontier не взял — free vertices для Conformal.
+**не patch-first и не loop-first, а chain-first strongest-frontier.**
+
+Scaffold растет chain за chain из общего frontier-пула quilt. Все, что frontier
+не взял, добирается поздним `Conformal`.
 
 ---
 
-## Файловая структура
+## Modules
 
 ```text
 cftuv/
-├── __init__.py          # bl_info + register/unregister
-├── model.py             # PatchGraph, ScaffoldMap, все dataclasses
-├── constants.py         # пороги, sentinel values, debug prefixes
-├── analysis.py          # BMesh → PatchGraph
-├── solve.py             # PatchGraph → ScaffoldMap → UV
-├── debug.py             # PatchGraph → Grease Pencil + console
-└── operators.py         # Blender operators / panel / settings
+├── __init__.py
+├── constants.py
+├── model.py
+├── analysis.py
+├── solve.py
+├── debug.py
+└── operators.py
 ```
 
-`Hotspot_UV_v2_5_26.py` удалён из рабочего пакета. Не использовать как источник логики.
+Роли модулей:
+
+- `model.py` — PatchGraph IR, enums, topology dataclasses, `UVSettings`, mesh preflight report.
+- `analysis.py` — BMesh -> PatchGraph, basis, loops, chains, corners, seam edges.
+- `solve.py` — planning (`SolverGraph`, `SolvePlan`), chain-frontier scaffold builder, UV transfer, validation, conformal stage.
+- `debug.py` — Grease Pencil и console visualization из PatchGraph.
+- `operators.py` — Blender UI wrappers, preflight gate, operator orchestration.
+- `constants.py` — thresholds, sentinels, shared config.
+
+Legacy scripts вида `Hotspot_UV_v2_5_xx.py` не являются runtime-частью аддона.
+Их можно читать только как reference для старых идей.
 
 ---
 
-## Поток данных
+## Core Principle
+
+### Chain-first frontier
+
+Scaffold строится из `BoundaryChain`, а не из patch целиком.
+
+Алгоритм:
+
+1. Planning layer выбирает quilts и root patches.
+2. Construction layer выбирает seed chain root patch.
+3. Дальше каждый шаг берет strongest доступный chain из общего quilt frontier.
+4. Chain считается доступным, если у него уже есть хотя бы один anchor.
+5. После frontier оставшиеся вершины решаются `Conformal`.
+
+### Quilt-local solve
+
+Scoring и propagation теперь должны быть quilt-local:
+
+- соседние patch вне текущего quilt не должны влиять на seed/scoring;
+- propagation между разными `PatchType` не строится;
+- `WALL`, `FLOOR`, `SLOPE` по умолчанию оказываются в разных solve-группах.
+
+---
+
+## Data Flow
 
 ```text
-Operators → analysis.py → PatchGraph → solve.py → ScaffoldMap → UV
-                           PatchGraph → debug.py → GP / Console
-                           PatchGraph → solve.py → SolverGraph (scoring)
+operators.py
+  -> validate_solver_input_mesh()
+  -> build_patch_graph()
+  -> build_solver_graph()
+  -> plan_solve_phase1()
+  -> build_root_scaffold_map()
+  -> _apply_patch_scaffold_to_uv()
+  -> bpy.ops.uv.unwrap(method='CONFORMAL')
 ```
 
-Границы:
-- `analysis.py` читает BMesh, пишет PatchGraph
-- `solve.py` читает PatchGraph, строит ScaffoldMap, пишет UV
-- `debug.py` читает PatchGraph, рисует GP
-- `model.py` не знает про bpy и bmesh
-- `operators.py` — тонкие обёртки, без геометрической логики
+Параллельный debug path:
 
-Единственное исключение: `_classify_loops_outer_hole()` в analysis использует
-временный UV unwrap как side effect для OUTER/HOLE классификации.
+```text
+operators.py -> build_patch_graph() -> debug.py -> Grease Pencil / Console
+```
 
 ---
 
-## Инварианты
+## Main IR Layers
 
-Нарушение любого — баг:
+## PatchGraph
 
-1. `model.py` не импортирует `bpy`, `bmesh`
-2. `analysis.py` не пишет UV (кроме `_classify_loops_outer_hole`)
-3. `solve.py` не делает flood fill и не классифицирует patches
-4. `debug.py` не читает BMesh напрямую
-5. Операторы не содержат геометрической логики
-6. UVSettings передаётся параметром, нет глобальных mutable settings
-7. PatchGraph хранит индексы, не BMFace/BMEdge ссылки
-8. Sharp не участвует в patch split — только Seam
-9. Corner вычисляется в analysis, не в solve
-10. ScaffoldMap — persistent result, может быть кэширован и отредактирован
-11. **Scaffold строится chain-first strongest-frontier**
+Центральный topology IR.
+
+Содержит:
+
+- `PatchNode`
+- `BoundaryLoop`
+- `BoundaryChain`
+- `BoundaryCorner`
+- `SeamEdge`
+
+Ключевой принцип: `PatchGraph` хранит только индексы и сериализованную геометрию,
+но не держит `BMFace` / `BMEdge` ссылки.
+
+## Solve IR
+
+Текущее solve-представление все еще частично transitional.
+
+Сейчас в коде:
+
+- `ScaffoldMap`
+- `ScaffoldQuiltPlacement`
+- `ScaffoldPatchPlacement`
+- `ScaffoldChainPlacement`
+- `ScaffoldPointKey`
+
+живут в `solve.py`, а не в `model.py`.
+
+Это технический долг, но это и есть реальное состояние проекта на текущий момент.
+Новый агент не должен бездумно переносить эти dataclasses в `model.py` в рамках
+локального багафикса: это отдельный рефакторинг.
 
 ---
 
 ## Domain Model
 
-### Enums
+### PatchNode
 
-```python
-class PatchType(str, Enum):     # WALL, FLOOR, SLOPE
-class WorldFacing(str, Enum):   # UP, DOWN, SIDE
-class LoopKind(str, Enum):      # OUTER, HOLE
-class FrameRole(str, Enum):     # H_FRAME, V_FRAME, FREE
-class ChainNeighborKind(str, Enum):  # PATCH, MESH_BORDER, SEAM_SELF
-```
+Один patch после flood fill.
 
-### BoundaryChain
+Ключевые поля:
 
-Непрерывный участок boundary loop с одним соседом.
-**Chain — первичная единица placement.**
-
-Хранит: `vert_indices`, `vert_cos`, `edge_indices`, `side_face_indices`,
-`neighbor_patch_id`, `frame_role`, `is_closed`,
-`start_loop_index`, `end_loop_index`,
-`start_corner_index`, `end_corner_index`.
-
-`neighbor_patch_id` encoding: `>=0` = patch id, `-1` = MESH_BORDER, `-2` = SEAM_SELF.
-`neighbor_kind` — derived property.
-
-### BoundaryCorner
-
-Вершина на стыке двух chains внутри одного loop.
-**Corner не имеет собственных координат** — его позиция возникает как результат
-размещения chains. Corner используется для:
-- Validation (стык chains замкнулся?)
-- Anchor point для endpoints FREE chains
-- Debug visualization
-
-Хранит: `loop_vert_index`, `vert_index`, `vert_co`,
-`prev_chain_index`, `next_chain_index`, `turn_angle_deg`,
-`prev_role`, `next_role`.
+- `patch_id`
+- `face_indices`
+- `normal`
+- `patch_type`
+- `world_facing`
+- `basis_u`
+- `basis_v`
+- `boundary_loops`
 
 ### BoundaryLoop
 
-Замкнутый boundary contour одного patch.
-Один patch = один OUTER loop + N HOLE loops.
+Замкнутый boundary контур patch.
 
-Хранит: `vert_indices`, `vert_cos`, `edge_indices`, `side_face_indices`,
-`kind`, `depth`, `chains`, `corners`.
+Типы:
 
-### PatchNode
+- `OUTER`
+- `HOLE`
 
-Один 3D patch. Хранит topology + geometry + basis.
+### BoundaryChain
 
-Ключевые поля: `patch_id`, `face_indices`, `centroid`, `normal`,
-`patch_type`, `world_facing`, `basis_u`, `basis_v`,
-`boundary_loops`, `mesh_verts`, `mesh_tris`.
+Единица solve placement.
 
-`basis_u`/`basis_v` — primary source для определения направления chain при placement.
+Ключевые поля:
 
-### SeamEdge
+- `vert_indices`
+- `vert_cos`
+- `edge_indices`
+- `side_face_indices`
+- `neighbor_patch_id`
+- `frame_role`
+- `start_loop_index`
+- `end_loop_index`
+- `start_corner_index`
+- `end_corner_index`
 
-Связь между двумя patches через общий seam boundary.
+### BoundaryCorner
 
-### PatchGraph
+Стык двух chains внутри loop.
 
-Центральный IR. Хранит: `nodes`, `edges`, `face_to_patch`, `_adjacency`.
+Ключевые поля:
 
-Query API: `get_chain()`, `find_chains_touching_vertex()`,
-`get_chain_endpoint_neighbors()`, `get_neighbors()`, `get_seam()`,
-`connected_components()`, `traverse_bfs()`, `find_root()`.
+- `loop_vert_index`
+- `vert_index`
+- `turn_angle_deg`
+- `prev_chain_index`
+- `next_chain_index`
+- `prev_role`
+- `next_role`
 
-### UVSettings
+### FrameRole
 
-Immutable snapshot: `texel_density`, `texture_size`, `uv_scale`, `uv_range_limit`.
-Derived: `final_scale`.
+Локальная роль chain в basis patch:
 
----
+- `H_FRAME`
+- `V_FRAME`
+- `FREE`
 
-## Solve Architecture
+### ChainNeighborKind
 
-### Два слоя solve
+Тип соседа chain:
 
-1. **Planning layer** — оценка и порядок (SolverGraph → SolvePlan)
-2. **Construction layer** — размещение (ScaffoldMap → UV)
-
-### SolverGraph (planning)
-
-Solve-time filtered view поверх PatchGraph:
-- `patch_scores` — per-patch certainty и root score
-- `candidates` — directional attachment candidates между patch парами
-- `continuations` — explicit continuation edges между chains через seam
-- `component_by_patch` — topological component lookup
-
-### SolvePlan (planning result)
-
-Порядок размещения: quilts → steps → patches.
-Не пространственная структура — абстрактный порядок.
-
-### ScaffoldMap (construction result)
-
-Виртуальная 2D карта. **Persistent result, не процесс.**
-
-Структура:
-```
-ScaffoldMap
-  └── ScaffoldQuiltPlacement (per quilt, starts at origin)
-        └── ScaffoldPatchPlacement (per patch)
-              └── ScaffoldChainPlacement (per chain)
-                    └── (ScaffoldPointKey, Vector) pairs
-```
-
-ScaffoldPointKey — side-aware address: `patch_id`, `loop_index`, `chain_index`,
-`source_point_index`. Plain `vert_index` недостаточен из-за SEAM_SELF.
-
----
-
-## Chain-First Strongest-Frontier Algorithm
-
-### Placement Model
-
-```
-1. Выбрать root patch quilt. Выбрать strongest chain root patch.
-   Разместить от (0,0) строго по оси (direction из basis).
-
-2. Chain frontier pool = все chains, у которых есть shared vertex
-   с уже размещённым chain (anchor point).
-   Pool включает chains ВСЕХ patches quilt, не только текущего.
-
-3. Оценить pool → взять strongest → разместить:
-   - H_FRAME: snap строго горизонтально
-   - V_FRAME: snap строго вертикально
-   - FREE: interpolate между anchor endpoints (если оба известны)
-           или guided от одного anchor (если один)
-
-4. Новые chains стали доступны (shared vertex с только что размещённым)?
-   → добавить в pool.
-
-5. Повторять пока pool не пуст или ниже threshold.
-
-6. Всё что не размещено → free vertices для Conformal.
-```
-
-### Chain Scoring
-
-Chain-level score (не patch-level):
-
-Высокий score:
-- H_FRAME или V_FRAME
-- Есть уже размещённый сосед с anchor point
-- Сосед по seam с сильным семантическим контекстом (FLOOR.DOWN, etc.)
-- Оба endpoints уже известны (shared corners с размещёнными chains)
-
-Низкий score:
-- FREE без anchor points
-- Нет размещённых соседей
-- Слабый seam контекст
-
-Правило: **chain без anchor point не размещается.** Без known position — нет старта.
-
-### Direction Resolution
-
-Направление H/V chain при placement:
-
-1. **Primary: basis patch.** H_FRAME лежит вдоль `basis_u`, V_FRAME вдоль `basis_v`.
-   Sign (±) определяется проекцией 3D direction chain на basis vector.
-
-2. **Secondary: neighbor context.** Если basis ambiguous (edge case),
-   сосед по seam подсказывает — например, H chain граничащий с FLOOR.DOWN = нижняя кромка.
-
-3. **Inherited: уже размещённый сосед.** Если chain стыкуется с размещённым chain
-   через shared vertex, direction унаследован от anchor.
-
-### H/V Snap
-
-H_FRAME chain размещается строго горизонтально: `direction = (±1, 0)`.
-V_FRAME chain размещается строго вертикально: `direction = (0, ±1)`.
-
-Никакого floating point angle. Snap к оси. Это убирает accumulation error полностью
-для H/V dominated meshes.
-
-Corner между H и V — точка пересечения горизонтали и вертикали. Ровно 90°.
-
-### FREE Chain Handling
-
-FREE chain размещается, только если:
-- Оба endpoints уже известны (corners/shared verts с размещёнными H/V chains)
-  → interpolation между endpoints (Bezier/polyline)
-- Или один endpoint известен
-  → guided extension от anchor, с direction из 3D shape
-
-FREE chains без anchor points → не размещаются scaffold builder → free vertices.
-
-### Conformal Role
-
-Conformal — late-stage completion tool. Работает внутри каркаса из размещённых chains.
-
-Что решает Conformal:
-- Внутренние вершины patches (не на boundary)
-- Free vertices от не размещённых chains
-- Interior field вокруг HOLE loops
-
-Что НЕ решает Conformal:
-- Primary frame placement (это scaffold builder)
-- Chain direction и length (это snap + 3D geometry)
+- `PATCH`
+- `MESH_BORDER`
+- `SEAM_SELF`
 
 ---
 
 ## analysis.py
 
-Единственный модуль, читающий BMesh для topology.
+`analysis.py` остается единственным topology-builder модулем.
 
-Public API:
-```python
-build_patch_graph(bm, face_indices, obj=None) -> PatchGraph
-format_patch_graph_report(graph, mesh_name=None) -> tuple[list[str], str]
-```
+### Pipeline
 
-Pipeline:
-1. Flood fill → patches
-2. Classify patch type
-3. Build basis
-4. Trace boundary loops (side-based)
-5. Classify OUTER/HOLE
-6. Split loops → chains by neighbor
-7. Classify FrameRole per chain
-8. Build BoundaryCorner at chain junctions
-9. Build SeamEdge between patches
-10. Serialize geometry for debug
+1. Flood fill faces в patches по seam.
+2. Классификация patch в `WALL` / `FLOOR` / `SLOPE`.
+3. Построение локального basis.
+4. Трассировка boundary loops.
+5. OUTER/HOLE classification через временный UV unwrap.
+6. Split loop на chains по смене соседа.
+7. Fallback geometric split для special case isolated `OUTER`.
+8. Classify chain role (`H_FRAME`, `V_FRAME`, `FREE`).
+9. Build corners.
+10. Build seam edges.
+
+### Important recent behavior
+
+#### 1. Outer-loop geometric fallback
+
+Если `OUTER` loop после neighbor-split схлопывается в один `FREE` chain,
+`analysis.py` пытается геометрически нарезать его по corner turns.
+
+Это нужно для isolated wall patches без соседства:
+
+- внешний прямоугольный контур перестает быть одним большим `FREE`;
+- появляются derived `H_FRAME` / `V_FRAME` chains;
+- `HOLE` loops в этот fallback не участвуют.
+
+#### 2. Frame classification is not bbox-only anymore
+
+`_classify_chain_frame_role()` теперь учитывает не только extents в basis,
+но и форму chain:
+
+- waviness по ортогональной оси;
+- polyline vs chord;
+- chord deviation;
+- turn budget.
+
+Это защищает от ложного `H_FRAME` / `V_FRAME` для волнистых или изогнутых chains.
+
+#### 3. Corners are already available for FREE fallback
+
+Corner turn angle считается в `analysis.py` и служит основой geometric split.
 
 ---
 
-## debug.py
+## solve.py
 
-Читает PatchGraph напрямую.
+`solve.py` сейчас делится на два слоя.
 
-Console: `Mesh → Patch → Loop → Chain → Corner`
-Visual: GP layers по semantic groups (Patches, Frame, Loops, Overlay)
+### Planning layer
+
+Сущности:
+
+- `PatchCertainty`
+- `AttachmentCandidate`
+- `SolverGraph`
+- `QuiltPlan`
+- `SolvePlan`
+
+Planning делает:
+
+- per-patch solvability gate;
+- root scoring;
+- attachment scoring;
+- solve grouping по connected components;
+- patch-type compatibility gate.
+
+### Construction layer
+
+Основной entry point:
+
+- `build_root_scaffold_map()`
+
+Он использует только:
+
+- `build_quilt_scaffold_chain_frontier()`
+
+Старый patch-first path больше не является активным construction path.
+
+### Chain frontier
+
+Ключевые свойства текущей реализации:
+
+- seed chain выбирается внутри root patch;
+- scoring учитывает роль chain, anchors и quilt-local semantic context;
+- anchor provenance различается:
+  - `same_patch`
+  - `cross_patch`
+- раннее замыкание patch через два `cross_patch` anchors запрещается;
+- для H/V dual-anchor placement есть axis/span safety check;
+- rejected candidate не должен маскироваться под placed chain.
+
+### Patch wrap guard
+
+Отдельное правило frontier:
+
+если оба anchors пришли только cross-patch, chain не должен замыкать новый patch
+на обоих концах сразу. Это введено для tube/cylinder/pseudo-cube кейсов.
+
+### Envelope state
+
+После frontier chains группируются обратно в `ScaffoldPatchPlacement`.
+
+Текущие поля envelope-слоя:
+
+- `status`
+- `dependency_patches`
+- `unplaced_chain_indices`
+- `closure_error`
+- `closure_valid`
+- `bbox_min`
+- `bbox_max`
+
+Важно:
+
+- `build_order` уже есть на уровне `ScaffoldQuiltPlacement`;
+- полноценного persistent `anchor_registry` внутри `ScaffoldMap` пока нет;
+- dependency tracking реализован через provenance собранных chains.
+
+Это значит, что архитектурная идея envelope уже частично реализована, но еще не
+доведена до fully rebuildable persistent model.
+
+---
+
+## UV Transfer and Conformal
+
+### UV transfer
+
+Scaffold сначала пишется в UV layer, потом запускается `Conformal`.
+
+Ключевые детали текущей реализации:
+
+- `_resolve_scaffold_uv_targets()` работает side-aware;
+- для уникальных patch vertices coverage расширяется на все loops patch faces;
+- `SEAM_SELF` обрабатывается отдельно, чтобы не схлопывать разные UV стороны;
+- `validate_scaffold_uv_transfer()` сравнивает scaffold intent с реальными UV loops.
+
+### Pin policy
+
+На текущем коде:
+
+- `H_FRAME` / `V_FRAME` pinятся целиком;
+- `FREE` chains pinят только endpoints;
+- после `Conformal`, если `keep_pins=False`, pins снимаются.
+
+### Conformal strategy
+
+Текущая реализация больше не делает один глобальный unwrap на все quilts.
+
+Сейчас:
+
+- supported patches unwrap-ятся per-patch внутри quilt;
+- unsupported patches получают отдельный fallback conformal pass;
+- quilt islands раскладываются по `x_cursor`, чтобы не лежать друг на друге.
+
+### Important implication
+
+Если в логах есть строка `Patch X Conformal`, это означает, что оператор реально
+вызвал `bpy.ops.uv.unwrap()` для этого patch. Визуальная проблема после этого
+обычно означает уже не "unwrap skipped", а либо слишком жесткий pinning,
+либо недостаточно хороший scaffold.
 
 ---
 
 ## operators.py
 
-Тонкие обёртки. Не содержат геометрической логики.
+`operators.py` остается thin wrapper слоем.
 
-Операторы:
-- `Analyze` — toggle debug mode (PatchGraph + GP)
-- `Flow Debug` — print SolverGraph/SolvePlan to console
-- `Scaffold Debug` — print ScaffoldMap to console
-- `Solve Phase 1 Preview` — write scaffold to UV
+Но в нем теперь есть важный gate:
 
-Legacy операторы (disabled, будут пересобраны на ScaffoldMap):
-- `UV Unwrap Faces`
-- `Manual Dock`
-- `Select Similar`
-- `Stack Similar`
+### Solve preflight
 
----
+Перед solve path запускается `validate_solver_input_mesh()`.
 
-## ScaffoldMap как Future Platform
+Оператор должен остановиться до UV write, если найдены:
 
-ScaffoldMap — не только runtime helper. Это база для:
-- Кэширование результата (не пересчитывать если mesh не изменился)
-- Manual override отдельных patches/chains
-- Переориентация (повернуть patch на 90°)
-- Переклассификация chain (FREE → H_FRAME)
-- Manual dock (привязать patch к другому seam)
-- Выпрямление chain (straighten FREE в H/V)
+- `DUPLICATE_FACE`
+- `NON_MANIFOLD_EDGE`
+- `DEGENERATE_FACE`
 
-Для этого ScaffoldChainPlacement должен хранить override флаги:
-```python
-role_override: Optional[FrameRole] = None
-direction_override: Optional[Vector] = None
-pinned: bool = False  # don't recalculate
-```
+При провале preflight:
+
+- печатается console report;
+- mode/selection откатываются;
+- solve pipeline не запускается.
+
+Это защита от ложных UV-багов, вызванных битой геометрией.
 
 ---
 
-## Plan
+## Invariants
 
-### Phase 0 — Glossary & Docs ✓
+Нарушение любого пункта считается багом.
 
-### Phase 1 — Extract operators.py
-- Перенести UI, операторы, settings из монолита
-- Обновить __init__.py
-- Монолит перестаёт быть runtime-хостом
-
-### Phase 2 — Validation Layer
-- `validate_scaffold_uv_transfer()` — диагностика scaffold vs UV
-- Конкретные mismatches в console
-
-### Phase 3 — Chain-First Frontier Builder
-- Chain-level scoring
-- Single frontier pool для всего quilt
-- H/V snap, FREE interpolation
-- ScaffoldMap как persistent result
-
-### Phase 4 — Continuity + Debug
-- ContinuationEdge как явная сущность
-- Debug visualization continuations
-
-### Phase 5 — Rebuild Operators
-- UV Unwrap на ScaffoldMap pipeline
-- Manual override hooks
+1. `model.py` не импортирует `bpy` и `bmesh`.
+2. `analysis.py` не пишет рабочий UV, кроме временного unwrap для outer/hole classification.
+3. `solve.py` не делает flood fill и не классифицирует patches.
+4. `debug.py` не читает BMesh напрямую.
+5. `operators.py` не содержит геометрической логики.
+6. PatchGraph хранит индексы, а не BMesh references.
+7. Active scaffold builder остается chain-first strongest-frontier.
+8. Cross-patch closure не должна замыкать новый patch через два чужих anchors.
+9. `HOLE` loops не участвуют в outer geometric fallback.
+10. Mesh preflight должен блокировать solve на битой топологии.
 
 ---
 
-## What NOT To Do
+## Transitional Debt
 
-- Не использовать Hotspot_UV_v2_5_26.py как источник логики
-- Не возвращаться к patch-first/loop-sequential placement
-- Не строить отдельный boundary graph
-- Не вводить constraint classes раньше времени
-- Не перемещать Corner в solve.py
-- Не хранить BMFace/BMEdge в PatchGraph
-- Не наращивать scoring complexity до стабилизации placement
+Это уже известно и не является "случайной поломкой":
+
+1. Solve dataclasses все еще живут в `solve.py`, а не в `model.py`.
+2. `ScaffoldSegment` legacy artifact еще присутствует в `model.py`, но не является
+   основой активного frontier path.
+3. Полноценного persistent `anchor_registry` внутри `ScaffoldMap` пока нет.
+4. Explicit `ContinuationEdge` как самостоятельная solve-сущность еще не введен.
+5. `format_root_scaffold_report()` еще не показывает всю глубину frontier history.
+
+Это кандидаты на следующую фазу рефакторинга, а не срочные багфиксы.
+
+---
+
+## Current Phase State
+
+### Phase 0
+
+Сделана.
+
+### Phase 1
+
+Операторы и UI вынесены из монолита.
+
+### Phase 2
+
+Validation layer работает:
+
+- scaffold vs UV
+- missing targets
+- conflicts
+- SEAM_SELF diagnostics
+
+### Phase 3
+
+Сделана частично, но это уже рабочий production path:
+
+- chain-first frontier активен;
+- patch-type quilt gating активен;
+- cross-patch wrap guards активны;
+- outer geometric fallback активен;
+- per-patch conformal активен;
+- preflight mesh validation активен.
+
+### Phase 4
+
+Еще не сделана.
+
+Остается:
+
+- явная continuity model;
+- richer debug для continuation routing;
+- clearer frontier/build-order introspection.
+
+### Phase 5
+
+Еще не сделана.
+
+---
+
+## Recommended Reading Order For New AI Session
+
+1. Этот документ.
+2. `docs/phase3_design.md`
+3. `docs/PHASE3_INSTRUCTIONS.md`
+4. `cftuv/analysis.py`
+5. `cftuv/solve.py`
+
+Сначала нужно понимать текущие компромиссы и долги, а не только исходный дизайн.
+
