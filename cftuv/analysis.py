@@ -1174,7 +1174,9 @@ def _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v):
         return raw_chains
 
     split_indices = _collect_geometric_split_indices(raw_loop.get("vert_cos", []), basis_u, basis_v)
+    print(f"[CFTUV][GeoSplit] split_indices={len(split_indices)} indices={split_indices}")
     if len(split_indices) < 4:
+        print(f"[CFTUV][GeoSplit] BAIL: <4 split indices")
         return raw_chains
 
     derived_raw_chains = _split_closed_loop_by_corner_indices(
@@ -1182,19 +1184,25 @@ def _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v):
         split_indices,
         int(raw_chain.get("neighbor", NB_MESH_BORDER)),
     )
+    print(f"[CFTUV][GeoSplit] derived_chains={len(derived_raw_chains)}")
     if len(derived_raw_chains) < 4:
+        print(f"[CFTUV][GeoSplit] BAIL: <4 derived chains")
         return raw_chains
 
     derived_roles = [
         _classify_chain_frame_role(derived_raw_chain.get("vert_cos", []), basis_u, basis_v, strict_guards=False)
         for derived_raw_chain in derived_raw_chains
     ]
+    print(f"[CFTUV][GeoSplit] derived_roles={[r.value for r in derived_roles]}")
     if FrameRole.H_FRAME not in derived_roles or FrameRole.V_FRAME not in derived_roles:
+        print(f"[CFTUV][GeoSplit] BAIL: missing H or V in derived roles")
         return raw_chains
 
     non_free_count = sum(1 for role in derived_roles if role != FrameRole.FREE)
     if non_free_count < 2:
+        print(f"[CFTUV][GeoSplit] BAIL: non_free_count={non_free_count} < 2")
         return raw_chains
+    print(f"[CFTUV][GeoSplit] SUCCESS: split into {len(derived_raw_chains)} chains")
 
     return derived_raw_chains
 
