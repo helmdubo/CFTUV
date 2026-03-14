@@ -2498,14 +2498,40 @@ def _execute_phase1_preview_impl(
             1 for f in bm.faces if f.select
             for lp in f.loops if not lp[uv_layer].pin_uv
         )
+        # Снимок UV до Conformal: vert_index → uv для первых unpinned loops
+        _pre_uv = {}
+        for f in bm.faces:
+            if f.select:
+                for lp in f.loops:
+                    if not lp[uv_layer].pin_uv:
+                        key = (f.index, lp.vert.index)
+                        _pre_uv[key] = lp[uv_layer].uv.copy()
         bmesh.update_edit_mesh(obj.data)
         print(
             f"[CFTUV][Phase1] Final Conformal: "
             f"patches={all_conformal_patch_ids} faces={sel_faces} "
             f"pinned={pinned_count} unpinned={unpinned_count}"
         )
+        print(f"[CFTUV][Phase1] obj.mode={obj.mode} active={bpy.context.active_object == obj}")
         bpy.ops.uv.unwrap(method='CONFORMAL', fill_holes=False, margin=0.0)
         conformal_applied += 1
+        # Проверка: сколько UV изменилось
+        bm2 = bmesh.from_edit_mesh(obj.data)
+        bm2.faces.ensure_lookup_table()
+        uv2 = bm2.loops.layers.uv.verify()
+        _changed = 0
+        _checked = 0
+        for f in bm2.faces:
+            if f.select:
+                for lp in f.loops:
+                    if not lp[uv2].pin_uv:
+                        key = (f.index, lp.vert.index)
+                        pre = _pre_uv.get(key)
+                        if pre is not None:
+                            _checked += 1
+                            if (lp[uv2].uv - pre).length > 1e-6:
+                                _changed += 1
+        print(f"[CFTUV][Phase1] Conformal result: checked={_checked} changed={_changed}/{len(_pre_uv)}")
 
     if run_conformal and unsupported_patch_ids:
         for patch_id in unsupported_patch_ids:
