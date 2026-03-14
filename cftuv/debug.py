@@ -10,12 +10,16 @@ except ImportError:
 
 
 _GP_STYLES = {
-    'Frame_H': (1.0, 0.85, 0.0, 1.0),
-    'Frame_V': (0.0, 0.85, 0.85, 1.0),
-    'Frame_FREE': (0.55, 0.55, 0.55, 0.7),
     'Loops_Boundary': (1.0, 0.95, 0.95, 0.95),
     'Loops_Holes': (0.2, 0.35, 0.85, 0.95),
     'Overlay_Centers': (1.0, 1.0, 1.0, 1.0),
+}
+
+# Цвета chains по frame role — рисуются на одном слое Loops_Chains
+_CHAIN_COLORS = {
+    FrameRole.H_FRAME: (1.0, 0.85, 0.0, 1.0),     # жёлтый
+    FrameRole.V_FRAME: (0.0, 0.85, 0.85, 1.0),     # бирюзовый
+    FrameRole.FREE: (0.55, 0.55, 0.55, 0.7),        # серый
 }
 
 _BASIS_COLORS = {
@@ -132,6 +136,23 @@ def _add_gp_stroke(frame, points, mat_idx, line_width=4, cyclic=False):
         stroke.points[index].pressure = 1.0
 
 
+def _ensure_gp_material(gp_data, mat_name, color_rgba):
+    """Создаёт или находит GP material и возвращает его индекс в gp_data."""
+    if mat_name in bpy.data.materials:
+        mat = bpy.data.materials[mat_name]
+    else:
+        mat = bpy.data.materials.new(mat_name)
+        bpy.data.materials.create_gpencil_data(mat)
+    mat.grease_pencil.color = color_rgba[:4]
+    mat.grease_pencil.show_fill = False
+
+    for index, slot in enumerate(gp_data.materials):
+        if slot and slot.name == mat_name:
+            return index
+    gp_data.materials.append(mat)
+    return len(gp_data.materials) - 1
+
+
 def clear_visualization(source_obj):
     gp_name = _get_gp_debug_name(source_obj)
     if gp_name in bpy.data.objects:
@@ -152,9 +173,10 @@ def clear_visualization(source_obj):
         if (
             mat.name.startswith('CFTUV_P')
             or mat.name.startswith('CFTUV_Axis_')
-            or mat.name.startswith('CFTUV_Frame_')
+            or mat.name.startswith('CFTUV_Chain_')
             or mat.name.startswith('CFTUV_Loops_')
             or mat.name.startswith('CFTUV_Overlay_')
+            or mat.name.startswith('CFTUV_Frontier_')
         ) and mat.users == 0:
             bpy.data.materials.remove(mat)
 
@@ -230,13 +252,12 @@ def apply_layer_visibility(gp_data, dbg_settings):
         'Patches_WALL': dbg_settings.get('patches_wall', True),
         'Patches_FLOOR': dbg_settings.get('patches_floor', True),
         'Patches_SLOPE': dbg_settings.get('patches_slope', True),
-        'Frame_H': dbg_settings.get('frame_h', True),
-        'Frame_V': dbg_settings.get('frame_v', True),
-        'Frame_FREE': dbg_settings.get('frame_free', True),
+        'Loops_Chains': dbg_settings.get('loops_chains', True),
         'Loops_Boundary': dbg_settings.get('loops_boundary', True),
         'Loops_Holes': dbg_settings.get('loops_holes', True),
         'Overlay_Basis': dbg_settings.get('overlay_basis', True),
         'Overlay_Centers': dbg_settings.get('overlay_centers', True),
+        'Frontier_Path': dbg_settings.get('frontier_path', True),
     }
     for layer_name, visible in mapping.items():
         if layer_name in gp_data.layers:
@@ -254,6 +275,19 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
     for style_name, color in _GP_STYLES.items():
         frame, mat_idx = _ensure_gp_layer(gp_data, style_name, color)
         frames_and_mats[style_name] = (frame, mat_idx)
+
+    # Loops_Chains — единый слой, материалы по frame role
+    chains_layer_name = 'Loops_Chains'
+    if chains_layer_name in gp_data.layers:
+        chains_layer = gp_data.layers[chains_layer_name]
+        chains_layer.clear()
+    else:
+        chains_layer = gp_data.layers.new(chains_layer_name, set_active=False)
+    chains_frame = chains_layer.frames[0] if chains_layer.frames else chains_layer.frames.new(0)
+    chain_mat_indices = {}
+    for role, color in _CHAIN_COLORS.items():
+        mat_name = f'CFTUV_Chain_{role.value}'
+        chain_mat_indices[role] = _ensure_gp_material(gp_data, mat_name, color)
 
     basis_layer_name = 'Overlay_Basis'
     if basis_layer_name in gp_data.layers:
@@ -377,25 +411,73 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
                         _add_gp_stroke(frame, loop_points, mat_idx, line_width=5)
 
             for chain in boundary_loop.chains:
-                if not _chain_enabled(chain, settings_dict):
-                    continue
                 raw_points = chain.vert_cos + [chain.vert_cos[0]] if chain.is_closed else chain.vert_cos
-                lifted_points = _lift_points(raw_points, node.normal, 0.01)
+                lifted_points = _lift_points(raw_points, node.normal, 0.016)
                 if len(lifted_points) < 2:
                     continue
 
-                role = _enum_value(chain.frame_role)
-                if role == FrameRole.H_FRAME.value:
-                    frame_name, line_width = 'Frame_H', 6
-                elif role == FrameRole.V_FRAME.value:
-                    frame_name, line_width = 'Frame_V', 6
-                else:
-                    frame_name, line_width = 'Frame_FREE', 3
-                frame, mat_idx = frames_and_mats[frame_name]
-                _add_gp_stroke(frame, lifted_points, mat_idx, line_width=line_width)
+                role = chain.frame_role if isinstance(chain.frame_role, FrameRole) else FrameRole(chain.frame_role)
+                line_width = 6 if role in (FrameRole.H_FRAME, FrameRole.V_FRAME) else 3
+                mat_idx = chain_mat_indices.get(role, chain_mat_indices[FrameRole.FREE])
+                _add_gp_stroke(chains_frame, lifted_points, mat_idx, line_width=line_width)
 
     apply_layer_visibility(gp_data, settings_dict)
     return gp_obj
 
 
-__all__ = ['apply_layer_visibility', 'create_visualization', 'clear_visualization']
+def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, settings_dict=None):
+    """Визуализация порядка scaffold build — gradient brightness по build_order.
+
+    Первый chain (seed) — самый яркий, последующие тускнеют.
+    Использует отдельный GP слой Frontier_Path.
+    """
+    settings_dict = settings_dict or {}
+    gp_name = _get_gp_debug_name(source_obj)
+    gp_obj = bpy.data.objects.get(gp_name)
+    if gp_obj is None or gp_obj.type != 'GPENCIL':
+        return
+    gp_data = gp_obj.data
+
+    layer_name = 'Frontier_Path'
+    if layer_name in gp_data.layers:
+        layer = gp_data.layers[layer_name]
+        layer.clear()
+    else:
+        layer = gp_data.layers.new(layer_name, set_active=False)
+    frame = layer.frames[0] if layer.frames else layer.frames.new(0)
+
+    for quilt in scaffold_map.quilts:
+        build_order = getattr(quilt, 'build_order', [])
+        if not build_order:
+            continue
+
+        total = len(build_order)
+        for step_index, ref in enumerate(build_order):
+            patch_id, loop_idx, chain_idx = ref
+            node = graph.nodes.get(patch_id)
+            if node is None:
+                continue
+            if loop_idx < 0 or loop_idx >= len(node.boundary_loops):
+                continue
+            loop = node.boundary_loops[loop_idx]
+            if chain_idx < 0 or chain_idx >= len(loop.chains):
+                continue
+            chain = loop.chains[chain_idx]
+
+            # Яркость: от 1.0 (seed, первый) до 0.15 (последний)
+            t = step_index / max(total - 1, 1)
+            brightness = 1.0 - 0.85 * t
+            color = (brightness, brightness * 0.9, brightness * 0.3, 1.0)
+
+            mat_name = f'CFTUV_Frontier_{step_index:03d}'
+            mat_idx = _ensure_gp_material(gp_data, mat_name, color)
+
+            raw_points = chain.vert_cos + [chain.vert_cos[0]] if chain.is_closed else chain.vert_cos
+            lifted_points = _lift_points(raw_points, node.normal, 0.020)
+            if len(lifted_points) >= 2:
+                _add_gp_stroke(frame, lifted_points, mat_idx, line_width=8)
+
+    apply_layer_visibility(gp_data, settings_dict)
+
+
+__all__ = ['apply_layer_visibility', 'create_visualization', 'clear_visualization', 'create_frontier_visualization']

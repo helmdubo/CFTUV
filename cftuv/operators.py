@@ -22,7 +22,7 @@ from .analysis import (
     validate_solver_input_mesh,
 )
 from .constants import GP_DEBUG_PREFIX
-from .debug import apply_layer_visibility, clear_visualization, create_visualization
+from .debug import apply_layer_visibility, clear_visualization, create_frontier_visualization, create_visualization
 from .model import UVSettings
 from .solve import (
     build_root_scaffold_map,
@@ -54,7 +54,6 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
 
     # Group toggles
     dbg_grp_patches: BoolProperty(name="Patches", default=True)
-    dbg_grp_frame: BoolProperty(name="Frame", default=True)
     dbg_grp_loops: BoolProperty(name="Loop Types", default=True)
     dbg_grp_overlay: BoolProperty(name="Overlay", default=True)
 
@@ -63,11 +62,9 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
     dbg_patches_floor: BoolProperty(name="Floor", default=True)
     dbg_patches_slope: BoolProperty(name="Slope", default=True)
 
-    # Frame group
-    dbg_frame_h: BoolProperty(name="Horizontal", default=True)
-    dbg_frame_v: BoolProperty(name="Vertical", default=True)
-    dbg_frame_free: BoolProperty(name="Free", default=True)
-    dbg_frame_hole: BoolProperty(name="Holes", default=True)
+    # Loop Types group
+    dbg_loops_chains: BoolProperty(name="Chains", default=True)
+    dbg_loops_holes: BoolProperty(name="Holes", default=True)
 
 
 # ============================================================
@@ -82,13 +79,12 @@ def _build_debug_settings(settings: HOTSPOTUV_Settings) -> dict:
         'patches_wall': bool(settings.dbg_grp_patches and settings.dbg_patches_wall),
         'patches_floor': bool(settings.dbg_grp_patches and settings.dbg_patches_floor),
         'patches_slope': bool(settings.dbg_grp_patches and settings.dbg_patches_slope),
-        'frame_h': bool(settings.dbg_grp_frame and settings.dbg_frame_h),
-        'frame_v': bool(settings.dbg_grp_frame and settings.dbg_frame_v),
-        'frame_free': bool(settings.dbg_grp_frame and settings.dbg_frame_free),
+        'loops_chains': bool(loops_visible and settings.dbg_loops_chains),
         'loops_boundary': loops_visible,
-        'loops_holes': bool(loops_visible and settings.dbg_frame_hole),
+        'loops_holes': bool(loops_visible and settings.dbg_loops_holes),
         'overlay_basis': overlay_visible,
         'overlay_centers': overlay_visible,
+        'frontier_path': True,
     }
 
 
@@ -218,6 +214,19 @@ def _enter_debug_mode(context, obj):
 
     lines, summary = format_patch_graph_report(patch_graph, mesh_name=obj.name)
     _print_console_report('CFTUV PatchGraph Analyze', lines, summary)
+
+    # Scaffold + Frontier visualization поверх GP
+    try:
+        solver_graph = build_solver_graph(patch_graph)
+        solve_plan = plan_solve_phase1(patch_graph, solver_graph)
+        settings = UVSettings.from_blender_settings(s)
+        scaffold_map = build_root_scaffold_map(patch_graph, solve_plan, settings.final_scale)
+        scaffold_lines, scaffold_summary = format_root_scaffold_report(patch_graph, scaffold_map, mesh_name=obj.name)
+        _print_console_report('CFTUV Scaffold (Analyze)', scaffold_lines, scaffold_summary)
+        create_frontier_visualization(patch_graph, scaffold_map, obj, dbg_settings)
+    except Exception as exc:
+        print(f"[CFTUV][Analyze] Scaffold failed: {exc}")
+
     return summary
 
 
@@ -355,7 +364,6 @@ class HOTSPOTUV_OT_DebugToggleGroup(bpy.types.Operator):
 
     _GROUP_LAYERS = {
         'patches': ['Patches_WALL', 'Patches_FLOOR', 'Patches_SLOPE'],
-        'frame': ['Frame_H', 'Frame_V', 'Frame_FREE'],
         'loops': ['Loops_Chains', 'Loops_Boundary', 'Loops_Holes'],
         'overlay': ['Overlay_Basis', 'Overlay_Centers'],
     }
@@ -426,6 +434,14 @@ class HOTSPOTUV_OT_ScaffoldDebug(bpy.types.Operator):
             scaffold_map = build_root_scaffold_map(pg, sp, settings.final_scale)
             lines, summary = format_root_scaffold_report(pg, scaffold_map, mesh_name=obj.name)
             _print_console_report('CFTUV Scaffold Debug', lines, summary)
+
+            # Frontier path visualization поверх существующего GP
+            s = context.scene.hotspotuv_settings
+            dbg_settings = _build_debug_settings(s)
+            source_name = s.dbg_source_object
+            if source_name and source_name in bpy.data.objects:
+                create_frontier_visualization(pg, scaffold_map, bpy.data.objects[source_name], dbg_settings)
+
             self.report({"INFO"}, summary)
             return {"FINISHED"}
         except Exception as exc:
@@ -616,11 +632,6 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
                     col, s, gp_data, "patches", "Patches", "MESH_GRID",
                     [('Patches_WALL', 'Wall'), ('Patches_FLOOR', 'Floor'),
                      ('Patches_SLOPE', 'Slope')],
-                )
-                _draw_debug_group(
-                    col, s, gp_data, "frame", "Frame", "MOD_WIREFRAME",
-                    [('Frame_H', 'Horizontal'), ('Frame_V', 'Vertical'),
-                     ('Frame_FREE', 'Free')],
                 )
                 _draw_debug_group(
                     col, s, gp_data, "loops", "Loop Types", "CURVE_BEZCIRCLE",

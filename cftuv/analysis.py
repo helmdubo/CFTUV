@@ -1046,6 +1046,114 @@ def _split_closed_loop_by_corner_indices(raw_loop, split_indices, neighbor_patch
     return raw_chains
 
 
+def _find_open_chain_corners(vert_cos, basis_u, basis_v, min_spacing=2):
+    """Detect corners on an open (non-closed) chain by per-vertex angle.
+
+    Returns list of indices into vert_cos where turn angle >= CORNER_ANGLE_THRESHOLD_DEG.
+    Excludes endpoints (0 and len-1) — they are chain boundaries, not interior corners.
+    """
+    vertex_count = len(vert_cos)
+    if vertex_count < 3:
+        return []
+
+    candidates = []
+    for i in range(1, vertex_count - 1):
+        turn_angle = _measure_corner_turn_angle(vert_cos[i], vert_cos[i - 1], vert_cos[i + 1], basis_u, basis_v)
+        if turn_angle >= CORNER_ANGLE_THRESHOLD_DEG:
+            candidates.append((i, turn_angle))
+
+    if not candidates:
+        return []
+
+    # Фильтрация: min_spacing вершин между соседними углами
+    filtered = [candidates[0]]
+    for i in range(1, len(candidates)):
+        idx, angle = candidates[i]
+        prev_idx, prev_angle = filtered[-1]
+        if idx - prev_idx < min_spacing:
+            if angle > prev_angle:
+                filtered[-1] = (idx, angle)
+            continue
+        filtered.append((idx, angle))
+
+    return [idx for idx, _ in filtered]
+
+
+def _split_open_chain_at_corners(raw_chain, corner_indices):
+    """Split one open raw chain at interior corner indices into multiple sub-chains.
+
+    Each corner vertex becomes the end of one sub-chain and the start of the next.
+    """
+    vert_indices = raw_chain.get("vert_indices", [])
+    vert_cos = raw_chain.get("vert_cos", [])
+    edge_indices = raw_chain.get("edge_indices", [])
+    side_face_indices = raw_chain.get("side_face_indices", [])
+    neighbor = raw_chain.get("neighbor", NB_MESH_BORDER)
+
+    # Границы сегментов: [0, corner1, corner2, ..., len-1]
+    boundaries = [0] + sorted(corner_indices) + [len(vert_indices) - 1]
+
+    sub_chains = []
+    for seg_idx in range(len(boundaries) - 1):
+        start = boundaries[seg_idx]
+        end = boundaries[seg_idx + 1]
+        if end <= start:
+            continue
+
+        seg_verts = vert_indices[start:end + 1]
+        seg_cos = [co.copy() for co in vert_cos[start:end + 1]]
+        seg_edges = edge_indices[start:end] if start < len(edge_indices) else []
+        seg_sides = side_face_indices[start:end + 1] if start < len(side_face_indices) else []
+
+        if len(seg_verts) < 2:
+            continue
+
+        sub_chains.append({
+            "vert_indices": seg_verts,
+            "vert_cos": seg_cos,
+            "edge_indices": seg_edges,
+            "side_face_indices": seg_sides,
+            "neighbor": neighbor,
+            "is_closed": False,
+            "start_loop_index": raw_chain.get("start_loop_index", 0),
+            "end_loop_index": raw_chain.get("end_loop_index", 0),
+        })
+
+    return sub_chains if sub_chains else [raw_chain]
+
+
+def _split_border_chains_by_corners(raw_chains, basis_u, basis_v):
+    """Split all open MESH_BORDER chains at geometric corners.
+
+    Безусловно применяется ко всем MESH_BORDER chains — не проверяем
+    classification заранее. Corner detection + split, потом классификация
+    каждого полученного сегмента по ratio.
+    """
+    result = []
+    for raw_chain in raw_chains:
+        neighbor = int(raw_chain.get("neighbor", NB_MESH_BORDER))
+        is_closed = bool(raw_chain.get("is_closed", False))
+
+        if neighbor != NB_MESH_BORDER or is_closed:
+            result.append(raw_chain)
+            continue
+
+        vert_cos = raw_chain.get("vert_cos", [])
+        if len(vert_cos) < 3:
+            result.append(raw_chain)
+            continue
+
+        corner_indices = _find_open_chain_corners(vert_cos, basis_u, basis_v)
+        if not corner_indices:
+            result.append(raw_chain)
+            continue
+
+        sub_chains = _split_open_chain_at_corners(raw_chain, corner_indices)
+        result.extend(sub_chains)
+
+    return result
+
+
 def _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v):
     """Fallback split for isolated OUTER loops that collapsed into one FREE chain."""
 
@@ -1240,6 +1348,7 @@ def _build_boundary_loops(raw_loops, patch_face_indices, face_to_patch, patch_id
         )
 
         raw_chains = _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v)
+        raw_chains = _split_border_chains_by_corners(raw_chains, basis_u, basis_v)
         boundary_loop.chains = _build_boundary_chain_objects(raw_chains, basis_u, basis_v)
 
         boundary_loop.corners = _build_loop_corners(boundary_loop, raw_chains, basis_u, basis_v)
@@ -1537,9 +1646,10 @@ def format_patch_graph_report(graph, mesh_name=None):
                 endpoint_neighbors = graph.get_chain_endpoint_neighbors(patch_id, loop_index, chain_index)
                 start_corner = chain.start_corner_index if chain.start_corner_index >= 0 else "-"
                 end_corner = chain.end_corner_index if chain.end_corner_index >= 0 else "-"
+                bridge_tag = " [BRIDGE]" if role == FrameRole.FREE.value and len(chain.vert_cos) <= 2 else ""
                 patch_roles.append(role)
                 loop_details.append(
-                    f"      Chain {chain_index}: {role} | neighbor:{neighbor_kind}{neighbor_suffix} | transition:{transition} | "
+                    f"      Chain {chain_index}: {role}{bridge_tag} | neighbor:{neighbor_kind}{neighbor_suffix} | transition:{transition} | "
                     f"verts:{chain.start_vert_index}->{chain.end_vert_index} | corners:{start_corner}->{end_corner} | "
                     f"ep:start{_format_chain_refs(endpoint_neighbors['start'])} end{_format_chain_refs(endpoint_neighbors['end'])} | "
                     f"edges:{len(chain.edge_indices)} | length:{_chain_length(chain):.4f}"
