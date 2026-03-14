@@ -1194,15 +1194,16 @@ def _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v):
         for derived_raw_chain in derived_raw_chains
     ]
     print(f"[CFTUV][GeoSplit] derived_roles={[r.value for r in derived_roles]}")
-    if FrameRole.H_FRAME not in derived_roles or FrameRole.V_FRAME not in derived_roles:
-        print(f"[CFTUV][GeoSplit] BAIL: missing H or V in derived roles")
-        return raw_chains
-
+    # Geometric split валиден если нашли ≥4 corner и получили ≥4 chains.
+    # Не требуем наличия обоих H_FRAME и V_FRAME — patch с бевелями
+    # или наклонной стеной может иметь chains которые классифицируются
+    # как FREE из-за waviness/curvature, но split всё равно правильный.
+    # Минимум: хотя бы 1 chain не FREE (иначе split бесполезен).
     non_free_count = sum(1 for role in derived_roles if role != FrameRole.FREE)
-    if non_free_count < 2:
-        print(f"[CFTUV][GeoSplit] BAIL: non_free_count={non_free_count} < 2")
+    if non_free_count < 1:
+        print(f"[CFTUV][GeoSplit] BAIL: all derived chains are FREE")
         return raw_chains
-    print(f"[CFTUV][GeoSplit] SUCCESS: split into {len(derived_raw_chains)} chains")
+    print(f"[CFTUV][GeoSplit] SUCCESS: split into {len(derived_raw_chains)} chains, non_free={non_free_count}")
 
     return derived_raw_chains
 
