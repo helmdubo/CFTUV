@@ -1093,6 +1093,8 @@ def _split_open_chain_at_corners(raw_chain, corner_indices):
     # Границы сегментов: [0, corner1, corner2, ..., len-1]
     boundaries = [0] + sorted(corner_indices) + [len(vert_indices) - 1]
 
+    parent_start_loop_index = raw_chain.get("start_loop_index", 0)
+
     sub_chains = []
     for seg_idx in range(len(boundaries) - 1):
         start = boundaries[seg_idx]
@@ -1115,8 +1117,8 @@ def _split_open_chain_at_corners(raw_chain, corner_indices):
             "side_face_indices": seg_sides,
             "neighbor": neighbor,
             "is_closed": False,
-            "start_loop_index": raw_chain.get("start_loop_index", 0),
-            "end_loop_index": raw_chain.get("end_loop_index", 0),
+            "start_loop_index": parent_start_loop_index + start,
+            "end_loop_index": parent_start_loop_index + end,
         })
 
     return sub_chains if sub_chains else [raw_chain]
