@@ -204,32 +204,6 @@ class MeshPreflightReport:
         return not self.issues
 
 # ============================================================
-# ScaffoldSegment — формализованная единица placement в solve
-# Замена анонимным dict-ам в _collect_patch_segments_for_loop()
-# Phase 3 forward-compatibility
-# ============================================================
-
-@dataclass
-class ScaffoldSegment:
-    """Formalized placement unit inside ScaffoldMap.
-
-    Replaces anonymous dicts with keys 'segment_index', 'role', 'source_kind', etc.
-    Used by solve.py chain frontier builder.
-
-    source_kind:
-        'chain' — segment corresponds to a real BoundaryChain
-        'span'  — segment derived from geometric corners of a single FREE loop
-    """
-
-    segment_index: int = 0
-    role: FrameRole = FrameRole.FREE
-    source_kind: str = "chain"
-    start_corner_index: int = -1
-    end_corner_index: int = -1
-    points: list[tuple[int, Vector]] = field(default_factory=list)
-
-
-# ============================================================
 # PatchGraph — центральный IR
 # ============================================================
 
@@ -367,3 +341,72 @@ class PatchGraph:
                         stack.append(neighbor_id)
             components.append(component)
         return components
+
+
+# ============================================================
+# ScaffoldMap — solve IR (persistent result)
+# Виртуальная 2D карта размещения chains/corners/patches.
+# Может быть кэширован, отредактирован вручную, частично пересчитан.
+# ============================================================
+
+@dataclass(frozen=True)
+class ScaffoldPointKey:
+    """Уникальная ссылка на source point в PatchGraph."""
+
+    patch_id: int
+    loop_index: int
+    chain_index: int
+    source_point_index: int
+
+
+@dataclass(frozen=True)
+class ScaffoldChainPlacement:
+    """Размещённый chain с UV координатами."""
+
+    patch_id: int
+    loop_index: int
+    chain_index: int
+    frame_role: FrameRole
+    source_kind: str = "chain"
+    points: tuple[tuple[ScaffoldPointKey, Vector], ...] = ()
+
+
+@dataclass
+class ScaffoldPatchPlacement:
+    """Per-patch envelope — результат scaffold placement."""
+
+    patch_id: int
+    loop_index: int
+    root_chain_index: int = 0
+    corner_positions: dict[int, Vector] = field(default_factory=dict)
+    chain_placements: list[ScaffoldChainPlacement] = field(default_factory=list)
+    bbox_min: Vector = field(default_factory=lambda: Vector((0.0, 0.0)))
+    bbox_max: Vector = field(default_factory=lambda: Vector((0.0, 0.0)))
+    closure_error: float = 0.0
+    max_chain_gap: float = 0.0
+    gap_reports: tuple[tuple[int, int, float], ...] = ()
+    closure_valid: bool = True
+    notes: tuple[str, ...] = ()
+    # Phase 3: envelope fields
+    status: str = "COMPLETE"
+    dependency_patches: tuple = ()
+    unplaced_chain_indices: tuple = ()
+    pinned: bool = False
+    origin_offset: tuple = (0.0, 0.0)  # sleeping field, Phase 5
+
+
+@dataclass
+class ScaffoldQuiltPlacement:
+    """Per-quilt scaffold — коллекция patch placements с порядком сборки."""
+
+    quilt_index: int
+    root_patch_id: int
+    patches: dict[int, ScaffoldPatchPlacement] = field(default_factory=dict)
+    build_order: list = field(default_factory=list)  # Phase 3: ChainRef tuples
+
+
+@dataclass
+class ScaffoldMap:
+    """Корневой контейнер solve результата — коллекция quilts."""
+
+    quilts: list[ScaffoldQuiltPlacement] = field(default_factory=list)
