@@ -160,18 +160,6 @@ class ScaffoldUvTarget:
     loop_point_index: int
 
 
-@dataclass(frozen=True)
-class PatchFrontierCandidate:
-    segment_list_index: int
-    traversal_forward: bool
-    known_endpoints: int
-    start_point: Vector
-    start_direction: Vector
-    end_point: Optional[Vector] = None
-    end_direction: Optional[Vector] = None
-    score: float = 0.0
-
-
 def _clamp01(value: float) -> float:
     return max(0.0, min(1.0, value))
 
@@ -443,6 +431,17 @@ def _semantic_pair_strength(graph: PatchGraph, owner_patch_id: int, target_patch
     return 0.40
 
 
+def _patch_types_compatible(graph: PatchGraph, owner_patch_id: int, target_patch_id: int) -> bool:
+    owner_node = graph.nodes.get(owner_patch_id)
+    target_node = graph.nodes.get(target_patch_id)
+    if owner_node is None or target_node is None:
+        return False
+
+    owner_type = owner_node.patch_type.value if hasattr(owner_node.patch_type, 'value') else str(owner_node.patch_type)
+    target_type = target_node.patch_type.value if hasattr(target_node.patch_type, 'value') else str(target_node.patch_type)
+    return owner_type == target_type
+
+
 def _loop_pair_strength(owner_loop_kind: LoopKind, target_loop_kind: LoopKind) -> float:
     if owner_loop_kind == LoopKind.OUTER and target_loop_kind == LoopKind.OUTER:
         return 1.0
@@ -532,6 +531,8 @@ def _build_attachment_candidate(
 ) -> Optional[AttachmentCandidate]:
     owner_score = patch_scores[owner_patch_id]
     target_score = patch_scores[target_patch_id]
+    if not _patch_types_compatible(graph, owner_patch_id, target_patch_id):
+        return None
     owner_refs = _iter_neighbor_chains(graph, owner_patch_id, target_patch_id)
     target_refs = _iter_neighbor_chains(graph, target_patch_id, owner_patch_id)
 
@@ -806,394 +807,8 @@ def _choose_root_loop(node: PatchNode) -> int:
 
 
 
-def _classify_scaffold_points_role(node: PatchNode, points: list[Vector]) -> FrameRole:
-    if len(points) < 2:
-        return FrameRole.FREE
-
-    us = [point.dot(node.basis_u) for point in points]
-    vs = [point.dot(node.basis_v) for point in points]
-    extent_u = max(us) - min(us)
-    extent_v = max(vs) - min(vs)
-    total_extent = max(extent_u, extent_v)
-    if total_extent < 1e-8:
-        return FrameRole.FREE
-
-    ratio_v = extent_v / total_extent
-    ratio_u = extent_u / total_extent
-    if ratio_v < FRAME_ALIGNMENT_THRESHOLD:
-        return FrameRole.H_FRAME
-    if ratio_u < FRAME_ALIGNMENT_THRESHOLD:
-        return FrameRole.V_FRAME
-    return FrameRole.FREE
-
-
-
-def _collect_loop_segment_points(boundary_loop, start_loop_index: int, end_loop_index: int) -> list[tuple[int, Vector]]:
-    vertex_count = len(boundary_loop.vert_cos)
-    if vertex_count <= 0:
-        return []
-
-    points = []
-    current_index = start_loop_index % vertex_count
-    safety = 0
-    while safety < vertex_count + 2:
-        safety += 1
-        points.append((current_index, boundary_loop.vert_cos[current_index].copy()))
-        if current_index == end_loop_index % vertex_count:
-            break
-        current_index = (current_index + 1) % vertex_count
-    return points
-
-
-
-def _derive_frame_spans_from_free_loop(node: PatchNode, boundary_loop) -> tuple[list[dict[str, object]], tuple[str, ...]]:
-    if len(boundary_loop.chains) != 1:
-        return [], ("not_single_chain",)
-    if not boundary_loop.corners:
-        return [], ("no_geometric_corners",)
-
-    ordered_corners = sorted(enumerate(boundary_loop.corners), key=lambda item: item[1].loop_vert_index)
-    if len(ordered_corners) < 4:
-        return [], ("few_geometric_corners",)
-
-    spans = []
-    roles = []
-    corner_count = len(ordered_corners)
-    for index in range(corner_count):
-        start_corner_index, start_corner = ordered_corners[index]
-        end_corner_index, end_corner = ordered_corners[(index + 1) % corner_count]
-        span_points = _collect_loop_segment_points(boundary_loop, start_corner.loop_vert_index, end_corner.loop_vert_index)
-        point_cos = [point for _, point in span_points]
-        role = _classify_scaffold_points_role(node, point_cos)
-        if role == FrameRole.FREE:
-            return [], ("contains_free_spans",)
-        spans.append({
-            'span_index': index,
-            'role': role,
-            'source_kind': 'span',
-            'start_corner_index': start_corner_index,
-            'end_corner_index': end_corner_index,
-            'points': span_points,
-        })
-        roles.append(role)
-
-    if any(roles[index] == roles[(index + 1) % len(roles)] for index in range(len(roles))):
-        return [], ("non_alternating_spans",)
-    if FrameRole.H_FRAME not in roles or FrameRole.V_FRAME not in roles:
-        return [], ("missing_hv_mix",)
-
-    return spans, ()
-
-
-def _segment_source_direction(node: PatchNode, segment: dict[str, object]) -> Vector:
-    role = segment.get('role', FrameRole.FREE)
-    segment_points = segment.get('points', [])
-    if len(segment_points) < 2:
-        if role == FrameRole.H_FRAME:
-            return Vector((1.0, 0.0))
-        if role == FrameRole.V_FRAME:
-            return Vector((0.0, 1.0))
-        return Vector((0.0, 0.0))
-
-    start_point = segment_points[0][1]
-    end_point = segment_points[-1][1]
-    delta = end_point - start_point
-    return Vector((delta.dot(node.basis_u), delta.dot(node.basis_v)))
-
-
-
-def _snap_direction_to_role(direction: Vector, role: FrameRole) -> Vector:
-    if role == FrameRole.H_FRAME:
-        axis_value = direction.x if abs(direction.x) >= abs(direction.y) else direction.y
-        return Vector((1.0 if axis_value >= 0.0 else -1.0, 0.0))
-    if role == FrameRole.V_FRAME:
-        axis_value = direction.y if abs(direction.y) >= abs(direction.x) else direction.x
-        return Vector((0.0, 1.0 if axis_value >= 0.0 else -1.0))
-    return Vector((0.0, 0.0))
-
-
-
-def _rotate_direction(direction: Vector, angle_deg: float) -> Vector:
-    angle_rad = math.radians(angle_deg)
-    cos_a = math.cos(angle_rad)
-    sin_a = math.sin(angle_rad)
-    return Vector((
-        direction.x * cos_a - direction.y * sin_a,
-        direction.x * sin_a + direction.y * cos_a,
-    ))
-
-
-def _measure_loop_winding_sign(node: PatchNode, boundary_loop) -> float:
-    if len(boundary_loop.vert_cos) < 3:
-        return 1.0
-
-    points_2d = [Vector((point.dot(node.basis_u), point.dot(node.basis_v))) for point in boundary_loop.vert_cos]
-    signed_area = 0.0
-    count = len(points_2d)
-    for index in range(count):
-        p1 = points_2d[index]
-        p2 = points_2d[(index + 1) % count]
-        signed_area += p1.x * p2.y - p2.x * p1.y
-
-    if abs(signed_area) < 1e-8:
-        return 1.0
-    sign = 1.0 if signed_area > 0.0 else -1.0
-    if boundary_loop.kind == LoopKind.HOLE:
-        sign *= -1.0
-    return sign
-
-
-
-
-def _segment_neighbor_semantic(graph: PatchGraph, boundary_loop, segment: dict[str, object]) -> str:
-    if segment.get('source_kind') != 'chain':
-        return 'DERIVED'
-
-    chain_index = int(segment.get('segment_index', -1))
-    if chain_index < 0 or chain_index >= len(boundary_loop.chains):
-        return 'UNKNOWN'
-
-    chain = boundary_loop.chains[chain_index]
-    if chain.neighbor_kind == ChainNeighborKind.PATCH:
-        return graph.get_patch_semantic_key(chain.neighbor_patch_id)
-    return chain.neighbor_kind.value
-
-
-
-def _score_root_segment(graph: PatchGraph, node: PatchNode, boundary_loop, segment: dict[str, object]) -> float:
-    role = segment.get('role', FrameRole.FREE)
-    score = 0.0
-    if role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
-        score += 1.0
-    if segment.get('source_kind') == 'chain':
-        score += 0.15
-
-    patch_type = node.patch_type.value if hasattr(node.patch_type, 'value') else str(node.patch_type)
-    neighbor_semantic = _segment_neighbor_semantic(graph, boundary_loop, segment)
-
-    if patch_type == 'WALL':
-        if role == FrameRole.H_FRAME and neighbor_semantic == 'FLOOR.DOWN':
-            score += 0.80
-        elif role == FrameRole.H_FRAME and neighbor_semantic == 'FLOOR.UP':
-            score += 0.70
-        elif role == FrameRole.V_FRAME and neighbor_semantic == ChainNeighborKind.SEAM_SELF.value:
-            score += 0.55
-        elif role == FrameRole.V_FRAME and neighbor_semantic.endswith('.SIDE'):
-            score += 0.35
-    elif patch_type == 'FLOOR':
-        if role == FrameRole.H_FRAME and neighbor_semantic.endswith('.SIDE'):
-            score += 0.55
-        elif role == FrameRole.V_FRAME and neighbor_semantic.endswith('.SIDE'):
-            score += 0.25
-    else:
-        if neighbor_semantic != 'DERIVED':
-            score += 0.25
-
-    return score
-
-
-
-def _choose_root_segment_index(graph: PatchGraph, node: PatchNode, boundary_loop, segments: list[dict[str, object]]) -> int:
-    best_index = 0
-    best_score = -1.0
-    for index, segment in enumerate(segments):
-        segment_score = _score_root_segment(graph, node, boundary_loop, segment)
-        if segment_score > best_score:
-            best_score = segment_score
-            best_index = index
-    return best_index
-
-
-
-def _build_root_start_direction(graph: PatchGraph, node: PatchNode, boundary_loop, segment: dict[str, object]) -> Vector:
-    role = segment.get('role', FrameRole.FREE)
-    patch_type = node.patch_type.value if hasattr(node.patch_type, 'value') else str(node.patch_type)
-    neighbor_semantic = _segment_neighbor_semantic(graph, boundary_loop, segment)
-
-    if patch_type == 'WALL' and role == FrameRole.H_FRAME and neighbor_semantic in {'FLOOR.DOWN', 'FLOOR.UP'}:
-        return Vector((1.0, 0.0))
-
-    return _snap_direction_to_role(_segment_source_direction(node, segment), role)
-
-
-def _build_root_anchor_points(
-    node: PatchNode,
-    segment: dict[str, object],
-    final_scale: float,
-    start_direction: Vector,
-    walk_forward: bool = True,
-) -> list[Vector]:
-    ordered_source_points = _ordered_segment_source_points(segment, walk_forward)
-    if not ordered_source_points:
-        return []
-
-    role = segment.get('role', FrameRole.FREE)
-    if role == FrameRole.FREE:
-        return _build_guided_free_chain_from_one_end(
-            node,
-            ordered_source_points,
-            Vector((0.0, 0.0)),
-            start_direction,
-            final_scale,
-        )
-
-    axis_direction = _snap_direction_to_role(start_direction, role)
-    if axis_direction.length <= 1e-8:
-        if role == FrameRole.H_FRAME:
-            axis_direction = Vector((1.0, 0.0))
-        elif role == FrameRole.V_FRAME:
-            axis_direction = Vector((0.0, 1.0))
-        else:
-            axis_direction = Vector((1.0, 0.0))
-    axis_direction.normalize()
-
-    anchor_points = [Vector((0.0, 0.0))]
-    total_length = 0.0
-    for point_index in range(1, len(ordered_source_points)):
-        prev_point = ordered_source_points[point_index - 1][1]
-        next_point = ordered_source_points[point_index][1]
-        total_length += (next_point - prev_point).length * final_scale
-        anchor_points.append(axis_direction * total_length)
-    return anchor_points
-
-
-def _transform_patch_placement_y(patch_placement: ScaffoldPatchPlacement, scale_y: float) -> ScaffoldPatchPlacement:
-    corner_positions = {
-        corner_index: Vector((point.x, point.y * scale_y))
-        for corner_index, point in patch_placement.corner_positions.items()
-    }
-    chain_placements = []
-    for chain_placement in patch_placement.chain_placements:
-        chain_placements.append(
-            ScaffoldChainPlacement(
-                patch_id=chain_placement.patch_id,
-                loop_index=chain_placement.loop_index,
-                chain_index=chain_placement.chain_index,
-                frame_role=chain_placement.frame_role,
-                source_kind=chain_placement.source_kind,
-                points=tuple((point_key, Vector((point.x, point.y * scale_y))) for point_key, point in chain_placement.points),
-            )
-        )
-    bbox_min, bbox_max = _compute_bbox_from_chain_placements(chain_placements)
-    return ScaffoldPatchPlacement(
-        patch_id=patch_placement.patch_id,
-        loop_index=patch_placement.loop_index,
-        root_chain_index=patch_placement.root_chain_index,
-        corner_positions=corner_positions,
-        chain_placements=chain_placements,
-        bbox_min=bbox_min,
-        bbox_max=bbox_max,
-        closure_error=patch_placement.closure_error,
-        max_chain_gap=patch_placement.max_chain_gap,
-        gap_reports=patch_placement.gap_reports,
-        closure_valid=patch_placement.closure_valid,
-        notes=patch_placement.notes,
-    )
-
-
-
-def _normalize_root_patch_orientation(graph: PatchGraph, node: PatchNode, boundary_loop, patch_placement: ScaffoldPatchPlacement) -> ScaffoldPatchPlacement:
-    patch_type = node.patch_type.value if hasattr(node.patch_type, 'value') else str(node.patch_type)
-    if patch_type != 'WALL':
-        return patch_placement
-
-    down_ys = []
-    up_ys = []
-    for chain_placement in patch_placement.chain_placements:
-        if chain_placement.source_kind != 'chain':
-            continue
-        if chain_placement.chain_index < 0 or chain_placement.chain_index >= len(boundary_loop.chains):
-            continue
-        chain = boundary_loop.chains[chain_placement.chain_index]
-        if chain.neighbor_kind != ChainNeighborKind.PATCH:
-            continue
-        neighbor_semantic = graph.get_patch_semantic_key(chain.neighbor_patch_id)
-        avg_y = sum(point.y for _, point in chain_placement.points) / float(len(chain_placement.points))
-        if neighbor_semantic == 'FLOOR.DOWN':
-            down_ys.append(avg_y)
-        elif neighbor_semantic == 'FLOOR.UP':
-            up_ys.append(avg_y)
-
-    should_flip = False
-    if down_ys and up_ys:
-        should_flip = (sum(down_ys) / len(down_ys)) > (sum(up_ys) / len(up_ys))
-    elif down_ys:
-        bbox_mid_y = 0.5 * (patch_placement.bbox_min.y + patch_placement.bbox_max.y)
-        should_flip = (sum(down_ys) / len(down_ys)) > bbox_mid_y
-    elif up_ys:
-        bbox_mid_y = 0.5 * (patch_placement.bbox_min.y + patch_placement.bbox_max.y)
-        should_flip = (sum(up_ys) / len(up_ys)) < bbox_mid_y
-
-    if not should_flip:
-        return patch_placement
-    return _transform_patch_placement_y(patch_placement, -1.0)
-
-
-
-def _compute_bbox_from_chain_placements(chain_placements: list[ScaffoldChainPlacement]) -> tuple[Vector, Vector]:
-    all_points = [point for chain in chain_placements for _, point in chain.points]
-    if not all_points:
-        return Vector((0.0, 0.0)), Vector((0.0, 0.0))
-
-    min_x = min(point.x for point in all_points)
-    min_y = min(point.y for point in all_points)
-    max_x = max(point.x for point in all_points)
-    max_y = max(point.y for point in all_points)
-    return Vector((min_x, min_y)), Vector((max_x, max_y))
-
-
-def _measure_patch_scaffold_closure(chain_placements: list[ScaffoldChainPlacement]) -> tuple[float, float, tuple[tuple[int, int, float], ...], bool]:
-    ordered_chains = [chain for chain in chain_placements if chain.points]
-    if not ordered_chains:
-        return 0.0, 0.0, (), False
-
-    gap_reports = []
-    max_chain_gap = 0.0
-    for chain_index, chain_placement in enumerate(ordered_chains):
-        next_chain_placement = ordered_chains[(chain_index + 1) % len(ordered_chains)]
-        chain_end = chain_placement.points[-1][1]
-        next_start = next_chain_placement.points[0][1]
-        gap = (next_start - chain_end).length
-        max_chain_gap = max(max_chain_gap, gap)
-        if gap > SCAFFOLD_CLOSURE_EPSILON:
-            gap_reports.append((chain_placement.chain_index, next_chain_placement.chain_index, gap))
-
-    closure_error = max_chain_gap
-    return closure_error, max_chain_gap, tuple(gap_reports), len(gap_reports) == 0
-
-
 def _patch_scaffold_is_supported(patch_placement: Optional[ScaffoldPatchPlacement]) -> bool:
     return patch_placement is not None and not patch_placement.notes and patch_placement.closure_valid
-
-
-def _build_root_patch_scaffold(graph: PatchGraph, node: PatchNode, final_scale: float) -> ScaffoldPatchPlacement:
-    loop_index = _choose_root_loop(node)
-    if loop_index < 0:
-        return ScaffoldPatchPlacement(patch_id=node.patch_id, loop_index=-1, notes=('no_frame_loop',))
-
-    boundary_loop, segments, notes = _collect_patch_segments_for_loop(node, loop_index)
-    if boundary_loop is None or not segments:
-        return ScaffoldPatchPlacement(patch_id=node.patch_id, loop_index=loop_index, notes=notes or ('contains_free',))
-
-    start_segment_index = _choose_root_segment_index(graph, node, boundary_loop, segments)
-    start_segment = segments[start_segment_index]
-    start_direction = _build_root_start_direction(graph, node, boundary_loop, start_segment)
-    anchor_points = _build_root_anchor_points(node, start_segment, final_scale, start_direction, walk_forward=True)
-    if not anchor_points:
-        return ScaffoldPatchPlacement(patch_id=node.patch_id, loop_index=loop_index, notes=notes or ('root_anchor_failed',))
-
-    patch_placement = _build_patch_scaffold_frontier(
-        node,
-        loop_index,
-        boundary_loop,
-        segments,
-        start_segment_index,
-        final_scale,
-        anchor_points,
-        anchor_forward=True,
-        notes=notes,
-    )
-    return _normalize_root_patch_orientation(graph, node, boundary_loop, patch_placement)
 
 
 def _format_scaffold_uv_points(points: tuple[tuple[ScaffoldPointKey, Vector], ...]) -> str:
@@ -1207,16 +822,79 @@ def _all_patch_ids(graph: PatchGraph) -> list[int]:
 
 
 
-def _select_patch_faces(bm, graph: PatchGraph, patch_ids: list[int]) -> None:
+def _collect_patch_face_indices(graph: PatchGraph, patch_ids: list[int]) -> set[int]:
     face_indices = set()
     for patch_id in patch_ids:
         node = graph.nodes.get(patch_id)
         if node is None:
             continue
         face_indices.update(node.face_indices)
+    return face_indices
 
+
+
+def _select_patch_faces(bm, graph: PatchGraph, patch_ids: list[int]) -> None:
+    face_indices = _collect_patch_face_indices(graph, patch_ids)
     for face in bm.faces:
-        face.select = face.index in face_indices
+        face_selected = face.index in face_indices
+        if hasattr(face, 'select_set'):
+            face.select_set(face_selected)
+        else:
+            face.select = face_selected
+    if hasattr(bm, 'select_flush_mode'):
+        bm.select_flush_mode()
+
+
+
+def _select_patch_uv_loops(bm, graph: PatchGraph, uv_layer, patch_ids: list[int]) -> None:
+    face_indices = _collect_patch_face_indices(graph, patch_ids)
+    for face in bm.faces:
+        face_selected = face.index in face_indices
+        for loop in face.loops:
+            uv_data = loop[uv_layer]
+            uv_data.select = face_selected
+            uv_data.select_edge = face_selected
+
+
+
+def _count_selected_patch_uv_loops(bm, graph: PatchGraph, uv_layer, patch_ids: list[int]) -> int:
+    face_indices = _collect_patch_face_indices(graph, patch_ids)
+    count = 0
+    for face in bm.faces:
+        if face.index not in face_indices:
+            continue
+        for loop in face.loops:
+            if loop[uv_layer].select:
+                count += 1
+    return count
+
+
+
+def _compute_patch_uv_bbox(bm, graph: PatchGraph, uv_layer, patch_ids: list[int]) -> tuple[Vector, Vector]:
+    face_indices = _collect_patch_face_indices(graph, patch_ids)
+    points = []
+    for face in bm.faces:
+        if face.index not in face_indices:
+            continue
+        for loop in face.loops:
+            points.append(loop[uv_layer].uv.copy())
+    if not points:
+        return Vector((0.0, 0.0)), Vector((0.0, 0.0))
+    min_x = min(point.x for point in points)
+    min_y = min(point.y for point in points)
+    max_x = max(point.x for point in points)
+    max_y = max(point.y for point in points)
+    return Vector((min_x, min_y)), Vector((max_x, max_y))
+
+
+
+def _translate_patch_uvs(bm, graph: PatchGraph, uv_layer, patch_ids: list[int], offset: Vector) -> None:
+    face_indices = _collect_patch_face_indices(graph, patch_ids)
+    for face in bm.faces:
+        if face.index not in face_indices:
+            continue
+        for loop in face.loops:
+            loop[uv_layer].uv += offset
 
 
 
@@ -1245,15 +923,8 @@ def _scaffold_key_id(point_key: ScaffoldPointKey, source_kind: str) -> tuple[int
     )
 
 
-def _count_patch_scaffold_points(patch_placement: ScaffoldPatchPlacement) -> int:
-    scaffold_keys = set()
-    for chain_placement in patch_placement.chain_placements:
-        for point_key, _ in chain_placement.points:
-            scaffold_keys.add(_scaffold_key_id(point_key, chain_placement.source_kind))
-    return len(scaffold_keys)
 
-
-def _resolve_scaffold_uv_targets(graph: PatchGraph, key: ScaffoldPointKey, source_kind: str) -> list[ScaffoldUvTarget]:
+def _resolve_scaffold_uv_targets(bm, graph: PatchGraph, key: ScaffoldPointKey, source_kind: str) -> list[ScaffoldUvTarget]:
     node = graph.nodes.get(key.patch_id)
     if node is None or key.loop_index < 0 or key.loop_index >= len(node.boundary_loops):
         return []
@@ -1263,6 +934,7 @@ def _resolve_scaffold_uv_targets(graph: PatchGraph, key: ScaffoldPointKey, sourc
     if loop_count <= 0 or not boundary_loop.side_face_indices:
         return []
 
+    chain = None
     if source_kind == 'chain':
         if key.chain_index < 0 or key.chain_index >= len(boundary_loop.chains):
             return []
@@ -1281,13 +953,17 @@ def _resolve_scaffold_uv_targets(graph: PatchGraph, key: ScaffoldPointKey, sourc
 
     targets = []
     seen = set()
-    for side_index in ((loop_point_index - 1) % loop_count, loop_point_index):
-        if side_index < 0 or side_index >= len(boundary_loop.side_face_indices):
-            continue
-        face_index = boundary_loop.side_face_indices[side_index]
+
+    def _add_target(face_index: int) -> None:
         target_id = (face_index, vert_index)
         if face_index < 0 or target_id in seen:
-            continue
+            return
+        if bm is not None:
+            if face_index >= len(bm.faces):
+                return
+            face = bm.faces[face_index]
+            if not any(loop.vert.index == vert_index for loop in face.loops):
+                return
         seen.add(target_id)
         targets.append(
             ScaffoldUvTarget(
@@ -1296,7 +972,53 @@ def _resolve_scaffold_uv_targets(graph: PatchGraph, key: ScaffoldPointKey, sourc
                 loop_point_index=loop_point_index,
             )
         )
+
+    face_candidates = []
+    for side_index in ((loop_point_index - 1) % loop_count, loop_point_index):
+        if side_index < 0 or side_index >= len(boundary_loop.side_face_indices):
+            continue
+        face_index = boundary_loop.side_face_indices[side_index]
+        if face_index < 0 or face_index in face_candidates:
+            continue
+        face_candidates.append(face_index)
+
+    for face_index in face_candidates:
+        _add_target(face_index)
+
+    if bm is None:
+        return targets
+
+    if boundary_loop.vert_indices.count(vert_index) != 1:
+        return targets
+
+    for face_index in node.face_indices:
+        if face_index < 0 or face_index >= len(bm.faces):
+            continue
+        face = bm.faces[face_index]
+        for loop in face.loops:
+            if loop.vert.index != vert_index:
+                continue
+            _add_target(face_index)
+            break
     return targets
+def _count_patch_scaffold_points(patch_placement: ScaffoldPatchPlacement) -> int:
+    scaffold_keys = set()
+    for chain_placement in patch_placement.chain_placements:
+        for point_key, _ in chain_placement.points:
+            scaffold_keys.add(_scaffold_key_id(point_key, chain_placement.source_kind))
+    return len(scaffold_keys)
+
+
+
+def _should_pin_scaffold_point(chain_placement: ScaffoldChainPlacement, point_index: int, point_count: int) -> bool:
+    if point_count <= 0:
+        return False
+    if chain_placement.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        return True
+    if point_count == 1:
+        return True
+    return point_index == 0 or point_index == (point_count - 1)
+
 
 
 def _apply_patch_scaffold_to_uv(bm, graph: PatchGraph, uv_layer, patch_placement: ScaffoldPatchPlacement, uv_offset: Vector) -> dict[str, object]:
@@ -1348,21 +1070,27 @@ def _apply_patch_scaffold_to_uv(bm, graph: PatchGraph, uv_layer, patch_placement
         }
 
     target_samples: dict[tuple[int, int], list[Vector]] = {}
+    pin_target_ids: set[tuple[int, int]] = set()
     scaffold_keys = set()
     unresolved_keys = set()
 
     for chain_placement in patch_placement.chain_placements:
-        for point_key, target_uv in chain_placement.points:
+        point_count = len(chain_placement.points)
+        for point_index, (point_key, target_uv) in enumerate(chain_placement.points):
             key_id = _scaffold_key_id(point_key, chain_placement.source_kind)
             scaffold_keys.add(key_id)
-            targets = _resolve_scaffold_uv_targets(graph, point_key, chain_placement.source_kind)
+            targets = _resolve_scaffold_uv_targets(bm, graph, point_key, chain_placement.source_kind)
             if not targets:
                 unresolved_keys.add(key_id)
                 continue
 
             shifted_uv = target_uv + uv_offset
+            should_pin = _should_pin_scaffold_point(chain_placement, point_index, point_count)
             for target in targets:
-                target_samples.setdefault((target.face_index, target.vert_index), []).append(shifted_uv.copy())
+                target_id = (target.face_index, target.vert_index)
+                target_samples.setdefault(target_id, []).append(shifted_uv.copy())
+                if should_pin:
+                    pin_target_ids.add(target_id)
 
     conflicting_uv_targets = 0
     missing_uv_targets = 0
@@ -1383,8 +1111,9 @@ def _apply_patch_scaffold_to_uv(bm, graph: PatchGraph, uv_layer, patch_placement
             if loop.vert.index != vert_index:
                 continue
             loop[uv_layer].uv = target_uv.copy()
-            loop[uv_layer].pin_uv = True
-            pinned_uv_loops += 1
+            loop[uv_layer].pin_uv = (face_index, vert_index) in pin_target_ids
+            if loop[uv_layer].pin_uv:
+                pinned_uv_loops += 1
             applied = True
             break
         if not applied:
@@ -1406,110 +1135,64 @@ def _apply_patch_scaffold_to_uv(bm, graph: PatchGraph, uv_layer, patch_placement
     }
 
 
-def _find_scaffold_chain_placement(patch_placement: ScaffoldPatchPlacement, loop_index: int, chain_index: int) -> Optional[ScaffoldChainPlacement]:
-    for chain_placement in patch_placement.chain_placements:
-        if chain_placement.loop_index == loop_index and chain_placement.chain_index == chain_index:
-            return chain_placement
-    return None
+CHAIN_FRONTIER_THRESHOLD = 0.3
 
 
-
-def _compute_owner_chain_outward(chain_placement: ScaffoldChainPlacement, patch_placement: ScaffoldPatchPlacement) -> tuple[Vector, Vector]:
-    points = [point for _, point in chain_placement.points]
-    if not points:
-        return Vector((0.0, 0.0)), Vector((0.0, 1.0))
-
-    midpoint = sum(points, Vector((0.0, 0.0))) / float(len(points))
-    bbox_mid = 0.5 * (patch_placement.bbox_min + patch_placement.bbox_max)
-    if chain_placement.frame_role == FrameRole.H_FRAME:
-        outward = Vector((0.0, 1.0 if midpoint.y >= bbox_mid.y else -1.0))
-    else:
-        outward = Vector((1.0 if midpoint.x >= bbox_mid.x else -1.0, 0.0))
-    return midpoint, outward
+@dataclass(frozen=True)
+class ChainAnchor:
+    uv: Vector
+    source_ref: tuple[int, int, int]
+    source_point_index: int
+    source_kind: str = "same_patch"
 
 
-
-def _collect_patch_segments_for_loop(node: PatchNode, loop_index: int) -> tuple[Optional[BoundaryLoop], list[dict[str, object]], tuple[str, ...]]:
-    if loop_index < 0 or loop_index >= len(node.boundary_loops):
-        return None, [], ('bad_loop_index',)
-
-    boundary_loop = node.boundary_loops[loop_index]
-    segments: list[dict[str, object]] = []
-    notes: tuple[str, ...] = ()
-
-    roles = [chain.frame_role for chain in boundary_loop.chains]
-    frame_roles = [role for role in roles if role in {FrameRole.H_FRAME, FrameRole.V_FRAME}]
-    if frame_roles:
-        for chain_index, chain in enumerate(boundary_loop.chains):
-            point_count = min(len(chain.vert_indices), len(chain.vert_cos))
-            if point_count <= 0:
-                continue
-            point_indices = list(range(point_count))
-            segments.append({
-                'segment_index': chain_index,
-                'role': chain.frame_role,
-                'source_kind': 'chain',
-                'start_corner_index': chain.start_corner_index,
-                'end_corner_index': chain.end_corner_index,
-                'points': [(point_index, chain.vert_cos[point_index].copy()) for point_index in point_indices],
-            })
-        return boundary_loop, segments, ()
-
-    segments, notes = _derive_frame_spans_from_free_loop(node, boundary_loop)
-    if not segments:
-        return boundary_loop, [], notes or ('contains_free',)
-
-    return boundary_loop, segments, notes
+def _cf_chain_source_points(chain):
+    """ÃƒÆ’Ã‚ÂÃƒâ€¦Ã‚Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ chain.vert_cos ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â² ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ [(index, Vector)] ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚Â placement ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¹."""
+    return [(i, co.copy()) for i, co in enumerate(chain.vert_cos)]
 
 
-def _find_segment_list_index(segments: list[dict[str, object]], segment_index: int) -> int:
-    for list_index, segment in enumerate(segments):
-        if int(segment.get('segment_index', -1)) == segment_index:
-            return list_index
-    return -1
+def _cf_anchor_count(start_anchor: Optional[ChainAnchor], end_anchor: Optional[ChainAnchor]) -> int:
+    return (1 if start_anchor is not None else 0) + (1 if end_anchor is not None else 0)
 
 
-def _ordered_segment_source_points(segment: dict[str, object], walk_forward: bool) -> list[tuple[int, Vector]]:
-    points = list(segment.get('points', []))
-    if walk_forward:
-        return points
-    return list(reversed(points))
+def _cf_anchor_debug_label(start_anchor: Optional[ChainAnchor], end_anchor: Optional[ChainAnchor]) -> str:
+    def _label(anchor: Optional[ChainAnchor]) -> str:
+        if anchor is None:
+            return '-'
+        prefix = 'S' if anchor.source_kind == 'same_patch' else 'X'
+        return f"{prefix}P{anchor.source_ref[0]}"
+
+    return f"{_label(start_anchor)}/{_label(end_anchor)}"
 
 
-def _resample_uv_points(points: list[Vector], target_count: int) -> list[Vector]:
-    if target_count <= 0:
-        return []
-    if not points:
-        return []
-    if len(points) == target_count:
-        return [point.copy() for point in points]
-    if len(points) == 1:
-        return [points[0].copy() for _ in range(target_count)]
+def _cf_chain_total_length(chain: BoundaryChain, final_scale: float) -> float:
+    if len(chain.vert_cos) < 2:
+        return 0.0
 
-    distances = [0.0]
-    for index in range(1, len(points)):
-        distances.append(distances[-1] + (points[index] - points[index - 1]).length)
-    total_length = distances[-1]
-    if total_length <= 1e-8:
-        return [points[0].copy() for _ in range(target_count)]
+    return sum(
+        (chain.vert_cos[i + 1] - chain.vert_cos[i]).length
+        for i in range(len(chain.vert_cos) - 1)
+    ) * final_scale
 
-    resampled = []
-    for sample_index in range(target_count):
-        target_distance = total_length * (float(sample_index) / float(max(target_count - 1, 1)))
-        source_index = 1
-        while source_index < len(distances) and distances[source_index] < target_distance:
-            source_index += 1
-        if source_index >= len(distances):
-            resampled.append(points[-1].copy())
-            continue
-        prev_distance = distances[source_index - 1]
-        next_distance = distances[source_index]
-        if next_distance - prev_distance <= 1e-8:
-            resampled.append(points[source_index].copy())
-            continue
-        factor = (target_distance - prev_distance) / (next_distance - prev_distance)
-        resampled.append(points[source_index - 1].lerp(points[source_index], factor))
-    return resampled
+
+def _snap_direction_to_role(direction: Vector, role: FrameRole) -> Vector:
+    if role == FrameRole.H_FRAME:
+        axis_value = direction.x if abs(direction.x) >= abs(direction.y) else direction.y
+        return Vector((1.0 if axis_value >= 0.0 else -1.0, 0.0))
+    if role == FrameRole.V_FRAME:
+        axis_value = direction.y if abs(direction.y) >= abs(direction.x) else direction.x
+        return Vector((0.0, 1.0 if axis_value >= 0.0 else -1.0))
+    return Vector((0.0, 0.0))
+
+
+def _rotate_direction(direction: Vector, angle_deg: float) -> Vector:
+    angle_rad = math.radians(angle_deg)
+    cos_a = math.cos(angle_rad)
+    sin_a = math.sin(angle_rad)
+    return Vector((
+        direction.x * cos_a - direction.y * sin_a,
+        direction.x * sin_a + direction.y * cos_a,
+    ))
 
 
 def _chain_edge_lengths(ordered_source_points: list[tuple[int, Vector]], final_scale: float) -> list[float]:
@@ -1521,12 +1204,10 @@ def _chain_edge_lengths(ordered_source_points: list[tuple[int, Vector]], final_s
     return edge_lengths
 
 
-
 def _default_role_direction(role: FrameRole) -> Vector:
     if role == FrameRole.V_FRAME:
         return Vector((0.0, 1.0))
     return Vector((1.0, 0.0))
-
 
 
 def _normalize_direction(direction: Vector, fallback: Optional[Vector] = None) -> Vector:
@@ -1535,7 +1216,6 @@ def _normalize_direction(direction: Vector, fallback: Optional[Vector] = None) -
     if fallback is not None and fallback.length > 1e-8:
         return fallback.normalized()
     return Vector((1.0, 0.0))
-
 
 
 def _segment_source_step_directions(node: PatchNode, ordered_source_points: list[tuple[int, Vector]]) -> list[Vector]:
@@ -1552,7 +1232,6 @@ def _segment_source_step_directions(node: PatchNode, ordered_source_points: list
         fallback = delta_2d.normalized()
         directions.append(fallback.copy())
     return directions
-
 
 
 def _interpolate_between_anchors_by_lengths(start_point: Vector, end_point: Vector, edge_lengths: list[float]) -> list[Vector]:
@@ -1576,8 +1255,6 @@ def _interpolate_between_anchors_by_lengths(start_point: Vector, end_point: Vect
     return points
 
 
-
-
 def _sample_cubic_bezier_point(p0: Vector, p1: Vector, p2: Vector, p3: Vector, t: float) -> Vector:
     omt = 1.0 - t
     return (
@@ -1586,7 +1263,6 @@ def _sample_cubic_bezier_point(p0: Vector, p1: Vector, p2: Vector, p3: Vector, t
         + p2 * (3.0 * omt * t * t)
         + p3 * (t * t * t)
     )
-
 
 
 def _sample_cubic_bezier_polyline(
@@ -1601,7 +1277,6 @@ def _sample_cubic_bezier_polyline(
         _sample_cubic_bezier_point(p0, p1, p2, p3, float(index) / float(sample_count - 1))
         for index in range(sample_count)
     ]
-
 
 
 def _resample_polyline_by_edge_lengths(polyline_points: list[Vector], edge_lengths: list[float]) -> Optional[list[Vector]]:
@@ -1647,8 +1322,6 @@ def _resample_polyline_by_edge_lengths(polyline_points: list[Vector], edge_lengt
     return resampled
 
 
-
-
 def _build_guided_free_chain_from_one_end(
     node: PatchNode,
     ordered_source_points: list[tuple[int, Vector]],
@@ -1687,7 +1360,6 @@ def _build_guided_free_chain_from_one_end(
     return points
 
 
-
 def _build_guided_free_chain_between_anchors(
     node: PatchNode,
     ordered_source_points: list[tuple[int, Vector]],
@@ -1703,42 +1375,67 @@ def _build_guided_free_chain_between_anchors(
         return [start_point.copy()]
 
     edge_lengths = _chain_edge_lengths(ordered_source_points, final_scale)
-    total_length = sum(edge_lengths)
     target_delta = end_point - start_point
     chord_length = target_delta.length
-    if total_length <= 1e-8 or chord_length <= 1e-8:
+    if chord_length <= 1e-8:
         return _interpolate_between_anchors_by_lengths(start_point, end_point, edge_lengths)
-    if total_length <= chord_length * 1.02:
+
+    source_origin = ordered_source_points[0][1]
+    source_points_2d = [
+        Vector((
+            (point - source_origin).dot(node.basis_u) * final_scale,
+            (point - source_origin).dot(node.basis_v) * final_scale,
+        ))
+        for _, point in ordered_source_points
+    ]
+    source_chord = source_points_2d[-1] - source_points_2d[0]
+    source_chord_length = source_chord.length
+    if source_chord_length <= 1e-8:
         return _interpolate_between_anchors_by_lengths(start_point, end_point, edge_lengths)
+
+    source_dir = source_chord / source_chord_length
+    source_perp = Vector((-source_dir.y, source_dir.x))
+    target_dir = target_delta / chord_length
+    base_target_perp = Vector((-target_dir.y, target_dir.x))
+    scale = chord_length / source_chord_length
 
     source_directions = _segment_source_step_directions(node, ordered_source_points)
-    start_dir = _normalize_direction(start_direction, source_directions[0] if source_directions else target_delta)
+    start_ref = _normalize_direction(start_direction, source_directions[0] if source_directions else target_delta)
     end_fallback = source_directions[-1] if source_directions else target_delta
-    end_dir = _normalize_direction(end_direction if end_direction is not None else end_fallback, end_fallback)
+    end_ref = _normalize_direction(end_direction if end_direction is not None else end_fallback, end_fallback)
 
-    handle_length = max(chord_length * 0.25, (total_length - chord_length) * 0.75)
-    handle_length = max(handle_length, total_length * 0.1)
-    sample_count = max(32, len(edge_lengths) * 8)
-    for _ in range(8):
-        guide_polyline = _sample_cubic_bezier_polyline(
-            start_point,
-            start_point + start_dir * handle_length,
-            end_point - end_dir * handle_length,
-            end_point,
-            sample_count=sample_count,
-        )
-        resampled = _resample_polyline_by_edge_lengths(guide_polyline, edge_lengths)
-        if resampled is not None:
-            resampled[0] = start_point.copy()
-            resampled[-1] = end_point.copy()
-            return resampled
-        handle_length *= 1.35
+    def _map_profile(target_perp: Vector) -> list[Vector]:
+        mapped = []
+        for source_point in source_points_2d:
+            relative = source_point - source_points_2d[0]
+            along = relative.dot(source_dir) * scale
+            across = relative.dot(source_perp) * scale
+            mapped.append(start_point + target_dir * along + target_perp * across)
+        mapped[0] = start_point.copy()
+        mapped[-1] = end_point.copy()
+        return mapped
 
-    points = _interpolate_between_anchors_by_lengths(start_point, end_point, edge_lengths)
-    points[0] = start_point.copy()
-    points[-1] = end_point.copy()
-    return points
+    def _profile_score(mapped_points: list[Vector]) -> float:
+        if len(mapped_points) < 2:
+            return -1e9
+        start_vec = _normalize_direction(mapped_points[1] - mapped_points[0], target_dir)
+        end_vec = _normalize_direction(mapped_points[-1] - mapped_points[-2], target_dir)
+        score = start_vec.dot(start_ref) + end_vec.dot(end_ref)
 
+        total_length = 0.0
+        for point_index in range(len(mapped_points) - 1):
+            total_length += (mapped_points[point_index + 1] - mapped_points[point_index]).length
+        target_total = sum(edge_lengths)
+        if target_total > 1e-8:
+            score -= abs((total_length / target_total) - 1.0)
+        return score
+
+    candidates = [
+        _map_profile(base_target_perp),
+        _map_profile(-base_target_perp),
+    ]
+    best_profile = max(candidates, key=_profile_score)
+    return best_profile
 
 
 def _build_frame_chain_from_one_end(
@@ -1765,7 +1462,6 @@ def _build_frame_chain_from_one_end(
     return points
 
 
-
 def _build_frame_chain_between_anchors(
     ordered_source_points: list[tuple[int, Vector]],
     start_point: Vector,
@@ -1780,413 +1476,12 @@ def _build_frame_chain_between_anchors(
     return _interpolate_between_anchors_by_lengths(start_point, end_point, edge_lengths)
 
 
-
-
-def _compute_frontier_direction_after_chain(
-    boundary_loop,
-    traversal_points: list[Vector],
-    traversal_end_corner: int,
-    walk_forward: bool,
-    winding_sign: float,
-    role: FrameRole,
-) -> Vector:
-    if len(traversal_points) >= 2:
-        chain_direction = traversal_points[-1] - traversal_points[-2]
-    else:
-        chain_direction = _default_role_direction(role)
-
-    if role != FrameRole.FREE:
-        chain_direction = _snap_direction_to_role(chain_direction, role)
-        if chain_direction.length <= 1e-8:
-            chain_direction = _default_role_direction(role)
-    chain_direction = _normalize_direction(chain_direction, _default_role_direction(role))
-
-    turn_angle_deg = 90.0
-    if 0 <= traversal_end_corner < len(boundary_loop.corners):
-        turn_angle_deg = boundary_loop.corners[traversal_end_corner].turn_angle_deg
-    turn_sign = winding_sign if walk_forward else -winding_sign
-    return _normalize_direction(_rotate_direction(chain_direction, turn_sign * turn_angle_deg), chain_direction)
-
-
-
-def _score_loop_frontier_candidate(segment: dict[str, object], known_endpoints: int, start_direction: Vector) -> float:
-    role = segment.get('role', FrameRole.FREE)
-    score = 0.0
-    if known_endpoints >= 2:
-        score += 1.5
-    if role == FrameRole.H_FRAME:
-        score += 1.0
-    elif role == FrameRole.V_FRAME:
-        score += 0.95
-    else:
-        score += 0.25
-    if str(segment.get('source_kind', 'chain')) == 'chain':
-        score += 0.05
-    if role in {FrameRole.H_FRAME, FrameRole.V_FRAME} and start_direction.length > 1e-8:
-        snapped = _snap_direction_to_role(start_direction, role)
-        if snapped.length > 1e-8:
-            score += 0.15
-    return score
-
-
-
-def _build_patch_chain_points(
-    node: PatchNode,
-    segment: dict[str, object],
-    ordered_source_points: list[tuple[int, Vector]],
-    final_scale: float,
-    start_point: Vector,
-    start_direction: Vector,
-    end_point: Optional[Vector] = None,
-    end_direction: Optional[Vector] = None,
-) -> list[Vector]:
-    role = segment.get('role', FrameRole.FREE)
-    if role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
-        if end_point is not None:
-            return _build_frame_chain_between_anchors(ordered_source_points, start_point, end_point, final_scale)
-        return _build_frame_chain_from_one_end(ordered_source_points, start_point, start_direction, role, final_scale)
-
-    if end_point is not None:
-        return _build_guided_free_chain_between_anchors(
-            node,
-            ordered_source_points,
-            start_point,
-            end_point,
-            start_direction,
-            end_direction,
-            final_scale,
-        )
-    return _build_guided_free_chain_from_one_end(node, ordered_source_points, start_point, start_direction, final_scale)
-
-
-
-
-def _build_patch_scaffold_frontier(
-    node: PatchNode,
-    loop_index: int,
-    boundary_loop,
-    segments: list[dict[str, object]],
-    start_segment_list_index: int,
-    final_scale: float,
-    anchor_points: list[Vector],
-    anchor_forward: bool = True,
-    notes: tuple[str, ...] = (),
-) -> ScaffoldPatchPlacement:
-    if not segments:
-        return ScaffoldPatchPlacement(patch_id=node.patch_id, loop_index=loop_index, notes=notes or ('no_segments',))
-    if start_segment_list_index < 0 or start_segment_list_index >= len(segments):
-        return ScaffoldPatchPlacement(patch_id=node.patch_id, loop_index=loop_index, notes=notes or ('bad_start_segment',))
-    if not anchor_points:
-        return ScaffoldPatchPlacement(patch_id=node.patch_id, loop_index=loop_index, notes=notes or ('missing_anchor',))
-
-    start_segment = segments[start_segment_list_index]
-    anchor_source_points = _ordered_segment_source_points(start_segment, anchor_forward)
-    if not anchor_source_points:
-        return ScaffoldPatchPlacement(patch_id=node.patch_id, loop_index=loop_index, notes=notes or ('empty_anchor_chain',))
-
-    fitted_anchor_points = _resample_uv_points(anchor_points, len(anchor_source_points))
-    if not fitted_anchor_points:
-        return ScaffoldPatchPlacement(patch_id=node.patch_id, loop_index=loop_index, notes=notes or ('anchor_resample_failed',))
-
-    chain_index = int(start_segment.get('segment_index', 0))
-    anchor_traversal_entries = [
-        (
-            ScaffoldPointKey(node.patch_id, loop_index, chain_index, int(source_point_index)),
-            target_point.copy(),
-        )
-        for (source_point_index, _), target_point in zip(anchor_source_points, fitted_anchor_points)
-    ]
-    anchor_canonical_entries = anchor_traversal_entries if anchor_forward else list(reversed(anchor_traversal_entries))
-    anchor_canonical_points = [point.copy() for _, point in anchor_canonical_entries]
-    if not anchor_canonical_points:
-        return ScaffoldPatchPlacement(patch_id=node.patch_id, loop_index=loop_index, notes=notes or ('anchor_points_failed',))
-
-    chain_placements_by_list_index = {
-        start_segment_list_index: ScaffoldChainPlacement(
-            patch_id=node.patch_id,
-            loop_index=loop_index,
-            chain_index=chain_index,
-            frame_role=start_segment.get('role', FrameRole.FREE),
-            source_kind=str(start_segment.get('source_kind', 'chain')),
-            points=tuple(anchor_canonical_entries),
-        )
-    }
-    corner_positions: dict[int, Vector] = {}
-    start_corner_index = int(start_segment.get('start_corner_index', -1))
-    end_corner_index = int(start_segment.get('end_corner_index', -1))
-    if start_corner_index >= 0:
-        corner_positions[start_corner_index] = anchor_canonical_points[0].copy()
-    if end_corner_index >= 0:
-        corner_positions[end_corner_index] = anchor_canonical_points[-1].copy()
-
-    segment_count = len(segments)
-    if segment_count == 1:
-        chain_placements = list(chain_placements_by_list_index.values())
-        bbox_min, bbox_max = _compute_bbox_from_chain_placements(chain_placements)
-        closure_error, max_chain_gap, gap_reports, closure_valid = _measure_patch_scaffold_closure(chain_placements)
-        return ScaffoldPatchPlacement(
-            patch_id=node.patch_id,
-            loop_index=loop_index,
-            root_chain_index=chain_index,
-            corner_positions=corner_positions,
-            chain_placements=chain_placements,
-            bbox_min=bbox_min,
-            bbox_max=bbox_max,
-            closure_error=closure_error,
-            max_chain_gap=max_chain_gap,
-            gap_reports=gap_reports,
-            closure_valid=closure_valid,
-            notes=notes,
-        )
-
-    winding_sign = _measure_loop_winding_sign(node, boundary_loop)
-    placed_indices = {start_segment_list_index}
-    left_index = (start_segment_list_index - 1) % segment_count
-    right_index = (start_segment_list_index + 1) % segment_count
-    left_point = anchor_canonical_points[0].copy()
-    right_point = anchor_canonical_points[-1].copy()
-    left_direction = _compute_frontier_direction_after_chain(
-        boundary_loop,
-        list(reversed(anchor_canonical_points)),
-        start_corner_index,
-        False,
-        winding_sign,
-        start_segment.get('role', FrameRole.FREE),
-    )
-    right_direction = _compute_frontier_direction_after_chain(
-        boundary_loop,
-        anchor_canonical_points,
-        end_corner_index,
-        True,
-        winding_sign,
-        start_segment.get('role', FrameRole.FREE),
-    )
-
-    while len(placed_indices) < segment_count:
-        candidates: list[PatchFrontierCandidate] = []
-
-        if right_index not in placed_indices:
-            right_segment = segments[right_index]
-            known_endpoints = 1
-            end_point = None
-            end_direction = None
-            if right_index == left_index:
-                known_endpoints = 2
-                end_point = left_point.copy()
-                end_direction = (-left_direction.copy()) if left_direction.length > 1e-8 else None
-            candidates.append(
-                PatchFrontierCandidate(
-                    segment_list_index=right_index,
-                    traversal_forward=True,
-                    known_endpoints=known_endpoints,
-                    start_point=right_point.copy(),
-                    start_direction=right_direction.copy(),
-                    end_point=end_point,
-                    end_direction=end_direction,
-                    score=_score_loop_frontier_candidate(right_segment, known_endpoints, right_direction),
-                )
-            )
-
-        if left_index not in placed_indices and left_index != right_index:
-            left_segment = segments[left_index]
-            candidates.append(
-                PatchFrontierCandidate(
-                    segment_list_index=left_index,
-                    traversal_forward=False,
-                    known_endpoints=1,
-                    start_point=left_point.copy(),
-                    start_direction=left_direction.copy(),
-                    score=_score_loop_frontier_candidate(left_segment, 1, left_direction),
-                )
-            )
-
-        if not candidates:
-            return ScaffoldPatchPlacement(patch_id=node.patch_id, loop_index=loop_index, notes=notes or ('frontier_stalled',))
-
-        candidate = max(candidates, key=lambda item: (item.score, item.known_endpoints, 1 if item.traversal_forward else 0))
-        segment = segments[candidate.segment_list_index]
-        traversal_source_points = _ordered_segment_source_points(segment, candidate.traversal_forward)
-        if not traversal_source_points:
-            return ScaffoldPatchPlacement(patch_id=node.patch_id, loop_index=loop_index, notes=notes or ('empty_frontier_segment',))
-
-        traversal_points = _build_patch_chain_points(
-            node,
-            segment,
-            traversal_source_points,
-            final_scale,
-            candidate.start_point,
-            candidate.start_direction,
-            candidate.end_point,
-            candidate.end_direction,
-        )
-        if len(traversal_points) != len(traversal_source_points):
-            return ScaffoldPatchPlacement(patch_id=node.patch_id, loop_index=loop_index, notes=notes or ('frontier_point_mismatch',))
-
-        chain_index = int(segment.get('segment_index', 0))
-        traversal_entries = [
-            (
-                ScaffoldPointKey(node.patch_id, loop_index, chain_index, int(source_point_index)),
-                target_point.copy(),
-            )
-            for (source_point_index, _), target_point in zip(traversal_source_points, traversal_points)
-        ]
-        canonical_entries = traversal_entries if candidate.traversal_forward else list(reversed(traversal_entries))
-        canonical_points = [point.copy() for _, point in canonical_entries]
-        start_corner_index = int(segment.get('start_corner_index', -1))
-        end_corner_index = int(segment.get('end_corner_index', -1))
-        if start_corner_index >= 0:
-            corner_positions[start_corner_index] = canonical_points[0].copy()
-        if end_corner_index >= 0:
-            corner_positions[end_corner_index] = canonical_points[-1].copy()
-
-        chain_placements_by_list_index[candidate.segment_list_index] = ScaffoldChainPlacement(
-            patch_id=node.patch_id,
-            loop_index=loop_index,
-            chain_index=chain_index,
-            frame_role=segment.get('role', FrameRole.FREE),
-            source_kind=str(segment.get('source_kind', 'chain')),
-            points=tuple(canonical_entries),
-        )
-        placed_indices.add(candidate.segment_list_index)
-
-        if candidate.traversal_forward:
-            right_point = traversal_points[-1].copy()
-            right_direction = _compute_frontier_direction_after_chain(boundary_loop, traversal_points, end_corner_index, True, winding_sign, segment.get('role', FrameRole.FREE))
-            right_index = (candidate.segment_list_index + 1) % segment_count
-        else:
-            left_point = traversal_points[-1].copy()
-            left_direction = _compute_frontier_direction_after_chain(boundary_loop, traversal_points, start_corner_index, False, winding_sign, segment.get('role', FrameRole.FREE))
-            left_index = (candidate.segment_list_index - 1) % segment_count
-
-    chain_placements = []
-    for offset in range(segment_count):
-        segment_list_index = (start_segment_list_index + offset) % segment_count
-        placement = chain_placements_by_list_index.get(segment_list_index)
-        if placement is not None:
-            chain_placements.append(placement)
-
-    bbox_min, bbox_max = _compute_bbox_from_chain_placements(chain_placements)
-    closure_error, max_chain_gap, gap_reports, closure_valid = _measure_patch_scaffold_closure(chain_placements)
-    return ScaffoldPatchPlacement(
-        patch_id=node.patch_id,
-        loop_index=loop_index,
-        root_chain_index=int(start_segment.get('segment_index', 0)),
-        corner_positions=corner_positions,
-        chain_placements=chain_placements,
-        bbox_min=bbox_min,
-        bbox_max=bbox_max,
-        closure_error=closure_error,
-        max_chain_gap=max_chain_gap,
-        gap_reports=gap_reports,
-        closure_valid=closure_valid,
-        notes=notes,
-    )
-
-
-def _build_target_anchor_points(
-    graph: PatchGraph,
-    candidate: AttachmentCandidate,
-    owner_chain_placement: ScaffoldChainPlacement,
-    target_segment: dict[str, object],
-    walk_forward: bool,
-) -> Optional[list[Vector]]:
-    owner_chain = graph.get_chain(candidate.owner_patch_id, candidate.owner_loop_index, candidate.owner_chain_index)
-    target_chain = graph.get_chain(candidate.target_patch_id, candidate.target_loop_index, candidate.target_chain_index)
-    if owner_chain is None or target_chain is None:
-        return None
-    if target_segment.get('source_kind') != 'chain':
-        return None
-
-    owner_uv_by_vert: dict[int, Vector] = {}
-    for point_key, point in owner_chain_placement.points:
-        source_index = point_key.source_point_index
-        if 0 <= source_index < len(owner_chain.vert_indices):
-            owner_uv_by_vert[owner_chain.vert_indices[source_index]] = point.copy()
-
-    ordered_source_points = _ordered_segment_source_points(target_segment, walk_forward)
-    if not ordered_source_points:
-        return None
-
-    anchor_points = []
-    for source_point_index, _ in ordered_source_points:
-        if source_point_index < 0 or source_point_index >= len(target_chain.vert_indices):
-            return None
-        vert_index = target_chain.vert_indices[source_point_index]
-        owner_point = owner_uv_by_vert.get(vert_index)
-        if owner_point is None:
-            return None
-        anchor_points.append(owner_point.copy())
-    return anchor_points
-
-
-def _score_child_patch_side(owner_patch_placement: ScaffoldPatchPlacement, owner_chain_placement: ScaffoldChainPlacement, child_patch_placement: ScaffoldPatchPlacement) -> float:
-    owner_midpoint, owner_outward = _compute_owner_chain_outward(owner_chain_placement, owner_patch_placement)
-    child_midpoint = 0.5 * (child_patch_placement.bbox_min + child_patch_placement.bbox_max)
-    return (child_midpoint - owner_midpoint).dot(owner_outward)
-
-
-def _build_child_patch_scaffold(
-    graph: PatchGraph,
-    node: PatchNode,
-    candidate: AttachmentCandidate,
-    owner_patch_placement: ScaffoldPatchPlacement,
-    owner_chain_placement: ScaffoldChainPlacement,
-    final_scale: float,
-) -> ScaffoldPatchPlacement:
-    boundary_loop, segments, notes = _collect_patch_segments_for_loop(node, candidate.target_loop_index)
-    if boundary_loop is None or not segments:
-        return ScaffoldPatchPlacement(patch_id=node.patch_id, loop_index=candidate.target_loop_index, notes=notes or ('no_target_segments',))
-
-    start_segment_list_index = _find_segment_list_index(segments, candidate.target_chain_index)
-    if start_segment_list_index < 0:
-        return ScaffoldPatchPlacement(patch_id=node.patch_id, loop_index=candidate.target_loop_index, notes=('missing_target_chain',))
-
-    target_segment = segments[start_segment_list_index]
-    if str(target_segment.get('source_kind', 'chain')) != 'chain':
-        return ScaffoldPatchPlacement(patch_id=node.patch_id, loop_index=candidate.target_loop_index, notes=('derived_child_unsupported',))
-
-    best_placement = None
-    best_score = float('-inf')
-    for anchor_forward in (True, False):
-        anchor_points = _build_target_anchor_points(graph, candidate, owner_chain_placement, target_segment, anchor_forward)
-        if not anchor_points:
-            continue
-        patch_placement = _build_patch_scaffold_frontier(
-            node,
-            candidate.target_loop_index,
-            boundary_loop,
-            segments,
-            start_segment_list_index,
-            final_scale,
-            anchor_points,
-            anchor_forward=anchor_forward,
-            notes=notes,
-        )
-        if patch_placement.notes:
-            continue
-        side_score = _score_child_patch_side(owner_patch_placement, owner_chain_placement, patch_placement)
-        if side_score > best_score:
-            best_score = side_score
-            best_placement = patch_placement
-
-    if best_placement is None:
-        return ScaffoldPatchPlacement(patch_id=node.patch_id, loop_index=candidate.target_loop_index, notes=('child_anchor_failed',))
-    return best_placement
-
-CHAIN_FRONTIER_THRESHOLD = 0.3
-
-
-def _cf_chain_source_points(chain):
-    """Конвертирует chain.vert_cos в формат [(index, Vector)] для placement функций."""
-    return [(i, co.copy()) for i, co in enumerate(chain.vert_cos)]
-
-
 def _cf_determine_direction(chain, node):
-    """UV direction для chain из базиса patch.
+    """UV direction ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚Â chain ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â· ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â±ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â·ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â° patch.
 
-    H_FRAME → snap к (±1, 0)
-    V_FRAME → snap к (0, ±1)
-    FREE → проекция 3D direction на basis
+    H_FRAME ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ snap ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âº (ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â±1, 0)
+    V_FRAME ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ snap ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âº (0, ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â±1)
+    FREE ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚Â 3D direction ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â° basis
     """
     if len(chain.vert_cos) < 2:
         if chain.frame_role == FrameRole.H_FRAME:
@@ -2205,22 +1500,21 @@ def _cf_determine_direction(chain, node):
         dot = chain_3d.dot(node.basis_v)
         return Vector((0.0, 1.0 if dot >= 0.0 else -1.0))
 
-    # FREE: проекция на 2D basis space
     u_comp = chain_3d.dot(node.basis_u)
     v_comp = chain_3d.dot(node.basis_v)
-    d = Vector((u_comp, v_comp))
-    if d.length > 1e-8:
-        return d.normalized()
+    direction = Vector((u_comp, v_comp))
+    if direction.length > 1e-8:
+        return direction.normalized()
     return Vector((1.0, 0.0))
 
 
-def _cf_choose_seed_chain(graph, root_node):
-    """Выбирает strongest chain root patch для seed placement.
+def _cf_choose_seed_chain(graph, root_node, quilt_patch_ids):
+    """ÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â±ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ strongest chain root patch ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚Â seed placement.
 
-    Предпочитает H/V с сильным соседним контекстом.
-    Для WALL: FLOOR.DOWN сосед = нижняя кромка стены = лучший seed.
+    ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¹ bonus ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ patches ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â³ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¶ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ quilt.
+    ÃƒÆ’Ã‚ÂÃƒâ€¹Ã…â€œÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ caps/ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â· ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â³ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ quilts ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¶ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ seed ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚Â wall patch.
 
-    Returns: (loop_index, chain_index, chain) или None
+    Returns: (loop_index, chain_index, chain) ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ None
     """
     best_ref = None
     best_score = -1.0
@@ -2231,13 +1525,11 @@ def _cf_choose_seed_chain(graph, root_node):
         for chain_idx, chain in enumerate(loop.chains):
             score = 0.0
 
-            # Role
             if chain.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
                 score += 1.0
             else:
                 score += 0.1
 
-            # Chain length
             if len(chain.vert_cos) > 1:
                 chain_len = sum(
                     (chain.vert_cos[i + 1] - chain.vert_cos[i]).length
@@ -2245,8 +1537,7 @@ def _cf_choose_seed_chain(graph, root_node):
                 )
                 score += min(chain_len * 0.1, 0.5)
 
-            # Neighbor semantic
-            if chain.neighbor_kind == ChainNeighborKind.PATCH:
+            if chain.neighbor_kind == ChainNeighborKind.PATCH and chain.neighbor_patch_id in quilt_patch_ids:
                 neighbor_key = graph.get_patch_semantic_key(chain.neighbor_patch_id)
                 patch_type = root_node.patch_type.value if hasattr(root_node.patch_type, 'value') else str(root_node.patch_type)
                 if patch_type == 'WALL':
@@ -2267,156 +1558,248 @@ def _cf_choose_seed_chain(graph, root_node):
     return best_ref
 
 
-def _cf_is_adjacent(chain_a_idx, chain_b_idx, boundary_loop):
-    """Два chain соседние в loop если делят corner."""
-    for corner in boundary_loop.corners:
-        if ((corner.prev_chain_index == chain_a_idx and corner.next_chain_index == chain_b_idx) or
-                (corner.prev_chain_index == chain_b_idx and corner.next_chain_index == chain_a_idx)):
-            return True
-    return False
-
-
 def _cf_find_anchors(chain_ref, chain, graph, point_registry, vert_to_placements, placed_refs):
-    """Ищет anchor UV для start и end вершин chain.
+    """ÃƒÆ’Ã‚ÂÃƒâ€¹Ã…â€œÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ anchor UV ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚Â start/end ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã¢â‚¬ËœÃƒâ€¹Ã¢â‚¬Â ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ chain ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚Â provenance.
 
-    Same-patch: через CORNER TOPOLOGY.
-    Corner однозначно определяет: prev_chain.end → next_chain.start.
-    Это корректно для SEAM_SELF, где vert_index дублируется в loop.
-
-    Cross-patch: через vert_index (seam connection).
-
-    Returns: (start_uv, end_uv, known_endpoints)
+    same_patch anchor ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â±ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚Â ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â· corner topology.
+    cross_patch anchor ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒâ€¹Ã¢â‚¬Â ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â· shared seam vert.
     """
     patch_id, loop_index, chain_index = chain_ref
     node = graph.nodes.get(patch_id)
     if node is None or loop_index >= len(node.boundary_loops):
-        return None, None, 0
+        return None, None
 
     boundary_loop = node.boundary_loops[loop_index]
     start_vert = chain.start_vert_index
     end_vert = chain.end_vert_index
-    start_uv = None
-    end_uv = None
-
-    # --- Same-patch: corner topology ---
-    # Corner: prev_chain.END → next_chain.START (через общую вершину угла)
-    #
-    # Если наш chain = next_chain в corner:
-    #   prev_chain уже размещён? → его последняя точка = наш start anchor
-    #
-    # Если наш chain = prev_chain в corner:
-    #   next_chain уже размещён? → его первая точка = наш end anchor
+    start_anchor = None
+    end_anchor = None
 
     for corner in boundary_loop.corners:
         prev_ci = corner.prev_chain_index
         next_ci = corner.next_chain_index
 
-        if next_ci == chain_index and start_uv is None:
-            # Наш chain = next → ищем anchor от prev_chain.end
+        if next_ci == chain_index and start_anchor is None:
             prev_ref = (patch_id, loop_index, prev_ci)
             if prev_ref in placed_refs:
-                p_chain = boundary_loop.chains[prev_ci]
-                p_last = len(p_chain.vert_indices) - 1
-                if p_last >= 0:
-                    key = (patch_id, loop_index, prev_ci, p_last)
+                prev_chain = boundary_loop.chains[prev_ci]
+                prev_last = len(prev_chain.vert_indices) - 1
+                if prev_last >= 0:
+                    key = (patch_id, loop_index, prev_ci, prev_last)
                     if key in point_registry:
-                        start_uv = point_registry[key]
+                        start_anchor = ChainAnchor(
+                            uv=point_registry[key].copy(),
+                            source_ref=prev_ref,
+                            source_point_index=prev_last,
+                            source_kind='same_patch',
+                        )
 
-        if prev_ci == chain_index and end_uv is None:
-            # Наш chain = prev → ищем anchor от next_chain.start
+        if prev_ci == chain_index and end_anchor is None:
             next_ref = (patch_id, loop_index, next_ci)
             if next_ref in placed_refs:
                 key = (patch_id, loop_index, next_ci, 0)
                 if key in point_registry:
-                    end_uv = point_registry[key]
+                    end_anchor = ChainAnchor(
+                        uv=point_registry[key].copy(),
+                        source_ref=next_ref,
+                        source_point_index=0,
+                        source_kind='same_patch',
+                    )
 
-    # --- Cross-patch: vert_index match ---
-    # Для seam между разными patches: vert_index безопасен,
-    # т.к. стороны в разных patches, нет SEAM_SELF конфликта.
-
-    if start_uv is None and start_vert >= 0 and start_vert in vert_to_placements:
+    if start_anchor is None and start_vert >= 0 and start_vert in vert_to_placements:
         for other_ref, pt_idx in vert_to_placements[start_vert]:
-            if other_ref[0] != patch_id:
-                key = (other_ref[0], other_ref[1], other_ref[2], pt_idx)
-                if key in point_registry:
-                    start_uv = point_registry[key]
-                    break
+            if other_ref[0] == patch_id:
+                continue
+            key = (other_ref[0], other_ref[1], other_ref[2], pt_idx)
+            if key in point_registry:
+                start_anchor = ChainAnchor(
+                    uv=point_registry[key].copy(),
+                    source_ref=other_ref,
+                    source_point_index=pt_idx,
+                    source_kind='cross_patch',
+                )
+                break
 
-    if end_uv is None and end_vert >= 0 and end_vert in vert_to_placements:
+    if end_anchor is None and end_vert >= 0 and end_vert in vert_to_placements:
         for other_ref, pt_idx in vert_to_placements[end_vert]:
-            if other_ref[0] != patch_id:
-                key = (other_ref[0], other_ref[1], other_ref[2], pt_idx)
-                if key in point_registry:
-                    end_uv = point_registry[key]
-                    break
+            if other_ref[0] == patch_id:
+                continue
+            key = (other_ref[0], other_ref[1], other_ref[2], pt_idx)
+            if key in point_registry:
+                end_anchor = ChainAnchor(
+                    uv=point_registry[key].copy(),
+                    source_ref=other_ref,
+                    source_point_index=pt_idx,
+                    source_kind='cross_patch',
+                )
+                break
 
-    known = (1 if start_uv is not None else 0) + (1 if end_uv is not None else 0)
-    return start_uv, end_uv, known
+    return start_anchor, end_anchor
 
-def _cf_score_candidate(chain_ref, chain, node, known, graph, placed_in_patch):
-    """Chain-level score для frontier candidate.
 
-    Scoring заморожен до стабилизации placement.
-    """
+def _cf_frame_anchor_pair_is_axis_safe(
+    chain: BoundaryChain,
+    start_anchor: ChainAnchor,
+    end_anchor: ChainAnchor,
+    final_scale: float,
+) -> tuple[bool, str]:
+    if chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        return True, ''
+
+    total_length = _cf_chain_total_length(chain, final_scale)
+    if total_length <= 1e-8:
+        return True, ''
+
+    delta = end_anchor.uv - start_anchor.uv
+    axis_error = abs(delta.y) if chain.frame_role == FrameRole.H_FRAME else abs(delta.x)
+    axis_span = abs(delta.x) if chain.frame_role == FrameRole.H_FRAME else abs(delta.y)
+
+    axis_tolerance = max(0.02, total_length * 0.05)
+    span_tolerance = max(0.05, total_length * 0.15)
+
+    if axis_error > axis_tolerance:
+        return False, 'axis_mismatch'
+    if abs(axis_span - total_length) > span_tolerance:
+        return False, 'span_mismatch'
+    return True, ''
+
+
+def _cf_can_use_dual_anchor_closure(
+    chain: BoundaryChain,
+    start_anchor: ChainAnchor,
+    end_anchor: ChainAnchor,
+    placed_in_patch: int,
+    final_scale: float,
+) -> tuple[bool, str]:
+    axis_ok, axis_reason = _cf_frame_anchor_pair_is_axis_safe(chain, start_anchor, end_anchor, final_scale)
+    if not axis_ok:
+        return False, axis_reason
+
+    # ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â·ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ patch ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â·ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚Â ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¶ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ anchors.
+    # ÃƒÆ’Ã‚ÂÃƒâ€¹Ã…â€œÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¹ seam-chain "ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡" ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âº ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â±ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¶ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â·ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â³ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ patch.
+    if start_anchor.source_kind == 'cross_patch' and end_anchor.source_kind == 'cross_patch':
+        return False, 'prevent_patch_wrap'
+
+    return True, ''
+
+
+def _cf_resolve_candidate_anchors(
+    chain: BoundaryChain,
+    start_anchor: Optional[ChainAnchor],
+    end_anchor: Optional[ChainAnchor],
+    placed_in_patch: int,
+    final_scale: float,
+) -> tuple[Optional[ChainAnchor], Optional[ChainAnchor], int, str]:
+    known = _cf_anchor_count(start_anchor, end_anchor)
+    if known < 2:
+        return start_anchor, end_anchor, known, ''
+
+    can_close, reason = _cf_can_use_dual_anchor_closure(
+        chain,
+        start_anchor,
+        end_anchor,
+        placed_in_patch,
+        final_scale,
+    )
+    if can_close:
+        return start_anchor, end_anchor, 2, ''
+
+    if (
+        start_anchor is not None and end_anchor is not None
+        and start_anchor.source_kind == 'cross_patch'
+        and end_anchor.source_kind == 'cross_patch'
+    ):
+        return start_anchor, None, 1, f'{reason}:bootstrap_from_start'
+
+    if start_anchor is not None and start_anchor.source_kind == 'same_patch' and (
+        end_anchor is None or end_anchor.source_kind != 'same_patch'
+    ):
+        return start_anchor, None, 1, f'{reason}:drop_end'
+    if end_anchor is not None and end_anchor.source_kind == 'same_patch' and (
+        start_anchor is None or start_anchor.source_kind != 'same_patch'
+    ):
+        return None, end_anchor, 1, f'{reason}:drop_start'
+
+    return None, None, 0, reason
+
+
+def _cf_score_candidate(
+    chain_ref,
+    chain,
+    node,
+    known,
+    graph,
+    placed_in_patch,
+    quilt_patch_ids,
+    start_anchor: Optional[ChainAnchor] = None,
+    end_anchor: Optional[ChainAnchor] = None,
+):
+    """Chain-level score ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚Â frontier candidate."""
     score = 0.0
 
-    # Role (primary factor)
     if chain.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
         score += 1.0
     else:
         score += 0.2
 
-    # Known endpoints
     if known == 2:
         score += 0.8
     elif known == 1:
         score += 0.3
 
-    # Neighbor semantic
-    if chain.neighbor_kind == ChainNeighborKind.PATCH:
+    if chain.neighbor_kind == ChainNeighborKind.PATCH and chain.neighbor_patch_id in quilt_patch_ids:
         neighbor_key = graph.get_patch_semantic_key(chain.neighbor_patch_id)
         if 'FLOOR' in neighbor_key:
             score += 0.3
         elif neighbor_key.endswith('.SIDE'):
             score += 0.15
 
-    # Patch continuity (patch уже частично размещён)
     if placed_in_patch > 0:
         score += 0.2
+
+    same_patch_anchor_count = sum(
+        1 for anchor in (start_anchor, end_anchor)
+        if anchor is not None and anchor.source_kind == 'same_patch'
+    )
+    cross_patch_anchor_count = sum(
+        1 for anchor in (start_anchor, end_anchor)
+        if anchor is not None and anchor.source_kind == 'cross_patch'
+    )
+    score += 0.1 * same_patch_anchor_count
+
+    if same_patch_anchor_count == 0 and cross_patch_anchor_count > 0:
+        score -= 0.35 if placed_in_patch > 0 else 0.25
 
     return score
 
 
-def _cf_place_chain(chain, node, start_uv, end_uv, final_scale):
-    """Размещает один chain в UV.
-
-    Dispatch по role + known_endpoints к существующим placement функциям.
-    H/V = snap к оси. FREE = guided interpolation/extension.
-
-    Returns: list[Vector] UV позиций (по одной на каждую вершину chain).
-    """
+def _cf_place_chain(
+    chain,
+    node,
+    start_anchor: Optional[ChainAnchor],
+    end_anchor: Optional[ChainAnchor],
+    final_scale,
+):
+    """ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â·ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ chain ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â² UV, ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚Â ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ anchors."""
     source_pts = _cf_chain_source_points(chain)
     direction = _cf_determine_direction(chain, node)
     role = chain.frame_role
+    start_uv = start_anchor.uv.copy() if start_anchor is not None else None
+    end_uv = end_anchor.uv.copy() if end_anchor is not None else None
 
     if start_uv is not None and end_uv is not None:
-        # Оба endpoints известны
         if role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
             return _build_frame_chain_between_anchors(source_pts, start_uv, end_uv, final_scale)
-        else:
-            return _build_guided_free_chain_between_anchors(
-                node, source_pts, start_uv, end_uv, direction, None, final_scale)
+        return _build_guided_free_chain_between_anchors(
+            node, source_pts, start_uv, end_uv, direction, None, final_scale)
 
-    elif start_uv is not None:
-        # Только start известен
+    if start_uv is not None:
         if role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
             return _build_frame_chain_from_one_end(source_pts, start_uv, direction, role, final_scale)
-        else:
-            return _build_guided_free_chain_from_one_end(
-                node, source_pts, start_uv, direction, final_scale)
+        return _build_guided_free_chain_from_one_end(
+            node, source_pts, start_uv, direction, final_scale)
 
-    elif end_uv is not None:
-        # Только end известен — reverse, build from end, reverse back
+    if end_uv is not None:
         rev_pts = list(reversed(source_pts))
         rev_dir = Vector((-direction.x, -direction.y))
         if role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
@@ -2430,7 +1813,7 @@ def _cf_place_chain(chain, node, start_uv, end_uv, final_scale):
 
 
 def _cf_register_points(chain_ref, chain, uv_points, point_registry, vert_to_placements):
-    """Регистрирует все точки chain в обоих registry."""
+    """ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â³ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ chain ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â² ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â±ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ registry."""
     patch_id, loop_index, chain_index = chain_ref
     for i, uv in enumerate(uv_points):
         key = (patch_id, loop_index, chain_index, i)
@@ -2441,11 +1824,14 @@ def _cf_register_points(chain_ref, chain, uv_points, point_registry, vert_to_pla
             vert_to_placements.setdefault(vert_idx, []).append((chain_ref, i))
 
 
-def _cf_build_envelopes(graph, quilt_patch_ids, placed_chains_map, placed_chain_refs, point_registry):
-    """Группирует размещённые chains в ScaffoldPatchPlacement per patch.
-
-    Вычисляет corners, bbox, status, dependencies.
-    """
+def _cf_build_envelopes(
+    graph,
+    quilt_patch_ids,
+    placed_chains_map,
+    placed_chain_refs,
+    chain_dependency_patches,
+):
+    """ÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â·ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ chains ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â² ScaffoldPatchPlacement per patch."""
     patches = {}
 
     for patch_id in quilt_patch_ids:
@@ -2453,19 +1839,22 @@ def _cf_build_envelopes(graph, quilt_patch_ids, placed_chains_map, placed_chain_
         if node is None:
             continue
 
-        # Собираем placed chains этого patch
-        patch_placements = []
-        for ref, placement in placed_chains_map.items():
-            if ref[0] == patch_id:
-                patch_placements.append(placement)
+        patch_placements = [
+            placement
+            for ref, placement in placed_chains_map.items()
+            if ref[0] == patch_id
+        ]
+        patch_placements.sort(key=lambda placement: placement.chain_index)
 
         if not patch_placements:
             patches[patch_id] = ScaffoldPatchPlacement(
-                patch_id=patch_id, loop_index=-1,
-                notes=('no_placed_chains',), status="EMPTY")
+                patch_id=patch_id,
+                loop_index=-1,
+                notes=('no_placed_chains',),
+                status='EMPTY',
+            )
             continue
 
-        # OUTER loop index
         outer_loop_index = -1
         for loop_idx, loop in enumerate(node.boundary_loops):
             if loop.kind == LoopKind.OUTER:
@@ -2474,13 +1863,15 @@ def _cf_build_envelopes(graph, quilt_patch_ids, placed_chains_map, placed_chain_
 
         if outer_loop_index < 0:
             patches[patch_id] = ScaffoldPatchPlacement(
-                patch_id=patch_id, loop_index=-1,
-                notes=('no_outer_loop',), status="UNSUPPORTED")
+                patch_id=patch_id,
+                loop_index=-1,
+                notes=('no_outer_loop',),
+                status='UNSUPPORTED',
+            )
             continue
 
         boundary_loop = node.boundary_loops[outer_loop_index]
 
-        # Corners из endpoints размещённых chains
         corner_positions = {}
         for corner_idx, corner in enumerate(boundary_loop.corners):
             prev_ref = (patch_id, outer_loop_index, corner.prev_chain_index)
@@ -2494,7 +1885,6 @@ def _cf_build_envelopes(graph, quilt_patch_ids, placed_chains_map, placed_chain_
                 if pts:
                     corner_positions[corner_idx] = pts[0][1].copy()
 
-        # BBox
         all_pts = [pt for cp in patch_placements for _, pt in cp.points]
         if all_pts:
             bbox_min = Vector((min(p.x for p in all_pts), min(p.y for p in all_pts)))
@@ -2503,7 +1893,6 @@ def _cf_build_envelopes(graph, quilt_patch_ids, placed_chains_map, placed_chain_
             bbox_min = Vector((0.0, 0.0))
             bbox_max = Vector((0.0, 0.0))
 
-        # Status
         total_chains = len(boundary_loop.chains)
         placed_count = sum(
             1 for ci in range(total_chains)
@@ -2511,33 +1900,28 @@ def _cf_build_envelopes(graph, quilt_patch_ids, placed_chains_map, placed_chain_
         )
 
         if placed_count >= total_chains:
-            status = "COMPLETE"
+            status = 'COMPLETE'
         elif placed_count > 0:
-            status = "PARTIAL"
+            status = 'PARTIAL'
         else:
-            status = "EMPTY"
+            status = 'EMPTY'
 
-        # Unplaced chains
         unplaced = tuple(
             ci for ci in range(total_chains)
             if (patch_id, outer_loop_index, ci) not in placed_chain_refs
         )
 
-        # Dependencies
         dep_set = set()
         for cp in patch_placements:
-            for point_key, _ in cp.points:
-                if point_key.patch_id != patch_id:
-                    dep_set.add(point_key.patch_id)
+            cp_ref = (cp.patch_id, cp.loop_index, cp.chain_index)
+            dep_set.update(chain_dependency_patches.get(cp_ref, ()))
 
-        # Closure
         closure_error = 0.0
         closure_valid = True
-        if status == "COMPLETE" and total_chains >= 2:
-            sorted_pl = sorted(patch_placements, key=lambda cp: cp.chain_index)
-            if sorted_pl[-1].points and sorted_pl[0].points:
-                last_end = sorted_pl[-1].points[-1][1]
-                first_start = sorted_pl[0].points[0][1]
+        if status == 'COMPLETE' and total_chains >= 2:
+            if patch_placements[-1].points and patch_placements[0].points:
+                last_end = patch_placements[-1].points[-1][1]
+                first_start = patch_placements[0].points[0][1]
                 closure_error = (last_end - first_start).length
                 closure_valid = closure_error < 0.05
 
@@ -2562,56 +1946,78 @@ def _cf_build_envelopes(graph, quilt_patch_ids, placed_chains_map, placed_chain_
 def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
     """Chain-first strongest-frontier builder.
 
-    Строит scaffold для одного quilt chain-by-chain через единый frontier pool.
-    Не различает chains одного patch и chains через seam.
+    ÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬ÂÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â³ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â·ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚Â patch ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¶ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ anchors.
     """
     quilt_scaffold = ScaffoldQuiltPlacement(
         quilt_index=quilt_plan.quilt_index,
         root_patch_id=quilt_plan.root_patch_id,
     )
+    quilt_patch_ids = set(quilt_plan.solved_patch_ids)
+    quilt_patch_ids.add(quilt_plan.root_patch_id)
+    ordered_quilt_patch_ids = list(quilt_plan.solved_patch_ids)
+    if quilt_plan.root_patch_id not in ordered_quilt_patch_ids:
+        ordered_quilt_patch_ids.append(quilt_plan.root_patch_id)
 
     root_node = graph.nodes.get(quilt_plan.root_patch_id)
     if root_node is None:
         return quilt_scaffold
 
-    # --- Seed chain ---
-    seed_result = _cf_choose_seed_chain(graph, root_node)
+    seed_result = _cf_choose_seed_chain(graph, root_node, quilt_patch_ids)
     if seed_result is None:
         quilt_scaffold.patches[quilt_plan.root_patch_id] = ScaffoldPatchPlacement(
-            patch_id=quilt_plan.root_patch_id, loop_index=-1,
-            notes=('no_seed_chain',), status="UNSUPPORTED")
+            patch_id=quilt_plan.root_patch_id,
+            loop_index=-1,
+            notes=('no_seed_chain',),
+            status='UNSUPPORTED',
+        )
         return quilt_scaffold
 
     seed_loop_idx, seed_chain_idx, seed_chain = seed_result
     seed_ref = (quilt_plan.root_patch_id, seed_loop_idx, seed_chain_idx)
 
-    # Registries
     point_registry = {}
     vert_to_placements = {}
     placed_chain_refs = set()
     placed_chains_map = {}
+    chain_dependency_patches = {}
+    rejected_chain_refs = set()
     build_order = []
 
-    # Place seed от (0, 0)
     seed_src = _cf_chain_source_points(seed_chain)
     seed_dir = _cf_determine_direction(seed_chain, root_node)
 
     if seed_chain.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
         seed_uvs = _build_frame_chain_from_one_end(
-            seed_src, Vector((0.0, 0.0)), seed_dir, seed_chain.frame_role, final_scale)
+            seed_src,
+            Vector((0.0, 0.0)),
+            seed_dir,
+            seed_chain.frame_role,
+            final_scale,
+        )
     else:
         seed_uvs = _build_guided_free_chain_from_one_end(
-            root_node, seed_src, Vector((0.0, 0.0)), seed_dir, final_scale)
+            root_node,
+            seed_src,
+            Vector((0.0, 0.0)),
+            seed_dir,
+            final_scale,
+        )
 
     if not seed_uvs:
         quilt_scaffold.patches[quilt_plan.root_patch_id] = ScaffoldPatchPlacement(
-            patch_id=quilt_plan.root_patch_id, loop_index=-1,
-            notes=('seed_placement_failed',), status="UNSUPPORTED")
+            patch_id=quilt_plan.root_patch_id,
+            loop_index=-1,
+            notes=('seed_placement_failed',),
+            status='UNSUPPORTED',
+        )
         return quilt_scaffold
 
     seed_placement = ScaffoldChainPlacement(
-        patch_id=seed_ref[0], loop_index=seed_ref[1], chain_index=seed_ref[2],
-        frame_role=seed_chain.frame_role, source_kind='chain',
+        patch_id=seed_ref[0],
+        loop_index=seed_ref[1],
+        chain_index=seed_ref[2],
+        frame_role=seed_chain.frame_role,
+        source_kind='chain',
         points=tuple(
             (ScaffoldPointKey(seed_ref[0], seed_ref[1], seed_ref[2], i), uv.copy())
             for i, uv in enumerate(seed_uvs)
@@ -2620,6 +2026,7 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
 
     placed_chain_refs.add(seed_ref)
     placed_chains_map[seed_ref] = seed_placement
+    chain_dependency_patches[seed_ref] = ()
     build_order.append(seed_ref)
     _cf_register_points(seed_ref, seed_chain, seed_uvs, point_registry, vert_to_placements)
 
@@ -2630,9 +2037,8 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
         f"->({seed_uvs[-1].x:.4f},{seed_uvs[-1].y:.4f})"
     )
 
-    # --- All chains in quilt (OUTER loops only) ---
     all_chain_pool = []
-    for patch_id in quilt_plan.solved_patch_ids:
+    for patch_id in ordered_quilt_patch_ids:
         node = graph.nodes.get(patch_id)
         if node is None:
             continue
@@ -2644,7 +2050,6 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
                 if ref != seed_ref:
                     all_chain_pool.append((ref, chain, node))
 
-    # --- Frontier loop ---
     max_iter = len(all_chain_pool) + 10
     for iteration in range(1, max_iter + 1):
         best_ref = None
@@ -2652,36 +2057,67 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
         best_data = None
 
         for ref, chain, node in all_chain_pool:
-            if ref in placed_chain_refs:
+            if ref in placed_chain_refs or ref in rejected_chain_refs:
                 continue
 
-            anchor_start, anchor_end, known = _cf_find_anchors(
-                ref, chain, graph, point_registry, vert_to_placements, placed_chain_refs)
+            raw_start_anchor, raw_end_anchor = _cf_find_anchors(
+                ref,
+                chain,
+                graph,
+                point_registry,
+                vert_to_placements,
+                placed_chain_refs,
+            )
 
+            placed_in_patch = sum(1 for placed_ref in placed_chain_refs if placed_ref[0] == ref[0])
+            anchor_start, anchor_end, known, anchor_reason = _cf_resolve_candidate_anchors(
+                chain,
+                raw_start_anchor,
+                raw_end_anchor,
+                placed_in_patch,
+                final_scale,
+            )
             if known == 0:
                 continue
 
-            placed_in_patch = sum(1 for pr in placed_chain_refs if pr[0] == ref[0])
-            score = _cf_score_candidate(ref, chain, node, known, graph, placed_in_patch)
+            score = _cf_score_candidate(
+                ref,
+                chain,
+                node,
+                known,
+                graph,
+                placed_in_patch,
+                quilt_patch_ids,
+                start_anchor=anchor_start,
+                end_anchor=anchor_end,
+            )
 
             if score > best_score:
                 best_score = score
                 best_ref = ref
-                best_data = (chain, node, anchor_start, anchor_end)
+                best_data = (chain, node, anchor_start, anchor_end, anchor_reason)
 
         if best_ref is None or best_score < CHAIN_FRONTIER_THRESHOLD:
             break
 
-        chain, node, anchor_start, anchor_end = best_data
+        chain, node, anchor_start, anchor_end, anchor_reason = best_data
         uv_points = _cf_place_chain(chain, node, anchor_start, anchor_end, final_scale)
 
         if not uv_points or len(uv_points) != len(chain.vert_cos):
-            placed_chain_refs.add(best_ref)
+            rejected_chain_refs.add(best_ref)
+            print(
+                f"[CFTUV][Frontier] Reject {iteration}: "
+                f"P{best_ref[0]} L{best_ref[1]}C{best_ref[2]} "
+                f"{chain.frame_role.value} reason:placement_failed"
+            )
             continue
 
         chain_placement = ScaffoldChainPlacement(
-            patch_id=best_ref[0], loop_index=best_ref[1], chain_index=best_ref[2],
-            frame_role=chain.frame_role, source_kind='chain',
+            patch_id=best_ref[0],
+            loop_index=best_ref[1],
+            chain_index=best_ref[2],
+            frame_role=chain.frame_role,
+            source_kind='chain',
             points=tuple(
                 (ScaffoldPointKey(best_ref[0], best_ref[1], best_ref[2], i), uv.copy())
                 for i, uv in enumerate(uv_points)
@@ -2690,20 +2126,30 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
 
         placed_chain_refs.add(best_ref)
         placed_chains_map[best_ref] = chain_placement
+        chain_dependency_patches[best_ref] = tuple(sorted({
+            anchor.source_ref[0]
+            for anchor in (anchor_start, anchor_end)
+            if anchor is not None and anchor.source_ref[0] != best_ref[0]
+        }))
         build_order.append(best_ref)
         _cf_register_points(best_ref, chain, uv_points, point_registry, vert_to_placements)
 
-        ep = (1 if anchor_start else 0) + (1 if anchor_end else 0)
+        ep = _cf_anchor_count(anchor_start, anchor_end)
+        anchor_label = _cf_anchor_debug_label(anchor_start, anchor_end)
+        reason_suffix = f" note:{anchor_reason}" if anchor_reason else ''
         print(
             f"[CFTUV][Frontier] Step {iteration}: "
             f"P{best_ref[0]} L{best_ref[1]}C{best_ref[2]} "
-            f"{chain.frame_role.value} score:{best_score:.2f} ep:{ep}"
+            f"{chain.frame_role.value} score:{best_score:.2f} ep:{ep} a:{anchor_label}{reason_suffix}"
         )
 
-    # --- Build envelopes ---
     quilt_scaffold.patches = _cf_build_envelopes(
-        graph, quilt_plan.solved_patch_ids,
-        placed_chains_map, placed_chain_refs, point_registry)
+        graph,
+        ordered_quilt_patch_ids,
+        placed_chains_map,
+        placed_chain_refs,
+        chain_dependency_patches,
+    )
     quilt_scaffold.build_order = list(build_order)
 
     total_placed = len(build_order)
@@ -2724,48 +2170,9 @@ def build_root_scaffold_map(
     scaffold_map = ScaffoldMap()
     if solve_plan is None:
         return scaffold_map
+
     for quilt in solve_plan.quilts:
         quilt_scaffold = build_quilt_scaffold_chain_frontier(graph, quilt, final_scale)
-        scaffold_map.quilts.append(quilt_scaffold)
-    return scaffold_map
-    scaffold_map = ScaffoldMap()
-    if solve_plan is None:
-        return scaffold_map
-
-    for quilt in solve_plan.quilts:
-        quilt_scaffold = ScaffoldQuiltPlacement(quilt_index=quilt.quilt_index, root_patch_id=quilt.root_patch_id)
-        root_node = graph.nodes.get(quilt.root_patch_id)
-        if root_node is None:
-            scaffold_map.quilts.append(quilt_scaffold)
-            continue
-
-        root_patch_placement = _build_root_patch_scaffold(graph, root_node, final_scale)
-        quilt_scaffold.patches[quilt.root_patch_id] = root_patch_placement
-
-        if _patch_scaffold_is_supported(root_patch_placement):
-            for step in quilt.steps[1:]:
-                candidate = step.incoming_candidate
-                if candidate is None:
-                    continue
-                owner_patch_placement = quilt_scaffold.patches.get(candidate.owner_patch_id)
-                if not _patch_scaffold_is_supported(owner_patch_placement):
-                    continue
-                owner_chain_placement = _find_scaffold_chain_placement(owner_patch_placement, candidate.owner_loop_index, candidate.owner_chain_index)
-                if owner_chain_placement is None:
-                    continue
-                child_node = graph.nodes.get(step.patch_id)
-                if child_node is None:
-                    continue
-                child_patch_placement = _build_child_patch_scaffold(
-                    graph,
-                    child_node,
-                    candidate,
-                    owner_patch_placement,
-                    owner_chain_placement,
-                    final_scale,
-                )
-                quilt_scaffold.patches[step.patch_id] = child_patch_placement
-
         scaffold_map.quilts.append(quilt_scaffold)
 
     return scaffold_map
@@ -3019,15 +2426,25 @@ def _execute_phase1_preview_impl(
             'pinned_uv_loops': 0,
             'invalid_scaffold_patches': 0,
         }
+        conformal_patch_ids = []
 
         for patch_id in quilt_patch_ids:
             patch_placement = quilt_scaffold.patches[patch_id]
-            patch_stats = _apply_patch_scaffold_to_uv(bm, patch_graph, uv_layer, patch_placement, uv_offset)
+            patch_stats = _apply_patch_scaffold_to_uv(
+                bm,
+                patch_graph,
+                uv_layer,
+                patch_placement,
+                uv_offset,
+            )
             validate_scaffold_uv_transfer(bm, patch_graph, uv_layer, patch_placement, uv_offset)
             _print_phase1_preview_patch_report(quilt_scaffold.quilt_index, patch_id, patch_stats)
 
             for stat_key in quilt_stats:
                 quilt_stats[stat_key] += int(patch_stats.get(stat_key, 0))
+
+            if int(patch_stats.get('resolved_scaffold_points', 0)) > 0:
+                conformal_patch_ids.append(patch_id)
 
             if int(patch_stats.get('pinned_uv_loops', 0)) <= 0:
                 continue
@@ -3049,32 +2466,69 @@ def _execute_phase1_preview_impl(
         global_supported_patch_ids.update(quilt_apply_patch_ids)
 
         bmesh.update_edit_mesh(obj.data)
+        if run_conformal and conformal_patch_ids:
+            for conformal_patch_id in conformal_patch_ids:
+                bm = bmesh.from_edit_mesh(obj.data)
+                bm.faces.ensure_lookup_table()
+                bm.verts.ensure_lookup_table()
+                bm.edges.ensure_lookup_table()
+                uv_layer = bm.loops.layers.uv.verify()
+                _select_patch_faces(bm, patch_graph, [conformal_patch_id])
+                _select_patch_uv_loops(bm, patch_graph, uv_layer, [conformal_patch_id])
+                selected_face_count = len(_collect_patch_face_indices(patch_graph, [conformal_patch_id]))
+                selected_uv_count = _count_selected_patch_uv_loops(bm, patch_graph, uv_layer, [conformal_patch_id])
+                bmesh.update_edit_mesh(obj.data)
+                print(
+                    f"[CFTUV][Phase1] Quilt {quilt_scaffold.quilt_index} Patch {conformal_patch_id} Conformal: "
+                    f"faces={selected_face_count} uv_loops={selected_uv_count}"
+                )
+                bpy.ops.uv.unwrap(method='CONFORMAL', margin=0.0)
+                conformal_applied += 1
+
+            if not keep_pins:
+                bm = bmesh.from_edit_mesh(obj.data)
+                bm.faces.ensure_lookup_table()
+                bm.verts.ensure_lookup_table()
+                bm.edges.ensure_lookup_table()
+                uv_layer = bm.loops.layers.uv.verify()
+                _clear_patch_pins(bm, patch_graph, uv_layer, quilt_apply_patch_ids)
+                bmesh.update_edit_mesh(obj.data)
+
         x_cursor += quilt_width + quilt_margin
 
-    if run_conformal and pinned_uv_loops > 0 and global_supported_patch_ids:
-        bm = bmesh.from_edit_mesh(obj.data)
-        bm.faces.ensure_lookup_table()
-        bm.verts.ensure_lookup_table()
-        bm.edges.ensure_lookup_table()
-        uv_layer = bm.loops.layers.uv.verify()
-        supported_patch_ids = sorted(global_supported_patch_ids)
-        _select_patch_faces(bm, patch_graph, supported_patch_ids)
-        bmesh.update_edit_mesh(obj.data)
-        print(
-            f"[CFTUV][Phase1] Global Conformal: quilts={len(scaffold_map.quilts)} "
-            f"patches={supported_patch_ids}"
-        )
-        bpy.ops.uv.unwrap(method='CONFORMAL', margin=0.0)
-        conformal_applied = 1
-        if not keep_pins:
+
+    if run_conformal and unsupported_patch_ids:
+        for patch_id in unsupported_patch_ids:
             bm = bmesh.from_edit_mesh(obj.data)
             bm.faces.ensure_lookup_table()
             bm.verts.ensure_lookup_table()
             bm.edges.ensure_lookup_table()
             uv_layer = bm.loops.layers.uv.verify()
-            _clear_patch_pins(bm, patch_graph, uv_layer, supported_patch_ids)
+            _select_patch_faces(bm, patch_graph, [patch_id])
+            _select_patch_uv_loops(bm, patch_graph, uv_layer, [patch_id])
+            _clear_patch_pins(bm, patch_graph, uv_layer, [patch_id])
+            selected_face_count = len(_collect_patch_face_indices(patch_graph, [patch_id]))
+            selected_uv_count = _count_selected_patch_uv_loops(bm, patch_graph, uv_layer, [patch_id])
             bmesh.update_edit_mesh(obj.data)
-    elif not run_conformal:
+            print(
+                f"[CFTUV][Phase1] Unsupported Patch {patch_id} Fallback Conformal: "
+                f"faces={selected_face_count} uv_loops={selected_uv_count}"
+            )
+            bpy.ops.uv.unwrap(method='CONFORMAL', margin=0.0)
+            conformal_applied += 1
+
+            bm = bmesh.from_edit_mesh(obj.data)
+            bm.faces.ensure_lookup_table()
+            bm.verts.ensure_lookup_table()
+            bm.edges.ensure_lookup_table()
+            uv_layer = bm.loops.layers.uv.verify()
+            bbox_min, bbox_max = _compute_patch_uv_bbox(bm, patch_graph, uv_layer, [patch_id])
+            patch_width = max(bbox_max.x - bbox_min.x, settings.final_scale, 0.25)
+            uv_offset = Vector((x_cursor - bbox_min.x, -bbox_min.y))
+            _translate_patch_uvs(bm, patch_graph, uv_layer, [patch_id], uv_offset)
+            bmesh.update_edit_mesh(obj.data)
+            x_cursor += patch_width + quilt_margin
+    if not run_conformal:
         print(f"[CFTUV][Phase1] Transfer Only: quilts={len(scaffold_map.quilts)} patches={sorted(global_supported_patch_ids)}")
 
     if not keep_pins:
@@ -3105,35 +2559,35 @@ def _execute_phase1_preview_impl(
     }
 
 # ============================================================
-# PHASE 2 PATCH — Validation Layer for solve.py
+# PHASE 2 PATCH ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Validation Layer for solve.py
 #
-# ИНСТРУКЦИЯ:
+# ÃƒÆ’Ã‚ÂÃƒâ€¹Ã…â€œÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â£ÃƒÆ’Ã‚ÂÃƒâ€¦Ã‚Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¦ÃƒÆ’Ã‚ÂÃƒâ€¹Ã…â€œÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¯:
 #
-# ШАГ 1: Открой cftuv/solve.py
-#         Найди строку:  def execute_phase1_preview(
-#         ВСТАВЬ весь блок ниже (от "def validate_scaffold_uv_transfer"
-#         до конца файла) ПЕРЕД этой строкой.
-#         Между ними должна быть пустая строка.
+# ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¨ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ 1: ÃƒÆ’Ã‚ÂÃƒâ€¦Ã‚Â¾ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¹ cftuv/solve.py
+#         ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¹ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢:  def execute_phase1_preview(
+#         ÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¬ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã¢â‚¬â„¢ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â±ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âº ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¶ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ (ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ "def validate_scaffold_uv_transfer"
+#         ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â° ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¹ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°) ÃƒÆ’Ã‚ÂÃƒâ€¦Ã‚Â¸ÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â ÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¹ ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¹.
+#         ÃƒÆ’Ã‚ÂÃƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¶ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¶ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â° ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â±ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã¢â‚¬â„¢ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚Â ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°.
 #
-# ШАГ 2: В той же функции execute_phase1_preview найди строку:
+# ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¨ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ 2: ÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¹ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¶ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ execute_phase1_preview ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¹ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢:
 #             patch_stats = _apply_patch_scaffold_to_uv(bm, patch_graph, uv_layer, patch_placement, uv_offset)
-#         ПОСЛЕ неё добавь одну строку:
+#         ÃƒÆ’Ã‚ÂÃƒâ€¦Ã‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€¦Ã‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¡ÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂºÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â±ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã¢â‚¬â„¢ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢:
 #             validate_scaffold_uv_transfer(bm, patch_graph, uv_layer, patch_placement, uv_offset)
 #
-# Готово. Две правки, ничего больше не трогаем.
+# ÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾. ÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸, ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â³ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â±ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬ËœÃƒâ€¹Ã¢â‚¬Â ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â³ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼.
 # ============================================================
 
 
 def validate_scaffold_uv_transfer(bm, graph, uv_layer, patch_placement, uv_offset, epsilon=1e-4):
-    """Phase 2: Diagnostic — проверяет что scaffold points корректно записаны в UV.
+    """Phase 2: Diagnostic ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ scaffold points ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â·ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â² UV.
 
-    Вызывается ПОСЛЕ _apply_patch_scaffold_to_uv() и ПЕРЕД Conformal unwrap.
-    Печатает конкретные mismatches в System Console.
+    ÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚Â ÃƒÆ’Ã‚ÂÃƒâ€¦Ã‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€¦Ã‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¡ÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂºÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ _apply_patch_scaffold_to_uv() ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ ÃƒÆ’Ã‚ÂÃƒâ€¦Ã‚Â¸ÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â ÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã‚Â Conformal unwrap.
+    ÃƒÆ’Ã‚ÂÃƒâ€¦Ã‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ mismatches ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â² System Console.
 
-    Что проверяет:
-    - scaffold point resolve -> правильный vert_index в правильном face
-    - intended UV ≈ actual UV (distance < epsilon)
-    - SEAM_SELF sides получили разные UV (не схлопнулись)
+    ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â§ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡:
+    - scaffold point resolve -> ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¹ vert_index ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â² ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ face
+    - intended UV ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°Ãƒâ€¹Ã¢â‚¬Â  actual UV (distance < epsilon)
+    - SEAM_SELF sides ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â·ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ UV (ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã¢â‚¬â„¢)
     """
     if patch_placement.notes or not patch_placement.closure_valid:
         return
@@ -3142,11 +2596,11 @@ def validate_scaffold_uv_transfer(bm, graph, uv_layer, patch_placement, uv_offse
     total_points = 0
     verified_ok = 0
 
-    # --- Проверка: scaffold points записаны в правильные UV loops ---
+    # --- ÃƒÆ’Ã‚ÂÃƒâ€¦Ã‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°: scaffold points ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â·ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â² ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ UV loops ---
     for chain_placement in patch_placement.chain_placements:
         for point_key, intended_uv in chain_placement.points:
             total_points += 1
-            targets = _resolve_scaffold_uv_targets(graph, point_key, chain_placement.source_kind)
+            targets = _resolve_scaffold_uv_targets(bm, graph, point_key, chain_placement.source_kind)
             shifted_uv = intended_uv + uv_offset
 
             if not targets:
@@ -3198,7 +2652,7 @@ def validate_scaffold_uv_transfer(bm, graph, uv_layer, patch_placement, uv_offse
             if point_ok:
                 verified_ok += 1
 
-    # --- Проверка: SEAM_SELF вершины имеют разные UV на разных сторонах ---
+    # --- ÃƒÆ’Ã‚ÂÃƒâ€¦Ã‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°: SEAM_SELF ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã¢â‚¬ËœÃƒâ€¹Ã¢â‚¬Â ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â·ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ UV ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â° ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â·ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ ---
     node = graph.nodes.get(patch_placement.patch_id)
     seam_self_collapsed = 0
     if node is not None and patch_placement.loop_index >= 0:
@@ -3207,7 +2661,7 @@ def validate_scaffold_uv_transfer(bm, graph, uv_layer, patch_placement, uv_offse
             for chain in boundary_loop.chains:
                 if chain.neighbor_patch_id != -2:  # NB_SEAM_SELF
                     continue
-                # Проверяем что UV не схлопнулись на SEAM_SELF
+                # ÃƒÆ’Ã‚ÂÃƒâ€¦Ã‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ UV ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã¢â‚¬â„¢ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â° SEAM_SELF
                 for vert_index in chain.vert_indices:
                     uv_values = []
                     for face_index in node.face_indices:
@@ -3217,7 +2671,7 @@ def validate_scaffold_uv_transfer(bm, graph, uv_layer, patch_placement, uv_offse
                         for loop in face.loops:
                             if loop.vert.index == vert_index:
                                 uv_values.append(loop[uv_layer].uv.copy())
-                    # SEAM_SELF vert должен иметь >= 2 разных UV
+                    # SEAM_SELF vert ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¶ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã¢â‚¬â„¢ >= 2 ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â·ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ UV
                     if len(uv_values) >= 2:
                         all_same = all(
                             (uv - uv_values[0]).length < epsilon
@@ -3379,3 +2833,8 @@ def format_solve_plan_report(
         f"Deferred: {total_deferred} | Rejected: {total_rejected} | Skipped: {len(solve_plan.skipped_patch_ids)}"
     )
     return lines, summary
+
+
+
+
+

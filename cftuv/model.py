@@ -181,6 +181,28 @@ class UVSettings:
         )
 
 
+@dataclass(frozen=True)
+class MeshPreflightIssue:
+    """Preflight issue blocking the solve pipeline."""
+
+    code: str
+    message: str
+    face_indices: tuple[int, ...] = ()
+    edge_indices: tuple[int, ...] = ()
+    vert_indices: tuple[int, ...] = ()
+
+
+@dataclass
+class MeshPreflightReport:
+    """Preflight result for solve input mesh."""
+
+    checked_face_indices: tuple[int, ...] = ()
+    issues: list[MeshPreflightIssue] = field(default_factory=list)
+
+    @property
+    def is_valid(self) -> bool:
+        return not self.issues
+
 # ============================================================
 # ScaffoldSegment — формализованная единица placement в solve
 # Замена анонимным dict-ам в _collect_patch_segments_for_loop()

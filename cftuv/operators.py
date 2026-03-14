@@ -15,7 +15,12 @@ from bpy.props import (
     StringProperty,
 )
 
-from .analysis import build_patch_graph, format_patch_graph_report
+from .analysis import (
+    build_patch_graph,
+    format_patch_graph_report,
+    format_solver_input_preflight_report,
+    validate_solver_input_mesh,
+)
 from .constants import GP_DEBUG_PREFIX
 from .debug import apply_layer_visibility, clear_visualization, create_visualization
 from .model import UVSettings
@@ -112,10 +117,10 @@ def _restore_face_selection(bm, selected_indices):
         face.select = face.index in selected_set
 
 
-def _prepare_patch_graph(context, require_selection=True):
-    """Подготавливает PatchGraph из текущего контекста.
+def _prepare_patch_graph(context, require_selection=True, validate_for_solver=False):
+    """Prepare PatchGraph from the current context.
 
-    Возвращает: (obj, bm, patch_graph, original_mode, selected_face_indices)
+    Returns: (obj, bm, patch_graph, original_mode, selected_face_indices)
     """
     obj = context.active_object
     if obj is None or obj.type != 'MESH':
@@ -132,18 +137,28 @@ def _prepare_patch_graph(context, require_selection=True):
 
     selected_face_indices = _capture_face_selection(bm)
 
-    if original_mode == 'OBJECT':
-        face_indices = [face.index for face in bm.faces]
-    else:
-        face_indices = list(selected_face_indices)
-        if require_selection and not face_indices:
-            raise ValueError('No faces selected in Edit Mode')
-        if not face_indices:
+    try:
+        if original_mode == 'OBJECT':
             face_indices = [face.index for face in bm.faces]
+        else:
+            face_indices = list(selected_face_indices)
+            if require_selection and not face_indices:
+                raise ValueError('No faces selected in Edit Mode')
+            if not face_indices:
+                face_indices = [face.index for face in bm.faces]
 
-    patch_graph = build_patch_graph(bm, face_indices, obj)
-    return obj, bm, patch_graph, original_mode, selected_face_indices
+        if validate_for_solver:
+            preflight = validate_solver_input_mesh(bm, face_indices)
+            if not preflight.is_valid:
+                lines, summary = format_solver_input_preflight_report(preflight, mesh_name=obj.name)
+                _print_console_report('CFTUV Solver Preflight', lines, summary)
+                raise ValueError(summary)
 
+        patch_graph = build_patch_graph(bm, face_indices, obj)
+        return obj, bm, patch_graph, original_mode, selected_face_indices
+    except Exception:
+        _restore_mode_and_selection(obj, original_mode, selected_face_indices)
+        raise
 
 def _restore_mode_and_selection(obj, original_mode, selected_face_indices):
     """Восстанавливает mode и выделение после операции."""
@@ -163,7 +178,7 @@ def _restore_mode_and_selection(obj, original_mode, selected_face_indices):
 def _build_solve_state(context):
     """Полный solve state: PatchGraph + SolverGraph + SolvePlan + UVSettings."""
     obj, bm, patch_graph, original_mode, sel = _prepare_patch_graph(
-        context, require_selection=True
+        context, require_selection=True, validate_for_solver=True
     )
     solver_graph = build_solver_graph(patch_graph)
     solve_plan = plan_solve_phase1(patch_graph, solver_graph)

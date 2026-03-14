@@ -28,6 +28,8 @@ try:
         PatchType,
         WorldFacing,
         SeamEdge,
+        MeshPreflightIssue,
+        MeshPreflightReport,
     )
 except ImportError:
     from constants import (
@@ -51,6 +53,8 @@ except ImportError:
         PatchType,
         WorldFacing,
         SeamEdge,
+        MeshPreflightIssue,
+        MeshPreflightReport,
     )
 
 
@@ -73,6 +77,112 @@ def _coerce_face_indices(bm, faces_or_indices):
         ordered.append(face_index)
     return ordered
 
+
+def validate_solver_input_mesh(bm, face_indices, area_epsilon=1e-10):
+    """Validate mesh topology before entering the solve pipeline."""
+
+    bm.faces.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+    bm.verts.ensure_lookup_table()
+
+    checked_face_indices = tuple(_coerce_face_indices(bm, face_indices))
+    report = MeshPreflightReport(checked_face_indices=checked_face_indices)
+    if not checked_face_indices:
+        return report
+
+    relevant_face_set = set(checked_face_indices)
+    face_signatures = {}
+    for face in bm.faces:
+        signature = tuple(sorted(vert.index for vert in face.verts))
+        face_signatures.setdefault(signature, []).append(face.index)
+
+    seen_duplicate_groups = set()
+    for face_index in checked_face_indices:
+        face = bm.faces[face_index]
+        unique_vert_indices = tuple(sorted({vert.index for vert in face.verts}))
+        if len(unique_vert_indices) < len(face.verts) or len(unique_vert_indices) < 3 or face.calc_area() <= area_epsilon:
+            report.issues.append(
+                MeshPreflightIssue(
+                    code='DEGENERATE_FACE',
+                    message=f'Face {face_index} is degenerate or repeats vertices',
+                    face_indices=(face_index,),
+                    vert_indices=unique_vert_indices,
+                )
+            )
+
+        signature = tuple(sorted(vert.index for vert in face.verts))
+        duplicate_faces = tuple(sorted(face_signatures.get(signature, [])))
+        if len(duplicate_faces) > 1 and duplicate_faces not in seen_duplicate_groups:
+            seen_duplicate_groups.add(duplicate_faces)
+            report.issues.append(
+                MeshPreflightIssue(
+                    code='DUPLICATE_FACE',
+                    message=f'Faces share identical vertex set: {list(duplicate_faces)}',
+                    face_indices=duplicate_faces,
+                    vert_indices=signature,
+                )
+            )
+
+    visited_edges = set()
+    for face_index in checked_face_indices:
+        face = bm.faces[face_index]
+        for edge in face.edges:
+            if edge.index in visited_edges:
+                continue
+            visited_edges.add(edge.index)
+            linked_faces = tuple(sorted(linked_face.index for linked_face in edge.link_faces))
+            if len(linked_faces) <= 2:
+                continue
+            if not relevant_face_set.intersection(linked_faces):
+                continue
+            report.issues.append(
+                MeshPreflightIssue(
+                    code='NON_MANIFOLD_EDGE',
+                    message=f'Edge {edge.index} has {len(linked_faces)} linked faces',
+                    face_indices=linked_faces,
+                    edge_indices=(edge.index,),
+                    vert_indices=tuple(vert.index for vert in edge.verts),
+                )
+            )
+
+    return report
+
+
+def format_solver_input_preflight_report(report, mesh_name=None):
+    """Build text lines for blocking solve preflight issues."""
+
+    lines = []
+    if mesh_name:
+        lines.append(f'Mesh: {mesh_name}')
+    lines.append(f'Checked faces: {len(report.checked_face_indices)}')
+
+    if report.is_valid:
+        summary = f'Solver preflight: OK | faces:{len(report.checked_face_indices)}'
+        return lines, summary
+
+    issue_counts = {}
+    for issue in report.issues:
+        issue_counts[issue.code] = issue_counts.get(issue.code, 0) + 1
+
+    lines.append('Blocking issues:')
+    for issue in report.issues[:16]:
+        refs = []
+        if issue.face_indices:
+            refs.append(f'faces:{list(issue.face_indices)}')
+        if issue.edge_indices:
+            refs.append(f'edges:{list(issue.edge_indices)}')
+        if issue.vert_indices:
+            refs.append(f'verts:{list(issue.vert_indices)}')
+        suffix = f" | {' '.join(refs)}" if refs else ''
+        lines.append(f'  - {issue.code}: {issue.message}{suffix}')
+
+    remaining = len(report.issues) - 16
+    if remaining > 0:
+        lines.append(f'  - ... {remaining} more issues')
+
+    parts = [f'{code}:{issue_counts[code]}' for code in sorted(issue_counts.keys())]
+    summary = 'Solver preflight failed: ' + ', '.join(parts)
+    return lines, summary
 
 def get_expanded_islands(bm, initial_faces):
     """Build full/core islands for the two-pass unwrap pipeline."""
@@ -603,8 +713,9 @@ def _classify_chain_frame_role(chain_vert_cos, basis_u, basis_v, threshold=FRAME
     if len(chain_vert_cos) < 2:
         return FrameRole.FREE
 
-    us = [vert_co.dot(basis_u) for vert_co in chain_vert_cos]
-    vs = [vert_co.dot(basis_v) for vert_co in chain_vert_cos]
+    points_2d = [Vector((vert_co.dot(basis_u), vert_co.dot(basis_v))) for vert_co in chain_vert_cos]
+    us = [point.x for point in points_2d]
+    vs = [point.y for point in points_2d]
 
     extent_u = max(us) - min(us)
     extent_v = max(vs) - min(vs)
@@ -612,12 +723,98 @@ def _classify_chain_frame_role(chain_vert_cos, basis_u, basis_v, threshold=FRAME
     if total_extent < 1e-6:
         return FrameRole.FREE
 
+    polyline_length = 0.0
+    for point_index in range(len(points_2d) - 1):
+        polyline_length += (points_2d[point_index + 1] - points_2d[point_index]).length
+    if polyline_length < 1e-6:
+        return FrameRole.FREE
+
+    def _is_wavy_axis(primary_axis: str) -> bool:
+        if len(points_2d) < 4:
+            return False
+
+        if primary_axis == 'v':
+            primary_span = extent_v
+            orth_extent = extent_u
+        else:
+            primary_span = extent_u
+            orth_extent = extent_v
+
+        if primary_span < 1e-6:
+            return True
+
+        orth_deltas = []
+        min_step = max(primary_span * 0.005, 1e-5)
+        orthogonal_travel = 0.0
+        for point_index in range(len(points_2d) - 1):
+            delta = points_2d[point_index + 1] - points_2d[point_index]
+            orth_step = delta.x if primary_axis == 'v' else delta.y
+            if abs(orth_step) < min_step:
+                continue
+            orthogonal_travel += abs(orth_step)
+            orth_deltas.append(orth_step)
+
+        if len(orth_deltas) < 3:
+            return False
+
+        sign_changes = 0
+        prev_sign = 0
+        for orth_step in orth_deltas:
+            sign = 1 if orth_step > 0.0 else -1
+            if prev_sign != 0 and sign != prev_sign:
+                sign_changes += 1
+            prev_sign = sign
+
+        if sign_changes < 2:
+            return False
+
+        return orthogonal_travel > max(primary_span * 0.12, orth_extent * 2.0)
+
+    def _is_curved_against_chord(primary_axis: str) -> bool:
+        chord = points_2d[-1] - points_2d[0]
+        chord_length = chord.length
+        if chord_length < 1e-6:
+            return True
+
+        if primary_axis == 'v':
+            primary_span = extent_v
+            orth_extent = extent_u
+        else:
+            primary_span = extent_u
+            orth_extent = extent_v
+
+        length_excess = (polyline_length / chord_length) - 1.0
+        if length_excess <= 0.015:
+            return False
+
+        chord_dir = chord / chord_length
+        max_chord_deviation = 0.0
+        turn_budget_deg = 0.0
+        prev_dir = None
+        for point_index in range(1, len(points_2d) - 1):
+            rel = points_2d[point_index] - points_2d[0]
+            proj_len = rel.dot(chord_dir)
+            closest = points_2d[0] + chord_dir * proj_len
+            max_chord_deviation = max(max_chord_deviation, (points_2d[point_index] - closest).length)
+
+        for point_index in range(len(points_2d) - 1):
+            delta = points_2d[point_index + 1] - points_2d[point_index]
+            if delta.length <= 1e-8:
+                continue
+            direction = delta.normalized()
+            if prev_dir is not None:
+                turn_budget_deg += abs(math.degrees(prev_dir.angle(direction, 0.0)))
+            prev_dir = direction
+
+        deviation_limit = max(primary_span * 0.03, orth_extent * 0.75, 0.01)
+        return max_chord_deviation > deviation_limit and (length_excess > 0.03 or turn_budget_deg > 35.0)
+
     ratio_v = extent_v / total_extent
     ratio_u = extent_u / total_extent
 
-    if ratio_v < threshold:
+    if ratio_v < threshold and not _is_wavy_axis('h') and not _is_curved_against_chord('h'):
         return FrameRole.H_FRAME
-    if ratio_u < threshold:
+    if ratio_u < threshold and not _is_wavy_axis('v') and not _is_curved_against_chord('v'):
         return FrameRole.V_FRAME
     return FrameRole.FREE
 
@@ -685,6 +882,209 @@ def _build_geometric_loop_corners(boundary_loop, basis_u, basis_v):
 
     return corners
 
+
+
+def _loop_arc_length(loop_vert_cos, start_loop_index, end_loop_index):
+    """Measure the closed-loop arc length from start to end."""
+
+    vertex_count = len(loop_vert_cos)
+    if vertex_count < 2:
+        return 0.0
+
+    length = 0.0
+    loop_index = start_loop_index % vertex_count
+    safety = 0
+    while safety < vertex_count + 1:
+        safety += 1
+        next_loop_index = (loop_index + 1) % vertex_count
+        length += (loop_vert_cos[next_loop_index] - loop_vert_cos[loop_index]).length
+        loop_index = next_loop_index
+        if loop_index == end_loop_index % vertex_count:
+            break
+
+    return length
+
+
+def _collect_geometric_split_indices(loop_vert_cos, basis_u, basis_v):
+    """Find stable corner indices for a closed OUTER loop."""
+
+    vertex_count = len(loop_vert_cos)
+    if vertex_count < 4:
+        return []
+
+    candidate_corners = []
+    for loop_vert_index in range(vertex_count):
+        corner_co = loop_vert_cos[loop_vert_index]
+        prev_point = loop_vert_cos[(loop_vert_index - 1) % vertex_count]
+        next_point = loop_vert_cos[(loop_vert_index + 1) % vertex_count]
+        turn_angle_deg = _measure_corner_turn_angle(corner_co, prev_point, next_point, basis_u, basis_v)
+        if turn_angle_deg < CORNER_ANGLE_THRESHOLD_DEG:
+            continue
+        candidate_corners.append((loop_vert_index, turn_angle_deg))
+
+    if len(candidate_corners) < 4:
+        return []
+
+    perimeter = _loop_arc_length(loop_vert_cos, 0, 0)
+    min_span_length = max(perimeter * 0.04, 1e-4)
+    min_vertex_gap = 2
+
+    filtered_corners = []
+    for loop_vert_index, turn_angle_deg in candidate_corners:
+        if not filtered_corners:
+            filtered_corners.append((loop_vert_index, turn_angle_deg))
+            continue
+
+        prev_loop_index, prev_turn_angle_deg = filtered_corners[-1]
+        span_length = _loop_arc_length(loop_vert_cos, prev_loop_index, loop_vert_index)
+        span_vertex_count = (loop_vert_index - prev_loop_index) % vertex_count
+        if span_vertex_count < min_vertex_gap or span_length < min_span_length:
+            if turn_angle_deg > prev_turn_angle_deg:
+                filtered_corners[-1] = (loop_vert_index, turn_angle_deg)
+            continue
+
+        filtered_corners.append((loop_vert_index, turn_angle_deg))
+
+    while len(filtered_corners) >= 2:
+        first_loop_index, first_turn_angle_deg = filtered_corners[0]
+        last_loop_index, last_turn_angle_deg = filtered_corners[-1]
+        wrap_span_length = _loop_arc_length(loop_vert_cos, last_loop_index, first_loop_index)
+        wrap_span_vertex_count = (first_loop_index - last_loop_index) % vertex_count
+        if wrap_span_vertex_count >= min_vertex_gap and wrap_span_length >= min_span_length:
+            break
+
+        if first_turn_angle_deg >= last_turn_angle_deg:
+            filtered_corners.pop()
+        else:
+            filtered_corners.pop(0)
+
+    if len(filtered_corners) < 4:
+        return []
+
+    return [loop_vert_index for loop_vert_index, _ in filtered_corners]
+
+
+def _split_closed_loop_by_corner_indices(raw_loop, split_indices, neighbor_patch_id):
+    """Split one closed raw loop into raw chains at geometric corners."""
+
+    loop_vert_indices = list(raw_loop.get("vert_indices", []))
+    loop_vert_cos = list(raw_loop.get("vert_cos", []))
+    loop_edge_indices = list(raw_loop.get("edge_indices", []))
+    loop_side_face_indices = list(raw_loop.get("side_face_indices", []))
+    vertex_count = len(loop_vert_cos)
+    edge_count = len(loop_edge_indices)
+    if vertex_count < 2 or edge_count == 0:
+        return []
+
+    ordered_split_indices = sorted({loop_vert_index % vertex_count for loop_vert_index in split_indices})
+    if len(ordered_split_indices) < 2:
+        return []
+
+    raw_chains = []
+    split_count = len(ordered_split_indices)
+    for split_index in range(split_count):
+        start_loop_index = ordered_split_indices[split_index]
+        end_loop_index = ordered_split_indices[(split_index + 1) % split_count]
+
+        chain_vert_indices = []
+        chain_vert_cos = []
+        chain_edge_indices = []
+        chain_side_face_indices = []
+
+        loop_index = start_loop_index
+        safety = 0
+        while safety < vertex_count + 2:
+            safety += 1
+            chain_vert_indices.append(loop_vert_indices[loop_index % vertex_count])
+            chain_vert_cos.append(loop_vert_cos[loop_index % vertex_count])
+            chain_edge_indices.append(loop_edge_indices[loop_index % edge_count])
+            chain_side_face_indices.append(loop_side_face_indices[loop_index % vertex_count])
+            loop_index += 1
+            if loop_index % vertex_count == end_loop_index % vertex_count:
+                chain_vert_indices.append(loop_vert_indices[end_loop_index % vertex_count])
+                chain_vert_cos.append(loop_vert_cos[end_loop_index % vertex_count])
+                chain_side_face_indices.append(loop_side_face_indices[end_loop_index % vertex_count])
+                break
+
+        if len(chain_vert_indices) < 2:
+            continue
+
+        raw_chains.append(
+            {
+                "vert_indices": chain_vert_indices,
+                "vert_cos": chain_vert_cos,
+                "edge_indices": chain_edge_indices,
+                "side_face_indices": chain_side_face_indices,
+                "neighbor": neighbor_patch_id,
+                "is_closed": False,
+                "start_loop_index": start_loop_index,
+                "end_loop_index": end_loop_index,
+            }
+        )
+
+    return raw_chains
+
+
+def _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v):
+    """Fallback split for isolated OUTER loops that collapsed into one FREE chain."""
+
+    loop_kind = raw_loop.get("kind", LoopKind.OUTER)
+    if not isinstance(loop_kind, LoopKind):
+        loop_kind = LoopKind(loop_kind)
+
+    if loop_kind != LoopKind.OUTER or len(raw_chains) != 1:
+        return raw_chains
+
+    raw_chain = raw_chains[0]
+    if _classify_chain_frame_role(raw_chain.get("vert_cos", []), basis_u, basis_v) != FrameRole.FREE:
+        return raw_chains
+
+    split_indices = _collect_geometric_split_indices(raw_loop.get("vert_cos", []), basis_u, basis_v)
+    if len(split_indices) < 4:
+        return raw_chains
+
+    derived_raw_chains = _split_closed_loop_by_corner_indices(
+        raw_loop,
+        split_indices,
+        int(raw_chain.get("neighbor", NB_MESH_BORDER)),
+    )
+    if len(derived_raw_chains) < 4:
+        return raw_chains
+
+    derived_roles = [
+        _classify_chain_frame_role(derived_raw_chain.get("vert_cos", []), basis_u, basis_v)
+        for derived_raw_chain in derived_raw_chains
+    ]
+    if FrameRole.H_FRAME not in derived_roles or FrameRole.V_FRAME not in derived_roles:
+        return raw_chains
+
+    non_free_count = sum(1 for role in derived_roles if role != FrameRole.FREE)
+    if non_free_count < 2:
+        return raw_chains
+
+    return derived_raw_chains
+
+
+def _build_boundary_chain_objects(raw_chains, basis_u, basis_v):
+    """Instantiate BoundaryChain dataclasses from raw chain payloads."""
+
+    chains = []
+    for raw_chain in raw_chains:
+        chain_vert_cos = [co.copy() for co in raw_chain.get("vert_cos", [])]
+        chains.append(
+            BoundaryChain(
+                vert_indices=list(raw_chain.get("vert_indices", [])),
+                vert_cos=chain_vert_cos,
+                edge_indices=list(raw_chain.get("edge_indices", [])),
+                side_face_indices=list(raw_chain.get("side_face_indices", [])),
+                neighbor_patch_id=int(raw_chain.get("neighbor", NB_MESH_BORDER)),
+                is_closed=bool(raw_chain.get("is_closed", False)),
+                frame_role=_classify_chain_frame_role(chain_vert_cos, basis_u, basis_v),
+                start_loop_index=int(raw_chain.get("start_loop_index", 0)),
+                end_loop_index=int(raw_chain.get("end_loop_index", 0)),
+            )
+        )
+    return chains
 
 def _build_loop_corners(boundary_loop, raw_chains, basis_u, basis_v):
     """Build loop corners from chain junctions or from geometric turns inside one loop."""
@@ -814,22 +1214,8 @@ def _build_boundary_loops(raw_loops, patch_face_indices, face_to_patch, patch_id
             loop_neighbors,
         )
 
-        boundary_loop.chains = []
-        for raw_chain in raw_chains:
-            chain_vert_cos = [co.copy() for co in raw_chain.get("vert_cos", [])]
-            boundary_loop.chains.append(
-                BoundaryChain(
-                    vert_indices=list(raw_chain.get("vert_indices", [])),
-                    vert_cos=chain_vert_cos,
-                    edge_indices=list(raw_chain.get("edge_indices", [])),
-                    side_face_indices=list(raw_chain.get("side_face_indices", [])),
-                    neighbor_patch_id=int(raw_chain.get("neighbor", NB_MESH_BORDER)),
-                    is_closed=bool(raw_chain.get("is_closed", False)),
-                    frame_role=_classify_chain_frame_role(chain_vert_cos, basis_u, basis_v),
-                    start_loop_index=int(raw_chain.get("start_loop_index", 0)),
-                    end_loop_index=int(raw_chain.get("end_loop_index", 0)),
-                )
-            )
+        raw_chains = _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v)
+        boundary_loop.chains = _build_boundary_chain_objects(raw_chains, basis_u, basis_v)
 
         boundary_loop.corners = _build_loop_corners(boundary_loop, raw_chains, basis_u, basis_v)
         _assign_loop_chain_endpoint_topology(boundary_loop)
@@ -1162,3 +1548,8 @@ def format_patch_graph_report(graph, mesh_name=None):
     )
 
     return lines, summary
+
+
+
+
+
