@@ -1403,7 +1403,7 @@ def _classify_loops_outer_hole(bm, raw_patch_data, obj=None):
                 bm.faces[face_idx].select = True
 
             bmesh.update_edit_mesh(obj.data)
-            bpy.ops.uv.unwrap(method="CONFORMAL", margin=0.0)
+            bpy.ops.uv.unwrap(method="CONFORMAL", fill_holes=False, margin=0.0)
 
             for face_idx in patch_face_indices:
                 bm.faces[face_idx].select = False
