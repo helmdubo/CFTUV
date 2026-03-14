@@ -1353,14 +1353,6 @@ def _build_boundary_loops(raw_loops, patch_face_indices, face_to_patch, patch_id
         raw_chains = _split_border_chains_by_corners(raw_chains, basis_u, basis_v)
         boundary_loop.chains = _build_boundary_chain_objects(raw_chains, basis_u, basis_v)
 
-        # Изолированный patch (все chains = MESH_BORDER, нет seam-соседей):
-        # H/V классификация бессмысленна — нет continuity constraints.
-        # Все chains → FREE, Conformal unwrap обработает целиком.
-        all_border = all(ch.neighbor_kind == ChainNeighborKind.MESH_BORDER for ch in boundary_loop.chains)
-        if all_border and boundary_loop.chains:
-            for ch in boundary_loop.chains:
-                ch.frame_role = FrameRole.FREE
-
         boundary_loop.corners = _build_loop_corners(boundary_loop, raw_chains, basis_u, basis_v)
         _assign_loop_chain_endpoint_topology(boundary_loop)
         boundary_loops.append(boundary_loop)
@@ -1536,6 +1528,13 @@ def build_patch_graph(bm, face_indices, obj=None):
             node.basis_v,
             bm,
         )
+
+        # FLOOR/SLOPE patches: H/V straightening искажает irregular caps.
+        # Все chains → FREE, Conformal unwrap обработает целиком.
+        if node.patch_type in (PatchType.FLOOR, PatchType.SLOPE):
+            for bl in node.boundary_loops:
+                for ch in bl.chains:
+                    ch.frame_role = FrameRole.FREE
 
     for seam_edge in _build_seam_edges(patch_graph.face_to_patch, bm):
         patch_graph.add_edge(seam_edge)
