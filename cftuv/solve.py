@@ -993,10 +993,12 @@ def _should_pin_scaffold_point(chain_placement: ScaffoldChainPlacement, point_in
       Scaffold placement задаёт начальные UV позиции, но не фиксирует их.
 
     H_FRAME/V_FRAME: все points запинены (жёсткий каркас).
-    FREE chains:
-      - ≤ 4 points: все запинены (слишком короткие для relax)
-      - > 4 points: endpoints + каждый 3-й point (~30-40% coverage)
-        Даёт conformal достаточно constraints без полного lock-down.
+    FREE chains: НЕ пинятся.
+      Scaffold placement для FREE chains (`_build_guided_free_chain_from_one_end`)
+      сохраняет 3D углы, что может создать самопересекающуюся UV boundary.
+      LSCM solver тихо падает на self-intersecting boundaries.
+      Решение: пинить только H/V каркас (прямые линии, не пересекаются),
+      FREE chains + interior → Conformal обработает свободно.
     """
     if point_count <= 0:
         return False
@@ -1004,11 +1006,10 @@ def _should_pin_scaffold_point(chain_placement: ScaffoldChainPlacement, point_in
         return False
     if chain_placement.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
         return True
-    # FREE chains: короткие пинятся полностью
-    if point_count <= 4:
-        return True
-    # FREE chains > 4 points: endpoints + каждый 3-й
-    return point_index == 0 or point_index == (point_count - 1) or point_index % 3 == 0
+    # FREE chains: не пинить — scaffold placement может создать
+    # самопересекающуюся UV boundary, что ломает LSCM solver.
+    # Conformal обработает FREE chains вместе с interior vertices.
+    return False
 
 
 
