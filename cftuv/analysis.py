@@ -707,8 +707,12 @@ def _classify_raw_loops_via_uv(raw_loops, bm, patch_face_indices, uv_layer):
         raw_loop["kind"] = LoopKind.OUTER if depth == 0 or depth % 2 == 0 else LoopKind.HOLE
 
 
-def _classify_chain_frame_role(chain_vert_cos, basis_u, basis_v, threshold=FRAME_ALIGNMENT_THRESHOLD):
-    """Classify a boundary chain against the local patch basis."""
+def _classify_chain_frame_role(chain_vert_cos, basis_u, basis_v, threshold=FRAME_ALIGNMENT_THRESHOLD, strict_guards=True):
+    """Classify a boundary chain against the local patch basis.
+
+    strict_guards=True  — применяет waviness/curvature guards (для PATCH/SEAM chains)
+    strict_guards=False — только ratio check, как в legacy (для MESH_BORDER chains)
+    """
 
     if len(chain_vert_cos) < 2:
         return FrameRole.FREE
@@ -723,6 +727,19 @@ def _classify_chain_frame_role(chain_vert_cos, basis_u, basis_v, threshold=FRAME
     if total_extent < 1e-6:
         return FrameRole.FREE
 
+    ratio_v = extent_v / total_extent
+    ratio_u = extent_u / total_extent
+
+    # MESH_BORDER chains: только ratio check, без waviness/curvature guards.
+    # Архитектурная геометрия (бевели, ступеньки) не должна отвергать H/V.
+    if not strict_guards:
+        if ratio_v < threshold:
+            return FrameRole.H_FRAME
+        if ratio_u < threshold:
+            return FrameRole.V_FRAME
+        return FrameRole.FREE
+
+    # PATCH/SEAM chains: ratio + ослабленные waviness/curvature guards.
     polyline_length = 0.0
     for point_index in range(len(points_2d) - 1):
         polyline_length += (points_2d[point_index + 1] - points_2d[point_index]).length
@@ -768,7 +785,10 @@ def _classify_chain_frame_role(chain_vert_cos, basis_u, basis_v, threshold=FRAME
         if sign_changes < 2:
             return False
 
-        return orthogonal_travel > max(primary_span * 0.12, orth_extent * 2.0)
+        # Ослабленные thresholds: 0.25 (было 0.12), 3.0 (было 2.0)
+        # Архитектурные бевели дают orth travel ~15-20% span, что ложно
+        # срабатывало на старых thresholds
+        return orthogonal_travel > max(primary_span * 0.25, orth_extent * 3.0)
 
     def _is_curved_against_chord(primary_axis: str) -> bool:
         chord = points_2d[-1] - points_2d[0]
@@ -784,13 +804,15 @@ def _classify_chain_frame_role(chain_vert_cos, basis_u, basis_v, threshold=FRAME
             orth_extent = extent_v
 
         length_excess = (polyline_length / chord_length) - 1.0
-        if length_excess <= 0.015:
+        # Ослабленный порог: 0.05 (было 0.015)
+        # Бевельные переходы дают excess ~2-4%, что ложно блокировало H/V
+        if length_excess <= 0.05:
             return False
 
         chord_dir = chord / chord_length
         max_chord_deviation = 0.0
-        turn_budget_deg = 0.0
         prev_dir = None
+        turn_budget_deg = 0.0
         for point_index in range(1, len(points_2d) - 1):
             rel = points_2d[point_index] - points_2d[0]
             proj_len = rel.dot(chord_dir)
@@ -806,11 +828,10 @@ def _classify_chain_frame_role(chain_vert_cos, basis_u, basis_v, threshold=FRAME
                 turn_budget_deg += abs(math.degrees(prev_dir.angle(direction, 0.0)))
             prev_dir = direction
 
-        deviation_limit = max(primary_span * 0.03, orth_extent * 0.75, 0.01)
-        return max_chord_deviation > deviation_limit and (length_excess > 0.03 or turn_budget_deg > 35.0)
-
-    ratio_v = extent_v / total_extent
-    ratio_u = extent_u / total_extent
+        # Ослабленные thresholds: 0.08 (было 0.03), 1.0 (было 0.75), 0.02 (было 0.01)
+        deviation_limit = max(primary_span * 0.08, orth_extent * 1.0, 0.02)
+        # Ослабленный turn_budget: 60.0 (было 35.0)
+        return max_chord_deviation > deviation_limit and (length_excess > 0.08 or turn_budget_deg > 60.0)
 
     if ratio_v < threshold and not _is_wavy_axis('h') and not _is_curved_against_chord('h'):
         return FrameRole.H_FRAME
@@ -1052,7 +1073,7 @@ def _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v):
         return raw_chains
 
     derived_roles = [
-        _classify_chain_frame_role(derived_raw_chain.get("vert_cos", []), basis_u, basis_v)
+        _classify_chain_frame_role(derived_raw_chain.get("vert_cos", []), basis_u, basis_v, strict_guards=False)
         for derived_raw_chain in derived_raw_chains
     ]
     if FrameRole.H_FRAME not in derived_roles or FrameRole.V_FRAME not in derived_roles:
@@ -1071,15 +1092,19 @@ def _build_boundary_chain_objects(raw_chains, basis_u, basis_v):
     chains = []
     for raw_chain in raw_chains:
         chain_vert_cos = [co.copy() for co in raw_chain.get("vert_cos", [])]
+        neighbor_id = int(raw_chain.get("neighbor", NB_MESH_BORDER))
+        # MESH_BORDER chains: только ratio check (strict_guards=False)
+        # PATCH/SEAM chains: ratio + ослабленные waviness/curvature guards
+        use_strict_guards = (neighbor_id != NB_MESH_BORDER)
         chains.append(
             BoundaryChain(
                 vert_indices=list(raw_chain.get("vert_indices", [])),
                 vert_cos=chain_vert_cos,
                 edge_indices=list(raw_chain.get("edge_indices", [])),
                 side_face_indices=list(raw_chain.get("side_face_indices", [])),
-                neighbor_patch_id=int(raw_chain.get("neighbor", NB_MESH_BORDER)),
+                neighbor_patch_id=neighbor_id,
                 is_closed=bool(raw_chain.get("is_closed", False)),
-                frame_role=_classify_chain_frame_role(chain_vert_cos, basis_u, basis_v),
+                frame_role=_classify_chain_frame_role(chain_vert_cos, basis_u, basis_v, strict_guards=use_strict_guards),
                 start_loop_index=int(raw_chain.get("start_loop_index", 0)),
                 end_loop_index=int(raw_chain.get("end_loop_index", 0)),
             )

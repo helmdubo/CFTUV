@@ -8,15 +8,41 @@ from typing import Optional
 from mathutils import Vector
 
 try:
-    from .constants import FRAME_ALIGNMENT_THRESHOLD
-    from .model import BoundaryChain, ChainNeighborKind, FrameRole, LoopKind, PatchGraph, PatchNode
+    from .constants import (
+        FRAME_ALIGNMENT_THRESHOLD,
+        ROOT_WEIGHT_AREA, ROOT_WEIGHT_FRAME, ROOT_WEIGHT_FREE_RATIO,
+        ROOT_WEIGHT_HOLES, ROOT_WEIGHT_BASE,
+        ATTACH_WEIGHT_SEAM, ATTACH_WEIGHT_PAIR, ATTACH_WEIGHT_TARGET, ATTACH_WEIGHT_OWNER,
+        PAIR_WEIGHT_FRAME_CONT, PAIR_WEIGHT_ENDPOINT, PAIR_WEIGHT_CORNER,
+        PAIR_WEIGHT_SEMANTIC, PAIR_WEIGHT_EP_STRENGTH, PAIR_WEIGHT_LOOP,
+        FRONTIER_PROPAGATE_THRESHOLD, FRONTIER_WEAK_THRESHOLD, FRONTIER_MINIMUM_SCORE,
+    )
+    from .model import (
+        BoundaryChain, ChainNeighborKind, FrameRole, LoopKind,
+        PatchGraph, PatchNode,
+        ScaffoldPointKey, ScaffoldChainPlacement, ScaffoldPatchPlacement,
+        ScaffoldQuiltPlacement, ScaffoldMap,
+    )
 except ImportError:
-    from constants import FRAME_ALIGNMENT_THRESHOLD
-    from model import BoundaryChain, ChainNeighborKind, FrameRole, LoopKind, PatchGraph, PatchNode
+    from constants import (
+        FRAME_ALIGNMENT_THRESHOLD,
+        ROOT_WEIGHT_AREA, ROOT_WEIGHT_FRAME, ROOT_WEIGHT_FREE_RATIO,
+        ROOT_WEIGHT_HOLES, ROOT_WEIGHT_BASE,
+        ATTACH_WEIGHT_SEAM, ATTACH_WEIGHT_PAIR, ATTACH_WEIGHT_TARGET, ATTACH_WEIGHT_OWNER,
+        PAIR_WEIGHT_FRAME_CONT, PAIR_WEIGHT_ENDPOINT, PAIR_WEIGHT_CORNER,
+        PAIR_WEIGHT_SEMANTIC, PAIR_WEIGHT_EP_STRENGTH, PAIR_WEIGHT_LOOP,
+        FRONTIER_PROPAGATE_THRESHOLD, FRONTIER_WEAK_THRESHOLD, FRONTIER_MINIMUM_SCORE,
+    )
+    from model import (
+        BoundaryChain, ChainNeighborKind, FrameRole, LoopKind,
+        PatchGraph, PatchNode,
+        ScaffoldPointKey, ScaffoldChainPlacement, ScaffoldPatchPlacement,
+        ScaffoldQuiltPlacement, ScaffoldMap,
+    )
 
 
-EDGE_PROPAGATE_MIN = 0.45
-EDGE_WEAK_MIN = 0.25
+EDGE_PROPAGATE_MIN = FRONTIER_PROPAGATE_THRESHOLD
+EDGE_WEAK_MIN = FRONTIER_WEAK_THRESHOLD
 SCAFFOLD_CLOSURE_EPSILON = 1e-4
 
 
@@ -100,57 +126,6 @@ class SolvePlan:
     propagate_threshold: float = EDGE_PROPAGATE_MIN
     weak_threshold: float = EDGE_WEAK_MIN
 
-
-@dataclass(frozen=True)
-class ScaffoldPointKey:
-    patch_id: int
-    loop_index: int
-    chain_index: int
-    source_point_index: int
-
-
-@dataclass(frozen=True)
-class ScaffoldChainPlacement:
-    patch_id: int
-    loop_index: int
-    chain_index: int
-    frame_role: FrameRole
-    source_kind: str = "chain"
-    points: tuple[tuple[ScaffoldPointKey, Vector], ...] = ()
-
-
-@dataclass
-class ScaffoldPatchPlacement:
-    patch_id: int
-    loop_index: int
-    root_chain_index: int = 0
-    corner_positions: dict[int, Vector] = field(default_factory=dict)
-    chain_placements: list[ScaffoldChainPlacement] = field(default_factory=list)
-    bbox_min: Vector = field(default_factory=lambda: Vector((0.0, 0.0)))
-    bbox_max: Vector = field(default_factory=lambda: Vector((0.0, 0.0)))
-    closure_error: float = 0.0
-    max_chain_gap: float = 0.0
-    gap_reports: tuple[tuple[int, int, float], ...] = ()
-    closure_valid: bool = True
-    notes: tuple[str, ...] = ()
-    # Phase 3: envelope fields
-    status: str = "COMPLETE"
-    dependency_patches: tuple = ()
-    unplaced_chain_indices: tuple = ()
-    pinned: bool = False
-    origin_offset: tuple = (0.0, 0.0)  # sleeping field, Phase 5
-
-@dataclass
-class ScaffoldQuiltPlacement:
-    quilt_index: int
-    root_patch_id: int
-    patches: dict[int, ScaffoldPatchPlacement] = field(default_factory=dict)
-    build_order: list = field(default_factory=list)  # Phase 3: ChainRef tuples
-
-
-@dataclass
-class ScaffoldMap:
-    quilts: list[ScaffoldQuiltPlacement] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -248,11 +223,11 @@ def _build_patch_certainty(node: PatchNode, max_area: float) -> PatchCertainty:
     frame_strength = _frame_presence_strength(h_count, v_count)
     hole_factor = _clamp01(1.0 - min(hole_count, 2) * 0.35)
     root_score = (
-        0.30 * area_norm
-        + 0.30 * frame_strength
-        + 0.20 * _clamp01(1.0 - free_ratio)
-        + 0.10 * hole_factor
-        + 0.10 * 1.0
+        ROOT_WEIGHT_AREA * area_norm
+        + ROOT_WEIGHT_FRAME * frame_strength
+        + ROOT_WEIGHT_FREE_RATIO * _clamp01(1.0 - free_ratio)
+        + ROOT_WEIGHT_HOLES * hole_factor
+        + ROOT_WEIGHT_BASE * 1.0
         + _semantic_stability_bonus(node)
     )
     root_score = _clamp01(root_score)
@@ -484,12 +459,12 @@ def _best_chain_pair(
                 target_chain,
             )
             pair_strength = (
-                0.40 * frame_continuation
-                + 0.25 * endpoint_bridge
-                + 0.10 * corner_strength
-                + 0.10 * semantic_strength
-                + 0.10 * endpoint_strength
-                + 0.05 * _loop_pair_strength(owner_loop.kind, target_loop.kind)
+                PAIR_WEIGHT_FRAME_CONT * frame_continuation
+                + PAIR_WEIGHT_ENDPOINT * endpoint_bridge
+                + PAIR_WEIGHT_CORNER * corner_strength
+                + PAIR_WEIGHT_SEMANTIC * semantic_strength
+                + PAIR_WEIGHT_EP_STRENGTH * endpoint_strength
+                + PAIR_WEIGHT_LOOP * _loop_pair_strength(owner_loop.kind, target_loop.kind)
             )
             if pair_strength <= best_strength:
                 continue
@@ -567,10 +542,10 @@ def _build_attachment_candidate(
         total_score = 0.0
     else:
         total_score = (
-            0.25 * seam_norm
-            + 0.40 * best_pair_strength
-            + 0.20 * target_score.root_score
-            + 0.15 * owner_score.root_score
+            ATTACH_WEIGHT_SEAM * seam_norm
+            + ATTACH_WEIGHT_PAIR * best_pair_strength
+            + ATTACH_WEIGHT_TARGET * target_score.root_score
+            + ATTACH_WEIGHT_OWNER * owner_score.root_score
             - ambiguity_penalty
         )
         owner_is_frame = owner_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
@@ -1011,13 +986,23 @@ def _count_patch_scaffold_points(patch_placement: ScaffoldPatchPlacement) -> int
 
 
 def _should_pin_scaffold_point(chain_placement: ScaffoldChainPlacement, point_index: int, point_count: int) -> bool:
+    """Pin policy для scaffold points.
+
+    H_FRAME/V_FRAME: все points запинены (жёсткий каркас).
+    FREE chains:
+      - ≤ 4 points: все запинены (слишком короткие для relax)
+      - > 4 points: endpoints + каждый 3-й point (~30-40% coverage)
+        Даёт conformal достаточно constraints без полного lock-down.
+    """
     if point_count <= 0:
         return False
     if chain_placement.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
         return True
-    if point_count == 1:
+    # FREE chains: короткие пинятся полностью
+    if point_count <= 4:
         return True
-    return point_index == 0 or point_index == (point_count - 1)
+    # FREE chains > 4 points: endpoints + каждый 3-й
+    return point_index == 0 or point_index == (point_count - 1) or point_index % 3 == 0
 
 
 
@@ -1135,7 +1120,7 @@ def _apply_patch_scaffold_to_uv(bm, graph: PatchGraph, uv_layer, patch_placement
     }
 
 
-CHAIN_FRONTIER_THRESHOLD = 0.3
+CHAIN_FRONTIER_THRESHOLD = FRONTIER_MINIMUM_SCORE
 
 
 @dataclass(frozen=True)
@@ -2466,24 +2451,27 @@ def _execute_phase1_preview_impl(
         global_supported_patch_ids.update(quilt_apply_patch_ids)
 
         bmesh.update_edit_mesh(obj.data)
+
+        # Per-quilt conformal: один вызов unwrap для всех supported patches quilt.
+        # Blender видит общий UV island и relaxes с учётом всех pins,
+        # сохраняя cross-patch stitch points.
         if run_conformal and conformal_patch_ids:
-            for conformal_patch_id in conformal_patch_ids:
-                bm = bmesh.from_edit_mesh(obj.data)
-                bm.faces.ensure_lookup_table()
-                bm.verts.ensure_lookup_table()
-                bm.edges.ensure_lookup_table()
-                uv_layer = bm.loops.layers.uv.verify()
-                _select_patch_faces(bm, patch_graph, [conformal_patch_id])
-                _select_patch_uv_loops(bm, patch_graph, uv_layer, [conformal_patch_id])
-                selected_face_count = len(_collect_patch_face_indices(patch_graph, [conformal_patch_id]))
-                selected_uv_count = _count_selected_patch_uv_loops(bm, patch_graph, uv_layer, [conformal_patch_id])
-                bmesh.update_edit_mesh(obj.data)
-                print(
-                    f"[CFTUV][Phase1] Quilt {quilt_scaffold.quilt_index} Patch {conformal_patch_id} Conformal: "
-                    f"faces={selected_face_count} uv_loops={selected_uv_count}"
-                )
-                bpy.ops.uv.unwrap(method='CONFORMAL', margin=0.0)
-                conformal_applied += 1
+            bm = bmesh.from_edit_mesh(obj.data)
+            bm.faces.ensure_lookup_table()
+            bm.verts.ensure_lookup_table()
+            bm.edges.ensure_lookup_table()
+            uv_layer = bm.loops.layers.uv.verify()
+            _select_patch_faces(bm, patch_graph, conformal_patch_ids)
+            _select_patch_uv_loops(bm, patch_graph, uv_layer, conformal_patch_ids)
+            selected_face_count = len(_collect_patch_face_indices(patch_graph, conformal_patch_ids))
+            selected_uv_count = _count_selected_patch_uv_loops(bm, patch_graph, uv_layer, conformal_patch_ids)
+            bmesh.update_edit_mesh(obj.data)
+            print(
+                f"[CFTUV][Phase1] Quilt {quilt_scaffold.quilt_index} Per-Quilt Conformal: "
+                f"patches={conformal_patch_ids} faces={selected_face_count} uv_loops={selected_uv_count}"
+            )
+            bpy.ops.uv.unwrap(method='CONFORMAL', margin=0.0)
+            conformal_applied += 1
 
             if not keep_pins:
                 bm = bmesh.from_edit_mesh(obj.data)
