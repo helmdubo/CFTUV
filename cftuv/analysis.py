@@ -590,6 +590,91 @@ def _split_loop_into_chains_by_neighbor(loop_vert_indices, loop_vert_cos, loop_e
     return chains
 
 
+def _merge_bevel_wrap_chains(chains, bm):
+    """Мержит соседние chains, разделённые бевель-заворотом поверхности.
+
+    После split по neighbor, бевель-edge создаёт split point где neighbor
+    меняется (MESH_BORDER → SEAM_SELF). Но если поворот в этой точке
+    происходит вдоль нормали (бевель-заворот), а не в касательной плоскости,
+    chains нужно объединить — на UV это один непрерывный сегмент.
+    """
+    if len(chains) < 2:
+        return chains
+
+    # Собираем face normals
+    bm.faces.ensure_lookup_table()
+
+    def _should_merge(chain_a, chain_b):
+        """Проверяет, нужно ли мержить chain_a и chain_b в точке стыка."""
+        cos_a = chain_a.get("vert_cos", [])
+        cos_b = chain_b.get("vert_cos", [])
+        if len(cos_a) < 2 or len(cos_b) < 2:
+            return False
+
+        # Точка стыка = последняя вершина chain_a = первая вершина chain_b
+        corner_co = cos_a[-1]
+        prev_point = cos_a[-2]
+        next_point = cos_b[1] if len(cos_b) > 1 else cos_b[0]
+
+        # Face normal в точке стыка: усредняем нормали смежных faces обоих chains
+        side_a = chain_a.get("side_face_indices", [])
+        side_b = chain_b.get("side_face_indices", [])
+        normals = []
+        if side_a and len(side_a) >= 1:
+            fi = side_a[-1]
+            if fi < len(bm.faces):
+                normals.append(bm.faces[fi].normal)
+        if side_b and len(side_b) >= 1:
+            fi = side_b[0]
+            if fi < len(bm.faces):
+                normals.append(bm.faces[fi].normal)
+        if not normals:
+            return False
+
+        avg_normal = sum(normals, Vector((0, 0, 0))) / len(normals)
+        if avg_normal.length_squared < 1e-12:
+            return False
+
+        return not _is_tangent_plane_turn(corner_co, prev_point, next_point, avg_normal)
+
+    def _do_merge(chain_a, chain_b):
+        """Объединяет chain_b в chain_a (chain_b's first vertex = chain_a's last)."""
+        return {
+            "vert_indices": chain_a["vert_indices"] + chain_b["vert_indices"][1:],
+            "vert_cos": chain_a["vert_cos"] + chain_b["vert_cos"][1:],
+            "edge_indices": chain_a["edge_indices"] + chain_b["edge_indices"],
+            "side_face_indices": chain_a["side_face_indices"] + chain_b["side_face_indices"][1:],
+            "neighbor": chain_a.get("neighbor", NB_MESH_BORDER),
+            "is_closed": chain_a.get("is_closed", False),
+            "start_loop_index": chain_a.get("start_loop_index", 0),
+            "end_loop_index": chain_b.get("end_loop_index", 0),
+        }
+
+    # Итеративно мержим пока есть что мержить
+    merged = True
+    result = list(chains)
+    while merged:
+        merged = False
+        new_result = []
+        i = 0
+        while i < len(result):
+            if i + 1 < len(result) and _should_merge(result[i], result[i + 1]):
+                new_result.append(_do_merge(result[i], result[i + 1]))
+                i += 2
+                merged = True
+            else:
+                new_result.append(result[i])
+                i += 1
+        # Проверяем wrap-around: последний chain → первый chain
+        if len(new_result) >= 2 and _should_merge(new_result[-1], new_result[0]):
+            merged_chain = _do_merge(new_result[-1], new_result[0])
+            new_result = [merged_chain] + new_result[1:-1]
+            merged = True
+        result = new_result
+
+    return result
+
+
 def _classify_raw_loops_via_uv(raw_loops, bm, patch_face_indices, uv_layer):
     """Classify raw loops as OUTER or HOLE using temporary UV data."""
 
@@ -1406,6 +1491,9 @@ def _build_boundary_loops(raw_loops, patch_face_indices, face_to_patch, patch_id
             raw_loop.get("side_face_indices", []),
             loop_neighbors,
         )
+        # Мержим chains, разделённые бевель-заворотом: поворот вдоль нормали,
+        # а не в касательной плоскости. На UV это один непрерывный сегмент.
+        raw_chains = _merge_bevel_wrap_chains(raw_chains, bm)
 
         raw_chains = _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v, bm=bm)
         raw_chains = _split_border_chains_by_corners(raw_chains, basis_u, basis_v)
