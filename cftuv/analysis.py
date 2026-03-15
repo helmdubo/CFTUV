@@ -1290,8 +1290,9 @@ def _split_border_chains_by_corners(raw_chains, basis_u, basis_v, bm=None):
 
         corner_indices = _find_open_chain_corners(
             vert_cos, basis_u, basis_v,
-            vert_indices=raw_chain.get("vert_indices"),
-            bm=bm,
+            # Не передаём bm/vert_indices — бевель-фильтр отвергает
+            # реальные UV-углы на краях меша, где vertex normal
+            # усреднена с бевель-гранями.
         )
         if not corner_indices:
             result.append(raw_chain)
