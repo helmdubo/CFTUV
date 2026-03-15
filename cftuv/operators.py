@@ -452,6 +452,57 @@ class HOTSPOTUV_OT_ScaffoldDebug(bpy.types.Operator):
                 _restore_mode_and_selection(obj, om, sel)
 
 
+class HOTSPOTUV_OT_FrontierReplay(bpy.types.Operator):
+    bl_idname = "hotspotuv.frontier_replay"
+    bl_label = "Frontier Replay"
+    bl_description = "Animate scaffold build step-by-step. Hides mesh, shows only frontier path"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        s = context.scene.hotspotuv_settings
+        if s.dbg_active and s.dbg_source_object:
+            return True
+        obj = context.active_object
+        return obj is not None and obj.type == 'MESH' and obj.mode in {'EDIT', 'OBJECT'}
+
+    def execute(self, context):
+        try:
+            obj, _bm, pg, _sg, sp, settings, om, sel = _build_solve_state(context)
+            scaffold_map = build_root_scaffold_map(pg, sp, settings.final_scale)
+
+            # Frontier visualization
+            s = context.scene.hotspotuv_settings
+            dbg_settings = _build_debug_settings(s)
+            source_name = s.dbg_source_object
+            if source_name and source_name in bpy.data.objects:
+                source_obj = bpy.data.objects[source_name]
+                create_frontier_visualization(pg, scaffold_map, source_obj, dbg_settings)
+
+                # Прячем mesh, показываем только GP
+                source_obj.hide_set(True)
+
+                # Прячем все GP слои кроме Frontier_Path
+                gp_name = GP_DEBUG_PREFIX + source_name
+                gp_obj = bpy.data.objects.get(gp_name)
+                if gp_obj and gp_obj.type == 'GPENCIL':
+                    for layer in gp_obj.data.layers:
+                        layer.hide = (layer.info != 'Frontier_Path')
+
+                # Запускаем playback
+                context.scene.frame_current = 0
+                bpy.ops.screen.animation_play()
+
+            self.report({"INFO"}, "Frontier Replay started — press Esc to stop")
+            return {"FINISHED"}
+        except Exception as exc:
+            self.report({"ERROR"}, f"Frontier Replay failed: {exc}")
+            return {"CANCELLED"}
+        finally:
+            if 'obj' in locals() and 'om' in locals() and 'sel' in locals():
+                _restore_mode_and_selection(obj, om, sel)
+
+
 class HOTSPOTUV_OT_SolvePhase1Preview(bpy.types.Operator):
     bl_idname = "hotspotuv.solve_phase1_preview"
     bl_label = "Solve Phase 1 Preview"
@@ -603,6 +654,7 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         col.label(text="Debug:")
         col.operator("hotspotuv.flow_debug", text="Flow Debug", icon="SORTSIZE")
         col.operator("hotspotuv.scaffold_debug", text="Scaffold Debug", icon="MESH_GRID")
+        col.operator("hotspotuv.frontier_replay", text="Frontier Replay", icon="PLAY")
         col.operator(
             "hotspotuv.solve_phase1_preview", text="Solve Phase 1 Preview", icon="UV"
         )
@@ -687,6 +739,7 @@ classes = (
     HOTSPOTUV_OT_DebugToggleGroup,
     HOTSPOTUV_OT_FlowDebug,
     HOTSPOTUV_OT_ScaffoldDebug,
+    HOTSPOTUV_OT_FrontierReplay,
     HOTSPOTUV_OT_SolvePhase1Preview,
     # Legacy stubs (disabled)
     HOTSPOTUV_OT_UnwrapFaces,
