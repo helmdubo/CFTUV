@@ -2545,7 +2545,6 @@ def _execute_phase1_preview_impl(
         print(f"[CFTUV][Phase1] Unsupported patches: {unsupported_patch_ids}")
     quilt_plan_by_index = {quilt.quilt_index: quilt for quilt in solve_plan.quilts} if solve_plan is not None else {}
 
-    x_cursor = 0.0
     supported_roots = 0
     scaffold_points = 0
     resolved_scaffold_points = 0
@@ -2556,7 +2555,6 @@ def _execute_phase1_preview_impl(
     pinned_uv_loops = 0
     attached_children = 0
     invalid_scaffold_patches = 0
-    quilt_margin = max(settings.final_scale * 2.0, 0.25)
     global_supported_patch_ids: set[int] = set()
     conformal_applied = 0
     all_conformal_patch_ids: list[int] = []
@@ -2581,8 +2579,8 @@ def _execute_phase1_preview_impl(
         _clear_patch_pins(bm, patch_graph, uv_layer, quilt_apply_patch_ids)
 
         quilt_bbox_min, quilt_bbox_max = _compute_quilt_bbox(quilt_scaffold)
-        quilt_width = max(quilt_bbox_max.x - quilt_bbox_min.x, settings.final_scale, 0.25)
-        uv_offset = Vector((x_cursor - quilt_bbox_min.x, -quilt_bbox_min.y))
+        # Каждый quilt стартует в (0,0) UV — без горизонтального стекания
+        uv_offset = Vector((-quilt_bbox_min.x, -quilt_bbox_min.y))
         quilt_stats = {
             'scaffold_points': 0,
             'resolved_scaffold_points': 0,
@@ -2631,7 +2629,6 @@ def _execute_phase1_preview_impl(
         invalid_scaffold_patches += quilt_stats['invalid_scaffold_patches']
         global_supported_patch_ids.update(quilt_apply_patch_ids)
 
-        x_cursor += quilt_width + quilt_margin
 
     # Финальный Conformal: один вызов ПОСЛЕ всех quilts.
     # bmesh.update_edit_mesh вызывается один раз, потом bpy.ops.uv.unwrap
@@ -2715,11 +2712,9 @@ def _execute_phase1_preview_impl(
             bm.edges.ensure_lookup_table()
             uv_layer = bm.loops.layers.uv.verify()
             bbox_min, bbox_max = _compute_patch_uv_bbox(bm, patch_graph, uv_layer, [patch_id])
-            patch_width = max(bbox_max.x - bbox_min.x, settings.final_scale, 0.25)
-            uv_offset = Vector((x_cursor - bbox_min.x, -bbox_min.y))
+            uv_offset = Vector((-bbox_min.x, -bbox_min.y))
             _translate_patch_uvs(bm, patch_graph, uv_layer, [patch_id], uv_offset)
             bmesh.update_edit_mesh(obj.data)
-            x_cursor += patch_width + quilt_margin
     if not run_conformal:
         print(f"[CFTUV][Phase1] Transfer Only: quilts={len(scaffold_map.quilts)} patches={sorted(global_supported_patch_ids)}")
 
