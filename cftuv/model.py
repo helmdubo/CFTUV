@@ -61,6 +61,7 @@ class BoundaryChain:
     end_loop_index: int = 0
     start_corner_index: int = -1
     end_corner_index: int = -1
+    is_corner_split: bool = False
 
     @property
     def neighbor_kind(self) -> ChainNeighborKind:
