@@ -1386,6 +1386,78 @@ def _build_boundary_chain_objects(raw_chains, basis_u, basis_v):
         )
     return chains
 
+def _merge_same_role_border_chains(chains):
+    """Сшивает adjacent MESH_BORDER chains с одинаковым frame_role.
+
+    После GeoSplit и corner split могут возникнуть маленькие H/V sub-chains
+    на бевельных гранях. Если два соседних chain — оба MESH_BORDER, оба
+    одного role (H+H, V+V) — сшиваем в один. Бевельные вершины становятся
+    частью длинного chain, direction считается один раз корректно.
+    """
+    if len(chains) < 2:
+        return chains
+
+    merged = [chains[0]]
+    for i in range(1, len(chains)):
+        prev = merged[-1]
+        curr = chains[i]
+
+        can_merge = (
+            prev.neighbor_kind == ChainNeighborKind.MESH_BORDER
+            and curr.neighbor_kind == ChainNeighborKind.MESH_BORDER
+            and prev.frame_role == curr.frame_role
+            and prev.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME)
+            and not prev.is_closed
+            and not curr.is_closed
+        )
+
+        if can_merge:
+            # Сшиваем: prev поглощает curr (shared vertex = prev[-1] == curr[0])
+            merged[-1] = BoundaryChain(
+                vert_indices=prev.vert_indices + curr.vert_indices[1:],
+                vert_cos=prev.vert_cos + curr.vert_cos[1:],
+                edge_indices=prev.edge_indices + curr.edge_indices,
+                side_face_indices=prev.side_face_indices + curr.side_face_indices[1:],
+                neighbor_patch_id=prev.neighbor_patch_id,
+                is_closed=False,
+                frame_role=prev.frame_role,
+                start_loop_index=prev.start_loop_index,
+                end_loop_index=curr.end_loop_index,
+                is_corner_split=prev.is_corner_split and curr.is_corner_split,
+            )
+        else:
+            merged.append(curr)
+
+    # Проверяем wrap-around: последний и первый chain в closed loop
+    if len(merged) >= 2:
+        last = merged[-1]
+        first = merged[0]
+        can_wrap = (
+            last.neighbor_kind == ChainNeighborKind.MESH_BORDER
+            and first.neighbor_kind == ChainNeighborKind.MESH_BORDER
+            and last.frame_role == first.frame_role
+            and last.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME)
+            and not last.is_closed
+            and not first.is_closed
+        )
+        if can_wrap:
+            merged[0] = BoundaryChain(
+                vert_indices=last.vert_indices + first.vert_indices[1:],
+                vert_cos=last.vert_cos + first.vert_cos[1:],
+                edge_indices=last.edge_indices + first.edge_indices,
+                side_face_indices=last.side_face_indices + first.side_face_indices[1:],
+                neighbor_patch_id=last.neighbor_patch_id,
+                is_closed=False,
+                frame_role=last.frame_role,
+                start_loop_index=last.start_loop_index,
+                end_loop_index=first.end_loop_index,
+                is_corner_split=last.is_corner_split and first.is_corner_split,
+            )
+            merged.pop()
+
+    return merged
+
+
 def _build_loop_corners(boundary_loop, raw_chains, basis_u, basis_v):
     """Build loop corners from chain junctions or from geometric turns inside one loop."""
 
@@ -1520,6 +1592,7 @@ def _build_boundary_loops(raw_loops, patch_face_indices, face_to_patch, patch_id
         raw_chains = _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v, bm=bm)
         raw_chains = _split_border_chains_by_corners(raw_chains, basis_u, basis_v, bm=bm)
         boundary_loop.chains = _build_boundary_chain_objects(raw_chains, basis_u, basis_v)
+        boundary_loop.chains = _merge_same_role_border_chains(boundary_loop.chains)
 
         boundary_loop.corners = _build_loop_corners(boundary_loop, raw_chains, basis_u, basis_v)
         _assign_loop_chain_endpoint_topology(boundary_loop)
