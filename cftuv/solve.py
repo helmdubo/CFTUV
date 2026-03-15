@@ -2520,11 +2520,7 @@ def _execute_phase1_preview_impl(
         uv_layer = bm.loops.layers.uv.verify()
         _select_patch_faces(bm, patch_graph, all_conformal_patch_ids)
         _select_patch_uv_loops(bm, patch_graph, uv_layer, all_conformal_patch_ids)
-        # Scaffold пинит ВСЕ H/V chain vertices — это over-constrain'ит LSCM.
-        # Очищаем все пины, затем пиним только corner vertices (стыки chains).
-        # Corners задают прямоугольный каркас, LSCM заполняет interior + boundary.
-        _clear_patch_pins(bm, patch_graph, uv_layer, all_conformal_patch_ids)
-        corner_pins = _pin_corner_vertices(bm, patch_graph, uv_layer, all_conformal_patch_ids)
+        # Все scaffold пины остаются — LSCM корректно работает с ними.
         sel_faces = sum(1 for f in bm.faces if f.select)
         pinned_count = sum(
             1 for f in bm.faces if f.select
