@@ -467,27 +467,51 @@ class HOTSPOTUV_OT_FrontierReplay(bpy.types.Operator):
         return obj is not None and obj.type == 'MESH' and obj.mode in {'EDIT', 'OBJECT'}
 
     def execute(self, context):
-        try:
-            obj, _bm, pg, _sg, sp, settings, om, sel = _build_solve_state(context)
-            scaffold_map = build_root_scaffold_map(pg, sp, settings.final_scale)
+        s = context.scene.hotspotuv_settings
 
-            # Frontier visualization
-            s = context.scene.hotspotuv_settings
-            dbg_settings = _build_debug_settings(s)
-            source_name = s.dbg_source_object
+        # В debug mode mesh скрыт, активен GP — нужно переключиться
+        source_name = s.dbg_source_object if s.dbg_active else ""
+        need_restore_debug = False
+
+        try:
             if source_name and source_name in bpy.data.objects:
                 source_obj = bpy.data.objects[source_name]
-                create_frontier_visualization(pg, scaffold_map, source_obj, dbg_settings)
+                # Временно показываем mesh и делаем активным
+                source_obj.hide_viewport = False
+                source_obj.hide_set(False)
+                if context.active_object and context.active_object.mode != 'OBJECT':
+                    bpy.ops.object.mode_set(mode='OBJECT')
+                bpy.ops.object.select_all(action='DESELECT')
+                source_obj.select_set(True)
+                context.view_layer.objects.active = source_obj
+                need_restore_debug = True
 
-                # Прячем mesh, показываем только GP
-                source_obj.hide_set(True)
+            obj, _bm, pg, _sg, sp, settings, om, sel = _build_solve_state(context)
+            scaffold_map = build_root_scaffold_map(pg, sp, settings.final_scale)
+            _restore_mode_and_selection(obj, om, sel)
 
-                # Прячем все GP слои кроме Frontier_Path
-                gp_name = GP_DEBUG_PREFIX + source_name
+            # Frontier visualization
+            dbg_settings = _build_debug_settings(s)
+            target_name = source_name or obj.name
+            if target_name in bpy.data.objects:
+                target_obj = bpy.data.objects[target_name]
+                create_frontier_visualization(pg, scaffold_map, target_obj, dbg_settings)
+
+                # Прячем mesh
+                target_obj.hide_viewport = True
+
+                # Показываем только Frontier_Path
+                gp_name = GP_DEBUG_PREFIX + target_name
                 gp_obj = bpy.data.objects.get(gp_name)
                 if gp_obj and gp_obj.type == 'GPENCIL':
                     for layer in gp_obj.data.layers:
                         layer.hide = (layer.info != 'Frontier_Path')
+                    # Активируем GP
+                    if context.active_object and context.active_object.mode != 'OBJECT':
+                        bpy.ops.object.mode_set(mode='OBJECT')
+                    bpy.ops.object.select_all(action='DESELECT')
+                    gp_obj.select_set(True)
+                    context.view_layer.objects.active = gp_obj
 
                 # Запускаем playback
                 context.scene.frame_current = 0
@@ -498,9 +522,6 @@ class HOTSPOTUV_OT_FrontierReplay(bpy.types.Operator):
         except Exception as exc:
             self.report({"ERROR"}, f"Frontier Replay failed: {exc}")
             return {"CANCELLED"}
-        finally:
-            if 'obj' in locals() and 'om' in locals() and 'sel' in locals():
-                _restore_mode_and_selection(obj, om, sel)
 
 
 class HOTSPOTUV_OT_SolvePhase1Preview(bpy.types.Operator):
