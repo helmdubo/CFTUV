@@ -426,10 +426,11 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
 
 
 def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, settings_dict=None):
-    """Визуализация порядка scaffold build — gradient brightness по build_order.
+    """Анимированная визуализация scaffold build — покадровый replay frontier.
 
-    Первый chain (seed) — самый яркий, последующие тускнеют.
-    Использует отдельный GP слой Frontier_Path.
+    Каждый кадр аккумулятивный: frame N показывает chains шагов 0..N.
+    Цвета как в Loops_Chains: жёлтый (H), бирюзовый (V), серый (FREE).
+    1 шаг = 1 секунда (fps из сцены). Playback через timeline.
     """
     settings_dict = settings_dict or {}
     gp_name = _get_gp_debug_name(source_obj)
@@ -444,15 +445,36 @@ def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, s
         layer.clear()
     else:
         layer = gp_data.layers.new(layer_name, set_active=False)
-    frame = layer.frames[0] if layer.frames else layer.frames.new(0)
 
+    # Материалы по frame role (те же цвета что Loops_Chains)
+    chain_mat_indices = {}
+    for role, color in _CHAIN_COLORS.items():
+        mat_name = f'CFTUV_Frontier_{role.value}'
+        chain_mat_indices[role] = _ensure_gp_material(gp_data, mat_name, color)
+
+    # Собираем все шаги из всех quilts в единый timeline
+    all_steps = []
     for quilt in scaffold_map.quilts:
         build_order = getattr(quilt, 'build_order', [])
-        if not build_order:
-            continue
+        for ref in build_order:
+            all_steps.append(ref)
 
-        total = len(build_order)
-        for step_index, ref in enumerate(build_order):
+    if not all_steps:
+        apply_layer_visibility(gp_data, settings_dict)
+        return
+
+    # Интервал между шагами: 1 секунда = fps кадров
+    fps = bpy.context.scene.render.fps
+    total_steps = len(all_steps)
+
+    # Каждый GP frame аккумулятивный: содержит все strokes 0..step_index
+    for step_index in range(total_steps):
+        frame_number = step_index * fps
+        gp_frame = layer.frames.new(frame_number)
+
+        # Рисуем все chains от 0 до step_index включительно
+        for draw_index in range(step_index + 1):
+            ref = all_steps[draw_index]
             patch_id, loop_idx, chain_idx = ref
             node = graph.nodes.get(patch_id)
             if node is None:
@@ -464,18 +486,22 @@ def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, s
                 continue
             chain = loop.chains[chain_idx]
 
-            # Яркость: от 1.0 (seed, первый) до 0.15 (последний)
-            t = step_index / max(total - 1, 1)
-            brightness = 1.0 - 0.85 * t
-            color = (brightness, brightness * 0.9, brightness * 0.3, 1.0)
+            role = chain.frame_role if isinstance(chain.frame_role, FrameRole) else FrameRole(chain.frame_role)
+            mat_idx = chain_mat_indices.get(role, chain_mat_indices[FrameRole.FREE])
 
-            mat_name = f'CFTUV_Frontier_{step_index:03d}'
-            mat_idx = _ensure_gp_material(gp_data, mat_name, color)
+            # Текущий шаг рисуем толще
+            line_width = 10 if draw_index == step_index else 6
 
             raw_points = chain.vert_cos + [chain.vert_cos[0]] if chain.is_closed else chain.vert_cos
             lifted_points = _lift_points(raw_points, node.normal, 0.020)
             if len(lifted_points) >= 2:
-                _add_gp_stroke(frame, lifted_points, mat_idx, line_width=8)
+                _add_gp_stroke(gp_frame, lifted_points, mat_idx, line_width=line_width)
+
+    # Настраиваем timeline под анимацию
+    scene = bpy.context.scene
+    scene.frame_start = 0
+    scene.frame_end = (total_steps - 1) * fps
+    scene.frame_current = 0
 
     apply_layer_visibility(gp_data, settings_dict)
 
