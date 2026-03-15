@@ -1041,20 +1041,19 @@ def _is_tangent_plane_turn(corner_co, prev_point, next_point, vert_normal):
 
 
 def _collect_geometric_split_indices(loop_vert_cos, basis_u, basis_v,
-                                     side_face_indices=None, bm=None):
+                                     loop_vert_indices=None, bm=None):
     """Find stable corner indices for a closed OUTER loop."""
 
     vertex_count = len(loop_vert_cos)
     if vertex_count < 4:
         return []
 
-    # Подготовка face normals для фильтрации бевель-заворотов
-    face_normals = None
-    if side_face_indices is not None and bm is not None:
-        face_normals = {}
-        for fi in side_face_indices:
-            if fi not in face_normals and fi < len(bm.faces):
-                face_normals[fi] = bm.faces[fi].normal.copy()
+    # Подготовка vertex normals для фильтрации бевель-заворотов
+    # Vertex normal (BMVert.normal) — усреднённая по всем смежным faces,
+    # стабильна на стыке разно-ориентированных граней (бевель-угол).
+    use_vert_normals = (loop_vert_indices is not None and bm is not None)
+    if use_vert_normals:
+        bm.verts.ensure_lookup_table()
 
     candidate_corners = []
     for loop_vert_index in range(vertex_count):
@@ -1065,11 +1064,12 @@ def _collect_geometric_split_indices(loop_vert_cos, basis_u, basis_v,
         if turn_angle_deg < CORNER_ANGLE_THRESHOLD_DEG:
             continue
         # Фильтр: пропускаем бевель-завороты (поворот вдоль нормали)
-        if face_normals is not None and side_face_indices is not None:
-            fi = side_face_indices[loop_vert_index] if loop_vert_index < len(side_face_indices) else -1
-            fn = face_normals.get(fi)
-            if fn is not None and not _is_tangent_plane_turn(corner_co, prev_point, next_point, fn):
-                continue
+        if use_vert_normals:
+            vi = loop_vert_indices[loop_vert_index]
+            if vi < len(bm.verts):
+                vn = bm.verts[vi].normal
+                if vn.length_squared > 1e-12 and not _is_tangent_plane_turn(corner_co, prev_point, next_point, vn):
+                    continue
         candidate_corners.append((loop_vert_index, turn_angle_deg))
 
     if len(candidate_corners) < 4:
@@ -1304,7 +1304,7 @@ def _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v, bm=N
 
     split_indices = _collect_geometric_split_indices(
         raw_loop.get("vert_cos", []), basis_u, basis_v,
-        side_face_indices=raw_loop.get("side_face_indices"),
+        loop_vert_indices=raw_loop.get("vert_indices"),
         bm=bm,
     )
     print(f"[CFTUV][GeoSplit] split_indices={len(split_indices)} indices={split_indices}")
