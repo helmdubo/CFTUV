@@ -1781,13 +1781,6 @@ def build_patch_graph(bm, face_indices, obj=None):
             bm,
         )
 
-        # FLOOR/SLOPE patches: H/V straightening искажает irregular caps.
-        # Все chains → FREE, Conformal unwrap обработает целиком.
-        if node.patch_type in (PatchType.FLOOR, PatchType.SLOPE):
-            for bl in node.boundary_loops:
-                for ch in bl.chains:
-                    ch.frame_role = FrameRole.FREE
-
     for seam_edge in _build_seam_edges(patch_graph.face_to_patch, bm):
         patch_graph.add_edge(seam_edge)
 

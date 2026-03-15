@@ -94,6 +94,7 @@ class SolverGraph:
     patch_scores: dict[int, PatchCertainty] = field(default_factory=dict)
     candidates: list[AttachmentCandidate] = field(default_factory=list)
     candidates_by_owner: dict[int, list[AttachmentCandidate]] = field(default_factory=dict)
+    solve_components: list[set[int]] = field(default_factory=list)
     component_by_patch: dict[int, int] = field(default_factory=dict)
     max_shared_length: float = 0.0
 
@@ -146,6 +147,9 @@ def _iter_neighbor_chains(graph: PatchGraph, owner_patch_id: int, target_patch_i
 
     refs = []
     for loop_index, boundary_loop in enumerate(node.boundary_loops):
+        # Solve connectivity строится только по OUTER loop.
+        if boundary_loop.kind != LoopKind.OUTER:
+            continue
         for chain_index, chain in enumerate(boundary_loop.chains):
             if chain.neighbor_kind != ChainNeighborKind.PATCH:
                 continue
@@ -153,6 +157,39 @@ def _iter_neighbor_chains(graph: PatchGraph, owner_patch_id: int, target_patch_i
                 continue
             refs.append((loop_index, chain_index, boundary_loop, chain))
     return refs
+
+
+def _build_solve_components(graph: PatchGraph, candidates: list[AttachmentCandidate]) -> tuple[list[set[int]], dict[int, int]]:
+    adjacency = {patch_id: set() for patch_id in graph.nodes}
+
+    for candidate in candidates:
+        adjacency.setdefault(candidate.owner_patch_id, set()).add(candidate.target_patch_id)
+        adjacency.setdefault(candidate.target_patch_id, set()).add(candidate.owner_patch_id)
+
+    components: list[set[int]] = []
+    component_by_patch: dict[int, int] = {}
+
+    for patch_id in graph.nodes:
+        if patch_id in component_by_patch:
+            continue
+
+        component = set()
+        stack = [patch_id]
+        while stack:
+            current_id = stack.pop()
+            if current_id in component:
+                continue
+            component.add(current_id)
+            for neighbor_id in adjacency.get(current_id, ()):
+                if neighbor_id not in component:
+                    stack.append(neighbor_id)
+
+        component_index = len(components)
+        components.append(component)
+        for component_patch_id in component:
+            component_by_patch[component_patch_id] = component_index
+
+    return components, component_by_patch
 
 
 def _count_patch_roles(node: PatchNode) -> tuple[int, int, int, int, int, int]:
@@ -600,11 +637,6 @@ def _build_attachment_candidate(
 
 def build_solver_graph(graph: PatchGraph) -> SolverGraph:
     solver_graph = SolverGraph()
-    component_map = {}
-    for component_index, component in enumerate(graph.connected_components()):
-        for patch_id in component:
-            component_map[patch_id] = component_index
-    solver_graph.component_by_patch = component_map
 
     max_area = max((node.area for node in graph.nodes.values()), default=0.0)
     for patch_id, node in graph.nodes.items():
@@ -637,6 +669,7 @@ def build_solver_graph(graph: PatchGraph) -> SolverGraph:
     for candidate_list in solver_graph.candidates_by_owner.values():
         candidate_list.sort(key=lambda candidate: candidate.score, reverse=True)
     solver_graph.candidates.sort(key=lambda candidate: (candidate.owner_patch_id, -candidate.score, candidate.target_patch_id))
+    solver_graph.solve_components, solver_graph.component_by_patch = _build_solve_components(graph, solver_graph.candidates)
     return solver_graph
 
 
@@ -1019,7 +1052,7 @@ def _count_patch_scaffold_points(patch_placement: ScaffoldPatchPlacement) -> int
 def _should_pin_scaffold_point(chain_placement: ScaffoldChainPlacement, point_index: int, point_count: int, conformal_patch: bool = False, scaffold_connected: bool = True) -> bool:
     """Pin policy для scaffold points.
 
-    conformal_patch=True (FLOOR/SLOPE, все chains FREE):
+    conformal_patch=True (patch целиком ушёл в FREE):
       Ничего не пинить — Conformal unwrap обработает весь patch свободно.
 
     H_FRAME/V_FRAME: пинятся только если scaffold_connected=True
@@ -1092,7 +1125,7 @@ def _apply_patch_scaffold_to_uv(bm, graph: PatchGraph, uv_layer, patch_placement
             'closure_gap_count': len(patch_placement.gap_reports),
         }
 
-    # FLOOR/SLOPE с полностью FREE chains: не пинить, Conformal обработает
+    # Patch с полностью FREE chains: не пинить, Conformal обработает
     node = graph.nodes.get(patch_placement.patch_id)
     conformal_patch = False
     if node is not None:
@@ -2974,7 +3007,7 @@ def format_solve_plan_report(
         f"Thresholds: propagate>={solve_plan.propagate_threshold:.2f} weak>={solve_plan.weak_threshold:.2f}"
     )
 
-    components = graph.connected_components()
+    components = solver_graph.solve_components or graph.connected_components()
     for component_index, component in enumerate(components):
         patch_ids = sorted(component)
         lines.append(f"Component {component_index}: patches={patch_ids}")
