@@ -2489,6 +2489,10 @@ def _execute_phase1_preview_impl(
         uv_layer = bm.loops.layers.uv.verify()
         _select_patch_faces(bm, patch_graph, all_conformal_patch_ids)
         _select_patch_uv_loops(bm, patch_graph, uv_layer, all_conformal_patch_ids)
+        # Очистить пины перед Conformal: scaffold задал UV позиции,
+        # но LSCM с пинами over-constrain'ит boundary и искажает interior.
+        # Без пинов LSCM даёт оптимальный angle-preserving unwrap.
+        _clear_patch_pins(bm, patch_graph, uv_layer, all_conformal_patch_ids)
         sel_faces = sum(1 for f in bm.faces if f.select)
         pinned_count = sum(
             1 for f in bm.faces if f.select
