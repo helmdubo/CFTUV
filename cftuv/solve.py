@@ -1813,6 +1813,36 @@ def _cf_score_candidate(
     return score
 
 
+def _cf_refine_direction_from_anchor(direction, role, chain, node, anchor_uv, anchor_is_start):
+    """Уточняет direction для H/V chain используя 3D endpoint проекцию.
+
+    Basis-based direction (_cf_determine_direction) берёт chain start→end
+    в 3D и проецирует на basis_u/v. Для бевель-chains 3D вектор может
+    смотреть в другую сторону из-за разворота грани.
+
+    Фикс: проецируем вектор от anchor-конца к противоположному концу chain
+    в 3D на basis. Это даёт direction "от anchor наружу" — корректный знак
+    независимо от ориентации бевель-грани.
+    """
+    if role not in (FrameRole.H_FRAME, FrameRole.V_FRAME):
+        return direction
+    if len(chain.vert_cos) < 2:
+        return direction
+
+    # Вектор от anchor-конца к противоположному концу chain в 3D
+    if anchor_is_start:
+        other_3d = chain.vert_cos[-1] - chain.vert_cos[0]
+    else:
+        other_3d = chain.vert_cos[0] - chain.vert_cos[-1]
+
+    if role == FrameRole.H_FRAME:
+        other_u = other_3d.dot(node.basis_u)
+        return Vector((1.0 if other_u >= 0.0 else -1.0, 0.0))
+    else:
+        other_v = other_3d.dot(node.basis_v)
+        return Vector((0.0, 1.0 if other_v >= 0.0 else -1.0))
+
+
 def _cf_place_chain(
     chain,
     node,
@@ -1834,12 +1864,18 @@ def _cf_place_chain(
             node, source_pts, start_uv, end_uv, direction, None, final_scale)
 
     if start_uv is not None:
+        # Уточняем direction из 3D endpoint проекции — защита от бевель-разворота
+        direction = _cf_refine_direction_from_anchor(
+            direction, role, chain, node, start_uv, anchor_is_start=True)
         if role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
             return _build_frame_chain_from_one_end(source_pts, start_uv, direction, role, final_scale)
         return _build_guided_free_chain_from_one_end(
             node, source_pts, start_uv, direction, final_scale)
 
     if end_uv is not None:
+        # Уточняем direction из 3D endpoint проекции — защита от бевель-разворота
+        direction = _cf_refine_direction_from_anchor(
+            direction, role, chain, node, end_uv, anchor_is_start=False)
         rev_pts = list(reversed(source_pts))
         rev_dir = Vector((-direction.x, -direction.y))
         if role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
