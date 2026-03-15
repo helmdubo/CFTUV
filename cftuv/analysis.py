@@ -1193,6 +1193,8 @@ def _find_open_chain_corners(vert_cos, basis_u, basis_v, min_spacing=2,
     candidates = []
     for i in range(1, vertex_count - 1):
         turn_angle = _measure_corner_turn_angle(vert_cos[i], vert_cos[i - 1], vert_cos[i + 1], basis_u, basis_v)
+        print(f"[CFTUV][CornerDetect] idx={i} turn={turn_angle:.1f} threshold={CORNER_ANGLE_THRESHOLD_DEG} "
+              f"use_normals={use_vert_normals}")
         if turn_angle >= CORNER_ANGLE_THRESHOLD_DEG:
             # Фильтр: бевель-завороты
             if use_vert_normals:
@@ -1294,11 +1296,18 @@ def _split_border_chains_by_corners(raw_chains, basis_u, basis_v, bm=None):
             # реальные UV-углы на краях меша, где vertex normal
             # усреднена с бевель-гранями.
         )
+
+        # Debug: показать что corner detection нашёл
+        points_2d = [Vector((co.dot(basis_u), co.dot(basis_v))) for co in vert_cos]
+        print(f"[CFTUV][BorderSplit] MESH_BORDER chain verts={len(vert_cos)} corners={corner_indices} "
+              f"pts={[(round(p.x,3), round(p.y,3)) for p in points_2d]}")
+
         if not corner_indices:
             result.append(raw_chain)
             continue
 
         sub_chains = _split_open_chain_at_corners(raw_chain, corner_indices)
+        print(f"[CFTUV][BorderSplit] Split into {len(sub_chains)} sub-chains")
         result.extend(sub_chains)
 
     return result
