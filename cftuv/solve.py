@@ -1829,16 +1829,54 @@ def _cf_score_candidate(
 
 
 
+def _try_inherit_direction(chain, start_anchor, end_anchor, graph, point_registry):
+    """Наследует direction от соседнего same-role chain в том же patch.
+
+    Если anchor-chain имеет тот же frame_role (H↔H, V↔V) в том же patch,
+    берём его UV direction вместо вычисления из 3D. Это continuation —
+    бевельный sub-chain продолжает движение основного chain.
+    """
+    if chain.frame_role not in (FrameRole.H_FRAME, FrameRole.V_FRAME):
+        return None
+
+    for anchor in (start_anchor, end_anchor):
+        if anchor is None or anchor.source_kind != 'same_patch':
+            continue
+        src_chain = graph.get_chain(*anchor.source_ref)
+        if src_chain is None or src_chain.frame_role != chain.frame_role:
+            continue
+
+        # Нашли same-role same-patch соседа — берём его UV direction
+        src_ref = anchor.source_ref
+        n_pts = len(src_chain.vert_cos)
+        src_start_uv = point_registry.get((*src_ref, 0))
+        src_end_uv = point_registry.get((*src_ref, n_pts - 1))
+        if src_start_uv is None or src_end_uv is None:
+            continue
+
+        if chain.frame_role == FrameRole.H_FRAME:
+            du = src_end_uv.x - src_start_uv.x
+            if abs(du) > 1e-9:
+                return Vector((1.0 if du > 0 else -1.0, 0.0))
+        else:  # V_FRAME
+            dv = src_end_uv.y - src_start_uv.y
+            if abs(dv) > 1e-9:
+                return Vector((0.0, 1.0 if dv > 0 else -1.0))
+
+    return None
+
+
 def _cf_place_chain(
     chain,
     node,
     start_anchor: Optional[ChainAnchor],
     end_anchor: Optional[ChainAnchor],
     final_scale,
+    direction_override=None,
 ):
     """ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â·ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ chain ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â² UV, ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚ÂÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â·ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚Â ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€¦Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂºÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¾ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â²ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ anchors."""
     source_pts = _cf_chain_source_points(chain)
-    direction = _cf_determine_direction(chain, node)
+    direction = direction_override if direction_override is not None else _cf_determine_direction(chain, node)
     role = chain.frame_role
     start_uv = start_anchor.uv.copy() if start_anchor is not None else None
     end_uv = end_anchor.uv.copy() if end_anchor is not None else None
@@ -2205,7 +2243,8 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
             break
 
         chain, node, anchor_start, anchor_end, anchor_reason = best_data
-        uv_points = _cf_place_chain(chain, node, anchor_start, anchor_end, final_scale)
+        dir_override = _try_inherit_direction(chain, anchor_start, anchor_end, graph, point_registry)
+        uv_points = _cf_place_chain(chain, node, anchor_start, anchor_end, final_scale, dir_override)
 
         if not uv_points or len(uv_points) != len(chain.vert_cos):
             rejected_chain_refs.add(best_ref)
