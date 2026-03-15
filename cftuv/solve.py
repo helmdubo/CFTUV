@@ -2520,7 +2520,16 @@ def _execute_phase1_preview_impl(
         uv_layer = bm.loops.layers.uv.verify()
         _select_patch_faces(bm, patch_graph, all_conformal_patch_ids)
         _select_patch_uv_loops(bm, patch_graph, uv_layer, all_conformal_patch_ids)
-        # Все scaffold пины остаются — LSCM корректно работает с ними.
+        # Исключить boundary faces: если у face есть хотя бы один pinned UV loop,
+        # снимаем selection. Conformal работает только на interior faces,
+        # чтобы не складывать faces между pinned boundary и unpinned interior.
+        _boundary_excluded = 0
+        for f in bm.faces:
+            if f.select:
+                has_pinned = any(lp[uv_layer].pin_uv for lp in f.loops)
+                if has_pinned:
+                    f.select = False
+                    _boundary_excluded += 1
         sel_faces = sum(1 for f in bm.faces if f.select)
         pinned_count = sum(
             1 for f in bm.faces if f.select
@@ -2542,6 +2551,7 @@ def _execute_phase1_preview_impl(
         print(
             f"[CFTUV][Phase1] Final Conformal: "
             f"patches={all_conformal_patch_ids} faces={sel_faces} "
+            f"boundary_excluded={_boundary_excluded} "
             f"pinned={pinned_count} unpinned={unpinned_count}"
         )
         print(f"[CFTUV][Phase1] obj.mode={obj.mode} active={bpy.context.active_object == obj}")
