@@ -1068,17 +1068,7 @@ def _collect_geometric_split_indices(loop_vert_cos, basis_u, basis_v,
             vi = loop_vert_indices[loop_vert_index]
             if vi < len(bm.verts):
                 vn = bm.verts[vi].normal
-                edge_in_n = (corner_co - prev_point).normalized()
-                edge_out_n = (next_point - corner_co).normalized()
-                turn_axis = edge_in_n.cross(edge_out_n)
-                alignment = abs(turn_axis.normalized().dot(vn.normalized())) if turn_axis.length_squared > 1e-12 else -1.0
-                is_tangent = _is_tangent_plane_turn(corner_co, prev_point, next_point, vn)
-                print(f"  [GeoSplit filter] idx={loop_vert_index} vi={vi} angle={turn_angle_deg:.1f} "
-                      f"vn=({vn.x:.3f},{vn.y:.3f},{vn.z:.3f}) "
-                      f"turn_axis_len={turn_axis.length:.6f} alignment={alignment:.4f} "
-                      f"is_tangent={is_tangent}")
-                if vn.length_squared > 1e-12 and not is_tangent:
-                    print(f"    -> FILTERED (bevel-wrap)")
+                if vn.length_squared > 1e-12 and not _is_tangent_plane_turn(corner_co, prev_point, next_point, vn):
                     continue
         candidate_corners.append((loop_vert_index, turn_angle_deg))
 
@@ -1330,8 +1320,6 @@ def _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v, bm=N
         return raw_chains
 
     lvi = raw_loop.get("vert_indices")
-    print(f"[CFTUV][GeoSplit] loop has vert_indices={'yes' if lvi else 'NO'} "
-          f"len={len(lvi) if lvi else 0}, bm={'yes' if bm else 'NO'}")
     split_indices = _collect_geometric_split_indices(
         raw_loop.get("vert_cos", []), basis_u, basis_v,
         loop_vert_indices=lvi,
