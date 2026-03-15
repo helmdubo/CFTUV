@@ -391,6 +391,7 @@ class ScaffoldPatchPlacement:
     status: str = "COMPLETE"
     dependency_patches: tuple = ()
     unplaced_chain_indices: tuple = ()
+    scaffold_connected_chains: frozenset[int] = field(default_factory=frozenset)
     pinned: bool = False
     origin_offset: tuple = (0.0, 0.0)  # sleeping field, Phase 5
 

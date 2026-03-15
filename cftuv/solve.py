@@ -1016,30 +1016,25 @@ def _count_patch_scaffold_points(patch_placement: ScaffoldPatchPlacement) -> int
 
 
 
-def _should_pin_scaffold_point(chain_placement: ScaffoldChainPlacement, point_index: int, point_count: int, conformal_patch: bool = False) -> bool:
+def _should_pin_scaffold_point(chain_placement: ScaffoldChainPlacement, point_index: int, point_count: int, conformal_patch: bool = False, scaffold_connected: bool = True) -> bool:
     """Pin policy для scaffold points.
 
     conformal_patch=True (FLOOR/SLOPE, все chains FREE):
       Ничего не пинить — Conformal unwrap обработает весь patch свободно.
-      Scaffold placement задаёт начальные UV позиции, но не фиксирует их.
 
-    H_FRAME/V_FRAME: все points запинены (жёсткий каркас).
+    H_FRAME/V_FRAME: пинятся только если scaffold_connected=True
+      (связаны с seed chain через непрерывную цепочку H/V chains).
+      Изолированные H/V за FREE-разрывом не пинятся — они не часть
+      основного scaffold каркаса и будут обработаны Conformal.
+
     FREE chains: НЕ пинятся.
-      Scaffold placement для FREE chains (`_build_guided_free_chain_from_one_end`)
-      сохраняет 3D углы, что может создать самопересекающуюся UV boundary.
-      LSCM solver тихо падает на self-intersecting boundaries.
-      Решение: пинить только H/V каркас (прямые линии, не пересекаются),
-      FREE chains + interior → Conformal обработает свободно.
     """
     if point_count <= 0:
         return False
     if conformal_patch:
         return False
     if chain_placement.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
-        return True
-    # FREE chains: не пинить — scaffold placement может создать
-    # самопересекающуюся UV boundary, что ломает LSCM solver.
-    # Conformal обработает FREE chains вместе с interior vertices.
+        return scaffold_connected
     return False
 
 
@@ -1105,8 +1100,11 @@ def _apply_patch_scaffold_to_uv(bm, graph: PatchGraph, uv_layer, patch_placement
     scaffold_keys = set()
     unresolved_keys = set()
 
+    scaffold_connected_set = patch_placement.scaffold_connected_chains
+
     for chain_placement in patch_placement.chain_placements:
         point_count = len(chain_placement.points)
+        is_connected = chain_placement.chain_index in scaffold_connected_set
         for point_index, (point_key, target_uv) in enumerate(chain_placement.points):
             key_id = _scaffold_key_id(point_key, chain_placement.source_kind)
             scaffold_keys.add(key_id)
@@ -1116,7 +1114,7 @@ def _apply_patch_scaffold_to_uv(bm, graph: PatchGraph, uv_layer, patch_placement
                 continue
 
             shifted_uv = target_uv + uv_offset
-            should_pin = _should_pin_scaffold_point(chain_placement, point_index, point_count, conformal_patch)
+            should_pin = _should_pin_scaffold_point(chain_placement, point_index, point_count, conformal_patch, scaffold_connected=is_connected)
             for target in targets:
                 target_id = (target.face_index, target.vert_index)
                 target_samples.setdefault(target_id, []).append(shifted_uv.copy())
@@ -1900,12 +1898,47 @@ def _cf_register_points(chain_ref, chain, uv_points, point_registry, vert_to_pla
             vert_to_placements.setdefault(vert_idx, []).append((chain_ref, i))
 
 
+def _compute_scaffold_connected_chains(patch_placements, total_chains, root_chain_index):
+    """Найти H/V chains связанные с root через непрерывную цепочку H/V.
+
+    Обход замкнутого loop: chains идут по порядку 0→1→...→N-1→0.
+    Два соседних chain scaffold-connected если ОБА имеют H/V role.
+    FREE chain разрывает scaffold connectivity.
+    BFS от root_chain_index по H/V-adjacency.
+    """
+    hv_roles = {FrameRole.H_FRAME, FrameRole.V_FRAME}
+
+    # Карта chain_index → frame_role для размещённых chains
+    placed_roles = {}
+    for cp in patch_placements:
+        placed_roles[cp.chain_index] = cp.frame_role
+
+    # Root должен быть H/V, иначе нет scaffold вообще
+    if root_chain_index not in placed_roles or placed_roles[root_chain_index] not in hv_roles:
+        return frozenset()
+
+    # BFS по H/V adjacency в loop
+    visited = {root_chain_index}
+    queue = [root_chain_index]
+    while queue:
+        ci = queue.pop()
+        for neighbor in [(ci - 1) % total_chains, (ci + 1) % total_chains]:
+            if neighbor in visited:
+                continue
+            if neighbor in placed_roles and placed_roles[neighbor] in hv_roles:
+                visited.add(neighbor)
+                queue.append(neighbor)
+
+    return frozenset(visited)
+
+
 def _cf_build_envelopes(
     graph,
     quilt_patch_ids,
     placed_chains_map,
     placed_chain_refs,
     chain_dependency_patches,
+    build_order=None,
 ):
     """ÃƒÆ’Ã‚ÂÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¿ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¸ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã¢â‚¬ËœÃƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â°ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â·ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â¼ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚ÂµÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â°ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â½ÃƒÆ’Ã¢â‚¬ËœÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Âµ chains ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â² ScaffoldPatchPlacement per patch."""
     patches = {}
@@ -2001,6 +2034,18 @@ def _cf_build_envelopes(
                 closure_error = (last_end - first_start).length
                 closure_valid = closure_error < 0.05
 
+        # Scaffold connectivity: найти root chain для этого patch из build_order,
+        # вычислить связные H/V chains. Изолированные H/V за FREE не пинятся.
+        root_ci = 0
+        if build_order:
+            for bo_ref in build_order:
+                if bo_ref[0] == patch_id:
+                    root_ci = bo_ref[2]
+                    break
+        scaffold_connected = _compute_scaffold_connected_chains(
+            patch_placements, total_chains, root_ci,
+        )
+
         patches[patch_id] = ScaffoldPatchPlacement(
             patch_id=patch_id,
             loop_index=outer_loop_index,
@@ -2014,6 +2059,7 @@ def _cf_build_envelopes(
             status=status,
             dependency_patches=tuple(sorted(dep_set)),
             unplaced_chain_indices=unplaced,
+            scaffold_connected_chains=scaffold_connected,
         )
 
     return patches
@@ -2226,6 +2272,7 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
         placed_chains_map,
         placed_chain_refs,
         chain_dependency_patches,
+        build_order=[seed_ref] + list(build_order),
     )
     quilt_scaffold.build_order = list(build_order)
 
@@ -2317,15 +2364,19 @@ def format_root_scaffold_report(
                 lines.append(
                     f"    Corner {corner_index}: ({point.x:.4f}, {point.y:.4f}) | chains:{prev_chain}->{next_chain} | turn:{turn_angle:.1f}"
                 )
+            sc_set = patch_placement.scaffold_connected_chains
             for chain_placement in patch_placement.chain_placements:
                 if not chain_placement.points:
                     continue
                 start_point = chain_placement.points[0][1]
                 end_point = chain_placement.points[-1][1]
+                isolated_tag = ""
+                if chain_placement.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME} and chain_placement.chain_index not in sc_set:
+                    isolated_tag = " [ISOLATED]"
                 lines.append(
                     f"    {chain_placement.source_kind.title()} {chain_placement.chain_index}: {chain_placement.frame_role.value} | "
                     f"points:{len(chain_placement.points)} | start:({start_point.x:.4f}, {start_point.y:.4f}) | "
-                    f"end:({end_point.x:.4f}, {end_point.y:.4f}) | uv:{_format_scaffold_uv_points(chain_placement.points)}"
+                    f"end:({end_point.x:.4f}, {end_point.y:.4f}) | uv:{_format_scaffold_uv_points(chain_placement.points)}{isolated_tag}"
                 )
 
     summary = (
