@@ -425,11 +425,69 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
     return gp_obj
 
 
+def _prepare_patch_fill_materials(graph, gp_data):
+    """Создаёт fill-материалы для каждого patch (как в Patches_ слоях)."""
+    golden_ratio = 0.618033988749895
+    patch_mat_indices = {}
+    for draw_index, patch_id in enumerate(sorted(graph.nodes.keys())):
+        node = graph.nodes[patch_id]
+        patch_type = _enum_value(node.patch_type)
+        hue = (draw_index * golden_ratio) % 1.0
+        if patch_type == PatchType.WALL.value:
+            sat, val = 0.8, 0.9
+        elif patch_type == PatchType.SLOPE.value:
+            sat, val = 0.7, 0.75
+        else:
+            sat, val = 0.5, 0.6
+        r, g, b = colorsys.hsv_to_rgb(hue, sat, val)
+
+        mat_name = f'CFTUV_FrontierPatch_{patch_id:03d}'
+        if mat_name in bpy.data.materials:
+            mat = bpy.data.materials[mat_name]
+        else:
+            mat = bpy.data.materials.new(mat_name)
+        if not mat.grease_pencil:
+            bpy.data.materials.create_gpencil_data(mat)
+        mat.grease_pencil.color = (r, g, b, 0.6)
+        mat.grease_pencil.show_fill = True
+        mat.grease_pencil.fill_color = (r, g, b, 0.6)
+        mat.grease_pencil.show_stroke = False
+
+        mat_idx = None
+        for slot_index, slot in enumerate(gp_data.materials):
+            if slot and slot.name == mat_name:
+                mat_idx = slot_index
+                break
+        if mat_idx is None:
+            gp_data.materials.append(mat)
+            mat_idx = len(gp_data.materials) - 1
+        patch_mat_indices[patch_id] = mat_idx
+    return patch_mat_indices
+
+
+def _draw_patch_fill(gp_frame, node, mat_idx):
+    """Рисует fill triangles patch'а на GP frame."""
+    for tri in node.mesh_tris:
+        if len(tri) < 3:
+            continue
+        stroke = gp_frame.strokes.new()
+        stroke.material_index = mat_idx
+        stroke.line_width = 1
+        stroke.use_cyclic = True
+        stroke.points.add(len(tri))
+        for point_index, vert_index in enumerate(tri):
+            point = node.mesh_verts[vert_index]
+            stroke.points[point_index].co = (point.x, point.y, point.z)
+            stroke.points[point_index].strength = 1.0
+            stroke.points[point_index].pressure = 1.0
+
+
 def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, settings_dict=None):
     """Анимированная визуализация scaffold build — покадровый replay frontier.
 
     Каждый кадр аккумулятивный: frame N показывает chains шагов 0..N.
     Цвета как в Loops_Chains: жёлтый (H), бирюзовый (V), серый (FREE).
+    Когда все chains patch'а размещены — появляется fill заливка.
     1 шаг = 1 секунда (fps из сцены). Playback через timeline.
     """
     settings_dict = settings_dict or {}
@@ -446,11 +504,13 @@ def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, s
     else:
         layer = gp_data.layers.new(layer_name, set_active=False)
 
-    # Материалы по frame role (те же цвета что Loops_Chains)
+    # Материалы: chains по role + patch fills
     chain_mat_indices = {}
     for role, color in _CHAIN_COLORS.items():
         mat_name = f'CFTUV_Frontier_{role.value}'
         chain_mat_indices[role] = _ensure_gp_material(gp_data, mat_name, color)
+
+    patch_fill_mats = _prepare_patch_fill_materials(graph, gp_data)
 
     # Собираем все шаги из всех quilts в единый timeline
     all_steps = []
@@ -463,19 +523,28 @@ def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, s
         apply_layer_visibility(gp_data, settings_dict)
         return
 
-    # Интервал между шагами: 1 секунда = fps кадров
+    # Считаем сколько chains у каждого patch в build_order
+    patch_total_chains = {}
+    for ref in all_steps:
+        pid = ref[0]
+        patch_total_chains[pid] = patch_total_chains.get(pid, 0) + 1
+
     fps = bpy.context.scene.render.fps
     total_steps = len(all_steps)
 
-    # Каждый GP frame аккумулятивный: содержит все strokes 0..step_index
+    # Каждый GP frame аккумулятивный: chains 0..step + fill для завершённых patches
     for step_index in range(total_steps):
         frame_number = step_index * fps
         gp_frame = layer.frames.new(frame_number)
 
-        # Рисуем все chains от 0 до step_index включительно
+        # Счётчик размещённых chains на текущий шаг
+        patch_placed = {}
+
         for draw_index in range(step_index + 1):
             ref = all_steps[draw_index]
             patch_id, loop_idx, chain_idx = ref
+            patch_placed[patch_id] = patch_placed.get(patch_id, 0) + 1
+
             node = graph.nodes.get(patch_id)
             if node is None:
                 continue
@@ -488,8 +557,6 @@ def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, s
 
             role = chain.frame_role if isinstance(chain.frame_role, FrameRole) else FrameRole(chain.frame_role)
             mat_idx = chain_mat_indices.get(role, chain_mat_indices[FrameRole.FREE])
-
-            # Текущий шаг рисуем толще
             line_width = 10 if draw_index == step_index else 6
 
             raw_points = chain.vert_cos + [chain.vert_cos[0]] if chain.is_closed else chain.vert_cos
@@ -497,7 +564,14 @@ def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, s
             if len(lifted_points) >= 2:
                 _add_gp_stroke(gp_frame, lifted_points, mat_idx, line_width=line_width)
 
-    # Настраиваем timeline под анимацию
+        # Рисуем fill для patches у которых все chains размещены
+        for pid, placed_count in patch_placed.items():
+            if placed_count >= patch_total_chains.get(pid, 999):
+                node = graph.nodes.get(pid)
+                if node is not None and pid in patch_fill_mats:
+                    _draw_patch_fill(gp_frame, node, patch_fill_mats[pid])
+
+    # Настраиваем timeline
     scene = bpy.context.scene
     scene.frame_start = 0
     scene.frame_end = (total_steps - 1) * fps
