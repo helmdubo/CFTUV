@@ -601,11 +601,15 @@ def _merge_bevel_wrap_chains(chains, bm):
     if len(chains) < 2:
         return chains
 
-    # Собираем face normals
-    bm.faces.ensure_lookup_table()
+    bm.verts.ensure_lookup_table()
 
     def _should_merge(chain_a, chain_b):
-        """Проверяет, нужно ли мержить chain_a и chain_b в точке стыка."""
+        """Проверяет, нужно ли мержить chain_a и chain_b в точке стыка.
+
+        Используем vertex normal (BMVert.normal) в точке стыка — это Blender-овская
+        усреднённая нормаль по всем смежным faces, стабильная даже на стыке
+        граней с разной ориентацией (бевель-угол).
+        """
         cos_a = chain_a.get("vert_cos", [])
         cos_b = chain_b.get("vert_cos", [])
         if len(cos_a) < 2 or len(cos_b) < 2:
@@ -616,26 +620,15 @@ def _merge_bevel_wrap_chains(chains, bm):
         prev_point = cos_a[-2]
         next_point = cos_b[1] if len(cos_b) > 1 else cos_b[0]
 
-        # Face normal в точке стыка: усредняем нормали смежных faces обоих chains
-        side_a = chain_a.get("side_face_indices", [])
-        side_b = chain_b.get("side_face_indices", [])
-        normals = []
-        if side_a and len(side_a) >= 1:
-            fi = side_a[-1]
-            if fi < len(bm.faces):
-                normals.append(bm.faces[fi].normal)
-        if side_b and len(side_b) >= 1:
-            fi = side_b[0]
-            if fi < len(bm.faces):
-                normals.append(bm.faces[fi].normal)
-        if not normals:
+        # Vertex normal в точке стыка
+        vert_index = chain_a["vert_indices"][-1]
+        if vert_index >= len(bm.verts):
+            return False
+        vert_normal = bm.verts[vert_index].normal
+        if vert_normal.length_squared < 1e-12:
             return False
 
-        avg_normal = sum(normals, Vector((0, 0, 0))) / len(normals)
-        if avg_normal.length_squared < 1e-12:
-            return False
-
-        return not _is_tangent_plane_turn(corner_co, prev_point, next_point, avg_normal)
+        return not _is_tangent_plane_turn(corner_co, prev_point, next_point, vert_normal)
 
     def _do_merge(chain_a, chain_b):
         """Объединяет chain_b в chain_a (chain_b's first vertex = chain_a's last)."""
@@ -659,6 +652,9 @@ def _merge_bevel_wrap_chains(chains, bm):
         i = 0
         while i < len(result):
             if i + 1 < len(result) and _should_merge(result[i], result[i + 1]):
+                vi = result[i]["vert_indices"][-1]
+                print(f"  [BevelMerge] merging chains at vert {vi}: "
+                      f"{len(result[i]['vert_indices'])}v + {len(result[i+1]['vert_indices'])}v")
                 new_result.append(_do_merge(result[i], result[i + 1]))
                 i += 2
                 merged = True
@@ -1011,28 +1007,34 @@ def _loop_arc_length(loop_vert_cos, start_loop_index, end_loop_index):
     return length
 
 
-def _is_tangent_plane_turn(corner_co, prev_point, next_point, face_normal):
+def _is_tangent_plane_turn(corner_co, prev_point, next_point, vert_normal):
     """Проверяет, что поворот в вершине происходит в касательной плоскости (UV-угол),
     а не вдоль нормали (бевель-заворот поверхности).
 
-    UV-угол: ось поворота ≈ параллельна нормали face → cross ∥ normal
+    UV-угол: ось поворота ≈ параллельна нормали вершины → cross ∥ normal
     Бевель-заворот: ось поворота ≈ перпендикулярна нормали → cross ⊥ normal
+
+    Используем vertex normal (BMVert.normal) — усреднённая по всем смежным faces,
+    стабильна в точке стыка разно-ориентированных граней.
+    Edges нормализуются перед cross product — иначе для коротких бевель-edges
+    cross product слишком мал и проваливается в collinear branch.
     """
     edge_in = corner_co - prev_point
     edge_out = next_point - corner_co
     if edge_in.length_squared < 1e-12 or edge_out.length_squared < 1e-12:
         return True  # дегенеративный случай — пропускаем фильтр
-    turn_axis = edge_in.cross(edge_out)
+    edge_in_n = edge_in.normalized()
+    edge_out_n = edge_out.normalized()
+    turn_axis = edge_in_n.cross(edge_out_n)
     if turn_axis.length_squared < 1e-12:
         # Коллинеарные edges (turn≈0° или ≈180°). Для hairpin (≈180°)
         # это скорее бевель-заворот — отфильтруем.
-        dot_val = edge_in.normalized().dot(edge_out.normalized())
+        dot_val = edge_in_n.dot(edge_out_n)
         if dot_val < -0.5:
-            # Hairpin: edges идут в противоположных направлениях
             return False
         return True
-    # Доля оси поворота, совпадающая с нормалью face
-    alignment = abs(turn_axis.normalized().dot(face_normal.normalized()))
+    # Доля оси поворота, совпадающая с нормалью вершины
+    alignment = abs(turn_axis.normalized().dot(vert_normal.normalized()))
     # alignment ≈ 1.0 → поворот в касательной плоскости (UV-угол)
     # alignment ≈ 0.0 → поворот вдоль нормали (бевель)
     return alignment > 0.3
