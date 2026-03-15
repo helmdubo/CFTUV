@@ -926,12 +926,48 @@ def _loop_arc_length(loop_vert_cos, start_loop_index, end_loop_index):
     return length
 
 
-def _collect_geometric_split_indices(loop_vert_cos, basis_u, basis_v):
+def _is_tangent_plane_turn(corner_co, prev_point, next_point, face_normal):
+    """Проверяет, что поворот в вершине происходит в касательной плоскости (UV-угол),
+    а не вдоль нормали (бевель-заворот поверхности).
+
+    UV-угол: ось поворота ≈ параллельна нормали face → cross ∥ normal
+    Бевель-заворот: ось поворота ≈ перпендикулярна нормали → cross ⊥ normal
+    """
+    edge_in = corner_co - prev_point
+    edge_out = next_point - corner_co
+    if edge_in.length_squared < 1e-12 or edge_out.length_squared < 1e-12:
+        return True  # дегенеративный случай — пропускаем фильтр
+    turn_axis = edge_in.cross(edge_out)
+    if turn_axis.length_squared < 1e-12:
+        # Коллинеарные edges (turn≈0° или ≈180°). Для hairpin (≈180°)
+        # это скорее бевель-заворот — отфильтруем.
+        dot_val = edge_in.normalized().dot(edge_out.normalized())
+        if dot_val < -0.5:
+            # Hairpin: edges идут в противоположных направлениях
+            return False
+        return True
+    # Доля оси поворота, совпадающая с нормалью face
+    alignment = abs(turn_axis.normalized().dot(face_normal.normalized()))
+    # alignment ≈ 1.0 → поворот в касательной плоскости (UV-угол)
+    # alignment ≈ 0.0 → поворот вдоль нормали (бевель)
+    return alignment > 0.3
+
+
+def _collect_geometric_split_indices(loop_vert_cos, basis_u, basis_v,
+                                     side_face_indices=None, bm=None):
     """Find stable corner indices for a closed OUTER loop."""
 
     vertex_count = len(loop_vert_cos)
     if vertex_count < 4:
         return []
+
+    # Подготовка face normals для фильтрации бевель-заворотов
+    face_normals = None
+    if side_face_indices is not None and bm is not None:
+        face_normals = {}
+        for fi in side_face_indices:
+            if fi not in face_normals and fi < len(bm.faces):
+                face_normals[fi] = bm.faces[fi].normal.copy()
 
     candidate_corners = []
     for loop_vert_index in range(vertex_count):
@@ -941,6 +977,12 @@ def _collect_geometric_split_indices(loop_vert_cos, basis_u, basis_v):
         turn_angle_deg = _measure_corner_turn_angle(corner_co, prev_point, next_point, basis_u, basis_v)
         if turn_angle_deg < CORNER_ANGLE_THRESHOLD_DEG:
             continue
+        # Фильтр: пропускаем бевель-завороты (поворот вдоль нормали)
+        if face_normals is not None and side_face_indices is not None:
+            fi = side_face_indices[loop_vert_index] if loop_vert_index < len(side_face_indices) else -1
+            fn = face_normals.get(fi)
+            if fn is not None and not _is_tangent_plane_turn(corner_co, prev_point, next_point, fn):
+                continue
         candidate_corners.append((loop_vert_index, turn_angle_deg))
 
     if len(candidate_corners) < 4:
@@ -1156,7 +1198,7 @@ def _split_border_chains_by_corners(raw_chains, basis_u, basis_v):
     return result
 
 
-def _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v):
+def _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v, bm=None):
     """Fallback split for isolated OUTER loops that collapsed into one FREE chain."""
 
     loop_kind = raw_loop.get("kind", LoopKind.OUTER)
@@ -1173,7 +1215,11 @@ def _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v):
     if not raw_chain.get("is_closed", False):
         return raw_chains
 
-    split_indices = _collect_geometric_split_indices(raw_loop.get("vert_cos", []), basis_u, basis_v)
+    split_indices = _collect_geometric_split_indices(
+        raw_loop.get("vert_cos", []), basis_u, basis_v,
+        side_face_indices=raw_loop.get("side_face_indices"),
+        bm=bm,
+    )
     print(f"[CFTUV][GeoSplit] split_indices={len(split_indices)} indices={split_indices}")
     if len(split_indices) < 4:
         print(f"[CFTUV][GeoSplit] BAIL: <4 split indices")
@@ -1361,7 +1407,7 @@ def _build_boundary_loops(raw_loops, patch_face_indices, face_to_patch, patch_id
             loop_neighbors,
         )
 
-        raw_chains = _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v)
+        raw_chains = _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v, bm=bm)
         raw_chains = _split_border_chains_by_corners(raw_chains, basis_u, basis_v)
         boundary_loop.chains = _build_boundary_chain_objects(raw_chains, basis_u, basis_v)
 
