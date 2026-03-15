@@ -2598,14 +2598,15 @@ def _execute_phase1_preview_impl(
     if not run_conformal:
         print(f"[CFTUV][Phase1] Transfer Only: quilts={len(scaffold_map.quilts)} patches={sorted(global_supported_patch_ids)}")
 
-    if not keep_pins:
-        bm = bmesh.from_edit_mesh(obj.data)
-        bm.faces.ensure_lookup_table()
-        bm.verts.ensure_lookup_table()
-        bm.edges.ensure_lookup_table()
-        uv_layer = bm.loops.layers.uv.verify()
-        _clear_patch_pins(bm, patch_graph, uv_layer, patch_ids)
-        bmesh.update_edit_mesh(obj.data)
+    # DEBUG: пины не снимаются — для проверки pinned state после Phase1
+    # if not keep_pins:
+    #     bm = bmesh.from_edit_mesh(obj.data)
+    #     bm.faces.ensure_lookup_table()
+    #     bm.verts.ensure_lookup_table()
+    #     bm.edges.ensure_lookup_table()
+    #     uv_layer = bm.loops.layers.uv.verify()
+    #     _clear_patch_pins(bm, patch_graph, uv_layer, patch_ids)
+    #     bmesh.update_edit_mesh(obj.data)
 
     return {
         'patches': len(patch_ids),
