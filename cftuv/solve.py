@@ -1923,21 +1923,31 @@ def _compute_scaffold_connected_chains(patch_placements, total_chains, root_chai
 
     Обход замкнутого loop: chains идут по порядку 0→1→...→N-1→0.
     Два соседних chain scaffold-connected если ОБА имеют H/V role.
-    FREE chain разрывает scaffold connectivity.
+    One-edge FREE chains (bridge, ≤2 вершин) прозрачны для BFS —
+    пропускают связность к H/V chain за ними, но сами включаются
+    в connected set (их endpoints = corners, уже запинены соседями).
+    Длинные FREE chains разрывают scaffold connectivity.
     BFS от root_chain_index по H/V-adjacency.
     """
     hv_roles = {FrameRole.H_FRAME, FrameRole.V_FRAME}
 
-    # Карта chain_index → frame_role для размещённых chains
-    placed_roles = {}
+    # Карта chain_index → (frame_role, point_count) для размещённых chains
+    placed_info = {}
     for cp in patch_placements:
-        placed_roles[cp.chain_index] = cp.frame_role
+        placed_info[cp.chain_index] = (cp.frame_role, len(cp.points))
 
     # Root должен быть H/V, иначе нет scaffold вообще
-    if root_chain_index not in placed_roles or placed_roles[root_chain_index] not in hv_roles:
+    if root_chain_index not in placed_info or placed_info[root_chain_index][0] not in hv_roles:
         return frozenset()
 
-    # BFS по H/V adjacency в loop
+    def _is_bridge(ci):
+        """One-edge FREE chain (≤2 points) — прозрачный мост."""
+        if ci not in placed_info:
+            return False
+        role, pc = placed_info[ci]
+        return role == FrameRole.FREE and pc <= 2
+
+    # BFS по H/V adjacency, one-edge FREE мосты прозрачны
     visited = {root_chain_index}
     queue = [root_chain_index]
     while queue:
@@ -1945,7 +1955,14 @@ def _compute_scaffold_connected_chains(patch_placements, total_chains, root_chai
         for neighbor in [(ci - 1) % total_chains, (ci + 1) % total_chains]:
             if neighbor in visited:
                 continue
-            if neighbor in placed_roles and placed_roles[neighbor] in hv_roles:
+            if neighbor not in placed_info:
+                continue
+            role, _ = placed_info[neighbor]
+            if role in hv_roles:
+                visited.add(neighbor)
+                queue.append(neighbor)
+            elif _is_bridge(neighbor):
+                # Bridge прозрачен: включаем его и продолжаем BFS через него
                 visited.add(neighbor)
                 queue.append(neighbor)
 
