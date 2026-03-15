@@ -1185,20 +1185,33 @@ def _split_closed_loop_by_corner_indices(raw_loop, split_indices, neighbor_patch
     return raw_chains
 
 
-def _find_open_chain_corners(vert_cos, basis_u, basis_v, min_spacing=2):
+def _find_open_chain_corners(vert_cos, basis_u, basis_v, min_spacing=2,
+                             vert_indices=None, bm=None):
     """Detect corners on an open (non-closed) chain by per-vertex angle.
 
     Returns list of indices into vert_cos where turn angle >= CORNER_ANGLE_THRESHOLD_DEG.
     Excludes endpoints (0 and len-1) — they are chain boundaries, not interior corners.
+    Бевель-завороты (поворот вдоль vertex normal) отфильтровываются если переданы
+    vert_indices и bm.
     """
     vertex_count = len(vert_cos)
     if vertex_count < 3:
         return []
 
+    use_vert_normals = (vert_indices is not None and bm is not None)
+
     candidates = []
     for i in range(1, vertex_count - 1):
         turn_angle = _measure_corner_turn_angle(vert_cos[i], vert_cos[i - 1], vert_cos[i + 1], basis_u, basis_v)
         if turn_angle >= CORNER_ANGLE_THRESHOLD_DEG:
+            # Фильтр: бевель-завороты
+            if use_vert_normals:
+                vi = vert_indices[i]
+                if vi < len(bm.verts):
+                    vn = bm.verts[vi].normal
+                    if vn.length_squared > 1e-12 and not _is_tangent_plane_turn(
+                            vert_cos[i], vert_cos[i - 1], vert_cos[i + 1], vn):
+                        continue
             candidates.append((i, turn_angle))
 
     if not candidates:
@@ -1263,7 +1276,7 @@ def _split_open_chain_at_corners(raw_chain, corner_indices):
     return sub_chains if sub_chains else [raw_chain]
 
 
-def _split_border_chains_by_corners(raw_chains, basis_u, basis_v):
+def _split_border_chains_by_corners(raw_chains, basis_u, basis_v, bm=None):
     """Split all open MESH_BORDER chains at geometric corners.
 
     Безусловно применяется ко всем MESH_BORDER chains — не проверяем
@@ -1284,7 +1297,11 @@ def _split_border_chains_by_corners(raw_chains, basis_u, basis_v):
             result.append(raw_chain)
             continue
 
-        corner_indices = _find_open_chain_corners(vert_cos, basis_u, basis_v)
+        corner_indices = _find_open_chain_corners(
+            vert_cos, basis_u, basis_v,
+            vert_indices=raw_chain.get("vert_indices"),
+            bm=bm,
+        )
         if not corner_indices:
             result.append(raw_chain)
             continue
@@ -1511,7 +1528,7 @@ def _build_boundary_loops(raw_loops, patch_face_indices, face_to_patch, patch_id
         raw_chains = _merge_bevel_wrap_chains(raw_chains, bm)
 
         raw_chains = _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v, bm=bm)
-        raw_chains = _split_border_chains_by_corners(raw_chains, basis_u, basis_v)
+        raw_chains = _split_border_chains_by_corners(raw_chains, basis_u, basis_v, bm=bm)
         boundary_loop.chains = _build_boundary_chain_objects(raw_chains, basis_u, basis_v)
 
         boundary_loop.corners = _build_loop_corners(boundary_loop, raw_chains, basis_u, basis_v)
