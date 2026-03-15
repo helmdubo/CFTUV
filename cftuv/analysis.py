@@ -1261,6 +1261,7 @@ def _split_open_chain_at_corners(raw_chain, corner_indices):
             "is_closed": False,
             "start_loop_index": parent_start_loop_index + start,
             "end_loop_index": parent_start_loop_index + end,
+            "is_corner_split": True,
         })
 
     return sub_chains if sub_chains else [raw_chain]
@@ -1380,6 +1381,7 @@ def _build_boundary_chain_objects(raw_chains, basis_u, basis_v):
                 frame_role=_classify_chain_frame_role(chain_vert_cos, basis_u, basis_v, strict_guards=use_strict_guards),
                 start_loop_index=int(raw_chain.get("start_loop_index", 0)),
                 end_loop_index=int(raw_chain.get("end_loop_index", 0)),
+                is_corner_split=bool(raw_chain.get("is_corner_split", False)),
             )
         )
     return chains

@@ -1768,33 +1768,50 @@ def _cf_score_candidate(
     end_anchor: Optional[ChainAnchor] = None,
 ):
     """Chain-level score ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â´ÃƒÆ’Ã‚ÂÃƒâ€šÃ‚Â»ÃƒÆ’Ã¢â‚¬ËœÃƒâ€šÃ‚Â frontier candidate."""
+    # Иерархия приоритетов:
+    #   1. Cross-patch same-type H/V (seam скелет quilt):  base 2.0
+    #   2. Cross-patch diff-type H/V:                       base 1.5
+    #   3. Regular H/V (same patch boundary):               base 1.0
+    #   4. Bridge FREE (1 edge, 2 verts):                   base 0.8
+    #   5. Corner-split H/V (mesh border sub-chains):       base 0.4
+    #   6. Regular FREE:                                    base 0.2
     score = 0.0
     is_bridge = chain.frame_role == FrameRole.FREE and len(chain.vert_cos) <= 2
+    is_hv = chain.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME)
 
-    if chain.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
-        score += 1.0
+    # --- Base role score с учётом cross-patch и corner-split ---
+    if is_hv:
+        if chain.is_corner_split:
+            # Corner-split sub-chains: низкий приоритет, после bridge
+            score += 0.4
+        elif chain.neighbor_kind == ChainNeighborKind.PATCH and chain.neighbor_patch_id in quilt_patch_ids:
+            # Cross-patch H/V: скелет quilt — высший приоритет
+            current_type = node.patch_type
+            neighbor_node = graph.nodes.get(chain.neighbor_patch_id)
+            neighbor_type = neighbor_node.patch_type if neighbor_node else None
+            if current_type == neighbor_type:
+                score += 2.0
+            else:
+                score += 1.5
+        else:
+            # Regular H/V (same patch, seam_self, mesh_border)
+            score += 1.0
     elif is_bridge:
-        # Одинарные FREE (1 ребро, 2 вершины) — тривиально вычислимые мосты.
-        # Позиция полностью определена двумя endpoint anchors.
         score += 0.8
     else:
         score += 0.2
 
+    # --- Anchor count bonus ---
     if known == 2:
         score += 0.8
     elif known == 1:
         score += 0.3
 
-    if chain.neighbor_kind == ChainNeighborKind.PATCH and chain.neighbor_patch_id in quilt_patch_ids:
-        neighbor_key = graph.get_patch_semantic_key(chain.neighbor_patch_id)
-        if 'FLOOR' in neighbor_key:
-            score += 0.3
-        elif neighbor_key.endswith('.SIDE'):
-            score += 0.15
-
+    # --- Momentum: patch уже имеет placed chains ---
     if placed_in_patch > 0:
         score += 0.2
 
+    # --- Anchor source preference ---
     same_patch_anchor_count = sum(
         1 for anchor in (start_anchor, end_anchor)
         if anchor is not None and anchor.source_kind == 'same_patch'
