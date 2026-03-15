@@ -1077,7 +1077,7 @@ def _collect_geometric_split_indices(loop_vert_cos, basis_u, basis_v,
 
     perimeter = _loop_arc_length(loop_vert_cos, 0, 0)
     min_span_length = max(perimeter * 0.04, 1e-4)
-    min_vertex_gap = 2
+    min_vertex_gap = 1
 
     filtered_corners = []
     for loop_vert_index, turn_angle_deg in candidate_corners:
