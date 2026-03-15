@@ -887,6 +887,37 @@ def _clear_patch_pins(bm, graph: PatchGraph, uv_layer, patch_ids: list[int]) -> 
             loop[uv_layer].pin_uv = False
 
 
+def _pin_corner_vertices(bm, graph: PatchGraph, uv_layer, patch_ids: list[int]) -> int:
+    """Пинит только corner vertices (стыки chains).
+    Corners определяют прямоугольный каркас для LSCM без over-constraining
+    boundary segments. Возвращает кол-во запинённых UV loops."""
+    corner_vert_indices = set()
+    for patch_id in patch_ids:
+        node = graph.nodes.get(patch_id)
+        if node is None:
+            continue
+        for bl in node.boundary_loops:
+            for corner in bl.corners:
+                if corner.vert_index >= 0:
+                    corner_vert_indices.add(corner.vert_index)
+
+    face_indices = set()
+    for patch_id in patch_ids:
+        node = graph.nodes.get(patch_id)
+        if node is None:
+            continue
+        face_indices.update(node.face_indices)
+
+    pinned = 0
+    for face_index in face_indices:
+        face = bm.faces[face_index]
+        for loop in face.loops:
+            if loop.vert.index in corner_vert_indices:
+                loop[uv_layer].pin_uv = True
+                pinned += 1
+    return pinned
+
+
 
 def _scaffold_key_id(point_key: ScaffoldPointKey, source_kind: str) -> tuple[int, int, int, int, str]:
     return (
@@ -2489,10 +2520,7 @@ def _execute_phase1_preview_impl(
         uv_layer = bm.loops.layers.uv.verify()
         _select_patch_faces(bm, patch_graph, all_conformal_patch_ids)
         _select_patch_uv_loops(bm, patch_graph, uv_layer, all_conformal_patch_ids)
-        # Очистить пины перед Conformal: scaffold задал UV позиции,
-        # но LSCM с пинами over-constrain'ит boundary и искажает interior.
-        # Без пинов LSCM даёт оптимальный angle-preserving unwrap.
-        _clear_patch_pins(bm, patch_graph, uv_layer, all_conformal_patch_ids)
+        # Все scaffold пины остаются — LSCM корректно работает с ними.
         sel_faces = sum(1 for f in bm.faces if f.select)
         pinned_count = sum(
             1 for f in bm.faces if f.select
