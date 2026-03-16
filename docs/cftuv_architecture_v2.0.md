@@ -276,6 +276,11 @@ operators.py
 а corner generation ещё нужно сделать полностью согласованным с финальным chain representation.
 Это известная structural зона риска и следующая кандидатура на рефакторинг.
 
+Кроме этого, `_classify_loops_outer_hole()` остаётся единственным analysis-шагом,
+который временно использует UV-dependent side effects.
+Сейчас это допустимое исключение, но оно должно оставаться локализованным и не должно
+расползаться на другие части topology builder.
+
 ---
 
 ## `solve.py` Current Behavior
@@ -466,7 +471,19 @@ Debug path обязателен.
 Это делает intermediate contracts менее прозрачными
 и усложняет безопасный refactor chain/corner logic.
 
-### 3. Frontier runtime state раздроблен
+### 3. `analysis.py` не полностью чистый из-за временного UV-dependent loop classification
+
+`_classify_loops_outer_hole()` временно мутирует UV state ради `OUTER/HOLE` classification.
+Даже при корректном rollback это остаётся special-case boundary внутри analysis
+и требует явной изоляции.
+
+### 4. Нет удобного serializable scaffold snapshot baseline
+
+Сейчас regression verification в основном держится на console logs и ручном осмотре.
+Следующий полезный шаг - не тяжёлый automated test framework,
+а стабильный scaffold snapshot/report, который можно сравнивать до/после рефактора.
+
+### 5. Frontier runtime state раздроблен
 
 Сейчас frontier builder держит несколько параллельных registry:
 
@@ -479,7 +496,7 @@ Debug path обязателен.
 
 Это рабочее решение, но не лучший long-term state model.
 
-### 4. Часть `ScaffoldPatchPlacement` полей transitional
+### 6. Часть `ScaffoldPatchPlacement` полей transitional
 
 Например:
 
@@ -492,7 +509,7 @@ Debug path обязателен.
 Эти поля нужно либо честно заполнять,
 либо убрать/заморозить до отдельной фазы.
 
-### 5. Формальных автоматических тестов нет
+### 7. Формальных автоматических тестов нет
 
 Верификация идёт через:
 
@@ -501,9 +518,9 @@ Debug path обязателен.
 - manual UV inspection;
 - повторяемые regression meshes.
 
-Практически следующая полезная ступень —
+Практически следующая полезная ступень -
 не unit tests на всё подряд,
-а стабильный regression harness с golden logs и known meshes.
+а стабильный regression harness с golden logs, scaffold snapshots и known meshes.
 
 ---
 
@@ -519,9 +536,10 @@ Debug path обязателен.
 
 Следующий архитектурный приоритет:
 
-1. topology consistency в `analysis.py`;
-2. central solve policy layer;
-3. frontier state cleanup.
+1. typed raw payload в `analysis.py`;
+2. topology consistency в `analysis.py`;
+3. isolation boundary для UV-dependent analysis step;
+4. central solve policy layer.
 
 Подробный порядок описан в:
 
