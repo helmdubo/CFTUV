@@ -356,12 +356,33 @@ Planning делает:
    для обычного chain closure.
    Это защищает от ложного patch wrap.
 
-9. Для H/V dual-anchor placement есть axis/span safety guard.
+9. `FREE` chains остаются `endpoint-hard`: при двух anchors они могут
+   растягиваться между двумя UV точками.
+
+10. `H/V` chains архитектурно должны трактоваться не как обычная dual-anchor interpolation.
+    Целевая runtime-semantics для них — `axis-hard, span-soft`:
+    - `H_FRAME` обязан оставаться горизонтальным;
+    - `V_FRAME` обязан оставаться вертикальным;
+    - углы frame-каркаса считаются жёсткими;
+    - расхождение длин компенсируется вдоль рабочей оси, а не через наклон chain.
+    Важно: локальная per-chain rectification для этого оказалась недостаточной и
+    временно отключена в runtime до появления patch/quilt-level orthogonal solve.
+
+11. Tree-only scaffold solve пока не делает отдельный correction pass
+    для non-tree closure seams.
+    Поэтому ring/cylinder quilts могут сохранять intentional cut seam,
+    но всё равно накапливать span drift между двумя сторонами closure.
+    Этот drift особенно заметен, если tree path к closure seam проходит
+    через one-edge `FREE` bridge.
 
 ### Practical implication
 
 Ring / cylinder / closed-house topology может быть seam-connected по кругу,
 но quilt scaffold всё равно должен оставаться tree, а не UV cycle.
+
+Важно:
+tree-only sewing решает проблему ложного замыкания, но само по себе
+не решает accumulated closure error на intentional cut seam.
 
 ---
 
@@ -471,6 +492,12 @@ Debug path обязателен.
 Это делает intermediate contracts менее прозрачными
 и усложняет безопасный refactor chain/corner logic.
 
+Отдельно важно:
+corner detection сейчас идёт по двум путям с не полностью одинаковой семантикой
+для closed `OUTER` loops и open `MESH_BORDER` chains.
+Это не объявлено багом само по себе, но должно быть явно проверено в Phase 1B,
+чтобы intentional differences не смешивались со случайным drift.
+
 ### 3. `analysis.py` не полностью чистый из-за временного UV-dependent loop classification
 
 `_classify_loops_outer_hole()` временно мутирует UV state ради `OUTER/HOLE` classification.
@@ -496,7 +523,26 @@ Debug path обязателен.
 
 Это рабочее решение, но не лучший long-term state model.
 
-### 6. Часть `ScaffoldPatchPlacement` полей transitional
+### 6. Нет отдельной runtime-стадии для frame-row alignment и closure stabilization
+
+Сейчас quilt может быть корректным как tree solve и всё равно иметь два разных runtime-артефакта:
+
+- drift на non-tree closure seam;
+- scatter внутри геометрически коллинеарных `H_FRAME` / `V_FRAME`, когда chains одной 3D-линии получают разные UV offsets.
+
+Это две связанные, но не одинаковые проблемы:
+
+- closure seam может требовать точечной pre-constraint / correction логики;
+- row / column inconsistency требует отдельной диагностики и, возможно, ограниченного post-pass выравнивания.
+
+Для этой зоны нужен отдельный runtime track:
+
+- diagnostics для closure seams и row/column classes;
+- сначала точечный closure pre-constraint для closure-sensitive paths;
+- затем повторный замер;
+- и только потом, если scatter всё ещё значим, консервативный row/column snap post-pass.
+
+### 7. Часть `ScaffoldPatchPlacement` полей transitional
 
 Например:
 
@@ -509,7 +555,12 @@ Debug path обязателен.
 Эти поля нужно либо честно заполнять,
 либо убрать/заморозить до отдельной фазы.
 
-### 7. Формальных автоматических тестов нет
+Кроме этого, текущая pin policy вычисляется уже после frontier placement,
+через scaffold connectivity на этапе transfer/envelope logic.
+Для текущей грубой pin policy это допустимо, но более умная pin strategy
+потребует отдельного архитектурного решения, а не локального tweak.
+
+### 8. Формальных автоматических тестов нет
 
 Верификация идёт через:
 
@@ -540,6 +591,21 @@ Debug path обязателен.
 2. topology consistency в `analysis.py`;
 3. isolation boundary для UV-dependent analysis step;
 4. central solve policy layer.
+
+Параллельный runtime research track:
+
+- closure seam diagnostics;
+- row/column diagnostics;
+- точечный closure pre-constraint;
+- затем только при необходимости консервативный row/column snap post-pass.
+
+Текущее состояние этого track:
+
+- diagnostics для non-tree same-role closure seams уже добавлены в `solve.py`;
+- они измеряют span mismatch, positional drift по shared seam vertices (`phase` вдоль рабочей оси и `cross-axis` offset), а также общий shared UV delta;
+- они пишутся в logs и сохраняются в `ScaffoldQuiltPlacement.closure_seam_reports`;
+- row/column diagnostics, closure pre-constraint и snap post-pass ещё не реализованы;
+- локальная per-chain rectification для `H/V` уже проверялась и была отключена как structural regression, потому что она не держит согласованный ряд/колонку на уровне quilt.
 
 Подробный порядок описан в:
 

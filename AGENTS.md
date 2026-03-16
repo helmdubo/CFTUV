@@ -30,6 +30,8 @@ Quilt растёт органически от root chain наружу, пере
 ## Architecture
 
 Прочитай `docs/cftuv_architecture_v2.0.md` перед любой работой. Это главный документ.
+Затем обязательно прочитай `docs/cftuv_refactor_roadmap_for_agents.md`.
+Для нового агента это не optional companion, а документ с текущим practical plan и границами scope.
 
 Система разделена на 7 модулей:
 
@@ -160,6 +162,9 @@ Quilt растёт органически от root chain наружу, пере
 - НЕ хранить BMFace/BMEdge ссылки в model — только индексы
 - **НЕ использовать Hotspot_UV_v2_5_26.py как источник логики — это мёртвый legacy**
 - **НЕ возвращаться к patch-first или loop-sequential placement**
+- **НЕ уходить в большой orthogonal frame graph solve / editable constraint platform / dirty-scope system на текущем runtime этапе**
+- **НЕ возвращать локальную per-chain rectification для `H/V` — она уже дала structural regression**
+- **НЕ делать quilt-wide snap "на всякий случай" без diagnostics**
 
 ## Testing approach
 
@@ -175,6 +180,40 @@ Quilt растёт органически от root chain наружу, пере
 ## Refactoring state
 
 Текущая фаза: см. `docs/cftuv_architecture_v2.0.md`.
+
+Важно: кроме основных refactor phases сейчас есть отдельный active runtime track.
+Он не должен уводить агента в redesign всего solve layer.
+
+### Current active runtime task
+
+Текущая practical задача не в том, чтобы переписать solve, а в том, чтобы
+стабилизировать frame alignment / closure behavior без потери chain-first architecture.
+
+Текущий порядок работ:
+
+1. добавить `row / column diagnostics` рядом с уже существующими `closure seam diagnostics`;
+2. затем сделать точечный `closure pre-constraint` только для closure-sensitive paths;
+3. затем повторно промерить diagnostics;
+4. и только если scatter реально остаётся, добавить очень консервативный `row / column snap post-pass`.
+
+### Runtime guardrails
+
+Для этого runtime track действуют жёсткие ограничения:
+
+- frontier остаётся chain-first strongest-frontier;
+- tree-only quilt sewing не ломать;
+- `FREE` не трогать без необходимости;
+- не вводить новые persistent override поля в IR до реального manual-use case;
+- не делать patch/quilt-wide "умный solve" вместо точечных шагов diagnostics -> pre-constraint -> remeasure -> snap.
+
+### Already known runtime facts
+
+- diagnostics для non-tree same-role closure seams уже есть в `solve.py`;
+- они уже считают `span mismatch`, `phase`, `cross-axis offset`, `shared UV delta`;
+- локальная `per-chain rectification` для `H/V` уже тестировалась и отключена;
+- текущая проблема сформулирована как две разные зоны:
+  1. closure-sensitive seams;
+  2. row / column inconsistency внутри геометрически коллинеарных `H_FRAME` / `V_FRAME`.
 
 Фазы рефакторинга:
 - Phase 0: Glossary & Docs ✓

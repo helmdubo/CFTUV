@@ -369,7 +369,42 @@ class ScaffoldChainPlacement:
     chain_index: int
     frame_role: FrameRole
     source_kind: str = "chain"
+    anchor_count: int = 0
+    start_anchor_kind: str = ""
+    end_anchor_kind: str = ""
     points: tuple[tuple[ScaffoldPointKey, Vector], ...] = ()
+
+
+@dataclass(frozen=True)
+class ScaffoldClosureSeamReport:
+    """Диагностика non-tree closure seam внутри одного quilt."""
+
+    owner_patch_id: int
+    owner_loop_index: int
+    owner_chain_index: int
+    target_patch_id: int
+    target_loop_index: int
+    target_chain_index: int
+    frame_role: FrameRole = FrameRole.FREE
+    owner_anchor_count: int = 0
+    target_anchor_count: int = 0
+    anchor_mode: str = "unknown"
+    canonical_3d_span: float = 0.0
+    owner_uv_span: float = 0.0
+    target_uv_span: float = 0.0
+    owner_axis_error: float = 0.0
+    target_axis_error: float = 0.0
+    span_mismatch: float = 0.0
+    sampled_shared_vert_count: int = 0
+    shared_uv_delta_max: float = 0.0
+    shared_uv_delta_mean: float = 0.0
+    axis_phase_offset_max: float = 0.0
+    axis_phase_offset_mean: float = 0.0
+    cross_axis_offset_max: float = 0.0
+    cross_axis_offset_mean: float = 0.0
+    tree_patch_distance: int = 0
+    free_bridge_count: int = 0
+    shared_vert_count: int = 0
 
 
 @dataclass
@@ -405,6 +440,7 @@ class ScaffoldQuiltPlacement:
     root_patch_id: int
     patches: dict[int, ScaffoldPatchPlacement] = field(default_factory=dict)
     build_order: list = field(default_factory=list)  # Phase 3: ChainRef tuples
+    closure_seam_reports: tuple[ScaffoldClosureSeamReport, ...] = ()
 
 
 @dataclass

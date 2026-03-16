@@ -150,6 +150,27 @@
 Обе нужны.
 Проблема не в наличии двух моделей, а в том, что их слишком легко перепутать.
 
+### F9. Tree-only scaffold solve не компенсирует closure seam drift
+
+После исправления ring-wrap bug quilt остаётся tree, что правильно.
+Но non-tree closure seams теперь остаются intentional cuts без отдельного correction pass.
+
+Риск:
+
+- на closure seam может накапливаться как span drift, так и positional phase drift вдоль рабочей оси seam;
+- `V_FRAME<->V_FRAME` и `H_FRAME<->H_FRAME` могут дать заметный seam mismatch;
+- one-edge `FREE` bridges усиливают drift, потому что path до closure становится мягче.
+
+Важно:
+это не refactor bug и не аргумент возвращать UV cycle.
+Это отдельная runtime-стабилизационная задача после tree-only solve.
+
+Важно для runtime semantics:
+- `FREE` chains остаются `endpoint-hard`;
+- `H/V` chains целевым образом должны трактоваться как `axis-hard, span-soft`, а не как обычная dual-anchor interpolation;
+- локальная per-chain rectification для `H/V` уже показала structural regression и временно отключена;
+- следующий безопасный шаг здесь не новый локальный snap, а patch/quilt-level orthogonal frame solve.
+
 ---
 
 ## Refactor Strategy
@@ -169,6 +190,177 @@
 Этот порядок важен.
 Если сначала "чистить классы", а solve rules всё ещё размазаны по коду,
 вы просто получите красиво оформленный источник новых багов.
+
+---
+
+## Parallel Runtime Track. Frame Alignment And Closure Stability
+
+### Why This Is Separate
+
+Эта проблема не является прямым продолжением текущих architecture-refactor phases.
+Она появилась как следующая runtime-граница после правильного перехода к tree-only quilt sewing
+и после стабилизации базового chain-first frontier.
+
+Поэтому её лучше вести как отдельный track:
+
+- не смешивать с Phase 1A/1B/1C;
+- не блокировать Phase 2;
+- но и не терять как "потом как-нибудь".
+
+### Problem Statement
+
+Tree scaffold размещает patches последовательно от root.
+Каждый шаг вносит небольшой residual:
+
+- scale rounding;
+- snapped frame direction;
+- guided `FREE` placement;
+- anchor interpolation.
+
+Когда quilt topology содержит цикл, tree solve разрезает его правильно,
+но accumulated residual остаётся на non-tree closure seam.
+
+Отдельно от этого есть второй runtime-класс проблемы:
+
+- геометрически коллинеарные `H_FRAME` / `V_FRAME` внутри одного quilt
+  могут получать разные UV offsets;
+- визуально это выглядит как "гуляющие" горизонтальные или вертикальные ряды,
+  хотя в 3D они лежат в одной линии;
+- это уже не чистый closure bug, а недостаток согласованности row / column placement.
+
+Это даёт два разных runtime case:
+
+1. `Dual-anchor closure seam`
+   Обе стороны closure seam уже имеют два anchor.
+   Здесь проблема в самих anchor positions и accumulated span, а не во внутренних точках chain.
+
+2. `One-anchor closure-sensitive seam`
+   Хотя бы одна сторона closure-sensitive path ещё строится от одного anchor.
+   Здесь главная цель - prevention: не дать frontier прийти к closure через слабый `FREE` path,
+   если есть frame continuation.
+
+### Ordered Plan
+
+#### Step 0. Diagnostics First
+
+Сначала расширить диагностику до двух типов отчётов:
+
+1. `closure seam diagnostics`
+2. `row / column diagnostics`
+
+Для closure seams текущая база уже есть:
+
+- quilt id;
+- patch pair;
+- owner/target chain refs;
+- seam role (`H/H`, `V/V`);
+- anchor mode (`dual-anchor`, `one-anchor`, `mixed`);
+- canonical 3D span;
+- owner / target UV span;
+- axis error;
+- phase offset вдоль рабочей оси seam;
+- cross-axis offset;
+- общий shared-vertex UV delta;
+- path length in tree;
+- free bridge count on path.
+
+Для row / column diagnostics добавить:
+
+- grouping `H_FRAME` chains по общей 3D row class;
+- grouping `V_FRAME` chains по общей 3D column class;
+- UV scatter внутри каждой группы (`max`, `mean`);
+- sample count и суммарную длину chains в группе;
+- признак, является ли группа closure-sensitive.
+
+Без этого любой snap или pre-constraint будет слепым.
+
+#### Step 1. Closure Pre-Constraint First
+
+Первый runtime fix после diagnostics должен быть точечным и low-risk:
+
+- добавить closure pre-constraint только для closure-sensitive seams;
+- не менять поведение non-cyclic quilts;
+- не трогать chains, которые не участвуют в closure path;
+- использовать canonical 3D span / axis как guide до момента placement.
+
+Это точечнее и безопаснее, чем quilt-wide post-pass.
+
+#### Step 2. Re-Measure
+
+После closure pre-constraint снова прогнать diagnostics:
+
+- closure residual;
+- row / column scatter;
+- особенно кейсы с `FREE bridge` на closure path.
+
+Если closure residual ушёл, а row scatter остался, это уже отдельный alignment case,
+а не closure bug.
+
+#### Step 3. Conservative Row / Column Snap Post-Pass
+
+Только если diagnostics всё ещё показывают значимый scatter, добавить
+очень ограниченный snap post-pass:
+
+- только для подтверждённых row / column classes;
+- только для `H_FRAME` / `V_FRAME`;
+- только вне `FREE`;
+- только при scatter выше порога;
+- weighted average по длине chain и/или strength;
+- не как новый solve layer, а как консервативный post-pass после frontier.
+
+Первая practical цель здесь — `WALL.SIDE` cases.
+
+#### Step 4. Only Then Revisit Wider Prevention
+
+Если после этого всё ещё остаются production cases, уже потом возвращаться к:
+
+- closure-aware scoring;
+- dual-anchor closure correction pass;
+- optional seam equalization.
+
+Но не раньше, чем появятся данные после diagnostics и closure pre-constraint.
+
+### Non-Goals
+
+Не делать:
+
+- возврат к patch wrap или UV cycle;
+- большой orthogonal frame graph solve на этом этапе;
+- persistent override layer / dirty-scope system ради этой задачи;
+- quilt-wide snap "на всякий случай" без diagnostics;
+- off-axis correction для `H_FRAME` / `V_FRAME`;
+- маскировку drift простым усреднением UV targets на transfer stage.
+
+Дополнительно:
+
+- не добавлять новые persistent opt-out поля в IR до появления реального manual case;
+- в этой фазе достаточно уважать текущие role/type guards и не трогать `FREE`.
+
+### Success Criteria
+
+- non-tree closure seams диагностируются явно;
+- row / column groups диагностируются явно;
+- ring/closed-house cases сохраняют intentional cut seam без заметного V/V или H/H drift;
+- collinear `H_FRAME` / `V_FRAME` группы перестают гулять по cross-axis без необходимости;
+- paths с `FREE bridge` больше не являются "тихим усилителем" closure mismatch;
+- runtime fix не ломает tree-only solve и не возвращает cycle sewing.
+
+### Immediate Code Entry Points
+
+Ближайшая practical implementation order:
+
+1. `solve.py -> build_root_scaffold_map()`
+   Здесь уже есть центральная точка после frontier build и до final transfer.
+
+2. `solve.py -> _collect_quilt_closure_seam_reports()`
+   Использовать как существующий шаблон для нового row / column diagnostic report.
+
+3. `solve.py -> _cf_resolve_candidate_anchors()` / placement path
+   Здесь будет естественная точка для closure pre-constraint.
+
+4. `solve.py -> placed_chains_map` post-pass перед `_cf_build_envelopes()`
+   Это правильное место для консервативного row / column snap,
+   если diagnostics подтвердят, что он действительно нужен.
 
 ---
 
@@ -193,6 +385,7 @@
    - quilt count;
    - unsupported patch ids;
    - invalid closure count;
+   - closure seam residuals для non-tree same-role seams;
    - final conformal fallback count;
    - заметные frontier logs.
 
@@ -206,10 +399,16 @@
    - closure status;
    - pinned/unpinned summary.
 
+5. Реализовать минимальный способ сохранить этот snapshot baseline для agreed regression meshes:
+   - в файл;
+   - или в стабильный markdown/text report;
+   - но не оставлять это только на уровне "формат придуман, реализации нет".
+
 ### Exit Criteria
 
 - После любой refactor phase можно быстро понять, что сломалось.
 - Есть хотя бы один serializable snapshot baseline, а не только ручной просмотр консоли.
+- Для базового набора regression meshes snapshot реально сохранён и пригоден для сравнения.
 - Проверка выполняется руками, без сложной тестовой инфраструктуры.
 
 ### Important
@@ -266,6 +465,10 @@
    - wrap-around merge;
    - corner turn angles;
    - corner vertex identity.
+5. Явно проверить и задокументировать текущую асимметрию между:
+   - `_collect_geometric_split_indices()`;
+   - `_find_open_chain_corners()`.
+   Нужно отделить intentional differences от случайного semantic drift.
 
 ### Recommended Rule
 
@@ -284,26 +487,33 @@
 
 ### Goal
 
-Сделать UV-dependent шаг в analysis явным, ограниченным и безопасным для debug/runtime paths.
+Сделать UV-dependent шаг в analysis явным, изолированным и безопасным для debug/runtime paths.
+
+Важно:
+эта фаза про isolation boundary, а не про замену самого алгоритма `OUTER/HOLE` classification.
 
 ### Tasks
 
-1. Явно задокументировать, что `_classify_loops_outer_hole()` - единственный допустимый side-effect inside analysis.
-2. Проверить и упростить rollback contract:
+1. Выделить `_classify_loops_outer_hole()` в один явный boundary step с минимальным числом call sites.
+   Остальной analysis pipeline должен получать уже готовый loop-kind result и не зависеть от UV mutation mechanics.
+2. Явно задокументировать, что это единственный допустимый side-effect inside analysis.
+3. Проверить и упростить rollback contract:
    - temporary UV layer;
    - active UV layer;
    - selection state.
+4. Убедиться, что scope этой фазы не расползается в redesign loop classification algorithm.
 
-3. Изолировать этот шаг так, чтобы остальной analysis pipeline не зависел от hidden mutable state.
+### Optional Follow-Up Research
 
-4. Решить, нужен ли на этом этапе:
-   - только better isolation;
-   - или полноценная замена UV-unwrap classification на другой метод.
+После завершения isolation phase можно отдельно исследовать,
+нужна ли полная замена UV-unwrap classification на другой метод.
+Это не должно блокировать закрытие Phase 1C.
 
 ### Exit Criteria
 
 - Side effects analysis локализованы и явно описаны.
 - Debug path не получает неожиданных persistent изменений состояния меша при обычном выполнении.
+- Есть один понятный boundary, через который проходит UV-dependent classification.
 - Дальнейшие refactor phases не распространяют UV side effects на новые части analysis.
 
 ---

@@ -10,10 +10,12 @@
 
 2. `docs/cftuv_refactor_roadmap_for_agents.md`
    Companion document.
-   Описывает критические structural problems и безопасный порядок следующих рефакторингов.
+   Описывает критические structural problems, безопасный порядок следующих рефакторингов
+   и отдельный practical runtime track для frame alignment / closure stabilization.
 
 ## Notes
 
 - Если нужно понять проект с нуля, достаточно этих двух документов.
+- Если агент продолжает именно текущий runtime bugfix track, он должен читать roadmap не как "вторичный фон", а как active implementation guide.
 - Старые handoff-файлы по ранней стабилизации Phase 3 удалены как устаревшие.
 - `AGENTS.md` и `CLAUDE.md` продолжают ссылаться на `docs/cftuv_architecture_v2.0.md` как на главный документ.

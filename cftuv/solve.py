@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import math
 from heapq import heappop, heappush
 from typing import Optional
@@ -21,7 +21,7 @@ try:
         BoundaryChain, ChainNeighborKind, FrameRole, LoopKind,
         PatchGraph, PatchNode,
         ScaffoldPointKey, ScaffoldChainPlacement, ScaffoldPatchPlacement,
-        ScaffoldQuiltPlacement, ScaffoldMap,
+        ScaffoldQuiltPlacement, ScaffoldMap, ScaffoldClosureSeamReport,
     )
 except ImportError:
     from constants import (
@@ -37,7 +37,7 @@ except ImportError:
         BoundaryChain, ChainNeighborKind, FrameRole, LoopKind,
         PatchGraph, PatchNode,
         ScaffoldPointKey, ScaffoldChainPlacement, ScaffoldPatchPlacement,
-        ScaffoldQuiltPlacement, ScaffoldMap,
+        ScaffoldQuiltPlacement, ScaffoldMap, ScaffoldClosureSeamReport,
     )
 
 
@@ -128,6 +128,26 @@ class SolvePlan:
     weak_threshold: float = EDGE_WEAK_MIN
 
 
+@dataclass(frozen=True)
+class ClosureCutHeuristic:
+    edge_key: tuple[int, int]
+    candidate: AttachmentCandidate
+    score: float
+    support_label: str
+    fixed_endpoint_count: int
+    same_axis_endpoint_count: int
+    free_touched_endpoint_count: int
+    reasons: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class QuiltClosureCutAnalysis:
+    current_cut: ClosureCutHeuristic
+    recommended_cut: ClosureCutHeuristic
+    path_patch_ids: tuple[int, ...] = ()
+    cycle_edges: tuple[ClosureCutHeuristic, ...] = ()
+
+
 
 @dataclass(frozen=True)
 class ScaffoldUvTarget:
@@ -212,6 +232,340 @@ def _is_allowed_quilt_edge(
     patch_b_id: int,
 ) -> bool:
     return _patch_pair_key(patch_a_id, patch_b_id) in allowed_tree_edges
+
+
+def _build_patch_tree_adjacency(quilt_plan: QuiltPlan) -> dict[int, set[int]]:
+    adjacency = {quilt_plan.root_patch_id: set()}
+    for patch_id in quilt_plan.solved_patch_ids:
+        adjacency.setdefault(patch_id, set())
+    for edge_a, edge_b in _build_quilt_tree_edges(quilt_plan):
+        adjacency.setdefault(edge_a, set()).add(edge_b)
+        adjacency.setdefault(edge_b, set()).add(edge_a)
+    return adjacency
+
+
+def _find_patch_tree_path(
+    patch_tree_adjacency: dict[int, set[int]],
+    start_patch_id: int,
+    target_patch_id: int,
+) -> list[int]:
+    if start_patch_id == target_patch_id:
+        return [start_patch_id]
+    if start_patch_id not in patch_tree_adjacency or target_patch_id not in patch_tree_adjacency:
+        return []
+
+    parents = {start_patch_id: -1}
+    queue = [start_patch_id]
+    queue_index = 0
+    while queue_index < len(queue):
+        current_patch_id = queue[queue_index]
+        queue_index += 1
+        for neighbor_patch_id in patch_tree_adjacency.get(current_patch_id, ()):
+            if neighbor_patch_id in parents:
+                continue
+            parents[neighbor_patch_id] = current_patch_id
+            if neighbor_patch_id == target_patch_id:
+                path = [target_patch_id]
+                cursor = target_patch_id
+                while parents[cursor] >= 0:
+                    cursor = parents[cursor]
+                    path.append(cursor)
+                path.reverse()
+                return path
+            queue.append(neighbor_patch_id)
+    return []
+
+
+def _chain_uv_axis_metrics(chain_placement: ScaffoldChainPlacement) -> tuple[float, float]:
+    if len(chain_placement.points) < 2:
+        return 0.0, 0.0
+
+    start_uv = chain_placement.points[0][1]
+    end_uv = chain_placement.points[-1][1]
+    delta = end_uv - start_uv
+
+    if chain_placement.frame_role == FrameRole.H_FRAME:
+        return abs(delta.x), abs(delta.y)
+    if chain_placement.frame_role == FrameRole.V_FRAME:
+        return abs(delta.y), abs(delta.x)
+    return delta.length, 0.0
+
+
+def _split_uv_by_frame_role(frame_role: FrameRole, uv: Vector) -> tuple[float, float]:
+    if frame_role == FrameRole.H_FRAME:
+        return uv.x, uv.y
+    if frame_role == FrameRole.V_FRAME:
+        return uv.y, uv.x
+    return uv.length, 0.0
+
+
+def _build_chain_vert_uv_map(
+    graph: PatchGraph,
+    chain_placement: ScaffoldChainPlacement,
+) -> dict[int, Vector]:
+    node = graph.nodes.get(chain_placement.patch_id)
+    if node is None:
+        return {}
+    if chain_placement.loop_index < 0 or chain_placement.loop_index >= len(node.boundary_loops):
+        return {}
+
+    boundary_loop = node.boundary_loops[chain_placement.loop_index]
+    if chain_placement.chain_index < 0 or chain_placement.chain_index >= len(boundary_loop.chains):
+        return {}
+
+    chain = boundary_loop.chains[chain_placement.chain_index]
+    vert_uv_map = {}
+    for point_key, uv in chain_placement.points:
+        if (
+            point_key.patch_id != chain_placement.patch_id
+            or point_key.loop_index != chain_placement.loop_index
+            or point_key.chain_index != chain_placement.chain_index
+        ):
+            continue
+        source_point_index = point_key.source_point_index
+        if 0 <= source_point_index < len(chain.vert_indices):
+            vert_uv_map[chain.vert_indices[source_point_index]] = uv
+
+    if not vert_uv_map and len(chain.vert_indices) == len(chain_placement.points):
+        for source_point_index, (_, uv) in enumerate(chain_placement.points):
+            vert_uv_map[chain.vert_indices[source_point_index]] = uv
+
+    return vert_uv_map
+
+
+def _measure_shared_closure_uv_offsets(
+    graph: PatchGraph,
+    owner_placement: ScaffoldChainPlacement,
+    target_placement: ScaffoldChainPlacement,
+) -> tuple[int, float, float, float, float, float, float]:
+    owner_uv_by_vert = _build_chain_vert_uv_map(graph, owner_placement)
+    target_uv_by_vert = _build_chain_vert_uv_map(graph, target_placement)
+    shared_vert_indices = sorted(set(owner_uv_by_vert.keys()) & set(target_uv_by_vert.keys()))
+    if not shared_vert_indices:
+        return 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+
+    uv_deltas = []
+    axis_offsets = []
+    cross_axis_offsets = []
+    for vert_index in shared_vert_indices:
+        owner_uv = owner_uv_by_vert[vert_index]
+        target_uv = target_uv_by_vert[vert_index]
+        owner_axis, owner_cross = _split_uv_by_frame_role(owner_placement.frame_role, owner_uv)
+        target_axis, target_cross = _split_uv_by_frame_role(target_placement.frame_role, target_uv)
+        uv_deltas.append((owner_uv - target_uv).length)
+        axis_offsets.append(abs(owner_axis - target_axis))
+        cross_axis_offsets.append(abs(owner_cross - target_cross))
+
+    sample_count = len(shared_vert_indices)
+    return (
+        sample_count,
+        max(uv_deltas),
+        sum(uv_deltas) / sample_count,
+        max(axis_offsets),
+        sum(axis_offsets) / sample_count,
+        max(cross_axis_offsets),
+        sum(cross_axis_offsets) / sample_count,
+    )
+
+
+def _classify_closure_anchor_mode(owner_anchor_count: int, target_anchor_count: int) -> str:
+    if owner_anchor_count >= 2 and target_anchor_count >= 2:
+        return 'dual-anchor'
+    if owner_anchor_count <= 1 and target_anchor_count <= 1:
+        return 'one-anchor'
+    return 'mixed'
+
+
+def _count_free_bridges_on_patch_path(
+    quilt_scaffold: ScaffoldQuiltPlacement,
+    patch_path: list[int],
+) -> int:
+    free_bridge_count = 0
+    for patch_id in patch_path:
+        patch_placement = quilt_scaffold.patches.get(patch_id)
+        if patch_placement is None or patch_placement.notes:
+            continue
+        for chain_placement in patch_placement.chain_placements:
+            if chain_placement.frame_role == FrameRole.FREE and len(chain_placement.points) <= 2:
+                free_bridge_count += 1
+    return free_bridge_count
+
+
+def _match_non_tree_closure_chain_pairs(
+    graph: PatchGraph,
+    owner_patch_id: int,
+    target_patch_id: int,
+) -> list[tuple[tuple[int, int, int], BoundaryChain, tuple[int, int, int], BoundaryChain, int]]:
+    owner_refs = _iter_neighbor_chains(graph, owner_patch_id, target_patch_id)
+    target_refs = _iter_neighbor_chains(graph, target_patch_id, owner_patch_id)
+    pair_candidates = []
+
+    for owner_loop_index, owner_chain_index, _, owner_chain in owner_refs:
+        if owner_chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            continue
+        owner_vert_set = set(owner_chain.vert_indices)
+        if not owner_vert_set:
+            continue
+        for target_loop_index, target_chain_index, _, target_chain in target_refs:
+            if target_chain.frame_role != owner_chain.frame_role:
+                continue
+            target_vert_set = set(target_chain.vert_indices)
+            shared_vert_count = len(owner_vert_set & target_vert_set)
+            if shared_vert_count <= 0:
+                continue
+            pair_score = (shared_vert_count * 1000) - abs(len(owner_chain.vert_indices) - len(target_chain.vert_indices))
+            pair_candidates.append((
+                pair_score,
+                shared_vert_count,
+                (owner_patch_id, owner_loop_index, owner_chain_index),
+                owner_chain,
+                (target_patch_id, target_loop_index, target_chain_index),
+                target_chain,
+            ))
+
+    pair_candidates.sort(key=lambda item: item[0], reverse=True)
+    matched_owner_refs = set()
+    matched_target_refs = set()
+    matched_pairs = []
+    for _, shared_vert_count, owner_ref, owner_chain, target_ref, target_chain in pair_candidates:
+        if owner_ref in matched_owner_refs or target_ref in matched_target_refs:
+            continue
+        matched_owner_refs.add(owner_ref)
+        matched_target_refs.add(target_ref)
+        matched_pairs.append((owner_ref, owner_chain, target_ref, target_chain, shared_vert_count))
+
+    return matched_pairs
+
+
+def _collect_quilt_closure_seam_reports(
+    graph: PatchGraph,
+    quilt_plan: QuiltPlan,
+    quilt_scaffold: ScaffoldQuiltPlacement,
+    placed_chains_map: dict[tuple[int, int, int], ScaffoldChainPlacement],
+    final_scale: float,
+    allowed_tree_edges: set[tuple[int, int]],
+) -> tuple[ScaffoldClosureSeamReport, ...]:
+    quilt_patch_ids = set(quilt_plan.solved_patch_ids)
+    quilt_patch_ids.add(quilt_plan.root_patch_id)
+    patch_tree_adjacency = _build_patch_tree_adjacency(quilt_plan)
+    non_tree_patch_pairs = sorted(
+        edge_key
+        for edge_key in graph.edges.keys()
+        if edge_key[0] in quilt_patch_ids
+        and edge_key[1] in quilt_patch_ids
+        and edge_key not in allowed_tree_edges
+    )
+
+    reports = []
+    for owner_patch_id, target_patch_id in non_tree_patch_pairs:
+        matched_pairs = _match_non_tree_closure_chain_pairs(graph, owner_patch_id, target_patch_id)
+        if not matched_pairs:
+            continue
+
+        patch_path = _find_patch_tree_path(patch_tree_adjacency, owner_patch_id, target_patch_id)
+        tree_patch_distance = max(0, len(patch_path) - 1) if patch_path else 0
+        free_bridge_count = _count_free_bridges_on_patch_path(quilt_scaffold, patch_path) if patch_path else 0
+
+        for owner_ref, owner_chain, target_ref, target_chain, shared_vert_count in matched_pairs:
+            owner_placement = placed_chains_map.get(owner_ref)
+            target_placement = placed_chains_map.get(target_ref)
+            if owner_placement is None or target_placement is None:
+                continue
+            if len(owner_placement.points) < 2 or len(target_placement.points) < 2:
+                continue
+
+            owner_uv_span, owner_axis_error = _chain_uv_axis_metrics(owner_placement)
+            target_uv_span, target_axis_error = _chain_uv_axis_metrics(target_placement)
+            (
+                sampled_shared_vert_count,
+                shared_uv_delta_max,
+                shared_uv_delta_mean,
+                axis_phase_offset_max,
+                axis_phase_offset_mean,
+                cross_axis_offset_max,
+                cross_axis_offset_mean,
+            ) = _measure_shared_closure_uv_offsets(graph, owner_placement, target_placement)
+            canonical_3d_span = (
+                _cf_chain_total_length(owner_chain, final_scale)
+                + _cf_chain_total_length(target_chain, final_scale)
+            ) * 0.5
+
+            reports.append(ScaffoldClosureSeamReport(
+                owner_patch_id=owner_ref[0],
+                owner_loop_index=owner_ref[1],
+                owner_chain_index=owner_ref[2],
+                target_patch_id=target_ref[0],
+                target_loop_index=target_ref[1],
+                target_chain_index=target_ref[2],
+                frame_role=owner_chain.frame_role,
+                owner_anchor_count=owner_placement.anchor_count,
+                target_anchor_count=target_placement.anchor_count,
+                anchor_mode=_classify_closure_anchor_mode(owner_placement.anchor_count, target_placement.anchor_count),
+                canonical_3d_span=canonical_3d_span,
+                owner_uv_span=owner_uv_span,
+                target_uv_span=target_uv_span,
+                owner_axis_error=owner_axis_error,
+                target_axis_error=target_axis_error,
+                span_mismatch=abs(owner_uv_span - target_uv_span),
+                sampled_shared_vert_count=sampled_shared_vert_count,
+                shared_uv_delta_max=shared_uv_delta_max,
+                shared_uv_delta_mean=shared_uv_delta_mean,
+                axis_phase_offset_max=axis_phase_offset_max,
+                axis_phase_offset_mean=axis_phase_offset_mean,
+                cross_axis_offset_max=cross_axis_offset_max,
+                cross_axis_offset_mean=cross_axis_offset_mean,
+                tree_patch_distance=tree_patch_distance,
+                free_bridge_count=free_bridge_count,
+                shared_vert_count=shared_vert_count,
+            ))
+
+    reports.sort(
+        key=lambda report: (
+            -report.axis_phase_offset_max,
+            -report.cross_axis_offset_max,
+            -report.shared_uv_delta_max,
+            -report.span_mismatch,
+            report.owner_patch_id,
+            report.target_patch_id,
+            report.owner_chain_index,
+            report.target_chain_index,
+        )
+    )
+    return tuple(reports)
+
+
+def _print_quilt_closure_seam_reports(
+    quilt_index: int,
+    closure_seam_reports: tuple[ScaffoldClosureSeamReport, ...],
+) -> None:
+    if not closure_seam_reports:
+        return
+
+    max_mismatch = max((report.span_mismatch for report in closure_seam_reports), default=0.0)
+    max_axis_phase = max((report.axis_phase_offset_max for report in closure_seam_reports), default=0.0)
+    print(
+        f"[CFTUV][ClosureDiag] Quilt {quilt_index}: "
+        f"seams={len(closure_seam_reports)} "
+        f"max_span_mismatch={max_mismatch:.6f} "
+        f"max_axis_phase={max_axis_phase:.6f}"
+    )
+    for report in closure_seam_reports:
+        print(
+            f"[CFTUV][ClosureDiag] Quilt {quilt_index} "
+            f"P{report.owner_patch_id} L{report.owner_loop_index}C{report.owner_chain_index}"
+            f"<->P{report.target_patch_id} L{report.target_loop_index}C{report.target_chain_index} "
+            f"{report.frame_role.value} mode:{report.anchor_mode} "
+            f"a:{report.owner_anchor_count}/{report.target_anchor_count} "
+            f"span3d:{report.canonical_3d_span:.6f} "
+            f"uv:{report.owner_uv_span:.6f}/{report.target_uv_span:.6f} "
+            f"mismatch:{report.span_mismatch:.6f} "
+            f"axis:{report.owner_axis_error:.6f}/{report.target_axis_error:.6f} "
+            f"phase:{report.axis_phase_offset_max:.6f}/{report.axis_phase_offset_mean:.6f} "
+            f"cross:{report.cross_axis_offset_max:.6f}/{report.cross_axis_offset_mean:.6f} "
+            f"uvd:{report.shared_uv_delta_max:.6f}/{report.shared_uv_delta_mean:.6f} "
+            f"path:{report.tree_patch_distance} free:{report.free_bridge_count} "
+            f"shared_verts:{report.sampled_shared_vert_count}/{report.shared_vert_count}"
+        )
 
 
 def _count_patch_roles(node: PatchNode) -> tuple[int, int, int, int, int, int]:
@@ -1254,6 +1608,168 @@ def _cf_anchor_debug_label(start_anchor: Optional[ChainAnchor], end_anchor: Opti
     return f"{_label(start_anchor)}/{_label(end_anchor)}"
 
 
+def _cf_frame_cross_axis_value(role: FrameRole, uv: Vector) -> float:
+    if role == FrameRole.H_FRAME:
+        return uv.y
+    if role == FrameRole.V_FRAME:
+        return uv.x
+    return 0.0
+
+
+def _cf_with_frame_cross_axis(role: FrameRole, uv: Vector, cross_axis_value: float) -> Vector:
+    if role == FrameRole.H_FRAME:
+        return Vector((uv.x, cross_axis_value))
+    if role == FrameRole.V_FRAME:
+        return Vector((cross_axis_value, uv.y))
+    return uv.copy()
+
+
+def _cf_preview_anchor_source_adjustment(
+    graph: PatchGraph,
+    placed_chains_map: dict[tuple[int, int, int], ScaffoldChainPlacement],
+    chain_role: FrameRole,
+    anchor: ChainAnchor,
+    snapped_uv: Vector,
+) -> bool:
+    if anchor.source_kind != 'same_patch':
+        return True
+
+    source_placement = placed_chains_map.get(anchor.source_ref)
+    if source_placement is None or not source_placement.points:
+        return False
+
+    source_point_index = anchor.source_point_index
+    point_count = len(source_placement.points)
+    if source_point_index < 0 or source_point_index >= point_count:
+        return False
+    if source_point_index not in {0, point_count - 1}:
+        return False
+
+    source_role = source_placement.frame_role
+    current_uv = source_placement.points[source_point_index][1]
+    delta = snapped_uv - current_uv
+
+    if source_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        orthogonal = (
+            (chain_role == FrameRole.H_FRAME and source_role == FrameRole.V_FRAME)
+            or (chain_role == FrameRole.V_FRAME and source_role == FrameRole.H_FRAME)
+        )
+        if not orthogonal:
+            return False
+        if source_role == FrameRole.H_FRAME and abs(delta.y) > 1e-6:
+            return False
+        if source_role == FrameRole.V_FRAME and abs(delta.x) > 1e-6:
+            return False
+        return True
+
+    if source_role == FrameRole.FREE and point_count <= 2:
+        return True
+
+    return False
+
+
+def _cf_same_patch_anchor_is_protected(graph: PatchGraph, anchor: ChainAnchor) -> bool:
+    if anchor.source_kind != 'same_patch':
+        return True
+    source_chain = graph.get_chain(anchor.source_ref[0], anchor.source_ref[1], anchor.source_ref[2])
+    if source_chain is None:
+        return True
+    return source_chain.neighbor_kind == ChainNeighborKind.PATCH
+
+
+def _cf_preview_frame_dual_anchor_rectification(
+    chain: BoundaryChain,
+    start_anchor: Optional[ChainAnchor],
+    end_anchor: Optional[ChainAnchor],
+    graph: PatchGraph,
+    placed_chains_map: dict[tuple[int, int, int], ScaffoldChainPlacement],
+) -> tuple[Optional[ChainAnchor], Optional[ChainAnchor], str, tuple[tuple[tuple[int, int, int], int, Vector], ...]]:
+    # Локальная per-chain rectification для H/V оказалась слишком слабой моделью:
+    # она умеет выпрямлять отдельный chain, но не умеет согласованно решать
+    # весь frame-граф patch/quilt. В результате появлялись ступеньки между
+    # геометрически коллинеарными H/V chains. До появления patch-level
+    # orthogonal solve runtime placement должен оставаться без этой
+    # коррекции, чтобы не ломать stitch continuity и row consistency.
+    return start_anchor, end_anchor, '', ()
+
+    if chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        return start_anchor, end_anchor, '', ()
+    if start_anchor is None or end_anchor is None:
+        return start_anchor, end_anchor, '', ()
+    if start_anchor.source_kind == 'cross_patch' and end_anchor.source_kind == 'cross_patch':
+        return start_anchor, end_anchor, '', ()
+
+    start_cross = _cf_frame_cross_axis_value(chain.frame_role, start_anchor.uv)
+    end_cross = _cf_frame_cross_axis_value(chain.frame_role, end_anchor.uv)
+    target_cross = None
+    adjust_start = False
+    adjust_end = False
+    reason = ''
+    start_protected = _cf_same_patch_anchor_is_protected(graph, start_anchor)
+    end_protected = _cf_same_patch_anchor_is_protected(graph, end_anchor)
+
+    if start_anchor.source_kind == 'same_patch' and end_anchor.source_kind == 'same_patch':
+        if start_protected and end_protected:
+            return start_anchor, end_anchor, '', ()
+        if start_protected and not end_protected:
+            target_cross = start_cross
+            adjust_end = True
+            reason = 'axis_hard:keep_protected_start'
+        elif end_protected and not start_protected:
+            target_cross = end_cross
+            adjust_start = True
+            reason = 'axis_hard:keep_protected_end'
+        else:
+            target_cross = 0.5 * (start_cross + end_cross)
+            adjust_start = True
+            adjust_end = True
+            reason = 'axis_hard:average_same_patch'
+    elif start_anchor.source_kind == 'same_patch':
+        if start_protected:
+            return start_anchor, end_anchor, '', ()
+        target_cross = end_cross
+        adjust_start = True
+        reason = 'axis_hard:lock_end'
+    elif end_anchor.source_kind == 'same_patch':
+        if end_protected:
+            return start_anchor, end_anchor, '', ()
+        target_cross = start_cross
+        adjust_end = True
+        reason = 'axis_hard:lock_start'
+    else:
+        return start_anchor, end_anchor, '', ()
+
+    snapped_start_uv = _cf_with_frame_cross_axis(chain.frame_role, start_anchor.uv, target_cross)
+    snapped_end_uv = _cf_with_frame_cross_axis(chain.frame_role, end_anchor.uv, target_cross)
+    adjustments = []
+
+    if adjust_start:
+        if not _cf_preview_anchor_source_adjustment(graph, placed_chains_map, chain.frame_role, start_anchor, snapped_start_uv):
+            return start_anchor, end_anchor, '', ()
+        adjustments.append((start_anchor.source_ref, start_anchor.source_point_index, snapped_start_uv.copy()))
+    if adjust_end:
+        if not _cf_preview_anchor_source_adjustment(graph, placed_chains_map, chain.frame_role, end_anchor, snapped_end_uv):
+            return start_anchor, end_anchor, '', ()
+        adjustments.append((end_anchor.source_ref, end_anchor.source_point_index, snapped_end_uv.copy()))
+
+    return (
+        ChainAnchor(
+            uv=snapped_start_uv,
+            source_ref=start_anchor.source_ref,
+            source_point_index=start_anchor.source_point_index,
+            source_kind=start_anchor.source_kind,
+        ),
+        ChainAnchor(
+            uv=snapped_end_uv,
+            source_ref=end_anchor.source_ref,
+            source_point_index=end_anchor.source_point_index,
+            source_kind=end_anchor.source_kind,
+        ),
+        reason,
+        tuple(adjustments),
+    )
+
+
 def _cf_chain_total_length(chain: BoundaryChain, final_scale: float) -> float:
     if len(chain.vert_cos) < 2:
         return 0.0
@@ -1565,6 +2081,82 @@ def _build_frame_chain_between_anchors(
     return _interpolate_between_anchors_by_lengths(start_point, end_point, edge_lengths)
 
 
+def _cf_rebuild_chain_points_for_endpoints(
+    chain: BoundaryChain,
+    start_uv: Vector,
+    end_uv: Vector,
+    final_scale: float,
+) -> Optional[list[Vector]]:
+    source_pts = _cf_chain_source_points(chain)
+    if len(source_pts) != len(chain.vert_indices):
+        return None
+
+    if chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        return _build_frame_chain_between_anchors(source_pts, start_uv, end_uv, final_scale)
+
+    if chain.frame_role == FrameRole.FREE and len(source_pts) <= 2:
+        if len(source_pts) == 0:
+            return []
+        if len(source_pts) == 1:
+            return [start_uv.copy()]
+        return [start_uv.copy(), end_uv.copy()]
+
+    return None
+
+
+def _cf_apply_anchor_adjustments(
+    adjustments: tuple[tuple[tuple[int, int, int], int, Vector], ...],
+    graph: PatchGraph,
+    placed_chains_map: dict[tuple[int, int, int], ScaffoldChainPlacement],
+    point_registry: dict[tuple[int, int, int, int], Vector],
+    final_scale: float,
+) -> bool:
+    if not adjustments:
+        return True
+
+    grouped_targets: dict[tuple[int, int, int], dict[int, Vector]] = {}
+    for chain_ref, source_point_index, target_uv in adjustments:
+        grouped_targets.setdefault(chain_ref, {})[source_point_index] = target_uv.copy()
+
+    staged_updates: dict[tuple[int, int, int], ScaffoldChainPlacement] = {}
+    staged_registry: dict[tuple[int, int, int, int], Vector] = {}
+
+    for chain_ref, point_updates in grouped_targets.items():
+        existing = placed_chains_map.get(chain_ref)
+        if existing is None or not existing.points:
+            return False
+        chain = graph.get_chain(chain_ref[0], chain_ref[1], chain_ref[2])
+        if chain is None:
+            return False
+
+        point_count = len(existing.points)
+        start_uv = existing.points[0][1].copy()
+        end_uv = existing.points[-1][1].copy()
+        for source_point_index, target_uv in point_updates.items():
+            if source_point_index == 0:
+                start_uv = target_uv.copy()
+            elif source_point_index == point_count - 1:
+                end_uv = target_uv.copy()
+            else:
+                return False
+
+        rebuilt_uvs = _cf_rebuild_chain_points_for_endpoints(chain, start_uv, end_uv, final_scale)
+        if rebuilt_uvs is None or len(rebuilt_uvs) != point_count:
+            return False
+
+        new_points = tuple(
+            (point_key, rebuilt_uvs[index].copy())
+            for index, (point_key, _) in enumerate(existing.points)
+        )
+        staged_updates[chain_ref] = replace(existing, points=new_points)
+        for index, (_, uv) in enumerate(new_points):
+            staged_registry[(chain_ref[0], chain_ref[1], chain_ref[2], index)] = uv.copy()
+
+    placed_chains_map.update(staged_updates)
+    point_registry.update(staged_registry)
+    return True
+
+
 def _cf_determine_direction(chain, node):
     """UV direction для chain из базиса patch.
 
@@ -1803,10 +2395,20 @@ def _cf_resolve_candidate_anchors(
     end_anchor: Optional[ChainAnchor],
     placed_in_patch: int,
     final_scale: float,
-) -> tuple[Optional[ChainAnchor], Optional[ChainAnchor], int, str]:
+    graph: PatchGraph,
+    placed_chains_map: dict[tuple[int, int, int], ScaffoldChainPlacement],
+) -> tuple[Optional[ChainAnchor], Optional[ChainAnchor], int, str, tuple[tuple[tuple[int, int, int], int, Vector], ...]]:
     known = _cf_anchor_count(start_anchor, end_anchor)
     if known < 2:
-        return start_anchor, end_anchor, known, ''
+        return start_anchor, end_anchor, known, '', ()
+
+    start_anchor, end_anchor, rect_reason, anchor_adjustments = _cf_preview_frame_dual_anchor_rectification(
+        chain,
+        start_anchor,
+        end_anchor,
+        graph,
+        placed_chains_map,
+    )
 
     can_close, reason = _cf_can_use_dual_anchor_closure(
         chain,
@@ -1816,25 +2418,37 @@ def _cf_resolve_candidate_anchors(
         final_scale,
     )
     if can_close:
-        return start_anchor, end_anchor, 2, ''
+        return start_anchor, end_anchor, 2, rect_reason, anchor_adjustments
 
     if (
         start_anchor is not None and end_anchor is not None
         and start_anchor.source_kind == 'cross_patch'
         and end_anchor.source_kind == 'cross_patch'
     ):
-        return start_anchor, None, 1, f'{reason}:bootstrap_from_start'
+        reason_note = f'{rect_reason}|{reason}' if rect_reason else reason
+        return start_anchor, None, 1, f'{reason_note}:bootstrap_from_start', ()
 
     if start_anchor is not None and start_anchor.source_kind == 'same_patch' and (
         end_anchor is None or end_anchor.source_kind != 'same_patch'
     ):
-        return start_anchor, None, 1, f'{reason}:drop_end'
+        reason_note = f'{rect_reason}|{reason}' if rect_reason else reason
+        return start_anchor, None, 1, f'{reason_note}:drop_end', ()
     if end_anchor is not None and end_anchor.source_kind == 'same_patch' and (
         start_anchor is None or start_anchor.source_kind != 'same_patch'
     ):
-        return None, end_anchor, 1, f'{reason}:drop_start'
+        reason_note = f'{rect_reason}|{reason}' if rect_reason else reason
+        return None, end_anchor, 1, f'{reason_note}:drop_start', ()
 
-    return None, None, 0, reason
+    if (
+        start_anchor is not None and end_anchor is not None
+        and start_anchor.source_kind == 'same_patch'
+        and end_anchor.source_kind == 'same_patch'
+        and chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+    ):
+        reason_note = f'{rect_reason}|{reason}' if rect_reason else reason
+        return start_anchor, None, 1, f'{reason_note}:axis_soft_from_start', ()
+
+    return None, None, 0, reason, ()
 
 
 def _cf_score_candidate(
@@ -2266,6 +2880,9 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
         chain_index=seed_ref[2],
         frame_role=seed_chain.frame_role,
         source_kind='chain',
+        anchor_count=0,
+        start_anchor_kind='',
+        end_anchor_kind='',
         points=tuple(
             (ScaffoldPointKey(seed_ref[0], seed_ref[1], seed_ref[2], i), uv.copy())
             for i, uv in enumerate(seed_uvs)
@@ -2322,12 +2939,14 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
             )
 
             placed_in_patch = sum(1 for placed_ref in placed_chain_refs if placed_ref[0] == ref[0])
-            anchor_start, anchor_end, known, anchor_reason = _cf_resolve_candidate_anchors(
+            anchor_start, anchor_end, known, anchor_reason, anchor_adjustments = _cf_resolve_candidate_anchors(
                 chain,
                 raw_start_anchor,
                 raw_end_anchor,
                 placed_in_patch,
                 final_scale,
+                graph,
+                placed_chains_map,
             )
             if known == 0:
                 continue
@@ -2348,7 +2967,7 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
             if score > best_score:
                 best_score = score
                 best_ref = ref
-                best_data = (chain, node, anchor_start, anchor_end, anchor_reason)
+                best_data = (chain, node, anchor_start, anchor_end, anchor_reason, anchor_adjustments)
 
         if best_ref is None or best_score < CHAIN_FRONTIER_THRESHOLD:
             # Диагностика: почему frontier остановился
@@ -2369,7 +2988,15 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
                     allowed_tree_edges,
                 )
                 pip = sum(1 for pr in placed_chain_refs if pr[0] == ref[0])
-                sa, ea, k, _ = _cf_resolve_candidate_anchors(chain, raw_sa, raw_ea, pip, final_scale)
+                sa, ea, k, _, _ = _cf_resolve_candidate_anchors(
+                    chain,
+                    raw_sa,
+                    raw_ea,
+                    pip,
+                    final_scale,
+                    graph,
+                    placed_chains_map,
+                )
                 if k == 0:
                     no_anchor_count += 1
                     patches_with_no_anchor.add(ref[0])
@@ -2391,7 +3018,23 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
                 print(f"[CFTUV][Frontier] Untouched patches: {sorted(patches_without_placed)}")
             break
 
-        chain, node, anchor_start, anchor_end, anchor_reason = best_data
+        chain, node, anchor_start, anchor_end, anchor_reason, anchor_adjustments = best_data
+        if anchor_adjustments:
+            applied = _cf_apply_anchor_adjustments(
+                anchor_adjustments,
+                graph,
+                placed_chains_map,
+                point_registry,
+                final_scale,
+            )
+            if not applied:
+                rejected_chain_refs.add(best_ref)
+                print(
+                    f"[CFTUV][Frontier] Reject {iteration}: "
+                    f"P{best_ref[0]} L{best_ref[1]}C{best_ref[2]} "
+                    f"{chain.frame_role.value} reason:anchor_rectify_failed"
+                )
+                continue
         dir_override = _try_inherit_direction(chain, anchor_start, anchor_end, graph, point_registry)
         uv_points = _cf_place_chain(chain, node, anchor_start, anchor_end, final_scale, dir_override)
 
@@ -2404,12 +3047,16 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
             )
             continue
 
+        ep = _cf_anchor_count(anchor_start, anchor_end)
         chain_placement = ScaffoldChainPlacement(
             patch_id=best_ref[0],
             loop_index=best_ref[1],
             chain_index=best_ref[2],
             frame_role=chain.frame_role,
             source_kind='chain',
+            anchor_count=ep,
+            start_anchor_kind=anchor_start.source_kind if anchor_start is not None else '',
+            end_anchor_kind=anchor_end.source_kind if anchor_end is not None else '',
             points=tuple(
                 (ScaffoldPointKey(best_ref[0], best_ref[1], best_ref[2], i), uv.copy())
                 for i, uv in enumerate(uv_points)
@@ -2426,7 +3073,6 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
         build_order.append(best_ref)
         _cf_register_points(best_ref, chain, uv_points, point_registry, vert_to_placements)
 
-        ep = _cf_anchor_count(anchor_start, anchor_end)
         anchor_label = _cf_anchor_debug_label(anchor_start, anchor_end)
         reason_suffix = f" note:{anchor_reason}" if anchor_reason else ''
         bridge_tag = ' [BRIDGE]' if chain.frame_role == FrameRole.FREE and len(chain.vert_cos) <= 2 else ''
@@ -2445,6 +3091,15 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
         build_order=[seed_ref] + list(build_order),
     )
     quilt_scaffold.build_order = list(build_order)
+    quilt_scaffold.closure_seam_reports = _collect_quilt_closure_seam_reports(
+        graph,
+        quilt_plan,
+        quilt_scaffold,
+        placed_chains_map,
+        final_scale,
+        allowed_tree_edges,
+    )
+    _print_quilt_closure_seam_reports(quilt_plan.quilt_index, quilt_scaffold.closure_seam_reports)
 
     total_placed = len(build_order)
     total_available = len(all_chain_pool) + 1
@@ -2484,6 +3139,9 @@ def format_root_scaffold_report(
     total_patches = 0
     unsupported = 0
     invalid_closure = 0
+    closure_seam_count = 0
+    max_closure_span_mismatch = 0.0
+    max_closure_axis_phase = 0.0
     for quilt in scaffold_map.quilts:
         placed_patch_ids = []
         for step_patch_id in [quilt.root_patch_id] + [patch_id for patch_id in quilt.patches.keys() if patch_id != quilt.root_patch_id]:
@@ -2493,6 +3151,38 @@ def format_root_scaffold_report(
         if not placed_patch_ids:
             placed_patch_ids = [quilt.root_patch_id]
         lines.append(f"Quilt {quilt.quilt_index}: root=Patch {quilt.root_patch_id} ({graph.get_patch_semantic_key(quilt.root_patch_id)}) | patches:{placed_patch_ids}")
+        closure_reports = getattr(quilt, 'closure_seam_reports', ())
+        if closure_reports:
+            closure_seam_count += len(closure_reports)
+            max_closure_span_mismatch = max(
+                max_closure_span_mismatch,
+                max((report.span_mismatch for report in closure_reports), default=0.0),
+            )
+            max_closure_axis_phase = max(
+                max_closure_axis_phase,
+                max((report.axis_phase_offset_max for report in closure_reports), default=0.0),
+            )
+            lines.append(
+                f"  ClosureSeams: {len(closure_reports)} | "
+                f"max_span_mismatch:{max((report.span_mismatch for report in closure_reports), default=0.0):.6f} | "
+                f"max_axis_phase:{max((report.axis_phase_offset_max for report in closure_reports), default=0.0):.6f}"
+            )
+            for report in closure_reports:
+                lines.append(
+                    "    "
+                    + f"P{report.owner_patch_id} L{report.owner_loop_index}C{report.owner_chain_index}"
+                    + f"<->P{report.target_patch_id} L{report.target_loop_index}C{report.target_chain_index} "
+                    + f"{report.frame_role.value} mode:{report.anchor_mode} "
+                    + f"a:{report.owner_anchor_count}/{report.target_anchor_count} "
+                    + f"span3d:{report.canonical_3d_span:.6f} "
+                    + f"uv:{report.owner_uv_span:.6f}/{report.target_uv_span:.6f} "
+                    + f"mismatch:{report.span_mismatch:.6f} "
+                    + f"axis:{report.owner_axis_error:.6f}/{report.target_axis_error:.6f} "
+                    + f"phase:{report.axis_phase_offset_max:.6f}/{report.axis_phase_offset_mean:.6f} "
+                    + f"cross:{report.cross_axis_offset_max:.6f}/{report.cross_axis_offset_mean:.6f} "
+                    + f"uvd:{report.shared_uv_delta_max:.6f}/{report.shared_uv_delta_mean:.6f} "
+                    + f"path:{report.tree_patch_distance} free:{report.free_bridge_count}"
+                )
         for patch_id in placed_patch_ids:
             patch_placement = quilt.patches.get(patch_id)
             total_patches += 1
@@ -2551,7 +3241,9 @@ def format_root_scaffold_report(
 
     summary = (
         f"Scaffold quilts: {len(scaffold_map.quilts)} | Patches: {total_patches} | Unsupported: {unsupported} | "
-        f"Invalid closure: {invalid_closure}"
+        f"Invalid closure: {invalid_closure} | Closure seams: {closure_seam_count} | "
+        f"Max seam mismatch: {max_closure_span_mismatch:.6f} | "
+        f"Max seam phase: {max_closure_axis_phase:.6f}"
     )
     return lines, summary
 
@@ -2690,12 +3382,25 @@ def _execute_phase1_preview_impl(
     global_supported_patch_ids: set[int] = set()
     conformal_applied = 0
     all_conformal_patch_ids: list[int] = []
+    closure_seam_count = 0
+    closure_seam_max_mismatch = 0.0
+    closure_seam_max_phase = 0.0
 
     for quilt_scaffold in scaffold_map.quilts:
         quilt_plan = quilt_plan_by_index.get(quilt_scaffold.quilt_index)
         quilt_patch_ids = _ordered_quilt_patch_ids(quilt_scaffold, quilt_plan)
         if not quilt_patch_ids:
             continue
+        closure_reports = getattr(quilt_scaffold, 'closure_seam_reports', ())
+        closure_seam_count += len(closure_reports)
+        closure_seam_max_mismatch = max(
+            closure_seam_max_mismatch,
+            max((report.span_mismatch for report in closure_reports), default=0.0),
+        )
+        closure_seam_max_phase = max(
+            closure_seam_max_phase,
+            max((report.axis_phase_offset_max for report in closure_reports), default=0.0),
+        )
         quilt_apply_patch_ids = [
             patch_id
             for patch_id in quilt_patch_ids
@@ -2876,6 +3581,9 @@ def _execute_phase1_preview_impl(
         'unsupported_patch_count': len(unsupported_patch_ids),
         'unsupported_patch_ids': unsupported_patch_ids,
         'conformal_applied': conformal_applied,
+        'closure_seam_count': closure_seam_count,
+        'closure_seam_max_mismatch': closure_seam_max_mismatch,
+        'closure_seam_max_phase': closure_seam_max_phase,
     }
 
 # ============================================================
@@ -3043,6 +3751,220 @@ def execute_phase1_transfer_only(context, obj, bm, patch_graph: PatchGraph, sett
     )
 
 
+def _select_preferred_edge_candidate(
+    current: Optional[AttachmentCandidate],
+    candidate: AttachmentCandidate,
+) -> AttachmentCandidate:
+    if current is None:
+        return candidate
+    current_key = (
+        current.score,
+        current.frame_continuation,
+        current.endpoint_bridge,
+        current.endpoint_strength,
+        current.best_pair_strength,
+        current.seam_norm,
+    )
+    candidate_key = (
+        candidate.score,
+        candidate.frame_continuation,
+        candidate.endpoint_bridge,
+        candidate.endpoint_strength,
+        candidate.best_pair_strength,
+        candidate.seam_norm,
+    )
+    return candidate if candidate_key > current_key else current
+
+
+def _count_chain_endpoint_support(
+    graph: PatchGraph,
+    patch_id: int,
+    loop_index: int,
+    chain_index: int,
+    chain_role: FrameRole,
+) -> tuple[int, int, int]:
+    fixed_endpoint_count = 0
+    same_axis_endpoint_count = 0
+    free_touched_endpoint_count = 0
+
+    for endpoint_label in ('start', 'end'):
+        endpoint_ctx = _get_chain_endpoint_context(graph, patch_id, loop_index, chain_index, endpoint_label)
+        if endpoint_ctx is None:
+            continue
+        neighbor_roles = []
+        for neighbor_loop_index, neighbor_chain_index in endpoint_ctx.get('neighbors', ()):
+            neighbor_chain = graph.get_chain(patch_id, neighbor_loop_index, neighbor_chain_index)
+            if neighbor_chain is None:
+                continue
+            neighbor_roles.append(neighbor_chain.frame_role)
+
+        if any(role in {FrameRole.H_FRAME, FrameRole.V_FRAME} for role in neighbor_roles):
+            fixed_endpoint_count += 1
+        if chain_role in {FrameRole.H_FRAME, FrameRole.V_FRAME} and any(role == chain_role for role in neighbor_roles):
+            same_axis_endpoint_count += 1
+        if any(role == FrameRole.FREE for role in neighbor_roles):
+            free_touched_endpoint_count += 1
+
+    return fixed_endpoint_count, same_axis_endpoint_count, free_touched_endpoint_count
+
+
+def _closure_cut_support_label(score: float) -> str:
+    if score >= 0.80:
+        return 'rigid'
+    if score >= 0.62:
+        return 'stable'
+    if score >= 0.45:
+        return 'mixed'
+    return 'weak'
+
+
+def _build_closure_cut_heuristic(
+    graph: PatchGraph,
+    candidate: AttachmentCandidate,
+) -> ClosureCutHeuristic:
+    owner_fixed, owner_same_axis, owner_free = _count_chain_endpoint_support(
+        graph,
+        candidate.owner_patch_id,
+        candidate.owner_loop_index,
+        candidate.owner_chain_index,
+        candidate.owner_role,
+    )
+    target_fixed, target_same_axis, target_free = _count_chain_endpoint_support(
+        graph,
+        candidate.target_patch_id,
+        candidate.target_loop_index,
+        candidate.target_chain_index,
+        candidate.target_role,
+    )
+
+    fixed_endpoint_count = owner_fixed + target_fixed
+    same_axis_endpoint_count = owner_same_axis + target_same_axis
+    free_touched_endpoint_count = owner_free + target_free
+    fixed_ratio = fixed_endpoint_count / 4.0
+    same_axis_ratio = same_axis_endpoint_count / 4.0
+    free_touch_ratio = free_touched_endpoint_count / 4.0
+    score = _clamp01(
+        0.24 * candidate.frame_continuation
+        + 0.18 * candidate.endpoint_bridge
+        + 0.12 * candidate.endpoint_strength
+        + 0.10 * candidate.seam_norm
+        + 0.16 * fixed_ratio
+        + 0.16 * same_axis_ratio
+        + 0.14 * (1.0 - free_touch_ratio)
+    )
+    reasons = (
+        f"fc={candidate.frame_continuation:.2f}",
+        f"bridge={candidate.endpoint_bridge:.2f}",
+        f"ep={candidate.endpoint_strength:.2f}",
+        f"rigid={fixed_endpoint_count}/4",
+        f"axis={same_axis_endpoint_count}/4",
+        f"free={free_touched_endpoint_count}/4",
+    )
+    return ClosureCutHeuristic(
+        edge_key=_patch_pair_key(candidate.owner_patch_id, candidate.target_patch_id),
+        candidate=candidate,
+        score=score,
+        support_label=_closure_cut_support_label(score),
+        fixed_endpoint_count=fixed_endpoint_count,
+        same_axis_endpoint_count=same_axis_endpoint_count,
+        free_touched_endpoint_count=free_touched_endpoint_count,
+        reasons=reasons,
+    )
+
+
+def _build_quilt_edge_candidate_map(
+    solver_graph: SolverGraph,
+    quilt_patch_ids: set[int],
+) -> dict[tuple[int, int], AttachmentCandidate]:
+    edge_candidate_map: dict[tuple[int, int], AttachmentCandidate] = {}
+    for candidate in solver_graph.candidates:
+        if candidate.owner_patch_id not in quilt_patch_ids or candidate.target_patch_id not in quilt_patch_ids:
+            continue
+        edge_key = _patch_pair_key(candidate.owner_patch_id, candidate.target_patch_id)
+        edge_candidate_map[edge_key] = _select_preferred_edge_candidate(edge_candidate_map.get(edge_key), candidate)
+    return edge_candidate_map
+
+
+def _analyze_quilt_closure_cuts(
+    graph: PatchGraph,
+    solver_graph: SolverGraph,
+    quilt_plan: QuiltPlan,
+) -> tuple[QuiltClosureCutAnalysis, ...]:
+    quilt_patch_ids = set(quilt_plan.solved_patch_ids)
+    quilt_patch_ids.add(quilt_plan.root_patch_id)
+    tree_edges = _build_quilt_tree_edges(quilt_plan)
+    patch_tree_adjacency = _build_patch_tree_adjacency(quilt_plan)
+    edge_candidate_map = _build_quilt_edge_candidate_map(solver_graph, quilt_patch_ids)
+    non_tree_edges = sorted(
+        edge_key
+        for edge_key in edge_candidate_map.keys()
+        if edge_key not in tree_edges
+    )
+
+    analyses = []
+    for edge_key in non_tree_edges:
+        patch_path = _find_patch_tree_path(patch_tree_adjacency, edge_key[0], edge_key[1])
+        if len(patch_path) < 2:
+            continue
+        cycle_edge_keys = [
+            _patch_pair_key(patch_path[index], patch_path[index + 1])
+            for index in range(len(patch_path) - 1)
+        ]
+        cycle_edge_keys.append(edge_key)
+
+        cycle_edges = []
+        for cycle_edge_key in cycle_edge_keys:
+            cycle_candidate = edge_candidate_map.get(cycle_edge_key)
+            if cycle_candidate is None:
+                continue
+            cycle_edges.append(_build_closure_cut_heuristic(graph, cycle_candidate))
+        if not cycle_edges:
+            continue
+
+        current_cut = next((item for item in cycle_edges if item.edge_key == edge_key), None)
+        if current_cut is None:
+            continue
+        recommended_cut = max(
+            cycle_edges,
+            key=lambda item: (
+                item.score,
+                item.same_axis_endpoint_count,
+                item.fixed_endpoint_count,
+                -item.free_touched_endpoint_count,
+                item.edge_key,
+            ),
+        )
+        analyses.append(
+            QuiltClosureCutAnalysis(
+                current_cut=current_cut,
+                recommended_cut=recommended_cut,
+                path_patch_ids=tuple(patch_path),
+                cycle_edges=tuple(sorted(
+                    cycle_edges,
+                    key=lambda item: (
+                        item.edge_key != recommended_cut.edge_key,
+                        item.edge_key != current_cut.edge_key,
+                        -item.score,
+                        item.edge_key,
+                    ),
+                )),
+            )
+        )
+
+    return tuple(analyses)
+
+
+def _format_closure_cut_heuristic(item: ClosureCutHeuristic) -> str:
+    candidate = item.candidate
+    return (
+        f"{item.edge_key[0]}-{item.edge_key[1]} cut:{item.score:.2f} {item.support_label} "
+        f"| roles:{candidate.owner_role.value}<->{candidate.target_role.value} "
+        f"| refs:L{candidate.owner_loop_index}C{candidate.owner_chain_index}->"
+        f"L{candidate.target_loop_index}C{candidate.target_chain_index} "
+        f"| {' '.join(item.reasons)}"
+    )
+
+
 def _format_patch_signature(graph: PatchGraph, patch_id: int) -> str:
     return graph.get_patch_semantic_key(patch_id)
 
@@ -3108,11 +4030,22 @@ def format_solve_plan_report(
                     + f"ep:{candidate.endpoint_strength:.2f} amb:{candidate.ambiguity_penalty:.2f}"
                 )
 
+    closure_cut_analyses_by_quilt = {
+        quilt.quilt_index: _analyze_quilt_closure_cuts(graph, solver_graph, quilt)
+        for quilt in solve_plan.quilts
+    }
+
     for quilt in solve_plan.quilts:
+        tree_edges = sorted(_build_quilt_tree_edges(quilt))
+        closure_cut_analyses = closure_cut_analyses_by_quilt.get(quilt.quilt_index, ())
         lines.append(
             f"Quilt {quilt.quilt_index}: component={quilt.component_index} root=Patch {quilt.root_patch_id} "
             f"({_format_patch_signature(graph, quilt.root_patch_id)}) root_score={quilt.root_score:.2f}"
         )
+        if tree_edges:
+            lines.append(
+                "  Tree edges: " + ", ".join(f"{edge_key[0]}-{edge_key[1]}" for edge_key in tree_edges)
+            )
         for step in quilt.steps:
             if step.is_root or step.incoming_candidate is None:
                 lines.append(
@@ -3131,6 +4064,28 @@ def format_solve_plan_report(
                 + f"L{candidate.target_loop_index}C{candidate.target_chain_index} "
                 + f"| transitions:{candidate.owner_transition} | {candidate.target_transition}"
             )
+        if closure_cut_analyses:
+            lines.append("  Closure cuts:")
+            for analysis_index, analysis in enumerate(closure_cut_analyses):
+                current_edge = f"{analysis.current_cut.edge_key[0]}-{analysis.current_cut.edge_key[1]}"
+                recommended_edge = f"{analysis.recommended_cut.edge_key[0]}-{analysis.recommended_cut.edge_key[1]}"
+                decision = (
+                    f"keep {current_edge}"
+                    if analysis.current_cut.edge_key == analysis.recommended_cut.edge_key
+                    else f"swap {current_edge} -> {recommended_edge}"
+                )
+                lines.append(
+                    f"    Cycle {analysis_index}: path={list(analysis.path_patch_ids)} | decision:{decision}"
+                )
+                lines.append("      current: " + _format_closure_cut_heuristic(analysis.current_cut))
+                lines.append("      best:    " + _format_closure_cut_heuristic(analysis.recommended_cut))
+                for cycle_edge in analysis.cycle_edges:
+                    marker = ""
+                    if cycle_edge.edge_key == analysis.recommended_cut.edge_key:
+                        marker += " [BEST]"
+                    if cycle_edge.edge_key == analysis.current_cut.edge_key:
+                        marker += " [CURRENT]"
+                    lines.append("      edge: " + _format_closure_cut_heuristic(cycle_edge) + marker)
         lines.append(f"  Stop: {quilt.stop_reason}")
         if quilt.deferred_candidates:
             lines.append("  Deferred frontier:")
@@ -3147,9 +4102,18 @@ def format_solve_plan_report(
     total_steps = sum(len(quilt.steps) for quilt in solve_plan.quilts)
     total_deferred = sum(len(quilt.deferred_candidates) for quilt in solve_plan.quilts)
     total_rejected = sum(len(quilt.rejected_candidates) for quilt in solve_plan.quilts)
+    total_closure_cycles = sum(len(items) for items in closure_cut_analyses_by_quilt.values())
+    total_cut_swaps = sum(
+        1
+        for analyses in closure_cut_analyses_by_quilt.values()
+        for analysis in analyses
+        if analysis.current_cut.edge_key != analysis.recommended_cut.edge_key
+    )
     summary = (
         f"Quilts: {len(solve_plan.quilts)} | Steps: {total_steps} | "
-        f"Deferred: {total_deferred} | Rejected: {total_rejected} | Skipped: {len(solve_plan.skipped_patch_ids)}"
+        f"Deferred: {total_deferred} | Rejected: {total_rejected} | "
+        f"ClosureCycles: {total_closure_cycles} | CutSwaps: {total_cut_swaps} | "
+        f"Skipped: {len(solve_plan.skipped_patch_ids)}"
     )
     return lines, summary
 
