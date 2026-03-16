@@ -192,6 +192,28 @@ def _build_solve_components(graph: PatchGraph, candidates: list[AttachmentCandid
     return components, component_by_patch
 
 
+def _patch_pair_key(patch_a_id: int, patch_b_id: int) -> tuple[int, int]:
+    return (min(patch_a_id, patch_b_id), max(patch_a_id, patch_b_id))
+
+
+def _build_quilt_tree_edges(quilt_plan: QuiltPlan) -> set[tuple[int, int]]:
+    edges = set()
+    for step in quilt_plan.steps:
+        candidate = step.incoming_candidate
+        if candidate is None:
+            continue
+        edges.add(_patch_pair_key(candidate.owner_patch_id, candidate.target_patch_id))
+    return edges
+
+
+def _is_allowed_quilt_edge(
+    allowed_tree_edges: set[tuple[int, int]],
+    patch_a_id: int,
+    patch_b_id: int,
+) -> bool:
+    return _patch_pair_key(patch_a_id, patch_b_id) in allowed_tree_edges
+
+
 def _count_patch_roles(node: PatchNode) -> tuple[int, int, int, int, int, int]:
     outer_count = 0
     hole_count = 0
@@ -1575,7 +1597,7 @@ def _cf_determine_direction(chain, node):
     return Vector((1.0, 0.0))
 
 
-def _cf_choose_seed_chain(graph, root_node, quilt_patch_ids):
+def _cf_choose_seed_chain(graph, root_node, quilt_patch_ids, allowed_tree_edges):
     """Выбирает strongest chain root patch для seed placement.
 
     Семантический bonus учитывает только patches того же quilt.
@@ -1604,7 +1626,11 @@ def _cf_choose_seed_chain(graph, root_node, quilt_patch_ids):
                 )
                 score += min(chain_len * 0.1, 0.5)
 
-            if chain.neighbor_kind == ChainNeighborKind.PATCH and chain.neighbor_patch_id in quilt_patch_ids:
+            if (
+                chain.neighbor_kind == ChainNeighborKind.PATCH
+                and chain.neighbor_patch_id in quilt_patch_ids
+                and _is_allowed_quilt_edge(allowed_tree_edges, root_node.patch_id, chain.neighbor_patch_id)
+            ):
                 neighbor_key = graph.get_patch_semantic_key(chain.neighbor_patch_id)
                 patch_type = root_node.patch_type.value if hasattr(root_node.patch_type, 'value') else str(root_node.patch_type)
                 if patch_type == 'WALL':
@@ -1625,11 +1651,19 @@ def _cf_choose_seed_chain(graph, root_node, quilt_patch_ids):
     return best_ref
 
 
-def _cf_find_anchors(chain_ref, chain, graph, point_registry, vert_to_placements, placed_refs):
+def _cf_find_anchors(
+    chain_ref,
+    chain,
+    graph,
+    point_registry,
+    vert_to_placements,
+    placed_refs,
+    allowed_tree_edges,
+):
     """Ищет anchor UV для start/end вершин chain с provenance.
 
     same_patch anchor берётся только через corner topology.
-    cross_patch anchor разрешён только через shared seam vert.
+    cross_patch anchor разрешён только через shared seam vert tree-ребра quilt.
     """
     patch_id, loop_index, chain_index = chain_ref
     node = graph.nodes.get(patch_id)
@@ -1639,6 +1673,7 @@ def _cf_find_anchors(chain_ref, chain, graph, point_registry, vert_to_placements
     boundary_loop = node.boundary_loops[loop_index]
     start_vert = chain.start_vert_index
     end_vert = chain.end_vert_index
+    seam_neighbor_patch_id = chain.neighbor_patch_id if chain.neighbor_kind == ChainNeighborKind.PATCH else None
     start_anchor = None
     end_anchor = None
 
@@ -1677,6 +1712,10 @@ def _cf_find_anchors(chain_ref, chain, graph, point_registry, vert_to_placements
         for other_ref, pt_idx in vert_to_placements[start_vert]:
             if other_ref[0] == patch_id:
                 continue
+            if seam_neighbor_patch_id is None or other_ref[0] != seam_neighbor_patch_id:
+                continue
+            if not _is_allowed_quilt_edge(allowed_tree_edges, patch_id, other_ref[0]):
+                continue
             key = (other_ref[0], other_ref[1], other_ref[2], pt_idx)
             if key in point_registry:
                 start_anchor = ChainAnchor(
@@ -1690,6 +1729,10 @@ def _cf_find_anchors(chain_ref, chain, graph, point_registry, vert_to_placements
     if end_anchor is None and end_vert >= 0 and end_vert in vert_to_placements:
         for other_ref, pt_idx in vert_to_placements[end_vert]:
             if other_ref[0] == patch_id:
+                continue
+            if seam_neighbor_patch_id is None or other_ref[0] != seam_neighbor_patch_id:
+                continue
+            if not _is_allowed_quilt_edge(allowed_tree_edges, patch_id, other_ref[0]):
                 continue
             key = (other_ref[0], other_ref[1], other_ref[2], pt_idx)
             if key in point_registry:
@@ -1802,6 +1845,7 @@ def _cf_score_candidate(
     graph,
     placed_in_patch,
     quilt_patch_ids,
+    allowed_tree_edges,
     start_anchor: Optional[ChainAnchor] = None,
     end_anchor: Optional[ChainAnchor] = None,
 ):
@@ -1822,7 +1866,11 @@ def _cf_score_candidate(
         if chain.is_corner_split:
             # Corner-split sub-chains: низкий приоритет, после bridge
             score += 0.4
-        elif chain.neighbor_kind == ChainNeighborKind.PATCH and chain.neighbor_patch_id in quilt_patch_ids:
+        elif (
+            chain.neighbor_kind == ChainNeighborKind.PATCH
+            and chain.neighbor_patch_id in quilt_patch_ids
+            and _is_allowed_quilt_edge(allowed_tree_edges, chain_ref[0], chain.neighbor_patch_id)
+        ):
             # Cross-patch H/V: скелет quilt — высший приоритет
             current_type = node.patch_type
             neighbor_node = graph.nodes.get(chain.neighbor_patch_id)
@@ -2153,6 +2201,7 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
     )
     quilt_patch_ids = set(quilt_plan.solved_patch_ids)
     quilt_patch_ids.add(quilt_plan.root_patch_id)
+    allowed_tree_edges = _build_quilt_tree_edges(quilt_plan)
     ordered_quilt_patch_ids = list(quilt_plan.solved_patch_ids)
     if quilt_plan.root_patch_id not in ordered_quilt_patch_ids:
         ordered_quilt_patch_ids.append(quilt_plan.root_patch_id)
@@ -2161,7 +2210,7 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
     if root_node is None:
         return quilt_scaffold
 
-    seed_result = _cf_choose_seed_chain(graph, root_node, quilt_patch_ids)
+    seed_result = _cf_choose_seed_chain(graph, root_node, quilt_patch_ids, allowed_tree_edges)
     if seed_result is None:
         quilt_scaffold.patches[quilt_plan.root_patch_id] = ScaffoldPatchPlacement(
             patch_id=quilt_plan.root_patch_id,
@@ -2235,6 +2284,9 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
         f"({seed_uvs[0].x:.4f},{seed_uvs[0].y:.4f})"
         f"->({seed_uvs[-1].x:.4f},{seed_uvs[-1].y:.4f})"
     )
+    if allowed_tree_edges:
+        edge_labels = [f"{edge[0]}-{edge[1]}" for edge in sorted(allowed_tree_edges)]
+        print(f"[CFTUV][Frontier] Tree edges: {edge_labels}")
 
     all_chain_pool = []
     for patch_id in ordered_quilt_patch_ids:
@@ -2266,6 +2318,7 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
                 point_registry,
                 vert_to_placements,
                 placed_chain_refs,
+                allowed_tree_edges,
             )
 
             placed_in_patch = sum(1 for placed_ref in placed_chain_refs if placed_ref[0] == ref[0])
@@ -2287,6 +2340,7 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
                 graph,
                 placed_in_patch,
                 quilt_patch_ids,
+                allowed_tree_edges,
                 start_anchor=anchor_start,
                 end_anchor=anchor_end,
             )
@@ -2305,7 +2359,15 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
             for ref, chain, node in all_chain_pool:
                 if ref in placed_chain_refs or ref in rejected_chain_refs:
                     continue
-                raw_sa, raw_ea = _cf_find_anchors(ref, chain, graph, point_registry, vert_to_placements, placed_chain_refs)
+                raw_sa, raw_ea = _cf_find_anchors(
+                    ref,
+                    chain,
+                    graph,
+                    point_registry,
+                    vert_to_placements,
+                    placed_chain_refs,
+                    allowed_tree_edges,
+                )
                 pip = sum(1 for pr in placed_chain_refs if pr[0] == ref[0])
                 sa, ea, k, _ = _cf_resolve_candidate_anchors(chain, raw_sa, raw_ea, pip, final_scale)
                 if k == 0:
