@@ -257,9 +257,10 @@ operators.py
 8. geometric outer fallback split для isolated `OUTER`;
 9. split border chains по corners;
 10. build `BoundaryChain`;
-11. merge adjacent same-role `MESH_BORDER` chains;
-12. build corners и endpoint topology;
-13. build seam edges между patches.
+11. downgrade weaker adjacent `same-role` point-contact chains (`shared_vert_count == 1`) в `FREE`;
+12. merge remaining adjacent same-role `MESH_BORDER` chains;
+13. build corners и endpoint topology;
+14. build seam edges между patches.
 
 ### Important current rules
 
@@ -604,7 +605,14 @@ corner detection сейчас идёт по двум путям с не полн
 - diagnostics для non-tree same-role closure seams уже добавлены в `solve.py`;
 - они измеряют span mismatch, positional drift по shared seam vertices (`phase` вдоль рабочей оси и `cross-axis` offset), а также общий shared UV delta;
 - они пишутся в logs и сохраняются в `ScaffoldQuiltPlacement.closure_seam_reports`;
-- row/column diagnostics, closure pre-constraint и snap post-pass ещё не реализованы;
+- row/column diagnostics уже добавлены как отдельный `FrameDiag` report в `solve.py`;
+- текущая practical реализация row/column diagnostics намеренно ограничена `WALL.SIDE` cases;
+- row/column diagnostics сохраняются в `ScaffoldQuiltPlacement.frame_alignment_reports` и показывают scatter для collinear `H_FRAME` / `V_FRAME` групп;
+- базовый frame classification threshold сейчас снижен до `0.04`, чтобы пограничные chains чаще оставались `FREE`, а не попадали в жёсткий `H/V` scaffold;
+- adjacent `same-role` point-contact (`shared_vert_count == 1`) больше не считается жёстким continuation case: weaker chain должен деградировать в `FREE` ещё в `analysis.py`, а жёсткий same-role continuity допустим только при shared edge;
+- точечный `closure pre-constraint` уже реализован в frontier placement path и работает только для `closure-sensitive` `one-anchor` `H_FRAME` / `V_FRAME` chains;
+- текущая practical версия `closure pre-constraint` не меняет quilt-wide scoring и не делает post-pass; она только выбирает лучший one-anchor вариант по existing closure pair и local anchor gaps;
+- следующий шаг для этого runtime track — повторный замер на production meshes и только потом решение, нужен ли консервативный `row / column snap post-pass`;
 - локальная per-chain rectification для `H/V` уже проверялась и была отключена как structural regression, потому что она не держит согласованный ряд/колонку на уровне quilt.
 
 Подробный порядок описан в:

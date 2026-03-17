@@ -22,6 +22,7 @@ try:
         PatchGraph, PatchNode,
         ScaffoldPointKey, ScaffoldChainPlacement, ScaffoldPatchPlacement,
         ScaffoldQuiltPlacement, ScaffoldMap, ScaffoldClosureSeamReport,
+        ScaffoldFrameAlignmentReport,
     )
 except ImportError:
     from constants import (
@@ -38,12 +39,15 @@ except ImportError:
         PatchGraph, PatchNode,
         ScaffoldPointKey, ScaffoldChainPlacement, ScaffoldPatchPlacement,
         ScaffoldQuiltPlacement, ScaffoldMap, ScaffoldClosureSeamReport,
+        ScaffoldFrameAlignmentReport,
     )
 
 
 EDGE_PROPAGATE_MIN = FRONTIER_PROPAGATE_THRESHOLD
 EDGE_WEAK_MIN = FRONTIER_WEAK_THRESHOLD
 SCAFFOLD_CLOSURE_EPSILON = 1e-4
+FRAME_ROW_GROUP_TOLERANCE = 1e-3
+FRAME_COLUMN_GROUP_TOLERANCE = 1e-3
 
 
 @dataclass(frozen=True)
@@ -437,6 +441,27 @@ def _match_non_tree_closure_chain_pairs(
     return matched_pairs
 
 
+def _build_quilt_closure_pair_map(
+    graph: PatchGraph,
+    quilt_patch_ids: set[int],
+    allowed_tree_edges: set[tuple[int, int]],
+) -> dict[tuple[int, int, int], tuple[int, int, int]]:
+    pair_map = {}
+    non_tree_patch_pairs = sorted(
+        edge_key
+        for edge_key in graph.edges.keys()
+        if edge_key[0] in quilt_patch_ids
+        and edge_key[1] in quilt_patch_ids
+        and edge_key not in allowed_tree_edges
+    )
+    for owner_patch_id, target_patch_id in non_tree_patch_pairs:
+        matched_pairs = _match_non_tree_closure_chain_pairs(graph, owner_patch_id, target_patch_id)
+        for owner_ref, _, target_ref, _, _ in matched_pairs:
+            pair_map[owner_ref] = target_ref
+            pair_map[target_ref] = owner_ref
+    return pair_map
+
+
 def _collect_quilt_closure_seam_reports(
     graph: PatchGraph,
     quilt_plan: QuiltPlan,
@@ -534,6 +559,233 @@ def _collect_quilt_closure_seam_reports(
     return tuple(reports)
 
 
+def _build_temporary_chain_placement(
+    chain_ref: tuple[int, int, int],
+    chain: BoundaryChain,
+    uv_points: list[Vector],
+    start_anchor: Optional[ChainAnchor],
+    end_anchor: Optional[ChainAnchor],
+) -> ScaffoldChainPlacement:
+    patch_id, loop_index, chain_index = chain_ref
+    return ScaffoldChainPlacement(
+        patch_id=patch_id,
+        loop_index=loop_index,
+        chain_index=chain_index,
+        frame_role=chain.frame_role,
+        source_kind='chain',
+        anchor_count=_cf_anchor_count(start_anchor, end_anchor),
+        start_anchor_kind=start_anchor.source_kind if start_anchor is not None else '',
+        end_anchor_kind=end_anchor.source_kind if end_anchor is not None else '',
+        points=tuple(
+            (ScaffoldPointKey(patch_id, loop_index, chain_index, point_index), uv.copy())
+            for point_index, uv in enumerate(uv_points)
+        ),
+    )
+
+
+def _closure_preconstraint_direction_options(
+    chain: BoundaryChain,
+    node: PatchNode,
+    start_anchor: Optional[ChainAnchor],
+    end_anchor: Optional[ChainAnchor],
+    graph: PatchGraph,
+    point_registry: dict[tuple[int, int, int, int], Vector],
+) -> list[tuple[str, Optional[Vector]]]:
+    options = [('default', None)]
+    if chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        return options
+
+    base_direction = _try_inherit_direction(chain, node, start_anchor, end_anchor, graph, point_registry)
+    if base_direction is None:
+        base_direction = _cf_determine_direction(chain, node)
+    axis_direction = _snap_direction_to_role(base_direction, chain.frame_role)
+    axis_direction = _normalize_direction(axis_direction, _default_role_direction(chain.frame_role))
+    flipped_direction = Vector((-axis_direction.x, -axis_direction.y))
+    if (flipped_direction - axis_direction).length > 1e-8:
+        options.append(('flip', flipped_direction))
+    return options
+
+
+def _closure_preconstraint_metric(
+    graph: PatchGraph,
+    chain_ref: tuple[int, int, int],
+    chain: BoundaryChain,
+    uv_points: list[Vector],
+    start_anchor: Optional[ChainAnchor],
+    end_anchor: Optional[ChainAnchor],
+    raw_start_anchor: Optional[ChainAnchor],
+    raw_end_anchor: Optional[ChainAnchor],
+    partner_placement: ScaffoldChainPlacement,
+) -> tuple[float, float, float, float, float, float]:
+    temporary_placement = _build_temporary_chain_placement(
+        chain_ref,
+        chain,
+        uv_points,
+        start_anchor,
+        end_anchor,
+    )
+    (
+        _sampled_shared_vert_count,
+        _shared_uv_delta_max,
+        _shared_uv_delta_mean,
+        axis_phase_offset_max,
+        axis_phase_offset_mean,
+        _cross_axis_offset_max,
+        _cross_axis_offset_mean,
+    ) = _measure_shared_closure_uv_offsets(graph, temporary_placement, partner_placement)
+    predicted_uv_span, _ = _chain_uv_axis_metrics(temporary_placement)
+    partner_uv_span, _ = _chain_uv_axis_metrics(partner_placement)
+    span_mismatch = abs(predicted_uv_span - partner_uv_span)
+
+    same_patch_gap_max = 0.0
+    all_gap_max = 0.0
+    all_gap_sum = 0.0
+    gap_count = 0
+    for raw_anchor, predicted_uv in (
+        (raw_start_anchor, uv_points[0]),
+        (raw_end_anchor, uv_points[-1]),
+    ):
+        if raw_anchor is None:
+            continue
+        gap = (predicted_uv - raw_anchor.uv).length
+        all_gap_max = max(all_gap_max, gap)
+        all_gap_sum += gap
+        gap_count += 1
+        if raw_anchor.source_kind == 'same_patch':
+            same_patch_gap_max = max(same_patch_gap_max, gap)
+
+    all_gap_mean = all_gap_sum / gap_count if gap_count > 0 else 0.0
+    return (
+        same_patch_gap_max,
+        axis_phase_offset_max,
+        all_gap_max,
+        span_mismatch,
+        axis_phase_offset_mean,
+        all_gap_mean,
+    )
+
+
+def _cf_apply_closure_preconstraint(
+    chain_ref: tuple[int, int, int],
+    chain: BoundaryChain,
+    node: PatchNode,
+    raw_start_anchor: Optional[ChainAnchor],
+    raw_end_anchor: Optional[ChainAnchor],
+    start_anchor: Optional[ChainAnchor],
+    end_anchor: Optional[ChainAnchor],
+    known: int,
+    graph: PatchGraph,
+    point_registry: dict[tuple[int, int, int, int], Vector],
+    placed_chains_map: dict[tuple[int, int, int], ScaffoldChainPlacement],
+    closure_pair_map: dict[tuple[int, int, int], tuple[int, int, int]],
+    final_scale: float,
+) -> tuple[Optional[ChainAnchor], Optional[ChainAnchor], Optional[Vector], str]:
+    if known != 1 or chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        return start_anchor, end_anchor, None, ''
+
+    partner_ref = closure_pair_map.get(chain_ref)
+    if partner_ref is None:
+        return start_anchor, end_anchor, None, ''
+    partner_placement = placed_chains_map.get(partner_ref)
+    if partner_placement is None or len(partner_placement.points) < 2:
+        return start_anchor, end_anchor, None, ''
+
+    anchor_options = []
+    seen_anchor_keys = set()
+    for anchor_label, option_start, option_end in (
+        ('resolved', start_anchor, end_anchor),
+        ('start_only', raw_start_anchor, None),
+        ('end_only', None, raw_end_anchor),
+    ):
+        if _cf_anchor_count(option_start, option_end) != 1:
+            continue
+        anchor_key = (
+            option_start.source_ref if option_start is not None else None,
+            option_end.source_ref if option_end is not None else None,
+        )
+        if anchor_key in seen_anchor_keys:
+            continue
+        seen_anchor_keys.add(anchor_key)
+        anchor_options.append((anchor_label, option_start, option_end))
+
+    if not anchor_options:
+        return start_anchor, end_anchor, None, ''
+
+    option_results = []
+    for anchor_label, option_start, option_end in anchor_options:
+        direction_options = _closure_preconstraint_direction_options(
+            chain,
+            node,
+            option_start,
+            option_end,
+            graph,
+            point_registry,
+        )
+        for direction_label, direction_override in direction_options:
+            uv_points = _cf_place_chain(
+                chain,
+                node,
+                option_start,
+                option_end,
+                final_scale,
+                direction_override,
+            )
+            if not uv_points or len(uv_points) != len(chain.vert_cos):
+                continue
+            metric = _closure_preconstraint_metric(
+                graph,
+                chain_ref,
+                chain,
+                uv_points,
+                option_start,
+                option_end,
+                raw_start_anchor,
+                raw_end_anchor,
+                partner_placement,
+            )
+            option_results.append((
+                metric,
+                anchor_label,
+                direction_label,
+                option_start,
+                option_end,
+                direction_override,
+            ))
+
+    if not option_results:
+        return start_anchor, end_anchor, None, ''
+
+    current_anchor_key = (
+        start_anchor.source_ref if start_anchor is not None else None,
+        end_anchor.source_ref if end_anchor is not None else None,
+    )
+    current_metric = None
+    best_result = None
+    for result in sorted(option_results, key=lambda item: item[0]):
+        metric, anchor_label, direction_label, option_start, option_end, direction_override = result
+        option_anchor_key = (
+            option_start.source_ref if option_start is not None else None,
+            option_end.source_ref if option_end is not None else None,
+        )
+        if option_anchor_key == current_anchor_key and direction_label == 'default' and current_metric is None:
+            current_metric = metric
+        if best_result is None:
+            best_result = result
+
+    if best_result is None or current_metric is None:
+        return start_anchor, end_anchor, None, ''
+
+    best_metric, best_anchor_label, best_direction_label, best_start, best_end, best_direction_override = best_result
+    if best_metric >= current_metric:
+        return start_anchor, end_anchor, None, ''
+
+    reason = (
+        f"closure_preconstraint:{best_anchor_label}/{best_direction_label}"
+        f":phase={best_metric[1]:.4f}:gap={best_metric[0]:.4f}"
+    )
+    return best_start, best_end, best_direction_override, reason
+
+
 def _print_quilt_closure_seam_reports(
     quilt_index: int,
     closure_seam_reports: tuple[ScaffoldClosureSeamReport, ...],
@@ -565,6 +817,192 @@ def _print_quilt_closure_seam_reports(
             f"uvd:{report.shared_uv_delta_max:.6f}/{report.shared_uv_delta_mean:.6f} "
             f"path:{report.tree_patch_distance} free:{report.free_bridge_count} "
             f"shared_verts:{report.sampled_shared_vert_count}/{report.shared_vert_count}"
+        )
+
+
+def _frame_cross_axis_uv_value(chain_placement: ScaffoldChainPlacement) -> float:
+    if not chain_placement.points:
+        return 0.0
+    if chain_placement.frame_role == FrameRole.H_FRAME:
+        return sum(uv.y for _, uv in chain_placement.points) / float(len(chain_placement.points))
+    if chain_placement.frame_role == FrameRole.V_FRAME:
+        return sum(uv.x for _, uv in chain_placement.points) / float(len(chain_placement.points))
+    return 0.0
+
+
+def _wall_side_row_class_key(chain: BoundaryChain) -> tuple[int]:
+    if not chain.vert_cos:
+        return (0,)
+    avg_z = sum(point.z for point in chain.vert_cos) / float(len(chain.vert_cos))
+    return (int(round(avg_z / FRAME_ROW_GROUP_TOLERANCE)),)
+
+
+def _wall_side_column_class_key(chain: BoundaryChain) -> tuple[int, int]:
+    if not chain.vert_cos:
+        return (0, 0)
+    avg_x = sum(point.x for point in chain.vert_cos) / float(len(chain.vert_cos))
+    avg_y = sum(point.y for point in chain.vert_cos) / float(len(chain.vert_cos))
+    return (
+        int(round(avg_x / FRAME_COLUMN_GROUP_TOLERANCE)),
+        int(round(avg_y / FRAME_COLUMN_GROUP_TOLERANCE)),
+    )
+
+
+def _frame_group_display_coords(
+    axis_kind: str,
+    class_key: tuple[int, ...],
+) -> tuple[float, float]:
+    if axis_kind == 'ROW':
+        return class_key[0] * FRAME_ROW_GROUP_TOLERANCE, 0.0
+    if axis_kind == 'COLUMN':
+        return (
+            class_key[0] * FRAME_COLUMN_GROUP_TOLERANCE,
+            class_key[1] * FRAME_COLUMN_GROUP_TOLERANCE,
+        )
+    return 0.0, 0.0
+
+
+def _collect_quilt_closure_sensitive_patch_ids(
+    quilt_plan: QuiltPlan,
+    closure_seam_reports: tuple[ScaffoldClosureSeamReport, ...],
+) -> set[int]:
+    if not closure_seam_reports:
+        return set()
+
+    patch_tree_adjacency = _build_patch_tree_adjacency(quilt_plan)
+    closure_sensitive_patch_ids: set[int] = set()
+    for report in closure_seam_reports:
+        path = _find_patch_tree_path(
+            patch_tree_adjacency,
+            report.owner_patch_id,
+            report.target_patch_id,
+        )
+        if path:
+            closure_sensitive_patch_ids.update(path)
+        else:
+            closure_sensitive_patch_ids.add(report.owner_patch_id)
+            closure_sensitive_patch_ids.add(report.target_patch_id)
+    return closure_sensitive_patch_ids
+
+
+def _collect_quilt_frame_alignment_reports(
+    graph: PatchGraph,
+    quilt_plan: QuiltPlan,
+    quilt_scaffold: ScaffoldQuiltPlacement,
+    final_scale: float,
+    closure_seam_reports: tuple[ScaffoldClosureSeamReport, ...],
+) -> tuple[ScaffoldFrameAlignmentReport, ...]:
+    closure_sensitive_patch_ids = _collect_quilt_closure_sensitive_patch_ids(quilt_plan, closure_seam_reports)
+    grouped_members: dict[tuple[str, str, tuple[int, ...]], list[tuple[tuple[int, int, int], float, float, int]]] = {}
+
+    for patch_id, patch_placement in quilt_scaffold.patches.items():
+        if patch_placement is None or patch_placement.notes:
+            continue
+        node = graph.nodes.get(patch_id)
+        if node is None or node.semantic_key != 'WALL.SIDE':
+            continue
+        if patch_placement.loop_index < 0 or patch_placement.loop_index >= len(node.boundary_loops):
+            continue
+        boundary_loop = node.boundary_loops[patch_placement.loop_index]
+
+        for chain_placement in patch_placement.chain_placements:
+            if chain_placement.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                continue
+            if chain_placement.chain_index < 0 or chain_placement.chain_index >= len(boundary_loop.chains):
+                continue
+            chain = boundary_loop.chains[chain_placement.chain_index]
+            if len(chain.vert_cos) < 2:
+                continue
+
+            axis_kind = 'ROW' if chain_placement.frame_role == FrameRole.H_FRAME else 'COLUMN'
+            if axis_kind == 'ROW':
+                class_key = _wall_side_row_class_key(chain)
+            else:
+                class_key = _wall_side_column_class_key(chain)
+            ref = (patch_id, patch_placement.loop_index, chain_placement.chain_index)
+            cross_uv = _frame_cross_axis_uv_value(chain_placement)
+            weight = max(_cf_chain_total_length(chain, final_scale), 1e-8)
+            grouped_members.setdefault((axis_kind, node.semantic_key, class_key), []).append(
+                (ref, cross_uv, weight, patch_id)
+            )
+
+    reports = []
+    for (axis_kind, semantic_key, class_key), members in grouped_members.items():
+        if len(members) < 2:
+            continue
+
+        total_weight = sum(weight for _, _, weight, _ in members)
+        if total_weight <= 1e-8:
+            continue
+        target_cross_uv = sum(cross_uv * weight for _, cross_uv, weight, _ in members) / total_weight
+        scatter_values = [abs(cross_uv - target_cross_uv) for _, cross_uv, _, _ in members]
+        class_coord_a, class_coord_b = _frame_group_display_coords(axis_kind, class_key)
+
+        reports.append(ScaffoldFrameAlignmentReport(
+            axis_kind=axis_kind,
+            semantic_key=semantic_key,
+            frame_role=FrameRole.H_FRAME if axis_kind == 'ROW' else FrameRole.V_FRAME,
+            class_coord_a=class_coord_a,
+            class_coord_b=class_coord_b,
+            chain_count=len(members),
+            total_weight=total_weight,
+            target_cross_uv=target_cross_uv,
+            scatter_max=max(scatter_values),
+            scatter_mean=sum(scatter_values) / float(len(scatter_values)),
+            closure_sensitive=any(patch_id in closure_sensitive_patch_ids for _, _, _, patch_id in members),
+            member_refs=tuple(sorted(ref for ref, _, _, _ in members)),
+        ))
+
+    reports.sort(
+        key=lambda report: (
+            -report.scatter_max,
+            -report.scatter_mean,
+            report.axis_kind,
+            report.class_coord_a,
+            report.class_coord_b,
+        )
+    )
+    return tuple(reports)
+
+
+def _print_quilt_frame_alignment_reports(
+    quilt_index: int,
+    frame_alignment_reports: tuple[ScaffoldFrameAlignmentReport, ...],
+) -> None:
+    if not frame_alignment_reports:
+        return
+
+    max_row_scatter = max(
+        (report.scatter_max for report in frame_alignment_reports if report.axis_kind == 'ROW'),
+        default=0.0,
+    )
+    max_column_scatter = max(
+        (report.scatter_max for report in frame_alignment_reports if report.axis_kind == 'COLUMN'),
+        default=0.0,
+    )
+    print(
+        f"[CFTUV][FrameDiag] Quilt {quilt_index}: "
+        f"groups={len(frame_alignment_reports)} "
+        f"max_row_scatter={max_row_scatter:.6f} "
+        f"max_column_scatter={max_column_scatter:.6f}"
+    )
+    for report in frame_alignment_reports:
+        coord_label = (
+            f"z:{report.class_coord_a:.6f}"
+            if report.axis_kind == 'ROW'
+            else f"xy:({report.class_coord_a:.6f},{report.class_coord_b:.6f})"
+        )
+        refs_label = ','.join(
+            f"P{patch_id}L{loop_index}C{chain_index}"
+            for patch_id, loop_index, chain_index in report.member_refs
+        )
+        closure_tag = " closure:1" if report.closure_sensitive else " closure:0"
+        print(
+            f"[CFTUV][FrameDiag] Quilt {quilt_index} "
+            f"{report.axis_kind} {report.frame_role.value} {coord_label} "
+            f"chains:{report.chain_count} target:{report.target_cross_uv:.6f} "
+            f"scatter:{report.scatter_max:.6f}/{report.scatter_mean:.6f} "
+            f"weight:{report.total_weight:.6f}{closure_tag} refs:[{refs_label}]"
         )
 
 
@@ -2529,7 +2967,7 @@ def _cf_score_candidate(
 
 
 
-def _try_inherit_direction(chain, start_anchor, end_anchor, graph, point_registry):
+def _try_inherit_direction(chain, node, start_anchor, end_anchor, graph, point_registry):
     """Наследует direction от соседнего same-role chain в том же patch.
 
     Если anchor-chain имеет тот же frame_role (H↔H, V↔V) в том же patch,
@@ -2538,6 +2976,8 @@ def _try_inherit_direction(chain, start_anchor, end_anchor, graph, point_registr
     """
     if chain.frame_role not in (FrameRole.H_FRAME, FrameRole.V_FRAME):
         return None
+
+    own_direction = _cf_determine_direction(chain, node)
 
     for anchor in (start_anchor, end_anchor):
         if anchor is None or anchor.source_kind != 'same_patch':
@@ -2557,11 +2997,15 @@ def _try_inherit_direction(chain, start_anchor, end_anchor, graph, point_registr
         if chain.frame_role == FrameRole.H_FRAME:
             du = src_end_uv.x - src_start_uv.x
             if abs(du) > 1e-9:
-                return Vector((1.0 if du > 0 else -1.0, 0.0))
+                inherited = Vector((1.0 if du > 0 else -1.0, 0.0))
+                if inherited.dot(own_direction) > 0.0:
+                    return inherited
         else:  # V_FRAME
             dv = src_end_uv.y - src_start_uv.y
             if abs(dv) > 1e-9:
-                return Vector((0.0, 1.0 if dv > 0 else -1.0))
+                inherited = Vector((0.0, 1.0 if dv > 0 else -1.0))
+                if inherited.dot(own_direction) > 0.0:
+                    return inherited
 
     return None
 
@@ -2816,6 +3260,7 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
     quilt_patch_ids = set(quilt_plan.solved_patch_ids)
     quilt_patch_ids.add(quilt_plan.root_patch_id)
     allowed_tree_edges = _build_quilt_tree_edges(quilt_plan)
+    closure_pair_map = _build_quilt_closure_pair_map(graph, quilt_patch_ids, allowed_tree_edges)
     ordered_quilt_patch_ids = list(quilt_plan.solved_patch_ids)
     if quilt_plan.root_patch_id not in ordered_quilt_patch_ids:
         ordered_quilt_patch_ids.append(quilt_plan.root_patch_id)
@@ -2948,6 +3393,24 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
                 graph,
                 placed_chains_map,
             )
+            closure_dir_override = None
+            anchor_start, anchor_end, closure_dir_override, closure_reason = _cf_apply_closure_preconstraint(
+                ref,
+                chain,
+                node,
+                raw_start_anchor,
+                raw_end_anchor,
+                anchor_start,
+                anchor_end,
+                known,
+                graph,
+                point_registry,
+                placed_chains_map,
+                closure_pair_map,
+                final_scale,
+            )
+            if closure_reason:
+                anchor_reason = f"{anchor_reason}|{closure_reason}" if anchor_reason else closure_reason
             if known == 0:
                 continue
 
@@ -2967,7 +3430,15 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
             if score > best_score:
                 best_score = score
                 best_ref = ref
-                best_data = (chain, node, anchor_start, anchor_end, anchor_reason, anchor_adjustments)
+                best_data = (
+                    chain,
+                    node,
+                    anchor_start,
+                    anchor_end,
+                    anchor_reason,
+                    anchor_adjustments,
+                    closure_dir_override,
+                )
 
         if best_ref is None or best_score < CHAIN_FRONTIER_THRESHOLD:
             # Диагностика: почему frontier остановился
@@ -3018,7 +3489,7 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
                 print(f"[CFTUV][Frontier] Untouched patches: {sorted(patches_without_placed)}")
             break
 
-        chain, node, anchor_start, anchor_end, anchor_reason, anchor_adjustments = best_data
+        chain, node, anchor_start, anchor_end, anchor_reason, anchor_adjustments, closure_dir_override = best_data
         if anchor_adjustments:
             applied = _cf_apply_anchor_adjustments(
                 anchor_adjustments,
@@ -3035,7 +3506,9 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
                     f"{chain.frame_role.value} reason:anchor_rectify_failed"
                 )
                 continue
-        dir_override = _try_inherit_direction(chain, anchor_start, anchor_end, graph, point_registry)
+        dir_override = closure_dir_override
+        if dir_override is None:
+            dir_override = _try_inherit_direction(chain, node, anchor_start, anchor_end, graph, point_registry)
         uv_points = _cf_place_chain(chain, node, anchor_start, anchor_end, final_scale, dir_override)
 
         if not uv_points or len(uv_points) != len(chain.vert_cos):
@@ -3099,7 +3572,15 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
         final_scale,
         allowed_tree_edges,
     )
+    quilt_scaffold.frame_alignment_reports = _collect_quilt_frame_alignment_reports(
+        graph,
+        quilt_plan,
+        quilt_scaffold,
+        final_scale,
+        quilt_scaffold.closure_seam_reports,
+    )
     _print_quilt_closure_seam_reports(quilt_plan.quilt_index, quilt_scaffold.closure_seam_reports)
+    _print_quilt_frame_alignment_reports(quilt_plan.quilt_index, quilt_scaffold.frame_alignment_reports)
 
     total_placed = len(build_order)
     total_available = len(all_chain_pool) + 1
@@ -3142,6 +3623,9 @@ def format_root_scaffold_report(
     closure_seam_count = 0
     max_closure_span_mismatch = 0.0
     max_closure_axis_phase = 0.0
+    frame_group_count = 0
+    max_row_scatter = 0.0
+    max_column_scatter = 0.0
     for quilt in scaffold_map.quilts:
         placed_patch_ids = []
         for step_patch_id in [quilt.root_patch_id] + [patch_id for patch_id in quilt.patches.keys() if patch_id != quilt.root_patch_id]:
@@ -3152,6 +3636,7 @@ def format_root_scaffold_report(
             placed_patch_ids = [quilt.root_patch_id]
         lines.append(f"Quilt {quilt.quilt_index}: root=Patch {quilt.root_patch_id} ({graph.get_patch_semantic_key(quilt.root_patch_id)}) | patches:{placed_patch_ids}")
         closure_reports = getattr(quilt, 'closure_seam_reports', ())
+        frame_reports = getattr(quilt, 'frame_alignment_reports', ())
         if closure_reports:
             closure_seam_count += len(closure_reports)
             max_closure_span_mismatch = max(
@@ -3182,6 +3667,39 @@ def format_root_scaffold_report(
                     + f"cross:{report.cross_axis_offset_max:.6f}/{report.cross_axis_offset_mean:.6f} "
                     + f"uvd:{report.shared_uv_delta_max:.6f}/{report.shared_uv_delta_mean:.6f} "
                     + f"path:{report.tree_patch_distance} free:{report.free_bridge_count}"
+                )
+        if frame_reports:
+            frame_group_count += len(frame_reports)
+            max_row_scatter = max(
+                max_row_scatter,
+                max((report.scatter_max for report in frame_reports if report.axis_kind == 'ROW'), default=0.0),
+            )
+            max_column_scatter = max(
+                max_column_scatter,
+                max((report.scatter_max for report in frame_reports if report.axis_kind == 'COLUMN'), default=0.0),
+            )
+            lines.append(
+                f"  FrameGroups: {len(frame_reports)} | "
+                f"max_row_scatter:{max((report.scatter_max for report in frame_reports if report.axis_kind == 'ROW'), default=0.0):.6f} | "
+                f"max_column_scatter:{max((report.scatter_max for report in frame_reports if report.axis_kind == 'COLUMN'), default=0.0):.6f}"
+            )
+            for report in frame_reports:
+                coord_label = (
+                    f"z:{report.class_coord_a:.6f}"
+                    if report.axis_kind == 'ROW'
+                    else f"xy:({report.class_coord_a:.6f},{report.class_coord_b:.6f})"
+                )
+                refs_label = ','.join(
+                    f"P{patch_id}L{loop_index}C{chain_index}"
+                    for patch_id, loop_index, chain_index in report.member_refs
+                )
+                closure_tag = " closure:1" if report.closure_sensitive else " closure:0"
+                lines.append(
+                    "    "
+                    + f"{report.axis_kind} {report.frame_role.value} {coord_label} "
+                    + f"chains:{report.chain_count} target:{report.target_cross_uv:.6f} "
+                    + f"scatter:{report.scatter_max:.6f}/{report.scatter_mean:.6f} "
+                    + f"weight:{report.total_weight:.6f}{closure_tag} refs:[{refs_label}]"
                 )
         for patch_id in placed_patch_ids:
             patch_placement = quilt.patches.get(patch_id)
@@ -3243,7 +3761,10 @@ def format_root_scaffold_report(
         f"Scaffold quilts: {len(scaffold_map.quilts)} | Patches: {total_patches} | Unsupported: {unsupported} | "
         f"Invalid closure: {invalid_closure} | Closure seams: {closure_seam_count} | "
         f"Max seam mismatch: {max_closure_span_mismatch:.6f} | "
-        f"Max seam phase: {max_closure_axis_phase:.6f}"
+        f"Max seam phase: {max_closure_axis_phase:.6f} | "
+        f"Frame groups: {frame_group_count} | "
+        f"Max row scatter: {max_row_scatter:.6f} | "
+        f"Max column scatter: {max_column_scatter:.6f}"
     )
     return lines, summary
 
@@ -3355,6 +3876,9 @@ def _execute_phase1_preview_impl(
             'unsupported_patch_count': 0,
             'unsupported_patch_ids': [],
             'conformal_applied': 0,
+            'frame_group_count': 0,
+            'frame_row_max_scatter': 0.0,
+            'frame_column_max_scatter': 0.0,
         }
 
     bm.faces.ensure_lookup_table()
@@ -3385,6 +3909,9 @@ def _execute_phase1_preview_impl(
     closure_seam_count = 0
     closure_seam_max_mismatch = 0.0
     closure_seam_max_phase = 0.0
+    frame_group_count = 0
+    frame_row_max_scatter = 0.0
+    frame_column_max_scatter = 0.0
 
     for quilt_scaffold in scaffold_map.quilts:
         quilt_plan = quilt_plan_by_index.get(quilt_scaffold.quilt_index)
@@ -3400,6 +3927,16 @@ def _execute_phase1_preview_impl(
         closure_seam_max_phase = max(
             closure_seam_max_phase,
             max((report.axis_phase_offset_max for report in closure_reports), default=0.0),
+        )
+        frame_reports = getattr(quilt_scaffold, 'frame_alignment_reports', ())
+        frame_group_count += len(frame_reports)
+        frame_row_max_scatter = max(
+            frame_row_max_scatter,
+            max((report.scatter_max for report in frame_reports if report.axis_kind == 'ROW'), default=0.0),
+        )
+        frame_column_max_scatter = max(
+            frame_column_max_scatter,
+            max((report.scatter_max for report in frame_reports if report.axis_kind == 'COLUMN'), default=0.0),
         )
         quilt_apply_patch_ids = [
             patch_id
@@ -3584,6 +4121,9 @@ def _execute_phase1_preview_impl(
         'closure_seam_count': closure_seam_count,
         'closure_seam_max_mismatch': closure_seam_max_mismatch,
         'closure_seam_max_phase': closure_seam_max_phase,
+        'frame_group_count': frame_group_count,
+        'frame_row_max_scatter': frame_row_max_scatter,
+        'frame_column_max_scatter': frame_column_max_scatter,
     }
 
 # ============================================================

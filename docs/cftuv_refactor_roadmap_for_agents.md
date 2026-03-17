@@ -274,6 +274,14 @@ Tree scaffold размещает patches последовательно от roo
 
 Без этого любой snap или pre-constraint будет слепым.
 
+Текущий статус:
+
+- `row / column diagnostics` уже реализованы в `solve.py` как `FrameDiag`;
+- отчёт сохраняется в `ScaffoldQuiltPlacement.frame_alignment_reports`;
+- текущая practical версия намеренно ограничена `WALL.SIDE` и не притворяется общим orthogonal solve;
+- точечный `closure pre-constraint` уже реализован после diagnostics;
+- следующий шаг track — повторный замер production meshes и decision point по `row / column snap post-pass`.
+
 #### Step 1. Closure Pre-Constraint First
 
 Первый runtime fix после diagnostics должен быть точечным и low-risk:
@@ -284,6 +292,16 @@ Tree scaffold размещает patches последовательно от roo
 - использовать canonical 3D span / axis как guide до момента placement.
 
 Это точечнее и безопаснее, чем quilt-wide post-pass.
+
+Текущий статус реализации:
+
+- pre-constraint встроен в frontier placement path;
+- он активируется только для `closure-sensitive` matched non-tree same-role pairs;
+- текущая версия не трогает scoring и не делает quilt-wide snap;
+- базовый `H/V` classification threshold уже снижен до `0.04`, чтобы пограничные chains чаще оставались `FREE`;
+- adjacent `same-role` point-contact chains (`shared_vert_count == 1`) теперь не считаются жёстким continuation case: weaker chain должен деградировать в `FREE` ещё в `analysis.py`, до frontier;
+- same-patch same-role direction inheritance уже пришлось ужесточить: оно не должно переопределять chain, если inherited sign противоречит собственному 3D-направлению chain;
+- practical задача следующего шага теперь уже не внедрение pre-constraint, а повторный замер на real meshes.
 
 #### Step 2. Re-Measure
 
@@ -356,7 +374,7 @@ Tree scaffold размещает patches последовательно от roo
    Использовать как существующий шаблон для нового row / column diagnostic report.
 
 3. `solve.py -> _cf_resolve_candidate_anchors()` / placement path
-   Здесь будет естественная точка для closure pre-constraint.
+   Здесь уже встроен точечный closure pre-constraint; следующий агент должен сначала смотреть логи после него, а не перепридумывать placement path.
 
 4. `solve.py -> placed_chains_map` post-pass перед `_cf_build_envelopes()`
    Это правильное место для консервативного row / column snap,

@@ -191,9 +191,9 @@ Quilt растёт органически от root chain наружу, пере
 
 Текущий порядок работ:
 
-1. добавить `row / column diagnostics` рядом с уже существующими `closure seam diagnostics`;
-2. затем сделать точечный `closure pre-constraint` только для closure-sensitive paths;
-3. затем повторно промерить diagnostics;
+1. `row / column diagnostics` уже добавлены рядом с `closure seam diagnostics`;
+2. точечный `closure pre-constraint` уже встроен только для closure-sensitive paths;
+3. следующий шаг — повторно промерить diagnostics на production meshes;
 4. и только если scatter реально остаётся, добавить очень консервативный `row / column snap post-pass`.
 
 ### Runtime guardrails
@@ -210,6 +210,12 @@ Quilt растёт органически от root chain наружу, пере
 
 - diagnostics для non-tree same-role closure seams уже есть в `solve.py`;
 - они уже считают `span mismatch`, `phase`, `cross-axis offset`, `shared UV delta`;
+- `row / column diagnostics` уже есть в `solve.py` как `FrameDiag` и хранятся в `ScaffoldQuiltPlacement.frame_alignment_reports`;
+- текущая practical реализация этих diagnostics намеренно ограничена `WALL.SIDE`;
+- базовый `FRAME_ALIGNMENT_THRESHOLD` для `H_FRAME` / `V_FRAME` сейчас ужесточён до `0.04`, чтобы пограничные chains чаще оставались `FREE`, а не входили в жёсткую раму слишком рано;
+- для adjacent `same-role` chains теперь действует topology guard в `analysis.py`: point-contact через одну общую вершину не считается жёстким continuation; weaker chain принудительно деградирует в `FREE`, а жёсткий same-role continuity допустим только при shared edge (`shared_vert_count >= 2`);
+- точечный `closure pre-constraint` уже есть в frontier placement path и пока влияет только на `closure-sensitive` `one-anchor` `H/V` placement;
+- `same-patch same-role` direction inheritance теперь обязано уважать собственное 3D-направление chain; нельзя возвращать слепое inheritance через split-segments, иначе возникают ложные continuation и patch-level closure regression;
 - локальная `per-chain rectification` для `H/V` уже тестировалась и отключена;
 - текущая проблема сформулирована как две разные зоны:
   1. closure-sensitive seams;

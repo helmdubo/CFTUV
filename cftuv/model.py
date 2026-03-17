@@ -407,6 +407,24 @@ class ScaffoldClosureSeamReport:
     shared_vert_count: int = 0
 
 
+@dataclass(frozen=True)
+class ScaffoldFrameAlignmentReport:
+    """Диагностика согласованности row / column класса внутри quilt."""
+
+    axis_kind: str = "ROW"
+    semantic_key: str = ""
+    frame_role: FrameRole = FrameRole.FREE
+    class_coord_a: float = 0.0
+    class_coord_b: float = 0.0
+    chain_count: int = 0
+    total_weight: float = 0.0
+    target_cross_uv: float = 0.0
+    scatter_max: float = 0.0
+    scatter_mean: float = 0.0
+    closure_sensitive: bool = False
+    member_refs: tuple[tuple[int, int, int], ...] = ()
+
+
 @dataclass
 class ScaffoldPatchPlacement:
     """Per-patch envelope — результат scaffold placement."""
@@ -441,6 +459,7 @@ class ScaffoldQuiltPlacement:
     patches: dict[int, ScaffoldPatchPlacement] = field(default_factory=dict)
     build_order: list = field(default_factory=list)  # Phase 3: ChainRef tuples
     closure_seam_reports: tuple[ScaffoldClosureSeamReport, ...] = ()
+    frame_alignment_reports: tuple[ScaffoldFrameAlignmentReport, ...] = ()
 
 
 @dataclass

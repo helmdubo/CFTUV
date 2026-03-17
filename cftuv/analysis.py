@@ -703,7 +703,7 @@ def _classify_raw_loops_via_uv(raw_loops, bm, patch_face_indices, uv_layer):
         )
 
     polys_2d = []
-    for raw_loop in raw_loops:
+    for loop_index, raw_loop in enumerate(raw_loops):
         poly = []
         for face_index, edge_index, vert_index in zip(
             raw_loop["side_face_indices"],
@@ -1397,6 +1397,85 @@ def _build_boundary_chain_objects(raw_chains, basis_u, basis_v):
         )
     return chains
 
+
+def _measure_chain_frame_confidence(chain, basis_u, basis_v):
+    """Measure how strongly a chain supports its current H/V role."""
+
+    if len(chain.vert_cos) < 2:
+        return float("-inf"), 0.0, 0.0, 0, 0
+
+    points_2d = [Vector((vert_co.dot(basis_u), vert_co.dot(basis_v))) for vert_co in chain.vert_cos]
+    us = [point.x for point in points_2d]
+    vs = [point.y for point in points_2d]
+
+    extent_u = max(us) - min(us)
+    extent_v = max(vs) - min(vs)
+    total_extent = max(extent_u, extent_v)
+    if total_extent < 1e-6:
+        return float("-inf"), 0.0, 0.0, len(chain.vert_indices), len(chain.edge_indices)
+
+    polyline_length = 0.0
+    for point_index in range(len(points_2d) - 1):
+        polyline_length += (points_2d[point_index + 1] - points_2d[point_index]).length
+
+    if chain.frame_role == FrameRole.H_FRAME:
+        cross_ratio = extent_v / total_extent
+        primary_span = extent_u
+    elif chain.frame_role == FrameRole.V_FRAME:
+        cross_ratio = extent_u / total_extent
+        primary_span = extent_v
+    else:
+        return float("-inf"), 0.0, 0.0, len(chain.vert_indices), len(chain.edge_indices)
+
+    # Больше tuple => chain сильнее: меньше cross-axis drift, больше span, длиннее chain.
+    return (
+        -cross_ratio,
+        primary_span,
+        polyline_length,
+        len(chain.vert_indices),
+        len(chain.edge_indices),
+    )
+
+
+def _downgrade_same_role_point_contact_chains(chains, basis_u, basis_v, patch_id, loop_index):
+    """Downgrade weaker same-role chains when they touch only at one vertex."""
+
+    chain_count = len(chains)
+    if chain_count < 2:
+        return
+
+    pair_indices = [(chain_index, chain_index + 1) for chain_index in range(chain_count - 1)]
+    if chain_count > 2:
+        pair_indices.append((chain_count - 1, 0))
+
+    for first_index, second_index in pair_indices:
+        first_chain = chains[first_index]
+        second_chain = chains[second_index]
+        if first_chain.frame_role != second_chain.frame_role:
+            continue
+        if first_chain.frame_role not in (FrameRole.H_FRAME, FrameRole.V_FRAME):
+            continue
+
+        shared_vert_indices = (set(first_chain.vert_indices) & set(second_chain.vert_indices)) - {-1}
+        if len(shared_vert_indices) != 1:
+            continue
+
+        first_strength = _measure_chain_frame_confidence(first_chain, basis_u, basis_v)
+        second_strength = _measure_chain_frame_confidence(second_chain, basis_u, basis_v)
+        weaker_index = second_index if first_strength >= second_strength else first_index
+        stronger_index = first_index if weaker_index == second_index else second_index
+        weaker_chain = chains[weaker_index]
+        if weaker_chain.frame_role == FrameRole.FREE:
+            continue
+
+        shared_vert_index = next(iter(shared_vert_indices))
+        print(
+            f"[CFTUV][RoleConflict] Patch {patch_id} Loop {loop_index} "
+            f"{first_chain.frame_role.value} point_contact vert={shared_vert_index} "
+            f"keep=C{stronger_index} drop=C{weaker_index}->FREE"
+        )
+        weaker_chain.frame_role = FrameRole.FREE
+
 def _merge_same_role_border_chains(chains):
     """Сшивает adjacent MESH_BORDER chains с одинаковым frame_role.
 
@@ -1603,6 +1682,7 @@ def _build_boundary_loops(raw_loops, patch_face_indices, face_to_patch, patch_id
         raw_chains = _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v, bm=bm)
         raw_chains = _split_border_chains_by_corners(raw_chains, basis_u, basis_v, bm=bm)
         boundary_loop.chains = _build_boundary_chain_objects(raw_chains, basis_u, basis_v)
+        _downgrade_same_role_point_contact_chains(boundary_loop.chains, basis_u, basis_v, patch_id, loop_index)
         boundary_loop.chains = _merge_same_role_border_chains(boundary_loop.chains)
 
         boundary_loop.corners = _build_loop_corners(boundary_loop, raw_chains, basis_u, basis_v)
