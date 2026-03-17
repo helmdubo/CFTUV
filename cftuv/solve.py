@@ -119,6 +119,8 @@ class QuiltPlan:
     root_score: float
     solved_patch_ids: list[int] = field(default_factory=list)
     steps: list[QuiltStep] = field(default_factory=list)
+    original_solved_patch_ids: list[int] = field(default_factory=list)
+    original_steps: list[QuiltStep] = field(default_factory=list)
     deferred_candidates: list[AttachmentCandidate] = field(default_factory=list)
     rejected_candidates: list[AttachmentCandidate] = field(default_factory=list)
     stop_reason: str = ""
@@ -228,6 +230,74 @@ def _build_quilt_tree_edges(quilt_plan: QuiltPlan) -> set[tuple[int, int]]:
             continue
         edges.add(_patch_pair_key(candidate.owner_patch_id, candidate.target_patch_id))
     return edges
+
+
+def _rebuild_quilt_steps_with_forbidden_edges(
+    quilt_plan: QuiltPlan,
+    solver_graph: SolverGraph,
+    forbidden_edge_keys: set[tuple[int, int]],
+) -> Optional[QuiltPlan]:
+    quilt_patch_ids = set(quilt_plan.solved_patch_ids)
+    quilt_patch_ids.add(quilt_plan.root_patch_id)
+    if len(quilt_patch_ids) <= 1:
+        return quilt_plan
+
+    solved_patch_ids: set[int] = {quilt_plan.root_patch_id}
+    ordered_patch_ids: list[int] = [quilt_plan.root_patch_id]
+    steps: list[QuiltStep] = [
+        QuiltStep(step_index=0, patch_id=quilt_plan.root_patch_id, is_root=True)
+    ]
+    frontier_heap = []
+    queue_index = 0
+
+    def enqueue_patch_candidates(patch_id: int) -> None:
+        nonlocal queue_index
+        for candidate in solver_graph.candidates_by_owner.get(patch_id, ()):
+            if candidate.target_patch_id not in quilt_patch_ids:
+                continue
+            if candidate.target_patch_id in solved_patch_ids:
+                continue
+            edge_key = _patch_pair_key(candidate.owner_patch_id, candidate.target_patch_id)
+            if edge_key in forbidden_edge_keys:
+                continue
+            heappush(frontier_heap, (-candidate.score, queue_index, candidate))
+            queue_index += 1
+
+    enqueue_patch_candidates(quilt_plan.root_patch_id)
+
+    while frontier_heap and len(solved_patch_ids) < len(quilt_patch_ids):
+        _, _, candidate = heappop(frontier_heap)
+        if candidate.target_patch_id in solved_patch_ids:
+            continue
+        if candidate.target_patch_id not in quilt_patch_ids:
+            continue
+        edge_key = _patch_pair_key(candidate.owner_patch_id, candidate.target_patch_id)
+        if edge_key in forbidden_edge_keys:
+            continue
+
+        solved_patch_ids.add(candidate.target_patch_id)
+        ordered_patch_ids.append(candidate.target_patch_id)
+        steps.append(
+            QuiltStep(
+                step_index=len(steps),
+                patch_id=candidate.target_patch_id,
+                is_root=False,
+                incoming_candidate=candidate,
+            )
+        )
+        enqueue_patch_candidates(candidate.target_patch_id)
+
+    if solved_patch_ids != quilt_patch_ids:
+        return None
+
+        rebuilt = replace(quilt_plan)
+        if not rebuilt.original_steps:
+            rebuilt.original_steps = list(quilt_plan.steps)
+        if not rebuilt.original_solved_patch_ids:
+            rebuilt.original_solved_patch_ids = list(quilt_plan.solved_patch_ids)
+        rebuilt.solved_patch_ids = ordered_patch_ids
+        rebuilt.steps = steps
+        return rebuilt
 
 
 def _is_allowed_quilt_edge(
@@ -784,6 +854,141 @@ def _cf_apply_closure_preconstraint(
         f":phase={best_metric[1]:.4f}:gap={best_metric[0]:.4f}"
     )
     return best_start, best_end, best_direction_override, reason
+
+
+def _cf_build_closure_follow_uvs(
+    graph: PatchGraph,
+    chain: BoundaryChain,
+    partner_placement: ScaffoldChainPlacement,
+    final_scale: float,
+) -> tuple[Optional[list[Vector]], str, int]:
+    """Строит UV для closure-пары напрямую от уже placed partner chain."""
+    partner_uv_by_vert = _build_chain_vert_uv_map(graph, partner_placement)
+    if not partner_uv_by_vert:
+        return None, '', 0
+
+    shared_vert_count = len(set(chain.vert_indices) & set(partner_uv_by_vert.keys()))
+    if shared_vert_count <= 0:
+        return None, '', 0
+
+    if len(chain.vert_indices) == len(chain.vert_cos):
+        shared_uv_points = []
+        all_shared = True
+        for vert_index in chain.vert_indices:
+            uv = partner_uv_by_vert.get(vert_index)
+            if uv is None:
+                all_shared = False
+                break
+            shared_uv_points.append(uv.copy())
+        if all_shared and len(shared_uv_points) == len(chain.vert_cos):
+            return shared_uv_points, 'shared_verts', shared_vert_count
+
+    start_uv = partner_uv_by_vert.get(chain.start_vert_index)
+    end_uv = partner_uv_by_vert.get(chain.end_vert_index)
+    if start_uv is None or end_uv is None:
+        return None, '', shared_vert_count
+
+    rebuilt_uvs = _cf_rebuild_chain_points_for_endpoints(chain, start_uv, end_uv, final_scale)
+    if rebuilt_uvs is None or len(rebuilt_uvs) != len(chain.vert_cos):
+        return None, '', shared_vert_count
+    return rebuilt_uvs, 'partner_endpoints', shared_vert_count
+
+
+def _cf_try_place_closure_follow_candidate(
+    graph: PatchGraph,
+    all_chain_pool: list[tuple[tuple[int, int, int], BoundaryChain, PatchNode]],
+    placed_chain_refs: set[tuple[int, int, int]],
+    placed_chains_map: dict[tuple[int, int, int], ScaffoldChainPlacement],
+    chain_dependency_patches: dict[tuple[int, int, int], tuple[int, ...]],
+    rejected_chain_refs: set[tuple[int, int, int]],
+    build_order: list[tuple[int, int, int]],
+    point_registry: dict[tuple[int, int, int, int], Vector],
+    vert_to_placements: dict[int, list[tuple[tuple[int, int, int], int]]],
+    closure_pair_map: dict[tuple[int, int, int], tuple[int, int, int]],
+    final_scale: float,
+    iteration: int,
+) -> bool:
+    """Когда frontier встал, пробует дозавести same-role closure partner от уже placed пары."""
+    best_candidate = None
+    best_rank = None
+
+    for chain_ref, chain, _node in all_chain_pool:
+        if chain_ref in placed_chain_refs or chain_ref in rejected_chain_refs:
+            continue
+        if chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            continue
+
+        partner_ref = closure_pair_map.get(chain_ref)
+        if partner_ref is None:
+            continue
+        partner_placement = placed_chains_map.get(partner_ref)
+        if partner_placement is None or len(partner_placement.points) < 2:
+            continue
+        if partner_placement.frame_role != chain.frame_role:
+            continue
+
+        uv_points, follow_mode, shared_vert_count = _cf_build_closure_follow_uvs(
+            graph,
+            chain,
+            partner_placement,
+            final_scale,
+        )
+        if not uv_points or len(uv_points) != len(chain.vert_cos):
+            continue
+
+        candidate_rank = (
+            partner_placement.anchor_count,
+            shared_vert_count,
+            _cf_chain_total_length(chain, final_scale),
+        )
+        if best_rank is None or candidate_rank > best_rank:
+            best_rank = candidate_rank
+            best_candidate = (
+                chain_ref,
+                chain,
+                partner_ref,
+                uv_points,
+                follow_mode,
+                shared_vert_count,
+            )
+
+    if best_candidate is None:
+        return False
+
+    chain_ref, chain, partner_ref, uv_points, follow_mode, shared_vert_count = best_candidate
+    chain_placement = ScaffoldChainPlacement(
+        patch_id=chain_ref[0],
+        loop_index=chain_ref[1],
+        chain_index=chain_ref[2],
+        frame_role=chain.frame_role,
+        source_kind='chain',
+        anchor_count=2,
+        start_anchor_kind='closure_pair',
+        end_anchor_kind='closure_pair',
+        points=tuple(
+            (ScaffoldPointKey(chain_ref[0], chain_ref[1], chain_ref[2], point_index), uv.copy())
+            for point_index, uv in enumerate(uv_points)
+        ),
+    )
+
+    placed_chain_refs.add(chain_ref)
+    placed_chains_map[chain_ref] = chain_placement
+    chain_dependency_patches[chain_ref] = tuple(sorted({
+        patch_id
+        for patch_id in (partner_ref[0],)
+        if patch_id != chain_ref[0]
+    }))
+    build_order.append(chain_ref)
+    _cf_register_points(chain_ref, chain, uv_points, point_registry, vert_to_placements)
+
+    print(
+        f"[CFTUV][Frontier] Step {iteration}: "
+        f"P{chain_ref[0]} L{chain_ref[1]}C{chain_ref[2]} "
+        f"{chain.frame_role.value} score:closure_follow ep:2 "
+        f"a:CP{partner_ref[0]}/CP{partner_ref[0]} "
+        f"note:{follow_mode}:shared={shared_vert_count}"
+    )
+    return True
 
 
 def _print_quilt_closure_seam_reports(
@@ -1600,6 +1805,7 @@ def plan_solve_phase1(
 
         if not quilt.stop_reason:
             quilt.stop_reason = "frontier_exhausted"
+        quilt = _apply_quilt_closure_cut_recommendations(graph, solver_graph, quilt)
         quilts.append(quilt)
 
     return SolvePlan(
@@ -2906,9 +3112,10 @@ def _cf_score_candidate(
     #   1. Cross-patch same-type H/V (seam скелет quilt):  base 2.0
     #   2. Cross-patch diff-type H/V:                       base 1.5
     #   3. Regular H/V (same patch boundary):               base 1.0
-    #   4. Bridge FREE (1 edge, 2 verts):                   base 0.8
-    #   5. Corner-split H/V (mesh border sub-chains):       base 0.4
-    #   6. Regular FREE:                                    base 0.2
+    #   4. Corner-split H/V (mesh border sub-chains):       base 0.4
+    #   5. Bridge FREE (1 edge, 2 verts):                   base 0.1
+    #      one-anchor bridge FREE дополнительно штрафуется, чтобы ждать second anchor
+    #   6. Regular FREE:                                    base 0.0
     score = 0.0
     is_bridge = chain.frame_role == FrameRole.FREE and len(chain.vert_cos) <= 2
     is_hv = chain.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME)
@@ -2935,15 +3142,18 @@ def _cf_score_candidate(
             # Regular H/V (same patch, seam_self, mesh_border)
             score += 1.0
     elif is_bridge:
-        score += 0.8
+        score += 0.1
     else:
-        score += 0.2
+        score += 0.0
 
     # --- Anchor count bonus ---
     if known == 2:
         score += 0.8
     elif known == 1:
         score += 0.3
+
+    if is_bridge and known < 2:
+        score -= 0.45
 
     # --- Momentum: patch уже имеет placed chains ---
     if placed_in_patch > 0:
@@ -3441,6 +3651,21 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
                 )
 
         if best_ref is None or best_score < CHAIN_FRONTIER_THRESHOLD:
+            if _cf_try_place_closure_follow_candidate(
+                graph,
+                all_chain_pool,
+                placed_chain_refs,
+                placed_chains_map,
+                chain_dependency_patches,
+                rejected_chain_refs,
+                build_order,
+                point_registry,
+                vert_to_placements,
+                closure_pair_map,
+                final_scale,
+                iteration,
+            ):
+                continue
             # Диагностика: почему frontier остановился
             remaining = [ref for ref, _, _ in all_chain_pool if ref not in placed_chain_refs and ref not in rejected_chain_refs]
             no_anchor_count = 0
@@ -3563,6 +3788,20 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
         chain_dependency_patches,
         build_order=[seed_ref] + list(build_order),
     )
+    untouched_patch_ids = [
+        patch_id
+        for patch_id, patch_placement in quilt_scaffold.patches.items()
+        if patch_placement.status == 'EMPTY' and 'no_placed_chains' in patch_placement.notes
+    ]
+    if untouched_patch_ids:
+        fallback_quilt_plan = _restore_original_quilt_plan(quilt_plan)
+        if fallback_quilt_plan is not None:
+            print(
+                f"[CFTUV][Plan] Quilt {quilt_plan.quilt_index}: "
+                f"revert closure cut swap, untouched patches={sorted(untouched_patch_ids)}"
+            )
+            return build_quilt_scaffold_chain_frontier(graph, fallback_quilt_plan, final_scale)
+
     quilt_scaffold.build_order = list(build_order)
     quilt_scaffold.closure_seam_reports = _collect_quilt_closure_seam_reports(
         graph,
@@ -4492,6 +4731,70 @@ def _analyze_quilt_closure_cuts(
         )
 
     return tuple(analyses)
+
+
+def _apply_quilt_closure_cut_recommendations(
+    graph: PatchGraph,
+    solver_graph: SolverGraph,
+    quilt_plan: QuiltPlan,
+) -> QuiltPlan:
+    if len(quilt_plan.steps) <= 2:
+        return quilt_plan
+
+    current_quilt = quilt_plan
+    seen_tree_signatures = set()
+
+    for _ in range(max(2, len(quilt_plan.steps) + 1)):
+        current_tree_edges = frozenset(_build_quilt_tree_edges(current_quilt))
+        if current_tree_edges in seen_tree_signatures:
+            break
+        seen_tree_signatures.add(current_tree_edges)
+
+        analyses = _analyze_quilt_closure_cuts(graph, solver_graph, current_quilt)
+        swap_analyses = [
+            analysis
+            for analysis in analyses
+            if analysis.current_cut.edge_key != analysis.recommended_cut.edge_key
+        ]
+        if not swap_analyses:
+            break
+
+        forbidden_edge_keys = {analysis.recommended_cut.edge_key for analysis in swap_analyses}
+        rebuilt_quilt = _rebuild_quilt_steps_with_forbidden_edges(
+            current_quilt,
+            solver_graph,
+            forbidden_edge_keys,
+        )
+        if rebuilt_quilt is None:
+            break
+
+        rebuilt_tree_edges = _build_quilt_tree_edges(rebuilt_quilt)
+        if rebuilt_tree_edges == _build_quilt_tree_edges(current_quilt):
+            break
+
+        swap_labels = ", ".join(
+            f"{analysis.current_cut.edge_key[0]}-{analysis.current_cut.edge_key[1]}"
+            f"->{analysis.recommended_cut.edge_key[0]}-{analysis.recommended_cut.edge_key[1]}"
+            for analysis in swap_analyses
+        )
+        print(
+            f"[CFTUV][Plan] Quilt {quilt_plan.quilt_index}: closure cut swap {swap_labels}"
+        )
+        current_quilt = rebuilt_quilt
+
+    return current_quilt
+
+
+def _restore_original_quilt_plan(quilt_plan: QuiltPlan) -> Optional[QuiltPlan]:
+    if not quilt_plan.original_steps:
+        return None
+    return replace(
+        quilt_plan,
+        solved_patch_ids=list(quilt_plan.original_solved_patch_ids),
+        steps=list(quilt_plan.original_steps),
+        original_solved_patch_ids=[],
+        original_steps=[],
+    )
 
 
 def _format_closure_cut_heuristic(item: ClosureCutHeuristic) -> str:

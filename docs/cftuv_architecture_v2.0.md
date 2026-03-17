@@ -608,8 +608,12 @@ corner detection сейчас идёт по двум путям с не полн
 - row/column diagnostics уже добавлены как отдельный `FrameDiag` report в `solve.py`;
 - текущая practical реализация row/column diagnostics намеренно ограничена `WALL.SIDE` cases;
 - row/column diagnostics сохраняются в `ScaffoldQuiltPlacement.frame_alignment_reports` и показывают scatter для collinear `H_FRAME` / `V_FRAME` групп;
-- базовый frame classification threshold сейчас снижен до `0.04`, чтобы пограничные chains чаще оставались `FREE`, а не попадали в жёсткий `H/V` scaffold;
+- frame classification thresholds теперь разделены: `H_FRAME` uses `0.02`, `V_FRAME` keeps `0.04`; это намеренное asymmetric tightening, чтобы пограничные горизонтали раньше уходили в `FREE`, не пережимая вертикальный scaffold тем же порогом;
+- текущая целевая семантика classifier асимметрична: `H_FRAME` = близость к локальной плоскости `N-U`, `V_FRAME` = близость к локальной оси `basis_v`; это не симметричный `extent_u / extent_v` test;
 - adjacent `same-role` point-contact (`shared_vert_count == 1`) больше не считается жёстким continuation case: weaker chain должен деградировать в `FREE` ещё в `analysis.py`, а жёсткий same-role continuity допустим только при shared edge;
+- weaker/stronger heuristic для такого point-contact guard должна предпочитать dominant span и chain length, а не "идеальную осевость" tiny sliver-chain;
+- adjacent `MESH_BORDER + MESH_BORDER` same-role pieces должны merge-иться как один border carrier-chain и не должны деградировать в `FREE` из-за point-contact guard;
+- one-edge `FREE` bridges должны иметь более низкий frontier priority, чем любые `H/V`, и с одним anchor должны ждать second anchor, чтобы rigid-frame собирался раньше мягких мостиков;
 - точечный `closure pre-constraint` уже реализован в frontier placement path и работает только для `closure-sensitive` `one-anchor` `H_FRAME` / `V_FRAME` chains;
 - текущая practical версия `closure pre-constraint` не меняет quilt-wide scoring и не делает post-pass; она только выбирает лучший one-anchor вариант по existing closure pair и local anchor gaps;
 - следующий шаг для этого runtime track — повторный замер на production meshes и только потом решение, нужен ли консервативный `row / column snap post-pass`;

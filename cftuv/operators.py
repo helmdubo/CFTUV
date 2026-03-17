@@ -88,6 +88,14 @@ def _build_debug_settings(settings: HOTSPOTUV_Settings) -> dict:
     }
 
 
+def _refresh_debug_layers(context, patch_graph, source_obj, scaffold_map=None):
+    """Refresh all visible debug layers from the same current PatchGraph."""
+    dbg_settings = _build_debug_settings(context.scene.hotspotuv_settings)
+    create_visualization(patch_graph, source_obj, dbg_settings)
+    if scaffold_map is not None:
+        create_frontier_visualization(patch_graph, scaffold_map, source_obj, dbg_settings)
+
+
 def _print_console_report(title, lines, summary=None):
     """Печатает отчёт в System Console."""
     print('=' * 60)
@@ -437,10 +445,9 @@ class HOTSPOTUV_OT_ScaffoldDebug(bpy.types.Operator):
 
             # Frontier path visualization поверх существующего GP
             s = context.scene.hotspotuv_settings
-            dbg_settings = _build_debug_settings(s)
             source_name = s.dbg_source_object
             if source_name and source_name in bpy.data.objects:
-                create_frontier_visualization(pg, scaffold_map, bpy.data.objects[source_name], dbg_settings)
+                _refresh_debug_layers(context, pg, bpy.data.objects[source_name], scaffold_map)
 
             self.report({"INFO"}, summary)
             return {"FINISHED"}
@@ -491,11 +498,10 @@ class HOTSPOTUV_OT_FrontierReplay(bpy.types.Operator):
             _restore_mode_and_selection(obj, om, sel)
 
             # Frontier visualization
-            dbg_settings = _build_debug_settings(s)
             target_name = source_name or obj.name
             if target_name in bpy.data.objects:
                 target_obj = bpy.data.objects[target_name]
-                create_frontier_visualization(pg, scaffold_map, target_obj, dbg_settings)
+                _refresh_debug_layers(context, pg, target_obj, scaffold_map)
 
                 # Прячем mesh
                 target_obj.hide_viewport = True
@@ -539,6 +545,11 @@ class HOTSPOTUV_OT_SolvePhase1Preview(bpy.types.Operator):
         try:
             obj, bm, pg, _sg, sp, settings, om, sel = _build_solve_state(context)
             stats = execute_phase1_preview(context, obj, bm, pg, settings, sp)
+            s = context.scene.hotspotuv_settings
+            source_name = s.dbg_source_object
+            if source_name and source_name in bpy.data.objects:
+                scaffold_map = build_root_scaffold_map(pg, sp, settings.final_scale)
+                _refresh_debug_layers(context, pg, bpy.data.objects[source_name], scaffold_map)
             summary = (
                 f"Phase1 quilts:{stats.get('quilts', 0)} "
                 f"roots:{stats.get('supported_roots', 0)} "

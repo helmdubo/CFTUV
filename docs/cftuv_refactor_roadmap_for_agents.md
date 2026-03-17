@@ -298,8 +298,15 @@ Tree scaffold размещает patches последовательно от roo
 - pre-constraint встроен в frontier placement path;
 - он активируется только для `closure-sensitive` matched non-tree same-role pairs;
 - текущая версия не трогает scoring и не делает quilt-wide snap;
-- базовый `H/V` classification threshold уже снижен до `0.04`, чтобы пограничные chains чаще оставались `FREE`;
+- frame thresholds теперь разделены: `H_FRAME` uses `0.02`, `V_FRAME` keeps `0.04`; это осознанный asymmetric tightening, чтобы пограничные горизонтали чаще уходили в `FREE`, не ломая вертикальный каркас тем же порогом;
+- `H/V` classifier нужно держать асимметричным: `H_FRAME` = plane-based относительно `N-U`, `V_FRAME` = axis-based относительно `basis_v`; возврат к симметричному `extent_u / extent_v` test считается semantic regression;
+- debug UX тоже должен быть source-of-truth-consistent: `Loops_Chains` и `Frontier_Path` обязаны рисоваться из одного текущего `PatchGraph` snapshot, а не из stale Analyze graph + нового scaffold replay;
+- `Frontier` не должен трактоваться как runtime reclassifier: если timeline расходится с `LoopTypes`, сначала проверять stale debug layers и факт участия chain в `build_order`;
+- closure-aware tree-edge swap теперь допускается только под safe fallback: если новый tree оставляет patch без размещённых chains (`EMPTY` / `no_placed_chains`), runtime обязан откатиться на original quilt plan;
 - adjacent `same-role` point-contact chains (`shared_vert_count == 1`) теперь не считаются жёстким continuation case: weaker chain должен деградировать в `FREE` ещё в `analysis.py`, до frontier;
+- stronger/weaker heuristic для этого point-contact guard должна предпочитать dominant span / chain length, а не "идеальную осевость" tiny sliver-chain;
+- adjacent `MESH_BORDER + MESH_BORDER` same-role pairs не должны попадать под этот downgrade: их правильный путь — merge в один border carrier-chain;
+- one-edge `FREE` bridges должны быть de-prioritized в frontier и с одним anchor ждать second anchor, чтобы rigid H/V frame собирался раньше мягких мостиков;
 - same-patch same-role direction inheritance уже пришлось ужесточить: оно не должно переопределять chain, если inherited sign противоречит собственному 3D-направлению chain;
 - practical задача следующего шага теперь уже не внедрение pre-constraint, а повторный замер на real meshes.
 

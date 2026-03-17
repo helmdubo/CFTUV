@@ -212,8 +212,14 @@ Quilt растёт органически от root chain наружу, пере
 - они уже считают `span mismatch`, `phase`, `cross-axis offset`, `shared UV delta`;
 - `row / column diagnostics` уже есть в `solve.py` как `FrameDiag` и хранятся в `ScaffoldQuiltPlacement.frame_alignment_reports`;
 - текущая practical реализация этих diagnostics намеренно ограничена `WALL.SIDE`;
-- базовый `FRAME_ALIGNMENT_THRESHOLD` для `H_FRAME` / `V_FRAME` сейчас ужесточён до `0.04`, чтобы пограничные chains чаще оставались `FREE`, а не входили в жёсткую раму слишком рано;
-- для adjacent `same-role` chains теперь действует topology guard в `analysis.py`: point-contact через одну общую вершину не считается жёстким continuation; weaker chain принудительно деградирует в `FREE`, а жёсткий same-role continuity допустим только при shared edge (`shared_vert_count >= 2`);
+- текущие frame thresholds уже разделены: `H_FRAME` использует более жёсткий порог `0.02`, `V_FRAME` остаётся на `0.04`; цель — раньше выбрасывать пограничные горизонтали в `FREE`, не пережимая вертикали тем же порогом;
+- текущий `H/V` classifier в `analysis.py` больше не должен быть симметричным: `H_FRAME` = plane-based test относительно локальной плоскости `N-U`, `V_FRAME` = axis-based test относительно локальной оси `basis_v`;
+- `Loops_Chains` UX и `Frontier_Path` timeline должны всегда перестраиваться из одного и того же текущего `PatchGraph`; накладывать новый frontier replay поверх старого Analyze слоя нельзя, иначе UX показывает stale chains, а solve/timeline — новый graph snapshot;
+- `Frontier` не переопределяет `frame_role` на лету; если timeline визуально расходится с `LoopTypes`, сначала проверять stale debug layers и факт попадания chain в `build_order`, а не предполагать runtime reclassification;
+- runtime closure-cut swap на уровне tree edges допускается только с safe fallback: если swapped tree оставляет `untouched patch` / `no_placed_chains`, solver обязан автоматически вернуться к исходному quilt plan;
+- для adjacent `same-role` chains действует topology guard в `analysis.py`, но он не должен трогать pair `MESH_BORDER + MESH_BORDER`: такие same-role border pieces должны сначала попытаться merge-иться в один carrier-chain;
+- в этом point-contact guard weaker/stronger heuristic нельзя строить только на "идеальной осевости"; dominant span и chain length важнее, иначе tiny sliver может ложно победить длинный carrier-chain;
+- one-edge `FREE` bridge в frontier должен быть ниже любых `H/V` и при одном anchor ждать second anchor; ранний `FREE [BRIDGE]` placement до сборки rigid-frame считается runtime regression;
 - точечный `closure pre-constraint` уже есть в frontier placement path и пока влияет только на `closure-sensitive` `one-anchor` `H/V` placement;
 - `same-patch same-role` direction inheritance теперь обязано уважать собственное 3D-направление chain; нельзя возвращать слепое inheritance через split-segments, иначе возникают ложные continuation и patch-level closure regression;
 - локальная `per-chain rectification` для `H/V` уже тестировалась и отключена;

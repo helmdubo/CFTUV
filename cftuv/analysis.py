@@ -11,6 +11,8 @@ try:
         CORNER_ANGLE_THRESHOLD_DEG,
         FLOOR_THRESHOLD,
         FRAME_ALIGNMENT_THRESHOLD,
+        FRAME_ALIGNMENT_THRESHOLD_H,
+        FRAME_ALIGNMENT_THRESHOLD_V,
         NB_MESH_BORDER,
         NB_SEAM_SELF,
         WALL_THRESHOLD,
@@ -36,6 +38,8 @@ except ImportError:
         CORNER_ANGLE_THRESHOLD_DEG,
         FLOOR_THRESHOLD,
         FRAME_ALIGNMENT_THRESHOLD,
+        FRAME_ALIGNMENT_THRESHOLD_H,
+        FRAME_ALIGNMENT_THRESHOLD_V,
         NB_MESH_BORDER,
         NB_SEAM_SELF,
         WALL_THRESHOLD,
@@ -921,6 +925,114 @@ def _classify_chain_frame_role(chain_vert_cos, basis_u, basis_v, threshold=FRAME
     return FrameRole.FREE
 
 
+def _measure_chain_axis_metrics(chain_vert_cos, basis_u, basis_v):
+    """Measure asymmetric H/V alignment in full local 3D basis.
+
+    H_FRAME: plane-based, chain should stay close to the local N-U plane.
+    V_FRAME: axis-based, chain should stay close to the local V axis.
+    """
+
+    if len(chain_vert_cos) < 2:
+        return None
+
+    basis_n = basis_u.cross(basis_v)
+    if basis_n.length_squared < 1e-8:
+        return None
+    basis_n.normalize()
+
+    total_length = 0.0
+    h_deviation_sum = 0.0
+    h_deviation_max = 0.0
+    h_support = 0.0
+    v_deviation_sum = 0.0
+    v_deviation_max = 0.0
+    v_support = 0.0
+
+    for point_index in range(len(chain_vert_cos) - 1):
+        delta = chain_vert_cos[point_index + 1] - chain_vert_cos[point_index]
+        seg_len = delta.length
+        if seg_len < 1e-8:
+            continue
+
+        dir_u = delta.dot(basis_u) / seg_len
+        dir_v = delta.dot(basis_v) / seg_len
+        dir_n = delta.dot(basis_n) / seg_len
+
+        h_deviation = abs(dir_v)
+        h_support_component = math.sqrt(max(0.0, dir_u * dir_u + dir_n * dir_n))
+
+        v_deviation = h_support_component
+        v_support_component = abs(dir_v)
+
+        total_length += seg_len
+        h_deviation_sum += seg_len * h_deviation
+        h_deviation_max = max(h_deviation_max, h_deviation)
+        h_support += seg_len * h_support_component
+        v_deviation_sum += seg_len * v_deviation
+        v_deviation_max = max(v_deviation_max, v_deviation)
+        v_support += seg_len * v_support_component
+
+    if total_length < 1e-6:
+        return None
+
+    return {
+        "total_length": total_length,
+        "h_avg_deviation": h_deviation_sum / total_length,
+        "h_max_deviation": h_deviation_max,
+        "h_support": h_support,
+        "v_avg_deviation": v_deviation_sum / total_length,
+        "v_max_deviation": v_deviation_max,
+        "v_support": v_support,
+    }
+
+
+def _classify_chain_frame_role(
+    chain_vert_cos,
+    basis_u,
+    basis_v,
+    threshold_h=FRAME_ALIGNMENT_THRESHOLD_H,
+    threshold_v=FRAME_ALIGNMENT_THRESHOLD_V,
+    strict_guards=True,
+):
+    """Classify chain with asymmetric H/V semantics.
+
+    H_FRAME: must stay close to the local N-U plane.
+    V_FRAME: must stay close to the local V axis.
+    """
+
+    metrics = _measure_chain_axis_metrics(chain_vert_cos, basis_u, basis_v)
+    if metrics is None:
+        return FrameRole.FREE
+
+    if strict_guards:
+        h_max_deviation_limit = max(threshold_h * 2.0, threshold_h + 0.03)
+        v_max_deviation_limit = max(threshold_v * 2.0, threshold_v + 0.03)
+    else:
+        h_max_deviation_limit = max(threshold_h * 4.0, threshold_h + 0.08)
+        v_max_deviation_limit = max(threshold_v * 4.0, threshold_v + 0.08)
+
+    h_ok = (
+        metrics["h_support"] > 1e-6
+        and metrics["h_avg_deviation"] < threshold_h
+        and metrics["h_max_deviation"] < h_max_deviation_limit
+    )
+    v_ok = (
+        metrics["v_support"] > 1e-6
+        and metrics["v_avg_deviation"] < threshold_v
+        and metrics["v_max_deviation"] < v_max_deviation_limit
+    )
+
+    if h_ok and v_ok:
+        if abs(metrics["h_avg_deviation"] - metrics["v_avg_deviation"]) > 1e-6:
+            return FrameRole.H_FRAME if metrics["h_avg_deviation"] < metrics["v_avg_deviation"] else FrameRole.V_FRAME
+        return FrameRole.H_FRAME if metrics["h_support"] >= metrics["v_support"] else FrameRole.V_FRAME
+    if h_ok:
+        return FrameRole.H_FRAME
+    if v_ok:
+        return FrameRole.V_FRAME
+    return FrameRole.FREE
+
+
 def _find_corner_reference_point(points, corner_co, reverse=False):
     """Find a non-degenerate neighbor point around a chain junction."""
 
@@ -1427,11 +1539,41 @@ def _measure_chain_frame_confidence(chain, basis_u, basis_v):
     else:
         return float("-inf"), 0.0, 0.0, len(chain.vert_indices), len(chain.edge_indices)
 
-    # Больше tuple => chain сильнее: меньше cross-axis drift, больше span, длиннее chain.
+    # Больше tuple => chain сильнее.
+    # Приоритет: несущий span/length важнее, чем идеальная осевость микросегмента.
+    # Иначе tiny sliver на одной оси может ложно "победить" длинный carrier-chain.
     return (
-        -cross_ratio,
         primary_span,
         polyline_length,
+        -cross_ratio,
+        len(chain.vert_indices),
+        len(chain.edge_indices),
+    )
+
+
+def _measure_chain_frame_confidence(chain, basis_u, basis_v):
+    """Measure chain confidence using the current asymmetric H/V semantics."""
+
+    metrics = _measure_chain_axis_metrics(chain.vert_cos, basis_u, basis_v)
+    if metrics is None:
+        return float("-inf"), 0.0, 0.0, 0.0, 0, 0
+
+    if chain.frame_role == FrameRole.H_FRAME:
+        primary_support = metrics["h_support"]
+        avg_deviation = metrics["h_avg_deviation"]
+        max_deviation = metrics["h_max_deviation"]
+    elif chain.frame_role == FrameRole.V_FRAME:
+        primary_support = metrics["v_support"]
+        avg_deviation = metrics["v_avg_deviation"]
+        max_deviation = metrics["v_max_deviation"]
+    else:
+        return float("-inf"), 0.0, 0.0, 0.0, len(chain.vert_indices), len(chain.edge_indices)
+
+    return (
+        primary_support,
+        metrics["total_length"],
+        -avg_deviation,
+        -max_deviation,
         len(chain.vert_indices),
         len(chain.edge_indices),
     )
@@ -1454,6 +1596,12 @@ def _downgrade_same_role_point_contact_chains(chains, basis_u, basis_v, patch_id
         if first_chain.frame_role != second_chain.frame_role:
             continue
         if first_chain.frame_role not in (FrameRole.H_FRAME, FrameRole.V_FRAME):
+            continue
+        if (
+            first_chain.neighbor_kind == ChainNeighborKind.MESH_BORDER
+            and second_chain.neighbor_kind == ChainNeighborKind.MESH_BORDER
+        ):
+            # Same-patch border H/V pieces should merge later, not fight via point-contact downgrade.
             continue
 
         shared_vert_indices = (set(first_chain.vert_indices) & set(second_chain.vert_indices)) - {-1}
@@ -1650,7 +1798,7 @@ def _build_boundary_loops(raw_loops, patch_face_indices, face_to_patch, patch_id
     boundary_loops = []
     patch_face_indices = set(patch_face_indices)
 
-    for raw_loop in raw_loops:
+    for loop_index, raw_loop in enumerate(raw_loops):
         loop_kind = raw_loop.get("kind", LoopKind.OUTER)
         if not isinstance(loop_kind, LoopKind):
             loop_kind = LoopKind(loop_kind)
