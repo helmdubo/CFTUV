@@ -1,21 +1,25 @@
 # Docs Overview
 
-В папке `docs/` остаются только актуальные документы.
+Only current project documents should live in `docs/`.
 
 ## Read Order
 
 1. `docs/cftuv_architecture_v2.0.md`
-   Главный документ проекта.
-   Описывает текущее устройство addon'а, IR, solve pipeline и актуальные runtime rules.
+   Main project baseline. Describes the current addon structure, IR, solve
+   pipeline, architectural invariants, and active system boundaries.
 
 2. `docs/cftuv_refactor_roadmap_for_agents.md`
-   Companion document.
-   Описывает критические structural problems, безопасный порядок следующих рефакторингов
-   и отдельный practical runtime track для frame alignment / closure stabilization.
+   Practical companion document. Describes structural findings, safe execution
+   order, runtime track priorities, and research branches.
+
+3. `docs/cftuv_runtime_notes.md`
+   Read only when the task is inside the active runtime stabilization track or
+   in diagnostics / research work around the `aligned frame lattice`.
 
 ## Notes
 
-- Если нужно понять проект с нуля, достаточно этих двух документов.
-- Если агент продолжает именно текущий runtime bugfix track, он должен читать roadmap не как "вторичный фон", а как active implementation guide.
-- Старые handoff-файлы по ранней стабилизации Phase 3 удалены как устаревшие.
-- `AGENTS.md` и `CLAUDE.md` продолжают ссылаться на `docs/cftuv_architecture_v2.0.md` как на главный документ.
+- Start with architecture, then roadmap.
+- Runtime notes are not the design baseline. They store sprint-level runtime
+  facts, production-case lessons, and active heuristics.
+- `AGENTS.md` and `CLAUDE.md` continue to treat
+  `docs/cftuv_architecture_v2.0.md` as the main project document.

@@ -47,6 +47,18 @@ def _lift_points(points, normal, offset=0.01):
     return [_lift_point(point, normal, offset) for point in points]
 
 
+def _chain_replay_length(chain):
+    points = list(chain.vert_cos)
+    if len(points) < 2:
+        return 0.0
+    total = 0.0
+    for index in range(len(points) - 1):
+        total += (points[index + 1] - points[index]).length
+    if chain.is_closed:
+        total += (points[0] - points[-1]).length
+    return total
+
+
 def _patch_enabled(node, settings_dict):
     patch_type = _enum_value(node.patch_type)
     key = {
@@ -488,7 +500,8 @@ def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, s
     Каждый кадр аккумулятивный: frame N показывает chains шагов 0..N.
     Цвета как в Loops_Chains: жёлтый (H), бирюзовый (V), серый (FREE).
     Когда все chains patch'а размещены — появляется fill заливка.
-    1 шаг = 1 секунда (fps из сцены). Playback через timeline.
+    Самый длинный chain = 1 секунда (fps из сцены), остальные шаги
+    пропорционально короче. Playback через timeline.
     """
     settings_dict = settings_dict or {}
     gp_name = _get_gp_debug_name(source_obj)
@@ -530,11 +543,33 @@ def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, s
         patch_total_chains[pid] = patch_total_chains.get(pid, 0) + 1
 
     fps = bpy.context.scene.render.fps
+    max_step_frames = max(1, round(fps))
     total_steps = len(all_steps)
+    step_frames = []
+    step_lengths = []
+    for ref in all_steps:
+        node = graph.nodes.get(ref[0])
+        if node is None or ref[1] < 0 or ref[1] >= len(node.boundary_loops):
+            step_lengths.append(0.0)
+            continue
+        loop = node.boundary_loops[ref[1]]
+        if ref[2] < 0 or ref[2] >= len(loop.chains):
+            step_lengths.append(0.0)
+            continue
+        step_lengths.append(_chain_replay_length(loop.chains[ref[2]]))
+
+    max_step_length = max(step_lengths, default=0.0)
+    if max_step_length <= 1e-8:
+        step_frames = [max_step_frames] * total_steps
+    else:
+        for length in step_lengths:
+            ratio = length / max_step_length
+            step_frames.append(max(1, round(max_step_frames * ratio)))
 
     # Каждый GP frame аккумулятивный: chains 0..step + fill для завершённых patches
+    frame_cursor = 0
     for step_index in range(total_steps):
-        frame_number = step_index * fps
+        frame_number = frame_cursor
         gp_frame = layer.frames.new(frame_number)
 
         # Счётчик размещённых chains на текущий шаг
@@ -570,11 +605,12 @@ def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, s
                 node = graph.nodes.get(pid)
                 if node is not None and pid in patch_fill_mats:
                     _draw_patch_fill(gp_frame, node, patch_fill_mats[pid])
+        frame_cursor += step_frames[step_index]
 
     # Настраиваем timeline
     scene = bpy.context.scene
     scene.frame_start = 0
-    scene.frame_end = (total_steps - 1) * fps
+    scene.frame_end = max(0, frame_cursor - 1)
     scene.frame_current = 0
 
     apply_layer_visibility(gp_data, settings_dict)

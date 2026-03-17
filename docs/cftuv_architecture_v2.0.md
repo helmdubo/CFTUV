@@ -376,6 +376,13 @@ Planning делает:
     Этот drift особенно заметен, если tree path к closure seam проходит
     через one-edge `FREE` bridge.
 
+12. Если обычный strongest-frontier stalled ниже порога, runtime может делать
+    только очень узкие recovery steps и только в таком порядке:
+    - `tree_ingress`: один ingress chain в untouched tree-child patch по разрешённому tree edge;
+    - `free_ingress`: один one-edge `FREE` bridge, если patch уже начат и за ним виден внутренний `H/V` каркас;
+    - `closure_follow`: добор same-role non-tree closure partner, если его пара уже размещена.
+    Эти шаги сохраняют chain-first semantics и не превращают solve в patch-first traversal.
+
 ### Practical implication
 
 Ring / cylinder / closed-house topology может быть seam-connected по кругу,
@@ -384,6 +391,25 @@ Ring / cylinder / closed-house topology может быть seam-connected по 
 Важно:
 tree-only sewing решает проблему ложного замыкания, но само по себе
 не решает accumulated closure error на intentional cut seam.
+
+Отдельно от closure есть второй practical class runtime-problems:
+tree-connected patch может остаться `unsupported`, если ingress seam в него
+существует, но не проходит обычный frontier threshold. Это не topology split bug
+и не повод отдавать solve patch-first. Для таких случаев допустим только
+контролируемый recovery path из пункта 12.
+
+Следующий research-layer после стабилизации runtime:
+`pre-frontier landmark alignment pass`, который строит временную
+`aligned frame lattice` из сильных `H/V` landmark points и row / column classes.
+Эта lattice должна жить только во время solve и служить guide для ingress / placement,
+а не становиться новым persistent IR.
+
+Ключевые уточнения для этой future-integratation:
+
+- lattice edge metric = не endpoint projection и не raw polyline length, а per-segment role-aligned accumulated span;
+- span должен считаться в локальном basis каждого patch / chain, чтобы не занижать L-turn paths и не переоценивать bevel noise;
+- lattice-derived координаты не должны маскироваться под обычный placed scaffold: frontier должен видеть их как отдельный provenance (`lattice_anchor`);
+- ожидаемая гарантия lattice solve относится только к solved `H/V` components: chains одной row / column class должны совпадать по UV axis в пределах epsilon; `FREE`-dominated зоны остаются вне этой гарантии.
 
 ---
 
@@ -496,8 +522,13 @@ Debug path обязателен.
 Отдельно важно:
 corner detection сейчас идёт по двум путям с не полностью одинаковой семантикой
 для closed `OUTER` loops и open `MESH_BORDER` chains.
-Это не объявлено багом само по себе, но должно быть явно проверено в Phase 1B,
-чтобы intentional differences не смешивались со случайным drift.
+Для этой зоны уже недостаточно простого "задокументировать различие":
+в Phase 1B нужно принять явное решение, что именно происходит дальше:
+
+- либо объединить оба пути в одну каноническую corner policy;
+- либо честно зафиксировать intentional split и его причину.
+
+Состояние "два пути есть, но никто не решил почему" считается debt.
 
 ### 3. `analysis.py` не полностью чистый из-за временного UV-dependent loop classification
 
@@ -558,8 +589,13 @@ corner detection сейчас идёт по двум путям с не полн
 
 Кроме этого, текущая pin policy вычисляется уже после frontier placement,
 через scaffold connectivity на этапе transfer/envelope logic.
-Для текущей грубой pin policy это допустимо, но более умная pin strategy
-потребует отдельного архитектурного решения, а не локального tweak.
+Для текущей грубой pin policy это допустимо, но здесь есть явная круговая зависимость:
+
+- scaffold builder не знает будущую pin policy;
+- pin policy знает только уже случившийся placement order.
+
+Поэтому более умная pin strategy потребует отдельной архитектурной стадии
+или явной pin model, а не локального tweak внутри frontier.
 
 ### 8. Формальных автоматических тестов нет
 
@@ -600,28 +636,10 @@ corner detection сейчас идёт по двум путям с не полн
 - точечный closure pre-constraint;
 - затем только при необходимости консервативный row/column snap post-pass.
 
-Текущее состояние этого track:
-
-- diagnostics для non-tree same-role closure seams уже добавлены в `solve.py`;
-- они измеряют span mismatch, positional drift по shared seam vertices (`phase` вдоль рабочей оси и `cross-axis` offset), а также общий shared UV delta;
-- они пишутся в logs и сохраняются в `ScaffoldQuiltPlacement.closure_seam_reports`;
-- row/column diagnostics уже добавлены как отдельный `FrameDiag` report в `solve.py`;
-- текущая practical реализация row/column diagnostics намеренно ограничена `WALL.SIDE` cases;
-- row/column diagnostics сохраняются в `ScaffoldQuiltPlacement.frame_alignment_reports` и показывают scatter для collinear `H_FRAME` / `V_FRAME` групп;
-- frame classification thresholds теперь разделены: `H_FRAME` uses `0.02`, `V_FRAME` keeps `0.04`; это намеренное asymmetric tightening, чтобы пограничные горизонтали раньше уходили в `FREE`, не пережимая вертикальный scaffold тем же порогом;
-- текущая целевая семантика classifier асимметрична: `H_FRAME` = близость к локальной плоскости `N-U`, `V_FRAME` = близость к локальной оси `basis_v`; это не симметричный `extent_u / extent_v` test;
-- adjacent `same-role` point-contact (`shared_vert_count == 1`) больше не считается жёстким continuation case: weaker chain должен деградировать в `FREE` ещё в `analysis.py`, а жёсткий same-role continuity допустим только при shared edge;
-- weaker/stronger heuristic для такого point-contact guard должна предпочитать dominant span и chain length, а не "идеальную осевость" tiny sliver-chain;
-- adjacent `MESH_BORDER + MESH_BORDER` same-role pieces должны merge-иться как один border carrier-chain и не должны деградировать в `FREE` из-за point-contact guard;
-- one-edge `FREE` bridges должны иметь более низкий frontier priority, чем любые `H/V`, и с одним anchor должны ждать second anchor, чтобы rigid-frame собирался раньше мягких мостиков;
-- точечный `closure pre-constraint` уже реализован в frontier placement path и работает только для `closure-sensitive` `one-anchor` `H_FRAME` / `V_FRAME` chains;
-- текущая practical версия `closure pre-constraint` не меняет quilt-wide scoring и не делает post-pass; она только выбирает лучший one-anchor вариант по existing closure pair и local anchor gaps;
-- следующий шаг для этого runtime track — повторный замер на production meshes и только потом решение, нужен ли консервативный `row / column snap post-pass`;
-- локальная per-chain rectification для `H/V` уже проверялась и была отключена как structural regression, потому что она не держит согласованный ряд/колонку на уровне quilt.
-
 Подробный порядок описан в:
 
 - `docs/cftuv_refactor_roadmap_for_agents.md`
+- `docs/cftuv_runtime_notes.md`
 
 ---
 

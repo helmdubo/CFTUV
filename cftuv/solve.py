@@ -991,6 +991,358 @@ def _cf_try_place_closure_follow_candidate(
     return True
 
 
+def _cf_try_place_free_ingress_bridge(
+    graph: PatchGraph,
+    all_chain_pool: list[tuple[tuple[int, int, int], BoundaryChain, PatchNode]],
+    placed_chain_refs: set[tuple[int, int, int]],
+    placed_chains_map: dict[tuple[int, int, int], ScaffoldChainPlacement],
+    chain_dependency_patches: dict[tuple[int, int, int], tuple[int, ...]],
+    rejected_chain_refs: set[tuple[int, int, int]],
+    build_order: list[tuple[int, int, int]],
+    point_registry: dict[tuple[int, int, int, int], Vector],
+    vert_to_placements: dict[int, list[tuple[tuple[int, int, int], int]]],
+    quilt_patch_ids: set[int],
+    allowed_tree_edges: set[tuple[int, int]],
+    final_scale: float,
+    iteration: int,
+) -> bool:
+    """Локально прогрызает frontier через one-edge FREE bridge к downstream H/V."""
+    best_candidate = None
+    best_rank = None
+
+    for chain_ref, chain, node in all_chain_pool:
+        if chain_ref in placed_chain_refs or chain_ref in rejected_chain_refs:
+            continue
+        if chain.frame_role != FrameRole.FREE or len(chain.vert_cos) > 2:
+            continue
+
+        raw_start_anchor, raw_end_anchor = _cf_find_anchors(
+            chain_ref,
+            chain,
+            graph,
+            point_registry,
+            vert_to_placements,
+            placed_chain_refs,
+            allowed_tree_edges,
+        )
+        placed_in_patch = sum(1 for placed_ref in placed_chain_refs if placed_ref[0] == chain_ref[0])
+        anchor_start, anchor_end, known, _anchor_reason, anchor_adjustments = _cf_resolve_candidate_anchors(
+            chain,
+            raw_start_anchor,
+            raw_end_anchor,
+            placed_in_patch,
+            final_scale,
+            graph,
+            placed_chains_map,
+        )
+        if known != 1:
+            continue
+
+        resolved_anchor = anchor_start if anchor_start is not None else anchor_end
+        if resolved_anchor is None or resolved_anchor.source_kind != 'same_patch':
+            continue
+
+        endpoint_neighbors = graph.get_chain_endpoint_neighbors(chain_ref[0], chain_ref[1], chain_ref[2])
+        downstream_side = 'end' if anchor_start is not None else 'start'
+        downstream_refs = []
+        downstream_cross_patch = 0
+        downstream_max_length = 0.0
+
+        for neighbor_loop_index, neighbor_chain_index in endpoint_neighbors.get(downstream_side, []):
+            neighbor_ref = (chain_ref[0], neighbor_loop_index, neighbor_chain_index)
+            if neighbor_ref in placed_chain_refs or neighbor_ref in rejected_chain_refs:
+                continue
+            neighbor_chain = graph.get_chain(*neighbor_ref)
+            if neighbor_chain is None or neighbor_chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                continue
+            downstream_refs.append(neighbor_ref)
+            downstream_max_length = max(
+                downstream_max_length,
+                _cf_chain_total_length(neighbor_chain, final_scale),
+            )
+            if (
+                neighbor_chain.neighbor_kind == ChainNeighborKind.PATCH
+                and neighbor_chain.neighbor_patch_id in quilt_patch_ids
+                and _is_allowed_quilt_edge(allowed_tree_edges, chain_ref[0], neighbor_chain.neighbor_patch_id)
+            ):
+                downstream_cross_patch += 1
+
+        if not downstream_refs:
+            continue
+
+        direction_override = _try_inherit_direction(
+            chain,
+            node,
+            anchor_start,
+            anchor_end,
+            graph,
+            point_registry,
+        )
+        uv_points = _cf_place_chain(
+            chain,
+            node,
+            anchor_start,
+            anchor_end,
+            final_scale,
+            direction_override,
+        )
+        if not uv_points or len(uv_points) != len(chain.vert_cos):
+            continue
+
+        candidate_rank = (
+            downstream_cross_patch,
+            len(downstream_refs),
+            placed_in_patch,
+            downstream_max_length,
+        )
+        if best_rank is None or candidate_rank > best_rank:
+            best_rank = candidate_rank
+            best_candidate = (
+                chain_ref,
+                chain,
+                anchor_start,
+                anchor_end,
+                anchor_adjustments,
+                uv_points,
+                downstream_refs,
+                downstream_cross_patch,
+            )
+
+    if best_candidate is None:
+        return False
+
+    (
+        chain_ref,
+        chain,
+        anchor_start,
+        anchor_end,
+        anchor_adjustments,
+        uv_points,
+        downstream_refs,
+        downstream_cross_patch,
+    ) = best_candidate
+
+    if anchor_adjustments and not _cf_apply_anchor_adjustments(
+        anchor_adjustments,
+        graph,
+        placed_chains_map,
+        point_registry,
+        final_scale,
+    ):
+        rejected_chain_refs.add(chain_ref)
+        return False
+
+    chain_placement = ScaffoldChainPlacement(
+        patch_id=chain_ref[0],
+        loop_index=chain_ref[1],
+        chain_index=chain_ref[2],
+        frame_role=chain.frame_role,
+        source_kind='chain',
+        anchor_count=_cf_anchor_count(anchor_start, anchor_end),
+        start_anchor_kind=anchor_start.source_kind if anchor_start is not None else '',
+        end_anchor_kind=anchor_end.source_kind if anchor_end is not None else '',
+        points=tuple(
+            (ScaffoldPointKey(chain_ref[0], chain_ref[1], chain_ref[2], point_index), uv.copy())
+            for point_index, uv in enumerate(uv_points)
+        ),
+    )
+
+    placed_chain_refs.add(chain_ref)
+    placed_chains_map[chain_ref] = chain_placement
+    chain_dependency_patches[chain_ref] = ()
+    build_order.append(chain_ref)
+    _cf_register_points(chain_ref, chain, uv_points, point_registry, vert_to_placements)
+
+    print(
+        f"[CFTUV][Frontier] Step {iteration}: "
+        f"P{chain_ref[0]} L{chain_ref[1]}C{chain_ref[2]} "
+        f"{chain.frame_role.value} score:free_ingress ep:1 "
+        f"a:{_cf_anchor_debug_label(anchor_start, anchor_end)} "
+        f"note:downstream_hv={len(downstream_refs)}:cross={downstream_cross_patch} [BRIDGE]"
+    )
+    return True
+
+
+def _cf_try_place_tree_ingress_candidate(
+    graph: PatchGraph,
+    all_chain_pool: list[tuple[tuple[int, int, int], BoundaryChain, PatchNode]],
+    placed_chain_refs: set[tuple[int, int, int]],
+    placed_chains_map: dict[tuple[int, int, int], ScaffoldChainPlacement],
+    chain_dependency_patches: dict[tuple[int, int, int], tuple[int, ...]],
+    rejected_chain_refs: set[tuple[int, int, int]],
+    build_order: list[tuple[int, int, int]],
+    point_registry: dict[tuple[int, int, int, int], Vector],
+    vert_to_placements: dict[int, list[tuple[tuple[int, int, int], int]]],
+    quilt_patch_ids: set[int],
+    allowed_tree_edges: set[tuple[int, int]],
+    final_scale: float,
+    iteration: int,
+) -> bool:
+    """Контролируемый bootstrap в untouched tree-child patch, если обычный frontier уже встал."""
+    best_candidate = None
+    best_rank = None
+
+    for chain_ref, chain, node in all_chain_pool:
+        if chain_ref in placed_chain_refs or chain_ref in rejected_chain_refs:
+            continue
+
+        placed_in_patch = sum(1 for placed_ref in placed_chain_refs if placed_ref[0] == chain_ref[0])
+        if placed_in_patch > 0:
+            continue
+        if chain.neighbor_kind != ChainNeighborKind.PATCH:
+            continue
+        if chain.neighbor_patch_id not in quilt_patch_ids:
+            continue
+        if not _is_allowed_quilt_edge(allowed_tree_edges, chain_ref[0], chain.neighbor_patch_id):
+            continue
+
+        raw_start_anchor, raw_end_anchor = _cf_find_anchors(
+            chain_ref,
+            chain,
+            graph,
+            point_registry,
+            vert_to_placements,
+            placed_chain_refs,
+            allowed_tree_edges,
+        )
+        anchor_start, anchor_end, known, _anchor_reason, anchor_adjustments = _cf_resolve_candidate_anchors(
+            chain,
+            raw_start_anchor,
+            raw_end_anchor,
+            placed_in_patch,
+            final_scale,
+            graph,
+            placed_chains_map,
+        )
+        if known != 1:
+            continue
+
+        resolved_anchor = anchor_start if anchor_start is not None else anchor_end
+        if resolved_anchor is None or resolved_anchor.source_kind != 'cross_patch':
+            continue
+
+        role_priority = 0
+        if chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            role_priority = 3 if not chain.is_corner_split else 2
+        elif chain.frame_role == FrameRole.FREE and len(chain.vert_cos) <= 2:
+            role_priority = 1
+        else:
+            continue
+
+        endpoint_neighbors = graph.get_chain_endpoint_neighbors(chain_ref[0], chain_ref[1], chain_ref[2])
+        downstream_side = 'end' if anchor_start is not None else 'start'
+        downstream_hv_count = 0
+        downstream_max_length = 0.0
+        for neighbor_loop_index, neighbor_chain_index in endpoint_neighbors.get(downstream_side, []):
+            neighbor_ref = (chain_ref[0], neighbor_loop_index, neighbor_chain_index)
+            if neighbor_ref in placed_chain_refs or neighbor_ref in rejected_chain_refs:
+                continue
+            neighbor_chain = graph.get_chain(*neighbor_ref)
+            if neighbor_chain is None or neighbor_chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                continue
+            downstream_hv_count += 1
+            downstream_max_length = max(
+                downstream_max_length,
+                _cf_chain_total_length(neighbor_chain, final_scale),
+            )
+
+        direction_override = _try_inherit_direction(
+            chain,
+            node,
+            anchor_start,
+            anchor_end,
+            graph,
+            point_registry,
+        )
+        uv_points = _cf_place_chain(
+            chain,
+            node,
+            anchor_start,
+            anchor_end,
+            final_scale,
+            direction_override,
+        )
+        if not uv_points or len(uv_points) != len(chain.vert_cos):
+            continue
+
+        candidate_rank = (
+            role_priority,
+            downstream_hv_count,
+            downstream_max_length,
+            _cf_chain_total_length(chain, final_scale),
+        )
+        if best_rank is None or candidate_rank > best_rank:
+            best_rank = candidate_rank
+            best_candidate = (
+                chain_ref,
+                chain,
+                anchor_start,
+                anchor_end,
+                anchor_adjustments,
+                uv_points,
+                downstream_hv_count,
+                role_priority,
+            )
+
+    if best_candidate is None:
+        return False
+
+    (
+        chain_ref,
+        chain,
+        anchor_start,
+        anchor_end,
+        anchor_adjustments,
+        uv_points,
+        downstream_hv_count,
+        role_priority,
+    ) = best_candidate
+
+    if anchor_adjustments and not _cf_apply_anchor_adjustments(
+        anchor_adjustments,
+        graph,
+        placed_chains_map,
+        point_registry,
+        final_scale,
+    ):
+        rejected_chain_refs.add(chain_ref)
+        return False
+
+    chain_placement = ScaffoldChainPlacement(
+        patch_id=chain_ref[0],
+        loop_index=chain_ref[1],
+        chain_index=chain_ref[2],
+        frame_role=chain.frame_role,
+        source_kind='chain',
+        anchor_count=_cf_anchor_count(anchor_start, anchor_end),
+        start_anchor_kind=anchor_start.source_kind if anchor_start is not None else '',
+        end_anchor_kind=anchor_end.source_kind if anchor_end is not None else '',
+        points=tuple(
+            (ScaffoldPointKey(chain_ref[0], chain_ref[1], chain_ref[2], point_index), uv.copy())
+            for point_index, uv in enumerate(uv_points)
+        ),
+    )
+
+    placed_chain_refs.add(chain_ref)
+    placed_chains_map[chain_ref] = chain_placement
+    chain_dependency_patches[chain_ref] = tuple(sorted({
+        anchor.source_ref[0]
+        for anchor in (anchor_start, anchor_end)
+        if anchor is not None and anchor.source_ref[0] != chain_ref[0]
+    }))
+    build_order.append(chain_ref)
+    _cf_register_points(chain_ref, chain, uv_points, point_registry, vert_to_placements)
+
+    print(
+        f"[CFTUV][Frontier] Step {iteration}: "
+        f"P{chain_ref[0]} L{chain_ref[1]}C{chain_ref[2]} "
+        f"{chain.frame_role.value} score:tree_ingress ep:1 "
+        f"a:{_cf_anchor_debug_label(anchor_start, anchor_end)} "
+        f"note:priority={role_priority}:downstream_hv={downstream_hv_count}"
+    )
+    return True
+
+
 def _print_quilt_closure_seam_reports(
     quilt_index: int,
     closure_seam_reports: tuple[ScaffoldClosureSeamReport, ...],
@@ -3651,6 +4003,38 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
                 )
 
         if best_ref is None or best_score < CHAIN_FRONTIER_THRESHOLD:
+            if _cf_try_place_tree_ingress_candidate(
+                graph,
+                all_chain_pool,
+                placed_chain_refs,
+                placed_chains_map,
+                chain_dependency_patches,
+                rejected_chain_refs,
+                build_order,
+                point_registry,
+                vert_to_placements,
+                quilt_patch_ids,
+                allowed_tree_edges,
+                final_scale,
+                iteration,
+            ):
+                continue
+            if _cf_try_place_free_ingress_bridge(
+                graph,
+                all_chain_pool,
+                placed_chain_refs,
+                placed_chains_map,
+                chain_dependency_patches,
+                rejected_chain_refs,
+                build_order,
+                point_registry,
+                vert_to_placements,
+                quilt_patch_ids,
+                allowed_tree_edges,
+                final_scale,
+                iteration,
+            ):
+                continue
             if _cf_try_place_closure_follow_candidate(
                 graph,
                 all_chain_pool,

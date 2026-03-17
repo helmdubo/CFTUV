@@ -239,7 +239,17 @@ Tree scaffold размещает patches последовательно от roo
    Здесь главная цель - prevention: не дать frontier прийти к closure через слабый `FREE` path,
    если есть frame continuation.
 
+3. `Untouched tree-child ingress`
+   Patch топологически входит в quilt и связан разрешённым tree edge,
+   но ingress chain до него не набирает обычный frontier score.
+   В результате patch ошибочно падает в `unsupported` / fallback conformal,
+   хотя topology и role graph у него корректны.
+
 ### Ordered Plan
+
+Детальные runtime heuristics, thresholds и production-case notes вынесены в
+`docs/cftuv_runtime_notes.md`.
+Эта секция должна описывать порядок работ и decision points, а не заменять собой operational log.
 
 #### Step 0. Diagnostics First
 
@@ -298,17 +308,54 @@ Tree scaffold размещает patches последовательно от roo
 - pre-constraint встроен в frontier placement path;
 - он активируется только для `closure-sensitive` matched non-tree same-role pairs;
 - текущая версия не трогает scoring и не делает quilt-wide snap;
-- frame thresholds теперь разделены: `H_FRAME` uses `0.02`, `V_FRAME` keeps `0.04`; это осознанный asymmetric tightening, чтобы пограничные горизонтали чаще уходили в `FREE`, не ломая вертикальный каркас тем же порогом;
-- `H/V` classifier нужно держать асимметричным: `H_FRAME` = plane-based относительно `N-U`, `V_FRAME` = axis-based относительно `basis_v`; возврат к симметричному `extent_u / extent_v` test считается semantic regression;
-- debug UX тоже должен быть source-of-truth-consistent: `Loops_Chains` и `Frontier_Path` обязаны рисоваться из одного текущего `PatchGraph` snapshot, а не из stale Analyze graph + нового scaffold replay;
-- `Frontier` не должен трактоваться как runtime reclassifier: если timeline расходится с `LoopTypes`, сначала проверять stale debug layers и факт участия chain в `build_order`;
-- closure-aware tree-edge swap теперь допускается только под safe fallback: если новый tree оставляет patch без размещённых chains (`EMPTY` / `no_placed_chains`), runtime обязан откатиться на original quilt plan;
-- adjacent `same-role` point-contact chains (`shared_vert_count == 1`) теперь не считаются жёстким continuation case: weaker chain должен деградировать в `FREE` ещё в `analysis.py`, до frontier;
-- stronger/weaker heuristic для этого point-contact guard должна предпочитать dominant span / chain length, а не "идеальную осевость" tiny sliver-chain;
-- adjacent `MESH_BORDER + MESH_BORDER` same-role pairs не должны попадать под этот downgrade: их правильный путь — merge в один border carrier-chain;
-- one-edge `FREE` bridges должны быть de-prioritized в frontier и с одним anchor ждать second anchor, чтобы rigid H/V frame собирался раньше мягких мостиков;
-- same-patch same-role direction inheritance уже пришлось ужесточить: оно не должно переопределять chain, если inherited sign противоречит собственному 3D-направлению chain;
-- practical задача следующего шага теперь уже не внедрение pre-constraint, а повторный замер на real meshes.
+- все текущие operational детали этого шага вынесены в `docs/cftuv_runtime_notes.md`;
+- practical задача следующего шага — повторный замер на real meshes.
+
+#### Step 1A. Controlled Reachability Rescue
+
+После production mesh `walls.011` стало ясно, что есть отдельный runtime case:
+patch может быть корректно sewn в `QuiltPlan`, но не получать ни одного placed chain,
+если ingress в него существует только как weak / tiny tree-entry candidate.
+
+Правильный порядок rescue здесь:
+
+1. `tree_ingress`
+   Если patch ещё untouched, но висит на разрешённом tree edge и имеет ровно один
+   `cross_patch` anchor, разрешить один контролируемый ingress placement.
+   Приоритет: обычный `H/V` > corner-split `H/V` > one-edge `FREE`.
+
+2. `free_ingress`
+   Если patch уже начат, но следующий жёсткий chain закрыт one-edge `FREE` corridor,
+   разрешить один bootstrap bridge до внутреннего `H/V`.
+
+3. `closure_follow`
+   Только после этого добирать same-role non-tree closure partner, если его pair уже placed.
+
+Это не новый solve mode. Это stall-recovery path внутри того же chain-first frontier.
+
+#### Parallel branch. Landmark diagnostics
+
+Эта ветка не должна блокировать runtime fixes, потому что её первые шаги zero-risk:
+она ничего не меняет в placement path, а только измеряет будущую coarse frame structure.
+
+Что можно делать уже параллельно:
+
+1. identify lattice nodes
+   - `cross node`: есть и `H`, и `V`, минимум из двух patches;
+   - `axis node`: есть одна ось, но перенос идёт через несколько patches;
+   - `weak node`: один patch only и/или `FREE`-dominated topology.
+
+2. build axis constraints
+   - отдельно для `H` и `V`;
+   - без pairwise-all-path averaging как основной модели;
+   - базовая единица constraint = axis edge между lattice nodes.
+
+3. measure residuals
+   - cycle residual;
+   - row / column inconsistency;
+   - disagreement между альтернативными путями как diagnostics, а не как повод сразу переписывать placement.
+
+Это уже полезно для production meshes и не ломает runtime.
 
 #### Step 2. Re-Measure
 
@@ -317,6 +364,8 @@ Tree scaffold размещает patches последовательно от roo
 - closure residual;
 - row / column scatter;
 - особенно кейсы с `FREE bridge` на closure path.
+- отдельно production meshes с `untouched tree-child patch`, чтобы проверить,
+  что tree-connected `WALL.SIDE` patches больше не уходят в fallback conformal только из-за ingress threshold.
 
 Если closure residual ушёл, а row scatter остался, это уже отдельный alignment case,
 а не closure bug.
@@ -365,10 +414,18 @@ Tree scaffold размещает patches последовательно от roo
 
 - non-tree closure seams диагностируются явно;
 - row / column groups диагностируются явно;
+- tree-connected `WALL.SIDE` patches больше не падают в `unsupported` только потому,
+  что ingress chain остался ниже обычного frontier threshold;
 - ring/closed-house cases сохраняют intentional cut seam без заметного V/V или H/H drift;
 - collinear `H_FRAME` / `V_FRAME` группы перестают гулять по cross-axis без необходимости;
 - paths с `FREE bridge` больше не являются "тихим усилителем" closure mismatch;
 - runtime fix не ломает tree-only solve и не возвращает cycle sewing.
+
+Для lattice branch критерий жёстче и уже не диагностический:
+
+- любые `H_FRAME` chains внутри одной solved row-class должны иметь одинаковую UV row-coordinate в пределах epsilon;
+- любые `V_FRAME` chains внутри одной solved column-class должны иметь одинаковую UV column-coordinate в пределах epsilon;
+- если component lattice disconnected или `FREE`-dominated, эта гарантия на него не распространяется by design.
 
 ### Immediate Code Entry Points
 
@@ -383,11 +440,85 @@ Tree scaffold размещает patches последовательно от roo
 3. `solve.py -> _cf_resolve_candidate_anchors()` / placement path
    Здесь уже встроен точечный closure pre-constraint; следующий агент должен сначала смотреть логи после него, а не перепридумывать placement path.
 
-4. `solve.py -> placed_chains_map` post-pass перед `_cf_build_envelopes()`
+4. `solve.py -> build_quilt_scaffold_chain_frontier()` stop-path
+   Здесь теперь живёт узкий rescue order:
+   `tree_ingress` -> `free_ingress` -> `closure_follow`.
+   Следующий агент не должен превращать этот блок в patch-loop traversal.
+
+5. `solve.py -> placed_chains_map` post-pass перед `_cf_build_envelopes()`
    Это правильное место для консервативного row / column snap,
    если diagnostics подтвердят, что он действительно нужен.
 
 ---
+
+## Parallel research branch. Pre-frontier landmark alignment pass
+
+Это не "следующая большая фаза после всего", а отдельная ветка с разным уровнем риска:
+
+- Steps 1-3 diagnostics можно вести параллельно runtime fixes уже сейчас;
+- coarse lattice solve допустим после появления стабильных diagnostics;
+- integration в placement path разрешена только после того, как blocking production meshes перестанут терять patches по reachability.
+
+Предпочтительный термин для результата:
+`aligned frame lattice`.
+
+Почему не `aligned parallel corpus`:
+
+- `parallel corpus` звучит как термин из NLP;
+- нам нужен не набор последовательностей, а временная геометрическая решётка;
+- `frame lattice` лучше отражает row / column landmarks и их связи.
+
+### Canonical metric
+
+Не использовать:
+
+- raw polyline length;
+- endpoint-to-endpoint projection.
+
+Использовать только:
+
+- per-segment role-aligned accumulated span;
+- с локальным basis каждого patch / chain;
+- как constraint per axis edge, а не как pairwise-all-path average.
+
+Практический смысл:
+
+- bevel noise не должен раздувать span;
+- L-shaped path не должен "срезаться" прямой между endpoints;
+- multi-patch path должен суммироваться в basis соответствующих patches.
+
+### Solve model
+
+Минимальная безопасная первая итерация:
+
+1. собирать только strong / axis `H/V` lattice nodes;
+2. строить transient axis-edge constraints;
+3. считать residuals на циклах как diagnostics;
+4. решать coarse grid как две 1D least-squares задачи;
+5. не писать ничего persistent в `PatchGraph` / `ScaffoldMap`.
+
+### Integration rule
+
+Если lattice позже попадёт в frontier path, правильная семантика такая:
+
+- не создавать fake scaffold placements;
+- не подменять обычные placed chain points;
+- использовать compact transient lattice coordinate storage;
+- вводить новый provenance: `source_kind='lattice_anchor'`.
+
+Первая допустимая practical integration:
+
+- diagnostics + guide для ingress choice;
+- затем closure-sensitive / dual-endpoint `H/V` placement;
+- и только потом более широкие placement assists, если production meshes подтвердят пользу.
+
+Не делать на первом шаге:
+
+- quilt-wide orthogonal re-solve;
+- patch-first placement;
+- editable persistent constraint layer;
+- прямую запись coarse lattice в runtime как будто это уже placed scaffold;
+- массовый snap всех chains без diagnostics.
 
 ## Phase 0. Regression Harness And Snapshot Baseline
 

@@ -183,6 +183,8 @@ Quilt растёт органически от root chain наружу, пере
 
 Важно: кроме основных refactor phases сейчас есть отдельный active runtime track.
 Он не должен уводить агента в redesign всего solve layer.
+Sprint-level runtime heuristics, thresholds и production-case notes вынесены в
+`docs/cftuv_runtime_notes.md`. Это operational notes, а не архитектура.
 
 ### Current active runtime task
 
@@ -193,8 +195,10 @@ Quilt растёт органически от root chain наружу, пере
 
 1. `row / column diagnostics` уже добавлены рядом с `closure seam diagnostics`;
 2. точечный `closure pre-constraint` уже встроен только для closure-sensitive paths;
-3. следующий шаг — повторно промерить diagnostics на production meshes;
-4. и только если scatter реально остаётся, добавить очень консервативный `row / column snap post-pass`.
+3. blocking runtime bugs на production meshes приоритетнее широкой integration-идеи;
+4. diagnostics-only lattice branch можно вести параллельно, пока она не меняет placement path;
+5. после runtime fixes повторно мерить diagnostics на production meshes;
+6. только потом решать, нужен ли консервативный `row / column snap post-pass`.
 
 ### Runtime guardrails
 
@@ -203,29 +207,21 @@ Quilt растёт органически от root chain наружу, пере
 - frontier остаётся chain-first strongest-frontier;
 - tree-only quilt sewing не ломать;
 - `FREE` не трогать без необходимости;
+- rescue-path после stall допустим только как узкий reachability step, а не как возврат к patch-first solve;
+- diagnostics-only lattice branch можно вести параллельно runtime fixes, но её integration не должна маскироваться под новый solve layer;
+- если lattice данные появляются в placement path, они обязаны приходить как `source_kind='lattice_anchor'`, а не как fake scaffold placement;
+- нельзя заранее записывать coarse lattice точки в runtime как будто это уже обычные placed chains того же provenance;
 - не вводить новые persistent override поля в IR до реального manual-use case;
 - не делать patch/quilt-wide "умный solve" вместо точечных шагов diagnostics -> pre-constraint -> remeasure -> snap.
 
 ### Already known runtime facts
 
-- diagnostics для non-tree same-role closure seams уже есть в `solve.py`;
-- они уже считают `span mismatch`, `phase`, `cross-axis offset`, `shared UV delta`;
-- `row / column diagnostics` уже есть в `solve.py` как `FrameDiag` и хранятся в `ScaffoldQuiltPlacement.frame_alignment_reports`;
-- текущая practical реализация этих diagnostics намеренно ограничена `WALL.SIDE`;
-- текущие frame thresholds уже разделены: `H_FRAME` использует более жёсткий порог `0.02`, `V_FRAME` остаётся на `0.04`; цель — раньше выбрасывать пограничные горизонтали в `FREE`, не пережимая вертикали тем же порогом;
-- текущий `H/V` classifier в `analysis.py` больше не должен быть симметричным: `H_FRAME` = plane-based test относительно локальной плоскости `N-U`, `V_FRAME` = axis-based test относительно локальной оси `basis_v`;
-- `Loops_Chains` UX и `Frontier_Path` timeline должны всегда перестраиваться из одного и того же текущего `PatchGraph`; накладывать новый frontier replay поверх старого Analyze слоя нельзя, иначе UX показывает stale chains, а solve/timeline — новый graph snapshot;
-- `Frontier` не переопределяет `frame_role` на лету; если timeline визуально расходится с `LoopTypes`, сначала проверять stale debug layers и факт попадания chain в `build_order`, а не предполагать runtime reclassification;
-- runtime closure-cut swap на уровне tree edges допускается только с safe fallback: если swapped tree оставляет `untouched patch` / `no_placed_chains`, solver обязан автоматически вернуться к исходному quilt plan;
-- для adjacent `same-role` chains действует topology guard в `analysis.py`, но он не должен трогать pair `MESH_BORDER + MESH_BORDER`: такие same-role border pieces должны сначала попытаться merge-иться в один carrier-chain;
-- в этом point-contact guard weaker/stronger heuristic нельзя строить только на "идеальной осевости"; dominant span и chain length важнее, иначе tiny sliver может ложно победить длинный carrier-chain;
-- one-edge `FREE` bridge в frontier должен быть ниже любых `H/V` и при одном anchor ждать second anchor; ранний `FREE [BRIDGE]` placement до сборки rigid-frame считается runtime regression;
-- точечный `closure pre-constraint` уже есть в frontier placement path и пока влияет только на `closure-sensitive` `one-anchor` `H/V` placement;
-- `same-patch same-role` direction inheritance теперь обязано уважать собственное 3D-направление chain; нельзя возвращать слепое inheritance через split-segments, иначе возникают ложные continuation и patch-level closure regression;
-- локальная `per-chain rectification` для `H/V` уже тестировалась и отключена;
-- текущая проблема сформулирована как две разные зоны:
+- detailed current heuristics живут в `docs/cftuv_runtime_notes.md`;
+- runtime track всё ещё разделён на две зоны:
   1. closure-sensitive seams;
-  2. row / column inconsistency внутри геометрически коллинеарных `H_FRAME` / `V_FRAME`.
+  2. row / column inconsistency внутри геометрически коллинеарных `H_FRAME` / `V_FRAME`;
+- diagnostics-first и reachability-rescue уже встроены в solve;
+- lattice branch пока допускается только как diagnostics / coarse-guide track, не как новый solve layer.
 
 Фазы рефакторинга:
 - Phase 0: Glossary & Docs ✓

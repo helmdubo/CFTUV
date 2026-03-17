@@ -51,6 +51,9 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
         name="Analyze", default=False, description="Debug analysis mode"
     )
     dbg_source_object: StringProperty(name="Debug Source", default="")
+    dbg_replay_active: BoolProperty(name="Replay Active", default=False)
+    dbg_replay_source_object: StringProperty(name="Replay Source", default="")
+    dbg_replay_cleanup_pending: BoolProperty(name="Replay Cleanup Pending", default=False)
 
     # Group toggles
     dbg_grp_patches: BoolProperty(name="Patches", default=True)
@@ -94,6 +97,112 @@ def _refresh_debug_layers(context, patch_graph, source_obj, scaffold_map=None):
     create_visualization(patch_graph, source_obj, dbg_settings)
     if scaffold_map is not None:
         create_frontier_visualization(patch_graph, scaffold_map, source_obj, dbg_settings)
+
+
+def _find_screen_override():
+    for window in bpy.context.window_manager.windows:
+        screen = window.screen
+        for area in screen.areas:
+            if area.type not in {'VIEW_3D', 'DOPESHEET_EDITOR', 'TIMELINE'}:
+                continue
+            region = next((reg for reg in area.regions if reg.type == 'WINDOW'), None)
+            if region is None:
+                continue
+            return {
+                'window': window,
+                'screen': screen,
+                'area': area,
+                'region': region,
+            }
+    return None
+
+
+def _stop_animation_playback():
+    override = _find_screen_override()
+    if override is not None:
+        with bpy.context.temp_override(**override):
+            try:
+                bpy.ops.screen.animation_cancel(restore_frame=False)
+                return
+            except Exception:
+                try:
+                    bpy.ops.screen.animation_play()
+                    return
+                except Exception:
+                    pass
+    try:
+        bpy.ops.screen.animation_cancel(restore_frame=False)
+    except Exception:
+        try:
+            bpy.ops.screen.animation_play()
+        except Exception:
+            pass
+
+
+def _force_clear_debug_state(context, source_obj=None, reset_timeline=False):
+    s = context.scene.hotspotuv_settings
+
+    if context.active_object and context.active_object.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+    resolved_source = source_obj
+    if resolved_source is None:
+        source_name = s.dbg_replay_source_object or s.dbg_source_object
+        if source_name and source_name in bpy.data.objects:
+            resolved_source = bpy.data.objects[source_name]
+        else:
+            obj = context.active_object
+            if obj:
+                if obj.name.startswith(GP_DEBUG_PREFIX):
+                    src_name = obj.name[len(GP_DEBUG_PREFIX):]
+                    resolved_source = bpy.data.objects.get(src_name)
+                elif obj.type == 'MESH':
+                    resolved_source = obj
+
+    if resolved_source is not None and resolved_source.name in bpy.data.objects:
+        resolved_source.hide_viewport = False
+        resolved_source.hide_set(False)
+        clear_visualization(resolved_source)
+        bpy.ops.object.select_all(action='DESELECT')
+        resolved_source.select_set(True)
+        context.view_layer.objects.active = resolved_source
+
+    if reset_timeline:
+        context.scene.frame_current = context.scene.frame_start
+
+    s.dbg_active = False
+    s.dbg_source_object = ""
+    s.dbg_replay_active = False
+    s.dbg_replay_source_object = ""
+    s.dbg_replay_cleanup_pending = False
+
+
+def _finish_frontier_replay(scene_name):
+    scene = bpy.data.scenes.get(scene_name)
+    if scene is None:
+        return None
+    settings = scene.hotspotuv_settings
+    if not settings.dbg_replay_cleanup_pending:
+        return None
+
+    _stop_animation_playback()
+    scene.frame_current = scene.frame_start
+    source_obj = None
+    source_name = settings.dbg_replay_source_object or settings.dbg_source_object
+    if source_name and source_name in bpy.data.objects:
+        source_obj = bpy.data.objects[source_name]
+    _force_clear_debug_state(bpy.context, source_obj=source_obj, reset_timeline=False)
+    return None
+
+
+def _frontier_replay_frame_handler(scene, _depsgraph=None):
+    settings = getattr(scene, 'hotspotuv_settings', None)
+    if settings is None or not settings.dbg_replay_active or settings.dbg_replay_cleanup_pending:
+        return
+    if scene.frame_current < scene.frame_end:
+        return
+    settings.dbg_replay_cleanup_pending = True
+    bpy.app.timers.register(lambda: _finish_frontier_replay(scene.name), first_interval=0.0)
 
 
 def _print_console_report(title, lines, summary=None):
@@ -307,30 +416,8 @@ class HOTSPOTUV_OT_DebugClear(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        s = context.scene.hotspotuv_settings
-
-        if context.active_object and context.active_object.mode != 'OBJECT':
-            bpy.ops.object.mode_set(mode='OBJECT')
-
-        source_name = s.dbg_source_object
-        if source_name and source_name in bpy.data.objects:
-            source_obj = bpy.data.objects[source_name]
-            clear_visualization(source_obj)
-            source_obj.hide_viewport = False
-
-        obj = context.active_object
-        if obj:
-            if obj.name.startswith(GP_DEBUG_PREFIX):
-                src_name = obj.name[len(GP_DEBUG_PREFIX):]
-                src = bpy.data.objects.get(src_name)
-                if src:
-                    clear_visualization(src)
-                    src.hide_viewport = False
-            elif obj.type == 'MESH':
-                clear_visualization(obj)
-
-        s.dbg_active = False
-        s.dbg_source_object = ""
+        _stop_animation_playback()
+        _force_clear_debug_state(context, reset_timeline=True)
         self.report({"INFO"}, "Debug cleared")
         return {"FINISHED"}
 
@@ -468,6 +555,8 @@ class HOTSPOTUV_OT_FrontierReplay(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         s = context.scene.hotspotuv_settings
+        if s.dbg_replay_active:
+            return True
         if s.dbg_active and s.dbg_source_object:
             return True
         obj = context.active_object
@@ -475,6 +564,12 @@ class HOTSPOTUV_OT_FrontierReplay(bpy.types.Operator):
 
     def execute(self, context):
         s = context.scene.hotspotuv_settings
+
+        if s.dbg_replay_active:
+            _stop_animation_playback()
+            _force_clear_debug_state(context, reset_timeline=True)
+            self.report({"INFO"}, "Frontier Replay stopped")
+            return {"FINISHED"}
 
         # В debug mode mesh скрыт, активен GP — нужно переключиться
         source_name = s.dbg_source_object if s.dbg_active else ""
@@ -520,12 +615,18 @@ class HOTSPOTUV_OT_FrontierReplay(bpy.types.Operator):
                     context.view_layer.objects.active = gp_obj
 
                 # Запускаем playback
+                s.dbg_replay_active = True
+                s.dbg_replay_source_object = target_name
+                s.dbg_replay_cleanup_pending = False
                 context.scene.frame_current = 0
                 bpy.ops.screen.animation_play()
 
-            self.report({"INFO"}, "Frontier Replay started — press Esc to stop")
+            self.report({"INFO"}, "Frontier Replay started — click again to stop")
             return {"FINISHED"}
         except Exception as exc:
+            s.dbg_replay_active = False
+            s.dbg_replay_source_object = ""
+            s.dbg_replay_cleanup_pending = False
             self.report({"ERROR"}, f"Frontier Replay failed: {exc}")
             return {"CANCELLED"}
 
@@ -686,7 +787,15 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         col.label(text="Debug:")
         col.operator("hotspotuv.flow_debug", text="Flow Debug", icon="SORTSIZE")
         col.operator("hotspotuv.scaffold_debug", text="Scaffold Debug", icon="MESH_GRID")
-        col.operator("hotspotuv.frontier_replay", text="Frontier Replay", icon="PLAY")
+        if s.dbg_replay_active:
+            col.operator(
+                "hotspotuv.frontier_replay",
+                text="Frontier Replay: ON",
+                icon="PAUSE",
+                depress=True,
+            )
+        else:
+            col.operator("hotspotuv.frontier_replay", text="Frontier Replay: OFF", icon="PLAY")
         col.operator(
             "hotspotuv.solve_phase1_preview", text="Solve Phase 1 Preview", icon="UV"
         )
@@ -787,9 +896,13 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.Scene.hotspotuv_settings = PointerProperty(type=HOTSPOTUV_Settings)
+    if _frontier_replay_frame_handler not in bpy.app.handlers.frame_change_post:
+        bpy.app.handlers.frame_change_post.append(_frontier_replay_frame_handler)
 
 
 def unregister():
+    if _frontier_replay_frame_handler in bpy.app.handlers.frame_change_post:
+        bpy.app.handlers.frame_change_post.remove(_frontier_replay_frame_handler)
     # Cleanup GP debug objects
     for obj in list(bpy.data.objects):
         if obj.name.startswith(GP_DEBUG_PREFIX):
