@@ -9,12 +9,25 @@
 
 Он не заменяет `cftuv_architecture_v2.0.md`.
 Наоборот: архитектурный документ остаётся главным источником истины,
+а `docs/cftuv_entity_model_and_control_plan.md` фиксирует текущую entity model и
+границы малого cleanup в `analysis.py`.
+Этот файл нужно читать после architecture и до этого roadmap,
 а этот файл описывает:
 
 - какие structural problems уже видны в коде;
 - какие из них реально опасны;
 - в каком порядке их исправлять;
 - что нельзя ломать по пути.
+
+Важно:
+этот roadmap не должен переопределять entity hierarchy.
+Для текущего runtime cleanup канонической считается схема:
+
+- primary topology: `Patch`, `Chain`;
+- composite topology: `BoundaryLoop`, `BoundaryCorner`;
+- local-derived analysis: `FrameRun`;
+- global-derived analysis: `Junction`;
+- solve layer: `Quilt`, `ScaffoldMap`.
 
 Главная цель: не делать большой "красивый" рефакторинг вслепую.
 Нужно идти малыми фазами, сохраняя chain-first strongest-frontier.
@@ -112,7 +125,9 @@
 
 Важно:
 речь не обязательно о тяжёлом persistent cache сразу.
-Для начала нужен хотя бы стабильный serializable scaffold snapshot/report.
+Минимальный baseline уже реализован как markdown snapshot
+(`PatchGraph Snapshot` + `Scaffold Snapshot`),
+но он всё ещё manual-first и нужен дальнейший cleanup agreed regression set.
 
 ### F6. Frontier state хранится как набор параллельных registry
 
@@ -547,7 +562,9 @@ patch может быть корректно sewn в `QuiltPlan`, но не по
 
 3. Сделать один markdown checklist "expected behavior per mesh".
 
-4. Определить стабильный scaffold snapshot/report format, который можно сравнивать до/после:
+4. Определить стабильный snapshot/report format, который можно сравнивать до/после:
+   уже есть минимальная реализация (`PatchGraph Snapshot` + `Scaffold Snapshot`),
+   но формат всё ещё можно стабилизировать дальше.
    - quilt ids;
    - patch membership;
    - unsupported patches;
@@ -556,9 +573,38 @@ patch может быть корректно sewn в `QuiltPlan`, но не по
    - pinned/unpinned summary.
 
 5. Реализовать минимальный способ сохранить этот snapshot baseline для agreed regression meshes:
+   минимальный markdown snapshot уже есть, дальше вопрос в coverage и discipline использования.
    - в файл;
    - или в стабильный markdown/text report;
    - но не оставлять это только на уровне "формат придуман, реализации нет".
+
+- closure-follow, free-ingress и tree-ingress rescue candidates в `solve.py`
+  теперь тоже живут как explicit dataclass records, а не как local `best_candidate` tuples.
+- `ScaffoldPatchPlacement.gap_reports` теперь живёт как typed persistent record
+  (`ChainGapReport`), а transfer/apply path больше не опирается на raw key tuples
+  без именованных contracts.
+- канонические aliases `PatchEdgeKey`, `LoopChainRef`, `SourcePoint` теперь вынесены
+  в `model.py` и протянуты через `solve.py`; seed-chain choice и seed-placement payload
+  тоже больше не возвращаются как анонимные tuples.
+- planning / closure-cut path в `solve.py` тоже частично очищен от tuple-soup:
+  attachment-neighbor refs, endpoint context, direction/anchor options, best chain-pair
+  selection и endpoint-support stats теперь оформлены как explicit records.
+- shared closure offsets / preconstraint metric, attachment preference key и
+  dual-anchor resolution path теперь тоже живут на typed records; rescue candidate
+  ranks больше не передаются как анонимные tuple keys.
+- remaining anchor/preconstraint helper returns тоже дочищены: found-anchor payload,
+  axis-safety / dual-anchor closure decision и closure-preconstraint application
+  теперь возвращаются как explicit records, а не как raw tuples.
+- report-layer formatter’ы (`analysis.py` / `solve.py`) теперь тоже возвращают единый
+  typed payload (`FormattedReport`) вместо ad-hoc `(lines, summary)` pairs; `operators.py`
+  читает `.lines/.summary`, а не распаковывает сырые tuples.
+- helper payloads вокруг closure-follow / frontier bootstrap / quilt finalize / patch-gap
+  diagnostics тоже переведены на explicit records, так что эти runtime paths больше не
+  живут на ad-hoc return pairs.
+- internal math/summary helpers в `solve.py` тоже частично типизированы:
+  component builder, UV axis split/metrics, frame-group display coords, role counts
+  и bbox payloads теперь идут через именованные records / aliases, а не через
+  неявные tuple contracts.
 
 ### Exit Criteria
 
@@ -794,6 +840,20 @@ seed selection, report formatting и conformal fallback.
 
 ---
 
+### Current Status
+
+Практически закрыто.
+
+В `solve.py` runtime state frontier builder уже упакован в `FrontierRuntimePolicy`:
+
+- placed/rejected/build_order/dependency/point registries имеют одного owner'а;
+- `placed_in_patch` и `closure_pair_refs` кэшируются в runtime container;
+- stop diagnostics, strongest-candidate selection, placement path, seed bootstrap и quilt finalization вынесены в explicit helper/dataclass layer;
+- `build_quilt_scaffold_chain_frontier()` теперь остаётся orchestration function, а не местом с ручной синхронизацией registry.
+
+Дальше Phase 3 не нужно открывать заново без конкретной runtime-regression.
+Приоритет после этого: runtime bugfix track или Phase 4 IR cleanup.
+
 ## Phase 4. IR Cleanup
 
 ### Goal
@@ -827,6 +887,31 @@ IR сейчас содержит смесь:
 5. По возможности заменить строковые статусы и source kinds на enum-like модели.
 
 6. Явно задокументировать место sentinel semantics и при возможности сузить их зону.
+
+### Current Progress
+
+- Первый safe slice уже сделан: `root_chain_index` больше не является спящим
+  полем по умолчанию.
+- Для реально placed patch он теперь заполняется в envelope builder.
+- Для `EMPTY/UNSUPPORTED` runtime paths он использует явный sentinel `-1`.
+- `ScaffoldPatchPlacement.status` уже переведён из строки в enum-like runtime model.
+- `source_kind` в scaffold / anchor runtime path тоже переведён в enum-like model.
+- `max_chain_gap` и `gap_reports` уже переведены в честные derived diagnostics.
+- patch-level `pinned` и `origin_offset` уже удалены как unused runtime fields.
+- `start_anchor_kind / end_anchor_kind` уже удалены как write-only runtime fields.
+- transfer/apply preview contract в `solve.py` уже переведён с raw dict на typed
+  internal states (`PatchTransferTargetsState`, `PatchApplyStats`).
+- `ScaffoldClosureSeamReport.anchor_mode` и `ScaffoldFrameAlignmentReport.axis_kind`
+  уже переведены из raw strings в enum-like report fields.
+- канонический `ChainRef` теперь выделен как именованный type alias и используется
+  в persistent/report/runtime type contracts вместо анонимного `tuple[int, int, int]`.
+- `QuiltPlan.stop_reason` уже переведён в enum-like planning/report contract
+  с сохранением прежнего текстового snapshot output.
+- внутренние registry contracts вокруг `point_registry` и `vert_to_placements`
+  уже переведены на именованные aliases (`PointRegistryKey`, `PointRegistry`,
+  `VertexPlacementRef`, `VertexPlacementMap`) без изменения storage semantics.
+- frontier chain pool, closure matched pairs и frame-group members в `solve.py`
+  уже упакованы в typed records вместо анонимных tuple-коллекций.
 
 ### Exit Criteria
 
@@ -873,10 +958,11 @@ IR сейчас содержит смесь:
 Для любой фазы:
 
 1. Сначала прочитать `docs/cftuv_architecture_v2.0.md`.
-2. Затем прочитать этот roadmap.
-3. Выбрать только одну фазу.
-4. Не смешивать structural cleanup и scoring tuning в одном change set.
-5. Перед правками определить:
+2. Затем прочитать `docs/cftuv_entity_model_and_control_plan.md`.
+3. Затем прочитать этот roadmap.
+4. Выбрать только одну фазу.
+5. Не смешивать structural cleanup и scoring tuning в одном change set.
+6. Перед правками определить:
    - какие meshes проверяются;
    - какие логи считаются ожидаемыми;
    - какие invariants нельзя нарушать.

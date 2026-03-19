@@ -4,6 +4,8 @@ Thin wrappers only. No geometry logic here (max 5 lines math).
 All heavy work delegated to analysis.py, solve.py, debug.py.
 """
 
+from pathlib import Path
+
 import bpy
 import bmesh
 from bpy.props import (
@@ -18,6 +20,7 @@ from bpy.props import (
 from .analysis import (
     build_patch_graph,
     format_patch_graph_report,
+    format_patch_graph_snapshot_report,
     format_solver_input_preflight_report,
     validate_solver_input_mesh,
 )
@@ -28,6 +31,7 @@ from .solve import (
     build_root_scaffold_map,
     build_solver_graph,
     execute_phase1_preview,
+    format_regression_snapshot_report,
     format_root_scaffold_report,
     format_solve_plan_report,
     plan_solve_phase1,
@@ -218,6 +222,26 @@ def _print_console_report(title, lines, summary=None):
     print('=' * 60)
 
 
+def _safe_snapshot_name(label: str) -> str:
+    safe = ''.join(ch if ch.isalnum() or ch in {'-', '_', '.'} else '_' for ch in label.strip())
+    return safe or 'mesh'
+
+
+def _regression_snapshot_path(obj) -> Path:
+    blend_path = bpy.data.filepath
+    if blend_path:
+        base_dir = Path(bpy.path.abspath("//"))
+        blend_stem = Path(blend_path).stem
+    else:
+        base_dir = Path(__file__).resolve().parents[1]
+        blend_stem = "unsaved_blend"
+
+    snapshot_dir = base_dir / "_cftuv_snapshots"
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"{_safe_snapshot_name(blend_stem)}__{_safe_snapshot_name(obj.name)}.md"
+    return snapshot_dir / filename
+
+
 def _capture_face_selection(bm):
     """Сохраняет текущее выделение faces."""
     return [face.index for face in bm.faces if face.select]
@@ -263,9 +287,9 @@ def _prepare_patch_graph(context, require_selection=True, validate_for_solver=Fa
         if validate_for_solver:
             preflight = validate_solver_input_mesh(bm, face_indices)
             if not preflight.is_valid:
-                lines, summary = format_solver_input_preflight_report(preflight, mesh_name=obj.name)
-                _print_console_report('CFTUV Solver Preflight', lines, summary)
-                raise ValueError(summary)
+                report = format_solver_input_preflight_report(preflight, mesh_name=obj.name)
+                _print_console_report('CFTUV Solver Preflight', report.lines, report.summary)
+                raise ValueError(report.summary)
 
         patch_graph = build_patch_graph(bm, face_indices, obj)
         return obj, bm, patch_graph, original_mode, selected_face_indices
@@ -329,8 +353,8 @@ def _enter_debug_mode(context, obj):
     s.dbg_active = True
     s.dbg_source_object = obj.name
 
-    lines, summary = format_patch_graph_report(patch_graph, mesh_name=obj.name)
-    _print_console_report('CFTUV PatchGraph Analyze', lines, summary)
+    report = format_patch_graph_report(patch_graph, mesh_name=obj.name)
+    _print_console_report('CFTUV PatchGraph Analyze', report.lines, report.summary)
 
     # Scaffold + Frontier visualization поверх GP
     try:
@@ -338,13 +362,13 @@ def _enter_debug_mode(context, obj):
         solve_plan = plan_solve_phase1(patch_graph, solver_graph)
         settings = UVSettings.from_blender_settings(s)
         scaffold_map = build_root_scaffold_map(patch_graph, solve_plan, settings.final_scale)
-        scaffold_lines, scaffold_summary = format_root_scaffold_report(patch_graph, scaffold_map, mesh_name=obj.name)
-        _print_console_report('CFTUV Scaffold (Analyze)', scaffold_lines, scaffold_summary)
+        scaffold_report = format_root_scaffold_report(patch_graph, scaffold_map, mesh_name=obj.name)
+        _print_console_report('CFTUV Scaffold (Analyze)', scaffold_report.lines, scaffold_report.summary)
         create_frontier_visualization(patch_graph, scaffold_map, obj, dbg_settings)
     except Exception as exc:
         print(f"[CFTUV][Analyze] Scaffold failed: {exc}")
 
-    return summary
+    return report.summary
 
 
 def _exit_debug_mode(context):
@@ -500,9 +524,9 @@ class HOTSPOTUV_OT_FlowDebug(bpy.types.Operator):
     def execute(self, context):
         try:
             obj, _bm, pg, sg, sp, _s, om, sel = _build_solve_state(context)
-            lines, summary = format_solve_plan_report(pg, sg, sp, mesh_name=obj.name)
-            _print_console_report('CFTUV Flow Debug', lines, summary)
-            self.report({"INFO"}, summary)
+            report = format_solve_plan_report(pg, sg, sp, mesh_name=obj.name)
+            _print_console_report('CFTUV Flow Debug', report.lines, report.summary)
+            self.report({"INFO"}, report.summary)
             return {"FINISHED"}
         except Exception as exc:
             self.report({"ERROR"}, f"Flow Debug failed: {exc}")
@@ -527,8 +551,8 @@ class HOTSPOTUV_OT_ScaffoldDebug(bpy.types.Operator):
         try:
             obj, _bm, pg, _sg, sp, settings, om, sel = _build_solve_state(context)
             scaffold_map = build_root_scaffold_map(pg, sp, settings.final_scale)
-            lines, summary = format_root_scaffold_report(pg, scaffold_map, mesh_name=obj.name)
-            _print_console_report('CFTUV Scaffold Debug', lines, summary)
+            report = format_root_scaffold_report(pg, scaffold_map, mesh_name=obj.name)
+            _print_console_report('CFTUV Scaffold Debug', report.lines, report.summary)
 
             # Frontier path visualization поверх существующего GP
             s = context.scene.hotspotuv_settings
@@ -536,10 +560,66 @@ class HOTSPOTUV_OT_ScaffoldDebug(bpy.types.Operator):
             if source_name and source_name in bpy.data.objects:
                 _refresh_debug_layers(context, pg, bpy.data.objects[source_name], scaffold_map)
 
-            self.report({"INFO"}, summary)
+            self.report({"INFO"}, report.summary)
             return {"FINISHED"}
         except Exception as exc:
             self.report({"ERROR"}, f"Scaffold Debug failed: {exc}")
+            return {"CANCELLED"}
+        finally:
+            if 'obj' in locals() and 'om' in locals() and 'sel' in locals():
+                _restore_mode_and_selection(obj, om, sel)
+
+
+class HOTSPOTUV_OT_SaveRegressionSnapshot(bpy.types.Operator):
+    bl_idname = "hotspotuv.save_regression_snapshot"
+    bl_label = "Save Regression Snapshot"
+    bl_description = "Serialize a stable scaffold baseline report to a markdown file"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.type == 'MESH' and obj.mode in {'EDIT', 'OBJECT'}
+
+    def execute(self, context):
+        try:
+            obj, bm, pg, _sg, sp, settings, om, sel = _build_solve_state(context)
+            scaffold_map = build_root_scaffold_map(pg, sp, settings.final_scale)
+            patch_graph_report = format_patch_graph_snapshot_report(
+                pg,
+                mesh_name=obj.name,
+            )
+            report = format_regression_snapshot_report(
+                bm,
+                pg,
+                sp,
+                scaffold_map,
+                mesh_name=obj.name,
+            )
+            output_path = _regression_snapshot_path(obj)
+            content = "\n".join([
+                "# CFTUV Regression Snapshot",
+                "",
+                "## PatchGraph Snapshot",
+                "",
+                *patch_graph_report.lines,
+                "",
+                patch_graph_report.summary,
+                "",
+                "## Scaffold Snapshot",
+                "",
+                *report.lines,
+                "",
+                "---",
+                report.summary,
+                "",
+            ])
+            output_path.write_text(content, encoding="utf-8")
+            _print_console_report('CFTUV Regression Snapshot', report.lines, report.summary)
+            self.report({"INFO"}, f"Snapshot saved: {output_path}")
+            return {"FINISHED"}
+        except Exception as exc:
+            self.report({"ERROR"}, f"Save Regression Snapshot failed: {exc}")
             return {"CANCELLED"}
         finally:
             if 'obj' in locals() and 'om' in locals() and 'sel' in locals():
@@ -787,6 +867,11 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         col.label(text="Debug:")
         col.operator("hotspotuv.flow_debug", text="Flow Debug", icon="SORTSIZE")
         col.operator("hotspotuv.scaffold_debug", text="Scaffold Debug", icon="MESH_GRID")
+        col.operator(
+            "hotspotuv.save_regression_snapshot",
+            text="Save Regression Snapshot",
+            icon="TEXT",
+        )
         if s.dbg_replay_active:
             col.operator(
                 "hotspotuv.frontier_replay",
@@ -880,6 +965,7 @@ classes = (
     HOTSPOTUV_OT_DebugToggleGroup,
     HOTSPOTUV_OT_FlowDebug,
     HOTSPOTUV_OT_ScaffoldDebug,
+    HOTSPOTUV_OT_SaveRegressionSnapshot,
     HOTSPOTUV_OT_FrontierReplay,
     HOTSPOTUV_OT_SolvePhase1Preview,
     # Legacy stubs (disabled)

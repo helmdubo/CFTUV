@@ -30,8 +30,11 @@ Quilt растёт органически от root chain наружу, пере
 ## Architecture
 
 Прочитай `docs/cftuv_architecture_v2.0.md` перед любой работой. Это главный документ.
-Затем обязательно прочитай `docs/cftuv_refactor_roadmap_for_agents.md`.
-Для нового агента это не optional companion, а документ с текущим practical plan и границами scope.
+Затем обязательно прочитай `docs/cftuv_entity_model_and_control_plan.md`.
+Он фиксирует текущую entity model, границы `FrameRun` / `Junction` и малый cleanup plan.
+После этого обязательно прочитай `docs/cftuv_refactor_roadmap_for_agents.md`.
+Для нового агента roadmap тоже не optional companion: это документ с broader practical plan
+и границами scope поверх уже зафиксированной control-модели.
 
 Система разделена на 7 модулей:
 

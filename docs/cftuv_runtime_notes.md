@@ -7,12 +7,31 @@
 Использование:
 
 1. Сначала читать `docs/cftuv_architecture_v2.0.md`.
-2. Затем `docs/cftuv_refactor_roadmap_for_agents.md`.
-3. И только если задача касается runtime stabilization / lattice research,
+2. Затем `docs/cftuv_entity_model_and_control_plan.md`.
+3. Затем `docs/cftuv_refactor_roadmap_for_agents.md`.
+4. И только если задача касается runtime stabilization / lattice research,
    открывать этот файл.
 
 Если заметка из этого файла противоречит архитектурному инварианту,
-приоритет у architecture doc.
+приоритет такой:
+
+1. architecture doc
+2. control plan
+3. roadmap
+4. runtime notes
+
+---
+
+## Control-model alignment
+
+Этот файл не переопределяет entity model.
+Для active runtime track считать обязательными такие границы:
+
+- scaffold по-прежнему строится только из `chains`;
+- `FrameRun` — local-derived analysis view, diagnostic-only;
+- `Junction` — global-derived analysis / research view, пока не solve runtime;
+- `Run` и `Junction` нельзя тихо превращать в новые placement units;
+- runtime stabilization не должна маскироваться под redesign solve layer.
 
 ---
 
@@ -73,6 +92,13 @@
 - `Loops_Chains` и `Frontier_Path` должны всегда строиться из одного текущего `PatchGraph`;
 - stale Analyze graph + новый frontier replay = invalid debug state;
 - если timeline расходится с `LoopTypes`, сначала проверять stale debug layers и `build_order`, а не предполагать runtime reclassification.
+
+### Analysis-cleanup boundary
+
+- если runtime bug на самом деле рождается в `analysis.py`, нужно чинить split/merge/classification там;
+- runtime notes не дают права лечить плохой split новыми широкими rescue-pass'ами;
+- если для диагностики добавляются `FrameRun` / `Junction`, они должны оставаться report-only,
+  пока не будет отдельного архитектурного решения об integration.
 
 ---
 

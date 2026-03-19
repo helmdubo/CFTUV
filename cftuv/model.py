@@ -45,20 +45,64 @@ class ChainNeighborKind(str, Enum):
     SEAM_SELF = "SEAM_SELF"
 
 
+class PlacementSourceKind(str, Enum):
+    """Provenance of a scaffolded source sample or anchor."""
+
+    CHAIN = "chain"
+    SAME_PATCH = "same_patch"
+    CROSS_PATCH = "cross_patch"
+
+
+class ClosureAnchorMode(str, Enum):
+    """Closure seam anchor availability classification."""
+
+    UNKNOWN = "unknown"
+    DUAL_ANCHOR = "dual-anchor"
+    ONE_ANCHOR = "one-anchor"
+    MIXED = "mixed"
+
+
+class FrameAxisKind(str, Enum):
+    """Diagnostic row / column class kind inside a quilt."""
+
+    ROW = "ROW"
+    COLUMN = "COLUMN"
+
+
+# Canonical solve/runtime reference to one boundary chain:
+# (patch_id, loop_index, chain_index).
+ChainRef = tuple[int, int, int]
+PatchEdgeKey = tuple[int, int]
+LoopChainRef = tuple[int, int]
+SourcePoint = tuple[int, Vector]
+AnchorAdjustment = tuple[ChainRef, int, Vector]
+
+
+@dataclass(frozen=True)
+class FormattedReport:
+    lines: list[str]
+    summary: str
+
+
 @dataclass
 class BoundaryChain:
     """Continuous part of a boundary loop with one neighbor.
     Chain — первичная единица placement в solve."""
 
+    # Intrinsic topology
     vert_indices: list[int] = field(default_factory=list)
     vert_cos: list[Vector] = field(default_factory=list)
     edge_indices: list[int] = field(default_factory=list)
     side_face_indices: list[int] = field(default_factory=list)
-    neighbor_patch_id: int = -1
     is_closed: bool = False
+
+    # Contextual topology
+    neighbor_patch_id: int = -1
     frame_role: FrameRole = FrameRole.FREE
     start_loop_index: int = 0
     end_loop_index: int = 0
+
+    # Derived topology
     start_corner_index: int = -1
     end_corner_index: int = -1
     is_corner_split: bool = False
@@ -92,11 +136,16 @@ class BoundaryCorner:
     Corner не имеет собственных координат — его позиция возникает
     как результат размещения chains."""
 
+    # Composite loop identity
     loop_vert_index: int = 0
     vert_index: int = -1
     vert_co: Vector = field(default_factory=lambda: Vector((0.0, 0.0, 0.0)))
+
+    # Contextual chain links
     prev_chain_index: int = 0
     next_chain_index: int = 0
+
+    # Derived junction semantics
     turn_angle_deg: float = 0.0
     prev_role: FrameRole = FrameRole.FREE
     next_role: FrameRole = FrameRole.FREE
@@ -110,12 +159,17 @@ class BoundaryCorner:
 class BoundaryLoop:
     """Closed boundary loop of a patch."""
 
+    # Composite loop geometry
     vert_indices: list[int] = field(default_factory=list)
     vert_cos: list[Vector] = field(default_factory=list)
     edge_indices: list[int] = field(default_factory=list)
     side_face_indices: list[int] = field(default_factory=list)
+
+    # Contextual loop semantics
     kind: LoopKind = LoopKind.OUTER
     depth: int = 0
+
+    # Composite substructure
     chains: list[BoundaryChain] = field(default_factory=list)
     corners: list[BoundaryCorner] = field(default_factory=list)
 
@@ -124,17 +178,24 @@ class BoundaryLoop:
 class PatchNode:
     """Patch node stored inside the central PatchGraph IR."""
 
+    # Intrinsic topology / geometry
     patch_id: int
     face_indices: list[int]
     centroid: Vector = field(default_factory=lambda: Vector((0.0, 0.0, 0.0)))
     normal: Vector = field(default_factory=lambda: Vector((0.0, 0.0, 1.0)))
     area: float = 0.0
     perimeter: float = 0.0
-    patch_type: PatchType = PatchType.WALL
-    world_facing: WorldFacing = WorldFacing.SIDE
     basis_u: Vector = field(default_factory=lambda: Vector((1.0, 0.0, 0.0)))
     basis_v: Vector = field(default_factory=lambda: Vector((0.0, 0.0, 1.0)))
+
+    # Contextual semantics
+    patch_type: PatchType = PatchType.WALL
+    world_facing: WorldFacing = WorldFacing.SIDE
+
+    # Composite topology
     boundary_loops: list[BoundaryLoop] = field(default_factory=list)
+
+    # Derived debug geometry
     mesh_verts: list[Vector] = field(default_factory=list)
     mesh_tris: list[tuple[int, int, int]] = field(default_factory=list)
 
@@ -213,7 +274,7 @@ class PatchGraph:
     """Central IR with patch nodes, seam edges, and lookup tables."""
 
     nodes: dict[int, PatchNode] = field(default_factory=dict)
-    edges: dict[tuple[int, int], SeamEdge] = field(default_factory=dict)
+    edges: dict[PatchEdgeKey, SeamEdge] = field(default_factory=dict)
     face_to_patch: dict[int, int] = field(default_factory=dict)
     _adjacency: dict[int, set[int]] = field(default_factory=dict)
 
@@ -255,8 +316,8 @@ class PatchGraph:
         self,
         patch_id: int,
         vert_index: int,
-        exclude: Optional[tuple[int, int]] = None,
-    ) -> list[tuple[int, int]]:
+        exclude: Optional[LoopChainRef] = None,
+    ) -> list[LoopChainRef]:
         node = self.nodes.get(patch_id)
         if node is None or vert_index < 0:
             return []
@@ -270,7 +331,7 @@ class PatchGraph:
                     matches.append((loop_index, chain_index))
         return matches
 
-    def get_chain_endpoint_neighbors(self, patch_id: int, loop_index: int, chain_index: int) -> dict[str, list[tuple[int, int]]]:
+    def get_chain_endpoint_neighbors(self, patch_id: int, loop_index: int, chain_index: int) -> dict[str, list[LoopChainRef]]:
         chain = self.get_chain(patch_id, loop_index, chain_index)
         if chain is None:
             return {"start": [], "end": []}
@@ -368,10 +429,8 @@ class ScaffoldChainPlacement:
     loop_index: int
     chain_index: int
     frame_role: FrameRole
-    source_kind: str = "chain"
+    source_kind: PlacementSourceKind = PlacementSourceKind.CHAIN
     anchor_count: int = 0
-    start_anchor_kind: str = ""
-    end_anchor_kind: str = ""
     points: tuple[tuple[ScaffoldPointKey, Vector], ...] = ()
 
 
@@ -388,7 +447,7 @@ class ScaffoldClosureSeamReport:
     frame_role: FrameRole = FrameRole.FREE
     owner_anchor_count: int = 0
     target_anchor_count: int = 0
-    anchor_mode: str = "unknown"
+    anchor_mode: ClosureAnchorMode = ClosureAnchorMode.UNKNOWN
     canonical_3d_span: float = 0.0
     owner_uv_span: float = 0.0
     target_uv_span: float = 0.0
@@ -411,7 +470,7 @@ class ScaffoldClosureSeamReport:
 class ScaffoldFrameAlignmentReport:
     """Диагностика согласованности row / column класса внутри quilt."""
 
-    axis_kind: str = "ROW"
+    axis_kind: FrameAxisKind = FrameAxisKind.ROW
     semantic_key: str = ""
     frame_role: FrameRole = FrameRole.FREE
     class_coord_a: float = 0.0
@@ -422,33 +481,58 @@ class ScaffoldFrameAlignmentReport:
     scatter_max: float = 0.0
     scatter_mean: float = 0.0
     closure_sensitive: bool = False
-    member_refs: tuple[tuple[int, int, int], ...] = ()
+    member_refs: tuple[ChainRef, ...] = ()
+
+
+@dataclass(frozen=True)
+class ChainGapReport:
+    """Derived gap diagnostic between neighboring placed chains in loop order."""
+
+    chain_index: int
+    next_chain_index: int
+    gap: float = 0.0
+
+
+class PatchPlacementStatus(str, Enum):
+    """Runtime scaffold status for one patch placement."""
+
+    EMPTY = "EMPTY"
+    PARTIAL = "PARTIAL"
+    COMPLETE = "COMPLETE"
+    UNSUPPORTED = "UNSUPPORTED"
 
 
 @dataclass
 class ScaffoldPatchPlacement:
     """Per-patch envelope — результат scaffold placement."""
 
+    # Active runtime envelope identity.
     patch_id: int
     loop_index: int
-    root_chain_index: int = 0
+
+    # Active runtime provenance.
+    # `-1` means there is no valid runtime root chain for this placement
+    # (for example EMPTY / UNSUPPORTED paths).
+    root_chain_index: int = -1
+
+    # Active runtime envelope payload.
     corner_positions: dict[int, Vector] = field(default_factory=dict)
     chain_placements: list[ScaffoldChainPlacement] = field(default_factory=list)
     bbox_min: Vector = field(default_factory=lambda: Vector((0.0, 0.0)))
     bbox_max: Vector = field(default_factory=lambda: Vector((0.0, 0.0)))
+
+    # Active runtime diagnostics / reporting.
     closure_error: float = 0.0
-    max_chain_gap: float = 0.0
-    gap_reports: tuple[tuple[int, int, float], ...] = ()
     closure_valid: bool = True
     notes: tuple[str, ...] = ()
-    # Phase 3: envelope fields
-    status: str = "COMPLETE"
-    dependency_patches: tuple = ()
-    unplaced_chain_indices: tuple = ()
+    status: PatchPlacementStatus = PatchPlacementStatus.COMPLETE
+    dependency_patches: tuple[int, ...] = ()
+    unplaced_chain_indices: tuple[int, ...] = ()
     scaffold_connected_chains: frozenset[int] = field(default_factory=frozenset)
-    pinned: bool = False
-    origin_offset: tuple = (0.0, 0.0)  # sleeping field, Phase 5
 
+    # Derived runtime gap diagnostics.
+    max_chain_gap: float = 0.0
+    gap_reports: tuple[ChainGapReport, ...] = ()
 
 @dataclass
 class ScaffoldQuiltPlacement:
@@ -457,7 +541,7 @@ class ScaffoldQuiltPlacement:
     quilt_index: int
     root_patch_id: int
     patches: dict[int, ScaffoldPatchPlacement] = field(default_factory=dict)
-    build_order: list = field(default_factory=list)  # Phase 3: ChainRef tuples
+    build_order: list[ChainRef] = field(default_factory=list)
     closure_seam_reports: tuple[ScaffoldClosureSeamReport, ...] = ()
     frame_alignment_reports: tuple[ScaffoldFrameAlignmentReport, ...] = ()
 

@@ -21,16 +21,25 @@
 
 ## Companion Docs
 
-В `docs/` после очистки остаются только два основных документа:
+Этот файл остаётся главным baseline-документом.
+Но для актуальной работы его нужно читать вместе с companion docs:
 
 1. `docs/cftuv_architecture_v2.0.md`
-   Главный baseline: текущее устройство проекта и актуальные правила runtime.
+   Главный baseline: что существует сейчас в runtime, какие IR реально используются,
+   какие invariants нельзя ломать.
 
-2. `docs/cftuv_refactor_roadmap_for_agents.md`
-   Критический review и безопасный порядок следующих рефакторингов.
+2. `docs/cftuv_entity_model_and_control_plan.md`
+   Текущая control-схема: entity layering, `FrameRun` / `Junction` boundaries,
+   и малый safe refactor plan для cleanup в `analysis.py`.
 
-Исторические handoff-документы по ранней стабилизации Phase 3 удалены.
-Их содержимое либо устарело, либо уже встроено в этот файл и в roadmap.
+3. `docs/cftuv_refactor_roadmap_for_agents.md`
+   Широкий roadmap: structural debts, phase order, runtime track boundaries.
+
+4. `docs/cftuv_runtime_notes.md`
+   Операционные runtime notes. Это не architecture baseline.
+
+5. `docs/cftuv_regression_checklist.md`
+   Ручной regression baseline и snapshot checklist.
 
 ---
 
@@ -107,6 +116,17 @@ Legacy monolith `Hotspot_UV_v2_5_xx.py` не является runtime-часть
 - `BoundaryChain`
 - `BoundaryCorner`
 - `SeamEdge`
+
+Важно:
+детальная control-схема entity layers вынесена в
+`docs/cftuv_entity_model_and_control_plan.md`.
+Для текущего cleanup её нужно считать canonical companion к этому baseline:
+
+- `Patch` и `Chain` — primary topology entities;
+- `BoundaryLoop` и `BoundaryCorner` — composite topology entities;
+- `FrameRun` — local-derived analysis view;
+- `Junction` — global-derived analysis view;
+- `Quilt` и `ScaffoldMap` — solve layer.
 
 Ключевые свойства:
 
@@ -536,24 +556,35 @@ corner detection сейчас идёт по двум путям с не полн
 Даже при корректном rollback это остаётся special-case boundary внутри analysis
 и требует явной изоляции.
 
-### 4. Нет удобного serializable scaffold snapshot baseline
+### 4. Нет ещё полноценного regression harness, но есть минимальный serializable snapshot baseline
 
-Сейчас regression verification в основном держится на console logs и ручном осмотре.
+Сейчас regression verification всё ещё сильно держится на console logs и ручном осмотре.
+Но минимальный baseline уже есть: `Save Regression Snapshot` сохраняет markdown snapshot
+с двумя секциями:
+
+- `PatchGraph Snapshot`
+- `Scaffold Snapshot`
+
 Следующий полезный шаг - не тяжёлый automated test framework,
-а стабильный scaffold snapshot/report, который можно сравнивать до/после рефактора.
+а дальнейшая стабилизация этого snapshot baseline и agreed regression mesh set.
 
-### 5. Frontier runtime state раздроблен
+### 5. Frontier runtime state уже упакован
 
-Сейчас frontier builder держит несколько параллельных registry:
+`solve.py` больше не держит frontier runtime state как россыпь параллельных registry
+внутри main builder loop.
+
+Текущий owner этого состояния — `FrontierRuntimePolicy`, который хранит:
 
 - point registry;
 - vertex-to-placement lookup;
 - placed refs;
 - placed placements;
 - dependency map;
-- build order.
+- build order;
+- cached counts / stop diagnostics helpers.
 
-Это рабочее решение, но не лучший long-term state model.
+Это не означает, что runtime solve завершён целиком, но именно packaging frontier state
+больше не является главным architectural debt.
 
 ### 6. Нет отдельной runtime-стадии для frame-row alignment и closure stabilization
 
@@ -578,11 +609,68 @@ corner detection сейчас идёт по двум путям с не полн
 
 Например:
 
-- `root_chain_index`
-- `max_chain_gap`
-- `gap_reports`
-- `pinned`
+- patch-level `pinned`
 - `origin_offset`
+
+Первый cleanup slice уже сделан:
+
+- `root_chain_index` переведён в active runtime field;
+- для placed patch он теперь заполняется честно;
+- для `EMPTY/UNSUPPORTED` paths использует явный sentinel `-1`.
+- `max_chain_gap` и `gap_reports` переведены в честные derived diagnostics
+  поверх уже placed neighbor chains внутри loop.
+- `status` и `source_kind` переведены из строк в enum-like runtime model.
+- patch-level `pinned` и `origin_offset` удалены из `ScaffoldPatchPlacement`
+  как реально unused runtime fields.
+- `start_anchor_kind / end_anchor_kind` удалены из `ScaffoldChainPlacement`
+  как write-only runtime noise.
+- `ScaffoldClosureSeamReport.anchor_mode` и `ScaffoldFrameAlignmentReport.axis_kind`
+  переведены из raw strings в enum-like diagnostic fields.
+- transfer/apply preview state в `solve.py` больше не живёт на анонимных dict:
+  он упакован в typed internal contracts.
+- каноническая ссылка на chain в solve/runtime теперь зафиксирована как именованный
+  `ChainRef`, а не как повторяющийся анонимный `tuple[int, int, int]`.
+- `QuiltPlan.stop_reason` больше не stringly-typed: он переведён в enum-like
+  planning/report field с тем же внешним текстовым форматом.
+- внутренние runtime registries вокруг `point_registry` / `vert_to_placements`
+  теперь живут на именованных aliases, а не на повторяющихся raw tuple contracts.
+- frontier pool, closure matched pairs и frame-group aggregation внутри `solve.py`
+  переведены на typed internal records, чтобы runtime/diagnostic paths не жили
+  на анонимных tuple-soup коллекциях.
+
+Rescue-path кандидаты (`closure-follow`, `free-ingress`, `tree-ingress`) теперь тоже
+собираются как typed internal records, а не как локальные tuple-бандлы выбора.
+
+Patch-level `gap_reports` тоже переведены в явный persistent record (`ChainGapReport`),
+а transfer/apply path использует именованные key/id contracts вместо неявных raw tuples.
+
+Канонические ref/value aliases для patch-edge keys, loop-chain refs и source-point
+payload теперь вынесены в `model.py`, а seed choice / seed placement в `solve.py`
+тоже оформлены как explicit records вместо tuple-return contracts.
+
+Planning / closure-cut diagnostics в `solve.py` тоже постепенно переводятся на
+явные internal records: neighbor refs, endpoint context, direction options,
+best-pair selection и endpoint-support stats больше не живут на неименованных tuples.
+
+Shared closure offsets / preconstraint metric, attachment preference key и
+dual-anchor rectification/anchor resolution path тоже уже переведены на typed
+records; rescue candidate ranks больше не живут как анонимные tuple keys.
+
+Остаточные anchor/preconstraint helper returns тоже уже упакованы в explicit
+records: found-anchor payload, axis-safety / dual-anchor closure decision и
+closure-preconstraint application path больше не опираются на raw tuples.
+
+Report formatter’ы в `analysis.py` и `solve.py` тоже уже используют единый
+typed payload (`FormattedReport`) вместо ad-hoc `(lines, summary)` contracts;
+operator layer читает `.lines/.summary`, а не распаковывает сырые tuples.
+
+Локальные helper payloads для closure-follow build, patch-gap diagnostics,
+frontier bootstrap и quilt finalization тоже уже оформлены как explicit records,
+а не как ad-hoc return pairs.
+
+Math/summary helpers в `solve.py` тоже постепенно уходят от raw tuple contracts:
+component builder, UV axis split/metrics, frame-group display coords, role counts
+и bbox payloads теперь оформлены через именованные records / aliases.
 
 Эти поля нужно либо честно заполнять,
 либо убрать/заморозить до отдельной фазы.
@@ -648,8 +736,9 @@ corner detection сейчас идёт по двум путям с не полн
 Если другой агент начинает работу:
 
 1. сначала прочитать этот файл;
-2. затем открыть `docs/cftuv_refactor_roadmap_for_agents.md`;
-3. затем смотреть в коде:
+2. затем открыть `docs/cftuv_entity_model_and_control_plan.md`;
+3. затем открыть `docs/cftuv_refactor_roadmap_for_agents.md`;
+4. затем смотреть в коде:
    - `analysis.py -> build_patch_graph()`
    - `solve.py -> build_solver_graph()`
    - `solve.py -> plan_solve_phase1()`

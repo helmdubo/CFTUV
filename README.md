@@ -31,7 +31,9 @@ cftuv/
 
 docs/
 |- README.md
+|- cftuv_regression_checklist.md
 |- cftuv_architecture_v2.0.md
+|- cftuv_entity_model_and_control_plan.md
 |- cftuv_refactor_roadmap_for_agents.md
 `- cftuv_runtime_notes.md
 ```
@@ -49,9 +51,14 @@ Module roles:
 If you need to understand or modify the project, read in this order:
 
 1. [docs/cftuv_architecture_v2.0.md](/D:/_mimirhead/website/CFTUV/docs/cftuv_architecture_v2.0.md)
-2. [docs/cftuv_refactor_roadmap_for_agents.md](/D:/_mimirhead/website/CFTUV/docs/cftuv_refactor_roadmap_for_agents.md)
-3. [docs/cftuv_runtime_notes.md](/D:/_mimirhead/website/CFTUV/docs/cftuv_runtime_notes.md)
+2. [docs/cftuv_entity_model_and_control_plan.md](/D:/_mimirhead/website/CFTUV/docs/cftuv_entity_model_and_control_plan.md)
+   current control document for entity layering, `FrameRun` / `Junction`
+   boundaries, and the small cleanup plan
+3. [docs/cftuv_refactor_roadmap_for_agents.md](/D:/_mimirhead/website/CFTUV/docs/cftuv_refactor_roadmap_for_agents.md)
+4. [docs/cftuv_runtime_notes.md](/D:/_mimirhead/website/CFTUV/docs/cftuv_runtime_notes.md)
    only for active runtime stabilization or lattice research tasks
+5. [docs/cftuv_regression_checklist.md](/D:/_mimirhead/website/CFTUV/docs/cftuv_regression_checklist.md)
+   for Phase 0 regression baselines and manual snapshot review
 
 For contributor and agent guardrails, see
 [AGENTS.md](/D:/_mimirhead/website/CFTUV/AGENTS.md).
@@ -71,5 +78,6 @@ The project currently relies on manual and debug-driven verification:
 
 - Analyze / Grease Pencil debug layers
 - console diagnostics
+- regression snapshots via `Save Regression Snapshot`
 - scaffold vs UV validation output
 - UV Editor inspection on production meshes
