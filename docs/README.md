@@ -50,6 +50,14 @@ Only current project documents should live in `docs/`.
 - Start with architecture, then control plan, then roadmap.
 - Runtime notes are not the design baseline. They store sprint-level runtime
   facts, production-case lessons, and active heuristics.
+- Current code-side reflection of the control plan:
+  `cftuv/model.py` marks topology fields by `intrinsic / contextual / derived`,
+  while `cftuv/analysis.py` keeps canonical analysis-derived topology in a
+  dedicated derived bundle, validates its internal indices / aggregates, and
+  keeps report-only diagnostics separate from it. Console/snapshot formatting
+  now goes through a typed report-view layer on top of that bundle, with its
+  own presentation-contract validation and a final serializer layer instead of
+  ad-hoc string assembly inside report entrypoints.
 - `README.md` is the repo entry point.
 - `docs/README.md` is the docs map.
 - `AGENTS.md` continues to treat `docs/cftuv_architecture_v2.0.md` as the main

@@ -263,6 +263,13 @@ operators.py
 
 ## `analysis.py` Current Behavior
 
+Update 2026-03:
+`_classify_loops_outer_hole()` still keeps the explicit temporary UV unwrap
+boundary for multi-loop `OUTER` / `HOLE` classification. This is intentional:
+wrapped / cylindrical patch geometry is not safely classifiable by a simple
+projection into patch-local basis.
+Planar nesting may exist only as diagnostics-only shadow classification.
+
 ### Analysis pipeline
 
 Текущий фактический порядок:
@@ -270,17 +277,20 @@ operators.py
 1. flood fill faces в patches по seam;
 2. classify patch в `WALL` / `FLOOR` / `SLOPE`;
 3. build local basis;
-4. trace raw boundary loops;
-5. classify loops как `OUTER` / `HOLE` через временный UV unwrap;
-6. split loop into raw chains по смене соседа;
-7. merge bevel-wrap chains;
-8. geometric outer fallback split для isolated `OUTER`;
-9. split border chains по corners;
-10. build `BoundaryChain`;
-11. downgrade weaker adjacent `same-role` point-contact chains (`shared_vert_count == 1`) в `FREE`;
-12. merge remaining adjacent same-role `MESH_BORDER` chains;
-13. build corners и endpoint topology;
-14. build seam edges между patches.
+4. build explicit patch assembly state (`PatchNode` + typed raw boundary payload);
+5. trace raw boundary loops;
+6. classify loops как `OUTER` / `HOLE` через временный UV unwrap;
+7. validate raw patch boundary topology и raw loop classification;
+8. split loop into raw chains по смене соседа;
+9. preserve primary split by neighbor; bevel-wrap stage больше не имеет права склеивать chains через смену соседа;
+10. geometric outer fallback split для isolated `OUTER`;
+11. split border chains по corners;
+12. build `BoundaryChain`;
+13. downgrade weaker adjacent `same-role` point-contact chains (`shared_vert_count == 1`) в `FREE`;
+14. merge remaining adjacent same-role `MESH_BORDER` chains;
+15. build corners и endpoint topology;
+16. build seam edges между patches;
+17. validate patch-neighbor chains against final seam graph.
 
 ### Important current rules
 
@@ -293,9 +303,9 @@ operators.py
 
 ### Important current debt
 
-В analysis ещё остаётся raw-dict intermediate layer (`raw_loop`, `raw_chain`),
-а corner generation ещё нужно сделать полностью согласованным с финальным chain representation.
-Это известная structural зона риска и следующая кандидатура на рефакторинг.
+В analysis уже есть typed raw/intermediate payload layer и explicit patch assembly path,
+но topology builder всё ещё не завершён как полностью self-validating layer:
+следующий structural debt — расширение cross-layer invariants вокруг junction/neighbor consistency.
 
 Кроме этого, `_classify_loops_outer_hole()` остаётся единственным analysis-шагом,
 который временно использует UV-dependent side effects.

@@ -45,6 +45,13 @@ class ChainNeighborKind(str, Enum):
     SEAM_SELF = "SEAM_SELF"
 
 
+class CornerKind(str, Enum):
+    """Semantic class of a loop corner."""
+
+    JUNCTION = "JUNCTION"
+    GEOMETRIC = "GEOMETRIC"
+
+
 class PlacementSourceKind(str, Enum):
     """Provenance of a scaffolded source sample or anchor."""
 
@@ -146,6 +153,7 @@ class BoundaryCorner:
     next_chain_index: int = 0
 
     # Derived junction semantics
+    corner_kind: CornerKind = CornerKind.JUNCTION
     turn_angle_deg: float = 0.0
     prev_role: FrameRole = FrameRole.FREE
     next_role: FrameRole = FrameRole.FREE
@@ -153,6 +161,10 @@ class BoundaryCorner:
     @property
     def corner_type(self) -> str:
         return f"{self.prev_role.value}_TO_{self.next_role.value}"
+
+    @property
+    def is_geometric(self) -> bool:
+        return self.corner_kind == CornerKind.GEOMETRIC
 
 
 @dataclass

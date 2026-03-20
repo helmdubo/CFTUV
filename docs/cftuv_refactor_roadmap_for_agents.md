@@ -100,6 +100,13 @@
 
 ### F4. `analysis.py` не полностью чистый: `OUTER/HOLE` classification идёт через UV side effects
 
+Update 2026-03:
+The UV boundary is intentionally retained. `OUTER` / `HOLE` classification for
+multi-loop patches still relies on the isolated temporary UV unwrap step,
+because wrapped / cylindrical topology is not safely reducible to a simple
+planar basis projection.
+Planar nesting is allowed only as diagnostics-only shadow data.
+
 `_classify_loops_outer_hole()` использует временный UV unwrap через Blender operator.
 Это единственный явно допущенный side effect внутри analysis pipeline.
 
@@ -647,6 +654,7 @@ patch может быть корректно sewn в `QuiltPlan`, но не по
 - Код `analysis.py` проще читать.
 - Меньше неявных полей и `dict`-протоколов.
 - Следующая фаза может чинить corner/split/merge logic не вслепую.
+- Есть явный patch assembly state вместо ручной сборки `PatchNode` и raw payload вразнобой.
 
 ---
 
@@ -682,6 +690,8 @@ patch может быть корректно sewn в `QuiltPlan`, но не по
 - chain count, corner count, endpoint links и debug overlay согласованы;
 - bevel-heavy meshes не дают странных corner jumps;
 - no new regressions в Phase 0 harness.
+- legacy corner helpers сведены к thin compatibility wrappers над unified detectors.
+- post-split cleanup больше не нарушает primary neighbor contract.
 
 ---
 
@@ -717,6 +727,7 @@ patch может быть корректно sewn в `QuiltPlan`, но не по
 - Debug path не получает неожиданных persistent изменений состояния меша при обычном выполнении.
 - Есть один понятный boundary, через который проходит UV-dependent classification.
 - Дальнейшие refactor phases не распространяют UV side effects на новые части analysis.
+- Raw patch boundary topology валидируется сразу после этого boundary.
 
 ---
 
