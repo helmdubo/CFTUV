@@ -3,81 +3,51 @@
 CFTUV (Constraint-First Trim UV) is a Blender addon for semi-procedural UV
 unwrapping of architectural hard-surface meshes for trim sheet / tile workflows.
 
-The core solve rule is:
-
-**chain-first strongest-frontier**
-
-The scaffold grows chain by chain from a global frontier pool across the whole
-quilt. It must not drift into patch-first or loop-sequential placement.
+The core solve rule is **chain-first strongest-frontier**: scaffold grows chain
+by chain from a global frontier pool across the whole quilt.
 
 ## Target
 
-- Blender 3.0+
-- Python 3.10+
-- hard-surface environment production meshes
-- trim sheet / tile UV workflows
+- Blender 4.1+ (targeting 4.5)
+- Python 3.11+
+- Hard-surface environment production meshes
+- Trim sheet / tile UV workflows
 
 ## Repo Layout
 
 ```text
 cftuv/
-|- __init__.py
-|- constants.py
-|- model.py
-|- analysis.py
-|- solve.py
-|- debug.py
-`- operators.py
+├── __init__.py
+├── constants.py
+├── model.py
+├── analysis.py          # facade over analysis_* submodules
+├── analysis_*.py        # topology, boundary, corners, classification, etc.
+├── solve.py             # facade (target: split into solve_* submodules)
+├── debug.py
+├── operators.py
+└── console_debug.py
 
 docs/
-|- README.md
-|- cftuv_regression_checklist.md
-|- cftuv_architecture_v2.0.md
-|- cftuv_entity_model_and_control_plan.md
-|- cftuv_refactor_roadmap_for_agents.md
-`- cftuv_runtime_notes.md
+├── cftuv_architecture.md
+└── cftuv_reference.md
 ```
 
-Module roles:
+## Documentation
 
-- `model.py`: enums, topology IR, solve IR, settings dataclasses
-- `analysis.py`: BMesh -> PatchGraph
-- `solve.py`: planning, frontier scaffold build, UV transfer, validation
-- `debug.py`: Grease Pencil visualization and replay tooling
-- `operators.py`: Blender UI wrappers
+| Document | When to read |
+|----------|-------------|
+| `AGENTS.md` | Always. Self-contained project context for any contributor or AI agent |
+| `docs/cftuv_architecture.md` | When task requires pipeline, IR, or entity model understanding |
+| `docs/cftuv_reference.md` | Lookup: topology invariants, runtime heuristics, regression checklist |
 
-## Read Order
-
-If you need to understand or modify the project, read in this order:
-
-1. [docs/cftuv_architecture_v2.0.md](/D:/_mimirhead/website/CFTUV/docs/cftuv_architecture_v2.0.md)
-2. [docs/cftuv_entity_model_and_control_plan.md](/D:/_mimirhead/website/CFTUV/docs/cftuv_entity_model_and_control_plan.md)
-   current control document for entity layering, `FrameRun` / `Junction`
-   boundaries, and the small cleanup plan
-3. [docs/cftuv_refactor_roadmap_for_agents.md](/D:/_mimirhead/website/CFTUV/docs/cftuv_refactor_roadmap_for_agents.md)
-4. [docs/cftuv_runtime_notes.md](/D:/_mimirhead/website/CFTUV/docs/cftuv_runtime_notes.md)
-   only for active runtime stabilization or lattice research tasks
-5. [docs/cftuv_regression_checklist.md](/D:/_mimirhead/website/CFTUV/docs/cftuv_regression_checklist.md)
-   for Phase 0 regression baselines and manual snapshot review
-
-For contributor and agent guardrails, see
-[AGENTS.md](/D:/_mimirhead/website/CFTUV/AGENTS.md).
-
-## Current Focus
-
-The current runtime track is intentionally narrow:
-
-- stabilize chain-first frontier behavior on production meshes
-- improve frame alignment and closure behavior without redesigning the solver
-- keep unreachable tree-connected patches from falling into conformal fallback
-- develop diagnostics-first research for the pre-frontier `aligned frame lattice`
+Start with `AGENTS.md`. For most tasks, it is sufficient on its own.
 
 ## Validation
 
-The project currently relies on manual and debug-driven verification:
+Manual and debug-driven:
 
-- Analyze / Grease Pencil debug layers
-- console diagnostics
-- regression snapshots via `Save Regression Snapshot`
-- scaffold vs UV validation output
+- Grease Pencil debug layers (Analyze toggle)
+- Console diagnostics (Verbose Console toggle)
+- Regression snapshots (`Save Regression Snapshot`)
+- Scaffold vs UV validation output
 - UV Editor inspection on production meshes
