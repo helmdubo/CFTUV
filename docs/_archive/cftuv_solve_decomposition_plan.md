@@ -513,11 +513,6 @@ _format_candidate_line
 
 ### Imports
 
-> **GUARDRAIL:** `solve_reporting.py` must import only pure, side-effect-free
-> helpers from `solve_transfer.py`. Functions that mutate UV state, call
-> `bpy.ops`, or orchestrate runtime workflow must NOT be imported here.
-> Reporting layer reads data; it never triggers runtime orchestration.
-
 ```
 from .solve_records import (...)
 from .solve_planning import (
@@ -525,7 +520,6 @@ from .solve_planning import (
     _analyze_quilt_closure_cuts,
 )
 from .solve_transfer import (
-    # Pure helpers only — no UV mutation, no bpy.ops, no orchestration
     _build_patch_transfer_targets,
     _collect_phase1_unsupported_patch_ids,
     _ordered_quilt_patch_ids,

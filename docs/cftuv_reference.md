@@ -1,0 +1,288 @@
+# CFTUV Reference
+## Invariants, heuristics, and regression checklist
+
+Do NOT read this document end-to-end. Look up specific sections when needed.
+
+---
+
+## Section 1. Topology Invariants
+
+### Mesh → Patches
+
+| # | Rule | Status |
+|---|------|--------|
+| P1 | Each face belongs to exactly one patch | ✅ |
+| P2 | Patches do not overlap | ✅ |
+| P3 | Union of all patches covers entire mesh | ✅ |
+| P4 | Patch is a connected face subgraph (no seam crossings) | ✅ |
+| P5 | PatchType determined only by normal angle to WORLD_UP | ✅ |
+
+### Patch → Boundary Loops
+
+| # | Rule | Status |
+|---|------|--------|
+| L1 | Each patch has exactly 1 OUTER loop | ✅ |
+| L2 | Each patch has 0+ HOLE loops | ✅ |
+| L3 | OUTER loop describes external contour | ✅ |
+| L4 | HOLE loop describes internal opening | ✅ |
+| L5 | Loops of one patch do not intersect (shared verts only at mesh boundary) | ✅ |
+| L6 | All boundary edges belong to exactly one loop | ✅ |
+| L7 | Loop is always closed | ✅ |
+
+OUTER vs HOLE classification uses nesting depth via temporary UV unwrap
+for multi-loop patches. Single-loop = trivially OUTER.
+
+### Loop → Chains
+
+Chain detection has two layers:
+
+**Layer A: Primary split by neighbor (mandatory).** Continuous edges with same
+neighbor = one chain. Neighbor change = split point.
+
+**Layer B: Secondary split by geometric corner (conditional).**
+- Case A: Isolated closed OUTER loop with one neighbor → geometric split at ≥4
+  corners by turn angle ≥30°.
+- Case B: Open MESH_BORDER chain through geometric angle → split into sub-chains
+  for proper FrameRole classification.
+
+**Post-split refinement:**
+1. Bevel merge (adjacent chains split by bevel wrap)
+2. Same-role point-contact downgrade (weaker → FREE)
+3. Same-role border merge (adjacent MESH_BORDER with same role)
+
+| # | Rule | Status |
+|---|------|--------|
+| C1 | Chains completely cover loop (all boundary edges) | ✅ |
+| C2 | Chains do not overlap (shared only endpoint vertices) | ✅ |
+| C3 | Chain order consistent with geometric traversal | ✅ |
+| C4 | Each chain has ≥2 vertices (minimum = one edge) | ✅ |
+| C5 | `chain[i].end_vert == chain[(i+1)%N].start_vert` | ⚠️ Target |
+| C6 | ChainNeighborKind unambiguously determined by primary split | ✅ |
+| C7 | FrameRole determined after all split/merge | ✅ |
+| C8 | Geometric split not applied to HOLE loops | ✅ |
+| C9 | Geometric split Case A requires ≥4 corners | ✅ |
+
+### Chains → Corners
+
+Two paths:
+
+**Path A: Junction corners (≥2 chains).** `corner[i]` between `chain[i-1]` and
+`chain[i]`. vert_index = shared endpoint vertex.
+
+**Path B: Geometric corners (1 chain fallback).** Turn points inside single
+chain. `prev_chain_index = 0, next_chain_index = 0`. Marker, not junction.
+
+| # | Rule | Status |
+|---|------|--------|
+| R1 | Loop with ≥2 chains: corner_count == chain_count | ✅ |
+| R2 | Loop with 1 chain: corners = geometric turn points (0+) | ✅ |
+| R3 | corner.vert_co = 3D vertex position | ✅ |
+| R4 | corner.vert_index = mesh vertex index | ✅ |
+| R5 | turn_angle_deg in patch-local 2D basis | ✅ |
+| R6 | prev_role / next_role from neighboring chains | ✅ |
+| R7 | corner.vert_index == chain[prev].end == chain[next].start | ⚠️ Target |
+
+### FrameRole Classification
+
+| # | Rule | Status |
+|---|------|--------|
+| F1 | FrameRole determined after all split/merge/downgrade | ✅ |
+| F2 | Depends only on chain.vert_cos and patch basis | ✅ |
+| F3 | Same geometry + same basis = same role (deterministic) | ✅ |
+| F4 | FREE = default for chains passing neither H nor V threshold | ✅ |
+
+### Cross-Layer Consistency
+
+| # | Rule | Status |
+|---|------|--------|
+| X1 | Closed loop: endpoint stitching between adjacent chains | ⚠️ Target |
+| X2 | Multi-chain loop: corner_count == chain_count | ✅ |
+| X3 | corner[i].vert == chain[i-1].end | ⚠️ Target |
+| X4 | corner[i].vert == chain[i].start | ⚠️ Target |
+| X5 | Mutual patch neighbors → SeamEdge exists | ✅ |
+| X6 | Seam shared verts = chain endpoint shared verts | ⚠️ Target |
+| X7 | Sum of chain edges = loop edges | ⚠️ Target |
+| X8 | Union of chain verts = loop verts | ⚠️ Target |
+
+### Junction Invariants (future)
+
+| # | Rule | Status |
+|---|------|--------|
+| J1 | One vertex = one junction (unique) | 🔮 Future |
+| J2 | junction.valence == len(corners) | 🔮 Future |
+| J3 | Junction aggregates corners, creates no new topology | 🔮 Future |
+| J4 | Every corner with vert_index V exists in junction V | 🔮 Future |
+| J5 | role_signature is deterministic | 🔮 Future |
+
+### Known Risks
+
+**Risk 1: Two corner detection paths with semantic gap.** Case A (closed loop,
+≥4 corners, perimeter spacing) and Case B (open chain, ≥2 corners, local
+support) can disagree on the same physical vertex.
+
+**Risk 2: Endpoint identity not formally validated.** Fallback search by
+vert_indices when direct match fails. Invariants C5, R7, X1, X3, X4 not
+formally guaranteed.
+
+**Risk 3: Geometric fallback corners semantically different.** Path B corners
+(single-chain) have `prev_chain = next_chain = 0` and `role = FREE`. Not real
+chain junctions. `corner_kind` field (`JUNCTION` vs `GEOMETRIC`) distinguishes
+them.
+
+---
+
+## Section 2. Runtime Heuristics
+
+### H/V Classification
+
+Classifier is asymmetric:
+- `H_FRAME`: plane-based relative to local N-U plane, threshold `0.02`
+- `V_FRAME`: axis-based relative to local basis_v, threshold `0.04`
+- Both thresholds live in `constants.py` as `FRAME_ALIGNMENT_THRESHOLD_H/V`
+- Do NOT return to symmetric extent_u / extent_v test
+
+### Same-Role Continuation Guards
+
+- Adjacent same-role point-contact (shared_vert_count == 1): weaker chain → FREE
+- Adjacent MESH_BORDER + MESH_BORDER same-role: merge first, don't break
+- Stronger/weaker decided by dominant span and chain length, not tiny axiality
+
+### FREE Handling
+
+- One-edge FREE bridges scored below any H/V in frontier
+- One-anchor FREE bridge waits for second anchor unless stall-recovery
+- Local per-chain rectification for H/V already tested and disabled (regression)
+
+### Rescue Path Order (when frontier stalls)
+
+1. `tree_ingress` — one chain into untouched tree-child patch
+2. `free_ingress` — one-edge FREE bridge with downstream H/V visible
+3. `closure_follow` — same-role non-tree closure partner if pair already placed
+
+This is reachability rescue, NOT a new solve mode.
+
+### Closure / Pre-Constraint Rules
+
+- Closure-aware tree-edge swap has safe fallback to original quilt plan
+- Closure pre-constraint only for closure-sensitive one-anchor H/V placement
+- Runtime must not reclassify chain roles on the fly
+
+### Scoring Weights (constants.py)
+
+Root patch certainty (sum = 1.0 + semantic bonus):
+- `ROOT_WEIGHT_AREA` = 0.30
+- `ROOT_WEIGHT_FRAME` = 0.30
+- `ROOT_WEIGHT_FREE_RATIO` = 0.20
+- `ROOT_WEIGHT_HOLES` = 0.10
+- `ROOT_WEIGHT_BASE` = 0.10
+
+Attachment candidate (sum = 1.0 minus penalties):
+- `ATTACH_WEIGHT_SEAM` = 0.25
+- `ATTACH_WEIGHT_PAIR` = 0.40
+- `ATTACH_WEIGHT_TARGET` = 0.20
+- `ATTACH_WEIGHT_OWNER` = 0.15
+
+Chain pair strength:
+- `PAIR_WEIGHT_FRAME_CONT` = 0.40
+- `PAIR_WEIGHT_ENDPOINT` = 0.25
+- `PAIR_WEIGHT_CORNER` = 0.10
+- `PAIR_WEIGHT_SEMANTIC` = 0.10
+- `PAIR_WEIGHT_EP_STRENGTH` = 0.10
+- `PAIR_WEIGHT_LOOP` = 0.05
+
+Frontier thresholds:
+- `FRONTIER_PROPAGATE_THRESHOLD` = 0.45
+- `FRONTIER_WEAK_THRESHOLD` = 0.25
+- `FRONTIER_MINIMUM_SCORE` = 0.30
+
+### Debug Source-of-Truth
+
+- `Loops_Chains` and `Frontier_Path` must always build from same current PatchGraph
+- Stale Analyze + new Frontier Replay = invalid debug state
+- If timeline diverges from LoopTypes, check stale debug layers first
+
+---
+
+## Section 3. Regression Checklist
+
+### Baseline Mesh Set
+
+- [ ] Simple wall
+- [ ] Wall with hole-attached patches
+- [ ] Floor caps
+- [ ] Closed ring house
+- [ ] Mixed wall/floor
+- [ ] Bevel-heavy wall
+- [ ] Isolated curved wall strip
+- [ ] Curved wall strip with neighbors
+- [ ] Capless cylinder
+- [ ] Cylinder with caps and opening
+
+### Per-Mesh Verification
+
+For each mesh, use `Save Regression Snapshot` and check:
+
+- [ ] Patch count unchanged without expected reason
+- [ ] Chain count unchanged without expected reason
+- [ ] Corner count unchanged without expected reason
+- [ ] Quilt count unchanged without expected reason
+- [ ] PatchGraph Snapshot readable and compact
+- [ ] Unsupported patch ids expected
+- [ ] Invalid closure count expected
+- [ ] Closure seam residuals not degraded
+- [ ] Row / column scatter not degraded
+- [ ] Conformal fallback patch count expected
+- [ ] H_FRAME / V_FRAME / FREE distribution looks expected
+- [ ] Run / Junction summary in snapshot looks expected
+- [ ] Build order shows no suspicious drift
+- [ ] Pinned / unpinned summary expected
+- [ ] Debug visualization matches snapshot
+
+### Notes Template
+
+```
+Mesh:
+Snapshot file:
+Expected patch/quilt counts:
+Expected chain/corner counts:
+Expected unsupported patches:
+Expected closure behavior:
+Expected row/column behavior:
+Expected conformal fallback:
+Observed deviations:
+Decision: OK / Investigate
+```
+
+---
+
+## Section 4. Lattice Research Notes
+
+This section is reference-only for future research. Not active in runtime.
+
+### Terminology
+
+Use: `pre-frontier landmark alignment pass`, result: `aligned frame lattice`.
+Do not use `aligned parallel corpus` as primary term.
+
+### Canonical Metric
+
+Do NOT use raw polyline length or endpoint-to-endpoint projection.
+Use per-segment role-aligned accumulated span with local basis per patch/chain.
+
+### Node Tiers
+
+- `cross node`: has both H and V, from ≥2 patches
+- `axis node`: one axis transferred through multiple patches
+- `weak node`: single patch and/or FREE-dominated
+
+### Integration Rule (if lattice enters placement path)
+
+- Do not create fake scaffold placements
+- Use separate provenance: `source_kind='lattice_anchor'`
+- Do not write coarse lattice directly into runtime as placed chains
+
+### Success Criterion
+
+- H_FRAME chains within one solved row-class: same UV row-coordinate ±ε
+- V_FRAME chains within one solved column-class: same UV column-coordinate ±ε
+- FREE-dominated zones: outside this guarantee by design
