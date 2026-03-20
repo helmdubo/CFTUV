@@ -1,0 +1,370 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+
+from mathutils import Vector
+
+try:
+    from .model import (
+        BoundaryChain,
+        BoundaryCorner,
+        BoundaryLoop,
+        ChainNeighborKind,
+        FrameRole,
+        LoopKind,
+        PatchNode,
+        PatchType,
+        WorldFacing,
+    )
+except ImportError:
+    from model import (
+        BoundaryChain,
+        BoundaryCorner,
+        BoundaryLoop,
+        ChainNeighborKind,
+        FrameRole,
+        LoopKind,
+        PatchNode,
+        PatchType,
+        WorldFacing,
+    )
+
+
+@dataclass
+class _RawBoundaryLoop:
+    """Private typed payload for one traced raw boundary loop."""
+
+    vert_indices: list[int] = field(default_factory=list)
+    vert_cos: list[Vector] = field(default_factory=list)
+    edge_indices: list[int] = field(default_factory=list)
+    side_face_indices: list[int] = field(default_factory=list)
+    kind: LoopKind = LoopKind.OUTER
+    depth: int = 0
+    closed: bool = False
+
+
+@dataclass
+class _RawBoundaryChain:
+    """Private typed payload for one intermediate raw chain."""
+
+    vert_indices: list[int] = field(default_factory=list)
+    vert_cos: list[Vector] = field(default_factory=list)
+    edge_indices: list[int] = field(default_factory=list)
+    side_face_indices: list[int] = field(default_factory=list)
+    neighbor: int = -1
+    is_closed: bool = False
+    start_loop_index: int = 0
+    end_loop_index: int = 0
+    is_corner_split: bool = False
+
+
+@dataclass
+class _RawPatchBoundaryData:
+    """Private typed payload for one patch before BoundaryLoop serialization."""
+
+    face_indices: list[int] = field(default_factory=list)
+    raw_loops: list[_RawBoundaryLoop] = field(default_factory=list)
+    basis_u: Vector = field(default_factory=lambda: Vector((1.0, 0.0, 0.0)))
+    basis_v: Vector = field(default_factory=lambda: Vector((0.0, 0.0, 1.0)))
+
+
+@dataclass
+class _PatchTopologyAssemblyState:
+    """Typed patch assembly contract from raw patch trace to final PatchNode."""
+
+    patch_id: int
+    node: PatchNode
+    raw_boundary_data: _RawPatchBoundaryData
+
+
+@dataclass
+class _BoundaryLoopBuildState:
+    """Private step-by-step build contract for one finalized BoundaryLoop."""
+
+    raw_loop: _RawBoundaryLoop
+    boundary_loop: BoundaryLoop
+    loop_neighbors: list[int] = field(default_factory=list)
+    raw_chains: list[_RawBoundaryChain] = field(default_factory=list)
+
+
+@dataclass
+class _BoundaryLoopDerivedTopology:
+    """Final derived topology written back into BoundaryLoop."""
+
+    chains: list[BoundaryChain] = field(default_factory=list)
+    corners: list[BoundaryCorner] = field(default_factory=list)
+    uses_geometric_corner_fallback: bool = False
+
+
+@dataclass
+class _AnalysisUvClassificationState:
+    """Rollback contract for the explicit UV-dependent OUTER/HOLE boundary step."""
+
+    temp_uv_name: str = ""
+    original_active_uv_name: str | None = None
+    original_selection: list[int] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class _CornerTurnCandidate:
+    index: int
+    turn_angle_deg: float
+
+
+@dataclass(frozen=True)
+class _CornerDetectionPolicy:
+    """Shared corner-detection policy for closed and open topology paths."""
+
+    closed_loop: bool
+    min_spacing_vertices: int
+    min_corner_count: int = 0
+    loop_min_span_fraction: float = 0.0
+    relaxed_loop_min_span_fraction: float = 0.0
+    reject_projected_hairpins: bool = False
+    filter_all_bevel_turns: bool = False
+    filter_hairpin_bevel_turns: bool = False
+    allow_raw_non_hairpin_fallback: bool = False
+
+
+@dataclass(frozen=True)
+class _OpenBorderCornerDetectionResult:
+    """Detection stages for one open border chain before topology split."""
+
+    candidate_indices: tuple[int, ...] = ()
+    supported_indices: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
+class _BoundarySideKey:
+    face_index: int
+    edge_index: int
+    vert_index: int
+
+
+@dataclass(frozen=True)
+class _PlanarPoint2D:
+    x: float
+    y: float
+
+
+@dataclass(frozen=True, order=True)
+class _PolygonEdgeLengthCandidate:
+    len_squared: float
+    index: int
+
+
+@dataclass(frozen=True, order=True)
+class _ChainFrameConfidence:
+    primary_support: float
+    total_length: float
+    avg_deviation_score: float
+    max_deviation_score: float
+    vert_count: int
+    edge_count: int
+
+
+@dataclass(frozen=True)
+class _ProjectedSpan2D:
+    u_span: float
+    v_span: float
+
+
+@dataclass(frozen=True)
+class _LoopClassificationResult:
+    kind: LoopKind
+    depth: int
+
+
+@dataclass(frozen=True)
+class _PatchNeighborChainRef:
+    patch_id: int
+    loop_index: int
+    chain_index: int
+    neighbor_patch_id: int
+    start_vert_index: int
+    end_vert_index: int
+
+    @property
+    def endpoint_pair(self) -> tuple[int, int]:
+        return (
+            min(self.start_vert_index, self.end_vert_index),
+            max(self.start_vert_index, self.end_vert_index),
+        )
+
+
+@dataclass(frozen=True)
+class _ResolvedLoopCornerIdentity:
+    loop_vert_index: int
+    vert_index: int
+    vert_co: Vector
+    resolved_exactly: bool = True
+
+
+DirectionBucketKey = tuple[float, float, float]
+PatchLoopKey = tuple[int, int]
+CornerJunctionKey = tuple[int, int, int]
+
+
+@dataclass(frozen=True)
+class _FrameRunBuildEntry:
+    dominant_role: FrameRole
+    chain_indices: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class _LoopFrameRunBuildResult:
+    effective_roles: tuple[FrameRole, ...]
+    runs: tuple["_FrameRun", ...]
+
+
+@dataclass(frozen=True)
+class _FrameRunEndpointSpec:
+    endpoint_kind: str
+    corner_index: int
+
+
+@dataclass
+class _FrameRun:
+    """Diagnostic-only continuity view over final neighboring chains of one loop."""
+
+    patch_id: int
+    loop_index: int
+    chain_indices: tuple[int, ...] = ()
+    dominant_role: FrameRole = FrameRole.FREE
+    start_corner_index: int = -1
+    end_corner_index: int = -1
+    total_length: float = 0.0
+    support_length: float = 0.0
+    gap_free_length: float = 0.0
+    max_free_gap_length: float = 0.0
+    projected_u_span: float = 0.0
+    projected_v_span: float = 0.0
+
+
+@dataclass(frozen=True)
+class _JunctionCornerRef:
+    patch_id: int
+    loop_index: int
+    corner_index: int
+    prev_chain_index: int
+    next_chain_index: int
+
+
+@dataclass(frozen=True)
+class _JunctionChainRef:
+    patch_id: int
+    loop_index: int
+    chain_index: int
+    frame_role: FrameRole
+    neighbor_kind: ChainNeighborKind
+
+
+@dataclass(frozen=True)
+class _JunctionRunEndpointRef:
+    patch_id: int
+    loop_index: int
+    run_index: int
+    dominant_role: FrameRole
+    endpoint_kind: str
+    corner_index: int
+
+
+@dataclass(frozen=True)
+class _JunctionRolePair:
+    prev_role: FrameRole
+    next_role: FrameRole
+
+
+@dataclass
+class _JunctionBuildEntry:
+    vert_index: int
+    vert_co: Vector
+    corner_refs: list[_JunctionCornerRef] = field(default_factory=list)
+    patch_ids: set[int] = field(default_factory=set)
+
+
+@dataclass(frozen=True)
+class _Junction:
+    vert_index: int
+    vert_co: Vector
+    corner_refs: tuple[_JunctionCornerRef, ...] = ()
+    chain_refs: tuple[_JunctionChainRef, ...] = ()
+    run_endpoint_refs: tuple[_JunctionRunEndpointRef, ...] = ()
+    role_signature: tuple[_JunctionRolePair, ...] = ()
+    patch_ids: tuple[int, ...] = ()
+    valence: int = 0
+    has_mesh_border: bool = False
+    has_seam_self: bool = False
+    is_open: bool = False
+    h_count: int = 0
+    v_count: int = 0
+    free_count: int = 0
+
+
+@dataclass(frozen=True)
+class _LoopDerivedTopologySummary:
+    patch_id: int
+    loop_index: int
+    kind: LoopKind
+    chain_count: int
+    corner_count: int
+    run_count: int
+
+
+@dataclass(frozen=True)
+class _PatchDerivedTopologySummary:
+    patch_id: int
+    semantic_key: str
+    patch_type: PatchType
+    world_facing: WorldFacing
+    face_count: int
+    loop_kinds: tuple[LoopKind, ...] = ()
+    chain_count: int = 0
+    corner_count: int = 0
+    hole_count: int = 0
+    run_count: int = 0
+    role_sequence: tuple[FrameRole, ...] = ()
+    h_count: int = 0
+    v_count: int = 0
+    free_count: int = 0
+    loop_summaries: tuple[_LoopDerivedTopologySummary, ...] = ()
+
+
+@dataclass(frozen=True)
+class _PatchGraphAggregateCounts:
+    total_patches: int = 0
+    walls: int = 0
+    floors: int = 0
+    slopes: int = 0
+    singles: int = 0
+    total_loops: int = 0
+    total_chains: int = 0
+    total_corners: int = 0
+    total_sharp_corners: int = 0
+    total_holes: int = 0
+    total_h: int = 0
+    total_v: int = 0
+    total_free: int = 0
+    total_up: int = 0
+    total_down: int = 0
+    total_side: int = 0
+    total_patch_links: int = 0
+    total_self_seams: int = 0
+    total_mesh_borders: int = 0
+    total_run_h: int = 0
+    total_run_v: int = 0
+    total_run_free: int = 0
+
+
+@dataclass(frozen=True)
+class _PatchGraphDerivedTopology:
+    patch_summaries: tuple[_PatchDerivedTopologySummary, ...] = ()
+    patch_summaries_by_id: Mapping[int, _PatchDerivedTopologySummary] = field(default_factory=dict)
+    loop_summaries_by_key: Mapping[PatchLoopKey, _LoopDerivedTopologySummary] = field(default_factory=dict)
+    aggregate_counts: _PatchGraphAggregateCounts = field(default_factory=_PatchGraphAggregateCounts)
+    loop_frame_results: Mapping[PatchLoopKey, _LoopFrameRunBuildResult] = field(default_factory=dict)
+    frame_runs_by_loop: Mapping[PatchLoopKey, tuple[_FrameRun, ...]] = field(default_factory=dict)
+    run_refs_by_corner: Mapping[CornerJunctionKey, tuple[_JunctionRunEndpointRef, ...]] = field(default_factory=dict)
+    junctions: tuple[_Junction, ...] = ()
+    junctions_by_vert_index: Mapping[int, _Junction] = field(default_factory=dict)

@@ -54,10 +54,23 @@ Only current project documents should live in `docs/`.
   `cftuv/model.py` marks topology fields by `intrinsic / contextual / derived`,
   while `cftuv/analysis.py` keeps canonical analysis-derived topology in a
   dedicated derived bundle, validates its internal indices / aggregates, and
-  keeps report-only diagnostics separate from it. Console/snapshot formatting
-  now goes through a typed report-view layer on top of that bundle, with its
-  own presentation-contract validation and a final serializer layer instead of
-  ad-hoc string assembly inside report entrypoints.
+  keeps report-only diagnostics separate from it. Raw topology trace, patch
+  assembly, preflight, and `PatchGraph` construction now live in
+  `cftuv/analysis_topology.py`. Raw boundary trace and raw-boundary validation
+  now live in `cftuv/analysis_boundary.py`, while final boundary loop / chain /
+  corner serialization now lives in `cftuv/analysis_boundary_loops.py`. Private
+  record/dataclass payloads live in `cftuv/analysis_records.py`, corner/role/split geometry in
+  `cftuv/analysis_corners.py`, patch classification and UV loop-kind boundary in
+  `cftuv/analysis_classification.py`, report/view builders and serialization in
+  `cftuv/analysis_reporting.py`, frame-run continuity derivation in
+  `cftuv/analysis_frame_runs.py`, junction construction in
+  `cftuv/analysis_junctions.py`, canonical derived-topology assembly in
+  `cftuv/analysis_derived.py`, and derived/report validation in
+  `cftuv/analysis_validation.py`. `analysis.py` is now primarily the public
+  facade over topology, derived, reporting, and validation layers. Console/snapshot
+  formatting still goes through a typed
+  report-view layer with its own presentation-contract validation and a final
+  serializer layer instead of ad-hoc string assembly inside report entrypoints.
 - `README.md` is the repo entry point.
 - `docs/README.md` is the docs map.
 - `AGENTS.md` continues to treat `docs/cftuv_architecture_v2.0.md` as the main

@@ -27,6 +27,7 @@ try:
         ClosureAnchorMode, FrameAxisKind, ChainRef, PatchEdgeKey, LoopChainRef, SourcePoint, AnchorAdjustment,
         FormattedReport,
     )
+    from .console_debug import is_verbose_console_enabled, trace_console
 except ImportError:
     from constants import (
         FRAME_ALIGNMENT_THRESHOLD,
@@ -46,6 +47,7 @@ except ImportError:
         ClosureAnchorMode, FrameAxisKind, ChainRef, PatchEdgeKey, LoopChainRef, SourcePoint, AnchorAdjustment,
         FormattedReport,
     )
+    from console_debug import is_verbose_console_enabled, trace_console
 
 
 EDGE_PROPAGATE_MIN = FRONTIER_PROPAGATE_THRESHOLD
@@ -1419,7 +1421,7 @@ def _cf_try_place_closure_follow_candidate(
         ),
     )
 
-    print(
+    trace_console(
         f"[CFTUV][Frontier] Step {iteration}: "
         f"P{chain_ref[0]} L{chain_ref[1]}C{chain_ref[2]} "
         f"{chain.frame_role.value} score:closure_follow ep:2 "
@@ -1558,7 +1560,7 @@ def _cf_try_place_free_ingress_bridge(
 
     runtime_policy.register_chain(chain_ref, chain, chain_placement, uv_points, ())
 
-    print(
+    trace_console(
         f"[CFTUV][Frontier] Step {iteration}: "
         f"P{chain_ref[0]} L{chain_ref[1]}C{chain_ref[2]} "
         f"{chain.frame_role.value} score:free_ingress ep:1 "
@@ -1707,7 +1709,7 @@ def _cf_try_place_tree_ingress_candidate(
         runtime_policy.dependency_patches_from_anchors(chain_ref[0], anchor_start, anchor_end),
     )
 
-    print(
+    trace_console(
         f"[CFTUV][Frontier] Step {iteration}: "
         f"P{chain_ref[0]} L{chain_ref[1]}C{chain_ref[2]} "
         f"{chain.frame_role.value} score:tree_ingress ep:1 "
@@ -1721,19 +1723,19 @@ def _print_quilt_closure_seam_reports(
     quilt_index: int,
     closure_seam_reports: tuple[ScaffoldClosureSeamReport, ...],
 ) -> None:
-    if not closure_seam_reports:
+    if not closure_seam_reports or not is_verbose_console_enabled():
         return
 
     max_mismatch = max((report.span_mismatch for report in closure_seam_reports), default=0.0)
     max_axis_phase = max((report.axis_phase_offset_max for report in closure_seam_reports), default=0.0)
-    print(
+    trace_console(
         f"[CFTUV][ClosureDiag] Quilt {quilt_index}: "
         f"seams={len(closure_seam_reports)} "
         f"max_span_mismatch={max_mismatch:.6f} "
         f"max_axis_phase={max_axis_phase:.6f}"
     )
     for report in closure_seam_reports:
-        print(
+        trace_console(
             f"[CFTUV][ClosureDiag] Quilt {quilt_index} "
             f"P{report.owner_patch_id} L{report.owner_loop_index}C{report.owner_chain_index}"
             f"<->P{report.target_patch_id} L{report.target_loop_index}C{report.target_chain_index} "
@@ -1915,7 +1917,7 @@ def _print_quilt_frame_alignment_reports(
     quilt_index: int,
     frame_alignment_reports: tuple[ScaffoldFrameAlignmentReport, ...],
 ) -> None:
-    if not frame_alignment_reports:
+    if not frame_alignment_reports or not is_verbose_console_enabled():
         return
 
     max_row_scatter = max(
@@ -1926,7 +1928,7 @@ def _print_quilt_frame_alignment_reports(
         (report.scatter_max for report in frame_alignment_reports if report.axis_kind == FrameAxisKind.COLUMN),
         default=0.0,
     )
-    print(
+    trace_console(
         f"[CFTUV][FrameDiag] Quilt {quilt_index}: "
         f"groups={len(frame_alignment_reports)} "
         f"max_row_scatter={max_row_scatter:.6f} "
@@ -1943,7 +1945,7 @@ def _print_quilt_frame_alignment_reports(
             for patch_id, loop_index, chain_index in report.member_refs
         )
         closure_tag = " closure:1" if report.closure_sensitive else " closure:0"
-        print(
+        trace_console(
             f"[CFTUV][FrameDiag] Quilt {quilt_index} "
             f"{report.axis_kind.value} {report.frame_role.value} {coord_label} "
             f"chains:{report.chain_count} target:{report.target_cross_uv:.6f} "
@@ -2668,6 +2670,61 @@ def _translate_patch_uvs(bm, graph: PatchGraph, uv_layer, patch_ids: list[int], 
         for loop in face.loops:
             loop[uv_layer].uv += offset
 
+
+
+def _scale_patch_uvs(
+    bm,
+    graph: PatchGraph,
+    uv_layer,
+    patch_ids: list[int],
+    scale: float,
+    pivot: Vector,
+) -> None:
+    face_indices = _collect_patch_face_indices(graph, patch_ids)
+    for face in bm.faces:
+        if face.index not in face_indices:
+            continue
+        for loop in face.loops:
+            uv = loop[uv_layer].uv.copy()
+            loop[uv_layer].uv = pivot + ((uv - pivot) * scale)
+
+
+def _restore_patch_uv_bounds(
+    bm,
+    graph: PatchGraph,
+    uv_layer,
+    patch_ids: list[int],
+    target_bounds: UvBounds,
+) -> None:
+    current_bounds = _compute_patch_uv_bbox(bm, graph, uv_layer, patch_ids)
+    target_size = target_bounds.bbox_max - target_bounds.bbox_min
+    current_size = current_bounds.bbox_max - current_bounds.bbox_min
+    target_area = max(target_size.x, 0.0) * max(target_size.y, 0.0)
+    current_area = max(current_size.x, 0.0) * max(current_size.y, 0.0)
+    scale = 1.0
+
+    if target_area > 1e-12 and current_area > 1e-12:
+        scale = math.sqrt(target_area / current_area)
+    else:
+        target_extent = max(abs(target_size.x), abs(target_size.y))
+        current_extent = max(abs(current_size.x), abs(current_size.y))
+        if target_extent > 1e-8 and current_extent > 1e-8:
+            scale = target_extent / current_extent
+
+    if abs(scale - 1.0) > 1e-8:
+        _scale_patch_uvs(
+            bm,
+            graph,
+            uv_layer,
+            patch_ids,
+            scale=scale,
+            pivot=current_bounds.bbox_min.copy(),
+        )
+        current_bounds = _compute_patch_uv_bbox(bm, graph, uv_layer, patch_ids)
+
+    offset = target_bounds.bbox_min - current_bounds.bbox_min
+    if offset.length > 1e-8:
+        _translate_patch_uvs(bm, graph, uv_layer, patch_ids, offset)
 
 
 def _clear_patch_pins(bm, graph: PatchGraph, uv_layer, patch_ids: list[int]) -> None:
@@ -3427,7 +3484,7 @@ def _cf_try_place_frontier_candidate(
         )
         if not applied:
             runtime_policy.reject_chain(chain_ref)
-            print(
+            trace_console(
                 f"[CFTUV][Frontier] Reject {iteration}: "
                 f"P{chain_ref[0]} L{chain_ref[1]}C{chain_ref[2]} "
                 f"{chain.frame_role.value} reason:anchor_rectify_failed"
@@ -3455,7 +3512,7 @@ def _cf_try_place_frontier_candidate(
     )
     if not uv_points or len(uv_points) != len(chain.vert_cos):
         runtime_policy.reject_chain(chain_ref)
-        print(
+        trace_console(
             f"[CFTUV][Frontier] Reject {iteration}: "
             f"P{chain_ref[0]} L{chain_ref[1]}C{chain_ref[2]} "
             f"{chain.frame_role.value} reason:placement_failed"
@@ -3491,7 +3548,7 @@ def _cf_try_place_frontier_candidate(
     anchor_label = _cf_anchor_debug_label(candidate.start_anchor, candidate.end_anchor)
     reason_suffix = f" note:{candidate.anchor_reason}" if candidate.anchor_reason else ''
     bridge_tag = ' [BRIDGE]' if chain.frame_role == FrameRole.FREE and len(chain.vert_cos) <= 2 else ''
-    print(
+    trace_console(
         f"[CFTUV][Frontier] Step {iteration}: "
         f"P{chain_ref[0]} L{chain_ref[1]}C{chain_ref[2]} "
         f"{chain.frame_role.value} score:{candidate.score:.2f} "
@@ -3581,7 +3638,7 @@ def _cf_bootstrap_frontier_runtime(
     seed_uvs = seed_payload.uv_points
     runtime_policy.register_chain(seed_ref, seed_chain, seed_placement, seed_uvs, ())
 
-    print(
+    trace_console(
         f"[CFTUV][Frontier] Seed: P{seed_ref[0]} L{seed_ref[1]}C{seed_ref[2]} "
         f"{seed_chain.frame_role.value} "
         f"({seed_uvs[0].x:.4f},{seed_uvs[0].y:.4f})"
@@ -3589,7 +3646,7 @@ def _cf_bootstrap_frontier_runtime(
     )
     if allowed_tree_edges:
         edge_labels = [f"{edge[0]}-{edge[1]}" for edge in sorted(allowed_tree_edges)]
-        print(f"[CFTUV][Frontier] Tree edges: {edge_labels}")
+        trace_console(f"[CFTUV][Frontier] Tree edges: {edge_labels}")
 
     return FrontierBootstrapAttempt(
         result=FrontierBootstrapResult(
@@ -5005,7 +5062,7 @@ def _finalize_quilt_scaffold_frontier(
     _print_quilt_closure_seam_reports(quilt_plan.quilt_index, quilt_scaffold.closure_seam_reports)
     _print_quilt_frame_alignment_reports(quilt_plan.quilt_index, quilt_scaffold.frame_alignment_reports)
 
-    print(
+    trace_console(
         f"[CFTUV][Frontier] Quilt {quilt_plan.quilt_index}: "
         f"placed {runtime_policy.total_placed()}/{total_available} chains"
     )
@@ -5095,18 +5152,18 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
                 continue
             # Диагностика: почему frontier остановился
             stop_diag = runtime_policy.build_stop_diagnostics(all_chain_pool)
-            print(
+            trace_console(
                 f"[CFTUV][Frontier] STOP: remaining={stop_diag.remaining_count} "
                 f"no_anchor={stop_diag.no_anchor_count} low_score={stop_diag.low_score_count} "
                 f"rejected={stop_diag.rejected_count}"
             )
-            print(
+            trace_console(
                 f"[CFTUV][Frontier] Patches: placed_in={len(stop_diag.placed_patch_ids)} "
                 f"untouched={len(stop_diag.untouched_patch_ids)} "
                 f"no_anchor_patches={len(stop_diag.no_anchor_patch_ids)}"
             )
             if stop_diag.untouched_patch_ids and len(stop_diag.untouched_patch_ids) <= 20:
-                print(f"[CFTUV][Frontier] Untouched patches: {list(stop_diag.untouched_patch_ids)}")
+                trace_console(f"[CFTUV][Frontier] Untouched patches: {list(stop_diag.untouched_patch_ids)}")
             break
 
         if not _cf_try_place_frontier_candidate(runtime_policy, best_candidate, iteration):
@@ -5657,6 +5714,7 @@ def _execute_phase1_preview_impl(
     global_supported_patch_ids: set[int] = set()
     conformal_applied = 0
     all_conformal_patch_ids: list[int] = []
+    unpinned_conformal_patch_bounds: dict[int, UvBounds] = {}
     closure_seam_count = 0
     closure_seam_max_mismatch = 0.0
     closure_seam_max_phase = 0.0
@@ -5733,6 +5791,11 @@ def _execute_phase1_preview_impl(
 
             if int(patch_stats.resolved_scaffold_points) > 0:
                 all_conformal_patch_ids.append(patch_id)
+                if int(patch_stats.pinned_uv_loops) <= 0:
+                    unpinned_conformal_patch_bounds[patch_id] = UvBounds(
+                        bbox_min=patch_placement.bbox_min.copy() + uv_offset,
+                        bbox_max=patch_placement.bbox_max.copy() + uv_offset,
+                    )
 
             if int(patch_stats.pinned_uv_loops) <= 0:
                 continue
@@ -5795,7 +5858,11 @@ def _execute_phase1_preview_impl(
         # Проверка: сколько UV изменилось
         bm2 = bmesh.from_edit_mesh(obj.data)
         bm2.faces.ensure_lookup_table()
+        bm2.verts.ensure_lookup_table()
+        bm2.edges.ensure_lookup_table()
         uv2 = bm2.loops.layers.uv.verify()
+        for patch_id, target_bounds in unpinned_conformal_patch_bounds.items():
+            _restore_patch_uv_bounds(bm2, patch_graph, uv2, [patch_id], target_bounds)
         _changed = 0
         _checked = 0
         for f in bm2.faces:
@@ -5808,6 +5875,7 @@ def _execute_phase1_preview_impl(
                             _checked += 1
                             if (lp[uv2].uv - pre).length > 1e-6:
                                 _changed += 1
+        bmesh.update_edit_mesh(obj.data)
         print(f"[CFTUV][Phase1] Conformal result: checked={_checked} changed={_changed}/{len(_pre_uv)}")
 
     if run_conformal and unsupported_patch_ids:
@@ -5827,6 +5895,7 @@ def _execute_phase1_preview_impl(
                 f"[CFTUV][Phase1] Unsupported Patch {patch_id} Fallback Conformal: "
                 f"faces={selected_face_count} uv_loops={selected_uv_count}"
             )
+            target_bounds = _compute_patch_uv_bbox(bm, patch_graph, uv_layer, [patch_id])
             bpy.ops.uv.unwrap(method='CONFORMAL', fill_holes=False, margin=0.0)
             conformal_applied += 1
 
@@ -5835,9 +5904,7 @@ def _execute_phase1_preview_impl(
             bm.verts.ensure_lookup_table()
             bm.edges.ensure_lookup_table()
             uv_layer = bm.loops.layers.uv.verify()
-            patch_bounds = _compute_patch_uv_bbox(bm, patch_graph, uv_layer, [patch_id])
-            uv_offset = Vector((-patch_bounds.bbox_min.x, -patch_bounds.bbox_min.y))
-            _translate_patch_uvs(bm, patch_graph, uv_layer, [patch_id], uv_offset)
+            _restore_patch_uv_bounds(bm, patch_graph, uv_layer, [patch_id], target_bounds)
             bmesh.update_edit_mesh(obj.data)
     if not run_conformal:
         print(f"[CFTUV][Phase1] Transfer Only: quilts={len(scaffold_map.quilts)} patches={sorted(global_supported_patch_ids)}")
