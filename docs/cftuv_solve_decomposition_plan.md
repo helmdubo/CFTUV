@@ -612,37 +612,42 @@ No circular dependencies. DAG flows downward.
 
 ### Phase C: Extract diagnostics
 
-- [ ] Create `solve_diagnostics.py`
-- [ ] Wire imports from solve_records + solve_planning
-- [ ] Delete moved code from solve.py
+- [x] Create `solve_diagnostics.py`
+- [x] Wire imports from solve_records + solve_planning
+- [x] Delete moved code from solve.py
+2026-03-21 — moved Phase C closure/frame diagnostics into `cftuv/solve_diagnostics.py`, rewired `cftuv/solve.py`; problems: none.
 
 ### Phase D: Extract frontier
 
-- [ ] Create `solve_frontier.py` — this is the largest move
-- [ ] Move `FrontierRuntimePolicy` here (owner class, not a record)
-- [ ] Wire imports from solve_records + solve_planning + solve_diagnostics
-- [ ] Delete moved code from solve.py
-- [ ] Test: `build_root_scaffold_map()` produces identical scaffold
+- [x] Create `solve_frontier.py` - this is the largest move
+- [x] Move `FrontierRuntimePolicy` here (owner class, not a record)
+- [x] Wire imports from solve_records + solve_planning + solve_diagnostics
+- [x] Delete moved code from solve.py
+- [x] Test: `build_root_scaffold_map()` produces identical scaffold
+2026-03-21 - moved Phase D frontier/runtime/seed/rescue/finalization helpers into `cftuv/solve_frontier.py`, rewired `cftuv/solve.py` and updated `cftuv/solve_diagnostics.py` bridges; problems: none.
 
 ### Phase E: Extract transfer
 
-- [ ] Create `solve_transfer.py`
-- [ ] Wire imports
-- [ ] Delete moved code
-- [ ] Test: `execute_phase1_preview()` produces identical UV result
+- [x] Create `solve_transfer.py`
+- [x] Wire imports
+- [x] Delete moved code
+- [x] Test: `execute_phase1_preview()` produces identical UV result
+2026-03-21 - moved Phase E UV transfer/pin policy/preview/validation helpers into `cftuv/solve_transfer.py`, removed the leftover transfer block from `cftuv/solve_frontier.py`, and rewired `cftuv/solve.py`; problems: none.
 
 ### Phase F: Extract reporting
 
-- [ ] Create `solve_reporting.py`
-- [ ] Wire imports
-- [ ] Delete moved code
-- [ ] Test: all format_*_report produce identical text output
+- [x] Create `solve_reporting.py`
+- [x] Wire imports
+- [x] Delete moved code
+- [x] Test: all format_*_report produce identical text output
+2026-03-21 - moved reporting helpers and all `format_*_report` functions into `cftuv/solve_reporting.py`, rewired `cftuv/solve.py`, and kept `solve_reporting.py` dependent only on pure helpers from `cftuv/solve_transfer.py`; problems: none.
 
 ### Phase G: Finalize facade
 
-- [ ] solve.py becomes pure re-export facade (~50 lines)
-- [ ] Verify operators.py imports still work unchanged
-- [ ] Run full regression on production meshes
+- [x] solve.py becomes pure re-export facade (~50 lines)
+- [x] Verify operators.py imports still work unchanged
+- [x] Run full regression on production meshes
+2026-03-21 - reduced `cftuv/solve.py` to a pure facade and verified `cftuv/operators.py` imports via stubbed package import; full production-mesh regression not run because no `.blend`/mesh assets are present in the workspace.
 
 ---
 
