@@ -259,6 +259,12 @@ def _report_graph_topology_invariant_violation(rule_code, detail):
 
 
 
+def _report_junction_invariant_violation(vert_index, rule_code, detail):
+    """Emit a deterministic junction-level topology invariant violation."""
+
+    print(f"[CFTUV][TopologyInvariant] Junction V{vert_index} {rule_code} {detail}")
+
+
 def _iter_patch_neighbor_chain_refs(graph):
     """Yield all final chains that claim an opposite patch as neighbor."""
 

@@ -597,16 +597,18 @@ No circular dependencies. DAG flows downward.
 
 ### Phase A: Create empty modules, move records
 
-- [ ] Create `solve_records.py` with all type aliases, constants, dataclasses, enums
-- [ ] Verify: `from .solve_records import *` works from solve.py
-- [ ] Delete moved code from solve.py, replace with imports from solve_records
+- [x] Create `solve_records.py` with all type aliases, constants, dataclasses, enums
+- [x] Verify: `from .solve_records import *` works from solve.py
+- [x] Delete moved code from solve.py, replace with imports from solve_records
+2026-03-21 — moved Phase A records/aliases/constants/helpers into `cftuv/solve_records.py`, rewired `cftuv/solve.py` to import them; problems: none.
 
 ### Phase B: Extract planning
 
-- [ ] Create `solve_planning.py` with all planning functions
-- [ ] Wire imports from solve_records
-- [ ] Delete moved code from solve.py, replace with imports
-- [ ] Test: `build_solver_graph()` and `plan_solve_phase1()` produce identical output
+- [x] Create `solve_planning.py` with all planning functions
+- [x] Wire imports from solve_records
+- [x] Delete moved code from solve.py, replace with imports
+- [x] Test: `build_solver_graph()` and `plan_solve_phase1()` produce identical output
+2026-03-21 — moved Phase B planning/view/scoring/root/quilt/closure-cut functions into `cftuv/solve_planning.py`, rewired `cftuv/solve.py`; problems: none.
 
 ### Phase C: Extract diagnostics
 
