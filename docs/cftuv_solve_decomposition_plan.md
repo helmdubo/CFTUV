@@ -126,8 +126,13 @@ FoundCandidateAnchors
 AnchorPairSafetyDecision
 DualAnchorClosureDecision
 ClosureFollowUvBuildResult
-FrontierRuntimePolicy          # NOTE: this is a mutable runtime class, not frozen record
 ```
+
+> **NOTE:** `FrontierRuntimePolicy` is NOT a record. It is a mutable runtime
+> owner class whose methods call frontier-layer functions (`_cf_find_anchors`,
+> `_cf_resolve_candidate_anchors`, `_cf_apply_closure_preconstraint`,
+> `_cf_score_candidate`, `_cf_register_points`). It lives in
+> `solve_frontier.py`, not here.
 
 ### Diagnostics Records
 
@@ -247,6 +252,13 @@ from .solve_records import (
 
 Chain-first strongest-frontier builder and all supporting machinery.
 Entry points: `build_quilt_scaffold_chain_frontier()`, `build_root_scaffold_map()`.
+
+### Runtime Owner Class
+
+```
+FrontierRuntimePolicy          # Mutable runtime owner. Methods call frontier functions directly.
+                               # NOT a record — lives here because it IS the frontier.
+```
 
 ### Functions — Geometry / Direction
 
@@ -599,6 +611,7 @@ No circular dependencies. DAG flows downward.
 ### Phase D: Extract frontier
 
 - [ ] Create `solve_frontier.py` — this is the largest move
+- [ ] Move `FrontierRuntimePolicy` here (owner class, not a record)
 - [ ] Wire imports from solve_records + solve_planning + solve_diagnostics
 - [ ] Delete moved code from solve.py
 - [ ] Test: `build_root_scaffold_map()` produces identical scaffold
@@ -629,7 +642,7 @@ No circular dependencies. DAG flows downward.
 
 **Risk: circular imports** — Eliminated by DAG structure above. Records has no internal deps. Each subsequent module depends only on earlier modules.
 
-**Risk: FrontierRuntimePolicy** — This is a mutable class with methods, not a frozen record. It moves to solve_records.py for now (it's referenced by both frontier and diagnostics). If its methods reference frontier-only functions, those methods may need to become thin wrappers that delegate to solve_frontier functions. Flag for review during Phase D.
+**Risk: FrontierRuntimePolicy** — RESOLVED. This is a mutable runtime owner class, not a record. It lives in `solve_frontier.py` alongside the functions its methods call (`_cf_find_anchors`, `_cf_resolve_candidate_anchors`, `_cf_apply_closure_preconstraint`, `_cf_score_candidate`, `_cf_register_points`). If `solve_diagnostics.py` needs to reference `FrontierRuntimePolicy` as a type hint, it imports it from `solve_frontier`. This does NOT create a circular dependency because diagnostics only uses the class as a parameter type, not at module load time. No delegation wrappers needed.
 
 **Risk: _build_solve_view used by both planning and frontier** — Lives in solve_planning.py. Frontier imports it from there. No duplication.
 
