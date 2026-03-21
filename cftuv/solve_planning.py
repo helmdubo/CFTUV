@@ -186,14 +186,14 @@ def _rebuild_quilt_steps_with_forbidden_edges(
     if solved_patch_ids != quilt_patch_ids:
         return None
 
-        rebuilt = replace(quilt_plan)
-        if not rebuilt.original_steps:
-            rebuilt.original_steps = list(quilt_plan.steps)
-        if not rebuilt.original_solved_patch_ids:
-            rebuilt.original_solved_patch_ids = list(quilt_plan.solved_patch_ids)
-        rebuilt.solved_patch_ids = ordered_patch_ids
-        rebuilt.steps = steps
-        return rebuilt
+    rebuilt = replace(quilt_plan)
+    if not rebuilt.original_steps:
+        rebuilt.original_steps = list(quilt_plan.steps)
+    if not rebuilt.original_solved_patch_ids:
+        rebuilt.original_solved_patch_ids = list(quilt_plan.solved_patch_ids)
+    rebuilt.solved_patch_ids = ordered_patch_ids
+    rebuilt.steps = steps
+    return rebuilt
 
 
 def _is_allowed_quilt_edge(

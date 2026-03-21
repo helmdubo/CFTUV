@@ -181,11 +181,10 @@ geometry and must remain isolated.
 
 ### UV Transfer and Pin Policy
 
-1. All-FREE patch = conformal patch: nothing pinned, entire patch goes to Conformal.
-2. H/V chains pinned only if scaffold-connected to root chain through continuous
-   H/V path (bridge FREE ≤2 transparent for BFS).
-3. Isolated H/V chains behind FREE gap: not pinned.
-4. FREE chain endpoints pinned only if they touch a connected local H/V chain.
+1. Conformal all-FREE patch => pin nothing.
+2. Connected H/V => pin all.
+3. Isolated H/V => pin nothing.
+4. FREE => only endpoints that touch connected local H/V.
 5. Unsupported patches get individual fallback Conformal.
 
 ---

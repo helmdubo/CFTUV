@@ -36,7 +36,7 @@ cftuv/
 ├── constants.py        # Thresholds, sentinels, scoring weights
 ├── model.py            # Enums, topology IR (PatchGraph), solve IR (ScaffoldMap)
 ├── analysis.py         # BMesh → PatchGraph (facade over analysis_* submodules)
-├── analysis_*.py       # 9 submodules: topology, boundary, corners, classification, etc.
+├── analysis_*.py       # submodules: topology, boundary, corners, classification, etc.
 ├── solve.py            # Planning, frontier builder, UV transfer, validation (facade)
 ├── solve_records.py    # Pure data types for solve layer (PinPolicy, PatchPinMap, etc.)
 ├── solve_planning.py   # Quilt planning, SolveView, attachment candidates

@@ -8,8 +8,8 @@ by chain from a global frontier pool across the whole quilt.
 
 ## Target
 
-- Blender 4.1+ (targeting 4.5)
-- Python 3.11+
+- Blender 3.0+
+- Python 3.10+
 - Hard-surface environment production meshes
 - Trim sheet / tile UV workflows
 

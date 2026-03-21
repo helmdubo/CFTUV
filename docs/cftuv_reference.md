@@ -197,7 +197,7 @@ Frontier thresholds:
 
 ### Continuous Scoring Factors (P5)
 
-- `SCORE_FREE_LENGTH_SCALE` = 0.03
+- `SCORE_FREE_LENGTH_SCALE` = 0.1
 - `SCORE_FREE_LENGTH_CAP` = 0.15
 - `SCORE_DOWNSTREAM_SCALE` = 0.05
 - `SCORE_DOWNSTREAM_CAP` = 0.20
