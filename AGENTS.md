@@ -42,6 +42,7 @@ cftuv/
 ├── solve_planning.py   # Quilt planning, SolveView, attachment candidates
 ├── solve_frontier.py   # Chain-first frontier builder, scaffold assembly
 ├── solve_pin_policy.py # Pin policy: PatchPinMap, build_patch_pin_map, preview_chain_pin_decision
+├── solve_instrumentation.py # Frontier telemetry: FrontierTelemetryCollector, QuiltFrontierTelemetry
 ├── solve_transfer.py   # UV transfer: scaffold → UV layer, conformal fallback
 ├── solve_diagnostics.py# UV axis metrics, closure seam diagnostics
 ├── solve_reporting.py  # Regression snapshots, scaffold reports, human-readable output
@@ -142,7 +143,7 @@ Current priority order (agreed):
 
 1. **P1: Decompose solve.py** into sibling modules (see `cftuv_solve_decomposition_plan.md`) ✓
 2. **P2: Rewrite AGENTS.md** as self-contained entry point (this file) ✓
-3. **P3: Rescue/scoring instrumentation** — collect data before changing logic
+3. **P3: Rescue/scoring instrumentation** — collect data before changing logic ✓
 4. **P4: Minimal trim abstraction** in model.py
 5. **P5: Scoring revision** based on instrumentation data
 6. **P6: Pin policy extraction** into explicit layer ✓

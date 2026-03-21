@@ -14,6 +14,7 @@ try:
         _format_scaffold_uv_points,
         _ordered_quilt_patch_ids,
     )
+    from .solve_instrumentation import format_quilt_telemetry_summary, format_quilt_telemetry_detail
 except ImportError:
     from model import FrameAxisKind, FrameRole, FormattedReport, PatchGraph, ScaffoldMap
     from solve_records import AttachmentCandidate, ClosureCutHeuristic, SolverGraph, SolvePlan
@@ -24,6 +25,7 @@ except ImportError:
         _format_scaffold_uv_points,
         _ordered_quilt_patch_ids,
     )
+    from solve_instrumentation import format_quilt_telemetry_summary, format_quilt_telemetry_detail
 
 
 def format_root_scaffold_report(
@@ -119,6 +121,11 @@ def format_root_scaffold_report(
                     + f"scatter:{report.scatter_max:.6f}/{report.scatter_mean:.6f} "
                     + f"weight:{report.total_weight:.6f}{closure_tag} refs:[{refs_label}]"
                 )
+        telemetry = getattr(quilt, 'frontier_telemetry', None)
+        if telemetry is not None:
+            for tline in format_quilt_telemetry_detail(telemetry):
+                lines.append(tline)
+
         for patch_id in placed_patch_ids:
             patch_placement = quilt.patches.get(patch_id)
             total_patches += 1
@@ -336,6 +343,11 @@ def format_regression_snapshot_report(
                 )
         else:
             lines.append("frame_groups: []")
+
+        telemetry = getattr(quilt_scaffold, 'frontier_telemetry', None)
+        if telemetry is not None:
+            for tline in format_quilt_telemetry_summary(telemetry):
+                lines.append(tline)
 
         lines.append("patches:")
         for patch_id in ordered_patch_ids:

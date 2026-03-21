@@ -3,7 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from mathutils import Vector
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from .solve_records import QuiltFrontierTelemetry
 
 
 class PatchType(str, Enum):
@@ -556,6 +559,7 @@ class ScaffoldQuiltPlacement:
     build_order: list[ChainRef] = field(default_factory=list)
     closure_seam_reports: tuple[ScaffoldClosureSeamReport, ...] = ()
     frame_alignment_reports: tuple[ScaffoldFrameAlignmentReport, ...] = ()
+    frontier_telemetry: Optional[QuiltFrontierTelemetry] = None
 
 
 @dataclass
