@@ -11,6 +11,10 @@ try:
         ATTACH_WEIGHT_SEAM, ATTACH_WEIGHT_PAIR, ATTACH_WEIGHT_TARGET, ATTACH_WEIGHT_OWNER,
         PAIR_WEIGHT_FRAME_CONT, PAIR_WEIGHT_ENDPOINT, PAIR_WEIGHT_CORNER,
         PAIR_WEIGHT_SEMANTIC, PAIR_WEIGHT_EP_STRENGTH, PAIR_WEIGHT_LOOP,
+        CLOSURE_CUT_WEIGHT_FRAME_CONT, CLOSURE_CUT_WEIGHT_ENDPOINT_BRIDGE,
+        CLOSURE_CUT_WEIGHT_ENDPOINT_STR, CLOSURE_CUT_WEIGHT_SEAM_NORM,
+        CLOSURE_CUT_WEIGHT_FIXED_RATIO, CLOSURE_CUT_WEIGHT_SAME_AXIS,
+        CLOSURE_CUT_WEIGHT_FREE_TOUCH, CLOSURE_CUT_WEIGHT_DIHEDRAL,
     )
     from .model import (
         BoundaryChain, FrameRole, LoopKind,
@@ -33,6 +37,10 @@ except ImportError:
         ATTACH_WEIGHT_SEAM, ATTACH_WEIGHT_PAIR, ATTACH_WEIGHT_TARGET, ATTACH_WEIGHT_OWNER,
         PAIR_WEIGHT_FRAME_CONT, PAIR_WEIGHT_ENDPOINT, PAIR_WEIGHT_CORNER,
         PAIR_WEIGHT_SEMANTIC, PAIR_WEIGHT_EP_STRENGTH, PAIR_WEIGHT_LOOP,
+        CLOSURE_CUT_WEIGHT_FRAME_CONT, CLOSURE_CUT_WEIGHT_ENDPOINT_BRIDGE,
+        CLOSURE_CUT_WEIGHT_ENDPOINT_STR, CLOSURE_CUT_WEIGHT_SEAM_NORM,
+        CLOSURE_CUT_WEIGHT_FIXED_RATIO, CLOSURE_CUT_WEIGHT_SAME_AXIS,
+        CLOSURE_CUT_WEIGHT_FREE_TOUCH, CLOSURE_CUT_WEIGHT_DIHEDRAL,
     )
     from model import (
         BoundaryChain, FrameRole, LoopKind,
@@ -935,6 +943,23 @@ def _closure_cut_support_label(score: float) -> str:
         return 'mixed'
     return 'weak'
 
+def _dihedral_cut_preference(graph, candidate):
+    """Preference for cutting this seam based on dihedral convexity.
+
+    Concave (inner corner) → high preference (1.0) = natural UV break.
+    Convex (outer corner) → low preference (0.0) = prefer UV continuity.
+    Neutral / non-PATCH / no chain → 0.5 (no influence).
+    """
+    owner_chain = graph.get_chain(
+        candidate.owner_patch_id,
+        candidate.owner_loop_index,
+        candidate.owner_chain_index,
+    )
+    if owner_chain is None:
+        return 0.5
+
+    convexity = owner_chain.dihedral_convexity
+    return max(0.0, min(1.0, 0.5 - 0.5 * convexity))
 
 def _build_closure_cut_heuristic(
     graph: PatchGraph,
@@ -961,14 +986,16 @@ def _build_closure_cut_heuristic(
     fixed_ratio = fixed_endpoint_count / 4.0
     same_axis_ratio = same_axis_endpoint_count / 4.0
     free_touch_ratio = free_touched_endpoint_count / 4.0
+    dihedral_pref = _dihedral_cut_preference(graph, candidate)
     score = _clamp01(
-        0.24 * candidate.frame_continuation
-        + 0.18 * candidate.endpoint_bridge
-        + 0.12 * candidate.endpoint_strength
-        + 0.10 * candidate.seam_norm
-        + 0.16 * fixed_ratio
-        + 0.16 * same_axis_ratio
-        + 0.14 * (1.0 - free_touch_ratio)
+        CLOSURE_CUT_WEIGHT_FRAME_CONT * candidate.frame_continuation
+        + CLOSURE_CUT_WEIGHT_ENDPOINT_BRIDGE * candidate.endpoint_bridge
+        + CLOSURE_CUT_WEIGHT_ENDPOINT_STR * candidate.endpoint_strength
+        + CLOSURE_CUT_WEIGHT_SEAM_NORM * candidate.seam_norm
+        + CLOSURE_CUT_WEIGHT_FIXED_RATIO * fixed_ratio
+        + CLOSURE_CUT_WEIGHT_SAME_AXIS * same_axis_ratio
+        + CLOSURE_CUT_WEIGHT_FREE_TOUCH * (1.0 - free_touch_ratio)
+        + CLOSURE_CUT_WEIGHT_DIHEDRAL * dihedral_pref
     )
     reasons = (
         f"fc={candidate.frame_continuation:.2f}",
@@ -977,6 +1004,7 @@ def _build_closure_cut_heuristic(
         f"rigid={fixed_endpoint_count}/4",
         f"axis={same_axis_endpoint_count}/4",
         f"free={free_touched_endpoint_count}/4",
+        f"dihedral={dihedral_pref:.2f}",
     )
     return ClosureCutHeuristic(
         edge_key=_patch_pair_key(candidate.owner_patch_id, candidate.target_patch_id),

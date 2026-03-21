@@ -117,6 +117,11 @@ class BoundaryChain:
     end_corner_index: int = -1
     is_corner_split: bool = False
 
+    # Dihedral convexity at seam between owner patch and neighbor patch.
+    # -1.0 = concave (inner corner), +1.0 = convex (outer corner), 0.0 = neutral/unknown.
+    # Computed only for neighbor_kind == PATCH. Zero for MESH_BORDER and SEAM_SELF.
+    dihedral_convexity: float = 0.0
+
     @property
     def neighbor_kind(self) -> ChainNeighborKind:
         """Derive the neighbor kind from the encoded neighbor id."""

@@ -4,6 +4,7 @@ from mathutils import Vector
 
 try:
     from .model import (
+        ChainNeighborKind,
         PatchGraph,
         PatchNode,
         SeamEdge,
@@ -29,6 +30,7 @@ try:
     )
 except ImportError:
     from model import (
+        ChainNeighborKind,
         PatchGraph,
         PatchNode,
         SeamEdge,
@@ -518,6 +520,54 @@ def _build_seam_edges(face_to_patch, bm):
         for (patch_a_id, patch_b_id), info in seam_links.items()
     ]
 
+def _compute_chain_dihedral_convexity(chain, owner_normal, neighbor_normal):
+    """Вычисляет dihedral convexity для PATCH-neighbor chain.
+
+    Использует chord chain как proxy направления seam edge.
+    Возвращает: -1..+1 (negative=concave/inner, positive=convex/outer).
+    """
+    if len(chain.vert_cos) < 2:
+        return 0.0
+
+    edge_dir = chain.vert_cos[-1] - chain.vert_cos[0]
+    if edge_dir.length_squared < 1e-12:
+        return 0.0
+    edge_dir = edge_dir.normalized()
+
+    # cross(edge, owner_normal) даёт вектор "от поверхности owner patch"
+    cross = edge_dir.cross(owner_normal)
+    if cross.length_squared < 1e-12:
+        return 0.0
+    cross = cross.normalized()
+
+    # dot с нормалью соседа:
+    # positive → нормали расходятся → convex (внешний угол)
+    # negative → нормали сходятся → concave (внутренний угол)
+    dot = cross.dot(neighbor_normal)
+
+    # Guard: слишком маленький сигнал → neutral
+    if abs(dot) < 0.01:
+        return 0.0
+    return max(-1.0, min(1.0, dot))
+
+
+def _assign_chain_dihedral_convexity(patch_graph):
+    """Post-pass: вычисляет dihedral_convexity для всех PATCH-neighbor chains.
+
+    Вызывается после полной сборки PatchGraph (nodes, loops, chains, seams).
+    Не изменяет topology — только заполняет derived contextual field.
+    """
+    for patch_id, node in patch_graph.nodes.items():
+        for boundary_loop in node.boundary_loops:
+            for chain in boundary_loop.chains:
+                if chain.neighbor_kind != ChainNeighborKind.PATCH:
+                    continue
+                neighbor_node = patch_graph.nodes.get(chain.neighbor_patch_id)
+                if neighbor_node is None:
+                    continue
+                chain.dihedral_convexity = _compute_chain_dihedral_convexity(
+                    chain, node.normal, neighbor_node.normal,
+                )
 
 def build_patch_graph(bm, face_indices, obj=None):
     """Build a PatchGraph from BMesh patch analysis."""
@@ -543,6 +593,7 @@ def build_patch_graph(bm, face_indices, obj=None):
     for seam_edge in _build_seam_edges(patch_graph.face_to_patch, bm):
         patch_graph.add_edge(seam_edge)
     _validate_patch_graph_seam_consistency(patch_graph)
+    _assign_chain_dihedral_convexity(patch_graph)
 
     return patch_graph
 

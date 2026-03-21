@@ -69,3 +69,15 @@ SCORE_DOWNSTREAM_CAP = 0.20
 SCORE_ISOLATED_HV_PENALTY = 0.40
 SCORE_FREE_STRIP_CONNECTOR = 0.10
 SCORE_FREE_FRAME_NEIGHBOR = 0.05
+# --- Closure cut heuristic weights ---
+# Определяют score каждого seam edge как кандидата на UV cut.
+# Высокий score = edge лучше подходит как разрыв (rigid endpoints, clean cut).
+# Сумма весов = 1.10 (clamp01 на выходе).
+CLOSURE_CUT_WEIGHT_FRAME_CONT = 0.22    # Совпадение frame role через seam
+CLOSURE_CUT_WEIGHT_ENDPOINT_BRIDGE = 0.17  # Качество endpoint bridge
+CLOSURE_CUT_WEIGHT_ENDPOINT_STR = 0.11  # Сила endpoint anchors
+CLOSURE_CUT_WEIGHT_SEAM_NORM = 0.09     # Длина shared seam нормализованная
+CLOSURE_CUT_WEIGHT_FIXED_RATIO = 0.15   # Доля fixed (H/V anchored) endpoints
+CLOSURE_CUT_WEIGHT_SAME_AXIS = 0.15     # Доля same-axis endpoint neighbours
+CLOSURE_CUT_WEIGHT_FREE_TOUCH = 0.13    # Инверсия доли FREE-touched endpoints
+CLOSURE_CUT_WEIGHT_DIHEDRAL = 0.08      # Dihedral convexity: concave → prefer cut

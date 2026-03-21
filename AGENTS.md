@@ -5,7 +5,7 @@
 CFTUV (Constraint-First Trim UV) — Blender addon for semi-procedural UV unwrapping
 of architectural hard-surface assets under trim sheet / tile workflows.
 
-Target: AA-AAA game environment art. Blender 3.0+, Python 3.10+.
+Target: AA-AAA game environment art. Blender 4.1+, Python 3.10+.
 Single developer, in-house studio tool. No third-party deps beyond Blender built-in.
 
 ---
@@ -76,6 +76,11 @@ Corner has no own position — it emerges from chain placement.
 **FrameRole** — chain alignment in local patch basis: `H_FRAME` (horizontal),
 `V_FRAME` (vertical), `FREE` (diagonal/undefined).
 
+**DihedralConvexity** — geometric property of a PATCH-neighbor chain.
+-1.0 = concave (inner corner), +1.0 = convex (outer corner), 0.0 = neutral.
+Computed in analysis post-pass from patch normals and chain chord direction.
+Used by closure cut heuristic to prefer cutting at inner corners.
+
 **ChainNeighborKind** — `PATCH` (another patch), `MESH_BORDER` (mesh edge),
 `SEAM_SELF` (seam within same patch).
 
@@ -105,6 +110,7 @@ patches meet. Diagnostic/research entity, not solve runtime.
 10. HOLE loops do NOT participate in scaffold placement pool
 11. Frontier candidate cache (`_cached_evals`) must produce bit-identical output to full scan — if output differs, dirty marking is incomplete (bug)
 12. Pin decisions live ONLY in `solve_pin_policy.py` — `PatchPinMap` is the single source of truth; do NOT inline pin logic in transfer or frontier
+13. `dihedral_convexity` is a contextual derived field — computed AFTER full PatchGraph assembly, never during chain build
 
 ---
 
