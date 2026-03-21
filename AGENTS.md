@@ -38,7 +38,13 @@ cftuv/
 ├── analysis.py         # BMesh → PatchGraph (facade over analysis_* submodules)
 ├── analysis_*.py       # 9 submodules: topology, boundary, corners, classification, etc.
 ├── solve.py            # Planning, frontier builder, UV transfer, validation (facade)
-├── solve_*.py          # Target: 6 submodules after P1 decomposition
+├── solve_records.py    # Pure data types for solve layer (PinPolicy, PatchPinMap, etc.)
+├── solve_planning.py   # Quilt planning, SolveView, attachment candidates
+├── solve_frontier.py   # Chain-first frontier builder, scaffold assembly
+├── solve_pin_policy.py # Pin policy: PatchPinMap, build_patch_pin_map, preview_chain_pin_decision
+├── solve_transfer.py   # UV transfer: scaffold → UV layer, conformal fallback
+├── solve_diagnostics.py# UV axis metrics, closure seam diagnostics
+├── solve_reporting.py  # Regression snapshots, scaffold reports, human-readable output
 ├── debug.py            # Grease Pencil visualization
 ├── operators.py        # Blender UI wrappers (max 5 lines math)
 └── console_debug.py    # Verbose console toggle
@@ -97,6 +103,7 @@ patches meet. Diagnostic/research entity, not solve runtime.
 9. Scaffold grows chain-first strongest-frontier, NOT patch-by-patch
 10. HOLE loops do NOT participate in scaffold placement pool
 11. Frontier candidate cache (`_cached_evals`) must produce bit-identical output to full scan — if output differs, dirty marking is incomplete (bug)
+12. Pin decisions live ONLY in `solve_pin_policy.py` — `PatchPinMap` is the single source of truth; do NOT inline pin logic in transfer or frontier
 
 ---
 
@@ -133,12 +140,12 @@ separation active. Ring/cylinder cycle bug closed via tree-edge-only sewing.
 
 Current priority order (agreed):
 
-1. **P1: Decompose solve.py** into sibling modules (see `cftuv_solve_decomposition_plan.md`)
-2. **P2: Rewrite AGENTS.md** as self-contained entry point (this file)
+1. **P1: Decompose solve.py** into sibling modules (see `cftuv_solve_decomposition_plan.md`) ✓
+2. **P2: Rewrite AGENTS.md** as self-contained entry point (this file) ✓
 3. **P3: Rescue/scoring instrumentation** — collect data before changing logic
 4. **P4: Minimal trim abstraction** in model.py
 5. **P5: Scoring revision** based on instrumentation data
-6. **P6: Pin policy extraction** into explicit layer
+6. **P6: Pin policy extraction** into explicit layer ✓
 
 ---
 

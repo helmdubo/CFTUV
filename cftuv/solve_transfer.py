@@ -13,6 +13,7 @@ try:
     )
     from .solve_records import *
     from .solve_frontier import build_root_scaffold_map
+    from .solve_pin_policy import build_patch_pin_map
 except ImportError:
     from model import (
         BoundaryLoop, FrameRole, FrameAxisKind, PatchGraph,
@@ -21,6 +22,7 @@ except ImportError:
     )
     from solve_records import *
     from solve_frontier import build_root_scaffold_map
+    from solve_pin_policy import build_patch_pin_map
 
 
 def _patch_scaffold_is_supported(patch_placement: Optional[ScaffoldPatchPlacement]) -> bool:
@@ -358,14 +360,10 @@ def _build_patch_transfer_targets(
     pin_target_ids: PinnedTargetIdSet = set()
     scaffold_keys: ScaffoldKeySet = set()
     unresolved_keys: ScaffoldKeySet = set()
-    scaffold_connected_set = patch_placement.scaffold_connected_chains
+    pin_map = build_patch_pin_map(graph, patch_placement)
 
     for chain_placement in patch_placement.chain_placements:
         point_count = len(chain_placement.points)
-        is_connected = chain_placement.chain_index in scaffold_connected_set
-        boundary_loop = None
-        if 0 <= chain_placement.loop_index < len(node.boundary_loops):
-            boundary_loop = node.boundary_loops[chain_placement.loop_index]
         for point_index, (point_key, target_uv) in enumerate(chain_placement.points):
             key_id = _scaffold_key_id(point_key, chain_placement.source_kind)
             scaffold_keys.add(key_id)
@@ -375,25 +373,7 @@ def _build_patch_transfer_targets(
                 continue
 
             shifted_uv = target_uv + uv_offset
-            should_pin = _should_pin_scaffold_point(
-                chain_placement,
-                point_index,
-                point_count,
-                conformal_patch,
-                scaffold_connected=is_connected,
-            )
-            if (
-                should_pin
-                and chain_placement.frame_role == FrameRole.FREE
-                and boundary_loop is not None
-                and not _free_endpoint_has_local_frame_anchor(
-                    boundary_loop,
-                    chain_placement.chain_index,
-                    point_index,
-                    scaffold_connected_set,
-                )
-            ):
-                should_pin = False
+            should_pin = pin_map.is_point_pinned(chain_placement.chain_index, point_index, point_count)
             for target in targets:
                 target_id: TransferTargetId = (target.face_index, target.vert_index)
                 target_samples.setdefault(target_id, []).append(shifted_uv.copy())
@@ -423,75 +403,8 @@ def _build_patch_transfer_targets(
         scaffold_keys=scaffold_keys,
         unresolved_keys=unresolved_keys,
         conformal_patch=conformal_patch,
+        pin_map=pin_map,
     )
-
-
-
-def _should_pin_scaffold_point(chain_placement: ScaffoldChainPlacement, point_index: int, point_count: int, conformal_patch: bool = False, scaffold_connected: bool = True) -> bool:
-    """Pin policy для scaffold points.
-
-    conformal_patch=True (patch целиком ушёл в FREE):
-      Ничего не пинить — Conformal unwrap обработает весь patch свободно.
-
-    H_FRAME/V_FRAME: пинятся только если scaffold_connected=True
-      (связаны с seed chain через непрерывную цепочку H/V chains).
-      Изолированные H/V за FREE-разрывом не пинятся — они не часть
-      основного scaffold каркаса и будут обработаны Conformal.
-
-    FREE chains в mixed patch:
-      пинятся только endpoints.
-      Intermediate points должны оставаться свободными, чтобы реальный shape
-      добирался финальным Conformal, а не lock-down'ился scaffold transfer.
-    """
-    if point_count <= 0:
-        return False
-    if conformal_patch:
-        return False
-    if chain_placement.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
-        return scaffold_connected
-    # FREE chains: pin only endpoints so mixed H/V+FREE patches can still relax
-    # their non-frame spans during the final Conformal unwrap.
-    return point_index == 0 or point_index == (point_count - 1)
-
-
-def _free_endpoint_has_local_frame_anchor(
-    boundary_loop: BoundaryLoop,
-    chain_index: int,
-    point_index: int,
-    scaffold_connected_chains: frozenset[int],
-) -> bool:
-    """Check whether a FREE endpoint touches a connected local H/V chain in the same patch."""
-
-    if chain_index < 0 or chain_index >= len(boundary_loop.chains):
-        return False
-
-    chain = boundary_loop.chains[chain_index]
-    if chain.frame_role != FrameRole.FREE:
-        return False
-
-    if point_index == 0:
-        corner_index = chain.start_corner_index
-    elif point_index == len(chain.vert_indices) - 1:
-        corner_index = chain.end_corner_index
-    else:
-        return False
-
-    if corner_index < 0 or corner_index >= len(boundary_loop.corners):
-        return False
-
-    corner = boundary_loop.corners[corner_index]
-    for neighbor_chain_index in (corner.prev_chain_index, corner.next_chain_index):
-        if neighbor_chain_index == chain_index:
-            continue
-        if neighbor_chain_index not in scaffold_connected_chains:
-            continue
-        if neighbor_chain_index < 0 or neighbor_chain_index >= len(boundary_loop.chains):
-            continue
-        neighbor_chain = boundary_loop.chains[neighbor_chain_index]
-        if neighbor_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
-            return True
-
-    return False
 
 
 

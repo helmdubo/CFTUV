@@ -376,6 +376,12 @@ def format_regression_snapshot_report(
                 lines.append(
                     f"    scaffold_connected_chains:{sc_count}/{len(node.boundary_loops[patch_placement.loop_index].chains)}"
                 )
+            if transfer_state.pin_map is not None:
+                pin_parts = [
+                    f"C{dec.chain_index}:{dec.reason}"
+                    for dec in transfer_state.pin_map.chain_decisions
+                ]
+                lines.append(f"    pin_reasons:[{', '.join(pin_parts)}]")
 
     summary = (
         f"Regression snapshot | quilts:{len(scaffold_map.quilts)} | patches:{len(graph.nodes)} | "

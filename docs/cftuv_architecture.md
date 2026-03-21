@@ -18,7 +18,14 @@ IR design, entity model, or current architectural debt.
 | `model.py` | — | — | Enums, topology IR, solve IR, UVSettings |
 | `constants.py` | — | — | Thresholds, sentinels, scoring weights |
 | `analysis.py` | BMesh | PatchGraph | Patch split, basis, loops, chains, corners, seams |
-| `solve.py` | PatchGraph, BMesh UV | ScaffoldMap, UV layer | Planning, frontier, transfer, validation |
+| `solve_records.py` | — | — | Pure data types: PinPolicy, PatchPinMap, frontier records |
+| `solve_planning.py` | PatchGraph | SolveView, SolvePlan | Quilt planning, attachment candidates |
+| `solve_frontier.py` | PatchGraph, SolvePlan | ScaffoldMap | Chain-first frontier builder |
+| `solve_pin_policy.py` | PatchGraph, ScaffoldPatchPlacement | PatchPinMap | Pin decisions — single source of truth |
+| `solve_transfer.py` | ScaffoldMap, BMesh | UV layer | Scaffold → UV, conformal fallback |
+| `solve_diagnostics.py` | ScaffoldMap, BMesh UV | reports | Closure/alignment diagnostics |
+| `solve_reporting.py` | ScaffoldMap, PatchPinMap | text | Snapshots, human-readable reports |
+| `solve.py` | all above | — | Facade — orchestrates solve pipeline |
 | `debug.py` | PatchGraph | Grease Pencil | Visualization |
 | `operators.py` | all | — | Blender UI, orchestration, preflight |
 
@@ -201,12 +208,12 @@ H_FRAME chain gets UV direction but not target atlas row.
 scoring doesn't cover all valid production cases.
 **P3 collects instrumentation data; P5 revises scoring based on evidence.**
 
-### 4. Pin policy has circular dependency
+### 4. Pin policy — RESOLVED (P6)
 
-Scaffold builder doesn't know future pin policy. Pin policy knows only
-already-happened placement order. Quality depends on placement order which
-depends on scoring which doesn't account for pinning.
-**P6 extracts pin policy into explicit model.**
+`PatchPinMap` is now the single source of truth for pin decisions.
+`solve_pin_policy.py` owns `build_patch_pin_map()` and `preview_chain_pin_decision()`.
+`solve_transfer.py` reads the map; frontier can preview decisions before commit.
+Circular dependency reduced: scoring can now query pin impact via `preview_chain_pin_decision`.
 
 ### 5. Temporary UV side-effect in analysis
 
@@ -229,12 +236,12 @@ approach. Not solved by returning to UV cycle sewing.
 
 | # | Task | Status | Blocks |
 |---|------|--------|--------|
-| P1 | Decompose solve.py → sibling modules | Next | Everything |
-| P2 | AGENTS.md self-contained rewrite | Parallel with P1 | Agent onboarding |
-| P3 | Rescue/scoring instrumentation | After P1 | P5 |
-| P4 | Minimal trim abstraction in model.py | After P1 | Future solve direction |
+| P1 | Decompose solve.py → sibling modules | ✓ Done | Everything |
+| P2 | AGENTS.md self-contained rewrite | ✓ Done | Agent onboarding |
+| P3 | Rescue/scoring instrumentation | Next | P5 |
+| P4 | Minimal trim abstraction in model.py | Pending | Future solve direction |
 | P5 | Scoring revision based on data | After P3 | — |
-| P6 | Pin policy extraction | After P1 | — |
+| P6 | Pin policy extraction | ✓ Done | — |
 
 Not doing now: lattice alignment pass, automated test framework,
 UV classification refactor, strategy pattern for placement.

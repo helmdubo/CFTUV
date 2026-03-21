@@ -20,7 +20,8 @@
 | `solve_records.py` | All dataclasses, enums, type aliases used across modules | ~800 |
 | `solve_planning.py` | SolverGraph, SolvePlan, scoring, components, candidates, closure cuts | ~1200 |
 | `solve_frontier.py` | FrontierRuntimePolicy, anchor/placement/seed/rescue, chain builder | ~1800 |
-| `solve_transfer.py` | UV transfer, pin policy, conformal, scaffold→UV resolution | ~800 |
+| `solve_pin_policy.py` | PatchPinMap, build_patch_pin_map, preview_chain_pin_decision [P6] | ~150 |
+| `solve_transfer.py` | UV transfer, conformal fallback, scaffold→UV resolution | ~700 |
 | `solve_diagnostics.py` | Closure seam reports, row/column alignment, gap diagnostics | ~600 |
 | `solve_reporting.py` | format_*_report, print helpers | ~500 |
 | `solve.py` | Facade: re-exports public functions | ~50 |
@@ -578,11 +579,13 @@ solve_records.py          ← no internal deps, imports only model.py + constant
     ↑
 solve_planning.py         ← imports solve_records
     ↑
+solve_pin_policy.py       ← imports solve_records, model only  [P6: pin decisions]
+    ↑
 solve_diagnostics.py      ← imports solve_records, solve_planning (tree helpers)
     ↑
-solve_frontier.py         ← imports solve_records, solve_planning, solve_diagnostics
+solve_frontier.py         ← imports solve_records, solve_planning, solve_diagnostics, solve_pin_policy
     ↑
-solve_transfer.py         ← imports solve_records, solve_frontier (build_root_scaffold_map)
+solve_transfer.py         ← imports solve_records, solve_frontier, solve_pin_policy
     ↑
 solve_reporting.py        ← imports solve_records, solve_planning, solve_transfer, solve_diagnostics
     ↑

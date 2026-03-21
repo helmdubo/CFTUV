@@ -572,6 +572,7 @@ class PatchTransferTargetsState:
     scaffold_keys: ScaffoldKeySet = field(default_factory=set)
     unresolved_keys: ScaffoldKeySet = field(default_factory=set)
     conformal_patch: bool = False
+    pin_map: Optional["PatchPinMap"] = None
 
 
 @dataclass(frozen=True)
@@ -665,6 +666,62 @@ class FinalizedQuiltScaffold:
     untouched_patch_ids: list[int]
 
 
+@dataclass(frozen=True)
+class PinPolicy:
+    """Immutable pin policy configuration. Passed as parameter, not global."""
+    pin_connected_hv: bool = True
+    pin_free_endpoints_with_hv_anchor: bool = True
+    skip_conformal_patches: bool = True
+    skip_isolated_hv: bool = True
+
+
+@dataclass(frozen=True)
+class ChainPinDecision:
+    """Pin decision for one placed chain."""
+    chain_index: int
+    frame_role: FrameRole
+    pin_all: bool            # True = every point pinned (H/V connected)
+    pin_endpoints_only: bool # True = endpoints checked individually via pin_start/pin_end
+    pin_start: bool          # endpoint 0 pinned (meaningful when pin_endpoints_only=True)
+    pin_end: bool            # endpoint last pinned (meaningful when pin_endpoints_only=True)
+    pin_nothing: bool        # True = no points pinned
+    reason: str              # Human-readable reason for debug/snapshot
+
+
+@dataclass(frozen=True)
+class PatchPinMap:
+    """Complete pin map for one patch placement."""
+    patch_id: int
+    loop_index: int
+    conformal_patch: bool
+    scaffold_connected_chains: frozenset[int]
+    chain_decisions: tuple[ChainPinDecision, ...]
+
+    def is_point_pinned(self, chain_index: int, point_index: int, point_count: int) -> bool:
+        """Query: should this specific scaffold point be pinned?"""
+        for dec in self.chain_decisions:
+            if dec.chain_index != chain_index:
+                continue
+            if dec.pin_all:
+                return True
+            if dec.pin_nothing:
+                return False
+            # pin_endpoints_only: check start/end independently
+            if point_index == 0:
+                return dec.pin_start
+            if point_count > 0 and point_index == point_count - 1:
+                return dec.pin_end
+            return False
+        return False
+
+    def pinned_chain_indices(self) -> frozenset[int]:
+        """Which chains have any pinned points?"""
+        return frozenset(
+            dec.chain_index for dec in self.chain_decisions
+            if dec.pin_all or dec.pin_endpoints_only
+        )
+
+
 __all__ = [
     'EDGE_PROPAGATE_MIN',
     'EDGE_WEAK_MIN',
@@ -747,4 +804,7 @@ __all__ = [
     '_point_registry_key',
     '_clamp01',
     '_patch_pair_key',
+    'PinPolicy',
+    'ChainPinDecision',
+    'PatchPinMap',
 ]

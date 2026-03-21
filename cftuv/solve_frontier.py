@@ -37,6 +37,7 @@ try:
         _print_quilt_closure_seam_reports,
         _print_quilt_frame_alignment_reports,
     )
+    from .solve_pin_policy import _compute_scaffold_connected_chains
 except ImportError:
     from model import (
         BoundaryChain, BoundaryCorner, BoundaryLoop, ChainNeighborKind, FrameRole, LoopKind,
@@ -66,6 +67,7 @@ except ImportError:
         _print_quilt_closure_seam_reports,
         _print_quilt_frame_alignment_reports,
     )
+    from solve_pin_policy import _compute_scaffold_connected_chains
 
 
 def _match_non_tree_closure_chain_pairs(
@@ -2451,57 +2453,6 @@ def _cf_register_points(
         if i < len(chain.vert_indices):
             vert_idx = chain.vert_indices[i]
             vert_to_placements.setdefault(vert_idx, []).append((chain_ref, i))
-
-
-def _compute_scaffold_connected_chains(patch_placements, total_chains, root_chain_index):
-    """Найти H/V chains связанные с root через непрерывную цепочку H/V.
-
-    Обход замкнутого loop: chains идут по порядку 0→1→...→N-1→0.
-    Два соседних chain scaffold-connected если ОБА имеют H/V role.
-    One-edge FREE chains (bridge, ≤2 вершин) прозрачны для BFS —
-    пропускают связность к H/V chain за ними, но сами включаются
-    в connected set (их endpoints = corners, уже запинены соседями).
-    Длинные FREE chains разрывают scaffold connectivity.
-    BFS от root_chain_index по H/V-adjacency.
-    """
-    hv_roles = {FrameRole.H_FRAME, FrameRole.V_FRAME}
-
-    # Карта chain_index → (frame_role, point_count) для размещённых chains
-    placed_info = {}
-    for cp in patch_placements:
-        placed_info[cp.chain_index] = (cp.frame_role, len(cp.points))
-
-    # Root должен быть H/V, иначе нет scaffold вообще
-    if root_chain_index not in placed_info or placed_info[root_chain_index][0] not in hv_roles:
-        return frozenset()
-
-    def _is_bridge(ci):
-        """One-edge FREE chain (≤2 points) — прозрачный мост."""
-        if ci not in placed_info:
-            return False
-        role, pc = placed_info[ci]
-        return role == FrameRole.FREE and pc <= 2
-
-    # BFS по H/V adjacency, one-edge FREE мосты прозрачны
-    visited = {root_chain_index}
-    queue = [root_chain_index]
-    while queue:
-        ci = queue.pop()
-        for neighbor in [(ci - 1) % total_chains, (ci + 1) % total_chains]:
-            if neighbor in visited:
-                continue
-            if neighbor not in placed_info:
-                continue
-            role, _ = placed_info[neighbor]
-            if role in hv_roles:
-                visited.add(neighbor)
-                queue.append(neighbor)
-            elif _is_bridge(neighbor):
-                # Bridge прозрачен: включаем его и продолжаем BFS через него
-                visited.add(neighbor)
-                queue.append(neighbor)
-
-    return frozenset(visited)
 
 
 def _compute_patch_chain_gap_reports(
