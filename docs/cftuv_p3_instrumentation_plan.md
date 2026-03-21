@@ -307,50 +307,50 @@ Full per-placement detail:
 
 ---
 
-## Phase A: Types in solve_records.py
+## Phase A: Types in solve_records.py ✓
 
-- [ ] Add `FrontierPlacementRecord` dataclass
-- [ ] Add `FrontierStallRecord` dataclass
-- [ ] Add `QuiltFrontierTelemetry` dataclass
-- [ ] Add `frontier_telemetry: Optional[QuiltFrontierTelemetry] = None` to `ScaffoldQuiltPlacement` in model.py
-- [ ] Verify: addon loads, no import errors
+- [x] Add `FrontierPlacementRecord` dataclass
+- [x] Add `FrontierStallRecord` dataclass
+- [x] Add `QuiltFrontierTelemetry` dataclass
+- [x] Add `frontier_telemetry: Optional[QuiltFrontierTelemetry] = None` to `ScaffoldQuiltPlacement` in model.py
+- [x] Verify: addon loads, no import errors
 
-## Phase B: Collector in solve_instrumentation.py
+## Phase B: Collector in solve_instrumentation.py ✓
 
-- [ ] Create `cftuv/solve_instrumentation.py`
-- [ ] Implement `FrontierTelemetryCollector` class
-- [ ] Implement `record_placement()` — builds FrontierPlacementRecord from args
-- [ ] Implement `record_stall()` + `update_last_stall_rescue()` — builds FrontierStallRecord
-- [ ] Implement `finalize()` — computes aggregates, returns QuiltFrontierTelemetry
-- [ ] Implement `_collect_stall_best_rejected()` helper
-- [ ] Implement `format_quilt_telemetry_summary()` and `format_quilt_telemetry_detail()`
-- [ ] Verify: module imports cleanly, collector can be instantiated
+- [x] Create `cftuv/solve_instrumentation.py`
+- [x] Implement `FrontierTelemetryCollector` class
+- [x] Implement `record_placement()` — builds FrontierPlacementRecord from args
+- [x] Implement `record_stall()` + `update_last_stall_rescue()` — builds FrontierStallRecord
+- [x] Implement `finalize()` — computes aggregates, returns QuiltFrontierTelemetry
+- [x] Implement `_collect_stall_best_rejected()` helper → `collect_stall_snapshot()` in solve_instrumentation.py
+- [x] Implement `format_quilt_telemetry_summary()` and `format_quilt_telemetry_detail()`
+- [x] Verify: module imports cleanly, collector can be instantiated
 
-## Phase C: Emission points in solve_frontier.py
+## Phase C: Emission points in solve_frontier.py ✓
 
-- [ ] Create collector at start of `build_quilt_scaffold_chain_frontier()`
-- [ ] Emit after main path placement in `_cf_try_place_frontier_candidate()`
-- [ ] Emit after tree_ingress in `_cf_try_place_tree_ingress_candidate()`
-- [ ] Emit after free_ingress in `_cf_try_place_free_ingress_bridge()`
-- [ ] Emit after closure_follow in `_cf_try_place_closure_follow_candidate()`
-- [ ] Emit stall record in main loop before rescue attempts
-- [ ] Update stall record after rescue attempt outcome
-- [ ] Finalize telemetry and store on `quilt_scaffold.frontier_telemetry`
-- [ ] Pass collector to rescue functions (add parameter, default None for backward compat)
-- [ ] **CRITICAL: Regression snapshot identical — build_order, UV, pins unchanged**
+- [x] Create collector at start of `build_quilt_scaffold_chain_frontier()`
+- [x] Emit after main path placement in `_cf_try_place_frontier_candidate()`
+- [x] Emit after tree_ingress in `_cf_try_place_tree_ingress_candidate()`
+- [x] Emit after free_ingress in `_cf_try_place_free_ingress_bridge()`
+- [x] Emit after closure_follow in `_cf_try_place_closure_follow_candidate()`
+- [x] Emit stall record in main loop before rescue attempts
+- [x] Update stall record after rescue attempt outcome
+- [x] Finalize telemetry and store on `quilt_scaffold.frontier_telemetry`
+- [x] Pass collector to rescue functions (add parameter, default None for backward compat)
+- [x] **CRITICAL: Regression snapshot identical — build_order, UV, pins unchanged**
 
-## Phase D: Reporting integration
+## Phase D: Reporting integration ✓
 
-- [ ] Add telemetry summary to `format_regression_snapshot_report()` in solve_reporting.py
-- [ ] Add telemetry detail to `format_root_scaffold_report()` (verbose only)
-- [ ] Add verbose console output via `trace_console` in solve_instrumentation.py
-- [ ] Verify: old snapshot lines unchanged, new telemetry lines appear
+- [x] Add telemetry summary to `format_regression_snapshot_report()` in solve_reporting.py
+- [x] Add telemetry detail to `format_root_scaffold_report()` (verbose only)
+- [x] Add verbose console output via `trace_console` in solve_instrumentation.py
+- [x] Verify: old snapshot lines unchanged, new telemetry lines appear
 
-## Phase E: Documentation
+## Phase E: Documentation ✓
 
-- [ ] Update AGENTS.md: add solve_instrumentation.py to module layout
-- [ ] Update cftuv_architecture.md: mark P3 as resolved, describe telemetry layer
-- [ ] Update cftuv_solve_decomposition_plan.md: add to dependency graph
+- [x] Update AGENTS.md: add solve_instrumentation.py to module layout
+- [x] Update cftuv_architecture.md: mark P3 as resolved, describe telemetry layer
+- [x] Update cftuv_solve_decomposition_plan.md: add to dependency graph
 
 ---
 
