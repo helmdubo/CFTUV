@@ -22,6 +22,7 @@ IR design, entity model, or current architectural debt.
 | `solve_planning.py` | PatchGraph | SolveView, SolvePlan | Quilt planning, attachment candidates |
 | `solve_frontier.py` | PatchGraph, SolvePlan | ScaffoldMap | Chain-first frontier builder |
 | `solve_pin_policy.py` | PatchGraph, ScaffoldPatchPlacement | PatchPinMap | Pin decisions — single source of truth |
+| `solve_instrumentation.py` | solve_records | QuiltFrontierTelemetry | Frontier telemetry collector and formatting |
 | `solve_transfer.py` | ScaffoldMap, BMesh | UV layer | Scaffold → UV, conformal fallback |
 | `solve_diagnostics.py` | ScaffoldMap, BMesh UV | reports | Closure/alignment diagnostics |
 | `solve_reporting.py` | ScaffoldMap, PatchPinMap | text | Snapshots, human-readable reports |
@@ -238,7 +239,7 @@ approach. Not solved by returning to UV cycle sewing.
 |---|------|--------|--------|
 | P1 | Decompose solve.py → sibling modules | ✓ Done | Everything |
 | P2 | AGENTS.md self-contained rewrite | ✓ Done | Agent onboarding |
-| P3 | Rescue/scoring instrumentation | Next | P5 |
+| P3 | Rescue/scoring instrumentation | ✓ Done | P5 |
 | P4 | Minimal trim abstraction in model.py | Pending | Future solve direction |
 | P5 | Scoring revision based on data | After P3 | — |
 | P6 | Pin policy extraction | ✓ Done | — |

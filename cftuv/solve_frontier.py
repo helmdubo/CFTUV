@@ -38,6 +38,7 @@ try:
         _print_quilt_frame_alignment_reports,
     )
     from .solve_pin_policy import _compute_scaffold_connected_chains
+    from .solve_instrumentation import FrontierTelemetryCollector, collect_stall_snapshot
 except ImportError:
     from model import (
         BoundaryChain, BoundaryCorner, BoundaryLoop, ChainNeighborKind, FrameRole, LoopKind,
@@ -68,6 +69,7 @@ except ImportError:
         _print_quilt_frame_alignment_reports,
     )
     from solve_pin_policy import _compute_scaffold_connected_chains
+    from solve_instrumentation import FrontierTelemetryCollector, collect_stall_snapshot
 
 
 def _match_non_tree_closure_chain_pairs(
@@ -448,6 +450,7 @@ def _cf_try_place_closure_follow_candidate(
     all_chain_pool: list[ChainPoolEntry],
     closure_pair_map: dict[ChainRef, ChainRef],
     iteration: int,
+    collector: Optional[FrontierTelemetryCollector] = None,
 ) -> bool:
     """Когда frontier встал, пробует дозавести same-role closure partner от уже placed пары."""
     graph = runtime_policy.graph
@@ -541,6 +544,19 @@ def _cf_try_place_closure_follow_candidate(
         f"a:CP{partner_ref[0]}/CP{partner_ref[0]} "
         f"note:{follow_mode}:shared={shared_vert_count}"
     )
+    if collector is not None:
+        collector.record_placement(
+            iteration=iteration,
+            chain_ref=chain_ref,
+            chain=chain,
+            placement_path="closure_follow",
+            score=-1.0,
+            start_anchor=None,
+            end_anchor=None,
+            placed_in_patch_before=runtime_policy.placed_in_patch(chain_ref[0]) - 1,
+            is_closure_pair=(chain_ref in runtime_policy.closure_pair_refs),
+            uv_points=uv_points,
+        )
     return True
 
 
@@ -548,6 +564,7 @@ def _cf_try_place_free_ingress_bridge(
     runtime_policy: FrontierRuntimePolicy,
     all_chain_pool: list[ChainPoolEntry],
     iteration: int,
+    collector: Optional[FrontierTelemetryCollector] = None,
 ) -> bool:
     """Локально прогрызает frontier через one-edge FREE bridge к downstream H/V."""
     graph = runtime_policy.graph
@@ -680,6 +697,20 @@ def _cf_try_place_free_ingress_bridge(
         f"a:{_cf_anchor_debug_label(anchor_start, anchor_end)} "
         f"note:downstream_hv={len(downstream_refs)}:cross={downstream_cross_patch} [BRIDGE]"
     )
+    if collector is not None:
+        collector.record_placement(
+            iteration=iteration,
+            chain_ref=chain_ref,
+            chain=chain,
+            placement_path="free_ingress",
+            score=-1.0,
+            start_anchor=anchor_start,
+            end_anchor=anchor_end,
+            placed_in_patch_before=runtime_policy.placed_in_patch(chain_ref[0]) - 1,
+            is_closure_pair=(chain_ref in runtime_policy.closure_pair_refs),
+            uv_points=uv_points,
+            anchor_adjustment_applied=bool(anchor_adjustments),
+        )
     return True
 
 
@@ -687,6 +718,7 @@ def _cf_try_place_tree_ingress_candidate(
     runtime_policy: FrontierRuntimePolicy,
     all_chain_pool: list[ChainPoolEntry],
     iteration: int,
+    collector: Optional[FrontierTelemetryCollector] = None,
 ) -> bool:
     """Контролируемый bootstrap в untouched tree-child patch, если обычный frontier уже встал."""
     best_candidate: Optional[TreeIngressPlacementCandidate] = None
@@ -829,6 +861,20 @@ def _cf_try_place_tree_ingress_candidate(
         f"a:{_cf_anchor_debug_label(anchor_start, anchor_end)} "
         f"note:priority={role_priority}:downstream_hv={downstream_hv_count}"
     )
+    if collector is not None:
+        collector.record_placement(
+            iteration=iteration,
+            chain_ref=chain_ref,
+            chain=chain,
+            placement_path="tree_ingress",
+            score=-1.0,
+            start_anchor=anchor_start,
+            end_anchor=anchor_end,
+            placed_in_patch_before=runtime_policy.placed_in_patch(chain_ref[0]) - 1,
+            is_closure_pair=(chain_ref in runtime_policy.closure_pair_refs),
+            uv_points=uv_points,
+            anchor_adjustment_applied=bool(anchor_adjustments),
+        )
     return True
 
 
@@ -1131,10 +1177,12 @@ def _cf_try_place_frontier_candidate(
     runtime_policy: FrontierRuntimePolicy,
     candidate: FrontierPlacementCandidate,
     iteration: int,
+    collector: Optional[FrontierTelemetryCollector] = None,
 ) -> bool:
     graph = runtime_policy.graph
     chain_ref = candidate.chain_ref
     chain = candidate.chain
+    _placed_before = runtime_policy.placed_in_patch(chain_ref[0])
 
     if candidate.anchor_adjustments:
         applied = _cf_apply_anchor_adjustments(
@@ -1159,6 +1207,7 @@ def _cf_try_place_frontier_candidate(
                 _mark_neighbors_dirty(runtime_policy, adjusted_ref, adjusted_chain)
 
     dir_override = candidate.closure_dir_override
+    _closure_dir_was_set = dir_override is not None
     if dir_override is None:
         dir_override = _try_inherit_direction(
             chain,
@@ -1168,6 +1217,7 @@ def _cf_try_place_frontier_candidate(
             graph,
             runtime_policy.point_registry,
         )
+    _direction_inherited = dir_override is not None and not _closure_dir_was_set
 
     uv_points = _cf_place_chain(
         chain,
@@ -1221,6 +1271,22 @@ def _cf_try_place_frontier_candidate(
         f"{chain.frame_role.value} score:{candidate.score:.2f} "
         f"ep:{anchor_count} a:{anchor_label}{reason_suffix}{bridge_tag}"
     )
+    if collector is not None:
+        collector.record_placement(
+            iteration=iteration,
+            chain_ref=chain_ref,
+            chain=chain,
+            placement_path="main",
+            score=candidate.score,
+            start_anchor=candidate.start_anchor,
+            end_anchor=candidate.end_anchor,
+            placed_in_patch_before=_placed_before,
+            is_closure_pair=(chain_ref in runtime_policy.closure_pair_refs),
+            uv_points=uv_points,
+            closure_preconstraint_applied=(candidate.closure_dir_override is not None),
+            anchor_adjustment_applied=bool(candidate.anchor_adjustments),
+            direction_inherited=_direction_inherited,
+        )
     return True
 
 
@@ -2754,31 +2820,64 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
     # Phase E: seed зарегистрирован до построения индекса — повторяем dirty marking
     _mark_neighbors_dirty(runtime_policy, seed_ref, seed_chain)
 
+    # Инициализируем collector телеметрии для данного quilt
+    _collector = FrontierTelemetryCollector(quilt_index=quilt_plan.quilt_index)
+
     max_iter = len(all_chain_pool) + 10
     _t0 = time.perf_counter()
     for iteration in range(1, max_iter + 1):
         best_candidate = _cf_select_best_frontier_candidate(runtime_policy, all_chain_pool)
 
         if best_candidate is None or best_candidate.score < CHAIN_FRONTIER_THRESHOLD:
+            # Записываем stall-событие до попытки rescue
+            _stall_snap = collect_stall_snapshot(
+                cached_evals=runtime_policy._cached_evals,
+                placed_chain_refs=runtime_policy.placed_chain_refs,
+                rejected_chain_refs=runtime_policy.rejected_chain_refs,
+                placed_count_by_patch=runtime_policy.placed_count_by_patch,
+                quilt_patch_ids=runtime_policy.quilt_patch_ids,
+                all_chain_pool=all_chain_pool,
+            )
+            _collector.record_stall(
+                iteration=iteration,
+                best_rejected_score=_stall_snap[0],
+                best_rejected_ref=_stall_snap[1],
+                best_rejected_role=_stall_snap[2],
+                best_rejected_anchor_count=_stall_snap[3],
+                available_count=_stall_snap[4],
+                no_anchor_count=_stall_snap[5],
+                below_threshold_count=_stall_snap[6],
+                patches_with_placed=_stall_snap[7],
+                patches_untouched=_stall_snap[8],
+            )
+
             if _cf_try_place_tree_ingress_candidate(
                 runtime_policy,
                 all_chain_pool,
                 iteration,
+                collector=_collector,
             ):
+                _collector.update_last_stall_rescue("tree_ingress", True)
                 continue
             if _cf_try_place_free_ingress_bridge(
                 runtime_policy,
                 all_chain_pool,
                 iteration,
+                collector=_collector,
             ):
+                _collector.update_last_stall_rescue("free_ingress", True)
                 continue
             if _cf_try_place_closure_follow_candidate(
                 runtime_policy,
                 all_chain_pool,
                 closure_pair_map,
                 iteration,
+                collector=_collector,
             ):
+                _collector.update_last_stall_rescue("closure_follow", True)
                 continue
+
+            _collector.update_last_stall_rescue("none", False)
             # Диагностика: почему frontier остановился
             stop_diag = runtime_policy.build_stop_diagnostics(all_chain_pool)
             trace_console(
@@ -2795,7 +2894,9 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
                 trace_console(f"[CFTUV][Frontier] Untouched patches: {list(stop_diag.untouched_patch_ids)}")
             break
 
-        if not _cf_try_place_frontier_candidate(runtime_policy, best_candidate, iteration):
+        if not _cf_try_place_frontier_candidate(
+            runtime_policy, best_candidate, iteration, collector=_collector
+        ):
             continue
 
     _t1 = time.perf_counter()
@@ -2819,6 +2920,7 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
         total_available,
     )
     quilt_scaffold = finalized_scaffold.quilt_scaffold
+    quilt_scaffold.frontier_telemetry = _collector.finalize()
     untouched_patch_ids = finalized_scaffold.untouched_patch_ids
     if untouched_patch_ids:
         fallback_quilt_plan = _restore_original_quilt_plan(quilt_plan)

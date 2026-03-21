@@ -667,6 +667,72 @@ class FinalizedQuiltScaffold:
 
 
 @dataclass(frozen=True)
+class FrontierPlacementRecord:
+    """Telemetry record for one frontier placement step."""
+    iteration: int
+    chain_ref: ChainRef
+    frame_role: FrameRole
+    placement_path: str              # "main" | "tree_ingress" | "free_ingress" | "closure_follow"
+    score: float                     # -1.0 для rescue-путей (без score)
+    anchor_count: int                # 0, 1, 2
+    start_anchor_kind: str           # "same_patch" | "cross_patch" | "none"
+    end_anchor_kind: str             # "same_patch" | "cross_patch" | "none"
+    placed_in_patch_before: int      # сколько chains в этом patch ДО данного placement
+    is_first_in_patch: bool
+    is_bridge: bool                  # FREE с ≤2 вертами
+    is_corner_split: bool
+    neighbor_kind: str               # "PATCH" | "MESH_BORDER" | "SEAM_SELF"
+    is_closure_pair: bool            # chain_ref входит в closure_pair_refs
+    closure_preconstraint_applied: bool
+    anchor_adjustment_applied: bool
+    direction_inherited: bool
+    chain_length_uv: float           # полная UV длина после размещения
+
+
+@dataclass(frozen=True)
+class FrontierStallRecord:
+    """Telemetry record for one frontier stall event."""
+    iteration: int
+    best_rejected_score: float       # наибольший score среди кандидатов не прошедших threshold
+    best_rejected_ref: Optional[ChainRef]
+    best_rejected_role: Optional[FrameRole]
+    best_rejected_anchor_count: int
+    available_count: int             # chains ещё в pool
+    no_anchor_count: int             # chains с known=0
+    below_threshold_count: int       # chains с 0 < score < threshold
+    rescue_attempted: str            # "tree_ingress" | "free_ingress" | "closure_follow" | "none"
+    rescue_succeeded: bool
+    patches_with_placed: int         # patches с ≥1 размещённым chain
+    patches_untouched: int           # patches с 0 размещёнными chains
+
+
+@dataclass(frozen=True)
+class QuiltFrontierTelemetry:
+    """Aggregated frontier telemetry for one quilt."""
+    quilt_index: int
+    total_placements: int
+    main_placements: int
+    tree_ingress_placements: int
+    free_ingress_placements: int
+    closure_follow_placements: int
+    total_stalls: int
+    stalls_resolved_by_rescue: int
+    stalls_unresolved: int           # финальная остановка без rescue
+    score_min: float                 # min score main-пути
+    score_max: float
+    score_mean: float
+    score_p25: float                 # 25-й перцентиль
+    score_p50: float                 # медиана
+    score_p75: float
+    best_rejected_score_max: float   # наибольший score, не прошедший threshold
+    first_rescue_iteration: int      # -1 если rescue не было
+    rescue_ratio: float              # rescue_placements / total_placements
+    frontier_duration_sec: float
+    placement_records: tuple[FrontierPlacementRecord, ...]
+    stall_records: tuple[FrontierStallRecord, ...]
+
+
+@dataclass(frozen=True)
 class PinPolicy:
     """Immutable pin policy configuration. Passed as parameter, not global."""
     pin_connected_hv: bool = True
@@ -804,6 +870,9 @@ __all__ = [
     '_point_registry_key',
     '_clamp01',
     '_patch_pair_key',
+    'FrontierPlacementRecord',
+    'FrontierStallRecord',
+    'QuiltFrontierTelemetry',
     'PinPolicy',
     'ChainPinDecision',
     'PatchPinMap',

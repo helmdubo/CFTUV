@@ -581,13 +581,15 @@ solve_planning.py         ← imports solve_records
     ↑
 solve_pin_policy.py       ← imports solve_records, model only  [P6: pin decisions]
     ↑
+solve_instrumentation.py  ← imports solve_records, model only  [P3: frontier telemetry]
+    ↑
 solve_diagnostics.py      ← imports solve_records, solve_planning (tree helpers)
     ↑
-solve_frontier.py         ← imports solve_records, solve_planning, solve_diagnostics, solve_pin_policy
+solve_frontier.py         ← imports solve_records, solve_planning, solve_diagnostics, solve_pin_policy, solve_instrumentation
     ↑
 solve_transfer.py         ← imports solve_records, solve_frontier, solve_pin_policy
     ↑
-solve_reporting.py        ← imports solve_records, solve_planning, solve_transfer, solve_diagnostics
+solve_reporting.py        ← imports solve_records, solve_planning, solve_transfer, solve_diagnostics, solve_instrumentation
     ↑
 solve.py                  ← facade, imports public functions from all modules
 ```
