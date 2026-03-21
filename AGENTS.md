@@ -96,6 +96,7 @@ patches meet. Diagnostic/research entity, not solve runtime.
 8. Sharp does NOT participate in patch split — only Seam
 9. Scaffold grows chain-first strongest-frontier, NOT patch-by-patch
 10. HOLE loops do NOT participate in scaffold placement pool
+11. Frontier candidate cache (`_cached_evals`) must produce bit-identical output to full scan — if output differs, dirty marking is incomplete (bug)
 
 ---
 

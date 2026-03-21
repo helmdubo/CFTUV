@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 import math
+import time
 from heapq import heappop, heappush
 from typing import Optional
 
@@ -845,6 +846,11 @@ class FrontierRuntimePolicy:
     closure_pair_map: Optional[dict[ChainRef, ChainRef]] = None
     placed_count_by_patch: dict[int, int] = field(default_factory=dict)
     closure_pair_refs: frozenset[ChainRef] = field(init=False, default_factory=frozenset)
+    # --- Internal incremental-frontier caches (Phase A) ---
+    _cached_evals: dict[ChainRef, FrontierCandidateEval] = field(init=False, default_factory=dict)
+    _dirty_refs: set[ChainRef] = field(init=False, default_factory=set)
+    _vert_to_pool_refs: dict[int, list[ChainRef]] = field(init=False, default_factory=dict)
+    _cache_hits: int = field(init=False, default=0)
 
     def __post_init__(self) -> None:
         self.closure_pair_refs = frozenset(self.closure_pair_map.keys()) if self.closure_pair_map else frozenset()
@@ -863,6 +869,8 @@ class FrontierRuntimePolicy:
 
     def reject_chain(self, chain_ref: ChainRef) -> None:
         self.rejected_chain_refs.add(chain_ref)
+        self._cached_evals.pop(chain_ref, None)
+        self._dirty_refs.discard(chain_ref)
 
     def dependency_patches_from_anchors(
         self,
@@ -891,6 +899,9 @@ class FrontierRuntimePolicy:
         self.build_order.append(chain_ref)
         self.placed_count_by_patch[chain_ref[0]] = self.placed_count_by_patch.get(chain_ref[0], 0) + 1
         _cf_register_points(chain_ref, chain, uv_points, self.point_registry, self.vert_to_placements)
+        self._cached_evals.pop(chain_ref, None)
+        self._dirty_refs.discard(chain_ref)
+        _mark_neighbors_dirty(self, chain_ref, chain)
 
     def evaluate_candidate(
         self,
@@ -1016,10 +1027,43 @@ class FrontierRuntimePolicy:
         )
 
 
+def _mark_neighbors_dirty(
+    runtime_policy: FrontierRuntimePolicy,
+    chain_ref: ChainRef,
+    chain: BoundaryChain,
+) -> None:
+    """Помечает dirty все pool refs, затронутые только что размещённым chain.
+
+    Два триггера:
+    1. Shared vertex — anchor-lookup этого ref мог измениться.
+    2. First-chain-in-patch — placed_in_patch изменился 0→1, score всех refs
+       этого patch меняется из-за momentum bonus.
+    """
+    dirty = runtime_policy._dirty_refs
+    vtp = runtime_policy._vert_to_pool_refs
+    patch_id = chain_ref[0]
+
+    for vi in chain.vert_indices:
+        for ref in vtp.get(vi, ()):
+            dirty.add(ref)
+
+    # Проверка == 1 (после инкремента): первый chain в patch
+    if runtime_policy.placed_count_by_patch.get(patch_id, 0) == 1:
+        for refs_list in vtp.values():
+            for ref in refs_list:
+                if ref[0] == patch_id:
+                    dirty.add(ref)
+
+
 def _cf_select_best_frontier_candidate(
     runtime_policy: FrontierRuntimePolicy,
     all_chain_pool: list[ChainPoolEntry],
 ) -> Optional[FrontierPlacementCandidate]:
+    """Cache-aware версия выбора лучшего кандидата.
+
+    Переоценивает только dirty refs. Остальные берёт из _cached_evals.
+    На первой итерации _cached_evals пуст — все цепочки проходят full eval.
+    """
     best_candidate = None
     best_score = -1.0
 
@@ -1028,6 +1072,29 @@ def _cf_select_best_frontier_candidate(
         if not runtime_policy.is_chain_available(chain_ref):
             continue
 
+        # --- Cache path ---
+        if chain_ref not in runtime_policy._dirty_refs:
+            cached = runtime_policy._cached_evals.get(chain_ref)
+            if cached is not None:
+                runtime_policy._cache_hits += 1
+                if cached.known == 0:
+                    continue
+                if cached.score > best_score:
+                    best_score = cached.score
+                    best_candidate = FrontierPlacementCandidate(
+                        chain_ref=chain_ref,
+                        chain=entry.chain,
+                        node=entry.node,
+                        start_anchor=cached.start_anchor,
+                        end_anchor=cached.end_anchor,
+                        anchor_reason=cached.anchor_reason,
+                        anchor_adjustments=cached.anchor_adjustments,
+                        closure_dir_override=cached.closure_dir_override,
+                        score=cached.score,
+                    )
+                continue
+
+        # --- Full evaluation path ---
         candidate_eval = runtime_policy.evaluate_candidate(
             chain_ref,
             entry.chain,
@@ -1035,6 +1102,9 @@ def _cf_select_best_frontier_candidate(
             apply_closure_preconstraint=True,
             compute_score=True,
         )
+        runtime_policy._cached_evals[chain_ref] = candidate_eval
+        runtime_policy._dirty_refs.discard(chain_ref)
+
         if candidate_eval.known == 0:
             continue
 
@@ -1080,6 +1150,11 @@ def _cf_try_place_frontier_candidate(
                 f"{chain.frame_role.value} reason:anchor_rectify_failed"
             )
             return False
+        # Phase D: UV points уже placed chains изменились — соседи получают stale anchors
+        for adjusted_ref, _, _ in candidate.anchor_adjustments:
+            adjusted_chain = graph.get_chain(*adjusted_ref)
+            if adjusted_chain is not None:
+                _mark_neighbors_dirty(runtime_policy, adjusted_ref, adjusted_chain)
 
     dir_override = candidate.closure_dir_override
     if dir_override is None:
@@ -2709,6 +2784,7 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
     bootstrap_result = bootstrap_attempt.result
     runtime_policy = bootstrap_result.runtime_policy
     seed_ref = bootstrap_result.seed_ref
+    seed_chain = bootstrap_result.seed_chain
     all_chain_pool = _cf_build_frontier_chain_pool(
         solve_view,
         graph,
@@ -2716,7 +2792,19 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
         seed_ref,
     )
 
+    # Статический индекс vert_index → [ChainRef] для incremental dirty marking
+    vert_to_pool: dict[int, list[ChainRef]] = {}
+    for pool_entry in all_chain_pool:
+        for vi in pool_entry.chain.vert_indices:
+            vert_to_pool.setdefault(vi, []).append(pool_entry.chain_ref)
+    for vi in seed_chain.vert_indices:
+        vert_to_pool.setdefault(vi, []).append(seed_ref)
+    runtime_policy._vert_to_pool_refs = vert_to_pool
+    # Phase E: seed зарегистрирован до построения индекса — повторяем dirty marking
+    _mark_neighbors_dirty(runtime_policy, seed_ref, seed_chain)
+
     max_iter = len(all_chain_pool) + 10
+    _t0 = time.perf_counter()
     for iteration in range(1, max_iter + 1):
         best_candidate = _cf_select_best_frontier_candidate(runtime_policy, all_chain_pool)
 
@@ -2758,6 +2846,14 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
 
         if not _cf_try_place_frontier_candidate(runtime_policy, best_candidate, iteration):
             continue
+
+    _t1 = time.perf_counter()
+    trace_console(
+        f"[CFTUV][Frontier] Quilt {quilt_plan.quilt_index}: "
+        f"frontier {_t1 - _t0:.4f}s "
+        f"iters={iteration} placed={runtime_policy.total_placed()}/{len(all_chain_pool) + 1} "
+        f"cache_hits={runtime_policy._cache_hits}"
+    )
 
     total_available = len(all_chain_pool) + 1
     finalized_scaffold = _finalize_quilt_scaffold_frontier(
