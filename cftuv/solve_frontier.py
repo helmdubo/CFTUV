@@ -1147,6 +1147,12 @@ def _cf_select_best_frontier_candidate(
                         anchor_adjustments=cached.anchor_adjustments,
                         closure_dir_override=cached.closure_dir_override,
                         score=cached.score,
+                        length_factor=cached.length_factor,
+                        downstream_count=cached.downstream_count,
+                        downstream_bonus=cached.downstream_bonus,
+                        isolation_preview=cached.isolation_preview,
+                        isolation_penalty=cached.isolation_penalty,
+                        structural_free_bonus=cached.structural_free_bonus,
                     )
                 continue
 
@@ -1176,6 +1182,12 @@ def _cf_select_best_frontier_candidate(
                 anchor_adjustments=candidate_eval.anchor_adjustments,
                 closure_dir_override=candidate_eval.closure_dir_override,
                 score=candidate_eval.score,
+                length_factor=candidate_eval.length_factor,
+                downstream_count=candidate_eval.downstream_count,
+                downstream_bonus=candidate_eval.downstream_bonus,
+                isolation_preview=candidate_eval.isolation_preview,
+                isolation_penalty=candidate_eval.isolation_penalty,
+                structural_free_bonus=candidate_eval.structural_free_bonus,
             )
 
     return best_candidate

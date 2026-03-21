@@ -651,6 +651,12 @@ class FrontierPlacementCandidate:
     anchor_adjustments: tuple[AnchorAdjustment, ...] = ()
     closure_dir_override: Optional[Vector] = None
     score: float = -1.0
+    length_factor: float = 0.0
+    downstream_count: int = 0
+    downstream_bonus: float = 0.0
+    isolation_preview: bool = True
+    isolation_penalty: float = 0.0
+    structural_free_bonus: float = 0.0
 
 
 @dataclass(frozen=True)

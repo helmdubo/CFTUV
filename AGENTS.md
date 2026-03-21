@@ -145,7 +145,7 @@ Current priority order (agreed):
 2. **P2: Rewrite AGENTS.md** as self-contained entry point (this file) ✓
 3. **P3: Rescue/scoring instrumentation** — collect data before changing logic ✓
 4. **P4: Minimal trim abstraction** in model.py
-5. **P5: Scoring revision** based on instrumentation data
+5. **P5: Scoring revision** based on instrumentation data ✓
 6. **P6: Pin policy extraction** into explicit layer ✓
 
 ---

@@ -241,7 +241,7 @@ approach. Not solved by returning to UV cycle sewing.
 | P2 | AGENTS.md self-contained rewrite | ✓ Done | Agent onboarding |
 | P3 | Rescue/scoring instrumentation | ✓ Done | P5 |
 | P4 | Minimal trim abstraction in model.py | Pending | Future solve direction |
-| P5 | Scoring revision based on data | After P3 | — |
+| P5 | Scoring revision based on data | ✓ Done | — |
 | P6 | Pin policy extraction | ✓ Done | — |
 
 Not doing now: lattice alignment pass, automated test framework,

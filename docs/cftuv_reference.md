@@ -195,6 +195,16 @@ Frontier thresholds:
 - `FRONTIER_WEAK_THRESHOLD` = 0.25
 - `FRONTIER_MINIMUM_SCORE` = 0.30
 
+### Continuous Scoring Factors (P5)
+
+- `SCORE_FREE_LENGTH_SCALE` = 0.03
+- `SCORE_FREE_LENGTH_CAP` = 0.15
+- `SCORE_DOWNSTREAM_SCALE` = 0.05
+- `SCORE_DOWNSTREAM_CAP` = 0.20
+- `SCORE_ISOLATED_HV_PENALTY` = 0.40
+- `SCORE_FREE_STRIP_CONNECTOR` = 0.10
+- `SCORE_FREE_FRAME_NEIGHBOR` = 0.05
+
 ### Debug Source-of-Truth
 
 - `Loops_Chains` and `Frontier_Path` must always build from same current PatchGraph
