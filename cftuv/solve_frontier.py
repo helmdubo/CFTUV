@@ -1012,8 +1012,9 @@ class FrontierRuntimePolicy:
                 anchor_reason = f"{anchor_reason}|{closure_reason}" if anchor_reason else closure_reason
 
         score = -1.0
+        details = (0.0, 0, 0.0, True, 0.0, 0.0)
         if compute_score and known > 0:
-            score = _cf_score_candidate(
+            score, details = _cf_score_candidate(
                 chain_ref,
                 chain,
                 node,
@@ -1022,6 +1023,7 @@ class FrontierRuntimePolicy:
                 placed_in_patch,
                 self.quilt_patch_ids,
                 self.allowed_tree_edges,
+                self,
                 closure_pair_refs=self.closure_pair_refs or None,
                 start_anchor=start_anchor,
                 end_anchor=end_anchor,
@@ -1038,6 +1040,12 @@ class FrontierRuntimePolicy:
             anchor_adjustments=anchor_adjustments,
             closure_dir_override=closure_dir_override,
             score=score,
+            length_factor=details[0],
+            downstream_count=details[1],
+            downstream_bonus=details[2],
+            isolation_preview=details[3],
+            isolation_penalty=details[4],
+            structural_free_bonus=details[5],
         )
 
     def build_stop_diagnostics(
@@ -1286,6 +1294,12 @@ def _cf_try_place_frontier_candidate(
             closure_preconstraint_applied=(candidate.closure_dir_override is not None),
             anchor_adjustment_applied=bool(candidate.anchor_adjustments),
             direction_inherited=_direction_inherited,
+            length_factor=candidate.length_factor,
+            downstream_count=candidate.downstream_count,
+            downstream_bonus=candidate.downstream_bonus,
+            isolation_preview=candidate.isolation_preview,
+            isolation_penalty=candidate.isolation_penalty,
+            structural_free_bonus=candidate.structural_free_bonus,
         )
     return True
 
@@ -2322,6 +2336,77 @@ def _cf_resolve_candidate_anchors(
     return ResolvedCandidateAnchors(start_anchor=None, end_anchor=None, known=0, reason=reason)
 
 
+def _cf_estimate_downstream_anchor_count(
+    chain_ref: ChainRef,
+    chain: BoundaryChain,
+    graph: PatchGraph,
+    runtime_policy: "FrontierRuntimePolicy",
+) -> int:
+    """Count unplaced chains that would gain an anchor from placing chain_ref."""
+    count = 0
+    # Same-patch neighbors via corners
+    patch_id, loop_index, chain_index = chain_ref
+    node = graph.nodes.get(patch_id)
+    if node is None or loop_index >= len(node.boundary_loops):
+        return 0
+    boundary_loop = node.boundary_loops[loop_index]
+    for corner in boundary_loop.corners:
+        neighbor_idx = -1
+        if corner.next_chain_index == chain_index:
+            neighbor_idx = corner.prev_chain_index
+        elif corner.prev_chain_index == chain_index:
+            neighbor_idx = corner.next_chain_index
+        if neighbor_idx >= 0:
+            ref = (patch_id, loop_index, neighbor_idx)
+            if runtime_policy.is_chain_available(ref):
+                count += 1
+    # Cross-patch neighbors via shared verts
+    for vert_idx in (chain.start_vert_index, chain.end_vert_index):
+        if vert_idx < 0:
+            continue
+        for ref in runtime_policy._vert_to_pool_refs.get(vert_idx, ()):
+            if ref[0] != patch_id and runtime_policy.is_chain_available(ref):
+                count += 1
+    return count
+
+
+def _cf_preview_would_be_connected(
+    chain_ref: ChainRef,
+    chain: BoundaryChain,
+    runtime_policy: "FrontierRuntimePolicy",
+    graph: PatchGraph,
+) -> bool:
+    """Would this chain be scaffold-connected if placed now?"""
+    if chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        return True  # Only H/V can be isolated
+    
+    patch_id, loop_index, chain_index = chain_ref
+    # If no chains placed in this patch yet — it will be root, always connected
+    if runtime_policy.placed_in_patch(patch_id) == 0:
+        return True
+    
+    # Check if any neighbor in same loop is already placed and connected
+    node = graph.nodes.get(patch_id)
+    if node is None or loop_index >= len(node.boundary_loops):
+        return True
+    boundary_loop = node.boundary_loops[loop_index]
+    total_chains = len(boundary_loop.chains)
+    
+    for delta in (-1, 1):
+        neighbor_idx = (chain_index + delta) % total_chains
+        neighbor_ref = (patch_id, loop_index, neighbor_idx)
+        if neighbor_ref not in runtime_policy.placed_chain_refs:
+            continue
+        neighbor_chain = boundary_loop.chains[neighbor_idx]
+        # Connected if neighbor is H/V or bridge FREE
+        if neighbor_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return True
+        if neighbor_chain.frame_role == FrameRole.FREE and len(neighbor_chain.vert_cos) <= 2:
+            return True  # Bridge is transparent
+    
+    return False
+
+
 def _cf_score_candidate(
     chain_ref,
     chain,
@@ -2331,11 +2416,18 @@ def _cf_score_candidate(
     placed_in_patch,
     quilt_patch_ids,
     allowed_tree_edges,
+    runtime_policy: "FrontierRuntimePolicy",
     closure_pair_refs=None,
     start_anchor: Optional[ChainAnchor] = None,
     end_anchor: Optional[ChainAnchor] = None,
 ):
     """Chain-level score для frontier candidate."""
+    try:
+        from .constants import (SCORE_FREE_LENGTH_SCALE, SCORE_FREE_LENGTH_CAP, SCORE_DOWNSTREAM_SCALE, SCORE_DOWNSTREAM_CAP,
+                                SCORE_ISOLATED_HV_PENALTY, SCORE_FREE_STRIP_CONNECTOR, SCORE_FREE_FRAME_NEIGHBOR)
+    except ImportError:
+        from constants import (SCORE_FREE_LENGTH_SCALE, SCORE_FREE_LENGTH_CAP, SCORE_DOWNSTREAM_SCALE, SCORE_DOWNSTREAM_CAP,
+                               SCORE_ISOLATED_HV_PENALTY, SCORE_FREE_STRIP_CONNECTOR, SCORE_FREE_FRAME_NEIGHBOR)
     # Иерархия приоритетов:
     #   1. Cross-patch same-type H/V (seam скелет quilt):  base 2.0
     #   2. Cross-patch diff-type H/V:                       base 1.5
@@ -2410,7 +2502,45 @@ def _cf_score_candidate(
         elif placed_in_patch == 0:
             score -= 0.7
 
-    return score
+    # --- P5 Continuous scoring factors ---
+    length_factor = 0.0
+    if not is_hv:
+        chain_len = _cf_chain_total_length(chain, runtime_policy.final_scale)
+        length_factor = min(SCORE_FREE_LENGTH_CAP, chain_len * SCORE_FREE_LENGTH_SCALE)
+        score += length_factor
+
+    downstream = _cf_estimate_downstream_anchor_count(chain_ref, chain, graph, runtime_policy)
+    downstream_bonus = min(SCORE_DOWNSTREAM_CAP, downstream * SCORE_DOWNSTREAM_SCALE)
+    score += downstream_bonus
+
+    isolation_penalty = 0.0
+    would_be_connected = _cf_preview_would_be_connected(chain_ref, chain, runtime_policy, graph)
+    if is_hv and not would_be_connected:
+        isolation_penalty = SCORE_ISOLATED_HV_PENALTY
+        score -= isolation_penalty
+
+    structural_free_bonus = 0.0
+    if not is_hv and not is_bridge:
+        neighbors = graph.get_chain_endpoint_neighbors(chain_ref[0], chain_ref[1], chain_ref[2])
+        start_has_hv = any(
+            graph.get_chain(chain_ref[0], li, ci) is not None
+            and graph.get_chain(chain_ref[0], li, ci).frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+            for li, ci in neighbors.get("start", [])
+        )
+        end_has_hv = any(
+            graph.get_chain(chain_ref[0], li, ci) is not None
+            and graph.get_chain(chain_ref[0], li, ci).frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+            for li, ci in neighbors.get("end", [])
+        )
+        if start_has_hv and end_has_hv:
+            structural_free_bonus = SCORE_FREE_STRIP_CONNECTOR
+            score += structural_free_bonus
+        elif start_has_hv or end_has_hv:
+            structural_free_bonus = SCORE_FREE_FRAME_NEIGHBOR
+            score += structural_free_bonus
+
+    details = (length_factor, downstream, downstream_bonus, would_be_connected, isolation_penalty, structural_free_bonus)
+    return score, details
 
 
 
