@@ -412,15 +412,14 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
                 stroke.points[point_index].pressure = 1.0
 
         for boundary_loop in node.boundary_loops:
-            if _loop_enabled(boundary_loop, settings_dict):
-                loop_points = _lift_points(boundary_loop.vert_cos + [boundary_loop.vert_cos[0]], node.normal, 0.014)
-                if len(loop_points) >= 2:
-                    if _enum_value(boundary_loop.kind) == LoopKind.HOLE.value:
-                        frame, mat_idx = frames_and_mats['Loops_Holes']
-                        _add_gp_stroke(frame, loop_points, mat_idx, line_width=5)
-                    else:
-                        frame, mat_idx = frames_and_mats['Loops_Boundary']
-                        _add_gp_stroke(frame, loop_points, mat_idx, line_width=5)
+            loop_points = _lift_points(boundary_loop.vert_cos + [boundary_loop.vert_cos[0]], node.normal, 0.014)
+            if len(loop_points) >= 2:
+                if _enum_value(boundary_loop.kind) == LoopKind.HOLE.value:
+                    frame, mat_idx = frames_and_mats['Loops_Holes']
+                    _add_gp_stroke(frame, loop_points, mat_idx, line_width=5)
+                else:
+                    frame, mat_idx = frames_and_mats['Loops_Boundary']
+                    _add_gp_stroke(frame, loop_points, mat_idx, line_width=5)
 
             for chain in boundary_loop.chains:
                 raw_points = chain.vert_cos + [chain.vert_cos[0]] if chain.is_closed else chain.vert_cos

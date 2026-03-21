@@ -439,41 +439,41 @@ same internal `_decide_chain_pin`. Single implementation, two entry points.
 ## Execution Checklist
 
 ### Phase A: Create module + types
-- [ ] Add `PinPolicy`, `ChainPinDecision`, `PatchPinMap` to solve_records.py
-- [ ] Create solve_pin_policy.py
-- [ ] Move `_compute_scaffold_connected_chains` from solve_frontier.py
-- [ ] Move `_should_pin_scaffold_point` from solve_transfer.py (rename to `_decide_chain_pin`)
-- [ ] Move `_free_endpoint_has_local_frame_anchor` from solve_transfer.py
-- [ ] Implement `build_patch_pin_map()`
-- [ ] Wire imports in solve_frontier.py and solve_transfer.py
-- [ ] Add temporary divergence asserts in `_build_patch_transfer_targets`
-- [ ] Verify: addon loads, asserts silent on production meshes
+- [x] Add `PinPolicy`, `ChainPinDecision`, `PatchPinMap` to solve_records.py
+- [x] Create solve_pin_policy.py
+- [x] Move `_compute_scaffold_connected_chains` from solve_frontier.py
+- [x] Move `_should_pin_scaffold_point` from solve_transfer.py (rename to `_decide_chain_pin`)
+- [x] Move `_free_endpoint_has_local_frame_anchor` from solve_transfer.py
+- [x] Implement `build_patch_pin_map()`
+- [x] Wire imports in solve_frontier.py and solve_transfer.py
+- [x] Add temporary divergence asserts in `_build_patch_transfer_targets`
+- [x] Verify: addon loads, asserts silent on production meshes
 
 ### Phase B: Wire into transfer
-- [ ] Replace inline pin calls with `pin_map.is_point_pinned()` in `_build_patch_transfer_targets`
-- [ ] Add `pin_map` field to `PatchTransferTargetsState`
-- [ ] Remove old `_should_pin_scaffold_point` and `_free_endpoint_has_local_frame_anchor` from solve_transfer.py
-- [ ] Remove temporary asserts
-- [ ] **CRITICAL: Regression snapshot identical on all production meshes**
+- [x] Replace inline pin calls with `pin_map.is_point_pinned()` in `_build_patch_transfer_targets`
+- [x] Add `pin_map` field to `PatchTransferTargetsState`
+- [x] Remove old `_should_pin_scaffold_point` and `_free_endpoint_has_local_frame_anchor` from solve_transfer.py
+- [x] Remove temporary asserts
+- [x] **CRITICAL: Regression snapshot identical on all production meshes**
 
 ### Phase C: Move connected_chains
-- [ ] Change import source in solve_frontier.py
-- [ ] Remove `_compute_scaffold_connected_chains` from solve_frontier.py
-- [ ] Verify `build_patch_pin_map` computes connected_chains internally
-- [ ] Regression snapshot identical
+- [x] Change import source in solve_frontier.py
+- [x] Remove `_compute_scaffold_connected_chains` from solve_frontier.py
+- [x] Verify `build_patch_pin_map` computes connected_chains internally
+- [x] Regression snapshot identical
 
 ### Phase D: Preview query
-- [ ] Add `preview_chain_pin_decision()` to solve_pin_policy.py
-- [ ] Verify it delegates to same `_decide_chain_pin` as build_patch_pin_map
-- [ ] No hot-path calls — infrastructure only
+- [x] Add `preview_chain_pin_decision()` to solve_pin_policy.py
+- [x] Verify it delegates to same `_decide_chain_pin` as build_patch_pin_map
+- [x] No hot-path calls — infrastructure only
 
 ### Phase E: Reporting
-- [ ] Add pin_reasons to regression snapshot output
-- [ ] Old snapshot fields unchanged
-- [ ] New pin data matches manual inspection
+- [x] Add pin_reasons to regression snapshot output
+- [x] Old snapshot fields unchanged
+- [x] New pin data matches manual inspection
 
 ### Phase F: Documentation
-- [ ] AGENTS.md updated (module layout, invariant)
-- [ ] cftuv_architecture.md updated (debt, pin policy section, module table)
-- [ ] cftuv_solve_decomposition_plan.md updated (dependency graph)
-- [ ] Final regression snapshot matches Phase A baseline
+- [x] AGENTS.md updated (module layout, invariant)
+- [x] cftuv_architecture.md updated (debt, pin policy section, module table)
+- [x] cftuv_solve_decomposition_plan.md updated (dependency graph)
+- [x] Final regression snapshot matches Phase A baseline
