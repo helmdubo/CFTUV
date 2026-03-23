@@ -934,6 +934,38 @@ def _count_chain_endpoint_support(
     )
 
 
+def _chain_polyline_length(chain: Optional[BoundaryChain]) -> float:
+    if chain is None or len(chain.vert_cos) < 2:
+        return 0.0
+    return sum(
+        (chain.vert_cos[index + 1] - chain.vert_cos[index]).length
+        for index in range(len(chain.vert_cos) - 1)
+    )
+
+
+def _closure_cut_support_class(
+    fixed_endpoint_count: int,
+    same_axis_endpoint_count: int,
+    free_touched_endpoint_count: int,
+) -> str:
+    if fixed_endpoint_count >= 4 and same_axis_endpoint_count >= 2 and free_touched_endpoint_count == 0:
+        return 'rigid'
+    if fixed_endpoint_count >= 3 and same_axis_endpoint_count >= 1 and free_touched_endpoint_count <= 1:
+        return 'stable'
+    if fixed_endpoint_count >= 2 and free_touched_endpoint_count <= 2:
+        return 'mixed'
+    return 'weak'
+
+
+def _closure_cut_support_rank(support_class: str) -> int:
+    return {
+        'weak': 0,
+        'mixed': 1,
+        'stable': 2,
+        'rigid': 3,
+    }.get(support_class, 0)
+
+
 def _closure_cut_support_label(score: float) -> str:
     if score >= 0.80:
         return 'rigid'
@@ -986,6 +1018,27 @@ def _build_closure_cut_heuristic(
     fixed_ratio = fixed_endpoint_count / 4.0
     same_axis_ratio = same_axis_endpoint_count / 4.0
     free_touch_ratio = free_touched_endpoint_count / 4.0
+    support_class = _closure_cut_support_class(
+        fixed_endpoint_count,
+        same_axis_endpoint_count,
+        free_touched_endpoint_count,
+    )
+    owner_chain = graph.get_chain(
+        candidate.owner_patch_id,
+        candidate.owner_loop_index,
+        candidate.owner_chain_index,
+    )
+    target_chain = graph.get_chain(
+        candidate.target_patch_id,
+        candidate.target_loop_index,
+        candidate.target_chain_index,
+    )
+    owner_chain_length = _chain_polyline_length(owner_chain)
+    target_chain_length = _chain_polyline_length(target_chain)
+    if owner_chain_length > 0.0 and target_chain_length > 0.0:
+        representative_chain_length = min(owner_chain_length, target_chain_length)
+    else:
+        representative_chain_length = max(owner_chain_length, target_chain_length)
     dihedral_pref = _dihedral_cut_preference(graph, candidate)
     score = _clamp01(
         CLOSURE_CUT_WEIGHT_FRAME_CONT * candidate.frame_continuation
@@ -1001,9 +1054,11 @@ def _build_closure_cut_heuristic(
         f"fc={candidate.frame_continuation:.2f}",
         f"bridge={candidate.endpoint_bridge:.2f}",
         f"ep={candidate.endpoint_strength:.2f}",
+        f"class={support_class}",
         f"rigid={fixed_endpoint_count}/4",
         f"axis={same_axis_endpoint_count}/4",
         f"free={free_touched_endpoint_count}/4",
+        f"len={representative_chain_length:.4f}",
         f"dihedral={dihedral_pref:.2f}",
     )
     return ClosureCutHeuristic(
@@ -1011,9 +1066,11 @@ def _build_closure_cut_heuristic(
         candidate=candidate,
         score=score,
         support_label=_closure_cut_support_label(score),
+        support_class=support_class,
         fixed_endpoint_count=fixed_endpoint_count,
         same_axis_endpoint_count=same_axis_endpoint_count,
         free_touched_endpoint_count=free_touched_endpoint_count,
+        representative_chain_length=representative_chain_length,
         reasons=reasons,
     )
 
@@ -1073,10 +1130,12 @@ def _analyze_quilt_closure_cuts(
         recommended_cut = max(
             cycle_edges,
             key=lambda item: (
-                item.score,
+                _closure_cut_support_rank(item.support_class),
                 item.same_axis_endpoint_count,
                 item.fixed_endpoint_count,
                 -item.free_touched_endpoint_count,
+                -item.representative_chain_length,
+                item.score,
                 item.edge_key,
             ),
         )

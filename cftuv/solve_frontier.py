@@ -129,6 +129,7 @@ def _iter_quilt_closure_chain_pairs(
     graph: PatchGraph,
     quilt_patch_ids: set[int],
     allowed_tree_edges: set[PatchEdgeKey],
+    tree_ingress_pair_map: Optional[dict[PatchEdgeKey, frozenset[ChainRef]]] = None,
 ):
     """Iterate closure-side chain pairs inside one quilt.
 
@@ -150,7 +151,17 @@ def _iter_quilt_closure_chain_pairs(
             continue
 
         if (owner_patch_id, target_patch_id) in allowed_tree_edges:
-            matched_pairs = matched_pairs[1:]
+            primary_pair_refs = None
+            if tree_ingress_pair_map is not None:
+                primary_pair_refs = tree_ingress_pair_map.get((owner_patch_id, target_patch_id))
+            if primary_pair_refs is not None:
+                matched_pairs = [
+                    match
+                    for match in matched_pairs
+                    if frozenset((match.owner_ref, match.target_ref)) != primary_pair_refs
+                ]
+            else:
+                matched_pairs = matched_pairs[1:]
             if not matched_pairs:
                 continue
 
@@ -159,14 +170,30 @@ def _iter_quilt_closure_chain_pairs(
 
 def _build_quilt_closure_pair_map(
     graph: PatchGraph,
+    quilt_plan: QuiltPlan,
     quilt_patch_ids: set[int],
     allowed_tree_edges: set[PatchEdgeKey],
 ) -> dict[ChainRef, ChainRef]:
+    tree_ingress_pair_map: dict[PatchEdgeKey, frozenset[ChainRef]] = {}
+    for step in quilt_plan.steps:
+        candidate = step.incoming_candidate
+        if candidate is None:
+            continue
+        edge_key = (
+            min(candidate.owner_patch_id, candidate.target_patch_id),
+            max(candidate.owner_patch_id, candidate.target_patch_id),
+        )
+        tree_ingress_pair_map[edge_key] = frozenset((
+            (candidate.owner_patch_id, candidate.owner_loop_index, candidate.owner_chain_index),
+            (candidate.target_patch_id, candidate.target_loop_index, candidate.target_chain_index),
+        ))
+
     pair_map = {}
     for owner_patch_id, target_patch_id, matched_pairs in _iter_quilt_closure_chain_pairs(
         graph,
         quilt_patch_ids,
         allowed_tree_edges,
+        tree_ingress_pair_map,
     ):
         for match in matched_pairs:
             pair_map[match.owner_ref] = match.target_ref
@@ -748,13 +775,14 @@ def _cf_try_place_tree_ingress_candidate(
         if resolved_anchor is None or resolved_anchor.source_kind != PlacementSourceKind.CROSS_PATCH:
             continue
 
-        role_priority = 0
-        if chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
-            role_priority = 3 if not chain.is_corner_split else 2
-        elif chain.frame_role == FrameRole.FREE and len(chain.vert_cos) <= 2:
-            role_priority = 1
-        else:
+        if chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             continue
+        if candidate_eval.hv_adjacency <= 0:
+            continue
+
+        role_priority = 4 if candidate_eval.hv_adjacency >= 2 else 3
+        if chain.is_corner_split:
+            role_priority -= 1
 
         endpoint_neighbors = graph.get_chain_endpoint_neighbors(chain_ref[0], chain_ref[1], chain_ref[2])
         downstream_side = 'end' if candidate_eval.start_anchor is not None else 'start'
@@ -809,6 +837,7 @@ def _cf_try_place_tree_ingress_candidate(
                 uv_points=uv_points,
                 downstream_hv_count=downstream_hv_count,
                 role_priority=role_priority,
+                hv_adjacency=candidate_eval.hv_adjacency,
             )
 
     if best_candidate is None:
@@ -822,6 +851,7 @@ def _cf_try_place_tree_ingress_candidate(
     uv_points = best_candidate.uv_points
     downstream_hv_count = best_candidate.downstream_hv_count
     role_priority = best_candidate.role_priority
+    hv_adjacency = best_candidate.hv_adjacency
 
     if anchor_adjustments and not _cf_apply_anchor_adjustments(
         anchor_adjustments,
@@ -859,7 +889,7 @@ def _cf_try_place_tree_ingress_candidate(
         f"P{chain_ref[0]} L{chain_ref[1]}C{chain_ref[2]} "
         f"{chain.frame_role.value} score:tree_ingress ep:1 "
         f"a:{_cf_anchor_debug_label(anchor_start, anchor_end)} "
-        f"note:priority={role_priority}:downstream_hv={downstream_hv_count}"
+        f"note:priority={role_priority}:downstream_hv={downstream_hv_count}:hv_adj={hv_adjacency}"
     )
     if collector is not None:
         collector.record_placement(
@@ -874,6 +904,7 @@ def _cf_try_place_tree_ingress_candidate(
             is_closure_pair=(chain_ref in runtime_policy.closure_pair_refs),
             uv_points=uv_points,
             anchor_adjustment_applied=bool(anchor_adjustments),
+            hv_adjacency=hv_adjacency,
         )
     return True
 
@@ -1012,7 +1043,7 @@ class FrontierRuntimePolicy:
                 anchor_reason = f"{anchor_reason}|{closure_reason}" if anchor_reason else closure_reason
 
         score = -1.0
-        details = (0.0, 0, 0.0, True, 0.0, 0.0)
+        details = (0.0, 0, 0.0, True, 0.0, 0.0, 0)
         if compute_score and known > 0:
             score, details = _cf_score_candidate(
                 chain_ref,
@@ -1046,6 +1077,7 @@ class FrontierRuntimePolicy:
             isolation_preview=details[3],
             isolation_penalty=details[4],
             structural_free_bonus=details[5],
+            hv_adjacency=details[6],
         )
 
     def build_stop_diagnostics(
@@ -1153,6 +1185,7 @@ def _cf_select_best_frontier_candidate(
                         isolation_preview=cached.isolation_preview,
                         isolation_penalty=cached.isolation_penalty,
                         structural_free_bonus=cached.structural_free_bonus,
+                        hv_adjacency=cached.hv_adjacency,
                     )
                 continue
 
@@ -1188,6 +1221,7 @@ def _cf_select_best_frontier_candidate(
                 isolation_preview=candidate_eval.isolation_preview,
                 isolation_penalty=candidate_eval.isolation_penalty,
                 structural_free_bonus=candidate_eval.structural_free_bonus,
+                hv_adjacency=candidate_eval.hv_adjacency,
             )
 
     return best_candidate
@@ -1285,11 +1319,12 @@ def _cf_try_place_frontier_candidate(
     anchor_label = _cf_anchor_debug_label(candidate.start_anchor, candidate.end_anchor)
     reason_suffix = f" note:{candidate.anchor_reason}" if candidate.anchor_reason else ''
     bridge_tag = ' [BRIDGE]' if chain.frame_role == FrameRole.FREE and len(chain.vert_cos) <= 2 else ''
+    hv_suffix = f" hv_adj:{candidate.hv_adjacency}" if chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME} else ''
     trace_console(
         f"[CFTUV][Frontier] Step {iteration}: "
         f"P{chain_ref[0]} L{chain_ref[1]}C{chain_ref[2]} "
         f"{chain.frame_role.value} score:{candidate.score:.2f} "
-        f"ep:{anchor_count} a:{anchor_label}{reason_suffix}{bridge_tag}"
+        f"ep:{anchor_count} a:{anchor_label}{reason_suffix}{bridge_tag}{hv_suffix}"
     )
     if collector is not None:
         collector.record_placement(
@@ -1312,6 +1347,7 @@ def _cf_try_place_frontier_candidate(
             isolation_preview=candidate.isolation_preview,
             isolation_penalty=candidate.isolation_penalty,
             structural_free_bonus=candidate.structural_free_bonus,
+            hv_adjacency=candidate.hv_adjacency,
         )
     return True
 
@@ -1402,6 +1438,7 @@ def _cf_bootstrap_frontier_runtime(
         f"{seed_chain.frame_role.value} "
         f"({seed_uvs[0].x:.4f},{seed_uvs[0].y:.4f})"
         f"->({seed_uvs[-1].x:.4f},{seed_uvs[-1].y:.4f})"
+        f"{f' hv_adj:{_cf_count_hv_adjacent_endpoints(graph, seed_ref)}' if seed_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME} else ''}"
     )
     if allowed_tree_edges:
         edge_labels = [f"{edge[0]}-{edge[1]}" for edge in sorted(allowed_tree_edges)]
@@ -2053,13 +2090,19 @@ def _cf_choose_seed_chain(
     Returns: strongest typed seed-chain choice или None
     """
     best_ref: Optional[SeedChainChoice] = None
-    best_score = -1.0
+    best_rank: Optional[tuple[int, int, float]] = None
 
     for loop_idx, loop in solve_view.iter_visible_loops(root_node.patch_id):
         for chain_idx, chain in enumerate(loop.chains):
+            chain_ref = (root_node.patch_id, loop_idx, chain_idx)
+            is_hv = chain.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME)
+            hv_adjacency = _cf_count_hv_adjacent_endpoints(graph, chain_ref)
+            if is_hv and hv_adjacency <= 0:
+                continue
+
             score = 0.0
 
-            if chain.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
+            if is_hv:
                 score += 1.0
             else:
                 score += 0.1
@@ -2089,8 +2132,13 @@ def _cf_choose_seed_chain(
                     if neighbor_key.endswith('.SIDE'):
                         score += 0.2
 
-            if score > best_score:
-                best_score = score
+            rank = (
+                1 if is_hv else 0,
+                hv_adjacency if is_hv else -1,
+                score,
+            )
+            if best_rank is None or rank > best_rank:
+                best_rank = rank
                 best_ref = SeedChainChoice(
                     loop_index=loop_idx,
                     chain_index=chain_idx,
@@ -2382,6 +2430,28 @@ def _cf_estimate_downstream_anchor_count(
     return count
 
 
+def _cf_count_hv_adjacent_endpoints(
+    graph: PatchGraph,
+    chain_ref: ChainRef,
+) -> int:
+    """Count H/V-supported endpoints for one local H/V chain."""
+    chain = graph.get_chain(*chain_ref)
+    if chain is None or chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        return 0
+
+    endpoint_neighbors = graph.get_chain_endpoint_neighbors(chain_ref[0], chain_ref[1], chain_ref[2])
+    hv_adjacency = 0
+    for endpoint_label in ("start", "end"):
+        for neighbor_loop_index, neighbor_chain_index in endpoint_neighbors.get(endpoint_label, ()):
+            neighbor_chain = graph.get_chain(chain_ref[0], neighbor_loop_index, neighbor_chain_index)
+            if neighbor_chain is None:
+                continue
+            if neighbor_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                hv_adjacency += 1
+                break
+    return hv_adjacency
+
+
 def _cf_preview_would_be_connected(
     chain_ref: ChainRef,
     chain: BoundaryChain,
@@ -2410,11 +2480,8 @@ def _cf_preview_would_be_connected(
         if neighbor_ref not in runtime_policy.placed_chain_refs:
             continue
         neighbor_chain = boundary_loop.chains[neighbor_idx]
-        # Connected if neighbor is H/V or bridge FREE
         if neighbor_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             return True
-        if neighbor_chain.frame_role == FrameRole.FREE and len(neighbor_chain.vert_cos) <= 2:
-            return True  # Bridge is transparent
     
     return False
 
@@ -2436,10 +2503,14 @@ def _cf_score_candidate(
     """Chain-level score для frontier candidate."""
     try:
         from .constants import (SCORE_FREE_LENGTH_SCALE, SCORE_FREE_LENGTH_CAP, SCORE_DOWNSTREAM_SCALE, SCORE_DOWNSTREAM_CAP,
-                                SCORE_ISOLATED_HV_PENALTY, SCORE_FREE_STRIP_CONNECTOR, SCORE_FREE_FRAME_NEIGHBOR)
+                                SCORE_ISOLATED_HV_PENALTY, SCORE_HV_ADJ_FULL_BONUS, SCORE_HV_ADJ_ISOLATED_PENALTY,
+                                SCORE_BRIDGE_FIRST_PATCH_PENALTY, SCORE_BRIDGE_CROSS_PATCH_PENALTY,
+                                SCORE_FREE_STRIP_CONNECTOR, SCORE_FREE_FRAME_NEIGHBOR)
     except ImportError:
         from constants import (SCORE_FREE_LENGTH_SCALE, SCORE_FREE_LENGTH_CAP, SCORE_DOWNSTREAM_SCALE, SCORE_DOWNSTREAM_CAP,
-                               SCORE_ISOLATED_HV_PENALTY, SCORE_FREE_STRIP_CONNECTOR, SCORE_FREE_FRAME_NEIGHBOR)
+                               SCORE_ISOLATED_HV_PENALTY, SCORE_HV_ADJ_FULL_BONUS, SCORE_HV_ADJ_ISOLATED_PENALTY,
+                               SCORE_BRIDGE_FIRST_PATCH_PENALTY, SCORE_BRIDGE_CROSS_PATCH_PENALTY,
+                               SCORE_FREE_STRIP_CONNECTOR, SCORE_FREE_FRAME_NEIGHBOR)
     # Иерархия приоритетов:
     #   1. Cross-patch same-type H/V (seam скелет quilt):  base 2.0
     #   2. Cross-patch diff-type H/V:                       base 1.5
@@ -2505,6 +2576,18 @@ def _cf_score_candidate(
     if same_patch_anchor_count == 0 and cross_patch_anchor_count > 0:
         score -= 0.35 if placed_in_patch > 0 else 0.25
 
+    hv_adjacency = _cf_count_hv_adjacent_endpoints(graph, chain_ref)
+    if is_hv:
+        if hv_adjacency >= 2:
+            score += SCORE_HV_ADJ_FULL_BONUS
+        elif hv_adjacency <= 0:
+            score -= SCORE_HV_ADJ_ISOLATED_PENALTY
+
+    if is_bridge and placed_in_patch == 0:
+        score -= SCORE_BRIDGE_FIRST_PATCH_PENALTY
+    if is_bridge and same_patch_anchor_count == 0 and cross_patch_anchor_count > 0:
+        score -= SCORE_BRIDGE_CROSS_PATCH_PENALTY
+
     # Secondary closure-side seam pairs should not outrun same-patch width/height
     # carriers during early patch ingress. Иначе tube/ring patch получает вторую
     # seam-chain слишком рано и H/V внутри patch схлопываются в чужой span.
@@ -2551,7 +2634,15 @@ def _cf_score_candidate(
             structural_free_bonus = SCORE_FREE_FRAME_NEIGHBOR
             score += structural_free_bonus
 
-    details = (length_factor, downstream, downstream_bonus, would_be_connected, isolation_penalty, structural_free_bonus)
+    details = (
+        length_factor,
+        downstream,
+        downstream_bonus,
+        would_be_connected,
+        isolation_penalty,
+        structural_free_bonus,
+        hv_adjacency,
+    )
     return score, details
 
 
@@ -2911,7 +3002,7 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
     quilt_patch_ids.add(quilt_plan.root_patch_id)
     solve_view = _build_solve_view(graph)
     allowed_tree_edges = _build_quilt_tree_edges(quilt_plan)
-    closure_pair_map = _build_quilt_closure_pair_map(graph, quilt_patch_ids, allowed_tree_edges)
+    closure_pair_map = _build_quilt_closure_pair_map(graph, quilt_plan, quilt_patch_ids, allowed_tree_edges)
     ordered_quilt_patch_ids = list(quilt_plan.solved_patch_ids)
     if quilt_plan.root_patch_id not in ordered_quilt_patch_ids:
         ordered_quilt_patch_ids.append(quilt_plan.root_patch_id)
@@ -3000,14 +3091,6 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
                 collector=_collector,
             ):
                 _collector.update_last_stall_rescue("tree_ingress", True)
-                continue
-            if _cf_try_place_free_ingress_bridge(
-                runtime_policy,
-                all_chain_pool,
-                iteration,
-                collector=_collector,
-            ):
-                _collector.update_last_stall_rescue("free_ingress", True)
                 continue
             if _cf_try_place_closure_follow_candidate(
                 runtime_policy,

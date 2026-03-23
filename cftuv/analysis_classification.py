@@ -180,6 +180,18 @@ def _point_in_polygon_2d(point, poly):
     return inside
 
 
+def _polygon_perimeter_2d(poly):
+    perimeter = 0.0
+    count = len(poly)
+    for idx in range(count):
+        x1, y1 = poly[idx].x, poly[idx].y
+        x2, y2 = poly[(idx + 1) % count].x, poly[(idx + 1) % count].y
+        dx = x2 - x1
+        dy = y2 - y1
+        perimeter += math.sqrt(dx * dx + dy * dy)
+    return perimeter
+
+
 def _select_polygon_interior_point(poly):
     if len(poly) < 3:
         return poly[0] if poly else _PlanarPoint2D(0.0, 0.0)
@@ -260,18 +272,56 @@ def _prepare_outer_hole_classification_inputs(raw_patch_data):
 
     classification_inputs = []
 
-    for patch_data in raw_patch_data.values():
+    for patch_id, patch_data in raw_patch_data.items():
         if len(patch_data.raw_loops) <= 1:
             for raw_loop in patch_data.raw_loops:
                 raw_loop.kind = LoopKind.OUTER
                 raw_loop.depth = 0
             continue
-        classification_inputs.append(patch_data)
+        classification_inputs.append((patch_id, patch_data))
 
     return classification_inputs
 
 
-def _classify_raw_loops_via_uv(raw_loops, bm, patch_face_indices, uv_layer):
+def _repair_disconnected_uv_loop_classification(raw_loops, polys_2d, patch_id):
+    """Fallback: если UV unwrap развалил nesting, оставляем самый доминантный loop внешним."""
+
+    outer_loop_indices = [
+        loop_index
+        for loop_index, raw_loop in enumerate(raw_loops)
+        if raw_loop.kind == LoopKind.OUTER
+    ]
+    if len(outer_loop_indices) <= 1:
+        return
+
+    if any(raw_loop.kind == LoopKind.HOLE for raw_loop in raw_loops):
+        return
+
+    dominant_loop_index = max(
+        range(len(raw_loops)),
+        key=lambda loop_index: (
+            abs(_signed_area_2d(polys_2d[loop_index])),
+            _polygon_perimeter_2d(polys_2d[loop_index]),
+            len(polys_2d[loop_index]),
+            -loop_index,
+        ),
+    )
+
+    for loop_index, raw_loop in enumerate(raw_loops):
+        if loop_index == dominant_loop_index:
+            raw_loop.depth = 0
+            raw_loop.kind = LoopKind.OUTER
+            continue
+        raw_loop.depth = max(1, raw_loop.depth)
+        raw_loop.kind = LoopKind.HOLE
+
+    print(
+        f"[CFTUV][LoopClassDiag] Patch {patch_id} "
+        f"uv_outer_repair dominant_loop={dominant_loop_index} outer_before={len(outer_loop_indices)}"
+    )
+
+
+def _classify_raw_loops_via_uv(raw_loops, bm, patch_face_indices, uv_layer, patch_id):
     """Classify raw loops as OUTER or HOLE using temporary UV data."""
 
     if not raw_loops:
@@ -325,6 +375,26 @@ def _classify_raw_loops_via_uv(raw_loops, bm, patch_face_indices, uv_layer):
 
         raw_loop.depth = depth
         raw_loop.kind = LoopKind.OUTER if depth == 0 or depth % 2 == 0 else LoopKind.HOLE
+
+    _repair_disconnected_uv_loop_classification(raw_loops, polys_2d, patch_id)
+
+
+def _collect_patch_self_seam_edge_indices(bm, patch_face_indices):
+    """Для UV-классификации временно игнорируем seam'ы, замыкающиеся внутри того же patch."""
+
+    patch_face_index_set = set(patch_face_indices)
+    seam_edge_indices = []
+    for face_index in patch_face_index_set:
+        face = bm.faces[face_index]
+        for edge in face.edges:
+            if not edge.seam:
+                continue
+            in_patch_count = sum(
+                1 for linked_face in edge.link_faces if linked_face.index in patch_face_index_set
+            )
+            if in_patch_count >= 2:
+                seam_edge_indices.append(edge.index)
+    return tuple(sorted(set(seam_edge_indices)))
 
 
 def _set_face_selection(bm, face_indices):
@@ -383,13 +453,24 @@ def _finish_analysis_uv_classification(bm, obj, uv_layer, state):
         obj.data.uv_layers[state.original_active_uv_name].active = True
 
 
-def _unwrap_patch_faces_for_loop_classification(bm, obj, patch_face_indices):
+def _unwrap_patch_faces_for_loop_classification(bm, obj, patch_face_indices, disabled_seam_edge_indices=()):
     """Run temporary unwrap for one patch inside the analysis UV boundary."""
 
-    _set_face_selection(bm, patch_face_indices)
-    bmesh.update_edit_mesh(obj.data)
-    bpy.ops.uv.unwrap(method="CONFORMAL", fill_holes=False, margin=0.0)
-    _set_face_selection(bm, [])
+    disabled_edges = [bm.edges[edge_index] for edge_index in disabled_seam_edge_indices]
+    original_seam_flags = [edge.seam for edge in disabled_edges]
+
+    try:
+        for edge in disabled_edges:
+            edge.seam = False
+
+        _set_face_selection(bm, patch_face_indices)
+        bmesh.update_edit_mesh(obj.data)
+        bpy.ops.uv.unwrap(method="CONFORMAL", fill_holes=False, margin=0.0)
+        _set_face_selection(bm, [])
+    finally:
+        for edge, seam_flag in zip(disabled_edges, original_seam_flags):
+            edge.seam = seam_flag
+        bmesh.update_edit_mesh(obj.data)
 
 
 def _classify_multi_loop_patches_via_uv(bm, classification_inputs, obj):
@@ -400,9 +481,24 @@ def _classify_multi_loop_patches_via_uv(bm, classification_inputs, obj):
 
     try:
         uv_layer, state = _begin_analysis_uv_classification(bm, obj)
-        for patch_data in classification_inputs:
-            _unwrap_patch_faces_for_loop_classification(bm, obj, patch_data.face_indices)
-            _classify_raw_loops_via_uv(patch_data.raw_loops, bm, patch_data.face_indices, uv_layer)
+        for patch_id, patch_data in classification_inputs:
+            disabled_seam_edge_indices = _collect_patch_self_seam_edge_indices(
+                bm,
+                patch_data.face_indices,
+            )
+            _unwrap_patch_faces_for_loop_classification(
+                bm,
+                obj,
+                patch_data.face_indices,
+                disabled_seam_edge_indices=disabled_seam_edge_indices,
+            )
+            _classify_raw_loops_via_uv(
+                patch_data.raw_loops,
+                bm,
+                patch_data.face_indices,
+                uv_layer,
+                patch_id,
+            )
     finally:
         if uv_layer is not None and state is not None:
             _finish_analysis_uv_classification(bm, obj, uv_layer, state)
@@ -411,7 +507,7 @@ def _classify_multi_loop_patches_via_uv(bm, classification_inputs, obj):
 def _classify_multi_loop_patches_by_nesting(classification_inputs):
     """Diagnostics-only planar OUTER/HOLE classification helper."""
 
-    for patch_data in classification_inputs:
+    for _, patch_data in classification_inputs:
         _classify_raw_loops_by_nesting_depth(
             patch_data.raw_loops,
             patch_data.basis_u,

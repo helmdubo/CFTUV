@@ -156,6 +156,7 @@ class FrontierTelemetryCollector:
         isolation_preview: bool = True,
         isolation_penalty: float = 0.0,
         structural_free_bonus: float = 0.0,
+        hv_adjacency: int = 0,
     ) -> None:
         """Записывает одно успешное размещение chain."""
         anchor_count = (
@@ -187,6 +188,7 @@ class FrontierTelemetryCollector:
             isolation_preview=isolation_preview,
             isolation_penalty=isolation_penalty,
             structural_free_bonus=structural_free_bonus,
+            hv_adjacency=hv_adjacency,
         )
         self._placement_records.append(rec)
         trace_console(
@@ -195,7 +197,8 @@ class FrontierTelemetryCollector:
             f"{chain.frame_role.value} score:{score:.2f} ep:{anchor_count} "
             f"{_anchor_debug_short(start_anchor)}/{_anchor_debug_short(end_anchor)} "
             f"bridge:{'Y' if rec.is_bridge else 'N'} "
-            f"closure:{'Y' if is_closure_pair else 'N'}"
+            f"closure:{'Y' if is_closure_pair else 'N'} "
+            f"hv:{hv_adjacency}"
         )
 
     def record_stall(
@@ -474,6 +477,7 @@ def format_quilt_telemetry_detail(t: QuiltFrontierTelemetry) -> list[str]:
                 f"bridge:{'Y' if r.is_bridge else 'N'} "
                 f"closure:{'Y' if r.is_closure_pair else 'N'} "
                 f"[lf:{r.length_factor:.2f} ds:{r.downstream_count}:{r.downstream_bonus:.2f} "
-                f"iso:{r.isolation_preview}:{r.isolation_penalty:.2f} sfb:{r.structural_free_bonus:.2f}]"
+                f"iso:{r.isolation_preview}:{r.isolation_penalty:.2f} sfb:{r.structural_free_bonus:.2f} "
+                f"hv:{r.hv_adjacency}]"
             )
     return lines

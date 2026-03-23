@@ -33,14 +33,8 @@ def _compute_scaffold_connected_chains(patch_placements, total_chains, root_chai
     if root_chain_index not in placed_info or placed_info[root_chain_index][0] not in _HV_ROLES:
         return frozenset()
 
-    def _is_bridge(ci):
-        """One-edge FREE chain (≤2 points) — прозрачный мост."""
-        if ci not in placed_info:
-            return False
-        role, pc = placed_info[ci]
-        return role == FrameRole.FREE and pc <= 2
-
-    # BFS по H/V adjacency, one-edge FREE мосты прозрачны
+    # BFS только по H/V adjacency. FREE bridge больше не
+    # проводит scaffold connectivity к следующему H/V chain.
     visited = {root_chain_index}
     queue = [root_chain_index]
     while queue:
@@ -52,10 +46,6 @@ def _compute_scaffold_connected_chains(patch_placements, total_chains, root_chai
                 continue
             role, _ = placed_info[neighbor]
             if role in _HV_ROLES:
-                visited.add(neighbor)
-                queue.append(neighbor)
-            elif _is_bridge(neighbor):
-                # Bridge прозрачен: включаем его и продолжаем BFS через него
                 visited.add(neighbor)
                 queue.append(neighbor)
 

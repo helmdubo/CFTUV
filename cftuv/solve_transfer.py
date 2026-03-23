@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from typing import Optional
 
 from mathutils import Vector
@@ -136,27 +135,67 @@ def _scale_patch_uvs(
             loop[uv_layer].uv = pivot + ((uv - pivot) * scale)
 
 
+def _boundary_edge_uv_length(edge, patch_face_indices: set[int], uv_layer) -> float:
+    for face in edge.link_faces:
+        if face.index not in patch_face_indices:
+            continue
+        for loop in face.loops:
+            if loop.edge.index != edge.index:
+                continue
+            return (loop[uv_layer].uv - loop.link_loop_next[uv_layer].uv).length
+    return 0.0
+
+
+def _measure_patch_boundary_uv_density(
+    bm,
+    graph: PatchGraph,
+    uv_layer,
+    patch_ids: list[int],
+) -> float:
+    total_world_length = 0.0
+    total_uv_length = 0.0
+    seen_edge_keys: set[tuple[int, int]] = set()
+
+    for patch_id in patch_ids:
+        node = graph.nodes.get(patch_id)
+        if node is None:
+            continue
+        patch_face_indices = set(node.face_indices)
+        for boundary_loop in node.boundary_loops:
+            for chain in boundary_loop.chains:
+                for edge_index in chain.edge_indices:
+                    edge_key = (patch_id, edge_index)
+                    if edge_index < 0 or edge_key in seen_edge_keys or edge_index >= len(bm.edges):
+                        continue
+                    seen_edge_keys.add(edge_key)
+                    edge = bm.edges[edge_index]
+                    world_length = (edge.verts[1].co - edge.verts[0].co).length
+                    if world_length <= 1e-12:
+                        continue
+                    uv_length = _boundary_edge_uv_length(edge, patch_face_indices, uv_layer)
+                    if uv_length <= 1e-12:
+                        continue
+                    total_world_length += world_length
+                    total_uv_length += uv_length
+
+    if total_world_length <= 1e-12:
+        return 0.0
+    return total_uv_length / total_world_length
+
+
 def _restore_patch_uv_bounds(
     bm,
     graph: PatchGraph,
     uv_layer,
     patch_ids: list[int],
     target_bounds: UvBounds,
+    final_scale: float,
 ) -> None:
     current_bounds = _compute_patch_uv_bbox(bm, graph, uv_layer, patch_ids)
-    target_size = target_bounds.bbox_max - target_bounds.bbox_min
-    current_size = current_bounds.bbox_max - current_bounds.bbox_min
-    target_area = max(target_size.x, 0.0) * max(target_size.y, 0.0)
-    current_area = max(current_size.x, 0.0) * max(current_size.y, 0.0)
     scale = 1.0
-
-    if target_area > 1e-12 and current_area > 1e-12:
-        scale = math.sqrt(target_area / current_area)
-    else:
-        target_extent = max(abs(target_size.x), abs(target_size.y))
-        current_extent = max(abs(current_size.x), abs(current_size.y))
-        if target_extent > 1e-8 and current_extent > 1e-8:
-            scale = target_extent / current_extent
+    measured_density = _measure_patch_boundary_uv_density(bm, graph, uv_layer, patch_ids)
+    if measured_density > 1e-12 and final_scale > 1e-12:
+        scale = final_scale / measured_density
 
     if abs(scale - 1.0) > 1e-8:
         _scale_patch_uvs(
@@ -764,7 +803,14 @@ def _execute_phase1_preview_impl(
         bm2.edges.ensure_lookup_table()
         uv2 = bm2.loops.layers.uv.verify()
         for patch_id, target_bounds in unpinned_conformal_patch_bounds.items():
-            _restore_patch_uv_bounds(bm2, patch_graph, uv2, [patch_id], target_bounds)
+            _restore_patch_uv_bounds(
+                bm2,
+                patch_graph,
+                uv2,
+                [patch_id],
+                target_bounds,
+                settings.final_scale,
+            )
         _changed = 0
         _checked = 0
         for f in bm2.faces:
@@ -806,7 +852,14 @@ def _execute_phase1_preview_impl(
             bm.verts.ensure_lookup_table()
             bm.edges.ensure_lookup_table()
             uv_layer = bm.loops.layers.uv.verify()
-            _restore_patch_uv_bounds(bm, patch_graph, uv_layer, [patch_id], target_bounds)
+            _restore_patch_uv_bounds(
+                bm,
+                patch_graph,
+                uv_layer,
+                [patch_id],
+                target_bounds,
+                settings.final_scale,
+            )
             bmesh.update_edit_mesh(obj.data)
     if not run_conformal:
         print(f"[CFTUV][Phase1] Transfer Only: quilts={len(scaffold_map.quilts)} patches={sorted(global_supported_patch_ids)}")

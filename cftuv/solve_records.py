@@ -388,6 +388,7 @@ class TreeIngressPlacementCandidate:
     uv_points: list[Vector]
     downstream_hv_count: int
     role_priority: int
+    hv_adjacency: int
 
 
 @dataclass(frozen=True)
@@ -516,9 +517,11 @@ class ClosureCutHeuristic:
     candidate: AttachmentCandidate
     score: float
     support_label: str
+    support_class: str
     fixed_endpoint_count: int
     same_axis_endpoint_count: int
     free_touched_endpoint_count: int
+    representative_chain_length: float
     reasons: tuple[str, ...] = ()
 
 
@@ -627,6 +630,7 @@ class FrontierCandidateEval:
     isolation_preview: bool = True
     isolation_penalty: float = 0.0
     structural_free_bonus: float = 0.0
+    hv_adjacency: int = 0
 
 
 @dataclass(frozen=True)
@@ -657,6 +661,7 @@ class FrontierPlacementCandidate:
     isolation_preview: bool = True
     isolation_penalty: float = 0.0
     structural_free_bonus: float = 0.0
+    hv_adjacency: int = 0
 
 
 @dataclass(frozen=True)
@@ -707,6 +712,7 @@ class FrontierPlacementRecord:
     isolation_preview: bool = True     # would_be_connected
     isolation_penalty: float = 0.0
     structural_free_bonus: float = 0.0
+    hv_adjacency: int = 0
 
 
 @dataclass(frozen=True)
