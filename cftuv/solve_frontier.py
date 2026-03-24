@@ -224,6 +224,7 @@ def _build_temporary_chain_placement(
 
 
 def _closure_preconstraint_direction_options(
+    chain_ref: ChainRef,
     chain: BoundaryChain,
     node: PatchNode,
     start_anchor: Optional[ChainAnchor],
@@ -235,7 +236,9 @@ def _closure_preconstraint_direction_options(
     if chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
         return options
 
-    base_direction = _try_inherit_direction(chain, node, start_anchor, end_anchor, graph, point_registry)
+    base_direction = _try_inherit_direction(
+        chain, node, start_anchor, end_anchor, graph, point_registry, chain_ref=chain_ref
+    )
     if base_direction is None:
         base_direction = _cf_determine_direction(chain, node)
     axis_direction = _snap_direction_to_role(base_direction, chain.frame_role)
@@ -350,6 +353,7 @@ def _cf_apply_closure_preconstraint(
     option_results: list[ClosurePreconstraintOptionResult] = []
     for anchor_option in anchor_options:
         direction_options = _closure_preconstraint_direction_options(
+            chain_ref,
             chain,
             node,
             anchor_option.start_anchor,
@@ -649,6 +653,7 @@ def _cf_try_place_free_ingress_bridge(
             candidate_eval.end_anchor,
             graph,
             runtime_policy.point_registry,
+            chain_ref=chain_ref,
         )
         uv_points = _cf_place_chain(
             chain,
@@ -808,6 +813,7 @@ def _cf_try_place_tree_ingress_candidate(
             candidate_eval.end_anchor,
             graph,
             runtime_policy.point_registry,
+            chain_ref=chain_ref,
         )
         uv_points = _cf_place_chain(
             chain,
@@ -1270,6 +1276,7 @@ def _cf_try_place_frontier_candidate(
             candidate.end_anchor,
             graph,
             runtime_policy.point_registry,
+            chain_ref=chain_ref,
         )
     _direction_inherited = dir_override is not None and not _closure_dir_was_set
 
@@ -2647,13 +2654,95 @@ def _cf_score_candidate(
 
 
 
-def _try_inherit_direction(chain, node, start_anchor, end_anchor, graph, point_registry):
+def _is_orthogonal_hv_pair(role_a, role_b):
+    return {role_a, role_b} == {FrameRole.H_FRAME, FrameRole.V_FRAME}
+
+
+def _cf_compute_local_normal(node, corner_co_3d):
+    """Находит локальную нормаль грани(треугольника), прилегающей к углу."""
+    if not node.mesh_verts or not node.mesh_tris:
+        return node.normal
+
+    for i, v in enumerate(node.mesh_verts):
+        if (v - corner_co_3d).length_squared < 1e-7:
+            for tri in node.mesh_tris:
+                if i in tri:
+                    v0 = node.mesh_verts[tri[0]]
+                    v1 = node.mesh_verts[tri[1]]
+                    v2 = node.mesh_verts[tri[2]]
+                    n = (v1 - v0).cross(v2 - v0)
+                    if n.length_squared > 1e-8:
+                        return n.normalized()
+            break
+            
+    return node.normal
+
+
+def _compute_corner_turn_sign(chain, src_chain, anchor, is_start_anchor, node):
+    """Определяет знак поворота на corner из 3D tangent'ов.
+    
+    Возвращает +1 (CCW), -1 (CW), или 0 (неопределённо).
+    """
+    src_cos = src_chain.vert_cos
+    if not src_cos or len(src_cos) < 2:
+        return 0
+
+    # Tangent of src_chain pointing AWAY from the corner
+    if anchor.source_point_index == 0:
+        src_tangent = src_cos[1] - src_cos[0]
+        corner_co = src_cos[0]
+    else:
+        src_tangent = src_cos[-2] - src_cos[-1]
+        corner_co = src_cos[-1]
+
+    chain_cos = chain.vert_cos
+    if not chain_cos or len(chain_cos) < 2:
+        return 0
+
+    # Tangent of the new chain pointing AWAY from the corner
+    if is_start_anchor:
+        chain_tangent = chain_cos[1] - chain_cos[0]
+    else:
+        chain_tangent = chain_cos[-2] - chain_cos[-1]
+
+    local_normal = _cf_compute_local_normal(node, corner_co)
+
+    # Both tangents point AWAY from the junction.
+    # Входящий вектор в junction: -src_tangent. Исходящий: chain_tangent.
+    cross_vec = (-src_tangent).cross(chain_tangent)
+    dot_normal = cross_vec.dot(local_normal)
+
+    if abs(dot_normal) < 1e-8:
+        return 0
+    return 1 if dot_normal > 0 else -1
+
+
+def _perpendicular_direction_for_role(src_uv_delta, target_role, turn_sign):
+    if target_role == FrameRole.H_FRAME:
+        # src_chain — V_FRAME, UV идёт вдоль Y. Perpendicular = вдоль X.
+        src_y_sign = 1.0 if src_uv_delta.y > 0 else -1.0
+        # CCW turn (1) от +Y → -X; CW turn (-1) от +Y → +X
+        x_sign = -src_y_sign * turn_sign
+        return Vector((x_sign, 0.0))
+    if target_role == FrameRole.V_FRAME:
+        # src_chain — H_FRAME, UV идёт вдоль X. Perpendicular = вдоль Y.
+        src_x_sign = 1.0 if src_uv_delta.x > 0 else -1.0
+        # CCW turn (1) от +X → +Y; CW turn (-1) от +X → -Y
+        y_sign = src_x_sign * turn_sign
+        return Vector((0.0, y_sign))
+    return None
+
+
+def _try_inherit_direction(
+    chain, node, start_anchor, end_anchor, graph, point_registry,
+    chain_ref=None,
+):
     if chain.frame_role not in (FrameRole.H_FRAME, FrameRole.V_FRAME):
         return None
 
     own_direction = _cf_determine_direction(chain, node)
 
-    for anchor in (start_anchor, end_anchor):
+    for is_start_anchor, anchor in ((True, start_anchor), (False, end_anchor)):
         if anchor is None or anchor.source_kind != PlacementSourceKind.SAME_PATCH:
             continue
         src_chain = graph.get_chain(*anchor.source_ref)
@@ -2681,130 +2770,27 @@ def _try_inherit_direction(chain, node, start_anchor, end_anchor, graph, point_r
                     inherited = Vector((0.0, 1.0 if dv > 0 else -1.0))
                     if inherited.dot(own_direction) > 0.0:
                         return inherited
+            continue
+
+        # === Corner-split: 3D turn-sign inheritance ===
         if not chain.is_corner_split:
             continue
         if not _is_orthogonal_hv_pair(chain.frame_role, src_chain.frame_role):
             continue
 
-        src_uv_delta = src_end_uv - src_start_uv
-        if src_uv_delta.length < 1e-9:
-            continue
-
-        # Знак поворота из 3D геометрии на corner
+        # Вычисляем знак поворота в 3D
         turn_sign = _compute_corner_turn_sign(
-            chain, src_chain, anchor, node.normal,
+            chain, src_chain, anchor, is_start_anchor, node,
         )
         if turn_sign == 0:
             continue
 
-        # Перпендикуляр к UV direction anchor chain
+        src_uv_delta = src_end_uv - src_start_uv
         perp = _perpendicular_direction_for_role(
             src_uv_delta, chain.frame_role, turn_sign,
         )
         if perp is not None:
             return perp
-
-    return None
-
-
-def _is_orthogonal_hv_pair(role_a, role_b):
-    return (
-        {role_a, role_b} == {FrameRole.H_FRAME, FrameRole.V_FRAME}
-    )
-
-
-def _compute_corner_turn_sign(chain, src_chain, anchor, patch_normal):
-    """Определяет знак поворота на corner из 3D tangent'ов.
-    
-    Возвращает +1 (CCW), -1 (CW), или 0 (неопределённо).
-    """
-    # Tangent anchor chain на стороне corner'а
-    is_start_anchor = (anchor == chain)  # упрощение; нужно проверить endpoint
-    
-    # anchor.source_point_index == 0 → anchor у start src_chain → tangent = first segment
-    # anchor.source_point_index == last → anchor у end src_chain → tangent = last segment
-    src_cos = src_chain.vert_cos
-    if anchor.source_point_index == 0 and len(src_cos) >= 2:
-        src_tangent = src_cos[1] - src_cos[0]
-    elif anchor.source_point_index == len(src_cos) - 1 and len(src_cos) >= 2:
-        src_tangent = src_cos[-1] - src_cos[-2]
-    else:
-        return 0
-
-    # Tangent текущего chain на стороне corner'а
-    chain_cos = chain.vert_cos
-    if not chain_cos or len(chain_cos) < 2:
-        return 0
-    
-    # Определяем, anchor на start или end текущего chain
-    if anchor == ... :  # start anchor → chain tangent = first segment
-        chain_tangent = chain_cos[1] - chain_cos[0]
-    else:  # end anchor → chain tangent = last segment (reversed)
-        chain_tangent = chain_cos[-2] - chain_cos[-1]
-
-    cross = src_tangent.cross(chain_tangent)
-    dot_normal = cross.dot(patch_normal)
-    
-    if abs(dot_normal) < 1e-8:
-        return 0
-    return 1 if dot_normal > 0 else -1
-
-
-def _perpendicular_direction_for_role(src_uv_delta, target_role, turn_sign):
-    """Перпендикуляр к src UV direction, snapped к target_role axis."""
-    if target_role == FrameRole.H_FRAME:
-        # src — V_FRAME, UV goes along Y. Perpendicular = along X.
-        src_y_sign = 1.0 if src_uv_delta.y > 0 else -1.0
-        # CCW от +Y → -X, CW от +Y → +X
-        x_sign = -src_y_sign * turn_sign
-        return Vector((x_sign, 0.0))
-    
-    if target_role == FrameRole.V_FRAME:
-        # src — H_FRAME, UV goes along X. Perpendicular = along Y.
-        src_x_sign = 1.0 if src_uv_delta.x > 0 else -1.0
-        # CCW от +X → +Y, CW от +X → -Y
-        y_sign = src_x_sign * turn_sign
-        return Vector((0.0, y_sign))
-    
-    return None
-    """Наследует direction от соседнего same-role chain в том же patch.
-
-    Если anchor-chain имеет тот же frame_role (H↔H, V↔V) в том же patch,
-    берём его UV direction вместо вычисления из 3D. Это continuation —
-    бевельный sub-chain продолжает движение основного chain.
-    """
-    if chain.frame_role not in (FrameRole.H_FRAME, FrameRole.V_FRAME):
-        return None
-
-    own_direction = _cf_determine_direction(chain, node)
-
-    for anchor in (start_anchor, end_anchor):
-        if anchor is None or anchor.source_kind != PlacementSourceKind.SAME_PATCH:
-            continue
-        src_chain = graph.get_chain(*anchor.source_ref)
-        if src_chain is None or src_chain.frame_role != chain.frame_role:
-            continue
-
-        # Нашли same-role same-patch соседа — берём его UV direction
-        src_ref = anchor.source_ref
-        n_pts = len(src_chain.vert_cos)
-        src_start_uv = point_registry.get(_point_registry_key(src_ref, 0))
-        src_end_uv = point_registry.get(_point_registry_key(src_ref, n_pts - 1))
-        if src_start_uv is None or src_end_uv is None:
-            continue
-
-        if chain.frame_role == FrameRole.H_FRAME:
-            du = src_end_uv.x - src_start_uv.x
-            if abs(du) > 1e-9:
-                inherited = Vector((1.0 if du > 0 else -1.0, 0.0))
-                if inherited.dot(own_direction) > 0.0:
-                    return inherited
-        else:  # V_FRAME
-            dv = src_end_uv.y - src_start_uv.y
-            if abs(dv) > 1e-9:
-                inherited = Vector((0.0, 1.0 if dv > 0 else -1.0))
-                if inherited.dot(own_direction) > 0.0:
-                    return inherited
 
     return None
 
