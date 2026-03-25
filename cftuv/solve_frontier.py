@@ -11,7 +11,7 @@ from mathutils import Vector
 try:
     from .model import (
         BoundaryChain, BoundaryCorner, BoundaryLoop, ChainNeighborKind, FrameRole, LoopKind,
-        PatchGraph, PatchNode,
+        PatchGraph, PatchNode, PatchType,
         ScaffoldPointKey, ScaffoldChainPlacement, ScaffoldPatchPlacement,
         ScaffoldQuiltPlacement, ScaffoldMap, ScaffoldClosureSeamReport,
         ScaffoldFrameAlignmentReport, ChainGapReport, PatchPlacementStatus, PlacementSourceKind,
@@ -42,7 +42,7 @@ try:
 except ImportError:
     from model import (
         BoundaryChain, BoundaryCorner, BoundaryLoop, ChainNeighborKind, FrameRole, LoopKind,
-        PatchGraph, PatchNode,
+        PatchGraph, PatchNode, PatchType,
         ScaffoldPointKey, ScaffoldChainPlacement, ScaffoldPatchPlacement,
         ScaffoldQuiltPlacement, ScaffoldMap, ScaffoldClosureSeamReport,
         ScaffoldFrameAlignmentReport, ChainGapReport, PatchPlacementStatus, PlacementSourceKind,
@@ -2217,7 +2217,18 @@ def _cf_find_anchors(
         for other_ref, pt_idx in vert_to_placements[start_vert]:
             if other_ref[0] == patch_id:
                 continue
+            
+            # Anchor filter layer 2: allow junction anchors for WALL/FLOOR even if not seam neighbors
+            is_junction_allowed = False
             if seam_neighbor_patch_id is not None and other_ref[0] != seam_neighbor_patch_id:
+                other_node = graph.nodes.get(other_ref[0])
+                if other_node is not None:
+                    t1, t2 = node.patch_type, other_node.patch_type
+                    if (t1 == PatchType.WALL and t2 in (PatchType.FLOOR, PatchType.SLOPE)) or \
+                       (t2 == PatchType.WALL and t1 in (PatchType.FLOOR, PatchType.SLOPE)):
+                        is_junction_allowed = True
+            
+            if seam_neighbor_patch_id is not None and other_ref[0] != seam_neighbor_patch_id and not is_junction_allowed:
                 continue
             if not _is_allowed_quilt_edge(allowed_tree_edges, patch_id, other_ref[0]):
                 continue
@@ -2235,7 +2246,18 @@ def _cf_find_anchors(
         for other_ref, pt_idx in vert_to_placements[end_vert]:
             if other_ref[0] == patch_id:
                 continue
+            
+            # Anchor filter layer 2: allow junction anchors for WALL/FLOOR even if not seam neighbors
+            is_junction_allowed = False
             if seam_neighbor_patch_id is not None and other_ref[0] != seam_neighbor_patch_id:
+                other_node = graph.nodes.get(other_ref[0])
+                if other_node is not None:
+                    t1, t2 = node.patch_type, other_node.patch_type
+                    if (t1 == PatchType.WALL and t2 in (PatchType.FLOOR, PatchType.SLOPE)) or \
+                       (t2 == PatchType.WALL and t1 in (PatchType.FLOOR, PatchType.SLOPE)):
+                        is_junction_allowed = True
+
+            if seam_neighbor_patch_id is not None and other_ref[0] != seam_neighbor_patch_id and not is_junction_allowed:
                 continue
             if not _is_allowed_quilt_edge(allowed_tree_edges, patch_id, other_ref[0]):
                 continue
@@ -2489,6 +2511,16 @@ def _cf_preview_would_be_connected(
         neighbor_chain = boundary_loop.chains[neighbor_idx]
         if neighbor_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             return True
+    
+    # Layer 3: check cross-patch H/V connections
+    for vert_idx in (chain.start_vert_index, chain.end_vert_index):
+        if vert_idx < 0:
+            continue
+        for other_ref in runtime_policy._vert_to_pool_refs.get(vert_idx, ()):
+            if other_ref in runtime_policy.placed_chain_refs:
+                other_chain = graph.get_chain(*other_ref)
+                if other_chain and other_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                    return True
     
     return False
 
