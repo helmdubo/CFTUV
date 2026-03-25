@@ -20,13 +20,18 @@ try:
         ReportingOptions,
         coerce_reporting_options,
         format_chain_address,
+        format_stall_address,
     )
     from .solve_records import (
         ChainAnchor, ChainPoolEntry, FrontierCandidateEval,
         FrontierPlacementRecord, FrontierStallRecord, QuiltFrontierTelemetry,
         CHAIN_FRONTIER_THRESHOLD,
     )
-    from .console_debug import trace_console
+    from .console_debug import (
+        FrontierLiveTraceMode,
+        get_frontier_live_trace_mode,
+        trace_console,
+    )
 except ImportError:
     from model import (
         BoundaryChain, ChainRef, FrameRole, PlacementSourceKind,
@@ -36,13 +41,18 @@ except ImportError:
         ReportingOptions,
         coerce_reporting_options,
         format_chain_address,
+        format_stall_address,
     )
     from solve_records import (
         ChainAnchor, ChainPoolEntry, FrontierCandidateEval,
         FrontierPlacementRecord, FrontierStallRecord, QuiltFrontierTelemetry,
         CHAIN_FRONTIER_THRESHOLD,
     )
-    from console_debug import trace_console
+    from console_debug import (
+        FrontierLiveTraceMode,
+        get_frontier_live_trace_mode,
+        trace_console,
+    )
 
 
 # ============================================================
@@ -58,11 +68,34 @@ def _anchor_kind_label(anchor: Optional[ChainAnchor]) -> str:
     return "same_patch"
 
 
-def _anchor_debug_short(anchor: Optional[ChainAnchor]) -> str:
-    """Краткая метка anchor для verbose-вывода (SP / XP / -)."""
-    if anchor is None:
-        return "-"
-    return "XP" if anchor.source_kind == PlacementSourceKind.CROSS_PATCH else "SP"
+def _anchor_kind_short(kind: str) -> str:
+    """Краткая метка anchor из serialized telemetry record."""
+    if kind == "cross_patch":
+        return "XP"
+    if kind == "same_patch":
+        return "SP"
+    return "-"
+
+
+def _frame_role_short(role: Optional[FrameRole]) -> str:
+    """Краткая метка frame-role для compact live trace."""
+    if role == FrameRole.H_FRAME:
+        return "H"
+    if role == FrameRole.V_FRAME:
+        return "V"
+    if role == FrameRole.FREE:
+        return "F"
+    return "-"
+
+
+def _placement_path_short(path: str) -> str:
+    """Краткая метка placement-path для live trace."""
+    return {
+        "main": "main",
+        "tree_ingress": "tree",
+        "free_ingress": "free",
+        "closure_follow": "clos",
+    }.get(path, path)
 
 
 def _uv_chain_length(uv_points: list[Vector]) -> float:
@@ -91,13 +124,161 @@ def _percentile_sorted(sorted_vals: list[float], pct: float) -> float:
     return sorted_vals[lo] + frac * (sorted_vals[hi] - sorted_vals[lo])
 
 
+def _format_live_placement_trace(
+    quilt_index: int,
+    rec: FrontierPlacementRecord,
+    *,
+    compact: bool,
+) -> str:
+    """Форматирует live placement trace отдельно от post-hoc report detail."""
+    chain_addr = format_chain_address(rec.chain_ref, quilt_index=quilt_index)
+    anchor_label = (
+        f"{_anchor_kind_short(rec.start_anchor_kind)}/"
+        f"{_anchor_kind_short(rec.end_anchor_kind)}"
+    )
+    if compact:
+        return (
+            f"[CFTUV][Telemetry] Q{quilt_index} S{rec.iteration} "
+            f"{_placement_path_short(rec.placement_path)} {chain_addr} "
+            f"{_frame_role_short(rec.frame_role)} s:{rec.score:.2f} "
+            f"ep:{rec.anchor_count} {anchor_label} "
+            f"b:{'Y' if rec.is_bridge else 'N'} "
+            f"c:{'Y' if rec.is_closure_pair else 'N'} "
+            f"hv:{rec.hv_adjacency}"
+        )
+    return (
+        f"[CFTUV][Telemetry] Q{quilt_index} Step {rec.iteration}: "
+        f"{rec.placement_path} {chain_addr} "
+        f"{rec.frame_role.value} score:{rec.score:.2f} ep:{rec.anchor_count} "
+        f"{anchor_label} bridge:{'Y' if rec.is_bridge else 'N'} "
+        f"closure:{'Y' if rec.is_closure_pair else 'N'} "
+        f"hv:{rec.hv_adjacency}"
+    )
+
+
+def _stall_state_label(stall: FrontierStallRecord) -> str:
+    """Краткая lifecycle-метка stall после close."""
+    return "resolved" if stall.rescue_succeeded else "unresolved"
+
+
+def _is_actionable_unresolved_stall(stall: FrontierStallRecord) -> bool:
+    """True только для unresolved stall с проблемным остатком frontier."""
+    if stall.rescue_succeeded:
+        return False
+    if (
+        stall.best_rejected_ref is None
+        and stall.best_rejected_score < 0.0
+        and stall.available_count <= 0
+        and stall.no_anchor_count <= 0
+        and stall.below_threshold_count <= 0
+    ):
+        return False
+    return True
+
+
+def _format_live_stall_open_trace(
+    quilt_index: int,
+    stall: FrontierStallRecord,
+    *,
+    compact: bool,
+) -> str:
+    """Форматирует live stall-open trace."""
+    ref_label = (
+        format_chain_address(stall.best_rejected_ref, quilt_index=quilt_index)
+        if stall.best_rejected_ref is not None else "-"
+    )
+    role_label = (
+        _frame_role_short(stall.best_rejected_role)
+        if compact else
+        (stall.best_rejected_role.value if stall.best_rejected_role is not None else "NONE")
+    )
+    if compact:
+        return (
+            f"[CFTUV][Telemetry] Q{quilt_index} Stall{stall.iteration} open "
+            f"rej:{stall.best_rejected_score:.3f} {ref_label} {role_label} "
+            f"av:{stall.available_count} na:{stall.no_anchor_count}"
+        )
+    return (
+        f"[CFTUV][Telemetry] Q{quilt_index} Stall {stall.iteration} open: "
+        f"best_rejected:{stall.best_rejected_score:.3f} {ref_label} {role_label} "
+        f"available:{stall.available_count} no_anchor:{stall.no_anchor_count}"
+    )
+
+
+def _format_live_stall_close_trace(
+    quilt_index: int,
+    stall: FrontierStallRecord,
+    *,
+    compact: bool,
+) -> str:
+    """Форматирует live stall-close trace."""
+    rescue_label = f"{stall.rescue_attempted}={'Y' if stall.rescue_succeeded else 'N'}"
+    if compact:
+        return (
+            f"[CFTUV][Telemetry] Q{quilt_index} Stall{stall.iteration} close "
+            f"rescue:{rescue_label} st:{_stall_state_label(stall)}"
+        )
+    return (
+        f"[CFTUV][Telemetry] Q{quilt_index} Stall {stall.iteration} close: "
+        f"rescue:{rescue_label} state:{_stall_state_label(stall)}"
+    )
+
+
+def _emit_live_placement_trace(quilt_index: int, rec: FrontierPlacementRecord) -> None:
+    """Печатает live placement trace по policy, не влияя на stored telemetry."""
+    live_mode = get_frontier_live_trace_mode()
+    if live_mode == FrontierLiveTraceMode.OFF:
+        return
+    trace_console(
+        _format_live_placement_trace(
+            quilt_index,
+            rec,
+            compact=(live_mode == FrontierLiveTraceMode.COMPACT),
+        )
+    )
+
+
+def _emit_live_stall_open_trace(
+    quilt_index: int,
+    stall: FrontierStallRecord,
+) -> None:
+    """Печатает live stall-open trace по policy."""
+    live_mode = get_frontier_live_trace_mode()
+    if live_mode == FrontierLiveTraceMode.OFF:
+        return
+    trace_console(
+        _format_live_stall_open_trace(
+            quilt_index,
+            stall,
+            compact=(live_mode == FrontierLiveTraceMode.COMPACT),
+        )
+    )
+
+
+def _emit_live_stall_close_trace(
+    quilt_index: int,
+    stall: FrontierStallRecord,
+) -> None:
+    """Печатает live stall-close trace по policy."""
+    live_mode = get_frontier_live_trace_mode()
+    if live_mode == FrontierLiveTraceMode.OFF:
+        return
+    trace_console(
+        _format_live_stall_close_trace(
+            quilt_index,
+            stall,
+            compact=(live_mode == FrontierLiveTraceMode.COMPACT),
+        )
+    )
+
+
 # ============================================================
-# Промежуточный mutable stall-record (до финализации)
+# Промежуточный open stall-record (до close)
 # ============================================================
 
 @dataclass
-class _PendingStall:
-    """Промежуточный stall-record до обновления результата rescue."""
+class _OpenStall:
+    """Открытый stall до явного close после rescue/finalize."""
     iteration: int
     best_rejected_score: float
     best_rejected_ref: Optional[ChainRef]
@@ -111,7 +292,7 @@ class _PendingStall:
     rescue_attempted: str = "none"
     rescue_succeeded: bool = False
 
-    def finalize(self) -> FrontierStallRecord:
+    def close(self) -> FrontierStallRecord:
         return FrontierStallRecord(
             iteration=self.iteration,
             best_rejected_score=self.best_rejected_score,
@@ -145,7 +326,64 @@ class FrontierTelemetryCollector:
     _t0: float = field(default_factory=time.perf_counter)
     _placement_records: list[FrontierPlacementRecord] = field(default_factory=list)
     _stall_records: list[FrontierStallRecord] = field(default_factory=list)
-    _pending_stall: Optional[_PendingStall] = field(default=None)
+    _open_stall: Optional[_OpenStall] = field(default=None)
+
+    def _begin_stall(
+        self,
+        iteration: int,
+        best_rejected_score: float,
+        best_rejected_ref: Optional[ChainRef],
+        best_rejected_role: Optional[FrameRole],
+        best_rejected_anchor_count: int,
+        available_count: int,
+        no_anchor_count: int,
+        below_threshold_count: int,
+        patches_with_placed: int,
+        patches_untouched: int,
+    ) -> None:
+        """Открывает новый stall и сразу печатает open-trace."""
+        self._open_stall = _OpenStall(
+            iteration=iteration,
+            best_rejected_score=best_rejected_score,
+            best_rejected_ref=best_rejected_ref,
+            best_rejected_role=best_rejected_role,
+            best_rejected_anchor_count=best_rejected_anchor_count,
+            available_count=available_count,
+            no_anchor_count=no_anchor_count,
+            below_threshold_count=below_threshold_count,
+            patches_with_placed=patches_with_placed,
+            patches_untouched=patches_untouched,
+        )
+        _emit_live_stall_open_trace(
+            self.quilt_index,
+            self._open_stall.close(),
+        )
+
+    def _close_open_stall(
+        self,
+        *,
+        rescue_attempted: str,
+        rescue_succeeded: bool,
+        emit_live_close: bool = True,
+    ) -> Optional[FrontierStallRecord]:
+        """Явно закрывает открытый stall и записывает finalized record."""
+        if self._open_stall is None:
+            return None
+        self._open_stall.rescue_attempted = rescue_attempted
+        self._open_stall.rescue_succeeded = rescue_succeeded
+        stall = self._open_stall.close()
+        self._stall_records.append(stall)
+        self._open_stall = None
+        if emit_live_close:
+            _emit_live_stall_close_trace(self.quilt_index, stall)
+        return stall
+
+    def _close_open_stall_unresolved(self) -> Optional[FrontierStallRecord]:
+        """Явно закрывает открытый stall как unresolved."""
+        return self._close_open_stall(
+            rescue_attempted="none",
+            rescue_succeeded=False,
+        )
 
     def record_placement(
         self,
@@ -169,6 +407,7 @@ class FrontierTelemetryCollector:
         isolation_penalty: float = 0.0,
         structural_free_bonus: float = 0.0,
         hv_adjacency: int = 0,
+        emit_live_trace: bool = True,
     ) -> None:
         """Записывает одно успешное размещение chain."""
         anchor_count = (
@@ -203,14 +442,33 @@ class FrontierTelemetryCollector:
             hv_adjacency=hv_adjacency,
         )
         self._placement_records.append(rec)
-        trace_console(
-            f"[CFTUV][Telemetry] Q{self.quilt_index} Step {iteration}: "
-            f"{placement_path} {format_chain_address(chain_ref, quilt_index=self.quilt_index)} "
-            f"{chain.frame_role.value} score:{score:.2f} ep:{anchor_count} "
-            f"{_anchor_debug_short(start_anchor)}/{_anchor_debug_short(end_anchor)} "
-            f"bridge:{'Y' if rec.is_bridge else 'N'} "
-            f"closure:{'Y' if is_closure_pair else 'N'} "
-            f"hv:{hv_adjacency}"
+        if emit_live_trace:
+            _emit_live_placement_trace(self.quilt_index, rec)
+
+    def record_seed_placement(
+        self,
+        chain_ref: ChainRef,
+        chain: BoundaryChain,
+        score: float,
+        uv_points: list[Vector],
+        *,
+        is_closure_pair: bool = False,
+        hv_adjacency: int = 0,
+    ) -> None:
+        """Регистрирует bootstrap seed в structured telemetry без отдельного live-trace."""
+        self.record_placement(
+            iteration=0,
+            chain_ref=chain_ref,
+            chain=chain,
+            placement_path="main",
+            score=score,
+            start_anchor=None,
+            end_anchor=None,
+            placed_in_patch_before=0,
+            is_closure_pair=is_closure_pair,
+            uv_points=uv_points,
+            hv_adjacency=hv_adjacency,
+            emit_live_trace=False,
         )
 
     def record_stall(
@@ -226,12 +484,12 @@ class FrontierTelemetryCollector:
         patches_with_placed: int,
         patches_untouched: int,
     ) -> None:
-        """Записывает stall-событие. Rescue-результат добавляется через update_last_stall_rescue."""
-        # Финализируем предыдущий pending stall если есть (не должно быть)
-        if self._pending_stall is not None:
-            self._stall_records.append(self._pending_stall.finalize())
+        """Открывает stall; close происходит через rescue или finalize()."""
+        # Предыдущий open-stall не должен переживать новый stall silently.
+        if self._open_stall is not None:
+            self._close_open_stall_unresolved()
 
-        self._pending_stall = _PendingStall(
+        self._begin_stall(
             iteration=iteration,
             best_rejected_score=best_rejected_score,
             best_rejected_ref=best_rejected_ref,
@@ -244,36 +502,21 @@ class FrontierTelemetryCollector:
             patches_untouched=patches_untouched,
         )
 
-        role_str = best_rejected_role.value if best_rejected_role is not None else "NONE"
-        ref_str = (
-            format_chain_address(best_rejected_ref, quilt_index=self.quilt_index)
-            if best_rejected_ref is not None else "-"
-        )
-        trace_console(
-            f"[CFTUV][Telemetry] Q{self.quilt_index} Stall {iteration}: "
-            f"best_rejected:{best_rejected_score:.3f} {ref_str} {role_str} "
-            f"available:{available_count} no_anchor:{no_anchor_count}"
-        )
-
     def update_last_stall_rescue(
         self,
         rescue_attempted: str,
         rescue_succeeded: bool,
     ) -> None:
-        """Обновляет последний pending stall с результатом rescue-попытки."""
-        if self._pending_stall is None:
-            return
-        self._pending_stall.rescue_attempted = rescue_attempted
-        self._pending_stall.rescue_succeeded = rescue_succeeded
-        self._stall_records.append(self._pending_stall.finalize())
-        self._pending_stall = None
+        """Явно закрывает текущий open-stall результатом rescue-попытки."""
+        self._close_open_stall(
+            rescue_attempted=rescue_attempted,
+            rescue_succeeded=rescue_succeeded,
+        )
 
     def finalize(self) -> QuiltFrontierTelemetry:
         """Вычисляет агрегаты и возвращает immutable QuiltFrontierTelemetry."""
-        # Финализируем незакрытый stall если есть
-        if self._pending_stall is not None:
-            self._stall_records.append(self._pending_stall.finalize())
-            self._pending_stall = None
+        # Любой открытый stall должен закрыться явно как unresolved.
+        self._close_open_stall_unresolved()
 
         duration = time.perf_counter() - self._t0
 
@@ -428,6 +671,32 @@ def format_quilt_telemetry_summary(
 ) -> list[str]:
     """Краткая сводка телеметрии для regression snapshot (одна секция)."""
     reporting = coerce_reporting_options(reporting, mode=mode)
+    actionable_unresolved_stalls = sum(
+        1 for stall in t.stall_records if _is_actionable_unresolved_stall(stall)
+    )
+    terminal_stalls = sum(
+        1
+        for stall in t.stall_records
+        if (not stall.rescue_succeeded) and (not _is_actionable_unresolved_stall(stall))
+    )
+    if (
+        terminal_stalls == t.total_stalls
+        and t.stalls_resolved_by_rescue == 0
+        and actionable_unresolved_stalls == 0
+    ):
+        stalls_line = f"  stalls: terminal:{terminal_stalls}"
+    else:
+        stalls_line = (
+            f"  stalls: {t.total_stalls} "
+            f"resolved:{t.stalls_resolved_by_rescue} "
+            f"unresolved:{actionable_unresolved_stalls}"
+        )
+    if terminal_stalls > 0 and not (
+        terminal_stalls == t.total_stalls
+        and t.stalls_resolved_by_rescue == 0
+        and actionable_unresolved_stalls == 0
+    ):
+        stalls_line += f" terminal:{terminal_stalls}"
     lines = [
         "frontier_telemetry:",
         (
@@ -437,11 +706,7 @@ def format_quilt_telemetry_summary(
             f"free_ingress:{t.free_ingress_placements} "
             f"closure_follow:{t.closure_follow_placements}"
         ),
-        (
-            f"  stalls: {t.total_stalls} "
-            f"resolved:{t.stalls_resolved_by_rescue} "
-            f"unresolved:{t.stalls_unresolved}"
-        ),
+        stalls_line,
         (
             f"  scores: min:{t.score_min:.3f} "
             f"p25:{t.score_p25:.3f} "
@@ -456,15 +721,15 @@ def format_quilt_telemetry_summary(
     return lines
 
 
-def format_quilt_telemetry_detail(
+def format_quilt_telemetry_posthoc_detail(
     t: QuiltFrontierTelemetry,
     reporting: Optional[ReportingOptions] = None,
     *,
     mode: Optional[ReportingMode | str] = None,
 ) -> list[str]:
-    """Подробный лог размещений и stall-событий для verbose-вывода."""
+    """Подробный post-hoc лог размещений и stall-событий для forensic report."""
     reporting = coerce_reporting_options(reporting, mode=mode)
-    lines: list[str] = []
+    lines: list[str] = ["frontier_telemetry_detail:"]
     q = t.quilt_index
 
     # Объединяем placement и stall в хронологическом порядке по iteration
@@ -483,25 +748,40 @@ def format_quilt_telemetry_detail(
             )
             role_str = stall.best_rejected_role.value if stall.best_rejected_role is not None else "NONE"
             lines.append(
-                f"[CFTUV][Telemetry] Q{q} Stall {it}: "
+                f"  stall_open {format_stall_address(it, quilt_index=q)}: "
                 f"best_rejected:{stall.best_rejected_score:.3f} "
                 f"{ref_str} {role_str} "
                 f"available:{stall.available_count} "
-                f"no_anchor:{stall.no_anchor_count} "
-                f"rescue:{stall.rescue_attempted}={'Y' if stall.rescue_succeeded else 'N'}"
+                f"no_anchor:{stall.no_anchor_count}"
             )
         for r in placement_by_iter.get(it, []):
             lines.append(
-                f"[CFTUV][Telemetry] Q{q} Step {it}: "
+                f"  step {it}: "
                 f"{r.placement_path} "
                 f"{format_chain_address(r.chain_ref, quilt_index=q)} "
                 f"{r.frame_role.value} score:{r.score:.2f} "
                 f"ep:{r.anchor_count} "
-                f"{r.start_anchor_kind[:2].upper()}/{r.end_anchor_kind[:2].upper()} "
+                f"{_anchor_kind_short(r.start_anchor_kind)}/{_anchor_kind_short(r.end_anchor_kind)} "
                 f"bridge:{'Y' if r.is_bridge else 'N'} "
                 f"closure:{'Y' if r.is_closure_pair else 'N'} "
                 f"[lf:{r.length_factor:.2f} ds:{r.downstream_count}:{r.downstream_bonus:.2f} "
                 f"iso:{r.isolation_preview}:{r.isolation_penalty:.2f} sfb:{r.structural_free_bonus:.2f} "
                 f"hv:{r.hv_adjacency}]"
             )
+        if stall is not None:
+            lines.append(
+                f"  stall_close {format_stall_address(it, quilt_index=q)}: "
+                f"rescue:{stall.rescue_attempted}={'Y' if stall.rescue_succeeded else 'N'} "
+                f"state:{_stall_state_label(stall)}"
+            )
     return lines
+
+
+def format_quilt_telemetry_detail(
+    t: QuiltFrontierTelemetry,
+    reporting: Optional[ReportingOptions] = None,
+    *,
+    mode: Optional[ReportingMode | str] = None,
+) -> list[str]:
+    """Совместимый wrapper для post-hoc telemetry detail."""
+    return format_quilt_telemetry_posthoc_detail(t, reporting=reporting, mode=mode)

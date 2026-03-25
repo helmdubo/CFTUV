@@ -8,7 +8,12 @@ from mathutils import Vector
 try:
     from .model import ChainRef, FrameAxisKind, FrameRole, PatchGraph, ScaffoldChainPlacement, ScaffoldMap
     from .solve_report_metrics import ScaffoldMetricsSummary
-    from .solve_report_utils import format_chain_address, format_chain_pair_address, format_patch_address
+    from .solve_report_utils import (
+        format_chain_address,
+        format_chain_pair_address,
+        format_patch_address,
+        format_stall_address,
+    )
     from .solve_records import (
         FRAME_COLUMN_GROUP_TOLERANCE,
         FRAME_ROW_GROUP_TOLERANCE,
@@ -19,7 +24,12 @@ try:
 except ImportError:
     from model import ChainRef, FrameAxisKind, FrameRole, PatchGraph, ScaffoldChainPlacement, ScaffoldMap
     from solve_report_metrics import ScaffoldMetricsSummary
-    from solve_report_utils import format_chain_address, format_chain_pair_address, format_patch_address
+    from solve_report_utils import (
+        format_chain_address,
+        format_chain_pair_address,
+        format_patch_address,
+        format_stall_address,
+    )
     from solve_records import (
         FRAME_COLUMN_GROUP_TOLERANCE,
         FRAME_ROW_GROUP_TOLERANCE,
@@ -63,6 +73,21 @@ def _short_anchor_kind(kind: str) -> str:
 def _frame_scatter_threshold(axis_kind: FrameAxisKind) -> float:
     tolerance = FRAME_ROW_GROUP_TOLERANCE if axis_kind == FrameAxisKind.ROW else FRAME_COLUMN_GROUP_TOLERANCE
     return max(tolerance * 32.0, 0.05)
+
+
+def _is_actionable_unresolved_stall(stall) -> bool:
+    """Отсекает нормальный exhausted-stop без реального проблемного остатка frontier."""
+    if stall.rescue_succeeded:
+        return False
+    if (
+        stall.best_rejected_ref is None
+        and stall.best_rejected_score < 0.0
+        and stall.available_count <= 0
+        and stall.no_anchor_count <= 0
+        and stall.below_threshold_count <= 0
+    ):
+        return False
+    return True
 
 
 def _chain_delta(chain_placement: ScaffoldChainPlacement) -> Vector:
@@ -312,12 +337,14 @@ def collect_scaffold_anomalies(
         telemetry = getattr(quilt, "frontier_telemetry", None)
         if telemetry is not None:
             for stall in telemetry.stall_records:
-                if stall.rescue_succeeded:
+                if not _is_actionable_unresolved_stall(stall):
                     continue
                 if stall.best_rejected_ref is not None:
                     stall_addr = format_chain_address(stall.best_rejected_ref, quilt_index=quilt.quilt_index)
+                    stall_patch_id: Optional[int] = stall.best_rejected_ref[0]
                 else:
-                    stall_addr = format_patch_address(quilt.root_patch_id, quilt_index=quilt.quilt_index)
+                    stall_addr = format_stall_address(stall.iteration, quilt_index=quilt.quilt_index)
+                    stall_patch_id = None
                 anomalies.append(
                     ReportAnomaly(
                         priority=3,
@@ -327,13 +354,11 @@ def collect_scaffold_anomalies(
                         detail=(
                             f"score:{stall.best_rejected_score:.3f} "
                             f"available:{stall.available_count} "
-                            f"no_anchor:{stall.no_anchor_count}"
+                            f"no_anchor:{stall.no_anchor_count} "
+                            f"rescue:{stall.rescue_attempted}={'Y' if stall.rescue_succeeded else 'N'}"
                         ),
                         quilt_index=quilt.quilt_index,
-                        patch_id=(
-                            stall.best_rejected_ref[0]
-                            if stall.best_rejected_ref is not None else quilt.root_patch_id
-                        ),
+                        patch_id=stall_patch_id,
                         chain_ref=stall.best_rejected_ref,
                     )
                 )

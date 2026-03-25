@@ -187,6 +187,19 @@ geometry and must remain isolated.
 4. FREE => only endpoints that touch connected local H/V.
 5. Unsupported patches get individual fallback Conformal.
 
+### Reporting / Telemetry Contract
+
+Reporting is now policy-driven and must not be treated as raw runtime trace dump.
+
+- Stable addresses are mandatory in reports: `ADDR Q#/P#`, `ADDR Q#/P#/L#/C#`, `ADDR Q#/S#`
+- Default reports are anomaly-first and compact; healthy routine entities are compressed
+- `summary` / `diagnostic` / `forensic` are presentation modes only, never solve modes
+- Live telemetry trace is separate from post-hoc report detail
+- Suspicious H/V chains must retain directional diagnostics: role, start/end UV, delta, axis error, inherited flag, anchor kinds, status code
+- Stall lifecycle is explicit: `open` / `close`; terminal exhausted stop is not the same as actionable unresolved stall
+- Regression snapshot uses telemetry summary, not step-by-step replay
+- `quilt_index` is a stable quilt id from planning and may contain gaps after orphan-quilt merge; report formatter must preserve it verbatim
+
 ---
 
 ## Current Architectural Debt

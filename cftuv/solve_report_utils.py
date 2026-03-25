@@ -115,3 +115,12 @@ def format_chain_pair_address(
         f"P{owner_patch_id}/L{owner_loop_index}/C{owner_chain_index}"
         f"<->P{target_patch_id}/L{target_loop_index}/C{target_chain_index}"
     )
+
+
+def format_stall_address(
+    iteration: int,
+    quilt_index: Optional[int] = None,
+) -> str:
+    """Стабильный адрес frontier stall-события."""
+
+    return _format_addr_body(f"{_format_quilt_prefix(quilt_index)}S{iteration}")

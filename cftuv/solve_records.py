@@ -672,6 +672,7 @@ class FrontierBootstrapResult:
     runtime_policy: "FrontierRuntimePolicy"
     seed_ref: ChainRef
     seed_chain: BoundaryChain
+    seed_score: float
 
 
 @dataclass(frozen=True)

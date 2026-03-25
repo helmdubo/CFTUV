@@ -211,6 +211,15 @@ Frontier thresholds:
 - Stale Analyze + new Frontier Replay = invalid debug state
 - If timeline diverges from LoopTypes, check stale debug layers first
 
+### Snapshot / Telemetry Output Contract
+
+- `Save Regression Snapshot` is anomaly-first by default
+- Stable addresses in snapshot are expected: `ADDR Q#/P#`, `ADDR Q#/P#/L#/C#`, `ADDR Q#/S#`
+- Healthy patches should collapse to one compact line; suspicious H/V chains may expand into compact directional lines
+- Terminal exhausted stop should not appear as `stall_unresolved` anomaly
+- In telemetry summary, terminal-only stop is expected as `stalls: terminal:N`
+- `quilt_index` may be non-contiguous (`Q0`, `Q1`, `Q4`) and must be treated as stable id, not display ordinal
+
 ---
 
 ## Section 3. Regression Checklist
@@ -237,8 +246,11 @@ For each mesh, use `Save Regression Snapshot` and check:
 - [ ] Corner count unchanged without expected reason
 - [ ] Quilt count unchanged without expected reason
 - [ ] PatchGraph Snapshot readable and compact
+- [ ] Regression Snapshot is anomaly-first and compact by default
 - [ ] Unsupported patch ids expected
 - [ ] Invalid closure count expected
+- [ ] Terminal-only stall does not appear in `Anomalies:`
+- [ ] Terminal-only telemetry summary uses `stalls: terminal:N`
 - [ ] Closure seam residuals not degraded
 - [ ] Row / column scatter not degraded
 - [ ] Conformal fallback patch count expected

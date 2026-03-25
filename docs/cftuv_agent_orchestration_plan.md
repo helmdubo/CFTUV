@@ -1,5 +1,11 @@
 # CFTUV — Agent Orchestration Plan for Logging / Telemetry Optimization
 
+> Status: Completed on 2026-03-26.
+>
+> Phases 1-7 were implemented as a reporting / telemetry refactor without solve-behavior changes.
+> This file is retained as a historical execution plan. Current output contract lives in
+> `docs/cftuv_architecture.md` and `docs/cftuv_reference.md`.
+
 ## Objective
 
 Refactor CFTUV reporting and telemetry output to reduce token-heavy log spam while preserving fast fault localization for the tester.
@@ -402,7 +408,7 @@ Do not do these in this task:
 
 ---
 
-## First Execution Order
+## Original Execution Order (Completed)
 
 The agent should proceed in this exact order:
 

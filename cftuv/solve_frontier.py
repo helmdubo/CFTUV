@@ -1456,6 +1456,7 @@ def _cf_bootstrap_frontier_runtime(
             runtime_policy=runtime_policy,
             seed_ref=seed_ref,
             seed_chain=seed_chain,
+            seed_score=seed_result.score,
         )
     )
 
@@ -3192,6 +3193,18 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
 
     # Инициализируем collector телеметрии для данного quilt
     _collector = FrontierTelemetryCollector(quilt_index=quilt_plan.quilt_index)
+    seed_placement = runtime_policy.placed_chains_map.get(seed_ref)
+    if seed_placement is not None:
+        _collector.record_seed_placement(
+            chain_ref=seed_ref,
+            chain=seed_chain,
+            score=bootstrap_result.seed_score,
+            uv_points=[uv.copy() for _, uv in seed_placement.points],
+            is_closure_pair=(seed_ref in runtime_policy.closure_pair_refs),
+            hv_adjacency=_cf_count_hv_adjacent_endpoints(graph, seed_ref)
+            if seed_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+            else 0,
+        )
 
     max_iter = len(all_chain_pool) + 10
     _t0 = time.perf_counter()

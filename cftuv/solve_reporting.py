@@ -139,6 +139,64 @@ def _format_compact_chain_line(
     )
 
 
+def _format_int_list_brief(values, *, limit: int = 8) -> str:
+    items = list(values)
+    if not items:
+        return "[]"
+    if len(items) <= limit:
+        return "[" + ", ".join(str(item) for item in items) + "]"
+    shown = ", ".join(str(item) for item in items[:limit])
+    return f"[{shown}, +{len(items) - limit}]"
+
+
+def _format_label_list_brief(values, *, limit: int = 4) -> str:
+    items = sorted({str(item) for item in values if str(item)})
+    if not items:
+        return "[]"
+    if len(items) <= limit:
+        return "[" + ", ".join(items) + "]"
+    shown = ", ".join(items[:limit])
+    return f"[{shown}, +{len(items) - limit}]"
+
+
+def _format_build_order_summary(
+    build_order,
+    *,
+    quilt_index: int,
+    head: int = 3,
+    tail: int = 2,
+) -> str:
+    refs = list(build_order)
+    if not refs:
+        return "steps:0"
+    addresses = [
+        format_chain_address(
+            (patch_id, loop_index, chain_index),
+            quilt_index=quilt_index,
+        )
+        for patch_id, loop_index, chain_index in refs
+    ]
+    if len(addresses) <= head + tail + 1:
+        return f"steps:{len(addresses)} refs:[" + ", ".join(addresses) + "]"
+    first_block = ", ".join(addresses[:head])
+    last_block = ", ".join(addresses[-tail:])
+    return f"steps:{len(addresses)} first:[{first_block}] last:[{last_block}]"
+
+
+def _format_pin_reason_summary(pin_map) -> str:
+    if pin_map is None:
+        return "-"
+    counts: dict[str, int] = {}
+    for decision in pin_map.chain_decisions:
+        counts[decision.reason] = counts.get(decision.reason, 0) + 1
+    if not counts:
+        return "-"
+    return ", ".join(
+        f"{reason}={counts[reason]}"
+        for reason in sorted(counts)
+    )
+
+
 def format_root_scaffold_report(
     graph: PatchGraph,
     scaffold_map: ScaffoldMap,
@@ -157,7 +215,6 @@ def format_root_scaffold_report(
     )
     patch_anomaly_map, chain_anomaly_map = _build_anomaly_maps(anomalies)
     forensic_mode = reporting.mode == ReportingMode.FORENSIC
-    summary_mode = reporting.mode == ReportingMode.SUMMARY
     lines = []
     if mesh_name:
         lines.append(f"Mesh: {mesh_name}")
@@ -237,13 +294,11 @@ def format_root_scaffold_report(
                         + f"weight:{report.total_weight:.6f}{closure_tag} refs:[{refs_label}]"
                     )
         if telemetry is not None:
-            telemetry_lines = (
-                format_quilt_telemetry_summary(telemetry, reporting=reporting)
-                if summary_mode else
-                format_quilt_telemetry_detail(telemetry, reporting=reporting)
-            )
-            for tline in telemetry_lines:
+            for tline in format_quilt_telemetry_summary(telemetry, reporting=reporting):
                 lines.append(tline)
+            if forensic_mode:
+                for tline in format_quilt_telemetry_detail(telemetry, reporting=reporting):
+                    lines.append(tline)
 
         for patch_id in placed_patch_ids:
             patch_placement = quilt.patches.get(patch_id)
@@ -378,10 +433,18 @@ def format_regression_snapshot_report(
 ) -> FormattedReport:
     reporting = coerce_reporting_options(reporting, mode=mode)
     metrics = collect_scaffold_metrics(graph, scaffold_map, bm=bm)
+    anomalies = collect_scaffold_anomalies(
+        graph,
+        scaffold_map,
+        metrics,
+        include_transfer=True,
+    )
+    patch_anomaly_map, chain_anomaly_map = _build_anomaly_maps(anomalies)
+    forensic_mode = reporting.mode == ReportingMode.FORENSIC
     lines = []
     if mesh_name:
         lines.append(f"Mesh: {mesh_name}")
-    lines.extend(collect_scaffold_anomaly_lines(graph, scaffold_map, metrics, include_transfer=True))
+    lines.extend(format_scaffold_anomaly_lines(anomalies))
     lines.append("")
 
     solve_plan = solve_plan or SolvePlan()
@@ -391,9 +454,9 @@ def format_regression_snapshot_report(
 
     lines.append(f"Patches: {metrics.graph_patch_count}")
     lines.append(f"Quilts: {metrics.quilt_count}")
-    lines.append(f"Skipped patches: {sorted(solve_plan.skipped_patch_ids)}")
-    lines.append(f"Unsupported patches: {unsupported_patch_ids}")
-    lines.append(f"Invalid closure patches: {invalid_closure_patch_ids}")
+    lines.append(f"Skipped patches: {_format_int_list_brief(sorted(solve_plan.skipped_patch_ids))}")
+    lines.append(f"Unsupported patches: {_format_int_list_brief(unsupported_patch_ids)}")
+    lines.append(f"Invalid closure patches: {_format_int_list_brief(invalid_closure_patch_ids)}")
     lines.append(f"Conformal fallback patches: {len(unsupported_patch_ids)}")
     lines.append(
         "Closure seams: "
@@ -411,6 +474,10 @@ def format_regression_snapshot_report(
         ordered_patch_ids = _ordered_quilt_patch_ids(quilt_scaffold, quilt_plan)
         if not ordered_patch_ids:
             ordered_patch_ids = sorted(quilt_scaffold.patches.keys())
+        quilt_anomalies = [
+            anomaly for anomaly in anomalies
+            if anomaly.quilt_index == quilt_scaffold.quilt_index
+        ]
 
         lines.append("")
         lines.append(f"## Quilt {quilt_scaffold.quilt_index}")
@@ -418,18 +485,26 @@ def format_regression_snapshot_report(
             f"root_patch: "
             f"{format_patch_address(quilt_scaffold.root_patch_id, quilt_index=quilt_scaffold.quilt_index)}"
         )
-        lines.append(f"patch_ids: {ordered_patch_ids}")
-        lines.append(f"stop_reason: {quilt_plan.stop_reason.value if quilt_plan is not None else ''}")
+        lines.append(f"patch_ids: {_format_int_list_brief(ordered_patch_ids, limit=12)}")
         lines.append(
-            "build_order: "
-            + "[" + ", ".join(
-                format_chain_address(
-                    (patch_id, loop_index, chain_index),
-                    quilt_index=quilt_scaffold.quilt_index,
-                )
-                for patch_id, loop_index, chain_index in quilt_scaffold.build_order
-            ) + "]"
+            f"status: stop:{quilt_plan.stop_reason.value if quilt_plan is not None else ''} "
+            f"patches:{len(ordered_patch_ids)} anomalies:{len(quilt_anomalies)}"
         )
+        if forensic_mode:
+            lines.append(
+                "build_order: "
+                + "[" + ", ".join(
+                    format_chain_address(
+                        (patch_id, loop_index, chain_index),
+                        quilt_index=quilt_scaffold.quilt_index,
+                    )
+                    for patch_id, loop_index, chain_index in quilt_scaffold.build_order
+                ) + "]"
+            )
+        else:
+            lines.append(
+                f"build_order: {_format_build_order_summary(quilt_scaffold.build_order, quilt_index=quilt_scaffold.quilt_index)}"
+            )
 
         quilt_unsupported_patch_ids = sorted(
             patch_id
@@ -444,47 +519,78 @@ def format_regression_snapshot_report(
             and not quilt_scaffold.patches[patch_id].notes
             and not quilt_scaffold.patches[patch_id].closure_valid
         )
-        lines.append(f"unsupported_patch_ids: {quilt_unsupported_patch_ids}")
-        lines.append(f"invalid_closure_patch_ids: {quilt_invalid_closure_patch_ids}")
+        if forensic_mode or quilt_unsupported_patch_ids or quilt_invalid_closure_patch_ids:
+            lines.append(f"unsupported_patch_ids: {_format_int_list_brief(quilt_unsupported_patch_ids)}")
+            lines.append(f"invalid_closure_patch_ids: {_format_int_list_brief(quilt_invalid_closure_patch_ids)}")
 
         closure_reports = getattr(quilt_scaffold, 'closure_seam_reports', ())
         if closure_reports:
-            lines.append("closure_seams:")
-            for report in closure_reports:
-                lines.append(
-                    "  - "
-                    + format_chain_pair_address(
-                        (report.owner_patch_id, report.owner_loop_index, report.owner_chain_index),
-                        (report.target_patch_id, report.target_loop_index, report.target_chain_index),
-                        quilt_index=quilt_scaffold.quilt_index,
+            if forensic_mode:
+                lines.append("closure_seams:")
+                for report in closure_reports:
+                    lines.append(
+                        "  - "
+                        + format_chain_pair_address(
+                            (report.owner_patch_id, report.owner_loop_index, report.owner_chain_index),
+                            (report.target_patch_id, report.target_loop_index, report.target_chain_index),
+                            quilt_index=quilt_scaffold.quilt_index,
+                        )
+                        + " "
+                        + f"{report.frame_role.value} mode:{report.anchor_mode.value} "
+                        + f"mismatch:{report.span_mismatch:.6f} phase:{report.axis_phase_offset_max:.6f} "
+                        + f"free:{report.free_bridge_count}"
                     )
-                    + " "
-                    + f"{report.frame_role.value} mode:{report.anchor_mode.value} "
-                    + f"mismatch:{report.span_mismatch:.6f} phase:{report.axis_phase_offset_max:.6f} "
-                    + f"free:{report.free_bridge_count}"
+            else:
+                seam_anomaly_count = sum(
+                    1
+                    for anomaly in quilt_anomalies
+                    if anomaly.peer_chain_ref is not None
+                    and anomaly.code in {"closure_seam_mismatch", "axis_drift"}
+                )
+                lines.append(
+                    f"closure_seams: {len(closure_reports)} "
+                    f"suspicious:{seam_anomaly_count} "
+                    f"max_mismatch:{max((report.span_mismatch for report in closure_reports), default=0.0):.6f} "
+                    f"max_phase:{max((report.axis_phase_offset_max for report in closure_reports), default=0.0):.6f}"
                 )
         else:
-            lines.append("closure_seams: []")
+            lines.append("closure_seams: 0")
 
         frame_reports = getattr(quilt_scaffold, 'frame_alignment_reports', ())
         if frame_reports:
-            lines.append("frame_groups:")
-            for report in frame_reports:
-                coord_label = (
-                    f"z:{report.class_coord_a:.6f}"
-                    if report.axis_kind == FrameAxisKind.ROW
-                    else f"xy:({report.class_coord_a:.6f},{report.class_coord_b:.6f})"
+            if forensic_mode:
+                lines.append("frame_groups:")
+                for report in frame_reports:
+                    coord_label = (
+                        f"z:{report.class_coord_a:.6f}"
+                        if report.axis_kind == FrameAxisKind.ROW
+                        else f"xy:({report.class_coord_a:.6f},{report.class_coord_b:.6f})"
+                    )
+                    lines.append(
+                        "  - "
+                        + f"{report.axis_kind.value} {report.frame_role.value} {coord_label} "
+                        + f"chains:{report.chain_count} target:{report.target_cross_uv:.6f} "
+                        + f"scatter:{report.scatter_max:.6f}/{report.scatter_mean:.6f}"
+                    )
+            else:
+                frame_outlier_count = sum(
+                    1 for anomaly in quilt_anomalies
+                    if anomaly.code == "frame_scatter"
                 )
                 lines.append(
-                    "  - "
-                    + f"{report.axis_kind.value} {report.frame_role.value} {coord_label} "
-                    + f"chains:{report.chain_count} target:{report.target_cross_uv:.6f} "
-                    + f"scatter:{report.scatter_max:.6f}/{report.scatter_mean:.6f}"
+                    f"frame_groups: {len(frame_reports)} "
+                    f"outliers:{frame_outlier_count} "
+                    f"max_row_scatter:{max((report.scatter_max for report in frame_reports if report.axis_kind == FrameAxisKind.ROW), default=0.0):.6f} "
+                    f"max_column_scatter:{max((report.scatter_max for report in frame_reports if report.axis_kind == FrameAxisKind.COLUMN), default=0.0):.6f}"
                 )
         else:
-            lines.append("frame_groups: []")
+            lines.append("frame_groups: 0")
 
         telemetry = getattr(quilt_scaffold, 'frontier_telemetry', None)
+        telemetry_map = (
+            {record.chain_ref: record for record in telemetry.placement_records}
+            if telemetry is not None else {}
+        )
         if telemetry is not None:
             for tline in format_quilt_telemetry_summary(telemetry, reporting=reporting):
                 lines.append(tline)
@@ -507,42 +613,101 @@ def format_regression_snapshot_report(
                 )
             node = graph.nodes.get(patch_id)
             signature = graph.get_patch_semantic_key(patch_id)
-            note_label = ",".join(patch_placement.notes) if patch_placement.notes else "-"
-            dep_label = list(patch_placement.dependency_patches) if patch_placement.dependency_patches else []
+            patch_anomalies = patch_anomaly_map.get(quilt_scaffold.quilt_index, {}).get(patch_id, [])
+            patch_chain_anomalies = chain_anomaly_map.get(quilt_scaffold.quilt_index, {}).get(patch_id, [])
+            suspicious_chain_refs = {
+                anomaly.chain_ref
+                for anomaly in patch_chain_anomalies
+                if anomaly.chain_ref is not None and anomaly.chain_ref[0] == patch_id
+            }
+            suspicious_chain_refs.update(
+                anomaly.peer_chain_ref
+                for anomaly in patch_chain_anomalies
+                if anomaly.peer_chain_ref is not None and anomaly.peer_chain_ref[0] == patch_id
+            )
             root_chain_label = "-"
             if patch_placement.root_chain_index >= 0:
                 root_chain_label = format_chain_address(
                     (patch_id, patch_placement.loop_index, patch_placement.root_chain_index),
                     quilt_index=quilt_scaffold.quilt_index,
                 )
-            lines.append(
-                "  - "
-                + f"{patch_addr} {signature} "
-                + f"status:{patch_placement.status.value} transfer:{transfer_state.status.value} "
-                + f"loop:{patch_placement.loop_index} root_chain:{root_chain_label} "
-                + f"closure_valid:{1 if patch_placement.closure_valid else 0} "
-                + f"closure_error:{patch_placement.closure_error:.6f} "
-                + f"placed_chains:{len(patch_placement.chain_placements)} "
-                + f"unplaced:{list(patch_placement.unplaced_chain_indices)} "
-                + f"deps:{dep_label} "
-                + f"notes:{note_label} "
-                + f"resolved:{transfer_state.resolved_scaffold_points}/{transfer_state.scaffold_points} "
-                + f"uv_targets:{transfer_state.uv_targets_resolved} "
-                + f"pinned:{transfer_state.pinned_uv_targets} "
-                + f"unpinned:{transfer_state.unpinned_uv_targets} "
-                + f"conflicts:{transfer_state.conflicting_uv_targets}"
-            )
+            total_chains = len(patch_placement.chain_placements)
             if node is not None and 0 <= patch_placement.loop_index < len(node.boundary_loops):
+                total_chains = len(node.boundary_loops[patch_placement.loop_index].chains)
                 sc_count = len(patch_placement.scaffold_connected_chains)
-                lines.append(
-                    f"    scaffold_connected_chains:{sc_count}/{len(node.boundary_loops[patch_placement.loop_index].chains)}"
+            else:
+                sc_count = len(patch_placement.scaffold_connected_chains)
+
+            pin_total = transfer_state.pinned_uv_targets + transfer_state.unpinned_uv_targets
+            patch_codes = sorted({
+                anomaly.code
+                for anomaly in (*patch_anomalies, *patch_chain_anomalies)
+            })
+            patch_parts = [
+                f"{patch_addr} {signature}",
+                f"status:{patch_placement.status.value}",
+                f"transfer:{transfer_state.status.value}",
+                f"loop:{patch_placement.loop_index}",
+                f"root:{root_chain_label}",
+                f"chains:{len(patch_placement.chain_placements)}/{total_chains}",
+                f"sc:{sc_count}/{total_chains}",
+                f"pts:{transfer_state.resolved_scaffold_points}/{transfer_state.scaffold_points}",
+                f"uv:{transfer_state.uv_targets_resolved}",
+                f"pin:{transfer_state.pinned_uv_targets}/{pin_total}",
+            ]
+            if patch_placement.max_chain_gap > 0.0:
+                patch_parts.append(f"gap:{patch_placement.max_chain_gap:.6f}")
+            if (not patch_placement.closure_valid) or abs(patch_placement.closure_error) > 0.0:
+                patch_parts.append(f"closure:{patch_placement.closure_error:.6f}")
+            if transfer_state.conflicting_uv_targets > 0:
+                patch_parts.append(f"conflicts:{transfer_state.conflicting_uv_targets}")
+            if transfer_state.missing_uv_targets > 0:
+                patch_parts.append(f"missing:{transfer_state.missing_uv_targets}")
+            if transfer_state.unresolved_scaffold_points > 0:
+                patch_parts.append(f"unresolved:{transfer_state.unresolved_scaffold_points}")
+            if patch_placement.unplaced_chain_indices:
+                patch_parts.append(
+                    f"unplaced:{_format_int_list_brief(patch_placement.unplaced_chain_indices, limit=6)}"
                 )
+            if patch_placement.dependency_patches:
+                patch_parts.append(
+                    f"deps:{_format_int_list_brief(patch_placement.dependency_patches, limit=6)}"
+                )
+            if patch_placement.notes:
+                patch_parts.append(f"notes:{','.join(patch_placement.notes)}")
+            if suspicious_chain_refs:
+                patch_parts.append(f"suspicious:{len(suspicious_chain_refs)}")
+            if patch_codes:
+                patch_parts.append(f"flags:{_format_label_list_brief(patch_codes)}")
+            lines.append("  - " + " ".join(patch_parts))
+
             if transfer_state.pin_map is not None:
-                pin_parts = [
-                    f"{format_chain_address((patch_id, patch_placement.loop_index, dec.chain_index), quilt_index=quilt_scaffold.quilt_index)}:{dec.reason}"
-                    for dec in transfer_state.pin_map.chain_decisions
-                ]
-                lines.append(f"    pin_reasons:[{', '.join(pin_parts)}]")
+                if forensic_mode:
+                    pin_parts = [
+                        f"{format_chain_address((patch_id, patch_placement.loop_index, dec.chain_index), quilt_index=quilt_scaffold.quilt_index)}:{dec.reason}"
+                        for dec in transfer_state.pin_map.chain_decisions
+                    ]
+                    lines.append(f"    pin_reasons:[{', '.join(pin_parts)}]")
+                elif patch_codes or suspicious_chain_refs or transfer_state.conflicting_uv_targets > 0:
+                    lines.append(f"    pin_reasons:{_format_pin_reason_summary(transfer_state.pin_map)}")
+
+            if suspicious_chain_refs:
+                for chain_placement in patch_placement.chain_placements:
+                    chain_ref = (patch_id, patch_placement.loop_index, chain_placement.chain_index)
+                    if chain_ref not in suspicious_chain_refs:
+                        continue
+                    chain_specific_anomalies = [
+                        anomaly for anomaly in patch_chain_anomalies
+                        if anomaly.chain_ref == chain_ref or anomaly.peer_chain_ref == chain_ref
+                    ]
+                    lines.append(
+                        _format_compact_chain_line(
+                            quilt_scaffold.quilt_index,
+                            chain_placement,
+                            chain_specific_anomalies,
+                            telemetry_map.get(chain_ref),
+                        )
+                    )
 
     summary = (
         f"Regression snapshot | quilts:{metrics.quilt_count} | patches:{metrics.graph_patch_count} | "
