@@ -19,7 +19,7 @@ try:
     from .model import (
         BoundaryChain, FrameRole, LoopKind,
         PatchGraph, PatchNode,
-        PatchEdgeKey,
+        PatchEdgeKey, PatchType,
     )
     from .solve_records import (
         PatchCertainty, SolveComponentsResult, AttachmentCandidate,
@@ -45,7 +45,7 @@ except ImportError:
     from model import (
         BoundaryChain, FrameRole, LoopKind,
         PatchGraph, PatchNode,
-        PatchEdgeKey,
+        PatchEdgeKey, PatchType,
     )
     from solve_records import (
         PatchCertainty, SolveComponentsResult, AttachmentCandidate,
@@ -850,6 +850,10 @@ def plan_solve_phase1(
             quilt.stop_reason = QuiltStopReason.FRONTIER_EXHAUSTED
         quilt = _apply_quilt_closure_cut_recommendations(graph, solver_graph, quilt)
         quilts.append(quilt)
+
+    # Post-planning merge of orphan quilts (FLOOR/SLOPE) into WALL quilts
+    quilts = _merge_orphan_quilts_into_wall_quilts(graph, quilts)
+
 
     return SolvePlan(
         quilts=quilts,

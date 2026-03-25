@@ -2585,12 +2585,12 @@ def _cf_score_candidate(
 
     hv_adjacency = _cf_count_hv_adjacent_endpoints(graph, chain_ref)
     if is_hv:
-    for anchor in (start_anchor, end_anchor):
-        if anchor is not None and anchor.source_kind == PlacementSourceKind.CROSS_PATCH:
-            src_chain = graph.get_chain(*anchor.source_ref)
-            if src_chain is not None and src_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
-                hv_adjacency += 1
-                break
+        for anchor in (start_anchor, end_anchor):
+            if anchor is not None and anchor.source_kind == PlacementSourceKind.CROSS_PATCH:
+                src_chain = graph.get_chain(*anchor.source_ref)
+                if src_chain is not None and src_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                    hv_adjacency += 1
+                    break
     if is_hv:
         if hv_adjacency >= 2:
             score += SCORE_HV_ADJ_FULL_BONUS
