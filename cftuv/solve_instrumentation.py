@@ -15,6 +15,12 @@ try:
     from .model import (
         BoundaryChain, ChainRef, FrameRole, PlacementSourceKind,
     )
+    from .solve_report_utils import (
+        ReportingMode,
+        ReportingOptions,
+        coerce_reporting_options,
+        format_chain_address,
+    )
     from .solve_records import (
         ChainAnchor, ChainPoolEntry, FrontierCandidateEval,
         FrontierPlacementRecord, FrontierStallRecord, QuiltFrontierTelemetry,
@@ -24,6 +30,12 @@ try:
 except ImportError:
     from model import (
         BoundaryChain, ChainRef, FrameRole, PlacementSourceKind,
+    )
+    from solve_report_utils import (
+        ReportingMode,
+        ReportingOptions,
+        coerce_reporting_options,
+        format_chain_address,
     )
     from solve_records import (
         ChainAnchor, ChainPoolEntry, FrontierCandidateEval,
@@ -193,7 +205,7 @@ class FrontierTelemetryCollector:
         self._placement_records.append(rec)
         trace_console(
             f"[CFTUV][Telemetry] Q{self.quilt_index} Step {iteration}: "
-            f"{placement_path} P{chain_ref[0]}L{chain_ref[1]}C{chain_ref[2]} "
+            f"{placement_path} {format_chain_address(chain_ref, quilt_index=self.quilt_index)} "
             f"{chain.frame_role.value} score:{score:.2f} ep:{anchor_count} "
             f"{_anchor_debug_short(start_anchor)}/{_anchor_debug_short(end_anchor)} "
             f"bridge:{'Y' if rec.is_bridge else 'N'} "
@@ -234,7 +246,7 @@ class FrontierTelemetryCollector:
 
         role_str = best_rejected_role.value if best_rejected_role is not None else "NONE"
         ref_str = (
-            f"P{best_rejected_ref[0]}L{best_rejected_ref[1]}C{best_rejected_ref[2]}"
+            format_chain_address(best_rejected_ref, quilt_index=self.quilt_index)
             if best_rejected_ref is not None else "-"
         )
         trace_console(
@@ -408,8 +420,14 @@ def collect_stall_snapshot(
 # Форматирование для reporting
 # ============================================================
 
-def format_quilt_telemetry_summary(t: QuiltFrontierTelemetry) -> list[str]:
+def format_quilt_telemetry_summary(
+    t: QuiltFrontierTelemetry,
+    reporting: Optional[ReportingOptions] = None,
+    *,
+    mode: Optional[ReportingMode | str] = None,
+) -> list[str]:
     """Краткая сводка телеметрии для regression snapshot (одна секция)."""
+    reporting = coerce_reporting_options(reporting, mode=mode)
     lines = [
         "frontier_telemetry:",
         (
@@ -438,8 +456,14 @@ def format_quilt_telemetry_summary(t: QuiltFrontierTelemetry) -> list[str]:
     return lines
 
 
-def format_quilt_telemetry_detail(t: QuiltFrontierTelemetry) -> list[str]:
+def format_quilt_telemetry_detail(
+    t: QuiltFrontierTelemetry,
+    reporting: Optional[ReportingOptions] = None,
+    *,
+    mode: Optional[ReportingMode | str] = None,
+) -> list[str]:
     """Подробный лог размещений и stall-событий для verbose-вывода."""
+    reporting = coerce_reporting_options(reporting, mode=mode)
     lines: list[str] = []
     q = t.quilt_index
 
@@ -454,7 +478,7 @@ def format_quilt_telemetry_detail(t: QuiltFrontierTelemetry) -> list[str]:
         stall = stall_by_iter.get(it)
         if stall is not None:
             ref_str = (
-                f"P{stall.best_rejected_ref[0]}L{stall.best_rejected_ref[1]}C{stall.best_rejected_ref[2]}"
+                format_chain_address(stall.best_rejected_ref, quilt_index=q)
                 if stall.best_rejected_ref is not None else "-"
             )
             role_str = stall.best_rejected_role.value if stall.best_rejected_role is not None else "NONE"
@@ -470,7 +494,7 @@ def format_quilt_telemetry_detail(t: QuiltFrontierTelemetry) -> list[str]:
             lines.append(
                 f"[CFTUV][Telemetry] Q{q} Step {it}: "
                 f"{r.placement_path} "
-                f"P{r.chain_ref[0]}L{r.chain_ref[1]}C{r.chain_ref[2]} "
+                f"{format_chain_address(r.chain_ref, quilt_index=q)} "
                 f"{r.frame_role.value} score:{r.score:.2f} "
                 f"ep:{r.anchor_count} "
                 f"{r.start_anchor_kind[:2].upper()}/{r.end_anchor_kind[:2].upper()} "

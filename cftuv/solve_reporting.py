@@ -6,156 +6,319 @@ from mathutils import Vector
 
 try:
     from .model import FrameAxisKind, FrameRole, FormattedReport, PatchGraph, ScaffoldMap
-    from .solve_records import AttachmentCandidate, ClosureCutHeuristic, SolverGraph, SolvePlan
+    from .solve_report_anomalies import (
+        ReportAnomaly,
+        collect_scaffold_anomalies,
+        format_scaffold_anomaly_lines,
+    )
+    from .solve_report_metrics import (
+        collect_report_quilt_patch_ids,
+        collect_scaffold_metrics,
+    )
+    from .solve_report_utils import (
+        ReportingMode,
+        ReportingOptions,
+        coerce_reporting_options,
+        format_chain_address,
+        format_chain_pair_address,
+        format_corner_address,
+        format_patch_address,
+        format_patch_pair_address,
+    )
+    from .solve_records import AttachmentCandidate, ClosureCutHeuristic, FrontierPlacementRecord, SolverGraph, SolvePlan
     from .solve_planning import _analyze_quilt_closure_cuts, _build_quilt_tree_edges
     from .solve_transfer import (
         _build_patch_transfer_targets,
-        _collect_phase1_unsupported_patch_ids,
         _format_scaffold_uv_points,
         _ordered_quilt_patch_ids,
     )
     from .solve_instrumentation import format_quilt_telemetry_summary, format_quilt_telemetry_detail
 except ImportError:
     from model import FrameAxisKind, FrameRole, FormattedReport, PatchGraph, ScaffoldMap
-    from solve_records import AttachmentCandidate, ClosureCutHeuristic, SolverGraph, SolvePlan
+    from solve_report_anomalies import (
+        ReportAnomaly,
+        collect_scaffold_anomalies,
+        format_scaffold_anomaly_lines,
+    )
+    from solve_report_metrics import (
+        collect_report_quilt_patch_ids,
+        collect_scaffold_metrics,
+    )
+    from solve_report_utils import (
+        ReportingMode,
+        ReportingOptions,
+        coerce_reporting_options,
+        format_chain_address,
+        format_chain_pair_address,
+        format_corner_address,
+        format_patch_address,
+        format_patch_pair_address,
+    )
+    from solve_records import AttachmentCandidate, ClosureCutHeuristic, FrontierPlacementRecord, SolverGraph, SolvePlan
     from solve_planning import _analyze_quilt_closure_cuts, _build_quilt_tree_edges
     from solve_transfer import (
         _build_patch_transfer_targets,
-        _collect_phase1_unsupported_patch_ids,
         _format_scaffold_uv_points,
         _ordered_quilt_patch_ids,
     )
     from solve_instrumentation import format_quilt_telemetry_summary, format_quilt_telemetry_detail
 
 
+_HV_ROLES = {FrameRole.H_FRAME, FrameRole.V_FRAME}
+
+
+def _build_anomaly_maps(
+    anomalies: tuple[ReportAnomaly, ...],
+) -> tuple[dict[int, dict[int, list[ReportAnomaly]]], dict[int, dict[int, list[ReportAnomaly]]]]:
+    patch_map: dict[int, dict[int, list[ReportAnomaly]]] = {}
+    chain_map: dict[int, dict[int, list[ReportAnomaly]]] = {}
+    for anomaly in anomalies:
+        if anomaly.quilt_index is None:
+            continue
+        if anomaly.patch_id is not None:
+            patch_map.setdefault(anomaly.quilt_index, {}).setdefault(anomaly.patch_id, []).append(anomaly)
+        if anomaly.chain_ref is not None:
+            chain_map.setdefault(anomaly.quilt_index, {}).setdefault(anomaly.chain_ref[0], []).append(anomaly)
+        if anomaly.peer_chain_ref is not None:
+            chain_map.setdefault(anomaly.quilt_index, {}).setdefault(anomaly.peer_chain_ref[0], []).append(anomaly)
+    return patch_map, chain_map
+
+
+def _format_delta(start_uv: Vector, end_uv: Vector) -> Vector:
+    return end_uv - start_uv
+
+
+def _format_uv_pair(uv: Vector) -> str:
+    return f"({uv.x:.4f},{uv.y:.4f})"
+
+
+def _format_chain_axis_error(chain_placement) -> float:
+    if len(chain_placement.points) < 2:
+        return 0.0
+    delta = _format_delta(chain_placement.points[0][1], chain_placement.points[-1][1])
+    if chain_placement.frame_role == FrameRole.H_FRAME:
+        return abs(delta.y)
+    if chain_placement.frame_role == FrameRole.V_FRAME:
+        return abs(delta.x)
+    return 0.0
+
+
+def _anchor_kind_short(kind: str) -> str:
+    if kind == "same_patch":
+        return "SP"
+    if kind == "cross_patch":
+        return "XP"
+    return "-"
+
+
+def _format_compact_chain_line(
+    quilt_index: int,
+    chain_placement,
+    chain_anomalies: list[ReportAnomaly],
+    placement_record: Optional[FrontierPlacementRecord],
+) -> str:
+    start_uv = chain_placement.points[0][1]
+    end_uv = chain_placement.points[-1][1]
+    delta = _format_delta(start_uv, end_uv)
+    axis_error = _format_chain_axis_error(chain_placement)
+    anomaly = chain_anomalies[0] if chain_anomalies else None
+    code = anomaly.code if anomaly is not None else "diagnostic"
+    inherited_label = "1" if placement_record is not None and placement_record.direction_inherited else "0"
+    anchor_label = (
+        f"{_anchor_kind_short(placement_record.start_anchor_kind)}/"
+        f"{_anchor_kind_short(placement_record.end_anchor_kind)}"
+        if placement_record is not None else "-/-"
+    )
+    status_label = placement_record.placement_path if placement_record is not None else "-"
+    return (
+        f"    Chain {format_chain_address((chain_placement.patch_id, chain_placement.loop_index, chain_placement.chain_index), quilt_index=quilt_index)} "
+        f"{chain_placement.frame_role.value} pts:{len(chain_placement.points)} "
+        f"start:{_format_uv_pair(start_uv)} end:{_format_uv_pair(end_uv)} "
+        f"d:{_format_uv_pair(delta)} axis:{axis_error:.6f} "
+        f"inh:{inherited_label} anchor:{anchor_label} code:{code} st:{status_label}"
+    )
+
+
 def format_root_scaffold_report(
     graph: PatchGraph,
     scaffold_map: ScaffoldMap,
     mesh_name: Optional[str] = None,
+    reporting: Optional[ReportingOptions] = None,
+    *,
+    mode: Optional[ReportingMode | str] = None,
 ) -> FormattedReport:
+    reporting = coerce_reporting_options(reporting, mode=mode)
+    metrics = collect_scaffold_metrics(graph, scaffold_map)
+    anomalies = collect_scaffold_anomalies(
+        graph,
+        scaffold_map,
+        metrics,
+        include_transfer=False,
+    )
+    patch_anomaly_map, chain_anomaly_map = _build_anomaly_maps(anomalies)
+    forensic_mode = reporting.mode == ReportingMode.FORENSIC
+    summary_mode = reporting.mode == ReportingMode.SUMMARY
     lines = []
     if mesh_name:
         lines.append(f"Mesh: {mesh_name}")
-
-    total_patches = 0
-    unsupported = 0
-    invalid_closure = 0
-    closure_seam_count = 0
-    max_closure_span_mismatch = 0.0
-    max_closure_axis_phase = 0.0
-    frame_group_count = 0
-    max_row_scatter = 0.0
-    max_column_scatter = 0.0
+    lines.extend(format_scaffold_anomaly_lines(anomalies))
+    lines.append("")
     for quilt in scaffold_map.quilts:
-        placed_patch_ids = []
-        for step_patch_id in [quilt.root_patch_id] + [patch_id for patch_id in quilt.patches.keys() if patch_id != quilt.root_patch_id]:
-            if step_patch_id not in quilt.patches:
-                continue
-            placed_patch_ids.append(step_patch_id)
-        if not placed_patch_ids:
-            placed_patch_ids = [quilt.root_patch_id]
-        lines.append(f"Quilt {quilt.quilt_index}: root=Patch {quilt.root_patch_id} ({graph.get_patch_semantic_key(quilt.root_patch_id)}) | patches:{placed_patch_ids}")
+        placed_patch_ids = collect_report_quilt_patch_ids(quilt)
+        telemetry = getattr(quilt, 'frontier_telemetry', None)
+        telemetry_map = (
+            {record.chain_ref: record for record in telemetry.placement_records}
+            if telemetry is not None else {}
+        )
+        lines.append(
+            f"Quilt {quilt.quilt_index}: "
+            f"root={format_patch_address(quilt.root_patch_id, quilt_index=quilt.quilt_index)} "
+            f"({graph.get_patch_semantic_key(quilt.root_patch_id)}) | patches:{placed_patch_ids}"
+        )
         closure_reports = getattr(quilt, 'closure_seam_reports', ())
         frame_reports = getattr(quilt, 'frame_alignment_reports', ())
         if closure_reports:
-            closure_seam_count += len(closure_reports)
-            max_closure_span_mismatch = max(
-                max_closure_span_mismatch,
-                max((report.span_mismatch for report in closure_reports), default=0.0),
-            )
-            max_closure_axis_phase = max(
-                max_closure_axis_phase,
-                max((report.axis_phase_offset_max for report in closure_reports), default=0.0),
-            )
+            closure_span_mismatch = max((report.span_mismatch for report in closure_reports), default=0.0)
+            closure_axis_phase = max((report.axis_phase_offset_max for report in closure_reports), default=0.0)
             lines.append(
                 f"  ClosureSeams: {len(closure_reports)} | "
-                f"max_span_mismatch:{max((report.span_mismatch for report in closure_reports), default=0.0):.6f} | "
-                f"max_axis_phase:{max((report.axis_phase_offset_max for report in closure_reports), default=0.0):.6f}"
+                f"max_span_mismatch:{closure_span_mismatch:.6f} | "
+                f"max_axis_phase:{closure_axis_phase:.6f}"
             )
-            for report in closure_reports:
-                lines.append(
-                    "    "
-                    + f"P{report.owner_patch_id} L{report.owner_loop_index}C{report.owner_chain_index}"
-                    + f"<->P{report.target_patch_id} L{report.target_loop_index}C{report.target_chain_index} "
-                    + f"{report.frame_role.value} mode:{report.anchor_mode.value} "
-                    + f"a:{report.owner_anchor_count}/{report.target_anchor_count} "
-                    + f"span3d:{report.canonical_3d_span:.6f} "
-                    + f"uv:{report.owner_uv_span:.6f}/{report.target_uv_span:.6f} "
-                    + f"mismatch:{report.span_mismatch:.6f} "
-                    + f"axis:{report.owner_axis_error:.6f}/{report.target_axis_error:.6f} "
-                    + f"phase:{report.axis_phase_offset_max:.6f}/{report.axis_phase_offset_mean:.6f} "
-                    + f"cross:{report.cross_axis_offset_max:.6f}/{report.cross_axis_offset_mean:.6f} "
-                    + f"uvd:{report.shared_uv_delta_max:.6f}/{report.shared_uv_delta_mean:.6f} "
-                    + f"path:{report.tree_patch_distance} free:{report.free_bridge_count}"
-                )
+            if forensic_mode:
+                for report in closure_reports:
+                    seam_addr = format_chain_pair_address(
+                        (report.owner_patch_id, report.owner_loop_index, report.owner_chain_index),
+                        (report.target_patch_id, report.target_loop_index, report.target_chain_index),
+                        quilt_index=quilt.quilt_index,
+                    )
+                    lines.append(
+                        "    "
+                        + f"{seam_addr} "
+                        + f"{report.frame_role.value} mode:{report.anchor_mode.value} "
+                        + f"a:{report.owner_anchor_count}/{report.target_anchor_count} "
+                        + f"span3d:{report.canonical_3d_span:.6f} "
+                        + f"uv:{report.owner_uv_span:.6f}/{report.target_uv_span:.6f} "
+                        + f"mismatch:{report.span_mismatch:.6f} "
+                        + f"axis:{report.owner_axis_error:.6f}/{report.target_axis_error:.6f} "
+                        + f"phase:{report.axis_phase_offset_max:.6f}/{report.axis_phase_offset_mean:.6f} "
+                        + f"cross:{report.cross_axis_offset_max:.6f}/{report.cross_axis_offset_mean:.6f} "
+                        + f"uvd:{report.shared_uv_delta_max:.6f}/{report.shared_uv_delta_mean:.6f} "
+                        + f"path:{report.tree_patch_distance} free:{report.free_bridge_count}"
+                    )
         if frame_reports:
-            frame_group_count += len(frame_reports)
-            max_row_scatter = max(
-                max_row_scatter,
-                max((report.scatter_max for report in frame_reports if report.axis_kind == FrameAxisKind.ROW), default=0.0),
-            )
-            max_column_scatter = max(
-                max_column_scatter,
-                max((report.scatter_max for report in frame_reports if report.axis_kind == FrameAxisKind.COLUMN), default=0.0),
-            )
+            row_scatter = max((report.scatter_max for report in frame_reports if report.axis_kind == FrameAxisKind.ROW), default=0.0)
+            column_scatter = max((report.scatter_max for report in frame_reports if report.axis_kind == FrameAxisKind.COLUMN), default=0.0)
             lines.append(
                 f"  FrameGroups: {len(frame_reports)} | "
-                f"max_row_scatter:{max((report.scatter_max for report in frame_reports if report.axis_kind == FrameAxisKind.ROW), default=0.0):.6f} | "
-                f"max_column_scatter:{max((report.scatter_max for report in frame_reports if report.axis_kind == FrameAxisKind.COLUMN), default=0.0):.6f}"
+                f"max_row_scatter:{row_scatter:.6f} | "
+                f"max_column_scatter:{column_scatter:.6f}"
             )
-            for report in frame_reports:
-                coord_label = (
-                    f"z:{report.class_coord_a:.6f}"
-                    if report.axis_kind == FrameAxisKind.ROW
-                    else f"xy:({report.class_coord_a:.6f},{report.class_coord_b:.6f})"
-                )
-                refs_label = ','.join(
-                    f"P{patch_id}L{loop_index}C{chain_index}"
-                    for patch_id, loop_index, chain_index in report.member_refs
-                )
-                closure_tag = " closure:1" if report.closure_sensitive else " closure:0"
-                lines.append(
-                    "    "
-                    + f"{report.axis_kind.value} {report.frame_role.value} {coord_label} "
-                    + f"chains:{report.chain_count} target:{report.target_cross_uv:.6f} "
-                    + f"scatter:{report.scatter_max:.6f}/{report.scatter_mean:.6f} "
-                    + f"weight:{report.total_weight:.6f}{closure_tag} refs:[{refs_label}]"
-                )
-        telemetry = getattr(quilt, 'frontier_telemetry', None)
+            if forensic_mode:
+                for report in frame_reports:
+                    coord_label = (
+                        f"z:{report.class_coord_a:.6f}"
+                        if report.axis_kind == FrameAxisKind.ROW
+                        else f"xy:({report.class_coord_a:.6f},{report.class_coord_b:.6f})"
+                    )
+                    refs_label = ','.join(
+                        format_chain_address(
+                            (patch_id, loop_index, chain_index),
+                            quilt_index=quilt.quilt_index,
+                        )
+                        for patch_id, loop_index, chain_index in report.member_refs
+                    )
+                    closure_tag = " closure:1" if report.closure_sensitive else " closure:0"
+                    lines.append(
+                        "    "
+                        + f"{report.axis_kind.value} {report.frame_role.value} {coord_label} "
+                        + f"chains:{report.chain_count} target:{report.target_cross_uv:.6f} "
+                        + f"scatter:{report.scatter_max:.6f}/{report.scatter_mean:.6f} "
+                        + f"weight:{report.total_weight:.6f}{closure_tag} refs:[{refs_label}]"
+                    )
         if telemetry is not None:
-            for tline in format_quilt_telemetry_detail(telemetry):
+            telemetry_lines = (
+                format_quilt_telemetry_summary(telemetry, reporting=reporting)
+                if summary_mode else
+                format_quilt_telemetry_detail(telemetry, reporting=reporting)
+            )
+            for tline in telemetry_lines:
                 lines.append(tline)
 
         for patch_id in placed_patch_ids:
             patch_placement = quilt.patches.get(patch_id)
-            total_patches += 1
             signature = graph.get_patch_semantic_key(patch_id)
+            patch_addr = format_patch_address(patch_id, quilt_index=quilt.quilt_index)
+            patch_anomalies = patch_anomaly_map.get(quilt.quilt_index, {}).get(patch_id, [])
+            patch_chain_anomalies = chain_anomaly_map.get(quilt.quilt_index, {}).get(patch_id, [])
+            suspicious_chain_refs = {
+                anomaly.chain_ref
+                for anomaly in patch_chain_anomalies
+                if anomaly.chain_ref is not None and anomaly.chain_ref[0] == patch_id
+            }
+            suspicious_chain_refs.update(
+                anomaly.peer_chain_ref
+                for anomaly in patch_chain_anomalies
+                if anomaly.peer_chain_ref is not None and anomaly.peer_chain_ref[0] == patch_id
+            )
             if patch_placement is None:
-                unsupported += 1
-                lines.append(f"  Patch {patch_id} ({signature}) | scaffold:missing")
+                lines.append(f"  {patch_addr} ({signature}) | scaffold:missing")
                 continue
             if patch_placement.notes:
-                unsupported += 1
-                lines.append(f"  Patch {patch_id} ({signature}) | scaffold:unsupported | notes:{', '.join(patch_placement.notes)}")
+                lines.append(
+                    f"  {patch_addr} ({signature}) | scaffold:unsupported | "
+                    f"notes:{', '.join(patch_placement.notes)}"
+                )
                 continue
 
             scaffold_status = 'ok' if patch_placement.closure_valid else 'invalid_closure'
-            if not patch_placement.closure_valid:
-                invalid_closure += 1
+            root_chain_label = "-"
+            if patch_placement.root_chain_index >= 0:
+                root_chain_label = format_chain_address(
+                    (patch_id, patch_placement.loop_index, patch_placement.root_chain_index),
+                    quilt_index=quilt.quilt_index,
+                )
             lines.append(
-                f"  Patch {patch_id} ({signature}) | loop:{patch_placement.loop_index} | start_chain:{patch_placement.root_chain_index} | "
+                f"  {patch_addr} ({signature}) | loop:{patch_placement.loop_index} | start_chain:{root_chain_label} | "
                 f"bbox:({patch_placement.bbox_min.x:.4f}, {patch_placement.bbox_min.y:.4f}) -> ({patch_placement.bbox_max.x:.4f}, {patch_placement.bbox_max.y:.4f}) | "
-                f"closure:{patch_placement.closure_error:.6f} | max_gap:{patch_placement.max_chain_gap:.6f} | status:{scaffold_status}"
+                f"closure:{patch_placement.closure_error:.6f} | max_gap:{patch_placement.max_chain_gap:.6f} | "
+                f"chains:{len(patch_placement.chain_placements)} corners:{len(patch_placement.corner_positions)} "
+                f"gaps:{len(patch_placement.gap_reports)} suspicious:{len(suspicious_chain_refs)} "
+                f"status:{scaffold_status}"
             )
+            node = graph.nodes.get(patch_id)
+            if node is None or patch_placement.loop_index < 0 or patch_placement.loop_index >= len(node.boundary_loops):
+                continue
+            if not forensic_mode:
+                if suspicious_chain_refs and reporting.mode == ReportingMode.DIAGNOSTIC:
+                    suspicious_chain_lines = []
+                    for chain_placement in patch_placement.chain_placements:
+                        chain_ref = (patch_id, patch_placement.loop_index, chain_placement.chain_index)
+                        if chain_ref not in suspicious_chain_refs:
+                            continue
+                        chain_specific_anomalies = [
+                            anomaly for anomaly in patch_chain_anomalies
+                            if anomaly.chain_ref == chain_ref or anomaly.peer_chain_ref == chain_ref
+                        ]
+                        suspicious_chain_lines.append(
+                            _format_compact_chain_line(
+                                quilt.quilt_index,
+                                chain_placement,
+                                chain_specific_anomalies,
+                                telemetry_map.get(chain_ref),
+                            )
+                        )
+                    lines.extend(suspicious_chain_lines)
+                elif patch_anomalies and reporting.mode == ReportingMode.DIAGNOSTIC:
+                    lines.append("    detail: compact | raw:forensic")
+                continue
+
+            boundary_loop = node.boundary_loops[patch_placement.loop_index]
             if patch_placement.gap_reports:
                 for gap_report in patch_placement.gap_reports:
                     lines.append(
                         f"    Gap {gap_report.chain_index}->{gap_report.next_chain_index}: {gap_report.gap:.6f}"
                     )
-            node = graph.nodes.get(patch_id)
-            if node is None or patch_placement.loop_index < 0 or patch_placement.loop_index >= len(node.boundary_loops):
-                continue
-            boundary_loop = node.boundary_loops[patch_placement.loop_index]
             for corner_index in sorted(patch_placement.corner_positions.keys()):
                 point = patch_placement.corner_positions[corner_index]
                 turn_angle = 0.0
@@ -167,7 +330,8 @@ def format_root_scaffold_report(
                     prev_chain = corner.prev_chain_index
                     next_chain = corner.next_chain_index
                 lines.append(
-                    f"    Corner {corner_index}: ({point.x:.4f}, {point.y:.4f}) | chains:{prev_chain}->{next_chain} | turn:{turn_angle:.1f}"
+                    f"    {format_corner_address(patch_id, patch_placement.loop_index, corner_index, quilt_index=quilt.quilt_index)}: "
+                    f"({point.x:.4f}, {point.y:.4f}) | chains:{prev_chain}->{next_chain} | turn:{turn_angle:.1f}"
                 )
             sc_set = patch_placement.scaffold_connected_chains
             for chain_placement in patch_placement.chain_placements:
@@ -176,22 +340,28 @@ def format_root_scaffold_report(
                 start_point = chain_placement.points[0][1]
                 end_point = chain_placement.points[-1][1]
                 isolated_tag = ""
-                if chain_placement.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME} and chain_placement.chain_index not in sc_set:
+                if chain_placement.frame_role in _HV_ROLES and chain_placement.chain_index not in sc_set:
                     isolated_tag = " [ISOLATED]"
+                chain_addr = format_chain_address(
+                    (patch_id, patch_placement.loop_index, chain_placement.chain_index),
+                    quilt_index=quilt.quilt_index,
+                )
                 lines.append(
-                    f"    {chain_placement.source_kind.value.title()} {chain_placement.chain_index}: {chain_placement.frame_role.value} | "
+                    f"    {chain_placement.source_kind.value.title()} {chain_addr}: {chain_placement.frame_role.value} | "
                     f"points:{len(chain_placement.points)} | start:({start_point.x:.4f}, {start_point.y:.4f}) | "
                     f"end:({end_point.x:.4f}, {end_point.y:.4f}) | uv:{_format_scaffold_uv_points(chain_placement.points)}{isolated_tag}"
                 )
 
     summary = (
-        f"Scaffold quilts: {len(scaffold_map.quilts)} | Patches: {total_patches} | Unsupported: {unsupported} | "
-        f"Invalid closure: {invalid_closure} | Closure seams: {closure_seam_count} | "
-        f"Max seam mismatch: {max_closure_span_mismatch:.6f} | "
-        f"Max seam phase: {max_closure_axis_phase:.6f} | "
-        f"Frame groups: {frame_group_count} | "
-        f"Max row scatter: {max_row_scatter:.6f} | "
-        f"Max column scatter: {max_column_scatter:.6f}"
+        f"Scaffold quilts: {metrics.quilt_count} | Patches: {metrics.scaffold_report_patch_count} | "
+        f"Unsupported: {metrics.unsupported_report_patch_count} | "
+        f"Invalid closure: {len(metrics.invalid_closure_patch_ids)} | "
+        f"Closure seams: {metrics.closure_seam_count} | "
+        f"Max seam mismatch: {metrics.max_closure_span_mismatch:.6f} | "
+        f"Max seam phase: {metrics.max_closure_axis_phase:.6f} | "
+        f"Frame groups: {metrics.frame_group_count} | "
+        f"Max row scatter: {metrics.max_row_scatter:.6f} | "
+        f"Max column scatter: {metrics.max_column_scatter:.6f}"
     )
     return FormattedReport(lines=lines, summary=summary)
 
@@ -202,78 +372,38 @@ def format_regression_snapshot_report(
     solve_plan: Optional[SolvePlan],
     scaffold_map: ScaffoldMap,
     mesh_name: Optional[str] = None,
+    reporting: Optional[ReportingOptions] = None,
+    *,
+    mode: Optional[ReportingMode | str] = None,
 ) -> FormattedReport:
+    reporting = coerce_reporting_options(reporting, mode=mode)
+    metrics = collect_scaffold_metrics(graph, scaffold_map, bm=bm)
     lines = []
     if mesh_name:
         lines.append(f"Mesh: {mesh_name}")
+    lines.extend(collect_scaffold_anomaly_lines(graph, scaffold_map, metrics, include_transfer=True))
+    lines.append("")
 
     solve_plan = solve_plan or SolvePlan()
     quilt_plan_by_index = {quilt.quilt_index: quilt for quilt in solve_plan.quilts}
-    unsupported_patch_ids = _collect_phase1_unsupported_patch_ids(scaffold_map)
-    invalid_closure_patch_ids = sorted({
-        patch_id
-        for quilt_scaffold in scaffold_map.quilts
-        for patch_id, patch_placement in quilt_scaffold.patches.items()
-        if patch_placement is not None and not patch_placement.notes and not patch_placement.closure_valid
-    })
-    closure_seam_count = sum(
-        len(getattr(quilt_scaffold, 'closure_seam_reports', ()))
-        for quilt_scaffold in scaffold_map.quilts
-    )
-    max_closure_span_mismatch = max(
-        (
-            report.span_mismatch
-            for quilt_scaffold in scaffold_map.quilts
-            for report in getattr(quilt_scaffold, 'closure_seam_reports', ())
-        ),
-        default=0.0,
-    )
-    max_closure_axis_phase = max(
-        (
-            report.axis_phase_offset_max
-            for quilt_scaffold in scaffold_map.quilts
-            for report in getattr(quilt_scaffold, 'closure_seam_reports', ())
-        ),
-        default=0.0,
-    )
-    frame_group_count = sum(
-        len(getattr(quilt_scaffold, 'frame_alignment_reports', ()))
-        for quilt_scaffold in scaffold_map.quilts
-    )
-    max_row_scatter = max(
-        (
-            report.scatter_max
-            for quilt_scaffold in scaffold_map.quilts
-            for report in getattr(quilt_scaffold, 'frame_alignment_reports', ())
-            if report.axis_kind == FrameAxisKind.ROW
-        ),
-        default=0.0,
-    )
-    max_column_scatter = max(
-        (
-            report.scatter_max
-            for quilt_scaffold in scaffold_map.quilts
-            for report in getattr(quilt_scaffold, 'frame_alignment_reports', ())
-            if report.axis_kind == FrameAxisKind.COLUMN
-        ),
-        default=0.0,
-    )
+    unsupported_patch_ids = list(metrics.unsupported_patch_ids)
+    invalid_closure_patch_ids = list(metrics.invalid_closure_patch_ids)
 
-    lines.append(f"Patches: {len(graph.nodes)}")
-    lines.append(f"Quilts: {len(scaffold_map.quilts)}")
+    lines.append(f"Patches: {metrics.graph_patch_count}")
+    lines.append(f"Quilts: {metrics.quilt_count}")
     lines.append(f"Skipped patches: {sorted(solve_plan.skipped_patch_ids)}")
     lines.append(f"Unsupported patches: {unsupported_patch_ids}")
     lines.append(f"Invalid closure patches: {invalid_closure_patch_ids}")
     lines.append(f"Conformal fallback patches: {len(unsupported_patch_ids)}")
     lines.append(
         "Closure seams: "
-        f"{closure_seam_count} | max_span_mismatch:{max_closure_span_mismatch:.6f} | "
-        f"max_axis_phase:{max_closure_axis_phase:.6f}"
+        f"{metrics.closure_seam_count} | max_span_mismatch:{metrics.max_closure_span_mismatch:.6f} | "
+        f"max_axis_phase:{metrics.max_closure_axis_phase:.6f}"
     )
     lines.append(
         "Frame groups: "
-        f"{frame_group_count} | max_row_scatter:{max_row_scatter:.6f} | "
-        f"max_column_scatter:{max_column_scatter:.6f}"
+        f"{metrics.frame_group_count} | max_row_scatter:{metrics.max_row_scatter:.6f} | "
+        f"max_column_scatter:{metrics.max_column_scatter:.6f}"
     )
 
     for quilt_scaffold in scaffold_map.quilts:
@@ -284,13 +414,19 @@ def format_regression_snapshot_report(
 
         lines.append("")
         lines.append(f"## Quilt {quilt_scaffold.quilt_index}")
-        lines.append(f"root_patch_id: {quilt_scaffold.root_patch_id}")
+        lines.append(
+            f"root_patch: "
+            f"{format_patch_address(quilt_scaffold.root_patch_id, quilt_index=quilt_scaffold.quilt_index)}"
+        )
         lines.append(f"patch_ids: {ordered_patch_ids}")
         lines.append(f"stop_reason: {quilt_plan.stop_reason.value if quilt_plan is not None else ''}")
         lines.append(
             "build_order: "
             + "[" + ", ".join(
-                f"P{patch_id}L{loop_index}C{chain_index}"
+                format_chain_address(
+                    (patch_id, loop_index, chain_index),
+                    quilt_index=quilt_scaffold.quilt_index,
+                )
                 for patch_id, loop_index, chain_index in quilt_scaffold.build_order
             ) + "]"
         )
@@ -317,8 +453,12 @@ def format_regression_snapshot_report(
             for report in closure_reports:
                 lines.append(
                     "  - "
-                    + f"P{report.owner_patch_id}L{report.owner_loop_index}C{report.owner_chain_index}"
-                    + f"<->P{report.target_patch_id}L{report.target_loop_index}C{report.target_chain_index} "
+                    + format_chain_pair_address(
+                        (report.owner_patch_id, report.owner_loop_index, report.owner_chain_index),
+                        (report.target_patch_id, report.target_loop_index, report.target_chain_index),
+                        quilt_index=quilt_scaffold.quilt_index,
+                    )
+                    + " "
                     + f"{report.frame_role.value} mode:{report.anchor_mode.value} "
                     + f"mismatch:{report.span_mismatch:.6f} phase:{report.axis_phase_offset_max:.6f} "
                     + f"free:{report.free_bridge_count}"
@@ -346,31 +486,40 @@ def format_regression_snapshot_report(
 
         telemetry = getattr(quilt_scaffold, 'frontier_telemetry', None)
         if telemetry is not None:
-            for tline in format_quilt_telemetry_summary(telemetry):
+            for tline in format_quilt_telemetry_summary(telemetry, reporting=reporting):
                 lines.append(tline)
 
         lines.append("patches:")
         for patch_id in ordered_patch_ids:
             patch_placement = quilt_scaffold.patches.get(patch_id)
+            patch_addr = format_patch_address(patch_id, quilt_index=quilt_scaffold.quilt_index)
             if patch_placement is None:
-                lines.append(f"  - P{patch_id} status:missing_patch")
+                lines.append(f"  - {patch_addr} status:missing_patch")
                 continue
 
-            transfer_state = _build_patch_transfer_targets(
-                bm,
-                graph,
-                patch_placement,
-                Vector((0.0, 0.0)),
-            )
+            transfer_state = metrics.transfer_states_by_patch.get((quilt_scaffold.quilt_index, patch_id))
+            if transfer_state is None:
+                transfer_state = _build_patch_transfer_targets(
+                    bm,
+                    graph,
+                    patch_placement,
+                    Vector((0.0, 0.0)),
+                )
             node = graph.nodes.get(patch_id)
             signature = graph.get_patch_semantic_key(patch_id)
             note_label = ",".join(patch_placement.notes) if patch_placement.notes else "-"
             dep_label = list(patch_placement.dependency_patches) if patch_placement.dependency_patches else []
+            root_chain_label = "-"
+            if patch_placement.root_chain_index >= 0:
+                root_chain_label = format_chain_address(
+                    (patch_id, patch_placement.loop_index, patch_placement.root_chain_index),
+                    quilt_index=quilt_scaffold.quilt_index,
+                )
             lines.append(
                 "  - "
-                + f"P{patch_id} {signature} "
+                + f"{patch_addr} {signature} "
                 + f"status:{patch_placement.status.value} transfer:{transfer_state.status.value} "
-                + f"loop:{patch_placement.loop_index} root_chain:{patch_placement.root_chain_index} "
+                + f"loop:{patch_placement.loop_index} root_chain:{root_chain_label} "
                 + f"closure_valid:{1 if patch_placement.closure_valid else 0} "
                 + f"closure_error:{patch_placement.closure_error:.6f} "
                 + f"placed_chains:{len(patch_placement.chain_placements)} "
@@ -390,13 +539,13 @@ def format_regression_snapshot_report(
                 )
             if transfer_state.pin_map is not None:
                 pin_parts = [
-                    f"C{dec.chain_index}:{dec.reason}"
+                    f"{format_chain_address((patch_id, patch_placement.loop_index, dec.chain_index), quilt_index=quilt_scaffold.quilt_index)}:{dec.reason}"
                     for dec in transfer_state.pin_map.chain_decisions
                 ]
                 lines.append(f"    pin_reasons:[{', '.join(pin_parts)}]")
 
     summary = (
-        f"Regression snapshot | quilts:{len(scaffold_map.quilts)} | patches:{len(graph.nodes)} | "
+        f"Regression snapshot | quilts:{metrics.quilt_count} | patches:{metrics.graph_patch_count} | "
         f"unsupported:{len(unsupported_patch_ids)} | invalid_closure:{len(invalid_closure_patch_ids)} | "
         f"conformal_fallback_patches:{len(unsupported_patch_ids)}"
     )
@@ -420,10 +569,10 @@ def _format_patch_signature(graph: PatchGraph, patch_id: int) -> str:
 
 def _format_candidate_line(candidate: AttachmentCandidate) -> str:
     return (
-        f"{candidate.owner_patch_id} -> {candidate.target_patch_id} | score:{candidate.score:.2f} "
+        f"{format_patch_pair_address(candidate.owner_patch_id, candidate.target_patch_id)} | score:{candidate.score:.2f} "
         f"| seam:{candidate.seam_length:.4f} | roles:{candidate.owner_role.value}<->{candidate.target_role.value} "
         f"| loops:{candidate.owner_loop_kind.value}<->{candidate.target_loop_kind.value} "
-        f"| refs:L{candidate.owner_loop_index}C{candidate.owner_chain_index}->L{candidate.target_loop_index}C{candidate.target_chain_index}"
+        f"| refs:{format_chain_pair_address((candidate.owner_patch_id, candidate.owner_loop_index, candidate.owner_chain_index), (candidate.target_patch_id, candidate.target_loop_index, candidate.target_chain_index))}"
     )
 
 
@@ -432,7 +581,11 @@ def format_solve_plan_report(
     solver_graph: SolverGraph,
     solve_plan: SolvePlan,
     mesh_name: Optional[str] = None,
+    reporting: Optional[ReportingOptions] = None,
+    *,
+    mode: Optional[ReportingMode | str] = None,
 ) -> FormattedReport:
+    reporting = coerce_reporting_options(reporting, mode=mode)
     lines: list[str] = []
     if mesh_name:
         lines.append(f"Mesh: {mesh_name}")
@@ -453,7 +606,7 @@ def format_solve_plan_report(
         for certainty in component_scores:
             lines.append(
                 "    "
-                + f"Patch {certainty.patch_id}: {_format_patch_signature(graph, certainty.patch_id)} "
+                + f"{format_patch_address(certainty.patch_id)}: {_format_patch_signature(graph, certainty.patch_id)} "
                 + f"| local:{'Y' if certainty.local_solvable else 'N'} | root:{certainty.root_score:.2f} "
                 + f"| loops:outer={certainty.outer_count} hole={certainty.hole_count} "
                 + f"| chains:{certainty.chain_count} H:{certainty.h_count} V:{certainty.v_count} Free:{certainty.free_count}"
@@ -488,7 +641,8 @@ def format_solve_plan_report(
         tree_edges = sorted(_build_quilt_tree_edges(quilt))
         closure_cut_analyses = closure_cut_analyses_by_quilt.get(quilt.quilt_index, ())
         lines.append(
-            f"Quilt {quilt.quilt_index}: component={quilt.component_index} root=Patch {quilt.root_patch_id} "
+            f"Quilt {quilt.quilt_index}: component={quilt.component_index} "
+            f"root={format_patch_address(quilt.root_patch_id, quilt_index=quilt.quilt_index)} "
             f"({_format_patch_signature(graph, quilt.root_patch_id)}) root_score={quilt.root_score:.2f}"
         )
         if tree_edges:
@@ -498,19 +652,19 @@ def format_solve_plan_report(
         for step in quilt.steps:
             if step.is_root or step.incoming_candidate is None:
                 lines.append(
-                    f"  Step {step.step_index}: ROOT Patch {step.patch_id} "
+                    f"  Step {step.step_index}: ROOT {format_patch_address(step.patch_id, quilt_index=quilt.quilt_index)} "
                     f"({_format_patch_signature(graph, step.patch_id)})"
                 )
                 continue
             candidate = step.incoming_candidate
             lines.append(
-                f"  Step {step.step_index}: Patch {candidate.owner_patch_id} -> Patch {step.patch_id} "
+                f"  Step {step.step_index}: "
+                f"{format_patch_pair_address(candidate.owner_patch_id, step.patch_id, quilt_index=quilt.quilt_index)} "
                 f"| score:{candidate.score:.2f} | roles:{candidate.owner_role.value}<->{candidate.target_role.value}"
             )
             lines.append(
                 "    "
-                + f"refs:L{candidate.owner_loop_index}C{candidate.owner_chain_index}->"
-                + f"L{candidate.target_loop_index}C{candidate.target_chain_index} "
+                + f"refs:{format_chain_pair_address((candidate.owner_patch_id, candidate.owner_loop_index, candidate.owner_chain_index), (step.patch_id, candidate.target_loop_index, candidate.target_chain_index), quilt_index=quilt.quilt_index)} "
                 + f"| transitions:{candidate.owner_transition} | {candidate.target_transition}"
             )
         if closure_cut_analyses:
