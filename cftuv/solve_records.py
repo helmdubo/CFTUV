@@ -192,7 +192,10 @@ class SolveView:
 
         owner_type = owner_node.patch_type.value if hasattr(owner_node.patch_type, 'value') else str(owner_node.patch_type)
         target_type = target_node.patch_type.value if hasattr(target_node.patch_type, 'value') else str(target_node.patch_type)
-        return owner_type == target_type
+        if owner_type == target_type:
+            return True
+        # WALL может быть bridge к FLOOR/SLOPE — через единственный tree edge
+        return owner_type == 'WALL' or target_type == 'WALL'
 
 
 @dataclass(frozen=True)

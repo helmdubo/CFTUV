@@ -2217,7 +2217,7 @@ def _cf_find_anchors(
         for other_ref, pt_idx in vert_to_placements[start_vert]:
             if other_ref[0] == patch_id:
                 continue
-            if seam_neighbor_patch_id is None or other_ref[0] != seam_neighbor_patch_id:
+            if seam_neighbor_patch_id is not None and other_ref[0] != seam_neighbor_patch_id:
                 continue
             if not _is_allowed_quilt_edge(allowed_tree_edges, patch_id, other_ref[0]):
                 continue
@@ -2235,7 +2235,7 @@ def _cf_find_anchors(
         for other_ref, pt_idx in vert_to_placements[end_vert]:
             if other_ref[0] == patch_id:
                 continue
-            if seam_neighbor_patch_id is None or other_ref[0] != seam_neighbor_patch_id:
+            if seam_neighbor_patch_id is not None and other_ref[0] != seam_neighbor_patch_id:
                 continue
             if not _is_allowed_quilt_edge(allowed_tree_edges, patch_id, other_ref[0]):
                 continue
@@ -2584,6 +2584,13 @@ def _cf_score_candidate(
         score -= 0.35 if placed_in_patch > 0 else 0.25
 
     hv_adjacency = _cf_count_hv_adjacent_endpoints(graph, chain_ref)
+    if is_hv:
+    for anchor in (start_anchor, end_anchor):
+        if anchor is not None and anchor.source_kind == PlacementSourceKind.CROSS_PATCH:
+            src_chain = graph.get_chain(*anchor.source_ref)
+            if src_chain is not None and src_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                hv_adjacency += 1
+                break
     if is_hv:
         if hv_adjacency >= 2:
             score += SCORE_HV_ADJ_FULL_BONUS

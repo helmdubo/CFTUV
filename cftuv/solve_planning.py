@@ -858,6 +858,108 @@ def plan_solve_phase1(
         weak_threshold=weak_threshold,
     )
 
+def _merge_orphan_quilts_into_wall_quilts(graph, quilts):
+    """Post-planning: прикрепляет изолированные FLOOR/SLOPE к WALL quilts."""
+    # Индекс: patch_id → quilt_index для WALL quilts
+    wall_quilt_by_patch = {}
+    orphan_indices = []
+    
+    for qi, quilt in enumerate(quilts):
+        has_wall = any(
+            graph.nodes.get(pid) is not None 
+            and graph.nodes[pid].patch_type == PatchType.WALL
+            for pid in quilt.solved_patch_ids
+        )
+        if has_wall:
+            for pid in quilt.solved_patch_ids:
+                wall_quilt_by_patch[pid] = qi
+        else:
+            # Маленький non-WALL quilt — кандидат на merge
+            root = graph.nodes.get(quilt.root_patch_id)
+            if root and root.patch_type in (PatchType.FLOOR, PatchType.SLOPE):
+                orphan_indices.append(qi)
+    
+    if not orphan_indices:
+        return quilts
+    
+    merged_orphan_indices = set()
+    for oqi in orphan_indices:
+        orphan = quilts[oqi]
+        best_wall_qi = None
+        best_strength = -1.0
+        best_info = None
+        
+        for pid in orphan.solved_patch_ids:
+            for neighbor_pid in graph.get_neighbors(pid):
+                wqi = wall_quilt_by_patch.get(neighbor_pid)
+                if wqi is None:
+                    continue
+                seam = graph.get_seam(pid, neighbor_pid)
+                if seam is None:
+                    continue
+                result = _find_seam_junction_hv_strength(
+                    graph, seam, pid, neighbor_pid,
+                )
+                if result is None:
+                    continue
+                strength = result[0]
+                if strength > best_strength:
+                    best_strength = strength
+                    best_wall_qi = wqi
+                    best_info = (pid, neighbor_pid, result)
+        
+        if best_wall_qi is None or best_strength < 0.5:
+            continue
+        
+        # Merge: перенести все patches orphan в wall quilt
+        wall_quilt = quilts[best_wall_qi]
+        pid, neighbor_pid, (strength, o_li, o_ci, t_li, t_ci) = best_info
+        
+        for opid in orphan.solved_patch_ids:
+            if opid not in wall_quilt.solved_patch_ids:
+                wall_quilt.solved_patch_ids.append(opid)
+                # Synthetic step без full AttachmentCandidate
+                wall_quilt.steps.append(QuiltStep(
+                    step_index=len(wall_quilt.steps),
+                    patch_id=opid,
+                    is_root=False,
+                    incoming_candidate=AttachmentCandidate(
+                        owner_patch_id=neighbor_pid,
+                        target_patch_id=opid,
+                        score=strength,
+                        seam_length=graph.get_seam(pid, neighbor_pid).shared_length,
+                        seam_norm=0.5,
+                        best_pair_strength=strength,
+                        frame_continuation=strength,
+                        endpoint_bridge=0.0,
+                        corner_strength=0.0,
+                        semantic_strength=0.35,
+                        endpoint_strength=0.0,
+                        owner_certainty=0.0,
+                        target_certainty=0.0,
+                        ambiguity_penalty=0.0,
+                        owner_loop_index=t_li,
+                        owner_chain_index=t_ci,
+                        target_loop_index=o_li,
+                        target_chain_index=o_ci,
+                        owner_loop_kind=LoopKind.OUTER,
+                        target_loop_kind=LoopKind.OUTER,
+                        owner_role=FrameRole.H_FRAME,
+                        target_role=FrameRole.H_FRAME,
+                        owner_transition='',
+                        target_transition='',
+                    ),
+                ))
+        
+        merged_orphan_indices.add(oqi)
+        print(
+            f"[CFTUV][Plan] Merge orphan Q{oqi} (P{orphan.root_patch_id}) "
+            f"into wall Q{best_wall_qi} via P{pid}<->P{neighbor_pid} "
+            f"strength:{best_strength:.2f}"
+        )
+    
+    # Убрать merged quilts
+    return [q for qi, q in enumerate(quilts) if qi not in merged_orphan_indices]
 
 def _choose_root_loop(node: PatchNode) -> int:
     best_loop_index = -1
@@ -942,6 +1044,50 @@ def _chain_polyline_length(chain: Optional[BoundaryChain]) -> float:
         for index in range(len(chain.vert_cos) - 1)
     )
 
+def _find_seam_junction_hv_strength(graph, seam, patch_a_id, patch_b_id):
+    """Ищет сильнейшую H/V chain pair на junction vertices seam.
+    
+    Не требует direct neighbor — только shared vertex на seam.
+    Возвращает (frame_continuation, owner_loop, owner_chain, target_loop, target_chain) или None.
+    """
+    shared_verts = set(seam.shared_vert_indices)
+    node_a = graph.nodes.get(patch_a_id)
+    node_b = graph.nodes.get(patch_b_id)
+    if node_a is None or node_b is None:
+        return None
+
+    def _hv_chains_touching(node, vert_set):
+        results = []
+        for li, loop in enumerate(node.boundary_loops):
+            if loop.kind != LoopKind.OUTER:
+                continue
+            for ci, chain in enumerate(loop.chains):
+                if chain.frame_role not in (FrameRole.H_FRAME, FrameRole.V_FRAME):
+                    continue
+                touch = set()
+                if chain.start_vert_index in vert_set:
+                    touch.add(chain.start_vert_index)
+                if chain.end_vert_index in vert_set:
+                    touch.add(chain.end_vert_index)
+                if touch:
+                    results.append((li, ci, chain, touch))
+        return results
+
+    chains_a = _hv_chains_touching(node_a, shared_verts)
+    chains_b = _hv_chains_touching(node_b, shared_verts)
+    
+    best = None
+    best_strength = -1.0
+    for li_a, ci_a, ca, verts_a in chains_a:
+        for li_b, ci_b, cb, verts_b in chains_b:
+            if not (verts_a & verts_b):
+                continue
+            strength = _frame_continuation_strength(ca.frame_role, cb.frame_role)
+            if strength > best_strength:
+                best_strength = strength
+                best = (strength, li_a, ci_a, li_b, ci_b)
+    
+    return best
 
 def _closure_cut_support_class(
     fixed_endpoint_count: int,
