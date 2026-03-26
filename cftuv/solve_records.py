@@ -246,6 +246,7 @@ class ClosureChainPairMatch:
 @dataclass(frozen=True)
 class ClosureChainPairCandidate:
     score: int
+    representative_length: float
     match: ClosureChainPairMatch
 
 
@@ -271,7 +272,7 @@ class ClosurePreconstraintOptionResult:
 class ClosureFollowCandidateRank:
     anchor_count: int
     shared_vert_count: int
-    chain_length: float
+    length_bias: float
 
 
 @dataclass(frozen=True, order=True)

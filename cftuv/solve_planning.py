@@ -543,6 +543,7 @@ def _best_chain_pair(
 ) -> Optional[ChainPairSelection]:
     best_pair: Optional[ChainPairSelection] = None
     best_strength = -1.0
+    best_representative_length = -1.0
     semantic_strength = _semantic_pair_strength(graph, owner_patch_id, target_patch_id)
 
     for owner_ref in owner_refs:
@@ -574,9 +575,22 @@ def _best_chain_pair(
                 + PAIR_WEIGHT_EP_STRENGTH * endpoint_strength
                 + PAIR_WEIGHT_LOOP * _loop_pair_strength(owner_ref.boundary_loop.kind, target_ref.boundary_loop.kind)
             )
-            if pair_strength <= best_strength:
+            owner_chain_length = _chain_polyline_length(owner_ref.chain)
+            target_chain_length = _chain_polyline_length(target_ref.chain)
+            if owner_chain_length > 0.0 and target_chain_length > 0.0:
+                representative_length = min(owner_chain_length, target_chain_length)
+            else:
+                representative_length = max(owner_chain_length, target_chain_length)
+
+            if pair_strength < best_strength - 1e-6:
+                continue
+            if (
+                abs(pair_strength - best_strength) <= 1e-6
+                and representative_length <= best_representative_length
+            ):
                 continue
             best_strength = pair_strength
+            best_representative_length = representative_length
             best_pair = ChainPairSelection(
                 owner_ref=owner_ref,
                 target_ref=target_ref,

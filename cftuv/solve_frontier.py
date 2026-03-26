@@ -77,6 +77,14 @@ def _match_non_tree_closure_chain_pairs(
     owner_patch_id: int,
     target_patch_id: int,
 ) -> list[ClosureChainPairMatch]:
+    def _chain_polyline_length(chain: BoundaryChain) -> float:
+        if len(chain.vert_cos) < 2:
+            return 0.0
+        return sum(
+            (chain.vert_cos[index + 1] - chain.vert_cos[index]).length
+            for index in range(len(chain.vert_cos) - 1)
+        )
+
     owner_refs = _iter_neighbor_chains(graph, owner_patch_id, target_patch_id)
     target_refs = _iter_neighbor_chains(graph, target_patch_id, owner_patch_id)
     pair_candidates: list[ClosureChainPairCandidate] = []
@@ -97,9 +105,16 @@ def _match_non_tree_closure_chain_pairs(
             if shared_vert_count <= 0:
                 continue
             pair_score = (shared_vert_count * 1000) - abs(len(owner_chain.vert_indices) - len(target_chain.vert_indices))
+            owner_chain_length = _chain_polyline_length(owner_chain)
+            target_chain_length = _chain_polyline_length(target_chain)
+            if owner_chain_length > 0.0 and target_chain_length > 0.0:
+                representative_length = min(owner_chain_length, target_chain_length)
+            else:
+                representative_length = max(owner_chain_length, target_chain_length)
             pair_candidates.append(
                 ClosureChainPairCandidate(
                     score=pair_score,
+                    representative_length=representative_length,
                     match=ClosureChainPairMatch(
                         owner_ref=(owner_patch_id, owner_ref.loop_index, owner_ref.chain_index),
                         owner_chain=owner_chain,
@@ -110,7 +125,12 @@ def _match_non_tree_closure_chain_pairs(
                 )
             )
 
-    pair_candidates.sort(key=lambda item: item.score, reverse=True)
+    # При равном topological match оставляем более длинный seam-carrier primary,
+    # чтобы короткая пара оставалась intentional closure seam на tube/ring topology.
+    pair_candidates.sort(
+        key=lambda item: (item.score, item.representative_length),
+        reverse=True,
+    )
     matched_owner_refs = set()
     matched_target_refs = set()
     matched_pairs: list[ClosureChainPairMatch] = []
@@ -175,6 +195,23 @@ def _build_quilt_closure_pair_map(
     allowed_tree_edges: set[PatchEdgeKey],
 ) -> dict[ChainRef, ChainRef]:
     tree_ingress_pair_map: dict[PatchEdgeKey, frozenset[ChainRef]] = {}
+    for edge_key in sorted(allowed_tree_edges):
+        owner_patch_id, target_patch_id = edge_key
+        matched_pairs = _match_non_tree_closure_chain_pairs(graph, owner_patch_id, target_patch_id)
+        if not matched_pairs:
+            continue
+        primary_match = matched_pairs[0]
+        tree_ingress_pair_map[edge_key] = frozenset((
+            primary_match.owner_ref,
+            primary_match.target_ref,
+        ))
+        trace_console(
+            f"[CFTUV][Frontier] Tree pair {owner_patch_id}-{target_patch_id}: "
+            f"P{primary_match.owner_ref[0]} L{primary_match.owner_ref[1]}C{primary_match.owner_ref[2]}"
+            f"<->"
+            f"P{primary_match.target_ref[0]} L{primary_match.target_ref[1]}C{primary_match.target_ref[2]}"
+        )
+
     for step in quilt_plan.steps:
         candidate = step.incoming_candidate
         if candidate is None:
@@ -183,6 +220,8 @@ def _build_quilt_closure_pair_map(
             min(candidate.owner_patch_id, candidate.target_patch_id),
             max(candidate.owner_patch_id, candidate.target_patch_id),
         )
+        if edge_key in tree_ingress_pair_map:
+            continue
         tree_ingress_pair_map[edge_key] = frozenset((
             (candidate.owner_patch_id, candidate.owner_loop_index, candidate.owner_chain_index),
             (candidate.target_patch_id, candidate.target_loop_index, candidate.target_chain_index),
@@ -519,7 +558,7 @@ def _cf_try_place_closure_follow_candidate(
         candidate_rank = ClosureFollowCandidateRank(
             anchor_count=partner_placement.anchor_count,
             shared_vert_count=shared_vert_count,
-            chain_length=_cf_chain_total_length(chain, runtime_policy.final_scale),
+            length_bias=-_cf_chain_total_length(chain, runtime_policy.final_scale),
         )
         if best_candidate is None or candidate_rank > best_candidate.rank:
             best_candidate = ClosureFollowPlacementCandidate(
