@@ -150,14 +150,13 @@ Classifier is asymmetric:
 ### FREE Handling
 
 - One-edge FREE bridges scored below any H/V in frontier
-- One-anchor FREE bridge waits for second anchor unless stall-recovery
+- One-anchor FREE bridge waits for second anchor
 - Local per-chain rectification for H/V already tested and disabled (regression)
 
 ### Rescue Path Order (when frontier stalls)
 
 1. `tree_ingress` — one chain into untouched tree-child patch
-2. `free_ingress` — one-edge FREE bridge with downstream H/V visible
-3. `closure_follow` — same-role non-tree closure partner if pair already placed
+2. `closure_follow` — same-role non-tree closure partner if pair already placed
 
 This is reachability rescue, NOT a new solve mode.
 

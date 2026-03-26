@@ -693,7 +693,7 @@ class FrontierPlacementRecord:
     iteration: int
     chain_ref: ChainRef
     frame_role: FrameRole
-    placement_path: str              # "main" | "tree_ingress" | "free_ingress" | "closure_follow"
+    placement_path: str              # "main" | "tree_ingress" | "closure_follow"
     score: float                     # -1.0 для rescue-путей (без score)
     anchor_count: int                # 0, 1, 2
     start_anchor_kind: str           # "same_patch" | "cross_patch" | "none"
@@ -730,7 +730,7 @@ class FrontierStallRecord:
     available_count: int             # chains ещё в pool
     no_anchor_count: int             # chains с known=0
     below_threshold_count: int       # chains с 0 < score < threshold
-    rescue_attempted: str            # "tree_ingress" | "free_ingress" | "closure_follow" | "none"
+    rescue_attempted: str            # "tree_ingress" | "closure_follow" | "none"
     rescue_succeeded: bool
     patches_with_placed: int         # patches с ≥1 размещённым chain
     patches_untouched: int           # patches с 0 размещёнными chains
@@ -743,7 +743,6 @@ class QuiltFrontierTelemetry:
     total_placements: int
     main_placements: int
     tree_ingress_placements: int
-    free_ingress_placements: int
     closure_follow_placements: int
     total_stalls: int
     stalls_resolved_by_rescue: int

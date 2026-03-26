@@ -5,11 +5,10 @@
 
 ## Problem Statement
 
-The frontier builder has three rescue paths that fire when main scoring stalls:
+The frontier builder has two rescue paths that fire when main scoring stalls:
 
 1. **tree_ingress** — bootstrap into untouched tree-child patch
-2. **free_ingress** — one-edge FREE bridge to downstream H/V
-3. **closure_follow** — same-role closure partner from already-placed pair
+2. **closure_follow** — same-role closure partner from already-placed pair
 
 These exist because `_cf_score_candidate()` doesn't cover all valid production
 cases. But we don't know:
@@ -59,7 +58,7 @@ class FrontierPlacementRecord:
     iteration: int
     chain_ref: ChainRef
     frame_role: FrameRole
-    placement_path: str              # "main" | "tree_ingress" | "free_ingress" | "closure_follow"
+    placement_path: str              # "main" | "tree_ingress" | "closure_follow"
     score: float                     # -1.0 for rescue (no score)
     anchor_count: int                # 0, 1, 2
     start_anchor_kind: str           # "same_patch" | "cross_patch" | "none"
@@ -92,7 +91,7 @@ class FrontierStallRecord:
     available_count: int             # chains still in pool
     no_anchor_count: int             # chains with known=0
     below_threshold_count: int       # chains with 0 < score < threshold
-    rescue_attempted: str            # "tree_ingress" | "free_ingress" | "closure_follow" | "none"
+    rescue_attempted: str            # "tree_ingress" | "closure_follow" | "none"
     rescue_succeeded: bool
     patches_with_placed: int         # patches that have ≥1 chain placed
     patches_untouched: int           # patches with 0 chains placed
@@ -110,7 +109,6 @@ class QuiltFrontierTelemetry:
     total_placements: int
     main_placements: int
     tree_ingress_placements: int
-    free_ingress_placements: int
     closure_follow_placements: int
     total_stalls: int
     stalls_resolved_by_rescue: int
@@ -195,13 +193,12 @@ collector.record_placement(
 ### Point 2: Rescue path placements
 
 In each of `_cf_try_place_tree_ingress_candidate()`,
-`_cf_try_place_free_ingress_bridge()`,
 `_cf_try_place_closure_follow_candidate()` — after successful register_chain:
 
 ```python
 collector.record_placement(
     ...
-    placement_path="tree_ingress",  # or "free_ingress" or "closure_follow"
+    placement_path="tree_ingress",  # or "closure_follow"
     score=-1.0,                     # rescue paths don't use main scoring
     ...
 )
@@ -277,7 +274,7 @@ Per-quilt telemetry summary added after existing closure/frame reports:
 ## Quilt 0
 ...existing lines...
 frontier_telemetry:
-  placements: 47 main:41 tree_ingress:3 free_ingress:2 closure_follow:1
+  placements: 45 main:41 tree_ingress:3 closure_follow:1
   stalls: 6 resolved:5 unresolved:1
   scores: min:0.32 p25:0.78 p50:1.15 p75:1.62 max:2.45
   rescue_ratio: 0.128
@@ -331,7 +328,6 @@ Full per-placement detail:
 - [x] Create collector at start of `build_quilt_scaffold_chain_frontier()`
 - [x] Emit after main path placement in `_cf_try_place_frontier_candidate()`
 - [x] Emit after tree_ingress in `_cf_try_place_tree_ingress_candidate()`
-- [x] Emit after free_ingress in `_cf_try_place_free_ingress_bridge()`
 - [x] Emit after closure_follow in `_cf_try_place_closure_follow_candidate()`
 - [x] Emit stall record in main loop before rescue attempts
 - [x] Update stall record after rescue attempt outcome

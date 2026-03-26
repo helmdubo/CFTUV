@@ -93,7 +93,6 @@ def _placement_path_short(path: str) -> str:
     return {
         "main": "main",
         "tree_ingress": "tree",
-        "free_ingress": "free",
         "closure_follow": "clos",
     }.get(path, path)
 
@@ -524,7 +523,6 @@ class FrontierTelemetryCollector:
         total = len(self._placement_records)
         main_count = sum(1 for r in self._placement_records if r.placement_path == "main")
         tree_count = sum(1 for r in self._placement_records if r.placement_path == "tree_ingress")
-        free_count = sum(1 for r in self._placement_records if r.placement_path == "free_ingress")
         closure_count = sum(1 for r in self._placement_records if r.placement_path == "closure_follow")
 
         # Stall-агрегаты
@@ -560,7 +558,7 @@ class FrontierTelemetryCollector:
         ]
         first_rescue_iteration = min(rescue_iters) if rescue_iters else -1
 
-        rescue_total = tree_count + free_count + closure_count
+        rescue_total = tree_count + closure_count
         rescue_ratio = rescue_total / total if total > 0 else 0.0
 
         return QuiltFrontierTelemetry(
@@ -568,7 +566,6 @@ class FrontierTelemetryCollector:
             total_placements=total,
             main_placements=main_count,
             tree_ingress_placements=tree_count,
-            free_ingress_placements=free_count,
             closure_follow_placements=closure_count,
             total_stalls=total_stalls,
             stalls_resolved_by_rescue=stalls_resolved,
@@ -703,7 +700,6 @@ def format_quilt_telemetry_summary(
             f"  placements: {t.total_placements} "
             f"main:{t.main_placements} "
             f"tree_ingress:{t.tree_ingress_placements} "
-            f"free_ingress:{t.free_ingress_placements} "
             f"closure_follow:{t.closure_follow_placements}"
         ),
         stalls_line,

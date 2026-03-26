@@ -111,10 +111,8 @@ FinalizedQuiltScaffold
 SeedChainChoice
 SeedPlacementResult
 ClosureFollowPlacementCandidate
-FreeIngressPlacementCandidate
 TreeIngressPlacementCandidate
 ClosureFollowCandidateRank
-FreeIngressCandidateRank
 TreeIngressCandidateRank
 DirectionOption
 AnchorOption
@@ -345,7 +343,6 @@ _cf_register_points
 ```
 _cf_try_place_closure_follow_candidate
 _cf_build_closure_follow_uvs
-_cf_try_place_free_ingress_bridge
 _cf_try_place_tree_ingress_candidate
 ```
 

@@ -176,7 +176,6 @@ geometry and must remain isolated.
 5. Non-tree seams are intentional UV cuts, not re-sewn.
 6. When frontier stalls, only narrow recovery in this order:
    - `tree_ingress`: one ingress chain into untouched tree-child patch
-   - `free_ingress`: one-edge FREE bridge if patch already started and downstream H/V visible
    - `closure_follow`: same-role non-tree closure partner if its pair already placed
 
 ### UV Transfer and Pin Policy
@@ -215,9 +214,9 @@ CFTUV does constrained UV layout but doesn't know about trim atlas positions.
 H_FRAME chain gets UV direction but not target atlas row.
 **P4 addresses this with minimal data layer in model.py.**
 
-### 3. Three rescue paths are a symptom
+### 3. Two rescue paths are a symptom
 
-`tree_ingress`, `free_ingress`, `closure_follow` exist because main frontier
+`tree_ingress`, `closure_follow` exist because main frontier
 scoring doesn't cover all valid production cases.
 **P3 collects instrumentation data; P5 revises scoring based on evidence.**
 

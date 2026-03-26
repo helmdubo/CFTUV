@@ -40,7 +40,7 @@ This invariant must be verified after every phase.
   solve_transfer.py, solve_reporting.py, model.py, analysis.py, operators.py
 - No behavior change — pure performance optimization
 - Phased execution: each phase independently testable
-- Rescue paths (tree_ingress, free_ingress, closure_follow) left as full-scan
+- Rescue paths (tree_ingress, closure_follow) left as full-scan
   in first pass — they fire only on stall, not hot path
 
 ---
@@ -276,7 +276,7 @@ and subsequent iterations use the cache.
 
 ### What NOT to change
 
-- Do NOT touch rescue paths yet (tree_ingress, free_ingress, closure_follow)
+- Do NOT touch rescue paths yet (tree_ingress, closure_follow)
 - Do NOT touch `evaluate_candidate()` internals
 - Do NOT change scoring logic
 
@@ -559,7 +559,7 @@ This maps vert_index → list of ChainRef from the pool. Use this in
 `_mark_neighbors_dirty` for cross-patch lookups instead of `vert_to_placements`.
 
 **Risk: Rescue paths bypass cache.**
-tree_ingress, free_ingress, closure_follow do their own full pool scans
+tree_ingress, closure_follow do their own full pool scans
 with their own evaluation logic. They don't use `_cf_select_best_frontier_candidate`.
 This is fine — rescue fires only on stall, not in hot path.
 No action needed in this plan.
