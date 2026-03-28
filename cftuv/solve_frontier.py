@@ -515,6 +515,89 @@ def _cf_build_closure_follow_uvs(
     )
 
 
+def _cf_rescue_gap_candidate_class(
+    rescue_path: str,
+    chain: BoundaryChain,
+    main_eval: FrontierCandidateEval,
+    *,
+    shared_vert_count: int = 0,
+) -> str:
+    anchor_class = {
+        0: 'no_anchor',
+        1: 'single_anchor',
+        2: 'dual_anchor',
+    }.get(main_eval.known, f'known{main_eval.known}')
+    if rescue_path == 'tree_ingress':
+        role_class = 'hv' if chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME} else 'free'
+        patch_phase = (
+            'untouched'
+            if main_eval.patch_context is not None and main_eval.patch_context.is_untouched
+            else 'patch_progress'
+        )
+        return f"tree_ingress_{anchor_class}_{role_class}_{patch_phase}"
+    if rescue_path == 'closure_follow':
+        shared_class = 'shared2' if shared_vert_count >= 2 else 'shared1'
+        return f"closure_follow_{anchor_class}_{shared_class}"
+    return f"{rescue_path}_{anchor_class}"
+
+
+def _cf_build_frontier_rescue_gap(
+    rescue_path: str,
+    chain_ref: ChainRef,
+    chain: BoundaryChain,
+    main_eval: FrontierCandidateEval,
+    *,
+    hv_adjacency: int = 0,
+    downstream_support: int = 0,
+    shared_vert_count: int = 0,
+) -> FrontierRescueGap:
+    main_viable = bool(
+        main_eval.known > 0
+        and main_eval.score >= CHAIN_FRONTIER_THRESHOLD
+    )
+    if main_eval.known <= 0:
+        threshold_gap = CHAIN_FRONTIER_THRESHOLD
+        state_label = 'no_main_anchor'
+    elif main_viable:
+        threshold_gap = 0.0
+        state_label = 'main_viable'
+    else:
+        threshold_gap = max(0.0, CHAIN_FRONTIER_THRESHOLD - main_eval.score)
+        state_label = 'below_threshold'
+
+    candidate_class = _cf_rescue_gap_candidate_class(
+        rescue_path,
+        chain,
+        main_eval,
+        shared_vert_count=shared_vert_count,
+    )
+    summary_parts = [candidate_class, state_label]
+    if main_eval.rank_breakdown is not None and main_eval.rank_breakdown.summary:
+        summary_parts.append(main_eval.rank_breakdown.summary)
+    elif main_eval.anchor_reason:
+        summary_parts.append(main_eval.anchor_reason)
+    if hv_adjacency > 0:
+        summary_parts.append(f"hv:{hv_adjacency}")
+    if downstream_support > 0:
+        summary_parts.append(f"ds:{downstream_support}")
+    if shared_vert_count > 0:
+        summary_parts.append(f"sh:{shared_vert_count}")
+
+    return FrontierRescueGap(
+        candidate_class=candidate_class,
+        main_known=main_eval.known,
+        main_score=main_eval.score,
+        threshold_gap=threshold_gap,
+        main_viable=main_viable,
+        hv_adjacency=hv_adjacency,
+        downstream_support=downstream_support,
+        shared_vert_count=shared_vert_count,
+        main_rank=main_eval.rank,
+        main_rank_breakdown=main_eval.rank_breakdown,
+        summary='|'.join(summary_parts),
+    )
+
+
 def _cf_try_place_closure_follow_candidate(
     runtime_policy: FrontierRuntimePolicy,
     all_chain_pool: list[ChainPoolEntry],
@@ -580,6 +663,32 @@ def _cf_try_place_closure_follow_candidate(
     uv_points = best_candidate.uv_points
     follow_mode = best_candidate.follow_mode
     shared_vert_count = best_candidate.shared_vert_count
+    node = graph.nodes.get(chain_ref[0])
+    main_eval = (
+        runtime_policy.evaluate_candidate(
+            chain_ref,
+            chain,
+            node,
+            apply_closure_preconstraint=True,
+            compute_score=True,
+        )
+        if node is not None else
+        FrontierCandidateEval(
+            raw_start_anchor=None,
+            raw_end_anchor=None,
+            start_anchor=None,
+            end_anchor=None,
+            known=0,
+            placed_in_patch=runtime_policy.placed_in_patch(chain_ref[0]),
+        )
+    )
+    rescue_gap = _cf_build_frontier_rescue_gap(
+        "closure_follow",
+        chain_ref,
+        chain,
+        main_eval,
+        shared_vert_count=shared_vert_count,
+    )
     chain_placement = ScaffoldChainPlacement(
         patch_id=chain_ref[0],
         loop_index=chain_ref[1],
@@ -626,6 +735,22 @@ def _cf_try_place_closure_follow_candidate(
             placed_in_patch_before=runtime_policy.placed_in_patch(chain_ref[0]) - 1,
             is_closure_pair=(chain_ref in runtime_policy.closure_pair_refs),
             uv_points=uv_points,
+            length_factor=main_eval.length_factor,
+            downstream_count=main_eval.downstream_count,
+            downstream_bonus=main_eval.downstream_bonus,
+            isolation_preview=main_eval.isolation_preview,
+            isolation_penalty=main_eval.isolation_penalty,
+            structural_free_bonus=main_eval.structural_free_bonus,
+            hv_adjacency=main_eval.hv_adjacency,
+            rank=main_eval.rank,
+            rank_breakdown=main_eval.rank_breakdown,
+            patch_context=main_eval.patch_context,
+            corner_hints=main_eval.corner_hints,
+            seam_relation=main_eval.seam_relation,
+            seam_bonus=main_eval.seam_bonus,
+            corner_bonus=main_eval.corner_bonus,
+            shape_bonus=main_eval.shape_bonus,
+            rescue_gap=rescue_gap,
         )
     return True
 
@@ -742,6 +867,33 @@ def _cf_try_place_tree_ingress_candidate(
     downstream_hv_count = best_candidate.downstream_hv_count
     role_priority = best_candidate.role_priority
     hv_adjacency = best_candidate.hv_adjacency
+    node = runtime_policy.graph.nodes.get(chain_ref[0])
+    main_eval = (
+        runtime_policy.evaluate_candidate(
+            chain_ref,
+            chain,
+            node,
+            apply_closure_preconstraint=True,
+            compute_score=True,
+        )
+        if node is not None else
+        FrontierCandidateEval(
+            raw_start_anchor=None,
+            raw_end_anchor=None,
+            start_anchor=None,
+            end_anchor=None,
+            known=0,
+            placed_in_patch=runtime_policy.placed_in_patch(chain_ref[0]),
+        )
+    )
+    rescue_gap = _cf_build_frontier_rescue_gap(
+        "tree_ingress",
+        chain_ref,
+        chain,
+        main_eval,
+        hv_adjacency=hv_adjacency,
+        downstream_support=downstream_hv_count,
+    )
 
     if anchor_adjustments and not _cf_apply_anchor_adjustments(
         anchor_adjustments,
@@ -794,7 +946,22 @@ def _cf_try_place_tree_ingress_candidate(
             is_closure_pair=(chain_ref in runtime_policy.closure_pair_refs),
             uv_points=uv_points,
             anchor_adjustment_applied=bool(anchor_adjustments),
+            length_factor=main_eval.length_factor,
+            downstream_count=main_eval.downstream_count,
+            downstream_bonus=main_eval.downstream_bonus,
+            isolation_preview=main_eval.isolation_preview,
+            isolation_penalty=main_eval.isolation_penalty,
+            structural_free_bonus=main_eval.structural_free_bonus,
             hv_adjacency=hv_adjacency,
+            rank=main_eval.rank,
+            rank_breakdown=main_eval.rank_breakdown,
+            patch_context=main_eval.patch_context,
+            corner_hints=main_eval.corner_hints,
+            seam_relation=main_eval.seam_relation,
+            seam_bonus=main_eval.seam_bonus,
+            corner_bonus=main_eval.corner_bonus,
+            shape_bonus=main_eval.shape_bonus,
+            rescue_gap=rescue_gap,
         )
     return True
 
@@ -805,6 +972,7 @@ class FrontierRuntimePolicy:
     quilt_patch_ids: set[int]
     allowed_tree_edges: set[PatchEdgeKey]
     final_scale: float
+    seam_relation_by_edge: dict[PatchEdgeKey, SeamRelationProfile] = field(default_factory=dict)
     point_registry: PointRegistry = field(default_factory=dict)
     vert_to_placements: VertexPlacementMap = field(default_factory=dict)
     placed_chain_refs: set[ChainRef] = field(default_factory=set)
@@ -814,18 +982,69 @@ class FrontierRuntimePolicy:
     build_order: list[ChainRef] = field(default_factory=list)
     closure_pair_map: Optional[dict[ChainRef, ChainRef]] = None
     placed_count_by_patch: dict[int, int] = field(default_factory=dict)
+    placed_h_count_by_patch: dict[int, int] = field(default_factory=dict)
+    placed_v_count_by_patch: dict[int, int] = field(default_factory=dict)
+    placed_free_count_by_patch: dict[int, int] = field(default_factory=dict)
     closure_pair_refs: frozenset[ChainRef] = field(init=False, default_factory=frozenset)
+    _outer_chain_count_by_patch: dict[int, int] = field(init=False, default_factory=dict)
+    _frame_chain_count_by_patch: dict[int, int] = field(init=False, default_factory=dict)
+    _closure_pair_count_by_patch: dict[int, int] = field(init=False, default_factory=dict)
+    _shape_profile_by_patch: dict[int, PatchShapeProfile] = field(init=False, default_factory=dict)
     # --- Internal incremental-frontier caches (Phase A) ---
     _cached_evals: dict[ChainRef, FrontierCandidateEval] = field(init=False, default_factory=dict)
     _dirty_refs: set[ChainRef] = field(init=False, default_factory=set)
     _vert_to_pool_refs: dict[int, list[ChainRef]] = field(init=False, default_factory=dict)
+    _patch_to_pool_refs: dict[int, list[ChainRef]] = field(init=False, default_factory=dict)
     _cache_hits: int = field(init=False, default=0)
 
     def __post_init__(self) -> None:
         self.closure_pair_refs = frozenset(self.closure_pair_map.keys()) if self.closure_pair_map else frozenset()
+        for patch_id, node in self.graph.nodes.items():
+            outer_chain_count = 0
+            frame_chain_count = 0
+            for boundary_loop in node.boundary_loops:
+                if boundary_loop.kind != LoopKind.OUTER:
+                    continue
+                outer_chain_count += len(boundary_loop.chains)
+                frame_chain_count += sum(
+                    1
+                    for chain in boundary_loop.chains
+                    if chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+                )
+            self._outer_chain_count_by_patch[patch_id] = outer_chain_count
+            self._frame_chain_count_by_patch[patch_id] = frame_chain_count
+        for chain_ref in self.closure_pair_refs:
+            patch_id = chain_ref[0]
+            self._closure_pair_count_by_patch[patch_id] = self._closure_pair_count_by_patch.get(patch_id, 0) + 1
+        for patch_id, node in self.graph.nodes.items():
+            self._shape_profile_by_patch[patch_id] = _cf_build_patch_shape_profile(patch_id, node, self)
 
     def placed_in_patch(self, patch_id: int) -> int:
         return self.placed_count_by_patch.get(patch_id, 0)
+
+    def placed_h_in_patch(self, patch_id: int) -> int:
+        return self.placed_h_count_by_patch.get(patch_id, 0)
+
+    def placed_v_in_patch(self, patch_id: int) -> int:
+        return self.placed_v_count_by_patch.get(patch_id, 0)
+
+    def placed_free_in_patch(self, patch_id: int) -> int:
+        return self.placed_free_count_by_patch.get(patch_id, 0)
+
+    def outer_chain_count(self, patch_id: int) -> int:
+        return self._outer_chain_count_by_patch.get(patch_id, 0)
+
+    def frame_chain_count(self, patch_id: int) -> int:
+        return self._frame_chain_count_by_patch.get(patch_id, 0)
+
+    def closure_pair_count(self, patch_id: int) -> int:
+        return self._closure_pair_count_by_patch.get(patch_id, 0)
+
+    def shape_profile(self, patch_id: int) -> Optional[PatchShapeProfile]:
+        return self._shape_profile_by_patch.get(patch_id)
+
+    def seam_relation(self, patch_a_id: int, patch_b_id: int) -> Optional[SeamRelationProfile]:
+        return self.seam_relation_by_edge.get(_patch_pair_key(patch_a_id, patch_b_id))
 
     def total_placed(self) -> int:
         return len(self.build_order)
@@ -867,6 +1086,12 @@ class FrontierRuntimePolicy:
         self.chain_dependency_patches[chain_ref] = tuple(sorted(set(dependency_patches)))
         self.build_order.append(chain_ref)
         self.placed_count_by_patch[chain_ref[0]] = self.placed_count_by_patch.get(chain_ref[0], 0) + 1
+        if chain.frame_role == FrameRole.H_FRAME:
+            self.placed_h_count_by_patch[chain_ref[0]] = self.placed_h_count_by_patch.get(chain_ref[0], 0) + 1
+        elif chain.frame_role == FrameRole.V_FRAME:
+            self.placed_v_count_by_patch[chain_ref[0]] = self.placed_v_count_by_patch.get(chain_ref[0], 0) + 1
+        else:
+            self.placed_free_count_by_patch[chain_ref[0]] = self.placed_free_count_by_patch.get(chain_ref[0], 0) + 1
         _cf_register_points(chain_ref, chain, uv_points, self.point_registry, self.vert_to_placements)
         self._cached_evals.pop(chain_ref, None)
         self._dirty_refs.discard(chain_ref)
@@ -893,6 +1118,8 @@ class FrontierRuntimePolicy:
         raw_end_anchor = found_anchors.end_anchor
 
         placed_in_patch = self.placed_in_patch(chain_ref[0])
+        patch_context = _cf_build_patch_scoring_context(chain_ref, self)
+        seam_relation = _cf_chain_seam_relation(chain_ref, chain, self)
         resolved_anchors = _cf_resolve_candidate_anchors(
             chain,
             raw_start_anchor,
@@ -933,18 +1160,44 @@ class FrontierRuntimePolicy:
                 anchor_reason = f"{anchor_reason}|{closure_reason}" if anchor_reason else closure_reason
 
         score = -1.0
-        details = (0.0, 0, 0.0, True, 0.0, 0.0, 0)
+        topology_facts = FrontierTopologyFacts()
+        score_details = FrontierLocalScoreDetails()
+        rank = None
+        rank_breakdown = None
+        corner_hints = None
         if compute_score and known > 0:
-            score, details = _cf_score_candidate(
+            corner_hints = _cf_build_corner_scoring_hints(chain_ref, chain, self.graph)
+            score, topology_facts, score_details = _cf_score_candidate(
                 chain_ref,
                 chain,
                 node,
                 known,
                 self.graph,
-                placed_in_patch,
+                patch_context,
                 self.quilt_patch_ids,
                 self.allowed_tree_edges,
                 self,
+                corner_hints=corner_hints,
+                seam_relation=seam_relation,
+                closure_pair_refs=self.closure_pair_refs or None,
+                start_anchor=start_anchor,
+                end_anchor=end_anchor,
+            )
+            rank, rank_breakdown = _cf_build_frontier_rank(
+                chain_ref,
+                chain,
+                node,
+                known,
+                self.graph,
+                topology_facts,
+                patch_context,
+                self.quilt_patch_ids,
+                self.allowed_tree_edges,
+                self,
+                score,
+                seam_relation=seam_relation,
+                seam_bonus=score_details.seam_bonus,
+                shape_bonus=score_details.shape_bonus,
                 closure_pair_refs=self.closure_pair_refs or None,
                 start_anchor=start_anchor,
                 end_anchor=end_anchor,
@@ -961,13 +1214,21 @@ class FrontierRuntimePolicy:
             anchor_adjustments=anchor_adjustments,
             closure_dir_override=closure_dir_override,
             score=score,
-            length_factor=details[0],
-            downstream_count=details[1],
-            downstream_bonus=details[2],
-            isolation_preview=details[3],
-            isolation_penalty=details[4],
-            structural_free_bonus=details[5],
-            hv_adjacency=details[6],
+            length_factor=score_details.length_factor,
+            downstream_count=score_details.downstream_count,
+            downstream_bonus=score_details.downstream_bonus,
+            isolation_preview=topology_facts.would_be_connected,
+            isolation_penalty=score_details.isolation_penalty,
+            structural_free_bonus=score_details.structural_free_bonus,
+            hv_adjacency=topology_facts.hv_adjacency,
+            rank=rank,
+            rank_breakdown=rank_breakdown,
+            patch_context=patch_context,
+            corner_hints=corner_hints,
+            seam_relation=seam_relation,
+            seam_bonus=score_details.seam_bonus,
+            corner_bonus=score_details.corner_bonus,
+            shape_bonus=score_details.shape_bonus,
         )
 
     def build_stop_diagnostics(
@@ -1020,6 +1281,7 @@ def _mark_neighbors_dirty(
     dirty = runtime_policy._dirty_refs
     vtp = runtime_policy._vert_to_pool_refs
     patch_id = chain_ref[0]
+    # Phase 2: explicit PatchScoringContext changes after every same-patch placement.
 
     for vi in chain.vert_indices:
         for ref in vtp.get(vi, ()):
@@ -1031,6 +1293,8 @@ def _mark_neighbors_dirty(
             for ref in refs_list:
                 if ref[0] == patch_id:
                     dirty.add(ref)
+    for ref in runtime_policy._patch_to_pool_refs.get(patch_id, ()):
+        dirty.add(ref)
 
 
 def _cf_select_best_frontier_candidate(
@@ -1042,8 +1306,10 @@ def _cf_select_best_frontier_candidate(
     Переоценивает только dirty refs. Остальные берёт из _cached_evals.
     На первой итерации _cached_evals пуст — все цепочки проходят full eval.
     """
-    best_candidate = None
-    best_score = -1.0
+    best_candidate: Optional[FrontierPlacementCandidate] = None
+    best_rank: Optional[FrontierRank] = None
+    best_viable_candidate: Optional[FrontierPlacementCandidate] = None
+    best_viable_rank: Optional[FrontierRank] = None
 
     for entry in all_chain_pool:
         chain_ref = entry.chain_ref
@@ -1057,26 +1323,18 @@ def _cf_select_best_frontier_candidate(
                 runtime_policy._cache_hits += 1
                 if cached.known == 0:
                     continue
-                if cached.score > best_score:
-                    best_score = cached.score
-                    best_candidate = FrontierPlacementCandidate(
-                        chain_ref=chain_ref,
-                        chain=entry.chain,
-                        node=entry.node,
-                        start_anchor=cached.start_anchor,
-                        end_anchor=cached.end_anchor,
-                        anchor_reason=cached.anchor_reason,
-                        anchor_adjustments=cached.anchor_adjustments,
-                        closure_dir_override=cached.closure_dir_override,
-                        score=cached.score,
-                        length_factor=cached.length_factor,
-                        downstream_count=cached.downstream_count,
-                        downstream_bonus=cached.downstream_bonus,
-                        isolation_preview=cached.isolation_preview,
-                        isolation_penalty=cached.isolation_penalty,
-                        structural_free_bonus=cached.structural_free_bonus,
-                        hv_adjacency=cached.hv_adjacency,
-                    )
+                placement_candidate = _cf_make_frontier_placement_candidate(entry, cached)
+                candidate_rank = cached.rank
+                if candidate_rank is not None and (best_rank is None or candidate_rank > best_rank):
+                    best_rank = candidate_rank
+                    best_candidate = placement_candidate
+                if (
+                    candidate_rank is not None
+                    and cached.score >= CHAIN_FRONTIER_THRESHOLD
+                    and (best_viable_rank is None or candidate_rank > best_viable_rank)
+                ):
+                    best_viable_rank = candidate_rank
+                    best_viable_candidate = placement_candidate
                 continue
 
         # --- Full evaluation path ---
@@ -1093,28 +1351,20 @@ def _cf_select_best_frontier_candidate(
         if candidate_eval.known == 0:
             continue
 
-        if candidate_eval.score > best_score:
-            best_score = candidate_eval.score
-            best_candidate = FrontierPlacementCandidate(
-                chain_ref=chain_ref,
-                chain=entry.chain,
-                node=entry.node,
-                start_anchor=candidate_eval.start_anchor,
-                end_anchor=candidate_eval.end_anchor,
-                anchor_reason=candidate_eval.anchor_reason,
-                anchor_adjustments=candidate_eval.anchor_adjustments,
-                closure_dir_override=candidate_eval.closure_dir_override,
-                score=candidate_eval.score,
-                length_factor=candidate_eval.length_factor,
-                downstream_count=candidate_eval.downstream_count,
-                downstream_bonus=candidate_eval.downstream_bonus,
-                isolation_preview=candidate_eval.isolation_preview,
-                isolation_penalty=candidate_eval.isolation_penalty,
-                structural_free_bonus=candidate_eval.structural_free_bonus,
-                hv_adjacency=candidate_eval.hv_adjacency,
-            )
+        placement_candidate = _cf_make_frontier_placement_candidate(entry, candidate_eval)
+        candidate_rank = candidate_eval.rank
+        if candidate_rank is not None and (best_rank is None or candidate_rank > best_rank):
+            best_rank = candidate_rank
+            best_candidate = placement_candidate
+        if (
+            candidate_rank is not None
+            and candidate_eval.score >= CHAIN_FRONTIER_THRESHOLD
+            and (best_viable_rank is None or candidate_rank > best_viable_rank)
+        ):
+            best_viable_rank = candidate_rank
+            best_viable_candidate = placement_candidate
 
-    return best_candidate
+    return best_viable_candidate or best_candidate
 
 
 def _cf_try_place_frontier_candidate(
@@ -1211,10 +1461,22 @@ def _cf_try_place_frontier_candidate(
     reason_suffix = f" note:{candidate.anchor_reason}" if candidate.anchor_reason else ''
     bridge_tag = ' [BRIDGE]' if chain.frame_role == FrameRole.FREE and len(chain.vert_cos) <= 2 else ''
     hv_suffix = f" hv_adj:{candidate.hv_adjacency}" if chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME} else ''
+    rank_suffix = f" rank:{_cf_frontier_rank_debug_label(candidate.rank)}" if candidate.rank is not None else ''
+    seam_suffix = f" seam:{candidate.seam_bonus:+.2f}" if abs(candidate.seam_bonus) > 1e-6 else ''
+    corner_suffix = f" corner:+{candidate.corner_bonus:.2f}" if candidate.corner_bonus > 0.0 else ''
+    shape_suffix = f" shape:{candidate.shape_bonus:+.2f}" if abs(candidate.shape_bonus) > 1e-6 else ''
+    ctx_suffix = ''
+    if candidate.patch_context is not None:
+        ctx_suffix = (
+            f" ctx:p{candidate.patch_context.placed_chain_count}"
+            f" pr:{candidate.patch_context.placed_ratio:.2f}"
+            f" bb:{candidate.patch_context.same_patch_backbone_strength:.2f}"
+            f" cp:{candidate.patch_context.closure_pressure:.2f}"
+        )
     trace_console(
         f"[CFTUV][Frontier] Step {iteration}: "
         f"P{chain_ref[0]} L{chain_ref[1]}C{chain_ref[2]} "
-        f"{chain.frame_role.value} score:{candidate.score:.2f} "
+        f"{chain.frame_role.value} score:{candidate.score:.2f}{rank_suffix}{ctx_suffix}{seam_suffix}{corner_suffix}{shape_suffix} "
         f"ep:{anchor_count} a:{anchor_label}{reason_suffix}{bridge_tag}{hv_suffix}"
     )
     if collector is not None:
@@ -1239,6 +1501,14 @@ def _cf_try_place_frontier_candidate(
             isolation_penalty=candidate.isolation_penalty,
             structural_free_bonus=candidate.structural_free_bonus,
             hv_adjacency=candidate.hv_adjacency,
+            rank=candidate.rank,
+            rank_breakdown=candidate.rank_breakdown,
+            patch_context=candidate.patch_context,
+            corner_hints=candidate.corner_hints,
+            seam_relation=candidate.seam_relation,
+            seam_bonus=candidate.seam_bonus,
+            corner_bonus=candidate.corner_bonus,
+            shape_bonus=candidate.shape_bonus,
         )
     return True
 
@@ -1313,6 +1583,7 @@ def _cf_bootstrap_frontier_runtime(
         quilt_patch_ids=quilt_patch_ids,
         allowed_tree_edges=allowed_tree_edges,
         final_scale=final_scale,
+        seam_relation_by_edge=quilt_plan.seam_relation_by_edge,
         closure_pair_map=closure_pair_map,
     )
 
@@ -2406,20 +2677,894 @@ def _cf_preview_would_be_connected(
                 other_chain = graph.get_chain(*other_ref)
                 if other_chain and other_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
                     return True
-    
+
     return False
 
 
-def _cf_score_candidate(
+def _cf_role_tier(
+    chain_ref: ChainRef,
+    chain: BoundaryChain,
+    node: PatchNode,
+    graph: PatchGraph,
+    quilt_patch_ids: set[int],
+    allowed_tree_edges: set[PatchEdgeKey],
+) -> tuple[int, str]:
+    """Грубый role-tier, сохраняющий текущую scalar priority ladder."""
+    if chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        if len(chain.vert_cos) <= 2:
+            return 1, 'free_bridge'
+        return 0, 'free_regular'
+
+    if chain.is_corner_split:
+        return 2, 'hv_corner_split'
+
+    if (
+        chain.neighbor_kind == ChainNeighborKind.PATCH
+        and chain.neighbor_patch_id in quilt_patch_ids
+        and _is_allowed_quilt_edge(allowed_tree_edges, chain_ref[0], chain.neighbor_patch_id)
+    ):
+        neighbor_node = graph.nodes.get(chain.neighbor_patch_id)
+        if neighbor_node is not None and neighbor_node.patch_type == node.patch_type:
+            return 5, 'hv_cross_patch_same_type'
+        return 4, 'hv_cross_patch_mixed_type'
+
+    return 3, 'hv_regular'
+
+
+def _cf_clamp01(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
+
+
+def _cf_chain_polyline_length_3d(chain: BoundaryChain) -> float:
+    if len(chain.vert_cos) < 2:
+        return 0.0
+    return sum(
+        (chain.vert_cos[index + 1] - chain.vert_cos[index]).length
+        for index in range(len(chain.vert_cos) - 1)
+    )
+
+
+def _cf_patch_shape_backbone_bias(shape_profile: Optional[PatchShapeProfile]) -> float:
+    if shape_profile is None:
+        return 0.0
+    return _cf_clamp01(
+        (0.45 * shape_profile.rectilinearity)
+        + (0.35 * shape_profile.frame_dominance)
+        + (0.20 * shape_profile.elongation)
+    )
+
+
+def _cf_patch_shape_closure_sensitivity(shape_profile: Optional[PatchShapeProfile]) -> float:
+    if shape_profile is None:
+        return 0.0
+    return _cf_clamp01(
+        (0.45 * shape_profile.hole_ratio)
+        + (0.35 * shape_profile.seam_multiplicity_hint)
+        + (0.20 * shape_profile.elongation)
+    )
+
+
+def _cf_build_patch_shape_profile(
+    patch_id: int,
+    node: PatchNode,
+    runtime_policy: "FrontierRuntimePolicy",
+) -> PatchShapeProfile:
+    """Грубый shape-profile patch без превращения shape в solve-mode."""
+    outer_points: list[Vector] = []
+    outer_chain_count = 0
+    hole_chain_count = 0
+    total_outer_length = 0.0
+    hv_outer_length = 0.0
+    h_outer_length = 0.0
+    v_outer_length = 0.0
+    patch_neighbor_chain_count = 0
+    patch_neighbor_ids: set[int] = set()
+
+    for boundary_loop in node.boundary_loops:
+        if boundary_loop.kind == LoopKind.OUTER:
+            outer_points.extend(boundary_loop.vert_cos)
+            for chain in boundary_loop.chains:
+                outer_chain_count += 1
+                chain_length = _cf_chain_polyline_length_3d(chain)
+                total_outer_length += chain_length
+                if chain.frame_role == FrameRole.H_FRAME:
+                    hv_outer_length += chain_length
+                    h_outer_length += chain_length
+                elif chain.frame_role == FrameRole.V_FRAME:
+                    hv_outer_length += chain_length
+                    v_outer_length += chain_length
+                if chain.neighbor_kind == ChainNeighborKind.PATCH:
+                    patch_neighbor_chain_count += 1
+                    if chain.neighbor_patch_id >= 0:
+                        patch_neighbor_ids.add(chain.neighbor_patch_id)
+        elif boundary_loop.kind == LoopKind.HOLE:
+            hole_chain_count += len(boundary_loop.chains)
+
+    if not outer_points:
+        outer_points.extend(node.mesh_verts)
+    if not outer_points:
+        outer_points.append(node.centroid)
+
+    origin = node.centroid
+    projected_u = [(co - origin).dot(node.basis_u) for co in outer_points]
+    projected_v = [(co - origin).dot(node.basis_v) for co in outer_points]
+    width = (max(projected_u) - min(projected_u)) if projected_u else 0.0
+    height = (max(projected_v) - min(projected_v)) if projected_v else 0.0
+    long_span = max(width, height)
+    short_span = min(width, height)
+    elongation = 0.0 if long_span <= 1e-8 else _cf_clamp01(1.0 - (short_span / long_span))
+
+    if total_outer_length > 1e-8:
+        rectilinearity = _cf_clamp01(hv_outer_length / total_outer_length)
+    elif outer_chain_count > 0:
+        rectilinearity = _cf_clamp01(runtime_policy.frame_chain_count(patch_id) / outer_chain_count)
+    else:
+        rectilinearity = 0.0
+
+    hv_outer_total = h_outer_length + v_outer_length
+    if hv_outer_total > 1e-8:
+        frame_dominance = _cf_clamp01(abs(h_outer_length - v_outer_length) / hv_outer_total)
+    else:
+        frame_dominance = 0.0
+
+    total_chain_count = outer_chain_count + hole_chain_count
+    hole_ratio = _cf_clamp01(hole_chain_count / total_chain_count) if total_chain_count > 0 else 0.0
+
+    closure_density = (
+        _cf_clamp01(runtime_policy.closure_pair_count(patch_id) / outer_chain_count)
+        if outer_chain_count > 0 else 0.0
+    )
+    repeated_neighbor_density = (
+        _cf_clamp01(max(0, patch_neighbor_chain_count - len(patch_neighbor_ids)) / outer_chain_count)
+        if outer_chain_count > 0 else 0.0
+    )
+    seam_multiplicity_hint = max(closure_density, repeated_neighbor_density)
+
+    return PatchShapeProfile(
+        elongation=elongation,
+        rectilinearity=rectilinearity,
+        hole_ratio=hole_ratio,
+        frame_dominance=frame_dominance,
+        seam_multiplicity_hint=seam_multiplicity_hint,
+    )
+
+
+def _cf_build_patch_scoring_context(
+    chain_ref: ChainRef,
+    runtime_policy: "FrontierRuntimePolicy",
+) -> PatchScoringContext:
+    """Явный runtime snapshot состояния patch вокруг frontier-кандидата."""
+    patch_id = chain_ref[0]
+    placed_chain_count = runtime_policy.placed_in_patch(patch_id)
+    placed_h_count = runtime_policy.placed_h_in_patch(patch_id)
+    placed_v_count = runtime_policy.placed_v_in_patch(patch_id)
+    placed_free_count = runtime_policy.placed_free_in_patch(patch_id)
+    outer_chain_count = runtime_policy.outer_chain_count(patch_id)
+    frame_chain_count = runtime_policy.frame_chain_count(patch_id)
+    closure_pair_count = runtime_policy.closure_pair_count(patch_id)
+
+    placed_ratio = (placed_chain_count / outer_chain_count) if outer_chain_count > 0 else 0.0
+    frame_progress = placed_h_count + placed_v_count
+    hv_coverage_ratio = (frame_progress / frame_chain_count) if frame_chain_count > 0 else 0.0
+    same_patch_backbone_strength = hv_coverage_ratio if frame_chain_count > 0 else placed_ratio
+
+    shape_profile = runtime_policy.shape_profile(patch_id)
+    shape_closure_sensitivity = _cf_patch_shape_closure_sensitivity(shape_profile)
+    closure_base = (closure_pair_count / outer_chain_count) if outer_chain_count > 0 else 0.0
+    progress_relief = same_patch_backbone_strength if frame_chain_count > 0 else placed_ratio
+    closure_pressure = _cf_clamp01(
+        (closure_base * (1.0 - progress_relief))
+        + (0.15 * shape_closure_sensitivity)
+    )
+
+    return PatchScoringContext(
+        patch_id=patch_id,
+        placed_chain_count=placed_chain_count,
+        placed_h_count=placed_h_count,
+        placed_v_count=placed_v_count,
+        placed_free_count=placed_free_count,
+        placed_ratio=placed_ratio,
+        hv_coverage_ratio=hv_coverage_ratio,
+        same_patch_backbone_strength=same_patch_backbone_strength,
+        closure_pressure=closure_pressure,
+        is_untouched=(placed_chain_count == 0),
+        has_secondary_seam_pairs=(closure_pair_count > 0),
+        shape_profile=shape_profile,
+    )
+
+
+def _cf_chain_seam_relation(
+    chain_ref: ChainRef,
+    chain: BoundaryChain,
+    runtime_policy: "FrontierRuntimePolicy",
+) -> Optional[SeamRelationProfile]:
+    if chain.neighbor_kind != ChainNeighborKind.PATCH or chain.neighbor_patch_id < 0:
+        return None
+    return runtime_policy.seam_relation(chain_ref[0], chain.neighbor_patch_id)
+
+
+def _cf_seam_relation_membership(
+    seam_relation: Optional[SeamRelationProfile],
+    chain_ref: ChainRef,
+) -> str:
+    if seam_relation is None:
+        return 'none'
+    if chain_ref in seam_relation.primary_pair:
+        return 'primary'
+    for pair in seam_relation.secondary_pairs:
+        if chain_ref in pair:
+            return 'secondary'
+    return 'support'
+
+
+def _cf_corner_turn_strength(
+    corner: BoundaryCorner,
+    chain_role: FrameRole,
+    other_role: Optional[FrameRole],
+) -> float:
+    angle = abs(float(corner.turn_angle_deg))
+    if angle <= 1e-6:
+        return 0.0
+    if (
+        other_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+        and chain_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+        and _is_orthogonal_hv_pair(chain_role, other_role)
+    ):
+        return max(0.0, 1.0 - (min(abs(angle - 90.0), 90.0) / 90.0))
+    return min(1.0, angle / 180.0)
+
+
+def _cf_build_corner_scoring_hints(
+    chain_ref: ChainRef,
+    chain: BoundaryChain,
+    graph: PatchGraph,
+) -> CornerScoringHints:
+    """Локальные corner-derived hints для одного chain-кандидата."""
+    patch_id, loop_index, chain_index = chain_ref
+    node = graph.nodes.get(patch_id)
+    if node is None or loop_index < 0 or loop_index >= len(node.boundary_loops):
+        return CornerScoringHints()
+
+    boundary_loop = node.boundary_loops[loop_index]
+
+    def _endpoint_corner(corner_index: int) -> tuple[Optional[BoundaryCorner], Optional[FrameRole]]:
+        if corner_index < 0 or corner_index >= len(boundary_loop.corners):
+            return None, None
+        corner = boundary_loop.corners[corner_index]
+        other_role: Optional[FrameRole] = None
+        if corner.prev_chain_index == chain_index and corner.next_chain_index != chain_index:
+            other_role = corner.next_role
+        elif corner.next_chain_index == chain_index and corner.prev_chain_index != chain_index:
+            other_role = corner.prev_role
+        return corner, other_role
+
+    start_corner, start_other_role = _endpoint_corner(chain.start_corner_index)
+    end_corner, end_other_role = _endpoint_corner(chain.end_corner_index)
+
+    start_turn_strength = (
+        _cf_corner_turn_strength(start_corner, chain.frame_role, start_other_role)
+        if start_corner is not None else 0.0
+    )
+    end_turn_strength = (
+        _cf_corner_turn_strength(end_corner, chain.frame_role, end_other_role)
+        if end_corner is not None else 0.0
+    )
+
+    orthogonal_turn_count = 0
+    same_role_continuation_strength = 0.0
+    has_geometric_corner = False
+    has_junction_corner = False
+
+    for corner, other_role in (
+        (start_corner, start_other_role),
+        (end_corner, end_other_role),
+    ):
+        if corner is None:
+            continue
+        if corner.is_geometric:
+            has_geometric_corner = True
+        else:
+            has_junction_corner = True
+        if (
+            other_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+            and chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+            and _is_orthogonal_hv_pair(chain.frame_role, other_role)
+        ):
+            orthogonal_turn_count += 1
+        if other_role == chain.frame_role:
+            same_role_continuation_strength += 0.5 if not corner.is_geometric else 0.25
+
+    return CornerScoringHints(
+        start_turn_strength=start_turn_strength,
+        end_turn_strength=end_turn_strength,
+        orthogonal_turn_count=orthogonal_turn_count,
+        same_role_continuation_strength=min(1.0, same_role_continuation_strength),
+        has_geometric_corner=has_geometric_corner,
+        has_junction_corner=has_junction_corner,
+    )
+
+
+def _cf_build_frontier_rank(
+    chain_ref: ChainRef,
+    chain: BoundaryChain,
+    node: PatchNode,
+    known: int,
+    graph: PatchGraph,
+    topology_facts: FrontierTopologyFacts,
+    patch_context: PatchScoringContext,
+    quilt_patch_ids: set[int],
+    allowed_tree_edges: set[PatchEdgeKey],
+    runtime_policy: "FrontierRuntimePolicy",
+    score: float,
+    seam_relation: Optional[SeamRelationProfile] = None,
+    seam_bonus: float = 0.0,
+    shape_bonus: float = 0.0,
+    closure_pair_refs: Optional[frozenset[ChainRef]] = None,
+    start_anchor: Optional[ChainAnchor] = None,
+    end_anchor: Optional[ChainAnchor] = None,
+) -> tuple[FrontierRank, FrontierRankBreakdown]:
+    """Собирает structured rank из текущих scalar signal'ов без смены rescue-flow."""
+    is_hv = topology_facts.is_hv
+    same_patch_anchor_count = topology_facts.same_patch_anchor_count
+    cross_patch_anchor_count = topology_facts.cross_patch_anchor_count
+
+    viability_tier = 1 if score >= CHAIN_FRONTIER_THRESHOLD else 0
+    viability_label = 'viable' if viability_tier else 'below_threshold'
+    role_tier, role_label = _cf_role_tier(
+        chain_ref,
+        chain,
+        node,
+        graph,
+        quilt_patch_ids,
+        allowed_tree_edges,
+    )
+
+    if topology_facts.is_secondary_closure and same_patch_anchor_count == 0 and cross_patch_anchor_count > 0:
+        if patch_context.is_untouched:
+            role_tier = min(role_tier, 1)
+            role_label = f"{role_label}:closure_secondary_untouched"
+        elif patch_context.same_patch_backbone_strength < 0.5:
+            role_tier = min(role_tier, 2)
+            role_label = f"{role_label}:closure_secondary_early"
+
+    if known >= 2:
+        ingress_tier = 3
+        ingress_label = 'dual_anchor'
+    elif not patch_context.is_untouched:
+        ingress_tier = 2
+        ingress_label = 'single_anchor_patch_progress'
+    elif known == 1:
+        ingress_tier = 1
+        ingress_label = 'single_anchor_ingress'
+    else:
+        ingress_tier = 0
+        ingress_label = 'unanchored'
+
+    if is_hv:
+        if not topology_facts.would_be_connected:
+            patch_fit_tier = 0
+            patch_fit_label = 'isolated_hv'
+        elif not patch_context.is_untouched:
+            patch_fit_tier = 2
+            patch_fit_label = f"same_patch_backbone:{patch_context.same_patch_backbone_strength:.2f}"
+        else:
+            patch_fit_tier = 1
+            patch_fit_label = 'hv_ingress'
+    else:
+        patch_fit_tier = 1 if not patch_context.is_untouched else 0
+        patch_fit_label = (
+            f"patch_progress:{patch_context.placed_ratio:.2f}"
+            if not patch_context.is_untouched else
+            'untouched_free'
+        )
+
+    anchor_tier = (same_patch_anchor_count * 3) + min(topology_facts.hv_adjacency, 2)
+    if same_patch_anchor_count == 0 and cross_patch_anchor_count > 0:
+        anchor_tier = max(0, anchor_tier - 1)
+    anchor_label = (
+        f"sp:{same_patch_anchor_count}"
+        f"/xp:{cross_patch_anchor_count}"
+        f"/hv:{min(topology_facts.hv_adjacency, 2)}"
+    )
+
+    if topology_facts.is_secondary_closure:
+        if same_patch_anchor_count == 0 and cross_patch_anchor_count > 0:
+            closure_risk_tier = 0
+            closure_label = f"closure_cross_patch_only:{patch_context.closure_pressure:.2f}"
+        elif patch_context.is_untouched:
+            closure_risk_tier = 1
+            closure_label = f"closure_patch_ingress:{patch_context.closure_pressure:.2f}"
+        else:
+            closure_risk_tier = 2
+            closure_label = f"closure_supported:{patch_context.closure_pressure:.2f}"
+    else:
+        closure_risk_tier = 3
+        closure_label = f"regular:{patch_context.closure_pressure:.2f}"
+
+    seam_membership = _cf_seam_relation_membership(seam_relation, chain_ref)
+    if seam_relation is None:
+        seam_label = 'seam:none'
+    else:
+        if seam_membership == 'primary' and same_patch_anchor_count == 0 and cross_patch_anchor_count > 0:
+            anchor_tier += 1
+        elif seam_membership == 'secondary':
+            if patch_context.is_untouched:
+                closure_risk_tier = min(closure_risk_tier, 0)
+            elif patch_context.same_patch_backbone_strength < 0.5:
+                closure_risk_tier = min(closure_risk_tier, 1)
+        elif (
+            seam_membership == 'support'
+            and seam_relation.is_closure_like
+            and same_patch_anchor_count == 0
+            and cross_patch_anchor_count > 0
+        ):
+            anchor_tier = max(0, anchor_tier - 1)
+        seam_label = (
+            f"seam:{seam_membership}"
+            f"/sec:{seam_relation.secondary_pair_count}"
+            f"/gap:{seam_relation.pair_strength_gap:.2f}"
+            f"/as:{seam_relation.support_asymmetry:.2f}"
+            f"/in:{seam_relation.ingress_preference:.2f}"
+            f"/b:{seam_bonus:+.2f}"
+        )
+
+    shape_profile = patch_context.shape_profile
+    if shape_profile is None:
+        shape_label = 'shape:none'
+    else:
+        shape_label = (
+            f"shape:{shape_bonus:+.2f}"
+            f"/r{shape_profile.rectilinearity:.2f}"
+            f"/b{_cf_patch_shape_backbone_bias(shape_profile):.2f}"
+            f"/c{_cf_patch_shape_closure_sensitivity(shape_profile):.2f}"
+        )
+
+    rank = FrontierRank(
+        viability_tier=viability_tier,
+        role_tier=role_tier,
+        ingress_tier=ingress_tier,
+        patch_fit_tier=patch_fit_tier,
+        anchor_tier=anchor_tier,
+        closure_risk_tier=closure_risk_tier,
+        local_score=score,
+        tie_length=_cf_chain_total_length(chain, runtime_policy.final_scale),
+    )
+    breakdown = FrontierRankBreakdown(
+        viability_label=viability_label,
+        role_label=role_label,
+        ingress_label=ingress_label,
+        patch_fit_label=patch_fit_label,
+        anchor_label=anchor_label,
+        closure_label=closure_label,
+        seam_label=seam_label,
+        shape_label=shape_label,
+        summary=(
+            f"{viability_label}>{role_label}>{ingress_label}>"
+            f"{patch_fit_label}>{anchor_label}>{closure_label}>{seam_label}>{shape_label}"
+        ),
+    )
+    return rank, breakdown
+
+
+def _cf_make_frontier_placement_candidate(
+    entry: ChainPoolEntry,
+    candidate_eval: FrontierCandidateEval,
+) -> FrontierPlacementCandidate:
+    return FrontierPlacementCandidate(
+        chain_ref=entry.chain_ref,
+        chain=entry.chain,
+        node=entry.node,
+        start_anchor=candidate_eval.start_anchor,
+        end_anchor=candidate_eval.end_anchor,
+        anchor_reason=candidate_eval.anchor_reason,
+        anchor_adjustments=candidate_eval.anchor_adjustments,
+        closure_dir_override=candidate_eval.closure_dir_override,
+        score=candidate_eval.score,
+        length_factor=candidate_eval.length_factor,
+        downstream_count=candidate_eval.downstream_count,
+        downstream_bonus=candidate_eval.downstream_bonus,
+        isolation_preview=candidate_eval.isolation_preview,
+        isolation_penalty=candidate_eval.isolation_penalty,
+        structural_free_bonus=candidate_eval.structural_free_bonus,
+        hv_adjacency=candidate_eval.hv_adjacency,
+        rank=candidate_eval.rank,
+        rank_breakdown=candidate_eval.rank_breakdown,
+        patch_context=candidate_eval.patch_context,
+        corner_hints=candidate_eval.corner_hints,
+        seam_relation=candidate_eval.seam_relation,
+        seam_bonus=candidate_eval.seam_bonus,
+        corner_bonus=candidate_eval.corner_bonus,
+        shape_bonus=candidate_eval.shape_bonus,
+    )
+
+
+def _cf_frontier_rank_debug_label(rank: Optional[FrontierRank]) -> str:
+    if rank is None:
+        return '-'
+    return (
+        f"{rank.viability_tier}/"
+        f"{rank.role_tier}/"
+        f"{rank.ingress_tier}/"
+        f"{rank.patch_fit_tier}/"
+        f"{rank.anchor_tier}/"
+        f"{rank.closure_risk_tier}"
+    )
+
+
+def _cf_build_frontier_topology_facts(
+    chain_ref: ChainRef,
+    chain: BoundaryChain,
+    graph: PatchGraph,
+    runtime_policy: "FrontierRuntimePolicy",
+    known: int,
+    start_anchor: Optional[ChainAnchor],
+    end_anchor: Optional[ChainAnchor],
+    closure_pair_refs: Optional[frozenset[ChainRef]] = None,
+) -> FrontierTopologyFacts:
+    is_bridge = chain.frame_role == FrameRole.FREE and len(chain.vert_cos) <= 2
+    is_hv = chain.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME)
+    same_patch_anchor_count = sum(
+        1 for anchor in (start_anchor, end_anchor)
+        if anchor is not None and anchor.source_kind == PlacementSourceKind.SAME_PATCH
+    )
+    cross_patch_anchor_count = sum(
+        1 for anchor in (start_anchor, end_anchor)
+        if anchor is not None and anchor.source_kind == PlacementSourceKind.CROSS_PATCH
+    )
+    hv_adjacency = _cf_count_hv_adjacent_endpoints(graph, chain_ref)
+    if is_hv:
+        for anchor in (start_anchor, end_anchor):
+            if anchor is None or anchor.source_kind != PlacementSourceKind.CROSS_PATCH:
+                continue
+            src_chain = graph.get_chain(*anchor.source_ref)
+            if src_chain is not None and src_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                hv_adjacency += 1
+                break
+
+    would_be_connected = _cf_preview_would_be_connected(chain_ref, chain, runtime_policy, graph)
+    return FrontierTopologyFacts(
+        is_hv=is_hv,
+        is_bridge=is_bridge,
+        same_patch_anchor_count=same_patch_anchor_count,
+        cross_patch_anchor_count=cross_patch_anchor_count,
+        hv_adjacency=hv_adjacency,
+        would_be_connected=would_be_connected if is_hv else True,
+        is_secondary_closure=bool(known > 0 and closure_pair_refs and chain_ref in closure_pair_refs),
+    )
+
+
+def _cf_score_topology_baseline(
+    chain_ref: ChainRef,
+    chain: BoundaryChain,
+    node: PatchNode,
+    known: int,
+    graph: PatchGraph,
+    quilt_patch_ids: set[int],
+    allowed_tree_edges: set[PatchEdgeKey],
+    topology_facts: FrontierTopologyFacts,
+) -> float:
+    score = 0.0
+    if topology_facts.is_hv:
+        if chain.is_corner_split:
+            score += 0.4
+        elif (
+            chain.neighbor_kind == ChainNeighborKind.PATCH
+            and chain.neighbor_patch_id in quilt_patch_ids
+            and _is_allowed_quilt_edge(allowed_tree_edges, chain_ref[0], chain.neighbor_patch_id)
+        ):
+            current_type = node.patch_type
+            neighbor_node = graph.nodes.get(chain.neighbor_patch_id)
+            neighbor_type = neighbor_node.patch_type if neighbor_node else None
+            score += 2.0 if current_type == neighbor_type else 1.5
+        else:
+            score += 1.0
+    elif topology_facts.is_bridge:
+        score += 0.1
+
+    if known == 2:
+        score += 0.8
+    elif known == 1:
+        score += 0.3
+
+    if topology_facts.is_bridge and known < 2:
+        score -= 0.45
+    return score
+
+
+def _cf_score_patch_anchor_context(
+    patch_context: PatchScoringContext,
+    topology_facts: FrontierTopologyFacts,
+    score_hv_adj_full_bonus: float,
+    score_hv_adj_isolated_penalty: float,
+    score_bridge_first_patch_penalty: float,
+    score_bridge_cross_patch_penalty: float,
+) -> float:
+    score = 0.0
+    if not patch_context.is_untouched:
+        score += 0.2
+
+    score += 0.1 * topology_facts.same_patch_anchor_count
+    if topology_facts.same_patch_anchor_count == 0 and topology_facts.cross_patch_anchor_count > 0:
+        score -= 0.35 if not patch_context.is_untouched else 0.25
+
+    if topology_facts.is_hv:
+        if topology_facts.hv_adjacency >= 2:
+            score += score_hv_adj_full_bonus
+        elif topology_facts.hv_adjacency <= 0:
+            score -= score_hv_adj_isolated_penalty
+
+    if topology_facts.is_bridge and patch_context.is_untouched:
+        score -= score_bridge_first_patch_penalty
+    if topology_facts.is_bridge and topology_facts.same_patch_anchor_count == 0 and topology_facts.cross_patch_anchor_count > 0:
+        score -= score_bridge_cross_patch_penalty
+    return score
+
+
+def _cf_score_closure_guard(
+    patch_context: PatchScoringContext,
+    topology_facts: FrontierTopologyFacts,
+) -> float:
+    if not topology_facts.is_secondary_closure:
+        return 0.0
+    if topology_facts.same_patch_anchor_count == 0 and topology_facts.cross_patch_anchor_count > 0:
+        return -(0.9 if not patch_context.is_untouched else 1.1)
+    if patch_context.is_untouched:
+        return -0.7
+    return 0.0
+
+
+def _cf_score_seam_relation_hint(
+    chain_ref: ChainRef,
+    patch_context: PatchScoringContext,
+    topology_facts: FrontierTopologyFacts,
+    seam_relation: Optional[SeamRelationProfile],
+) -> float:
+    seam_bonus = 0.0
+    seam_membership = _cf_seam_relation_membership(seam_relation, chain_ref)
+    if seam_relation is None:
+        return seam_bonus
+    if seam_membership == 'primary':
+        if topology_facts.is_hv and topology_facts.same_patch_anchor_count == 0 and topology_facts.cross_patch_anchor_count > 0:
+            seam_bonus += 0.05 * seam_relation.ingress_preference
+        elif topology_facts.is_hv and patch_context.is_untouched:
+            seam_bonus += 0.03 * seam_relation.ingress_preference
+    elif seam_membership == 'secondary':
+        early_gate = _cf_clamp01(1.0 - patch_context.same_patch_backbone_strength)
+        seam_bonus -= 0.06 * early_gate * (1.0 - seam_relation.pair_strength_gap)
+    elif seam_relation.is_closure_like and topology_facts.same_patch_anchor_count == 0 and topology_facts.cross_patch_anchor_count > 0:
+        seam_bonus -= 0.03 * seam_relation.support_asymmetry
+    return seam_bonus
+
+
+def _cf_score_shape_hint(
+    chain_ref: ChainRef,
+    patch_context: PatchScoringContext,
+    topology_facts: FrontierTopologyFacts,
+    shape_profile: Optional[PatchShapeProfile],
+    closure_pair_refs: Optional[frozenset[ChainRef]] = None,
+) -> float:
+    shape_bonus = 0.0
+    shape_backbone_bias = _cf_patch_shape_backbone_bias(shape_profile)
+    shape_closure_sensitivity = _cf_patch_shape_closure_sensitivity(shape_profile)
+    if shape_profile is None:
+        return shape_bonus
+
+    if topology_facts.is_hv:
+        if patch_context.is_untouched:
+            shape_bonus += 0.08 * shape_backbone_bias
+        elif patch_context.same_patch_backbone_strength < 0.5:
+            shape_bonus += 0.04 * shape_backbone_bias
+    elif patch_context.is_untouched:
+        free_guard = 0.6 * shape_profile.rectilinearity + 0.4 * shape_profile.frame_dominance
+        if topology_facts.is_bridge:
+            shape_bonus -= 0.03 * _cf_clamp01(free_guard)
+        else:
+            shape_bonus -= 0.05 * _cf_clamp01(free_guard)
+
+    if closure_pair_refs and chain_ref in closure_pair_refs:
+        progress_gate = 1.0 - patch_context.placed_ratio
+        shape_bonus -= 0.05 * shape_closure_sensitivity * _cf_clamp01(progress_gate)
+    return shape_bonus
+
+
+def _cf_score_corner_hint(
+    topology_facts: FrontierTopologyFacts,
+    corner_hints: Optional[CornerScoringHints],
+) -> float:
+    if corner_hints is None:
+        return 0.0
+    avg_turn_strength = (
+        corner_hints.start_turn_strength + corner_hints.end_turn_strength
+    ) * 0.5
+    corner_bonus = 0.0
+    if topology_facts.is_hv:
+        corner_bonus += 0.04 * min(2, corner_hints.orthogonal_turn_count)
+        corner_bonus += 0.04 * corner_hints.same_role_continuation_strength
+    else:
+        corner_bonus += 0.02 * corner_hints.same_role_continuation_strength
+    corner_bonus += 0.02 * avg_turn_strength
+    if corner_hints.has_junction_corner and not corner_hints.has_geometric_corner:
+        corner_bonus += 0.01
+    return corner_bonus
+
+
+def _cf_build_frontier_local_score_details(
+    chain_ref: ChainRef,
+    chain: BoundaryChain,
+    graph: PatchGraph,
+    patch_context: PatchScoringContext,
+    runtime_policy: "FrontierRuntimePolicy",
+    topology_facts: FrontierTopologyFacts,
+    corner_hints: Optional[CornerScoringHints] = None,
+    seam_relation: Optional[SeamRelationProfile] = None,
+    closure_pair_refs: Optional[frozenset[ChainRef]] = None,
+    *,
+    score_free_length_scale: float,
+    score_free_length_cap: float,
+    score_downstream_scale: float,
+    score_downstream_cap: float,
+    score_isolated_hv_penalty: float,
+    score_free_strip_connector: float,
+    score_free_frame_neighbor: float,
+) -> FrontierLocalScoreDetails:
+    length_factor = 0.0
+    if not topology_facts.is_hv:
+        chain_len = _cf_chain_total_length(chain, runtime_policy.final_scale)
+        length_factor = min(score_free_length_cap, chain_len * score_free_length_scale)
+
+    downstream_count = _cf_estimate_downstream_anchor_count(chain_ref, chain, graph, runtime_policy)
+    downstream_bonus = min(score_downstream_cap, downstream_count * score_downstream_scale)
+
+    isolation_penalty = 0.0
+    if topology_facts.is_hv and not topology_facts.would_be_connected:
+        isolation_penalty = score_isolated_hv_penalty
+
+    structural_free_bonus = 0.0
+    if not topology_facts.is_hv and not topology_facts.is_bridge:
+        neighbors = graph.get_chain_endpoint_neighbors(chain_ref[0], chain_ref[1], chain_ref[2])
+        start_has_hv = any(
+            graph.get_chain(chain_ref[0], li, ci) is not None
+            and graph.get_chain(chain_ref[0], li, ci).frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+            for li, ci in neighbors.get("start", [])
+        )
+        end_has_hv = any(
+            graph.get_chain(chain_ref[0], li, ci) is not None
+            and graph.get_chain(chain_ref[0], li, ci).frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+            for li, ci in neighbors.get("end", [])
+        )
+        if start_has_hv and end_has_hv:
+            structural_free_bonus = score_free_strip_connector
+        elif start_has_hv or end_has_hv:
+            structural_free_bonus = score_free_frame_neighbor
+
+    seam_bonus = _cf_score_seam_relation_hint(
+        chain_ref,
+        patch_context,
+        topology_facts,
+        seam_relation,
+    )
+    shape_bonus = _cf_score_shape_hint(
+        chain_ref,
+        patch_context,
+        topology_facts,
+        patch_context.shape_profile,
+        closure_pair_refs=closure_pair_refs,
+    )
+    corner_bonus = _cf_score_corner_hint(topology_facts, corner_hints)
+
+    return FrontierLocalScoreDetails(
+        length_factor=length_factor,
+        downstream_count=downstream_count,
+        downstream_bonus=downstream_bonus,
+        isolation_penalty=isolation_penalty,
+        structural_free_bonus=structural_free_bonus,
+        seam_bonus=seam_bonus,
+        corner_bonus=corner_bonus,
+        shape_bonus=shape_bonus,
+    )
+
+
+def _cf_score_candidate_layered(
     chain_ref,
     chain,
     node,
     known,
     graph,
-    placed_in_patch,
+    patch_context: PatchScoringContext,
     quilt_patch_ids,
     allowed_tree_edges,
     runtime_policy: "FrontierRuntimePolicy",
+    corner_hints: Optional[CornerScoringHints] = None,
+    seam_relation: Optional[SeamRelationProfile] = None,
+    closure_pair_refs=None,
+    start_anchor: Optional[ChainAnchor] = None,
+    end_anchor: Optional[ChainAnchor] = None,
+):
+    try:
+        from .constants import (SCORE_FREE_LENGTH_SCALE, SCORE_FREE_LENGTH_CAP, SCORE_DOWNSTREAM_SCALE, SCORE_DOWNSTREAM_CAP,
+                                SCORE_ISOLATED_HV_PENALTY, SCORE_HV_ADJ_FULL_BONUS, SCORE_HV_ADJ_ISOLATED_PENALTY,
+                                SCORE_BRIDGE_FIRST_PATCH_PENALTY, SCORE_BRIDGE_CROSS_PATCH_PENALTY,
+                                SCORE_FREE_STRIP_CONNECTOR, SCORE_FREE_FRAME_NEIGHBOR)
+    except ImportError:
+        from constants import (SCORE_FREE_LENGTH_SCALE, SCORE_FREE_LENGTH_CAP, SCORE_DOWNSTREAM_SCALE, SCORE_DOWNSTREAM_CAP,
+                               SCORE_ISOLATED_HV_PENALTY, SCORE_HV_ADJ_FULL_BONUS, SCORE_HV_ADJ_ISOLATED_PENALTY,
+                               SCORE_BRIDGE_FIRST_PATCH_PENALTY, SCORE_BRIDGE_CROSS_PATCH_PENALTY,
+                               SCORE_FREE_STRIP_CONNECTOR, SCORE_FREE_FRAME_NEIGHBOR)
+
+    topology_facts = _cf_build_frontier_topology_facts(
+        chain_ref,
+        chain,
+        graph,
+        runtime_policy,
+        known,
+        start_anchor,
+        end_anchor,
+        closure_pair_refs=closure_pair_refs,
+    )
+    score = 0.0
+    score += _cf_score_topology_baseline(
+        chain_ref,
+        chain,
+        node,
+        known,
+        graph,
+        quilt_patch_ids,
+        allowed_tree_edges,
+        topology_facts,
+    )
+    score += _cf_score_patch_anchor_context(
+        patch_context,
+        topology_facts,
+        SCORE_HV_ADJ_FULL_BONUS,
+        SCORE_HV_ADJ_ISOLATED_PENALTY,
+        SCORE_BRIDGE_FIRST_PATCH_PENALTY,
+        SCORE_BRIDGE_CROSS_PATCH_PENALTY,
+    )
+    score += _cf_score_closure_guard(
+        patch_context,
+        topology_facts,
+    )
+
+    score_details = _cf_build_frontier_local_score_details(
+        chain_ref,
+        chain,
+        graph,
+        patch_context,
+        runtime_policy,
+        topology_facts,
+        corner_hints=corner_hints,
+        seam_relation=seam_relation,
+        closure_pair_refs=closure_pair_refs,
+        score_free_length_scale=SCORE_FREE_LENGTH_SCALE,
+        score_free_length_cap=SCORE_FREE_LENGTH_CAP,
+        score_downstream_scale=SCORE_DOWNSTREAM_SCALE,
+        score_downstream_cap=SCORE_DOWNSTREAM_CAP,
+        score_isolated_hv_penalty=SCORE_ISOLATED_HV_PENALTY,
+        score_free_strip_connector=SCORE_FREE_STRIP_CONNECTOR,
+        score_free_frame_neighbor=SCORE_FREE_FRAME_NEIGHBOR,
+    )
+    score += score_details.length_factor
+    score += score_details.downstream_bonus
+    score -= score_details.isolation_penalty
+    score += score_details.structural_free_bonus
+    score += score_details.seam_bonus
+    score += score_details.corner_bonus
+    score += score_details.shape_bonus
+    return score, topology_facts, score_details
+
+
+def _cf_score_candidate_legacy(
+    chain_ref,
+    chain,
+    node,
+    known,
+    graph,
+    patch_context: PatchScoringContext,
+    quilt_patch_ids,
+    allowed_tree_edges,
+    runtime_policy: "FrontierRuntimePolicy",
+    corner_hints: Optional[CornerScoringHints] = None,
+    seam_relation: Optional[SeamRelationProfile] = None,
     closure_pair_refs=None,
     start_anchor: Optional[ChainAnchor] = None,
     end_anchor: Optional[ChainAnchor] = None,
@@ -2483,7 +3628,7 @@ def _cf_score_candidate(
         score -= 0.45
 
     # --- Momentum: patch уже имеет placed chains ---
-    if placed_in_patch > 0:
+    if not patch_context.is_untouched:
         score += 0.2
 
     # --- Anchor source preference ---
@@ -2498,7 +3643,7 @@ def _cf_score_candidate(
     score += 0.1 * same_patch_anchor_count
 
     if same_patch_anchor_count == 0 and cross_patch_anchor_count > 0:
-        score -= 0.35 if placed_in_patch > 0 else 0.25
+        score -= 0.35 if not patch_context.is_untouched else 0.25
 
     hv_adjacency = _cf_count_hv_adjacent_endpoints(graph, chain_ref)
     if is_hv:
@@ -2514,7 +3659,7 @@ def _cf_score_candidate(
         elif hv_adjacency <= 0:
             score -= SCORE_HV_ADJ_ISOLATED_PENALTY
 
-    if is_bridge and placed_in_patch == 0:
+    if is_bridge and patch_context.is_untouched:
         score -= SCORE_BRIDGE_FIRST_PATCH_PENALTY
     if is_bridge and same_patch_anchor_count == 0 and cross_patch_anchor_count > 0:
         score -= SCORE_BRIDGE_CROSS_PATCH_PENALTY
@@ -2524,8 +3669,8 @@ def _cf_score_candidate(
     # seam-chain слишком рано и H/V внутри patch схлопываются в чужой span.
     if closure_pair_refs and chain_ref in closure_pair_refs:
         if same_patch_anchor_count == 0 and cross_patch_anchor_count > 0:
-            score -= 0.9 if placed_in_patch > 0 else 1.1
-        elif placed_in_patch == 0:
+            score -= 0.9 if not patch_context.is_untouched else 1.1
+        elif patch_context.is_untouched:
             score -= 0.7
 
     # --- P5 Continuous scoring factors ---
@@ -2565,6 +3710,59 @@ def _cf_score_candidate(
             structural_free_bonus = SCORE_FREE_FRAME_NEIGHBOR
             score += structural_free_bonus
 
+    seam_bonus = 0.0
+    seam_membership = _cf_seam_relation_membership(seam_relation, chain_ref)
+    if seam_relation is not None:
+        if seam_membership == 'primary':
+            if is_hv and same_patch_anchor_count == 0 and cross_patch_anchor_count > 0:
+                seam_bonus += 0.05 * seam_relation.ingress_preference
+            elif is_hv and patch_context.is_untouched:
+                seam_bonus += 0.03 * seam_relation.ingress_preference
+        elif seam_membership == 'secondary':
+            early_gate = _cf_clamp01(1.0 - patch_context.same_patch_backbone_strength)
+            seam_bonus -= 0.06 * early_gate * (1.0 - seam_relation.pair_strength_gap)
+        elif seam_relation.is_closure_like and same_patch_anchor_count == 0 and cross_patch_anchor_count > 0:
+            seam_bonus -= 0.03 * seam_relation.support_asymmetry
+    score += seam_bonus
+
+    shape_bonus = 0.0
+    shape_profile = patch_context.shape_profile
+    shape_backbone_bias = _cf_patch_shape_backbone_bias(shape_profile)
+    shape_closure_sensitivity = _cf_patch_shape_closure_sensitivity(shape_profile)
+    if shape_profile is not None:
+        if is_hv:
+            if patch_context.is_untouched:
+                shape_bonus += 0.08 * shape_backbone_bias
+            elif patch_context.same_patch_backbone_strength < 0.5:
+                shape_bonus += 0.04 * shape_backbone_bias
+        elif patch_context.is_untouched:
+            free_guard = 0.6 * shape_profile.rectilinearity + 0.4 * shape_profile.frame_dominance
+            if is_bridge:
+                shape_bonus -= 0.03 * _cf_clamp01(free_guard)
+            else:
+                shape_bonus -= 0.05 * _cf_clamp01(free_guard)
+
+        if closure_pair_refs and chain_ref in closure_pair_refs:
+            progress_gate = 1.0 - patch_context.placed_ratio
+            shape_bonus -= 0.05 * shape_closure_sensitivity * _cf_clamp01(progress_gate)
+
+    score += shape_bonus
+
+    corner_bonus = 0.0
+    if corner_hints is not None:
+        avg_turn_strength = (
+            corner_hints.start_turn_strength + corner_hints.end_turn_strength
+        ) * 0.5
+        if is_hv:
+            corner_bonus += 0.04 * min(2, corner_hints.orthogonal_turn_count)
+            corner_bonus += 0.04 * corner_hints.same_role_continuation_strength
+        else:
+            corner_bonus += 0.02 * corner_hints.same_role_continuation_strength
+        corner_bonus += 0.02 * avg_turn_strength
+        if corner_hints.has_junction_corner and not corner_hints.has_geometric_corner:
+            corner_bonus += 0.01
+        score += corner_bonus
+
     details = (
         length_factor,
         downstream,
@@ -2573,8 +3771,14 @@ def _cf_score_candidate(
         isolation_penalty,
         structural_free_bonus,
         hv_adjacency,
+        seam_bonus,
+        corner_bonus,
+        shape_bonus,
     )
     return score, details
+
+
+_cf_score_candidate = _cf_score_candidate_layered
 
 
 
@@ -3066,12 +4270,15 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
 
     # Статический индекс vert_index → [ChainRef] для incremental dirty marking
     vert_to_pool: dict[int, list[ChainRef]] = {}
+    patch_to_pool: dict[int, list[ChainRef]] = {}
     for pool_entry in all_chain_pool:
+        patch_to_pool.setdefault(pool_entry.chain_ref[0], []).append(pool_entry.chain_ref)
         for vi in pool_entry.chain.vert_indices:
             vert_to_pool.setdefault(vi, []).append(pool_entry.chain_ref)
     for vi in seed_chain.vert_indices:
         vert_to_pool.setdefault(vi, []).append(seed_ref)
     runtime_policy._vert_to_pool_refs = vert_to_pool
+    runtime_policy._patch_to_pool_refs = patch_to_pool
     # Phase E: seed зарегистрирован до построения индекса — повторяем dirty marking
     _mark_neighbors_dirty(runtime_policy, seed_ref, seed_chain)
 

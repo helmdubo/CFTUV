@@ -19,7 +19,7 @@ try:
     from .model import (
         BoundaryChain, FrameRole, LoopKind,
         PatchGraph, PatchNode,
-        PatchEdgeKey, PatchType,
+        ChainRef, PatchEdgeKey, PatchType,
     )
     from .solve_records import (
         PatchCertainty, SolveComponentsResult, AttachmentCandidate,
@@ -27,6 +27,8 @@ try:
         AttachmentCandidatePreference, ChainPairSelection, AttachmentNeighborRef,
         ChainEndpointContext, EndpointMatch, EndpointBridgeMetrics, EndpointSupportStats,
         ClosureCutHeuristic, QuiltClosureCutAnalysis, PatchRoleCounts,
+        SeamRelationProfile,
+        ClosureChainPairMatch, ClosureChainPairCandidate,
         EDGE_PROPAGATE_MIN, EDGE_WEAK_MIN,
         _clamp01, _patch_pair_key,
     )
@@ -45,7 +47,7 @@ except ImportError:
     from model import (
         BoundaryChain, FrameRole, LoopKind,
         PatchGraph, PatchNode,
-        PatchEdgeKey, PatchType,
+        ChainRef, PatchEdgeKey, PatchType,
     )
     from solve_records import (
         PatchCertainty, SolveComponentsResult, AttachmentCandidate,
@@ -53,6 +55,8 @@ except ImportError:
         AttachmentCandidatePreference, ChainPairSelection, AttachmentNeighborRef,
         ChainEndpointContext, EndpointMatch, EndpointBridgeMetrics, EndpointSupportStats,
         ClosureCutHeuristic, QuiltClosureCutAnalysis, PatchRoleCounts,
+        SeamRelationProfile,
+        ClosureChainPairMatch, ClosureChainPairCandidate,
         EDGE_PROPAGATE_MIN, EDGE_WEAK_MIN,
         _clamp01, _patch_pair_key,
     )
@@ -534,16 +538,14 @@ def _loop_pair_strength(owner_loop_kind: LoopKind, target_loop_kind: LoopKind) -
     return 0.35
 
 
-def _best_chain_pair(
+def _rank_chain_pairs(
     graph: PatchGraph,
     owner_patch_id: int,
     owner_refs: list[AttachmentNeighborRef],
     target_patch_id: int,
     target_refs: list[AttachmentNeighborRef],
-) -> Optional[ChainPairSelection]:
-    best_pair: Optional[ChainPairSelection] = None
-    best_strength = -1.0
-    best_representative_length = -1.0
+) -> list[tuple[ChainPairSelection, float]]:
+    ranked_pairs: list[tuple[ChainPairSelection, float]] = []
     semantic_strength = _semantic_pair_strength(graph, owner_patch_id, target_patch_id)
 
     for owner_ref in owner_refs:
@@ -582,27 +584,42 @@ def _best_chain_pair(
             else:
                 representative_length = max(owner_chain_length, target_chain_length)
 
-            if pair_strength < best_strength - 1e-6:
-                continue
-            if (
-                abs(pair_strength - best_strength) <= 1e-6
-                and representative_length <= best_representative_length
-            ):
-                continue
-            best_strength = pair_strength
-            best_representative_length = representative_length
-            best_pair = ChainPairSelection(
-                owner_ref=owner_ref,
-                target_ref=target_ref,
-                pair_strength=_clamp01(pair_strength),
-                endpoint_strength=_clamp01(endpoint_strength),
-                frame_continuation=_clamp01(frame_continuation),
-                endpoint_bridge=_clamp01(endpoint_bridge),
-                corner_strength=_clamp01(corner_strength),
-                semantic_strength=_clamp01(semantic_strength),
-            )
+            ranked_pairs.append((
+                ChainPairSelection(
+                    owner_ref=owner_ref,
+                    target_ref=target_ref,
+                    pair_strength=_clamp01(pair_strength),
+                    endpoint_strength=_clamp01(endpoint_strength),
+                    frame_continuation=_clamp01(frame_continuation),
+                    endpoint_bridge=_clamp01(endpoint_bridge),
+                    corner_strength=_clamp01(corner_strength),
+                    semantic_strength=_clamp01(semantic_strength),
+                ),
+                representative_length,
+            ))
 
-    return best_pair
+    ranked_pairs.sort(
+        key=lambda item: (item[0].pair_strength, item[1]),
+        reverse=True,
+    )
+    return ranked_pairs
+
+
+def _best_chain_pair(
+    graph: PatchGraph,
+    owner_patch_id: int,
+    owner_refs: list[AttachmentNeighborRef],
+    target_patch_id: int,
+    target_refs: list[AttachmentNeighborRef],
+) -> Optional[ChainPairSelection]:
+    ranked_pairs = _rank_chain_pairs(
+        graph,
+        owner_patch_id,
+        owner_refs,
+        target_patch_id,
+        target_refs,
+    )
+    return ranked_pairs[0][0] if ranked_pairs else None
 
 
 def _build_attachment_candidate(
@@ -708,6 +725,131 @@ def _build_attachment_candidate(
     )
 
 
+def _match_seam_relation_secondary_pairs(
+    graph: PatchGraph,
+    patch_a_id: int,
+    patch_b_id: int,
+) -> tuple[tuple[ChainRef, ChainRef], ...]:
+    """Matched secondary seam carriers for one undirected patch edge."""
+    owner_refs = _iter_neighbor_chains(graph, patch_a_id, patch_b_id)
+    target_refs = _iter_neighbor_chains(graph, patch_b_id, patch_a_id)
+    pair_candidates: list[ClosureChainPairCandidate] = []
+
+    for owner_ref in owner_refs:
+        owner_chain = owner_ref.chain
+        if owner_chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            continue
+        owner_vert_set = set(owner_chain.vert_indices)
+        if not owner_vert_set:
+            continue
+        for target_ref in target_refs:
+            target_chain = target_ref.chain
+            if target_chain.frame_role != owner_chain.frame_role:
+                continue
+            target_vert_set = set(target_chain.vert_indices)
+            shared_vert_count = len(owner_vert_set & target_vert_set)
+            if shared_vert_count <= 0:
+                continue
+            pair_score = (shared_vert_count * 1000) - abs(len(owner_chain.vert_indices) - len(target_chain.vert_indices))
+            owner_chain_length = _chain_polyline_length(owner_chain)
+            target_chain_length = _chain_polyline_length(target_chain)
+            if owner_chain_length > 0.0 and target_chain_length > 0.0:
+                representative_length = min(owner_chain_length, target_chain_length)
+            else:
+                representative_length = max(owner_chain_length, target_chain_length)
+            pair_candidates.append(
+                ClosureChainPairCandidate(
+                    score=pair_score,
+                    representative_length=representative_length,
+                    match=ClosureChainPairMatch(
+                        owner_ref=(patch_a_id, owner_ref.loop_index, owner_ref.chain_index),
+                        owner_chain=owner_chain,
+                        target_ref=(patch_b_id, target_ref.loop_index, target_ref.chain_index),
+                        target_chain=target_chain,
+                        shared_vert_count=shared_vert_count,
+                    ),
+                )
+            )
+
+    pair_candidates.sort(
+        key=lambda item: (item.score, item.representative_length),
+        reverse=True,
+    )
+
+    matched_owner_refs = set()
+    matched_target_refs = set()
+    matched_pairs: list[tuple[ChainRef, ChainRef]] = []
+    for candidate in pair_candidates:
+        match = candidate.match
+        if match.owner_ref in matched_owner_refs or match.target_ref in matched_target_refs:
+            continue
+        matched_owner_refs.add(match.owner_ref)
+        matched_target_refs.add(match.target_ref)
+        matched_pairs.append((match.owner_ref, match.target_ref))
+
+    return tuple(matched_pairs)
+
+
+def _build_seam_relation_profile(
+    solve_view: SolveView,
+    candidate: AttachmentCandidate,
+    max_shared_length: float,
+) -> SeamRelationProfile:
+    graph = solve_view.graph
+    edge_key = _patch_pair_key(candidate.owner_patch_id, candidate.target_patch_id)
+    owner_refs = solve_view.iter_attachment_neighbor_chains(candidate.owner_patch_id, candidate.target_patch_id)
+    target_refs = solve_view.iter_attachment_neighbor_chains(candidate.target_patch_id, candidate.owner_patch_id)
+    ranked_pairs = _rank_chain_pairs(
+        graph,
+        candidate.owner_patch_id,
+        owner_refs,
+        candidate.target_patch_id,
+        target_refs,
+    )
+
+    primary_pair = (
+        (candidate.owner_patch_id, candidate.owner_loop_index, candidate.owner_chain_index),
+        (candidate.target_patch_id, candidate.target_loop_index, candidate.target_chain_index),
+    )
+    primary_pair_key = frozenset(primary_pair)
+
+    strongest_secondary_strength = 0.0
+    for pair_selection, _ in ranked_pairs:
+        pair_refs = frozenset((
+            (candidate.owner_patch_id, pair_selection.owner_ref.loop_index, pair_selection.owner_ref.chain_index),
+            (candidate.target_patch_id, pair_selection.target_ref.loop_index, pair_selection.target_ref.chain_index),
+        ))
+        if pair_refs == primary_pair_key:
+            continue
+        strongest_secondary_strength = pair_selection.pair_strength
+        break
+
+    secondary_pairs = tuple(
+        pair
+        for pair in _match_seam_relation_secondary_pairs(graph, edge_key[0], edge_key[1])
+        if frozenset(pair) != primary_pair_key
+    )
+    support_denominator = max(len(owner_refs), len(target_refs), 1)
+    support_asymmetry = _clamp01(abs(len(owner_refs) - len(target_refs)) / support_denominator)
+    seam_norm = 1.0 if max_shared_length <= 0.0 else _clamp01(candidate.seam_length / max_shared_length)
+    ingress_preference = _clamp01(
+        (0.45 * candidate.best_pair_strength)
+        + (0.35 * seam_norm)
+        + (0.20 * candidate.frame_continuation)
+    )
+
+    return SeamRelationProfile(
+        edge_key=edge_key,
+        primary_pair=primary_pair,
+        secondary_pairs=secondary_pairs,
+        secondary_pair_count=len(secondary_pairs),
+        pair_strength_gap=_clamp01(candidate.best_pair_strength - strongest_secondary_strength),
+        is_closure_like=(len(secondary_pairs) > 0),
+        support_asymmetry=support_asymmetry,
+        ingress_preference=ingress_preference,
+    )
+
+
 def build_solver_graph(graph: PatchGraph) -> SolverGraph:
     solver_graph = SolverGraph()
     solve_view = _build_solve_view(graph)
@@ -743,6 +885,11 @@ def build_solver_graph(graph: PatchGraph) -> SolverGraph:
     for candidate_list in solver_graph.candidates_by_owner.values():
         candidate_list.sort(key=lambda candidate: candidate.score, reverse=True)
     solver_graph.candidates.sort(key=lambda candidate: (candidate.owner_patch_id, -candidate.score, candidate.target_patch_id))
+    edge_candidate_map = _build_quilt_edge_candidate_map(solver_graph, set(graph.nodes.keys()))
+    solver_graph.seam_relation_by_edge = {
+        edge_key: _build_seam_relation_profile(solve_view, candidate, solver_graph.max_shared_length)
+        for edge_key, candidate in edge_candidate_map.items()
+    }
     components_result = _build_solve_components(graph, solver_graph.candidates)
     solver_graph.solve_components = components_result.components
     solver_graph.component_by_patch = components_result.component_by_patch
@@ -865,8 +1012,7 @@ def plan_solve_phase1(
         quilt = _apply_quilt_closure_cut_recommendations(graph, solver_graph, quilt)
         quilts.append(quilt)
 
-    # Post-planning merge of orphan quilts (FLOOR/SLOPE) into WALL quilts
-    quilts = _merge_orphan_quilts_into_wall_quilts(graph, quilts)
+    quilts = _attach_quilt_seam_relation_profiles(solver_graph, quilts)
 
 
     return SolvePlan(
@@ -877,7 +1023,11 @@ def plan_solve_phase1(
     )
 
 def _merge_orphan_quilts_into_wall_quilts(graph, quilts):
-    """Post-planning: прикрепляет изолированные FLOOR/SLOPE к WALL quilts."""
+    """Legacy disabled helper.
+
+    Mixed WALL/FLOOR/SLOPE quilt merge is intentionally disabled.
+    Kept only as reference for historical planning behavior.
+    """
     # Индекс: patch_id → quilt_index для WALL quilts
     wall_quilt_by_patch = {}
     orphan_indices = []
@@ -978,6 +1128,21 @@ def _merge_orphan_quilts_into_wall_quilts(graph, quilts):
     
     # Убрать merged quilts
     return [q for qi, q in enumerate(quilts) if qi not in merged_orphan_indices]
+
+
+def _attach_quilt_seam_relation_profiles(
+    solver_graph: SolverGraph,
+    quilts: list[QuiltPlan],
+) -> list[QuiltPlan]:
+    for quilt in quilts:
+        quilt_patch_ids = set(quilt.solved_patch_ids)
+        quilt_patch_ids.add(quilt.root_patch_id)
+        quilt.seam_relation_by_edge = {
+            edge_key: profile
+            for edge_key, profile in solver_graph.seam_relation_by_edge.items()
+            if edge_key[0] in quilt_patch_ids and edge_key[1] in quilt_patch_ids
+        }
+    return quilts
 
 def _choose_root_loop(node: PatchNode) -> int:
     best_loop_index = -1

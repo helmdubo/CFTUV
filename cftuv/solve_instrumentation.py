@@ -24,7 +24,9 @@ try:
     )
     from .solve_records import (
         ChainAnchor, ChainPoolEntry, FrontierCandidateEval,
-        FrontierPlacementRecord, FrontierStallRecord, QuiltFrontierTelemetry,
+        FrontierPlacementRecord, FrontierRank, FrontierRankBreakdown, FrontierStallRecord, PatchScoringContext,
+        CornerScoringHints, FrontierRescueGap, FrontierRescueGapClassCount, SeamRelationProfile,
+        QuiltFrontierTelemetry,
         CHAIN_FRONTIER_THRESHOLD,
     )
     from .console_debug import (
@@ -45,7 +47,9 @@ except ImportError:
     )
     from solve_records import (
         ChainAnchor, ChainPoolEntry, FrontierCandidateEval,
-        FrontierPlacementRecord, FrontierStallRecord, QuiltFrontierTelemetry,
+        FrontierPlacementRecord, FrontierRank, FrontierRankBreakdown, FrontierStallRecord, PatchScoringContext,
+        CornerScoringHints, FrontierRescueGap, FrontierRescueGapClassCount, SeamRelationProfile,
+        QuiltFrontierTelemetry,
         CHAIN_FRONTIER_THRESHOLD,
     )
     from console_debug import (
@@ -97,6 +101,116 @@ def _placement_path_short(path: str) -> str:
     }.get(path, path)
 
 
+def _frontier_rank_short(rank: Optional[FrontierRank]) -> str:
+    if rank is None:
+        return "-"
+    return (
+        f"{rank.viability_tier}/"
+        f"{rank.role_tier}/"
+        f"{rank.ingress_tier}/"
+        f"{rank.patch_fit_tier}/"
+        f"{rank.anchor_tier}/"
+        f"{rank.closure_risk_tier}"
+    )
+
+
+def _frontier_rank_summary(rec: FrontierPlacementRecord) -> str:
+    if rec.rank_breakdown is None or not rec.rank_breakdown.summary:
+        return "-"
+    return rec.rank_breakdown.summary
+
+
+def _patch_context_short(ctx: Optional[PatchScoringContext]) -> str:
+    if ctx is None:
+        return "-"
+    shape_short = "-"
+    if ctx.shape_profile is not None:
+        shape_short = (
+            f"e:{ctx.shape_profile.elongation:.2f}"
+            f"/r:{ctx.shape_profile.rectilinearity:.2f}"
+            f"/f:{ctx.shape_profile.frame_dominance:.2f}"
+            f"/h:{ctx.shape_profile.hole_ratio:.2f}"
+            f"/s:{ctx.shape_profile.seam_multiplicity_hint:.2f}"
+        )
+    return (
+        f"pc:{ctx.placed_chain_count}"
+        f" hv:{ctx.placed_h_count + ctx.placed_v_count}"
+        f" pr:{ctx.placed_ratio:.2f}"
+        f" cov:{ctx.hv_coverage_ratio:.2f}"
+        f" bb:{ctx.same_patch_backbone_strength:.2f}"
+        f" cp:{ctx.closure_pressure:.2f}"
+        f" sec:{'Y' if ctx.has_secondary_seam_pairs else 'N'}"
+        f" sh:{shape_short}"
+    )
+
+
+def _corner_hints_short(hints: Optional[CornerScoringHints], bonus: float = 0.0) -> str:
+    if hints is None:
+        return "-"
+    return (
+        f"st:{hints.start_turn_strength:.2f}"
+        f" et:{hints.end_turn_strength:.2f}"
+        f" ort:{hints.orthogonal_turn_count}"
+        f" sr:{hints.same_role_continuation_strength:.2f}"
+        f" g:{'Y' if hints.has_geometric_corner else 'N'}"
+        f" j:{'Y' if hints.has_junction_corner else 'N'}"
+        f" b:{bonus:.2f}"
+    )
+
+
+def _seam_relation_membership(profile: Optional[SeamRelationProfile], chain_ref: ChainRef) -> str:
+    if profile is None:
+        return '-'
+    if chain_ref in profile.primary_pair:
+        return 'pri'
+    for pair in profile.secondary_pairs:
+        if chain_ref in pair:
+            return 'sec'
+    return 'sup'
+
+
+def _seam_relation_short(
+    profile: Optional[SeamRelationProfile],
+    chain_ref: ChainRef,
+    bonus: float = 0.0,
+) -> str:
+    if profile is None:
+        return "-"
+    return (
+        f"m:{_seam_relation_membership(profile, chain_ref)}"
+        f" sec:{profile.secondary_pair_count}"
+        f" gap:{profile.pair_strength_gap:.2f}"
+        f" cl:{'Y' if profile.is_closure_like else 'N'}"
+        f" as:{profile.support_asymmetry:.2f}"
+        f" in:{profile.ingress_preference:.2f}"
+        f" b:{bonus:+.2f}"
+    )
+
+
+def _rescue_gap_short(gap: Optional[FrontierRescueGap]) -> str:
+    if gap is None:
+        return "-"
+    return (
+        f"cls:{gap.candidate_class or '-'}"
+        f" k:{gap.main_known}"
+        f" s:{gap.main_score:.2f}"
+        f" dg:{gap.threshold_gap:.2f}"
+        f" ok:{'Y' if gap.main_viable else 'N'}"
+        f" hv:{gap.hv_adjacency}"
+        f" ds:{gap.downstream_support}"
+        f" sh:{gap.shared_vert_count}"
+    )
+
+
+def _rescue_gap_classes_short(classes: tuple[FrontierRescueGapClassCount, ...]) -> str:
+    if not classes:
+        return "-"
+    return " ".join(
+        f"{item.candidate_class}:{item.count}"
+        for item in classes[:4]
+    )
+
+
 def _uv_chain_length(uv_points: list[Vector]) -> float:
     """Суммарная длина UV-цепочки по последовательным точкам."""
     if len(uv_points) < 2:
@@ -140,18 +254,31 @@ def _format_live_placement_trace(
             f"[CFTUV][Telemetry] Q{quilt_index} S{rec.iteration} "
             f"{_placement_path_short(rec.placement_path)} {chain_addr} "
             f"{_frame_role_short(rec.frame_role)} s:{rec.score:.2f} "
+            f"rk:{_frontier_rank_short(rec.rank)} "
+            f"ctx:{_patch_context_short(rec.patch_context)} "
+            f"sr:{_seam_relation_short(rec.seam_relation, rec.chain_ref, rec.seam_bonus)} "
+            f"cr:{_corner_hints_short(rec.corner_hints, rec.corner_bonus)} "
+            f"sh:{rec.shape_bonus:+.2f} "
             f"ep:{rec.anchor_count} {anchor_label} "
             f"b:{'Y' if rec.is_bridge else 'N'} "
             f"c:{'Y' if rec.is_closure_pair else 'N'} "
-            f"hv:{rec.hv_adjacency}"
+            f"hv:{rec.hv_adjacency} "
+            f"gap:{_rescue_gap_short(rec.rescue_gap)}"
         )
     return (
         f"[CFTUV][Telemetry] Q{quilt_index} Step {rec.iteration}: "
         f"{rec.placement_path} {chain_addr} "
-        f"{rec.frame_role.value} score:{rec.score:.2f} ep:{rec.anchor_count} "
+        f"{rec.frame_role.value} score:{rec.score:.2f} "
+        f"rank:{_frontier_rank_short(rec.rank)} "
+        f"ctx:{_patch_context_short(rec.patch_context)} "
+        f"seam:{_seam_relation_short(rec.seam_relation, rec.chain_ref, rec.seam_bonus)} "
+        f"corner:{_corner_hints_short(rec.corner_hints, rec.corner_bonus)} "
+        f"shape:{rec.shape_bonus:+.2f} "
+        f"ep:{rec.anchor_count} "
         f"{anchor_label} bridge:{'Y' if rec.is_bridge else 'N'} "
         f"closure:{'Y' if rec.is_closure_pair else 'N'} "
-        f"hv:{rec.hv_adjacency}"
+        f"hv:{rec.hv_adjacency} "
+        f"gap:{_rescue_gap_short(rec.rescue_gap)}"
     )
 
 
@@ -406,6 +533,15 @@ class FrontierTelemetryCollector:
         isolation_penalty: float = 0.0,
         structural_free_bonus: float = 0.0,
         hv_adjacency: int = 0,
+        rank: Optional[FrontierRank] = None,
+        rank_breakdown: Optional[FrontierRankBreakdown] = None,
+        patch_context: Optional[PatchScoringContext] = None,
+        corner_hints: Optional[CornerScoringHints] = None,
+        seam_relation: Optional[SeamRelationProfile] = None,
+        seam_bonus: float = 0.0,
+        corner_bonus: float = 0.0,
+        shape_bonus: float = 0.0,
+        rescue_gap: Optional[FrontierRescueGap] = None,
         emit_live_trace: bool = True,
     ) -> None:
         """Записывает одно успешное размещение chain."""
@@ -439,6 +575,15 @@ class FrontierTelemetryCollector:
             isolation_penalty=isolation_penalty,
             structural_free_bonus=structural_free_bonus,
             hv_adjacency=hv_adjacency,
+            rank=rank,
+            rank_breakdown=rank_breakdown,
+            patch_context=patch_context,
+            corner_hints=corner_hints,
+            seam_relation=seam_relation,
+            seam_bonus=seam_bonus,
+            corner_bonus=corner_bonus,
+            shape_bonus=shape_bonus,
+            rescue_gap=rescue_gap,
         )
         self._placement_records.append(rec)
         if emit_live_trace:
@@ -560,6 +705,44 @@ class FrontierTelemetryCollector:
 
         rescue_total = tree_count + closure_count
         rescue_ratio = rescue_total / total if total > 0 else 0.0
+        rescue_gaps = [
+            r.rescue_gap
+            for r in self._placement_records
+            if r.placement_path != "main" and r.rescue_gap is not None
+        ]
+        rescue_gap_measured = len(rescue_gaps)
+        rescue_gap_below_threshold = sum(
+            1 for gap in rescue_gaps
+            if gap.main_known > 0 and not gap.main_viable
+        )
+        rescue_gap_main_viable = sum(
+            1 for gap in rescue_gaps
+            if gap.main_viable
+        )
+        rescue_gap_no_anchor = sum(
+            1 for gap in rescue_gaps
+            if gap.main_known <= 0
+        )
+        if rescue_gaps:
+            rescue_gap_mean = (
+                sum(gap.threshold_gap for gap in rescue_gaps) / rescue_gap_measured
+            )
+            rescue_gap_max = max(gap.threshold_gap for gap in rescue_gaps)
+        else:
+            rescue_gap_mean = 0.0
+            rescue_gap_max = 0.0
+
+        class_counts: dict[str, int] = {}
+        for gap in rescue_gaps:
+            candidate_class = gap.candidate_class or "unknown"
+            class_counts[candidate_class] = class_counts.get(candidate_class, 0) + 1
+        rescue_gap_classes = tuple(
+            FrontierRescueGapClassCount(candidate_class=label, count=count)
+            for label, count in sorted(
+                class_counts.items(),
+                key=lambda item: (-item[1], item[0]),
+            )
+        )
 
         return QuiltFrontierTelemetry(
             quilt_index=self.quilt_index,
@@ -579,7 +762,14 @@ class FrontierTelemetryCollector:
             best_rejected_score_max=best_rejected_max,
             first_rescue_iteration=first_rescue_iteration,
             rescue_ratio=rescue_ratio,
+            rescue_gap_measured=rescue_gap_measured,
+            rescue_gap_below_threshold=rescue_gap_below_threshold,
+            rescue_gap_main_viable=rescue_gap_main_viable,
+            rescue_gap_no_anchor=rescue_gap_no_anchor,
+            rescue_gap_mean=rescue_gap_mean,
+            rescue_gap_max=rescue_gap_max,
             frontier_duration_sec=duration,
+            rescue_gap_classes=rescue_gap_classes,
             placement_records=tuple(self._placement_records),
             stall_records=tuple(self._stall_records),
         )
@@ -710,7 +900,17 @@ def format_quilt_telemetry_summary(
             f"p75:{t.score_p75:.3f} "
             f"max:{t.score_max:.3f}"
         ),
+        "  rank_order: viable>role>ingress>patch_fit>anchor>closure>score>length",
         f"  rescue_ratio: {t.rescue_ratio:.3f}",
+        (
+            f"  rescue_gap: measured:{t.rescue_gap_measured} "
+            f"below_threshold:{t.rescue_gap_below_threshold} "
+            f"main_viable:{t.rescue_gap_main_viable} "
+            f"no_anchor:{t.rescue_gap_no_anchor} "
+            f"mean:{t.rescue_gap_mean:.3f} "
+            f"max:{t.rescue_gap_max:.3f}"
+        ),
+        f"  rescue_classes: {_rescue_gap_classes_short(t.rescue_gap_classes)}",
         f"  best_rejected_max: {t.best_rejected_score_max:.3f}",
         f"  duration: {t.frontier_duration_sec:.3f}s",
     ]
@@ -756,13 +956,20 @@ def format_quilt_telemetry_posthoc_detail(
                 f"{r.placement_path} "
                 f"{format_chain_address(r.chain_ref, quilt_index=q)} "
                 f"{r.frame_role.value} score:{r.score:.2f} "
+                f"rank:{_frontier_rank_short(r.rank)} "
+                f"ctx:{_patch_context_short(r.patch_context)} "
+                f"seam:{_seam_relation_short(r.seam_relation, r.chain_ref, r.seam_bonus)} "
+                f"corner:{_corner_hints_short(r.corner_hints, r.corner_bonus)} "
+                f"shape:{r.shape_bonus:+.2f} "
                 f"ep:{r.anchor_count} "
                 f"{_anchor_kind_short(r.start_anchor_kind)}/{_anchor_kind_short(r.end_anchor_kind)} "
                 f"bridge:{'Y' if r.is_bridge else 'N'} "
                 f"closure:{'Y' if r.is_closure_pair else 'N'} "
                 f"[lf:{r.length_factor:.2f} ds:{r.downstream_count}:{r.downstream_bonus:.2f} "
                 f"iso:{r.isolation_preview}:{r.isolation_penalty:.2f} sfb:{r.structural_free_bonus:.2f} "
-                f"hv:{r.hv_adjacency}]"
+                f"hv:{r.hv_adjacency}] "
+                f"gap:{_rescue_gap_short(r.rescue_gap)} "
+                f"why:{_frontier_rank_summary(r)}"
             )
         if stall is not None:
             lines.append(

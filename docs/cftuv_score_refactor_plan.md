@@ -444,6 +444,9 @@ Acceptance criteria:
 Goal:
 - move row/column and accumulated drift handling into a dedicated layer.
 
+Canonical follow-up document:
+- `docs/cftuv_alignment_drift_roadmap.md`
+
 Future topics here:
 - rigid row/column constructs;
 - drift redistribution;

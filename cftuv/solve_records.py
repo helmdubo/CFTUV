@@ -130,6 +130,19 @@ class AttachmentCandidate:
     reasons: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class SeamRelationProfile:
+    """Explicit seam context preserved from planning for Phase 5 frontier hints."""
+    edge_key: PatchEdgeKey
+    primary_pair: tuple[ChainRef, ChainRef] = ()
+    secondary_pairs: tuple[tuple[ChainRef, ChainRef], ...] = ()
+    secondary_pair_count: int = 0
+    pair_strength_gap: float = 0.0
+    is_closure_like: bool = False
+    support_asymmetry: float = 0.0
+    ingress_preference: float = 0.0
+
+
 @dataclass
 class SolverGraph:
     patch_scores: dict[int, PatchCertainty] = field(default_factory=dict)
@@ -137,6 +150,7 @@ class SolverGraph:
     candidates_by_owner: dict[int, list[AttachmentCandidate]] = field(default_factory=dict)
     solve_components: list[set[int]] = field(default_factory=list)
     component_by_patch: dict[int, int] = field(default_factory=dict)
+    seam_relation_by_edge: dict[PatchEdgeKey, SeamRelationProfile] = field(default_factory=dict)
     max_shared_length: float = 0.0
 
 
@@ -192,10 +206,7 @@ class SolveView:
 
         owner_type = owner_node.patch_type.value if hasattr(owner_node.patch_type, 'value') else str(owner_node.patch_type)
         target_type = target_node.patch_type.value if hasattr(target_node.patch_type, 'value') else str(target_node.patch_type)
-        if owner_type == target_type:
-            return True
-        # WALL может быть bridge к FLOOR/SLOPE — через единственный tree edge
-        return owner_type == 'WALL' or target_type == 'WALL'
+        return owner_type == target_type
 
 
 @dataclass(frozen=True)
@@ -299,6 +310,112 @@ class AttachmentCandidatePreference:
     endpoint_strength: float
     best_pair_strength: float
     seam_norm: float
+
+
+@dataclass(frozen=True)
+class FrontierTopologyFacts:
+    is_hv: bool = False
+    is_bridge: bool = False
+    same_patch_anchor_count: int = 0
+    cross_patch_anchor_count: int = 0
+    hv_adjacency: int = 0
+    would_be_connected: bool = True
+    is_secondary_closure: bool = False
+
+
+@dataclass(frozen=True, order=True)
+class FrontierRank:
+    """Лексикографический rank main-frontier кандидата."""
+    viability_tier: int
+    role_tier: int
+    ingress_tier: int
+    patch_fit_tier: int
+    anchor_tier: int
+    closure_risk_tier: int
+    local_score: float
+    tie_length: float
+
+
+@dataclass(frozen=True)
+class FrontierRankBreakdown:
+    viability_label: str = ''
+    role_label: str = ''
+    ingress_label: str = ''
+    patch_fit_label: str = ''
+    anchor_label: str = ''
+    closure_label: str = ''
+    seam_label: str = ''
+    shape_label: str = ''
+    summary: str = ''
+
+
+@dataclass(frozen=True)
+class PatchShapeProfile:
+    """Заготовка под coarse patch prior; Phase 2 пока не влияет на runtime rank."""
+    elongation: float = 0.0
+    rectilinearity: float = 0.0
+    hole_ratio: float = 0.0
+    frame_dominance: float = 0.0
+    seam_multiplicity_hint: float = 0.0
+
+
+@dataclass(frozen=True)
+class PatchScoringContext:
+    patch_id: int
+    placed_chain_count: int = 0
+    placed_h_count: int = 0
+    placed_v_count: int = 0
+    placed_free_count: int = 0
+    placed_ratio: float = 0.0
+    hv_coverage_ratio: float = 0.0
+    same_patch_backbone_strength: float = 0.0
+    closure_pressure: float = 0.0
+    is_untouched: bool = True
+    has_secondary_seam_pairs: bool = False
+    shape_profile: Optional[PatchShapeProfile] = None
+
+
+@dataclass(frozen=True)
+class CornerScoringHints:
+    start_turn_strength: float = 0.0
+    end_turn_strength: float = 0.0
+    orthogonal_turn_count: int = 0
+    same_role_continuation_strength: float = 0.0
+    has_geometric_corner: bool = False
+    has_junction_corner: bool = False
+
+
+@dataclass(frozen=True)
+class FrontierLocalScoreDetails:
+    length_factor: float = 0.0
+    downstream_count: int = 0
+    downstream_bonus: float = 0.0
+    isolation_penalty: float = 0.0
+    structural_free_bonus: float = 0.0
+    seam_bonus: float = 0.0
+    corner_bonus: float = 0.0
+    shape_bonus: float = 0.0
+
+
+@dataclass(frozen=True)
+class FrontierRescueGap:
+    candidate_class: str = ''
+    main_known: int = 0
+    main_score: float = -1.0
+    threshold_gap: float = 0.0
+    main_viable: bool = False
+    hv_adjacency: int = 0
+    downstream_support: int = 0
+    shared_vert_count: int = 0
+    main_rank: Optional[FrontierRank] = None
+    main_rank_breakdown: Optional[FrontierRankBreakdown] = None
+    summary: str = ''
+
+
+@dataclass(frozen=True)
+class FrontierRescueGapClassCount:
+    candidate_class: str
+    count: int
 
 
 @dataclass(frozen=True)
@@ -504,6 +621,7 @@ class QuiltPlan:
     original_steps: list[QuiltStep] = field(default_factory=list)
     deferred_candidates: list[AttachmentCandidate] = field(default_factory=list)
     rejected_candidates: list[AttachmentCandidate] = field(default_factory=list)
+    seam_relation_by_edge: dict[PatchEdgeKey, SeamRelationProfile] = field(default_factory=dict)
     stop_reason: QuiltStopReason = QuiltStopReason.UNSET
 
 
@@ -635,6 +753,16 @@ class FrontierCandidateEval:
     isolation_penalty: float = 0.0
     structural_free_bonus: float = 0.0
     hv_adjacency: int = 0
+    rank: Optional[FrontierRank] = None
+    rank_breakdown: Optional[FrontierRankBreakdown] = None
+    patch_context: Optional[PatchScoringContext] = None
+    corner_hints: Optional[CornerScoringHints] = None
+    seam_relation: Optional[SeamRelationProfile] = None
+    seam_bonus: float = 0.0
+    corner_bonus: float = 0.0
+    shape_bonus: float = 0.0
+    rescue_gap: Optional[FrontierRescueGap] = None
+    rescue_gap: Optional[FrontierRescueGap] = None
 
 
 @dataclass(frozen=True)
@@ -666,6 +794,14 @@ class FrontierPlacementCandidate:
     isolation_penalty: float = 0.0
     structural_free_bonus: float = 0.0
     hv_adjacency: int = 0
+    rank: Optional[FrontierRank] = None
+    rank_breakdown: Optional[FrontierRankBreakdown] = None
+    patch_context: Optional[PatchScoringContext] = None
+    corner_hints: Optional[CornerScoringHints] = None
+    seam_relation: Optional[SeamRelationProfile] = None
+    seam_bonus: float = 0.0
+    corner_bonus: float = 0.0
+    shape_bonus: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -718,6 +854,15 @@ class FrontierPlacementRecord:
     isolation_penalty: float = 0.0
     structural_free_bonus: float = 0.0
     hv_adjacency: int = 0
+    rank: Optional[FrontierRank] = None
+    rank_breakdown: Optional[FrontierRankBreakdown] = None
+    patch_context: Optional[PatchScoringContext] = None
+    corner_hints: Optional[CornerScoringHints] = None
+    seam_relation: Optional[SeamRelationProfile] = None
+    seam_bonus: float = 0.0
+    corner_bonus: float = 0.0
+    shape_bonus: float = 0.0
+    rescue_gap: Optional[FrontierRescueGap] = None
 
 
 @dataclass(frozen=True)
@@ -757,7 +902,14 @@ class QuiltFrontierTelemetry:
     best_rejected_score_max: float   # наибольший score, не прошедший threshold
     first_rescue_iteration: int      # -1 если rescue не было
     rescue_ratio: float              # rescue_placements / total_placements
+    rescue_gap_measured: int
+    rescue_gap_below_threshold: int
+    rescue_gap_main_viable: int
+    rescue_gap_no_anchor: int
+    rescue_gap_mean: float
+    rescue_gap_max: float
     frontier_duration_sec: float
+    rescue_gap_classes: tuple[FrontierRescueGapClassCount, ...]
     placement_records: tuple[FrontierPlacementRecord, ...]
     stall_records: tuple[FrontierStallRecord, ...]
 
@@ -841,6 +993,7 @@ __all__ = [
     'PatchCertainty',
     'SolveComponentsResult',
     'AttachmentCandidate',
+    'SeamRelationProfile',
     'SolverGraph',
     'SolveView',
     'QuiltStep',
@@ -848,6 +1001,15 @@ __all__ = [
     'SolvePlan',
     'QuiltStopReason',
     'AttachmentCandidatePreference',
+    'FrontierTopologyFacts',
+    'FrontierRank',
+    'FrontierRankBreakdown',
+    'PatchShapeProfile',
+    'PatchScoringContext',
+    'CornerScoringHints',
+    'FrontierLocalScoreDetails',
+    'FrontierRescueGap',
+    'FrontierRescueGapClassCount',
     'ChainPairSelection',
     'AttachmentNeighborRef',
     'ChainEndpointContext',

@@ -160,6 +160,76 @@ Classifier is asymmetric:
 
 This is reachability rescue, NOT a new solve mode.
 
+### Frontier Rank (Phase 1)
+
+- Main frontier winner is selected by structured rank, not by raw scalar-only comparison
+- Current rank order is:
+  `viable > role > ingress > patch_fit > anchor > closure_risk > local_score > tie_length`
+- `local_score` remains as subordinate refinement and `FRONTIER_MINIMUM_SCORE` threshold gate
+- Rescue paths remain separate from main rank during this phase
+- Row / Column drift diagnostics stay outside the main frontier rank; the dedicated next-step plan is `docs/cftuv_alignment_drift_roadmap.md`
+- Secondary closure seam with only cross-patch anchor must be rank-demoted during early patch ingress,
+  otherwise it can outrun same-patch H/V carriers and collapse tube/ring cuts
+
+### PatchScoringContext (Phase 2)
+
+- Main frontier derives explicit patch runtime context before score/rank evaluation
+- Current context includes placed role counts, `placed_ratio`, `hv_coverage_ratio`,
+  `same_patch_backbone_strength`, `closure_pressure`, untouched-state, and secondary seam presence
+- Incremental frontier cache must now dirty same-patch refs on every placement, not only on first ingress
+- Telemetry detail should expose both rank and patch-context snapshot for the winning candidate
+
+### CornerScoringHints (Phase 3)
+
+- Corner facts are collected per chain candidate and remain local features only
+- Current hints include start/end turn strength, orthogonal turn count, same-role continuation strength,
+  and geometric-vs-junction markers
+- These hints affect only subordinate local refinement and telemetry; they do not create a corner candidate type
+- Chain remains the only runtime placement unit in main frontier selection
+
+### PatchShapeProfile (Phase 4)
+
+- Main frontier now derives a coarse `PatchShapeProfile` per patch and stores it inside `PatchScoringContext`
+- Current profile is numeric-only: `elongation`, `rectilinearity`, `hole_ratio`,
+  `frame_dominance`, `seam_multiplicity_hint`
+- Shape affects only weak prior logic:
+  early H/V ingress/backbone preference, closure sensitivity, and subordinate `local_score` refinement
+- Structured-rank layer order stays the same:
+  `viable > role > ingress > patch_fit > anchor > closure_risk > local_score > tie_length`
+- Shape must not become a hard solve mode selector and must not override chain-first strongest-frontier
+
+### SeamRelationProfile (Phase 5)
+
+- Planning now derives explicit `SeamRelationProfile` per undirected patch edge and persists it into each quilt
+- Current profile includes:
+  `primary_pair`, `secondary_pairs`, `secondary_pair_count`, `pair_strength_gap`,
+  `is_closure_like`, `support_asymmetry`, `ingress_preference`
+- Frontier uses seam relation only as weak explicit context:
+  primary ingress support, secondary seam demotion during early patch ingress,
+  and telemetry/debug explanation
+- Closure rescue / follow logic remains separate; seam relation does not replace rescue control flow in this phase
+
+### Layered Frontier Score (Phase 6)
+
+- Frontier scalar scoring is now split into explicit helper layers instead of one monolithic body
+- Current runtime layering is:
+  raw topology facts → patch/anchor context → closure guard →
+  local seam hints / shape hints / corner hints → structured rank breakdown
+- `_cf_score_candidate()` is now a thin orchestrator over those helpers
+- Telemetry fields remain the same, but their source is now inspectable layer by layer
+
+### Rescue-Gap Telemetry (Phase 7)
+
+- Rescue control flow is still separate: `tree_ingress` and `closure_follow` are not absorbed into main frontier in this phase
+- Successful rescue placements now store a `FrontierRescueGap` snapshot with:
+  `candidate_class`, `main_known`, `main_score`, `threshold_gap`, `main_viable`,
+  plus rescue-local support numbers (`hv_adjacency`, `downstream_support`, `shared_vert_count`)
+- Quilt telemetry summary now reports rescue-gap aggregates:
+  measured rescue count, `below_threshold`, `main_viable`, `no_anchor`, mean/max threshold gap,
+  and top undervalued rescue classes
+- Post-hoc placement detail now prints rescue-gap info per rescue step so it is visible
+  whether the missing part was anchor reachability, threshold deficit, or frontier control flow
+
 ### Closure / Pre-Constraint Rules
 
 - Closure-aware tree-edge swap has safe fallback to original quilt plan
@@ -279,6 +349,7 @@ Decision: OK / Investigate
 ## Section 4. Lattice Research Notes
 
 This section is reference-only for future research. Not active in runtime.
+Canonical implementation boundary for this topic now lives in `docs/cftuv_alignment_drift_roadmap.md`.
 
 ### Terminology
 

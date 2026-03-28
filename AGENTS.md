@@ -38,7 +38,7 @@ cftuv/
 ├── analysis.py         # BMesh → PatchGraph (facade over analysis_* submodules)
 ├── analysis_*.py       # submodules: topology, boundary, corners, classification, etc.
 ├── solve.py            # Planning, frontier builder, UV transfer, validation (facade)
-├── solve_records.py    # Pure data types for solve layer (PinPolicy, PatchPinMap, etc.)
+├── solve_records.py    # Pure data types for solve layer (PinPolicy, FrontierRank, PatchPinMap, etc.)
 ├── solve_planning.py   # Quilt planning, SolveView, attachment candidates
 ├── solve_frontier.py   # Chain-first frontier builder, scaffold assembly
 ├── solve_pin_policy.py # Pin policy: PatchPinMap, build_patch_pin_map, preview_chain_pin_decision
@@ -154,6 +154,22 @@ Current priority order (agreed):
 5. **P5: Scoring revision** based on instrumentation data ✓
 6. **P6: Pin policy extraction** into explicit layer ✓
 
+Current frontier selection is in **Phase 7 structured-rank + layered scoring helpers + patch context + corner hints + patch shape prior + seam relation profiles + rescue-gap telemetry** mode:
+`viable → role → ingress → patch_fit → anchor → closure_risk → local_score → tie_length`.
+Scalar `score` is still kept as threshold gate and local refinement. Main frontier
+derives an explicit `PatchScoringContext` before scoring/ranking. Corner facts feed only
+local refinement via `CornerScoringHints`. `PatchShapeProfile` is now computed per patch and
+acts only as a weak prior through patch context / subordinate local refinement; it must not
+override chain-first frontier selection or become a hard solve mode. `SeamRelationProfile`
+is preserved from planning per patch edge and feeds frontier rank/telemetry as explicit seam
+context without folding rescue paths into the main frontier. Frontier scalar scoring is now
+split into explicit helper layers for topology facts, patch/anchor context, closure guard,
+local seam/shape/corner hints, and structured rank/debug explanation. Rescue paths remain separate,
+but telemetry now records counterfactual main-frontier gap data for successful `tree_ingress` /
+`closure_follow` placements so rescue integration can be evaluated from evidence. Phase 8
+alignment / drift work is a separate roadmap in `docs/cftuv_alignment_drift_roadmap.md`
+and must not be smuggled back into frontier score logic.
+
 ---
 
 ## Scoring Refactor Contract
@@ -208,5 +224,11 @@ If debug visualization breaks — the change is wrong.
 - runtime heuristics and thresholds
 - regression checklist and mesh set
 - scoring weight documentation
+
+**`docs/cftuv_alignment_drift_roadmap.md`** — read when your task touches:
+- row / column scatter
+- closure drift after scaffold build
+- future alignment pass design
+- pre-transfer / post-frontier correction ideas
 
 For most tasks, this file alone is sufficient.
