@@ -156,6 +156,31 @@ Current priority order (agreed):
 
 ---
 
+## Scoring Refactor Contract
+
+Current score refactor plan lives in **`docs/cftuv_score_refactor_plan.md`**. Read it before changing frontier scoring, patch context, seam scoring, or related telemetry.
+
+Mandatory rules for all agents working on scoring:
+
+1. Preserve **chain-first strongest-frontier**.
+2. **Patch** and **Chain** remain the only primary solve units.
+3. **Corner** may contribute local chain features, but must NOT become an independent placement unit.
+4. **Junction** remains a derived/global entity and must NOT become a primary runtime scoring entity in this phase.
+5. **Row / Column** drift handling belongs to a separate alignment layer, not to main frontier score.
+6. Refactor direction is:
+   - scalar score → structured frontier rank
+   - structured frontier rank → explicit patch scoring context
+   - then corner / shape / seam enrichment
+   - then rescue-gap telemetry
+7. Do NOT absorb rescue paths into main frontier early.
+8. Do NOT mix future manual operations into the current score refactor.
+
+Short handoff paragraph:
+
+> Preserve chain-first strongest-frontier. Patch and Chain remain the only primary solve units. Corner may contribute local chain features, but must not become an independent placement unit. Junction remains derived/global and must not become a primary runtime scoring entity in this phase. Row/Column drift handling belongs to a separate alignment layer, not to the main frontier score. Refactor path is: scalar score → structured frontier rank → explicit patch scoring context → corner/shape/seam enrichment → rescue-gap telemetry. Manual operations are a future layer on top of patch/chain context and are out of scope for the current score refactor.
+
+---
+
 ## Testing Approach
 
 No formal tests. Verification through:
