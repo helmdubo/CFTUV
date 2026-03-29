@@ -2532,15 +2532,17 @@ def _cf_resolve_candidate_anchors(
 
     if (
         start_anchor is not None and end_anchor is not None
-        and start_anchor.source_kind == PlacementSourceKind.CROSS_PATCH
-        and end_anchor.source_kind == PlacementSourceKind.CROSS_PATCH
+        and start_anchor.source_kind == PlacementSourceKind.SAME_PATCH
+        and end_anchor.source_kind == PlacementSourceKind.SAME_PATCH
+        and chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+        and chain.neighbor_kind == ChainNeighborKind.MESH_BORDER
     ):
         reason_note = f'{rect_reason}|{reason}' if rect_reason else reason
         return ResolvedCandidateAnchors(
-            start_anchor=start_anchor,
+            start_anchor=None,
             end_anchor=None,
-            known=1,
-            reason=f'{reason_note}:bootstrap_from_start',
+            known=0,
+            reason=f'{reason_note}:reject_same_patch_axis_mismatch',
         )
 
     if start_anchor is not None and start_anchor.source_kind == PlacementSourceKind.SAME_PATCH and (
