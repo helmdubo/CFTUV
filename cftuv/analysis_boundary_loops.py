@@ -32,7 +32,6 @@ try:
         _measure_corner_turn_angle,
         _build_geometric_loop_corners,
         _try_geometric_outer_loop_split,
-        _split_border_chains_by_corners,
     )
     from .console_debug import trace_console
 except ImportError:
@@ -65,7 +64,6 @@ except ImportError:
         _measure_corner_turn_angle,
         _build_geometric_loop_corners,
         _try_geometric_outer_loop_split,
-        _split_border_chains_by_corners,
     )
     from console_debug import trace_console
 
@@ -214,6 +212,81 @@ def _merge_bevel_wrap_chains(chains, bm):
     return list(chains)
 
 
+def _atomize_raw_chain_to_edges(raw_chain):
+    """Разбивает один raw chain на per-edge chains."""
+
+    vertex_count = len(raw_chain.vert_indices)
+    edge_count = len(raw_chain.edge_indices)
+    if vertex_count < 2 or edge_count < 1:
+        return [raw_chain]
+
+    edge_limit = min(edge_count, vertex_count if raw_chain.is_closed else vertex_count - 1)
+    if edge_limit < 1:
+        return [raw_chain]
+
+    atomized_chains = []
+    parent_start_loop_index = int(raw_chain.start_loop_index)
+    side_face_count = len(raw_chain.side_face_indices)
+
+    for edge_pos in range(edge_limit):
+        start_vert_pos = edge_pos
+        end_vert_pos = (edge_pos + 1) % vertex_count if raw_chain.is_closed else edge_pos + 1
+        if start_vert_pos >= vertex_count or end_vert_pos >= vertex_count:
+            continue
+
+        side_start = (
+            int(raw_chain.side_face_indices[start_vert_pos])
+            if start_vert_pos < side_face_count
+            else -1
+        )
+        side_end = (
+            int(raw_chain.side_face_indices[end_vert_pos])
+            if end_vert_pos < side_face_count
+            else side_start
+        )
+
+        if raw_chain.is_closed:
+            start_loop_index = (parent_start_loop_index + edge_pos) % vertex_count
+            end_loop_index = (parent_start_loop_index + edge_pos + 1) % vertex_count
+        else:
+            start_loop_index = parent_start_loop_index + edge_pos
+            end_loop_index = parent_start_loop_index + edge_pos + 1
+
+        atomized_chains.append(
+            _RawBoundaryChain(
+                vert_indices=[
+                    int(raw_chain.vert_indices[start_vert_pos]),
+                    int(raw_chain.vert_indices[end_vert_pos]),
+                ],
+                vert_cos=[
+                    raw_chain.vert_cos[start_vert_pos].copy(),
+                    raw_chain.vert_cos[end_vert_pos].copy(),
+                ],
+                edge_indices=[int(raw_chain.edge_indices[edge_pos])],
+                side_face_indices=[side_start, side_end],
+                neighbor=int(raw_chain.neighbor),
+                is_closed=False,
+                start_loop_index=int(start_loop_index),
+                end_loop_index=int(end_loop_index),
+                is_corner_split=False,
+            )
+        )
+
+    return atomized_chains if atomized_chains else [raw_chain]
+
+
+def _atomize_mesh_border_chains(_raw_loop, raw_chains):
+    """Атомизирует MESH_BORDER chains до single-edge уровня."""
+
+    result = []
+    for raw_chain in raw_chains:
+        if int(raw_chain.neighbor) == NB_MESH_BORDER:
+            result.extend(_atomize_raw_chain_to_edges(raw_chain))
+        else:
+            result.append(raw_chain)
+    return result
+
+
 def _refine_boundary_loop_raw_chains(state, basis_u, basis_v, bm):
     state.raw_chains = _merge_bevel_wrap_chains(state.raw_chains, bm)
     state.raw_chains = _try_geometric_outer_loop_split(
@@ -223,12 +296,7 @@ def _refine_boundary_loop_raw_chains(state, basis_u, basis_v, bm):
         basis_v,
         bm=bm,
     )
-    state.raw_chains = _split_border_chains_by_corners(
-        state.raw_chains,
-        basis_u,
-        basis_v,
-        bm=bm,
-    )
+    state.raw_chains = _atomize_mesh_border_chains(state.raw_loop, state.raw_chains)
 
 
 def _build_boundary_chain_objects(raw_chains, basis_u, basis_v):

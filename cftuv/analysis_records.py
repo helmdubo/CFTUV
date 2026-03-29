@@ -105,36 +105,6 @@ class _AnalysisUvClassificationState:
     original_active_uv_name: str | None = None
     original_selection: list[int] = field(default_factory=list)
 
-
-@dataclass(frozen=True)
-class _CornerTurnCandidate:
-    index: int
-    turn_angle_deg: float
-
-
-@dataclass(frozen=True)
-class _CornerDetectionPolicy:
-    """Shared corner-detection policy for closed and open topology paths."""
-
-    closed_loop: bool
-    min_spacing_vertices: int
-    min_corner_count: int = 0
-    loop_min_span_fraction: float = 0.0
-    relaxed_loop_min_span_fraction: float = 0.0
-    reject_projected_hairpins: bool = False
-    filter_all_bevel_turns: bool = False
-    filter_hairpin_bevel_turns: bool = False
-    allow_raw_non_hairpin_fallback: bool = False
-
-
-@dataclass(frozen=True)
-class _OpenBorderCornerDetectionResult:
-    """Detection stages for one open border chain before topology split."""
-
-    candidate_indices: tuple[int, ...] = ()
-    supported_indices: tuple[int, ...] = ()
-
-
 @dataclass(frozen=True)
 class _BoundarySideKey:
     face_index: int

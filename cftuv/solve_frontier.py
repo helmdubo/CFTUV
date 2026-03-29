@@ -240,6 +240,27 @@ def _build_quilt_closure_pair_map(
     return pair_map
 
 
+def _build_tree_ingress_partner_map(quilt_plan: QuiltPlan) -> dict[ChainRef, ChainRef]:
+    partner_map: dict[ChainRef, ChainRef] = {}
+    for step in quilt_plan.steps:
+        candidate = step.incoming_candidate
+        if candidate is None:
+            continue
+        owner_ref = (
+            candidate.owner_patch_id,
+            candidate.owner_loop_index,
+            candidate.owner_chain_index,
+        )
+        target_ref = (
+            candidate.target_patch_id,
+            candidate.target_loop_index,
+            candidate.target_chain_index,
+        )
+        partner_map[owner_ref] = target_ref
+        partner_map[target_ref] = owner_ref
+    return partner_map
+
+
 def _build_temporary_chain_placement(
     chain_ref: ChainRef,
     chain: BoundaryChain,
@@ -755,6 +776,29 @@ def _cf_try_place_closure_follow_candidate(
     return True
 
 
+def _cf_build_partner_chain_anchor(
+    vert_index: int,
+    partner_ref: ChainRef,
+    partner_chain: Optional[BoundaryChain],
+    point_registry: PointRegistry,
+) -> Optional[ChainAnchor]:
+    if partner_chain is None or vert_index < 0:
+        return None
+    for point_index, partner_vert_index in enumerate(partner_chain.vert_indices):
+        if partner_vert_index != vert_index:
+            continue
+        key = _point_registry_key(partner_ref, point_index)
+        if key not in point_registry:
+            continue
+        return ChainAnchor(
+            uv=point_registry[key].copy(),
+            source_ref=partner_ref,
+            source_point_index=point_index,
+            source_kind=PlacementSourceKind.CROSS_PATCH,
+        )
+    return None
+
+
 def _cf_try_place_tree_ingress_candidate(
     runtime_policy: FrontierRuntimePolicy,
     all_chain_pool: list[ChainPoolEntry],
@@ -782,44 +826,124 @@ def _cf_try_place_tree_ingress_candidate(
         if not _is_allowed_quilt_edge(runtime_policy.allowed_tree_edges, chain_ref[0], chain.neighbor_patch_id):
             continue
 
-        if candidate_eval.known != 1:
-            continue
+        using_primary_pair = False
+        ingress_anchor_adjustments: tuple[AnchorAdjustment, ...] = tuple(candidate_eval.anchor_adjustments)
+        ingress_start_anchor = None
+        ingress_end_anchor = None
+        partner_ref = runtime_policy.tree_ingress_partner_by_chain.get(chain_ref)
+        if partner_ref in runtime_policy.placed_chain_refs:
+            partner_chain = graph.get_chain(*partner_ref)
+            pair_start_anchor = _cf_build_partner_chain_anchor(
+                chain.start_vert_index,
+                partner_ref,
+                partner_chain,
+                runtime_policy.point_registry,
+            )
+            pair_end_anchor = _cf_build_partner_chain_anchor(
+                chain.end_vert_index,
+                partner_ref,
+                partner_chain,
+                runtime_policy.point_registry,
+            )
+            pair_anchor_count = _cf_anchor_count(pair_start_anchor, pair_end_anchor)
+            if pair_anchor_count == 1 or (
+                pair_anchor_count == 2
+                and _cf_frame_anchor_pair_is_axis_safe(
+                    chain,
+                    pair_start_anchor,
+                    pair_end_anchor,
+                    runtime_policy.final_scale,
+                ).is_safe
+            ):
+                using_primary_pair = True
+                ingress_start_anchor = pair_start_anchor
+                ingress_end_anchor = pair_end_anchor
+                ingress_anchor_adjustments = ()
 
-        resolved_anchor = candidate_eval.start_anchor if candidate_eval.start_anchor is not None else candidate_eval.end_anchor
-        if resolved_anchor is None or resolved_anchor.source_kind != PlacementSourceKind.CROSS_PATCH:
+        if not using_primary_pair:
+            ingress_start_anchor = candidate_eval.start_anchor
+            ingress_end_anchor = candidate_eval.end_anchor
+            if candidate_eval.known == 1:
+                resolved_anchor = (
+                    ingress_start_anchor
+                    if ingress_start_anchor is not None else
+                    ingress_end_anchor
+                )
+                if resolved_anchor is None or resolved_anchor.source_kind != PlacementSourceKind.CROSS_PATCH:
+                    continue
+            else:
+                if chain.neighbor_kind != ChainNeighborKind.PATCH or chain.neighbor_patch_id < 0:
+                    continue
+                raw_start_anchor = candidate_eval.raw_start_anchor
+                raw_end_anchor = candidate_eval.raw_end_anchor
+                if raw_start_anchor is None or raw_end_anchor is None:
+                    continue
+                if (
+                    raw_start_anchor.source_kind != PlacementSourceKind.CROSS_PATCH
+                    or raw_end_anchor.source_kind != PlacementSourceKind.CROSS_PATCH
+                ):
+                    continue
+                if (
+                    raw_start_anchor.source_ref[0] != chain.neighbor_patch_id
+                    or raw_end_anchor.source_ref[0] != chain.neighbor_patch_id
+                ):
+                    continue
+                if not _cf_frame_anchor_pair_is_axis_safe(
+                    chain,
+                    raw_start_anchor,
+                    raw_end_anchor,
+                    runtime_policy.final_scale,
+                ).is_safe:
+                    continue
+                ingress_start_anchor = raw_start_anchor
+                ingress_end_anchor = raw_end_anchor
+
+        anchor_count = _cf_anchor_count(ingress_start_anchor, ingress_end_anchor)
+        if anchor_count <= 0:
             continue
 
         if chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             continue
-        if candidate_eval.hv_adjacency <= 0:
+        if not using_primary_pair and candidate_eval.hv_adjacency <= 0:
             continue
 
-        role_priority = 4 if candidate_eval.hv_adjacency >= 2 else 3
+        role_priority = 6 if using_primary_pair else (5 if anchor_count >= 2 else (4 if candidate_eval.hv_adjacency >= 2 else 3))
         if chain.is_corner_split:
             role_priority -= 1
 
         endpoint_neighbors = graph.get_chain_endpoint_neighbors(chain_ref[0], chain_ref[1], chain_ref[2])
-        downstream_side = 'end' if candidate_eval.start_anchor is not None else 'start'
+        downstream_sides: list[str] = []
+        if ingress_start_anchor is None:
+            downstream_sides.append('start')
+        if ingress_end_anchor is None:
+            downstream_sides.append('end')
+        if not downstream_sides:
+            downstream_sides.extend(('start', 'end'))
         downstream_hv_count = 0
         downstream_max_length = 0.0
-        for neighbor_loop_index, neighbor_chain_index in endpoint_neighbors.get(downstream_side, []):
-            neighbor_ref = (chain_ref[0], neighbor_loop_index, neighbor_chain_index)
-            if neighbor_ref in runtime_policy.placed_chain_refs or neighbor_ref in runtime_policy.rejected_chain_refs:
-                continue
-            neighbor_chain = graph.get_chain(*neighbor_ref)
-            if neighbor_chain is None or neighbor_chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
-                continue
-            downstream_hv_count += 1
-            downstream_max_length = max(
-                downstream_max_length,
-                _cf_chain_total_length(neighbor_chain, runtime_policy.final_scale),
-            )
+        seen_downstream_refs: set[ChainRef] = set()
+        for downstream_side in downstream_sides:
+            for neighbor_loop_index, neighbor_chain_index in endpoint_neighbors.get(downstream_side, []):
+                neighbor_ref = (chain_ref[0], neighbor_loop_index, neighbor_chain_index)
+                if neighbor_ref in seen_downstream_refs:
+                    continue
+                seen_downstream_refs.add(neighbor_ref)
+                if neighbor_ref in runtime_policy.placed_chain_refs or neighbor_ref in runtime_policy.rejected_chain_refs:
+                    continue
+                neighbor_chain = graph.get_chain(*neighbor_ref)
+                if neighbor_chain is None or neighbor_chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                    continue
+                downstream_hv_count += 1
+                downstream_max_length = max(
+                    downstream_max_length,
+                    _cf_chain_total_length(neighbor_chain, runtime_policy.final_scale),
+                )
 
         direction_override = _try_inherit_direction(
             chain,
             node,
-            candidate_eval.start_anchor,
-            candidate_eval.end_anchor,
+            ingress_start_anchor,
+            ingress_end_anchor,
             graph,
             runtime_policy.point_registry,
             chain_ref=chain_ref,
@@ -827,8 +951,8 @@ def _cf_try_place_tree_ingress_candidate(
         uv_points = _cf_place_chain(
             chain,
             node,
-            candidate_eval.start_anchor,
-            candidate_eval.end_anchor,
+            ingress_start_anchor,
+            ingress_end_anchor,
             runtime_policy.final_scale,
             direction_override,
         )
@@ -846,9 +970,9 @@ def _cf_try_place_tree_ingress_candidate(
                 rank=candidate_rank,
                 chain_ref=chain_ref,
                 chain=chain,
-                start_anchor=candidate_eval.start_anchor,
-                end_anchor=candidate_eval.end_anchor,
-                anchor_adjustments=tuple(candidate_eval.anchor_adjustments),
+                start_anchor=ingress_start_anchor,
+                end_anchor=ingress_end_anchor,
+                anchor_adjustments=ingress_anchor_adjustments,
                 uv_points=uv_points,
                 downstream_hv_count=downstream_hv_count,
                 role_priority=role_priority,
@@ -926,10 +1050,11 @@ def _cf_try_place_tree_ingress_candidate(
         runtime_policy.dependency_patches_from_anchors(chain_ref[0], anchor_start, anchor_end),
     )
 
+    anchor_count = _cf_anchor_count(anchor_start, anchor_end)
     trace_console(
         f"[CFTUV][Frontier] Step {iteration}: "
         f"P{chain_ref[0]} L{chain_ref[1]}C{chain_ref[2]} "
-        f"{chain.frame_role.value} score:tree_ingress ep:1 "
+        f"{chain.frame_role.value} score:tree_ingress ep:{anchor_count} "
         f"a:{_cf_anchor_debug_label(anchor_start, anchor_end)} "
         f"note:priority={role_priority}:downstream_hv={downstream_hv_count}:hv_adj={hv_adjacency}"
     )
@@ -973,6 +1098,7 @@ class FrontierRuntimePolicy:
     allowed_tree_edges: set[PatchEdgeKey]
     final_scale: float
     seam_relation_by_edge: dict[PatchEdgeKey, SeamRelationProfile] = field(default_factory=dict)
+    tree_ingress_partner_by_chain: dict[ChainRef, ChainRef] = field(default_factory=dict)
     point_registry: PointRegistry = field(default_factory=dict)
     vert_to_placements: VertexPlacementMap = field(default_factory=dict)
     placed_chain_refs: set[ChainRef] = field(default_factory=set)
@@ -1568,6 +1694,7 @@ def _cf_bootstrap_frontier_runtime(
     quilt_patch_ids: set[int],
     allowed_tree_edges: set[PatchEdgeKey],
     closure_pair_map: dict[ChainRef, ChainRef],
+    tree_ingress_partner_by_chain: dict[ChainRef, ChainRef],
     final_scale: float,
 ) -> FrontierBootstrapAttempt:
     seed_result = _cf_choose_seed_chain(solve_view, graph, root_node, quilt_patch_ids, allowed_tree_edges)
@@ -1584,6 +1711,7 @@ def _cf_bootstrap_frontier_runtime(
         allowed_tree_edges=allowed_tree_edges,
         final_scale=final_scale,
         seam_relation_by_edge=quilt_plan.seam_relation_by_edge,
+        tree_ingress_partner_by_chain=tree_ingress_partner_by_chain,
         closure_pair_map=closure_pair_map,
     )
 
@@ -1600,6 +1728,8 @@ def _cf_bootstrap_frontier_runtime(
         f"{seed_chain.frame_role.value} "
         f"({seed_uvs[0].x:.4f},{seed_uvs[0].y:.4f})"
         f"->({seed_uvs[-1].x:.4f},{seed_uvs[-1].y:.4f})"
+        f" score:{seed_result.score:.2f}"
+        f" len:{_cf_chain_total_length(seed_chain, final_scale):.4f}"
         f"{f' hv_adj:{_cf_count_hv_adjacent_endpoints(graph, seed_ref)}' if seed_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME} else ''}"
     )
     if allowed_tree_edges:
@@ -2253,7 +2383,7 @@ def _cf_choose_seed_chain(
     Returns: strongest typed seed-chain choice или None
     """
     best_ref: Optional[SeedChainChoice] = None
-    best_rank: Optional[tuple[int, int, float]] = None
+    best_rank: Optional[tuple[int, int, float, float]] = None
 
     for loop_idx, loop in solve_view.iter_visible_loops(root_node.patch_id):
         for chain_idx, chain in enumerate(loop.chains):
@@ -2264,6 +2394,7 @@ def _cf_choose_seed_chain(
                 continue
 
             score = 0.0
+            chain_len = 0.0
 
             if is_hv:
                 score += 1.0
@@ -2299,6 +2430,7 @@ def _cf_choose_seed_chain(
                 1 if is_hv else 0,
                 hv_adjacency if is_hv else -1,
                 score,
+                chain_len,
             )
             if best_rank is None or rank > best_rank:
                 best_rank = rank
@@ -3863,6 +3995,18 @@ def _perpendicular_direction_for_role(src_uv_delta, target_role, turn_sign):
     return None
 
 
+def _cf_can_inherit_corner_turn_direction(chain, src_chain):
+    """Разрешает turn-sign inheritance для legacy corner-split и новых border chains."""
+
+    if chain.is_corner_split or src_chain.is_corner_split:
+        return True
+
+    return (
+        chain.neighbor_kind == ChainNeighborKind.MESH_BORDER
+        and src_chain.neighbor_kind == ChainNeighborKind.MESH_BORDER
+    )
+
+
 def _try_inherit_direction(
     chain, node, start_anchor, end_anchor, graph, point_registry,
     chain_ref=None,
@@ -3903,9 +4047,9 @@ def _try_inherit_direction(
             continue
 
         # === Corner-split: 3D turn-sign inheritance ===
-        if not chain.is_corner_split:
-            continue
         if not _is_orthogonal_hv_pair(chain.frame_role, src_chain.frame_role):
+            continue
+        if not _cf_can_inherit_corner_turn_direction(chain, src_chain):
             continue
 
         # Вычисляем знак поворота в 3D
@@ -4231,6 +4375,7 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
     solve_view = _build_solve_view(graph)
     allowed_tree_edges = _build_quilt_tree_edges(quilt_plan)
     closure_pair_map = _build_quilt_closure_pair_map(graph, quilt_plan, quilt_patch_ids, allowed_tree_edges)
+    tree_ingress_partner_by_chain = _build_tree_ingress_partner_map(quilt_plan)
     ordered_quilt_patch_ids = list(quilt_plan.solved_patch_ids)
     if quilt_plan.root_patch_id not in ordered_quilt_patch_ids:
         ordered_quilt_patch_ids.append(quilt_plan.root_patch_id)
@@ -4247,6 +4392,7 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
         quilt_patch_ids,
         allowed_tree_edges,
         closure_pair_map,
+        tree_ingress_partner_by_chain,
         final_scale,
     )
     if bootstrap_attempt.result is None:
