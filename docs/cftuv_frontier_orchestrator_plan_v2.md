@@ -113,16 +113,18 @@ solve_frontier.py (orchestrator)
   │
   ├── frontier_closure.py
   │     └── imports model.py / solve_records.py / solve_planning.py tree helpers only
+  │        (closure-pair matching/maps only; no closure-preconstraint ownership)
   │
   ├── frontier_eval.py
   │     └── imports frontier_state.py, frontier_place.py, frontier_score.py, frontier_closure.py
+  │        and may bridge to solve_diagnostics.py for closure-preconstraint metrics
   │
   ├── frontier_rescue.py
   │     └── imports frontier_state.py, frontier_eval.py, frontier_place.py, frontier_closure.py
   │
   └── frontier_finalize.py
         └── imports frontier_state.py, frontier_closure.py
-           and may bridge to solve_diagnostics.py where already required
+           and may bridge to solve_diagnostics.py / solve_pin_policy.py where already required
 ```
 
 Operational reading of the DAG:
@@ -163,8 +165,8 @@ Also include a short handoff paragraph in the PR body or summary.
 
 ## Phase board
 
-- [ ] P0 — Contract + DAG + ownership classification
-- [ ] P1 — Debt triage / dead code isolation
+- [x] P0 — Contract + DAG + ownership classification
+- [x] P1 — Debt triage / dead code isolation
 - [ ] P2 — Extract placement subsystem
 - [ ] P3 — Extract finalize subsystem
 - [ ] P4 — Extract rescue subsystem
@@ -178,7 +180,15 @@ Also include a short handoff paragraph in the PR body or summary.
 
 # P0 — Contract + DAG + ownership classification
 
-Status: not started
+Status: completed
+
+P0 result:
+
+- authoritative split contract added at `docs/cftuv_frontier_split_contract.md`
+- DAG amended before code motion:
+  - `frontier_eval.py` may bridge to `solve_diagnostics.py` for closure-preconstraint metrics
+  - `frontier_finalize.py` may bridge to `solve_pin_policy.py` for scaffold connectivity
+- runtime logic intentionally untouched in this phase
 
 ## Goal
 
@@ -220,7 +230,14 @@ Produce the authoritative split contract before code motion begins.
 
 # P1 — Debt triage / dead code isolation
 
-Status: not started
+Status: completed
+
+P1 result:
+
+- removed the unused legacy scorer `_cf_score_candidate_legacy`
+- collapsed `_cf_preview_frame_dual_anchor_rectification()` to its active pass-through behavior and deleted the unreachable body below the first `return`
+- removed disabled unused planning helper `_merge_orphan_quilts_into_wall_quilts`
+- scoring formulas, placement behavior, rescue order, cache behavior, and public API intentionally unchanged
 
 ## Goal
 
@@ -637,4 +654,5 @@ This order is intentional: **state → eval → score** for the sensitive core.
 
 | Date | Phase | Result | Files | Notes |
 |------|------|--------|-------|-------|
-| TBD | P0 | not started | — | awaiting first agent |
+| 2026-03-31 | P0 | completed | `docs/cftuv_frontier_orchestrator_plan_v2.md`, `docs/cftuv_frontier_split_contract.md` | Locked ownership map for `solve_frontier.py`, classified `FrontierRuntimePolicy` + frontier records, and amended DAG for eval diagnostics bridge / finalize pin-policy bridge. |
+| 2026-03-31 | P1 | completed | `cftuv/solve_frontier.py`, `cftuv/solve_planning.py`, `docs/cftuv_frontier_orchestrator_plan_v2.md` | Removed dead legacy scorer and disabled planning helper, collapsed the rectification helper to its active pass-through path, and left runtime behavior unchanged. |
