@@ -167,10 +167,10 @@ Also include a short handoff paragraph in the PR body or summary.
 
 - [x] P0 — Contract + DAG + ownership classification
 - [x] P1 — Debt triage / dead code isolation
-- [ ] P2 — Extract placement subsystem
-- [ ] P3 — Extract finalize subsystem
-- [ ] P4 — Extract rescue subsystem
-- [ ] P5 — Extract runtime state / cache substrate
+- [x] P2 — Extract placement subsystem
+- [x] P3 — Extract finalize subsystem
+- [x] P4 — Extract rescue subsystem
+- [x] P5 — Extract runtime state / cache substrate
 - [ ] P6 — Extract evaluation / anchors subsystem
 - [ ] P7 — Extract scoring subsystem
 - [ ] P8 — Compress `solve_frontier.py` into orchestration shell
@@ -282,7 +282,15 @@ The agent must inspect these first:
 
 # P2 — Extract placement subsystem
 
-Status: not started
+Status: completed
+
+P2 result:
+
+- created `cftuv/frontier_place.py` and moved placement math / direction inference helpers out of `solve_frontier.py`
+- moved the seed-placement builder, temporary placement builder, pure endpoint rebuild helpers, and main `_cf_place_chain()` entrypoint into the placement module
+- kept `_point_registry_key` in `solve_records.py` as shared registry contract and left the stateful anchor-adjustment apply wrapper in `solve_frontier.py`
+- updated `solve_frontier.py` to import and use the extracted placement helpers without changing frontier orchestration order
+- scoring/rank behavior, runtime state/cache behavior, rescue flow, and finalization were intentionally left unchanged
 
 ## Goal
 
@@ -323,7 +331,14 @@ Move placement math and direction logic into `cftuv/frontier_place.py`.
 
 # P3 — Extract finalize subsystem
 
-Status: not started
+Status: completed
+
+P3 result:
+
+- created `cftuv/frontier_finalize.py` and moved patch gap diagnostics, envelope building, and quilt finalization into it
+- moved finalize-only diagnostics / pin-policy imports out of `solve_frontier.py` and into the finalize module
+- updated `solve_frontier.py` to call imported finalization helpers without changing finalize order or untouched-patch fallback behavior
+- diagnostics semantics, closure/frame report collection flow, and public orchestration entrypoints were intentionally left unchanged
 
 ## Goal
 
@@ -356,7 +371,14 @@ Move patch envelope assembly and quilt finalization into `cftuv/frontier_finaliz
 
 # P4 — Extract rescue subsystem
 
-Status: not started
+Status: completed
+
+P4 result:
+
+- created `cftuv/frontier_rescue.py` and moved closure-follow UV reconstruction, rescue-gap builders, closure-follow placement flow, partner anchor helper, and tree-ingress placement flow into it
+- kept rescue as a cold path called only from stall handling; stall -> `tree_ingress` -> `closure_follow` order remains unchanged
+- used temporary dependency injection for the still-orchestrator-owned axis-safety check and anchor-adjustment apply wrapper, to avoid creating a cycle before P5/P6
+- rescue telemetry payloads and placement-path labels were intentionally left unchanged
 
 ## Goal
 
@@ -389,7 +411,15 @@ Move cold-path rescue logic into `cftuv/frontier_rescue.py`.
 
 # P5 — Extract runtime state / cache substrate
 
-Status: not started
+Status: completed
+
+P5 result:
+
+- created `cftuv/frontier_state.py` and moved `FrontierRuntimePolicy`, point registration, dirty propagation, and register/reject/dependency state helpers into it
+- left `evaluate_candidate()` and `build_stop_diagnostics()` outside `frontier_state.py` as free functions in `solve_frontier.py`, so the state layer does not depend upward on the orchestrator before P6
+- left score-cache bootstrap as an explicit orchestrator-side helper for now, so score-owned cache initialization did not get absorbed into state ownership
+- score-owned compatibility fields/accessors on `FrontierRuntimePolicy` remain temporary until P7; this phase did not reclassify them as final state ownership
+- cache invalidation order, dirty-marking rules, and placed-count semantics were intentionally left unchanged
 
 ## Goal
 
@@ -656,3 +686,7 @@ This order is intentional: **state → eval → score** for the sensitive core.
 |------|------|--------|-------|-------|
 | 2026-03-31 | P0 | completed | `docs/cftuv_frontier_orchestrator_plan_v2.md`, `docs/cftuv_frontier_split_contract.md` | Locked ownership map for `solve_frontier.py`, classified `FrontierRuntimePolicy` + frontier records, and amended DAG for eval diagnostics bridge / finalize pin-policy bridge. |
 | 2026-03-31 | P1 | completed | `cftuv/solve_frontier.py`, `cftuv/solve_planning.py`, `docs/cftuv_frontier_orchestrator_plan_v2.md` | Removed dead legacy scorer and disabled planning helper, collapsed the rectification helper to its active pass-through path, and left runtime behavior unchanged. |
+| 2026-03-31 | P2 | completed | `cftuv/frontier_place.py`, `cftuv/solve_frontier.py`, `docs/cftuv_frontier_orchestrator_plan_v2.md` | Extracted pure placement math / direction helpers into `frontier_place.py`, kept `_point_registry_key` in `solve_records.py`, left the stateful anchor-adjustment apply wrapper in the orchestrator, and kept scoring, rescue, finalize, and cache behavior unchanged. |
+| 2026-03-31 | P3 | completed | `cftuv/frontier_finalize.py`, `cftuv/solve_frontier.py`, `docs/cftuv_frontier_orchestrator_plan_v2.md` | Extracted patch gap diagnostics, envelope assembly, and quilt finalization into `frontier_finalize.py`, moved finalize-only diagnostics / pin-policy imports there, and preserved finalize order plus untouched-patch fallback behavior. |
+| 2026-03-31 | P4 | completed | `cftuv/frontier_rescue.py`, `cftuv/solve_frontier.py`, `docs/cftuv_frontier_orchestrator_plan_v2.md` | Extracted closure-follow and tree-ingress rescue flows into `frontier_rescue.py`, preserved stall rescue order and telemetry fields, and used injected seams for still-orchestrator-owned axis-safety / anchor-adjustment helpers to avoid premature state/eval coupling. |
+| 2026-03-31 | P5 | completed | `cftuv/frontier_state.py`, `cftuv/solve_frontier.py`, `docs/cftuv_frontier_orchestrator_plan_v2.md` | Extracted the runtime container, point registration, dirty propagation, and register/reject substrate into `frontier_state.py`, kept eval/stop-diagnostics as free functions in `solve_frontier.py` to avoid an upward DAG edge from state, and left score-cache bootstrap explicitly in the orchestrator with score-owned compatibility caches marked temporary until P7. |

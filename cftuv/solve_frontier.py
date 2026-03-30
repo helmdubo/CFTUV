@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-import math
 import time
 from heapq import heappop, heappush
 from typing import Optional
@@ -15,9 +14,30 @@ try:
         ScaffoldPointKey, ScaffoldChainPlacement, ScaffoldPatchPlacement,
         ScaffoldQuiltPlacement, ScaffoldMap, ScaffoldClosureSeamReport,
         ScaffoldFrameAlignmentReport, ChainGapReport, PatchPlacementStatus, PlacementSourceKind,
-        ClosureAnchorMode, FrameAxisKind, ChainRef, PatchEdgeKey, LoopChainRef, SourcePoint, AnchorAdjustment,
+        ClosureAnchorMode, FrameAxisKind, ChainRef, PatchEdgeKey, LoopChainRef, AnchorAdjustment,
     )
     from .console_debug import trace_console
+    from .frontier_finalize import _finalize_quilt_scaffold_frontier
+    from .frontier_place import (
+        _build_temporary_chain_placement,
+        _cf_anchor_count,
+        _cf_anchor_debug_label,
+        _cf_build_seed_placement,
+        _cf_chain_total_length,
+        _cf_determine_direction,
+        _cf_place_chain,
+        _cf_rebuild_chain_points_for_endpoints,
+        _default_role_direction,
+        _is_orthogonal_hv_pair,
+        _normalize_direction,
+        _snap_direction_to_role,
+        _try_inherit_direction,
+    )
+    from .frontier_rescue import (
+        _cf_try_place_closure_follow_candidate,
+        _cf_try_place_tree_ingress_candidate,
+    )
+    from .frontier_state import FrontierRuntimePolicy, _mark_neighbors_dirty
     from .solve_records import *
     from .solve_planning import (
         _build_solve_view,
@@ -29,15 +49,9 @@ try:
         _restore_original_quilt_plan,
     )
     from .solve_diagnostics import (
-        _build_chain_vert_uv_map,
         _chain_uv_axis_metrics,
         _measure_shared_closure_uv_offsets,
-        _collect_quilt_closure_seam_reports,
-        _collect_quilt_frame_alignment_reports,
-        _print_quilt_closure_seam_reports,
-        _print_quilt_frame_alignment_reports,
     )
-    from .solve_pin_policy import _compute_scaffold_connected_chains
     from .solve_instrumentation import FrontierTelemetryCollector, collect_stall_snapshot
 except ImportError:
     from model import (
@@ -46,9 +60,30 @@ except ImportError:
         ScaffoldPointKey, ScaffoldChainPlacement, ScaffoldPatchPlacement,
         ScaffoldQuiltPlacement, ScaffoldMap, ScaffoldClosureSeamReport,
         ScaffoldFrameAlignmentReport, ChainGapReport, PatchPlacementStatus, PlacementSourceKind,
-        ClosureAnchorMode, FrameAxisKind, ChainRef, PatchEdgeKey, LoopChainRef, SourcePoint, AnchorAdjustment,
+        ClosureAnchorMode, FrameAxisKind, ChainRef, PatchEdgeKey, LoopChainRef, AnchorAdjustment,
     )
     from console_debug import trace_console
+    from frontier_finalize import _finalize_quilt_scaffold_frontier
+    from frontier_place import (
+        _build_temporary_chain_placement,
+        _cf_anchor_count,
+        _cf_anchor_debug_label,
+        _cf_build_seed_placement,
+        _cf_chain_total_length,
+        _cf_determine_direction,
+        _cf_place_chain,
+        _cf_rebuild_chain_points_for_endpoints,
+        _default_role_direction,
+        _is_orthogonal_hv_pair,
+        _normalize_direction,
+        _snap_direction_to_role,
+        _try_inherit_direction,
+    )
+    from frontier_rescue import (
+        _cf_try_place_closure_follow_candidate,
+        _cf_try_place_tree_ingress_candidate,
+    )
+    from frontier_state import FrontierRuntimePolicy, _mark_neighbors_dirty
     from solve_records import *
     from solve_planning import (
         _build_solve_view,
@@ -60,15 +95,9 @@ except ImportError:
         _restore_original_quilt_plan,
     )
     from solve_diagnostics import (
-        _build_chain_vert_uv_map,
         _chain_uv_axis_metrics,
         _measure_shared_closure_uv_offsets,
-        _collect_quilt_closure_seam_reports,
-        _collect_quilt_frame_alignment_reports,
-        _print_quilt_closure_seam_reports,
-        _print_quilt_frame_alignment_reports,
     )
-    from solve_pin_policy import _compute_scaffold_connected_chains
     from solve_instrumentation import FrontierTelemetryCollector, collect_stall_snapshot
 
 
@@ -259,28 +288,6 @@ def _build_tree_ingress_partner_map(quilt_plan: QuiltPlan) -> dict[ChainRef, Cha
         partner_map[owner_ref] = target_ref
         partner_map[target_ref] = owner_ref
     return partner_map
-
-
-def _build_temporary_chain_placement(
-    chain_ref: ChainRef,
-    chain: BoundaryChain,
-    uv_points: list[Vector],
-    start_anchor: Optional[ChainAnchor],
-    end_anchor: Optional[ChainAnchor],
-) -> ScaffoldChainPlacement:
-    patch_id, loop_index, chain_index = chain_ref
-    return ScaffoldChainPlacement(
-        patch_id=patch_id,
-        loop_index=loop_index,
-        chain_index=chain_index,
-        frame_role=chain.frame_role,
-        source_kind=PlacementSourceKind.CHAIN,
-        anchor_count=_cf_anchor_count(start_anchor, end_anchor),
-        points=tuple(
-            (ScaffoldPointKey(patch_id, loop_index, chain_index, point_index), uv.copy())
-            for point_index, uv in enumerate(uv_points)
-        ),
-    )
 
 
 def _closure_preconstraint_direction_options(
@@ -490,937 +497,257 @@ def _cf_apply_closure_preconstraint(
     )
 
 
-def _cf_build_closure_follow_uvs(
+def _cf_apply_anchor_adjustments(
+    adjustments: tuple[AnchorAdjustment, ...],
     graph: PatchGraph,
-    chain: BoundaryChain,
-    partner_placement: ScaffoldChainPlacement,
+    placed_chains_map: dict[ChainRef, ScaffoldChainPlacement],
+    point_registry: PointRegistry,
     final_scale: float,
-) -> ClosureFollowUvBuildResult:
-    """Строит UV для closure-пары напрямую от уже placed partner chain."""
-    partner_uv_by_vert = _build_chain_vert_uv_map(graph, partner_placement)
-    if not partner_uv_by_vert:
-        return ClosureFollowUvBuildResult(uv_points=None)
+) -> bool:
+    if not adjustments:
+        return True
 
-    shared_vert_count = len(set(chain.vert_indices) & set(partner_uv_by_vert.keys()))
-    if shared_vert_count <= 0:
-        return ClosureFollowUvBuildResult(uv_points=None)
+    grouped_targets: dict[ChainRef, dict[int, Vector]] = {}
+    for chain_ref, source_point_index, target_uv in adjustments:
+        grouped_targets.setdefault(chain_ref, {})[source_point_index] = target_uv.copy()
 
-    if len(chain.vert_indices) == len(chain.vert_cos):
-        shared_uv_points = []
-        all_shared = True
-        for vert_index in chain.vert_indices:
-            uv = partner_uv_by_vert.get(vert_index)
-            if uv is None:
-                all_shared = False
-                break
-            shared_uv_points.append(uv.copy())
-        if all_shared and len(shared_uv_points) == len(chain.vert_cos):
-            return ClosureFollowUvBuildResult(
-                uv_points=shared_uv_points,
-                follow_mode='shared_verts',
-                shared_vert_count=shared_vert_count,
-            )
+    staged_updates: dict[ChainRef, ScaffoldChainPlacement] = {}
+    staged_registry: PointRegistry = {}
 
-    start_uv = partner_uv_by_vert.get(chain.start_vert_index)
-    end_uv = partner_uv_by_vert.get(chain.end_vert_index)
-    if start_uv is None or end_uv is None:
-        return ClosureFollowUvBuildResult(uv_points=None, shared_vert_count=shared_vert_count)
+    for chain_ref, point_updates in grouped_targets.items():
+        existing = placed_chains_map.get(chain_ref)
+        if existing is None or not existing.points:
+            return False
+        chain = graph.get_chain(chain_ref[0], chain_ref[1], chain_ref[2])
+        if chain is None:
+            return False
 
-    rebuilt_uvs = _cf_rebuild_chain_points_for_endpoints(chain, start_uv, end_uv, final_scale)
-    if rebuilt_uvs is None or len(rebuilt_uvs) != len(chain.vert_cos):
-        return ClosureFollowUvBuildResult(uv_points=None, shared_vert_count=shared_vert_count)
-    return ClosureFollowUvBuildResult(
-        uv_points=rebuilt_uvs,
-        follow_mode='partner_endpoints',
-        shared_vert_count=shared_vert_count,
-    )
+        point_count = len(existing.points)
+        start_uv = existing.points[0][1].copy()
+        end_uv = existing.points[-1][1].copy()
+        for source_point_index, target_uv in point_updates.items():
+            if source_point_index == 0:
+                start_uv = target_uv.copy()
+            elif source_point_index == point_count - 1:
+                end_uv = target_uv.copy()
+            else:
+                return False
 
+        rebuilt_uvs = _cf_rebuild_chain_points_for_endpoints(chain, start_uv, end_uv, final_scale)
+        if rebuilt_uvs is None or len(rebuilt_uvs) != point_count:
+            return False
 
-def _cf_rescue_gap_candidate_class(
-    rescue_path: str,
-    chain: BoundaryChain,
-    main_eval: FrontierCandidateEval,
-    *,
-    shared_vert_count: int = 0,
-) -> str:
-    anchor_class = {
-        0: 'no_anchor',
-        1: 'single_anchor',
-        2: 'dual_anchor',
-    }.get(main_eval.known, f'known{main_eval.known}')
-    if rescue_path == 'tree_ingress':
-        role_class = 'hv' if chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME} else 'free'
-        patch_phase = (
-            'untouched'
-            if main_eval.patch_context is not None and main_eval.patch_context.is_untouched
-            else 'patch_progress'
+        new_points = tuple(
+            (point_key, rebuilt_uvs[index].copy())
+            for index, (point_key, _) in enumerate(existing.points)
         )
-        return f"tree_ingress_{anchor_class}_{role_class}_{patch_phase}"
-    if rescue_path == 'closure_follow':
-        shared_class = 'shared2' if shared_vert_count >= 2 else 'shared1'
-        return f"closure_follow_{anchor_class}_{shared_class}"
-    return f"{rescue_path}_{anchor_class}"
+        staged_updates[chain_ref] = replace(existing, points=new_points)
+        for index, (_, uv) in enumerate(new_points):
+            staged_registry[_point_registry_key(chain_ref, index)] = uv.copy()
+
+    placed_chains_map.update(staged_updates)
+    point_registry.update(staged_registry)
+    return True
 
 
-def _cf_build_frontier_rescue_gap(
-    rescue_path: str,
+def _cf_bootstrap_runtime_score_caches(runtime_policy: FrontierRuntimePolicy) -> None:
+    """Временный bootstrap score-derived caches до выделения frontier_score.py."""
+    runtime_policy._outer_chain_count_by_patch.clear()
+    runtime_policy._frame_chain_count_by_patch.clear()
+    runtime_policy._closure_pair_count_by_patch.clear()
+    runtime_policy._shape_profile_by_patch.clear()
+
+    for patch_id, node in runtime_policy.graph.nodes.items():
+        outer_chain_count = 0
+        frame_chain_count = 0
+        for boundary_loop in node.boundary_loops:
+            if boundary_loop.kind != LoopKind.OUTER:
+                continue
+            outer_chain_count += len(boundary_loop.chains)
+            frame_chain_count += sum(
+                1
+                for chain in boundary_loop.chains
+                if chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+            )
+        runtime_policy._outer_chain_count_by_patch[patch_id] = outer_chain_count
+        runtime_policy._frame_chain_count_by_patch[patch_id] = frame_chain_count
+
+    for chain_ref in runtime_policy.closure_pair_refs:
+        patch_id = chain_ref[0]
+        runtime_policy._closure_pair_count_by_patch[patch_id] = runtime_policy._closure_pair_count_by_patch.get(patch_id, 0) + 1
+
+    for patch_id, node in runtime_policy.graph.nodes.items():
+        runtime_policy._shape_profile_by_patch[patch_id] = _cf_build_patch_shape_profile(patch_id, node, runtime_policy)
+
+
+def _cf_evaluate_candidate_runtime_policy(
+    runtime_policy: FrontierRuntimePolicy,
     chain_ref: ChainRef,
     chain: BoundaryChain,
-    main_eval: FrontierCandidateEval,
-    *,
-    hv_adjacency: int = 0,
-    downstream_support: int = 0,
-    shared_vert_count: int = 0,
-) -> FrontierRescueGap:
-    main_viable = bool(
-        main_eval.known > 0
-        and main_eval.score >= CHAIN_FRONTIER_THRESHOLD
-    )
-    if main_eval.known <= 0:
-        threshold_gap = CHAIN_FRONTIER_THRESHOLD
-        state_label = 'no_main_anchor'
-    elif main_viable:
-        threshold_gap = 0.0
-        state_label = 'main_viable'
-    else:
-        threshold_gap = max(0.0, CHAIN_FRONTIER_THRESHOLD - main_eval.score)
-        state_label = 'below_threshold'
-
-    candidate_class = _cf_rescue_gap_candidate_class(
-        rescue_path,
-        chain,
-        main_eval,
-        shared_vert_count=shared_vert_count,
-    )
-    summary_parts = [candidate_class, state_label]
-    if main_eval.rank_breakdown is not None and main_eval.rank_breakdown.summary:
-        summary_parts.append(main_eval.rank_breakdown.summary)
-    elif main_eval.anchor_reason:
-        summary_parts.append(main_eval.anchor_reason)
-    if hv_adjacency > 0:
-        summary_parts.append(f"hv:{hv_adjacency}")
-    if downstream_support > 0:
-        summary_parts.append(f"ds:{downstream_support}")
-    if shared_vert_count > 0:
-        summary_parts.append(f"sh:{shared_vert_count}")
-
-    return FrontierRescueGap(
-        candidate_class=candidate_class,
-        main_known=main_eval.known,
-        main_score=main_eval.score,
-        threshold_gap=threshold_gap,
-        main_viable=main_viable,
-        hv_adjacency=hv_adjacency,
-        downstream_support=downstream_support,
-        shared_vert_count=shared_vert_count,
-        main_rank=main_eval.rank,
-        main_rank_breakdown=main_eval.rank_breakdown,
-        summary='|'.join(summary_parts),
-    )
-
-
-def _cf_try_place_closure_follow_candidate(
-    runtime_policy: FrontierRuntimePolicy,
-    all_chain_pool: list[ChainPoolEntry],
-    closure_pair_map: dict[ChainRef, ChainRef],
-    iteration: int,
-    collector: Optional[FrontierTelemetryCollector] = None,
-) -> bool:
-    """Когда frontier встал, пробует дозавести same-role closure partner от уже placed пары."""
-    graph = runtime_policy.graph
-    best_candidate: Optional[ClosureFollowPlacementCandidate] = None
-
-    for entry in all_chain_pool:
-        chain_ref = entry.chain_ref
-        chain = entry.chain
-        if chain_ref in runtime_policy.placed_chain_refs or chain_ref in runtime_policy.rejected_chain_refs:
-            continue
-        if chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
-            continue
-
-        partner_ref = closure_pair_map.get(chain_ref)
-        if partner_ref is None:
-            continue
-        partner_placement = runtime_policy.placed_chains_map.get(partner_ref)
-        if partner_placement is None or len(partner_placement.points) < 2:
-            continue
-        if partner_placement.frame_role != chain.frame_role:
-            continue
-
-        follow_result = _cf_build_closure_follow_uvs(
-            graph,
-            chain,
-            partner_placement,
-            runtime_policy.final_scale,
-        )
-        uv_points = follow_result.uv_points
-        follow_mode = follow_result.follow_mode
-        shared_vert_count = follow_result.shared_vert_count
-        if not uv_points or len(uv_points) != len(chain.vert_cos):
-            continue
-
-        candidate_rank = ClosureFollowCandidateRank(
-            anchor_count=partner_placement.anchor_count,
-            shared_vert_count=shared_vert_count,
-            length_bias=-_cf_chain_total_length(chain, runtime_policy.final_scale),
-        )
-        if best_candidate is None or candidate_rank > best_candidate.rank:
-            best_candidate = ClosureFollowPlacementCandidate(
-                rank=candidate_rank,
-                chain_ref=chain_ref,
-                chain=chain,
-                partner_ref=partner_ref,
-                uv_points=uv_points,
-                follow_mode=follow_mode,
-                shared_vert_count=shared_vert_count,
-            )
-
-    if best_candidate is None:
-        return False
-
-    chain_ref = best_candidate.chain_ref
-    chain = best_candidate.chain
-    partner_ref = best_candidate.partner_ref
-    uv_points = best_candidate.uv_points
-    follow_mode = best_candidate.follow_mode
-    shared_vert_count = best_candidate.shared_vert_count
-    node = graph.nodes.get(chain_ref[0])
-    main_eval = (
-        runtime_policy.evaluate_candidate(
-            chain_ref,
-            chain,
-            node,
-            apply_closure_preconstraint=True,
-            compute_score=True,
-        )
-        if node is not None else
-        FrontierCandidateEval(
-            raw_start_anchor=None,
-            raw_end_anchor=None,
-            start_anchor=None,
-            end_anchor=None,
-            known=0,
-            placed_in_patch=runtime_policy.placed_in_patch(chain_ref[0]),
-        )
-    )
-    rescue_gap = _cf_build_frontier_rescue_gap(
-        "closure_follow",
+    node: PatchNode,
+    apply_closure_preconstraint: bool = False,
+    compute_score: bool = False,
+) -> FrontierCandidateEval:
+    found_anchors = _cf_find_anchors(
         chain_ref,
         chain,
-        main_eval,
-        shared_vert_count=shared_vert_count,
-    )
-    chain_placement = ScaffoldChainPlacement(
-        patch_id=chain_ref[0],
-        loop_index=chain_ref[1],
-        chain_index=chain_ref[2],
-        frame_role=chain.frame_role,
-        source_kind=PlacementSourceKind.CHAIN,
-        anchor_count=2,
-        points=tuple(
-            (ScaffoldPointKey(chain_ref[0], chain_ref[1], chain_ref[2], point_index), uv.copy())
-            for point_index, uv in enumerate(uv_points)
-        ),
-    )
-
-    runtime_policy.register_chain(
-        chain_ref,
-        chain,
-        chain_placement,
-        uv_points,
-        tuple(
-            sorted(
-                patch_id
-                for patch_id in (partner_ref[0],)
-                if patch_id != chain_ref[0]
-            )
-        ),
-    )
-
-    trace_console(
-        f"[CFTUV][Frontier] Step {iteration}: "
-        f"P{chain_ref[0]} L{chain_ref[1]}C{chain_ref[2]} "
-        f"{chain.frame_role.value} score:closure_follow ep:2 "
-        f"a:CP{partner_ref[0]}/CP{partner_ref[0]} "
-        f"note:{follow_mode}:shared={shared_vert_count}"
-    )
-    if collector is not None:
-        collector.record_placement(
-            iteration=iteration,
-            chain_ref=chain_ref,
-            chain=chain,
-            placement_path="closure_follow",
-            score=-1.0,
-            start_anchor=None,
-            end_anchor=None,
-            placed_in_patch_before=runtime_policy.placed_in_patch(chain_ref[0]) - 1,
-            is_closure_pair=(chain_ref in runtime_policy.closure_pair_refs),
-            uv_points=uv_points,
-            length_factor=main_eval.length_factor,
-            downstream_count=main_eval.downstream_count,
-            downstream_bonus=main_eval.downstream_bonus,
-            isolation_preview=main_eval.isolation_preview,
-            isolation_penalty=main_eval.isolation_penalty,
-            structural_free_bonus=main_eval.structural_free_bonus,
-            hv_adjacency=main_eval.hv_adjacency,
-            rank=main_eval.rank,
-            rank_breakdown=main_eval.rank_breakdown,
-            patch_context=main_eval.patch_context,
-            corner_hints=main_eval.corner_hints,
-            seam_relation=main_eval.seam_relation,
-            seam_bonus=main_eval.seam_bonus,
-            corner_bonus=main_eval.corner_bonus,
-            shape_bonus=main_eval.shape_bonus,
-            rescue_gap=rescue_gap,
-        )
-    return True
-
-
-def _cf_build_partner_chain_anchor(
-    vert_index: int,
-    partner_ref: ChainRef,
-    partner_chain: Optional[BoundaryChain],
-    point_registry: PointRegistry,
-) -> Optional[ChainAnchor]:
-    if partner_chain is None or vert_index < 0:
-        return None
-    for point_index, partner_vert_index in enumerate(partner_chain.vert_indices):
-        if partner_vert_index != vert_index:
-            continue
-        key = _point_registry_key(partner_ref, point_index)
-        if key not in point_registry:
-            continue
-        return ChainAnchor(
-            uv=point_registry[key].copy(),
-            source_ref=partner_ref,
-            source_point_index=point_index,
-            source_kind=PlacementSourceKind.CROSS_PATCH,
-        )
-    return None
-
-
-def _cf_try_place_tree_ingress_candidate(
-    runtime_policy: FrontierRuntimePolicy,
-    all_chain_pool: list[ChainPoolEntry],
-    iteration: int,
-    collector: Optional[FrontierTelemetryCollector] = None,
-) -> bool:
-    """Контролируемый bootstrap в untouched tree-child patch, если обычный frontier уже встал."""
-    best_candidate: Optional[TreeIngressPlacementCandidate] = None
-
-    graph = runtime_policy.graph
-    for entry in all_chain_pool:
-        chain_ref = entry.chain_ref
-        chain = entry.chain
-        node = entry.node
-        if chain_ref in runtime_policy.placed_chain_refs or chain_ref in runtime_policy.rejected_chain_refs:
-            continue
-
-        candidate_eval = runtime_policy.evaluate_candidate(chain_ref, chain, node)
-        if candidate_eval.placed_in_patch > 0:
-            continue
-        if chain.neighbor_kind != ChainNeighborKind.PATCH:
-            continue
-        if chain.neighbor_patch_id not in runtime_policy.quilt_patch_ids:
-            continue
-        if not _is_allowed_quilt_edge(runtime_policy.allowed_tree_edges, chain_ref[0], chain.neighbor_patch_id):
-            continue
-
-        using_primary_pair = False
-        ingress_anchor_adjustments: tuple[AnchorAdjustment, ...] = tuple(candidate_eval.anchor_adjustments)
-        ingress_start_anchor = None
-        ingress_end_anchor = None
-        partner_ref = runtime_policy.tree_ingress_partner_by_chain.get(chain_ref)
-        if partner_ref in runtime_policy.placed_chain_refs:
-            partner_chain = graph.get_chain(*partner_ref)
-            pair_start_anchor = _cf_build_partner_chain_anchor(
-                chain.start_vert_index,
-                partner_ref,
-                partner_chain,
-                runtime_policy.point_registry,
-            )
-            pair_end_anchor = _cf_build_partner_chain_anchor(
-                chain.end_vert_index,
-                partner_ref,
-                partner_chain,
-                runtime_policy.point_registry,
-            )
-            pair_anchor_count = _cf_anchor_count(pair_start_anchor, pair_end_anchor)
-            if pair_anchor_count == 1 or (
-                pair_anchor_count == 2
-                and _cf_frame_anchor_pair_is_axis_safe(
-                    chain,
-                    pair_start_anchor,
-                    pair_end_anchor,
-                    runtime_policy.final_scale,
-                ).is_safe
-            ):
-                using_primary_pair = True
-                ingress_start_anchor = pair_start_anchor
-                ingress_end_anchor = pair_end_anchor
-                ingress_anchor_adjustments = ()
-
-        if not using_primary_pair:
-            ingress_start_anchor = candidate_eval.start_anchor
-            ingress_end_anchor = candidate_eval.end_anchor
-            if candidate_eval.known == 1:
-                resolved_anchor = (
-                    ingress_start_anchor
-                    if ingress_start_anchor is not None else
-                    ingress_end_anchor
-                )
-                if resolved_anchor is None or resolved_anchor.source_kind != PlacementSourceKind.CROSS_PATCH:
-                    continue
-            else:
-                if chain.neighbor_kind != ChainNeighborKind.PATCH or chain.neighbor_patch_id < 0:
-                    continue
-                raw_start_anchor = candidate_eval.raw_start_anchor
-                raw_end_anchor = candidate_eval.raw_end_anchor
-                if raw_start_anchor is None or raw_end_anchor is None:
-                    continue
-                if (
-                    raw_start_anchor.source_kind != PlacementSourceKind.CROSS_PATCH
-                    or raw_end_anchor.source_kind != PlacementSourceKind.CROSS_PATCH
-                ):
-                    continue
-                if (
-                    raw_start_anchor.source_ref[0] != chain.neighbor_patch_id
-                    or raw_end_anchor.source_ref[0] != chain.neighbor_patch_id
-                ):
-                    continue
-                if not _cf_frame_anchor_pair_is_axis_safe(
-                    chain,
-                    raw_start_anchor,
-                    raw_end_anchor,
-                    runtime_policy.final_scale,
-                ).is_safe:
-                    continue
-                ingress_start_anchor = raw_start_anchor
-                ingress_end_anchor = raw_end_anchor
-
-        anchor_count = _cf_anchor_count(ingress_start_anchor, ingress_end_anchor)
-        if anchor_count <= 0:
-            continue
-
-        if chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
-            continue
-        if not using_primary_pair and candidate_eval.hv_adjacency <= 0:
-            continue
-
-        role_priority = 6 if using_primary_pair else (5 if anchor_count >= 2 else (4 if candidate_eval.hv_adjacency >= 2 else 3))
-        if chain.is_corner_split:
-            role_priority -= 1
-
-        endpoint_neighbors = graph.get_chain_endpoint_neighbors(chain_ref[0], chain_ref[1], chain_ref[2])
-        downstream_sides: list[str] = []
-        if ingress_start_anchor is None:
-            downstream_sides.append('start')
-        if ingress_end_anchor is None:
-            downstream_sides.append('end')
-        if not downstream_sides:
-            downstream_sides.extend(('start', 'end'))
-        downstream_hv_count = 0
-        downstream_max_length = 0.0
-        seen_downstream_refs: set[ChainRef] = set()
-        for downstream_side in downstream_sides:
-            for neighbor_loop_index, neighbor_chain_index in endpoint_neighbors.get(downstream_side, []):
-                neighbor_ref = (chain_ref[0], neighbor_loop_index, neighbor_chain_index)
-                if neighbor_ref in seen_downstream_refs:
-                    continue
-                seen_downstream_refs.add(neighbor_ref)
-                if neighbor_ref in runtime_policy.placed_chain_refs or neighbor_ref in runtime_policy.rejected_chain_refs:
-                    continue
-                neighbor_chain = graph.get_chain(*neighbor_ref)
-                if neighbor_chain is None or neighbor_chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
-                    continue
-                downstream_hv_count += 1
-                downstream_max_length = max(
-                    downstream_max_length,
-                    _cf_chain_total_length(neighbor_chain, runtime_policy.final_scale),
-                )
-
-        direction_override = _try_inherit_direction(
-            chain,
-            node,
-            ingress_start_anchor,
-            ingress_end_anchor,
-            graph,
-            runtime_policy.point_registry,
-            chain_ref=chain_ref,
-        )
-        uv_points = _cf_place_chain(
-            chain,
-            node,
-            ingress_start_anchor,
-            ingress_end_anchor,
-            runtime_policy.final_scale,
-            direction_override,
-        )
-        if not uv_points or len(uv_points) != len(chain.vert_cos):
-            continue
-
-        candidate_rank = TreeIngressCandidateRank(
-            role_priority=role_priority,
-            downstream_hv_count=downstream_hv_count,
-            downstream_max_length=downstream_max_length,
-            chain_length=_cf_chain_total_length(chain, runtime_policy.final_scale),
-        )
-        if best_candidate is None or candidate_rank > best_candidate.rank:
-            best_candidate = TreeIngressPlacementCandidate(
-                rank=candidate_rank,
-                chain_ref=chain_ref,
-                chain=chain,
-                start_anchor=ingress_start_anchor,
-                end_anchor=ingress_end_anchor,
-                anchor_adjustments=ingress_anchor_adjustments,
-                uv_points=uv_points,
-                downstream_hv_count=downstream_hv_count,
-                role_priority=role_priority,
-                hv_adjacency=candidate_eval.hv_adjacency,
-            )
-
-    if best_candidate is None:
-        return False
-
-    chain_ref = best_candidate.chain_ref
-    chain = best_candidate.chain
-    anchor_start = best_candidate.start_anchor
-    anchor_end = best_candidate.end_anchor
-    anchor_adjustments = best_candidate.anchor_adjustments
-    uv_points = best_candidate.uv_points
-    downstream_hv_count = best_candidate.downstream_hv_count
-    role_priority = best_candidate.role_priority
-    hv_adjacency = best_candidate.hv_adjacency
-    node = runtime_policy.graph.nodes.get(chain_ref[0])
-    main_eval = (
-        runtime_policy.evaluate_candidate(
-            chain_ref,
-            chain,
-            node,
-            apply_closure_preconstraint=True,
-            compute_score=True,
-        )
-        if node is not None else
-        FrontierCandidateEval(
-            raw_start_anchor=None,
-            raw_end_anchor=None,
-            start_anchor=None,
-            end_anchor=None,
-            known=0,
-            placed_in_patch=runtime_policy.placed_in_patch(chain_ref[0]),
-        )
-    )
-    rescue_gap = _cf_build_frontier_rescue_gap(
-        "tree_ingress",
-        chain_ref,
-        chain,
-        main_eval,
-        hv_adjacency=hv_adjacency,
-        downstream_support=downstream_hv_count,
-    )
-
-    if anchor_adjustments and not _cf_apply_anchor_adjustments(
-        anchor_adjustments,
-        graph,
-        runtime_policy.placed_chains_map,
+        runtime_policy.graph,
         runtime_policy.point_registry,
-        runtime_policy.final_scale,
-    ):
-        runtime_policy.reject_chain(chain_ref)
-        return False
-
-    chain_placement = ScaffoldChainPlacement(
-        patch_id=chain_ref[0],
-        loop_index=chain_ref[1],
-        chain_index=chain_ref[2],
-        frame_role=chain.frame_role,
-        source_kind=PlacementSourceKind.CHAIN,
-        anchor_count=_cf_anchor_count(anchor_start, anchor_end),
-        points=tuple(
-            (ScaffoldPointKey(chain_ref[0], chain_ref[1], chain_ref[2], point_index), uv.copy())
-            for point_index, uv in enumerate(uv_points)
-        ),
+        runtime_policy.vert_to_placements,
+        runtime_policy.placed_chain_refs,
+        runtime_policy.allowed_tree_edges,
     )
+    raw_start_anchor = found_anchors.start_anchor
+    raw_end_anchor = found_anchors.end_anchor
 
-    runtime_policy.register_chain(
-        chain_ref,
+    placed_in_patch = runtime_policy.placed_in_patch(chain_ref[0])
+    patch_context = _cf_build_patch_scoring_context(chain_ref, runtime_policy)
+    seam_relation = _cf_chain_seam_relation(chain_ref, chain, runtime_policy)
+    resolved_anchors = _cf_resolve_candidate_anchors(
         chain,
-        chain_placement,
-        uv_points,
-        runtime_policy.dependency_patches_from_anchors(chain_ref[0], anchor_start, anchor_end),
+        raw_start_anchor,
+        raw_end_anchor,
+        placed_in_patch,
+        runtime_policy.final_scale,
+        runtime_policy.graph,
+        runtime_policy.placed_chains_map,
     )
+    start_anchor = resolved_anchors.start_anchor
+    end_anchor = resolved_anchors.end_anchor
+    known = resolved_anchors.known
+    anchor_reason = resolved_anchors.reason
+    anchor_adjustments = resolved_anchors.anchor_adjustments
 
-    anchor_count = _cf_anchor_count(anchor_start, anchor_end)
-    trace_console(
-        f"[CFTUV][Frontier] Step {iteration}: "
-        f"P{chain_ref[0]} L{chain_ref[1]}C{chain_ref[2]} "
-        f"{chain.frame_role.value} score:tree_ingress ep:{anchor_count} "
-        f"a:{_cf_anchor_debug_label(anchor_start, anchor_end)} "
-        f"note:priority={role_priority}:downstream_hv={downstream_hv_count}:hv_adj={hv_adjacency}"
-    )
-    if collector is not None:
-        collector.record_placement(
-            iteration=iteration,
-            chain_ref=chain_ref,
-            chain=chain,
-            placement_path="tree_ingress",
-            score=-1.0,
-            start_anchor=anchor_start,
-            end_anchor=anchor_end,
-            placed_in_patch_before=runtime_policy.placed_in_patch(chain_ref[0]) - 1,
-            is_closure_pair=(chain_ref in runtime_policy.closure_pair_refs),
-            uv_points=uv_points,
-            anchor_adjustment_applied=bool(anchor_adjustments),
-            length_factor=main_eval.length_factor,
-            downstream_count=main_eval.downstream_count,
-            downstream_bonus=main_eval.downstream_bonus,
-            isolation_preview=main_eval.isolation_preview,
-            isolation_penalty=main_eval.isolation_penalty,
-            structural_free_bonus=main_eval.structural_free_bonus,
-            hv_adjacency=hv_adjacency,
-            rank=main_eval.rank,
-            rank_breakdown=main_eval.rank_breakdown,
-            patch_context=main_eval.patch_context,
-            corner_hints=main_eval.corner_hints,
-            seam_relation=main_eval.seam_relation,
-            seam_bonus=main_eval.seam_bonus,
-            corner_bonus=main_eval.corner_bonus,
-            shape_bonus=main_eval.shape_bonus,
-            rescue_gap=rescue_gap,
-        )
-    return True
-
-
-@dataclass
-class FrontierRuntimePolicy:
-    graph: PatchGraph
-    quilt_patch_ids: set[int]
-    allowed_tree_edges: set[PatchEdgeKey]
-    final_scale: float
-    seam_relation_by_edge: dict[PatchEdgeKey, SeamRelationProfile] = field(default_factory=dict)
-    tree_ingress_partner_by_chain: dict[ChainRef, ChainRef] = field(default_factory=dict)
-    point_registry: PointRegistry = field(default_factory=dict)
-    vert_to_placements: VertexPlacementMap = field(default_factory=dict)
-    placed_chain_refs: set[ChainRef] = field(default_factory=set)
-    placed_chains_map: dict[ChainRef, ScaffoldChainPlacement] = field(default_factory=dict)
-    chain_dependency_patches: dict[ChainRef, tuple[int, ...]] = field(default_factory=dict)
-    rejected_chain_refs: set[ChainRef] = field(default_factory=set)
-    build_order: list[ChainRef] = field(default_factory=list)
-    closure_pair_map: Optional[dict[ChainRef, ChainRef]] = None
-    placed_count_by_patch: dict[int, int] = field(default_factory=dict)
-    placed_h_count_by_patch: dict[int, int] = field(default_factory=dict)
-    placed_v_count_by_patch: dict[int, int] = field(default_factory=dict)
-    placed_free_count_by_patch: dict[int, int] = field(default_factory=dict)
-    closure_pair_refs: frozenset[ChainRef] = field(init=False, default_factory=frozenset)
-    _outer_chain_count_by_patch: dict[int, int] = field(init=False, default_factory=dict)
-    _frame_chain_count_by_patch: dict[int, int] = field(init=False, default_factory=dict)
-    _closure_pair_count_by_patch: dict[int, int] = field(init=False, default_factory=dict)
-    _shape_profile_by_patch: dict[int, PatchShapeProfile] = field(init=False, default_factory=dict)
-    # --- Internal incremental-frontier caches (Phase A) ---
-    _cached_evals: dict[ChainRef, FrontierCandidateEval] = field(init=False, default_factory=dict)
-    _dirty_refs: set[ChainRef] = field(init=False, default_factory=set)
-    _vert_to_pool_refs: dict[int, list[ChainRef]] = field(init=False, default_factory=dict)
-    _patch_to_pool_refs: dict[int, list[ChainRef]] = field(init=False, default_factory=dict)
-    _cache_hits: int = field(init=False, default=0)
-
-    def __post_init__(self) -> None:
-        self.closure_pair_refs = frozenset(self.closure_pair_map.keys()) if self.closure_pair_map else frozenset()
-        for patch_id, node in self.graph.nodes.items():
-            outer_chain_count = 0
-            frame_chain_count = 0
-            for boundary_loop in node.boundary_loops:
-                if boundary_loop.kind != LoopKind.OUTER:
-                    continue
-                outer_chain_count += len(boundary_loop.chains)
-                frame_chain_count += sum(
-                    1
-                    for chain in boundary_loop.chains
-                    if chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
-                )
-            self._outer_chain_count_by_patch[patch_id] = outer_chain_count
-            self._frame_chain_count_by_patch[patch_id] = frame_chain_count
-        for chain_ref in self.closure_pair_refs:
-            patch_id = chain_ref[0]
-            self._closure_pair_count_by_patch[patch_id] = self._closure_pair_count_by_patch.get(patch_id, 0) + 1
-        for patch_id, node in self.graph.nodes.items():
-            self._shape_profile_by_patch[patch_id] = _cf_build_patch_shape_profile(patch_id, node, self)
-
-    def placed_in_patch(self, patch_id: int) -> int:
-        return self.placed_count_by_patch.get(patch_id, 0)
-
-    def placed_h_in_patch(self, patch_id: int) -> int:
-        return self.placed_h_count_by_patch.get(patch_id, 0)
-
-    def placed_v_in_patch(self, patch_id: int) -> int:
-        return self.placed_v_count_by_patch.get(patch_id, 0)
-
-    def placed_free_in_patch(self, patch_id: int) -> int:
-        return self.placed_free_count_by_patch.get(patch_id, 0)
-
-    def outer_chain_count(self, patch_id: int) -> int:
-        return self._outer_chain_count_by_patch.get(patch_id, 0)
-
-    def frame_chain_count(self, patch_id: int) -> int:
-        return self._frame_chain_count_by_patch.get(patch_id, 0)
-
-    def closure_pair_count(self, patch_id: int) -> int:
-        return self._closure_pair_count_by_patch.get(patch_id, 0)
-
-    def shape_profile(self, patch_id: int) -> Optional[PatchShapeProfile]:
-        return self._shape_profile_by_patch.get(patch_id)
-
-    def seam_relation(self, patch_a_id: int, patch_b_id: int) -> Optional[SeamRelationProfile]:
-        return self.seam_relation_by_edge.get(_patch_pair_key(patch_a_id, patch_b_id))
-
-    def total_placed(self) -> int:
-        return len(self.build_order)
-
-    def is_chain_available(self, chain_ref: ChainRef) -> bool:
-        return chain_ref not in self.placed_chain_refs and chain_ref not in self.rejected_chain_refs
-
-    def placed_patch_ids(self) -> tuple[int, ...]:
-        return tuple(sorted(self.placed_count_by_patch.keys()))
-
-    def reject_chain(self, chain_ref: ChainRef) -> None:
-        self.rejected_chain_refs.add(chain_ref)
-        self._cached_evals.pop(chain_ref, None)
-        self._dirty_refs.discard(chain_ref)
-
-    def dependency_patches_from_anchors(
-        self,
-        owner_patch_id: int,
-        *anchors: Optional[ChainAnchor],
-    ) -> tuple[int, ...]:
-        return tuple(
-            sorted({
-                anchor.source_ref[0]
-                for anchor in anchors
-                if anchor is not None and anchor.source_ref[0] != owner_patch_id
-            })
-        )
-
-    def register_chain(
-        self,
-        chain_ref: ChainRef,
-        chain: BoundaryChain,
-        chain_placement: ScaffoldChainPlacement,
-        uv_points: list[Vector],
-        dependency_patches: tuple[int, ...] = (),
-    ) -> None:
-        self.placed_chain_refs.add(chain_ref)
-        self.placed_chains_map[chain_ref] = chain_placement
-        self.chain_dependency_patches[chain_ref] = tuple(sorted(set(dependency_patches)))
-        self.build_order.append(chain_ref)
-        self.placed_count_by_patch[chain_ref[0]] = self.placed_count_by_patch.get(chain_ref[0], 0) + 1
-        if chain.frame_role == FrameRole.H_FRAME:
-            self.placed_h_count_by_patch[chain_ref[0]] = self.placed_h_count_by_patch.get(chain_ref[0], 0) + 1
-        elif chain.frame_role == FrameRole.V_FRAME:
-            self.placed_v_count_by_patch[chain_ref[0]] = self.placed_v_count_by_patch.get(chain_ref[0], 0) + 1
-        else:
-            self.placed_free_count_by_patch[chain_ref[0]] = self.placed_free_count_by_patch.get(chain_ref[0], 0) + 1
-        _cf_register_points(chain_ref, chain, uv_points, self.point_registry, self.vert_to_placements)
-        self._cached_evals.pop(chain_ref, None)
-        self._dirty_refs.discard(chain_ref)
-        _mark_neighbors_dirty(self, chain_ref, chain)
-
-    def evaluate_candidate(
-        self,
-        chain_ref: ChainRef,
-        chain: BoundaryChain,
-        node: PatchNode,
-        apply_closure_preconstraint: bool = False,
-        compute_score: bool = False,
-    ) -> FrontierCandidateEval:
-        found_anchors = _cf_find_anchors(
+    closure_dir_override = None
+    if apply_closure_preconstraint and runtime_policy.closure_pair_map is not None:
+        closure_application = _cf_apply_closure_preconstraint(
             chain_ref,
             chain,
-            self.graph,
-            self.point_registry,
-            self.vert_to_placements,
-            self.placed_chain_refs,
-            self.allowed_tree_edges,
-        )
-        raw_start_anchor = found_anchors.start_anchor
-        raw_end_anchor = found_anchors.end_anchor
-
-        placed_in_patch = self.placed_in_patch(chain_ref[0])
-        patch_context = _cf_build_patch_scoring_context(chain_ref, self)
-        seam_relation = _cf_chain_seam_relation(chain_ref, chain, self)
-        resolved_anchors = _cf_resolve_candidate_anchors(
-            chain,
+            node,
             raw_start_anchor,
             raw_end_anchor,
-            placed_in_patch,
-            self.final_scale,
-            self.graph,
-            self.placed_chains_map,
+            start_anchor,
+            end_anchor,
+            known,
+            runtime_policy.graph,
+            runtime_policy.point_registry,
+            runtime_policy.placed_chains_map,
+            runtime_policy.closure_pair_map,
+            runtime_policy.final_scale,
         )
-        start_anchor = resolved_anchors.start_anchor
-        end_anchor = resolved_anchors.end_anchor
-        known = resolved_anchors.known
-        anchor_reason = resolved_anchors.reason
-        anchor_adjustments = resolved_anchors.anchor_adjustments
+        start_anchor = closure_application.start_anchor
+        end_anchor = closure_application.end_anchor
+        closure_dir_override = closure_application.direction_override
+        closure_reason = closure_application.reason
+        if closure_reason:
+            anchor_reason = f"{anchor_reason}|{closure_reason}" if anchor_reason else closure_reason
 
-        closure_dir_override = None
-        if apply_closure_preconstraint and self.closure_pair_map is not None:
-            closure_application = _cf_apply_closure_preconstraint(
-                chain_ref,
-                chain,
-                node,
-                raw_start_anchor,
-                raw_end_anchor,
-                start_anchor,
-                end_anchor,
-                known,
-                self.graph,
-                self.point_registry,
-                self.placed_chains_map,
-                self.closure_pair_map,
-                self.final_scale,
-            )
-            start_anchor = closure_application.start_anchor
-            end_anchor = closure_application.end_anchor
-            closure_dir_override = closure_application.direction_override
-            closure_reason = closure_application.reason
-            if closure_reason:
-                anchor_reason = f"{anchor_reason}|{closure_reason}" if anchor_reason else closure_reason
-
-        score = -1.0
-        topology_facts = FrontierTopologyFacts()
-        score_details = FrontierLocalScoreDetails()
-        rank = None
-        rank_breakdown = None
-        corner_hints = None
-        if compute_score and known > 0:
-            corner_hints = _cf_build_corner_scoring_hints(chain_ref, chain, self.graph)
-            score, topology_facts, score_details = _cf_score_candidate(
-                chain_ref,
-                chain,
-                node,
-                known,
-                self.graph,
-                patch_context,
-                self.quilt_patch_ids,
-                self.allowed_tree_edges,
-                self,
-                corner_hints=corner_hints,
-                seam_relation=seam_relation,
-                closure_pair_refs=self.closure_pair_refs or None,
-                start_anchor=start_anchor,
-                end_anchor=end_anchor,
-            )
-            rank, rank_breakdown = _cf_build_frontier_rank(
-                chain_ref,
-                chain,
-                node,
-                known,
-                self.graph,
-                topology_facts,
-                patch_context,
-                self.quilt_patch_ids,
-                self.allowed_tree_edges,
-                self,
-                score,
-                seam_relation=seam_relation,
-                seam_bonus=score_details.seam_bonus,
-                shape_bonus=score_details.shape_bonus,
-                closure_pair_refs=self.closure_pair_refs or None,
-                start_anchor=start_anchor,
-                end_anchor=end_anchor,
-            )
-
-        return FrontierCandidateEval(
-            raw_start_anchor=raw_start_anchor,
-            raw_end_anchor=raw_end_anchor,
-            start_anchor=start_anchor,
-            end_anchor=end_anchor,
-            known=known,
-            placed_in_patch=placed_in_patch,
-            anchor_reason=anchor_reason,
-            anchor_adjustments=anchor_adjustments,
-            closure_dir_override=closure_dir_override,
-            score=score,
-            length_factor=score_details.length_factor,
-            downstream_count=score_details.downstream_count,
-            downstream_bonus=score_details.downstream_bonus,
-            isolation_preview=topology_facts.would_be_connected,
-            isolation_penalty=score_details.isolation_penalty,
-            structural_free_bonus=score_details.structural_free_bonus,
-            hv_adjacency=topology_facts.hv_adjacency,
-            rank=rank,
-            rank_breakdown=rank_breakdown,
-            patch_context=patch_context,
+    score = -1.0
+    topology_facts = FrontierTopologyFacts()
+    score_details = FrontierLocalScoreDetails()
+    rank = None
+    rank_breakdown = None
+    corner_hints = None
+    if compute_score and known > 0:
+        corner_hints = _cf_build_corner_scoring_hints(chain_ref, chain, runtime_policy.graph)
+        score, topology_facts, score_details = _cf_score_candidate(
+            chain_ref,
+            chain,
+            node,
+            known,
+            runtime_policy.graph,
+            patch_context,
+            runtime_policy.quilt_patch_ids,
+            runtime_policy.allowed_tree_edges,
+            runtime_policy,
             corner_hints=corner_hints,
             seam_relation=seam_relation,
+            closure_pair_refs=runtime_policy.closure_pair_refs or None,
+            start_anchor=start_anchor,
+            end_anchor=end_anchor,
+        )
+        rank, rank_breakdown = _cf_build_frontier_rank(
+            chain_ref,
+            chain,
+            node,
+            known,
+            runtime_policy.graph,
+            topology_facts,
+            patch_context,
+            runtime_policy.quilt_patch_ids,
+            runtime_policy.allowed_tree_edges,
+            runtime_policy,
+            score,
+            seam_relation=seam_relation,
             seam_bonus=score_details.seam_bonus,
-            corner_bonus=score_details.corner_bonus,
             shape_bonus=score_details.shape_bonus,
+            closure_pair_refs=runtime_policy.closure_pair_refs or None,
+            start_anchor=start_anchor,
+            end_anchor=end_anchor,
         )
 
-    def build_stop_diagnostics(
-        self,
-        all_chain_pool: list[ChainPoolEntry],
-    ) -> FrontierStopDiagnostics:
-        remaining_count = 0
-        no_anchor_count = 0
-        low_score_count = 0
-        patches_with_no_anchor = set()
-        untouched_patch_ids = set()
-
-        for entry in all_chain_pool:
-            chain_ref = entry.chain_ref
-            if not self.is_chain_available(chain_ref):
-                continue
-            remaining_count += 1
-            untouched_patch_ids.add(chain_ref[0])
-            candidate_eval = self.evaluate_candidate(chain_ref, entry.chain, entry.node)
-            if candidate_eval.known == 0:
-                no_anchor_count += 1
-                patches_with_no_anchor.add(chain_ref[0])
-            else:
-                low_score_count += 1
-
-        placed_patch_ids = set(self.placed_patch_ids())
-        return FrontierStopDiagnostics(
-            remaining_count=remaining_count,
-            no_anchor_count=no_anchor_count,
-            low_score_count=low_score_count,
-            rejected_count=len(self.rejected_chain_refs),
-            placed_patch_ids=tuple(sorted(placed_patch_ids)),
-            untouched_patch_ids=tuple(sorted(untouched_patch_ids - placed_patch_ids)),
-            no_anchor_patch_ids=tuple(sorted(patches_with_no_anchor)),
-        )
+    return FrontierCandidateEval(
+        raw_start_anchor=raw_start_anchor,
+        raw_end_anchor=raw_end_anchor,
+        start_anchor=start_anchor,
+        end_anchor=end_anchor,
+        known=known,
+        placed_in_patch=placed_in_patch,
+        anchor_reason=anchor_reason,
+        anchor_adjustments=anchor_adjustments,
+        closure_dir_override=closure_dir_override,
+        score=score,
+        length_factor=score_details.length_factor,
+        downstream_count=score_details.downstream_count,
+        downstream_bonus=score_details.downstream_bonus,
+        isolation_preview=topology_facts.would_be_connected,
+        isolation_penalty=score_details.isolation_penalty,
+        structural_free_bonus=score_details.structural_free_bonus,
+        hv_adjacency=topology_facts.hv_adjacency,
+        rank=rank,
+        rank_breakdown=rank_breakdown,
+        patch_context=patch_context,
+        corner_hints=corner_hints,
+        seam_relation=seam_relation,
+        seam_bonus=score_details.seam_bonus,
+        corner_bonus=score_details.corner_bonus,
+        shape_bonus=score_details.shape_bonus,
+    )
 
 
-def _mark_neighbors_dirty(
+def _cf_build_stop_diagnostics_runtime_policy(
     runtime_policy: FrontierRuntimePolicy,
-    chain_ref: ChainRef,
-    chain: BoundaryChain,
-) -> None:
-    """Помечает dirty все pool refs, затронутые только что размещённым chain.
+    all_chain_pool: list[ChainPoolEntry],
+) -> FrontierStopDiagnostics:
+    remaining_count = 0
+    no_anchor_count = 0
+    low_score_count = 0
+    patches_with_no_anchor = set()
+    untouched_patch_ids = set()
 
-    Два триггера:
-    1. Shared vertex — anchor-lookup этого ref мог измениться.
-    2. First-chain-in-patch — placed_in_patch изменился 0→1, score всех refs
-       этого patch меняется из-за momentum bonus.
-    """
-    dirty = runtime_policy._dirty_refs
-    vtp = runtime_policy._vert_to_pool_refs
-    patch_id = chain_ref[0]
-    # Phase 2: explicit PatchScoringContext changes after every same-patch placement.
+    for entry in all_chain_pool:
+        chain_ref = entry.chain_ref
+        if not runtime_policy.is_chain_available(chain_ref):
+            continue
+        remaining_count += 1
+        untouched_patch_ids.add(chain_ref[0])
+        candidate_eval = _cf_evaluate_candidate_runtime_policy(runtime_policy, chain_ref, entry.chain, entry.node)
+        if candidate_eval.known == 0:
+            no_anchor_count += 1
+            patches_with_no_anchor.add(chain_ref[0])
+        else:
+            low_score_count += 1
 
-    for vi in chain.vert_indices:
-        for ref in vtp.get(vi, ()):
-            dirty.add(ref)
-
-    # Проверка == 1 (после инкремента): первый chain в patch
-    if runtime_policy.placed_count_by_patch.get(patch_id, 0) == 1:
-        for refs_list in vtp.values():
-            for ref in refs_list:
-                if ref[0] == patch_id:
-                    dirty.add(ref)
-    for ref in runtime_policy._patch_to_pool_refs.get(patch_id, ()):
-        dirty.add(ref)
+    placed_patch_ids = set(runtime_policy.placed_patch_ids())
+    return FrontierStopDiagnostics(
+        remaining_count=remaining_count,
+        no_anchor_count=no_anchor_count,
+        low_score_count=low_score_count,
+        rejected_count=len(runtime_policy.rejected_chain_refs),
+        placed_patch_ids=tuple(sorted(placed_patch_ids)),
+        untouched_patch_ids=tuple(sorted(untouched_patch_ids - placed_patch_ids)),
+        no_anchor_patch_ids=tuple(sorted(patches_with_no_anchor)),
+    )
 
 
 def _cf_select_best_frontier_candidate(
@@ -1464,7 +791,8 @@ def _cf_select_best_frontier_candidate(
                 continue
 
         # --- Full evaluation path ---
-        candidate_eval = runtime_policy.evaluate_candidate(
+        candidate_eval = _cf_evaluate_candidate_runtime_policy(
+            runtime_policy,
             chain_ref,
             entry.chain,
             entry.node,
@@ -1639,53 +967,6 @@ def _cf_try_place_frontier_candidate(
     return True
 
 
-def _cf_build_seed_placement(
-    seed_ref: ChainRef,
-    seed_chain: BoundaryChain,
-    root_node: PatchNode,
-    final_scale: float,
-) -> Optional[SeedPlacementResult]:
-    seed_src = _cf_chain_source_points(seed_chain)
-    seed_dir = _cf_determine_direction(seed_chain, root_node)
-
-    if seed_chain.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
-        seed_uvs = _build_frame_chain_from_one_end(
-            seed_src,
-            Vector((0.0, 0.0)),
-            seed_dir,
-            seed_chain.frame_role,
-            final_scale,
-        )
-    else:
-        seed_uvs = _build_guided_free_chain_from_one_end(
-            root_node,
-            seed_src,
-            Vector((0.0, 0.0)),
-            seed_dir,
-            final_scale,
-        )
-
-    if not seed_uvs:
-        return None
-
-    seed_placement = ScaffoldChainPlacement(
-        patch_id=seed_ref[0],
-        loop_index=seed_ref[1],
-        chain_index=seed_ref[2],
-        frame_role=seed_chain.frame_role,
-        source_kind=PlacementSourceKind.CHAIN,
-        anchor_count=0,
-        points=tuple(
-            (ScaffoldPointKey(seed_ref[0], seed_ref[1], seed_ref[2], i), uv.copy())
-            for i, uv in enumerate(seed_uvs)
-        ),
-    )
-    return SeedPlacementResult(
-        placement=seed_placement,
-        uv_points=seed_uvs,
-    )
-
-
 def _cf_bootstrap_frontier_runtime(
     graph: PatchGraph,
     solve_view: SolveView,
@@ -1714,6 +995,7 @@ def _cf_bootstrap_frontier_runtime(
         tree_ingress_partner_by_chain=tree_ingress_partner_by_chain,
         closure_pair_map=closure_pair_map,
     )
+    _cf_bootstrap_runtime_score_caches(runtime_policy)
 
     seed_payload = _cf_build_seed_placement(seed_ref, seed_chain, root_node, final_scale)
     if seed_payload is None:
@@ -1768,25 +1050,6 @@ def _cf_build_frontier_chain_pool(
     return all_chain_pool
 
 
-def _cf_chain_source_points(chain):
-    """Конвертирует chain.vert_cos в формат [(index, Vector)] для placement функций."""
-    return [(i, co.copy()) for i, co in enumerate(chain.vert_cos)]
-
-
-def _cf_anchor_count(start_anchor: Optional[ChainAnchor], end_anchor: Optional[ChainAnchor]) -> int:
-    return (1 if start_anchor is not None else 0) + (1 if end_anchor is not None else 0)
-
-
-def _cf_anchor_debug_label(start_anchor: Optional[ChainAnchor], end_anchor: Optional[ChainAnchor]) -> str:
-    def _label(anchor: Optional[ChainAnchor]) -> str:
-        if anchor is None:
-            return '-'
-        prefix = 'S' if anchor.source_kind == PlacementSourceKind.SAME_PATCH else 'X'
-        return f"{prefix}P{anchor.source_ref[0]}"
-
-    return f"{_label(start_anchor)}/{_label(end_anchor)}"
-
-
 def _cf_preview_frame_dual_anchor_rectification(
     chain: BoundaryChain,
     start_anchor: Optional[ChainAnchor],
@@ -1800,425 +1063,6 @@ def _cf_preview_frame_dual_anchor_rectification(
     # stitch continuity и row consistency до отдельного patch-level решения.
     _ = chain, graph, placed_chains_map
     return DualAnchorRectificationPreview(start_anchor=start_anchor, end_anchor=end_anchor)
-
-
-def _cf_chain_total_length(chain: BoundaryChain, final_scale: float) -> float:
-    if len(chain.vert_cos) < 2:
-        return 0.0
-
-    return sum(
-        (chain.vert_cos[i + 1] - chain.vert_cos[i]).length
-        for i in range(len(chain.vert_cos) - 1)
-    ) * final_scale
-
-
-def _snap_direction_to_role(direction: Vector, role: FrameRole) -> Vector:
-    if role == FrameRole.H_FRAME:
-        axis_value = direction.x if abs(direction.x) >= abs(direction.y) else direction.y
-        return Vector((1.0 if axis_value >= 0.0 else -1.0, 0.0))
-    if role == FrameRole.V_FRAME:
-        axis_value = direction.y if abs(direction.y) >= abs(direction.x) else direction.x
-        return Vector((0.0, 1.0 if axis_value >= 0.0 else -1.0))
-    return Vector((0.0, 0.0))
-
-
-def _rotate_direction(direction: Vector, angle_deg: float) -> Vector:
-    angle_rad = math.radians(angle_deg)
-    cos_a = math.cos(angle_rad)
-    sin_a = math.sin(angle_rad)
-    return Vector((
-        direction.x * cos_a - direction.y * sin_a,
-        direction.x * sin_a + direction.y * cos_a,
-    ))
-
-
-def _chain_edge_lengths(ordered_source_points: list[SourcePoint], final_scale: float) -> list[float]:
-    edge_lengths = []
-    for point_index in range(1, len(ordered_source_points)):
-        prev_point = ordered_source_points[point_index - 1][1]
-        next_point = ordered_source_points[point_index][1]
-        edge_lengths.append((next_point - prev_point).length * final_scale)
-    return edge_lengths
-
-
-def _default_role_direction(role: FrameRole) -> Vector:
-    if role == FrameRole.V_FRAME:
-        return Vector((0.0, 1.0))
-    return Vector((1.0, 0.0))
-
-
-def _normalize_direction(direction: Vector, fallback: Optional[Vector] = None) -> Vector:
-    if direction.length > 1e-8:
-        return direction.normalized()
-    if fallback is not None and fallback.length > 1e-8:
-        return fallback.normalized()
-    return Vector((1.0, 0.0))
-
-
-def _segment_source_step_directions(node: PatchNode, ordered_source_points: list[SourcePoint]) -> list[Vector]:
-    directions = []
-    fallback = Vector((1.0, 0.0))
-    for point_index in range(1, len(ordered_source_points)):
-        prev_point = ordered_source_points[point_index - 1][1]
-        next_point = ordered_source_points[point_index][1]
-        delta = next_point - prev_point
-        delta_2d = Vector((delta.dot(node.basis_u), delta.dot(node.basis_v)))
-        if delta_2d.length <= 1e-8:
-            directions.append(fallback.copy())
-            continue
-        fallback = delta_2d.normalized()
-        directions.append(fallback.copy())
-    return directions
-
-
-def _interpolate_between_anchors_by_lengths(start_point: Vector, end_point: Vector, edge_lengths: list[float]) -> list[Vector]:
-    if not edge_lengths:
-        return [start_point.copy()]
-
-    total_length = sum(edge_lengths)
-    if total_length <= 1e-8:
-        return [
-            start_point.lerp(end_point, float(point_index) / float(len(edge_lengths)))
-            for point_index in range(len(edge_lengths) + 1)
-        ]
-
-    points = [start_point.copy()]
-    walked = 0.0
-    for edge_length in edge_lengths:
-        walked += max(edge_length, 0.0)
-        factor = walked / total_length
-        points.append(start_point.lerp(end_point, factor))
-    points[-1] = end_point.copy()
-    return points
-
-
-def _sample_cubic_bezier_point(p0: Vector, p1: Vector, p2: Vector, p3: Vector, t: float) -> Vector:
-    omt = 1.0 - t
-    return (
-        p0 * (omt * omt * omt)
-        + p1 * (3.0 * omt * omt * t)
-        + p2 * (3.0 * omt * t * t)
-        + p3 * (t * t * t)
-    )
-
-
-def _sample_cubic_bezier_polyline(
-    p0: Vector,
-    p1: Vector,
-    p2: Vector,
-    p3: Vector,
-    sample_count: int,
-) -> list[Vector]:
-    sample_count = max(sample_count, 2)
-    return [
-        _sample_cubic_bezier_point(p0, p1, p2, p3, float(index) / float(sample_count - 1))
-        for index in range(sample_count)
-    ]
-
-
-def _resample_polyline_by_edge_lengths(polyline_points: list[Vector], edge_lengths: list[float]) -> Optional[list[Vector]]:
-    if not polyline_points:
-        return None
-    if not edge_lengths:
-        return [polyline_points[0].copy()]
-
-    distances = [0.0]
-    for index in range(1, len(polyline_points)):
-        distances.append(distances[-1] + (polyline_points[index] - polyline_points[index - 1]).length)
-    total_polyline_length = distances[-1]
-    if total_polyline_length <= 1e-8:
-        return None
-
-    target_distances = [0.0]
-    total_target_length = 0.0
-    for edge_length in edge_lengths:
-        total_target_length += max(edge_length, 0.0)
-        target_distances.append(total_target_length)
-    if total_polyline_length + 1e-5 < total_target_length:
-        return None
-
-    resampled = []
-    source_index = 1
-    for target_distance in target_distances:
-        while source_index < len(distances) and distances[source_index] < target_distance:
-            source_index += 1
-        if source_index >= len(distances):
-            resampled.append(polyline_points[-1].copy())
-            continue
-        prev_distance = distances[source_index - 1]
-        next_distance = distances[source_index]
-        if next_distance - prev_distance <= 1e-8:
-            resampled.append(polyline_points[source_index].copy())
-            continue
-        factor = (target_distance - prev_distance) / (next_distance - prev_distance)
-        resampled.append(polyline_points[source_index - 1].lerp(polyline_points[source_index], factor))
-
-    if resampled:
-        resampled[0] = polyline_points[0].copy()
-        resampled[-1] = polyline_points[-1].copy()
-    return resampled
-
-
-def _build_guided_free_chain_from_one_end(
-    node: PatchNode,
-    ordered_source_points: list[SourcePoint],
-    start_point: Vector,
-    start_direction: Vector,
-    final_scale: float,
-) -> list[Vector]:
-    if not ordered_source_points:
-        return []
-    if len(ordered_source_points) == 1:
-        return [start_point.copy()]
-
-    edge_lengths = _chain_edge_lengths(ordered_source_points, final_scale)
-    source_directions = _segment_source_step_directions(node, ordered_source_points)
-    aligned_start = _normalize_direction(start_direction, source_directions[0] if source_directions else None)
-
-    rotated_directions = []
-    if source_directions:
-        base_direction = _normalize_direction(source_directions[0], aligned_start)
-        rotate_deg = math.degrees(
-            math.atan2(aligned_start.y, aligned_start.x) - math.atan2(base_direction.y, base_direction.x)
-        )
-        rotated_directions = [
-            _normalize_direction(_rotate_direction(direction, rotate_deg), aligned_start)
-            for direction in source_directions
-        ]
-
-    points = [start_point.copy()]
-    current_point = start_point.copy()
-    current_direction = aligned_start
-    for edge_index, edge_length in enumerate(edge_lengths):
-        if edge_index < len(rotated_directions):
-            current_direction = _normalize_direction(rotated_directions[edge_index], current_direction)
-        current_point = current_point + current_direction * edge_length
-        points.append(current_point.copy())
-    return points
-
-
-def _build_guided_free_chain_between_anchors(
-    node: PatchNode,
-    ordered_source_points: list[SourcePoint],
-    start_point: Vector,
-    end_point: Vector,
-    start_direction: Vector,
-    end_direction: Optional[Vector],
-    final_scale: float,
-) -> list[Vector]:
-    if not ordered_source_points:
-        return []
-    if len(ordered_source_points) == 1:
-        return [start_point.copy()]
-
-    edge_lengths = _chain_edge_lengths(ordered_source_points, final_scale)
-    target_delta = end_point - start_point
-    chord_length = target_delta.length
-    if chord_length <= 1e-8:
-        return _interpolate_between_anchors_by_lengths(start_point, end_point, edge_lengths)
-
-    source_origin = ordered_source_points[0][1]
-    source_points_2d = [
-        Vector((
-            (point - source_origin).dot(node.basis_u) * final_scale,
-            (point - source_origin).dot(node.basis_v) * final_scale,
-        ))
-        for _, point in ordered_source_points
-    ]
-    source_chord = source_points_2d[-1] - source_points_2d[0]
-    source_chord_length = source_chord.length
-    if source_chord_length <= 1e-8:
-        return _interpolate_between_anchors_by_lengths(start_point, end_point, edge_lengths)
-
-    source_dir = source_chord / source_chord_length
-    source_perp = Vector((-source_dir.y, source_dir.x))
-    target_dir = target_delta / chord_length
-    base_target_perp = Vector((-target_dir.y, target_dir.x))
-    scale = chord_length / source_chord_length
-
-    source_directions = _segment_source_step_directions(node, ordered_source_points)
-    start_ref = _normalize_direction(start_direction, source_directions[0] if source_directions else target_delta)
-    end_fallback = source_directions[-1] if source_directions else target_delta
-    end_ref = _normalize_direction(end_direction if end_direction is not None else end_fallback, end_fallback)
-
-    def _map_profile(target_perp: Vector) -> list[Vector]:
-        mapped = []
-        for source_point in source_points_2d:
-            relative = source_point - source_points_2d[0]
-            along = relative.dot(source_dir) * scale
-            across = relative.dot(source_perp) * scale
-            mapped.append(start_point + target_dir * along + target_perp * across)
-        mapped[0] = start_point.copy()
-        mapped[-1] = end_point.copy()
-        return mapped
-
-    def _profile_score(mapped_points: list[Vector]) -> float:
-        if len(mapped_points) < 2:
-            return -1e9
-        start_vec = _normalize_direction(mapped_points[1] - mapped_points[0], target_dir)
-        end_vec = _normalize_direction(mapped_points[-1] - mapped_points[-2], target_dir)
-        score = start_vec.dot(start_ref) + end_vec.dot(end_ref)
-
-        total_length = 0.0
-        for point_index in range(len(mapped_points) - 1):
-            total_length += (mapped_points[point_index + 1] - mapped_points[point_index]).length
-        target_total = sum(edge_lengths)
-        if target_total > 1e-8:
-            score -= abs((total_length / target_total) - 1.0)
-        return score
-
-    candidates = [
-        _map_profile(base_target_perp),
-        _map_profile(-base_target_perp),
-    ]
-    best_profile = max(candidates, key=_profile_score)
-    return best_profile
-
-
-def _build_frame_chain_from_one_end(
-    ordered_source_points: list[SourcePoint],
-    start_point: Vector,
-    start_direction: Vector,
-    role: FrameRole,
-    final_scale: float,
-) -> list[Vector]:
-    if not ordered_source_points:
-        return []
-    if len(ordered_source_points) == 1:
-        return [start_point.copy()]
-
-    axis_direction = _snap_direction_to_role(start_direction, role)
-    axis_direction = _normalize_direction(axis_direction, _default_role_direction(role))
-    edge_lengths = _chain_edge_lengths(ordered_source_points, final_scale)
-
-    points = [start_point.copy()]
-    current_point = start_point.copy()
-    for edge_length in edge_lengths:
-        current_point = current_point + axis_direction * edge_length
-        points.append(current_point.copy())
-    return points
-
-
-def _build_frame_chain_between_anchors(
-    ordered_source_points: list[SourcePoint],
-    start_point: Vector,
-    end_point: Vector,
-    final_scale: float,
-) -> list[Vector]:
-    if not ordered_source_points:
-        return []
-    if len(ordered_source_points) == 1:
-        return [start_point.copy()]
-    edge_lengths = _chain_edge_lengths(ordered_source_points, final_scale)
-    return _interpolate_between_anchors_by_lengths(start_point, end_point, edge_lengths)
-
-
-def _cf_rebuild_chain_points_for_endpoints(
-    chain: BoundaryChain,
-    start_uv: Vector,
-    end_uv: Vector,
-    final_scale: float,
-) -> Optional[list[Vector]]:
-    source_pts = _cf_chain_source_points(chain)
-    if len(source_pts) != len(chain.vert_indices):
-        return None
-
-    if chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
-        return _build_frame_chain_between_anchors(source_pts, start_uv, end_uv, final_scale)
-
-    if chain.frame_role == FrameRole.FREE and len(source_pts) <= 2:
-        if len(source_pts) == 0:
-            return []
-        if len(source_pts) == 1:
-            return [start_uv.copy()]
-        return [start_uv.copy(), end_uv.copy()]
-
-    return None
-
-
-def _cf_apply_anchor_adjustments(
-    adjustments: tuple[AnchorAdjustment, ...],
-    graph: PatchGraph,
-    placed_chains_map: dict[ChainRef, ScaffoldChainPlacement],
-    point_registry: PointRegistry,
-    final_scale: float,
-) -> bool:
-    if not adjustments:
-        return True
-
-    grouped_targets: dict[ChainRef, dict[int, Vector]] = {}
-    for chain_ref, source_point_index, target_uv in adjustments:
-        grouped_targets.setdefault(chain_ref, {})[source_point_index] = target_uv.copy()
-
-    staged_updates: dict[ChainRef, ScaffoldChainPlacement] = {}
-    staged_registry: PointRegistry = {}
-
-    for chain_ref, point_updates in grouped_targets.items():
-        existing = placed_chains_map.get(chain_ref)
-        if existing is None or not existing.points:
-            return False
-        chain = graph.get_chain(chain_ref[0], chain_ref[1], chain_ref[2])
-        if chain is None:
-            return False
-
-        point_count = len(existing.points)
-        start_uv = existing.points[0][1].copy()
-        end_uv = existing.points[-1][1].copy()
-        for source_point_index, target_uv in point_updates.items():
-            if source_point_index == 0:
-                start_uv = target_uv.copy()
-            elif source_point_index == point_count - 1:
-                end_uv = target_uv.copy()
-            else:
-                return False
-
-        rebuilt_uvs = _cf_rebuild_chain_points_for_endpoints(chain, start_uv, end_uv, final_scale)
-        if rebuilt_uvs is None or len(rebuilt_uvs) != point_count:
-            return False
-
-        new_points = tuple(
-            (point_key, rebuilt_uvs[index].copy())
-            for index, (point_key, _) in enumerate(existing.points)
-        )
-        staged_updates[chain_ref] = replace(existing, points=new_points)
-        for index, (_, uv) in enumerate(new_points):
-            staged_registry[_point_registry_key(chain_ref, index)] = uv.copy()
-
-    placed_chains_map.update(staged_updates)
-    point_registry.update(staged_registry)
-    return True
-
-
-def _cf_determine_direction(chain, node):
-    """UV direction для chain из базиса patch.
-
-    H_FRAME — snap к (±1, 0)
-    V_FRAME — snap к (0, ±1)
-    FREE — проекция 3D direction на basis
-    """
-    if len(chain.vert_cos) < 2:
-        if chain.frame_role == FrameRole.H_FRAME:
-            return Vector((1.0, 0.0))
-        if chain.frame_role == FrameRole.V_FRAME:
-            return Vector((0.0, 1.0))
-        return Vector((1.0, 0.0))
-
-    chain_3d = chain.vert_cos[-1] - chain.vert_cos[0]
-
-    if chain.frame_role == FrameRole.H_FRAME:
-        dot = chain_3d.dot(node.basis_u)
-        return Vector((1.0 if dot >= 0.0 else -1.0, 0.0))
-
-    if chain.frame_role == FrameRole.V_FRAME:
-        dot = chain_3d.dot(node.basis_v)
-        return Vector((0.0, 1.0 if dot >= 0.0 else -1.0))
-
-    u_comp = chain_3d.dot(node.basis_u)
-    v_comp = chain_3d.dot(node.basis_v)
-    direction = Vector((u_comp, v_comp))
-    if direction.length > 1e-8:
-        return direction.normalized()
-    return Vector((1.0, 0.0))
 
 
 def _cf_choose_seed_chain(
@@ -3545,445 +2389,6 @@ def _cf_score_candidate_layered(
 _cf_score_candidate = _cf_score_candidate_layered
 
 
-
-def _is_orthogonal_hv_pair(role_a, role_b):
-    return {role_a, role_b} == {FrameRole.H_FRAME, FrameRole.V_FRAME}
-
-
-def _cf_compute_local_normal(node, corner_co_3d):
-    """Находит локальную нормаль грани(треугольника), прилегающей к углу."""
-    if not node.mesh_verts or not node.mesh_tris:
-        return node.normal
-
-    for i, v in enumerate(node.mesh_verts):
-        if (v - corner_co_3d).length_squared < 1e-7:
-            for tri in node.mesh_tris:
-                if i in tri:
-                    v0 = node.mesh_verts[tri[0]]
-                    v1 = node.mesh_verts[tri[1]]
-                    v2 = node.mesh_verts[tri[2]]
-                    n = (v1 - v0).cross(v2 - v0)
-                    if n.length_squared > 1e-8:
-                        return n.normalized()
-            break
-            
-    return node.normal
-
-
-def _compute_corner_turn_sign(chain, src_chain, anchor, is_start_anchor, node):
-    """Определяет знак поворота на corner из 3D tangent'ов.
-    
-    Возвращает +1 (CCW), -1 (CW), или 0 (неопределённо).
-    """
-    src_cos = src_chain.vert_cos
-    if not src_cos or len(src_cos) < 2:
-        return 0
-
-    # Tangent of src_chain pointing AWAY from the corner
-    if anchor.source_point_index == 0:
-        src_tangent = src_cos[1] - src_cos[0]
-        corner_co = src_cos[0]
-    else:
-        src_tangent = src_cos[-2] - src_cos[-1]
-        corner_co = src_cos[-1]
-
-    chain_cos = chain.vert_cos
-    if not chain_cos or len(chain_cos) < 2:
-        return 0
-
-    # Tangent of the new chain pointing AWAY from the corner
-    if is_start_anchor:
-        chain_tangent = chain_cos[1] - chain_cos[0]
-    else:
-        chain_tangent = chain_cos[-2] - chain_cos[-1]
-
-    local_normal = _cf_compute_local_normal(node, corner_co)
-
-    # Both tangents point AWAY from the junction.
-    # Входящий вектор в junction: -src_tangent. Исходящий: chain_tangent.
-    cross_vec = (-src_tangent).cross(chain_tangent)
-    dot_normal = cross_vec.dot(local_normal)
-
-    if abs(dot_normal) < 1e-8:
-        return 0
-    return 1 if dot_normal > 0 else -1
-
-
-def _perpendicular_direction_for_role(src_uv_delta, target_role, turn_sign):
-    if target_role == FrameRole.H_FRAME:
-        # src_chain — V_FRAME, UV идёт вдоль Y. Perpendicular = вдоль X.
-        src_y_sign = 1.0 if src_uv_delta.y > 0 else -1.0
-        # CCW turn (1) от +Y → -X; CW turn (-1) от +Y → +X
-        x_sign = -src_y_sign * turn_sign
-        return Vector((x_sign, 0.0))
-    if target_role == FrameRole.V_FRAME:
-        # src_chain — H_FRAME, UV идёт вдоль X. Perpendicular = вдоль Y.
-        src_x_sign = 1.0 if src_uv_delta.x > 0 else -1.0
-        # CCW turn (1) от +X → +Y; CW turn (-1) от +X → -Y
-        y_sign = src_x_sign * turn_sign
-        return Vector((0.0, y_sign))
-    return None
-
-
-def _cf_can_inherit_corner_turn_direction(chain, src_chain):
-    """Разрешает turn-sign inheritance для legacy corner-split и новых border chains."""
-    if chain.is_corner_split or src_chain.is_corner_split:
-        return True
-    return chain.neighbor_kind == ChainNeighborKind.MESH_BORDER
-
-
-def _try_inherit_direction(
-    chain, node, start_anchor, end_anchor, graph, point_registry,
-    chain_ref=None,
-):
-    if chain.frame_role not in (FrameRole.H_FRAME, FrameRole.V_FRAME):
-        return None
-
-    own_direction = _cf_determine_direction(chain, node)
-
-    for is_start_anchor, anchor in ((True, start_anchor), (False, end_anchor)):
-        if anchor is None or anchor.source_kind != PlacementSourceKind.SAME_PATCH:
-            continue
-        src_chain = graph.get_chain(*anchor.source_ref)
-        if src_chain is None:
-            continue
-
-        src_ref = anchor.source_ref
-        n_pts = len(src_chain.vert_cos)
-        src_start_uv = point_registry.get(_point_registry_key(src_ref, 0))
-        src_end_uv = point_registry.get(_point_registry_key(src_ref, n_pts - 1))
-        if src_start_uv is None or src_end_uv is None:
-            continue
-
-        # === Существующий путь: same-role inheritance ===
-        if src_chain.frame_role == chain.frame_role:
-            if chain.frame_role == FrameRole.H_FRAME:
-                du = src_end_uv.x - src_start_uv.x
-                if abs(du) > 1e-9:
-                    inherited = Vector((1.0 if du > 0 else -1.0, 0.0))
-                    if inherited.dot(own_direction) > 0.0:
-                        return inherited
-            else:
-                dv = src_end_uv.y - src_start_uv.y
-                if abs(dv) > 1e-9:
-                    inherited = Vector((0.0, 1.0 if dv > 0 else -1.0))
-                    if inherited.dot(own_direction) > 0.0:
-                        return inherited
-            continue
-
-        # === Corner-split: 3D turn-sign inheritance ===
-        if not _is_orthogonal_hv_pair(chain.frame_role, src_chain.frame_role):
-            continue
-        if not _cf_can_inherit_corner_turn_direction(chain, src_chain):
-            continue
-
-        # Вычисляем знак поворота в 3D
-        turn_sign = _compute_corner_turn_sign(
-            chain, src_chain, anchor, is_start_anchor, node,
-        )
-        if turn_sign == 0:
-            continue
-
-        src_uv_delta = src_end_uv - src_start_uv
-        perp = _perpendicular_direction_for_role(
-            src_uv_delta, chain.frame_role, turn_sign,
-        )
-        if perp is not None:
-            return perp
-
-    return None
-
-
-def _cf_place_chain(
-    chain,
-    node,
-    start_anchor: Optional[ChainAnchor],
-    end_anchor: Optional[ChainAnchor],
-    final_scale,
-    direction_override=None,
-):
-    """Размещает один chain в UV, используя проверенные anchors."""
-    source_pts = _cf_chain_source_points(chain)
-    direction = direction_override if direction_override is not None else _cf_determine_direction(chain, node)
-    role = chain.frame_role
-    start_uv = start_anchor.uv.copy() if start_anchor is not None else None
-    end_uv = end_anchor.uv.copy() if end_anchor is not None else None
-
-    if start_uv is not None and end_uv is not None:
-        if role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
-            return _build_frame_chain_between_anchors(source_pts, start_uv, end_uv, final_scale)
-        return _build_guided_free_chain_between_anchors(
-            node, source_pts, start_uv, end_uv, direction, None, final_scale)
-
-    if start_uv is not None:
-        if role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
-            return _build_frame_chain_from_one_end(source_pts, start_uv, direction, role, final_scale)
-        return _build_guided_free_chain_from_one_end(
-            node, source_pts, start_uv, direction, final_scale)
-
-    if end_uv is not None:
-        rev_pts = list(reversed(source_pts))
-        rev_dir = Vector((-direction.x, -direction.y))
-        if role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
-            rev_uvs = _build_frame_chain_from_one_end(rev_pts, end_uv, rev_dir, role, final_scale)
-        else:
-            rev_uvs = _build_guided_free_chain_from_one_end(
-                node, rev_pts, end_uv, rev_dir, final_scale)
-        return list(reversed(rev_uvs))
-
-    return []
-
-
-def _cf_register_points(
-    chain_ref: ChainRef,
-    chain: BoundaryChain,
-    uv_points: list[Vector],
-    point_registry: PointRegistry,
-    vert_to_placements: VertexPlacementMap,
-) -> None:
-    """Регистрирует все точки chain в обоих registry."""
-    for i, uv in enumerate(uv_points):
-        key = _point_registry_key(chain_ref, i)
-        point_registry[key] = uv.copy()
-
-        if i < len(chain.vert_indices):
-            vert_idx = chain.vert_indices[i]
-            vert_to_placements.setdefault(vert_idx, []).append((chain_ref, i))
-
-
-def _compute_patch_chain_gap_reports(
-    patch_placements: list[ScaffoldChainPlacement],
-    total_chains: int,
-) -> PatchChainGapDiagnostics:
-    """Вычисляет gap между соседними placed chains в loop order."""
-    if total_chains < 2 or not patch_placements:
-        return PatchChainGapDiagnostics()
-
-    placements_by_chain_index = {
-        placement.chain_index: placement
-        for placement in patch_placements
-    }
-
-    reports: list[ChainGapReport] = []
-    max_gap = 0.0
-    for chain_index in sorted(placements_by_chain_index):
-        next_chain_index = (chain_index + 1) % total_chains
-        current_placement = placements_by_chain_index[chain_index]
-        next_placement = placements_by_chain_index.get(next_chain_index)
-        if next_placement is None:
-            continue
-        if not current_placement.points or not next_placement.points:
-            continue
-
-        current_end = current_placement.points[-1][1]
-        next_start = next_placement.points[0][1]
-        gap = (current_end - next_start).length
-        reports.append(ChainGapReport(
-            chain_index=chain_index,
-            next_chain_index=next_chain_index,
-            gap=gap,
-        ))
-        if gap > max_gap:
-            max_gap = gap
-
-    return PatchChainGapDiagnostics(
-        gap_reports=tuple(reports),
-        max_chain_gap=max_gap,
-    )
-
-
-def _cf_build_envelopes(
-    solve_view: SolveView,
-    runtime_policy: FrontierRuntimePolicy,
-    build_order=None,
-):
-    """Группирует размещённые chains в ScaffoldPatchPlacement per patch."""
-    graph = runtime_policy.graph
-    quilt_patch_ids = runtime_policy.quilt_patch_ids
-    placed_chains_map = runtime_policy.placed_chains_map
-    placed_chain_refs = runtime_policy.placed_chain_refs
-    chain_dependency_patches = runtime_policy.chain_dependency_patches
-    patches = {}
-
-    for patch_id in quilt_patch_ids:
-        node = graph.nodes.get(patch_id)
-        if node is None:
-            continue
-
-        patch_placements = [
-            placement
-            for ref, placement in placed_chains_map.items()
-            if ref[0] == patch_id
-        ]
-        patch_placements.sort(key=lambda placement: placement.chain_index)
-
-        if not patch_placements:
-            patches[patch_id] = ScaffoldPatchPlacement(
-                patch_id=patch_id,
-                loop_index=-1,
-                root_chain_index=-1,
-                notes=('no_placed_chains',),
-                status=PatchPlacementStatus.EMPTY,
-            )
-            continue
-
-        outer_loop_index = solve_view.primary_loop_index(patch_id)
-
-        if outer_loop_index < 0:
-            patches[patch_id] = ScaffoldPatchPlacement(
-                patch_id=patch_id,
-                loop_index=-1,
-                root_chain_index=-1,
-                notes=('no_outer_loop',),
-                status=PatchPlacementStatus.UNSUPPORTED,
-            )
-            continue
-
-        boundary_loop = node.boundary_loops[outer_loop_index]
-
-        corner_positions = {}
-        for corner_idx, corner in enumerate(boundary_loop.corners):
-            prev_ref = (patch_id, outer_loop_index, corner.prev_chain_index)
-            next_ref = (patch_id, outer_loop_index, corner.next_chain_index)
-            if prev_ref in placed_chains_map:
-                pts = placed_chains_map[prev_ref].points
-                if pts:
-                    corner_positions[corner_idx] = pts[-1][1].copy()
-            elif next_ref in placed_chains_map:
-                pts = placed_chains_map[next_ref].points
-                if pts:
-                    corner_positions[corner_idx] = pts[0][1].copy()
-
-        all_pts = [pt for cp in patch_placements for _, pt in cp.points]
-        if all_pts:
-            bbox_min = Vector((min(p.x for p in all_pts), min(p.y for p in all_pts)))
-            bbox_max = Vector((max(p.x for p in all_pts), max(p.y for p in all_pts)))
-        else:
-            bbox_min = Vector((0.0, 0.0))
-            bbox_max = Vector((0.0, 0.0))
-
-        total_chains = len(boundary_loop.chains)
-        placed_count = sum(
-            1 for ci in range(total_chains)
-            if (patch_id, outer_loop_index, ci) in placed_chain_refs
-        )
-
-        if placed_count >= total_chains:
-            status = PatchPlacementStatus.COMPLETE
-        elif placed_count > 0:
-            status = PatchPlacementStatus.PARTIAL
-        else:
-            status = PatchPlacementStatus.EMPTY
-
-        unplaced = tuple(
-            ci for ci in range(total_chains)
-            if (patch_id, outer_loop_index, ci) not in placed_chain_refs
-        )
-
-        dep_set = set()
-        for cp in patch_placements:
-            cp_ref = (cp.patch_id, cp.loop_index, cp.chain_index)
-            dep_set.update(chain_dependency_patches.get(cp_ref, ()))
-
-        closure_error = 0.0
-        closure_valid = True
-        if status == PatchPlacementStatus.COMPLETE and total_chains >= 2:
-            if patch_placements[-1].points and patch_placements[0].points:
-                last_end = patch_placements[-1].points[-1][1]
-                first_start = patch_placements[0].points[0][1]
-                closure_error = (last_end - first_start).length
-                closure_valid = closure_error < 0.05
-
-        gap_diagnostics = _compute_patch_chain_gap_reports(
-            patch_placements,
-            total_chains,
-        )
-
-        # Scaffold connectivity: найти root chain для этого patch из build_order,
-        # вычислить связные H/V chains. Изолированные H/V за FREE не пинятся.
-        root_ci = -1
-        if build_order:
-            for bo_ref in build_order:
-                if bo_ref[0] == patch_id:
-                    root_ci = bo_ref[2]
-                    break
-        scaffold_connected = _compute_scaffold_connected_chains(
-            patch_placements, total_chains, root_ci,
-        )
-
-        patches[patch_id] = ScaffoldPatchPlacement(
-            patch_id=patch_id,
-            loop_index=outer_loop_index,
-            root_chain_index=root_ci,
-            corner_positions=corner_positions,
-            chain_placements=patch_placements,
-            bbox_min=bbox_min,
-            bbox_max=bbox_max,
-            closure_error=closure_error,
-            max_chain_gap=gap_diagnostics.max_chain_gap,
-            gap_reports=gap_diagnostics.gap_reports,
-            closure_valid=closure_valid,
-            notes=(),
-            status=status,
-            dependency_patches=tuple(sorted(dep_set)),
-            unplaced_chain_indices=unplaced,
-            scaffold_connected_chains=scaffold_connected,
-        )
-
-    return patches
-
-
-def _finalize_quilt_scaffold_frontier(
-    graph: PatchGraph,
-    solve_view: SolveView,
-    quilt_plan: QuiltPlan,
-    quilt_scaffold: ScaffoldQuiltPlacement,
-    runtime_policy: FrontierRuntimePolicy,
-    final_scale: float,
-    allowed_tree_edges: set[PatchEdgeKey],
-    seed_ref: ChainRef,
-    total_available: int,
-) -> FinalizedQuiltScaffold:
-    quilt_scaffold.patches = _cf_build_envelopes(
-        solve_view,
-        runtime_policy,
-        build_order=[seed_ref] + list(runtime_policy.build_order),
-    )
-    untouched_patch_ids = [
-        patch_id
-        for patch_id, patch_placement in quilt_scaffold.patches.items()
-        if patch_placement.status == PatchPlacementStatus.EMPTY and 'no_placed_chains' in patch_placement.notes
-    ]
-
-    quilt_scaffold.build_order = list(runtime_policy.build_order)
-    quilt_scaffold.closure_seam_reports = _collect_quilt_closure_seam_reports(
-        graph,
-        quilt_plan,
-        quilt_scaffold,
-        runtime_policy.placed_chains_map,
-        final_scale,
-        allowed_tree_edges,
-    )
-    quilt_scaffold.frame_alignment_reports = _collect_quilt_frame_alignment_reports(
-        graph,
-        quilt_plan,
-        quilt_scaffold,
-        final_scale,
-        quilt_scaffold.closure_seam_reports,
-    )
-    _print_quilt_closure_seam_reports(quilt_plan.quilt_index, quilt_scaffold.closure_seam_reports)
-    _print_quilt_frame_alignment_reports(quilt_plan.quilt_index, quilt_scaffold.frame_alignment_reports)
-
-    trace_console(
-        f"[CFTUV][Frontier] Quilt {quilt_plan.quilt_index}: "
-        f"placed {runtime_policy.total_placed()}/{total_available} chains"
-    )
-    return FinalizedQuiltScaffold(
-        quilt_scaffold=quilt_scaffold,
-        untouched_patch_ids=untouched_patch_ids,
-    )
-
-
 def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
     """Chain-first strongest-frontier builder.
 
@@ -4102,6 +2507,10 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
                 runtime_policy,
                 all_chain_pool,
                 iteration,
+                evaluate_candidate=_cf_evaluate_candidate_runtime_policy,
+                is_allowed_quilt_edge=_is_allowed_quilt_edge,
+                frame_anchor_pair_is_axis_safe=_cf_frame_anchor_pair_is_axis_safe,
+                apply_anchor_adjustments=_cf_apply_anchor_adjustments,
                 collector=_collector,
             ):
                 _collector.update_last_stall_rescue("tree_ingress", True)
@@ -4111,6 +2520,7 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
                 all_chain_pool,
                 closure_pair_map,
                 iteration,
+                evaluate_candidate=_cf_evaluate_candidate_runtime_policy,
                 collector=_collector,
             ):
                 _collector.update_last_stall_rescue("closure_follow", True)
@@ -4118,7 +2528,7 @@ def build_quilt_scaffold_chain_frontier(graph, quilt_plan, final_scale):
 
             _collector.update_last_stall_rescue("none", False)
             # Диагностика: почему frontier остановился
-            stop_diag = runtime_policy.build_stop_diagnostics(all_chain_pool)
+            stop_diag = _cf_build_stop_diagnostics_runtime_policy(runtime_policy, all_chain_pool)
             trace_console(
                 f"[CFTUV][Frontier] STOP: remaining={stop_diag.remaining_count} "
                 f"no_anchor={stop_diag.no_anchor_count} low_score={stop_diag.low_score_count} "
