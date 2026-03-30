@@ -173,31 +173,39 @@ geometry and must remain isolated.
 3. Anchor provenance: `same_patch` (via corner) or `cross_patch` (via shared
    seam vertex on tree edge).
 4. Dual-anchor closure via two cross_patch anchors forbidden (prevents patch wrap).
-5. Non-tree seams are intentional UV cuts, not re-sewn.
-6. When frontier stalls, only narrow recovery in this order:
+5. Same-patch H/V dual-anchor closure may override pair-safety rejection for
+   both `span_mismatch` and `axis_mismatch`; this is a closure-only fallback and
+   does not relax the cross-patch wrap guard above.
+6. Orthogonal corner turn-sign inheritance may drive any target `MESH_BORDER`
+   H/V chain from an already placed same-patch neighbor, regardless of whether
+   the source chain is `PATCH`, `SEAM_SELF`, or `MESH_BORDER`.
+   This prevents wrapped wall-border chains from falling back to misleading
+   chord-based direction and mirroring a notch/arm across the patch.
+7. Non-tree seams are intentional UV cuts, not re-sewn.
+8. When frontier stalls, only narrow recovery in this order:
    - `tree_ingress`: one ingress chain into untouched tree-child patch
    - `closure_follow`: same-role non-tree closure partner if its pair already placed
-7. Main frontier comparison is lexicographic structured rank:
+9. Main frontier comparison is lexicographic structured rank:
    `viable > role > ingress > patch_fit > anchor > closure_risk > local_score > tie_length`.
    The old scalar score remains threshold gate and subordinate refinement.
-8. Main frontier scoring derives explicit `PatchScoringContext` first
+10. Main frontier scoring derives explicit `PatchScoringContext` first
    (`placed_ratio`, `hv_coverage_ratio`, backbone/closure pressure, same-patch seam state,
    `PatchShapeProfile` snapshot),
    then feeds that context into rank + scalar refinement. Rescue flow is intentionally unchanged.
-9. Corner-derived facts are collected as `CornerScoringHints` and affect only local
+11. Corner-derived facts are collected as `CornerScoringHints` and affect only local
    refinement / telemetry. Corner does not become a frontier candidate type or solve step unit.
-10. Patch shape acts only as a weak prior for ingress/backbone/closure sensitivity inside
+12. Patch shape acts only as a weak prior for ingress/backbone/closure sensitivity inside
     patch context + subordinate local refinement. It does not add a new solve mode or override
     the structured-rank ordering.
-11. Planning now preserves explicit `SeamRelationProfile` per patch edge
+13. Planning now preserves explicit `SeamRelationProfile` per patch edge
     (primary pair, secondary seam pairs, closure-likeness, asymmetry, ingress preference).
     Frontier consumes this as weak seam context instead of reconstructing all seam semantics
     ad hoc from scalar attachment fields.
-12. Frontier scalar scoring is now layered:
+14. Frontier scalar scoring is now layered:
     raw topology facts → patch/anchor context → closure guard → local seam/shape/corner hints
     → structured rank/debug explanation. `_cf_score_candidate()` is a thin orchestrator over
     these helper layers, not a monolithic policy blob.
-13. Rescue flow remains separate, but successful rescue placements now carry
+15. Rescue flow remains separate, but successful rescue placements now carry
     counterfactual main-frontier telemetry (`FrontierRescueGap`):
     main-known count, main score vs threshold gap, candidate class, and aggregated
     undervalued rescue classes in quilt summary/detail.
@@ -219,6 +227,9 @@ Reporting is now policy-driven and must not be treated as raw runtime trace dump
 - `summary` / `diagnostic` / `forensic` are presentation modes only, never solve modes
 - Live telemetry trace is separate from post-hoc report detail
 - Suspicious H/V chains must retain directional diagnostics: role, start/end UV, delta, axis error, inherited flag, anchor kinds, status code
+- Large cross-axis delta on an H/V closure chain is usually an upstream anchor-lineage problem
+  (often missing border turn-sign inheritance on a wrapped contour), not necessarily a bad
+  closing-chain interpolation
 - Stall lifecycle is explicit: `open` / `close`; terminal exhausted stop is not the same as actionable unresolved stall
 - Successful rescue placements must preserve rescue-gap telemetry so we can see whether the missing piece was
   `no_anchor`, `below_threshold`, or already `main_viable` but blocked by control flow

@@ -2599,7 +2599,7 @@ def _cf_can_use_dual_anchor_closure(
     axis_safety = _cf_frame_anchor_pair_is_axis_safe(chain, start_anchor, end_anchor, final_scale)
     if not axis_safety.is_safe:
         if (
-            axis_safety.reason == 'span_mismatch'
+            axis_safety.reason in ('span_mismatch', 'axis_mismatch')
             and chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
             and start_anchor.source_kind == PlacementSourceKind.SAME_PATCH
             and end_anchor.source_kind == PlacementSourceKind.SAME_PATCH
@@ -3997,14 +3997,9 @@ def _perpendicular_direction_for_role(src_uv_delta, target_role, turn_sign):
 
 def _cf_can_inherit_corner_turn_direction(chain, src_chain):
     """Разрешает turn-sign inheritance для legacy corner-split и новых border chains."""
-
     if chain.is_corner_split or src_chain.is_corner_split:
         return True
-
-    return (
-        chain.neighbor_kind == ChainNeighborKind.MESH_BORDER
-        and src_chain.neighbor_kind == ChainNeighborKind.MESH_BORDER
-    )
+    return chain.neighbor_kind == ChainNeighborKind.MESH_BORDER
 
 
 def _try_inherit_direction(

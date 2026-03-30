@@ -234,7 +234,25 @@ This is reachability rescue, NOT a new solve mode.
 
 - Closure-aware tree-edge swap has safe fallback to original quilt plan
 - Closure pre-constraint only for closure-sensitive one-anchor H/V placement
+- Same-patch H/V dual-anchor closure may override pair-safety rejection for both
+  `span_mismatch` and `axis_mismatch`; this is a closure-only fallback for
+  interpolation inside one already-placed patch, not permission for patch wrap
+- `cross_patch + cross_patch` dual-anchor closure remains forbidden for H/V chains
+  (except the existing short FREE bridge carve-out)
 - Runtime must not reclassify chain roles on the fly
+
+### Direction Inheritance Rules
+
+- Same-role inheritance remains the first direction override path
+- Orthogonal corner turn-sign inheritance is allowed for any target
+  `MESH_BORDER` H/V chain and for legacy `corner_split` chains
+- The source chain may be `PATCH`, `SEAM_SELF`, or `MESH_BORDER`; turn geometry
+  comes from 3D tangent + normal and does not depend on source `neighbor_kind`
+- This rule exists because wrapped border chains can have a misleading endpoint
+  chord, causing `_cf_determine_direction()` to mirror a wall arm or notch leg
+- If a closing H/V chain shows a large cross-axis delta, inspect upstream
+  border-direction inheritance first; the closure chain itself may be correct and
+  only interpolating divergent anchors
 
 ### Scoring Weights (constants.py)
 
@@ -321,6 +339,10 @@ For each mesh, use `Save Regression Snapshot` and check:
 - [ ] Terminal-only stall does not appear in `Anomalies:`
 - [ ] Terminal-only telemetry summary uses `stalls: terminal:N`
 - [ ] Closure seam residuals not degraded
+- [ ] Wrapped border arms / P-notch contours do not mirror because of missing
+  border turn-sign inheritance
+- [ ] Dual-anchor H/V closure does not end with large cross-axis delta from
+  divergent same-patch anchor paths
 - [ ] Row / column scatter not degraded
 - [ ] Conformal fallback patch count expected
 - [ ] H_FRAME / V_FRAME / FREE distribution looks expected
