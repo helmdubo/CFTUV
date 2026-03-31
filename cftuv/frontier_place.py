@@ -559,25 +559,108 @@ def _is_orthogonal_hv_pair(role_a, role_b):
     return {role_a, role_b} == {FrameRole.H_FRAME, FrameRole.V_FRAME}
 
 
+def _cf_corner_co_from_anchor(src_chain: BoundaryChain, anchor: ChainAnchor) -> Optional[Vector]:
+    src_cos = src_chain.vert_cos
+    if not src_cos:
+        return None
+    if anchor.source_point_index == 0:
+        return src_cos[0].copy()
+    return src_cos[-1].copy()
+
+
+def _cf_compute_local_normal(node: PatchNode, corner_co: Vector) -> Vector:
+    """Approximate a corner-local normal from real patch triangles touching the corner.
+
+    Primary intent:
+    - keep flat/concave patches on the 2D basis path;
+    - use a local 3D fallback only when basis projection becomes unreliable
+      on strongly wrapped patches.
+
+    This is still a transitional fallback because PatchNode currently stores
+    serialized triangles, not explicit wedge-local face normals. Once the
+    topology layer exposes per-corner wedge faces/normals, this helper should
+    be replaced with that stronger source of truth.
+    """
+    if corner_co is None:
+        return node.normal.normalized() if node.normal.length > 1e-8 else Vector((0.0, 0.0, 1.0))
+
+    mesh_verts = getattr(node, 'mesh_verts', None) or []
+    mesh_tris = getattr(node, 'mesh_tris', None) or []
+    if not mesh_verts or not mesh_tris:
+        return node.normal.normalized() if node.normal.length > 1e-8 else Vector((0.0, 0.0, 1.0))
+
+    eps_corner_sq = 1e-10
+    acc_touch = Vector((0.0, 0.0, 0.0))
+    acc_near = Vector((0.0, 0.0, 0.0))
+    touch_weight = 0.0
+    near_weight = 0.0
+
+    for tri in mesh_tris:
+        if len(tri) != 3:
+            continue
+        try:
+            a = mesh_verts[tri[0]]
+            b = mesh_verts[tri[1]]
+            c = mesh_verts[tri[2]]
+        except (IndexError, TypeError):
+            continue
+
+        tri_cross = (b - a).cross(c - a)
+        tri_area2 = tri_cross.length
+        if tri_area2 <= 1e-12:
+            continue
+        tri_normal = tri_cross / tri_area2
+
+        tri_verts = (a, b, c)
+        touches_corner = any((vert - corner_co).length_squared <= eps_corner_sq for vert in tri_verts)
+
+        if touches_corner:
+            weight = tri_area2
+            acc_touch += tri_normal * weight
+            touch_weight += weight
+            continue
+
+        centroid = (a + b + c) / 3.0
+        dist_sq = (centroid - corner_co).length_squared
+        if dist_sq > 1e-4:
+            continue
+
+        weight = tri_area2 / max(dist_sq, 1e-12)
+        acc_near += tri_normal * weight
+        near_weight += weight
+
+    local_normal = Vector((0.0, 0.0, 0.0))
+    if touch_weight > 1e-12 and acc_touch.length > 1e-8:
+        local_normal = acc_touch.normalized()
+    elif near_weight > 1e-12 and acc_near.length > 1e-8:
+        local_normal = acc_near.normalized()
+    elif node.normal.length > 1e-8:
+        local_normal = node.normal.normalized()
+    else:
+        local_normal = Vector((0.0, 0.0, 1.0))
+
+    return local_normal
+
+
 def _compute_corner_turn_sign(chain, src_chain, anchor, is_start_anchor, node):
-    """Определяет знак поворота на corner через 2D cross в базисе patch.
+    """Determine turn sign at a corner with a hybrid local solver.
 
-    Проецирует tangent'ы в (basis_u, basis_v) пространство patch и вычисляет
-    2D pseudo cross product. Не зависит от mesh_tris fan-triangulation
-    и от нормалей отдельных граней — работает одинаково для flat concave
-    и wrapped (U-shaped) patches.
+    Primary path:
+    - project incoming/outgoing tangents into the patch basis and use a 2D
+      oriented cross when projection retains enough information.
 
-    Контракт: node.basis_u/basis_v должны быть ортонормальны и orientation-
-    consistent (правая тройка). Эти инварианты — ответственность basis layer
-    (_build_patch_basis), не этой функции.
+    Fallback path:
+    - if one tangent becomes nearly orthogonal to the basis plane (typical on
+      >180° wrapped WALL patches), evaluate the 3D turn against a corner-local
+      normal reconstructed from triangles touching that corner.
 
-    Возвращает +1 (CCW), -1 (CW), или 0 (неопределённо).
+    This keeps flat/concave patches on the stable chart-space path while
+    restoring local orientation on heavily wrapped patches.
     """
     src_cos = src_chain.vert_cos
     if not src_cos or len(src_cos) < 2:
         return 0
 
-    # Tangent of src_chain pointing AWAY from the corner
     if anchor.source_point_index == 0:
         src_tangent = src_cos[1] - src_cos[0]
     else:
@@ -587,36 +670,55 @@ def _compute_corner_turn_sign(chain, src_chain, anchor, is_start_anchor, node):
     if not chain_cos or len(chain_cos) < 2:
         return 0
 
-    # Tangent of the new chain pointing AWAY from the corner
     if is_start_anchor:
         chain_tangent = chain_cos[1] - chain_cos[0]
     else:
         chain_tangent = chain_cos[-2] - chain_cos[-1]
 
-    # Incoming = into corner, outgoing = out of corner
+    if src_tangent.length_squared <= 1e-12 or chain_tangent.length_squared <= 1e-12:
+        return 0
+
     incoming = -src_tangent
     outgoing = chain_tangent
 
-    # Project into patch 2D basis
     in_u = incoming.dot(node.basis_u)
     in_v = incoming.dot(node.basis_v)
     out_u = outgoing.dot(node.basis_u)
     out_v = outgoing.dot(node.basis_v)
 
-    # Guard degenerate projections (tangent nearly orthogonal to basis plane)
     len_in_sq = in_u * in_u + in_v * in_v
     len_out_sq = out_u * out_u + out_v * out_v
-    if len_in_sq < 1e-12 or len_out_sq < 1e-12:
+    src_len_sq = incoming.length_squared
+    out_len_sq_3d = outgoing.length_squared
+
+    proj_ok = (
+        src_len_sq > 1e-12
+        and out_len_sq_3d > 1e-12
+        and len_in_sq > 0.01 * src_len_sq
+        and len_out_sq > 0.01 * out_len_sq_3d
+    )
+
+    if proj_ok:
+        cross_2d = in_u * out_v - in_v * out_u
+        denom = math.sqrt(len_in_sq * len_out_sq)
+        if denom > 1e-12:
+            signed_sin = cross_2d / denom
+            if abs(signed_sin) > 1e-4:
+                return 1 if signed_sin > 0 else -1
+
+    corner_co = _cf_corner_co_from_anchor(src_chain, anchor)
+    if corner_co is None:
         return 0
 
-    # 2D pseudo cross product, normalized to signed sin of angle
-    cross_2d = in_u * out_v - in_v * out_u
-    denom = math.sqrt(len_in_sq * len_out_sq)
-    signed_sin = cross_2d / denom
-
-    if abs(signed_sin) < 1e-4:
+    local_normal = _cf_compute_local_normal(node, corner_co)
+    cross_vec = incoming.cross(outgoing)
+    if cross_vec.length_squared <= 1e-12 or local_normal.length_squared <= 1e-12:
         return 0
-    return 1 if signed_sin > 0 else -1
+
+    dot_normal = cross_vec.dot(local_normal)
+    if abs(dot_normal) < 1e-8:
+        return 0
+    return 1 if dot_normal > 0 else -1
 
 
 def _perpendicular_direction_for_role(src_uv_delta, target_role, turn_sign):
