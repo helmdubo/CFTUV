@@ -148,23 +148,24 @@ class BoundaryChain:
 @dataclass
 class BoundaryCorner:
     """Junction corner between two neighboring chains inside one loop.
-    Corner не имеет собственных координат — его позиция возникает
-    как результат размещения chains."""
+    Угол не имеет своей геометрии, он только соединяет две chain."""
 
-    # Composite loop identity
-    loop_vert_index: int = 0
+    loop_vert_index: int = -1
     vert_index: int = -1
     vert_co: Vector = field(default_factory=lambda: Vector((0.0, 0.0, 0.0)))
 
-    # Contextual chain links
-    prev_chain_index: int = 0
-    next_chain_index: int = 0
+    prev_chain_index: int = -1
+    next_chain_index: int = -1
 
-    # Derived junction semantics
     corner_kind: CornerKind = CornerKind.JUNCTION
     turn_angle_deg: float = 0.0
+
     prev_role: FrameRole = FrameRole.FREE
     next_role: FrameRole = FrameRole.FREE
+
+    wedge_face_indices: tuple[int, ...] = field(default_factory=tuple)
+    wedge_normal: Vector = field(default_factory=lambda: Vector((0.0, 0.0, 0.0)))
+    wedge_normal_valid: bool = False
 
     @property
     def corner_type(self) -> str:

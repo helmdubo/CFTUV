@@ -696,6 +696,21 @@ def _validate_boundary_loop_topology(boundary_loop, patch_id, loop_index):
                     f"corner={corner_index} vert={corner.vert_index} next_start={next_chain.start_vert_index}",
                 )
 
+            if not corner.wedge_normal_valid:
+                _report_boundary_loop_invariant_violation(
+                    patch_id,
+                    loop_index,
+                    "R8",
+                    f"corner={corner_index} invalid wedge normal",
+                )
+            elif corner.wedge_normal.length_squared < 1e-12:
+                _report_boundary_loop_invariant_violation(
+                    patch_id,
+                    loop_index,
+                    "R8",
+                    f"corner={corner_index} zero length wedge normal",
+                )
+
         for chain_index, chain in enumerate(boundary_loop.chains):
             expected_start_corner = chain_index
             expected_end_corner = (chain_index + 1) % chain_count
@@ -784,12 +799,65 @@ def _derive_boundary_loop_topology(state, basis_u, basis_v, patch_id, loop_index
     )
 
 
-def _finalize_boundary_loop_build(state, basis_u, basis_v, patch_id, loop_index):
+def _chain_endpoint_side_face_index(chain: BoundaryChain, at_start: bool) -> int:
+    if not chain.side_face_indices:
+        return -1
+    return int(chain.side_face_indices[0] if at_start else chain.side_face_indices[-1])
+
+
+def _compute_corner_wedge_data(boundary_loop, corner, patch_face_index_set, bm):
+    prev_chain = boundary_loop.chains[corner.prev_chain_index]
+    next_chain = boundary_loop.chains[corner.next_chain_index]
+
+    prev_face = _chain_endpoint_side_face_index(prev_chain, at_start=False)
+    next_face = _chain_endpoint_side_face_index(next_chain, at_start=True)
+
+    face_ids = []
+    if prev_face >= 0:
+        face_ids.append(prev_face)
+    if next_face >= 0 and next_face != prev_face:
+        face_ids.append(next_face)
+
+    eps = 1e-12
+    n = Vector((0.0, 0.0, 0.0))
+    for fid in face_ids:
+        n += bm.faces[fid].normal
+
+    if n.length_squared > eps:
+        return tuple(face_ids), n.normalized(), True
+
+    owner_faces = [
+        f for f in bm.verts[corner.vert_index].link_faces
+        if f.index in patch_face_index_set
+    ]
+    n = Vector((0.0, 0.0, 0.0))
+    for f in owner_faces:
+        n += f.normal
+
+    if n.length_squared > eps:
+        return tuple(f.index for f in owner_faces), n.normalized(), True
+
+    return tuple(f.index for f in owner_faces), Vector((0.0, 0.0, 1.0)), False
+
+
+def _annotate_boundary_loop_corner_wedges(boundary_loop, patch_face_indices, bm):
+    patch_face_index_set = set(patch_face_indices)
+    for corner in boundary_loop.corners:
+        if corner.corner_kind != CornerKind.JUNCTION:
+            continue
+        face_ids, normal, valid = _compute_corner_wedge_data(boundary_loop, corner, patch_face_index_set, bm)
+        corner.wedge_face_indices = face_ids
+        corner.wedge_normal = normal
+        corner.wedge_normal_valid = valid
+
+
+def _finalize_boundary_loop_build(state, basis_u, basis_v, patch_id, loop_index, patch_face_indices, bm):
     boundary_loop = state.boundary_loop
     derived_topology = _derive_boundary_loop_topology(state, basis_u, basis_v, patch_id, loop_index)
     boundary_loop.chains = derived_topology.chains
     boundary_loop.corners = derived_topology.corners
     _assign_loop_chain_endpoint_topology(boundary_loop)
+    _annotate_boundary_loop_corner_wedges(boundary_loop, patch_face_indices, bm)
     _validate_boundary_loop_topology(boundary_loop, patch_id, loop_index)
     return boundary_loop
 
@@ -808,7 +876,7 @@ def _build_boundary_loops(raw_loops, patch_face_indices, face_to_patch, patch_id
         )
         _refine_boundary_loop_raw_chains(state, basis_u, basis_v, bm)
         boundary_loops.append(
-            _finalize_boundary_loop_build(state, basis_u, basis_v, patch_id, loop_index)
+            _finalize_boundary_loop_build(state, basis_u, basis_v, patch_id, loop_index, patch_face_indices, bm)
         )
 
     return boundary_loops
