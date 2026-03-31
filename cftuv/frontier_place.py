@@ -560,6 +560,7 @@ def _is_orthogonal_hv_pair(role_a, role_b):
 
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 def _cf_resolve_anchor_corner(src_chain, anchor, node):
     if anchor.source_point_index == 0:
         corner_index = src_chain.start_corner_index
@@ -599,6 +600,29 @@ def _cf_compute_local_normal(node, corner_co_3d):
 
 
 def _compute_corner_turn_sign(chain, src_chain, anchor, is_start_anchor, node):
+=======
+def _cf_compute_local_normal(node, corner_co_3d):
+    """Находит локальную нормаль грани(треугольника), прилегающей к углу."""
+    if not node.mesh_verts or not node.mesh_tris:
+        return node.normal
+
+    for i, v in enumerate(node.mesh_verts):
+        if (v - corner_co_3d).length_squared < 1e-7:
+            for tri in node.mesh_tris:
+                if i in tri:
+                    v0 = node.mesh_verts[tri[0]]
+                    v1 = node.mesh_verts[tri[1]]
+                    v2 = node.mesh_verts[tri[2]]
+                    n = (v1 - v0).cross(v2 - v0)
+                    if n.length_squared > 1e-8:
+                        return n.normalized()
+            break
+
+    return node.normal
+
+
+def _compute_corner_turn_sign(chain, src_chain, anchor, is_start_anchor, node):
+>>>>>>> parent of e14e67b (feat: implement frontier placement logic and documentation for corner turn sign agent)
     """Определяет знак поворота на corner из 3D tangent'ов.
 
     Возвращает +1 (CCW), -1 (CW), или 0 (неопределённо).
@@ -625,6 +649,7 @@ def _compute_corner_turn_sign(chain, src_chain, anchor, is_start_anchor, node):
         chain_tangent = chain_cos[-2] - chain_cos[-1]
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     if src_tangent.length_squared <= 1e-12 or chain_tangent.length_squared <= 1e-12:
         return 0
 
@@ -643,6 +668,18 @@ def _compute_corner_turn_sign(chain, src_chain, anchor, is_start_anchor, node):
     if abs(dot_val) < 1e-8:
         return 0
     return 1 if dot_val > 0 else -1
+=======
+    local_normal = _cf_compute_local_normal(node, corner_co)
+
+    # Both tangents point AWAY from the junction.
+    # Входящий вектор в junction: -src_tangent. Исходящий: chain_tangent.
+    cross_vec = (-src_tangent).cross(chain_tangent)
+    dot_normal = cross_vec.dot(local_normal)
+
+    if abs(dot_normal) < 1e-8:
+        return 0
+    return 1 if dot_normal > 0 else -1
+>>>>>>> parent of e14e67b (feat: implement frontier placement logic and documentation for corner turn sign agent)
 =======
     local_normal = _cf_compute_local_normal(node, corner_co)
 
