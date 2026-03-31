@@ -321,6 +321,51 @@ def _repair_disconnected_uv_loop_classification(raw_loops, polys_2d, patch_id):
     )
 
 
+def _repair_missing_outer_uv_loop_classification(raw_loops, basis_u, basis_v, patch_id):
+    """Fallback: UV pass produced zero OUTER loops, promote the longest loop to OUTER."""
+
+    _ = basis_u, basis_v
+
+    outer_loop_count = sum(1 for raw_loop in raw_loops if raw_loop.kind == LoopKind.OUTER)
+    if outer_loop_count > 0:
+        return
+
+    def raw_loop_perimeter(raw_loop):
+        if len(raw_loop.vert_cos) < 2:
+            return 0.0
+        perimeter = 0.0
+        for index, point in enumerate(raw_loop.vert_cos):
+            next_point = raw_loop.vert_cos[(index + 1) % len(raw_loop.vert_cos)]
+            perimeter += (next_point - point).length
+        return perimeter
+
+    dominant_loop_index = max(
+        range(len(raw_loops)),
+        key=lambda loop_index: (
+            raw_loop_perimeter(raw_loops[loop_index]),
+            len(raw_loops[loop_index].vert_cos),
+            -loop_index,
+        ),
+    )
+
+    for loop_index, raw_loop in enumerate(raw_loops):
+        if loop_index == dominant_loop_index:
+            raw_loop.depth = 0
+            raw_loop.kind = LoopKind.OUTER
+            continue
+        if raw_loop.depth <= 0:
+            raw_loop.depth = 1
+        elif raw_loop.depth % 2 == 0:
+            raw_loop.depth += 1
+        raw_loop.kind = LoopKind.HOLE
+
+    print(
+        f"[CFTUV][LoopClassDiag] Patch {patch_id} "
+        f"uv_zero_outer_repair dominant_loop={dominant_loop_index} "
+        f"length={raw_loop_perimeter(raw_loops[dominant_loop_index]):.4f}"
+    )
+
+
 def _classify_raw_loops_via_uv(raw_loops, bm, patch_face_indices, uv_layer, patch_id):
     """Classify raw loops as OUTER or HOLE using temporary UV data."""
 
@@ -497,6 +542,12 @@ def _classify_multi_loop_patches_via_uv(bm, classification_inputs, obj):
                 bm,
                 patch_data.face_indices,
                 uv_layer,
+                patch_id,
+            )
+            _repair_missing_outer_uv_loop_classification(
+                patch_data.raw_loops,
+                patch_data.basis_u,
+                patch_data.basis_v,
                 patch_id,
             )
     finally:
