@@ -559,28 +559,17 @@ def _is_orthogonal_hv_pair(role_a, role_b):
     return {role_a, role_b} == {FrameRole.H_FRAME, FrameRole.V_FRAME}
 
 
-def _cf_compute_local_normal(node, corner_co_3d):
-    """Находит локальную нормаль грани(треугольника), прилегающей к углу."""
-    if not node.mesh_verts or not node.mesh_tris:
-        return node.normal
-
-    for i, v in enumerate(node.mesh_verts):
-        if (v - corner_co_3d).length_squared < 1e-7:
-            for tri in node.mesh_tris:
-                if i in tri:
-                    v0 = node.mesh_verts[tri[0]]
-                    v1 = node.mesh_verts[tri[1]]
-                    v2 = node.mesh_verts[tri[2]]
-                    n = (v1 - v0).cross(v2 - v0)
-                    if n.length_squared > 1e-8:
-                        return n.normalized()
-            break
-
-    return node.normal
-
-
 def _compute_corner_turn_sign(chain, src_chain, anchor, is_start_anchor, node):
-    """Определяет знак поворота на corner из 3D tangent'ов.
+    """Определяет знак поворота на corner через 2D cross в базисе patch.
+
+    Проецирует tangent'ы в (basis_u, basis_v) пространство patch и вычисляет
+    2D pseudo cross product. Не зависит от mesh_tris fan-triangulation
+    и от нормалей отдельных граней — работает одинаково для flat concave
+    и wrapped (U-shaped) patches.
+
+    Контракт: node.basis_u/basis_v должны быть ортонормальны и orientation-
+    consistent (правая тройка). Эти инварианты — ответственность basis layer
+    (_build_patch_basis), не этой функции.
 
     Возвращает +1 (CCW), -1 (CW), или 0 (неопределённо).
     """
@@ -591,10 +580,8 @@ def _compute_corner_turn_sign(chain, src_chain, anchor, is_start_anchor, node):
     # Tangent of src_chain pointing AWAY from the corner
     if anchor.source_point_index == 0:
         src_tangent = src_cos[1] - src_cos[0]
-        corner_co = src_cos[0]
     else:
         src_tangent = src_cos[-2] - src_cos[-1]
-        corner_co = src_cos[-1]
 
     chain_cos = chain.vert_cos
     if not chain_cos or len(chain_cos) < 2:
@@ -606,16 +593,30 @@ def _compute_corner_turn_sign(chain, src_chain, anchor, is_start_anchor, node):
     else:
         chain_tangent = chain_cos[-2] - chain_cos[-1]
 
-    local_normal = _cf_compute_local_normal(node, corner_co)
+    # Incoming = into corner, outgoing = out of corner
+    incoming = -src_tangent
+    outgoing = chain_tangent
 
-    # Both tangents point AWAY from the junction.
-    # Входящий вектор в junction: -src_tangent. Исходящий: chain_tangent.
-    cross_vec = (-src_tangent).cross(chain_tangent)
-    dot_normal = cross_vec.dot(local_normal)
+    # Project into patch 2D basis
+    in_u = incoming.dot(node.basis_u)
+    in_v = incoming.dot(node.basis_v)
+    out_u = outgoing.dot(node.basis_u)
+    out_v = outgoing.dot(node.basis_v)
 
-    if abs(dot_normal) < 1e-8:
+    # Guard degenerate projections (tangent nearly orthogonal to basis plane)
+    len_in_sq = in_u * in_u + in_v * in_v
+    len_out_sq = out_u * out_u + out_v * out_v
+    if len_in_sq < 1e-12 or len_out_sq < 1e-12:
         return 0
-    return 1 if dot_normal > 0 else -1
+
+    # 2D pseudo cross product, normalized to signed sin of angle
+    cross_2d = in_u * out_v - in_v * out_u
+    denom = math.sqrt(len_in_sq * len_out_sq)
+    signed_sin = cross_2d / denom
+
+    if abs(signed_sin) < 1e-4:
+        return 0
+    return 1 if signed_sin > 0 else -1
 
 
 def _perpendicular_direction_for_role(src_uv_delta, target_role, turn_sign):
