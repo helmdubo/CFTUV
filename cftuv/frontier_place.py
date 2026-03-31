@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import math
 from typing import Optional
 
@@ -7,10 +8,12 @@ from mathutils import Vector
 
 try:
     from .model import (
+        AnchorAdjustment,
         BoundaryChain,
         ChainNeighborKind,
         ChainRef,
         FrameRole,
+        PatchGraph,
         PatchNode,
         PlacementSourceKind,
         ScaffoldChainPlacement,
@@ -19,15 +22,18 @@ try:
     )
     from .solve_records import (
         ChainAnchor,
+        PointRegistry,
         SeedPlacementResult,
         _point_registry_key,
     )
 except ImportError:
     from model import (
+        AnchorAdjustment,
         BoundaryChain,
         ChainNeighborKind,
         ChainRef,
         FrameRole,
+        PatchGraph,
         PatchNode,
         PlacementSourceKind,
         ScaffoldChainPlacement,
@@ -36,6 +42,7 @@ except ImportError:
     )
     from solve_records import (
         ChainAnchor,
+        PointRegistry,
         SeedPlacementResult,
         _point_registry_key,
     )
@@ -461,6 +468,59 @@ def _cf_rebuild_chain_points_for_endpoints(
         return [start_uv.copy(), end_uv.copy()]
 
     return None
+
+
+def _cf_apply_anchor_adjustments(
+    adjustments: tuple[AnchorAdjustment, ...],
+    graph: PatchGraph,
+    placed_chains_map: dict[ChainRef, ScaffoldChainPlacement],
+    point_registry: PointRegistry,
+    final_scale: float,
+) -> bool:
+    if not adjustments:
+        return True
+
+    grouped_targets: dict[ChainRef, dict[int, Vector]] = {}
+    for chain_ref, source_point_index, target_uv in adjustments:
+        grouped_targets.setdefault(chain_ref, {})[source_point_index] = target_uv.copy()
+
+    staged_updates: dict[ChainRef, ScaffoldChainPlacement] = {}
+    staged_registry: PointRegistry = {}
+
+    for chain_ref, point_updates in grouped_targets.items():
+        existing = placed_chains_map.get(chain_ref)
+        if existing is None or not existing.points:
+            return False
+        chain = graph.get_chain(chain_ref[0], chain_ref[1], chain_ref[2])
+        if chain is None:
+            return False
+
+        point_count = len(existing.points)
+        start_uv = existing.points[0][1].copy()
+        end_uv = existing.points[-1][1].copy()
+        for source_point_index, target_uv in point_updates.items():
+            if source_point_index == 0:
+                start_uv = target_uv.copy()
+            elif source_point_index == point_count - 1:
+                end_uv = target_uv.copy()
+            else:
+                return False
+
+        rebuilt_uvs = _cf_rebuild_chain_points_for_endpoints(chain, start_uv, end_uv, final_scale)
+        if rebuilt_uvs is None or len(rebuilt_uvs) != point_count:
+            return False
+
+        new_points = tuple(
+            (point_key, rebuilt_uvs[index].copy())
+            for index, (point_key, _) in enumerate(existing.points)
+        )
+        staged_updates[chain_ref] = replace(existing, points=new_points)
+        for index, (_, uv) in enumerate(new_points):
+            staged_registry[_point_registry_key(chain_ref, index)] = uv.copy()
+
+    placed_chains_map.update(staged_updates)
+    point_registry.update(staged_registry)
+    return True
 
 
 def _cf_determine_direction(chain, node):

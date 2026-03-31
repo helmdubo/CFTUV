@@ -171,10 +171,10 @@ Also include a short handoff paragraph in the PR body or summary.
 - [x] P3 — Extract finalize subsystem
 - [x] P4 — Extract rescue subsystem
 - [x] P5 — Extract runtime state / cache substrate
-- [ ] P6 — Extract evaluation / anchors subsystem
-- [ ] P7 — Extract scoring subsystem
-- [ ] P8 — Compress `solve_frontier.py` into orchestration shell
-- [ ] P9 — Post-refactor perf research plan (design only, no behavior change in mainline)
+- [x] P6 — Extract evaluation / anchors subsystem
+- [x] P7 — Extract scoring subsystem
+- [x] P8 — Compress `solve_frontier.py` into orchestration shell
+- [x] P9 — Post-refactor perf research plan (design only, no behavior change in mainline)
 
 ---
 
@@ -461,7 +461,14 @@ This phase extracts the state substrate only.
 
 # P6 — Extract evaluation / anchors subsystem
 
-Status: not started
+Status: completed
+
+P6 result:
+
+- created `cftuv/frontier_eval.py` and moved closure-preconstraint helpers, seed choice, anchor discovery/resolution, candidate evaluation, selector, stop-diagnostics, and main-path frontier placement into it
+- kept score-building ownership in `solve_frontier.py` by wiring `frontier_eval.py` through explicit score callback entrypoints instead of importing upward into the orchestrator
+- left `FrontierRuntimePolicy` as a state container without adding an upward edge; `solve_frontier.py` now keeps only thin delegators/wrappers for eval-owned logic
+- runtime cache contract, rescue order, threshold gate, anchor provenance semantics, and public frontier API were intentionally left unchanged
 
 ## Goal
 
@@ -499,7 +506,14 @@ Move anchor finding/resolution and candidate evaluation into `cftuv/frontier_eva
 
 # P7 — Extract scoring subsystem
 
-Status: not started
+Status: completed
+
+P7 result:
+
+- created `cftuv/frontier_score.py` and moved score-cache bootstrap, topology/patch/seam/corner helpers, structured-rank construction, layered score helpers, and the active score entrypoint alias into it
+- kept `frontier_eval.py` wiring stable by preserving callback-based score entrypoints; `solve_frontier.py` now rebinds score-owned compatibility symbols to `frontier_score.py`
+- left formulas, threshold gating, rank ordering, rescue boundary, and public frontier API unchanged
+- intentionally deferred dead local score helper removal in `solve_frontier.py` to P8 shell compression, so this phase stays structural
 
 ## Goal
 
@@ -540,7 +554,14 @@ Move scoring / rank construction into `cftuv/frontier_score.py`.
 
 # P8 — Compress `solve_frontier.py` into orchestration shell
 
-Status: not started
+Status: completed
+
+P8 result:
+
+- created `cftuv/frontier_closure.py` and moved closure-pair matching / closure bootstrap helpers out of `solve_frontier.py`
+- moved the remaining anchor-adjustment body into `cftuv/frontier_place.py`, so the shell no longer owns placement-side endpoint rebuild mutation
+- rewrote `solve_frontier.py` as a top-level coordinator with only bootstrap, pool indexing/build, main-loop orchestration, finalize handoff, public entrypoints, and thin eval stitching wrappers
+- preserved rescue order, bootstrap/main-loop/finalize order, threshold behavior, telemetry ownership, and compatibility re-exports needed by diagnostics
 
 ## Goal
 
@@ -570,7 +591,14 @@ Make `solve_frontier.py` read as a top-level frontier pipeline.
 
 # P9 — Post-refactor perf research plan
 
-Status: not started
+Status: completed
+
+P9 result:
+
+- added `docs/cftuv_frontier_perf_phase2_plan.md` as the concrete post-refactor optimization roadmap
+- documented selector-queue shadow mode, versioned patch-context caches, hot/cold path separation, and telemetry counters as separate workstreams with migration order
+- made correctness gates explicit: bit-identical selector output against the current scan+cache control before any future cutover
+- left frontier runtime, selector behavior, scoring, rescue order, and public API unchanged in this phase
 
 ## Goal
 
@@ -690,3 +718,7 @@ This order is intentional: **state → eval → score** for the sensitive core.
 | 2026-03-31 | P3 | completed | `cftuv/frontier_finalize.py`, `cftuv/solve_frontier.py`, `docs/cftuv_frontier_orchestrator_plan_v2.md` | Extracted patch gap diagnostics, envelope assembly, and quilt finalization into `frontier_finalize.py`, moved finalize-only diagnostics / pin-policy imports there, and preserved finalize order plus untouched-patch fallback behavior. |
 | 2026-03-31 | P4 | completed | `cftuv/frontier_rescue.py`, `cftuv/solve_frontier.py`, `docs/cftuv_frontier_orchestrator_plan_v2.md` | Extracted closure-follow and tree-ingress rescue flows into `frontier_rescue.py`, preserved stall rescue order and telemetry fields, and used injected seams for still-orchestrator-owned axis-safety / anchor-adjustment helpers to avoid premature state/eval coupling. |
 | 2026-03-31 | P5 | completed | `cftuv/frontier_state.py`, `cftuv/solve_frontier.py`, `docs/cftuv_frontier_orchestrator_plan_v2.md` | Extracted the runtime container, point registration, dirty propagation, and register/reject substrate into `frontier_state.py`, kept eval/stop-diagnostics as free functions in `solve_frontier.py` to avoid an upward DAG edge from state, and left score-cache bootstrap explicitly in the orchestrator with score-owned compatibility caches marked temporary until P7. |
+| 2026-03-31 | P6 | completed | `cftuv/frontier_eval.py`, `cftuv/solve_frontier.py`, `docs/cftuv_frontier_orchestrator_plan_v2.md` | Extracted anchor discovery/resolution, closure preconstraint, candidate evaluation, selector, stop-diagnostics, and main-path frontier placement into `frontier_eval.py`, kept score ownership in the orchestrator via injected score hooks, and preserved cache/threshold/rescue behavior with thin delegators only in `solve_frontier.py`. |
+| 2026-03-31 | P7 | completed | `cftuv/frontier_score.py`, `cftuv/solve_frontier.py`, `docs/cftuv_frontier_orchestrator_plan_v2.md` | Extracted score-cache bootstrap and the scoring/rank helper cluster into `frontier_score.py`, rebound the compatibility score symbols in `solve_frontier.py` to the new module, and kept formulas, threshold gating, rank ordering, and rescue boundaries unchanged. |
+| 2026-03-31 | P8 | completed | `cftuv/solve_frontier.py`, `cftuv/frontier_closure.py`, `cftuv/frontier_place.py`, `docs/cftuv_frontier_orchestrator_plan_v2.md` | Removed unreachable legacy bodies and alias ballast from `solve_frontier.py`, moved closure-pair ownership into `frontier_closure.py` plus anchor-adjustment ownership into `frontier_place.py`, kept only orchestration helpers and thin eval stitching wrappers in the shell, and left bootstrap/main-loop/finalize/rescue order plus threshold/telemetry behavior unchanged. |
+| 2026-03-31 | P9 | completed | `docs/cftuv_frontier_perf_phase2_plan.md`, `docs/cftuv_frontier_orchestrator_plan_v2.md` | Wrote the Phase 2 optimization roadmap covering queue shadow mode, patch-context versioning, hot/cold path split, and telemetry gates, defined correctness/cutover criteria, and left mainline frontier behavior unchanged. |
