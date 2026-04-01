@@ -163,7 +163,7 @@ class BoundaryCorner:
     prev_role: FrameRole = FrameRole.FREE
     next_role: FrameRole = FrameRole.FREE
 
-    wedge_face_indices: tuple[int, ...] = field(default_factory=tuple)
+    wedge_face_indices: tuple[int, ...] = ()
     wedge_normal: Vector = field(default_factory=lambda: Vector((0.0, 0.0, 0.0)))
     wedge_normal_valid: bool = False
 

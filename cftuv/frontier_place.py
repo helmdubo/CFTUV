@@ -118,7 +118,7 @@ def _cf_build_seed_placement(
 
 
 def _cf_chain_source_points(chain):
-    """Конвертирует chain.vert_cos в формат [(index, Vector)] для placement функций."""
+    """ÐšÐ¾Ð½Ð²ÐµÑ€Ñ‚Ð¸Ñ€ÑƒÐµÑ‚ chain.vert_cos Ð² Ñ„Ð¾Ñ€Ð¼Ð°Ñ‚ [(index, Vector)] Ð´Ð»Ñ placement Ñ„ÑƒÐ½ÐºÑ†Ð¸Ð¹."""
     return [(i, co.copy()) for i, co in enumerate(chain.vert_cos)]
 
 
@@ -524,11 +524,11 @@ def _cf_apply_anchor_adjustments(
 
 
 def _cf_determine_direction(chain, node):
-    """UV direction для chain из базиса patch.
+    """UV direction Ð´Ð»Ñ chain Ð¸Ð· Ð±Ð°Ð·Ð¸ÑÐ° patch.
 
-    H_FRAME — snap к (±1, 0)
-    V_FRAME — snap к (0, ±1)
-    FREE — проекция 3D direction на basis
+    H_FRAME â€” snap Ðº (Â±1, 0)
+    V_FRAME â€” snap Ðº (0, Â±1)
+    FREE â€” Ð¿Ñ€Ð¾ÐµÐºÑ†Ð¸Ñ 3D direction Ð½Ð° basis
     """
     if len(chain.vert_cos) < 2:
         if chain.frame_role == FrameRole.H_FRAME:
@@ -559,8 +559,6 @@ def _is_orthogonal_hv_pair(role_a, role_b):
     return {role_a, role_b} == {FrameRole.H_FRAME, FrameRole.V_FRAME}
 
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 def _cf_resolve_anchor_corner(src_chain, anchor, node):
     if anchor.source_point_index == 0:
         corner_index = src_chain.start_corner_index
@@ -570,74 +568,26 @@ def _cf_resolve_anchor_corner(src_chain, anchor, node):
     if corner_index < 0:
         return None
 
-    boundary_loop = node.boundary_loops[anchor.source_ref[1]]
+    loop_index = anchor.source_ref[1]
+    if loop_index < 0 or loop_index >= len(node.boundary_loops):
+        return None
+
+    boundary_loop = node.boundary_loops[loop_index]
     if 0 <= corner_index < len(boundary_loop.corners):
         return boundary_loop.corners[corner_index]
     return None
 
 
 def _compute_corner_turn_sign(chain, src_chain, anchor, is_start_anchor, node):
-    """Turn sign — локальное 3D решение в corner wedge-space, основанное на topology-precomputed owner-patch wedge normal."""
-=======
-def _cf_compute_local_normal(node, corner_co_3d):
-    """Находит локальную нормаль грани(треугольника), прилегающей к углу."""
-    if not node.mesh_verts or not node.mesh_tris:
-        return node.normal
-
-    for i, v in enumerate(node.mesh_verts):
-        if (v - corner_co_3d).length_squared < 1e-7:
-            for tri in node.mesh_tris:
-                if i in tri:
-                    v0 = node.mesh_verts[tri[0]]
-                    v1 = node.mesh_verts[tri[1]]
-                    v2 = node.mesh_verts[tri[2]]
-                    n = (v1 - v0).cross(v2 - v0)
-                    if n.length_squared > 1e-8:
-                        return n.normalized()
-            break
-
-    return node.normal
-
-
-def _compute_corner_turn_sign(chain, src_chain, anchor, is_start_anchor, node):
-=======
-def _cf_compute_local_normal(node, corner_co_3d):
-    """Находит локальную нормаль грани(треугольника), прилегающей к углу."""
-    if not node.mesh_verts or not node.mesh_tris:
-        return node.normal
-
-    for i, v in enumerate(node.mesh_verts):
-        if (v - corner_co_3d).length_squared < 1e-7:
-            for tri in node.mesh_tris:
-                if i in tri:
-                    v0 = node.mesh_verts[tri[0]]
-                    v1 = node.mesh_verts[tri[1]]
-                    v2 = node.mesh_verts[tri[2]]
-                    n = (v1 - v0).cross(v2 - v0)
-                    if n.length_squared > 1e-8:
-                        return n.normalized()
-            break
-
-    return node.normal
-
-
-def _compute_corner_turn_sign(chain, src_chain, anchor, is_start_anchor, node):
->>>>>>> parent of e14e67b (feat: implement frontier placement logic and documentation for corner turn sign agent)
-    """Определяет знак поворота на corner из 3D tangent'ов.
-
-    Возвращает +1 (CCW), -1 (CW), или 0 (неопределённо).
-    """
->>>>>>> parent of e14e67b (feat: implement frontier placement logic and documentation for corner turn sign agent)
+    """Resolve turn sign in corner wedge-space using BoundaryCorner.wedge_normal."""
     src_cos = src_chain.vert_cos
     if not src_cos or len(src_cos) < 2:
         return 0
 
     if anchor.source_point_index == 0:
         src_tangent = src_cos[1] - src_cos[0]
-        corner_co = src_cos[0]
     else:
         src_tangent = src_cos[-2] - src_cos[-1]
-        corner_co = src_cos[-1]
 
     chain_cos = chain.vert_cos
     if not chain_cos or len(chain_cos) < 2:
@@ -648,8 +598,6 @@ def _compute_corner_turn_sign(chain, src_chain, anchor, is_start_anchor, node):
     else:
         chain_tangent = chain_cos[-2] - chain_cos[-1]
 
-<<<<<<< HEAD
-<<<<<<< HEAD
     if src_tangent.length_squared <= 1e-12 or chain_tangent.length_squared <= 1e-12:
         return 0
 
@@ -658,6 +606,8 @@ def _compute_corner_turn_sign(chain, src_chain, anchor, is_start_anchor, node):
 
     corner = _cf_resolve_anchor_corner(src_chain, anchor, node)
     if corner is None or not corner.wedge_normal_valid:
+        return 0
+    if corner.wedge_normal.length_squared <= 1e-12:
         return 0
 
     cross_vec = incoming.cross(outgoing)
@@ -668,53 +618,32 @@ def _compute_corner_turn_sign(chain, src_chain, anchor, is_start_anchor, node):
     if abs(dot_val) < 1e-8:
         return 0
     return 1 if dot_val > 0 else -1
-=======
-    local_normal = _cf_compute_local_normal(node, corner_co)
-
-    # Both tangents point AWAY from the junction.
-    # Входящий вектор в junction: -src_tangent. Исходящий: chain_tangent.
-    cross_vec = (-src_tangent).cross(chain_tangent)
-    dot_normal = cross_vec.dot(local_normal)
-
-    if abs(dot_normal) < 1e-8:
-        return 0
-    return 1 if dot_normal > 0 else -1
->>>>>>> parent of e14e67b (feat: implement frontier placement logic and documentation for corner turn sign agent)
-=======
-    local_normal = _cf_compute_local_normal(node, corner_co)
-
-    # Both tangents point AWAY from the junction.
-    # Входящий вектор в junction: -src_tangent. Исходящий: chain_tangent.
-    cross_vec = (-src_tangent).cross(chain_tangent)
-    dot_normal = cross_vec.dot(local_normal)
-
-    if abs(dot_normal) < 1e-8:
-        return 0
-    return 1 if dot_normal > 0 else -1
->>>>>>> parent of e14e67b (feat: implement frontier placement logic and documentation for corner turn sign agent)
 
 
 def _perpendicular_direction_for_role(src_uv_delta, target_role, turn_sign):
     if target_role == FrameRole.H_FRAME:
-        # src_chain — V_FRAME, UV идёт вдоль Y. Perpendicular = вдоль X.
+        # src_chain â€” V_FRAME, UV Ð¸Ð´Ñ‘Ñ‚ Ð²Ð´Ð¾Ð»ÑŒ Y. Perpendicular = Ð²Ð´Ð¾Ð»ÑŒ X.
         src_y_sign = 1.0 if src_uv_delta.y > 0 else -1.0
-        # CCW turn (1) от +Y → -X; CW turn (-1) от +Y → +X
+        # CCW turn (1) Ð¾Ñ‚ +Y â†’ -X; CW turn (-1) Ð¾Ñ‚ +Y â†’ +X
         x_sign = -src_y_sign * turn_sign
         return Vector((x_sign, 0.0))
     if target_role == FrameRole.V_FRAME:
-        # src_chain — H_FRAME, UV идёт вдоль X. Perpendicular = вдоль Y.
+        # src_chain â€” H_FRAME, UV Ð¸Ð´Ñ‘Ñ‚ Ð²Ð´Ð¾Ð»ÑŒ X. Perpendicular = Ð²Ð´Ð¾Ð»ÑŒ Y.
         src_x_sign = 1.0 if src_uv_delta.x > 0 else -1.0
-        # CCW turn (1) от +X → +Y; CW turn (-1) от +X → -Y
+        # CCW turn (1) Ð¾Ñ‚ +X â†’ +Y; CW turn (-1) Ð¾Ñ‚ +X â†’ -Y
         y_sign = src_x_sign * turn_sign
         return Vector((0.0, y_sign))
     return None
 
 
 def _cf_can_inherit_corner_turn_direction(chain, src_chain):
-    """Разрешает turn-sign inheritance для legacy corner-split и новых border chains."""
+    """Ð Ð°Ð·Ñ€ÐµÑˆÐ°ÐµÑ‚ turn-sign inheritance Ð´Ð»Ñ legacy corner-split Ð¸ Ð½Ð¾Ð²Ñ‹Ñ… border chains."""
     if chain.is_corner_split or src_chain.is_corner_split:
         return True
-    return chain.neighbor_kind == ChainNeighborKind.MESH_BORDER
+    return chain.neighbor_kind in {
+        ChainNeighborKind.MESH_BORDER,
+        ChainNeighborKind.SEAM_SELF,
+    }
 
 
 def _try_inherit_direction(
@@ -740,7 +669,7 @@ def _try_inherit_direction(
         if src_start_uv is None or src_end_uv is None:
             continue
 
-        # === Существующий путь: same-role inheritance ===
+        # === Ð¡ÑƒÑ‰ÐµÑÑ‚Ð²ÑƒÑŽÑ‰Ð¸Ð¹ Ð¿ÑƒÑ‚ÑŒ: same-role inheritance ===
         if src_chain.frame_role == chain.frame_role:
             if chain.frame_role == FrameRole.H_FRAME:
                 du = src_end_uv.x - src_start_uv.x
@@ -762,7 +691,7 @@ def _try_inherit_direction(
         if not _cf_can_inherit_corner_turn_direction(chain, src_chain):
             continue
 
-        # Вычисляем знак поворота в 3D
+        # Ð’Ñ‹Ñ‡Ð¸ÑÐ»ÑÐµÐ¼ Ð·Ð½Ð°Ðº Ð¿Ð¾Ð²Ð¾Ñ€Ð¾Ñ‚Ð° Ð² 3D
         turn_sign = _compute_corner_turn_sign(
             chain, src_chain, anchor, is_start_anchor, node,
         )
@@ -787,7 +716,7 @@ def _cf_place_chain(
     final_scale,
     direction_override=None,
 ):
-    """Размещает один chain в UV, используя проверенные anchors."""
+    """Ð Ð°Ð·Ð¼ÐµÑ‰Ð°ÐµÑ‚ Ð¾Ð´Ð¸Ð½ chain Ð² UV, Ð¸ÑÐ¿Ð¾Ð»ÑŒÐ·ÑƒÑ Ð¿Ñ€Ð¾Ð²ÐµÑ€ÐµÐ½Ð½Ñ‹Ðµ anchors."""
     source_pts = _cf_chain_source_points(chain)
     direction = direction_override if direction_override is not None else _cf_determine_direction(chain, node)
     role = chain.frame_role
@@ -817,3 +746,5 @@ def _cf_place_chain(
         return list(reversed(rev_uvs))
 
     return []
+
+

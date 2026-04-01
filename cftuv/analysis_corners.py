@@ -28,8 +28,14 @@ def _measure_chain_axis_metrics(chain_vert_cos, basis_u, basis_v):
     if len(chain_vert_cos) < 2:
         return None
 
+    basis_n = basis_u.cross(basis_v)
+    if basis_n.length_squared < 1e-8:
+        return None
+    basis_n.normalize()
+
     h_support = 0.0
     v_support = 0.0
+    n_support = 0.0
     h_deviation_sum = 0.0
     v_deviation_sum = 0.0
     h_max_deviation = 0.0
@@ -44,13 +50,21 @@ def _measure_chain_axis_metrics(chain_vert_cos, basis_u, basis_v):
 
         du = delta.dot(basis_u)
         dv = delta.dot(basis_v)
+        dn = delta.dot(basis_n)
         abs_du = abs(du)
         abs_dv = abs(dv)
+        abs_dn = abs(dn)
+        nu_support = math.sqrt(abs_du * abs_du + abs_dn * abs_dn)
 
-        h_support += abs_du
+        # H_FRAME читается как направление в плоскости N-U:
+        # допускаем изгиб по N, но штрафуем уход вдоль V.
+        h_support += nu_support
         v_support += abs_dv
+        n_support += abs_dn
         h_deviation = abs_dv / seg_len
-        v_deviation = abs_du / seg_len
+        # V_FRAME читается как строгая ось V:
+        # штрафуем любой выход в плоскость N-U.
+        v_deviation = nu_support / seg_len
         h_deviation_sum += h_deviation * seg_len
         v_deviation_sum += v_deviation * seg_len
         h_max_deviation = max(h_max_deviation, h_deviation)
@@ -63,6 +77,7 @@ def _measure_chain_axis_metrics(chain_vert_cos, basis_u, basis_v):
     return {
         "h_support": h_support,
         "v_support": v_support,
+        "n_support": n_support,
         "h_avg_deviation": h_deviation_sum / total_length,
         "v_avg_deviation": v_deviation_sum / total_length,
         "h_max_deviation": h_max_deviation,
@@ -76,7 +91,10 @@ def _classify_chain_frame_role(chain_vert_cos, basis_u, basis_v, strict_guards=T
     if metrics is None:
         return FrameRole.FREE
 
-    threshold_h = FRAME_ALIGNMENT_THRESHOLD_H
+    # Для wrapped H-chains допускаем немного больший drift по V,
+    # если chain значимо уходит в N относительно среднего basis patch.
+    normal_leakage_ratio = metrics["n_support"] / max(metrics["total_length"], 1e-8)
+    threshold_h = max(FRAME_ALIGNMENT_THRESHOLD_H, FRAME_ALIGNMENT_THRESHOLD_V * normal_leakage_ratio)
     threshold_v = FRAME_ALIGNMENT_THRESHOLD_V
     if strict_guards:
         h_max_deviation_limit = max(threshold_h * 2.0, threshold_h + 0.03)

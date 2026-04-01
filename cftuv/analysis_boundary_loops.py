@@ -710,6 +710,13 @@ def _validate_boundary_loop_topology(boundary_loop, patch_id, loop_index):
                     "R8",
                     f"corner={corner_index} zero length wedge normal",
                 )
+            elif not corner.wedge_face_indices:
+                _report_boundary_loop_invariant_violation(
+                    patch_id,
+                    loop_index,
+                    "R8",
+                    f"corner={corner_index} valid wedge missing face ids",
+                )
 
         for chain_index, chain in enumerate(boundary_loop.chains):
             expected_start_corner = chain_index
@@ -806,6 +813,13 @@ def _chain_endpoint_side_face_index(chain: BoundaryChain, at_start: bool) -> int
 
 
 def _compute_corner_wedge_data(boundary_loop, corner, patch_face_index_set, bm):
+    if corner.corner_kind != CornerKind.JUNCTION:
+        return (), Vector((0.0, 0.0, 0.0)), False
+
+    chain_count = len(boundary_loop.chains)
+    if not (0 <= corner.prev_chain_index < chain_count and 0 <= corner.next_chain_index < chain_count):
+        return (), Vector((0.0, 0.0, 0.0)), False
+
     prev_chain = boundary_loop.chains[corner.prev_chain_index]
     next_chain = boundary_loop.chains[corner.next_chain_index]
 
@@ -813,10 +827,11 @@ def _compute_corner_wedge_data(boundary_loop, corner, patch_face_index_set, bm):
     next_face = _chain_endpoint_side_face_index(next_chain, at_start=True)
 
     face_ids = []
-    if prev_face >= 0:
+    if prev_face in patch_face_index_set:
         face_ids.append(prev_face)
-    if next_face >= 0 and next_face != prev_face:
+    if next_face in patch_face_index_set and next_face != prev_face:
         face_ids.append(next_face)
+    face_ids = tuple(sorted(set(face_ids)))
 
     eps = 1e-12
     n = Vector((0.0, 0.0, 0.0))
@@ -824,20 +839,24 @@ def _compute_corner_wedge_data(boundary_loop, corner, patch_face_index_set, bm):
         n += bm.faces[fid].normal
 
     if n.length_squared > eps:
-        return tuple(face_ids), n.normalized(), True
+        return face_ids, n.normalized(), True
+
+    if corner.vert_index < 0 or corner.vert_index >= len(bm.verts):
+        return face_ids, Vector((0.0, 0.0, 0.0)), False
 
     owner_faces = [
         f for f in bm.verts[corner.vert_index].link_faces
         if f.index in patch_face_index_set
     ]
+    owner_face_ids = tuple(sorted({f.index for f in owner_faces}))
     n = Vector((0.0, 0.0, 0.0))
     for f in owner_faces:
         n += f.normal
 
     if n.length_squared > eps:
-        return tuple(f.index for f in owner_faces), n.normalized(), True
+        return owner_face_ids, n.normalized(), True
 
-    return tuple(f.index for f in owner_faces), Vector((0.0, 0.0, 1.0)), False
+    return owner_face_ids, Vector((0.0, 0.0, 0.0)), False
 
 
 def _annotate_boundary_loop_corner_wedges(boundary_loop, patch_face_indices, bm):
