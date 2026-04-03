@@ -700,6 +700,17 @@ class HOTSPOTUV_OT_DebugToggleLayer(bpy.types.Operator):
         if self.layer_name in gp_data.layers:
             layer = gp_data.layers[self.layer_name]
             layer.hide = not layer.hide
+            visible = not layer.hide
+            layer_setting_map = {
+                'Patches_WALL': 'dbg_patches_wall',
+                'Patches_FLOOR': 'dbg_patches_floor',
+                'Patches_SLOPE': 'dbg_patches_slope',
+                'Loops_Chains': 'dbg_loops_chains',
+                'Loops_Holes': 'dbg_loops_holes',
+            }
+            prop_name = layer_setting_map.get(self.layer_name)
+            if prop_name and hasattr(s, prop_name):
+                setattr(s, prop_name, visible)
 
         return {"FINISHED"}
 

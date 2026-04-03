@@ -72,6 +72,9 @@ Split point = vertex where neighbor changes.
 
 **BoundaryCorner** — vertex at junction of two chains within one loop.
 Corner has no own position — it emerges from chain placement.
+Also stores local wedge-orientation facts (`wedge_face_indices`, `wedge_normal`)
+derived in analysis from owner-patch faces around the corner. These are runtime
+inputs for local turn-sign decisions; do not reconstruct them in solve.
 
 **FrameRole** — chain alignment in local patch basis: `H_FRAME` (horizontal),
 `V_FRAME` (vertical), `FREE` (diagonal/undefined).
@@ -111,6 +114,7 @@ patches meet. Diagnostic/research entity, not solve runtime.
 11. Frontier candidate cache (`_cached_evals`) must produce bit-identical output to full scan — if output differs, dirty marking is incomplete (bug)
 12. Pin decisions live ONLY in `solve_pin_policy.py` — `PatchPinMap` is the single source of truth; do NOT inline pin logic in transfer or frontier
 13. `dihedral_convexity` is a contextual derived field — computed AFTER full PatchGraph assembly, never during chain build
+14. Analyze debug geometry must be generated independently of layer visibility toggles; panel / eye toggles only control GP layer visibility, not whether patch data is built
 
 ---
 

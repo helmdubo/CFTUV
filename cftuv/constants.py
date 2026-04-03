@@ -12,7 +12,7 @@ NB_MESH_BORDER = -1
 NB_SEAM_SELF = -2
 
 # Frame classification
-FRAME_ALIGNMENT_THRESHOLD_H = 0.005
+FRAME_ALIGNMENT_THRESHOLD_H = 0.04
 FRAME_ALIGNMENT_THRESHOLD_V = 0.04
 # Backward-compatible alias for code paths that still expect one generic threshold.
 FRAME_ALIGNMENT_THRESHOLD = FRAME_ALIGNMENT_THRESHOLD_V

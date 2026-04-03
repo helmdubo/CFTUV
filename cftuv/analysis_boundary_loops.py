@@ -806,10 +806,162 @@ def _derive_boundary_loop_topology(state, basis_u, basis_v, patch_id, loop_index
     )
 
 
-def _chain_endpoint_side_face_index(chain: BoundaryChain, at_start: bool) -> int:
-    if not chain.side_face_indices:
-        return -1
-    return int(chain.side_face_indices[0] if at_start else chain.side_face_indices[-1])
+def _edge_is_owner_boundary(edge, patch_face_index_set):
+    in_patch_count = sum(1 for linked_face in edge.link_faces if linked_face.index in patch_face_index_set)
+    if len(edge.link_faces) == 1:
+        return True
+    if in_patch_count == 1:
+        return True
+    if in_patch_count >= 2 and edge.seam:
+        return True
+    return False
+
+
+def _find_face_loop_at_vertex(face, vert_index, incoming_edge_index=None, outgoing_edge_index=None):
+    for loop in face.loops:
+        if loop.vert.index != vert_index:
+            continue
+        if incoming_edge_index is not None and loop.link_loop_prev.edge.index != incoming_edge_index:
+            continue
+        if outgoing_edge_index is not None and loop.edge.index != outgoing_edge_index:
+            continue
+        return loop
+    return None
+
+
+def _resolve_corner_owner_half_loops(boundary_loop, corner, patch_face_index_set, bm):
+    edge_count = len(boundary_loop.edge_indices)
+    if edge_count == 0 or len(boundary_loop.side_face_indices) != edge_count:
+        return None, None, -1
+
+    corner_loop_index = corner.loop_vert_index
+    if corner_loop_index < 0:
+        return None, None, -1
+    corner_loop_index %= edge_count
+
+    if corner_loop_index >= len(boundary_loop.vert_indices):
+        return None, None, -1
+
+    corner_vert_index = int(boundary_loop.vert_indices[corner_loop_index])
+    if corner_vert_index < 0:
+        corner_vert_index = int(corner.vert_index)
+    if corner_vert_index < 0:
+        return None, None, -1
+
+    prev_side_index = (corner_loop_index - 1) % edge_count
+    next_side_index = corner_loop_index
+
+    prev_face_index = int(boundary_loop.side_face_indices[prev_side_index])
+    next_face_index = int(boundary_loop.side_face_indices[next_side_index])
+    prev_edge_index = int(boundary_loop.edge_indices[prev_side_index])
+    next_edge_index = int(boundary_loop.edge_indices[next_side_index])
+
+    if (
+        prev_face_index not in patch_face_index_set
+        or next_face_index not in patch_face_index_set
+        or prev_face_index < 0
+        or next_face_index < 0
+        or prev_face_index >= len(bm.faces)
+        or next_face_index >= len(bm.faces)
+    ):
+        return None, None, corner_vert_index
+
+    prev_face = bm.faces[prev_face_index]
+    next_face = bm.faces[next_face_index]
+    prev_loop = _find_face_loop_at_vertex(
+        prev_face,
+        corner_vert_index,
+        incoming_edge_index=prev_edge_index,
+    )
+    next_loop = _find_face_loop_at_vertex(
+        next_face,
+        corner_vert_index,
+        outgoing_edge_index=next_edge_index,
+    )
+    return prev_loop, next_loop, corner_vert_index
+
+
+def _collect_corner_wedge_sector_loops(start_loop, end_loop, patch_face_index_set):
+    if start_loop is None or end_loop is None:
+        return ()
+    if start_loop.vert.index != end_loop.vert.index:
+        return ()
+
+    corner_vert = start_loop.vert
+    owner_vertex_loops = [
+        loop
+        for loop in corner_vert.link_loops
+        if loop.vert.index == corner_vert.index and loop.face.index in patch_face_index_set
+    ]
+    incoming_edge_to_loops = {}
+    for loop in owner_vertex_loops:
+        incoming_edge_to_loops.setdefault(loop.link_loop_prev.edge.index, []).append(loop)
+
+    target_key = (end_loop.face.index, end_loop.edge.index)
+    sector_loops = []
+    visited = set()
+    current_loop = start_loop
+    max_steps = len(owner_vertex_loops) + 1
+
+    for _ in range(max_steps):
+        current_key = (current_loop.face.index, current_loop.edge.index)
+        if current_key in visited:
+            return ()
+        visited.add(current_key)
+        sector_loops.append(current_loop)
+
+        if current_key == target_key:
+            return tuple(sector_loops)
+
+        outgoing_edge = current_loop.edge
+        if _edge_is_owner_boundary(outgoing_edge, patch_face_index_set):
+            return ()
+
+        next_candidates = [
+            loop
+            for loop in incoming_edge_to_loops.get(outgoing_edge.index, ())
+            if loop.face.index != current_loop.face.index
+        ]
+        if len(next_candidates) != 1:
+            return ()
+        current_loop = next_candidates[0]
+
+    return ()
+
+
+def _corner_sector_loop_weight(loop):
+    corner_co = loop.vert.co
+    prev_vec = loop.link_loop_prev.vert.co - corner_co
+    next_vec = loop.link_loop_next.vert.co - corner_co
+    if prev_vec.length_squared < 1e-12 or next_vec.length_squared < 1e-12:
+        return 0.0
+
+    corner_angle = prev_vec.angle(next_vec, 0.0)
+    face_area = loop.face.calc_area()
+    if corner_angle <= 1e-12 or face_area <= 1e-12:
+        return 0.0
+    return face_area * corner_angle
+
+
+def _compute_weighted_sector_normal(sector_loops):
+    eps = 1e-12
+    normal = Vector((0.0, 0.0, 0.0))
+
+    for loop in sector_loops:
+        weight = _corner_sector_loop_weight(loop)
+        if weight <= eps:
+            continue
+        normal += loop.face.normal * weight
+
+    if normal.length_squared > eps:
+        return normal.normalized(), True
+
+    for loop in sector_loops:
+        normal += loop.face.normal
+    if normal.length_squared > eps:
+        return normal.normalized(), True
+
+    return Vector((0.0, 0.0, 0.0)), False
 
 
 def _compute_corner_wedge_data(boundary_loop, corner, patch_face_index_set, bm):
@@ -820,41 +972,46 @@ def _compute_corner_wedge_data(boundary_loop, corner, patch_face_index_set, bm):
     if not (0 <= corner.prev_chain_index < chain_count and 0 <= corner.next_chain_index < chain_count):
         return (), Vector((0.0, 0.0, 0.0)), False
 
-    prev_chain = boundary_loop.chains[corner.prev_chain_index]
-    next_chain = boundary_loop.chains[corner.next_chain_index]
-
-    prev_face = _chain_endpoint_side_face_index(prev_chain, at_start=False)
-    next_face = _chain_endpoint_side_face_index(next_chain, at_start=True)
+    start_loop, end_loop, corner_vert_index = _resolve_corner_owner_half_loops(
+        boundary_loop,
+        corner,
+        patch_face_index_set,
+        bm,
+    )
+    sector_loops = _collect_corner_wedge_sector_loops(start_loop, end_loop, patch_face_index_set)
+    if sector_loops:
+        face_ids = tuple(dict.fromkeys(loop.face.index for loop in sector_loops))
+        normal, valid = _compute_weighted_sector_normal(sector_loops)
+        if valid:
+            return face_ids, normal, True
 
     face_ids = []
-    if prev_face in patch_face_index_set:
-        face_ids.append(prev_face)
-    if next_face in patch_face_index_set and next_face != prev_face:
-        face_ids.append(next_face)
-    face_ids = tuple(sorted(set(face_ids)))
+    if start_loop is not None and start_loop.face.index in patch_face_index_set:
+        face_ids.append(start_loop.face.index)
+    if end_loop is not None and end_loop.face.index in patch_face_index_set and end_loop.face.index not in face_ids:
+        face_ids.append(end_loop.face.index)
 
     eps = 1e-12
-    n = Vector((0.0, 0.0, 0.0))
+    normal = Vector((0.0, 0.0, 0.0))
     for fid in face_ids:
-        n += bm.faces[fid].normal
+        normal += bm.faces[fid].normal
+    if normal.length_squared > eps:
+        return tuple(face_ids), normal.normalized(), True
 
-    if n.length_squared > eps:
-        return face_ids, n.normalized(), True
-
-    if corner.vert_index < 0 or corner.vert_index >= len(bm.verts):
-        return face_ids, Vector((0.0, 0.0, 0.0)), False
+    if corner_vert_index < 0 or corner_vert_index >= len(bm.verts):
+        return tuple(face_ids), Vector((0.0, 0.0, 0.0)), False
 
     owner_faces = [
-        f for f in bm.verts[corner.vert_index].link_faces
+        f for f in bm.verts[corner_vert_index].link_faces
         if f.index in patch_face_index_set
     ]
     owner_face_ids = tuple(sorted({f.index for f in owner_faces}))
-    n = Vector((0.0, 0.0, 0.0))
+    normal = Vector((0.0, 0.0, 0.0))
     for f in owner_faces:
-        n += f.normal
+        normal += f.normal
 
-    if n.length_squared > eps:
-        return owner_face_ids, n.normalized(), True
+    if normal.length_squared > eps:
+        return owner_face_ids, normal.normalized(), True
 
     return owner_face_ids, Vector((0.0, 0.0, 0.0)), False
 

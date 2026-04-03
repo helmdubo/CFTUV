@@ -59,16 +59,6 @@ def _chain_replay_length(chain):
     return total
 
 
-def _patch_enabled(node, settings_dict):
-    patch_type = _enum_value(node.patch_type)
-    key = {
-        PatchType.WALL.value: 'patches_wall',
-        PatchType.FLOOR.value: 'patches_floor',
-        PatchType.SLOPE.value: 'patches_slope',
-    }.get(patch_type)
-    return settings_dict.get(key, True) if key else True
-
-
 def _loop_enabled(loop, settings_dict):
     loop_kind = _enum_value(loop.kind)
     if loop_kind == LoopKind.HOLE.value:
@@ -165,6 +155,25 @@ def _ensure_gp_material(gp_data, mat_name, color_rgba):
     return len(gp_data.materials) - 1
 
 
+def _ensure_gp_fill_material(gp_data, mat_name, color_rgba):
+    if mat_name in bpy.data.materials:
+        mat = bpy.data.materials[mat_name]
+    else:
+        mat = bpy.data.materials.new(mat_name)
+    if not mat.grease_pencil:
+        bpy.data.materials.create_gpencil_data(mat)
+    mat.grease_pencil.color = color_rgba[:4]
+    mat.grease_pencil.show_fill = True
+    mat.grease_pencil.fill_color = color_rgba[:4]
+    mat.grease_pencil.show_stroke = False
+
+    for index, slot in enumerate(gp_data.materials):
+        if slot and slot.name == mat_name:
+            return index
+    gp_data.materials.append(mat)
+    return len(gp_data.materials) - 1
+
+
 def clear_visualization(source_obj):
     gp_name = _get_gp_debug_name(source_obj)
     if gp_name in bpy.data.objects:
@@ -186,6 +195,7 @@ def clear_visualization(source_obj):
             mat.name.startswith('CFTUV_P')
             or mat.name.startswith('CFTUV_Axis_')
             or mat.name.startswith('CFTUV_Chain_')
+            or mat.name.startswith('CFTUV_DebugPatch_')
             or mat.name.startswith('CFTUV_Loops_')
             or mat.name.startswith('CFTUV_Overlay_')
             or mat.name.startswith('CFTUV_Frontier_')
@@ -355,34 +365,17 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
             sat, val = 0.5, 0.6
         r, g, b = colorsys.hsv_to_rgb(hue, sat, val)
 
-        mat_name = f'CFTUV_P{draw_index:03d}'
-        if mat_name in bpy.data.materials:
-            mat = bpy.data.materials[mat_name]
-        else:
-            mat = bpy.data.materials.new(mat_name)
-        if not mat.grease_pencil:
-            bpy.data.materials.create_gpencil_data(mat)
-        mat.grease_pencil.color = (r, g, b, 1.0)
-        mat.grease_pencil.show_fill = True
-        mat.grease_pencil.fill_color = (r, g, b, 1.0)
-        mat.grease_pencil.show_stroke = False
-
-        mat_idx = None
-        for slot_index, slot in enumerate(gp_data.materials):
-            if slot and slot.name == mat_name:
-                mat_idx = slot_index
-                break
-        if mat_idx is None:
-            gp_data.materials.append(mat)
-            mat_idx = len(gp_data.materials) - 1
-        patch_mat_indices[patch_id] = mat_idx
+        mat_name = f'CFTUV_DebugPatch_{patch_id:03d}'
+        patch_mat_indices[patch_id] = _ensure_gp_fill_material(
+            gp_data,
+            mat_name,
+            (r, g, b, 1.0),
+        )
 
     centers_frame, centers_mat = frames_and_mats['Overlay_Centers']
 
     for patch_id in sorted(graph.nodes.keys()):
         node = graph.nodes[patch_id]
-        if not _patch_enabled(node, settings_dict):
-            continue
 
         centroid = _lift_point(node.centroid, node.normal, 0.012)
         axis_len = 0.15

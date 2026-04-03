@@ -81,6 +81,7 @@ chain. `prev_chain_index = 0, next_chain_index = 0`. Marker, not junction.
 | R5 | turn_angle_deg in patch-local 2D basis | ✅ |
 | R6 | prev_role / next_role from neighboring chains | ✅ |
 | R7 | corner.vert_index == chain[prev].end == chain[next].start | ⚠️ Target |
+| R8 | `wedge_normal` is analysis-owned local corner orientation input; primary build path uses explicit owner-patch face sector between `prev_chain -> next_chain` | ✅ |
 
 ### FrameRole Classification
 
@@ -248,6 +249,13 @@ This is reachability rescue, NOT a new solve mode.
   `MESH_BORDER` H/V chain and for legacy `corner_split` chains
 - The source chain may be `PATCH`, `SEAM_SELF`, or `MESH_BORDER`; turn geometry
   comes from 3D tangent + normal and does not depend on source `neighbor_kind`
+- `BoundaryCorner.wedge_normal` is analysis-owned runtime input and should come
+  from the local owner-patch wedge sector; solve-time turn sign must not be
+  reconstructed from patch basis, patch-average normal, or fan triangulation
+- Current construction path for `wedge_normal` is:
+  explicit owner-side half-edge resolve at the corner → sector walk over
+  owner-patch faces around the corner vertex → area * corner-angle weighted
+  normal. Endpoint-owner-face / owner one-ring are fallback paths only.
 - This rule exists because wrapped border chains can have a misleading endpoint
   chord, causing `_cf_determine_direction()` to mirror a wall arm or notch leg
 - If a closing H/V chain shows a large cross-axis delta, inspect upstream
@@ -297,6 +305,9 @@ Frontier thresholds:
 - `Loops_Chains` and `Frontier_Path` must always build from same current PatchGraph
 - Stale Analyze + new Frontier Replay = invalid debug state
 - If timeline diverges from LoopTypes, check stale debug layers first
+- Analyze `Patches_WALL/FLOOR/SLOPE` data must be generated regardless of current
+  patch visibility toggles; UI toggles control only GP layer visibility. Empty
+  patch layers caused by hidden scene props are a bug.
 
 ### Snapshot / Telemetry Output Contract
 
