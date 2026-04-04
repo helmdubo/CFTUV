@@ -306,6 +306,7 @@ def _cf_try_place_closure_follow_candidate(
         frame_role=chain.frame_role,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=2,
+        primary_anchor_kind=PlacementSourceKind.SAME_PATCH,
         points=tuple(
             (ScaffoldPointKey(chain_ref[0], chain_ref[1], chain_ref[2], point_index), uv.copy())
             for point_index, uv in enumerate(uv_points)
@@ -549,6 +550,8 @@ def _cf_try_place_tree_ingress_candidate(
             ingress_end_anchor,
             runtime_policy.final_scale,
             direction_override,
+            placed_chains_map=runtime_policy.placed_chains_map,
+            graph=runtime_policy.graph,
         )
         if not uv_points or len(uv_points) != len(chain.vert_cos):
             continue
@@ -624,6 +627,12 @@ def _cf_try_place_tree_ingress_candidate(
         runtime_policy.reject_chain(chain_ref)
         return False
 
+    if anchor_start is not None:
+        _rescue_primary_anchor_kind = anchor_start.source_kind
+    elif anchor_end is not None:
+        _rescue_primary_anchor_kind = anchor_end.source_kind
+    else:
+        _rescue_primary_anchor_kind = PlacementSourceKind.CHAIN
     chain_placement = ScaffoldChainPlacement(
         patch_id=chain_ref[0],
         loop_index=chain_ref[1],
@@ -631,6 +640,7 @@ def _cf_try_place_tree_ingress_candidate(
         frame_role=chain.frame_role,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=_cf_anchor_count(anchor_start, anchor_end),
+        primary_anchor_kind=_rescue_primary_anchor_kind,
         points=tuple(
             (ScaffoldPointKey(chain_ref[0], chain_ref[1], chain_ref[2], point_index), uv.copy())
             for point_index, uv in enumerate(uv_points)

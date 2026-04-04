@@ -452,6 +452,7 @@ class ScaffoldChainPlacement:
     frame_role: FrameRole
     source_kind: PlacementSourceKind = PlacementSourceKind.CHAIN
     anchor_count: int = 0
+    primary_anchor_kind: PlacementSourceKind = PlacementSourceKind.CHAIN
     points: tuple[tuple[ScaffoldPointKey, Vector], ...] = ()
 
 

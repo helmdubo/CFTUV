@@ -15,6 +15,7 @@ try:
         UvAxisMetrics, FrameUvComponents, FrameGroupDisplayCoords,
         SharedClosureUvOffsets, FrameGroupMember,
         FRAME_ROW_GROUP_TOLERANCE, FRAME_COLUMN_GROUP_TOLERANCE,
+        frame_row_class_key, frame_column_class_key,
     )
     from .solve_planning import (
         _build_patch_tree_adjacency,
@@ -35,6 +36,7 @@ except ImportError:
         UvAxisMetrics, FrameUvComponents, FrameGroupDisplayCoords,
         SharedClosureUvOffsets, FrameGroupMember,
         FRAME_ROW_GROUP_TOLERANCE, FRAME_COLUMN_GROUP_TOLERANCE,
+        frame_row_class_key, frame_column_class_key,
     )
     from solve_planning import (
         _build_patch_tree_adjacency,
@@ -315,21 +317,11 @@ def _frame_cross_axis_uv_value(chain_placement: ScaffoldChainPlacement) -> float
 
 
 def _wall_side_row_class_key(chain: BoundaryChain) -> RowClassKey:
-    if not chain.vert_cos:
-        return (0,)
-    avg_z = sum(point.z for point in chain.vert_cos) / float(len(chain.vert_cos))
-    return (int(round(avg_z / FRAME_ROW_GROUP_TOLERANCE)),)
+    return frame_row_class_key(chain)
 
 
 def _wall_side_column_class_key(chain: BoundaryChain) -> ColumnClassKey:
-    if not chain.vert_cos:
-        return (0, 0)
-    avg_x = sum(point.x for point in chain.vert_cos) / float(len(chain.vert_cos))
-    avg_y = sum(point.y for point in chain.vert_cos) / float(len(chain.vert_cos))
-    return (
-        int(round(avg_x / FRAME_COLUMN_GROUP_TOLERANCE)),
-        int(round(avg_y / FRAME_COLUMN_GROUP_TOLERANCE)),
-    )
+    return frame_column_class_key(chain)
 
 
 def _frame_group_display_coords(

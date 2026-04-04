@@ -280,6 +280,8 @@ def _cf_apply_closure_preconstraint(
                 anchor_option.end_anchor,
                 final_scale,
                 direction_option.direction_override,
+                placed_chains_map=placed_chains_map,
+                graph=graph,
             )
             if not uv_points or len(uv_points) != len(chain.vert_cos):
                 continue
@@ -1030,6 +1032,8 @@ def try_place_frontier_candidate(
         candidate.end_anchor,
         runtime_policy.final_scale,
         dir_override,
+        placed_chains_map=runtime_policy.placed_chains_map,
+        graph=runtime_policy.graph,
     )
     if not uv_points or len(uv_points) != len(chain.vert_cos):
         runtime_policy.reject_chain(chain_ref)
@@ -1041,6 +1045,12 @@ def try_place_frontier_candidate(
         return False
 
     anchor_count = _cf_anchor_count(candidate.start_anchor, candidate.end_anchor)
+    if candidate.start_anchor is not None:
+        primary_anchor_kind = candidate.start_anchor.source_kind
+    elif candidate.end_anchor is not None:
+        primary_anchor_kind = candidate.end_anchor.source_kind
+    else:
+        primary_anchor_kind = PlacementSourceKind.CHAIN
     chain_placement = ScaffoldChainPlacement(
         patch_id=chain_ref[0],
         loop_index=chain_ref[1],
@@ -1048,6 +1058,7 @@ def try_place_frontier_candidate(
         frame_role=chain.frame_role,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=anchor_count,
+        primary_anchor_kind=primary_anchor_kind,
         points=tuple(
             (ScaffoldPointKey(chain_ref[0], chain_ref[1], chain_ref[2], i), uv.copy())
             for i, uv in enumerate(uv_points)

@@ -61,6 +61,23 @@ ColumnClassKey = tuple[int, int]
 FrameClassKey = tuple[int, ...]
 
 
+def frame_row_class_key(chain: BoundaryChain) -> RowClassKey:
+    """Row group key by average Z of 3D vertices."""
+    if not chain.vert_cos:
+        return (0,)
+    avg_z = sum(p.z for p in chain.vert_cos) / float(len(chain.vert_cos))
+    return (int(round(avg_z / FRAME_ROW_GROUP_TOLERANCE)),)
+
+
+def frame_column_class_key(chain: BoundaryChain) -> ColumnClassKey:
+    """Column group key by average X,Y of 3D vertices."""
+    if not chain.vert_cos:
+        return (0, 0)
+    avg_x = sum(p.x for p in chain.vert_cos) / float(len(chain.vert_cos))
+    avg_y = sum(p.y for p in chain.vert_cos) / float(len(chain.vert_cos))
+    return (int(round(avg_x / FRAME_COLUMN_GROUP_TOLERANCE)), int(round(avg_y / FRAME_COLUMN_GROUP_TOLERANCE)))
+
+
 @dataclass(frozen=True)
 class SolveComponentsResult:
     components: list[set[int]]
@@ -980,6 +997,8 @@ __all__ = [
     'RowClassKey',
     'ColumnClassKey',
     'FrameClassKey',
+    'frame_row_class_key',
+    'frame_column_class_key',
     'PointRegistryKey',
     'VertexPlacementRef',
     'PointRegistry',

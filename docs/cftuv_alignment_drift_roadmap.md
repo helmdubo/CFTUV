@@ -249,3 +249,47 @@ Before accepting any alignment implementation:
 - [ ] regression snapshot explains the before/after delta
 
 If any of these fail, the correction layer is wrong or under-instrumented.
+
+---
+
+## 11. Cross-Axis Consensus Fix (implemented)
+
+### Problem
+
+`_build_frame_chain_from_one_end()` copies full UV from XP anchor including cross-axis.
+Direction is snapped to pure axis but start_point keeps the neighbor's cross-axis error.
+On T-shaped wall niches this injects ~36% span drift into clean chains from distorted neighbors.
+
+### Root cause
+
+`_cf_find_anchors()` creates `ChainAnchor.uv` from `point_registry` without cross-axis filtering.
+For one-end CROSS_PATCH frame anchors the cross-axis is blind inheritance from neighbor patch.
+
+### Fix
+
+Frontier-level override in `_cf_place_chain()` (`cftuv/frontier_place.py`):
+for one-end XP H/V placement, cross-axis component is replaced with **trusted frame group consensus**
+(weighted average of already-placed same-group chains). Anchor UV unchanged if no consensus exists.
+
+Trusted = `anchor_count >= 2` or `primary_anchor_kind != CROSS_PATCH`.
+Weight = chain UV length (scaled 3D edge sum), not point count.
+
+### Key files
+
+- `cftuv/frontier_place.py` — `_frame_group_cross_axis_consensus()`, consensus override in `_cf_place_chain()`
+- `cftuv/model.py` — `ScaffoldChainPlacement.primary_anchor_kind` field
+- `cftuv/solve_records.py` — `frame_row_class_key()`, `frame_column_class_key()` (shared helpers)
+- `cftuv/frontier_eval.py`, `cftuv/frontier_rescue.py` — propagate `primary_anchor_kind`, pass `placed_chains_map`/`graph`
+
+### Known limitations
+
+- If the problem chain enters its frame group first, no consensus exists yet — anchor UV used as-is.
+- Post-hoc correction (Variant A: frame snap, Variant B: subtree translation) was prototyped
+  in `drift_correction.py` / `frontier_finalize.py` but removed as insufficient for closure-sensitive cases.
+  The approach is documented below for reference if needed in the future.
+
+### Rejected approaches
+
+- **Post-hoc frame snap** (Variant A): shift cross-axis after placement. All groups were closure_sensitive on target mesh — zero proposals generated.
+- **Subtree rigid translation** (Variant B): move downstream patch subtree. Redistributes error between closure seam and tree edge rather than eliminating it.
+- **3D-based cross-axis override**: compute cross-axis from 3D geometry. Breaks anchor seam connectivity contract.

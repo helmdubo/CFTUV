@@ -22,6 +22,8 @@ try:
     )
     from .solve_records import (
         ChainAnchor,
+        frame_row_class_key,
+        frame_column_class_key,
         PointRegistry,
         SeedPlacementResult,
         _point_registry_key,
@@ -42,6 +44,8 @@ except ImportError:
     )
     from solve_records import (
         ChainAnchor,
+        frame_row_class_key,
+        frame_column_class_key,
         PointRegistry,
         SeedPlacementResult,
         _point_registry_key,
@@ -56,6 +60,12 @@ def _build_temporary_chain_placement(
     end_anchor: Optional[ChainAnchor],
 ) -> ScaffoldChainPlacement:
     patch_id, loop_index, chain_index = chain_ref
+    if start_anchor is not None:
+        _pak = start_anchor.source_kind
+    elif end_anchor is not None:
+        _pak = end_anchor.source_kind
+    else:
+        _pak = PlacementSourceKind.CHAIN
     return ScaffoldChainPlacement(
         patch_id=patch_id,
         loop_index=loop_index,
@@ -63,6 +73,7 @@ def _build_temporary_chain_placement(
         frame_role=chain.frame_role,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=_cf_anchor_count(start_anchor, end_anchor),
+        primary_anchor_kind=_pak,
         points=tuple(
             (ScaffoldPointKey(patch_id, loop_index, chain_index, point_index), uv.copy())
             for point_index, uv in enumerate(uv_points)
@@ -409,6 +420,96 @@ def _build_guided_free_chain_between_anchors(
     return best_profile
 
 
+def _frontier_chain_cross_uv(placement: ScaffoldChainPlacement) -> float:
+    """Mean cross-axis UV for a placed chain. H_FRAME->avg Y, V_FRAME->avg X."""
+    if not placement.points:
+        return 0.0
+    if placement.frame_role == FrameRole.H_FRAME:
+        return sum(uv.y for _, uv in placement.points) / float(len(placement.points))
+    if placement.frame_role == FrameRole.V_FRAME:
+        return sum(uv.x for _, uv in placement.points) / float(len(placement.points))
+    return 0.0
+
+
+def _frontier_chain_uv_length(chain: BoundaryChain, final_scale: float) -> float:
+    """Total UV-space edge length for a chain (scaled 3D edge lengths)."""
+    pts = chain.vert_cos
+    if len(pts) < 2:
+        return 0.0
+    total = 0.0
+    for i in range(len(pts) - 1):
+        total += (pts[i + 1] - pts[i]).length * final_scale
+    return total
+
+
+def _frame_group_cross_axis_consensus(
+    chain: BoundaryChain,
+    node: PatchNode,
+    role: FrameRole,
+    placed_chains_map: dict,
+    graph: PatchGraph,
+    final_scale: float,
+) -> Optional[float]:
+    """Weighted average cross-axis UV of trusted already-placed chains in the same frame group.
+
+    Returns None if no trusted same-group chains are placed yet or chain is not eligible.
+    Only applies to WALL.SIDE patches with H_FRAME or V_FRAME role.
+
+    Trusted = dual-anchor (anchor_count >= 2) or non-CROSS_PATCH primary anchor.
+    Weight = chain UV length (scaled 3D edge sum).
+    """
+    if node.semantic_key != 'WALL.SIDE':
+        return None
+    if role == FrameRole.H_FRAME:
+        target_key = frame_row_class_key(chain)
+    elif role == FrameRole.V_FRAME:
+        target_key = frame_column_class_key(chain)
+    else:
+        return None
+
+    total_weight = 0.0
+    weighted_sum = 0.0
+
+    for ref, placement in placed_chains_map.items():
+        if placement.frame_role != role:
+            continue
+        if not placement.points:
+            continue
+        # Trusted filter: dual-anchor or non-XP primary anchor
+        if placement.anchor_count < 2 and placement.primary_anchor_kind == PlacementSourceKind.CROSS_PATCH:
+            continue
+        other_patch_id = ref[0]
+        other_node = graph.nodes.get(other_patch_id)
+        if other_node is None or other_node.semantic_key != 'WALL.SIDE':
+            continue
+        other_loop_index = ref[1]
+        other_chain_index = ref[2]
+        if other_loop_index < 0 or other_loop_index >= len(other_node.boundary_loops):
+            continue
+        other_loop = other_node.boundary_loops[other_loop_index]
+        if other_chain_index < 0 or other_chain_index >= len(other_loop.chains):
+            continue
+        other_chain = other_loop.chains[other_chain_index]
+        if len(other_chain.vert_cos) < 2:
+            continue
+
+        if role == FrameRole.H_FRAME:
+            other_key = frame_row_class_key(other_chain)
+        else:
+            other_key = frame_column_class_key(other_chain)
+
+        if other_key != target_key:
+            continue
+
+        w = max(_frontier_chain_uv_length(other_chain, final_scale), 1e-8)
+        weighted_sum += _frontier_chain_cross_uv(placement) * w
+        total_weight += w
+
+    if total_weight <= 1e-8:
+        return None
+    return weighted_sum / total_weight
+
+
 def _build_frame_chain_from_one_end(
     ordered_source_points: list[SourcePoint],
     start_point: Vector,
@@ -715,6 +816,8 @@ def _cf_place_chain(
     end_anchor: Optional[ChainAnchor],
     final_scale,
     direction_override=None,
+    placed_chains_map=None,
+    graph=None,
 ):
     """Ð Ð°Ð·Ð¼ÐµÑ‰Ð°ÐµÑ‚ Ð¾Ð´Ð¸Ð½ chain Ð² UV, Ð¸ÑÐ¿Ð¾Ð»ÑŒÐ·ÑƒÑ Ð¿Ñ€Ð¾Ð²ÐµÑ€ÐµÐ½Ð½Ñ‹Ðµ anchors."""
     source_pts = _cf_chain_source_points(chain)
@@ -722,6 +825,29 @@ def _cf_place_chain(
     role = chain.frame_role
     start_uv = start_anchor.uv.copy() if start_anchor is not None else None
     end_uv = end_anchor.uv.copy() if end_anchor is not None else None
+
+    # Cross-axis consensus: for one-end XP frame anchors, replace cross-axis with group consensus
+    if role in (FrameRole.H_FRAME, FrameRole.V_FRAME) and placed_chains_map is not None and graph is not None:
+        if start_uv is not None and end_uv is None and start_anchor is not None:
+            if start_anchor.source_kind == PlacementSourceKind.CROSS_PATCH:
+                consensus = _frame_group_cross_axis_consensus(
+                    chain, node, role, placed_chains_map, graph, final_scale,
+                )
+                if consensus is not None:
+                    if role == FrameRole.H_FRAME:
+                        start_uv = Vector((start_uv.x, consensus))
+                    else:
+                        start_uv = Vector((consensus, start_uv.y))
+        if end_uv is not None and start_uv is None and end_anchor is not None:
+            if end_anchor.source_kind == PlacementSourceKind.CROSS_PATCH:
+                consensus = _frame_group_cross_axis_consensus(
+                    chain, node, role, placed_chains_map, graph, final_scale,
+                )
+                if consensus is not None:
+                    if role == FrameRole.H_FRAME:
+                        end_uv = Vector((end_uv.x, consensus))
+                    else:
+                        end_uv = Vector((consensus, end_uv.y))
 
     if start_uv is not None and end_uv is not None:
         if role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
