@@ -9,6 +9,7 @@ try:
         CORNER_ANGLE_THRESHOLD_DEG,
         FRAME_ALIGNMENT_THRESHOLD_H,
         FRAME_ALIGNMENT_THRESHOLD_V,
+        FRAME_COMPOUND_LENGTH_THRESHOLD,
     )
     from .model import BoundaryCorner, CornerKind, FrameRole, LoopKind
     from .analysis_records import _RawBoundaryChain
@@ -18,6 +19,7 @@ except ImportError:
         CORNER_ANGLE_THRESHOLD_DEG,
         FRAME_ALIGNMENT_THRESHOLD_H,
         FRAME_ALIGNMENT_THRESHOLD_V,
+        FRAME_COMPOUND_LENGTH_THRESHOLD,
     )
     from model import BoundaryCorner, CornerKind, FrameRole, LoopKind
     from analysis_records import _RawBoundaryChain
@@ -103,15 +105,20 @@ def _classify_chain_frame_role(chain_vert_cos, basis_u, basis_v, strict_guards=T
         h_max_deviation_limit = max(threshold_h * 4.0, threshold_h + 0.08)
         v_max_deviation_limit = max(threshold_v * 4.0, threshold_v + 0.08)
 
+    h_compound = metrics["h_avg_deviation"] * math.sqrt(metrics["total_length"])
+    v_compound = metrics["v_avg_deviation"] * math.sqrt(metrics["total_length"])
+
     h_ok = (
         metrics["h_support"] > 1e-6
         and metrics["h_avg_deviation"] < threshold_h
         and metrics["h_max_deviation"] < h_max_deviation_limit
+        and h_compound < FRAME_COMPOUND_LENGTH_THRESHOLD
     )
     v_ok = (
         metrics["v_support"] > 1e-6
         and metrics["v_avg_deviation"] < threshold_v
         and metrics["v_max_deviation"] < v_max_deviation_limit
+        and v_compound < FRAME_COMPOUND_LENGTH_THRESHOLD
     )
 
     if h_ok and v_ok:
