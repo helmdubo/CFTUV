@@ -1,5 +1,6 @@
 import bpy
 import colorsys
+from mathutils import Vector
 
 try:
     from .constants import GP_DEBUG_PREFIX
@@ -27,6 +28,11 @@ _BASIS_COLORS = {
     'V': (0.15, 1.0, 0.15, 1.0),
     'N': (0.2, 0.2, 1.0, 1.0),
 }
+
+_LABEL_COLLECTION_NAME = GP_DEBUG_PREFIX + 'Labels'
+_LABEL_PREFIX = GP_DEBUG_PREFIX + 'L_'
+_LABEL_SCALE = 0.06
+_LABEL_LIFT = 0.025
 
 
 def _enum_value(value):
@@ -174,7 +180,107 @@ def _ensure_gp_fill_material(gp_data, mat_name, color_rgba):
     return len(gp_data.materials) - 1
 
 
+def _get_or_create_label_collection():
+    """Возвращает коллекцию для text labels, создаёт если нет."""
+    if _LABEL_COLLECTION_NAME in bpy.data.collections:
+        return bpy.data.collections[_LABEL_COLLECTION_NAME]
+    col = bpy.data.collections.new(_LABEL_COLLECTION_NAME)
+    bpy.context.scene.collection.children.link(col)
+    return col
+
+
+def _clear_labels():
+    """Удаляет все text label objects и коллекцию."""
+    if _LABEL_COLLECTION_NAME in bpy.data.collections:
+        col = bpy.data.collections[_LABEL_COLLECTION_NAME]
+        for obj in list(col.objects):
+            data = obj.data
+            bpy.data.objects.remove(obj, do_unlink=True)
+            if data and data.users == 0:
+                bpy.data.curves.remove(data)
+        bpy.data.collections.remove(col)
+    # Зачищаем осиротевшие label объекты
+    for obj in list(bpy.data.objects):
+        if obj.name.startswith(_LABEL_PREFIX):
+            data = obj.data
+            bpy.data.objects.remove(obj, do_unlink=True)
+            if data and data.users == 0:
+                bpy.data.curves.remove(data)
+
+
+def _chain_midpoint(chain):
+    """Точка на середине chain по длине."""
+    points = list(chain.vert_cos)
+    if not points:
+        return Vector((0, 0, 0))
+    if len(points) == 1:
+        return points[0].copy()
+    # Считаем суммарную длину
+    seg_lengths = []
+    total = 0.0
+    for i in range(len(points) - 1):
+        seg_len = (points[i + 1] - points[i]).length
+        seg_lengths.append(seg_len)
+        total += seg_len
+    if total < 1e-8:
+        return points[0].copy()
+    half = total * 0.5
+    accum = 0.0
+    for i, seg_len in enumerate(seg_lengths):
+        if accum + seg_len >= half:
+            t = (half - accum) / seg_len if seg_len > 1e-8 else 0.0
+            return points[i].lerp(points[i + 1], t)
+        accum += seg_len
+    return points[-1].copy()
+
+
+def _create_chain_labels(graph, source_obj):
+    """Создаёт text label в midpoint каждого chain: P{id}C{idx}."""
+    _clear_labels()
+    col = _get_or_create_label_collection()
+    world_matrix = source_obj.matrix_world
+
+    for patch_id in sorted(graph.nodes.keys()):
+        node = graph.nodes[patch_id]
+        normal = node.normal
+        for loop in node.boundary_loops:
+            for chain_idx, chain in enumerate(loop.chains):
+                if len(chain.vert_cos) < 1:
+                    continue
+                mid = _chain_midpoint(chain)
+                pos = _lift_point(mid, normal, _LABEL_LIFT)
+                pos = world_matrix @ pos
+
+                label_text = f"P{patch_id}C{chain_idx}"
+                obj_name = f"{_LABEL_PREFIX}{patch_id}_{chain_idx}"
+
+                curve_data = bpy.data.curves.new(obj_name, type='FONT')
+                curve_data.body = label_text
+                curve_data.size = _LABEL_SCALE
+                curve_data.align_x = 'CENTER'
+                curve_data.align_y = 'CENTER'
+
+                role = chain.frame_role if isinstance(chain.frame_role, FrameRole) else FrameRole(chain.frame_role)
+                color = _CHAIN_COLORS.get(role, _CHAIN_COLORS[FrameRole.FREE])
+
+                mat_name = f'CFTUV_Label_{role.value}'
+                if mat_name in bpy.data.materials:
+                    mat = bpy.data.materials[mat_name]
+                else:
+                    mat = bpy.data.materials.new(mat_name)
+                mat.diffuse_color = color[:4]
+
+                curve_data.materials.clear()
+                curve_data.materials.append(mat)
+
+                text_obj = bpy.data.objects.new(obj_name, curve_data)
+                text_obj.location = pos
+                col.objects.link(text_obj)
+
+
 def clear_visualization(source_obj):
+    _clear_labels()
+
     gp_name = _get_gp_debug_name(source_obj)
     if gp_name in bpy.data.objects:
         obj = bpy.data.objects[gp_name]
@@ -199,6 +305,7 @@ def clear_visualization(source_obj):
             or mat.name.startswith('CFTUV_Loops_')
             or mat.name.startswith('CFTUV_Overlay_')
             or mat.name.startswith('CFTUV_Frontier_')
+            or mat.name.startswith('CFTUV_Label_')
         ) and mat.users == 0:
             bpy.data.materials.remove(mat)
 
@@ -284,6 +391,11 @@ def apply_layer_visibility(gp_data, dbg_settings):
     for layer_name, visible in mapping.items():
         if layer_name in gp_data.layers:
             gp_data.layers[layer_name].hide = not visible
+
+    # Labels collection visibility
+    labels_visible = dbg_settings.get('overlay_labels', True)
+    if _LABEL_COLLECTION_NAME in bpy.data.collections:
+        bpy.data.collections[_LABEL_COLLECTION_NAME].hide_viewport = not labels_visible
 
 
 def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
@@ -424,6 +536,8 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
                 line_width = 6 if role in (FrameRole.H_FRAME, FrameRole.V_FRAME) else 3
                 mat_idx = chain_mat_indices.get(role, chain_mat_indices[FrameRole.FREE])
                 _add_gp_stroke(chains_frame, lifted_points, mat_idx, line_width=line_width)
+
+    _create_chain_labels(graph, source_obj)
 
     apply_layer_visibility(gp_data, settings_dict)
     return gp_obj

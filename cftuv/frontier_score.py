@@ -779,7 +779,18 @@ def _cf_score_patch_anchor_context(
         if topology_facts.hv_adjacency >= 2:
             score += score_hv_adj_full_bonus
         elif topology_facts.hv_adjacency <= 0:
-            score -= score_hv_adj_isolated_penalty
+            placed_hv = patch_context.placed_h_count + patch_context.placed_v_count
+            has_same_patch_anchor = topology_facts.same_patch_anchor_count > 0
+            if placed_hv == 0:
+                # Bootstrap: первый H/V chain в патче — минимальный штраф,
+                # чтобы запустить scaffold.
+                score -= score_hv_adj_isolated_penalty * 0.15
+            elif has_same_patch_anchor:
+                # H/V chain bridging через FREE секцию, но имеет anchor
+                # от уже placed chain — не изолирован, штраф снижен.
+                score -= score_hv_adj_isolated_penalty * 0.35
+            else:
+                score -= score_hv_adj_isolated_penalty
 
     if topology_facts.is_bridge and patch_context.is_untouched:
         score -= score_bridge_first_patch_penalty

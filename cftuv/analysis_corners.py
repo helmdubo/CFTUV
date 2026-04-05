@@ -57,16 +57,17 @@ def _measure_chain_axis_metrics(chain_vert_cos, basis_u, basis_v):
         abs_dv = abs(dv)
         abs_dn = abs(dn)
         nu_support = math.sqrt(abs_du * abs_du + abs_dn * abs_dn)
+        nv_support = math.sqrt(abs_dv * abs_dv + abs_dn * abs_dn)
 
         # H_FRAME читается как направление в плоскости N-U:
         # допускаем изгиб по N, но штрафуем уход вдоль V.
         h_support += nu_support
-        v_support += abs_dv
+        # V_FRAME читается как направление в плоскости N-V:
+        # допускаем изгиб по N (дуга), но штрафуем уход вдоль U.
+        v_support += nv_support
         n_support += abs_dn
         h_deviation = abs_dv / seg_len
-        # V_FRAME читается как строгая ось V:
-        # штрафуем любой выход в плоскость N-U.
-        v_deviation = nu_support / seg_len
+        v_deviation = abs_du / seg_len
         h_deviation_sum += h_deviation * seg_len
         v_deviation_sum += v_deviation * seg_len
         h_max_deviation = max(h_max_deviation, h_deviation)

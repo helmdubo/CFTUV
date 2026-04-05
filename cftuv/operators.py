@@ -161,6 +161,9 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
     dbg_loops_chains: BoolProperty(name="Chains", default=True)
     dbg_loops_holes: BoolProperty(name="Holes", default=True)
 
+    # Overlay group
+    dbg_overlay_labels: BoolProperty(name="Chain Labels", default=True)
+
 
 # ============================================================
 # OPERATOR HELPERS
@@ -189,6 +192,7 @@ def _build_debug_settings(settings: HOTSPOTUV_Settings) -> dict:
         'loops_holes': bool(loops_visible and settings.dbg_loops_holes),
         'overlay_basis': overlay_visible,
         'overlay_centers': overlay_visible,
+        'overlay_labels': bool(overlay_visible and settings.dbg_overlay_labels),
         'frontier_path': True,
     }
 
@@ -697,6 +701,16 @@ class HOTSPOTUV_OT_DebugToggleLayer(bpy.types.Operator):
             return {"CANCELLED"}
 
         gp_data = gp_obj.data
+
+        # Chain Labels — управляем коллекцией, а не GP layer
+        if self.layer_name == 'Overlay_Labels':
+            from .debug import _LABEL_COLLECTION_NAME
+            if _LABEL_COLLECTION_NAME in bpy.data.collections:
+                col = bpy.data.collections[_LABEL_COLLECTION_NAME]
+                col.hide_viewport = not col.hide_viewport
+                s.dbg_overlay_labels = not col.hide_viewport
+            return {"FINISHED"}
+
         if self.layer_name in gp_data.layers:
             layer = gp_data.layers[self.layer_name]
             layer.hide = not layer.hide
@@ -748,6 +762,12 @@ class HOTSPOTUV_OT_DebugToggleGroup(bpy.types.Operator):
         for layer_name in self._GROUP_LAYERS.get(self.group_name, []):
             if layer_name in gp_data.layers:
                 gp_data.layers[layer_name].hide = not new_val
+
+        # Overlay group также управляет коллекцией labels
+        if self.group_name == 'overlay':
+            from .debug import _LABEL_COLLECTION_NAME
+            if _LABEL_COLLECTION_NAME in bpy.data.collections:
+                bpy.data.collections[_LABEL_COLLECTION_NAME].hide_viewport = not new_val
 
         return {"FINISHED"}
 
@@ -1203,7 +1223,8 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
                 _draw_debug_group(
                     col, s, gp_data, "overlay", "Overlay", "ORIENTATION_LOCAL",
                     [('Overlay_Basis', 'Basis (U/V/N)'),
-                     ('Overlay_Centers', 'Centers')],
+                     ('Overlay_Centers', 'Centers'),
+                     ('Overlay_Labels', 'Chain Labels')],
                 )
 
             col.separator()
@@ -1224,6 +1245,21 @@ def _draw_debug_group(col, settings, gp_data, group_name, label, icon, layers):
 
     if is_expanded:
         for layer_name, layer_label in layers:
+            # Chain Labels — коллекция, а не GP layer
+            if layer_name == 'Overlay_Labels':
+                from .debug import _LABEL_COLLECTION_NAME
+                if _LABEL_COLLECTION_NAME in bpy.data.collections:
+                    label_col = bpy.data.collections[_LABEL_COLLECTION_NAME]
+                    row = box.row(align=True)
+                    row.separator(factor=2.0)
+                    vis_icon = 'HIDE_OFF' if not label_col.hide_viewport else 'HIDE_ON'
+                    op = row.operator(
+                        "hotspotuv.debug_toggle_layer", text="", icon=vis_icon
+                    )
+                    op.layer_name = layer_name
+                    row.label(text=layer_label)
+                continue
+
             if layer_name in gp_data.layers:
                 layer = gp_data.layers[layer_name]
                 row = box.row(align=True)
