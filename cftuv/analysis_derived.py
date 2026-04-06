@@ -527,6 +527,16 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             "straighten_eligible": straighten_eligible,
         }
 
+        # DEBUG: temporary diagnostic print
+        print(
+            f"[STRUCTURAL] P{patch_id}: "
+            f"spine_runs={len(spine_roles_sorted)} spine_axis={spine_axis} spine_len={spine_length:.2f} "
+            f"perimeter={perimeter:.2f} spine_ratio={spine_ratio:.2f} spine_score={spine_score:.2f} "
+            f"elongation={elongation:.2f} side_conf={side_confidence:.2f} "
+            f"T={terminal_count} B={branch_count} "
+            f"strip_conf={strip_confidence:.2f} eligible={'Y' if straighten_eligible else 'N'}"
+        )
+
     return result
 
 
