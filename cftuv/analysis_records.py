@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from enum import Enum
+from typing import Optional
 
 from mathutils import Vector
 
@@ -174,6 +176,8 @@ class _ResolvedLoopCornerIdentity:
 DirectionBucketKey = tuple[float, float, float]
 PatchLoopKey = tuple[int, int]
 CornerJunctionKey = tuple[int, int, int]
+RunKey = tuple[int, int, int]          # (patch_id, loop_index, run_index)
+JunctionPatchKey = tuple[int, int]     # (vert_index, patch_id)
 
 
 @dataclass(frozen=True)
@@ -210,6 +214,39 @@ class _FrameRun:
     max_free_gap_length: float = 0.0
     projected_u_span: float = 0.0
     projected_v_span: float = 0.0
+
+
+class _JunctionStructuralKind(str, Enum):
+    """Structural role of a junction vertex in context of one patch."""
+    TERMINAL = "TERMINAL"
+    CONTINUATION = "CONTINUATION"
+    TURN = "TURN"
+    BRANCH = "BRANCH"
+    FREE = "FREE"
+
+
+@dataclass(frozen=True)
+class _RunStructuralRole:
+    """Structural interpretation of one FrameRun within its patch.
+    Companion to _FrameRun — fact vs interpretation separation."""
+
+    run_key: RunKey
+    is_spine_candidate: bool = False
+    spine_rank: int = -1
+    opposing_run_key: Optional[RunKey] = None
+    side_pair_length_ratio: float = 0.0
+
+
+@dataclass(frozen=True)
+class _JunctionStructuralRole:
+    """Structural role of a junction vertex in context of one patch.
+    Derived view over existing _Junction + _FrameRun data."""
+
+    vert_index: int
+    patch_id: int
+    kind: _JunctionStructuralKind = _JunctionStructuralKind.FREE
+    spine_run_key: Optional[RunKey] = None
+    implied_turn: float = -1.0
 
 
 @dataclass(frozen=True)
@@ -299,6 +336,13 @@ class _PatchDerivedTopologySummary:
     v_count: int = 0
     free_count: int = 0
     loop_summaries: tuple[_LoopDerivedTopologySummary, ...] = ()
+    spine_run_indices: tuple[int, ...] = ()
+    spine_axis: FrameRole = FrameRole.FREE
+    spine_length: float = 0.0
+    terminal_count: int = 0
+    branch_count: int = 0
+    strip_confidence: float = 0.0
+    straighten_eligible: bool = False
 
 
 @dataclass(frozen=True)
@@ -338,3 +382,5 @@ class _PatchGraphDerivedTopology:
     run_refs_by_corner: Mapping[CornerJunctionKey, tuple[_JunctionRunEndpointRef, ...]] = field(default_factory=dict)
     junctions: tuple[_Junction, ...] = ()
     junctions_by_vert_index: Mapping[int, _Junction] = field(default_factory=dict)
+    run_structural_roles: Mapping[RunKey, _RunStructuralRole] = field(default_factory=dict)
+    junction_structural_roles: Mapping[JunctionPatchKey, _JunctionStructuralRole] = field(default_factory=dict)

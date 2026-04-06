@@ -1,16 +1,24 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import MappingProxyType
 
 try:
     from .constants import CORNER_ANGLE_THRESHOLD_DEG
     from .model import ChainNeighborKind, FrameRole, LoopKind, PatchType, WorldFacing
     from .analysis_records import (
+        _FrameRun,
+        _Junction,
+        _JunctionStructuralKind,
+        _JunctionStructuralRole,
         _LoopFrameRunBuildResult,
         _LoopDerivedTopologySummary,
         _PatchDerivedTopologySummary,
         _PatchGraphAggregateCounts,
         _PatchGraphDerivedTopology,
+        _RunStructuralRole,
+        JunctionPatchKey,
+        RunKey,
     )
     from .analysis_frame_runs import _build_patch_graph_loop_frame_results
     from .analysis_junctions import _build_junction_run_refs_by_corner, _build_patch_graph_junctions
@@ -18,11 +26,18 @@ except ImportError:
     from constants import CORNER_ANGLE_THRESHOLD_DEG
     from model import ChainNeighborKind, FrameRole, LoopKind, PatchType, WorldFacing
     from analysis_records import (
+        _FrameRun,
+        _Junction,
+        _JunctionStructuralKind,
+        _JunctionStructuralRole,
         _LoopFrameRunBuildResult,
         _LoopDerivedTopologySummary,
         _PatchDerivedTopologySummary,
         _PatchGraphAggregateCounts,
         _PatchGraphDerivedTopology,
+        _RunStructuralRole,
+        JunctionPatchKey,
+        RunKey,
     )
     from analysis_frame_runs import _build_patch_graph_loop_frame_results
     from analysis_junctions import _build_junction_run_refs_by_corner, _build_patch_graph_junctions
@@ -198,6 +213,339 @@ def _build_patch_topology_summaries(graph, loop_frame_results):
     return tuple(patch_summaries), aggregate_counts
 
 
+def _clamp01(x):
+    """Clamp a float to the [0.0, 1.0] range."""
+    return max(0.0, min(1.0, x))
+
+
+def _interpret_run_structural_roles(frame_runs_by_loop, junctions):
+    """Assign structural roles to frame runs: spine candidates, ranks, opposing pairs.
+
+    Spine axis = the FrameRole axis (H or V) with greater total run length in a patch.
+    Spine candidates = runs on the spine axis, ranked by total_length (0=longest).
+    Opposing = another spine run on the SAME axis in the SAME loop (the parallel side of a strip).
+    """
+
+    # Build full run list with RunKey = (patch_id, loop_index, run_index)
+    all_run_keys = []  # list of (RunKey, _FrameRun)
+    for (patch_id, loop_index), runs in frame_runs_by_loop.items():
+        for run_index, run in enumerate(runs):
+            key = (patch_id, loop_index, run_index)
+            all_run_keys.append((key, run))
+
+    # Group by patch_id
+    runs_by_patch = {}
+    for key, run in all_run_keys:
+        patch_id = key[0]
+        runs_by_patch.setdefault(patch_id, []).append((key, run))
+
+    result = {}
+
+    for patch_id, patch_runs in runs_by_patch.items():
+        h_runs = [(k, r) for k, r in patch_runs if r.dominant_role == FrameRole.H_FRAME]
+        v_runs = [(k, r) for k, r in patch_runs if r.dominant_role == FrameRole.V_FRAME]
+
+        h_total = sum(r.total_length for _, r in h_runs)
+        v_total = sum(r.total_length for _, r in v_runs)
+
+        if h_total == 0.0 and v_total == 0.0:
+            # All FREE or empty — default roles for all runs
+            for key, _run in patch_runs:
+                result[key] = _RunStructuralRole(run_key=key)
+            continue
+
+        if h_total >= v_total and h_total > 0.0:
+            spine_runs = h_runs
+        else:
+            spine_runs = v_runs
+
+        spine_keys = {k for k, _r in spine_runs}
+        non_spine_runs = [
+            (k, r) for k, r in patch_runs
+            if k not in spine_keys
+        ]
+
+        # Rank spine runs by total_length descending
+        spine_runs_sorted = sorted(spine_runs, key=lambda kr: kr[1].total_length, reverse=True)
+
+        # Build spine role assignments
+        spine_roles = {}
+        for rank, (key, run) in enumerate(spine_runs_sorted):
+            # Find opposing run: same dominant_role, same loop, closest total_length
+            same_loop_candidates = [
+                (k, r) for k, r in spine_runs_sorted
+                if k != key and k[1] == key[1]  # same loop_index
+            ]
+            opposing_run_key = None
+            side_pair_length_ratio = 0.0
+            if same_loop_candidates:
+                best = min(
+                    same_loop_candidates,
+                    key=lambda kr: abs(kr[1].total_length - run.total_length),
+                )
+                opp_key, opp_run = best
+                len_a = run.total_length
+                len_b = opp_run.total_length
+                denom = max(len_a, len_b, 1e-8)
+                opposing_run_key = opp_key
+                side_pair_length_ratio = abs(len_a - len_b) / denom
+
+            spine_roles[key] = _RunStructuralRole(
+                run_key=key,
+                is_spine_candidate=True,
+                spine_rank=rank,
+                opposing_run_key=opposing_run_key,
+                side_pair_length_ratio=side_pair_length_ratio,
+            )
+
+        for key, _run in spine_runs_sorted:
+            result[key] = spine_roles[key]
+
+        # Non-spine and FREE runs get default roles
+        for key, _run in non_spine_runs:
+            result[key] = _RunStructuralRole(run_key=key)
+
+        # Also handle FREE runs not in either h_runs or v_runs
+        free_runs = [(k, r) for k, r in patch_runs if r.dominant_role == FrameRole.FREE]
+        for key, _run in free_runs:
+            if key not in result:
+                result[key] = _RunStructuralRole(run_key=key)
+
+    return result
+
+
+def _interpret_junction_structural_roles(junctions, frame_runs_by_loop, run_structural_roles):
+    """Assign structural roles to junctions in context of each patch they touch.
+
+    Each junction vertex may appear in multiple patches. We produce one role per (vert_index, patch_id).
+    """
+
+    result = {}
+
+    for junction in junctions:
+        for patch_id in junction.patch_ids:
+            # Filter chain_refs to only those for this patch
+            patch_chain_refs = [
+                cr for cr in junction.chain_refs if cr.patch_id == patch_id
+            ]
+
+            # Count corners in this patch
+            patch_corner_refs = [c for c in junction.corner_refs if c.patch_id == patch_id]
+            patch_valence = len(patch_corner_refs)
+
+            if patch_valence == 0:
+                continue
+
+            kind = _JunctionStructuralKind.FREE
+            implied_turn = -1.0
+
+            if patch_valence >= 3:
+                kind = _JunctionStructuralKind.BRANCH
+
+            elif patch_valence == 1:
+                # Check for mesh border with h/v chain involvement
+                has_mesh_border = any(
+                    cr.neighbor_kind == ChainNeighborKind.MESH_BORDER
+                    for cr in patch_chain_refs
+                )
+                has_hv = any(
+                    cr.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME)
+                    for cr in patch_chain_refs
+                )
+                if has_mesh_border and has_hv:
+                    kind = _JunctionStructuralKind.TERMINAL
+                else:
+                    # Determine from prev/next chain roles at this corner
+                    corner_ref = patch_corner_refs[0]
+                    prev_chain_refs = [
+                        cr for cr in patch_chain_refs
+                        if cr.chain_index == corner_ref.prev_chain_index
+                    ]
+                    next_chain_refs = [
+                        cr for cr in patch_chain_refs
+                        if cr.chain_index == corner_ref.next_chain_index
+                    ]
+                    prev_role = prev_chain_refs[0].frame_role if prev_chain_refs else FrameRole.FREE
+                    next_role = next_chain_refs[0].frame_role if next_chain_refs else FrameRole.FREE
+
+                    prev_hv = prev_role in (FrameRole.H_FRAME, FrameRole.V_FRAME)
+                    next_hv = next_role in (FrameRole.H_FRAME, FrameRole.V_FRAME)
+
+                    if prev_hv and next_hv:
+                        if prev_role == next_role:
+                            kind = _JunctionStructuralKind.CONTINUATION
+                            implied_turn = 0.0
+                        else:
+                            kind = _JunctionStructuralKind.TURN
+                            implied_turn = 90.0
+                    else:
+                        kind = _JunctionStructuralKind.FREE
+
+            elif patch_valence == 2:
+                kind = _JunctionStructuralKind.BRANCH
+
+            # Find spine_run_key: look at run_endpoint_refs for this patch
+            spine_run_key = None
+            for ref in junction.run_endpoint_refs:
+                if ref.patch_id != patch_id:
+                    continue
+                run_key = (ref.patch_id, ref.loop_index, ref.run_index)
+                role = run_structural_roles.get(run_key)
+                if role is not None and role.is_spine_candidate:
+                    spine_run_key = run_key
+                    break
+
+            junc_key = (junction.vert_index, patch_id)
+            result[junc_key] = _JunctionStructuralRole(
+                vert_index=junction.vert_index,
+                patch_id=patch_id,
+                kind=kind,
+                spine_run_key=spine_run_key,
+                implied_turn=implied_turn,
+            )
+
+    return result
+
+
+def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_roles, junction_structural_roles):
+    """Derive per-patch structural fields: spine info, strip_confidence, straighten_eligible.
+
+    Returns dict[patch_id, dict] with field values to merge into _PatchDerivedTopologySummary.
+    """
+
+    result = {}
+
+    for patch_id in graph.nodes:
+        node = graph.nodes[patch_id]
+
+        # Collect spine runs for this patch
+        spine_roles = [
+            role for key, role in run_structural_roles.items()
+            if key[0] == patch_id and role.is_spine_candidate
+        ]
+        spine_roles_sorted = sorted(spine_roles, key=lambda r: r.spine_rank)
+
+        # Derive spine_run_indices in spine_rank order
+        if spine_roles_sorted:
+            spine_run_indices = tuple(r.run_key[2] for r in spine_roles_sorted)
+            primary_role = spine_roles_sorted[0]
+            # Get the actual _FrameRun for spine_axis
+            primary_run_key = primary_role.run_key
+            primary_loop_key = (primary_run_key[0], primary_run_key[1])
+            primary_runs_tuple = frame_runs_by_loop.get(primary_loop_key, ())
+            if primary_run_key[2] < len(primary_runs_tuple):
+                spine_axis = primary_runs_tuple[primary_run_key[2]].dominant_role
+            else:
+                spine_axis = FrameRole.FREE
+        else:
+            spine_run_indices = ()
+            spine_axis = FrameRole.FREE
+
+        # spine_length = sum of total_length of all spine runs
+        spine_length = 0.0
+        for role in spine_roles_sorted:
+            rk = role.run_key
+            loop_key = (rk[0], rk[1])
+            runs_tuple = frame_runs_by_loop.get(loop_key, ())
+            if rk[2] < len(runs_tuple):
+                spine_length += runs_tuple[rk[2]].total_length
+
+        # Collect junction structural roles for this patch
+        patch_junction_roles = [
+            jrole for (vi, pid), jrole in junction_structural_roles.items()
+            if pid == patch_id
+        ]
+        terminal_count = sum(
+            1 for jr in patch_junction_roles
+            if jr.kind == _JunctionStructuralKind.TERMINAL
+        )
+        branch_count = sum(
+            1 for jr in patch_junction_roles
+            if jr.kind == _JunctionStructuralKind.BRANCH
+        )
+
+        # Compute strip_confidence
+        perimeter = node.perimeter if node.perimeter > 0.0 else sum(
+            runs_tuple[ri].total_length
+            for (pid, li), runs_tuple in frame_runs_by_loop.items()
+            if pid == patch_id
+            for ri in range(len(runs_tuple))
+        )
+        spine_ratio = spine_length / max(perimeter, 1e-8)
+        spine_score = min(1.0, spine_ratio / 0.45)
+
+        # Side confidence from spine runs with opposing pairs
+        side_pair_ratios = [
+            role.side_pair_length_ratio
+            for role in spine_roles_sorted
+            if role.opposing_run_key is not None
+        ]
+        if side_pair_ratios:
+            side_confidence = 1.0 - (sum(side_pair_ratios) / len(side_pair_ratios))
+        else:
+            side_confidence = 0.0
+
+        # Bbox elongation: project boundary verts onto basis_u / basis_v
+        basis_u = node.basis_u
+        basis_v = node.basis_v
+        mesh_verts = node.mesh_verts
+        if mesh_verts:
+            u_coords = [v.dot(basis_u) for v in mesh_verts]
+            v_coords = [v.dot(basis_v) for v in mesh_verts]
+            w = max(u_coords) - min(u_coords)
+            h = max(v_coords) - min(v_coords)
+        else:
+            w = 0.0
+            h = 0.0
+        long_span = max(w, h)
+        short_span = min(w, h)
+        elongation = _clamp01(1.0 - short_span / max(long_span, 1e-8))
+
+        branch_penalty_factor = 1.0 if branch_count == 0 else 0.0
+        raw_confidence = (
+            0.35 * spine_score
+            + 0.25 * elongation
+            + 0.25 * side_confidence
+            + 0.15 * branch_penalty_factor
+            - 0.30 * branch_count
+        )
+        strip_confidence = _clamp01(raw_confidence)
+
+        straighten_eligible = (
+            strip_confidence > 0.6
+            and branch_count == 0
+            and terminal_count >= 1
+        )
+
+        result[patch_id] = {
+            "spine_run_indices": spine_run_indices,
+            "spine_axis": spine_axis,
+            "spine_length": spine_length,
+            "terminal_count": terminal_count,
+            "branch_count": branch_count,
+            "strip_confidence": strip_confidence,
+            "straighten_eligible": straighten_eligible,
+        }
+
+    return result
+
+
+def _enrich_patch_summaries(patch_summaries, structural_fields):
+    """Create new patch summaries with structural interpretation fields merged in.
+
+    Returns new tuple of _PatchDerivedTopologySummary with spine/strip fields filled.
+    """
+
+    enriched = []
+    for summary in patch_summaries:
+        fields = structural_fields.get(summary.patch_id)
+        if fields is not None:
+            enriched.append(replace(summary, **fields))
+        else:
+            enriched.append(summary)
+    return tuple(enriched)
+
+
 def _build_patch_graph_derived_topology(graph, measure_chain_axis_metrics):
     """Build the canonical derived topology bundle over the final PatchGraph."""
 
@@ -205,6 +553,25 @@ def _build_patch_graph_derived_topology(graph, measure_chain_axis_metrics):
     patch_summaries, aggregate_counts = _build_patch_topology_summaries(graph, loop_frame_results)
     run_refs_by_corner = _build_junction_run_refs_by_corner(loop_frame_results)
     junctions = tuple(_build_patch_graph_junctions(graph, run_refs_by_corner=run_refs_by_corner))
+
+    frame_runs_by_loop = {
+        loop_key: build_result.runs
+        for loop_key, build_result in loop_frame_results.items()
+    }
+    junctions_by_vert_index = {
+        junction.vert_index: junction
+        for junction in junctions
+    }
+
+    # --- Structural interpretation pass ---
+    run_structural_roles = _interpret_run_structural_roles(frame_runs_by_loop, junctions)
+    junction_structural_roles = _interpret_junction_structural_roles(
+        junctions, frame_runs_by_loop, run_structural_roles
+    )
+    structural_fields = _derive_patch_structural_summary(
+        graph, frame_runs_by_loop, run_structural_roles, junction_structural_roles
+    )
+    patch_summaries = _enrich_patch_summaries(patch_summaries, structural_fields)
 
     patch_summaries_by_id = {
         patch_summary.patch_id: patch_summary
@@ -214,14 +581,6 @@ def _build_patch_graph_derived_topology(graph, measure_chain_axis_metrics):
         (loop_summary.patch_id, loop_summary.loop_index): loop_summary
         for patch_summary in patch_summaries
         for loop_summary in patch_summary.loop_summaries
-    }
-    frame_runs_by_loop = {
-        loop_key: build_result.runs
-        for loop_key, build_result in loop_frame_results.items()
-    }
-    junctions_by_vert_index = {
-        junction.vert_index: junction
-        for junction in junctions
     }
 
     return _PatchGraphDerivedTopology(
@@ -234,4 +593,6 @@ def _build_patch_graph_derived_topology(graph, measure_chain_axis_metrics):
         run_refs_by_corner=MappingProxyType(dict(run_refs_by_corner)),
         junctions=junctions,
         junctions_by_vert_index=MappingProxyType(dict(junctions_by_vert_index)),
+        run_structural_roles=MappingProxyType(dict(run_structural_roles)),
+        junction_structural_roles=MappingProxyType(dict(junction_structural_roles)),
     )

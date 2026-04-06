@@ -100,6 +100,13 @@ class _PatchConsoleView:
     loop_kind_labels: _LabelSequenceView = field(default_factory=_LabelSequenceView)
     role_labels: _LabelSequenceView = field(default_factory=_LabelSequenceView)
     loop_views: tuple[_LoopConsoleView, ...] = ()
+    # Structural interpretation fields
+    strip_confidence: float = 0.0
+    straighten_eligible: bool = False
+    spine_axis: str = ""
+    spine_length: float = 0.0
+    terminal_count: int = 0
+    branch_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -385,6 +392,12 @@ def _build_patch_console_view(graph, patch_summary, frame_runs_by_loop):
             _enum_value(role) for role in patch_summary.role_sequence
         ),
         loop_views=tuple(loop_views),
+        strip_confidence=patch_summary.strip_confidence,
+        straighten_eligible=patch_summary.straighten_eligible,
+        spine_axis=_enum_value(patch_summary.spine_axis) if hasattr(patch_summary.spine_axis, 'value') else str(patch_summary.spine_axis),
+        spine_length=patch_summary.spine_length,
+        terminal_count=patch_summary.terminal_count,
+        branch_count=patch_summary.branch_count,
     )
 
 
@@ -487,11 +500,20 @@ def _serialize_loop_console_view(loop_view):
 def _serialize_patch_console_view(patch_view):
     """Serialize one typed patch console view into stable report lines."""
 
+    strip_tag = ""
+    if patch_view.strip_confidence > 0.01:
+        eligible_flag = "Y" if patch_view.straighten_eligible else "N"
+        strip_tag = (
+            f" | strip:{patch_view.strip_confidence:.2f} eligible:{eligible_flag}"
+            f" spine:{patch_view.spine_axis} len:{patch_view.spine_length:.1f}"
+            f" T:{patch_view.terminal_count} B:{patch_view.branch_count}"
+        )
     lines = [
         f"  Patch {patch_view.patch_id}: {patch_view.patch_type} | facing:{patch_view.world_facing} | {patch_view.face_count}f | "
         f"loops:{len(patch_view.loop_views)}{_format_label_sequence_view(patch_view.loop_kind_labels)} "
         f"chains:{patch_view.chain_count} corners:{patch_view.corner_count} | "
         f"roles:{_format_label_sequence_view(patch_view.role_labels)}"
+        f"{strip_tag}"
     ]
     for loop_view in patch_view.loop_views:
         lines.extend(_serialize_loop_console_view(loop_view))
