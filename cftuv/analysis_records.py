@@ -235,6 +235,8 @@ class _RunStructuralRole:
     spine_rank: int = -1
     opposing_run_key: Optional[RunKey] = None
     side_pair_length_ratio: float = 0.0
+    inherited_role: Optional[FrameRole] = None
+    inherited_from_patch_id: Optional[int] = None
 
 
 @dataclass(frozen=True)

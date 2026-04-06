@@ -218,13 +218,60 @@ def _clamp01(x):
     return max(0.0, min(1.0, x))
 
 
-def _interpret_run_structural_roles(frame_runs_by_loop, junctions):
+def _compute_neighbor_inherited_roles(graph):
+    """For each FREE chain with a patch neighbor, check neighbor's frame role along shared boundary.
+
+    Returns dict[ChainRef, (FrameRole, int)] mapping chain reference to
+    (inherited_role, source_patch_id). Only includes FREE chains where the
+    neighbor has a strong H/V chain along the same boundary.
+    """
+
+    inherited = {}
+    for patch_id, node in graph.nodes.items():
+        for loop_index, boundary_loop in enumerate(node.boundary_loops):
+            for chain_index, chain in enumerate(boundary_loop.chains):
+                if chain.frame_role != FrameRole.FREE:
+                    continue
+                if chain.neighbor_patch_id < 0:
+                    continue  # MESH_BORDER or SEAM_SELF — no inheritance
+
+                neighbor_id = chain.neighbor_patch_id
+                neighbor_node = graph.nodes.get(neighbor_id)
+                if neighbor_node is None:
+                    continue
+
+                # Find matching chain in neighbor: points back to our patch, shares vertices
+                my_verts = set(chain.vert_indices)
+                for n_loop_idx, n_loop in enumerate(neighbor_node.boundary_loops):
+                    for n_chain_idx, n_chain in enumerate(n_loop.chains):
+                        if n_chain.neighbor_patch_id != patch_id:
+                            continue
+                        n_verts = set(n_chain.vert_indices)
+                        if len(my_verts & n_verts) < 2:
+                            continue
+                        # Found matching neighbor chain
+                        if n_chain.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
+                            ref = (patch_id, loop_index, chain_index)
+                            inherited[ref] = (n_chain.frame_role, neighbor_id)
+                        break  # one match per chain is enough
+
+    return inherited
+
+
+def _interpret_run_structural_roles(frame_runs_by_loop, junctions, neighbor_inherited_roles=None):
     """Assign structural roles to frame runs: spine candidates, ranks, opposing pairs.
 
     Spine axis = the FrameRole axis (H or V) with greater total run length in a patch.
     Spine candidates = runs on the spine axis, ranked by total_length (0=longest).
-    Opposing = another spine run on the SAME axis in the SAME loop (the parallel side of a strip).
+    Opposing = another spine run on the SAME effective axis in the SAME loop.
+
+    FREE runs where all chains have the same inherited role from a neighbor are treated
+    as effective H/V runs for spine detection. This enables strip detection on patches
+    like arc walls where the long sides are FREE but aligned with a framed neighbor.
     """
+
+    if neighbor_inherited_roles is None:
+        neighbor_inherited_roles = {}
 
     # Build full run list with RunKey = (patch_id, loop_index, run_index)
     all_run_keys = []  # list of (RunKey, _FrameRun)
@@ -242,14 +289,40 @@ def _interpret_run_structural_roles(frame_runs_by_loop, junctions):
     result = {}
 
     for patch_id, patch_runs in runs_by_patch.items():
-        h_runs = [(k, r) for k, r in patch_runs if r.dominant_role == FrameRole.H_FRAME]
-        v_runs = [(k, r) for k, r in patch_runs if r.dominant_role == FrameRole.V_FRAME]
+        # Determine effective role for each run (own role or inherited from neighbor)
+        # A FREE run gets an inherited role only if ALL its chains share the same inherited role.
+        run_effective_roles = {}  # RunKey -> (effective_role, inherited_role_or_None, inherited_from_or_None)
+        for key, run in patch_runs:
+            if run.dominant_role != FrameRole.FREE:
+                run_effective_roles[key] = (run.dominant_role, None, None)
+                continue
+
+            # Check if all chains in this run have the same inherited role
+            chain_inherited = []
+            for chain_idx in run.chain_indices:
+                chain_ref = (patch_id, key[1], chain_idx)  # (patch_id, loop_index, chain_index)
+                inh = neighbor_inherited_roles.get(chain_ref)
+                chain_inherited.append(inh)
+
+            if chain_inherited and all(inh is not None for inh in chain_inherited):
+                inherited_roles_set = set(inh[0] for inh in chain_inherited)
+                if len(inherited_roles_set) == 1:
+                    inh_role = chain_inherited[0][0]
+                    inh_from = chain_inherited[0][1]
+                    run_effective_roles[key] = (inh_role, inh_role, inh_from)
+                    continue
+
+            run_effective_roles[key] = (FrameRole.FREE, None, None)
+
+        # Separate runs by effective role
+        h_runs = [(k, r) for k, r in patch_runs if run_effective_roles[k][0] == FrameRole.H_FRAME]
+        v_runs = [(k, r) for k, r in patch_runs if run_effective_roles[k][0] == FrameRole.V_FRAME]
 
         h_total = sum(r.total_length for _, r in h_runs)
         v_total = sum(r.total_length for _, r in v_runs)
 
         if h_total == 0.0 and v_total == 0.0:
-            # All FREE or empty — default roles for all runs
+            # All FREE with no inheritance — default roles
             for key, _run in patch_runs:
                 result[key] = _RunStructuralRole(run_key=key)
             continue
@@ -271,7 +344,7 @@ def _interpret_run_structural_roles(frame_runs_by_loop, junctions):
         # Build spine role assignments
         spine_roles = {}
         for rank, (key, run) in enumerate(spine_runs_sorted):
-            # Find opposing run: same dominant_role, same loop, closest total_length
+            # Find opposing run: same effective axis, same loop, closest total_length
             same_loop_candidates = [
                 (k, r) for k, r in spine_runs_sorted
                 if k != key and k[1] == key[1]  # same loop_index
@@ -290,24 +363,31 @@ def _interpret_run_structural_roles(frame_runs_by_loop, junctions):
                 opposing_run_key = opp_key
                 side_pair_length_ratio = abs(len_a - len_b) / denom
 
+            eff_role, inh_role, inh_from = run_effective_roles[key]
             spine_roles[key] = _RunStructuralRole(
                 run_key=key,
                 is_spine_candidate=True,
                 spine_rank=rank,
                 opposing_run_key=opposing_run_key,
                 side_pair_length_ratio=side_pair_length_ratio,
+                inherited_role=inh_role,
+                inherited_from_patch_id=inh_from,
             )
 
         for key, _run in spine_runs_sorted:
             result[key] = spine_roles[key]
 
-        # Non-spine and FREE runs get default roles
+        # Non-spine runs
         for key, _run in non_spine_runs:
-            result[key] = _RunStructuralRole(run_key=key)
+            eff_role, inh_role, inh_from = run_effective_roles[key]
+            result[key] = _RunStructuralRole(
+                run_key=key,
+                inherited_role=inh_role,
+                inherited_from_patch_id=inh_from,
+            )
 
-        # Also handle FREE runs not in either h_runs or v_runs
-        free_runs = [(k, r) for k, r in patch_runs if r.dominant_role == FrameRole.FREE]
-        for key, _run in free_runs:
+        # FREE runs without inheritance not yet in result
+        for key, _run in patch_runs:
             if key not in result:
                 result[key] = _RunStructuralRole(run_key=key)
 
@@ -528,6 +608,10 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
         }
 
         # DEBUG: temporary diagnostic print
+        inherited_count = sum(
+            1 for role in spine_roles_sorted if role.inherited_role is not None
+        )
+        inh_tag = f" inherited_spines={inherited_count}" if inherited_count > 0 else ""
         print(
             f"[STRUCTURAL] P{patch_id}: "
             f"spine_runs={len(spine_roles_sorted)} spine_axis={spine_axis} spine_len={spine_length:.2f} "
@@ -535,6 +619,7 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             f"elongation={elongation:.2f} side_conf={side_confidence:.2f} "
             f"T={terminal_count} B={branch_count} "
             f"strip_conf={strip_confidence:.2f} eligible={'Y' if straighten_eligible else 'N'}"
+            f"{inh_tag}"
         )
 
     return result
@@ -574,7 +659,10 @@ def _build_patch_graph_derived_topology(graph, measure_chain_axis_metrics):
     }
 
     # --- Structural interpretation pass ---
-    run_structural_roles = _interpret_run_structural_roles(frame_runs_by_loop, junctions)
+    neighbor_inherited_roles = _compute_neighbor_inherited_roles(graph)
+    run_structural_roles = _interpret_run_structural_roles(
+        frame_runs_by_loop, junctions, neighbor_inherited_roles
+    )
     junction_structural_roles = _interpret_junction_structural_roles(
         junctions, frame_runs_by_loop, run_structural_roles
     )

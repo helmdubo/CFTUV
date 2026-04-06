@@ -501,7 +501,7 @@ def _serialize_patch_console_view(patch_view):
     """Serialize one typed patch console view into stable report lines."""
 
     strip_tag = ""
-    if patch_view.strip_confidence > 0.01:
+    if patch_view.strip_confidence > 0.01 or patch_view.spine_length > 0.0:
         eligible_flag = "Y" if patch_view.straighten_eligible else "N"
         strip_tag = (
             f" | strip:{patch_view.strip_confidence:.2f} eligible:{eligible_flag}"

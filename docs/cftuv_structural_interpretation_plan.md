@@ -101,6 +101,8 @@ class _RunStructuralRole:
     spine_rank: int = -1                      # 0=primary, 1=secondary, -1=not spine
     opposing_run_key: Optional[RunKey] = None  # paired side run on perpendicular axis
     side_pair_length_ratio: float = 0.0        # |len_a - len_b| / max(len_a, len_b)
+    inherited_role: Optional[FrameRole] = None       # frame role inherited from neighbor
+    inherited_from_patch_id: Optional[int] = None    # which neighbor provided the role
 ```
 
 Key semantics:
@@ -108,6 +110,27 @@ Key semantics:
 - `spine_rank` 0 = primary spine (longest), 1 = secondary
 - `opposing_run_key` links spine run to its paired side run (if exists)
 - `side_pair_length_ratio` near 0.0 = good pair, near 1.0 = poor pair
+- `inherited_role` = frame role inherited from a strong neighbor (for FREE runs only)
+- `inherited_from_patch_id` = which neighbor provided the inherited role
+
+### Neighbor-Inherited Frame Roles
+
+A critical insight: many real-world patches have FREE chains that are structurally aligned but
+not classified as H/V by the frame classifier. When such a FREE chain borders a neighbor patch
+with a strong H/V chain along the same boundary, the FREE chain inherits the neighbor's frame
+role for structural interpretation purposes.
+
+Example: an arc mesh where a WALL patch has chains `[FREE, H, FREE, H]`. The first FREE chain
+borders a FLOOR patch that has V_FRAME along the shared boundary. The FREE chain inherits
+V_FRAME, making the patch a strip with spine axis V.
+
+The second FREE chain (MESH_BORDER, no neighbor) gets no inheritance. This is fine — Conformal
+mapping will resolve it based on the other chains' placement. The system degrades gracefully:
+neighbor info enriches interpretation when available, but its absence doesn't block anything.
+
+Implementation: `_compute_neighbor_inherited_roles(graph)` returns a dict mapping
+`ChainRef -> (inherited_role, source_patch_id)`. This feeds into `_interpret_run_structural_roles`
+so FREE runs with inherited roles participate in spine detection alongside own H/V runs.
 
 ### New annotation record: `_JunctionStructuralRole`
 
@@ -178,15 +201,15 @@ Output: dict[RunKey, _RunStructuralRole]
 ```
 
 Algorithm:
-1. Group all runs by `patch_id`
-2. For each patch, separate runs by `dominant_role` (H vs V)
-3. Identify spine axis: the axis family with the greater total run length
-4. Rank runs within spine axis by `total_length` (rank 0 = longest = primary spine)
-5. For each spine run, find opposing side run on perpendicular axis:
-   - Must share corner endpoints (via `start_corner_index` / `end_corner_index`)
-   - Or share junction vertices
-   - Compute `side_pair_length_ratio`
-6. Return run_key -> _RunStructuralRole mapping
+1. Pre-compute neighbor-inherited roles: `_compute_neighbor_inherited_roles(graph)` → dict[ChainRef, (FrameRole, int)]
+2. Group all runs by `patch_id`
+3. For each patch, separate runs by `dominant_role` (H vs V)
+4. For FREE runs: check if ALL chains in the run have the SAME inherited role → treat as effective H/V for spine detection
+5. Compute axis totals: own H/V length + inherited H/V length
+6. Identify spine axis: the axis family with the greater total run length
+7. Rank spine runs by `total_length` (rank 0 = longest = primary spine); includes inherited-role runs
+8. For each spine run, find opposing run (same effective axis, same loop, closest length)
+9. Return run_key -> _RunStructuralRole mapping (with inherited_role/inherited_from_patch_id for FREE runs)
 
 ### `_interpret_junction_structural_roles()`
 
