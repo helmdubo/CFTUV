@@ -354,6 +354,31 @@ def _cf_preview_frame_dual_anchor_rectification(
     return DualAnchorRectificationPreview(start_anchor=start_anchor, end_anchor=end_anchor)
 
 
+def _cf_seed_cross_patch_hv_bonus(
+    chain: BoundaryChain,
+    graph: PatchGraph,
+    neighbor_patch_id: int,
+) -> float:
+    """Бонус если парный chain на соседнем патче — H/V (shared seam edges).
+
+    Находит chain на neighbor_patch_id, у которого есть общие edge_indices
+    с нашим chain. Если этот парный chain тоже H/V — возвращает бонус.
+    """
+    neighbor_node = graph.nodes.get(neighbor_patch_id)
+    if neighbor_node is None:
+        return 0.0
+    own_edges = set(chain.edge_indices)
+    if not own_edges:
+        return 0.0
+    for loop in neighbor_node.boundary_loops:
+        for nb_chain in loop.chains:
+            if not set(nb_chain.edge_indices) & own_edges:
+                continue
+            if nb_chain.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
+                return 0.6
+    return 0.0
+
+
 def _cf_choose_seed_chain(
     solve_view: SolveView,
     graph: PatchGraph,
@@ -372,14 +397,15 @@ def _cf_choose_seed_chain(
             chain_ref = (root_node.patch_id, loop_idx, chain_idx)
             is_hv = chain.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME)
             hv_adjacency = count_hv_adjacent_endpoints(graph, chain_ref)
-            if is_hv and hv_adjacency <= 0:
-                continue
 
             score = 0.0
             chain_len = 0.0
 
             if is_hv:
                 score += 1.0
+                # H/V без соседних H/V — допускаем как seed, но с пониженным score
+                if hv_adjacency <= 0:
+                    score -= 0.5
             else:
                 score += 0.1
 
@@ -389,6 +415,16 @@ def _cf_choose_seed_chain(
                     for i in range(len(chain.vert_cos) - 1)
                 )
                 score += min(chain_len * 0.1, 0.5)
+
+            # Бонус за cross-patch соседа (seam boundary ценнее MESH_BORDER как seed).
+            # Работает вне зависимости от quilt membership.
+            if is_hv and chain.neighbor_kind == ChainNeighborKind.PATCH:
+                score += 0.3
+                # Дополнительно: если парный chain на соседнем патче тоже H/V
+                xp_hv_bonus = _cf_seed_cross_patch_hv_bonus(
+                    chain, graph, chain.neighbor_patch_id,
+                )
+                score += xp_hv_bonus
 
             if (
                 chain.neighbor_kind == ChainNeighborKind.PATCH

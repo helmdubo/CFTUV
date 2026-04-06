@@ -365,6 +365,50 @@ def _downgrade_same_role_point_contact_chains(chains, basis_u, basis_v, patch_id
         weaker_chain.frame_role = FrameRole.FREE
 
 
+def _demote_isolated_hv_border_chains(chains, patch_id, loop_index):
+    """Демотирует изолированные H/V MESH_BORDER chains → FREE.
+
+    Изолированный = MESH_BORDER chain, у которого:
+    1) оба соседа (prev/next в loop) — FREE
+    2) ни один из соседей не является PATCH chain
+
+    Если сосед — PATCH chain, значит start/end point chain находится
+    на границе с другим патчем (junction), и через эту точку может
+    быть сильный H/V chain на соседнем патче → chain "закреплён".
+    """
+    chain_count = len(chains)
+    if chain_count < 3:
+        return
+
+    for i in range(chain_count):
+        chain = chains[i]
+        if chain.frame_role not in (FrameRole.H_FRAME, FrameRole.V_FRAME):
+            continue
+        if chain.neighbor_kind != ChainNeighborKind.MESH_BORDER:
+            continue
+
+        prev_chain = chains[(i - 1) % chain_count]
+        next_chain = chains[(i + 1) % chain_count]
+
+        if prev_chain.frame_role != FrameRole.FREE:
+            continue
+        if next_chain.frame_role != FrameRole.FREE:
+            continue
+
+        # Если хоть один сосед — PATCH chain, то start/end vertex
+        # лежит на границе с другим патчем → chain закреплён.
+        if prev_chain.neighbor_kind == ChainNeighborKind.PATCH:
+            continue
+        if next_chain.neighbor_kind == ChainNeighborKind.PATCH:
+            continue
+
+        trace_console(
+            f"[CFTUV][IsolatedHV] Patch {patch_id} Loop {loop_index} "
+            f"C{i} {chain.frame_role.value} MESH_BORDER isolated -> FREE"
+        )
+        chain.frame_role = FrameRole.FREE
+
+
 def _merge_same_role_border_chains(chains):
     if len(chains) < 2:
         return chains
@@ -378,7 +422,6 @@ def _merge_same_role_border_chains(chains):
             prev.neighbor_kind == ChainNeighborKind.MESH_BORDER
             and curr.neighbor_kind == ChainNeighborKind.MESH_BORDER
             and prev.frame_role == curr.frame_role
-            and prev.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME)
             and not prev.is_closed
             and not curr.is_closed
         )
@@ -406,7 +449,6 @@ def _merge_same_role_border_chains(chains):
             last.neighbor_kind == ChainNeighborKind.MESH_BORDER
             and first.neighbor_kind == ChainNeighborKind.MESH_BORDER
             and last.frame_role == first.frame_role
-            and last.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME)
             and not last.is_closed
             and not first.is_closed
         )
@@ -789,6 +831,8 @@ def _derive_boundary_loop_topology(state, basis_u, basis_v, patch_id, loop_index
     boundary_loop = state.boundary_loop
     chains = _build_boundary_chain_objects(state.raw_chains, basis_u, basis_v)
     _downgrade_same_role_point_contact_chains(chains, basis_u, basis_v, patch_id, loop_index)
+    chains = _merge_same_role_border_chains(chains)
+    _demote_isolated_hv_border_chains(chains, patch_id, loop_index)
     chains = _merge_same_role_border_chains(chains)
     boundary_loop.chains = chains
 

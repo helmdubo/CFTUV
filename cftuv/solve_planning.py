@@ -651,6 +651,11 @@ def _build_attachment_candidate(
     if best_pair is None:
         return None
 
+    # Если лучшая пара — FREE+FREE (frame_continuation == 0),
+    # нет структурной опоры для anchor propagation → отдельный quilt.
+    if best_pair.frame_continuation <= 0.0:
+        return None
+
     owner_ref = best_pair.owner_ref
     target_ref = best_pair.target_ref
     owner_loop_index = owner_ref.loop_index

@@ -293,3 +293,64 @@ Weight = chain UV length (scaled 3D edge sum), not point count.
 - **Post-hoc frame snap** (Variant A): shift cross-axis after placement. All groups were closure_sensitive on target mesh — zero proposals generated.
 - **Subtree rigid translation** (Variant B): move downstream patch subtree. Redistributes error between closure seam and tree edge rather than eliminating it.
 - **3D-based cross-axis override**: compute cross-axis from 3D geometry. Breaks anchor seam connectivity contract.
+
+## 12. V_FRAME Metric Symmetry Fix (implemented)
+
+### Problem
+
+Arc-shaped FLOOR patches: chains going in V direction with normal-plane curvature (N-V arc)
+classified as FREE instead of V_FRAME. Long chains on arc meshes lost H/V classification.
+
+### Root cause
+
+`_measure_chain_axis_metrics()` was asymmetric:
+- H_FRAME: `h_deviation = |dv| / seg_len` — only cross-axis penalizes. N adds to support. ✓
+- V_FRAME: `v_deviation = sqrt(du² + dn²) / seg_len` — N component penalizes V. ✗
+
+Arc curvature (dn) vanishes in UV projection but was counted as V deviation.
+
+### Fix
+
+Symmetric treatment in `cftuv/analysis_corners.py` `_measure_chain_axis_metrics()`:
+- `v_deviation = |du| / seg_len` — only cross-axis (U) penalizes V
+- `v_support = sqrt(dv² + dn²)` — N adds to V support (symmetric with H)
+
+### Key file
+
+`cftuv/analysis_corners.py` — lines ~59-70
+
+## 13. Compound Length-Angle Guard (implemented)
+
+### Problem
+
+Long single-edge chains (e.g. 42m) with tiny per-edge angular deviation pass H/V threshold
+but should be FREE — deviation accumulates over length.
+
+### Fix
+
+Compound metric: `avg_deviation * sqrt(total_length) < FRAME_COMPOUND_LENGTH_THRESHOLD`.
+Constant in `cftuv/constants.py`: `FRAME_COMPOUND_LENGTH_THRESHOLD = 0.08`.
+Applied to both h_ok and v_ok in `_classify_chain_frame_role()`.
+
+### Key file
+
+`cftuv/analysis_corners.py`, `cftuv/constants.py`
+
+## 14. Frontier Bootstrap for Isolated H/V Chains (implemented)
+
+### Problem
+
+H/V chains whose boundary loop neighbors are all FREE get `SCORE_HV_ADJ_ISOLATED_PENALTY = 1.80`,
+making their score negative. On arc meshes and U-shaped walls with window openings,
+valid H/V chains can't be placed — entire patch falls to conformal.
+
+### Fix
+
+Three-tier penalty in `_cf_score_patch_anchor_context()` (`cftuv/frontier_score.py`):
+- **Bootstrap** (no H/V placed in patch yet): 15% of penalty → first H/V passes threshold
+- **Bridging** (has same-patch anchor from placed chain): 35% → H/V between FREE sections passes
+- **Truly isolated** (no anchors): full 100% penalty
+
+### Key file
+
+`cftuv/frontier_score.py` — `_cf_score_patch_anchor_context()`
