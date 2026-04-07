@@ -86,16 +86,18 @@ def _cf_build_seed_placement(
     seed_chain: BoundaryChain,
     root_node: PatchNode,
     final_scale: float,
+    effective_role: Optional[FrameRole] = None,
 ) -> Optional[SeedPlacementResult]:
     seed_src = _cf_chain_source_points(seed_chain)
     seed_dir = _cf_determine_direction(seed_chain, root_node)
+    role = effective_role if effective_role is not None else seed_chain.frame_role
 
-    if seed_chain.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
+    if role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
         seed_uvs = _build_frame_chain_from_one_end(
             seed_src,
             Vector((0.0, 0.0)),
             seed_dir,
-            seed_chain.frame_role,
+            role,
             final_scale,
         )
     else:
@@ -818,11 +820,12 @@ def _cf_place_chain(
     direction_override=None,
     placed_chains_map=None,
     graph=None,
+    effective_role=None,
 ):
     """Ð Ð°Ð·Ð¼ÐµÑ‰Ð°ÐµÑ‚ Ð¾Ð´Ð¸Ð½ chain Ð² UV, Ð¸ÑÐ¿Ð¾Ð»ÑŒÐ·ÑƒÑ Ð¿Ñ€Ð¾Ð²ÐµÑ€ÐµÐ½Ð½Ñ‹Ðµ anchors."""
     source_pts = _cf_chain_source_points(chain)
     direction = direction_override if direction_override is not None else _cf_determine_direction(chain, node)
-    role = chain.frame_role
+    role = effective_role if effective_role is not None else chain.frame_role
     start_uv = start_anchor.uv.copy() if start_anchor is not None else None
     end_uv = end_anchor.uv.copy() if end_anchor is not None else None
 

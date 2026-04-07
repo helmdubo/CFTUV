@@ -213,8 +213,15 @@ def _cf_role_tier(
     graph: PatchGraph,
     quilt_patch_ids: set[int],
     allowed_tree_edges: set[PatchEdgeKey],
+    runtime_policy: Optional["FrontierRuntimePolicy"] = None,
 ) -> tuple[int, str]:
+    # Check inherited role: FREE chain with inherited H/V gets medium-high tier
     if chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        if runtime_policy is not None:
+            eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
+            if eff_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                # Inherited role: stronger than free, weaker than true H/V
+                return 2, 'free_inherited_hv'
         if len(chain.vert_cos) <= 2:
             return 1, 'free_bridge'
         return 0, 'free_regular'
@@ -537,6 +544,7 @@ def _cf_build_frontier_rank(
         graph,
         quilt_patch_ids,
         allowed_tree_edges,
+        runtime_policy=runtime_policy,
     )
 
     if topology_facts.is_secondary_closure and same_patch_anchor_count == 0 and cross_patch_anchor_count > 0:
@@ -689,8 +697,9 @@ def _cf_build_frontier_topology_facts(
     end_anchor: Optional[ChainAnchor],
     closure_pair_refs: Optional[frozenset[ChainRef]] = None,
 ) -> FrontierTopologyFacts:
-    is_bridge = chain.frame_role == FrameRole.FREE and len(chain.vert_cos) <= 2
-    is_hv = chain.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME)
+    eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
+    is_bridge = eff_role == FrameRole.FREE and len(chain.vert_cos) <= 2
+    is_hv = eff_role in (FrameRole.H_FRAME, FrameRole.V_FRAME)
     same_patch_anchor_count = sum(
         1 for anchor in (start_anchor, end_anchor)
         if anchor is not None and anchor.source_kind == PlacementSourceKind.SAME_PATCH

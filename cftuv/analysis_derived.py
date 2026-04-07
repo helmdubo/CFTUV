@@ -693,4 +693,5 @@ def _build_patch_graph_derived_topology(graph, measure_chain_axis_metrics):
         junctions_by_vert_index=MappingProxyType(dict(junctions_by_vert_index)),
         run_structural_roles=MappingProxyType(dict(run_structural_roles)),
         junction_structural_roles=MappingProxyType(dict(junction_structural_roles)),
+        neighbor_inherited_roles=MappingProxyType(dict(neighbor_inherited_roles)),
     )

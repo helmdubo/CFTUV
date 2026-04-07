@@ -1061,6 +1061,7 @@ def try_place_frontier_candidate(
         )
     direction_inherited = dir_override is not None and not closure_dir_was_set
 
+    eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
     uv_points = _cf_place_chain(
         chain,
         candidate.node,
@@ -1070,6 +1071,7 @@ def try_place_frontier_candidate(
         dir_override,
         placed_chains_map=runtime_policy.placed_chains_map,
         graph=runtime_policy.graph,
+        effective_role=eff_role,
     )
     if not uv_points or len(uv_points) != len(chain.vert_cos):
         runtime_policy.reject_chain(chain_ref)

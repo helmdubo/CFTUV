@@ -636,7 +636,19 @@ def _execute_phase1_preview_impl(
     uv_layer = bm.loops.layers.uv.verify()
     _clear_patch_pins(bm, patch_graph, uv_layer, patch_ids)
 
-    scaffold_map = build_root_scaffold_map(patch_graph, solve_plan, settings.final_scale)
+    straighten_enabled = getattr(settings, 'straighten_strips', False)
+    inherited_role_map = None
+    if straighten_enabled:
+        try:
+            from .analysis import build_neighbor_inherited_roles
+        except ImportError:
+            from analysis import build_neighbor_inherited_roles
+        inherited_role_map = build_neighbor_inherited_roles(patch_graph)
+    scaffold_map = build_root_scaffold_map(
+        patch_graph, solve_plan, settings.final_scale,
+        straighten_enabled=straighten_enabled,
+        inherited_role_map=inherited_role_map,
+    )
     unsupported_patch_ids = _collect_phase1_unsupported_patch_ids(scaffold_map)
     if unsupported_patch_ids:
         print(f"[CFTUV][Phase1] Unsupported patches: {unsupported_patch_ids}")

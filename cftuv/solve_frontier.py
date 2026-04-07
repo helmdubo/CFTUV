@@ -214,6 +214,8 @@ def _cf_bootstrap_frontier_runtime(
     closure_pair_map: dict[ChainRef, ChainRef],
     tree_ingress_partner_by_chain: dict[ChainRef, ChainRef],
     final_scale: float,
+    straighten_enabled: bool = False,
+    inherited_role_map: Optional[dict] = None,
 ) -> FrontierBootstrapAttempt:
     seed_result = _cf_choose_seed_chain(
         solve_view,
@@ -237,10 +239,13 @@ def _cf_bootstrap_frontier_runtime(
         seam_relation_by_edge=quilt_plan.seam_relation_by_edge,
         tree_ingress_partner_by_chain=tree_ingress_partner_by_chain,
         closure_pair_map=closure_pair_map,
+        straighten_enabled=straighten_enabled,
+        inherited_role_map=inherited_role_map or {},
     )
     _cf_bootstrap_runtime_score_caches(runtime_policy)
 
-    seed_payload = _cf_build_seed_placement(seed_ref, seed_chain, root_node, final_scale)
+    seed_effective_role = runtime_policy.effective_placement_role(seed_ref, seed_chain)
+    seed_payload = _cf_build_seed_placement(seed_ref, seed_chain, root_node, final_scale, effective_role=seed_effective_role)
     if seed_payload is None:
         return FrontierBootstrapAttempt(result=None, error="seed_placement_failed")
 
@@ -338,6 +343,8 @@ def build_quilt_scaffold_chain_frontier(
     graph: PatchGraph,
     quilt_plan: QuiltPlan,
     final_scale: float,
+    straighten_enabled: bool = False,
+    inherited_role_map: Optional[dict] = None,
 ) -> ScaffoldQuiltPlacement:
     """Build chain-first scaffold for a single quilt."""
 
@@ -369,6 +376,8 @@ def build_quilt_scaffold_chain_frontier(
         closure_pair_map,
         tree_ingress_partner_by_chain,
         final_scale,
+        straighten_enabled=straighten_enabled,
+        inherited_role_map=inherited_role_map,
     )
     if bootstrap_attempt.result is None:
         quilt_scaffold.patches[quilt_plan.root_patch_id] = ScaffoldPatchPlacement(
@@ -516,6 +525,8 @@ def build_root_scaffold_map(
     graph: PatchGraph,
     solve_plan: Optional[SolvePlan] = None,
     final_scale: float = 1.0,
+    straighten_enabled: bool = False,
+    inherited_role_map: Optional[dict] = None,
 ) -> ScaffoldMap:
     """Build ScaffoldMap using chain-first strongest-frontier algorithm."""
 
@@ -524,7 +535,11 @@ def build_root_scaffold_map(
         return scaffold_map
 
     for quilt in solve_plan.quilts:
-        quilt_scaffold = build_quilt_scaffold_chain_frontier(graph, quilt, final_scale)
+        quilt_scaffold = build_quilt_scaffold_chain_frontier(
+            graph, quilt, final_scale,
+            straighten_enabled=straighten_enabled,
+            inherited_role_map=inherited_role_map,
+        )
         scaffold_map.quilts.append(quilt_scaffold)
 
     return scaffold_map

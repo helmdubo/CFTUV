@@ -65,6 +65,9 @@ class FrontierRuntimePolicy:
     placed_h_count_by_patch: dict[int, int] = field(default_factory=dict)
     placed_v_count_by_patch: dict[int, int] = field(default_factory=dict)
     placed_free_count_by_patch: dict[int, int] = field(default_factory=dict)
+    # Straighten strips: structural data from analysis layer
+    straighten_enabled: bool = False
+    inherited_role_map: dict[ChainRef, tuple[FrameRole, int]] = field(default_factory=dict)
     closure_pair_refs: frozenset[ChainRef] = field(init=False, default_factory=frozenset)
     # Temporary compatibility storage for score-owned derived caches until P7.
     _outer_chain_count_by_patch: dict[int, int] = field(init=False, default_factory=dict)
@@ -79,6 +82,19 @@ class FrontierRuntimePolicy:
 
     def __post_init__(self) -> None:
         self.closure_pair_refs = frozenset(self.closure_pair_map.keys()) if self.closure_pair_map else frozenset()
+
+    def effective_placement_role(self, chain_ref: ChainRef, chain: BoundaryChain) -> FrameRole:
+        """Unified semantic switch for placement, scoring, and viability.
+
+        When straighten is enabled and a FREE chain has an inherited role
+        from a strong neighbor, returns the inherited role. Otherwise
+        returns the chain's own frame_role.
+        """
+        if chain.frame_role != FrameRole.FREE:
+            return chain.frame_role
+        if self.straighten_enabled and chain_ref in self.inherited_role_map:
+            return self.inherited_role_map[chain_ref][0]
+        return FrameRole.FREE
 
     def placed_in_patch(self, patch_id: int) -> int:
         return self.placed_count_by_patch.get(patch_id, 0)

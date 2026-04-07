@@ -13,6 +13,7 @@ try:
         BoundaryCorner,
         BoundaryLoop,
         ChainNeighborKind,
+        ChainRef,
         FrameRole,
         LoopKind,
         PatchNode,
@@ -25,6 +26,7 @@ except ImportError:
         BoundaryCorner,
         BoundaryLoop,
         ChainNeighborKind,
+        ChainRef,
         FrameRole,
         LoopKind,
         PatchNode,
@@ -386,3 +388,4 @@ class _PatchGraphDerivedTopology:
     junctions_by_vert_index: Mapping[int, _Junction] = field(default_factory=dict)
     run_structural_roles: Mapping[RunKey, _RunStructuralRole] = field(default_factory=dict)
     junction_structural_roles: Mapping[JunctionPatchKey, _JunctionStructuralRole] = field(default_factory=dict)
+    neighbor_inherited_roles: Mapping[ChainRef, tuple[FrameRole, int]] = field(default_factory=dict)

@@ -18,6 +18,7 @@ from bpy.props import (
 )
 
 from .analysis import (
+    build_neighbor_inherited_roles,
     build_patch_graph,
     format_patch_graph_report,
     format_patch_graph_snapshot_report,
@@ -146,6 +147,11 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
         default=False,
         description="Before Phase 1 preview, mark sharp edges as seam",
     )
+    straighten_strips: BoolProperty(
+        name="Straighten Strips",
+        default=False,
+        description="Place structurally strong FREE chains as straight frame lines (inherited from neighbor)",
+    )
 
     # Group toggles
     dbg_grp_patches: BoolProperty(name="Patches", default=True)
@@ -177,6 +183,19 @@ class _SolverPreflightSelectionError(ValueError):
         super().__init__(summary)
         self.summary = summary
         self.selection_message = selection_message or summary
+
+
+def _build_scaffold_map_with_straighten(graph, solve_plan, settings):
+    """Build scaffold map, optionally applying straighten strips from structural analysis."""
+    straighten = getattr(settings, 'straighten_strips', False)
+    inherited_map = None
+    if straighten:
+        inherited_map = build_neighbor_inherited_roles(graph)
+    return build_root_scaffold_map(
+        graph, solve_plan, settings.final_scale,
+        straighten_enabled=straighten,
+        inherited_role_map=inherited_map,
+    )
 
 
 def _build_debug_settings(settings: HOTSPOTUV_Settings) -> dict:
@@ -591,7 +610,7 @@ def _enter_debug_mode(context, obj):
         solver_graph = build_solver_graph(patch_graph)
         solve_plan = plan_solve_phase1(patch_graph, solver_graph)
         settings = UVSettings.from_blender_settings(s)
-        scaffold_map = build_root_scaffold_map(patch_graph, solve_plan, settings.final_scale)
+        scaffold_map = _build_scaffold_map_with_straighten(patch_graph, solve_plan, settings)
         scaffold_report = format_root_scaffold_report(patch_graph, scaffold_map, mesh_name=obj.name)
         _print_console_report(
             'CFTUV Scaffold (Analyze)',
@@ -815,7 +834,7 @@ class HOTSPOTUV_OT_ScaffoldDebug(bpy.types.Operator):
     def execute(self, context):
         try:
             obj, _bm, pg, _sg, sp, settings, om, sel = _build_solve_state(context)
-            scaffold_map = build_root_scaffold_map(pg, sp, settings.final_scale)
+            scaffold_map = _build_scaffold_map_with_straighten(pg, sp, settings)
             report = format_root_scaffold_report(pg, scaffold_map, mesh_name=obj.name)
             _print_console_report('CFTUV Scaffold Debug', report.lines, report.summary)
 
@@ -852,7 +871,7 @@ class HOTSPOTUV_OT_SaveRegressionSnapshot(bpy.types.Operator):
     def execute(self, context):
         try:
             obj, bm, pg, _sg, sp, settings, om, sel = _build_solve_state(context)
-            scaffold_map = build_root_scaffold_map(pg, sp, settings.final_scale)
+            scaffold_map = _build_scaffold_map_with_straighten(pg, sp, settings)
             patch_graph_report = format_patch_graph_snapshot_report(
                 pg,
                 mesh_name=obj.name,
@@ -945,7 +964,7 @@ class HOTSPOTUV_OT_FrontierReplay(bpy.types.Operator):
                 need_restore_debug = True
 
             obj, _bm, pg, _sg, sp, settings, om, sel = _build_solve_state(context)
-            scaffold_map = build_root_scaffold_map(pg, sp, settings.final_scale)
+            scaffold_map = _build_scaffold_map_with_straighten(pg, sp, settings)
             _restore_mode_and_selection(obj, om, sel)
 
             # Frontier visualization
@@ -1015,7 +1034,7 @@ class HOTSPOTUV_OT_SolvePhase1Preview(bpy.types.Operator):
             s = context.scene.hotspotuv_settings
             source_name = s.dbg_source_object
             if source_name and source_name in bpy.data.objects:
-                scaffold_map = build_root_scaffold_map(pg, sp, settings.final_scale)
+                scaffold_map = _build_scaffold_map_with_straighten(pg, sp, settings)
                 _refresh_debug_layers(context, pg, bpy.data.objects[source_name], scaffold_map)
             summary = (
                 f"Phase1 quilts:{stats.get('quilts', 0)} "
@@ -1129,6 +1148,7 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         col.label(text="Preview:")
         row = col.row(align=True)
         row.prop(s, "phase1_make_seams_by_sharp", text="")
+        row.prop(s, "straighten_strips", text="", icon="SNAP_EDGE")
         row.operator(
             "hotspotuv.solve_phase1_preview", text="Solve Phase 1 Preview", icon="UV"
         )

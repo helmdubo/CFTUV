@@ -543,6 +543,7 @@ def _cf_try_place_tree_ingress_candidate(
             runtime_policy.point_registry,
             chain_ref=chain_ref,
         )
+        eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
         uv_points = _cf_place_chain(
             chain,
             node,
@@ -552,6 +553,7 @@ def _cf_try_place_tree_ingress_candidate(
             direction_override,
             placed_chains_map=runtime_policy.placed_chains_map,
             graph=runtime_policy.graph,
+            effective_role=eff_role,
         )
         if not uv_points or len(uv_points) != len(chain.vert_cos):
             continue

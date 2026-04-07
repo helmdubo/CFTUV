@@ -322,40 +322,99 @@ Step 11 is the integration point (single wiring change).
 
 ---
 
-## Future Phase C: Straighten Placement (NOT in scope)
+## Phase C: Straighten Placement Bridge (IMPLEMENTED)
 
-For reference only. Phase C will be a separate plan after structural interpretation proves stable.
+Phase C bridges structural interpretation to frontier placement behavior.
 
-Straighten placement means: for patches where `straighten_eligible == True`, bypass chain-by-chain frontier and place the entire patch as one coherent rectangle.
-
-Conceptual difference from current placement:
+### Architecture
 
 ```
-Current (chain-by-chain):
-    Each chain placed individually via frontier scoring.
-    Curved wall → each chain slightly rotated → accumulated angle drift.
+Analysis layer (always active):
+    _build_patch_graph_derived_topology()
+      └→ _compute_neighbor_inherited_roles(graph)
+      └→ neighbor_inherited_roles stored in _PatchGraphDerivedTopology
 
-    ┌──────┐
-    │      │╲
-    │      │ ╲
-    │      │  ╲
-    └──────┘   ╲
+Solve bridge (gated by toggle):
+    build_neighbor_inherited_roles(graph)     ← analysis.py public API
+      └→ returns dict[ChainRef, (FrameRole, source_patch_id)]
 
-Straighten (whole-patch):
-    All spine chains on one UV line. Sides parallel. Caps perpendicular.
-    Curvature absorbed into edge lengths, not angles.
+    _build_scaffold_map_with_straighten()     ← operators.py helper
+      └→ if straighten_strips: compute inherited roles from analysis
+      └→ pass to build_root_scaffold_map(straighten_enabled, inherited_role_map)
 
-    ┌──────────────────┐
-    │                  │
-    │                  │
-    └──────────────────┘
+Frontier (policy-driven):
+    FrontierRuntimePolicy
+      └→ straighten_enabled: bool
+      └→ inherited_role_map: dict[ChainRef, (FrameRole, int)]
+      └→ effective_placement_role(chain_ref, chain) → FrameRole
+           ← unified semantic switch for score, eval, and placement
 ```
 
-Phase C will consume:
-- `spine_run_indices` + `spine_axis` (from patch summary) → UV spine direction
-- `cap_chain_refs` (to be added in Phase C) → perpendicular end segments
-- `terminal_count` → open vs closed strip handling
-- Junction structural roles → endpoint pinning
+### Design Principles Applied
+
+1. **Analysis = source of truth.** Solve reads `neighbor_inherited_roles` from
+   `_PatchGraphDerivedTopology` via `build_neighbor_inherited_roles()`. No
+   re-computation of structural interpretation in solve.
+
+2. **Single semantic switch.** `FrontierRuntimePolicy.effective_placement_role()`
+   is the one function used in scoring, viability, and placement. No separate
+   lookup logic.
+
+3. **Toggle controls behavior, not analysis.** `straighten_strips` BoolProperty
+   gates only Phase C frontier behavior. Structural data are always computed
+   for reporting/debug.
+
+### What Changed
+
+| File | Change |
+|------|--------|
+| `model.py` | `UVSettings.straighten_strips: bool` |
+| `operators.py` | `HOTSPOTUV_Settings.straighten_strips: BoolProperty`, `_build_scaffold_map_with_straighten()` helper |
+| `analysis_records.py` | `_PatchGraphDerivedTopology.neighbor_inherited_roles` field |
+| `analysis.py` | `build_neighbor_inherited_roles()` public API |
+| `frontier_state.py` | `FrontierRuntimePolicy.straighten_enabled`, `.inherited_role_map`, `.effective_placement_role()` |
+| `frontier_place.py` | `_cf_place_chain(effective_role=)`, `_cf_build_seed_placement(effective_role=)` |
+| `frontier_score.py` | `_cf_role_tier(runtime_policy=)` — inherited FREE gets tier 2 (`free_inherited_hv`) |
+| `frontier_score.py` | `_cf_build_frontier_topology_facts` — `is_hv` uses effective role |
+| `frontier_eval.py` | `try_place_frontier_candidate` passes `effective_role` |
+| `frontier_rescue.py` | tree ingress rescue passes `effective_role` |
+| `solve_frontier.py` | `build_root_scaffold_map(straighten_enabled, inherited_role_map)` threading |
+| `solve_transfer.py` | `_execute_phase1_preview_impl` computes inherited roles when enabled |
+
+### Scoring Tiers
+
+Inherited FREE chains get tier 2 (`free_inherited_hv`) — stronger than regular FREE
+(tier 0) but not full parity with true H/V chains (tier 3-5). This matches the
+design principle that inherited role is a weaker semantic fact than own frame_role.
+
+### Future: Manual Straighten Patch
+
+The `effective_placement_role` + `inherited_role_map` design supports a future
+"Straighten Patch" button that applies straighten to selected patches regardless
+of auto-detection. The button would populate `inherited_role_map` from user
+selection rather than from neighbor analysis.
+
+### Future: Whole-Patch Straighten
+
+Current Phase C places individual inherited FREE chains as straight lines.
+A future evolution could bypass chain-by-chain frontier entirely for eligible
+patches, placing the whole patch as one coherent rectangle:
+
+```
+Phase C v1 (current):
+    Individual inherited FREE chains → placed as straight frame lines
+    Other chains → normal frontier behavior
+
+Phase C v2 (future):
+    Whole eligible patch → spine chains on one UV line, sides parallel
+    Curvature absorbed into edge lengths, not angles
+```
+
+Phase C v2 will consume:
+- `spine_run_indices` + `spine_axis` (from patch summary)
+- `cap_chain_refs` (to be added)
+- `terminal_count` for open vs closed strip handling
+- Junction structural roles for endpoint pinning
 
 ---
 

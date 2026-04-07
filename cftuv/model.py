@@ -247,6 +247,7 @@ class UVSettings:
     texture_size: int = 2048
     uv_scale: float = 1.0
     uv_range_limit: float = 16.0
+    straighten_strips: bool = False
 
     @property
     def final_scale(self) -> float:
@@ -261,6 +262,7 @@ class UVSettings:
             texture_size=int(settings.texture_size),
             uv_scale=float(settings.uv_scale),
             uv_range_limit=float(settings.uv_range_limit),
+            straighten_strips=bool(getattr(settings, 'straighten_strips', False)),
         )
 
 

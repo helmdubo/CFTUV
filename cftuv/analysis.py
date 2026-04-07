@@ -102,6 +102,16 @@ def _build_patch_graph_console_view_validated(graph, derived_topology):
     return console_view
 
 
+def build_neighbor_inherited_roles(graph):
+    """Extract chain-level inherited role map from structural interpretation.
+
+    Returns dict[ChainRef, (FrameRole, source_patch_id)] — the same structural
+    facts computed by the analysis layer, exposed for solve/frontier consumption.
+    """
+    derived_topology = _build_patch_graph_derived_topology(graph)
+    return dict(derived_topology.neighbor_inherited_roles)
+
+
 def format_patch_graph_report(graph, mesh_name=None) -> FormattedReport:
     """Build text lines for the System Console PatchGraph report."""
 
