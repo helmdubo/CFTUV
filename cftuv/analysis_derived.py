@@ -587,6 +587,7 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             if spine_axis in {FrameRole.H_FRAME, FrameRole.V_FRAME}
             else inherited_axis_candidate
         )
+        band_axis_candidate = FrameRole.FREE
 
         # spine_length = sum of total_length of all spine runs
         spine_length = 0.0
@@ -681,7 +682,10 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
                 chain_index
                 for chain_index, chain in enumerate(outer_chains)
                 if (
-                    effective_role_by_chain_index.get(chain_index, FrameRole.FREE) in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+                    (
+                        effective_role_by_chain_index.get(chain_index, FrameRole.FREE) in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+                        or (chain.frame_role == FrameRole.FREE and (len(chain.vert_cos) <= 2 or len(chain.edge_indices) <= 1))
+                    )
                     and chain_lengths[chain_index] > 0.0
                     and mean_chain_length > 0.0
                     and chain_lengths[chain_index] <= mean_chain_length * 0.5
@@ -703,6 +707,23 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
 
             band_cap_count = len(cap_candidate_indices)
             band_side_candidate_count = len(side_candidate_indices)
+
+            side_axes = set()
+            for side_chain_index in side_candidate_indices:
+                side_chain = outer_chains[side_chain_index]
+                if len(side_chain.vert_cos) < 2:
+                    continue
+                chord = side_chain.vert_cos[-1] - side_chain.vert_cos[0]
+                u_span = abs(chord.dot(node.basis_u))
+                v_span = abs(chord.dot(node.basis_v))
+                if max(u_span, v_span) <= 1e-8:
+                    continue
+                side_axes.add(FrameRole.H_FRAME if u_span >= v_span else FrameRole.V_FRAME)
+            if len(side_axes) == 1:
+                band_axis_candidate = next(iter(side_axes))
+
+            if axis_candidate == FrameRole.FREE and band_axis_candidate in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                axis_candidate = band_axis_candidate
 
             if band_cap_count >= 2:
                 best_cap_ratio = 0.0
@@ -734,12 +755,12 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
                     band_width_stability = _clamp01(1.0 - abs(len_a - len_b) / max(len_a, len_b))
 
             band_candidate = bool(
-                single_sided_inherited_support
-                and branch_count == 0
+                branch_count == 0
                 and band_cap_count >= 2
                 and band_side_candidate_count >= 2
                 and band_opposite_cap_length_ratio >= 0.7
                 and band_width_stability >= 0.65
+                and band_axis_candidate in {FrameRole.H_FRAME, FrameRole.V_FRAME}
             )
 
         # Bbox elongation: project boundary verts onto basis_u / basis_v

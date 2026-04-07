@@ -541,14 +541,22 @@ def _build_frame_chain_between_anchors(
     ordered_source_points: list[SourcePoint],
     start_point: Vector,
     end_point: Vector,
+    role: FrameRole,
     final_scale: float,
 ) -> list[Vector]:
     if not ordered_source_points:
         return []
     if len(ordered_source_points) == 1:
         return [start_point.copy()]
+
+    snapped_end = end_point.copy()
+    if role == FrameRole.H_FRAME:
+        snapped_end = Vector((end_point.x, start_point.y))
+    elif role == FrameRole.V_FRAME:
+        snapped_end = Vector((start_point.x, end_point.y))
+
     edge_lengths = _chain_edge_lengths(ordered_source_points, final_scale)
-    return _interpolate_between_anchors_by_lengths(start_point, end_point, edge_lengths)
+    return _interpolate_between_anchors_by_lengths(start_point, snapped_end, edge_lengths)
 
 
 def _cf_rebuild_chain_points_for_endpoints(
@@ -565,7 +573,7 @@ def _cf_rebuild_chain_points_for_endpoints(
     role = effective_role if effective_role is not None else chain.frame_role
 
     if role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
-        return _build_frame_chain_between_anchors(source_pts, start_uv, end_uv, final_scale)
+        return _build_frame_chain_between_anchors(source_pts, start_uv, end_uv, role, final_scale)
 
     if role == FrameRole.FREE and len(source_pts) <= 2:
         if len(source_pts) == 0:
@@ -780,8 +788,18 @@ def _perpendicular_direction_for_role(src_uv_delta, target_role, turn_sign):
 
 
 def _cf_can_inherit_corner_turn_direction(chain, src_chain):
-    """Ð Ð°Ð·Ñ€ÐµÑˆÐ°ÐµÑ‚ turn-sign inheritance Ð´Ð»Ñ legacy corner-split Ð¸ Ð½Ð¾Ð²Ñ‹Ñ… border chains."""
+    """Ð Ð°Ð·Ñ€ÐµÑˆÐ°ÐµÑ‚ turn-sign inheritance Ð´Ð»Ñ sharp same-patch turns, Ð½Ðµ Ñ‚Ð¾Ð»ÑŒÐºÐ¾ border."""
     if chain.is_corner_split or src_chain.is_corner_split:
+        return True
+    if (
+        chain.neighbor_kind == ChainNeighborKind.PATCH
+        and (
+            chain.frame_role == FrameRole.FREE
+            or src_chain.frame_role == FrameRole.FREE
+            or len(chain.vert_cos) <= 2
+            or len(src_chain.vert_cos) <= 2
+        )
+    ):
         return True
     return chain.neighbor_kind in {
         ChainNeighborKind.MESH_BORDER,
@@ -903,7 +921,7 @@ def _cf_place_chain(
 
     if start_uv is not None and end_uv is not None:
         if role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
-            return _build_frame_chain_between_anchors(source_pts, start_uv, end_uv, final_scale)
+            return _build_frame_chain_between_anchors(source_pts, start_uv, end_uv, role, final_scale)
         return _build_guided_free_chain_between_anchors(
             node, source_pts, start_uv, end_uv, direction, None, final_scale)
 

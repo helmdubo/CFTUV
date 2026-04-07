@@ -366,9 +366,70 @@ def _cf_preview_frame_dual_anchor_rectification(
     end_anchor: Optional[ChainAnchor],
     graph: PatchGraph,
     placed_chains_map: dict[ChainRef, ScaffoldChainPlacement],
+    effective_role: Optional[FrameRole] = None,
 ) -> DualAnchorRectificationPreview:
-    _ = chain, graph, placed_chains_map
-    return DualAnchorRectificationPreview(start_anchor=start_anchor, end_anchor=end_anchor)
+    role = effective_role if effective_role is not None else chain.frame_role
+    if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        return DualAnchorRectificationPreview(start_anchor=start_anchor, end_anchor=end_anchor)
+    if start_anchor is None or end_anchor is None:
+        return DualAnchorRectificationPreview(start_anchor=start_anchor, end_anchor=end_anchor)
+    if start_anchor.source_kind != PlacementSourceKind.SAME_PATCH or end_anchor.source_kind != PlacementSourceKind.SAME_PATCH:
+        return DualAnchorRectificationPreview(start_anchor=start_anchor, end_anchor=end_anchor)
+
+    def _anchor_source_score(anchor: ChainAnchor) -> int:
+        source_chain = graph.get_chain(*anchor.source_ref)
+        if source_chain is None:
+            return 0
+        placed_source = placed_chains_map.get(anchor.source_ref)
+        source_role = placed_source.frame_role if placed_source is not None else source_chain.frame_role
+        score = 0
+        if source_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            score += 2
+        if len(source_chain.vert_cos) <= 2:
+            score += 1
+        return score
+
+    start_score = _anchor_source_score(start_anchor)
+    end_score = _anchor_source_score(end_anchor)
+    keep_start = start_score >= end_score
+    fixed_anchor = start_anchor if keep_start else end_anchor
+    adjustable_anchor = end_anchor if keep_start else start_anchor
+
+    if role == FrameRole.H_FRAME:
+        if abs(fixed_anchor.uv.y - adjustable_anchor.uv.y) <= 1e-8:
+            return DualAnchorRectificationPreview(start_anchor=start_anchor, end_anchor=end_anchor)
+        rectified_uv = Vector((adjustable_anchor.uv.x, fixed_anchor.uv.y))
+    else:
+        if abs(fixed_anchor.uv.x - adjustable_anchor.uv.x) <= 1e-8:
+            return DualAnchorRectificationPreview(start_anchor=start_anchor, end_anchor=end_anchor)
+        rectified_uv = Vector((fixed_anchor.uv.x, adjustable_anchor.uv.y))
+
+    rectified_anchor = ChainAnchor(
+        uv=rectified_uv.copy(),
+        source_ref=adjustable_anchor.source_ref,
+        source_point_index=adjustable_anchor.source_point_index,
+        source_kind=adjustable_anchor.source_kind,
+    )
+    anchor_adjustment = (
+        adjustable_anchor.source_ref,
+        adjustable_anchor.source_point_index,
+        rectified_uv.copy(),
+    )
+
+    reason = 'frame_dual_anchor_rectify:keep_start' if keep_start else 'frame_dual_anchor_rectify:keep_end'
+    if keep_start:
+        return DualAnchorRectificationPreview(
+            start_anchor=start_anchor,
+            end_anchor=rectified_anchor,
+            reason=reason,
+            anchor_adjustments=(anchor_adjustment,),
+        )
+    return DualAnchorRectificationPreview(
+        start_anchor=rectified_anchor,
+        end_anchor=end_anchor,
+        reason=reason,
+        anchor_adjustments=(anchor_adjustment,),
+    )
 
 
 def _cf_seed_cross_patch_hv_bonus(
@@ -706,6 +767,7 @@ def _cf_resolve_candidate_anchors(
         end_anchor,
         graph,
         placed_chains_map,
+        effective_role=role,
     )
     start_anchor = rectified.start_anchor
     end_anchor = rectified.end_anchor

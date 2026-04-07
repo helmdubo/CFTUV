@@ -100,6 +100,9 @@ class FrontierRuntimePolicy:
             return chain.frame_role
         if self.straighten_enabled and chain_ref in self.inherited_role_map:
             return self.inherited_role_map[chain_ref][0]
+        band_role = self._band_geometric_role(chain_ref, chain)
+        if band_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return band_role
         return FrameRole.FREE
 
     def seed_placement_role(self, chain_ref: ChainRef, chain: BoundaryChain) -> FrameRole:
@@ -107,6 +110,8 @@ class FrontierRuntimePolicy:
         if chain.frame_role != FrameRole.FREE:
             return role
         if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return role
+        if chain_ref not in self.inherited_role_map:
             return role
         patch_id = chain_ref[0]
         if self._patch_summary_attr(patch_id, 'spine_axis', FrameRole.FREE) in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
@@ -168,6 +173,49 @@ class FrontierRuntimePolicy:
         if summary is None:
             return default
         return getattr(summary, attr_name, default)
+
+    def _chain_polyline_length(self, chain: BoundaryChain) -> float:
+        if len(chain.vert_cos) < 2:
+            return 0.0
+        return sum(
+            (chain.vert_cos[index + 1] - chain.vert_cos[index]).length
+            for index in range(len(chain.vert_cos) - 1)
+        )
+
+    def _band_geometric_role(self, chain_ref: ChainRef, chain: BoundaryChain) -> FrameRole:
+        if not self.straighten_enabled or chain.frame_role != FrameRole.FREE:
+            return FrameRole.FREE
+
+        patch_id, loop_index, chain_index = chain_ref
+        if not self._patch_summary_attr(patch_id, 'band_candidate', False):
+            return FrameRole.FREE
+
+        axis_candidate = self._patch_summary_attr(patch_id, 'axis_candidate', FrameRole.FREE)
+        if axis_candidate not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return FrameRole.FREE
+
+        node = self.graph.nodes.get(patch_id)
+        if node is None or loop_index < 0 or loop_index >= len(node.boundary_loops):
+            return FrameRole.FREE
+
+        boundary_loop = node.boundary_loops[loop_index]
+        if chain_index < 0 or chain_index >= len(boundary_loop.chains):
+            return FrameRole.FREE
+
+        chain_lengths = [self._chain_polyline_length(loop_chain) for loop_chain in boundary_loop.chains]
+        if not chain_lengths:
+            return FrameRole.FREE
+
+        mean_chain_length = sum(chain_lengths) / float(len(chain_lengths))
+        if mean_chain_length <= 1e-8:
+            return FrameRole.FREE
+
+        chain_length = chain_lengths[chain_index]
+        if chain_length >= mean_chain_length * 1.15:
+            return axis_candidate
+        if chain_length <= mean_chain_length * 0.6:
+            return self._orthogonal_role(axis_candidate)
+        return FrameRole.FREE
 
     def _orthogonal_role(self, role: FrameRole) -> FrameRole:
         if role == FrameRole.H_FRAME:
