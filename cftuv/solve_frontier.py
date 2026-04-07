@@ -247,6 +247,11 @@ def _cf_bootstrap_frontier_runtime(
     _cf_bootstrap_runtime_score_caches(runtime_policy)
 
     seed_effective_role = runtime_policy.seed_placement_role(seed_ref, seed_chain)
+    seed_station_authority_kind = runtime_policy.resolve_station_authority_kind(
+        seed_ref,
+        seed_chain,
+        effective_role=seed_effective_role,
+    )
     seed_payload = _cf_build_seed_placement(
         seed_ref,
         seed_chain,
@@ -263,7 +268,19 @@ def _cf_bootstrap_frontier_runtime(
             seed_chain,
             effective_role=seed_effective_role,
         ),
+        station_authority_kind=seed_station_authority_kind,
         parameter_authority_kind=runtime_policy.resolve_parameter_authority_kind(
+            seed_ref,
+            seed_chain,
+            effective_role=seed_effective_role,
+        ),
+        station_map=runtime_policy.resolve_shared_station_map(
+            seed_ref,
+            seed_chain,
+            effective_role=seed_effective_role,
+            station_authority_kind=seed_station_authority_kind,
+        ),
+        target_span=runtime_policy.resolve_target_span(
             seed_ref,
             seed_chain,
             effective_role=seed_effective_role,

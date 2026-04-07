@@ -80,10 +80,12 @@ except ImportError:
 
 def _cf_build_closure_follow_uvs(
     graph: PatchGraph,
+    chain_ref: Optional[ChainRef],
     chain: BoundaryChain,
     partner_placement: ScaffoldChainPlacement,
     final_scale: float,
     effective_role: Optional[FrameRole] = None,
+    runtime_policy=None,
 ) -> ClosureFollowUvBuildResult:
     """Строит UV для closure-пары напрямую от уже placed partner chain."""
     partner_uv_by_vert = _build_chain_vert_uv_map(graph, partner_placement)
@@ -115,12 +117,26 @@ def _cf_build_closure_follow_uvs(
     if start_uv is None or end_uv is None:
         return ClosureFollowUvBuildResult(uv_points=None, shared_vert_count=shared_vert_count)
 
+    station_map = None
+    if runtime_policy is not None and chain_ref is not None:
+        station_authority_kind = runtime_policy.resolve_station_authority_kind(
+            chain_ref,
+            chain,
+            effective_role=effective_role,
+        )
+        station_map = runtime_policy.resolve_shared_station_map(
+            chain_ref,
+            chain,
+            effective_role=effective_role,
+            station_authority_kind=station_authority_kind,
+        )
     rebuilt_uvs = _cf_rebuild_chain_points_for_endpoints(
         chain,
         start_uv,
         end_uv,
         final_scale,
         effective_role=effective_role,
+        station_map=station_map,
     )
     if rebuilt_uvs is None or len(rebuilt_uvs) != len(chain.vert_cos):
         return ClosureFollowUvBuildResult(uv_points=None, shared_vert_count=shared_vert_count)
@@ -271,10 +287,12 @@ def _cf_try_place_closure_follow_candidate(
 
         follow_result = _cf_build_closure_follow_uvs(
             graph,
+            chain_ref,
             chain,
             partner_placement,
             runtime_policy.final_scale,
             effective_role=eff_role,
+            runtime_policy=runtime_policy,
         )
         uv_points = follow_result.uv_points
         follow_mode = follow_result.follow_mode
@@ -354,6 +372,13 @@ def _cf_try_place_closure_follow_candidate(
         main_eval.end_anchor,
         effective_role=eff_role,
     )
+    station_authority_kind = runtime_policy.resolve_station_authority_kind(
+        chain_ref,
+        chain,
+        main_eval.start_anchor,
+        main_eval.end_anchor,
+        effective_role=eff_role,
+    )
     parameter_authority_kind = runtime_policy.resolve_parameter_authority_kind(
         chain_ref,
         chain,
@@ -368,6 +393,7 @@ def _cf_try_place_closure_follow_candidate(
         frame_role=eff_role,
         axis_authority_kind=axis_authority_kind,
         span_authority_kind=span_authority_kind,
+        station_authority_kind=station_authority_kind,
         parameter_authority_kind=parameter_authority_kind,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=2,
@@ -729,6 +755,13 @@ def _cf_try_place_tree_ingress_candidate(
         anchor_end,
         effective_role=ingress_eff_role,
     )
+    station_authority_kind = runtime_policy.resolve_station_authority_kind(
+        chain_ref,
+        chain,
+        anchor_start,
+        anchor_end,
+        effective_role=ingress_eff_role,
+    )
     parameter_authority_kind = runtime_policy.resolve_parameter_authority_kind(
         chain_ref,
         chain,
@@ -743,6 +776,7 @@ def _cf_try_place_tree_ingress_candidate(
         frame_role=ingress_eff_role,
         axis_authority_kind=axis_authority_kind,
         span_authority_kind=span_authority_kind,
+        station_authority_kind=station_authority_kind,
         parameter_authority_kind=parameter_authority_kind,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=_cf_anchor_count(anchor_start, anchor_end),

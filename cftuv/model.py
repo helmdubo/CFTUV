@@ -81,6 +81,15 @@ class SpanAuthorityKind(str, Enum):
     PATCH_SELF_CONSENSUS = "patch-self-consensus"
 
 
+class StationAuthorityKind(str, Enum):
+    """Who owns shared station-domain authority for a placed chain."""
+
+    NONE = "none"
+    PAIRED_BAND_CONSENSUS = "paired-band-consensus"
+    PATCH_SELF_CONSENSUS = "patch-self-consensus"
+    SELF_ONLY = "self-only"
+
+
 class ParameterAuthorityKind(str, Enum):
     """Who owns local stationing authority along a placed chain."""
 
@@ -479,6 +488,7 @@ class ScaffoldChainPlacement:
     frame_role: FrameRole
     axis_authority_kind: AxisAuthorityKind = AxisAuthorityKind.NONE
     span_authority_kind: SpanAuthorityKind = SpanAuthorityKind.NONE
+    station_authority_kind: StationAuthorityKind = StationAuthorityKind.NONE
     parameter_authority_kind: ParameterAuthorityKind = ParameterAuthorityKind.NONE
     source_kind: PlacementSourceKind = PlacementSourceKind.CHAIN
     anchor_count: int = 0

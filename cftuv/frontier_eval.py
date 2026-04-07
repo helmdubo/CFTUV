@@ -1294,6 +1294,13 @@ def try_place_frontier_candidate(
         candidate.end_anchor,
         effective_role=eff_role,
     )
+    station_authority_kind = runtime_policy.resolve_station_authority_kind(
+        chain_ref,
+        chain,
+        candidate.start_anchor,
+        candidate.end_anchor,
+        effective_role=eff_role,
+    )
     parameter_authority_kind = runtime_policy.resolve_parameter_authority_kind(
         chain_ref,
         chain,
@@ -1308,6 +1315,7 @@ def try_place_frontier_candidate(
         frame_role=eff_role,
         axis_authority_kind=axis_authority_kind,
         span_authority_kind=span_authority_kind,
+        station_authority_kind=station_authority_kind,
         parameter_authority_kind=parameter_authority_kind,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=anchor_count,

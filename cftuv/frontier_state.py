@@ -16,6 +16,7 @@ try:
         PatchGraph,
         PlacementSourceKind,
         ScaffoldChainPlacement,
+        StationAuthorityKind,
         SpanAuthorityKind,
     )
     from .solve_records import (
@@ -39,6 +40,7 @@ except ImportError:
         PatchGraph,
         PlacementSourceKind,
         ScaffoldChainPlacement,
+        StationAuthorityKind,
         SpanAuthorityKind,
     )
     from solve_records import (
@@ -191,6 +193,61 @@ class FrontierRuntimePolicy:
     def _chain_uv_length(self, chain: BoundaryChain) -> float:
         return self._chain_polyline_length(chain) * self.final_scale
 
+    def _chain_normalized_stations(self, chain: BoundaryChain) -> list[float]:
+        point_count = len(chain.vert_cos)
+        if point_count <= 0:
+            return []
+        if point_count == 1:
+            return [0.0]
+
+        edge_lengths = [
+            max((chain.vert_cos[index + 1] - chain.vert_cos[index]).length, 0.0)
+            for index in range(point_count - 1)
+        ]
+        total_length = sum(edge_lengths)
+        if total_length <= 1e-8:
+            return [float(index) / float(point_count - 1) for index in range(point_count)]
+
+        stations = [0.0]
+        walked = 0.0
+        for edge_length in edge_lengths:
+            walked += edge_length
+            stations.append(min(1.0, walked / total_length))
+        stations[0] = 0.0
+        stations[-1] = 1.0
+        prev_value = 0.0
+        for index, station in enumerate(stations):
+            station = min(max(station, prev_value), 1.0)
+            stations[index] = station
+            prev_value = station
+        stations[-1] = 1.0
+        return stations
+
+    def _average_station_sets(self, station_sets: list[list[float]]) -> Optional[list[float]]:
+        if not station_sets:
+            return None
+        point_count = len(station_sets[0])
+        if point_count <= 0:
+            return None
+        if any(len(stations) != point_count for stations in station_sets):
+            return None
+        if point_count == 1:
+            return [0.0]
+
+        averaged = [
+            sum(stations[index] for stations in station_sets) / float(len(station_sets))
+            for index in range(point_count)
+        ]
+        averaged[0] = 0.0
+        averaged[-1] = 1.0
+        prev_value = 0.0
+        for index, station in enumerate(averaged):
+            station = min(max(station, prev_value), 1.0)
+            averaged[index] = station
+            prev_value = station
+        averaged[-1] = 1.0
+        return averaged
+
     def _placement_axis_span(self, placement: ScaffoldChainPlacement) -> float:
         if len(placement.points) < 2:
             return 0.0
@@ -337,6 +394,67 @@ class FrontierRuntimePolicy:
                 best_ref = other_ref
         return best_ref
 
+    def _paired_band_station_sources(
+        self,
+        chain_ref: ChainRef,
+        chain: BoundaryChain,
+        effective_role: Optional[FrameRole] = None,
+    ) -> Optional[tuple[list[float], list[float]]]:
+        role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
+        if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return None
+
+        partner_ref = self._paired_candidate_ref(chain_ref, chain, effective_role=role)
+        if partner_ref is None:
+            return None
+        partner_chain = self.graph.get_chain(*partner_ref)
+        if partner_chain is None:
+            return None
+        partner_role = self._resolved_chain_role(partner_ref, partner_chain)
+        if partner_role != role:
+            return None
+
+        current_stations = self._chain_normalized_stations(chain)
+        partner_stations = self._chain_normalized_stations(partner_chain)
+        if len(current_stations) < 2 or len(current_stations) != len(partner_stations):
+            return None
+        return current_stations, partner_stations
+
+    def _patch_self_station_sets(
+        self,
+        chain_ref: ChainRef,
+        chain: BoundaryChain,
+        effective_role: Optional[FrameRole] = None,
+    ) -> list[list[float]]:
+        role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
+        if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return []
+
+        patch_id, loop_index, chain_index = chain_ref
+        node = self.graph.nodes.get(patch_id)
+        if node is None or loop_index < 0 or loop_index >= len(node.boundary_loops):
+            return []
+        boundary_loop = node.boundary_loops[loop_index]
+        if chain_index < 0 or chain_index >= len(boundary_loop.chains):
+            return []
+
+        point_count = len(chain.vert_cos)
+        if point_count < 2:
+            return []
+
+        station_sets = [self._chain_normalized_stations(chain)]
+        for other_index, other_chain in enumerate(boundary_loop.chains):
+            if other_index == chain_index:
+                continue
+            if len(other_chain.vert_cos) != point_count:
+                continue
+            other_ref = (patch_id, loop_index, other_index)
+            other_role = self._resolved_chain_role(other_ref, other_chain)
+            if other_role != role:
+                continue
+            station_sets.append(self._chain_normalized_stations(other_chain))
+        return station_sets if len(station_sets) >= 2 else []
+
     def resolve_axis_authority_kind(
         self,
         chain_ref: ChainRef,
@@ -477,6 +595,65 @@ class FrontierRuntimePolicy:
                 return sum(spans) / float(len(spans))
 
         return local_span
+
+    def resolve_station_authority_kind(
+        self,
+        chain_ref: ChainRef,
+        chain: BoundaryChain,
+        start_anchor: Optional[ChainAnchor] = None,
+        end_anchor: Optional[ChainAnchor] = None,
+        effective_role: Optional[FrameRole] = None,
+    ) -> StationAuthorityKind:
+        _ = start_anchor, end_anchor
+        role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
+        if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return StationAuthorityKind.NONE
+
+        if self._paired_band_station_sources(chain_ref, chain, effective_role=role) is not None:
+            return StationAuthorityKind.PAIRED_BAND_CONSENSUS
+
+        if self._patch_self_station_sets(chain_ref, chain, effective_role=role):
+            return StationAuthorityKind.PATCH_SELF_CONSENSUS
+
+        return StationAuthorityKind.SELF_ONLY
+
+    def resolve_shared_station_map(
+        self,
+        chain_ref: ChainRef,
+        chain: BoundaryChain,
+        start_anchor: Optional[ChainAnchor] = None,
+        end_anchor: Optional[ChainAnchor] = None,
+        effective_role: Optional[FrameRole] = None,
+        station_authority_kind: Optional[StationAuthorityKind] = None,
+    ) -> Optional[list[float]]:
+        _ = start_anchor, end_anchor
+        role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
+        if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return None
+
+        authority_kind = (
+            station_authority_kind
+            if station_authority_kind is not None else
+            self.resolve_station_authority_kind(
+                chain_ref,
+                chain,
+                start_anchor,
+                end_anchor,
+                effective_role=role,
+            )
+        )
+
+        if authority_kind == StationAuthorityKind.PAIRED_BAND_CONSENSUS:
+            station_sources = self._paired_band_station_sources(chain_ref, chain, effective_role=role)
+            if station_sources is not None:
+                return self._average_station_sets(list(station_sources))
+
+        if authority_kind == StationAuthorityKind.PATCH_SELF_CONSENSUS:
+            station_sets = self._patch_self_station_sets(chain_ref, chain, effective_role=role)
+            if station_sets:
+                return self._average_station_sets(station_sets)
+
+        return None
 
     def resolve_parameter_authority_kind(
         self,

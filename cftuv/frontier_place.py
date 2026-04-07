@@ -20,6 +20,7 @@ try:
         PlacementSourceKind,
         ScaffoldChainPlacement,
         ScaffoldPointKey,
+        StationAuthorityKind,
         SpanAuthorityKind,
         SourcePoint,
     )
@@ -45,6 +46,7 @@ except ImportError:
         PlacementSourceKind,
         ScaffoldChainPlacement,
         ScaffoldPointKey,
+        StationAuthorityKind,
         SpanAuthorityKind,
         SourcePoint,
     )
@@ -75,6 +77,7 @@ def _build_temporary_chain_placement(
     effective_role: Optional[FrameRole] = None,
     axis_authority_kind: AxisAuthorityKind = AxisAuthorityKind.NONE,
     span_authority_kind: SpanAuthorityKind = SpanAuthorityKind.NONE,
+    station_authority_kind: StationAuthorityKind = StationAuthorityKind.NONE,
     parameter_authority_kind: ParameterAuthorityKind = ParameterAuthorityKind.NONE,
 ) -> ScaffoldChainPlacement:
     patch_id, loop_index, chain_index = chain_ref
@@ -91,6 +94,7 @@ def _build_temporary_chain_placement(
         frame_role=effective_role if effective_role is not None else chain.frame_role,
         axis_authority_kind=axis_authority_kind,
         span_authority_kind=span_authority_kind,
+        station_authority_kind=station_authority_kind,
         parameter_authority_kind=parameter_authority_kind,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=_cf_anchor_count(start_anchor, end_anchor),
@@ -110,20 +114,35 @@ def _cf_build_seed_placement(
     effective_role: Optional[FrameRole] = None,
     axis_authority_kind: AxisAuthorityKind = AxisAuthorityKind.NONE,
     span_authority_kind: SpanAuthorityKind = SpanAuthorityKind.NONE,
+    station_authority_kind: StationAuthorityKind = StationAuthorityKind.NONE,
     parameter_authority_kind: ParameterAuthorityKind = ParameterAuthorityKind.NONE,
+    station_map: Optional[list[float]] = None,
+    target_span: Optional[float] = None,
 ) -> Optional[SeedPlacementResult]:
     seed_src = _cf_chain_source_points(seed_chain)
     role = effective_role if effective_role is not None else seed_chain.frame_role
     seed_dir = _cf_determine_direction_for_role(seed_chain, root_node, role)
 
     if role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
-        seed_uvs = _build_frame_chain_from_one_end(
-            seed_src,
-            Vector((0.0, 0.0)),
-            seed_dir,
-            role,
-            final_scale,
-        )
+        if station_map is not None and len(station_map) == len(seed_src):
+            seed_span = target_span if target_span is not None and target_span > 1e-8 else _cf_chain_total_length(seed_chain, final_scale)
+            axis_direction = _snap_direction_to_role(seed_dir, role)
+            axis_direction = _normalize_direction(axis_direction, _default_role_direction(role))
+            seed_end = Vector((0.0, 0.0)) + axis_direction * seed_span
+            seed_uvs = _build_frame_chain_from_stations(
+                Vector((0.0, 0.0)),
+                seed_end,
+                role,
+                station_map,
+            )
+        else:
+            seed_uvs = _build_frame_chain_from_one_end(
+                seed_src,
+                Vector((0.0, 0.0)),
+                seed_dir,
+                role,
+                final_scale,
+            )
     else:
         seed_uvs = _build_guided_free_chain_from_one_end(
             root_node,
@@ -143,6 +162,7 @@ def _cf_build_seed_placement(
         frame_role=role,
         axis_authority_kind=axis_authority_kind,
         span_authority_kind=span_authority_kind,
+        station_authority_kind=station_authority_kind,
         parameter_authority_kind=parameter_authority_kind,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=0,
@@ -215,6 +235,31 @@ def _chain_edge_lengths(ordered_source_points: list[SourcePoint], final_scale: f
     return edge_lengths
 
 
+def _normalized_stations_from_edge_lengths(edge_lengths: list[float]) -> list[float]:
+    if not edge_lengths:
+        return [0.0]
+
+    total_length = sum(max(edge_length, 0.0) for edge_length in edge_lengths)
+    point_count = len(edge_lengths) + 1
+    if total_length <= 1e-8:
+        return [float(point_index) / float(point_count - 1) for point_index in range(point_count)]
+
+    stations = [0.0]
+    walked = 0.0
+    for edge_length in edge_lengths:
+        walked += max(edge_length, 0.0)
+        stations.append(min(1.0, walked / total_length))
+    stations[0] = 0.0
+    stations[-1] = 1.0
+    prev_value = 0.0
+    for point_index, station in enumerate(stations):
+        station = min(max(station, prev_value), 1.0)
+        stations[point_index] = station
+        prev_value = station
+    stations[-1] = 1.0
+    return stations
+
+
 def _default_role_direction(role: FrameRole) -> Vector:
     if role == FrameRole.V_FRAME:
         return Vector((0.0, 1.0))
@@ -264,6 +309,70 @@ def _interpolate_between_anchors_by_lengths(start_point: Vector, end_point: Vect
         points.append(start_point.lerp(end_point, factor))
     points[-1] = end_point.copy()
     return points
+
+
+def _build_frame_chain_from_stations(
+    start_point: Vector,
+    end_point: Vector,
+    role: FrameRole,
+    stations: list[float],
+) -> list[Vector]:
+    if not stations:
+        return []
+    if len(stations) == 1:
+        return [start_point.copy()]
+
+    snapped_end = end_point.copy()
+    if role == FrameRole.H_FRAME:
+        snapped_end = Vector((end_point.x, start_point.y))
+    elif role == FrameRole.V_FRAME:
+        snapped_end = Vector((start_point.x, end_point.y))
+
+    points = []
+    prev_value = 0.0
+    for point_index, station in enumerate(stations):
+        station = min(max(float(station), prev_value), 1.0)
+        prev_value = station
+        points.append(start_point.lerp(snapped_end, station))
+    points[0] = start_point.copy()
+    points[-1] = snapped_end.copy()
+    return points
+
+
+def _placement_normalized_stations(placement: ScaffoldChainPlacement) -> list[float]:
+    if not placement.points:
+        return []
+    if len(placement.points) == 1:
+        return [0.0]
+
+    if placement.frame_role == FrameRole.H_FRAME:
+        axis_values = [uv.x for _, uv in placement.points]
+    elif placement.frame_role == FrameRole.V_FRAME:
+        axis_values = [uv.y for _, uv in placement.points]
+    else:
+        start_uv = placement.points[0][1]
+        axis_values = [(uv - start_uv).length for _, uv in placement.points]
+
+    start_value = axis_values[0]
+    end_value = axis_values[-1]
+    span = abs(end_value - start_value)
+    if span <= 1e-8:
+        point_count = len(axis_values)
+        return [float(point_index) / float(point_count - 1) for point_index in range(point_count)]
+
+    if end_value >= start_value:
+        stations = [(axis_value - start_value) / span for axis_value in axis_values]
+    else:
+        stations = [(start_value - axis_value) / span for axis_value in axis_values]
+    stations[0] = 0.0
+    stations[-1] = 1.0
+    prev_value = 0.0
+    for point_index, station in enumerate(stations):
+        station = min(max(station, prev_value), 1.0)
+        stations[point_index] = station
+        prev_value = station
+    stations[-1] = 1.0
+    return stations
 
 
 def _sample_cubic_bezier_point(p0: Vector, p1: Vector, p2: Vector, p3: Vector, t: float) -> Vector:
@@ -726,13 +835,10 @@ def _build_frame_chain_from_one_end(
     axis_direction = _snap_direction_to_role(start_direction, role)
     axis_direction = _normalize_direction(axis_direction, _default_role_direction(role))
     edge_lengths = _chain_edge_lengths(ordered_source_points, final_scale)
-
-    points = [start_point.copy()]
-    current_point = start_point.copy()
-    for edge_length in edge_lengths:
-        current_point = current_point + axis_direction * edge_length
-        points.append(current_point.copy())
-    return points
+    stations = _normalized_stations_from_edge_lengths(edge_lengths)
+    target_span = sum(max(edge_length, 0.0) for edge_length in edge_lengths)
+    end_point = start_point + axis_direction * target_span
+    return _build_frame_chain_from_stations(start_point, end_point, role, stations)
 
 
 def _build_frame_chain_between_anchors(
@@ -755,7 +861,8 @@ def _build_frame_chain_between_anchors(
         snapped_end = Vector((start_point.x, end_point.y))
 
     edge_lengths = _chain_edge_lengths(ordered_source_points, final_scale)
-    return _interpolate_between_anchors_by_lengths(start_point, snapped_end, edge_lengths)
+    stations = _normalized_stations_from_edge_lengths(edge_lengths)
+    return _build_frame_chain_from_stations(start_point, snapped_end, role, stations)
 
 
 def _cf_rebuild_chain_points_for_endpoints(
@@ -764,6 +871,7 @@ def _cf_rebuild_chain_points_for_endpoints(
     end_uv: Vector,
     final_scale: float,
     effective_role: Optional[FrameRole] = None,
+    station_map: Optional[list[float]] = None,
 ) -> Optional[list[Vector]]:
     source_pts = _cf_chain_source_points(chain)
     if len(source_pts) != len(chain.vert_indices):
@@ -772,6 +880,8 @@ def _cf_rebuild_chain_points_for_endpoints(
     role = effective_role if effective_role is not None else chain.frame_role
 
     if role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        if station_map is not None and len(station_map) == len(source_pts):
+            return _build_frame_chain_from_stations(start_uv, end_uv, role, station_map)
         return _build_frame_chain_between_anchors(source_pts, start_uv, end_uv, role, final_scale)
 
     if role == FrameRole.FREE and len(source_pts) <= 2:
@@ -820,12 +930,18 @@ def _cf_apply_anchor_adjustments(
             else:
                 return False
 
+        station_map = (
+            _placement_normalized_stations(existing)
+            if existing.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+            else None
+        )
         rebuilt_uvs = _cf_rebuild_chain_points_for_endpoints(
             chain,
             start_uv,
             end_uv,
             final_scale,
             effective_role=existing.frame_role,
+            station_map=station_map,
         )
         if rebuilt_uvs is None or len(rebuilt_uvs) != point_count:
             return False
@@ -1110,6 +1226,29 @@ def _cf_place_chain(
             runtime_policy=runtime_policy,
         )
         if resolved_segment is not None:
+            if runtime_policy is not None and chain_ref is not None:
+                station_authority_kind = runtime_policy.resolve_station_authority_kind(
+                    chain_ref,
+                    chain,
+                    start_anchor,
+                    end_anchor,
+                    effective_role=role,
+                )
+                station_map = runtime_policy.resolve_shared_station_map(
+                    chain_ref,
+                    chain,
+                    start_anchor,
+                    end_anchor,
+                    effective_role=role,
+                    station_authority_kind=station_authority_kind,
+                )
+                if station_map is not None and len(station_map) == len(source_pts):
+                    return _build_frame_chain_from_stations(
+                        resolved_segment.start_uv,
+                        resolved_segment.end_uv,
+                        role,
+                        station_map,
+                    )
             return _build_frame_chain_between_anchors(
                 source_pts,
                 resolved_segment.start_uv,
