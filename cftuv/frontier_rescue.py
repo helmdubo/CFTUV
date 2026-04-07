@@ -234,7 +234,27 @@ def _cf_try_place_closure_follow_candidate(
         chain = entry.chain
         if chain_ref in runtime_policy.placed_chain_refs or chain_ref in runtime_policy.rejected_chain_refs:
             continue
-        eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
+        node = graph.nodes.get(chain_ref[0])
+        candidate_eval = (
+            evaluate_candidate(
+                runtime_policy,
+                chain_ref,
+                chain,
+                node,
+                apply_closure_preconstraint=True,
+                compute_score=False,
+            )
+            if node is not None else
+            FrontierCandidateEval(
+                raw_start_anchor=None,
+                raw_end_anchor=None,
+                start_anchor=None,
+                end_anchor=None,
+                known=0,
+                placed_in_patch=runtime_policy.placed_in_patch(chain_ref[0]),
+            )
+        )
+        eff_role = candidate_eval.effective_role
         if eff_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             continue
 
@@ -271,6 +291,7 @@ def _cf_try_place_closure_follow_candidate(
                 chain_ref=chain_ref,
                 chain=chain,
                 partner_ref=partner_ref,
+                effective_role=eff_role,
                 uv_points=uv_points,
                 follow_mode=follow_mode,
                 shared_vert_count=shared_vert_count,
@@ -282,6 +303,7 @@ def _cf_try_place_closure_follow_candidate(
     chain_ref = best_candidate.chain_ref
     chain = best_candidate.chain
     partner_ref = best_candidate.partner_ref
+    candidate_eff_role = best_candidate.effective_role
     uv_points = best_candidate.uv_points
     follow_mode = best_candidate.follow_mode
     shared_vert_count = best_candidate.shared_vert_count
@@ -314,6 +336,8 @@ def _cf_try_place_closure_follow_candidate(
         shared_vert_count=shared_vert_count,
     )
     eff_role = main_eval.effective_role
+    if eff_role != candidate_eff_role or eff_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        return False
     chain_placement = ScaffoldChainPlacement(
         patch_id=chain_ref[0],
         loop_index=chain_ref[1],
@@ -427,9 +451,9 @@ def _cf_try_place_tree_ingress_candidate(
         node = entry.node
         if chain_ref in runtime_policy.placed_chain_refs or chain_ref in runtime_policy.rejected_chain_refs:
             continue
-        eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
 
         candidate_eval = evaluate_candidate(runtime_policy, chain_ref, chain, node)
+        eff_role = candidate_eval.effective_role
         if candidate_eval.placed_in_patch > 0:
             continue
         if chain.neighbor_kind != ChainNeighborKind.PATCH:
@@ -593,6 +617,7 @@ def _cf_try_place_tree_ingress_candidate(
                 rank=candidate_rank,
                 chain_ref=chain_ref,
                 chain=chain,
+                effective_role=eff_role,
                 start_anchor=ingress_start_anchor,
                 end_anchor=ingress_end_anchor,
                 anchor_adjustments=ingress_anchor_adjustments,
@@ -607,6 +632,7 @@ def _cf_try_place_tree_ingress_candidate(
 
     chain_ref = best_candidate.chain_ref
     chain = best_candidate.chain
+    candidate_eff_role = best_candidate.effective_role
     anchor_start = best_candidate.start_anchor
     anchor_end = best_candidate.end_anchor
     anchor_adjustments = best_candidate.anchor_adjustments
@@ -660,7 +686,7 @@ def _cf_try_place_tree_ingress_candidate(
         _rescue_primary_anchor_kind = anchor_end.source_kind
     else:
         _rescue_primary_anchor_kind = PlacementSourceKind.CHAIN
-    ingress_eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
+    ingress_eff_role = candidate_eff_role
     chain_placement = ScaffoldChainPlacement(
         patch_id=chain_ref[0],
         loop_index=chain_ref[1],

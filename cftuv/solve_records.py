@@ -497,6 +497,7 @@ class ClosureFollowPlacementCandidate:
     chain_ref: ChainRef
     chain: BoundaryChain
     partner_ref: ChainRef
+    effective_role: FrameRole
     uv_points: list[Vector]
     follow_mode: str
     shared_vert_count: int
@@ -520,6 +521,7 @@ class TreeIngressPlacementCandidate:
     rank: TreeIngressCandidateRank
     chain_ref: ChainRef
     chain: BoundaryChain
+    effective_role: FrameRole
     start_anchor: Optional["ChainAnchor"]
     end_anchor: Optional["ChainAnchor"]
     anchor_adjustments: tuple[AnchorAdjustment, ...]
