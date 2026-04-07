@@ -149,16 +149,18 @@ def _cf_count_hv_adjacent_endpoints(
     graph: PatchGraph,
     chain_ref: ChainRef,
     runtime_policy: Optional["FrontierRuntimePolicy"] = None,
+    effective_role: Optional[FrameRole] = None,
 ) -> int:
     chain = graph.get_chain(*chain_ref)
     if chain is None:
         return 0
 
-    chain_role = (
-        runtime_policy.effective_placement_role(chain_ref, chain)
-        if runtime_policy is not None else
-        chain.frame_role
-    )
+    if effective_role is not None:
+        chain_role = effective_role
+    elif runtime_policy is not None:
+        chain_role = runtime_policy.effective_placement_role(chain_ref, chain)
+    else:
+        chain_role = chain.frame_role
     if chain_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
         return 0
 
@@ -171,7 +173,7 @@ def _cf_count_hv_adjacent_endpoints(
             if neighbor_chain is None:
                 continue
             neighbor_role = (
-                runtime_policy.effective_placement_role(neighbor_ref, neighbor_chain)
+                runtime_policy.resolved_placement_role(neighbor_ref, neighbor_chain)
                 if runtime_policy is not None else
                 neighbor_chain.frame_role
             )
@@ -186,8 +188,9 @@ def _cf_preview_would_be_connected(
     chain: BoundaryChain,
     runtime_policy: "FrontierRuntimePolicy",
     graph: PatchGraph,
+    effective_role: Optional[FrameRole] = None,
 ) -> bool:
-    chain_role = runtime_policy.effective_placement_role(chain_ref, chain)
+    chain_role = effective_role if effective_role is not None else runtime_policy.effective_placement_role(chain_ref, chain)
     if chain_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
         return True
 
@@ -207,7 +210,7 @@ def _cf_preview_would_be_connected(
         if neighbor_ref not in runtime_policy.placed_chain_refs:
             continue
         neighbor_chain = boundary_loop.chains[neighbor_idx]
-        neighbor_role = runtime_policy.effective_placement_role(neighbor_ref, neighbor_chain)
+        neighbor_role = runtime_policy.resolved_placement_role(neighbor_ref, neighbor_chain)
         if neighbor_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             return True
 
@@ -218,7 +221,7 @@ def _cf_preview_would_be_connected(
             if other_ref in runtime_policy.placed_chain_refs:
                 other_chain = graph.get_chain(*other_ref)
                 if other_chain:
-                    other_role = runtime_policy.effective_placement_role(other_ref, other_chain)
+                    other_role = runtime_policy.resolved_placement_role(other_ref, other_chain)
                     if other_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
                         return True
 
@@ -233,11 +236,12 @@ def _cf_role_tier(
     quilt_patch_ids: set[int],
     allowed_tree_edges: set[PatchEdgeKey],
     runtime_policy: Optional["FrontierRuntimePolicy"] = None,
+    effective_role: Optional[FrameRole] = None,
 ) -> tuple[int, str]:
     # Check inherited role: FREE chain with inherited H/V gets medium-high tier
     if chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
         if runtime_policy is not None:
-            eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
+            eff_role = effective_role if effective_role is not None else runtime_policy.effective_placement_role(chain_ref, chain)
             if eff_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
                 # Inherited role: stronger than free, weaker than true H/V
                 return 2, 'free_inherited_hv'
@@ -466,6 +470,8 @@ def _cf_build_corner_scoring_hints(
     chain_ref: ChainRef,
     chain: BoundaryChain,
     graph: PatchGraph,
+    runtime_policy: Optional["FrontierRuntimePolicy"] = None,
+    effective_role: Optional[FrameRole] = None,
 ) -> CornerScoringHints:
     patch_id, loop_index, chain_index = chain_ref
     node = graph.nodes.get(patch_id)
@@ -474,26 +480,36 @@ def _cf_build_corner_scoring_hints(
 
     boundary_loop = node.boundary_loops[loop_index]
 
+    chain_role = effective_role if effective_role is not None else chain.frame_role
+
     def _endpoint_corner(corner_index: int) -> tuple[Optional[BoundaryCorner], Optional[FrameRole]]:
         if corner_index < 0 or corner_index >= len(boundary_loop.corners):
             return None, None
         corner = boundary_loop.corners[corner_index]
         other_role: Optional[FrameRole] = None
+        other_chain_index = -1
         if corner.prev_chain_index == chain_index and corner.next_chain_index != chain_index:
+            other_chain_index = corner.next_chain_index
             other_role = corner.next_role
         elif corner.next_chain_index == chain_index and corner.prev_chain_index != chain_index:
+            other_chain_index = corner.prev_chain_index
             other_role = corner.prev_role
+        if runtime_policy is not None and other_chain_index >= 0:
+            other_ref = (patch_id, loop_index, other_chain_index)
+            other_chain = graph.get_chain(*other_ref)
+            if other_chain is not None:
+                other_role = runtime_policy.resolved_placement_role(other_ref, other_chain)
         return corner, other_role
 
     start_corner, start_other_role = _endpoint_corner(chain.start_corner_index)
     end_corner, end_other_role = _endpoint_corner(chain.end_corner_index)
 
     start_turn_strength = (
-        _cf_corner_turn_strength(start_corner, chain.frame_role, start_other_role)
+        _cf_corner_turn_strength(start_corner, chain_role, start_other_role)
         if start_corner is not None else 0.0
     )
     end_turn_strength = (
-        _cf_corner_turn_strength(end_corner, chain.frame_role, end_other_role)
+        _cf_corner_turn_strength(end_corner, chain_role, end_other_role)
         if end_corner is not None else 0.0
     )
 
@@ -514,11 +530,11 @@ def _cf_build_corner_scoring_hints(
             has_junction_corner = True
         if (
             other_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
-            and chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
-            and _is_orthogonal_hv_pair(chain.frame_role, other_role)
+            and chain_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+            and _is_orthogonal_hv_pair(chain_role, other_role)
         ):
             orthogonal_turn_count += 1
-        if other_role == chain.frame_role:
+        if other_role == chain_role:
             same_role_continuation_strength += 0.5 if not corner.is_geometric else 0.25
 
     return CornerScoringHints(
@@ -549,6 +565,7 @@ def _cf_build_frontier_rank(
     closure_pair_refs: Optional[frozenset[ChainRef]] = None,
     start_anchor: Optional[ChainAnchor] = None,
     end_anchor: Optional[ChainAnchor] = None,
+    effective_role: Optional[FrameRole] = None,
 ) -> tuple[FrontierRank, FrontierRankBreakdown]:
     is_hv = topology_facts.is_hv
     same_patch_anchor_count = topology_facts.same_patch_anchor_count
@@ -564,6 +581,7 @@ def _cf_build_frontier_rank(
         quilt_patch_ids,
         allowed_tree_edges,
         runtime_policy=runtime_policy,
+        effective_role=effective_role,
     )
 
     if topology_facts.is_secondary_closure and same_patch_anchor_count == 0 and cross_patch_anchor_count > 0:
@@ -715,8 +733,9 @@ def _cf_build_frontier_topology_facts(
     start_anchor: Optional[ChainAnchor],
     end_anchor: Optional[ChainAnchor],
     closure_pair_refs: Optional[frozenset[ChainRef]] = None,
+    effective_role: Optional[FrameRole] = None,
 ) -> FrontierTopologyFacts:
-    eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
+    eff_role = effective_role if effective_role is not None else runtime_policy.effective_placement_role(chain_ref, chain)
     is_bridge = eff_role == FrameRole.FREE and len(chain.vert_cos) <= 2
     is_hv = eff_role in (FrameRole.H_FRAME, FrameRole.V_FRAME)
     same_patch_anchor_count = sum(
@@ -727,7 +746,12 @@ def _cf_build_frontier_topology_facts(
         1 for anchor in (start_anchor, end_anchor)
         if anchor is not None and anchor.source_kind == PlacementSourceKind.CROSS_PATCH
     )
-    hv_adjacency = _cf_count_hv_adjacent_endpoints(graph, chain_ref, runtime_policy=runtime_policy)
+    hv_adjacency = _cf_count_hv_adjacent_endpoints(
+        graph,
+        chain_ref,
+        runtime_policy=runtime_policy,
+        effective_role=eff_role,
+    )
     if is_hv:
         for anchor in (start_anchor, end_anchor):
             if anchor is None or anchor.source_kind != PlacementSourceKind.CROSS_PATCH:
@@ -737,7 +761,13 @@ def _cf_build_frontier_topology_facts(
                 hv_adjacency += 1
                 break
 
-    would_be_connected = _cf_preview_would_be_connected(chain_ref, chain, runtime_policy, graph)
+    would_be_connected = _cf_preview_would_be_connected(
+        chain_ref,
+        chain,
+        runtime_policy,
+        graph,
+        effective_role=eff_role,
+    )
     return FrontierTopologyFacts(
         is_hv=is_hv,
         is_bridge=is_bridge,
@@ -1006,6 +1036,7 @@ def _cf_score_candidate_layered(
     closure_pair_refs=None,
     start_anchor: Optional[ChainAnchor] = None,
     end_anchor: Optional[ChainAnchor] = None,
+    effective_role: Optional[FrameRole] = None,
 ):
     try:
         from .constants import (
@@ -1045,6 +1076,7 @@ def _cf_score_candidate_layered(
         start_anchor,
         end_anchor,
         closure_pair_refs=closure_pair_refs,
+        effective_role=effective_role,
     )
     score = 0.0
     score += _cf_score_topology_baseline(

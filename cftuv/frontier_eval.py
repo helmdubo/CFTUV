@@ -676,6 +676,7 @@ def _cf_resolve_candidate_anchors(
     effective_role: Optional[FrameRole] = None,
 ) -> ResolvedCandidateAnchors:
     role = effective_role if effective_role is not None else chain.frame_role
+    base_role = runtime_policy.effective_placement_role(chain_ref, chain)
     known = _cf_anchor_count(start_anchor, end_anchor)
     if runtime_policy.should_gate_inherited_same_patch(chain_ref, chain):
         same_patch_anchor_count = sum(
@@ -689,12 +690,13 @@ def _cf_resolve_candidate_anchors(
             if anchor is not None and anchor.source_kind == PlacementSourceKind.CROSS_PATCH
         )
         if same_patch_anchor_count > 0 and cross_patch_anchor_count == 0:
-            return ResolvedCandidateAnchors(
-                start_anchor=None,
-                end_anchor=None,
-                known=0,
-                reason='gate_unresolved_inherited_same_patch',
-            )
+            if role == base_role:
+                return ResolvedCandidateAnchors(
+                    start_anchor=None,
+                    end_anchor=None,
+                    known=0,
+                    reason='gate_unresolved_inherited_same_patch',
+                )
     if known < 2:
         return ResolvedCandidateAnchors(start_anchor=start_anchor, end_anchor=end_anchor, known=known)
 
@@ -792,7 +794,7 @@ def evaluate_candidate(
     is_allowed_quilt_edge: Callable[[set[PatchEdgeKey], int, int], bool],
     build_patch_scoring_context: Callable[[ChainRef, FrontierRuntimePolicy], PatchScoringContext],
     chain_seam_relation: Callable[[ChainRef, BoundaryChain, FrontierRuntimePolicy], Optional[SeamRelationProfile]],
-    build_corner_scoring_hints: Callable[[ChainRef, BoundaryChain, PatchGraph], CornerScoringHints],
+    build_corner_scoring_hints: Callable[[ChainRef, BoundaryChain, PatchGraph, FrontierRuntimePolicy, Optional[FrameRole]], CornerScoringHints],
     score_candidate: Callable[..., tuple[float, FrontierTopologyFacts, FrontierLocalScoreDetails]],
     build_frontier_rank: Callable[..., tuple[FrontierRank, FrontierRankBreakdown]],
 ) -> FrontierCandidateEval:
@@ -811,12 +813,19 @@ def evaluate_candidate(
 
     placed_in_patch = runtime_policy.placed_in_patch(chain_ref[0])
     base_eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
-    eff_role = runtime_policy.candidate_placement_role(
+    candidate_role = runtime_policy.candidate_placement_role(
         chain_ref,
         chain,
         raw_start_anchor,
         raw_end_anchor,
         effective_role=base_eff_role,
+    )
+    eff_role = runtime_policy.continuation_placement_role(
+        chain_ref,
+        chain,
+        raw_start_anchor,
+        raw_end_anchor,
+        effective_role=candidate_role,
     )
     patch_context = build_patch_scoring_context(chain_ref, runtime_policy)
     seam_relation = chain_seam_relation(chain_ref, chain, runtime_policy)
@@ -870,7 +879,7 @@ def evaluate_candidate(
     rank_breakdown = None
     corner_hints = None
     if compute_score and known > 0:
-        corner_hints = build_corner_scoring_hints(chain_ref, chain, runtime_policy.graph)
+        corner_hints = build_corner_scoring_hints(chain_ref, chain, runtime_policy.graph, runtime_policy, eff_role)
         score, topology_facts, score_details = score_candidate(
             chain_ref,
             chain,
@@ -886,6 +895,7 @@ def evaluate_candidate(
             closure_pair_refs=runtime_policy.closure_pair_refs or None,
             start_anchor=start_anchor,
             end_anchor=end_anchor,
+            effective_role=eff_role,
         )
         rank, rank_breakdown = build_frontier_rank(
             chain_ref,
@@ -905,6 +915,7 @@ def evaluate_candidate(
             closure_pair_refs=runtime_policy.closure_pair_refs or None,
             start_anchor=start_anchor,
             end_anchor=end_anchor,
+            effective_role=eff_role,
         )
 
     return FrontierCandidateEval(

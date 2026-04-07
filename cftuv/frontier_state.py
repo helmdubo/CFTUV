@@ -102,6 +102,12 @@ class FrontierRuntimePolicy:
             return self.inherited_role_map[chain_ref][0]
         return FrameRole.FREE
 
+    def resolved_placement_role(self, chain_ref: ChainRef, chain: BoundaryChain) -> FrameRole:
+        placement = self.placed_chains_map.get(chain_ref)
+        if placement is not None:
+            return placement.frame_role
+        return self.effective_placement_role(chain_ref, chain)
+
     def placed_in_patch(self, patch_id: int) -> int:
         return self.placed_count_by_patch.get(patch_id, 0)
 
@@ -148,6 +154,66 @@ class FrontierRuntimePolicy:
             return default
         return getattr(summary, attr_name, default)
 
+    def _orthogonal_role(self, role: FrameRole) -> FrameRole:
+        if role == FrameRole.H_FRAME:
+            return FrameRole.V_FRAME
+        if role == FrameRole.V_FRAME:
+            return FrameRole.H_FRAME
+        return FrameRole.FREE
+
+    def _is_corner_orthogonal_band_turn(self, turn_angle_deg: float) -> bool:
+        angle = abs(float(turn_angle_deg))
+        return 60.0 <= angle <= 120.0
+
+    def _same_patch_continuation_hint(
+        self,
+        chain_ref: ChainRef,
+        chain: BoundaryChain,
+        anchor: Optional[ChainAnchor],
+        *,
+        is_start_anchor: bool,
+    ) -> Optional[tuple[int, FrameRole]]:
+        if anchor is None or anchor.source_kind != PlacementSourceKind.SAME_PATCH:
+            return None
+        if anchor.source_ref[0] != chain_ref[0] or anchor.source_ref[1] != chain_ref[1]:
+            return None
+
+        patch_id, loop_index, chain_index = chain_ref
+        node = self.graph.nodes.get(patch_id)
+        if node is None or loop_index >= len(node.boundary_loops):
+            return None
+        boundary_loop = node.boundary_loops[loop_index]
+
+        corner_index = chain.start_corner_index if is_start_anchor else chain.end_corner_index
+        if corner_index < 0 or corner_index >= len(boundary_loop.corners):
+            return None
+        corner = boundary_loop.corners[corner_index]
+        expected_source_chain_index = corner.prev_chain_index if is_start_anchor else corner.next_chain_index
+        expected_candidate_chain_index = corner.next_chain_index if is_start_anchor else corner.prev_chain_index
+        if expected_candidate_chain_index != chain_index or expected_source_chain_index != anchor.source_ref[2]:
+            return None
+        if not self._is_corner_orthogonal_band_turn(corner.turn_angle_deg):
+            return None
+
+        source_chain = self.graph.get_chain(*anchor.source_ref)
+        if source_chain is None:
+            return None
+        source_placement = self.placed_chains_map.get(anchor.source_ref)
+        source_role = (
+            source_placement.frame_role
+            if source_placement is not None else
+            self.effective_placement_role(anchor.source_ref, source_chain)
+        )
+        if source_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return None
+
+        priority = 0
+        if source_chain.frame_role == FrameRole.FREE:
+            priority += 2
+        if len(source_chain.vert_cos) <= 2:
+            priority += 1
+        return priority, self._orthogonal_role(source_role)
+
     def should_gate_inherited_same_patch(self, chain_ref: ChainRef, chain: BoundaryChain) -> bool:
         if not self.straighten_enabled or chain.frame_role != FrameRole.FREE:
             return False
@@ -158,8 +224,6 @@ class FrontierRuntimePolicy:
         if self._patch_summary_attr(patch_id, 'spine_axis', FrameRole.FREE) in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             return False
         if self._patch_summary_attr(patch_id, 'inherited_spine_count', 0) >= 2:
-            return False
-        if self._patch_summary_attr(patch_id, 'junction_supported_axis', FrameRole.FREE) == eff_role:
             return False
         return bool(self._patch_summary_attr(patch_id, 'single_sided_inherited_support', False))
 
@@ -183,14 +247,57 @@ class FrontierRuntimePolicy:
         effective_role: Optional[FrameRole] = None,
     ) -> FrameRole:
         role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
+        _ = start_anchor, end_anchor
+        return role
+
+    def continuation_placement_role(
+        self,
+        chain_ref: ChainRef,
+        chain: BoundaryChain,
+        start_anchor: Optional[ChainAnchor],
+        end_anchor: Optional[ChainAnchor],
+        effective_role: Optional[FrameRole] = None,
+    ) -> FrameRole:
+        role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
         if not self.should_gate_inherited_same_patch(chain_ref, chain):
             return role
+        if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return role
+
         has_cross_patch_anchor = any(
             anchor is not None and anchor.source_kind == PlacementSourceKind.CROSS_PATCH
             for anchor in (start_anchor, end_anchor)
         )
         if has_cross_patch_anchor:
             return role
+
+        patch_id = chain_ref[0]
+        if not self._patch_summary_attr(patch_id, 'band_candidate', False):
+            return FrameRole.FREE
+
+        best_priority: Optional[int] = None
+        derived_roles: set[FrameRole] = set()
+        for is_start_anchor, anchor in (
+            (True, start_anchor),
+            (False, end_anchor),
+        ):
+            hint = self._same_patch_continuation_hint(
+                chain_ref,
+                chain,
+                anchor,
+                is_start_anchor=is_start_anchor,
+            )
+            if hint is None:
+                continue
+            priority, derived_role = hint
+            if best_priority is None or priority > best_priority:
+                best_priority = priority
+                derived_roles = {derived_role}
+            elif priority == best_priority:
+                derived_roles.add(derived_role)
+
+        if len(derived_roles) == 1:
+            return next(iter(derived_roles))
         return FrameRole.FREE
 
     def is_chain_available(self, chain_ref: ChainRef) -> bool:
