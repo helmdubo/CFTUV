@@ -31,6 +31,7 @@ try:
         PlacementSourceKind,
         ScaffoldChainPlacement,
         ScaffoldPointKey,
+        SpanAuthorityKind,
     )
     from .solve_diagnostics import (
         _chain_uv_axis_metrics,
@@ -95,6 +96,7 @@ except ImportError:
         PlacementSourceKind,
         ScaffoldChainPlacement,
         ScaffoldPointKey,
+        SpanAuthorityKind,
     )
     from solve_diagnostics import (
         _chain_uv_axis_metrics,
@@ -238,6 +240,7 @@ def _cf_apply_closure_preconstraint(
     placed_chains_map: dict[ChainRef, ScaffoldChainPlacement],
     closure_pair_map: dict[ChainRef, ChainRef],
     final_scale: float,
+    runtime_policy: FrontierRuntimePolicy,
 ) -> ClosurePreconstraintApplication:
     if known != 1 or effective_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
         return ClosurePreconstraintApplication(start_anchor=start_anchor, end_anchor=end_anchor)
@@ -299,6 +302,7 @@ def _cf_apply_closure_preconstraint(
                 graph=graph,
                 effective_role=effective_role,
                 chain_ref=chain_ref,
+                runtime_policy=runtime_policy,
             )
             if not uv_points or len(uv_points) != len(chain.vert_cos):
                 continue
@@ -362,11 +366,13 @@ def _cf_apply_closure_preconstraint(
 
 
 def _cf_preview_frame_dual_anchor_rectification(
+    chain_ref: ChainRef,
     chain: BoundaryChain,
     start_anchor: Optional[ChainAnchor],
     end_anchor: Optional[ChainAnchor],
     graph: PatchGraph,
     placed_chains_map: dict[ChainRef, ScaffoldChainPlacement],
+    runtime_policy: FrontierRuntimePolicy,
     effective_role: Optional[FrameRole] = None,
 ) -> DualAnchorRectificationPreview:
     role = effective_role if effective_role is not None else chain.frame_role
@@ -384,6 +390,10 @@ def _cf_preview_frame_dual_anchor_rectification(
         placed_source = placed_chains_map.get(anchor.source_ref)
         source_role = placed_source.frame_role if placed_source is not None else source_chain.frame_role
         score = 0
+        if anchor.source_kind == PlacementSourceKind.CROSS_PATCH:
+            score += 4
+        elif anchor.source_kind == PlacementSourceKind.SAME_PATCH:
+            score += 2
         if source_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             score += 2
         if len(source_chain.vert_cos) <= 2:
@@ -396,14 +406,37 @@ def _cf_preview_frame_dual_anchor_rectification(
     fixed_anchor = start_anchor if keep_start else end_anchor
     adjustable_anchor = end_anchor if keep_start else start_anchor
 
+    fixed_cross = fixed_anchor.uv.y if role == FrameRole.H_FRAME else fixed_anchor.uv.x
+    fixed_axis = fixed_anchor.uv.x if role == FrameRole.H_FRAME else fixed_anchor.uv.y
+    adjustable_axis = adjustable_anchor.uv.x if role == FrameRole.H_FRAME else adjustable_anchor.uv.y
+    axis_sign = 1.0 if adjustable_axis >= fixed_axis else -1.0
+    if abs(adjustable_axis - fixed_axis) <= 1e-8:
+        axis_sign = 1.0
+    target_span = runtime_policy.resolve_target_span(
+        chain_ref,
+        chain,
+        start_anchor,
+        end_anchor,
+        effective_role=role,
+    )
+    span_tolerance = max(0.05, target_span * 0.15) if target_span > 1e-8 else 0.05
+
     if role == FrameRole.H_FRAME:
-        if abs(fixed_anchor.uv.y - adjustable_anchor.uv.y) <= 1e-8:
-            return DualAnchorRectificationPreview(start_anchor=start_anchor, end_anchor=end_anchor)
-        rectified_uv = Vector((adjustable_anchor.uv.x, fixed_anchor.uv.y))
+        rectified_uv = Vector((adjustable_anchor.uv.x, fixed_cross))
     else:
-        if abs(fixed_anchor.uv.x - adjustable_anchor.uv.x) <= 1e-8:
-            return DualAnchorRectificationPreview(start_anchor=start_anchor, end_anchor=end_anchor)
-        rectified_uv = Vector((fixed_anchor.uv.x, adjustable_anchor.uv.y))
+        rectified_uv = Vector((fixed_cross, adjustable_anchor.uv.y))
+
+    rectified_axis = rectified_uv.x if role == FrameRole.H_FRAME else rectified_uv.y
+    current_span = abs(rectified_axis - fixed_axis)
+    if target_span > 1e-8 and abs(current_span - target_span) > span_tolerance:
+        resolved_axis = fixed_axis + axis_sign * target_span
+        if role == FrameRole.H_FRAME:
+            rectified_uv = Vector((resolved_axis, fixed_cross))
+        else:
+            rectified_uv = Vector((fixed_cross, resolved_axis))
+
+    if (rectified_uv - adjustable_anchor.uv).length <= 1e-8:
+        return DualAnchorRectificationPreview(start_anchor=start_anchor, end_anchor=end_anchor)
 
     rectified_anchor = ChainAnchor(
         uv=rectified_uv.copy(),
@@ -664,12 +697,13 @@ def _cf_frame_anchor_pair_is_axis_safe(
     end_anchor: ChainAnchor,
     final_scale: float,
     effective_role: Optional[FrameRole] = None,
+    target_span: Optional[float] = None,
 ) -> AnchorPairSafetyDecision:
     role = effective_role if effective_role is not None else chain.frame_role
     if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
         return AnchorPairSafetyDecision(is_safe=True)
 
-    total_length = _cf_chain_total_length(chain, final_scale)
+    total_length = target_span if target_span is not None else _cf_chain_total_length(chain, final_scale)
     if total_length <= 1e-8:
         return AnchorPairSafetyDecision(is_safe=True)
 
@@ -688,20 +722,30 @@ def _cf_frame_anchor_pair_is_axis_safe(
 
 
 def _cf_can_use_dual_anchor_closure(
+    chain_ref: ChainRef,
     chain: BoundaryChain,
     start_anchor: ChainAnchor,
     end_anchor: ChainAnchor,
     placed_in_patch: int,
     final_scale: float,
+    runtime_policy: FrontierRuntimePolicy,
     effective_role: Optional[FrameRole] = None,
 ) -> DualAnchorClosureDecision:
     role = effective_role if effective_role is not None else chain.frame_role
+    target_span = runtime_policy.resolve_target_span(
+        chain_ref,
+        chain,
+        start_anchor,
+        end_anchor,
+        effective_role=role,
+    )
     axis_safety = _cf_frame_anchor_pair_is_axis_safe(
         chain,
         start_anchor,
         end_anchor,
         final_scale,
         effective_role=role,
+        target_span=target_span,
     )
     if not axis_safety.is_safe:
         if (
@@ -763,11 +807,13 @@ def _cf_resolve_candidate_anchors(
         return ResolvedCandidateAnchors(start_anchor=start_anchor, end_anchor=end_anchor, known=known)
 
     rectified = _cf_preview_frame_dual_anchor_rectification(
+        chain_ref,
         chain,
         start_anchor,
         end_anchor,
         graph,
         placed_chains_map,
+        runtime_policy,
         effective_role=role,
     )
     start_anchor = rectified.start_anchor
@@ -776,11 +822,13 @@ def _cf_resolve_candidate_anchors(
     anchor_adjustments = rectified.anchor_adjustments
 
     closure_decision = _cf_can_use_dual_anchor_closure(
+        chain_ref,
         chain,
         start_anchor,
         end_anchor,
         placed_in_patch,
         final_scale,
+        runtime_policy,
         effective_role=role,
     )
     if closure_decision.can_close:
@@ -927,6 +975,7 @@ def evaluate_candidate(
             runtime_policy.placed_chains_map,
             runtime_policy.closure_pair_map,
             runtime_policy.final_scale,
+            runtime_policy,
         )
         start_anchor = closure_application.start_anchor
         end_anchor = closure_application.end_anchor
@@ -1213,6 +1262,7 @@ def try_place_frontier_candidate(
         graph=runtime_policy.graph,
         effective_role=eff_role,
         chain_ref=chain_ref,
+        runtime_policy=runtime_policy,
     )
     if not uv_points or len(uv_points) != len(chain.vert_cos):
         runtime_policy.reject_chain(chain_ref)
@@ -1237,6 +1287,13 @@ def try_place_frontier_candidate(
         candidate.end_anchor,
         effective_role=eff_role,
     )
+    span_authority_kind = runtime_policy.resolve_span_authority_kind(
+        chain_ref,
+        chain,
+        candidate.start_anchor,
+        candidate.end_anchor,
+        effective_role=eff_role,
+    )
     parameter_authority_kind = runtime_policy.resolve_parameter_authority_kind(
         chain_ref,
         chain,
@@ -1250,6 +1307,7 @@ def try_place_frontier_candidate(
         chain_index=chain_ref[2],
         frame_role=eff_role,
         axis_authority_kind=axis_authority_kind,
+        span_authority_kind=span_authority_kind,
         parameter_authority_kind=parameter_authority_kind,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=anchor_count,

@@ -72,6 +72,15 @@ class AxisAuthorityKind(str, Enum):
     PATCH_SELF_CONSENSUS = "patch-self-consensus"
 
 
+class SpanAuthorityKind(str, Enum):
+    """Who owns resolved scaffold span/frame segment for a placed chain."""
+
+    NONE = "none"
+    DIRECT_STRONG_NEIGHBOR = "direct-strong-neighbor"
+    PAIRED_CANDIDATE = "paired-candidate"
+    PATCH_SELF_CONSENSUS = "patch-self-consensus"
+
+
 class ParameterAuthorityKind(str, Enum):
     """Who owns local stationing authority along a placed chain."""
 
@@ -469,6 +478,7 @@ class ScaffoldChainPlacement:
     chain_index: int
     frame_role: FrameRole
     axis_authority_kind: AxisAuthorityKind = AxisAuthorityKind.NONE
+    span_authority_kind: SpanAuthorityKind = SpanAuthorityKind.NONE
     parameter_authority_kind: ParameterAuthorityKind = ParameterAuthorityKind.NONE
     source_kind: PlacementSourceKind = PlacementSourceKind.CHAIN
     anchor_count: int = 0

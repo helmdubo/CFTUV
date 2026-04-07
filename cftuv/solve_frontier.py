@@ -258,6 +258,11 @@ def _cf_bootstrap_frontier_runtime(
             seed_chain,
             effective_role=seed_effective_role,
         ),
+        span_authority_kind=runtime_policy.resolve_span_authority_kind(
+            seed_ref,
+            seed_chain,
+            effective_role=seed_effective_role,
+        ),
         parameter_authority_kind=runtime_policy.resolve_parameter_authority_kind(
             seed_ref,
             seed_chain,

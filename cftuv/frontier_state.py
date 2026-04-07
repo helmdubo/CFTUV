@@ -16,6 +16,7 @@ try:
         PatchGraph,
         PlacementSourceKind,
         ScaffoldChainPlacement,
+        SpanAuthorityKind,
     )
     from .solve_records import (
         ChainAnchor,
@@ -38,6 +39,7 @@ except ImportError:
         PatchGraph,
         PlacementSourceKind,
         ScaffoldChainPlacement,
+        SpanAuthorityKind,
     )
     from solve_records import (
         ChainAnchor,
@@ -186,6 +188,59 @@ class FrontierRuntimePolicy:
             for index in range(len(chain.vert_cos) - 1)
         )
 
+    def _chain_uv_length(self, chain: BoundaryChain) -> float:
+        return self._chain_polyline_length(chain) * self.final_scale
+
+    def _placement_axis_span(self, placement: ScaffoldChainPlacement) -> float:
+        if len(placement.points) < 2:
+            return 0.0
+        start_uv = placement.points[0][1]
+        end_uv = placement.points[-1][1]
+        if placement.frame_role == FrameRole.H_FRAME:
+            return abs(end_uv.x - start_uv.x)
+        if placement.frame_role == FrameRole.V_FRAME:
+            return abs(end_uv.y - start_uv.y)
+        return (end_uv - start_uv).length
+
+    def _patch_self_consensus_spans(
+        self,
+        chain_ref: ChainRef,
+        chain: BoundaryChain,
+        effective_role: Optional[FrameRole] = None,
+    ) -> list[float]:
+        role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
+        if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return []
+
+        patch_id, loop_index, chain_index = chain_ref
+        node = self.graph.nodes.get(patch_id)
+        if node is None or loop_index < 0 or loop_index >= len(node.boundary_loops):
+            return []
+        boundary_loop = node.boundary_loops[loop_index]
+        if chain_index < 0 or chain_index >= len(boundary_loop.chains):
+            return []
+
+        chain_spans: list[float] = []
+        fallback_spans: list[float] = []
+        for other_index, other_chain in enumerate(boundary_loop.chains):
+            if other_index == chain_index:
+                continue
+            other_ref = (patch_id, loop_index, other_index)
+            other_role = self._resolved_chain_role(other_ref, other_chain)
+            if other_role != role:
+                continue
+            other_placement = self.placed_chains_map.get(other_ref)
+            if other_placement is not None and other_placement.frame_role == role:
+                span = self._placement_axis_span(other_placement)
+            else:
+                span = self._chain_uv_length(other_chain)
+            if span <= 1e-8:
+                continue
+            fallback_spans.append(span)
+            if not self._chains_share_corner(chain, other_chain):
+                chain_spans.append(span)
+        return chain_spans if chain_spans else fallback_spans
+
     def _band_geometric_role(self, chain_ref: ChainRef, chain: BoundaryChain) -> FrameRole:
         if not self.straighten_enabled or chain.frame_role != FrameRole.FREE:
             return FrameRole.FREE
@@ -320,6 +375,108 @@ class FrontierRuntimePolicy:
         ):
             return AxisAuthorityKind.PATCH_SELF_CONSENSUS
         return AxisAuthorityKind.NONE
+
+    def resolve_span_authority_kind(
+        self,
+        chain_ref: ChainRef,
+        chain: BoundaryChain,
+        start_anchor: Optional[ChainAnchor] = None,
+        end_anchor: Optional[ChainAnchor] = None,
+        effective_role: Optional[FrameRole] = None,
+    ) -> SpanAuthorityKind:
+        role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
+        if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return SpanAuthorityKind.NONE
+
+        for anchor in (start_anchor, end_anchor):
+            if anchor is None:
+                continue
+            source_chain = self.graph.get_chain(*anchor.source_ref)
+            if source_chain is None:
+                continue
+            source_role = self._resolved_chain_role(anchor.source_ref, source_chain)
+            if source_role == role:
+                return SpanAuthorityKind.DIRECT_STRONG_NEIGHBOR
+
+        partner_ref = self._paired_candidate_ref(chain_ref, chain, effective_role=role)
+        if partner_ref is not None:
+            partner_chain = self.graph.get_chain(*partner_ref)
+            if partner_chain is not None:
+                partner_role = self._resolved_chain_role(partner_ref, partner_chain)
+                if partner_role == role:
+                    return SpanAuthorityKind.PAIRED_CANDIDATE
+
+        if self._patch_self_consensus_spans(chain_ref, chain, effective_role=role):
+            return SpanAuthorityKind.PATCH_SELF_CONSENSUS
+        return SpanAuthorityKind.NONE
+
+    def resolve_target_span(
+        self,
+        chain_ref: ChainRef,
+        chain: BoundaryChain,
+        start_anchor: Optional[ChainAnchor] = None,
+        end_anchor: Optional[ChainAnchor] = None,
+        effective_role: Optional[FrameRole] = None,
+        span_authority_kind: Optional[SpanAuthorityKind] = None,
+    ) -> float:
+        role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
+        local_span = self._chain_uv_length(chain)
+        if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return local_span
+
+        authority_kind = (
+            span_authority_kind
+            if span_authority_kind is not None else
+            self.resolve_span_authority_kind(
+                chain_ref,
+                chain,
+                start_anchor,
+                end_anchor,
+                effective_role=role,
+            )
+        )
+
+        if authority_kind == SpanAuthorityKind.DIRECT_STRONG_NEIGHBOR:
+            spans: list[float] = []
+            for anchor in (start_anchor, end_anchor):
+                if anchor is None:
+                    continue
+                source_chain = self.graph.get_chain(*anchor.source_ref)
+                if source_chain is None:
+                    continue
+                source_role = self._resolved_chain_role(anchor.source_ref, source_chain)
+                if source_role != role:
+                    continue
+                source_placement = self.placed_chains_map.get(anchor.source_ref)
+                if source_placement is not None and source_placement.frame_role == role:
+                    span = self._placement_axis_span(source_placement)
+                else:
+                    span = self._chain_uv_length(source_chain)
+                if span > 1e-8:
+                    spans.append(span)
+            if spans:
+                return sum(spans) / float(len(spans))
+
+        if authority_kind == SpanAuthorityKind.PAIRED_CANDIDATE:
+            partner_ref = self._paired_candidate_ref(chain_ref, chain, effective_role=role)
+            if partner_ref is not None:
+                partner_chain = self.graph.get_chain(*partner_ref)
+                partner_placement = self.placed_chains_map.get(partner_ref)
+                if partner_placement is not None and partner_placement.frame_role == role:
+                    span = self._placement_axis_span(partner_placement)
+                    if span > 1e-8:
+                        return span
+                if partner_chain is not None:
+                    span = self._chain_uv_length(partner_chain)
+                    if span > 1e-8:
+                        return span
+
+        if authority_kind == SpanAuthorityKind.PATCH_SELF_CONSENSUS:
+            spans = self._patch_self_consensus_spans(chain_ref, chain, effective_role=role)
+            if spans:
+                return sum(spans) / float(len(spans))
+
+        return local_span
 
     def resolve_parameter_authority_kind(
         self,

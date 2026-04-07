@@ -21,6 +21,7 @@ try:
         PlacementSourceKind,
         ScaffoldChainPlacement,
         ScaffoldPointKey,
+        SpanAuthorityKind,
     )
     from .solve_diagnostics import _build_chain_vert_uv_map
     from .solve_instrumentation import FrontierTelemetryCollector
@@ -57,6 +58,7 @@ except ImportError:
         PlacementSourceKind,
         ScaffoldChainPlacement,
         ScaffoldPointKey,
+        SpanAuthorityKind,
     )
     from solve_diagnostics import _build_chain_vert_uv_map
     from solve_instrumentation import FrontierTelemetryCollector
@@ -345,6 +347,13 @@ def _cf_try_place_closure_follow_candidate(
         main_eval.end_anchor,
         effective_role=eff_role,
     )
+    span_authority_kind = runtime_policy.resolve_span_authority_kind(
+        chain_ref,
+        chain,
+        main_eval.start_anchor,
+        main_eval.end_anchor,
+        effective_role=eff_role,
+    )
     parameter_authority_kind = runtime_policy.resolve_parameter_authority_kind(
         chain_ref,
         chain,
@@ -358,6 +367,7 @@ def _cf_try_place_closure_follow_candidate(
         chain_index=chain_ref[2],
         frame_role=eff_role,
         axis_authority_kind=axis_authority_kind,
+        span_authority_kind=span_authority_kind,
         parameter_authority_kind=parameter_authority_kind,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=2,
@@ -619,6 +629,7 @@ def _cf_try_place_tree_ingress_candidate(
             graph=runtime_policy.graph,
             effective_role=eff_role,
             chain_ref=chain_ref,
+            runtime_policy=runtime_policy,
         )
         if not uv_points or len(uv_points) != len(chain.vert_cos):
             continue
@@ -711,6 +722,13 @@ def _cf_try_place_tree_ingress_candidate(
         anchor_end,
         effective_role=ingress_eff_role,
     )
+    span_authority_kind = runtime_policy.resolve_span_authority_kind(
+        chain_ref,
+        chain,
+        anchor_start,
+        anchor_end,
+        effective_role=ingress_eff_role,
+    )
     parameter_authority_kind = runtime_policy.resolve_parameter_authority_kind(
         chain_ref,
         chain,
@@ -724,6 +742,7 @@ def _cf_try_place_tree_ingress_candidate(
         chain_index=chain_ref[2],
         frame_role=ingress_eff_role,
         axis_authority_kind=axis_authority_kind,
+        span_authority_kind=span_authority_kind,
         parameter_authority_kind=parameter_authority_kind,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=_cf_anchor_count(anchor_start, anchor_end),

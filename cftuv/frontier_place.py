@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import math
 from typing import Optional
 
@@ -20,6 +20,7 @@ try:
         PlacementSourceKind,
         ScaffoldChainPlacement,
         ScaffoldPointKey,
+        SpanAuthorityKind,
         SourcePoint,
     )
     from .solve_records import (
@@ -44,6 +45,7 @@ except ImportError:
         PlacementSourceKind,
         ScaffoldChainPlacement,
         ScaffoldPointKey,
+        SpanAuthorityKind,
         SourcePoint,
     )
     from solve_records import (
@@ -56,6 +58,14 @@ except ImportError:
     )
 
 
+@dataclass(frozen=True)
+class _ResolvedFrameSegment:
+    start_uv: Vector
+    end_uv: Vector
+    axis_direction: Vector
+    target_span: float
+
+
 def _build_temporary_chain_placement(
     chain_ref: ChainRef,
     chain: BoundaryChain,
@@ -64,6 +74,7 @@ def _build_temporary_chain_placement(
     end_anchor: Optional[ChainAnchor],
     effective_role: Optional[FrameRole] = None,
     axis_authority_kind: AxisAuthorityKind = AxisAuthorityKind.NONE,
+    span_authority_kind: SpanAuthorityKind = SpanAuthorityKind.NONE,
     parameter_authority_kind: ParameterAuthorityKind = ParameterAuthorityKind.NONE,
 ) -> ScaffoldChainPlacement:
     patch_id, loop_index, chain_index = chain_ref
@@ -79,6 +90,7 @@ def _build_temporary_chain_placement(
         chain_index=chain_index,
         frame_role=effective_role if effective_role is not None else chain.frame_role,
         axis_authority_kind=axis_authority_kind,
+        span_authority_kind=span_authority_kind,
         parameter_authority_kind=parameter_authority_kind,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=_cf_anchor_count(start_anchor, end_anchor),
@@ -97,6 +109,7 @@ def _cf_build_seed_placement(
     final_scale: float,
     effective_role: Optional[FrameRole] = None,
     axis_authority_kind: AxisAuthorityKind = AxisAuthorityKind.NONE,
+    span_authority_kind: SpanAuthorityKind = SpanAuthorityKind.NONE,
     parameter_authority_kind: ParameterAuthorityKind = ParameterAuthorityKind.NONE,
 ) -> Optional[SeedPlacementResult]:
     seed_src = _cf_chain_source_points(seed_chain)
@@ -129,6 +142,7 @@ def _cf_build_seed_placement(
         chain_index=seed_ref[2],
         frame_role=role,
         axis_authority_kind=axis_authority_kind,
+        span_authority_kind=span_authority_kind,
         parameter_authority_kind=parameter_authority_kind,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=0,
@@ -525,6 +539,178 @@ def _frame_group_cross_axis_consensus(
     return weighted_sum / total_weight
 
 
+def _frame_axis_value(uv: Vector, role: FrameRole) -> float:
+    return uv.x if role == FrameRole.H_FRAME else uv.y
+
+
+def _frame_cross_value(uv: Vector, role: FrameRole) -> float:
+    return uv.y if role == FrameRole.H_FRAME else uv.x
+
+
+def _frame_uv_from_axis_cross(role: FrameRole, axis_value: float, cross_value: float) -> Vector:
+    if role == FrameRole.H_FRAME:
+        return Vector((axis_value, cross_value))
+    return Vector((cross_value, axis_value))
+
+
+def _placement_axis_span(placement: ScaffoldChainPlacement) -> float:
+    if len(placement.points) < 2:
+        return 0.0
+    start_uv = placement.points[0][1]
+    end_uv = placement.points[-1][1]
+    if placement.frame_role == FrameRole.H_FRAME:
+        return abs(end_uv.x - start_uv.x)
+    if placement.frame_role == FrameRole.V_FRAME:
+        return abs(end_uv.y - start_uv.y)
+    return (end_uv - start_uv).length
+
+
+def _frame_anchor_source_score(
+    anchor: ChainAnchor,
+    graph: PatchGraph,
+    placed_chains_map: dict[ChainRef, ScaffoldChainPlacement],
+) -> int:
+    source_chain = graph.get_chain(*anchor.source_ref)
+    if source_chain is None:
+        return 0
+    placed_source = placed_chains_map.get(anchor.source_ref)
+    source_role = placed_source.frame_role if placed_source is not None else source_chain.frame_role
+    score = 0
+    if anchor.source_kind == PlacementSourceKind.CROSS_PATCH:
+        score += 4
+    elif anchor.source_kind == PlacementSourceKind.SAME_PATCH:
+        score += 2
+    if source_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        score += 2
+    if len(source_chain.vert_cos) <= 2:
+        score += 1
+    return score
+
+
+def _resolve_frame_segment(
+    chain_ref: Optional[ChainRef],
+    chain: BoundaryChain,
+    node: PatchNode,
+    start_anchor: Optional[ChainAnchor],
+    end_anchor: Optional[ChainAnchor],
+    final_scale: float,
+    direction: Vector,
+    role: FrameRole,
+    *,
+    placed_chains_map: Optional[dict[ChainRef, ScaffoldChainPlacement]] = None,
+    graph: Optional[PatchGraph] = None,
+    runtime_policy=None,
+) -> Optional[_ResolvedFrameSegment]:
+    if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        return None
+
+    axis_direction = _snap_direction_to_role(direction, role)
+    axis_direction = _normalize_direction(axis_direction, _default_role_direction(role))
+
+    start_uv = start_anchor.uv.copy() if start_anchor is not None else None
+    end_uv = end_anchor.uv.copy() if end_anchor is not None else None
+
+    if (
+        placed_chains_map is not None and graph is not None
+        and start_anchor is not None and end_anchor is None
+        and start_anchor.source_kind == PlacementSourceKind.CROSS_PATCH
+    ):
+        consensus = _frame_group_cross_axis_consensus(
+            chain, node, role, placed_chains_map, graph, final_scale,
+        )
+        if consensus is not None and start_uv is not None:
+            start_uv = _frame_uv_from_axis_cross(role, _frame_axis_value(start_uv, role), consensus)
+    if (
+        placed_chains_map is not None and graph is not None
+        and end_anchor is not None and start_anchor is None
+        and end_anchor.source_kind == PlacementSourceKind.CROSS_PATCH
+    ):
+        consensus = _frame_group_cross_axis_consensus(
+            chain, node, role, placed_chains_map, graph, final_scale,
+        )
+        if consensus is not None and end_uv is not None:
+            end_uv = _frame_uv_from_axis_cross(role, _frame_axis_value(end_uv, role), consensus)
+
+    target_span = _cf_chain_total_length(chain, final_scale)
+    if runtime_policy is not None and chain_ref is not None:
+        target_span = runtime_policy.resolve_target_span(
+            chain_ref,
+            chain,
+            start_anchor,
+            end_anchor,
+            effective_role=role,
+        )
+    if target_span <= 1e-8:
+        target_span = _cf_chain_total_length(chain, final_scale)
+    if target_span <= 1e-8:
+        return None
+
+    if start_uv is not None and end_uv is not None:
+        fixed_anchor = start_anchor
+        adjustable_anchor = end_anchor
+        fixed_uv = start_uv.copy()
+        adjustable_uv = end_uv.copy()
+        if start_anchor is not None and end_anchor is not None and graph is not None and placed_chains_map is not None:
+            start_score = _frame_anchor_source_score(start_anchor, graph, placed_chains_map)
+            end_score = _frame_anchor_source_score(end_anchor, graph, placed_chains_map)
+            if end_score > start_score:
+                fixed_anchor = end_anchor
+                adjustable_anchor = start_anchor
+                fixed_uv = end_uv.copy()
+                adjustable_uv = start_uv.copy()
+
+        cross_value = _frame_cross_value(fixed_uv, role)
+        fixed_axis = _frame_axis_value(fixed_uv, role)
+        adjustable_axis = _frame_axis_value(adjustable_uv, role)
+        axis_sign = 1.0 if (
+            (axis_direction.x if role == FrameRole.H_FRAME else axis_direction.y) >= 0.0
+        ) else -1.0
+        if abs(adjustable_axis - fixed_axis) > 1e-8:
+            axis_sign = 1.0 if adjustable_axis >= fixed_axis else -1.0
+        resolved_axis = adjustable_axis
+        if (
+            start_anchor is not None and end_anchor is not None
+            and start_anchor.source_kind == PlacementSourceKind.SAME_PATCH
+            and end_anchor.source_kind == PlacementSourceKind.SAME_PATCH
+        ):
+            resolved_axis = fixed_axis + axis_sign * target_span
+        resolved_adjustable_uv = _frame_uv_from_axis_cross(role, resolved_axis, cross_value)
+
+        if fixed_anchor is start_anchor:
+            return _ResolvedFrameSegment(
+                start_uv=fixed_uv.copy(),
+                end_uv=resolved_adjustable_uv,
+                axis_direction=axis_direction,
+                target_span=target_span,
+            )
+        return _ResolvedFrameSegment(
+            start_uv=resolved_adjustable_uv,
+            end_uv=fixed_uv.copy(),
+            axis_direction=axis_direction,
+            target_span=target_span,
+        )
+
+    if start_uv is not None:
+        end_uv = start_uv + axis_direction * target_span
+        return _ResolvedFrameSegment(
+            start_uv=start_uv.copy(),
+            end_uv=end_uv,
+            axis_direction=axis_direction,
+            target_span=target_span,
+        )
+
+    if end_uv is not None:
+        start_uv = end_uv - axis_direction * target_span
+        return _ResolvedFrameSegment(
+            start_uv=start_uv,
+            end_uv=end_uv.copy(),
+            axis_direction=axis_direction,
+            target_span=target_span,
+        )
+
+    return None
+
+
 def _build_frame_chain_from_one_end(
     ordered_source_points: list[SourcePoint],
     start_point: Vector,
@@ -898,6 +1084,7 @@ def _cf_place_chain(
     graph=None,
     effective_role=None,
     chain_ref: Optional[ChainRef] = None,
+    runtime_policy=None,
 ):
     """Ð Ð°Ð·Ð¼ÐµÑ‰Ð°ÐµÑ‚ Ð¾Ð´Ð¸Ð½ chain Ð² UV, Ð¸ÑÐ¿Ð¾Ð»ÑŒÐ·ÑƒÑ Ð¿Ñ€Ð¾Ð²ÐµÑ€ÐµÐ½Ð½Ñ‹Ðµ anchors."""
     source_pts = _cf_chain_source_points(chain)
@@ -907,52 +1094,46 @@ def _cf_place_chain(
         if direction_override is not None else
         _cf_determine_direction_for_role(chain, node, role)
     )
+
+    if role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
+        resolved_segment = _resolve_frame_segment(
+            chain_ref,
+            chain,
+            node,
+            start_anchor,
+            end_anchor,
+            final_scale,
+            direction,
+            role,
+            placed_chains_map=placed_chains_map,
+            graph=graph,
+            runtime_policy=runtime_policy,
+        )
+        if resolved_segment is not None:
+            return _build_frame_chain_between_anchors(
+                source_pts,
+                resolved_segment.start_uv,
+                resolved_segment.end_uv,
+                role,
+                final_scale,
+            )
+
     start_uv = start_anchor.uv.copy() if start_anchor is not None else None
     end_uv = end_anchor.uv.copy() if end_anchor is not None else None
 
-    # Cross-axis consensus: for one-end XP frame anchors, replace cross-axis with group consensus
-    if role in (FrameRole.H_FRAME, FrameRole.V_FRAME) and placed_chains_map is not None and graph is not None:
-        if start_uv is not None and end_uv is None and start_anchor is not None:
-            if start_anchor.source_kind == PlacementSourceKind.CROSS_PATCH:
-                consensus = _frame_group_cross_axis_consensus(
-                    chain, node, role, placed_chains_map, graph, final_scale,
-                )
-                if consensus is not None:
-                    if role == FrameRole.H_FRAME:
-                        start_uv = Vector((start_uv.x, consensus))
-                    else:
-                        start_uv = Vector((consensus, start_uv.y))
-        if end_uv is not None and start_uv is None and end_anchor is not None:
-            if end_anchor.source_kind == PlacementSourceKind.CROSS_PATCH:
-                consensus = _frame_group_cross_axis_consensus(
-                    chain, node, role, placed_chains_map, graph, final_scale,
-                )
-                if consensus is not None:
-                    if role == FrameRole.H_FRAME:
-                        end_uv = Vector((end_uv.x, consensus))
-                    else:
-                        end_uv = Vector((consensus, end_uv.y))
-
     if start_uv is not None and end_uv is not None:
-        if role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
-            return _build_frame_chain_between_anchors(source_pts, start_uv, end_uv, role, final_scale)
         return _build_guided_free_chain_between_anchors(
             node, source_pts, start_uv, end_uv, direction, None, final_scale)
 
     if start_uv is not None:
-        if role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
-            return _build_frame_chain_from_one_end(source_pts, start_uv, direction, role, final_scale)
         return _build_guided_free_chain_from_one_end(
             node, source_pts, start_uv, direction, final_scale)
 
     if end_uv is not None:
         rev_pts = list(reversed(source_pts))
         rev_dir = Vector((-direction.x, -direction.y))
-        if role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
-            rev_uvs = _build_frame_chain_from_one_end(rev_pts, end_uv, rev_dir, role, final_scale)
-        else:
-            rev_uvs = _build_guided_free_chain_from_one_end(
-                node, rev_pts, end_uv, rev_dir, final_scale)
+        rev_uvs = _build_guided_free_chain_from_one_end(
+            node, rev_pts, end_uv, rev_dir, final_scale)
         return list(reversed(rev_uvs))
 
     return []
