@@ -5,6 +5,7 @@ from heapq import heappop, heappush
 from typing import Optional
 
 try:
+    from .analysis import build_neighbor_inherited_roles
     from .constants import (
         ROOT_WEIGHT_AREA, ROOT_WEIGHT_FRAME, ROOT_WEIGHT_FREE_RATIO,
         ROOT_WEIGHT_HOLES, ROOT_WEIGHT_BASE,
@@ -33,6 +34,7 @@ try:
         _clamp01, _patch_pair_key,
     )
 except ImportError:
+    from analysis import build_neighbor_inherited_roles
     from constants import (
         ROOT_WEIGHT_AREA, ROOT_WEIGHT_FRAME, ROOT_WEIGHT_FREE_RATIO,
         ROOT_WEIGHT_HOLES, ROOT_WEIGHT_BASE,
@@ -496,15 +498,32 @@ def _endpoint_bridge_strength(
     )
 
 
-def _frame_continuation_strength(owner_role: FrameRole, target_role: FrameRole) -> float:
+def _frame_continuation_strength(
+    owner_role: FrameRole,
+    target_role: FrameRole,
+    *,
+    owner_inherited: bool = False,
+    target_inherited: bool = False,
+) -> float:
     owner_is_frame = owner_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
     target_is_frame = target_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+    inherited_count = int(owner_inherited) + int(target_inherited)
 
     if owner_is_frame and target_is_frame and owner_role == target_role:
-        return 1.0
+        if inherited_count <= 0:
+            return 1.0
+        if inherited_count == 1:
+            return 0.82
+        return 0.70
     if owner_is_frame and target_is_frame:
-        return 0.55
+        if inherited_count <= 0:
+            return 0.55
+        if inherited_count == 1:
+            return 0.38
+        return 0.28
     if owner_is_frame or target_is_frame:
+        if owner_inherited or target_inherited:
+            return 0.0
         return 0.05
     return 0.0
 
@@ -538,24 +557,60 @@ def _loop_pair_strength(owner_loop_kind: LoopKind, target_loop_kind: LoopKind) -
     return 0.35
 
 
+def _effective_planning_role(
+    chain_ref: ChainRef,
+    chain: BoundaryChain,
+    inherited_role_map: dict[ChainRef, tuple[FrameRole, int]],
+) -> FrameRole:
+    if chain.frame_role != FrameRole.FREE:
+        return chain.frame_role
+    inherited = inherited_role_map.get(chain_ref)
+    if inherited is None:
+        return FrameRole.FREE
+    return inherited[0]
+
+
+def _has_inherited_planning_role(
+    chain_ref: ChainRef,
+    chain: BoundaryChain,
+    inherited_role_map: dict[ChainRef, tuple[FrameRole, int]],
+) -> bool:
+    return (
+        chain.frame_role == FrameRole.FREE
+        and _effective_planning_role(chain_ref, chain, inherited_role_map) in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+    )
+
+
 def _rank_chain_pairs(
     graph: PatchGraph,
     owner_patch_id: int,
     owner_refs: list[AttachmentNeighborRef],
     target_patch_id: int,
     target_refs: list[AttachmentNeighborRef],
+    inherited_role_map: dict[ChainRef, tuple[FrameRole, int]],
 ) -> list[tuple[ChainPairSelection, float]]:
     ranked_pairs: list[tuple[ChainPairSelection, float]] = []
     semantic_strength = _semantic_pair_strength(graph, owner_patch_id, target_patch_id)
 
     for owner_ref in owner_refs:
+        owner_chain_ref = (owner_patch_id, owner_ref.loop_index, owner_ref.chain_index)
+        owner_effective_role = _effective_planning_role(owner_chain_ref, owner_ref.chain, inherited_role_map)
+        owner_inherited = _has_inherited_planning_role(owner_chain_ref, owner_ref.chain, inherited_role_map)
         owner_endpoint = _chain_endpoint_strength(
             graph, owner_patch_id, owner_ref.loop_index, owner_ref.chain_index, owner_ref.chain)
         for target_ref in target_refs:
+            target_chain_ref = (target_patch_id, target_ref.loop_index, target_ref.chain_index)
+            target_effective_role = _effective_planning_role(target_chain_ref, target_ref.chain, inherited_role_map)
+            target_inherited = _has_inherited_planning_role(target_chain_ref, target_ref.chain, inherited_role_map)
             target_endpoint = _chain_endpoint_strength(
                 graph, target_patch_id, target_ref.loop_index, target_ref.chain_index, target_ref.chain)
             endpoint_strength = (owner_endpoint + target_endpoint) * 0.5
-            frame_continuation = _frame_continuation_strength(owner_ref.chain.frame_role, target_ref.chain.frame_role)
+            frame_continuation = _frame_continuation_strength(
+                owner_effective_role,
+                target_effective_role,
+                owner_inherited=owner_inherited,
+                target_inherited=target_inherited,
+            )
             bridge_metrics = _endpoint_bridge_strength(
                 graph,
                 owner_patch_id,
@@ -611,6 +666,7 @@ def _best_chain_pair(
     owner_refs: list[AttachmentNeighborRef],
     target_patch_id: int,
     target_refs: list[AttachmentNeighborRef],
+    inherited_role_map: dict[ChainRef, tuple[FrameRole, int]],
 ) -> Optional[ChainPairSelection]:
     ranked_pairs = _rank_chain_pairs(
         graph,
@@ -618,6 +674,7 @@ def _best_chain_pair(
         owner_refs,
         target_patch_id,
         target_refs,
+        inherited_role_map,
     )
     return ranked_pairs[0][0] if ranked_pairs else None
 
@@ -629,6 +686,7 @@ def _build_attachment_candidate(
     seam,
     patch_scores: dict[int, PatchCertainty],
     max_shared_length: float,
+    inherited_role_map: dict[ChainRef, tuple[FrameRole, int]],
 ) -> Optional[AttachmentCandidate]:
     graph = solve_view.graph
     owner_score = patch_scores[owner_patch_id]
@@ -647,15 +705,13 @@ def _build_attachment_candidate(
         owner_refs,
         target_patch_id,
         target_refs,
+        inherited_role_map,
     )
     if best_pair is None:
         return None
 
     # Если лучшая пара — FREE+FREE (frame_continuation == 0),
     # нет структурной опоры для anchor propagation → отдельный quilt.
-    if best_pair.frame_continuation <= 0.0:
-        return None
-
     owner_ref = best_pair.owner_ref
     target_ref = best_pair.target_ref
     owner_loop_index = owner_ref.loop_index
@@ -666,6 +722,28 @@ def _build_attachment_candidate(
     target_chain_index = target_ref.chain_index
     target_loop = target_ref.boundary_loop
     target_chain = target_ref.chain
+    owner_chain_ref = (owner_patch_id, owner_loop_index, owner_chain_index)
+    target_chain_ref = (target_patch_id, target_loop_index, target_chain_index)
+    owner_effective_role = _effective_planning_role(owner_chain_ref, owner_chain, inherited_role_map)
+    target_effective_role = _effective_planning_role(target_chain_ref, target_chain, inherited_role_map)
+    owner_inherited = _has_inherited_planning_role(owner_chain_ref, owner_chain, inherited_role_map)
+    target_inherited = _has_inherited_planning_role(target_chain_ref, target_chain, inherited_role_map)
+    raw_free_free_pair = (
+        owner_chain.frame_role == FrameRole.FREE
+        and target_chain.frame_role == FrameRole.FREE
+    )
+    inherited_hv_support = (
+        owner_effective_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+        and target_effective_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+        and owner_effective_role == target_effective_role
+        and owner_inherited
+        and target_inherited
+    )
+
+    if best_pair.frame_continuation <= 0.0:
+        return None
+    if raw_free_free_pair and not inherited_hv_support:
+        return None
 
     seam_norm = 1.0 if max_shared_length <= 0.0 else _clamp01(seam.shared_length / max_shared_length)
     ambiguity_penalty = min(0.15, 0.05 * max(0, len(owner_refs) - 1) + 0.05 * max(0, len(target_refs) - 1))
@@ -680,8 +758,8 @@ def _build_attachment_candidate(
             + ATTACH_WEIGHT_OWNER * owner_score.root_score
             - ambiguity_penalty
         )
-        owner_is_frame = owner_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
-        target_is_frame = target_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+        owner_is_frame = owner_effective_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+        target_is_frame = target_effective_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
         if owner_is_frame ^ target_is_frame:
             total_score -= max(0.0, 0.12 - 0.10 * best_pair.endpoint_bridge)
         elif not owner_is_frame and not target_is_frame:
@@ -694,6 +772,8 @@ def _build_attachment_candidate(
         f"seam={seam_norm:.2f}",
         f"pair={best_pair.pair_strength:.2f}",
         f"cont={best_pair.frame_continuation:.2f}",
+        f"roles={owner_effective_role.value}<->{target_effective_role.value}",
+        f"inh={int(owner_inherited)}{int(target_inherited)}",
         f"bridge={best_pair.endpoint_bridge:.2f}",
         f"corner={best_pair.corner_strength:.2f}",
         f"sem={best_pair.semantic_strength:.2f}",
@@ -722,8 +802,8 @@ def _build_attachment_candidate(
         target_chain_index=target_chain_index,
         owner_loop_kind=owner_loop.kind,
         target_loop_kind=target_loop.kind,
-        owner_role=owner_chain.frame_role,
-        target_role=target_chain.frame_role,
+        owner_role=owner_effective_role,
+        target_role=target_effective_role,
         owner_transition=graph.describe_chain_transition(owner_patch_id, owner_chain),
         target_transition=graph.describe_chain_transition(target_patch_id, target_chain),
         reasons=reasons,
@@ -799,6 +879,7 @@ def _build_seam_relation_profile(
     solve_view: SolveView,
     candidate: AttachmentCandidate,
     max_shared_length: float,
+    inherited_role_map: dict[ChainRef, tuple[FrameRole, int]],
 ) -> SeamRelationProfile:
     graph = solve_view.graph
     edge_key = _patch_pair_key(candidate.owner_patch_id, candidate.target_patch_id)
@@ -810,6 +891,7 @@ def _build_seam_relation_profile(
         owner_refs,
         candidate.target_patch_id,
         target_refs,
+        inherited_role_map,
     )
 
     primary_pair = (
@@ -855,9 +937,13 @@ def _build_seam_relation_profile(
     )
 
 
-def build_solver_graph(graph: PatchGraph) -> SolverGraph:
+def build_solver_graph(
+    graph: PatchGraph,
+    straighten_enabled: bool = False,
+) -> SolverGraph:
     solver_graph = SolverGraph()
     solve_view = _build_solve_view(graph)
+    inherited_role_map = build_neighbor_inherited_roles(graph) if straighten_enabled else {}
 
     max_area = max((node.area for node in graph.nodes.values()), default=0.0)
     for patch_id, node in graph.nodes.items():
@@ -872,6 +958,7 @@ def build_solver_graph(graph: PatchGraph) -> SolverGraph:
             seam,
             solver_graph.patch_scores,
             solver_graph.max_shared_length,
+            inherited_role_map,
         )
         backward = _build_attachment_candidate(
             solve_view,
@@ -880,6 +967,7 @@ def build_solver_graph(graph: PatchGraph) -> SolverGraph:
             seam,
             solver_graph.patch_scores,
             solver_graph.max_shared_length,
+            inherited_role_map,
         )
         for candidate in (forward, backward):
             if candidate is None:
@@ -892,7 +980,12 @@ def build_solver_graph(graph: PatchGraph) -> SolverGraph:
     solver_graph.candidates.sort(key=lambda candidate: (candidate.owner_patch_id, -candidate.score, candidate.target_patch_id))
     edge_candidate_map = _build_quilt_edge_candidate_map(solver_graph, set(graph.nodes.keys()))
     solver_graph.seam_relation_by_edge = {
-        edge_key: _build_seam_relation_profile(solve_view, candidate, solver_graph.max_shared_length)
+        edge_key: _build_seam_relation_profile(
+            solve_view,
+            candidate,
+            solver_graph.max_shared_length,
+            inherited_role_map,
+        )
         for edge_key, candidate in edge_candidate_map.items()
     }
     components_result = _build_solve_components(graph, solver_graph.candidates)

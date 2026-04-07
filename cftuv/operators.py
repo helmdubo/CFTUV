@@ -561,9 +561,12 @@ def _build_solve_state(context, make_seams_by_sharp=False):
         validate_for_solver=True,
         make_seams_by_sharp=make_seams_by_sharp,
     )
-    solver_graph = build_solver_graph(patch_graph)
-    solve_plan = plan_solve_phase1(patch_graph, solver_graph)
     settings = UVSettings.from_blender_settings(context.scene.hotspotuv_settings)
+    solver_graph = build_solver_graph(
+        patch_graph,
+        straighten_enabled=settings.straighten_strips,
+    )
+    solve_plan = plan_solve_phase1(patch_graph, solver_graph)
     return obj, bm, patch_graph, solver_graph, solve_plan, settings, original_mode, sel
 
 
@@ -607,7 +610,10 @@ def _enter_debug_mode(context, obj):
 
     # Scaffold + Frontier visualization поверх GP
     try:
-        solver_graph = build_solver_graph(patch_graph)
+        solver_graph = build_solver_graph(
+            patch_graph,
+            straighten_enabled=bool(getattr(s, 'straighten_strips', False)),
+        )
         solve_plan = plan_solve_phase1(patch_graph, solver_graph)
         settings = UVSettings.from_blender_settings(s)
         scaffold_map = _build_scaffold_map_with_straighten(patch_graph, solve_plan, settings)
