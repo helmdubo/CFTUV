@@ -298,6 +298,7 @@ def _cf_apply_closure_preconstraint(
                 placed_chains_map=placed_chains_map,
                 graph=graph,
                 effective_role=effective_role,
+                chain_ref=chain_ref,
             )
             if not uv_points or len(uv_points) != len(chain.vert_cos):
                 continue
@@ -1211,6 +1212,7 @@ def try_place_frontier_candidate(
         placed_chains_map=runtime_policy.placed_chains_map,
         graph=runtime_policy.graph,
         effective_role=eff_role,
+        chain_ref=chain_ref,
     )
     if not uv_points or len(uv_points) != len(chain.vert_cos):
         runtime_policy.reject_chain(chain_ref)
