@@ -299,11 +299,12 @@ def _cf_try_place_closure_follow_candidate(
         main_eval,
         shared_vert_count=shared_vert_count,
     )
+    eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
     chain_placement = ScaffoldChainPlacement(
         patch_id=chain_ref[0],
         loop_index=chain_ref[1],
         chain_index=chain_ref[2],
-        frame_role=chain.frame_role,
+        frame_role=eff_role,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=2,
         primary_anchor_kind=PlacementSourceKind.SAME_PATCH,
@@ -635,11 +636,12 @@ def _cf_try_place_tree_ingress_candidate(
         _rescue_primary_anchor_kind = anchor_end.source_kind
     else:
         _rescue_primary_anchor_kind = PlacementSourceKind.CHAIN
+    ingress_eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
     chain_placement = ScaffoldChainPlacement(
         patch_id=chain_ref[0],
         loop_index=chain_ref[1],
         chain_index=chain_ref[2],
-        frame_role=chain.frame_role,
+        frame_role=ingress_eff_role,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=_cf_anchor_count(anchor_start, anchor_end),
         primary_anchor_kind=_rescue_primary_anchor_kind,

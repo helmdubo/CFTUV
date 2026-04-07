@@ -58,6 +58,7 @@ def _build_temporary_chain_placement(
     uv_points: list[Vector],
     start_anchor: Optional[ChainAnchor],
     end_anchor: Optional[ChainAnchor],
+    effective_role: Optional[FrameRole] = None,
 ) -> ScaffoldChainPlacement:
     patch_id, loop_index, chain_index = chain_ref
     if start_anchor is not None:
@@ -70,7 +71,7 @@ def _build_temporary_chain_placement(
         patch_id=patch_id,
         loop_index=loop_index,
         chain_index=chain_index,
-        frame_role=chain.frame_role,
+        frame_role=effective_role if effective_role is not None else chain.frame_role,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=_cf_anchor_count(start_anchor, end_anchor),
         primary_anchor_kind=_pak,
@@ -116,7 +117,7 @@ def _cf_build_seed_placement(
         patch_id=seed_ref[0],
         loop_index=seed_ref[1],
         chain_index=seed_ref[2],
-        frame_role=seed_chain.frame_role,
+        frame_role=role,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=0,
         points=tuple(

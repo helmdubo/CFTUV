@@ -1093,7 +1093,7 @@ def try_place_frontier_candidate(
         patch_id=chain_ref[0],
         loop_index=chain_ref[1],
         chain_index=chain_ref[2],
-        frame_role=chain.frame_role,
+        frame_role=eff_role,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=anchor_count,
         primary_anchor_kind=primary_anchor_kind,

@@ -164,9 +164,11 @@ class FrontierRuntimePolicy:
         self.chain_dependency_patches[chain_ref] = tuple(sorted(set(dependency_patches)))
         self.build_order.append(chain_ref)
         self.placed_count_by_patch[chain_ref[0]] = self.placed_count_by_patch.get(chain_ref[0], 0) + 1
-        if chain.frame_role == FrameRole.H_FRAME:
+        # Use effective placement role for counters so bookkeeping matches geometry
+        eff_role = self.effective_placement_role(chain_ref, chain)
+        if eff_role == FrameRole.H_FRAME:
             self.placed_h_count_by_patch[chain_ref[0]] = self.placed_h_count_by_patch.get(chain_ref[0], 0) + 1
-        elif chain.frame_role == FrameRole.V_FRAME:
+        elif eff_role == FrameRole.V_FRAME:
             self.placed_v_count_by_patch[chain_ref[0]] = self.placed_v_count_by_patch.get(chain_ref[0], 0) + 1
         else:
             self.placed_free_count_by_patch[chain_ref[0]] = self.placed_free_count_by_patch.get(chain_ref[0], 0) + 1
