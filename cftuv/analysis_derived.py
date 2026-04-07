@@ -400,6 +400,21 @@ def _interpret_junction_structural_roles(junctions, frame_runs_by_loop, run_stru
     Each junction vertex may appear in multiple patches. We produce one role per (vert_index, patch_id).
     """
 
+    effective_role_by_chain_ref = {}
+    for loop_key, runs in frame_runs_by_loop.items():
+        patch_id, loop_index = loop_key
+        for run_index, run in enumerate(runs):
+            structural_role = run_structural_roles.get((patch_id, loop_index, run_index))
+            effective_role = run.dominant_role
+            if (
+                effective_role == FrameRole.FREE
+                and structural_role is not None
+                and structural_role.inherited_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+            ):
+                effective_role = structural_role.inherited_role
+            for chain_index in run.chain_indices:
+                effective_role_by_chain_ref[(patch_id, loop_index, chain_index)] = effective_role
+
     result = {}
 
     for junction in junctions:
@@ -417,6 +432,8 @@ def _interpret_junction_structural_roles(junctions, frame_runs_by_loop, run_stru
                 continue
 
             kind = _JunctionStructuralKind.FREE
+            dominant_axis = FrameRole.FREE
+            supports_inherited_axis = False
             implied_turn = -1.0
 
             if patch_valence >= 3:
@@ -445,24 +462,43 @@ def _interpret_junction_structural_roles(junctions, frame_runs_by_loop, run_stru
                         cr for cr in patch_chain_refs
                         if cr.chain_index == corner_ref.next_chain_index
                     ]
-                    prev_role = prev_chain_refs[0].frame_role if prev_chain_refs else FrameRole.FREE
-                    next_role = next_chain_refs[0].frame_role if next_chain_refs else FrameRole.FREE
+                    prev_raw_role = prev_chain_refs[0].frame_role if prev_chain_refs else FrameRole.FREE
+                    next_raw_role = next_chain_refs[0].frame_role if next_chain_refs else FrameRole.FREE
+                    prev_role = effective_role_by_chain_ref.get(
+                        (patch_id, corner_ref.loop_index, corner_ref.prev_chain_index),
+                        prev_raw_role,
+                    )
+                    next_role = effective_role_by_chain_ref.get(
+                        (patch_id, corner_ref.loop_index, corner_ref.next_chain_index),
+                        next_raw_role,
+                    )
 
                     prev_hv = prev_role in (FrameRole.H_FRAME, FrameRole.V_FRAME)
                     next_hv = next_role in (FrameRole.H_FRAME, FrameRole.V_FRAME)
+                    inherited_hv = (
+                        (prev_hv and prev_raw_role == FrameRole.FREE)
+                        or (next_hv and next_raw_role == FrameRole.FREE)
+                    )
 
                     if prev_hv and next_hv:
                         if prev_role == next_role:
                             kind = _JunctionStructuralKind.CONTINUATION
+                            dominant_axis = prev_role
+                            supports_inherited_axis = inherited_hv
                             implied_turn = 0.0
                         else:
                             kind = _JunctionStructuralKind.TURN
                             implied_turn = 90.0
+                    elif prev_hv != next_hv and inherited_hv:
+                        kind = _JunctionStructuralKind.BRIDGE
+                        dominant_axis = prev_role if prev_hv else next_role
+                    elif inherited_hv:
+                        kind = _JunctionStructuralKind.AMBIGUOUS
                     else:
                         kind = _JunctionStructuralKind.FREE
 
             elif patch_valence == 2:
-                kind = _JunctionStructuralKind.BRANCH
+                kind = _JunctionStructuralKind.AMBIGUOUS
 
             # Find spine_run_key: look at run_endpoint_refs for this patch
             spine_run_key = None
@@ -481,6 +517,8 @@ def _interpret_junction_structural_roles(junctions, frame_runs_by_loop, run_stru
                 patch_id=patch_id,
                 kind=kind,
                 spine_run_key=spine_run_key,
+                dominant_axis=dominant_axis,
+                supports_inherited_axis=supports_inherited_axis,
                 implied_turn=implied_turn,
             )
 
@@ -521,6 +559,26 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             spine_run_indices = ()
             spine_axis = FrameRole.FREE
 
+        inherited_spine_count = sum(
+            1 for role in spine_roles_sorted
+            if role.inherited_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+        )
+        inherited_axes = {
+            role.inherited_role
+            for role in spine_roles_sorted
+            if role.inherited_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+        }
+        inherited_axis_candidate = (
+            next(iter(inherited_axes))
+            if len(inherited_axes) == 1 else
+            FrameRole.FREE
+        )
+        axis_candidate = (
+            spine_axis
+            if spine_axis in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+            else inherited_axis_candidate
+        )
+
         # spine_length = sum of total_length of all spine runs
         spine_length = 0.0
         for role in spine_roles_sorted:
@@ -543,6 +601,16 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             1 for jr in patch_junction_roles
             if jr.kind == _JunctionStructuralKind.BRANCH
         )
+        junction_axes = {
+            jr.dominant_axis
+            for jr in patch_junction_roles
+            if jr.supports_inherited_axis and jr.dominant_axis in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+        }
+        junction_supported_axis = (
+            next(iter(junction_axes))
+            if len(junction_axes) == 1 else
+            FrameRole.FREE
+        )
 
         # Compute strip_confidence
         perimeter = node.perimeter if node.perimeter > 0.0 else sum(
@@ -564,6 +632,12 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             side_confidence = 1.0 - (sum(side_pair_ratios) / len(side_pair_ratios))
         else:
             side_confidence = 0.0
+        single_sided_inherited_support = (
+            spine_axis == FrameRole.FREE
+            and inherited_spine_count == 1
+            and axis_candidate in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+            and side_confidence < 0.35
+        )
 
         # Bbox elongation: project boundary verts onto basis_u / basis_v
         basis_u = node.basis_u
@@ -600,7 +674,11 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
         result[patch_id] = {
             "spine_run_indices": spine_run_indices,
             "spine_axis": spine_axis,
+            "axis_candidate": axis_candidate,
+            "junction_supported_axis": junction_supported_axis,
             "spine_length": spine_length,
+            "inherited_spine_count": inherited_spine_count,
+            "single_sided_inherited_support": single_sided_inherited_support,
             "terminal_count": terminal_count,
             "branch_count": branch_count,
             "strip_confidence": strip_confidence,
@@ -608,10 +686,18 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
         }
 
         # DEBUG: temporary diagnostic print
-        inherited_count = sum(
-            1 for role in spine_roles_sorted if role.inherited_role is not None
+        inh_tag = f" inherited_spines={inherited_spine_count}" if inherited_spine_count > 0 else ""
+        axis_tag = (
+            f" axis_candidate={axis_candidate}"
+            if axis_candidate in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+            else ""
         )
-        inh_tag = f" inherited_spines={inherited_count}" if inherited_count > 0 else ""
+        junc_tag = (
+            f" junction_axis={junction_supported_axis}"
+            if junction_supported_axis in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+            else ""
+        )
+        ss_tag = " single_sided=Y" if single_sided_inherited_support else ""
         print(
             f"[STRUCTURAL] P{patch_id}: "
             f"spine_runs={len(spine_roles_sorted)} spine_axis={spine_axis} spine_len={spine_length:.2f} "
@@ -619,7 +705,7 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             f"elongation={elongation:.2f} side_conf={side_confidence:.2f} "
             f"T={terminal_count} B={branch_count} "
             f"strip_conf={strip_confidence:.2f} eligible={'Y' if straighten_eligible else 'N'}"
-            f"{inh_tag}"
+            f"{inh_tag}{axis_tag}{junc_tag}{ss_tag}"
         )
 
     return result

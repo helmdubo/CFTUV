@@ -223,7 +223,9 @@ class _JunctionStructuralKind(str, Enum):
     TERMINAL = "TERMINAL"
     CONTINUATION = "CONTINUATION"
     TURN = "TURN"
+    BRIDGE = "BRIDGE"
     BRANCH = "BRANCH"
+    AMBIGUOUS = "AMBIGUOUS"
     FREE = "FREE"
 
 
@@ -250,6 +252,8 @@ class _JunctionStructuralRole:
     patch_id: int
     kind: _JunctionStructuralKind = _JunctionStructuralKind.FREE
     spine_run_key: Optional[RunKey] = None
+    dominant_axis: FrameRole = FrameRole.FREE
+    supports_inherited_axis: bool = False
     implied_turn: float = -1.0
 
 
@@ -342,7 +346,11 @@ class _PatchDerivedTopologySummary:
     loop_summaries: tuple[_LoopDerivedTopologySummary, ...] = ()
     spine_run_indices: tuple[int, ...] = ()
     spine_axis: FrameRole = FrameRole.FREE
+    axis_candidate: FrameRole = FrameRole.FREE
+    junction_supported_axis: FrameRole = FrameRole.FREE
     spine_length: float = 0.0
+    inherited_spine_count: int = 0
+    single_sided_inherited_support: bool = False
     terminal_count: int = 0
     branch_count: int = 0
     strip_confidence: float = 0.0

@@ -112,6 +112,16 @@ def build_neighbor_inherited_roles(graph):
     return dict(derived_topology.neighbor_inherited_roles)
 
 
+def build_straighten_structural_support(graph):
+    """Extract structural support facts for straighten-aware solve/runtime."""
+
+    derived_topology = _build_patch_graph_derived_topology(graph)
+    return (
+        dict(derived_topology.neighbor_inherited_roles),
+        dict(derived_topology.patch_summaries_by_id),
+    )
+
+
 def format_patch_graph_report(graph, mesh_name=None) -> FormattedReport:
     """Build text lines for the System Console PatchGraph report."""
 
