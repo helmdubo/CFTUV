@@ -384,9 +384,9 @@ def _cf_build_patch_scoring_context(
 ) -> PatchScoringContext:
     patch_id = chain_ref[0]
     placed_chain_count = runtime_policy.placed_in_patch(patch_id)
-    placed_h_count = runtime_policy.placed_h_in_patch(patch_id)
-    placed_v_count = runtime_policy.placed_v_in_patch(patch_id)
-    placed_free_count = runtime_policy.placed_free_in_patch(patch_id)
+    placed_h_count = runtime_policy.placed_backbone_h_in_patch(patch_id)
+    placed_v_count = runtime_policy.placed_backbone_v_in_patch(patch_id)
+    placed_free_count = runtime_policy.placed_backbone_free_in_patch(patch_id)
     outer_chain_count = runtime_policy.outer_chain_count(patch_id)
     frame_chain_count = runtime_policy.frame_chain_count(patch_id)
     closure_pair_count = runtime_policy.closure_pair_count(patch_id)

@@ -638,16 +638,18 @@ def _execute_phase1_preview_impl(
 
     straighten_enabled = getattr(settings, 'straighten_strips', False)
     inherited_role_map = None
+    patch_structural_summaries = None
     if straighten_enabled:
         try:
-            from .analysis import build_neighbor_inherited_roles
+            from .analysis import build_straighten_structural_support
         except ImportError:
-            from analysis import build_neighbor_inherited_roles
-        inherited_role_map = build_neighbor_inherited_roles(patch_graph)
+            from analysis import build_straighten_structural_support
+        inherited_role_map, patch_structural_summaries = build_straighten_structural_support(patch_graph)
     scaffold_map = build_root_scaffold_map(
         patch_graph, solve_plan, settings.final_scale,
         straighten_enabled=straighten_enabled,
         inherited_role_map=inherited_role_map,
+        patch_structural_summaries=patch_structural_summaries,
     )
     unsupported_patch_ids = _collect_phase1_unsupported_patch_ids(scaffold_map)
     if unsupported_patch_ids:

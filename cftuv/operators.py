@@ -18,7 +18,7 @@ from bpy.props import (
 )
 
 from .analysis import (
-    build_neighbor_inherited_roles,
+    build_straighten_structural_support,
     build_patch_graph,
     format_patch_graph_report,
     format_patch_graph_snapshot_report,
@@ -189,12 +189,14 @@ def _build_scaffold_map_with_straighten(graph, solve_plan, settings):
     """Build scaffold map, optionally applying straighten strips from structural analysis."""
     straighten = getattr(settings, 'straighten_strips', False)
     inherited_map = None
+    patch_structural_summaries = None
     if straighten:
-        inherited_map = build_neighbor_inherited_roles(graph)
+        inherited_map, patch_structural_summaries = build_straighten_structural_support(graph)
     return build_root_scaffold_map(
         graph, solve_plan, settings.final_scale,
         straighten_enabled=straighten,
         inherited_role_map=inherited_map,
+        patch_structural_summaries=patch_structural_summaries,
     )
 
 

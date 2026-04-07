@@ -216,6 +216,7 @@ def _cf_bootstrap_frontier_runtime(
     final_scale: float,
     straighten_enabled: bool = False,
     inherited_role_map: Optional[dict] = None,
+    patch_structural_summaries: Optional[dict] = None,
 ) -> FrontierBootstrapAttempt:
     seed_result = _cf_choose_seed_chain(
         solve_view,
@@ -241,6 +242,7 @@ def _cf_bootstrap_frontier_runtime(
         closure_pair_map=closure_pair_map,
         straighten_enabled=straighten_enabled,
         inherited_role_map=inherited_role_map or {},
+        patch_structural_summaries=patch_structural_summaries or {},
     )
     _cf_bootstrap_runtime_score_caches(runtime_policy)
 
@@ -346,6 +348,7 @@ def build_quilt_scaffold_chain_frontier(
     final_scale: float,
     straighten_enabled: bool = False,
     inherited_role_map: Optional[dict] = None,
+    patch_structural_summaries: Optional[dict] = None,
 ) -> ScaffoldQuiltPlacement:
     """Build chain-first scaffold for a single quilt."""
 
@@ -379,6 +382,7 @@ def build_quilt_scaffold_chain_frontier(
         final_scale,
         straighten_enabled=straighten_enabled,
         inherited_role_map=inherited_role_map,
+        patch_structural_summaries=patch_structural_summaries,
     )
     if bootstrap_attempt.result is None:
         quilt_scaffold.patches[quilt_plan.root_patch_id] = ScaffoldPatchPlacement(
@@ -517,7 +521,14 @@ def build_quilt_scaffold_chain_frontier(
                 f"[CFTUV][Plan] Quilt {quilt_plan.quilt_index}: "
                 f"revert closure cut swap, untouched patches={sorted(untouched_patch_ids)}"
             )
-            return build_quilt_scaffold_chain_frontier(graph, fallback_quilt_plan, final_scale)
+            return build_quilt_scaffold_chain_frontier(
+                graph,
+                fallback_quilt_plan,
+                final_scale,
+                straighten_enabled=straighten_enabled,
+                inherited_role_map=inherited_role_map,
+                patch_structural_summaries=patch_structural_summaries,
+            )
 
     return quilt_scaffold
 
@@ -528,6 +539,7 @@ def build_root_scaffold_map(
     final_scale: float = 1.0,
     straighten_enabled: bool = False,
     inherited_role_map: Optional[dict] = None,
+    patch_structural_summaries: Optional[dict] = None,
 ) -> ScaffoldMap:
     """Build ScaffoldMap using chain-first strongest-frontier algorithm."""
 
@@ -540,6 +552,7 @@ def build_root_scaffold_map(
             graph, quilt, final_scale,
             straighten_enabled=straighten_enabled,
             inherited_role_map=inherited_role_map,
+            patch_structural_summaries=patch_structural_summaries,
         )
         scaffold_map.quilts.append(quilt_scaffold)
 

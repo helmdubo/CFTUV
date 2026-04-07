@@ -68,11 +68,15 @@ class FrontierRuntimePolicy:
     # Straighten strips: structural data from analysis layer
     straighten_enabled: bool = False
     inherited_role_map: dict[ChainRef, tuple[FrameRole, int]] = field(default_factory=dict)
+    patch_structural_summaries: dict[int, object] = field(default_factory=dict)
     closure_pair_refs: frozenset[ChainRef] = field(init=False, default_factory=frozenset)
     # Temporary compatibility storage for score-owned derived caches until P7.
     _outer_chain_count_by_patch: dict[int, int] = field(init=False, default_factory=dict)
     _frame_chain_count_by_patch: dict[int, int] = field(init=False, default_factory=dict)
     _closure_pair_count_by_patch: dict[int, int] = field(init=False, default_factory=dict)
+    _backbone_h_count_by_patch: dict[int, int] = field(init=False, default_factory=dict)
+    _backbone_v_count_by_patch: dict[int, int] = field(init=False, default_factory=dict)
+    _backbone_free_count_by_patch: dict[int, int] = field(init=False, default_factory=dict)
     _shape_profile_by_patch: dict[int, PatchShapeProfile] = field(init=False, default_factory=dict)
     _cached_evals: dict[ChainRef, FrontierCandidateEval] = field(init=False, default_factory=dict)
     _dirty_refs: set[ChainRef] = field(init=False, default_factory=set)
@@ -108,6 +112,15 @@ class FrontierRuntimePolicy:
     def placed_free_in_patch(self, patch_id: int) -> int:
         return self.placed_free_count_by_patch.get(patch_id, 0)
 
+    def placed_backbone_h_in_patch(self, patch_id: int) -> int:
+        return self._backbone_h_count_by_patch.get(patch_id, 0)
+
+    def placed_backbone_v_in_patch(self, patch_id: int) -> int:
+        return self._backbone_v_count_by_patch.get(patch_id, 0)
+
+    def placed_backbone_free_in_patch(self, patch_id: int) -> int:
+        return self._backbone_free_count_by_patch.get(patch_id, 0)
+
     # Temporary compatibility accessors for score-owned caches until P7.
     def outer_chain_count(self, patch_id: int) -> int:
         return self._outer_chain_count_by_patch.get(patch_id, 0)
@@ -126,6 +139,38 @@ class FrontierRuntimePolicy:
 
     def total_placed(self) -> int:
         return len(self.build_order)
+
+    def _patch_summary_attr(self, patch_id: int, attr_name: str, default):
+        summary = self.patch_structural_summaries.get(patch_id)
+        if summary is None:
+            return default
+        return getattr(summary, attr_name, default)
+
+    def should_gate_inherited_same_patch(self, chain_ref: ChainRef, chain: BoundaryChain) -> bool:
+        if not self.straighten_enabled or chain.frame_role != FrameRole.FREE:
+            return False
+        eff_role = self.effective_placement_role(chain_ref, chain)
+        if eff_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return False
+        patch_id = chain_ref[0]
+        if self._patch_summary_attr(patch_id, 'spine_axis', FrameRole.FREE) in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return False
+        if self._patch_summary_attr(patch_id, 'inherited_spine_count', 0) >= 2:
+            return False
+        if self._patch_summary_attr(patch_id, 'junction_supported_axis', FrameRole.FREE) == eff_role:
+            return False
+        return bool(self._patch_summary_attr(patch_id, 'single_sided_inherited_support', False))
+
+    def backbone_placement_role(
+        self,
+        chain_ref: ChainRef,
+        chain: BoundaryChain,
+        effective_role: Optional[FrameRole] = None,
+    ) -> FrameRole:
+        role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
+        if self.should_gate_inherited_same_patch(chain_ref, chain):
+            return FrameRole.FREE
+        return role
 
     def is_chain_available(self, chain_ref: ChainRef) -> bool:
         return chain_ref not in self.placed_chain_refs and chain_ref not in self.rejected_chain_refs
@@ -172,6 +217,13 @@ class FrontierRuntimePolicy:
             self.placed_v_count_by_patch[chain_ref[0]] = self.placed_v_count_by_patch.get(chain_ref[0], 0) + 1
         else:
             self.placed_free_count_by_patch[chain_ref[0]] = self.placed_free_count_by_patch.get(chain_ref[0], 0) + 1
+        backbone_role = self.backbone_placement_role(chain_ref, chain, effective_role=eff_role)
+        if backbone_role == FrameRole.H_FRAME:
+            self._backbone_h_count_by_patch[chain_ref[0]] = self._backbone_h_count_by_patch.get(chain_ref[0], 0) + 1
+        elif backbone_role == FrameRole.V_FRAME:
+            self._backbone_v_count_by_patch[chain_ref[0]] = self._backbone_v_count_by_patch.get(chain_ref[0], 0) + 1
+        else:
+            self._backbone_free_count_by_patch[chain_ref[0]] = self._backbone_free_count_by_patch.get(chain_ref[0], 0) + 1
         _cf_register_points(chain_ref, chain, uv_points, self.point_registry, self.vert_to_placements)
         self._cached_evals.pop(chain_ref, None)
         self._dirty_refs.discard(chain_ref)

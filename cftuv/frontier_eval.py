@@ -664,6 +664,7 @@ def _cf_can_use_dual_anchor_closure(
 
 
 def _cf_resolve_candidate_anchors(
+    chain_ref: ChainRef,
     chain: BoundaryChain,
     start_anchor: Optional[ChainAnchor],
     end_anchor: Optional[ChainAnchor],
@@ -671,10 +672,29 @@ def _cf_resolve_candidate_anchors(
     final_scale: float,
     graph: PatchGraph,
     placed_chains_map: dict[ChainRef, ScaffoldChainPlacement],
+    runtime_policy: FrontierRuntimePolicy,
     effective_role: Optional[FrameRole] = None,
 ) -> ResolvedCandidateAnchors:
     role = effective_role if effective_role is not None else chain.frame_role
     known = _cf_anchor_count(start_anchor, end_anchor)
+    if runtime_policy.should_gate_inherited_same_patch(chain_ref, chain):
+        same_patch_anchor_count = sum(
+            1
+            for anchor in (start_anchor, end_anchor)
+            if anchor is not None and anchor.source_kind == PlacementSourceKind.SAME_PATCH
+        )
+        cross_patch_anchor_count = sum(
+            1
+            for anchor in (start_anchor, end_anchor)
+            if anchor is not None and anchor.source_kind == PlacementSourceKind.CROSS_PATCH
+        )
+        if same_patch_anchor_count > 0 and cross_patch_anchor_count == 0:
+            return ResolvedCandidateAnchors(
+                start_anchor=None,
+                end_anchor=None,
+                known=0,
+                reason='gate_unresolved_inherited_same_patch',
+            )
     if known < 2:
         return ResolvedCandidateAnchors(start_anchor=start_anchor, end_anchor=end_anchor, known=known)
 
@@ -794,6 +814,7 @@ def evaluate_candidate(
     patch_context = build_patch_scoring_context(chain_ref, runtime_policy)
     seam_relation = chain_seam_relation(chain_ref, chain, runtime_policy)
     resolved_anchors = _cf_resolve_candidate_anchors(
+        chain_ref,
         chain,
         raw_start_anchor,
         raw_end_anchor,
@@ -801,6 +822,7 @@ def evaluate_candidate(
         runtime_policy.final_scale,
         runtime_policy.graph,
         runtime_policy.placed_chains_map,
+        runtime_policy,
         effective_role=eff_role,
     )
     start_anchor = resolved_anchors.start_anchor
