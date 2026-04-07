@@ -759,6 +759,7 @@ class FrontierCandidateEval:
     end_anchor: Optional[ChainAnchor]
     known: int
     placed_in_patch: int
+    effective_role: FrameRole = FrameRole.FREE
     anchor_reason: str = ''
     anchor_adjustments: tuple[AnchorAdjustment, ...] = ()
     closure_dir_override: Optional[Vector] = None
@@ -800,6 +801,7 @@ class FrontierPlacementCandidate:
     node: PatchNode
     start_anchor: Optional[ChainAnchor]
     end_anchor: Optional[ChainAnchor]
+    effective_role: FrameRole
     anchor_reason: str = ''
     anchor_adjustments: tuple[AnchorAdjustment, ...] = ()
     closure_dir_override: Optional[Vector] = None

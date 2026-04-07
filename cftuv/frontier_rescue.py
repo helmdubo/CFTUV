@@ -310,10 +310,10 @@ def _cf_try_place_closure_follow_candidate(
         chain_ref,
         chain,
         main_eval,
-        effective_role=runtime_policy.effective_placement_role(chain_ref, chain),
+        effective_role=main_eval.effective_role,
         shared_vert_count=shared_vert_count,
     )
-    eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
+    eff_role = main_eval.effective_role
     chain_placement = ScaffoldChainPlacement(
         patch_id=chain_ref[0],
         loop_index=chain_ref[1],
@@ -340,6 +340,7 @@ def _cf_try_place_closure_follow_candidate(
                 if patch_id != chain_ref[0]
             )
         ),
+        placed_role=eff_role,
     )
 
     trace_console(
@@ -638,7 +639,7 @@ def _cf_try_place_tree_ingress_candidate(
         chain_ref,
         chain,
         main_eval,
-        effective_role=runtime_policy.effective_placement_role(chain_ref, chain),
+        effective_role=main_eval.effective_role,
         hv_adjacency=hv_adjacency,
         downstream_support=downstream_hv_count,
     )
@@ -680,6 +681,7 @@ def _cf_try_place_tree_ingress_candidate(
         chain_placement,
         uv_points,
         runtime_policy.dependency_patches_from_anchors(chain_ref[0], anchor_start, anchor_end),
+        placed_role=ingress_eff_role,
     )
 
     anchor_count = _cf_anchor_count(anchor_start, anchor_end)

@@ -12,6 +12,7 @@ try:
         FrameRole,
         PatchEdgeKey,
         PatchGraph,
+        PlacementSourceKind,
         ScaffoldChainPlacement,
     )
     from .solve_records import (
@@ -31,6 +32,7 @@ except ImportError:
         FrameRole,
         PatchEdgeKey,
         PatchGraph,
+        PlacementSourceKind,
         ScaffoldChainPlacement,
     )
     from solve_records import (
@@ -172,6 +174,25 @@ class FrontierRuntimePolicy:
             return FrameRole.FREE
         return role
 
+    def candidate_placement_role(
+        self,
+        chain_ref: ChainRef,
+        chain: BoundaryChain,
+        start_anchor: Optional[ChainAnchor],
+        end_anchor: Optional[ChainAnchor],
+        effective_role: Optional[FrameRole] = None,
+    ) -> FrameRole:
+        role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
+        if not self.should_gate_inherited_same_patch(chain_ref, chain):
+            return role
+        has_cross_patch_anchor = any(
+            anchor is not None and anchor.source_kind == PlacementSourceKind.CROSS_PATCH
+            for anchor in (start_anchor, end_anchor)
+        )
+        if has_cross_patch_anchor:
+            return role
+        return FrameRole.FREE
+
     def is_chain_available(self, chain_ref: ChainRef) -> bool:
         return chain_ref not in self.placed_chain_refs and chain_ref not in self.rejected_chain_refs
 
@@ -203,6 +224,7 @@ class FrontierRuntimePolicy:
         chain_placement: ScaffoldChainPlacement,
         uv_points: list[Vector],
         dependency_patches: tuple[int, ...] = (),
+        placed_role: Optional[FrameRole] = None,
     ) -> None:
         self.placed_chain_refs.add(chain_ref)
         self.placed_chains_map[chain_ref] = chain_placement
@@ -210,7 +232,7 @@ class FrontierRuntimePolicy:
         self.build_order.append(chain_ref)
         self.placed_count_by_patch[chain_ref[0]] = self.placed_count_by_patch.get(chain_ref[0], 0) + 1
         # Use effective placement role for counters so bookkeeping matches geometry
-        eff_role = self.effective_placement_role(chain_ref, chain)
+        eff_role = placed_role if placed_role is not None else self.effective_placement_role(chain_ref, chain)
         if eff_role == FrameRole.H_FRAME:
             self.placed_h_count_by_patch[chain_ref[0]] = self.placed_h_count_by_patch.get(chain_ref[0], 0) + 1
         elif eff_role == FrameRole.V_FRAME:

@@ -251,7 +251,14 @@ def _cf_bootstrap_frontier_runtime(
     if seed_payload is None:
         return FrontierBootstrapAttempt(result=None, error="seed_placement_failed")
 
-    runtime_policy.register_chain(seed_ref, seed_chain, seed_payload.placement, seed_payload.uv_points, ())
+    runtime_policy.register_chain(
+        seed_ref,
+        seed_chain,
+        seed_payload.placement,
+        seed_payload.uv_points,
+        (),
+        placed_role=seed_effective_role,
+    )
 
     trace_console(
         f"[CFTUV][Frontier] Seed: P{seed_ref[0]} L{seed_ref[1]}C{seed_ref[2]} "

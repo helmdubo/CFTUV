@@ -810,7 +810,14 @@ def evaluate_candidate(
     raw_end_anchor = found_anchors.end_anchor
 
     placed_in_patch = runtime_policy.placed_in_patch(chain_ref[0])
-    eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
+    base_eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
+    eff_role = runtime_policy.candidate_placement_role(
+        chain_ref,
+        chain,
+        raw_start_anchor,
+        raw_end_anchor,
+        effective_role=base_eff_role,
+    )
     patch_context = build_patch_scoring_context(chain_ref, runtime_policy)
     seam_relation = chain_seam_relation(chain_ref, chain, runtime_policy)
     resolved_anchors = _cf_resolve_candidate_anchors(
@@ -907,6 +914,7 @@ def evaluate_candidate(
         end_anchor=end_anchor,
         known=known,
         placed_in_patch=placed_in_patch,
+        effective_role=eff_role,
         anchor_reason=anchor_reason,
         anchor_adjustments=anchor_adjustments,
         closure_dir_override=closure_dir_override,
@@ -976,6 +984,7 @@ def _cf_make_frontier_placement_candidate(
         node=entry.node,
         start_anchor=candidate_eval.start_anchor,
         end_anchor=candidate_eval.end_anchor,
+        effective_role=candidate_eval.effective_role,
         anchor_reason=candidate_eval.anchor_reason,
         anchor_adjustments=candidate_eval.anchor_adjustments,
         closure_dir_override=candidate_eval.closure_dir_override,
@@ -1080,6 +1089,7 @@ def try_place_frontier_candidate(
     chain_ref = candidate.chain_ref
     chain = candidate.chain
     placed_before = runtime_policy.placed_in_patch(chain_ref[0])
+    eff_role = candidate.effective_role
 
     if candidate.anchor_adjustments:
         applied = apply_anchor_adjustments_fn(
@@ -1102,7 +1112,6 @@ def try_place_frontier_candidate(
             if adjusted_chain is not None:
                 _mark_neighbors_dirty(runtime_policy, adjusted_ref, adjusted_chain)
 
-    eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
     dir_override = candidate.closure_dir_override
     closure_dir_was_set = dir_override is not None
     if dir_override is None:
@@ -1170,6 +1179,7 @@ def try_place_frontier_candidate(
             candidate.start_anchor,
             candidate.end_anchor,
         ),
+        placed_role=eff_role,
     )
 
     anchor_label = _cf_anchor_debug_label(candidate.start_anchor, candidate.end_anchor)
