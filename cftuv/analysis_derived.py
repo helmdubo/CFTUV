@@ -218,6 +218,15 @@ def _clamp01(x):
     return max(0.0, min(1.0, x))
 
 
+def _chain_polyline_length(chain) -> float:
+    if len(chain.vert_cos) < 2:
+        return 0.0
+    return sum(
+        (chain.vert_cos[index + 1] - chain.vert_cos[index]).length
+        for index in range(len(chain.vert_cos) - 1)
+    )
+
+
 def _compute_neighbor_inherited_roles(graph):
     """For each FREE chain with a patch neighbor, check neighbor's frame role along shared boundary.
 
@@ -639,6 +648,100 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             and side_confidence < 0.35
         )
 
+        band_cap_count = 0
+        band_side_candidate_count = 0
+        band_opposite_cap_length_ratio = 0.0
+        band_width_stability = 0.0
+        band_candidate = False
+
+        outer_loop_index = next(
+            (loop_index for loop_index, boundary_loop in enumerate(node.boundary_loops) if boundary_loop.kind == LoopKind.OUTER),
+            -1,
+        )
+        if outer_loop_index >= 0:
+            outer_loop = node.boundary_loops[outer_loop_index]
+            outer_chains = tuple(outer_loop.chains)
+            chain_count = len(outer_chains)
+            chain_lengths = tuple(_chain_polyline_length(chain) for chain in outer_chains)
+            mean_chain_length = (sum(chain_lengths) / chain_count) if chain_count > 0 else 0.0
+            effective_role_by_chain_index = {}
+            for chain_index, chain in enumerate(outer_chains):
+                effective_role = chain.frame_role
+                if effective_role == FrameRole.FREE:
+                    for run_index, run in enumerate(frame_runs_by_loop.get((patch_id, outer_loop_index), ())):
+                        if chain_index not in run.chain_indices:
+                            continue
+                        run_role = run_structural_roles.get((patch_id, outer_loop_index, run_index))
+                        if run_role is not None and run_role.inherited_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                            effective_role = run_role.inherited_role
+                        break
+                effective_role_by_chain_index[chain_index] = effective_role
+
+            cap_candidate_indices = [
+                chain_index
+                for chain_index, chain in enumerate(outer_chains)
+                if (
+                    effective_role_by_chain_index.get(chain_index, FrameRole.FREE) in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+                    and chain_lengths[chain_index] > 0.0
+                    and mean_chain_length > 0.0
+                    and chain_lengths[chain_index] <= mean_chain_length * 0.5
+                )
+            ]
+            side_candidate_indices = [
+                chain_index
+                for chain_index, chain in enumerate(outer_chains)
+                if (
+                    chain.frame_role == FrameRole.FREE
+                    and chain_lengths[chain_index] >= mean_chain_length * 1.2
+                    and any(
+                        ((chain_index - cap_index) % max(chain_count, 1) == 1)
+                        or ((cap_index - chain_index) % max(chain_count, 1) == 1)
+                        for cap_index in cap_candidate_indices
+                    )
+                )
+            ]
+
+            band_cap_count = len(cap_candidate_indices)
+            band_side_candidate_count = len(side_candidate_indices)
+
+            if band_cap_count >= 2:
+                best_cap_ratio = 0.0
+                for left_index in range(len(cap_candidate_indices) - 1):
+                    for right_index in range(left_index + 1, len(cap_candidate_indices)):
+                        cap_a = cap_candidate_indices[left_index]
+                        cap_b = cap_candidate_indices[right_index]
+                        separation = min(
+                            (cap_b - cap_a) % chain_count,
+                            (cap_a - cap_b) % chain_count,
+                        )
+                        if separation < 2:
+                            continue
+                        len_a = chain_lengths[cap_a]
+                        len_b = chain_lengths[cap_b]
+                        if max(len_a, len_b) <= 1e-8:
+                            continue
+                        similarity = 1.0 - abs(len_a - len_b) / max(len_a, len_b)
+                        best_cap_ratio = max(best_cap_ratio, _clamp01(similarity))
+                band_opposite_cap_length_ratio = best_cap_ratio
+
+            if band_side_candidate_count >= 2:
+                side_lengths = sorted(
+                    (chain_lengths[chain_index] for chain_index in side_candidate_indices),
+                    reverse=True,
+                )
+                len_a, len_b = side_lengths[:2]
+                if max(len_a, len_b) > 1e-8:
+                    band_width_stability = _clamp01(1.0 - abs(len_a - len_b) / max(len_a, len_b))
+
+            band_candidate = bool(
+                single_sided_inherited_support
+                and branch_count == 0
+                and band_cap_count >= 2
+                and band_side_candidate_count >= 2
+                and band_opposite_cap_length_ratio >= 0.7
+                and band_width_stability >= 0.65
+            )
+
         # Bbox elongation: project boundary verts onto basis_u / basis_v
         basis_u = node.basis_u
         basis_v = node.basis_v
@@ -679,6 +782,11 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             "spine_length": spine_length,
             "inherited_spine_count": inherited_spine_count,
             "single_sided_inherited_support": single_sided_inherited_support,
+            "band_cap_count": band_cap_count,
+            "band_side_candidate_count": band_side_candidate_count,
+            "band_opposite_cap_length_ratio": band_opposite_cap_length_ratio,
+            "band_width_stability": band_width_stability,
+            "band_candidate": band_candidate,
             "terminal_count": terminal_count,
             "branch_count": branch_count,
             "strip_confidence": strip_confidence,
@@ -698,6 +806,13 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             else ""
         )
         ss_tag = " single_sided=Y" if single_sided_inherited_support else ""
+        band_tag = (
+            f" band:caps={band_cap_count}/sides={band_side_candidate_count}"
+            f"/capr={band_opposite_cap_length_ratio:.2f}/w={band_width_stability:.2f}"
+            if band_cap_count > 0 or band_side_candidate_count > 0
+            else ""
+        )
+        band_candidate_tag = " band_candidate=Y" if band_candidate else ""
         print(
             f"[STRUCTURAL] P{patch_id}: "
             f"spine_runs={len(spine_roles_sorted)} spine_axis={spine_axis} spine_len={spine_length:.2f} "
@@ -705,7 +820,7 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             f"elongation={elongation:.2f} side_conf={side_confidence:.2f} "
             f"T={terminal_count} B={branch_count} "
             f"strip_conf={strip_confidence:.2f} eligible={'Y' if straighten_eligible else 'N'}"
-            f"{inh_tag}{axis_tag}{junc_tag}{ss_tag}"
+            f"{inh_tag}{axis_tag}{junc_tag}{ss_tag}{band_tag}{band_candidate_tag}"
         )
 
     return result
