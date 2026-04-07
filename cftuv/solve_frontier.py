@@ -246,7 +246,7 @@ def _cf_bootstrap_frontier_runtime(
     )
     _cf_bootstrap_runtime_score_caches(runtime_policy)
 
-    seed_effective_role = runtime_policy.effective_placement_role(seed_ref, seed_chain)
+    seed_effective_role = runtime_policy.seed_placement_role(seed_ref, seed_chain)
     seed_payload = _cf_build_seed_placement(seed_ref, seed_chain, root_node, final_scale, effective_role=seed_effective_role)
     if seed_payload is None:
         return FrontierBootstrapAttempt(result=None, error="seed_placement_failed")
@@ -344,7 +344,7 @@ def _cf_record_seed_telemetry(
         uv_points=[uv.copy() for _, uv in seed_placement.points],
         is_closure_pair=(seed_ref in runtime_policy.closure_pair_refs),
         hv_adjacency=_cf_count_hv_adjacent_endpoints(graph, seed_ref, runtime_policy=runtime_policy)
-        if runtime_policy.effective_placement_role(seed_ref, seed_chain) in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+        if seed_placement.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
         else 0,
     )
 

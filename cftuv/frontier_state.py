@@ -102,6 +102,21 @@ class FrontierRuntimePolicy:
             return self.inherited_role_map[chain_ref][0]
         return FrameRole.FREE
 
+    def seed_placement_role(self, chain_ref: ChainRef, chain: BoundaryChain) -> FrameRole:
+        role = self.effective_placement_role(chain_ref, chain)
+        if chain.frame_role != FrameRole.FREE:
+            return role
+        if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return role
+        patch_id = chain_ref[0]
+        if self._patch_summary_attr(patch_id, 'spine_axis', FrameRole.FREE) in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return role
+        if self._patch_summary_attr(patch_id, 'inherited_spine_count', 0) >= 2:
+            return role
+        if self._patch_summary_attr(patch_id, 'band_candidate', False):
+            return role
+        return FrameRole.FREE
+
     def resolved_placement_role(self, chain_ref: ChainRef, chain: BoundaryChain) -> FrameRole:
         placement = self.placed_chains_map.get(chain_ref)
         if placement is not None:
@@ -225,7 +240,25 @@ class FrontierRuntimePolicy:
             return False
         if self._patch_summary_attr(patch_id, 'inherited_spine_count', 0) >= 2:
             return False
-        return bool(self._patch_summary_attr(patch_id, 'single_sided_inherited_support', False))
+        if self._patch_summary_attr(patch_id, 'band_candidate', False):
+            return False
+        return True
+
+    def should_use_continuation_role(self, chain_ref: ChainRef, chain: BoundaryChain) -> bool:
+        if not self.straighten_enabled or chain.frame_role != FrameRole.FREE:
+            return False
+        eff_role = self.effective_placement_role(chain_ref, chain)
+        if eff_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return False
+        patch_id = chain_ref[0]
+        if self._patch_summary_attr(patch_id, 'spine_axis', FrameRole.FREE) in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return False
+        if self._patch_summary_attr(patch_id, 'inherited_spine_count', 0) >= 2:
+            return False
+        return bool(
+            self._patch_summary_attr(patch_id, 'single_sided_inherited_support', False)
+            or self._patch_summary_attr(patch_id, 'band_candidate', False)
+        )
 
     def backbone_placement_role(
         self,
@@ -259,7 +292,7 @@ class FrontierRuntimePolicy:
         effective_role: Optional[FrameRole] = None,
     ) -> FrameRole:
         role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
-        if not self.should_gate_inherited_same_patch(chain_ref, chain):
+        if not self.should_use_continuation_role(chain_ref, chain):
             return role
         if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             return role
@@ -270,10 +303,6 @@ class FrontierRuntimePolicy:
         )
         if has_cross_patch_anchor:
             return role
-
-        patch_id = chain_ref[0]
-        if not self._patch_summary_attr(patch_id, 'band_candidate', False):
-            return FrameRole.FREE
 
         best_priority: Optional[int] = None
         derived_roles: set[FrameRole] = set()

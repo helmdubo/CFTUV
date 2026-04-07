@@ -690,7 +690,7 @@ def _cf_resolve_candidate_anchors(
             if anchor is not None and anchor.source_kind == PlacementSourceKind.CROSS_PATCH
         )
         if same_patch_anchor_count > 0 and cross_patch_anchor_count == 0:
-            if role == base_role:
+            if role == base_role and not runtime_policy._patch_summary_attr(chain_ref[0], 'band_candidate', False):
                 return ResolvedCandidateAnchors(
                     start_anchor=None,
                     end_anchor=None,
