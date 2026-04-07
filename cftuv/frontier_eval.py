@@ -1177,6 +1177,7 @@ def try_place_frontier_candidate(
             iteration=iteration,
             chain_ref=chain_ref,
             chain=chain,
+            effective_role=eff_role,
             placement_path="main",
             score=candidate.score,
             start_anchor=candidate.start_anchor,

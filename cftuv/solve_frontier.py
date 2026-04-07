@@ -330,6 +330,7 @@ def _cf_record_seed_telemetry(
     collector.record_seed_placement(
         chain_ref=seed_ref,
         chain=seed_chain,
+        effective_role=runtime_policy.effective_placement_role(seed_ref, seed_chain),
         score=seed_score,
         uv_points=[uv.copy() for _, uv in seed_placement.points],
         is_closure_pair=(seed_ref in runtime_policy.closure_pair_refs),
