@@ -722,8 +722,18 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             if len(side_axes) == 1:
                 band_axis_candidate = next(iter(side_axes))
 
-            if axis_candidate == FrameRole.FREE and band_axis_candidate in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
-                axis_candidate = band_axis_candidate
+            supported_band_axis = (
+                band_axis_candidate
+                if band_axis_candidate in {FrameRole.H_FRAME, FrameRole.V_FRAME} else
+                axis_candidate
+                if axis_candidate in {FrameRole.H_FRAME, FrameRole.V_FRAME} else
+                junction_supported_axis
+                if junction_supported_axis in {FrameRole.H_FRAME, FrameRole.V_FRAME} else
+                FrameRole.FREE
+            )
+
+            if axis_candidate == FrameRole.FREE and supported_band_axis in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                axis_candidate = supported_band_axis
 
             if band_cap_count >= 2:
                 best_cap_ratio = 0.0
@@ -760,7 +770,7 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
                 and band_side_candidate_count >= 2
                 and band_opposite_cap_length_ratio >= 0.7
                 and band_width_stability >= 0.65
-                and band_axis_candidate in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+                and supported_band_axis in {FrameRole.H_FRAME, FrameRole.V_FRAME}
             )
 
         # Bbox elongation: project boundary verts onto basis_u / basis_v
