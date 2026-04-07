@@ -11,7 +11,7 @@ try:
         _cf_anchor_count,
         _cf_anchor_debug_label,
         _cf_chain_total_length,
-        _cf_determine_direction,
+        _cf_determine_direction_for_role,
         _cf_place_chain,
         _default_role_direction,
         _normalize_direction,
@@ -75,7 +75,7 @@ except ImportError:
         _cf_anchor_count,
         _cf_anchor_debug_label,
         _cf_chain_total_length,
-        _cf_determine_direction,
+        _cf_determine_direction_for_role,
         _cf_place_chain,
         _default_role_direction,
         _normalize_direction,
@@ -138,22 +138,32 @@ def _closure_preconstraint_direction_options(
     chain_ref: ChainRef,
     chain: BoundaryChain,
     node: PatchNode,
+    effective_role: FrameRole,
     start_anchor: Optional[ChainAnchor],
     end_anchor: Optional[ChainAnchor],
     graph: PatchGraph,
     point_registry: PointRegistry,
+    placed_chains_map: dict[ChainRef, ScaffoldChainPlacement],
 ) -> list[DirectionOption]:
     options = [DirectionOption(label='default', direction_override=None)]
-    if chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+    if effective_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
         return options
 
     base_direction = _try_inherit_direction(
-        chain, node, start_anchor, end_anchor, graph, point_registry, chain_ref=chain_ref
+        chain,
+        node,
+        start_anchor,
+        end_anchor,
+        graph,
+        point_registry,
+        chain_ref=chain_ref,
+        effective_role=effective_role,
+        placed_chains_map=placed_chains_map,
     )
     if base_direction is None:
-        base_direction = _cf_determine_direction(chain, node)
-    axis_direction = _snap_direction_to_role(base_direction, chain.frame_role)
-    axis_direction = _normalize_direction(axis_direction, _default_role_direction(chain.frame_role))
+        base_direction = _cf_determine_direction_for_role(chain, node, effective_role)
+    axis_direction = _snap_direction_to_role(base_direction, effective_role)
+    axis_direction = _normalize_direction(axis_direction, _default_role_direction(effective_role))
     flipped_direction = Vector((-axis_direction.x, -axis_direction.y))
     if (flipped_direction - axis_direction).length > 1e-8:
         options.append(DirectionOption(label='flip', direction_override=flipped_direction))
@@ -164,6 +174,7 @@ def _closure_preconstraint_metric(
     graph: PatchGraph,
     chain_ref: ChainRef,
     chain: BoundaryChain,
+    effective_role: FrameRole,
     uv_points: list[Vector],
     start_anchor: Optional[ChainAnchor],
     end_anchor: Optional[ChainAnchor],
@@ -177,6 +188,7 @@ def _closure_preconstraint_metric(
         uv_points,
         start_anchor,
         end_anchor,
+        effective_role=effective_role,
     )
     shared_offsets = _measure_shared_closure_uv_offsets(graph, temporary_placement, partner_placement)
     predicted_uv_span = _chain_uv_axis_metrics(temporary_placement).span
@@ -215,6 +227,7 @@ def _cf_apply_closure_preconstraint(
     chain_ref: ChainRef,
     chain: BoundaryChain,
     node: PatchNode,
+    effective_role: FrameRole,
     raw_start_anchor: Optional[ChainAnchor],
     raw_end_anchor: Optional[ChainAnchor],
     start_anchor: Optional[ChainAnchor],
@@ -226,7 +239,7 @@ def _cf_apply_closure_preconstraint(
     closure_pair_map: dict[ChainRef, ChainRef],
     final_scale: float,
 ) -> ClosurePreconstraintApplication:
-    if known != 1 or chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+    if known != 1 or effective_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
         return ClosurePreconstraintApplication(start_anchor=start_anchor, end_anchor=end_anchor)
 
     partner_ref = closure_pair_map.get(chain_ref)
@@ -267,10 +280,12 @@ def _cf_apply_closure_preconstraint(
             chain_ref,
             chain,
             node,
+            effective_role,
             anchor_option.start_anchor,
             anchor_option.end_anchor,
             graph,
             point_registry,
+            placed_chains_map,
         )
         for direction_option in direction_options:
             uv_points = _cf_place_chain(
@@ -282,6 +297,7 @@ def _cf_apply_closure_preconstraint(
                 direction_option.direction_override,
                 placed_chains_map=placed_chains_map,
                 graph=graph,
+                effective_role=effective_role,
             )
             if not uv_points or len(uv_points) != len(chain.vert_cos):
                 continue
@@ -289,6 +305,7 @@ def _cf_apply_closure_preconstraint(
                 graph,
                 chain_ref,
                 chain,
+                effective_role,
                 uv_points,
                 anchor_option.start_anchor,
                 anchor_option.end_anchor,
@@ -584,8 +601,10 @@ def _cf_frame_anchor_pair_is_axis_safe(
     start_anchor: ChainAnchor,
     end_anchor: ChainAnchor,
     final_scale: float,
+    effective_role: Optional[FrameRole] = None,
 ) -> AnchorPairSafetyDecision:
-    if chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+    role = effective_role if effective_role is not None else chain.frame_role
+    if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
         return AnchorPairSafetyDecision(is_safe=True)
 
     total_length = _cf_chain_total_length(chain, final_scale)
@@ -593,8 +612,8 @@ def _cf_frame_anchor_pair_is_axis_safe(
         return AnchorPairSafetyDecision(is_safe=True)
 
     delta = end_anchor.uv - start_anchor.uv
-    axis_error = abs(delta.y) if chain.frame_role == FrameRole.H_FRAME else abs(delta.x)
-    axis_span = abs(delta.x) if chain.frame_role == FrameRole.H_FRAME else abs(delta.y)
+    axis_error = abs(delta.y) if role == FrameRole.H_FRAME else abs(delta.x)
+    axis_span = abs(delta.x) if role == FrameRole.H_FRAME else abs(delta.y)
 
     axis_tolerance = max(0.02, total_length * 0.05)
     span_tolerance = max(0.05, total_length * 0.15)
@@ -612,12 +631,20 @@ def _cf_can_use_dual_anchor_closure(
     end_anchor: ChainAnchor,
     placed_in_patch: int,
     final_scale: float,
+    effective_role: Optional[FrameRole] = None,
 ) -> DualAnchorClosureDecision:
-    axis_safety = _cf_frame_anchor_pair_is_axis_safe(chain, start_anchor, end_anchor, final_scale)
+    role = effective_role if effective_role is not None else chain.frame_role
+    axis_safety = _cf_frame_anchor_pair_is_axis_safe(
+        chain,
+        start_anchor,
+        end_anchor,
+        final_scale,
+        effective_role=role,
+    )
     if not axis_safety.is_safe:
         if (
             axis_safety.reason in ('span_mismatch', 'axis_mismatch')
-            and chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+            and role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
             and start_anchor.source_kind == PlacementSourceKind.SAME_PATCH
             and end_anchor.source_kind == PlacementSourceKind.SAME_PATCH
         ):
@@ -629,7 +656,7 @@ def _cf_can_use_dual_anchor_closure(
         start_anchor.source_kind == PlacementSourceKind.CROSS_PATCH
         and end_anchor.source_kind == PlacementSourceKind.CROSS_PATCH
     ):
-        if chain.frame_role == FrameRole.FREE and len(chain.vert_cos) <= 2:
+        if role == FrameRole.FREE and len(chain.vert_cos) <= 2:
             return DualAnchorClosureDecision(can_close=True)
         return DualAnchorClosureDecision(can_close=False, reason='prevent_patch_wrap')
 
@@ -644,7 +671,9 @@ def _cf_resolve_candidate_anchors(
     final_scale: float,
     graph: PatchGraph,
     placed_chains_map: dict[ChainRef, ScaffoldChainPlacement],
+    effective_role: Optional[FrameRole] = None,
 ) -> ResolvedCandidateAnchors:
+    role = effective_role if effective_role is not None else chain.frame_role
     known = _cf_anchor_count(start_anchor, end_anchor)
     if known < 2:
         return ResolvedCandidateAnchors(start_anchor=start_anchor, end_anchor=end_anchor, known=known)
@@ -667,6 +696,7 @@ def _cf_resolve_candidate_anchors(
         end_anchor,
         placed_in_patch,
         final_scale,
+        effective_role=role,
     )
     if closure_decision.can_close:
         return ResolvedCandidateAnchors(
@@ -682,7 +712,7 @@ def _cf_resolve_candidate_anchors(
         start_anchor is not None and end_anchor is not None
         and start_anchor.source_kind == PlacementSourceKind.SAME_PATCH
         and end_anchor.source_kind == PlacementSourceKind.SAME_PATCH
-        and chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+        and role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
         and chain.neighbor_kind == ChainNeighborKind.MESH_BORDER
     ):
         reason_note = f'{rect_reason}|{reason}' if rect_reason else reason
@@ -718,7 +748,7 @@ def _cf_resolve_candidate_anchors(
         start_anchor is not None and end_anchor is not None
         and start_anchor.source_kind == PlacementSourceKind.SAME_PATCH
         and end_anchor.source_kind == PlacementSourceKind.SAME_PATCH
-        and chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+        and role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
     ):
         reason_note = f'{rect_reason}|{reason}' if rect_reason else reason
         return ResolvedCandidateAnchors(
@@ -760,6 +790,7 @@ def evaluate_candidate(
     raw_end_anchor = found_anchors.end_anchor
 
     placed_in_patch = runtime_policy.placed_in_patch(chain_ref[0])
+    eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
     patch_context = build_patch_scoring_context(chain_ref, runtime_policy)
     seam_relation = chain_seam_relation(chain_ref, chain, runtime_policy)
     resolved_anchors = _cf_resolve_candidate_anchors(
@@ -770,6 +801,7 @@ def evaluate_candidate(
         runtime_policy.final_scale,
         runtime_policy.graph,
         runtime_policy.placed_chains_map,
+        effective_role=eff_role,
     )
     start_anchor = resolved_anchors.start_anchor
     end_anchor = resolved_anchors.end_anchor
@@ -783,6 +815,7 @@ def evaluate_candidate(
             chain_ref,
             chain,
             node,
+            eff_role,
             raw_start_anchor,
             raw_end_anchor,
             start_anchor,
@@ -1039,7 +1072,7 @@ def try_place_frontier_candidate(
             trace_console(
                 f"[CFTUV][Frontier] Reject {iteration}: "
                 f"P{chain_ref[0]} L{chain_ref[1]}C{chain_ref[2]} "
-                f"{chain.frame_role.value} reason:anchor_rectify_failed"
+                f"{eff_role.value} reason:anchor_rectify_failed"
             )
             return False
         for adjusted_ref, _, _ in candidate.anchor_adjustments:
@@ -1047,6 +1080,7 @@ def try_place_frontier_candidate(
             if adjusted_chain is not None:
                 _mark_neighbors_dirty(runtime_policy, adjusted_ref, adjusted_chain)
 
+    eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
     dir_override = candidate.closure_dir_override
     closure_dir_was_set = dir_override is not None
     if dir_override is None:
@@ -1058,10 +1092,11 @@ def try_place_frontier_candidate(
             graph,
             runtime_policy.point_registry,
             chain_ref=chain_ref,
+            effective_role=eff_role,
+            placed_chains_map=runtime_policy.placed_chains_map,
         )
     direction_inherited = dir_override is not None and not closure_dir_was_set
 
-    eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
     uv_points = _cf_place_chain(
         chain,
         candidate.node,
@@ -1078,7 +1113,7 @@ def try_place_frontier_candidate(
         trace_console(
             f"[CFTUV][Frontier] Reject {iteration}: "
             f"P{chain_ref[0]} L{chain_ref[1]}C{chain_ref[2]} "
-            f"{chain.frame_role.value} reason:placement_failed"
+            f"{eff_role.value} reason:placement_failed"
         )
         return False
 
@@ -1117,8 +1152,8 @@ def try_place_frontier_candidate(
 
     anchor_label = _cf_anchor_debug_label(candidate.start_anchor, candidate.end_anchor)
     reason_suffix = f" note:{candidate.anchor_reason}" if candidate.anchor_reason else ''
-    bridge_tag = ' [BRIDGE]' if chain.frame_role == FrameRole.FREE and len(chain.vert_cos) <= 2 else ''
-    hv_suffix = f" hv_adj:{candidate.hv_adjacency}" if chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME} else ''
+    bridge_tag = ' [BRIDGE]' if eff_role == FrameRole.FREE and len(chain.vert_cos) <= 2 else ''
+    hv_suffix = f" hv_adj:{candidate.hv_adjacency}" if eff_role in {FrameRole.H_FRAME, FrameRole.V_FRAME} else ''
     rank_suffix = f" rank:{frontier_rank_debug_label(candidate.rank)}" if candidate.rank is not None else ''
     seam_suffix = f" seam:{candidate.seam_bonus:+.2f}" if abs(candidate.seam_bonus) > 1e-6 else ''
     corner_suffix = f" corner:+{candidate.corner_bonus:.2f}" if candidate.corner_bonus > 0.0 else ''
@@ -1134,7 +1169,7 @@ def try_place_frontier_candidate(
     trace_console(
         f"[CFTUV][Frontier] Step {iteration}: "
         f"P{chain_ref[0]} L{chain_ref[1]}C{chain_ref[2]} "
-        f"{chain.frame_role.value} score:{candidate.score:.2f}{rank_suffix}{ctx_suffix}{seam_suffix}{corner_suffix}{shape_suffix} "
+        f"{eff_role.value} score:{candidate.score:.2f}{rank_suffix}{ctx_suffix}{seam_suffix}{corner_suffix}{shape_suffix} "
         f"ep:{anchor_count} a:{anchor_label}{reason_suffix}{bridge_tag}{hv_suffix}"
     )
     if collector is not None:

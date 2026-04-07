@@ -81,6 +81,7 @@ def _cf_build_closure_follow_uvs(
     chain: BoundaryChain,
     partner_placement: ScaffoldChainPlacement,
     final_scale: float,
+    effective_role: Optional[FrameRole] = None,
 ) -> ClosureFollowUvBuildResult:
     """Строит UV для closure-пары напрямую от уже placed partner chain."""
     partner_uv_by_vert = _build_chain_vert_uv_map(graph, partner_placement)
@@ -112,7 +113,13 @@ def _cf_build_closure_follow_uvs(
     if start_uv is None or end_uv is None:
         return ClosureFollowUvBuildResult(uv_points=None, shared_vert_count=shared_vert_count)
 
-    rebuilt_uvs = _cf_rebuild_chain_points_for_endpoints(chain, start_uv, end_uv, final_scale)
+    rebuilt_uvs = _cf_rebuild_chain_points_for_endpoints(
+        chain,
+        start_uv,
+        end_uv,
+        final_scale,
+        effective_role=effective_role,
+    )
     if rebuilt_uvs is None or len(rebuilt_uvs) != len(chain.vert_cos):
         return ClosureFollowUvBuildResult(uv_points=None, shared_vert_count=shared_vert_count)
     return ClosureFollowUvBuildResult(
@@ -127,6 +134,7 @@ def _cf_rescue_gap_candidate_class(
     chain: BoundaryChain,
     main_eval: FrontierCandidateEval,
     *,
+    effective_role: Optional[FrameRole] = None,
     shared_vert_count: int = 0,
 ) -> str:
     anchor_class = {
@@ -135,7 +143,8 @@ def _cf_rescue_gap_candidate_class(
         2: 'dual_anchor',
     }.get(main_eval.known, f'known{main_eval.known}')
     if rescue_path == 'tree_ingress':
-        role_class = 'hv' if chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME} else 'free'
+        role = effective_role if effective_role is not None else chain.frame_role
+        role_class = 'hv' if role in {FrameRole.H_FRAME, FrameRole.V_FRAME} else 'free'
         patch_phase = (
             'untouched'
             if main_eval.patch_context is not None and main_eval.patch_context.is_untouched
@@ -154,6 +163,7 @@ def _cf_build_frontier_rescue_gap(
     chain: BoundaryChain,
     main_eval: FrontierCandidateEval,
     *,
+    effective_role: Optional[FrameRole] = None,
     hv_adjacency: int = 0,
     downstream_support: int = 0,
     shared_vert_count: int = 0,
@@ -176,6 +186,7 @@ def _cf_build_frontier_rescue_gap(
         rescue_path,
         chain,
         main_eval,
+        effective_role=effective_role,
         shared_vert_count=shared_vert_count,
     )
     summary_parts = [candidate_class, state_label]
@@ -223,7 +234,8 @@ def _cf_try_place_closure_follow_candidate(
         chain = entry.chain
         if chain_ref in runtime_policy.placed_chain_refs or chain_ref in runtime_policy.rejected_chain_refs:
             continue
-        if chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
+        if eff_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             continue
 
         partner_ref = closure_pair_map.get(chain_ref)
@@ -232,7 +244,7 @@ def _cf_try_place_closure_follow_candidate(
         partner_placement = runtime_policy.placed_chains_map.get(partner_ref)
         if partner_placement is None or len(partner_placement.points) < 2:
             continue
-        if partner_placement.frame_role != chain.frame_role:
+        if partner_placement.frame_role != eff_role:
             continue
 
         follow_result = _cf_build_closure_follow_uvs(
@@ -240,6 +252,7 @@ def _cf_try_place_closure_follow_candidate(
             chain,
             partner_placement,
             runtime_policy.final_scale,
+            effective_role=eff_role,
         )
         uv_points = follow_result.uv_points
         follow_mode = follow_result.follow_mode
@@ -297,6 +310,7 @@ def _cf_try_place_closure_follow_candidate(
         chain_ref,
         chain,
         main_eval,
+        effective_role=runtime_policy.effective_placement_role(chain_ref, chain),
         shared_vert_count=shared_vert_count,
     )
     eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
@@ -331,7 +345,7 @@ def _cf_try_place_closure_follow_candidate(
     trace_console(
         f"[CFTUV][Frontier] Step {iteration}: "
         f"P{chain_ref[0]} L{chain_ref[1]}C{chain_ref[2]} "
-        f"{chain.frame_role.value} score:closure_follow ep:2 "
+        f"{eff_role.value} score:closure_follow ep:2 "
         f"a:CP{partner_ref[0]}/CP{partner_ref[0]} "
         f"note:{follow_mode}:shared={shared_vert_count}"
     )
@@ -411,6 +425,7 @@ def _cf_try_place_tree_ingress_candidate(
         node = entry.node
         if chain_ref in runtime_policy.placed_chain_refs or chain_ref in runtime_policy.rejected_chain_refs:
             continue
+        eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
 
         candidate_eval = evaluate_candidate(runtime_policy, chain_ref, chain, node)
         if candidate_eval.placed_in_patch > 0:
@@ -449,6 +464,7 @@ def _cf_try_place_tree_ingress_candidate(
                     pair_start_anchor,
                     pair_end_anchor,
                     runtime_policy.final_scale,
+                    effective_role=eff_role,
                 ).is_safe
             ):
                 using_primary_pair = True
@@ -489,6 +505,7 @@ def _cf_try_place_tree_ingress_candidate(
                     raw_start_anchor,
                     raw_end_anchor,
                     runtime_policy.final_scale,
+                    effective_role=eff_role,
                 ).is_safe:
                     continue
                 ingress_start_anchor = raw_start_anchor
@@ -498,7 +515,7 @@ def _cf_try_place_tree_ingress_candidate(
         if anchor_count <= 0:
             continue
 
-        if chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        if eff_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             continue
         if not using_primary_pair and candidate_eval.hv_adjacency <= 0:
             continue
@@ -527,7 +544,10 @@ def _cf_try_place_tree_ingress_candidate(
                 if neighbor_ref in runtime_policy.placed_chain_refs or neighbor_ref in runtime_policy.rejected_chain_refs:
                     continue
                 neighbor_chain = graph.get_chain(*neighbor_ref)
-                if neighbor_chain is None or neighbor_chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                if neighbor_chain is None:
+                    continue
+                neighbor_role = runtime_policy.effective_placement_role(neighbor_ref, neighbor_chain)
+                if neighbor_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
                     continue
                 downstream_hv_count += 1
                 downstream_max_length = max(
@@ -543,8 +563,9 @@ def _cf_try_place_tree_ingress_candidate(
             graph,
             runtime_policy.point_registry,
             chain_ref=chain_ref,
+            effective_role=eff_role,
+            placed_chains_map=runtime_policy.placed_chains_map,
         )
-        eff_role = runtime_policy.effective_placement_role(chain_ref, chain)
         uv_points = _cf_place_chain(
             chain,
             node,
@@ -616,6 +637,7 @@ def _cf_try_place_tree_ingress_candidate(
         chain_ref,
         chain,
         main_eval,
+        effective_role=runtime_policy.effective_placement_role(chain_ref, chain),
         hv_adjacency=hv_adjacency,
         downstream_support=downstream_hv_count,
     )
@@ -663,7 +685,7 @@ def _cf_try_place_tree_ingress_candidate(
     trace_console(
         f"[CFTUV][Frontier] Step {iteration}: "
         f"P{chain_ref[0]} L{chain_ref[1]}C{chain_ref[2]} "
-        f"{chain.frame_role.value} score:tree_ingress ep:{anchor_count} "
+        f"{ingress_eff_role.value} score:tree_ingress ep:{anchor_count} "
         f"a:{_cf_anchor_debug_label(anchor_start, anchor_end)} "
         f"note:priority={role_priority}:downstream_hv={downstream_hv_count}:hv_adj={hv_adjacency}"
     )

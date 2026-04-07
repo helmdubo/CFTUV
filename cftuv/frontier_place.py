@@ -90,8 +90,8 @@ def _cf_build_seed_placement(
     effective_role: Optional[FrameRole] = None,
 ) -> Optional[SeedPlacementResult]:
     seed_src = _cf_chain_source_points(seed_chain)
-    seed_dir = _cf_determine_direction(seed_chain, root_node)
     role = effective_role if effective_role is not None else seed_chain.frame_role
+    seed_dir = _cf_determine_direction_for_role(seed_chain, root_node, role)
 
     if role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
         seed_uvs = _build_frame_chain_from_one_end(
@@ -556,15 +556,18 @@ def _cf_rebuild_chain_points_for_endpoints(
     start_uv: Vector,
     end_uv: Vector,
     final_scale: float,
+    effective_role: Optional[FrameRole] = None,
 ) -> Optional[list[Vector]]:
     source_pts = _cf_chain_source_points(chain)
     if len(source_pts) != len(chain.vert_indices):
         return None
 
-    if chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+    role = effective_role if effective_role is not None else chain.frame_role
+
+    if role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
         return _build_frame_chain_between_anchors(source_pts, start_uv, end_uv, final_scale)
 
-    if chain.frame_role == FrameRole.FREE and len(source_pts) <= 2:
+    if role == FrameRole.FREE and len(source_pts) <= 2:
         if len(source_pts) == 0:
             return []
         if len(source_pts) == 1:
@@ -610,7 +613,13 @@ def _cf_apply_anchor_adjustments(
             else:
                 return False
 
-        rebuilt_uvs = _cf_rebuild_chain_points_for_endpoints(chain, start_uv, end_uv, final_scale)
+        rebuilt_uvs = _cf_rebuild_chain_points_for_endpoints(
+            chain,
+            start_uv,
+            end_uv,
+            final_scale,
+            effective_role=existing.frame_role,
+        )
         if rebuilt_uvs is None or len(rebuilt_uvs) != point_count:
             return False
 
@@ -648,6 +657,36 @@ def _cf_determine_direction(chain, node):
         return Vector((1.0 if dot >= 0.0 else -1.0, 0.0))
 
     if chain.frame_role == FrameRole.V_FRAME:
+        dot = chain_3d.dot(node.basis_v)
+        return Vector((0.0, 1.0 if dot >= 0.0 else -1.0))
+
+    u_comp = chain_3d.dot(node.basis_u)
+    v_comp = chain_3d.dot(node.basis_v)
+    direction = Vector((u_comp, v_comp))
+    if direction.length > 1e-8:
+        return direction.normalized()
+    return Vector((1.0, 0.0))
+
+
+def _cf_determine_direction_for_role(chain, node, role: FrameRole):
+    """Resolve direction from explicit placement role, not only raw chain.frame_role."""
+    if role == chain.frame_role:
+        return _cf_determine_direction(chain, node)
+
+    if len(chain.vert_cos) < 2:
+        if role == FrameRole.H_FRAME:
+            return Vector((1.0, 0.0))
+        if role == FrameRole.V_FRAME:
+            return Vector((0.0, 1.0))
+        return Vector((1.0, 0.0))
+
+    chain_3d = chain.vert_cos[-1] - chain.vert_cos[0]
+
+    if role == FrameRole.H_FRAME:
+        dot = chain_3d.dot(node.basis_u)
+        return Vector((1.0 if dot >= 0.0 else -1.0, 0.0))
+
+    if role == FrameRole.V_FRAME:
         dot = chain_3d.dot(node.basis_v)
         return Vector((0.0, 1.0 if dot >= 0.0 else -1.0))
 
@@ -753,11 +792,14 @@ def _cf_can_inherit_corner_turn_direction(chain, src_chain):
 def _try_inherit_direction(
     chain, node, start_anchor, end_anchor, graph, point_registry,
     chain_ref=None,
+    effective_role: Optional[FrameRole] = None,
+    placed_chains_map: Optional[dict[ChainRef, ScaffoldChainPlacement]] = None,
 ):
-    if chain.frame_role not in (FrameRole.H_FRAME, FrameRole.V_FRAME):
+    role = effective_role if effective_role is not None else chain.frame_role
+    if role not in (FrameRole.H_FRAME, FrameRole.V_FRAME):
         return None
 
-    own_direction = _cf_determine_direction(chain, node)
+    own_direction = _cf_determine_direction_for_role(chain, node, role)
 
     for is_start_anchor, anchor in ((True, start_anchor), (False, end_anchor)):
         if anchor is None or anchor.source_kind != PlacementSourceKind.SAME_PATCH:
@@ -767,6 +809,8 @@ def _try_inherit_direction(
             continue
 
         src_ref = anchor.source_ref
+        src_placement = placed_chains_map.get(src_ref) if placed_chains_map is not None else None
+        src_role = src_placement.frame_role if src_placement is not None else src_chain.frame_role
         n_pts = len(src_chain.vert_cos)
         src_start_uv = point_registry.get(_point_registry_key(src_ref, 0))
         src_end_uv = point_registry.get(_point_registry_key(src_ref, n_pts - 1))
@@ -774,8 +818,8 @@ def _try_inherit_direction(
             continue
 
         # === Ð¡ÑƒÑ‰ÐµÑÑ‚Ð²ÑƒÑŽÑ‰Ð¸Ð¹ Ð¿ÑƒÑ‚ÑŒ: same-role inheritance ===
-        if src_chain.frame_role == chain.frame_role:
-            if chain.frame_role == FrameRole.H_FRAME:
+        if src_role == role:
+            if role == FrameRole.H_FRAME:
                 du = src_end_uv.x - src_start_uv.x
                 if abs(du) > 1e-9:
                     inherited = Vector((1.0 if du > 0 else -1.0, 0.0))
@@ -790,7 +834,7 @@ def _try_inherit_direction(
             continue
 
         # === Corner-split: 3D turn-sign inheritance ===
-        if not _is_orthogonal_hv_pair(chain.frame_role, src_chain.frame_role):
+        if not _is_orthogonal_hv_pair(role, src_role):
             continue
         if not _cf_can_inherit_corner_turn_direction(chain, src_chain):
             continue
@@ -804,7 +848,7 @@ def _try_inherit_direction(
 
         src_uv_delta = src_end_uv - src_start_uv
         perp = _perpendicular_direction_for_role(
-            src_uv_delta, chain.frame_role, turn_sign,
+            src_uv_delta, role, turn_sign,
         )
         if perp is not None:
             return perp
@@ -825,8 +869,12 @@ def _cf_place_chain(
 ):
     """Ð Ð°Ð·Ð¼ÐµÑ‰Ð°ÐµÑ‚ Ð¾Ð´Ð¸Ð½ chain Ð² UV, Ð¸ÑÐ¿Ð¾Ð»ÑŒÐ·ÑƒÑ Ð¿Ñ€Ð¾Ð²ÐµÑ€ÐµÐ½Ð½Ñ‹Ðµ anchors."""
     source_pts = _cf_chain_source_points(chain)
-    direction = direction_override if direction_override is not None else _cf_determine_direction(chain, node)
     role = effective_role if effective_role is not None else chain.frame_role
+    direction = (
+        direction_override
+        if direction_override is not None else
+        _cf_determine_direction_for_role(chain, node, role)
+    )
     start_uv = start_anchor.uv.copy() if start_anchor is not None else None
     end_uv = end_anchor.uv.copy() if end_anchor is not None else None
 

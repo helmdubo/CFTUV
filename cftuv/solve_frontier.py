@@ -253,12 +253,12 @@ def _cf_bootstrap_frontier_runtime(
 
     trace_console(
         f"[CFTUV][Frontier] Seed: P{seed_ref[0]} L{seed_ref[1]}C{seed_ref[2]} "
-        f"{seed_chain.frame_role.value} "
+        f"{seed_effective_role.value} "
         f"({seed_payload.uv_points[0].x:.4f},{seed_payload.uv_points[0].y:.4f})"
         f"->({seed_payload.uv_points[-1].x:.4f},{seed_payload.uv_points[-1].y:.4f})"
         f" score:{seed_result.score:.2f}"
         f" len:{_cf_chain_total_length(seed_chain, final_scale):.4f}"
-        f"{f' hv_adj:{_cf_count_hv_adjacent_endpoints(graph, seed_ref)}' if seed_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME} else ''}"
+        f"{f' hv_adj:{_cf_count_hv_adjacent_endpoints(graph, seed_ref, runtime_policy=runtime_policy)}' if seed_effective_role in {FrameRole.H_FRAME, FrameRole.V_FRAME} else ''}"
     )
     if allowed_tree_edges:
         edge_labels = [f"{edge[0]}-{edge[1]}" for edge in sorted(allowed_tree_edges)]
@@ -333,8 +333,8 @@ def _cf_record_seed_telemetry(
         score=seed_score,
         uv_points=[uv.copy() for _, uv in seed_placement.points],
         is_closure_pair=(seed_ref in runtime_policy.closure_pair_refs),
-        hv_adjacency=_cf_count_hv_adjacent_endpoints(graph, seed_ref)
-        if seed_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+        hv_adjacency=_cf_count_hv_adjacent_endpoints(graph, seed_ref, runtime_policy=runtime_policy)
+        if runtime_policy.effective_placement_role(seed_ref, seed_chain) in {FrameRole.H_FRAME, FrameRole.V_FRAME}
         else 0,
     )
 

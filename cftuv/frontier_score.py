@@ -148,19 +148,34 @@ def _cf_estimate_downstream_anchor_count(
 def _cf_count_hv_adjacent_endpoints(
     graph: PatchGraph,
     chain_ref: ChainRef,
+    runtime_policy: Optional["FrontierRuntimePolicy"] = None,
 ) -> int:
     chain = graph.get_chain(*chain_ref)
-    if chain is None or chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+    if chain is None:
+        return 0
+
+    chain_role = (
+        runtime_policy.effective_placement_role(chain_ref, chain)
+        if runtime_policy is not None else
+        chain.frame_role
+    )
+    if chain_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
         return 0
 
     endpoint_neighbors = graph.get_chain_endpoint_neighbors(chain_ref[0], chain_ref[1], chain_ref[2])
     hv_adjacency = 0
     for endpoint_label in ("start", "end"):
         for neighbor_loop_index, neighbor_chain_index in endpoint_neighbors.get(endpoint_label, ()):
-            neighbor_chain = graph.get_chain(chain_ref[0], neighbor_loop_index, neighbor_chain_index)
+            neighbor_ref = (chain_ref[0], neighbor_loop_index, neighbor_chain_index)
+            neighbor_chain = graph.get_chain(*neighbor_ref)
             if neighbor_chain is None:
                 continue
-            if neighbor_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            neighbor_role = (
+                runtime_policy.effective_placement_role(neighbor_ref, neighbor_chain)
+                if runtime_policy is not None else
+                neighbor_chain.frame_role
+            )
+            if neighbor_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
                 hv_adjacency += 1
                 break
     return hv_adjacency
@@ -172,7 +187,8 @@ def _cf_preview_would_be_connected(
     runtime_policy: "FrontierRuntimePolicy",
     graph: PatchGraph,
 ) -> bool:
-    if chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+    chain_role = runtime_policy.effective_placement_role(chain_ref, chain)
+    if chain_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
         return True
 
     patch_id, loop_index, chain_index = chain_ref
@@ -191,7 +207,8 @@ def _cf_preview_would_be_connected(
         if neighbor_ref not in runtime_policy.placed_chain_refs:
             continue
         neighbor_chain = boundary_loop.chains[neighbor_idx]
-        if neighbor_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        neighbor_role = runtime_policy.effective_placement_role(neighbor_ref, neighbor_chain)
+        if neighbor_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             return True
 
     for vert_idx in (chain.start_vert_index, chain.end_vert_index):
@@ -200,8 +217,10 @@ def _cf_preview_would_be_connected(
         for other_ref in runtime_policy._vert_to_pool_refs.get(vert_idx, ()):
             if other_ref in runtime_policy.placed_chain_refs:
                 other_chain = graph.get_chain(*other_ref)
-                if other_chain and other_chain.frame_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
-                    return True
+                if other_chain:
+                    other_role = runtime_policy.effective_placement_role(other_ref, other_chain)
+                    if other_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                        return True
 
     return False
 
@@ -708,7 +727,7 @@ def _cf_build_frontier_topology_facts(
         1 for anchor in (start_anchor, end_anchor)
         if anchor is not None and anchor.source_kind == PlacementSourceKind.CROSS_PATCH
     )
-    hv_adjacency = _cf_count_hv_adjacent_endpoints(graph, chain_ref)
+    hv_adjacency = _cf_count_hv_adjacent_endpoints(graph, chain_ref, runtime_policy=runtime_policy)
     if is_hv:
         for anchor in (start_anchor, end_anchor):
             if anchor is None or anchor.source_kind != PlacementSourceKind.CROSS_PATCH:
