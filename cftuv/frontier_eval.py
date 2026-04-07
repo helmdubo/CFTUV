@@ -1230,11 +1230,27 @@ def try_place_frontier_candidate(
         primary_anchor_kind = candidate.end_anchor.source_kind
     else:
         primary_anchor_kind = PlacementSourceKind.CHAIN
+    axis_authority_kind = runtime_policy.resolve_axis_authority_kind(
+        chain_ref,
+        chain,
+        candidate.start_anchor,
+        candidate.end_anchor,
+        effective_role=eff_role,
+    )
+    parameter_authority_kind = runtime_policy.resolve_parameter_authority_kind(
+        chain_ref,
+        chain,
+        candidate.start_anchor,
+        candidate.end_anchor,
+        effective_role=eff_role,
+    )
     chain_placement = ScaffoldChainPlacement(
         patch_id=chain_ref[0],
         loop_index=chain_ref[1],
         chain_index=chain_ref[2],
         frame_role=eff_role,
+        axis_authority_kind=axis_authority_kind,
+        parameter_authority_kind=parameter_authority_kind,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=anchor_count,
         primary_anchor_kind=primary_anchor_kind,

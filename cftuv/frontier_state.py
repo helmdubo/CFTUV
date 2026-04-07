@@ -7,9 +7,11 @@ from mathutils import Vector
 
 try:
     from .model import (
+        AxisAuthorityKind,
         BoundaryChain,
         ChainRef,
         FrameRole,
+        ParameterAuthorityKind,
         PatchEdgeKey,
         PatchGraph,
         PlacementSourceKind,
@@ -27,9 +29,11 @@ try:
     )
 except ImportError:
     from model import (
+        AxisAuthorityKind,
         BoundaryChain,
         ChainRef,
         FrameRole,
+        ParameterAuthorityKind,
         PatchEdgeKey,
         PatchGraph,
         PlacementSourceKind,
@@ -223,6 +227,113 @@ class FrontierRuntimePolicy:
         if role == FrameRole.V_FRAME:
             return FrameRole.H_FRAME
         return FrameRole.FREE
+
+    def _resolved_chain_role(self, chain_ref: ChainRef, chain: BoundaryChain) -> FrameRole:
+        placement = self.placed_chains_map.get(chain_ref)
+        if placement is not None:
+            return placement.frame_role
+        return self.effective_placement_role(chain_ref, chain)
+
+    def _chains_share_corner(self, chain_a: BoundaryChain, chain_b: BoundaryChain) -> bool:
+        corner_indices_a = {
+            corner_index
+            for corner_index in (chain_a.start_corner_index, chain_a.end_corner_index)
+            if corner_index >= 0
+        }
+        corner_indices_b = {
+            corner_index
+            for corner_index in (chain_b.start_corner_index, chain_b.end_corner_index)
+            if corner_index >= 0
+        }
+        return bool(corner_indices_a & corner_indices_b)
+
+    def _paired_candidate_ref(
+        self,
+        chain_ref: ChainRef,
+        chain: BoundaryChain,
+        effective_role: Optional[FrameRole] = None,
+    ) -> Optional[ChainRef]:
+        role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
+        if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return None
+
+        patch_id, loop_index, chain_index = chain_ref
+        node = self.graph.nodes.get(patch_id)
+        if node is None or loop_index < 0 or loop_index >= len(node.boundary_loops):
+            return None
+        boundary_loop = node.boundary_loops[loop_index]
+        if chain_index < 0 or chain_index >= len(boundary_loop.chains):
+            return None
+
+        best_ref: Optional[ChainRef] = None
+        best_length = -1.0
+        for other_index, other_chain in enumerate(boundary_loop.chains):
+            if other_index == chain_index:
+                continue
+            if self._chains_share_corner(chain, other_chain):
+                continue
+            other_ref = (patch_id, loop_index, other_index)
+            other_role = self._resolved_chain_role(other_ref, other_chain)
+            if other_role != role:
+                continue
+            other_length = self._chain_polyline_length(other_chain)
+            if other_length > best_length:
+                best_length = other_length
+                best_ref = other_ref
+        return best_ref
+
+    def resolve_axis_authority_kind(
+        self,
+        chain_ref: ChainRef,
+        chain: BoundaryChain,
+        start_anchor: Optional[ChainAnchor] = None,
+        end_anchor: Optional[ChainAnchor] = None,
+        effective_role: Optional[FrameRole] = None,
+    ) -> AxisAuthorityKind:
+        role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
+        if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return AxisAuthorityKind.NONE
+
+        for anchor in (start_anchor, end_anchor):
+            if anchor is None:
+                continue
+            source_chain = self.graph.get_chain(*anchor.source_ref)
+            if source_chain is None:
+                continue
+            source_role = self._resolved_chain_role(anchor.source_ref, source_chain)
+            if source_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                return AxisAuthorityKind.DIRECT_STRONG_NEIGHBOR
+
+        inherited_role = self.inherited_role_map.get(chain_ref, (FrameRole.FREE, 0))[0]
+        if inherited_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return AxisAuthorityKind.DIRECT_STRONG_NEIGHBOR
+
+        partner_ref = self._paired_candidate_ref(chain_ref, chain, effective_role=role)
+        if partner_ref is not None and partner_ref in self.placed_chains_map:
+            return AxisAuthorityKind.PAIRED_CANDIDATE
+
+        patch_id = chain_ref[0]
+        if (
+            self._patch_summary_attr(patch_id, 'band_candidate', False)
+            or self._patch_summary_attr(patch_id, 'axis_candidate', FrameRole.FREE) in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+            or self._patch_summary_attr(patch_id, 'junction_supported_axis', FrameRole.FREE) in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+        ):
+            return AxisAuthorityKind.PATCH_SELF_CONSENSUS
+        return AxisAuthorityKind.NONE
+
+    def resolve_parameter_authority_kind(
+        self,
+        chain_ref: ChainRef,
+        chain: BoundaryChain,
+        start_anchor: Optional[ChainAnchor] = None,
+        end_anchor: Optional[ChainAnchor] = None,
+        effective_role: Optional[FrameRole] = None,
+    ) -> ParameterAuthorityKind:
+        _ = chain_ref, start_anchor, end_anchor
+        role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
+        if role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return ParameterAuthorityKind.SELF_ARCLENGTH
+        return ParameterAuthorityKind.NONE
 
     def _is_corner_orthogonal_band_turn(self, turn_angle_deg: float) -> bool:
         angle = abs(float(turn_angle_deg))

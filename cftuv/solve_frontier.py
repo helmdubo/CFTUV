@@ -247,7 +247,23 @@ def _cf_bootstrap_frontier_runtime(
     _cf_bootstrap_runtime_score_caches(runtime_policy)
 
     seed_effective_role = runtime_policy.seed_placement_role(seed_ref, seed_chain)
-    seed_payload = _cf_build_seed_placement(seed_ref, seed_chain, root_node, final_scale, effective_role=seed_effective_role)
+    seed_payload = _cf_build_seed_placement(
+        seed_ref,
+        seed_chain,
+        root_node,
+        final_scale,
+        effective_role=seed_effective_role,
+        axis_authority_kind=runtime_policy.resolve_axis_authority_kind(
+            seed_ref,
+            seed_chain,
+            effective_role=seed_effective_role,
+        ),
+        parameter_authority_kind=runtime_policy.resolve_parameter_authority_kind(
+            seed_ref,
+            seed_chain,
+            effective_role=seed_effective_role,
+        ),
+    )
     if seed_payload is None:
         return FrontierBootstrapAttempt(result=None, error="seed_placement_failed")
 

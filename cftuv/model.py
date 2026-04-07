@@ -63,6 +63,22 @@ class PlacementSourceKind(str, Enum):
     CROSS_PATCH = "cross_patch"
 
 
+class AxisAuthorityKind(str, Enum):
+    """Who owns scaffold axis/frame authority for a placed chain."""
+
+    NONE = "none"
+    DIRECT_STRONG_NEIGHBOR = "direct-strong-neighbor"
+    PAIRED_CANDIDATE = "paired-candidate"
+    PATCH_SELF_CONSENSUS = "patch-self-consensus"
+
+
+class ParameterAuthorityKind(str, Enum):
+    """Who owns local stationing authority along a placed chain."""
+
+    NONE = "none"
+    SELF_ARCLENGTH = "self-arclength"
+
+
 class ClosureAnchorMode(str, Enum):
     """Closure seam anchor availability classification."""
 
@@ -452,6 +468,8 @@ class ScaffoldChainPlacement:
     loop_index: int
     chain_index: int
     frame_role: FrameRole
+    axis_authority_kind: AxisAuthorityKind = AxisAuthorityKind.NONE
+    parameter_authority_kind: ParameterAuthorityKind = ParameterAuthorityKind.NONE
     source_kind: PlacementSourceKind = PlacementSourceKind.CHAIN
     anchor_count: int = 0
     primary_anchor_kind: PlacementSourceKind = PlacementSourceKind.CHAIN

@@ -9,10 +9,12 @@ from mathutils import Vector
 try:
     from .model import (
         AnchorAdjustment,
+        AxisAuthorityKind,
         BoundaryChain,
         ChainNeighborKind,
         ChainRef,
         FrameRole,
+        ParameterAuthorityKind,
         PatchGraph,
         PatchNode,
         PlacementSourceKind,
@@ -31,10 +33,12 @@ try:
 except ImportError:
     from model import (
         AnchorAdjustment,
+        AxisAuthorityKind,
         BoundaryChain,
         ChainNeighborKind,
         ChainRef,
         FrameRole,
+        ParameterAuthorityKind,
         PatchGraph,
         PatchNode,
         PlacementSourceKind,
@@ -59,6 +63,8 @@ def _build_temporary_chain_placement(
     start_anchor: Optional[ChainAnchor],
     end_anchor: Optional[ChainAnchor],
     effective_role: Optional[FrameRole] = None,
+    axis_authority_kind: AxisAuthorityKind = AxisAuthorityKind.NONE,
+    parameter_authority_kind: ParameterAuthorityKind = ParameterAuthorityKind.NONE,
 ) -> ScaffoldChainPlacement:
     patch_id, loop_index, chain_index = chain_ref
     if start_anchor is not None:
@@ -72,6 +78,8 @@ def _build_temporary_chain_placement(
         loop_index=loop_index,
         chain_index=chain_index,
         frame_role=effective_role if effective_role is not None else chain.frame_role,
+        axis_authority_kind=axis_authority_kind,
+        parameter_authority_kind=parameter_authority_kind,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=_cf_anchor_count(start_anchor, end_anchor),
         primary_anchor_kind=_pak,
@@ -88,6 +96,8 @@ def _cf_build_seed_placement(
     root_node: PatchNode,
     final_scale: float,
     effective_role: Optional[FrameRole] = None,
+    axis_authority_kind: AxisAuthorityKind = AxisAuthorityKind.NONE,
+    parameter_authority_kind: ParameterAuthorityKind = ParameterAuthorityKind.NONE,
 ) -> Optional[SeedPlacementResult]:
     seed_src = _cf_chain_source_points(seed_chain)
     role = effective_role if effective_role is not None else seed_chain.frame_role
@@ -118,6 +128,8 @@ def _cf_build_seed_placement(
         loop_index=seed_ref[1],
         chain_index=seed_ref[2],
         frame_role=role,
+        axis_authority_kind=axis_authority_kind,
+        parameter_authority_kind=parameter_authority_kind,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=0,
         points=tuple(
@@ -544,6 +556,7 @@ def _build_frame_chain_between_anchors(
     role: FrameRole,
     final_scale: float,
 ) -> list[Vector]:
+    """Build straight H/V chain in inherited scaffold frame using local chain stationing."""
     if not ordered_source_points:
         return []
     if len(ordered_source_points) == 1:
@@ -557,119 +570,6 @@ def _build_frame_chain_between_anchors(
 
     edge_lengths = _chain_edge_lengths(ordered_source_points, final_scale)
     return _interpolate_between_anchors_by_lengths(start_point, snapped_end, edge_lengths)
-
-
-def _frame_axis_factors_from_uvs(points: list[Vector], role: FrameRole) -> list[float]:
-    if not points:
-        return []
-    if len(points) == 1:
-        return [0.0]
-
-    axis_steps: list[float] = []
-    for point_index in range(1, len(points)):
-        prev_point = points[point_index - 1]
-        next_point = points[point_index]
-        if role == FrameRole.H_FRAME:
-            axis_steps.append(abs(next_point.x - prev_point.x))
-        else:
-            axis_steps.append(abs(next_point.y - prev_point.y))
-
-    total = sum(axis_steps)
-    if total <= 1e-8:
-        return [
-            float(point_index) / float(len(points) - 1)
-            for point_index in range(len(points))
-        ]
-
-    factors = [0.0]
-    walked = 0.0
-    for step in axis_steps:
-        walked += step
-        factors.append(walked / total)
-    factors[-1] = 1.0
-    return factors
-
-
-def _build_frame_chain_from_axis_factors(
-    start_point: Vector,
-    end_point: Vector,
-    role: FrameRole,
-    axis_factors: list[float],
-) -> list[Vector]:
-    if not axis_factors:
-        return []
-
-    snapped_end = end_point.copy()
-    if role == FrameRole.H_FRAME:
-        snapped_end = Vector((end_point.x, start_point.y))
-    elif role == FrameRole.V_FRAME:
-        snapped_end = Vector((start_point.x, end_point.y))
-
-    return [
-        start_point.lerp(snapped_end, factor)
-        for factor in axis_factors
-    ]
-
-
-def _try_build_band_aligned_frame_chain(
-    chain_ref: Optional[ChainRef],
-    chain,
-    node,
-    start_point: Vector,
-    end_point: Vector,
-    role: FrameRole,
-    placed_chains_map,
-) -> Optional[list[Vector]]:
-    if chain_ref is None or placed_chains_map is None:
-        return None
-    if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
-        return None
-
-    patch_id, loop_index, chain_index = chain_ref
-    if patch_id != node.patch_id or loop_index < 0 or loop_index >= len(node.boundary_loops):
-        return None
-
-    boundary_loop = node.boundary_loops[loop_index]
-    if len(boundary_loop.chains) != 4:
-        return None
-
-    chain_lengths = [
-        _cf_chain_total_length(loop_chain, 1.0)
-        for loop_chain in boundary_loop.chains
-    ]
-    if not chain_lengths:
-        return None
-
-    mean_chain_length = sum(chain_lengths) / float(len(chain_lengths))
-    if mean_chain_length <= 1e-8:
-        return None
-    if chain_lengths[chain_index] < mean_chain_length * 1.15:
-        return None
-
-    partner_index = (chain_index + 2) % len(boundary_loop.chains)
-    if chain_lengths[partner_index] < mean_chain_length * 1.15:
-        return None
-
-    partner_ref = (patch_id, loop_index, partner_index)
-    partner_placement = placed_chains_map.get(partner_ref)
-    if partner_placement is None or partner_placement.frame_role != role:
-        return None
-    if len(partner_placement.points) != len(chain.vert_cos):
-        return None
-
-    partner_uvs = [uv.copy() for _, uv in partner_placement.points]
-    if len(partner_uvs) != len(chain.vert_cos):
-        return None
-
-    direct_cost = (start_point - partner_uvs[0]).length + (end_point - partner_uvs[-1]).length
-    reverse_cost = (start_point - partner_uvs[-1]).length + (end_point - partner_uvs[0]).length
-    if reverse_cost + 1e-8 < direct_cost:
-        partner_uvs.reverse()
-
-    axis_factors = _frame_axis_factors_from_uvs(partner_uvs, role)
-    if len(axis_factors) != len(chain.vert_cos):
-        return None
-    return _build_frame_chain_from_axis_factors(start_point, end_point, role, axis_factors)
 
 
 def _cf_rebuild_chain_points_for_endpoints(
@@ -1035,17 +935,6 @@ def _cf_place_chain(
 
     if start_uv is not None and end_uv is not None:
         if role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
-            band_aligned_points = _try_build_band_aligned_frame_chain(
-                chain_ref,
-                chain,
-                node,
-                start_uv,
-                end_uv,
-                role,
-                placed_chains_map,
-            )
-            if band_aligned_points is not None:
-                return band_aligned_points
             return _build_frame_chain_between_anchors(source_pts, start_uv, end_uv, role, final_scale)
         return _build_guided_free_chain_between_anchors(
             node, source_pts, start_uv, end_uv, direction, None, final_scale)

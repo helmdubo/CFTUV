@@ -338,11 +338,27 @@ def _cf_try_place_closure_follow_candidate(
     eff_role = main_eval.effective_role
     if eff_role != candidate_eff_role or eff_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
         return False
+    axis_authority_kind = runtime_policy.resolve_axis_authority_kind(
+        chain_ref,
+        chain,
+        main_eval.start_anchor,
+        main_eval.end_anchor,
+        effective_role=eff_role,
+    )
+    parameter_authority_kind = runtime_policy.resolve_parameter_authority_kind(
+        chain_ref,
+        chain,
+        main_eval.start_anchor,
+        main_eval.end_anchor,
+        effective_role=eff_role,
+    )
     chain_placement = ScaffoldChainPlacement(
         patch_id=chain_ref[0],
         loop_index=chain_ref[1],
         chain_index=chain_ref[2],
         frame_role=eff_role,
+        axis_authority_kind=axis_authority_kind,
+        parameter_authority_kind=parameter_authority_kind,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=2,
         primary_anchor_kind=PlacementSourceKind.SAME_PATCH,
@@ -688,11 +704,27 @@ def _cf_try_place_tree_ingress_candidate(
     else:
         _rescue_primary_anchor_kind = PlacementSourceKind.CHAIN
     ingress_eff_role = candidate_eff_role
+    axis_authority_kind = runtime_policy.resolve_axis_authority_kind(
+        chain_ref,
+        chain,
+        anchor_start,
+        anchor_end,
+        effective_role=ingress_eff_role,
+    )
+    parameter_authority_kind = runtime_policy.resolve_parameter_authority_kind(
+        chain_ref,
+        chain,
+        anchor_start,
+        anchor_end,
+        effective_role=ingress_eff_role,
+    )
     chain_placement = ScaffoldChainPlacement(
         patch_id=chain_ref[0],
         loop_index=chain_ref[1],
         chain_index=chain_ref[2],
         frame_role=ingress_eff_role,
+        axis_authority_kind=axis_authority_kind,
+        parameter_authority_kind=parameter_authority_kind,
         source_kind=PlacementSourceKind.CHAIN,
         anchor_count=_cf_anchor_count(anchor_start, anchor_end),
         primary_anchor_kind=_rescue_primary_anchor_kind,
