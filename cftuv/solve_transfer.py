@@ -637,20 +637,17 @@ def _execute_phase1_preview_impl(
     _clear_patch_pins(bm, patch_graph, uv_layer, patch_ids)
 
     straighten_enabled = getattr(settings, 'straighten_strips', False)
-    inherited_role_map = None
-    patch_structural_summaries = None
-    patch_shape_classes = None
-    if straighten_enabled:
-        try:
-            from .analysis import build_straighten_structural_support
-        except ImportError:
-            from analysis import build_straighten_structural_support
-        inherited_role_map, patch_structural_summaries, patch_shape_classes = build_straighten_structural_support(patch_graph)
+    try:
+        from .analysis import build_straighten_structural_support
+    except ImportError:
+        from analysis import build_straighten_structural_support
+    # Shape classification always runs; straighten-specific data gated by toggle.
+    inherited_role_map, patch_structural_summaries, patch_shape_classes = build_straighten_structural_support(patch_graph)
     scaffold_map = build_root_scaffold_map(
         patch_graph, solve_plan, settings.final_scale,
         straighten_enabled=straighten_enabled,
-        inherited_role_map=inherited_role_map,
-        patch_structural_summaries=patch_structural_summaries,
+        inherited_role_map=inherited_role_map if straighten_enabled else None,
+        patch_structural_summaries=patch_structural_summaries if straighten_enabled else None,
         patch_shape_classes=patch_shape_classes,
     )
     unsupported_patch_ids = _collect_phase1_unsupported_patch_ids(scaffold_map)
