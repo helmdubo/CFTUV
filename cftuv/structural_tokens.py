@@ -360,5 +360,16 @@ def classify_patch_shape(signatures: list[LoopSignature], _debug_patch_id: int =
         print(f"[CFTUV][Classify] P{_debug_patch_id} FAIL rule6: ratio={ratio:.2f} <= {_BAND_SIDE_CAP_RATIO_THRESHOLD}")
         return PatchShapeClass.MIX
 
+    # Rule 7: skip patches where ALL chains are already H/V.
+    # The generic frontier already builds a perfect rectified scaffold for
+    # these — band_operator adds no value and breaks pinning integration.
+    all_hv = all(
+        t.effective_frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME)
+        for t in sig.chain_tokens
+    )
+    if all_hv:
+        print(f"[CFTUV][Classify] P{_debug_patch_id} SKIP: all chains already H/V, generic frontier sufficient")
+        return PatchShapeClass.MIX
+
     print(f"[CFTUV][Classify] P{_debug_patch_id} → BAND (ratio={ratio:.2f})")
     return PatchShapeClass.BAND
