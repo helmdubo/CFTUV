@@ -654,6 +654,10 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
         band_opposite_cap_length_ratio = 0.0
         band_width_stability = 0.0
         band_candidate = False
+        band_confirmed_for_runtime = False
+        band_rejected_reason = ""
+        band_requires_intervention = False
+        band_intervention_reject_reason = ""
 
         outer_loop_index = next(
             (loop_index for loop_index, boundary_loop in enumerate(node.boundary_loops) if boundary_loop.kind == LoopKind.OUTER),
@@ -773,6 +777,111 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
                 and supported_band_axis in {FrameRole.H_FRAME, FrameRole.V_FRAME}
             )
 
+            runtime_band_axis = supported_band_axis
+            runtime_role_by_chain_index = {}
+            if runtime_band_axis in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                orthogonal_axis = FrameRole.V_FRAME if runtime_band_axis == FrameRole.H_FRAME else FrameRole.H_FRAME
+                for chain_index, chain in enumerate(outer_chains):
+                    runtime_role = effective_role_by_chain_index.get(chain_index, chain.frame_role)
+                    if runtime_role == FrameRole.FREE:
+                        if chain_index in side_candidate_indices:
+                            runtime_role = runtime_band_axis
+                        elif chain_index in cap_candidate_indices:
+                            runtime_role = orthogonal_axis
+                    runtime_role_by_chain_index[chain_index] = runtime_role
+
+            runtime_role_sequence = tuple(
+                runtime_role_by_chain_index.get(chain_index, FrameRole.FREE)
+                for chain_index in range(chain_count)
+            )
+            runtime_side_indices = []
+            runtime_cap_indices = []
+            if runtime_band_axis in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                orthogonal_axis = FrameRole.V_FRAME if runtime_band_axis == FrameRole.H_FRAME else FrameRole.H_FRAME
+                runtime_side_indices = [
+                    chain_index
+                    for chain_index, runtime_role in enumerate(runtime_role_sequence)
+                    if runtime_role == runtime_band_axis
+                ]
+                runtime_cap_indices = [
+                    chain_index
+                    for chain_index, runtime_role in enumerate(runtime_role_sequence)
+                    if runtime_role == orthogonal_axis
+                ]
+
+            runtime_side_pair_similarity = 0.0
+            if len(runtime_side_indices) == 2:
+                len_a = chain_lengths[runtime_side_indices[0]]
+                len_b = chain_lengths[runtime_side_indices[1]]
+                if max(len_a, len_b) > 1e-8:
+                    runtime_side_pair_similarity = _clamp01(1.0 - abs(len_a - len_b) / max(len_a, len_b))
+
+            runtime_cap_pair_similarity = 0.0
+            if len(runtime_cap_indices) == 2:
+                len_a = chain_lengths[runtime_cap_indices[0]]
+                len_b = chain_lengths[runtime_cap_indices[1]]
+                if max(len_a, len_b) > 1e-8:
+                    runtime_cap_pair_similarity = _clamp01(1.0 - abs(len_a - len_b) / max(len_a, len_b))
+
+            raw_outer_role_sequence = tuple(chain.frame_role for chain in outer_chains)
+            raw_outer_free_count = sum(1 for role in raw_outer_role_sequence if role == FrameRole.FREE)
+            raw_outer_hv_resolved = all(role in {FrameRole.H_FRAME, FrameRole.V_FRAME} for role in raw_outer_role_sequence)
+            mesh_border_chain_count = sum(
+                1 for chain in outer_chains
+                if chain.neighbor_kind == ChainNeighborKind.MESH_BORDER
+            )
+
+            runtime_role_counts_ok = (
+                runtime_role_sequence.count(FrameRole.H_FRAME) == 2
+                and runtime_role_sequence.count(FrameRole.V_FRAME) == 2
+                and runtime_role_sequence.count(FrameRole.FREE) == 0
+            )
+            runtime_role_pattern_ok = (
+                chain_count == 4
+                and runtime_role_counts_ok
+                and runtime_role_sequence[0] == runtime_role_sequence[2]
+                and runtime_role_sequence[1] == runtime_role_sequence[3]
+                and runtime_role_sequence[0] != runtime_role_sequence[1]
+            )
+
+            if any(boundary_loop.kind == LoopKind.HOLE for boundary_loop in node.boundary_loops):
+                band_rejected_reason = "has_holes"
+            elif branch_count > 0:
+                band_rejected_reason = "branch_junctions"
+            elif chain_count != 4:
+                band_rejected_reason = "outer_chain_count_not_four"
+            elif runtime_band_axis not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                band_rejected_reason = "missing_runtime_axis"
+            elif len(runtime_cap_indices) != 2:
+                band_rejected_reason = (
+                    "missing_caps" if len(runtime_cap_indices) < 2 else "ambiguous_caps"
+                )
+            elif len(runtime_side_indices) != 2:
+                band_rejected_reason = (
+                    "missing_sides" if len(runtime_side_indices) < 2 else "ambiguous_sides"
+                )
+            elif runtime_cap_pair_similarity < 0.80:
+                band_rejected_reason = "weak_cap_pair"
+            elif runtime_side_pair_similarity < 0.80:
+                band_rejected_reason = "weak_side_pair"
+            elif not runtime_role_pattern_ok:
+                band_rejected_reason = "runtime_role_pattern_mismatch"
+            else:
+                band_confirmed_for_runtime = True
+                band_rejected_reason = ""
+                if raw_outer_free_count > 0 or inherited_spine_count > 0 or single_sided_inherited_support:
+                    band_requires_intervention = True
+                    band_intervention_reject_reason = ""
+                elif raw_outer_hv_resolved and runtime_role_pattern_ok and mesh_border_chain_count >= 2:
+                    band_requires_intervention = False
+                    band_intervention_reject_reason = "border_anchored_hv_frame"
+                elif raw_outer_hv_resolved and runtime_role_pattern_ok:
+                    band_requires_intervention = False
+                    band_intervention_reject_reason = "already_resolved_hv_frame"
+                else:
+                    band_requires_intervention = True
+                    band_intervention_reject_reason = ""
+
         # Bbox elongation: project boundary verts onto basis_u / basis_v
         basis_u = node.basis_u
         basis_v = node.basis_v
@@ -818,6 +927,10 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             "band_opposite_cap_length_ratio": band_opposite_cap_length_ratio,
             "band_width_stability": band_width_stability,
             "band_candidate": band_candidate,
+            "band_confirmed_for_runtime": band_confirmed_for_runtime,
+            "band_rejected_reason": band_rejected_reason,
+            "band_requires_intervention": band_requires_intervention,
+            "band_intervention_reject_reason": band_intervention_reject_reason,
             "terminal_count": terminal_count,
             "branch_count": branch_count,
             "strip_confidence": strip_confidence,
@@ -844,6 +957,18 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             else ""
         )
         band_candidate_tag = " band_candidate=Y" if band_candidate else ""
+        band_runtime_tag = " band_runtime=Y" if band_confirmed_for_runtime else ""
+        band_reject_tag = (
+            f" band_rt_reject={band_rejected_reason}"
+            if not band_confirmed_for_runtime and band_rejected_reason
+            else ""
+        )
+        band_intervene_tag = " band_intervene=Y" if band_requires_intervention else ""
+        band_intervene_reject_tag = (
+            f" band_int_reject={band_intervention_reject_reason}"
+            if band_confirmed_for_runtime and not band_requires_intervention and band_intervention_reject_reason
+            else ""
+        )
         print(
             f"[STRUCTURAL] P{patch_id}: "
             f"spine_runs={len(spine_roles_sorted)} spine_axis={spine_axis} spine_len={spine_length:.2f} "
@@ -851,7 +976,7 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             f"elongation={elongation:.2f} side_conf={side_confidence:.2f} "
             f"T={terminal_count} B={branch_count} "
             f"strip_conf={strip_confidence:.2f} eligible={'Y' if straighten_eligible else 'N'}"
-            f"{inh_tag}{axis_tag}{junc_tag}{ss_tag}{band_tag}{band_candidate_tag}"
+            f"{inh_tag}{axis_tag}{junc_tag}{ss_tag}{band_tag}{band_candidate_tag}{band_runtime_tag}{band_reject_tag}{band_intervene_tag}{band_intervene_reject_tag}"
         )
 
     return result

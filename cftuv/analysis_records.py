@@ -356,6 +356,10 @@ class _PatchDerivedTopologySummary:
     band_opposite_cap_length_ratio: float = 0.0
     band_width_stability: float = 0.0
     band_candidate: bool = False
+    band_confirmed_for_runtime: bool = False
+    band_rejected_reason: str = ""
+    band_requires_intervention: bool = False
+    band_intervention_reject_reason: str = ""
     terminal_count: int = 0
     branch_count: int = 0
     strip_confidence: float = 0.0

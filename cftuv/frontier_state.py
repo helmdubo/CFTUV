@@ -104,9 +104,10 @@ class FrontierRuntimePolicy:
         from a strong neighbor, returns the inherited role. Otherwise
         returns the chain's own frame_role.
         """
+        patch_id = chain_ref[0]
         if chain.frame_role != FrameRole.FREE:
             return chain.frame_role
-        if self.straighten_enabled and chain_ref in self.inherited_role_map:
+        if self._patch_allows_straighten_runtime(patch_id) and chain_ref in self.inherited_role_map:
             return self.inherited_role_map[chain_ref][0]
         band_role = self._band_geometric_role(chain_ref, chain)
         if band_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
@@ -119,14 +120,16 @@ class FrontierRuntimePolicy:
             return role
         if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             return role
+        patch_id = chain_ref[0]
+        if not self._patch_allows_straighten_runtime(patch_id):
+            return FrameRole.FREE
         if chain_ref not in self.inherited_role_map:
             return role
-        patch_id = chain_ref[0]
         if self._patch_summary_attr(patch_id, 'spine_axis', FrameRole.FREE) in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             return role
         if self._patch_summary_attr(patch_id, 'inherited_spine_count', 0) >= 2:
             return role
-        if self._patch_summary_attr(patch_id, 'band_candidate', False):
+        if self._patch_summary_attr(patch_id, 'band_confirmed_for_runtime', False):
             return role
         return FrameRole.FREE
 
@@ -181,6 +184,14 @@ class FrontierRuntimePolicy:
         if summary is None:
             return default
         return getattr(summary, attr_name, default)
+
+    def _patch_allows_straighten_runtime(self, patch_id: int) -> bool:
+        if not self.straighten_enabled:
+            return False
+        return bool(
+            self._patch_summary_attr(patch_id, 'band_confirmed_for_runtime', False)
+            and self._patch_summary_attr(patch_id, 'band_requires_intervention', False)
+        )
 
     def _chain_polyline_length(self, chain: BoundaryChain) -> float:
         if len(chain.vert_cos) < 2:
@@ -303,7 +314,7 @@ class FrontierRuntimePolicy:
             return FrameRole.FREE
 
         patch_id, loop_index, chain_index = chain_ref
-        if not self._patch_summary_attr(patch_id, 'band_candidate', False):
+        if not self._patch_allows_straighten_runtime(patch_id):
             return FrameRole.FREE
 
         axis_candidate = self._patch_summary_attr(patch_id, 'axis_candidate', FrameRole.FREE)
@@ -465,6 +476,8 @@ class FrontierRuntimePolicy:
     ) -> AxisAuthorityKind:
         if not self.straighten_enabled:
             return AxisAuthorityKind.NONE
+        if not self._patch_allows_straighten_runtime(chain_ref[0]):
+            return AxisAuthorityKind.NONE
 
         role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
         if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
@@ -490,8 +503,7 @@ class FrontierRuntimePolicy:
 
         patch_id = chain_ref[0]
         if (
-            self._patch_summary_attr(patch_id, 'band_candidate', False)
-            or self._patch_summary_attr(patch_id, 'axis_candidate', FrameRole.FREE) in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+            self._patch_summary_attr(patch_id, 'axis_candidate', FrameRole.FREE) in {FrameRole.H_FRAME, FrameRole.V_FRAME}
             or self._patch_summary_attr(patch_id, 'junction_supported_axis', FrameRole.FREE) in {FrameRole.H_FRAME, FrameRole.V_FRAME}
         ):
             return AxisAuthorityKind.PATCH_SELF_CONSENSUS
@@ -506,6 +518,8 @@ class FrontierRuntimePolicy:
         effective_role: Optional[FrameRole] = None,
     ) -> SpanAuthorityKind:
         if not self.straighten_enabled:
+            return SpanAuthorityKind.NONE
+        if not self._patch_allows_straighten_runtime(chain_ref[0]):
             return SpanAuthorityKind.NONE
 
         role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
@@ -546,6 +560,8 @@ class FrontierRuntimePolicy:
         role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
         local_span = self._chain_uv_length(chain)
         if not self.straighten_enabled:
+            return local_span
+        if not self._patch_allows_straighten_runtime(chain_ref[0]):
             return local_span
         if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             return local_span
@@ -615,6 +631,8 @@ class FrontierRuntimePolicy:
         _ = start_anchor, end_anchor
         if not self.straighten_enabled:
             return StationAuthorityKind.NONE
+        if not self._patch_allows_straighten_runtime(chain_ref[0]):
+            return StationAuthorityKind.NONE
 
         role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
         if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
@@ -639,6 +657,8 @@ class FrontierRuntimePolicy:
     ) -> Optional[list[float]]:
         _ = start_anchor, end_anchor
         if not self.straighten_enabled:
+            return None
+        if not self._patch_allows_straighten_runtime(chain_ref[0]):
             return None
 
         role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
@@ -679,6 +699,8 @@ class FrontierRuntimePolicy:
     ) -> ParameterAuthorityKind:
         _ = chain_ref, start_anchor, end_anchor
         if not self.straighten_enabled:
+            return ParameterAuthorityKind.NONE
+        if not self._patch_allows_straighten_runtime(chain_ref[0]):
             return ParameterAuthorityKind.NONE
 
         role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
@@ -750,7 +772,7 @@ class FrontierRuntimePolicy:
             return False
         if self._patch_summary_attr(patch_id, 'inherited_spine_count', 0) >= 2:
             return False
-        if self._patch_summary_attr(patch_id, 'band_candidate', False):
+        if self._patch_allows_straighten_runtime(patch_id):
             return False
         return True
 
@@ -761,13 +783,15 @@ class FrontierRuntimePolicy:
         if eff_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             return False
         patch_id = chain_ref[0]
+        if not self._patch_allows_straighten_runtime(patch_id):
+            return False
         if self._patch_summary_attr(patch_id, 'spine_axis', FrameRole.FREE) in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             return False
         if self._patch_summary_attr(patch_id, 'inherited_spine_count', 0) >= 2:
             return False
         return bool(
             self._patch_summary_attr(patch_id, 'single_sided_inherited_support', False)
-            or self._patch_summary_attr(patch_id, 'band_candidate', False)
+            or self._patch_summary_attr(patch_id, 'band_confirmed_for_runtime', False)
         )
 
     def backbone_placement_role(
