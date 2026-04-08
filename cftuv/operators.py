@@ -191,13 +191,14 @@ def _build_scaffold_map_with_straighten(graph, solve_plan, settings):
     # Shape classification always runs (independent of straighten toggle).
     # Straighten-specific data (inherited roles, structural summaries) only
     # feeds into the solver when the straighten UI toggle is active.
-    inherited_map, patch_structural_summaries, patch_shape_classes = build_straighten_structural_support(graph)
+    inherited_map, patch_structural_summaries, patch_shape_classes, straighten_chain_refs = build_straighten_structural_support(graph)
     return build_root_scaffold_map(
         graph, solve_plan, settings.final_scale,
         straighten_enabled=straighten,
         inherited_role_map=inherited_map if straighten else None,
         patch_structural_summaries=patch_structural_summaries if straighten else None,
         patch_shape_classes=patch_shape_classes,
+        straighten_chain_refs=straighten_chain_refs if straighten else None,
     )
 
 

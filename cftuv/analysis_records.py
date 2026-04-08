@@ -410,3 +410,4 @@ class _PatchGraphDerivedTopology:
     neighbor_inherited_roles: Mapping[ChainRef, tuple[FrameRole, int]] = field(default_factory=dict)
     patch_shape_classes: Mapping[int, PatchShapeClass] = field(default_factory=dict)
     loop_signatures: Mapping[int, list[LoopSignature]] = field(default_factory=dict)
+    straighten_chain_refs: frozenset[ChainRef] = field(default_factory=frozenset)

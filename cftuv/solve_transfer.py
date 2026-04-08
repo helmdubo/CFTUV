@@ -642,13 +642,14 @@ def _execute_phase1_preview_impl(
     except ImportError:
         from analysis import build_straighten_structural_support
     # Shape classification always runs; straighten-specific data gated by toggle.
-    inherited_role_map, patch_structural_summaries, patch_shape_classes = build_straighten_structural_support(patch_graph)
+    inherited_role_map, patch_structural_summaries, patch_shape_classes, straighten_chain_refs = build_straighten_structural_support(patch_graph)
     scaffold_map = build_root_scaffold_map(
         patch_graph, solve_plan, settings.final_scale,
         straighten_enabled=straighten_enabled,
         inherited_role_map=inherited_role_map if straighten_enabled else None,
         patch_structural_summaries=patch_structural_summaries if straighten_enabled else None,
         patch_shape_classes=patch_shape_classes,
+        straighten_chain_refs=straighten_chain_refs if straighten_enabled else None,
     )
     unsupported_patch_ids = _collect_phase1_unsupported_patch_ids(scaffold_map)
     if unsupported_patch_ids:

@@ -15,6 +15,7 @@ try:
         _cf_place_chain,
         _default_role_direction,
         _normalize_direction,
+        _resolve_straighten_axis,
         _snap_direction_to_role,
         _try_inherit_direction,
     )
@@ -80,6 +81,7 @@ except ImportError:
         _cf_place_chain,
         _default_role_direction,
         _normalize_direction,
+        _resolve_straighten_axis,
         _snap_direction_to_role,
         _try_inherit_direction,
     )
@@ -938,6 +940,9 @@ def evaluate_candidate(
         raw_end_anchor,
         effective_role=candidate_role,
     )
+    # For axis-dependent anchor resolution, resolve STRAIGHTEN → H/V.
+    # The original eff_role (possibly STRAIGHTEN) is kept for scoring/tier.
+    anchor_role = _resolve_straighten_axis(chain, node) if eff_role == FrameRole.STRAIGHTEN else eff_role
     patch_context = build_patch_scoring_context(chain_ref, runtime_policy)
     seam_relation = chain_seam_relation(chain_ref, chain, runtime_policy)
     resolved_anchors = _cf_resolve_candidate_anchors(
@@ -950,7 +955,7 @@ def evaluate_candidate(
         runtime_policy.graph,
         runtime_policy.placed_chains_map,
         runtime_policy,
-        effective_role=eff_role,
+        effective_role=anchor_role,
     )
     start_anchor = resolved_anchors.start_anchor
     end_anchor = resolved_anchors.end_anchor
@@ -964,7 +969,7 @@ def evaluate_candidate(
             chain_ref,
             chain,
             node,
-            eff_role,
+            anchor_role,
             raw_start_anchor,
             raw_end_anchor,
             start_anchor,
@@ -1213,6 +1218,10 @@ def try_place_frontier_candidate(
     chain = candidate.chain
     placed_before = runtime_policy.placed_in_patch(chain_ref[0])
     eff_role = candidate.effective_role
+    # Resolve STRAIGHTEN to H/V for axis-dependent placement logic.
+    # Scoring already used the STRAIGHTEN identity for tier ranking.
+    if eff_role == FrameRole.STRAIGHTEN:
+        eff_role = _resolve_straighten_axis(chain, candidate.node)
 
     if candidate.anchor_adjustments:
         applied = apply_anchor_adjustments_fn(

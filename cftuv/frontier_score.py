@@ -161,7 +161,8 @@ def _cf_count_hv_adjacent_endpoints(
         chain_role = runtime_policy.effective_placement_role(chain_ref, chain)
     else:
         chain_role = chain.frame_role
-    if chain_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+    _strong = {FrameRole.H_FRAME, FrameRole.V_FRAME, FrameRole.STRAIGHTEN}
+    if chain_role not in _strong:
         return 0
 
     endpoint_neighbors = graph.get_chain_endpoint_neighbors(chain_ref[0], chain_ref[1], chain_ref[2])
@@ -177,7 +178,7 @@ def _cf_count_hv_adjacent_endpoints(
                 if runtime_policy is not None else
                 neighbor_chain.frame_role
             )
-            if neighbor_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            if neighbor_role in _strong:
                 hv_adjacency += 1
                 break
     return hv_adjacency
@@ -190,8 +191,9 @@ def _cf_preview_would_be_connected(
     graph: PatchGraph,
     effective_role: Optional[FrameRole] = None,
 ) -> bool:
+    _strong = {FrameRole.H_FRAME, FrameRole.V_FRAME, FrameRole.STRAIGHTEN}
     chain_role = effective_role if effective_role is not None else runtime_policy.effective_placement_role(chain_ref, chain)
-    if chain_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+    if chain_role not in _strong:
         return True
 
     patch_id, loop_index, chain_index = chain_ref
@@ -211,7 +213,7 @@ def _cf_preview_would_be_connected(
             continue
         neighbor_chain = boundary_loop.chains[neighbor_idx]
         neighbor_role = runtime_policy.resolved_placement_role(neighbor_ref, neighbor_chain)
-        if neighbor_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        if neighbor_role in _strong:
             return True
 
     for vert_idx in (chain.start_vert_index, chain.end_vert_index):
@@ -222,7 +224,7 @@ def _cf_preview_would_be_connected(
                 other_chain = graph.get_chain(*other_ref)
                 if other_chain:
                     other_role = runtime_policy.resolved_placement_role(other_ref, other_chain)
-                    if other_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                    if other_role in _strong:
                         return True
 
     return False
@@ -238,10 +240,14 @@ def _cf_role_tier(
     runtime_policy: Optional["FrontierRuntimePolicy"] = None,
     effective_role: Optional[FrameRole] = None,
 ) -> tuple[int, str]:
-    # Check inherited role: FREE chain with inherited H/V gets medium-high tier
+    # Check non-native roles: STRAIGHTEN, inherited H/V, or regular FREE.
     if chain.frame_role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
         if runtime_policy is not None:
             eff_role = effective_role if effective_role is not None else runtime_policy.effective_placement_role(chain_ref, chain)
+            if eff_role == FrameRole.STRAIGHTEN:
+                # STRAIGHTEN: strong role from BAND shape classification.
+                # Between native H/V (tier 3) and FREE (tier 0).
+                return 2, 'straighten_band_side'
             if eff_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
                 # Inherited role: stronger than free, weaker than true H/V
                 return 2, 'free_inherited_hv'

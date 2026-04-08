@@ -121,6 +121,8 @@ def _cf_build_seed_placement(
 ) -> Optional[SeedPlacementResult]:
     seed_src = _cf_chain_source_points(seed_chain)
     role = effective_role if effective_role is not None else seed_chain.frame_role
+    if role == FrameRole.STRAIGHTEN:
+        role = _resolve_straighten_axis(seed_chain, root_node)
     seed_dir = _cf_determine_direction_for_role(seed_chain, root_node, role)
 
     if role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
@@ -207,6 +209,8 @@ def _cf_chain_total_length(chain: BoundaryChain, final_scale: float) -> float:
 
 
 def _snap_direction_to_role(direction: Vector, role: FrameRole) -> Vector:
+    if role == FrameRole.STRAIGHTEN:
+        role = FrameRole.H_FRAME if abs(direction.x) >= abs(direction.y) else FrameRole.V_FRAME
     if role == FrameRole.H_FRAME:
         axis_value = direction.x if abs(direction.x) >= abs(direction.y) else direction.y
         return Vector((1.0 if axis_value >= 0.0 else -1.0, 0.0))
@@ -991,8 +995,25 @@ def _cf_determine_direction(chain, node):
     return Vector((1.0, 0.0))
 
 
+def _resolve_straighten_axis(chain, node) -> FrameRole:
+    """Resolve STRAIGHTEN to H_FRAME or V_FRAME from chain geometry.
+
+    Projects the chain's start→end 3D vector onto the patch basis
+    and picks the dominant axis.
+    """
+    if len(chain.vert_cos) < 2:
+        return FrameRole.H_FRAME
+    chain_3d = chain.vert_cos[-1] - chain.vert_cos[0]
+    u_comp = abs(chain_3d.dot(node.basis_u))
+    v_comp = abs(chain_3d.dot(node.basis_v))
+    return FrameRole.H_FRAME if u_comp >= v_comp else FrameRole.V_FRAME
+
+
 def _cf_determine_direction_for_role(chain, node, role: FrameRole):
     """Resolve direction from explicit placement role, not only raw chain.frame_role."""
+    if role == FrameRole.STRAIGHTEN:
+        role = _resolve_straighten_axis(chain, node)
+
     if role == chain.frame_role:
         return _cf_determine_direction(chain, node)
 
@@ -1205,6 +1226,8 @@ def _cf_place_chain(
     """Ð Ð°Ð·Ð¼ÐµÑ‰Ð°ÐµÑ‚ Ð¾Ð´Ð¸Ð½ chain Ð² UV, Ð¸ÑÐ¿Ð¾Ð»ÑŒÐ·ÑƒÑ Ð¿Ñ€Ð¾Ð²ÐµÑ€ÐµÐ½Ð½Ñ‹Ðµ anchors."""
     source_pts = _cf_chain_source_points(chain)
     role = effective_role if effective_role is not None else chain.frame_role
+    if role == FrameRole.STRAIGHTEN:
+        role = _resolve_straighten_axis(chain, node)
     direction = (
         direction_override
         if direction_override is not None else

@@ -4,7 +4,6 @@ import time
 from typing import Optional
 
 try:
-    from .band_operator import band_operator as _band_operator
     from .console_debug import trace_console
     from .frontier_closure import (
         _build_quilt_closure_pair_map,
@@ -72,9 +71,7 @@ try:
         SolvePlan,
         SolveView,
     )
-    from .structural_tokens import build_loop_signature, PatchShapeClass
 except ImportError:
-    from band_operator import band_operator as _band_operator
     from console_debug import trace_console
     from frontier_closure import (
         _build_quilt_closure_pair_map,
@@ -142,7 +139,6 @@ except ImportError:
         SolvePlan,
         SolveView,
     )
-    from structural_tokens import build_loop_signature, PatchShapeClass
 
 
 def _cf_evaluate_candidate_runtime_policy(
@@ -222,6 +218,7 @@ def _cf_bootstrap_frontier_runtime(
     inherited_role_map: Optional[dict] = None,
     patch_structural_summaries: Optional[dict] = None,
     patch_shape_classes: Optional[dict] = None,
+    straighten_chain_refs: Optional[frozenset] = None,
 ) -> FrontierBootstrapAttempt:
     seed_result = _cf_choose_seed_chain(
         solve_view,
@@ -249,6 +246,7 @@ def _cf_bootstrap_frontier_runtime(
         inherited_role_map=inherited_role_map or {},
         patch_structural_summaries=patch_structural_summaries or {},
         patch_shape_classes=patch_shape_classes or {},
+        straighten_chain_refs=straighten_chain_refs or frozenset(),
     )
     _cf_bootstrap_runtime_score_caches(runtime_policy)
 
@@ -393,88 +391,6 @@ def _cf_record_seed_telemetry(
     )
 
 
-def _cf_dispatch_band_patches(
-    graph: PatchGraph,
-    quilt_patch_ids: set[int],
-    patch_shape_classes: Optional[dict],
-    runtime_policy: FrontierRuntimePolicy,
-    final_scale: float,
-) -> None:
-    """Pre-frontier pass: place BAND patches via band_operator.
-
-    Iterates over patches in the quilt that are classified as BAND.  For each
-    one, builds its LoopSignature on demand and calls band_operator().  On
-    success the returned chain placements are registered directly into
-    runtime_policy so the main frontier loop sees them as already placed.
-    On failure (band_operator returns None) the patch is silently left to the
-    generic frontier — no state is modified.
-    """
-    if not patch_shape_classes:
-        print(f"[CFTUV][Dispatch] patch_shape_classes is empty/None, skipping band dispatch")
-        return
-
-    # Diagnostic: show classification summary
-    band_ids = [pid for pid in sorted(quilt_patch_ids) if patch_shape_classes.get(pid) == PatchShapeClass.BAND]
-    mix_ids = [pid for pid in sorted(quilt_patch_ids) if patch_shape_classes.get(pid) != PatchShapeClass.BAND]
-    print(f"[CFTUV][Dispatch] quilt has {len(quilt_patch_ids)} patches: {len(band_ids)} BAND {band_ids}, {len(mix_ids)} MIX")
-
-    for patch_id in sorted(quilt_patch_ids):
-        if patch_shape_classes.get(patch_id) != PatchShapeClass.BAND:
-            continue
-
-        node = graph.nodes.get(patch_id)
-        if node is None:
-            continue
-        if not node.boundary_loops:
-            continue
-
-        # Build loop signature for the primary (outer) loop — index 0.
-        loop_index = 0
-        boundary_loop = node.boundary_loops[loop_index]
-        loop_sig = build_loop_signature(patch_id, loop_index, boundary_loop, node)
-
-        placements = _band_operator(
-            patch_id,
-            graph,
-            runtime_policy,
-            loop_sig,
-            final_scale,
-        )
-        if placements is None:
-            print(f"[CFTUV][Dispatch] P{patch_id} BAND→generic (band_operator returned None)")
-            continue
-
-        # Register only FREE chains from band_operator output.
-        # Strong H/V chains are left unplaced so the generic frontier
-        # handles them with proper scaffold pinning (continuity approach).
-        registered = 0
-        skipped_hv = 0
-        for placement in placements:
-            chain_ref = (placement.patch_id, placement.loop_index, placement.chain_index)
-            if chain_ref in runtime_policy.placed_chain_refs:
-                # Already placed (e.g. seed); skip to avoid double-register.
-                continue
-            chain = graph.get_chain(placement.patch_id, placement.loop_index, placement.chain_index)
-            if chain is None:
-                continue
-            if chain.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
-                skipped_hv += 1
-                print(f"[CFTUV][Dispatch] P{patch_id} skip H/V chain C{placement.chain_index} role={chain.frame_role.value} → frontier will handle")
-                continue
-            uv_points = [uv.copy() for _, uv in placement.points]
-            runtime_policy.register_chain(
-                chain_ref,
-                chain,
-                placement,
-                uv_points,
-                (),
-                placed_role=placement.frame_role,
-            )
-            registered += 1
-
-        print(f"[CFTUV][Dispatch] P{patch_id} BAND registered={registered} skipped_hv={skipped_hv} via band_operator")
-
-
 def build_quilt_scaffold_chain_frontier(
     graph: PatchGraph,
     quilt_plan: QuiltPlan,
@@ -483,6 +399,7 @@ def build_quilt_scaffold_chain_frontier(
     inherited_role_map: Optional[dict] = None,
     patch_structural_summaries: Optional[dict] = None,
     patch_shape_classes: Optional[dict] = None,
+    straighten_chain_refs: Optional[frozenset] = None,
 ) -> ScaffoldQuiltPlacement:
     """Build chain-first scaffold for a single quilt."""
 
@@ -518,6 +435,7 @@ def build_quilt_scaffold_chain_frontier(
         inherited_role_map=inherited_role_map,
         patch_structural_summaries=patch_structural_summaries,
         patch_shape_classes=patch_shape_classes,
+        straighten_chain_refs=straighten_chain_refs,
     )
     if bootstrap_attempt.result is None:
         quilt_scaffold.patches[quilt_plan.root_patch_id] = ScaffoldPatchPlacement(
@@ -540,20 +458,6 @@ def build_quilt_scaffold_chain_frontier(
         seed_ref,
     )
     _cf_index_frontier_chain_pool(runtime_policy, all_chain_pool, seed_ref, seed_chain)
-
-    # --- BAND operator dispatch (DISABLED) --------------------------------
-    # Pre-pass placement is architecturally wrong: band_operator places
-    # chains at (0,0) without neighbor connectivity, causing BAND patches
-    # to float in UV space.  The correct approach is a post-pass that
-    # re-parameterises SIDE chain stations after the frontier has placed
-    # everything with proper anchor-based connectivity.
-    # _cf_dispatch_band_patches(
-    #     graph,
-    #     quilt_patch_ids,
-    #     patch_shape_classes,
-    #     runtime_policy,
-    #     final_scale,
-    # )
 
     collector = FrontierTelemetryCollector(quilt_index=quilt_plan.quilt_index)
     _cf_record_seed_telemetry(
@@ -691,6 +595,7 @@ def build_root_scaffold_map(
     inherited_role_map: Optional[dict] = None,
     patch_structural_summaries: Optional[dict] = None,
     patch_shape_classes: Optional[dict] = None,
+    straighten_chain_refs: Optional[frozenset] = None,
 ) -> ScaffoldMap:
     """Build ScaffoldMap using chain-first strongest-frontier algorithm."""
 
@@ -705,6 +610,7 @@ def build_root_scaffold_map(
             inherited_role_map=inherited_role_map,
             patch_structural_summaries=patch_structural_summaries,
             patch_shape_classes=patch_shape_classes,
+            straighten_chain_refs=straighten_chain_refs,
         )
         scaffold_map.quilts.append(quilt_scaffold)
 

@@ -37,6 +37,7 @@ class FrameRole(str, Enum):
 
     H_FRAME = "H_FRAME"
     V_FRAME = "V_FRAME"
+    STRAIGHTEN = "STRAIGHTEN"
     FREE = "FREE"
 
 

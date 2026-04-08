@@ -58,6 +58,9 @@ except ImportError:
         _point_registry_key,
     )
 
+# Roles that count as "strong" for authority resolution and scoring.
+_STRONG_ROLES = {FrameRole.H_FRAME, FrameRole.V_FRAME, FrameRole.STRAIGHTEN}
+
 
 @dataclass
 class FrontierRuntimePolicy:
@@ -84,6 +87,7 @@ class FrontierRuntimePolicy:
     inherited_role_map: dict[ChainRef, tuple[FrameRole, int]] = field(default_factory=dict)
     patch_structural_summaries: dict[int, _PatchDerivedTopologySummary] = field(default_factory=dict)
     patch_shape_classes: dict[int, PatchShapeClass] = field(default_factory=dict)
+    straighten_chain_refs: frozenset[ChainRef] = field(default_factory=frozenset)
     closure_pair_refs: frozenset[ChainRef] = field(init=False, default_factory=frozenset)
     # Temporary compatibility storage for score-owned derived caches until P7.
     _outer_chain_count_by_patch: dict[int, int] = field(init=False, default_factory=dict)
@@ -105,25 +109,29 @@ class FrontierRuntimePolicy:
     def effective_placement_role(self, chain_ref: ChainRef, chain: BoundaryChain) -> FrameRole:
         """Unified semantic switch for placement, scoring, and viability.
 
-        When straighten is enabled and a FREE chain has an inherited role
-        from a strong neighbor, returns the inherited role. Otherwise
-        returns the chain's own frame_role.
+        Priority:
+        1. Native H/V → return as-is.
+        2. STRAIGHTEN from structural tokens (BAND SIDE) → STRAIGHTEN.
+        3. Inherited H/V from strong neighbor → return inherited role.
+        4. Otherwise → FREE.
         """
-        patch_id = chain_ref[0]
         if chain.frame_role != FrameRole.FREE:
             return chain.frame_role
+        if chain_ref in self.straighten_chain_refs:
+            return FrameRole.STRAIGHTEN
+        patch_id = chain_ref[0]
         if self._patch_allows_straighten_runtime(patch_id) and chain_ref in self.inherited_role_map:
             return self.inherited_role_map[chain_ref][0]
-        band_role = self._band_geometric_role(chain_ref, chain)
-        if band_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
-            return band_role
         return FrameRole.FREE
 
     def seed_placement_role(self, chain_ref: ChainRef, chain: BoundaryChain) -> FrameRole:
         role = self.effective_placement_role(chain_ref, chain)
         if chain.frame_role != FrameRole.FREE:
             return role
-        if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        if role not in _STRONG_ROLES:
+            return role
+        # STRAIGHTEN from structural tokens is always valid as seed role.
+        if role == FrameRole.STRAIGHTEN:
             return role
         patch_id = chain_ref[0]
         if not self._patch_allows_straighten_runtime(patch_id):
@@ -314,41 +322,6 @@ class FrontierRuntimePolicy:
                 chain_spans.append(span)
         return chain_spans if chain_spans else fallback_spans
 
-    def _band_geometric_role(self, chain_ref: ChainRef, chain: BoundaryChain) -> FrameRole:
-        if not self.straighten_enabled or chain.frame_role != FrameRole.FREE:
-            return FrameRole.FREE
-
-        patch_id, loop_index, chain_index = chain_ref
-        if not self._patch_allows_straighten_runtime(patch_id):
-            return FrameRole.FREE
-
-        axis_candidate = self._patch_summary_attr(patch_id, 'axis_candidate', FrameRole.FREE)
-        if axis_candidate not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
-            return FrameRole.FREE
-
-        node = self.graph.nodes.get(patch_id)
-        if node is None or loop_index < 0 or loop_index >= len(node.boundary_loops):
-            return FrameRole.FREE
-
-        boundary_loop = node.boundary_loops[loop_index]
-        if chain_index < 0 or chain_index >= len(boundary_loop.chains):
-            return FrameRole.FREE
-
-        chain_lengths = [self._chain_polyline_length(loop_chain) for loop_chain in boundary_loop.chains]
-        if not chain_lengths:
-            return FrameRole.FREE
-
-        mean_chain_length = sum(chain_lengths) / float(len(chain_lengths))
-        if mean_chain_length <= 1e-8:
-            return FrameRole.FREE
-
-        chain_length = chain_lengths[chain_index]
-        if chain_length >= mean_chain_length * 1.15:
-            return axis_candidate
-        if chain_length <= mean_chain_length * 0.6:
-            return self._orthogonal_role(axis_candidate)
-        return FrameRole.FREE
-
     def _orthogonal_role(self, role: FrameRole) -> FrameRole:
         if role == FrameRole.H_FRAME:
             return FrameRole.V_FRAME
@@ -485,7 +458,7 @@ class FrontierRuntimePolicy:
             return AxisAuthorityKind.NONE
 
         role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
-        if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        if role not in _STRONG_ROLES:
             return AxisAuthorityKind.NONE
 
         for anchor in (start_anchor, end_anchor):
@@ -495,7 +468,7 @@ class FrontierRuntimePolicy:
             if source_chain is None:
                 continue
             source_role = self._resolved_chain_role(anchor.source_ref, source_chain)
-            if source_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            if source_role in _STRONG_ROLES:
                 return AxisAuthorityKind.DIRECT_STRONG_NEIGHBOR
 
         inherited_role = self.inherited_role_map.get(chain_ref, (FrameRole.FREE, 0))[0]
@@ -528,7 +501,7 @@ class FrontierRuntimePolicy:
             return SpanAuthorityKind.NONE
 
         role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
-        if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        if role not in _STRONG_ROLES:
             return SpanAuthorityKind.NONE
 
         for anchor in (start_anchor, end_anchor):
@@ -538,7 +511,7 @@ class FrontierRuntimePolicy:
             if source_chain is None:
                 continue
             source_role = self._resolved_chain_role(anchor.source_ref, source_chain)
-            if source_role == role:
+            if source_role in _STRONG_ROLES:
                 return SpanAuthorityKind.DIRECT_STRONG_NEIGHBOR
 
         partner_ref = self._paired_candidate_ref(chain_ref, chain, effective_role=role)
@@ -568,7 +541,7 @@ class FrontierRuntimePolicy:
             return local_span
         if not self._patch_allows_straighten_runtime(chain_ref[0]):
             return local_span
-        if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        if role not in _STRONG_ROLES:
             return local_span
 
         authority_kind = (
@@ -640,7 +613,7 @@ class FrontierRuntimePolicy:
             return StationAuthorityKind.NONE
 
         role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
-        if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        if role not in _STRONG_ROLES:
             return StationAuthorityKind.NONE
 
         if self._paired_band_station_sources(chain_ref, chain, effective_role=role) is not None:
@@ -667,7 +640,7 @@ class FrontierRuntimePolicy:
             return None
 
         role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
-        if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        if role not in _STRONG_ROLES:
             return None
 
         authority_kind = (
@@ -709,7 +682,7 @@ class FrontierRuntimePolicy:
             return ParameterAuthorityKind.NONE
 
         role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
-        if role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        if role in _STRONG_ROLES:
             return ParameterAuthorityKind.SELF_ARCLENGTH
         return ParameterAuthorityKind.NONE
 

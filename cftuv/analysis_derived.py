@@ -1052,6 +1052,16 @@ def _build_patch_graph_derived_topology(graph, measure_chain_axis_metrics):
         loop_signatures[patch_id] = sigs
         patch_shape_classes[patch_id] = classify_patch_shape(sigs, _debug_patch_id=patch_id)
 
+    # Collect STRAIGHTEN chain refs from BAND patches.
+    straighten_chain_refs: set[ChainRef] = set()
+    for patch_id, shape_class in patch_shape_classes.items():
+        if shape_class != PatchShapeClass.BAND:
+            continue
+        for sig in loop_signatures[patch_id]:
+            for token in sig.chain_tokens:
+                if token.effective_frame_role == FrameRole.STRAIGHTEN:
+                    straighten_chain_refs.add(token.chain_ref)
+
     return _PatchGraphDerivedTopology(
         patch_summaries=patch_summaries,
         patch_summaries_by_id=MappingProxyType(dict(patch_summaries_by_id)),
@@ -1067,4 +1077,5 @@ def _build_patch_graph_derived_topology(graph, measure_chain_axis_metrics):
         neighbor_inherited_roles=MappingProxyType(dict(neighbor_inherited_roles)),
         patch_shape_classes=MappingProxyType(dict(patch_shape_classes)),
         loop_signatures=MappingProxyType(dict(loop_signatures)),
+        straighten_chain_refs=frozenset(straighten_chain_refs),
     )

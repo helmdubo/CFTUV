@@ -56,7 +56,7 @@ class ChainToken:
 
     chain_ref: ChainRef
     role_class: ChainRoleClass
-    effective_frame_role: FrameRole     # SUPPORTING SIGNAL ONLY
+    effective_frame_role: FrameRole     # H/V/STRAIGHTEN/FREE
     length: float                       # 3D arc length
     neighbor_patch_id: Optional[int]    # None if mesh border
     is_border: bool
@@ -118,44 +118,21 @@ def _chains_share_corner(chain_a: BoundaryChain, chain_b: BoundaryChain) -> bool
     return bool(corner_indices_a & corner_indices_b)
 
 
-def _find_opposite_ref(
-    chain_index: int,
-    chain: BoundaryChain,
-    loop: BoundaryLoop,
-    patch_id: int,
-    loop_index: int,
-) -> Optional[ChainRef]:
-    """Find the best opposite chain for the given chain in the same loop.
-
-    Looks for the longest chain in the same loop with the same frame_role
-    that does not share a corner with the given chain.
-    Returns its ChainRef, or None if no candidate is found.
-    """
-    role = chain.frame_role
-    if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
-        return None
-
-    best_ref: Optional[ChainRef] = None
-    best_length = -1.0
-
-    for other_index, other_chain in enumerate(loop.chains):
-        if other_index == chain_index:
-            continue
-        if other_chain.frame_role != role:
-            continue
-        if _chains_share_corner(chain, other_chain):
-            continue
-        other_length = _compute_chain_arc_length(other_chain)
-        if other_length > best_length:
-            best_length = other_length
-            best_ref = (patch_id, loop_index, other_index)
-
-    return best_ref
+def _pair_length_similarity(len_a: float, len_b: float) -> float:
+    """Return similarity in [0, 1].  1.0 = identical lengths, 0.0 = maximally different."""
+    max_len = max(len_a, len_b)
+    if max_len <= 1e-9:
+        return 1.0
+    return 1.0 - abs(len_a - len_b) / max_len
 
 
 # ============================================================
 # Builder
 # ============================================================
+
+# Threshold: CAP pair similarity must be >= this to qualify as BAND.
+# 0.5 means CAP lengths may differ by at most 50 %.
+_CAP_SIMILARITY_THRESHOLD = 0.5
 
 
 def build_loop_signature(
@@ -167,16 +144,18 @@ def build_loop_signature(
     """Construct a frozen LoopSignature from a BoundaryLoop and its PatchNode."""
 
     # ------------------------------------------------------------------
-    # Pass 1: compute per-chain data needed for opposite detection.
+    # Pass 1: compute per-chain data.
     # ------------------------------------------------------------------
     chain_count = len(loop.chains)
 
     chain_lengths: list[float] = []
+    chain_frame_roles: list[FrameRole] = []
     neighbor_patch_ids: list[Optional[int]] = []
     is_borders: list[bool] = []
 
     for chain in loop.chains:
         chain_lengths.append(_compute_chain_arc_length(chain))
+        chain_frame_roles.append(chain.frame_role)
         is_border = not chain.has_patch_neighbor and chain.neighbor_patch_id == -1
         is_borders.append(is_border)
         neighbor_patch_ids.append(
@@ -186,59 +165,78 @@ def build_loop_signature(
     # ------------------------------------------------------------------
     # Pass 2 + 3: detect opposite pairs and assign role_class.
     #
-    # Strategy: purely topological/geometric, independent of FrameRole.
-    # In a 4-chain loop there are exactly 2 non-adjacent pairs: (0,2)
-    # and (1,3).  The pair with the greater combined arc length is SIDE,
-    # the other is CAP.  This works for both H/V and FREE chains.
+    # For 4-chain loops: two non-adjacent pairs (0,2) and (1,3).
+    # SIDE = the pair where BOTH chains are FREE.
+    # CAP  = the other pair.
+    # If both pairs are FREE-FREE → pick the pair with higher internal
+    # similarity as CAP (since CAPs must have similar lengths).
+    # If neither pair is FREE-FREE → no BAND candidate, all get FREE.
     #
-    # For loops with != 4 chains, fall back to role-based detection.
+    # For non-4-chain loops: fall back to role-based detection.
     # ------------------------------------------------------------------
     side_set: set[int] = set()
     cap_set: set[int] = set()
     opposite_refs: list[Optional[ChainRef]] = [None] * chain_count
 
     if chain_count == 4:
-        # Two non-adjacent pairs in a 4-chain loop.
         pair_a = (0, 2)
         pair_b = (1, 3)
-        len_a = chain_lengths[0] + chain_lengths[2]
-        len_b = chain_lengths[1] + chain_lengths[3]
 
-        # Also verify non-adjacency via corners (should always hold for
-        # a proper 4-chain loop, but check defensively).
         a_share = _chains_share_corner(loop.chains[0], loop.chains[2])
         b_share = _chains_share_corner(loop.chains[1], loop.chains[3])
 
+        a_both_free = (
+            chain_frame_roles[0] == FrameRole.FREE
+            and chain_frame_roles[2] == FrameRole.FREE
+        )
+        b_both_free = (
+            chain_frame_roles[1] == FrameRole.FREE
+            and chain_frame_roles[3] == FrameRole.FREE
+        )
+
+        side_pair: Optional[tuple[int, int]] = None
+        cap_pair: Optional[tuple[int, int]] = None
+
         if not a_share and not b_share:
             # Both pairs are valid non-adjacent pairs.
-            if len_a >= len_b:
+            if a_both_free and not b_both_free:
+                # Only pair_a is both-FREE → SIDE.
                 side_pair, cap_pair = pair_a, pair_b
-            else:
+            elif b_both_free and not a_both_free:
+                # Only pair_b is both-FREE → SIDE.
                 side_pair, cap_pair = pair_b, pair_a
+            elif a_both_free and b_both_free:
+                # Both pairs are FREE-FREE. Pick the pair with HIGHER
+                # internal similarity as CAP (CAPs should be similar).
+                sim_a = _pair_length_similarity(chain_lengths[0], chain_lengths[2])
+                sim_b = _pair_length_similarity(chain_lengths[1], chain_lengths[3])
+                if sim_a >= sim_b:
+                    # pair_a is more similar → CAP.
+                    side_pair, cap_pair = pair_b, pair_a
+                else:
+                    side_pair, cap_pair = pair_a, pair_b
+            # else: neither pair is both-FREE → no SIDE/CAP assignment.
+
+        elif not a_share and a_both_free:
+            side_pair = pair_a
+        elif not b_share and b_both_free:
+            side_pair = pair_b
+
+        if side_pair is not None:
             side_set.update(side_pair)
-            cap_set.update(cap_pair)
-            # Set opposite refs for both pairs.
             opposite_refs[side_pair[0]] = (patch_id, loop_index, side_pair[1])
             opposite_refs[side_pair[1]] = (patch_id, loop_index, side_pair[0])
+        if cap_pair is not None:
+            cap_set.update(cap_pair)
             opposite_refs[cap_pair[0]] = (patch_id, loop_index, cap_pair[1])
             opposite_refs[cap_pair[1]] = (patch_id, loop_index, cap_pair[0])
-        elif not a_share:
-            # Only pair_a is non-adjacent.
-            side_set.update(pair_a)
-            opposite_refs[pair_a[0]] = (patch_id, loop_index, pair_a[1])
-            opposite_refs[pair_a[1]] = (patch_id, loop_index, pair_a[0])
-        elif not b_share:
-            # Only pair_b is non-adjacent.
-            side_set.update(pair_b)
-            opposite_refs[pair_b[0]] = (patch_id, loop_index, pair_b[1])
-            opposite_refs[pair_b[1]] = (patch_id, loop_index, pair_b[0])
+
     else:
-        # For non-4-chain loops, use role-based detection (original logic).
+        # Non-4-chain loops: no BAND candidate, simple opposite detection.
         for chain_index, chain in enumerate(loop.chains):
             opp = _find_opposite_ref(chain_index, chain, loop, patch_id, loop_index)
             opposite_refs[chain_index] = opp
 
-        # Collect mutual pairs, pick longest as SIDE.
         seen: set[int] = set()
         opposite_pairs: list[tuple[int, int]] = []
         for chain_index in range(chain_count):
@@ -261,16 +259,30 @@ def build_loop_signature(
             side_set.add(best_pair[0])
             side_set.add(best_pair[1])
 
+    # ------------------------------------------------------------------
+    # Assign role_class and effective_frame_role per chain.
+    # SIDE chains in a 4-chain loop get STRAIGHTEN as effective_frame_role.
+    # ------------------------------------------------------------------
     role_classes: list[ChainRoleClass] = []
+    effective_roles: list[FrameRole] = []
+
     for chain_index in range(chain_count):
         if is_borders[chain_index]:
             role_classes.append(ChainRoleClass.BORDER)
+            effective_roles.append(chain_frame_roles[chain_index])
         elif chain_index in side_set:
             role_classes.append(ChainRoleClass.SIDE)
+            # SIDE chains of a 4-chain loop are STRAIGHTEN candidates.
+            if chain_count == 4 and chain_frame_roles[chain_index] == FrameRole.FREE:
+                effective_roles.append(FrameRole.STRAIGHTEN)
+            else:
+                effective_roles.append(chain_frame_roles[chain_index])
         elif chain_index in cap_set or side_set:
             role_classes.append(ChainRoleClass.CAP)
+            effective_roles.append(chain_frame_roles[chain_index])
         else:
             role_classes.append(ChainRoleClass.FREE)
+            effective_roles.append(chain_frame_roles[chain_index])
 
     # ------------------------------------------------------------------
     # Build ChainTokens (frozen).
@@ -282,7 +294,7 @@ def build_loop_signature(
             ChainToken(
                 chain_ref=chain_ref,
                 role_class=role_classes[chain_index],
-                effective_frame_role=chain.frame_role,
+                effective_frame_role=effective_roles[chain_index],
                 length=chain_lengths[chain_index],
                 neighbor_patch_id=neighbor_patch_ids[chain_index],
                 is_border=is_borders[chain_index],
@@ -327,81 +339,103 @@ def build_loop_signature(
     )
 
 
+def _find_opposite_ref(
+    chain_index: int,
+    chain: BoundaryChain,
+    loop: BoundaryLoop,
+    patch_id: int,
+    loop_index: int,
+) -> Optional[ChainRef]:
+    """Find the best opposite chain for non-4-chain loops (role-based)."""
+    role = chain.frame_role
+    if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+        return None
+
+    best_ref: Optional[ChainRef] = None
+    best_length = -1.0
+
+    for other_index, other_chain in enumerate(loop.chains):
+        if other_index == chain_index:
+            continue
+        if other_chain.frame_role != role:
+            continue
+        if _chains_share_corner(chain, other_chain):
+            continue
+        other_length = _compute_chain_arc_length(other_chain)
+        if other_length > best_length:
+            best_length = other_length
+            best_ref = (patch_id, loop_index, other_index)
+
+    return best_ref
+
+
 # ============================================================
 # Shape classifier
 # ============================================================
-
-_BAND_SIDE_CAP_RATIO_THRESHOLD = 1.5
 
 
 def classify_patch_shape(signatures: list[LoopSignature], _debug_patch_id: int = -1) -> PatchShapeClass:
     """Classify patch shape from its loop signatures.
 
     Uses only the primary (outer) loop — signatures[0].
-    Classification is strict: under-classify (MIX) rather than false-positive BAND.
+
+    BAND rules:
+      1. Exactly 4 boundary chains.
+      2. Exactly 2 SIDE chains (both FREE → STRAIGHTEN).
+      3. Exactly 2 CAP chains.
+      4. Both SIDE chains must be FREE (now STRAIGHTEN). H/V can never be SIDE.
+      5. Mutual opposite pairing between SIDEs.
+      6. CAP length similarity >= threshold (band doesn't diverge).
     """
     if not signatures:
         return PatchShapeClass.MIX
 
     sig = signatures[0]
-
     if not sig.chain_tokens:
         return PatchShapeClass.MIX
 
-    # Diagnostic: show what the classifier sees for 4-chain loops
+    # Diagnostic
     if sig.chain_count == 4:
-        roles = [(t.role_class.value, t.effective_frame_role.value, f"len={t.length:.3f}", f"opp={t.opposite_ref}") for t in sig.chain_tokens]
-        print(f"[CFTUV][Classify] P{_debug_patch_id} 4-chain loop: side={sig.side_count} cap={sig.cap_count} tokens={roles}")
+        roles = [(t.role_class.value, t.effective_frame_role.value, f"len={t.length:.3f}") for t in sig.chain_tokens]
+        print(f"[CFTUV][Classify] P{_debug_patch_id} 4-chain: side={sig.side_count} cap={sig.cap_count} {roles}")
 
-    # Rule 1: exactly 4 boundary chains
+    # Rule 1: exactly 4 chains
     if sig.chain_count != 4:
         return PatchShapeClass.MIX
 
     # Rule 2: exactly 2 SIDE chains
     if sig.side_count != 2:
+        print(f"[CFTUV][Classify] P{_debug_patch_id} FAIL: side_count={sig.side_count} != 2")
         return PatchShapeClass.MIX
 
     # Rule 3: exactly 2 CAP chains
     if sig.cap_count != 2:
+        print(f"[CFTUV][Classify] P{_debug_patch_id} FAIL: cap_count={sig.cap_count} != 2")
         return PatchShapeClass.MIX
 
     sides = [t for t in sig.chain_tokens if t.role_class == ChainRoleClass.SIDE]
     caps = [t for t in sig.chain_tokens if t.role_class == ChainRoleClass.CAP]
 
-    # Rule 4: both SIDE chains share the same effective_frame_role,
-    # OR both are FREE (structurally band-shaped but no H/V assignment yet).
-    side_roles = {sides[0].effective_frame_role, sides[1].effective_frame_role}
-    if len(side_roles) > 1 and FrameRole.FREE not in side_roles:
-        # Different H/V roles on SIDEs and neither is FREE — not a band.
-        print(f"[CFTUV][Classify] P{_debug_patch_id} FAIL rule4: roles differ {sides[0].effective_frame_role} vs {sides[1].effective_frame_role}")
-        return PatchShapeClass.MIX
+    # Rule 4: both SIDE chains must have STRAIGHTEN effective_frame_role
+    # (set during build when both are FREE). H/V chains can never be SIDE.
+    for s in sides:
+        if s.effective_frame_role != FrameRole.STRAIGHTEN:
+            print(f"[CFTUV][Classify] P{_debug_patch_id} FAIL rule4: SIDE {s.chain_ref} role={s.effective_frame_role.value} (must be STRAIGHTEN)")
+            return PatchShapeClass.MIX
 
-    # Rule 5: mutual pairing — each SIDE's opposite_ref points to the other SIDE
+    # Rule 5: mutual opposite pairing
     if not (
         sides[0].opposite_ref == sides[1].chain_ref
         and sides[1].opposite_ref == sides[0].chain_ref
     ):
-        print(f"[CFTUV][Classify] P{_debug_patch_id} FAIL rule5: not mutual opp={sides[0].opposite_ref} vs {sides[1].chain_ref}")
+        print(f"[CFTUV][Classify] P{_debug_patch_id} FAIL rule5: not mutual opposite")
         return PatchShapeClass.MIX
 
-    # Rule 6: side/cap length ratio > threshold
-    avg_side = (sides[0].length + sides[1].length) / 2.0
-    avg_cap = (caps[0].length + caps[1].length) / 2.0
-    ratio = avg_side / max(avg_cap, 1e-9)
-    if ratio <= _BAND_SIDE_CAP_RATIO_THRESHOLD:
-        print(f"[CFTUV][Classify] P{_debug_patch_id} FAIL rule6: ratio={ratio:.2f} <= {_BAND_SIDE_CAP_RATIO_THRESHOLD}")
+    # Rule 6: CAP length similarity — band must not diverge
+    cap_similarity = _pair_length_similarity(caps[0].length, caps[1].length)
+    if cap_similarity < _CAP_SIMILARITY_THRESHOLD:
+        print(f"[CFTUV][Classify] P{_debug_patch_id} FAIL rule6: cap_similarity={cap_similarity:.2f} < {_CAP_SIMILARITY_THRESHOLD}")
         return PatchShapeClass.MIX
 
-    # Rule 7: skip patches where ALL chains are already H/V.
-    # The generic frontier already builds a perfect rectified scaffold for
-    # these — band_operator adds no value and breaks pinning integration.
-    all_hv = all(
-        t.effective_frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME)
-        for t in sig.chain_tokens
-    )
-    if all_hv:
-        print(f"[CFTUV][Classify] P{_debug_patch_id} SKIP: all chains already H/V, generic frontier sufficient")
-        return PatchShapeClass.MIX
-
-    print(f"[CFTUV][Classify] P{_debug_patch_id} → BAND (ratio={ratio:.2f})")
+    print(f"[CFTUV][Classify] P{_debug_patch_id} → BAND (cap_sim={cap_similarity:.2f})")
     return PatchShapeClass.BAND
