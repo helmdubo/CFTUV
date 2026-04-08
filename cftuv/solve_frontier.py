@@ -410,7 +410,13 @@ def _cf_dispatch_band_patches(
     generic frontier — no state is modified.
     """
     if not patch_shape_classes:
+        print(f"[CFTUV][Dispatch] patch_shape_classes is empty/None, skipping band dispatch")
         return
+
+    # Diagnostic: show classification summary
+    band_ids = [pid for pid in sorted(quilt_patch_ids) if patch_shape_classes.get(pid) == PatchShapeClass.BAND]
+    mix_ids = [pid for pid in sorted(quilt_patch_ids) if patch_shape_classes.get(pid) != PatchShapeClass.BAND]
+    print(f"[CFTUV][Dispatch] quilt has {len(quilt_patch_ids)} patches: {len(band_ids)} BAND {band_ids}, {len(mix_ids)} MIX")
 
     for patch_id in sorted(quilt_patch_ids):
         if patch_shape_classes.get(patch_id) != PatchShapeClass.BAND:
@@ -440,7 +446,11 @@ def _cf_dispatch_band_patches(
             )
             continue
 
-        # Register every chain placement returned by band_operator.
+        # Register only FREE chains from band_operator output.
+        # Strong H/V chains are left unplaced so the generic frontier
+        # handles them with proper scaffold pinning (continuity approach).
+        registered = 0
+        skipped_hv = 0
         for placement in placements:
             chain_ref = (placement.patch_id, placement.loop_index, placement.chain_index)
             if chain_ref in runtime_policy.placed_chain_refs:
@@ -448,6 +458,9 @@ def _cf_dispatch_band_patches(
                 continue
             chain = graph.get_chain(placement.patch_id, placement.loop_index, placement.chain_index)
             if chain is None:
+                continue
+            if chain.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
+                skipped_hv += 1
                 continue
             uv_points = [uv.copy() for _, uv in placement.points]
             runtime_policy.register_chain(
@@ -458,9 +471,10 @@ def _cf_dispatch_band_patches(
                 (),
                 placed_role=placement.frame_role,
             )
+            registered += 1
 
         trace_console(
-            f"[CFTUV][Dispatch] P{patch_id} BAND placed {len(placements)} chains via band_operator"
+            f"[CFTUV][Dispatch] P{patch_id} BAND registered={registered} skipped_hv={skipped_hv} via band_operator"
         )
 
 

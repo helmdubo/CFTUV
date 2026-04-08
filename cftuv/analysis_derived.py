@@ -1050,7 +1050,7 @@ def _build_patch_graph_derived_topology(graph, measure_chain_axis_metrics):
             sig = build_loop_signature(patch_id, loop_index, boundary_loop, node)
             sigs.append(sig)
         loop_signatures[patch_id] = sigs
-        patch_shape_classes[patch_id] = classify_patch_shape(sigs)
+        patch_shape_classes[patch_id] = classify_patch_shape(sigs, _debug_patch_id=patch_id)
 
     return _PatchGraphDerivedTopology(
         patch_summaries=patch_summaries,
