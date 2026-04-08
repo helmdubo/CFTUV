@@ -88,9 +88,24 @@ chain. `prev_chain_index = 0, next_chain_index = 0`. Marker, not junction.
 | # | Rule | Status |
 |---|------|--------|
 | F1 | FrameRole determined after all split/merge/downgrade | ✅ |
-| F2 | Depends only on chain.vert_cos and patch basis | ✅ |
+| F2 | Native role (H/V/FREE) depends only on chain.vert_cos and patch basis | ✅ |
 | F3 | Same geometry + same basis = same role (deterministic) | ✅ |
 | F4 | FREE = default for chains passing neither H nor V threshold | ✅ |
+| F5 | STRAIGHTEN assigned to FREE SIDE chains of BAND patches by structural tokens | ✅ |
+| F6 | STRAIGHTEN resolves to H/V at placement time via geometry (dominant axis) | ✅ |
+| F7 | H/V chains can never be SIDE in a BAND — SIDE must be FREE→STRAIGHTEN | ✅ |
+
+### Structural Token Classification (PatchShapeClass)
+
+| # | Rule | Status |
+|---|------|--------|
+| S1 | BAND requires exactly 4 boundary chains | ✅ |
+| S2 | BAND requires exactly 2 SIDE + 2 CAP chains | ✅ |
+| S3 | SIDE = the non-adjacent pair where BOTH chains are FREE | ✅ |
+| S4 | If both pairs are FREE-FREE, higher internal-similarity pair = CAP | ✅ |
+| S5 | CAP length similarity must be >= threshold (bands don't diverge) | ✅ |
+| S6 | SIDE chains get effective_frame_role = STRAIGHTEN in ChainToken | ✅ |
+| S7 | Classification is strict: under-classify (MIX) rather than false-positive BAND | ✅ |
 
 ### Cross-Layer Consistency
 

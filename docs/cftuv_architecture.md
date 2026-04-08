@@ -26,6 +26,8 @@ IR design, entity model, or current architectural debt.
 | `solve_transfer.py` | ScaffoldMap, BMesh | UV layer | Scaffold → UV, conformal fallback |
 | `solve_diagnostics.py` | ScaffoldMap, BMesh UV | reports | Closure/alignment diagnostics |
 | `solve_reporting.py` | ScaffoldMap, PatchPinMap | text | Snapshots, human-readable reports |
+| `structural_tokens.py` | BoundaryLoop, PatchNode | ChainToken, LoopSignature, PatchShapeClass | Shape classifier, BAND detection, STRAIGHTEN assignment |
+| `band_operator.py` | — | — | Legacy utility (spine projection helpers), not imported |
 | `solve.py` | all above | — | Facade — orchestrates solve pipeline |
 | `debug.py` | PatchGraph | Grease Pencil | Visualization |
 | `operators.py` | all | — | Blender UI, orchestration, preflight |
@@ -85,7 +87,8 @@ Patch properties by layer:
 
 Chain properties by layer:
 - Intrinsic: `vert_indices`, `vert_cos`, `edge_indices`, `is_closed`
-- Contextual: `neighbor_kind`, `neighbor_patch_id`, `frame_role`
+- Contextual: `neighbor_kind`, `neighbor_patch_id`, `frame_role` (H/V/FREE native)
+- Structural: `ChainToken.effective_frame_role` (may be STRAIGHTEN for BAND SIDE chains)
 - Derived: scaffold placement, anchor provenance
 
 ### Composite Topology Entities
@@ -104,6 +107,17 @@ placement. Answers: "Do these adjacent chains behave as one logical side?"
 
 **Junction** — global-derived view at mesh vertex, aggregating corners from
 different patches. Diagnostic/research entity. Not in solve runtime yet.
+
+**Structural Tokens** (`structural_tokens.py`) — thin structural views over
+existing BoundaryChain/Corner data. Not a new canonical model.
+- `ChainToken`: role_class (SIDE/CAP/BORDER/FREE), effective_frame_role,
+  opposite_ref, length. SIDE chains of BAND patches get STRAIGHTEN.
+- `LoopSignature`: ordered token collection with derived counts.
+- `PatchShapeClass`: admission gate — MIX (default) or BAND.
+  BAND = 4-chain loop where one non-adjacent pair is both-FREE (→ SIDE)
+  and the other pair has similar lengths (→ CAP).
+- `straighten_chain_refs`: set of ChainRef built from BAND SIDE tokens,
+  passed to frontier (gated by straighten toggle).
 
 ### Solve Entities
 
@@ -135,12 +149,13 @@ These do NOT coincide:
 ```
 operators.py
   → validate_solver_input_mesh()
-  → build_patch_graph()           # analysis.py
-  → build_solver_graph()          # solve.py: scoring, components
-  → plan_solve_phase1()           # solve.py: quilt plans, closure cuts
-  → build_root_scaffold_map()     # solve.py: chain frontier builder
-  → transfer scaffold to UV       # solve.py: pin + write UV loops
-  → bpy.ops.uv.unwrap(CONFORMAL)  # Blender: relax with pinned scaffold
+  → build_patch_graph()                    # analysis.py
+  → build_solver_graph()                   # solve.py: scoring, components
+  → plan_solve_phase1()                    # solve.py: quilt plans, closure cuts
+  → build_straighten_structural_support()  # analysis.py: structural tokens, shape classes
+  → build_root_scaffold_map()             # solve.py: chain frontier builder (STRAIGHTEN-aware)
+  → transfer scaffold to UV               # solve.py: pin + write UV loops
+  → bpy.ops.uv.unwrap(CONFORMAL)          # Blender: relax with pinned scaffold
 ```
 
 ### Analysis Pipeline (analysis.py)
@@ -206,9 +221,13 @@ geometry and must remain isolated.
     → structured rank/debug explanation. `_cf_score_candidate()` is a thin orchestrator over
     these helper layers, not a monolithic policy blob.
 15. Rescue flow remains separate, but successful rescue placements now carry
-    counterfactual main-frontier telemetry (`FrontierRescueGap`):
-    main-known count, main score vs threshold gap, candidate class, and aggregated
-    undervalued rescue classes in quilt summary/detail.
+    counterfactual main-frontier telemetry (`FrontierRescueGap`).
+16. STRAIGHTEN chains (BAND SIDE) are handled natively by the frontier — no
+    separate pre-pass or post-pass operator. Scoring uses STRAIGHTEN identity
+    (tier 2); placement resolves to H/V via geometry. Authority resolution
+    treats STRAIGHTEN as strong role (alongside H/V) via `_STRONG_ROLES` set.
+17. `straighten_chain_refs` is toggle-gated: only passed to `FrontierRuntimePolicy`
+    when straighten is enabled. When off, SIDE chains remain FREE.
 
 ### UV Transfer and Pin Policy
 
@@ -292,9 +311,10 @@ Canonical next-step boundary now lives in `docs/cftuv_alignment_drift_roadmap.md
 | P4 | Minimal trim abstraction in model.py | Pending | Future solve direction |
 | P5 | Scoring revision based on data | ✓ Done | — |
 | P6 | Pin policy extraction | ✓ Done | — |
+| P7 | Structural Token System (Phase 1) | ✓ Done | P8 |
 
-Not doing now: lattice alignment pass inside the frontier score, automated test framework,
-UV classification refactor, strategy pattern for placement.
+P7 delivered: `structural_tokens.py` with shape classifier, STRAIGHTEN FrameRole,
+frontier integration. Future phases: junction enrichment (Phase 2), decal producer (Phase 3).
 Alignment / drift follow-up is tracked separately in `docs/cftuv_alignment_drift_roadmap.md`.
 
 ---

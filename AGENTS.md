@@ -46,6 +46,8 @@ cftuv/
 ├── solve_transfer.py   # UV transfer: scaffold → UV layer, conformal fallback
 ├── solve_diagnostics.py# UV axis metrics, closure seam diagnostics
 ├── solve_reporting.py  # Regression snapshots, scaffold reports, human-readable output
+├── structural_tokens.py# Shape classifier: ChainToken, LoopSignature, PatchShapeClass
+├── band_operator.py    # (legacy utility) Spine projection helpers, not imported
 ├── debug.py            # Grease Pencil visualization
 ├── operators.py        # Blender UI wrappers (max 5 lines math)
 └── console_debug.py    # Verbose console toggle
@@ -77,7 +79,15 @@ derived in analysis from owner-patch faces around the corner. These are runtime
 inputs for local turn-sign decisions; do not reconstruct them in solve.
 
 **FrameRole** — chain alignment in local patch basis: `H_FRAME` (horizontal),
-`V_FRAME` (vertical), `FREE` (diagonal/undefined).
+`V_FRAME` (vertical), `STRAIGHTEN` (strong but axis-flexible, resolved to H/V
+at placement time), `FREE` (diagonal/undefined).
+
+**PatchShapeClass** — shape classification of a patch from structural tokens:
+`MIX` (default), `BAND` (rectangular strip with two parallel FREE sides and
+two similar-length caps). Determines whether SIDE chains receive STRAIGHTEN role.
+
+**ChainRoleClass** — structural role of a chain within its loop: `SIDE` (parallel
+pair in BAND), `CAP` (connecting pair), `BORDER` (mesh boundary), `FREE` (no pair).
 
 **DihedralConvexity** — geometric property of a PATCH-neighbor chain.
 -1.0 = concave (inner corner), +1.0 = convex (outer corner), 0.0 = neutral.
@@ -115,6 +125,9 @@ patches meet. Diagnostic/research entity, not solve runtime.
 12. Pin decisions live ONLY in `solve_pin_policy.py` — `PatchPinMap` is the single source of truth; do NOT inline pin logic in transfer or frontier
 13. `dihedral_convexity` is a contextual derived field — computed AFTER full PatchGraph assembly, never during chain build
 14. Analyze debug geometry must be generated independently of layer visibility toggles; panel / eye toggles only control GP layer visibility, not whether patch data is built
+15. BAND SIDE chains must BOTH be FREE (H/V chains can never be SIDE in a BAND)
+16. STRAIGHTEN is a frontier-level role — structural tokens classify, frontier places. No separate pre/post pass operator.
+17. `band_operator.py` is NOT imported — kept only as utility reference for spine projection
 
 ---
 
@@ -134,7 +147,7 @@ patches meet. Diagnostic/research entity, not solve runtime.
 
 - Do NOT use `Hotspot_UV_v2_5_26.py` — dead legacy monolith
 - Do NOT return to patch-first or loop-sequential placement
-- Do NOT add multi-axis semantic profiles (confidence scores, role_class)
+- Do NOT add multi-axis semantic profiles (confidence scores beyond ChainRoleClass)
 - Do NOT create a separate Boundary Graph — chains are substructure of PatchNode
 - Do NOT create constraint classes — stitching rules are code in solve
 - Do NOT use globals for settings — pass UVSettings as parameter
@@ -151,28 +164,28 @@ separation active. Ring/cylinder cycle bug closed via tree-edge-only sewing.
 
 Current priority order (agreed):
 
-1. **P1: Decompose solve.py** into sibling modules (see `cftuv_solve_decomposition_plan.md`) ✓
-2. **P2: Rewrite AGENTS.md** as self-contained entry point (this file) ✓
-3. **P3: Rescue/scoring instrumentation** — collect data before changing logic ✓
+1. **P1: Decompose solve.py** into sibling modules ✓
+2. **P2: Rewrite AGENTS.md** as self-contained entry point ✓
+3. **P3: Rescue/scoring instrumentation** ✓
 4. **P4: Minimal trim abstraction** in model.py
 5. **P5: Scoring revision** based on instrumentation data ✓
 6. **P6: Pin policy extraction** into explicit layer ✓
+7. **P7: Structural Token System** — shape classifier + STRAIGHTEN role ✓ (Phase 1)
+   - `structural_tokens.py`: ChainToken, LoopSignature, PatchShapeClass
+   - BAND patches: FREE SIDE chains → STRAIGHTEN, frontier handles natively
+   - Future phases: junction enrichment (Phase 2), decal producer (Phase 3)
 
-Current frontier selection is in **Phase 7 structured-rank + layered scoring helpers + patch context + corner hints + patch shape prior + seam relation profiles + rescue-gap telemetry** mode:
+Current frontier selection is in **Phase 7 structured-rank + layered scoring + structural tokens (STRAIGHTEN)** mode:
 `viable → role → ingress → patch_fit → anchor → closure_risk → local_score → tie_length`.
-Scalar `score` is still kept as threshold gate and local refinement. Main frontier
-derives an explicit `PatchScoringContext` before scoring/ranking. Corner facts feed only
-local refinement via `CornerScoringHints`. `PatchShapeProfile` is now computed per patch and
-acts only as a weak prior through patch context / subordinate local refinement; it must not
-override chain-first frontier selection or become a hard solve mode. `SeamRelationProfile`
-is preserved from planning per patch edge and feeds frontier rank/telemetry as explicit seam
-context without folding rescue paths into the main frontier. Frontier scalar scoring is now
-split into explicit helper layers for topology facts, patch/anchor context, closure guard,
-local seam/shape/corner hints, and structured rank/debug explanation. Rescue paths remain separate,
-but telemetry now records counterfactual main-frontier gap data for successful `tree_ingress` /
-`closure_follow` placements so rescue integration can be evaluated from evidence. Phase 8
-alignment / drift work is a separate roadmap in `docs/cftuv_alignment_drift_roadmap.md`
-and must not be smuggled back into frontier score logic.
+Scalar `score` is still kept as threshold gate and local refinement. STRAIGHTEN chains
+from BAND patches get tier 2 (`straighten_band_side`) in role scoring — between native
+H/V (tier 3–5) and FREE (tier 0). At placement time, STRAIGHTEN resolves to H/V via
+geometry (dominant axis of chain start→end vector projected onto patch basis).
+Structural tokens (`structural_tokens.py`) classify patches before solve:
+`PatchShapeClass.BAND` → FREE SIDE chains become STRAIGHTEN → frontier treats them as
+strong chains with authority resolution (axis, span, station, parameter).
+Toggle-gated: `straighten_chain_refs` only passed to frontier when straighten is ON.
+Phase 8 alignment / drift work is a separate roadmap in `docs/cftuv_alignment_drift_roadmap.md`.
 
 ---
 
