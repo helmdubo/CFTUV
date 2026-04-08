@@ -541,17 +541,19 @@ def build_quilt_scaffold_chain_frontier(
     )
     _cf_index_frontier_chain_pool(runtime_policy, all_chain_pool, seed_ref, seed_chain)
 
-    # --- BAND operator pre-pass -----------------------------------------
-    # Place BAND-classified patches before the generic frontier loop runs.
-    # Chains registered here are already in placed_chain_refs, so the main
-    # loop skips them when they come up as candidates.
-    _cf_dispatch_band_patches(
-        graph,
-        quilt_patch_ids,
-        patch_shape_classes,
-        runtime_policy,
-        final_scale,
-    )
+    # --- BAND operator dispatch (DISABLED) --------------------------------
+    # Pre-pass placement is architecturally wrong: band_operator places
+    # chains at (0,0) without neighbor connectivity, causing BAND patches
+    # to float in UV space.  The correct approach is a post-pass that
+    # re-parameterises SIDE chain stations after the frontier has placed
+    # everything with proper anchor-based connectivity.
+    # _cf_dispatch_band_patches(
+    #     graph,
+    #     quilt_patch_ids,
+    #     patch_shape_classes,
+    #     runtime_policy,
+    #     final_scale,
+    # )
 
     collector = FrontierTelemetryCollector(quilt_index=quilt_plan.quilt_index)
     _cf_record_seed_telemetry(
