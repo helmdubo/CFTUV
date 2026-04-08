@@ -202,15 +202,34 @@ def build_loop_signature(
     # Otherwise FREE.
     # BORDER overrides everything.
     # ------------------------------------------------------------------
-    side_set: set[int] = set()
+    # Collect all mutual opposite pairs, then pick the longest as SIDE.
+    # In a rectangular patch both the long pair and short pair find
+    # opposites — only the longest pair should be SIDE, the rest CAP.
+    opposite_pairs: list[tuple[int, int]] = []
+    seen: set[int] = set()
     for chain_index in range(chain_count):
+        if chain_index in seen:
+            continue
         opp_ref = opposite_refs[chain_index]
         if opp_ref is None:
             continue
         _, _, opp_index = opp_ref
-        # Both members of a detected pair are SIDEs.
-        side_set.add(chain_index)
-        side_set.add(opp_index)
+        # Only count mutual pairs (A→B and B→A).
+        other_opp = opposite_refs[opp_index]
+        if other_opp is not None and other_opp[2] == chain_index:
+            opposite_pairs.append((chain_index, opp_index))
+            seen.add(chain_index)
+            seen.add(opp_index)
+
+    # Pick the pair with the greatest combined length as SIDE.
+    side_set: set[int] = set()
+    if opposite_pairs:
+        best_pair = max(
+            opposite_pairs,
+            key=lambda p: chain_lengths[p[0]] + chain_lengths[p[1]],
+        )
+        side_set.add(best_pair[0])
+        side_set.add(best_pair[1])
 
     role_classes: list[ChainRoleClass] = []
     for chain_index in range(chain_count):
@@ -286,7 +305,7 @@ def build_loop_signature(
 _BAND_SIDE_CAP_RATIO_THRESHOLD = 1.5
 
 
-def classify_patch_shape(signatures: list[LoopSignature]) -> PatchShapeClass:
+def classify_patch_shape(signatures: list[LoopSignature], _debug_patch_id: int = -1) -> PatchShapeClass:
     """Classify patch shape from its loop signatures.
 
     Uses only the primary (outer) loop — signatures[0].
@@ -299,6 +318,11 @@ def classify_patch_shape(signatures: list[LoopSignature]) -> PatchShapeClass:
 
     if not sig.chain_tokens:
         return PatchShapeClass.MIX
+
+    # Diagnostic: show what the classifier sees for 4-chain loops
+    if sig.chain_count == 4:
+        roles = [(t.role_class.value, t.effective_frame_role.value, f"len={t.length:.3f}", f"opp={t.opposite_ref}") for t in sig.chain_tokens]
+        print(f"[CFTUV][Classify] P{_debug_patch_id} 4-chain loop: side={sig.side_count} cap={sig.cap_count} tokens={roles}")
 
     # Rule 1: exactly 4 boundary chains
     if sig.chain_count != 4:
@@ -317,6 +341,7 @@ def classify_patch_shape(signatures: list[LoopSignature]) -> PatchShapeClass:
 
     # Rule 4: both SIDE chains share the same effective_frame_role
     if sides[0].effective_frame_role != sides[1].effective_frame_role:
+        print(f"[CFTUV][Classify] P{_debug_patch_id} FAIL rule4: roles differ {sides[0].effective_frame_role} vs {sides[1].effective_frame_role}")
         return PatchShapeClass.MIX
 
     # Rule 5: mutual pairing — each SIDE's opposite_ref points to the other SIDE
@@ -324,12 +349,16 @@ def classify_patch_shape(signatures: list[LoopSignature]) -> PatchShapeClass:
         sides[0].opposite_ref == sides[1].chain_ref
         and sides[1].opposite_ref == sides[0].chain_ref
     ):
+        print(f"[CFTUV][Classify] P{_debug_patch_id} FAIL rule5: not mutual opp={sides[0].opposite_ref} vs {sides[1].chain_ref}")
         return PatchShapeClass.MIX
 
     # Rule 6: side/cap length ratio > threshold
     avg_side = (sides[0].length + sides[1].length) / 2.0
     avg_cap = (caps[0].length + caps[1].length) / 2.0
-    if avg_side / max(avg_cap, 1e-9) <= _BAND_SIDE_CAP_RATIO_THRESHOLD:
+    ratio = avg_side / max(avg_cap, 1e-9)
+    if ratio <= _BAND_SIDE_CAP_RATIO_THRESHOLD:
+        print(f"[CFTUV][Classify] P{_debug_patch_id} FAIL rule6: ratio={ratio:.2f} <= {_BAND_SIDE_CAP_RATIO_THRESHOLD}")
         return PatchShapeClass.MIX
 
+    print(f"[CFTUV][Classify] P{_debug_patch_id} → BAND (ratio={ratio:.2f})")
     return PatchShapeClass.BAND
