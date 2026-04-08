@@ -276,19 +276,28 @@ def _band_operator_impl(
     if any(c is None for c in side_chains) or any(c is None for c in cap_chains):
         return None
 
-    # ---- Resolve band axis direction from the first SIDE chain ----------
+    # ---- Resolve band axis direction from the SIDE chains -----------------
     side_role = side_tokens[0].effective_frame_role
-    if side_role not in (FrameRole.H_FRAME, FrameRole.V_FRAME):
-        trace_console(
-            f"[CFTUV][BandOp] P{patch_id} fallback — SIDE role not H/V ({side_role})"
-        )
-        return None
 
-    axis_direction = _snap_direction_to_role(
-        _cf_determine_direction_for_role(side_chains[0], node, side_role),
-        side_role,
-    )
-    axis_direction = _normalize_direction(axis_direction, _default_role_direction(side_role))
+    if side_role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
+        # H/V SIDEs: use standard role-based direction with snapping.
+        axis_direction = _snap_direction_to_role(
+            _cf_determine_direction_for_role(side_chains[0], node, side_role),
+            side_role,
+        )
+        axis_direction = _normalize_direction(axis_direction, _default_role_direction(side_role))
+    else:
+        # FREE SIDEs: derive axis from chain geometry, snap to nearest H/V.
+        chain_3d = side_chains[0].vert_cos[-1] - side_chains[0].vert_cos[0]
+        u_comp = chain_3d.dot(node.basis_u)
+        v_comp = chain_3d.dot(node.basis_v)
+        # Snap to the dominant axis.
+        if abs(u_comp) >= abs(v_comp):
+            side_role = FrameRole.H_FRAME
+            axis_direction = Vector((1.0 if u_comp >= 0.0 else -1.0, 0.0))
+        else:
+            side_role = FrameRole.V_FRAME
+            axis_direction = Vector((0.0, 1.0 if v_comp >= 0.0 else -1.0))
 
     # ---- Compute shared span --------------------------------------------
     span0 = _cf_chain_total_length(side_chains[0], final_scale)
