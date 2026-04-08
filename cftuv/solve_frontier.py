@@ -441,9 +441,7 @@ def _cf_dispatch_band_patches(
             final_scale,
         )
         if placements is None:
-            trace_console(
-                f"[CFTUV][Dispatch] P{patch_id} BAND→generic (band_operator returned None)"
-            )
+            print(f"[CFTUV][Dispatch] P{patch_id} BAND→generic (band_operator returned None)")
             continue
 
         # Register only FREE chains from band_operator output.
@@ -461,6 +459,7 @@ def _cf_dispatch_band_patches(
                 continue
             if chain.frame_role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
                 skipped_hv += 1
+                print(f"[CFTUV][Dispatch] P{patch_id} skip H/V chain C{placement.chain_index} role={chain.frame_role.value} → frontier will handle")
                 continue
             uv_points = [uv.copy() for _, uv in placement.points]
             runtime_policy.register_chain(
@@ -473,9 +472,7 @@ def _cf_dispatch_band_patches(
             )
             registered += 1
 
-        trace_console(
-            f"[CFTUV][Dispatch] P{patch_id} BAND registered={registered} skipped_hv={skipped_hv} via band_operator"
-        )
+        print(f"[CFTUV][Dispatch] P{patch_id} BAND registered={registered} skipped_hv={skipped_hv} via band_operator")
 
 
 def build_quilt_scaffold_chain_frontier(
