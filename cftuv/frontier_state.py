@@ -6,6 +6,8 @@ from typing import Optional
 from mathutils import Vector
 
 try:
+    from .analysis_records import _PatchDerivedTopologySummary
+    from .structural_tokens import PatchShapeClass
     from .model import (
         AxisAuthorityKind,
         BoundaryChain,
@@ -30,6 +32,8 @@ try:
         _point_registry_key,
     )
 except ImportError:
+    from analysis_records import _PatchDerivedTopologySummary
+    from structural_tokens import PatchShapeClass
     from model import (
         AxisAuthorityKind,
         BoundaryChain,
@@ -78,7 +82,8 @@ class FrontierRuntimePolicy:
     # Straighten strips: structural data from analysis layer
     straighten_enabled: bool = False
     inherited_role_map: dict[ChainRef, tuple[FrameRole, int]] = field(default_factory=dict)
-    patch_structural_summaries: dict[int, object] = field(default_factory=dict)
+    patch_structural_summaries: dict[int, _PatchDerivedTopologySummary] = field(default_factory=dict)
+    patch_shape_classes: dict[int, PatchShapeClass] = field(default_factory=dict)
     closure_pair_refs: frozenset[ChainRef] = field(init=False, default_factory=frozenset)
     # Temporary compatibility storage for score-owned derived caches until P7.
     _outer_chain_count_by_patch: dict[int, int] = field(init=False, default_factory=dict)

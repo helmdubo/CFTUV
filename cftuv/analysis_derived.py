@@ -22,6 +22,7 @@ try:
     )
     from .analysis_frame_runs import _build_patch_graph_loop_frame_results
     from .analysis_junctions import _build_junction_run_refs_by_corner, _build_patch_graph_junctions
+    from .structural_tokens import build_loop_signature, classify_patch_shape, LoopSignature, PatchShapeClass
 except ImportError:
     from constants import CORNER_ANGLE_THRESHOLD_DEG
     from model import ChainNeighborKind, FrameRole, LoopKind, PatchType, WorldFacing
@@ -41,6 +42,7 @@ except ImportError:
     )
     from analysis_frame_runs import _build_patch_graph_loop_frame_results
     from analysis_junctions import _build_junction_run_refs_by_corner, _build_patch_graph_junctions
+    from structural_tokens import build_loop_signature, classify_patch_shape, LoopSignature, PatchShapeClass
 
 
 def _build_patch_topology_summaries(graph, loop_frame_results):
@@ -1038,6 +1040,18 @@ def _build_patch_graph_derived_topology(graph, measure_chain_axis_metrics):
         for loop_summary in patch_summary.loop_summaries
     }
 
+    # --- Structural token pass ---
+    loop_signatures: dict[int, list[LoopSignature]] = {}
+    patch_shape_classes: dict[int, PatchShapeClass] = {}
+    for patch_id in sorted(graph.nodes.keys()):
+        node = graph.nodes[patch_id]
+        sigs: list[LoopSignature] = []
+        for loop_index, boundary_loop in enumerate(node.boundary_loops):
+            sig = build_loop_signature(patch_id, loop_index, boundary_loop, node)
+            sigs.append(sig)
+        loop_signatures[patch_id] = sigs
+        patch_shape_classes[patch_id] = classify_patch_shape(sigs)
+
     return _PatchGraphDerivedTopology(
         patch_summaries=patch_summaries,
         patch_summaries_by_id=MappingProxyType(dict(patch_summaries_by_id)),
@@ -1051,4 +1065,6 @@ def _build_patch_graph_derived_topology(graph, measure_chain_axis_metrics):
         run_structural_roles=MappingProxyType(dict(run_structural_roles)),
         junction_structural_roles=MappingProxyType(dict(junction_structural_roles)),
         neighbor_inherited_roles=MappingProxyType(dict(neighbor_inherited_roles)),
+        patch_shape_classes=MappingProxyType(dict(patch_shape_classes)),
+        loop_signatures=MappingProxyType(dict(loop_signatures)),
     )

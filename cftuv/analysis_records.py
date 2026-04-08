@@ -20,6 +20,7 @@ try:
         PatchType,
         WorldFacing,
     )
+    from .structural_tokens import LoopSignature, PatchShapeClass
 except ImportError:
     from model import (
         BoundaryChain,
@@ -33,6 +34,7 @@ except ImportError:
         PatchType,
         WorldFacing,
     )
+    from structural_tokens import LoopSignature, PatchShapeClass
 
 
 @dataclass
@@ -406,3 +408,5 @@ class _PatchGraphDerivedTopology:
     run_structural_roles: Mapping[RunKey, _RunStructuralRole] = field(default_factory=dict)
     junction_structural_roles: Mapping[JunctionPatchKey, _JunctionStructuralRole] = field(default_factory=dict)
     neighbor_inherited_roles: Mapping[ChainRef, tuple[FrameRole, int]] = field(default_factory=dict)
+    patch_shape_classes: Mapping[int, PatchShapeClass] = field(default_factory=dict)
+    loop_signatures: Mapping[int, list[LoopSignature]] = field(default_factory=dict)

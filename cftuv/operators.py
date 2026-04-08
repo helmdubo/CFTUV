@@ -190,13 +190,15 @@ def _build_scaffold_map_with_straighten(graph, solve_plan, settings):
     straighten = getattr(settings, 'straighten_strips', False)
     inherited_map = None
     patch_structural_summaries = None
+    patch_shape_classes = None
     if straighten:
-        inherited_map, patch_structural_summaries = build_straighten_structural_support(graph)
+        inherited_map, patch_structural_summaries, patch_shape_classes = build_straighten_structural_support(graph)
     return build_root_scaffold_map(
         graph, solve_plan, settings.final_scale,
         straighten_enabled=straighten,
         inherited_role_map=inherited_map,
         patch_structural_summaries=patch_structural_summaries,
+        patch_shape_classes=patch_shape_classes,
     )
 
 

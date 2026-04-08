@@ -306,6 +306,27 @@ internal consistency failure, etc.), it must immediately fall back to
 
 BAND classification is an admission ticket, not an obligation to force special handling.
 
+**Fallback protocol:**
+- Fallback is **total, not partial**. If band_operator fails at any point,
+  discard all its partial results and pass the patch to generic_frontier_operator
+  as if it were MIX.
+- Log the fallback with patch_id and failure reason (for diagnostics).
+- The patch retains its PatchShapeClass.BAND in classification data
+  (for debugging), but its runtime placement is produced by the generic path.
+
+**Note for executing agent — dispatch integration point:**
+The current solver (`build_quilt_scaffold_chain_frontier`) iterates by **chain
+within a quilt**, not by patch. The dispatch point needs careful placement —
+either pre-solve per-patch routing or intra-solve patch-level branching.
+Study `build_quilt_scaffold_chain_frontier()` control flow before implementing
+dispatch. Do not assume a simple per-patch loop exists.
+
+**Note on CornerToken in Phase 1:**
+v1 classifier does not read CornerToken fields. CornerToken is built and stored
+for future use (Phase 2/3 consumers). The cost is trivial (one float + two refs
+per corner). If this feels wasteful during implementation, it can be deferred —
+but building it now avoids a second pass over loop data later.
+
 ### Task 1.6 — Spine-projection station function
 
 For v1, keep this helper **operator-private** if possible.

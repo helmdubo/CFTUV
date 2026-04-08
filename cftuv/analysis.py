@@ -119,6 +119,7 @@ def build_straighten_structural_support(graph):
     return (
         dict(derived_topology.neighbor_inherited_roles),
         dict(derived_topology.patch_summaries_by_id),
+        dict(derived_topology.patch_shape_classes),
     )
 
 
