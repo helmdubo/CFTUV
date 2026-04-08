@@ -463,6 +463,9 @@ class FrontierRuntimePolicy:
         end_anchor: Optional[ChainAnchor] = None,
         effective_role: Optional[FrameRole] = None,
     ) -> AxisAuthorityKind:
+        if not self.straighten_enabled:
+            return AxisAuthorityKind.NONE
+
         role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
         if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             return AxisAuthorityKind.NONE
@@ -502,6 +505,9 @@ class FrontierRuntimePolicy:
         end_anchor: Optional[ChainAnchor] = None,
         effective_role: Optional[FrameRole] = None,
     ) -> SpanAuthorityKind:
+        if not self.straighten_enabled:
+            return SpanAuthorityKind.NONE
+
         role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
         if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             return SpanAuthorityKind.NONE
@@ -539,6 +545,8 @@ class FrontierRuntimePolicy:
     ) -> float:
         role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
         local_span = self._chain_uv_length(chain)
+        if not self.straighten_enabled:
+            return local_span
         if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             return local_span
 
@@ -605,6 +613,9 @@ class FrontierRuntimePolicy:
         effective_role: Optional[FrameRole] = None,
     ) -> StationAuthorityKind:
         _ = start_anchor, end_anchor
+        if not self.straighten_enabled:
+            return StationAuthorityKind.NONE
+
         role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
         if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             return StationAuthorityKind.NONE
@@ -627,6 +638,9 @@ class FrontierRuntimePolicy:
         station_authority_kind: Optional[StationAuthorityKind] = None,
     ) -> Optional[list[float]]:
         _ = start_anchor, end_anchor
+        if not self.straighten_enabled:
+            return None
+
         role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
         if role not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             return None
@@ -664,6 +678,9 @@ class FrontierRuntimePolicy:
         effective_role: Optional[FrameRole] = None,
     ) -> ParameterAuthorityKind:
         _ = chain_ref, start_anchor, end_anchor
+        if not self.straighten_enabled:
+            return ParameterAuthorityKind.NONE
+
         role = effective_role if effective_role is not None else self.effective_placement_role(chain_ref, chain)
         if role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
             return ParameterAuthorityKind.SELF_ARCLENGTH
