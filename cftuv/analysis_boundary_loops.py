@@ -69,11 +69,11 @@ except ImportError:
 
 
 def _report_boundary_loop_invariant_violation(patch_id, loop_index, rule_code, detail):
-    print(f"[CFTUV][TopologyInvariant] Patch {patch_id} Loop {loop_index} {rule_code} {detail}")
+    trace_console(f"[CFTUV][TopologyInvariant] Patch {patch_id} Loop {loop_index} {rule_code} {detail}")
 
 
 def _report_patch_topology_invariant_violation(patch_id, rule_code, detail):
-    print(f"[CFTUV][TopologyInvariant] Patch {patch_id} {rule_code} {detail}")
+    trace_console(f"[CFTUV][TopologyInvariant] Patch {patch_id} {rule_code} {detail}")
 
 
 def _neighbor_for_side(edge_index, side_face_index, patch_face_indices, face_to_patch, patch_id, bm):

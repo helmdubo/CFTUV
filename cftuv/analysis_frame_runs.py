@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 
 try:
+    from .console_debug import trace_console
     from .model import ChainNeighborKind, FrameRole
     from .analysis_records import (
         _ChainFrameConfidence,
@@ -12,6 +13,7 @@ try:
         _FrameRun,
     )
 except ImportError:
+    from console_debug import trace_console
     from model import ChainNeighborKind, FrameRole
     from analysis_records import (
         _ChainFrameConfidence,
@@ -168,7 +170,7 @@ def _infer_frame_run_gap_role(chains, chain_index, basis_u, basis_v, measure_cha
 
 
 def _report_frame_run_invariant_violation(patch_id, loop_index, rule_code, detail):
-    print(
+    trace_console(
         f"[CFTUV][TopologyInvariant] Patch {patch_id} Loop {loop_index} {rule_code} {detail}"
     )
 

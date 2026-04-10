@@ -64,14 +64,25 @@ except ImportError:
 _STRONG_ROLES = {FrameRole.H_FRAME, FrameRole.V_FRAME, FrameRole.STRAIGHTEN}
 
 
-@dataclass
-class FrontierRuntimePolicy:
+@dataclass(frozen=True)
+class FrontierLaunchContext:
     graph: PatchGraph
     quilt_patch_ids: set[int]
     allowed_tree_edges: set[PatchEdgeKey]
     final_scale: float
     seam_relation_by_edge: dict[PatchEdgeKey, SeamRelationProfile] = field(default_factory=dict)
     tree_ingress_partner_by_chain: dict[ChainRef, ChainRef] = field(default_factory=dict)
+    closure_pair_map: Optional[dict[ChainRef, ChainRef]] = None
+    straighten_enabled: bool = False
+    inherited_role_map: dict[ChainRef, tuple[FrameRole, int]] = field(default_factory=dict)
+    patch_structural_summaries: dict[int, _PatchDerivedTopologySummary] = field(default_factory=dict)
+    patch_shape_classes: dict[int, PatchShapeClass] = field(default_factory=dict)
+    straighten_chain_refs: frozenset[ChainRef] = field(default_factory=frozenset)
+    band_spine_data: dict[int, BandSpineData] = field(default_factory=dict)
+
+
+@dataclass
+class FrontierRuntimeState:
     point_registry: PointRegistry = field(default_factory=dict)
     vert_to_placements: VertexPlacementMap = field(default_factory=dict)
     placed_chain_refs: set[ChainRef] = field(default_factory=set)
@@ -79,20 +90,10 @@ class FrontierRuntimePolicy:
     chain_dependency_patches: dict[ChainRef, tuple[int, ...]] = field(default_factory=dict)
     rejected_chain_refs: set[ChainRef] = field(default_factory=set)
     build_order: list[ChainRef] = field(default_factory=list)
-    closure_pair_map: Optional[dict[ChainRef, ChainRef]] = None
     placed_count_by_patch: dict[int, int] = field(default_factory=dict)
     placed_h_count_by_patch: dict[int, int] = field(default_factory=dict)
     placed_v_count_by_patch: dict[int, int] = field(default_factory=dict)
     placed_free_count_by_patch: dict[int, int] = field(default_factory=dict)
-    # Straighten strips: structural data from analysis layer
-    straighten_enabled: bool = False
-    inherited_role_map: dict[ChainRef, tuple[FrameRole, int]] = field(default_factory=dict)
-    patch_structural_summaries: dict[int, _PatchDerivedTopologySummary] = field(default_factory=dict)
-    patch_shape_classes: dict[int, PatchShapeClass] = field(default_factory=dict)
-    straighten_chain_refs: frozenset[ChainRef] = field(default_factory=frozenset)
-    band_spine_data: dict[int, BandSpineData] = field(default_factory=dict)
-    closure_pair_refs: frozenset[ChainRef] = field(init=False, default_factory=frozenset)
-    # Temporary compatibility storage for score-owned derived caches until P7.
     _outer_chain_count_by_patch: dict[int, int] = field(init=False, default_factory=dict)
     _frame_chain_count_by_patch: dict[int, int] = field(init=False, default_factory=dict)
     _closure_pair_count_by_patch: dict[int, int] = field(init=False, default_factory=dict)
@@ -106,8 +107,119 @@ class FrontierRuntimePolicy:
     _patch_to_pool_refs: dict[int, list[ChainRef]] = field(init=False, default_factory=dict)
     _cache_hits: int = field(init=False, default=0)
 
-    def __post_init__(self) -> None:
-        self.closure_pair_refs = frozenset(self.closure_pair_map.keys()) if self.closure_pair_map else frozenset()
+
+class FrontierRuntimePolicy:
+    """Compatibility wrapper over immutable launch context and mutable runtime state."""
+
+    _CONTEXT_FIELDS = frozenset(
+        {
+            "graph",
+            "quilt_patch_ids",
+            "allowed_tree_edges",
+            "final_scale",
+            "seam_relation_by_edge",
+            "tree_ingress_partner_by_chain",
+            "closure_pair_map",
+            "straighten_enabled",
+            "inherited_role_map",
+            "patch_structural_summaries",
+            "patch_shape_classes",
+            "straighten_chain_refs",
+            "band_spine_data",
+        }
+    )
+    _STATE_FIELDS = frozenset(
+        {
+            "point_registry",
+            "vert_to_placements",
+            "placed_chain_refs",
+            "placed_chains_map",
+            "chain_dependency_patches",
+            "rejected_chain_refs",
+            "build_order",
+            "placed_count_by_patch",
+            "placed_h_count_by_patch",
+            "placed_v_count_by_patch",
+            "placed_free_count_by_patch",
+            "_outer_chain_count_by_patch",
+            "_frame_chain_count_by_patch",
+            "_closure_pair_count_by_patch",
+            "_backbone_h_count_by_patch",
+            "_backbone_v_count_by_patch",
+            "_backbone_free_count_by_patch",
+            "_shape_profile_by_patch",
+            "_cached_evals",
+            "_dirty_refs",
+            "_vert_to_pool_refs",
+            "_patch_to_pool_refs",
+            "_cache_hits",
+        }
+    )
+
+    def __init__(
+        self,
+        context: FrontierLaunchContext,
+        state: Optional[FrontierRuntimeState] = None,
+    ) -> None:
+        object.__setattr__(self, "context", context)
+        object.__setattr__(self, "state", state if state is not None else FrontierRuntimeState())
+
+    @classmethod
+    def from_parts(
+        cls,
+        *,
+        graph: PatchGraph,
+        quilt_patch_ids: set[int],
+        allowed_tree_edges: set[PatchEdgeKey],
+        final_scale: float,
+        seam_relation_by_edge: Optional[dict[PatchEdgeKey, SeamRelationProfile]] = None,
+        tree_ingress_partner_by_chain: Optional[dict[ChainRef, ChainRef]] = None,
+        closure_pair_map: Optional[dict[ChainRef, ChainRef]] = None,
+        straighten_enabled: bool = False,
+        inherited_role_map: Optional[dict[ChainRef, tuple[FrameRole, int]]] = None,
+        patch_structural_summaries: Optional[dict[int, _PatchDerivedTopologySummary]] = None,
+        patch_shape_classes: Optional[dict[int, PatchShapeClass]] = None,
+        straighten_chain_refs: Optional[frozenset[ChainRef]] = None,
+        band_spine_data: Optional[dict[int, BandSpineData]] = None,
+    ) -> "FrontierRuntimePolicy":
+        context = FrontierLaunchContext(
+            graph=graph,
+            quilt_patch_ids=quilt_patch_ids,
+            allowed_tree_edges=allowed_tree_edges,
+            final_scale=final_scale,
+            seam_relation_by_edge=seam_relation_by_edge or {},
+            tree_ingress_partner_by_chain=tree_ingress_partner_by_chain or {},
+            closure_pair_map=closure_pair_map,
+            straighten_enabled=straighten_enabled,
+            inherited_role_map=inherited_role_map or {},
+            patch_structural_summaries=patch_structural_summaries or {},
+            patch_shape_classes=patch_shape_classes or {},
+            straighten_chain_refs=straighten_chain_refs or frozenset(),
+            band_spine_data=band_spine_data or {},
+        )
+        return cls(context=context, state=FrontierRuntimeState())
+
+    def __getattr__(self, name: str):
+        if name in self._CONTEXT_FIELDS:
+            return getattr(self.context, name)
+        if name in self._STATE_FIELDS:
+            return getattr(self.state, name)
+        raise AttributeError(name)
+
+    def __setattr__(self, name: str, value) -> None:
+        if name in {"context", "state"}:
+            object.__setattr__(self, name, value)
+            return
+        if name in self._CONTEXT_FIELDS:
+            raise AttributeError(f"{name} belongs to immutable frontier launch context")
+        if name in self._STATE_FIELDS:
+            setattr(self.state, name, value)
+            return
+        object.__setattr__(self, name, value)
+
+    @property
+    def closure_pair_refs(self) -> frozenset[ChainRef]:
+        return frozenset(self.closure_pair_map.keys()) if self.closure_pair_map else frozenset()
 
     def band_spine(self, patch_id: int) -> Optional[BandSpineData]:
         if not self.straighten_enabled:

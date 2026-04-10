@@ -4,6 +4,7 @@ from dataclasses import replace
 from types import MappingProxyType
 
 try:
+    from .console_debug import trace_console
     from .constants import (
         BAND_CAP_SIMILARITY_MIN,
         BAND_DIRECTIONAL_CONSISTENCY_MIN,
@@ -14,7 +15,6 @@ try:
     )
     from .model import BandMode, ChainNeighborKind, FrameRole, LoopKind, PatchType, WorldFacing
     from .analysis_records import (
-        BandSpineData,
         _FrameRun,
         _Junction,
         _JunctionStructuralKind,
@@ -30,13 +30,10 @@ try:
     )
     from .analysis_frame_runs import _build_patch_graph_loop_frame_results
     from .analysis_junctions import _build_junction_run_refs_by_corner, _build_patch_graph_junctions
-    from .band_spine import (
-        _orient_side_pair,
-        _resample_polyline,
-        build_band_spine_from_groups,
-    )
-    from .structural_tokens import build_loop_signature, classify_patch_shape, LoopSignature, PatchShapeClass
+    from .analysis_shape_support import build_patch_shape_support
+    from .band_spine import _orient_side_pair, _resample_polyline
 except ImportError:
+    from console_debug import trace_console
     from constants import (
         BAND_CAP_SIMILARITY_MIN,
         BAND_DIRECTIONAL_CONSISTENCY_MIN,
@@ -47,7 +44,6 @@ except ImportError:
     )
     from model import BandMode, ChainNeighborKind, FrameRole, LoopKind, PatchType, WorldFacing
     from analysis_records import (
-        BandSpineData,
         _FrameRun,
         _Junction,
         _JunctionStructuralKind,
@@ -63,12 +59,8 @@ except ImportError:
     )
     from analysis_frame_runs import _build_patch_graph_loop_frame_results
     from analysis_junctions import _build_junction_run_refs_by_corner, _build_patch_graph_junctions
-    from band_spine import (
-        _orient_side_pair,
-        _resample_polyline,
-        build_band_spine_from_groups,
-    )
-    from structural_tokens import build_loop_signature, classify_patch_shape, LoopSignature, PatchShapeClass
+    from analysis_shape_support import build_patch_shape_support
+    from band_spine import _orient_side_pair, _resample_polyline
 
 
 def _build_patch_topology_summaries(graph, loop_frame_results):
@@ -1382,7 +1374,7 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             if band_mode != BandMode.NOT_BAND and not band_requires_intervention and band_intervention_reject_reason
             else ""
         )
-        print(
+        trace_console(
             f"[STRUCTURAL] P{patch_id}: "
             f"spine_runs={len(spine_roles_sorted)} spine_axis={spine_axis} spine_len={spine_length:.2f} "
             f"perimeter={perimeter:.2f} spine_ratio={spine_ratio:.2f} spine_score={spine_score:.2f} "
@@ -1392,7 +1384,7 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             f"{inh_tag}{axis_tag}{junc_tag}{ss_tag}{band_tag}{band_candidate_tag}{band_mode_tag}{band_runtime_tag}{band_reject_tag}{band_intervene_tag}{band_intervene_reject_tag}"
         )
         if band_cap_count > 0 or band_side_candidate_count > 0:
-            print(
+            trace_console(
                 f"[BANDDBG] P{patch_id}: "
                 f"cap_candidates={cap_candidate_indices if 'cap_candidate_indices' in locals() else []} "
                 f"side_candidates={side_candidate_indices if 'side_candidate_indices' in locals() else []} "
@@ -1471,67 +1463,10 @@ def _build_patch_graph_derived_topology(graph, measure_chain_axis_metrics):
         for loop_summary in patch_summary.loop_summaries
     }
 
-    # --- Structural token pass ---
-    loop_signatures: dict[int, list[LoopSignature]] = {}
-    patch_shape_classes: dict[int, PatchShapeClass] = {}
-    for patch_id in sorted(graph.nodes.keys()):
-        node = graph.nodes[patch_id]
-        sigs: list[LoopSignature] = []
-        for loop_index, boundary_loop in enumerate(node.boundary_loops):
-            sig = build_loop_signature(patch_id, loop_index, boundary_loop, node)
-            sigs.append(sig)
-        loop_signatures[patch_id] = sigs
-        patch_shape_classes[patch_id] = classify_patch_shape(sigs, _debug_patch_id=patch_id)
-
-    # Solve reads a single structural truth source:
-    #   NOT_BAND  -> no strip support
-    #   SOFT_BAND -> strip topology support (caps + sides) from structural verdict
-    #   HARD_BAND -> same strip topology support with higher confidence tier
-    #
-    # Important: shape-only BAND classification remains diagnostic and must not
-    # drive solve. SOFT_BAND still needs spine topology; otherwise frontier falls
-    # back to generic H/V placement and collapses J/S-like strips into a small
-    # rectangular scaffold.
-    straighten_chain_refs: set[ChainRef] = set()
-    band_spine_data: dict[int, BandSpineData] = {}
-    for patch_id, patch_summary in patch_summaries_by_id.items():
-        if (
-            patch_summary.band_mode == BandMode.NOT_BAND
-            or not patch_summary.band_requires_intervention
-            or len(patch_summary.band_side_indices) != 2
-            or len(patch_summary.band_cap_path_groups) != 2
-        ):
-            continue
-        node = graph.nodes.get(patch_id)
-        if node is None:
-            continue
-        if any(boundary_loop.kind == LoopKind.HOLE for boundary_loop in node.boundary_loops):
-            continue
-        outer_signature = next(
-            (
-                sig
-                for sig in loop_signatures.get(patch_id, [])
-                if 0 <= sig.loop_index < len(node.boundary_loops)
-                and node.boundary_loops[sig.loop_index].kind == LoopKind.OUTER
-            ),
-            None,
-        )
-        if outer_signature is None:
-            continue
-
-        for chain_index in patch_summary.band_side_indices:
-            if 0 <= chain_index < outer_signature.chain_count:
-                straighten_chain_refs.add((patch_id, outer_signature.loop_index, chain_index))
-
-        spine_data = build_band_spine_from_groups(
-            graph,
-            patch_id,
-            outer_signature.loop_index,
-            patch_summary.band_side_indices,
-            patch_summary.band_cap_path_groups,
-        )
-        if spine_data is not None:
-            band_spine_data[patch_id] = spine_data
+    shape_support = build_patch_shape_support(
+        graph,
+        patch_summaries_by_id,
+    )
 
     return _PatchGraphDerivedTopology(
         patch_summaries=patch_summaries,
@@ -1546,8 +1481,8 @@ def _build_patch_graph_derived_topology(graph, measure_chain_axis_metrics):
         run_structural_roles=MappingProxyType(dict(run_structural_roles)),
         junction_structural_roles=MappingProxyType(dict(junction_structural_roles)),
         neighbor_inherited_roles=MappingProxyType(dict(neighbor_inherited_roles)),
-        patch_shape_classes=MappingProxyType(dict(patch_shape_classes)),
-        loop_signatures=MappingProxyType(dict(loop_signatures)),
-        straighten_chain_refs=frozenset(straighten_chain_refs),
-        band_spine_data=MappingProxyType(dict(band_spine_data)),
+        patch_shape_classes=shape_support.patch_shape_classes,
+        loop_signatures=shape_support.loop_signatures,
+        straighten_chain_refs=shape_support.straighten_chain_refs,
+        band_spine_data=shape_support.band_spine_data,
     )

@@ -1,4 +1,10 @@
-"""Dedicated narrow operator for BAND-shaped patches.
+"""Reference-only BAND helper.
+
+This module is intentionally not imported by the active runtime. Keep it as
+an archived implementation reference while BAND support lives in
+`analysis_shape_support.py`, `band_spine.py`, and frontier placement code.
+
+Dedicated narrow operator for BAND-shaped patches.
 
 A BAND patch has exactly 4 boundary chains: 2 SIDE chains (long, parallel,
 same frame role) and 2 CAP chains (short, connecting the SIDEs).

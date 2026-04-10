@@ -3,6 +3,7 @@ from __future__ import annotations
 from mathutils import Vector
 
 try:
+    from .console_debug import trace_console
     from .model import (
         ChainNeighborKind,
         PatchGraph,
@@ -29,6 +30,7 @@ try:
         _classify_loops_outer_hole,
     )
 except ImportError:
+    from console_debug import trace_console
     from model import (
         ChainNeighborKind,
         PatchGraph,
@@ -257,14 +259,14 @@ def _flood_fill_patches(bm, face_indices):
 def _report_graph_topology_invariant_violation(rule_code, detail):
     """Emit a deterministic graph-level topology invariant violation."""
 
-    print(f"[CFTUV][TopologyInvariant] Graph {rule_code} {detail}")
+    trace_console(f"[CFTUV][TopologyInvariant] Graph {rule_code} {detail}")
 
 
 
 def _report_junction_invariant_violation(vert_index, rule_code, detail):
     """Emit a deterministic junction-level topology invariant violation."""
 
-    print(f"[CFTUV][TopologyInvariant] Junction V{vert_index} {rule_code} {detail}")
+    trace_console(f"[CFTUV][TopologyInvariant] Junction V{vert_index} {rule_code} {detail}")
 
 
 def _iter_patch_neighbor_chain_refs(graph):

@@ -5,6 +5,7 @@ from heapq import heappop, heappush
 from typing import Optional
 
 try:
+    from .console_debug import trace_console
     from .analysis import build_neighbor_inherited_roles
     from .constants import (
         ROOT_WEIGHT_AREA, ROOT_WEIGHT_FRAME, ROOT_WEIGHT_FREE_RATIO,
@@ -34,6 +35,7 @@ try:
         _clamp01, _patch_pair_key,
     )
 except ImportError:
+    from console_debug import trace_console
     from analysis import build_neighbor_inherited_roles
     from constants import (
         ROOT_WEIGHT_AREA, ROOT_WEIGHT_FRAME, ROOT_WEIGHT_FREE_RATIO,
@@ -1522,7 +1524,7 @@ def _apply_quilt_closure_cut_recommendations(
             f"->{analysis.recommended_cut.edge_key[0]}-{analysis.recommended_cut.edge_key[1]}"
             for analysis in swap_analyses
         )
-        print(
+        trace_console(
             f"[CFTUV][Plan] Quilt {quilt_plan.quilt_index}: closure cut swap {swap_labels}"
         )
         current_quilt = rebuilt_quilt
