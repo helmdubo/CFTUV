@@ -6,10 +6,11 @@ from typing import Optional
 from mathutils import Vector
 
 try:
-    from .analysis_records import _PatchDerivedTopologySummary
+    from .analysis_records import BandSpineData, _PatchDerivedTopologySummary
     from .structural_tokens import PatchShapeClass
     from .model import (
         AxisAuthorityKind,
+        BandMode,
         BoundaryChain,
         ChainRef,
         FrameRole,
@@ -32,10 +33,11 @@ try:
         _point_registry_key,
     )
 except ImportError:
-    from analysis_records import _PatchDerivedTopologySummary
+    from analysis_records import BandSpineData, _PatchDerivedTopologySummary
     from structural_tokens import PatchShapeClass
     from model import (
         AxisAuthorityKind,
+        BandMode,
         BoundaryChain,
         ChainRef,
         FrameRole,
@@ -88,6 +90,7 @@ class FrontierRuntimePolicy:
     patch_structural_summaries: dict[int, _PatchDerivedTopologySummary] = field(default_factory=dict)
     patch_shape_classes: dict[int, PatchShapeClass] = field(default_factory=dict)
     straighten_chain_refs: frozenset[ChainRef] = field(default_factory=frozenset)
+    band_spine_data: dict[int, BandSpineData] = field(default_factory=dict)
     closure_pair_refs: frozenset[ChainRef] = field(init=False, default_factory=frozenset)
     # Temporary compatibility storage for score-owned derived caches until P7.
     _outer_chain_count_by_patch: dict[int, int] = field(init=False, default_factory=dict)
@@ -106,6 +109,33 @@ class FrontierRuntimePolicy:
     def __post_init__(self) -> None:
         self.closure_pair_refs = frozenset(self.closure_pair_map.keys()) if self.closure_pair_map else frozenset()
 
+    def band_spine(self, patch_id: int) -> Optional[BandSpineData]:
+        if not self.straighten_enabled:
+            return None
+        return self.band_spine_data.get(patch_id)
+
+    def band_side_role(self, chain_ref: ChainRef) -> FrameRole:
+        spine = self.band_spine(chain_ref[0])
+        if spine is None:
+            return FrameRole.FREE
+        if chain_ref in {spine.side_a_ref, spine.side_b_ref}:
+            return FrameRole.STRAIGHTEN
+        return FrameRole.FREE
+
+    def band_cap_role(self, chain_ref: ChainRef) -> FrameRole:
+        spine = self.band_spine(chain_ref[0])
+        if spine is None:
+            return FrameRole.FREE
+        cap_refs = set(spine.cap_start_refs or (spine.cap_start_ref,))
+        cap_refs.update(spine.cap_end_refs or (spine.cap_end_ref,))
+        if chain_ref not in cap_refs:
+            return FrameRole.FREE
+        if spine.spine_axis == FrameRole.H_FRAME:
+            return FrameRole.V_FRAME
+        if spine.spine_axis == FrameRole.V_FRAME:
+            return FrameRole.H_FRAME
+        return FrameRole.FREE
+
     def effective_placement_role(self, chain_ref: ChainRef, chain: BoundaryChain) -> FrameRole:
         """Unified semantic switch for placement, scoring, and viability.
 
@@ -117,8 +147,11 @@ class FrontierRuntimePolicy:
         """
         if chain.frame_role != FrameRole.FREE:
             return chain.frame_role
-        if chain_ref in self.straighten_chain_refs:
+        if chain_ref in self.straighten_chain_refs or self.band_side_role(chain_ref) == FrameRole.STRAIGHTEN:
             return FrameRole.STRAIGHTEN
+        band_cap_role = self.band_cap_role(chain_ref)
+        if band_cap_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+            return band_cap_role
         patch_id = chain_ref[0]
         if self._patch_allows_straighten_runtime(patch_id) and chain_ref in self.inherited_role_map:
             return self.inherited_role_map[chain_ref][0]
@@ -142,7 +175,7 @@ class FrontierRuntimePolicy:
             return role
         if self._patch_summary_attr(patch_id, 'inherited_spine_count', 0) >= 2:
             return role
-        if self._patch_summary_attr(patch_id, 'band_confirmed_for_runtime', False):
+        if self._patch_band_mode(patch_id) != BandMode.NOT_BAND:
             return role
         return FrameRole.FREE
 
@@ -198,11 +231,14 @@ class FrontierRuntimePolicy:
             return default
         return getattr(summary, attr_name, default)
 
+    def _patch_band_mode(self, patch_id: int) -> BandMode:
+        return self._patch_summary_attr(patch_id, 'band_mode', BandMode.NOT_BAND)
+
     def _patch_allows_straighten_runtime(self, patch_id: int) -> bool:
         if not self.straighten_enabled:
             return False
         return bool(
-            self._patch_summary_attr(patch_id, 'band_confirmed_for_runtime', False)
+            self._patch_band_mode(patch_id) in {BandMode.SOFT_BAND, BandMode.HARD_BAND}
             and self._patch_summary_attr(patch_id, 'band_requires_intervention', False)
         )
 
@@ -769,7 +805,7 @@ class FrontierRuntimePolicy:
             return False
         return bool(
             self._patch_summary_attr(patch_id, 'single_sided_inherited_support', False)
-            or self._patch_summary_attr(patch_id, 'band_confirmed_for_runtime', False)
+            or self._patch_band_mode(patch_id) != BandMode.NOT_BAND
         )
 
     def backbone_placement_role(

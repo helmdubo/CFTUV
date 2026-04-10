@@ -4,6 +4,7 @@ import time
 from typing import Optional
 
 try:
+    from .analysis_records import BandSpineData
     from .console_debug import trace_console
     from .frontier_closure import (
         _build_quilt_closure_pair_map,
@@ -72,6 +73,7 @@ try:
         SolveView,
     )
 except ImportError:
+    from analysis_records import BandSpineData
     from console_debug import trace_console
     from frontier_closure import (
         _build_quilt_closure_pair_map,
@@ -219,6 +221,7 @@ def _cf_bootstrap_frontier_runtime(
     patch_structural_summaries: Optional[dict] = None,
     patch_shape_classes: Optional[dict] = None,
     straighten_chain_refs: Optional[frozenset] = None,
+    band_spine_data: Optional[dict[int, BandSpineData]] = None,
 ) -> FrontierBootstrapAttempt:
     seed_result = _cf_choose_seed_chain(
         solve_view,
@@ -247,6 +250,7 @@ def _cf_bootstrap_frontier_runtime(
         patch_structural_summaries=patch_structural_summaries or {},
         patch_shape_classes=patch_shape_classes or {},
         straighten_chain_refs=straighten_chain_refs or frozenset(),
+        band_spine_data=band_spine_data or {},
     )
     _cf_bootstrap_runtime_score_caches(runtime_policy)
 
@@ -289,6 +293,7 @@ def _cf_bootstrap_frontier_runtime(
             seed_chain,
             effective_role=seed_effective_role,
         ),
+        runtime_policy=runtime_policy,
     )
     if seed_payload is None:
         return FrontierBootstrapAttempt(result=None, error="seed_placement_failed")
@@ -400,6 +405,7 @@ def build_quilt_scaffold_chain_frontier(
     patch_structural_summaries: Optional[dict] = None,
     patch_shape_classes: Optional[dict] = None,
     straighten_chain_refs: Optional[frozenset] = None,
+    band_spine_data: Optional[dict[int, BandSpineData]] = None,
 ) -> ScaffoldQuiltPlacement:
     """Build chain-first scaffold for a single quilt."""
 
@@ -436,6 +442,7 @@ def build_quilt_scaffold_chain_frontier(
         patch_structural_summaries=patch_structural_summaries,
         patch_shape_classes=patch_shape_classes,
         straighten_chain_refs=straighten_chain_refs,
+        band_spine_data=band_spine_data,
     )
     if bootstrap_attempt.result is None:
         quilt_scaffold.patches[quilt_plan.root_patch_id] = ScaffoldPatchPlacement(
@@ -582,6 +589,8 @@ def build_quilt_scaffold_chain_frontier(
                 inherited_role_map=inherited_role_map,
                 patch_structural_summaries=patch_structural_summaries,
                 patch_shape_classes=patch_shape_classes,
+                straighten_chain_refs=straighten_chain_refs,
+                band_spine_data=band_spine_data,
             )
 
     return quilt_scaffold
@@ -596,6 +605,7 @@ def build_root_scaffold_map(
     patch_structural_summaries: Optional[dict] = None,
     patch_shape_classes: Optional[dict] = None,
     straighten_chain_refs: Optional[frozenset] = None,
+    band_spine_data: Optional[dict[int, BandSpineData]] = None,
 ) -> ScaffoldMap:
     """Build ScaffoldMap using chain-first strongest-frontier algorithm."""
 
@@ -611,6 +621,7 @@ def build_root_scaffold_map(
             patch_structural_summaries=patch_structural_summaries,
             patch_shape_classes=patch_shape_classes,
             straighten_chain_refs=straighten_chain_refs,
+            band_spine_data=band_spine_data,
         )
         scaffold_map.quilts.append(quilt_scaffold)
 

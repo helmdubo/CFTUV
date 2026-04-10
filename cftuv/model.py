@@ -41,6 +41,14 @@ class FrameRole(str, Enum):
     FREE = "FREE"
 
 
+class BandMode(str, Enum):
+    """Strict runtime mode for strip-like BAND patches."""
+
+    NOT_BAND = "NOT_BAND"
+    SOFT_BAND = "SOFT_BAND"
+    HARD_BAND = "HARD_BAND"
+
+
 class ChainNeighborKind(str, Enum):
     """Topology class of a boundary chain neighbor."""
 

@@ -47,6 +47,7 @@ cftuv/
 ├── solve_diagnostics.py# UV axis metrics, closure seam diagnostics
 ├── solve_reporting.py  # Regression snapshots, scaffold reports, human-readable output
 ├── structural_tokens.py# Shape classifier: ChainToken, LoopSignature, PatchShapeClass
+├── band_spine.py      # BAND spine pre-parametrization: midpoint spine + 4-chain UV targets
 ├── band_operator.py    # (legacy utility) Spine projection helpers, not imported
 ├── debug.py            # Grease Pencil visualization
 ├── operators.py        # Blender UI wrappers (max 5 lines math)
@@ -173,6 +174,7 @@ Current priority order (agreed):
 7. **P7: Structural Token System** — shape classifier + STRAIGHTEN role ✓ (Phase 1)
    - `structural_tokens.py`: ChainToken, LoopSignature, PatchShapeClass
    - BAND patches: FREE SIDE chains → STRAIGHTEN, frontier handles natively
+   - `band_spine.py`: midpoint-spine parametrization for SIDE + CAP runtime placement
    - Future phases: junction enrichment (Phase 2), decal producer (Phase 3)
 
 Current frontier selection is in **Phase 7 structured-rank + layered scoring + structural tokens (STRAIGHTEN)** mode:
@@ -185,6 +187,9 @@ Structural tokens (`structural_tokens.py`) classify patches before solve:
 `PatchShapeClass.BAND` → FREE SIDE chains become STRAIGHTEN → frontier treats them as
 strong chains with authority resolution (axis, span, station, parameter).
 Toggle-gated: `straighten_chain_refs` only passed to frontier when straighten is ON.
+When straighten is ON, BAND patches may also carry `band_spine_data`: pre-computed
+midpoint-spine UV targets for both SIDEs and both CAPs, consumed directly by frontier
+placement and pin policy.
 Phase 8 alignment / drift work is a separate roadmap in `docs/cftuv_alignment_drift_roadmap.md`.
 
 ---

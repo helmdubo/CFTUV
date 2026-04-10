@@ -364,6 +364,7 @@ def _build_patch_transfer_targets(
     graph: PatchGraph,
     patch_placement: ScaffoldPatchPlacement,
     uv_offset: Vector,
+    band_spine_data: Optional[dict] = None,
 ) -> PatchTransferTargetsState:
     scaffold_point_count = _count_patch_scaffold_points(patch_placement)
     base_kwargs = {
@@ -399,7 +400,7 @@ def _build_patch_transfer_targets(
     pin_target_ids: PinnedTargetIdSet = set()
     scaffold_keys: ScaffoldKeySet = set()
     unresolved_keys: ScaffoldKeySet = set()
-    pin_map = build_patch_pin_map(graph, patch_placement)
+    pin_map = build_patch_pin_map(graph, patch_placement, band_spine_data=band_spine_data)
 
     for chain_placement in patch_placement.chain_placements:
         point_count = len(chain_placement.points)
@@ -453,8 +454,15 @@ def _apply_patch_scaffold_to_uv(
     uv_layer,
     patch_placement: ScaffoldPatchPlacement,
     uv_offset: Vector,
+    band_spine_data: Optional[dict] = None,
 ) -> PatchApplyStats:
-    transfer_state = _build_patch_transfer_targets(bm, graph, patch_placement, uv_offset)
+    transfer_state = _build_patch_transfer_targets(
+        bm,
+        graph,
+        patch_placement,
+        uv_offset,
+        band_spine_data=band_spine_data,
+    )
     if transfer_state.status != PatchTransferStatus.OK:
         return PatchApplyStats(
             status=transfer_state.status,
@@ -642,7 +650,7 @@ def _execute_phase1_preview_impl(
     except ImportError:
         from analysis import build_straighten_structural_support
     # Shape classification always runs; straighten-specific data gated by toggle.
-    inherited_role_map, patch_structural_summaries, patch_shape_classes, straighten_chain_refs = build_straighten_structural_support(patch_graph)
+    inherited_role_map, patch_structural_summaries, patch_shape_classes, straighten_chain_refs, band_spine_data = build_straighten_structural_support(patch_graph)
     scaffold_map = build_root_scaffold_map(
         patch_graph, solve_plan, settings.final_scale,
         straighten_enabled=straighten_enabled,
@@ -650,6 +658,7 @@ def _execute_phase1_preview_impl(
         patch_structural_summaries=patch_structural_summaries if straighten_enabled else None,
         patch_shape_classes=patch_shape_classes,
         straighten_chain_refs=straighten_chain_refs if straighten_enabled else None,
+        band_spine_data=band_spine_data if straighten_enabled else None,
     )
     unsupported_patch_ids = _collect_phase1_unsupported_patch_ids(scaffold_map)
     if unsupported_patch_ids:
@@ -738,6 +747,7 @@ def _execute_phase1_preview_impl(
                 uv_layer,
                 patch_placement,
                 uv_offset,
+                band_spine_data=band_spine_data if straighten_enabled else None,
             )
             validate_scaffold_uv_transfer(bm, patch_graph, uv_layer, patch_placement, uv_offset)
             _print_phase1_preview_patch_report(quilt_scaffold.quilt_index, patch_id, patch_stats)

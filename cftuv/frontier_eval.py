@@ -21,6 +21,7 @@ try:
     )
     from .frontier_state import FrontierRuntimePolicy, _mark_neighbors_dirty
     from .model import (
+        BandMode,
         BoundaryChain,
         ChainNeighborKind,
         ChainRef,
@@ -87,6 +88,7 @@ except ImportError:
     )
     from frontier_state import FrontierRuntimePolicy, _mark_neighbors_dirty
     from model import (
+        BandMode,
         BoundaryChain,
         ChainNeighborKind,
         ChainRef,
@@ -734,6 +736,10 @@ def _cf_can_use_dual_anchor_closure(
     effective_role: Optional[FrameRole] = None,
 ) -> DualAnchorClosureDecision:
     role = effective_role if effective_role is not None else chain.frame_role
+    spine = runtime_policy.band_spine(chain_ref[0]) if runtime_policy is not None else None
+    if spine is not None and chain_ref in spine.chain_uv_targets:
+        return DualAnchorClosureDecision(can_close=True)
+
     target_span = runtime_policy.resolve_target_span(
         chain_ref,
         chain,
@@ -786,6 +792,14 @@ def _cf_resolve_candidate_anchors(
     role = effective_role if effective_role is not None else chain.frame_role
     base_role = runtime_policy.effective_placement_role(chain_ref, chain)
     known = _cf_anchor_count(start_anchor, end_anchor)
+    spine = runtime_policy.band_spine(chain_ref[0]) if runtime_policy is not None else None
+    if spine is not None and chain_ref in spine.chain_uv_targets:
+        return ResolvedCandidateAnchors(
+            start_anchor=start_anchor,
+            end_anchor=end_anchor,
+            known=known,
+        )
+
     if runtime_policy.should_gate_inherited_same_patch(chain_ref, chain):
         same_patch_anchor_count = sum(
             1
@@ -798,7 +812,7 @@ def _cf_resolve_candidate_anchors(
             if anchor is not None and anchor.source_kind == PlacementSourceKind.CROSS_PATCH
         )
         if same_patch_anchor_count > 0 and cross_patch_anchor_count == 0:
-            if role == base_role and not runtime_policy._patch_summary_attr(chain_ref[0], 'band_confirmed_for_runtime', False):
+            if role == base_role and runtime_policy._patch_band_mode(chain_ref[0]) == BandMode.NOT_BAND:
                 return ResolvedCandidateAnchors(
                     start_anchor=None,
                     end_anchor=None,

@@ -213,7 +213,11 @@ def _cf_build_envelopes(
                     root_ci = bo_ref[2]
                     break
         scaffold_connected = _compute_scaffold_connected_chains(
-            patch_placements, total_chains, root_ci,
+            patch_placements,
+            total_chains,
+            root_ci,
+            patch_id=patch_id,
+            band_spine_data=getattr(runtime_policy, 'band_spine_data', None),
         )
 
         patches[patch_id] = ScaffoldPatchPlacement(

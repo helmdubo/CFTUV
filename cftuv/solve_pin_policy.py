@@ -13,7 +13,13 @@ except ImportError:
 _HV_ROLES = {FrameRole.H_FRAME, FrameRole.V_FRAME}
 
 
-def _compute_scaffold_connected_chains(patch_placements, total_chains, root_chain_index):
+def _compute_scaffold_connected_chains(
+    patch_placements,
+    total_chains,
+    root_chain_index,
+    patch_id: Optional[int] = None,
+    band_spine_data: Optional[dict] = None,
+):
     """Найти H/V chains связанные с root через непрерывную цепочку H/V.
 
     Обход замкнутого loop: chains идут по порядку 0→1→...→N-1→0.
@@ -24,10 +30,21 @@ def _compute_scaffold_connected_chains(patch_placements, total_chains, root_chai
     Длинные FREE chains разрывают scaffold connectivity.
     BFS от root_chain_index по H/V-adjacency.
     """
+    patch_id = patch_placements[0].patch_id if patch_id is None and patch_placements else patch_id
     # Карта chain_index → (frame_role, point_count) для размещённых chains
     placed_info = {}
     for cp in patch_placements:
         placed_info[cp.chain_index] = (cp.frame_role, len(cp.points))
+
+    if isinstance(band_spine_data, dict) and patch_id in band_spine_data:
+        spine = band_spine_data[patch_id]
+        connected = {
+            chain_ref[2]
+            for chain_ref in spine.chain_uv_targets.keys()
+            if chain_ref[0] == patch_id and chain_ref[2] in placed_info
+        }
+        if connected:
+            return frozenset(connected)
 
     # Root должен быть H/V, иначе нет scaffold вообще
     if root_chain_index not in placed_info or placed_info[root_chain_index][0] not in _HV_ROLES:
@@ -98,6 +115,7 @@ def _decide_chain_pin(
     conformal_patch: bool,
     scaffold_connected: bool,
     scaffold_connected_chains: frozenset[int],
+    band_spine_data: Optional[dict] = None,
 ) -> ChainPinDecision:
     """Вычислить pin decision для одного chain placement.
 
@@ -107,6 +125,16 @@ def _decide_chain_pin(
     chain_index = chain_placement.chain_index
     role = chain_placement.frame_role
     point_count = len(chain_placement.points)
+    chain_ref = (chain_placement.patch_id, chain_placement.loop_index, chain_index)
+
+    if isinstance(band_spine_data, dict):
+        spine = band_spine_data.get(chain_placement.patch_id)
+        if spine is not None and chain_ref in spine.chain_uv_targets:
+            return ChainPinDecision(
+                chain_index=chain_index, frame_role=role,
+                pin_all=True, pin_endpoints_only=False, pin_start=False, pin_end=False,
+                pin_nothing=False, reason='band_spine_connected',
+            )
 
     if conformal_patch:
         return ChainPinDecision(
@@ -169,6 +197,7 @@ def preview_chain_pin_decision(
     conformal_patch: bool,
     scaffold_connected: bool,
     scaffold_connected_chains: frozenset[int],
+    band_spine_data: Optional[dict] = None,
     policy: PinPolicy = PinPolicy(),
 ) -> ChainPinDecision:
     """Preview pin decision for a single chain without full PatchPinMap.
@@ -183,12 +212,14 @@ def preview_chain_pin_decision(
         conformal_patch,
         scaffold_connected,
         scaffold_connected_chains,
+        band_spine_data,
     )
 
 
 def build_patch_pin_map(
     graph: PatchGraph,
     patch_placement: ScaffoldPatchPlacement,
+    band_spine_data: Optional[dict] = None,
     policy: PinPolicy = PinPolicy(),
 ) -> PatchPinMap:
     """Build complete pin map for one patch from scaffold placement data.
@@ -207,7 +238,14 @@ def build_patch_pin_map(
         if node is not None and 0 <= cp.loop_index < len(node.boundary_loops):
             boundary_loop = node.boundary_loops[cp.loop_index]
         is_connected = cp.chain_index in scaffold_connected_chains
-        dec = _decide_chain_pin(cp, boundary_loop, conformal_patch, is_connected, scaffold_connected_chains)
+        dec = _decide_chain_pin(
+            cp,
+            boundary_loop,
+            conformal_patch,
+            is_connected,
+            scaffold_connected_chains,
+            band_spine_data,
+        )
         decisions.append(dec)
 
     return PatchPinMap(

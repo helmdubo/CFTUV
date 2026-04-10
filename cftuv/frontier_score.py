@@ -248,6 +248,8 @@ def _cf_role_tier(
                 # STRAIGHTEN: strong role from BAND shape classification.
                 # Between native H/V (tier 3) and FREE (tier 0).
                 return 2, 'straighten_band_side'
+            if runtime_policy.band_cap_role(chain_ref) in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                return 2, 'band_cap_spine'
             if eff_role in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
                 # Inherited role: stronger than free, weaker than true H/V
                 return 2, 'free_inherited_hv'

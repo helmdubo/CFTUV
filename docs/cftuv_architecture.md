@@ -27,6 +27,7 @@ IR design, entity model, or current architectural debt.
 | `solve_diagnostics.py` | ScaffoldMap, BMesh UV | reports | Closure/alignment diagnostics |
 | `solve_reporting.py` | ScaffoldMap, PatchPinMap | text | Snapshots, human-readable reports |
 | `structural_tokens.py` | BoundaryLoop, PatchNode | ChainToken, LoopSignature, PatchShapeClass | Shape classifier, BAND detection, STRAIGHTEN assignment |
+| `band_spine.py` | PatchGraph, LoopSignature | BandSpineData | BAND midpoint spine, per-chain local UV targets |
 | `band_operator.py` | — | — | Legacy utility (spine projection helpers), not imported |
 | `solve.py` | all above | — | Facade — orchestrates solve pipeline |
 | `debug.py` | PatchGraph | Grease Pencil | Visualization |
@@ -118,6 +119,9 @@ existing BoundaryChain/Corner data. Not a new canonical model.
   and the other pair has similar lengths (→ CAP).
 - `straighten_chain_refs`: set of ChainRef built from BAND SIDE tokens,
   passed to frontier (gated by straighten toggle).
+- `BandSpineData`: analysis-owned pre-parametrization for BAND patches.
+  Stores oriented SIDE/CAP refs, midpoint spine polyline, widths, and
+  per-chain local UV targets used by frontier placement/pin logic.
 
 ### Solve Entities
 
@@ -314,7 +318,8 @@ Canonical next-step boundary now lives in `docs/cftuv_alignment_drift_roadmap.md
 | P7 | Structural Token System (Phase 1) | ✓ Done | P8 |
 
 P7 delivered: `structural_tokens.py` with shape classifier, STRAIGHTEN FrameRole,
-frontier integration. Future phases: junction enrichment (Phase 2), decal producer (Phase 3).
+frontier integration, and `band_spine.py` for BAND SIDE/CAP spine placement.
+Future phases: junction enrichment (Phase 2), decal producer (Phase 3).
 Alignment / drift follow-up is tracked separately in `docs/cftuv_alignment_drift_roadmap.md`.
 
 ---

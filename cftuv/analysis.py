@@ -121,6 +121,7 @@ def build_straighten_structural_support(graph):
         dict(derived_topology.patch_summaries_by_id),
         dict(derived_topology.patch_shape_classes),
         derived_topology.straighten_chain_refs,
+        dict(derived_topology.band_spine_data),
     )
 
 

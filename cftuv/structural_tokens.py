@@ -394,23 +394,16 @@ def classify_patch_shape(signatures: list[LoopSignature], _debug_patch_id: int =
     if not sig.chain_tokens:
         return PatchShapeClass.MIX
 
-    # Diagnostic
-    if sig.chain_count == 4:
-        roles = [(t.role_class.value, t.effective_frame_role.value, f"len={t.length:.3f}") for t in sig.chain_tokens]
-        print(f"[CFTUV][Classify] P{_debug_patch_id} 4-chain: side={sig.side_count} cap={sig.cap_count} {roles}")
-
     # Rule 1: exactly 4 chains
     if sig.chain_count != 4:
         return PatchShapeClass.MIX
 
     # Rule 2: exactly 2 SIDE chains
     if sig.side_count != 2:
-        print(f"[CFTUV][Classify] P{_debug_patch_id} FAIL: side_count={sig.side_count} != 2")
         return PatchShapeClass.MIX
 
     # Rule 3: exactly 2 CAP chains
     if sig.cap_count != 2:
-        print(f"[CFTUV][Classify] P{_debug_patch_id} FAIL: cap_count={sig.cap_count} != 2")
         return PatchShapeClass.MIX
 
     sides = [t for t in sig.chain_tokens if t.role_class == ChainRoleClass.SIDE]
@@ -420,7 +413,6 @@ def classify_patch_shape(signatures: list[LoopSignature], _debug_patch_id: int =
     # (set during build when both are FREE). H/V chains can never be SIDE.
     for s in sides:
         if s.effective_frame_role != FrameRole.STRAIGHTEN:
-            print(f"[CFTUV][Classify] P{_debug_patch_id} FAIL rule4: SIDE {s.chain_ref} role={s.effective_frame_role.value} (must be STRAIGHTEN)")
             return PatchShapeClass.MIX
 
     # Rule 5: mutual opposite pairing
@@ -428,14 +420,11 @@ def classify_patch_shape(signatures: list[LoopSignature], _debug_patch_id: int =
         sides[0].opposite_ref == sides[1].chain_ref
         and sides[1].opposite_ref == sides[0].chain_ref
     ):
-        print(f"[CFTUV][Classify] P{_debug_patch_id} FAIL rule5: not mutual opposite")
         return PatchShapeClass.MIX
 
     # Rule 6: CAP length similarity — band must not diverge
     cap_similarity = _pair_length_similarity(caps[0].length, caps[1].length)
     if cap_similarity < _CAP_SIMILARITY_THRESHOLD:
-        print(f"[CFTUV][Classify] P{_debug_patch_id} FAIL rule6: cap_similarity={cap_similarity:.2f} < {_CAP_SIMILARITY_THRESHOLD}")
         return PatchShapeClass.MIX
 
-    print(f"[CFTUV][Classify] P{_debug_patch_id} → BAND (cap_sim={cap_similarity:.2f})")
     return PatchShapeClass.BAND

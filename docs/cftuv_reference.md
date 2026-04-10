@@ -106,6 +106,9 @@ chain. `prev_chain_index = 0, next_chain_index = 0`. Marker, not junction.
 | S5 | CAP length similarity must be >= threshold (bands don't diverge) | ✅ |
 | S6 | SIDE chains get effective_frame_role = STRAIGHTEN in ChainToken | ✅ |
 | S7 | Classification is strict: under-classify (MIX) rather than false-positive BAND | ✅ |
+| S8 | BAND runtime role assignment must preserve structural SIDE/CAP membership even when inherited H/V exists on one chain | ✅ |
+| S9 | `BandSpineData` stores local UV targets for all 4 BAND outer chains: 2 SIDE + 2 CAP | ✅ |
+| S10 | BAND spine chains pin as one connected scaffold group; CAPs must not fall back to FREE bridge pinning | ✅ |
 
 ### Cross-Layer Consistency
 

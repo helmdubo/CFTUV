@@ -9,6 +9,7 @@ from mathutils import Vector
 
 try:
     from .model import (
+        BandMode,
         BoundaryChain,
         BoundaryCorner,
         BoundaryLoop,
@@ -23,6 +24,7 @@ try:
     from .structural_tokens import LoopSignature, PatchShapeClass
 except ImportError:
     from model import (
+        BandMode,
         BoundaryChain,
         BoundaryCorner,
         BoundaryLoop,
@@ -357,7 +359,11 @@ class _PatchDerivedTopologySummary:
     band_side_candidate_count: int = 0
     band_opposite_cap_length_ratio: float = 0.0
     band_width_stability: float = 0.0
+    band_directional_consistency: float = 0.0
     band_candidate: bool = False
+    band_side_indices: tuple[int, ...] = ()
+    band_cap_path_groups: tuple[tuple[int, ...], ...] = ()
+    band_mode: BandMode = BandMode.NOT_BAND
     band_confirmed_for_runtime: bool = False
     band_rejected_reason: str = ""
     band_requires_intervention: bool = False
@@ -395,6 +401,26 @@ class _PatchGraphAggregateCounts:
 
 
 @dataclass(frozen=True)
+class BandSpineData:
+    """Pre-computed midpoint-spine parametrization for one BAND patch."""
+
+    patch_id: int
+    side_a_ref: ChainRef
+    side_b_ref: ChainRef
+    cap_start_ref: ChainRef
+    cap_end_ref: ChainRef
+    cap_start_refs: tuple[ChainRef, ...] = ()
+    cap_end_refs: tuple[ChainRef, ...] = ()
+    spine_points_3d: tuple[Vector, ...] = ()
+    spine_arc_lengths: tuple[float, ...] = ()
+    spine_arc_length: float = 0.0
+    cap_start_width: float = 0.0
+    cap_end_width: float = 0.0
+    chain_uv_targets: Mapping[ChainRef, tuple[tuple[float, float], ...]] = field(default_factory=dict)
+    spine_axis: FrameRole = FrameRole.FREE
+
+
+@dataclass(frozen=True)
 class _PatchGraphDerivedTopology:
     patch_summaries: tuple[_PatchDerivedTopologySummary, ...] = ()
     patch_summaries_by_id: Mapping[int, _PatchDerivedTopologySummary] = field(default_factory=dict)
@@ -411,3 +437,4 @@ class _PatchGraphDerivedTopology:
     patch_shape_classes: Mapping[int, PatchShapeClass] = field(default_factory=dict)
     loop_signatures: Mapping[int, list[LoopSignature]] = field(default_factory=dict)
     straighten_chain_refs: frozenset[ChainRef] = field(default_factory=frozenset)
+    band_spine_data: Mapping[int, BandSpineData] = field(default_factory=dict)

@@ -7,6 +7,7 @@ from typing import Optional
 from mathutils import Vector
 
 try:
+    from .analysis_records import BandSpineData
     from .model import (
         AnchorAdjustment,
         AxisAuthorityKind,
@@ -33,6 +34,7 @@ try:
         _point_registry_key,
     )
 except ImportError:
+    from analysis_records import BandSpineData
     from model import (
         AnchorAdjustment,
         AxisAuthorityKind,
@@ -66,6 +68,180 @@ class _ResolvedFrameSegment:
     end_uv: Vector
     axis_direction: Vector
     target_span: float
+
+
+def _band_cross_role(spine_axis: FrameRole) -> FrameRole:
+    if spine_axis == FrameRole.H_FRAME:
+        return FrameRole.V_FRAME
+    if spine_axis == FrameRole.V_FRAME:
+        return FrameRole.H_FRAME
+    return FrameRole.FREE
+
+
+def _resolve_band_uv_axes(
+    node: PatchNode,
+    graph: Optional[PatchGraph],
+    spine_data: BandSpineData,
+) -> tuple[Vector, Vector]:
+    along_dir = Vector((0.0, 1.0))
+    cross_dir = Vector((1.0, 0.0))
+    side_a = graph.get_chain(*spine_data.side_a_ref) if graph is not None else None
+    side_b = graph.get_chain(*spine_data.side_b_ref) if graph is not None else None
+
+    if spine_data.spine_axis == FrameRole.H_FRAME:
+        chord = side_a.vert_cos[-1] - side_a.vert_cos[0] if side_a is not None and len(side_a.vert_cos) >= 2 else node.basis_u.copy()
+        along_dir = Vector((1.0 if chord.dot(node.basis_u) >= 0.0 else -1.0, 0.0))
+        width_vec = (
+            side_a.vert_cos[0] - side_b.vert_cos[0]
+            if side_a is not None and side_b is not None and side_a.vert_cos and side_b.vert_cos
+            else node.basis_v.copy()
+        )
+        cross_dir = Vector((0.0, 1.0 if width_vec.dot(node.basis_v) >= 0.0 else -1.0))
+    elif spine_data.spine_axis == FrameRole.V_FRAME:
+        chord = side_a.vert_cos[-1] - side_a.vert_cos[0] if side_a is not None and len(side_a.vert_cos) >= 2 else node.basis_v.copy()
+        along_dir = Vector((0.0, 1.0 if chord.dot(node.basis_v) >= 0.0 else -1.0))
+        width_vec = (
+            side_a.vert_cos[0] - side_b.vert_cos[0]
+            if side_a is not None and side_b is not None and side_a.vert_cos and side_b.vert_cos
+            else node.basis_u.copy()
+        )
+        cross_dir = Vector((1.0 if width_vec.dot(node.basis_u) >= 0.0 else -1.0, 0.0))
+
+    return cross_dir, along_dir
+
+
+def _resolve_band_cap_scale(
+    chain_ref: ChainRef,
+    cap_refs: tuple[ChainRef, ...],
+    spine_width: float,
+    final_scale: float,
+    start_anchor: Optional[ChainAnchor],
+    end_anchor: Optional[ChainAnchor],
+    runtime_policy,
+) -> float:
+    if spine_width <= 1e-8 or final_scale <= 1e-8:
+        return 1.0
+
+    actual_width = None
+    if chain_ref in cap_refs and start_anchor is not None and end_anchor is not None:
+        actual_width = (end_anchor.uv - start_anchor.uv).length
+    elif runtime_policy is not None:
+        for cap_ref in cap_refs:
+            cap_placement = runtime_policy.placed_chains_map.get(cap_ref)
+            if cap_placement is None or len(cap_placement.points) < 2:
+                continue
+            actual_width = (cap_placement.points[-1][1] - cap_placement.points[0][1]).length
+            if actual_width > 1e-8:
+                break
+
+    if actual_width is None or actual_width <= 1e-8:
+        return 1.0
+
+    expected_width = spine_width * final_scale
+    if expected_width <= 1e-8:
+        return 1.0
+    return actual_width / expected_width
+
+
+def _resolve_band_origin_offset(
+    base_uvs: list[Vector],
+    start_anchor: Optional[ChainAnchor],
+    end_anchor: Optional[ChainAnchor],
+    graph: Optional[PatchGraph],
+    runtime_policy,
+) -> Vector:
+    if not base_uvs:
+        return Vector((0.0, 0.0))
+
+    start_offset = start_anchor.uv - base_uvs[0] if start_anchor is not None else None
+    end_offset = end_anchor.uv - base_uvs[-1] if end_anchor is not None else None
+    if start_offset is None and end_offset is None:
+        return Vector((0.0, 0.0))
+    if start_offset is None:
+        return end_offset.copy()
+    if end_offset is None:
+        return start_offset.copy()
+
+    if (start_offset - end_offset).length <= 1e-4:
+        return (start_offset + end_offset) * 0.5
+
+    if start_anchor.source_kind != end_anchor.source_kind:
+        if start_anchor.source_kind == PlacementSourceKind.SAME_PATCH:
+            return start_offset.copy()
+        if end_anchor.source_kind == PlacementSourceKind.SAME_PATCH:
+            return end_offset.copy()
+
+    placed_chains_map = getattr(runtime_policy, 'placed_chains_map', None) if runtime_policy is not None else None
+    if graph is not None and placed_chains_map is not None:
+        start_score = _frame_anchor_source_score(start_anchor, graph, placed_chains_map)
+        end_score = _frame_anchor_source_score(end_anchor, graph, placed_chains_map)
+        if end_score > start_score:
+            return end_offset.copy()
+    return start_offset.copy()
+
+
+def _build_spine_chain_uvs(
+    chain_ref: Optional[ChainRef],
+    chain: BoundaryChain,
+    node: PatchNode,
+    start_anchor: Optional[ChainAnchor],
+    end_anchor: Optional[ChainAnchor],
+    final_scale: float,
+    graph: Optional[PatchGraph],
+    runtime_policy,
+) -> list[Vector]:
+    if chain_ref is None or runtime_policy is None:
+        return []
+
+    spine_data = runtime_policy.band_spine(chain_ref[0])
+    if spine_data is None:
+        return []
+
+    local_targets = spine_data.chain_uv_targets.get(chain_ref)
+    if not local_targets:
+        return []
+
+    cross_dir, along_dir = _resolve_band_uv_axes(node, graph, spine_data)
+    start_scale = _resolve_band_cap_scale(
+        chain_ref,
+        spine_data.cap_start_refs or (spine_data.cap_start_ref,),
+        spine_data.cap_start_width,
+        final_scale,
+        start_anchor,
+        end_anchor,
+        runtime_policy,
+    )
+    end_scale = _resolve_band_cap_scale(
+        chain_ref,
+        spine_data.cap_end_refs or (spine_data.cap_end_ref,),
+        spine_data.cap_end_width,
+        final_scale,
+        start_anchor,
+        end_anchor,
+        runtime_policy,
+    )
+
+    total_arc_length = spine_data.spine_arc_length
+    base_uvs: list[Vector] = []
+    for local_u, local_v in local_targets:
+        if total_arc_length > 1e-8:
+            v_ratio = max(0.0, min(1.0, local_v / total_arc_length))
+        else:
+            v_ratio = 0.0
+        u_scale = start_scale + (end_scale - start_scale) * v_ratio
+        base_uvs.append(
+            cross_dir * (local_u * final_scale * u_scale)
+            + along_dir * (local_v * final_scale)
+        )
+
+    origin = _resolve_band_origin_offset(
+        base_uvs,
+        start_anchor,
+        end_anchor,
+        graph,
+        runtime_policy,
+    )
+    return [origin + uv for uv in base_uvs]
 
 
 def _build_temporary_chain_placement(
@@ -118,11 +294,43 @@ def _cf_build_seed_placement(
     parameter_authority_kind: ParameterAuthorityKind = ParameterAuthorityKind.NONE,
     station_map: Optional[list[float]] = None,
     target_span: Optional[float] = None,
+    runtime_policy=None,
 ) -> Optional[SeedPlacementResult]:
     seed_src = _cf_chain_source_points(seed_chain)
     role = effective_role if effective_role is not None else seed_chain.frame_role
     if role == FrameRole.STRAIGHTEN:
         role = _resolve_straighten_axis(seed_chain, root_node)
+    seed_uvs = _build_spine_chain_uvs(
+        seed_ref,
+        seed_chain,
+        root_node,
+        None,
+        None,
+        final_scale,
+        getattr(runtime_policy, 'graph', None),
+        runtime_policy,
+    )
+    if seed_uvs:
+        seed_placement = ScaffoldChainPlacement(
+            patch_id=seed_ref[0],
+            loop_index=seed_ref[1],
+            chain_index=seed_ref[2],
+            frame_role=role,
+            axis_authority_kind=axis_authority_kind,
+            span_authority_kind=span_authority_kind,
+            station_authority_kind=station_authority_kind,
+            parameter_authority_kind=parameter_authority_kind,
+            source_kind=PlacementSourceKind.CHAIN,
+            anchor_count=0,
+            points=tuple(
+                (ScaffoldPointKey(seed_ref[0], seed_ref[1], seed_ref[2], i), uv.copy())
+                for i, uv in enumerate(seed_uvs)
+            ),
+        )
+        return SeedPlacementResult(
+            placement=seed_placement,
+            uv_points=seed_uvs,
+        )
     seed_dir = _cf_determine_direction_for_role(seed_chain, root_node, role)
 
     if role in (FrameRole.H_FRAME, FrameRole.V_FRAME):
@@ -1228,6 +1436,18 @@ def _cf_place_chain(
     role = effective_role if effective_role is not None else chain.frame_role
     if role == FrameRole.STRAIGHTEN:
         role = _resolve_straighten_axis(chain, node)
+    band_uvs = _build_spine_chain_uvs(
+        chain_ref,
+        chain,
+        node,
+        start_anchor,
+        end_anchor,
+        final_scale,
+        graph,
+        runtime_policy,
+    )
+    if band_uvs:
+        return band_uvs
     direction = (
         direction_override
         if direction_override is not None else
