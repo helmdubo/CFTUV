@@ -33,6 +33,8 @@ _LABEL_COLLECTION_NAME = GP_DEBUG_PREFIX + 'Labels'
 _LABEL_PREFIX = GP_DEBUG_PREFIX + 'L_'
 _LABEL_SCALE = 0.20
 _LABEL_LIFT = 0.025
+_GP_OBJECT_TYPES = {'GPENCIL', 'GREASEPENCIL'}
+_GP_V3_RADIUS_PER_PIXEL = 0.00075
 
 
 def _enum_value(value):
@@ -41,6 +43,56 @@ def _enum_value(value):
 
 def _get_gp_debug_name(source_obj):
     return GP_DEBUG_PREFIX + source_obj.name
+
+
+def is_gp_debug_object(obj):
+    return obj is not None and getattr(obj, 'type', None) in _GP_OBJECT_TYPES
+
+
+def _grease_pencil_collections():
+    collections = []
+    gp_v3 = getattr(bpy.data, 'grease_pencils_v3', None)
+    if gp_v3 is not None:
+        collections.append(gp_v3)
+    gp_legacy = getattr(bpy.data, 'grease_pencils', None)
+    if gp_legacy is not None and gp_legacy not in collections:
+        collections.append(gp_legacy)
+    return collections
+
+
+def _grease_pencil_object_collection():
+    collections = _grease_pencil_collections()
+    return collections[0] if collections else None
+
+
+def gp_layer_name(layer):
+    return getattr(layer, 'info', getattr(layer, 'name', ''))
+
+
+def get_gp_layer(gp_data, layer_name):
+    layers = getattr(gp_data, 'layers', None)
+    if layers is None:
+        return None
+    for layer in layers:
+        if gp_layer_name(layer) == layer_name:
+            return layer
+    return None
+
+
+def _clear_gp_layer(layer):
+    if hasattr(layer, 'clear'):
+        layer.clear()
+        return
+
+    frames = getattr(layer, 'frames', None)
+    if frames is None:
+        return
+    while len(frames) > 0:
+        frame = frames[-1]
+        frame_number = getattr(frame, 'frame_number', None)
+        if frame_number is None:
+            break
+        frames.remove(frame_number)
 
 
 def _lift_point(point, normal, offset=0.01):
@@ -87,16 +139,22 @@ def _get_or_create_gp_object(source_obj):
 
     if gp_name in bpy.data.objects:
         gp_obj = bpy.data.objects[gp_name]
-        if gp_obj.type == 'GPENCIL':
+        if is_gp_debug_object(gp_obj):
             return gp_obj
         bpy.data.objects.remove(gp_obj, do_unlink=True)
 
-    gp_data = bpy.data.grease_pencils.new(gp_name)
+    gp_collection = _grease_pencil_object_collection()
+    if gp_collection is None:
+        raise RuntimeError("Grease Pencil data-block collection is unavailable in this Blender version")
+
+    gp_data = gp_collection.new(gp_name)
     gp_obj = bpy.data.objects.new(gp_name, gp_data)
     bpy.context.scene.collection.objects.link(gp_obj)
     gp_obj.matrix_world = source_obj.matrix_world.copy()
-    gp_data.stroke_depth_order = '3D'
-    gp_data.stroke_thickness_space = 'SCREENSPACE'
+    if hasattr(gp_data, 'stroke_depth_order'):
+        gp_data.stroke_depth_order = '3D'
+    if hasattr(gp_data, 'stroke_thickness_space'):
+        gp_data.stroke_thickness_space = 'SCREENSPACE'
     return gp_obj
 
 
@@ -120,9 +178,9 @@ def _ensure_gp_layer(gp_data, layer_name, color_rgba):
         gp_data.materials.append(mat)
         mat_idx = len(gp_data.materials) - 1
 
-    if layer_name in gp_data.layers:
-        layer = gp_data.layers[layer_name]
-        layer.clear()
+    layer = get_gp_layer(gp_data, layer_name)
+    if layer is not None:
+        _clear_gp_layer(layer)
     else:
         layer = gp_data.layers.new(layer_name, set_active=False)
 
@@ -130,18 +188,54 @@ def _ensure_gp_layer(gp_data, layer_name, color_rgba):
     return frame, mat_idx
 
 
+def _new_gp_stroke(frame, point_count):
+    if hasattr(frame, 'strokes') and hasattr(frame.strokes, 'new'):
+        stroke = frame.strokes.new()
+        stroke.points.add(point_count)
+        return stroke
+
+    drawing = getattr(frame, 'drawing', None)
+    if drawing is None:
+        raise RuntimeError("Grease Pencil frame has no drawing/strokes API")
+    drawing.add_strokes(sizes=[point_count])
+    return drawing.strokes[-1]
+
+
+def _set_gp_stroke_style(stroke, line_width, cyclic):
+    if hasattr(stroke, 'line_width'):
+        stroke.line_width = line_width
+    if hasattr(stroke, 'use_cyclic'):
+        stroke.use_cyclic = cyclic
+    elif hasattr(stroke, 'cyclic'):
+        stroke.cyclic = cyclic
+
+
+def _set_gp_stroke_point(point, location, line_width):
+    coords = (location.x, location.y, location.z)
+    if hasattr(point, 'co'):
+        point.co = coords
+    elif hasattr(point, 'position'):
+        point.position = coords
+
+    if hasattr(point, 'strength'):
+        point.strength = 1.0
+    elif hasattr(point, 'opacity'):
+        point.opacity = 1.0
+
+    if hasattr(point, 'pressure'):
+        point.pressure = 1.0
+    if hasattr(point, 'radius'):
+        point.radius = max(0.0005, line_width * _GP_V3_RADIUS_PER_PIXEL)
+
+
 def _add_gp_stroke(frame, points, mat_idx, line_width=4, cyclic=False):
     if len(points) < 2:
         return
-    stroke = frame.strokes.new()
+    stroke = _new_gp_stroke(frame, len(points))
     stroke.material_index = mat_idx
-    stroke.line_width = line_width
-    stroke.use_cyclic = cyclic
-    stroke.points.add(len(points))
+    _set_gp_stroke_style(stroke, line_width, cyclic)
     for index, point in enumerate(points):
-        stroke.points[index].co = (point.x, point.y, point.z)
-        stroke.points[index].strength = 1.0
-        stroke.points[index].pressure = 1.0
+        _set_gp_stroke_point(stroke.points[index], point, line_width)
 
 
 def _ensure_gp_material(gp_data, mat_name, color_rgba):
@@ -285,8 +379,9 @@ def clear_visualization(source_obj):
     if gp_name in bpy.data.objects:
         obj = bpy.data.objects[gp_name]
         bpy.data.objects.remove(obj, do_unlink=True)
-    if gp_name in bpy.data.grease_pencils:
-        bpy.data.grease_pencils.remove(bpy.data.grease_pencils[gp_name])
+    for collection in _grease_pencil_collections():
+        if gp_name in collection:
+            collection.remove(collection[gp_name])
 
     mesh_name = GP_DEBUG_PREFIX + 'Mesh_' + source_obj.name
     if mesh_name in bpy.data.objects:
@@ -389,8 +484,9 @@ def apply_layer_visibility(gp_data, dbg_settings):
         'Frontier_Path': dbg_settings.get('frontier_path', True),
     }
     for layer_name, visible in mapping.items():
-        if layer_name in gp_data.layers:
-            gp_data.layers[layer_name].hide = not visible
+        layer = get_gp_layer(gp_data, layer_name)
+        if layer is not None:
+            layer.hide = not visible
 
     # Labels collection visibility
     labels_visible = dbg_settings.get('overlay_labels', True)
@@ -412,9 +508,9 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
 
     # Loops_Chains — единый слой, материалы по frame role
     chains_layer_name = 'Loops_Chains'
-    if chains_layer_name in gp_data.layers:
-        chains_layer = gp_data.layers[chains_layer_name]
-        chains_layer.clear()
+    chains_layer = get_gp_layer(gp_data, chains_layer_name)
+    if chains_layer is not None:
+        _clear_gp_layer(chains_layer)
     else:
         chains_layer = gp_data.layers.new(chains_layer_name, set_active=False)
     chains_frame = chains_layer.frames[0] if chains_layer.frames else chains_layer.frames.new(0)
@@ -424,9 +520,9 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
         chain_mat_indices[role] = _ensure_gp_material(gp_data, mat_name, color)
 
     basis_layer_name = 'Overlay_Basis'
-    if basis_layer_name in gp_data.layers:
-        basis_layer = gp_data.layers[basis_layer_name]
-        basis_layer.clear()
+    basis_layer = get_gp_layer(gp_data, basis_layer_name)
+    if basis_layer is not None:
+        _clear_gp_layer(basis_layer)
     else:
         basis_layer = gp_data.layers.new(basis_layer_name, set_active=False)
     basis_frame = basis_layer.frames[0] if basis_layer.frames else basis_layer.frames.new(0)
@@ -456,9 +552,9 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
     patch_layers = {}
     for patch_type in (PatchType.WALL.value, PatchType.FLOOR.value, PatchType.SLOPE.value):
         layer_name = f'Patches_{patch_type}'
-        if layer_name in gp_data.layers:
-            layer = gp_data.layers[layer_name]
-            layer.clear()
+        layer = get_gp_layer(gp_data, layer_name)
+        if layer is not None:
+            _clear_gp_layer(layer)
         else:
             layer = gp_data.layers.new(layer_name, set_active=False)
         patch_layers[patch_type] = layer.frames[0] if layer.frames else layer.frames.new(0)
@@ -505,16 +601,12 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
         for tri in node.mesh_tris:
             if len(tri) < 3:
                 continue
-            stroke = patch_frame.strokes.new()
+            stroke = _new_gp_stroke(patch_frame, len(tri))
             stroke.material_index = patch_mat
-            stroke.line_width = 1
-            stroke.use_cyclic = True
-            stroke.points.add(len(tri))
+            _set_gp_stroke_style(stroke, 1, True)
             for point_index, vert_index in enumerate(tri):
                 point = node.mesh_verts[vert_index]
-                stroke.points[point_index].co = (point.x, point.y, point.z)
-                stroke.points[point_index].strength = 1.0
-                stroke.points[point_index].pressure = 1.0
+                _set_gp_stroke_point(stroke.points[point_index], point, 1)
 
         for boundary_loop in node.boundary_loops:
             loop_points = _lift_points(boundary_loop.vert_cos + [boundary_loop.vert_cos[0]], node.normal, 0.014)
@@ -588,16 +680,12 @@ def _draw_patch_fill(gp_frame, node, mat_idx):
     for tri in node.mesh_tris:
         if len(tri) < 3:
             continue
-        stroke = gp_frame.strokes.new()
+        stroke = _new_gp_stroke(gp_frame, len(tri))
         stroke.material_index = mat_idx
-        stroke.line_width = 1
-        stroke.use_cyclic = True
-        stroke.points.add(len(tri))
+        _set_gp_stroke_style(stroke, 1, True)
         for point_index, vert_index in enumerate(tri):
             point = node.mesh_verts[vert_index]
-            stroke.points[point_index].co = (point.x, point.y, point.z)
-            stroke.points[point_index].strength = 1.0
-            stroke.points[point_index].pressure = 1.0
+            _set_gp_stroke_point(stroke.points[point_index], point, 1)
 
 
 def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, settings_dict=None):
@@ -612,14 +700,14 @@ def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, s
     settings_dict = settings_dict or {}
     gp_name = _get_gp_debug_name(source_obj)
     gp_obj = bpy.data.objects.get(gp_name)
-    if gp_obj is None or gp_obj.type != 'GPENCIL':
+    if not is_gp_debug_object(gp_obj):
         return
     gp_data = gp_obj.data
 
     layer_name = 'Frontier_Path'
-    if layer_name in gp_data.layers:
-        layer = gp_data.layers[layer_name]
-        layer.clear()
+    layer = get_gp_layer(gp_data, layer_name)
+    if layer is not None:
+        _clear_gp_layer(layer)
     else:
         layer = gp_data.layers.new(layer_name, set_active=False)
 
@@ -722,4 +810,12 @@ def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, s
     apply_layer_visibility(gp_data, settings_dict)
 
 
-__all__ = ['apply_layer_visibility', 'create_visualization', 'clear_visualization', 'create_frontier_visualization']
+__all__ = [
+    'apply_layer_visibility',
+    'create_visualization',
+    'clear_visualization',
+    'create_frontier_visualization',
+    'get_gp_layer',
+    'gp_layer_name',
+    'is_gp_debug_object',
+]

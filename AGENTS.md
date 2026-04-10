@@ -49,7 +49,7 @@ cftuv/
 ├── structural_tokens.py# Shape classifier: ChainToken, LoopSignature, PatchShapeClass
 ├── band_spine.py      # BAND spine pre-parametrization: midpoint spine + 4-chain UV targets
 ├── band_operator.py    # (legacy utility) Spine projection helpers, not imported
-├── debug.py            # Grease Pencil visualization
+├── debug.py            # Grease Pencil visualization + GPENCIL/GREASEPENCIL v3 compatibility
 ├── operators.py        # Blender UI wrappers (max 5 lines math)
 └── console_debug.py    # Verbose console toggle
 ```
@@ -126,9 +126,10 @@ patches meet. Diagnostic/research entity, not solve runtime.
 12. Pin decisions live ONLY in `solve_pin_policy.py` — `PatchPinMap` is the single source of truth; do NOT inline pin logic in transfer or frontier
 13. `dihedral_convexity` is a contextual derived field — computed AFTER full PatchGraph assembly, never during chain build
 14. Analyze debug geometry must be generated independently of layer visibility toggles; panel / eye toggles only control GP layer visibility, not whether patch data is built
-15. BAND SIDE chains must BOTH be FREE (H/V chains can never be SIDE in a BAND)
-16. STRAIGHTEN is a frontier-level role — structural tokens classify, frontier places. No separate pre/post pass operator.
-17. `band_operator.py` is NOT imported — kept only as utility reference for spine projection
+15. Grease Pencil compatibility is owned by `debug.py` helpers; do NOT hardcode Blender-version-specific GP API (`GPENCIL`/`GREASEPENCIL`, `layer.info/name`, `layer.clear()`, `stroke.line_width`, etc.) outside that layer
+16. BAND SIDE chains must BOTH be FREE (H/V chains can never be SIDE in a BAND)
+17. STRAIGHTEN is a frontier-level role — structural tokens classify, frontier places. No separate pre/post pass operator.
+18. `band_operator.py` is NOT imported — kept only as utility reference for spine projection
 
 ---
 
@@ -190,6 +191,8 @@ Toggle-gated: `straighten_chain_refs` only passed to frontier when straighten is
 When straighten is ON, BAND patches may also carry `band_spine_data`: pre-computed
 midpoint-spine UV targets for both SIDEs and both CAPs, consumed directly by frontier
 placement and pin policy.
+`Solve Phase 1 Preview` clears final UV pins by default; Add-on Preferences may keep
+them for debug inspection. `Transfer Only` keeps pins.
 Phase 8 alignment / drift work is a separate roadmap in `docs/cftuv_alignment_drift_roadmap.md`.
 
 ---
@@ -229,6 +232,7 @@ No formal tests. Verification through:
 5. Regression snapshots (`Save Regression Snapshot` button)
 
 If debug visualization breaks — the change is wrong.
+Compatibility target includes legacy Blender 4.1 GPENCIL and modern Blender 4.5.x GREASEPENCIL v3.
 
 ---
 

@@ -280,6 +280,12 @@ This is reachability rescue, NOT a new solve mode.
   border-direction inheritance first; the closure chain itself may be correct and
   only interpolating divergent anchors
 
+### Phase 1 Pin Cleanup
+
+- `Solve Phase 1 Preview` clears final UV pins by default.
+- Add-on Preferences may disable that cleanup to inspect pinned scaffold state.
+- `Transfer Only` keeps pins.
+
 ### Scoring Weights (constants.py)
 
 Root patch certainty (sum = 1.0 + semantic bonus):
@@ -326,6 +332,11 @@ Frontier thresholds:
 - Analyze `Patches_WALL/FLOOR/SLOPE` data must be generated regardless of current
   patch visibility toggles; UI toggles control only GP layer visibility. Empty
   patch layers caused by hidden scene props are a bug.
+- GP compatibility is helper-owned in `debug.py`; operators/panels must not
+  hardcode `GPENCIL` vs `GREASEPENCIL` object checks.
+- Do not hardcode Blender-version-specific GP fields outside helpers:
+  `layer.info/name`, `layer.clear()`, `stroke.line_width/use_cyclic`,
+  `point.co/strength` vs `point.position/opacity/radius`.
 
 ### Snapshot / Telemetry Output Contract
 

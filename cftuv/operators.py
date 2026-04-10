@@ -26,7 +26,15 @@ from .analysis import (
     validate_solver_input_mesh,
 )
 from .constants import GP_DEBUG_PREFIX
-from .debug import apply_layer_visibility, clear_visualization, create_frontier_visualization, create_visualization
+from .debug import (
+    apply_layer_visibility,
+    clear_visualization,
+    create_frontier_visualization,
+    create_visualization,
+    get_gp_layer,
+    gp_layer_name,
+    is_gp_debug_object,
+)
 from .model import MeshPreflightReport, UVSettings
 from .solve import (
     build_root_scaffold_map,
@@ -37,6 +45,10 @@ from .solve import (
     format_solve_plan_report,
     plan_solve_phase1,
 )
+
+ADDON_PACKAGE = __package__ or Path(__file__).resolve().parent.name
+
+
 class HOTSPOTUV_OT_CleanNonManifoldEdges(bpy.types.Operator):
     bl_idname = "hotspotuv.clean_non_manifold_edges"
     bl_label = "Clean Non-Manifold Edges"
@@ -116,6 +128,21 @@ class HOTSPOTUV_OT_CleanNonManifoldEdges(bpy.types.Operator):
 # UI SETTINGS
 # ============================================================
 
+
+class HOTSPOTUV_AddonPreferences(bpy.types.AddonPreferences):
+    bl_idname = ADDON_PACKAGE
+
+    clear_pins_after_phase1: BoolProperty(
+        name="Clear Pins After Solve Phase 1",
+        default=True,
+        description="Remove UV pins after Solve Phase 1 Preview. Disable to keep pins visible for debug inspection",
+    )
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "clear_pins_after_phase1")
+
+
 class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
     target_texel_density: IntProperty(
         name="Target Texel Density (px/m)", default=512, min=1
@@ -183,6 +210,12 @@ class _SolverPreflightSelectionError(ValueError):
         super().__init__(summary)
         self.summary = summary
         self.selection_message = selection_message or summary
+
+
+def _clear_pins_after_phase1_enabled(context) -> bool:
+    addon = getattr(context.preferences, "addons", {}).get(ADDON_PACKAGE)
+    preferences = getattr(addon, "preferences", None)
+    return bool(getattr(preferences, "clear_pins_after_phase1", True))
 
 
 def _build_scaffold_map_with_straighten(graph, solve_plan, settings):
@@ -727,7 +760,7 @@ class HOTSPOTUV_OT_DebugToggleLayer(bpy.types.Operator):
 
         gp_name = GP_DEBUG_PREFIX + source_name
         gp_obj = bpy.data.objects.get(gp_name)
-        if gp_obj is None or gp_obj.type != 'GPENCIL':
+        if not is_gp_debug_object(gp_obj):
             return {"CANCELLED"}
 
         gp_data = gp_obj.data
@@ -741,8 +774,8 @@ class HOTSPOTUV_OT_DebugToggleLayer(bpy.types.Operator):
                 s.dbg_overlay_labels = not col.hide_viewport
             return {"FINISHED"}
 
-        if self.layer_name in gp_data.layers:
-            layer = gp_data.layers[self.layer_name]
+        layer = get_gp_layer(gp_data, self.layer_name)
+        if layer is not None:
             layer.hide = not layer.hide
             visible = not layer.hide
             layer_setting_map = {
@@ -785,13 +818,14 @@ class HOTSPOTUV_OT_DebugToggleGroup(bpy.types.Operator):
 
         gp_name = GP_DEBUG_PREFIX + source_name
         gp_obj = bpy.data.objects.get(gp_name)
-        if gp_obj is None or gp_obj.type != 'GPENCIL':
+        if not is_gp_debug_object(gp_obj):
             return {"FINISHED"}
 
         gp_data = gp_obj.data
         for layer_name in self._GROUP_LAYERS.get(self.group_name, []):
-            if layer_name in gp_data.layers:
-                gp_data.layers[layer_name].hide = not new_val
+            layer = get_gp_layer(gp_data, layer_name)
+            if layer is not None:
+                layer.hide = not new_val
 
         # Overlay group также управляет коллекцией labels
         if self.group_name == 'overlay':
@@ -990,9 +1024,9 @@ class HOTSPOTUV_OT_FrontierReplay(bpy.types.Operator):
                 # Показываем только Frontier_Path
                 gp_name = GP_DEBUG_PREFIX + target_name
                 gp_obj = bpy.data.objects.get(gp_name)
-                if gp_obj and gp_obj.type == 'GPENCIL':
+                if is_gp_debug_object(gp_obj):
                     for layer in gp_obj.data.layers:
-                        layer.hide = (layer.info != 'Frontier_Path')
+                        layer.hide = (gp_layer_name(layer) != 'Frontier_Path')
                     # Активируем GP
                     if context.active_object and context.active_object.mode != 'OBJECT':
                         bpy.ops.object.mode_set(mode='OBJECT')
@@ -1041,7 +1075,15 @@ class HOTSPOTUV_OT_SolvePhase1Preview(bpy.types.Operator):
                 context,
                 make_seams_by_sharp=bool(scene_settings.phase1_make_seams_by_sharp),
             )
-            stats = execute_phase1_preview(context, obj, bm, pg, settings, sp)
+            stats = execute_phase1_preview(
+                context,
+                obj,
+                bm,
+                pg,
+                settings,
+                sp,
+                keep_pins=not _clear_pins_after_phase1_enabled(context),
+            )
             s = context.scene.hotspotuv_settings
             source_name = s.dbg_source_object
             if source_name and source_name in bpy.data.objects:
@@ -1237,7 +1279,7 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         if s.dbg_active and s.dbg_source_object:
             gp_name = GP_DEBUG_PREFIX + s.dbg_source_object
             gp_obj = bpy.data.objects.get(gp_name)
-            has_gp = gp_obj is not None and gp_obj.type == 'GPENCIL'
+            has_gp = is_gp_debug_object(gp_obj)
 
             if has_gp:
                 gp_data = gp_obj.data
@@ -1291,8 +1333,8 @@ def _draw_debug_group(col, settings, gp_data, group_name, label, icon, layers):
                     row.label(text=layer_label)
                 continue
 
-            if layer_name in gp_data.layers:
-                layer = gp_data.layers[layer_name]
+            layer = get_gp_layer(gp_data, layer_name)
+            if layer is not None:
                 row = box.row(align=True)
                 row.separator(factor=2.0)
                 vis_icon = 'HIDE_OFF' if not layer.hide else 'HIDE_ON'
@@ -1308,6 +1350,7 @@ def _draw_debug_group(col, settings, gp_data, group_name, label, icon, layers):
 # ============================================================
 
 classes = (
+    HOTSPOTUV_AddonPreferences,
     HOTSPOTUV_Settings,
     # Active operators
     HOTSPOTUV_OT_DebugAnalysis,

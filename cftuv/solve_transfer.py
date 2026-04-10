@@ -888,15 +888,14 @@ def _execute_phase1_preview_impl(
     if not run_conformal:
         print(f"[CFTUV][Phase1] Transfer Only: quilts={len(scaffold_map.quilts)} patches={sorted(global_supported_patch_ids)}")
 
-    # DEBUG: пины не снимаются — для проверки pinned state после Phase1
-    # if not keep_pins:
-    #     bm = bmesh.from_edit_mesh(obj.data)
-    #     bm.faces.ensure_lookup_table()
-    #     bm.verts.ensure_lookup_table()
-    #     bm.edges.ensure_lookup_table()
-    #     uv_layer = bm.loops.layers.uv.verify()
-    #     _clear_patch_pins(bm, patch_graph, uv_layer, patch_ids)
-    #     bmesh.update_edit_mesh(obj.data)
+    if not keep_pins:
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.faces.ensure_lookup_table()
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        uv_layer = bm.loops.layers.uv.verify()
+        _clear_patch_pins(bm, patch_graph, uv_layer, patch_ids)
+        bmesh.update_edit_mesh(obj.data)
 
     return {
         'patches': len(patch_ids),
@@ -1060,7 +1059,15 @@ def validate_scaffold_uv_transfer(bm, graph, uv_layer, patch_placement, uv_offse
         )
 
 
-def execute_phase1_preview(context, obj, bm, patch_graph: PatchGraph, settings, solve_plan: Optional[SolvePlan] = None) -> dict[str, object]:
+def execute_phase1_preview(
+    context,
+    obj,
+    bm,
+    patch_graph: PatchGraph,
+    settings,
+    solve_plan: Optional[SolvePlan] = None,
+    keep_pins: bool = False,
+) -> dict[str, object]:
     return _execute_phase1_preview_impl(
         context,
         obj,
@@ -1069,7 +1076,7 @@ def execute_phase1_preview(context, obj, bm, patch_graph: PatchGraph, settings, 
         settings,
         solve_plan,
         run_conformal=True,
-        keep_pins=False,
+        keep_pins=keep_pins,
     )
 
 

@@ -30,7 +30,7 @@ IR design, entity model, or current architectural debt.
 | `band_spine.py` | PatchGraph, LoopSignature | BandSpineData | BAND midpoint spine, per-chain local UV targets |
 | `band_operator.py` | — | — | Legacy utility (spine projection helpers), not imported |
 | `solve.py` | all above | — | Facade — orchestrates solve pipeline |
-| `debug.py` | PatchGraph | Grease Pencil | Visualization |
+| `debug.py` | PatchGraph | Grease Pencil | Visualization + GPENCIL/GREASEPENCIL v3 compatibility helpers |
 | `operators.py` | all | — | Blender UI, orchestration, preflight |
 
 Legacy monolith `Hotspot_UV_v2_5_xx.py` is dead. Do not use.
@@ -240,6 +240,14 @@ geometry and must remain isolated.
 3. Isolated H/V => pin nothing.
 4. FREE => only endpoints that touch connected local H/V.
 5. Unsupported patches get individual fallback Conformal.
+6. `Solve Phase 1 Preview` clears final pins by default; Add-on Preferences may keep them for debug inspection.
+7. `execute_phase1_transfer_only()` keeps pins by design.
+
+### Debug Compatibility
+
+- `debug.py` owns Blender-version GP compatibility.
+- Operators and panels must not hardcode GP object types or legacy-only layer/stroke fields.
+- Supported runtime target: Blender 4.1 legacy GPENCIL and Blender 4.5.x GREASEPENCIL v3.
 
 ### Reporting / Telemetry Contract
 
