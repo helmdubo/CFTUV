@@ -49,7 +49,7 @@ cftuv/
 ├── structural_tokens.py# Generic loop/chain structural fingerprints
 ├── shape_types.py      # Shape enums + loop interpretation contracts
 ├── shape_classify.py   # Shape policy: BAND/MIX classification, FREE→STRAIGHTEN interpretation
-├── band_spine.py      # BAND runtime parametrization: midpoint spine + UV targets
+├── band_spine.py      # BAND runtime parametrization: section-based spine + UV targets
 ├── debug.py            # Grease Pencil visualization + GPENCIL/GREASEPENCIL v3 compatibility
 ├── operators.py        # Blender UI wrappers (max 5 lines math)
 └── console_debug.py    # Verbose console toggle
@@ -177,7 +177,7 @@ Current priority order (agreed):
    - `structural_tokens.py`: ChainToken, LoopSignature
    - `shape_types.py` / `shape_classify.py`: `PatchShapeClass`, BAND/MIX policy, FREE → STRAIGHTEN interpretation
    - BAND patches: FREE SIDE chains → STRAIGHTEN, frontier handles natively
-   - `band_spine.py`: midpoint-spine parametrization for SIDE + CAP runtime placement
+   - `band_spine.py`: section-based BAND parametrization for SIDE + CAP runtime placement
    - Future phases: junction enrichment (Phase 2), decal producer (Phase 3)
 
 Current frontier selection is in **Phase 7 structured-rank + layered scoring + structural tokens (STRAIGHTEN)** mode:
@@ -191,8 +191,13 @@ Shape support (`structural_tokens.py` + `shape_classify.py` + `analysis_shape_su
 strong chains with authority resolution (axis, span, station, parameter).
 Toggle-gated: `straighten_chain_refs` only passed to frontier when straighten is ON.
 When straighten is ON, BAND patches may also carry `band_spine_data`: pre-computed
-midpoint-spine UV targets for both SIDEs and both CAPs, consumed directly by frontier
+section-based UV targets for both SIDEs and both CAPs, consumed directly by frontier
 placement and pin policy.
+Current BAND support is intentionally no longer patch-neighbor dependent:
+- 4-chain BORDER loops may classify as BAND.
+- Geometric closed-loop split for isolated OUTER border loops must survive through final loop topology.
+- `band_spine_data` is sufficient to enable runtime straighten authorities even when legacy `band_mode` summary is absent.
+- Future `CABLE` / `CYLINDER` work must extend this shape-support path rather than reintroducing neighbor-only admission rules.
 `Solve Phase 1 Preview` clears final UV pins by default; Add-on Preferences may keep
 them for debug inspection. `Transfer Only` keeps pins.
 Phase 8 alignment / drift work is a separate roadmap in `docs/cftuv_alignment_drift_roadmap.md`.

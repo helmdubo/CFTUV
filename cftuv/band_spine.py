@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from types import MappingProxyType
 from typing import Optional
 
@@ -42,18 +43,6 @@ def _polyline_cumulative_lengths(points: tuple[Vector, ...]) -> tuple[tuple[floa
         walked += (points[point_index] - points[point_index - 1]).length
         cumulative.append(walked)
     return tuple(cumulative), walked
-
-
-def _polyline_normalized_stations(points: tuple[Vector, ...]) -> tuple[tuple[float, ...], float]:
-    cumulative, total_length = _polyline_cumulative_lengths(points)
-    if not cumulative:
-        return (), 0.0
-    if total_length <= 1e-8:
-        count = len(points)
-        if count <= 1:
-            return (0.0,), 0.0
-        return tuple(float(index) / float(count - 1) for index in range(count)), 0.0
-    return tuple(distance / total_length for distance in cumulative), total_length
 
 
 def _sample_polyline_at_distance(
@@ -102,43 +91,813 @@ def _resample_polyline(points: tuple[Vector, ...], sample_count: int) -> tuple[V
     return tuple(samples)
 
 
-def _project_point_onto_segment(point: Vector, start: Vector, end: Vector) -> tuple[Vector, float]:
-    segment = end - start
-    seg_len_sq = segment.length_squared
-    if seg_len_sq <= 1e-12:
-        return start.copy(), 0.0
-    t = _clamp01((point - start).dot(segment) / seg_len_sq)
-    return start + segment * t, t
+def _safe_normalized(vector: Vector, fallback: Vector) -> Vector:
+    if vector.length > 1e-8:
+        return vector.normalized()
+    if fallback.length > 1e-8:
+        return fallback.normalized()
+    return Vector((1.0, 0.0, 0.0))
 
 
-def _project_point_onto_polyline(
+def _sample_cubic_hermite(
+    p0: Vector,
+    p1: Vector,
+    m0: Vector,
+    m1: Vector,
+    t: float,
+) -> Vector:
+    t = _clamp01(t)
+    t2 = t * t
+    t3 = t2 * t
+    h00 = 2.0 * t3 - 3.0 * t2 + 1.0
+    h10 = t3 - 2.0 * t2 + t
+    h01 = -2.0 * t3 + 3.0 * t2
+    h11 = t3 - t2
+    return p0 * h00 + m0 * h10 + p1 * h01 + m1 * h11
+
+
+def _sample_polyline_direction(points: tuple[Vector, ...], sample_index: int) -> Vector:
+    if len(points) < 2:
+        return Vector((0.0, 0.0, 0.0))
+    if sample_index <= 0:
+        return points[1] - points[0]
+    if sample_index >= len(points) - 1:
+        return points[-1] - points[-2]
+    return points[sample_index + 1] - points[sample_index - 1]
+
+
+def _line_intersection_in_patch_plane(
+    point_a: Vector,
+    direction_a: Vector,
+    point_b: Vector,
+    direction_b: Vector,
+    basis_u: Vector,
+    basis_v: Vector,
+) -> Optional[Vector]:
+    if direction_a.length <= 1e-8 or direction_b.length <= 1e-8:
+        return None
+
+    origin = (point_a + point_b) * 0.5
+    point_a_2d = Vector(((point_a - origin).dot(basis_u), (point_a - origin).dot(basis_v)))
+    point_b_2d = Vector(((point_b - origin).dot(basis_u), (point_b - origin).dot(basis_v)))
+    dir_a_2d = Vector((direction_a.dot(basis_u), direction_a.dot(basis_v)))
+    dir_b_2d = Vector((direction_b.dot(basis_u), direction_b.dot(basis_v)))
+
+    determinant = dir_a_2d.x * dir_b_2d.y - dir_a_2d.y * dir_b_2d.x
+    if abs(determinant) <= 1e-8:
+        return None
+
+    delta = point_b_2d - point_a_2d
+    t = (delta.x * dir_b_2d.y - delta.y * dir_b_2d.x) / determinant
+    intersection_2d = point_a_2d + dir_a_2d * t
+    return origin + basis_u * intersection_2d.x + basis_v * intersection_2d.y
+
+
+def _inward_normal_direction(
+    tangent: Vector,
     point: Vector,
-    polyline: tuple[Vector, ...],
-    polyline_stations: tuple[float, ...],
-    total_length: float,
-) -> tuple[Vector, float]:
-    if not polyline:
-        return Vector((0.0, 0.0, 0.0)), 0.0
-    if len(polyline) == 1:
-        return polyline[0].copy(), 0.0
+    toward_point: Vector,
+    plane_normal: Vector,
+) -> Vector:
+    normal = plane_normal.cross(tangent)
+    if normal.dot(toward_point - point) < 0.0:
+        normal.negate()
+    return _safe_normalized(normal, toward_point - point)
 
-    best_projection = polyline[0].copy()
-    best_station = 0.0
-    best_distance_sq = float("inf")
-    for segment_index in range(len(polyline) - 1):
-        seg_start = polyline[segment_index]
-        seg_end = polyline[segment_index + 1]
-        projection, local_t = _project_point_onto_segment(point, seg_start, seg_end)
-        dist_sq = (point - projection).length_squared
-        if dist_sq >= best_distance_sq:
+
+def _build_inverse_offset_guide(
+    side_a_points: tuple[Vector, ...],
+    side_b_points: tuple[Vector, ...],
+    basis_u: Vector,
+    basis_v: Vector,
+) -> tuple[Vector, ...]:
+    if not side_a_points or not side_b_points or len(side_a_points) != len(side_b_points):
+        return ()
+
+    plane_normal = _safe_normalized(basis_u.cross(basis_v), Vector((0.0, 0.0, 1.0)))
+    guide_points = []
+    sample_count = len(side_a_points)
+    for sample_index, (point_a, point_b) in enumerate(zip(side_a_points, side_b_points)):
+        midpoint = (point_a + point_b) * 0.5
+        if sample_index == 0 or sample_index == sample_count - 1:
+            guide_points.append(midpoint)
             continue
-        best_distance_sq = dist_sq
-        start_station = polyline_stations[segment_index]
-        end_station = polyline_stations[segment_index + 1]
-        best_projection = projection
-        best_station = start_station + (end_station - start_station) * local_t
 
-    return best_projection, best_station * total_length
+        tangent_a = _sample_polyline_direction(side_a_points, sample_index)
+        tangent_b = _sample_polyline_direction(side_b_points, sample_index)
+        inward_a = _inward_normal_direction(tangent_a, point_a, midpoint, plane_normal)
+        inward_b = _inward_normal_direction(tangent_b, point_b, midpoint, plane_normal)
+        intersection = _line_intersection_in_patch_plane(
+            point_a,
+            inward_a,
+            point_b,
+            inward_b,
+            basis_u,
+            basis_v,
+        )
+        if intersection is None:
+            guide_points.append(midpoint)
+            continue
+
+        width = max((point_b - point_a).length, 1e-8)
+        if (intersection - midpoint).length > width:
+            guide_points.append(midpoint)
+            continue
+
+        normal_alignment = abs(inward_a.dot(inward_b))
+        curvature_confidence = _clamp01(1.0 - normal_alignment)
+        guide_points.append(midpoint.lerp(intersection, curvature_confidence))
+
+    return tuple(guide_points)
+
+
+def _distances_to_normalized_stations(
+    cumulative: tuple[float, ...],
+    total_length: float,
+) -> tuple[float, ...]:
+    if not cumulative:
+        return ()
+    if total_length <= 1e-8:
+        count = len(cumulative)
+        if count <= 1:
+            return (0.0,)
+        return tuple(float(index) / float(count - 1) for index in range(count))
+    return tuple(distance / total_length for distance in cumulative)
+
+
+def _sample_polyline_at_stations(
+    points: tuple[Vector, ...],
+    cumulative: tuple[float, ...],
+    total_length: float,
+    stations: tuple[float, ...],
+) -> tuple[tuple[Vector, ...], tuple[float, ...]]:
+    if not points or not stations:
+        return (), ()
+    if total_length <= 1e-8:
+        return (
+            tuple(points[0].copy() for _ in stations),
+            tuple(0.0 for _ in stations),
+        )
+
+    sampled_points = []
+    sampled_distances = []
+    for station_t in stations:
+        distance = _clamp01(station_t) * total_length
+        sampled_distances.append(distance)
+        sampled_points.append(_sample_polyline_at_distance(points, cumulative, distance))
+    return tuple(sampled_points), tuple(sampled_distances)
+
+
+def _build_bootstrap_sections(
+    side_a_points: tuple[Vector, ...],
+    side_b_points: tuple[Vector, ...],
+) -> tuple[
+    tuple[Vector, ...],
+    tuple[Vector, ...],
+    tuple[float, ...],
+    tuple[float, ...],
+    tuple[float, ...],
+]:
+    if not side_a_points or not side_b_points:
+        return (), (), (), (), ()
+
+    cumulative_a, total_a = _polyline_cumulative_lengths(side_a_points)
+    cumulative_b, total_b = _polyline_cumulative_lengths(side_b_points)
+    section_count = max(len(side_a_points), len(side_b_points), 2)
+    section_stations = tuple(
+        float(section_index) / float(section_count - 1)
+        for section_index in range(section_count)
+    )
+    side_a_sections, side_a_section_distances = _sample_polyline_at_stations(
+        side_a_points,
+        cumulative_a,
+        total_a,
+        section_stations,
+    )
+    side_b_sections, side_b_section_distances = _sample_polyline_at_stations(
+        side_b_points,
+        cumulative_b,
+        total_b,
+        section_stations,
+    )
+    if not side_a_sections or not side_b_sections:
+        return (), (), (), (), ()
+
+    return (
+        side_a_sections,
+        side_b_sections,
+        side_a_section_distances,
+        side_b_section_distances,
+        section_stations,
+    )
+
+
+def _line_segment_intersection_in_patch_plane(
+    line_point: Vector,
+    line_direction: Vector,
+    segment_start: Vector,
+    segment_end: Vector,
+    basis_u: Vector,
+    basis_v: Vector,
+) -> Optional[tuple[Vector, float]]:
+    segment_direction = segment_end - segment_start
+    if line_direction.length <= 1e-8 or segment_direction.length <= 1e-8:
+        return None
+
+    origin = line_point
+    line_point_2d = Vector((0.0, 0.0))
+    line_dir_2d = Vector((line_direction.dot(basis_u), line_direction.dot(basis_v)))
+    seg_start_2d = Vector(((segment_start - origin).dot(basis_u), (segment_start - origin).dot(basis_v)))
+    seg_end_2d = Vector(((segment_end - origin).dot(basis_u), (segment_end - origin).dot(basis_v)))
+    seg_dir_2d = seg_end_2d - seg_start_2d
+
+    determinant = line_dir_2d.x * seg_dir_2d.y - line_dir_2d.y * seg_dir_2d.x
+    if abs(determinant) <= 1e-8:
+        return None
+
+    delta = seg_start_2d - line_point_2d
+    line_t = (delta.x * seg_dir_2d.y - delta.y * seg_dir_2d.x) / determinant
+    seg_t = (delta.x * line_dir_2d.y - delta.y * line_dir_2d.x) / determinant
+    if seg_t < -1e-6 or seg_t > 1.0 + 1e-6:
+        return None
+    seg_t = _clamp01(seg_t)
+    return line_point + line_direction * line_t, seg_t
+
+
+def _intersect_section_with_polyline(
+    polyline_points: tuple[Vector, ...],
+    cumulative_distances: tuple[float, ...],
+    line_point: Vector,
+    line_direction: Vector,
+    basis_u: Vector,
+    basis_v: Vector,
+    *,
+    previous_distance: Optional[float],
+    fallback_point: Vector,
+    fallback_distance: float,
+) -> tuple[Vector, float]:
+    candidates: list[tuple[float, float, Vector]] = []
+    for segment_index in range(len(polyline_points) - 1):
+        segment_start = polyline_points[segment_index]
+        segment_end = polyline_points[segment_index + 1]
+        intersection = _line_segment_intersection_in_patch_plane(
+            line_point,
+            line_direction,
+            segment_start,
+            segment_end,
+            basis_u,
+            basis_v,
+        )
+        if intersection is None:
+            continue
+        point, segment_t = intersection
+        segment_length = (segment_end - segment_start).length
+        distance = cumulative_distances[segment_index] + segment_length * segment_t
+        line_offset = (point - line_point).length
+        candidates.append((distance, line_offset, point))
+
+    if not candidates:
+        return fallback_point.copy(), fallback_distance
+
+    if previous_distance is None:
+        best_distance, _offset, best_point = min(candidates, key=lambda item: item[1])
+        return best_point, best_distance
+
+    forward_candidates = [candidate for candidate in candidates if candidate[0] + 1e-6 >= previous_distance]
+    if forward_candidates:
+        best_distance, _offset, best_point = min(
+            forward_candidates,
+            key=lambda item: (item[0] - previous_distance, item[1]),
+        )
+        return best_point, best_distance
+
+    best_distance, _offset, best_point = min(
+        candidates,
+        key=lambda item: (abs(item[0] - previous_distance), item[1]),
+    )
+    return best_point, best_distance
+
+
+def _build_spine_normal_sections(
+    side_a_points: tuple[Vector, ...],
+    side_b_points: tuple[Vector, ...],
+    spine_points: tuple[Vector, ...],
+    basis_u: Vector,
+    basis_v: Vector,
+    fallback_side_a_sections: tuple[Vector, ...],
+    fallback_side_b_sections: tuple[Vector, ...],
+    fallback_side_a_distances: tuple[float, ...],
+    fallback_side_b_distances: tuple[float, ...],
+) -> tuple[
+    tuple[Vector, ...],
+    tuple[Vector, ...],
+    tuple[float, ...],
+    tuple[float, ...],
+]:
+    if not side_a_points or not side_b_points or not spine_points:
+        return (), (), (), ()
+
+    cumulative_a, _total_a = _polyline_cumulative_lengths(side_a_points)
+    cumulative_b, _total_b = _polyline_cumulative_lengths(side_b_points)
+    plane_normal = _safe_normalized(basis_u.cross(basis_v), Vector((0.0, 0.0, 1.0)))
+
+    side_a_sections = []
+    side_b_sections = []
+    side_a_section_distances = []
+    side_b_section_distances = []
+    previous_a_distance: Optional[float] = None
+    previous_b_distance: Optional[float] = None
+
+    for sample_index, spine_point in enumerate(spine_points):
+        if sample_index < len(fallback_side_a_sections):
+            fallback_a_point = fallback_side_a_sections[sample_index]
+            fallback_a_distance = fallback_side_a_distances[sample_index]
+        else:
+            fallback_a_point = side_a_points[-1]
+            fallback_a_distance = cumulative_a[-1]
+
+        if sample_index < len(fallback_side_b_sections):
+            fallback_b_point = fallback_side_b_sections[sample_index]
+            fallback_b_distance = fallback_side_b_distances[sample_index]
+        else:
+            fallback_b_point = side_b_points[-1]
+            fallback_b_distance = cumulative_b[-1]
+
+        if sample_index == 0:
+            side_a_sections.append(fallback_a_point.copy())
+            side_b_sections.append(fallback_b_point.copy())
+            side_a_section_distances.append(fallback_a_distance)
+            side_b_section_distances.append(fallback_b_distance)
+            previous_a_distance = fallback_a_distance
+            previous_b_distance = fallback_b_distance
+            continue
+
+        if sample_index == len(spine_points) - 1:
+            side_a_sections.append(fallback_a_point.copy())
+            side_b_sections.append(fallback_b_point.copy())
+            side_a_section_distances.append(fallback_a_distance)
+            side_b_section_distances.append(fallback_b_distance)
+            previous_a_distance = fallback_a_distance
+            previous_b_distance = fallback_b_distance
+            continue
+
+        tangent = _sample_polyline_direction(spine_points, sample_index)
+        section_direction = plane_normal.cross(tangent)
+        section_direction = _safe_normalized(section_direction, fallback_b_point - fallback_a_point)
+
+        side_a_section, side_a_distance = _intersect_section_with_polyline(
+            side_a_points,
+            cumulative_a,
+            spine_point,
+            section_direction,
+            basis_u,
+            basis_v,
+            previous_distance=previous_a_distance,
+            fallback_point=fallback_a_point,
+            fallback_distance=fallback_a_distance,
+        )
+        side_b_section, side_b_distance = _intersect_section_with_polyline(
+            side_b_points,
+            cumulative_b,
+            spine_point,
+            section_direction,
+            basis_u,
+            basis_v,
+            previous_distance=previous_b_distance,
+            fallback_point=fallback_b_point,
+            fallback_distance=fallback_b_distance,
+        )
+        side_a_sections.append(side_a_section)
+        side_b_sections.append(side_b_section)
+        side_a_section_distances.append(side_a_distance)
+        side_b_section_distances.append(side_b_distance)
+        previous_a_distance = side_a_distance
+        previous_b_distance = side_b_distance
+
+    return (
+        tuple(side_a_sections),
+        tuple(side_b_sections),
+        tuple(side_a_section_distances),
+        tuple(side_b_section_distances),
+    )
+
+
+def _median(values: tuple[float, ...]) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(float(value) for value in values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2 == 1:
+        return ordered[mid]
+    return 0.5 * (ordered[mid - 1] + ordered[mid])
+
+
+def _polyline_turn_strengths(points: tuple[Vector, ...]) -> tuple[float, ...]:
+    if not points:
+        return ()
+    strengths = [0.0] * len(points)
+    for point_index in range(1, len(points) - 1):
+        prev_dir = points[point_index] - points[point_index - 1]
+        next_dir = points[point_index + 1] - points[point_index]
+        if prev_dir.length <= 1e-8 or next_dir.length <= 1e-8:
+            continue
+        prev_dir.normalize()
+        next_dir.normalize()
+        strengths[point_index] = _clamp01((1.0 - prev_dir.dot(next_dir)) * 0.5)
+    return tuple(strengths)
+
+
+def _build_weighted_section_target_distances(
+    side_a_section_distances: tuple[float, ...],
+    side_b_section_distances: tuple[float, ...],
+    spine_points: tuple[Vector, ...],
+) -> tuple[tuple[float, ...], float]:
+    section_count = min(
+        len(side_a_section_distances),
+        len(side_b_section_distances),
+        len(spine_points),
+    )
+    if section_count <= 0:
+        return (), 0.0
+    if section_count == 1:
+        return (0.0,), 0.0
+
+    spine_turns = _polyline_turn_strengths(spine_points)
+    avg_lengths = []
+    spine_lengths = []
+    asymmetries = []
+    curvatures = []
+    for section_index in range(1, section_count):
+        delta_a = max(
+            0.0,
+            side_a_section_distances[section_index] - side_a_section_distances[section_index - 1],
+        )
+        delta_b = max(
+            0.0,
+            side_b_section_distances[section_index] - side_b_section_distances[section_index - 1],
+        )
+        avg_lengths.append(0.5 * (delta_a + delta_b))
+        spine_lengths.append(
+            (spine_points[section_index] - spine_points[section_index - 1]).length
+        )
+        asymmetries.append(
+            _clamp01(abs(delta_a - delta_b) / max(delta_a, delta_b, 1e-8))
+        )
+        curvatures.append(
+            max(
+                spine_turns[section_index - 1] if section_index - 1 < len(spine_turns) else 0.0,
+                spine_turns[section_index] if section_index < len(spine_turns) else 0.0,
+            )
+        )
+
+    median_avg = max(_median(tuple(avg_lengths)), 1e-8)
+    rigidity_weights = []
+    for avg_len, asymmetry, curvature in zip(
+        avg_lengths,
+        asymmetries,
+        curvatures,
+    ):
+        len_factor = min(max(avg_len / median_avg, 0.35), 3.25)
+        straight_factor = max(0.05, 1.0 - curvature)
+        symmetry_factor = max(0.1, 1.0 - asymmetry)
+        rigidity = (
+            (len_factor ** 1.9)
+            * (straight_factor ** 2.8)
+            * (symmetry_factor ** 1.15)
+        )
+        if len_factor > 1.05 and curvature <= 0.08:
+            rigidity *= 1.0 + min((len_factor - 1.0) * 0.8, 0.6)
+        rigidity_weights.append(max(0.02, rigidity))
+
+    rest_total = sum(avg_lengths)
+    target_total = sum(spine_lengths)
+    inv_rigidity_sum = sum(1.0 / weight for weight in rigidity_weights)
+    if rest_total <= 1e-8 or inv_rigidity_sum <= 1e-8:
+        adjusted_lengths = list(avg_lengths)
+    else:
+        lambda_scale = (target_total - rest_total) / inv_rigidity_sum
+        adjusted_lengths = [
+            max(avg_len + (lambda_scale / rigidity), 1e-6)
+            for avg_len, rigidity in zip(avg_lengths, rigidity_weights)
+        ]
+        adjusted_total = sum(adjusted_lengths)
+        if adjusted_total > 1e-8:
+            total_scale = target_total / adjusted_total
+            adjusted_lengths = [max(length * total_scale, 1e-6) for length in adjusted_lengths]
+
+    target_distances = [0.0]
+    walked = 0.0
+    for interval_length in adjusted_lengths:
+        walked += max(interval_length, 0.0)
+        target_distances.append(walked)
+
+    return tuple(target_distances), walked
+
+
+def _remap_distances_to_section_profile(
+    point_distances: tuple[float, ...],
+    section_source_distances: tuple[float, ...],
+    section_target_distances: tuple[float, ...],
+) -> tuple[float, ...]:
+    if not point_distances:
+        return ()
+    if (
+        len(section_source_distances) < 2
+        or len(section_source_distances) != len(section_target_distances)
+    ):
+        return tuple(0.0 for _ in point_distances)
+
+    mapped_distances = []
+    section_index = 0
+    for distance in point_distances:
+        while (
+            section_index < len(section_source_distances) - 2
+            and distance > section_source_distances[section_index + 1]
+        ):
+            section_index += 1
+
+        start_source = section_source_distances[section_index]
+        end_source = section_source_distances[section_index + 1]
+        start_target = section_target_distances[section_index]
+        end_target = section_target_distances[section_index + 1]
+
+        if end_source - start_source <= 1e-8:
+            local_t = 0.0
+        else:
+            local_t = _clamp01((distance - start_source) / (end_source - start_source))
+        mapped_distances.append(start_target + (end_target - start_target) * local_t)
+
+    return tuple(mapped_distances)
+
+
+def _endpoint_constraint_weight(station_t: float) -> float:
+    edge = _clamp01(2.0 * abs(float(station_t) - 0.5))
+    return edge * edge
+
+
+def _endpoint_direction(points: tuple[Vector, ...], *, at_start: bool) -> Vector:
+    if len(points) < 2:
+        return Vector((0.0, 0.0, 0.0))
+    if at_start:
+        return points[1] - points[0]
+    return points[-1] - points[-2]
+
+
+def _endpoint_corner_index(chain: BoundaryChain, reversed_points: bool, *, at_start: bool) -> int:
+    if at_start:
+        return chain.end_corner_index if reversed_points else chain.start_corner_index
+    return chain.start_corner_index if reversed_points else chain.end_corner_index
+
+
+def _chain_corner_tangent(
+    chain: Optional[BoundaryChain],
+    corner_index: int,
+) -> Vector:
+    if chain is None or len(chain.vert_cos) < 2 or corner_index < 0:
+        return Vector((0.0, 0.0, 0.0))
+    if chain.start_corner_index == corner_index:
+        return chain.vert_cos[1] - chain.vert_cos[0]
+    if chain.end_corner_index == corner_index:
+        return chain.vert_cos[-2] - chain.vert_cos[-1]
+    return Vector((0.0, 0.0, 0.0))
+
+
+def _find_group_corner_tangent(
+    graph: PatchGraph,
+    cap_refs: tuple[tuple[int, int, int], ...],
+    corner_index: int,
+) -> Vector:
+    for cap_ref in cap_refs:
+        cap_chain = graph.get_chain(*cap_ref)
+        tangent = _chain_corner_tangent(cap_chain, corner_index)
+        if tangent.length > 1e-8:
+            return tangent
+    return Vector((0.0, 0.0, 0.0))
+
+
+def _mean_direction(
+    first: Vector,
+    second: Vector,
+    fallback: Vector,
+) -> Vector:
+    if first.length <= 1e-8 and second.length <= 1e-8:
+        if fallback.length <= 1e-8:
+            return Vector((0.0, 0.0, 0.0))
+        return fallback.normalized()
+    if first.length <= 1e-8:
+        return _safe_normalized(second, fallback)
+    if second.length <= 1e-8:
+        return _safe_normalized(first, fallback)
+    aligned_second = second.copy()
+    if first.dot(aligned_second) < 0.0:
+        aligned_second.negate()
+    return _safe_normalized(first + aligned_second, fallback)
+
+
+def _corner_informed_endpoint_tangent(
+    graph: PatchGraph,
+    side_a_ref: tuple[int, int, int],
+    side_b_ref: tuple[int, int, int],
+    cap_refs: tuple[tuple[int, int, int], ...],
+    side_a_points: tuple[Vector, ...],
+    side_b_points: tuple[Vector, ...],
+    side_a_reversed: bool,
+    side_b_reversed: bool,
+    plane_normal: Vector,
+    raw_dir: Vector,
+    *,
+    at_start: bool,
+) -> Vector:
+    side_a_chain = graph.get_chain(*side_a_ref)
+    side_b_chain = graph.get_chain(*side_b_ref)
+
+    side_a_flow = _endpoint_direction(side_a_points, at_start=at_start)
+    side_b_flow = _endpoint_direction(side_b_points, at_start=at_start)
+    side_flow = _mean_direction(side_a_flow, side_b_flow, raw_dir)
+
+    side_a_corner_index = _endpoint_corner_index(side_a_chain, side_a_reversed, at_start=at_start)
+    side_b_corner_index = _endpoint_corner_index(side_b_chain, side_b_reversed, at_start=at_start)
+    cap_a_tangent = _find_group_corner_tangent(graph, cap_refs, side_a_corner_index)
+    cap_b_tangent = _find_group_corner_tangent(graph, cap_refs, side_b_corner_index)
+    cap_axis = _mean_direction(cap_a_tangent, cap_b_tangent, Vector((0.0, 0.0, 0.0)))
+    if cap_axis.length <= 1e-8:
+        return side_flow
+
+    cap_normal_tangent = plane_normal.cross(cap_axis)
+    if cap_normal_tangent.dot(raw_dir) < 0.0:
+        cap_normal_tangent.negate()
+    cap_normal_tangent = _safe_normalized(cap_normal_tangent, side_flow)
+
+    orthogonality_samples = []
+    for side_dir in (side_a_flow, side_b_flow):
+        if side_dir.length <= 1e-8:
+            continue
+        orthogonality_samples.append(
+            _clamp01(1.0 - abs(_safe_normalized(side_dir, raw_dir).dot(cap_axis)))
+        )
+    orthogonality_confidence = (
+        sum(orthogonality_samples) / float(len(orthogonality_samples))
+        if orthogonality_samples else 0.0
+    )
+    cap_consistency = 1.0
+    if cap_a_tangent.length > 1e-8 and cap_b_tangent.length > 1e-8:
+        norm_a = _safe_normalized(cap_a_tangent, cap_axis)
+        norm_b = _safe_normalized(cap_b_tangent, cap_axis)
+        if norm_a.dot(norm_b) < 0.0:
+            norm_b.negate()
+        cap_consistency = _clamp01(norm_a.dot(norm_b))
+
+    blend = 0.75 * orthogonality_confidence * cap_consistency
+    return _safe_normalized(side_flow.lerp(cap_normal_tangent, blend), raw_dir)
+
+
+def _constrain_spine_with_cap_tangents(
+    graph: PatchGraph,
+    side_a_ref: tuple[int, int, int],
+    side_b_ref: tuple[int, int, int],
+    cap_start_refs: tuple[tuple[int, int, int], ...],
+    cap_end_refs: tuple[tuple[int, int, int], ...],
+    raw_spine_points: tuple[Vector, ...],
+    side_a_points: tuple[Vector, ...],
+    side_b_points: tuple[Vector, ...],
+    side_a_reversed: bool,
+    side_b_reversed: bool,
+    basis_u: Vector,
+    basis_v: Vector,
+) -> tuple[Vector, ...]:
+    if len(raw_spine_points) <= 2:
+        return raw_spine_points
+
+    sample_stations = tuple(
+        float(sample_index) / float(len(raw_spine_points) - 1)
+        for sample_index in range(len(raw_spine_points))
+    )
+    plane_normal = _safe_normalized(basis_u.cross(basis_v), Vector((0.0, 0.0, 1.0)))
+
+    raw_start_dir = raw_spine_points[1] - raw_spine_points[0]
+    raw_end_dir = raw_spine_points[-1] - raw_spine_points[-2]
+
+    start_tangent_dir = _corner_informed_endpoint_tangent(
+        graph,
+        side_a_ref,
+        side_b_ref,
+        cap_start_refs,
+        side_a_points,
+        side_b_points,
+        side_a_reversed,
+        side_b_reversed,
+        plane_normal,
+        raw_start_dir,
+        at_start=True,
+    )
+    end_tangent_dir = _corner_informed_endpoint_tangent(
+        graph,
+        side_a_ref,
+        side_b_ref,
+        cap_end_refs,
+        side_a_points,
+        side_b_points,
+        side_a_reversed,
+        side_b_reversed,
+        plane_normal,
+        raw_end_dir,
+        at_start=False,
+    )
+
+    start_step = max(raw_start_dir.length, 1e-8)
+    end_step = max(raw_end_dir.length, 1e-8)
+    tangent_scale = float(len(raw_spine_points) - 1)
+    start_tangent = start_tangent_dir * start_step * tangent_scale
+    end_tangent = end_tangent_dir * end_step * tangent_scale
+
+    constrained_points = []
+    for station_t, raw_point in zip(sample_stations, raw_spine_points):
+        tangent_point = _sample_cubic_hermite(
+            raw_spine_points[0],
+            raw_spine_points[-1],
+            start_tangent,
+            end_tangent,
+            station_t,
+        )
+        blend = 0.6 * _endpoint_constraint_weight(station_t)
+        constrained_points.append(raw_point.lerp(tangent_point, blend))
+
+    constrained_points[0] = raw_spine_points[0].copy()
+    constrained_points[-1] = raw_spine_points[-1].copy()
+    return tuple(constrained_points)
+
+
+def _resolve_spine_axis_from_points(
+    side_a_points: tuple[Vector, ...],
+    side_b_points: tuple[Vector, ...],
+    basis_u: Vector,
+    basis_v: Vector,
+) -> FrameRole:
+    if not side_a_points or not side_b_points:
+        return FrameRole.H_FRAME
+    start_mid = (side_a_points[0] + side_b_points[0]) * 0.5
+    end_mid = (side_a_points[-1] + side_b_points[-1]) * 0.5
+    chord = end_mid - start_mid
+    u_comp = abs(chord.dot(basis_u))
+    v_comp = abs(chord.dot(basis_v))
+    return FrameRole.H_FRAME if u_comp >= v_comp else FrameRole.V_FRAME
+
+
+def _canonicalize_band_orientation(
+    side_a_ref: tuple[int, int, int],
+    side_b_ref: tuple[int, int, int],
+    side_a_points: tuple[Vector, ...],
+    side_b_points: tuple[Vector, ...],
+    cap_start_refs: tuple[tuple[int, int, int], ...],
+    cap_end_refs: tuple[tuple[int, int, int], ...],
+    side_a_reversed: bool,
+    side_b_reversed: bool,
+    basis_u: Vector,
+    basis_v: Vector,
+) -> tuple[
+    tuple[int, int, int],
+    tuple[int, int, int],
+    tuple[Vector, ...],
+    tuple[Vector, ...],
+    tuple[tuple[int, int, int], ...],
+    tuple[tuple[int, int, int], ...],
+    bool,
+    bool,
+]:
+    spine_axis = _resolve_spine_axis_from_points(
+        side_a_points,
+        side_b_points,
+        basis_u,
+        basis_v,
+    )
+    along_basis = basis_u if spine_axis == FrameRole.H_FRAME else basis_v
+    start_mid = (side_a_points[0] + side_b_points[0]) * 0.5
+    end_mid = (side_a_points[-1] + side_b_points[-1]) * 0.5
+    if (end_mid - start_mid).dot(along_basis) < 0.0:
+        side_a_points = tuple(reversed(side_a_points))
+        side_b_points = tuple(reversed(side_b_points))
+        cap_start_refs, cap_end_refs = cap_end_refs, cap_start_refs
+        side_a_reversed = not side_a_reversed
+        side_b_reversed = not side_b_reversed
+
+    cross_basis = basis_v if spine_axis == FrameRole.H_FRAME else (-basis_u)
+    side_a_cross = sum(point.dot(cross_basis) for point in side_a_points) / float(max(len(side_a_points), 1))
+    side_b_cross = sum(point.dot(cross_basis) for point in side_b_points) / float(max(len(side_b_points), 1))
+    if side_a_cross < side_b_cross:
+        side_a_ref, side_b_ref = side_b_ref, side_a_ref
+        side_a_points, side_b_points = side_b_points, side_a_points
+        side_a_reversed, side_b_reversed = side_b_reversed, side_a_reversed
+
+    return (
+        side_a_ref,
+        side_b_ref,
+        side_a_points,
+        side_b_points,
+        cap_start_refs,
+        cap_end_refs,
+        side_a_reversed,
+        side_b_reversed,
+    )
 
 
 def _resolve_spine_axis(chain: BoundaryChain, basis_u: Vector, basis_v: Vector) -> FrameRole:
@@ -165,10 +924,13 @@ def _orient_side_pair(
     cap_path_refs: tuple[tuple[tuple[int, int, int], ...], ...],
 ) -> Optional[
     tuple[
+        tuple[int, int, int],
+        tuple[int, int, int],
         tuple[Vector, ...],
         tuple[Vector, ...],
         tuple[tuple[int, int, int], ...],
         tuple[tuple[int, int, int], ...],
+        bool,
         bool,
     ]
 ]:
@@ -202,6 +964,7 @@ def _orient_side_pair(
 
     side_a_points = tuple(point.copy() for point in side_a.vert_cos)
     side_b_points = tuple(point.copy() for point in side_b.vert_cos)
+    side_a_reversed = False
     side_b_reversed = False
 
     if _group_has_corner(graph, cap_start_refs, side_b.end_corner_index):
@@ -214,27 +977,36 @@ def _orient_side_pair(
             side_b_points = tuple(reversed(side_b_points))
             side_b_reversed = True
 
-    return side_a_points, side_b_points, cap_start_refs, cap_end_refs, side_b_reversed
+    return (
+        side_a_ref,
+        side_b_ref,
+        side_a_points,
+        side_b_points,
+        cap_start_refs,
+        cap_end_refs,
+        side_a_reversed,
+        side_b_reversed,
+    )
 
 
 def _parametrize_side(
     side_points: tuple[Vector, ...],
-    spine_points: tuple[Vector, ...],
-    spine_arc_lengths: tuple[float, ...],
+    section_source_distances: tuple[float, ...],
+    section_target_distances: tuple[float, ...],
     total_length: float,
     cap_start_width: float,
     cap_end_width: float,
     side_sign: float,
 ) -> tuple[tuple[float, float], ...]:
+    side_distances, _ = _polyline_cumulative_lengths(side_points)
+    mapped_distances = _remap_distances_to_section_profile(
+        side_distances,
+        section_source_distances,
+        section_target_distances,
+    )
     uv_targets = []
-    for point in side_points:
-        _, v_distance = _project_point_onto_polyline(
-            point,
-            spine_points,
-            spine_arc_lengths,
-            total_length,
-        )
-        v_ratio = _clamp01(v_distance / max(total_length, 1e-8)) if total_length > 1e-8 else 0.0
+    for v_distance in mapped_distances:
+        v_ratio = _clamp01(v_distance / total_length) if total_length > 1e-8 else 0.0
         half_width = 0.5 * (
             cap_start_width
             + (cap_end_width - cap_start_width) * v_ratio
@@ -247,19 +1019,24 @@ def _parametrize_cap(
     cap_chain: BoundaryChain,
     side_a_endpoint: Vector,
     side_b_endpoint: Vector,
+    guide_tangent: Vector,
     v_distance: float,
     cap_width: float,
 ) -> tuple[tuple[float, float], ...]:
     segment = side_b_endpoint - side_a_endpoint
     segment_len_sq = segment.length_squared
+    tangent_dir = guide_tangent.normalized() if guide_tangent.length > 1e-8 else Vector((0.0, 0.0, 0.0))
     uv_targets = []
     for point in cap_chain.vert_cos:
         if segment_len_sq <= 1e-12:
             side_t = 0.5
+            segment_point = (side_a_endpoint + side_b_endpoint) * 0.5
         else:
             side_t = _clamp01((point - side_a_endpoint).dot(segment) / segment_len_sq)
+            segment_point = side_a_endpoint.lerp(side_b_endpoint, side_t)
         u_distance = (0.5 - side_t) * cap_width
-        uv_targets.append((u_distance, v_distance))
+        v_offset = (point - segment_point).dot(tangent_dir) if tangent_dir.length > 1e-8 else 0.0
+        uv_targets.append((u_distance, v_distance + v_offset))
     return tuple(uv_targets)
 
 
@@ -270,7 +1047,7 @@ def build_band_spine_from_groups(
     side_chain_indices: tuple[int, ...],
     cap_path_groups: tuple[tuple[int, ...], ...],
 ) -> Optional[BandSpineData]:
-    """Build midpoint-spine UV targets for BAND loops with split CAP paths."""
+    """Build BAND UV targets from section-based master-rail stations."""
 
     node = graph.nodes.get(patch_id)
     if node is None or loop_index < 0 or loop_index >= len(node.boundary_loops):
@@ -297,20 +1074,106 @@ def build_band_spine_from_groups(
     if oriented is None:
         return None
 
-    side_a_points, side_b_points, cap_start_refs, cap_end_refs, side_b_reversed = oriented
-    sample_count = max(len(side_a_points), len(side_b_points), 2)
-    resampled_side_a = _resample_polyline(side_a_points, sample_count)
-    resampled_side_b = _resample_polyline(side_b_points, sample_count)
-    if not resampled_side_a or not resampled_side_b:
+    (
+        side_a_ref,
+        side_b_ref,
+        side_a_points,
+        side_b_points,
+        cap_start_refs,
+        cap_end_refs,
+        side_a_reversed,
+        side_b_reversed,
+    ) = oriented
+    (
+        side_a_ref,
+        side_b_ref,
+        side_a_points,
+        side_b_points,
+        cap_start_refs,
+        cap_end_refs,
+        side_a_reversed,
+        side_b_reversed,
+    ) = _canonicalize_band_orientation(
+        side_a_ref,
+        side_b_ref,
+        side_a_points,
+        side_b_points,
+        cap_start_refs,
+        cap_end_refs,
+        side_a_reversed,
+        side_b_reversed,
+        node.basis_u,
+        node.basis_v,
+    )
+    (
+        bootstrap_side_a_sections,
+        bootstrap_side_b_sections,
+        bootstrap_side_a_distances,
+        bootstrap_side_b_distances,
+        section_stations,
+    ) = _build_bootstrap_sections(
+        side_a_points,
+        side_b_points,
+    )
+    if not bootstrap_side_a_sections or not bootstrap_side_b_sections or not section_stations:
         return None
 
-    spine_points = tuple(
-        (point_a + point_b) * 0.5
-        for point_a, point_b in zip(resampled_side_a, resampled_side_b)
+    raw_spine_points = _build_inverse_offset_guide(
+        bootstrap_side_a_sections,
+        bootstrap_side_b_sections,
+        node.basis_u,
+        node.basis_v,
     )
-    spine_arc_lengths, total_arc_length = _polyline_normalized_stations(spine_points)
+    if not raw_spine_points:
+        return None
+    spine_points = _constrain_spine_with_cap_tangents(
+        graph,
+        side_a_ref,
+        side_b_ref,
+        cap_start_refs,
+        cap_end_refs,
+        raw_spine_points,
+        side_a_points,
+        side_b_points,
+        side_a_reversed,
+        side_b_reversed,
+        node.basis_u,
+        node.basis_v,
+    )
+    (
+        side_a_sections,
+        side_b_sections,
+        side_a_section_distances,
+        side_b_section_distances,
+    ) = _build_spine_normal_sections(
+        side_a_points,
+        side_b_points,
+        spine_points,
+        node.basis_u,
+        node.basis_v,
+        bootstrap_side_a_sections,
+        bootstrap_side_b_sections,
+        bootstrap_side_a_distances,
+        bootstrap_side_b_distances,
+    )
+    if not side_a_sections or not side_b_sections:
+        return None
+
+    section_target_distances, total_arc_length = _build_weighted_section_target_distances(
+        side_a_section_distances,
+        side_b_section_distances,
+        spine_points,
+    )
+    if not section_target_distances:
+        return None
+    spine_arc_lengths = _distances_to_normalized_stations(
+        section_target_distances,
+        total_arc_length,
+    )
     if not spine_arc_lengths:
         return None
+    start_tangent = _endpoint_direction(spine_points, at_start=True)
+    end_tangent = _endpoint_direction(spine_points, at_start=False)
 
     cap_start_width = (side_a_points[0] - side_b_points[0]).length
     cap_end_width = (side_a_points[-1] - side_b_points[-1]).length
@@ -322,17 +1185,19 @@ def build_band_spine_from_groups(
 
     side_a_targets = _parametrize_side(
         side_a_points,
-        spine_points,
-        spine_arc_lengths,
+        side_a_section_distances,
+        section_target_distances,
         total_arc_length,
         cap_start_width,
         cap_end_width,
         side_sign=1.0,
     )
+    if side_a_reversed:
+        side_a_targets = tuple(reversed(side_a_targets))
     side_b_targets = _parametrize_side(
         side_b_points,
-        spine_points,
-        spine_arc_lengths,
+        side_b_section_distances,
+        section_target_distances,
         total_arc_length,
         cap_start_width,
         cap_end_width,
@@ -354,6 +1219,7 @@ def build_band_spine_from_groups(
             cap_chain,
             side_a_points[0],
             side_b_points[0],
+            start_tangent,
             0.0,
             cap_start_width,
         )
@@ -366,6 +1232,7 @@ def build_band_spine_from_groups(
             cap_chain,
             side_a_points[-1],
             side_b_points[-1],
+            end_tangent,
             total_arc_length,
             cap_end_width,
         )

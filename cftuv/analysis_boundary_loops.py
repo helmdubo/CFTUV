@@ -280,7 +280,7 @@ def _atomize_mesh_border_chains(_raw_loop, raw_chains):
 
     result = []
     for raw_chain in raw_chains:
-        if int(raw_chain.neighbor) == NB_MESH_BORDER:
+        if int(raw_chain.neighbor) == NB_MESH_BORDER and not raw_chain.is_corner_split:
             result.extend(_atomize_raw_chain_to_edges(raw_chain))
         else:
             result.append(raw_chain)
@@ -422,6 +422,8 @@ def _merge_same_role_border_chains(chains):
             prev.neighbor_kind == ChainNeighborKind.MESH_BORDER
             and curr.neighbor_kind == ChainNeighborKind.MESH_BORDER
             and prev.frame_role == curr.frame_role
+            and not prev.is_corner_split
+            and not curr.is_corner_split
             and not prev.is_closed
             and not curr.is_closed
         )
@@ -449,6 +451,8 @@ def _merge_same_role_border_chains(chains):
             last.neighbor_kind == ChainNeighborKind.MESH_BORDER
             and first.neighbor_kind == ChainNeighborKind.MESH_BORDER
             and last.frame_role == first.frame_role
+            and not last.is_corner_split
+            and not first.is_corner_split
             and not last.is_closed
             and not first.is_closed
         )

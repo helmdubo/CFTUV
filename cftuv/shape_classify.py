@@ -55,8 +55,6 @@ def _is_mutual_opposite(signature: LoopSignature, chain_a_index: int, chain_b_in
 def _classify_band_loop(signature: LoopSignature) -> LoopShapeInterpretation | None:
     if signature.chain_count != 4 or len(signature.chain_tokens) != 4:
         return None
-    if any(token.is_border for token in signature.chain_tokens):
-        return None
 
     pair_a = (0, 2)
     pair_b = (1, 3)

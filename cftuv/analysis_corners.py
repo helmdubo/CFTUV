@@ -430,6 +430,7 @@ def _split_closed_loop_by_corner_indices(raw_loop, split_indices, neighbor_patch
                 is_closed=False,
                 start_loop_index=start_loop_index,
                 end_loop_index=end_loop_index,
+                is_corner_split=True,
             )
         )
 
@@ -479,8 +480,7 @@ def _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v, bm=N
     trace_console(f"[CFTUV][GeoSplit] derived_roles={[role.value for role in derived_roles]}")
     non_free_count = sum(1 for role in derived_roles if role != FrameRole.FREE)
     if non_free_count < 1:
-        trace_console("[CFTUV][GeoSplit] BAIL: all derived chains are FREE")
-        return raw_chains
+        trace_console("[CFTUV][GeoSplit] KEEP: all derived chains are FREE, preserving geometric split")
     trace_console(f"[CFTUV][GeoSplit] SUCCESS: split into {len(derived_raw_chains)} chains, non_free={non_free_count}")
 
     return derived_raw_chains

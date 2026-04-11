@@ -120,14 +120,6 @@ def _band_shape_support(
     patch_summary: _PatchDerivedTopologySummary,
     fingerprint: PatchShapeFingerprint,
 ) -> PatchShapeSupportArtifact:
-    if (
-        patch_summary.band_mode == BandMode.NOT_BAND
-        or not patch_summary.band_requires_intervention
-        or len(patch_summary.band_side_indices) != 2
-        or len(patch_summary.band_cap_path_groups) != 2
-    ):
-        return PatchShapeSupportArtifact()
-
     node = graph.nodes.get(patch_summary.patch_id)
     if node is None or any(boundary_loop.kind == LoopKind.HOLE for boundary_loop in node.boundary_loops):
         return PatchShapeSupportArtifact()
@@ -146,10 +138,23 @@ def _band_shape_support(
         else ()
     )
     summary_side_indices = tuple(patch_summary.band_side_indices)
-    if shape_side_indices and shape_side_indices != summary_side_indices:
+    if (
+        shape_side_indices
+        and summary_side_indices
+        and shape_side_indices != summary_side_indices
+    ):
         return PatchShapeSupportArtifact()
 
     side_chain_indices = shape_side_indices or summary_side_indices
+    shape_cap_path_groups = (
+        tuple((chain_index,) for chain_index in outer_interpretation.cap_chain_indices)
+        if outer_interpretation is not None and len(outer_interpretation.cap_chain_indices) == 2
+        else ()
+    )
+    cap_path_groups = tuple(patch_summary.band_cap_path_groups) or shape_cap_path_groups
+    if len(side_chain_indices) != 2 or len(cap_path_groups) != 2:
+        return PatchShapeSupportArtifact()
+
     straighten_chain_refs = frozenset(
         (patch_summary.patch_id, outer_signature.loop_index, chain_index)
         for chain_index in side_chain_indices
@@ -160,7 +165,7 @@ def _band_shape_support(
         patch_summary.patch_id,
         outer_signature.loop_index,
         side_chain_indices,
-        patch_summary.band_cap_path_groups,
+        cap_path_groups,
     )
     return PatchShapeSupportArtifact(
         straighten_chain_refs=straighten_chain_refs,

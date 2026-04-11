@@ -400,7 +400,16 @@ def _measure_band_directional_consistency(
     if oriented is None:
         return 0.0, 0.0, 0.0, 0.0
 
-    side_a_points, side_b_points, _cap_start_refs, _cap_end_refs, _side_b_reversed = oriented
+    (
+        _side_a_ref,
+        _side_b_ref,
+        side_a_points,
+        side_b_points,
+        _cap_start_refs,
+        _cap_end_refs,
+        _side_a_reversed,
+        _side_b_reversed,
+    ) = oriented
     sample_count = max(len(side_a_points), len(side_b_points), BAND_DIRECTION_MIN_SAMPLES)
     side_a_samples = _resample_polyline(side_a_points, sample_count)
     side_b_samples = _resample_polyline(side_b_points, sample_count)

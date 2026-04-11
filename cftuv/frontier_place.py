@@ -78,36 +78,78 @@ def _band_cross_role(spine_axis: FrameRole) -> FrameRole:
     return FrameRole.FREE
 
 
-def _resolve_band_uv_axes(
+def _resolve_band_along_sign(
     node: PatchNode,
     graph: Optional[PatchGraph],
     spine_data: BandSpineData,
-) -> tuple[Vector, Vector]:
-    along_dir = Vector((0.0, 1.0))
-    cross_dir = Vector((1.0, 0.0))
+) -> float:
     side_a = graph.get_chain(*spine_data.side_a_ref) if graph is not None else None
-    side_b = graph.get_chain(*spine_data.side_b_ref) if graph is not None else None
 
     if spine_data.spine_axis == FrameRole.H_FRAME:
-        chord = side_a.vert_cos[-1] - side_a.vert_cos[0] if side_a is not None and len(side_a.vert_cos) >= 2 else node.basis_u.copy()
-        along_dir = Vector((1.0 if chord.dot(node.basis_u) >= 0.0 else -1.0, 0.0))
-        width_vec = (
-            side_a.vert_cos[0] - side_b.vert_cos[0]
-            if side_a is not None and side_b is not None and side_a.vert_cos and side_b.vert_cos
-            else node.basis_v.copy()
-        )
-        cross_dir = Vector((0.0, 1.0 if width_vec.dot(node.basis_v) >= 0.0 else -1.0))
-    elif spine_data.spine_axis == FrameRole.V_FRAME:
-        chord = side_a.vert_cos[-1] - side_a.vert_cos[0] if side_a is not None and len(side_a.vert_cos) >= 2 else node.basis_v.copy()
-        along_dir = Vector((0.0, 1.0 if chord.dot(node.basis_v) >= 0.0 else -1.0))
-        width_vec = (
-            side_a.vert_cos[0] - side_b.vert_cos[0]
-            if side_a is not None and side_b is not None and side_a.vert_cos and side_b.vert_cos
+        chord = (
+            side_a.vert_cos[-1] - side_a.vert_cos[0]
+            if side_a is not None and len(side_a.vert_cos) >= 2
             else node.basis_u.copy()
         )
-        cross_dir = Vector((1.0 if width_vec.dot(node.basis_u) >= 0.0 else -1.0, 0.0))
+        return 1.0 if chord.dot(node.basis_u) >= 0.0 else -1.0
+    if spine_data.spine_axis == FrameRole.V_FRAME:
+        chord = (
+            side_a.vert_cos[-1] - side_a.vert_cos[0]
+            if side_a is not None and len(side_a.vert_cos) >= 2
+            else node.basis_v.copy()
+        )
+        return 1.0 if chord.dot(node.basis_v) >= 0.0 else -1.0
+    return 1.0
 
-    return cross_dir, along_dir
+
+def _band_uv_axes_from_sign(
+    spine_axis: FrameRole,
+    along_sign: float,
+) -> tuple[Vector, Vector]:
+    sign = 1.0 if along_sign >= 0.0 else -1.0
+    if spine_axis == FrameRole.H_FRAME:
+        return Vector((0.0, sign)), Vector((sign, 0.0))
+    if spine_axis == FrameRole.V_FRAME:
+        return Vector((-sign, 0.0)), Vector((0.0, sign))
+    return Vector((1.0, 0.0)), Vector((0.0, 1.0))
+
+
+def _build_band_base_uvs(
+    local_targets: tuple[tuple[float, float], ...],
+    total_arc_length: float,
+    cross_dir: Vector,
+    along_dir: Vector,
+    final_scale: float,
+    start_scale: float,
+    end_scale: float,
+) -> list[Vector]:
+    base_uvs: list[Vector] = []
+    for local_u, local_v in local_targets:
+        if total_arc_length > 1e-8:
+            v_ratio = max(0.0, min(1.0, local_v / total_arc_length))
+        else:
+            v_ratio = 0.0
+        u_scale = start_scale + (end_scale - start_scale) * v_ratio
+        base_uvs.append(
+            cross_dir * (local_u * final_scale * u_scale)
+            + along_dir * (local_v * final_scale)
+        )
+    return base_uvs
+
+
+def _score_band_uv_orientation(
+    uv_points: list[Vector],
+    start_anchor: Optional[ChainAnchor],
+    end_anchor: Optional[ChainAnchor],
+) -> float:
+    if not uv_points:
+        return float("inf")
+    score = 0.0
+    if start_anchor is not None:
+        score += (uv_points[0] - start_anchor.uv).length_squared
+    if end_anchor is not None:
+        score += (uv_points[-1] - end_anchor.uv).length_squared
+    return score
 
 
 def _resolve_band_cap_scale(
@@ -201,7 +243,6 @@ def _build_spine_chain_uvs(
     if not local_targets:
         return []
 
-    cross_dir, along_dir = _resolve_band_uv_axes(node, graph, spine_data)
     start_scale = _resolve_band_cap_scale(
         chain_ref,
         spine_data.cap_start_refs or (spine_data.cap_start_ref,),
@@ -222,26 +263,46 @@ def _build_spine_chain_uvs(
     )
 
     total_arc_length = spine_data.spine_arc_length
-    base_uvs: list[Vector] = []
-    for local_u, local_v in local_targets:
-        if total_arc_length > 1e-8:
-            v_ratio = max(0.0, min(1.0, local_v / total_arc_length))
-        else:
-            v_ratio = 0.0
-        u_scale = start_scale + (end_scale - start_scale) * v_ratio
-        base_uvs.append(
-            cross_dir * (local_u * final_scale * u_scale)
-            + along_dir * (local_v * final_scale)
-        )
+    default_along_sign = _resolve_band_along_sign(node, graph, spine_data)
+    candidate_signs = [default_along_sign]
+    opposite_sign = -default_along_sign
+    if opposite_sign not in candidate_signs:
+        candidate_signs.append(opposite_sign)
 
-    origin = _resolve_band_origin_offset(
-        base_uvs,
-        start_anchor,
-        end_anchor,
-        graph,
-        runtime_policy,
-    )
-    return [origin + uv for uv in base_uvs]
+    best_uvs: list[Vector] = []
+    best_score = float("inf")
+    for along_sign in candidate_signs:
+        cross_dir, along_dir = _band_uv_axes_from_sign(
+            spine_data.spine_axis,
+            along_sign,
+        )
+        base_uvs = _build_band_base_uvs(
+            local_targets,
+            total_arc_length,
+            cross_dir,
+            along_dir,
+            final_scale,
+            start_scale,
+            end_scale,
+        )
+        origin = _resolve_band_origin_offset(
+            base_uvs,
+            start_anchor,
+            end_anchor,
+            graph,
+            runtime_policy,
+        )
+        resolved_uvs = [origin + uv for uv in base_uvs]
+        score = _score_band_uv_orientation(
+            resolved_uvs,
+            start_anchor,
+            end_anchor,
+        )
+        if score < best_score:
+            best_score = score
+            best_uvs = resolved_uvs
+
+    return best_uvs
 
 
 def _build_temporary_chain_placement(

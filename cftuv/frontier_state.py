@@ -349,6 +349,8 @@ class FrontierRuntimePolicy:
     def _patch_allows_straighten_runtime(self, patch_id: int) -> bool:
         if not self.straighten_enabled:
             return False
+        if self.band_spine(patch_id) is not None:
+            return True
         return bool(
             self._patch_band_mode(patch_id) in {BandMode.SOFT_BAND, BandMode.HARD_BAND}
             and self._patch_summary_attr(patch_id, 'band_requires_intervention', False)

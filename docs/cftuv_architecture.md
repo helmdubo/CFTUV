@@ -29,7 +29,7 @@ IR design, entity model, or current architectural debt.
 | `structural_tokens.py` | BoundaryLoop, PatchNode | ChainToken, LoopSignature | Generic structural fingerprint layer |
 | `shape_types.py` | model enums | PatchShapeClass, LoopShapeInterpretation | Shape-policy type contracts |
 | `shape_classify.py` | LoopSignature, shape types | PatchShapeClass, LoopShapeInterpretation | BAND/MIX classifier and FREE→STRAIGHTEN interpretation |
-| `band_spine.py` | PatchGraph | BandSpineData | BAND midpoint spine, per-chain local UV targets |
+| `band_spine.py` | PatchGraph | BandSpineData | BAND section-based spine, per-chain local UV targets |
 | `solve.py` | all above | — | Facade — orchestrates solve pipeline |
 | `debug.py` | PatchGraph | Grease Pencil | Visualization + GPENCIL/GREASEPENCIL v3 compatibility helpers |
 | `operators.py` | all | — | Blender UI, orchestration, preflight |
@@ -122,11 +122,16 @@ existing BoundaryChain/Corner data. Not a new canonical model.
   fingerprint collection → loop interpretation → per-shape runtime support artifact.
 - BAND = 4-chain loop where one non-adjacent pair is both-FREE (→ SIDE)
   and the other pair has similar lengths (→ CAP).
+- BAND admission is shape-first, not neighbor-first:
+  isolated/border 4-chain loops may still classify as BAND if the outer loop
+  survives as four chains.
 - `straighten_chain_refs`: set of ChainRef built from BAND SIDE interpretation,
   passed to frontier (gated by straighten toggle).
 - `BandSpineData`: analysis-owned pre-parametrization for BAND patches.
-  Stores oriented SIDE/CAP refs, midpoint spine polyline, widths, and
+  Stores oriented SIDE/CAP refs, section-based spine polyline, widths, and
   per-chain local UV targets used by frontier placement/pin logic.
+- Runtime straighten authorities may be enabled directly by `band_spine_data`;
+  do not require legacy `band_mode` summary if shape support already produced a valid BAND artifact.
 
 ### Solve Entities
 
@@ -178,7 +183,8 @@ operators.py
 7. Validate raw patch boundary topology
 8. Split loop into raw chains by neighbor change
 9. Geometric outer fallback split for isolated OUTER loops (≥4 corners)
-10. Split border chains by geometric corners
+10. Preserve geometric corner-split BORDER chains through final loop topology;
+    do not atomize/merge them back into one border chain before shape support.
 11. Build BoundaryChain objects
 12. Downgrade weaker same-role point-contact chains to FREE
 13. Merge adjacent same-role MESH_BORDER chains
@@ -237,6 +243,9 @@ geometry and must remain isolated.
     treats STRAIGHTEN as strong role (alongside H/V) via `_STRONG_ROLES` set.
 17. `straighten_chain_refs` is toggle-gated: only passed to `FrontierRuntimePolicy`
     when straighten is enabled. When off, SIDE chains remain FREE.
+18. If `BandSpineData` exists for a patch, runtime straighten is allowed even
+    when old structural summary flags (`band_mode`, `band_requires_intervention`)
+    are absent. Shape-owned runtime artifacts are authoritative for BAND support.
 
 ### UV Transfer and Pin Policy
 
@@ -332,7 +341,13 @@ Canonical next-step boundary now lives in `docs/cftuv_alignment_drift_roadmap.md
 
 P7 delivered: `structural_tokens.py` as generic fingerprint layer,
 `shape_classify.py` for BAND/MIX policy + STRAIGHTEN interpretation,
-frontier integration, and `band_spine.py` for BAND SIDE/CAP spine placement.
+frontier integration, and `band_spine.py` for BAND SIDE/CAP section-based placement.
+Current BAND support also covers isolated closed border loops that survive geometric split.
+Next shape work (`CABLE`, `CYLINDER`) should reuse:
+- shape-first admission in `analysis_shape_support.py`
+- analysis-owned runtime artifact generation
+- section-based strip/tube parametrization
+and must not depend on patch-neighbor presence to enter straighten runtime.
 Future phases: junction enrichment (Phase 2), decal producer (Phase 3).
 Alignment / drift follow-up is tracked separately in `docs/cftuv_alignment_drift_roadmap.md`.
 

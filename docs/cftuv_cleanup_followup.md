@@ -7,6 +7,10 @@
 - Add real `CABLE` support behind the same dispatch boundary.
 - Keep `structural_tokens.py` as the low-level token/signature source; do not turn it into solve logic.
 - Extend BAND-adjacent shape support without widening `PatchShapeClass` semantics prematurely.
+- Keep shape admission independent of patch-neighbor presence:
+  `CABLE` / `CYLINDER` must be classifiable from loop structure and geometry even for isolated/border-only patches.
+- Reuse the current BAND pattern:
+  shape interpretation may produce runtime support directly even when legacy structural-summary flags are missing.
 
 ### Straighten Support
 - Revisit `analysis_derived.py` structural summary extraction once new shape handlers land.
@@ -14,6 +18,12 @@
   - analysis facts
   - runtime authority resolution
   - no patch-first detour
+- Treat current BAND parametrization as the baseline strip-family experiment:
+  - shared section field from spine-normal intersections
+  - analysis-owned `BandSpineData`
+  - runtime consumption through frontier/pin policy, not through a separate operator
+- For `CABLE` / `CYLINDER`, prefer a shared strip/tube parameterization family over shape-specific solver forks.
+- The next real design step is not another BAND heuristic pass; it is extracting the reusable section/station core that both `CABLE` and `CYLINDER` can consume.
 
 ### Transfer / Diagnostics
 - Continue slimming `solve_transfer.py` into smaller orchestration helpers without moving pin logic out of `solve_pin_policy.py`.
