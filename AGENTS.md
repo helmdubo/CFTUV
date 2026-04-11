@@ -46,9 +46,10 @@ cftuv/
 ├── solve_transfer.py   # UV transfer: scaffold → UV layer, conformal fallback
 ├── solve_diagnostics.py# UV axis metrics, closure seam diagnostics
 ├── solve_reporting.py  # Regression snapshots, scaffold reports, human-readable output
-├── structural_tokens.py# Shape classifier: ChainToken, LoopSignature, PatchShapeClass
-├── band_spine.py      # BAND spine pre-parametrization: midpoint spine + 4-chain UV targets
-├── band_operator.py    # (legacy utility) Spine projection helpers, not imported
+├── structural_tokens.py# Generic loop/chain structural fingerprints
+├── shape_types.py      # Shape enums + loop interpretation contracts
+├── shape_classify.py   # Shape policy: BAND/MIX classification, FREE→STRAIGHTEN interpretation
+├── band_spine.py      # BAND runtime parametrization: midpoint spine + UV targets
 ├── debug.py            # Grease Pencil visualization + GPENCIL/GREASEPENCIL v3 compatibility
 ├── operators.py        # Blender UI wrappers (max 5 lines math)
 └── console_debug.py    # Verbose console toggle
@@ -83,7 +84,7 @@ inputs for local turn-sign decisions; do not reconstruct them in solve.
 `V_FRAME` (vertical), `STRAIGHTEN` (strong but axis-flexible, resolved to H/V
 at placement time), `FREE` (diagonal/undefined).
 
-**PatchShapeClass** — shape classification of a patch from structural tokens:
+**PatchShapeClass** — shape classification of a patch from structural fingerprints:
 `MIX` (default), `BAND` (rectangular strip with two parallel FREE sides and
 two similar-length caps). Determines whether SIDE chains receive STRAIGHTEN role.
 
@@ -128,8 +129,8 @@ patches meet. Diagnostic/research entity, not solve runtime.
 14. Analyze debug geometry must be generated independently of layer visibility toggles; panel / eye toggles only control GP layer visibility, not whether patch data is built
 15. Grease Pencil compatibility is owned by `debug.py` helpers; do NOT hardcode Blender-version-specific GP API (`GPENCIL`/`GREASEPENCIL`, `layer.info/name`, `layer.clear()`, `stroke.line_width`, etc.) outside that layer
 16. BAND SIDE chains must BOTH be FREE (H/V chains can never be SIDE in a BAND)
-17. STRAIGHTEN is a frontier-level role — structural tokens classify, frontier places. No separate pre/post pass operator.
-18. `band_operator.py` is NOT imported — kept only as utility reference for spine projection
+17. STRAIGHTEN is a frontier-level role — shape policy interprets structural fingerprints, frontier places. No separate pre/post pass operator.
+18. Do NOT reintroduce a separate BAND operator path — BAND support must stay inside the analysis/frontier shape pipeline
 
 ---
 
@@ -172,8 +173,9 @@ Current priority order (agreed):
 4. **P4: Minimal trim abstraction** in model.py
 5. **P5: Scoring revision** based on instrumentation data ✓
 6. **P6: Pin policy extraction** into explicit layer ✓
-7. **P7: Structural Token System** — shape classifier + STRAIGHTEN role ✓ (Phase 1)
-   - `structural_tokens.py`: ChainToken, LoopSignature, PatchShapeClass
+7. **P7: Structural Token System** — structural fingerprints + shape classifier + STRAIGHTEN role ✓ (Phase 1)
+   - `structural_tokens.py`: ChainToken, LoopSignature
+   - `shape_types.py` / `shape_classify.py`: `PatchShapeClass`, BAND/MIX policy, FREE → STRAIGHTEN interpretation
    - BAND patches: FREE SIDE chains → STRAIGHTEN, frontier handles natively
    - `band_spine.py`: midpoint-spine parametrization for SIDE + CAP runtime placement
    - Future phases: junction enrichment (Phase 2), decal producer (Phase 3)
@@ -184,7 +186,7 @@ Scalar `score` is still kept as threshold gate and local refinement. STRAIGHTEN 
 from BAND patches get tier 2 (`straighten_band_side`) in role scoring — between native
 H/V (tier 3–5) and FREE (tier 0). At placement time, STRAIGHTEN resolves to H/V via
 geometry (dominant axis of chain start→end vector projected onto patch basis).
-Structural tokens (`structural_tokens.py`) classify patches before solve:
+Shape support (`structural_tokens.py` + `shape_classify.py` + `analysis_shape_support.py`) classifies patches before solve:
 `PatchShapeClass.BAND` → FREE SIDE chains become STRAIGHTEN → frontier treats them as
 strong chains with authority resolution (axis, span, station, parameter).
 Toggle-gated: `straighten_chain_refs` only passed to frontier when straighten is ON.

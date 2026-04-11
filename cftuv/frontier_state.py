@@ -7,7 +7,7 @@ from mathutils import Vector
 
 try:
     from .analysis_records import BandSpineData, _PatchDerivedTopologySummary
-    from .structural_tokens import PatchShapeClass
+    from .shape_types import PatchShapeClass
     from .model import (
         AxisAuthorityKind,
         BandMode,
@@ -34,7 +34,7 @@ try:
     )
 except ImportError:
     from analysis_records import BandSpineData, _PatchDerivedTopologySummary
-    from structural_tokens import PatchShapeClass
+    from shape_types import PatchShapeClass
     from model import (
         AxisAuthorityKind,
         BandMode,

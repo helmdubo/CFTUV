@@ -6,19 +6,23 @@ from typing import Callable, Mapping, Optional
 
 try:
     from .analysis_records import BandSpineData, _PatchDerivedTopologySummary
-    from .model import BandMode, ChainRef, LoopKind, PatchGraph
-    from .structural_tokens import LoopSignature, PatchShapeClass, build_loop_signature, classify_patch_shape
     from .band_spine import build_band_spine_from_groups
+    from .model import BandMode, ChainRef, LoopKind, PatchGraph
+    from .shape_classify import PatchShapeSemantics, classify_patch_shape_semantics
+    from .shape_types import LoopShapeInterpretation, PatchShapeClass
+    from .structural_tokens import LoopSignature, build_loop_signature
 except ImportError:
     from analysis_records import BandSpineData, _PatchDerivedTopologySummary
-    from model import BandMode, ChainRef, LoopKind, PatchGraph
-    from structural_tokens import LoopSignature, PatchShapeClass, build_loop_signature, classify_patch_shape
     from band_spine import build_band_spine_from_groups
+    from model import BandMode, ChainRef, LoopKind, PatchGraph
+    from shape_classify import PatchShapeSemantics, classify_patch_shape_semantics
+    from shape_types import LoopShapeInterpretation, PatchShapeClass
+    from structural_tokens import LoopSignature, build_loop_signature
 
 
 ShapeSupportHandler = Callable[
     [PatchGraph, _PatchDerivedTopologySummary, "PatchShapeFingerprint"],
-    tuple[frozenset[ChainRef], Optional[BandSpineData]],
+    "PatchShapeSupportArtifact",
 ]
 
 
@@ -26,6 +30,7 @@ ShapeSupportHandler = Callable[
 class PatchShapeFingerprint:
     patch_id: int
     loop_signatures: tuple[LoopSignature, ...]
+    loop_interpretations: tuple[LoopShapeInterpretation, ...]
     shape_class: PatchShapeClass
 
 
@@ -33,8 +38,15 @@ class PatchShapeFingerprint:
 class PatchShapeSupportResult:
     patch_shape_classes: Mapping[int, PatchShapeClass]
     loop_signatures: Mapping[int, list[LoopSignature]]
+    loop_shape_interpretations: Mapping[int, list[LoopShapeInterpretation]]
     straighten_chain_refs: frozenset[ChainRef]
     band_spine_data: Mapping[int, BandSpineData]
+
+
+@dataclass(frozen=True)
+class PatchShapeSupportArtifact:
+    straighten_chain_refs: frozenset[ChainRef] = frozenset()
+    band_spine_data: Optional[BandSpineData] = None
 
 
 def detect_patch_shape_fingerprint(
@@ -46,10 +58,15 @@ def detect_patch_shape_fingerprint(
         build_loop_signature(patch_id, loop_index, boundary_loop, node)
         for loop_index, boundary_loop in enumerate(node.boundary_loops)
     )
+    semantics: PatchShapeSemantics = classify_patch_shape_semantics(
+        loop_signatures,
+        _debug_patch_id=patch_id,
+    )
     return PatchShapeFingerprint(
         patch_id=patch_id,
         loop_signatures=loop_signatures,
-        shape_class=classify_patch_shape(list(loop_signatures), _debug_patch_id=patch_id),
+        loop_interpretations=semantics.loop_interpretations,
+        shape_class=semantics.shape_class,
     )
 
 
@@ -57,31 +74,14 @@ def classify_patch_shape_fingerprint(fingerprint: PatchShapeFingerprint) -> Patc
     return fingerprint.shape_class
 
 
-def _default_shape_support(
+def _resolve_outer_loop_shape(
     graph: PatchGraph,
-    patch_summary: _PatchDerivedTopologySummary,
+    patch_id: int,
     fingerprint: PatchShapeFingerprint,
-) -> tuple[frozenset[ChainRef], Optional[BandSpineData]]:
-    _ = graph, patch_summary, fingerprint
-    return frozenset(), None
-
-
-def _band_shape_support(
-    graph: PatchGraph,
-    patch_summary: _PatchDerivedTopologySummary,
-    fingerprint: PatchShapeFingerprint,
-) -> tuple[frozenset[ChainRef], Optional[BandSpineData]]:
-    if (
-        patch_summary.band_mode == BandMode.NOT_BAND
-        or not patch_summary.band_requires_intervention
-        or len(patch_summary.band_side_indices) != 2
-        or len(patch_summary.band_cap_path_groups) != 2
-    ):
-        return frozenset(), None
-
-    node = graph.nodes.get(patch_summary.patch_id)
-    if node is None or any(boundary_loop.kind == LoopKind.HOLE for boundary_loop in node.boundary_loops):
-        return frozenset(), None
+) -> tuple[Optional[LoopSignature], Optional[LoopShapeInterpretation]]:
+    node = graph.nodes.get(patch_id)
+    if node is None:
+        return None, None
 
     outer_signature = next(
         (
@@ -93,47 +93,122 @@ def _band_shape_support(
         None,
     )
     if outer_signature is None:
-        return frozenset(), None
+        return None, None
 
+    outer_interpretation = next(
+        (
+            interpretation
+            for interpretation in fingerprint.loop_interpretations
+            if interpretation.loop_index == outer_signature.loop_index
+        ),
+        None,
+    )
+    return outer_signature, outer_interpretation
+
+
+def _default_shape_support(
+    graph: PatchGraph,
+    patch_summary: _PatchDerivedTopologySummary,
+    fingerprint: PatchShapeFingerprint,
+) -> PatchShapeSupportArtifact:
+    _ = graph, patch_summary, fingerprint
+    return PatchShapeSupportArtifact()
+
+
+def _band_shape_support(
+    graph: PatchGraph,
+    patch_summary: _PatchDerivedTopologySummary,
+    fingerprint: PatchShapeFingerprint,
+) -> PatchShapeSupportArtifact:
+    if (
+        patch_summary.band_mode == BandMode.NOT_BAND
+        or not patch_summary.band_requires_intervention
+        or len(patch_summary.band_side_indices) != 2
+        or len(patch_summary.band_cap_path_groups) != 2
+    ):
+        return PatchShapeSupportArtifact()
+
+    node = graph.nodes.get(patch_summary.patch_id)
+    if node is None or any(boundary_loop.kind == LoopKind.HOLE for boundary_loop in node.boundary_loops):
+        return PatchShapeSupportArtifact()
+
+    outer_signature, outer_interpretation = _resolve_outer_loop_shape(
+        graph,
+        patch_summary.patch_id,
+        fingerprint,
+    )
+    if outer_signature is None:
+        return PatchShapeSupportArtifact()
+
+    shape_side_indices = (
+        tuple(outer_interpretation.side_chain_indices)
+        if outer_interpretation is not None
+        else ()
+    )
+    summary_side_indices = tuple(patch_summary.band_side_indices)
+    if shape_side_indices and shape_side_indices != summary_side_indices:
+        return PatchShapeSupportArtifact()
+
+    side_chain_indices = shape_side_indices or summary_side_indices
     straighten_chain_refs = frozenset(
         (patch_summary.patch_id, outer_signature.loop_index, chain_index)
-        for chain_index in patch_summary.band_side_indices
+        for chain_index in side_chain_indices
         if 0 <= chain_index < outer_signature.chain_count
     )
     spine_data = build_band_spine_from_groups(
         graph,
         patch_summary.patch_id,
         outer_signature.loop_index,
-        patch_summary.band_side_indices,
+        side_chain_indices,
         patch_summary.band_cap_path_groups,
     )
-    return straighten_chain_refs, spine_data
+    return PatchShapeSupportArtifact(
+        straighten_chain_refs=straighten_chain_refs,
+        band_spine_data=spine_data,
+    )
 
 
 def _cylinder_shape_support(
     graph: PatchGraph,
     patch_summary: _PatchDerivedTopologySummary,
     fingerprint: PatchShapeFingerprint,
-) -> tuple[frozenset[ChainRef], Optional[BandSpineData]]:
+) -> PatchShapeSupportArtifact:
     _ = graph, patch_summary, fingerprint
-    return frozenset(), None
+    return PatchShapeSupportArtifact()
 
 
 def _cable_shape_support(
     graph: PatchGraph,
     patch_summary: _PatchDerivedTopologySummary,
     fingerprint: PatchShapeFingerprint,
-) -> tuple[frozenset[ChainRef], Optional[BandSpineData]]:
+) -> PatchShapeSupportArtifact:
     _ = graph, patch_summary, fingerprint
-    return frozenset(), None
+    return PatchShapeSupportArtifact()
 
 
-_SHAPE_SUPPORT_HANDLERS: dict[str, ShapeSupportHandler] = {
-    PatchShapeClass.BAND.value: _band_shape_support,
-    "CYLINDER": _cylinder_shape_support,
-    "CABLE": _cable_shape_support,
-    PatchShapeClass.MIX.value: _default_shape_support,
+_ACTIVE_SHAPE_SUPPORT_HANDLERS: dict[PatchShapeClass, ShapeSupportHandler] = {
+    PatchShapeClass.BAND: _band_shape_support,
+    PatchShapeClass.MIX: _default_shape_support,
 }
+
+
+def build_patch_shape_support_artifact(
+    graph: PatchGraph,
+    patch_summary: _PatchDerivedTopologySummary,
+    fingerprint: PatchShapeFingerprint,
+) -> PatchShapeSupportArtifact:
+    """Dispatch classified shape semantics to runtime-support builders.
+
+    Reserved no-op hooks for future shapes stay local to this layer:
+    `CYLINDER` -> `_cylinder_shape_support`
+    `CABLE` -> `_cable_shape_support`
+    """
+
+    handler = _ACTIVE_SHAPE_SUPPORT_HANDLERS.get(
+        fingerprint.shape_class,
+        _default_shape_support,
+    )
+    return handler(graph, patch_summary, fingerprint)
 
 
 def build_patch_shape_support(
@@ -143,6 +218,7 @@ def build_patch_shape_support(
     """Shape support phases: fingerprint -> classify -> support -> finalize."""
 
     loop_signatures: dict[int, list[LoopSignature]] = {}
+    loop_shape_interpretations: dict[int, list[LoopShapeInterpretation]] = {}
     patch_shape_classes: dict[int, PatchShapeClass] = {}
     straighten_chain_refs: set[ChainRef] = set()
     band_spine_data: dict[int, BandSpineData] = {}
@@ -150,6 +226,7 @@ def build_patch_shape_support(
     for patch_id in sorted(graph.nodes.keys()):
         fingerprint = detect_patch_shape_fingerprint(graph, patch_id)
         loop_signatures[patch_id] = list(fingerprint.loop_signatures)
+        loop_shape_interpretations[patch_id] = list(fingerprint.loop_interpretations)
         patch_shape_class = classify_patch_shape_fingerprint(fingerprint)
         patch_shape_classes[patch_id] = patch_shape_class
 
@@ -157,15 +234,19 @@ def build_patch_shape_support(
         if patch_summary is None:
             continue
 
-        handler = _SHAPE_SUPPORT_HANDLERS.get(patch_shape_class.value, _default_shape_support)
-        patch_chain_refs, spine_data = handler(graph, patch_summary, fingerprint)
-        straighten_chain_refs.update(patch_chain_refs)
-        if spine_data is not None:
-            band_spine_data[patch_id] = spine_data
+        artifact = build_patch_shape_support_artifact(
+            graph,
+            patch_summary,
+            fingerprint,
+        )
+        straighten_chain_refs.update(artifact.straighten_chain_refs)
+        if artifact.band_spine_data is not None:
+            band_spine_data[patch_id] = artifact.band_spine_data
 
     return PatchShapeSupportResult(
         patch_shape_classes=MappingProxyType(dict(patch_shape_classes)),
         loop_signatures=MappingProxyType(dict(loop_signatures)),
+        loop_shape_interpretations=MappingProxyType(dict(loop_shape_interpretations)),
         straighten_chain_refs=frozenset(straighten_chain_refs),
         band_spine_data=MappingProxyType(dict(band_spine_data)),
     )
@@ -173,8 +254,10 @@ def build_patch_shape_support(
 
 __all__ = [
     "PatchShapeFingerprint",
+    "PatchShapeSupportArtifact",
     "PatchShapeSupportResult",
     "detect_patch_shape_fingerprint",
     "classify_patch_shape_fingerprint",
+    "build_patch_shape_support_artifact",
     "build_patch_shape_support",
 ]

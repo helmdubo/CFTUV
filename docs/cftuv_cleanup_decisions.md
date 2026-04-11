@@ -13,6 +13,15 @@
   - shape classification dispatch
   - BAND support assembly
   - reserved no-op hooks for `CYLINDER` and `CABLE`
+- Strengthened PR 3 shape dispatch boundary:
+  - `analysis_shape_support.py` now emits explicit per-patch support artifacts
+  - derived topology now keeps `loop_shape_interpretations` alongside raw `loop_signatures`
+  - active dispatch is type-safe on `PatchShapeClass`, not stringly-typed routing
+- Split shape semantics from the token layer:
+  - `cftuv/structural_tokens.py` now emits generic structural fingerprints only
+  - `cftuv/shape_types.py` owns `PatchShapeClass` and loop interpretation contracts
+  - `cftuv/shape_classify.py` owns BAND/MIX policy and FREE -> STRAIGHTEN interpretation
+- Removed dead `build_band_spine_data()` from `cftuv/band_spine.py`; BAND spine ownership now stays on the active runtime path `build_band_spine_from_groups()`.
 - Added `cftuv/frontier_bootstrap.py` and moved frontier launch/bootstrap responsibilities there.
 - Refactored `cftuv/frontier_state.py` around:
   - immutable `FrontierLaunchContext`
@@ -27,7 +36,7 @@
   - `select_similar`
   - `stack_similar`
 - Routed business-logic console noise away from raw `print()` into `trace_console()` across analysis / planning / frontier / transfer modules.
-- Marked `cftuv/band_operator.py` as explicit reference-only code.
+- Deleted legacy `cftuv/band_operator.py`; BAND support now lives only in the shape-support / spine / frontier path.
 
 ## Core Kept As-Is
 - `PatchGraph` / `ScaffoldMap` boundary in `cftuv/model.py`
@@ -45,7 +54,6 @@
 - No solver redesign or patch-first fallback path
 
 ## Reference-Only / Archived
-- `cftuv/band_operator.py` is retained only as implementation reference.
 - `Hotspot_UV_v2_5_19.py` remains legacy-only and outside active architecture.
 
 ## Residual Cleanup Debt

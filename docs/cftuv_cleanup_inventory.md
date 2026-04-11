@@ -19,11 +19,13 @@
 | `cftuv/analysis_classification.py` | core | `analysis_boundary.py`, `analysis_topology.py` | `constants.py`, `model.py`, `analysis_records.py`, `console_debug.py` | Patch type/basis + OUTER/HOLE classification | Temporary UV side effect is now explicitly isolated to the UV classification boundary helpers. |
 | `cftuv/analysis_frame_runs.py` | core | `analysis_boundary_loops.py`, `analysis_derived.py` | `model.py`, `analysis_records.py`, `console_debug.py` | Analysis-only run continuity view | Diagnostic/support layer, not solve runtime. |
 | `cftuv/analysis_junctions.py` | core | `analysis_derived.py`, `analysis_validation.py` | `model.py`, `analysis_records.py` | Junction aggregation view | Remains derived-only and non-runtime. |
-| `cftuv/analysis_records.py` | core | Most analysis modules, `band_spine.py`, `frontier_state.py`, `solve_frontier.py` | `model.py`, `structural_tokens.py` | Analysis dataclasses and derived topology bundle | Stable typed substrate for analysis and structural support. |
+| `cftuv/analysis_records.py` | core | Most analysis modules, `band_spine.py`, `frontier_state.py`, `solve_frontier.py` | `model.py`, `shape_types.py`, `structural_tokens.py` | Analysis dataclasses and derived topology bundle | Stable typed substrate for analysis and structural support, including persisted loop-shape interpretations. |
 | `cftuv/analysis_reporting.py` | core | `analysis.py`, `analysis_validation.py` | `analysis_records.py`, `model.py` | PatchGraph report serialization | Observability layer, intentionally untouched in behavior. |
 | `cftuv/analysis_validation.py` | core | `analysis.py` | `analysis_records.py`, `analysis_junctions.py`, `analysis_reporting.py`, `model.py` | Derived-topology validation | Keeps invariants explicit and separate from build logic. |
 | `cftuv/analysis_derived.py` | refactor | `analysis.py` | `constants.py`, `model.py`, `analysis_records.py`, `analysis_frame_runs.py`, `analysis_junctions.py`, `analysis_shape_support.py`, `band_spine.py`, `console_debug.py` | Derived topology assembly | Still large, but shape orchestration moved out; now owns raw structural summary extraction + final derived bundle assembly. |
-| `cftuv/analysis_shape_support.py` | core | `analysis_derived.py` | `analysis_records.py`, `model.py`, `structural_tokens.py`, `band_spine.py` | Shape fingerprint/classify/support orchestration | New explicit extension point for `BAND`, reserved `CYLINDER`, `CABLE`, and default handling. |
+| `cftuv/analysis_shape_support.py` | core | `analysis_derived.py` | `analysis_records.py`, `band_spine.py`, `model.py`, `shape_classify.py`, `shape_types.py`, `structural_tokens.py` | Shape fingerprint/classify/support orchestration | Explicit extension point: generic fingerprints in, loop interpretations + per-patch support artifacts out, runtime support assembled per shape. |
+| `cftuv/shape_types.py` | core | `analysis_records.py`, `analysis_shape_support.py`, `frontier_state.py`, `shape_classify.py` | `model.py` | Shape enums and interpretation contracts | Keeps `PatchShapeClass` out of the token layer. |
+| `cftuv/shape_classify.py` | core | `analysis_shape_support.py` | `model.py`, `shape_types.py`, `structural_tokens.py` | Shape policy classifier | Owns BAND/MIX rules and FREE -> STRAIGHTEN interpretation. |
 
 ### Solve / Frontier / Records
 
@@ -33,9 +35,9 @@
 | `cftuv/solve_planning.py` | core | `solve.py`, `solve_diagnostics.py`, `solve_frontier.py`, `solve_reporting.py`, `frontier_bootstrap.py`, `frontier_closure.py` | `analysis.py`, `constants.py`, `model.py`, `solve_records.py`, `console_debug.py` | PatchGraph -> SolverGraph / SolvePlan | Closure-cut diagnostics still live here; print noise routed through `trace_console()`. |
 | `cftuv/solve_frontier.py` | refactor | `solve.py`, `solve_diagnostics.py`, `solve_transfer.py` | `analysis_records.py`, `frontier_bootstrap.py`, `frontier_closure.py`, `frontier_eval.py`, `frontier_finalize.py`, `frontier_place.py`, `frontier_rescue.py`, `frontier_score.py`, `frontier_state.py`, `model.py`, `solve_instrumentation.py`, `solve_planning.py`, `solve_records.py`, `console_debug.py` | Quilt frontier driver | Slimmer after bootstrap extraction, but still the main frontier orchestration hotspot. |
 | `cftuv/frontier_bootstrap.py` | core | `solve_frontier.py` | `console_debug.py`, `frontier_eval.py`, `frontier_place.py`, `frontier_score.py`, `frontier_state.py`, `model.py`, `solve_planning.py`, `solve_records.py`, `analysis_records.py` | Launch-context build + chain seed bootstrap seam | New alternate-entry seam; includes placeholder for future existing-scaffold seeding. |
-| `cftuv/frontier_state.py` | refactor | `frontier_eval.py`, `frontier_score.py`, `solve_frontier.py`, `band_operator.py`, `frontier_bootstrap.py` | `analysis_records.py`, `structural_tokens.py`, `model.py`, `solve_records.py` | Frontier runtime policy/state wrapper | Now split into immutable launch context + mutable runtime state with compatibility wrapper API. |
+| `cftuv/frontier_state.py` | refactor | `frontier_eval.py`, `frontier_score.py`, `solve_frontier.py`, `frontier_bootstrap.py` | `analysis_records.py`, `shape_types.py`, `model.py`, `solve_records.py` | Frontier runtime policy/state wrapper | Now split into immutable launch context + mutable runtime state with compatibility wrapper API. |
 | `cftuv/frontier_eval.py` | core | `solve_frontier.py`, `frontier_bootstrap.py` | `console_debug.py`, `frontier_place.py`, `frontier_state.py`, `model.py`, `solve_diagnostics.py`, `solve_records.py` | Candidate evaluation / placement loop | Core frontier hot path. |
-| `cftuv/frontier_place.py` | core | `solve_frontier.py`, `frontier_eval.py`, `frontier_rescue.py`, `frontier_bootstrap.py`, `band_operator.py` | `analysis_records.py`, `model.py`, `solve_records.py` | Placement math / UV point generation | Remains placement-only and runtime-owned. |
+| `cftuv/frontier_place.py` | core | `solve_frontier.py`, `frontier_eval.py`, `frontier_rescue.py`, `frontier_bootstrap.py` | `analysis_records.py`, `model.py`, `solve_records.py` | Placement math / UV point generation | Remains placement-only and runtime-owned. |
 | `cftuv/frontier_score.py` | core | `solve_frontier.py`, `frontier_bootstrap.py` | `constants.py`, `frontier_state.py`, `model.py`, `solve_records.py` | Frontier rank / local score builders | Still scoring core; no cleanup drift into alignment/manual roadmap. |
 | `cftuv/frontier_closure.py` | core | `solve_frontier.py` | `console_debug.py`, `model.py`, `solve_records.py` | Closure pair / ingress mapping | Active runtime support. |
 | `cftuv/frontier_rescue.py` | core | `solve_frontier.py` | `console_debug.py`, `frontier_place.py`, `solve_diagnostics.py`, `solve_instrumentation.py`, `model.py`, `solve_records.py` | Rescue path implementations | Left behaviorally intact. |
@@ -66,15 +68,14 @@
 | `cftuv/console_debug.py` | core | analysis/solve/frontier modules | `bpy` | Verbose console gate + trace helper | Only direct runtime print sink left in business layers. |
 | `cftuv/model.py` | core | Entire codebase | `mathutils`, `typing`, `solve_records.py` (TYPE_CHECKING) | Domain enums + IRs | Unsafe-to-touch boundary between analysis and solve. |
 | `cftuv/constants.py` | core | analysis/debug/solve modules | none | Thresholds and sentinels | Shared configuration source. |
-| `cftuv/structural_tokens.py` | core | `analysis_records.py`, `analysis_shape_support.py`, `band_spine.py`, `frontier_state.py`, `band_operator.py` | `model.py` | Low-level loop/shape token classifier | Kept as low-level token/signature layer; no roadmap widening. |
-| `cftuv/band_spine.py` | core | `analysis_shape_support.py`, `analysis_derived.py` | `analysis_records.py`, `model.py`, `structural_tokens.py` | BAND midpoint-spine parametrization | Active runtime support for BAND only. |
+| `cftuv/structural_tokens.py` | core | `analysis_records.py`, `analysis_shape_support.py`, `shape_classify.py` | `model.py` | Generic loop/chain structural fingerprint layer | No BAND policy, no FREE -> STRAIGHTEN interpretation, no runtime-facing semantics. |
+| `cftuv/band_spine.py` | core | `analysis_shape_support.py`, `analysis_derived.py` | `analysis_records.py`, `model.py` | BAND midpoint-spine parametrization | Active runtime support for BAND only; dead classifier helper removed. |
 | `cftuv/__init__.py` | core | Blender addon entry | `operators.py` | Addon registration entry | Stable package boundary. |
 
 ### Legacy / Reference
 
 | module | status | used_by | imports | public_role | notes |
 | --- | --- | --- | --- | --- | --- |
-| `cftuv/band_operator.py` | reference_only | none | `console_debug.py`, `frontier_place.py`, `frontier_state.py`, `model.py`, `structural_tokens.py` | Archived BAND reference helper | Explicitly marked reference-only and not imported by active runtime. |
 | `Hotspot_UV_v2_5_19.py` | reference_only | none | legacy monolith | Repo-root legacy snapshot | Kept out of active architecture. |
 
 ## Four Lists
@@ -84,7 +85,7 @@
 - `analysis.py`, `analysis_topology.py`, `analysis_boundary.py`, `analysis_boundary_loops.py`, `analysis_corners.py`, `analysis_classification.py`, `analysis_frame_runs.py`, `analysis_junctions.py`, `analysis_records.py`, `analysis_reporting.py`, `analysis_validation.py`, `analysis_shape_support.py`
 - `solve.py`, `solve_planning.py`, `solve_frontier.py`, `frontier_bootstrap.py`, `frontier_eval.py`, `frontier_place.py`, `frontier_score.py`, `frontier_rescue.py`, `frontier_closure.py`, `frontier_finalize.py`, `solve_transfer.py`, `solve_pin_policy.py`, `solve_diagnostics.py`, `solve_instrumentation.py`, `solve_reporting.py`, `solve_report_anomalies.py`, `solve_report_metrics.py`, `solve_report_utils.py`
 - `solve_records.py`, `solve_records_common.py`, `solve_records_domain.py`, `solve_records_frontier.py`, `solve_records_transfer.py`, `solve_records_telemetry.py`
-- `operators_pipeline.py`, `operators_session.py`, `debug.py`, `console_debug.py`, `constants.py`, `structural_tokens.py`, `band_spine.py`, `__init__.py`
+- `operators_pipeline.py`, `operators_session.py`, `debug.py`, `console_debug.py`, `constants.py`, `structural_tokens.py`, `shape_types.py`, `shape_classify.py`, `band_spine.py`, `__init__.py`
 
 ### Refactor Zone
 - `analysis_derived.py`: still the biggest analysis hotspot even after shape orchestration extraction.
@@ -94,16 +95,15 @@
 - `operators.py`: boundary is now thin; future cleanup should keep new UI features out of policy/session sprawl.
 
 ### Legacy / Reference Only
-- `cftuv/band_operator.py`
 - `Hotspot_UV_v2_5_19.py`
 - `docs/_archive/*`
 
 ### Trash Candidates
 - The disabled legacy operator classes and panel entries for `unwrap_faces`, `manual_dock`, `select_similar`, and `stack_similar`: now removed from active addon code.
-- Any future active import of `band_operator.py`: treat as regression.
+- `cftuv/band_operator.py`: deleted from the repo during cleanup.
+- Any future reintroduction of `band_operator.py` or a separate BAND operator path: treat as regression.
 
 ## Delete / Archive Candidates
-- Keep archived, do not import: `cftuv/band_operator.py`
 - Keep archived, do not import: `Hotspot_UV_v2_5_19.py`
 
 ## Unsafe-To-Touch Core Zones

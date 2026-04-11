@@ -8,11 +8,9 @@ from mathutils import Vector
 try:
     from .analysis_records import BandSpineData
     from .model import BoundaryChain, FrameRole, PatchGraph
-    from .structural_tokens import ChainRoleClass, LoopSignature, PatchShapeClass
 except ImportError:
     from analysis_records import BandSpineData
     from model import BoundaryChain, FrameRole, PatchGraph
-    from structural_tokens import ChainRoleClass, LoopSignature, PatchShapeClass
 
 
 def _clamp01(value: float) -> float:
@@ -150,31 +148,6 @@ def _resolve_spine_axis(chain: BoundaryChain, basis_u: Vector, basis_v: Vector) 
     u_comp = abs(chord.dot(basis_u))
     v_comp = abs(chord.dot(basis_v))
     return FrameRole.H_FRAME if u_comp >= v_comp else FrameRole.V_FRAME
-
-
-def _build_band_cap_path_groups(chain_count: int, side_pair: tuple[int, ...]) -> tuple[tuple[int, ...], ...]:
-    if chain_count < 4 or len(side_pair) != 2:
-        return ()
-    side_a_index, side_b_index = side_pair
-    if side_a_index == side_b_index:
-        return ()
-
-    forward_span = (side_b_index - side_a_index) % chain_count
-    backward_span = (side_a_index - side_b_index) % chain_count
-    if forward_span <= 1 or backward_span <= 1:
-        return ()
-
-    forward_group = tuple(
-        (side_a_index + offset) % chain_count
-        for offset in range(1, forward_span)
-    )
-    backward_group = tuple(
-        (side_b_index + offset) % chain_count
-        for offset in range(1, backward_span)
-    )
-    if not forward_group or not backward_group:
-        return ()
-    return (forward_group, backward_group)
 
 
 def _refs_from_indices(
@@ -412,39 +385,4 @@ def build_band_spine_from_groups(
         cap_end_width=cap_end_width,
         chain_uv_targets=MappingProxyType(dict(chain_uv_targets)),
         spine_axis=_resolve_spine_axis(side_a_chain, node.basis_u, node.basis_v),
-    )
-
-
-def build_band_spine_data(
-    graph: PatchGraph,
-    patch_id: int,
-    loop_signature: LoopSignature,
-    shape_class: PatchShapeClass,
-) -> Optional[BandSpineData]:
-    """Build midpoint-spine UV targets for structurally classified 4-chain BAND loops."""
-
-    if shape_class != PatchShapeClass.BAND:
-        return None
-
-    side_chain_indices = tuple(
-        token.chain_ref[2]
-        for token in loop_signature.chain_tokens
-        if token.role_class == ChainRoleClass.SIDE
-    )
-    if len(side_chain_indices) != 2:
-        return None
-
-    cap_path_groups = _build_band_cap_path_groups(
-        loop_signature.chain_count,
-        side_chain_indices,
-    )
-    if len(cap_path_groups) != 2:
-        return None
-
-    return build_band_spine_from_groups(
-        graph,
-        patch_id,
-        loop_signature.loop_index,
-        side_chain_indices,
-        cap_path_groups,
     )

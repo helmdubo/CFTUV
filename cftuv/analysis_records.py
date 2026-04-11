@@ -21,7 +21,8 @@ try:
         PatchType,
         WorldFacing,
     )
-    from .structural_tokens import LoopSignature, PatchShapeClass
+    from .shape_types import LoopShapeInterpretation, PatchShapeClass
+    from .structural_tokens import LoopSignature
 except ImportError:
     from model import (
         BandMode,
@@ -36,7 +37,8 @@ except ImportError:
         PatchType,
         WorldFacing,
     )
-    from structural_tokens import LoopSignature, PatchShapeClass
+    from shape_types import LoopShapeInterpretation, PatchShapeClass
+    from structural_tokens import LoopSignature
 
 
 @dataclass
@@ -436,5 +438,6 @@ class _PatchGraphDerivedTopology:
     neighbor_inherited_roles: Mapping[ChainRef, tuple[FrameRole, int]] = field(default_factory=dict)
     patch_shape_classes: Mapping[int, PatchShapeClass] = field(default_factory=dict)
     loop_signatures: Mapping[int, list[LoopSignature]] = field(default_factory=dict)
+    loop_shape_interpretations: Mapping[int, list[LoopShapeInterpretation]] = field(default_factory=dict)
     straighten_chain_refs: frozenset[ChainRef] = field(default_factory=frozenset)
     band_spine_data: Mapping[int, BandSpineData] = field(default_factory=dict)

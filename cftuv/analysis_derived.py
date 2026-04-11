@@ -1483,6 +1483,7 @@ def _build_patch_graph_derived_topology(graph, measure_chain_axis_metrics):
         neighbor_inherited_roles=MappingProxyType(dict(neighbor_inherited_roles)),
         patch_shape_classes=shape_support.patch_shape_classes,
         loop_signatures=shape_support.loop_signatures,
+        loop_shape_interpretations=shape_support.loop_shape_interpretations,
         straighten_chain_refs=shape_support.straighten_chain_refs,
         band_spine_data=shape_support.band_spine_data,
     )

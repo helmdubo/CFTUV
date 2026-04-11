@@ -95,7 +95,7 @@ chain. `prev_chain_index = 0, next_chain_index = 0`. Marker, not junction.
 | F6 | STRAIGHTEN resolves to H/V at placement time via geometry (dominant axis) | ✅ |
 | F7 | H/V chains can never be SIDE in a BAND — SIDE must be FREE→STRAIGHTEN | ✅ |
 
-### Structural Token Classification (PatchShapeClass)
+### Shape Classification (PatchShapeClass)
 
 | # | Rule | Status |
 |---|------|--------|
@@ -104,7 +104,7 @@ chain. `prev_chain_index = 0, next_chain_index = 0`. Marker, not junction.
 | S3 | SIDE = the non-adjacent pair where BOTH chains are FREE | ✅ |
 | S4 | If both pairs are FREE-FREE, higher internal-similarity pair = CAP | ✅ |
 | S5 | CAP length similarity must be >= threshold (bands don't diverge) | ✅ |
-| S6 | SIDE chains get effective_frame_role = STRAIGHTEN in ChainToken | ✅ |
+| S6 | BAND SIDE interpretation promotes FREE chains to STRAIGHTEN in shape policy, not in ChainToken | ✅ |
 | S7 | Classification is strict: under-classify (MIX) rather than false-positive BAND | ✅ |
 | S8 | BAND runtime role assignment must preserve structural SIDE/CAP membership even when inherited H/V exists on one chain | ✅ |
 | S9 | `BandSpineData` stores local UV targets for all 4 BAND outer chains: 2 SIDE + 2 CAP | ✅ |

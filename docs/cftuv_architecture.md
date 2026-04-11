@@ -26,9 +26,10 @@ IR design, entity model, or current architectural debt.
 | `solve_transfer.py` | ScaffoldMap, BMesh | UV layer | Scaffold → UV, conformal fallback |
 | `solve_diagnostics.py` | ScaffoldMap, BMesh UV | reports | Closure/alignment diagnostics |
 | `solve_reporting.py` | ScaffoldMap, PatchPinMap | text | Snapshots, human-readable reports |
-| `structural_tokens.py` | BoundaryLoop, PatchNode | ChainToken, LoopSignature, PatchShapeClass | Shape classifier, BAND detection, STRAIGHTEN assignment |
-| `band_spine.py` | PatchGraph, LoopSignature | BandSpineData | BAND midpoint spine, per-chain local UV targets |
-| `band_operator.py` | — | — | Legacy utility (spine projection helpers), not imported |
+| `structural_tokens.py` | BoundaryLoop, PatchNode | ChainToken, LoopSignature | Generic structural fingerprint layer |
+| `shape_types.py` | model enums | PatchShapeClass, LoopShapeInterpretation | Shape-policy type contracts |
+| `shape_classify.py` | LoopSignature, shape types | PatchShapeClass, LoopShapeInterpretation | BAND/MIX classifier and FREE→STRAIGHTEN interpretation |
+| `band_spine.py` | PatchGraph | BandSpineData | BAND midpoint spine, per-chain local UV targets |
 | `solve.py` | all above | — | Facade — orchestrates solve pipeline |
 | `debug.py` | PatchGraph | Grease Pencil | Visualization + GPENCIL/GREASEPENCIL v3 compatibility helpers |
 | `operators.py` | all | — | Blender UI, orchestration, preflight |
@@ -89,7 +90,7 @@ Patch properties by layer:
 Chain properties by layer:
 - Intrinsic: `vert_indices`, `vert_cos`, `edge_indices`, `is_closed`
 - Contextual: `neighbor_kind`, `neighbor_patch_id`, `frame_role` (H/V/FREE native)
-- Structural: `ChainToken.effective_frame_role` (may be STRAIGHTEN for BAND SIDE chains)
+- Structural: generic loop fingerprints + shape-policy interpretation (`LoopShapeInterpretation`)
 - Derived: scaffold placement, anchor provenance
 
 ### Composite Topology Entities
@@ -111,13 +112,17 @@ different patches. Diagnostic/research entity. Not in solve runtime yet.
 
 **Structural Tokens** (`structural_tokens.py`) — thin structural views over
 existing BoundaryChain/Corner data. Not a new canonical model.
-- `ChainToken`: role_class (SIDE/CAP/BORDER/FREE), effective_frame_role,
-  opposite_ref, length. SIDE chains of BAND patches get STRAIGHTEN.
-- `LoopSignature`: ordered token collection with derived counts.
+- `ChainToken`: raw frame role, opposite_ref, border/neighbor context, length.
+- `LoopSignature`: ordered generic loop fingerprint.
+
+**Shape Policy** (`shape_types.py`, `shape_classify.py`, `analysis_shape_support.py`)
 - `PatchShapeClass`: admission gate — MIX (default) or BAND.
-  BAND = 4-chain loop where one non-adjacent pair is both-FREE (→ SIDE)
+- `LoopShapeInterpretation`: shape-policy interpretation over one generic signature.
+- `analysis_shape_support.py` is the orchestration seam:
+  fingerprint collection → loop interpretation → per-shape runtime support artifact.
+- BAND = 4-chain loop where one non-adjacent pair is both-FREE (→ SIDE)
   and the other pair has similar lengths (→ CAP).
-- `straighten_chain_refs`: set of ChainRef built from BAND SIDE tokens,
+- `straighten_chain_refs`: set of ChainRef built from BAND SIDE interpretation,
   passed to frontier (gated by straighten toggle).
 - `BandSpineData`: analysis-owned pre-parametrization for BAND patches.
   Stores oriented SIDE/CAP refs, midpoint spine polyline, widths, and
@@ -156,7 +161,7 @@ operators.py
   → build_patch_graph()                    # analysis.py
   → build_solver_graph()                   # solve.py: scoring, components
   → plan_solve_phase1()                    # solve.py: quilt plans, closure cuts
-  → build_straighten_structural_support()  # analysis.py: structural tokens, shape classes
+  → build_straighten_structural_support()  # analysis.py: structural fingerprints + shape policy
   → build_root_scaffold_map()             # solve.py: chain frontier builder (STRAIGHTEN-aware)
   → transfer scaffold to UV               # solve.py: pin + write UV loops
   → bpy.ops.uv.unwrap(CONFORMAL)          # Blender: relax with pinned scaffold
@@ -325,7 +330,8 @@ Canonical next-step boundary now lives in `docs/cftuv_alignment_drift_roadmap.md
 | P6 | Pin policy extraction | ✓ Done | — |
 | P7 | Structural Token System (Phase 1) | ✓ Done | P8 |
 
-P7 delivered: `structural_tokens.py` with shape classifier, STRAIGHTEN FrameRole,
+P7 delivered: `structural_tokens.py` as generic fingerprint layer,
+`shape_classify.py` for BAND/MIX policy + STRAIGHTEN interpretation,
 frontier integration, and `band_spine.py` for BAND SIDE/CAP spine placement.
 Future phases: junction enrichment (Phase 2), decal producer (Phase 3).
 Alignment / drift follow-up is tracked separately in `docs/cftuv_alignment_drift_roadmap.md`.
