@@ -3,16 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 try:
+    from .constants import BAND_CAP_SIMILARITY_MIN
     from .model import FrameRole
     from .shape_types import ChainRoleClass, LoopShapeInterpretation, PatchShapeClass
     from .structural_tokens import LoopSignature
 except ImportError:
+    from constants import BAND_CAP_SIMILARITY_MIN
     from model import FrameRole
     from shape_types import ChainRoleClass, LoopShapeInterpretation, PatchShapeClass
     from structural_tokens import LoopSignature
-
-
-_CAP_SIMILARITY_THRESHOLD = 0.5
 
 
 @dataclass(frozen=True)
@@ -99,7 +98,7 @@ def _classify_band_loop(signature: LoopSignature) -> LoopShapeInterpretation | N
         signature.chain_tokens[cap_pair[0]].length,
         signature.chain_tokens[cap_pair[1]].length,
     )
-    if cap_similarity < _CAP_SIMILARITY_THRESHOLD:
+    if cap_similarity < BAND_CAP_SIMILARITY_MIN:
         return None
 
     chain_roles = [ChainRoleClass.FREE] * signature.chain_count
