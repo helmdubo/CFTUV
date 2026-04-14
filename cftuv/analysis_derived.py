@@ -939,8 +939,6 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
                         or (chain.frame_role == FrameRole.FREE and (len(chain.vert_cos) <= 2 or len(chain.edge_indices) <= 1))
                     )
                     and chain_lengths[chain_index] > 0.0
-                    and mean_chain_length > 0.0
-                    and chain_lengths[chain_index] <= mean_chain_length * 0.5
                 )
             ]
             side_candidate_indices = [
@@ -948,7 +946,7 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
                 for chain_index, chain in enumerate(outer_chains)
                 if (
                     chain.frame_role == FrameRole.FREE
-                    and chain_lengths[chain_index] >= mean_chain_length * 1.2
+                    and chain_lengths[chain_index] > 0.0
                     and any(
                         ((chain_index - cap_index) % max(chain_count, 1) == 1)
                         or ((cap_index - chain_index) % max(chain_count, 1) == 1)
