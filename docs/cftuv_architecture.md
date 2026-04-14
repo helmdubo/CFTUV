@@ -133,6 +133,44 @@ existing BoundaryChain/Corner data. Not a new canonical model.
 - Runtime straighten authorities may be enabled directly by `band_spine_data`;
   do not require legacy `band_mode` summary if shape support already produced a valid BAND artifact.
 
+### Chain Role Layers
+
+Chain role is intentionally layered. Multiple role values may exist for the
+same chain at different pipeline stages, but they must follow one strict
+contract.
+
+1. **Raw chain role**
+- Source: `BoundaryChain.frame_role` in PatchGraph.
+- Owner: early analysis / local chain classification.
+- Meaning: local patch-basis fact only.
+- Uses: structural fingerprints, `LoopSignature`, shape identity input.
+- Must remain immutable after PatchGraph assembly.
+
+2. **Effective structural role**
+- Source: `analysis_derived.py` (`neighbor_inherited_roles`, run/junction interpretation).
+- Owner: derived analysis layer.
+- Meaning: raw role plus inherited seam / junction / paired-free-seam context.
+- Uses: structural runtime summaries, Analyze/debug presentation, solve-facing
+  analysis output.
+- This is the canonical downstream non-local chain role.
+
+3. **Runtime placement role**
+- Source: `frontier_state.py`.
+- Owner: frontier runtime policy.
+- Meaning: effective structural role plus shape-owned runtime promotions such
+  as BAND `STRAIGHTEN` and BAND CAP authority.
+- Uses: viability, ranking, anchor logic, scaffold build, placement authority.
+
+Role-layer rules:
+- Shape identity (`PatchShapeClass`) must use raw structural fingerprints, not
+  runtime placement role. Otherwise shape admission becomes cyclic.
+- Frontier / scaffold map must use effective structural role or runtime
+  placement role, never raw role alone.
+- Reporting/debug should expose effective structural role as the primary role
+  and preserve raw role as secondary context when they differ.
+- Do not overwrite raw `frame_role` in PatchGraph to "bake in" inherited or
+  runtime promotions.
+
 ### Solve Entities
 
 **Quilt** and **ScaffoldMap** — solve layer. Scaffold is built only from chains.

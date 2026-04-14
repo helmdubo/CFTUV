@@ -581,13 +581,14 @@ class HOTSPOTUV_OT_SolvePhase1Preview(bpy.types.Operator):
         obj = context.active_object
         return obj is not None and obj.type == 'MESH' and obj.mode in {'EDIT', 'OBJECT'}
 
-    def execute(self, context):
+    def _execute_single(self, context):
+        """Запускает Phase 1 для active object. Возвращает (stats, obj_name)."""
+        scene_settings = context.scene.hotspotuv_settings
+        obj, bm, pg, _sg, sp, settings, om, sel = _build_solve_state(
+            context,
+            make_seams_by_sharp=bool(scene_settings.phase1_make_seams_by_sharp),
+        )
         try:
-            scene_settings = context.scene.hotspotuv_settings
-            obj, bm, pg, _sg, sp, settings, om, sel = _build_solve_state(
-                context,
-                make_seams_by_sharp=bool(scene_settings.phase1_make_seams_by_sharp),
-            )
             stats = execute_phase1_preview(
                 context,
                 obj,
@@ -602,15 +603,25 @@ class HOTSPOTUV_OT_SolvePhase1Preview(bpy.types.Operator):
             if source_name and source_name in bpy.data.objects:
                 scaffold_map = _build_scaffold_map_with_straighten(pg, sp, settings)
                 _refresh_debug_layers(context, pg, bpy.data.objects[source_name], scaffold_map)
-            summary = (
-                f"Phase1 quilts:{stats.get('quilts', 0)} "
-                f"roots:{stats.get('supported_roots', 0)} "
-                f"children:{stats.get('attached_children', 0)} "
-                f"invalid:{stats.get('invalid_scaffold_patches', 0)} "
-                f"unresolved:{stats.get('unresolved_scaffold_points', 0)} "
-                f"missing:{stats.get('missing_uv_targets', 0)} "
-                f"conflicts:{stats.get('conflicting_uv_targets', 0)}"
-            )
+            return stats, obj.name
+        finally:
+            _restore_mode_and_selection(obj, om, sel)
+
+    def execute(self, context):
+        active_obj = context.active_object
+        if active_obj is None:
+            self.report({"ERROR"}, "No active object")
+            return {"CANCELLED"}
+
+        if active_obj.mode == "EDIT":
+            return self._execute_edit_mode(context)
+        return self._execute_object_mode(context)
+
+    def _execute_edit_mode(self, context):
+        """EDIT mode: только active object, selected faces."""
+        try:
+            stats, obj_name = self._execute_single(context)
+            summary = self._format_summary(stats, obj_name)
             _print_console_report("CFTUV Phase1", [], summary, show_lines=False)
             self.report({"INFO"}, summary)
             return {"FINISHED"}
@@ -620,9 +631,81 @@ class HOTSPOTUV_OT_SolvePhase1Preview(bpy.types.Operator):
         except Exception as exc:
             self.report({"ERROR"}, f"Solve Phase 1 Preview failed: {exc}")
             return {"CANCELLED"}
-        finally:
-            if 'obj' in locals() and 'om' in locals() and 'sel' in locals():
-                _restore_mode_and_selection(obj, om, sel)
+
+    def _execute_object_mode(self, context):
+        """OBJECT mode: все выбранные mesh объекты."""
+        mesh_objects = [
+            obj for obj in context.selected_objects
+            if obj.type == 'MESH'
+        ]
+        if not mesh_objects:
+            self.report({"WARNING"}, "No mesh objects selected")
+            return {"CANCELLED"}
+
+        original_active = context.active_object
+        original_selection = [obj for obj in context.selected_objects]
+        total_stats = {}
+        processed = 0
+        errors = []
+
+        for obj in mesh_objects:
+            # Снимаем selection со всех, чтобы bpy.ops.uv.unwrap()
+            # не затронул другие объекты при входе в EDIT mode.
+            for other in context.selected_objects:
+                other.select_set(False)
+            obj.select_set(True)
+            context.view_layer.objects.active = obj
+            try:
+                stats, obj_name = self._execute_single(context)
+                processed += 1
+                for key, value in stats.items():
+                    if isinstance(value, (int, float)):
+                        total_stats[key] = total_stats.get(key, 0) + value
+                summary = self._format_summary(stats, obj_name)
+                _print_console_report("CFTUV Phase1", [], summary, show_lines=False)
+            except _SolverPreflightSelectionError as exc:
+                errors.append(f"{obj.name}: preflight failed")
+            except Exception as exc:
+                errors.append(f"{obj.name}: {exc}")
+
+        # Восстанавливаем исходный selection и active object.
+        for other in context.selected_objects:
+            other.select_set(False)
+        for obj in original_selection:
+            if obj.name in bpy.data.objects:
+                obj.select_set(True)
+        if original_active and original_active.name in bpy.data.objects:
+            context.view_layer.objects.active = original_active
+
+        if processed == 0:
+            self.report({"ERROR"}, f"Phase1 failed for all objects: {'; '.join(errors)}")
+            return {"CANCELLED"}
+
+        if len(mesh_objects) == 1:
+            summary = self._format_summary(total_stats)
+        else:
+            summary = self._format_summary(total_stats, count=processed)
+        if errors:
+            summary += f" errors:{len(errors)}"
+        self.report({"INFO"}, summary)
+        return {"FINISHED"}
+
+    @staticmethod
+    def _format_summary(stats, obj_name=None, count=None):
+        prefix = ""
+        if count is not None:
+            prefix = f"[{count} objects] "
+        elif obj_name is not None:
+            prefix = f"[{obj_name}] "
+        return (
+            f"{prefix}Phase1 quilts:{stats.get('quilts', 0)} "
+            f"roots:{stats.get('supported_roots', 0)} "
+            f"children:{stats.get('attached_children', 0)} "
+            f"invalid:{stats.get('invalid_scaffold_patches', 0)} "
+            f"unresolved:{stats.get('unresolved_scaffold_points', 0)} "
+            f"missing:{stats.get('missing_uv_targets', 0)} "
+            f"conflicts:{stats.get('conflicting_uv_targets', 0)}"
+        )
 
 
 # ============================================================
