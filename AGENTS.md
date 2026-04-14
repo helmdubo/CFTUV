@@ -84,6 +84,19 @@ inputs for local turn-sign decisions; do not reconstruct them in solve.
 `V_FRAME` (vertical), `STRAIGHTEN` (strong but axis-flexible, resolved to H/V
 at placement time), `FREE` (diagonal/undefined).
 
+**Raw Chain Role** — early local `frame_role` stored in PatchGraph.
+Topology / local-basis fact only. Must not be overwritten by downstream
+inheritance or runtime shape logic.
+
+**Effective Structural Role** — downstream structural chain role derived from
+raw role plus inherited seam/junction facts in `analysis_derived.py`.
+This is the canonical non-local chain truth for reporting, structural runtime
+interpretation, and solve-facing analysis output.
+
+**Runtime Placement Role** — solve-context role used by frontier/runtime
+placement. Built from effective structural role plus shape-owned runtime
+promotions such as BAND `STRAIGHTEN` / CAP authority.
+
 **PatchShapeClass** — shape classification of a patch from structural fingerprints:
 `MIX` (default), `BAND` (rectangular strip with two parallel FREE sides and
 two similar-length caps). Determines whether SIDE chains receive STRAIGHTEN role.
@@ -131,6 +144,10 @@ patches meet. Diagnostic/research entity, not solve runtime.
 16. BAND SIDE chains must BOTH be FREE (H/V chains can never be SIDE in a BAND)
 17. STRAIGHTEN is a frontier-level role — shape policy interprets structural fingerprints, frontier places. No separate pre/post pass operator.
 18. Do NOT reintroduce a separate BAND operator path — BAND support must stay inside the analysis/frontier shape pipeline
+19. Raw `BoundaryChain.frame_role` is an early topology fact. Do NOT overwrite it with inherited or runtime promotions.
+20. Frontier / scaffold placement must consume effective structural or runtime placement roles, not raw role alone.
+21. Patch shape identity (`PatchShapeClass`) must be derived from raw structural fingerprints, not from downstream runtime placement role.
+22. Analyze / debug output must distinguish raw chain role from effective structural role whenever they differ.
 
 ---
 
@@ -198,6 +215,14 @@ Current BAND support is intentionally no longer patch-neighbor dependent:
 - Geometric closed-loop split for isolated OUTER border loops must survive through final loop topology.
 - `band_spine_data` is sufficient to enable runtime straighten authorities even when legacy `band_mode` summary is absent.
 - Future `CABLE` / `CYLINDER` work must extend this shape-support path rather than reintroducing neighbor-only admission rules.
+
+Role-layer contract:
+- `raw_chain_role` lives in PatchGraph and remains the identity input for shape classification.
+- `effective_structural_role` is produced in `analysis_derived.py` from raw role + inherited seam/junction context.
+- `runtime_placement_role` is resolved in frontier/runtime from effective structural role + shape-owned runtime promotions.
+- Frontier, scaffold build, and chain placement authority must use effective/runtime roles.
+- Shape identity must not depend on runtime role, otherwise BAND/CABLE/CYLINDER admission becomes cyclic.
+- Reporting/debug should show effective structural role as primary and raw role as secondary when they diverge.
 `Solve Phase 1 Preview` clears final UV pins by default; Add-on Preferences may keep
 them for debug inspection. `Transfer Only` keeps pins.
 Phase 8 alignment / drift work is a separate roadmap in `docs/cftuv_alignment_drift_roadmap.md`.
