@@ -1059,6 +1059,49 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
                     weak_band_bootstrap_used = True
                     side_candidate_indices = weak_side_candidate_indices
                     band_side_candidate_count = len(band_side_indices)
+            # ── SEAM_SELF closed-patch bootstrap (truncated cone / ring) ──
+            if (
+                len(band_side_indices) != 2
+                and chain_count == 4
+            ):
+                seam_self_indices = [
+                    ci for ci, ch in enumerate(outer_chains)
+                    if ch.neighbor_kind == ChainNeighborKind.SEAM_SELF
+                ]
+                border_indices = [
+                    ci for ci, ch in enumerate(outer_chains)
+                    if ch.neighbor_kind == ChainNeighborKind.MESH_BORDER
+                ]
+                if (
+                    len(seam_self_indices) == 2
+                    and len(border_indices) == 2
+                    and set(seam_self_indices) | set(border_indices) == set(range(4))
+                ):
+                    seam_pair_is_opposite = (
+                        set(seam_self_indices) == {0, 2}
+                        or set(seam_self_indices) == {1, 3}
+                    )
+                    if seam_pair_is_opposite:
+                        side_pair_closed = tuple(border_indices)
+                        side_axes_local = set()
+                        for si in side_pair_closed:
+                            sch = outer_chains[si]
+                            if len(sch.vert_cos) >= 2:
+                                chord = sch.vert_cos[-1] - sch.vert_cos[0]
+                                u_span = abs(chord.dot(node.basis_u))
+                                v_span = abs(chord.dot(node.basis_v))
+                                if max(u_span, v_span) > 1e-8:
+                                    side_axes_local.add(
+                                        FrameRole.H_FRAME if u_span >= v_span else FrameRole.V_FRAME
+                                    )
+                        if len(side_axes_local) == 1:
+                            supported_band_axis = next(iter(side_axes_local))
+                            if axis_candidate == FrameRole.FREE:
+                                axis_candidate = supported_band_axis
+                        band_side_indices = side_pair_closed
+                        cap_candidate_indices = list(seam_self_indices)
+                        side_candidate_indices = list(border_indices)
+                        band_side_candidate_count = 2
             band_cap_path_groups = (
                 _build_band_cap_path_groups(chain_count, band_side_indices)
                 if len(band_side_indices) == 2 else
@@ -1093,6 +1136,18 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
                     )
                     for group in band_cap_path_groups
                 )
+                if (
+                    not any(band_cap_group_strong_flags)
+                    and chain_count == 4
+                    and len(band_cap_path_groups) == 2
+                ):
+                    all_caps_seam_self = all(
+                        outer_chains[ci].neighbor_kind == ChainNeighborKind.SEAM_SELF
+                        for group in band_cap_path_groups
+                        for ci in group
+                    )
+                    if all_caps_seam_self:
+                        band_cap_group_strong_flags = (True, True)
                 band_cap_count = len(band_cap_path_groups)
                 cap_group_lengths = tuple(
                     sum(chain_lengths[chain_index] for chain_index in group)
