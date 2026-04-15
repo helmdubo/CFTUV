@@ -126,6 +126,12 @@ def _summary_has_split_band_support(patch_summary: _PatchDerivedTopologySummary)
     )
 
 
+def _summary_implies_band_shape(patch_summary: _PatchDerivedTopologySummary) -> bool:
+    """Structural summary is authoritative for split-cap BAND shape classification."""
+
+    return _summary_has_split_band_support(patch_summary)
+
+
 def _band_shape_support(
     graph: PatchGraph,
     patch_summary: _PatchDerivedTopologySummary,
@@ -216,13 +222,8 @@ def build_patch_shape_support_artifact(
     `CABLE` -> `_cable_shape_support`
     """
 
-    if (
-        fingerprint.shape_class != PatchShapeClass.BAND
-        and _summary_has_split_band_support(patch_summary)
-    ):
-        artifact = _band_shape_support(graph, patch_summary, fingerprint)
-        if artifact.straighten_chain_refs or artifact.band_spine_data is not None:
-            return artifact
+    if _summary_implies_band_shape(patch_summary):
+        return _band_shape_support(graph, patch_summary, fingerprint)
 
     handler = _ACTIVE_SHAPE_SUPPORT_HANDLERS.get(
         fingerprint.shape_class,
@@ -254,17 +255,14 @@ def build_patch_shape_support(
             patch_shape_classes[patch_id] = patch_shape_class
             continue
 
+        if _summary_implies_band_shape(patch_summary):
+            patch_shape_class = PatchShapeClass.BAND
+
         artifact = build_patch_shape_support_artifact(
             graph,
             patch_summary,
             fingerprint,
         )
-        if (
-            patch_shape_class != PatchShapeClass.BAND
-            and _summary_has_split_band_support(patch_summary)
-            and (artifact.straighten_chain_refs or artifact.band_spine_data is not None)
-        ):
-            patch_shape_class = PatchShapeClass.BAND
         patch_shape_classes[patch_id] = patch_shape_class
         straighten_chain_refs.update(artifact.straighten_chain_refs)
         if artifact.band_spine_data is not None:
