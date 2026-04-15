@@ -992,6 +992,33 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
                 FrameRole.FREE
             )
 
+            # Fallback: derive band axis from cap chord direction (orthogonal).
+            # For closed patches (ring / truncated cone) side chains are nearly-
+            # closed circles whose first-to-last chord is near-zero, so the
+            # standard side-chord axis detection fails.  Cap chains (seam cuts)
+            # have long, clear chords running perpendicular to the band spine.
+            if (
+                supported_band_axis == FrameRole.FREE
+                and len(cap_candidate_indices) >= 2
+                and chain_count == 4
+            ):
+                cap_axes = set()
+                for cap_chain_index in cap_candidate_indices:
+                    cap_chain = outer_chains[cap_chain_index]
+                    if len(cap_chain.vert_cos) < 2:
+                        continue
+                    chord = cap_chain.vert_cos[-1] - cap_chain.vert_cos[0]
+                    u_span = abs(chord.dot(node.basis_u))
+                    v_span = abs(chord.dot(node.basis_v))
+                    if max(u_span, v_span) <= 1e-8:
+                        continue
+                    cap_axes.add(FrameRole.H_FRAME if u_span >= v_span else FrameRole.V_FRAME)
+                if len(cap_axes) == 1:
+                    cap_axis = next(iter(cap_axes))
+                    supported_band_axis = (
+                        FrameRole.V_FRAME if cap_axis == FrameRole.H_FRAME else FrameRole.H_FRAME
+                    )
+
             if axis_candidate == FrameRole.FREE and supported_band_axis in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
                 axis_candidate = supported_band_axis
 
