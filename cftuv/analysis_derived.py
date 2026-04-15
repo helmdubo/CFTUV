@@ -350,13 +350,22 @@ def _pick_band_side_pair(
                 if len(pair_side_axes) == 1 and next(iter(pair_side_axes)) == preferred_axis:
                     side_axis_match = 1
 
-            key = (
-                cap_group_strong_count,
-                side_axis_match,
-                cap_similarity,
-                side_similarity,
-                len_a + len_b,
-            )
+            if chain_count == 4:
+                key = (
+                    cap_similarity,
+                    side_similarity,
+                    len_a + len_b,
+                    cap_group_strong_count,
+                    side_axis_match,
+                )
+            else:
+                key = (
+                    cap_group_strong_count,
+                    side_axis_match,
+                    cap_similarity,
+                    side_similarity,
+                    len_a + len_b,
+                )
             if best_key is None or key > best_key:
                 best_key = key
                 best_pair = side_pair

@@ -7,14 +7,14 @@ from typing import Callable, Mapping, Optional
 try:
     from .analysis_records import BandSpineData, _PatchDerivedTopologySummary
     from .band_spine import build_band_spine_from_groups
-    from .model import BandMode, ChainRef, LoopKind, PatchGraph
+    from .model import ChainRef, LoopKind, PatchGraph
     from .shape_classify import PatchShapeSemantics, classify_patch_shape_semantics
     from .shape_types import LoopShapeInterpretation, PatchShapeClass
     from .structural_tokens import LoopSignature, build_loop_signature
 except ImportError:
     from analysis_records import BandSpineData, _PatchDerivedTopologySummary
     from band_spine import build_band_spine_from_groups
-    from model import BandMode, ChainRef, LoopKind, PatchGraph
+    from model import ChainRef, LoopKind, PatchGraph
     from shape_classify import PatchShapeSemantics, classify_patch_shape_semantics
     from shape_types import LoopShapeInterpretation, PatchShapeClass
     from structural_tokens import LoopSignature, build_loop_signature
@@ -137,21 +137,17 @@ def _band_shape_support(
         if outer_interpretation is not None
         else ()
     )
-    summary_side_indices = tuple(patch_summary.band_side_indices)
-    if (
-        shape_side_indices
-        and summary_side_indices
-        and shape_side_indices != summary_side_indices
-    ):
-        return PatchShapeSupportArtifact()
-
-    side_chain_indices = shape_side_indices or summary_side_indices
     shape_cap_path_groups = (
         tuple((chain_index,) for chain_index in outer_interpretation.cap_chain_indices)
         if outer_interpretation is not None and len(outer_interpretation.cap_chain_indices) == 2
         else ()
     )
-    cap_path_groups = tuple(patch_summary.band_cap_path_groups) or shape_cap_path_groups
+    if shape_side_indices and shape_cap_path_groups:
+        side_chain_indices = shape_side_indices
+        cap_path_groups = shape_cap_path_groups
+    else:
+        side_chain_indices = tuple(patch_summary.band_side_indices)
+        cap_path_groups = tuple(patch_summary.band_cap_path_groups)
     if len(side_chain_indices) != 2 or len(cap_path_groups) != 2:
         return PatchShapeSupportArtifact()
 

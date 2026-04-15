@@ -27,6 +27,13 @@ def _pair_length_similarity(len_a: float, len_b: float) -> float:
     return 1.0 - abs(len_a - len_b) / max_len
 
 
+def _pair_average_length(signature: LoopSignature, pair: tuple[int, int]) -> float:
+    return (
+        signature.chain_tokens[pair[0]].length
+        + signature.chain_tokens[pair[1]].length
+    ) * 0.5
+
+
 def _default_loop_interpretation(signature: LoopSignature) -> LoopShapeInterpretation:
     chain_roles = tuple(
         ChainRoleClass.BORDER if token.is_border else ChainRoleClass.FREE
@@ -78,18 +85,12 @@ def _classify_band_loop(signature: LoopSignature) -> LoopShapeInterpretation | N
     elif pair_b_both_free and not pair_a_both_free:
         side_pair, cap_pair = pair_b, pair_a
     elif pair_a_both_free and pair_b_both_free:
-        similarity_a = _pair_length_similarity(
-            signature.chain_tokens[pair_a[0]].length,
-            signature.chain_tokens[pair_a[1]].length,
-        )
-        similarity_b = _pair_length_similarity(
-            signature.chain_tokens[pair_b[0]].length,
-            signature.chain_tokens[pair_b[1]].length,
-        )
-        if similarity_a >= similarity_b:
-            side_pair, cap_pair = pair_b, pair_a
-        else:
+        avg_a = _pair_average_length(signature, pair_a)
+        avg_b = _pair_average_length(signature, pair_b)
+        if avg_a >= avg_b:
             side_pair, cap_pair = pair_a, pair_b
+        else:
+            side_pair, cap_pair = pair_b, pair_a
 
     if side_pair is None or cap_pair is None:
         return None
