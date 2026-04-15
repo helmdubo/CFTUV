@@ -261,6 +261,8 @@ class PatchNode:
 
     # Derived debug geometry
     mesh_verts: list[Vector] = field(default_factory=list)
+    mesh_vert_indices: list[int] = field(default_factory=list)
+    mesh_edges: list[tuple[int, int]] = field(default_factory=list)
     mesh_tris: list[tuple[int, int, int]] = field(default_factory=list)
 
     @property

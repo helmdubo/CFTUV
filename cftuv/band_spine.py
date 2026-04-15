@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from heapq import heappop, heappush
 import math
 from types import MappingProxyType
 from typing import Optional
@@ -292,6 +293,360 @@ def _build_bootstrap_sections(
     )
 
 
+def _chain_vertex_indices(chain: BoundaryChain, reversed_points: bool) -> tuple[int, ...]:
+    indices = tuple(int(vertex_index) for vertex_index in chain.vert_indices)
+    return tuple(reversed(indices)) if reversed_points else indices
+
+
+def _collect_chain_group_vert_indices(
+    graph: PatchGraph,
+    chain_refs: tuple[tuple[int, int, int], ...],
+) -> set[int]:
+    result: set[int] = set()
+    for chain_ref in chain_refs:
+        chain = graph.get_chain(*chain_ref)
+        if chain is None:
+            continue
+        result.update(int(vertex_index) for vertex_index in chain.vert_indices)
+    return result
+
+
+def _build_patch_vertex_cos(node) -> dict[int, Vector]:
+    mesh_vert_indices = tuple(getattr(node, "mesh_vert_indices", ()) or ())
+    if len(mesh_vert_indices) == len(node.mesh_verts):
+        return {
+            int(vertex_index): node.mesh_verts[index].copy()
+            for index, vertex_index in enumerate(mesh_vert_indices)
+        }
+
+    result: dict[int, Vector] = {}
+    for boundary_loop in node.boundary_loops:
+        for chain in boundary_loop.chains:
+            for vertex_index, point in zip(chain.vert_indices, chain.vert_cos):
+                result.setdefault(int(vertex_index), point.copy())
+    return result
+
+
+def _build_patch_edge_adjacency(node, vertex_cos: dict[int, Vector]) -> dict[int, list[tuple[int, float]]]:
+    adjacency: dict[int, list[tuple[int, float]]] = {vertex_index: [] for vertex_index in vertex_cos}
+    for a, b in tuple(getattr(node, "mesh_edges", ()) or ()):
+        a = int(a)
+        b = int(b)
+        if a == b or a not in vertex_cos or b not in vertex_cos:
+            continue
+        weight = max((vertex_cos[a] - vertex_cos[b]).length, 1e-8)
+        adjacency[a].append((b, weight))
+        adjacency[b].append((a, weight))
+    return adjacency
+
+
+def _dijkstra_distances(
+    adjacency: dict[int, list[tuple[int, float]]],
+    seed_vertices: set[int],
+) -> dict[int, float]:
+    distances: dict[int, float] = {}
+    heap: list[tuple[float, int]] = []
+    for vertex_index in seed_vertices:
+        if vertex_index not in adjacency:
+            continue
+        distances[vertex_index] = 0.0
+        heappush(heap, (0.0, vertex_index))
+
+    while heap:
+        distance, vertex_index = heappop(heap)
+        if distance > distances.get(vertex_index, math.inf) + 1e-10:
+            continue
+        for neighbor_index, weight in adjacency.get(vertex_index, ()):
+            next_distance = distance + weight
+            if next_distance + 1e-10 >= distances.get(neighbor_index, math.inf):
+                continue
+            distances[neighbor_index] = next_distance
+            heappush(heap, (next_distance, neighbor_index))
+    return distances
+
+
+def _initialize_station_values(
+    adjacency: dict[int, list[tuple[int, float]]],
+    vertex_indices: tuple[int, ...],
+    start_vertices: set[int],
+    end_vertices: set[int],
+) -> dict[int, float]:
+    start_distances = _dijkstra_distances(adjacency, start_vertices)
+    end_distances = _dijkstra_distances(adjacency, end_vertices)
+    values: dict[int, float] = {}
+    for vertex_index in vertex_indices:
+        if vertex_index in start_vertices:
+            values[vertex_index] = 0.0
+            continue
+        if vertex_index in end_vertices:
+            values[vertex_index] = 1.0
+            continue
+        start_distance = start_distances.get(vertex_index)
+        end_distance = end_distances.get(vertex_index)
+        if start_distance is None or end_distance is None:
+            values[vertex_index] = 0.5
+            continue
+        denominator = start_distance + end_distance
+        values[vertex_index] = (
+            _clamp01(start_distance / denominator)
+            if denominator > 1e-8 else
+            0.5
+        )
+    return values
+
+
+def _relax_harmonic_station_values(
+    adjacency: dict[int, list[tuple[int, float]]],
+    values: dict[int, float],
+    fixed_vertices: set[int],
+    *,
+    iteration_count: int = 96,
+) -> dict[int, float]:
+    if not values:
+        return {}
+    solved = dict(values)
+    free_vertices = tuple(
+        vertex_index
+        for vertex_index in sorted(solved)
+        if vertex_index not in fixed_vertices and adjacency.get(vertex_index)
+    )
+    if not free_vertices:
+        return solved
+
+    for _iteration in range(max(iteration_count, 1)):
+        max_delta = 0.0
+        for vertex_index in free_vertices:
+            weighted_sum = 0.0
+            weight_sum = 0.0
+            for neighbor_index, edge_length in adjacency.get(vertex_index, ()):
+                if neighbor_index not in solved:
+                    continue
+                weight = 1.0 / max(edge_length, 1e-8)
+                weighted_sum += solved[neighbor_index] * weight
+                weight_sum += weight
+            if weight_sum <= 1e-12:
+                continue
+            next_value = _clamp01(weighted_sum / weight_sum)
+            max_delta = max(max_delta, abs(next_value - solved[vertex_index]))
+            solved[vertex_index] = next_value
+        if max_delta <= 1e-6:
+            break
+    return solved
+
+
+def _build_topology_station_map(
+    graph: PatchGraph,
+    node,
+    cap_start_refs: tuple[tuple[int, int, int], ...],
+    cap_end_refs: tuple[tuple[int, int, int], ...],
+) -> dict[int, float]:
+    vertex_cos = _build_patch_vertex_cos(node)
+    if not vertex_cos:
+        return {}
+
+    adjacency = _build_patch_edge_adjacency(node, vertex_cos)
+    if not any(adjacency.values()):
+        return {}
+
+    start_vertices = _collect_chain_group_vert_indices(graph, cap_start_refs)
+    end_vertices = _collect_chain_group_vert_indices(graph, cap_end_refs)
+    if not start_vertices or not end_vertices:
+        return {}
+
+    vertex_indices = tuple(sorted(vertex_cos))
+    initial_values = _initialize_station_values(
+        adjacency,
+        vertex_indices,
+        start_vertices,
+        end_vertices,
+    )
+    return _relax_harmonic_station_values(
+        adjacency,
+        initial_values,
+        start_vertices | end_vertices,
+    )
+
+
+def _make_monotonic_stations(stations: tuple[float, ...]) -> tuple[float, ...]:
+    if len(stations) < 2:
+        return ()
+    result = []
+    previous = 0.0
+    for index, station in enumerate(stations):
+        value = _clamp01(station)
+        if index == 0:
+            previous = value
+        elif value < previous:
+            value = previous
+        result.append(value)
+        previous = value
+    if result[-1] - result[0] <= 1e-5:
+        return ()
+    return tuple(result)
+
+
+def _station_sequence_for_chain(
+    chain: BoundaryChain,
+    reversed_points: bool,
+    station_map: dict[int, float],
+) -> tuple[float, ...]:
+    vertex_indices = _chain_vertex_indices(chain, reversed_points)
+    if len(vertex_indices) < 2:
+        return ()
+    stations = []
+    for vertex_index in vertex_indices:
+        station = station_map.get(vertex_index)
+        if station is None:
+            return ()
+        stations.append(station)
+    return _make_monotonic_stations(tuple(stations))
+
+
+def _merge_section_stations(*station_sequences: tuple[float, ...]) -> tuple[float, ...]:
+    values = [0.0, 1.0]
+    for sequence in station_sequences:
+        values.extend(_clamp01(station) for station in sequence)
+    values.sort()
+
+    merged = []
+    for value in values:
+        if merged and abs(value - merged[-1]) <= 1e-5:
+            continue
+        merged.append(value)
+    if len(merged) < 2:
+        return ()
+    merged[0] = 0.0
+    merged[-1] = 1.0
+    return tuple(merged)
+
+
+def _sample_side_at_station(
+    points: tuple[Vector, ...],
+    point_distances: tuple[float, ...],
+    point_stations: tuple[float, ...],
+    station: float,
+) -> tuple[Vector, float]:
+    if not points or len(points) != len(point_distances) or len(points) != len(point_stations):
+        return Vector((0.0, 0.0, 0.0)), 0.0
+    target = _clamp01(station)
+    if target <= point_stations[0] + 1e-6:
+        return points[0].copy(), point_distances[0]
+    if target >= point_stations[-1] - 1e-6:
+        return points[-1].copy(), point_distances[-1]
+
+    for index in range(len(points) - 1):
+        start_station = point_stations[index]
+        end_station = point_stations[index + 1]
+        if end_station < start_station:
+            continue
+        if target < start_station - 1e-6 or target > end_station + 1e-6:
+            continue
+        span = end_station - start_station
+        if span <= 1e-8:
+            return points[index].copy(), point_distances[index]
+        local_t = _clamp01((target - start_station) / span)
+        point = points[index].lerp(points[index + 1], local_t)
+        distance = point_distances[index] + (point_distances[index + 1] - point_distances[index]) * local_t
+        return point, distance
+
+    nearest_index = min(
+        range(len(point_stations)),
+        key=lambda index: abs(point_stations[index] - target),
+    )
+    return points[nearest_index].copy(), point_distances[nearest_index]
+
+
+def _sample_side_sections_by_station(
+    points: tuple[Vector, ...],
+    point_stations: tuple[float, ...],
+    section_stations: tuple[float, ...],
+) -> tuple[tuple[Vector, ...], tuple[float, ...]]:
+    point_distances, _total_length = _polyline_cumulative_lengths(points)
+    if len(point_distances) != len(points) or len(point_stations) != len(points):
+        return (), ()
+
+    section_points = []
+    section_distances = []
+    for station in section_stations:
+        point, distance = _sample_side_at_station(
+            points,
+            point_distances,
+            point_stations,
+            station,
+        )
+        section_points.append(point)
+        section_distances.append(distance)
+    return tuple(section_points), tuple(section_distances)
+
+
+def _build_topology_sections(
+    graph: PatchGraph,
+    node,
+    side_a_ref: tuple[int, int, int],
+    side_b_ref: tuple[int, int, int],
+    side_a_points: tuple[Vector, ...],
+    side_b_points: tuple[Vector, ...],
+    side_a_reversed: bool,
+    side_b_reversed: bool,
+    cap_start_refs: tuple[tuple[int, int, int], ...],
+    cap_end_refs: tuple[tuple[int, int, int], ...],
+) -> tuple[
+    tuple[Vector, ...],
+    tuple[Vector, ...],
+    tuple[float, ...],
+    tuple[float, ...],
+    tuple[float, ...],
+    tuple[float, ...],
+    tuple[float, ...],
+]:
+    side_a_chain = graph.get_chain(*side_a_ref)
+    side_b_chain = graph.get_chain(*side_b_ref)
+    if side_a_chain is None or side_b_chain is None:
+        return (), (), (), (), (), (), ()
+
+    station_map = _build_topology_station_map(
+        graph,
+        node,
+        cap_start_refs,
+        cap_end_refs,
+    )
+    if not station_map:
+        return (), (), (), (), (), (), ()
+
+    side_a_stations = _station_sequence_for_chain(side_a_chain, side_a_reversed, station_map)
+    side_b_stations = _station_sequence_for_chain(side_b_chain, side_b_reversed, station_map)
+    if not side_a_stations or not side_b_stations:
+        return (), (), (), (), (), (), ()
+    if len(side_a_stations) != len(side_a_points) or len(side_b_stations) != len(side_b_points):
+        return (), (), (), (), (), (), ()
+
+    section_stations = _merge_section_stations(side_a_stations, side_b_stations)
+    if not section_stations:
+        return (), (), (), (), (), (), ()
+
+    side_a_sections, side_a_distances = _sample_side_sections_by_station(
+        side_a_points,
+        side_a_stations,
+        section_stations,
+    )
+    side_b_sections, side_b_distances = _sample_side_sections_by_station(
+        side_b_points,
+        side_b_stations,
+        section_stations,
+    )
+    if not side_a_sections or not side_b_sections:
+        return (), (), (), (), (), (), ()
+    return (
+        side_a_sections,
+        side_b_sections,
+        side_a_distances,
+        side_b_distances,
+        section_stations,
+        side_a_stations,
+        side_b_stations,
+    )
+
+
 def _line_segment_intersection_in_patch_plane(
     line_point: Vector,
     line_direction: Vector,
@@ -511,6 +866,7 @@ def _build_weighted_section_target_distances(
     side_a_section_distances: tuple[float, ...],
     side_b_section_distances: tuple[float, ...],
     spine_points: tuple[Vector, ...],
+    target_total_override: Optional[float] = None,
 ) -> tuple[tuple[float, ...], float]:
     section_count = min(
         len(side_a_section_distances),
@@ -570,7 +926,11 @@ def _build_weighted_section_target_distances(
         rigidity_weights.append(max(0.02, rigidity))
 
     rest_total = sum(avg_lengths)
-    target_total = sum(spine_lengths)
+    target_total = (
+        target_total_override
+        if target_total_override is not None and target_total_override > 1e-8
+        else sum(spine_lengths)
+    )
     inv_rigidity_sum = sum(1.0 / weight for weight in rigidity_weights)
     if rest_total <= 1e-8 or inv_rigidity_sum <= 1e-8:
         adjusted_lengths = list(avg_lengths)
@@ -625,6 +985,40 @@ def _remap_distances_to_section_profile(
             local_t = 0.0
         else:
             local_t = _clamp01((distance - start_source) / (end_source - start_source))
+        mapped_distances.append(start_target + (end_target - start_target) * local_t)
+
+    return tuple(mapped_distances)
+
+
+def _remap_stations_to_section_profile(
+    point_stations: tuple[float, ...],
+    section_stations: tuple[float, ...],
+    section_target_distances: tuple[float, ...],
+) -> tuple[float, ...]:
+    if not point_stations:
+        return ()
+    if len(section_stations) < 2 or len(section_stations) != len(section_target_distances):
+        return tuple(0.0 for _ in point_stations)
+
+    mapped_distances = []
+    section_index = 0
+    for station in point_stations:
+        value = _clamp01(station)
+        while (
+            section_index < len(section_stations) - 2
+            and value > section_stations[section_index + 1]
+        ):
+            section_index += 1
+
+        start_station = section_stations[section_index]
+        end_station = section_stations[section_index + 1]
+        start_target = section_target_distances[section_index]
+        end_target = section_target_distances[section_index + 1]
+
+        if end_station - start_station <= 1e-8:
+            local_t = 0.0
+        else:
+            local_t = _clamp01((value - start_station) / (end_station - start_station))
         mapped_distances.append(start_target + (end_target - start_target) * local_t)
 
     return tuple(mapped_distances)
@@ -1015,6 +1409,31 @@ def _parametrize_side(
     return tuple(uv_targets)
 
 
+def _parametrize_side_by_stations(
+    side_stations: tuple[float, ...],
+    section_stations: tuple[float, ...],
+    section_target_distances: tuple[float, ...],
+    total_length: float,
+    cap_start_width: float,
+    cap_end_width: float,
+    side_sign: float,
+) -> tuple[tuple[float, float], ...]:
+    mapped_distances = _remap_stations_to_section_profile(
+        side_stations,
+        section_stations,
+        section_target_distances,
+    )
+    uv_targets = []
+    for v_distance in mapped_distances:
+        v_ratio = _clamp01(v_distance / total_length) if total_length > 1e-8 else 0.0
+        half_width = 0.5 * (
+            cap_start_width
+            + (cap_end_width - cap_start_width) * v_ratio
+        )
+        uv_targets.append((side_sign * half_width, v_distance))
+    return tuple(uv_targets)
+
+
 def _parametrize_cap(
     cap_chain: BoundaryChain,
     side_a_endpoint: Vector,
@@ -1105,16 +1524,42 @@ def build_band_spine_from_groups(
         node.basis_u,
         node.basis_v,
     )
+    topology_station_sections = False
+    side_a_stations: tuple[float, ...] = ()
+    side_b_stations: tuple[float, ...] = ()
     (
         bootstrap_side_a_sections,
         bootstrap_side_b_sections,
         bootstrap_side_a_distances,
         bootstrap_side_b_distances,
         section_stations,
-    ) = _build_bootstrap_sections(
+        side_a_stations,
+        side_b_stations,
+    ) = _build_topology_sections(
+        graph,
+        node,
+        side_a_ref,
+        side_b_ref,
         side_a_points,
         side_b_points,
+        side_a_reversed,
+        side_b_reversed,
+        cap_start_refs,
+        cap_end_refs,
     )
+    if not bootstrap_side_a_sections:
+        (
+            bootstrap_side_a_sections,
+            bootstrap_side_b_sections,
+            bootstrap_side_a_distances,
+            bootstrap_side_b_distances,
+            section_stations,
+        ) = _build_bootstrap_sections(
+            side_a_points,
+            side_b_points,
+        )
+    else:
+        topology_station_sections = True
     if not bootstrap_side_a_sections or not bootstrap_side_b_sections or not section_stations:
         return None
 
@@ -1140,29 +1585,43 @@ def build_band_spine_from_groups(
         node.basis_u,
         node.basis_v,
     )
-    (
-        side_a_sections,
-        side_b_sections,
-        side_a_section_distances,
-        side_b_section_distances,
-    ) = _build_spine_normal_sections(
-        side_a_points,
-        side_b_points,
-        spine_points,
-        node.basis_u,
-        node.basis_v,
-        bootstrap_side_a_sections,
-        bootstrap_side_b_sections,
-        bootstrap_side_a_distances,
-        bootstrap_side_b_distances,
-    )
+    if topology_station_sections:
+        side_a_sections = bootstrap_side_a_sections
+        side_b_sections = bootstrap_side_b_sections
+        side_a_section_distances = bootstrap_side_a_distances
+        side_b_section_distances = bootstrap_side_b_distances
+    else:
+        (
+            side_a_sections,
+            side_b_sections,
+            side_a_section_distances,
+            side_b_section_distances,
+        ) = _build_spine_normal_sections(
+            side_a_points,
+            side_b_points,
+            spine_points,
+            node.basis_u,
+            node.basis_v,
+            bootstrap_side_a_sections,
+            bootstrap_side_b_sections,
+            bootstrap_side_a_distances,
+            bootstrap_side_b_distances,
+        )
     if not side_a_sections or not side_b_sections:
         return None
+
+    topology_target_total = None
+    if topology_station_sections:
+        topology_target_total = 0.5 * (
+            side_a_section_distances[-1]
+            + side_b_section_distances[-1]
+        )
 
     section_target_distances, total_arc_length = _build_weighted_section_target_distances(
         side_a_section_distances,
         side_b_section_distances,
         spine_points,
+        target_total_override=topology_target_total,
     )
     if not section_target_distances:
         return None
@@ -1183,26 +1642,48 @@ def build_band_spine_from_groups(
     if side_a_chain is None or side_b_chain is None:
         return None
 
-    side_a_targets = _parametrize_side(
-        side_a_points,
-        side_a_section_distances,
-        section_target_distances,
-        total_arc_length,
-        cap_start_width,
-        cap_end_width,
-        side_sign=1.0,
-    )
+    if topology_station_sections:
+        side_a_targets = _parametrize_side_by_stations(
+            side_a_stations,
+            section_stations,
+            section_target_distances,
+            total_arc_length,
+            cap_start_width,
+            cap_end_width,
+            side_sign=1.0,
+        )
+    else:
+        side_a_targets = _parametrize_side(
+            side_a_points,
+            side_a_section_distances,
+            section_target_distances,
+            total_arc_length,
+            cap_start_width,
+            cap_end_width,
+            side_sign=1.0,
+        )
     if side_a_reversed:
         side_a_targets = tuple(reversed(side_a_targets))
-    side_b_targets = _parametrize_side(
-        side_b_points,
-        side_b_section_distances,
-        section_target_distances,
-        total_arc_length,
-        cap_start_width,
-        cap_end_width,
-        side_sign=-1.0,
-    )
+    if topology_station_sections:
+        side_b_targets = _parametrize_side_by_stations(
+            side_b_stations,
+            section_stations,
+            section_target_distances,
+            total_arc_length,
+            cap_start_width,
+            cap_end_width,
+            side_sign=-1.0,
+        )
+    else:
+        side_b_targets = _parametrize_side(
+            side_b_points,
+            side_b_section_distances,
+            section_target_distances,
+            total_arc_length,
+            cap_start_width,
+            cap_end_width,
+            side_sign=-1.0,
+        )
     if side_b_reversed:
         side_b_targets = tuple(reversed(side_b_targets))
 

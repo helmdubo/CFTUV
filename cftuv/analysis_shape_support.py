@@ -115,6 +115,17 @@ def _default_shape_support(
     return PatchShapeSupportArtifact()
 
 
+def _summary_has_split_band_support(patch_summary: _PatchDerivedTopologySummary) -> bool:
+    """Structural summary can express BAND CAP paths that generic 4-chain shape cannot."""
+
+    cap_path_groups = tuple(patch_summary.band_cap_path_groups)
+    return (
+        len(tuple(patch_summary.band_side_indices)) == 2
+        and len(cap_path_groups) == 2
+        and any(len(group) > 1 for group in cap_path_groups)
+    )
+
+
 def _band_shape_support(
     graph: PatchGraph,
     patch_summary: _PatchDerivedTopologySummary,
@@ -205,6 +216,14 @@ def build_patch_shape_support_artifact(
     `CABLE` -> `_cable_shape_support`
     """
 
+    if (
+        fingerprint.shape_class != PatchShapeClass.BAND
+        and _summary_has_split_band_support(patch_summary)
+    ):
+        artifact = _band_shape_support(graph, patch_summary, fingerprint)
+        if artifact.straighten_chain_refs or artifact.band_spine_data is not None:
+            return artifact
+
     handler = _ACTIVE_SHAPE_SUPPORT_HANDLERS.get(
         fingerprint.shape_class,
         _default_shape_support,
@@ -229,10 +248,10 @@ def build_patch_shape_support(
         loop_signatures[patch_id] = list(fingerprint.loop_signatures)
         loop_shape_interpretations[patch_id] = list(fingerprint.loop_interpretations)
         patch_shape_class = classify_patch_shape_fingerprint(fingerprint)
-        patch_shape_classes[patch_id] = patch_shape_class
 
         patch_summary = patch_summaries_by_id.get(patch_id)
         if patch_summary is None:
+            patch_shape_classes[patch_id] = patch_shape_class
             continue
 
         artifact = build_patch_shape_support_artifact(
@@ -240,6 +259,13 @@ def build_patch_shape_support(
             patch_summary,
             fingerprint,
         )
+        if (
+            patch_shape_class != PatchShapeClass.BAND
+            and _summary_has_split_band_support(patch_summary)
+            and (artifact.straighten_chain_refs or artifact.band_spine_data is not None)
+        ):
+            patch_shape_class = PatchShapeClass.BAND
+        patch_shape_classes[patch_id] = patch_shape_class
         straighten_chain_refs.update(artifact.straighten_chain_refs)
         if artifact.band_spine_data is not None:
             band_spine_data[patch_id] = artifact.band_spine_data

@@ -356,7 +356,7 @@ def _begin_patch_topology_assembly(patch_id, patch_face_indices, bm):
     patch_faces = [bm.faces[idx] for idx in patch_face_indices]
     raw_loops = _trace_boundary_loops(patch_faces)
     centroid = _compute_centroid(bm, patch_face_indices)
-    mesh_verts, mesh_tris = _serialize_patch_geometry(bm, patch_face_indices)
+    mesh_verts, mesh_vert_indices, mesh_edges, mesh_tris = _serialize_patch_geometry(bm, patch_face_indices)
 
     node = PatchNode(
         patch_id=patch_id,
@@ -371,6 +371,8 @@ def _begin_patch_topology_assembly(patch_id, patch_face_indices, bm):
         basis_v=basis_v,
         boundary_loops=[],
         mesh_verts=mesh_verts,
+        mesh_vert_indices=mesh_vert_indices,
+        mesh_edges=mesh_edges,
         mesh_tris=mesh_tris,
     )
     return _PatchTopologyAssemblyState(
@@ -454,15 +456,24 @@ def _serialize_patch_geometry(bm, face_indices):
 
     vert_map = {}
     mesh_verts = []
+    mesh_vert_indices = []
+    mesh_edges = set()
     mesh_tris = []
 
     for face_idx in face_indices:
         face = bm.faces[face_idx]
+        for edge in face.edges:
+            a = int(edge.verts[0].index)
+            b = int(edge.verts[1].index)
+            if a != b:
+                mesh_edges.add((min(a, b), max(a, b)))
+
         tri = []
         for vert in face.verts:
             if vert.index not in vert_map:
                 vert_map[vert.index] = len(mesh_verts)
                 mesh_verts.append(vert.co.copy())
+                mesh_vert_indices.append(int(vert.index))
             tri.append(vert_map[vert.index])
 
         if len(tri) == 3:
@@ -472,7 +483,7 @@ def _serialize_patch_geometry(bm, face_indices):
         for tri_index in range(1, len(tri) - 1):
             mesh_tris.append((tri[0], tri[tri_index], tri[tri_index + 1]))
 
-    return mesh_verts, mesh_tris
+    return mesh_verts, mesh_vert_indices, sorted(mesh_edges), mesh_tris
 
 
 
