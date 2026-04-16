@@ -1577,6 +1577,21 @@ def build_canonical_4chain_band_spine(
     if not resampled_a or not resampled_b:
         return None
 
+    # ── detect closed-surface topology ──
+    # For closed patches (ring, truncated cone) the side chains are
+    # nearly-closed arcs whose start ≈ end (both at the seam).  The
+    # patch-plane projection is unreliable for 3D closed surfaces, so
+    # we skip curvature-correction steps that depend on it.  Uniform
+    # parameterization is the correct answer for these cases anyway
+    # (no C/S-bend to compensate).
+    side_a_closure = (side_a_points[0] - side_a_points[-1]).length
+    side_b_closure = (side_b_points[0] - side_b_points[-1]).length
+    avg_side_length = 0.5 * (total_a + total_b)
+    sides_nearly_closed = (
+        avg_side_length > 1e-8
+        and max(side_a_closure, side_b_closure) < 0.15 * avg_side_length
+    )
+
     # ── curvature-corrected spine (inverse-offset guide) ──
     # For curved bands (C/L-shape) the spine shifts toward the concave
     # side, compensating for the length asymmetry.  For flat/uniform
@@ -1590,46 +1605,50 @@ def build_canonical_4chain_band_spine(
             (resampled_a[i] + resampled_b[i]) * 0.5
             for i in range(len(resampled_a))
         )
-    spine_points = _constrain_spine_with_cap_tangents(
-        graph,
-        side_a_ref,
-        side_b_ref,
-        cap_start_refs,
-        cap_end_refs,
-        spine_points,
-        side_a_points,
-        side_b_points,
-        side_a_reversed,
-        side_b_reversed,
-        node.basis_u,
-        node.basis_v,
-    )
 
-    # ── spine-normal re-sectioning ──
-    # Cut sections perpendicular to the spine curve.  At a bend the
-    # outer side intercepts are further apart (long delta) while inner
-    # intercepts are closer (short delta).  This produces non-uniform
-    # section distances that drive the rigidity-weighted redistribution.
-    # For uniform geometry (ring, straight strip) the normals are
-    # radial / parallel → sections stay uniform → redistribution is
-    # a no-op.
-    (
-        _snorm_pts_a, _snorm_pts_b,
-        snorm_dist_a, snorm_dist_b,
-    ) = _build_spine_normal_sections(
-        side_a_points,
-        side_b_points,
-        spine_points,
-        node.basis_u,
-        node.basis_v,
-        resampled_a,
-        resampled_b,
-        section_dist_a,
-        section_dist_b,
-    )
-    if snorm_dist_a and snorm_dist_b:
-        section_dist_a = snorm_dist_a
-        section_dist_b = snorm_dist_b
+    if not sides_nearly_closed:
+        # Cap-tangent constraint and spine-normal re-sectioning are
+        # only meaningful for open bands where the patch plane is
+        # well-defined.  For closed surfaces (cone, ring) they
+        # introduce projection artefacts.
+        spine_points = _constrain_spine_with_cap_tangents(
+            graph,
+            side_a_ref,
+            side_b_ref,
+            cap_start_refs,
+            cap_end_refs,
+            spine_points,
+            side_a_points,
+            side_b_points,
+            side_a_reversed,
+            side_b_reversed,
+            node.basis_u,
+            node.basis_v,
+        )
+
+        # ── spine-normal re-sectioning ──
+        # Cut sections perpendicular to the spine curve.  At a bend
+        # the outer side intercepts are further apart (long delta)
+        # while inner intercepts are closer (short delta).  This
+        # produces non-uniform section distances that drive the
+        # rigidity-weighted redistribution.
+        (
+            _snorm_pts_a, _snorm_pts_b,
+            snorm_dist_a, snorm_dist_b,
+        ) = _build_spine_normal_sections(
+            side_a_points,
+            side_b_points,
+            spine_points,
+            node.basis_u,
+            node.basis_v,
+            resampled_a,
+            resampled_b,
+            section_dist_a,
+            section_dist_b,
+        )
+        if snorm_dist_a and snorm_dist_b:
+            section_dist_a = snorm_dist_a
+            section_dist_b = snorm_dist_b
 
     # ── rigidity-weighted section target distances ──
     # Long straight segments keep their UV proportion; short curved
