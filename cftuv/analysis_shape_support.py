@@ -127,9 +127,12 @@ def _summary_has_split_band_support(patch_summary: _PatchDerivedTopologySummary)
 
 
 def _summary_implies_band_shape(patch_summary: _PatchDerivedTopologySummary) -> bool:
-    """Structural summary is authoritative for split-cap BAND shape classification."""
+    """Structural summary may override shape classification only for runtime-confirmed split-cap BAND."""
 
-    return _summary_has_split_band_support(patch_summary)
+    return (
+        patch_summary.band_confirmed_for_runtime
+        and _summary_has_split_band_support(patch_summary)
+    )
 
 
 def _band_shape_support(
@@ -162,9 +165,11 @@ def _band_shape_support(
     if shape_side_indices and shape_cap_path_groups:
         side_chain_indices = shape_side_indices
         cap_path_groups = shape_cap_path_groups
-    else:
+    elif _summary_implies_band_shape(patch_summary):
         side_chain_indices = tuple(patch_summary.band_side_indices)
         cap_path_groups = tuple(patch_summary.band_cap_path_groups)
+    else:
+        return PatchShapeSupportArtifact()
     if len(side_chain_indices) != 2 or len(cap_path_groups) != 2:
         return PatchShapeSupportArtifact()
 
