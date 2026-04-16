@@ -1095,21 +1095,21 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
                     ci for ci, ch in enumerate(outer_chains)
                     if ch.neighbor_kind == ChainNeighborKind.SEAM_SELF
                 ]
-                border_indices = [
+                non_seam_indices = [
                     ci for ci, ch in enumerate(outer_chains)
-                    if ch.neighbor_kind == ChainNeighborKind.MESH_BORDER
+                    if ch.neighbor_kind != ChainNeighborKind.SEAM_SELF
                 ]
                 if (
                     len(seam_self_indices) == 2
-                    and len(border_indices) == 2
-                    and set(seam_self_indices) | set(border_indices) == set(range(4))
+                    and len(non_seam_indices) == 2
+                    and set(seam_self_indices) | set(non_seam_indices) == set(range(4))
                 ):
                     seam_pair_is_opposite = (
                         set(seam_self_indices) == {0, 2}
                         or set(seam_self_indices) == {1, 3}
                     )
                     if seam_pair_is_opposite:
-                        side_pair_closed = tuple(border_indices)
+                        side_pair_closed = tuple(non_seam_indices)
                         side_axes_local = set()
                         for si in side_pair_closed:
                             sch = outer_chains[si]
@@ -1127,7 +1127,7 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
                                 axis_candidate = supported_band_axis
                         band_side_indices = side_pair_closed
                         cap_candidate_indices = list(seam_self_indices)
-                        side_candidate_indices = list(border_indices)
+                        side_candidate_indices = list(non_seam_indices)
                         band_side_candidate_count = 2
             band_cap_path_groups = (
                 _build_band_cap_path_groups(chain_count, band_side_indices)

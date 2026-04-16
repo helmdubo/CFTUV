@@ -1466,12 +1466,21 @@ def build_canonical_4chain_band_spine(
     side_chain_indices: tuple[int, ...],
     cap_path_groups: tuple[tuple[int, ...], ...],
 ) -> Optional[BandSpineData]:
-    """Fast-path UV builder for canonical 4-chain BAND patches.
+    """Unified UV builder for canonical 4-chain BAND patches.
 
-    Handles the simple case: exactly 2 side chains + 2 single-chain cap
-    groups.  Uses direct strip parameterization (arc-length resampling +
-    midpoint spine) instead of the topology-heavy general path
-    (harmonic station map, inverse-offset guide, etc.).
+    Handles exactly 2 side chains + 2 single-chain cap groups.  Bypasses
+    the topology-heavy general path (harmonic station map, Dijkstra) but
+    retains curvature-aware parameterization:
+
+    - Arc-length resampling of both side rails
+    - Inverse-offset guide spine (curvature correction)
+    - Rigidity-weighted section distance redistribution
+    - Per-vertex remap through section profile
+
+    For curved bands (C/L-shape) long straight segments keep their UV
+    proportion while short curved segments absorb compression.  For
+    uniform geometry (rings, straight strips) the corrections are
+    near-zero and the result is equivalent to simple midpoint + linear.
     """
 
     node = graph.nodes.get(patch_id)
@@ -1559,49 +1568,62 @@ def build_canonical_4chain_band_spine(
     stations = tuple(
         float(i) / float(section_count - 1) for i in range(section_count)
     )
-    resampled_a, _ = _sample_polyline_at_stations(
+    resampled_a, section_dist_a = _sample_polyline_at_stations(
         side_a_points, cumul_a, total_a, stations,
     )
-    resampled_b, _ = _sample_polyline_at_stations(
+    resampled_b, section_dist_b = _sample_polyline_at_stations(
         side_b_points, cumul_b, total_b, stations,
     )
     if not resampled_a or not resampled_b:
         return None
 
-    # ── midpoint spine ──
-    spine_points = tuple(
-        (resampled_a[i] + resampled_b[i]) * 0.5
-        for i in range(len(resampled_a))
+    # ── curvature-corrected spine (inverse-offset guide) ──
+    # For curved bands (C/L-shape) the spine shifts toward the concave
+    # side, compensating for the length asymmetry.  For flat/uniform
+    # geometry (rings, straight strips) the correction is near-zero and
+    # the spine stays at the midpoint.
+    spine_points = _build_inverse_offset_guide(
+        resampled_a, resampled_b, node.basis_u, node.basis_v,
     )
-    spine_cumul, total_spine = _polyline_cumulative_lengths(spine_points)
-    if total_spine <= 1e-8:
-        return None
-    spine_arc_lengths = tuple(d / total_spine for d in spine_cumul)
+    if not spine_points:
+        spine_points = tuple(
+            (resampled_a[i] + resampled_b[i]) * 0.5
+            for i in range(len(resampled_a))
+        )
+
+    # ── rigidity-weighted section target distances ──
+    # Long straight segments keep their UV proportion; short curved
+    # segments absorb compression.  For uniform geometry the weights
+    # are equal and the redistribution is a no-op.
+    section_target_distances, total_spine = _build_weighted_section_target_distances(
+        section_dist_a,
+        section_dist_b,
+        spine_points,
+    )
+    if not section_target_distances or total_spine <= 1e-8:
+        spine_cumul, total_spine = _polyline_cumulative_lengths(spine_points)
+        if total_spine <= 1e-8:
+            return None
+        section_target_distances = spine_cumul
+
+    spine_cumul, _ = _polyline_cumulative_lengths(spine_points)
+    spine_arc_lengths = tuple(
+        d / total_spine if total_spine > 1e-8 else 0.0 for d in spine_cumul
+    )
 
     # ── endpoint widths ──
     cap_start_width = (side_a_points[0] - side_b_points[0]).length
     cap_end_width = (side_a_points[-1] - side_b_points[-1]).length
 
-    # ── UV targets for side chains ──
-    def _build_side_uv(
-        points: tuple[Vector, ...],
-        cumul: tuple[float, ...],
-        total: float,
-        sign: float,
-    ) -> tuple[tuple[float, float], ...]:
-        targets = []
-        for idx in range(len(points)):
-            t = _clamp01(cumul[idx] / total) if total > 1e-8 else 0.0
-            v_dist = t * total_spine
-            v_ratio = _clamp01(v_dist / total_spine) if total_spine > 1e-8 else 0.0
-            half_w = 0.5 * (
-                cap_start_width + (cap_end_width - cap_start_width) * v_ratio
-            )
-            targets.append((sign * half_w, v_dist))
-        return tuple(targets)
-
-    side_a_targets = _build_side_uv(side_a_points, cumul_a, total_a, 1.0)
-    side_b_targets = _build_side_uv(side_b_points, cumul_b, total_b, -1.0)
+    # ── UV targets for side chains (remap through section profile) ──
+    side_a_targets = _parametrize_side(
+        side_a_points, section_dist_a, section_target_distances,
+        total_spine, cap_start_width, cap_end_width, side_sign=1.0,
+    )
+    side_b_targets = _parametrize_side(
+        side_b_points, section_dist_b, section_target_distances,
+        total_spine, cap_start_width, cap_end_width, side_sign=-1.0,
+    )
     if side_a_reversed:
         side_a_targets = tuple(reversed(side_a_targets))
     if side_b_reversed:
