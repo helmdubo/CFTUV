@@ -1332,41 +1332,50 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             )
             runtime_role_pattern_ok = runtime_role_pattern_ok_4chain or runtime_split_role_cover_all
 
-            if any(boundary_loop.kind == LoopKind.HOLE for boundary_loop in node.boundary_loops):
-                band_rejected_reason = "has_holes"
-            elif branch_count > 0:
-                band_rejected_reason = "branch_junctions"
-            elif runtime_band_axis not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
-                band_rejected_reason = "missing_runtime_axis"
-            elif chain_count > 4 and not split_cap_band_candidate:
-                band_rejected_reason = "outer_chain_count_not_four"
-            elif chain_count == 4 and len(runtime_cap_indices) != 2:
-                band_rejected_reason = (
-                    "missing_caps" if len(runtime_cap_indices) < 2 else "ambiguous_caps"
-                )
-            elif len(runtime_side_indices) != 2:
-                band_rejected_reason = (
-                    "missing_sides" if len(runtime_side_indices) < 2 else "ambiguous_sides"
-                )
-            elif len(band_cap_path_groups) == 2 and not any(band_cap_group_strong_flags):
-                band_rejected_reason = "missing_strong_cap"
-            elif runtime_cap_pair_similarity < BAND_CAP_SIMILARITY_MIN:
-                band_rejected_reason = "weak_cap_pair"
-            elif (
-                not simple_band_topology_4chain
-                and band_directional_consistency < BAND_DIRECTIONAL_CONSISTENCY_MIN
-            ):
-                band_rejected_reason = "side_direction_mismatch"
-            elif not runtime_role_pattern_ok:
-                band_rejected_reason = "runtime_role_pattern_mismatch"
-            else:
+            has_holes = any(
+                boundary_loop.kind == LoopKind.HOLE for boundary_loop in node.boundary_loops
+            )
+            runtime_axis_present = runtime_band_axis in {FrameRole.H_FRAME, FrameRole.V_FRAME}
+            chain_topology_supported = chain_count <= 4 or split_cap_band_candidate
+            caps_reject = ""
+            if chain_count == 4 and len(runtime_cap_indices) != 2:
+                caps_reject = "missing_caps" if len(runtime_cap_indices) < 2 else "ambiguous_caps"
+            sides_reject = ""
+            if len(runtime_side_indices) != 2:
+                sides_reject = "missing_sides" if len(runtime_side_indices) < 2 else "ambiguous_sides"
+            strong_cap_present = not (
+                len(band_cap_path_groups) == 2 and not any(band_cap_group_strong_flags)
+            )
+            cap_pair_strong_enough = runtime_cap_pair_similarity >= BAND_CAP_SIMILARITY_MIN
+            direction_ok = (
+                simple_band_topology_4chain
+                or band_directional_consistency >= BAND_DIRECTIONAL_CONSISTENCY_MIN
+            )
+
+            band_rejection_constraints: tuple[tuple[str, bool], ...] = (
+                ("has_holes", not has_holes),
+                ("branch_junctions", branch_count == 0),
+                ("missing_runtime_axis", runtime_axis_present),
+                ("outer_chain_count_not_four", chain_topology_supported),
+                (caps_reject, not caps_reject),
+                (sides_reject, not sides_reject),
+                ("missing_strong_cap", strong_cap_present),
+                ("weak_cap_pair", cap_pair_strong_enough),
+                ("side_direction_mismatch", direction_ok),
+                ("runtime_role_pattern_mismatch", runtime_role_pattern_ok),
+            )
+            band_rejected_reason = next(
+                (reason for reason, ok in band_rejection_constraints if not ok),
+                "",
+            )
+
+            if not band_rejected_reason:
                 band_mode = (
                     BandMode.HARD_BAND
                     if runtime_side_pair_similarity >= BAND_HARD_SIDE_SIMILARITY_MIN
                     else BandMode.SOFT_BAND
                 )
                 band_confirmed_for_runtime = True
-                band_rejected_reason = ""
                 if raw_outer_free_count > 0 or inherited_spine_count > 0 or single_sided_inherited_support:
                     band_requires_intervention = True
                     band_intervention_reject_reason = ""
