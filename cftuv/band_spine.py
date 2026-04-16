@@ -1590,6 +1590,46 @@ def build_canonical_4chain_band_spine(
             (resampled_a[i] + resampled_b[i]) * 0.5
             for i in range(len(resampled_a))
         )
+    spine_points = _constrain_spine_with_cap_tangents(
+        graph,
+        side_a_ref,
+        side_b_ref,
+        cap_start_refs,
+        cap_end_refs,
+        spine_points,
+        side_a_points,
+        side_b_points,
+        side_a_reversed,
+        side_b_reversed,
+        node.basis_u,
+        node.basis_v,
+    )
+
+    # ── spine-normal re-sectioning ──
+    # Cut sections perpendicular to the spine curve.  At a bend the
+    # outer side intercepts are further apart (long delta) while inner
+    # intercepts are closer (short delta).  This produces non-uniform
+    # section distances that drive the rigidity-weighted redistribution.
+    # For uniform geometry (ring, straight strip) the normals are
+    # radial / parallel → sections stay uniform → redistribution is
+    # a no-op.
+    (
+        _snorm_pts_a, _snorm_pts_b,
+        snorm_dist_a, snorm_dist_b,
+    ) = _build_spine_normal_sections(
+        side_a_points,
+        side_b_points,
+        spine_points,
+        node.basis_u,
+        node.basis_v,
+        resampled_a,
+        resampled_b,
+        section_dist_a,
+        section_dist_b,
+    )
+    if snorm_dist_a and snorm_dist_b:
+        section_dist_a = snorm_dist_a
+        section_dist_b = snorm_dist_b
 
     # ── rigidity-weighted section target distances ──
     # Long straight segments keep their UV proportion; short curved
