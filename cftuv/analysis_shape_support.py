@@ -6,14 +6,14 @@ from typing import Callable, Mapping, Optional
 
 try:
     from .analysis_records import BandSpineData, _PatchDerivedTopologySummary
-    from .band_spine import build_band_spine_from_groups
+    from .band_spine import build_band_spine_from_groups, build_canonical_4chain_band_spine
     from .model import ChainRef, LoopKind, PatchGraph
     from .shape_classify import PatchShapeSemantics, classify_patch_shape_semantics
     from .shape_types import LoopShapeInterpretation, PatchShapeClass
     from .structural_tokens import LoopSignature, build_loop_signature
 except ImportError:
     from analysis_records import BandSpineData, _PatchDerivedTopologySummary
-    from band_spine import build_band_spine_from_groups
+    from band_spine import build_band_spine_from_groups, build_canonical_4chain_band_spine
     from model import ChainRef, LoopKind, PatchGraph
     from shape_classify import PatchShapeSemantics, classify_patch_shape_semantics
     from shape_types import LoopShapeInterpretation, PatchShapeClass
@@ -173,13 +173,29 @@ def _band_shape_support(
         for chain_index in side_chain_indices
         if 0 <= chain_index < outer_signature.chain_count
     )
-    spine_data = build_band_spine_from_groups(
-        graph,
-        patch_summary.patch_id,
-        outer_signature.loop_index,
-        side_chain_indices,
-        cap_path_groups,
-    )
+    # Fast-path for canonical 4-chain BAND (simple strip between two rails).
+    # Only fall back to the general topology-heavy builder for split-cap (>4 chain).
+    spine_data = None
+    if (
+        outer_signature.chain_count == 4
+        and len(cap_path_groups) == 2
+        and all(len(g) == 1 for g in cap_path_groups)
+    ):
+        spine_data = build_canonical_4chain_band_spine(
+            graph,
+            patch_summary.patch_id,
+            outer_signature.loop_index,
+            side_chain_indices,
+            cap_path_groups,
+        )
+    if spine_data is None:
+        spine_data = build_band_spine_from_groups(
+            graph,
+            patch_summary.patch_id,
+            outer_signature.loop_index,
+            side_chain_indices,
+            cap_path_groups,
+        )
     return PatchShapeSupportArtifact(
         straighten_chain_refs=straighten_chain_refs,
         band_spine_data=spine_data,

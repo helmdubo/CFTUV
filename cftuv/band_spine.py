@@ -1459,6 +1459,204 @@ def _parametrize_cap(
     return tuple(uv_targets)
 
 
+def build_canonical_4chain_band_spine(
+    graph: PatchGraph,
+    patch_id: int,
+    loop_index: int,
+    side_chain_indices: tuple[int, ...],
+    cap_path_groups: tuple[tuple[int, ...], ...],
+) -> Optional[BandSpineData]:
+    """Fast-path UV builder for canonical 4-chain BAND patches.
+
+    Handles the simple case: exactly 2 side chains + 2 single-chain cap
+    groups.  Uses direct strip parameterization (arc-length resampling +
+    midpoint spine) instead of the topology-heavy general path
+    (harmonic station map, inverse-offset guide, etc.).
+    """
+
+    node = graph.nodes.get(patch_id)
+    if node is None or loop_index < 0 or loop_index >= len(node.boundary_loops):
+        return None
+    if len(side_chain_indices) != 2 or len(cap_path_groups) != 2:
+        return None
+    if any(len(group) != 1 for group in cap_path_groups):
+        return None
+
+    side_a_ref = (patch_id, loop_index, side_chain_indices[0])
+    side_b_ref = (patch_id, loop_index, side_chain_indices[1])
+    cap_0_ref = (patch_id, loop_index, cap_path_groups[0][0])
+    cap_1_ref = (patch_id, loop_index, cap_path_groups[1][0])
+
+    side_a = graph.get_chain(*side_a_ref)
+    side_b = graph.get_chain(*side_b_ref)
+    cap_0 = graph.get_chain(*cap_0_ref)
+    cap_1 = graph.get_chain(*cap_1_ref)
+    if side_a is None or side_b is None or cap_0 is None or cap_1 is None:
+        return None
+    if len(side_a.vert_cos) < 2 or len(side_b.vert_cos) < 2:
+        return None
+
+    # ── orient: match side_a start → cap_start, side_a end → cap_end ──
+    if _chain_has_corner(cap_0, side_a.start_corner_index):
+        cap_start_ref, cap_end_ref = cap_0_ref, cap_1_ref
+    elif _chain_has_corner(cap_1, side_a.start_corner_index):
+        cap_start_ref, cap_end_ref = cap_1_ref, cap_0_ref
+    else:
+        d0 = (side_a.vert_cos[0] - cap_0.vert_cos[0]).length_squared
+        d1 = (side_a.vert_cos[0] - cap_1.vert_cos[0]).length_squared
+        if d0 <= d1:
+            cap_start_ref, cap_end_ref = cap_0_ref, cap_1_ref
+        else:
+            cap_start_ref, cap_end_ref = cap_1_ref, cap_0_ref
+
+    cap_start = graph.get_chain(*cap_start_ref)
+    cap_end = graph.get_chain(*cap_end_ref)
+    if cap_start is None or cap_end is None:
+        return None
+
+    side_a_points = tuple(v.copy() for v in side_a.vert_cos)
+    side_b_points = tuple(v.copy() for v in side_b.vert_cos)
+    side_a_reversed = False
+    side_b_reversed = False
+
+    if _chain_has_corner(cap_start, side_b.end_corner_index):
+        side_b_points = tuple(reversed(side_b_points))
+        side_b_reversed = True
+    elif not _chain_has_corner(cap_start, side_b.start_corner_index):
+        d_start = (side_a_points[0] - side_b_points[0]).length_squared
+        d_end = (side_a_points[0] - side_b_points[-1]).length_squared
+        if d_end < d_start:
+            side_b_points = tuple(reversed(side_b_points))
+            side_b_reversed = True
+
+    cap_start_refs = (cap_start_ref,)
+    cap_end_refs = (cap_end_ref,)
+
+    # ── canonicalize orientation (align with basis) ──
+    (
+        side_a_ref, side_b_ref,
+        side_a_points, side_b_points,
+        cap_start_refs, cap_end_refs,
+        side_a_reversed, side_b_reversed,
+    ) = _canonicalize_band_orientation(
+        side_a_ref, side_b_ref,
+        side_a_points, side_b_points,
+        cap_start_refs, cap_end_refs,
+        side_a_reversed, side_b_reversed,
+        node.basis_u, node.basis_v,
+    )
+
+    # Re-fetch cap chains after canonicalization (may have been swapped).
+    cap_start = graph.get_chain(*cap_start_refs[0])
+    cap_end = graph.get_chain(*cap_end_refs[0])
+    if cap_start is None or cap_end is None:
+        return None
+
+    # ── resample both sides to uniform arc-length stations ──
+    cumul_a, total_a = _polyline_cumulative_lengths(side_a_points)
+    cumul_b, total_b = _polyline_cumulative_lengths(side_b_points)
+    section_count = max(len(side_a_points), len(side_b_points), 4)
+    stations = tuple(
+        float(i) / float(section_count - 1) for i in range(section_count)
+    )
+    resampled_a, _ = _sample_polyline_at_stations(
+        side_a_points, cumul_a, total_a, stations,
+    )
+    resampled_b, _ = _sample_polyline_at_stations(
+        side_b_points, cumul_b, total_b, stations,
+    )
+    if not resampled_a or not resampled_b:
+        return None
+
+    # ── midpoint spine ──
+    spine_points = tuple(
+        (resampled_a[i] + resampled_b[i]) * 0.5
+        for i in range(len(resampled_a))
+    )
+    spine_cumul, total_spine = _polyline_cumulative_lengths(spine_points)
+    if total_spine <= 1e-8:
+        return None
+    spine_arc_lengths = tuple(d / total_spine for d in spine_cumul)
+
+    # ── endpoint widths ──
+    cap_start_width = (side_a_points[0] - side_b_points[0]).length
+    cap_end_width = (side_a_points[-1] - side_b_points[-1]).length
+
+    # ── UV targets for side chains ──
+    def _build_side_uv(
+        points: tuple[Vector, ...],
+        cumul: tuple[float, ...],
+        total: float,
+        sign: float,
+    ) -> tuple[tuple[float, float], ...]:
+        targets = []
+        for idx in range(len(points)):
+            t = _clamp01(cumul[idx] / total) if total > 1e-8 else 0.0
+            v_dist = t * total_spine
+            v_ratio = _clamp01(v_dist / total_spine) if total_spine > 1e-8 else 0.0
+            half_w = 0.5 * (
+                cap_start_width + (cap_end_width - cap_start_width) * v_ratio
+            )
+            targets.append((sign * half_w, v_dist))
+        return tuple(targets)
+
+    side_a_targets = _build_side_uv(side_a_points, cumul_a, total_a, 1.0)
+    side_b_targets = _build_side_uv(side_b_points, cumul_b, total_b, -1.0)
+    if side_a_reversed:
+        side_a_targets = tuple(reversed(side_a_targets))
+    if side_b_reversed:
+        side_b_targets = tuple(reversed(side_b_targets))
+
+    # ── UV targets for cap chains ──
+    start_tangent = _endpoint_direction(spine_points, at_start=True)
+    end_tangent = _endpoint_direction(spine_points, at_start=False)
+
+    cap_start_uv = _parametrize_cap(
+        cap_start, side_a_points[0], side_b_points[0],
+        start_tangent, 0.0, cap_start_width,
+    )
+    cap_end_uv = _parametrize_cap(
+        cap_end, side_a_points[-1], side_b_points[-1],
+        end_tangent, total_spine, cap_end_width,
+    )
+
+    chain_uv_targets = {
+        side_a_ref: side_a_targets,
+        side_b_ref: side_b_targets,
+        cap_start_refs[0]: cap_start_uv,
+        cap_end_refs[0]: cap_end_uv,
+    }
+
+    # ── spine axis: use mid-chord for robustness (handles closed rings) ──
+    mid_idx = len(spine_points) // 2
+    mid_chord = spine_points[mid_idx] - spine_points[0]
+    u_comp = abs(mid_chord.dot(node.basis_u))
+    v_comp = abs(mid_chord.dot(node.basis_v))
+    if max(u_comp, v_comp) > 1e-8:
+        spine_axis = FrameRole.H_FRAME if u_comp >= v_comp else FrameRole.V_FRAME
+    else:
+        spine_axis = _resolve_spine_axis_from_points(
+            side_a_points, side_b_points, node.basis_u, node.basis_v,
+        )
+
+    return BandSpineData(
+        patch_id=patch_id,
+        side_a_ref=side_a_ref,
+        side_b_ref=side_b_ref,
+        cap_start_ref=cap_start_refs[0],
+        cap_end_ref=cap_end_refs[0],
+        cap_start_refs=cap_start_refs,
+        cap_end_refs=cap_end_refs,
+        spine_points_3d=tuple(p.copy() for p in spine_points),
+        spine_arc_lengths=spine_arc_lengths,
+        spine_arc_length=total_spine,
+        cap_start_width=cap_start_width,
+        cap_end_width=cap_end_width,
+        chain_uv_targets=MappingProxyType(dict(chain_uv_targets)),
+        spine_axis=spine_axis,
+    )
+
+
 def build_band_spine_from_groups(
     graph: PatchGraph,
     patch_id: int,
