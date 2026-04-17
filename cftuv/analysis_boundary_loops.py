@@ -31,6 +31,7 @@ try:
         _find_corner_reference_point,
         _measure_corner_turn_angle,
         _build_geometric_loop_corners,
+        _sawtooth_promoted_role,
         _try_geometric_outer_loop_split,
     )
     from .console_debug import trace_console
@@ -63,6 +64,7 @@ except ImportError:
         _find_corner_reference_point,
         _measure_corner_turn_angle,
         _build_geometric_loop_corners,
+        _sawtooth_promoted_role,
         _try_geometric_outer_loop_split,
     )
     from console_debug import trace_console
@@ -305,6 +307,24 @@ def _build_boundary_chain_objects(raw_chains, basis_u, basis_v):
         chain_vert_cos = [co.copy() for co in raw_chain.vert_cos]
         neighbor_id = int(raw_chain.neighbor)
         use_strict_guards = (neighbor_id != NB_MESH_BORDER)
+        raw_role = _classify_chain_frame_role(
+            chain_vert_cos,
+            basis_u,
+            basis_v,
+            strict_guards=use_strict_guards,
+        )
+        # Fallback: FREE chain с пилообразной детализацией вдоль одной
+        # оси patch → промоушен в H_FRAME / V_FRAME. Strict отсекает
+        # зубья по h_avg_deviation; composite-тест смотрит на форму
+        # ломаной в целом (хорда + PCA + zero-crossings).
+        if raw_role == FrameRole.FREE:
+            promoted = _sawtooth_promoted_role(chain_vert_cos, basis_u, basis_v)
+            if promoted is not None:
+                trace_console(
+                    f"[CFTUV][Sawtooth] promoted neighbor={neighbor_id} "
+                    f"verts={len(chain_vert_cos)} role={promoted.value}"
+                )
+                raw_role = promoted
         chains.append(
             BoundaryChain(
                 vert_indices=list(raw_chain.vert_indices),
@@ -313,7 +333,7 @@ def _build_boundary_chain_objects(raw_chains, basis_u, basis_v):
                 side_face_indices=list(raw_chain.side_face_indices),
                 neighbor_patch_id=neighbor_id,
                 is_closed=bool(raw_chain.is_closed),
-                frame_role=_classify_chain_frame_role(chain_vert_cos, basis_u, basis_v, strict_guards=use_strict_guards),
+                frame_role=raw_role,
                 start_loop_index=int(raw_chain.start_loop_index),
                 end_loop_index=int(raw_chain.end_loop_index),
                 is_corner_split=bool(raw_chain.is_corner_split),

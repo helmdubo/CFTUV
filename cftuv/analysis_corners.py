@@ -10,6 +10,9 @@ try:
         FRAME_ALIGNMENT_THRESHOLD_H,
         FRAME_ALIGNMENT_THRESHOLD_V,
         FRAME_COMPOUND_LENGTH_THRESHOLD,
+        SAWTOOTH_CHORD_AXIS_ALIGNMENT_MIN,
+        SAWTOOTH_MIN_DIRECTION_REVERSALS,
+        SAWTOOTH_PCA_EIGENVALUE_RATIO_MIN,
     )
     from .model import BoundaryCorner, CornerKind, FrameRole, LoopKind
     from .analysis_records import _RawBoundaryChain
@@ -20,6 +23,9 @@ except ImportError:
         FRAME_ALIGNMENT_THRESHOLD_H,
         FRAME_ALIGNMENT_THRESHOLD_V,
         FRAME_COMPOUND_LENGTH_THRESHOLD,
+        SAWTOOTH_CHORD_AXIS_ALIGNMENT_MIN,
+        SAWTOOTH_MIN_DIRECTION_REVERSALS,
+        SAWTOOTH_PCA_EIGENVALUE_RATIO_MIN,
     )
     from model import BoundaryCorner, CornerKind, FrameRole, LoopKind
     from analysis_records import _RawBoundaryChain
@@ -131,6 +137,178 @@ def _classify_chain_frame_role(chain_vert_cos, basis_u, basis_v, strict_guards=T
     if v_ok:
         return FrameRole.V_FRAME
     return FrameRole.FREE
+
+
+def _measure_sawtooth_signals(chain_vert_cos, basis_u, basis_v):
+    """Один проход по polyline, возвращает сигналы для sawtooth-теста.
+
+    Все сигналы считаются в 2D-проекции на плоскость (U, V) patch-базиса:
+    нас не интересует уход в нормаль (как у strict-классификатора),
+    интересует «насколько эта ломаная идёт по одной оси U или V».
+
+    Возвращает dict или None для вырожденных случаев.
+    """
+    if len(chain_vert_cos) < 3:
+        return None
+
+    if basis_u.length_squared < 1e-12 or basis_v.length_squared < 1e-12:
+        return None
+    basis_u_n = basis_u.normalized()
+    basis_v_n = basis_v.normalized()
+
+    chord = chain_vert_cos[-1] - chain_vert_cos[0]
+    chord_len = chord.length
+    if chord_len < 1e-8:
+        return None
+
+    polyline_len = 0.0
+    for point_index in range(len(chain_vert_cos) - 1):
+        polyline_len += (chain_vert_cos[point_index + 1] - chain_vert_cos[point_index]).length
+    if polyline_len < 1e-8:
+        return None
+
+    chord_polyline_ratio = chord_len / polyline_len
+
+    chord_u_align = abs(chord.dot(basis_u_n)) / chord_len
+    chord_v_align = abs(chord.dot(basis_v_n)) / chord_len
+    if chord_u_align >= chord_v_align:
+        preferred_axis = "H"
+        chord_axis_alignment = chord_u_align
+    else:
+        preferred_axis = "V"
+        chord_axis_alignment = chord_v_align
+
+    # 2D-точки в (U, V), относительно первой вершины.
+    first_point = chain_vert_cos[0]
+    points_2d = []
+    for point in chain_vert_cos:
+        rel = point - first_point
+        points_2d.append((rel.dot(basis_u_n), rel.dot(basis_v_n)))
+
+    n_pts = len(points_2d)
+    cx = sum(p[0] for p in points_2d) / n_pts
+    cy = sum(p[1] for p in points_2d) / n_pts
+
+    cxx = cyy = cxy = 0.0
+    for x, y in points_2d:
+        dx = x - cx
+        dy = y - cy
+        cxx += dx * dx
+        cyy += dy * dy
+        cxy += dx * dy
+    cxx /= n_pts
+    cyy /= n_pts
+    cxy /= n_pts
+
+    # Собственные числа симметричной 2×2:
+    # λ = (cxx + cyy)/2 ± √(((cxx − cyy)/2)² + cxy²)
+    half_trace = (cxx + cyy) * 0.5
+    half_diff = (cxx - cyy) * 0.5
+    disc = math.sqrt(half_diff * half_diff + cxy * cxy)
+    lambda1 = half_trace + disc
+    lambda2 = half_trace - disc
+    if lambda1 < 1e-20:
+        return None
+    lambda2_safe = max(lambda2, lambda1 * 1e-9)
+    pca_eigenvalue_ratio = lambda1 / lambda2_safe
+
+    # Главный собственный вектор. cxy ≠ 0 → стандартная формула;
+    # cxy = 0 → матрица уже диагональна.
+    if abs(cxy) > 1e-20:
+        ev1_x = lambda1 - cyy
+        ev1_y = cxy
+    elif cxx >= cyy:
+        ev1_x, ev1_y = 1.0, 0.0
+    else:
+        ev1_x, ev1_y = 0.0, 1.0
+    ev1_len = math.sqrt(ev1_x * ev1_x + ev1_y * ev1_y)
+    if ev1_len < 1e-12:
+        return None
+    ev1_x /= ev1_len
+    ev1_y /= ev1_len
+
+    # В нашем 2D-фрейме оси U → (1,0), V → (0,1).
+    if preferred_axis == "H":
+        primary_axis_alignment = abs(ev1_x)
+    else:
+        primary_axis_alignment = abs(ev1_y)
+
+    # Direction reversals: знак производной перпендикулярной-к-хорде
+    # компоненты. Каждая смена знака — это локальный пик/впадина.
+    # Прямая = 0, дуга = 1, S-кривая = 2, пила N зубцов ≈ 2N-1.
+    # Ловит и cross-chord, и same-side варианты (паттерн «стена с
+    # канавками все с одной стороны» даёт диагональный тренд, но
+    # per-segment производная всё равно разворачивается на каждом зубе).
+    chord_2d_x = points_2d[-1][0] - points_2d[0][0]
+    chord_2d_y = points_2d[-1][1] - points_2d[0][1]
+    chord_2d_len = math.sqrt(chord_2d_x * chord_2d_x + chord_2d_y * chord_2d_y)
+    if chord_2d_len < 1e-8:
+        return None
+    perp_x = -chord_2d_y / chord_2d_len
+    perp_y = chord_2d_x / chord_2d_len
+
+    origin_x, origin_y = points_2d[0]
+    sides = [(x - origin_x) * perp_x + (y - origin_y) * perp_y for x, y in points_2d]
+
+    direction_reversals = 0
+    prev_diff_sign = 0
+    for index in range(len(sides) - 1):
+        diff = sides[index + 1] - sides[index]
+        if diff > 1e-9:
+            cur_sign = 1
+        elif diff < -1e-9:
+            cur_sign = -1
+        else:
+            cur_sign = 0
+        if cur_sign != 0 and prev_diff_sign != 0 and cur_sign != prev_diff_sign:
+            direction_reversals += 1
+        if cur_sign != 0:
+            prev_diff_sign = cur_sign
+
+    return {
+        "chord_len": chord_len,
+        "polyline_len": polyline_len,
+        "chord_polyline_ratio": chord_polyline_ratio,
+        "chord_axis_alignment": chord_axis_alignment,
+        "pca_eigenvalue_ratio": pca_eigenvalue_ratio,
+        "primary_axis_alignment": primary_axis_alignment,
+        "direction_reversals": direction_reversals,
+        "preferred_axis": preferred_axis,
+    }
+
+
+def _sawtooth_promoted_role(chain_vert_cos, basis_u, basis_v):
+    """Fallback H/V промоушен для FREE chains, которые выглядят как пила
+    вдоль одной оси patch (например, стена с декоративными канавками).
+
+    Композитный тест: четыре независимых сигнала должны сойтись. Если
+    любой не прошёл — возвращаем None (остаётся FREE).
+
+    Возвращает FrameRole.H_FRAME / FrameRole.V_FRAME при промоушене.
+    """
+    signals = _measure_sawtooth_signals(chain_vert_cos, basis_u, basis_v)
+    if signals is None:
+        return None
+
+    # Gate 1: хорда должна указывать вдоль одной оси patch.
+    if signals["chord_axis_alignment"] < SAWTOOTH_CHORD_AXIS_ALIGNMENT_MIN:
+        return None
+
+    # Gate 2: PCA — главная ось проекции должна совпадать с той же осью
+    # (ломаная — настоящая линия с шумом, а не диагональный пучок).
+    if signals["primary_axis_alignment"] < SAWTOOTH_CHORD_AXIS_ALIGNMENT_MIN:
+        return None
+    if signals["pca_eigenvalue_ratio"] < SAWTOOTH_PCA_EIGENVALUE_RATIO_MIN:
+        return None
+
+    # Gate 3: зубы должны быть. Дуга = 1 reversal, S-кривая = 2, прямая = 0.
+    # Порог ≥ 3 принимает 2+ зубца и отсекает всё перечисленное.
+    if signals["direction_reversals"] < SAWTOOTH_MIN_DIRECTION_REVERSALS:
+        return None
+
+    if signals["preferred_axis"] == "H":
+        return FrameRole.H_FRAME
+    return FrameRole.V_FRAME
 
 
 def _find_corner_reference_point(points, corner_co, reverse=False):
@@ -473,10 +651,19 @@ def _try_geometric_outer_loop_split(raw_loop, raw_chains, basis_u, basis_v, bm=N
         trace_console("[CFTUV][GeoSplit] BAIL: <4 derived chains")
         return raw_chains
 
-    derived_roles = [
-        _classify_chain_frame_role(derived_raw_chain.vert_cos, basis_u, basis_v, strict_guards=False)
-        for derived_raw_chain in derived_raw_chains
-    ]
+    derived_roles = []
+    for derived_raw_chain in derived_raw_chains:
+        strict_role = _classify_chain_frame_role(
+            derived_raw_chain.vert_cos,
+            basis_u,
+            basis_v,
+            strict_guards=False,
+        )
+        if strict_role == FrameRole.FREE:
+            promoted = _sawtooth_promoted_role(derived_raw_chain.vert_cos, basis_u, basis_v)
+            if promoted is not None:
+                strict_role = promoted
+        derived_roles.append(strict_role)
     trace_console(f"[CFTUV][GeoSplit] derived_roles={[role.value for role in derived_roles]}")
     non_free_count = sum(1 for role in derived_roles if role != FrameRole.FREE)
     if non_free_count < 1:
