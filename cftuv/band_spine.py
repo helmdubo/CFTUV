@@ -166,6 +166,57 @@ def _inward_normal_direction(
     return _safe_normalized(normal, toward_point - point)
 
 
+# Ratio of normal-direction extent to the dominant in-plane extent above which
+# patch-plane projections lose enough information to make 2D-refinement steps
+# (inverse-offset guide, cap-tangent constraint, spine-normal sections) produce
+# spurious results.  Mild in-plane C/L-shapes stay below this and keep full
+# refinement; serpentines folded along the face normal exceed it and fall back
+# to uniform arc-length parametrization.
+_BAND_OUT_OF_PLANE_EXTENT_RATIO = 0.20
+
+
+def _band_is_out_of_patch_plane(
+    side_a_points: tuple[Vector, ...],
+    side_b_points: tuple[Vector, ...],
+    basis_u: Vector,
+    basis_v: Vector,
+) -> bool:
+    """Detect bands whose 3D geometry deviates significantly from basis_u × basis_v.
+
+    The 2D refinements in the spine builder project rails and section lines
+    onto the patch plane.  When the band bends substantially along the face
+    normal (e.g. a serpentine strip folded out of the surface), the projection
+    collapses the normal component and yields spurious 2D intersections,
+    distorting section distances for intermediate vertices.  The caller should
+    skip those refinements and rely on pure 3D arc-length parametrization.
+    """
+
+    if not side_a_points or not side_b_points:
+        return False
+    plane_normal = _safe_normalized(
+        basis_u.cross(basis_v), Vector((0.0, 0.0, 1.0))
+    )
+    origin = side_a_points[0]
+    n_values: list[float] = []
+    u_values: list[float] = []
+    v_values: list[float] = []
+    for points in (side_a_points, side_b_points):
+        for point in points:
+            offset = point - origin
+            n_values.append(offset.dot(plane_normal))
+            u_values.append(offset.dot(basis_u))
+            v_values.append(offset.dot(basis_v))
+    if not n_values:
+        return False
+    n_extent = max(n_values) - min(n_values)
+    inplane_extent = max(
+        max(u_values) - min(u_values),
+        max(v_values) - min(v_values),
+        1e-8,
+    )
+    return n_extent > _BAND_OUT_OF_PLANE_EXTENT_RATIO * inplane_extent
+
+
 def _build_inverse_offset_guide(
     side_a_points: tuple[Vector, ...],
     side_b_points: tuple[Vector, ...],
@@ -647,68 +698,58 @@ def _build_topology_sections(
     )
 
 
-def _line_segment_intersection_in_patch_plane(
-    line_point: Vector,
-    line_direction: Vector,
-    segment_start: Vector,
-    segment_end: Vector,
-    basis_u: Vector,
-    basis_v: Vector,
-) -> Optional[tuple[Vector, float]]:
-    segment_direction = segment_end - segment_start
-    if line_direction.length <= 1e-8 or segment_direction.length <= 1e-8:
-        return None
-
-    origin = line_point
-    line_point_2d = Vector((0.0, 0.0))
-    line_dir_2d = Vector((line_direction.dot(basis_u), line_direction.dot(basis_v)))
-    seg_start_2d = Vector(((segment_start - origin).dot(basis_u), (segment_start - origin).dot(basis_v)))
-    seg_end_2d = Vector(((segment_end - origin).dot(basis_u), (segment_end - origin).dot(basis_v)))
-    seg_dir_2d = seg_end_2d - seg_start_2d
-
-    determinant = line_dir_2d.x * seg_dir_2d.y - line_dir_2d.y * seg_dir_2d.x
-    if abs(determinant) <= 1e-8:
-        return None
-
-    delta = seg_start_2d - line_point_2d
-    line_t = (delta.x * seg_dir_2d.y - delta.y * seg_dir_2d.x) / determinant
-    seg_t = (delta.x * line_dir_2d.y - delta.y * line_dir_2d.x) / determinant
-    if seg_t < -1e-6 or seg_t > 1.0 + 1e-6:
-        return None
-    seg_t = _clamp01(seg_t)
-    return line_point + line_direction * line_t, seg_t
-
-
-def _intersect_section_with_polyline(
+def _intersect_section_plane_with_polyline(
     polyline_points: tuple[Vector, ...],
     cumulative_distances: tuple[float, ...],
-    line_point: Vector,
-    line_direction: Vector,
-    basis_u: Vector,
-    basis_v: Vector,
+    plane_point: Vector,
+    plane_normal: Vector,
     *,
     previous_distance: Optional[float],
     fallback_point: Vector,
     fallback_distance: float,
 ) -> tuple[Vector, float]:
+    """Intersect a 3D plane with a polyline; return the forward-progress crossing.
+
+    The plane passes through ``plane_point`` with normal ``plane_normal``.
+    Each polyline segment is tested for a sign change of the signed distance
+    ``(X - plane_point) · plane_normal``; a change implies the segment crosses
+    the plane, and the exact crossing is linear interpolation of the signed
+    values.  Among crossings, the one with the smallest forward-progress
+    relative to ``previous_distance`` is returned (falling back to closest
+    approach when no forward crossing exists).
+
+    This is a 3D-native replacement for the earlier patch-plane 2D-projection
+    intersection: it produces correct section distances for both in-plane and
+    out-of-plane bands (serpentines folded along the face normal) and
+    preserves the local rail compression/expansion at bends that drives the
+    rigidity-weighted section redistribution.
+    """
+
+    if plane_normal.length <= 1e-8:
+        return fallback_point.copy(), fallback_distance
+    normal_dir = plane_normal.normalized()
     candidates: list[tuple[float, float, Vector]] = []
     for segment_index in range(len(polyline_points) - 1):
         segment_start = polyline_points[segment_index]
         segment_end = polyline_points[segment_index + 1]
-        intersection = _line_segment_intersection_in_patch_plane(
-            line_point,
-            line_direction,
-            segment_start,
-            segment_end,
-            basis_u,
-            basis_v,
-        )
-        if intersection is None:
+        d_start = (segment_start - plane_point).dot(normal_dir)
+        d_end = (segment_end - plane_point).dot(normal_dir)
+        # Skip segments entirely on one side of the plane; a near-grazing
+        # tolerance keeps duplicate hits at shared vertices from exploding.
+        if d_start > 1e-8 and d_end > 1e-8:
             continue
-        point, segment_t = intersection
+        if d_start < -1e-8 and d_end < -1e-8:
+            continue
+        denominator = d_start - d_end
+        if abs(denominator) <= 1e-10:
+            # Segment lies within the plane; treat its start as the crossing.
+            segment_t = 0.0
+        else:
+            segment_t = _clamp01(d_start / denominator)
+        point = segment_start.lerp(segment_end, segment_t)
         segment_length = (segment_end - segment_start).length
         distance = cumulative_distances[segment_index] + segment_length * segment_t
-        line_offset = (point - line_point).length
+        line_offset = (point - plane_point).length
         candidates.append((distance, line_offset, point))
 
     if not candidates:
@@ -718,7 +759,10 @@ def _intersect_section_with_polyline(
         best_distance, _offset, best_point = min(candidates, key=lambda item: item[1])
         return best_point, best_distance
 
-    forward_candidates = [candidate for candidate in candidates if candidate[0] + 1e-6 >= previous_distance]
+    forward_candidates = [
+        candidate for candidate in candidates
+        if candidate[0] + 1e-6 >= previous_distance
+    ]
     if forward_candidates:
         best_distance, _offset, best_point = min(
             forward_candidates,
@@ -737,8 +781,6 @@ def _build_spine_normal_sections(
     side_a_points: tuple[Vector, ...],
     side_b_points: tuple[Vector, ...],
     spine_points: tuple[Vector, ...],
-    basis_u: Vector,
-    basis_v: Vector,
     fallback_side_a_sections: tuple[Vector, ...],
     fallback_side_b_sections: tuple[Vector, ...],
     fallback_side_a_distances: tuple[float, ...],
@@ -749,12 +791,22 @@ def _build_spine_normal_sections(
     tuple[float, ...],
     tuple[float, ...],
 ]:
+    """Cut spine-normal sections in 3D and intersect with rail polylines.
+
+    The cutting plane at each interior spine station is perpendicular to the
+    spine 3D tangent (the plane normal IS the tangent).  Rail crossings are
+    located by signed-distance sign changes along each polyline segment, so
+    the sectioning is intrinsically 3D and preserves the local rail
+    compression/expansion at bends -- both in-plane bends (cones, arcs in the
+    patch plane) and out-of-plane bends (serpentines folded along the face
+    normal).
+    """
+
     if not side_a_points or not side_b_points or not spine_points:
         return (), (), (), ()
 
     cumulative_a, _total_a = _polyline_cumulative_lengths(side_a_points)
     cumulative_b, _total_b = _polyline_cumulative_lengths(side_b_points)
-    plane_normal = _safe_normalized(basis_u.cross(basis_v), Vector((0.0, 0.0, 1.0)))
 
     side_a_sections = []
     side_b_sections = []
@@ -797,27 +849,26 @@ def _build_spine_normal_sections(
             continue
 
         tangent = _sample_polyline_direction(spine_points, sample_index)
-        section_direction = plane_normal.cross(tangent)
-        section_direction = _safe_normalized(section_direction, fallback_b_point - fallback_a_point)
+        # The spine 3D tangent is the section plane's normal; no 2D projection.
+        plane_normal_3d = _safe_normalized(
+            tangent,
+            fallback_b_point - fallback_a_point,
+        )
 
-        side_a_section, side_a_distance = _intersect_section_with_polyline(
+        side_a_section, side_a_distance = _intersect_section_plane_with_polyline(
             side_a_points,
             cumulative_a,
             spine_point,
-            section_direction,
-            basis_u,
-            basis_v,
+            plane_normal_3d,
             previous_distance=previous_a_distance,
             fallback_point=fallback_a_point,
             fallback_distance=fallback_a_distance,
         )
-        side_b_section, side_b_distance = _intersect_section_with_polyline(
+        side_b_section, side_b_distance = _intersect_section_plane_with_polyline(
             side_b_points,
             cumulative_b,
             spine_point,
-            section_direction,
-            basis_u,
-            basis_v,
+            plane_normal_3d,
             previous_distance=previous_b_distance,
             fallback_point=fallback_b_point,
             fallback_distance=fallback_b_distance,
@@ -1577,13 +1628,16 @@ def build_canonical_4chain_band_spine(
     if not resampled_a or not resampled_b:
         return None
 
-    # ── detect closed-surface topology ──
-    # For closed patches (ring, truncated cone) the side chains are
-    # nearly-closed arcs whose start ≈ end (both at the seam).  The
-    # patch-plane projection is unreliable for 3D closed surfaces, so
-    # we skip curvature-correction steps that depend on it.  Uniform
-    # parameterization is the correct answer for these cases anyway
-    # (no C/S-bend to compensate).
+    # ── detect cases where patch-plane projection is unreliable ──
+    # Two independent triggers feed the same bypass: closed-surface topology
+    # (ring, truncated cone — side chains form nearly-closed arcs at the seam)
+    # and 3D-bent open bands (serpentines folded along the face normal).  In
+    # both cases basis_u × basis_v projections collapse geometry that the
+    # refinement steps depend on, so we keep the plain midpoint spine and
+    # uniform arc-length section distances.  For closed surfaces the uniform
+    # parametrization is the correct answer by construction; for 3D-bent bands
+    # it unrolls the band along its 3D arc length without introducing
+    # projection artefacts.
     side_a_closure = (side_a_points[0] - side_a_points[-1]).length
     side_b_closure = (side_b_points[0] - side_b_points[-1]).length
     avg_side_length = 0.5 * (total_a + total_b)
@@ -1591,26 +1645,39 @@ def build_canonical_4chain_band_spine(
         avg_side_length > 1e-8
         and max(side_a_closure, side_b_closure) < 0.15 * avg_side_length
     )
+    out_of_patch_plane = _band_is_out_of_patch_plane(
+        side_a_points, side_b_points, node.basis_u, node.basis_v,
+    )
+    plane_refinement_unreliable = sides_nearly_closed or out_of_patch_plane
 
     # ── curvature-corrected spine (inverse-offset guide) ──
     # For curved bands (C/L-shape) the spine shifts toward the concave
     # side, compensating for the length asymmetry.  For flat/uniform
     # geometry (rings, straight strips) the correction is near-zero and
-    # the spine stays at the midpoint.
-    spine_points = _build_inverse_offset_guide(
-        resampled_a, resampled_b, node.basis_u, node.basis_v,
-    )
-    if not spine_points:
+    # the spine stays at the midpoint.  For bands whose plane projection
+    # is unreliable the guide is skipped outright — the inward normals
+    # are computed via basis_u × basis_v and collapse to noise.
+    if plane_refinement_unreliable:
         spine_points = tuple(
             (resampled_a[i] + resampled_b[i]) * 0.5
             for i in range(len(resampled_a))
         )
+    else:
+        spine_points = _build_inverse_offset_guide(
+            resampled_a, resampled_b, node.basis_u, node.basis_v,
+        )
+        if not spine_points:
+            spine_points = tuple(
+                (resampled_a[i] + resampled_b[i]) * 0.5
+                for i in range(len(resampled_a))
+            )
 
-    if not sides_nearly_closed:
-        # Cap-tangent constraint and spine-normal re-sectioning are
-        # only meaningful for open bands where the patch plane is
-        # well-defined.  For closed surfaces (cone, ring) they
-        # introduce projection artefacts.
+    if not plane_refinement_unreliable:
+        # Cap-tangent constraint is only meaningful for open bands that lie
+        # near the patch plane — it uses basis_u × basis_v projections
+        # internally.  Closed surfaces and 3D-bent serpentines take the
+        # straight midpoint spine; cap tangents would collapse under the
+        # projection and introduce noise.
         spine_points = _constrain_spine_with_cap_tangents(
             graph,
             side_a_ref,
@@ -1626,29 +1693,31 @@ def build_canonical_4chain_band_spine(
             node.basis_v,
         )
 
-        # ── spine-normal re-sectioning ──
-        # Cut sections perpendicular to the spine curve.  At a bend
-        # the outer side intercepts are further apart (long delta)
-        # while inner intercepts are closer (short delta).  This
-        # produces non-uniform section distances that drive the
-        # rigidity-weighted redistribution.
-        (
-            _snorm_pts_a, _snorm_pts_b,
-            snorm_dist_a, snorm_dist_b,
-        ) = _build_spine_normal_sections(
-            side_a_points,
-            side_b_points,
-            spine_points,
-            node.basis_u,
-            node.basis_v,
-            resampled_a,
-            resampled_b,
-            section_dist_a,
-            section_dist_b,
-        )
-        if snorm_dist_a and snorm_dist_b:
-            section_dist_a = snorm_dist_a
-            section_dist_b = snorm_dist_b
+    # ── spine-normal re-sectioning (3D-native) ──
+    # Cut sections perpendicular to the 3D spine tangent and intersect
+    # with the rail polylines directly in 3D.  At a bend the outer side
+    # intercepts are further apart (long delta) while inner intercepts
+    # are closer (short delta), producing non-uniform section distances
+    # that drive the rigidity-weighted redistribution.  Unlike the old
+    # 2D-projected variant this works for BOTH in-plane bends (cones,
+    # arcs in the patch plane) AND out-of-plane bends (serpentines
+    # folded along the face normal), so it runs unconditionally and
+    # preserves the local rail compression/expansion in every case.
+    (
+        _snorm_pts_a, _snorm_pts_b,
+        snorm_dist_a, snorm_dist_b,
+    ) = _build_spine_normal_sections(
+        side_a_points,
+        side_b_points,
+        spine_points,
+        resampled_a,
+        resampled_b,
+        section_dist_a,
+        section_dist_b,
+    )
+    if snorm_dist_a and snorm_dist_b:
+        section_dist_a = snorm_dist_a
+        section_dist_b = snorm_dist_b
 
     # ── rigidity-weighted section target distances ──
     # Long straight segments keep their UV proportion; short curved
@@ -1842,28 +1911,54 @@ def build_band_spine_from_groups(
     if not bootstrap_side_a_sections or not bootstrap_side_b_sections or not section_stations:
         return None
 
-    raw_spine_points = _build_inverse_offset_guide(
-        bootstrap_side_a_sections,
-        bootstrap_side_b_sections,
-        node.basis_u,
-        node.basis_v,
+    out_of_patch_plane = _band_is_out_of_patch_plane(
+        side_a_points, side_b_points, node.basis_u, node.basis_v,
     )
-    if not raw_spine_points:
-        return None
-    spine_points = _constrain_spine_with_cap_tangents(
-        graph,
-        side_a_ref,
-        side_b_ref,
-        cap_start_refs,
-        cap_end_refs,
-        raw_spine_points,
-        side_a_points,
-        side_b_points,
-        side_a_reversed,
-        side_b_reversed,
-        node.basis_u,
-        node.basis_v,
-    )
+    if out_of_patch_plane:
+        # 3D-bent serpentine-style bands: skip the basis_u × basis_v
+        # projections used by the inverse-offset guide and cap-tangent
+        # constraint (they collapse to noise for out-of-plane geometry) and
+        # keep the plain midpoint spine instead.  The spine-normal
+        # re-sectioning below still runs — it is 3D-native and produces
+        # the correct local compression/expansion at serpentine bends.
+        spine_points = tuple(
+            (bootstrap_side_a_sections[i] + bootstrap_side_b_sections[i]) * 0.5
+            for i in range(
+                min(len(bootstrap_side_a_sections), len(bootstrap_side_b_sections))
+            )
+        )
+    else:
+        raw_spine_points = _build_inverse_offset_guide(
+            bootstrap_side_a_sections,
+            bootstrap_side_b_sections,
+            node.basis_u,
+            node.basis_v,
+        )
+        if not raw_spine_points:
+            return None
+        spine_points = _constrain_spine_with_cap_tangents(
+            graph,
+            side_a_ref,
+            side_b_ref,
+            cap_start_refs,
+            cap_end_refs,
+            raw_spine_points,
+            side_a_points,
+            side_b_points,
+            side_a_reversed,
+            side_b_reversed,
+            node.basis_u,
+            node.basis_v,
+        )
+
+    # ── spine-normal re-sectioning (3D-native) ──
+    # Runs for every geometry class: in-plane bends, out-of-plane
+    # serpentines, and curve-split group assemblies.  The cutting plane's
+    # normal is the 3D spine tangent itself, so rail crossings are located
+    # directly in 3D and reflect real local arc-distance asymmetries at
+    # bends (inner rail shorter delta, outer rail longer delta).  Topology
+    # stations, when present, are a stronger bootstrap than uniform
+    # sampling; otherwise fall back to the resampled bootstrap sections.
     if topology_station_sections:
         side_a_sections = bootstrap_side_a_sections
         side_b_sections = bootstrap_side_b_sections
@@ -1879,8 +1974,6 @@ def build_band_spine_from_groups(
             side_a_points,
             side_b_points,
             spine_points,
-            node.basis_u,
-            node.basis_v,
             bootstrap_side_a_sections,
             bootstrap_side_b_sections,
             bootstrap_side_a_distances,

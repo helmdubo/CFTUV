@@ -7,6 +7,7 @@ try:
     from .model import (
         BoundaryChain,
         BoundaryLoop,
+        ChainNeighborKind,
         ChainRef,
         FrameRole,
         PatchNode,
@@ -15,6 +16,7 @@ except ImportError:
     from model import (
         BoundaryChain,
         BoundaryLoop,
+        ChainNeighborKind,
         ChainRef,
         FrameRole,
         PatchNode,
@@ -34,6 +36,7 @@ class ChainToken:
     length: float
     neighbor_patch_id: Optional[int]
     is_border: bool
+    is_seam_self: bool
     opposite_ref: Optional[ChainRef]
 
 
@@ -127,12 +130,14 @@ def build_loop_signature(
     chain_frame_roles: list[FrameRole] = []
     neighbor_patch_ids: list[Optional[int]] = []
     is_borders: list[bool] = []
+    is_seam_selfs: list[bool] = []
 
     for chain in loop.chains:
         chain_lengths.append(_compute_chain_arc_length(chain))
         chain_frame_roles.append(chain.frame_role)
         is_border = not chain.has_patch_neighbor and chain.neighbor_patch_id == -1
         is_borders.append(is_border)
+        is_seam_selfs.append(chain.neighbor_kind == ChainNeighborKind.SEAM_SELF)
         neighbor_patch_ids.append(
             chain.neighbor_patch_id if chain.has_patch_neighbor else None
         )
@@ -164,6 +169,7 @@ def build_loop_signature(
             length=chain_lengths[chain_index],
             neighbor_patch_id=neighbor_patch_ids[chain_index],
             is_border=is_borders[chain_index],
+            is_seam_self=is_seam_selfs[chain_index],
             opposite_ref=opposite_refs[chain_index],
         )
         for chain_index, _chain in enumerate(loop.chains)

@@ -85,12 +85,27 @@ def _classify_band_loop(signature: LoopSignature) -> LoopShapeInterpretation | N
     elif pair_b_both_free and not pair_a_both_free:
         side_pair, cap_pair = pair_b, pair_a
     elif pair_a_both_free and pair_b_both_free:
-        avg_a = _pair_average_length(signature, pair_a)
-        avg_b = _pair_average_length(signature, pair_b)
-        if avg_a >= avg_b:
+        # Topology first: a SEAM_SELF pair is the seam cut of a closed tube,
+        # not a rail. Its two halves form the CAPS (rings), the other pair
+        # are the SIDES. Fall back to the length heuristic only when the
+        # SEAM_SELF signal is absent or symmetric (open both-FREE case).
+        pair_a_all_seam = all(
+            signature.chain_tokens[index].is_seam_self for index in pair_a
+        )
+        pair_b_all_seam = all(
+            signature.chain_tokens[index].is_seam_self for index in pair_b
+        )
+        if pair_a_all_seam and not pair_b_all_seam:
+            side_pair, cap_pair = pair_b, pair_a
+        elif pair_b_all_seam and not pair_a_all_seam:
             side_pair, cap_pair = pair_a, pair_b
         else:
-            side_pair, cap_pair = pair_b, pair_a
+            avg_a = _pair_average_length(signature, pair_a)
+            avg_b = _pair_average_length(signature, pair_b)
+            if avg_a >= avg_b:
+                side_pair, cap_pair = pair_a, pair_b
+            else:
+                side_pair, cap_pair = pair_b, pair_a
 
     if side_pair is None or cap_pair is None:
         return None
