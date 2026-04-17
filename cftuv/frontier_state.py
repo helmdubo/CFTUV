@@ -226,6 +226,9 @@ class FrontierRuntimePolicy:
             return None
         return self.band_spine_data.get(patch_id)
 
+    def runtime_spine(self, patch_id: int) -> Optional[BandSpineData]:
+        return self.band_spine(patch_id)
+
     def band_side_role(self, chain_ref: ChainRef) -> FrameRole:
         spine = self.band_spine(chain_ref[0])
         if spine is None:

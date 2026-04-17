@@ -404,7 +404,12 @@ class _PatchGraphAggregateCounts:
 
 @dataclass(frozen=True)
 class BandSpineData:
-    """Pre-computed midpoint-spine parametrization for one BAND patch."""
+    """Analysis-owned strip/tube runtime spine artifact.
+
+    Historical name is kept for compatibility with the current frontier path,
+    but the payload is no longer BAND-only: it carries the evaluated 3D spine
+    together with its transported local frame.
+    """
 
     patch_id: int
     side_a_ref: ChainRef
@@ -414,12 +419,19 @@ class BandSpineData:
     cap_start_refs: tuple[ChainRef, ...] = ()
     cap_end_refs: tuple[ChainRef, ...] = ()
     spine_points_3d: tuple[Vector, ...] = ()
+    spine_tangents_3d: tuple[Vector, ...] = ()
+    spine_normals_3d: tuple[Vector, ...] = ()
+    spine_binormals_3d: tuple[Vector, ...] = ()
     spine_arc_lengths: tuple[float, ...] = ()
     spine_arc_length: float = 0.0
+    spine_is_periodic: bool = False
     cap_start_width: float = 0.0
     cap_end_width: float = 0.0
     chain_uv_targets: Mapping[ChainRef, tuple[tuple[float, float], ...]] = field(default_factory=dict)
     spine_axis: FrameRole = FrameRole.FREE
+
+
+RuntimeSpineData = BandSpineData
 
 
 @dataclass(frozen=True)
@@ -441,3 +453,7 @@ class _PatchGraphDerivedTopology:
     loop_shape_interpretations: Mapping[int, list[LoopShapeInterpretation]] = field(default_factory=dict)
     straighten_chain_refs: frozenset[ChainRef] = field(default_factory=frozenset)
     band_spine_data: Mapping[int, BandSpineData] = field(default_factory=dict)
+
+    @property
+    def runtime_spine_data(self) -> Mapping[int, RuntimeSpineData]:
+        return self.band_spine_data

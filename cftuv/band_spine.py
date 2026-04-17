@@ -1,18 +1,19 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from heapq import heappop, heappush
 import math
 from types import MappingProxyType
 from typing import Optional
 
-from mathutils import Vector
+from mathutils import Quaternion, Vector
 
 try:
     from .analysis_records import BandSpineData
-    from .model import BoundaryChain, FrameRole, PatchGraph
+    from .model import BoundaryChain, ChainNeighborKind, FrameRole, PatchGraph
 except ImportError:
     from analysis_records import BandSpineData
-    from model import BoundaryChain, FrameRole, PatchGraph
+    from model import BoundaryChain, ChainNeighborKind, FrameRole, PatchGraph
 
 
 def _clamp01(value: float) -> float:
@@ -100,23 +101,6 @@ def _safe_normalized(vector: Vector, fallback: Vector) -> Vector:
     return Vector((1.0, 0.0, 0.0))
 
 
-def _sample_cubic_hermite(
-    p0: Vector,
-    p1: Vector,
-    m0: Vector,
-    m1: Vector,
-    t: float,
-) -> Vector:
-    t = _clamp01(t)
-    t2 = t * t
-    t3 = t2 * t
-    h00 = 2.0 * t3 - 3.0 * t2 + 1.0
-    h10 = t3 - 2.0 * t2 + t
-    h01 = -2.0 * t3 + 3.0 * t2
-    h11 = t3 - t2
-    return p0 * h00 + m0 * h10 + p1 * h01 + m1 * h11
-
-
 def _sample_polyline_direction(points: tuple[Vector, ...], sample_index: int) -> Vector:
     if len(points) < 2:
         return Vector((0.0, 0.0, 0.0))
@@ -127,140 +111,13 @@ def _sample_polyline_direction(points: tuple[Vector, ...], sample_index: int) ->
     return points[sample_index + 1] - points[sample_index - 1]
 
 
-def _line_intersection_in_patch_plane(
-    point_a: Vector,
-    direction_a: Vector,
-    point_b: Vector,
-    direction_b: Vector,
-    basis_u: Vector,
-    basis_v: Vector,
-) -> Optional[Vector]:
-    if direction_a.length <= 1e-8 or direction_b.length <= 1e-8:
-        return None
-
-    origin = (point_a + point_b) * 0.5
-    point_a_2d = Vector(((point_a - origin).dot(basis_u), (point_a - origin).dot(basis_v)))
-    point_b_2d = Vector(((point_b - origin).dot(basis_u), (point_b - origin).dot(basis_v)))
-    dir_a_2d = Vector((direction_a.dot(basis_u), direction_a.dot(basis_v)))
-    dir_b_2d = Vector((direction_b.dot(basis_u), direction_b.dot(basis_v)))
-
-    determinant = dir_a_2d.x * dir_b_2d.y - dir_a_2d.y * dir_b_2d.x
-    if abs(determinant) <= 1e-8:
-        return None
-
-    delta = point_b_2d - point_a_2d
-    t = (delta.x * dir_b_2d.y - delta.y * dir_b_2d.x) / determinant
-    intersection_2d = point_a_2d + dir_a_2d * t
-    return origin + basis_u * intersection_2d.x + basis_v * intersection_2d.y
-
-
-def _inward_normal_direction(
-    tangent: Vector,
-    point: Vector,
-    toward_point: Vector,
-    plane_normal: Vector,
-) -> Vector:
-    normal = plane_normal.cross(tangent)
-    if normal.dot(toward_point - point) < 0.0:
-        normal.negate()
-    return _safe_normalized(normal, toward_point - point)
-
-
-# Ratio of normal-direction extent to the dominant in-plane extent above which
-# patch-plane projections lose enough information to make 2D-refinement steps
-# (inverse-offset guide, cap-tangent constraint, spine-normal sections) produce
-# spurious results.  Mild in-plane C/L-shapes stay below this and keep full
-# refinement; serpentines folded along the face normal exceed it and fall back
-# to uniform arc-length parametrization.
-_BAND_OUT_OF_PLANE_EXTENT_RATIO = 0.20
-
-
-def _band_is_out_of_patch_plane(
-    side_a_points: tuple[Vector, ...],
-    side_b_points: tuple[Vector, ...],
-    basis_u: Vector,
-    basis_v: Vector,
-) -> bool:
-    """Detect bands whose 3D geometry deviates significantly from basis_u × basis_v.
-
-    The 2D refinements in the spine builder project rails and section lines
-    onto the patch plane.  When the band bends substantially along the face
-    normal (e.g. a serpentine strip folded out of the surface), the projection
-    collapses the normal component and yields spurious 2D intersections,
-    distorting section distances for intermediate vertices.  The caller should
-    skip those refinements and rely on pure 3D arc-length parametrization.
-    """
-
-    if not side_a_points or not side_b_points:
-        return False
-    plane_normal = _safe_normalized(
-        basis_u.cross(basis_v), Vector((0.0, 0.0, 1.0))
-    )
-    origin = side_a_points[0]
-    n_values: list[float] = []
-    u_values: list[float] = []
-    v_values: list[float] = []
-    for points in (side_a_points, side_b_points):
-        for point in points:
-            offset = point - origin
-            n_values.append(offset.dot(plane_normal))
-            u_values.append(offset.dot(basis_u))
-            v_values.append(offset.dot(basis_v))
-    if not n_values:
-        return False
-    n_extent = max(n_values) - min(n_values)
-    inplane_extent = max(
-        max(u_values) - min(u_values),
-        max(v_values) - min(v_values),
-        1e-8,
-    )
-    return n_extent > _BAND_OUT_OF_PLANE_EXTENT_RATIO * inplane_extent
-
-
-def _build_inverse_offset_guide(
-    side_a_points: tuple[Vector, ...],
-    side_b_points: tuple[Vector, ...],
-    basis_u: Vector,
-    basis_v: Vector,
-) -> tuple[Vector, ...]:
-    if not side_a_points or not side_b_points or len(side_a_points) != len(side_b_points):
-        return ()
-
-    plane_normal = _safe_normalized(basis_u.cross(basis_v), Vector((0.0, 0.0, 1.0)))
-    guide_points = []
-    sample_count = len(side_a_points)
-    for sample_index, (point_a, point_b) in enumerate(zip(side_a_points, side_b_points)):
-        midpoint = (point_a + point_b) * 0.5
-        if sample_index == 0 or sample_index == sample_count - 1:
-            guide_points.append(midpoint)
-            continue
-
-        tangent_a = _sample_polyline_direction(side_a_points, sample_index)
-        tangent_b = _sample_polyline_direction(side_b_points, sample_index)
-        inward_a = _inward_normal_direction(tangent_a, point_a, midpoint, plane_normal)
-        inward_b = _inward_normal_direction(tangent_b, point_b, midpoint, plane_normal)
-        intersection = _line_intersection_in_patch_plane(
-            point_a,
-            inward_a,
-            point_b,
-            inward_b,
-            basis_u,
-            basis_v,
-        )
-        if intersection is None:
-            guide_points.append(midpoint)
-            continue
-
-        width = max((point_b - point_a).length, 1e-8)
-        if (intersection - midpoint).length > width:
-            guide_points.append(midpoint)
-            continue
-
-        normal_alignment = abs(inward_a.dot(inward_b))
-        curvature_confidence = _clamp01(1.0 - normal_alignment)
-        guide_points.append(midpoint.lerp(intersection, curvature_confidence))
-
-    return tuple(guide_points)
+@dataclass(frozen=True)
+class _SpineCurveData:
+    points: tuple[Vector, ...]
+    tangents: tuple[Vector, ...]
+    normals: tuple[Vector, ...] = ()
+    binormals: tuple[Vector, ...] = ()
+    periodic: bool = False
 
 
 def _distances_to_normalized_stations(
@@ -698,6 +555,163 @@ def _build_topology_sections(
     )
 
 
+def _polyline_centroid(points: tuple[Vector, ...]) -> Vector:
+    if not points:
+        return Vector((0.0, 0.0, 0.0))
+    total = Vector((0.0, 0.0, 0.0))
+    for point in points:
+        total += point
+    return total / float(len(points))
+
+
+def _oriented_chain_points(
+    chain: BoundaryChain,
+    start_hint: Vector,
+    end_hint: Vector,
+) -> tuple[tuple[Vector, ...], bool]:
+    points = tuple(point.copy() for point in chain.vert_cos)
+    if len(points) < 2:
+        return points, False
+
+    forward_score = (
+        (points[0] - start_hint).length_squared
+        + (points[-1] - end_hint).length_squared
+    )
+    reverse_score = (
+        (points[-1] - start_hint).length_squared
+        + (points[0] - end_hint).length_squared
+    )
+    if reverse_score + 1e-8 < forward_score:
+        return tuple(reversed(points)), True
+    return points, False
+
+
+def _chain_group_length(
+    graph: PatchGraph,
+    chain_refs: tuple[tuple[int, int, int], ...],
+) -> float:
+    total = 0.0
+    for chain_ref in chain_refs:
+        chain = graph.get_chain(*chain_ref)
+        if chain is None:
+            continue
+        _cumulative, chain_length = _polyline_cumulative_lengths(tuple(chain.vert_cos))
+        total += chain_length
+    return total
+
+
+def _sample_station_section_points(
+    node,
+    station_map: dict[int, float],
+    station: float,
+    vertex_cos: dict[int, Vector],
+) -> tuple[Vector, ...]:
+    target = _clamp01(station)
+    points: list[Vector] = []
+    seen_keys: set[tuple[int, int, int]] = set()
+
+    def _append_unique(point: Vector) -> None:
+        key = (
+            int(round(point.x * 100000.0)),
+            int(round(point.y * 100000.0)),
+            int(round(point.z * 100000.0)),
+        )
+        if key in seen_keys:
+            return
+        seen_keys.add(key)
+        points.append(point)
+
+    for edge_a, edge_b in tuple(getattr(node, "mesh_edges", ()) or ()):
+        edge_a = int(edge_a)
+        edge_b = int(edge_b)
+        value_a = station_map.get(edge_a)
+        value_b = station_map.get(edge_b)
+        point_a = vertex_cos.get(edge_a)
+        point_b = vertex_cos.get(edge_b)
+        if value_a is None or value_b is None or point_a is None or point_b is None:
+            continue
+
+        if abs(value_a - target) <= 1e-6:
+            _append_unique(point_a.copy())
+        if abs(value_b - target) <= 1e-6:
+            _append_unique(point_b.copy())
+
+        delta = value_b - value_a
+        if abs(delta) <= 1e-8:
+            continue
+        if (target - value_a) * (target - value_b) > 0.0:
+            continue
+        factor = _clamp01((target - value_a) / delta)
+        _append_unique(point_a.lerp(point_b, factor))
+
+    if points:
+        return tuple(points)
+
+    nearest = sorted(
+        (
+            (abs(value - target), vertex_index)
+            for vertex_index, value in station_map.items()
+            if vertex_index in vertex_cos
+        ),
+        key=lambda item: item[0],
+    )[:8]
+    return tuple(vertex_cos[vertex_index].copy() for _delta, vertex_index in nearest)
+
+
+def _build_station_centerline_points(
+    graph: PatchGraph,
+    node,
+    cap_start_refs: tuple[tuple[int, int, int], ...],
+    cap_end_refs: tuple[tuple[int, int, int], ...],
+    section_stations: tuple[float, ...],
+) -> tuple[Vector, ...]:
+    station_map = _build_topology_station_map(
+        graph,
+        node,
+        cap_start_refs,
+        cap_end_refs,
+    )
+    if not station_map or not section_stations:
+        return ()
+
+    vertex_cos = _build_patch_vertex_cos(node)
+    if not vertex_cos:
+        return ()
+
+    start_vertices = _collect_chain_group_vert_indices(graph, cap_start_refs)
+    end_vertices = _collect_chain_group_vert_indices(graph, cap_end_refs)
+    start_points = tuple(
+        vertex_cos[vertex_index].copy()
+        for vertex_index in start_vertices
+        if vertex_index in vertex_cos
+    )
+    end_points = tuple(
+        vertex_cos[vertex_index].copy()
+        for vertex_index in end_vertices
+        if vertex_index in vertex_cos
+    )
+
+    centerline_points = []
+    for station in section_stations:
+        target = _clamp01(station)
+        if target <= 1e-6 and start_points:
+            centerline_points.append(_polyline_centroid(start_points))
+            continue
+        if target >= 1.0 - 1e-6 and end_points:
+            centerline_points.append(_polyline_centroid(end_points))
+            continue
+        section_points = _sample_station_section_points(
+            node,
+            station_map,
+            target,
+            vertex_cos,
+        )
+        if not section_points:
+            return ()
+        centerline_points.append(_polyline_centroid(section_points))
+    return tuple(centerline_points)
+
+
 def _intersect_section_plane_with_polyline(
     polyline_points: tuple[Vector, ...],
     cumulative_distances: tuple[float, ...],
@@ -785,6 +799,7 @@ def _build_spine_normal_sections(
     fallback_side_b_sections: tuple[Vector, ...],
     fallback_side_a_distances: tuple[float, ...],
     fallback_side_b_distances: tuple[float, ...],
+    spine_tangents: Optional[tuple[Vector, ...]] = None,
 ) -> tuple[
     tuple[Vector, ...],
     tuple[Vector, ...],
@@ -848,7 +863,10 @@ def _build_spine_normal_sections(
             previous_b_distance = fallback_b_distance
             continue
 
-        tangent = _sample_polyline_direction(spine_points, sample_index)
+        if spine_tangents and sample_index < len(spine_tangents):
+            tangent = spine_tangents[sample_index]
+        else:
+            tangent = _sample_polyline_direction(spine_points, sample_index)
         # The spine 3D tangent is the section plane's normal; no 2D projection.
         plane_normal_3d = _safe_normalized(
             tangent,
@@ -1075,49 +1093,12 @@ def _remap_stations_to_section_profile(
     return tuple(mapped_distances)
 
 
-def _endpoint_constraint_weight(station_t: float) -> float:
-    edge = _clamp01(2.0 * abs(float(station_t) - 0.5))
-    return edge * edge
-
-
 def _endpoint_direction(points: tuple[Vector, ...], *, at_start: bool) -> Vector:
     if len(points) < 2:
         return Vector((0.0, 0.0, 0.0))
     if at_start:
         return points[1] - points[0]
     return points[-1] - points[-2]
-
-
-def _endpoint_corner_index(chain: BoundaryChain, reversed_points: bool, *, at_start: bool) -> int:
-    if at_start:
-        return chain.end_corner_index if reversed_points else chain.start_corner_index
-    return chain.start_corner_index if reversed_points else chain.end_corner_index
-
-
-def _chain_corner_tangent(
-    chain: Optional[BoundaryChain],
-    corner_index: int,
-) -> Vector:
-    if chain is None or len(chain.vert_cos) < 2 or corner_index < 0:
-        return Vector((0.0, 0.0, 0.0))
-    if chain.start_corner_index == corner_index:
-        return chain.vert_cos[1] - chain.vert_cos[0]
-    if chain.end_corner_index == corner_index:
-        return chain.vert_cos[-2] - chain.vert_cos[-1]
-    return Vector((0.0, 0.0, 0.0))
-
-
-def _find_group_corner_tangent(
-    graph: PatchGraph,
-    cap_refs: tuple[tuple[int, int, int], ...],
-    corner_index: int,
-) -> Vector:
-    for cap_ref in cap_refs:
-        cap_chain = graph.get_chain(*cap_ref)
-        tangent = _chain_corner_tangent(cap_chain, corner_index)
-        if tangent.length > 1e-8:
-            return tangent
-    return Vector((0.0, 0.0, 0.0))
 
 
 def _mean_direction(
@@ -1139,137 +1120,559 @@ def _mean_direction(
     return _safe_normalized(first + aligned_second, fallback)
 
 
-def _corner_informed_endpoint_tangent(
-    graph: PatchGraph,
-    side_a_ref: tuple[int, int, int],
-    side_b_ref: tuple[int, int, int],
-    cap_refs: tuple[tuple[int, int, int], ...],
-    side_a_points: tuple[Vector, ...],
-    side_b_points: tuple[Vector, ...],
-    side_a_reversed: bool,
-    side_b_reversed: bool,
-    plane_normal: Vector,
-    raw_dir: Vector,
-    *,
-    at_start: bool,
-) -> Vector:
-    side_a_chain = graph.get_chain(*side_a_ref)
-    side_b_chain = graph.get_chain(*side_b_ref)
-
-    side_a_flow = _endpoint_direction(side_a_points, at_start=at_start)
-    side_b_flow = _endpoint_direction(side_b_points, at_start=at_start)
-    side_flow = _mean_direction(side_a_flow, side_b_flow, raw_dir)
-
-    side_a_corner_index = _endpoint_corner_index(side_a_chain, side_a_reversed, at_start=at_start)
-    side_b_corner_index = _endpoint_corner_index(side_b_chain, side_b_reversed, at_start=at_start)
-    cap_a_tangent = _find_group_corner_tangent(graph, cap_refs, side_a_corner_index)
-    cap_b_tangent = _find_group_corner_tangent(graph, cap_refs, side_b_corner_index)
-    cap_axis = _mean_direction(cap_a_tangent, cap_b_tangent, Vector((0.0, 0.0, 0.0)))
-    if cap_axis.length <= 1e-8:
-        return side_flow
-
-    cap_normal_tangent = plane_normal.cross(cap_axis)
-    if cap_normal_tangent.dot(raw_dir) < 0.0:
-        cap_normal_tangent.negate()
-    cap_normal_tangent = _safe_normalized(cap_normal_tangent, side_flow)
-
-    orthogonality_samples = []
-    for side_dir in (side_a_flow, side_b_flow):
-        if side_dir.length <= 1e-8:
-            continue
-        orthogonality_samples.append(
-            _clamp01(1.0 - abs(_safe_normalized(side_dir, raw_dir).dot(cap_axis)))
-        )
-    orthogonality_confidence = (
-        sum(orthogonality_samples) / float(len(orthogonality_samples))
-        if orthogonality_samples else 0.0
+def _build_midpoint_spine_points(
+    side_a_sections: tuple[Vector, ...],
+    side_b_sections: tuple[Vector, ...],
+) -> tuple[Vector, ...]:
+    sample_count = min(len(side_a_sections), len(side_b_sections))
+    if sample_count <= 0:
+        return ()
+    return tuple(
+        (side_a_sections[index] + side_b_sections[index]) * 0.5
+        for index in range(sample_count)
     )
-    cap_consistency = 1.0
-    if cap_a_tangent.length > 1e-8 and cap_b_tangent.length > 1e-8:
-        norm_a = _safe_normalized(cap_a_tangent, cap_axis)
-        norm_b = _safe_normalized(cap_b_tangent, cap_axis)
-        if norm_a.dot(norm_b) < 0.0:
-            norm_b.negate()
-        cap_consistency = _clamp01(norm_a.dot(norm_b))
-
-    blend = 0.75 * orthogonality_confidence * cap_consistency
-    return _safe_normalized(side_flow.lerp(cap_normal_tangent, blend), raw_dir)
 
 
-def _constrain_spine_with_cap_tangents(
+def _build_spine_curve_from_control_points(
     graph: PatchGraph,
-    side_a_ref: tuple[int, int, int],
-    side_b_ref: tuple[int, int, int],
+    control_points: tuple[Vector, ...],
+    frame_side_a_sections: tuple[Vector, ...],
+    frame_side_b_sections: tuple[Vector, ...],
     cap_start_refs: tuple[tuple[int, int, int], ...],
     cap_end_refs: tuple[tuple[int, int, int], ...],
-    raw_spine_points: tuple[Vector, ...],
-    side_a_points: tuple[Vector, ...],
-    side_b_points: tuple[Vector, ...],
-    side_a_reversed: bool,
-    side_b_reversed: bool,
-    basis_u: Vector,
-    basis_v: Vector,
-) -> tuple[Vector, ...]:
-    if len(raw_spine_points) <= 2:
-        return raw_spine_points
+    sample_stations: Optional[tuple[float, ...]] = None,
+) -> _SpineCurveData:
+    if not control_points:
+        return _SpineCurveData(points=(), tangents=(), normals=(), binormals=())
 
-    sample_stations = tuple(
-        float(sample_index) / float(len(raw_spine_points) - 1)
-        for sample_index in range(len(raw_spine_points))
-    )
-    plane_normal = _safe_normalized(basis_u.cross(basis_v), Vector((0.0, 0.0, 1.0)))
-
-    raw_start_dir = raw_spine_points[1] - raw_spine_points[0]
-    raw_end_dir = raw_spine_points[-1] - raw_spine_points[-2]
-
-    start_tangent_dir = _corner_informed_endpoint_tangent(
-        graph,
-        side_a_ref,
-        side_b_ref,
-        cap_start_refs,
-        side_a_points,
-        side_b_points,
-        side_a_reversed,
-        side_b_reversed,
-        plane_normal,
-        raw_start_dir,
-        at_start=True,
-    )
-    end_tangent_dir = _corner_informed_endpoint_tangent(
-        graph,
-        side_a_ref,
-        side_b_ref,
-        cap_end_refs,
-        side_a_points,
-        side_b_points,
-        side_a_reversed,
-        side_b_reversed,
-        plane_normal,
-        raw_end_dir,
-        at_start=False,
-    )
-
-    start_step = max(raw_start_dir.length, 1e-8)
-    end_step = max(raw_end_dir.length, 1e-8)
-    tangent_scale = float(len(raw_spine_points) - 1)
-    start_tangent = start_tangent_dir * start_step * tangent_scale
-    end_tangent = end_tangent_dir * end_step * tangent_scale
-
-    constrained_points = []
-    for station_t, raw_point in zip(sample_stations, raw_spine_points):
-        tangent_point = _sample_cubic_hermite(
-            raw_spine_points[0],
-            raw_spine_points[-1],
-            start_tangent,
-            end_tangent,
-            station_t,
+    periodic = _cap_groups_are_periodic_boundary(graph, cap_start_refs, cap_end_refs)
+    if periodic:
+        start_tangent = None
+        end_tangent = None
+    else:
+        fallback_start = _endpoint_direction(control_points, at_start=True)
+        fallback_end = _endpoint_direction(control_points, at_start=False)
+        start_tangent = _mean_direction(
+            _endpoint_direction(frame_side_a_sections, at_start=True),
+            _endpoint_direction(frame_side_b_sections, at_start=True),
+            fallback_start,
         )
-        blend = 0.6 * _endpoint_constraint_weight(station_t)
-        constrained_points.append(raw_point.lerp(tangent_point, blend))
+        end_tangent = _mean_direction(
+            _endpoint_direction(frame_side_a_sections, at_start=False),
+            _endpoint_direction(frame_side_b_sections, at_start=False),
+            fallback_end,
+        )
 
-    constrained_points[0] = raw_spine_points[0].copy()
-    constrained_points[-1] = raw_spine_points[-1].copy()
-    return tuple(constrained_points)
+    sample_count = len(control_points)
+    control_params = _build_centripetal_parameter_values(control_points)
+    total_param = control_params[-1] if control_params else 0.0
+    sample_params: tuple[float, ...]
+    if sample_count <= 1:
+        spine_points = tuple(point.copy() for point in control_points)
+        sample_params = (0.0,) if spine_points else ()
+    elif total_param <= 1e-8:
+        spine_points = tuple(control_points[0].copy() for _ in range(sample_count))
+        sample_params = tuple(0.0 for _ in range(sample_count))
+    else:
+        if sample_stations is not None and len(sample_stations) == sample_count:
+            sample_params = tuple(total_param * _clamp01(station) for station in sample_stations)
+        else:
+            sample_params = tuple(
+                total_param * float(sample_index) / float(sample_count - 1)
+                for sample_index in range(sample_count)
+            )
+        spine_points = tuple(
+            _evaluate_centripetal_catmull_rom(
+                control_points,
+                control_params,
+                sample_param,
+                periodic=periodic,
+                start_tangent=start_tangent,
+                end_tangent=end_tangent,
+            )
+            for sample_param in sample_params
+        )
+
+    if not spine_points:
+        spine_tangents = ()
+    elif total_param <= 1e-8:
+        spine_tangents = tuple(
+            _safe_normalized(
+                _sample_polyline_direction(spine_points, point_index),
+                start_tangent if point_index == 0 and start_tangent is not None else (
+                    end_tangent if point_index == len(spine_points) - 1 and end_tangent is not None else Vector((1.0, 0.0, 0.0))
+                ),
+            )
+            for point_index in range(len(spine_points))
+        )
+    else:
+        spine_tangents = tuple(
+            _sample_centripetal_curve_tangent(
+                control_points,
+                control_params,
+                sample_params[min(point_index, len(sample_params) - 1)],
+                periodic=periodic,
+                start_tangent=start_tangent,
+                end_tangent=end_tangent,
+            )
+            for point_index in range(len(spine_points))
+        )
+
+    if len(spine_points) > 1 and len(spine_tangents) != len(spine_points):
+        spine_tangents = tuple(
+            _safe_normalized(
+                _sample_polyline_direction(spine_points, point_index),
+                Vector((1.0, 0.0, 0.0)),
+            )
+            for point_index in range(len(spine_points))
+        )
+
+    initial_normal = _choose_initial_frame_normal(
+        frame_side_a_sections,
+        frame_side_b_sections,
+        spine_tangents,
+    )
+    spine_normals, spine_binormals = _build_rotation_minimizing_frames(
+        spine_points,
+        spine_tangents,
+        initial_normal,
+        periodic=periodic,
+    )
+
+    return _SpineCurveData(
+        points=spine_points,
+        tangents=spine_tangents,
+        normals=spine_normals,
+        binormals=spine_binormals,
+        periodic=periodic,
+    )
+
+
+def _cap_groups_are_periodic_boundary(
+    graph: PatchGraph,
+    cap_start_refs: tuple[tuple[int, int, int], ...],
+    cap_end_refs: tuple[tuple[int, int, int], ...],
+) -> bool:
+    all_refs = tuple(cap_start_refs) + tuple(cap_end_refs)
+    if not all_refs:
+        return False
+    for cap_ref in all_refs:
+        cap_chain = graph.get_chain(*cap_ref)
+        if cap_chain is None or cap_chain.neighbor_kind != ChainNeighborKind.SEAM_SELF:
+            return False
+    return True
+
+
+def _centripetal_step(point_a: Vector, point_b: Vector) -> float:
+    return max(math.sqrt(max((point_b - point_a).length, 1e-8)), 1e-8)
+
+
+def _build_centripetal_parameter_values(points: tuple[Vector, ...]) -> tuple[float, ...]:
+    if not points:
+        return ()
+    values = [0.0]
+    walked = 0.0
+    for point_index in range(1, len(points)):
+        walked += _centripetal_step(points[point_index - 1], points[point_index])
+        values.append(walked)
+    return tuple(values)
+
+
+def _build_endpoint_ghost_point(
+    point: Vector,
+    neighbor: Vector,
+    tangent: Optional[Vector],
+    *,
+    before: bool,
+) -> Vector:
+    span = max((neighbor - point).length, 1e-8)
+    if tangent is not None and tangent.length > 1e-8:
+        forward_dir = tangent.normalized()
+    else:
+        fallback = neighbor - point if before else point - neighbor
+        forward_dir = _safe_normalized(fallback, Vector((1.0, 0.0, 0.0)))
+    return point - forward_dir * span if before else point + forward_dir * span
+
+
+def _lerp_parametric(
+    point_a: Vector,
+    point_b: Vector,
+    t_a: float,
+    t_b: float,
+    t: float,
+) -> Vector:
+    span = t_b - t_a
+    if abs(span) <= 1e-8:
+        return point_a.copy()
+    return point_a.lerp(point_b, _clamp01((t - t_a) / span))
+
+
+def _sample_centripetal_catmull_rom_segment(
+    point_0: Vector,
+    point_1: Vector,
+    point_2: Vector,
+    point_3: Vector,
+    local_t: float,
+) -> Vector:
+    t_1 = 0.0
+    t_2 = _centripetal_step(point_1, point_2)
+    t_0 = t_1 - _centripetal_step(point_0, point_1)
+    t_3 = t_2 + _centripetal_step(point_2, point_3)
+    t = max(t_1, min(t_2, local_t))
+
+    a_1 = _lerp_parametric(point_0, point_1, t_0, t_1, t)
+    a_2 = _lerp_parametric(point_1, point_2, t_1, t_2, t)
+    a_3 = _lerp_parametric(point_2, point_3, t_2, t_3, t)
+
+    b_1 = _lerp_parametric(a_1, a_2, t_0, t_2, t)
+    b_2 = _lerp_parametric(a_2, a_3, t_1, t_3, t)
+    return _lerp_parametric(b_1, b_2, t_1, t_2, t)
+
+
+def _resolve_catmull_segment_points(
+    control_points: tuple[Vector, ...],
+    segment_index: int,
+    *,
+    periodic: bool,
+    start_tangent: Optional[Vector],
+    end_tangent: Optional[Vector],
+) -> tuple[Vector, Vector, Vector, Vector]:
+    point_count = len(control_points)
+    point_1 = control_points[segment_index]
+    point_2 = control_points[segment_index + 1]
+
+    if periodic and point_count >= 3:
+        point_0 = control_points[segment_index - 1] if segment_index > 0 else control_points[-1]
+        point_3 = (
+            control_points[segment_index + 2]
+            if segment_index + 2 < point_count
+            else control_points[0]
+        )
+        return point_0, point_1, point_2, point_3
+
+    point_0 = (
+        control_points[segment_index - 1]
+        if segment_index > 0
+        else _build_endpoint_ghost_point(
+            point_1,
+            point_2,
+            start_tangent,
+            before=True,
+        )
+    )
+    point_3 = (
+        control_points[segment_index + 2]
+        if segment_index + 2 < point_count
+        else _build_endpoint_ghost_point(
+            point_2,
+            point_1,
+            end_tangent,
+            before=False,
+        )
+    )
+    return point_0, point_1, point_2, point_3
+
+
+def _evaluate_centripetal_catmull_rom(
+    control_points: tuple[Vector, ...],
+    control_params: tuple[float, ...],
+    sample_param: float,
+    *,
+    periodic: bool,
+    start_tangent: Optional[Vector],
+    end_tangent: Optional[Vector],
+) -> Vector:
+    point_count = len(control_points)
+    if point_count <= 0:
+        return Vector((0.0, 0.0, 0.0))
+    if point_count == 1:
+        return control_points[0].copy()
+    if point_count == 2:
+        total = max(control_params[-1], 1e-8)
+        return control_points[0].lerp(
+            control_points[1],
+            _clamp01(sample_param / total),
+        )
+
+    total_param = control_params[-1]
+    if sample_param <= 0.0:
+        segment_index = 0
+        local_t = 0.0
+    elif sample_param >= total_param:
+        segment_index = point_count - 2
+        local_t = control_params[-1] - control_params[-2]
+    else:
+        segment_index = 0
+        for probe_index in range(point_count - 1):
+            if sample_param <= control_params[probe_index + 1]:
+                segment_index = probe_index
+                break
+        local_t = sample_param - control_params[segment_index]
+
+    point_0, point_1, point_2, point_3 = _resolve_catmull_segment_points(
+        control_points,
+        segment_index,
+        periodic=periodic,
+        start_tangent=start_tangent,
+        end_tangent=end_tangent,
+    )
+    return _sample_centripetal_catmull_rom_segment(
+        point_0,
+        point_1,
+        point_2,
+        point_3,
+        local_t,
+    )
+
+
+def _sample_centripetal_curve_tangent(
+    control_points: tuple[Vector, ...],
+    control_params: tuple[float, ...],
+    sample_param: float,
+    *,
+    periodic: bool,
+    start_tangent: Optional[Vector],
+    end_tangent: Optional[Vector],
+) -> Vector:
+    point_count = len(control_points)
+    if point_count <= 1:
+        fallback = start_tangent if start_tangent is not None else Vector((1.0, 0.0, 0.0))
+        return _safe_normalized(fallback, Vector((1.0, 0.0, 0.0)))
+
+    total_param = max(control_params[-1], 1e-8)
+    delta = min(max(total_param * 1e-3, 1e-4), total_param * 0.2)
+    if point_count > 1:
+        min_segment = min(
+            max(control_params[index + 1] - control_params[index], 1e-8)
+            for index in range(point_count - 1)
+        )
+        delta = min(delta, min_segment * 0.25)
+    delta = max(delta, 1e-5)
+
+    if periodic and total_param > delta:
+        prev_param = sample_param - delta
+        next_param = sample_param + delta
+        if prev_param < 0.0:
+            prev_param += total_param
+        if next_param > total_param:
+            next_param -= total_param
+    else:
+        prev_param = max(0.0, sample_param - delta)
+        next_param = min(total_param, sample_param + delta)
+        if next_param - prev_param <= 1e-8:
+            if sample_param <= 0.0:
+                fallback = (
+                    start_tangent
+                    if start_tangent is not None and start_tangent.length > 1e-8
+                    else control_points[1] - control_points[0]
+                )
+            else:
+                fallback = (
+                    end_tangent
+                    if end_tangent is not None and end_tangent.length > 1e-8
+                    else control_points[-1] - control_points[-2]
+                )
+            return _safe_normalized(fallback, Vector((1.0, 0.0, 0.0)))
+
+    prev_point = _evaluate_centripetal_catmull_rom(
+        control_points,
+        control_params,
+        prev_param,
+        periodic=periodic,
+        start_tangent=start_tangent,
+        end_tangent=end_tangent,
+    )
+    next_point = _evaluate_centripetal_catmull_rom(
+        control_points,
+        control_params,
+        next_param,
+        periodic=periodic,
+        start_tangent=start_tangent,
+        end_tangent=end_tangent,
+    )
+
+    if sample_param <= 0.0 and start_tangent is not None and start_tangent.length > 1e-8:
+        return _safe_normalized(next_point - prev_point, start_tangent)
+    if sample_param >= total_param and end_tangent is not None and end_tangent.length > 1e-8:
+        return _safe_normalized(next_point - prev_point, end_tangent)
+    return _safe_normalized(next_point - prev_point, Vector((1.0, 0.0, 0.0)))
+
+
+def _orthogonal_fallback(reference: Vector) -> Vector:
+    reference_dir = _safe_normalized(reference, Vector((1.0, 0.0, 0.0)))
+    for candidate in (Vector((0.0, 0.0, 1.0)), Vector((0.0, 1.0, 0.0)), Vector((1.0, 0.0, 0.0))):
+        projected = candidate - reference_dir * candidate.dot(reference_dir)
+        if projected.length > 1e-8:
+            return projected.normalized()
+    return Vector((0.0, 1.0, 0.0))
+
+
+def _project_onto_normal_plane(vector: Vector, normal: Vector) -> Vector:
+    normal_dir = _safe_normalized(normal, Vector((1.0, 0.0, 0.0)))
+    return vector - normal_dir * vector.dot(normal_dir)
+
+
+def _signed_angle_around_axis(from_vector: Vector, to_vector: Vector, axis: Vector) -> float:
+    axis_dir = _safe_normalized(axis, Vector((1.0, 0.0, 0.0)))
+    from_proj = _project_onto_normal_plane(from_vector, axis_dir)
+    to_proj = _project_onto_normal_plane(to_vector, axis_dir)
+    if from_proj.length <= 1e-8 or to_proj.length <= 1e-8:
+        return 0.0
+    from_dir = from_proj.normalized()
+    to_dir = to_proj.normalized()
+    sin_value = axis_dir.dot(from_dir.cross(to_dir))
+    cos_value = max(-1.0, min(1.0, from_dir.dot(to_dir)))
+    return math.atan2(sin_value, cos_value)
+
+
+def _transport_vector_between_tangents(
+    vector: Vector,
+    from_tangent: Vector,
+    to_tangent: Vector,
+) -> Vector:
+    from_dir = _safe_normalized(from_tangent, Vector((1.0, 0.0, 0.0)))
+    to_dir = _safe_normalized(to_tangent, from_dir)
+    axis = from_dir.cross(to_dir)
+    if axis.length <= 1e-8:
+        if from_dir.dot(to_dir) < 0.0:
+            return (Quaternion(_orthogonal_fallback(from_dir), math.pi) @ vector)
+        return vector.copy()
+    dot_value = max(-1.0, min(1.0, from_dir.dot(to_dir)))
+    return Quaternion(axis.normalized(), math.acos(dot_value)) @ vector
+
+
+def _choose_initial_frame_normal(
+    side_a_sections: tuple[Vector, ...],
+    side_b_sections: tuple[Vector, ...],
+    tangents: tuple[Vector, ...],
+) -> Vector:
+    tangent_0 = tangents[0] if tangents else Vector((1.0, 0.0, 0.0))
+    lateral_sum = Vector((0.0, 0.0, 0.0))
+    for point_a, point_b in zip(side_a_sections, side_b_sections):
+        lateral = point_b - point_a
+        if lateral.length <= 1e-8:
+            continue
+        if lateral_sum.length > 1e-8 and lateral.dot(lateral_sum) < 0.0:
+            lateral.negate()
+        lateral_sum += lateral
+    if lateral_sum.length <= 1e-8 and side_a_sections and side_b_sections:
+        lateral_sum = side_b_sections[0] - side_a_sections[0]
+
+    tangent_dir = _safe_normalized(tangent_0, Vector((1.0, 0.0, 0.0)))
+    projected = lateral_sum - tangent_dir * lateral_sum.dot(tangent_dir)
+    if projected.length > 1e-8:
+        return projected.normalized()
+    return _orthogonal_fallback(tangent_dir)
+
+
+def _build_rotation_minimizing_frames(
+    spine_points: tuple[Vector, ...],
+    tangents: tuple[Vector, ...],
+    initial_normal: Vector,
+    *,
+    periodic: bool = False,
+) -> tuple[tuple[Vector, ...], tuple[Vector, ...]]:
+    point_count = min(len(spine_points), len(tangents))
+    if point_count <= 0:
+        return (), ()
+
+    tangent_0 = _safe_normalized(tangents[0], Vector((1.0, 0.0, 0.0)))
+    normal_0 = initial_normal - tangent_0 * initial_normal.dot(tangent_0)
+    if normal_0.length <= 1e-8:
+        normal_0 = _orthogonal_fallback(tangent_0)
+    else:
+        normal_0.normalize()
+    binormal_0 = tangent_0.cross(normal_0)
+    if binormal_0.length <= 1e-8:
+        normal_0 = _orthogonal_fallback(tangent_0)
+        binormal_0 = tangent_0.cross(normal_0)
+    binormal_0.normalize()
+    normal_0 = binormal_0.cross(tangent_0).normalized()
+
+    normals = [normal_0]
+    binormals = [binormal_0]
+
+    for point_index in range(1, point_count):
+        prev_tangent = _safe_normalized(tangents[point_index - 1], tangents[point_index])
+        curr_tangent = _safe_normalized(tangents[point_index], prev_tangent)
+        transported_normal = normals[-1].copy()
+        axis = prev_tangent.cross(curr_tangent)
+        if axis.length > 1e-8:
+            dot_value = max(-1.0, min(1.0, prev_tangent.dot(curr_tangent)))
+            rotation = Quaternion(axis.normalized(), math.acos(dot_value))
+            transported_normal = rotation @ transported_normal
+
+        transported_normal -= curr_tangent * transported_normal.dot(curr_tangent)
+        if transported_normal.length <= 1e-8:
+            transported_normal = normals[-1].copy()
+            transported_normal -= curr_tangent * transported_normal.dot(curr_tangent)
+        if transported_normal.length <= 1e-8:
+            transported_normal = _orthogonal_fallback(curr_tangent)
+        else:
+            transported_normal.normalize()
+
+        transported_binormal = curr_tangent.cross(transported_normal)
+        if transported_binormal.length <= 1e-8:
+            transported_normal = _orthogonal_fallback(curr_tangent)
+            transported_binormal = curr_tangent.cross(transported_normal)
+        transported_binormal.normalize()
+        transported_normal = transported_binormal.cross(curr_tangent).normalized()
+
+        if transported_normal.dot(normals[-1]) < 0.0:
+            transported_normal.negate()
+            transported_binormal.negate()
+
+        normals.append(transported_normal)
+        binormals.append(transported_binormal)
+
+    if periodic and point_count >= 3:
+        cumulative_lengths, total_length = _polyline_cumulative_lengths(spine_points)
+        if total_length > 1e-8:
+            end_normal_in_start_plane = _transport_vector_between_tangents(
+                normals[-1],
+                tangents[-1],
+                tangents[0],
+            )
+            closure_angle = _signed_angle_around_axis(
+                end_normal_in_start_plane,
+                normals[0],
+                tangents[0],
+            )
+            if abs(closure_angle) > 1e-6:
+                corrected_normals = []
+                corrected_binormals = []
+                for point_index in range(point_count):
+                    blend = cumulative_lengths[point_index] / total_length
+                    tangent_dir = _safe_normalized(tangents[point_index], Vector((1.0, 0.0, 0.0)))
+                    twist = Quaternion(tangent_dir, closure_angle * blend)
+                    corrected_normal = twist @ normals[point_index]
+                    corrected_binormal = twist @ binormals[point_index]
+                    corrected_normals.append(corrected_normal.normalized())
+                    corrected_binormals.append(corrected_binormal.normalized())
+                normals = corrected_normals
+                binormals = corrected_binormals
+
+    return tuple(normals), tuple(binormals)
+
+
+def _build_midpoint_spine_curve(
+    graph: PatchGraph,
+    side_a_sections: tuple[Vector, ...],
+    side_b_sections: tuple[Vector, ...],
+    cap_start_refs: tuple[tuple[int, int, int], ...],
+    cap_end_refs: tuple[tuple[int, int, int], ...],
+    sample_stations: Optional[tuple[float, ...]] = None,
+) -> _SpineCurveData:
+    control_points = _build_midpoint_spine_points(side_a_sections, side_b_sections)
+    return _build_spine_curve_from_control_points(
+        graph,
+        control_points,
+        side_a_sections,
+        side_b_sections,
+        cap_start_refs,
+        cap_end_refs,
+        sample_stations,
+    )
 
 
 def _resolve_spine_axis_from_points(
@@ -1510,6 +1913,35 @@ def _parametrize_cap(
     return tuple(uv_targets)
 
 
+def _parametrize_cap_by_arclength(
+    cap_chain: BoundaryChain,
+    start_hint: Vector,
+    end_hint: Vector,
+    v_distance: float,
+    cap_width: float,
+) -> tuple[tuple[float, float], ...]:
+    points, reversed_points = _oriented_chain_points(cap_chain, start_hint, end_hint)
+    if not points:
+        return ()
+
+    cumulative, total_length = _polyline_cumulative_lengths(points)
+    if total_length <= 1e-8:
+        point_count = len(points)
+        if point_count <= 1:
+            uv_targets = ((0.0, v_distance),)
+        else:
+            uv_targets = tuple(
+                (0.5 * cap_width - cap_width * float(index) / float(point_count - 1), v_distance)
+                for index in range(point_count)
+            )
+    else:
+        uv_targets = tuple(
+            (0.5 * cap_width - distance, v_distance)
+            for distance in cumulative
+        )
+    return tuple(reversed(uv_targets)) if reversed_points else uv_targets
+
+
 def build_canonical_4chain_band_spine(
     graph: PatchGraph,
     patch_id: int,
@@ -1521,10 +1953,11 @@ def build_canonical_4chain_band_spine(
 
     Handles exactly 2 side chains + 2 single-chain cap groups.  Bypasses
     the topology-heavy general path (harmonic station map, Dijkstra) but
-    retains curvature-aware parameterization:
+    keeps the same universal 3D spine core:
 
     - Arc-length resampling of both side rails
-    - Inverse-offset guide spine (curvature correction)
+    - Centripetal Catmull-Rom midpoint spine
+    - Rotation-minimizing frame transport along the spine
     - Rigidity-weighted section distance redistribution
     - Per-vertex remap through section profile
 
@@ -1628,70 +2061,20 @@ def build_canonical_4chain_band_spine(
     if not resampled_a or not resampled_b:
         return None
 
-    # ── detect cases where patch-plane projection is unreliable ──
-    # Two independent triggers feed the same bypass: closed-surface topology
-    # (ring, truncated cone — side chains form nearly-closed arcs at the seam)
-    # and 3D-bent open bands (serpentines folded along the face normal).  In
-    # both cases basis_u × basis_v projections collapse geometry that the
-    # refinement steps depend on, so we keep the plain midpoint spine and
-    # uniform arc-length section distances.  For closed surfaces the uniform
-    # parametrization is the correct answer by construction; for 3D-bent bands
-    # it unrolls the band along its 3D arc length without introducing
-    # projection artefacts.
-    side_a_closure = (side_a_points[0] - side_a_points[-1]).length
-    side_b_closure = (side_b_points[0] - side_b_points[-1]).length
-    avg_side_length = 0.5 * (total_a + total_b)
-    sides_nearly_closed = (
-        avg_side_length > 1e-8
-        and max(side_a_closure, side_b_closure) < 0.15 * avg_side_length
+    spine_curve = _build_midpoint_spine_curve(
+        graph,
+        resampled_a,
+        resampled_b,
+        cap_start_refs,
+        cap_end_refs,
+        stations,
     )
-    out_of_patch_plane = _band_is_out_of_patch_plane(
-        side_a_points, side_b_points, node.basis_u, node.basis_v,
-    )
-    plane_refinement_unreliable = sides_nearly_closed or out_of_patch_plane
-
-    # ── curvature-corrected spine (inverse-offset guide) ──
-    # For curved bands (C/L-shape) the spine shifts toward the concave
-    # side, compensating for the length asymmetry.  For flat/uniform
-    # geometry (rings, straight strips) the correction is near-zero and
-    # the spine stays at the midpoint.  For bands whose plane projection
-    # is unreliable the guide is skipped outright — the inward normals
-    # are computed via basis_u × basis_v and collapse to noise.
-    if plane_refinement_unreliable:
-        spine_points = tuple(
-            (resampled_a[i] + resampled_b[i]) * 0.5
-            for i in range(len(resampled_a))
-        )
-    else:
-        spine_points = _build_inverse_offset_guide(
-            resampled_a, resampled_b, node.basis_u, node.basis_v,
-        )
-        if not spine_points:
-            spine_points = tuple(
-                (resampled_a[i] + resampled_b[i]) * 0.5
-                for i in range(len(resampled_a))
-            )
-
-    if not plane_refinement_unreliable:
-        # Cap-tangent constraint is only meaningful for open bands that lie
-        # near the patch plane — it uses basis_u × basis_v projections
-        # internally.  Closed surfaces and 3D-bent serpentines take the
-        # straight midpoint spine; cap tangents would collapse under the
-        # projection and introduce noise.
-        spine_points = _constrain_spine_with_cap_tangents(
-            graph,
-            side_a_ref,
-            side_b_ref,
-            cap_start_refs,
-            cap_end_refs,
-            spine_points,
-            side_a_points,
-            side_b_points,
-            side_a_reversed,
-            side_b_reversed,
-            node.basis_u,
-            node.basis_v,
-        )
+    spine_points = spine_curve.points
+    spine_tangents = spine_curve.tangents
+    spine_normals = spine_curve.normals
+    spine_binormals = spine_curve.binormals
+    if not spine_points:
+        return None
 
     # ── spine-normal re-sectioning (3D-native) ──
     # Cut sections perpendicular to the 3D spine tangent and intersect
@@ -1714,6 +2097,7 @@ def build_canonical_4chain_band_spine(
         resampled_b,
         section_dist_a,
         section_dist_b,
+        spine_tangents,
     )
     if snorm_dist_a and snorm_dist_b:
         section_dist_a = snorm_dist_a
@@ -1758,8 +2142,8 @@ def build_canonical_4chain_band_spine(
         side_b_targets = tuple(reversed(side_b_targets))
 
     # ── UV targets for cap chains ──
-    start_tangent = _endpoint_direction(spine_points, at_start=True)
-    end_tangent = _endpoint_direction(spine_points, at_start=False)
+    start_tangent = spine_tangents[0] if spine_tangents else _endpoint_direction(spine_points, at_start=True)
+    end_tangent = spine_tangents[-1] if spine_tangents else _endpoint_direction(spine_points, at_start=False)
 
     cap_start_uv = _parametrize_cap(
         cap_start, side_a_points[0], side_b_points[0],
@@ -1798,8 +2182,12 @@ def build_canonical_4chain_band_spine(
         cap_start_refs=cap_start_refs,
         cap_end_refs=cap_end_refs,
         spine_points_3d=tuple(p.copy() for p in spine_points),
+        spine_tangents_3d=tuple(t.copy() for t in spine_tangents),
+        spine_normals_3d=tuple(n.copy() for n in spine_normals),
+        spine_binormals_3d=tuple(b.copy() for b in spine_binormals),
         spine_arc_lengths=spine_arc_lengths,
         spine_arc_length=total_spine,
+        spine_is_periodic=spine_curve.periodic,
         cap_start_width=cap_start_width,
         cap_end_width=cap_end_width,
         chain_uv_targets=MappingProxyType(dict(chain_uv_targets)),
@@ -1872,7 +2260,7 @@ def build_band_spine_from_groups(
         node.basis_u,
         node.basis_v,
     )
-    topology_station_sections = False
+    use_topology_station_domain = False
     side_a_stations: tuple[float, ...] = ()
     side_b_stations: tuple[float, ...] = ()
     (
@@ -1907,49 +2295,24 @@ def build_band_spine_from_groups(
             side_b_points,
         )
     else:
-        topology_station_sections = True
+        use_topology_station_domain = True
     if not bootstrap_side_a_sections or not bootstrap_side_b_sections or not section_stations:
         return None
 
-    out_of_patch_plane = _band_is_out_of_patch_plane(
-        side_a_points, side_b_points, node.basis_u, node.basis_v,
+    spine_curve = _build_midpoint_spine_curve(
+        graph,
+        bootstrap_side_a_sections,
+        bootstrap_side_b_sections,
+        cap_start_refs,
+        cap_end_refs,
+        section_stations,
     )
-    if out_of_patch_plane:
-        # 3D-bent serpentine-style bands: skip the basis_u × basis_v
-        # projections used by the inverse-offset guide and cap-tangent
-        # constraint (they collapse to noise for out-of-plane geometry) and
-        # keep the plain midpoint spine instead.  The spine-normal
-        # re-sectioning below still runs — it is 3D-native and produces
-        # the correct local compression/expansion at serpentine bends.
-        spine_points = tuple(
-            (bootstrap_side_a_sections[i] + bootstrap_side_b_sections[i]) * 0.5
-            for i in range(
-                min(len(bootstrap_side_a_sections), len(bootstrap_side_b_sections))
-            )
-        )
-    else:
-        raw_spine_points = _build_inverse_offset_guide(
-            bootstrap_side_a_sections,
-            bootstrap_side_b_sections,
-            node.basis_u,
-            node.basis_v,
-        )
-        if not raw_spine_points:
-            return None
-        spine_points = _constrain_spine_with_cap_tangents(
-            graph,
-            side_a_ref,
-            side_b_ref,
-            cap_start_refs,
-            cap_end_refs,
-            raw_spine_points,
-            side_a_points,
-            side_b_points,
-            side_a_reversed,
-            side_b_reversed,
-            node.basis_u,
-            node.basis_v,
-        )
+    spine_points = spine_curve.points
+    spine_tangents = spine_curve.tangents
+    spine_normals = spine_curve.normals
+    spine_binormals = spine_curve.binormals
+    if not spine_points:
+        return None
 
     # ── spine-normal re-sectioning (3D-native) ──
     # Runs for every geometry class: in-plane bends, out-of-plane
@@ -1959,31 +2322,26 @@ def build_band_spine_from_groups(
     # bends (inner rail shorter delta, outer rail longer delta).  Topology
     # stations, when present, are a stronger bootstrap than uniform
     # sampling; otherwise fall back to the resampled bootstrap sections.
-    if topology_station_sections:
-        side_a_sections = bootstrap_side_a_sections
-        side_b_sections = bootstrap_side_b_sections
-        side_a_section_distances = bootstrap_side_a_distances
-        side_b_section_distances = bootstrap_side_b_distances
-    else:
-        (
-            side_a_sections,
-            side_b_sections,
-            side_a_section_distances,
-            side_b_section_distances,
-        ) = _build_spine_normal_sections(
-            side_a_points,
-            side_b_points,
-            spine_points,
-            bootstrap_side_a_sections,
-            bootstrap_side_b_sections,
-            bootstrap_side_a_distances,
-            bootstrap_side_b_distances,
-        )
+    (
+        side_a_sections,
+        side_b_sections,
+        side_a_section_distances,
+        side_b_section_distances,
+    ) = _build_spine_normal_sections(
+        side_a_points,
+        side_b_points,
+        spine_points,
+        bootstrap_side_a_sections,
+        bootstrap_side_b_sections,
+        bootstrap_side_a_distances,
+        bootstrap_side_b_distances,
+        spine_tangents,
+    )
     if not side_a_sections or not side_b_sections:
         return None
 
     topology_target_total = None
-    if topology_station_sections:
+    if use_topology_station_domain:
         topology_target_total = 0.5 * (
             side_a_section_distances[-1]
             + side_b_section_distances[-1]
@@ -2003,8 +2361,8 @@ def build_band_spine_from_groups(
     )
     if not spine_arc_lengths:
         return None
-    start_tangent = _endpoint_direction(spine_points, at_start=True)
-    end_tangent = _endpoint_direction(spine_points, at_start=False)
+    start_tangent = spine_tangents[0] if spine_tangents else _endpoint_direction(spine_points, at_start=True)
+    end_tangent = spine_tangents[-1] if spine_tangents else _endpoint_direction(spine_points, at_start=False)
 
     cap_start_width = (side_a_points[0] - side_b_points[0]).length
     cap_end_width = (side_a_points[-1] - side_b_points[-1]).length
@@ -2014,7 +2372,7 @@ def build_band_spine_from_groups(
     if side_a_chain is None or side_b_chain is None:
         return None
 
-    if topology_station_sections:
+    if use_topology_station_domain:
         side_a_targets = _parametrize_side_by_stations(
             side_a_stations,
             section_stations,
@@ -2036,7 +2394,7 @@ def build_band_spine_from_groups(
         )
     if side_a_reversed:
         side_a_targets = tuple(reversed(side_a_targets))
-    if topology_station_sections:
+    if use_topology_station_domain:
         side_b_targets = _parametrize_side_by_stations(
             side_b_stations,
             section_stations,
@@ -2099,10 +2457,232 @@ def build_band_spine_from_groups(
         cap_start_refs=cap_start_refs,
         cap_end_refs=cap_end_refs,
         spine_points_3d=tuple(point.copy() for point in spine_points),
+        spine_tangents_3d=tuple(tangent.copy() for tangent in spine_tangents),
+        spine_normals_3d=tuple(normal.copy() for normal in spine_normals),
+        spine_binormals_3d=tuple(binormal.copy() for binormal in spine_binormals),
         spine_arc_lengths=spine_arc_lengths,
         spine_arc_length=total_arc_length,
+        spine_is_periodic=spine_curve.periodic,
         cap_start_width=cap_start_width,
         cap_end_width=cap_end_width,
         chain_uv_targets=MappingProxyType(dict(chain_uv_targets)),
         spine_axis=_resolve_spine_axis(side_a_chain, node.basis_u, node.basis_v),
+    )
+
+
+def build_canonical_4chain_tube_spine(
+    graph: PatchGraph,
+    patch_id: int,
+    loop_index: int,
+    side_chain_indices: tuple[int, ...],
+    cap_path_groups: tuple[tuple[int, ...], ...],
+) -> Optional[BandSpineData]:
+    """Build centerline-driven UV targets for canonical tube/cable patches.
+
+    Unlike BAND, the runtime spine does not live on the surface rails.  It is
+    reconstructed from station isosection centroids through the patch interior,
+    so the resulting curve follows the center of each cross-section.
+    """
+
+    node = graph.nodes.get(patch_id)
+    if node is None or loop_index < 0 or loop_index >= len(node.boundary_loops):
+        return None
+    if len(side_chain_indices) != 2 or len(cap_path_groups) != 2:
+        return None
+    if any(len(group) != 1 for group in cap_path_groups):
+        return None
+
+    side_a_ref = (patch_id, loop_index, side_chain_indices[0])
+    side_b_ref = (patch_id, loop_index, side_chain_indices[1])
+    cap_path_refs = tuple(
+        _refs_from_indices(patch_id, loop_index, group)
+        for group in cap_path_groups
+        if group
+    )
+    if len(cap_path_refs) != 2:
+        return None
+
+    oriented = _orient_side_pair(
+        graph,
+        side_a_ref,
+        side_b_ref,
+        cap_path_refs,
+    )
+    if oriented is None:
+        return None
+
+    (
+        side_a_ref,
+        side_b_ref,
+        side_a_points,
+        side_b_points,
+        cap_start_refs,
+        cap_end_refs,
+        side_a_reversed,
+        side_b_reversed,
+    ) = oriented
+    (
+        side_a_ref,
+        side_b_ref,
+        side_a_points,
+        side_b_points,
+        cap_start_refs,
+        cap_end_refs,
+        side_a_reversed,
+        side_b_reversed,
+    ) = _canonicalize_band_orientation(
+        side_a_ref,
+        side_b_ref,
+        side_a_points,
+        side_b_points,
+        cap_start_refs,
+        cap_end_refs,
+        side_a_reversed,
+        side_b_reversed,
+        node.basis_u,
+        node.basis_v,
+    )
+
+    (
+        side_a_sections,
+        side_b_sections,
+        _side_a_section_distances,
+        _side_b_section_distances,
+        section_stations,
+        side_a_stations,
+        side_b_stations,
+    ) = _build_topology_sections(
+        graph,
+        node,
+        side_a_ref,
+        side_b_ref,
+        side_a_points,
+        side_b_points,
+        side_a_reversed,
+        side_b_reversed,
+        cap_start_refs,
+        cap_end_refs,
+    )
+    if not side_a_sections or not side_b_sections or not section_stations:
+        return None
+
+    centerline_points = _build_station_centerline_points(
+        graph,
+        node,
+        cap_start_refs,
+        cap_end_refs,
+        section_stations,
+    )
+    if len(centerline_points) != len(section_stations):
+        return None
+
+    spine_curve = _build_spine_curve_from_control_points(
+        graph,
+        centerline_points,
+        side_a_sections,
+        side_b_sections,
+        cap_start_refs,
+        cap_end_refs,
+        section_stations,
+    )
+    spine_points = spine_curve.points
+    spine_tangents = spine_curve.tangents
+    spine_normals = spine_curve.normals
+    spine_binormals = spine_curve.binormals
+    if not spine_points:
+        return None
+
+    section_target_distances, total_arc_length = _polyline_cumulative_lengths(spine_points)
+    if total_arc_length <= 1e-8 or len(section_target_distances) != len(section_stations):
+        return None
+    spine_arc_lengths = _distances_to_normalized_stations(
+        section_target_distances,
+        total_arc_length,
+    )
+    if not spine_arc_lengths:
+        return None
+
+    cap_start_width = _chain_group_length(graph, cap_start_refs)
+    cap_end_width = _chain_group_length(graph, cap_end_refs)
+    if cap_start_width <= 1e-8 or cap_end_width <= 1e-8:
+        return None
+
+    side_a_targets = _parametrize_side_by_stations(
+        side_a_stations,
+        section_stations,
+        section_target_distances,
+        total_arc_length,
+        cap_start_width,
+        cap_end_width,
+        side_sign=1.0,
+    )
+    side_b_targets = _parametrize_side_by_stations(
+        side_b_stations,
+        section_stations,
+        section_target_distances,
+        total_arc_length,
+        cap_start_width,
+        cap_end_width,
+        side_sign=-1.0,
+    )
+    if side_a_reversed:
+        side_a_targets = tuple(reversed(side_a_targets))
+    if side_b_reversed:
+        side_b_targets = tuple(reversed(side_b_targets))
+
+    cap_start = graph.get_chain(*cap_start_refs[0])
+    cap_end = graph.get_chain(*cap_end_refs[0])
+    if cap_start is None or cap_end is None:
+        return None
+
+    cap_start_uv = _parametrize_cap_by_arclength(
+        cap_start,
+        side_a_points[0],
+        side_b_points[0],
+        0.0,
+        cap_start_width,
+    )
+    cap_end_uv = _parametrize_cap_by_arclength(
+        cap_end,
+        side_a_points[-1],
+        side_b_points[-1],
+        total_arc_length,
+        cap_end_width,
+    )
+    if not cap_start_uv or not cap_end_uv:
+        return None
+
+    spine_axis = _resolve_spine_axis_from_points(
+        centerline_points,
+        centerline_points,
+        node.basis_u,
+        node.basis_v,
+    )
+
+    return BandSpineData(
+        patch_id=patch_id,
+        side_a_ref=side_a_ref,
+        side_b_ref=side_b_ref,
+        cap_start_ref=cap_start_refs[0],
+        cap_end_ref=cap_end_refs[0],
+        cap_start_refs=cap_start_refs,
+        cap_end_refs=cap_end_refs,
+        spine_points_3d=tuple(point.copy() for point in spine_points),
+        spine_tangents_3d=tuple(tangent.copy() for tangent in spine_tangents),
+        spine_normals_3d=tuple(normal.copy() for normal in spine_normals),
+        spine_binormals_3d=tuple(binormal.copy() for binormal in spine_binormals),
+        spine_arc_lengths=spine_arc_lengths,
+        spine_arc_length=total_arc_length,
+        spine_is_periodic=spine_curve.periodic,
+        cap_start_width=cap_start_width,
+        cap_end_width=cap_end_width,
+        chain_uv_targets=MappingProxyType(
+            {
+                side_a_ref: side_a_targets,
+                side_b_ref: side_b_targets,
+                cap_start_refs[0]: cap_start_uv,
+                cap_end_refs[0]: cap_end_uv,
+            }
+        ),
+        spine_axis=spine_axis,
     )

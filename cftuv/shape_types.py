@@ -23,6 +23,8 @@ class PatchShapeClass(str, Enum):
 
     MIX = "MIX"
     BAND = "BAND"
+    CYLINDER = "CYLINDER"
+    CABLE = "CABLE"
 
 
 @dataclass(frozen=True)
