@@ -564,6 +564,27 @@ def _polyline_centroid(points: tuple[Vector, ...]) -> Vector:
     return total / float(len(points))
 
 
+def _is_closed_ring(points: tuple[Vector, ...]) -> bool:
+    """Return True when the polyline's first and last vertex coincide.
+
+    Tube / cable caps are single boundary chains whose walking order
+    traverses the full ring and returns to the seam vertex — ``points[0]``
+    and ``points[-1]`` refer to the SAME physical vertex.  Open-strip
+    BAND caps have distinct end vertices and return False here.  The
+    closed-ring check gates the spine-relative orientation that replaces
+    degenerate hint-based orientation at tube caps.
+    """
+    if len(points) < 3:
+        return False
+    _cumulative, perimeter = _polyline_cumulative_lengths(points)
+    if perimeter <= 1e-8:
+        return False
+    gap = (points[0] - points[-1]).length
+    return gap <= max(1e-6, 0.02 * perimeter)
+
+
+
+
 def _oriented_chain_points(
     chain: BoundaryChain,
     start_hint: Vector,
@@ -1919,8 +1940,40 @@ def _parametrize_cap_by_arclength(
     end_hint: Vector,
     v_distance: float,
     cap_width: float,
+    force_reversed: Optional[bool] = None,
 ) -> tuple[tuple[float, float], ...]:
-    points, reversed_points = _oriented_chain_points(cap_chain, start_hint, end_hint)
+    """Lay out cap UV targets by arc length along the chain.
+
+    For BAND-style open-strip caps the two hints (side_a endpoint vs
+    side_b endpoint) are distinct points, so ``_oriented_chain_points``
+    picks a deterministic walking direction from them.
+
+    For tube / cable closed-ring caps the two hints collapse to the
+    single seam vertex and the hint heuristic is degenerate.  The
+    layout formula ``U = 0.5*W - arc_distance`` assigns
+    ``vert_cos[0] → +W/2`` and ``vert_cos[-1] → -W/2``.  Whether this
+    matches side_a / side_b UV continuity depends on which side
+    follows the cap in the canonical boundary loop — exactly one of
+    the two caps of a tube always has the "wrong" walking direction
+    and ends up UV-mirrored.  The caller resolves this by reading
+    ``side_a_reversed`` (opposite signs at cap_start vs cap_end) and
+    passes ``force_reversed`` to override the degenerate hint path.
+    """
+
+    if not cap_chain.vert_cos:
+        return ()
+
+    if force_reversed is not None:
+        points = tuple(point.copy() for point in cap_chain.vert_cos)
+        reversed_points = bool(force_reversed)
+        if reversed_points:
+            points = tuple(reversed(points))
+    else:
+        points, reversed_points = _oriented_chain_points(
+            cap_chain,
+            start_hint,
+            end_hint,
+        )
     if not points:
         return ()
 
@@ -2635,12 +2688,35 @@ def build_canonical_4chain_tube_spine(
     if cap_start is None or cap_end is None:
         return None
 
+    # Closed-ring cap winding fix.  For canonical tube boundary loop
+    # [cap_start, sideX, cap_end, sideY], sideX is side_a when
+    # side_a_reversed=False (side_a's natural direction is
+    # cap_start → cap_end), else sideX is side_b.  The default layout
+    # formula ``U = +W/2 - arc_distance`` gives ``vert_cos[-1].U = -W/2``
+    # — correct only when sideX = side_b (U_sign = -1).  So at cap_start
+    # we force-reverse when side_a_reversed=False (sideX = side_a,
+    # U_sign = +1).  At cap_end the roles swap: sideY is the
+    # "follower" of cap_end, sideY = side_a iff side_a_reversed=True,
+    # so we force-reverse cap_end when side_a_reversed=True.  Exactly
+    # one of the two caps ends up reversed, matching the observed
+    # symptom "one cap mirrored".  Open-strip BAND caps are not
+    # closed rings; they fall through to the hint-based path.
+    cap_start_is_ring = _is_closed_ring(tuple(cap_start.vert_cos))
+    cap_end_is_ring = _is_closed_ring(tuple(cap_end.vert_cos))
+    cap_start_force_reverse: Optional[bool] = (
+        (not side_a_reversed) if cap_start_is_ring else None
+    )
+    cap_end_force_reverse: Optional[bool] = (
+        bool(side_a_reversed) if cap_end_is_ring else None
+    )
+
     cap_start_uv = _parametrize_cap_by_arclength(
         cap_start,
         side_a_points[0],
         side_b_points[0],
         0.0,
         cap_start_width,
+        force_reversed=cap_start_force_reverse,
     )
     cap_end_uv = _parametrize_cap_by_arclength(
         cap_end,
@@ -2648,6 +2724,7 @@ def build_canonical_4chain_tube_spine(
         side_b_points[-1],
         total_arc_length,
         cap_end_width,
+        force_reversed=cap_end_force_reverse,
     )
     if not cap_start_uv or not cap_end_uv:
         return None
