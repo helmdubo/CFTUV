@@ -861,6 +861,9 @@ def _frame_group_cross_axis_consensus(
     graph: PatchGraph,
     final_scale: float,
 ) -> Optional[float]:
+    # RETIRED by P7 skeleton solve, remove after 2 release cycles.
+    # Legacy local cross-axis averaging is kept temporarily for parity while the
+    # post-frontier skeleton pass bakes in on production meshes.
     """Weighted average cross-axis UV of trusted already-placed chains in the same frame group.
 
     Returns None if no trusted same-group chains are placed yet or chain is not eligible.

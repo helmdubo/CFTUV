@@ -8,6 +8,12 @@ of architectural hard-surface assets under trim sheet / tile workflows.
 Target: AA-AAA game environment art. Blender 4.1+, Python 3.10+.
 Single developer, in-house studio tool. No third-party deps beyond Blender built-in.
 
+**Architectural debt.** This codebase contains `ARCHITECTURAL_DEBT: <ID>`
+markers at sites with known suboptimal design. Before substantially modifying
+any file containing such a marker, read `docs/architectural_debt.md` and check
+whether your change should trigger debt pay-down. If your change repeats the
+same pattern in a new place, either consolidate now or install a new marker.
+
 ---
 
 ## Core Principle
@@ -43,6 +49,7 @@ cftuv/
 ├── solve_frontier.py   # Chain-first frontier builder, scaffold assembly
 ├── solve_pin_policy.py # Pin policy: PatchPinMap, build_patch_pin_map, preview_chain_pin_decision
 ├── solve_instrumentation.py # Frontier telemetry: FrontierTelemetryCollector, QuiltFrontierTelemetry
+├── solve_skeleton.py      # Post-frontier junction-based skeleton solve + canonical write-back
 ├── solve_transfer.py   # UV transfer: scaffold → UV layer, conformal fallback
 ├── solve_diagnostics.py# UV axis metrics, closure seam diagnostics
 ├── solve_reporting.py  # Regression snapshots, scaffold reports, human-readable output

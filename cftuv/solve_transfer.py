@@ -5,6 +5,7 @@ from typing import Optional
 from mathutils import Vector
 
 try:
+    from .analysis import build_patch_graph_derived_topology
     from .console_debug import trace_console
     from .model import (
         BoundaryLoop, FrameRole, FrameAxisKind, PatchGraph,
@@ -14,7 +15,9 @@ try:
     from .solve_records import *
     from .solve_frontier import build_root_scaffold_map
     from .solve_pin_policy import build_patch_pin_map
+    from .solve_skeleton import apply_skeleton_solve_to_scaffold_map
 except ImportError:
+    from analysis import build_patch_graph_derived_topology
     from console_debug import trace_console
     from model import (
         BoundaryLoop, FrameRole, FrameAxisKind, PatchGraph,
@@ -24,6 +27,7 @@ except ImportError:
     from solve_records import *
     from solve_frontier import build_root_scaffold_map
     from solve_pin_policy import build_patch_pin_map
+    from solve_skeleton import apply_skeleton_solve_to_scaffold_map
 
 
 def _patch_scaffold_is_supported(patch_placement: Optional[ScaffoldPatchPlacement]) -> bool:
@@ -292,10 +296,13 @@ def _resolve_scaffold_uv_targets(
         if key.chain_index < 0 or key.chain_index >= len(boundary_loop.chains):
             return []
         chain = boundary_loop.chains[key.chain_index]
-        if key.source_point_index < 0 or key.source_point_index >= len(chain.vert_indices):
+        chain_use = graph.get_chain_use(key.patch_id, key.loop_index, key.chain_index)
+        if chain_use is None:
             return []
-        loop_point_index = (chain.start_loop_index + key.source_point_index) % loop_count
-        vert_index = chain.vert_indices[key.source_point_index]
+        resolved_source_point = boundary_loop.resolve_chain_use_source_point(chain_use, key.source_point_index)
+        if resolved_source_point is None:
+            return []
+        loop_point_index, vert_index = resolved_source_point
         if loop_point_index >= len(boundary_loop.vert_indices) or boundary_loop.vert_indices[loop_point_index] != vert_index:
             return []
     else:
@@ -652,6 +659,7 @@ def _execute_phase1_preview_impl(
     except ImportError:
         from analysis import build_straighten_structural_support
     # Shape classification always runs; straighten-specific data gated by toggle.
+    derived_topology = build_patch_graph_derived_topology(patch_graph)
     inherited_role_map, patch_structural_summaries, patch_shape_classes, straighten_chain_refs, band_spine_data = build_straighten_structural_support(patch_graph)
     scaffold_map = build_root_scaffold_map(
         patch_graph, solve_plan, settings.final_scale,
@@ -661,6 +669,13 @@ def _execute_phase1_preview_impl(
         patch_shape_classes=patch_shape_classes,
         straighten_chain_refs=straighten_chain_refs if straighten_enabled else None,
         band_spine_data=band_spine_data if straighten_enabled else None,
+    )
+    scaffold_map, _skeleton_reports = apply_skeleton_solve_to_scaffold_map(
+        patch_graph,
+        derived_topology,
+        scaffold_map,
+        solve_plan=solve_plan,
+        final_scale=settings.final_scale,
     )
     unsupported_patch_ids = _collect_phase1_unsupported_patch_ids(scaffold_map)
     if unsupported_patch_ids:

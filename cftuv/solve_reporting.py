@@ -197,6 +197,71 @@ def _format_pin_reason_summary(pin_map) -> str:
     )
 
 
+def _format_optional_metric(value: Optional[float]) -> str:
+    if value is None:
+        return "-"
+    return f"{value:.6f}"
+
+
+def _format_singular_union_line(item, *, quilt_index: int) -> str:
+    split_ref = "-"
+    if item.split_chain_ref is not None:
+        split_ref = format_chain_address(item.split_chain_ref, quilt_index=quilt_index)
+    return (
+        f"{item.axis_kind.value} comp:{item.component_id} junction:{item.junction_vert_index} "
+        f"split:{split_ref} spread:{item.original_spread:.6f}->{item.resolved_spread:.6f} "
+        f"resolved:{'Y' if item.resolved else 'N'} reason:{item.reason or '-'}"
+    )
+
+
+def _format_sibling_group_line(group) -> str:
+    return (
+        f"P{group.patch_id} {group.role.value} "
+        f"members:{len(group.members)} target:{group.target_length:.6f}"
+    )
+
+
+def _append_skeleton_report_lines(
+    lines: list[str],
+    skeleton_report,
+    *,
+    quilt_index: int,
+    summary_prefix: str,
+    summary_label: str,
+    detail_prefix: str,
+    forensic_mode: bool,
+) -> None:
+    if skeleton_report is None:
+        return
+
+    lines.append(
+        f"{summary_prefix}{summary_label}: "
+        f"applied:{'Y' if skeleton_report.applied else 'N'} "
+        f"rows:{skeleton_report.row_component_count} "
+        f"cols:{skeleton_report.col_component_count} "
+        f"singular:{skeleton_report.singular_union_count} "
+        f"siblings:{skeleton_report.sibling_group_count} "
+        f"pure_free:{skeleton_report.pure_free_junction_count} "
+        f"unc_row:{skeleton_report.unconstrained_row_junction_count} "
+        f"unc_col:{skeleton_report.unconstrained_col_junction_count} "
+        f"residual_u:{_format_optional_metric(skeleton_report.residual_u)} "
+        f"residual_v:{_format_optional_metric(skeleton_report.residual_v)} "
+        f"notes:{_format_label_list_brief(skeleton_report.notes, limit=6)}"
+    )
+
+    if not forensic_mode:
+        return
+
+    singular_unions = ()
+    if skeleton_report.skeleton_graphs is not None:
+        singular_unions = skeleton_report.skeleton_graphs.singular_unions
+    for item in singular_unions:
+        lines.append(f"{detail_prefix}singular {_format_singular_union_line(item, quilt_index=quilt_index)}")
+
+    for group in skeleton_report.sibling_groups:
+        lines.append(f"{detail_prefix}sibling {_format_sibling_group_line(group)}")
+
+
 def format_root_scaffold_report(
     graph: PatchGraph,
     scaffold_map: ScaffoldMap,
@@ -293,6 +358,15 @@ def format_root_scaffold_report(
                         + f"scatter:{report.scatter_max:.6f}/{report.scatter_mean:.6f} "
                         + f"weight:{report.total_weight:.6f}{closure_tag} refs:[{refs_label}]"
                     )
+        _append_skeleton_report_lines(
+            lines,
+            getattr(quilt, 'skeleton_solve_report', None),
+            quilt_index=quilt.quilt_index,
+            summary_prefix="  ",
+            summary_label="Skeleton",
+            detail_prefix="    ",
+            forensic_mode=forensic_mode,
+        )
         if telemetry is not None:
             for tline in format_quilt_telemetry_summary(telemetry, reporting=reporting):
                 lines.append(tline)
@@ -585,6 +659,16 @@ def format_regression_snapshot_report(
                 )
         else:
             lines.append("frame_groups: 0")
+
+        _append_skeleton_report_lines(
+            lines,
+            getattr(quilt_scaffold, 'skeleton_solve_report', None),
+            quilt_index=quilt_scaffold.quilt_index,
+            summary_prefix="",
+            summary_label="skeleton",
+            detail_prefix="  - ",
+            forensic_mode=forensic_mode,
+        )
 
         telemetry = getattr(quilt_scaffold, 'frontier_telemetry', None)
         telemetry_map = (

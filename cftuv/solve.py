@@ -19,6 +19,10 @@ try:
         execute_phase1_transfer_only,
         validate_scaffold_uv_transfer,
     )
+    from .solve_skeleton import (
+        apply_skeleton_solve,
+        apply_skeleton_solve_to_scaffold_map,
+    )
     from .solve_reporting import (
         format_root_scaffold_report,
         format_regression_snapshot_report,
@@ -37,6 +41,10 @@ except ImportError:
         execute_phase1_transfer_only,
         validate_scaffold_uv_transfer,
     )
+    from solve_skeleton import (
+        apply_skeleton_solve,
+        apply_skeleton_solve_to_scaffold_map,
+    )
     from solve_reporting import (
         format_root_scaffold_report,
         format_regression_snapshot_report,
@@ -51,6 +59,8 @@ __all__ = [
     "execute_phase1_preview",
     "execute_phase1_transfer_only",
     "validate_scaffold_uv_transfer",
+    "apply_skeleton_solve",
+    "apply_skeleton_solve_to_scaffold_map",
     "format_root_scaffold_report",
     "format_regression_snapshot_report",
     "format_solve_plan_report",

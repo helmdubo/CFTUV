@@ -106,6 +106,16 @@ SCORE_BRIDGE_FIRST_PATCH_PENALTY = 1.10
 SCORE_BRIDGE_CROSS_PATCH_PENALTY = 0.85
 SCORE_FREE_STRIP_CONNECTOR = 0.10
 SCORE_FREE_FRAME_NEIGHBOR = 0.05
+
+# --- P7 skeleton graph tolerances (S2) ---
+SKELETON_ROW_SPREAD_TOLERANCE = 0.01
+SKELETON_COL_SPREAD_TOLERANCE = 0.01
+SKELETON_SIBLING_LENGTH_TOLERANCE = 0.001
+SKELETON_SIBLING_WEIGHT = 5.0
+SKELETON_GAUGE_WEIGHT = 1_000_000.0
+SKELETON_MAX_RESIDUAL_WARN = 0.01
+SKELETON_MAX_CYCLE_RESIDUAL_APPLY = 0.25
+USE_SKELETON_SOLVE = True
 # --- Closure cut heuristic weights ---
 # Определяют score каждого seam edge как кандидата на UV cut.
 # Высокий score = edge лучше подходит как разрыв (rigid endpoints, clean cut).

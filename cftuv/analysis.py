@@ -70,6 +70,12 @@ def _build_patch_graph_derived_topology(graph):
     return derived_topology
 
 
+def build_patch_graph_derived_topology(graph):
+    """Public facade for canonical derived topology over PatchGraph."""
+
+    return _build_patch_graph_derived_topology(graph)
+
+
 def _validate_patch_graph_junctions(graph, derived_topology):
     return _validate_patch_graph_junctions_impl(
         graph,
@@ -145,7 +151,6 @@ def format_patch_graph_snapshot_report(graph, mesh_name=None) -> FormattedReport
         lines=_serialize_patch_graph_snapshot_lines(console_view, mesh_name=mesh_name),
         summary=_serialize_patch_graph_snapshot_summary(console_view),
     )
-
 
 
 

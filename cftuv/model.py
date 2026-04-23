@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, IntFlag
 from mathutils import Vector
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from .solve_records import QuiltFrontierTelemetry
+    from .solve_skeleton import SkeletonSolveReport
 
 
 class PatchType(str, Enum):
@@ -122,9 +123,19 @@ class FrameAxisKind(str, Enum):
     COLUMN = "COLUMN"
 
 
+class SkeletonFlags(IntFlag):
+    """Служебные флаги skeleton solve на уровне junction."""
+
+    SINGULAR_SPLIT = 1 << 0
+    PURE_FREE = 1 << 1
+    UNCONSTRAINED_COL = 1 << 2
+    UNCONSTRAINED_ROW = 1 << 3
+
+
 # Canonical solve/runtime reference to one boundary chain:
 # (patch_id, loop_index, chain_index).
 ChainRef = tuple[int, int, int]
+ChainId = tuple[int, ...]
 PatchEdgeKey = tuple[int, int]
 LoopChainRef = tuple[int, int]
 SourcePoint = tuple[int, Vector]
@@ -135,6 +146,64 @@ AnchorAdjustment = tuple[ChainRef, int, Vector]
 class FormattedReport:
     lines: list[str]
     summary: str
+
+
+def _chain_id_from_spans(edge_indices: list[int], vert_indices: list[int]) -> ChainId:
+    if edge_indices:
+        return (-1, *sorted(int(edge_index) for edge_index in edge_indices))
+    return (-2, *sorted(int(vert_index) for vert_index in vert_indices))
+
+
+def _chain_axis_sign_from_vertices(vert_indices: list[int], edge_indices: list[int]) -> int:
+    sequence = tuple(int(vert_index) for vert_index in vert_indices) or tuple(int(edge_index) for edge_index in edge_indices)
+    if not sequence:
+        return 1
+
+    reversed_sequence = tuple(reversed(sequence))
+    if sequence == reversed_sequence:
+        return 1
+    return 1 if sequence < reversed_sequence else -1
+
+
+@dataclass(frozen=True)
+class ChainUse:
+    """Patch-local usage of a boundary chain in one oriented boundary loop walk."""
+
+    chain_id: ChainId
+    patch_id: int
+    loop_index: int
+    chain_index: int
+    position_in_loop: int
+    axis_sign: int
+    role_in_loop: FrameRole
+
+
+def _build_chain_use(
+    chain: "BoundaryChain",
+    patch_id: int,
+    loop_index: int,
+    chain_index: int,
+    position_in_loop: Optional[int] = None,
+) -> ChainUse:
+    return ChainUse(
+        chain_id=_chain_id_from_spans(chain.edge_indices, chain.vert_indices),
+        patch_id=int(patch_id),
+        loop_index=int(loop_index),
+        chain_index=int(chain_index),
+        position_in_loop=int(chain_index if position_in_loop is None else position_in_loop),
+        axis_sign=_chain_axis_sign_from_vertices(chain.vert_indices, chain.edge_indices),
+        role_in_loop=chain.frame_role,
+    )
+
+
+@dataclass(frozen=True)
+class ChainIncidence:
+    """One chain-use incidence inside a junction disk-cycle order."""
+
+    chain_use: ChainUse
+    role: FrameRole
+    side: str
+    angle: float
 
 
 @dataclass
@@ -236,6 +305,73 @@ class BoundaryLoop:
     # Composite substructure
     chains: list[BoundaryChain] = field(default_factory=list)
     corners: list[BoundaryCorner] = field(default_factory=list)
+    chain_uses: list[ChainUse] = field(default_factory=list)
+
+    def get_chain_use(self, chain_index: int) -> Optional[ChainUse]:
+        if chain_index < 0 or chain_index >= len(self.chains):
+            return None
+        if self.chain_uses and chain_index < len(self.chain_uses):
+            return self.chain_uses[chain_index]
+        return None
+
+    def iter_chain_uses_oriented(self) -> tuple[ChainUse, ...]:
+        if not self.chain_uses or len(self.chain_uses) != len(self.chains):
+            return ()
+        return tuple(
+            sorted(
+                self.chain_uses,
+                key=lambda chain_use: (
+                    chain_use.position_in_loop,
+                    chain_use.chain_index,
+                ),
+            )
+        )
+
+    def iter_oriented_chain_records(self) -> tuple[tuple[ChainUse, "BoundaryChain"], ...]:
+        records = []
+        for chain_use in self.iter_chain_uses_oriented():
+            if 0 <= chain_use.chain_index < len(self.chains):
+                records.append((chain_use, self.chains[chain_use.chain_index]))
+        return tuple(records)
+
+    def oriented_neighbor_chain_indices(self, chain_index: int) -> tuple[int, ...]:
+        if chain_index < 0 or chain_index >= len(self.chains):
+            return ()
+
+        oriented_chain_uses = self.iter_chain_uses_oriented()
+        if len(oriented_chain_uses) < 2:
+            return ()
+
+        oriented_position = -1
+        for position, chain_use in enumerate(oriented_chain_uses):
+            if chain_use.chain_index == chain_index:
+                oriented_position = position
+                break
+        if oriented_position < 0:
+            return ()
+
+        chain_count = len(oriented_chain_uses)
+        prev_index = oriented_chain_uses[(oriented_position - 1) % chain_count].chain_index
+        next_index = oriented_chain_uses[(oriented_position + 1) % chain_count].chain_index
+        if prev_index == next_index:
+            return (prev_index,)
+        return (prev_index, next_index)
+
+    def resolve_chain_use_source_point(self, chain_use: ChainUse, source_point_index: int) -> Optional[tuple[int, int]]:
+        if chain_use.chain_index < 0 or chain_use.chain_index >= len(self.chains):
+            return None
+
+        chain = self.chains[chain_use.chain_index]
+        if source_point_index < 0 or source_point_index >= len(chain.vert_indices):
+            return None
+
+        loop_count = len(self.vert_indices)
+        if loop_count <= 0:
+            return None
+
+        loop_point_index = (chain.start_loop_index + source_point_index) % loop_count
+        vert_index = chain.vert_indices[source_point_index]
+        return (loop_point_index, vert_index)
 
 
 @dataclass
@@ -270,6 +406,26 @@ class PatchNode:
         patch_type = self.patch_type.value if hasattr(self.patch_type, "value") else str(self.patch_type)
         world_facing = self.world_facing.value if hasattr(self.world_facing, "value") else str(self.world_facing)
         return f"{patch_type}.{world_facing}"
+
+    def iter_boundary_loop_oriented(self, loop_index: int = 0) -> tuple[ChainUse, ...]:
+        """Возвращает chain uses в каноническом порядке обхода boundary loop."""
+
+        if loop_index < 0 or loop_index >= len(self.boundary_loops):
+            return ()
+
+        boundary_loop = self.boundary_loops[loop_index]
+        if not boundary_loop.chain_uses or len(boundary_loop.chain_uses) != len(boundary_loop.chains):
+            return tuple(
+                _build_chain_use(
+                    chain,
+                    self.patch_id,
+                    loop_index,
+                    chain_index,
+                    position_in_loop=chain_index,
+                )
+                for chain_index, chain in enumerate(boundary_loop.chains)
+            )
+        return boundary_loop.iter_chain_uses_oriented()
 
 
 @dataclass
@@ -345,6 +501,8 @@ class PatchGraph:
     edges: dict[PatchEdgeKey, SeamEdge] = field(default_factory=dict)
     face_to_patch: dict[int, int] = field(default_factory=dict)
     _adjacency: dict[int, set[int]] = field(default_factory=dict)
+    chain_use_by_ref: dict[ChainRef, ChainUse] = field(default_factory=dict)
+    chain_refs_by_chain_id: dict[ChainId, tuple[ChainRef, ...]] = field(default_factory=dict)
 
     def add_node(self, node: PatchNode) -> None:
         self.nodes[node.patch_id] = node
@@ -379,6 +537,63 @@ class PatchGraph:
         if chain_index < 0 or chain_index >= len(boundary_loop.chains):
             return None
         return boundary_loop.chains[chain_index]
+
+    def rebuild_chain_use_index(self) -> None:
+        chain_use_by_ref: dict[ChainRef, ChainUse] = {}
+        refs_by_chain_id: dict[ChainId, list[ChainRef]] = {}
+
+        for patch_id, node in self.nodes.items():
+            for loop_index, boundary_loop in enumerate(node.boundary_loops):
+                if not boundary_loop.chain_uses or len(boundary_loop.chain_uses) != len(boundary_loop.chains):
+                    boundary_loop.chain_uses = [
+                        _build_chain_use(
+                            chain,
+                            patch_id,
+                            loop_index,
+                            chain_index,
+                            position_in_loop=chain_index,
+                        )
+                        for chain_index, chain in enumerate(boundary_loop.chains)
+                    ]
+
+                for chain_use in boundary_loop.chain_uses:
+                    ref = (chain_use.patch_id, chain_use.loop_index, chain_use.chain_index)
+                    chain_use_by_ref[ref] = chain_use
+                    refs_by_chain_id.setdefault(chain_use.chain_id, []).append(ref)
+
+        self.chain_use_by_ref = chain_use_by_ref
+        self.chain_refs_by_chain_id = {
+            chain_id: tuple(refs)
+            for chain_id, refs in refs_by_chain_id.items()
+        }
+
+    def get_chain_use(self, patch_id: int, loop_index: int, chain_index: int) -> Optional[ChainUse]:
+        ref = (patch_id, loop_index, chain_index)
+        chain_use = self.chain_use_by_ref.get(ref)
+        if chain_use is not None:
+            return chain_use
+
+        chain = self.get_chain(patch_id, loop_index, chain_index)
+        if chain is None:
+            return None
+        return _build_chain_use(
+            chain,
+            patch_id,
+            loop_index,
+            chain_index,
+            position_in_loop=chain_index,
+        )
+
+    def iter_chain_uses_for_chain_id(self, chain_id: ChainId) -> tuple[ChainUse, ...]:
+        refs = self.chain_refs_by_chain_id.get(chain_id, ())
+        return tuple(
+            chain_use
+            for chain_use in (
+                self.chain_use_by_ref.get(ref)
+                for ref in refs
+            )
+            if chain_use is not None
+        )
 
     def find_chains_touching_vertex(
         self,
@@ -618,6 +833,7 @@ class ScaffoldQuiltPlacement:
     closure_seam_reports: tuple[ScaffoldClosureSeamReport, ...] = ()
     frame_alignment_reports: tuple[ScaffoldFrameAlignmentReport, ...] = ()
     frontier_telemetry: Optional[QuiltFrontierTelemetry] = None
+    skeleton_solve_report: Optional["SkeletonSolveReport"] = None
 
 
 @dataclass

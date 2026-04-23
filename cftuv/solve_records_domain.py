@@ -10,6 +10,7 @@ from .model import (
     BoundaryLoop,
     ChainNeighborKind,
     ChainRef,
+    ChainUse,
     FrameRole,
     LoopChainRef,
     LoopKind,
@@ -121,24 +122,49 @@ class SolveView:
             if 0 <= loop_index < len(node.boundary_loops):
                 yield loop_index, node.boundary_loops[loop_index]
 
-    def iter_visible_chains(self, patch_id: int):
+    def iter_visible_chain_records(self, patch_id: int):
+        node = self.graph.nodes.get(patch_id)
+        if node is None:
+            return
+
         for loop_index, boundary_loop in self.iter_visible_loops(patch_id):
+            oriented_chain_uses = node.iter_boundary_loop_oriented(loop_index)
+            if oriented_chain_uses:
+                for chain_use in oriented_chain_uses:
+                    chain = self.graph.get_chain(
+                        chain_use.patch_id,
+                        chain_use.loop_index,
+                        chain_use.chain_index,
+                    )
+                    if chain is None:
+                        continue
+                    yield chain_use, boundary_loop, chain
+                continue
+
             for chain_index, chain in enumerate(boundary_loop.chains):
-                yield loop_index, chain_index, boundary_loop, chain
+                chain_use = self.graph.get_chain_use(patch_id, loop_index, chain_index)
+                if chain_use is None:
+                    continue
+                yield chain_use, boundary_loop, chain
+
+    def iter_visible_chains(self, patch_id: int):
+        for chain_use, boundary_loop, chain in self.iter_visible_chain_records(patch_id):
+            yield chain_use.loop_index, chain_use.chain_index, boundary_loop, chain
 
     def iter_attachment_neighbor_chains(self, owner_patch_id: int, target_patch_id: int):
         refs: list[AttachmentNeighborRef] = []
-        for loop_index, chain_index, boundary_loop, chain in self.iter_visible_chains(owner_patch_id):
+        for chain_use, boundary_loop, chain in self.iter_visible_chain_records(owner_patch_id):
             if chain.neighbor_kind != ChainNeighborKind.PATCH:
                 continue
             if chain.neighbor_patch_id != target_patch_id:
                 continue
             refs.append(
                 AttachmentNeighborRef(
-                    loop_index=loop_index,
-                    chain_index=chain_index,
+                    loop_index=chain_use.loop_index,
+                    chain_index=chain_use.chain_index,
                     boundary_loop=boundary_loop,
                     chain=chain,
+                    chain_use=chain_use,
                 )
             )
         return refs
@@ -190,6 +216,7 @@ class AttachmentNeighborRef:
     chain_index: int
     boundary_loop: BoundaryLoop
     chain: BoundaryChain
+    chain_use: ChainUse
 
 
 @dataclass(frozen=True)

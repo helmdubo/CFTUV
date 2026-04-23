@@ -204,8 +204,8 @@ def build_frontier_chain_pool(
         node = graph.nodes.get(patch_id)
         if node is None:
             continue
-        for loop_idx, chain_idx, _loop, chain in solve_view.iter_visible_chains(patch_id):
-            chain_ref = (patch_id, loop_idx, chain_idx)
+        for chain_use, _loop, chain in solve_view.iter_visible_chain_records(patch_id):
+            chain_ref = (chain_use.patch_id, chain_use.loop_index, chain_use.chain_index)
             if chain_ref == seed_ref:
                 continue
             all_chain_pool.append(

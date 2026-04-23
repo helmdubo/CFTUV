@@ -337,8 +337,18 @@ def _create_chain_labels(graph, source_obj):
     for patch_id in sorted(graph.nodes.keys()):
         node = graph.nodes[patch_id]
         normal = node.normal
-        for loop in node.boundary_loops:
-            for chain_idx, chain in enumerate(loop.chains):
+        for loop_index, loop in enumerate(node.boundary_loops):
+            chain_records = loop.iter_oriented_chain_records()
+            if not chain_records:
+                chain_records = tuple(
+                    (graph.get_chain_use(patch_id, loop_index, chain_index), chain)
+                    for chain_index, chain in enumerate(loop.chains)
+                )
+
+            for chain_use, chain in chain_records:
+                if chain_use is None:
+                    continue
+                chain_idx = chain_use.chain_index
                 if len(chain.vert_cos) < 1:
                     continue
                 mid = _chain_midpoint(chain)
@@ -608,7 +618,7 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
                 point = node.mesh_verts[vert_index]
                 _set_gp_stroke_point(stroke.points[point_index], point, 1)
 
-        for boundary_loop in node.boundary_loops:
+        for loop_index, boundary_loop in enumerate(node.boundary_loops):
             loop_points = _lift_points(boundary_loop.vert_cos + [boundary_loop.vert_cos[0]], node.normal, 0.014)
             if len(loop_points) >= 2:
                 if _enum_value(boundary_loop.kind) == LoopKind.HOLE.value:
@@ -618,7 +628,16 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
                     frame, mat_idx = frames_and_mats['Loops_Boundary']
                     _add_gp_stroke(frame, loop_points, mat_idx, line_width=5)
 
-            for chain in boundary_loop.chains:
+            chain_records = boundary_loop.iter_oriented_chain_records()
+            if not chain_records:
+                chain_records = tuple(
+                    (graph.get_chain_use(patch_id, loop_index, chain_index), chain)
+                    for chain_index, chain in enumerate(boundary_loop.chains)
+                )
+
+            for _chain_use, chain in chain_records:
+                if _chain_use is None:
+                    continue
                 raw_points = chain.vert_cos + [chain.vert_cos[0]] if chain.is_closed else chain.vert_cos
                 lifted_points = _lift_points(raw_points, node.normal, 0.016)
                 if len(lifted_points) < 2:

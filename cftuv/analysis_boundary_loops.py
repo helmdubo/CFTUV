@@ -15,6 +15,7 @@ try:
         CornerKind,
         FrameRole,
         LoopKind,
+        _build_chain_use,
     )
     from .analysis_records import (
         _RawBoundaryChain,
@@ -48,6 +49,7 @@ except ImportError:
         CornerKind,
         FrameRole,
         LoopKind,
+        _build_chain_use,
     )
     from analysis_records import (
         _RawBoundaryChain,
@@ -340,6 +342,21 @@ def _build_boundary_chain_objects(raw_chains, basis_u, basis_v):
             )
         )
     return chains
+
+
+def _build_boundary_loop_chain_uses(boundary_loop, patch_id, loop_index):
+    chain_uses = []
+    for chain_index, chain in enumerate(boundary_loop.chains):
+        chain_uses.append(
+            _build_chain_use(
+                chain,
+                patch_id,
+                loop_index,
+                chain_index,
+                position_in_loop=chain_index,
+            )
+        )
+    return chain_uses
 
 
 def _downgrade_same_role_point_contact_chains(chains, basis_u, basis_v, patch_id, loop_index):
@@ -826,6 +843,14 @@ def _validate_boundary_loop_topology(boundary_loop, patch_id, loop_index):
             "loop_has_geometry_but_no_chains",
         )
 
+    if boundary_loop.chain_uses and len(boundary_loop.chain_uses) != chain_count:
+        _report_boundary_loop_invariant_violation(
+            patch_id,
+            loop_index,
+            "CU1",
+            f"chain_use_count_mismatch expected={chain_count} actual={len(boundary_loop.chain_uses)}",
+        )
+
 
 def _validate_patch_loop_classification(node):
     if not node.boundary_loops:
@@ -1100,6 +1125,7 @@ def _finalize_boundary_loop_build(state, basis_u, basis_v, patch_id, loop_index,
     derived_topology = _derive_boundary_loop_topology(state, basis_u, basis_v, patch_id, loop_index)
     boundary_loop.chains = derived_topology.chains
     boundary_loop.corners = derived_topology.corners
+    boundary_loop.chain_uses = _build_boundary_loop_chain_uses(boundary_loop, patch_id, loop_index)
     _assign_loop_chain_endpoint_topology(boundary_loop)
     _annotate_boundary_loop_corner_wedges(boundary_loop, patch_face_indices, bm)
     _validate_boundary_loop_topology(boundary_loop, patch_id, loop_index)

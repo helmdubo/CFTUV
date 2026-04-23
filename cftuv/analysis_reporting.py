@@ -330,9 +330,17 @@ def _build_corner_console_view(corner_index, corner):
 def _build_loop_console_view(graph, patch_id, loop_summary, boundary_loop, frame_runs_by_loop):
     """Build one typed loop console view."""
 
+    chain_records = boundary_loop.iter_oriented_chain_records()
+    if not chain_records:
+        chain_records = tuple(
+            (graph.get_chain_use(patch_id, loop_summary.loop_index, chain_index), chain)
+            for chain_index, chain in enumerate(boundary_loop.chains)
+        )
+
     chain_views = tuple(
-        _build_chain_console_view(graph, patch_id, loop_summary.loop_index, chain_index, chain)
-        for chain_index, chain in enumerate(boundary_loop.chains)
+        _build_chain_console_view(graph, patch_id, loop_summary.loop_index, chain_use.chain_index, chain)
+        for chain_use, chain in chain_records
+        if chain_use is not None
     )
     run_views = tuple(
         _build_run_console_view(run_index, frame_run)

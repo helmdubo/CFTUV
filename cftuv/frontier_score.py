@@ -204,10 +204,10 @@ def _cf_preview_would_be_connected(
     if node is None or loop_index >= len(node.boundary_loops):
         return True
     boundary_loop = node.boundary_loops[loop_index]
-    total_chains = len(boundary_loop.chains)
-
-    for delta in (-1, 1):
-        neighbor_idx = (chain_index + delta) % total_chains
+    # ARCHITECTURAL_DEBT: F3_LOOP_PREVNEXT
+    # Loop-neighbor lookup is still derived on demand from loop ordering rather
+    # than explicit ChainUse prev/next links. See docs/architectural_debt.md.
+    for neighbor_idx in boundary_loop.oriented_neighbor_chain_indices(chain_index):
         neighbor_ref = (patch_id, loop_index, neighbor_idx)
         if neighbor_ref not in runtime_policy.placed_chain_refs:
             continue
@@ -496,6 +496,9 @@ def _cf_build_corner_scoring_hints(
         corner = boundary_loop.corners[corner_index]
         other_role: Optional[FrameRole] = None
         other_chain_index = -1
+        # ARCHITECTURAL_DEBT: F3_LOOP_PREVNEXT
+        # Frontier corner-turn reasoning still reconstructs local prev/next
+        # chain context from BoundaryCorner instead of ChainUse adjacency.
         if corner.prev_chain_index == chain_index and corner.next_chain_index != chain_index:
             other_chain_index = corner.next_chain_index
             other_role = corner.next_role

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import math
+
 try:
-    from .model import ChainNeighborKind, FrameRole
+    from .model import ChainIncidence, ChainNeighborKind, FrameRole
     from .analysis_records import (
         _FrameRunEndpointSpec,
         _JunctionRunEndpointRef,
@@ -12,7 +14,7 @@ try:
         _Junction,
     )
 except ImportError:
-    from model import ChainNeighborKind, FrameRole
+    from model import ChainIncidence, ChainNeighborKind, FrameRole
     from analysis_records import (
         _FrameRunEndpointSpec,
         _JunctionRunEndpointRef,
@@ -125,11 +127,90 @@ def _derive_junction_chain_refs(graph, corner_refs):
                 chain_index=chain_index,
                 frame_role=chain.frame_role,
                 neighbor_kind=chain.neighbor_kind,
+                chain_use=graph.get_chain_use(corner_ref.patch_id, corner_ref.loop_index, chain_index),
             )
     return tuple(sorted(
         chain_refs_by_key.values(),
         key=lambda ref: (ref.patch_id, ref.loop_index, ref.chain_index),
     ))
+
+
+def _resolve_chain_incidence_side(chain, corner_vert_index):
+    if corner_vert_index == chain.start_vert_index:
+        return "start"
+    if corner_vert_index == chain.end_vert_index:
+        return "end"
+    return ""
+
+
+def _iter_reference_points(chain, side):
+    if side == "start":
+        return chain.vert_cos[1:]
+    if side == "end":
+        return reversed(chain.vert_cos[:-1])
+    return ()
+
+
+def _measure_incidence_angle(chain, corner_co, side):
+    for point in _iter_reference_points(chain, side):
+        delta = point - corner_co
+        dx = float(getattr(delta, "x", 0.0))
+        dy = float(getattr(delta, "y", 0.0))
+        if (dx * dx) + (dy * dy) <= 1e-12:
+            continue
+        return math.atan2(dy, dx)
+    return 0.0
+
+
+def _derive_junction_disk_cycle(graph, corner_refs):
+    # ARCHITECTURAL_DEBT: F2_CORNERFAN
+    # Circular disk-cycle order is recomputed inline here rather than sourced
+    # from a first-class CornerFan object. See docs/architectural_debt.md.
+    incidences_by_key = {}
+
+    for corner_ref in corner_refs:
+        node = graph.nodes.get(corner_ref.patch_id)
+        if node is None or corner_ref.loop_index < 0 or corner_ref.loop_index >= len(node.boundary_loops):
+            continue
+
+        boundary_loop = node.boundary_loops[corner_ref.loop_index]
+        if corner_ref.corner_index < 0 or corner_ref.corner_index >= len(boundary_loop.corners):
+            continue
+
+        corner = boundary_loop.corners[corner_ref.corner_index]
+        for chain_index in (corner_ref.prev_chain_index, corner_ref.next_chain_index):
+            if chain_index < 0 or chain_index >= len(boundary_loop.chains):
+                continue
+
+            chain = boundary_loop.chains[chain_index]
+            side = _resolve_chain_incidence_side(chain, corner.vert_index)
+            if not side:
+                continue
+
+            chain_use = graph.get_chain_use(corner_ref.patch_id, corner_ref.loop_index, chain_index)
+            if chain_use is None:
+                continue
+
+            incidence_key = (corner_ref.patch_id, corner_ref.loop_index, chain_index, side)
+            incidences_by_key[incidence_key] = ChainIncidence(
+                chain_use=chain_use,
+                role=chain_use.role_in_loop,
+                side=side,
+                angle=_measure_incidence_angle(chain, corner.vert_co, side),
+            )
+
+    return tuple(
+        sorted(
+            incidences_by_key.values(),
+            key=lambda incidence: (
+                incidence.angle,
+                incidence.chain_use.patch_id,
+                incidence.chain_use.loop_index,
+                incidence.chain_use.position_in_loop,
+                incidence.side,
+            ),
+        )
+    )
 
 
 def _derive_junction_run_endpoint_refs(corner_refs, run_refs_by_corner):
@@ -184,6 +265,7 @@ def _materialize_junction(graph, entry, run_refs_by_corner):
         key=lambda ref: (ref.patch_id, ref.loop_index, ref.corner_index),
     ))
     chain_refs = _derive_junction_chain_refs(graph, corner_refs)
+    disk_cycle = _derive_junction_disk_cycle(graph, corner_refs)
     run_endpoint_refs = _derive_junction_run_endpoint_refs(corner_refs, run_refs_by_corner)
     patch_ids = tuple(sorted(entry.patch_ids))
     role_signature = _derive_junction_role_signature(graph, corner_refs)
@@ -203,6 +285,7 @@ def _materialize_junction(graph, entry, run_refs_by_corner):
         vert_co=entry.vert_co.copy(),
         corner_refs=corner_refs,
         chain_refs=chain_refs,
+        disk_cycle=disk_cycle,
         run_endpoint_refs=run_endpoint_refs,
         role_signature=role_signature,
         patch_ids=patch_ids,

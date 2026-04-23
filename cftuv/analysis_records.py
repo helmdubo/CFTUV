@@ -13,12 +13,15 @@ try:
         BoundaryChain,
         BoundaryCorner,
         BoundaryLoop,
+        ChainIncidence,
         ChainNeighborKind,
+        ChainUse,
         ChainRef,
         FrameRole,
         LoopKind,
         PatchNode,
         PatchType,
+        SkeletonFlags,
         WorldFacing,
     )
     from .shape_types import LoopShapeInterpretation, PatchShapeClass
@@ -29,12 +32,15 @@ except ImportError:
         BoundaryChain,
         BoundaryCorner,
         BoundaryLoop,
+        ChainIncidence,
         ChainNeighborKind,
+        ChainUse,
         ChainRef,
         FrameRole,
         LoopKind,
         PatchNode,
         PatchType,
+        SkeletonFlags,
         WorldFacing,
     )
     from shape_types import LoopShapeInterpretation, PatchShapeClass
@@ -279,6 +285,7 @@ class _JunctionChainRef:
     chain_index: int
     frame_role: FrameRole
     neighbor_kind: ChainNeighborKind
+    chain_use: Optional[ChainUse] = None
 
 
 @dataclass(frozen=True)
@@ -311,6 +318,7 @@ class _Junction:
     vert_co: Vector
     corner_refs: tuple[_JunctionCornerRef, ...] = ()
     chain_refs: tuple[_JunctionChainRef, ...] = ()
+    disk_cycle: tuple[ChainIncidence, ...] = ()
     run_endpoint_refs: tuple[_JunctionRunEndpointRef, ...] = ()
     role_signature: tuple[_JunctionRolePair, ...] = ()
     patch_ids: tuple[int, ...] = ()
@@ -321,6 +329,25 @@ class _Junction:
     h_count: int = 0
     v_count: int = 0
     free_count: int = 0
+    row_component_id: int | None = None
+    col_component_id: int | None = None
+    canonical_u: float | None = None
+    canonical_v: float | None = None
+    skeleton_flags: SkeletonFlags = SkeletonFlags(0)
+
+    def ordered_disk_cycle(self) -> list[ChainIncidence]:
+        return list(
+            sorted(
+                self.disk_cycle,
+                key=lambda incidence: (
+                    incidence.angle,
+                    incidence.chain_use.patch_id,
+                    incidence.chain_use.loop_index,
+                    incidence.chain_use.position_in_loop,
+                    incidence.side,
+                ),
+            )
+        )
 
 
 @dataclass(frozen=True)

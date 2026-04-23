@@ -456,7 +456,8 @@ class FrontierRuntimePolicy:
 
         chain_spans: list[float] = []
         fallback_spans: list[float] = []
-        for other_index, other_chain in enumerate(boundary_loop.chains):
+        for other_use, other_chain in boundary_loop.iter_oriented_chain_records():
+            other_index = other_use.chain_index
             if other_index == chain_index:
                 continue
             other_ref = (patch_id, loop_index, other_index)
@@ -521,7 +522,8 @@ class FrontierRuntimePolicy:
 
         best_ref: Optional[ChainRef] = None
         best_length = -1.0
-        for other_index, other_chain in enumerate(boundary_loop.chains):
+        for other_use, other_chain in boundary_loop.iter_oriented_chain_records():
+            other_index = other_use.chain_index
             if other_index == chain_index:
                 continue
             if self._chains_share_corner(chain, other_chain):
@@ -585,7 +587,8 @@ class FrontierRuntimePolicy:
             return []
 
         station_sets = [self._chain_normalized_stations(chain)]
-        for other_index, other_chain in enumerate(boundary_loop.chains):
+        for other_use, other_chain in boundary_loop.iter_oriented_chain_records():
+            other_index = other_use.chain_index
             if other_index == chain_index:
                 continue
             if len(other_chain.vert_cos) != point_count:
@@ -866,6 +869,9 @@ class FrontierRuntimePolicy:
         if corner_index < 0 or corner_index >= len(boundary_loop.corners):
             return None
         corner = boundary_loop.corners[corner_index]
+        # ARCHITECTURAL_DEBT: F3_LOOP_PREVNEXT
+        # Same-patch continuation still infers prev/next chain identity from
+        # corner records instead of direct ChainUse loop adjacency.
         expected_source_chain_index = corner.prev_chain_index if is_start_anchor else corner.next_chain_index
         expected_candidate_chain_index = corner.next_chain_index if is_start_anchor else corner.prev_chain_index
         if expected_candidate_chain_index != chain_index or expected_source_chain_index != anchor.source_ref[2]:

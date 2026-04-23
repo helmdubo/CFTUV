@@ -114,6 +114,11 @@ def _build_chain_vert_uv_map(
         return {}
 
     chain = boundary_loop.chains[chain_placement.chain_index]
+    chain_use = graph.get_chain_use(
+        chain_placement.patch_id,
+        chain_placement.loop_index,
+        chain_placement.chain_index,
+    )
     vert_uv_map = {}
     for point_key, uv in chain_placement.points:
         if (
@@ -122,13 +127,23 @@ def _build_chain_vert_uv_map(
             or point_key.chain_index != chain_placement.chain_index
         ):
             continue
-        source_point_index = point_key.source_point_index
-        if 0 <= source_point_index < len(chain.vert_indices):
-            vert_uv_map[chain.vert_indices[source_point_index]] = uv
+        if chain_use is None:
+            continue
+        resolved_source_point = boundary_loop.resolve_chain_use_source_point(chain_use, point_key.source_point_index)
+        if resolved_source_point is None:
+            continue
+        _loop_point_index, vert_index = resolved_source_point
+        vert_uv_map[vert_index] = uv
 
     if not vert_uv_map and len(chain.vert_indices) == len(chain_placement.points):
         for source_point_index, (_, uv) in enumerate(chain_placement.points):
-            vert_uv_map[chain.vert_indices[source_point_index]] = uv
+            if chain_use is None:
+                continue
+            resolved_source_point = boundary_loop.resolve_chain_use_source_point(chain_use, source_point_index)
+            if resolved_source_point is None:
+                continue
+            _loop_point_index, vert_index = resolved_source_point
+            vert_uv_map[vert_index] = uv
 
     return vert_uv_map
 

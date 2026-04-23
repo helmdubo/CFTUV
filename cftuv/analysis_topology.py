@@ -602,6 +602,7 @@ def build_patch_graph(bm, face_indices, obj=None):
     # Ð´Ð»Ñ Ð¾Ð¿Ñ€ÐµÐ´ÐµÐ»ÐµÐ½Ð¸Ñ OUTER/HOLE Ñƒ multi-loop boundary.
     _classify_patch_topology_assembly_states(bm, patch_states, obj)
     _finalize_patch_topology_assembly_states(patch_graph, patch_states, bm)
+    patch_graph.rebuild_chain_use_index()
 
     for seam_edge in _build_seam_edges(patch_graph.face_to_patch, bm):
         patch_graph.add_edge(seam_edge)

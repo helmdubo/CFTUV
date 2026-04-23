@@ -6,6 +6,7 @@ import bmesh
 import bpy
 
 from .analysis import (
+    build_patch_graph_derived_topology,
     build_straighten_structural_support,
     build_patch_graph,
     format_solver_input_preflight_report,
@@ -13,6 +14,7 @@ from .analysis import (
 )
 from .model import MeshPreflightReport, UVSettings
 from .solve import build_root_scaffold_map, build_solver_graph, plan_solve_phase1
+from .solve_skeleton import apply_skeleton_solve_to_scaffold_map
 
 
 ADDON_PACKAGE = __package__ or Path(__file__).resolve().parent.name
@@ -37,8 +39,9 @@ def _build_scaffold_map_with_straighten(graph, solve_plan, settings):
     """Build scaffold map, optionally applying straighten strips from structural analysis."""
 
     straighten = getattr(settings, "straighten_strips", False)
+    derived_topology = build_patch_graph_derived_topology(graph)
     inherited_map, patch_structural_summaries, patch_shape_classes, straighten_chain_refs, band_spine_data = build_straighten_structural_support(graph)
-    return build_root_scaffold_map(
+    scaffold_map = build_root_scaffold_map(
         graph,
         solve_plan,
         settings.final_scale,
@@ -49,6 +52,14 @@ def _build_scaffold_map_with_straighten(graph, solve_plan, settings):
         straighten_chain_refs=straighten_chain_refs if straighten else None,
         band_spine_data=band_spine_data if straighten else None,
     )
+    scaffold_map, _ = apply_skeleton_solve_to_scaffold_map(
+        graph,
+        derived_topology,
+        scaffold_map,
+        solve_plan=solve_plan,
+        final_scale=settings.final_scale,
+    )
+    return scaffold_map
 
 
 def _print_console_report(title, lines, summary=None, show_lines=True):

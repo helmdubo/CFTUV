@@ -601,6 +601,9 @@ def _cf_find_anchors(
     start_anchor = None
     end_anchor = None
 
+    # ARCHITECTURAL_DEBT: F3_LOOP_PREVNEXT
+    # Same-patch prev/next lookup still walks loop corners ad hoc here instead
+    # of consuming explicit prev/next links on ChainUse. See the ledger doc.
     for corner in boundary_loop.corners:
         prev_ci = corner.prev_chain_index
         next_ci = corner.next_chain_index
