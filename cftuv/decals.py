@@ -355,6 +355,20 @@ def _collect_manual_chain_decals(graph: PatchGraph, chain_refs):
     return corner_chains, boundary_chains
 
 
+def _collect_manual_flat_chains(graph: PatchGraph, chain_refs):
+    """Плоские ленты для выбранных chains без PatchType/coplanarity фильтров."""
+
+    corner_chains, boundary_chains = _collect_manual_chain_decals(
+        graph, chain_refs
+    )
+    flat_chains = [
+        (points, normal_a, is_closed)
+        for points, normal_a, _normal_b, is_closed, _convexity in corner_chains
+    ]
+    flat_chains.extend(boundary_chains)
+    return flat_chains
+
+
 def _polyline_tangents(points, closed=False):
     """Касательная на вершину полилинии — среднее направлений соседних сегментов.
 
@@ -723,16 +737,24 @@ def _fill_decal_bmesh(
                 width=settings.width_corner,
             )
     elif mode == "SEAMS":
-        _corner_chains, seam_chains = _collect_wall_pair_chains(
-            graph, chain_refs=chain_refs
-        )
-        for points, normal_a, normal_b, is_closed, _convexity in seam_chains:
+        if chain_refs is None:
+            _corner_chains, automatic_seam_chains = _collect_wall_pair_chains(
+                graph
+            )
+            seam_chains = [
+                (points, normal_a, is_closed)
+                for points, normal_a, _normal_b, is_closed, _convexity
+                in automatic_seam_chains
+            ]
+        else:
+            seam_chains = _collect_manual_flat_chains(graph, chain_refs)
+        for points, normal, is_closed in seam_chains:
             # Нормаль стороны-владельца (как n_sum_a в прототипе);
-            # пара копланарна, разница с соседом в пределах порога.
+            # в manual mode выбранная chain важнее semantic/coplanarity фильтров.
             _build_seam_strip(
                 bm,
                 _closed_polyline(points, is_closed),
-                normal_a,
+                normal,
                 settings,
                 DECAL_UV_RECT_SEAM,
                 closed=is_closed,

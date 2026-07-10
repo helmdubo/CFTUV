@@ -16,6 +16,11 @@
 по двум patches. MESH_BORDER/SEAM_SELF chain создаёт одну плоскую ленту на owner
 patch с `Corner Width`, `Surface Offset` и corner UV rect.
 
+Для `Decal Seams` ручной режим также не фильтрует `PatchType` и не требует
+копланарности patches: каждая выбранная chain создаёт одну плоскую ленту на
+owner patch с `Seam Width`, `Surface Offset` и seam UV rect. Две стороны одного
+общего seam дедуплицируются в одну ленту.
+
 В автоматическом режиме внутренние и внешние углы различаются через canonical
 `BoundaryChain.dihedral_convexity`: negative — concave/inner, positive —
 convex/outer. Направления крыльев corner-strip меняются согласно этому знаку.

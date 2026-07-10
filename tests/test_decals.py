@@ -5,6 +5,7 @@ from mathutils import Vector
 from cftuv.decals import (
     _chain_edge_paths,
     _collect_manual_chain_decals,
+    _collect_manual_flat_chains,
     _collect_trim_segments,
     _collect_wall_pair_chains,
     _corner_wing_directions,
@@ -302,6 +303,9 @@ class TestManualChainDecals:
         assert len(corner_chains) == 1
         assert corner_chains[0][4] == -1.0
         assert boundary_chains == []
+        flat_chains = _collect_manual_flat_chains(graph, chain_refs)
+        assert len(flat_chains) == 1
+        assert flat_chains[0][1].z == 1.0
 
     def test_mesh_boundary_becomes_flat_corner_width_decal(self):
         border_chain = _make_chain(
@@ -322,6 +326,8 @@ class TestManualChainDecals:
         assert corner_chains == []
         assert len(boundary_chains) == 1
         assert len(boundary_chains[0][0]) == 3
+        flat_chains = _collect_manual_flat_chains(graph, chain_refs)
+        assert flat_chains == boundary_chains
 
 
 class TestCornerWingDirections:
