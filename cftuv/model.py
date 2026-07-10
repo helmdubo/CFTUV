@@ -310,6 +310,34 @@ class UVSettings:
 
 
 @dataclass(frozen=True)
+class DecalSettings:
+    """Immutable snapshot of decal producer settings.
+
+    Размеры в мировых единицах. uv_length_scale — множитель длины дуги
+    вдоль ленты при записи UV (совпадает с UVSettings.final_scale).
+    """
+
+    width_corner: float = 0.20
+    width_seam: float = 0.15
+    height_trim: float = 0.25
+    offset: float = 0.02
+    uv_length_scale: float = 0.25
+
+    @staticmethod
+    def from_blender_settings(settings) -> "DecalSettings":
+        """Build a DecalSettings object from the Blender PropertyGroup."""
+
+        uv_settings = UVSettings.from_blender_settings(settings)
+        return DecalSettings(
+            width_corner=float(settings.decal_width_corner),
+            width_seam=float(settings.decal_width_seam),
+            height_trim=float(settings.decal_height_trim),
+            offset=float(settings.decal_offset),
+            uv_length_scale=uv_settings.final_scale,
+        )
+
+
+@dataclass(frozen=True)
 class MeshPreflightIssue:
     """Preflight issue blocking the solve pipeline."""
 

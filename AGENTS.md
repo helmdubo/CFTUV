@@ -58,6 +58,7 @@ cftuv/
 ├── shape_classify.py   # Shape policy: BAND/MIX classification, FREE→STRAIGHTEN interpretation
 ├── band_spine.py      # BAND runtime parametrization: section-based spine + UV targets
 ├── debug.py            # Grease Pencil visualization + GPENCIL/GREASEPENCIL v3 compatibility
+├── decals.py           # Decal producer (Phase 3): trim/corner/seam mesh strips from PatchGraph
 ├── operators.py        # Blender UI wrappers (max 5 lines math)
 └── console_debug.py    # Verbose console toggle
 ```

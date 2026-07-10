@@ -35,7 +35,8 @@ from .debug import (
     gp_layer_name,
     is_gp_debug_object,
 )
-from .model import MeshPreflightReport, UVSettings
+from .decals import generate_decal_objects
+from .model import DecalSettings, MeshPreflightReport, UVSettings
 from .solve import (
     build_root_scaffold_map,
     build_solver_graph,
@@ -150,6 +151,32 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
     texture_size: IntProperty(name="Texture Size", default=2048, min=1)
     uv_scale: FloatProperty(name="Custom Scale Multiplier", default=1.0, min=0.0001)
     uv_range_limit: IntProperty(name="UV Range Limit (Tiles)", default=16, min=0)
+
+    # Decals
+    decal_width_corner: FloatProperty(
+        name="Corner Width",
+        default=0.20,
+        min=0.0,
+        description="Total width of corner decal strips (world units)",
+    )
+    decal_width_seam: FloatProperty(
+        name="Seam Width",
+        default=0.15,
+        min=0.0,
+        description="Total width of flat seam decal strips (world units)",
+    )
+    decal_height_trim: FloatProperty(
+        name="Trim Height",
+        default=0.25,
+        min=0.0,
+        description="Height of top/bottom trim decal strips (world units)",
+    )
+    decal_offset: FloatProperty(
+        name="Surface Offset",
+        default=0.02,
+        min=0.0,
+        description="Decal offset from the source surface to avoid z-fighting",
+    )
 
     # Debug state
     dbg_active: BoolProperty(
@@ -1112,6 +1139,65 @@ class HOTSPOTUV_OT_SolvePhase1Preview(bpy.types.Operator):
                 _restore_mode_and_selection(obj, om, sel)
 
 
+class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
+    bl_idname = "hotspotuv.generate_decals"
+    bl_label = "Generate Decals"
+    bl_description = (
+        "Generate mesh decal strips (trims / corners / seams) from patch topology"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    mode: EnumProperty(
+        name="Mode",
+        items=[
+            ("TOP", "Trim Top", "Trim strips along upper WALL boundaries"),
+            ("BOTTOM", "Trim Bottom", "Trim strips along lower WALL boundaries"),
+            ("CORNERS", "Corners", "Corner strips along non-coplanar WALL-WALL seams"),
+            ("SEAMS", "Seams", "Flat strips along coplanar WALL-WALL seams"),
+        ],
+        default="BOTTOM",
+    )
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return (
+            obj is not None
+            and obj.type == "MESH"
+            and obj.mode in {"EDIT", "OBJECT"}
+        )
+
+    def execute(self, context):
+        try:
+            obj, _bm, patch_graph, om, sel = _prepare_patch_graph(context)
+            # Вернуть исходный режим ДО материализации: create/remove
+            # объектов внутри принудительного EDIT — хрупкий паттерн.
+            _restore_mode_and_selection(obj, om, sel)
+            settings = DecalSettings.from_blender_settings(
+                context.scene.hotspotuv_settings
+            )
+            created = generate_decal_objects(
+                patch_graph, obj, settings, self.mode, scene=context.scene
+            )
+            if not created:
+                self.report(
+                    {"WARNING"},
+                    "No decals generated (check selection / wall geometry)",
+                )
+                return {"CANCELLED"}
+            self.report({"INFO"}, "Created: " + ", ".join(created))
+            return {"FINISHED"}
+        except ValueError as exc:
+            self.report({"WARNING"}, str(exc))
+            return {"CANCELLED"}
+        except Exception as exc:
+            self.report({"ERROR"}, f"Generate Decals failed: {exc}")
+            return {"CANCELLED"}
+        finally:
+            if 'obj' in locals() and 'om' in locals() and 'sel' in locals():
+                _restore_mode_and_selection(obj, om, sel)
+
+
 # ============================================================
 # LEGACY OPERATORS — DISABLED
 # Будут пересобраны на ScaffoldMap в Phase 5.
@@ -1210,6 +1296,29 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
             text="Clean Non-Manifold Edges",
             icon="MESH_DATA",
         )
+
+        # --- Decals ---
+        layout.separator()
+        col = layout.column(align=True)
+        col.label(text="Decals:")
+        col.prop(s, "decal_width_corner")
+        col.prop(s, "decal_width_seam")
+        col.prop(s, "decal_height_trim")
+        col.prop(s, "decal_offset")
+        op = col.operator("hotspotuv.generate_decals", text="Decal Top", icon="TRIA_UP")
+        op.mode = "TOP"
+        op = col.operator(
+            "hotspotuv.generate_decals", text="Decal Bottom", icon="TRIA_DOWN"
+        )
+        op.mode = "BOTTOM"
+        op = col.operator(
+            "hotspotuv.generate_decals", text="Decal Corners", icon="MOD_BEVEL"
+        )
+        op.mode = "CORNERS"
+        op = col.operator(
+            "hotspotuv.generate_decals", text="Decal Seams", icon="MOD_EDGESPLIT"
+        )
+        op.mode = "SEAMS"
 
         # --- Face Tools (disabled) ---
         layout.separator()
@@ -1363,6 +1472,7 @@ classes = (
     HOTSPOTUV_OT_FrontierReplay,
     HOTSPOTUV_OT_SolvePhase1Preview,
     HOTSPOTUV_OT_CleanNonManifoldEdges,
+    HOTSPOTUV_OT_GenerateDecals,
     # Legacy stubs (disabled)
     HOTSPOTUV_OT_UnwrapFaces,
     HOTSPOTUV_OT_ManualDock,
