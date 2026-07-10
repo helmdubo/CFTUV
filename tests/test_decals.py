@@ -4,8 +4,10 @@ from mathutils import Vector
 
 from cftuv.decals import (
     _chain_edge_paths,
+    _collect_manual_chain_decals,
     _collect_trim_segments,
     _collect_wall_pair_chains,
+    _corner_wing_directions,
     _dedupe_polyline,
     _polyline_tangents,
     _trim_vertex_frames,
@@ -29,8 +31,14 @@ def _make_wall_node(patch_id, normal, basis_v, chains):
     return node
 
 
-def _make_chain(vert_indices, vert_cos, neighbor_patch_id, edge_indices=None):
-    return BoundaryChain(
+def _make_chain(
+    vert_indices,
+    vert_cos,
+    neighbor_patch_id,
+    edge_indices=None,
+    dihedral_convexity=0.0,
+):
+    chain = BoundaryChain(
         vert_indices=list(vert_indices),
         vert_cos=[Vector(co) for co in vert_cos],
         edge_indices=(
@@ -40,6 +48,8 @@ def _make_chain(vert_indices, vert_cos, neighbor_patch_id, edge_indices=None):
         ),
         neighbor_patch_id=neighbor_patch_id,
     )
+    chain.dihedral_convexity = dihedral_convexity
+    return chain
 
 
 def _make_graph(*nodes):
@@ -188,7 +198,7 @@ class TestCollectWallPairChains:
 
         assert len(corner_chains) == 1
         assert len(seam_chains) == 1
-        corner_points, normal_a, normal_b, _closed = corner_chains[0]
+        corner_points, normal_a, normal_b, _closed, _convexity = corner_chains[0]
         assert len(corner_points) == 2
         assert abs(normal_a.y - 1.0) < 1e-6
         assert abs(normal_b.x - 1.0) < 1e-6
@@ -260,6 +270,86 @@ class TestCollectWallPairChains:
 
         assert corner_chains == []
         assert len(seam_chains) == 1
+
+
+class TestManualChainDecals:
+    def test_patch_pair_ignores_semantic_patch_types(self):
+        owner_chain = _make_chain(
+            [0, 1],
+            [(0, 0, 0), (0, 0, 1)],
+            1,
+            edge_indices=[42],
+            dihedral_convexity=-1.0,
+        )
+        neighbor_chain = _make_chain(
+            [1, 0],
+            [(0, 0, 1), (0, 0, 0)],
+            0,
+            edge_indices=[42],
+            dihedral_convexity=-1.0,
+        )
+        floor = _make_wall_node(0, (0, 0, 1), (0, 1, 0), [owner_chain])
+        slope = _make_wall_node(1, (1, 0, 0), (0, 0, 1), [neighbor_chain])
+        floor.patch_type = PatchType.FLOOR
+        slope.patch_type = PatchType.SLOPE
+        graph = _make_graph(floor, slope)
+
+        chain_refs = chain_refs_for_edge_indices(graph, [42])
+        corner_chains, boundary_chains = _collect_manual_chain_decals(
+            graph, chain_refs
+        )
+
+        assert len(corner_chains) == 1
+        assert corner_chains[0][4] == -1.0
+        assert boundary_chains == []
+
+    def test_mesh_boundary_becomes_flat_corner_width_decal(self):
+        border_chain = _make_chain(
+            [0, 1, 2],
+            [(0, 0, 0), (1, 0, 0), (2, 0, 0)],
+            -1,
+            edge_indices=[7, 8],
+        )
+        floor = _make_wall_node(0, (0, 0, 1), (0, 1, 0), [border_chain])
+        floor.patch_type = PatchType.FLOOR
+        graph = _make_graph(floor)
+
+        chain_refs = chain_refs_for_edge_indices(graph, [8])
+        corner_chains, boundary_chains = _collect_manual_chain_decals(
+            graph, chain_refs
+        )
+
+        assert corner_chains == []
+        assert len(boundary_chains) == 1
+        assert len(boundary_chains[0][0]) == 3
+
+
+class TestCornerWingDirections:
+    def test_convex_wings_follow_patch_interiors(self):
+        wings = _corner_wing_directions(
+            Vector((0, 0, 1)),
+            Vector((0, -1, 0)),
+            Vector((1, 0, 0)),
+            dihedral_convexity=1.0,
+        )
+
+        assert wings is not None
+        wing_a, wing_b = wings
+        assert wing_a.x < 0.0
+        assert wing_b.y > 0.0
+
+    def test_concave_wings_are_not_inverted(self):
+        wings = _corner_wing_directions(
+            Vector((0, 0, -1)),
+            Vector((0, 1, 0)),
+            Vector((-1, 0, 0)),
+            dihedral_convexity=-1.0,
+        )
+
+        assert wings is not None
+        wing_a, wing_b = wings
+        assert wing_a.x < 0.0
+        assert wing_b.y > 0.0
 
 
 class TestPolylineTangents:

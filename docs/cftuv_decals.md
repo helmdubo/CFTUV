@@ -1,22 +1,24 @@
 # CFTUV Decal Producer (Phase 3)
 
-## Ручной режим Selected Chains
+## Ручной режим по Edge Select Mode
 
-Флаг `Selected Chains` в секции Decals переключает генератор с face-scope на
-явный выбор boundary chains:
+Отдельного boolean-переключателя нет. В Edit Mode режим выбора определяет scope:
 
-1. Перейти в Edit Mode и выбрать одно или несколько рёбер (включая seam edges).
-2. Включить `Selected Chains` и нажать нужный режим Top / Bottom / Corners / Seams.
-3. `PatchGraph` строится по всему mesh, поэтому выбор faces не требуется и не
+1. Face Select Mode — автоматическая генерация по выбранным faces.
+2. Edge Select Mode — ручная генерация по выбранным seam-marked edges.
+3. `PatchGraph` строится по всему mesh, поэтому face selection не требуется и не
    обрезает соседние patches.
-4. Каждое выбранное ребро служит seed: в генерацию попадает целая каноническая
-   `BoundaryChain`, содержащая это ребро. Для общего seam захватываются chains с
-   обеих сторон, а WALL-WALL пара по-прежнему материализуется один раз.
+4. Каждое выбранное seam-ребро служит seed: захватывается целая каноническая
+   `BoundaryChain`, содержащая его.
 
-Автоматический режим не изменён: при выключенном `Selected Chains` оператор
-работает по выбранным faces в Edit Mode или по всему объекту в Object Mode.
-Внутреннее ребро, не входящее ни в одну boundary chain, не является допустимым
-seed и даёт понятное предупреждение вместо частичной декали.
+Для `Decal Corners` ручной режим не фильтрует `PatchType`: WALL, FLOOR, SLOPE,
+потолки и другие ориентации равноправны. PATCH-neighbor chain создаёт corner-strip
+по двум patches. MESH_BORDER/SEAM_SELF chain создаёт одну плоскую ленту на owner
+patch с `Corner Width`, `Surface Offset` и corner UV rect.
+
+В автоматическом режиме внутренние и внешние углы различаются через canonical
+`BoundaryChain.dihedral_convexity`: negative — concave/inner, positive —
+convex/outer. Направления крыльев corner-strip меняются согласно этому знаку.
 
 Генерация mesh-декалей (тримы, углы, швы) из PatchGraph. Логика перенесена из
 прототипа `hotspotingUV_mesh_decals_Full.py` (v1.2.0, «Global System») и

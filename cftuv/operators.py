@@ -177,15 +177,6 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
         min=0.0,
         description="Decal offset from the source surface to avoid z-fighting",
     )
-    decal_manual_selection: BoolProperty(
-        name="Selected Chains",
-        default=False,
-        description=(
-            "In Edit Mode, use selected edges as seeds and generate decals for "
-            "the complete PatchGraph chains that contain them"
-        ),
-    )
-
     # Debug state
     dbg_active: BoolProperty(
         name="Analyze", default=False, description="Debug analysis mode"
@@ -449,9 +440,17 @@ def _capture_face_selection(bm):
     return [face.index for face in bm.faces if face.select]
 
 
-def _capture_edge_selection(bm):
-    """Сохраняет выбранные mesh edges как seed для ручного decal-режима."""
-    return [edge.index for edge in bm.edges if edge.select]
+def _capture_selected_seam_edges(bm):
+    """Выбранные seam edges как seed для ручного decal-режима."""
+    return [edge.index for edge in bm.edges if edge.select and edge.seam]
+
+
+def _is_edge_select_mode(context, obj):
+    return (
+        obj is not None
+        and obj.mode == "EDIT"
+        and bool(context.tool_settings.mesh_select_mode[1])
+    )
 
 
 def _restore_face_selection(bm, selected_indices):
@@ -1184,20 +1183,16 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
     def execute(self, context):
         try:
             decal_settings = context.scene.hotspotuv_settings
-            manual_selection = bool(decal_settings.decal_manual_selection)
-            selected_edge_indices = []
             source_obj = context.active_object
+            manual_selection = _is_edge_select_mode(context, source_obj)
+            selected_edge_indices = []
             if manual_selection:
-                if source_obj is None or source_obj.mode != "EDIT":
-                    raise ValueError(
-                        "Selected Chains mode requires Edit Mode and selected edges"
-                    )
                 source_bm = bmesh.from_edit_mesh(source_obj.data)
                 source_bm.edges.ensure_lookup_table()
-                selected_edge_indices = _capture_edge_selection(source_bm)
+                selected_edge_indices = _capture_selected_seam_edges(source_bm)
                 if not selected_edge_indices:
                     raise ValueError(
-                        "Selected Chains mode: select one or more edges in Edit Mode"
+                        "Edge Select Mode: select one or more seam-marked edges"
                     )
 
             obj, _bm, patch_graph, om, sel = _prepare_patch_graph(
@@ -1357,7 +1352,6 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         col.prop(s, "decal_width_seam")
         col.prop(s, "decal_height_trim")
         col.prop(s, "decal_offset")
-        col.prop(s, "decal_manual_selection")
         op = col.operator("hotspotuv.generate_decals", text="Decal Top", icon="TRIA_UP")
         op.mode = "TOP"
         op = col.operator(

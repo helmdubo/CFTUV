@@ -255,7 +255,7 @@ def _trim_vertex_frames(path, edge_frames):
 
 
 def _collect_wall_pair_chains(graph: PatchGraph, chain_refs=None):
-    """WALL-WALL цепочки: (polyline, n_a, n_b, is_closed) на пару patches.
+    """WALL-WALL цепочки: (polyline, n_a, n_b, is_closed, convexity) на пару patches.
 
     Каждая пара обрабатывается один раз — со стороны patch с меньшим id
     (его сегментация цепочек и порядок вершин). Разделение углов и швов
@@ -287,12 +287,72 @@ def _collect_wall_pair_chains(graph: PatchGraph, chain_refs=None):
                     node.normal,
                     neighbor.normal,
                     chain.is_closed,
+                    chain.dihedral_convexity,
                 )
                 if node.normal.dot(neighbor.normal) > DECAL_COPLANAR_DOT:
                     seam_chains.append(item)
                 else:
                     corner_chains.append(item)
     return corner_chains, seam_chains
+
+
+def _collect_manual_chain_decals(graph: PatchGraph, chain_refs):
+    """Выбранные chains без semantic-фильтра patch type.
+
+    PATCH-neighbor chain даёт угловую декаль по двум поверхностям. MESH_BORDER
+    и SEAM_SELF дают плоскую декаль на owner patch. Две стороны одного общего
+    seam дедуплицируются по patch pair и исходным mesh edge indices.
+    """
+
+    corner_chains = []
+    boundary_chains = []
+    seen_patch_chains = set()
+    seen_boundary_chains = set()
+
+    for patch_id, loop_index, chain_index in sorted(chain_refs or ()):
+        node = graph.nodes.get(patch_id)
+        if node is None or not (0 <= loop_index < len(node.boundary_loops)):
+            continue
+        boundary_loop = node.boundary_loops[loop_index]
+        if not (0 <= chain_index < len(boundary_loop.chains)):
+            continue
+        chain = boundary_loop.chains[chain_index]
+        if len(chain.vert_cos) < 2:
+            continue
+
+        edge_signature = tuple(sorted(int(index) for index in chain.edge_indices))
+        if chain.neighbor_kind == ChainNeighborKind.PATCH:
+            neighbor = graph.nodes.get(chain.neighbor_patch_id)
+            if neighbor is None:
+                continue
+            pair_key = (
+                min(patch_id, chain.neighbor_patch_id),
+                max(patch_id, chain.neighbor_patch_id),
+                edge_signature,
+            )
+            if pair_key in seen_patch_chains:
+                continue
+            seen_patch_chains.add(pair_key)
+            corner_chains.append(
+                (
+                    list(chain.vert_cos),
+                    node.normal,
+                    neighbor.normal,
+                    chain.is_closed,
+                    chain.dihedral_convexity,
+                )
+            )
+            continue
+
+        boundary_key = edge_signature or (patch_id, loop_index, chain_index)
+        if boundary_key in seen_boundary_chains:
+            continue
+        seen_boundary_chains.add(boundary_key)
+        boundary_chains.append(
+            (list(chain.vert_cos), node.normal, chain.is_closed)
+        )
+
+    return corner_chains, boundary_chains
 
 
 def _polyline_tangents(points, closed=False):
@@ -397,7 +457,34 @@ def _build_trim_strip(bm, path, vert_cos, frames, settings, is_top, uv_rect):
         face.loops[3][uv_layer].uv = (u_start, v_max)
 
 
-def _build_corner_strip(bm, points, normal_a, normal_b, settings, uv_rect, closed=False):
+def _corner_wing_directions(direction, normal_a, normal_b, dihedral_convexity=0.0):
+    """Направления крыльев вдоль обеих поверхностей с учётом inner/outer."""
+
+    wing_dir_a = direction.cross(normal_a)
+    wing_dir_b = direction.cross(normal_b)
+    if wing_dir_a.length_squared < 1e-8 or wing_dir_b.length_squared < 1e-8:
+        return None
+
+    wing_dir_a = wing_dir_a.normalized()
+    wing_dir_b = wing_dir_b.normalized()
+    is_concave = dihedral_convexity < -0.01
+    if (wing_dir_a.dot(normal_b) < 0.0) == is_concave:
+        wing_dir_a = wing_dir_a * -1.0
+    if (wing_dir_b.dot(normal_a) < 0.0) == is_concave:
+        wing_dir_b = wing_dir_b * -1.0
+    return wing_dir_a, wing_dir_b
+
+
+def _build_corner_strip(
+    bm,
+    points,
+    normal_a,
+    normal_b,
+    settings,
+    uv_rect,
+    closed=False,
+    dihedral_convexity=0.0,
+):
     """Угловая лента: спайн вдоль полилинии шва + крыло на каждую стену.
 
     Спайн смещается вдоль средней нормали на offset / dot — постоянное
@@ -424,20 +511,17 @@ def _build_corner_strip(bm, points, normal_a, normal_b, settings, uv_rect, close
     wing_a_verts = []
     wing_b_verts = []
     for i, co in enumerate(points):
-        wing_dir_a = tangents[i].cross(normal_a)
-        wing_dir_b = tangents[i].cross(normal_b)
-        if wing_dir_a.length_squared < 1e-8 or wing_dir_b.length_squared < 1e-8:
+        wing_directions = _corner_wing_directions(
+            tangents[i], normal_a, normal_b, dihedral_convexity
+        )
+        if wing_directions is None:
             chord = points[-1] - points[0]
-            wing_dir_a = chord.cross(normal_a)
-            wing_dir_b = chord.cross(normal_b)
-            if wing_dir_a.length_squared < 1e-8 or wing_dir_b.length_squared < 1e-8:
+            wing_directions = _corner_wing_directions(
+                chord, normal_a, normal_b, dihedral_convexity
+            )
+            if wing_directions is None:
                 return
-        wing_dir_a = wing_dir_a.normalized()
-        wing_dir_b = wing_dir_b.normalized()
-        if wing_dir_a.dot(normal_b) > 0:
-            wing_dir_a = -wing_dir_a
-        if wing_dir_b.dot(normal_a) > 0:
-            wing_dir_b = -wing_dir_b
+        wing_dir_a, wing_dir_b = wing_directions
 
         spine_pos = co + spine_offset
         spine_verts.append(bm.verts.new(spine_pos))
@@ -470,13 +554,15 @@ def _build_corner_strip(bm, points, normal_a, normal_b, settings, uv_rect, close
             continue
 
 
-def _build_seam_strip(bm, points, normal, settings, uv_rect, closed=False):
+def _build_seam_strip(
+    bm, points, normal, settings, uv_rect, closed=False, width=None
+):
     """Плоская лента по копланарному шву, центрированная на полилинии."""
 
     if len(points) < 2:
         return
     offset_vec = normal * settings.offset
-    half_width = settings.width_seam / 2.0
+    half_width = (settings.width_seam if width is None else width) / 2.0
     tangents = _polyline_tangents(points, closed=closed)
     arc = _arc_lengths(points)
 
@@ -606,10 +692,14 @@ def _fill_decal_bmesh(
                 bm, path, vert_cos, frames, settings, mode == "TOP", uv_rect
             )
     elif mode == "CORNERS":
-        corner_chains, _seam_chains = _collect_wall_pair_chains(
-            graph, chain_refs=chain_refs
-        )
-        for points, normal_a, normal_b, is_closed in corner_chains:
+        if chain_refs is None:
+            corner_chains, _seam_chains = _collect_wall_pair_chains(graph)
+            boundary_chains = []
+        else:
+            corner_chains, boundary_chains = _collect_manual_chain_decals(
+                graph, chain_refs
+            )
+        for points, normal_a, normal_b, is_closed, convexity in corner_chains:
             spine_points = _dedupe_polyline(points)
             _build_corner_strip(
                 bm,
@@ -619,12 +709,24 @@ def _fill_decal_bmesh(
                 settings,
                 DECAL_UV_RECT_CORNER,
                 closed=is_closed,
+                dihedral_convexity=convexity,
+            )
+        for points, normal, is_closed in boundary_chains:
+            spine_points = _dedupe_polyline(points)
+            _build_seam_strip(
+                bm,
+                _closed_polyline(spine_points, is_closed),
+                normal,
+                settings,
+                DECAL_UV_RECT_CORNER,
+                closed=is_closed,
+                width=settings.width_corner,
             )
     elif mode == "SEAMS":
         _corner_chains, seam_chains = _collect_wall_pair_chains(
             graph, chain_refs=chain_refs
         )
-        for points, normal_a, normal_b, is_closed in seam_chains:
+        for points, normal_a, normal_b, is_closed, _convexity in seam_chains:
             # Нормаль стороны-владельца (как n_sum_a в прототипе);
             # пара копланарна, разница с соседом в пределах порога.
             _build_seam_strip(
