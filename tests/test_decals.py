@@ -9,6 +9,7 @@ from cftuv.decals import (
     _dedupe_polyline,
     _polyline_tangents,
     _trim_vertex_frames,
+    chain_refs_for_edge_indices,
 )
 from cftuv.model import (
     BoundaryChain,
@@ -28,11 +29,15 @@ def _make_wall_node(patch_id, normal, basis_v, chains):
     return node
 
 
-def _make_chain(vert_indices, vert_cos, neighbor_patch_id):
+def _make_chain(vert_indices, vert_cos, neighbor_patch_id, edge_indices=None):
     return BoundaryChain(
         vert_indices=list(vert_indices),
         vert_cos=[Vector(co) for co in vert_cos],
-        edge_indices=list(range(len(vert_indices) - 1)),
+        edge_indices=(
+            list(edge_indices)
+            if edge_indices is not None
+            else list(range(len(vert_indices) - 1))
+        ),
         neighbor_patch_id=neighbor_patch_id,
     )
 
@@ -101,6 +106,36 @@ class TestCollectTrimSegments:
 
         assert top_edges == [] and bottom_edges == []
 
+    def test_selected_edge_enables_its_complete_chain(self):
+        top_chain = _make_chain(
+            [0, 1, 2],
+            [(0, 0, 1), (1, 0, 1), (2, 0, 1)],
+            -1,
+            edge_indices=[10, 11],
+        )
+        other_top_chain = _make_chain(
+            [3, 4],
+            [(3, 0, 1), (4, 0, 1)],
+            -1,
+            edge_indices=[12],
+        )
+        wall = _make_wall_node(
+            0,
+            (0, 1, 0),
+            (0, 0, 1),
+            [top_chain, other_top_chain],
+        )
+        graph = _make_graph(wall)
+
+        chain_refs = chain_refs_for_edge_indices(graph, [11])
+        top_edges, bottom_edges, _frames, _cos = _collect_trim_segments(
+            graph, chain_refs=chain_refs
+        )
+
+        assert chain_refs == {(0, 0, 0)}
+        assert top_edges == [(0, 1), (1, 2)]
+        assert bottom_edges == []
+
 
 class TestChainEdgePaths:
     def test_merges_shared_vertices(self):
@@ -168,6 +203,63 @@ class TestCollectWallPairChains:
         corner_chains, seam_chains = _collect_wall_pair_chains(graph)
 
         assert corner_chains == [] and seam_chains == []
+
+    def test_selected_shared_edge_captures_both_chain_sides(self):
+        owner_chain = _make_chain(
+            [0, 1],
+            [(0, 0, 0), (0, 0, 1)],
+            1,
+            edge_indices=[42],
+        )
+        neighbor_chain = _make_chain(
+            [1, 0],
+            [(0, 0, 1), (0, 0, 0)],
+            0,
+            edge_indices=[42],
+        )
+        wall_0 = _make_wall_node(0, (0, 1, 0), (0, 0, 1), [owner_chain])
+        wall_1 = _make_wall_node(1, (1, 0, 0), (0, 0, 1), [neighbor_chain])
+        graph = _make_graph(wall_0, wall_1)
+
+        chain_refs = chain_refs_for_edge_indices(graph, [42])
+        corner_chains, seam_chains = _collect_wall_pair_chains(
+            graph, chain_refs=chain_refs
+        )
+
+        assert chain_refs == {(0, 0, 0), (1, 0, 0)}
+        assert len(corner_chains) == 1
+        assert seam_chains == []
+
+    def test_unselected_wall_pair_is_filtered_out(self):
+        first_chain = _make_chain(
+            [0, 1],
+            [(0, 0, 0), (0, 0, 1)],
+            1,
+            edge_indices=[20],
+        )
+        selected_chain = _make_chain(
+            [2, 3],
+            [(1, 0, 0), (1, 0, 1)],
+            2,
+            edge_indices=[30],
+        )
+        wall_0 = _make_wall_node(
+            0,
+            (0, 1, 0),
+            (0, 0, 1),
+            [first_chain, selected_chain],
+        )
+        wall_1 = _make_wall_node(1, (1, 0, 0), (0, 0, 1), [])
+        wall_2 = _make_wall_node(2, (0, 1, 0), (0, 0, 1), [])
+        graph = _make_graph(wall_0, wall_1, wall_2)
+
+        chain_refs = chain_refs_for_edge_indices(graph, [30])
+        corner_chains, seam_chains = _collect_wall_pair_chains(
+            graph, chain_refs=chain_refs
+        )
+
+        assert corner_chains == []
+        assert len(seam_chains) == 1
 
 
 class TestPolylineTangents:

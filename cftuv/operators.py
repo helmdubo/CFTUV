@@ -35,7 +35,7 @@ from .debug import (
     gp_layer_name,
     is_gp_debug_object,
 )
-from .decals import generate_decal_objects
+from .decals import chain_refs_for_edge_indices, generate_decal_objects
 from .model import DecalSettings, MeshPreflightReport, UVSettings
 from .solve import (
     build_root_scaffold_map,
@@ -176,6 +176,14 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
         default=0.02,
         min=0.0,
         description="Decal offset from the source surface to avoid z-fighting",
+    )
+    decal_manual_selection: BoolProperty(
+        name="Selected Chains",
+        default=False,
+        description=(
+            "In Edit Mode, use selected edges as seeds and generate decals for "
+            "the complete PatchGraph chains that contain them"
+        ),
     )
 
     # Debug state
@@ -441,6 +449,11 @@ def _capture_face_selection(bm):
     return [face.index for face in bm.faces if face.select]
 
 
+def _capture_edge_selection(bm):
+    """Сохраняет выбранные mesh edges как seed для ручного decal-режима."""
+    return [edge.index for edge in bm.edges if edge.select]
+
+
 def _restore_face_selection(bm, selected_indices):
     """Восстанавливает выделение faces."""
     selected_set = set(selected_indices)
@@ -551,6 +564,7 @@ def _prepare_patch_graph(
     require_selection=True,
     validate_for_solver=False,
     make_seams_by_sharp=False,
+    use_all_faces=False,
 ):
     """Prepare PatchGraph from the current context.
 
@@ -578,7 +592,7 @@ def _prepare_patch_graph(
     selected_face_indices = _capture_face_selection(bm)
 
     try:
-        if original_mode == 'OBJECT':
+        if original_mode == 'OBJECT' or use_all_faces:
             face_indices = [face.index for face in bm.faces]
         else:
             face_indices = list(selected_face_indices)
@@ -1169,15 +1183,50 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
 
     def execute(self, context):
         try:
-            obj, _bm, patch_graph, om, sel = _prepare_patch_graph(context)
+            decal_settings = context.scene.hotspotuv_settings
+            manual_selection = bool(decal_settings.decal_manual_selection)
+            selected_edge_indices = []
+            source_obj = context.active_object
+            if manual_selection:
+                if source_obj is None or source_obj.mode != "EDIT":
+                    raise ValueError(
+                        "Selected Chains mode requires Edit Mode and selected edges"
+                    )
+                source_bm = bmesh.from_edit_mesh(source_obj.data)
+                source_bm.edges.ensure_lookup_table()
+                selected_edge_indices = _capture_edge_selection(source_bm)
+                if not selected_edge_indices:
+                    raise ValueError(
+                        "Selected Chains mode: select one or more edges in Edit Mode"
+                    )
+
+            obj, _bm, patch_graph, om, sel = _prepare_patch_graph(
+                context,
+                require_selection=not manual_selection,
+                use_all_faces=manual_selection,
+            )
+            chain_refs = None
+            if manual_selection:
+                chain_refs = chain_refs_for_edge_indices(
+                    patch_graph, selected_edge_indices
+                )
+                if not chain_refs:
+                    raise ValueError(
+                        "Selected edges do not belong to PatchGraph boundary chains"
+                    )
             # Вернуть исходный режим ДО материализации: create/remove
             # объектов внутри принудительного EDIT — хрупкий паттерн.
             _restore_mode_and_selection(obj, om, sel)
             settings = DecalSettings.from_blender_settings(
-                context.scene.hotspotuv_settings
+                decal_settings
             )
             created = generate_decal_objects(
-                patch_graph, obj, settings, self.mode, scene=context.scene
+                patch_graph,
+                obj,
+                settings,
+                self.mode,
+                scene=context.scene,
+                chain_refs=chain_refs,
             )
             if not created:
                 self.report(
@@ -1185,7 +1234,10 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                     "No decals generated (check selection / wall geometry)",
                 )
                 return {"CANCELLED"}
-            self.report({"INFO"}, "Created: " + ", ".join(created))
+            summary = "Created: " + ", ".join(created)
+            if manual_selection:
+                summary += f" | chains:{len(chain_refs)} edges:{len(selected_edge_indices)}"
+            self.report({"INFO"}, summary)
             return {"FINISHED"}
         except ValueError as exc:
             self.report({"WARNING"}, str(exc))
@@ -1305,6 +1357,7 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         col.prop(s, "decal_width_seam")
         col.prop(s, "decal_height_trim")
         col.prop(s, "decal_offset")
+        col.prop(s, "decal_manual_selection")
         op = col.operator("hotspotuv.generate_decals", text="Decal Top", icon="TRIA_UP")
         op.mode = "TOP"
         op = col.operator(

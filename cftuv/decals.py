@@ -37,7 +37,7 @@ from .constants import (
     DECAL_UV_RECT_TOP,
     DECAL_WELD_DISTANCE,
 )
-from .model import ChainNeighborKind, DecalSettings, PatchGraph, PatchType
+from .model import ChainNeighborKind, ChainRef, DecalSettings, PatchGraph, PatchType
 
 DECAL_MODES = ("TOP", "BOTTOM", "CORNERS", "SEAMS")
 
@@ -58,6 +58,34 @@ def _edge_key(vert_a: int, vert_b: int) -> tuple[int, int]:
     return (vert_a, vert_b) if vert_a < vert_b else (vert_b, vert_a)
 
 
+def chain_refs_for_edge_indices(
+    graph: PatchGraph, edge_indices
+) -> set[ChainRef]:
+    """Возвращает полные PatchGraph chains, содержащие выбранные mesh edges.
+
+    Одно физическое seam-ребро обычно представлено двумя chains — по одной со
+    стороны каждого соседнего patch. Обе ссылки намеренно сохраняются: producer
+    сам дедуплицирует WALL-WALL пару по owner patch id.
+    """
+
+    selected_edge_indices = {int(edge_index) for edge_index in edge_indices}
+    if not selected_edge_indices:
+        return set()
+
+    chain_refs = set()
+    for patch_id in sorted(graph.nodes.keys()):
+        node = graph.nodes[patch_id]
+        for loop_index, boundary_loop in enumerate(node.boundary_loops):
+            for chain_index, chain in enumerate(boundary_loop.chains):
+                if selected_edge_indices.intersection(chain.edge_indices):
+                    chain_refs.add((patch_id, loop_index, chain_index))
+    return chain_refs
+
+
+def _chain_ref_is_enabled(chain_refs, chain_ref: ChainRef) -> bool:
+    return chain_refs is None or chain_ref in chain_refs
+
+
 def _chain_eligible_for_trim(graph: PatchGraph, chain) -> bool:
     """Кромка WALL patch, не являющаяся швом WALL-WALL.
 
@@ -75,7 +103,7 @@ def _chain_eligible_for_trim(graph: PatchGraph, chain) -> bool:
     return False
 
 
-def _collect_trim_segments(graph: PatchGraph):
+def _collect_trim_segments(graph: PatchGraph, chain_refs=None):
     """Классифицирует граничные рёбра WALL patches на TOP/BOTTOM.
 
     outward = edge_dir x patch_normal — направление «наружу» от патча в
@@ -98,8 +126,11 @@ def _collect_trim_segments(graph: PatchGraph):
             continue
         normal = node.normal
         up = node.basis_v
-        for boundary_loop in node.boundary_loops:
-            for chain in boundary_loop.chains:
+        for loop_index, boundary_loop in enumerate(node.boundary_loops):
+            for chain_index, chain in enumerate(boundary_loop.chains):
+                chain_ref = (patch_id, loop_index, chain_index)
+                if not _chain_ref_is_enabled(chain_refs, chain_ref):
+                    continue
                 if not _chain_eligible_for_trim(graph, chain):
                     continue
                 verts = chain.vert_indices
@@ -223,7 +254,7 @@ def _trim_vertex_frames(path, edge_frames):
     return frames
 
 
-def _collect_wall_pair_chains(graph: PatchGraph):
+def _collect_wall_pair_chains(graph: PatchGraph, chain_refs=None):
     """WALL-WALL цепочки: (polyline, n_a, n_b, is_closed) на пару patches.
 
     Каждая пара обрабатывается один раз — со стороны patch с меньшим id
@@ -237,8 +268,11 @@ def _collect_wall_pair_chains(graph: PatchGraph):
         node = graph.nodes[patch_id]
         if node.patch_type != PatchType.WALL:
             continue
-        for boundary_loop in node.boundary_loops:
-            for chain in boundary_loop.chains:
+        for loop_index, boundary_loop in enumerate(node.boundary_loops):
+            for chain_index, chain in enumerate(boundary_loop.chains):
+                chain_ref = (patch_id, loop_index, chain_index)
+                if not _chain_ref_is_enabled(chain_refs, chain_ref):
+                    continue
                 if chain.neighbor_kind != ChainNeighborKind.PATCH:
                     continue
                 if chain.neighbor_patch_id <= patch_id:
@@ -553,9 +587,17 @@ def _closed_polyline(points, is_closed):
     return points
 
 
-def _fill_decal_bmesh(bm, graph: PatchGraph, settings: DecalSettings, mode: str):
+def _fill_decal_bmesh(
+    bm,
+    graph: PatchGraph,
+    settings: DecalSettings,
+    mode: str,
+    chain_refs=None,
+):
     if mode in ("TOP", "BOTTOM"):
-        top_edges, bottom_edges, edge_frames, vert_cos = _collect_trim_segments(graph)
+        top_edges, bottom_edges, edge_frames, vert_cos = _collect_trim_segments(
+            graph, chain_refs=chain_refs
+        )
         edges = top_edges if mode == "TOP" else bottom_edges
         uv_rect = DECAL_UV_RECT_TOP if mode == "TOP" else DECAL_UV_RECT_BOTTOM
         for path in _chain_edge_paths(edges):
@@ -564,7 +606,9 @@ def _fill_decal_bmesh(bm, graph: PatchGraph, settings: DecalSettings, mode: str)
                 bm, path, vert_cos, frames, settings, mode == "TOP", uv_rect
             )
     elif mode == "CORNERS":
-        corner_chains, _seam_chains = _collect_wall_pair_chains(graph)
+        corner_chains, _seam_chains = _collect_wall_pair_chains(
+            graph, chain_refs=chain_refs
+        )
         for points, normal_a, normal_b, is_closed in corner_chains:
             spine_points = _dedupe_polyline(points)
             _build_corner_strip(
@@ -577,7 +621,9 @@ def _fill_decal_bmesh(bm, graph: PatchGraph, settings: DecalSettings, mode: str)
                 closed=is_closed,
             )
     elif mode == "SEAMS":
-        _corner_chains, seam_chains = _collect_wall_pair_chains(graph)
+        _corner_chains, seam_chains = _collect_wall_pair_chains(
+            graph, chain_refs=chain_refs
+        )
         for points, normal_a, normal_b, is_closed in seam_chains:
             # Нормаль стороны-владельца (как n_sum_a в прототипе);
             # пара копланарна, разница с соседом в пределах порога.
@@ -592,7 +638,12 @@ def _fill_decal_bmesh(bm, graph: PatchGraph, settings: DecalSettings, mode: str)
 
 
 def generate_decal_objects(
-    graph: PatchGraph, source_obj, settings: DecalSettings, mode: str, scene=None
+    graph: PatchGraph,
+    source_obj,
+    settings: DecalSettings,
+    mode: str,
+    scene=None,
+    chain_refs=None,
 ) -> list[str]:
     """Генерирует decal-объект выбранного режима. Возвращает имена созданных."""
 
@@ -603,7 +654,13 @@ def generate_decal_objects(
 
     bm = bmesh.new()
     try:
-        _fill_decal_bmesh(bm, graph, settings, mode)
+        _fill_decal_bmesh(
+            bm,
+            graph,
+            settings,
+            mode,
+            chain_refs=chain_refs,
+        )
     except Exception:
         bm.free()
         raise

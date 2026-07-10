@@ -1,5 +1,23 @@
 # CFTUV Decal Producer (Phase 3)
 
+## Ручной режим Selected Chains
+
+Флаг `Selected Chains` в секции Decals переключает генератор с face-scope на
+явный выбор boundary chains:
+
+1. Перейти в Edit Mode и выбрать одно или несколько рёбер (включая seam edges).
+2. Включить `Selected Chains` и нажать нужный режим Top / Bottom / Corners / Seams.
+3. `PatchGraph` строится по всему mesh, поэтому выбор faces не требуется и не
+   обрезает соседние patches.
+4. Каждое выбранное ребро служит seed: в генерацию попадает целая каноническая
+   `BoundaryChain`, содержащая это ребро. Для общего seam захватываются chains с
+   обеих сторон, а WALL-WALL пара по-прежнему материализуется один раз.
+
+Автоматический режим не изменён: при выключенном `Selected Chains` оператор
+работает по выбранным faces в Edit Mode или по всему объекту в Object Mode.
+Внутреннее ребро, не входящее ни в одну boundary chain, не является допустимым
+seed и даёт понятное предупреждение вместо частичной декали.
+
 Генерация mesh-декалей (тримы, углы, швы) из PatchGraph. Логика перенесена из
 прототипа `hotspotingUV_mesh_decals_Full.py` (v1.2.0, «Global System») и
 переписана нативно на PatchGraph-цепочки CFTUV.
