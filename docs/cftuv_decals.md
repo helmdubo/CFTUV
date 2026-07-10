@@ -11,19 +11,28 @@
 4. Каждое выбранное seam-ребро служит seed: захватывается целая каноническая
    `BoundaryChain`, содержащая его.
 
-Для `Decal Corners` ручной режим не фильтрует `PatchType`: WALL, FLOOR, SLOPE,
-потолки и другие ориентации равноправны. PATCH-neighbor chain создаёт corner-strip
-по двум patches. MESH_BORDER/SEAM_SELF chain создаёт одну плоскую ленту на owner
-patch с `Corner Width`, `Surface Offset` и corner UV rect.
-
-Для `Decal Seams` ручной режим также не фильтрует `PatchType` и не требует
-копланарности patches: каждая выбранная chain создаёт одну плоскую ленту на
-owner patch с `Seam Width`, `Surface Offset` и seam UV rect. Две стороны одного
-общего seam дедуплицируются в одну ленту.
+Для `Decal Corners` и `Decal Seams` ручной режим не фильтрует `PatchType`: WALL,
+FLOOR, SLOPE, потолки и другие ориентации равноправны. PATCH-neighbor chain
+создаёт двухкрылый corner-strip по двум patches. MESH_BORDER/SEAM_SELF chain
+создаёт ровно одно corner-крыло внутрь owner patch. В обоих случаях используются
+`Corner Width`, `Surface Offset` и corner UV rect; две стороны общего seam
+дедуплицируются.
 
 В автоматическом режиме внутренние и внешние углы различаются через canonical
 `BoundaryChain.dihedral_convexity`: negative — concave/inner, positive —
 convex/outer. Направления крыльев corner-strip меняются согласно этому знаку.
+
+## Интерактивный размер автоматических декалей
+
+В Object Mode или Face Select Mode кнопки `Decal Top`, `Decal Bottom` и
+`Decal Corners` запускают modal drag после первой генерации:
+
+- Top/Bottom: движение мыши вниз/вверх уменьшает/увеличивает `Trim Height`.
+- Corners: движение влево/вправо уменьшает/увеличивает `Corner Width` обоих крыльев.
+- `Shift` включает точную регулировку, LMB/Enter подтверждает, RMB/Esc отменяет.
+
+В Edge Select Mode генерация остаётся immediate: размер берётся из panel settings,
+поскольку manual scope определяется выбранными seam chains.
 
 Генерация mesh-декалей (тримы, углы, швы) из PatchGraph. Логика перенесена из
 прототипа `hotspotingUV_mesh_decals_Full.py` (v1.2.0, «Global System») и

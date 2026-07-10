@@ -3,9 +3,9 @@ from __future__ import annotations
 from mathutils import Vector
 
 from cftuv.decals import (
+    _boundary_wing_direction,
     _chain_edge_paths,
     _collect_manual_chain_decals,
-    _collect_manual_flat_chains,
     _collect_trim_segments,
     _collect_wall_pair_chains,
     _corner_wing_directions,
@@ -303,9 +303,6 @@ class TestManualChainDecals:
         assert len(corner_chains) == 1
         assert corner_chains[0][4] == -1.0
         assert boundary_chains == []
-        flat_chains = _collect_manual_flat_chains(graph, chain_refs)
-        assert len(flat_chains) == 1
-        assert flat_chains[0][1].z == 1.0
 
     def test_mesh_boundary_becomes_flat_corner_width_decal(self):
         border_chain = _make_chain(
@@ -326,8 +323,16 @@ class TestManualChainDecals:
         assert corner_chains == []
         assert len(boundary_chains) == 1
         assert len(boundary_chains[0][0]) == 3
-        flat_chains = _collect_manual_flat_chains(graph, chain_refs)
-        assert flat_chains == boundary_chains
+
+    def test_boundary_wing_points_inside_owner_patch(self):
+        wing_dir = _boundary_wing_direction(
+            Vector((1, 0, 0)),
+            Vector((0, 0, 1)),
+        )
+
+        assert wing_dir is not None
+        assert wing_dir.y > 0.0
+        assert abs(wing_dir.x) < 1e-9
 
 
 class TestCornerWingDirections:

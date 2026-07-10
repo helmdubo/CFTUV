@@ -4,6 +4,7 @@ Thin wrappers only. No geometry logic here (max 5 lines math).
 All heavy work delegated to analysis.py, solve.py, debug.py.
 """
 
+from dataclasses import replace
 from pathlib import Path
 
 import bpy
@@ -631,6 +632,57 @@ def _restore_mode_and_selection(obj, original_mode, selected_face_indices):
         bpy.ops.object.mode_set(mode='OBJECT')
 
 
+def _prepare_decal_generation(context):
+    """Собирает immutable state для immediate или modal decal generation."""
+
+    decal_settings = context.scene.hotspotuv_settings
+    source_obj = context.active_object
+    manual_selection = _is_edge_select_mode(context, source_obj)
+    selected_edge_indices = []
+    if manual_selection:
+        source_bm = bmesh.from_edit_mesh(source_obj.data)
+        source_bm.edges.ensure_lookup_table()
+        selected_edge_indices = _capture_selected_seam_edges(source_bm)
+        if not selected_edge_indices:
+            raise ValueError(
+                "Edge Select Mode: select one or more seam-marked edges"
+            )
+
+    obj, _bm, patch_graph, original_mode, selected_faces = _prepare_patch_graph(
+        context,
+        require_selection=not manual_selection,
+        use_all_faces=manual_selection,
+    )
+    try:
+        chain_refs = None
+        if manual_selection:
+            chain_refs = chain_refs_for_edge_indices(
+                patch_graph, selected_edge_indices
+            )
+            if not chain_refs:
+                raise ValueError(
+                    "Selected seam edges do not belong to PatchGraph boundary chains"
+                )
+        settings = DecalSettings.from_blender_settings(decal_settings)
+        return (
+            obj,
+            patch_graph,
+            settings,
+            chain_refs,
+            manual_selection,
+            len(selected_edge_indices),
+        )
+    finally:
+        _restore_mode_and_selection(obj, original_mode, selected_faces)
+
+
+def _decal_drag_value(base_value, mouse_delta, precise=False):
+    sensitivity = max(0.001, abs(base_value) * 0.01)
+    if precise:
+        sensitivity *= 0.1
+    return max(0.0, base_value + mouse_delta * sensitivity)
+
+
 def _build_solve_state(context, make_seams_by_sharp=False):
     """Полный solve state: PatchGraph + SolverGraph + SolvePlan + UVSettings."""
     obj, bm, patch_graph, original_mode, sel = _prepare_patch_graph(
@@ -1158,7 +1210,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
     bl_description = (
         "Generate mesh decal strips (trims / corners / seams) from patch topology"
     )
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"REGISTER", "UNDO", "BLOCKING"}
 
     mode: EnumProperty(
         name="Mode",
@@ -1180,59 +1232,170 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             and obj.mode in {"EDIT", "OBJECT"}
         )
 
-    def execute(self, context):
-        try:
-            decal_settings = context.scene.hotspotuv_settings
-            source_obj = context.active_object
-            manual_selection = _is_edge_select_mode(context, source_obj)
-            selected_edge_indices = []
-            if manual_selection:
-                source_bm = bmesh.from_edit_mesh(source_obj.data)
-                source_bm.edges.ensure_lookup_table()
-                selected_edge_indices = _capture_selected_seam_edges(source_bm)
-                if not selected_edge_indices:
-                    raise ValueError(
-                        "Edge Select Mode: select one or more seam-marked edges"
-                    )
+    def _generate(self, context, state, settings=None):
+        obj, patch_graph, base_settings, chain_refs, _manual, _edge_count = state
+        return generate_decal_objects(
+            patch_graph,
+            obj,
+            settings or base_settings,
+            self.mode,
+            scene=context.scene,
+            chain_refs=chain_refs,
+        )
 
-            obj, _bm, patch_graph, om, sel = _prepare_patch_graph(
-                context,
-                require_selection=not manual_selection,
-                use_all_faces=manual_selection,
+    def _report_created(self, created, state, suffix=""):
+        _obj, _graph, _settings, chain_refs, manual_selection, edge_count = state
+        summary = "Created: " + ", ".join(created)
+        if manual_selection:
+            summary += f" | chains:{len(chain_refs)} edges:{edge_count}"
+        if suffix:
+            summary += " | " + suffix
+        self.report({"INFO"}, summary)
+
+    def _set_modal_header(self, value):
+        area = getattr(self, "_modal_area", None)
+        if area is None:
+            return
+        if self.mode == "CORNERS":
+            text = (
+                f"Corner Width: {value:.4f} | Move Left/Right | "
+                "Shift: precise | LMB/Enter: confirm | Esc/RMB: cancel"
             )
-            chain_refs = None
-            if manual_selection:
-                chain_refs = chain_refs_for_edge_indices(
-                    patch_graph, selected_edge_indices
-                )
-                if not chain_refs:
-                    raise ValueError(
-                        "Selected edges do not belong to PatchGraph boundary chains"
-                    )
-            # Вернуть исходный режим ДО материализации: create/remove
-            # объектов внутри принудительного EDIT — хрупкий паттерн.
-            _restore_mode_and_selection(obj, om, sel)
-            settings = DecalSettings.from_blender_settings(
-                decal_settings
+        else:
+            text = (
+                f"Trim Height: {value:.4f} | Move Down/Up | "
+                "Shift: precise | LMB/Enter: confirm | Esc/RMB: cancel"
             )
-            created = generate_decal_objects(
-                patch_graph,
-                obj,
-                settings,
-                self.mode,
-                scene=context.scene,
-                chain_refs=chain_refs,
-            )
+        area.header_text_set(text)
+
+    def _clear_modal_header(self):
+        area = getattr(self, "_modal_area", None)
+        if area is not None:
+            area.header_text_set(None)
+
+    def invoke(self, context, event):
+        source_obj = context.active_object
+        interactive_mode = self.mode in {"TOP", "BOTTOM", "CORNERS"}
+        if (
+            context.window is None
+            or not interactive_mode
+            or _is_edge_select_mode(context, source_obj)
+        ):
+            return self.execute(context)
+
+        try:
+            state = _prepare_decal_generation(context)
+            created = self._generate(context, state)
             if not created:
                 self.report(
                     {"WARNING"},
                     "No decals generated (check selection / wall geometry)",
                 )
                 return {"CANCELLED"}
-            summary = "Created: " + ", ".join(created)
-            if manual_selection:
-                summary += f" | chains:{len(chain_refs)} edges:{len(selected_edge_indices)}"
-            self.report({"INFO"}, summary)
+
+            settings = state[2]
+            self._modal_state = state
+            self._modal_base_settings = settings
+            self._modal_area = context.area
+            self._modal_created = created
+            if self.mode == "CORNERS":
+                self._modal_property = "decal_width_corner"
+                self._modal_base_value = settings.width_corner
+                self._modal_start_mouse = event.mouse_x
+            else:
+                self._modal_property = "decal_height_trim"
+                self._modal_base_value = settings.height_trim
+                self._modal_start_mouse = event.mouse_y
+            self._modal_current_value = self._modal_base_value
+            self._set_modal_header(self._modal_current_value)
+            context.window_manager.modal_handler_add(self)
+            return {"RUNNING_MODAL"}
+        except ValueError as exc:
+            self.report({"WARNING"}, str(exc))
+            return {"CANCELLED"}
+        except Exception as exc:
+            self.report({"ERROR"}, f"Generate Decals failed: {exc}")
+            return {"CANCELLED"}
+
+    def modal(self, context, event):
+        if event.type == "MOUSEMOVE":
+            mouse_value = event.mouse_x if self.mode == "CORNERS" else event.mouse_y
+            new_value = _decal_drag_value(
+                self._modal_base_value,
+                mouse_value - self._modal_start_mouse,
+                precise=bool(event.shift),
+            )
+            if abs(new_value - self._modal_current_value) < 1e-9:
+                return {"RUNNING_MODAL"}
+            if self.mode == "CORNERS":
+                settings = replace(
+                    self._modal_base_settings, width_corner=new_value
+                )
+            else:
+                settings = replace(
+                    self._modal_base_settings, height_trim=new_value
+                )
+            try:
+                created = self._generate(context, self._modal_state, settings)
+            except Exception as exc:
+                self._clear_modal_header()
+                self.report({"ERROR"}, f"Interactive decal update failed: {exc}")
+                return {"CANCELLED"}
+            if not created:
+                return {"RUNNING_MODAL"}
+            setattr(
+                context.scene.hotspotuv_settings,
+                self._modal_property,
+                new_value,
+            )
+            self._modal_created = created
+            self._modal_current_value = new_value
+            self._set_modal_header(new_value)
+            return {"RUNNING_MODAL"}
+
+        if event.type in {"ESC", "RIGHTMOUSE"} and event.value == "PRESS":
+            setattr(
+                context.scene.hotspotuv_settings,
+                self._modal_property,
+                self._modal_base_value,
+            )
+            try:
+                self._generate(
+                    context,
+                    self._modal_state,
+                    self._modal_base_settings,
+                )
+            except Exception as exc:
+                self.report({"ERROR"}, f"Interactive decal cancel failed: {exc}")
+            finally:
+                self._clear_modal_header()
+            return {"CANCELLED"}
+
+        if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER"} and event.value == "PRESS":
+            self._clear_modal_header()
+            label = "Corner Width" if self.mode == "CORNERS" else "Trim Height"
+            self._report_created(
+                self._modal_created,
+                self._modal_state,
+                f"{label}:{self._modal_current_value:.4f}",
+            )
+            return {"FINISHED"}
+
+        if event.type in {"MIDDLEMOUSE", "WHEELUPMOUSE", "WHEELDOWNMOUSE"}:
+            return {"PASS_THROUGH"}
+        return {"RUNNING_MODAL"}
+
+    def execute(self, context):
+        try:
+            state = _prepare_decal_generation(context)
+            created = self._generate(context, state)
+            if not created:
+                self.report(
+                    {"WARNING"},
+                    "No decals generated (check selection / wall geometry)",
+                )
+                return {"CANCELLED"}
+            self._report_created(created, state)
             return {"FINISHED"}
         except ValueError as exc:
             self.report({"WARNING"}, str(exc))
@@ -1240,9 +1403,6 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         except Exception as exc:
             self.report({"ERROR"}, f"Generate Decals failed: {exc}")
             return {"CANCELLED"}
-        finally:
-            if 'obj' in locals() and 'om' in locals() and 'sel' in locals():
-                _restore_mode_and_selection(obj, om, sel)
 
 
 # ============================================================

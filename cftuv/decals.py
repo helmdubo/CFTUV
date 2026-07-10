@@ -355,20 +355,6 @@ def _collect_manual_chain_decals(graph: PatchGraph, chain_refs):
     return corner_chains, boundary_chains
 
 
-def _collect_manual_flat_chains(graph: PatchGraph, chain_refs):
-    """Плоские ленты для выбранных chains без PatchType/coplanarity фильтров."""
-
-    corner_chains, boundary_chains = _collect_manual_chain_decals(
-        graph, chain_refs
-    )
-    flat_chains = [
-        (points, normal_a, is_closed)
-        for points, normal_a, _normal_b, is_closed, _convexity in corner_chains
-    ]
-    flat_chains.extend(boundary_chains)
-    return flat_chains
-
-
 def _polyline_tangents(points, closed=False):
     """Касательная на вершину полилинии — среднее направлений соседних сегментов.
 
@@ -568,15 +554,70 @@ def _build_corner_strip(
             continue
 
 
-def _build_seam_strip(
-    bm, points, normal, settings, uv_rect, closed=False, width=None
+def _boundary_wing_direction(direction, normal):
+    """Направление единственного крыла от boundary внутрь owner patch."""
+
+    wing_dir = normal.cross(direction)
+    if wing_dir.length_squared < 1e-8:
+        return None
+    return wing_dir.normalized()
+
+
+def _build_boundary_wing_strip(
+    bm, points, normal, settings, uv_rect, closed=False
 ):
+    """Одно corner-крыло от boundary chain внутрь owner patch."""
+
+    if len(points) < 2:
+        return
+    tangents = _polyline_tangents(points, closed=closed)
+    chord = points[-1] - points[0]
+    arc = _arc_lengths(points)
+    wing_width = settings.width_corner / 2.0
+
+    spine_verts = []
+    wing_verts = []
+    for index, co in enumerate(points):
+        wing_dir = _boundary_wing_direction(tangents[index], normal)
+        if wing_dir is None:
+            wing_dir = _boundary_wing_direction(chord, normal)
+        if wing_dir is None:
+            return
+        spine_pos = co + normal * settings.offset
+        spine_verts.append(bm.verts.new(spine_pos))
+        wing_verts.append(bm.verts.new(spine_pos + wing_dir * wing_width))
+
+    uv_layer = bm.loops.layers.uv.verify()
+    u_min, _v_min, u_max, _v_max = uv_rect
+    u_mid = (u_min + u_max) / 2.0
+    scale = settings.uv_length_scale
+    for index in range(len(points) - 1):
+        try:
+            face = bm.faces.new(
+                (
+                    spine_verts[index],
+                    spine_verts[index + 1],
+                    wing_verts[index + 1],
+                    wing_verts[index],
+                )
+            )
+        except ValueError:
+            continue
+        v_start = arc[index] * scale
+        v_end = arc[index + 1] * scale
+        face.loops[0][uv_layer].uv = (u_mid, v_start)
+        face.loops[1][uv_layer].uv = (u_mid, v_end)
+        face.loops[2][uv_layer].uv = (u_max, v_end)
+        face.loops[3][uv_layer].uv = (u_max, v_start)
+
+
+def _build_seam_strip(bm, points, normal, settings, uv_rect, closed=False):
     """Плоская лента по копланарному шву, центрированная на полилинии."""
 
     if len(points) < 2:
         return
     offset_vec = normal * settings.offset
-    half_width = (settings.width_seam if width is None else width) / 2.0
+    half_width = settings.width_seam / 2.0
     tangents = _polyline_tangents(points, closed=closed)
     arc = _arc_lengths(points)
 
@@ -687,6 +728,36 @@ def _closed_polyline(points, is_closed):
     return points
 
 
+def _fill_manual_chain_decals(bm, graph, settings, chain_refs):
+    """Manual edge scope: PATCH pair → corner, boundary → one wing."""
+
+    corner_chains, boundary_chains = _collect_manual_chain_decals(
+        graph, chain_refs
+    )
+    for points, normal_a, normal_b, is_closed, convexity in corner_chains:
+        spine_points = _dedupe_polyline(points)
+        _build_corner_strip(
+            bm,
+            _closed_polyline(spine_points, is_closed),
+            normal_a,
+            normal_b,
+            settings,
+            DECAL_UV_RECT_CORNER,
+            closed=is_closed,
+            dihedral_convexity=convexity,
+        )
+    for points, normal, is_closed in boundary_chains:
+        spine_points = _dedupe_polyline(points)
+        _build_boundary_wing_strip(
+            bm,
+            _closed_polyline(spine_points, is_closed),
+            normal,
+            settings,
+            DECAL_UV_RECT_CORNER,
+            closed=is_closed,
+        )
+
+
 def _fill_decal_bmesh(
     bm,
     graph: PatchGraph,
@@ -694,7 +765,9 @@ def _fill_decal_bmesh(
     mode: str,
     chain_refs=None,
 ):
-    if mode in ("TOP", "BOTTOM"):
+    if chain_refs is not None and mode in ("CORNERS", "SEAMS"):
+        _fill_manual_chain_decals(bm, graph, settings, chain_refs)
+    elif mode in ("TOP", "BOTTOM"):
         top_edges, bottom_edges, edge_frames, vert_cos = _collect_trim_segments(
             graph, chain_refs=chain_refs
         )
@@ -706,13 +779,7 @@ def _fill_decal_bmesh(
                 bm, path, vert_cos, frames, settings, mode == "TOP", uv_rect
             )
     elif mode == "CORNERS":
-        if chain_refs is None:
-            corner_chains, _seam_chains = _collect_wall_pair_chains(graph)
-            boundary_chains = []
-        else:
-            corner_chains, boundary_chains = _collect_manual_chain_decals(
-                graph, chain_refs
-            )
+        corner_chains, _seam_chains = _collect_wall_pair_chains(graph)
         for points, normal_a, normal_b, is_closed, convexity in corner_chains:
             spine_points = _dedupe_polyline(points)
             _build_corner_strip(
@@ -725,32 +792,16 @@ def _fill_decal_bmesh(
                 closed=is_closed,
                 dihedral_convexity=convexity,
             )
-        for points, normal, is_closed in boundary_chains:
-            spine_points = _dedupe_polyline(points)
-            _build_seam_strip(
-                bm,
-                _closed_polyline(spine_points, is_closed),
-                normal,
-                settings,
-                DECAL_UV_RECT_CORNER,
-                closed=is_closed,
-                width=settings.width_corner,
-            )
     elif mode == "SEAMS":
-        if chain_refs is None:
-            _corner_chains, automatic_seam_chains = _collect_wall_pair_chains(
-                graph
-            )
-            seam_chains = [
-                (points, normal_a, is_closed)
-                for points, normal_a, _normal_b, is_closed, _convexity
-                in automatic_seam_chains
-            ]
-        else:
-            seam_chains = _collect_manual_flat_chains(graph, chain_refs)
+        _corner_chains, automatic_seam_chains = _collect_wall_pair_chains(graph)
+        seam_chains = [
+            (points, normal_a, is_closed)
+            for points, normal_a, _normal_b, is_closed, _convexity
+            in automatic_seam_chains
+        ]
         for points, normal, is_closed in seam_chains:
             # Нормаль стороны-владельца (как n_sum_a в прототипе);
-            # в manual mode выбранная chain важнее semantic/coplanarity фильтров.
+            # automatic seam pair копланарна в пределах порога.
             _build_seam_strip(
                 bm,
                 _closed_polyline(points, is_closed),
