@@ -3,7 +3,6 @@ from __future__ import annotations
 from mathutils import Vector
 
 try:
-    from .console_debug import trace_console
     from .model import (
         ChainNeighborKind,
         PatchGraph,
@@ -30,7 +29,6 @@ try:
         _classify_loops_outer_hole,
     )
 except ImportError:
-    from console_debug import trace_console
     from model import (
         ChainNeighborKind,
         PatchGraph,
@@ -259,14 +257,14 @@ def _flood_fill_patches(bm, face_indices):
 def _report_graph_topology_invariant_violation(rule_code, detail):
     """Emit a deterministic graph-level topology invariant violation."""
 
-    trace_console(f"[CFTUV][TopologyInvariant] Graph {rule_code} {detail}")
+    print(f"[CFTUV][TopologyInvariant] Graph {rule_code} {detail}")
 
 
 
 def _report_junction_invariant_violation(vert_index, rule_code, detail):
     """Emit a deterministic junction-level topology invariant violation."""
 
-    trace_console(f"[CFTUV][TopologyInvariant] Junction V{vert_index} {rule_code} {detail}")
+    print(f"[CFTUV][TopologyInvariant] Junction V{vert_index} {rule_code} {detail}")
 
 
 def _iter_patch_neighbor_chain_refs(graph):
@@ -356,7 +354,7 @@ def _begin_patch_topology_assembly(patch_id, patch_face_indices, bm):
     patch_faces = [bm.faces[idx] for idx in patch_face_indices]
     raw_loops = _trace_boundary_loops(patch_faces)
     centroid = _compute_centroid(bm, patch_face_indices)
-    mesh_verts, mesh_vert_indices, mesh_edges, mesh_tris = _serialize_patch_geometry(bm, patch_face_indices)
+    mesh_verts, mesh_tris = _serialize_patch_geometry(bm, patch_face_indices)
 
     node = PatchNode(
         patch_id=patch_id,
@@ -371,8 +369,6 @@ def _begin_patch_topology_assembly(patch_id, patch_face_indices, bm):
         basis_v=basis_v,
         boundary_loops=[],
         mesh_verts=mesh_verts,
-        mesh_vert_indices=mesh_vert_indices,
-        mesh_edges=mesh_edges,
         mesh_tris=mesh_tris,
     )
     return _PatchTopologyAssemblyState(
@@ -456,24 +452,15 @@ def _serialize_patch_geometry(bm, face_indices):
 
     vert_map = {}
     mesh_verts = []
-    mesh_vert_indices = []
-    mesh_edges = set()
     mesh_tris = []
 
     for face_idx in face_indices:
         face = bm.faces[face_idx]
-        for edge in face.edges:
-            a = int(edge.verts[0].index)
-            b = int(edge.verts[1].index)
-            if a != b:
-                mesh_edges.add((min(a, b), max(a, b)))
-
         tri = []
         for vert in face.verts:
             if vert.index not in vert_map:
                 vert_map[vert.index] = len(mesh_verts)
                 mesh_verts.append(vert.co.copy())
-                mesh_vert_indices.append(int(vert.index))
             tri.append(vert_map[vert.index])
 
         if len(tri) == 3:
@@ -483,7 +470,7 @@ def _serialize_patch_geometry(bm, face_indices):
         for tri_index in range(1, len(tri) - 1):
             mesh_tris.append((tri[0], tri[tri_index], tri[tri_index + 1]))
 
-    return mesh_verts, mesh_vert_indices, sorted(mesh_edges), mesh_tris
+    return mesh_verts, mesh_tris
 
 
 
@@ -602,7 +589,6 @@ def build_patch_graph(bm, face_indices, obj=None):
     # Ð´Ð»Ñ Ð¾Ð¿Ñ€ÐµÐ´ÐµÐ»ÐµÐ½Ð¸Ñ OUTER/HOLE Ñƒ multi-loop boundary.
     _classify_patch_topology_assembly_states(bm, patch_states, obj)
     _finalize_patch_topology_assembly_states(patch_graph, patch_states, bm)
-    patch_graph.rebuild_chain_use_index()
 
     for seam_edge in _build_seam_edges(patch_graph.face_to_patch, bm):
         patch_graph.add_edge(seam_edge)

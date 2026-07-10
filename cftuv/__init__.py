@@ -8,15 +8,6 @@ bl_info = {
     "category": "UV",
 }
 
-def register():
-    from .operators import register as _register
-
-    return _register()
-
-
-def unregister():
-    from .operators import unregister as _unregister
-
-    return _unregister()
+from .operators import register, unregister
 
 __all__ = ["bl_info", "register", "unregister"]

@@ -13,38 +13,30 @@ try:
         BoundaryChain,
         BoundaryCorner,
         BoundaryLoop,
-        ChainIncidence,
         ChainNeighborKind,
-        ChainUse,
         ChainRef,
         FrameRole,
         LoopKind,
         PatchNode,
         PatchType,
-        SkeletonFlags,
         WorldFacing,
     )
-    from .shape_types import LoopShapeInterpretation, PatchShapeClass
-    from .structural_tokens import LoopSignature
+    from .structural_tokens import LoopSignature, PatchShapeClass
 except ImportError:
     from model import (
         BandMode,
         BoundaryChain,
         BoundaryCorner,
         BoundaryLoop,
-        ChainIncidence,
         ChainNeighborKind,
-        ChainUse,
         ChainRef,
         FrameRole,
         LoopKind,
         PatchNode,
         PatchType,
-        SkeletonFlags,
         WorldFacing,
     )
-    from shape_types import LoopShapeInterpretation, PatchShapeClass
-    from structural_tokens import LoopSignature
+    from structural_tokens import LoopSignature, PatchShapeClass
 
 
 @dataclass
@@ -285,7 +277,6 @@ class _JunctionChainRef:
     chain_index: int
     frame_role: FrameRole
     neighbor_kind: ChainNeighborKind
-    chain_use: Optional[ChainUse] = None
 
 
 @dataclass(frozen=True)
@@ -318,7 +309,6 @@ class _Junction:
     vert_co: Vector
     corner_refs: tuple[_JunctionCornerRef, ...] = ()
     chain_refs: tuple[_JunctionChainRef, ...] = ()
-    disk_cycle: tuple[ChainIncidence, ...] = ()
     run_endpoint_refs: tuple[_JunctionRunEndpointRef, ...] = ()
     role_signature: tuple[_JunctionRolePair, ...] = ()
     patch_ids: tuple[int, ...] = ()
@@ -329,25 +319,6 @@ class _Junction:
     h_count: int = 0
     v_count: int = 0
     free_count: int = 0
-    row_component_id: int | None = None
-    col_component_id: int | None = None
-    canonical_u: float | None = None
-    canonical_v: float | None = None
-    skeleton_flags: SkeletonFlags = SkeletonFlags(0)
-
-    def ordered_disk_cycle(self) -> list[ChainIncidence]:
-        return list(
-            sorted(
-                self.disk_cycle,
-                key=lambda incidence: (
-                    incidence.angle,
-                    incidence.chain_use.patch_id,
-                    incidence.chain_use.loop_index,
-                    incidence.chain_use.position_in_loop,
-                    incidence.side,
-                ),
-            )
-        )
 
 
 @dataclass(frozen=True)
@@ -431,12 +402,7 @@ class _PatchGraphAggregateCounts:
 
 @dataclass(frozen=True)
 class BandSpineData:
-    """Analysis-owned strip/tube runtime spine artifact.
-
-    Historical name is kept for compatibility with the current frontier path,
-    but the payload is no longer BAND-only: it carries the evaluated 3D spine
-    together with its transported local frame.
-    """
+    """Pre-computed midpoint-spine parametrization for one BAND patch."""
 
     patch_id: int
     side_a_ref: ChainRef
@@ -446,19 +412,12 @@ class BandSpineData:
     cap_start_refs: tuple[ChainRef, ...] = ()
     cap_end_refs: tuple[ChainRef, ...] = ()
     spine_points_3d: tuple[Vector, ...] = ()
-    spine_tangents_3d: tuple[Vector, ...] = ()
-    spine_normals_3d: tuple[Vector, ...] = ()
-    spine_binormals_3d: tuple[Vector, ...] = ()
     spine_arc_lengths: tuple[float, ...] = ()
     spine_arc_length: float = 0.0
-    spine_is_periodic: bool = False
     cap_start_width: float = 0.0
     cap_end_width: float = 0.0
     chain_uv_targets: Mapping[ChainRef, tuple[tuple[float, float], ...]] = field(default_factory=dict)
     spine_axis: FrameRole = FrameRole.FREE
-
-
-RuntimeSpineData = BandSpineData
 
 
 @dataclass(frozen=True)
@@ -477,10 +436,5 @@ class _PatchGraphDerivedTopology:
     neighbor_inherited_roles: Mapping[ChainRef, tuple[FrameRole, int]] = field(default_factory=dict)
     patch_shape_classes: Mapping[int, PatchShapeClass] = field(default_factory=dict)
     loop_signatures: Mapping[int, list[LoopSignature]] = field(default_factory=dict)
-    loop_shape_interpretations: Mapping[int, list[LoopShapeInterpretation]] = field(default_factory=dict)
     straighten_chain_refs: frozenset[ChainRef] = field(default_factory=frozenset)
     band_spine_data: Mapping[int, BandSpineData] = field(default_factory=dict)
-
-    @property
-    def runtime_spine_data(self) -> Mapping[int, RuntimeSpineData]:
-        return self.band_spine_data

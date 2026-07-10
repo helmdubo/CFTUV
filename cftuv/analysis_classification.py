@@ -7,7 +7,6 @@ import bpy
 from mathutils import Vector
 
 try:
-    from .console_debug import trace_console
     from .constants import FLOOR_THRESHOLD, WALL_THRESHOLD, WORLD_UP
     from .model import LoopKind, PatchType, WorldFacing
     from .analysis_records import (
@@ -19,7 +18,6 @@ try:
         _RawBoundaryLoop,
     )
 except ImportError:
-    from console_debug import trace_console
     from constants import FLOOR_THRESHOLD, WALL_THRESHOLD, WORLD_UP
     from model import LoopKind, PatchType, WorldFacing
     from analysis_records import (
@@ -317,7 +315,7 @@ def _repair_disconnected_uv_loop_classification(raw_loops, polys_2d, patch_id):
         raw_loop.depth = max(1, raw_loop.depth)
         raw_loop.kind = LoopKind.HOLE
 
-    trace_console(
+    print(
         f"[CFTUV][LoopClassDiag] Patch {patch_id} "
         f"uv_outer_repair dominant_loop={dominant_loop_index} outer_before={len(outer_loop_indices)}"
     )
@@ -361,15 +359,15 @@ def _repair_missing_outer_uv_loop_classification(raw_loops, basis_u, basis_v, pa
             raw_loop.depth += 1
         raw_loop.kind = LoopKind.HOLE
 
-    trace_console(
+    print(
         f"[CFTUV][LoopClassDiag] Patch {patch_id} "
         f"uv_zero_outer_repair dominant_loop={dominant_loop_index} "
         f"length={raw_loop_perimeter(raw_loops[dominant_loop_index]):.4f}"
     )
 
 
-def _classify_raw_loops_via_temporary_uv(raw_loops, bm, patch_face_indices, uv_layer, patch_id):
-    """Classify raw loops as OUTER or HOLE inside the temporary analysis UV boundary."""
+def _classify_raw_loops_via_uv(raw_loops, bm, patch_face_indices, uv_layer, patch_id):
+    """Classify raw loops as OUTER or HOLE using temporary UV data."""
 
     if not raw_loops:
         return
@@ -521,7 +519,7 @@ def _unwrap_patch_faces_for_loop_classification(bm, obj, patch_face_indices, dis
 
 
 def _classify_multi_loop_patches_via_uv(bm, classification_inputs, obj):
-    """Execute the only sanctioned analysis-side-effect pass for OUTER/HOLE classification."""
+    """Execute the isolated UV-dependent loop-kind pass for multi-loop patches only."""
 
     uv_layer = None
     state = None
@@ -539,7 +537,7 @@ def _classify_multi_loop_patches_via_uv(bm, classification_inputs, obj):
                 patch_data.face_indices,
                 disabled_seam_edge_indices=disabled_seam_edge_indices,
             )
-            _classify_raw_loops_via_temporary_uv(
+            _classify_raw_loops_via_uv(
                 patch_data.raw_loops,
                 bm,
                 patch_data.face_indices,
