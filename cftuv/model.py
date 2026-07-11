@@ -165,7 +165,8 @@ class BoundaryChain:
 
     # Dihedral convexity at seam between owner patch and neighbor patch.
     # -1.0 = concave (inner corner), +1.0 = convex (outer corner), 0.0 = neutral/unknown.
-    # Computed only for neighbor_kind == PATCH. Zero for MESH_BORDER and SEAM_SELF.
+    # Computed for two-sided PATCH and paired SEAM_SELF chain uses.
+    # Zero for MESH_BORDER and an unpaired/degenerate SEAM_SELF use.
     dihedral_convexity: float = 0.0
 
     @property

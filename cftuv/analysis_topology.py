@@ -521,7 +521,7 @@ def _build_seam_edges(face_to_patch, bm):
     ]
 
 def _compute_chain_dihedral_convexity(chain, owner_normal, neighbor_normal):
-    """Вычисляет dihedral convexity для PATCH-neighbor chain.
+    """Вычисляет dihedral convexity для двух сторон одной chain.
 
     Использует chord chain как proxy направления seam edge.
     Возвращает: -1..+1 (negative=concave/inner, positive=convex/outer).
@@ -551,23 +551,59 @@ def _compute_chain_dihedral_convexity(chain, owner_normal, neighbor_normal):
     return max(-1.0, min(1.0, dot))
 
 
+def _chain_owner_surface_normal(chain, fallback_normal):
+    """Representative analysis-owned normal for one chain use."""
+
+    normal_sum = Vector((0.0, 0.0, 0.0))
+    for normal in chain.side_face_normals:
+        if normal.length_squared > 1e-12:
+            normal_sum += normal.normalized()
+    if normal_sum.length_squared > 1e-12:
+        return normal_sum.normalized()
+    return fallback_normal.copy()
+
+
 def _assign_chain_dihedral_convexity(patch_graph):
-    """Post-pass: вычисляет dihedral_convexity для всех PATCH-neighbor chains.
+    """Post-pass: convexity для PATCH и парных SEAM_SELF chains.
 
     Вызывается после полной сборки PatchGraph (nodes, loops, chains, seams).
     Не изменяет topology — только заполняет derived contextual field.
     """
+    self_seam_uses = {}
     for patch_id, node in patch_graph.nodes.items():
         for boundary_loop in node.boundary_loops:
             for chain in boundary_loop.chains:
+                if chain.neighbor_kind == ChainNeighborKind.SEAM_SELF:
+                    edge_signature = tuple(sorted(int(i) for i in chain.edge_indices))
+                    if edge_signature:
+                        self_seam_uses.setdefault(
+                            (patch_id, edge_signature), []
+                        ).append(chain)
+                    continue
                 if chain.neighbor_kind != ChainNeighborKind.PATCH:
                     continue
                 neighbor_node = patch_graph.nodes.get(chain.neighbor_patch_id)
                 if neighbor_node is None:
                     continue
+                owner_normal = _chain_owner_surface_normal(chain, node.normal)
                 chain.dihedral_convexity = _compute_chain_dihedral_convexity(
-                    chain, node.normal, neighbor_node.normal,
+                    chain, owner_normal, neighbor_node.normal,
                 )
+
+    for (patch_id, _edge_signature), chains in self_seam_uses.items():
+        if len(chains) != 2:
+            continue
+        node = patch_graph.nodes[patch_id]
+        chain_a, chain_b = chains
+        normal_a = _chain_owner_surface_normal(chain_a, node.normal)
+        normal_b = _chain_owner_surface_normal(chain_b, node.normal)
+        chain_a.dihedral_convexity = _compute_chain_dihedral_convexity(
+            chain_a, normal_a, normal_b,
+        )
+        chain_b.dihedral_convexity = _compute_chain_dihedral_convexity(
+            chain_b, normal_b, normal_a,
+        )
+
 
 def build_patch_graph(bm, face_indices, obj=None):
     """Build a PatchGraph from BMesh patch analysis."""

@@ -386,59 +386,139 @@ def _trim_quad_layout(
     )
 
 
-def _collect_wall_pair_chains(graph: PatchGraph, chain_refs=None):
-    """WALL-WALL цепочки: (polyline, n_a, n_b, is_closed, convexity) на пару patches.
+def _chain_edge_signature(chain):
+    return tuple(sorted(int(index) for index in chain.edge_indices))
 
-    Каждая пара обрабатывается один раз — со стороны patch с меньшим id
-    (его сегментация цепочек и порядок вершин). Разделение углов и швов
-    по dot нормалей patches (порог DECAL_COPLANAR_DOT).
-    """
 
-    corner_chains = []
-    seam_chains = []
+def _chain_representative_surface_normal(node, chain):
+    normal_sum = Vector((0.0, 0.0, 0.0))
+    for normal in chain.side_face_normals:
+        if normal.length_squared > 1e-12:
+            normal_sum += normal.normalized()
+    if normal_sum.length_squared > 1e-12:
+        return normal_sum.normalized()
+    return node.normal.copy()
+
+
+def _collect_paired_chain_items(graph, chain_refs=None, wall_only=False):
+    """PATCH и парные SEAM_SELF chain uses как двухсторонние поверхности."""
+
+    uses_by_owner_and_edges = {}
+    all_uses = []
     for patch_id in sorted(graph.nodes.keys()):
         node = graph.nodes[patch_id]
-        if node.patch_type != PatchType.WALL:
-            continue
         for loop_index, boundary_loop in enumerate(node.boundary_loops):
             for chain_index, chain in enumerate(boundary_loop.chains):
                 chain_ref = (patch_id, loop_index, chain_index)
-                if not _chain_ref_is_enabled(chain_refs, chain_ref):
-                    continue
-                if chain.neighbor_kind != ChainNeighborKind.PATCH:
-                    continue
-                if chain.neighbor_patch_id <= patch_id:
-                    continue
-                neighbor = graph.nodes.get(chain.neighbor_patch_id)
-                if neighbor is None or neighbor.patch_type != PatchType.WALL:
-                    continue
-                if len(chain.vert_cos) < 2:
-                    continue
-                item = (
-                    list(chain.vert_cos),
-                    node.normal,
-                    neighbor.normal,
-                    chain.is_closed,
-                    chain.dihedral_convexity,
-                )
-                if node.normal.dot(neighbor.normal) > DECAL_COPLANAR_DOT:
-                    seam_chains.append(item)
-                else:
-                    corner_chains.append(item)
+                signature = _chain_edge_signature(chain)
+                use = (chain_ref, node, chain)
+                all_uses.append(use)
+                if signature:
+                    uses_by_owner_and_edges.setdefault(
+                        (patch_id, signature), []
+                    ).append(use)
+
+    items = []
+    pair_kinds = []
+    consumed_refs = set()
+    seen_pairs = set()
+    for chain_ref, node, chain in all_uses:
+        patch_id = chain_ref[0]
+        if wall_only and node.patch_type != PatchType.WALL:
+            continue
+        if not _chain_ref_is_enabled(chain_refs, chain_ref):
+            continue
+        if len(chain.vert_cos) < 2:
+            continue
+        signature = _chain_edge_signature(chain)
+        if not signature:
+            continue
+
+        counterpart = None
+        if chain.neighbor_kind == ChainNeighborKind.PATCH:
+            neighbor = graph.nodes.get(chain.neighbor_patch_id)
+            if neighbor is None or (wall_only and neighbor.patch_type != PatchType.WALL):
+                continue
+            pair_key = (
+                "PATCH",
+                min(patch_id, chain.neighbor_patch_id),
+                max(patch_id, chain.neighbor_patch_id),
+                signature,
+            )
+            candidates = uses_by_owner_and_edges.get(
+                (chain.neighbor_patch_id, signature), ()
+            )
+            counterpart = candidates[0] if candidates else None
+            counterpart_node = neighbor
+        elif chain.neighbor_kind == ChainNeighborKind.SEAM_SELF:
+            pair_key = ("SEAM_SELF", patch_id, signature)
+            candidates = uses_by_owner_and_edges.get((patch_id, signature), ())
+            if len(candidates) != 2:
+                continue
+            counterpart = next(
+                (candidate for candidate in candidates if candidate[0] != chain_ref),
+                None,
+            )
+            counterpart_node = node
+        else:
+            continue
+
+        if pair_key in seen_pairs:
+            continue
+        seen_pairs.add(pair_key)
+        normal_a = _chain_representative_surface_normal(node, chain)
+        if counterpart is not None:
+            other_ref, other_node, other_chain = counterpart
+            normal_b = _chain_representative_surface_normal(other_node, other_chain)
+            consumed_refs.add(other_ref)
+        else:
+            normal_b = counterpart_node.normal.copy()
+        consumed_refs.add(chain_ref)
+        items.append(
+            (
+                list(chain.vert_cos),
+                normal_a,
+                normal_b,
+                chain.is_closed,
+                chain.dihedral_convexity,
+            )
+        )
+        pair_kinds.append(chain.neighbor_kind)
+    return items, consumed_refs, pair_kinds
+
+
+def _collect_wall_pair_chains(graph: PatchGraph, chain_refs=None):
+    """WALL surface pairs, включая две стороны одного SEAM_SELF."""
+
+    corner_chains = []
+    seam_chains = []
+    paired_items, _consumed_refs, pair_kinds = _collect_paired_chain_items(
+        graph, chain_refs=chain_refs, wall_only=True
+    )
+    for item, pair_kind in zip(paired_items, pair_kinds):
+        _points, normal_a, normal_b, _is_closed, _convexity = item
+        if (
+            pair_kind == ChainNeighborKind.PATCH
+            and normal_a.dot(normal_b) > DECAL_COPLANAR_DOT
+        ):
+            seam_chains.append(item)
+        else:
+            corner_chains.append(item)
     return corner_chains, seam_chains
 
 
 def _collect_manual_chain_decals(graph: PatchGraph, chain_refs):
     """Выбранные chains без semantic-фильтра patch type.
 
-    PATCH-neighbor chain даёт угловую декаль по двум поверхностям. MESH_BORDER
-    и SEAM_SELF дают плоскую декаль на owner patch. Две стороны одного общего
-    seam дедуплицируются по patch pair и исходным mesh edge indices.
+    PATCH-neighbor и парный SEAM_SELF дают угловую декаль по двум локальным
+    поверхностям. Непарный MESH_BORDER/SEAM_SELF даёт одно крыло на owner patch.
+    Две стороны seam дедуплицируются по source mesh edge indices.
     """
 
-    corner_chains = []
+    corner_chains, consumed_refs, _pair_kinds = _collect_paired_chain_items(
+        graph, chain_refs=chain_refs, wall_only=False
+    )
     boundary_chains = []
-    seen_patch_chains = set()
     seen_boundary_chains = set()
 
     for patch_id, loop_index, chain_index in sorted(chain_refs or ()):
@@ -451,37 +531,21 @@ def _collect_manual_chain_decals(graph: PatchGraph, chain_refs):
         chain = boundary_loop.chains[chain_index]
         if len(chain.vert_cos) < 2:
             continue
-
-        edge_signature = tuple(sorted(int(index) for index in chain.edge_indices))
-        if chain.neighbor_kind == ChainNeighborKind.PATCH:
-            neighbor = graph.nodes.get(chain.neighbor_patch_id)
-            if neighbor is None:
-                continue
-            pair_key = (
-                min(patch_id, chain.neighbor_patch_id),
-                max(patch_id, chain.neighbor_patch_id),
-                edge_signature,
-            )
-            if pair_key in seen_patch_chains:
-                continue
-            seen_patch_chains.add(pair_key)
-            corner_chains.append(
-                (
-                    list(chain.vert_cos),
-                    node.normal,
-                    neighbor.normal,
-                    chain.is_closed,
-                    chain.dihedral_convexity,
-                )
-            )
+        chain_ref = (patch_id, loop_index, chain_index)
+        if chain_ref in consumed_refs:
             continue
 
+        edge_signature = _chain_edge_signature(chain)
         boundary_key = edge_signature or (patch_id, loop_index, chain_index)
         if boundary_key in seen_boundary_chains:
             continue
         seen_boundary_chains.add(boundary_key)
         boundary_chains.append(
-            (list(chain.vert_cos), node.normal, chain.is_closed)
+            (
+                list(chain.vert_cos),
+                _chain_representative_surface_normal(node, chain),
+                chain.is_closed,
+            )
         )
 
     return corner_chains, boundary_chains

@@ -244,6 +244,62 @@ class TestOrientedRibbonRuns:
 
 
 class TestCollectWallPairChains:
+    def test_paired_self_seam_on_wrapped_wall_becomes_corner(self):
+        side_a = _make_chain(
+            [0, 1],
+            [(0, 0, -1), (0, 0, 1)],
+            -2,
+            edge_indices=[42],
+            dihedral_convexity=0.5,
+            side_face_normals=[(0, 1, 0)],
+        )
+        side_b = _make_chain(
+            [1, 0],
+            [(0, 0, 1), (0, 0, -1)],
+            -2,
+            edge_indices=[42],
+            dihedral_convexity=0.5,
+            side_face_normals=[(1, 0, 0)],
+        )
+        wrapped_wall = _make_wall_node(
+            0, (0.707, 0.707, 0), (0, 0, 1), [side_a, side_b]
+        )
+        graph = _make_graph(wrapped_wall)
+
+        corner_chains, seam_chains = _collect_wall_pair_chains(graph)
+
+        assert len(corner_chains) == 1
+        assert seam_chains == []
+        points, normal_a, normal_b, _closed, convexity = corner_chains[0]
+        assert points == side_a.vert_cos
+        assert normal_a.dot(Vector((0, 1, 0))) > 0.999
+        assert normal_b.dot(Vector((1, 0, 0))) > 0.999
+        assert convexity == 0.5
+
+    def test_nearly_coplanar_self_seam_remains_corner(self):
+        side_a = _make_chain(
+            [0, 1],
+            [(0, 0, -1), (0, 0, 1)],
+            -2,
+            edge_indices=[42],
+            side_face_normals=[(0, 1, 0)],
+        )
+        side_b = _make_chain(
+            [1, 0],
+            [(0, 0, 1), (0, 0, -1)],
+            -2,
+            edge_indices=[42],
+            side_face_normals=[(0.05, 0.99875, 0)],
+        )
+        wrapped_wall = _make_wall_node(0, (0, 1, 0), (0, 0, 1), [side_a, side_b])
+
+        corner_chains, seam_chains = _collect_wall_pair_chains(
+            _make_graph(wrapped_wall)
+        )
+
+        assert len(corner_chains) == 1
+        assert seam_chains == []
+
     def test_corner_vs_seam_split_and_dedupe(self):
         # patch 0 | patch 1 — перпендикулярны (угол), patch 0 | patch 2 —
         # копланарны (шов). Обратные цепочки от соседей должны быть
@@ -338,6 +394,35 @@ class TestCollectWallPairChains:
 
 
 class TestManualChainDecals:
+    def test_selected_self_seam_uses_both_owner_sides(self):
+        side_a = _make_chain(
+            [0, 1],
+            [(0, 0, -1), (0, 0, 1)],
+            -2,
+            edge_indices=[42],
+            side_face_normals=[(0, 1, 0)],
+        )
+        side_b = _make_chain(
+            [1, 0],
+            [(0, 0, 1), (0, 0, -1)],
+            -2,
+            edge_indices=[42],
+            side_face_normals=[(1, 0, 0)],
+        )
+        wrapped_wall = _make_wall_node(
+            0, (0.707, 0.707, 0), (0, 0, 1), [side_a, side_b]
+        )
+        graph = _make_graph(wrapped_wall)
+
+        chain_refs = chain_refs_for_edge_indices(graph, [42])
+        corner_chains, boundary_chains = _collect_manual_chain_decals(
+            graph, chain_refs
+        )
+
+        assert chain_refs == {(0, 0, 0), (0, 0, 1)}
+        assert len(corner_chains) == 1
+        assert boundary_chains == []
+
     def test_patch_pair_ignores_semantic_patch_types(self):
         owner_chain = _make_chain(
             [0, 1],
