@@ -6,6 +6,7 @@ from cftuv.decals import (
     _OrientedRibbonRun,
     _boundary_wing_direction,
     _collect_manual_chain_decals,
+    _collect_manual_edge_decals,
     _collect_trim_ribbon_runs,
     _collect_wall_pair_chains,
     _corner_wing_directions,
@@ -394,6 +395,72 @@ class TestCollectWallPairChains:
 
 
 class TestManualChainDecals:
+    def test_selected_edges_are_atomic_across_asymmetric_chain_splits(self):
+        wall_chain = _make_chain(
+            [0, 1, 2, 3],
+            [(0, 0, 0), (1, 0, 0), (2, 0, 0), (3, 0, 0)],
+            1,
+            edge_indices=[5, 14, 20],
+            side_face_normals=[(0, 1, 0), (0, 1, 0), (0, 1, 0)],
+        )
+        top_edge_a = _make_chain(
+            [1, 0],
+            [(1, 0, 0), (0, 0, 0)],
+            0,
+            edge_indices=[5],
+            side_face_normals=[(0, 0, 1)],
+        )
+        top_edge_b = _make_chain(
+            [2, 1],
+            [(2, 0, 0), (1, 0, 0)],
+            0,
+            edge_indices=[14],
+            side_face_normals=[(0, 0, 1)],
+        )
+        wall = _make_wall_node(0, (0, 1, 0), (0, 0, 1), [wall_chain])
+        top = _make_wall_node(
+            1, (0, 0, 1), (0, 1, 0), [top_edge_a, top_edge_b]
+        )
+        top.patch_type = PatchType.FLOOR
+
+        paired_edges, boundary_edges = _collect_manual_edge_decals(
+            _make_graph(wall, top), [5, 14]
+        )
+
+        assert len(paired_edges) == 2
+        assert boundary_edges == []
+        assert [[tuple(point) for point in item[0]] for item in paired_edges] == [
+            [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0)],
+            [(1.0, 0.0, 0.0), (2.0, 0.0, 0.0)],
+        ]
+        assert all(item[1].dot(Vector((0, 1, 0))) > 0.999 for item in paired_edges)
+        assert all(item[2].dot(Vector((0, 0, 1))) > 0.999 for item in paired_edges)
+
+    def test_selected_self_seam_pairs_two_uses_of_one_edge(self):
+        side_a = _make_chain(
+            [0, 1],
+            [(0, 0, -1), (0, 0, 1)],
+            -2,
+            edge_indices=[35],
+            side_face_normals=[(1, 0, 0)],
+        )
+        side_b = _make_chain(
+            [1, 0],
+            [(0, 0, 1), (0, 0, -1)],
+            -2,
+            edge_indices=[35],
+            side_face_normals=[(0, -1, 0)],
+        )
+        wall = _make_wall_node(0, (1, -1, 0), (0, 0, 1), [side_a, side_b])
+
+        paired_edges, boundary_edges = _collect_manual_edge_decals(
+            _make_graph(wall), [35]
+        )
+
+        assert len(paired_edges) == 1
+        assert abs(paired_edges[0][4]) > 0.99
+        assert boundary_edges == []
+
     def test_selected_self_seam_uses_both_owner_sides(self):
         side_a = _make_chain(
             [0, 1],

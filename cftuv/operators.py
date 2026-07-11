@@ -461,6 +461,17 @@ def _restore_face_selection(bm, selected_indices):
         face.select = face.index in selected_set
 
 
+def _restore_edge_selection(obj, selected_indices):
+    if obj is None or obj.name not in bpy.data.objects or obj.mode != "EDIT":
+        return
+    selected_set = {int(index) for index in selected_indices}
+    bm = bmesh.from_edit_mesh(obj.data)
+    bm.edges.ensure_lookup_table()
+    for edge in bm.edges:
+        edge.select = edge.index in selected_set
+    bmesh.update_edit_mesh(obj.data)
+
+
 def _format_solver_preflight_breakdown(preflight):
     issue_counts = {}
     for issue in preflight.issues:
@@ -671,9 +682,12 @@ def _prepare_decal_generation(context):
             chain_refs,
             manual_selection,
             len(selected_edge_indices),
+            tuple(selected_edge_indices),
         )
     finally:
         _restore_mode_and_selection(obj, original_mode, selected_faces)
+        if manual_selection:
+            _restore_edge_selection(obj, selected_edge_indices)
 
 
 def _decal_drag_value(base_value, mouse_delta, precise=False):
@@ -1233,7 +1247,15 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         )
 
     def _generate(self, context, state, settings=None):
-        obj, patch_graph, base_settings, chain_refs, _manual, _edge_count = state
+        (
+            obj,
+            patch_graph,
+            base_settings,
+            chain_refs,
+            _manual,
+            _edge_count,
+            selected_edge_indices,
+        ) = state
         return generate_decal_objects(
             patch_graph,
             obj,
@@ -1241,10 +1263,19 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             self.mode,
             scene=context.scene,
             chain_refs=chain_refs,
+            selected_edge_indices=selected_edge_indices,
         )
 
     def _report_created(self, created, state, suffix=""):
-        _obj, _graph, _settings, chain_refs, manual_selection, edge_count = state
+        (
+            _obj,
+            _graph,
+            _settings,
+            chain_refs,
+            manual_selection,
+            edge_count,
+            _selected_edge_indices,
+        ) = state
         summary = "Created: " + ", ".join(created)
         if manual_selection:
             summary += f" | chains:{len(chain_refs)} edges:{edge_count}"

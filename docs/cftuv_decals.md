@@ -18,16 +18,21 @@ normal. На wrapped WALL patch это снова смешивает TOP/BOTTOM 
 2. Edge Select Mode — ручная генерация по выбранным seam-marked edges.
 3. `PatchGraph` строится по всему mesh, поэтому face selection не требуется и не
    обрезает соседние patches.
-4. Каждое выбранное seam-ребро служит seed: захватывается целая каноническая
-   `BoundaryChain`, содержащая его.
+4. Каждое выбранное seam-ребро является атомарным manual scope. Его две
+   owner-side записи находятся внутри канонических `BoundaryChain` и
+   спариваются по исходному mesh edge index. Поэтому разная сегментация chains
+   на двух patches не расширяет выбор до целой петли и не создаёт дубли.
+5. Выбранные seam edges сохраняются выделенными после генерации для повторной
+   настройки или создания другого decal mode на том же scope.
 
 Для `Decal Corners` и `Decal Seams` ручной режим не фильтрует `PatchType`: WALL,
 FLOOR, SLOPE, потолки и другие ориентации равноправны. PATCH-neighbor chain и
 две стороны одного `SEAM_SELF` создают двухкрылый corner-strip по двум локальным
 поверхностям. Непарный `MESH_BORDER/SEAM_SELF` chain создаёт одно corner-крыло
-внутрь owner patch. В обоих случаях используются `Corner Width`,
-`Surface Offset` и corner UV rect; стороны общего физического ребра
-дедуплицируются по source edge indices.
+внутрь owner patch. `Decal Corners` использует `Corner Width` и corner UV rect;
+`Decal Seams` — `Seam Width` и seam UV rect. На неплоском стыке seam состоит
+из двух локальных полукрыльев, а на копланарном — из одной центрированной
+ленты. Стороны общего физического ребра дедуплицируются по source edge index.
 
 В автоматическом режиме внутренние и внешние углы различаются через canonical
 `BoundaryChain.dihedral_convexity`: negative — concave/inner, positive —
