@@ -41,6 +41,7 @@ def _make_chain(
     neighbor_patch_id,
     edge_indices=None,
     dihedral_convexity=0.0,
+    side_face_normals=None,
 ):
     chain = BoundaryChain(
         vert_indices=list(vert_indices),
@@ -51,6 +52,7 @@ def _make_chain(
             else list(range(len(vert_indices) - 1))
         ),
         neighbor_patch_id=neighbor_patch_id,
+        side_face_normals=[Vector(normal) for normal in (side_face_normals or ())],
     )
     chain.dihedral_convexity = dihedral_convexity
     return chain
@@ -82,6 +84,25 @@ def _ribbon_edges(runs):
 
 
 class TestCollectTrimSegments:
+    def test_uses_local_owner_face_normal_instead_of_patch_average(self):
+        # Один wrapped WALL patch может содержать стены с разными нормалями.
+        # Средняя +Y ошибочно объявила бы нижнее +X ребро верхним; локальная
+        # owner-face normal -Y правильно оставляет его в BOTTOM.
+        chain = _make_chain(
+            [0, 1],
+            [(0, 0, 0), (1, 0, 0)],
+            -1,
+            side_face_normals=[(0, -1, 0)],
+        )
+        wall = _make_wall_node(0, (0, 1, 0), (0, 0, 1), [chain])
+        graph = _make_graph(wall)
+
+        top_runs, bottom_runs = _collect_trim_ribbon_runs(graph)
+
+        assert top_runs == []
+        assert _ribbon_edges(bottom_runs) == [(0, 1)]
+        assert bottom_runs[0].segment_normals[0].y == -1.0
+
     def test_top_bottom_classification(self):
         # Стена с нормалью +Y, вертикаль +Z. Верхняя кромка идёт по +X
         # (outward = d x n = +Z), нижняя — по -X (outward = -Z).

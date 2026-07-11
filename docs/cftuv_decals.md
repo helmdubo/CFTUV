@@ -66,11 +66,14 @@ operators.py
    или patch не-WALL типа (FLOOR/SLOPE). WALL-WALL швы исключены: их
    обслуживают corner/seam декали (в прототипе на горизонтальных WALL-WALL
    стыках возникали двойные ленты — здесь это устранено).
-2. Каждое ребро цепочки классифицируется: `outward = edge_dir × patch.normal`
-   (порядок вершин цепочки следует за winding фейсов, поэтому outward смотрит
-   наружу от патча в его плоскости); `score = outward · basis_v`. Выше
-   `DECAL_DIR_THRESHOLD` — верхняя кромка, ниже минус порога — нижняя.
-   Рёбра короче `DECAL_NOISE_THRESHOLD` пропускаются.
+2. Каждое ребро цепочки классифицируется по analysis-owned normal его
+   `side_face`: `outward = edge_dir × side_face_normal`; локальный `up` —
+   проекция `WORLD_UP` на эту поверхность. Выше `DECAL_DIR_THRESHOLD` —
+   верхняя кромка, ниже минус порога — нижняя. `patch.normal` используется
+   только как legacy fallback, если локальный sample отсутствует. Это важно
+   для wrapped WALL patch: один patch может содержать весь периметр здания,
+   и его средняя normal не описывает ни одну конкретную стену. Рёбра короче
+   `DECAL_NOISE_THRESHOLD` пропускаются.
 3. Каждый сегмент сохраняется как часть ориентированного ribbon-run вместе с
    `ChainRef`, owner-normal и owner-up. Runs соединяются через совпадающие
    endpoints; вершины с неоднозначным point-contact (`degree != 2`) разрывают
@@ -83,6 +86,10 @@ operators.py
    независимо от UV: `base` всегда остаётся на нижней стороне UV-ректа, `tip`
    — на верхней. Поэтому замкнутая лента не начинает отображаться с обратной
    стороны и не меняет верх/низ текстуры.
+
+`BoundaryChain.side_face_normals` сериализуется analysis-слоем на финальных
+chains и выровнен с `edge_indices`. Это геометрический факт owner-side без
+живых `BMFace` ссылок; decal producer не читает исходный BMesh.
 
 ### CORNERS — углы WALL-WALL
 

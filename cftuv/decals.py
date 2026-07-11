@@ -38,6 +38,7 @@ from .constants import (
     DECAL_UV_RECT_SEAM,
     DECAL_UV_RECT_TOP,
     DECAL_WELD_DISTANCE,
+    WORLD_UP,
 )
 from .model import ChainNeighborKind, ChainRef, DecalSettings, PatchGraph, PatchType
 
@@ -114,6 +115,23 @@ def _edge_key(vert_a: int, vert_b: int) -> tuple[int, int]:
     return (vert_a, vert_b) if vert_a < vert_b else (vert_b, vert_a)
 
 
+def _chain_segment_surface_frame(node, chain, segment_index):
+    """Local owner normal/up for one boundary segment, with legacy fallback."""
+
+    normal = node.normal.copy()
+    if segment_index < len(chain.side_face_normals):
+        local_normal = chain.side_face_normals[segment_index]
+        if local_normal.length_squared > 1e-12:
+            normal = local_normal.normalized()
+
+    up = WORLD_UP - normal * WORLD_UP.dot(normal)
+    if up.length_squared > 1e-12:
+        up = up.normalized()
+    else:
+        up = node.basis_v.copy()
+    return normal, up
+
+
 def chain_refs_for_edge_indices(
     graph: PatchGraph, edge_indices
 ) -> set[ChainRef]:
@@ -174,8 +192,6 @@ def _collect_trim_ribbon_runs(graph: PatchGraph, chain_refs=None):
         node = graph.nodes[patch_id]
         if node.patch_type != PatchType.WALL:
             continue
-        normal = node.normal.copy()
-        up = node.basis_v.copy()
         for loop_index, boundary_loop in enumerate(node.boundary_loops):
             for chain_index, chain in enumerate(boundary_loop.chains):
                 chain_ref = (patch_id, loop_index, chain_index)
@@ -190,6 +206,7 @@ def _collect_trim_ribbon_runs(graph: PatchGraph, chain_refs=None):
                 edge_count = len(verts) if chain.is_closed else len(verts) - 1
                 for index in range(edge_count):
                     next_index = (index + 1) % len(verts)
+                    normal, up = _chain_segment_surface_frame(node, chain, index)
                     segment = points[next_index] - points[index]
                     if segment.length < DECAL_NOISE_THRESHOLD:
                         continue

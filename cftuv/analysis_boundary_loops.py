@@ -322,6 +322,26 @@ def _build_boundary_chain_objects(raw_chains, basis_u, basis_v):
     return chains
 
 
+def _assign_boundary_chain_side_face_normals(chains, bm):
+    """Serialize the owner-face normal for every final chain segment."""
+
+    bm.faces.ensure_lookup_table()
+    face_count = len(bm.faces)
+    for chain in chains:
+        side_normals = []
+        for segment_index in range(len(chain.edge_indices)):
+            face_index = (
+                int(chain.side_face_indices[segment_index])
+                if segment_index < len(chain.side_face_indices)
+                else -1
+            )
+            if 0 <= face_index < face_count:
+                side_normals.append(bm.faces[face_index].normal.copy())
+            else:
+                side_normals.append(Vector((0.0, 0.0, 0.0)))
+        chain.side_face_normals = side_normals
+
+
 def _downgrade_same_role_point_contact_chains(chains, basis_u, basis_v, patch_id, loop_index):
     chain_count = len(chains)
     if chain_count < 2:
@@ -1074,6 +1094,7 @@ def _annotate_boundary_loop_corner_wedges(boundary_loop, patch_face_indices, bm)
 def _finalize_boundary_loop_build(state, basis_u, basis_v, patch_id, loop_index, patch_face_indices, bm):
     boundary_loop = state.boundary_loop
     derived_topology = _derive_boundary_loop_topology(state, basis_u, basis_v, patch_id, loop_index)
+    _assign_boundary_chain_side_face_normals(derived_topology.chains, bm)
     boundary_loop.chains = derived_topology.chains
     boundary_loop.corners = derived_topology.corners
     _assign_loop_chain_endpoint_topology(boundary_loop)

@@ -147,6 +147,9 @@ class BoundaryChain:
     vert_cos: list[Vector] = field(default_factory=list)
     edge_indices: list[int] = field(default_factory=list)
     side_face_indices: list[int] = field(default_factory=list)
+    # Analysis-owned owner-surface normal per chain segment/edge.
+    # Aligned with edge_indices; never contains live BMesh references.
+    side_face_normals: list[Vector] = field(default_factory=list)
     is_closed: bool = False
 
     # Contextual topology
