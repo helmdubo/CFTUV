@@ -1,5 +1,15 @@
 # CFTUV Decal Producer (Phase 3)
 
+## Обновление установленного аддона
+
+Decal producer и PatchGraph analysis обновляются только как единый пакет
+`cftuv`. Частичная замена отдельных файлов не поддерживается: например, новый
+`decals.py` при старом `analysis_boundary_loops.py` получает пустые
+`BoundaryChain.side_face_normals` и вынужденно возвращается к patch-average
+normal. На wrapped WALL patch это снова смешивает TOP/BOTTOM и совмещает оба
+крыла CORNERS. После обновления всего каталога аддона Blender нужно
+перезапустить либо перезагрузить все analysis/decal modules вместе.
+
 ## Ручной режим по Edge Select Mode
 
 Отдельного boolean-переключателя нет. В Edit Mode режим выбора определяет scope:
