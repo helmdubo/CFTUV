@@ -3,15 +3,18 @@ from __future__ import annotations
 from mathutils import Vector
 
 from cftuv.decals import (
+    _OrientedRibbonRun,
     _boundary_wing_direction,
-    _chain_edge_paths,
     _collect_manual_chain_decals,
-    _collect_trim_segments,
+    _collect_trim_ribbon_runs,
     _collect_wall_pair_chains,
     _corner_wing_directions,
     _dedupe_polyline,
     _polyline_tangents,
-    _trim_vertex_frames,
+    _ribbon_vertex_frames,
+    _stitch_ribbon_runs,
+    _trim_quad_layout,
+    _trim_quad_requires_flip,
     chain_refs_for_edge_indices,
 )
 from cftuv.model import (
@@ -60,6 +63,24 @@ def _make_graph(*nodes):
     return graph
 
 
+def _make_ribbon_run(start, end, point_a, point_b, normal=(0, 1, 0)):
+    return _OrientedRibbonRun(
+        vert_indices=[start, end],
+        points=[Vector(point_a), Vector(point_b)],
+        segment_normals=[Vector(normal)],
+        segment_ups=[Vector((0, 0, 1))],
+        segment_chain_refs=[(start, 0, 0)],
+    )
+
+
+def _ribbon_edges(runs):
+    return [
+        (run.vert_indices[index], run.vert_indices[index + 1])
+        for run in runs
+        for index in range(len(run.vert_indices) - 1)
+    ]
+
+
 class TestCollectTrimSegments:
     def test_top_bottom_classification(self):
         # Стена с нормалью +Y, вертикаль +Z. Верхняя кромка идёт по +X
@@ -70,15 +91,14 @@ class TestCollectTrimSegments:
         wall = _make_wall_node(0, (0, 1, 0), (0, 0, 1), [top_chain, bottom_chain, side_chain])
         graph = _make_graph(wall)
 
-        top_edges, bottom_edges, edge_frames, vert_cos = _collect_trim_segments(graph)
+        top_runs, bottom_runs = _collect_trim_ribbon_runs(graph)
 
-        assert top_edges == [(0, 1)]
-        assert bottom_edges == [(2, 3)]
-        assert (0, 1) in edge_frames and (2, 3) in edge_frames
-        normal, up = edge_frames[(0, 1)]
+        assert _ribbon_edges(top_runs) == [(0, 1)]
+        assert _ribbon_edges(bottom_runs) == [(2, 3)]
+        normal = top_runs[0].segment_normals[0]
+        up = top_runs[0].segment_ups[0]
         assert abs(normal.y - 1.0) < 1e-6
         assert abs(up.z - 1.0) < 1e-6
-        assert set(vert_cos.keys()) == {0, 1, 2, 3}
 
     def test_wall_wall_chains_excluded(self):
         # Кромка к WALL соседу — под corner/seam декали, в тримы не идёт.
@@ -92,10 +112,10 @@ class TestCollectTrimSegments:
         floor.patch_type = PatchType.FLOOR
         graph = _make_graph(wall, other_wall, floor)
 
-        top_edges, bottom_edges, _frames, _cos = _collect_trim_segments(graph)
+        top_runs, bottom_runs = _collect_trim_ribbon_runs(graph)
 
-        assert top_edges == []
-        assert bottom_edges == [(2, 3)]
+        assert top_runs == []
+        assert _ribbon_edges(bottom_runs) == [(2, 3)]
 
     def test_non_wall_patches_ignored(self):
         chain = _make_chain([0, 1], [(0, 0, 1), (1, 0, 1)], -1)
@@ -104,18 +124,18 @@ class TestCollectTrimSegments:
         floor.boundary_loops = [BoundaryLoop(chains=[chain])]
         graph = _make_graph(floor)
 
-        top_edges, bottom_edges, _frames, _cos = _collect_trim_segments(graph)
+        top_runs, bottom_runs = _collect_trim_ribbon_runs(graph)
 
-        assert top_edges == [] and bottom_edges == []
+        assert top_runs == [] and bottom_runs == []
 
     def test_short_edges_skipped(self):
         chain = _make_chain([0, 1], [(0, 0, 1), (0.01, 0, 1)], -1)
         wall = _make_wall_node(0, (0, 1, 0), (0, 0, 1), [chain])
         graph = _make_graph(wall)
 
-        top_edges, bottom_edges, _frames, _cos = _collect_trim_segments(graph)
+        top_runs, bottom_runs = _collect_trim_ribbon_runs(graph)
 
-        assert top_edges == [] and bottom_edges == []
+        assert top_runs == [] and bottom_runs == []
 
     def test_selected_edge_enables_its_complete_chain(self):
         top_chain = _make_chain(
@@ -139,44 +159,67 @@ class TestCollectTrimSegments:
         graph = _make_graph(wall)
 
         chain_refs = chain_refs_for_edge_indices(graph, [11])
-        top_edges, bottom_edges, _frames, _cos = _collect_trim_segments(
+        top_runs, bottom_runs = _collect_trim_ribbon_runs(
             graph, chain_refs=chain_refs
         )
 
         assert chain_refs == {(0, 0, 0)}
-        assert top_edges == [(0, 1), (1, 2)]
-        assert bottom_edges == []
+        assert _ribbon_edges(top_runs) == [(0, 1), (1, 2)]
+        assert bottom_runs == []
 
 
-class TestChainEdgePaths:
-    def test_merges_shared_vertices(self):
-        paths = _chain_edge_paths([(0, 1), (1, 2), (5, 6)])
-        assert sorted(len(p) for p in paths) == [2, 3]
-        merged = next(p for p in paths if len(p) == 3)
-        assert merged in ([0, 1, 2], [2, 1, 0])
+class TestOrientedRibbonRuns:
+    def test_mixed_chain_directions_form_one_closed_run(self):
+        runs = [
+            _make_ribbon_run(0, 1, (0, 0, 0), (1, 0, 0), (0, 1, 0)),
+            _make_ribbon_run(2, 1, (1, 1, 0), (1, 0, 0), (1, 0, 0)),
+            _make_ribbon_run(2, 3, (1, 1, 0), (0, 1, 0), (0, -1, 0)),
+            _make_ribbon_run(0, 3, (0, 0, 0), (0, 1, 0), (-1, 0, 0)),
+        ]
 
-    def test_grows_both_directions(self):
-        paths = _chain_edge_paths([(1, 2), (0, 1), (2, 3)])
-        assert len(paths) == 1
-        assert paths[0] in ([0, 1, 2, 3], [3, 2, 1, 0])
+        stitched = _stitch_ribbon_runs(runs)
 
-    def test_empty(self):
-        assert _chain_edge_paths([]) == []
+        assert len(stitched) == 1
+        ring = stitched[0]
+        assert ring.is_closed
+        assert ring.vert_indices == [0, 1, 2, 3, 0]
+        assert len(ring.segment_normals) == 4
+        frames = _ribbon_vertex_frames(ring)
+        assert (frames[0][0] - frames[-1][0]).length < 1e-9
 
+    def test_point_contact_branch_is_not_joined_arbitrarily(self):
+        runs = [
+            _make_ribbon_run(0, 1, (0, 0, 0), (1, 0, 0)),
+            _make_ribbon_run(1, 2, (1, 0, 0), (2, 0, 0)),
+            _make_ribbon_run(1, 3, (1, 0, 0), (1, 1, 0)),
+        ]
 
-class TestTrimVertexFrames:
-    def test_bisector_at_patch_junction(self):
-        frames_by_edge = {
-            (0, 1): (Vector((0, 1, 0)), Vector((0, 0, 1))),
-            (1, 2): (Vector((1, 0, 0)), Vector((0, 0, 1))),
-        }
-        frames = _trim_vertex_frames([0, 1, 2], frames_by_edge)
+        stitched = _stitch_ribbon_runs(runs)
 
-        assert abs(frames[0][0].y - 1.0) < 1e-6  # конец — фрейм своего ребра
-        mid_normal = frames[1][0]
-        assert abs(mid_normal.x - mid_normal.y) < 1e-6  # биссектриса
-        assert mid_normal.length - 1.0 < 1e-6
-        assert abs(frames[2][0].x - 1.0) < 1e-6
+        assert len(stitched) == 3
+        assert all(len(run.vert_indices) == 2 for run in stitched)
+
+    def test_reversed_segment_requests_winding_flip(self):
+        down = Vector((0, 0, -1))
+        desired_normal = Vector((0, 1, 0))
+
+        assert not _trim_quad_requires_flip(
+            Vector((0, 0, 0)), Vector((1, 0, 0)), down, down, desired_normal
+        )
+        assert _trim_quad_requires_flip(
+            Vector((1, 0, 0)), Vector((0, 0, 0)), down, down, desired_normal
+        )
+
+    def test_winding_flip_does_not_swap_base_tip_uv(self):
+        verts, uvs = _trim_quad_layout(
+            "base_a", "base_b", "tip_a", "tip_b", 2.0, 3.0, 0.8, 1.0, True
+        )
+
+        uv_by_vert = dict(zip(verts, uvs))
+        assert uv_by_vert["base_a"][1] == 0.8
+        assert uv_by_vert["base_b"][1] == 0.8
+        assert uv_by_vert["tip_a"][1] == 1.0
+        assert uv_by_vert["tip_b"][1] == 1.0
 
 
 class TestCollectWallPairChains:
@@ -336,6 +379,21 @@ class TestManualChainDecals:
 
 
 class TestCornerWingDirections:
+    def test_planar_wings_follow_non_right_dihedral(self):
+        # Две плоскости под 60/120 градусов вокруг вертикального seam.
+        # Направления крыльев должны сохранить этот угол, а не стать 90°.
+        wings = _corner_wing_directions(
+            Vector((0, 0, 1)),
+            Vector((0, -1, 0)),
+            Vector((0.8660254038, -0.5, 0)),
+            dihedral_convexity=1.0,
+        )
+
+        assert wings is not None
+        wing_a, wing_b = wings
+        assert abs(abs(wing_a.dot(wing_b)) - 0.5) < 1e-6
+        assert abs(wing_a.dot(wing_b)) > 0.1  # явно не 90°
+
     def test_convex_wings_follow_patch_interiors(self):
         wings = _corner_wing_directions(
             Vector((0, 0, 1)),
@@ -394,24 +452,6 @@ class TestPolylineTangents:
         assert abs(first.x + first.y) < 1e-6 and first.x > 0
 
 
-class TestTrimRingClosure:
-    def test_ring_endpoint_frames_bisected(self):
-        # Кольцо из рёбер двух перпендикулярных стен: точка замыкания
-        # должна получить биссектрису, идентичную на обоих концах пути.
-        frames_by_edge = {
-            (0, 3): (Vector((1, 0, 0)), Vector((0, 0, 1))),  # последнее ребро
-            (0, 1): (Vector((0, 1, 0)), Vector((0, 0, 1))),  # первое ребро
-            (1, 2): (Vector((0, 1, 0)), Vector((0, 0, 1))),
-            (2, 3): (Vector((1, 0, 0)), Vector((0, 0, 1))),
-        }
-        ring_path = [0, 1, 2, 3, 0]
-        frames = _trim_vertex_frames(ring_path, frames_by_edge)
-        first_normal = frames[0][0]
-        last_normal = frames[-1][0]
-        assert (first_normal - last_normal).length < 1e-9
-        assert abs(first_normal.x - first_normal.y) < 1e-6  # биссектриса
-
-
 class TestDedupePolyline:
     def test_collapses_near_duplicates(self):
         points = [
@@ -437,9 +477,9 @@ class TestTrimEdgeDedup:
         wall_b = _make_wall_node(1, (0, -1, 0), (0, 0, 1), [chain_b])
         graph = _make_graph(wall_a, wall_b)
 
-        top_edges, bottom_edges, _frames, _cos = _collect_trim_segments(graph)
+        top_runs, bottom_runs = _collect_trim_ribbon_runs(graph)
 
         # ребро (0,1) — верхняя кромка обеих стен, но ключ регистрируется
         # только первым patch; дубликат отброшен (first-wins)
-        assert top_edges == [(0, 1)]
-        assert bottom_edges == []
+        assert _ribbon_edges(top_runs) == [(0, 1)]
+        assert bottom_runs == []

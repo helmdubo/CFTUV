@@ -11,8 +11,8 @@ Decals_Generated с матрицей источника.
 
 - TRIM TOP/BOTTOM: граничные рёбра WALL patches классифицируются по
   направлению «наружу» в плоскости стены (edge_dir x normal против
-  basis_v), собираются в глобальные цепочки через границы patches и
-  выдавливаются лентой с адаптивной биссектрисой нормалей на стыках.
+  basis_v), собираются в ориентированные ribbon-runs с сохранением
+  ChainRef/owner-frame и выдавливаются с адаптивной биссектрисой на стыках.
 - CORNERS: WALL-WALL цепочки с непараллельными нормалями — спайн вдоль
   полилинии цепочки (работает на изогнутых углах) + два крыла по стенам.
 - SEAMS: копланарные WALL-WALL цепочки — плоская лента по шву.
@@ -20,6 +20,8 @@ Decals_Generated с матрицей источника.
 UV лент пишутся в прямоугольники атласа (DECAL_UV_RECT_*), продольная
 координата — длина дуги * uv_length_scale (final_scale плотности).
 """
+
+from dataclasses import dataclass
 
 import bpy
 import bmesh
@@ -47,6 +49,60 @@ _MODE_OBJECT_SUFFIX = {
     "CORNERS": "Corners",
     "SEAMS": "Seams",
 }
+
+
+@dataclass
+class _OrientedRibbonRun:
+    """Ориентированный путь ленты с owner-frame на каждый сегмент.
+
+    В отличие от голого списка рёбер run не теряет источник и нормаль
+    поверхности при склейке chains. Список segment_* всегда на один элемент
+    короче vert_indices/points.
+    """
+
+    vert_indices: list[int]
+    points: list[Vector]
+    segment_normals: list[Vector]
+    segment_ups: list[Vector]
+    segment_chain_refs: list[ChainRef]
+
+    @property
+    def start_vert_index(self) -> int:
+        return self.vert_indices[0]
+
+    @property
+    def end_vert_index(self) -> int:
+        return self.vert_indices[-1]
+
+    @property
+    def is_closed(self) -> bool:
+        return (
+            len(self.vert_indices) > 2
+            and self.start_vert_index == self.end_vert_index
+        )
+
+    def reversed_copy(self):
+        return _OrientedRibbonRun(
+            vert_indices=list(reversed(self.vert_indices)),
+            points=list(reversed(self.points)),
+            segment_normals=list(reversed(self.segment_normals)),
+            segment_ups=list(reversed(self.segment_ups)),
+            segment_chain_refs=list(reversed(self.segment_chain_refs)),
+        )
+
+
+def _join_ribbon_runs(first, second):
+    """Соединяет два уже ориентированных run с общей конечной вершиной."""
+
+    if first.end_vert_index != second.start_vert_index:
+        raise ValueError("Ribbon runs do not share an oriented endpoint")
+    return _OrientedRibbonRun(
+        vert_indices=first.vert_indices + second.vert_indices[1:],
+        points=first.points + second.points[1:],
+        segment_normals=first.segment_normals + second.segment_normals,
+        segment_ups=first.segment_ups + second.segment_ups,
+        segment_chain_refs=first.segment_chain_refs + second.segment_chain_refs,
+    )
 
 
 # ============================================================
@@ -103,29 +159,23 @@ def _chain_eligible_for_trim(graph: PatchGraph, chain) -> bool:
     return False
 
 
-def _collect_trim_segments(graph: PatchGraph, chain_refs=None):
-    """Классифицирует граничные рёбра WALL patches на TOP/BOTTOM.
+def _collect_trim_ribbon_runs(graph: PatchGraph, chain_refs=None):
+    """Собирает TOP/BOTTOM как ориентированные chain-derived segment runs.
 
-    outward = edge_dir x patch_normal — направление «наружу» от патча в
-    его плоскости (порядок вершин цепочки следует за winding фейсов).
-    score = outward . basis_v: > порога — верхняя кромка, < — нижняя.
-
-    Возвращает (top_edges, bottom_edges, edge_frames, vert_cos):
-    рёбра — пары индексов вершин, edge_frames — (normal, up) стены на
-    ребро, vert_cos — позиции вершин в локальном пространстве.
+    Каждый сегмент сохраняет owner normal/up и ChainRef. Дальнейшая склейка
+    может развернуть порядок точек для непрерывного обхода, но не теряет
+    желаемую нормаль поверхности и потому способна исправить winding quad.
     """
 
-    top_edges = []
-    bottom_edges = []
-    edge_frames = {}
-    vert_cos = {}
-
+    top_runs = []
+    bottom_runs = []
+    seen_edge_keys = set()
     for patch_id in sorted(graph.nodes.keys()):
         node = graph.nodes[patch_id]
         if node.patch_type != PatchType.WALL:
             continue
-        normal = node.normal
-        up = node.basis_v
+        normal = node.normal.copy()
+        up = node.basis_v.copy()
         for loop_index, boundary_loop in enumerate(node.boundary_loops):
             for chain_index, chain in enumerate(boundary_loop.chains):
                 chain_ref = (patch_id, loop_index, chain_index)
@@ -134,124 +184,189 @@ def _collect_trim_segments(graph: PatchGraph, chain_refs=None):
                 if not _chain_eligible_for_trim(graph, chain):
                     continue
                 verts = chain.vert_indices
-                cos = chain.vert_cos
-                if len(verts) < 2 or len(verts) != len(cos):
+                points = chain.vert_cos
+                if len(verts) < 2 or len(verts) != len(points):
                     continue
                 edge_count = len(verts) if chain.is_closed else len(verts) - 1
-                for i in range(edge_count):
-                    j = (i + 1) % len(verts)
-                    seg = cos[j] - cos[i]
-                    if seg.length < DECAL_NOISE_THRESHOLD:
+                for index in range(edge_count):
+                    next_index = (index + 1) % len(verts)
+                    segment = points[next_index] - points[index]
+                    if segment.length < DECAL_NOISE_THRESHOLD:
                         continue
-                    outward = seg.normalized().cross(normal)
+                    outward = segment.normalized().cross(normal)
                     if outward.length_squared < 1e-8:
                         continue
                     score = outward.normalized().dot(up)
                     if score > DECAL_DIR_THRESHOLD:
-                        bucket = top_edges
+                        bucket = top_runs
                     elif score < -DECAL_DIR_THRESHOLD:
-                        bucket = bottom_edges
+                        bucket = bottom_runs
                     else:
                         continue
-                    key = _edge_key(verts[i], verts[j])
-                    if key in edge_frames:
-                        # Ребро уже зарегистрировано другим patch —
-                        # non-manifold вход; дубликат сломал бы сборку путей.
+                    edge_key = _edge_key(verts[index], verts[next_index])
+                    if edge_key in seen_edge_keys:
                         continue
-                    vert_cos[verts[i]] = cos[i]
-                    vert_cos[verts[j]] = cos[j]
-                    edge_frames[key] = (normal, up)
-                    bucket.append((verts[i], verts[j]))
+                    seen_edge_keys.add(edge_key)
+                    bucket.append(
+                        _OrientedRibbonRun(
+                            vert_indices=[verts[index], verts[next_index]],
+                            points=[points[index].copy(), points[next_index].copy()],
+                            segment_normals=[normal.copy()],
+                            segment_ups=[up.copy()],
+                            segment_chain_refs=[chain_ref],
+                        )
+                    )
+    return _stitch_ribbon_runs(top_runs), _stitch_ribbon_runs(bottom_runs)
 
-    return top_edges, bottom_edges, edge_frames, vert_cos
 
+def _stitch_ribbon_runs(runs):
+    """Склеивает run по концам, но не проходит через неоднозначный point-contact.
 
-def _chain_edge_paths(edges):
-    """Собирает рёбра (va, vb) в упорядоченные пути вершин.
-
-    Глобальная сборка: рёбра разных patches с общими вершинами попадают
-    в один путь — лента непрерывна через границы patches. Жадный обход
-    в обе стороны от стартового ребра (как в прототипе).
+    Вершина с числом инцидентных run не равным двум считается границей пути.
+    Это исключает прежний жадный выбор произвольного продолжения в развилке.
     """
 
-    vert_map = {}
-    for index, (vert_a, vert_b) in enumerate(edges):
-        vert_map.setdefault(vert_a, []).append(index)
-        vert_map.setdefault(vert_b, []).append(index)
+    if not runs:
+        return []
+    endpoint_map = {}
+    for run_index, run in enumerate(runs):
+        endpoint_map.setdefault(run.start_vert_index, []).append(run_index)
+        endpoint_map.setdefault(run.end_vert_index, []).append(run_index)
 
-    visited = set()
-    paths = []
-    for index, (vert_a, vert_b) in enumerate(edges):
-        if index in visited:
-            continue
-        visited.add(index)
-        path = [vert_a, vert_b]
+    unused = set(range(len(runs)))
+    stitched = []
+    while unused:
+        seed_index = min(unused)
+        unused.remove(seed_index)
+        current = runs[seed_index]
 
-        while True:
-            tail = path[-1]
-            next_index = next(
-                (cand for cand in vert_map[tail] if cand not in visited), None
-            )
-            if next_index is None:
+        while not current.is_closed:
+            tail = current.end_vert_index
+            candidates = [
+                index for index in endpoint_map.get(tail, ()) if index in unused
+            ]
+            if len(endpoint_map.get(tail, ())) != 2 or len(candidates) != 1:
                 break
-            visited.add(next_index)
-            cand_a, cand_b = edges[next_index]
-            path.append(cand_b if cand_a == tail else cand_a)
+            next_index = candidates[0]
+            unused.remove(next_index)
+            next_run = runs[next_index]
+            if next_run.start_vert_index != tail:
+                next_run = next_run.reversed_copy()
+            current = _join_ribbon_runs(current, next_run)
 
-        while True:
-            head = path[0]
-            prev_index = next(
-                (cand for cand in vert_map[head] if cand not in visited), None
-            )
-            if prev_index is None:
+        while not current.is_closed:
+            head = current.start_vert_index
+            candidates = [
+                index for index in endpoint_map.get(head, ()) if index in unused
+            ]
+            if len(endpoint_map.get(head, ())) != 2 or len(candidates) != 1:
                 break
-            visited.add(prev_index)
-            cand_a, cand_b = edges[prev_index]
-            path.insert(0, cand_b if cand_a == head else cand_a)
+            previous_index = candidates[0]
+            unused.remove(previous_index)
+            previous_run = runs[previous_index]
+            if previous_run.end_vert_index != head:
+                previous_run = previous_run.reversed_copy()
+            current = _join_ribbon_runs(previous_run, current)
 
-        paths.append(path)
-    return paths
+        stitched.append(current)
+    return stitched
 
 
-def _trim_vertex_frames(path, edge_frames):
-    """Адаптивный (normal, up) на вершину пути.
+def _blend_ribbon_frame(frame_prev, frame_next):
+    if frame_prev and frame_next:
+        normal = frame_prev[0] + frame_next[0]
+        up = frame_prev[1] + frame_next[1]
+        if normal.length_squared < 1e-8 or up.length_squared < 1e-8:
+            return frame_prev
+        return normal.normalized(), up.normalized()
+    if frame_prev:
+        return frame_prev
+    if frame_next:
+        return frame_next
+    return Vector((0.0, 0.0, 1.0)), Vector((0.0, 1.0, 0.0))
 
-    Внутри пути — биссектриса фреймов соседних рёбер (стык двух стен
-    получает усреднённое направление), на концах открытого пути — фрейм
-    единственного ребра. Замкнутое кольцо (path[0] == path[-1]) получает
-    биссектрису и в точке замыкания — дубли вершин совпадут и сварятся.
-    """
 
-    is_ring = len(path) > 2 and path[0] == path[-1]
+def _ribbon_vertex_frames(run: _OrientedRibbonRun):
+    """Фреймы вершин без неориентированного edge-key lookup."""
+
+    segment_count = len(run.segment_normals)
+    if segment_count == 0:
+        return []
+    is_ring = run.is_closed
     frames = []
-    for i, vert_index in enumerate(path):
+    for point_index in range(len(run.points)):
+        previous_index = point_index - 1
+        next_index = point_index
+        if point_index == 0:
+            previous_index = segment_count - 1 if is_ring else -1
+        if point_index >= segment_count:
+            next_index = 0 if is_ring else -1
         frame_prev = None
         frame_next = None
-        if i > 0:
-            frame_prev = edge_frames.get(_edge_key(path[i - 1], vert_index))
-        elif is_ring:
-            frame_prev = edge_frames.get(_edge_key(path[-2], vert_index))
-        if i < len(path) - 1:
-            frame_next = edge_frames.get(_edge_key(vert_index, path[i + 1]))
-        elif is_ring:
-            frame_next = edge_frames.get(_edge_key(vert_index, path[1]))
-
-        if frame_prev and frame_next:
-            normal = frame_prev[0] + frame_next[0]
-            up = frame_prev[1] + frame_next[1]
-            if normal.length_squared < 1e-8 or up.length_squared < 1e-8:
-                normal, up = frame_prev
-            else:
-                normal = normal.normalized()
-                up = up.normalized()
-        elif frame_prev:
-            normal, up = frame_prev
-        elif frame_next:
-            normal, up = frame_next
-        else:
-            normal, up = Vector((0.0, 0.0, 1.0)), Vector((0.0, 1.0, 0.0))
-        frames.append((normal, up))
+        if 0 <= previous_index < segment_count:
+            frame_prev = (
+                run.segment_normals[previous_index],
+                run.segment_ups[previous_index],
+            )
+        if 0 <= next_index < segment_count:
+            frame_next = (
+                run.segment_normals[next_index],
+                run.segment_ups[next_index],
+            )
+        frames.append(_blend_ribbon_frame(frame_prev, frame_next))
     return frames
+
+
+def _trim_quad_requires_flip(
+    point_a, point_b, extrude_a, extrude_b, desired_normal
+):
+    """True, если стандартный quad winding смотрит против owner surface."""
+
+    tangent = point_b - point_a
+    transverse = extrude_a + extrude_b
+    if transverse.length_squared < 1e-12:
+        transverse = extrude_a
+    geometric_normal = tangent.cross(transverse)
+    if (
+        geometric_normal.length_squared < 1e-12
+        or desired_normal.length_squared < 1e-12
+    ):
+        return False
+    return geometric_normal.dot(desired_normal) < 0.0
+
+
+def _trim_quad_layout(
+    base_a,
+    base_b,
+    tip_a,
+    tip_b,
+    u_start,
+    u_end,
+    v_min,
+    v_max,
+    flip_winding,
+):
+    """Возвращает winding и UV, сохраняя base=v_min, tip=v_max."""
+
+    if flip_winding:
+        return (
+            (base_a, tip_a, tip_b, base_b),
+            (
+                (u_start, v_min),
+                (u_start, v_max),
+                (u_end, v_max),
+                (u_end, v_min),
+            ),
+        )
+    return (
+        (base_a, base_b, tip_b, tip_a),
+        (
+            (u_start, v_min),
+            (u_end, v_min),
+            (u_end, v_max),
+            (u_start, v_max),
+        ),
+    )
 
 
 def _collect_wall_pair_chains(graph: PatchGraph, chain_refs=None):
@@ -417,7 +532,7 @@ def _arc_lengths(points):
 # ============================================================
 
 
-def _build_trim_strip(bm, path, vert_cos, frames, settings, is_top, uv_rect):
+def _build_trim_strip(bm, run, settings, is_top, uv_rect):
     """Лента трима вдоль пути кромки.
 
     База — точка кромки + normal * offset, вытяжка вниз (TOP) или вверх
@@ -425,36 +540,55 @@ def _build_trim_strip(bm, path, vert_cos, frames, settings, is_top, uv_rect):
     v — поперёк прямоугольника атласа.
     """
 
-    if len(path) < 2:
+    if len(run.points) < 2:
         return
-    points = [vert_cos[vert_index] for vert_index in path]
+    points = run.points
+    frames = _ribbon_vertex_frames(run)
+    if len(frames) != len(points):
+        return
     arc = _arc_lengths(points)
 
     base_verts = []
     tip_verts = []
+    extrude_vectors = []
     for i, co in enumerate(points):
         normal, up = frames[i]
         extrude_dir = -up if is_top else up
         base_pos = co + normal * settings.offset
         base_verts.append(bm.verts.new(base_pos))
         tip_verts.append(bm.verts.new(base_pos + extrude_dir * settings.height_trim))
+        extrude_vectors.append(extrude_dir)
 
     uv_layer = bm.loops.layers.uv.verify()
     u_min, v_min, u_max, v_max = uv_rect
     scale = settings.uv_length_scale
     for i in range(len(points) - 1):
-        try:
-            face = bm.faces.new(
-                (base_verts[i], base_verts[i + 1], tip_verts[i + 1], tip_verts[i])
-            )
-        except ValueError:
-            continue
         u_start = arc[i] * scale
         u_end = arc[i + 1] * scale
-        face.loops[0][uv_layer].uv = (u_start, v_min)
-        face.loops[1][uv_layer].uv = (u_end, v_min)
-        face.loops[2][uv_layer].uv = (u_end, v_max)
-        face.loops[3][uv_layer].uv = (u_start, v_max)
+        flip_winding = _trim_quad_requires_flip(
+            points[i],
+            points[i + 1],
+            extrude_vectors[i],
+            extrude_vectors[i + 1],
+            run.segment_normals[i],
+        )
+        quad_verts, quad_uvs = _trim_quad_layout(
+            base_verts[i],
+            base_verts[i + 1],
+            tip_verts[i],
+            tip_verts[i + 1],
+            u_start,
+            u_end,
+            v_min,
+            v_max,
+            flip_winding,
+        )
+        try:
+            face = bm.faces.new(quad_verts)
+        except ValueError:
+            continue
+        for loop, uv in zip(face.loops, quad_uvs):
+            loop[uv_layer].uv = uv
 
 
 def _corner_wing_directions(direction, normal_a, normal_b, dihedral_convexity=0.0):
@@ -768,16 +902,13 @@ def _fill_decal_bmesh(
     if chain_refs is not None and mode in ("CORNERS", "SEAMS"):
         _fill_manual_chain_decals(bm, graph, settings, chain_refs)
     elif mode in ("TOP", "BOTTOM"):
-        top_edges, bottom_edges, edge_frames, vert_cos = _collect_trim_segments(
+        top_runs, bottom_runs = _collect_trim_ribbon_runs(
             graph, chain_refs=chain_refs
         )
-        edges = top_edges if mode == "TOP" else bottom_edges
+        runs = top_runs if mode == "TOP" else bottom_runs
         uv_rect = DECAL_UV_RECT_TOP if mode == "TOP" else DECAL_UV_RECT_BOTTOM
-        for path in _chain_edge_paths(edges):
-            frames = _trim_vertex_frames(path, edge_frames)
-            _build_trim_strip(
-                bm, path, vert_cos, frames, settings, mode == "TOP", uv_rect
-            )
+        for run in runs:
+            _build_trim_strip(bm, run, settings, mode == "TOP", uv_rect)
     elif mode == "CORNERS":
         corner_chains, _seam_chains = _collect_wall_pair_chains(graph)
         for points, normal_a, normal_b, is_closed, convexity in corner_chains:
