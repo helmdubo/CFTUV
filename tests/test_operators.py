@@ -140,6 +140,43 @@ def test_decal_drag_clamps_to_positive_minimum_and_shift_is_precise():
     assert precise_delta == pytest.approx(normal_delta * 0.1)
 
 
+def test_decal_modal_ignores_vertical_only_mousemove():
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "TOP"
+    operator._modal_base_settings = DecalSettings()
+    operator._modal_base_value = 0.25
+    operator._modal_current_value = 0.25
+    operator._modal_start_mouse = 500
+    operator._modal_property = "decal_height_trim"
+    operator._modal_state = object()
+    operator._modal_created = ["Decal"]
+    operator._modal_area = None
+
+    generated_settings = []
+    operator._generate = lambda _context, _state, settings: generated_settings.append(
+        settings
+    )
+    context = SimpleNamespace(
+        scene=SimpleNamespace(
+            hotspotuv_settings=SimpleNamespace(decal_height_trim=0.25)
+        )
+    )
+
+    result = operator.modal(
+        context,
+        SimpleNamespace(
+            type="MOUSEMOVE",
+            mouse_x=500,
+            mouse_y=-10000,
+            shift=False,
+        ),
+    )
+
+    assert result == {"RUNNING_MODAL"}
+    assert generated_settings == []
+    assert operator._modal_current_value == 0.25
+
+
 def test_decal_drag_anchor_projects_bbox_center_and_clamps_to_viewport(monkeypatch):
     from cftuv import decal_modal
 
@@ -224,6 +261,6 @@ def test_decal_invoke_starts_horizontal_drag_for_every_mode(monkeypatch, mode):
     )
 
     assert result == {"RUNNING_MODAL"}
-    assert cursor_warps == [(500, 350)]
+    assert cursor_warps == [(500, 654)]
     assert operator._modal_start_mouse == 500
     assert "Move Left/Right" in header.text

@@ -71,7 +71,10 @@ def decal_drag_anchor(context, obj, fallback):
 
 def warp_decal_drag_cursor(context, obj, event):
     fallback = (event.mouse_x, event.mouse_y)
-    anchor = decal_drag_anchor(context, obj, fallback)
+    projected_anchor = decal_drag_anchor(context, obj, fallback)
+    # Регулировка строго горизонтальная: меняем только экранный X,
+    # вертикальную позицию курсора после клика не трогаем.
+    anchor = (projected_anchor[0], event.mouse_y)
     try:
         context.window.cursor_warp(*anchor)
     except (AttributeError, RuntimeError, TypeError):

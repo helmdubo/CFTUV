@@ -64,7 +64,7 @@ visual_board:
     url: "http://goalbuddy.localhost:41737/surface-conforming-decals/"
     command: "npx goalbuddy board C:/Users/helmd/Documents/CFTUV/docs/goals/surface-conforming-decals"
 
-active_task: T025
+active_task: T027
 
 tasks:
   - id: T001
@@ -574,7 +574,7 @@ tasks:
   - id: T025
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Record the user's Blender validation of the bbox-centered decal sizing anchor before resuming T020."
     inputs:
@@ -586,6 +586,76 @@ tasks:
     expected_output:
       - "User validation result"
       - "Approval to resume T020 or a bounded coordinate-space recovery task"
+    receipt:
+      result: done
+      user_validation: failed
+      summary: "The 2D cursor warp made vertical movement feel coupled to sizing. The user prefers the exact horizontal behavior from 0cc1406 with only the screen reference corrected."
+
+  - id: T026
+    type: worker
+    assignee: Worker
+    status: done
+    reasoning_hint: default
+    objective: "Restore the exact horizontal sizing feel from 0cc1406 while anchoring only cursor X to the projected bbox and preserving the click Y coordinate."
+    allowed_files:
+      - "cftuv/decal_modal.py"
+      - "tests/test_operators.py"
+      - "docs/cftuv_decals.md"
+      - "C:/Users/helmd/AppData/Roaming/Blender Foundation/Blender/4.3/scripts/addons/cftuv/decal_modal.py"
+      - "docs/goals/surface-conforming-decals/state.yaml"
+      - "docs/goals/surface-conforming-decals/notes/T026-horizontal-anchor-only.md"
+    verify:
+      - "Cursor warp changes only X; Y remains event.mouse_y."
+      - "A vertical-only MOUSEMOVE with unchanged mouse_x produces no size update."
+      - "TOP, BOTTOM, and CORNERS retain identical horizontal direction and sensitivity from 0cc1406."
+      - "Off-screen bbox projection still falls back to viewport-center X."
+      - "C:/Python313/python.exe -m pytest -q"
+      - "Blender 4.3.2 installed-addon runtime import"
+      - "Blender 4.1.1 compatibility import"
+      - "git diff --check"
+    stop_if:
+      - "Preserving event.mouse_y still changes Blender event.mouse_x after warp."
+      - "The fix requires changing decal geometry or sizing sensitivity."
+      - "Verification fails twice without an isolated fallback path."
+    receipt:
+      result: done
+      changed_files:
+        - "cftuv/decal_modal.py"
+        - "tests/test_operators.py"
+        - "docs/cftuv_decals.md"
+        - "C:/Users/helmd/AppData/Roaming/Blender Foundation/Blender/4.3/scripts/addons/cftuv/decal_modal.py"
+        - "docs/goals/surface-conforming-decals/state.yaml"
+        - "docs/goals/surface-conforming-decals/notes/T026-horizontal-anchor-only.md"
+      commands:
+        - cmd: "C:/Python313/python.exe -m pytest -q"
+          status: pass
+        - cmd: "C:/Python313/python.exe -m compileall -q cftuv tests"
+          status: pass
+        - cmd: "Blender 4.3.2 installed-addon X-only cursor-warp runtime check"
+          status: pass
+        - cmd: "Blender 4.1.1 repo-addon X-only cursor-warp compatibility check"
+          status: pass
+        - cmd: "Compare repository and installed Blender 4.3 addon Python hashes"
+          status: pass
+        - cmd: "git diff --check"
+          status: pass
+      summary: "BBox anchoring now changes only cursor X and preserves the original click Y. Vertical-only mouse events are regression-tested to produce no sizing update; horizontal sensitivity and direction remain unchanged from 0cc1406."
+
+  - id: T027
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: default
+    objective: "Record the user's Blender validation of X-only bbox anchoring before resuming T020."
+    inputs:
+      - "T026 pushed recovery commit"
+      - "Blender 4.3 installed addon synchronized with the branch"
+    constraints:
+      - "Wait for the user to confirm vertical-only motion no longer changes TOP/BOTTOM/CORNERS size."
+      - "If vertical coupling remains, capture raw event.mouse_x/mouse_y telemetry in the exact workspace before another behavioral change."
+    expected_output:
+      - "User validation result"
+      - "Approval to resume T020 or a telemetry recovery task"
     receipt: null
 
   - id: T020
@@ -699,10 +769,10 @@ checks:
   dirty_fingerprint: "goal-prep-only"
   last_verification:
     result: pass
-    task: T024
+    task: T026
     commands:
-      - "C:/Python313/python.exe -m pytest -q (40 passed)"
+      - "C:/Python313/python.exe -m pytest -q (41 passed)"
       - "C:/Python313/python.exe -m compileall -q cftuv tests"
-      - "Blender 4.3.2: projected bbox center resolves to viewport coordinate (500, 350); cursor_warp available"
-      - "Blender 4.1.1: matching anchor projection and cursor_warp API"
+      - "Blender 4.3.2: click (321,654) warps to (500,654), preserving Y"
+      - "Blender 4.1.1: matching X-only cursor warp"
       - "Repository and installed Blender 4.3 addon Python hashes match"
