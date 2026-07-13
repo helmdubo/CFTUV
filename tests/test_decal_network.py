@@ -325,7 +325,8 @@ class TestClosedRing:
 
 
 class TestSurfaceChangeSplit:
-    def test_side_split_adds_connector_and_keeps_other_side_continuous(self):
+    def test_side_split_shares_rail_vertex_across_fold(self):
+        # Convex step: пол (+Z) переходит в стену (n = -Y, материал вниз).
         run = _OrientedCornerRun(
             vert_indices=[0, 1, 2],
             points=[
@@ -334,26 +335,43 @@ class TestSurfaceChangeSplit:
                 Vector((0.8, 0.0, 0.0)),
             ],
             segment_normals_a=[Vector((0, 0, 1)), Vector((0, 0, 1))],
-            segment_normals_b=[Vector((0, 0, 1)), Vector((0, 1, 0))],
-            segment_convexities=[0.0, 0.0],
+            segment_normals_b=[Vector((0, 0, 1)), Vector((0, -1, 0))],
+            segment_convexities=[0.0, 1.0],
             segment_edge_indices=[0, 1],
         )
         faces = build_seam_network_faces([run], offset=0.0, width=0.2)
-        # 2 quads стороны A (непрерывный поворот), 1 quad пол-B, 1 quad
-        # стена-B, 1 connector треугольник на станции смены поверхности.
-        assert len(faces) == 5
+        # 2 quads стороны A (непрерывный поворот), quad пол-B и quad
+        # стена-B, сшитые общей rail-вершиной развёрнутого miter:
+        # connector-треугольник не нужен.
+        assert len(faces) == 4
+        assert not [face for face in faces if len(face.positions) == 3]
         assert _has_position(faces, (0.1, 0.1, 0.0))  # miter стороны A
         wall_faces = [
             face
             for face in faces
-            if abs(face.surface_normal.y - 1.0) < 1e-6
+            if abs(face.surface_normal.y + 1.0) < 1e-6
         ]
         assert len(wall_faces) == 1
         assert _has_position(wall_faces, (0.8, 0.0, -0.1))
-        connectors = [face for face in faces if len(face.positions) == 3]
-        assert len(connectors) == 1
-        # Connector сшивает station spine и оба flat-cap внешних конца.
-        assert ("sv", 1) in connectors[0].vert_keys
+        # Rail-вершина сложена обратно на стену и разделяется обеими
+        # сторонами разреза одним vertex key.
+        rail_keys = {
+            key
+            for face in faces
+            for key in face.vert_keys
+            if key[0] == "rail"
+        }
+        assert len(rail_keys) == 1
+        rail_users = [
+            face for face in faces if rail_keys & set(face.vert_keys)
+        ]
+        assert len(rail_users) == 2
+        assert _has_position(rail_users, (-0.1, 0.0, -0.1))
+        for face in rail_users:
+            index = face.vert_keys.index(next(iter(rail_keys)))
+            assert (
+                face.positions[index] - Vector((-0.1, 0.0, -0.1))
+            ).length < 1e-6
 
 
 class TestOrientationInvariance:

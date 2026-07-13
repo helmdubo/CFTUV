@@ -452,6 +452,10 @@ class _Site:
     segment_normals3: list = field(default_factory=list)
     lifts3: list = field(default_factory=list)
     surface: object = None
+    # Shared rail на split-станциях: (point2, key, position3) вместо
+    # flat cap; обе стороны разреза ссылаются на один vertex key.
+    cap_start_override: tuple = None
+    cap_end_override: tuple = None
 
     def to_3d(self, q2):
         """Конформный лифт: точка чарта поднимается на плоскость своей грани.
@@ -742,7 +746,9 @@ def _site_band_faces(site, alpha, arc_tolerance):
     else:
         # Начальная станция.
         lat0 = _mul2(_rot90(tangents[0]), lat_sign)
-        if site.start_kind == "junction" and site.cap_start_sweep > 1e-6:
+        if site.cap_start_override is not None:
+            outer[0] = [site.cap_start_override[0]]
+        elif site.start_kind == "junction" and site.cap_start_sweep > 1e-6:
             sweep_len = site.cap_start_sweep
             angle_start = atan2(lat0[1], lat0[0]) + lat_sign * sweep_len
             outer[0] = _arc_points(
@@ -762,7 +768,9 @@ def _site_band_faces(site, alpha, arc_tolerance):
             )
         # Конечная станция.
         lat_end = _mul2(_rot90(tangents[-1]), lat_sign)
-        if site.end_kind == "junction" and site.cap_end_sweep > 1e-6:
+        if site.cap_end_override is not None:
+            outer[count - 1] = [site.cap_end_override[0]]
+        elif site.end_kind == "junction" and site.cap_end_sweep > 1e-6:
             angle_lat = atan2(lat_end[1], lat_end[0])
             outer[count - 1] = _arc_points(
                 pts[-1],
@@ -1236,6 +1244,7 @@ def build_seam_network_faces(runs, offset, width, arc_tolerance=None):
             site.cap_end_sweep = _junction_cap_sweep(
                 site, False, node_directions
             )
+    _bridge_split_stations(sites, lift_map, alpha)
 
     # --- faces + клиппинг ---
     # Точка face может отстоять от своего spine на miter-длину (до α·LIMIT);
@@ -1273,6 +1282,13 @@ def build_seam_network_faces(runs, offset, width, arc_tolerance=None):
                 break
         surface = registry.surfaces[site.surface_id]
         side_sign_uv = -1.0 if site.side == "A" else 1.0
+        rail_overrides = {}
+        for override in (site.cap_start_override, site.cap_end_override):
+            if override is not None:
+                point2, rail_key, position3 = override
+                rail_overrides[
+                    (round(point2[0], 6), round(point2[1], 6))
+                ] = (rail_key, position3)
         for polygon in polygons:
             if abs(_polygon_area2(polygon)) < 1e-10:
                 continue
@@ -1289,9 +1305,13 @@ def build_seam_network_faces(runs, offset, width, arc_tolerance=None):
                     round(point2[1], 6),
                 )
                 vert = station_keys.get(lookup)
+                rail = rail_overrides.get(lookup[1:])
                 if vert is not None:
                     keys.append(("sv", vert))
                     positions.append(lift_map[vert].copy())
+                elif rail is not None:
+                    keys.append(rail[0])
+                    positions.append(rail[1].copy())
                 else:
                     keys.append(("p",) + lookup)
                     positions.append(site.to_3d(point2))
@@ -1315,14 +1335,16 @@ def build_seam_network_faces(runs, offset, width, arc_tolerance=None):
     return result
 
 
-def _split_connector_faces(sites, registry, lift_map, alpha):
-    """Соединительные faces на станциях смены поверхности внутри ветви.
+def _rotate_rodrigues(vector, axis, cos_angle, sin_angle):
+    return (
+        vector * cos_angle
+        + axis.cross(vector) * sin_angle
+        + axis * (axis.dot(vector) * (1.0 - cos_angle))
+    )
 
-    Аналог legacy BEVEL: общая spine-вершина уже сшита lift registry, а
-    внешние flat-cap точки двух смежных сайтов соединяются треугольником.
-    Для почти копланарной смены поверхности точки почти совпадают и
-    свариваются финальным weld.
-    """
+
+def _split_station_ends(sites):
+    """Пары split-концов одной branch-стороны в общей станции."""
 
     open_ends = {}
     for site in sites:
@@ -1336,11 +1358,164 @@ def _split_connector_faces(sites, registry, lift_map, alpha):
             open_ends.setdefault(
                 (site.branch_id, site.side, site.vert_indices[-1]), []
             ).append((site, False))
+    return open_ends
 
-    faces = []
-    for (branch_id, side, vert), ends in open_ends.items():
+
+def _site_end_frame(site, at_start):
+    """(t3, w3, len2, len3) крайнего сегмента: t наружу вдоль движения."""
+
+    if at_start:
+        lift_a, lift_b = site.lifts3[0], site.lifts3[1]
+        seg_a2, seg_b2 = site.pts2[0], site.pts2[1]
+        normal = site.segment_normals3[0]
+    else:
+        lift_a, lift_b = site.lifts3[-2], site.lifts3[-1]
+        seg_a2, seg_b2 = site.pts2[-2], site.pts2[-1]
+        normal = site.segment_normals3[-1]
+    tangent3 = lift_b - lift_a
+    length3 = tangent3.length
+    length2 = _dist2(seg_a2, seg_b2)
+    if length3 < 1e-12 or length2 < 1e-12 or normal.length_squared < 1e-12:
+        return None
+    return tangent3 / length3, normal.normalized(), length2, length3
+
+
+def _rail_chart_point(site, at_start, position3, station3):
+    """2D-координата rail-вершины в чарте сайта через inverse conformal."""
+
+    frame = _site_end_frame(site, at_start)
+    if frame is None:
+        return None
+    tangent3, normal3, length2, length3 = frame
+    lateral3 = normal3.cross(tangent3)
+    if lateral3.length_squared < 1e-12:
+        return None
+    lateral3 = lateral3.normalized()
+    delta = position3 - station3
+    along = delta.dot(tangent3) * (length2 / length3)
+    across = delta.dot(lateral3)
+    station2 = site.pts2[0] if at_start else site.pts2[-1]
+    tangent2 = (
+        _norm2(_sub2(site.pts2[1], site.pts2[0]))
+        if at_start
+        else _norm2(_sub2(site.pts2[-1], site.pts2[-2]))
+    )
+    if tangent2 is None:
+        return None
+    return _add2(
+        _add2(station2, _mul2(tangent2, along)),
+        _mul2(_rot90(tangent2), across),
+    )
+
+
+def _bridge_split_stations(sites, lift_map, alpha):
+    """Общая rail-вершина на смене поверхности внутри ветви.
+
+    Смена owner surface — общая fold-станция внешнего rail, а не два
+    flat-cap конца: соседняя грань разворачивается вокруг общей fold-оси
+    (axis ∥ n_B × n_A), offset-контур строится на развёрнутой паре, единая
+    outer-вершина складывается обратно в свою грань, и оба сайта ссылаются
+    на один vertex key. Connector-треугольник тогда не нужен; при
+    вырожденной развёртке или miter за лимитом остаётся старый fallback.
+    """
+
+    for (branch_id, side, vert), ends in _split_station_ends(sites).items():
         if len(ends) != 2:
             continue
+        ending = next((s for s, at_start in ends if not at_start), None)
+        starting = next((s for s, at_start in ends if at_start), None)
+        if ending is None or starting is None:
+            continue
+        frame_a = _site_end_frame(ending, False)
+        frame_b = _site_end_frame(starting, True)
+        if frame_a is None or frame_b is None:
+            continue
+        tangent_a, normal_a, _la2, _la3 = frame_a
+        tangent_b, normal_b, _lb2, _lb3 = frame_b
+        station3 = lift_map[vert]
+        wing_a = normal_a.cross(tangent_a) * ending.lat_sign
+        wing_b3 = normal_b.cross(tangent_b) * starting.lat_sign
+
+        # Развернуть сторону B вокруг fold-оси (нормаль B -> нормаль A).
+        axis = normal_b.cross(normal_a)
+        sin_angle = axis.length
+        cos_angle = max(-1.0, min(1.0, normal_b.dot(normal_a)))
+        if sin_angle > 1e-9:
+            axis = axis / sin_angle
+            tangent_b_flat = _rotate_rodrigues(
+                tangent_b, axis, cos_angle, sin_angle
+            )
+            wing_b_flat = _rotate_rodrigues(
+                wing_b3, axis, cos_angle, sin_angle
+            )
+        else:
+            tangent_b_flat = tangent_b
+            wing_b_flat = wing_b3
+
+        # Miter offset-контуров в развёрнутой плоскости A.
+        basis_x = tangent_a
+        basis_y = normal_a.cross(tangent_a)
+
+        def to2(vector3):
+            return (vector3.dot(basis_x), vector3.dot(basis_y))
+
+        rail_a_point = _mul2(to2(wing_a), alpha)
+        rail_a_dir = (1.0, 0.0)
+        rail_b_point = _mul2(to2(wing_b_flat), alpha)
+        rail_b_dir = to2(tangent_b_flat)
+        miter2 = _line_intersection2(
+            rail_a_point, rail_a_dir, rail_b_point, rail_b_dir
+        )
+        if miter2 is None:
+            if _dist2(rail_a_point, rail_b_point) > 1e-9:
+                continue  # параллельные rails с разным offset — fallback
+            miter2 = rail_a_point
+        if _len2(miter2) > alpha * DECAL_CORNER_MITER_LIMIT:
+            continue  # слишком острый разворот — connector fallback
+
+        miter3 = station3 + basis_x * miter2[0] + basis_y * miter2[1]
+        # Столбец грани: сторона fold-линии, куда смотрит развёрнутый B.
+        # Ориентир — точка строго внутри развёрнутой полосы B (тангенс +
+        # крыло): rail-направление вырождается, когда fold идёт вдоль
+        # спайна (продольный corner), крыло — когда fold поперёк спайна.
+        fold2 = to2(axis) if sin_angle > 1e-9 else None
+        if fold2 is not None and _len2(fold2) > 1e-9:
+            probe_b = _add2(to2(tangent_b_flat), to2(wing_b_flat))
+            side_b = _cross2(fold2, probe_b)
+            side_m = _cross2(fold2, miter2)
+            if side_m * side_b > 0.0:
+                # Точка в столбце B — сложить обратно в плоскость B.
+                miter3 = station3 + _rotate_rodrigues(
+                    miter3 - station3, axis, cos_angle, -sin_angle
+                )
+
+        key = ("rail", branch_id, side, vert)
+        point2_a = _rail_chart_point(ending, False, miter3, station3)
+        point2_b = _rail_chart_point(starting, True, miter3, station3)
+        if point2_a is None or point2_b is None:
+            continue
+        ending.cap_end_override = (point2_a, key, miter3)
+        starting.cap_start_override = (point2_b, key, miter3)
+
+
+def _split_connector_faces(sites, registry, lift_map, alpha):
+    """Соединительные faces на станциях смены поверхности внутри ветви.
+
+    Fallback для случаев, где shared rail (`_bridge_split_stations`) не
+    построился: общая spine-вершина уже сшита lift registry, а внешние
+    flat-cap точки двух смежных сайтов соединяются треугольником.
+    """
+
+    faces = []
+    for (branch_id, side, vert), ends in _split_station_ends(sites).items():
+        if len(ends) != 2:
+            continue
+        if any(
+            (site.cap_start_override if at_start else site.cap_end_override)
+            is not None
+            for site, at_start in ends
+        ):
+            continue  # смена поверхности закрыта shared rail вершиной
         outer_points = []
         for site, at_start in ends:
             surface = registry.surfaces[site.surface_id]
