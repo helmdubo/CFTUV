@@ -64,7 +64,7 @@ visual_board:
     url: "http://goalbuddy.localhost:41737/surface-conforming-decals/"
     command: "npx goalbuddy board C:/Users/helmd/Documents/CFTUV/docs/goals/surface-conforming-decals"
 
-active_task: T019
+active_task: T022
 
 tasks:
   - id: T001
@@ -395,7 +395,7 @@ tasks:
   - id: T019
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Record the user's visual validation of the fixed exact-scene Decal_Seams_Cube.001 before activating T020."
     inputs:
@@ -407,6 +407,70 @@ tasks:
     expected_output:
       - "User validation result"
       - "Approval to activate T020 or a bounded seam UV recovery task"
+    receipt:
+      result: done
+      user_validation: superseded
+      summary: "The user requested a complete Blender scene matrix for every automatic and manual decal mode instead of validating only the three-edge SEAMS fixture."
+
+  - id: T021
+    type: worker
+    assignee: Worker
+    status: done
+    reasoning_hint: high
+    objective: "Create and verify a non-destructive Blender 4.3 scene collection demonstrating automatic TOP/BOTTOM/CORNERS/SEAMS and manual edge CORNERS/SEAMS."
+    allowed_files:
+      - "C:/Users/helmd/AppData/Roaming/Blender Foundation/Blender/4.3/scripts/addons/cftuv/**"
+      - "artifacts/cftuv_decal_verification.blend"
+      - "docs/goals/surface-conforming-decals/state.yaml"
+      - "docs/goals/surface-conforming-decals/notes/T021-full-decal-matrix.md"
+    verify:
+      - "Every generated demo object has non-empty geometry and expected mode-specific width/placement."
+      - "TOP bases are upper-only and BOTTOM bases are lower-only."
+      - "CORNERS has two distinct local wings."
+      - "SEAMS uses Seam Width and no unrelated edges."
+      - "Manual edge selection is preserved."
+      - "Viewport screenshot shows the labeled verification collection."
+    stop_if:
+      - "A mode cannot be represented without changing the original Cube.001."
+      - "The current installed addon differs from the repository package."
+      - "A mode fails its oracle; activate a bounded code recovery task before calling the matrix complete."
+    receipt:
+      result: done
+      changed_files:
+        - "artifacts/cftuv_decal_verification.blend"
+        - "docs/goals/surface-conforming-decals/state.yaml"
+        - "docs/goals/surface-conforming-decals/notes/T021-full-decal-matrix.md"
+      commands:
+        - cmd: "Blender 4.3.2 reopen verification artifact and enumerate demo collection"
+          status: pass
+        - cmd: "Blender 4.3 full decal geometry/UV oracle"
+          status: pass
+      summary: "Saved a labeled six-mode verification scene. Automatic and manual TOP/BOTTOM/CORNERS/SEAMS fixtures are non-empty, have consistent UV orientation, and preserve mode-specific width and placement."
+
+  - id: T022
+    type: worker
+    assignee: Worker
+    status: active
+    reasoning_hint: default
+    objective: "Unify interactive TOP, BOTTOM, and CORNERS decal sizing so dragging right increases the active size and dragging left decreases it down to a positive minimum."
+    allowed_files:
+      - "cftuv/operators.py"
+      - "tests/test_operators.py"
+      - "docs/cftuv_decals.md"
+      - "docs/goals/surface-conforming-decals/state.yaml"
+      - "docs/goals/surface-conforming-decals/notes/T022-horizontal-decal-sizing.md"
+    verify:
+      - "TOP, BOTTOM, and CORNERS all use horizontal mouse delta with the same sign."
+      - "Dragging right increases Trim Height or Corner Width; dragging left decreases it."
+      - "The value clamps to an explicit positive minimum and Shift remains precise."
+      - "Cancel restores the original scene property and generated geometry."
+      - "C:/Python313/python.exe -m pytest -q"
+      - "C:/Python313/python.exe -m compileall -q cftuv tests"
+      - "git diff --check"
+    stop_if:
+      - "The modal behavior cannot be tested without changing decal geometry code."
+      - "Blender 4.1 compatibility requires a different event contract."
+      - "Verification fails twice without an isolated path."
     receipt: null
 
   - id: T020
