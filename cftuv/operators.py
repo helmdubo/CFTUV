@@ -182,6 +182,14 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
         min=0.0,
         description="Decal offset from the source surface to avoid z-fighting",
     )
+    decal_seam_network: BoolProperty(
+        name="Seam Network (Voronoi)",
+        default=True,
+        description=(
+            "Build manual Decal Seams as one clipped nearest-branch network "
+            "(continuous junctions); disable to use the legacy miter pipeline"
+        ),
+    )
     # Debug state
     dbg_active: BoolProperty(
         name="Analyze", default=False, description="Debug analysis mode"
@@ -1542,6 +1550,7 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         col.prop(s, "decal_width_seam")
         col.prop(s, "decal_height_trim")
         col.prop(s, "decal_offset")
+        col.prop(s, "decal_seam_network")
         op = col.operator("hotspotuv.generate_decals", text="Decal Top", icon="TRIA_UP")
         op.mode = "TOP"
         op = col.operator(

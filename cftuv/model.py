@@ -326,6 +326,9 @@ class DecalSettings:
     height_trim: float = 0.25
     offset: float = 0.02
     uv_length_scale: float = 0.25
+    # Seam Voronoi network backend (decal_network.py) для manual Decal Seams;
+    # False возвращает legacy miter/junction pipeline целиком.
+    seam_network: bool = True
 
     @staticmethod
     def from_blender_settings(settings) -> "DecalSettings":
@@ -338,6 +341,7 @@ class DecalSettings:
             height_trim=float(settings.decal_height_trim),
             offset=float(settings.decal_offset),
             uv_length_scale=uv_settings.final_scale,
+            seam_network=bool(getattr(settings, "decal_seam_network", True)),
         )
 
 

@@ -30,8 +30,9 @@ normal. На wrapped WALL patch это снова смешивает TOP/BOTTOM 
    неплоское skew-пересечение автоматически превращается в BEVEL с локальной
    соединительной гранью. Point-contact и valence `3+` не выбирают
    произвольную «главную» ветку: chain-runs остаются независимыми. В режиме
-   `Decal Seams` их endpoints обрезаются по общей junction boundary и
-   соединяются радиальными секторами на каждой owner surface.
+   `Decal Seams` сеть по умолчанию строится единым α-clipped partition
+   (см. «SEAMS network backend»); ветви разделяются биссектрисами на каждой
+   owner surface, а не сшиваются постфактум.
 
 Для `Decal Corners` и `Decal Seams` ручной режим не фильтрует `PatchType`: WALL,
 FLOOR, SLOPE, потолки и другие ориентации равноправны. PATCH-neighbor chain и
@@ -44,9 +45,37 @@ FLOOR, SLOPE, потолки и другие ориентации равнопр
 При stitching сторона A/B выравнивается по непрерывности локальных нормалей, а
 не по patch id, поэтому смена chain/neighbor вдоль run не переставляет крылья.
 
-### SEAMS network junctions
+### SEAMS network backend (α-clipped partition)
 
-В ручном Edge Select режиме выбранные chains образуют decal network. Вершины с
+В ручном Edge Select режиме выбранные chains образуют decal network. По
+умолчанию (`decal_seam_network`, панель Decals) сеть строится модулем
+`decal_network.py` как единое разбиение, а не сшивка независимых ribbons:
+
+1. Ститченные runs превращаются в ветви-сайты; коллинеарные продолжения в
+   junction сливаются в сквозные сайты с непрерывным UV через узел.
+2. На каждой owner offset-плоскости каждая сторона ветви получает
+   α-полосу (α = `Seam Width / 2`), обрезанную полурегионами «ближе ко мне,
+   чем к соседним ветвям» — биссекторные dividers, обрезка близких
+   параллельных ветвей и T/Y/X-партиция получаются одной конструкцией.
+3. Reflex-промежутки junction закрываются round caps радиуса α,
+   разделёнными биссектрисами. Поперечных endpoint-рёбер ветвей не
+   существует по построению.
+4. Лифт в 3D: интерьер станций → offset вдоль локальной normal,
+   fold-станции → пересечение offset-плоскостей, junction узлы →
+   least-squares core. Spine-вершины и cores сшиваются общим registry по
+   source vert index — крылья разных поверхностей водонепроницаемы.
+5. Смена owner-поверхности внутри ветви даёт разрез стороны и
+   connector-треугольник (аналог BEVEL); почти копланарные стыки сваривает
+   финальный weld.
+
+Детали и инварианты — `docs/goals/surface-conforming-decals/notes/`
+`T043-voronoi-decal-network.md`. Чистая геометрия покрыта
+`tests/test_decal_network.py` без Blender.
+
+### SEAMS legacy junctions (fallback)
+
+При выключенном `decal_seam_network`, пустом результате или исключении
+network backend действует прежний miter/junction pipeline. Вершины с
 valence `2` продолжают собираться в обычные runs; valence `3+` становятся
 derived decal junctions, не меняя PatchGraph и не становясь solve entities.
 
@@ -256,6 +285,9 @@ edge indices двух chain uses. Поэтому один seam на замкну
 - `tests/test_decals.py` — чистая геометрия (классификация кромок, сборка
   путей, биссектрисы, corner/seam разбор, дедупликация пар) на стабах
   `tests/conftest.py`, без Blender.
+- `tests/test_decal_network.py` — seam network backend: merge сквозных
+  сайтов, лифт offset-плоскостей, T/X/trihedral партиция, клип параллельных
+  ветвей, кольца, connector на смене поверхности.
 - Ручная проверка в Blender: Edit Mode → выделить стены → кнопки Decal
   Top/Bottom/Corners/Seams; объекты появляются в `Decals_Generated`.
 

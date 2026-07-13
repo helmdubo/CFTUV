@@ -54,6 +54,10 @@ DECAL_CORNER_MITER_LIMIT = 4.0
 # Допустимый зазор между двумя offset-линиями в долях ширины крыла.
 # На неплоской станции линии могут быть skew — тогда нужен bevel join.
 DECAL_CORNER_JOIN_GAP_RATIO = 0.05
+# Decal network (seam Voronoi backend): два конца ветвей в junction с
+# dot(outgoing_a, outgoing_b) не выше порога считаются коллинеарным
+# продолжением и сливаются в один сквозной сайт (непрерывный UV через узел).
+DECAL_NETWORK_CONTINUATION_DOT = -0.866
 
 # Прямоугольники атласа для UV лент: (u_min, v_min, u_max, v_max).
 DECAL_UV_RECT_CORNER = (0.9, 0.0, 1.0, 1.0)

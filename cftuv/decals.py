@@ -43,6 +43,7 @@ from .constants import (
     DECAL_WELD_DISTANCE,
     WORLD_UP,
 )
+from .decal_network import _corner_wing_directions, build_seam_network_faces
 from .model import ChainNeighborKind, ChainRef, DecalSettings, PatchGraph, PatchType
 
 DECAL_MODES = ("TOP", "BOTTOM", "CORNERS", "SEAMS")
@@ -880,22 +881,8 @@ def _build_trim_strip(bm, run, settings, is_top, uv_rect):
             loop[uv_layer].uv = uv
 
 
-def _corner_wing_directions(direction, normal_a, normal_b, dihedral_convexity=0.0):
-    """Направления крыльев вдоль обеих поверхностей с учётом inner/outer."""
-
-    wing_dir_a = direction.cross(normal_a)
-    wing_dir_b = direction.cross(normal_b)
-    if wing_dir_a.length_squared < 1e-8 or wing_dir_b.length_squared < 1e-8:
-        return None
-
-    wing_dir_a = wing_dir_a.normalized()
-    wing_dir_b = wing_dir_b.normalized()
-    is_concave = dihedral_convexity < -0.01
-    if (wing_dir_a.dot(normal_b) < 0.0) == is_concave:
-        wing_dir_a = wing_dir_a * -1.0
-    if (wing_dir_b.dot(normal_a) < 0.0) == is_concave:
-        wing_dir_b = wing_dir_b * -1.0
-    return wing_dir_a, wing_dir_b
+# `_corner_wing_directions` перенесена в decal_network.py (общая для
+# legacy miter pipeline и network backend) и реэкспортируется отсюда.
 
 
 def _corner_station_segment_indices(run, point_index):
@@ -1763,6 +1750,54 @@ def _build_seam_strip(bm, points, normal, settings, uv_rect, closed=False):
         face.loops[3][uv_layer].uv = (u_max, v_start)
 
 
+def _materialize_network_faces(bm, network_faces, settings, uv_rect):
+    """Материализует faces decal-сети в bmesh с shared вершинами по ключам.
+
+    Ключи ('sv', vert) сшивают spine-станции между крыльями/поверхностями и
+    junction cores; прочие вершины дедуплицируются по квантованной позиции
+    внутри поверхности, остаточные совпадения сваривает финальный weld.
+    """
+
+    uv_layer = bm.loops.layers.uv.verify()
+    u_min, _v_min, u_max, _v_max = uv_rect
+    u_mid = (u_min + u_max) / 2.0
+    u_radius = (u_max - u_min) / 2.0
+    scale = settings.uv_length_scale
+    verts_by_key = {}
+    created = 0
+
+    for network_face in network_faces:
+        loop_data = []
+        for key, position, u_frac, v_length in zip(
+            network_face.vert_keys,
+            network_face.positions,
+            network_face.u_fracs,
+            network_face.v_lengths,
+        ):
+            vert = verts_by_key.get(key)
+            if vert is None:
+                vert = bm.verts.new(position)
+                verts_by_key[key] = vert
+            if loop_data and loop_data[-1][0] is vert:
+                continue
+            loop_data.append((vert, u_frac, v_length))
+        if len(loop_data) > 2 and loop_data[0][0] is loop_data[-1][0]:
+            loop_data.pop()
+        if len(loop_data) < 3:
+            continue
+        try:
+            face = bm.faces.new(tuple(item[0] for item in loop_data))
+        except ValueError:
+            continue
+        for loop, (_vert, u_frac, v_length) in zip(face.loops, loop_data):
+            loop[uv_layer].uv = (
+                u_mid + u_frac * u_radius,
+                v_length * scale,
+            )
+        created += 1
+    return created
+
+
 def _build_seam_junctions(bm, specs, ports, settings, uv_rect):
     """Делит junction sectors усреднёнными miter-линиями от общего core."""
 
@@ -2058,6 +2093,31 @@ def _fill_manual_chain_decals(
         corner_runs, boundary_chains = _collect_manual_edge_decals(
             graph, selected_edge_indices
         )
+        if is_seam_mode and corner_runs and settings.seam_network:
+            network_faces = None
+            try:
+                network_faces = build_seam_network_faces(
+                    corner_runs, settings.offset, width
+                )
+            except Exception as exc:  # непредвиденная геометрия — fallback
+                print(
+                    "[CFTUV][Decals] Seam network backend failed "
+                    f"({exc!r}); falling back to miter pipeline"
+                )
+            if network_faces:
+                _materialize_network_faces(bm, network_faces, settings, uv_rect)
+                for points, normal, is_closed in boundary_chains:
+                    spine_points = _dedupe_polyline(points)
+                    _build_boundary_wing_strip(
+                        bm,
+                        _closed_polyline(spine_points, is_closed),
+                        normal,
+                        settings,
+                        uv_rect,
+                        closed=is_closed,
+                        width=width,
+                    )
+                return
         junction_specs = {}
         junction_cuts = {}
         if is_seam_mode:
