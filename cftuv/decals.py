@@ -1121,6 +1121,43 @@ def _offset_plane_junction_center(source_pos, normals, offset):
     return source_pos + delta
 
 
+def _junction_miter_position(
+    core_pos,
+    current_outer,
+    current_tangent,
+    next_outer,
+    next_tangent,
+    wing_width,
+):
+    """Пересекает outer-контуры branches для усреднённой divider-линии."""
+
+    fallback = (current_outer + next_outer) * 0.5
+    current_dir = current_tangent.normalized()
+    next_dir = next_tangent.normalized()
+    direction_dot = current_dir.dot(next_dir)
+    denominator = 1.0 - direction_dot * direction_dot
+    if denominator < 1e-8:
+        return fallback
+
+    between = current_outer - next_outer
+    current_parameter = (
+        direction_dot * next_dir.dot(between) - current_dir.dot(between)
+    ) / denominator
+    next_parameter = (
+        next_dir.dot(between) - direction_dot * current_dir.dot(between)
+    ) / denominator
+    closest_current = current_outer + current_dir * current_parameter
+    closest_next = next_outer + next_dir * next_parameter
+    gap_limit = max(1e-6, wing_width * DECAL_CORNER_JOIN_GAP_RATIO)
+    if (closest_current - closest_next).length > gap_limit:
+        return fallback
+
+    miter = (closest_current + closest_next) * 0.5
+    if (miter - core_pos).length > wing_width * DECAL_CORNER_MITER_LIMIT:
+        return fallback
+    return miter
+
+
 def _run_endpoint_data(run, at_start):
     segment_index = 0 if at_start else len(run.points) - 2
     point_index = 0 if at_start else len(run.points) - 1
@@ -1718,7 +1755,7 @@ def _build_seam_strip(bm, points, normal, settings, uv_rect, closed=False):
 
 
 def _build_seam_junctions(bm, specs, ports, settings, uv_rect):
-    """Строит RADIAL sectors вокруг valence 3+ decal junction core."""
+    """Делит junction sectors усреднёнными miter-линиями от общего core."""
 
     ports_by_vertex = {}
     for port in ports:
@@ -1788,38 +1825,25 @@ def _build_seam_junctions(bm, specs, ports, settings, uv_rect):
                 )
             ordered.sort(key=lambda item: item[0])
 
-            for index, current in enumerate(ordered):
-                following = ordered[(index + 1) % len(ordered)]
-                angle, tangent, section_verts, spine_index = current
-                next_angle, _next_tangent, next_verts, next_spine_index = following
-                gap = (next_angle - angle) % (2.0 * pi)
-                if gap <= 1e-5 or gap > pi + 1e-5:
-                    continue
-
-                polygon_verts = []
-
-                def append_unique(vert):
-                    if polygon_verts and (
-                        polygon_verts[-1].co - vert.co
+            def add_sector_face(polygon_verts, tangent):
+                nonlocal created
+                unique_verts = []
+                for vert in polygon_verts:
+                    if unique_verts and (
+                        unique_verts[-1].co - vert.co
                     ).length <= DECAL_WELD_DISTANCE:
-                        return
-                    polygon_verts.append(vert)
-
-                append_unique(core_vert)
-                for vert in section_verts[spine_index:]:
-                    append_unique(vert)
-                for vert in next_verts[: next_spine_index + 1]:
-                    append_unique(vert)
-                if len(polygon_verts) > 2 and (
-                    polygon_verts[0].co - polygon_verts[-1].co
+                        continue
+                    unique_verts.append(vert)
+                if len(unique_verts) > 2 and (
+                    unique_verts[0].co - unique_verts[-1].co
                 ).length <= DECAL_WELD_DISTANCE:
-                    polygon_verts.pop()
-                if len(polygon_verts) < 3:
-                    continue
+                    unique_verts.pop()
+                if len(unique_verts) < 3:
+                    return
                 try:
-                    face = bm.faces.new(tuple(polygon_verts))
+                    face = bm.faces.new(tuple(unique_verts))
                 except ValueError:
-                    continue
+                    return
                 face.normal_update()
                 if face.normal.dot(normal) < 0.0:
                     face.normal_flip()
@@ -1838,6 +1862,52 @@ def _build_seam_junctions(bm, specs, ports, settings, uv_rect):
                         delta.dot(tangent) * settings.uv_length_scale,
                     )
                 created += 1
+
+            for index, current in enumerate(ordered):
+                following = ordered[(index + 1) % len(ordered)]
+                angle, tangent, section_verts, spine_index = current
+                next_angle, next_tangent, next_verts, next_spine_index = following
+                gap = (next_angle - angle) % (2.0 * pi)
+                if gap <= 1e-5:
+                    continue
+
+                current_half = section_verts[spine_index:]
+                next_half = next_verts[: next_spine_index + 1]
+                # One-sided CORNER section участвует только в angular gap,
+                # куда действительно направлено её крыло. Это важнее выбора
+                # кратчайшего gap: owner surface может занимать complement.
+                if len(current_half) < 2 or len(next_half) < 2:
+                    continue
+
+                current_outer = current_half[-1]
+                next_outer = next_half[0]
+                divider_pos = _junction_miter_position(
+                    spec.core_pos,
+                    current_outer.co,
+                    tangent,
+                    next_outer.co,
+                    next_tangent,
+                    wing_width,
+                )
+                if (
+                    current_outer.co - divider_pos
+                ).length <= DECAL_WELD_DISTANCE:
+                    divider_vert = current_outer
+                elif (
+                    next_outer.co - divider_pos
+                ).length <= DECAL_WELD_DISTANCE:
+                    divider_vert = next_outer
+                else:
+                    divider_vert = bm.verts.new(divider_pos)
+
+                # Две half-faces делят сектор по усреднённой линии
+                # core -> divider, а не по spine исходной branch.
+                add_sector_face(
+                    [core_vert, *current_half, divider_vert], tangent
+                )
+                add_sector_face(
+                    [core_vert, divider_vert, *next_half], next_tangent
+                )
     return created
 
 

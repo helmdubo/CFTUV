@@ -13,6 +13,7 @@ from cftuv.decals import (
     _corner_offset_join,
     _corner_wing_directions,
     _dedupe_polyline,
+    _junction_miter_position,
     _offset_plane_junction_center,
     _polyline_tangents,
     _prepare_seam_junctions,
@@ -585,6 +586,30 @@ class TestManualChainDecals:
         )
 
         assert (center - Vector((0.02, 0.02, 0.02))).length < 1e-6
+
+    def test_junction_miter_intersects_outer_branch_contours(self):
+        miter = _junction_miter_position(
+            Vector((0.02, 0.02, 0.02)),
+            Vector((0.12, -0.08, 0.02)),
+            Vector((1, 0, 0)),
+            Vector((-0.08, 0.12, 0.02)),
+            Vector((0, 1, 0)),
+            0.1,
+        )
+
+        assert (miter - Vector((-0.08, -0.08, 0.02))).length < 1e-6
+
+    def test_junction_miter_averages_parallel_outer_contours(self):
+        miter = _junction_miter_position(
+            Vector((0, 0, 0)),
+            Vector((-0.1, -0.1, 0)),
+            Vector((-1, 0, 0)),
+            Vector((0.1, -0.1, 0)),
+            Vector((1, 0, 0)),
+            0.1,
+        )
+
+        assert (miter - Vector((0, -0.1, 0))).length < 1e-6
 
     def test_selected_self_seam_uses_both_owner_sides(self):
         side_a = _make_chain(
