@@ -65,11 +65,36 @@ def main():
     if owns_bmesh:
         bm.free()
 
+    # Сгенерированная декаль (если есть) — для локализации артефактов.
+    decal_obj = bpy.data.objects.get(f"Decal_Seams_{obj.name}")
+    if decal_obj is not None and decal_obj.type == "MESH":
+        mesh = decal_obj.data
+        uv_layer = mesh.uv_layers.active
+        data["decal"] = {
+            "name": decal_obj.name,
+            "verts": [list(vert.co) for vert in mesh.vertices],
+            "faces": [
+                {
+                    "verts": list(poly.vertices),
+                    "uvs": [
+                        list(uv_layer.data[loop_index].uv)
+                        for loop_index in poly.loop_indices
+                    ]
+                    if uv_layer is not None
+                    else [],
+                }
+                for poly in mesh.polygons
+            ],
+        }
+
     base_dir = os.path.dirname(bpy.data.filepath) or bpy.app.tempdir
     out_path = os.path.join(base_dir, "cftuv_seam_dump.json")
     with open(out_path, "w", encoding="utf-8") as handle:
         json.dump(data, handle, ensure_ascii=False, indent=1)
-    print(f"[CFTUV] seam dump: {out_path} ({len(data['edges'])} edges)")
+    print(
+        f"[CFTUV] seam dump: {out_path} "
+        f"({len(data['edges'])} edges, decal={'decal' in data})"
+    )
 
 
 main()

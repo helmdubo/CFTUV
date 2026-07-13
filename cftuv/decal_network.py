@@ -448,6 +448,54 @@ class _Site:
     bbox: tuple = None
     cap_start_sweep: float = 0.0
     cap_end_sweep: float = 0.0
+    # Конформный лифт: настоящие per-segment нормали и lifted станции.
+    segment_normals3: list = field(default_factory=list)
+    lifts3: list = field(default_factory=list)
+    surface: object = None
+
+    def to_3d(self, q2):
+        """Конформный лифт: точка чарта поднимается на плоскость своей грани.
+
+        2D-чарт span'а — усреднённая плоскость (метрика для клиппинга), но
+        реальная стена под лентой гранёная: лифт через chart.to_3d клал
+        ленту на плоскость-хорду, которая при offset ≪ стрелки прогиба
+        протыкает стену, а углы flat caps выпирали наружу («зубцы»).
+        Вершина мапится аффинно в frame ближайшего сегмента: станции
+        сохраняются точно, ширина вдоль реальной грани — точно α.
+        """
+
+        best = None
+        for index in range(len(self.pts2) - 1):
+            distance, _t = _segment_point_distance2(
+                self.pts2[index], self.pts2[index + 1], q2
+            )
+            if best is None or distance < best[0]:
+                best = (distance, index)
+        if best is None:
+            return self.surface.to_3d(q2)
+        index = best[1]
+        seg_a2 = self.pts2[index]
+        seg_b2 = self.pts2[index + 1]
+        tangent2 = _norm2(_sub2(seg_b2, seg_a2))
+        length2 = _dist2(seg_a2, seg_b2)
+        lift_a = self.lifts3[index]
+        lift_b = self.lifts3[index + 1]
+        tangent3 = lift_b - lift_a
+        length3 = tangent3.length
+        if tangent2 is None or length2 < 1e-12 or length3 < 1e-12:
+            return self.surface.to_3d(q2)
+        tangent3 = tangent3 / length3
+        normal3 = self.segment_normals3[index]
+        if normal3.length_squared < 1e-12:
+            return self.surface.to_3d(q2)
+        lateral3 = normal3.cross(tangent3)
+        if lateral3.length_squared < 1e-12:
+            return self.surface.to_3d(q2)
+        lateral3 = lateral3.normalized()
+        delta2 = _sub2(q2, seg_a2)
+        along = _dot2(delta2, tangent2)
+        across = _cross2(tangent2, delta2)
+        return lift_a + tangent3 * (along * length3 / length2) + lateral3 * across
 
     def finalize(self, delta):
         if not self.closed:
@@ -946,6 +994,7 @@ def _side_surface_spans(branch, normals):
     span_start = None
     normal_sum = None
     ref_midpoint = None
+    span_first_normal = None
     for segment in range(segment_count):
         normal = normals[segment]
         midpoint = (branch.points[segment] + branch.points[segment + 1]) * 0.5
@@ -962,14 +1011,23 @@ def _side_surface_spans(branch, normals):
                 abs(average.dot(midpoint - ref_midpoint))
                 < DECAL_SPINE_MERGE_DISTANCE
             )
-            if normal.normalized().dot(average) > DECAL_COPLANAR_DOT and on_plane:
-                normal_sum = normal_sum + normal.normalized()
+            unit = normal.normalized()
+            # Дрейф бегущего среднего не должен накапливать кривизну span
+            # сверх порога: проверяем и против среднего, и против первой
+            # нормали span (иначе пологая дуга склеивается чартом на 20°+).
+            if (
+                unit.dot(average) > DECAL_COPLANAR_DOT
+                and unit.dot(span_first_normal) > DECAL_COPLANAR_DOT
+                and on_plane
+            ):
+                normal_sum = normal_sum + unit
                 continue
             spans.append(
                 (span_start, segment, average, ref_midpoint)
             )
         span_start = segment
         normal_sum = normal.normalized()
+        span_first_normal = normal.normalized()
         ref_midpoint = midpoint
     if span_start is not None:
         spans.append(
@@ -1003,11 +1061,20 @@ def _split_side_sites(
             )
             site_counter[0] += 1
             surface = registry.surfaces[surface_id]
+            site.surface = surface
             for station in range(span_start, span_end + 1):
                 vert = branch.vert_indices[station]
                 site.pts2.append(surface.to_2d(lift_map[vert]))
                 site.arcs.append(arcs[station])
                 site.vert_indices.append(vert)
+                site.lifts3.append(lift_map[vert])
+            for segment in range(span_start, span_end):
+                normal = normals[segment]
+                site.segment_normals3.append(
+                    normal.normalized()
+                    if normal.length_squared > 1e-12
+                    else span_normal.copy()
+                )
             whole_side = span_start == 0 and span_end == segment_count
             site.closed = branch.closed and whole_side
             if not site.closed:
@@ -1227,7 +1294,7 @@ def build_seam_network_faces(runs, offset, width, arc_tolerance=None):
                     positions.append(lift_map[vert].copy())
                 else:
                     keys.append(("p",) + lookup)
-                    positions.append(surface.to_3d(point2))
+                    positions.append(site.to_3d(point2))
                 occupied, arc_v = site.uv(point2, alpha)
                 u_fracs.append(side_sign_uv * occupied)
                 v_lengths.append(arc_v)
@@ -1292,7 +1359,7 @@ def _split_connector_faces(sites, registry, lift_map, alpha):
             lat = _mul2(_rot90(tangent), site.lat_sign)
             outer2 = _add2(station2, _mul2(lat, alpha))
             outer_points.append(
-                (surface.to_3d(outer2), surface.normal, arc_v, site.side)
+                (site.to_3d(outer2), surface.normal, arc_v, site.side)
             )
         if len(outer_points) != 2:
             continue

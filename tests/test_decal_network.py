@@ -787,6 +787,104 @@ class TestDynamicTopology:
         assert wall_keys & floor_keys == {("sv", 0), ("sv", 1)}
 
 
+class TestConformalLift:
+    """Production repro (cftuv_seam_dump.json): широкая лента на гранёной дуге.
+
+    Ширина 0.7427 при offset 0.001 и тесселяции ~5°/грань: chart span'а —
+    усреднённая плоскость, и без конформного лифта углы flat caps выпирали
+    на ~0.015 из стены («зубцы» connector-треугольников на внешнем радиусе).
+    """
+
+    # (edge, v0, co0, v1, co1, n_a, c_a, n_b, c_b) — дамп production-сцены.
+    _DUMP_EDGES = [
+        (1, 3, (1.0, 1.0, 1.0), 2, (1.0, 1.0, -1.0),
+         (1.0, -0.0, 0.0), (1.0, 0.878988, 0.0), (0.0, 1.0, 0.0), (0.888237, 1.0, 0.0)),
+        (2, 24, (0.612561, 0.992422, 1.0), 22, (0.776474, 1.0, 1.0),
+         (0.0, -0.0, 1.0), (0.709419, 0.913861, 1.0), (-0.046184, 0.998933, 0.0), (0.694517, 0.996211, 0.0)),
+        (4, 5, (0.776474, 1.0, -1.0), 21, (0.612561, 0.992422, -1.0),
+         (-0.0, 0.0, -1.0), (0.709419, 0.913861, -1.0), (-0.046184, 0.998933, 0.0), (0.694517, 0.996211, 0.0)),
+        (6, 25, (0.450047, 0.969752, 1.0), 24, (0.612561, 0.992422, 1.0),
+         (0.0, -0.0, 1.0), (0.51425, 0.89346, 1.0), (-0.138156, 0.99041, 0.0), (0.531304, 0.981087, 0.0)),
+        (7, 21, (0.612561, 0.992422, -1.0), 20, (0.450047, 0.969752, -1.0),
+         (-0.0, 0.0, -1.0), (0.51425, 0.89346, -1.0), (-0.138156, 0.99041, 0.0), (0.531304, 0.981087, 0.0)),
+        (9, 26, (0.290318, 0.932184, 1.0), 25, (0.450047, 0.969752, 1.0),
+         (0.0, -0.0, 1.0), (0.406836, 0.873381, 1.0), (-0.22895, 0.973438, 0.0), (0.370183, 0.950968, 0.0)),
+        (10, 20, (0.450047, 0.969752, -1.0), 19, (0.290318, 0.932184, -1.0),
+         (-0.0, 0.0, -1.0), (0.406836, 0.873381, -1.0), (-0.22895, 0.973438, 0.0), (0.370183, 0.950968, 0.0)),
+        (55, 5, (0.776474, 1.0, -1.0), 2, (1.0, 1.0, -1.0),
+         (0.0, 0.0, -1.0), (0.925491, 0.919326, -1.0), (0.0, 1.0, 0.0), (0.888237, 1.0, 0.0)),
+        (57, 22, (0.776474, 1.0, 1.0), 3, (1.0, 1.0, 1.0),
+         (-0.0, 0.0, 1.0), (0.925491, 0.919326, 1.0), (0.0, 1.0, 0.0), (0.888237, 1.0, 0.0)),
+    ]
+
+    def _faces(self, width=0.7427, offset=0.001):
+        from cftuv.decals import _stitch_corner_runs
+
+        runs = []
+        for (
+            edge_index,
+            index_0,
+            co_0,
+            index_1,
+            co_1,
+            normal_a,
+            center_a,
+            normal_b,
+            _center_b,
+        ) in self._DUMP_EDGES:
+            p0, p1 = Vector(co_0), Vector(co_1)
+            n_a = Vector(normal_a).normalized()
+            n_b = Vector(normal_b).normalized()
+            mid = (p0 + p1) * 0.5
+            tangent = (p1 - p0).normalized()
+            if n_a.cross(tangent).dot(Vector(center_a) - mid) < 0.0:
+                index_0, index_1 = index_1, index_0
+                p0, p1 = p1, p0
+                tangent = tangent * -1.0
+            value = tangent.cross(n_a).normalized().dot(n_b)
+            convexity = 0.0 if abs(value) < 0.01 else max(-1.0, min(1.0, value))
+            runs.append(
+                _OrientedCornerRun(
+                    vert_indices=[index_0, index_1],
+                    points=[p0, p1],
+                    segment_normals_a=[n_a],
+                    segment_normals_b=[n_b],
+                    segment_convexities=[convexity],
+                    segment_edge_indices=[edge_index],
+                )
+            )
+        return build_seam_network_faces(
+            _stitch_corner_runs(runs), offset, width
+        )
+
+    def test_wide_band_conforms_to_faceted_wall(self):
+        faces = self._faces()
+        assert faces
+        wall_planes = [
+            (Vector(entry[7]).normalized(), Vector(entry[8]))
+            for entry in self._DUMP_EDGES
+        ] + [(Vector(self._DUMP_EDGES[0][5]), Vector(self._DUMP_EDGES[0][6]))]
+        for face in faces:
+            if abs(face.surface_normal.z) > 0.5:
+                continue  # cap-стороны проверяются ниже
+            for position in face.positions:
+                signed = min(
+                    abs(normal.dot(position - center) - 0.001)
+                    for normal, center in wall_planes
+                )
+                # Каждая вершина wall-ленты лежит на offset-плоскости
+                # какой-то реальной грани (до фикса: выпирала на ~0.015).
+                assert signed < 2e-3, (tuple(position), signed)
+
+    def test_cap_sides_stay_at_offset_height(self):
+        faces = self._faces()
+        for face in faces:
+            if abs(face.surface_normal.z) < 0.5:
+                continue
+            for position in face.positions:
+                assert abs(abs(position.z) - 1.001) < 2e-3
+
+
 class TestSettings:
     def test_network_backend_enabled_by_default(self):
         assert DecalSettings().seam_network is True
