@@ -3,6 +3,7 @@ from __future__ import annotations
 from mathutils import Vector
 
 from cftuv.decals import (
+    _OrientedCornerRun,
     _OrientedRibbonRun,
     _boundary_wing_direction,
     _collect_manual_chain_decals,
@@ -13,6 +14,7 @@ from cftuv.decals import (
     _dedupe_polyline,
     _polyline_tangents,
     _ribbon_vertex_frames,
+    _stitch_corner_runs,
     _stitch_ribbon_runs,
     _trim_quad_layout,
     _trim_quad_requires_flip,
@@ -73,6 +75,25 @@ def _make_ribbon_run(start, end, point_a, point_b, normal=(0, 1, 0)):
         segment_normals=[Vector(normal)],
         segment_ups=[Vector((0, 0, 1))],
         segment_chain_refs=[(start, 0, 0)],
+    )
+
+
+def _make_corner_run(
+    start,
+    end,
+    point_a,
+    point_b,
+    edge_index,
+    normal_a=(0, 1, 0),
+    normal_b=(0, 0, 1),
+):
+    return _OrientedCornerRun(
+        vert_indices=[start, end],
+        points=[Vector(point_a), Vector(point_b)],
+        segment_normals_a=[Vector(normal_a)],
+        segment_normals_b=[Vector(normal_b)],
+        segment_convexities=[1.0],
+        segment_edge_indices=[edge_index],
     )
 
 
@@ -423,18 +444,27 @@ class TestManualChainDecals:
         )
         top.patch_type = PatchType.FLOOR
 
-        paired_edges, boundary_edges = _collect_manual_edge_decals(
+        paired_runs, boundary_edges = _collect_manual_edge_decals(
             _make_graph(wall, top), [5, 14]
         )
 
-        assert len(paired_edges) == 2
+        assert len(paired_runs) == 1
         assert boundary_edges == []
-        assert [[tuple(point) for point in item[0]] for item in paired_edges] == [
-            [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0)],
-            [(1.0, 0.0, 0.0), (2.0, 0.0, 0.0)],
+        run = paired_runs[0]
+        assert [tuple(point) for point in run.points] == [
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (2.0, 0.0, 0.0),
         ]
-        assert all(item[1].dot(Vector((0, 1, 0))) > 0.999 for item in paired_edges)
-        assert all(item[2].dot(Vector((0, 0, 1))) > 0.999 for item in paired_edges)
+        assert run.segment_edge_indices == [5, 14]
+        assert all(
+            normal.dot(Vector((0, 1, 0))) > 0.999
+            for normal in run.segment_normals_a
+        )
+        assert all(
+            normal.dot(Vector((0, 0, 1))) > 0.999
+            for normal in run.segment_normals_b
+        )
 
     def test_selected_self_seam_pairs_two_uses_of_one_edge(self):
         side_a = _make_chain(
@@ -453,13 +483,45 @@ class TestManualChainDecals:
         )
         wall = _make_wall_node(0, (1, -1, 0), (0, 0, 1), [side_a, side_b])
 
-        paired_edges, boundary_edges = _collect_manual_edge_decals(
+        paired_runs, boundary_edges = _collect_manual_edge_decals(
             _make_graph(wall), [35]
         )
 
-        assert len(paired_edges) == 1
-        assert abs(paired_edges[0][4]) > 0.99
+        assert len(paired_runs) == 1
+        assert abs(paired_runs[0].segment_convexities[0]) > 0.99
         assert boundary_edges == []
+
+    def test_corner_runs_preserve_surface_sides_across_chain_splits(self):
+        first = _make_corner_run(0, 1, (0, 0, 0), (1, 0, 0), 5)
+        second = _make_corner_run(
+            1,
+            2,
+            (1, 0, 0),
+            (2, 0.5, 0),
+            14,
+            normal_a=(0, 0, 1),
+            normal_b=(0, 1, 0),
+        )
+
+        stitched = _stitch_corner_runs([first, second])
+
+        assert len(stitched) == 1
+        run = stitched[0]
+        assert run.segment_edge_indices == [5, 14]
+        assert all(normal.y > 0.99 for normal in run.segment_normals_a)
+        assert all(normal.z > 0.99 for normal in run.segment_normals_b)
+
+    def test_corner_runs_stop_at_valence_three_junction(self):
+        runs = [
+            _make_corner_run(0, 1, (0, 0, 0), (1, 0, 0), 5),
+            _make_corner_run(1, 2, (1, 0, 0), (2, 0, 0), 14),
+            _make_corner_run(1, 3, (1, 0, 0), (1, 1, 0), 35),
+        ]
+
+        stitched = _stitch_corner_runs(runs)
+
+        assert len(stitched) == 3
+        assert all(len(run.segment_edge_indices) == 1 for run in stitched)
 
     def test_selected_self_seam_uses_both_owner_sides(self):
         side_a = _make_chain(

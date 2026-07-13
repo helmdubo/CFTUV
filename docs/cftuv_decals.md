@@ -24,6 +24,11 @@ normal. На wrapped WALL patch это снова смешивает TOP/BOTTOM 
    на двух patches не расширяет выбор до целой петли и не создаёт дубли.
 5. Выбранные seam edges сохраняются выделенными после генерации для повторной
    настройки или создания другого decal mode на том же scope.
+6. Последовательные выбранные edges с endpoint-valence `2` собираются в один
+   oriented corner run. На общей станции создаётся один spine vertex и по одному
+   общему vertex каждого крыла, поэтому изогнутая лента не распадается на
+   edge-local сегменты. Point-contact и valence `3+` намеренно остаются разрезом:
+   произвольное продолжение через junction не выбирается.
 
 Для `Decal Corners` и `Decal Seams` ручной режим не фильтрует `PatchType`: WALL,
 FLOOR, SLOPE, потолки и другие ориентации равноправны. PATCH-neighbor chain и
@@ -33,6 +38,8 @@ FLOOR, SLOPE, потолки и другие ориентации равнопр
 `Decal Seams` — `Seam Width` и seam UV rect. На неплоском стыке seam состоит
 из двух локальных полукрыльев, а на копланарном — из одной центрированной
 ленты. Стороны общего физического ребра дедуплицируются по source edge index.
+При stitching сторона A/B выравнивается по непрерывности локальных нормалей, а
+не по patch id, поэтому смена chain/neighbor вдоль run не переставляет крылья.
 
 В автоматическом режиме внутренние и внешние углы различаются через canonical
 `BoundaryChain.dihedral_convexity`: negative — concave/inner, positive —

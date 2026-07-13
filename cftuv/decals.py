@@ -92,6 +92,55 @@ class _OrientedRibbonRun:
         )
 
 
+@dataclass
+class _OrientedCornerRun:
+    """Непрерывный двухсторонний seam-run с фреймами на каждый сегмент."""
+
+    vert_indices: list[int]
+    points: list[Vector]
+    segment_normals_a: list[Vector]
+    segment_normals_b: list[Vector]
+    segment_convexities: list[float]
+    segment_edge_indices: list[int]
+
+    @property
+    def start_vert_index(self) -> int:
+        return self.vert_indices[0]
+
+    @property
+    def end_vert_index(self) -> int:
+        return self.vert_indices[-1]
+
+    @property
+    def is_closed(self) -> bool:
+        return (
+            len(self.vert_indices) > 2
+            and self.start_vert_index == self.end_vert_index
+        )
+
+    def reversed_copy(self):
+        return _OrientedCornerRun(
+            vert_indices=list(reversed(self.vert_indices)),
+            points=list(reversed(self.points)),
+            segment_normals_a=list(reversed(self.segment_normals_a)),
+            segment_normals_b=list(reversed(self.segment_normals_b)),
+            segment_convexities=[
+                -value for value in reversed(self.segment_convexities)
+            ],
+            segment_edge_indices=list(reversed(self.segment_edge_indices)),
+        )
+
+    def swapped_copy(self):
+        return _OrientedCornerRun(
+            vert_indices=list(self.vert_indices),
+            points=list(self.points),
+            segment_normals_a=list(self.segment_normals_b),
+            segment_normals_b=list(self.segment_normals_a),
+            segment_convexities=[-value for value in self.segment_convexities],
+            segment_edge_indices=list(self.segment_edge_indices),
+        )
+
+
 def _join_ribbon_runs(first, second):
     """Соединяет два уже ориентированных run с общей конечной вершиной."""
 
@@ -103,6 +152,35 @@ def _join_ribbon_runs(first, second):
         segment_normals=first.segment_normals + second.segment_normals,
         segment_ups=first.segment_ups + second.segment_ups,
         segment_chain_refs=first.segment_chain_refs + second.segment_chain_refs,
+    )
+
+
+def _join_corner_runs(first, second):
+    """Соединяет corner runs и сохраняет непрерывную идентичность сторон."""
+
+    if first.end_vert_index != second.start_vert_index:
+        raise ValueError("Corner runs do not share an oriented endpoint")
+    same_score = (
+        first.segment_normals_a[-1].dot(second.segment_normals_a[0])
+        + first.segment_normals_b[-1].dot(second.segment_normals_b[0])
+    )
+    swapped_score = (
+        first.segment_normals_a[-1].dot(second.segment_normals_b[0])
+        + first.segment_normals_b[-1].dot(second.segment_normals_a[0])
+    )
+    if swapped_score > same_score:
+        second = second.swapped_copy()
+    return _OrientedCornerRun(
+        vert_indices=first.vert_indices + second.vert_indices[1:],
+        points=first.points + second.points[1:],
+        segment_normals_a=first.segment_normals_a + second.segment_normals_a,
+        segment_normals_b=first.segment_normals_b + second.segment_normals_b,
+        segment_convexities=(
+            first.segment_convexities + second.segment_convexities
+        ),
+        segment_edge_indices=(
+            first.segment_edge_indices + second.segment_edge_indices
+        ),
     )
 
 
@@ -236,8 +314,8 @@ def _collect_trim_ribbon_runs(graph: PatchGraph, chain_refs=None):
     return _stitch_ribbon_runs(top_runs), _stitch_ribbon_runs(bottom_runs)
 
 
-def _stitch_ribbon_runs(runs):
-    """Склеивает run по концам, но не проходит через неоднозначный point-contact.
+def _stitch_oriented_runs(runs, join_runs):
+    """Склеивает oriented runs, не проходя неоднозначный point-contact.
 
     Вершина с числом инцидентных run не равным двум считается границей пути.
     Это исключает прежний жадный выбор произвольного продолжения в развилке.
@@ -269,7 +347,7 @@ def _stitch_ribbon_runs(runs):
             next_run = runs[next_index]
             if next_run.start_vert_index != tail:
                 next_run = next_run.reversed_copy()
-            current = _join_ribbon_runs(current, next_run)
+            current = join_runs(current, next_run)
 
         while not current.is_closed:
             head = current.start_vert_index
@@ -283,10 +361,18 @@ def _stitch_ribbon_runs(runs):
             previous_run = runs[previous_index]
             if previous_run.end_vert_index != head:
                 previous_run = previous_run.reversed_copy()
-            current = _join_ribbon_runs(previous_run, current)
+            current = join_runs(previous_run, current)
 
         stitched.append(current)
     return stitched
+
+
+def _stitch_ribbon_runs(runs):
+    return _stitch_oriented_runs(runs, _join_ribbon_runs)
+
+
+def _stitch_corner_runs(runs):
+    return _stitch_oriented_runs(runs, _join_corner_runs)
 
 
 def _blend_ribbon_frame(frame_prev, frame_next):
@@ -567,7 +653,7 @@ def _manual_edge_pair_convexity(points, normal_a, normal_b):
 
 
 def _collect_manual_edge_decals(graph: PatchGraph, edge_indices):
-    """Selected physical edges paired from their analysis-owned chain uses."""
+    """Selected physical edges as continuous analysis-owned corner runs."""
 
     selected_edges = {int(edge_index) for edge_index in edge_indices or ()}
     uses_by_edge = {edge_index: [] for edge_index in selected_edges}
@@ -577,7 +663,11 @@ def _collect_manual_edge_decals(graph: PatchGraph, edge_indices):
             for chain_index, chain in enumerate(boundary_loop.chains):
                 for segment_index, edge_index in enumerate(chain.edge_indices):
                     edge_index = int(edge_index)
-                    if edge_index not in selected_edges or len(chain.vert_cos) < 2:
+                    if (
+                        edge_index not in selected_edges
+                        or len(chain.vert_cos) < 2
+                        or len(chain.vert_indices) != len(chain.vert_cos)
+                    ):
                         continue
                     next_index = segment_index + 1
                     if next_index >= len(chain.vert_cos):
@@ -591,6 +681,10 @@ def _collect_manual_edge_decals(graph: PatchGraph, edge_indices):
                         (
                             (patch_id, loop_index, chain_index, segment_index),
                             [
+                                int(chain.vert_indices[segment_index]),
+                                int(chain.vert_indices[next_index]),
+                            ],
+                            [
                                 chain.vert_cos[segment_index].copy(),
                                 chain.vert_cos[next_index].copy(),
                             ],
@@ -598,26 +692,31 @@ def _collect_manual_edge_decals(graph: PatchGraph, edge_indices):
                         )
                     )
 
-    paired_edges = []
+    paired_segments = []
     boundary_edges = []
     for edge_index in sorted(selected_edges):
         uses = sorted(uses_by_edge.get(edge_index, ()), key=lambda use: use[0])
         if len(uses) >= 2:
-            _ref_a, points, normal_a = uses[0]
-            _ref_b, _other_points, normal_b = uses[1]
-            paired_edges.append(
-                (
-                    points,
-                    normal_a,
-                    normal_b,
-                    False,
-                    _manual_edge_pair_convexity(points, normal_a, normal_b),
+            _ref_a, vert_indices, points, normal_a = uses[0]
+            _ref_b, _other_verts, _other_points, normal_b = uses[1]
+            paired_segments.append(
+                _OrientedCornerRun(
+                    vert_indices=vert_indices,
+                    points=points,
+                    segment_normals_a=[normal_a],
+                    segment_normals_b=[normal_b],
+                    segment_convexities=[
+                        _manual_edge_pair_convexity(
+                            points, normal_a, normal_b
+                        )
+                    ],
+                    segment_edge_indices=[edge_index],
                 )
             )
         elif len(uses) == 1:
-            _ref, points, normal = uses[0]
+            _ref, _vert_indices, points, normal = uses[0]
             boundary_edges.append((points, normal, False))
-    return paired_edges, boundary_edges
+    return _stitch_corner_runs(paired_segments), boundary_edges
 
 
 def _polyline_tangents(points, closed=False):
@@ -759,6 +858,135 @@ def _corner_wing_directions(direction, normal_a, normal_b, dihedral_convexity=0.
     return wing_dir_a, wing_dir_b
 
 
+def _blend_corner_normal(previous, following):
+    if previous is not None and following is not None:
+        blended = previous + following
+        if blended.length_squared > 1e-8:
+            return blended.normalized()
+        return previous.copy()
+    if previous is not None:
+        return previous.copy()
+    if following is not None:
+        return following.copy()
+    return Vector((0.0, 0.0, 1.0))
+
+
+def _corner_run_vertex_frames(run: _OrientedCornerRun):
+    """Смешивает две surface-нормали соседних сегментов на общей станции."""
+
+    segment_count = len(run.segment_normals_a)
+    if segment_count == 0:
+        return []
+    frames = []
+    for point_index in range(len(run.points)):
+        previous_index = point_index - 1
+        next_index = point_index
+        if point_index == 0:
+            previous_index = segment_count - 1 if run.is_closed else -1
+        if point_index >= segment_count:
+            next_index = 0 if run.is_closed else -1
+
+        prev_a = prev_b = next_a = next_b = None
+        convexities = []
+        if 0 <= previous_index < segment_count:
+            prev_a = run.segment_normals_a[previous_index]
+            prev_b = run.segment_normals_b[previous_index]
+            convexities.append(run.segment_convexities[previous_index])
+        if 0 <= next_index < segment_count:
+            next_a = run.segment_normals_a[next_index]
+            next_b = run.segment_normals_b[next_index]
+            convexities.append(run.segment_convexities[next_index])
+        convexity = sum(convexities) / len(convexities) if convexities else 0.0
+        frames.append(
+            (
+                _blend_corner_normal(prev_a, next_a),
+                _blend_corner_normal(prev_b, next_b),
+                convexity,
+            )
+        )
+    return frames
+
+
+def _build_corner_ribbon_run(bm, run, settings, uv_rect, width=None):
+    """Строит одну общую corner-ленту с shared vertices на станциях run."""
+
+    if len(run.points) < 2:
+        return
+    half_width = (
+        settings.width_corner if width is None else float(width)
+    ) / 2.0
+    tangents = _polyline_tangents(run.points, closed=run.is_closed)
+    frames = _corner_run_vertex_frames(run)
+    arc = _arc_lengths(run.points)
+    chord = run.points[-1] - run.points[0]
+
+    spine_verts = []
+    wing_a_verts = []
+    wing_b_verts = []
+    for index, co in enumerate(run.points):
+        normal_a, normal_b, convexity = frames[index]
+        avg_normal = normal_a + normal_b
+        if avg_normal.length_squared < 1e-8:
+            avg_normal = normal_a.copy()
+        avg_normal = avg_normal.normalized()
+        dot_val = avg_normal.dot(normal_a)
+        scaler = (
+            settings.offset
+            if abs(dot_val) < 0.1
+            else settings.offset / dot_val
+        )
+        spine_pos = co + avg_normal * scaler
+
+        wing_directions = _corner_wing_directions(
+            tangents[index], normal_a, normal_b, convexity
+        )
+        if wing_directions is None:
+            wing_directions = _corner_wing_directions(
+                chord, normal_a, normal_b, convexity
+            )
+            if wing_directions is None:
+                return
+        wing_dir_a, wing_dir_b = wing_directions
+        spine_verts.append(bm.verts.new(spine_pos))
+        wing_a_verts.append(bm.verts.new(spine_pos + wing_dir_a * half_width))
+        wing_b_verts.append(bm.verts.new(spine_pos + wing_dir_b * half_width))
+
+    uv_layer = bm.loops.layers.uv.verify()
+    u_min, _v_min, u_max, _v_max = uv_rect
+    u_mid = (u_min + u_max) / 2.0
+    scale = settings.uv_length_scale
+    for index in range(len(run.points) - 1):
+        v_start = arc[index] * scale
+        v_end = arc[index + 1] * scale
+        try:
+            face_a = bm.faces.new(
+                (
+                    wing_a_verts[index],
+                    wing_a_verts[index + 1],
+                    spine_verts[index + 1],
+                    spine_verts[index],
+                )
+            )
+            face_a.loops[0][uv_layer].uv = (u_min, v_start)
+            face_a.loops[1][uv_layer].uv = (u_min, v_end)
+            face_a.loops[2][uv_layer].uv = (u_mid, v_end)
+            face_a.loops[3][uv_layer].uv = (u_mid, v_start)
+            face_b = bm.faces.new(
+                (
+                    spine_verts[index],
+                    spine_verts[index + 1],
+                    wing_b_verts[index + 1],
+                    wing_b_verts[index],
+                )
+            )
+            face_b.loops[0][uv_layer].uv = (u_mid, v_start)
+            face_b.loops[1][uv_layer].uv = (u_mid, v_end)
+            face_b.loops[2][uv_layer].uv = (u_max, v_end)
+            face_b.loops[3][uv_layer].uv = (u_max, v_start)
+        except ValueError:
+            continue
+
+
 def _build_corner_strip(
     bm,
     points,
@@ -770,75 +998,23 @@ def _build_corner_strip(
     dihedral_convexity=0.0,
     width=None,
 ):
-    """Угловая лента: спайн вдоль полилинии шва + крыло на каждую стену.
-
-    Спайн смещается вдоль средней нормали на offset / dot — постоянное
-    расстояние до обеих плоскостей. Направления крыльев считаются на
-    вершину из касательной (изогнутые углы, Г-образные швы). UV: v —
-    длина дуги, u — поперёк, спайн на середине прямоугольника.
-    """
+    """Compatibility wrapper для chain-level corner ribbon."""
 
     if len(points) < 2:
         return
-    avg_normal = normal_a + normal_b
-    if avg_normal.length_squared < 1e-8:
-        avg_normal = normal_a.copy()
-    avg_normal = avg_normal.normalized()
-    dot_val = avg_normal.dot(normal_a)
-    scaler = settings.offset if abs(dot_val) < 0.1 else settings.offset / dot_val
-    spine_offset = avg_normal * scaler
-    half_width = (
-        settings.width_corner if width is None else float(width)
-    ) / 2.0
-
-    tangents = _polyline_tangents(points, closed=closed)
-    arc = _arc_lengths(points)
-
-    spine_verts = []
-    wing_a_verts = []
-    wing_b_verts = []
-    for i, co in enumerate(points):
-        wing_directions = _corner_wing_directions(
-            tangents[i], normal_a, normal_b, dihedral_convexity
-        )
-        if wing_directions is None:
-            chord = points[-1] - points[0]
-            wing_directions = _corner_wing_directions(
-                chord, normal_a, normal_b, dihedral_convexity
-            )
-            if wing_directions is None:
-                return
-        wing_dir_a, wing_dir_b = wing_directions
-
-        spine_pos = co + spine_offset
-        spine_verts.append(bm.verts.new(spine_pos))
-        wing_a_verts.append(bm.verts.new(spine_pos + wing_dir_a * half_width))
-        wing_b_verts.append(bm.verts.new(spine_pos + wing_dir_b * half_width))
-
-    uv_layer = bm.loops.layers.uv.verify()
-    u_min, v_min, u_max, v_max = uv_rect
-    u_mid = (u_min + u_max) / 2.0
-    scale = settings.uv_length_scale
-    for i in range(len(points) - 1):
-        v_start = arc[i] * scale
-        v_end = arc[i + 1] * scale
-        try:
-            face_a = bm.faces.new(
-                (wing_a_verts[i], wing_a_verts[i + 1], spine_verts[i + 1], spine_verts[i])
-            )
-            face_a.loops[0][uv_layer].uv = (u_min, v_start)
-            face_a.loops[1][uv_layer].uv = (u_min, v_end)
-            face_a.loops[2][uv_layer].uv = (u_mid, v_end)
-            face_a.loops[3][uv_layer].uv = (u_mid, v_start)
-            face_b = bm.faces.new(
-                (spine_verts[i], spine_verts[i + 1], wing_b_verts[i + 1], wing_b_verts[i])
-            )
-            face_b.loops[0][uv_layer].uv = (u_mid, v_start)
-            face_b.loops[1][uv_layer].uv = (u_mid, v_end)
-            face_b.loops[2][uv_layer].uv = (u_max, v_end)
-            face_b.loops[3][uv_layer].uv = (u_max, v_start)
-        except ValueError:
-            continue
+    segment_count = len(points) - 1
+    vert_indices = list(range(len(points)))
+    if closed:
+        vert_indices[-1] = vert_indices[0]
+    run = _OrientedCornerRun(
+        vert_indices=vert_indices,
+        points=list(points),
+        segment_normals_a=[normal_a.copy() for _ in range(segment_count)],
+        segment_normals_b=[normal_b.copy() for _ in range(segment_count)],
+        segment_convexities=[dihedral_convexity] * segment_count,
+        segment_edge_indices=list(range(segment_count)),
+    )
+    _build_corner_ribbon_run(bm, run, settings, uv_rect, width=width)
 
 
 def _boundary_wing_direction(direction, normal):
@@ -1027,17 +1203,62 @@ def _fill_manual_chain_decals(
 ):
     """Manual edge scope: exact physical edges with local owner-side frames."""
 
-    if selected_edge_indices is None:
-        corner_chains, boundary_chains = _collect_manual_chain_decals(
-            graph, chain_refs
-        )
-    else:
-        corner_chains, boundary_chains = _collect_manual_edge_decals(
-            graph, selected_edge_indices
-        )
     is_seam_mode = mode == "SEAMS"
     width = settings.width_seam if is_seam_mode else settings.width_corner
     uv_rect = DECAL_UV_RECT_SEAM if is_seam_mode else DECAL_UV_RECT_CORNER
+
+    if selected_edge_indices is not None:
+        corner_runs, boundary_chains = _collect_manual_edge_decals(
+            graph, selected_edge_indices
+        )
+        for run in corner_runs:
+            is_coplanar = all(
+                normal_a.dot(normal_b) > DECAL_COPLANAR_DOT
+                for normal_a, normal_b in zip(
+                    run.segment_normals_a, run.segment_normals_b
+                )
+            )
+            if is_seam_mode and is_coplanar:
+                normal_sum = Vector((0.0, 0.0, 0.0))
+                for normal in run.segment_normals_a:
+                    normal_sum += normal
+                normal = (
+                    normal_sum.normalized()
+                    if normal_sum.length_squared > 1e-8
+                    else run.segment_normals_a[0]
+                )
+                _build_seam_strip(
+                    bm,
+                    run.points,
+                    normal,
+                    settings,
+                    uv_rect,
+                    closed=run.is_closed,
+                )
+                continue
+            _build_corner_ribbon_run(
+                bm,
+                run,
+                settings,
+                uv_rect,
+                width=width,
+            )
+        for points, normal, is_closed in boundary_chains:
+            spine_points = _dedupe_polyline(points)
+            _build_boundary_wing_strip(
+                bm,
+                _closed_polyline(spine_points, is_closed),
+                normal,
+                settings,
+                uv_rect,
+                closed=is_closed,
+                width=width,
+            )
+        return
+
+    corner_chains, boundary_chains = _collect_manual_chain_decals(
+        graph, chain_refs
+    )
     for points, normal_a, normal_b, is_closed, convexity in corner_chains:
         spine_points = _dedupe_polyline(points)
         if is_seam_mode and normal_a.dot(normal_b) > DECAL_COPLANAR_DOT:

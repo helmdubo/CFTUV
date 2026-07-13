@@ -64,7 +64,7 @@ visual_board:
     url: "http://goalbuddy.localhost:41737/surface-conforming-decals/"
     command: "npx goalbuddy board C:/Users/helmd/Documents/CFTUV/docs/goals/surface-conforming-decals"
 
-active_task: T029
+active_task: T032
 
 tasks:
   - id: T001
@@ -715,7 +715,7 @@ tasks:
   - id: T029
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Record the user's Blender validation of interactive Decal Seams width before resuming T020."
     inputs:
@@ -727,6 +727,80 @@ tasks:
     expected_output:
       - "User validation result"
       - "Approval to resume T020 or a bounded SEAMS modal recovery task"
+    receipt:
+      result: done
+      user_validation: failed
+      evidence:
+        - "C:/Users/helmd/AppData/Local/Temp/codex-clipboard-eb25097e-6cce-4b4c-9cee-70d23f7e09ce.png"
+      summary: "Interactive generation exposed a geometry defect in selected-edge CORNERS: each physical edge is built as an isolated two-point strip, leaving gaps between wings along a curved seam."
+
+  - id: T031
+    type: worker
+    assignee: Worker
+    status: done
+    reasoning_hint: high
+    objective: "Stitch consecutive selected seam edges into oriented corner ribbon runs with shared vertex frames, eliminating isolated wing gaps without expanding manual scope."
+    allowed_files:
+      - "cftuv/decals.py"
+      - "tests/test_decals.py"
+      - "docs/cftuv_decals.md"
+      - "C:/Users/helmd/AppData/Roaming/Blender Foundation/Blender/4.3/scripts/addons/cftuv/decals.py"
+      - "docs/goals/surface-conforming-decals/state.yaml"
+      - "docs/goals/surface-conforming-decals/notes/T031-continuous-corner-runs.md"
+    verify:
+      - "A sequence of selected physical seam edges becomes one oriented run when endpoint valence is two."
+      - "Run stitching preserves per-segment normals for both owner surfaces."
+      - "Adjacent corner faces share the same spine and wing vertices at each internal station."
+      - "Point contacts and valence-three junctions remain split rather than choosing an arbitrary continuation."
+      - "Selected edge indices remain the exact manual scope."
+      - "C:/Python313/python.exe -m pytest -q"
+      - "Blender 4.3.2 curved selected-seam geometry check"
+      - "Blender 4.1.1 compatibility check"
+      - "git diff --check"
+    stop_if:
+      - "Surface-side identity cannot be kept deterministic across neighboring edge pairs."
+      - "The fix requires making Junction a primary solve entity."
+      - "Verification fails twice without an isolated fallback path."
+    receipt:
+      result: done
+      changed_files:
+        - "cftuv/decals.py"
+        - "tests/test_decals.py"
+        - "docs/cftuv_decals.md"
+        - "C:/Users/helmd/AppData/Roaming/Blender Foundation/Blender/4.3/scripts/addons/cftuv/decals.py"
+        - "docs/goals/surface-conforming-decals/state.yaml"
+        - "docs/goals/surface-conforming-decals/notes/T031-continuous-corner-runs.md"
+      commands:
+        - cmd: "C:/Python313/python.exe -m pytest -q"
+          status: pass
+        - cmd: "C:/Python313/python.exe -m compileall -q cftuv tests"
+          status: pass
+        - cmd: "Blender 4.3.2 curved three-edge selected seam BMesh oracle"
+          status: pass
+        - cmd: "Blender 4.1.1 matching curved seam BMesh oracle"
+          status: pass
+        - cmd: "Compare repository and installed Blender 4.3 addon Python hashes"
+          status: pass
+        - cmd: "git diff --check"
+          status: pass
+      summary: "Selected paired seam edges now stitch into oriented corner runs with per-segment normals and shared station vertices. The curved three-edge oracle produces one run, six faces, and twelve vertices with no isolated wing endpoints; valence-three junctions remain split."
+
+  - id: T032
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: default
+    objective: "Record the user's Blender validation that selected-edge CORNERS form a continuous ribbon before resuming T020."
+    inputs:
+      - "T031 pushed recovery commit"
+      - "Blender 4.3 installed addon synchronized with the branch"
+      - "Original screenshot fixture"
+    constraints:
+      - "Wait for the user to regenerate CORNERS on the same curved selected seam."
+      - "If gaps remain, inspect whether the screenshot path is automatic rather than selected-edge manual before broadening the collector."
+    expected_output:
+      - "User validation result"
+      - "Approval to resume T020 or an automatic-chain stitching recovery task"
     receipt: null
 
   - id: T020
@@ -840,10 +914,10 @@ checks:
   dirty_fingerprint: "goal-prep-only"
   last_verification:
     result: pass
-    task: T028
+    task: T031
     commands:
-      - "C:/Python313/python.exe -m pytest -q (46 passed)"
+      - "C:/Python313/python.exe -m pytest -q (48 passed)"
       - "C:/Python313/python.exe -m compileall -q cftuv tests"
-      - "Blender 4.3.2: installed SEAMS invoke source is interactive, width target is width_seam, RNA minimum is 0.001"
-      - "Blender 4.1.1: matching SEAMS modal source and RNA minimum"
+      - "Blender 4.3.2 curved selected seam: 1 run, 3 segments, 12 vertices, 6 faces, positive area"
+      - "Blender 4.1.1: matching 1-run/12-vertex/6-face result"
       - "Repository and installed Blender 4.3 addon Python hashes match"
