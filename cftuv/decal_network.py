@@ -228,12 +228,13 @@ def _branch_from_run(run):
 
 
 def _reverse_branch(branch):
+    # Convexity — геометрический инвариант фолда (reverse/swap-независимый).
     return _NetworkBranch(
         vert_indices=list(reversed(branch.vert_indices)),
         points=list(reversed(branch.points)),
         normals_a=list(reversed(branch.normals_a)),
         normals_b=list(reversed(branch.normals_b)),
-        convexities=[-value for value in reversed(branch.convexities)],
+        convexities=list(reversed(branch.convexities)),
         closed=branch.closed,
     )
 
@@ -244,7 +245,7 @@ def _swap_branch_sides(branch):
         points=list(branch.points),
         normals_a=list(branch.normals_b),
         normals_b=list(branch.normals_a),
-        convexities=[-value for value in branch.convexities],
+        convexities=list(branch.convexities),
         closed=branch.closed,
     )
 
@@ -435,6 +436,8 @@ class _Site:
     retract_start: float = 0.0
     retract_end: float = 0.0
     bbox: tuple = None
+    cap_start_sweep: float = 0.0
+    cap_end_sweep: float = 0.0
 
     def finalize(self, delta):
         if not self.closed:
@@ -508,6 +511,63 @@ class _Site:
         else:
             occupied = 0.0
         return occupied, arc_v
+
+
+def _node_spine_directions(sites):
+    """Углы всех spine-направлений сайтов в каждой (vert, surface) точке."""
+
+    directions = {}
+    for site in sites:
+        pts = site.pts2
+        for index, vert in enumerate(site.vert_indices):
+            for neighbor in (index - 1, index + 1):
+                if not 0 <= neighbor < len(pts):
+                    continue
+                direction = _norm2(_sub2(pts[neighbor], pts[index]))
+                if direction is None:
+                    continue
+                directions.setdefault((vert, site.surface_id), []).append(
+                    (site.site_id, atan2(direction[1], direction[0]))
+                )
+    return directions
+
+
+def _junction_cap_sweep(site, at_start, node_directions):
+    """Угловая длина round cap: до биссектрисы с угловым соседом.
+
+    Vertex region узла принадлежит декали только между крыльями соседних
+    ветвей (красная схема T039): промежуток до соседа γ > 180° закрывается
+    дугой γ/2 − 90°; γ ≤ 180° закрыт самими полосами; поверхность без
+    соседей получает плоский конец — дуга висела бы за границей меша.
+    """
+
+    pts = site.pts2
+    if at_start:
+        d_me = _norm2(_sub2(pts[1], pts[0]))
+        sense = site.lat_sign
+        vert = site.vert_indices[0]
+    else:
+        d_me = _norm2(_sub2(pts[-2], pts[-1]))
+        sense = -site.lat_sign
+        vert = site.vert_indices[-1]
+    if d_me is None:
+        return 0.0
+    theta = atan2(d_me[1], d_me[0])
+    best = None
+    for other_id, angle in node_directions.get(
+        (vert, site.surface_id), ()
+    ):
+        if other_id == site.site_id:
+            continue
+        delta = ((angle - theta) * sense) % (2.0 * pi)
+        # Совпадающее направление — вторая сторона того же spine.
+        if delta < 1e-3 or delta > 2.0 * pi - 1e-3:
+            continue
+        if best is None or delta < best:
+            best = delta
+    if best is None or best <= pi + 1e-4:
+        return 0.0
+    return best / 2.0 - pi / 2.0
 
 
 def _sites_compete(site_a, site_b):
@@ -624,11 +684,11 @@ def _site_band_faces(site, alpha, arc_tolerance):
     else:
         # Начальная станция.
         lat0 = _mul2(_rot90(tangents[0]), lat_sign)
-        if site.start_kind == "junction":
-            angle_back = atan2(-tangents[0][1], -tangents[0][0])
-            sweep = -lat_sign * (pi / 2.0)
+        if site.start_kind == "junction" and site.cap_start_sweep > 1e-6:
+            sweep_len = site.cap_start_sweep
+            angle_start = atan2(lat0[1], lat0[0]) + lat_sign * sweep_len
             outer[0] = _arc_points(
-                pts[0], alpha, angle_back, sweep, arc_tolerance
+                pts[0], alpha, angle_start, -lat_sign * sweep_len, arc_tolerance
             ) or [_add2(pts[0], _mul2(lat0, alpha))]
         else:
             outer[0] = [_add2(pts[0], _mul2(lat0, alpha))]
@@ -644,11 +704,14 @@ def _site_band_faces(site, alpha, arc_tolerance):
             )
         # Конечная станция.
         lat_end = _mul2(_rot90(tangents[-1]), lat_sign)
-        if site.end_kind == "junction":
+        if site.end_kind == "junction" and site.cap_end_sweep > 1e-6:
             angle_lat = atan2(lat_end[1], lat_end[0])
-            sweep = -lat_sign * (pi / 2.0)
             outer[count - 1] = _arc_points(
-                pts[-1], alpha, angle_lat, sweep, arc_tolerance
+                pts[-1],
+                alpha,
+                angle_lat,
+                -lat_sign * site.cap_end_sweep,
+                arc_tolerance,
             ) or [_add2(pts[-1], _mul2(lat_end, alpha))]
         else:
             outer[count - 1] = [_add2(pts[-1], _mul2(lat_end, alpha))]
@@ -943,15 +1006,13 @@ def _site_lat_sign(branch, side, normals, other_normals, span_start, surface, si
             if side == "B":
                 wing3 = wing3 * -1.0
         else:
-            # Convexity антисимметрична к порядку normals: det[t, na, nb].
-            convexity = branch.convexities[segment]
-            if side == "B":
-                convexity = -convexity
+            # `_corner_wing_directions` симметрична к порядку normals при
+            # инвариантной convexity: wings[0] — крыло первой normal.
             wings = _corner_wing_directions(
                 direction3,
                 normal_own,
                 normal_other,
-                convexity,
+                branch.convexities[segment],
             )
             if wings is None:
                 continue
@@ -1046,6 +1107,18 @@ def build_seam_network_faces(runs, offset, width, arc_tolerance=None):
             )
     for site in sites:
         site.finalize(delta)
+    node_directions = _node_spine_directions(sites)
+    for site in sites:
+        if site.closed:
+            continue
+        if site.start_kind == "junction":
+            site.cap_start_sweep = _junction_cap_sweep(
+                site, True, node_directions
+            )
+        if site.end_kind == "junction":
+            site.cap_end_sweep = _junction_cap_sweep(
+                site, False, node_directions
+            )
 
     # --- faces + клиппинг ---
     # Точка face может отстоять от своего spine на miter-длину (до α·LIMIT);

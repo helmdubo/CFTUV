@@ -123,14 +123,16 @@ class _OrientedCornerRun:
         )
 
     def reversed_copy(self):
+        # dihedral convexity — геометрический инвариант фолда: не зависит ни
+        # от направления обхода, ни от порядка сторон (см. flip-логику
+        # `_corner_wing_directions`). Негация при reverse/swap выворачивала
+        # крылья наружу после stitch-разворота.
         return _OrientedCornerRun(
             vert_indices=list(reversed(self.vert_indices)),
             points=list(reversed(self.points)),
             segment_normals_a=list(reversed(self.segment_normals_a)),
             segment_normals_b=list(reversed(self.segment_normals_b)),
-            segment_convexities=[
-                -value for value in reversed(self.segment_convexities)
-            ],
+            segment_convexities=list(reversed(self.segment_convexities)),
             segment_edge_indices=list(reversed(self.segment_edge_indices)),
         )
 
@@ -140,7 +142,7 @@ class _OrientedCornerRun:
             points=list(self.points),
             segment_normals_a=list(self.segment_normals_b),
             segment_normals_b=list(self.segment_normals_a),
-            segment_convexities=[-value for value in self.segment_convexities],
+            segment_convexities=list(self.segment_convexities),
             segment_edge_indices=list(self.segment_edge_indices),
         )
 

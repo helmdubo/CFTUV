@@ -356,6 +356,155 @@ class TestSurfaceChangeSplit:
         assert ("sv", 1) in connectors[0].vert_keys
 
 
+class TestOrientationInvariance:
+    def test_reversed_and_swapped_runs_build_identical_geometry(self):
+        # Convexity — геометрический инвариант: разворот и swap сторон run
+        # (как делает stitching) не должны выворачивать крылья.
+        def fold(reverse=False, swap=False):
+            run = _make_run(
+                [0, 1, 2],
+                [(0, 0, 0), (1, 0, 0), (2, 0, 0)],
+                (0, 0, 1),
+                (0, 1, 0),
+            )
+            run.segment_convexities = [1.0, 1.0]
+            if reverse:
+                run = run.reversed_copy()
+            if swap:
+                run = run.swapped_copy()
+            return run
+
+        reference = _positions(
+            build_seam_network_faces([fold()], offset=0.02, width=0.15)
+        )
+        assert reference
+        for reverse, swap in ((True, False), (False, True), (True, True)):
+            variant = _positions(
+                build_seam_network_faces(
+                    [fold(reverse, swap)], offset=0.02, width=0.15
+                )
+            )
+            assert variant == reference
+
+
+class TestArcWallCorner:
+    def _faces(self):
+        from math import pi as _pi
+
+        # Дуговая стена с толщиной: cap-кольцо, торец, вертикальное ребро.
+        r_out, r_in, height, segs = 1.0, 0.9, 2.0, 14
+        arc = _pi * 0.8
+
+        def arc_point(radius, t, z):
+            a = arc * t
+            return Vector((radius * cos(a), radius * sin(a), z))
+
+        def seg_mid_radial(i, sign_value=1.0):
+            a = arc * (i + 0.5) / segs
+            return Vector((sign_value * cos(a), sign_value * sin(a), 0.0))
+
+        def fold_run(vids, pts, normals_a, normals_b, edge_start):
+            count = len(pts) - 1
+            return _OrientedCornerRun(
+                vert_indices=vids,
+                points=pts,
+                segment_normals_a=normals_a,
+                segment_normals_b=normals_b,
+                segment_convexities=[1.0] * count,  # все фолды выпуклые
+                segment_edge_indices=list(
+                    range(edge_start, edge_start + count)
+                ),
+            )
+
+        outer = fold_run(
+            [1] + list(range(101, 101 + segs)),
+            [arc_point(r_out, i / segs, height) for i in range(segs + 1)],
+            [Vector((0, 0, 1))] * segs,
+            [seg_mid_radial(i, +1.0) for i in range(segs)],
+            0,
+        )
+        inner = fold_run(
+            [2] + list(range(201, 201 + segs)),
+            [arc_point(r_in, i / segs, height) for i in range(segs + 1)],
+            [Vector((0, 0, 1))] * segs,
+            [seg_mid_radial(i, -1.0) for i in range(segs)],
+            50,
+        )
+        top_end = fold_run(
+            [1, 2],
+            [Vector((r_out, 0, height)), Vector((r_in, 0, height))],
+            [Vector((0, 0, 1))],
+            [Vector((0, -1, 0))],
+            90,
+        )
+        vertical = fold_run(
+            [1, 300, 301],
+            [
+                Vector((r_out, 0, height)),
+                Vector((r_out, 0, height / 2)),
+                Vector((r_out, 0, 0)),
+            ],
+            [Vector((0, -1, 0))] * 2,
+            [seg_mid_radial(0, +1.0)] * 2,
+            95,
+        )
+        from cftuv.decals import _stitch_corner_runs
+
+        runs = _stitch_corner_runs([outer, inner, top_end, vertical])
+        return build_seam_network_faces(runs, offset=0.02, width=0.15)
+
+    def test_no_geometry_escapes_the_mesh(self):
+        faces = self._faces()
+        assert faces
+        for face in faces:
+            for position in face.positions:
+                radius_xy = (position.x ** 2 + position.y ** 2) ** 0.5
+                assert position.y > -0.021, position
+                assert radius_xy < 1.1, position
+                assert position.z < 2.021, position
+
+    def test_corner_junction_has_no_unbounded_cap_fans(self):
+        faces = self._faces()
+        node = Vector((1.0, 0.0, 2.0))
+        fan_triangles = [
+            face
+            for face in faces
+            if len(face.positions) == 3
+            and min((p - node).length for p in face.positions) < 0.12
+        ]
+        # Только ограниченные биссектрисами сектора, не полные 90° веера.
+        assert len(fan_triangles) <= 6
+
+
+class TestSingleSiteJunctionCap:
+    def test_isolated_surface_end_stays_flat(self):
+        # Узел валентности 3, но на торцевой поверхности только один сайт:
+        # round cap висел бы за границей меша — конец должен быть плоским.
+        stem = _make_run(
+            [0, 10], [(0, 0, 0), (0, -1, 0)], (0, 0, 1), (0, 0, 1)
+        )
+        bar_left = _make_run(
+            [11, 0], [(-1, 0, 0), (0, 0, 0)], (0, 0, 1), (0, 0, 1), edge_start=5
+        )
+        lone_wing = _make_run(
+            [0, 12],
+            [(0, 0, 0), (0, 0, 1)],
+            (0, -1, 0),
+            (0, -1, 0),
+            edge_start=9,
+        )
+        faces = build_seam_network_faces(
+            [stem, bar_left, lone_wing], offset=0.0, width=0.2
+        )
+        for face in faces:
+            if abs(face.surface_normal.y + 1.0) > 1e-6:
+                continue
+            for position in face.positions:
+                # Плоский конец: никакая вершина одиночного сайта не
+                # заходит за узел (z < 0) дугой vertex region.
+                assert position.z >= -1e-6, position
+
+
 class TestSettings:
     def test_network_backend_enabled_by_default(self):
         assert DecalSettings().seam_network is True
