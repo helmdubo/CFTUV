@@ -273,6 +273,16 @@ def _join_branches(first, second):
     )
 
 
+def _is_boundary_branch(branch):
+    """Односторонняя boundary-ветвь: сторона A пустая (нулевые нормали).
+
+    Wing такой ветви задаётся chain boundary-ориентацией (n × t), поэтому
+    её нельзя разворачивать/swap'ить в continuation merge.
+    """
+
+    return bool(branch.normals_a) and branch.normals_a[0].length_squared < 1e-12
+
+
 def _branch_end_tangent(branch, at_start):
     if at_start:
         delta = branch.points[1] - branch.points[0]
@@ -308,7 +318,7 @@ def _merge_junction_continuations(branches):
         valence = _endpoint_valence(branches)
         junction_ends = {}
         for branch_index, branch in enumerate(branches):
-            if branch.closed:
+            if branch.closed or _is_boundary_branch(branch):
                 continue
             for at_start in (True, False):
                 vert = (
@@ -1036,7 +1046,11 @@ def _site_lat_sign(branch, side, normals, other_normals, span_start, surface, si
         direction3 = direction3.normalized()
         normal_own = normals[segment]
         normal_other = other_normals[segment]
-        if normal_own.dot(normal_other) > DECAL_COPLANAR_DOT:
+        if normal_other.length_squared < 1e-12:
+            # Boundary wing: у ребра одна owner surface, единственное крыло
+            # направлено внутрь patch (n × t, chain boundary-oriented).
+            wing3 = surface.normal.cross(direction3)
+        elif normal_own.dot(normal_other) > DECAL_COPLANAR_DOT:
             # Копланарный шов: стороны разводим детерминированно.
             wing3 = surface.normal.cross(direction3)
             if side == "B":

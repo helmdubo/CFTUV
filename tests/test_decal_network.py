@@ -548,6 +548,245 @@ class TestSurfaceSpans:
         assert len(spans) == 6
 
 
+def _topology_signature(faces):
+    """Комбинаторная сигнатура: (#faces, размеры полигонов, #вершин)."""
+
+    return (
+        len(faces),
+        sorted(len(face.positions) for face in faces),
+        len({key for face in faces for key in face.vert_keys}),
+    )
+
+
+def _polyline_distance_3d(points, q):
+    best = None
+    for seg_a, seg_b in zip(points, points[1:]):
+        delta = seg_b - seg_a
+        denom = delta.dot(delta)
+        t = 0.0 if denom < 1e-24 else max(
+            0.0, min(1.0, (q - seg_a).dot(delta) / denom)
+        )
+        dist = (q - (seg_a + delta * t)).length
+        if best is None or dist < best:
+            best = dist
+    return best
+
+
+class TestDynamicTopology:
+    """Oracle-сценарии: ширина α меняет комбинаторику crop-сетки.
+
+    Ячейка ветви = VoronoiCell ∩ Offset(branch, α): при пересечении α
+    критических расстояний появляются новые intersection-вершины, рёбра
+    схлопываются, faces исчезают. Kernel пересобирает клиппинг при каждом
+    вызове, поэтому события обязаны воспроизводиться. Если сигнатура
+    топологии не меняется во всём диапазоне α — тест проваливается.
+    """
+
+    def test_staggered_parallel_seams_touch_event(self):
+        def faces_at(width):
+            runs = [
+                _make_run([0, 1], [(0, 0, 0), (1, 0, 0)]),
+                _make_run(
+                    [2, 3], [(0.3, 0.2, 0), (1.3, 0.2, 0)], edge_start=10
+                ),
+            ]
+            return build_seam_network_faces(runs, offset=0.0, width=width)
+
+        narrow = faces_at(0.1)  # α=0.05: полосы не касаются
+        wide = faces_at(0.3)  # α=0.15 > d/2=0.1: клип по бисектору
+        assert _topology_signature(narrow) != _topology_signature(wide)
+        narrow_ys = {
+            round(p.y, 3) for f in narrow for p in f.positions
+        }
+        assert 0.1 not in narrow_ys
+        assert any(
+            abs(p.y - 0.1) < 1e-3 for f in wide for p in f.positions
+        )
+
+    def test_point_segment_boundary_is_curved_and_equidistant(self):
+        # Endpoint ветви B лежит против интерьера ветви A: граница ячеек
+        # состоит из прямого segment-segment участка (x > 0.5) и параболы
+        # point-vs-segment (x < 0.5), уходящей к краю полосы.
+        spine_a = [Vector((0, 0, 0)), Vector((1, 0, 0))]
+        spine_b = [Vector((0.5, -0.15, 0)), Vector((1.5, -0.15, 0))]
+        runs = [
+            _make_run([0, 1], [tuple(p) for p in spine_a]),
+            _make_run(
+                [2, 3], [tuple(p) for p in spine_b], edge_start=10
+            ),
+        ]
+        faces = build_seam_network_faces(runs, offset=0.0, width=0.4)
+        cut_verts = []
+        for face in faces:
+            for position in face.positions:
+                dist_a = _polyline_distance_3d(spine_a, position)
+                dist_b = _polyline_distance_3d(spine_b, position)
+                if abs(dist_a - dist_b) < 1e-3 and dist_a > 0.02:
+                    cut_verts.append(position)
+        # Кривая граница (point vs segment): минимум три неколлинеарные
+        # equidistant-вершины, т.е. параболический участок отслежен.
+        assert len(cut_verts) >= 3
+        collinear = True
+        base = cut_verts[0]
+        direction = None
+        for vert in cut_verts[1:]:
+            delta = vert - base
+            if delta.length < 1e-6:
+                continue
+            if direction is None:
+                direction = delta.normalized()
+                continue
+            if direction.cross(delta.normalized()).length > 1e-3:
+                collinear = False
+                break
+        assert not collinear
+
+    def test_acute_v_miter_limit_keeps_cell_bounded(self):
+        # Острый V (сшитый run с поворотом 160°): miter длиной α/cos(80°)
+        # превышает лимит 4α, станция получает round join, чьё разбиение
+        # зависит от α через абсолютный допуск дуги: комбинаторика меняется
+        # с шириной, а ячейка остаётся ограниченной (никакого длинного шипа).
+        from math import radians
+
+        angle = radians(20.0)
+
+        def faces_at(width):
+            v_run = _make_run(
+                [1, 0, 2],
+                [
+                    (1, 0, 0),
+                    (0, 0, 0),
+                    (cos(angle), sin(angle), 0.0),
+                ],
+            )
+            return build_seam_network_faces([v_run], offset=0.0, width=width)
+
+        narrow = faces_at(0.04)
+        wide = faces_at(0.4)
+        assert _topology_signature(narrow) != _topology_signature(wide)
+        spine = [
+            Vector((1, 0, 0)),
+            Vector((0, 0, 0)),
+            Vector((cos(angle), sin(angle), 0.0)),
+        ]
+        for faces, width in ((narrow, 0.04), (wide, 0.4)):
+            alpha = width / 2.0
+            limit = alpha * 4.0 + 1e-6
+            for face in faces:
+                for position in face.positions:
+                    assert _polyline_distance_3d(spine, position) <= limit
+
+    def test_short_t_branch_cell_shrinks_past_critical_width(self):
+        def faces_at(width):
+            runs = [
+                _make_run([10, 0], [(-1, 0, 0), (0, 0, 0)]),
+                _make_run([0, 11], [(0, 0, 0), (1, 0, 0)], edge_start=5),
+                _make_run(
+                    [0, 12], [(0, 0, 0), (0, -0.12, 0)], edge_start=9
+                ),
+            ]
+            return build_seam_network_faces(runs, offset=0.0, width=width)
+
+        narrow = faces_at(0.1)  # α=0.05 < длины stem
+        wide = faces_at(0.4)  # α=0.2 > длины stem: cap клипится бисекторами
+        assert _topology_signature(narrow) != _topology_signature(wide)
+        stem_wide = [
+            face
+            for face in wide
+            if any(p.y < -0.01 for p in face.positions)
+            and all(abs(p.x) < 0.5 for p in face.positions)
+        ]
+        assert stem_wide
+        max_x = max(
+            abs(p.x) for face in stem_wide for p in face.positions
+        )
+        # Ячейка stem ограничена бисекторами |x| <= |y| <= 0.12, а не α=0.2.
+        assert max_x < 0.13
+
+    def test_boundary_wing_divider_without_shared_vertex(self):
+        def faces_at(width):
+            boundary = _OrientedCornerRun(
+                vert_indices=[0, 1],
+                points=[Vector((0, 0, 0)), Vector((1, 0, 0))],
+                segment_normals_a=[Vector((0, 0, 0))],
+                segment_normals_b=[Vector((0, 0, 1))],
+                segment_convexities=[0.0],
+                segment_edge_indices=[0],
+            )
+            seam = _make_run(
+                [2, 3], [(0, 0.16, 0), (1, 0.16, 0)], edge_start=10
+            )
+            return build_seam_network_faces(
+                [boundary, seam], offset=0.0, width=width
+            )
+
+        narrow = faces_at(0.1)
+        wide = faces_at(0.3)
+        assert _topology_signature(narrow) != _topology_signature(wide)
+        # Крыло boundary направлено внутрь patch (n x t = +Y) и обрезано
+        # общим divider на y=0.08 без общей source-вершины с seam.
+        assert any(
+            abs(p.y - 0.08) < 1e-3 for f in wide for p in f.positions
+        )
+        boundary_narrow = [
+            f
+            for f in narrow
+            if all(-0.001 <= p.y <= 0.051 for p in f.positions)
+        ]
+        assert boundary_narrow  # одностороннее крыло 0..α без клипа
+
+    def test_fold_neighbor_event_matches_planar_and_lift_is_watertight(self):
+        # Floor-шов в d=0.1 от выбранного fold: то же событие, что у двух
+        # параллельных планарных швов (бисектор на d/2), а fold-крыло на
+        # стене продолжает жить, разделяя spine-вершины через поверхность.
+        def faces_at(width):
+            fold = _make_run(
+                [0, 1],
+                [(0, 0, 0), (1, 0, 0)],
+                normal_a=(0, 0, 1),
+                normal_b=(0, -1, 0),
+            )
+            fold.segment_convexities = [1.0]
+            seam = _make_run(
+                [2, 3], [(0, 0.1, 0), (1, 0.1, 0)], edge_start=10
+            )
+            return build_seam_network_faces([fold, seam], offset=0.0, width=width)
+
+        narrow = faces_at(0.08)  # α=0.04 < d/2
+        wide = faces_at(0.3)  # α=0.15 > d/2
+        assert _topology_signature(narrow) != _topology_signature(wide)
+        assert any(
+            abs(p.y - 0.05) < 1e-3 and abs(p.z) < 1e-6
+            for f in wide
+            for p in f.positions
+        )
+        wall_faces = [
+            f
+            for f in wide
+            if abs(f.surface_normal.y + 1.0) < 1e-6
+        ]
+        assert wall_faces
+        # Крыло на стене сохраняет полную ширину α (событие floor-стороны
+        # его не трогает) и разделяет spine-ключи с floor-крылом.
+        assert any(
+            abs(p.z + 0.15) < 1e-3 for f in wall_faces for p in f.positions
+        )
+        wall_keys = {
+            key
+            for f in wall_faces
+            for key in f.vert_keys
+            if key[0] == "sv"
+        }
+        floor_keys = {
+            key
+            for f in wide
+            if abs(f.surface_normal.z - 1.0) < 1e-6
+            for key in f.vert_keys
+            if key[0] == "sv"
+        }
+        assert wall_keys & floor_keys == {("sv", 0), ("sv", 1)}
+
+
 class TestSettings:
     def test_network_backend_enabled_by_default(self):
         assert DecalSettings().seam_network is True

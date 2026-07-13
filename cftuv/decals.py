@@ -736,7 +736,7 @@ def _collect_manual_edge_decals(graph: PatchGraph, edge_indices):
                     )
 
     paired_segments = []
-    boundary_edges = []
+    boundary_uses = {}
     for edge_index in sorted(selected_edges):
         uses = sorted(uses_by_edge.get(edge_index, ()), key=lambda use: use[0])
         if len(uses) >= 2:
@@ -757,9 +757,55 @@ def _collect_manual_edge_decals(graph: PatchGraph, edge_indices):
                 )
             )
         elif len(uses) == 1:
-            _ref, _vert_indices, points, normal = uses[0]
-            boundary_edges.append((points, normal, False))
-    return _stitch_corner_runs(paired_segments), boundary_edges
+            ref, vert_indices, points, normal = uses[0]
+            boundary_uses.setdefault(ref[:3], []).append(
+                (ref[3], edge_index, vert_indices, points, normal)
+            )
+    return (
+        _stitch_corner_runs(paired_segments),
+        _group_boundary_runs(boundary_uses),
+    )
+
+
+def _group_boundary_runs(boundary_uses):
+    """Односторонние boundary-runs по последовательным сегментам одной chain.
+
+    Wing задаётся chain boundary-ориентацией (материал слева, n × t),
+    поэтому runs строятся строго в порядке обхода chain и не реверсируются
+    generic-ститчером. Сторона A пустая (нулевые нормали) — признак
+    односторонней ветви для decal_network.
+    """
+
+    runs = []
+    for _chain_key, entries in sorted(boundary_uses.items()):
+        entries.sort()
+        current = None
+        previous_segment = None
+        for segment_index, edge_index, vert_indices, points, normal in entries:
+            joins = (
+                current is not None
+                and previous_segment == segment_index - 1
+                and current.vert_indices[-1] == vert_indices[0]
+            )
+            if joins:
+                current.vert_indices.append(vert_indices[1])
+                current.points.append(points[1])
+                current.segment_normals_a.append(Vector((0.0, 0.0, 0.0)))
+                current.segment_normals_b.append(normal)
+                current.segment_convexities.append(0.0)
+                current.segment_edge_indices.append(edge_index)
+            else:
+                current = _OrientedCornerRun(
+                    vert_indices=list(vert_indices),
+                    points=list(points),
+                    segment_normals_a=[Vector((0.0, 0.0, 0.0))],
+                    segment_normals_b=[normal],
+                    segment_convexities=[0.0],
+                    segment_edge_indices=[edge_index],
+                )
+                runs.append(current)
+            previous_segment = segment_index
+    return runs
 
 
 def _polyline_tangents(points, closed=False):
@@ -2092,14 +2138,21 @@ def _fill_manual_chain_decals(
     uv_rect = DECAL_UV_RECT_SEAM if is_seam_mode else DECAL_UV_RECT_CORNER
 
     if selected_edge_indices is not None:
-        corner_runs, boundary_chains = _collect_manual_edge_decals(
+        corner_runs, boundary_runs = _collect_manual_edge_decals(
             graph, selected_edge_indices
         )
-        if is_seam_mode and corner_runs and settings.seam_network:
+        if (
+            is_seam_mode
+            and (corner_runs or boundary_runs)
+            and settings.seam_network
+        ):
             network_faces = None
             try:
+                # Boundary wings — полноправные односторонние сайты сети:
+                # divider с соседними seam chains возникает и без общей
+                # source-вершины, чисто из конкуренции расстояний.
                 network_faces = build_seam_network_faces(
-                    corner_runs, settings.offset, width
+                    corner_runs + boundary_runs, settings.offset, width
                 )
             except Exception as exc:  # непредвиденная геометрия — fallback
                 print(
@@ -2108,17 +2161,6 @@ def _fill_manual_chain_decals(
                 )
             if network_faces:
                 _materialize_network_faces(bm, network_faces, settings, uv_rect)
-                for points, normal, is_closed in boundary_chains:
-                    spine_points = _dedupe_polyline(points)
-                    _build_boundary_wing_strip(
-                        bm,
-                        _closed_polyline(spine_points, is_closed),
-                        normal,
-                        settings,
-                        uv_rect,
-                        closed=is_closed,
-                        width=width,
-                    )
                 return
         junction_specs = {}
         junction_cuts = {}
@@ -2165,17 +2207,18 @@ def _fill_manual_chain_decals(
                 settings,
                 uv_rect,
             )
-        for points, normal, is_closed in boundary_chains:
-            spine_points = _dedupe_polyline(points)
-            _build_boundary_wing_strip(
-                bm,
-                _closed_polyline(spine_points, is_closed),
-                normal,
-                settings,
-                uv_rect,
-                closed=is_closed,
-                width=width,
-            )
+        # Legacy-паритет: посегментные boundary-крылья, как до сети.
+        for run in boundary_runs:
+            for index in range(len(run.points) - 1):
+                _build_boundary_wing_strip(
+                    bm,
+                    [run.points[index], run.points[index + 1]],
+                    run.segment_normals_b[index],
+                    settings,
+                    uv_rect,
+                    closed=False,
+                    width=width,
+                )
         return
 
     corner_chains, boundary_chains = _collect_manual_chain_decals(
