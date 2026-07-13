@@ -13,10 +13,13 @@ from cftuv.decals import (
     _corner_offset_join,
     _corner_wing_directions,
     _dedupe_polyline,
+    _offset_plane_junction_center,
     _polyline_tangents,
+    _prepare_seam_junctions,
     _ribbon_vertex_frames,
     _stitch_corner_runs,
     _stitch_ribbon_runs,
+    _trim_run_for_junctions,
     _trim_quad_layout,
     _trim_quad_requires_flip,
     chain_refs_for_edge_indices,
@@ -27,6 +30,7 @@ from cftuv.model import (
     PatchGraph,
     PatchNode,
     PatchType,
+    DecalSettings,
 )
 
 
@@ -523,6 +527,64 @@ class TestManualChainDecals:
 
         assert len(stitched) == 3
         assert all(len(run.segment_edge_indices) == 1 for run in stitched)
+
+    def test_t_junction_prepares_equal_branch_cuts_for_seam_patch(self):
+        runs = _stitch_corner_runs(
+            [
+                _make_corner_run(
+                    1,
+                    2,
+                    (0, 0, 0),
+                    (2, 0, 0),
+                    5,
+                    normal_a=(0, 0, 1),
+                    normal_b=(0, 0, 1),
+                ),
+                _make_corner_run(
+                    1,
+                    3,
+                    (0, 0, 0),
+                    (-2, 0, 0),
+                    14,
+                    normal_a=(0, 0, 1),
+                    normal_b=(0, 0, 1),
+                ),
+                _make_corner_run(
+                    1,
+                    4,
+                    (0, 0, 0),
+                    (0, 2, 0),
+                    35,
+                    normal_a=(0, 0, 1),
+                    normal_b=(0, 0, 1),
+                ),
+            ]
+        )
+        settings = DecalSettings(width_seam=0.2, offset=0.02)
+
+        specs, cuts = _prepare_seam_junctions(runs, settings, 0.1)
+
+        assert set(specs) == {1}
+        assert len(cuts) == 3
+        assert all(abs(cut - 0.1) < 1e-6 for cut in cuts.values())
+        assert (specs[1].core_pos - Vector((0, 0, 0.02))).length < 1e-6
+
+        trimmed = _trim_run_for_junctions(runs[0], start_cut=cuts[(0, True)])
+        assert (trimmed.points[0] - Vector((0.1, 0, 0))).length < 1e-6
+        assert trimmed.vert_indices == runs[0].vert_indices
+
+    def test_trihedral_offset_planes_share_one_junction_core(self):
+        center = _offset_plane_junction_center(
+            Vector((0, 0, 0)),
+            [
+                Vector((1, 0, 0)),
+                Vector((0, 1, 0)),
+                Vector((0, 0, 1)),
+            ],
+            0.02,
+        )
+
+        assert (center - Vector((0.02, 0.02, 0.02))).length < 1e-6
 
     def test_selected_self_seam_uses_both_owner_sides(self):
         side_a = _make_chain(

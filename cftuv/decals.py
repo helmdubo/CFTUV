@@ -22,6 +22,7 @@ UV лент пишутся в прямоугольники атласа (DECAL_U
 """
 
 from dataclasses import dataclass
+from math import atan2, pi
 
 import bpy
 import bmesh
@@ -150,6 +151,32 @@ class _CornerWingJoin:
     incoming: Vector
     outgoing: Vector
     is_bevel: bool
+
+
+@dataclass(frozen=True)
+class _DecalSurfaceSection:
+    """Поперечное ребро одной branch на конкретной offset-поверхности."""
+
+    normal: Vector
+    verts: tuple
+
+
+@dataclass(frozen=True)
+class _DecalJunctionPort:
+    """Endpoint ribbon-run, обрезанный по границе junction patch."""
+
+    source_vert_index: int
+    outward_tangent: Vector
+    sections: tuple[_DecalSurfaceSection, ...]
+
+
+@dataclass(frozen=True)
+class _DecalJunctionSpec:
+    """Derived decal-only T/Y junction; не является solve entity."""
+
+    source_vert_index: int
+    source_pos: Vector
+    core_pos: Vector
 
 
 def _join_ribbon_runs(first, second):
@@ -1049,6 +1076,169 @@ def _corner_run_vertex_frames(run: _OrientedCornerRun):
     return frames
 
 
+def _corner_spine_position(co, normal_a, normal_b, offset):
+    """Точка spine на одинаковом расстоянии от двух owner surfaces."""
+
+    avg_normal = normal_a + normal_b
+    if avg_normal.length_squared < 1e-8:
+        avg_normal = normal_a.copy()
+    avg_normal.normalize()
+    dot_val = avg_normal.dot(normal_a)
+    scaler = offset if abs(dot_val) < 0.1 else offset / dot_val
+    return co + avg_normal * scaler
+
+
+def _unique_surface_normals(normals):
+    """Группирует одинаковые oriented surface planes для decal junction."""
+
+    unique = []
+    for normal in normals:
+        if normal.length_squared < 1e-12:
+            continue
+        candidate = normal.normalized()
+        if any(candidate.dot(existing) > DECAL_COPLANAR_DOT for existing in unique):
+            continue
+        unique.append(candidate)
+    return unique
+
+
+def _offset_plane_junction_center(source_pos, normals, offset):
+    """Least-squares intersection owner planes, сдвинутых на decal offset."""
+
+    unique = _unique_surface_normals(normals)
+    if not unique:
+        return source_pos.copy()
+    delta = Vector((0.0, 0.0, 0.0))
+    for _iteration in range(64):
+        correction = Vector((0.0, 0.0, 0.0))
+        for normal in unique:
+            correction += normal * (offset - normal.dot(delta))
+        correction /= len(unique)
+        delta += correction
+        if correction.length_squared < 1e-18:
+            break
+    return source_pos + delta
+
+
+def _run_endpoint_data(run, at_start):
+    segment_index = 0 if at_start else len(run.points) - 2
+    point_index = 0 if at_start else len(run.points) - 1
+    tangent = run.points[segment_index + 1] - run.points[segment_index]
+    if not at_start:
+        tangent *= -1.0
+    if tangent.length_squared > 1e-12:
+        tangent.normalize()
+    return (
+        run.points[point_index],
+        tangent,
+        run.segment_normals_a[segment_index],
+        run.segment_normals_b[segment_index],
+        (run.points[segment_index + 1] - run.points[segment_index]).length,
+    )
+
+
+def _prepare_seam_junctions(runs, settings, wing_width):
+    """Находит valence 3+ endpoints и рассчитывает безопасный branch cut."""
+
+    endpoint_map = {}
+    for run_index, run in enumerate(runs):
+        if run.is_closed:
+            continue
+        endpoint_map.setdefault(run.start_vert_index, []).append((run_index, True))
+        endpoint_map.setdefault(run.end_vert_index, []).append((run_index, False))
+
+    specs = {}
+    cuts = {}
+    for vert_index, endpoints in endpoint_map.items():
+        if len(endpoints) < 3:
+            continue
+        first_run_index, first_at_start = endpoints[0]
+        source_pos = _run_endpoint_data(
+            runs[first_run_index], first_at_start
+        )[0].copy()
+        normals = []
+        endpoint_data = []
+        for run_index, at_start in endpoints:
+            data = _run_endpoint_data(runs[run_index], at_start)
+            endpoint_data.append((run_index, at_start, data))
+            normals.extend((data[2], data[3]))
+        core_pos = _offset_plane_junction_center(
+            source_pos, normals, settings.offset
+        )
+        specs[vert_index] = _DecalJunctionSpec(
+            source_vert_index=vert_index,
+            source_pos=source_pos,
+            core_pos=core_pos,
+        )
+
+        for run_index, at_start, data in endpoint_data:
+            point, tangent, normal_a, normal_b, segment_length = data
+            if normal_a.dot(normal_b) > DECAL_COPLANAR_DOT:
+                normal = normal_a + normal_b
+                if normal.length_squared < 1e-8:
+                    normal = normal_a.copy()
+                normal.normalize()
+                endpoint_spine = point + normal * settings.offset
+            else:
+                endpoint_spine = _corner_spine_position(
+                    point, normal_a, normal_b, settings.offset
+                )
+            desired_cut = wing_width + (core_pos - endpoint_spine).dot(tangent)
+            max_cut = segment_length * 0.45
+            min_cut = min(wing_width * 0.25, max_cut)
+            cuts[(run_index, at_start)] = max(
+                min_cut, min(desired_cut, max_cut)
+            )
+    return specs, cuts
+
+
+def _trim_run_for_junctions(run, start_cut=0.0, end_cut=0.0):
+    """Обрезает только geometry points, сохраняя chain/edge identity run."""
+
+    points = [point.copy() for point in run.points]
+    if start_cut > 0.0:
+        tangent = points[1] - points[0]
+        if tangent.length_squared > 1e-12:
+            points[0] += tangent.normalized() * start_cut
+    if end_cut > 0.0:
+        tangent = points[-2] - points[-1]
+        if tangent.length_squared > 1e-12:
+            points[-1] += tangent.normalized() * end_cut
+    return _OrientedCornerRun(
+        vert_indices=list(run.vert_indices),
+        points=points,
+        segment_normals_a=list(run.segment_normals_a),
+        segment_normals_b=list(run.segment_normals_b),
+        segment_convexities=list(run.segment_convexities),
+        segment_edge_indices=list(run.segment_edge_indices),
+    )
+
+
+def _endpoint_port(run, sections_start, sections_end):
+    """Возвращает два ports открытого run после построения ribbon mesh."""
+
+    if run.is_closed:
+        return []
+    start_tangent = run.points[1] - run.points[0]
+    end_tangent = run.points[-2] - run.points[-1]
+    if start_tangent.length_squared > 1e-12:
+        start_tangent.normalize()
+    if end_tangent.length_squared > 1e-12:
+        end_tangent.normalize()
+    return [
+        _DecalJunctionPort(
+            source_vert_index=run.start_vert_index,
+            outward_tangent=start_tangent,
+            sections=tuple(sections_start),
+        ),
+        _DecalJunctionPort(
+            source_vert_index=run.end_vert_index,
+            outward_tangent=end_tangent,
+            sections=tuple(sections_end),
+        ),
+    ]
+
+
 def _build_corner_ribbon_run(bm, run, settings, uv_rect, width=None):
     """Строит corner-ленту с constant-width joins на станциях run."""
 
@@ -1063,17 +1253,11 @@ def _build_corner_ribbon_run(bm, run, settings, uv_rect, width=None):
     spine_positions = []
     for index, co in enumerate(run.points):
         normal_a, normal_b, _convexity = frames[index]
-        avg_normal = normal_a + normal_b
-        if avg_normal.length_squared < 1e-8:
-            avg_normal = normal_a.copy()
-        avg_normal.normalize()
-        dot_val = avg_normal.dot(normal_a)
-        scaler = (
-            settings.offset
-            if abs(dot_val) < 0.1
-            else settings.offset / dot_val
+        spine_positions.append(
+            _corner_spine_position(
+                co, normal_a, normal_b, settings.offset
+            )
         )
-        spine_positions.append(co + avg_normal * scaler)
 
     wing_joins = _corner_run_wing_joins(run, spine_positions, half_width)
     if wing_joins is None:
@@ -1190,6 +1374,32 @@ def _build_corner_ribbon_run(bm, run, settings, uv_rect, width=None):
                 ),
             )
 
+    first_segment = 0
+    last_segment = len(run.segment_normals_a) - 1
+    return _endpoint_port(
+        run,
+        (
+            _DecalSurfaceSection(
+                run.segment_normals_a[first_segment],
+                (spine_verts[0], wing_a_outgoing[0]),
+            ),
+            _DecalSurfaceSection(
+                run.segment_normals_b[first_segment],
+                (spine_verts[0], wing_b_outgoing[0]),
+            ),
+        ),
+        (
+            _DecalSurfaceSection(
+                run.segment_normals_a[last_segment],
+                (spine_verts[-1], wing_a_incoming[-1]),
+            ),
+            _DecalSurfaceSection(
+                run.segment_normals_b[last_segment],
+                (spine_verts[-1], wing_b_incoming[-1]),
+            ),
+        ),
+    )
+
 
 def _build_corner_strip(
     bm,
@@ -1280,6 +1490,186 @@ def _build_boundary_wing_strip(
         face.loops[3][uv_layer].uv = (u_max, v_start)
 
 
+def _build_selected_seam_ribbon_run(bm, run, settings, uv_rect):
+    """Centered SEAMS ribbon по selected-edge run с MITER/BEVEL joins."""
+
+    if len(run.points) < 2:
+        return []
+    half_width = settings.width_seam / 2.0
+    segment_frames = []
+    for index in range(len(run.points) - 1):
+        tangent = run.points[index + 1] - run.points[index]
+        if tangent.length_squared < 1e-12:
+            return []
+        tangent.normalize()
+        normal = run.segment_normals_a[index] + run.segment_normals_b[index]
+        if normal.length_squared < 1e-8:
+            normal = run.segment_normals_a[index].copy()
+        normal.normalize()
+        wing = tangent.cross(normal)
+        if wing.length_squared < 1e-8:
+            return []
+        wing.normalize()
+        segment_frames.append((tangent, normal, -wing, wing))
+
+    spine_positions = []
+    joins_left = []
+    joins_right = []
+    for point_index, co in enumerate(run.points):
+        previous_index, next_index = _corner_station_segment_indices(
+            run, point_index
+        )
+        previous = (
+            segment_frames[previous_index]
+            if 0 <= previous_index < len(segment_frames)
+            else (None, None, None, None)
+        )
+        following = (
+            segment_frames[next_index]
+            if 0 <= next_index < len(segment_frames)
+            else (None, None, None, None)
+        )
+        normal = _blend_corner_normal(previous[1], following[1])
+        spine_pos = co + normal * settings.offset
+        spine_positions.append(spine_pos)
+        joins_left.append(
+            _corner_offset_join(
+                spine_pos,
+                previous[0],
+                previous[2],
+                following[0],
+                following[2],
+                half_width,
+            )
+        )
+        joins_right.append(
+            _corner_offset_join(
+                spine_pos,
+                previous[0],
+                previous[3],
+                following[0],
+                following[3],
+                half_width,
+            )
+        )
+
+    spine_verts = []
+    left_incoming = []
+    left_outgoing = []
+    right_incoming = []
+    right_outgoing = []
+    for spine_pos, left_join, right_join in zip(
+        spine_positions, joins_left, joins_right
+    ):
+        spine_verts.append(bm.verts.new(spine_pos))
+        left_in = bm.verts.new(left_join.incoming)
+        left_out = bm.verts.new(left_join.outgoing) if left_join.is_bevel else left_in
+        left_incoming.append(left_in)
+        left_outgoing.append(left_out)
+        right_in = bm.verts.new(right_join.incoming)
+        right_out = (
+            bm.verts.new(right_join.outgoing) if right_join.is_bevel else right_in
+        )
+        right_incoming.append(right_in)
+        right_outgoing.append(right_out)
+
+    uv_layer = bm.loops.layers.uv.verify()
+    u_min, _v_min, u_max, _v_max = uv_rect
+    u_mid = (u_min + u_max) / 2.0
+    scale = settings.uv_length_scale
+    arc = _arc_lengths(run.points)
+
+    def add_face(vertices, uvs):
+        try:
+            face = bm.faces.new(vertices)
+        except ValueError:
+            return
+        for loop, uv in zip(face.loops, uvs):
+            loop[uv_layer].uv = uv
+
+    for index in range(len(run.points) - 1):
+        v_start = arc[index] * scale
+        v_end = arc[index + 1] * scale
+        add_face(
+            (
+                left_outgoing[index],
+                left_incoming[index + 1],
+                spine_verts[index + 1],
+                spine_verts[index],
+            ),
+            (
+                (u_min, v_start),
+                (u_min, v_end),
+                (u_mid, v_end),
+                (u_mid, v_start),
+            ),
+        )
+        add_face(
+            (
+                spine_verts[index],
+                spine_verts[index + 1],
+                right_incoming[index + 1],
+                right_outgoing[index],
+            ),
+            (
+                (u_mid, v_start),
+                (u_mid, v_end),
+                (u_max, v_end),
+                (u_max, v_start),
+            ),
+        )
+
+    join_count = len(run.points) - 1 if run.is_closed else len(run.points)
+    for index in range(join_count):
+        if not run.is_closed and index in (0, len(run.points) - 1):
+            continue
+        v_station = arc[index] * scale
+        if joins_left[index].is_bevel:
+            add_face(
+                (
+                    spine_verts[index],
+                    left_incoming[index],
+                    left_outgoing[index],
+                ),
+                (
+                    (u_mid, v_station),
+                    (u_min, v_station),
+                    (u_min, v_station + 1e-6),
+                ),
+            )
+        if joins_right[index].is_bevel:
+            add_face(
+                (
+                    spine_verts[index],
+                    right_outgoing[index],
+                    right_incoming[index],
+                ),
+                (
+                    (u_mid, v_station),
+                    (u_max, v_station + 1e-6),
+                    (u_max, v_station),
+                ),
+            )
+
+    first_normal = segment_frames[0][1]
+    last_normal = segment_frames[-1][1]
+    return _endpoint_port(
+        run,
+        (
+            _DecalSurfaceSection(
+                first_normal,
+                (left_outgoing[0], spine_verts[0], right_outgoing[0]),
+            ),
+        ),
+        (
+            _DecalSurfaceSection(
+                last_normal,
+                (left_incoming[-1], spine_verts[-1], right_incoming[-1]),
+            ),
+        ),
+    )
+
+
 def _build_seam_strip(bm, points, normal, settings, uv_rect, closed=False):
     """Плоская лента по копланарному шву, центрированная на полилинии."""
 
@@ -1318,6 +1708,116 @@ def _build_seam_strip(bm, points, normal, settings, uv_rect, closed=False):
         face.loops[1][uv_layer].uv = (u_min, v_end)
         face.loops[2][uv_layer].uv = (u_max, v_end)
         face.loops[3][uv_layer].uv = (u_max, v_start)
+
+
+def _build_seam_junctions(bm, specs, ports, settings, uv_rect):
+    """Закрывает valence 3+ decal network отдельным patch на каждой surface."""
+
+    ports_by_vertex = {}
+    for port in ports:
+        if port.source_vert_index in specs:
+            ports_by_vertex.setdefault(port.source_vert_index, []).append(port)
+
+    uv_layer = bm.loops.layers.uv.verify()
+    u_min, _v_min, u_max, _v_max = uv_rect
+    u_mid = (u_min + u_max) / 2.0
+    u_radius = (u_max - u_min) / 2.0
+    wing_width = settings.width_seam / 2.0
+    created = 0
+
+    for vert_index, incident_ports in ports_by_vertex.items():
+        if len(incident_ports) < 3:
+            continue
+        spec = specs[vert_index]
+        core_vert = bm.verts.new(spec.core_pos)
+        surface_groups = []
+        for port in incident_ports:
+            for section in port.sections:
+                normal = section.normal.normalized()
+                group = next(
+                    (
+                        candidate
+                        for candidate in surface_groups
+                        if normal.dot(candidate[0]) > DECAL_COPLANAR_DOT
+                    ),
+                    None,
+                )
+                if group is None:
+                    group = [normal.copy(), []]
+                    surface_groups.append(group)
+                else:
+                    blended = group[0] + normal
+                    if blended.length_squared > 1e-8:
+                        group[0] = blended.normalized()
+                group[1].append((port.outward_tangent, section.verts))
+
+        for normal, surface_sections in surface_groups:
+            prepared = []
+            basis_x = None
+            for tangent, section_verts in surface_sections:
+                planar_tangent = tangent - normal * tangent.dot(normal)
+                if planar_tangent.length_squared < 1e-12:
+                    continue
+                planar_tangent.normalize()
+                if basis_x is None:
+                    basis_x = planar_tangent.copy()
+                prepared.append((planar_tangent, section_verts))
+            if len(prepared) < 2 or basis_x is None:
+                continue
+            basis_y = normal.cross(basis_x).normalized()
+
+            ordered = []
+            for tangent, section_verts in prepared:
+                angle = atan2(tangent.dot(basis_y), tangent.dot(basis_x))
+                oriented_verts = sorted(
+                    section_verts,
+                    key=lambda vert: normal.dot(
+                        tangent.cross(vert.co - spec.core_pos)
+                    ),
+                )
+                ordered.append((angle, oriented_verts))
+            ordered.sort(key=lambda item: item[0])
+
+            polygon_verts = []
+
+            def append_unique(vert):
+                if polygon_verts and (
+                    polygon_verts[-1].co - vert.co
+                ).length <= DECAL_WELD_DISTANCE:
+                    return
+                polygon_verts.append(vert)
+
+            for index, (angle, section_verts) in enumerate(ordered):
+                for vert in section_verts:
+                    append_unique(vert)
+                next_angle = ordered[(index + 1) % len(ordered)][0]
+                gap = (next_angle - angle) % (2.0 * pi)
+                if gap > pi + 1e-5:
+                    append_unique(core_vert)
+
+            if len(polygon_verts) > 2 and (
+                polygon_verts[0].co - polygon_verts[-1].co
+            ).length <= DECAL_WELD_DISTANCE:
+                polygon_verts.pop()
+            if len(polygon_verts) < 3:
+                continue
+            try:
+                face = bm.faces.new(tuple(polygon_verts))
+            except ValueError:
+                continue
+            face.normal_update()
+            if face.normal.dot(normal) < 0.0:
+                face.normal_flip()
+            for loop in face.loops:
+                delta = loop.vert.co - spec.core_pos
+                across = 0.0 if wing_width <= 1e-12 else delta.dot(basis_y) / wing_width
+                across = max(-1.0, min(1.0, across))
+                loop[uv_layer].uv = (
+                    u_mid + across * u_radius,
+                    delta.dot(basis_x) * settings.uv_length_scale,
+                )
+            created += 1
+    return created
 
 
 # ============================================================
@@ -1415,37 +1915,50 @@ def _fill_manual_chain_decals(
         corner_runs, boundary_chains = _collect_manual_edge_decals(
             graph, selected_edge_indices
         )
-        for run in corner_runs:
+        junction_specs = {}
+        junction_cuts = {}
+        if is_seam_mode:
+            junction_specs, junction_cuts = _prepare_seam_junctions(
+                corner_runs, settings, width / 2.0
+            )
+        junction_ports = []
+        for run_index, run in enumerate(corner_runs):
+            working_run = run
+            if is_seam_mode:
+                working_run = _trim_run_for_junctions(
+                    run,
+                    start_cut=junction_cuts.get((run_index, True), 0.0),
+                    end_cut=junction_cuts.get((run_index, False), 0.0),
+                )
             is_coplanar = all(
                 normal_a.dot(normal_b) > DECAL_COPLANAR_DOT
                 for normal_a, normal_b in zip(
-                    run.segment_normals_a, run.segment_normals_b
+                    working_run.segment_normals_a,
+                    working_run.segment_normals_b,
                 )
             )
             if is_seam_mode and is_coplanar:
-                normal_sum = Vector((0.0, 0.0, 0.0))
-                for normal in run.segment_normals_a:
-                    normal_sum += normal
-                normal = (
-                    normal_sum.normalized()
-                    if normal_sum.length_squared > 1e-8
-                    else run.segment_normals_a[0]
-                )
-                _build_seam_strip(
-                    bm,
-                    run.points,
-                    normal,
-                    settings,
-                    uv_rect,
-                    closed=run.is_closed,
+                junction_ports.extend(
+                    _build_selected_seam_ribbon_run(
+                        bm,
+                        working_run,
+                        settings,
+                        uv_rect,
+                    )
                 )
                 continue
-            _build_corner_ribbon_run(
+            built_ports = _build_corner_ribbon_run(
+                bm, working_run, settings, uv_rect, width=width
+            )
+            if is_seam_mode and built_ports:
+                junction_ports.extend(built_ports)
+        if is_seam_mode and junction_specs:
+            _build_seam_junctions(
                 bm,
-                run,
+                junction_specs,
+                junction_ports,
                 settings,
                 uv_rect,
-                width=width,
             )
         for points, normal, is_closed in boundary_chains:
             spine_points = _dedupe_polyline(points)
