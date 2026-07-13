@@ -10,6 +10,7 @@ from cftuv.decals import (
     _collect_manual_edge_decals,
     _collect_trim_ribbon_runs,
     _collect_wall_pair_chains,
+    _corner_offset_join,
     _corner_wing_directions,
     _dedupe_polyline,
     _polyline_tangents,
@@ -654,6 +655,64 @@ class TestCornerWingDirections:
         wing_a, wing_b = wings
         assert wing_a.x < 0.0
         assert wing_b.y > 0.0
+
+
+class TestCornerOffsetJoin:
+    def test_right_angle_miter_preserves_width_to_both_segments(self):
+        join = _corner_offset_join(
+            Vector((0, 0, 0)),
+            Vector((1, 0, 0)),
+            Vector((0, 1, 0)),
+            Vector((0, 1, 0)),
+            Vector((-1, 0, 0)),
+            1.0,
+        )
+
+        assert not join.is_bevel
+        assert (join.incoming - join.outgoing).length < 1e-9
+        assert abs(join.incoming.x + 1.0) < 1e-6
+        assert abs(join.incoming.y - 1.0) < 1e-6
+
+    def test_straight_offset_remains_one_shared_point(self):
+        join = _corner_offset_join(
+            Vector((0, 0, 0)),
+            Vector((1, 0, 0)),
+            Vector((0, 1, 0)),
+            Vector((1, 0, 0)),
+            Vector((0, 1, 0)),
+            0.5,
+        )
+
+        assert not join.is_bevel
+        assert (join.incoming - Vector((0, 0.5, 0))).length < 1e-9
+
+    def test_acute_turn_uses_bevel_instead_of_long_spike(self):
+        next_tangent = Vector((-0.984807753, 0.173648178, 0))
+        next_wing = Vector((-0.173648178, -0.984807753, 0))
+        join = _corner_offset_join(
+            Vector((0, 0, 0)),
+            Vector((1, 0, 0)),
+            Vector((0, 1, 0)),
+            next_tangent,
+            next_wing,
+            1.0,
+        )
+
+        assert join.is_bevel
+        assert join.incoming.length <= 1.000001
+        assert join.outgoing.length <= 1.000001
+
+    def test_skew_surface_offsets_use_bevel(self):
+        join = _corner_offset_join(
+            Vector((0, 0, 0)),
+            Vector((1, 0, 0)),
+            Vector((0, 1, 0)),
+            Vector((0, 1, 0)),
+            Vector((-1, 0, 1)).normalized(),
+            1.0,
+        )
+
+        assert join.is_bevel
 
 
 class TestPolylineTangents:

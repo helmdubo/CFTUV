@@ -30,6 +30,8 @@ from mathutils import Vector
 from .constants import (
     DECAL_COLLECTION_NAME,
     DECAL_COPLANAR_DOT,
+    DECAL_CORNER_JOIN_GAP_RATIO,
+    DECAL_CORNER_MITER_LIMIT,
     DECAL_DIR_THRESHOLD,
     DECAL_NOISE_THRESHOLD,
     DECAL_SPINE_MERGE_DISTANCE,
@@ -139,6 +141,15 @@ class _OrientedCornerRun:
             segment_convexities=[-value for value in self.segment_convexities],
             segment_edge_indices=list(self.segment_edge_indices),
         )
+
+
+@dataclass(frozen=True)
+class _CornerWingJoin:
+    """Входящая/выходящая точки offset-контура на одной станции крыла."""
+
+    incoming: Vector
+    outgoing: Vector
+    is_bevel: bool
 
 
 def _join_ribbon_runs(first, second):
@@ -858,6 +869,140 @@ def _corner_wing_directions(direction, normal_a, normal_b, dihedral_convexity=0.
     return wing_dir_a, wing_dir_b
 
 
+def _corner_station_segment_indices(run, point_index):
+    """Соседние segment indices для станции, включая wrap замкнутого run."""
+
+    segment_count = len(run.segment_normals_a)
+    previous_index = point_index - 1
+    next_index = point_index
+    if point_index == 0:
+        previous_index = segment_count - 1 if run.is_closed else -1
+    if point_index >= segment_count:
+        next_index = 0 if run.is_closed else -1
+    return previous_index, next_index
+
+
+def _corner_offset_join(
+    spine_pos,
+    previous_tangent,
+    previous_wing_dir,
+    next_tangent,
+    next_wing_dir,
+    wing_width,
+    miter_limit=DECAL_CORNER_MITER_LIMIT,
+):
+    """Строит constant-width MITER или две точки BEVEL для одного крыла.
+
+    MITER — пересечение offset-линий соседних сегментов. Если линии skew,
+    параллельны с разными offset или пересечение дальше miter_limit, станция
+    получает две независимые точки, которые builder закрывает bevel-гранью.
+    """
+
+    if previous_tangent is None or previous_wing_dir is None:
+        point = spine_pos + next_wing_dir * wing_width
+        return _CornerWingJoin(point, point.copy(), False)
+    if next_tangent is None or next_wing_dir is None:
+        point = spine_pos + previous_wing_dir * wing_width
+        return _CornerWingJoin(point, point.copy(), False)
+
+    incoming = spine_pos + previous_wing_dir * wing_width
+    outgoing = spine_pos + next_wing_dir * wing_width
+    prev_dir = previous_tangent.normalized()
+    next_dir = next_tangent.normalized()
+    direction_dot = prev_dir.dot(next_dir)
+    denominator = 1.0 - direction_dot * direction_dot
+    gap_limit = max(1e-6, wing_width * DECAL_CORNER_JOIN_GAP_RATIO)
+
+    if denominator < 1e-8:
+        if direction_dot > 0.0 and (incoming - outgoing).length <= gap_limit:
+            point = (incoming + outgoing) * 0.5
+            return _CornerWingJoin(point, point.copy(), False)
+        return _CornerWingJoin(incoming, outgoing, True)
+
+    between = incoming - outgoing
+    prev_parameter = (
+        direction_dot * next_dir.dot(between) - prev_dir.dot(between)
+    ) / denominator
+    next_parameter = (
+        next_dir.dot(between) - direction_dot * prev_dir.dot(between)
+    ) / denominator
+    closest_previous = incoming + prev_dir * prev_parameter
+    closest_next = outgoing + next_dir * next_parameter
+    if (closest_previous - closest_next).length > gap_limit:
+        return _CornerWingJoin(incoming, outgoing, True)
+
+    miter = (closest_previous + closest_next) * 0.5
+    if (miter - spine_pos).length > wing_width * miter_limit:
+        return _CornerWingJoin(incoming, outgoing, True)
+    return _CornerWingJoin(miter, miter.copy(), False)
+
+
+def _corner_segment_wing_frames(run):
+    """Segment-local tangent и направления обоих крыльев."""
+
+    frames = []
+    for index in range(len(run.points) - 1):
+        tangent = run.points[index + 1] - run.points[index]
+        if tangent.length_squared < 1e-12:
+            return None
+        tangent.normalize()
+        wings = _corner_wing_directions(
+            tangent,
+            run.segment_normals_a[index],
+            run.segment_normals_b[index],
+            run.segment_convexities[index],
+        )
+        if wings is None:
+            return None
+        frames.append((tangent, wings[0], wings[1]))
+    return frames
+
+
+def _corner_run_wing_joins(run, spine_positions, wing_width):
+    """Join-пары A/B для всех станций непрерывного corner run."""
+
+    segment_frames = _corner_segment_wing_frames(run)
+    if segment_frames is None:
+        return None
+    joins_a = []
+    joins_b = []
+    for point_index, spine_pos in enumerate(spine_positions):
+        previous_index, next_index = _corner_station_segment_indices(
+            run, point_index
+        )
+        previous = (
+            segment_frames[previous_index]
+            if 0 <= previous_index < len(segment_frames)
+            else (None, None, None)
+        )
+        following = (
+            segment_frames[next_index]
+            if 0 <= next_index < len(segment_frames)
+            else (None, None, None)
+        )
+        joins_a.append(
+            _corner_offset_join(
+                spine_pos,
+                previous[0],
+                previous[1],
+                following[0],
+                following[1],
+                wing_width,
+            )
+        )
+        joins_b.append(
+            _corner_offset_join(
+                spine_pos,
+                previous[0],
+                previous[2],
+                following[0],
+                following[2],
+                wing_width,
+            )
+        )
+    return joins_a, joins_b
+
+
 def _blend_corner_normal(previous, following):
     if previous is not None and following is not None:
         blended = previous + following
@@ -879,12 +1024,9 @@ def _corner_run_vertex_frames(run: _OrientedCornerRun):
         return []
     frames = []
     for point_index in range(len(run.points)):
-        previous_index = point_index - 1
-        next_index = point_index
-        if point_index == 0:
-            previous_index = segment_count - 1 if run.is_closed else -1
-        if point_index >= segment_count:
-            next_index = 0 if run.is_closed else -1
+        previous_index, next_index = _corner_station_segment_indices(
+            run, point_index
+        )
 
         prev_a = prev_b = next_a = next_b = None
         convexities = []
@@ -908,83 +1050,145 @@ def _corner_run_vertex_frames(run: _OrientedCornerRun):
 
 
 def _build_corner_ribbon_run(bm, run, settings, uv_rect, width=None):
-    """Строит одну общую corner-ленту с shared vertices на станциях run."""
+    """Строит corner-ленту с constant-width joins на станциях run."""
 
     if len(run.points) < 2:
         return
     half_width = (
         settings.width_corner if width is None else float(width)
     ) / 2.0
-    tangents = _polyline_tangents(run.points, closed=run.is_closed)
     frames = _corner_run_vertex_frames(run)
     arc = _arc_lengths(run.points)
-    chord = run.points[-1] - run.points[0]
 
-    spine_verts = []
-    wing_a_verts = []
-    wing_b_verts = []
+    spine_positions = []
     for index, co in enumerate(run.points):
-        normal_a, normal_b, convexity = frames[index]
+        normal_a, normal_b, _convexity = frames[index]
         avg_normal = normal_a + normal_b
         if avg_normal.length_squared < 1e-8:
             avg_normal = normal_a.copy()
-        avg_normal = avg_normal.normalized()
+        avg_normal.normalize()
         dot_val = avg_normal.dot(normal_a)
         scaler = (
             settings.offset
             if abs(dot_val) < 0.1
             else settings.offset / dot_val
         )
-        spine_pos = co + avg_normal * scaler
+        spine_positions.append(co + avg_normal * scaler)
 
-        wing_directions = _corner_wing_directions(
-            tangents[index], normal_a, normal_b, convexity
-        )
-        if wing_directions is None:
-            wing_directions = _corner_wing_directions(
-                chord, normal_a, normal_b, convexity
-            )
-            if wing_directions is None:
-                return
-        wing_dir_a, wing_dir_b = wing_directions
+    wing_joins = _corner_run_wing_joins(run, spine_positions, half_width)
+    if wing_joins is None:
+        return
+    joins_a, joins_b = wing_joins
+    spine_verts = []
+    wing_a_incoming = []
+    wing_a_outgoing = []
+    wing_b_incoming = []
+    wing_b_outgoing = []
+    for spine_pos, join_a, join_b in zip(spine_positions, joins_a, joins_b):
         spine_verts.append(bm.verts.new(spine_pos))
-        wing_a_verts.append(bm.verts.new(spine_pos + wing_dir_a * half_width))
-        wing_b_verts.append(bm.verts.new(spine_pos + wing_dir_b * half_width))
+
+        incoming_a = bm.verts.new(join_a.incoming)
+        outgoing_a = (
+            bm.verts.new(join_a.outgoing) if join_a.is_bevel else incoming_a
+        )
+        wing_a_incoming.append(incoming_a)
+        wing_a_outgoing.append(outgoing_a)
+
+        incoming_b = bm.verts.new(join_b.incoming)
+        outgoing_b = (
+            bm.verts.new(join_b.outgoing) if join_b.is_bevel else incoming_b
+        )
+        wing_b_incoming.append(incoming_b)
+        wing_b_outgoing.append(outgoing_b)
 
     uv_layer = bm.loops.layers.uv.verify()
     u_min, _v_min, u_max, _v_max = uv_rect
     u_mid = (u_min + u_max) / 2.0
     scale = settings.uv_length_scale
+
+    def add_face(vertices, uvs):
+        try:
+            face = bm.faces.new(vertices)
+        except ValueError:
+            return
+        for loop, uv in zip(face.loops, uvs):
+            loop[uv_layer].uv = uv
+
     for index in range(len(run.points) - 1):
         v_start = arc[index] * scale
         v_end = arc[index + 1] * scale
-        try:
-            face_a = bm.faces.new(
-                (
-                    wing_a_verts[index],
-                    wing_a_verts[index + 1],
-                    spine_verts[index + 1],
-                    spine_verts[index],
-                )
-            )
-            face_a.loops[0][uv_layer].uv = (u_min, v_start)
-            face_a.loops[1][uv_layer].uv = (u_min, v_end)
-            face_a.loops[2][uv_layer].uv = (u_mid, v_end)
-            face_a.loops[3][uv_layer].uv = (u_mid, v_start)
-            face_b = bm.faces.new(
-                (
-                    spine_verts[index],
-                    spine_verts[index + 1],
-                    wing_b_verts[index + 1],
-                    wing_b_verts[index],
-                )
-            )
-            face_b.loops[0][uv_layer].uv = (u_mid, v_start)
-            face_b.loops[1][uv_layer].uv = (u_mid, v_end)
-            face_b.loops[2][uv_layer].uv = (u_max, v_end)
-            face_b.loops[3][uv_layer].uv = (u_max, v_start)
-        except ValueError:
+        add_face(
+            (
+                wing_a_outgoing[index],
+                wing_a_incoming[index + 1],
+                spine_verts[index + 1],
+                spine_verts[index],
+            ),
+            (
+                (u_min, v_start),
+                (u_min, v_end),
+                (u_mid, v_end),
+                (u_mid, v_start),
+            ),
+        )
+        add_face(
+            (
+                spine_verts[index],
+                spine_verts[index + 1],
+                wing_b_incoming[index + 1],
+                wing_b_outgoing[index],
+            ),
+            (
+                (u_mid, v_start),
+                (u_mid, v_end),
+                (u_max, v_end),
+                (u_max, v_start),
+            ),
+        )
+
+    join_count = len(run.points) - 1 if run.is_closed else len(run.points)
+    for index in range(join_count):
+        if not run.is_closed and index in (0, len(run.points) - 1):
             continue
+        v_station = arc[index] * scale
+        if joins_a[index].is_bevel:
+            v_span = max(
+                (joins_a[index].incoming - joins_a[index].outgoing).length
+                * scale
+                * 0.5,
+                1e-6,
+            )
+            add_face(
+                (
+                    spine_verts[index],
+                    wing_a_incoming[index],
+                    wing_a_outgoing[index],
+                ),
+                (
+                    (u_mid, v_station),
+                    (u_min, v_station - v_span),
+                    (u_min, v_station + v_span),
+                ),
+            )
+        if joins_b[index].is_bevel:
+            v_span = max(
+                (joins_b[index].incoming - joins_b[index].outgoing).length
+                * scale
+                * 0.5,
+                1e-6,
+            )
+            add_face(
+                (
+                    spine_verts[index],
+                    wing_b_outgoing[index],
+                    wing_b_incoming[index],
+                ),
+                (
+                    (u_mid, v_station),
+                    (u_max, v_station + v_span),
+                    (u_max, v_station - v_span),
+                ),
+            )
 
 
 def _build_corner_strip(
