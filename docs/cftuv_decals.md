@@ -68,6 +68,11 @@ derived decal junctions, не меняя PatchGraph и не становясь s
    двух декалей, а не branch spine внутри одного общего cap.
 8. Faces используют те же BMesh vertices/edges, что и branches после weld:
    топологическая сшивка не создаёт coplanar overlap или overfull edges.
+9. Endpoint section хранит точные UV anchors branch. После создания каждой
+   half-face переходное поперечное ребро `branch → junction` сразу dissolves:
+   branch и его junction-продолжение становятся одним n-gon, а UV на месте
+   удалённого ребра остаётся непрерывным. В итоговой сетке сохраняются только
+   смысловые branch spine и усреднённые bisector dividers.
 
 Плоский T получает по усреднённой divider-линии между каждой парой соседних
 направлений. Пространственный trihedral стык получает общий offset core и одну
@@ -277,6 +282,7 @@ edge indices двух chain uses. Поэтому один seam на замкну
 2. Проверить, что ширина всех branches одинакова, в центре нет отверстия,
    перекрывающихся faces и диагонального сужения. Между соседними chains должна
    идти усреднённая линия `core → outer miter`, а не линия вдоль branch spine.
+   Поперечных прямоугольных рёбер в месте бывшего branch endpoint быть не должно.
 3. Повторить на пространственном стыке трёх owner surfaces. Все три локальных
    крыла должны прийти в один offset core без loose vertices.
 4. Изменить `Seam Width` горизонтальным modal drag: junction должен

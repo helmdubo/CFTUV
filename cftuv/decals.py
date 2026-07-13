@@ -160,6 +160,7 @@ class _DecalSurfaceSection:
     normal: Vector
     spine_vert: object
     verts: tuple
+    uvs: tuple
 
 
 @dataclass(frozen=True)
@@ -1414,6 +1415,7 @@ def _build_corner_ribbon_run(bm, run, settings, uv_rect, width=None):
 
     first_segment = 0
     last_segment = len(run.segment_normals_a) - 1
+    v_last = arc[-1] * scale
     return _endpoint_port(
         run,
         (
@@ -1421,11 +1423,13 @@ def _build_corner_ribbon_run(bm, run, settings, uv_rect, width=None):
                 run.segment_normals_a[first_segment],
                 spine_verts[0],
                 (spine_verts[0], wing_a_outgoing[0]),
+                ((u_mid, 0.0), (u_min, 0.0)),
             ),
             _DecalSurfaceSection(
                 run.segment_normals_b[first_segment],
                 spine_verts[0],
                 (spine_verts[0], wing_b_outgoing[0]),
+                ((u_mid, 0.0), (u_max, 0.0)),
             ),
         ),
         (
@@ -1433,11 +1437,13 @@ def _build_corner_ribbon_run(bm, run, settings, uv_rect, width=None):
                 run.segment_normals_a[last_segment],
                 spine_verts[-1],
                 (spine_verts[-1], wing_a_incoming[-1]),
+                ((u_mid, v_last), (u_min, v_last)),
             ),
             _DecalSurfaceSection(
                 run.segment_normals_b[last_segment],
                 spine_verts[-1],
                 (spine_verts[-1], wing_b_incoming[-1]),
+                ((u_mid, v_last), (u_max, v_last)),
             ),
         ),
     )
@@ -1695,6 +1701,7 @@ def _build_selected_seam_ribbon_run(bm, run, settings, uv_rect):
 
     first_normal = segment_frames[0][1]
     last_normal = segment_frames[-1][1]
+    v_last = arc[-1] * scale
     return _endpoint_port(
         run,
         (
@@ -1702,6 +1709,7 @@ def _build_selected_seam_ribbon_run(bm, run, settings, uv_rect):
                 first_normal,
                 spine_verts[0],
                 (left_outgoing[0], spine_verts[0], right_outgoing[0]),
+                ((u_min, 0.0), (u_mid, 0.0), (u_max, 0.0)),
             ),
         ),
         (
@@ -1709,6 +1717,7 @@ def _build_selected_seam_ribbon_run(bm, run, settings, uv_rect):
                 last_normal,
                 spine_verts[-1],
                 (left_incoming[-1], spine_verts[-1], right_incoming[-1]),
+                ((u_min, v_last), (u_mid, v_last), (u_max, v_last)),
             ),
         ),
     )
@@ -1821,22 +1830,18 @@ def _build_seam_junctions(bm, specs, ports, settings, uv_rect):
                 )
                 spine_index = oriented_verts.index(section.spine_vert)
                 ordered.append(
-                    (angle, tangent, oriented_verts, spine_index)
+                    (angle, tangent, section, oriented_verts, spine_index)
                 )
             ordered.sort(key=lambda item: item[0])
 
-            def add_sector_face(polygon_verts, tangent):
+            def add_sector_face(polygon_verts, tangent, section, section_half):
                 nonlocal created
                 unique_verts = []
                 for vert in polygon_verts:
-                    if unique_verts and (
-                        unique_verts[-1].co - vert.co
-                    ).length <= DECAL_WELD_DISTANCE:
+                    if unique_verts and unique_verts[-1] is vert:
                         continue
                     unique_verts.append(vert)
-                if len(unique_verts) > 2 and (
-                    unique_verts[0].co - unique_verts[-1].co
-                ).length <= DECAL_WELD_DISTANCE:
+                if len(unique_verts) > 2 and unique_verts[0] is unique_verts[-1]:
                     unique_verts.pop()
                 if len(unique_verts) < 3:
                     return
@@ -1849,7 +1854,26 @@ def _build_seam_junctions(bm, specs, ports, settings, uv_rect):
                     face.normal_flip()
 
                 sector_y = normal.cross(tangent).normalized()
+                spine_uv = next(
+                    uv
+                    for vert, uv in zip(section.verts, section.uvs)
+                    if vert is section.spine_vert
+                )
+                station_distance = (
+                    section.spine_vert.co - spec.core_pos
+                ).dot(tangent)
                 for loop in face.loops:
+                    anchored_uv = next(
+                        (
+                            uv
+                            for vert, uv in zip(section.verts, section.uvs)
+                            if vert is loop.vert
+                        ),
+                        None,
+                    )
+                    if anchored_uv is not None:
+                        loop[uv_layer].uv = anchored_uv
+                        continue
                     delta = loop.vert.co - spec.core_pos
                     across = (
                         0.0
@@ -1859,14 +1883,36 @@ def _build_seam_junctions(bm, specs, ports, settings, uv_rect):
                     across = max(-1.0, min(1.0, across))
                     loop[uv_layer].uv = (
                         u_mid + across * u_radius,
-                        delta.dot(tangent) * settings.uv_length_scale,
+                        spine_uv[1]
+                        + (delta.dot(tangent) - station_distance)
+                        * settings.uv_length_scale,
                     )
                 created += 1
 
+                # Junction half-face продолжает соответствующее крыло branch.
+                # Сливаем их сразу: отложенный batch dissolve ошибочно считает
+                # соседние cross-sections одним region и оставляет прямоугольник.
+                for first, second in zip(section_half, section_half[1:]):
+                    section_edge = bm.edges.get((first, second))
+                    if section_edge is None or len(section_edge.link_faces) != 2:
+                        continue
+                    bmesh.ops.dissolve_edges(
+                        bm,
+                        edges=[section_edge],
+                        use_verts=False,
+                        use_face_split=False,
+                    )
+
             for index, current in enumerate(ordered):
                 following = ordered[(index + 1) % len(ordered)]
-                angle, tangent, section_verts, spine_index = current
-                next_angle, next_tangent, next_verts, next_spine_index = following
+                angle, tangent, section, section_verts, spine_index = current
+                (
+                    next_angle,
+                    next_tangent,
+                    next_section,
+                    next_verts,
+                    next_spine_index,
+                ) = following
                 gap = (next_angle - angle) % (2.0 * pi)
                 if gap <= 1e-5:
                     continue
@@ -1903,10 +1949,16 @@ def _build_seam_junctions(bm, specs, ports, settings, uv_rect):
                 # Две half-faces делят сектор по усреднённой линии
                 # core -> divider, а не по spine исходной branch.
                 add_sector_face(
-                    [core_vert, *current_half, divider_vert], tangent
+                    [core_vert, *current_half, divider_vert],
+                    tangent,
+                    section,
+                    current_half,
                 )
                 add_sector_face(
-                    [core_vert, divider_vert, *next_half], next_tangent
+                    [core_vert, divider_vert, *next_half],
+                    next_tangent,
+                    next_section,
+                    next_half,
                 )
     return created
 
