@@ -919,6 +919,55 @@ def _branch_station_normals(branch):
     return per_station
 
 
+def _side_surface_spans(branch, normals):
+    """Maximal подпути стороны с почти постоянной плоскостью.
+
+    Решение о разрезе локальное: сегмент продолжает span, пока его normal
+    близка к бегущему среднему span и midpoint лежит на его плоскости.
+    Прежний global greedy-match по registry мог флип-флопить surface id
+    соседних сегментов на пороговых тесселяциях (нормали около
+    DECAL_COPLANAR_DOT) и рубил сторону на per-station подпути — визуальные
+    «зубцы» из flat caps и connectors на каждой станции. Бегущее среднее
+    также не даёт транзитивно склеить длинную пологую дугу в одну хорду.
+    """
+
+    segment_count = len(branch.points) - 1
+    spans = []  # (span_start, span_end_exclusive, avg_normal, ref_midpoint)
+    span_start = None
+    normal_sum = None
+    ref_midpoint = None
+    for segment in range(segment_count):
+        normal = normals[segment]
+        midpoint = (branch.points[segment] + branch.points[segment + 1]) * 0.5
+        if normal.length_squared < 1e-12:
+            if span_start is not None:
+                spans.append(
+                    (span_start, segment, normal_sum.normalized(), ref_midpoint)
+                )
+                span_start = None
+            continue
+        if span_start is not None:
+            average = normal_sum.normalized()
+            on_plane = (
+                abs(average.dot(midpoint - ref_midpoint))
+                < DECAL_SPINE_MERGE_DISTANCE
+            )
+            if normal.normalized().dot(average) > DECAL_COPLANAR_DOT and on_plane:
+                normal_sum = normal_sum + normal.normalized()
+                continue
+            spans.append(
+                (span_start, segment, average, ref_midpoint)
+            )
+        span_start = segment
+        normal_sum = normal.normalized()
+        ref_midpoint = midpoint
+    if span_start is not None:
+        spans.append(
+            (span_start, segment_count, normal_sum.normalized(), ref_midpoint)
+        )
+    return spans
+
+
 def _split_side_sites(
     branch, branch_id, side, registry, lift_map, arcs, valence, site_counter
 ):
@@ -927,24 +976,12 @@ def _split_side_sites(
     normals = branch.normals_a if side == "A" else branch.normals_b
     other = branch.normals_b if side == "A" else branch.normals_a
     segment_count = len(branch.points) - 1
-    segment_surfaces = []
-    for segment in range(segment_count):
-        midpoint = (branch.points[segment] + branch.points[segment + 1]) * 0.5
-        segment_surfaces.append(
-            registry.surface_for(normals[segment], midpoint)
-        )
 
     sites = []
-    span_start = 0
-    for segment in range(segment_count + 1):
-        boundary = (
-            segment == segment_count
-            or segment_surfaces[segment] != segment_surfaces[span_start]
-        )
-        if not boundary:
-            continue
-        span_end = segment  # сегменты span_start .. segment-1
-        surface_id = segment_surfaces[span_start]
+    for span_start, span_end, span_normal, span_ref in _side_surface_spans(
+        branch, normals
+    ):
+        surface_id = registry.surface_for(span_normal, span_ref)
         if surface_id is not None and span_end > span_start:
             site = _Site(
                 site_id=site_counter[0],
@@ -974,7 +1011,6 @@ def _split_side_sites(
                 branch, side, normals, other, span_start, surface, site
             )
             sites.append(site)
-        span_start = segment
     return sites
 
 

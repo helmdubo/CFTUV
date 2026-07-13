@@ -505,6 +505,49 @@ class TestSingleSiteJunctionCap:
                 assert position.z >= -1e-6, position
 
 
+class TestSurfaceSpans:
+    def _arc_branch(self, step_degrees, segments):
+        from math import radians
+
+        radius = 1.0
+        step = radians(step_degrees)
+        points = [
+            Vector((radius * cos(i * step), radius * sin(i * step), 0.0))
+            for i in range(segments + 1)
+        ]
+        run = _OrientedCornerRun(
+            vert_indices=list(range(segments + 1)),
+            points=points,
+            segment_normals_a=[Vector((0, 0, 1))] * segments,
+            segment_normals_b=[
+                Vector((cos((i + 0.5) * step), sin((i + 0.5) * step), 0.0))
+                for i in range(segments)
+            ],
+            segment_convexities=[1.0] * segments,
+            segment_edge_indices=list(range(segments)),
+        )
+        return _branch_from_run(run)
+
+    def test_borderline_tessellation_groups_spans(self):
+        # ~7° между соседними нормалями — выше DECAL_COPLANAR_DOT: сегменты
+        # группируются по бегущему среднему, а не рубятся на каждой станции
+        # (per-station flat caps + connectors выглядели зубцами на дуге).
+        from cftuv.decal_network import _side_surface_spans
+
+        branch = self._arc_branch(7.0, 8)
+        spans = _side_surface_spans(branch, branch.normals_b)
+        assert 1 < len(spans) < 8
+        # Бегущее среднее не даёт схлопнуть пологую дугу в одну хорду.
+        assert max(end - start for start, end, _n, _r in spans) <= 4
+
+    def test_coarse_tessellation_splits_per_face(self):
+        from cftuv.decal_network import _side_surface_spans
+
+        branch = self._arc_branch(12.0, 6)
+        spans = _side_surface_spans(branch, branch.normals_b)
+        assert len(spans) == 6
+
+
 class TestSettings:
     def test_network_backend_enabled_by_default(self):
         assert DecalSettings().seam_network is True

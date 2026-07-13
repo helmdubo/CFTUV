@@ -91,7 +91,22 @@ junction и плоские «флаги» по касательной. Два н
 Регрессия: `TestOrientationInvariance` (reverse/swap дают идентичную
 геометрию), `TestArcWallCorner` (ни одна вершина не выходит за меш; у
 junction нет неограниченных вееров), `TestSingleSiteJunctionCap`.
-Полный suite: `78 passed`.
+
+3. **Локальные surface spans.** Разбиение стороны ветви на подпути шло по
+   global greedy-match surface registry: на пороговой тесселяции (соседние
+   нормали около `DECAL_COPLANAR_DOT`) surface id мог флип-флопить между
+   почти совпадающими registry-плоскостями, рубя сторону на per-station
+   подпути — flat caps и connector-треугольники на каждой станции читались
+   «зубцами» вдоль внешнего радиуса дуги. Теперь span растёт по бегущему
+   среднему нормалей + проверке принадлежности плоскости
+   (`_side_surface_spans`); registry используется только для identity
+   поверхности (общие 2D-миры у junction). Бегущее среднее одновременно не
+   даёт транзитивно схлопнуть пологую дугу в одну хорду
+   (`TestSurfaceSpans`).
+
+Offline-репро с реальной сцены: `artifacts/dump_seam_scope.py` — дамп
+selected seam scope (рёбра, вершины, нормали и центры смежных faces) в
+JSON для переигрывания сети вне Blender. Полный suite: `80 passed`.
 
 ## Ограничения
 
