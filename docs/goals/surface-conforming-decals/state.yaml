@@ -64,7 +64,7 @@ visual_board:
     url: "http://goalbuddy.localhost:41737/surface-conforming-decals/"
     command: "npx goalbuddy board C:/Users/helmd/Documents/CFTUV/docs/goals/surface-conforming-decals"
 
-active_task: T027
+active_task: T029
 
 tasks:
   - id: T001
@@ -644,7 +644,7 @@ tasks:
   - id: T027
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Record the user's Blender validation of X-only bbox anchoring before resuming T020."
     inputs:
@@ -656,6 +656,77 @@ tasks:
     expected_output:
       - "User validation result"
       - "Approval to resume T020 or a telemetry recovery task"
+    receipt:
+      result: done
+      user_validation: superseded
+      summary: "The user moved directly to SEAMS width parity without reporting another X-only anchor failure. Validation remains represented by the new shared modal acceptance task."
+
+  - id: T028
+    type: worker
+    assignee: Worker
+    status: done
+    reasoning_hint: default
+    objective: "Add Decal Seams to the shared left/right interactive sizing contract, including selected-edge manual seam scope."
+    allowed_files:
+      - "cftuv/operators.py"
+      - "tests/test_operators.py"
+      - "docs/cftuv_decals.md"
+      - "C:/Users/helmd/AppData/Roaming/Blender Foundation/Blender/4.3/scripts/addons/cftuv/operators.py"
+      - "docs/goals/surface-conforming-decals/state.yaml"
+      - "docs/goals/surface-conforming-decals/notes/T028-seam-width-modal.md"
+    verify:
+      - "SEAMS right drag increases DecalSettings.width_seam and left drag decreases it."
+      - "Scene decal_width_seam updates during modal and restores on cancel."
+      - "Header and completion report identify Seam Width."
+      - "Manual Edge Select SEAMS enters modal while preserving the captured selected-edge scope."
+      - "TOP, BOTTOM, and CORNERS behavior remains unchanged."
+      - "C:/Python313/python.exe -m pytest -q"
+      - "Blender 4.3.2 installed-addon runtime import"
+      - "Blender 4.1.1 compatibility import"
+      - "git diff --check"
+    stop_if:
+      - "Repeated manual regeneration changes the selected seam-edge scope."
+      - "The change requires decal geometry modifications."
+      - "Verification fails twice without an isolated fallback path."
+    receipt:
+      result: done
+      changed_files:
+        - "cftuv/operators.py"
+        - "tests/test_operators.py"
+        - "docs/cftuv_decals.md"
+        - "C:/Users/helmd/AppData/Roaming/Blender Foundation/Blender/4.3/scripts/addons/cftuv/operators.py"
+        - "docs/goals/surface-conforming-decals/state.yaml"
+        - "docs/goals/surface-conforming-decals/notes/T028-seam-width-modal.md"
+      commands:
+        - cmd: "C:/Python313/python.exe -m pytest -q"
+          status: pass
+        - cmd: "C:/Python313/python.exe -m compileall -q cftuv tests"
+          status: pass
+        - cmd: "Blender 4.3.2 factory-startup installed-addon SEAMS modal source/RNA check"
+          status: pass
+        - cmd: "Blender 4.1.1 repo-addon SEAMS modal source/RNA compatibility check"
+          status: pass
+        - cmd: "Compare repository and installed Blender 4.3 addon Python hashes"
+          status: pass
+        - cmd: "git diff --check"
+          status: pass
+      summary: "Decal Seams now shares the horizontal modal size controller, updates Seam Width/DecalSettings.width_seam, supports captured manual Edge Select scope, restores base width and geometry on cancel, and clamps to 0.001."
+
+  - id: T029
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: default
+    objective: "Record the user's Blender validation of interactive Decal Seams width before resuming T020."
+    inputs:
+      - "T028 pushed commit"
+      - "Blender 4.3 installed addon synchronized with the branch"
+    constraints:
+      - "Wait for the user to test both automatic SEAMS and selected-edge manual SEAMS where available."
+      - "If manual scope expands during drag, inspect only captured chain_refs/selected_edge_indices before geometry changes."
+    expected_output:
+      - "User validation result"
+      - "Approval to resume T020 or a bounded SEAMS modal recovery task"
     receipt: null
 
   - id: T020
@@ -769,10 +840,10 @@ checks:
   dirty_fingerprint: "goal-prep-only"
   last_verification:
     result: pass
-    task: T026
+    task: T028
     commands:
-      - "C:/Python313/python.exe -m pytest -q (41 passed)"
+      - "C:/Python313/python.exe -m pytest -q (46 passed)"
       - "C:/Python313/python.exe -m compileall -q cftuv tests"
-      - "Blender 4.3.2: click (321,654) warps to (500,654), preserving Y"
-      - "Blender 4.1.1: matching X-only cursor warp"
+      - "Blender 4.3.2: installed SEAMS invoke source is interactive, width target is width_seam, RNA minimum is 0.001"
+      - "Blender 4.1.1: matching SEAMS modal source and RNA minimum"
       - "Repository and installed Blender 4.3 addon Python hashes match"

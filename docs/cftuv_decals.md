@@ -40,12 +40,13 @@ convex/outer. Направления крыльев corner-strip меняютс�
 
 ## Интерактивный размер автоматических декалей
 
-В Object Mode или Face Select Mode кнопки `Decal Top`, `Decal Bottom` и
-`Decal Corners` запускают modal drag после первой генерации:
+В Object Mode или Face Select Mode кнопки `Decal Top`, `Decal Bottom`,
+`Decal Corners` и `Decal Seams` запускают modal drag после первой генерации:
 
-- Top/Bottom/Corners используют один горизонтальный жест: движение мыши вправо
-  увеличивает размер, движение влево уменьшает его.
-- Top/Bottom меняют `Trim Height`, Corners меняет `Corner Width` обоих крыльев.
+- Top/Bottom/Corners/Seams используют один горизонтальный жест: движение мыши
+  вправо увеличивает размер, движение влево уменьшает его.
+- Top/Bottom меняют `Trim Height`, Corners меняет `Corner Width`, Seams —
+  `Seam Width` обоих крыльев.
 - Уменьшение ограничено положительным минимумом `0.001`, поэтому лента не
   схлопывается в нулевую геометрию.
 - После нажатия кнопки X курсора выравнивается по экранной проекции центра
@@ -54,8 +55,9 @@ convex/outer. Направления крыльев corner-strip меняютс�
   вне экрана или не проецируется, используется центральный X окна 3D View.
 - `Shift` включает точную регулировку, LMB/Enter подтверждает, RMB/Esc отменяет.
 
-В Edge Select Mode генерация остаётся immediate: размер берётся из panel settings,
-поскольку manual scope определяется выбранными seam chains.
+В Edge Select Mode `Decal Seams` также остаётся интерактивным: captured manual
+scope не меняется во время drag, повторно строятся только выбранные seam edges.
+Остальные manual decal modes остаются immediate и берут размер из panel settings.
 
 Генерация mesh-декалей (тримы, углы, швы) из PatchGraph. Логика перенесена из
 прототипа `hotspotingUV_mesh_decals_Full.py` (v1.2.0, «Global System») и

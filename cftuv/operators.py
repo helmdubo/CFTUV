@@ -167,7 +167,7 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
     decal_width_seam: FloatProperty(
         name="Seam Width",
         default=0.15,
-        min=0.0,
+        min=_DECAL_SIZE_MIN,
         description="Total width of flat seam decal strips (world units)",
     )
     decal_height_trim: FloatProperty(
@@ -1284,9 +1284,8 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         area = getattr(self, "_modal_area", None)
         if area is None:
             return
-        label = "Corner Width" if self.mode == "CORNERS" else "Trim Height"
         text = (
-            f"{label}: {value:.4f} | Move Left/Right | "
+            f"{self._modal_label}: {value:.4f} | Move Left/Right | "
             "Shift: precise | LMB/Enter: confirm | Esc/RMB: cancel"
         )
         area.header_text_set(text)
@@ -1298,11 +1297,16 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
 
     def invoke(self, context, event):
         source_obj = context.active_object
-        interactive_mode = self.mode in {"TOP", "BOTTOM", "CORNERS"}
+        interactive_mode = self.mode in {"TOP", "BOTTOM", "CORNERS", "SEAMS"}
+        edge_select_is_immediate = (
+            context.window is not None
+            and self.mode != "SEAMS"
+            and _is_edge_select_mode(context, source_obj)
+        )
         if (
             context.window is None
             or not interactive_mode
-            or _is_edge_select_mode(context, source_obj)
+            or edge_select_is_immediate
         ):
             return self.execute(context)
 
@@ -1323,9 +1327,18 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             self._modal_created = created
             if self.mode == "CORNERS":
                 self._modal_property = "decal_width_corner"
+                self._modal_settings_field = "width_corner"
+                self._modal_label = "Corner Width"
                 self._modal_base_value = settings.width_corner
+            elif self.mode == "SEAMS":
+                self._modal_property = "decal_width_seam"
+                self._modal_settings_field = "width_seam"
+                self._modal_label = "Seam Width"
+                self._modal_base_value = settings.width_seam
             else:
                 self._modal_property = "decal_height_trim"
+                self._modal_settings_field = "height_trim"
+                self._modal_label = "Trim Height"
                 self._modal_base_value = settings.height_trim
             drag_anchor = _warp_decal_drag_cursor(context, source_obj, event)
             self._modal_start_mouse = drag_anchor[0]
@@ -1349,14 +1362,10 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             )
             if abs(new_value - self._modal_current_value) < 1e-9:
                 return {"RUNNING_MODAL"}
-            if self.mode == "CORNERS":
-                settings = replace(
-                    self._modal_base_settings, width_corner=new_value
-                )
-            else:
-                settings = replace(
-                    self._modal_base_settings, height_trim=new_value
-                )
+            settings = replace(
+                self._modal_base_settings,
+                **{self._modal_settings_field: new_value},
+            )
             try:
                 created = self._generate(context, self._modal_state, settings)
             except Exception as exc:
@@ -1395,11 +1404,10 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
 
         if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER"} and event.value == "PRESS":
             self._clear_modal_header()
-            label = "Corner Width" if self.mode == "CORNERS" else "Trim Height"
             self._report_created(
                 self._modal_created,
                 self._modal_state,
-                f"{label}:{self._modal_current_value:.4f}",
+                f"{self._modal_label}:{self._modal_current_value:.4f}",
             )
             return {"FINISHED"}
 
