@@ -49,6 +49,7 @@ from .solve import (
 )
 
 ADDON_PACKAGE = __package__ or Path(__file__).resolve().parent.name
+_DECAL_SIZE_MIN = 0.001
 
 
 class HOTSPOTUV_OT_CleanNonManifoldEdges(bpy.types.Operator):
@@ -157,7 +158,7 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
     decal_width_corner: FloatProperty(
         name="Corner Width",
         default=0.20,
-        min=0.0,
+        min=_DECAL_SIZE_MIN,
         description="Total width of corner decal strips (world units)",
     )
     decal_width_seam: FloatProperty(
@@ -169,7 +170,7 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
     decal_height_trim: FloatProperty(
         name="Trim Height",
         default=0.25,
-        min=0.0,
+        min=_DECAL_SIZE_MIN,
         description="Height of top/bottom trim decal strips (world units)",
     )
     decal_offset: FloatProperty(
@@ -694,7 +695,7 @@ def _decal_drag_value(base_value, mouse_delta, precise=False):
     sensitivity = max(0.001, abs(base_value) * 0.01)
     if precise:
         sensitivity *= 0.1
-    return max(0.0, base_value + mouse_delta * sensitivity)
+    return max(_DECAL_SIZE_MIN, base_value + mouse_delta * sensitivity)
 
 
 def _build_solve_state(context, make_seams_by_sharp=False):
@@ -1287,16 +1288,11 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         area = getattr(self, "_modal_area", None)
         if area is None:
             return
-        if self.mode == "CORNERS":
-            text = (
-                f"Corner Width: {value:.4f} | Move Left/Right | "
-                "Shift: precise | LMB/Enter: confirm | Esc/RMB: cancel"
-            )
-        else:
-            text = (
-                f"Trim Height: {value:.4f} | Move Down/Up | "
-                "Shift: precise | LMB/Enter: confirm | Esc/RMB: cancel"
-            )
+        label = "Corner Width" if self.mode == "CORNERS" else "Trim Height"
+        text = (
+            f"{label}: {value:.4f} | Move Left/Right | "
+            "Shift: precise | LMB/Enter: confirm | Esc/RMB: cancel"
+        )
         area.header_text_set(text)
 
     def _clear_modal_header(self):
@@ -1332,11 +1328,10 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             if self.mode == "CORNERS":
                 self._modal_property = "decal_width_corner"
                 self._modal_base_value = settings.width_corner
-                self._modal_start_mouse = event.mouse_x
             else:
                 self._modal_property = "decal_height_trim"
                 self._modal_base_value = settings.height_trim
-                self._modal_start_mouse = event.mouse_y
+            self._modal_start_mouse = event.mouse_x
             self._modal_current_value = self._modal_base_value
             self._set_modal_header(self._modal_current_value)
             context.window_manager.modal_handler_add(self)
@@ -1350,10 +1345,9 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
 
     def modal(self, context, event):
         if event.type == "MOUSEMOVE":
-            mouse_value = event.mouse_x if self.mode == "CORNERS" else event.mouse_y
             new_value = _decal_drag_value(
                 self._modal_base_value,
-                mouse_value - self._modal_start_mouse,
+                event.mouse_x - self._modal_start_mouse,
                 precise=bool(event.shift),
             )
             if abs(new_value - self._modal_current_value) < 1e-9:

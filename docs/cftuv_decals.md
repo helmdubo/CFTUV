@@ -43,8 +43,11 @@ convex/outer. Направления крыльев corner-strip меняютс�
 В Object Mode или Face Select Mode кнопки `Decal Top`, `Decal Bottom` и
 `Decal Corners` запускают modal drag после первой генерации:
 
-- Top/Bottom: движение мыши вниз/вверх уменьшает/увеличивает `Trim Height`.
-- Corners: движение влево/вправо уменьшает/увеличивает `Corner Width` обоих крыльев.
+- Top/Bottom/Corners используют один горизонтальный жест: движение мыши вправо
+  увеличивает размер, движение влево уменьшает его.
+- Top/Bottom меняют `Trim Height`, Corners меняет `Corner Width` обоих крыльев.
+- Уменьшение ограничено положительным минимумом `0.001`, поэтому лента не
+  схлопывается в нулевую геометрию.
 - `Shift` включает точную регулировку, LMB/Enter подтверждает, RMB/Esc отменяет.
 
 В Edge Select Mode генерация остаётся immediate: размер берётся из panel settings,
