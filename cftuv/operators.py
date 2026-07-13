@@ -17,7 +17,6 @@ from bpy.props import (
     PointerProperty,
     StringProperty,
 )
-
 from .analysis import (
     build_straighten_structural_support,
     build_patch_graph,
@@ -27,6 +26,11 @@ from .analysis import (
     validate_solver_input_mesh,
 )
 from .constants import GP_DEBUG_PREFIX
+from .decal_modal import (
+    DECAL_SIZE_MIN as _DECAL_SIZE_MIN,
+    decal_drag_value as _decal_drag_value,
+    warp_decal_drag_cursor as _warp_decal_drag_cursor,
+)
 from .debug import (
     apply_layer_visibility,
     clear_visualization,
@@ -49,7 +53,6 @@ from .solve import (
 )
 
 ADDON_PACKAGE = __package__ or Path(__file__).resolve().parent.name
-_DECAL_SIZE_MIN = 0.001
 
 
 class HOTSPOTUV_OT_CleanNonManifoldEdges(bpy.types.Operator):
@@ -691,13 +694,6 @@ def _prepare_decal_generation(context):
             _restore_edge_selection(obj, selected_edge_indices)
 
 
-def _decal_drag_value(base_value, mouse_delta, precise=False):
-    sensitivity = max(0.001, abs(base_value) * 0.01)
-    if precise:
-        sensitivity *= 0.1
-    return max(_DECAL_SIZE_MIN, base_value + mouse_delta * sensitivity)
-
-
 def _build_solve_state(context, make_seams_by_sharp=False):
     """Полный solve state: PatchGraph + SolverGraph + SolvePlan + UVSettings."""
     obj, bm, patch_graph, original_mode, sel = _prepare_patch_graph(
@@ -1331,7 +1327,8 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             else:
                 self._modal_property = "decal_height_trim"
                 self._modal_base_value = settings.height_trim
-            self._modal_start_mouse = event.mouse_x
+            drag_anchor = _warp_decal_drag_cursor(context, source_obj, event)
+            self._modal_start_mouse = drag_anchor[0]
             self._modal_current_value = self._modal_base_value
             self._set_modal_header(self._modal_current_value)
             context.window_manager.modal_handler_add(self)

@@ -64,7 +64,7 @@ visual_board:
     url: "http://goalbuddy.localhost:41737/surface-conforming-decals/"
     command: "npx goalbuddy board C:/Users/helmd/Documents/CFTUV/docs/goals/surface-conforming-decals"
 
-active_task: T023
+active_task: T025
 
 tasks:
   - id: T001
@@ -499,7 +499,7 @@ tasks:
   - id: T023
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Record the user's Blender validation of universal horizontal TOP/BOTTOM/CORNERS sizing before resuming the surface-conformance roadmap."
     inputs:
@@ -511,6 +511,81 @@ tasks:
     expected_output:
       - "User validation result"
       - "Approval to resume T020 or a bounded T022 recovery task"
+    receipt:
+      result: done
+      user_validation: failed
+      summary: "Horizontal direction is correct, but the drag origin remains the N-panel button click, so useful screen distance depends on the interface position."
+
+  - id: T024
+    type: worker
+    assignee: Worker
+    status: done
+    reasoning_hint: default
+    objective: "Anchor automatic TOP/BOTTOM/CORNERS sizing at the screen projection of the source object's bounding-box center, with a 3D viewport center fallback."
+    allowed_files:
+      - "cftuv/operators.py"
+      - "cftuv/decal_modal.py"
+      - "tests/test_operators.py"
+      - "docs/cftuv_decals.md"
+      - "C:/Users/helmd/AppData/Roaming/Blender Foundation/Blender/4.3/scripts/addons/cftuv/operators.py"
+      - "C:/Users/helmd/AppData/Roaming/Blender Foundation/Blender/4.3/scripts/addons/cftuv/decal_modal.py"
+      - "docs/goals/surface-conforming-decals/state.yaml"
+      - "docs/goals/surface-conforming-decals/notes/T024-decal-drag-anchor.md"
+    verify:
+      - "Invoke computes the projected world-space bounding-box center inside the WINDOW region."
+      - "The cursor is warped to the computed anchor before modal sizing begins."
+      - "Off-screen or unavailable projections fall back to the WINDOW region center."
+      - "The anchor is clamped inside the usable 3D viewport."
+      - "TOP, BOTTOM, and CORNERS retain the same right/left sizing contract."
+      - "C:/Python313/python.exe -m pytest -q"
+      - "Blender 4.3.2 runtime anchor projection check"
+      - "Blender 4.1.1 compatibility check"
+      - "git diff --check"
+    stop_if:
+      - "Blender 4.1 and 4.3 use incompatible cursor_warp or projection APIs."
+      - "The invocation context cannot access a VIEW_3D WINDOW region."
+      - "Verification fails twice without an isolated fallback path."
+    receipt:
+      result: done
+      changed_files:
+        - "cftuv/operators.py"
+        - "cftuv/decal_modal.py"
+        - "tests/test_operators.py"
+        - "docs/cftuv_decals.md"
+        - "C:/Users/helmd/AppData/Roaming/Blender Foundation/Blender/4.3/scripts/addons/cftuv/operators.py"
+        - "C:/Users/helmd/AppData/Roaming/Blender Foundation/Blender/4.3/scripts/addons/cftuv/decal_modal.py"
+        - "docs/goals/surface-conforming-decals/state.yaml"
+        - "docs/goals/surface-conforming-decals/notes/T024-decal-drag-anchor.md"
+      commands:
+        - cmd: "C:/Python313/python.exe -m pytest -q"
+          status: pass
+        - cmd: "C:/Python313/python.exe -m compileall -q cftuv tests"
+          status: pass
+        - cmd: "Blender 4.3.2 installed-addon anchor and cursor_warp runtime checks"
+          status: pass
+        - cmd: "Blender 4.1.1 repo-addon anchor and cursor_warp compatibility checks"
+          status: pass
+        - cmd: "Compare repository and installed Blender 4.3 addon Python hashes"
+          status: pass
+        - cmd: "git diff --check"
+          status: pass
+      summary: "Automatic decal sizing now warps the cursor to the projected source-object bbox center, clamps it inside the 3D viewport, and falls back to the viewport center when projection is unavailable or off-screen."
+
+  - id: T025
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: default
+    objective: "Record the user's Blender validation of the bbox-centered decal sizing anchor before resuming T020."
+    inputs:
+      - "T024 pushed recovery commit"
+      - "Blender 4.3 installed addon synchronized with the branch"
+    constraints:
+      - "Wait for the user to invoke TOP, BOTTOM, and CORNERS from the N-panel and confirm the cursor starts over the object or viewport center."
+      - "If cursor placement is offset, capture the window/region coordinates in the exact workspace before changing the anchor policy."
+    expected_output:
+      - "User validation result"
+      - "Approval to resume T020 or a bounded coordinate-space recovery task"
     receipt: null
 
   - id: T020
@@ -624,10 +699,10 @@ checks:
   dirty_fingerprint: "goal-prep-only"
   last_verification:
     result: pass
-    task: T022
+    task: T024
     commands:
-      - "C:/Python313/python.exe -m pytest -q (38 passed)"
+      - "C:/Python313/python.exe -m pytest -q (40 passed)"
       - "C:/Python313/python.exe -m compileall -q cftuv tests"
-      - "Blender 4.3.2: right 0.30, left 0.20, minimum 0.001, precise 0.255"
-      - "Blender 4.1.1: matching right/left/minimum behavior"
+      - "Blender 4.3.2: projected bbox center resolves to viewport coordinate (500, 350); cursor_warp available"
+      - "Blender 4.1.1: matching anchor projection and cursor_warp API"
       - "Repository and installed Blender 4.3 addon Python hashes match"
