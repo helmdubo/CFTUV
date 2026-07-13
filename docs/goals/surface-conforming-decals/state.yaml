@@ -64,7 +64,7 @@ visual_board:
     url: "http://goalbuddy.localhost:41737/surface-conforming-decals/"
     command: "npx goalbuddy board C:/Users/helmd/Documents/CFTUV/docs/goals/surface-conforming-decals"
 
-active_task: T036
+active_task: T038
 
 tasks:
   - id: T001
@@ -936,7 +936,7 @@ tasks:
   - id: T036
     type: pm
     assignee: PM
-    status: active
+    status: done
     reasoning_hint: default
     objective: "Record user validation of planar and spatial Decal Seams T-junction continuity before resuming the surface-conformance roadmap."
     inputs:
@@ -946,6 +946,74 @@ tasks:
     constraints:
       - "Wait for the user to test the same selected-chain network through the UI."
       - "If only the directional texture flow is objectionable, separate atlas T-tile policy from geometry continuity."
+    expected_output:
+      - "User validation result"
+      - "Approval to resume T020/T030 or a bounded junction recovery task"
+    receipt:
+      result: done
+      user_validation: passed
+      summary: "The user confirmed continuous T-junction geometry works and requested a radial sector miter whose incident seam spines divide the decal at the common core."
+
+  - id: T037
+    type: worker
+    assignee: Worker
+    status: done
+    reasoning_hint: xhigh
+    objective: "Replace the single Decal Seams junction cap with radial sectors so every incident seam spine reaches the common core and separates adjacent decal regions."
+    allowed_files:
+      - "cftuv/decals.py"
+      - "docs/cftuv_decals.md"
+      - "docs/goals/surface-conforming-decals/state.yaml"
+      - "docs/goals/surface-conforming-decals/notes/T037-radial-seam-junctions.md"
+      - "C:/Users/helmd/AppData/Roaming/Blender Foundation/Blender/4.3/scripts/addons/cftuv/decals.py"
+    verify:
+      - "Every incident branch spine reaches the shared junction core."
+      - "Each radial core edge has exactly two linked sector faces."
+      - "Planar T and trihedral fixtures have no loose or overfull geometry."
+      - "Unoccupied surface gaps over 180 degrees remain open."
+      - "C:/Python313/python.exe -m pytest -q"
+      - "Blender 4.3.2 and Blender 4.1.1 radial BMesh oracles"
+      - "git diff --check"
+    stop_if:
+      - "The implementation would make Junction a primary solve entity."
+      - "The implementation requires source BMesh reads in decals.py."
+      - "Radial separators can only be represented by overlapping faces."
+    receipt:
+      result: done
+      changed_files:
+        - "cftuv/decals.py"
+        - "docs/cftuv_decals.md"
+        - "docs/goals/surface-conforming-decals/state.yaml"
+        - "docs/goals/surface-conforming-decals/notes/T037-radial-seam-junctions.md"
+        - "C:/Users/helmd/AppData/Roaming/Blender Foundation/Blender/4.3/scripts/addons/cftuv/decals.py"
+      commands:
+        - cmd: "C:/Python313/python.exe -m pytest -q (54 passed)"
+          status: pass
+        - cmd: "C:/Python313/python.exe -m compileall -q cftuv tests"
+          status: pass
+        - cmd: "Blender 4.3.2 planar T radial topology oracle"
+          status: pass
+        - cmd: "Blender 4.3.2 trihedral radial topology oracle"
+          status: pass
+        - cmd: "Blender 4.1.1 matching planar T radial topology oracle"
+          status: pass
+        - cmd: "git diff --check"
+          status: pass
+      summary: "Manual Decal Seams junctions now use radial sectors around one derived offset core. Every incident spine is a real two-face separator, while planar T and trihedral networks remain welded and overlap-free."
+
+  - id: T038
+    type: pm
+    assignee: PM
+    status: active
+    reasoning_hint: default
+    objective: "Record user validation of the radial Decal Seams junction miter before resuming the surface-conformance roadmap."
+    inputs:
+      - "T037 pushed commit"
+      - "Blender 4.3 installed addon synchronized with the branch"
+      - "User production seam network with the requested sector split"
+    constraints:
+      - "Wait for the user to regenerate the same selected-chain junction through the UI."
+      - "Treat atlas-specific T artwork as a separate UV tile policy if geometry topology is accepted."
     expected_output:
       - "User validation result"
       - "Approval to resume T020/T030 or a bounded junction recovery task"
@@ -1059,13 +1127,13 @@ tasks:
     receipt: null
 
 checks:
-  dirty_fingerprint: "T035-seam-t-junctions"
+  dirty_fingerprint: "T037-radial-seam-junctions"
   last_verification:
     result: pass
-    task: T035
+    task: T037
     commands:
       - "C:/Python313/python.exe -m pytest -q (54 passed)"
       - "C:/Python313/python.exe -m compileall -q cftuv tests"
-      - "Blender 4.3.2 planar T: 16 vertices, 7 faces, 7-sided cap, six shared cap edges, no overfull edges"
-      - "Blender 4.3.2 trihedral: core 0.02/0.02/0.02, 16 vertices, 9 quads, no loose or overfull geometry"
-      - "Blender 4.1.1: matching planar T 16/7 topology"
+      - "Blender 4.3.2 planar T: 17 vertices, 9 faces, three radial sectors, three core edges with two linked faces each"
+      - "Blender 4.3.2 trihedral: 16 vertices, 9 quads, three radial sectors, no loose or overfull geometry"
+      - "Blender 4.1.1: matching planar T 17/9 radial topology"

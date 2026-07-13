@@ -31,7 +31,7 @@ normal. На wrapped WALL patch это снова смешивает TOP/BOTTOM 
    соединительной гранью. Point-contact и valence `3+` не выбирают
    произвольную «главную» ветку: chain-runs остаются независимыми. В режиме
    `Decal Seams` их endpoints обрезаются по общей junction boundary и
-   соединяются отдельным patch на каждой owner surface.
+   соединяются радиальными секторами на каждой owner surface.
 
 Для `Decal Corners` и `Decal Seams` ручной режим не фильтрует `PatchType`: WALL,
 FLOOR, SLOPE, потолки и другие ориентации равноправны. PATCH-neighbor chain и
@@ -57,13 +57,18 @@ derived decal junctions, не меняя PatchGraph и не становясь s
 3. Каждая incident branch обрезается перед junction. Cut учитывает половину
    `Seam Width`, исходный offset spine и ограничивается длиной первого сегмента.
 4. Поперечные рёбра branches собираются по углу вокруг surface normal.
-5. На каждой owner surface создаётся отдельный junction patch. Его boundary
-   использует те же BMesh vertices/edges, что и branches после weld, поэтому
-   это настоящая топологическая сшивка без coplanar overlap.
+5. На каждой owner surface соседние по углу branches образуют отдельные
+   junction sectors. Spine каждой incident branch продолжается до общего core:
+   эти радиальные рёбра становятся явными границами между секторами.
+6. Boundary каждого сектора использует те же BMesh vertices/edges, что и
+   branches после weld, поэтому это настоящая топологическая сшивка без
+   coplanar overlap. UV задаётся локально относительно исходящей branch, а
+   радиальные рёбра служат естественными UV seams между разными направлениями.
 
-Плоский T получает один общий miter-контур. Пространственный trihedral стык
-получает общий offset core и по одному surface patch на каждую грань. Та же
-схема допускает valence `4+`: новых правил выбора продолжения chain не требуется.
+Плоский T получает три радиальных сектора с тремя рёбрами branch spine → core,
+как у sector/inset miter. Пространственный trihedral стык получает общий offset
+core и по одному сектору на каждую грань. Та же схема допускает valence `4+`:
+новых правил выбора продолжения chain не требуется.
 
 В автоматическом режиме внутренние и внешние углы различаются через canonical
 `BoundaryChain.dihedral_convexity`: negative — concave/inner, positive —
@@ -266,7 +271,8 @@ edge indices двух chain uses. Поэтому один seam на замкну
    одна поперечная. Выделить все три chains в Edge Select и запустить
    `Decal Seams`.
 2. Проверить, что ширина всех branches одинакова, в центре нет отверстия,
-   перекрывающихся faces и диагонального сужения.
+   перекрывающихся faces и диагонального сужения. Spine каждой из трёх ветвей
+   должен доходить до общего core и разделять соседние decal sectors.
 3. Повторить на пространственном стыке трёх owner surfaces. Все три локальных
    крыла должны прийти в один offset core без loose vertices.
 4. Изменить `Seam Width` горизонтальным modal drag: junction должен

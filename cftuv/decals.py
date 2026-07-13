@@ -158,6 +158,7 @@ class _DecalSurfaceSection:
     """Поперечное ребро одной branch на конкретной offset-поверхности."""
 
     normal: Vector
+    spine_vert: object
     verts: tuple
 
 
@@ -1381,20 +1382,24 @@ def _build_corner_ribbon_run(bm, run, settings, uv_rect, width=None):
         (
             _DecalSurfaceSection(
                 run.segment_normals_a[first_segment],
+                spine_verts[0],
                 (spine_verts[0], wing_a_outgoing[0]),
             ),
             _DecalSurfaceSection(
                 run.segment_normals_b[first_segment],
+                spine_verts[0],
                 (spine_verts[0], wing_b_outgoing[0]),
             ),
         ),
         (
             _DecalSurfaceSection(
                 run.segment_normals_a[last_segment],
+                spine_verts[-1],
                 (spine_verts[-1], wing_a_incoming[-1]),
             ),
             _DecalSurfaceSection(
                 run.segment_normals_b[last_segment],
+                spine_verts[-1],
                 (spine_verts[-1], wing_b_incoming[-1]),
             ),
         ),
@@ -1658,12 +1663,14 @@ def _build_selected_seam_ribbon_run(bm, run, settings, uv_rect):
         (
             _DecalSurfaceSection(
                 first_normal,
+                spine_verts[0],
                 (left_outgoing[0], spine_verts[0], right_outgoing[0]),
             ),
         ),
         (
             _DecalSurfaceSection(
                 last_normal,
+                spine_verts[-1],
                 (left_incoming[-1], spine_verts[-1], right_incoming[-1]),
             ),
         ),
@@ -1711,7 +1718,7 @@ def _build_seam_strip(bm, points, normal, settings, uv_rect, closed=False):
 
 
 def _build_seam_junctions(bm, specs, ports, settings, uv_rect):
-    """Закрывает valence 3+ decal network отдельным patch на каждой surface."""
+    """Строит RADIAL sectors вокруг valence 3+ decal junction core."""
 
     ports_by_vertex = {}
     for port in ports:
@@ -1749,74 +1756,88 @@ def _build_seam_junctions(bm, specs, ports, settings, uv_rect):
                     blended = group[0] + normal
                     if blended.length_squared > 1e-8:
                         group[0] = blended.normalized()
-                group[1].append((port.outward_tangent, section.verts))
+                group[1].append((port.outward_tangent, section))
 
         for normal, surface_sections in surface_groups:
             prepared = []
             basis_x = None
-            for tangent, section_verts in surface_sections:
+            for tangent, section in surface_sections:
                 planar_tangent = tangent - normal * tangent.dot(normal)
                 if planar_tangent.length_squared < 1e-12:
                     continue
                 planar_tangent.normalize()
                 if basis_x is None:
                     basis_x = planar_tangent.copy()
-                prepared.append((planar_tangent, section_verts))
+                prepared.append((planar_tangent, section))
             if len(prepared) < 2 or basis_x is None:
                 continue
             basis_y = normal.cross(basis_x).normalized()
 
             ordered = []
-            for tangent, section_verts in prepared:
+            for tangent, section in prepared:
                 angle = atan2(tangent.dot(basis_y), tangent.dot(basis_x))
                 oriented_verts = sorted(
-                    section_verts,
+                    section.verts,
                     key=lambda vert: normal.dot(
                         tangent.cross(vert.co - spec.core_pos)
                     ),
                 )
-                ordered.append((angle, oriented_verts))
+                spine_index = oriented_verts.index(section.spine_vert)
+                ordered.append(
+                    (angle, tangent, oriented_verts, spine_index)
+                )
             ordered.sort(key=lambda item: item[0])
 
-            polygon_verts = []
-
-            def append_unique(vert):
-                if polygon_verts and (
-                    polygon_verts[-1].co - vert.co
-                ).length <= DECAL_WELD_DISTANCE:
-                    return
-                polygon_verts.append(vert)
-
-            for index, (angle, section_verts) in enumerate(ordered):
-                for vert in section_verts:
-                    append_unique(vert)
-                next_angle = ordered[(index + 1) % len(ordered)][0]
+            for index, current in enumerate(ordered):
+                following = ordered[(index + 1) % len(ordered)]
+                angle, tangent, section_verts, spine_index = current
+                next_angle, _next_tangent, next_verts, next_spine_index = following
                 gap = (next_angle - angle) % (2.0 * pi)
-                if gap > pi + 1e-5:
-                    append_unique(core_vert)
+                if gap <= 1e-5 or gap > pi + 1e-5:
+                    continue
 
-            if len(polygon_verts) > 2 and (
-                polygon_verts[0].co - polygon_verts[-1].co
-            ).length <= DECAL_WELD_DISTANCE:
-                polygon_verts.pop()
-            if len(polygon_verts) < 3:
-                continue
-            try:
-                face = bm.faces.new(tuple(polygon_verts))
-            except ValueError:
-                continue
-            face.normal_update()
-            if face.normal.dot(normal) < 0.0:
-                face.normal_flip()
-            for loop in face.loops:
-                delta = loop.vert.co - spec.core_pos
-                across = 0.0 if wing_width <= 1e-12 else delta.dot(basis_y) / wing_width
-                across = max(-1.0, min(1.0, across))
-                loop[uv_layer].uv = (
-                    u_mid + across * u_radius,
-                    delta.dot(basis_x) * settings.uv_length_scale,
-                )
-            created += 1
+                polygon_verts = []
+
+                def append_unique(vert):
+                    if polygon_verts and (
+                        polygon_verts[-1].co - vert.co
+                    ).length <= DECAL_WELD_DISTANCE:
+                        return
+                    polygon_verts.append(vert)
+
+                append_unique(core_vert)
+                for vert in section_verts[spine_index:]:
+                    append_unique(vert)
+                for vert in next_verts[: next_spine_index + 1]:
+                    append_unique(vert)
+                if len(polygon_verts) > 2 and (
+                    polygon_verts[0].co - polygon_verts[-1].co
+                ).length <= DECAL_WELD_DISTANCE:
+                    polygon_verts.pop()
+                if len(polygon_verts) < 3:
+                    continue
+                try:
+                    face = bm.faces.new(tuple(polygon_verts))
+                except ValueError:
+                    continue
+                face.normal_update()
+                if face.normal.dot(normal) < 0.0:
+                    face.normal_flip()
+
+                sector_y = normal.cross(tangent).normalized()
+                for loop in face.loops:
+                    delta = loop.vert.co - spec.core_pos
+                    across = (
+                        0.0
+                        if wing_width <= 1e-12
+                        else delta.dot(sector_y) / wing_width
+                    )
+                    across = max(-1.0, min(1.0, across))
+                    loop[uv_layer].uv = (
+                        u_mid + across * u_radius,
+                        delta.dot(tangent) * settings.uv_length_scale,
+                    )
+                created += 1
     return created
 
 
