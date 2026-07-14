@@ -1244,6 +1244,139 @@ class TestPerformancePreview:
             second_a
         ) == self._exact_face_signature(first_a)
 
+    def test_distance_index_and_pair_cache_are_exact(self):
+        # Обе оптимизации меняют только поиск того же minimum/того же
+        # implicit value. Reference отключает их независимо от broadphase.
+        runs = self._arc_comb()
+        plan = compile_seam_network_plan(runs, offset=0.02)
+        for width in (0.3, 0.7):
+            for preview in (True, False):
+                reference = evaluate_seam_network_plan(
+                    plan,
+                    width,
+                    preview=preview,
+                    _distance_index=False,
+                    _pair_cache=False,
+                )
+                accelerated = evaluate_seam_network_plan(
+                    plan,
+                    width,
+                    preview=preview,
+                    _distance_index=True,
+                    _pair_cache=True,
+                )
+                assert self._exact_face_signature(
+                    accelerated
+                ) == self._exact_face_signature(reference)
+
+        # Интеграционный случай, где BVH реально включён в network clip:
+        # длинная дуга конкурирует с ответвлением на общей owner surface.
+        segment_count = 48
+        arc = [
+            (
+                cos(index * 0.04) * 3.0,
+                sin(index * 0.04) * 3.0,
+                0.0,
+            )
+            for index in range(segment_count + 1)
+        ]
+        station = segment_count // 2
+        angle = station * 0.04
+        stem = [
+            (
+                cos(angle) * (3.0 - step * 0.25),
+                sin(angle) * (3.0 - step * 0.25),
+                0.0,
+            )
+            for step in range(5)
+        ]
+        long_runs = [
+            _make_run(range(segment_count + 1), arc),
+            _make_run(
+                [station, 1001, 1002, 1003, 1004],
+                stem,
+                edge_start=segment_count,
+            ),
+        ]
+        long_plan = compile_seam_network_plan(long_runs, offset=0.02)
+        assert any(
+            site._distance_root >= 0 for site in long_plan.site_templates
+        )
+        reference = evaluate_seam_network_plan(
+            long_plan,
+            0.6,
+            preview=True,
+            _distance_index=False,
+            _pair_cache=False,
+        )
+        accelerated = evaluate_seam_network_plan(
+            long_plan,
+            0.6,
+            preview=True,
+        )
+        assert self._exact_face_signature(
+            accelerated
+        ) == self._exact_face_signature(reference)
+
+    def test_long_site_distance_index_matches_linear_queries(self):
+        segment_count = 64
+        points = [
+            (cos(index * 0.04) * 3.0, sin(index * 0.04) * 3.0)
+            for index in range(segment_count + 1)
+        ]
+        site = _Site(
+            site_id=0,
+            branch_id=0,
+            side="A",
+            surface_id=0,
+            start_station=0,
+            end_station=segment_count,
+            pts2=points,
+        )
+        site.finalize(0.0)
+        assert site._distance_root >= 0
+        rng = Random(4117)
+        indexed = [
+            site.competition_distance_sq(
+                (rng.uniform(-4.0, 4.0), rng.uniform(-4.0, 4.0))
+            )
+            for _ in range(300)
+        ]
+        nodes, root = site._distance_nodes, site._distance_root
+        site._distance_nodes = ()
+        site._distance_root = -1
+        rng = Random(4117)
+        linear = [
+            site.competition_distance_sq(
+                (rng.uniform(-4.0, 4.0), rng.uniform(-4.0, 4.0))
+            )
+            for _ in range(300)
+        ]
+        site._distance_nodes, site._distance_root = nodes, root
+        assert indexed == linear
+
+    def test_pair_value_cache_reduces_distance_queries(self, monkeypatch):
+        plan = compile_seam_network_plan(self._arc_comb(), offset=0.02)
+        original = _Site.competition_distance
+        calls = [0]
+
+        def counted(site, point):
+            calls[0] += 1
+            return original(site, point)
+
+        monkeypatch.setattr(_Site, "competition_distance", counted)
+        evaluate_seam_network_plan(
+            plan, 0.7, preview=True, _pair_cache=False
+        )
+        uncached_calls = calls[0]
+        calls[0] = 0
+        evaluate_seam_network_plan(
+            plan, 0.7, preview=True, _pair_cache=True
+        )
+        cached_calls = calls[0]
+
+        assert cached_calls < uncached_calls
+
     def test_squared_cache_matches_naive_distance(self):
         # competition_distance (быстрый scalar-кэш) обязан совпадать с
         # наивным поэлементным расстоянием точка-полилиния до 1e-9.

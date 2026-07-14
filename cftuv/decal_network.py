@@ -431,6 +431,67 @@ class _SurfaceRegistry:
         return surface.surface_id
 
 
+_DISTANCE_INDEX_MIN_SEGMENTS = 40
+_DISTANCE_INDEX_LEAF_SIZE = 6
+
+
+def _build_segment_distance_index(segments):
+    """Строит компактный exact BVH над 2D segment records сайта.
+
+    Индекс нужен только длинным chains. Для коротких sites линейный цикл
+    дешевле обхода дерева. Leaf хранит сами immutable segment records,
+    поэтому query не создаёт временных векторов и не прыгает по индексам.
+    """
+
+    if len(segments) < _DISTANCE_INDEX_MIN_SEGMENTS:
+        return (), -1
+
+    records = []
+    for segment in segments:
+        ax, ay, dx, dy, _inv = segment
+        bx = ax + dx
+        by = ay + dy
+        records.append(
+            (
+                min(ax, bx),
+                min(ay, by),
+                max(ax, bx),
+                max(ay, by),
+                segment,
+            )
+        )
+
+    nodes = []
+
+    def build(items):
+        min_x = min(item[0] for item in items)
+        min_y = min(item[1] for item in items)
+        max_x = max(item[2] for item in items)
+        max_y = max(item[3] for item in items)
+        if len(items) <= _DISTANCE_INDEX_LEAF_SIZE:
+            node_index = len(nodes)
+            nodes.append(
+                (min_x, min_y, max_x, max_y, -1, -1,
+                 tuple(item[4] for item in items))
+            )
+            return node_index
+
+        use_x = max_x - min_x >= max_y - min_y
+        if use_x:
+            items.sort(key=lambda item: item[0] + item[2])
+        else:
+            items.sort(key=lambda item: item[1] + item[3])
+        middle = len(items) // 2
+        left = build(items[:middle])
+        right = build(items[middle:])
+        node_index = len(nodes)
+        nodes.append((min_x, min_y, max_x, max_y, left, right, None))
+        return node_index
+
+    root = build(records)
+    return tuple(nodes), root
+
+
 @dataclass
 class _Site:
     """Односторонняя half-cell полоса вдоль подпути ветви на одной поверхности."""
@@ -452,6 +513,8 @@ class _Site:
     retract_end: float = 0.0
     bbox: tuple = None
     _segments: list = field(default_factory=list, repr=False)
+    _distance_nodes: tuple = field(default_factory=tuple, repr=False)
+    _distance_root: int = field(default=-1, repr=False)
     cap_start_sweep: float = 0.0
     cap_end_sweep: float = 0.0
     # Конформный лифт: настоящие per-segment нормали и lifted станции.
@@ -547,6 +610,9 @@ class _Site:
             inv = 1.0 / length_sq if length_sq > 1e-24 else 0.0
             segments.append((ax, ay, dx, dy, inv))
         self._segments = segments
+        self._distance_nodes, self._distance_root = (
+            _build_segment_distance_index(segments)
+        )
 
     # -------- расстояния --------
 
@@ -562,6 +628,9 @@ class _Site:
         """
 
         qx, qy = q
+        if self._distance_root >= 0:
+            return self._indexed_competition_distance_sq(qx, qy)
+
         best = float("inf")
         for ax, ay, dx, dy, inv in self._segments:
             rx = qx - ax
@@ -579,6 +648,78 @@ class _Site:
                 dist_sq = ex * ex + ey * ey
             if dist_sq < best:
                 best = dist_sq
+        return best
+
+    def _indexed_competition_distance_sq(self, qx, qy):
+        """Exact nearest segment через branch-and-bound по BVH."""
+
+        best = float("inf")
+        nodes = self._distance_nodes
+        stack = [(0.0, self._distance_root)]
+        while stack:
+            lower_bound, node_index = stack.pop()
+            # Небольшой запас исключает numerical over-pruning около tie.
+            if lower_bound > best + max(1e-15, abs(best) * 1e-12):
+                continue
+            node = nodes[node_index]
+            leaf = node[6]
+            if leaf is not None:
+                for ax, ay, dx, dy, inv in leaf:
+                    rx = qx - ax
+                    ry = qy - ay
+                    if inv == 0.0:
+                        dist_sq = rx * rx + ry * ry
+                    else:
+                        t = (rx * dx + ry * dy) * inv
+                        if t < 0.0:
+                            t = 0.0
+                        elif t > 1.0:
+                            t = 1.0
+                        ex = rx - dx * t
+                        ey = ry - dy * t
+                        dist_sq = ex * ex + ey * ey
+                    if dist_sq < best:
+                        best = dist_sq
+                continue
+
+            left_index = node[4]
+            left = nodes[left_index]
+            if qx < left[0]:
+                left_dx = left[0] - qx
+            elif qx > left[2]:
+                left_dx = qx - left[2]
+            else:
+                left_dx = 0.0
+            if qy < left[1]:
+                left_dy = left[1] - qy
+            elif qy > left[3]:
+                left_dy = qy - left[3]
+            else:
+                left_dy = 0.0
+            left_bound = left_dx * left_dx + left_dy * left_dy
+            right_index = node[5]
+            right = nodes[right_index]
+            if qx < right[0]:
+                right_dx = right[0] - qx
+            elif qx > right[2]:
+                right_dx = qx - right[2]
+            else:
+                right_dx = 0.0
+            if qy < right[1]:
+                right_dy = right[1] - qy
+            elif qy > right[3]:
+                right_dy = qy - right[3]
+            else:
+                right_dy = 0.0
+            right_bound = right_dx * right_dx + right_dy * right_dy
+            # Stack LIFO: дальний первым, ближний будет обработан сразу и
+            # уменьшит best до проверки второй ветви.
+            if left_bound <= right_bound:
+                stack.append((right_bound, right_index))
+                stack.append((left_bound, left_index))
+            else:
+                stack.append((left_bound, left_index))
+                stack.append((right_bound, right_index))
         return best
 
     def competition_distance(self, q):
@@ -1854,6 +1995,8 @@ def evaluate_seam_network_plan(
     preview=False,
     _gate=True,
     _broadphase=True,
+    _distance_index=True,
+    _pair_cache=True,
 ):
     """Вычисляет width-dependent faces ранее скомпилированной сети.
 
@@ -1872,6 +2015,8 @@ def evaluate_seam_network_plan(
     differential-тестов: гейт обязан давать тот же результат, что и без него).
     _broadphase=False возвращает прежний полный scan candidate pairs для
     differential-тестов; production всегда использует sweep.
+    _distance_index/_pair_cache=False оставляют линейное reference-ядро для
+    exact differential-тестов оптимизированного distance path.
     """
 
     if not plan.site_templates:
@@ -1917,6 +2062,10 @@ def evaluate_seam_network_plan(
         )
         for site in plan.site_templates
     ]
+    if not _distance_index:
+        for site in sites:
+            site._distance_nodes = ()
+            site._distance_root = -1
     for site in sites:
         if (
             not site.closed
@@ -1954,6 +2103,8 @@ def evaluate_seam_network_plan(
             for site in sites
         }
     boundary_cache = {}
+    pair_value_caches = {}
+    missing_value = object()
     boundary_pairs = {}
     polygons_by_site = {}
     for site in sites:
@@ -1969,15 +2120,30 @@ def evaluate_seam_network_plan(
                 pair_b.site_id,
             )
             boundary_pairs[pair_key] = (pair_a, pair_b)
+            if _pair_cache:
+                pair_values = pair_value_caches.setdefault(pair_key, {})
 
-            def pair_implicit(q, _pair_a=pair_a, _pair_b=pair_b):
-                # Метрическая разность (единицы длины): keep_eps в клиппере
-                # размерности длины, поэтому квадратичную разность здесь
-                # использовать нельзя. Скорость даёт быстрый scalar-кэш
-                # внутри competition_distance_sq, а не отмена sqrt (~2%).
-                return _pair_b.competition_distance(
-                    q
-                ) - _pair_a.competition_distance(q)
+                def pair_implicit(
+                    q,
+                    _pair_a=pair_a,
+                    _pair_b=pair_b,
+                    _values=pair_values,
+                    _missing=missing_value,
+                ):
+                    cached = _values.get(q, _missing)
+                    if cached is not _missing:
+                        return cached
+                    value = _pair_b.competition_distance(
+                        q
+                    ) - _pair_a.competition_distance(q)
+                    _values[q] = value
+                    return value
+            else:
+
+                def pair_implicit(q, _pair_a=pair_a, _pair_b=pair_b):
+                    return _pair_b.competition_distance(
+                        q
+                    ) - _pair_a.competition_distance(q)
 
             owner_sign = 1.0 if site.site_id == pair_a.site_id else -1.0
 
@@ -2091,6 +2257,8 @@ def build_seam_network_faces(
     preview=False,
     _gate=True,
     _broadphase=True,
+    _distance_index=True,
+    _pair_cache=True,
 ):
     """Совместимый one-shot API: compile + evaluate.
 
@@ -2106,6 +2274,8 @@ def build_seam_network_faces(
         preview=preview,
         _gate=_gate,
         _broadphase=_broadphase,
+        _distance_index=_distance_index,
+        _pair_cache=_pair_cache,
     )
 
 

@@ -398,6 +398,26 @@ suite: `111 passed`. В Blender 4.3.2 на маленьком плотном arc
 preview снизился с ~63.70 до ~62.65 ms; выигрыш здесь ожидаемо небольшой,
 поскольку основная оставшаяся стоимость — width-dependent clipping.
 
+## Follow-up 12: exact spine-distance acceleration
+
+Горячий `competition_distance_sq` больше не обязан линейно сканировать
+длинный chain при каждом implicit-запросе. Sites от 40 сегментов получают
+immutable 2D BVH с exact branch-and-bound nearest-segment query; короткие
+sites сохраняют более дешёвый линейный цикл. Дополнительно canonical
+implicit values одной site-пары кэшируются на время кадра и используются
+обеими сторонами общей биссектрисы.
+
+Оба ускорителя имеют независимые reference toggles. Differential для
+preview/final сравнивает полный порядок faces, 3D positions, vertex keys и
+UV с линейным ядром без кэша. Randomized point queries подтверждают exact
+minimum длинного сайта. Полный suite: `114 passed`.
+
+Blender 4.3.2, плотная синтетическая сеть: 64-сегментная дуга + 18
+пересекающих ветвей, width 0.7. Финальный median preview: ~755 ms →
+~441 ms (`1.71×`). Pair cache отдельно уменьшает число distance queries
+примерно на треть. Blender exact oracle также материализовал ускоренный
+результат в BMesh: `351 verts / 646 edges / 272 faces`.
+
 ## Ограничения
 
 - Кривые поверхности группируются по планарным патчам
