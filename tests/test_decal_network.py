@@ -12,6 +12,8 @@ from cftuv.decal_network import (
     _merge_junction_continuations,
     _branch_from_run,
     build_seam_network_faces,
+    compile_seam_network_plan,
+    evaluate_seam_network_plan,
 )
 from cftuv.decals import _OrientedCornerRun
 from cftuv.model import DecalSettings
@@ -1209,6 +1211,38 @@ class TestPerformancePreview:
                         offset,
                         preview,
                     )
+
+    def test_compiled_plan_is_exact_and_frame_isolation(self):
+        # Compile/evaluate обязан быть побитово эквивалентен one-shot API.
+        # Повтор A после другой ширины B ловит утечки shared rail/retraction.
+        runs = self._arc_comb()
+        plan = compile_seam_network_plan(runs, offset=0.02)
+
+        first_a = evaluate_seam_network_plan(
+            plan, width=0.3, preview=False
+        )
+        middle_b = evaluate_seam_network_plan(
+            plan, width=0.7, preview=True
+        )
+        second_a = evaluate_seam_network_plan(
+            plan, width=0.3, preview=False
+        )
+        one_shot_a = build_seam_network_faces(
+            runs, offset=0.02, width=0.3, preview=False
+        )
+        one_shot_b = build_seam_network_faces(
+            runs, offset=0.02, width=0.7, preview=True
+        )
+
+        assert self._exact_face_signature(
+            first_a
+        ) == self._exact_face_signature(one_shot_a)
+        assert self._exact_face_signature(
+            middle_b
+        ) == self._exact_face_signature(one_shot_b)
+        assert self._exact_face_signature(
+            second_a
+        ) == self._exact_face_signature(first_a)
 
     def test_squared_cache_matches_naive_distance(self):
         # competition_distance (быстрый scalar-кэш) обязан совпадать с

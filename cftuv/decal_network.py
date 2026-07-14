@@ -37,7 +37,7 @@ segment-Voronoi (Johannsen, Edge Decal Generator), адаптированным 
 Все 2D-вычисления на кортежах float. Потребитель — decals.py.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from math import acos, atan2, ceil, cos, pi, sin, sqrt
 
 from mathutils import Vector
@@ -451,6 +451,7 @@ class _Site:
     retract_start: float = 0.0
     retract_end: float = 0.0
     bbox: tuple = None
+    _segments: list = field(default_factory=list, repr=False)
     cap_start_sweep: float = 0.0
     cap_end_sweep: float = 0.0
     # Конформный лифт: настоящие per-segment нормали и lifted станции.
@@ -1725,20 +1726,141 @@ def _site_lat_sign(branch, side, normals, other_normals, span_start, surface, si
     return 1.0 if side == "A" else -1.0
 
 
-def build_seam_network_faces(
-    runs,
-    offset,
+@dataclass(frozen=True)
+class DecalNetworkPlan:
+    """Статическая компиляция selected seam network для modal drag.
+
+    Branch topology, owner surfaces, lift frames и продольные UV-факты не
+    зависят от ширины. План хранится в экземпляре modal operator и явно
+    передаётся evaluator'у — без global mutable cache.
+    """
+
+    offset: float
+    registry: object
+    lift_map: dict
+    site_templates: tuple
+    station_keys: dict
+
+
+def compile_seam_network_plan(runs, offset):
+    """Компилирует width-independent часть seam network один раз."""
+
+    runs = [run for run in runs if len(run.points) >= 2]
+    registry = _SurfaceRegistry()
+    if not runs:
+        return DecalNetworkPlan(
+            offset=float(offset),
+            registry=registry,
+            lift_map={},
+            site_templates=(),
+            station_keys={},
+        )
+
+    branches = _merge_junction_continuations(
+        [_branch_from_run(run) for run in runs]
+    )
+    valence = _endpoint_valence(branches)
+
+    normals_by_vert = {}
+    position_by_vert = {}
+    for branch in branches:
+        station_normals = _branch_station_normals(branch)
+        for station, vert in enumerate(branch.vert_indices):
+            normals_by_vert.setdefault(vert, []).extend(
+                station_normals[station]
+            )
+            position_by_vert.setdefault(vert, branch.points[station])
+    lift_map = {
+        vert: _lift_position(position_by_vert[vert], normals, offset)
+        for vert, normals in normals_by_vert.items()
+    }
+
+    sites = []
+    site_counter = [0]
+    branch_arcs = []
+    for branch in branches:
+        arcs = [0.0]
+        for index in range(1, len(branch.points)):
+            arcs.append(
+                arcs[-1]
+                + (branch.points[index] - branch.points[index - 1]).length
+            )
+        branch_arcs.append(arcs)
+
+    # Сначала регистрируем все owner planes: basis каждой surface должен
+    # быть стабилен независимо от порядка последующего site split.
+    for branch in branches:
+        for side in ("A", "B"):
+            normals = branch.normals_a if side == "A" else branch.normals_b
+            for segment in range(len(branch.points) - 1):
+                midpoint = (
+                    branch.points[segment] + branch.points[segment + 1]
+                ) * 0.5
+                registry.surface_for(normals[segment], midpoint)
+    for surface in registry.surfaces:
+        surface.finalize(offset)
+
+    for branch_id, branch in enumerate(branches):
+        for side in ("A", "B"):
+            sites.extend(
+                _split_side_sites(
+                    branch,
+                    branch_id,
+                    side,
+                    registry,
+                    lift_map,
+                    branch_arcs[branch_id],
+                    valence,
+                    site_counter,
+                )
+            )
+
+    node_directions = _node_spine_directions(sites)
+    for site in sites:
+        if site.closed:
+            continue
+        if site.start_kind == "junction":
+            site.cap_start_sweep = _junction_cap_sweep(
+                site, True, node_directions
+            )
+        if site.end_kind == "junction":
+            site.cap_end_sweep = _junction_cap_sweep(
+                site, False, node_directions
+            )
+
+    station_keys = {}
+    for site in sites:
+        # Bbox и segment cache статичны для обычных sites. Junction-sites
+        # перестроят только крайний стянутый сегмент под текущий delta.
+        site.finalize(0.0)
+        for point2, vert in zip(site.pts2, site.vert_indices):
+            station_keys[
+                (site.surface_id, round(point2[0], 6), round(point2[1], 6))
+            ] = vert
+
+    return DecalNetworkPlan(
+        offset=float(offset),
+        registry=registry,
+        lift_map=lift_map,
+        site_templates=tuple(sites),
+        station_keys=station_keys,
+    )
+
+
+def evaluate_seam_network_plan(
+    plan,
     width,
     arc_tolerance=None,
     preview=False,
     _gate=True,
     _broadphase=True,
 ):
-    """Строит faces decal-сети для manual Decal Seams.
+    """Вычисляет width-dependent faces ранее скомпилированной сети.
 
-    runs — ститченные `_OrientedCornerRun` ветви (duck-typed), offset —
-    отступ от поверхности, width — полная ширина шва. Возвращает список
-    `_NetworkFace`; пустой список означает «нечего строить».
+    Site templates копируются неглубоко: геометрические списки и обычные
+    segment caches immutable в рамках плана, а retraction/junction cache и
+    shared rail принадлежат одному evaluation. Это не даёт кадрам modal
+    drag загрязнять друг друга.
 
     preview=True — режим быстрого превью для интерактивного modal drag:
     криволинейные границы (point-vs-segment параболы) не уточняются хордами.
@@ -1752,8 +1874,7 @@ def build_seam_network_faces(
     differential-тестов; production всегда использует sweep.
     """
 
-    runs = [run for run in runs if len(run.points) >= 2]
-    if not runs:
+    if not plan.site_templates:
         return []
     alpha = max(1e-6, float(width) * 0.5)
     if arc_tolerance is None:
@@ -1785,79 +1906,26 @@ def build_seam_network_faces(
     # Один профиль на round-join станций/caps и на клип-кривые.
     curve = (curve_style, curve_tolerance, curve_budget)
 
-    branches = _merge_junction_continuations(
-        [_branch_from_run(run) for run in runs]
-    )
-    valence = _endpoint_valence(branches)
-
-    # --- лифт станций: единый registry по source vert ---
-    normals_by_vert = {}
-    position_by_vert = {}
-    for branch in branches:
-        station_normals = _branch_station_normals(branch)
-        for station, vert in enumerate(branch.vert_indices):
-            normals_by_vert.setdefault(vert, []).extend(
-                station_normals[station]
-            )
-            position_by_vert.setdefault(vert, branch.points[station])
-    lift_map = {
-        vert: _lift_position(position_by_vert[vert], normals, offset)
-        for vert, normals in normals_by_vert.items()
-    }
-
-    # --- поверхности и сайты ---
-    registry = _SurfaceRegistry()
-    sites = []
-    site_counter = [0]
-    branch_arcs = []
-    for branch_id, branch in enumerate(branches):
-        arcs = [0.0]
-        for index in range(1, len(branch.points)):
-            arcs.append(
-                arcs[-1]
-                + (branch.points[index] - branch.points[index - 1]).length
-            )
-        branch_arcs.append(arcs)
-    # Все поверхности регистрируются до finalize (single pass достаточно,
-    # surface_for детерминирован); базисы нужны до проекции сайтов.
-    for branch_id, branch in enumerate(branches):
-        for side in ("A", "B"):
-            normals = branch.normals_a if side == "A" else branch.normals_b
-            for segment in range(len(branch.points) - 1):
-                midpoint = (
-                    branch.points[segment] + branch.points[segment + 1]
-                ) * 0.5
-                registry.surface_for(normals[segment], midpoint)
-    for surface in registry.surfaces:
-        surface.finalize(offset)
-    for branch_id, branch in enumerate(branches):
-        for side in ("A", "B"):
-            sites.extend(
-                _split_side_sites(
-                    branch,
-                    branch_id,
-                    side,
-                    registry,
-                    lift_map,
-                    branch_arcs[branch_id],
-                    valence,
-                    site_counter,
-                )
-            )
+    # Только mutable width-state: templates и их geometry принадлежат plan.
+    sites = [
+        replace(
+            site,
+            retract_start=0.0,
+            retract_end=0.0,
+            cap_start_override=None,
+            cap_end_override=None,
+        )
+        for site in plan.site_templates
+    ]
     for site in sites:
-        site.finalize(delta)
-    node_directions = _node_spine_directions(sites)
-    for site in sites:
-        if site.closed:
-            continue
-        if site.start_kind == "junction":
-            site.cap_start_sweep = _junction_cap_sweep(
-                site, True, node_directions
-            )
-        if site.end_kind == "junction":
-            site.cap_end_sweep = _junction_cap_sweep(
-                site, False, node_directions
-            )
+        if (
+            not site.closed
+            and (site.start_kind == "junction" or site.end_kind == "junction")
+        ):
+            site.finalize(delta)
+    registry = plan.registry
+    lift_map = plan.lift_map
+    station_keys = plan.station_keys
     _bridge_split_stations(sites, lift_map, alpha)
 
     # --- faces + клиппинг ---
@@ -1865,12 +1933,6 @@ def build_seam_network_faces(
     # конкурент влияет, если сам ближе этой длины → spine bboxes в 2·α·LIMIT.
     reach = alpha * 2.0 * DECAL_CORNER_MITER_LIMIT
     result = []
-    station_keys = {}
-    for site in sites:
-        for point2, vert in zip(site.pts2, site.vert_indices):
-            station_keys[
-                (site.surface_id, round(point2[0], 6), round(point2[1], 6))
-            ] = vert
 
     # Полигон P может быть срезан конкурентом C, только если некоторая его
     # точка ближе к C, чем к собственному спайну. Максимальное расстояние
@@ -2019,6 +2081,32 @@ def build_seam_network_faces(
         _split_connector_faces(sites, registry, lift_map, alpha)
     )
     return result
+
+
+def build_seam_network_faces(
+    runs,
+    offset,
+    width,
+    arc_tolerance=None,
+    preview=False,
+    _gate=True,
+    _broadphase=True,
+):
+    """Совместимый one-shot API: compile + evaluate.
+
+    Modal-инструмент использует обе фазы раздельно, остальные callers и
+    differential-тесты сохраняют прежний контракт функции.
+    """
+
+    plan = compile_seam_network_plan(runs, offset)
+    return evaluate_seam_network_plan(
+        plan,
+        width,
+        arc_tolerance=arc_tolerance,
+        preview=preview,
+        _gate=_gate,
+        _broadphase=_broadphase,
+    )
 
 
 def _rotate_rodrigues(vector, axis, cos_angle, sin_angle):

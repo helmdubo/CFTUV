@@ -43,7 +43,12 @@ from .constants import (
     DECAL_WELD_DISTANCE,
     WORLD_UP,
 )
-from .decal_network import _corner_wing_directions, build_seam_network_faces
+from .decal_network import (
+    _corner_wing_directions,
+    build_seam_network_faces,
+    compile_seam_network_plan,
+    evaluate_seam_network_plan,
+)
 from .model import ChainNeighborKind, ChainRef, DecalSettings, PatchGraph, PatchType
 
 DECAL_MODES = ("TOP", "BOTTOM", "CORNERS", "SEAMS")
@@ -182,6 +187,15 @@ class _DecalJunctionSpec:
     source_vert_index: int
     source_pos: Vector
     core_pos: Vector
+
+
+@dataclass(frozen=True)
+class ManualSeamDecalPlan:
+    """Width-independent manual SEAMS scope для одного modal drag."""
+
+    corner_runs: tuple
+    boundary_runs: tuple
+    network_plan: object = None
 
 
 def _join_ribbon_runs(first, second):
@@ -2135,6 +2149,29 @@ def _closed_polyline(points, is_closed):
     return points
 
 
+def compile_manual_seam_decal_plan(
+    graph: PatchGraph,
+    settings: DecalSettings,
+    selected_edge_indices,
+):
+    """Собирает selected edges/runs и статическую сеть один раз на invoke."""
+
+    corner_runs, boundary_runs = _collect_manual_edge_decals(
+        graph, selected_edge_indices
+    )
+    network_plan = None
+    if settings.seam_network and (corner_runs or boundary_runs):
+        network_plan = compile_seam_network_plan(
+            corner_runs + boundary_runs,
+            settings.offset,
+        )
+    return ManualSeamDecalPlan(
+        corner_runs=tuple(corner_runs),
+        boundary_runs=tuple(boundary_runs),
+        network_plan=network_plan,
+    )
+
+
 def _fill_manual_chain_decals(
     bm,
     graph,
@@ -2143,6 +2180,7 @@ def _fill_manual_chain_decals(
     mode="CORNERS",
     selected_edge_indices=None,
     preview=False,
+    decal_plan=None,
 ):
     """Manual edge scope: exact physical edges with local owner-side frames."""
 
@@ -2151,9 +2189,13 @@ def _fill_manual_chain_decals(
     uv_rect = DECAL_UV_RECT_SEAM if is_seam_mode else DECAL_UV_RECT_CORNER
 
     if selected_edge_indices is not None:
-        corner_runs, boundary_runs = _collect_manual_edge_decals(
-            graph, selected_edge_indices
-        )
+        if decal_plan is None:
+            corner_runs, boundary_runs = _collect_manual_edge_decals(
+                graph, selected_edge_indices
+            )
+        else:
+            corner_runs = decal_plan.corner_runs
+            boundary_runs = decal_plan.boundary_runs
         if (
             is_seam_mode
             and (corner_runs or boundary_runs)
@@ -2164,12 +2206,22 @@ def _fill_manual_chain_decals(
                 # Boundary wings — полноправные односторонние сайты сети:
                 # divider с соседними seam chains возникает и без общей
                 # source-вершины, чисто из конкуренции расстояний.
-                network_faces = build_seam_network_faces(
-                    corner_runs + boundary_runs,
-                    settings.offset,
-                    width,
-                    preview=preview,
-                )
+                if (
+                    decal_plan is not None
+                    and decal_plan.network_plan is not None
+                ):
+                    network_faces = evaluate_seam_network_plan(
+                        decal_plan.network_plan,
+                        width,
+                        preview=preview,
+                    )
+                else:
+                    network_faces = build_seam_network_faces(
+                        corner_runs + boundary_runs,
+                        settings.offset,
+                        width,
+                        preview=preview,
+                    )
             except Exception as exc:  # непредвиденная геометрия — fallback
                 print(
                     "[CFTUV][Decals] Seam network backend failed "
@@ -2284,6 +2336,7 @@ def _fill_decal_bmesh(
     chain_refs=None,
     selected_edge_indices=None,
     preview=False,
+    decal_plan=None,
 ):
     if chain_refs is not None and mode in ("CORNERS", "SEAMS"):
         _fill_manual_chain_decals(
@@ -2294,6 +2347,7 @@ def _fill_decal_bmesh(
             mode=mode,
             selected_edge_indices=selected_edge_indices,
             preview=preview,
+            decal_plan=decal_plan,
         )
     elif mode in ("TOP", "BOTTOM"):
         top_runs, bottom_runs = _collect_trim_ribbon_runs(
@@ -2346,6 +2400,7 @@ def generate_decal_objects(
     chain_refs=None,
     selected_edge_indices=None,
     preview=False,
+    decal_plan=None,
 ) -> list[str]:
     """Генерирует decal-объект выбранного режима. Возвращает имена созданных.
 
@@ -2369,6 +2424,7 @@ def generate_decal_objects(
             chain_refs=chain_refs,
             selected_edge_indices=selected_edge_indices,
             preview=preview,
+            decal_plan=decal_plan,
         )
     except Exception:
         bm.free()

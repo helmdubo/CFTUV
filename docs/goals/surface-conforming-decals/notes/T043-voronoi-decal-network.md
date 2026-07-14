@@ -381,6 +381,23 @@ face/UV/vertex-key differential полного network build в preview/final.
 Полный suite: `109 passed`; те же differential + arrangement проверки
 пройдены внутри Blender 4.3.2.
 
+## Follow-up 11: modal network compile plan
+
+Manual SEAMS modal больше не повторяет width-independent анализ на каждом
+движении мыши. `DecalNetworkPlan` один раз компилирует selected-edge runs,
+branches, owner surfaces, conformal lift, site templates, junction sweeps и
+station keys. Каждый кадр `evaluate_seam_network_plan` копирует только
+изменяемое состояние ширины; обычные site bbox/segment caches также
+переиспользуются. План хранится в экземпляре оператора и передаётся явно —
+global mutable cache не появился.
+
+One-shot `build_seam_network_faces` оставлен как совместимая обёртка
+compile+evaluate. Differential-проверка подтверждает точный face/UV/key
+паритет и изоляцию кадров в последовательности ширин A → B → A. Полный
+suite: `111 passed`. В Blender 4.3.2 на маленьком плотном arc-comb median
+preview снизился с ~63.70 до ~62.65 ms; выигрыш здесь ожидаемо небольшой,
+поскольку основная оставшаяся стоимость — width-dependent clipping.
+
 ## Ограничения
 
 - Кривые поверхности группируются по планарным патчам

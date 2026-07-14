@@ -40,7 +40,11 @@ from .debug import (
     gp_layer_name,
     is_gp_debug_object,
 )
-from .decals import chain_refs_for_edge_indices, generate_decal_objects
+from .decals import (
+    chain_refs_for_edge_indices,
+    compile_manual_seam_decal_plan,
+    generate_decal_objects,
+)
 from .model import DecalSettings, MeshPreflightReport, UVSettings
 from .solve import (
     build_root_scaffold_map,
@@ -1270,6 +1274,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             chain_refs=chain_refs,
             selected_edge_indices=selected_edge_indices,
             preview=preview,
+            decal_plan=getattr(self, "_modal_decal_plan", None),
         )
 
     def _report_created(self, created, state, suffix=""):
@@ -1321,6 +1326,11 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
 
         try:
             state = _prepare_decal_generation(context)
+            self._modal_decal_plan = None
+            if self.mode == "SEAMS" and state[4] and state[6]:
+                self._modal_decal_plan = compile_manual_seam_decal_plan(
+                    state[1], state[2], state[6]
+                )
             created = self._generate(context, state)
             if not created:
                 self.report(
@@ -1446,6 +1456,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
 
     def execute(self, context):
         try:
+            self._modal_decal_plan = None
             state = _prepare_decal_generation(context)
             created = self._generate(context, state)
             if not created:

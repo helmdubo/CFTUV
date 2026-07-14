@@ -305,6 +305,15 @@ def test_manual_edge_seams_enters_interactive_width_modal(monkeypatch):
         "_is_edge_select_mode",
         lambda _context, _obj: True,
     )
+    modal_plan = object()
+    compile_calls = []
+    monkeypatch.setattr(
+        operators_module,
+        "compile_manual_seam_decal_plan",
+        lambda graph, plan_settings, edges: (
+            compile_calls.append((graph, plan_settings, edges)) or modal_plan
+        ),
+    )
 
     cursor_warps = []
     context = SimpleNamespace(
@@ -333,6 +342,40 @@ def test_manual_edge_seams_enters_interactive_width_modal(monkeypatch):
     assert operator._modal_property == "decal_width_seam"
     assert operator._modal_base_value == 0.15
     assert generated_states[0][0][-1] == selected_edges
+    assert operator._modal_decal_plan is modal_plan
+    assert compile_calls == [(state[1], settings, selected_edges)]
+
+
+def test_decal_generate_forwards_modal_plan(monkeypatch):
+    from cftuv import operators as operators_module
+
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    operator._modal_decal_plan = object()
+    settings = DecalSettings()
+    state = (
+        object(),
+        object(),
+        settings,
+        ((0, 0, 0),),
+        True,
+        2,
+        (5, 14),
+    )
+    calls = []
+    monkeypatch.setattr(
+        operators_module,
+        "generate_decal_objects",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or ["Decal"],
+    )
+
+    created = operator._generate(
+        SimpleNamespace(scene=object()), state, preview=True
+    )
+
+    assert created == ["Decal"]
+    assert calls[0][1]["decal_plan"] is operator._modal_decal_plan
+    assert calls[0][1]["preview"] is True
 
 
 def test_seam_modal_cancel_restores_scene_width_and_base_geometry():
