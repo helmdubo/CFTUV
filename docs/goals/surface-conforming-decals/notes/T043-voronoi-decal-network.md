@@ -507,6 +507,46 @@ quantization.
 `remove_doubles`; это не потеря видимой области. Полный suite:
 `119 passed`.
 
+## Follow-up 17: shared planar partition для engulfed ribbons
+
+Последовательный nonlinear clip оставлял независимые границы, когда очень
+широкие half-cell полосы нескольких sites полностью поглощали друг друга на
+одной owner-плоскости. Pair synchronization не мог исправить этот класс:
+после исчезновения компоненты у одной стороны уже не было контура, из
+которого можно зеркально перенести boundary samples.
+
+Final evaluation теперь точечно включает общий planar arrangement только
+для crowded surfaces (не меньше пяти sites), где одновременно обнаружены
+нарушение owner constraints и proper X-пересечение. В общий segment graph
+попадают source bands и результат legacy clip; sweep разбивает proper,
+T- и collinear intersections, half-edge walk извлекает bounded atomic
+cells, а каждая cell получает ровно одного ближайшего допустимого owner.
+Corner folds, shared rails и простые специализированные 2–3-site miters не
+перестраиваются. Modal preview также не затронут — partition выполняется
+только после подтверждения drag.
+
+Зависимость от Sverchok/pyvoronoi не добавлена: требуемый subset ограничен
+уже существующими маловершинными polygon boundaries одной плоскости, поэтому
+реализован локальный pure-Python segment arrangement. Общие координаты
+канонизируются тем же six-digit key, который использует BMesh
+materialization. Не конкурирующие spans одной ветви могут одновременно
+считать cell допустимой, но физическая face создаётся ровно один раз;
+неоднозначность разрешается минимальной дистанцией и стабильным `site_id`.
+
+Blender 4.3.2 oracle, `E:\testscene.blend`, `walls.001`, 131 selected seam
+edge, 198 sites, 17 surfaces:
+
+- width `0.630592`: `746` network faces, `746` materialized, фактических
+  X-пересечений после shared-key BMesh = `0`;
+- width `8.0`: `1347` network faces, `1347` materialized, фактических
+  X-пересечений = `0`;
+- final weld сохраняет `0` пересечений; схлопываются только sliver-cells с
+  минимальным ребром меньше `DECAL_WELD_DISTANCE = 0.001`.
+
+Регрессия `dense_wide_partition_has_one_face_per_cell` воспроизводит полное
+поглощение на ширине `8.0` и проверяет уникальность atomic faces и отсутствие
+X-пересечений после shared-key materialization. Полный suite: `120 passed`.
+
 ## Ограничения
 
 - Кривые поверхности группируются по планарным патчам

@@ -439,6 +439,11 @@ _DISTANCE_INDEX_LEAF_SIZE = 6
 # boundary-точки могут попасть в соседние quantization cells, вершина одной
 # face не вставится в ребро другой и materialize оставит точный T-junction.
 _ARRANGEMENT_POINT_TOLERANCE = 1e-6
+# BMesh неустойчив на субмикронных sliver-cells: такая face либо молча
+# исчезает при materialization, либо создаёт практически совпавшие рёбра.
+# Фильтруем её в общем 2D producer до лифта, единообразно для legacy и
+# planar-arrangement путей. Порог намеренно площадной, а не по длине ребра.
+_MIN_OUTPUT_FACE_AREA = 1e-9
 
 
 def _build_segment_distance_index(segments):
@@ -1770,6 +1775,404 @@ def _simplify_collinear_surface_arrangement(
             polygons_by_site[site.site_id] = simplified
 
 
+def _point_on_segment2(point, point_a, point_b, tolerance):
+    param, distance = _point_segment_projection2(point, point_a, point_b)
+    return -1e-7 <= param <= 1.0 + 1e-7 and distance <= tolerance
+
+
+def _point_in_polygon2(point, polygon, tolerance, include_boundary=True):
+    """Ray-cast с явной обработкой общей polygon boundary."""
+
+    inside = False
+    count = len(polygon)
+    for index, point_a in enumerate(polygon):
+        point_b = polygon[(index + 1) % count]
+        if _point_on_segment2(point, point_a, point_b, tolerance):
+            return include_boundary
+        if (point_a[1] > point[1]) == (point_b[1] > point[1]):
+            continue
+        denominator = point_b[1] - point_a[1]
+        if abs(denominator) < 1e-20:
+            continue
+        crossing_x = point_a[0] + (
+            (point[1] - point_a[1])
+            * (point_b[0] - point_a[0])
+            / denominator
+        )
+        if crossing_x > point[0]:
+            inside = not inside
+    return inside
+
+
+def _segment_intersection2(point_a, point_b, point_c, point_d, tolerance):
+    """Возвращает параметры общей точки либо collinear endpoint splits."""
+
+    delta_ab = _sub2(point_b, point_a)
+    delta_cd = _sub2(point_d, point_c)
+    denominator = _cross2(delta_ab, delta_cd)
+    offset = _sub2(point_c, point_a)
+    scale = max(
+        1.0,
+        _dist2(point_a, point_b),
+        _dist2(point_c, point_d),
+    )
+    parallel_eps = tolerance * scale
+    if abs(denominator) > parallel_eps:
+        param_ab = _cross2(offset, delta_cd) / denominator
+        param_cd = _cross2(offset, delta_ab) / denominator
+        if (
+            -1e-7 <= param_ab <= 1.0 + 1e-7
+            and -1e-7 <= param_cd <= 1.0 + 1e-7
+        ):
+            param_ab = min(1.0, max(0.0, param_ab))
+            param_cd = min(1.0, max(0.0, param_cd))
+            first = _add2(point_a, _mul2(delta_ab, param_ab))
+            second = _add2(point_c, _mul2(delta_cd, param_cd))
+            point = _mul2(_add2(first, second), 0.5)
+            return [(param_ab, param_cd, point)]
+        return []
+    if abs(_cross2(offset, delta_ab)) > parallel_eps:
+        return []
+
+    intersections = []
+    endpoints = (
+        (point_a, 0.0, point_c, point_d, False),
+        (point_b, 1.0, point_c, point_d, False),
+        (point_c, 0.0, point_a, point_b, True),
+        (point_d, 1.0, point_a, point_b, True),
+    )
+    for point, own_param, other_a, other_b, reverse in endpoints:
+        other_param, distance = _point_segment_projection2(
+            point, other_a, other_b
+        )
+        if (
+            -1e-7 <= other_param <= 1.0 + 1e-7
+            and distance <= tolerance
+        ):
+            other_param = min(1.0, max(0.0, other_param))
+            item = (
+                (other_param, own_param, point)
+                if reverse
+                else (own_param, other_param, point)
+            )
+            intersections.append(item)
+    unique = {}
+    for param_ab, param_cd, point in intersections:
+        unique[(round(param_ab, 10), round(param_cd, 10))] = (
+            param_ab,
+            param_cd,
+            point,
+        )
+    return list(unique.values())
+
+
+def _surface_constraints_violated(entries, surface_sites, tolerance):
+    """Нарушает ли готовая face Voronoi half-cell своего owner site."""
+
+    competitors = {
+        site.site_id: [
+            other for other in surface_sites if _sites_compete(site, other)
+        ]
+        for site in surface_sites
+    }
+    for site, polygon in entries:
+        for competitor in competitors[site.site_id]:
+            def implicit(point):
+                return (
+                    competitor.competition_distance(point)
+                    - site.competition_distance(point)
+                )
+
+            values = [implicit(point) for point in polygon]
+            if any(value < -tolerance for value in values):
+                return True
+            for index, point_a in enumerate(polygon):
+                point_b = polygon[(index + 1) % len(polygon)]
+                value_a = values[index]
+                value_b = values[(index + 1) % len(polygon)]
+                if not _edge_can_cross(
+                    point_a, point_b, value_a, value_b
+                ):
+                    continue
+                delta = _sub2(point_b, point_a)
+                for sample_index in range(1, _EDGE_SAMPLES):
+                    point = _add2(
+                        point_a,
+                        _mul2(
+                            delta,
+                            sample_index / _EDGE_SAMPLES,
+                        ),
+                    )
+                    if implicit(point) < -tolerance:
+                        return True
+    return False
+
+
+def _surface_has_proper_crossing(entries, tolerance):
+    """X-пересечение interiors двух competing polygon edges."""
+
+    for index, (site_a, polygon_a) in enumerate(entries):
+        bbox_a = _polygon_bbox2(polygon_a)
+        for site_b, polygon_b in entries[index + 1:]:
+            if not _sites_compete(site_a, site_b):
+                continue
+            bbox_b = _polygon_bbox2(polygon_b)
+            if _bbox_distance(bbox_a, bbox_b) > tolerance:
+                continue
+            for edge_a, point_a in enumerate(polygon_a):
+                point_b = polygon_a[(edge_a + 1) % len(polygon_a)]
+                for edge_b, point_c in enumerate(polygon_b):
+                    point_d = polygon_b[(edge_b + 1) % len(polygon_b)]
+                    for param_ab, param_cd, _point in _segment_intersection2(
+                        point_a,
+                        point_b,
+                        point_c,
+                        point_d,
+                        tolerance,
+                    ):
+                        if (
+                            1e-6 < param_ab < 1.0 - 1e-6
+                            and 1e-6 < param_cd < 1.0 - 1e-6
+                        ):
+                            return True
+    return False
+
+
+def _planar_arrangement_cycles(polygons, tolerance):
+    """Строит bounded cells общего segment arrangement.
+
+    Все координаты канонизируются тем же six-digit key, который позднее
+    станет shared BMesh vertex key. Segment sweep разбивает proper/T/
+    collinear intersections, затем half-edge walk извлекает CCW cells.
+    """
+
+    segments = []
+    for polygon in polygons:
+        for index, point_a in enumerate(polygon):
+            point_b = polygon[(index + 1) % len(polygon)]
+            if _dist2(point_a, point_b) <= tolerance:
+                continue
+            segments.append(
+                {
+                    "a": point_a,
+                    "b": point_b,
+                    "bbox": _polygon_bbox2((point_a, point_b)),
+                    "splits": {0.0: point_a, 1.0: point_b},
+                }
+            )
+    ordered = sorted(
+        range(len(segments)),
+        key=lambda segment_index: segments[segment_index]["bbox"][0],
+    )
+    active = []
+    for segment_index in ordered:
+        segment = segments[segment_index]
+        min_x = segment["bbox"][0]
+        active = [
+            other_index
+            for other_index in active
+            if segments[other_index]["bbox"][2] + tolerance >= min_x
+        ]
+        for other_index in active:
+            other = segments[other_index]
+            if (
+                segment["bbox"][3] + tolerance < other["bbox"][1]
+                or other["bbox"][3] + tolerance < segment["bbox"][1]
+            ):
+                continue
+            for param, other_param, point in _segment_intersection2(
+                segment["a"],
+                segment["b"],
+                other["a"],
+                other["b"],
+                tolerance,
+            ):
+                segment["splits"][round(param, 10)] = point
+                other["splits"][round(other_param, 10)] = point
+        active.append(segment_index)
+
+    adjacency = {}
+    points_by_key = {}
+    for segment in segments:
+        split_points = sorted(segment["splits"].items())
+        for (_param_a, point_a), (_param_b, point_b) in zip(
+            split_points, split_points[1:]
+        ):
+            key_a = _point_cache_key(point_a, 6)
+            key_b = _point_cache_key(point_b, 6)
+            if key_a == key_b:
+                continue
+            points_by_key.setdefault(key_a, (key_a[0], key_a[1]))
+            points_by_key.setdefault(key_b, (key_b[0], key_b[1]))
+            adjacency.setdefault(key_a, set()).add(key_b)
+            adjacency.setdefault(key_b, set()).add(key_a)
+
+    ordered_neighbors = {}
+    neighbor_indices = {}
+    for key, neighbors in adjacency.items():
+        origin = points_by_key[key]
+        ordered = sorted(
+            neighbors,
+            key=lambda neighbor: atan2(
+                points_by_key[neighbor][1] - origin[1],
+                points_by_key[neighbor][0] - origin[0],
+            ),
+        )
+        ordered_neighbors[key] = ordered
+        neighbor_indices[key] = {
+            neighbor: index for index, neighbor in enumerate(ordered)
+        }
+
+    visited = set()
+    cycles = []
+    max_steps = max(1, len(adjacency) * 4)
+    for start_a, neighbors in ordered_neighbors.items():
+        for start_b in neighbors:
+            if (start_a, start_b) in visited:
+                continue
+            cycle_keys = []
+            edge = (start_a, start_b)
+            closed = False
+            for _step in range(max_steps):
+                if edge in visited:
+                    closed = edge == (start_a, start_b)
+                    break
+                visited.add(edge)
+                point_a, point_b = edge
+                cycle_keys.append(point_a)
+                outgoing = ordered_neighbors.get(point_b, ())
+                if not outgoing or point_a not in neighbor_indices[point_b]:
+                    break
+                reverse_index = neighbor_indices[point_b][point_a]
+                point_c = outgoing[(reverse_index - 1) % len(outgoing)]
+                edge = (point_b, point_c)
+                if edge == (start_a, start_b):
+                    closed = True
+                    break
+            if not closed or len(cycle_keys) < 3:
+                continue
+            polygon = [points_by_key[key] for key in cycle_keys]
+            area = _polygon_area2(polygon)
+            if area > tolerance * tolerance:
+                cycles.append(polygon)
+    return cycles
+
+
+def _cycle_interior_sample(polygon, tolerance):
+    """Точка строго слева от CCW boundary edge, а не centroid в hole."""
+
+    for index, point_a in enumerate(polygon):
+        point_b = polygon[(index + 1) % len(polygon)]
+        direction = _norm2(_sub2(point_b, point_a))
+        if direction is None:
+            continue
+        midpoint = _mul2(_add2(point_a, point_b), 0.5)
+        step = max(tolerance * 2.0, min(1e-4, _dist2(point_a, point_b) * 1e-3))
+        sample = _add2(midpoint, _mul2(_rot90(direction), step))
+        if _point_in_polygon2(
+            sample, polygon, tolerance, include_boundary=False
+        ):
+            return sample
+    return (
+        sum(point[0] for point in polygon) / len(polygon),
+        sum(point[1] for point in polygon) / len(polygon),
+    )
+
+
+def _partition_overlapping_surfaces(
+    polygons_by_site,
+    source_polygons_by_site,
+    sites,
+    tolerance,
+):
+    """Перестраивает только surfaces с реальным overlap в одну сеть."""
+
+    sites_by_surface = {}
+    for site in sites:
+        if source_polygons_by_site.get(site.site_id):
+            sites_by_surface.setdefault(site.surface_id, []).append(site)
+
+    for _surface_id, surface_sites in sites_by_surface.items():
+        # Простые 2–3-site T/X/corner junction уже имеют устойчивый
+        # специализированный pairwise miter. Общая arrangement нужна для
+        # crowded surface, где множество независимых nonlinear clips
+        # начинают пересекаться друг с другом.
+        if len(surface_sites) < 5:
+            continue
+        current_entries = [
+            (site, polygon)
+            for site in surface_sites
+            for polygon in polygons_by_site.get(site.site_id, ())
+        ]
+        if not _surface_constraints_violated(
+            current_entries, surface_sites, tolerance
+        ):
+            continue
+        if not _surface_has_proper_crossing(
+            current_entries, tolerance
+        ):
+            continue
+        boundaries = [
+            polygon
+            for _site, polygon in current_entries
+        ] + [
+            polygon
+            for site in surface_sites
+            for polygon in source_polygons_by_site.get(site.site_id, ())
+        ]
+        cycles = _planar_arrangement_cycles(boundaries, tolerance)
+        rebuilt = {site.site_id: [] for site in surface_sites}
+        for polygon in cycles:
+            sample = _cycle_interior_sample(polygon, tolerance)
+            candidates = [
+                site
+                for site in surface_sites
+                if any(
+                    _point_in_polygon2(
+                        sample,
+                        source_polygon,
+                        tolerance,
+                        include_boundary=True,
+                    )
+                    for source_polygon in source_polygons_by_site.get(
+                        site.site_id, ()
+                    )
+                )
+            ]
+            if not candidates:
+                continue
+            distances = {
+                site.site_id: site.competition_distance(sample)
+                for site in candidates
+            }
+            owners = [
+                site
+                for site in candidates
+                if all(
+                    not _sites_compete(site, other)
+                    or distances[site.site_id]
+                    <= distances[other.site_id] + tolerance
+                    for other in candidates
+                )
+            ]
+            if not owners:
+                continue
+            # Atomic cell физически существует в decal mesh ровно один раз.
+            # `_sites_compete` намеренно не сталкивает соседние spans одной
+            # ветви, поэтому у cell около их общего cap могут остаться два
+            # допустимых owner. Дублировать polygon нельзя: BMesh отклонит
+            # вторую совпадающую face, а последующий weld может удалить и
+            # соседние sliver-faces. Выбираем ближайший owner стабильно;
+            # внутри одной ветви его UV-параметризация эквивалентна.
+            owner = min(
+                owners,
+                key=lambda site: (distances[site.site_id], site.site_id),
+            )
+            rebuilt[owner.site_id].append(polygon)
+        for site in surface_sites:
+            polygons_by_site[site.site_id] = rebuilt[site.site_id]
+
+
 # ============================================================
 # Сборка сети
 # ============================================================
@@ -2232,9 +2635,13 @@ def evaluate_seam_network_plan(
     missing_value = object()
     boundary_pairs = {}
     polygons_by_site = {}
+    source_polygons_by_site = {}
     for site in sites:
         competitors = competitors_by_site[site.site_id]
         polygons = _site_band_faces(site, alpha, curve)
+        source_polygons_by_site[site.site_id] = [
+            polygon for polygon, _owner_upper in polygons
+        ]
         for competitor in competitors:
             pair_a, pair_b = sorted(
                 (site, competitor), key=lambda candidate: candidate.site_id
@@ -2383,6 +2790,15 @@ def evaluate_seam_network_plan(
             station_keys,
             _ARRANGEMENT_POINT_TOLERANCE,
         )
+        # Shared planar partition — последний topology producer. Любая
+        # последующая site-local normalization снова рассинхронизировала бы
+        # общие half-edge cells.
+        _partition_overlapping_surfaces(
+            polygons_by_site,
+            source_polygons_by_site,
+            sites,
+            _ARRANGEMENT_POINT_TOLERANCE,
+        )
 
     # --- lift + UV после общей 2D arrangement ---
     for site in sites:
@@ -2397,7 +2813,7 @@ def evaluate_seam_network_plan(
                     (round(point2[0], 6), round(point2[1], 6))
                 ] = (rail_key, position3)
         for polygon in polygons:
-            if abs(_polygon_area2(polygon)) < 1e-10:
+            if abs(_polygon_area2(polygon)) <= _MIN_OUTPUT_FACE_AREA:
                 continue
             if _polygon_area2(polygon) < 0.0:
                 polygon = list(reversed(polygon))

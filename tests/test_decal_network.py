@@ -14,6 +14,7 @@ from cftuv.decal_network import (
     _lift_position,
     _merge_junction_continuations,
     _normalize_surface_arrangement,
+    _segment_intersection2,
     _branch_from_run,
     build_seam_network_faces,
     compile_seam_network_plan,
@@ -1695,6 +1696,65 @@ def _face_area(face):
     return accum.length * 0.5
 
 
+def _count_materialized_crossings(faces):
+    """X-пересечения после реального shared-key materialization.
+
+    `_NetworkFace.positions` хранит per-site lift и у двух faces может
+    отличаться на numerical epsilon. BMesh использует первую позицию общего
+    vertex key, поэтому oracle должен канонизировать координаты так же.
+    """
+
+    positions_by_key = {}
+    polygons_by_surface = {}
+    for face in faces:
+        polygon = []
+        for key, position in zip(face.vert_keys, face.positions):
+            positions_by_key.setdefault(key, position)
+            canonical = positions_by_key[key]
+            polygon.append((canonical.x, canonical.y))
+        xs = [point[0] for point in polygon]
+        ys = [point[1] for point in polygon]
+        polygons_by_surface.setdefault(face.surface_id, []).append(
+            (polygon, (min(xs), min(ys), max(xs), max(ys)))
+        )
+
+    crossings = 0
+    for polygons in polygons_by_surface.values():
+        for index, (polygon_a, bbox_a) in enumerate(polygons):
+            for polygon_b, bbox_b in polygons[index + 1:]:
+                if (
+                    bbox_a[2] < bbox_b[0] - 1e-6
+                    or bbox_b[2] < bbox_a[0] - 1e-6
+                    or bbox_a[3] < bbox_b[1] - 1e-6
+                    or bbox_b[3] < bbox_a[1] - 1e-6
+                ):
+                    continue
+                found = False
+                for edge_a, point_a in enumerate(polygon_a):
+                    point_b = polygon_a[(edge_a + 1) % len(polygon_a)]
+                    for edge_b, point_c in enumerate(polygon_b):
+                        point_d = polygon_b[(edge_b + 1) % len(polygon_b)]
+                        for param_ab, param_cd, _point in _segment_intersection2(
+                            point_a,
+                            point_b,
+                            point_c,
+                            point_d,
+                            1e-6,
+                        ):
+                            if (
+                                1e-6 < param_ab < 1.0 - 1e-6
+                                and 1e-6 < param_cd < 1.0 - 1e-6
+                            ):
+                                crossings += 1
+                                found = True
+                                break
+                        if found:
+                            break
+                    if found:
+                        break
+    return crossings
+
+
 def _count_t_junctions(faces, tolerance=1e-3):
     def key(position):
         return (round(position.x, 4), round(position.y, 4), round(position.z, 4))
@@ -1819,6 +1879,17 @@ class TestArrangementValidity:
         ):
             assert _count_t_junctions(faces) == 0
             assert not any(_face_self_intersects(face) for face in faces)
+
+    def test_dense_wide_partition_has_one_face_per_cell(self):
+        # Ширина намного больше шага comb заставляет несколько независимых
+        # ribbons полностью поглотить соседей. Общая planar arrangement
+        # обязана выдать одну face на atomic cell и после shared-key
+        # materialization не оставить X-пересечений.
+        faces = self._dense_comb(8.0)
+        _assert_no_vanishing(faces)
+        signatures = [frozenset(face.vert_keys) for face in faces]
+        assert len(signatures) == len(set(signatures))
+        assert _count_materialized_crossings(faces) == 0
 
     def test_overlap_area_has_no_double_coverage(self):
         # Обе стороны реально обрезаны: суммарная площадь меньше наивной
