@@ -45,6 +45,10 @@ from mathutils import Vector
 from .constants import (
     DECAL_COPLANAR_DOT,
     DECAL_CORNER_MITER_LIMIT,
+    DECAL_NETWORK_CLIP_CURVE_BUDGET,
+    DECAL_NETWORK_CLIP_CURVE_DEPTH,
+    DECAL_NETWORK_CLIP_CURVE_RELATIVE,
+    DECAL_NETWORK_CLIP_CURVE_STYLE,
     DECAL_NETWORK_CONTINUATION_DOT,
     DECAL_NETWORK_JUNCTION_CAP_STYLE,
     DECAL_SPINE_MERGE_DISTANCE,
@@ -719,15 +723,56 @@ def _arc_points(center, radius, angle_start, sweep, arc_tolerance):
     return points
 
 
+def _profile_arc(center, radius, angle_start, sweep, curve):
+    """Дуга round-join по профилю кривой (HARD/LOW/SMOOTH).
+
+    HARD — прямой bevel (только концы дуги, без внутренних вершин);
+    LOW — грубая дуга с бюджетом внутренних сегментов; SMOOTH — точная.
+    Так острый convex-угол не разрастается в веер из десятков вершин.
+    """
+
+    style, tolerance, budget = curve
+    if radius <= 1e-12 or abs(sweep) < 1e-9:
+        return _arc_points(center, radius, angle_start, sweep, tolerance)
+    end = (
+        center[0] + radius * cos(angle_start + sweep),
+        center[1] + radius * sin(angle_start + sweep),
+    )
+    start = (
+        center[0] + radius * cos(angle_start),
+        center[1] + radius * sin(angle_start),
+    )
+    if style == "HARD":
+        return [start, end]
+    points = _arc_points(center, radius, angle_start, sweep, tolerance)
+    if not points:
+        return [start, end]
+    if budget is not None and len(points) - 1 > budget:
+        # Пересэмплируем дугу ровно в budget сегментов (жёсткий лимит).
+        points = [
+            (
+                center[0] + radius * cos(angle_start + sweep * i / budget),
+                center[1] + radius * sin(angle_start + sweep * i / budget),
+            )
+            for i in range(budget + 1)
+        ]
+    return points
+
+
 def _station_outer_points(
     station,
     tangent_prev,
     tangent_next,
     lat_sign,
     alpha,
-    arc_tolerance,
+    curve,
 ):
-    """Outer-контур станции: MITER, обрезка concave или round join."""
+    """Outer-контур станции: MITER, обрезка concave или round join.
+
+    curve = (style, tolerance, budget) управляет детализацией convex
+    round-join за miter-лимитом (острый угол): HARD — прямой bevel, LOW —
+    грубая дуга с бюджетом, SMOOTH — точная. MITER/concave не меняются.
+    """
 
     lat_prev = _mul2(_rot90(tangent_prev), lat_sign)
     lat_next = _mul2(_rot90(tangent_next), lat_sign)
@@ -746,7 +791,7 @@ def _station_outer_points(
         if intersection is not None and _dist2(intersection, station) <= miter_limit:
             return [intersection]
         return [_mul2(_add2(incoming, outgoing), 0.5)]
-    # Convex: miter в пределах лимита, иначе round join.
+    # Convex: miter в пределах лимита, иначе round join по профилю.
     if intersection is not None and _dist2(intersection, station) <= miter_limit:
         return [intersection]
     angle_start = atan2(lat_prev[1], lat_prev[0])
@@ -756,12 +801,12 @@ def _station_outer_points(
         sweep -= 2.0 * pi
     while sweep < -pi:
         sweep += 2.0 * pi
-    points = _arc_points(station, alpha, angle_start, sweep, arc_tolerance)
+    points = _profile_arc(station, alpha, angle_start, sweep, curve)
     return points if points else [_mul2(_add2(incoming, outgoing), 0.5)]
 
 
 def _junction_cap_outer(
-    station, lat_unit, bisector_angle, sweep_len, alpha, arc_tolerance,
+    station, lat_unit, bisector_angle, sweep_len, alpha, curve,
     perpendicular_first,
 ):
     """Outer-контур junction cap для reflex-промежутка.
@@ -769,7 +814,7 @@ def _junction_cap_outer(
     MITER (по умолчанию) — одна общая вершина на биссектрисе с угловым
     соседом на радиусе α/cos(sweep): жёсткий стык вместо округлого веера.
     За miter-лимитом — прямой bevel (хорда до биссекторной точки на α), а
-    не длинный шип. ROUND — законсервированная округлая дуга (веер).
+    не длинный шип. ROUND — округлая дуга по профилю curve (без веера).
 
     perpendicular_first управляет порядком под конвенцию сборки quad:
     начальная станция ждёт перпендикулярную точку последней, конечная —
@@ -779,12 +824,8 @@ def _junction_cap_outer(
     perp_point = _add2(station, _mul2(lat_unit, alpha))
     if DECAL_NETWORK_JUNCTION_CAP_STYLE == "ROUND":
         perp_angle = atan2(lat_unit[1], lat_unit[0])
-        arc = _arc_points(
-            station,
-            alpha,
-            bisector_angle,
-            perp_angle - bisector_angle,
-            arc_tolerance,
+        arc = _profile_arc(
+            station, alpha, bisector_angle, perp_angle - bisector_angle, curve
         )
         cap = arc if arc else [perp_point]
         # Дуга идёт от биссектрисы к перпендикуляру; при perpendicular_first
@@ -807,8 +848,12 @@ def _junction_cap_outer(
     return [perp_point, far] if perpendicular_first else [far, perp_point]
 
 
-def _site_band_faces(site, alpha, arc_tolerance):
-    """2D faces half-cell до клиппинга: quads сегментов + fans станций/caps."""
+def _site_band_faces(site, alpha, curve):
+    """2D faces half-cell до клиппинга: quads сегментов + fans станций/caps.
+
+    curve = (style, tolerance, budget) — профиль детализации дуг round-join
+    и junction cap (см. `_profile_arc`).
+    """
 
     pts = site.pts2
     count = len(pts)
@@ -834,7 +879,7 @@ def _site_band_faces(site, alpha, arc_tolerance):
                 tangents[index],
                 lat_sign,
                 alpha,
-                arc_tolerance,
+                curve,
             )
         outer[count - 1] = outer[0]
     else:
@@ -847,7 +892,7 @@ def _site_band_faces(site, alpha, arc_tolerance):
             bisector_angle = atan2(lat0[1], lat0[0]) + lat_sign * sweep_len
             outer[0] = _junction_cap_outer(
                 pts[0], lat0, bisector_angle, sweep_len, alpha,
-                arc_tolerance, perpendicular_first=False,
+                curve, perpendicular_first=False,
             )
         else:
             outer[0] = [_add2(pts[0], _mul2(lat0, alpha))]
@@ -859,7 +904,7 @@ def _site_band_faces(site, alpha, arc_tolerance):
                 tangents[index],
                 lat_sign,
                 alpha,
-                arc_tolerance,
+                curve,
             )
         # Конечная станция.
         lat_end = _mul2(_rot90(tangents[-1]), lat_sign)
@@ -870,7 +915,7 @@ def _site_band_faces(site, alpha, arc_tolerance):
             bisector_angle = atan2(lat_end[1], lat_end[0]) - lat_sign * sweep_len
             outer[count - 1] = _junction_cap_outer(
                 pts[-1], lat_end, bisector_angle, sweep_len, alpha,
-                arc_tolerance, perpendicular_first=True,
+                curve, perpendicular_first=True,
             )
         else:
             outer[count - 1] = [_add2(pts[-1], _mul2(lat_end, alpha))]
@@ -934,10 +979,23 @@ def _edge_zero_crossings(point_a, point_b, value_a, value_b, implicit):
     return crossings
 
 
-def _refine_chord(point_a, point_b, implicit, tolerance, depth=_CHORD_DEPTH):
-    """Вставляет точки f=0 между двумя crossing, пока хорда не сойдётся."""
+def _refine_chord(
+    point_a, point_b, implicit, tolerance, depth=_CHORD_DEPTH, budget=None
+):
+    """Вставляет точки f=0 между двумя crossing, пока хорда не сойдётся.
 
-    if depth <= 0 or _dist2(point_a, point_b) < 2.0 * tolerance:
+    tolerance — ВИЗУАЛЬНЫЙ допуск кривой (не weld): при большем значении
+    вставляется меньше вершин. budget — общий лимит внутренних вершин на
+    одну кривую (список-счётчик), чтобы геометрия не разрасталась вне
+    зависимости от кривизны. Позиция каждой вставленной вершины при этом
+    находится точно (внутренняя bisection остаётся плотной).
+    """
+
+    if (
+        depth <= 0
+        or (budget is not None and budget[0] <= 0)
+        or _dist2(point_a, point_b) < 2.0 * tolerance
+    ):
         return []
     midpoint = _mul2(_add2(point_a, point_b), 0.5)
     direction = _norm2(_sub2(point_b, point_a))
@@ -971,18 +1029,30 @@ def _refine_chord(point_a, point_b, implicit, tolerance, depth=_CHORD_DEPTH):
         step *= 2.0
     if zero is None or _dist2(zero, midpoint) <= tolerance:
         return []
+    if budget is not None:
+        budget[0] -= 1
     return (
-        _refine_chord(point_a, zero, implicit, tolerance, depth - 1)
+        _refine_chord(point_a, zero, implicit, tolerance, depth - 1, budget)
         + [zero]
-        + _refine_chord(zero, point_b, implicit, tolerance, depth - 1)
+        + _refine_chord(zero, point_b, implicit, tolerance, depth - 1, budget)
     )
 
 
-def _clip_polygon(points, implicit, keep_eps, tolerance, refine=True):
-    """Оставляет часть полигона с f ≥ 0 (граница уточняется по кривой).
+def _clip_polygon(
+    points,
+    implicit,
+    keep_eps,
+    curve_tolerance,
+    refine=True,
+    curve_depth=_CHORD_DEPTH,
+    curve_budget=None,
+):
+    """Оставляет часть полигона с f ≥ 0 (криволинейная граница по профилю).
 
-    refine=False — не уточнять криволинейные границы хордами (preview для
-    modal drag): изгиб аппроксимируется прямой хордой, число вершин то же.
+    Пересечения (топология, момент столкновения лент) находятся точно
+    всегда. refine/curve_tolerance/curve_depth/curve_budget управляют лишь
+    ЧИСЛОМ точек, вставляемых в уже найденную кривую биссектрисы:
+    refine=False (HARD/preview) — прямая хорда; иначе LOW/SMOOTH профиль.
     """
 
     values = [implicit(point) for point in points]
@@ -1022,8 +1092,16 @@ def _clip_polygon(points, implicit, keep_eps, tolerance, refine=True):
             (index + 1) % total
         ]
         if next_is_crossing and next_entering:
+            budget = None if curve_budget is None else [curve_budget]
             refined.extend(
-                _refine_chord(point, next_point, implicit, tolerance)
+                _refine_chord(
+                    point,
+                    next_point,
+                    implicit,
+                    curve_tolerance,
+                    curve_depth,
+                    budget,
+                )
             )
 
     deduped = []
@@ -1285,6 +1363,30 @@ def build_seam_network_faces(
     delta = max(1e-9, alpha * 1e-4)
     keep_eps = 2.0 * delta
 
+    # Профиль детализации кривой биссектрисы (число вершин на стыке лент).
+    # Пересечения всегда точны (arc_tolerance / _EDGE_SAMPLES не трогаем).
+    # preview форсирует HARD.
+    curve_style = "HARD" if preview else DECAL_NETWORK_CLIP_CURVE_STYLE
+    if curve_style == "HARD":
+        clip_refine = False
+        curve_tolerance = arc_tolerance
+        curve_depth = 0
+        curve_budget = None
+    elif curve_style == "SMOOTH":
+        clip_refine = True
+        curve_tolerance = arc_tolerance
+        curve_depth = _CHORD_DEPTH
+        curve_budget = None
+    else:  # LOW (default)
+        clip_refine = True
+        curve_tolerance = max(
+            arc_tolerance, alpha * DECAL_NETWORK_CLIP_CURVE_RELATIVE
+        )
+        curve_depth = DECAL_NETWORK_CLIP_CURVE_DEPTH
+        curve_budget = DECAL_NETWORK_CLIP_CURVE_BUDGET
+    # Один профиль на round-join станций/caps и на клип-кривые.
+    curve = (curve_style, curve_tolerance, curve_budget)
+
     branches = _merge_junction_continuations(
         [_branch_from_run(run) for run in runs]
     )
@@ -1385,7 +1487,7 @@ def build_seam_network_faces(
             if _sites_compete(site, other)
             and _bbox_distance(site.bbox, other.bbox) <= reach
         ]
-        polygons = _site_band_faces(site, alpha, arc_tolerance)
+        polygons = _site_band_faces(site, alpha, curve)
         for competitor in competitors:
             def implicit(q, _site=site, _competitor=competitor):
                 # Метрическая разность (единицы длины): keep_eps в клиппере
@@ -1407,8 +1509,13 @@ def build_seam_network_faces(
                     continue
                 clipped.extend(
                     _clip_polygon(
-                        polygon, implicit, keep_eps, arc_tolerance,
-                        refine=not preview,
+                        polygon,
+                        implicit,
+                        keep_eps,
+                        curve_tolerance,
+                        refine=clip_refine,
+                        curve_depth=curve_depth,
+                        curve_budget=curve_budget,
                     )
                 )
             polygons = clipped

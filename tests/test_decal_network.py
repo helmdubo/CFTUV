@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from math import cos, sin
+from math import cos, pi, sin
 
 from mathutils import Vector
 
@@ -679,11 +679,12 @@ class TestDynamicTopology:
                 break
         assert not collinear
 
-    def test_acute_v_miter_limit_keeps_cell_bounded(self):
-        # Острый V (сшитый run с поворотом 160°): miter длиной α/cos(80°)
-        # превышает лимит 4α, станция получает round join, чьё разбиение
-        # зависит от α через абсолютный допуск дуги: комбинаторика меняется
-        # с шириной, а ячейка остаётся ограниченной (никакого длинного шипа).
+    def test_acute_v_round_join_is_bounded_and_low_res(self):
+        # Острый V (поворот 160°): miter превышает лимит 4α, станция
+        # получает round join. По умолчанию LOW-профиль ограничивает его
+        # бюджетом вершин (ширино-независимо), а не разворачивает в веер.
+        # Инвариант: ячейка ограничена (нет длинного шипа) и число вершин
+        # round-join мало и стабильно по ширине.
         from math import radians
 
         angle = radians(20.0)
@@ -701,7 +702,6 @@ class TestDynamicTopology:
 
         narrow = faces_at(0.04)
         wide = faces_at(0.4)
-        assert _topology_signature(narrow) != _topology_signature(wide)
         spine = [
             Vector((1, 0, 0)),
             Vector((0, 0, 0)),
@@ -713,6 +713,13 @@ class TestDynamicTopology:
             for face in faces:
                 for position in face.positions:
                     assert _polyline_distance_3d(spine, position) <= limit
+        # Число вершин round-join одинаково при малой и большой ширине —
+        # дискретизация больше не разрастается с α (веер убран).
+        assert sum(len(f.positions) for f in narrow) == sum(
+            len(f.positions) for f in wide
+        )
+        # И это именно немного вершин, а не десятки (LOW бюджет ≤ 4/сегмент).
+        assert max(len(f.positions) for f in wide) <= 8
 
     def test_short_t_branch_cell_shrinks_past_critical_width(self):
         def faces_at(width):
@@ -941,20 +948,25 @@ class TestJunctionCapStyle:
         ]
         return build_seam_network_faces(runs, offset=0.02, width=0.15)
 
-    def test_round_branch_is_preserved_and_produces_fan(self):
+    def test_round_smooth_branch_is_preserved_and_produces_fan(self):
+        # ROUND cap style + SMOOTH профиль кривой = точный веер (обе ветки
+        # законсервированы). Под дефолтным LOW дуга бюджетируется — веера нет.
         import cftuv.decal_network as network
 
-        original = network.DECAL_NETWORK_JUNCTION_CAP_STYLE
+        cap = network.DECAL_NETWORK_JUNCTION_CAP_STYLE
+        curve = network.DECAL_NETWORK_CLIP_CURVE_STYLE
         try:
             network.DECAL_NETWORK_JUNCTION_CAP_STYLE = "ROUND"
+            network.DECAL_NETWORK_CLIP_CURVE_STYLE = "SMOOTH"
             round_faces = self._trihedral_faces()
         finally:
-            network.DECAL_NETWORK_JUNCTION_CAP_STYLE = original
+            network.DECAL_NETWORK_JUNCTION_CAP_STYLE = cap
+            network.DECAL_NETWORK_CLIP_CURVE_STYLE = curve
         miter_faces = self._trihedral_faces()
         round_tris = sum(1 for f in round_faces if len(f.positions) == 3)
         miter_tris = sum(1 for f in miter_faces if len(f.positions) == 3)
-        # ROUND полилинизирует дугу в веер: строго больше треугольников,
-        # чем у жёсткого MITER на том же угле.
+        # ROUND+SMOOTH полилинизирует дугу в веер: строго больше
+        # треугольников, чем у жёсткого дефолтного MITER на том же угле.
         assert round_tris > miter_tris
         # Веерные вершины лежат на радиусе α от core (округлость).
         core = Vector((0.02, 0.02, 0.02))
@@ -968,6 +980,26 @@ class TestJunctionCapStyle:
         ]
         assert arc_radii
         assert all(abs(radius - alpha) < 5e-3 for radius in arc_radii)
+
+    def test_round_low_profile_budgets_the_fan(self):
+        # ROUND cap style под дефолтным LOW: дуга есть, но бюджетирована —
+        # заметно меньше треугольников, чем ROUND+SMOOTH.
+        import cftuv.decal_network as network
+
+        cap = network.DECAL_NETWORK_JUNCTION_CAP_STYLE
+        curve = network.DECAL_NETWORK_CLIP_CURVE_STYLE
+        try:
+            network.DECAL_NETWORK_JUNCTION_CAP_STYLE = "ROUND"
+            network.DECAL_NETWORK_CLIP_CURVE_STYLE = "SMOOTH"
+            smooth = self._trihedral_faces()
+            network.DECAL_NETWORK_CLIP_CURVE_STYLE = "LOW"
+            low = self._trihedral_faces()
+        finally:
+            network.DECAL_NETWORK_JUNCTION_CAP_STYLE = cap
+            network.DECAL_NETWORK_CLIP_CURVE_STYLE = curve
+        smooth_tris = sum(1 for f in smooth if len(f.positions) == 3)
+        low_tris = sum(1 for f in low if len(f.positions) == 3)
+        assert low_tris < smooth_tris
 
 
 class TestPerformancePreview:
@@ -1103,6 +1135,66 @@ class TestPerformancePreview:
         full_verts = sum(len(f.positions) for f in full)
         preview_verts = sum(len(f.positions) for f in preview)
         assert preview_verts < full_verts
+
+
+class TestCurveProfile:
+    """Профиль детализации round-join/кривых стыка (HARD/LOW/SMOOTH)."""
+
+    def _sharp_corner(self):
+        # Одиночный резкий convex-поворот: одна сторона банда даёт round
+        # join за miter-лимитом — источник веера чёрных вершин на скрине.
+        return _make_run(
+            [0, 1, 2],
+            [(1, 0, 0), (0, 0, 0), (cos(pi - 3.05), sin(pi - 3.05), 0.0)],
+        )
+
+    def _build(self, style, width=0.4):
+        import cftuv.decal_network as network
+
+        original = network.DECAL_NETWORK_CLIP_CURVE_STYLE
+        try:
+            network.DECAL_NETWORK_CLIP_CURVE_STYLE = style
+            return build_seam_network_faces(
+                [self._sharp_corner()], offset=0.0, width=width
+            )
+        finally:
+            network.DECAL_NETWORK_CLIP_CURVE_STYLE = original
+
+    def test_low_reduces_fan_vs_smooth(self):
+        smooth = self._build("SMOOTH")
+        low = self._build("LOW")
+        hard = self._build("HARD")
+        smooth_verts = sum(len(f.positions) for f in smooth)
+        low_verts = sum(len(f.positions) for f in low)
+        hard_verts = sum(len(f.positions) for f in hard)
+        # Убывающая детализация round-join: SMOOTH-веер > LOW > HARD-bevel.
+        assert smooth_verts > low_verts > hard_verts
+        # LOW заметно (в разы) режет веер, а не на пару вершин.
+        assert low_verts * 2 <= smooth_verts
+
+    def test_low_fan_is_width_independent(self):
+        # Дискретизация round-join не разрастается с шириной (бюджет вершин).
+        narrow = self._build("LOW", width=0.2)
+        wide = self._build("LOW", width=0.9)
+        assert sum(len(f.positions) for f in narrow) == sum(
+            len(f.positions) for f in wide
+        )
+
+    def test_default_curve_style_is_low(self):
+        import cftuv.decal_network as network
+
+        assert network.DECAL_NETWORK_CLIP_CURVE_STYLE == "LOW"
+
+    def test_preview_forces_hard_curve(self):
+        # preview всегда строит HARD-контуры (самое грубое) независимо от
+        # дефолтного профиля — максимально дёшево во время drag.
+        preview = build_seam_network_faces(
+            [self._sharp_corner()], offset=0.0, width=0.4, preview=True
+        )
+        hard = self._build("HARD")
+        assert sum(len(f.positions) for f in preview) == sum(
+            len(f.positions) for f in hard
+        )
 
 
 class TestSettings:
