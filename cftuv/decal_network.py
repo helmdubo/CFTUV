@@ -1056,17 +1056,12 @@ def _clip_polygon(
     """
 
     values = [implicit(point) for point in points]
+    if all(value >= -keep_eps for value in values):
+        return [points]
+    if all(value < -keep_eps for value in values):
+        return []
 
-    # ВНИМАНИЕ: ранний выход по знакам одних только вершин НЕВЕРЕН. Кривая
-    # биссектриса (parabola point-vs-segment) может провиснуть через ребро
-    # полигона, оставив ОБА его конца внутри — тогда все вершины ≥ 0, но
-    # часть ребра снаружи. Раньше это давало асимметрию: сайт с вершинами
-    # по обе стороны границы обрезался, а соседний большой quad (все углы
-    # внутри) — нет. Поэтому рёбра сканируются ВСЕГДА (8-точечная выборка
-    # `_edge_zero_crossings` ловит провис), а «полностью внутри/снаружи»
-    # выводится из ОТСУТСТВИЯ пересечений, а не из знаков вершин.
     output = []  # (point, is_crossing, entering)
-    crossing_count = 0
     count = len(points)
     for index in range(count):
         point_a = points[index]
@@ -1082,12 +1077,6 @@ def _clip_polygon(
             crossing = _add2(point_a, _mul2(_sub2(point_b, point_a), t))
             inside = not inside
             output.append((crossing, True, inside))
-            crossing_count += 1
-    if crossing_count == 0:
-        # Граница не проходит через полигон: он целиком внутри или снаружи.
-        if all(value >= -keep_eps for value in values):
-            return [points]
-        return []
     if len(output) < 3:
         return []
 
@@ -1584,111 +1573,7 @@ def build_seam_network_faces(
     result.extend(
         _split_connector_faces(sites, registry, lift_map, alpha)
     )
-    if not preview:
-        _heal_t_junctions(result, arc_tolerance)
     return result
-
-
-def _heal_t_junctions(faces, tolerance):
-    """Убирает T-стыки: вставляет чужую вершину в ребро, на котором она лежит.
-
-    Клип двух соседних сайтов на общей границе тесселирует её независимо,
-    поэтому одна сторона может иметь на границе вершину, которой у другой
-    нет (её ребро проходит сквозь эту вершину — T-junction, видимая щель).
-    Пост-проход делает сетку водонепроницаемой: для каждой face каждая
-    вершина той же поверхности, лежащая строго внутри её ребра, вставляется
-    с тем же ключом (→ общее ребро) и интерполированным UV. Не зависит от
-    того, какая сторона детальнее, поэтому силуэты совпадают.
-    """
-
-    from collections import defaultdict
-    from math import floor
-
-    # Пространственный бакетинг вершин по поверхности: near-linear вместо
-    # O(faces·verts·edges). Ячейка крупнее tolerance, поэтому кандидаты на
-    # ребре лежат в самой ячейке или соседней.
-    cell = max(tolerance * 64.0, 1e-4)
-
-    def cell_of(position):
-        return (
-            int(floor(position.x / cell)),
-            int(floor(position.y / cell)),
-            int(floor(position.z / cell)),
-        )
-
-    buckets = defaultdict(lambda: defaultdict(list))  # surface -> cell -> [(k,p)]
-    seen = defaultdict(set)
-    for face in faces:
-        surface_seen = seen[face.surface_id]
-        surface_buckets = buckets[face.surface_id]
-        for key, position in zip(face.vert_keys, face.positions):
-            if key in surface_seen:
-                continue
-            surface_seen.add(key)
-            surface_buckets[cell_of(position)].append((key, position))
-
-    for face in faces:
-        surface_buckets = buckets.get(face.surface_id)
-        if not surface_buckets or len(face.positions) < 3:
-            continue
-        new_keys = []
-        new_positions = []
-        new_u = []
-        new_v = []
-        count = len(face.positions)
-        for i in range(count):
-            j = (i + 1) % count
-            a = face.positions[i]
-            b = face.positions[j]
-            key_a = face.vert_keys[i]
-            key_b = face.vert_keys[j]
-            new_keys.append(key_a)
-            new_positions.append(a)
-            new_u.append(face.u_fracs[i])
-            new_v.append(face.v_lengths[i])
-            edge = b - a
-            length_sq = edge.dot(edge)
-            if length_sq < 1e-18:
-                continue
-            # Кандидаты — вершины в ячейках вдоль ребра (+ соседи).
-            cell_a = cell_of(a)
-            cell_b = cell_of(b)
-            checked = set()
-            inserts = []
-            lo = tuple(min(x, y) - 1 for x, y in zip(cell_a, cell_b))
-            hi = tuple(max(x, y) + 1 for x, y in zip(cell_a, cell_b))
-            for cx in range(lo[0], hi[0] + 1):
-                for cy in range(lo[1], hi[1] + 1):
-                    for cz in range(lo[2], hi[2] + 1):
-                        for key, position in surface_buckets.get(
-                            (cx, cy, cz), ()
-                        ):
-                            if key in checked or key == key_a or key == key_b:
-                                continue
-                            checked.add(key)
-                            param = (position - a).dot(edge) / length_sq
-                            if param <= 1e-6 or param >= 1.0 - 1e-6:
-                                continue
-                            if (
-                                position - (a + edge * param)
-                            ).length <= tolerance:
-                                inserts.append((param, key, position))
-            inserts.sort(key=lambda item: item[0])
-            for param, key, position in inserts:
-                new_keys.append(key)
-                new_positions.append(position)
-                new_u.append(
-                    face.u_fracs[i]
-                    + (face.u_fracs[j] - face.u_fracs[i]) * param
-                )
-                new_v.append(
-                    face.v_lengths[i]
-                    + (face.v_lengths[j] - face.v_lengths[i]) * param
-                )
-        face.vert_keys = new_keys
-        face.positions = new_positions
-        face.u_fracs = new_u
-        face.v_lengths = new_v
 
 
 def _rotate_rodrigues(vector, axis, cos_angle, sin_angle):

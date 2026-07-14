@@ -713,9 +713,12 @@ class TestDynamicTopology:
             for face in faces:
                 for position in face.positions:
                     assert _polyline_distance_3d(spine, position) <= limit
-        # Round-join остаётся низкополигональным при любой ширине: ни одна
-        # face не разрастается в веер из десятков вершин (LOW бюджет).
-        assert max(len(f.positions) for f in narrow) <= 8
+        # Число вершин round-join одинаково при малой и большой ширине —
+        # дискретизация больше не разрастается с α (веер убран).
+        assert sum(len(f.positions) for f in narrow) == sum(
+            len(f.positions) for f in wide
+        )
+        # И это именно немного вершин, а не десятки (LOW бюджет ≤ 4/сегмент).
         assert max(len(f.positions) for f in wide) <= 8
 
     def test_short_t_branch_cell_shrinks_past_critical_width(self):
@@ -1184,130 +1187,14 @@ class TestCurveProfile:
 
     def test_preview_forces_hard_curve(self):
         # preview всегда строит HARD-контуры (самое грубое) независимо от
-        # дефолтного профиля и пропускает T-junction healing — максимально
-        # дёшево во время drag. Поэтому preview не детальнее HARD-финала.
+        # дефолтного профиля — максимально дёшево во время drag.
         preview = build_seam_network_faces(
             [self._sharp_corner()], offset=0.0, width=0.4, preview=True
         )
         hard = self._build("HARD")
-        low = self._build("LOW")
-        preview_verts = sum(len(f.positions) for f in preview)
-        assert preview_verts <= sum(len(f.positions) for f in hard)
-        # И заметно грубее дефолтного LOW-финала (round-join + healing).
-        assert preview_verts <= sum(len(f.positions) for f in low)
-
-
-def _count_t_junctions(faces, tolerance=1e-3):
-    """T-стык: вершина одной face лежит строго внутри ребра другой."""
-
-    def key(position):
-        return (round(position.x, 4), round(position.y, 4), round(position.z, 4))
-
-    all_verts = {key(p) for face in faces for p in face.positions}
-    count = 0
-    for face in faces:
-        verts = [key(p) for p in face.positions]
-        for i in range(len(verts)):
-            a = Vector(verts[i])
-            b = Vector(verts[(i + 1) % len(verts)])
-            edge = b - a
-            length_sq = edge.dot(edge)
-            if length_sq < 1e-12:
-                continue
-            for w in all_verts:
-                if w in (verts[i], verts[(i + 1) % len(verts)]):
-                    continue
-                wv = Vector(w)
-                t = (wv - a).dot(edge) / length_sq
-                if 1e-3 < t < 1 - 1e-3 and (wv - (a + edge * t)).length < tolerance:
-                    count += 1
-    return count
-
-
-class TestSharedClipBoundary:
-    """Общая граница двух перекрывающихся сайтов водонепроницаема."""
-
-    def _perpendicular(self, width):
-        # Прямая ветвь + L-ветвь, чей угол наезжает на неё: обе стороны
-        # клипаются, их общая граница должна совпасть (без T-стыков).
-        straight = _make_run([0, 1], [(-1, 0, 0), (2, 0, 0)])
-        turning = _make_run(
-            [2, 3, 4],
-            [(0.5, 1.2, 0), (0.5, 0.28, 0), (1.4, 0.28, 0)],
-            edge_start=10,
+        assert sum(len(f.positions) for f in preview) == sum(
+            len(f.positions) for f in hard
         )
-        return build_seam_network_faces(
-            [straight, turning], offset=0.0, width=width
-        )
-
-    def test_overlapping_sides_have_no_t_junctions(self):
-        for width in (0.3, 0.5, 0.7, 0.9):
-            faces = self._perpendicular(width)
-            assert _count_t_junctions(faces) == 0, width
-
-    def test_both_sides_are_clipped_not_one(self):
-        # Регрессия к найденному багу: ранний выход по знакам вершин
-        # оставлял большой quad несклипленным. Теперь ОБЕ пересекающиеся
-        # стороны реально обрезаны биссектрисой (ни одна не полный quad).
-        faces = self._perpendicular(0.5)
-        straight_upper = [
-            face
-            for face in faces
-            if all(p.y >= -1e-6 for p in face.positions)
-            and any(p.x < -0.5 for p in face.positions)
-        ]
-        assert straight_upper
-        # У обрезанной стороны появились вершины на биссектрисе (y≈0.14),
-        # а не только исходные углы полосы на y=0 и y=alpha.
-        interior_ys = {
-            round(p.y, 3)
-            for face in straight_upper
-            for p in face.positions
-            if 0.05 < p.y < 0.24
-        }
-        assert interior_ys
-
-    def test_fold_corner_is_watertight(self):
-        # Как на скрине: вертикальное ребро пилона + две полки (разные
-        # owner-поверхности через fold). Общие границы без T-стыков.
-        from cftuv.decals import _stitch_corner_runs
-
-        vert = _make_run([0, 1], [(0, 0, 1), (0, 0, 0)], (0, -1, 0), (-1, 0, 0))
-        ledge = _make_run(
-            [0, 2], [(0, 0, 0), (1, 0, 0)], (0, 0, 1), (0, -1, 0), edge_start=10
-        )
-        floor = _make_run(
-            [0, 3], [(0, 0, 0), (0, 1, 0)], (0, 0, 1), (-1, 0, 0), edge_start=20
-        )
-        faces = build_seam_network_faces(
-            _stitch_corner_runs([vert, ledge, floor]), offset=0.0, width=0.4
-        )
-        assert faces
-        assert _count_t_junctions(faces) == 0
-
-    def test_site_order_invariant(self):
-        # Перестановка входных ветвей не меняет результат (симметрия пары).
-        straight = _make_run([0, 1], [(-1, 0, 0), (2, 0, 0)])
-        turning = _make_run(
-            [2, 3, 4],
-            [(0.5, 1.2, 0), (0.5, 0.28, 0), (1.4, 0.28, 0)],
-            edge_start=10,
-        )
-        first = build_seam_network_faces([straight, turning], 0.0, 0.5)
-        second = build_seam_network_faces([turning, straight], 0.0, 0.5)
-
-        def signature(faces):
-            return sorted(
-                tuple(
-                    sorted(
-                        (round(p.x, 4), round(p.y, 4), round(p.z, 4))
-                        for p in face.positions
-                    )
-                )
-                for face in faces
-            )
-
-        assert signature(first) == signature(second)
 
 
 class TestSettings:

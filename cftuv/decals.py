@@ -1814,8 +1814,10 @@ def _materialize_network_faces(bm, network_faces, settings, uv_rect):
     verts_by_key = {}
     created = 0
 
+    dropped = 0
     for network_face in network_faces:
         loop_data = []
+        used_verts = set()
         for key, position, u_frac, v_length in zip(
             network_face.vert_keys,
             network_face.positions,
@@ -1826,16 +1828,20 @@ def _materialize_network_faces(bm, network_faces, settings, uv_rect):
             if vert is None:
                 vert = bm.verts.new(position)
                 verts_by_key[key] = vert
-            if loop_data and loop_data[-1][0] is vert:
+            # Любой повтор вершины (не только соседний) делает loop
+            # невалидным для bmesh.faces.new — отбрасываем дубли заранее,
+            # чтобы валидная часть face материализовалась, а не исчезла.
+            if vert in used_verts:
                 continue
+            used_verts.add(vert)
             loop_data.append((vert, u_frac, v_length))
-        if len(loop_data) > 2 and loop_data[0][0] is loop_data[-1][0]:
-            loop_data.pop()
         if len(loop_data) < 3:
+            dropped += 1
             continue
         try:
             face = bm.faces.new(tuple(item[0] for item in loop_data))
         except ValueError:
+            dropped += 1
             continue
         for loop, (_vert, u_frac, v_length) in zip(face.loops, loop_data):
             loop[uv_layer].uv = (
@@ -1843,6 +1849,12 @@ def _materialize_network_faces(bm, network_faces, settings, uv_rect):
                 v_length * scale,
             )
         created += 1
+    if dropped:
+        # Раньше исчезало молча; теперь потеря видна в консоли.
+        print(
+            f"[CFTUV][Decals] seam network: dropped {dropped} invalid "
+            f"face(s) of {len(network_faces)} during materialization"
+        )
     return created
 
 
