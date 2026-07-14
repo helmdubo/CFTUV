@@ -227,3 +227,20 @@ ROUND-ветка сохранена и переключается. Полный 
   коллинеарны и невидимы.
 - Кольцо со сменой поверхностей получает служебный разрез на wrap-станции
   (UV-шов там же, где у legacy).
+
+## Follow-up 6: topology-scoped overlap oracle
+
+Перед повторной попыткой intrinsic partition добавлен отдельный read-only
+detector `decal_overlap.py`. Он триангулирует уже lifted `_NetworkFace`, ищет
+coplanar double coverage и non-coplanar self-intersection, но сравнивает faces
+только при совпадении явного `domain_by_face`. Surface ID не используется как
+topology identity: одна плоскость может встречаться в нескольких несвязных
+patch domains.
+
+Baseline fixture — две широкие seam-ленты на соседних floor/wall owner faces.
+Их поверхности различны, поэтому `_sites_compete` не запускается; после
+расширения ленты пересекаются вдоль общего fold. Detector это фиксирует, но не
+считает overlap'ом shared keyed rail и ничего не находит на production dump,
+уже закрытом conformal lift + shared rail. Близкие или даже пересекающиеся
+faces из разных topology domains также не сравниваются. Сам detector ничего не
+исправляет: его положительный fixture — oracle следующего patch-scoped среза.
