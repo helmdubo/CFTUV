@@ -5,8 +5,10 @@ from math import cos, sin
 from mathutils import Vector
 
 from cftuv.decal_network import (
+    _clip_polygon,
     _lift_position,
     _merge_junction_continuations,
+    _polygon_area2,
     _branch_from_run,
     build_seam_network_faces,
 )
@@ -640,6 +642,19 @@ class TestDynamicTopology:
         assert any(
             abs(p.y - 0.1) < 1e-3 for f in wide for p in f.positions
         )
+
+    def test_implicit_clip_returns_both_disconnected_components(self):
+        square = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+
+        def two_lobes(point):
+            return abs(point[0]) - 0.4
+
+        polygons = _clip_polygon(square, two_lobes, 1e-8, 1e-4)
+        assert len(polygons) > 1
+        assert any(max(point[0] for point in polygon) < -0.39 for polygon in polygons)
+        assert any(min(point[0] for point in polygon) > 0.39 for polygon in polygons)
+        area = sum(abs(_polygon_area2(polygon)) for polygon in polygons)
+        assert abs(area - 2.4) < 5e-3
 
     def test_point_segment_boundary_is_curved_and_equidistant(self):
         # Endpoint ветви B лежит против интерьера ветви A: граница ячеек

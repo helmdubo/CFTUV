@@ -275,13 +275,18 @@ def _join_branches(first, second):
 
 
 def _is_boundary_branch(branch):
-    """Односторонняя boundary-ветвь: сторона A пустая (нулевые нормали).
+    """Односторонняя boundary-ветвь: одна из сторон помечена пустой.
 
     Wing такой ветви задаётся chain boundary-ориентацией (n × t), поэтому
     её нельзя разворачивать/swap'ить в continuation merge.
     """
 
-    return bool(branch.normals_a) and branch.normals_a[0].length_squared < 1e-12
+    if not branch.normals_a or not branch.normals_b:
+        return False
+    return (
+        branch.normals_a[0].length_squared < 1e-12
+        or branch.normals_b[0].length_squared < 1e-12
+    )
 
 
 def _branch_end_tangent(branch, at_start):
@@ -932,8 +937,8 @@ def _refine_chord(point_a, point_b, implicit, tolerance, depth=_CHORD_DEPTH):
     )
 
 
-def _clip_polygon(points, implicit, keep_eps, tolerance):
-    """Оставляет часть полигона с f ≥ 0 (граница уточняется по кривой)."""
+def _clip_single_polygon(points, implicit, keep_eps, tolerance):
+    """Простой одноконтурный clip-path; сохраняет прежнюю топологию."""
 
     values = [implicit(point) for point in points]
     if all(value >= -keep_eps for value in values):
@@ -986,6 +991,115 @@ def _clip_polygon(points, implicit, keep_eps, tolerance):
     if len(deduped) < 3:
         return []
     return [deduped]
+
+
+def _clip_probe_values(points, implicit):
+    probes = []
+    count = len(points)
+    center = (
+        sum(point[0] for point in points) / count,
+        sum(point[1] for point in points) / count,
+    )
+    probes.append(implicit(center))
+    for index in range(count):
+        probes.append(
+            implicit(_mul2(_add2(points[index], points[(index + 1) % count]), 0.5))
+        )
+    return probes
+
+
+def _clip_is_complex(points, implicit):
+    """Есть несколько boundary arcs или скрытая смена знака внутри."""
+
+    values = [implicit(point) for point in points]
+    crossings = [
+        _edge_zero_crossings(
+            points[index],
+            points[(index + 1) % len(points)],
+            values[index],
+            values[(index + 1) % len(points)],
+            implicit,
+        )
+        for index in range(len(points))
+    ]
+    if sum(len(items) for items in crossings) > 2:
+        return True
+    if any(len(items) > 1 for items in crossings):
+        return True
+    probes = _clip_probe_values(points, implicit)
+    if all(value >= 0.0 for value in values):
+        return any(value < 0.0 for value in probes)
+    if all(value < 0.0 for value in values):
+        return any(value >= 0.0 for value in probes)
+    return False
+
+
+def _subdivide_triangle(points):
+    a, b, c = points
+    ab = _mul2(_add2(a, b), 0.5)
+    bc = _mul2(_add2(b, c), 0.5)
+    ca = _mul2(_add2(c, a), 0.5)
+    return (
+        [a, ab, ca],
+        [ab, b, bc],
+        [ca, bc, c],
+        [ab, bc, ca],
+    )
+
+
+def _clip_triangle_components(
+    points,
+    implicit,
+    keep_eps,
+    tolerance,
+    depth,
+):
+    if depth <= 0 or not _clip_is_complex(points, implicit):
+        return _clip_single_polygon(points, implicit, keep_eps, tolerance)
+    result = []
+    for child in _subdivide_triangle(points):
+        result.extend(
+            _clip_triangle_components(
+                child,
+                implicit,
+                keep_eps,
+                tolerance,
+                depth - 1,
+            )
+        )
+    return result
+
+
+def _clip_polygon(points, implicit, keep_eps, tolerance):
+    """Оставляет все компоненты f ≥ 0, сохраняя простой legacy-path.
+
+    Обычный случай с одной boundary arc идёт через прежний clipper бит-в-бит.
+    При нескольких crossings или скрытой смене знака convex primitive
+    адаптивно триангулируется; каждый leaf возвращается отдельно, поэтому ни
+    одна disconnected component не теряется.
+    """
+
+    if not _clip_is_complex(points, implicit):
+        return _clip_single_polygon(points, implicit, keep_eps, tolerance)
+    if len(points) == 3:
+        triangles = [list(points)]
+    else:
+        triangles = [
+            [points[0], points[index], points[index + 1]]
+            for index in range(1, len(points) - 1)
+        ]
+    result = []
+    for triangle in triangles:
+        result.extend(
+            _clip_triangle_components(
+                triangle,
+                implicit,
+                keep_eps,
+                tolerance,
+                depth=8,
+            )
+        )
+    return result
 
 
 def _bbox_distance(bbox_a, bbox_b):
@@ -1170,8 +1284,11 @@ def _site_lat_sign(branch, side, normals, other_normals, span_start, surface, si
         normal_other = other_normals[segment]
         if normal_other.length_squared < 1e-12:
             # Boundary wing: у ребра одна owner surface, единственное крыло
-            # направлено внутрь patch (n × t, chain boundary-oriented).
+            # направлено внутрь patch. B хранит левую сторону n × t, A —
+            # правую; это позволяет канонизировать V без смены owner-side.
             wing3 = surface.normal.cross(direction3)
+            if side == "A":
+                wing3 = wing3 * -1.0
         elif normal_own.dot(normal_other) > DECAL_COPLANAR_DOT:
             # Копланарный шов: стороны разводим детерминированно.
             wing3 = surface.normal.cross(direction3)

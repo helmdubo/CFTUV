@@ -70,16 +70,15 @@ def _point_in_triangle2(point, triangle, tolerance):
     return min(signs) >= -tolerance or max(signs) <= tolerance
 
 
-def _triangulate_face(face, tolerance):
+def _triangulate_positions(positions, keys, normal, tolerance):
     """Ear clipping в dominant-проекции с сохранением source keys."""
 
-    if len(face.positions) < 3:
+    if len(positions) < 3:
         return []
-    normal = face.surface_normal
     if normal.length_squared < tolerance * tolerance:
         normal = Vector((0.0, 0.0, 1.0))
     axis = _drop_axis(normal)
-    points2 = [_project(point, axis) for point in face.positions]
+    points2 = [_project(point, axis) for point in positions]
     order = list(range(len(points2)))
     if _polygon_area2(points2) < 0.0:
         order.reverse()
@@ -104,8 +103,8 @@ def _triangulate_face(face, tolerance):
             indices = (previous, current, following)
             triangles.append(
                 (
-                    tuple(face.positions[index] for index in indices),
-                    tuple(face.vert_keys[index] for index in indices),
+                    tuple(positions[index] for index in indices),
+                    tuple(keys[index] for index in indices),
                 )
             )
             order.pop(offset)
@@ -116,11 +115,20 @@ def _triangulate_face(face, tolerance):
     if len(order) == 3:
         triangles.append(
             (
-                tuple(face.positions[index] for index in order),
-                tuple(face.vert_keys[index] for index in order),
+                tuple(positions[index] for index in order),
+                tuple(keys[index] for index in order),
             )
         )
     return triangles
+
+
+def _triangulate_face(face, tolerance):
+    return _triangulate_positions(
+        face.positions,
+        face.vert_keys,
+        face.surface_normal,
+        tolerance,
+    )
 
 
 def _clip_convex(subject, clip, tolerance):
@@ -297,15 +305,23 @@ def detect_network_overlaps(
     ]
     overlaps = []
     for index_a, face_a in enumerate(faces):
-        domain_a = domain_by_face.get(index_a)
-        if domain_a is None:
+        domains_a = domain_by_face.get(index_a)
+        if domains_a is None:
             continue
+        if not isinstance(domains_a, (set, frozenset, tuple, list)):
+            domains_a = (domains_a,)
+        domains_a = set(domains_a)
         for index_b in range(index_a + 1, len(faces)):
             face_b = faces[index_b]
             if face_a.surface_id == face_b.surface_id:
                 continue
-            domain_b = domain_by_face.get(index_b)
-            if domain_b is None or domain_a != domain_b:
+            domains_b = domain_by_face.get(index_b)
+            if domains_b is None:
+                continue
+            if not isinstance(domains_b, (set, frozenset, tuple, list)):
+                domains_b = (domains_b,)
+            common_domains = domains_a & set(domains_b)
+            if not common_domains:
                 continue
             area = 0.0
             crossing = 0.0
@@ -329,9 +345,58 @@ def detect_network_overlaps(
                     face_b=index_b,
                     surface_a=face_a.surface_id,
                     surface_b=face_b.surface_id,
-                    domain_id=domain_a,
+                    domain_id=min(common_domains),
                     area=area,
                     crossing_length=crossing,
                 )
             )
     return overlaps
+
+
+def map_faces_to_owner_domains(faces, domains, offset=0.0, tolerance=1e-6):
+    """Назначает lifted faces всем owner domains, которые они покрывают.
+
+    Сравнение выполняется только в offset-плоскости конкретной source face.
+    Один output face может пересекать несколько соседних domains, поэтому
+    mapping хранит множество IDs на индекс face.
+    """
+
+    faces = list(faces or ())
+    network_triangles = [
+        _triangulate_face(face, tolerance)
+        for face in faces
+    ]
+    result = {}
+    for domain in domains or ():
+        owner_triangles = []
+        for owner in domain.faces:
+            normal = owner.normal.normalized()
+            positions = [point + normal * offset for point in owner.points]
+            keys = [("owner", owner.face_index, index) for index in range(len(positions))]
+            owner_triangles.extend(
+                triangle
+                for triangle, _keys in _triangulate_positions(
+                    positions,
+                    keys,
+                    normal,
+                    tolerance,
+                )
+            )
+        if not owner_triangles:
+            continue
+        for face_index, face in enumerate(faces):
+            matched = False
+            for triangle, _keys in network_triangles[face_index]:
+                if matched:
+                    break
+                for owner_triangle in owner_triangles:
+                    if _coplanar_overlap_area(
+                        triangle,
+                        owner_triangle,
+                        tolerance,
+                    ) > tolerance * tolerance:
+                        matched = True
+                        break
+            if matched:
+                result.setdefault(face_index, set()).add(domain.domain_id)
+    return result

@@ -44,6 +44,12 @@ from .constants import (
     WORLD_UP,
 )
 from .decal_network import _corner_wing_directions, build_seam_network_faces
+from .decal_surface_domain import (
+    OwnerDomainEdge,
+    OwnerDomainFace,
+    OwnerFaceDomain,
+    build_overlap_gated_seam_faces,
+)
 from .model import ChainNeighborKind, ChainRef, DecalSettings, PatchGraph, PatchType
 
 DECAL_MODES = ("TOP", "BOTTOM", "CORNERS", "SEAMS")
@@ -765,6 +771,99 @@ def _collect_manual_edge_decals(graph: PatchGraph, edge_indices):
         _stitch_corner_runs(paired_segments),
         _group_boundary_runs(boundary_uses),
     )
+
+
+def _capture_owner_face_domains(source_obj, graph, edge_indices):
+    """Снимает patch-scoped face adjacency без сохранения BMesh refs."""
+
+    selected = {int(edge_index) for edge_index in edge_indices or ()}
+    if not selected:
+        return []
+    owns_bmesh = source_obj.mode != "EDIT"
+    if owns_bmesh:
+        source_bm = bmesh.new()
+        source_bm.from_mesh(source_obj.data)
+    else:
+        source_bm = bmesh.from_edit_mesh(source_obj.data)
+    try:
+        source_bm.verts.ensure_lookup_table()
+        source_bm.edges.ensure_lookup_table()
+        source_bm.faces.ensure_lookup_table()
+        source_bm.normal_update()
+        selected_edges = [
+            source_bm.edges[index]
+            for index in sorted(selected)
+            if 0 <= index < len(source_bm.edges)
+        ]
+        seed_faces = sorted(
+            {face for edge in selected_edges for face in edge.link_faces},
+            key=lambda face: face.index,
+        )
+        components = []
+        assigned = set()
+        for seed in seed_faces:
+            patch_id = graph.face_to_patch.get(seed.index)
+            if patch_id is None or seed.index in assigned:
+                continue
+            stack = [seed]
+            component = set()
+            while stack:
+                face = stack.pop()
+                if face in component:
+                    continue
+                if graph.face_to_patch.get(face.index) != patch_id:
+                    continue
+                component.add(face)
+                for edge in face.edges:
+                    if edge.index in selected or getattr(edge, "seam", False):
+                        continue
+                    for neighbor in edge.link_faces:
+                        if neighbor not in component:
+                            stack.append(neighbor)
+            if not component:
+                continue
+            assigned.update(face.index for face in component)
+            components.append((int(patch_id), component))
+
+        domains = []
+        for domain_id, (patch_id, component) in enumerate(components):
+            component_indices = {face.index for face in component}
+            source_edges = []
+            for edge in selected_edges:
+                for face in edge.link_faces:
+                    if face.index not in component_indices:
+                        continue
+                    source_edges.append(
+                        OwnerDomainEdge(
+                            edge_index=edge.index,
+                            vert_a=edge.verts[0].index,
+                            vert_b=edge.verts[1].index,
+                            face_index=face.index,
+                        )
+                    )
+            if not source_edges:
+                continue
+            faces = tuple(
+                OwnerDomainFace(
+                    face_index=face.index,
+                    vert_indices=tuple(vert.index for vert in face.verts),
+                    points=tuple(vert.co.copy() for vert in face.verts),
+                    normal=face.normal.copy(),
+                )
+                for face in sorted(component, key=lambda item: item.index)
+            )
+            domains.append(
+                OwnerFaceDomain(
+                    domain_id=domain_id,
+                    patch_id=patch_id,
+                    faces=faces,
+                    source_edges=tuple(source_edges),
+                )
+            )
+        return domains
+    finally:
+        if owns_bmesh:
+            source_bm.free()
 
 
 def _group_boundary_runs(boundary_uses):
@@ -2130,6 +2229,7 @@ def _fill_manual_chain_decals(
     chain_refs,
     mode="CORNERS",
     selected_edge_indices=None,
+    owner_face_domains=None,
 ):
     """Manual edge scope: exact physical edges with local owner-side frames."""
 
@@ -2148,12 +2248,26 @@ def _fill_manual_chain_decals(
         ):
             network_faces = None
             try:
-                # Boundary wings — полноправные односторонние сайты сети:
-                # divider с соседними seam chains возникает и без общей
-                # source-вершины, чисто из конкуренции расстояний.
-                network_faces = build_seam_network_faces(
-                    corner_runs + boundary_runs, settings.offset, width
-                )
+                runs = corner_runs + boundary_runs
+                if owner_face_domains:
+                    gated = build_overlap_gated_seam_faces(
+                        runs,
+                        owner_face_domains,
+                        settings.offset,
+                        width,
+                    )
+                    network_faces = gated.faces
+                    if gated.intrinsic_used:
+                        print(
+                            "[CFTUV][Decals] Patch-scoped intrinsic rebuild: "
+                            f"{len(gated.baseline_overlaps)} overlap pair(s), "
+                            f"{len(gated.chart_cuts)} chart cut(s)"
+                        )
+                else:
+                    # Без source-domain snapshot сохраняется accepted backend.
+                    network_faces = build_seam_network_faces(
+                        runs, settings.offset, width
+                    )
             except Exception as exc:  # непредвиденная геометрия — fallback
                 print(
                     "[CFTUV][Decals] Seam network backend failed "
@@ -2267,6 +2381,7 @@ def _fill_decal_bmesh(
     mode: str,
     chain_refs=None,
     selected_edge_indices=None,
+    owner_face_domains=None,
 ):
     if chain_refs is not None and mode in ("CORNERS", "SEAMS"):
         _fill_manual_chain_decals(
@@ -2276,6 +2391,7 @@ def _fill_decal_bmesh(
             chain_refs,
             mode=mode,
             selected_edge_indices=selected_edge_indices,
+            owner_face_domains=owner_face_domains,
         )
     elif mode in ("TOP", "BOTTOM"):
         top_runs, bottom_runs = _collect_trim_ribbon_runs(
@@ -2335,6 +2451,14 @@ def generate_decal_objects(
     if scene is None:
         scene = bpy.context.scene
 
+    owner_face_domains = None
+    if mode == "SEAMS" and selected_edge_indices is not None:
+        owner_face_domains = _capture_owner_face_domains(
+            source_obj,
+            graph,
+            selected_edge_indices,
+        )
+
     bm = bmesh.new()
     try:
         _fill_decal_bmesh(
@@ -2344,6 +2468,7 @@ def generate_decal_objects(
             mode,
             chain_refs=chain_refs,
             selected_edge_indices=selected_edge_indices,
+            owner_face_domains=owner_face_domains,
         )
     except Exception:
         bm.free()

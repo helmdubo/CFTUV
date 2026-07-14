@@ -244,3 +244,29 @@ Baseline fixture — две широкие seam-ленты на соседних
 уже закрытом conformal lift + shared rail. Близкие или даже пересекающиеся
 faces из разных topology domains также не сравниваются. Сам detector ничего не
 исправляет: его положительный fixture — oracle следующего patch-scoped среза.
+
+## Follow-up 7: overlap-gated patch domain
+
+Новый backend не заменяет accepted network глобально. Producer сначала снимает
+pure-data `OwnerFaceDomain`: `patch_id`, связные по реальной face adjacency
+owner faces и usages выбранных seam edges. Legacy faces строятся первыми и
+сопоставляются с domains в offset-плоскостях source faces. Если oracle ничего
+не нашёл, возвращаются те же legacy objects/keys/positions без пересборки.
+
+Только положительный cross-surface hit запускает intrinsic rebuild. Domain
+разворачивается по детерминированному spanning tree; несовпавшее non-tree
+adjacency регистрируется как `ChartCut`, а не обрушает всю поверхность в
+fallback. Selected/seam edges остаются barriers, соседние patch IDs никогда не
+слипаются по 3D близости. Противоположные owner sides используют канонический V,
+но occupied A/B сохраняется явно; shared source vertices и owner fold edges
+получают общие materialization keys.
+
+Implicit clipper теперь сохраняет прежний одноконтурный path для обычных
+случаев, но при нескольких crossings или скрытой смене знака адаптивно делит
+convex primitive и возвращает все retained polygons. Regression с двумя
+раздельными lobes проверяет обе компоненты и суммарную площадь.
+
+Oracle fixture: seam на floor и seam на соседней wall расширяются до общего
+fold. Narrow остаётся legacy, wide даёт один baseline crossing и переключается
+на intrinsic; после rebuild remaining overlap = 0. Headless capture + BMesh
+materialization проверены в Blender 4.1.1 и 4.3.2. Полный suite: 102 passed.
