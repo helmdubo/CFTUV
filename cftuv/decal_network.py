@@ -979,6 +979,20 @@ def _edge_zero_crossings(point_a, point_b, value_a, value_b, implicit):
     return crossings
 
 
+def _edge_can_cross(point_a, point_b, value_a, value_b):
+    """Консервативный gate для нулей distance-difference на ребре.
+
+    Расстояние до множества 1-Lipschitz, поэтому разность двух расстояний
+    2-Lipschitz. Если ноль существует на ребре длины L, обязательно
+    ``|f(a)| + |f(b)| <= 2L``. Обратное не гарантирует crossing, но позволяет
+    безопасно не запускать восьмиточечный поиск на заведомо далёких рёбрах.
+    """
+
+    if (value_a >= 0.0) != (value_b >= 0.0):
+        return True
+    return abs(value_a) + abs(value_b) <= 2.0 * _dist2(point_a, point_b)
+
+
 def _refine_chord(
     point_a, point_b, implicit, tolerance, depth=_CHORD_DEPTH, budget=None
 ):
@@ -1038,6 +1052,138 @@ def _refine_chord(
     )
 
 
+def _point_cache_key(point, digits=10):
+    return (round(point[0], digits), round(point[1], digits))
+
+
+def _dedupe_polygon_loop(points, digits=6):
+    """Убирает совпадающие соседние точки в точности materializer key.
+
+    Root search и canonical chord могут вернуть две точки с разницей порядка
+    1e-8. В 2D это разные float, но после quantization в ``('p', surface, x,
+    y)`` они становятся одной BMesh-вершиной и делают face невалидным.
+    Нормализуем loop до той же точности до построения topology.
+    """
+
+    deduped = []
+    keys = []
+    for point in points:
+        key = _point_cache_key(point, digits)
+        if keys and key == keys[-1]:
+            continue
+        deduped.append(point)
+        keys.append(key)
+    if len(keys) > 1 and keys[0] == keys[-1]:
+        deduped.pop()
+    return deduped
+
+
+def _split_repeated_polygon_loop(points):
+    """Разлагает touching loop по повторной вершине на простые контуры.
+
+    Повтор не удаляется вслепую: он означает, что граница ячейки пришла в
+    уже посещённый multi-site узел. Две дуги между одинаковыми ключами — это
+    две независимые boundary-компоненты. Такое разложение сохраняет обе, а
+    BMesh получает только loops без повторных вершин.
+    """
+
+    pending = [_dedupe_polygon_loop(points)]
+    simple = []
+    while pending:
+        polygon = pending.pop()
+        first_by_key = {}
+        split = None
+        for index, point in enumerate(polygon):
+            key = _point_cache_key(point, 6)
+            previous = first_by_key.get(key)
+            if previous is not None:
+                split = (previous, index)
+                break
+            first_by_key[key] = index
+        if split is None:
+            if len(polygon) >= 3 and abs(_polygon_area2(polygon)) >= 1e-12:
+                simple.append(polygon)
+            continue
+
+        first, second = split
+        candidates = (
+            polygon[first:second],
+            polygon[second:] + polygon[:first],
+        )
+        added = False
+        for candidate in candidates:
+            candidate = _dedupe_polygon_loop(candidate)
+            if len(candidate) < 3 or abs(_polygon_area2(candidate)) < 1e-12:
+                continue
+            pending.append(candidate)
+            added = True
+        if not added:
+            # Защита от численно вырожденного spur: сохраняем исходную
+            # область без повторной точки, вместо исчезновения всей face.
+            unique = []
+            seen = set()
+            for point in polygon:
+                key = _point_cache_key(point, 6)
+                if key in seen:
+                    continue
+                seen.add(key)
+                unique.append(point)
+            if len(unique) >= 3 and abs(_polygon_area2(unique)) >= 1e-12:
+                simple.append(unique)
+    return simple
+
+
+def _shared_refined_chord(
+    point_a,
+    point_b,
+    implicit,
+    tolerance,
+    depth,
+    curve_budget,
+    boundary_cache=None,
+    boundary_key=None,
+):
+    """Каноническая выборка одной zero-дуги для обеих сторон site-пары.
+
+    Направление polygon loop и знак owner-implicit не должны менять точки
+    общей границы. Концы сортируются в chart-space, refinement считается
+    canonical implicit-функцией пары и переиспользуется обратной стороной.
+    """
+
+    key_a = _point_cache_key(point_a)
+    key_b = _point_cache_key(point_b)
+    reverse = key_b < key_a
+    start, end = (point_b, point_a) if reverse else (point_a, point_b)
+    start_key, end_key = (key_b, key_a) if reverse else (key_a, key_b)
+    cache_key = None
+    if boundary_cache is not None and boundary_key is not None:
+        cache_key = (
+            boundary_key,
+            start_key,
+            end_key,
+            round(tolerance, 12),
+            depth,
+            curve_budget,
+        )
+        cached = boundary_cache.get(cache_key)
+        if cached is not None:
+            points = list(cached)
+            return list(reversed(points)) if reverse else points
+
+    budget = None if curve_budget is None else [curve_budget]
+    points = _refine_chord(
+        start,
+        end,
+        implicit,
+        tolerance,
+        depth,
+        budget,
+    )
+    if cache_key is not None:
+        boundary_cache[cache_key] = tuple(points)
+    return list(reversed(points)) if reverse else points
+
+
 def _clip_polygon(
     points,
     implicit,
@@ -1046,74 +1192,108 @@ def _clip_polygon(
     refine=True,
     curve_depth=_CHORD_DEPTH,
     curve_budget=None,
+    boundary_cache=None,
+    boundary_key=None,
+    boundary_implicit=None,
+    detect_hidden_crossings=True,
 ):
-    """Оставляет часть полигона с f ≥ 0 (криволинейная граница по профилю).
+    """Оставляет компоненты полигона с f ≥ 0.
 
-    Пересечения (топология, момент столкновения лент) находятся точно
-    всегда. refine/curve_tolerance/curve_depth/curve_budget управляют лишь
-    ЧИСЛОМ точек, вставляемых в уже найденную кривую биссектрисы:
-    refine=False (HARD/preview) — прямая хорда; иначе LOW/SMOOTH профиль.
+    Один convex band-face может быть пересечён кривой несколько раз и дать
+    несколько независимых компонент. Поэтому boundary сначала раскладывается
+    на inside-runs, и каждый run замыкается своей zero-дугой. Прежний единый
+    ``output`` склеивал такие компоненты в самопересекающийся ngon.
     """
 
     values = [implicit(point) for point in points]
-    if all(value >= -keep_eps for value in values):
-        return [points]
-    if all(value < -keep_eps for value in values):
-        return []
-
-    output = []  # (point, is_crossing, entering)
+    if not detect_hidden_crossings:
+        # Modal preview намеренно грубый: скрытая double-crossing линза будет
+        # восстановлена финальным rebuild, зато drag не платит за scan всех
+        # same-sign рёбер.
+        if all(value >= -keep_eps for value in values):
+            return [points]
+        if all(value < -keep_eps for value in values):
+            return []
+    nodes = []  # точки boundary после вставки всех crossings
+    crossing_count = 0
     count = len(points)
     for index in range(count):
         point_a = points[index]
         point_b = points[(index + 1) % count]
         value_a = values[index]
         value_b = values[(index + 1) % count]
-        if value_a >= -keep_eps:
-            output.append((point_a, False, False))
-        inside = value_a >= 0.0
-        for t in _edge_zero_crossings(
+        nodes.append((point_a, value_a, False))
+        if not _edge_can_cross(point_a, point_b, value_a, value_b):
+            continue
+        crossings = _edge_zero_crossings(
             point_a, point_b, value_a, value_b, implicit
-        ):
+        )
+        for t in crossings:
             crossing = _add2(point_a, _mul2(_sub2(point_b, point_a), t))
-            inside = not inside
-            output.append((crossing, True, inside))
-    if len(output) < 3:
+            nodes.append((crossing, 0.0, True))
+            crossing_count += 1
+
+    if crossing_count == 0:
+        # Консервативный edge-gate доказал отсутствие пересечений boundary.
+        # Для обычной Voronoi half-cell знак тогда однороден; keep_eps
+        # сохраняет прежнее поведение на почти tie-полигонах.
+        return [points] if all(value >= -keep_eps for value in values) else []
+
+    # Классифицируем каждый атомарный boundary-сегмент по midpoint. Это
+    # корректно и для двух crossings на одном исходном ребре.
+    total = len(nodes)
+    inside_edges = []
+    for index in range(total):
+        point_a = nodes[index][0]
+        point_b = nodes[(index + 1) % total][0]
+        midpoint = _mul2(_add2(point_a, point_b), 0.5)
+        inside_edges.append(implicit(midpoint) >= 0.0)
+
+    if all(inside_edges):
+        return [points]
+    if not any(inside_edges):
         return []
 
-    # Уточнение хорд между exit- и entry-crossing.
-    refined = []
-    total = len(output)
-    for index in range(total):
-        point, is_crossing, entering = output[index]
-        refined.append(point)
-        if not is_crossing or entering or not refine:
+    # Начинаем после гарантированно outside-сегмента, чтобы cyclic inside-run
+    # не разрезался на начало/конец списка.
+    start = next(index for index, inside in enumerate(inside_edges) if not inside)
+    components = []
+    index = (start + 1) % total
+    visited = 0
+    curve_implicit = boundary_implicit or implicit
+    while visited < total:
+        if not inside_edges[index]:
+            index = (index + 1) % total
+            visited += 1
             continue
-        next_point, next_is_crossing, next_entering = output[
-            (index + 1) % total
-        ]
-        if next_is_crossing and next_entering:
-            budget = None if curve_budget is None else [curve_budget]
-            refined.extend(
-                _refine_chord(
-                    point,
-                    next_point,
-                    implicit,
+
+        run = [nodes[index][0]]
+        while visited < total and inside_edges[index]:
+            run.append(nodes[(index + 1) % total][0])
+            index = (index + 1) % total
+            visited += 1
+
+        # Boundary run идёт entry -> exit. Замыкаем его общей zero-дугой
+        # exit -> entry, канонической для обеих сторон site-пары.
+        if refine:
+            run.extend(
+                _shared_refined_chord(
+                    run[-1],
+                    run[0],
+                    curve_implicit,
                     curve_tolerance,
                     curve_depth,
-                    budget,
+                    curve_budget,
+                    boundary_cache,
+                    boundary_key,
                 )
             )
 
-    deduped = []
-    for point in refined:
-        if deduped and _dist2(point, deduped[-1]) < 1e-9:
-            continue
-        deduped.append(point)
-    if len(deduped) > 2 and _dist2(deduped[0], deduped[-1]) < 1e-9:
-        deduped.pop()
-    if len(deduped) < 3:
-        return []
-    return [deduped]
+        deduped = _dedupe_polygon_loop(run)
+        if len(deduped) >= 3 and abs(_polygon_area2(deduped)) >= 1e-12:
+            components.append(deduped)
+
+    return components
 
 
 def _bbox_distance(bbox_a, bbox_b):
@@ -1126,6 +1306,154 @@ def _polygon_bbox2(points):
     xs = [point[0] for point in points]
     ys = [point[1] for point in points]
     return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _point_segment_projection2(point, point_a, point_b):
+    delta = _sub2(point_b, point_a)
+    length_sq = _dot2(delta, delta)
+    if length_sq < 1e-24:
+        return 0.0, _dist2(point, point_a)
+    param = _dot2(_sub2(point, point_a), delta) / length_sq
+    closest = _add2(point_a, _mul2(delta, param))
+    return param, _dist2(point, closest)
+
+
+def _synchronize_pair_boundaries(polygons_by_site, pairs, curve_tolerance):
+    """Вставляет общий набор zero-samples в обе стороны каждой site-пары.
+
+    Последовательный clip режет разные band-faces разными интервалами одной
+    биссектрисы. Даже при каноническом refinement один face может получить
+    дополнительную точку, а соседний — длинную хорду через тот же участок.
+    Здесь рассматриваются только рёбра, оба конца которых лежат на конкретной
+    pair-bisector; samples других пар/силуэтов принципиально не участвуют.
+    """
+
+    zero_eps = max(1e-9, curve_tolerance * 1e-7)
+    chord_eps = max(1e-9, curve_tolerance * 1.25)
+
+    for site_a, site_b in pairs:
+        polygons_a = polygons_by_site.get(site_a.site_id, ())
+        polygons_b = polygons_by_site.get(site_b.site_id, ())
+        if not polygons_a or not polygons_b:
+            continue
+
+        def pair_implicit(point):
+            return (
+                site_b.competition_distance(point)
+                - site_a.competition_distance(point)
+            )
+
+        samples = {}
+        for polygon in list(polygons_a) + list(polygons_b):
+            for point in polygon:
+                if abs(pair_implicit(point)) <= zero_eps:
+                    samples[_point_cache_key(point)] = point
+        if len(samples) < 3:
+            continue
+        sample_points = list(samples.values())
+
+        for site_id in (site_a.site_id, site_b.site_id):
+            polygons = polygons_by_site.get(site_id, ())
+            for polygon_index, polygon in enumerate(polygons):
+                polygon_keys = {_point_cache_key(point) for point in polygon}
+                rebuilt = []
+                count = len(polygon)
+                for edge_index, point_a in enumerate(polygon):
+                    point_b = polygon[(edge_index + 1) % count]
+                    rebuilt.append(point_a)
+                    if (
+                        abs(pair_implicit(point_a)) > zero_eps
+                        or abs(pair_implicit(point_b)) > zero_eps
+                    ):
+                        continue
+                    inserts = []
+                    for point in sample_points:
+                        point_key = _point_cache_key(point)
+                        if point_key in polygon_keys:
+                            continue
+                        param, distance = _point_segment_projection2(
+                            point, point_a, point_b
+                        )
+                        if 1e-7 < param < 1.0 - 1e-7 and distance <= chord_eps:
+                            inserts.append((param, point_key, point))
+                    inserts.sort(key=lambda item: (item[0], item[1]))
+                    for _param, point_key, point in inserts:
+                        if point_key in polygon_keys:
+                            continue
+                        rebuilt.append(point)
+                        polygon_keys.add(point_key)
+                polygons[polygon_index] = rebuilt
+
+
+def _normalize_surface_arrangement(polygons_by_site, sites, tolerance):
+    """Разбивает рёбра общей 2D-сети во всех уже существующих вершинах.
+
+    Это не post-healing готового BMesh: координаты и faces не удаляются и не
+    сдвигаются. Проход завершает planar arrangement до lift/UV/materialize.
+    Он нужен для вырожденных multi-site случаев, где вершина третьего site
+    точно попадает внутрь уже построенного pair-divider. Без split две
+    корректные pair-границы всё равно образуют T-junction на общем owner
+    surface.
+
+    ``polygon_keys`` запрещает вставлять вершину, которая уже встречается в
+    этом loop. Именно отсутствие этой защиты в старом final-only healer
+    создавало повтор BMesh-вершины и исчезающие faces.
+    """
+
+    sites_by_surface = {}
+    for site in sites:
+        polygons = polygons_by_site.get(site.site_id, ())
+        if polygons:
+            sites_by_surface.setdefault(site.surface_id, []).append(site)
+
+    point_eps = max(1e-9, tolerance)
+    for surface_sites in sites_by_surface.values():
+        samples = {}
+        for site in surface_sites:
+            for polygon in polygons_by_site.get(site.site_id, ()):
+                for point in polygon:
+                    samples.setdefault(_point_cache_key(point, 6), point)
+        if len(samples) < 3:
+            continue
+        sample_points = list(samples.items())
+
+        for site in surface_sites:
+            normalized = []
+            for polygon in polygons_by_site.get(site.site_id, ()):
+                rebuilt = []
+                count = len(polygon)
+                for edge_index, point_a in enumerate(polygon):
+                    point_b = polygon[(edge_index + 1) % count]
+                    key_a = _point_cache_key(point_a, 6)
+                    key_b = _point_cache_key(point_b, 6)
+                    rebuilt.append(point_a)
+                    min_x = min(point_a[0], point_b[0]) - point_eps
+                    max_x = max(point_a[0], point_b[0]) + point_eps
+                    min_y = min(point_a[1], point_b[1]) - point_eps
+                    max_y = max(point_a[1], point_b[1]) + point_eps
+                    inserts = []
+                    edge_keys = set()
+                    for point_key, point in sample_points:
+                        if point_key in (key_a, key_b) or point_key in edge_keys:
+                            continue
+                        if not (
+                            min_x <= point[0] <= max_x
+                            and min_y <= point[1] <= max_y
+                        ):
+                            continue
+                        param, distance = _point_segment_projection2(
+                            point, point_a, point_b
+                        )
+                        if (
+                            1e-7 < param < 1.0 - 1e-7
+                            and distance <= point_eps
+                        ):
+                            inserts.append((param, point_key, point))
+                            edge_keys.add(point_key)
+                    inserts.sort(key=lambda item: (item[0], item[1]))
+                    rebuilt.extend(point for _param, _key, point in inserts)
+                normalized.extend(_split_repeated_polygon_loop(rebuilt))
+            polygons_by_site[site.site_id] = normalized
 
 
 # ============================================================
@@ -1480,6 +1808,9 @@ def build_seam_network_faces(
     # если bbox P дальше этого от bbox C, C гарантированно не режет P и
     # клиппинг (со всеми вызовами implicit) пропускается.
     gate_margin = alpha * DECAL_CORNER_MITER_LIMIT
+    boundary_cache = {}
+    boundary_pairs = {}
+    polygons_by_site = {}
     for site in sites:
         competitors = [
             other
@@ -1489,14 +1820,29 @@ def build_seam_network_faces(
         ]
         polygons = _site_band_faces(site, alpha, curve)
         for competitor in competitors:
-            def implicit(q, _site=site, _competitor=competitor):
+            pair_a, pair_b = sorted(
+                (site, competitor), key=lambda candidate: candidate.site_id
+            )
+            pair_key = (
+                site.surface_id,
+                pair_a.site_id,
+                pair_b.site_id,
+            )
+            boundary_pairs[pair_key] = (pair_a, pair_b)
+
+            def pair_implicit(q, _pair_a=pair_a, _pair_b=pair_b):
                 # Метрическая разность (единицы длины): keep_eps в клиппере
                 # размерности длины, поэтому квадратичную разность здесь
                 # использовать нельзя. Скорость даёт быстрый scalar-кэш
                 # внутри competition_distance_sq, а не отмена sqrt (~2%).
-                return _competitor.competition_distance(
+                return _pair_b.competition_distance(
                     q
-                ) - _site.competition_distance(q)
+                ) - _pair_a.competition_distance(q)
+
+            owner_sign = 1.0 if site.site_id == pair_a.site_id else -1.0
+
+            def implicit(q, _owner_sign=owner_sign):
+                return pair_implicit(q) * _owner_sign
 
             competitor_bbox = competitor.bbox
             clipped = []
@@ -1516,11 +1862,32 @@ def build_seam_network_faces(
                         refine=clip_refine,
                         curve_depth=curve_depth,
                         curve_budget=curve_budget,
+                        boundary_cache=boundary_cache,
+                        boundary_key=pair_key,
+                        boundary_implicit=pair_implicit,
+                        detect_hidden_crossings=not preview,
                     )
                 )
             polygons = clipped
             if not polygons:
                 break
+        polygons_by_site[site.site_id] = polygons
+
+    if not preview:
+        _synchronize_pair_boundaries(
+            polygons_by_site,
+            boundary_pairs.values(),
+            curve_tolerance,
+        )
+        _normalize_surface_arrangement(
+            polygons_by_site,
+            sites,
+            DECAL_WELD_DISTANCE * 1e-4,
+        )
+
+    # --- lift + UV после общей 2D arrangement ---
+    for site in sites:
+        polygons = polygons_by_site.get(site.site_id, ())
         surface = registry.surfaces[site.surface_id]
         side_sign_uv = -1.0 if site.side == "A" else 1.0
         rail_overrides = {}

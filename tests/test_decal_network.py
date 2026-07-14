@@ -1197,6 +1197,236 @@ class TestCurveProfile:
         )
 
 
+# ============================================================
+# Verification harness — свойства, которые пропускали прежние тесты и
+# из-за чего регрессия (исчезновение faces) не ловилась: валидность loop,
+# симуляция BMesh-материализации, T-стыки, площадь.
+# ============================================================
+
+
+def _face_has_repeated_key(face):
+    return len(set(face.vert_keys)) != len(face.vert_keys)
+
+
+def _materialization_drops(faces):
+    """Сколько faces исчезло бы в `_materialize_network_faces`.
+
+    Материализатор дедуплицирует вершины по ключу; если после этого в loop
+    < 3 уникальных вершин — face не создаётся. Именно так молча пропадала
+    геометрия у сломанного healer'а.
+    """
+
+    dropped = 0
+    for face in faces:
+        unique = []
+        seen = set()
+        for key in face.vert_keys:
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(key)
+        if len(unique) < 3:
+            dropped += 1
+    return dropped
+
+
+def _segments_properly_cross(p1, p2, p3, p4):
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    d1, d2 = cross(p3, p4, p1), cross(p3, p4, p2)
+    d3, d4 = cross(p1, p2, p3), cross(p1, p2, p4)
+    return (
+        (d1 > 1e-9) != (d2 > 1e-9)
+        and (d3 > 1e-9) != (d4 > 1e-9)
+        and min(abs(d1), abs(d2), abs(d3), abs(d4)) > 1e-9
+    )
+
+
+def _face_self_intersects(face):
+    pts = [(p.x, p.y, p.z) for p in face.positions]
+    n = len(pts)
+    for i in range(n):
+        for j in range(i + 2, n):
+            if i == 0 and j == n - 1:
+                continue
+            if _segments_properly_cross(
+                pts[i], pts[(i + 1) % n], pts[j], pts[(j + 1) % n]
+            ):
+                return True
+    return False
+
+
+def _face_area(face):
+    pts = face.positions
+    if len(pts) < 3:
+        return 0.0
+    accum = Vector((0.0, 0.0, 0.0))
+    for i in range(1, len(pts) - 1):
+        accum = accum + (pts[i] - pts[0]).cross(pts[i + 1] - pts[0])
+    return accum.length * 0.5
+
+
+def _count_t_junctions(faces, tolerance=1e-3):
+    def key(position):
+        return (round(position.x, 4), round(position.y, 4), round(position.z, 4))
+
+    all_verts = {key(p) for face in faces for p in face.positions}
+    count = 0
+    for face in faces:
+        verts = [key(p) for p in face.positions]
+        for i in range(len(verts)):
+            a = Vector(verts[i])
+            b = Vector(verts[(i + 1) % len(verts)])
+            edge = b - a
+            length_sq = edge.dot(edge)
+            if length_sq < 1e-12:
+                continue
+            for w in all_verts:
+                if w in (verts[i], verts[(i + 1) % len(verts)]):
+                    continue
+                wv = Vector(w)
+                t = (wv - a).dot(edge) / length_sq
+                if 1e-3 < t < 1 - 1e-3 and (wv - (a + edge * t)).length < tolerance:
+                    count += 1
+    return count
+
+
+def _assert_no_vanishing(faces):
+    """Ни одна face не привела бы к тихому drop в BMesh-материализации.
+
+    Проверяет ровно причины исчезновения: повтор вершины в loop (→
+    `bmesh.faces.new` ValueError) и вырождение (< 3 уникальных / нулевая
+    площадь). Самопересечение (bowtie) сюда НЕ входит: bmesh создаёт такую
+    face без ошибки, она не исчезает — это отдельный вопрос качества.
+    """
+
+    for face in faces:
+        assert not _face_has_repeated_key(face), face.vert_keys
+        assert _face_area(face) > 1e-9
+    assert _materialization_drops(faces) == 0
+
+
+class TestArrangementValidity:
+    """Инварианты materialization-safety на перекрывающихся сайтах.
+
+    Ловят класс регрессий, который прошлые тесты пропускали: невалидные
+    loop → `bmesh.faces.new` ValueError → молчаливое исчезновение faces.
+    """
+
+    def _perpendicular(self, width):
+        straight = _make_run([0, 1], [(-1, 0, 0), (2, 0, 0)])
+        turning = _make_run(
+            [2, 3, 4],
+            [(0.5, 1.2, 0), (0.5, 0.28, 0), (1.4, 0.28, 0)],
+            edge_start=10,
+        )
+        return build_seam_network_faces(
+            [straight, turning], offset=0.0, width=width
+        )
+
+    def _fold_corner(self, width):
+        from cftuv.decals import _stitch_corner_runs
+
+        vert = _make_run([0, 1], [(0, 0, 1), (0, 0, 0)], (0, -1, 0), (-1, 0, 0))
+        ledge = _make_run(
+            [0, 2], [(0, 0, 0), (1, 0, 0)], (0, 0, 1), (0, -1, 0), edge_start=10
+        )
+        floor = _make_run(
+            [0, 3], [(0, 0, 0), (0, 1, 0)], (0, 0, 1), (-1, 0, 0), edge_start=20
+        )
+        return build_seam_network_faces(
+            _stitch_corner_runs([vert, ledge, floor]), offset=0.0, width=width
+        )
+
+    def _dense_comb(self, width):
+        runs = []
+        edge = 0
+        segs = 24
+        arc = [
+            (cos(i * 0.06) * 3.0, sin(i * 0.06) * 3.0, 0.0)
+            for i in range(segs + 1)
+        ]
+        runs.append(_make_run(list(range(segs + 1)), arc, edge_start=edge))
+        edge += segs
+        vid = 1000
+        for s in range(8):
+            base = 2 * s + 1
+            stem = [
+                (
+                    cos(base * 0.06) * (3.0 - 0.25 * k),
+                    sin(base * 0.06) * (3.0 - 0.25 * k),
+                    0.0,
+                )
+                for k in range(4)
+            ]
+            runs.append(
+                _make_run(
+                    [base] + [vid + s * 10 + k for k in range(3)],
+                    stem,
+                    edge_start=edge,
+                )
+            )
+            edge += 3
+        return build_seam_network_faces(runs, offset=0.02, width=width)
+
+    def test_no_faces_vanish_on_overlap(self):
+        # Ни один из кейсов (в т.ч. плотный многосторонний) не производит
+        # face, которая молча исчезнет при материализации. Это тот класс
+        # регрессий, который дал «исчезающую геометрию у стыка».
+        for width in (0.3, 0.5, 0.7, 0.9):
+            _assert_no_vanishing(self._perpendicular(width))
+        for width in (0.2, 0.4, 0.7):
+            _assert_no_vanishing(self._fold_corner(width))
+        for width in (0.3, 0.6):
+            _assert_no_vanishing(self._dense_comb(width))
+
+    def test_shared_boundary_watertight_on_screenshot_cases(self):
+        # Перпендикулярное наложение и fold-угол (кейс со скрина): общая
+        # граница без T-стыков и без bowtie — обе стороны получают
+        # одинаковые вершины.
+        for faces in (
+            [self._perpendicular(w) for w in (0.3, 0.5, 0.7, 0.9)]
+            + [self._fold_corner(w) for w in (0.2, 0.4, 0.7)]
+        ):
+            assert _count_t_junctions(faces) == 0
+            assert not any(_face_self_intersects(face) for face in faces)
+
+    def test_overlap_area_has_no_double_coverage(self):
+        # Обе стороны реально обрезаны: суммарная площадь меньше наивной
+        # (band1 + band2), т.е. область наложения не покрыта дважды.
+        faces = self._perpendicular(0.5)
+        total = sum(_face_area(face) for face in faces)
+        # Две полосы шириной 0.5: наивная сумма ~ 3*0.5 + ~1.4*0.5 ≈ 2.2.
+        # Корректная partition убирает overlap → строго меньше.
+        assert total < 2.2
+
+    def test_site_order_invariant(self):
+        straight = _make_run([0, 1], [(-1, 0, 0), (2, 0, 0)])
+        turning = _make_run(
+            [2, 3, 4],
+            [(0.5, 1.2, 0), (0.5, 0.28, 0), (1.4, 0.28, 0)],
+            edge_start=10,
+        )
+
+        def signature(faces):
+            return sorted(
+                tuple(
+                    sorted(
+                        (round(p.x, 4), round(p.y, 4), round(p.z, 4))
+                        for p in face.positions
+                    )
+                )
+                for face in faces
+            )
+
+        assert signature(
+            build_seam_network_faces([straight, turning], 0.0, 0.5)
+        ) == signature(
+            build_seam_network_faces([turning, straight], 0.0, 0.5)
+        )
+
+
 class TestSettings:
     def test_network_backend_enabled_by_default(self):
         assert DecalSettings().seam_network is True
