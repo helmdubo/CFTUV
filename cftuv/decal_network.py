@@ -511,13 +511,18 @@ class _Site:
         xs = [p[0] for p in self.pts2]
         ys = [p[1] for p in self.pts2]
         self.bbox = (min(xs), min(ys), max(xs), max(ys))
+        self._build_segment_cache()
 
-    # -------- расстояния --------
+    def _build_segment_cache(self):
+        """Плоские записи (ax, ay, dx, dy, inv_len_sq) со стянутыми концами.
 
-    def competition_distance(self, q):
-        """Расстояние до spine со стянутыми junction-концами (tie-break)."""
+        Считаются один раз на генерацию и переиспользуются миллионами
+        squared-distance запросов клиппинга — без создания tuple и без sqrt
+        в горячем цикле. Retraction junction-концов встроена в записи,
+        точно как в прежнем inline-варианте.
+        """
 
-        best = None
+        segments = []
         last = len(self.pts2) - 1
         for index in range(last):
             seg_a = self.pts2[index]
@@ -530,10 +535,48 @@ class _Site:
                 direction = _norm2(_sub2(seg_a, seg_b))
                 if direction is not None:
                     seg_b = _add2(seg_b, _mul2(direction, self.retract_end))
-            distance, _t = _segment_point_distance2(seg_a, seg_b, q)
-            if best is None or distance < best:
-                best = distance
-        return best if best is not None else float("inf")
+            ax, ay = seg_a
+            dx = seg_b[0] - ax
+            dy = seg_b[1] - ay
+            length_sq = dx * dx + dy * dy
+            inv = 1.0 / length_sq if length_sq > 1e-24 else 0.0
+            segments.append((ax, ay, dx, dy, inv))
+        self._segments = segments
+
+    # -------- расстояния --------
+
+    def competition_distance_sq(self, q):
+        """Квадрат расстояния до spine со стянутыми junction-концами.
+
+        Клиппингу нужен только знак `d_other − d_own`; знак совпадает со
+        знаком `d²_other − d²_own` (обе ≥ 0), а точка равенства та же.
+        Поэтому весь клип ведётся в квадратах — без sqrt, результат тот же.
+        """
+
+        qx, qy = q
+        best = float("inf")
+        for ax, ay, dx, dy, inv in self._segments:
+            rx = qx - ax
+            ry = qy - ay
+            if inv == 0.0:
+                dist_sq = rx * rx + ry * ry
+            else:
+                t = (rx * dx + ry * dy) * inv
+                if t < 0.0:
+                    t = 0.0
+                elif t > 1.0:
+                    t = 1.0
+                ex = rx - dx * t
+                ey = ry - dy * t
+                dist_sq = ex * ex + ey * ey
+            if dist_sq < best:
+                best = dist_sq
+        return best
+
+    def competition_distance(self, q):
+        """Метрическое расстояние до spine (sqrt квадратичного варианта)."""
+
+        return sqrt(self.competition_distance_sq(q))
 
     def uv(self, q, alpha):
         """(u_occupied ∈ [0..1], v в мировых единицах) в frame собственной ветви.
@@ -1338,9 +1381,11 @@ def build_seam_network_faces(
         polygons = _site_band_faces(site, alpha, arc_tolerance)
         for competitor in competitors:
             def implicit(q, _site=site, _competitor=competitor):
-                return _competitor.competition_distance(
+                # Квадраты расстояний: знак и точка пересечения те же, что
+                # у метрических, но без sqrt в горячем цикле клиппинга.
+                return _competitor.competition_distance_sq(
                     q
-                ) - _site.competition_distance(q)
+                ) - _site.competition_distance_sq(q)
 
             competitor_bbox = competitor.bbox
             clipped = []

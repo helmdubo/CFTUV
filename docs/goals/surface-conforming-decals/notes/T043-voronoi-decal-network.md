@@ -231,9 +231,22 @@ overhead > экономия на коротких полилиниях). Реа�
   на подтверждении (LMB/Enter) перегенерирует последний размер с
   preview=False (полная точность). ESC восстанавливает базовую геометрию.
 
-Итого для drag на крупных сетях ≈ до 2.9×. Дальнейший рычаг (когда/если
-понадобится) — numpy-батч клиппинга (numpy бандлится Blender), тесты
-`TestPerformancePreview` + `test_seam_modal_confirm_rebuilds_last_drag_at_full_precision`.
+Итого для drag на крупных сетях ≈ до 2.9×. Тесты `TestPerformancePreview` +
+`test_seam_modal_confirm_rebuilds_last_drag_at_full_precision`.
+
+Дополнительно — squared-distance kernel клиппинга. Клипу нужен только знак
+`d_other − d_own`; он совпадает со знаком `d²_other − d²_own` (обе ≥ 0), а
+точка равенства та же. Поэтому `implicit` ведётся в квадратах расстояний:
+`competition_distance_sq` считает скалярной арифметикой по предвычисленным
+плоским записям сегментов (`ax, ay, dx, dy, inv_len_sq`, retraction
+встроена), без создания tuple и без единого `sqrt` в горячем цикле.
+Результат бит-идентичен (min² = (min)² монотонно). Замер: ~4× сверху
+гейта (SEGS=40: 1266 → 293 ms; кумулятивно от исходного ~1700 → 293 ms,
+≈6×). Относительный допуск bisection (1e-12 → weld) отклонён: выигрыш
+~1.2× не оправдал сдвига пересечений в precision-чувствительных
+dynamic-topology тестах. Следующий рычаг при необходимости — numpy-батч
+`competition_distance_sq` (numpy бандлится Blender) или partition-cache для
+drag (требует ширино-независимого junction-retract).
 
 Известные приближения относительно полноценного planar arrangement (по
 ревью — честные tradeoffs, а не ошибки): двойные пересечения ребра ловятся
