@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from math import cos, pi, sin
 from random import Random
+from types import SimpleNamespace
 
 from mathutils import Vector
 
@@ -12,6 +13,7 @@ from cftuv.decal_network import (
     _candidate_competitors,
     _lift_position,
     _merge_junction_continuations,
+    _normalize_surface_arrangement,
     _branch_from_run,
     build_seam_network_faces,
     compile_seam_network_plan,
@@ -1876,6 +1878,29 @@ class TestArrangementValidity:
             reflected_counts[(round(2.0 - x, 5), y)] += count
         assert position_counts == reflected_counts
         _assert_no_vanishing(faces)
+
+    def test_arrangement_split_matches_six_digit_vertex_keys(self):
+        # Реальный широкий portal-кейс даёт общие boundary samples с
+        # расхождением до 8.9e-7. Это меньше одного шага принятой 6-digit
+        # quantization, поэтому arrangement обязана разбить соседнее ребро
+        # в этой точке, а не оставить T-junction между соседними cells.
+        sample = (0.00000089, 0.5)
+        polygons_by_site = {
+            0: [[(-1.0, 0.0), sample, (-1.0, 1.0)]],
+            1: [[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]],
+        }
+        sites = [
+            SimpleNamespace(site_id=0, surface_id=0),
+            SimpleNamespace(site_id=1, surface_id=0),
+        ]
+
+        _normalize_surface_arrangement(
+            polygons_by_site,
+            sites,
+            1e-6,
+        )
+
+        assert sample in polygons_by_site[1][0]
 
     def test_site_order_invariant(self):
         straight = _make_run([0, 1], [(-1, 0, 0), (2, 0, 0)])

@@ -434,6 +434,12 @@ class _SurfaceRegistry:
 _DISTANCE_INDEX_MIN_SEGMENTS = 40
 _DISTANCE_INDEX_LEAF_SIZE = 6
 
+# Arrangement хранит shared 2D keys с округлением до 6 знаков. Допуск split
+# обязан покрывать полный шаг этой сетки: иначе две численно эквивалентные
+# boundary-точки могут попасть в соседние quantization cells, вершина одной
+# face не вставится в ребро другой и materialize оставит точный T-junction.
+_ARRANGEMENT_POINT_TOLERANCE = 1e-6
+
 
 def _build_segment_distance_index(segments):
     """Строит компактный exact BVH над 2D segment records сайта.
@@ -2369,13 +2375,13 @@ def evaluate_seam_network_plan(
         _normalize_surface_arrangement(
             polygons_by_site,
             sites,
-            DECAL_WELD_DISTANCE * 1e-4,
+            _ARRANGEMENT_POINT_TOLERANCE,
         )
         _simplify_collinear_surface_arrangement(
             polygons_by_site,
             sites,
             station_keys,
-            DECAL_WELD_DISTANCE * 1e-4,
+            _ARRANGEMENT_POINT_TOLERANCE,
         )
 
     # --- lift + UV после общей 2D arrangement ---

@@ -485,6 +485,28 @@ samples, зеркальное равенство полного vertex multiset 
 vanishing faces. Modal preview не платит за этот проход; он выполняется
 только для подтверждённой final arrangement. Полный suite: `118 passed`.
 
+## Follow-up 16: arrangement tolerance соответствует shared keys
+
+На production-сцене `testscene.blend` (148 selected seam edges, 218 sites,
+21 owner surfaces) экстремальная ширина `8.6978` оставляла пять точных
+T-разрывов в готовом BMesh. Диагностика до materialize нашла восемь
+несинхронизированных попаданий vertex-on-edge; во всех случаях обе стороны
+имели одинаковый `surface_id`, а численная дистанция составляла
+`1.8e-7..8.9e-7`.
+
+Причина — разные численные контракты одного arrangement: shared vertex keys
+квантуются до 6 знаков, но геометрический split использовал допуск `1e-7`.
+Численно эквивалентные точки могли попасть в соседние quantization cells и
+не вставлялись в ребро соседней face. Final normalization и collinear
+simplify теперь используют общий допуск `1e-6`, равный шагу key
+quantization.
+
+Повторный Blender 4.3.2 oracle на той же сети: `339` network faces,
+финальный welded BMesh `514/954/338`, точных T-разрывов `0`. Одна
+микроскопическая face размером меньше weld radius штатно схлопывается при
+`remove_doubles`; это не потеря видимой области. Полный suite:
+`119 passed`.
+
 ## Ограничения
 
 - Кривые поверхности группируются по планарным патчам
@@ -494,7 +516,7 @@ vanishing faces. Modal preview не платит за этот проход; о�
   analysis-контракта: face-strip вдоль chain).
 - Кривые биссектрисы (точка-против-сегмента) полилинизируются с допуском
   sagitta = `DECAL_WELD_DISTANCE`; на прямых биссектрисах (все junction
-  cases) хорды точны. T-вершины вдоль общей прямой границы возможны, но
-  коллинеарны и невидимы.
+  cases) хорды точны. Final arrangement вставляет общий набор T-samples в
+  обе соседние стороны до lift/materialize.
 - Кольцо со сменой поверхностей получает служебный разрез на wrap-станции
   (UV-шов там же, где у legacy).
