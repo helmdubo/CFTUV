@@ -1688,6 +1688,82 @@ def _normalize_surface_arrangement(polygons_by_site, sites, tolerance):
             polygons_by_site[site.site_id] = normalized
 
 
+def _simplify_collinear_surface_arrangement(
+    polygons_by_site,
+    sites,
+    station_keys,
+    tolerance,
+):
+    """Удаляет общий degree-2 sample с прямой сразу из всех faces.
+
+    Wide overlap может оставить у одного pair-divider короткий sliver:
+    source station → лишний zero-sample → следующий sample, хотя все три
+    точки лежат на одной прямой. Локальный dissolve одной face создал бы
+    T-junction, поэтому решение принимается по полной planar arrangement.
+
+    Вершина удалима, только если у неё ровно два уникальных глобальных
+    соседа, она лежит между ними и не является source station. Изгибы
+    биссектрис, junctions и structural stations принципиально сохраняются.
+    """
+
+    sites_by_surface = {}
+    for site in sites:
+        if polygons_by_site.get(site.site_id):
+            sites_by_surface.setdefault(site.surface_id, []).append(site)
+
+    for surface_id, surface_sites in sites_by_surface.items():
+        points_by_key = {}
+        neighbors_by_key = {}
+        for site in surface_sites:
+            for polygon in polygons_by_site.get(site.site_id, ()):
+                count = len(polygon)
+                for index, point in enumerate(polygon):
+                    key = _point_cache_key(point, 6)
+                    prev_key = _point_cache_key(
+                        polygon[index - 1], 6
+                    )
+                    next_key = _point_cache_key(
+                        polygon[(index + 1) % count], 6
+                    )
+                    points_by_key.setdefault(key, point)
+                    neighbors = neighbors_by_key.setdefault(key, set())
+                    if prev_key != key:
+                        neighbors.add(prev_key)
+                    if next_key != key:
+                        neighbors.add(next_key)
+
+        removable = set()
+        for key, neighbors in neighbors_by_key.items():
+            if len(neighbors) != 2:
+                continue
+            if (surface_id, key[0], key[1]) in station_keys:
+                continue
+            neighbor_keys = tuple(neighbors)
+            point_a = points_by_key.get(neighbor_keys[0])
+            point_b = points_by_key.get(neighbor_keys[1])
+            point = points_by_key.get(key)
+            if point_a is None or point_b is None or point is None:
+                continue
+            param, distance = _point_segment_projection2(
+                point, point_a, point_b
+            )
+            if 1e-7 < param < 1.0 - 1e-7 and distance <= tolerance:
+                removable.add(key)
+
+        if not removable:
+            continue
+        for site in surface_sites:
+            simplified = []
+            for polygon in polygons_by_site.get(site.site_id, ()):
+                rebuilt = [
+                    point
+                    for point in polygon
+                    if _point_cache_key(point, 6) not in removable
+                ]
+                simplified.extend(_split_repeated_polygon_loop(rebuilt))
+            polygons_by_site[site.site_id] = simplified
+
+
 # ============================================================
 # Сборка сети
 # ============================================================
@@ -2293,6 +2369,12 @@ def evaluate_seam_network_plan(
         _normalize_surface_arrangement(
             polygons_by_site,
             sites,
+            DECAL_WELD_DISTANCE * 1e-4,
+        )
+        _simplify_collinear_surface_arrangement(
+            polygons_by_site,
+            sites,
+            station_keys,
             DECAL_WELD_DISTANCE * 1e-4,
         )
 

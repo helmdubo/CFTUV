@@ -465,6 +465,26 @@ roots предыдущий path ~362 ms → ~272 ms (`1.33×` за срез, `2.
 эталонной стороны. Это отдельная проблема symmetric arrangement после
 исчезновения компоненты; оптимизационный срез её намеренно не маскирует.
 
+## Follow-up 15: symmetric engulfed-boundary simplification
+
+Экстремально широкий planar U/portal воспроизвёл визуальную асимметрию:
+последовательный clip оставлял у одного угла короткий коллинеарный sliver
+`source station → zero sample → divider`, тогда как зеркальный угол уже
+схлопывался в station. При width `20` лишняя вершина находилась примерно в
+`0.0093` от station — дальше final weld `0.001` — и оставалась отдельной.
+
+После pair synchronization и surface normalization final arrangement
+теперь выполняет глобальный degree-2 simplify. Sample удаляется сразу из
+всех faces поверхности, только если у него ровно два уникальных соседа,
+он строго лежит между ними на одной прямой и не является source station.
+Поэтому dissolve не создаёт T-junction: реальные изгибы bisector,
+junctions и structural stations сохраняются.
+
+Regression на width `20` проверяет отсутствие unweldable near-station
+samples, зеркальное равенство полного vertex multiset U-контура и отсутствие
+vanishing faces. Modal preview не платит за этот проход; он выполняется
+только для подтверждённой final arrangement. Полный suite: `118 passed`.
+
 ## Ограничения
 
 - Кривые поверхности группируются по планарным патчам

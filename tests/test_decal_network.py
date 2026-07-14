@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections import Counter
 from math import cos, pi, sin
 from random import Random
 
 from mathutils import Vector
 
+from cftuv.constants import DECAL_WELD_DISTANCE
 from cftuv.decal_network import (
     _Site,
     _candidate_competitors,
@@ -1824,6 +1826,56 @@ class TestArrangementValidity:
         # Две полосы шириной 0.5: наивная сумма ~ 3*0.5 + ~1.4*0.5 ≈ 2.2.
         # Корректная partition убирает overlap → строго меньше.
         assert total < 2.2
+
+    def test_extreme_width_collinear_sliver_is_removed(self):
+        # Portal/U-case со скрина: width многократно больше проёма.
+        # Последовательный clip оставлял на одном углу коллинеарную
+        # collision-вершину в 0.009 от station, а на симметричном — уже
+        # схлопнутую в пределах weld. Arrangement должен удалить такой
+        # degree-2 sliver глобально из обеих соседних faces.
+        runs = [
+            _make_run([0, 1], [(0, 0, 0), (0, 2, 0)]),
+            _make_run(
+                [1, 2], [(0, 2, 0), (2, 2, 0)], edge_start=10
+            ),
+            _make_run(
+                [2, 3], [(2, 2, 0), (2, 0, 0)], edge_start=20
+            ),
+        ]
+        stations = [
+            Vector((0, 0, 0)),
+            Vector((0, 2, 0)),
+            Vector((2, 2, 0)),
+            Vector((2, 0, 0)),
+        ]
+        faces = build_seam_network_faces(
+            runs, offset=0.0, width=20.0
+        )
+
+        nearby_collision_distances = []
+        for face in faces:
+            for key, position in zip(face.vert_keys, face.positions):
+                if key[0] == "sv":
+                    continue
+                distance = min(
+                    (position - station).length for station in stations
+                )
+                if distance < 0.05:
+                    nearby_collision_distances.append(distance)
+        assert all(
+            distance < DECAL_WELD_DISTANCE
+            for distance in nearby_collision_distances
+        )
+        position_counts = Counter(
+            (round(position.x, 5), round(position.y, 5))
+            for face in faces
+            for position in face.positions
+        )
+        reflected_counts = Counter()
+        for (x, y), count in position_counts.items():
+            reflected_counts[(round(2.0 - x, 5), y)] += count
+        assert position_counts == reflected_counts
+        _assert_no_vanishing(faces)
 
     def test_site_order_invariant(self):
         straight = _make_run([0, 1], [(-1, 0, 0), (2, 0, 0)])
