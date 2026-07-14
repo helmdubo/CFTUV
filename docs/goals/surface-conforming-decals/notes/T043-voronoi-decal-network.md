@@ -438,6 +438,33 @@ Blender 4.3.2, тот же плотный benchmark: предыдущий produc
 reference ~706 ms → ~367 ms (`1.92×`). На среднем arc-comb: ~91.9 ms →
 ~85.1 ms. Полный suite: `115 passed`.
 
+## Follow-up 14: face-local clip bound + preview roots
+
+Каждый исходный band-face теперь несёт строгую верхнюю границу расстояния
+до owner spine. Для segment quad она считается до конкретного
+spine-сегмента, для station fan — до центральной spine-вершины. Distance
+до выпуклого segment/point — convex, поэтому максимум на вершинах face;
+любой clipped component наследует тот же безопасный bound. Competitor,
+чей spine bbox дальше bound, не может выиграть Voronoi comparison и не
+вызывает `_clip_polygon`.
+
+На modal preview crossing bisection останавливается при t-допуске `1e-6`
+вместо финального `1e-12`. На проверенном плотном кейсе максимальная ошибка
+3D-позиции ~`3.4e-7`, значительно ниже `DECAL_WELD_DISTANCE = 0.001`, а
+после штатного final weld BMesh topology совпала (`344/633/272`). Confirm
+rebuild (`preview=False`) всегда использует прежнюю точность `1e-12` и
+бит-в-бит не изменён.
+
+Blender 4.3.2: face-local gate убрал ~57% вызовов clip; вместе с preview
+roots предыдущий path ~362 ms → ~272 ms (`1.33×` за срез, `2.59×` против
+исходного линейного reference на том же benchmark). Полный suite:
+`117 passed`.
+
+Известный correctness follow-up: при экстремально широкой декали полностью
+поглощённая same-surface сторона может не получить часть boundary samples
+эталонной стороны. Это отдельная проблема symmetric arrangement после
+исчезновения компоненты; оптимизационный срез её намеренно не маскирует.
+
 ## Ограничения
 
 - Кривые поверхности группируются по планарным патчам

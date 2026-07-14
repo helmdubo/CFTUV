@@ -991,10 +991,14 @@ def _junction_cap_outer(
 
 
 def _site_band_faces(site, alpha, curve):
-    """2D faces half-cell до клиппинга: quads сегментов + fans станций/caps.
+    """2D faces + строгий owner-distance bound до клиппинга.
 
     curve = (style, tolerance, budget) — профиль детализации дуг round-join
-    и junction cap (см. `_profile_arc`).
+    и junction cap (см. `_profile_arc`). Каждый элемент —
+    ``(polygon, owner_upper)``. Quad ограничен своим spine-сегментом,
+    station fan — центральной spine-вершиной; выпуклость distance-функции
+    гарантирует максимум на вершинах исходного face. Любой последующий
+    clipped component является подмножеством и наследует тот же bound.
     """
 
     pts = site.pts2
@@ -1072,16 +1076,26 @@ def _site_band_faces(site, alpha, curve):
             outer[index + 1][0],
             outer[index][-1],
         ]
-        faces.append(quad)
+        owner_upper = max(
+            _segment_point_distance2(
+                pts[index], pts[index + 1], point
+            )[0]
+            for point in quad
+        )
+        faces.append((quad, owner_upper))
     station_range = (
         range(count - 1) if site.closed else range(count)
     )
     for index in station_range:
         points = outer[index]
         for arc_index in range(len(points) - 1):
-            faces.append(
-                [pts[index], points[arc_index], points[arc_index + 1]]
+            polygon = [
+                pts[index], points[arc_index], points[arc_index + 1]
+            ]
+            owner_upper = max(
+                _dist2(point, pts[index]) for point in polygon
             )
+            faces.append((polygon, owner_upper))
     return faces
 
 
@@ -1091,9 +1105,17 @@ def _site_band_faces(site, alpha, curve):
 
 _EDGE_SAMPLES = 8
 _CHORD_DEPTH = 8
+_PREVIEW_ROOT_T_TOLERANCE = 1e-6
 
 
-def _edge_zero_crossings(point_a, point_b, value_a, value_b, implicit):
+def _edge_zero_crossings(
+    point_a,
+    point_b,
+    value_a,
+    value_b,
+    implicit,
+    t_tolerance=1e-12,
+):
     """Параметры t всех смен знака f вдоль ребра (a, b)."""
 
     samples = [(0.0, value_a)]
@@ -1115,7 +1137,7 @@ def _edge_zero_crossings(point_a, point_b, value_a, value_b, implicit):
                 lo = mid
             else:
                 hi = mid
-            if hi - lo < 1e-12:
+            if hi - lo < t_tolerance:
                 break
         crossings.append((lo + hi) * 0.5)
     return crossings
@@ -1338,6 +1360,7 @@ def _clip_polygon(
     boundary_key=None,
     boundary_implicit=None,
     detect_hidden_crossings=True,
+    root_tolerance=1e-12,
 ):
     """Оставляет компоненты полигона с f ≥ 0.
 
@@ -1368,7 +1391,12 @@ def _clip_polygon(
         if not _edge_can_cross(point_a, point_b, value_a, value_b):
             continue
         crossings = _edge_zero_crossings(
-            point_a, point_b, value_a, value_b, implicit
+            point_a,
+            point_b,
+            value_a,
+            value_b,
+            implicit,
+            t_tolerance=root_tolerance,
         )
         for t in crossings:
             crossing = _add2(point_a, _mul2(_sub2(point_b, point_a), t))
@@ -1998,6 +2026,8 @@ def evaluate_seam_network_plan(
     _distance_index=True,
     _pair_cache=False,
     _site_distance_cache=True,
+    _adaptive_gate=True,
+    _fast_preview_roots=True,
 ):
     """Вычисляет width-dependent faces ранее скомпилированной сети.
 
@@ -2018,6 +2048,10 @@ def evaluate_seam_network_plan(
     differential-тестов; production всегда использует sweep.
     _distance_index/_pair_cache/_site_distance_cache=False оставляют
     линейное reference-ядро для exact differential-тестов distance path.
+    _adaptive_gate=False оставляет прежний constant miter gate для
+    differential/performance сравнения polygon-local upper bound.
+    _fast_preview_roots=False возвращает финальную t-точность crossings в
+    preview; production preview использует допуск ниже weld threshold.
     """
 
     if not plan.site_templates:
@@ -2051,6 +2085,11 @@ def evaluate_seam_network_plan(
         curve_budget = DECAL_NETWORK_CLIP_CURVE_BUDGET
     # Один профиль на round-join станций/caps и на клип-кривые.
     curve = (curve_style, curve_tolerance, curve_budget)
+    root_tolerance = (
+        _PREVIEW_ROOT_T_TOLERANCE
+        if preview and _fast_preview_roots
+        else 1e-12
+    )
 
     # Только mutable width-state: templates и их geometry принадлежат plan.
     sites = [
@@ -2204,15 +2243,26 @@ def evaluate_seam_network_plan(
 
             competitor_bbox = competitor.bbox
             clipped = []
-            for polygon in polygons:
-                if _gate and (
-                    _bbox_distance(_polygon_bbox2(polygon), competitor_bbox)
-                    > gate_margin
-                ):
-                    clipped.append(polygon)  # конкурент не достаёт до P
-                    continue
+            for polygon, owner_upper in polygons:
+                if _gate:
+                    polygon_bbox = _polygon_bbox2(polygon)
+                    polygon_gate = gate_margin
+                    if _adaptive_gate:
+                        safe_upper = owner_upper + max(
+                            1e-12, owner_upper * 1e-12
+                        )
+                        polygon_gate = min(polygon_gate, safe_upper)
+                    if (
+                        _bbox_distance(polygon_bbox, competitor_bbox)
+                        > polygon_gate
+                    ):
+                        clipped.append(
+                            (polygon, owner_upper)
+                        )  # конкурент не достаёт до P
+                        continue
                 clipped.extend(
-                    _clip_polygon(
+                    (component, owner_upper)
+                    for component in _clip_polygon(
                         polygon,
                         implicit,
                         keep_eps,
@@ -2224,12 +2274,15 @@ def evaluate_seam_network_plan(
                         boundary_key=pair_key,
                         boundary_implicit=pair_implicit,
                         detect_hidden_crossings=not preview,
+                        root_tolerance=root_tolerance,
                     )
                 )
             polygons = clipped
             if not polygons:
                 break
-        polygons_by_site[site.site_id] = polygons
+        polygons_by_site[site.site_id] = [
+            polygon for polygon, _owner_upper in polygons
+        ]
 
     if not preview:
         _synchronize_pair_boundaries(
@@ -2312,6 +2365,8 @@ def build_seam_network_faces(
     _distance_index=True,
     _pair_cache=False,
     _site_distance_cache=True,
+    _adaptive_gate=True,
+    _fast_preview_roots=True,
 ):
     """Совместимый one-shot API: compile + evaluate.
 
@@ -2330,6 +2385,8 @@ def build_seam_network_faces(
         _distance_index=_distance_index,
         _pair_cache=_pair_cache,
         _site_distance_cache=_site_distance_cache,
+        _adaptive_gate=_adaptive_gate,
+        _fast_preview_roots=_fast_preview_roots,
     )
 
 

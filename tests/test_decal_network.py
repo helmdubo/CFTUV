@@ -1417,6 +1417,85 @@ class TestPerformancePreview:
 
         assert cached_calls < uncached_calls
 
+    def test_fast_preview_roots_stay_below_weld_error(self):
+        plan = compile_seam_network_plan(self._arc_comb(), offset=0.02)
+        exact_preview = evaluate_seam_network_plan(
+            plan,
+            0.7,
+            preview=True,
+            _fast_preview_roots=False,
+        )
+        fast_preview = evaluate_seam_network_plan(
+            plan,
+            0.7,
+            preview=True,
+            _fast_preview_roots=True,
+        )
+
+        assert len(fast_preview) == len(exact_preview)
+        max_position_error = 0.0
+        for exact_face, fast_face in zip(exact_preview, fast_preview):
+            assert fast_face.surface_id == exact_face.surface_id
+            assert len(fast_face.positions) == len(exact_face.positions)
+            for exact_position, fast_position in zip(
+                exact_face.positions, fast_face.positions
+            ):
+                max_position_error = max(
+                    max_position_error,
+                    (exact_position - fast_position).length,
+                )
+        assert max_position_error < 0.001
+
+        # Confirm rebuild не использует preview tolerance вообще.
+        exact_final = evaluate_seam_network_plan(
+            plan,
+            0.7,
+            preview=False,
+            _fast_preview_roots=False,
+        )
+        production_final = evaluate_seam_network_plan(
+            plan,
+            0.7,
+            preview=False,
+            _fast_preview_roots=True,
+        )
+        assert self._exact_face_signature(
+            production_final
+        ) == self._exact_face_signature(exact_final)
+
+    def test_adaptive_gate_reduces_clip_calls(self, monkeypatch):
+        from cftuv import decal_network as network
+
+        plan = compile_seam_network_plan(self._arc_comb(), offset=0.02)
+        original = network._clip_polygon
+        calls = [0]
+
+        def counted(*args, **kwargs):
+            calls[0] += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(network, "_clip_polygon", counted)
+        constant = evaluate_seam_network_plan(
+            plan,
+            0.7,
+            preview=True,
+            _adaptive_gate=False,
+        )
+        constant_calls = calls[0]
+        calls[0] = 0
+        adaptive = evaluate_seam_network_plan(
+            plan,
+            0.7,
+            preview=True,
+            _adaptive_gate=True,
+        )
+        adaptive_calls = calls[0]
+
+        assert self._exact_face_signature(
+            adaptive
+        ) == self._exact_face_signature(constant)
+        assert adaptive_calls < constant_calls
+
     def test_squared_cache_matches_naive_distance(self):
         # competition_distance (быстрый scalar-кэш) обязан совпадать с
         # наивным поэлементным расстоянием точка-полилиния до 1e-9.
