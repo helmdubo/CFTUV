@@ -355,6 +355,32 @@ lift/UV/materialize (ветка `codex/decal-shared-arrangement`, только
 drag/preview не затронут. Скорость на больших сетях — отдельный слой
 (static plan, width-independent cache, broadphase; см. `## Ограничения`).
 
+## Follow-up 10: flat sweep broadphase candidate pairs
+
+Полный поиск competitors выполнял для каждого site линейный просмотр всех
+sites, хотя `_sites_compete` допускает только одну surface, а дальние bbox
+заведомо не влияют. До клиппинга получалось O(S²). Новый
+`_candidate_competitors`:
+
+- группирует sites по `surface_id`;
+- выбирает X/Y sweep axis по большему разбросу bbox-центров;
+- держит плоский active-list и рассматривает каждую неупорядоченную пару
+  один раз;
+- сохраняет competitor order по `site_id`, поэтому последовательность
+  half-plane clips и geometry output бит-в-бит совпадают с full scan.
+
+На синтетической сетке из 2400 spatially-local sites candidate stage:
+~2.30–2.41 s full scan → ~20 ms sweep (около 115×). На маленьком плотном
+arc-comb общий preview меняется умеренно (~68 → ~63 ms), потому что там
+почти все сайты локально близки и дальше доминирует clip kernel.
+В Blender 4.3.2 тот же 2400-site benchmark: ~4.53 s → ~43 ms (около 105×).
+
+Добавлены randomized differential (180 sites, 5 reach, 4 surfaces),
+инвариантность к входному порядку, sparse-scaling на 1200 sites и exact
+face/UV/vertex-key differential полного network build в preview/final.
+Полный suite: `109 passed`; те же differential + arrangement проверки
+пройдены внутри Blender 4.3.2.
+
 ## Ограничения
 
 - Кривые поверхности группируются по планарным патчам

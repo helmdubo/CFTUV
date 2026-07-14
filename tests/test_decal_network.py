@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from math import cos, pi, sin
+from random import Random
 
 from mathutils import Vector
 
 from cftuv.decal_network import (
+    _Site,
+    _candidate_competitors,
     _lift_position,
     _merge_junction_continuations,
     _branch_from_run,
@@ -1002,6 +1005,99 @@ class TestJunctionCapStyle:
         assert low_tris < smooth_tris
 
 
+class TestCandidateBroadphase:
+    @staticmethod
+    def _site(site_id, branch_id, surface_id, bbox, station=0):
+        site = _Site(
+            site_id=site_id,
+            branch_id=branch_id,
+            side="A",
+            surface_id=surface_id,
+            start_station=station,
+            end_station=station + 1,
+        )
+        site.bbox = bbox
+        return site
+
+    @staticmethod
+    def _full_scan(sites, reach):
+        from cftuv.decal_network import _bbox_distance, _sites_compete
+
+        return {
+            site.site_id: [
+                other.site_id
+                for other in sites
+                if _sites_compete(site, other)
+                and _bbox_distance(site.bbox, other.bbox) <= reach
+            ]
+            for site in sites
+        }
+
+    @staticmethod
+    def _signature(candidates):
+        return {
+            site_id: [site.site_id for site in competitors]
+            for site_id, competitors in candidates.items()
+        }
+
+    def test_randomized_sweep_matches_full_scan(self):
+        random = Random(73451)
+        sites = []
+        for site_id in range(180):
+            x = random.uniform(-40.0, 40.0)
+            y = random.uniform(-20.0, 20.0)
+            width = random.uniform(0.0, 2.0)
+            height = random.uniform(0.0, 2.0)
+            sites.append(
+                self._site(
+                    site_id,
+                    branch_id=random.randrange(45),
+                    surface_id=random.randrange(4),
+                    bbox=(x, y, x + width, y + height),
+                    station=random.randrange(4),
+                )
+            )
+
+        for reach in (0.0, 0.1, 0.5, 2.0, 8.0):
+            expected = self._full_scan(sites, reach)
+            actual = self._signature(_candidate_competitors(sites, reach))
+            assert actual == expected
+
+    def test_input_order_does_not_change_competitor_order(self):
+        sites = [
+            self._site(index, index, 0, (index * 0.4, 0.0, index * 0.4 + 0.2, 0.2))
+            for index in range(12)
+        ]
+
+        forward = self._signature(_candidate_competitors(sites, 0.7))
+        backward = self._signature(
+            _candidate_competitors(list(reversed(sites)), 0.7)
+        )
+
+        assert forward == backward
+        assert all(values == sorted(values) for values in forward.values())
+
+    def test_sparse_network_avoids_quadratic_bbox_checks(self, monkeypatch):
+        import cftuv.decal_network as network
+
+        sites = [
+            self._site(index, index, 0, (index * 10.0, 0.0, index * 10.0 + 1.0, 1.0))
+            for index in range(1200)
+        ]
+        original = network._bbox_distance
+        calls = [0]
+
+        def counted(first, second):
+            calls[0] += 1
+            return original(first, second)
+
+        monkeypatch.setattr(network, "_bbox_distance", counted)
+        candidates = _candidate_competitors(sites, reach=0.5)
+
+        assert all(not competitors for competitors in candidates.values())
+        assert calls[0] == 0
+
+
 class TestPerformancePreview:
     def _arc_comb(self):
         from math import cos, sin
@@ -1055,6 +1151,19 @@ class TestPerformancePreview:
             )
         return sorted(signature)
 
+    @staticmethod
+    def _exact_face_signature(faces):
+        return [
+            (
+                face.surface_id,
+                tuple(tuple(position) for position in face.positions),
+                tuple(face.vert_keys),
+                tuple(face.u_fracs),
+                tuple(face.v_lengths),
+            )
+            for face in faces
+        ]
+
     def test_bbox_gate_is_exact_vs_no_gate(self):
         # Настоящий differential: гейт ON должен давать ту же геометрию,
         # что и полный клиппинг без гейта — на многоветвевой дуге и на
@@ -1071,6 +1180,35 @@ class TestPerformancePreview:
                 assert self._face_signature(gated) == self._face_signature(
                     ungated
                 ), (width, offset)
+
+    def test_candidate_broadphase_is_exact_vs_full_scan(self):
+        # Broadphase меняет только поиск пар, но не порядок half-plane clips
+        # и не geometry output. Проверяем preview и финальный arrangement.
+        dump_runs = TestConformalLift()._runs()
+        for runs, offset in ((self._arc_comb(), 0.02), (dump_runs, 0.001)):
+            for width in (0.15, 0.3, 0.7):
+                for preview in (True, False):
+                    swept = build_seam_network_faces(
+                        runs,
+                        offset=offset,
+                        width=width,
+                        preview=preview,
+                        _broadphase=True,
+                    )
+                    scanned = build_seam_network_faces(
+                        runs,
+                        offset=offset,
+                        width=width,
+                        preview=preview,
+                        _broadphase=False,
+                    )
+                    assert self._exact_face_signature(
+                        swept
+                    ) == self._exact_face_signature(scanned), (
+                        width,
+                        offset,
+                        preview,
+                    )
 
     def test_squared_cache_matches_naive_distance(self):
         # competition_distance (быстрый scalar-кэш) обязан совпадать с

@@ -1302,6 +1302,68 @@ def _bbox_distance(bbox_a, bbox_b):
     return sqrt(dx * dx + dy * dy)
 
 
+def _candidate_competitors(sites, reach):
+    """Broadphase пар сайтов через плоский sweep внутри surface.
+
+    Прежний comprehension для каждого site просматривал все остальные
+    сайты, даже если их bbox находились на другом конце большой стены:
+    O(S²) до первого настоящего геометрического теста. Здесь каждая
+    неупорядоченная пара рассматривается один раз. Sweep axis выбирается по
+    большему разбросу bbox-центров, чтобы длинные вертикальные и
+    горизонтальные сети одинаково хорошо отсекались.
+
+    Возвращаем competitors в порядке ``site_id`` — это тот же порядок, что
+    у исходного списка ``sites``. Последовательность half-plane clips не
+    меняется, поэтому broadphase не имеет права менять geometry output.
+    """
+
+    competitors = {site.site_id: [] for site in sites}
+    sites_by_surface = {}
+    for site in sites:
+        sites_by_surface.setdefault(site.surface_id, []).append(site)
+
+    for surface_sites in sites_by_surface.values():
+        if len(surface_sites) < 2:
+            continue
+        center_x = [
+            (site.bbox[0] + site.bbox[2]) * 0.5 for site in surface_sites
+        ]
+        center_y = [
+            (site.bbox[1] + site.bbox[3]) * 0.5 for site in surface_sites
+        ]
+        use_x = max(center_x) - min(center_x) >= max(center_y) - min(center_y)
+        min_axis = 0 if use_x else 1
+        max_axis = 2 if use_x else 3
+        ordered = sorted(
+            surface_sites,
+            key=lambda site: (
+                site.bbox[min_axis],
+                site.bbox[max_axis],
+                site.site_id,
+            ),
+        )
+        active = []
+        for site in ordered:
+            sweep_min = site.bbox[min_axis]
+            active = [
+                other
+                for other in active
+                if other.bbox[max_axis] + reach >= sweep_min
+            ]
+            for other in active:
+                if (
+                    _bbox_distance(site.bbox, other.bbox) <= reach
+                    and _sites_compete(site, other)
+                ):
+                    competitors[site.site_id].append(other)
+                    competitors[other.site_id].append(site)
+            active.append(site)
+
+    for site_competitors in competitors.values():
+        site_competitors.sort(key=lambda site: site.site_id)
+    return competitors
+
+
 def _polygon_bbox2(points):
     xs = [point[0] for point in points]
     ys = [point[1] for point in points]
@@ -1664,7 +1726,13 @@ def _site_lat_sign(branch, side, normals, other_normals, span_start, surface, si
 
 
 def build_seam_network_faces(
-    runs, offset, width, arc_tolerance=None, preview=False, _gate=True
+    runs,
+    offset,
+    width,
+    arc_tolerance=None,
+    preview=False,
+    _gate=True,
+    _broadphase=True,
 ):
     """Строит faces decal-сети для manual Decal Seams.
 
@@ -1680,6 +1748,8 @@ def build_seam_network_faces(
 
     _gate=False отключает polygon-bbox-гейт клиппинга (только для
     differential-тестов: гейт обязан давать тот же результат, что и без него).
+    _broadphase=False возвращает прежний полный scan candidate pairs для
+    differential-тестов; production всегда использует sweep.
     """
 
     runs = [run for run in runs if len(run.points) >= 2]
@@ -1808,16 +1878,24 @@ def build_seam_network_faces(
     # если bbox P дальше этого от bbox C, C гарантированно не режет P и
     # клиппинг (со всеми вызовами implicit) пропускается.
     gate_margin = alpha * DECAL_CORNER_MITER_LIMIT
+    if _broadphase:
+        competitors_by_site = _candidate_competitors(sites, reach)
+    else:
+        # Differential reference: точный прежний O(S²) full scan.
+        competitors_by_site = {
+            site.site_id: [
+                other
+                for other in sites
+                if _sites_compete(site, other)
+                and _bbox_distance(site.bbox, other.bbox) <= reach
+            ]
+            for site in sites
+        }
     boundary_cache = {}
     boundary_pairs = {}
     polygons_by_site = {}
     for site in sites:
-        competitors = [
-            other
-            for other in sites
-            if _sites_compete(site, other)
-            and _bbox_distance(site.bbox, other.bbox) <= reach
-        ]
+        competitors = competitors_by_site[site.site_id]
         polygons = _site_band_faces(site, alpha, curve)
         for competitor in competitors:
             pair_a, pair_b = sorted(
