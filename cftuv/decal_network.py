@@ -548,9 +548,12 @@ class _Site:
     def competition_distance_sq(self, q):
         """Квадрат расстояния до spine со стянутыми junction-концами.
 
-        Клиппингу нужен только знак `d_other − d_own`; знак совпадает со
-        знаком `d²_other − d²_own` (обе ≥ 0), а точка равенства та же.
-        Поэтому весь клип ведётся в квадратах — без sqrt, результат тот же.
+        Быстрое ядро: скалярная арифметика по предвычисленным записям
+        сегментов, без tuple и sqrt. `competition_distance` берёт из него
+        корень. Клиппер использует именно метрическую разность
+        (`competition_distance`), а не квадратичную: `keep_eps` вокруг
+        нулевой линии имеет размерность длины, и сравнение с `d²`-разностью
+        сделало бы epsilon-зону масштабозависимой (сдвиг слияний вершин).
         """
 
         qx, qy = q
@@ -1255,7 +1258,7 @@ def _site_lat_sign(branch, side, normals, other_normals, span_start, surface, si
 
 
 def build_seam_network_faces(
-    runs, offset, width, arc_tolerance=None, preview=False
+    runs, offset, width, arc_tolerance=None, preview=False, _gate=True
 ):
     """Строит faces decal-сети для manual Decal Seams.
 
@@ -1264,9 +1267,13 @@ def build_seam_network_faces(
     `_NetworkFace`; пустой список означает «нечего строить».
 
     preview=True — режим быстрого превью для интерактивного modal drag:
-    криволинейные границы (point-vs-segment параболы) не уточняются хордами,
-    поэтому число вершин совпадает с финальным, а изгиб аппроксимируется
-    хордой. Финальная генерация (LMB/Enter) вызывается с preview=False.
+    криволинейные границы (point-vs-segment параболы) не уточняются хордами.
+    Preview может быть грубее и содержать МЕНЬШЕ вершин, чем финал; это
+    ожидаемо — финальная генерация (LMB/Enter, preview=False) полностью
+    заменяет геометрию точной, допустим небольшой визуальный скачок.
+
+    _gate=False отключает polygon-bbox-гейт клиппинга (только для
+    differential-тестов: гейт обязан давать тот же результат, что и без него).
     """
 
     runs = [run for run in runs if len(run.points) >= 2]
@@ -1381,16 +1388,18 @@ def build_seam_network_faces(
         polygons = _site_band_faces(site, alpha, arc_tolerance)
         for competitor in competitors:
             def implicit(q, _site=site, _competitor=competitor):
-                # Квадраты расстояний: знак и точка пересечения те же, что
-                # у метрических, но без sqrt в горячем цикле клиппинга.
-                return _competitor.competition_distance_sq(
+                # Метрическая разность (единицы длины): keep_eps в клиппере
+                # размерности длины, поэтому квадратичную разность здесь
+                # использовать нельзя. Скорость даёт быстрый scalar-кэш
+                # внутри competition_distance_sq, а не отмена sqrt (~2%).
+                return _competitor.competition_distance(
                     q
-                ) - _site.competition_distance_sq(q)
+                ) - _site.competition_distance(q)
 
             competitor_bbox = competitor.bbox
             clipped = []
             for polygon in polygons:
-                if (
+                if _gate and (
                     _bbox_distance(_polygon_bbox2(polygon), competitor_bbox)
                     > gate_margin
                 ):

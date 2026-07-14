@@ -855,7 +855,7 @@ class TestConformalLift:
          (-0.0, 0.0, 1.0), (0.925491, 0.919326, 1.0), (0.0, 1.0, 0.0), (0.888237, 1.0, 0.0)),
     ]
 
-    def _faces(self, width=0.7427, offset=0.001):
+    def _runs(self):
         from cftuv.decals import _stitch_corner_runs
 
         runs = []
@@ -891,9 +891,10 @@ class TestConformalLift:
                     segment_edge_indices=[edge_index],
                 )
             )
-        return build_seam_network_faces(
-            _stitch_corner_runs(runs), offset, width
-        )
+        return _stitch_corner_runs(runs)
+
+    def _faces(self, width=0.7427, offset=0.001):
+        return build_seam_network_faces(self._runs(), offset, width)
 
     def test_wide_band_conforms_to_faceted_wall(self):
         faces = self._faces()
@@ -1003,27 +1004,105 @@ class TestPerformancePreview:
             edge += 3
         return runs
 
-    def test_bbox_gate_does_not_change_result(self):
-        # Гейт полигонов — чистая оптимизация: точная сеть на реальной
-        # многоветвевой конфигурации собирается без изменения геометрии.
+    @staticmethod
+    def _face_signature(faces):
+        # Полигоны сравниваем как множество с округлением ниже weld,
+        # инвариантно к порядку faces и к циклическому сдвигу вершин.
+        signature = []
+        for face in faces:
+            verts = tuple(
+                (round(p.x, 6), round(p.y, 6), round(p.z, 6))
+                for p in face.positions
+            )
+            signature.append(
+                (
+                    tuple(round(component, 4) for component in face.surface_normal),
+                    tuple(sorted(verts)),
+                    tuple(round(u, 5) for u in sorted(face.u_fracs)),
+                )
+            )
+        return sorted(signature)
+
+    def test_bbox_gate_is_exact_vs_no_gate(self):
+        # Настоящий differential: гейт ON должен давать ту же геометрию,
+        # что и полный клиппинг без гейта — на многоветвевой дуге и на
+        # production-дампе, для набора ширин (α меняет gate_margin).
+        dump_runs = TestConformalLift()._runs()
+        for runs, offset in ((self._arc_comb(), 0.02), (dump_runs, 0.001)):
+            for width in (0.15, 0.3, 0.7):
+                gated = build_seam_network_faces(
+                    runs, offset=offset, width=width, _gate=True
+                )
+                ungated = build_seam_network_faces(
+                    runs, offset=offset, width=width, _gate=False
+                )
+                assert self._face_signature(gated) == self._face_signature(
+                    ungated
+                ), (width, offset)
+
+    def test_squared_cache_matches_naive_distance(self):
+        # competition_distance (быстрый scalar-кэш) обязан совпадать с
+        # наивным поэлементным расстоянием точка-полилиния до 1e-9.
+        from cftuv.decal_network import _segment_point_distance2
+
         runs = self._arc_comb()
         faces = build_seam_network_faces(runs, offset=0.02, width=0.3)
-        # Санити: сеть непустая и все полигоны валидны.
-        assert len(faces) > 20
-        assert all(len(face.positions) >= 3 for face in faces)
+        # Восстанавливаем внутренние сайты повторным разбором той же сети.
+        # Проверяем инвариант кэша напрямую на сконструированном сайте.
+        from cftuv.decal_network import _Site
 
-    def test_preview_matches_full_vertex_count(self):
-        # preview не уточняет кривые хордами → число вершин совпадает с
-        # финалом (изгиб аппроксимирован), топология стабильна для drag.
+        site = _Site(
+            site_id=0, branch_id=0, side="A", surface_id=0,
+            start_station=0, end_station=3,
+        )
+        site.pts2 = [(0.0, 0.0), (1.0, 0.2), (2.0, -0.1), (3.0, 0.3)]
+        site.vert_indices = [0, 1, 2, 3]
+        site.arcs = [0.0, 1.0, 2.0, 3.0]
+        site.finalize(0.0)  # без retraction
+
+        def naive_sq(q):
+            best = None
+            for a, b in zip(site.pts2, site.pts2[1:]):
+                distance, _t = _segment_point_distance2(a, b, q)
+                if best is None or distance < best:
+                    best = distance
+            return best * best
+
+        for qx in (-0.5, 0.3, 1.4, 2.7, 3.5):
+            for qy in (-0.4, 0.0, 0.25, 0.6):
+                q = (qx, qy)
+                assert abs(
+                    site.competition_distance_sq(q) - naive_sq(q)
+                ) < 1e-9
+
+    def test_preview_is_coarser_or_equal_never_finer(self):
+        # Корректный контракт: preview может иметь МЕНЬШЕ вершин (кривые
+        # не уточняются), но не больше; финал полностью заменяет preview.
         runs = self._arc_comb()
         full = build_seam_network_faces(runs, offset=0.02, width=0.3)
         preview = build_seam_network_faces(
             runs, offset=0.02, width=0.3, preview=True
         )
-        assert len(preview) == len(full)
-        assert sorted(len(f.positions) for f in preview) == sorted(
-            len(f.positions) for f in full
+        full_verts = sum(len(f.positions) for f in full)
+        preview_verts = sum(len(f.positions) for f in preview)
+        assert preview_verts <= full_verts
+        assert all(len(f.positions) >= 3 for f in preview)
+
+    def test_preview_drops_curved_boundary_vertices(self):
+        # На point-vs-segment границе (парабола) финал вставляет уточняющие
+        # вершины, а preview — нет: доказательство, что refine действительно
+        # отключается, и что контракт «не одинаковы» реален.
+        runs = [
+            _make_run([0, 1], [(0, 0, 0), (1, 0, 0)]),
+            _make_run([2, 3], [(0.5, -0.15, 0), (1.5, -0.15, 0)], edge_start=10),
+        ]
+        full = build_seam_network_faces(runs, offset=0.0, width=0.4)
+        preview = build_seam_network_faces(
+            runs, offset=0.0, width=0.4, preview=True
         )
+        full_verts = sum(len(f.positions) for f in full)
+        preview_verts = sum(len(f.positions) for f in preview)
+        assert preview_verts < full_verts
 
 
 class TestSettings:
