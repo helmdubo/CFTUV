@@ -1996,7 +1996,8 @@ def evaluate_seam_network_plan(
     _gate=True,
     _broadphase=True,
     _distance_index=True,
-    _pair_cache=True,
+    _pair_cache=False,
+    _site_distance_cache=True,
 ):
     """Вычисляет width-dependent faces ранее скомпилированной сети.
 
@@ -2015,8 +2016,8 @@ def evaluate_seam_network_plan(
     differential-тестов: гейт обязан давать тот же результат, что и без него).
     _broadphase=False возвращает прежний полный scan candidate pairs для
     differential-тестов; production всегда использует sweep.
-    _distance_index/_pair_cache=False оставляют линейное reference-ядро для
-    exact differential-тестов оптимизированного distance path.
+    _distance_index/_pair_cache/_site_distance_cache=False оставляют
+    линейное reference-ядро для exact differential-тестов distance path.
     """
 
     if not plan.site_templates:
@@ -2103,7 +2104,10 @@ def evaluate_seam_network_plan(
             for site in sites
         }
     boundary_cache = {}
-    pair_value_caches = {}
+    pair_value_caches = {} if _pair_cache else None
+    site_distance_caches = (
+        [dict() for _site in sites] if _site_distance_cache else None
+    )
     missing_value = object()
     boundary_pairs = {}
     polygons_by_site = {}
@@ -2120,7 +2124,55 @@ def evaluate_seam_network_plan(
                 pair_b.site_id,
             )
             boundary_pairs[pair_key] = (pair_a, pair_b)
-            if _pair_cache:
+            if _site_distance_cache:
+                distance_values_a = site_distance_caches[pair_a.site_id]
+                distance_values_b = site_distance_caches[pair_b.site_id]
+                if _pair_cache:
+                    pair_values = pair_value_caches.setdefault(pair_key, {})
+
+                    def pair_implicit(
+                        q,
+                        _pair_a=pair_a,
+                        _pair_b=pair_b,
+                        _pair_values=pair_values,
+                        _values_a=distance_values_a,
+                        _values_b=distance_values_b,
+                        _missing=missing_value,
+                    ):
+                        cached = _pair_values.get(q, _missing)
+                        if cached is not _missing:
+                            return cached
+                        distance_a = _values_a.get(q, _missing)
+                        if distance_a is _missing:
+                            distance_a = _pair_a.competition_distance(q)
+                            _values_a[q] = distance_a
+                        distance_b = _values_b.get(q, _missing)
+                        if distance_b is _missing:
+                            distance_b = _pair_b.competition_distance(q)
+                            _values_b[q] = distance_b
+                        value = distance_b - distance_a
+                        _pair_values[q] = value
+                        return value
+                else:
+
+                    def pair_implicit(
+                        q,
+                        _pair_a=pair_a,
+                        _pair_b=pair_b,
+                        _values_a=distance_values_a,
+                        _values_b=distance_values_b,
+                        _missing=missing_value,
+                    ):
+                        distance_a = _values_a.get(q, _missing)
+                        if distance_a is _missing:
+                            distance_a = _pair_a.competition_distance(q)
+                            _values_a[q] = distance_a
+                        distance_b = _values_b.get(q, _missing)
+                        if distance_b is _missing:
+                            distance_b = _pair_b.competition_distance(q)
+                            _values_b[q] = distance_b
+                        return distance_b - distance_a
+            elif _pair_cache:
                 pair_values = pair_value_caches.setdefault(pair_key, {})
 
                 def pair_implicit(
@@ -2258,7 +2310,8 @@ def build_seam_network_faces(
     _gate=True,
     _broadphase=True,
     _distance_index=True,
-    _pair_cache=True,
+    _pair_cache=False,
+    _site_distance_cache=True,
 ):
     """Совместимый one-shot API: compile + evaluate.
 
@@ -2276,6 +2329,7 @@ def build_seam_network_faces(
         _broadphase=_broadphase,
         _distance_index=_distance_index,
         _pair_cache=_pair_cache,
+        _site_distance_cache=_site_distance_cache,
     )
 
 

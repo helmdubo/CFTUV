@@ -1244,8 +1244,8 @@ class TestPerformancePreview:
             second_a
         ) == self._exact_face_signature(first_a)
 
-    def test_distance_index_and_pair_cache_are_exact(self):
-        # Обе оптимизации меняют только поиск того же minimum/того же
+    def test_distance_accelerators_are_exact(self):
+        # Оптимизации меняют только поиск того же minimum/того же
         # implicit value. Reference отключает их независимо от broadphase.
         runs = self._arc_comb()
         plan = compile_seam_network_plan(runs, offset=0.02)
@@ -1257,13 +1257,14 @@ class TestPerformancePreview:
                     preview=preview,
                     _distance_index=False,
                     _pair_cache=False,
+                    _site_distance_cache=False,
                 )
                 accelerated = evaluate_seam_network_plan(
                     plan,
                     width,
                     preview=preview,
                     _distance_index=True,
-                    _pair_cache=True,
+                    _pair_cache=False,
                 )
                 assert self._exact_face_signature(
                     accelerated
@@ -1308,6 +1309,7 @@ class TestPerformancePreview:
             preview=True,
             _distance_index=False,
             _pair_cache=False,
+            _site_distance_cache=False,
         )
         accelerated = evaluate_seam_network_plan(
             long_plan,
@@ -1366,12 +1368,50 @@ class TestPerformancePreview:
 
         monkeypatch.setattr(_Site, "competition_distance", counted)
         evaluate_seam_network_plan(
-            plan, 0.7, preview=True, _pair_cache=False
+            plan,
+            0.7,
+            preview=True,
+            _pair_cache=False,
+            _site_distance_cache=False,
         )
         uncached_calls = calls[0]
         calls[0] = 0
         evaluate_seam_network_plan(
-            plan, 0.7, preview=True, _pair_cache=True
+            plan,
+            0.7,
+            preview=True,
+            _pair_cache=True,
+            _site_distance_cache=False,
+        )
+        cached_calls = calls[0]
+
+        assert cached_calls < uncached_calls
+
+    def test_site_distance_cache_reuses_values_across_pairs(self, monkeypatch):
+        plan = compile_seam_network_plan(self._arc_comb(), offset=0.02)
+        original = _Site.competition_distance
+        calls = [0]
+
+        def counted(site, point):
+            calls[0] += 1
+            return original(site, point)
+
+        monkeypatch.setattr(_Site, "competition_distance", counted)
+        evaluate_seam_network_plan(
+            plan,
+            0.7,
+            preview=True,
+            _pair_cache=False,
+            _site_distance_cache=False,
+        )
+        uncached_calls = calls[0]
+        calls[0] = 0
+        evaluate_seam_network_plan(
+            plan,
+            0.7,
+            preview=True,
+            _pair_cache=False,
+            _site_distance_cache=True,
         )
         cached_calls = calls[0]
 
