@@ -58,6 +58,10 @@ DECAL_CORNER_JOIN_GAP_RATIO = 0.05
 # dot(outgoing_a, outgoing_b) не выше порога считаются коллинеарным
 # продолжением и сливаются в один сквозной сайт (непрерывный UV через узел).
 DECAL_NETWORK_CONTINUATION_DOT = -0.866
+# Стиль закрытия reflex-промежутков junction: "MITER" — жёсткий стык
+# (общая miter-вершина на биссектрисе, прямой bevel за лимитом),
+# "ROUND" — округлая дуга радиуса α (законсервированная ветка).
+DECAL_NETWORK_JUNCTION_CAP_STYLE = "MITER"
 
 # Прямоугольники атласа для UV лент: (u_min, v_min, u_max, v_max).
 DECAL_UV_RECT_CORNER = (0.9, 0.0, 1.0, 1.0)

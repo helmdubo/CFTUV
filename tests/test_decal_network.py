@@ -269,21 +269,41 @@ class TestTrihedralJunction:
                 )
         assert normals == {(0.0, 0.0, 1.0), (0.0, 1.0, 0.0)}
 
-    def test_round_caps_stay_alpha_from_core_and_split_at_bisector(self):
+    def test_hard_miter_cap_is_single_diagonal_vertex(self):
+        # MITER-политика по умолчанию: reflex-промежуток на кубическом
+        # углу закрыт одной жёсткой вершиной на биссектрисе, а не веером.
+        # Два перпендикулярных крыла грани дают gap 270°, sweep 45°, miter
+        # на радиусе α/cos(45°) = α·√2 — диагональный внешний угол куба.
+        from math import sqrt
+
         faces = self._faces()
         alpha = 0.075
-        cap_radii = []
-        for face in faces:
-            if len(face.positions) != 3:
-                continue
-            for position, u_frac in zip(face.positions, face.u_fracs):
-                if abs(abs(u_frac)) < 1e-6:
-                    continue
-                radius = (position - Vector((0.02, 0.02, 0.02))).length
-                cap_radii.append(radius)
-        assert cap_radii
-        for radius in cap_radii:
-            assert abs(radius - alpha) < 5e-3
+        core = Vector((0.02, 0.02, 0.02))
+        cap_tris = [face for face in faces if len(face.positions) == 3]
+        assert cap_tris, "junction cap must exist"
+        radii = sorted(
+            {
+                round((position - core).length, 4)
+                for face in cap_tris
+                for position, u_frac in zip(face.positions, face.u_fracs)
+                if abs(u_frac) > 1e-6
+            }
+        )
+        # Ровно два радиуса: перпендикулярный рельс на α и жёсткая
+        # miter-вершина на α·√2. Никаких промежуточных веерных радиусов.
+        assert len(radii) == 2
+        assert abs(radii[0] - alpha) < 5e-3
+        assert abs(radii[1] - alpha * sqrt(2.0)) < 5e-3
+
+    def test_fan_triangle_count_matches_hard_corner(self):
+        # Веер из множества треугольников (ROUND) заменён на единичные
+        # joint-треугольники (MITER): на каждую занятую сторону каждой
+        # поверхности — ровно один cap-треугольник, а не дуга.
+        faces = self._faces()
+        cap_tris = [face for face in faces if len(face.positions) == 3]
+        # Три поверхности × две станции ветвей у core, но каждая станция
+        # даёт по одному hard cap; фан из >6 треугольников исключён.
+        assert len(cap_tris) <= 6
 
 
 class TestCloseParallelSeams:
@@ -903,6 +923,57 @@ class TestConformalLift:
                 assert abs(abs(position.z) - 1.001) < 2e-3
 
 
+class TestJunctionCapStyle:
+    def _trihedral_faces(self):
+        runs = [
+            _make_run(
+                [0, 1], [(0, 0, 0), (1, 0, 0)], (0, 0, 1), (0, 1, 0)
+            ),
+            _make_run(
+                [0, 2], [(0, 0, 0), (0, 1, 0)], (0, 0, 1), (1, 0, 0),
+                edge_start=5,
+            ),
+            _make_run(
+                [0, 3], [(0, 0, 0), (0, 0, 1)], (0, 1, 0), (1, 0, 0),
+                edge_start=9,
+            ),
+        ]
+        return build_seam_network_faces(runs, offset=0.02, width=0.15)
+
+    def test_round_branch_is_preserved_and_produces_fan(self):
+        import cftuv.decal_network as network
+
+        original = network.DECAL_NETWORK_JUNCTION_CAP_STYLE
+        try:
+            network.DECAL_NETWORK_JUNCTION_CAP_STYLE = "ROUND"
+            round_faces = self._trihedral_faces()
+        finally:
+            network.DECAL_NETWORK_JUNCTION_CAP_STYLE = original
+        miter_faces = self._trihedral_faces()
+        round_tris = sum(1 for f in round_faces if len(f.positions) == 3)
+        miter_tris = sum(1 for f in miter_faces if len(f.positions) == 3)
+        # ROUND полилинизирует дугу в веер: строго больше треугольников,
+        # чем у жёсткого MITER на том же угле.
+        assert round_tris > miter_tris
+        # Веерные вершины лежат на радиусе α от core (округлость).
+        core = Vector((0.02, 0.02, 0.02))
+        alpha = 0.075
+        arc_radii = [
+            (position - core).length
+            for face in round_faces
+            if len(face.positions) == 3
+            for position, u_frac in zip(face.positions, face.u_fracs)
+            if abs(u_frac) > 1e-6
+        ]
+        assert arc_radii
+        assert all(abs(radius - alpha) < 5e-3 for radius in arc_radii)
+
+
 class TestSettings:
     def test_network_backend_enabled_by_default(self):
         assert DecalSettings().seam_network is True
+
+    def test_junction_cap_style_defaults_to_miter(self):
+        import cftuv.decal_network as network
+
+        assert network.DECAL_NETWORK_JUNCTION_CAP_STYLE == "MITER"

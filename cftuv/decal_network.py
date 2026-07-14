@@ -46,6 +46,7 @@ from .constants import (
     DECAL_COPLANAR_DOT,
     DECAL_CORNER_MITER_LIMIT,
     DECAL_NETWORK_CONTINUATION_DOT,
+    DECAL_NETWORK_JUNCTION_CAP_STYLE,
     DECAL_SPINE_MERGE_DISTANCE,
     DECAL_WELD_DISTANCE,
 )
@@ -713,6 +714,53 @@ def _station_outer_points(
     return points if points else [_mul2(_add2(incoming, outgoing), 0.5)]
 
 
+def _junction_cap_outer(
+    station, lat_unit, bisector_angle, sweep_len, alpha, arc_tolerance,
+    perpendicular_first,
+):
+    """Outer-контур junction cap для reflex-промежутка.
+
+    MITER (по умолчанию) — одна общая вершина на биссектрисе с угловым
+    соседом на радиусе α/cos(sweep): жёсткий стык вместо округлого веера.
+    За miter-лимитом — прямой bevel (хорда до биссекторной точки на α), а
+    не длинный шип. ROUND — законсервированная округлая дуга (веер).
+
+    perpendicular_first управляет порядком под конвенцию сборки quad:
+    начальная станция ждёт перпендикулярную точку последней, конечная —
+    первой.
+    """
+
+    perp_point = _add2(station, _mul2(lat_unit, alpha))
+    if DECAL_NETWORK_JUNCTION_CAP_STYLE == "ROUND":
+        perp_angle = atan2(lat_unit[1], lat_unit[0])
+        arc = _arc_points(
+            station,
+            alpha,
+            bisector_angle,
+            perp_angle - bisector_angle,
+            arc_tolerance,
+        )
+        cap = arc if arc else [perp_point]
+        # Дуга идёт от биссектрисы к перпендикуляру; при perpendicular_first
+        # разворачиваем под конвенцию конечной станции.
+        return list(reversed(cap)) if perpendicular_first else cap
+
+    cos_sweep = cos(sweep_len)
+    if cos_sweep > 1.0 / DECAL_CORNER_MITER_LIMIT:
+        radius = alpha / cos_sweep
+        far = (
+            station[0] + radius * cos(bisector_angle),
+            station[1] + radius * sin(bisector_angle),
+        )
+    else:
+        # Слишком острый reflex — прямой bevel до биссекторной точки на α.
+        far = (
+            station[0] + alpha * cos(bisector_angle),
+            station[1] + alpha * sin(bisector_angle),
+        )
+    return [perp_point, far] if perpendicular_first else [far, perp_point]
+
+
 def _site_band_faces(site, alpha, arc_tolerance):
     """2D faces half-cell до клиппинга: quads сегментов + fans станций/caps."""
 
@@ -750,10 +798,11 @@ def _site_band_faces(site, alpha, arc_tolerance):
             outer[0] = [site.cap_start_override[0]]
         elif site.start_kind == "junction" and site.cap_start_sweep > 1e-6:
             sweep_len = site.cap_start_sweep
-            angle_start = atan2(lat0[1], lat0[0]) + lat_sign * sweep_len
-            outer[0] = _arc_points(
-                pts[0], alpha, angle_start, -lat_sign * sweep_len, arc_tolerance
-            ) or [_add2(pts[0], _mul2(lat0, alpha))]
+            bisector_angle = atan2(lat0[1], lat0[0]) + lat_sign * sweep_len
+            outer[0] = _junction_cap_outer(
+                pts[0], lat0, bisector_angle, sweep_len, alpha,
+                arc_tolerance, perpendicular_first=False,
+            )
         else:
             outer[0] = [_add2(pts[0], _mul2(lat0, alpha))]
         # Внутренние станции.
@@ -771,14 +820,12 @@ def _site_band_faces(site, alpha, arc_tolerance):
         if site.cap_end_override is not None:
             outer[count - 1] = [site.cap_end_override[0]]
         elif site.end_kind == "junction" and site.cap_end_sweep > 1e-6:
-            angle_lat = atan2(lat_end[1], lat_end[0])
-            outer[count - 1] = _arc_points(
-                pts[-1],
-                alpha,
-                angle_lat,
-                -lat_sign * site.cap_end_sweep,
-                arc_tolerance,
-            ) or [_add2(pts[-1], _mul2(lat_end, alpha))]
+            sweep_len = site.cap_end_sweep
+            bisector_angle = atan2(lat_end[1], lat_end[0]) - lat_sign * sweep_len
+            outer[count - 1] = _junction_cap_outer(
+                pts[-1], lat_end, bisector_angle, sweep_len, alpha,
+                arc_tolerance, perpendicular_first=True,
+            )
         else:
             outer[count - 1] = [_add2(pts[-1], _mul2(lat_end, alpha))]
 
