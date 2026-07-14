@@ -5,9 +5,11 @@ from math import cos, pi, sin
 from mathutils import Vector
 
 from cftuv.decal_network import (
+    _clip_polygon,
     _lift_position,
     _merge_junction_continuations,
     _branch_from_run,
+    _split_repeated_polygon_loop,
     build_seam_network_faces,
 )
 from cftuv.decals import _OrientedCornerRun
@@ -94,6 +96,74 @@ class TestContinuationMerge:
         )
         assert len(branches) == 3
 
+
+class TestImplicitClipComponents:
+    """Кривой divider может дать несколько компонент внутри одного face."""
+
+    _square = [(0.0, 0.0), (2.0, 0.0), (2.0, 1.0), (0.0, 1.0)]
+
+    @staticmethod
+    def _clip(points, implicit):
+        return _clip_polygon(
+            points,
+            implicit,
+            keep_eps=1e-9,
+            curve_tolerance=1e-4,
+            refine=True,
+            curve_depth=8,
+        )
+
+    def test_same_edge_double_crossing_cuts_inside_quad(self):
+        # Все четыре угла положительны, но parabola провисает через нижнее
+        # ребро. Ранний vertex-only exit оставлял quad несклипленным.
+        implicit = lambda q: (q[0] - 1.0) ** 2 + q[1] - 0.25
+        clipped = self._clip(self._square, implicit)
+
+        assert len(clipped) == 1
+        assert clipped[0] != self._square
+        assert any(0.0 < point[1] < 0.25 for point in clipped[0])
+
+    def test_two_crossings_without_inside_corners_keep_lens(self):
+        # Все углы отрицательны, но у нижнего ребра остаётся маленькая линза.
+        implicit = lambda q: 0.25 - (q[0] - 1.0) ** 2 - q[1]
+        clipped = self._clip(self._square, implicit)
+
+        assert len(clipped) == 1
+        assert len(clipped[0]) >= 3
+        assert abs(sum(
+            a[0] * b[1] - a[1] * b[0]
+            for a, b in zip(clipped[0], clipped[0][1:] + clipped[0][:1])
+        )) > 1e-6
+
+    def test_four_crossings_return_two_components(self):
+        # Две раздельные полудисковые линзы на одном boundary-ребре.
+        def implicit(q):
+            x, y = q
+            left = 0.16 - (x - 0.5) ** 2 - y * y
+            right = 0.16 - (x - 1.5) ** 2 - y * y
+            return max(left, right)
+
+        clipped = self._clip(self._square, implicit)
+
+        assert len(clipped) == 2
+        assert all(len(component) >= 3 for component in clipped)
+
+    def test_touching_loop_splits_into_simple_components(self):
+        touching = [
+            (0.0, 0.0),
+            (1.0, 0.0),
+            (1.0, 1.0),
+            (0.0, 1.0),
+            (0.0, 0.0),
+            (-1.0, 0.0),
+            (-1.0, -1.0),
+            (0.0, -1.0),
+        ]
+
+        components = _split_repeated_polygon_loop(touching)
+
+        assert len(components) == 2
+        assert all(len(component) == len(set(component)) for component in components)
 
 class TestLiftPosition:
     def test_single_plane_offsets_along_normal(self):
@@ -1195,6 +1265,222 @@ class TestCurveProfile:
         assert sum(len(f.positions) for f in preview) == sum(
             len(f.positions) for f in hard
         )
+
+
+def _count_t_junctions(faces, tolerance=1e-5):
+    """Вершина одной face строго внутри ребра другой на той же поверхности."""
+
+    by_surface = {}
+    for face in faces:
+        by_surface.setdefault(face.surface_id, []).append(face)
+    count = 0
+    for surface_faces in by_surface.values():
+        vertices = {
+            (round(point.x, 8), round(point.y, 8), round(point.z, 8))
+            for face in surface_faces
+            for point in face.positions
+        }
+        for face in surface_faces:
+            for index, point_a in enumerate(face.positions):
+                point_b = face.positions[(index + 1) % len(face.positions)]
+                edge = point_b - point_a
+                length_sq = edge.dot(edge)
+                if length_sq < 1e-16:
+                    continue
+                for raw in vertices:
+                    point = Vector(raw)
+                    if (point - point_a).length < tolerance:
+                        continue
+                    if (point - point_b).length < tolerance:
+                        continue
+                    param = (point - point_a).dot(edge) / length_sq
+                    if not 1e-6 < param < 1.0 - 1e-6:
+                        continue
+                    if (point - (point_a + edge * param)).length < tolerance:
+                        count += 1
+    return count
+
+
+class TestSharedClipBoundary:
+    """Обе стороны пары используют одну каноническую zero-полилинию."""
+
+    @staticmethod
+    def _runs():
+        straight = _make_run([0, 1], [(-1, 0, 0), (2, 0, 0)])
+        turning = _make_run(
+            [2, 3, 4],
+            [(0.5, 1.2, 0), (0.5, 0.28, 0), (1.4, 0.28, 0)],
+            edge_start=10,
+        )
+        return straight, turning
+
+    def test_overlapping_sites_have_no_t_junctions(self):
+        for width in (0.3, 0.5, 0.7, 0.9):
+            faces = build_seam_network_faces(
+                self._runs(), offset=0.0, width=width
+            )
+            assert faces
+            assert _count_t_junctions(faces) == 0, width
+            assert all(
+                len(face.vert_keys) == len(set(face.vert_keys))
+                for face in faces
+            )
+
+    def test_shared_divider_has_two_sides_and_no_gap(self):
+        from collections import Counter
+
+        faces = build_seam_network_faces(
+            self._runs(), offset=0.0, width=0.5
+        )
+        straight = [Vector((-1, 0, 0)), Vector((2, 0, 0))]
+        turning = [
+            Vector((0.5, 1.2, 0)),
+            Vector((0.5, 0.28, 0)),
+            Vector((1.4, 0.28, 0)),
+        ]
+        edge_counts = Counter()
+        edge_positions = {}
+        for face in faces:
+            for point_a, point_b in zip(
+                face.positions, face.positions[1:] + face.positions[:1]
+            ):
+                key_a = tuple(round(value, 6) for value in point_a)
+                key_b = tuple(round(value, 6) for value in point_b)
+                edge_key = tuple(sorted((key_a, key_b)))
+                edge_counts[edge_key] += 1
+                edge_positions[edge_key] = (point_a, point_b)
+
+        divider_counts = []
+        for edge_key, (point_a, point_b) in edge_positions.items():
+            midpoint = (point_a + point_b) * 0.5
+            distance_a = _polyline_distance_3d(straight, midpoint)
+            distance_b = _polyline_distance_3d(turning, midpoint)
+            if abs(distance_a - distance_b) < 1e-5 and distance_a <= 0.25001:
+                divider_counts.append(edge_counts[edge_key])
+
+        assert divider_counts
+        assert all(count == 2 for count in divider_counts)
+
+    def test_site_order_does_not_change_faces(self):
+        straight, turning = self._runs()
+        first = build_seam_network_faces(
+            [straight, turning], offset=0.0, width=0.5
+        )
+        second = build_seam_network_faces(
+            [turning, straight], offset=0.0, width=0.5
+        )
+
+        def signature(faces):
+            return sorted(
+                tuple(
+                    sorted(
+                        (round(p.x, 6), round(p.y, 6), round(p.z, 6))
+                        for p in face.positions
+                    )
+                )
+                for face in faces
+            )
+
+        assert signature(first) == signature(second)
+
+    def test_fold_junction_keeps_valid_shared_loops(self):
+        from cftuv.decals import _stitch_corner_runs
+
+        vertical = _make_run(
+            [0, 1],
+            [(0, 0, 1), (0, 0, 0)],
+            (0, -1, 0),
+            (-1, 0, 0),
+        )
+        ledge = _make_run(
+            [0, 2],
+            [(0, 0, 0), (1, 0, 0)],
+            (0, 0, 1),
+            (0, -1, 0),
+            edge_start=10,
+        )
+        floor = _make_run(
+            [0, 3],
+            [(0, 0, 0), (0, 1, 0)],
+            (0, 0, 1),
+            (-1, 0, 0),
+            edge_start=20,
+        )
+        faces = build_seam_network_faces(
+            _stitch_corner_runs([vertical, ledge, floor]),
+            offset=0.0,
+            width=0.4,
+        )
+
+        assert faces
+        assert _count_t_junctions(faces) == 0
+        assert all(len(face.vert_keys) == len(set(face.vert_keys)) for face in faces)
+        assert all(len(face.positions) >= 3 for face in faces)
+
+    def test_third_site_vertex_splits_pair_divider(self):
+        # Pair-divider второй ветви проходит точно через station первой.
+        # Arrangement обязан вставить station в ребро, а не оставить T-стык.
+        runs = [
+            _make_run(
+                [0, 1, 2, 3],
+                [
+                    (-0.40756098, 0.06128221, 0.0),
+                    (-1.27293726, -0.12351523, 0.0),
+                    (-2.31862791, -0.81081853, 0.0),
+                    (-2.96524343, 0.09627401, 0.0),
+                ],
+            ),
+            _make_run(
+                [10, 11, 12, 13],
+                [
+                    (-0.23795732, 0.49508961, 0.0),
+                    (-0.41374783, -0.14981980, 0.0),
+                    (0.53080454, -0.75957422, 0.0),
+                    (1.51019644, -0.67797216, 0.0),
+                ],
+                edge_start=20,
+            ),
+        ]
+
+        faces = build_seam_network_faces(
+            runs, offset=0.0, width=0.57000652
+        )
+
+        assert faces
+        assert _count_t_junctions(faces) == 0
+        assert all(len(face.vert_keys) == len(set(face.vert_keys)) for face in faces)
+
+    def test_multi_site_touch_keeps_all_simple_faces(self):
+        # В этом узле pair-divider возвращается в уже посещённую вершину.
+        # Старый healer создавал повтор BMesh-ключа и face исчезала.
+        runs = [
+            _make_run(
+                [0, 1, 2],
+                [
+                    (0.3843543, -0.6890627, 0.0),
+                    (-0.2046416, 0.5203151, 0.0),
+                    (-0.2861464, 1.8589490, 0.0),
+                ],
+            ),
+            _make_run(
+                [10, 11, 12],
+                [
+                    (-0.0272110, -0.1014114, 0.0),
+                    (-0.2939725, 0.9559444, 0.0),
+                    (0.2597601, 1.5738290, 0.0),
+                ],
+                edge_start=20,
+            ),
+        ]
+
+        faces = build_seam_network_faces(
+            runs, offset=0.0, width=0.28440643
+        )
+
+        assert len(faces) >= 12
+        assert _count_t_junctions(faces) == 0
+        assert all(len(face.positions) >= 3 for face in faces)
+        assert all(len(face.vert_keys) == len(set(face.vert_keys)) for face in faces)
 
 
 class TestSettings:
