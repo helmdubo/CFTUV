@@ -932,8 +932,12 @@ def _refine_chord(point_a, point_b, implicit, tolerance, depth=_CHORD_DEPTH):
     )
 
 
-def _clip_polygon(points, implicit, keep_eps, tolerance):
-    """Оставляет часть полигона с f ≥ 0 (граница уточняется по кривой)."""
+def _clip_polygon(points, implicit, keep_eps, tolerance, refine=True):
+    """Оставляет часть полигона с f ≥ 0 (граница уточняется по кривой).
+
+    refine=False — не уточнять криволинейные границы хордами (preview для
+    modal drag): изгиб аппроксимируется прямой хордой, число вершин то же.
+    """
 
     values = [implicit(point) for point in points]
     if all(value >= -keep_eps for value in values):
@@ -966,7 +970,7 @@ def _clip_polygon(points, implicit, keep_eps, tolerance):
     for index in range(total):
         point, is_crossing, entering = output[index]
         refined.append(point)
-        if not is_crossing or entering:
+        if not is_crossing or entering or not refine:
             continue
         next_point, next_is_crossing, next_entering = output[
             (index + 1) % total
@@ -992,6 +996,12 @@ def _bbox_distance(bbox_a, bbox_b):
     dx = max(bbox_a[0] - bbox_b[2], bbox_b[0] - bbox_a[2], 0.0)
     dy = max(bbox_a[1] - bbox_b[3], bbox_b[1] - bbox_a[3], 0.0)
     return sqrt(dx * dx + dy * dy)
+
+
+def _polygon_bbox2(points):
+    xs = [point[0] for point in points]
+    ys = [point[1] for point in points]
+    return (min(xs), min(ys), max(xs), max(ys))
 
 
 # ============================================================
@@ -1201,12 +1211,19 @@ def _site_lat_sign(branch, side, normals, other_normals, span_start, surface, si
     return 1.0 if side == "A" else -1.0
 
 
-def build_seam_network_faces(runs, offset, width, arc_tolerance=None):
+def build_seam_network_faces(
+    runs, offset, width, arc_tolerance=None, preview=False
+):
     """Строит faces decal-сети для manual Decal Seams.
 
     runs — ститченные `_OrientedCornerRun` ветви (duck-typed), offset —
     отступ от поверхности, width — полная ширина шва. Возвращает список
     `_NetworkFace`; пустой список означает «нечего строить».
+
+    preview=True — режим быстрого превью для интерактивного modal drag:
+    криволинейные границы (point-vs-segment параболы) не уточняются хордами,
+    поэтому число вершин совпадает с финальным, а изгиб аппроксимируется
+    хордой. Финальная генерация (LMB/Enter) вызывается с preview=False.
     """
 
     runs = [run for run in runs if len(run.points) >= 2]
@@ -1305,6 +1322,12 @@ def build_seam_network_faces(runs, offset, width, arc_tolerance=None):
                 (site.surface_id, round(point2[0], 6), round(point2[1], 6))
             ] = vert
 
+    # Полигон P может быть срезан конкурентом C, только если некоторая его
+    # точка ближе к C, чем к собственному спайну. Максимальное расстояние
+    # точки band до спайна — α·MITER_LIMIT (острый convex-miter), поэтому
+    # если bbox P дальше этого от bbox C, C гарантированно не режет P и
+    # клиппинг (со всеми вызовами implicit) пропускается.
+    gate_margin = alpha * DECAL_CORNER_MITER_LIMIT
     for site in sites:
         competitors = [
             other
@@ -1319,10 +1342,20 @@ def build_seam_network_faces(runs, offset, width, arc_tolerance=None):
                     q
                 ) - _site.competition_distance(q)
 
+            competitor_bbox = competitor.bbox
             clipped = []
             for polygon in polygons:
+                if (
+                    _bbox_distance(_polygon_bbox2(polygon), competitor_bbox)
+                    > gate_margin
+                ):
+                    clipped.append(polygon)  # конкурент не достаёт до P
+                    continue
                 clipped.extend(
-                    _clip_polygon(polygon, implicit, keep_eps, arc_tolerance)
+                    _clip_polygon(
+                        polygon, implicit, keep_eps, arc_tolerance,
+                        refine=not preview,
+                    )
                 )
             polygons = clipped
             if not polygons:

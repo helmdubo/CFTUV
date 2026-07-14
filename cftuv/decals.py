@@ -2130,6 +2130,7 @@ def _fill_manual_chain_decals(
     chain_refs,
     mode="CORNERS",
     selected_edge_indices=None,
+    preview=False,
 ):
     """Manual edge scope: exact physical edges with local owner-side frames."""
 
@@ -2152,7 +2153,10 @@ def _fill_manual_chain_decals(
                 # divider с соседними seam chains возникает и без общей
                 # source-вершины, чисто из конкуренции расстояний.
                 network_faces = build_seam_network_faces(
-                    corner_runs + boundary_runs, settings.offset, width
+                    corner_runs + boundary_runs,
+                    settings.offset,
+                    width,
+                    preview=preview,
                 )
             except Exception as exc:  # непредвиденная геометрия — fallback
                 print(
@@ -2267,6 +2271,7 @@ def _fill_decal_bmesh(
     mode: str,
     chain_refs=None,
     selected_edge_indices=None,
+    preview=False,
 ):
     if chain_refs is not None and mode in ("CORNERS", "SEAMS"):
         _fill_manual_chain_decals(
@@ -2276,6 +2281,7 @@ def _fill_decal_bmesh(
             chain_refs,
             mode=mode,
             selected_edge_indices=selected_edge_indices,
+            preview=preview,
         )
     elif mode in ("TOP", "BOTTOM"):
         top_runs, bottom_runs = _collect_trim_ribbon_runs(
@@ -2327,8 +2333,14 @@ def generate_decal_objects(
     scene=None,
     chain_refs=None,
     selected_edge_indices=None,
+    preview=False,
 ) -> list[str]:
-    """Генерирует decal-объект выбранного режима. Возвращает имена созданных."""
+    """Генерирует decal-объект выбранного режима. Возвращает имена созданных.
+
+    preview=True — быстрый режим для интерактивного modal drag (SEAMS
+    network): криволинейные границы не уточняются хордами. Финальная
+    генерация вызывается с preview=False.
+    """
 
     if mode not in DECAL_MODES:
         raise ValueError(f"Unknown decal mode: {mode}")
@@ -2344,6 +2356,7 @@ def generate_decal_objects(
             mode,
             chain_refs=chain_refs,
             selected_edge_indices=selected_edge_indices,
+            preview=preview,
         )
     except Exception:
         bm.free()

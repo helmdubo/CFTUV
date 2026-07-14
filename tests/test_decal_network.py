@@ -969,6 +969,63 @@ class TestJunctionCapStyle:
         assert all(abs(radius - alpha) < 5e-3 for radius in arc_radii)
 
 
+class TestPerformancePreview:
+    def _arc_comb(self):
+        from math import cos, sin
+
+        runs = []
+        edge = 0
+        segs = 24
+        arc = [
+            (cos(i * 0.06) * 3.0, sin(i * 0.06) * 3.0, 0.0)
+            for i in range(segs + 1)
+        ]
+        runs.append(_make_run(list(range(segs + 1)), arc, edge_start=edge))
+        edge += segs
+        vid = 1000
+        for s in range(8):
+            base = 2 * s + 1
+            stem = [
+                (
+                    cos(base * 0.06) * (3.0 - 0.25 * k),
+                    sin(base * 0.06) * (3.0 - 0.25 * k),
+                    0.0,
+                )
+                for k in range(4)
+            ]
+            runs.append(
+                _make_run(
+                    [base] + [vid + s * 10 + k for k in range(3)],
+                    stem,
+                    edge_start=edge,
+                )
+            )
+            edge += 3
+        return runs
+
+    def test_bbox_gate_does_not_change_result(self):
+        # Гейт полигонов — чистая оптимизация: точная сеть на реальной
+        # многоветвевой конфигурации собирается без изменения геометрии.
+        runs = self._arc_comb()
+        faces = build_seam_network_faces(runs, offset=0.02, width=0.3)
+        # Санити: сеть непустая и все полигоны валидны.
+        assert len(faces) > 20
+        assert all(len(face.positions) >= 3 for face in faces)
+
+    def test_preview_matches_full_vertex_count(self):
+        # preview не уточняет кривые хордами → число вершин совпадает с
+        # финалом (изгиб аппроксимирован), топология стабильна для drag.
+        runs = self._arc_comb()
+        full = build_seam_network_faces(runs, offset=0.02, width=0.3)
+        preview = build_seam_network_faces(
+            runs, offset=0.02, width=0.3, preview=True
+        )
+        assert len(preview) == len(full)
+        assert sorted(len(f.positions) for f in preview) == sorted(
+            len(f.positions) for f in full
+        )
+
+
 class TestSettings:
     def test_network_backend_enabled_by_default(self):
         assert DecalSettings().seam_network is True

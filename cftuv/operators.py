@@ -1251,7 +1251,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             and obj.mode in {"EDIT", "OBJECT"}
         )
 
-    def _generate(self, context, state, settings=None):
+    def _generate(self, context, state, settings=None, preview=False):
         (
             obj,
             patch_graph,
@@ -1269,6 +1269,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             scene=context.scene,
             chain_refs=chain_refs,
             selected_edge_indices=selected_edge_indices,
+            preview=preview,
         )
 
     def _report_created(self, created, state, suffix=""):
@@ -1331,6 +1332,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             settings = state[2]
             self._modal_state = state
             self._modal_base_settings = settings
+            self._modal_current_settings = None
             self._modal_area = context.area
             self._modal_created = created
             if self.mode == "CORNERS":
@@ -1375,11 +1377,16 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                 **{self._modal_settings_field: new_value},
             )
             try:
-                created = self._generate(context, self._modal_state, settings)
+                # Быстрое превью во время drag; финальная точность — на
+                # подтверждении (LMB/Enter).
+                created = self._generate(
+                    context, self._modal_state, settings, preview=True
+                )
             except Exception as exc:
                 self._clear_modal_header()
                 self.report({"ERROR"}, f"Interactive decal update failed: {exc}")
                 return {"CANCELLED"}
+            self._modal_current_settings = settings
             if not created:
                 return {"RUNNING_MODAL"}
             setattr(
@@ -1411,6 +1418,20 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             return {"CANCELLED"}
 
         if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER"} and event.value == "PRESS":
+            # Перестраиваем подтверждённый размер в полной точности:
+            # во время drag декаль строилась в preview-режиме.
+            final_settings = getattr(self, "_modal_current_settings", None)
+            if final_settings is not None:
+                try:
+                    self._modal_created = self._generate(
+                        context, self._modal_state, final_settings, preview=False
+                    )
+                except Exception as exc:
+                    self._clear_modal_header()
+                    self.report(
+                        {"ERROR"}, f"Final decal rebuild failed: {exc}"
+                    )
+                    return {"CANCELLED"}
             self._clear_modal_header()
             self._report_created(
                 self._modal_created,

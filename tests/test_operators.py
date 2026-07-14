@@ -98,7 +98,7 @@ def test_decal_modal_drag_is_horizontal_and_has_same_sign(
 
     generated_settings = []
 
-    def _generate(_context, _state, settings):
+    def _generate(_context, _state, settings, preview=False):
         generated_settings.append(settings)
         return ["Decal"]
 
@@ -159,8 +159,10 @@ def test_decal_modal_ignores_vertical_only_mousemove():
     operator._modal_area = None
 
     generated_settings = []
-    operator._generate = lambda _context, _state, settings: generated_settings.append(
-        settings
+    operator._generate = (
+        lambda _context, _state, settings, preview=False: generated_settings.append(
+            settings
+        )
     )
     context = SimpleNamespace(
         scene=SimpleNamespace(
@@ -259,7 +261,9 @@ def test_decal_invoke_starts_horizontal_drag_for_every_mode(monkeypatch, mode):
     )
     operator = HOTSPOTUV_OT_GenerateDecals()
     operator.mode = mode
-    operator._generate = lambda _context, _state, settings=None: ["Decal"]
+    operator._generate = (
+        lambda _context, _state, settings=None, preview=False: ["Decal"]
+    )
 
     result = operator.invoke(
         context,
@@ -315,7 +319,7 @@ def test_manual_edge_seams_enters_interactive_width_modal(monkeypatch):
     operator = HOTSPOTUV_OT_GenerateDecals()
     operator.mode = "SEAMS"
     generated_states = []
-    operator._generate = lambda _context, generation_state, settings=None: (
+    operator._generate = lambda _context, generation_state, settings=None, preview=False: (
         generated_states.append((generation_state, settings)) or ["Decal"]
     )
 
@@ -345,7 +349,7 @@ def test_seam_modal_cancel_restores_scene_width_and_base_geometry():
     operator._modal_area = None
 
     generated_settings = []
-    operator._generate = lambda _context, _state, settings: (
+    operator._generate = lambda _context, _state, settings, preview=False: (
         generated_settings.append(settings) or ["Decal"]
     )
     scene_settings = SimpleNamespace(decal_width_seam=0.40)
@@ -384,3 +388,37 @@ def test_seam_modal_confirm_reports_seam_width():
 
     assert result == {"FINISHED"}
     assert reports == [(["Decal"], operator._modal_state, "Seam Width:0.3000")]
+
+
+def test_seam_modal_confirm_rebuilds_last_drag_at_full_precision():
+    # Во время drag декаль строится в preview-режиме; на подтверждении
+    # LMB/Enter последний размер перегенерируется с preview=False.
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    operator._modal_label = "Seam Width"
+    operator._modal_current_value = 0.30
+    operator._modal_created = ["PreviewDecal"]
+    operator._modal_state = object()
+    operator._modal_area = None
+    final_settings = DecalSettings(width_seam=0.30)
+    operator._modal_current_settings = final_settings
+
+    calls = []
+    operator._generate = lambda _context, _state, settings, preview=False: (
+        calls.append((settings, preview)) or ["FinalDecal"]
+    )
+    reports = []
+    operator._report_created = lambda created, state, suffix="": reports.append(
+        created
+    )
+
+    result = operator.modal(
+        SimpleNamespace(),
+        SimpleNamespace(type="LEFTMOUSE", value="PRESS"),
+    )
+
+    assert result == {"FINISHED"}
+    # Ровно одна финальная перегенерация в полной точности.
+    assert calls == [(final_settings, False)]
+    # Рапортуется полностью пересобранная геометрия, а не preview.
+    assert reports == [["FinalDecal"]]
