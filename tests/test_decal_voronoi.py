@@ -127,6 +127,50 @@ def _orthogonal_corner_graph():
     return graph
 
 
+def _single_patch_fold_graph():
+    """Один topology patch с двумя реальными owner-плоскостями."""
+
+    verts = [
+        Vector((0.0, 0.0, 0.0)),
+        Vector((2.0, 0.0, 0.0)),
+        Vector((2.0, 2.0, 0.0)),
+        Vector((0.0, 2.0, 0.0)),
+        Vector((2.0, 0.0, 1.0)),
+        Vector((0.0, 0.0, 1.0)),
+    ]
+    node = PatchNode(
+        patch_id=7,
+        face_indices=[0, 1, 2, 3],
+        centroid=sum(verts, Vector((0.0, 0.0, 0.0))) / len(verts),
+        normal=Vector((0.0, -1.0, 1.0)).normalized(),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+    )
+    node.mesh_verts = verts
+    node.mesh_tris = [
+        (0, 1, 2),
+        (0, 2, 3),
+        (0, 4, 1),
+        (0, 5, 4),
+    ]
+    front = BoundaryChain(
+        vert_indices=[3, 2],
+        vert_cos=[verts[3], verts[2]],
+        edge_indices=[70],
+        side_face_normals=[Vector((0.0, 0.0, 1.0))],
+    )
+    folded = BoundaryChain(
+        vert_indices=[5, 4],
+        vert_cos=[verts[5], verts[4]],
+        edge_indices=[71],
+        side_face_normals=[Vector((0.0, -1.0, 0.0))],
+    )
+    node.boundary_loops = [BoundaryLoop(chains=[front, folded])]
+    graph = PatchGraph()
+    graph.add_node(node)
+    return graph
+
+
 def _folded_turn_graph():
     """Два selected edges поворачивают через три owner patches."""
 
@@ -892,6 +936,75 @@ def test_patch_voronoi_rejects_non_planar_owner_patch():
     graph = _planar_two_site_graph()
     graph.nodes[0].mesh_verts[2] = Vector((4.0, 2.0, 0.2))
     assert compile_patch_voronoi_plan(graph, [10, 12], offset=0.01) is None
+
+
+def test_non_planar_topology_patch_compiles_real_planar_owner_surfaces():
+    plan = compile_patch_voronoi_plan(
+        _single_patch_fold_graph(), [70, 71], offset=0.01
+    )
+    assert plan is not None
+    assert len(plan.surfaces) == 2
+    assert sorted(len(surface.sites) for surface in plan.surfaces) == [1, 1]
+    normals = {
+        tuple(round(value, 6) for value in surface.domain.reference_normal)
+        for surface in plan.surfaces
+    }
+    assert normals == {(0.0, -1.0, 0.0), (0.0, 0.0, 1.0)}
+    assert evaluate_patch_voronoi_plan(plan, width=0.5, preview=True)
+
+
+def test_planar_crop_topology_is_stable_for_reversed_normal_and_float_noise():
+    base, selected = _door_opening_graph()
+    perturbed = deepcopy(base)
+    node = perturbed.nodes[0]
+    node.normal *= -1.0
+    offsets = {
+        index: Vector(
+            (
+                ((index % 3) - 1) * 3e-6,
+                (((index + 1) % 3) - 1) * 2e-6,
+                0.0,
+            )
+        )
+        for index in range(len(node.mesh_verts))
+    }
+    node.mesh_verts = [
+        point + offsets[index]
+        for index, point in enumerate(node.mesh_verts)
+    ]
+    node.centroid = (
+        sum(node.mesh_verts, Vector((0.0, 0.0, 0.0)))
+        / len(node.mesh_verts)
+    )
+    for loop in node.boundary_loops:
+        loop.vert_cos = [
+            point + offsets[vert_index]
+            for vert_index, point in zip(loop.vert_indices, loop.vert_cos)
+        ]
+        for chain in loop.chains:
+            chain.vert_cos = [
+                point + offsets[vert_index]
+                for vert_index, point in zip(
+                    chain.vert_indices, chain.vert_cos
+                )
+            ]
+
+    base_plan = compile_patch_voronoi_plan(base, selected, offset=0.01)
+    perturbed_plan = compile_patch_voronoi_plan(
+        perturbed, selected, offset=0.01
+    )
+    assert base_plan is not None
+    assert perturbed_plan is not None
+    for width in (0.418, 1.0, 2.5):
+        base_signature = tuple(
+            len(face.positions)
+            for face in evaluate_patch_voronoi_plan(base_plan, width)
+        )
+        perturbed_signature = tuple(
+            len(face.positions)
+            for face in evaluate_patch_voronoi_plan(perturbed_plan, width)
+        )
+        assert perturbed_signature == base_signature
 
 
 def test_preview_and_confirm_keep_identical_miter_geometry():

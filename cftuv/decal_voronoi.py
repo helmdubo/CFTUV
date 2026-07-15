@@ -14,7 +14,7 @@ topology исходного mesh не должна отпечатываться 
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from math import atan2, pi, sqrt, tau
 
@@ -209,6 +209,25 @@ class _PatchVoronoiSurface:
     @property
     def basis_v(self):
         return self.domain.basis_v
+
+
+@dataclass(frozen=True)
+class _PlanarOwnerSurface:
+    """Локальная coplanar часть patch для decal backend.
+
+    Один topology patch может огибать фаску или extrusion. Для Voronoi это
+    не причина откатывать весь selection в legacy: его owner faces делятся
+    на независимые planar surfaces, а junction layer соединяет их rails.
+    """
+
+    patch_id: int
+    centroid: Vector
+    normal: Vector
+    basis_u: Vector
+    basis_v: Vector
+    boundary_loops: tuple
+    mesh_verts: tuple
+    mesh_tris: tuple
 
 
 @dataclass(frozen=True)
@@ -797,7 +816,9 @@ def _patch_domain_triangles(node, origin, basis_u, basis_v):
         for boundary_loop in ordered_loops:
             points = _dedupe_polygon(
                 [
-                    _project(point, origin, basis_u, basis_v)
+                    _quantize_diagram_point(
+                        _project(point, origin, basis_u, basis_v)
+                    )
                     for point in boundary_loop.vert_cos
                 ]
             )
@@ -807,14 +828,6 @@ def _patch_domain_triangles(node, origin, basis_u, basis_v):
             area = _polygon_area2(points)
             if (not is_hole and area < 0.0) or (is_hole and area > 0.0):
                 points.reverse()
-            start_index = min(
-                range(len(points)),
-                key=lambda index: (
-                    round(points[index][0], 12),
-                    round(points[index][1], 12),
-                ),
-            )
-            points = points[start_index:] + points[:start_index]
             domain_loops.append(points)
 
     if domain_loops:
@@ -844,7 +857,9 @@ def _patch_domain_triangles(node, origin, basis_u, basis_v):
     triangles = []
     for tri in node.mesh_tris:
         points = [
-            _project(node.mesh_verts[index], origin, basis_u, basis_v)
+            _quantize_diagram_point(
+                _project(node.mesh_verts[index], origin, basis_u, basis_v)
+            )
             for index in tri
         ]
         if abs(_polygon_area2(points)) > 1e-12:
@@ -1324,6 +1339,14 @@ def _project(point, origin, basis_u, basis_v):
     return (delta.dot(basis_u), delta.dot(basis_v))
 
 
+def _quantize_diagram_point(point):
+    quantum = max(1.0 / _DIAGRAM_SCALE, DECAL_WELD_DISTANCE * 0.1)
+    return tuple(
+        round(value / quantum) * quantum
+        for value in point
+    )
+
+
 def _patch_is_planar(node):
     if not node.mesh_verts or not node.mesh_tris:
         return False
@@ -1339,6 +1362,79 @@ def _patch_is_planar(node):
     extent = max(max_x - min_x, max_y - min_y, 1.0)
     tolerance = max(DECAL_WELD_DISTANCE * 0.25, extent * 1e-5)
     return all(abs((point - origin).dot(normal)) <= tolerance for point in node.mesh_verts)
+
+
+def _canonical_plane_key(normal, point):
+    """Tolerance-stable identity одной geometric plane."""
+
+    plane_normal = normal.normalized()
+    dominant_axis = max(
+        range(3), key=lambda axis: (abs(plane_normal[axis]), -axis)
+    )
+    if plane_normal[dominant_axis] > 0.0:
+        plane_normal = plane_normal * -1.0
+    normal_quantum = 1e-5
+    distance_quantum = max(DECAL_WELD_DISTANCE * 0.25, 1e-6)
+    return (
+        round(plane_normal.x / normal_quantum),
+        round(plane_normal.y / normal_quantum),
+        round(plane_normal.z / normal_quantum),
+        round(plane_normal.dot(point) / distance_quantum),
+    )
+
+
+def _planar_owner_surfaces(node, raw_sites):
+    """Делит непланарный patch по реальным owner-face planes."""
+
+    triangles_by_plane = {}
+    for triangle in node.mesh_tris:
+        point_a, point_b, point_c = (
+            node.mesh_verts[index] for index in triangle
+        )
+        triangle_normal = (point_b - point_a).cross(point_c - point_a)
+        if triangle_normal.length_squared <= _GEOMETRY_EPS:
+            continue
+        triangle_normal.normalize()
+        key = _canonical_plane_key(triangle_normal, point_a)
+        triangles_by_plane.setdefault(key, []).append(tuple(triangle))
+
+    sites_by_plane = {}
+    for raw in raw_sites:
+        side_normal = raw.get("side_normal", node.normal)
+        if side_normal.length_squared <= _GEOMETRY_EPS:
+            side_normal = node.normal
+        key = _canonical_plane_key(side_normal, raw["source_a"])
+        sites_by_plane.setdefault(key, []).append(raw)
+
+    surfaces = []
+    for group_index, key in enumerate(sorted(sites_by_plane)):
+        triangles = triangles_by_plane.get(key, ())
+        if not triangles:
+            return ()
+        group_sites = sites_by_plane[key]
+        normal = group_sites[0].get("side_normal", node.normal).normalized()
+        used_indices = sorted({index for tri in triangles for index in tri})
+        centroid = sum(
+            (node.mesh_verts[index] for index in used_indices),
+            Vector((0.0, 0.0, 0.0)),
+        ) / max(len(used_indices), 1)
+        surface_id = -(int(node.patch_id) * 1000 + group_index + 1)
+        surfaces.append(
+            (
+                _PlanarOwnerSurface(
+                    patch_id=surface_id,
+                    centroid=centroid,
+                    normal=normal,
+                    basis_u=node.basis_u,
+                    basis_v=node.basis_v,
+                    boundary_loops=(),
+                    mesh_verts=tuple(node.mesh_verts),
+                    mesh_tris=tuple(triangles),
+                ),
+                group_sites,
+            )
+        )
+    return tuple(surfaces)
 
 
 def _collect_patch_sites(graph, selected_edges):
@@ -1384,6 +1480,11 @@ def _collect_patch_sites(graph, selected_edges):
                             "source_b": source_b,
                             "arc_start": arc,
                             "segment_length": length,
+                            "side_normal": (
+                                chain.side_face_normals[segment_index].copy()
+                                if segment_index < len(chain.side_face_normals)
+                                else node.normal.copy()
+                            ),
                         }
                         patch_sites.append(raw)
                         uses_by_edge.setdefault(edge_index, []).append(raw)
@@ -1393,7 +1494,7 @@ def _collect_patch_sites(graph, selected_edges):
                         ):
                             positions_by_vert.setdefault(vert_index, position.copy())
                             normals_by_vert.setdefault(vert_index, []).append(
-                                node.normal.copy()
+                                raw["side_normal"].copy()
                             )
                         seen_edges.add(edge_index)
                     arc += length
@@ -1561,28 +1662,26 @@ def _compile_corners(sites):
 
 
 def _canonical_planar_basis(normal):
-    """Одинаковый 2D chart для совпадающих плоскостей с normal ``n``/``-n``.
+    """Детерминированный chart, одинаковый для ``normal`` и ``-normal``.
 
-    Patch winding определяет сторону lift, но не должен менять segment
-    Voronoi и момент topology events. Поэтому chart normal канонизируется по
-    знаку доминирующей компоненты, а U выбирается из мировой оси, наименее
-    параллельной плоскости.
+    Знак выбирается так, чтобы сохранить историческую ориентацию основных
+    architectural planes (для X-plane это ``-X/-Y/+Z``). Это важно для
+    PyVoronoi: одинаковый контур standalone и внутри extruded mesh должен
+    получать те же integer sites и topology events.
     """
 
     chart_normal = normal.normalized()
     dominant_axis = max(
         range(3), key=lambda axis: (abs(chart_normal[axis]), -axis)
     )
-    if chart_normal[dominant_axis] < 0.0:
+    if chart_normal[dominant_axis] > 0.0:
         chart_normal = chart_normal * -1.0
     world_axes = (
         Vector((1.0, 0.0, 0.0)),
         Vector((0.0, 1.0, 0.0)),
         Vector((0.0, 0.0, 1.0)),
     )
-    # Циклический выбор не дрожит от микроскопических normal-компонент.
-    # ``min(abs(dot))`` менял Y/Z между coplanar faces после Extrude.
-    anchor = world_axes[(dominant_axis + 1) % 3]
+    anchor = world_axes[(dominant_axis + 1) % 3] * -1.0
     basis_u = anchor - chart_normal * anchor.dot(chart_normal)
     basis_u.normalize()
     basis_v = chart_normal.cross(basis_u).normalized()
@@ -1590,11 +1689,8 @@ def _canonical_planar_basis(normal):
 
 
 def _compile_surface(node, raw_sites):
+    origin = node.centroid.copy()
     normal = node.normal.normalized()
-    # Ближайшая к мировому origin точка owner plane не зависит от winding и
-    # от порядка face accumulation. Centroid-origin давал coplanar Extrude
-    # копиям микросдвиг chart, достаточный для другого integer Voronoi event.
-    origin = normal * node.centroid.dot(normal)
     basis_u, basis_v = _canonical_planar_basis(normal)
     triangles = _patch_domain_triangles(
         node, origin, basis_u, basis_v
@@ -1614,41 +1710,92 @@ def _compile_surface(node, raw_sites):
     )
     projected_sites = []
     for raw in raw_sites:
-        point_a = _project(raw["source_a"], origin, basis_u, basis_v)
-        point_b = _project(raw["source_b"], origin, basis_u, basis_v)
+        raw_point_a = _project(raw["source_a"], origin, basis_u, basis_v)
+        raw_point_b = _project(raw["source_b"], origin, basis_u, basis_v)
+        # Один и тот же planar patch может прийти как отдельная плоскость
+        # или как face объёмного mesh с микроскопически иными float32
+        # координатами. Квантуем рабочие sites, а не только вход pyvoronoi:
+        # иначе Voronoi cells совпадают, но realtime crop проходит разные
+        # topology events на визуально идентичной геометрии.
+        point_a = _quantize_diagram_point(
+            raw_point_a
+        )
+        point_b = _quantize_diagram_point(
+            raw_point_b
+        )
         endpoint_key = tuple(
             sorted(
-                (
-                    (round(point_a[0], 12), round(point_a[1], 12)),
-                    (round(point_b[0], 12), round(point_b[1], 12)),
-                )
+                _quantize_diagram_point(point)
+                for point in (point_a, point_b)
             )
         )
-        projected_sites.append((endpoint_key, raw, point_a, point_b))
+        projected_sites.append(
+            (
+                endpoint_key,
+                raw,
+                point_a,
+                point_b,
+                raw_point_a,
+                raw_point_b,
+            )
+        )
 
     sites = []
-    for _endpoint_key, raw, point_a, point_b in sorted(
+    classification_sites = []
+    for (
+        _endpoint_key,
+        raw,
+        point_a,
+        point_b,
+        raw_point_a,
+        raw_point_b,
+    ) in sorted(
         projected_sites, key=lambda item: item[0]
     ):
-        sites.append(
-            _PatchVoronoiSite(
-                patch_id=node.patch_id,
-                edge_index=raw["edge_index"],
-                vert_a=raw["vert_a"],
-                vert_b=raw["vert_b"],
-                source_a=raw["source_a"],
-                source_b=raw["source_b"],
-                point_a=point_a,
-                point_b=point_b,
-                arc_start=raw["arc_start"],
+        site = _PatchVoronoiSite(
+            patch_id=node.patch_id,
+            edge_index=raw["edge_index"],
+            vert_a=raw["vert_a"],
+            vert_b=raw["vert_b"],
+            source_a=raw["source_a"],
+            source_b=raw["source_b"],
+            point_a=point_a,
+            point_b=point_b,
+            arc_start=raw["arc_start"],
+            segment_length=sqrt(
+                (point_b[0] - point_a[0]) ** 2
+                + (point_b[1] - point_a[1]) ** 2
+            ),
+            uv_sign=raw["uv_sign"],
+            inward_normal=_inward_site_normal(
+                point_a, point_b, triangles, probe_distance
+            ),
+        )
+        sites.append(site)
+        # Угловая policy остаётся геометрическим фактом исходного контура.
+        # Рабочая квантизация не должна менять точный concave/convex angle.
+        classification_sites.append(
+            replace(
+                site,
+                point_a=raw_point_a,
+                point_b=raw_point_b,
                 segment_length=raw["segment_length"],
-                uv_sign=raw["uv_sign"],
                 inward_normal=_inward_site_normal(
-                    point_a, point_b, triangles, probe_distance
+                    raw_point_a,
+                    raw_point_b,
+                    triangles,
+                    probe_distance,
                 ),
             )
         )
-    corners = _compile_corners(sites)
+    corner_points = {}
+    for site in sites:
+        corner_points.setdefault(site.vert_a, site.point_a)
+        corner_points.setdefault(site.vert_b, site.point_b)
+    corners = tuple(
+        replace(corner, point=corner_points[corner.vert_index])
+        for corner in _compile_corners(classification_sites)
+    )
     corner_by_vertex = {
         corner.vert_index: index for index, corner in enumerate(corners)
     }
@@ -1669,7 +1816,9 @@ def _compile_surface(node, raw_sites):
         else:
             diagram_points = (site.point_b, site.point_a)
             endpoint_vertices = (site.vert_b, site.vert_a)
-        diagram.AddSegment(list(diagram_points))
+        diagram.AddSegment(
+            [_quantize_diagram_point(point) for point in diagram_points]
+        )
         diagram_endpoint_vertices.append(endpoint_vertices)
     for index in range(4):
         diagram.AddSegment([guard[index], guard[(index + 1) % 4]])
@@ -1802,17 +1951,22 @@ def compile_patch_voronoi_plan(graph, selected_edge_indices, offset):
     )
     if not raw_by_patch:
         return None
-    # Один backend владеет всей selection. Частичное смешение с legacy
-    # вернуло бы двойные крылья на границе planar/non-planar patches.
-    if any(not _patch_is_planar(graph.nodes[patch_id]) for patch_id in raw_by_patch):
-        return None
-
     surfaces = []
     for patch_id in sorted(raw_by_patch):
-        surface = _compile_surface(graph.nodes[patch_id], raw_by_patch[patch_id])
-        if surface is None:
-            return None
-        surfaces.append(surface)
+        node = graph.nodes[patch_id]
+        if _patch_is_planar(node):
+            owner_surfaces = ((node, raw_by_patch[patch_id]),)
+        else:
+            owner_surfaces = _planar_owner_surfaces(
+                node, raw_by_patch[patch_id]
+            )
+            if not owner_surfaces:
+                return None
+        for owner_surface, owner_sites in owner_surfaces:
+            surface = _compile_surface(owner_surface, owner_sites)
+            if surface is None:
+                return None
+            surfaces.append(surface)
     lifted_vertices = {
         vert_index: _lift_position(
             positions_by_vert[vert_index], normals, float(offset)
