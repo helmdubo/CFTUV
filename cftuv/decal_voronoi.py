@@ -73,6 +73,7 @@ class PatchVoronoiPlan:
     offset: float
     surfaces: tuple[_PatchVoronoiSurface, ...]
     lifted_vertices: dict[int, Vector]
+    max_lateral_lift_ratio: float
 
 
 def patch_voronoi_available():
@@ -465,29 +466,56 @@ def compile_patch_voronoi_plan(graph, selected_edge_indices, offset):
         )
         for vert_index, normals in normals_by_vert.items()
     }
+    max_lateral_lift_ratio = 0.0
+    if abs(float(offset)) > _GEOMETRY_EPS:
+        for surface in surfaces:
+            for site in surface.sites:
+                for vert_index, source in (
+                    (site.vert_a, site.source_a),
+                    (site.vert_b, site.source_b),
+                ):
+                    delta = lifted_vertices[vert_index] - source
+                    lateral = delta - surface.normal * float(offset)
+                    max_lateral_lift_ratio = max(
+                        max_lateral_lift_ratio,
+                        lateral.length / abs(float(offset)),
+                    )
     return PatchVoronoiPlan(
         offset=float(offset),
         surfaces=tuple(surfaces),
         lifted_vertices=lifted_vertices,
+        max_lateral_lift_ratio=max_lateral_lift_ratio,
     )
 
 
-def _position_and_key(plan, surface, site, point):
+def _position_and_key(
+    plan, surface, site, point, lift_scale, effective_offset
+):
     distance, t = _segment_point_distance2(site.point_a, site.point_b, point)
     spine_eps = max(DECAL_WELD_DISTANCE * 0.25, site.segment_length * 1e-7)
     if distance <= spine_eps:
         if t <= 1e-7:
-            return plan.lifted_vertices[site.vert_a].copy(), ("pv-sv", site.vert_a)
+            position = site.source_a.lerp(
+                plan.lifted_vertices[site.vert_a], lift_scale
+            )
+            return position, ("pv-sv", site.vert_a)
         if t >= 1.0 - 1e-7:
-            return plan.lifted_vertices[site.vert_b].copy(), ("pv-sv", site.vert_b)
-        start = plan.lifted_vertices[site.vert_a]
-        end = plan.lifted_vertices[site.vert_b]
+            position = site.source_b.lerp(
+                plan.lifted_vertices[site.vert_b], lift_scale
+            )
+            return position, ("pv-sv", site.vert_b)
+        start = site.source_a.lerp(
+            plan.lifted_vertices[site.vert_a], lift_scale
+        )
+        end = site.source_b.lerp(
+            plan.lifted_vertices[site.vert_b], lift_scale
+        )
         return start.lerp(end, t), ("pv-se", site.edge_index, round(t, 7))
     position = (
         surface.origin
         + surface.basis_u * point[0]
         + surface.basis_v * point[1]
-        + surface.normal * plan.offset
+        + surface.normal * effective_offset
     )
     quantum = max(DECAL_WELD_DISTANCE * 0.25, 1e-7)
     return position, (
@@ -498,13 +526,103 @@ def _position_and_key(plan, surface, site, point):
     )
 
 
+def _component_signed_area(plan, surface, site, component, lift_scale):
+    """Signed area после shared-rail lift для заданного offset-scale."""
+
+    positions = []
+    used_keys = set()
+    effective_offset = plan.offset * lift_scale
+    for point in component:
+        position, key = _position_and_key(
+            plan,
+            surface,
+            site,
+            point,
+            lift_scale,
+            effective_offset,
+        )
+        if key in used_keys:
+            continue
+        used_keys.add(key)
+        positions.append(position)
+    if len(positions) < 3:
+        return None
+    area_vector = Vector((0.0, 0.0, 0.0))
+    origin = positions[0]
+    for index in range(1, len(positions) - 1):
+        area_vector += (positions[index] - origin).cross(
+            positions[index + 1] - origin
+        )
+    return area_vector.dot(surface.normal) * 0.5
+
+
+def _orientation_safe_lift_scale(plan, pending, desired_scale):
+    """Аналитический общий offset-scale без перевёрнутых wing faces.
+
+    Каждая 3D-позиция affine по scale, следовательно signed area face —
+    квадратный полином. Три измерения дают его точно и заменяют дорогой
+    бинарный rebuild всей сети на один линейный проход.
+    """
+
+    safe_fraction = 1.0
+    for surface, site, component in pending:
+        area_0 = _component_signed_area(
+            plan, surface, site, component, 0.0
+        )
+        area_half = _component_signed_area(
+            plan, surface, site, component, desired_scale * 0.5
+        )
+        area_1 = _component_signed_area(
+            plan, surface, site, component, desired_scale
+        )
+        if area_0 is None or area_half is None or area_1 is None:
+            continue
+        # A(t) = qa*t² + qb*t + qc, где t = scale / desired_scale.
+        qc = area_0
+        qa = 2.0 * area_1 + 2.0 * area_0 - 4.0 * area_half
+        qb = area_1 - area_0 - qa
+        roots = []
+        if abs(qa) <= 1e-18:
+            if abs(qb) > 1e-18:
+                roots.append(-qc / qb)
+        else:
+            discriminant = qb * qb - 4.0 * qa * qc
+            if discriminant >= 0.0:
+                root_delta = sqrt(discriminant)
+                roots.extend(
+                    (
+                        (-qb - root_delta) / (2.0 * qa),
+                        (-qb + root_delta) / (2.0 * qa),
+                    )
+                )
+        for root in sorted(value for value in roots if 0.0 < value <= 1.0):
+            probe = min(1.0, root + max(1e-5, (1.0 - root) * 1e-3))
+            after_root = qa * probe * probe + qb * probe + qc
+            if after_root < 0.0:
+                safe_fraction = min(safe_fraction, root)
+                break
+    if safe_fraction >= 1.0:
+        return desired_scale
+    # Запас не даёт float32/weld вернуть face точно на нулевой Jacobian.
+    return desired_scale * safe_fraction * 0.99
+
+
 def evaluate_patch_voronoi_plan(plan, width, preview=False):
     """Двигает distance-front внутри статических patch Voronoi cells."""
 
     alpha = max(1e-6, float(width) * 0.5)
     keep_eps = max(1e-9, alpha * 1e-7)
-    faces = []
-    emitted_faces = set()
+    lateral_at_full_offset = (
+        abs(plan.offset) * plan.max_lateral_lift_ratio
+    )
+    if lateral_at_full_offset > _GEOMETRY_EPS:
+        # Общий offset-rail не должен пересекать внешний фронт узкого крыла.
+        # Масштаб един для всей selection: shared vertices остаются общими,
+        # а все owner planes сохраняют одинаковый фактический offset.
+        lift_scale = min(1.0, alpha * 0.75 / lateral_at_full_offset)
+    else:
+        lift_scale = 1.0
+    pending = []
     # Preview и confirm обязаны иметь один и тот же collision contour.
     # Дополнительная финальная дуговая точка меняла cell intersections после
     # отпускания мыши: митеры визуально раскрывались и расходились с крылом.
@@ -529,44 +647,56 @@ def evaluate_patch_voronoi_plan(plan, width, preview=False):
                     continue
                 if _polygon_area2(component) < 0.0:
                     component.reverse()
-                vert_keys = []
-                positions = []
-                u_fracs = []
-                v_lengths = []
-                used_keys = set()
-                for point in component:
-                    position, key = _position_and_key(plan, surface, site, point)
-                    # Triangle boundaries и pyvoronoi endpoint-cells могут
-                    # дать две почти одинаковые 2D точки, которые после
-                    # conformal lift закономерно становятся одной вершиной.
-                    if key in used_keys:
-                        continue
-                    used_keys.add(key)
-                    distance, t = _segment_point_distance2(
-                        site.point_a, site.point_b, point
-                    )
-                    vert_keys.append(key)
-                    positions.append(position)
-                    u_fracs.append(
-                        site.uv_sign * max(0.0, min(1.0, distance / alpha))
-                    )
-                    v_lengths.append(
-                        site.arc_start + t * site.segment_length
-                    )
-                if len(vert_keys) < 3:
-                    continue
-                face_identity = frozenset(vert_keys)
-                if face_identity in emitted_faces:
-                    continue
-                emitted_faces.add(face_identity)
-                faces.append(
-                    _NetworkFace(
-                        surface_id=surface.patch_id,
-                        surface_normal=surface.normal.copy(),
-                        vert_keys=vert_keys,
-                        positions=positions,
-                        u_fracs=u_fracs,
-                        v_lengths=v_lengths,
-                    )
-                )
+                pending.append((surface, site, component))
+
+    lift_scale = _orientation_safe_lift_scale(plan, pending, lift_scale)
+    effective_offset = plan.offset * lift_scale
+    faces = []
+    emitted_faces = set()
+    for surface, site, component in pending:
+        vert_keys = []
+        positions = []
+        u_fracs = []
+        v_lengths = []
+        used_keys = set()
+        for point in component:
+            position, key = _position_and_key(
+                plan,
+                surface,
+                site,
+                point,
+                lift_scale,
+                effective_offset,
+            )
+            # Triangle boundaries и pyvoronoi endpoint-cells могут
+            # дать две почти одинаковые 2D точки, которые после
+            # conformal lift закономерно становятся одной вершиной.
+            if key in used_keys:
+                continue
+            used_keys.add(key)
+            distance, t = _segment_point_distance2(
+                site.point_a, site.point_b, point
+            )
+            vert_keys.append(key)
+            positions.append(position)
+            u_fracs.append(
+                site.uv_sign * max(0.0, min(1.0, distance / alpha))
+            )
+            v_lengths.append(site.arc_start + t * site.segment_length)
+        if len(vert_keys) < 3:
+            continue
+        face_identity = frozenset(vert_keys)
+        if face_identity in emitted_faces:
+            continue
+        emitted_faces.add(face_identity)
+        faces.append(
+            _NetworkFace(
+                surface_id=surface.patch_id,
+                surface_normal=surface.normal.copy(),
+                vert_keys=vert_keys,
+                positions=positions,
+                u_fracs=u_fracs,
+                v_lengths=v_lengths,
+            )
+        )
     return faces

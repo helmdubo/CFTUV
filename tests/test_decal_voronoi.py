@@ -58,6 +58,70 @@ def _face_area_xy(face):
     return abs(area) * 0.5
 
 
+def _signed_face_area(face):
+    area_vector = Vector((0.0, 0.0, 0.0))
+    origin = face.positions[0]
+    for index in range(1, len(face.positions) - 1):
+        area_vector += (face.positions[index] - origin).cross(
+            face.positions[index + 1] - origin
+        )
+    return area_vector.dot(face.surface_normal) * 0.5
+
+
+def _orthogonal_corner_graph():
+    graph = PatchGraph()
+    patch_specs = (
+        (
+            0,
+            Vector((0.0, 0.0, 1.0)),
+            Vector((1.0, 0.0, 0.0)),
+            Vector((0.0, 1.0, 0.0)),
+            [
+                Vector((0.0, 0.0, 0.0)),
+                Vector((2.0, 0.0, 0.0)),
+                Vector((2.0, 1.0, 0.0)),
+                Vector((0.0, 1.0, 0.0)),
+            ],
+        ),
+        (
+            1,
+            Vector((0.0, -1.0, 0.0)),
+            Vector((1.0, 0.0, 0.0)),
+            Vector((0.0, 0.0, 1.0)),
+            [
+                Vector((0.0, 0.0, 0.0)),
+                Vector((2.0, 0.0, 0.0)),
+                Vector((2.0, 0.0, 1.0)),
+                Vector((0.0, 0.0, 1.0)),
+            ],
+        ),
+    )
+    for patch_id, normal, basis_u, basis_v, verts in patch_specs:
+        node = PatchNode(
+            patch_id=patch_id,
+            face_indices=[patch_id],
+            centroid=sum(verts, Vector((0.0, 0.0, 0.0))) / 4.0,
+            normal=normal,
+            basis_u=basis_u,
+            basis_v=basis_v,
+        )
+        node.mesh_verts = verts
+        node.mesh_tris = [(0, 1, 2), (0, 2, 3)]
+        node.boundary_loops = [
+            BoundaryLoop(
+                chains=[
+                    BoundaryChain(
+                        vert_indices=[0, 1],
+                        vert_cos=[verts[0], verts[1]],
+                        edge_indices=[30],
+                    )
+                ]
+            )
+        ]
+        graph.add_node(node)
+    return graph
+
+
 def test_patch_voronoi_front_rebuilds_and_never_leaves_patch():
     plan = compile_patch_voronoi_plan(
         _planar_two_site_graph(), [10, 12], offset=0.01
@@ -121,3 +185,12 @@ def test_preview_and_confirm_keep_identical_miter_geometry():
         ]
 
     assert signature(preview) == signature(confirmed)
+
+
+def test_narrow_corner_offset_cannot_invert_owner_wings():
+    plan = compile_patch_voronoi_plan(
+        _orthogonal_corner_graph(), [30], offset=0.2
+    )
+    faces = evaluate_patch_voronoi_plan(plan, width=0.01, preview=True)
+    assert faces
+    assert min(_signed_face_area(face) for face in faces) >= -1e-12
