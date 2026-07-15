@@ -49,6 +49,10 @@ from .decal_network import (
     compile_seam_network_plan,
     evaluate_seam_network_plan,
 )
+from .decal_voronoi import (
+    compile_patch_voronoi_plan,
+    evaluate_patch_voronoi_plan,
+)
 from .model import ChainNeighborKind, ChainRef, DecalSettings, PatchGraph, PatchType
 
 DECAL_MODES = ("TOP", "BOTTOM", "CORNERS", "SEAMS")
@@ -196,6 +200,7 @@ class ManualSeamDecalPlan:
     corner_runs: tuple
     boundary_runs: tuple
     network_plan: object = None
+    patch_voronoi_plan: object = None
 
 
 def _join_ribbon_runs(first, second):
@@ -2160,15 +2165,23 @@ def compile_manual_seam_decal_plan(
         graph, selected_edge_indices
     )
     network_plan = None
+    patch_voronoi_plan = None
     if settings.seam_network and (corner_runs or boundary_runs):
-        network_plan = compile_seam_network_plan(
-            corner_runs + boundary_runs,
+        patch_voronoi_plan = compile_patch_voronoi_plan(
+            graph,
+            selected_edge_indices,
             settings.offset,
         )
+        if patch_voronoi_plan is None:
+            network_plan = compile_seam_network_plan(
+                corner_runs + boundary_runs,
+                settings.offset,
+            )
     return ManualSeamDecalPlan(
         corner_runs=tuple(corner_runs),
         boundary_runs=tuple(boundary_runs),
         network_plan=network_plan,
+        patch_voronoi_plan=patch_voronoi_plan,
     )
 
 
@@ -2207,6 +2220,34 @@ def _fill_manual_chain_decals(
                 # divider с соседними seam chains возникает и без общей
                 # source-вершины, чисто из конкуренции расстояний.
                 if (
+                    decal_plan is not None
+                    and decal_plan.patch_voronoi_plan is not None
+                ):
+                    try:
+                        network_faces = evaluate_patch_voronoi_plan(
+                            decal_plan.patch_voronoi_plan,
+                            width,
+                            preview=preview,
+                        )
+                    except Exception as exc:
+                        print(
+                            "[CFTUV][Decals] Patch Voronoi backend failed "
+                            f"({exc!r}); using legacy seam network"
+                        )
+                        if decal_plan.network_plan is not None:
+                            network_faces = evaluate_seam_network_plan(
+                                decal_plan.network_plan,
+                                width,
+                                preview=preview,
+                            )
+                        else:
+                            network_faces = build_seam_network_faces(
+                                corner_runs + boundary_runs,
+                                settings.offset,
+                                width,
+                                preview=preview,
+                            )
+                elif (
                     decal_plan is not None
                     and decal_plan.network_plan is not None
                 ):

@@ -13,6 +13,20 @@ by chain from a global frontier pool across the whole quilt.
 - Hard-surface environment production meshes
 - Trim sheet / tile UV workflows
 
+## Decal dependency
+
+The patch-bounded Decal Seams backend uses `pyvoronoi` 1.2.8+ (Boost segment
+Voronoi bindings). Install it into Blender's Python environment before using
+interactive seam decals:
+
+```powershell
+& "<path-to-Blender>\4.3\python\bin\python.exe" -m pip install "pyvoronoi>=1.2.8"
+```
+
+Core PatchGraph analysis and UV solve modules remain dependency-free. If the
+wheel is unavailable, or a touched owner patch is non-planar, Decal Seams
+explicitly falls back to the legacy intrinsic network backend.
+
 ## Repo Layout
 
 ```text
@@ -24,6 +38,9 @@ cftuv/
 ├── analysis_*.py        # topology, boundary, corners, classification, etc.
 ├── solve.py             # facade (target: split into solve_* submodules)
 ├── debug.py
+├── decals.py
+├── decal_network.py
+├── decal_voronoi.py     # patch-bounded segment Voronoi (`pyvoronoi`)
 ├── operators.py
 └── console_debug.py
 

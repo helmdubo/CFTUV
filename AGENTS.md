@@ -6,7 +6,10 @@ CFTUV (Constraint-First Trim UV) — Blender addon for semi-procedural UV unwrap
 of architectural hard-surface assets under trim sheet / tile workflows.
 
 Target: AA-AAA game environment art. Blender 4.1+, Python 3.10+.
-Single developer, in-house studio tool. No third-party deps beyond Blender built-in.
+Single developer, in-house studio tool. Core analysis/solve code uses only
+Blender built-ins. The decal producer may use an explicitly documented
+specialized geometry backend; `pyvoronoi` is the approved dependency for
+patch-bounded segment-Voronoi construction.
 
 **Architectural debt.** This codebase contains `ARCHITECTURAL_DEBT: <ID>`
 markers at sites with known suboptimal design. Before substantially modifying
@@ -60,6 +63,7 @@ cftuv/
 ├── debug.py            # Grease Pencil visualization + GPENCIL/GREASEPENCIL v3 compatibility
 ├── decals.py           # Decal producer (Phase 3): trim/corner/seam mesh strips from PatchGraph
 ├── decal_network.py    # Seam network backend: α-clipped nearest-branch partition (pure geometry)
+├── decal_voronoi.py    # Patch-bounded segment-Voronoi backend (pyvoronoi)
 ├── operators.py        # Blender UI wrappers (max 5 lines math)
 └── console_debug.py    # Verbose console toggle
 ```
@@ -168,7 +172,9 @@ patches meet. Diagnostic/research entity, not solve runtime.
 - Enum values: `UPPER_CASE` strings (`PatchType.WALL`, `FrameRole.H_FRAME`)
 - Private functions: prefix `_` (not `__`)
 - Types: dataclass for data, regular classes for operators
-- No third-party dependencies beyond Blender built-in
+- Core analysis/solve modules do not add third-party dependencies. Decal-only
+  geometry dependencies must be documented, isolated behind their backend,
+  and have an explicit unavailable/unsupported fallback path.
 
 ---
 
