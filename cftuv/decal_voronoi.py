@@ -388,6 +388,72 @@ def _clip_to_convex(points, clip_polygon):
     return _dedupe_polygon(output)
 
 
+def _clip_to_halfplane(points, clip_a, clip_b, keep_inside=True):
+    """Обрезает polygon одной ориентированной half-plane."""
+
+    source = list(points)
+    if not source:
+        return []
+
+    def signed_distance(point):
+        return (
+            (clip_b[0] - clip_a[0]) * (point[1] - clip_a[1])
+            - (clip_b[1] - clip_a[1]) * (point[0] - clip_a[0])
+        )
+
+    def inside(point):
+        distance = signed_distance(point)
+        return distance >= -1e-10 if keep_inside else distance <= 1e-10
+
+    output = []
+    previous = source[-1]
+    previous_inside = inside(previous)
+    for current in source:
+        current_inside = inside(current)
+        if current_inside != previous_inside:
+            output.append(
+                _line_clip_intersection(previous, current, clip_a, clip_b)
+            )
+        if current_inside:
+            output.append(current)
+        previous = current
+        previous_inside = current_inside
+    return _dedupe_polygon(output)
+
+
+def _subtract_convex_polygon(points, clip_polygon):
+    """Возвращает convex pieces ``points \\ clip_polygon``.
+
+    На каждом ребре clip уже найденная внешняя часть окончательна, а
+    оставшаяся внутренняя часть идёт к следующей half-plane. Поэтому pieces
+    не перекрываются и не требуют общего 2D boolean backend.
+    """
+
+    clip = list(clip_polygon)
+    if _polygon_area2(clip) < 0.0:
+        clip.reverse()
+    inside_parts = [list(points)]
+    outside_parts = []
+    for index, clip_a in enumerate(clip):
+        clip_b = clip[(index + 1) % len(clip)]
+        next_inside = []
+        for polygon in inside_parts:
+            outside = _clip_to_halfplane(
+                polygon, clip_a, clip_b, keep_inside=False
+            )
+            if outside and abs(_polygon_area2(outside)) > 1e-12:
+                outside_parts.append(outside)
+            inside = _clip_to_halfplane(
+                polygon, clip_a, clip_b, keep_inside=True
+            )
+            if inside and abs(_polygon_area2(inside)) > 1e-12:
+                next_inside.append(inside)
+        inside_parts = next_inside
+        if not inside_parts:
+            break
+    return outside_parts
+
+
 def _clip_to_triangle(points, triangle):
     return _clip_to_convex(points, triangle)
 
@@ -741,6 +807,14 @@ def _patch_domain_triangles(node, origin, basis_u, basis_v):
             area = _polygon_area2(points)
             if (not is_hole and area < 0.0) or (is_hole and area > 0.0):
                 points.reverse()
+            start_index = min(
+                range(len(points)),
+                key=lambda index: (
+                    round(points[index][0], 12),
+                    round(points[index][1], 12),
+                ),
+            )
+            points = points[start_index:] + points[:start_index]
             domain_loops.append(points)
 
     if domain_loops:
@@ -1486,11 +1560,42 @@ def _compile_corners(sites):
     return tuple(corners)
 
 
+def _canonical_planar_basis(normal):
+    """Одинаковый 2D chart для совпадающих плоскостей с normal ``n``/``-n``.
+
+    Patch winding определяет сторону lift, но не должен менять segment
+    Voronoi и момент topology events. Поэтому chart normal канонизируется по
+    знаку доминирующей компоненты, а U выбирается из мировой оси, наименее
+    параллельной плоскости.
+    """
+
+    chart_normal = normal.normalized()
+    dominant_axis = max(
+        range(3), key=lambda axis: (abs(chart_normal[axis]), -axis)
+    )
+    if chart_normal[dominant_axis] < 0.0:
+        chart_normal = chart_normal * -1.0
+    world_axes = (
+        Vector((1.0, 0.0, 0.0)),
+        Vector((0.0, 1.0, 0.0)),
+        Vector((0.0, 0.0, 1.0)),
+    )
+    # Циклический выбор не дрожит от микроскопических normal-компонент.
+    # ``min(abs(dot))`` менял Y/Z между coplanar faces после Extrude.
+    anchor = world_axes[(dominant_axis + 1) % 3]
+    basis_u = anchor - chart_normal * anchor.dot(chart_normal)
+    basis_u.normalize()
+    basis_v = chart_normal.cross(basis_u).normalized()
+    return basis_u, basis_v
+
+
 def _compile_surface(node, raw_sites):
-    origin = node.centroid.copy()
     normal = node.normal.normalized()
-    basis_u = node.basis_u.normalized()
-    basis_v = node.basis_v.normalized()
+    # Ближайшая к мировому origin точка owner plane не зависит от winding и
+    # от порядка face accumulation. Centroid-origin давал coplanar Extrude
+    # копиям микросдвиг chart, достаточный для другого integer Voronoi event.
+    origin = normal * node.centroid.dot(normal)
+    basis_u, basis_v = _canonical_planar_basis(normal)
     triangles = _patch_domain_triangles(
         node, origin, basis_u, basis_v
     )
@@ -1507,10 +1612,24 @@ def _compile_surface(node, raw_sites):
         DECAL_WELD_DISTANCE * 2.0,
         min(diagonal * 1e-4, max(diagonal, 1.0) * 1e-3),
     )
-    sites = []
+    projected_sites = []
     for raw in raw_sites:
         point_a = _project(raw["source_a"], origin, basis_u, basis_v)
         point_b = _project(raw["source_b"], origin, basis_u, basis_v)
+        endpoint_key = tuple(
+            sorted(
+                (
+                    (round(point_a[0], 12), round(point_a[1], 12)),
+                    (round(point_b[0], 12), round(point_b[1], 12)),
+                )
+            )
+        )
+        projected_sites.append((endpoint_key, raw, point_a, point_b))
+
+    sites = []
+    for _endpoint_key, raw, point_a, point_b in sorted(
+        projected_sites, key=lambda item: item[0]
+    ):
         sites.append(
             _PatchVoronoiSite(
                 patch_id=node.patch_id,
@@ -1542,8 +1661,16 @@ def _compile_surface(node, raw_sites):
     )
 
     diagram = pyvoronoi.Pyvoronoi(_DIAGRAM_SCALE)
+    diagram_endpoint_vertices = []
     for site in sites:
-        diagram.AddSegment([site.point_a, site.point_b])
+        if site.point_a <= site.point_b:
+            diagram_points = (site.point_a, site.point_b)
+            endpoint_vertices = (site.vert_a, site.vert_b)
+        else:
+            diagram_points = (site.point_b, site.point_a)
+            endpoint_vertices = (site.vert_b, site.vert_a)
+        diagram.AddSegment(list(diagram_points))
+        diagram_endpoint_vertices.append(endpoint_vertices)
     for index in range(4):
         diagram.AddSegment([guard[index], guard[(index + 1) % 4]])
     diagram.Construct()
@@ -1597,9 +1724,9 @@ def _compile_surface(node, raw_sites):
             if cell.contains_point:
                 cell_kind = "POINT"
                 if source_category == 1:
-                    source_vertex = site.vert_a
+                    source_vertex = diagram_endpoint_vertices[cell.site][0]
                 elif source_category == 2:
-                    source_vertex = site.vert_b
+                    source_vertex = diagram_endpoint_vertices[cell.site][1]
                 else:
                     source_vertex = -1
                 corner_index = corner_by_vertex.get(source_vertex, -1)
@@ -2181,6 +2308,118 @@ def _junction_connector_faces(plan, faces, alpha):
     return connectors
 
 
+def _append_pending_fragments(pending, surface, site, crop, fragments):
+    """Сваривает fragments одного semantic owner до materialization."""
+
+    components = _merge_polygon_fragments(
+        fragments,
+        tolerance=max(1e-8, DECAL_WELD_DISTANCE * 0.25),
+    )
+    for component in components:
+        component = _dedupe_polygon(component, tolerance=1e-7)
+        if (
+            len(component) < 3
+            or abs(_polygon_area2(component)) <= 1e-10
+        ):
+            continue
+        if _polygon_area2(component) < 0.0:
+            component.reverse()
+        pending.append(
+            _PendingArrangementFace(
+                surface=surface,
+                site=site,
+                points=tuple(component),
+                crop=crop,
+            )
+        )
+
+
+def _evaluate_surface_crops(surface, alpha, pending):
+    """Строит cell ownership без внутренних endpoint boundaries.
+
+    pyvoronoi отдельно хранит point-cell и две incident segment-cells. Для
+    decal corner это одна semantic область. Если материализовать три cells
+    независимо, sampled parabola point-cell становится преждевременным fan
+    ещё до встречи с другой ветвью. Здесь полный corner crop пересекается с
+    объединением этих трёх ownership regions, а incident strips вычитают crop.
+    Параболические stations остаются только на реальной границе с
+    неincident competitor, то есть появляются непосредственно при collision.
+    """
+
+    point_atoms_by_corner = {}
+    for atom in surface.atoms:
+        if atom.cell_kind == "POINT" and atom.corner_index >= 0:
+            point_atoms_by_corner.setdefault(atom.corner_index, []).append(atom)
+
+    corner_crops = {}
+    corners_by_site = {}
+    for corner_index, point_atoms in point_atoms_by_corner.items():
+        corner = surface.corners[corner_index]
+        crops = _corner_crop_components(surface, corner, alpha)
+        if not crops:
+            continue
+        corner_crops[corner_index] = crops
+        for site_index in corner.incident_sites:
+            corners_by_site.setdefault(site_index, []).append(corner_index)
+
+        owner_atoms = [
+            atom
+            for atom in surface.atoms
+            if (
+                atom.site_index in corner.incident_sites
+                and atom.cell_kind == "SEGMENT"
+            )
+            or (
+                atom.cell_kind == "POINT"
+                and atom.corner_index == corner_index
+            )
+        ]
+        owner_site = surface.sites[min(atom.site_index for atom in point_atoms)]
+        for crop in crops:
+            fragments = []
+            for atom in owner_atoms:
+                for fragment in atom.fragments:
+                    clipped = _clip_to_convex(fragment, crop.points)
+                    if clipped:
+                        fragments.append(clipped)
+            _append_pending_fragments(
+                pending, surface, owner_site, crop, fragments
+            )
+
+    for atom in surface.atoms:
+        if atom.cell_kind == "POINT" and atom.corner_index in corner_crops:
+            continue
+        site = surface.sites[atom.site_index]
+        crop = _CropComponent(
+            kind="SEGMENT",
+            side="",
+            points=tuple(_segment_crop_polygon(site, alpha)),
+        )
+        fragments = []
+        subtraction_crops = [
+            corner_crop
+            for corner_index in corners_by_site.get(atom.site_index, ())
+            for corner_crop in corner_crops[corner_index]
+        ]
+        for fragment in atom.fragments:
+            clipped = _clip_to_convex(fragment, crop.points)
+            if not clipped:
+                continue
+            pieces = [clipped]
+            for corner_crop in subtraction_crops:
+                pieces = [
+                    outside
+                    for piece in pieces
+                    for outside in _subtract_convex_polygon(
+                        piece, corner_crop.points
+                    )
+                ]
+                if not pieces:
+                    break
+            fragments.extend(pieces)
+        _append_pending_fragments(pending, surface, site, crop, fragments)
+
+
 def evaluate_patch_voronoi_plan(plan, width, preview=False):
     """Перестраивает extrusion polygons внутри статических Voronoi cells."""
 
@@ -2197,49 +2436,7 @@ def evaluate_patch_voronoi_plan(plan, width, preview=False):
         lift_scale = 1.0
     pending = []
     for surface in plan.surfaces:
-        for atom in surface.atoms:
-            site = surface.sites[atom.site_index]
-            if atom.cell_kind == "POINT" and atom.corner_index >= 0:
-                crop_components = _corner_crop_components(
-                    surface, surface.corners[atom.corner_index], alpha
-                )
-            else:
-                crop_components = (
-                    _CropComponent(
-                        kind="SEGMENT",
-                        side="",
-                        points=tuple(_segment_crop_polygon(site, alpha)),
-                    ),
-                )
-            for crop in crop_components:
-                if len(crop.points) < 3:
-                    continue
-                fragments = []
-                for fragment in atom.fragments:
-                    clipped = _clip_to_convex(fragment, crop.points)
-                    if clipped:
-                        fragments.append(clipped)
-                components = _merge_polygon_fragments(
-                    fragments,
-                    tolerance=max(1e-8, DECAL_WELD_DISTANCE * 0.25),
-                )
-                for component in components:
-                    component = _dedupe_polygon(component, tolerance=1e-7)
-                    if (
-                        len(component) < 3
-                        or abs(_polygon_area2(component)) <= 1e-10
-                    ):
-                        continue
-                    if _polygon_area2(component) < 0.0:
-                        component.reverse()
-                    pending.append(
-                        _PendingArrangementFace(
-                            surface=surface,
-                            site=site,
-                            points=tuple(component),
-                            crop=crop,
-                        )
-                    )
+        _evaluate_surface_crops(surface, alpha, pending)
 
     arrangement = _build_decal_arrangement(
         pending,
@@ -2295,15 +2492,28 @@ def evaluate_patch_voronoi_plan(plan, width, preview=False):
         if face_identity in emitted_faces:
             continue
         emitted_faces.add(face_identity)
+        surface_normal = surface.domain.normal_at(
+            (
+                sum(point[0] for point in component) / len(component),
+                sum(point[1] for point in component) / len(component),
+            )
+        )
+        winding_normal = sum(
+            (
+                positions[index].cross(positions[(index + 1) % len(positions)])
+                for index in range(len(positions))
+            ),
+            Vector((0.0, 0.0, 0.0)),
+        )
+        if winding_normal.dot(surface_normal) < 0.0:
+            vert_keys.reverse()
+            positions.reverse()
+            u_fracs.reverse()
+            v_lengths.reverse()
         faces.append(
             _NetworkFace(
                 surface_id=surface.patch_id,
-                surface_normal=surface.domain.normal_at(
-                    (
-                        sum(point[0] for point in component) / len(component),
-                        sum(point[1] for point in component) / len(component),
-                    )
-                ),
+                surface_normal=surface_normal,
                 vert_keys=vert_keys,
                 positions=positions,
                 u_fracs=u_fracs,

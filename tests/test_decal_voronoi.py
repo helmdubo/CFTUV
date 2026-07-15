@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 import pytest
 from math import cos, pi, sin
 from mathutils import Vector
@@ -540,6 +542,125 @@ def test_convex_corner_builds_explicit_realtime_kite():
     assert abs(decal_voronoi._polygon_area2(narrow)) == pytest.approx(
         0.25 * abs(decal_voronoi._polygon_area2(kite))
     )
+
+
+def test_corner_absorbs_incident_point_cell_boundaries_before_collision():
+    graph, edge_indices = _door_opening_graph()
+    plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
+    faces = evaluate_patch_voronoi_plan(plan, width=0.1, preview=True)
+
+    kite_faces = [face for face in faces if face.component_kind == "KITE"]
+    segment_faces = [
+        face for face in faces if face.component_kind == "SEGMENT"
+    ]
+    assert len(kite_faces) == 2
+    assert all(len(face.positions) == 4 for face in kite_faces)
+    assert len(segment_faces) == len(plan.surfaces[0].sites)
+
+
+def test_planar_chart_is_invariant_to_patch_normal_sign():
+    graph, edge_indices = _door_opening_graph()
+    flipped_graph = deepcopy(graph)
+    flipped_node = flipped_graph.nodes[0]
+    flipped_node.normal = flipped_node.normal * -1.0
+    flipped_node.basis_v = flipped_node.basis_v * -1.0
+
+    plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
+    flipped_plan = compile_patch_voronoi_plan(
+        flipped_graph, edge_indices, offset=0.01
+    )
+    surface = plan.surfaces[0]
+    flipped_surface = flipped_plan.surfaces[0]
+    assert [
+        (site.point_a, site.point_b) for site in surface.sites
+    ] == [
+        (site.point_a, site.point_b) for site in flipped_surface.sites
+    ]
+    assert surface.atoms == flipped_surface.atoms
+
+    for width in (0.1, 0.5, 2.0):
+        faces = evaluate_patch_voronoi_plan(plan, width, preview=True)
+        flipped_faces = evaluate_patch_voronoi_plan(
+            flipped_plan, width, preview=True
+        )
+        assert [
+            (
+                face.component_kind,
+                face.component_side,
+                tuple(face.vert_keys),
+            )
+            for face in faces
+        ] == [
+            (
+                face.component_kind,
+                face.component_side,
+                tuple(reversed(face.vert_keys)),
+            )
+            for face in flipped_faces
+        ]
+
+
+def test_realtime_corner_partition_has_no_planar_gaps():
+    graph, edge_indices = _door_opening_graph()
+    plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
+    surface = plan.surfaces[0]
+    domain_points = [
+        point
+        for triangle in surface.domain.boundary_triangles
+        for point in triangle
+    ]
+    min_x = min(point[0] for point in domain_points)
+    max_x = max(point[0] for point in domain_points)
+    min_y = min(point[1] for point in domain_points)
+    max_y = max(point[1] for point in domain_points)
+
+    def inside_polygon(point, polygon):
+        turns = []
+        for index, point_a in enumerate(polygon):
+            point_b = polygon[(index + 1) % len(polygon)]
+            turns.append(
+                (point_b[0] - point_a[0]) * (point[1] - point_a[1])
+                - (point_b[1] - point_a[1]) * (point[0] - point_a[0])
+            )
+        return min(turns) >= -1e-7 or max(turns) <= 1e-7
+
+    for width in (0.2, 1.0, 3.0):
+        alpha = width * 0.5
+        faces = evaluate_patch_voronoi_plan(plan, width, preview=True)
+        polygons = [
+            [
+                (
+                    (position - surface.origin).dot(surface.basis_u),
+                    (position - surface.origin).dot(surface.basis_v),
+                )
+                for position in face.positions
+            ]
+            for face in faces
+            if face.surface_id == surface.patch_id
+        ]
+        for grid_y in range(31):
+            for grid_x in range(31):
+                point = (
+                    min_x + (grid_x + 0.37) / 31.0 * (max_x - min_x),
+                    min_y + (grid_y + 0.61) / 31.0 * (max_y - min_y),
+                )
+                if not decal_voronoi._point_in_domain(
+                    point, surface.domain.boundary_triangles
+                ):
+                    continue
+                distance = min(
+                    decal_voronoi._segment_point_distance2(
+                        site.point_a, site.point_b, point
+                    )[0]
+                    for site in surface.sites
+                )
+                if abs(distance - alpha) <= 1e-5:
+                    continue
+                actual = any(
+                    inside_polygon(point, polygon) for polygon in polygons
+                )
+                if distance < alpha:
+                    assert actual
 
 
 def test_acute_corner_splits_inner_outer_with_shared_mesh_edge_and_uv_seam():
