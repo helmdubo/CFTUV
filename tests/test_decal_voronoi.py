@@ -86,3 +86,38 @@ def test_patch_voronoi_rejects_non_planar_owner_patch():
     graph = _planar_two_site_graph()
     graph.nodes[0].mesh_verts[2] = Vector((4.0, 2.0, 0.2))
     assert compile_patch_voronoi_plan(graph, [10, 12], offset=0.01) is None
+
+
+def test_preview_and_confirm_keep_identical_miter_geometry():
+    graph = _planar_two_site_graph()
+    graph.nodes[0].boundary_loops = [
+        BoundaryLoop(
+            chains=[
+                BoundaryChain(
+                    vert_indices=[4, 5],
+                    vert_cos=[
+                        Vector((1.0, 0.0, 0.0)),
+                        Vector((3.0, 0.0, 0.0)),
+                    ],
+                    edge_indices=[20],
+                )
+            ]
+        )
+    ]
+    plan = compile_patch_voronoi_plan(graph, [20], offset=0.01)
+    preview = evaluate_patch_voronoi_plan(plan, width=1.0, preview=True)
+    confirmed = evaluate_patch_voronoi_plan(plan, width=1.0, preview=False)
+
+    def signature(faces):
+        return [
+            (
+                tuple(face.vert_keys),
+                tuple(
+                    tuple(round(value, 9) for value in point)
+                    for point in face.positions
+                ),
+            )
+            for face in faces
+        ]
+
+    assert signature(preview) == signature(confirmed)

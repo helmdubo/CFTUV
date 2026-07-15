@@ -505,7 +505,10 @@ def evaluate_patch_voronoi_plan(plan, width, preview=False):
     keep_eps = max(1e-9, alpha * 1e-7)
     faces = []
     emitted_faces = set()
-    capsule_segments = 2 if preview else 3
+    # Preview и confirm обязаны иметь один и тот же collision contour.
+    # Дополнительная финальная дуговая точка меняла cell intersections после
+    # отпускания мыши: митеры визуально раскрывались и расходились с крылом.
+    capsule_segments = 2
     for surface in plan.surfaces:
         for atom in surface.atoms:
             site = surface.sites[atom.site_index]
