@@ -124,6 +124,81 @@ def _orthogonal_corner_graph():
     return graph
 
 
+def _folded_turn_graph():
+    """Два selected edges поворачивают через три owner patches."""
+
+    graph = PatchGraph()
+    patch_specs = (
+        (
+            0,
+            Vector((0.0, 0.0, 1.0)),
+            Vector((1.0, 0.0, 0.0)),
+            Vector((0.0, 1.0, 0.0)),
+            [
+                Vector((0.0, 0.0, 0.0)),
+                Vector((2.0, 0.0, 0.0)),
+                Vector((2.0, 2.0, 0.0)),
+                Vector((0.0, 2.0, 0.0)),
+            ],
+            (
+                ([0, 1], [0, 1], [30]),
+                ([0, 3], [0, 3], [31]),
+            ),
+        ),
+        (
+            1,
+            Vector((0.0, -1.0, 0.0)),
+            Vector((1.0, 0.0, 0.0)),
+            Vector((0.0, 0.0, 1.0)),
+            [
+                Vector((0.0, 0.0, 0.0)),
+                Vector((2.0, 0.0, 0.0)),
+                Vector((2.0, 0.0, 2.0)),
+                Vector((0.0, 0.0, 2.0)),
+            ],
+            (([0, 1], [0, 1], [30]),),
+        ),
+        (
+            2,
+            Vector((-1.0, 0.0, 0.0)),
+            Vector((0.0, 1.0, 0.0)),
+            Vector((0.0, 0.0, 1.0)),
+            [
+                Vector((0.0, 0.0, 0.0)),
+                Vector((0.0, 2.0, 0.0)),
+                Vector((0.0, 2.0, 2.0)),
+                Vector((0.0, 0.0, 2.0)),
+            ],
+            (([0, 3], [0, 1], [31]),),
+        ),
+    )
+    for patch_id, normal, basis_u, basis_v, verts, chains in patch_specs:
+        node = PatchNode(
+            patch_id=patch_id,
+            face_indices=[patch_id],
+            centroid=sum(verts, Vector((0.0, 0.0, 0.0))) / 4.0,
+            normal=normal,
+            basis_u=basis_u,
+            basis_v=basis_v,
+        )
+        node.mesh_verts = verts
+        node.mesh_tris = [(0, 1, 2), (0, 2, 3)]
+        node.boundary_loops = [
+            BoundaryLoop(
+                chains=[
+                    BoundaryChain(
+                        vert_indices=vert_indices,
+                        vert_cos=[verts[index] for index in point_indices],
+                        edge_indices=edge_indices,
+                    )
+                    for vert_indices, point_indices, edge_indices in chains
+                ]
+            )
+        ]
+        graph.add_node(node)
+    return graph
+
+
 def _door_opening_graph():
     """Один planar patch с concave дверным проёмом без owner diagonals."""
 
@@ -349,6 +424,25 @@ def test_fragment_union_keeps_point_contact_as_separate_components():
     assert len(components) == 2
 
 
+def test_arrangement_splits_point_on_neighbor_edge_before_materialization():
+    polygons, inserted = decal_voronoi._insert_surface_edge_stations(
+        [
+            [(0.0, 0.0), (2.0, 0.0), (2.0, 1.0), (0.0, 1.0)],
+            [(0.0, 1.0), (1.0, 1.0), (1.0, 2.0), (0.0, 2.0)],
+        ],
+        tolerance=1e-7,
+    )
+    assert inserted == 1
+    assert polygons[0] == [
+        (0.0, 0.0),
+        (2.0, 0.0),
+        (2.0, 1.0),
+        (1.0, 1.0),
+        (0.0, 1.0),
+    ]
+    assert (1.0, 1.0) in polygons[1]
+
+
 def test_patch_domain_uses_boundary_loop_instead_of_owner_triangulation(
     monkeypatch,
 ):
@@ -439,3 +533,46 @@ def test_narrow_corner_offset_cannot_invert_owner_wings():
     faces = evaluate_patch_voronoi_plan(plan, width=0.01, preview=True)
     assert faces
     assert min(_signed_face_area(face) for face in faces) >= -1e-12
+
+
+def test_folded_turn_builds_one_realtime_junction_sector():
+    plan = compile_patch_voronoi_plan(
+        _folded_turn_graph(), [30, 31], offset=0.01
+    )
+    faces = evaluate_patch_voronoi_plan(plan, width=0.5, preview=True)
+    connectors = [
+        face
+        for face in faces
+        if face.surface_id == -1 and face.vert_keys[0] == ("pv-sv", 0)
+    ]
+    assert len(connectors) == 1
+
+    edge_uses = {}
+    for face in faces:
+        for index, key_a in enumerate(face.vert_keys):
+            key_b = face.vert_keys[(index + 1) % len(face.vert_keys)]
+            edge_key = tuple(sorted((key_a, key_b), key=repr))
+            edge_uses[edge_key] = edge_uses.get(edge_key, 0) + 1
+    open_rail_edges = [
+        edge_key
+        for edge_key, use_count in edge_uses.items()
+        if use_count == 1
+        and ("pv-sv", 0) in edge_key
+        and not all(key[:1] == ("pv-sv",) for key in edge_key)
+    ]
+    assert not open_rail_edges
+
+    confirmed = evaluate_patch_voronoi_plan(plan, width=0.5, preview=False)
+    assert [
+        (
+            tuple(face.vert_keys),
+            tuple(tuple(round(value, 9) for value in point) for point in face.positions),
+        )
+        for face in faces
+    ] == [
+        (
+            tuple(face.vert_keys),
+            tuple(tuple(round(value, 9) for value in point) for point in face.positions),
+        )
+        for face in confirmed
+    ]

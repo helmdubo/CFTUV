@@ -86,6 +86,8 @@ class _PatchVoronoiSurface:
     sites: tuple[_PatchVoronoiSite, ...]
     corners: tuple[_PatchVoronoiCorner, ...]
     atoms: tuple[_PatchVoronoiAtom, ...]
+    site_grid_size: float
+    site_grid: dict[tuple[int, int], tuple[int, ...]]
 
 
 @dataclass(frozen=True)
@@ -96,6 +98,37 @@ class PatchVoronoiPlan:
     surfaces: tuple[_PatchVoronoiSurface, ...]
     lifted_vertices: dict[int, Vector]
     max_lateral_lift_ratio: float
+
+
+@dataclass(frozen=True)
+class _DecalArrangementFace:
+    """Cell face после общей surface-level edge conformity."""
+
+    surface: _PatchVoronoiSurface
+    site: _PatchVoronoiSite
+    points: tuple[tuple[float, float], ...]
+
+
+@dataclass(frozen=True)
+class DecalArrangement:
+    """Математическая decal-сеть до preview/final BMesh adapters."""
+
+    faces: tuple[_DecalArrangementFace, ...]
+    inserted_stations: int
+
+
+@dataclass(frozen=True)
+class _JunctionPort:
+    """Открытый core-to-rail луч математической decal-сети."""
+
+    surface_id: int
+    surface_normal: Vector
+    core_position: Vector
+    outer_key: tuple
+    outer_position: Vector
+    outer_u: float
+    outer_v: float
+    core_v: float
 
 
 def patch_voronoi_available():
@@ -1128,6 +1161,33 @@ def _compile_surface(node, raw_sites):
             )
     if not atoms:
         return None
+    site_grid_size = max(
+        median_site_length,
+        diagonal / max(8.0, sqrt(len(sites)) * 2.0),
+        DECAL_WELD_DISTANCE * 4.0,
+    )
+    site_grid = {}
+    for site_index, site in enumerate(sites):
+        margin = max(DECAL_WELD_DISTANCE, site.segment_length * 1e-7)
+        min_grid_x = int(
+            (min(site.point_a[0], site.point_b[0]) - margin)
+            // site_grid_size
+        )
+        max_grid_x = int(
+            (max(site.point_a[0], site.point_b[0]) + margin)
+            // site_grid_size
+        )
+        min_grid_y = int(
+            (min(site.point_a[1], site.point_b[1]) - margin)
+            // site_grid_size
+        )
+        max_grid_y = int(
+            (max(site.point_a[1], site.point_b[1]) + margin)
+            // site_grid_size
+        )
+        for grid_x in range(min_grid_x, max_grid_x + 1):
+            for grid_y in range(min_grid_y, max_grid_y + 1):
+                site_grid.setdefault((grid_x, grid_y), []).append(site_index)
     return _PatchVoronoiSurface(
         patch_id=node.patch_id,
         origin=origin,
@@ -1137,6 +1197,10 @@ def _compile_surface(node, raw_sites):
         sites=tuple(sites),
         corners=corners,
         atoms=tuple(atoms),
+        site_grid_size=site_grid_size,
+        site_grid={
+            key: tuple(indices) for key, indices in site_grid.items()
+        },
     )
 
 
@@ -1192,6 +1256,137 @@ def compile_patch_voronoi_plan(graph, selected_edge_indices, offset):
     )
 
 
+def _insert_surface_edge_stations(polygons, tolerance):
+    """Делит edge каждой cell всеми point-on-edge вершинами surface.
+
+    До этого соседние cells могли геометрически совпадать, но оставлять
+    топологический T-контакт: вершина одной face лежала в середине цельного
+    edge другой. BMesh/remove_doubles такой edge не разрезает.
+    """
+
+    quantum = max(tolerance * 0.5, 1e-10)
+
+    def point_key(point):
+        return (
+            round(point[0] / quantum),
+            round(point[1] / quantum),
+        )
+
+    representatives = {}
+    keyed_polygons = []
+    for polygon in polygons:
+        keys = []
+        for point in polygon:
+            key = point_key(point)
+            representatives.setdefault(key, (float(point[0]), float(point[1])))
+            if not keys or keys[-1] != key:
+                keys.append(key)
+        if len(keys) > 1 and keys[0] == keys[-1]:
+            keys.pop()
+        keyed_polygons.append(keys)
+    if not representatives:
+        return [list(polygon) for polygon in polygons], 0
+
+    all_points = list(representatives.values())
+    min_x = min(point[0] for point in all_points)
+    max_x = max(point[0] for point in all_points)
+    min_y = min(point[1] for point in all_points)
+    max_y = max(point[1] for point in all_points)
+    diagonal = sqrt((max_x - min_x) ** 2 + (max_y - min_y) ** 2)
+    grid_size = max(
+        tolerance * 4.0,
+        diagonal / max(8.0, sqrt(len(representatives)) * 2.0),
+    )
+
+    def grid_key(point):
+        return (
+            int(point[0] // grid_size),
+            int(point[1] // grid_size),
+        )
+
+    point_grid = {}
+    for key, point in representatives.items():
+        point_grid.setdefault(grid_key(point), []).append(key)
+
+    rebuilt = []
+    inserted_stations = 0
+    for polygon_keys in keyed_polygons:
+        result_keys = []
+        for index, key_a in enumerate(polygon_keys):
+            key_b = polygon_keys[(index + 1) % len(polygon_keys)]
+            point_a = representatives[key_a]
+            point_b = representatives[key_b]
+            edge_length = _dist2(point_a, point_b)
+            if edge_length <= _GEOMETRY_EPS:
+                continue
+            result_keys.append(key_a)
+            min_grid_x = int((min(point_a[0], point_b[0]) - tolerance) // grid_size)
+            max_grid_x = int((max(point_a[0], point_b[0]) + tolerance) // grid_size)
+            min_grid_y = int((min(point_a[1], point_b[1]) - tolerance) // grid_size)
+            max_grid_y = int((max(point_a[1], point_b[1]) + tolerance) // grid_size)
+            candidates = set()
+            for grid_x in range(min_grid_x, max_grid_x + 1):
+                for grid_y in range(min_grid_y, max_grid_y + 1):
+                    candidates.update(point_grid.get((grid_x, grid_y), ()))
+            stations = []
+            endpoint_fraction = min(0.1, tolerance / edge_length)
+            for candidate_key in candidates:
+                if candidate_key in (key_a, key_b):
+                    continue
+                candidate = representatives[candidate_key]
+                distance, factor = _segment_point_distance2(
+                    point_a, point_b, candidate
+                )
+                if (
+                    distance <= tolerance
+                    and endpoint_fraction < factor < 1.0 - endpoint_fraction
+                ):
+                    stations.append((factor, candidate_key))
+            for _factor, candidate_key in sorted(stations):
+                if result_keys[-1] == candidate_key:
+                    continue
+                result_keys.append(candidate_key)
+                inserted_stations += 1
+        result = [representatives[key] for key in result_keys]
+        result = _dedupe_polygon(result, tolerance=quantum)
+        rebuilt.append(result)
+    return rebuilt, inserted_stations
+
+
+def _build_decal_arrangement(pending, tolerance):
+    """Создаёт conforming subdivision отдельно на каждом owner surface."""
+
+    grouped = {}
+    for pending_index, (surface, site, component) in enumerate(pending):
+        grouped.setdefault(surface.patch_id, []).append(
+            (pending_index, surface, site, component)
+        )
+
+    arranged_by_index = {}
+    inserted_stations = 0
+    for entries in grouped.values():
+        polygons, inserted = _insert_surface_edge_stations(
+            [entry[3] for entry in entries], tolerance
+        )
+        inserted_stations += inserted
+        for entry, polygon in zip(entries, polygons):
+            if len(polygon) < 3 or abs(_polygon_area2(polygon)) <= 1e-10:
+                continue
+            if _polygon_area2(polygon) < 0.0:
+                polygon.reverse()
+            arranged_by_index[entry[0]] = _DecalArrangementFace(
+                surface=entry[1],
+                site=entry[2],
+                points=tuple(polygon),
+            )
+    return DecalArrangement(
+        faces=tuple(
+            arranged_by_index[index] for index in sorted(arranged_by_index)
+        ),
+        inserted_stations=inserted_stations,
+    )
+
+
 def _position_and_key(
     plan, surface, site, point, lift_scale, effective_offset
 ):
@@ -1234,6 +1429,50 @@ def _position_and_key(
     )
 
 
+def _arrangement_position_and_key(
+    plan, surface, owning_site, point, lift_scale, effective_offset
+):
+    """Одна 3D identity для station независимо от owning Voronoi site."""
+
+    grid_size = surface.site_grid_size
+    grid_x = int(point[0] // grid_size)
+    grid_y = int(point[1] // grid_size)
+    candidate_indices = set()
+    for offset_x in (-1, 0, 1):
+        for offset_y in (-1, 0, 1):
+            candidate_indices.update(
+                surface.site_grid.get(
+                    (grid_x + offset_x, grid_y + offset_y), ()
+                )
+            )
+    best_site = owning_site
+    best_distance, _factor = _segment_point_distance2(
+        owning_site.point_a, owning_site.point_b, point
+    )
+    for candidate_index in candidate_indices:
+        candidate = surface.sites[candidate_index]
+        distance, _factor = _segment_point_distance2(
+            candidate.point_a, candidate.point_b, point
+        )
+        if (
+            distance < best_distance - 1e-12
+            or (
+                abs(distance - best_distance) <= 1e-12
+                and candidate.edge_index < best_site.edge_index
+            )
+        ):
+            best_distance = distance
+            best_site = candidate
+    return _position_and_key(
+        plan,
+        surface,
+        best_site,
+        point,
+        lift_scale,
+        effective_offset,
+    )
+
+
 def _component_signed_area(plan, surface, site, component, lift_scale):
     """Signed area после shared-rail lift для заданного offset-scale."""
 
@@ -1241,7 +1480,7 @@ def _component_signed_area(plan, surface, site, component, lift_scale):
     used_keys = set()
     effective_offset = plan.offset * lift_scale
     for point in component:
-        position, key = _position_and_key(
+        position, key = _arrangement_position_and_key(
             plan,
             surface,
             site,
@@ -1315,6 +1554,118 @@ def _orientation_safe_lift_scale(plan, pending, desired_scale):
     return desired_scale * safe_fraction * 0.99
 
 
+def _junction_connector_faces(faces, alpha):
+    """Закрывает парные cross-patch sectors до BMesh materialization.
+
+    Внутри planar surface endpoint Voronoi-cell уже соединяет соседние
+    strips. После fold остаются парные открытые core-to-rail rays: это
+    математическая граница отсутствующего junction sector, а не mesh-hole
+    для последующего fill. Соединяем только такие rays и только локально у
+    одной source-вершины.
+    """
+
+    edge_uses = {}
+    for face_index, face in enumerate(faces):
+        for index, key_a in enumerate(face.vert_keys):
+            key_b = face.vert_keys[(index + 1) % len(face.vert_keys)]
+            edge_key = tuple(sorted((key_a, key_b), key=repr))
+            edge_uses.setdefault(edge_key, []).append((face_index, index))
+
+    ports_by_vertex = {}
+    for edge_key, uses in edge_uses.items():
+        if len(uses) != 1:
+            continue
+        core_key = next(
+            (key for key in edge_key if key[:1] == ("pv-sv",)), None
+        )
+        if core_key is None:
+            continue
+        outer_key = edge_key[0] if edge_key[1] == core_key else edge_key[1]
+        if outer_key[:1] == ("pv-sv",):
+            continue
+        face_index, _edge_index = uses[0]
+        face = faces[face_index]
+        core_index = face.vert_keys.index(core_key)
+        outer_index = face.vert_keys.index(outer_key)
+        ports_by_vertex.setdefault(core_key[1], []).append(
+            _JunctionPort(
+                surface_id=face.surface_id,
+                surface_normal=face.surface_normal.copy(),
+                core_position=face.positions[core_index].copy(),
+                outer_key=outer_key,
+                outer_position=face.positions[outer_index].copy(),
+                outer_u=face.u_fracs[outer_index],
+                outer_v=face.v_lengths[outer_index],
+                core_v=face.v_lengths[core_index],
+            )
+        )
+
+    connectors = []
+    max_span = max(alpha * 8.0, DECAL_WELD_DISTANCE * 4.0)
+    for vert_index, ports in sorted(ports_by_vertex.items()):
+        # Одна ray — штатный открытый cap. Несколько rays образуют
+        # независимые парные sectors; greedy matching детерминирован и не
+        # делает fan, где один boundary edge получил бы три owner faces.
+        candidates = []
+        for index, first in enumerate(ports):
+            for other_index in range(index + 1, len(ports)):
+                second = ports[other_index]
+                if first.outer_key == second.outer_key:
+                    continue
+                distance = (first.outer_position - second.outer_position).length
+                candidates.append(
+                    (
+                        distance,
+                        first.surface_id,
+                        repr(first.outer_key),
+                        second.surface_id,
+                        repr(second.outer_key),
+                        index,
+                        other_index,
+                    )
+                )
+        used_ports = set()
+        for distance, _sa, _ka, _sb, _kb, index, other_index in sorted(
+            candidates
+        ):
+            if distance > max_span:
+                break
+            if index in used_ports or other_index in used_ports:
+                continue
+            first = ports[index]
+            second = ports[other_index]
+            core_position = first.core_position.lerp(
+                second.core_position, 0.5
+            )
+            blended = first.surface_normal + second.surface_normal
+            if blended.length_squared <= 1e-12:
+                continue
+            normal = blended.normalized()
+            entries = [first, second]
+            winding = (first.outer_position - core_position).cross(
+                second.outer_position - core_position
+            )
+            if winding.dot(normal) < 0.0:
+                entries.reverse()
+            connectors.append(
+                _NetworkFace(
+                    surface_id=-1,
+                    surface_normal=normal,
+                    vert_keys=[("pv-sv", vert_index)]
+                    + [entry.outer_key for entry in entries],
+                    positions=[core_position]
+                    + [entry.outer_position for entry in entries],
+                    u_fracs=[0.0] + [entry.outer_u for entry in entries],
+                    v_lengths=[
+                        (first.core_v + second.core_v) * 0.5
+                    ]
+                    + [entry.outer_v for entry in entries],
+                )
+            )
+            used_ports.update((index, other_index))
+    return connectors
+
+
 def evaluate_patch_voronoi_plan(plan, width, preview=False):
     """Перестраивает extrusion polygons внутри статических Voronoi cells."""
 
@@ -1358,6 +1709,14 @@ def evaluate_patch_voronoi_plan(plan, width, preview=False):
                     component.reverse()
                 pending.append((surface, site, component))
 
+    arrangement = _build_decal_arrangement(
+        pending,
+        tolerance=max(1e-8, DECAL_WELD_DISTANCE * 0.5),
+    )
+    pending = [
+        (face.surface, face.site, list(face.points))
+        for face in arrangement.faces
+    ]
     lift_scale = _orientation_safe_lift_scale(plan, pending, lift_scale)
     effective_offset = plan.offset * lift_scale
     faces = []
@@ -1369,7 +1728,7 @@ def evaluate_patch_voronoi_plan(plan, width, preview=False):
         v_lengths = []
         used_keys = set()
         for point in component:
-            position, key = _position_and_key(
+            position, key = _arrangement_position_and_key(
                 plan,
                 surface,
                 site,
@@ -1408,4 +1767,5 @@ def evaluate_patch_voronoi_plan(plan, width, preview=False):
                 v_lengths=v_lengths,
             )
         )
+    faces.extend(_junction_connector_faces(faces, alpha))
     return faces
