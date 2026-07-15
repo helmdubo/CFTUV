@@ -13,7 +13,8 @@ topology исходного mesh не должна отпечатываться 
 """
 
 from dataclasses import dataclass
-from math import atan2, sqrt, tau
+from enum import Enum
+from math import atan2, pi, sqrt, tau
 
 from mathutils import Vector
 
@@ -38,6 +39,18 @@ except ImportError:  # Blender может открыть старый файл �
 
 _DIAGRAM_SCALE = 100000
 _GEOMETRY_EPS = 1e-9
+_ACUTE_SPLIT_ANGLE = pi / 3.0
+
+
+class _CornerPolicy(str, Enum):
+    """Intrinsic corner policy; не зависит от способа lift на owner mesh."""
+
+    CAP = "CAP"
+    MITER = "MITER"
+    KITE = "KITE"
+    ACUTE_SPLIT = "ACUTE_SPLIT"
+    BEVEL = "BEVEL"
+    JUNCTION = "JUNCTION"
 
 
 @dataclass(frozen=True)
@@ -57,13 +70,17 @@ class _PatchVoronoiSite:
 
 
 @dataclass(frozen=True)
-class _PatchVoronoiCorner:
+class CornerSpec:
     """Decal-local endpoint topology одного planar patch."""
 
     vert_index: int
     point: tuple[float, float]
     incident_sites: tuple[int, ...]
-    corner_type: str
+    ordered_sites: tuple[int, ...]
+    policy: _CornerPolicy
+    turn_sign: float
+    interior_angle: float
+    is_convex: bool
     miter_ratio: float
 
 
@@ -84,7 +101,7 @@ class _PatchVoronoiSurface:
     basis_u: Vector
     basis_v: Vector
     sites: tuple[_PatchVoronoiSite, ...]
-    corners: tuple[_PatchVoronoiCorner, ...]
+    corners: tuple[CornerSpec, ...]
     atoms: tuple[_PatchVoronoiAtom, ...]
     site_grid_size: float
     site_grid: dict[tuple[int, int], tuple[int, ...]]
@@ -140,6 +157,25 @@ def _dist2(a, b):
     dx = a[0] - b[0]
     dy = a[1] - b[1]
     return sqrt(dx * dx + dy * dy)
+
+
+def _sub2(point_a, point_b):
+    return (point_a[0] - point_b[0], point_a[1] - point_b[1])
+
+
+def _dot2(vector_a, vector_b):
+    return vector_a[0] * vector_b[0] + vector_a[1] * vector_b[1]
+
+
+def _cross2(vector_a, vector_b):
+    return vector_a[0] * vector_b[1] - vector_a[1] * vector_b[0]
+
+
+def _norm2(vector):
+    length = sqrt(_dot2(vector, vector))
+    if length <= _GEOMETRY_EPS:
+        return None
+    return (vector[0] / length, vector[1] / length)
 
 
 def _dedupe_polygon(points, tolerance=1e-8):
@@ -765,7 +801,7 @@ def _corner_crop_polygon(surface, corner, alpha):
     if (
         intersection is not None
         and _dist2(point, intersection) <= alpha * 8.0
-        and corner.corner_type == "MITER"
+        and corner.policy != _CornerPolicy.BEVEL
     ):
         points.append(intersection)
     return _convex_hull(points)
@@ -991,11 +1027,85 @@ def _compile_corners(sites):
     for vert_index in sorted(incidents):
         incident_sites = tuple(sorted(incidents[vert_index]))
         point = points[vert_index]
-        corner_type = "JUNCTION"
+        ordered_sites = incident_sites
+        policy = _CornerPolicy.JUNCTION
+        turn_sign = 0.0
+        interior_angle = 0.0
+        is_convex = False
         miter_ratio = float("inf")
         if len(incident_sites) == 1:
-            corner_type = "CAP"
+            policy = _CornerPolicy.CAP
         elif len(incident_sites) == 2:
+            rays = {}
+            incoming = []
+            outgoing = []
+            for site_index in incident_sites:
+                site = sites[site_index]
+                if site.vert_a == vert_index:
+                    other = site.point_b
+                    outgoing.append(site_index)
+                else:
+                    other = site.point_a
+                    incoming.append(site_index)
+                rays[site_index] = _norm2(_sub2(other, point))
+            if (
+                len(incoming) == 1
+                and len(outgoing) == 1
+                and incoming[0] != outgoing[0]
+            ):
+                ordered_sites = (incoming[0], outgoing[0])
+                incoming_ray = rays[incoming[0]]
+                outgoing_ray = rays[outgoing[0]]
+                if incoming_ray is not None and outgoing_ray is not None:
+                    travel_in = (-incoming_ray[0], -incoming_ray[1])
+                    signed_turn = _cross2(travel_in, outgoing_ray)
+                    if abs(signed_turn) > 1e-9:
+                        turn_sign = 1.0 if signed_turn > 0.0 else -1.0
+            else:
+                ordered_sites = tuple(
+                    sorted(
+                        incident_sites,
+                        key=lambda site_index: atan2(
+                            rays[site_index][1], rays[site_index][0]
+                        )
+                        if rays[site_index] is not None
+                        else 0.0,
+                    )
+                )
+                first_ray = rays[ordered_sites[0]]
+                second_ray = rays[ordered_sites[1]]
+                if first_ray is not None and second_ray is not None:
+                    signed_turn = _cross2(first_ray, second_ray)
+                    if abs(signed_turn) > 1e-9:
+                        turn_sign = 1.0 if signed_turn > 0.0 else -1.0
+
+            first_ray = rays[incident_sites[0]]
+            second_ray = rays[incident_sites[1]]
+            if first_ray is not None and second_ray is not None:
+                minor_angle = atan2(
+                    abs(_cross2(first_ray, second_ray)),
+                    max(-1.0, min(1.0, _dot2(first_ray, second_ray))),
+                )
+                bisector = _norm2(
+                    (
+                        first_ray[0] + second_ray[0],
+                        first_ray[1] + second_ray[1],
+                    )
+                )
+                if bisector is None:
+                    interior_angle = pi
+                    is_convex = False
+                else:
+                    inside_small_wedge = all(
+                        _dot2(bisector, sites[site_index].inward_normal)
+                        >= -1e-7
+                        for site_index in incident_sites
+                    )
+                    is_convex = inside_small_wedge and minor_angle < pi - 1e-7
+                    interior_angle = (
+                        minor_angle if inside_small_wedge else tau - minor_angle
+                    )
+
             offset_lines = []
             for site_index in incident_sites:
                 site = sites[site_index]
@@ -1021,13 +1131,26 @@ def _compile_corners(sites):
             )
             if intersection is not None:
                 miter_ratio = _dist2(point, intersection)
-            corner_type = "MITER" if miter_ratio <= 8.0 else "BEVEL"
+            if abs(interior_angle - pi) <= 1e-7:
+                policy = _CornerPolicy.MITER
+            elif is_convex and interior_angle < _ACUTE_SPLIT_ANGLE:
+                policy = _CornerPolicy.ACUTE_SPLIT
+            elif is_convex:
+                policy = _CornerPolicy.KITE
+            elif miter_ratio <= 8.0:
+                policy = _CornerPolicy.MITER
+            else:
+                policy = _CornerPolicy.BEVEL
         corners.append(
-            _PatchVoronoiCorner(
+            CornerSpec(
                 vert_index=vert_index,
                 point=point,
                 incident_sites=incident_sites,
-                corner_type=corner_type,
+                ordered_sites=ordered_sites,
+                policy=policy,
+                turn_sign=turn_sign,
+                interior_angle=interior_angle,
+                is_convex=is_convex,
                 miter_ratio=miter_ratio,
             )
         )

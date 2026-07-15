@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from math import cos, pi, sin
 from mathutils import Vector
 
 pytest.importorskip("pyvoronoi")
@@ -199,6 +200,46 @@ def _folded_turn_graph():
     return graph
 
 
+def _acute_corner_graph():
+    """Planar convex apex с intrinsic углом 30 градусов."""
+
+    angle = pi / 12.0
+    points = [
+        Vector((0.0, 0.0, 0.0)),
+        Vector((2.0 * cos(angle), -2.0 * sin(angle), 0.0)),
+        Vector((2.0 * cos(angle), 2.0 * sin(angle), 0.0)),
+    ]
+    node = PatchNode(
+        patch_id=0,
+        face_indices=[0],
+        centroid=sum(points, Vector((0.0, 0.0, 0.0))) / 3.0,
+        normal=Vector((0.0, 0.0, 1.0)),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+    )
+    node.mesh_verts = points
+    node.mesh_tris = [(0, 1, 2)]
+    node.boundary_loops = [
+        BoundaryLoop(
+            chains=[
+                BoundaryChain(
+                    vert_indices=[0, 1],
+                    vert_cos=[points[0], points[1]],
+                    edge_indices=[40],
+                ),
+                BoundaryChain(
+                    vert_indices=[2, 0],
+                    vert_cos=[points[2], points[0]],
+                    edge_indices=[41],
+                ),
+            ]
+        )
+    ]
+    graph = PatchGraph()
+    graph.add_node(node)
+    return graph
+
+
 def _door_opening_graph():
     """Один planar patch с concave дверным проёмом без owner diagonals."""
 
@@ -369,6 +410,47 @@ def test_door_opening_builds_realtime_endpoint_miters_with_shared_keys():
     assert signature(wide) == signature(
         evaluate_patch_voronoi_plan(plan, width=2.0, preview=False)
     )
+
+
+def test_corner_spec_classifies_intrinsic_convex_concave_and_acute():
+    door_graph, door_edges = _door_opening_graph()
+    door_plan = compile_patch_voronoi_plan(
+        door_graph, door_edges, offset=0.01
+    )
+    door_corners = {
+        corner.vert_index: corner for corner in door_plan.surfaces[0].corners
+    }
+    for vert_index in (2, 3):
+        corner = door_corners[vert_index]
+        assert not corner.is_convex
+        assert corner.interior_angle == pytest.approx(1.5 * pi)
+        assert corner.policy == decal_voronoi._CornerPolicy.MITER
+        assert len(corner.ordered_sites) == 2
+        assert corner.turn_sign in (-1.0, 1.0)
+
+    folded_plan = compile_patch_voronoi_plan(
+        _folded_turn_graph(), [30, 31], offset=0.01
+    )
+    folded_corner = next(
+        corner
+        for corner in folded_plan.surfaces[0].corners
+        if corner.vert_index == 0
+    )
+    assert folded_corner.is_convex
+    assert folded_corner.interior_angle == pytest.approx(0.5 * pi)
+    assert folded_corner.policy == decal_voronoi._CornerPolicy.KITE
+
+    acute_plan = compile_patch_voronoi_plan(
+        _acute_corner_graph(), [40, 41], offset=0.01
+    )
+    acute_corner = next(
+        corner
+        for corner in acute_plan.surfaces[0].corners
+        if corner.vert_index == 0
+    )
+    assert acute_corner.is_convex
+    assert acute_corner.interior_angle == pytest.approx(pi / 6.0)
+    assert acute_corner.policy == decal_voronoi._CornerPolicy.ACUTE_SPLIT
 
 
 def test_wide_t_junction_cells_remain_convex_and_non_overlapping():
