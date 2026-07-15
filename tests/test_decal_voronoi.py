@@ -553,7 +553,7 @@ def test_corner_spec_classifies_intrinsic_convex_concave_and_acute():
     assert acute_corner.is_convex
     assert acute_corner.interior_angle == pytest.approx(pi / 6.0)
     assert acute_corner.extrusion_angle == pytest.approx(pi / 6.0)
-    assert acute_corner.policy == decal_voronoi._CornerPolicy.MITER
+    assert acute_corner.policy == decal_voronoi._CornerPolicy.ACUTE_SPLIT
 
     notch_plan = compile_patch_voronoi_plan(
         _acute_notch_graph(), [53, 54], offset=0.01
@@ -659,14 +659,19 @@ def test_realtime_corner_partition_has_no_planar_gaps():
     max_y = max(point[1] for point in domain_points)
 
     def inside_polygon(point, polygon):
-        turns = []
+        inside = False
         for index, point_a in enumerate(polygon):
             point_b = polygon[(index + 1) % len(polygon)]
-            turns.append(
-                (point_b[0] - point_a[0]) * (point[1] - point_a[1])
-                - (point_b[1] - point_a[1]) * (point[0] - point_a[0])
+            if (point_a[1] > point[1]) == (point_b[1] > point[1]):
+                continue
+            crossing_x = point_a[0] + (
+                (point[1] - point_a[1])
+                * (point_b[0] - point_a[0])
+                / (point_b[1] - point_a[1])
             )
-        return min(turns) >= -1e-7 or max(turns) <= 1e-7
+            if crossing_x > point[0]:
+                inside = not inside
+        return inside
 
     for width in (0.2, 1.0, 3.0):
         alpha = width * 0.5
@@ -749,7 +754,6 @@ def test_acute_corner_splits_inner_outer_with_shared_mesh_edge_and_uv_seam():
         assert acute_faces["INNER"].v_lengths[inner_index] != pytest.approx(
             acute_faces["OUTER"].v_lengths[outer_index]
         )
-
     confirmed = evaluate_patch_voronoi_plan(plan, width=1.0, preview=False)
     assert [
         (face.component_kind, face.component_side, tuple(face.vert_keys))
@@ -759,6 +763,90 @@ def test_acute_corner_splits_inner_outer_with_shared_mesh_edge_and_uv_seam():
         for face in confirmed
     ]
 
+
+def test_acute_convex_corner_splits_before_wide_miter_competition():
+    plan = compile_patch_voronoi_plan(
+        _acute_corner_graph(), [40, 41], offset=0.01
+    )
+    surface = plan.surfaces[0]
+    corner = next(
+        corner for corner in surface.corners if corner.vert_index == 0
+    )
+
+    components = decal_voronoi._acute_crop_components(
+        surface, corner, alpha=2.0
+    )
+
+    assert {component.side for component in components} == {"INNER", "OUTER"}
+    assert all(
+        component.kind == decal_voronoi._CornerPolicy.ACUTE_SPLIT.value
+        for component in components
+    )
+    shared_points = set(components[0].points) & set(components[1].points)
+    assert len(shared_points) == 2
+
+    faces = evaluate_patch_voronoi_plan(plan, width=4.0, preview=False)
+    acute_faces = [
+        face for face in faces if face.component_kind == "ACUTE_SPLIT"
+    ]
+    assert {face.component_side for face in acute_faces} == {
+        "INNER",
+        "OUTER",
+    }
+
+
+def test_cross_surface_spine_station_is_mirrored_without_new_face():
+    from types import SimpleNamespace
+
+    station_key = ("pv-se", 40, 0.25)
+    station = Vector((0.25, 0.0, 0.0))
+    owner = decal_voronoi._NetworkFace(
+        surface_id=0,
+        surface_normal=Vector((0.0, 0.0, 1.0)),
+        vert_keys=[("pv-sv", 0), station_key, ("pv", 0, 1, 1)],
+        positions=[
+            Vector((0.0, 0.0, 0.0)),
+            station,
+            Vector((0.0, 1.0, 0.0)),
+        ],
+        u_fracs=[0.0, 0.25, 1.0],
+        v_lengths=[0.0, 0.25, 1.0],
+    )
+    neighbour = decal_voronoi._NetworkFace(
+        surface_id=1,
+        surface_normal=Vector((0.0, 1.0, 0.0)),
+        vert_keys=[("pv-sv", 0), ("pv-sv", 1), ("pv", 1, 1, 1)],
+        positions=[
+            Vector((0.0, 0.0, 0.0)),
+            Vector((1.0, 0.0, 0.0)),
+            Vector((0.0, 0.0, 1.0)),
+        ],
+        u_fracs=[0.0, 1.0, 0.0],
+        v_lengths=[0.0, 4.0, 0.0],
+    )
+    plan = SimpleNamespace(
+        surfaces=(
+            SimpleNamespace(
+                sites=(
+                    SimpleNamespace(edge_index=40, vert_a=0, vert_b=1),
+                )
+            ),
+        )
+    )
+
+    decal_voronoi._synchronize_cross_surface_spine_stations(
+        plan, [owner, neighbour]
+    )
+
+    assert neighbour.vert_keys == [
+        ("pv-sv", 0),
+        station_key,
+        ("pv-sv", 1),
+        ("pv", 1, 1, 1),
+    ]
+    assert tuple(neighbour.positions[1]) == pytest.approx(tuple(station))
+    assert neighbour.u_fracs[1] == pytest.approx(0.25)
+    assert neighbour.v_lengths[1] == pytest.approx(1.0)
 
 def test_surface_domain_separates_planar_solver_from_intrinsic_lift():
     planar = decal_voronoi.DecalSurfaceDomain(
@@ -818,7 +906,7 @@ def test_surface_domain_separates_planar_solver_from_intrinsic_lift():
         intrinsic.project(Vector((0.0, 0.0, 0.0)))
 
 
-def test_wide_t_junction_cells_remain_convex_and_non_overlapping():
+def test_wide_t_junction_cells_remain_simple_and_non_overlapping():
     graph, edge_indices = _wide_t_junction_front_graph()
     plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.02)
     assert plan is not None
@@ -829,20 +917,22 @@ def test_wide_t_junction_cells_remain_convex_and_non_overlapping():
             [(point.x, point.y) for point in face.positions] for face in faces
         ]
         assert polygons
-        assert all(
-            decal_voronoi._polygon_is_simple(polygon)
-            and decal_voronoi._polygon_is_convex(polygon)
-            for polygon in polygons
-        )
+        assert all(decal_voronoi._polygon_is_simple(polygon) for polygon in polygons)
         for index, polygon in enumerate(polygons):
             for other in polygons[index + 1 :]:
-                intersection = decal_voronoi._clip_to_convex(
-                    polygon, other
-                )
-                if intersection:
-                    assert abs(
-                        decal_voronoi._polygon_area2(intersection)
-                    ) <= 1e-5
+                for triangle in decal_voronoi._triangulate_cell_polygon(
+                    polygon
+                ):
+                    for other_triangle in decal_voronoi._triangulate_cell_polygon(
+                        other
+                    ):
+                        intersection = decal_voronoi._clip_to_convex(
+                            triangle, other_triangle
+                        )
+                        if intersection:
+                            assert abs(
+                                decal_voronoi._polygon_area2(intersection)
+                            ) <= 1e-5
 
 
 def test_patch_voronoi_fragment_union_removes_internal_triangulation():
@@ -859,6 +949,21 @@ def test_patch_voronoi_fragment_union_removes_internal_triangulation():
         - components[0][(index + 1) % 4][0] * point[1]
         for index, point in enumerate(components[0])
     )) * 0.5 == pytest.approx(4.0)
+
+
+def test_fragment_union_preserves_simple_concave_ngon():
+    components = _merge_polygon_fragments(
+        [
+            [(0.0, 0.0), (2.0, 0.0), (2.0, 1.0)],
+            [(0.0, 0.0), (2.0, 1.0), (1.0, 1.0)],
+            [(0.0, 0.0), (1.0, 1.0), (1.0, 2.0)],
+            [(0.0, 0.0), (1.0, 2.0), (0.0, 2.0)],
+        ]
+    )
+    assert len(components) == 1
+    assert len(components[0]) == 6
+    assert decal_voronoi._polygon_is_simple(components[0])
+    assert not decal_voronoi._polygon_is_convex(components[0])
 
 
 def test_fragment_union_keeps_point_contact_as_separate_components():

@@ -174,15 +174,79 @@ def _lift_position(source_pos, normals, offset):
     unique = _group_average_normals(normals)
     if not unique:
         return source_pos.copy()
-    delta = Vector((0.0, 0.0, 0.0))
-    for _iteration in range(64):
-        correction = Vector((0.0, 0.0, 0.0))
-        for normal in unique:
-            correction += normal * (offset - normal.dot(delta))
-        correction /= len(unique)
-        delta += correction
-        if correction.length_squared < 1e-18:
-            break
+    if len(unique) == 1:
+        return source_pos + unique[0] * offset
+    if len(unique) == 2:
+        dot = max(-1.0, min(1.0, unique[0].dot(unique[1])))
+        denominator = 1.0 + dot
+        if denominator > 1e-8:
+            # Minimum-norm точка линии пересечения двух offset-плоскостей.
+            delta = (unique[0] + unique[1]) * (offset / denominator)
+            return source_pos + delta
+
+    # Решаем normal equations напрямую. Итерационный projection сходился
+    # слишком медленно для почти встречных торцевых normals и оставлял core
+    # внутри одной из offset-плоскостей, из-за чего wing визуально загибался.
+    xx = sum(normal.x * normal.x for normal in unique)
+    xy = sum(normal.x * normal.y for normal in unique)
+    xz = sum(normal.x * normal.z for normal in unique)
+    yy = sum(normal.y * normal.y for normal in unique)
+    yz = sum(normal.y * normal.z for normal in unique)
+    zz = sum(normal.z * normal.z for normal in unique)
+    rhs = Vector(
+        tuple(
+            offset * sum(normal[axis] for normal in unique)
+            for axis in range(3)
+        )
+    )
+    trace = xx + yy + zz
+    determinant_limit = max(1e-14, trace * trace * trace * 1e-12)
+    determinant = (
+        xx * (yy * zz - yz * yz)
+        - xy * (xy * zz - yz * xz)
+        + xz * (xy * yz - yy * xz)
+    )
+    if abs(determinant) <= determinant_limit:
+        # Rank-deficient junction: alternating projections устойчивее
+        # инверсии почти сингулярной normal matrix.
+        delta = Vector((0.0, 0.0, 0.0))
+        for _iteration in range(128):
+            correction = Vector((0.0, 0.0, 0.0))
+            for normal in unique:
+                correction += normal * (offset - normal.dot(delta))
+            correction /= len(unique)
+            delta += correction
+            if correction.length_squared < 1e-20:
+                break
+        return source_pos + delta
+    cofactor_xx = yy * zz - yz * yz
+    cofactor_xy = xz * yz - xy * zz
+    cofactor_xz = xy * yz - xz * yy
+    cofactor_yy = xx * zz - xz * xz
+    cofactor_yz = xy * xz - xx * yz
+    cofactor_zz = xx * yy - xy * xy
+    delta = Vector(
+        (
+            (
+                cofactor_xx * rhs.x
+                + cofactor_xy * rhs.y
+                + cofactor_xz * rhs.z
+            )
+            / determinant,
+            (
+                cofactor_xy * rhs.x
+                + cofactor_yy * rhs.y
+                + cofactor_yz * rhs.z
+            )
+            / determinant,
+            (
+                cofactor_xz * rhs.x
+                + cofactor_yz * rhs.y
+                + cofactor_zz * rhs.z
+            )
+            / determinant,
+        )
+    )
     return source_pos + delta
 
 

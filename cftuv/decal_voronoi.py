@@ -782,13 +782,14 @@ def _merge_polygon_fragments(fragments, tolerance=1e-7):
             if len(polygon) >= 3 and abs(_polygon_area2(polygon)) > tolerance * tolerance:
                 loops.append(polygon)
 
-        # Negative loop is a real hole. Preserve the correct triangulated
-        # representation instead of illegally filling it with one ngon.
+        # Negative loop is a real hole. Только он требует decomposition:
+        # простой concave contour Blender хранит одним корректным ngon.
+        # Прежняя convex-only проверка отпечатывала triangulation domain в
+        # митре ещё до реального столкновения соседних фронтов.
         if (
             not loops
             or any(_polygon_area2(loop) < 0.0 for loop in loops)
             or any(not _polygon_is_simple(loop, tolerance) for loop in loops)
-            or any(not _polygon_is_convex(loop, tolerance) for loop in loops)
         ):
             merged.extend(
                 _convex_fragment_decomposition(
@@ -1634,10 +1635,18 @@ def _compile_corners(sites):
             )
             if intersection is not None:
                 miter_ratio = _dist2(point, intersection)
-            if abs(interior_angle - pi) <= 1e-7 or is_convex:
+            # Острый внешний угол нельзя оставлять одним длинным miter:
+            # его вершина удаляется на alpha * miter_ratio и при росте
+            # крыла раньше времени попадает под Voronoi-конкуренцию.
+            # Как и острый notch, делим его в realtime на inner/outer
+            # части по хорде между offset caps. Это corner policy, а не
+            # post-process после materialization.
+            if abs(interior_angle - pi) <= 1e-7:
                 policy = _CornerPolicy.MITER
             elif extrusion_angle < _ACUTE_SPLIT_ANGLE:
                 policy = _CornerPolicy.ACUTE_SPLIT
+            elif is_convex:
+                policy = _CornerPolicy.MITER
             elif interior_angle > pi:
                 policy = _CornerPolicy.KITE
             elif miter_ratio <= 8.0:
@@ -2297,6 +2306,102 @@ def _orientation_safe_lift_scale(plan, pending, desired_scale):
     return desired_scale * safe_fraction * 0.99
 
 
+def _synchronize_cross_surface_spine_stations(plan, faces):
+    """Зеркалит pv-se stations на общий source edge соседних surfaces.
+
+    Arrangement conformal только внутри одной owner surface. Corner crop
+    может добавить точку на spine edge одной поверхности, пока соседняя
+    поверхность всё ещё содержит цельный pv-sv -> pv-sv edge. Без этой
+    синхронизации materialization получает геометрический T-контакт и
+    визуальную щель. Станция уже имеет общую 3D rail-position; здесь мы
+    лишь вставляем тот же key в соседний polygon loop.
+    """
+
+    edge_by_vertices = {}
+    for surface in plan.surfaces:
+        for site in surface.sites:
+            pair = frozenset((site.vert_a, site.vert_b))
+            edge_by_vertices.setdefault(pair, site.edge_index)
+
+    stations_by_edge = {}
+    for face in faces:
+        for key, position in zip(face.vert_keys, face.positions):
+            if not isinstance(key, tuple) or key[:1] != ("pv-se",):
+                continue
+            stations_by_edge.setdefault(key[1], {}).setdefault(
+                key, position.copy()
+            )
+    if not stations_by_edge:
+        return
+
+    for face in faces:
+        count = len(face.vert_keys)
+        if count < 3:
+            continue
+        new_keys = []
+        new_positions = []
+        new_u_fracs = []
+        new_v_lengths = []
+        for index in range(count):
+            key_a = face.vert_keys[index]
+            key_b = face.vert_keys[(index + 1) % count]
+            position_a = face.positions[index]
+            position_b = face.positions[(index + 1) % count]
+            u_a = face.u_fracs[index]
+            u_b = face.u_fracs[(index + 1) % count]
+            v_a = face.v_lengths[index]
+            v_b = face.v_lengths[(index + 1) % count]
+
+            new_keys.append(key_a)
+            new_positions.append(position_a)
+            new_u_fracs.append(u_a)
+            new_v_lengths.append(v_a)
+
+            if (
+                not isinstance(key_a, tuple)
+                or not isinstance(key_b, tuple)
+                or key_a[:1] != ("pv-sv",)
+                or key_b[:1] != ("pv-sv",)
+            ):
+                continue
+            edge_index = edge_by_vertices.get(
+                frozenset((key_a[1], key_b[1]))
+            )
+            station_records = stations_by_edge.get(edge_index, ())
+            if not station_records:
+                continue
+            edge_vector = position_b - position_a
+            edge_length2 = edge_vector.length_squared
+            if edge_length2 <= _GEOMETRY_EPS:
+                continue
+            edge_length = sqrt(edge_length2)
+            tolerance = max(DECAL_WELD_DISTANCE, edge_length * 1e-6)
+            insertions = []
+            for station_key, station_position in station_records.items():
+                factor = (
+                    (station_position - position_a).dot(edge_vector)
+                    / edge_length2
+                )
+                if factor <= 1e-7 or factor >= 1.0 - 1e-7:
+                    continue
+                closest = position_a.lerp(position_b, factor)
+                if (closest - station_position).length > tolerance:
+                    continue
+                insertions.append((factor, repr(station_key), station_key, station_position))
+            for factor, _key_order, station_key, station_position in sorted(
+                insertions
+            ):
+                new_keys.append(station_key)
+                new_positions.append(station_position.copy())
+                new_u_fracs.append(u_a + (u_b - u_a) * factor)
+                new_v_lengths.append(v_a + (v_b - v_a) * factor)
+
+        face.vert_keys = new_keys
+        face.positions = new_positions
+        face.u_fracs = new_u_fracs
+        face.v_lengths = new_v_lengths
+
+
 def _junction_connector_faces(plan, faces, alpha):
     """Закрывает парные cross-patch sectors до BMesh materialization.
 
@@ -2507,7 +2612,22 @@ def _evaluate_surface_crops(surface, alpha, pending):
 
     corner_crops = {}
     corners_by_site = {}
-    for corner_index, point_atoms in point_atoms_by_corner.items():
+    # Обычный endpoint corner существует только там, где pyvoronoi дал
+    # отдельную point-cell. Острый convex miter такой cell не имеет: две
+    # segment-cells сходятся непосредственно по биссектрисе. Но его всё
+    # равно нужно сначала собрать в один semantic corner, а затем разделить
+    # на INNER/OUTER. Иначе длинный miter режется конкурентами как два
+    # независимых крыла и визуально распадается при большой ширине.
+    explicit_corner_indices = {
+        corner_index
+        for corner_index, corner in enumerate(surface.corners)
+        if corner.policy == _CornerPolicy.ACUTE_SPLIT
+    }
+    corner_indices = sorted(
+        set(point_atoms_by_corner) | explicit_corner_indices
+    )
+    for corner_index in corner_indices:
+        point_atoms = point_atoms_by_corner.get(corner_index, ())
         corner = surface.corners[corner_index]
         crops = _corner_crop_components(surface, corner, alpha)
         if not crops:
@@ -2528,7 +2648,11 @@ def _evaluate_surface_crops(surface, alpha, pending):
                 and atom.corner_index == corner_index
             )
         ]
-        owner_site = surface.sites[min(atom.site_index for atom in point_atoms)]
+        owner_site_index = min(
+            (atom.site_index for atom in point_atoms),
+            default=min(corner.incident_sites),
+        )
+        owner_site = surface.sites[owner_site_index]
         for crop in crops:
             fragments = []
             for atom in owner_atoms:
@@ -2676,5 +2800,6 @@ def evaluate_patch_voronoi_plan(plan, width, preview=False):
                 component_side=crop.side,
             )
         )
+    _synchronize_cross_surface_spine_stations(plan, faces)
     faces.extend(_junction_connector_faces(plan, faces, alpha))
     return faces

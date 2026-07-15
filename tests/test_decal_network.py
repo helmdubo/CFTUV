@@ -132,6 +132,19 @@ class TestLiftPosition:
         )
         assert (lifted - Vector((0.02, 0.02, 0.02))).length < 1e-7
 
+    def test_nearly_opposed_end_planes_share_exact_offset_core(self):
+        normals = [
+            Vector((1.0, 0.0, 0.0)),
+            Vector((0.0, -0.9713, 0.2380)).normalized(),
+            Vector((0.0, 0.9561, 0.2930)).normalized(),
+        ]
+        offset = 0.02
+        lifted = _lift_position(
+            Vector((0.0, 0.0, 0.0)), normals, offset
+        )
+        for normal in normals:
+            assert abs(normal.dot(lifted) - offset) < 1e-9
+
 
 class TestStraightSeam:
     def test_two_half_bands_share_spine_stations(self):
