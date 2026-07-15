@@ -2,9 +2,11 @@
 
 Диаграмма строится один раз на owner patch по выбранным boundary segments.
 Во время modal drag меняется только фронт ``distance(site) <= width / 2``.
-Ячейки заранее пересечены с точной триангуляцией PatchGraph, поэтому крылья
-не выходят за mesh boundary, не пересекаются внутри patch и меняют топологию
-в тот же момент, когда фронты встречаются.
+Ячейки заранее пересечены с boundary-доменом patch, поэтому крылья не выходят
+за mesh boundary, не пересекаются внутри patch и меняют топологию в тот же
+момент, когда фронты встречаются. Внутренняя триангуляция домена используется
+только для clipping и сваривается обратно: topology исходного mesh не должна
+отпечатываться на итоговой декали.
 
 ``pyvoronoi`` изолирован в этом модуле. Если wheel недоступен или patch не
 планарен, вызывающий код явно возвращается к legacy seam-network backend.
@@ -14,6 +16,11 @@ from dataclasses import dataclass
 from math import atan2, cos, pi, sin, sqrt
 
 from mathutils import Vector
+
+try:
+    from mathutils.geometry import tessellate_polygon as _tessellate_polygon
+except ImportError:  # Unit tests используют минимальный mathutils stub.
+    _tessellate_polygon = None
 
 from .constants import DECAL_WELD_DISTANCE
 from .decal_network import (
@@ -51,7 +58,7 @@ class _PatchVoronoiSite:
 @dataclass(frozen=True)
 class _PatchVoronoiAtom:
     site_index: int
-    polygon: tuple[tuple[float, float], ...]
+    fragments: tuple[tuple[tuple[float, float], ...], ...]
     max_site_distance: float
 
 
@@ -156,6 +163,230 @@ def _clip_to_convex(points, clip_polygon):
 
 def _clip_to_triangle(points, triangle):
     return _clip_to_convex(points, triangle)
+
+
+def _simplify_collinear_polygon(points, tolerance):
+    """Убирает вычислительные stations на прямой, не меняя silhouette."""
+
+    result = _dedupe_polygon(points, tolerance=tolerance)
+    changed = True
+    while changed and len(result) > 3:
+        changed = False
+        simplified = []
+        count = len(result)
+        for index, point in enumerate(result):
+            previous = result[(index - 1) % count]
+            following = result[(index + 1) % count]
+            dx = following[0] - previous[0]
+            dy = following[1] - previous[1]
+            length = sqrt(dx * dx + dy * dy)
+            if length <= tolerance:
+                changed = True
+                continue
+            deviation = abs(
+                dx * (point[1] - previous[1])
+                - dy * (point[0] - previous[0])
+            ) / length
+            between = (
+                (point[0] - previous[0]) * (point[0] - following[0])
+                + (point[1] - previous[1]) * (point[1] - following[1])
+            ) <= tolerance * tolerance
+            if deviation <= tolerance and between:
+                changed = True
+                continue
+            simplified.append(point)
+        if len(simplified) < 3:
+            break
+        result = simplified
+    return result
+
+
+def _merge_polygon_fragments(fragments, tolerance=1e-7):
+    """Собирает triangle-clips одной cell обратно в цельные contours.
+
+    Internal edges совпадают попарно в противоположных направлениях и
+    удаляются. Компоненты, касающиеся только вершиной, намеренно не слипаются.
+    Если union содержит hole, возвращаем исходные fragments этой компоненты:
+    Blender face не может хранить внутренний контур без разбиения.
+    """
+
+    normalized = []
+    for fragment in fragments:
+        polygon = _dedupe_polygon(fragment, tolerance=tolerance)
+        if (
+            len(polygon) < 3
+            or abs(_polygon_area2(polygon)) <= tolerance * tolerance
+        ):
+            continue
+        if _polygon_area2(polygon) < 0.0:
+            polygon.reverse()
+        normalized.append(polygon)
+    if len(normalized) <= 1:
+        return normalized
+
+    quantum = max(tolerance, 1e-10)
+
+    def point_key(point):
+        return (
+            round(point[0] / quantum),
+            round(point[1] / quantum),
+        )
+
+    parents = list(range(len(normalized)))
+
+    def find(index):
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(first, second):
+        first_root = find(first)
+        second_root = find(second)
+        if first_root != second_root:
+            parents[second_root] = first_root
+
+    edge_owners = {}
+    for fragment_index, polygon in enumerate(normalized):
+        for index, point in enumerate(polygon):
+            other = polygon[(index + 1) % len(polygon)]
+            key_a = point_key(point)
+            key_b = point_key(other)
+            undirected = tuple(sorted((key_a, key_b)))
+            previous_owner = edge_owners.get(undirected)
+            if previous_owner is None:
+                edge_owners[undirected] = fragment_index
+            else:
+                union(fragment_index, previous_owner)
+
+    groups = {}
+    for fragment_index in range(len(normalized)):
+        groups.setdefault(find(fragment_index), []).append(fragment_index)
+
+    merged = []
+    for group_indices in groups.values():
+        boundary_edges = {}
+        representatives = {}
+        for fragment_index in group_indices:
+            polygon = normalized[fragment_index]
+            for index, point in enumerate(polygon):
+                other = polygon[(index + 1) % len(polygon)]
+                key_a = point_key(point)
+                key_b = point_key(other)
+                representatives.setdefault(key_a, point)
+                representatives.setdefault(key_b, other)
+                reverse = (key_b, key_a)
+                if reverse in boundary_edges:
+                    del boundary_edges[reverse]
+                else:
+                    boundary_edges[(key_a, key_b)] = True
+
+        outgoing = {}
+        for key_a, key_b in boundary_edges:
+            outgoing.setdefault(key_a, []).append(key_b)
+        unused = set(boundary_edges)
+        loops = []
+        while unused:
+            start_edge = next(iter(unused))
+            start_key, current_key = start_edge
+            unused.remove(start_edge)
+            loop_keys = [start_key]
+            guard = len(boundary_edges) + 1
+            while current_key != start_key and guard > 0:
+                loop_keys.append(current_key)
+                candidates = [
+                    next_key
+                    for next_key in outgoing.get(current_key, ())
+                    if (current_key, next_key) in unused
+                ]
+                if not candidates:
+                    break
+                # Edge-connected polygon unions have one continuation. The
+                # stable sort is only a deterministic guard for degenerate
+                # point contacts produced by floating point clipping.
+                next_key = sorted(candidates)[0]
+                unused.remove((current_key, next_key))
+                current_key = next_key
+                guard -= 1
+            if current_key != start_key or len(loop_keys) < 3:
+                loops = []
+                break
+            polygon = [representatives[key] for key in loop_keys]
+            polygon = _simplify_collinear_polygon(polygon, tolerance)
+            if len(polygon) >= 3 and abs(_polygon_area2(polygon)) > tolerance * tolerance:
+                loops.append(polygon)
+
+        # Negative loop is a real hole. Preserve the correct triangulated
+        # representation instead of illegally filling it with one ngon.
+        if not loops or any(_polygon_area2(loop) < 0.0 for loop in loops):
+            merged.extend(normalized[index] for index in group_indices)
+            continue
+        merged.extend(loops)
+    return merged
+
+
+def _patch_domain_triangles(node, origin, basis_u, basis_v):
+    """Триангулирует только boundary loops, не topology owner faces."""
+
+    domain_loops = []
+    if _tessellate_polygon is not None:
+        ordered_loops = sorted(
+            (loop for loop in node.boundary_loops if len(loop.vert_cos) >= 3),
+            key=lambda loop: (
+                int(getattr(loop, "depth", 0)),
+                str(getattr(loop, "kind", "")),
+            ),
+        )
+        for boundary_loop in ordered_loops:
+            points = _dedupe_polygon(
+                [
+                    _project(point, origin, basis_u, basis_v)
+                    for point in boundary_loop.vert_cos
+                ]
+            )
+            if len(points) < 3:
+                continue
+            is_hole = int(getattr(boundary_loop, "depth", 0)) % 2 == 1
+            area = _polygon_area2(points)
+            if (not is_hole and area < 0.0) or (is_hole and area > 0.0):
+                points.reverse()
+            domain_loops.append(points)
+
+    if domain_loops:
+        flat_points = [point for loop in domain_loops for point in loop]
+        vector_loops = [
+            [Vector((point[0], point[1], 0.0)) for point in loop]
+            for loop in domain_loops
+        ]
+        try:
+            triangle_indices = _tessellate_polygon(vector_loops)
+        except (RuntimeError, ValueError):
+            triangle_indices = []
+        triangles = []
+        for indices in triangle_indices:
+            if len(indices) != 3:
+                continue
+            triangle = [flat_points[int(index)] for index in indices]
+            if abs(_polygon_area2(triangle)) <= 1e-12:
+                continue
+            if _polygon_area2(triangle) < 0.0:
+                triangle.reverse()
+            triangles.append(triangle)
+        if triangles:
+            return triangles
+
+    # Compatibility fallback для старых serialized graphs/unit tests.
+    triangles = []
+    for tri in node.mesh_tris:
+        points = [
+            _project(node.mesh_verts[index], origin, basis_u, basis_v)
+            for index in tri
+        ]
+        if abs(_polygon_area2(points)) > 1e-12:
+            if _polygon_area2(points) < 0.0:
+                points.reverse()
+            triangles.append(points)
+    return triangles
 
 
 def _capsule_polygon(point_a, point_b, radius, half_segments):
@@ -356,14 +587,9 @@ def _compile_surface(node, raw_sites):
             )
         )
 
-    triangles = []
-    for tri in node.mesh_tris:
-        points = [
-            _project(node.mesh_verts[index], origin, basis_u, basis_v)
-            for index in tri
-        ]
-        if abs(_polygon_area2(points)) > 1e-12:
-            triangles.append(points)
+    triangles = _patch_domain_triangles(
+        node, origin, basis_u, basis_v
+    )
     if not triangles:
         return None
 
@@ -388,7 +614,16 @@ def _compile_surface(node, raw_sites):
         diagram.AddSegment([guard[index], guard[(index + 1) % 4]])
     diagram.Construct()
 
-    curve_step = max(diagonal / 48.0, DECAL_WELD_DISTANCE * 2.0)
+    # Curved segment-Voronoi bisectors are parabolas. Их прежняя частота
+    # (diagonal / 48) давала визуальный fan из десятков почти избыточных
+    # stations в широких collisions. Ограничиваем шаг и размером patch, и
+    # характерной длиной site: контур остаётся стабильным, но low-poly.
+    sorted_site_lengths = sorted(site.segment_length for site in sites)
+    median_site_length = sorted_site_lengths[len(sorted_site_lengths) // 2]
+    curve_step = max(
+        min(diagonal / 20.0, median_site_length * 0.5),
+        DECAL_WELD_DISTANCE * 2.0,
+    )
     diagram_edges = diagram.GetEdges()
     diagram_vertices = diagram.GetVertices()
     atoms = []
@@ -406,20 +641,29 @@ def _compile_surface(node, raw_sites):
         if polygon is None:
             continue
         site = sites[cell.site]
+        fragments = []
+        max_distance = 0.0
         for triangle in triangles:
             clipped = _clip_to_triangle(polygon, triangle)
             if len(clipped) < 3 or abs(_polygon_area2(clipped)) <= 1e-10:
                 continue
             if _polygon_area2(clipped) < 0.0:
                 clipped.reverse()
+            fragments.append(tuple(clipped))
             max_distance = max(
-                _segment_point_distance2(site.point_a, site.point_b, point)[0]
-                for point in clipped
+                max_distance,
+                max(
+                    _segment_point_distance2(
+                        site.point_a, site.point_b, point
+                    )[0]
+                    for point in clipped
+                ),
             )
+        if fragments:
             atoms.append(
                 _PatchVoronoiAtom(
                     site_index=int(cell.site),
-                    polygon=tuple(clipped),
+                    fragments=tuple(fragments),
                     max_site_distance=max_distance,
                 )
             )
@@ -631,7 +875,7 @@ def evaluate_patch_voronoi_plan(plan, width, preview=False):
         for atom in surface.atoms:
             site = surface.sites[atom.site_index]
             if atom.max_site_distance <= alpha + keep_eps:
-                components = [list(atom.polygon)]
+                fragments = [list(fragment) for fragment in atom.fragments]
             else:
                 capsule = _capsule_polygon(
                     site.point_a,
@@ -639,8 +883,15 @@ def evaluate_patch_voronoi_plan(plan, width, preview=False):
                     alpha,
                     capsule_segments,
                 )
-                clipped = _clip_to_convex(atom.polygon, capsule)
-                components = [clipped] if clipped else []
+                fragments = []
+                for fragment in atom.fragments:
+                    clipped = _clip_to_convex(fragment, capsule)
+                    if clipped:
+                        fragments.append(clipped)
+            components = _merge_polygon_fragments(
+                fragments,
+                tolerance=max(1e-8, DECAL_WELD_DISTANCE * 0.25),
+            )
             for component in components:
                 component = _dedupe_polygon(component, tolerance=1e-7)
                 if len(component) < 3 or abs(_polygon_area2(component)) <= 1e-10:

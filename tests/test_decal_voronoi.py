@@ -5,7 +5,9 @@ from mathutils import Vector
 
 pytest.importorskip("pyvoronoi")
 
+import cftuv.decal_voronoi as decal_voronoi  # noqa: E402
 from cftuv.decal_voronoi import (  # noqa: E402
+    _merge_polygon_fragments,
     compile_patch_voronoi_plan,
     evaluate_patch_voronoi_plan,
 )
@@ -144,6 +146,79 @@ def test_patch_voronoi_front_rebuilds_and_never_leaves_patch():
             assert -1e-7 <= point.x <= 4.0 + 1e-7
             assert -1e-7 <= point.y <= 2.0 + 1e-7
             assert point.z == pytest.approx(0.01)
+
+    # Две source triangles остаются вычислительной деталью: каждая
+    # Voronoi-cell материализуется одним цельным quad, а не двумя tris.
+    assert len(wide) == 2
+    assert all(len(face.positions) == 4 for face in wide)
+
+
+def test_patch_voronoi_fragment_union_removes_internal_triangulation():
+    components = _merge_polygon_fragments(
+        [
+            [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0)],
+            [(0.0, 0.0), (2.0, 2.0), (0.0, 2.0)],
+        ]
+    )
+    assert len(components) == 1
+    assert len(components[0]) == 4
+    assert abs(sum(
+        point[0] * components[0][(index + 1) % 4][1]
+        - components[0][(index + 1) % 4][0] * point[1]
+        for index, point in enumerate(components[0])
+    )) * 0.5 == pytest.approx(4.0)
+
+
+def test_fragment_union_keeps_point_contact_as_separate_components():
+    components = _merge_polygon_fragments(
+        [
+            [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)],
+            [(0.0, 0.0), (-1.0, 0.0), (0.0, -1.0)],
+        ]
+    )
+    assert len(components) == 2
+
+
+def test_patch_domain_uses_boundary_loop_instead_of_owner_triangulation(
+    monkeypatch,
+):
+    node = PatchNode(
+        patch_id=0,
+        face_indices=[0],
+        centroid=Vector((1.0, 1.0, 0.0)),
+        normal=Vector((0.0, 0.0, 1.0)),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+    )
+    node.mesh_verts = [
+        Vector((0.0, 0.0, 0.0)),
+        Vector((2.0, 0.0, 0.0)),
+        Vector((2.0, 2.0, 0.0)),
+        Vector((0.0, 2.0, 0.0)),
+    ]
+    # Намеренно неполная owner topology: старый backend потерял бы половину
+    # patch. Boundary-domain должен полностью её игнорировать.
+    node.mesh_tris = [(0, 1, 2)]
+    node.boundary_loops = [
+        BoundaryLoop(vert_cos=[point.copy() for point in node.mesh_verts])
+    ]
+    monkeypatch.setattr(
+        decal_voronoi,
+        "_tessellate_polygon",
+        lambda _loops: [(0, 1, 2), (0, 2, 3)],
+    )
+
+    triangles = decal_voronoi._patch_domain_triangles(
+        node,
+        node.centroid,
+        node.basis_u,
+        node.basis_v,
+    )
+    assert len(triangles) == 2
+    assert sum(
+        abs(decal_voronoi._polygon_area2(tri))
+        for tri in triangles
+    ) == pytest.approx(4.0)
 
 
 def test_patch_voronoi_rejects_non_planar_owner_patch():
