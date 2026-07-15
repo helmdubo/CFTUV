@@ -122,6 +122,7 @@ class _JunctionPort:
     """Открытый core-to-rail луч математической decal-сети."""
 
     surface_id: int
+    edge_index: int
     surface_normal: Vector
     core_position: Vector
     outer_key: tuple
@@ -1554,7 +1555,7 @@ def _orientation_safe_lift_scale(plan, pending, desired_scale):
     return desired_scale * safe_fraction * 0.99
 
 
-def _junction_connector_faces(faces, alpha):
+def _junction_connector_faces(plan, faces, alpha):
     """Закрывает парные cross-patch sectors до BMesh materialization.
 
     Внутри planar surface endpoint Voronoi-cell уже соединяет соседние
@@ -1563,6 +1564,19 @@ def _junction_connector_faces(faces, alpha):
     для последующего fill. Соединяем только такие rays и только локально у
     одной source-вершины.
     """
+
+    surfaces_by_id = {
+        surface.patch_id: surface for surface in plan.surfaces
+    }
+    incident_edges_by_vertex = {}
+    for surface in plan.surfaces:
+        for site in surface.sites:
+            incident_edges_by_vertex.setdefault(site.vert_a, set()).add(
+                site.edge_index
+            )
+            incident_edges_by_vertex.setdefault(site.vert_b, set()).add(
+                site.edge_index
+            )
 
     edge_uses = {}
     for face_index, face in enumerate(faces):
@@ -1585,11 +1599,42 @@ def _junction_connector_faces(faces, alpha):
             continue
         face_index, _edge_index = uses[0]
         face = faces[face_index]
+        surface = surfaces_by_id.get(face.surface_id)
+        if surface is None:
+            continue
         core_index = face.vert_keys.index(core_key)
         outer_index = face.vert_keys.index(outer_key)
+        outer_position = face.positions[outer_index]
+        outer_point = (
+            (outer_position - surface.origin).dot(surface.basis_u),
+            (outer_position - surface.origin).dot(surface.basis_v),
+        )
+        matching_sites = []
+        for site in surface.sites:
+            if site.vert_a == core_key[1]:
+                station = site.point_a
+            elif site.vert_b == core_key[1]:
+                station = site.point_b
+            else:
+                continue
+            expected_outer = (
+                station[0] + site.inward_normal[0] * alpha,
+                station[1] + site.inward_normal[1] * alpha,
+            )
+            matching_sites.append(
+                (_dist2(outer_point, expected_outer), site.edge_index)
+            )
+        if not matching_sites:
+            continue
+        match_distance, matched_edge_index = min(matching_sites)
+        # Boundary edge большой Voronoi-cell тоже может начинаться в core,
+        # но junction port обязан лежать у локального alpha-offset cap.
+        if match_distance > max(DECAL_WELD_DISTANCE, alpha * 0.05):
+            continue
         ports_by_vertex.setdefault(core_key[1], []).append(
             _JunctionPort(
                 surface_id=face.surface_id,
+                edge_index=matched_edge_index,
                 surface_normal=face.surface_normal.copy(),
                 core_position=face.positions[core_index].copy(),
                 outer_key=outer_key,
@@ -1601,8 +1646,13 @@ def _junction_connector_faces(faces, alpha):
         )
 
     connectors = []
-    max_span = max(alpha * 8.0, DECAL_WELD_DISTANCE * 4.0)
+    max_span = max(alpha * 2.25, DECAL_WELD_DISTANCE * 4.0)
     for vert_index, ports in sorted(ports_by_vertex.items()):
+        # Cross-patch connector описывает поворот одной ветви. T/X junction
+        # уже принадлежит surface Voronoi arrangement и не должен получать
+        # произвольный greedy chord между несколькими ветвями.
+        if len(incident_edges_by_vertex.get(vert_index, ())) != 2:
+            continue
         # Одна ray — штатный открытый cap. Несколько rays образуют
         # независимые парные sectors; greedy matching детерминирован и не
         # делает fan, где один boundary edge получил бы три owner faces.
@@ -1611,6 +1661,10 @@ def _junction_connector_faces(faces, alpha):
             for other_index in range(index + 1, len(ports)):
                 second = ports[other_index]
                 if first.outer_key == second.outer_key:
+                    continue
+                if first.surface_id == second.surface_id:
+                    continue
+                if first.edge_index == second.edge_index:
                     continue
                 distance = (first.outer_position - second.outer_position).length
                 candidates.append(
@@ -1767,5 +1821,5 @@ def evaluate_patch_voronoi_plan(plan, width, preview=False):
                 v_lengths=v_lengths,
             )
         )
-    faces.extend(_junction_connector_faces(faces, alpha))
+    faces.extend(_junction_connector_faces(plan, faces, alpha))
     return faces
