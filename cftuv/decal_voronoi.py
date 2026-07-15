@@ -2172,9 +2172,20 @@ def _build_decal_arrangement(pending, tolerance):
 
 
 def _position_and_key(
-    plan, surface, site, point, lift_scale, effective_offset
+    plan,
+    surface,
+    site,
+    point,
+    lift_scale,
+    effective_offset,
+    projection=None,
 ):
-    distance, t = _segment_point_distance2(site.point_a, site.point_b, point)
+    if projection is None:
+        distance, t = _segment_point_distance2(
+            site.point_a, site.point_b, point
+        )
+    else:
+        distance, t = projection
     spine_eps = max(DECAL_WELD_DISTANCE * 0.25, site.segment_length * 1e-7)
     if distance <= spine_eps:
         endpoint_eps = max(
@@ -2208,11 +2219,20 @@ def _position_and_key(
     )
 
 
-def _arrangement_position_and_key(
-    plan, surface, owning_site, point, lift_scale, effective_offset
+def _resolve_arrangement_point(
+    plan,
+    surface,
+    owning_site,
+    point,
+    desired_scale,
+    cache,
 ):
-    """Одна 3D identity для station независимо от owning Voronoi site."""
+    """Кэширует scale-independent owner и affine endpoints station."""
 
+    cache_key = (id(surface), owning_site.edge_index, point)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
     grid_size = surface.site_grid_size
     grid_x = int(point[0] // grid_size)
     grid_y = int(point[1] // grid_size)
@@ -2225,7 +2245,7 @@ def _arrangement_position_and_key(
                 )
             )
     best_site = owning_site
-    best_distance, _factor = _segment_point_distance2(
+    best_distance, best_factor = _segment_point_distance2(
         owning_site.point_a, owning_site.point_b, point
     )
     for candidate_index in candidate_indices:
@@ -2241,52 +2261,91 @@ def _arrangement_position_and_key(
             )
         ):
             best_distance = distance
+            best_factor = _factor
             best_site = candidate
-    return _position_and_key(
+    projection = (best_distance, best_factor)
+    position_zero, key_zero = _position_and_key(
         plan,
         surface,
         best_site,
         point,
-        lift_scale,
-        effective_offset,
+        0.0,
+        0.0,
+        projection=projection,
     )
+    position_full, key_full = _position_and_key(
+        plan,
+        surface,
+        best_site,
+        point,
+        desired_scale,
+        plan.offset * desired_scale,
+        projection=projection,
+    )
+    if key_zero != key_full:
+        raise RuntimeError("Arrangement identity depends on lift scale")
+    resolved = (position_zero, position_full, key_full)
+    cache[cache_key] = resolved
+    return resolved
 
 
-def _component_signed_area(plan, surface, site, component, lift_scale):
-    """Signed area после shared-rail lift для заданного offset-scale."""
+def _component_area_coefficients(
+    plan,
+    surface,
+    site,
+    component,
+    desired_scale,
+    resolved_points,
+):
+    """Коэффициенты signed area для affine lift: A(t)=qa*t2+qb*t+qc."""
 
-    positions = []
+    endpoints = []
     used_keys = set()
-    effective_offset = plan.offset * lift_scale
     for point in component:
-        position, key = _arrangement_position_and_key(
+        position_zero, position_full, key = _resolve_arrangement_point(
             plan,
             surface,
             site,
             point,
-            lift_scale,
-            effective_offset,
+            desired_scale,
+            resolved_points,
         )
         if key in used_keys:
             continue
         used_keys.add(key)
-        positions.append(position)
-    if len(positions) < 3:
-        return None
-    area_vector = Vector((0.0, 0.0, 0.0))
-    origin = positions[0]
-    for index in range(1, len(positions) - 1):
-        area_vector += (positions[index] - origin).cross(
-            positions[index + 1] - origin
+        endpoints.append(
+            (position_zero, position_full - position_zero)
         )
+    if len(endpoints) < 3:
+        return None
+    vector_qc = Vector((0.0, 0.0, 0.0))
+    vector_qb = Vector((0.0, 0.0, 0.0))
+    vector_qa = Vector((0.0, 0.0, 0.0))
+    origin_zero, origin_delta = endpoints[0]
+    for index in range(1, len(endpoints) - 1):
+        point_zero, point_delta = endpoints[index]
+        next_zero, next_delta = endpoints[index + 1]
+        edge_zero = point_zero - origin_zero
+        edge_delta = point_delta - origin_delta
+        next_edge_zero = next_zero - origin_zero
+        next_edge_delta = next_delta - origin_delta
+        vector_qc += edge_zero.cross(next_edge_zero)
+        vector_qb += edge_zero.cross(next_edge_delta)
+        vector_qb += edge_delta.cross(next_edge_zero)
+        vector_qa += edge_delta.cross(next_edge_delta)
     centroid = (
         sum(point[0] for point in component) / len(component),
         sum(point[1] for point in component) / len(component),
     )
-    return area_vector.dot(surface.domain.normal_at(centroid)) * 0.5
+    normal = surface.domain.normal_at(centroid)
+    return (
+        vector_qa.dot(normal) * 0.5,
+        vector_qb.dot(normal) * 0.5,
+        vector_qc.dot(normal) * 0.5,
+    )
 
 
-def _orientation_safe_lift_scale(plan, pending, desired_scale):
+def _orientation_safe_lift_scale(plan, pending, desired_scale, resolved_points):
     """Аналитический общий offset-scale без перевёрнутых wing faces.
 
     Каждая 3D-позиция affine по scale, следовательно signed area face —
@@ -2299,21 +2358,17 @@ def _orientation_safe_lift_scale(plan, pending, desired_scale):
         surface = pending_face.surface
         site = pending_face.site
         component = pending_face.points
-        area_0 = _component_signed_area(
-            plan, surface, site, component, 0.0
+        coefficients = _component_area_coefficients(
+            plan,
+            surface,
+            site,
+            component,
+            desired_scale,
+            resolved_points,
         )
-        area_half = _component_signed_area(
-            plan, surface, site, component, desired_scale * 0.5
-        )
-        area_1 = _component_signed_area(
-            plan, surface, site, component, desired_scale
-        )
-        if area_0 is None or area_half is None or area_1 is None:
+        if coefficients is None:
             continue
-        # A(t) = qa*t² + qb*t + qc, где t = scale / desired_scale.
-        qc = area_0
-        qa = 2.0 * area_1 + 2.0 * area_0 - 4.0 * area_half
-        qb = area_1 - area_0 - qa
+        qa, qb, qc = coefficients
         roots = []
         if abs(qa) <= 1e-18:
             if abs(qb) > 1e-18:
@@ -2777,8 +2832,19 @@ def evaluate_patch_voronoi_plan(
         tolerance=max(1e-8, DECAL_WELD_DISTANCE * 0.5),
     )
     pending = arrangement.faces
-    lift_scale = _orientation_safe_lift_scale(plan, pending, lift_scale)
-    effective_offset = plan.offset * lift_scale
+    desired_lift_scale = lift_scale
+    resolved_points = {}
+    lift_scale = _orientation_safe_lift_scale(
+        plan,
+        pending,
+        desired_lift_scale,
+        resolved_points,
+    )
+    lift_fraction = (
+        lift_scale / desired_lift_scale
+        if desired_lift_scale > _GEOMETRY_EPS
+        else 0.0
+    )
     faces = []
     emitted_faces = set()
     for pending_face in pending:
@@ -2792,14 +2858,15 @@ def evaluate_patch_voronoi_plan(
         v_lengths = []
         used_keys = set()
         for point in component:
-            position, key = _arrangement_position_and_key(
+            position_zero, position_full, key = _resolve_arrangement_point(
                 plan,
                 surface,
                 site,
                 point,
-                lift_scale,
-                effective_offset,
+                desired_lift_scale,
+                resolved_points,
             )
+            position = position_zero.lerp(position_full, lift_fraction)
             # Triangle boundaries и pyvoronoi endpoint-cells могут
             # дать две почти одинаковые 2D точки, которые после
             # conformal lift закономерно становятся одной вершиной.
