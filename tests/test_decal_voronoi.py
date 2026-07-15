@@ -124,6 +124,56 @@ def _orthogonal_corner_graph():
     return graph
 
 
+def _door_opening_graph():
+    """Один planar patch с concave дверным проёмом без owner diagonals."""
+
+    points = [
+        Vector((-4.0, 0.0, 0.0)),
+        Vector((-1.0, 0.0, 0.0)),
+        Vector((-1.0, 3.0, 0.0)),
+        Vector((1.0, 3.0, 0.0)),
+        Vector((1.0, 0.0, 0.0)),
+        Vector((4.0, 0.0, 0.0)),
+        Vector((4.0, 4.0, 0.0)),
+        Vector((-4.0, 4.0, 0.0)),
+    ]
+    node = PatchNode(
+        patch_id=0,
+        face_indices=[0],
+        centroid=Vector((0.0, 2.0, 0.0)),
+        normal=Vector((0.0, 0.0, 1.0)),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+    )
+    node.mesh_verts = points
+    node.mesh_tris = [
+        (0, 1, 7),
+        (1, 2, 7),
+        (2, 3, 7),
+        (3, 6, 7),
+        (3, 4, 6),
+        (4, 5, 6),
+    ]
+    edge_indices = list(range(100, 108))
+    chain = BoundaryChain(
+        vert_indices=list(range(8)),
+        vert_cos=[point.copy() for point in points],
+        edge_indices=edge_indices,
+        is_closed=True,
+    )
+    node.boundary_loops = [
+        BoundaryLoop(
+            vert_indices=list(range(8)),
+            vert_cos=[point.copy() for point in points],
+            edge_indices=edge_indices,
+            chains=[chain],
+        )
+    ]
+    graph = PatchGraph()
+    graph.add_node(node)
+    return graph, edge_indices
+
+
 def test_patch_voronoi_front_rebuilds_and_never_leaves_patch():
     plan = compile_patch_voronoi_plan(
         _planar_two_site_graph(), [10, 12], offset=0.01
@@ -151,6 +201,49 @@ def test_patch_voronoi_front_rebuilds_and_never_leaves_patch():
     # Voronoi-cell материализуется одним цельным quad, а не двумя tris.
     assert len(wide) == 2
     assert all(len(face.positions) == 4 for face in wide)
+
+
+def test_door_opening_builds_realtime_endpoint_miters_with_shared_keys():
+    graph, edge_indices = _door_opening_graph()
+    plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
+    assert plan is not None
+    surface = plan.surfaces[0]
+    point_atoms = [atom for atom in surface.atoms if atom.cell_kind == "POINT"]
+    assert len(point_atoms) == 2
+    assert {
+        surface.corners[atom.corner_index].vert_index for atom in point_atoms
+    } == {2, 3}
+
+    narrow = evaluate_patch_voronoi_plan(plan, width=0.5, preview=True)
+    wide = evaluate_patch_voronoi_plan(plan, width=2.0, preview=True)
+    assert narrow and wide
+    assert [tuple(face.positions) for face in wide] != [
+        tuple(face.positions) for face in narrow
+    ]
+    for faces in (narrow, wide):
+        for corner_vertex in (2, 3):
+            corner_key = ("pv-sv", corner_vertex)
+            owners = [face for face in faces if corner_key in face.vert_keys]
+            # Endpoint-cell и обе соседние segment-cells используют одну
+            # identity до финального remove-doubles.
+            assert len(owners) >= 3
+        for face in faces:
+            for point in face.positions:
+                assert -4.0 - 1e-7 <= point.x <= 4.0 + 1e-7
+                assert -1e-7 <= point.y <= 4.0 + 1e-7
+
+    def signature(faces):
+        return [
+            (
+                tuple(face.vert_keys),
+                tuple(tuple(round(value, 9) for value in point) for point in face.positions),
+            )
+            for face in faces
+        ]
+
+    assert signature(wide) == signature(
+        evaluate_patch_voronoi_plan(plan, width=2.0, preview=False)
+    )
 
 
 def test_patch_voronoi_fragment_union_removes_internal_triangulation():

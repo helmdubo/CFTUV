@@ -1,19 +1,19 @@
 """Patch-bounded segment-Voronoi backend для Decal Seams.
 
 Диаграмма строится один раз на owner patch по выбранным boundary segments.
-Во время modal drag меняется только фронт ``distance(site) <= width / 2``.
-Ячейки заранее пересечены с boundary-доменом patch, поэтому крылья не выходят
-за mesh boundary, не пересекаются внутри patch и меняют топологию в тот же
-момент, когда фронты встречаются. Внутренняя триангуляция домена используется
-только для clipping и сваривается обратно: topology исходного mesh не должна
-отпечатываться на итоговой декали.
+Во время modal drag segment- и endpoint-cells обрезаются динамическими
+extrusion polygons текущей ширины. Ячейки заранее пересечены с boundary-доменом
+patch, поэтому крылья не выходят за mesh boundary, не пересекаются внутри patch
+и меняют топологию в тот же момент, когда фронты встречаются. Внутренняя
+триангуляция домена используется только для clipping и сваривается обратно:
+topology исходного mesh не должна отпечатываться на итоговой декали.
 
 ``pyvoronoi`` изолирован в этом модуле. Если wheel недоступен или patch не
 планарен, вызывающий код явно возвращается к legacy seam-network backend.
 """
 
 from dataclasses import dataclass
-from math import atan2, cos, pi, sin, sqrt
+from math import sqrt
 
 from mathutils import Vector
 
@@ -53,13 +53,27 @@ class _PatchVoronoiSite:
     arc_start: float
     segment_length: float
     uv_sign: float
+    inward_normal: tuple[float, float]
+
+
+@dataclass(frozen=True)
+class _PatchVoronoiCorner:
+    """Decal-local endpoint topology одного planar patch."""
+
+    vert_index: int
+    point: tuple[float, float]
+    incident_sites: tuple[int, ...]
+    corner_type: str
+    miter_ratio: float
 
 
 @dataclass(frozen=True)
 class _PatchVoronoiAtom:
     site_index: int
     fragments: tuple[tuple[tuple[float, float], ...], ...]
-    max_site_distance: float
+    cell_kind: str
+    corner_index: int = -1
+    source_category: int = 0
 
 
 @dataclass(frozen=True)
@@ -70,6 +84,7 @@ class _PatchVoronoiSurface:
     basis_u: Vector
     basis_v: Vector
     sites: tuple[_PatchVoronoiSite, ...]
+    corners: tuple[_PatchVoronoiCorner, ...]
     atoms: tuple[_PatchVoronoiAtom, ...]
 
 
@@ -389,38 +404,173 @@ def _patch_domain_triangles(node, origin, basis_u, basis_v):
     return triangles
 
 
-def _capsule_polygon(point_a, point_b, radius, half_segments):
-    """Low-res convex approximation distance(segment) <= radius.
+def _point_in_triangle(point, triangle, tolerance=1e-10):
+    """Проверяет принадлежность point треугольнику в patch space."""
 
-    Диаграмма отвечает за collision topology, capsule — только за текущий
-    distance-front. Малое фиксированное число дуговых сегментов не создаёт
-    прежние fan-вееры и не зависит от плотности исходного mesh.
-    """
+    signs = []
+    for index in range(3):
+        point_a = triangle[index]
+        point_b = triangle[(index + 1) % 3]
+        signs.append(
+            (point_b[0] - point_a[0]) * (point[1] - point_a[1])
+            - (point_b[1] - point_a[1]) * (point[0] - point_a[0])
+        )
+    return min(signs) >= -tolerance or max(signs) <= tolerance
+
+
+def _point_in_domain(point, triangles):
+    return any(_point_in_triangle(point, triangle) for triangle in triangles)
+
+
+def _inward_site_normal(point_a, point_b, triangles, probe_distance):
+    """Выбирает нормаль segment в сторону owner patch, а не по winding chain."""
 
     dx = point_b[0] - point_a[0]
     dy = point_b[1] - point_a[1]
     length = sqrt(dx * dx + dy * dy)
     if length <= _GEOMETRY_EPS:
+        return (0.0, 0.0)
+    left = (-dy / length, dx / length)
+    midpoint = ((point_a[0] + point_b[0]) * 0.5, (point_a[1] + point_b[1]) * 0.5)
+    left_probe = (
+        midpoint[0] + left[0] * probe_distance,
+        midpoint[1] + left[1] * probe_distance,
+    )
+    right_probe = (
+        midpoint[0] - left[0] * probe_distance,
+        midpoint[1] - left[1] * probe_distance,
+    )
+    left_inside = _point_in_domain(left_probe, triangles)
+    right_inside = _point_in_domain(right_probe, triangles)
+    if left_inside != right_inside:
+        return left if left_inside else (-left[0], -left[1])
+
+    # На очень коротком edge probe может пересечь соседний угол. Ближайшая
+    # owner triangle даёт устойчивый fallback без зависимости от winding.
+    best_centroid = None
+    best_distance = float("inf")
+    for triangle in triangles:
+        centroid = (
+            sum(point[0] for point in triangle) / 3.0,
+            sum(point[1] for point in triangle) / 3.0,
+        )
+        distance = _dist2(midpoint, centroid)
+        if distance < best_distance:
+            best_distance = distance
+            best_centroid = centroid
+    if best_centroid is not None:
+        towards_owner = (
+            best_centroid[0] - midpoint[0],
+            best_centroid[1] - midpoint[1],
+        )
+        if towards_owner[0] * left[0] + towards_owner[1] * left[1] < 0.0:
+            return (-left[0], -left[1])
+    return left
+
+
+def _line_intersection(point_a, direction_a, point_b, direction_b):
+    denominator = (
+        direction_a[0] * direction_b[1]
+        - direction_a[1] * direction_b[0]
+    )
+    if abs(denominator) <= 1e-12:
+        return None
+    delta = (point_b[0] - point_a[0], point_b[1] - point_a[1])
+    factor = (
+        delta[0] * direction_b[1] - delta[1] * direction_b[0]
+    ) / denominator
+    return (
+        point_a[0] + direction_a[0] * factor,
+        point_a[1] + direction_a[1] * factor,
+    )
+
+
+def _convex_hull(points):
+    """Минимальный deterministic hull для runtime extrusion crop."""
+
+    unique = sorted({(float(point[0]), float(point[1])) for point in points})
+    if len(unique) < 3:
         return []
-    angle = atan2(dy, dx)
-    points = []
-    for index in range(half_segments + 1):
-        theta = angle - pi * 0.5 + pi * index / half_segments
-        points.append(
-            (
-                point_b[0] + cos(theta) * radius,
-                point_b[1] + sin(theta) * radius,
-            )
+
+    def cross(origin, point_a, point_b):
+        return (
+            (point_a[0] - origin[0]) * (point_b[1] - origin[1])
+            - (point_a[1] - origin[1]) * (point_b[0] - origin[0])
         )
-    for index in range(half_segments + 1):
-        theta = angle + pi * 0.5 + pi * index / half_segments
-        points.append(
-            (
-                point_a[0] + cos(theta) * radius,
-                point_a[1] + sin(theta) * radius,
+
+    lower = []
+    for point in unique:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], point) <= 1e-12:
+            lower.pop()
+        lower.append(point)
+    upper = []
+    for point in reversed(unique):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], point) <= 1e-12:
+            upper.pop()
+        upper.append(point)
+    return _dedupe_polygon(lower[:-1] + upper[:-1])
+
+
+def _segment_crop_polygon(site, alpha):
+    """Extrusion polygon segment-cell: прямой strip без endpoint fan."""
+
+    dx = site.point_b[0] - site.point_a[0]
+    dy = site.point_b[1] - site.point_a[1]
+    length = max(site.segment_length, _GEOMETRY_EPS)
+    normal = (-dy / length * alpha, dx / length * alpha)
+    return [
+        (site.point_a[0] + normal[0], site.point_a[1] + normal[1]),
+        (site.point_b[0] + normal[0], site.point_b[1] + normal[1]),
+        (site.point_b[0] - normal[0], site.point_b[1] - normal[1]),
+        (site.point_a[0] - normal[0], site.point_a[1] - normal[1]),
+    ]
+
+
+def _corner_crop_polygon(surface, corner, alpha):
+    """Runtime endpoint extrusion polygon; обычные углы дают один miter."""
+
+    point = corner.point
+    if len(corner.incident_sites) != 2:
+        return [
+            (point[0] - alpha, point[1] - alpha),
+            (point[0] + alpha, point[1] - alpha),
+            (point[0] + alpha, point[1] + alpha),
+            (point[0] - alpha, point[1] + alpha),
+        ]
+
+    offset_lines = []
+    for site_index in corner.incident_sites:
+        site = surface.sites[site_index]
+        if site.vert_a == corner.vert_index:
+            direction = (
+                (site.point_b[0] - point[0]) / site.segment_length,
+                (site.point_b[1] - point[1]) / site.segment_length,
             )
+        else:
+            direction = (
+                (site.point_a[0] - point[0]) / site.segment_length,
+                (site.point_a[1] - point[1]) / site.segment_length,
+            )
+        offset_point = (
+            point[0] + site.inward_normal[0] * alpha,
+            point[1] + site.inward_normal[1] * alpha,
         )
-    return _dedupe_polygon(points)
+        offset_lines.append((offset_point, direction))
+
+    intersection = _line_intersection(
+        offset_lines[0][0],
+        offset_lines[0][1],
+        offset_lines[1][0],
+        offset_lines[1][1],
+    )
+    points = [point, offset_lines[0][0], offset_lines[1][0]]
+    if (
+        intersection is not None
+        and _dist2(point, intersection) <= alpha * 8.0
+        and corner.corner_type == "MITER"
+    ):
+        points.append(intersection)
+    return _convex_hull(points)
 
 
 def _edge_points(diagram, edges, vertices, edge_index, curve_step):
@@ -564,29 +714,69 @@ def _collect_patch_sites(graph, selected_edges):
     return raw_by_patch, normals_by_vert, positions_by_vert
 
 
+def _compile_corners(sites):
+    incidents = {}
+    points = {}
+    for site_index, site in enumerate(sites):
+        for vert_index, point in (
+            (site.vert_a, site.point_a),
+            (site.vert_b, site.point_b),
+        ):
+            incidents.setdefault(vert_index, []).append(site_index)
+            points.setdefault(vert_index, point)
+
+    corners = []
+    for vert_index in sorted(incidents):
+        incident_sites = tuple(sorted(incidents[vert_index]))
+        point = points[vert_index]
+        corner_type = "JUNCTION"
+        miter_ratio = float("inf")
+        if len(incident_sites) == 1:
+            corner_type = "CAP"
+        elif len(incident_sites) == 2:
+            offset_lines = []
+            for site_index in incident_sites:
+                site = sites[site_index]
+                other = site.point_b if site.vert_a == vert_index else site.point_a
+                direction = (
+                    (other[0] - point[0]) / site.segment_length,
+                    (other[1] - point[1]) / site.segment_length,
+                )
+                offset_lines.append(
+                    (
+                        (
+                            point[0] + site.inward_normal[0],
+                            point[1] + site.inward_normal[1],
+                        ),
+                        direction,
+                    )
+                )
+            intersection = _line_intersection(
+                offset_lines[0][0],
+                offset_lines[0][1],
+                offset_lines[1][0],
+                offset_lines[1][1],
+            )
+            if intersection is not None:
+                miter_ratio = _dist2(point, intersection)
+            corner_type = "MITER" if miter_ratio <= 8.0 else "BEVEL"
+        corners.append(
+            _PatchVoronoiCorner(
+                vert_index=vert_index,
+                point=point,
+                incident_sites=incident_sites,
+                corner_type=corner_type,
+                miter_ratio=miter_ratio,
+            )
+        )
+    return tuple(corners)
+
+
 def _compile_surface(node, raw_sites):
     origin = node.centroid.copy()
     normal = node.normal.normalized()
     basis_u = node.basis_u.normalized()
     basis_v = node.basis_v.normalized()
-    sites = []
-    for raw in raw_sites:
-        sites.append(
-            _PatchVoronoiSite(
-                patch_id=node.patch_id,
-                edge_index=raw["edge_index"],
-                vert_a=raw["vert_a"],
-                vert_b=raw["vert_b"],
-                source_a=raw["source_a"],
-                source_b=raw["source_b"],
-                point_a=_project(raw["source_a"], origin, basis_u, basis_v),
-                point_b=_project(raw["source_b"], origin, basis_u, basis_v),
-                arc_start=raw["arc_start"],
-                segment_length=raw["segment_length"],
-                uv_sign=raw["uv_sign"],
-            )
-        )
-
     triangles = _patch_domain_triangles(
         node, origin, basis_u, basis_v
     )
@@ -599,6 +789,36 @@ def _compile_surface(node, raw_sites):
     min_y = min(point[1] for point in all_points)
     max_y = max(point[1] for point in all_points)
     diagonal = sqrt((max_x - min_x) ** 2 + (max_y - min_y) ** 2)
+    probe_distance = max(
+        DECAL_WELD_DISTANCE * 2.0,
+        min(diagonal * 1e-4, max(diagonal, 1.0) * 1e-3),
+    )
+    sites = []
+    for raw in raw_sites:
+        point_a = _project(raw["source_a"], origin, basis_u, basis_v)
+        point_b = _project(raw["source_b"], origin, basis_u, basis_v)
+        sites.append(
+            _PatchVoronoiSite(
+                patch_id=node.patch_id,
+                edge_index=raw["edge_index"],
+                vert_a=raw["vert_a"],
+                vert_b=raw["vert_b"],
+                source_a=raw["source_a"],
+                source_b=raw["source_b"],
+                point_a=point_a,
+                point_b=point_b,
+                arc_start=raw["arc_start"],
+                segment_length=raw["segment_length"],
+                uv_sign=raw["uv_sign"],
+                inward_normal=_inward_site_normal(
+                    point_a, point_b, triangles, probe_distance
+                ),
+            )
+        )
+    corners = _compile_corners(sites)
+    corner_by_vertex = {
+        corner.vert_index: index for index, corner in enumerate(corners)
+    }
     margin = max(10.0, diagonal * 8.0)
     guard = (
         (min_x - margin, min_y - margin),
@@ -642,7 +862,6 @@ def _compile_surface(node, raw_sites):
             continue
         site = sites[cell.site]
         fragments = []
-        max_distance = 0.0
         for triangle in triangles:
             clipped = _clip_to_triangle(polygon, triangle)
             if len(clipped) < 3 or abs(_polygon_area2(clipped)) <= 1e-10:
@@ -650,21 +869,26 @@ def _compile_surface(node, raw_sites):
             if _polygon_area2(clipped) < 0.0:
                 clipped.reverse()
             fragments.append(tuple(clipped))
-            max_distance = max(
-                max_distance,
-                max(
-                    _segment_point_distance2(
-                        site.point_a, site.point_b, point
-                    )[0]
-                    for point in clipped
-                ),
-            )
         if fragments:
+            source_category = int(cell.source_category)
+            corner_index = -1
+            cell_kind = "SEGMENT"
+            if cell.contains_point:
+                cell_kind = "POINT"
+                if source_category == 1:
+                    source_vertex = site.vert_a
+                elif source_category == 2:
+                    source_vertex = site.vert_b
+                else:
+                    source_vertex = -1
+                corner_index = corner_by_vertex.get(source_vertex, -1)
             atoms.append(
                 _PatchVoronoiAtom(
                     site_index=int(cell.site),
                     fragments=tuple(fragments),
-                    max_site_distance=max_distance,
+                    cell_kind=cell_kind,
+                    corner_index=corner_index,
+                    source_category=source_category,
                 )
             )
     if not atoms:
@@ -676,6 +900,7 @@ def _compile_surface(node, raw_sites):
         basis_u=basis_u,
         basis_v=basis_v,
         sites=tuple(sites),
+        corners=corners,
         atoms=tuple(atoms),
     )
 
@@ -738,12 +963,16 @@ def _position_and_key(
     distance, t = _segment_point_distance2(site.point_a, site.point_b, point)
     spine_eps = max(DECAL_WELD_DISTANCE * 0.25, site.segment_length * 1e-7)
     if distance <= spine_eps:
-        if t <= 1e-7:
+        endpoint_eps = max(
+            DECAL_WELD_DISTANCE * 0.5,
+            site.segment_length * 1e-6,
+        )
+        if _dist2(point, site.point_a) <= endpoint_eps:
             position = site.source_a.lerp(
                 plan.lifted_vertices[site.vert_a], lift_scale
             )
             return position, ("pv-sv", site.vert_a)
-        if t >= 1.0 - 1e-7:
+        if _dist2(point, site.point_b) <= endpoint_eps:
             position = site.source_b.lerp(
                 plan.lifted_vertices[site.vert_b], lift_scale
             )
@@ -852,10 +1081,9 @@ def _orientation_safe_lift_scale(plan, pending, desired_scale):
 
 
 def evaluate_patch_voronoi_plan(plan, width, preview=False):
-    """Двигает distance-front внутри статических patch Voronoi cells."""
+    """Перестраивает extrusion polygons внутри статических Voronoi cells."""
 
     alpha = max(1e-6, float(width) * 0.5)
-    keep_eps = max(1e-9, alpha * 1e-7)
     lateral_at_full_offset = (
         abs(plan.offset) * plan.max_lateral_lift_ratio
     )
@@ -867,27 +1095,22 @@ def evaluate_patch_voronoi_plan(plan, width, preview=False):
     else:
         lift_scale = 1.0
     pending = []
-    # Preview и confirm обязаны иметь один и тот же collision contour.
-    # Дополнительная финальная дуговая точка меняла cell intersections после
-    # отпускания мыши: митеры визуально раскрывались и расходились с крылом.
-    capsule_segments = 2
     for surface in plan.surfaces:
         for atom in surface.atoms:
             site = surface.sites[atom.site_index]
-            if atom.max_site_distance <= alpha + keep_eps:
-                fragments = [list(fragment) for fragment in atom.fragments]
-            else:
-                capsule = _capsule_polygon(
-                    site.point_a,
-                    site.point_b,
-                    alpha,
-                    capsule_segments,
+            if atom.cell_kind == "POINT" and atom.corner_index >= 0:
+                crop_polygon = _corner_crop_polygon(
+                    surface, surface.corners[atom.corner_index], alpha
                 )
-                fragments = []
-                for fragment in atom.fragments:
-                    clipped = _clip_to_convex(fragment, capsule)
-                    if clipped:
-                        fragments.append(clipped)
+            else:
+                crop_polygon = _segment_crop_polygon(site, alpha)
+            if len(crop_polygon) < 3:
+                continue
+            fragments = []
+            for fragment in atom.fragments:
+                clipped = _clip_to_convex(fragment, crop_polygon)
+                if clipped:
+                    fragments.append(clipped)
             components = _merge_polygon_fragments(
                 fragments,
                 tolerance=max(1e-8, DECAL_WELD_DISTANCE * 0.25),
