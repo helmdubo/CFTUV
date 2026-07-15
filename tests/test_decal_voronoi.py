@@ -174,6 +174,56 @@ def _door_opening_graph():
     return graph, edge_indices
 
 
+def _wide_t_junction_front_graph():
+    """Точный planar front patch walls.006 вокруг широкого T-junction."""
+
+    points = [
+        Vector((-37.679363, 15.175671, 0.0)),
+        Vector((-37.679363, 19.733892, 0.0)),
+        Vector((-25.643166, 19.733900, 0.0)),
+        Vector((-25.643166, 15.175671, 0.0)),
+        Vector((-30.796854, 15.175671, 0.0)),
+        Vector((-30.796854, 18.608587, 0.0)),
+        Vector((-32.621742, 18.608587, 0.0)),
+        Vector((-32.621742, 15.175671, 0.0)),
+    ]
+    node = PatchNode(
+        patch_id=0,
+        face_indices=[0],
+        centroid=sum(points, Vector((0.0, 0.0, 0.0))) / len(points),
+        normal=Vector((0.0, 0.0, 1.0)),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+    )
+    node.mesh_verts = points
+    node.mesh_tris = [
+        (0, 1, 6),
+        (0, 6, 7),
+        (1, 2, 5),
+        (1, 5, 6),
+        (2, 3, 4),
+        (2, 4, 5),
+    ]
+    edge_indices = list(range(200, 208))
+    chain = BoundaryChain(
+        vert_indices=list(range(8)),
+        vert_cos=[point.copy() for point in points],
+        edge_indices=edge_indices,
+        is_closed=True,
+    )
+    node.boundary_loops = [
+        BoundaryLoop(
+            vert_indices=list(range(8)),
+            vert_cos=[point.copy() for point in points],
+            edge_indices=edge_indices,
+            chains=[chain],
+        )
+    ]
+    graph = PatchGraph()
+    graph.add_node(node)
+    return graph, edge_indices
+
+
 def test_patch_voronoi_front_rebuilds_and_never_leaves_patch():
     plan = compile_patch_voronoi_plan(
         _planar_two_site_graph(), [10, 12], offset=0.01
@@ -244,6 +294,33 @@ def test_door_opening_builds_realtime_endpoint_miters_with_shared_keys():
     assert signature(wide) == signature(
         evaluate_patch_voronoi_plan(plan, width=2.0, preview=False)
     )
+
+
+def test_wide_t_junction_cells_remain_convex_and_non_overlapping():
+    graph, edge_indices = _wide_t_junction_front_graph()
+    plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.02)
+    assert plan is not None
+
+    for width in (1.0545852, 2.0, 4.0):
+        faces = evaluate_patch_voronoi_plan(plan, width=width, preview=True)
+        polygons = [
+            [(point.x, point.y) for point in face.positions] for face in faces
+        ]
+        assert polygons
+        assert all(
+            decal_voronoi._polygon_is_simple(polygon)
+            and decal_voronoi._polygon_is_convex(polygon)
+            for polygon in polygons
+        )
+        for index, polygon in enumerate(polygons):
+            for other in polygons[index + 1 :]:
+                intersection = decal_voronoi._clip_to_convex(
+                    polygon, other
+                )
+                if intersection:
+                    assert abs(
+                        decal_voronoi._polygon_area2(intersection)
+                    ) <= 1e-5
 
 
 def test_patch_voronoi_fragment_union_removes_internal_triangulation():

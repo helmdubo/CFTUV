@@ -13,7 +13,7 @@ topology исходного mesh не должна отпечатываться 
 """
 
 from dataclasses import dataclass
-from math import sqrt
+from math import atan2, sqrt, tau
 
 from mathutils import Vector
 
@@ -216,6 +216,139 @@ def _simplify_collinear_polygon(points, tolerance):
     return result
 
 
+def _polygon_is_simple(points, tolerance=1e-8):
+    """Отсекает contours, которые BMesh превратил бы в пересекающиеся tris."""
+
+    count = len(points)
+    if count < 3:
+        return False
+    quantum = max(tolerance, 1e-12)
+    keys = [
+        (round(point[0] / quantum), round(point[1] / quantum))
+        for point in points
+    ]
+    if len(set(keys)) != count:
+        return False
+
+    def orientation(point_a, point_b, point_c):
+        return (
+            (point_b[0] - point_a[0]) * (point_c[1] - point_a[1])
+            - (point_b[1] - point_a[1]) * (point_c[0] - point_a[0])
+        )
+
+    def on_segment(point_a, point_b, point):
+        return (
+            min(point_a[0], point_b[0]) - tolerance
+            <= point[0]
+            <= max(point_a[0], point_b[0]) + tolerance
+            and min(point_a[1], point_b[1]) - tolerance
+            <= point[1]
+            <= max(point_a[1], point_b[1]) + tolerance
+        )
+
+    def intersects(point_a, point_b, point_c, point_d):
+        turns = (
+            orientation(point_a, point_b, point_c),
+            orientation(point_a, point_b, point_d),
+            orientation(point_c, point_d, point_a),
+            orientation(point_c, point_d, point_b),
+        )
+        if (
+            turns[0] * turns[1] < -tolerance * tolerance
+            and turns[2] * turns[3] < -tolerance * tolerance
+        ):
+            return True
+        return (
+            (abs(turns[0]) <= tolerance and on_segment(point_a, point_b, point_c))
+            or (abs(turns[1]) <= tolerance and on_segment(point_a, point_b, point_d))
+            or (abs(turns[2]) <= tolerance and on_segment(point_c, point_d, point_a))
+            or (abs(turns[3]) <= tolerance and on_segment(point_c, point_d, point_b))
+        )
+
+    for edge_index in range(count):
+        point_a = points[edge_index]
+        point_b = points[(edge_index + 1) % count]
+        for other_index in range(edge_index + 1, count):
+            if other_index in (
+                edge_index,
+                (edge_index + 1) % count,
+                (edge_index - 1) % count,
+            ):
+                continue
+            if edge_index == 0 and other_index == count - 1:
+                continue
+            point_c = points[other_index]
+            point_d = points[(other_index + 1) % count]
+            if intersects(point_a, point_b, point_c, point_d):
+                return False
+    return True
+
+
+def _polygon_is_convex(points, tolerance=1e-9):
+    sign = 0
+    for index, point in enumerate(points):
+        point_a = points[(index - 1) % len(points)]
+        point_b = points[(index + 1) % len(points)]
+        turn = (
+            (point[0] - point_a[0]) * (point_b[1] - point[1])
+            - (point[1] - point_a[1]) * (point_b[0] - point[0])
+        )
+        if abs(turn) <= tolerance:
+            continue
+        current_sign = 1 if turn > 0.0 else -1
+        if sign and current_sign != sign:
+            return False
+        sign = current_sign
+    return sign != 0
+
+
+def _convex_fragment_decomposition(polygons, tolerance):
+    """Укрупняет triangle clips только когда их union остаётся convex."""
+
+    result = [list(polygon) for polygon in polygons]
+    quantum = max(tolerance, 1e-10)
+
+    def point_key(point):
+        return (round(point[0] / quantum), round(point[1] / quantum))
+
+    while True:
+        edge_owner = {}
+        merge_pair = None
+        for polygon_index, polygon in enumerate(result):
+            for index, point in enumerate(polygon):
+                other = polygon[(index + 1) % len(polygon)]
+                undirected = tuple(sorted((point_key(point), point_key(other))))
+                previous = edge_owner.get(undirected)
+                if previous is not None and previous != polygon_index:
+                    pair = tuple(sorted((previous, polygon_index)))
+                    first = result[pair[0]]
+                    second = result[pair[1]]
+                    hull = _convex_hull(first + second)
+                    source_area = abs(_polygon_area2(first)) + abs(
+                        _polygon_area2(second)
+                    )
+                    area_tolerance = max(
+                        tolerance * tolerance * 4.0,
+                        source_area * 1e-7,
+                    )
+                    if (
+                        len(hull) >= 3
+                        and abs(abs(_polygon_area2(hull)) - source_area)
+                        <= area_tolerance
+                    ):
+                        merge_pair = pair, hull
+                        break
+                else:
+                    edge_owner[undirected] = polygon_index
+            if merge_pair is not None:
+                break
+        if merge_pair is None:
+            return result
+        (first_index, second_index), hull = merge_pair
+        result[first_index] = hull
+        del result[second_index]
+
+
 def _merge_polygon_fragments(fragments, tolerance=1e-7):
     """Собирает triangle-clips одной cell обратно в цельные contours.
 
@@ -306,6 +439,7 @@ def _merge_polygon_fragments(fragments, tolerance=1e-7):
             start_key, current_key = start_edge
             unused.remove(start_edge)
             loop_keys = [start_key]
+            previous_key = start_key
             guard = len(boundary_edges) + 1
             while current_key != start_key and guard > 0:
                 loop_keys.append(current_key)
@@ -316,11 +450,31 @@ def _merge_polygon_fragments(fragments, tolerance=1e-7):
                 ]
                 if not candidates:
                     break
-                # Edge-connected polygon unions have one continuation. The
-                # stable sort is only a deterministic guard for degenerate
-                # point contacts produced by floating point clipping.
-                next_key = sorted(candidates)[0]
+                # В vertex-contact могут сходиться несколько contours одной
+                # edge-connected группы. Продолжаем по ближайшему clockwise
+                # half-edge от обратного входящего направления: interior
+                # каждого CCW contour остаётся слева, а касающиеся loops не
+                # сшиваются случайной лексикографической хордой.
+                current_point = representatives[current_key]
+                previous_point = representatives[previous_key]
+                reverse = (
+                    previous_point[0] - current_point[0],
+                    previous_point[1] - current_point[1],
+                )
+
+                def clockwise_turn(next_key):
+                    next_point = representatives[next_key]
+                    outgoing = (
+                        next_point[0] - current_point[0],
+                        next_point[1] - current_point[1],
+                    )
+                    cross = reverse[0] * outgoing[1] - reverse[1] * outgoing[0]
+                    dot = reverse[0] * outgoing[0] + reverse[1] * outgoing[1]
+                    return (-atan2(cross, dot)) % tau, next_key
+
+                next_key = min(candidates, key=clockwise_turn)
                 unused.remove((current_key, next_key))
+                previous_key = current_key
                 current_key = next_key
                 guard -= 1
             if current_key != start_key or len(loop_keys) < 3:
@@ -333,8 +487,18 @@ def _merge_polygon_fragments(fragments, tolerance=1e-7):
 
         # Negative loop is a real hole. Preserve the correct triangulated
         # representation instead of illegally filling it with one ngon.
-        if not loops or any(_polygon_area2(loop) < 0.0 for loop in loops):
-            merged.extend(normalized[index] for index in group_indices)
+        if (
+            not loops
+            or any(_polygon_area2(loop) < 0.0 for loop in loops)
+            or any(not _polygon_is_simple(loop, tolerance) for loop in loops)
+            or any(not _polygon_is_convex(loop, tolerance) for loop in loops)
+        ):
+            merged.extend(
+                _convex_fragment_decomposition(
+                    [normalized[index] for index in group_indices],
+                    tolerance,
+                )
+            )
             continue
         merged.extend(loops)
     return merged
@@ -625,6 +789,70 @@ def _cell_polygon(diagram, edges, vertices, cell, curve_step):
     return polygon
 
 
+def _triangulate_cell_polygon(points):
+    """Разбивает Voronoi-cell до clipping, сохраняя convex atoms."""
+
+    polygon = _dedupe_polygon(points)
+    if len(polygon) < 3 or not _polygon_is_simple(polygon):
+        return []
+    if _polygon_area2(polygon) < 0.0:
+        polygon.reverse()
+    if _polygon_is_convex(polygon):
+        return [polygon]
+
+    remaining = list(range(len(polygon)))
+    triangles = []
+    guard = len(polygon) * len(polygon)
+    while len(remaining) > 3 and guard > 0:
+        ear_found = False
+        for position, current_index in enumerate(remaining):
+            previous_index = remaining[position - 1]
+            next_index = remaining[(position + 1) % len(remaining)]
+            triangle = [
+                polygon[previous_index],
+                polygon[current_index],
+                polygon[next_index],
+            ]
+            if _polygon_area2(triangle) <= 1e-12:
+                continue
+            has_inner_point = False
+            for candidate_index in remaining:
+                if candidate_index in (
+                    previous_index,
+                    current_index,
+                    next_index,
+                ):
+                    continue
+                candidate = polygon[candidate_index]
+                turns = []
+                for edge_index in range(3):
+                    point_a = triangle[edge_index]
+                    point_b = triangle[(edge_index + 1) % 3]
+                    turns.append(
+                        (point_b[0] - point_a[0])
+                        * (candidate[1] - point_a[1])
+                        - (point_b[1] - point_a[1])
+                        * (candidate[0] - point_a[0])
+                    )
+                if min(turns) > 1e-10:
+                    has_inner_point = True
+                    break
+            if has_inner_point:
+                continue
+            triangles.append(triangle)
+            del remaining[position]
+            ear_found = True
+            break
+        if not ear_found:
+            return []
+        guard -= 1
+    if len(remaining) == 3:
+        triangle = [polygon[index] for index in remaining]
+        if _polygon_area2(triangle) > 1e-12:
+            triangles.append(triangle)
+    return triangles
+
+
 def _project(point, origin, basis_u, basis_v):
     delta = point - origin
     return (delta.dot(basis_u), delta.dot(basis_v))
@@ -860,15 +1088,22 @@ def _compile_surface(node, raw_sites):
         )
         if polygon is None:
             continue
+        cell_triangles = _triangulate_cell_polygon(polygon)
+        if not cell_triangles:
+            continue
         site = sites[cell.site]
         fragments = []
-        for triangle in triangles:
-            clipped = _clip_to_triangle(polygon, triangle)
-            if len(clipped) < 3 or abs(_polygon_area2(clipped)) <= 1e-10:
-                continue
-            if _polygon_area2(clipped) < 0.0:
-                clipped.reverse()
-            fragments.append(tuple(clipped))
+        for cell_triangle in cell_triangles:
+            for domain_triangle in triangles:
+                clipped = _clip_to_triangle(cell_triangle, domain_triangle)
+                if (
+                    len(clipped) < 3
+                    or abs(_polygon_area2(clipped)) <= 1e-10
+                ):
+                    continue
+                if _polygon_area2(clipped) < 0.0:
+                    clipped.reverse()
+                fragments.append(tuple(clipped))
         if fragments:
             source_category = int(cell.source_category)
             corner_index = -1
@@ -964,8 +1199,8 @@ def _position_and_key(
     spine_eps = max(DECAL_WELD_DISTANCE * 0.25, site.segment_length * 1e-7)
     if distance <= spine_eps:
         endpoint_eps = max(
-            DECAL_WELD_DISTANCE * 0.5,
             site.segment_length * 1e-6,
+            min(DECAL_WELD_DISTANCE, site.segment_length * 0.01),
         )
         if _dist2(point, site.point_a) <= endpoint_eps:
             position = site.source_a.lerp(
