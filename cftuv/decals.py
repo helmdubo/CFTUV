@@ -107,6 +107,18 @@ class _OrientedRibbonRun:
 
 
 @dataclass
+class DecalPreviewState:
+    """Modal-lifetime topology cache; не хранится глобально или в PatchGraph."""
+
+    topology_signature: tuple = ()
+    canonical_mesh_indices: tuple[int, ...] = ()
+    object_pointer: int = 0
+    mesh_pointer: int = 0
+    fast_updates: int = 0
+    topology_rebuilds: int = 0
+
+
+@dataclass
 class _OrientedCornerRun:
     """Непрерывный двухсторонний seam-run с фреймами на каждый сегмент."""
 
@@ -2110,12 +2122,110 @@ def _decal_object_name(mode: str, source_obj) -> str:
     return f"Decal_{_MODE_OBJECT_SUFFIX[mode]}_{source_obj.name}"
 
 
+def _bmesh_topology_payload(bm):
+    """Каноническая face/loop signature, независимая от BMesh indices."""
+
+    bm.verts.index_update()
+    bm.faces.index_update()
+    ordered_faces = sorted(bm.faces, key=lambda face: face.index)
+    canonical_index_by_vert = {}
+    canonical_verts = []
+    face_signatures = []
+    for face in ordered_faces:
+        canonical_loop = []
+        for loop in face.loops:
+            canonical_index = canonical_index_by_vert.get(loop.vert)
+            if canonical_index is None:
+                canonical_index = len(canonical_verts)
+                canonical_index_by_vert[loop.vert] = canonical_index
+                canonical_verts.append(loop.vert)
+            canonical_loop.append(canonical_index)
+        face_signatures.append(
+            (
+                face.material_index,
+                bool(face.smooth),
+                tuple(canonical_loop),
+            )
+        )
+    signature = (
+        len(bm.verts),
+        len(bm.edges),
+        tuple(face_signatures),
+    )
+    canonical_verts = tuple(canonical_verts)
+    return (
+        signature,
+        canonical_verts,
+        tuple(vert.index for vert in canonical_verts),
+    )
+
+
+def _update_preview_mesh_data(
+    bm,
+    mesh,
+    canonical_verts,
+    canonical_mesh_indices,
+):
+    """Обновляет только coordinates/UV при уже доказанной topology parity."""
+
+    ordered_faces = sorted(bm.faces, key=lambda face: face.index)
+    loop_count = sum(len(face.loops) for face in ordered_faces)
+    if (
+        len(mesh.vertices) != len(canonical_verts)
+        or len(mesh.polygons) != len(ordered_faces)
+        or len(mesh.loops) != loop_count
+        or len(canonical_mesh_indices) != len(canonical_verts)
+        or set(canonical_mesh_indices) != set(range(len(mesh.vertices)))
+    ):
+        return False
+
+    bm_uv_layer = bm.loops.layers.uv.active
+    mesh_uv_layer = mesh.uv_layers.active
+    if (bm_uv_layer is None) != (mesh_uv_layer is None):
+        return False
+    if mesh_uv_layer is not None and len(mesh_uv_layer.data) != loop_count:
+        return False
+
+    coordinates = [0.0] * (len(mesh.vertices) * 3)
+    for vert, mesh_index in zip(canonical_verts, canonical_mesh_indices):
+        coordinates[mesh_index * 3 : mesh_index * 3 + 3] = tuple(vert.co)
+    mesh.vertices.foreach_set("co", coordinates)
+    if bm_uv_layer is not None:
+        uv_values = [
+            component
+            for face in ordered_faces
+            for loop in face.loops
+            for component in loop[bm_uv_layer].uv
+        ]
+        mesh_uv_layer.data.foreach_set("uv", uv_values)
+    mesh.update()
+    return True
+
+
+def _record_preview_state(
+    preview_state,
+    obj,
+    topology_signature,
+    canonical_mesh_indices,
+    rebuilt,
+):
+    if preview_state is None:
+        return
+    preview_state.topology_signature = topology_signature
+    preview_state.canonical_mesh_indices = canonical_mesh_indices
+    preview_state.object_pointer = obj.as_pointer()
+    preview_state.mesh_pointer = obj.data.as_pointer()
+    if rebuilt:
+        preview_state.topology_rebuilds += 1
+
+
 def _finalize_decal_object(
     bm,
     name: str,
     source_obj,
     scene,
     reuse_existing=False,
+    preview_state=None,
 ):
     """Сваривает ленты и материализует точный или persistent preview mesh."""
 
@@ -2138,6 +2248,17 @@ def _finalize_decal_object(
                 return old_obj
             return None
 
+        if preview_state is not None:
+            (
+                topology_signature,
+                canonical_verts,
+                canonical_mesh_indices,
+            ) = _bmesh_topology_payload(bm)
+        else:
+            topology_signature = ()
+            canonical_verts = ()
+            canonical_mesh_indices = ()
+
         if (
             reuse_existing
             and old_obj is not None
@@ -2146,6 +2267,22 @@ def _finalize_decal_object(
             and old_obj.data is not None
         ):
             old_mesh = old_obj.data
+            if (
+                preview_state is not None
+                and preview_state.topology_signature == topology_signature
+                and preview_state.object_pointer == old_obj.as_pointer()
+                and preview_state.mesh_pointer == old_mesh.as_pointer()
+                and _update_preview_mesh_data(
+                    bm,
+                    old_mesh,
+                    canonical_verts,
+                    preview_state.canonical_mesh_indices,
+                )
+            ):
+                bm.free()
+                old_obj.matrix_world = source_obj.matrix_world.copy()
+                preview_state.fast_updates += 1
+                return old_obj
             if old_mesh.users > 1:
                 old_mesh = old_mesh.copy()
                 old_obj.data = old_mesh
@@ -2153,6 +2290,13 @@ def _finalize_decal_object(
             old_mesh.update()
             bm.free()
             old_obj.matrix_world = source_obj.matrix_world.copy()
+            _record_preview_state(
+                preview_state,
+                old_obj,
+                topology_signature,
+                canonical_mesh_indices,
+                rebuilt=True,
+            )
             return old_obj
 
         if old_obj is not None:
@@ -2176,6 +2320,13 @@ def _finalize_decal_object(
     obj = bpy.data.objects.new(name, mesh)
     _decal_collection(scene).objects.link(obj)
     obj.matrix_world = source_obj.matrix_world.copy()
+    _record_preview_state(
+        preview_state,
+        obj,
+        topology_signature,
+        canonical_mesh_indices,
+        rebuilt=True,
+    )
     return obj
 
 
@@ -2481,6 +2632,7 @@ def generate_decal_objects(
     selected_edge_indices=None,
     preview=False,
     decal_plan=None,
+    preview_state=None,
 ) -> list[str]:
     """Генерирует decal-объект выбранного режима. Возвращает имена созданных.
 
@@ -2516,5 +2668,6 @@ def generate_decal_objects(
         source_obj,
         scene,
         reuse_existing=preview,
+        preview_state=preview_state,
     )
     return [obj.name] if obj is not None else []

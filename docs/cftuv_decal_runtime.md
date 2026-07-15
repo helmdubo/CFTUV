@@ -54,13 +54,28 @@ Blender 4.3 fixture `walls.003`, 27 selected seam edges: ширины
 
 ## Следующий performance-срез
 
-После исключения object churn следующий слой должен:
+После исключения object churn добавлен консервативный topology fast path:
 
-1. сравнивать topology signature между кадрами;
-2. при неизменной topology обновлять только coordinates и loop UV;
-3. при topology event перестраивать только dirty patch;
-4. измерять evaluator и materialization отдельно;
-5. выполнять точную транзакционную materialization только на confirm.
+- modal хранит `DecalPreviewState`, но не глобальные Blender/BMesh ссылки;
+- signature канонизирует вершины по первому появлению в ordered face loops;
+- при совпадении signature и object/mesh identity обновляются только vertex
+  coordinates и loop UV через `foreach_set`;
+- topology event автоматически использует полный `BMesh.to_mesh()` в том же
+  persistent mesh datablock.
+
+Differential на `walls.003` подтвердил `coordinate error = 0`, `UV error = 0`,
+стабильные object/mesh pointers и корректные rebuild-события `84 → 86 → 80`
+vertices. На этой средней fixture median почти не изменился
+(`42.13 → 41.70 ms`): evaluator и построение временного BMesh уже дороже самой
+записи mesh, а 5 из 10 кадров реально меняли connectivity.
+
+Следующий существенный performance-слой должен:
+
+1. формировать preview payload непосредственно из `_NetworkFace`, не создавая
+   промежуточный BMesh на стабильном кадре;
+2. при topology event перестраивать только dirty patch;
+3. измерять evaluator, arrangement и materialization отдельно;
+4. выполнять точную транзакционную BMesh materialization только на confirm.
 
 GPU overlay остаётся возможной следующей ступенью, но не требуется для
 проверки runtime corner policy.

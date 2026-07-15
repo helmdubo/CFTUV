@@ -43,6 +43,7 @@ from cftuv.decal_modal import (
     decal_drag_anchor,
     decal_drag_value,
 )
+from cftuv.decals import DecalPreviewState
 from cftuv.model import DecalSettings
 from cftuv.operators import HOTSPOTUV_OT_GenerateDecals
 
@@ -383,6 +384,7 @@ def test_manual_edge_seams_enters_interactive_width_modal(monkeypatch):
     assert operator._modal_base_value == 0.15
     assert generated_states[0][0][-1] == selected_edges
     assert operator._modal_decal_plan is modal_plan
+    assert isinstance(operator._modal_preview_state, DecalPreviewState)
     assert compile_calls == [(state[1], settings, selected_edges)]
 
 
@@ -392,6 +394,7 @@ def test_decal_generate_forwards_modal_plan(monkeypatch):
     operator = HOTSPOTUV_OT_GenerateDecals()
     operator.mode = "SEAMS"
     operator._modal_decal_plan = object()
+    operator._modal_preview_state = DecalPreviewState()
     settings = DecalSettings()
     state = (
         object(),
@@ -415,6 +418,7 @@ def test_decal_generate_forwards_modal_plan(monkeypatch):
 
     assert created == ["Decal"]
     assert calls[0][1]["decal_plan"] is operator._modal_decal_plan
+    assert calls[0][1]["preview_state"] is operator._modal_preview_state
     assert calls[0][1]["preview"] is True
 
 

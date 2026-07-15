@@ -63,16 +63,19 @@ def test_generate_decal_objects_reuses_existing_object_only_for_preview(
         "_fill_decal_bmesh",
         lambda *_args, **_kwargs: None,
     )
-    reuse_flags = []
+    finalize_calls = []
     monkeypatch.setattr(
         decals_module,
         "_finalize_decal_object",
         lambda *_args, **kwargs: (
-            reuse_flags.append(kwargs["reuse_existing"])
+            finalize_calls.append(
+                (kwargs["reuse_existing"], kwargs["preview_state"])
+            )
             or SimpleNamespace(name="Decal_Seams_Source")
         ),
     )
     source = SimpleNamespace(name="Source")
+    preview_state = decals_module.DecalPreviewState()
 
     preview_names = decals_module.generate_decal_objects(
         PatchGraph(),
@@ -81,6 +84,7 @@ def test_generate_decal_objects_reuses_existing_object_only_for_preview(
         "SEAMS",
         scene=object(),
         preview=True,
+        preview_state=preview_state,
     )
     final_names = decals_module.generate_decal_objects(
         PatchGraph(),
@@ -93,7 +97,7 @@ def test_generate_decal_objects_reuses_existing_object_only_for_preview(
 
     assert preview_names == ["Decal_Seams_Source"]
     assert final_names == ["Decal_Seams_Source"]
-    assert reuse_flags == [True, False]
+    assert finalize_calls == [(True, preview_state), (False, None)]
 
 
 def _make_chain(

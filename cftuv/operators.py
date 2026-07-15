@@ -42,6 +42,7 @@ from .debug import (
     is_gp_debug_object,
 )
 from .decals import (
+    DecalPreviewState,
     chain_refs_for_edge_indices,
     compile_manual_seam_decal_plan,
     generate_decal_objects,
@@ -1297,6 +1298,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             selected_edge_indices=selected_edge_indices,
             preview=preview,
             decal_plan=getattr(self, "_modal_decal_plan", None),
+            preview_state=getattr(self, "_modal_preview_state", None),
         )
 
     def _compile_decal_plan(self, state):
@@ -1358,6 +1360,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         try:
             state = _prepare_decal_generation(context)
             self._compile_decal_plan(state)
+            self._modal_preview_state = DecalPreviewState()
             created = self._generate(context, state)
             if not created:
                 self.report(
@@ -1491,6 +1494,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         try:
             state = _prepare_decal_generation(context)
             self._compile_decal_plan(state)
+            self._modal_preview_state = None
             created = self._generate(context, state)
             if not created:
                 self.report(
