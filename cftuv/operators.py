@@ -5,6 +5,7 @@ All heavy work delegated to analysis.py, solve.py, debug.py.
 """
 
 from dataclasses import replace
+from math import pi
 from pathlib import Path
 
 import bpy
@@ -192,6 +193,27 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
         description=(
             "Build manual Decal Seams as one clipped nearest-branch network "
             "(continuous junctions); disable to use the legacy miter pipeline"
+        ),
+    )
+    decal_corner_acute_split_angle: FloatProperty(
+        name="Acute Split Angle",
+        subtype="ANGLE",
+        default=pi / 3.0,
+        min=pi / 180.0,
+        max=pi * 179.0 / 180.0,
+        description=(
+            "Corner extrusion angles below this threshold use a two-part "
+            "acute split; evaluated without rebuilding the Voronoi diagram"
+        ),
+    )
+    decal_corner_miter_limit: FloatProperty(
+        name="Miter Limit",
+        default=8.0,
+        min=1.0,
+        soft_max=16.0,
+        description=(
+            "Maximum miter length as a multiple of half decal width; "
+            "evaluated at runtime"
         ),
     )
     # Debug state
@@ -1277,6 +1299,15 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             decal_plan=getattr(self, "_modal_decal_plan", None),
         )
 
+    def _compile_decal_plan(self, state):
+        """Один backend lifetime для modal, execute и headless вызовов."""
+
+        self._modal_decal_plan = None
+        if self.mode == "SEAMS" and state[4] and state[6]:
+            self._modal_decal_plan = compile_manual_seam_decal_plan(
+                state[1], state[2], state[6]
+            )
+
     def _report_created(self, created, state, suffix=""):
         (
             _obj,
@@ -1326,11 +1357,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
 
         try:
             state = _prepare_decal_generation(context)
-            self._modal_decal_plan = None
-            if self.mode == "SEAMS" and state[4] and state[6]:
-                self._modal_decal_plan = compile_manual_seam_decal_plan(
-                    state[1], state[2], state[6]
-                )
+            self._compile_decal_plan(state)
             created = self._generate(context, state)
             if not created:
                 self.report(
@@ -1456,8 +1483,8 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
 
     def execute(self, context):
         try:
-            self._modal_decal_plan = None
             state = _prepare_decal_generation(context)
+            self._compile_decal_plan(state)
             created = self._generate(context, state)
             if not created:
                 self.report(
@@ -1583,6 +1610,9 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         col.prop(s, "decal_height_trim")
         col.prop(s, "decal_offset")
         col.prop(s, "decal_seam_network")
+        if s.decal_seam_network:
+            col.prop(s, "decal_corner_acute_split_angle")
+            col.prop(s, "decal_corner_miter_limit")
         op = col.operator("hotspotuv.generate_decals", text="Decal Top", icon="TRIA_UP")
         op.mode = "TOP"
         op = col.operator(

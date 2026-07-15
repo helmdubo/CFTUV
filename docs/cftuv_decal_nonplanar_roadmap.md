@@ -23,7 +23,9 @@ Voronoi, `CornerSpec`, runtime crop-компоненты и `DecalArrangement` �
 - **Patch** задаёт область конкуренции сайтов. Геометрически близкие, но
   топологически несвязанные поверхности не конкурируют.
 - **BoundaryChain / selected seam chain** создаёт segment sites.
-- **CornerSpec** классифицирует intrinsic turn внутри одного domain.
+- **CornerSpec** хранит только intrinsic turn facts внутри одного domain.
+- **CornerRuntimeSettings** выбирает `MITER` / `KITE` / `ACUTE_SPLIT` /
+  `BEVEL` во время evaluation; смена threshold не перекомпилирует Voronoi.
 - **Junction** связывает domains в общей source-вершине, но не становится
   первичной единицей Voronoi solve.
 
@@ -73,6 +75,7 @@ Domain становится atlas из перекрывающихся intrinsic 
 - segment/point metadata `pyvoronoi`;
 - `CornerSpec` и политики `KITE` / `ACUTE_SPLIT`;
 - динамический crop по ширине во время drag;
+- runtime corner policy по angle threshold и miter limit;
 - surface-level station insertion;
 - preview/final materialization из одного arrangement.
 
@@ -84,4 +87,3 @@ Domain становится atlas из перекрывающихся intrinsic 
 - periodic Voronoi copies;
 - distortion/holonomy budget и deterministic chart cuts;
 - регрессии на bevel strip, quarter-cylinder, closed tube и cliff fold.
-

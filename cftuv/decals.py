@@ -50,6 +50,7 @@ from .decal_network import (
     evaluate_seam_network_plan,
 )
 from .decal_voronoi import (
+    CornerRuntimeSettings,
     compile_patch_voronoi_plan,
     evaluate_patch_voronoi_plan,
 )
@@ -2228,6 +2229,12 @@ def _fill_manual_chain_decals(
                             decal_plan.patch_voronoi_plan,
                             width,
                             preview=preview,
+                            corner_settings=CornerRuntimeSettings(
+                                acute_split_angle=(
+                                    settings.corner_acute_split_angle
+                                ),
+                                miter_limit=settings.corner_miter_limit,
+                            ),
                         )
                     except Exception as exc:
                         print(

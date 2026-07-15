@@ -525,7 +525,10 @@ def test_corner_spec_classifies_intrinsic_convex_concave_and_acute():
         assert not corner.is_convex
         assert corner.interior_angle == pytest.approx(1.5 * pi)
         assert corner.extrusion_angle == pytest.approx(0.5 * pi)
-        assert corner.policy == decal_voronoi._CornerPolicy.KITE
+        assert (
+            decal_voronoi.classify_corner_runtime(corner)
+            == decal_voronoi._CornerPolicy.KITE
+        )
         assert len(corner.ordered_sites) == 2
         assert corner.turn_sign in (-1.0, 1.0)
 
@@ -540,7 +543,10 @@ def test_corner_spec_classifies_intrinsic_convex_concave_and_acute():
     assert folded_corner.is_convex
     assert folded_corner.interior_angle == pytest.approx(0.5 * pi)
     assert folded_corner.extrusion_angle == pytest.approx(0.5 * pi)
-    assert folded_corner.policy == decal_voronoi._CornerPolicy.MITER
+    assert (
+        decal_voronoi.classify_corner_runtime(folded_corner)
+        == decal_voronoi._CornerPolicy.MITER
+    )
 
     acute_plan = compile_patch_voronoi_plan(
         _acute_corner_graph(), [40, 41], offset=0.01
@@ -553,7 +559,10 @@ def test_corner_spec_classifies_intrinsic_convex_concave_and_acute():
     assert acute_corner.is_convex
     assert acute_corner.interior_angle == pytest.approx(pi / 6.0)
     assert acute_corner.extrusion_angle == pytest.approx(pi / 6.0)
-    assert acute_corner.policy == decal_voronoi._CornerPolicy.ACUTE_SPLIT
+    assert (
+        decal_voronoi.classify_corner_runtime(acute_corner)
+        == decal_voronoi._CornerPolicy.ACUTE_SPLIT
+    )
 
     notch_plan = compile_patch_voronoi_plan(
         _acute_notch_graph(), [53, 54], offset=0.01
@@ -566,7 +575,49 @@ def test_corner_spec_classifies_intrinsic_convex_concave_and_acute():
     assert not notch_corner.is_convex
     assert notch_corner.interior_angle == pytest.approx(11.0 * pi / 6.0)
     assert notch_corner.extrusion_angle == pytest.approx(pi / 6.0)
-    assert notch_corner.policy == decal_voronoi._CornerPolicy.ACUTE_SPLIT
+    assert (
+        decal_voronoi.classify_corner_runtime(notch_corner)
+        == decal_voronoi._CornerPolicy.ACUTE_SPLIT
+    )
+
+
+def test_corner_policy_threshold_changes_without_recompiling_plan():
+    plan = compile_patch_voronoi_plan(
+        _acute_corner_graph(), [40, 41], offset=0.01
+    )
+    corner = next(
+        item for item in plan.surfaces[0].corners if item.vert_index == 0
+    )
+    split_settings = decal_voronoi.CornerRuntimeSettings(
+        acute_split_angle=pi / 3.0,
+    )
+    miter_settings = decal_voronoi.CornerRuntimeSettings(
+        acute_split_angle=pi / 12.0,
+    )
+
+    assert (
+        decal_voronoi.classify_corner_runtime(corner, split_settings)
+        == decal_voronoi._CornerPolicy.ACUTE_SPLIT
+    )
+    assert (
+        decal_voronoi.classify_corner_runtime(corner, miter_settings)
+        == decal_voronoi._CornerPolicy.MITER
+    )
+
+    split_faces = evaluate_patch_voronoi_plan(
+        plan,
+        width=1.0,
+        preview=True,
+        corner_settings=split_settings,
+    )
+    miter_faces = evaluate_patch_voronoi_plan(
+        plan,
+        width=1.0,
+        preview=True,
+        corner_settings=miter_settings,
+    )
+    assert any(face.component_kind == "ACUTE_SPLIT" for face in split_faces)
+    assert not any(face.component_kind == "ACUTE_SPLIT" for face in miter_faces)
 
 
 def test_convex_corner_builds_explicit_realtime_kite():

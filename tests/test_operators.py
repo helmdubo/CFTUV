@@ -378,6 +378,50 @@ def test_decal_generate_forwards_modal_plan(monkeypatch):
     assert calls[0][1]["preview"] is True
 
 
+def test_seam_execute_compiles_and_forwards_same_plan_as_modal(monkeypatch):
+    from cftuv import operators as operators_module
+
+    settings = DecalSettings()
+    selected_edges = (5, 14)
+    state = (
+        object(),
+        object(),
+        settings,
+        ((0, 0, 0),),
+        True,
+        2,
+        selected_edges,
+    )
+    modal_plan = object()
+    monkeypatch.setattr(
+        operators_module,
+        "_prepare_decal_generation",
+        lambda _context: state,
+    )
+    compile_calls = []
+    monkeypatch.setattr(
+        operators_module,
+        "compile_manual_seam_decal_plan",
+        lambda graph, plan_settings, edges: (
+            compile_calls.append((graph, plan_settings, edges)) or modal_plan
+        ),
+    )
+
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    generated_plans = []
+    operator._generate = lambda _context, _state, settings=None, preview=False: (
+        generated_plans.append(operator._modal_decal_plan) or ["Decal"]
+    )
+    operator._report_created = lambda *_args, **_kwargs: None
+
+    result = operator.execute(SimpleNamespace())
+
+    assert result == {"FINISHED"}
+    assert compile_calls == [(state[1], settings, selected_edges)]
+    assert generated_plans == [modal_plan]
+
+
 def test_seam_modal_cancel_restores_scene_width_and_base_geometry():
     operator = HOTSPOTUV_OT_GenerateDecals()
     operator.mode = "SEAMS"

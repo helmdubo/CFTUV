@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from math import pi
 from mathutils import Vector
 from typing import TYPE_CHECKING, Optional
 
@@ -329,6 +330,10 @@ class DecalSettings:
     # Seam Voronoi network backend (decal_network.py) для manual Decal Seams;
     # False возвращает legacy miter/junction pipeline целиком.
     seam_network: bool = True
+    # Runtime corner policy patch-Voronoi backend. Углы хранятся в радианах,
+    # как Blender ANGLE properties; compiled Voronoi plan от них не зависит.
+    corner_acute_split_angle: float = pi / 3.0
+    corner_miter_limit: float = 8.0
 
     @staticmethod
     def from_blender_settings(settings) -> "DecalSettings":
@@ -342,6 +347,12 @@ class DecalSettings:
             offset=float(settings.decal_offset),
             uv_length_scale=uv_settings.final_scale,
             seam_network=bool(getattr(settings, "decal_seam_network", True)),
+            corner_acute_split_angle=float(
+                getattr(settings, "decal_corner_acute_split_angle", pi / 3.0)
+            ),
+            corner_miter_limit=float(
+                getattr(settings, "decal_corner_miter_limit", 8.0)
+            ),
         )
 
 

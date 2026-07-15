@@ -42,6 +42,7 @@ except ImportError:  # Blender может открыть старый файл �
 _DIAGRAM_SCALE = 100000
 _GEOMETRY_EPS = 1e-9
 _ACUTE_SPLIT_ANGLE = pi / 3.0
+_MITER_LIMIT = 8.0
 
 
 class _CornerPolicy(str, Enum):
@@ -73,18 +74,40 @@ class _PatchVoronoiSite:
 
 @dataclass(frozen=True)
 class CornerSpec:
-    """Decal-local endpoint topology одного planar patch."""
+    """Статические геометрические факты endpoint одного planar patch.
+
+    Corner policy намеренно не хранится в compiled plan: она зависит от
+    runtime-настроек и переоценивается без повторного PyVoronoi solve.
+    """
 
     vert_index: int
     point: tuple[float, float]
     incident_sites: tuple[int, ...]
     ordered_sites: tuple[int, ...]
-    policy: _CornerPolicy
     turn_sign: float
     interior_angle: float
     extrusion_angle: float
     is_convex: bool
     miter_ratio: float
+
+
+@dataclass(frozen=True)
+class CornerRuntimeSettings:
+    """Дешёвые corner-настройки, допустимые к изменению во время drag."""
+
+    acute_split_angle: float = _ACUTE_SPLIT_ANGLE
+    miter_limit: float = _MITER_LIMIT
+
+
+def _normalized_corner_runtime_settings(settings):
+    settings = settings or CornerRuntimeSettings()
+    return CornerRuntimeSettings(
+        acute_split_angle=max(
+            0.0,
+            min(pi, float(settings.acute_split_angle)),
+        ),
+        miter_limit=max(1.0, float(settings.miter_limit)),
+    )
 
 
 @dataclass(frozen=True)
@@ -1139,15 +1162,21 @@ def _acute_crop_components(surface, corner, alpha):
     return tuple(component for component in (inner, outer) if component)
 
 
-def _corner_crop_components(surface, corner, alpha):
-    if corner.policy == _CornerPolicy.ACUTE_SPLIT:
+def _corner_crop_components(surface, corner, policy, alpha, settings):
+    if policy == _CornerPolicy.ACUTE_SPLIT:
         return _acute_crop_components(surface, corner, alpha)
-    polygon = _corner_crop_polygon(surface, corner, alpha)
+    polygon = _corner_crop_polygon(
+        surface,
+        corner,
+        policy,
+        alpha,
+        settings,
+    )
     if len(polygon) < 3:
         return ()
     return (
         _CropComponent(
-            kind=corner.policy.value,
+            kind=policy.value,
             side="",
             points=tuple(polygon),
         ),
@@ -1187,7 +1216,7 @@ def _crop_component_uv(crop, point):
     return u_value, v_value
 
 
-def _corner_crop_polygon(surface, corner, alpha):
+def _corner_crop_polygon(surface, corner, policy, alpha, settings):
     """Runtime endpoint extrusion polygon выбранной corner policy."""
 
     point = corner.point
@@ -1198,7 +1227,7 @@ def _corner_crop_polygon(surface, corner, alpha):
             (point[0] + alpha, point[1] + alpha),
             (point[0] - alpha, point[1] + alpha),
         ]
-    if corner.policy == _CornerPolicy.KITE:
+    if policy == _CornerPolicy.KITE:
         return _kite_crop_polygon(surface, corner, alpha)
 
     offset_lines = _corner_offset_lines(surface, corner, alpha)
@@ -1212,8 +1241,8 @@ def _corner_crop_polygon(surface, corner, alpha):
     points = [point, offset_lines[0][0], offset_lines[1][0]]
     if (
         intersection is not None
-        and _dist2(point, intersection) <= alpha * 8.0
-        and corner.policy != _CornerPolicy.BEVEL
+        and _dist2(point, intersection) <= alpha * settings.miter_limit
+        and policy != _CornerPolicy.BEVEL
     ):
         points.append(intersection)
     return _convex_hull(points)
@@ -1526,15 +1555,12 @@ def _compile_corners(sites):
         incident_sites = tuple(sorted(incidents[vert_index]))
         point = points[vert_index]
         ordered_sites = incident_sites
-        policy = _CornerPolicy.JUNCTION
         turn_sign = 0.0
         interior_angle = 0.0
         extrusion_angle = 0.0
         is_convex = False
         miter_ratio = float("inf")
-        if len(incident_sites) == 1:
-            policy = _CornerPolicy.CAP
-        elif len(incident_sites) == 2:
+        if len(incident_sites) == 2:
             rays = {}
             incoming = []
             outgoing = []
@@ -1635,31 +1661,12 @@ def _compile_corners(sites):
             )
             if intersection is not None:
                 miter_ratio = _dist2(point, intersection)
-            # Острый внешний угол нельзя оставлять одним длинным miter:
-            # его вершина удаляется на alpha * miter_ratio и при росте
-            # крыла раньше времени попадает под Voronoi-конкуренцию.
-            # Как и острый notch, делим его в realtime на inner/outer
-            # части по хорде между offset caps. Это corner policy, а не
-            # post-process после materialization.
-            if abs(interior_angle - pi) <= 1e-7:
-                policy = _CornerPolicy.MITER
-            elif extrusion_angle < _ACUTE_SPLIT_ANGLE:
-                policy = _CornerPolicy.ACUTE_SPLIT
-            elif is_convex:
-                policy = _CornerPolicy.MITER
-            elif interior_angle > pi:
-                policy = _CornerPolicy.KITE
-            elif miter_ratio <= 8.0:
-                policy = _CornerPolicy.MITER
-            else:
-                policy = _CornerPolicy.BEVEL
         corners.append(
             CornerSpec(
                 vert_index=vert_index,
                 point=point,
                 incident_sites=incident_sites,
                 ordered_sites=ordered_sites,
-                policy=policy,
                 turn_sign=turn_sign,
                 interior_angle=interior_angle,
                 extrusion_angle=extrusion_angle,
@@ -1668,6 +1675,33 @@ def _compile_corners(sites):
             )
         )
     return tuple(corners)
+
+
+def classify_corner_runtime(corner, settings=None):
+    """Выбирает corner policy из compiled facts и текущих настроек.
+
+    Функция не читает PyVoronoi и не меняет plan. Поэтому thresholds и
+    miter limit можно менять между preview frames без перекомпиляции sites.
+    """
+
+    settings = _normalized_corner_runtime_settings(settings)
+    incident_count = len(corner.incident_sites)
+    if incident_count == 1:
+        return _CornerPolicy.CAP
+    if incident_count != 2:
+        return _CornerPolicy.JUNCTION
+
+    if abs(corner.interior_angle - pi) <= 1e-7:
+        return _CornerPolicy.MITER
+    if corner.extrusion_angle < settings.acute_split_angle:
+        return _CornerPolicy.ACUTE_SPLIT
+    if corner.is_convex:
+        return _CornerPolicy.MITER
+    if corner.interior_angle > pi:
+        return _CornerPolicy.KITE
+    if corner.miter_ratio <= settings.miter_limit:
+        return _CornerPolicy.MITER
+    return _CornerPolicy.BEVEL
 
 
 def _canonical_planar_basis(normal):
@@ -2593,7 +2627,7 @@ def _append_pending_fragments(pending, surface, site, crop, fragments):
         )
 
 
-def _evaluate_surface_crops(surface, alpha, pending):
+def _evaluate_surface_crops(surface, alpha, pending, corner_settings):
     """Строит cell ownership без внутренних endpoint boundaries.
 
     pyvoronoi отдельно хранит point-cell и две incident segment-cells. Для
@@ -2618,10 +2652,14 @@ def _evaluate_surface_crops(surface, alpha, pending):
     # равно нужно сначала собрать в один semantic corner, а затем разделить
     # на INNER/OUTER. Иначе длинный miter режется конкурентами как два
     # независимых крыла и визуально распадается при большой ширине.
+    runtime_policies = tuple(
+        classify_corner_runtime(corner, corner_settings)
+        for corner in surface.corners
+    )
     explicit_corner_indices = {
         corner_index
-        for corner_index, corner in enumerate(surface.corners)
-        if corner.policy == _CornerPolicy.ACUTE_SPLIT
+        for corner_index, policy in enumerate(runtime_policies)
+        if policy == _CornerPolicy.ACUTE_SPLIT
     }
     corner_indices = sorted(
         set(point_atoms_by_corner) | explicit_corner_indices
@@ -2629,7 +2667,14 @@ def _evaluate_surface_crops(surface, alpha, pending):
     for corner_index in corner_indices:
         point_atoms = point_atoms_by_corner.get(corner_index, ())
         corner = surface.corners[corner_index]
-        crops = _corner_crop_components(surface, corner, alpha)
+        policy = runtime_policies[corner_index]
+        crops = _corner_crop_components(
+            surface,
+            corner,
+            policy,
+            alpha,
+            corner_settings,
+        )
         if not crops:
             continue
         corner_crops[corner_index] = crops
@@ -2698,9 +2743,15 @@ def _evaluate_surface_crops(surface, alpha, pending):
         _append_pending_fragments(pending, surface, site, crop, fragments)
 
 
-def evaluate_patch_voronoi_plan(plan, width, preview=False):
+def evaluate_patch_voronoi_plan(
+    plan,
+    width,
+    preview=False,
+    corner_settings=None,
+):
     """Перестраивает extrusion polygons внутри статических Voronoi cells."""
 
+    corner_settings = _normalized_corner_runtime_settings(corner_settings)
     alpha = max(1e-6, float(width) * 0.5)
     lateral_at_full_offset = (
         abs(plan.offset) * plan.max_lateral_lift_ratio
@@ -2714,7 +2765,12 @@ def evaluate_patch_voronoi_plan(plan, width, preview=False):
         lift_scale = 1.0
     pending = []
     for surface in plan.surfaces:
-        _evaluate_surface_crops(surface, alpha, pending)
+        _evaluate_surface_crops(
+            surface,
+            alpha,
+            pending,
+            corner_settings,
+        )
 
     arrangement = _build_decal_arrangement(
         pending,
