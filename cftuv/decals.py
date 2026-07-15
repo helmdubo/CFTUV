@@ -2110,9 +2110,16 @@ def _decal_object_name(mode: str, source_obj) -> str:
     return f"Decal_{_MODE_OBJECT_SUFFIX[mode]}_{source_obj.name}"
 
 
-def _finalize_decal_object(bm, name: str, source_obj, scene):
-    """Сваривает ленты, заменяет одноимённый объект прошлой генерации."""
+def _finalize_decal_object(
+    bm,
+    name: str,
+    source_obj,
+    scene,
+    reuse_existing=False,
+):
+    """Сваривает ленты и материализует точный или persistent preview mesh."""
 
+    old_obj = bpy.data.objects.get(name)
     try:
         bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=DECAL_WELD_DISTANCE)
         loose_verts = [vert for vert in bm.verts if not vert.link_faces]
@@ -2120,9 +2127,34 @@ def _finalize_decal_object(bm, name: str, source_obj, scene):
             bmesh.ops.delete(bm, geom=loose_verts, context="VERTS")
         if not bm.faces:
             bm.free()
+            if (
+                reuse_existing
+                and old_obj is not None
+                and old_obj.mode != "EDIT"
+                and old_obj.type == "MESH"
+            ):
+                # Невалидный промежуточный кадр не уничтожает последний
+                # корректный preview. Confirm по-прежнему требует faces.
+                return old_obj
             return None
 
-        old_obj = bpy.data.objects.get(name)
+        if (
+            reuse_existing
+            and old_obj is not None
+            and old_obj.mode != "EDIT"
+            and old_obj.type == "MESH"
+            and old_obj.data is not None
+        ):
+            old_mesh = old_obj.data
+            if old_mesh.users > 1:
+                old_mesh = old_mesh.copy()
+                old_obj.data = old_mesh
+            bm.to_mesh(old_mesh)
+            old_mesh.update()
+            bm.free()
+            old_obj.matrix_world = source_obj.matrix_world.copy()
+            return old_obj
+
         if old_obj is not None:
             if old_obj.mode == "EDIT":
                 # Старая декаль в edit-сессии — удалять нельзя (живой
@@ -2479,6 +2511,10 @@ def generate_decal_objects(
         raise
 
     obj = _finalize_decal_object(
-        bm, _decal_object_name(mode, source_obj), source_obj, scene
+        bm,
+        _decal_object_name(mode, source_obj),
+        source_obj,
+        scene,
+        reuse_existing=preview,
     )
     return [obj.name] if obj is not None else []

@@ -1370,6 +1370,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             self._modal_state = state
             self._modal_base_settings = settings
             self._modal_current_settings = None
+            self._modal_last_preview_error = None
             self._modal_area = context.area
             self._modal_created = created
             if self.mode == "CORNERS":
@@ -1420,10 +1421,15 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                     context, self._modal_state, settings, preview=True
                 )
             except Exception as exc:
-                self._clear_modal_header()
-                self.report({"ERROR"}, f"Interactive decal update failed: {exc}")
-                return {"CANCELLED"}
+                # Source topology и compiled plan неизменны, поэтому ошибка
+                # одного runtime crop не должна завершать modal и удалять
+                # последний валидный preview. Confirm всё равно выполнит
+                # точную materialization либо явно сообщит об ошибке.
+                self._modal_last_preview_error = str(exc)
+                self._set_modal_header(self._modal_current_value)
+                return {"RUNNING_MODAL"}
             self._modal_current_settings = settings
+            self._modal_last_preview_error = None
             if not created:
                 return {"RUNNING_MODAL"}
             setattr(

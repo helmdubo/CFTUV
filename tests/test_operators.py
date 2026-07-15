@@ -185,6 +185,46 @@ def test_decal_modal_ignores_vertical_only_mousemove():
     assert operator._modal_current_value == 0.25
 
 
+def test_decal_modal_keeps_last_valid_preview_after_runtime_error():
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    operator._modal_base_settings = DecalSettings(width_seam=0.15)
+    operator._modal_base_value = 0.15
+    operator._modal_current_value = 0.15
+    operator._modal_current_settings = None
+    operator._modal_start_mouse = 100
+    operator._modal_property = "decal_width_seam"
+    operator._modal_settings_field = "width_seam"
+    operator._modal_label = "Seam Width"
+    operator._modal_state = object()
+    operator._modal_created = ["LastValidDecal"]
+    operator._modal_area = None
+    operator._generate = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        RuntimeError("invalid crop")
+    )
+    scene_settings = SimpleNamespace(decal_width_seam=0.15)
+    context = SimpleNamespace(
+        scene=SimpleNamespace(hotspotuv_settings=scene_settings),
+    )
+
+    result = operator.modal(
+        context,
+        SimpleNamespace(
+            type="MOUSEMOVE",
+            mouse_x=120,
+            mouse_y=0,
+            shift=False,
+        ),
+    )
+
+    assert result == {"RUNNING_MODAL"}
+    assert operator._modal_created == ["LastValidDecal"]
+    assert operator._modal_current_value == 0.15
+    assert operator._modal_current_settings is None
+    assert operator._modal_last_preview_error == "invalid crop"
+    assert scene_settings.decal_width_seam == 0.15
+
+
 def test_decal_drag_anchor_projects_bbox_center_and_clamps_to_viewport(monkeypatch):
     from cftuv import decal_modal
 

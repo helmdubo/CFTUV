@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from mathutils import Vector
+
+from cftuv import decals as decals_module
 
 from cftuv.decals import (
     _OrientedCornerRun,
@@ -42,6 +46,54 @@ def _make_wall_node(patch_id, normal, basis_v, chains):
     node.basis_v = Vector(basis_v)
     node.boundary_loops = [BoundaryLoop(chains=chains)]
     return node
+
+
+def test_generate_decal_objects_reuses_existing_object_only_for_preview(
+    monkeypatch,
+):
+    fake_bm = object()
+    monkeypatch.setattr(
+        decals_module.bmesh,
+        "new",
+        lambda: fake_bm,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "_fill_decal_bmesh",
+        lambda *_args, **_kwargs: None,
+    )
+    reuse_flags = []
+    monkeypatch.setattr(
+        decals_module,
+        "_finalize_decal_object",
+        lambda *_args, **kwargs: (
+            reuse_flags.append(kwargs["reuse_existing"])
+            or SimpleNamespace(name="Decal_Seams_Source")
+        ),
+    )
+    source = SimpleNamespace(name="Source")
+
+    preview_names = decals_module.generate_decal_objects(
+        PatchGraph(),
+        source,
+        DecalSettings(),
+        "SEAMS",
+        scene=object(),
+        preview=True,
+    )
+    final_names = decals_module.generate_decal_objects(
+        PatchGraph(),
+        source,
+        DecalSettings(),
+        "SEAMS",
+        scene=object(),
+        preview=False,
+    )
+
+    assert preview_names == ["Decal_Seams_Source"]
+    assert final_names == ["Decal_Seams_Source"]
+    assert reuse_flags == [True, False]
 
 
 def _make_chain(
