@@ -1785,6 +1785,8 @@ class _NetworkFace:
     positions: list
     u_fracs: list  # [-1..1]: −1 = внешний край стороны A, +1 = стороны B
     v_lengths: list  # мировые единицы вдоль ветви
+    component_kind: str = "SURFACE"
+    component_side: str = ""
 
 
 def _branch_station_normals(branch):

@@ -12,6 +12,8 @@ topology исходного mesh не должна отпечатываться 
 планарен, вызывающий код явно возвращается к legacy seam-network backend.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from enum import Enum
 from math import atan2, pi, sqrt, tau
@@ -80,6 +82,7 @@ class CornerSpec:
     policy: _CornerPolicy
     turn_sign: float
     interior_angle: float
+    extrusion_angle: float
     is_convex: bool
     miter_ratio: float
 
@@ -124,6 +127,7 @@ class _DecalArrangementFace:
     surface: _PatchVoronoiSurface
     site: _PatchVoronoiSite
     points: tuple[tuple[float, float], ...]
+    crop: _CropComponent
 
 
 @dataclass(frozen=True)
@@ -132,6 +136,25 @@ class DecalArrangement:
 
     faces: tuple[_DecalArrangementFace, ...]
     inserted_stations: int
+
+
+@dataclass(frozen=True)
+class _CropComponent:
+    """Один convex runtime crop с семантикой, живущей до NetworkFace."""
+
+    kind: str
+    side: str
+    points: tuple[tuple[float, float], ...]
+    uv_anchors: tuple[tuple[float, float], ...] = ()
+    v_origin: float = 0.0
+
+
+@dataclass(frozen=True)
+class _PendingArrangementFace:
+    surface: _PatchVoronoiSurface
+    site: _PatchVoronoiSite
+    points: tuple[tuple[float, float], ...]
+    crop: _CropComponent
 
 
 @dataclass(frozen=True)
@@ -813,6 +836,148 @@ def _kite_crop_polygon(surface, corner, alpha):
     )
 
 
+def _corner_arc_origin(surface, corner):
+    values = []
+    for site_index in corner.ordered_sites:
+        site = surface.sites[site_index]
+        values.append(
+            site.arc_start
+            if site.vert_a == corner.vert_index
+            else site.arc_start + site.segment_length
+        )
+    return sum(values) / len(values) if values else 0.0
+
+
+def _crop_component_from_anchors(kind, side, anchors, v_origin=0.0):
+    """Сохраняет UV anchors после deterministic hull ordering."""
+
+    polygon = _convex_hull([point for point, _uv in anchors])
+    if len(polygon) < 3:
+        return None
+    quantum = max(DECAL_WELD_DISTANCE * 0.1, 1e-9)
+
+    def key(point):
+        return (
+            round(point[0] / quantum),
+            round(point[1] / quantum),
+        )
+
+    uv_by_point = {key(point): uv for point, uv in anchors}
+    return _CropComponent(
+        kind=kind,
+        side=side,
+        points=tuple(polygon),
+        uv_anchors=tuple(uv_by_point[key(point)] for point in polygon),
+        v_origin=v_origin,
+    )
+
+
+def _acute_crop_components(surface, corner, alpha):
+    """Разделяет острый kite на inner/outer faces во время drag."""
+
+    offset_lines = _corner_offset_lines(surface, corner, alpha)
+    if len(offset_lines) != 2:
+        return ()
+    intersection = _line_intersection(
+        offset_lines[0][0],
+        offset_lines[0][1],
+        offset_lines[1][0],
+        offset_lines[1][1],
+    )
+    if intersection is None:
+        fallback = _crop_component_from_anchors(
+            _CornerPolicy.BEVEL.value,
+            "",
+            (
+                (corner.point, (0.0, 0.0)),
+                (offset_lines[0][0], (-1.0, alpha)),
+                (offset_lines[1][0], (1.0, alpha)),
+            ),
+            _corner_arc_origin(surface, corner),
+        )
+        return (fallback,) if fallback is not None else ()
+
+    cap_a = offset_lines[0][0]
+    cap_b = offset_lines[1][0]
+    chord_midpoint = (
+        (cap_a[0] + cap_b[0]) * 0.5,
+        (cap_a[1] + cap_b[1]) * 0.5,
+    )
+    inner_height = _dist2(corner.point, chord_midpoint)
+    outer_height = _dist2(intersection, chord_midpoint)
+    orientation = 1.0 if corner.turn_sign >= 0.0 else -1.0
+    v_origin = _corner_arc_origin(surface, corner)
+    inner = _crop_component_from_anchors(
+        _CornerPolicy.ACUTE_SPLIT.value,
+        "INNER",
+        (
+            (corner.point, (0.0, 0.0)),
+            (cap_a, (-orientation, inner_height)),
+            (cap_b, (orientation, inner_height)),
+        ),
+        v_origin,
+    )
+    outer = _crop_component_from_anchors(
+        _CornerPolicy.ACUTE_SPLIT.value,
+        "OUTER",
+        (
+            (cap_a, (-orientation, 0.0)),
+            (intersection, (0.0, outer_height)),
+            (cap_b, (orientation, 0.0)),
+        ),
+        v_origin,
+    )
+    return tuple(component for component in (inner, outer) if component)
+
+
+def _corner_crop_components(surface, corner, alpha):
+    if corner.policy == _CornerPolicy.ACUTE_SPLIT:
+        return _acute_crop_components(surface, corner, alpha)
+    polygon = _corner_crop_polygon(surface, corner, alpha)
+    if len(polygon) < 3:
+        return ()
+    return (
+        _CropComponent(
+            kind=corner.policy.value,
+            side="",
+            points=tuple(polygon),
+        ),
+    )
+
+
+def _crop_component_uv(crop, point):
+    """Affine UV внутри triangle component; None оставляет site UV."""
+
+    if len(crop.points) != 3 or len(crop.uv_anchors) != 3:
+        return None
+    point_a, point_b, point_c = crop.points
+    denominator = _cross2(
+        _sub2(point_b, point_a), _sub2(point_c, point_a)
+    )
+    if abs(denominator) <= 1e-12:
+        return None
+    weight_b = _cross2(
+        _sub2(point, point_a), _sub2(point_c, point_a)
+    ) / denominator
+    weight_c = _cross2(
+        _sub2(point_b, point_a), _sub2(point, point_a)
+    ) / denominator
+    weight_a = 1.0 - weight_b - weight_c
+    u_value = sum(
+        weight * uv[0]
+        for weight, uv in zip(
+            (weight_a, weight_b, weight_c), crop.uv_anchors
+        )
+    )
+    v_value = crop.v_origin + sum(
+        weight * uv[1]
+        for weight, uv in zip(
+            (weight_a, weight_b, weight_c), crop.uv_anchors
+        )
+    )
+    return u_value, v_value
+
+
 def _corner_crop_polygon(surface, corner, alpha):
     """Runtime endpoint extrusion polygon выбранной corner policy."""
 
@@ -1069,6 +1234,7 @@ def _compile_corners(sites):
         policy = _CornerPolicy.JUNCTION
         turn_sign = 0.0
         interior_angle = 0.0
+        extrusion_angle = 0.0
         is_convex = False
         miter_ratio = float("inf")
         if len(incident_sites) == 1:
@@ -1143,6 +1309,11 @@ def _compile_corners(sites):
                     interior_angle = (
                         minor_angle if inside_small_wedge else tau - minor_angle
                     )
+                    extrusion_angle = (
+                        tau - interior_angle
+                        if interior_angle > pi
+                        else interior_angle
+                    )
 
             offset_lines = []
             for site_index in incident_sites:
@@ -1169,11 +1340,11 @@ def _compile_corners(sites):
             )
             if intersection is not None:
                 miter_ratio = _dist2(point, intersection)
-            if abs(interior_angle - pi) <= 1e-7:
+            if abs(interior_angle - pi) <= 1e-7 or is_convex:
                 policy = _CornerPolicy.MITER
-            elif is_convex and interior_angle < _ACUTE_SPLIT_ANGLE:
+            elif extrusion_angle < _ACUTE_SPLIT_ANGLE:
                 policy = _CornerPolicy.ACUTE_SPLIT
-            elif is_convex:
+            elif interior_angle > pi:
                 policy = _CornerPolicy.KITE
             elif miter_ratio <= 8.0:
                 policy = _CornerPolicy.MITER
@@ -1188,6 +1359,7 @@ def _compile_corners(sites):
                 policy=policy,
                 turn_sign=turn_sign,
                 interior_angle=interior_angle,
+                extrusion_angle=extrusion_angle,
                 is_convex=is_convex,
                 miter_ratio=miter_ratio,
             )
@@ -1519,16 +1691,16 @@ def _build_decal_arrangement(pending, tolerance):
     """Создаёт conforming subdivision отдельно на каждом owner surface."""
 
     grouped = {}
-    for pending_index, (surface, site, component) in enumerate(pending):
-        grouped.setdefault(surface.patch_id, []).append(
-            (pending_index, surface, site, component)
+    for pending_index, pending_face in enumerate(pending):
+        grouped.setdefault(pending_face.surface.patch_id, []).append(
+            (pending_index, pending_face)
         )
 
     arranged_by_index = {}
     inserted_stations = 0
     for entries in grouped.values():
         polygons, inserted = _insert_surface_edge_stations(
-            [entry[3] for entry in entries], tolerance
+            [entry[1].points for entry in entries], tolerance
         )
         inserted_stations += inserted
         for entry, polygon in zip(entries, polygons):
@@ -1536,10 +1708,12 @@ def _build_decal_arrangement(pending, tolerance):
                 continue
             if _polygon_area2(polygon) < 0.0:
                 polygon.reverse()
+            pending_face = entry[1]
             arranged_by_index[entry[0]] = _DecalArrangementFace(
-                surface=entry[1],
-                site=entry[2],
+                surface=pending_face.surface,
+                site=pending_face.site,
                 points=tuple(polygon),
+                crop=pending_face.crop,
             )
     return DecalArrangement(
         faces=tuple(
@@ -1674,7 +1848,10 @@ def _orientation_safe_lift_scale(plan, pending, desired_scale):
     """
 
     safe_fraction = 1.0
-    for surface, site, component in pending:
+    for pending_face in pending:
+        surface = pending_face.surface
+        site = pending_face.site
+        component = pending_face.points
         area_0 = _component_signed_area(
             plan, surface, site, component, 0.0
         )
@@ -1900,43 +2077,61 @@ def evaluate_patch_voronoi_plan(plan, width, preview=False):
         for atom in surface.atoms:
             site = surface.sites[atom.site_index]
             if atom.cell_kind == "POINT" and atom.corner_index >= 0:
-                crop_polygon = _corner_crop_polygon(
+                crop_components = _corner_crop_components(
                     surface, surface.corners[atom.corner_index], alpha
                 )
             else:
-                crop_polygon = _segment_crop_polygon(site, alpha)
-            if len(crop_polygon) < 3:
-                continue
-            fragments = []
-            for fragment in atom.fragments:
-                clipped = _clip_to_convex(fragment, crop_polygon)
-                if clipped:
-                    fragments.append(clipped)
-            components = _merge_polygon_fragments(
-                fragments,
-                tolerance=max(1e-8, DECAL_WELD_DISTANCE * 0.25),
-            )
-            for component in components:
-                component = _dedupe_polygon(component, tolerance=1e-7)
-                if len(component) < 3 or abs(_polygon_area2(component)) <= 1e-10:
+                crop_components = (
+                    _CropComponent(
+                        kind="SEGMENT",
+                        side="",
+                        points=tuple(_segment_crop_polygon(site, alpha)),
+                    ),
+                )
+            for crop in crop_components:
+                if len(crop.points) < 3:
                     continue
-                if _polygon_area2(component) < 0.0:
-                    component.reverse()
-                pending.append((surface, site, component))
+                fragments = []
+                for fragment in atom.fragments:
+                    clipped = _clip_to_convex(fragment, crop.points)
+                    if clipped:
+                        fragments.append(clipped)
+                components = _merge_polygon_fragments(
+                    fragments,
+                    tolerance=max(1e-8, DECAL_WELD_DISTANCE * 0.25),
+                )
+                for component in components:
+                    component = _dedupe_polygon(component, tolerance=1e-7)
+                    if (
+                        len(component) < 3
+                        or abs(_polygon_area2(component)) <= 1e-10
+                    ):
+                        continue
+                    if _polygon_area2(component) < 0.0:
+                        component.reverse()
+                    pending.append(
+                        _PendingArrangementFace(
+                            surface=surface,
+                            site=site,
+                            points=tuple(component),
+                            crop=crop,
+                        )
+                    )
 
     arrangement = _build_decal_arrangement(
         pending,
         tolerance=max(1e-8, DECAL_WELD_DISTANCE * 0.5),
     )
-    pending = [
-        (face.surface, face.site, list(face.points))
-        for face in arrangement.faces
-    ]
+    pending = arrangement.faces
     lift_scale = _orientation_safe_lift_scale(plan, pending, lift_scale)
     effective_offset = plan.offset * lift_scale
     faces = []
     emitted_faces = set()
-    for surface, site, component in pending:
+    for pending_face in pending:
+        surface = pending_face.surface
+        site = pending_face.site
+        component = pending_face.points
+        crop = pending_face.crop
         vert_keys = []
         positions = []
         u_fracs = []
@@ -1962,10 +2157,15 @@ def evaluate_patch_voronoi_plan(plan, width, preview=False):
             )
             vert_keys.append(key)
             positions.append(position)
-            u_fracs.append(
-                site.uv_sign * max(0.0, min(1.0, distance / alpha))
-            )
-            v_lengths.append(site.arc_start + t * site.segment_length)
+            component_uv = _crop_component_uv(crop, point)
+            if component_uv is None:
+                u_fracs.append(
+                    site.uv_sign * max(0.0, min(1.0, distance / alpha))
+                )
+                v_lengths.append(site.arc_start + t * site.segment_length)
+            else:
+                u_fracs.append(component_uv[0])
+                v_lengths.append(component_uv[1])
         if len(vert_keys) < 3:
             continue
         face_identity = frozenset(vert_keys)
@@ -1980,6 +2180,8 @@ def evaluate_patch_voronoi_plan(plan, width, preview=False):
                 positions=positions,
                 u_fracs=u_fracs,
                 v_lengths=v_lengths,
+                component_kind=crop.kind,
+                component_side=crop.side,
             )
         )
     faces.extend(_junction_connector_faces(plan, faces, alpha))

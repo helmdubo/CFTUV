@@ -240,6 +240,60 @@ def _acute_corner_graph():
     return graph
 
 
+def _acute_notch_graph():
+    """Reflex patch corner 330°, extrusion wedge 30°."""
+
+    shoulder = 2.0 * sin(pi / 12.0) / cos(pi / 12.0)
+    points = [
+        Vector((-3.0, -2.0, 0.0)),
+        Vector((3.0, -2.0, 0.0)),
+        Vector((3.0, 2.0, 0.0)),
+        Vector((shoulder, 2.0, 0.0)),
+        Vector((0.0, 0.0, 0.0)),
+        Vector((-shoulder, 2.0, 0.0)),
+        Vector((-3.0, 2.0, 0.0)),
+    ]
+    node = PatchNode(
+        patch_id=0,
+        face_indices=[0],
+        centroid=Vector((0.0, 0.0, 0.0)),
+        normal=Vector((0.0, 0.0, 1.0)),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+    )
+    node.mesh_verts = points
+    node.mesh_tris = [
+        (0, 1, 4),
+        (1, 2, 3),
+        (1, 3, 4),
+        (0, 4, 5),
+        (0, 5, 6),
+    ]
+    all_edges = list(range(50, 57))
+    node.boundary_loops = [
+        BoundaryLoop(
+            vert_indices=list(range(7)),
+            vert_cos=[point.copy() for point in points],
+            edge_indices=all_edges,
+            chains=[
+                BoundaryChain(
+                    vert_indices=[3, 4],
+                    vert_cos=[points[3], points[4]],
+                    edge_indices=[53],
+                ),
+                BoundaryChain(
+                    vert_indices=[4, 5],
+                    vert_cos=[points[4], points[5]],
+                    edge_indices=[54],
+                ),
+            ],
+        )
+    ]
+    graph = PatchGraph()
+    graph.add_node(node)
+    return graph
+
+
 def _door_opening_graph():
     """Один planar patch с concave дверным проёмом без owner diagonals."""
 
@@ -424,7 +478,8 @@ def test_corner_spec_classifies_intrinsic_convex_concave_and_acute():
         corner = door_corners[vert_index]
         assert not corner.is_convex
         assert corner.interior_angle == pytest.approx(1.5 * pi)
-        assert corner.policy == decal_voronoi._CornerPolicy.MITER
+        assert corner.extrusion_angle == pytest.approx(0.5 * pi)
+        assert corner.policy == decal_voronoi._CornerPolicy.KITE
         assert len(corner.ordered_sites) == 2
         assert corner.turn_sign in (-1.0, 1.0)
 
@@ -438,7 +493,8 @@ def test_corner_spec_classifies_intrinsic_convex_concave_and_acute():
     )
     assert folded_corner.is_convex
     assert folded_corner.interior_angle == pytest.approx(0.5 * pi)
-    assert folded_corner.policy == decal_voronoi._CornerPolicy.KITE
+    assert folded_corner.extrusion_angle == pytest.approx(0.5 * pi)
+    assert folded_corner.policy == decal_voronoi._CornerPolicy.MITER
 
     acute_plan = compile_patch_voronoi_plan(
         _acute_corner_graph(), [40, 41], offset=0.01
@@ -450,16 +506,29 @@ def test_corner_spec_classifies_intrinsic_convex_concave_and_acute():
     )
     assert acute_corner.is_convex
     assert acute_corner.interior_angle == pytest.approx(pi / 6.0)
-    assert acute_corner.policy == decal_voronoi._CornerPolicy.ACUTE_SPLIT
+    assert acute_corner.extrusion_angle == pytest.approx(pi / 6.0)
+    assert acute_corner.policy == decal_voronoi._CornerPolicy.MITER
+
+    notch_plan = compile_patch_voronoi_plan(
+        _acute_notch_graph(), [53, 54], offset=0.01
+    )
+    notch_corner = next(
+        corner
+        for corner in notch_plan.surfaces[0].corners
+        if corner.vert_index == 4
+    )
+    assert not notch_corner.is_convex
+    assert notch_corner.interior_angle == pytest.approx(11.0 * pi / 6.0)
+    assert notch_corner.extrusion_angle == pytest.approx(pi / 6.0)
+    assert notch_corner.policy == decal_voronoi._CornerPolicy.ACUTE_SPLIT
 
 
 def test_convex_corner_builds_explicit_realtime_kite():
-    plan = compile_patch_voronoi_plan(
-        _folded_turn_graph(), [30, 31], offset=0.01
-    )
+    graph, edge_indices = _door_opening_graph()
+    plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
     surface = plan.surfaces[0]
     corner = next(
-        corner for corner in surface.corners if corner.vert_index == 0
+        corner for corner in surface.corners if corner.vert_index == 2
     )
     kite = decal_voronoi._kite_crop_polygon(surface, corner, alpha=0.5)
     assert len(kite) == 4
@@ -471,6 +540,59 @@ def test_convex_corner_builds_explicit_realtime_kite():
     assert abs(decal_voronoi._polygon_area2(narrow)) == pytest.approx(
         0.25 * abs(decal_voronoi._polygon_area2(kite))
     )
+
+
+def test_acute_corner_splits_inner_outer_with_shared_mesh_edge_and_uv_seam():
+    plan = compile_patch_voronoi_plan(
+        _acute_notch_graph(), [53, 54], offset=0.01
+    )
+    surface = plan.surfaces[0]
+    corner = next(
+        corner for corner in surface.corners if corner.vert_index == 4
+    )
+    components = decal_voronoi._acute_crop_components(
+        surface, corner, alpha=0.5
+    )
+    assert [component.side for component in components] == ["INNER", "OUTER"]
+    assert all(len(component.points) == 3 for component in components)
+    full_kite = decal_voronoi._kite_crop_polygon(
+        surface, corner, alpha=0.5
+    )
+    assert sum(
+        abs(decal_voronoi._polygon_area2(component.points))
+        for component in components
+    ) == pytest.approx(abs(decal_voronoi._polygon_area2(full_kite)))
+    overlap = decal_voronoi._clip_to_convex(
+        components[0].points, components[1].points
+    )
+    assert not overlap or abs(decal_voronoi._polygon_area2(overlap)) <= 1e-9
+
+    faces = evaluate_patch_voronoi_plan(plan, width=1.0, preview=True)
+    acute_faces = {
+        face.component_side: face
+        for face in faces
+        if face.component_kind == "ACUTE_SPLIT"
+    }
+    assert set(acute_faces) == {"INNER", "OUTER"}
+    shared_keys = set(acute_faces["INNER"].vert_keys) & set(
+        acute_faces["OUTER"].vert_keys
+    )
+    assert len(shared_keys) == 2
+    for key in shared_keys:
+        inner_index = acute_faces["INNER"].vert_keys.index(key)
+        outer_index = acute_faces["OUTER"].vert_keys.index(key)
+        assert acute_faces["INNER"].v_lengths[inner_index] != pytest.approx(
+            acute_faces["OUTER"].v_lengths[outer_index]
+        )
+
+    confirmed = evaluate_patch_voronoi_plan(plan, width=1.0, preview=False)
+    assert [
+        (face.component_kind, face.component_side, tuple(face.vert_keys))
+        for face in faces
+    ] == [
+        (face.component_kind, face.component_side, tuple(face.vert_keys))
+        for face in confirmed
+    ]
 
 
 def test_wide_t_junction_cells_remain_convex_and_non_overlapping():
