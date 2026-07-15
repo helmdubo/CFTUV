@@ -595,6 +595,64 @@ def test_acute_corner_splits_inner_outer_with_shared_mesh_edge_and_uv_seam():
     ]
 
 
+def test_surface_domain_separates_planar_solver_from_intrinsic_lift():
+    planar = decal_voronoi.DecalSurfaceDomain(
+        patch_id=0,
+        kind="PLANAR",
+        origin=Vector((1.0, 2.0, 3.0)),
+        reference_normal=Vector((0.0, 0.0, 1.0)),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+        boundary_triangles=(),
+    )
+    assert tuple(planar.lift((2.0, 4.0), 0.5)) == pytest.approx(
+        (3.0, 6.0, 3.5)
+    )
+    assert planar.project(Vector((3.0, 6.0, 3.5))) == pytest.approx(
+        (2.0, 4.0)
+    )
+
+    normals = (
+        Vector((0.0, 0.0, 1.0)),
+        Vector((0.0, 0.0, 1.0)),
+        Vector((0.0, 1.0, 1.0)).normalized(),
+    )
+    intrinsic = decal_voronoi.DecalSurfaceDomain(
+        patch_id=1,
+        kind="INTRINSIC",
+        origin=Vector((0.0, 0.0, 0.0)),
+        reference_normal=Vector((0.0, 0.0, 1.0)),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+        boundary_triangles=(((0.0, 0.0), (1.0, 0.0), (0.0, 1.0)),),
+        intrinsic_triangles=(
+            decal_voronoi._IntrinsicDomainTriangle(
+                chart_points=((0.0, 0.0), (1.0, 0.0), (0.0, 1.0)),
+                positions=(
+                    Vector((0.0, 0.0, 0.0)),
+                    Vector((1.0, 0.0, 0.0)),
+                    Vector((0.0, 1.0, 1.0)),
+                ),
+                normals=normals,
+            ),
+        ),
+        periodic_axis="U",
+    )
+    point = (0.25, 0.25)
+    expected_position = Vector((0.25, 0.25, 0.25))
+    expected_normal = (
+        normals[0] * 0.5 + normals[1] * 0.25 + normals[2] * 0.25
+    ).normalized()
+    assert tuple(intrinsic.normal_at(point)) == pytest.approx(
+        tuple(expected_normal)
+    )
+    assert tuple(intrinsic.lift(point, 0.1)) == pytest.approx(
+        tuple(expected_position + expected_normal * 0.1)
+    )
+    with pytest.raises(ValueError):
+        intrinsic.project(Vector((0.0, 0.0, 0.0)))
+
+
 def test_wide_t_junction_cells_remain_convex_and_non_overlapping():
     graph, edge_indices = _wide_t_junction_front_graph()
     plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.02)

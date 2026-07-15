@@ -97,17 +97,118 @@ class _PatchVoronoiAtom:
 
 
 @dataclass(frozen=True)
-class _PatchVoronoiSurface:
+class _IntrinsicDomainTriangle:
+    """Один triangle intrinsic chart и его lift-данные на owner mesh."""
+
+    chart_points: tuple[tuple[float, float], ...]
+    positions: tuple[Vector, ...]
+    normals: tuple[Vector, ...]
+
+
+@dataclass(frozen=True)
+class DecalSurfaceDomain:
+    """Surface adapter между intrinsic 2D solver и исходным mesh.
+
+    PLANAR использует одну ортонормальную basis. INTRINSIC хранит atlas
+    triangles; Voronoi/corner/crop ничего не знают о способе обратного lift.
+    """
+
     patch_id: int
+    kind: str
     origin: Vector
-    normal: Vector
+    reference_normal: Vector
     basis_u: Vector
     basis_v: Vector
+    boundary_triangles: tuple[tuple[tuple[float, float], ...], ...]
+    intrinsic_triangles: tuple[_IntrinsicDomainTriangle, ...] = ()
+    periodic_axis: str = ""
+
+    def project(self, position):
+        if self.kind != "PLANAR":
+            raise ValueError(
+                "Intrinsic domain projection requires triangle provenance"
+            )
+        delta = position - self.origin
+        return (delta.dot(self.basis_u), delta.dot(self.basis_v))
+
+    def _intrinsic_location(self, point):
+        best = None
+        best_margin = -float("inf")
+        for triangle in self.intrinsic_triangles:
+            weights = _triangle_weights2(point, triangle.chart_points)
+            if weights is None:
+                continue
+            margin = min(weights)
+            if margin >= -1e-7 and margin > best_margin:
+                best = (triangle, weights)
+                best_margin = margin
+        return best
+
+    def normal_at(self, point):
+        if self.kind == "PLANAR":
+            return self.reference_normal.copy()
+        location = self._intrinsic_location(point)
+        if location is None:
+            raise ValueError("Point lies outside intrinsic decal domain")
+        triangle, weights = location
+        normal = sum(
+            (
+                triangle.normals[index] * weights[index]
+                for index in range(3)
+            ),
+            Vector((0.0, 0.0, 0.0)),
+        )
+        if normal.length_squared <= 1e-12:
+            return self.reference_normal.copy()
+        return normal.normalized()
+
+    def lift(self, point, offset):
+        if self.kind == "PLANAR":
+            return (
+                self.origin
+                + self.basis_u * point[0]
+                + self.basis_v * point[1]
+                + self.reference_normal * offset
+            )
+        location = self._intrinsic_location(point)
+        if location is None:
+            raise ValueError("Point lies outside intrinsic decal domain")
+        triangle, weights = location
+        position = sum(
+            (
+                triangle.positions[index] * weights[index]
+                for index in range(3)
+            ),
+            Vector((0.0, 0.0, 0.0)),
+        )
+        return position + self.normal_at(point) * offset
+
+
+@dataclass(frozen=True)
+class _PatchVoronoiSurface:
+    patch_id: int
+    domain: DecalSurfaceDomain
     sites: tuple[_PatchVoronoiSite, ...]
     corners: tuple[CornerSpec, ...]
     atoms: tuple[_PatchVoronoiAtom, ...]
     site_grid_size: float
     site_grid: dict[tuple[int, int], tuple[int, ...]]
+
+    @property
+    def origin(self):
+        return self.domain.origin
+
+    @property
+    def normal(self):
+        return self.domain.reference_normal
+
+    @property
+    def basis_u(self):
+        return self.domain.basis_u
+
+    @property
+    def basis_v(self):
+        return self.domain.basis_v
 
 
 @dataclass(frozen=True)
@@ -199,6 +300,24 @@ def _norm2(vector):
     if length <= _GEOMETRY_EPS:
         return None
     return (vector[0] / length, vector[1] / length)
+
+
+def _triangle_weights2(point, triangle):
+    if len(triangle) != 3:
+        return None
+    point_a, point_b, point_c = triangle
+    denominator = _cross2(
+        _sub2(point_b, point_a), _sub2(point_c, point_a)
+    )
+    if abs(denominator) <= 1e-12:
+        return None
+    weight_b = _cross2(
+        _sub2(point, point_a), _sub2(point_c, point_a)
+    ) / denominator
+    weight_c = _cross2(
+        _sub2(point_b, point_a), _sub2(point, point_a)
+    ) / denominator
+    return 1.0 - weight_b - weight_c, weight_b, weight_c
 
 
 def _dedupe_polygon(points, tolerance=1e-8):
@@ -1524,10 +1643,15 @@ def _compile_surface(node, raw_sites):
                 site_grid.setdefault((grid_x, grid_y), []).append(site_index)
     return _PatchVoronoiSurface(
         patch_id=node.patch_id,
-        origin=origin,
-        normal=normal,
-        basis_u=basis_u,
-        basis_v=basis_v,
+        domain=DecalSurfaceDomain(
+            patch_id=node.patch_id,
+            kind="PLANAR",
+            origin=origin,
+            reference_normal=normal,
+            basis_u=basis_u,
+            basis_v=basis_v,
+            boundary_triangles=tuple(tuple(triangle) for triangle in triangles),
+        ),
         sites=tuple(sites),
         corners=corners,
         atoms=tuple(atoms),
@@ -1750,12 +1874,7 @@ def _position_and_key(
             plan.lifted_vertices[site.vert_b], lift_scale
         )
         return start.lerp(end, t), ("pv-se", site.edge_index, round(t, 7))
-    position = (
-        surface.origin
-        + surface.basis_u * point[0]
-        + surface.basis_v * point[1]
-        + surface.normal * effective_offset
-    )
+    position = surface.domain.lift(point, effective_offset)
     quantum = max(DECAL_WELD_DISTANCE * 0.25, 1e-7)
     return position, (
         "pv",
@@ -1836,7 +1955,11 @@ def _component_signed_area(plan, surface, site, component, lift_scale):
         area_vector += (positions[index] - origin).cross(
             positions[index + 1] - origin
         )
-    return area_vector.dot(surface.normal) * 0.5
+    centroid = (
+        sum(point[0] for point in component) / len(component),
+        sum(point[1] for point in component) / len(component),
+    )
+    return area_vector.dot(surface.domain.normal_at(centroid)) * 0.5
 
 
 def _orientation_safe_lift_scale(plan, pending, desired_scale):
@@ -2175,7 +2298,12 @@ def evaluate_patch_voronoi_plan(plan, width, preview=False):
         faces.append(
             _NetworkFace(
                 surface_id=surface.patch_id,
-                surface_normal=surface.normal.copy(),
+                surface_normal=surface.domain.normal_at(
+                    (
+                        sum(point[0] for point in component) / len(component),
+                        sum(point[1] for point in component) / len(component),
+                    )
+                ),
                 vert_keys=vert_keys,
                 positions=positions,
                 u_fracs=u_fracs,
