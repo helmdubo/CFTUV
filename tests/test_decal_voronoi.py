@@ -453,6 +453,26 @@ def test_corner_spec_classifies_intrinsic_convex_concave_and_acute():
     assert acute_corner.policy == decal_voronoi._CornerPolicy.ACUTE_SPLIT
 
 
+def test_convex_corner_builds_explicit_realtime_kite():
+    plan = compile_patch_voronoi_plan(
+        _folded_turn_graph(), [30, 31], offset=0.01
+    )
+    surface = plan.surfaces[0]
+    corner = next(
+        corner for corner in surface.corners if corner.vert_index == 0
+    )
+    kite = decal_voronoi._kite_crop_polygon(surface, corner, alpha=0.5)
+    assert len(kite) == 4
+    assert corner.point in kite
+    assert abs(decal_voronoi._polygon_area2(kite)) == pytest.approx(0.25)
+
+    narrow = decal_voronoi._kite_crop_polygon(surface, corner, alpha=0.25)
+    assert len(narrow) == 4
+    assert abs(decal_voronoi._polygon_area2(narrow)) == pytest.approx(
+        0.25 * abs(decal_voronoi._polygon_area2(kite))
+    )
+
+
 def test_wide_t_junction_cells_remain_convex_and_non_overlapping():
     graph, edge_indices = _wide_t_junction_front_graph()
     plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.02)

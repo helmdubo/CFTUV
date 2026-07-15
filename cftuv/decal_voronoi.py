@@ -760,8 +760,61 @@ def _segment_crop_polygon(site, alpha):
     ]
 
 
+def _corner_offset_lines(surface, corner, alpha):
+    """Две ordered offset-линии intrinsic corner."""
+
+    offset_lines = []
+    for site_index in corner.ordered_sites:
+        site = surface.sites[site_index]
+        if site.vert_a == corner.vert_index:
+            direction = (
+                (site.point_b[0] - corner.point[0]) / site.segment_length,
+                (site.point_b[1] - corner.point[1]) / site.segment_length,
+            )
+        else:
+            direction = (
+                (site.point_a[0] - corner.point[0]) / site.segment_length,
+                (site.point_a[1] - corner.point[1]) / site.segment_length,
+            )
+        offset_point = (
+            corner.point[0] + site.inward_normal[0] * alpha,
+            corner.point[1] + site.inward_normal[1] * alpha,
+        )
+        offset_lines.append((offset_point, direction))
+    return offset_lines
+
+
+def _kite_crop_polygon(surface, corner, alpha):
+    """Один realtime kite из двух endpoint triangles convex corner."""
+
+    offset_lines = _corner_offset_lines(surface, corner, alpha)
+    if len(offset_lines) != 2:
+        return []
+    intersection = _line_intersection(
+        offset_lines[0][0],
+        offset_lines[0][1],
+        offset_lines[1][0],
+        offset_lines[1][1],
+    )
+    if (
+        intersection is None
+        or _dist2(corner.point, intersection) > alpha * 8.0
+    ):
+        return _convex_hull(
+            [corner.point, offset_lines[0][0], offset_lines[1][0]]
+        )
+    return _convex_hull(
+        [
+            corner.point,
+            offset_lines[0][0],
+            intersection,
+            offset_lines[1][0],
+        ]
+    )
+
+
 def _corner_crop_polygon(surface, corner, alpha):
-    """Runtime endpoint extrusion polygon; обычные углы дают один miter."""
+    """Runtime endpoint extrusion polygon выбранной corner policy."""
 
     point = corner.point
     if len(corner.incident_sites) != 2:
@@ -771,25 +824,10 @@ def _corner_crop_polygon(surface, corner, alpha):
             (point[0] + alpha, point[1] + alpha),
             (point[0] - alpha, point[1] + alpha),
         ]
+    if corner.policy == _CornerPolicy.KITE:
+        return _kite_crop_polygon(surface, corner, alpha)
 
-    offset_lines = []
-    for site_index in corner.incident_sites:
-        site = surface.sites[site_index]
-        if site.vert_a == corner.vert_index:
-            direction = (
-                (site.point_b[0] - point[0]) / site.segment_length,
-                (site.point_b[1] - point[1]) / site.segment_length,
-            )
-        else:
-            direction = (
-                (site.point_a[0] - point[0]) / site.segment_length,
-                (site.point_a[1] - point[1]) / site.segment_length,
-            )
-        offset_point = (
-            point[0] + site.inward_normal[0] * alpha,
-            point[1] + site.inward_normal[1] * alpha,
-        )
-        offset_lines.append((offset_point, direction))
+    offset_lines = _corner_offset_lines(surface, corner, alpha)
 
     intersection = _line_intersection(
         offset_lines[0][0],
