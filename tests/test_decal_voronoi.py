@@ -97,6 +97,47 @@ def _planar_two_site_graph():
     return graph
 
 
+def test_quantized_duplicate_site_is_localized_as_compile_failure():
+    graph = _planar_two_site_graph()
+    chain = graph.nodes[0].boundary_loops[0].chains[0]
+    chain.vert_cos[1] = Vector((0.0, 0.00005, 0.0))
+
+    attempt = decal_voronoi.compile_patch_voronoi_attempt(
+        graph, [10], offset=0.01, allow_partial=True
+    )
+
+    assert attempt.plan is None
+    assert attempt.rejected_edge_indices == (10,)
+    assert len(attempt.failures) == 1
+    failure = attempt.failures[0]
+    assert failure.reason == "QUANTIZED_DEGENERATE_SITE"
+    assert failure.edge_indices == (10,)
+    assert "raw_length=" in failure.details
+    assert "quantized_length=0" in failure.details
+    assert "quantum=" in failure.details
+
+
+def test_corner_offset_lines_reject_zero_length_site():
+    surface = SimpleNamespace(
+        sites=(
+            SimpleNamespace(
+                segment_length=0.0,
+                vert_a=1,
+                point_a=(0.0, 0.0),
+                point_b=(0.0, 0.0),
+                inward_normal=(0.0, 1.0),
+            ),
+        )
+    )
+    corner = SimpleNamespace(
+        vert_index=1,
+        point=(0.0, 0.0),
+        ordered_sites=(0,),
+    )
+
+    assert decal_voronoi._corner_offset_lines(surface, corner, 0.5) == []
+
+
 def _face_area_xy(face):
     area = 0.0
     points = face.positions

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from enum import Enum
-from math import atan2, pi, sqrt, tau
+from math import atan2, isfinite, pi, sqrt, tau
 
 from mathutils import Vector
 
@@ -270,6 +270,7 @@ class PatchVoronoiCompileFailure:
     patch_id: int
     reason: str
     edge_indices: tuple[int, ...]
+    details: str = ""
 
 
 @dataclass(frozen=True)
@@ -279,6 +280,19 @@ class PatchVoronoiCompileAttempt:
     plan: PatchVoronoiPlan | None
     rejected_edge_indices: tuple[int, ...] = ()
     failures: tuple[PatchVoronoiCompileFailure, ...] = ()
+
+
+class _PatchVoronoiSurfaceCompileError(RuntimeError):
+    """Ожидаемый локальный отказ geometry/backend compile одной surface."""
+
+    def __init__(self, reason, edge_indices, details=""):
+        self.reason = str(reason)
+        self.edge_indices = tuple(sorted({int(index) for index in edge_indices}))
+        self.details = str(details)
+        message = self.reason
+        if self.details:
+            message += f": {self.details}"
+        super().__init__(message)
 
 
 @dataclass(frozen=True)
@@ -1068,6 +1082,8 @@ def _corner_offset_lines(surface, corner, alpha):
     offset_lines = []
     for site_index in corner.ordered_sites:
         site = surface.sites[site_index]
+        if site.segment_length <= _GEOMETRY_EPS:
+            return []
         if site.vert_a == corner.vert_index:
             direction = (
                 (site.point_b[0] - corner.point[0]) / site.segment_length,
@@ -1427,8 +1443,12 @@ def _project(point, origin, basis_u, basis_v):
     return (delta.dot(basis_u), delta.dot(basis_v))
 
 
+def _diagram_quantum():
+    return max(1.0 / _DIAGRAM_SCALE, DECAL_WELD_DISTANCE * 0.1)
+
+
 def _quantize_diagram_point(point):
-    quantum = max(1.0 / _DIAGRAM_SCALE, DECAL_WELD_DISTANCE * 0.1)
+    quantum = _diagram_quantum()
     return tuple(
         round(value / quantum) * quantum
         for value in point
@@ -1919,6 +1939,7 @@ def _compile_surface(node, raw_sites):
         min(diagonal * 1e-4, max(diagonal, 1.0) * 1e-3),
     )
     projected_sites = []
+    diagram_quantum = _diagram_quantum()
     for raw in raw_sites:
         raw_point_a = _project(raw["source_a"], origin, basis_u, basis_v)
         raw_point_b = _project(raw["source_b"], origin, basis_u, basis_v)
@@ -1933,6 +1954,18 @@ def _compile_surface(node, raw_sites):
         point_b = _quantize_diagram_point(
             raw_point_b
         )
+        quantized_length = _dist2(point_a, point_b)
+        if point_a == point_b or quantized_length <= diagram_quantum:
+            raise _PatchVoronoiSurfaceCompileError(
+                "QUANTIZED_DEGENERATE_SITE",
+                (raw["edge_index"],),
+                (
+                    f"edge={int(raw['edge_index'])} "
+                    f"raw_length={float(raw['segment_length']):.12g} "
+                    f"quantized_length={quantized_length:.12g} "
+                    f"quantum={diagram_quantum:.12g}"
+                ),
+            )
         endpoint_key = tuple(
             sorted(
                 _quantize_diagram_point(point)
@@ -1962,6 +1995,19 @@ def _compile_surface(node, raw_sites):
     ) in sorted(
         projected_sites, key=lambda item: item[0]
     ):
+        quantized_length = _dist2(point_a, point_b)
+        inward_normal = _inward_site_normal(
+            point_a, point_b, triangles, probe_distance
+        )
+        if (
+            not all(isfinite(value) for value in inward_normal)
+            or _norm2(inward_normal) is None
+        ):
+            raise _PatchVoronoiSurfaceCompileError(
+                "INVALID_INWARD_NORMAL",
+                (raw["edge_index"],),
+                f"edge={int(raw['edge_index'])} normal={inward_normal!r}",
+            )
         site = _PatchVoronoiSite(
             patch_id=node.patch_id,
             edge_index=raw["edge_index"],
@@ -1972,14 +2018,9 @@ def _compile_surface(node, raw_sites):
             point_a=point_a,
             point_b=point_b,
             arc_start=raw["arc_start"],
-            segment_length=sqrt(
-                (point_b[0] - point_a[0]) ** 2
-                + (point_b[1] - point_a[1]) ** 2
-            ),
+            segment_length=quantized_length,
             uv_sign=raw["uv_sign"],
-            inward_normal=_inward_site_normal(
-                point_a, point_b, triangles, probe_distance
-            ),
+            inward_normal=inward_normal,
         )
         sites.append(site)
         # Угловая policy остаётся геометрическим фактом исходного контура.
@@ -2018,6 +2059,7 @@ def _compile_surface(node, raw_sites):
     )
 
     diagram = pyvoronoi.Pyvoronoi(_DIAGRAM_SCALE)
+    diagram_segments = []
     diagram_endpoint_vertices = []
     for site in sites:
         if site.point_a <= site.point_b:
@@ -2026,13 +2068,49 @@ def _compile_surface(node, raw_sites):
         else:
             diagram_points = (site.point_b, site.point_a)
             endpoint_vertices = (site.vert_b, site.vert_a)
-        diagram.AddSegment(
-            [_quantize_diagram_point(point) for point in diagram_points]
-        )
+        diagram_segment = [
+            _quantize_diagram_point(point) for point in diagram_points
+        ]
+        diagram.AddSegment(diagram_segment)
+        diagram_segments.append(diagram_segment)
         diagram_endpoint_vertices.append(endpoint_vertices)
     for index in range(4):
-        diagram.AddSegment([guard[index], guard[(index + 1) % 4]])
-    diagram.Construct()
+        diagram_segment = [guard[index], guard[(index + 1) % 4]]
+        diagram.AddSegment(diagram_segment)
+        diagram_segments.append(diagram_segment)
+
+    # Некоторые wheels меняют внутреннее состояние validation-методами даже
+    # до Construct. Поэтому проверки выполняются на отдельном input diagram.
+    validation_diagram = pyvoronoi.Pyvoronoi(_DIAGRAM_SCALE)
+    for segment in diagram_segments:
+        validation_diagram.AddSegment(segment)
+    for method_name, reason in (
+        ("GetDegenerateSegments", "PYVORONOI_DEGENERATE_SEGMENT"),
+        ("GetPointsOnSegments", "PYVORONOI_POINT_ON_SEGMENT"),
+    ):
+        method = getattr(validation_diagram, method_name, None)
+        if method is None:
+            continue
+        invalid_indices = tuple(int(index) for index in method())
+        invalid_edges = tuple(
+            sites[index].edge_index
+            for index in invalid_indices
+            if 0 <= index < len(sites)
+        )
+        if invalid_edges:
+            raise _PatchVoronoiSurfaceCompileError(
+                reason,
+                invalid_edges,
+                f"site_indices={invalid_indices!r}",
+            )
+    try:
+        diagram.Construct()
+    except Exception as exc:
+        raise _PatchVoronoiSurfaceCompileError(
+            "PYVORONOI_CONSTRUCT_FAILED",
+            (site.edge_index for site in sites),
+            f"{type(exc).__name__}: {exc}",
+        ) from exc
 
     # Curved segment-Voronoi bisectors are parabolas. Их прежняя частота
     # (diagonal / 48) давала визуальный fan из десятков почти избыточных
@@ -2098,8 +2176,18 @@ def _compile_surface(node, raw_sites):
                     source_category=source_category,
                 )
             )
-    if not atoms:
-        return None
+    segment_site_indices = {
+        atom.site_index for atom in atoms if atom.cell_kind == "SEGMENT"
+    }
+    missing_segment_sites = tuple(
+        index for index in range(len(sites)) if index not in segment_site_indices
+    )
+    if missing_segment_sites:
+        raise _PatchVoronoiSurfaceCompileError(
+            "MISSING_SEGMENT_ATOM",
+            (sites[index].edge_index for index in missing_segment_sites),
+            f"site_indices={missing_segment_sites!r}",
+        )
     site_grid_size = max(
         median_site_length,
         diagonal / max(8.0, sqrt(len(sites)) * 2.0),
@@ -2221,7 +2309,52 @@ def compile_patch_voronoi_attempt(
                     )
                 continue
         for owner_surface, owner_sites in owner_surfaces:
-            surface = _compile_surface(owner_surface, owner_sites)
+            try:
+                surface = _compile_surface(owner_surface, owner_sites)
+            except _PatchVoronoiSurfaceCompileError as exc:
+                edge_indices = exc.edge_indices or tuple(
+                    sorted(
+                        {int(site["edge_index"]) for site in owner_sites}
+                    )
+                )
+                rejected_edges.update(edge_indices)
+                failures.append(
+                    PatchVoronoiCompileFailure(
+                        patch_id=int(patch_id),
+                        reason=exc.reason,
+                        edge_indices=edge_indices,
+                        details=exc.details,
+                    )
+                )
+                if not allow_partial:
+                    return PatchVoronoiCompileAttempt(
+                        plan=None,
+                        rejected_edge_indices=tuple(sorted(rejected_edges)),
+                        failures=tuple(failures),
+                    )
+                continue
+            except Exception as exc:
+                edge_indices = tuple(
+                    sorted(
+                        {int(site["edge_index"]) for site in owner_sites}
+                    )
+                )
+                rejected_edges.update(edge_indices)
+                failures.append(
+                    PatchVoronoiCompileFailure(
+                        patch_id=int(patch_id),
+                        reason="SURFACE_COMPILE_EXCEPTION",
+                        edge_indices=edge_indices,
+                        details=f"{type(exc).__name__}: {exc}",
+                    )
+                )
+                if not allow_partial:
+                    return PatchVoronoiCompileAttempt(
+                        plan=None,
+                        rejected_edge_indices=tuple(sorted(rejected_edges)),
+                        failures=tuple(failures),
+                    )
+                continue
             if surface is None:
                 edge_indices = tuple(
                     sorted(
