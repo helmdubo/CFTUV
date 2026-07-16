@@ -15,9 +15,9 @@ Harness выполняет repeated preview и exact confirm для ширин
 compile не меняется во время width drag.
 
 Baseline Blender 4.3.2 на включённой fixture
-`VERIFY_SRC_MANUAL_SEAMS` (25 selected edges): compile `161.92 ms`, median
-preview evaluator `25.57 / 24.42 / 23.89 / 26.38 ms`; materialization
-`0.92 / 0.58 / 0.57 / 0.81 ms`. Во всех четырёх ширинах dropped faces = 0,
+`VERIFY_SRC_MANUAL_SEAMS` (25 selected edges): compile `165.93 ms`, median
+preview evaluator `26.36 / 25.74 / 25.15 / 24.03 ms`; materialization
+`1.17 / 0.71 / 0.80 / 0.79 ms`. Во всех четырёх ширинах dropped faces = 0,
 repeated output и preview/confirm совпали, `Construct during drag = 0`.
 Полный JSON лежит в `artifacts/decal_runtime_baseline.json`.
 
@@ -87,10 +87,16 @@ Modal `invoke`, обычный `execute` и headless/Python invocation обяз�
 ## Developer build identity
 
 В верхней части панели Hotspot UV показываются `Branch` и первые восемь
-символов `Commit` checkout, из которого Blender импортировал аддон. Resolver
-читает Git metadata напрямую и поддерживает обычный checkout и linked
-worktree. Если аддон установлен без `.git`, обе строки честно показывают
-`unavailable`; упакованная копия не выдаётся за проверяемый commit.
+символов `Code commit`. В developer checkout resolver читает Git metadata
+напрямую и поддерживает обычный checkout и linked worktree. Для скопированной
+или упакованной версии без `.git` используется встроенная identity из
+`version_info.py`.
+
+Точный SHA нельзя включить внутрь самого коммита, потому что изменение файла
+меняет SHA. Поэтому каждая поставляемая итерация заканчивается двумя
+коммитами: implementation commit и metadata-only commit, встраивающим SHA
+предыдущего implementation commit. Панель показывает именно `Code commit`,
+а в handoff отдельно указывается metadata HEAD репозитория.
 
 ## Persistent preview materialization
 
@@ -243,6 +249,14 @@ Operator report и console явно показывают routing:
 Runtime materialization транзакционна: сначала вычисляются faces всех
 partitions и только затем записываются в BMesh. Пустой либо аварийный partition
 не оставляет частично построенную hybrid-сетку.
+
+До первой BMesh-записи валидируется вся partition: длины loop arrays, минимум
+три вершины и отсутствие повторных vertex keys. `_materialize_network_faces()`
+возвращает `DecalMaterializationResult`; любое прежнее условие `dropped > 0`
+теперь бросает `DecalMaterializationError` с backend, physical edge indices,
+face index, исходным vertex count и component kind/side. Temporary BMesh
+полностью освобождается, finalize не вызывается: confirm не заменяет старый
+production object, а preview сохраняет last-valid object/mesh pointers.
 
 ### Exact selected-edge accounting
 

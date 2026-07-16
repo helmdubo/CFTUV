@@ -340,6 +340,53 @@ class PatchVoronoiRuntimeError(RuntimeError):
         )
 
 
+@dataclass(frozen=True)
+class DecalMaterializationResult:
+    """Полный успешный результат одной network-face partition."""
+
+    backend: str
+    edge_indices: tuple[int, ...]
+    source_face_count: int
+    created_face_count: int
+    created_vertex_count: int
+
+
+class DecalMaterializationError(RuntimeError):
+    """Fail-fast отказ network face до публикации temporary BMesh."""
+
+    def __init__(
+        self,
+        *,
+        backend,
+        edge_indices,
+        face_index,
+        reason,
+        vertex_count,
+        repeated_keys=(),
+        component_kind="",
+        component_side="",
+    ):
+        self.backend = str(backend or "UNKNOWN")
+        self.edge_indices = tuple(
+            sorted({int(index) for index in edge_indices or ()})
+        )
+        self.face_index = int(face_index)
+        self.reason = str(reason)
+        self.vertex_count = int(vertex_count)
+        self.repeated_keys = tuple(repeated_keys)
+        self.component_kind = str(component_kind or "")
+        self.component_side = str(component_side or "")
+        details = (
+            f"backend={self.backend} edges={self.edge_indices} "
+            f"face={self.face_index} verts={self.vertex_count} "
+            f"component={self.component_kind}/{self.component_side or '-'} "
+            f"reason={self.reason}"
+        )
+        if self.repeated_keys:
+            details += f" repeated_keys={self.repeated_keys!r}"
+        super().__init__(f"Decal materialization failed: {details}")
+
+
 def _join_ribbon_runs(first, second):
     """Соединяет два уже ориентированных run с общей конечной вершиной."""
 
@@ -2024,7 +2071,105 @@ def _build_seam_strip(bm, points, normal, settings, uv_rect, closed=False):
         face.loops[3][uv_layer].uv = (u_max, v_start)
 
 
-def _materialize_network_faces(bm, network_faces, settings, uv_rect):
+def _materialization_error(
+    network_face,
+    face_index,
+    backend,
+    edge_indices,
+    reason,
+    repeated_keys=(),
+):
+    try:
+        vertex_count = len(getattr(network_face, "vert_keys", ()))
+    except TypeError:
+        vertex_count = -1
+    return DecalMaterializationError(
+        backend=backend,
+        edge_indices=edge_indices,
+        face_index=face_index,
+        reason=reason,
+        vertex_count=vertex_count,
+        repeated_keys=repeated_keys,
+        component_kind=getattr(network_face, "component_kind", ""),
+        component_side=getattr(network_face, "component_side", ""),
+    )
+
+
+def _validate_network_faces_for_materialization(
+    network_faces, backend, edge_indices
+):
+    """Проверяет всю partition до первой записи в temporary BMesh."""
+
+    for face_index, network_face in enumerate(network_faces):
+        try:
+            lengths = tuple(
+                len(getattr(network_face, field, ()))
+                for field in (
+                    "vert_keys",
+                    "positions",
+                    "u_fracs",
+                    "v_lengths",
+                )
+            )
+        except TypeError as exc:
+            raise _materialization_error(
+                network_face,
+                face_index,
+                backend,
+                edge_indices,
+                f"invalid loop arrays: {exc}",
+            ) from exc
+        if len(set(lengths)) != 1:
+            raise _materialization_error(
+                network_face,
+                face_index,
+                backend,
+                edge_indices,
+                f"loop data length mismatch {lengths}",
+            )
+        seen_keys = set()
+        repeated_keys = []
+        try:
+            for key in network_face.vert_keys:
+                if key in seen_keys and key not in repeated_keys:
+                    repeated_keys.append(key)
+                seen_keys.add(key)
+        except TypeError as exc:
+            raise _materialization_error(
+                network_face,
+                face_index,
+                backend,
+                edge_indices,
+                f"unhashable vertex key: {exc}",
+            ) from exc
+        if repeated_keys:
+            raise _materialization_error(
+                network_face,
+                face_index,
+                backend,
+                edge_indices,
+                "repeated vertex keys",
+                repeated_keys,
+            )
+        if lengths[0] < 3:
+            raise _materialization_error(
+                network_face,
+                face_index,
+                backend,
+                edge_indices,
+                "fewer than three vertices",
+            )
+
+
+def _materialize_network_faces(
+    bm,
+    network_faces,
+    settings,
+    uv_rect,
+    *,
+    backend="UNKNOWN",
+    edge_indices=(),
+):
     """Материализует faces decal-сети в bmesh с shared вершинами по ключам.
 
     Ключи ('sv', vert) сшивают spine-станции между крыльями/поверхностями и
@@ -2032,6 +2177,10 @@ def _materialize_network_faces(bm, network_faces, settings, uv_rect):
     внутри поверхности, остаточные совпадения сваривает финальный weld.
     """
 
+    network_faces = tuple(network_faces)
+    _validate_network_faces_for_materialization(
+        network_faces, backend, edge_indices
+    )
     uv_layer = bm.loops.layers.uv.verify()
     u_min, _v_min, u_max, _v_max = uv_rect
     u_mid = (u_min + u_max) / 2.0
@@ -2040,10 +2189,8 @@ def _materialize_network_faces(bm, network_faces, settings, uv_rect):
     verts_by_key = {}
     created = 0
 
-    dropped = 0
-    for network_face in network_faces:
+    for face_index, network_face in enumerate(network_faces):
         loop_data = []
-        used_verts = set()
         for key, position, u_frac, v_length in zip(
             network_face.vert_keys,
             network_face.positions,
@@ -2054,34 +2201,34 @@ def _materialize_network_faces(bm, network_faces, settings, uv_rect):
             if vert is None:
                 vert = bm.verts.new(position)
                 verts_by_key[key] = vert
-            # Любой повтор вершины (не только соседний) делает loop
-            # невалидным для bmesh.faces.new — отбрасываем дубли заранее,
-            # чтобы валидная часть face материализовалась, а не исчезла.
-            if vert in used_verts:
-                continue
-            used_verts.add(vert)
             loop_data.append((vert, u_frac, v_length))
-        if len(loop_data) < 3:
-            dropped += 1
-            continue
         try:
             face = bm.faces.new(tuple(item[0] for item in loop_data))
-        except ValueError:
-            dropped += 1
-            continue
-        for loop, (_vert, u_frac, v_length) in zip(face.loops, loop_data):
-            loop[uv_layer].uv = (
-                u_mid + u_frac * u_radius,
-                v_length * scale,
-            )
+            for loop, (_vert, u_frac, v_length) in zip(
+                face.loops, loop_data
+            ):
+                loop[uv_layer].uv = (
+                    u_mid + u_frac * u_radius,
+                    v_length * scale,
+                )
+        except Exception as exc:
+            raise _materialization_error(
+                network_face,
+                face_index,
+                backend,
+                edge_indices,
+                f"{type(exc).__name__}: {exc}",
+            ) from exc
         created += 1
-    if dropped:
-        # Раньше исчезало молча; теперь потеря видна в консоли.
-        print(
-            f"[CFTUV][Decals] seam network: dropped {dropped} invalid "
-            f"face(s) of {len(network_faces)} during materialization"
-        )
-    return created
+    return DecalMaterializationResult(
+        backend=str(backend),
+        edge_indices=tuple(
+            sorted({int(index) for index in edge_indices or ()})
+        ),
+        source_face_count=len(network_faces),
+        created_face_count=created,
+        created_vertex_count=len(verts_by_key),
+    )
 
 
 def _build_seam_junctions(bm, specs, ports, settings, uv_rect):
@@ -2764,17 +2911,25 @@ def _fill_manual_chain_decals(
                 # вычисляем весь transaction, затем пишем BMesh. Runtime
                 # failure не должен незаметно менять topology на legacy.
                 face_batches = [
-                    _evaluate_manual_backend_partition(
+                    (
                         partition,
-                        settings,
-                        width,
-                        preview,
+                        _evaluate_manual_backend_partition(
+                            partition,
+                            settings,
+                            width,
+                            preview,
+                        ),
                     )
                     for partition in decal_plan.backend_partitions
                 ]
-                for partition_faces in face_batches:
+                for partition, partition_faces in face_batches:
                     _materialize_network_faces(
-                        bm, partition_faces, settings, uv_rect
+                        bm,
+                        partition_faces,
+                        settings,
+                        uv_rect,
+                        backend=partition.backend,
+                        edge_indices=partition.edge_indices,
                     )
                 return
 
@@ -2808,7 +2963,12 @@ def _fill_manual_chain_decals(
                         "evaluation produced no faces",
                     )
                 _materialize_network_faces(
-                    bm, network_faces, settings, uv_rect
+                    bm,
+                    network_faces,
+                    settings,
+                    uv_rect,
+                    backend="PATCH_VORONOI",
+                    edge_indices=selected_edge_indices,
                 )
                 return
 
@@ -2839,7 +2999,14 @@ def _fill_manual_chain_decals(
                     f"({exc!r}); falling back to miter pipeline"
                 )
             if network_faces:
-                _materialize_network_faces(bm, network_faces, settings, uv_rect)
+                _materialize_network_faces(
+                    bm,
+                    network_faces,
+                    settings,
+                    uv_rect,
+                    backend="LEGACY_NETWORK",
+                    edge_indices=selected_edge_indices,
+                )
                 return
         junction_specs = {}
         junction_cuts = {}

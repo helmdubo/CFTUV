@@ -1598,7 +1598,9 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         build_box.label(
             text=f"Branch: {ADDON_BUILD_INFO.branch}", icon="INFO"
         )
-        build_box.label(text=f"Commit: {ADDON_BUILD_INFO.short_commit}")
+        build_box.label(
+            text=f"Code commit: {ADDON_BUILD_INFO.short_commit}"
+        )
 
         # --- Settings ---
         col = layout.column(align=True)

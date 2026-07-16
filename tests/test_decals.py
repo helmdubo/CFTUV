@@ -169,7 +169,9 @@ def test_manual_seam_hybrid_materializes_both_backend_partitions(monkeypatch):
     monkeypatch.setattr(
         decals_module,
         "_materialize_network_faces",
-        lambda _bm, faces, _settings, _uv_rect: materialized.append(tuple(faces)),
+        lambda _bm, faces, _settings, _uv_rect, **context: materialized.append(
+            (tuple(faces), context)
+        ),
     )
 
     decals_module._fill_manual_chain_decals(
@@ -182,7 +184,16 @@ def test_manual_seam_hybrid_materializes_both_backend_partitions(monkeypatch):
         decal_plan=plan,
     )
 
-    assert materialized == [("patch-face",), ("legacy-face",)]
+    assert materialized == [
+        (
+            ("patch-face",),
+            {"backend": "PATCH_VORONOI", "edge_indices": (10,)},
+        ),
+        (
+            ("legacy-face",),
+            {"backend": "LEGACY_NETWORK", "edge_indices": (1,)},
+        ),
+    ]
 
 
 def test_patch_voronoi_partition_runtime_failure_is_not_rebuilt_as_legacy(
@@ -319,6 +330,169 @@ def test_generate_decal_objects_reuses_existing_object_only_for_preview(
     assert preview_names == ["Decal_Seams_Source"]
     assert final_names == ["Decal_Seams_Source"]
     assert finalize_calls == [(True, preview_state), (False, None)]
+
+
+def _materialization_face(keys, kind="SEGMENT", side=""):
+    count = len(keys)
+    return SimpleNamespace(
+        vert_keys=list(keys),
+        positions=[Vector((float(index), float(index % 2), 0.0)) for index in range(count)],
+        u_fracs=[float(index) / max(1, count - 1) for index in range(count)],
+        v_lengths=[float(index) for index in range(count)],
+        component_kind=kind,
+        component_side=side,
+    )
+
+
+def test_materialization_rejects_late_invalid_face_before_any_bmesh_write():
+    valid = _materialization_face((("v", 0), ("v", 1), ("v", 2)))
+    invalid = _materialization_face(
+        (("v", 3), ("v", 3), ("v", 4)),
+        kind="ACUTE_SPLIT",
+        side="OUTER",
+    )
+
+    with pytest.raises(decals_module.DecalMaterializationError) as caught:
+        # ``object()`` доказывает, что preflight нашёл второй face до любого
+        # доступа к BMesh после валидного первого face.
+        decals_module._materialize_network_faces(
+            object(),
+            (valid, invalid),
+            DecalSettings(),
+            (0.0, 0.0, 1.0, 1.0),
+            backend="PATCH_VORONOI",
+            edge_indices=(10, 11),
+        )
+
+    error = caught.value
+    assert error.backend == "PATCH_VORONOI"
+    assert error.edge_indices == (10, 11)
+    assert error.face_index == 1
+    assert error.vertex_count == 3
+    assert error.repeated_keys == (("v", 3),)
+    assert error.component_kind == "ACUTE_SPLIT"
+    assert error.component_side == "OUTER"
+
+
+class _FakeMaterializationBMesh:
+    class _UVValue:
+        uv = None
+
+    class _Loop:
+        def __init__(self):
+            self.value = _FakeMaterializationBMesh._UVValue()
+
+        def __getitem__(self, _layer):
+            return self.value
+
+    class _Vert:
+        def __init__(self, position):
+            self.position = position
+
+    class _Verts(list):
+        def new(self, position):
+            vert = _FakeMaterializationBMesh._Vert(position)
+            self.append(vert)
+            return vert
+
+    class _Faces(list):
+        def new(self, verts):
+            face = SimpleNamespace(
+                verts=tuple(verts),
+                loops=[
+                    _FakeMaterializationBMesh._Loop() for _vert in verts
+                ],
+            )
+            self.append(face)
+            return face
+
+    def __init__(self):
+        self.verts = self._Verts()
+        self.faces = self._Faces()
+        self.loops = SimpleNamespace(
+            layers=SimpleNamespace(
+                uv=SimpleNamespace(verify=lambda: object())
+            )
+        )
+        self.freed = False
+
+    def free(self):
+        self.freed = True
+
+
+def test_materialization_returns_structured_complete_result():
+    bm = _FakeMaterializationBMesh()
+    result = decals_module._materialize_network_faces(
+        bm,
+        (_materialization_face((("v", 0), ("v", 1), ("v", 2))),),
+        DecalSettings(),
+        (0.0, 0.0, 1.0, 1.0),
+        backend="LEGACY_NETWORK",
+        edge_indices=(8,),
+    )
+
+    assert result == decals_module.DecalMaterializationResult(
+        backend="LEGACY_NETWORK",
+        edge_indices=(8,),
+        source_face_count=1,
+        created_face_count=1,
+        created_vertex_count=3,
+    )
+    assert len(bm.faces) == 1
+
+
+@pytest.mark.parametrize("preview", (False, True))
+def test_invalid_face_frees_transaction_without_publishing(
+    monkeypatch, preview
+):
+    bm = _FakeMaterializationBMesh()
+    monkeypatch.setattr(
+        decals_module.bmesh, "new", lambda: bm, raising=False
+    )
+    valid = _materialization_face((("v", 0), ("v", 1), ("v", 2)))
+    invalid = _materialization_face((("v", 3), ("v", 3), ("v", 4)))
+
+    def fill(target_bm, *_args, **_kwargs):
+        decals_module._materialize_network_faces(
+            target_bm,
+            (valid, invalid),
+            DecalSettings(),
+            (0.0, 0.0, 1.0, 1.0),
+            backend="PATCH_VORONOI",
+            edge_indices=(10,),
+        )
+
+    monkeypatch.setattr(decals_module, "_fill_decal_bmesh", fill)
+    published = []
+    monkeypatch.setattr(
+        decals_module,
+        "_finalize_decal_object",
+        lambda *_args, **_kwargs: published.append(True),
+    )
+    preview_state = decals_module.DecalPreviewState(
+        topology_signature=((3,),),
+        canonical_mesh_indices=(0, 1, 2),
+        object_pointer=101,
+        mesh_pointer=202,
+    )
+
+    with pytest.raises(decals_module.DecalMaterializationError):
+        decals_module.generate_decal_objects(
+            PatchGraph(),
+            SimpleNamespace(name="Source"),
+            DecalSettings(),
+            "SEAMS",
+            scene=object(),
+            preview=preview,
+            preview_state=preview_state if preview else None,
+        )
+
+    assert bm.freed
+    assert published == []
+    if preview:
+        assert preview_state.object_pointer == 101
+        assert preview_state.mesh_pointer == 202
+        assert preview_state.topology_signature == ((3,),)
 
 
 def _make_chain(

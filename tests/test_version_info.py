@@ -21,6 +21,7 @@ def test_resolves_branch_and_commit_from_regular_checkout(tmp_path: Path):
     assert info.branch == "feature/runtime"
     assert info.commit == commit
     assert info.short_commit == "01234567"
+    assert info.source == "checkout"
 
 
 def test_resolves_linked_worktree_ref_from_common_git_dir(tmp_path: Path):
@@ -47,11 +48,13 @@ def test_resolves_linked_worktree_ref_from_common_git_dir(tmp_path: Path):
 
     assert info.branch == "preview"
     assert info.commit == commit
+    assert info.source == "checkout"
 
 
-def test_reports_unavailable_outside_checkout(tmp_path: Path):
+def test_uses_embedded_identity_outside_checkout(tmp_path: Path):
     info = resolve_addon_build_info(tmp_path)
 
-    assert info.branch == "unavailable"
-    assert info.commit == "unavailable"
-    assert info.short_commit == "unavailable"
+    assert info.branch == "claude/blender-decal-corner-preview-yq4lir"
+    assert len(info.commit) == 40
+    assert info.short_commit == info.commit[:8]
+    assert info.source == "embedded"

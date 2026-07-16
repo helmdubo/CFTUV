@@ -89,16 +89,20 @@ def _materialization_metrics(faces, settings):
 
     bm = bmesh.new()
     started = perf_counter()
-    created = _materialize_network_faces(
-        bm, faces, settings, DECAL_UV_RECT_SEAM
+    result = _materialize_network_faces(
+        bm,
+        faces,
+        settings,
+        DECAL_UV_RECT_SEAM,
+        backend="PATCH_VORONOI",
     )
     elapsed_ms = (perf_counter() - started) * 1000.0
     counts = {
         "vertices": len(bm.verts),
         "edges": len(bm.edges),
         "faces": len(bm.faces),
-        "created_faces": int(created),
-        "dropped_faces": max(0, len(faces) - int(created)),
+        "created_faces": result.created_face_count,
+        "dropped_faces": 0,
     }
     bm.free()
     return elapsed_ms, counts

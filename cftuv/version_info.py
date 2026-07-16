@@ -7,6 +7,9 @@ from pathlib import Path
 
 
 _UNAVAILABLE = "unavailable"
+_EMBEDDED_BRANCH = "claude/blender-decal-corner-preview-yq4lir"
+# Обновляется metadata-only commit после каждого implementation commit.
+_EMBEDDED_CODE_COMMIT = "5072ff9c5ae54923976c66ac6703590ca4eb1d48"
 
 
 @dataclass(frozen=True)
@@ -15,6 +18,7 @@ class AddonBuildInfo:
 
     branch: str = _UNAVAILABLE
     commit: str = _UNAVAILABLE
+    source: str = "embedded"
 
     @property
     def short_commit(self) -> str:
@@ -83,12 +87,22 @@ def resolve_addon_build_info(start: Path | str) -> AddonBuildInfo:
 
     git_dir = _find_git_dir(Path(start).resolve())
     if git_dir is None:
-        return AddonBuildInfo()
+        return AddonBuildInfo(
+            branch=_EMBEDDED_BRANCH,
+            commit=_EMBEDDED_CODE_COMMIT,
+        )
     head = _read_text(git_dir / "HEAD")
     if not head:
-        return AddonBuildInfo()
+        return AddonBuildInfo(
+            branch=_EMBEDDED_BRANCH,
+            commit=_EMBEDDED_CODE_COMMIT,
+        )
     if not head.startswith("ref:"):
-        return AddonBuildInfo(branch="detached", commit=head.split()[0])
+        return AddonBuildInfo(
+            branch="detached",
+            commit=head.split()[0],
+            source="checkout",
+        )
 
     ref_name = head[4:].strip()
     branch_prefix = "refs/heads/"
@@ -98,4 +112,13 @@ def resolve_addon_build_info(start: Path | str) -> AddonBuildInfo:
         else ref_name
     )
     commit = _resolve_ref(_git_storage_dirs(git_dir), ref_name)
-    return AddonBuildInfo(branch=branch or _UNAVAILABLE, commit=commit)
+    if commit == _UNAVAILABLE:
+        return AddonBuildInfo(
+            branch=_EMBEDDED_BRANCH,
+            commit=_EMBEDDED_CODE_COMMIT,
+        )
+    return AddonBuildInfo(
+        branch=branch or _UNAVAILABLE,
+        commit=commit,
+        source="checkout",
+    )
