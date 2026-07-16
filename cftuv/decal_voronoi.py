@@ -99,6 +99,8 @@ class CornerSpec:
     extrusion_angle: float
     is_convex: bool
     miter_ratio: float
+    split_chord: tuple[tuple[float, float], tuple[float, float]] = ()
+    static_wedge: tuple[tuple[float, float], ...] = ()
 
 
 @dataclass(frozen=True, init=False)
@@ -1377,6 +1379,18 @@ def _corner_offset_lines(surface, corner, alpha):
     return offset_lines
 
 
+def _corner_static_wedge_polygon(surface, corner):
+    """Compiled-domain wedge между endpoint perpendicular rays.
+
+    FAN/SPLIT-компоненты растут внутри этого клина. Его боковые границы
+    проходят через endpoint и не зависят от ``alpha``; поэтому incident
+    strips должны уступать клин целиком, а не вычитаться движущимся
+    фронтиром corner crop.
+    """
+
+    return list(corner.static_wedge)
+
+
 def _kite_crop_polygon(
     surface, corner, alpha, settings=None, diagnostics=None
 ):
@@ -1663,7 +1677,7 @@ def _clamped_acute_apex(
 def _acute_crop_components(
     surface, corner, alpha, settings=None, diagnostics=None
 ):
-    """Разделяет острый kite на inner/outer faces во время drag."""
+    """Разделяет острый kite статичной compiled split-хордой S1."""
 
     settings = _normalized_corner_runtime_settings(settings)
     offset_lines = _corner_offset_lines(surface, corner, alpha)
@@ -1690,10 +1704,6 @@ def _acute_crop_components(
 
     cap_a = offset_lines[0][0]
     cap_b = offset_lines[1][0]
-    chord_midpoint = (
-        (cap_a[0] + cap_b[0]) * 0.5,
-        (cap_a[1] + cap_b[1]) * 0.5,
-    )
     outer_apex = _clamped_acute_apex(
         corner.point,
         cap_a,
@@ -1703,56 +1713,144 @@ def _acute_crop_components(
         settings,
         diagnostics,
     )
-    inner_height = _dist2(corner.point, chord_midpoint)
-    outer_height = _dist2(outer_apex, chord_midpoint)
-    orientation = 1.0 if corner.turn_sign >= 0.0 else -1.0
-    v_origin = _corner_arc_origin(surface, corner)
-    inner = _crop_component_from_anchors(
+    owner_sites = tuple(corner.incident_sites)
+    split_chord = corner.split_chord
+    if len(split_chord) != 2:
+        # Compile fallback локализован: без статичной хорды не создаём
+        # alpha-зависимый внутренний шов, но сохраняем непрерывный crop.
+        inner = _corner_component_from_polygon(
+            surface,
+            corner,
+            alpha,
+            _CornerPolicy.ACUTE_SPLIT.value,
+            "INNER",
+            (corner.point, cap_a, outer_apex, cap_b),
+            owner_site_indices=owner_sites,
+        )
+        return (inner,) if inner is not None else ()
+
+    split_a, split_b = split_chord
+    reach_alpha = max(
+        _dist2(corner.point, split_a),
+        _dist2(corner.point, split_b),
+    )
+    if alpha + _GEOMETRY_EPS < reach_alpha:
+        # До collision со split-хордой весь клин — один INNER crop;
+        # движущиеся offset-рельсы остаются только внешним фронтиром.
+        inner = _corner_component_from_polygon(
+            surface,
+            corner,
+            alpha,
+            _CornerPolicy.ACUTE_SPLIT.value,
+            "INNER",
+            (corner.point, cap_a, outer_apex, cap_b),
+            owner_site_indices=owner_sites,
+        )
+        return (inner,) if inner is not None else ()
+
+    inner = _corner_component_from_polygon(
+        surface,
+        corner,
+        alpha,
         _CornerPolicy.ACUTE_SPLIT.value,
         "INNER",
-        (
-            (corner.point, (0.0, 0.0)),
-            (cap_a, (-orientation, inner_height)),
-            (cap_b, (orientation, inner_height)),
-        ),
-        v_origin,
+        (corner.point, split_a, split_b),
+        owner_site_indices=owner_sites,
     )
-    outer = _crop_component_from_anchors(
-        _CornerPolicy.ACUTE_SPLIT.value,
-        "OUTER",
-        (
-            (cap_a, (-orientation, 0.0)),
-            (outer_apex, (0.0, outer_height)),
-            (cap_b, (orientation, 0.0)),
-        ),
-        v_origin,
-    )
+
+    frame = _corner_frame_axes(surface, corner, alpha)
+    outer = None
+    if frame is not None:
+        lateral, forward = frame
+        split_midpoint = (
+            (split_a[0] + split_b[0]) * 0.5,
+            (split_a[1] + split_b[1]) * 0.5,
+        )
+        scale = max(alpha, _GEOMETRY_EPS)
+        anchors = []
+        for point in (split_a, cap_a, outer_apex, cap_b, split_b):
+            anchors.append(
+                (
+                    point,
+                    (
+                        _dot2(_sub2(point, corner.point), lateral) / scale,
+                        _dot2(_sub2(point, split_midpoint), forward),
+                    ),
+                )
+            )
+        outer = _crop_component_from_anchors(
+            _CornerPolicy.ACUTE_SPLIT.value,
+            "OUTER",
+            tuple(anchors),
+            _corner_arc_origin(surface, corner),
+        )
+        if outer is not None:
+            outer = replace(outer, owner_site_indices=owner_sites)
     return tuple(component for component in (inner, outer) if component)
 
 
 def _hairpin_crop_components(
     surface, corner, alpha, settings=None, diagnostics=None
 ):
-    """Стаб острого угла: inner остаётся, внешний spike не создаётся."""
+    """S1 hairpin: статичный inner + растущий тупой торец без spike."""
 
-    components = _acute_crop_components(
-        surface, corner, alpha, settings, diagnostics
-    )
-    inner = next(
-        (component for component in components if component.side == "INNER"),
-        None,
-    )
-    if inner is None:
+    offset_lines = _corner_offset_lines(surface, corner, alpha)
+    if len(offset_lines) != 2:
         return ()
+    cap_a = offset_lines[0][0]
+    cap_b = offset_lines[1][0]
+    owner_sites = tuple(corner.incident_sites)
+    split_chord = corner.split_chord
     if diagnostics is not None:
         diagnostics.apex_limit_saturated_count += 1
-    return (
-        replace(
-            inner,
-            kind=_CornerPolicy.HAIRPIN.value,
-            side="BLUNT",
-        ),
+    if len(split_chord) != 2:
+        blunt = _corner_component_from_polygon(
+            surface,
+            corner,
+            alpha,
+            _CornerPolicy.HAIRPIN.value,
+            "BLUNT",
+            (corner.point, cap_a, cap_b),
+            owner_site_indices=owner_sites,
+        )
+        return (blunt,) if blunt is not None else ()
+
+    split_a, split_b = split_chord
+    reach_alpha = max(
+        _dist2(corner.point, split_a),
+        _dist2(corner.point, split_b),
     )
+    if alpha + _GEOMETRY_EPS < reach_alpha:
+        blunt = _corner_component_from_polygon(
+            surface,
+            corner,
+            alpha,
+            _CornerPolicy.HAIRPIN.value,
+            "BLUNT",
+            (corner.point, cap_a, cap_b),
+            owner_site_indices=owner_sites,
+        )
+        return (blunt,) if blunt is not None else ()
+
+    inner = _corner_component_from_polygon(
+        surface,
+        corner,
+        alpha,
+        _CornerPolicy.HAIRPIN.value,
+        "INNER",
+        (corner.point, split_a, split_b),
+        owner_site_indices=owner_sites,
+    )
+    blunt = _corner_component_from_polygon(
+        surface,
+        corner,
+        alpha,
+        _CornerPolicy.HAIRPIN.value,
+        "BLUNT",
+        (split_a, cap_a, cap_b, split_b),
+        owner_site_indices=owner_sites,
+    )
+    return tuple(component for component in (inner, blunt) if component)
 
 
 def _junction_sector_specs(surface, corner):
@@ -2677,6 +2775,112 @@ def _compile_corners(sites):
     return tuple(corners)
 
 
+def _corner_wedge_coordinates(sites, corner, point):
+    """Коэффициенты point в cone двух endpoint perpendicular rays."""
+
+    if len(corner.ordered_sites) != 2:
+        return None
+    normal_a = sites[corner.ordered_sites[0]].inward_normal
+    normal_b = sites[corner.ordered_sites[1]].inward_normal
+    determinant = _cross2(normal_a, normal_b)
+    if abs(determinant) <= _GEOMETRY_EPS:
+        return None
+    delta = _sub2(point, corner.point)
+    return (
+        _cross2(delta, normal_b) / determinant,
+        _cross2(normal_a, delta) / determinant,
+    )
+
+
+def _compile_corner_split_chord(
+    sites, corner, diagram_vertices, triangles
+):
+    """Статичная B3-хорда, якорённая к первой Voronoi-вершине клина."""
+
+    if len(corner.ordered_sites) != 2:
+        return ()
+    normal_a = sites[corner.ordered_sites[0]].inward_normal
+    normal_b = sites[corner.ordered_sites[1]].inward_normal
+    bisector = _norm2(
+        (normal_a[0] + normal_b[0], normal_a[1] + normal_b[1])
+    )
+    if bisector is None:
+        return ()
+    tolerance = max(DECAL_WELD_DISTANCE * 0.25, 1e-8)
+    candidates = []
+    for vertex in diagram_vertices:
+        point = (float(vertex.X), float(vertex.Y))
+        coordinates = _corner_wedge_coordinates(sites, corner, point)
+        if coordinates is None or min(coordinates) < -tolerance:
+            continue
+        distance = _dist2(corner.point, point)
+        if distance <= tolerance or not _point_in_domain(point, triangles):
+            continue
+        candidates.append((distance, point))
+
+    if candidates:
+        _distance, anchor = min(candidates)
+    else:
+        # Domain-boundary fallback oracle B3. Берём самую дальнюю domain
+        # station вдоль bisector, чтобы fallback не вводил произвольную
+        # runtime-дистанцию и гарантированно оставался compiled-фактом.
+        projected = [
+            (_dot2(_sub2(point, corner.point), bisector), point)
+            for triangle in triangles
+            for point in triangle
+        ]
+        projected = [entry for entry in projected if entry[0] > tolerance]
+        if not projected:
+            return ()
+        _distance, anchor = max(projected)
+
+    chord_direction = (-bisector[1], bisector[0])
+    chord_a = _line_intersection(
+        corner.point, normal_a, anchor, chord_direction
+    )
+    chord_b = _line_intersection(
+        corner.point, normal_b, anchor, chord_direction
+    )
+    if chord_a is None or chord_b is None:
+        return ()
+    coordinates_a = _corner_wedge_coordinates(sites, corner, chord_a)
+    coordinates_b = _corner_wedge_coordinates(sites, corner, chord_b)
+    if (
+        coordinates_a is None
+        or coordinates_b is None
+        or min(coordinates_a) < -tolerance
+        or min(coordinates_b) < -tolerance
+    ):
+        return ()
+    return (chord_a, chord_b)
+
+
+def _compile_corner_static_wedge(sites, corner, triangles):
+    """Конечное представление compiled endpoint cone вне patch domain."""
+
+    if len(corner.ordered_sites) != 2:
+        return ()
+    extent = max(
+        (
+            _dist2(corner.point, point)
+            for triangle in triangles
+            for point in triangle
+        ),
+        default=0.0,
+    )
+    extent = max(extent * 2.0, DECAL_WELD_DISTANCE * 4.0)
+    points = [corner.point]
+    for site_index in corner.ordered_sites:
+        normal = sites[site_index].inward_normal
+        points.append(
+            (
+                corner.point[0] + normal[0] * extent,
+                corner.point[1] + normal[1] * extent,
+            )
+        )
+    return tuple(_convex_hull(points))
+
+
 def _classify_extrusion_angle(extrusion_angle, settings):
     """Ordered A11 band classifier; exact threshold chooses softer band."""
 
@@ -2949,6 +3153,18 @@ def _compile_surface(node, raw_sites, diagnostics=None):
     )
     diagram_edges = diagram.GetEdges()
     diagram_vertices = diagram.GetVertices()
+    corners = tuple(
+        replace(
+            corner,
+            split_chord=_compile_corner_split_chord(
+                sites, corner, diagram_vertices, triangles
+            ),
+            static_wedge=_compile_corner_static_wedge(
+                sites, corner, triangles
+            ),
+        )
+        for corner in corners
+    )
     atoms = []
     for cell in diagram.GetCells():
         if (
@@ -4067,12 +4283,27 @@ def _evaluate_surface_crops(
         if not crops:
             continue
         corner_crops[corner_index] = crops
+        static_interior_policy = policy in {
+            _CornerPolicy.FAN,
+            _CornerPolicy.ACUTE_SPLIT,
+            _CornerPolicy.HAIRPIN,
+        }
+        subtraction_crop = None
+        if static_interior_policy:
+            wedge = _corner_static_wedge_polygon(surface, corner)
+            if len(wedge) >= 3:
+                subtraction_crop = _CropComponent(
+                    kind="STATIC_CORNER_WEDGE",
+                    side="",
+                    points=tuple(wedge),
+                )
         for crop in crops:
             owner_site_indices = (
                 crop.owner_site_indices or corner.incident_sites
             )
-            for site_index in owner_site_indices:
-                crops_by_site.setdefault(site_index, []).append(crop)
+            if subtraction_crop is None:
+                for site_index in owner_site_indices:
+                    crops_by_site.setdefault(site_index, []).append(crop)
             owner_atoms = [
                 atom
                 for atom in surface.atoms
@@ -4094,20 +4325,44 @@ def _evaluate_surface_crops(
                 default=min(owner_site_indices),
             )
             owner_site = surface.sites[owner_site_index]
-            fragments = []
-            for atom in owner_atoms:
-                for fragment in atom.fragments:
-                    clipped = _clip_to_convex(fragment, crop.points)
-                    if clipped:
-                        fragments.append(clipped)
-            _append_pending_fragments(
-                pending,
-                surface,
-                owner_site,
-                crop,
-                fragments,
-                diagnostics,
-            )
+            if static_interior_policy:
+                # S1: граница compiled cell является station заморозки.
+                # Не свариваем уже разрешённую cell с фрагментом, который
+                # всё ещё режется движущимся фронтиром соседней cell.
+                for atom in owner_atoms:
+                    fragments = []
+                    for fragment in atom.fragments:
+                        clipped = _clip_to_convex(fragment, crop.points)
+                        if clipped:
+                            fragments.append(clipped)
+                    _append_pending_fragments(
+                        pending,
+                        surface,
+                        owner_site,
+                        crop,
+                        fragments,
+                        diagnostics,
+                    )
+            else:
+                fragments = []
+                for atom in owner_atoms:
+                    for fragment in atom.fragments:
+                        clipped = _clip_to_convex(fragment, crop.points)
+                        if clipped:
+                            fragments.append(clipped)
+                _append_pending_fragments(
+                    pending,
+                    surface,
+                    owner_site,
+                    crop,
+                    fragments,
+                    diagnostics,
+                )
+        if subtraction_crop is not None:
+            for site_index in corner.incident_sites:
+                crops_by_site.setdefault(site_index, []).append(
+                    subtraction_crop
+                )
 
     for atom in surface.atoms:
         if atom.cell_kind == "POINT" and atom.corner_index in corner_crops:

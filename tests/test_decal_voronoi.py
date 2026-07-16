@@ -976,10 +976,14 @@ def test_apex_limit_clamps_acute_outer_without_gap():
     )
     low_settings = decal_voronoi.CornerRuntimeSettings(apex_limit=1.0)
     diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+    reach_alpha = max(
+        decal_voronoi._dist2(corner.point, point)
+        for point in corner.split_chord
+    )
     components = decal_voronoi._acute_crop_components(
         surface,
         corner,
-        alpha=0.5,
+        alpha=reach_alpha + 0.5,
         settings=low_settings,
         diagnostics=diagnostics,
     )
@@ -987,23 +991,11 @@ def test_apex_limit_clamps_acute_outer_without_gap():
     inner = next(component for component in components if component.side == "INNER")
     outer = next(component for component in components if component.side == "OUTER")
     shared_cap = set(inner.points).intersection(outer.points)
-    assert len(shared_cap) == 2
+    assert shared_cap == set(corner.split_chord)
     assert abs(decal_voronoi._polygon_area2(inner.points)) > 1e-10
     assert abs(decal_voronoi._polygon_area2(outer.points)) > 1e-10
     assert decal_voronoi._polygon_is_simple(list(inner.points))
     assert decal_voronoi._polygon_is_simple(list(outer.points))
-    outer_apex = next(point for point in outer.points if point not in shared_cap)
-    assert decal_voronoi._dist2(corner.point, outer_apex) <= 0.5 + 1e-8
-    cap_a, cap_b = tuple(shared_cap)
-    corner_side = decal_voronoi._cross2(
-        decal_voronoi._sub2(cap_b, cap_a),
-        decal_voronoi._sub2(corner.point, cap_a),
-    )
-    apex_side = decal_voronoi._cross2(
-        decal_voronoi._sub2(cap_b, cap_a),
-        decal_voronoi._sub2(outer_apex, cap_a),
-    )
-    assert corner_side * apex_side < 0.0
     assert diagnostics.clamped_acute_count == 1
 
     results = _apex_limit_evaluations(plan, acute_split_angle=1.0)
@@ -1014,7 +1006,7 @@ def test_apex_limit_clamps_acute_outer_without_gap():
     assert snapshots[1.0] != snapshots[8.0]
     assert snapshots[8.0] == snapshots[100.0]
     assert all(
-        sum(face.component_kind == "ACUTE_SPLIT" for face in faces) == 2
+        sum(face.component_kind == "ACUTE_SPLIT" for face in faces) == 1
         for faces, _diagnostics in results.values()
     )
 
@@ -1354,19 +1346,29 @@ def test_acute_corner_splits_inner_outer_with_shared_mesh_edge_and_uv_seam():
     components = decal_voronoi._acute_crop_components(
         surface, corner, alpha=0.5
     )
-    assert [component.side for component in components] == ["INNER", "OUTER"]
-    assert all(len(component.points) == 3 for component in components)
+    assert [component.side for component in components] == ["INNER"]
+    assert len(components[0].points) >= 3
     full_kite = decal_voronoi._kite_crop_polygon(
         surface, corner, alpha=0.5
     )
-    assert sum(
-        abs(decal_voronoi._polygon_area2(component.points))
-        for component in components
-    ) == pytest.approx(abs(decal_voronoi._polygon_area2(full_kite)))
-    overlap = decal_voronoi._clip_to_convex(
-        components[0].points, components[1].points
+    assert abs(decal_voronoi._polygon_area2(components[0].points)) == pytest.approx(
+        abs(decal_voronoi._polygon_area2(full_kite))
     )
-    assert not overlap or abs(decal_voronoi._polygon_area2(overlap)) <= 1e-9
+
+    reach_alpha = max(
+        decal_voronoi._dist2(corner.point, point)
+        for point in corner.split_chord
+    )
+    split_components = decal_voronoi._acute_crop_components(
+        surface, corner, alpha=reach_alpha + 0.5
+    )
+    assert [component.side for component in split_components] == [
+        "INNER",
+        "OUTER",
+    ]
+    assert set(split_components[0].points).intersection(
+        split_components[1].points
+    ) == set(corner.split_chord)
 
     faces = evaluate_patch_voronoi_plan(plan, width=1.0, preview=True)
     acute_faces = {
@@ -1374,17 +1376,7 @@ def test_acute_corner_splits_inner_outer_with_shared_mesh_edge_and_uv_seam():
         for face in faces
         if face.component_kind == "ACUTE_SPLIT"
     }
-    assert set(acute_faces) == {"INNER", "OUTER"}
-    shared_keys = set(acute_faces["INNER"].vert_keys) & set(
-        acute_faces["OUTER"].vert_keys
-    )
-    assert len(shared_keys) == 2
-    for key in shared_keys:
-        inner_index = acute_faces["INNER"].vert_keys.index(key)
-        outer_index = acute_faces["OUTER"].vert_keys.index(key)
-        assert acute_faces["INNER"].v_lengths[inner_index] != pytest.approx(
-            acute_faces["OUTER"].v_lengths[outer_index]
-        )
+    assert set(acute_faces) == {"INNER"}
     confirmed = evaluate_patch_voronoi_plan(plan, width=1.0, preview=False)
     assert [
         (face.component_kind, face.component_side, tuple(face.vert_keys))
@@ -1407,23 +1399,28 @@ def test_acute_convex_corner_splits_before_wide_miter_competition():
     components = decal_voronoi._acute_crop_components(
         surface, corner, alpha=2.0
     )
+    assert {component.side for component in components} == {"INNER"}
 
+    reach_alpha = max(
+        decal_voronoi._dist2(corner.point, point)
+        for point in corner.split_chord
+    )
+    components = decal_voronoi._acute_crop_components(
+        surface, corner, alpha=reach_alpha + 0.5
+    )
     assert {component.side for component in components} == {"INNER", "OUTER"}
     assert all(
         component.kind == decal_voronoi._CornerPolicy.ACUTE_SPLIT.value
         for component in components
     )
     shared_points = set(components[0].points) & set(components[1].points)
-    assert len(shared_points) == 2
+    assert shared_points == set(corner.split_chord)
 
     faces = evaluate_patch_voronoi_plan(plan, width=4.0, preview=False)
     acute_faces = [
         face for face in faces if face.component_kind == "ACUTE_SPLIT"
     ]
-    assert {face.component_side for face in acute_faces} == {
-        "INNER",
-        "OUTER",
-    }
+    assert {face.component_side for face in acute_faces} == {"INNER"}
 
 
 def test_a11_fan_and_hairpin_have_semantic_uv_components():
@@ -1461,6 +1458,119 @@ def test_a11_fan_and_hairpin_have_semantic_uv_components():
     assert hairpin[0].side == "BLUNT"
     assert len(hairpin[0].uv_anchors) == len(hairpin[0].points)
     assert diagnostics.apex_limit_saturated_count >= 1
+
+
+def test_a12_split_chord_is_compiled_static_geometry_with_stable_uv():
+    plan = compile_patch_voronoi_plan(
+        _acute_notch_graph(), [53, 54], offset=0.01
+    )
+    surface = plan.surfaces[0]
+    corner = next(item for item in surface.corners if item.vert_index == 4)
+    assert len(corner.static_wedge) == 3
+    assert len(corner.split_chord) == 2
+
+    coordinates = [
+        decal_voronoi._corner_wedge_coordinates(
+            surface.sites, corner, point
+        )
+        for point in corner.split_chord
+    ]
+    assert coordinates[0][1] == pytest.approx(0.0, abs=1e-8)
+    assert coordinates[1][0] == pytest.approx(0.0, abs=1e-8)
+
+    reach_alpha = max(
+        decal_voronoi._dist2(corner.point, point)
+        for point in corner.split_chord
+    )
+    inner_frames = []
+    for alpha in (reach_alpha + 0.5, reach_alpha + 1.0):
+        components = decal_voronoi._acute_crop_components(
+            surface, corner, alpha=alpha
+        )
+        inner = next(
+            component for component in components if component.side == "INNER"
+        )
+        inner_frames.append(
+            (
+                inner.points,
+                tuple(
+                    (uv[0] * alpha, uv[1]) for uv in inner.uv_anchors
+                ),
+            )
+        )
+    assert inner_frames[0] == inner_frames[1]
+
+
+def test_a12_hairpin_materializes_blunt_front_after_static_chord():
+    plan = compile_patch_voronoi_plan(
+        _acute_notch_graph(), [53, 54], offset=0.01
+    )
+    surface = plan.surfaces[0]
+    corner = next(item for item in surface.corners if item.vert_index == 4)
+    reach_alpha = max(
+        decal_voronoi._dist2(corner.point, point)
+        for point in corner.split_chord
+    )
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+    components = decal_voronoi._hairpin_crop_components(
+        surface,
+        corner,
+        alpha=reach_alpha + 0.5,
+        diagnostics=diagnostics,
+    )
+    assert {component.side for component in components} == {"INNER", "BLUNT"}
+    inner = next(component for component in components if component.side == "INNER")
+    blunt = next(component for component in components if component.side == "BLUNT")
+    assert set(inner.points).intersection(blunt.points) == set(
+        corner.split_chord
+    )
+    assert diagnostics.apex_limit_saturated_count == 1
+
+
+def test_a12_miter_and_kite_ignore_static_interior_fields_byte_for_byte():
+    plan = compile_patch_voronoi_plan(
+        _acute_notch_graph(), [53, 54], offset=0.01
+    )
+    surface = plan.surfaces[0]
+    stripped_surface = decal_voronoi.replace(
+        surface,
+        corners=tuple(
+            decal_voronoi.replace(
+                corner,
+                split_chord=(),
+                static_wedge=(),
+            )
+            for corner in surface.corners
+        ),
+    )
+    stripped_plan = decal_voronoi.replace(
+        plan,
+        surfaces=(stripped_surface,),
+    )
+
+    settings_by_policy = (
+        decal_voronoi.CornerRuntimeSettings(miter_angle=0.0),
+        decal_voronoi.CornerRuntimeSettings(
+            miter_angle=pi,
+            kite_angle=0.0,
+        ),
+    )
+    for settings in settings_by_policy:
+        baseline = evaluate_patch_voronoi_plan(
+            plan,
+            width=1.0,
+            preview=True,
+            corner_settings=settings,
+        )
+        stripped = evaluate_patch_voronoi_plan(
+            stripped_plan,
+            width=1.0,
+            preview=True,
+            corner_settings=settings,
+        )
+        assert decal_voronoi.serialize_network_faces(
+            baseline
+        ) == decal_voronoi.serialize_network_faces(stripped)
 
 
 def test_a11_cap_is_tangent_aligned_and_has_deterministic_uv():

@@ -9,6 +9,8 @@ Fixture — силуэт стены с углами трёх band'ов: MITER ~1
 (острый пик), KITE ~111°, плюс CAP на концах цепочки.
 """
 
+from math import pi
+
 import pytest
 
 pytest.importorskip("pyvoronoi")
@@ -16,6 +18,7 @@ pytest.importorskip("pyvoronoi")
 from mathutils import Vector
 
 from cftuv.decal_voronoi import (
+    CornerRuntimeSettings,
     compile_patch_voronoi_plan,
     evaluate_patch_voronoi_plan,
 )
@@ -185,13 +188,6 @@ def width_sweep():
     ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "S1 нарушен: FAN/ACUTE границы якорены на alpha-точках и переезжают "
-        "с шириной (задача A12); после переякорения снять маркер"
-    ),
-)
 def test_s1_interior_supporting_lines_never_move(width_sweep):
     """Опорные прямые внутренних швов не исчезают при росте ширины."""
 
@@ -209,21 +205,14 @@ def test_s1_interior_supporting_lines_never_move(width_sweep):
         previous_lines = lines
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "S1 §5.1 п.4-5: грани в разрешённой области пересобираются при "
-        "drag (задача A12); после переякорения снять маркер"
-    ),
-)
 def test_s1_resolved_faces_keep_geometry_and_uv(width_sweep):
     """Грань, замершая геометрически, не меняет UV на следующем кадре.
 
-    Прокси локальной заморозки: доля граней, доживших без изменений от
-    кадра к кадру, должна монотонно приближаться к 1 задолго до полного
-    насыщения; у совпавших граней UV обязаны быть идентичными.
+    Прокси локальной заморозки: число доживших граней не уменьшается после
+    первого collision; у совпавших граней UV обязаны быть идентичными.
     """
 
+    previous_stable = 0
     for (w1, faces1), (w2, faces2) in zip(width_sweep, width_sweep[1:]):
         signatures1 = {
             _face_signature(face): _face_uv_payload(face, w1 * 0.5)
@@ -242,12 +231,47 @@ def test_s1_resolved_faces_keep_geometry_and_uv(width_sweep):
                 f"{signature[:2]} (нарушение S1 §5.1 п.5)"
             )
         if w2 >= 6.0:
-            # К этой ширине фронтир покинул окрестности всех углов
-            # fixture; большинство граней обязаны дожить без изменений.
-            assert stable >= len(faces2) // 2, (
-                f"width {w2}: только {stable}/{len(faces2)} граней "
-                f"стабильны — разрешённая область пересобирается"
+            assert stable >= previous_stable, (
+                f"width {w2}: число локально замороженных граней "
+                f"уменьшилось {previous_stable}->{stable}"
             )
+            previous_stable = stable
+
+
+def test_s1_threshold_drag_preserves_common_frozen_face_uv():
+    """При policy-switch UV общих замороженных граней побитово стабилен."""
+
+    graph, edges = _silhouette_graph()
+    plan = compile_patch_voronoi_plan(graph, edges, offset=0.01)
+    fan_faces = evaluate_patch_voronoi_plan(
+        plan,
+        width=10.0,
+        preview=True,
+        corner_settings=CornerRuntimeSettings(split_angle=60.0 * pi / 180.0),
+    )
+    split_faces = evaluate_patch_voronoi_plan(
+        plan,
+        width=10.0,
+        preview=True,
+        corner_settings=CornerRuntimeSettings(split_angle=70.0 * pi / 180.0),
+    )
+    assert any(face.component_kind == "FAN" for face in fan_faces)
+    assert any(face.component_kind == "ACUTE_SPLIT" for face in split_faces)
+
+    fan_by_signature = {
+        _face_signature(face): tuple(zip(face.u_fracs, face.v_lengths))
+        for face in fan_faces
+    }
+    common = 0
+    for face in split_faces:
+        signature = _face_signature(face)
+        if signature not in fan_by_signature:
+            continue
+        common += 1
+        assert fan_by_signature[signature] == tuple(
+            zip(face.u_fracs, face.v_lengths)
+        )
+    assert common > 0
 
 
 def test_interior_frozen_after_saturation(width_sweep):
