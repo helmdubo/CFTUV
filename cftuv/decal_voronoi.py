@@ -585,22 +585,49 @@ def _polygon_is_simple(points, tolerance=1e-8):
             or (abs(turns[3]) <= tolerance and on_segment(point_c, point_d, point_b))
         )
 
-    for edge_index in range(count):
-        point_a = points[edge_index]
+    # Sweep broad phase: прежний полный O(n²) перебор занимал почти весь
+    # compile на sampled parabolic Voronoi cells. Exact narrow phase выше не
+    # меняется; sweep только исключает пары с непересекающимися AABB.
+    edges = []
+    for edge_index, point_a in enumerate(points):
         point_b = points[(edge_index + 1) % count]
-        for other_index in range(edge_index + 1, count):
-            if other_index in (
+        edges.append(
+            (
+                min(point_a[0], point_b[0]) - tolerance,
+                max(point_a[0], point_b[0]) + tolerance,
+                min(point_a[1], point_b[1]) - tolerance,
+                max(point_a[1], point_b[1]) + tolerance,
                 edge_index,
-                (edge_index + 1) % count,
-                (edge_index - 1) % count,
+                point_a,
+                point_b,
+            )
+        )
+    edges.sort(key=lambda edge: (edge[0], edge[2], edge[4]))
+    active = []
+    for edge in edges:
+        min_x, max_x, min_y, max_y, edge_index, point_a, point_b = edge
+        active = [candidate for candidate in active if candidate[1] >= min_x]
+        for candidate in active:
+            (
+                _other_min_x,
+                _other_max_x,
+                other_min_y,
+                other_max_y,
+                other_index,
+                point_c,
+                point_d,
+            ) = candidate
+            if (
+                other_index == edge_index
+                or (other_index + 1) % count == edge_index
+                or (edge_index + 1) % count == other_index
             ):
                 continue
-            if edge_index == 0 and other_index == count - 1:
+            if other_max_y < min_y or max_y < other_min_y:
                 continue
-            point_c = points[other_index]
-            point_d = points[(other_index + 1) % count]
             if intersects(point_a, point_b, point_c, point_d):
                 return False
+        active.append(edge)
     return True
 
 

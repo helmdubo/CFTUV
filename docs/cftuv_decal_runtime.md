@@ -118,6 +118,35 @@ signed-area validation: при union-find, boundary reconstruction и затем
 cache: `24.96 -> 21.82 ms` (`1.14x`) и `109.83 -> 97.46 ms` (`1.13x`).
 Zero-area faces отсутствуют, persistent object/mesh identity сохранена.
 
+## Startup polygon sweep
+
+Startup profiling разделяет три независимые фазы: PatchGraph preparation,
+width-independent PyVoronoi compile и первый exact BMesh. На `walls.001`
+основная задержка находилась не в PyVoronoi C++ solve, а в Python
+`_polygon_is_simple()`: sampled parabolic cells проходили полный O(n^2)
+перебор всех пар рёбер перед triangulation.
+
+Проверка теперь использует sweep broad phase по edge AABB. В active set
+попадают только рёбра с пересекающимся X-диапазоном, Y-overlap отбрасывает
+ещё одну часть пар, а прежний exact orientation/on-segment narrow phase
+остаётся без изменений.
+
+Differential против `09a945d` совпал на `walls.003` и `walls.001` при
+ширинах `2.0 / 3.0 / 3.7076 / 4.5`. Compile:
+
+- `walls.003`: `2069 -> 183 ms` (`11.3x`);
+- `walls.001`: `5774 -> 389 ms` (`14.8x`).
+
+Полный холодный старт `walls.001` после изменения: около `0.7 s`, включая
+PatchGraph preparation, compile и exact BMesh; zero-area faces отсутствуют.
+
+Сам Voronoi backend уже нативный (`pyvoronoi`). Если production fixture на
+тысячах sites всё ещё требует ускорения, следующий native кандидат —
+опциональный C++ backend для polygon clipping/fragment union с Python
+fallback. GPU больше подходит для overlay preview: branch-heavy polygon
+topology и переменная длина contours делают compute backend существенно
+сложнее, чем C++ narrow phase.
+
 Следующий существенный performance-слой должен профилировать surface-local
 crop/clip отдельно и использовать независимость owner surfaces.
 Простое кэширование по width не подходит: глобальная ширина меняет все

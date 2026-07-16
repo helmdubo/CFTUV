@@ -986,6 +986,31 @@ def test_wide_t_junction_cells_remain_simple_and_non_overlapping():
                             ) <= 1e-5
 
 
+@pytest.mark.parametrize(
+    ("polygon", "expected"),
+    [
+        (
+            [(0.0, 0.0), (3.0, 0.0), (3.0, 2.0), (1.0, 1.0), (0.0, 2.0)],
+            True,
+        ),
+        (
+            [(0.0, 0.0), (3.0, 2.0), (0.0, 2.0), (3.0, 0.0)],
+            False,
+        ),
+    ],
+)
+def test_polygon_sweep_preserves_exact_intersection_result(polygon, expected):
+    assert decal_voronoi._polygon_is_simple(polygon) is expected
+
+
+def test_polygon_sweep_accepts_dense_convex_cell():
+    polygon = [
+        (cos(index * 2.0 * pi / 512), sin(index * 2.0 * pi / 512))
+        for index in range(512)
+    ]
+    assert decal_voronoi._polygon_is_simple(polygon)
+
+
 def test_patch_voronoi_fragment_union_removes_internal_triangulation():
     components = _merge_polygon_fragments(
         [
