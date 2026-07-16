@@ -155,3 +155,16 @@ confirm и проверенным preview adapter.
 
 GPU overlay остаётся возможной следующей ступенью, но не требуется для
 проверки runtime corner policy.
+
+## Invalid Boost parabolas
+
+`pyvoronoi` может вернуть curved edge, endpoint которого не удовлетворяет
+параболе соответствующих point/segment sites. Это известный отказ внешнего
+discretizer: увеличение `parabola_equation_tolerance` скрывает противоречие,
+но создаёт недостоверную дугу и возможный разрыв у endpoint.
+
+Обычные curved edges по-прежнему дискретизируются с точным tolerance
+`0.0001`. Только `FocusOnDirectixException` и
+`UnsolvableParabolaEquation` локально заменяют оба направления twin edge
+общей хордой Boost endpoints. Поэтому одна некорректная парабола не отменяет
+compile всей seam-сети, а граница соседних cells остаётся общей и замкнутой.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from types import SimpleNamespace
 
 import pytest
 from math import cos, pi, sin
@@ -20,6 +21,48 @@ from cftuv.model import (  # noqa: E402
     PatchGraph,
     PatchNode,
 )
+
+
+@pytest.mark.parametrize(
+    "error_type",
+    (
+        decal_voronoi.pyvoronoi.FocusOnDirectixException,
+        decal_voronoi.pyvoronoi.UnsolvableParabolaEquation,
+    ),
+)
+def test_invalid_boost_parabola_falls_back_to_shared_chord(error_type):
+    class BrokenDiagram:
+        def DiscretizeCurvedEdge(self, *_args):
+            raise error_type("invalid curved edge")
+
+    edges = [
+        SimpleNamespace(start=0, end=1, is_linear=False),
+    ]
+    vertices = [
+        SimpleNamespace(X=1.25, Y=-2.0),
+        SimpleNamespace(X=3.75, Y=4.0),
+    ]
+
+    assert decal_voronoi._edge_points(
+        BrokenDiagram(), edges, vertices, 0, 0.5
+    ) == [(1.25, -2.0), (3.75, 4.0)]
+
+
+def test_unrelated_curve_backend_error_is_not_hidden():
+    class BrokenDiagram:
+        def DiscretizeCurvedEdge(self, *_args):
+            raise RuntimeError("unexpected backend failure")
+
+    edges = [SimpleNamespace(start=0, end=1, is_linear=False)]
+    vertices = [
+        SimpleNamespace(X=0.0, Y=0.0),
+        SimpleNamespace(X=1.0, Y=1.0),
+    ]
+
+    with pytest.raises(RuntimeError, match="unexpected backend failure"):
+        decal_voronoi._edge_points(
+            BrokenDiagram(), edges, vertices, 0, 0.5
+        )
 
 
 def _planar_two_site_graph():

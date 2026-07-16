@@ -1285,12 +1285,23 @@ def _edge_points(diagram, edges, vertices, edge_index, curve_step):
     end = (vertices[edge.end].X, vertices[edge.end].Y)
     if edge.is_linear:
         return [start, end]
-    points = [
-        (float(point[0]), float(point[1]))
-        for point in diagram.DiscretizeCurvedEdge(
-            edge_index, curve_step, 0.0001
-        )
-    ]
+    try:
+        points = [
+            (float(point[0]), float(point[1]))
+            for point in diagram.DiscretizeCurvedEdge(
+                edge_index, curve_step, 0.0001
+            )
+        ]
+    except (
+        pyvoronoi.FocusOnDirectixException,
+        pyvoronoi.UnsolvableParabolaEquation,
+    ):
+        # Boost иногда помечает edge как параболический, хотя один из его
+        # концов не лежит на параболе point/segment sites. Увеличение tolerance
+        # в таком случае строит выдуманную дугу с разрывом у endpoint. Общая
+        # хорда twin edges сохраняет замкнутую partition и локализует дефект
+        # внешней библиотеки одним низкополигональным ребром.
+        return [start, end]
     if not points:
         return [start, end]
     if _dist2(points[0], start) > _dist2(points[-1], start):
