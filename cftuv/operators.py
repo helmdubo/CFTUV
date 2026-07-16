@@ -57,8 +57,10 @@ from .solve import (
     format_solve_plan_report,
     plan_solve_phase1,
 )
+from .version_info import resolve_addon_build_info
 
 ADDON_PACKAGE = __package__ or Path(__file__).resolve().parent.name
+ADDON_BUILD_INFO = resolve_addon_build_info(Path(__file__).resolve())
 
 
 class HOTSPOTUV_OT_CleanNonManifoldEdges(bpy.types.Operator):
@@ -1591,6 +1593,12 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         s = context.scene.hotspotuv_settings
+
+        build_box = layout.box()
+        build_box.label(
+            text=f"Branch: {ADDON_BUILD_INFO.branch}", icon="INFO"
+        )
+        build_box.label(text=f"Commit: {ADDON_BUILD_INFO.short_commit}")
 
         # --- Settings ---
         col = layout.column(align=True)
