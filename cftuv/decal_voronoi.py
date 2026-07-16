@@ -177,7 +177,7 @@ class CornerRuntimeSettings:
         kite_angle=_KITE_ANGLE,
         split_angle=None,
         hairpin_angle=_HAIRPIN_ANGLE,
-        dynamic_corner_bands=True,
+        dynamic_corner_bands=False,
     ):
         # ``miter_limit`` остаётся constructor adapter для старых scripts.
         if miter_limit is not None:
@@ -255,7 +255,7 @@ def _normalized_corner_runtime_settings(settings):
         hairpin_angle=hairpin_angle,
         apex_limit=max(1.0, float(apex_limit)),
         dynamic_corner_bands=bool(
-            getattr(settings, "dynamic_corner_bands", True)
+            getattr(settings, "dynamic_corner_bands", False)
         ),
     )
 

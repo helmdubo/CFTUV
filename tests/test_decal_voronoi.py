@@ -65,6 +65,11 @@ def test_unrelated_curve_backend_error_is_not_hidden():
         )
 
 
+# Band-тесты A11/A12 включают экспериментальный путь явно: дефолт
+# dynamic_corner_bands=False во всех entry points (стабильная A10-семантика).
+_BAND_SETTINGS = decal_voronoi.CornerRuntimeSettings(dynamic_corner_bands=True)
+
+
 def _planar_two_site_graph():
     node = PatchNode(
         patch_id=0,
@@ -973,7 +978,7 @@ def test_corner_spec_classifies_intrinsic_convex_concave_and_acute():
         assert corner.interior_angle == pytest.approx(1.5 * pi)
         assert corner.extrusion_angle == pytest.approx(0.5 * pi)
         assert (
-            decal_voronoi.classify_corner_runtime(corner)
+            decal_voronoi.classify_corner_runtime(corner, _BAND_SETTINGS)
             == decal_voronoi._CornerPolicy.KITE
         )
         assert len(corner.ordered_sites) == 2
@@ -991,7 +996,7 @@ def test_corner_spec_classifies_intrinsic_convex_concave_and_acute():
     assert folded_corner.interior_angle == pytest.approx(0.5 * pi)
     assert folded_corner.extrusion_angle == pytest.approx(0.5 * pi)
     assert (
-        decal_voronoi.classify_corner_runtime(folded_corner)
+        decal_voronoi.classify_corner_runtime(folded_corner, _BAND_SETTINGS)
         == decal_voronoi._CornerPolicy.KITE
     )
 
@@ -1007,7 +1012,7 @@ def test_corner_spec_classifies_intrinsic_convex_concave_and_acute():
     assert acute_corner.interior_angle == pytest.approx(pi / 6.0)
     assert acute_corner.extrusion_angle == pytest.approx(pi / 6.0)
     assert (
-        decal_voronoi.classify_corner_runtime(acute_corner)
+        decal_voronoi.classify_corner_runtime(acute_corner, _BAND_SETTINGS)
         == decal_voronoi._CornerPolicy.ACUTE_SPLIT
     )
 
@@ -1053,7 +1058,7 @@ def test_a11_oracle_angle_table(angle_degrees, expected):
         miter_ratio=1.0,
     )
 
-    assert decal_voronoi.classify_corner_runtime(corner) == expected
+    assert decal_voronoi.classify_corner_runtime(corner, _BAND_SETTINGS) == expected
 
 
 def test_a11_thresholds_normalize_in_order_and_soft_band_wins_equality():
@@ -1142,6 +1147,7 @@ def _apex_limit_evaluations(
         settings = decal_voronoi.CornerRuntimeSettings(
             acute_split_angle=acute_split_angle,
             apex_limit=apex_limit,
+            dynamic_corner_bands=True,
             **corner_thresholds,
         )
         diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
@@ -1213,7 +1219,9 @@ def test_apex_limit_clamps_acute_outer_without_gap():
     corner = next(
         item for item in surface.corners if item.vert_index == 4
     )
-    low_settings = decal_voronoi.CornerRuntimeSettings(apex_limit=1.0)
+    low_settings = decal_voronoi.CornerRuntimeSettings(
+        apex_limit=1.0, dynamic_corner_bands=True
+    )
     diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
     reach_alpha = max(
         decal_voronoi._dist2(corner.point, point)
@@ -1313,7 +1321,9 @@ def test_convex_corner_builds_explicit_realtime_kite():
 def test_corner_absorbs_incident_point_cell_boundaries_before_collision():
     graph, edge_indices = _door_opening_graph()
     plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
-    faces = evaluate_patch_voronoi_plan(plan, width=0.1, preview=True)
+    faces = evaluate_patch_voronoi_plan(
+        plan, width=0.1, preview=True, corner_settings=_BAND_SETTINGS
+    )
 
     kite_faces = [face for face in faces if face.component_kind == "KITE"]
     segment_faces = [
@@ -1397,7 +1407,7 @@ def _short_segment_owned_crops(monkeypatch, reverse_site=False):
         _short_segment_endpoint_surface(reverse_site),
         alpha=1.0,
         pending=pending,
-        corner_settings=decal_voronoi.CornerRuntimeSettings(),
+        corner_settings=_BAND_SETTINGS,
     )
     return pending
 
@@ -1583,7 +1593,7 @@ def test_acute_corner_splits_inner_outer_with_shared_mesh_edge_and_uv_seam():
         corner for corner in surface.corners if corner.vert_index == 4
     )
     components = decal_voronoi._acute_crop_components(
-        surface, corner, alpha=0.5
+        surface, corner, alpha=0.5, settings=_BAND_SETTINGS
     )
     assert [component.side for component in components] == ["INNER"]
     assert len(components[0].points) >= 3
@@ -1599,7 +1609,7 @@ def test_acute_corner_splits_inner_outer_with_shared_mesh_edge_and_uv_seam():
         for point in corner.split_chord
     )
     split_components = decal_voronoi._acute_crop_components(
-        surface, corner, alpha=reach_alpha + 0.5
+        surface, corner, alpha=reach_alpha + 0.5, settings=_BAND_SETTINGS
     )
     assert [component.side for component in split_components] == [
         "INNER",
@@ -1609,14 +1619,18 @@ def test_acute_corner_splits_inner_outer_with_shared_mesh_edge_and_uv_seam():
         split_components[1].points
     ) == set(corner.split_chord)
 
-    faces = evaluate_patch_voronoi_plan(plan, width=1.0, preview=True)
+    faces = evaluate_patch_voronoi_plan(
+        plan, width=1.0, preview=True, corner_settings=_BAND_SETTINGS
+    )
     acute_faces = {
         face.component_side: face
         for face in faces
         if face.component_kind == "ACUTE_SPLIT"
     }
     assert set(acute_faces) == {"INNER"}
-    confirmed = evaluate_patch_voronoi_plan(plan, width=1.0, preview=False)
+    confirmed = evaluate_patch_voronoi_plan(
+        plan, width=1.0, preview=False, corner_settings=_BAND_SETTINGS
+    )
     assert [
         (face.component_kind, face.component_side, tuple(face.vert_keys))
         for face in faces
@@ -1636,7 +1650,7 @@ def test_acute_convex_corner_splits_before_wide_miter_competition():
     )
 
     components = decal_voronoi._acute_crop_components(
-        surface, corner, alpha=2.0
+        surface, corner, alpha=2.0, settings=_BAND_SETTINGS
     )
     assert {component.side for component in components} == {"INNER"}
 
@@ -1645,7 +1659,7 @@ def test_acute_convex_corner_splits_before_wide_miter_competition():
         for point in corner.split_chord
     )
     components = decal_voronoi._acute_crop_components(
-        surface, corner, alpha=reach_alpha + 0.5
+        surface, corner, alpha=reach_alpha + 0.5, settings=_BAND_SETTINGS
     )
     assert {component.side for component in components} == {"INNER", "OUTER"}
     assert all(
@@ -1655,7 +1669,9 @@ def test_acute_convex_corner_splits_before_wide_miter_competition():
     shared_points = set(components[0].points) & set(components[1].points)
     assert shared_points == set(corner.split_chord)
 
-    faces = evaluate_patch_voronoi_plan(plan, width=4.0, preview=False)
+    faces = evaluate_patch_voronoi_plan(
+        plan, width=4.0, preview=False, corner_settings=_BAND_SETTINGS
+    )
     acute_faces = [
         face for face in faces if face.component_kind == "ACUTE_SPLIT"
     ]
