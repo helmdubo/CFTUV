@@ -122,6 +122,36 @@ sensitivity и значение не скачет при нажатии/отпу
 snapshot. Esc/RMB восстанавливает исходные значения всех W/A/M properties,
 которые могли измениться за одну modal-сессию.
 
+## Source transform and world/local units
+
+Публичный `DecalSettings` и modal properties хранят размеры в world units.
+Перед compile/evaluate source transform проходит строгий metric preflight.
+Допускаются только rotation + translation и positive uniform scale `s`.
+Проверка использует полный 3x3 basis: `MᵀM` должен совпадать с `s²I` в
+tolerance, а determinant обязан быть положительным.
+
+Backend работает в local coordinates и получает:
+
+```text
+width_corner_local = width_corner_world / s
+width_seam_local    = width_seam_world / s
+height_trim_local   = height_trim_world / s
+offset_local        = offset_world / s
+uv_length_scale_local = uv_length_scale_world * s
+```
+
+Последнее умножение сохраняет world-space texel density: local arc length
+после `matrix_world` становится в `s` раз больше, а UV остаётся рассчитанным
+по мировой длине. Corner angle и Apex Limit безразмерны и не меняются.
+
+Non-uniform scale, shear, reflection/negative determinant и degenerate matrix
+отклоняются до PatchGraph analysis и создания preview. Structured API
+возвращает `ERROR` с кодом `NON_UNIFORM_OR_SHEARED_SOURCE_TRANSFORM`,
+`MIRRORED_SOURCE_TRANSFORM` или `DEGENERATE_SOURCE_TRANSFORM`; raising
+compatibility API бросает `DecalSourceTransformError`. Полная поддержка таких
+transforms требует отдельного world-space backend и не маскируется через
+`Object.scale` либо `Matrix.to_scale()`.
+
 ## Developer build identity
 
 В верхней части панели Hotspot UV показываются `Branch` и первые восемь

@@ -166,6 +166,11 @@ operators.py
   проекция bbox, viewport fallback, cursor warp, W/A/M sensitivity и clamps.
 - Модуль строит ленты в собственном `bmesh.new()` и материализует их
   объектами в коллекции `Decals_Generated` с `matrix_world` источника.
+- Settings/modal задаются в world units. Перед backend они переводятся в
+  local metric через проверенный positive uniform scale source object:
+  размеры и offset делятся на scale, а `uv_length_scale` умножается на scale.
+  Non-uniform scale, shear и mirror transform отклоняются до preview с явной
+  ошибкой; применить scale либо убрать reflection нужно на исходном объекте.
 - Настройки — frozen dataclass `DecalSettings` в `model.py` (инвариант «без
   глобалов»); пороги и UV-ректы — в `constants.py` (`DECAL_*`).
 - Повторная генерация заменяет одноимённый объект (`Decal_<Mode>_<Source>`),

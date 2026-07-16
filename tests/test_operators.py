@@ -59,6 +59,47 @@ class _IdentityMatrix:
     def __matmul__(self, value):
         return value
 
+    def __getitem__(self, index):
+        return (
+            (1.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (0.0, 0.0, 1.0),
+        )[index]
+
+    def to_3x3(self):
+        return self
+
+    def determinant(self):
+        return 1.0
+
+
+class _NonUniformMatrix(_IdentityMatrix):
+    def __getitem__(self, index):
+        return (
+            (2.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (0.0, 0.0, 1.0),
+        )[index]
+
+    def determinant(self):
+        return 2.0
+
+
+class _UniformScaleMatrix(_IdentityMatrix):
+    def __init__(self, scale):
+        self.scale = float(scale)
+
+    def __getitem__(self, index):
+        value = self.scale
+        return (
+            (value, 0.0, 0.0),
+            (0.0, value, 0.0),
+            (0.0, 0.0, value),
+        )[index]
+
+    def determinant(self):
+        return self.scale**3
+
 
 def _bbox_object():
     return SimpleNamespace(
@@ -150,6 +191,32 @@ def test_decal_drag_clamps_to_positive_minimum_and_shift_is_precise():
     normal_delta = decal_drag_value(0.25, 10) - 0.25
     precise_delta = decal_drag_value(0.25, 10, precise=True) - 0.25
     assert precise_delta == pytest.approx(normal_delta * 0.1)
+
+
+def test_decal_preflight_rejects_non_metric_transform_before_analysis(
+    monkeypatch,
+):
+    from cftuv import operators as operators_module
+
+    source = _bbox_object()
+    source.matrix_world = _NonUniformMatrix()
+    analysis_calls = []
+    monkeypatch.setattr(
+        operators_module,
+        "_prepare_patch_graph",
+        lambda *_args, **_kwargs: analysis_calls.append(True),
+    )
+    context = SimpleNamespace(
+        active_object=source,
+        scene=SimpleNamespace(hotspotuv_settings=SimpleNamespace()),
+    )
+
+    with pytest.raises(
+        ValueError, match="NON_UNIFORM_OR_SHEARED_SOURCE_TRANSFORM"
+    ):
+        operators_module._prepare_decal_generation(context)
+
+    assert analysis_calls == []
 
 
 def _a8_modal_fixture():
@@ -733,13 +800,50 @@ def test_decal_generate_forwards_modal_plan(monkeypatch):
     assert calls[0][1]["preview"] is True
 
 
+def test_seam_compile_plan_receives_local_metric_settings(monkeypatch):
+    from cftuv import operators as operators_module
+
+    source = _bbox_object()
+    source.matrix_world = _UniformScaleMatrix(2.0)
+    settings = DecalSettings(
+        width_seam=0.15,
+        offset=0.02,
+        uv_length_scale=0.25,
+    )
+    selected_edges = (5, 14)
+    state = (
+        source,
+        object(),
+        settings,
+        ((0, 0, 0),),
+        True,
+        len(selected_edges),
+        selected_edges,
+    )
+    compiled_settings = []
+    monkeypatch.setattr(
+        operators_module,
+        "compile_manual_seam_decal_plan",
+        lambda _graph, local, _edges: compiled_settings.append(local)
+        or object(),
+    )
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+
+    operator._compile_decal_plan(state)
+
+    assert compiled_settings[0].width_seam == pytest.approx(0.075)
+    assert compiled_settings[0].offset == pytest.approx(0.01)
+    assert compiled_settings[0].uv_length_scale == pytest.approx(0.50)
+
+
 def test_seam_execute_compiles_and_forwards_same_plan_as_modal(monkeypatch):
     from cftuv import operators as operators_module
 
     settings = DecalSettings()
     selected_edges = (5, 14)
     state = (
-        object(),
+        _bbox_object(),
         object(),
         settings,
         ((0, 0, 0),),

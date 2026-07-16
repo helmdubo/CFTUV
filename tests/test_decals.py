@@ -321,6 +321,11 @@ def test_patch_voronoi_transaction_fails_before_any_bmesh_write(monkeypatch):
 def test_generate_decal_objects_reuses_existing_object_only_for_preview(
     monkeypatch,
 ):
+    monkeypatch.setattr(
+        decals_module,
+        "local_decal_settings_for_source",
+        lambda settings, _source: settings,
+    )
     fake_bm = _FakeMaterializationBMesh()
     fake_bm.faces.append(object())
     monkeypatch.setattr(
@@ -388,6 +393,11 @@ def test_generate_decal_objects_reuses_existing_object_only_for_preview(
 
 
 def test_structured_generation_result_exposes_runtime_summary(monkeypatch):
+    monkeypatch.setattr(
+        decals_module,
+        "local_decal_settings_for_source",
+        lambda settings, _source: settings,
+    )
     monkeypatch.setattr(
         decals_module,
         "_generate_decal_transaction",
@@ -663,6 +673,11 @@ def test_structured_generation_classifies_transaction_error(
 ):
     monkeypatch.setattr(
         decals_module,
+        "local_decal_settings_for_source",
+        lambda settings, _source: settings,
+    )
+    monkeypatch.setattr(
+        decals_module,
         "_generate_decal_transaction",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             RuntimeError("invalid crop")
@@ -710,6 +725,11 @@ def test_structured_generation_classifies_transaction_error(
 def test_structured_generation_classifies_empty_transaction(
     monkeypatch, preview, has_existing, expected_status
 ):
+    monkeypatch.setattr(
+        decals_module,
+        "local_decal_settings_for_source",
+        lambda settings, _source: settings,
+    )
     monkeypatch.setattr(
         decals_module,
         "_generate_decal_transaction",
@@ -859,6 +879,11 @@ def test_materialization_returns_structured_complete_result():
 def test_invalid_face_frees_transaction_without_publishing(
     monkeypatch, preview
 ):
+    monkeypatch.setattr(
+        decals_module,
+        "local_decal_settings_for_source",
+        lambda settings, _source: settings,
+    )
     bm = _FakeMaterializationBMesh()
     monkeypatch.setattr(
         decals_module.bmesh, "new", lambda: bm, raising=False

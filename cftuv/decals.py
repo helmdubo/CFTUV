@@ -56,6 +56,10 @@ from .decal_voronoi import (
     corner_runtime_settings_from_decal_settings,
     evaluate_patch_voronoi_plan,
 )
+from .decal_transform import (
+    DecalSourceTransformError,
+    local_decal_settings_for_source,
+)
 from .console_debug import is_verbose_console_enabled
 from .model import ChainNeighborKind, ChainRef, DecalSettings, PatchGraph, PatchType
 
@@ -3376,7 +3380,7 @@ def _generate_decal_transaction(
     decal_plan,
     preview_state,
 ):
-    """Выполняет raising generation path для structured/list adapters."""
+    """Выполняет raising generation path с backend-local settings."""
 
     topology_rebuilds_before = (
         preview_state.topology_rebuilds if preview_state is not None else 0
@@ -3459,6 +3463,15 @@ def generate_decal_result(
             reason=f"Unknown decal mode: {mode}",
             backend_summary=backend_summary,
         )
+    try:
+        local_settings = local_decal_settings_for_source(settings, source_obj)
+    except DecalSourceTransformError as exc:
+        return DecalGenerationResult(
+            PreviewStatus.ERROR,
+            None,
+            reason=str(exc),
+            backend_summary=backend_summary,
+        )
     if scene is None:
         scene = bpy.context.scene
     object_name = (
@@ -3474,7 +3487,7 @@ def generate_decal_result(
         transaction = _generate_decal_transaction(
             graph,
             source_obj,
-            settings,
+            local_settings,
             mode,
             scene,
             chain_refs,
@@ -3542,12 +3555,13 @@ def generate_decal_objects(
 
     if mode not in DECAL_MODES:
         raise ValueError(f"Unknown decal mode: {mode}")
+    local_settings = local_decal_settings_for_source(settings, source_obj)
     if scene is None:
         scene = bpy.context.scene
     transaction = _generate_decal_transaction(
         graph,
         source_obj,
-        settings,
+        local_settings,
         mode,
         scene,
         chain_refs,

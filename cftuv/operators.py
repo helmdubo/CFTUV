@@ -36,6 +36,10 @@ from .decal_modal import (
     format_decal_drag_value as _format_decal_drag_value,
     warp_decal_drag_cursor as _warp_decal_drag_cursor,
 )
+from .decal_transform import (
+    local_decal_settings_for_source,
+    validate_decal_source_transform,
+)
 from .debug import (
     apply_layer_visibility,
     clear_visualization,
@@ -719,6 +723,9 @@ def _prepare_decal_generation(context):
 
     decal_settings = context.scene.hotspotuv_settings
     source_obj = context.active_object
+    validate_decal_source_transform(
+        getattr(source_obj, "matrix_world", None)
+    )
     manual_selection = _is_edge_select_mode(context, source_obj)
     selected_edge_indices = []
     if manual_selection:
@@ -1338,8 +1345,11 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
 
         self._modal_decal_plan = None
         if self.mode == "SEAMS" and state[4] and state[6]:
+            local_settings = local_decal_settings_for_source(
+                state[2], state[0]
+            )
             self._modal_decal_plan = compile_manual_seam_decal_plan(
-                state[1], state[2], state[6]
+                state[1], local_settings, state[6]
             )
 
     def _report_created(self, created, state, suffix=""):
