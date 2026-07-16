@@ -230,6 +230,8 @@ class ChartCut:
     reason: str
     transition_key: object
     source_edge_index: int = -1
+    selection_distance: float = 0.0
+    candidate_count: int = 0
 
     def __post_init__(self):
         if self.source_edge[0] >= self.source_edge[1]:
@@ -244,6 +246,13 @@ class ChartCut:
             raise ValueError("Chart cut requires a transition key")
         if self.source_edge_index < -1:
             raise ValueError("Chart cut source edge index is invalid")
+        if (
+            not isfinite(float(self.selection_distance))
+            or self.selection_distance < 0.0
+        ):
+            raise ValueError("Chart cut selection distance is invalid")
+        if self.candidate_count < 0:
+            raise ValueError("Chart cut candidate count is invalid")
 
 
 @dataclass(frozen=True)

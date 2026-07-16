@@ -47,7 +47,7 @@ workplan'а).
 | G4 | Невязка замыкания циклов, нормированная на полуширину | `<= 0.02 * N` | `max_loop_closure_residual`, `N` — см. ниже |
 | G5 | Относительная ошибка длин рёбер unroll (числ. точность, не distortion) | `<= 1e-5` | `max_edge_error` (relative) |
 | G6 | Сохранение площади чарта | `abs(ratio - 1) <= 0.01` | `chart_area_source_area_ratio` |
-| G7 | Cut policy: не более одного deterministic cut; только если после него чарт — disk; cut не пересекает selected sites; selected chain не лежит на cut | binary | `cuts`, `ChartCut.reason` |
+| G7 | Cut policy: не более одного deterministic cut; только если после него чарт — disk. В periodic domain selected strip вправе пересекать cut транзверсально; запрещён только коллинеарный overlap selected source edge с generating cut | binary | `cuts`, `ChartCut.reason` |
 | G8 | Однозначность размещения: каждый support-треугольник размещён ровно один раз | binary | `DISCONNECTED_CHART_SUPPORT` / dup guard C2 |
 
 Нормировка G4: `N = alpha_budget`, если бюджет конечен
@@ -73,6 +73,8 @@ support'а)`. Правило детерминировано и фиксируе�
 - `CHART_SELF_OVERLAP` — G2;
 - `AMBIGUOUS_PLACEMENT` / `DISCONNECTED_CHART_SUPPORT` — G8/G1;
 - `CUT_CROSSES_SELECTED_CHAIN` — G7;
+- `PERIODIC_HOLONOMY_UNSUPPORTED` — две стороны periodic cut не связаны
+  чистой трансляцией (rotation или относительное изменение period > 0.02);
 - `MULTI_CUT_REQUIRED` — цикл не сводится одним cut (v1 отдаёт в
   fallback, не импровизирует atlas);
 - `DEGENERATE_SOURCE_TRIANGLE` — нулевая площадь (существующий C2).
@@ -112,7 +114,7 @@ zero-area/non-manifold/overfull edges, отсутствие junction-connector
 | F5 | Densely tessellated cylindrical fillet (64+ сегментов, радиус ~ alpha) | масштаб + полосный бюджет | ADMIT | `support_triangle_count` ~ полоса, не patch | offset-safety: `abs(offset)*max_kappa` предупреждение при offset >= радиуса скругления (§4 workplan) |
 | F6 | Две цепочки на одной кривой поверхности, коллизия при росте width | merge supports + Voronoi-конкуренция в одном чарте | ADMIT (один общий чарт) | supports объединены до solve | столкновение фронтов по биссектрисе; S1-стабильность швов после коллизии |
 | N1 | Sphere cap (тесселяция подобрана: max defect >= 0.05 rad) | gate отказывает по G3 | **REJECT** `NON_DEVELOPABLE_SUPPORT` | — | component ушёл в legacy fallback; отчёт показывает причину; никакой частичной геометрии |
-| N2 | Closed tube, selected chain пересекает единственный возможный cut | gate отказывает по G7 | **REJECT** `CUT_CROSSES_SELECTED_CHAIN` | — | fallback + reason в отчёте |
+| N2 | Closed tube, selected chain коллинеарно лежит на единственном возможном cut | gate отказывает по G7 | **REJECT** `CUT_CROSSES_SELECTED_CHAIN` | — | fallback + reason в отчёте; транзверсальное пересечение для periodic domain разрешено |
 | N3 | Полоса, самоперекрывающаяся в 2D (спираль/улитка с перехлёстом при заданном бюджете) | gate отказывает по G2 | **REJECT** `CHART_SELF_OVERLAP` | — | overlap_count > 0 зафиксирован в diagnostics |
 
 Отрицательные фикстуры обязательны: admission без доказанного отказа —

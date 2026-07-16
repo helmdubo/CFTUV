@@ -48,13 +48,21 @@ def _c1(node, seeds, alpha=100.0):
     return charts[0]
 
 
-def _annulus(segment_count=8, *, reverse_triangles=False):
+def _annulus(
+    segment_count=8,
+    *,
+    reverse_triangles=False,
+    top_radius=1.0,
+    rotation=0.0,
+):
     positions = []
-    for height in (0.0, 1.0):
+    for height, radius in ((0.0, 1.0), (1.0, top_radius)):
         positions.extend(
             (
-                cos(index * 2.0 * pi / segment_count),
-                sin(index * 2.0 * pi / segment_count),
+                radius
+                * cos(index * 2.0 * pi / segment_count + rotation),
+                radius
+                * sin(index * 2.0 * pi / segment_count + rotation),
                 height,
             )
             for index in range(segment_count)
@@ -142,6 +150,13 @@ def test_c3_annulus_gets_one_deterministic_cut_outside_sites():
     assert len(admitted.cuts) == 1
     assert admitted.cuts[0].reason == "OPEN_ANNULUS"
     assert admitted.cuts[0].source_edge != (0, 1)
+    assert admitted.cuts[0].candidate_count > 0
+    assert admitted.cuts[0].selection_distance > 0.0
+    assert admitted.periodic_axis == "U"
+    assert admitted.period > 0.0
+    assert admitted.period_quantum > 0.0
+    assert admitted.periodic_cut == admitted.cuts[0]
+    assert admitted.alpha_budget == pytest.approx(admitted.period * 0.5)
     assert sum(
         edge.kind == "CHART_CUT" for edge in admitted.boundary_edges
     ) == 2
@@ -163,6 +178,34 @@ def test_c3_annulus_cut_is_stable_under_triangle_enumeration():
     assert direct_chart.cuts[0].source_edge == (
         reversed_chart.cuts[0].source_edge
     )
+    assert direct_chart.period == pytest.approx(reversed_chart.period)
+
+
+def test_d1_periodic_cut_is_stable_under_rigid_mesh_rotation():
+    direct = admit_intrinsic_strip_chart(
+        _c1(_annulus(), (_seed((0, 1), 100),))
+    )
+    rotated = admit_intrinsic_strip_chart(
+        _c1(
+            _annulus(rotation=0.371),
+            (_seed((0, 1), 100),),
+        )
+    )
+
+    assert direct.cuts[0].source_edge == rotated.cuts[0].source_edge
+    assert direct.period == pytest.approx(rotated.period)
+    assert direct.period_quantum == pytest.approx(rotated.period_quantum)
+
+
+def test_d1_conical_frustum_rejects_rotational_holonomy():
+    node = _annulus(top_radius=0.55)
+
+    with pytest.raises(ChartBuildFailure) as captured:
+        admit_intrinsic_strip_chart(
+            _c1(node, (_seed((0, 1), 100),))
+        )
+
+    assert captured.value.code == "PERIODIC_HOLONOMY_UNSUPPORTED"
 
 
 def test_c3_positive_curvature_rejects_non_developable_support():

@@ -1211,6 +1211,15 @@ Non-periodic IR запрещает скрытые periodic metadata. Benchmark J
 
 ## D1. Cut selection для замкнутого support
 
+Статус: **IMPLEMENTED**. Annulus cut candidates скорятся по максимальной
+3D-дистанции до ближайшего selected site с canonical source-edge tie-break;
+диагностика хранит distance/count. Транзверсальное пересечение разрешено,
+коллинеарный selected source edge по-прежнему отклоняется. После hinge
+unroll две cut images проверяются на translation holonomy с бюджетом 0.02;
+layout канонически ориентируется по U и period вычисляется на общей
+`DiagramTransform`-решётке. Frustum даёт
+`PERIODIC_HOLONOMY_UNSUPPORTED`. G7 oracle уточнён в том же коммите.
+
 ### Изменения
 - Кандидаты cut: пути по source-рёбрам вдоль periodic-направления.
 - Фильтр: без коллинеарного совпадения с selected chains (DP1).
