@@ -2,16 +2,22 @@
 ## Самодостаточный план исполнения для Codex
 
 **Репозиторий:** `helmdubo/CFTUV`  
-**Исходная ветка:** `codex/decal-patch-voronoi`  
+**Исходная ветка:** `claude/blender-decal-corner-preview-yq4lir`  
 **Цель программы:** довести Patch Voronoi decal backend до производственного realtime-контракта, затем расширить его на developable/криволинейные owner surfaces без переписывания 2D Voronoi/corner-ядра; принимать решение о C++ и GPU только по измеренному профилю.
 
 Этот документ предназначен для прямой передачи исполнителю в Codex. Он не требует истории обсуждения.
+
+Канонический экземпляр документа лежит в самой рабочей ветке:
+`docs/CFTUV_decal_runtime_intrinsic_codex_workplan.md`. При расхождении с
+любой внешней копией приоритет у версии в ветке. Ветка
+`codex/decal-patch-voronoi` кодом идентична исходной точке этой ветки
+(`100bba8`), но плана не содержит и канонической не является.
 
 ---
 
 # 0. Инструкция исполнителю перед началом
 
-1. Переключиться на актуальный HEAD ветки `codex/decal-patch-voronoi`.
+1. Переключиться на актуальный HEAD ветки `claude/blender-decal-corner-preview-yq4lir`.
 2. Зафиксировать baseline:
    - `git rev-parse HEAD`;
    - `git status --short`;
@@ -23,7 +29,11 @@
    - `docs/cftuv_decal_runtime.md`;
    - `docs/cftuv_decal_nonplanar_roadmap.md`;
    - `docs/cftuv_decals.md`;
-   - `docs/architectural_debt.md` для файлов с соответствующими marker-ами.
+   - `docs/architectural_debt.md` — с оговоркой: inline-маркеров
+     `ARCHITECTURAL_DEBT` в `.py`-файлах сейчас НЕТ (проверено), а леджер
+     ссылается на несуществующую `analysis_junctions.py:_derive_junction_disk_cycle`.
+     Не искать маркеры в коде. Привести леджер в соответствие с фактическим
+     кодом — отдельный небольшой docs-коммит в рамках Tranche A.
 4. Не cherry-pick'ать сторонние экспериментальные ветки целиком. Использовать их только как дизайн-вход; каждое изменение должно соответствовать текущему HEAD.
 5. Выполнять **по одной задаче** из этого плана. После каждой задачи:
    - тесты;
@@ -112,7 +122,7 @@ git diff --check
 
 1. Добавить/нормализовать скрипт benchmark, например:
    - `artifacts/verify_decal_runtime.py`;
-   - результат в JSON: compile time, evaluate time по фазам, materialization time, face/vert/edge counts, dropped count, policy counts, backend routing.
+   - результат в JSON: compile time, evaluate time по фазам, materialization time, face/vert/edge counts, dropped count, policy counts, backend routing, счётчики тихих fallback'ов compile/runtime (см. A2 п. 7).
 2. Сериализовать `_NetworkFace` детерминированно:
    - `surface_id`;
    - `component_kind/component_side`;
@@ -221,6 +231,16 @@ git diff --check
    - каждый site имеет valid SEGMENT ownership atom;
    - отсутствие endpoint POINT cell допустимо;
    - потеря SEGMENT cell = compile failure component'а.
+7. Диагностические счётчики тихих деградаций качества. Три fallback'а
+   сегодня «впечатывают» триангуляцию в видимые границы граней либо
+   молча упрощают контур, не оставляя следа:
+   - disorder-fallback в `_cell_polygon` (`decal_voronoi.py:~1349`);
+   - tessellation-fallback на `node.mesh_tris` (`:~912`);
+   - `_convex_fragment_decomposition` при неудачном merge (`:~859`).
+   Сами fallback'и сохраняются (они безопасны), но каждый получает
+   именованный счётчик; ненулевые значения видны в verbose report и в
+   benchmark JSON из A0. Постусловия п. 6 при этом отличают
+   недопустимую потерю (SEGMENT cell) от допустимой деградации.
 
 ### Tests
 
@@ -1232,7 +1252,9 @@ kappa_edge ≈ angle(normal_a, normal_b) / edge_length
 Ниже — рекомендуемый первый пакет. Не начинать весь master plan сразу.
 
 ```text
-Работай в helmdubo/CFTUV от актуального HEAD ветки codex/decal-patch-voronoi.
+Работай в helmdubo/CFTUV от актуального HEAD ветки
+claude/blender-decal-corner-preview-yq4lir. Канонический workplan лежит в
+этой же ветке: docs/CFTUV_decal_runtime_intrinsic_codex_workplan.md.
 
 Перед изменениями прочитай AGENTS.md, docs/cftuv_decal_runtime.md,
 docs/cftuv_decal_nonplanar_roadmap.md и этот workplan. Зафиксируй HEAD,
