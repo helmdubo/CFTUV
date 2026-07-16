@@ -378,7 +378,7 @@ def test_live_acute_header_uses_evaluator_policy_diagnostics():
 
     assert header.text.startswith(
         "Acute Split: 60.0\N{DEGREE SIGN} | "
-        "MITER:12 KITE:3 SPLIT:2 | 22.4 ms"
+        "MITER:12 KITE:3 FAN:0 SPLIT:2 HAIRPIN:0 | 22.4 ms"
     )
 
 

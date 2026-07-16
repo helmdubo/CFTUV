@@ -140,9 +140,14 @@ convex/outer. Направления крыльев corner-strip меняютс�
   в Legacy или был rejected, частичного изменения углов нет: `A/M` остаются
   отключёнными, причина показана в header, а `W` продолжает менять ширину.
 - При активном `A` header показывает текущий порог и evaluator diagnostics:
-  `Acute Split: <deg> | MITER:<n> KITE:<n> SPLIT:<n> | <ms>`.
+  `Acute Split: <deg> | MITER:<n> KITE:<n> FAN:<n> SPLIT:<n> HAIRPIN:<n> | <ms>`.
   Перетаскивание переоценивает уже compiled Patch Voronoi plan без нового
   `Construct()`; invalid frame сохраняет последнюю валидную геометрию.
+- Panel задаёт четыре ordered band thresholds: `Miter/Kite/Split/Hairpin
+  Angle` с defaults `120/90/60/30°`. Они выбирают пять semantic corner
+  policy по `extrusion_angle`; точное равенство относится к более мягкому
+  band. `A` остаётся live target для Split Angle, остальные thresholds входят
+  в immutable settings snapshot текущего запуска.
 - `Shift` включает точную регулировку с input rebase как при нажатии, так и
   при отпускании: уже накопленный coarse delta не пересчитывается с новой
   sensitivity. Угол в header показывается в градусах.

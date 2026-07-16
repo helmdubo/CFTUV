@@ -4,7 +4,7 @@ from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
-from math import cos, pi, sin
+from math import cos, pi, sin, sqrt
 from mathutils import Vector
 
 pytest.importorskip("pyvoronoi")
@@ -753,7 +753,7 @@ def test_corner_spec_classifies_intrinsic_convex_concave_and_acute():
     assert folded_corner.extrusion_angle == pytest.approx(0.5 * pi)
     assert (
         decal_voronoi.classify_corner_runtime(folded_corner)
-        == decal_voronoi._CornerPolicy.MITER
+        == decal_voronoi._CornerPolicy.KITE
     )
 
     acute_plan = compile_patch_voronoi_plan(
@@ -789,6 +789,57 @@ def test_corner_spec_classifies_intrinsic_convex_concave_and_acute():
     )
 
 
+@pytest.mark.parametrize(
+    ("angle_degrees", "expected"),
+    (
+        (170, decal_voronoi._CornerPolicy.MITER),
+        (130, decal_voronoi._CornerPolicy.MITER),
+        (100, decal_voronoi._CornerPolicy.KITE),
+        (75, decal_voronoi._CornerPolicy.FAN),
+        (45, decal_voronoi._CornerPolicy.ACUTE_SPLIT),
+        (20, decal_voronoi._CornerPolicy.HAIRPIN),
+    ),
+)
+def test_a11_oracle_angle_table(angle_degrees, expected):
+    theta = angle_degrees * pi / 180.0
+    corner = decal_voronoi.CornerSpec(
+        vert_index=0,
+        point=(0.0, 0.0),
+        incident_sites=(0, 1),
+        ordered_sites=(0, 1),
+        turn_sign=1.0,
+        interior_angle=theta,
+        extrusion_angle=theta,
+        is_convex=True,
+        miter_ratio=1.0,
+    )
+
+    assert decal_voronoi.classify_corner_runtime(corner) == expected
+
+
+def test_a11_thresholds_normalize_in_order_and_soft_band_wins_equality():
+    normalized = decal_voronoi._normalized_corner_runtime_settings(
+        decal_voronoi.CornerRuntimeSettings(
+            miter_angle=100.0 * pi / 180.0,
+            kite_angle=130.0 * pi / 180.0,
+            split_angle=120.0 * pi / 180.0,
+            hairpin_angle=150.0 * pi / 180.0,
+        )
+    )
+    assert (
+        normalized.miter_angle,
+        normalized.kite_angle,
+        normalized.split_angle,
+        normalized.hairpin_angle,
+    ) == pytest.approx((100.0 * pi / 180.0,) * 4)
+    assert decal_voronoi._classify_extrusion_angle(
+        normalized.miter_angle, normalized
+    ) == decal_voronoi._CornerPolicy.MITER
+    assert decal_voronoi.CornerRuntimeSettings(
+        acute_split_angle=0.75
+    ).split_angle == pytest.approx(0.75)
+
+
 def test_corner_policy_threshold_changes_without_recompiling_plan():
     diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
     plan = compile_patch_voronoi_plan(
@@ -803,7 +854,10 @@ def test_corner_policy_threshold_changes_without_recompiling_plan():
         acute_split_angle=pi / 3.0,
     )
     miter_settings = decal_voronoi.CornerRuntimeSettings(
-        acute_split_angle=pi / 12.0,
+        miter_angle=pi / 12.0,
+        kite_angle=pi / 12.0,
+        split_angle=pi / 12.0,
+        hairpin_angle=pi / 12.0,
     )
 
     assert (
@@ -841,12 +895,15 @@ def test_corner_policy_threshold_changes_without_recompiling_plan():
     assert diagnostics.construct_calls == construct_calls
 
 
-def _apex_limit_evaluations(plan, acute_split_angle):
+def _apex_limit_evaluations(
+    plan, acute_split_angle, **corner_thresholds
+):
     results = {}
     for apex_limit in (1.0, 8.0, 100.0):
         settings = decal_voronoi.CornerRuntimeSettings(
             acute_split_angle=acute_split_angle,
             apex_limit=apex_limit,
+            **corner_thresholds,
         )
         diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
         preview = evaluate_patch_voronoi_plan(
@@ -874,7 +931,12 @@ def test_apex_limit_changes_convex_miter_contour():
     plan = compile_patch_voronoi_plan(
         _folded_turn_graph(), [30, 31], offset=0.01
     )
-    results = _apex_limit_evaluations(plan, acute_split_angle=0.1)
+    results = _apex_limit_evaluations(
+        plan,
+        acute_split_angle=0.1,
+        miter_angle=pi / 2.0,
+        kite_angle=pi / 2.0,
+    )
 
     snapshots = {
         limit: decal_voronoi.serialize_network_faces(faces)
@@ -900,7 +962,7 @@ def test_apex_limit_changes_kite_contour():
     }
     assert snapshots[1.0] != snapshots[8.0]
     assert snapshots[8.0] == snapshots[100.0]
-    assert results[1.0][1].clamped_kite_count == 2
+    assert results[1.0][1].clamped_kite_count == 8
     assert results[8.0][1].clamped_kite_count == 0
 
 
@@ -1026,7 +1088,7 @@ def test_corner_absorbs_incident_point_cell_boundaries_before_collision():
     segment_faces = [
         face for face in faces if face.component_kind == "SEGMENT"
     ]
-    assert len(kite_faces) == 2
+    assert len(kite_faces) == 8
     assert all(len(face.positions) == 4 for face in kite_faces)
     assert len(segment_faces) == len(plan.surfaces[0].sites)
 
@@ -1097,11 +1159,7 @@ def _short_segment_owned_crops(monkeypatch, reverse_site=False):
     monkeypatch.setattr(
         decal_voronoi,
         "classify_corner_runtime",
-        lambda corner, _settings=None: (
-            decal_voronoi._CornerPolicy.MITER
-            if corner.vert_index == 0
-            else decal_voronoi._CornerPolicy.KITE
-        ),
+        lambda _corner, _settings=None: decal_voronoi._CornerPolicy.CAP,
     )
     pending = []
     decal_voronoi._evaluate_surface_crops(
@@ -1117,21 +1175,22 @@ def test_short_segment_corner_ownership_is_disjoint_and_order_independent(
     monkeypatch,
 ):
     pending = _short_segment_owned_crops(monkeypatch, reverse_site=False)
-    assert {face.crop.kind for face in pending} == {"MITER", "KITE"}
+    assert {face.crop.kind for face in pending} == {"CAP"}
+    assert {face.crop.side for face in pending} == {"START", "END"}
     assert len(pending) == 2
 
-    by_kind = {face.crop.kind: face for face in pending}
+    by_kind = {face.crop.side: face for face in pending}
     overlap = decal_voronoi._clip_to_convex(
-        by_kind["MITER"].points,
-        by_kind["KITE"].points,
+        by_kind["START"].points,
+        by_kind["END"].points,
     )
     assert not overlap or abs(decal_voronoi._polygon_area2(overlap)) <= 1e-10
     assert sum(
         abs(decal_voronoi._polygon_area2(face.points)) for face in pending
-    ) == pytest.approx(6.0)
+    ) == pytest.approx(2.0)
 
-    shared_edge = set(by_kind["MITER"].points).intersection(
-        by_kind["KITE"].points
+    shared_edge = set(by_kind["START"].points).intersection(
+        by_kind["END"].points
     )
     assert shared_edge == {(0.5, -1.0), (0.5, 1.0)}
     face_keys = {
@@ -1145,10 +1204,7 @@ def test_short_segment_corner_ownership_is_disjoint_and_order_independent(
     )
 
     def signature(faces):
-        return {
-            face.crop.kind: tuple(sorted(face.points))
-            for face in faces
-        }
+        return {tuple(sorted(face.points)) for face in faces}
 
     assert signature(reversed_pending) == signature(pending)
 
@@ -1368,6 +1424,256 @@ def test_acute_convex_corner_splits_before_wide_miter_competition():
         "INNER",
         "OUTER",
     }
+
+
+def test_a11_fan_and_hairpin_have_semantic_uv_components():
+    plan = compile_patch_voronoi_plan(
+        _acute_notch_graph(), [53, 54], offset=0.01
+    )
+    surface = plan.surfaces[0]
+    corner = next(
+        item for item in surface.corners if item.vert_index == 4
+    )
+    fan = decal_voronoi._fan_crop_components(
+        surface, corner, alpha=0.5
+    )
+    assert len(fan) == 2
+    assert {component.side for component in fan} == {"A", "B"}
+    assert all(component.kind == "FAN" for component in fan)
+    assert all(len(component.points) == 3 for component in fan)
+    assert all(
+        len(component.uv_anchors) == len(component.points)
+        for component in fan
+    )
+
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+    hairpin = decal_voronoi._hairpin_crop_components(
+        surface,
+        corner,
+        alpha=0.5,
+        settings=decal_voronoi.CornerRuntimeSettings(
+            hairpin_angle=pi / 3.0
+        ),
+        diagnostics=diagnostics,
+    )
+    assert len(hairpin) == 1
+    assert hairpin[0].kind == "HAIRPIN"
+    assert hairpin[0].side == "BLUNT"
+    assert len(hairpin[0].uv_anchors) == len(hairpin[0].points)
+    assert diagnostics.apex_limit_saturated_count >= 1
+
+
+def test_a11_cap_is_tangent_aligned_and_has_deterministic_uv():
+    tangent = Vector((1.0, 1.0)).normalized()
+    site = decal_voronoi._PatchVoronoiSite(
+        patch_id=0,
+        edge_index=700,
+        vert_a=0,
+        vert_b=1,
+        source_a=Vector((0.0, 0.0, 0.0)),
+        source_b=Vector((1.0, 1.0, 0.0)),
+        point_a=(0.0, 0.0),
+        point_b=(1.0, 1.0),
+        arc_start=4.0,
+        segment_length=sqrt(2.0),
+        uv_sign=1.0,
+        inward_normal=(-tangent.y, tangent.x),
+    )
+    corner = decal_voronoi.CornerSpec(
+        vert_index=0,
+        point=(0.0, 0.0),
+        incident_sites=(0,),
+        ordered_sites=(0,),
+        turn_sign=0.0,
+        interior_angle=pi,
+        extrusion_angle=pi,
+        is_convex=False,
+        miter_ratio=1.0,
+    )
+    component = decal_voronoi._cap_crop_components(
+        SimpleNamespace(sites=(site,)), corner, alpha=0.25
+    )[0]
+    terminal = [
+        point
+        for point in component.points
+        if abs(point[0] * tangent.x + point[1] * tangent.y) <= 1e-8
+    ]
+    assert len(terminal) == 2
+    cap_edge = Vector(terminal[1]) - Vector(terminal[0])
+    assert cap_edge.dot(tangent) == pytest.approx(0.0, abs=1e-8)
+    assert len(component.uv_anchors) == len(component.points) == 4
+    assert component.v_origin == pytest.approx(4.0)
+
+
+def test_a11_valence_n_junction_uses_ordered_non_reflex_sectors():
+    directions = ((1.0, 0.0), (0.0, 1.0), (-1.0, 0.0))
+    sites = tuple(
+        decal_voronoi._PatchVoronoiSite(
+            patch_id=0,
+            edge_index=800 + index,
+            vert_a=0,
+            vert_b=index + 1,
+            source_a=Vector((0.0, 0.0, 0.0)),
+            source_b=Vector((*direction, 0.0)),
+            point_a=(0.0, 0.0),
+            point_b=direction,
+            arc_start=0.0,
+            segment_length=1.0,
+            uv_sign=1.0,
+            inward_normal=(-direction[1], direction[0]),
+        )
+        for index, direction in enumerate(directions)
+    )
+    corner = decal_voronoi.CornerSpec(
+        vert_index=0,
+        point=(0.0, 0.0),
+        incident_sites=(2, 0, 1),
+        ordered_sites=(2, 0, 1),
+        turn_sign=0.0,
+        interior_angle=0.0,
+        extrusion_angle=0.0,
+        is_convex=False,
+        miter_ratio=float("inf"),
+    )
+    surface = SimpleNamespace(sites=sites)
+    sectors = decal_voronoi._junction_sector_specs(surface, corner)
+    assert len(sectors) == 2
+    assert all(
+        sector.extrusion_angle == pytest.approx(pi / 2.0)
+        for _index, sector in sectors
+    )
+    policies = [
+        decal_voronoi._classify_extrusion_angle(
+            sector.extrusion_angle,
+            decal_voronoi.CornerRuntimeSettings(),
+        )
+        for _index, sector in sectors
+    ]
+    assert policies == [
+        decal_voronoi._CornerPolicy.KITE,
+        decal_voronoi._CornerPolicy.KITE,
+    ]
+
+
+def test_a11_cross_surface_valence_n_junction_builds_sector_fan():
+    alpha = 0.5
+    directions = tuple(
+        (
+            cos(index * 2.0 * pi / 3.0),
+            sin(index * 2.0 * pi / 3.0),
+        )
+        for index in range(3)
+    )
+    surfaces = []
+    faces = []
+    for index, direction in enumerate(directions):
+        site = decal_voronoi._PatchVoronoiSite(
+            patch_id=index,
+            edge_index=900 + index,
+            vert_a=0,
+            vert_b=index + 1,
+            source_a=Vector((0.0, 0.0, 0.0)),
+            source_b=Vector((direction[0], direction[1], 0.0)),
+            point_a=(0.0, 0.0),
+            point_b=direction,
+            arc_start=0.0,
+            segment_length=1.0,
+            uv_sign=1.0,
+            inward_normal=direction,
+        )
+        surfaces.append(
+            SimpleNamespace(
+                patch_id=index,
+                origin=Vector((0.0, 0.0, 0.0)),
+                basis_u=Vector((1.0, 0.0, 0.0)),
+                basis_v=Vector((0.0, 1.0, 0.0)),
+                sites=(site,),
+            )
+        )
+        outer = Vector((direction[0] * alpha, direction[1] * alpha, 0.0))
+        faces.append(
+            decal_voronoi._NetworkFace(
+                surface_id=index,
+                surface_normal=Vector((0.0, 0.0, 1.0)),
+                vert_keys=[
+                    ("pv-sv", 0),
+                    ("outer", index),
+                    ("tail", index),
+                ],
+                positions=[
+                    Vector((0.0, 0.0, 0.0)),
+                    outer,
+                    outer + Vector((0.0, 0.0, 0.1)),
+                ],
+                u_fracs=[0.0, 1.0, 1.0],
+                v_lengths=[0.0, 0.5, 1.0],
+            )
+        )
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+    connectors = decal_voronoi._junction_connector_faces(
+        SimpleNamespace(surfaces=tuple(surfaces)),
+        faces,
+        alpha,
+        decal_voronoi.CornerRuntimeSettings(),
+        diagnostics,
+    )
+    assert len(connectors) == 3
+    assert {face.component_kind for face in connectors} == {"MITER"}
+    assert all(
+        face.component_side.startswith("JUNCTION_SECTOR_")
+        for face in connectors
+    )
+    assert diagnostics.runtime_policy_counts == {"MITER": 3}
+
+
+def test_a11_network_v_phase_and_same_chart_signed_u():
+    raw_by_patch = {
+        0: [
+            {
+                "edge_index": 1,
+                "vert_a": 0,
+                "vert_b": 1,
+                "segment_length": 2.0,
+            },
+            {
+                "edge_index": 2,
+                "vert_a": 2,
+                "vert_b": 1,
+                "segment_length": 3.0,
+            },
+        ]
+    }
+    decal_voronoi._assign_network_v_phases(raw_by_patch)
+    first, second = raw_by_patch[0]
+    assert first["arc_start"] == pytest.approx(0.0)
+    assert first["arc_sign"] == 1.0
+    assert second["arc_start"] == pytest.approx(5.0)
+    assert second["arc_sign"] == -1.0
+    assert second["arc_start"] + second["arc_sign"] * 3.0 == pytest.approx(
+        first["arc_start"] + first["arc_sign"] * 2.0
+    )
+
+    site = decal_voronoi._PatchVoronoiSite(
+        patch_id=0,
+        edge_index=3,
+        vert_a=0,
+        vert_b=1,
+        source_a=Vector((0.0, 0.0, 0.0)),
+        source_b=Vector((2.0, 0.0, 0.0)),
+        point_a=(0.0, 0.0),
+        point_b=(2.0, 0.0),
+        arc_start=0.0,
+        segment_length=2.0,
+        uv_sign=1.0,
+        inward_normal=(0.0, 1.0),
+        two_sided=True,
+    )
+    assert decal_voronoi._site_lateral_u(
+        site, (1.0, 0.5), 0.5
+    ) == pytest.approx(1.0)
+    assert decal_voronoi._site_lateral_u(
+        site, (1.0, -0.5), 0.5
+    ) == pytest.approx(-1.0)
 
 
 def test_cross_surface_spine_station_is_mirrored_without_new_face():

@@ -336,8 +336,17 @@ class DecalSettings:
     seam_network: bool = True
     # Runtime corner policy patch-Voronoi backend. Углы хранятся в радианах,
     # как Blender ANGLE properties; compiled Voronoi plan от них не зависит.
+    corner_miter_angle: float = 2.0 * pi / 3.0
+    corner_kite_angle: float = pi / 2.0
     corner_acute_split_angle: float = pi / 3.0
+    corner_hairpin_angle: float = pi / 6.0
     corner_apex_limit: float = 8.0
+
+    @property
+    def corner_split_angle(self) -> float:
+        """A11 name; старое поле сохранено для file/script compatibility."""
+
+        return self.corner_acute_split_angle
 
     @property
     def corner_miter_limit(self) -> float:
@@ -357,8 +366,21 @@ class DecalSettings:
             offset=float(settings.decal_offset),
             uv_length_scale=uv_settings.final_scale,
             seam_network=bool(getattr(settings, "decal_seam_network", True)),
+            corner_miter_angle=float(
+                getattr(
+                    settings,
+                    "decal_corner_miter_angle",
+                    2.0 * pi / 3.0,
+                )
+            ),
+            corner_kite_angle=float(
+                getattr(settings, "decal_corner_kite_angle", pi / 2.0)
+            ),
             corner_acute_split_angle=float(
                 getattr(settings, "decal_corner_acute_split_angle", pi / 3.0)
+            ),
+            corner_hairpin_angle=float(
+                getattr(settings, "decal_corner_hairpin_angle", pi / 6.0)
             ),
             corner_apex_limit=float(
                 getattr(settings, "decal_corner_miter_limit", 8.0)

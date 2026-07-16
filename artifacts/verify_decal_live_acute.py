@@ -176,7 +176,10 @@ def main():
             DecalSettings(
                 width_seam=1.0,
                 offset=0.01,
+                corner_miter_angle=pi / 12.0,
+                corner_kite_angle=pi / 12.0,
                 corner_acute_split_angle=pi / 12.0,
+                corner_hairpin_angle=pi / 12.0,
             )
         )
         assert miter.status == PreviewStatus.UPDATED

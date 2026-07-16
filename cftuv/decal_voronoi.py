@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from enum import Enum
+from heapq import heappop, heappush
 from math import atan2, isfinite, pi, sqrt, tau
 
 from mathutils import Vector
@@ -41,7 +42,11 @@ except ImportError:  # Blender может открыть старый файл �
 
 _DIAGRAM_SCALE = 100000
 _GEOMETRY_EPS = 1e-9
-_ACUTE_SPLIT_ANGLE = pi / 3.0
+_ANGLE_CLASSIFICATION_EPS = 1e-5
+_MITER_ANGLE = 2.0 * pi / 3.0
+_KITE_ANGLE = pi / 2.0
+_SPLIT_ANGLE = pi / 3.0
+_HAIRPIN_ANGLE = pi / 6.0
 _MITER_LIMIT = 8.0
 
 
@@ -51,7 +56,9 @@ class _CornerPolicy(str, Enum):
     CAP = "CAP"
     MITER = "MITER"
     KITE = "KITE"
+    FAN = "FAN"
     ACUTE_SPLIT = "ACUTE_SPLIT"
+    HAIRPIN = "HAIRPIN"
     BEVEL = "BEVEL"
     JUNCTION = "JUNCTION"
 
@@ -70,6 +77,9 @@ class _PatchVoronoiSite:
     segment_length: float
     uv_sign: float
     inward_normal: tuple[float, float]
+    arc_sign: float = 1.0
+    two_sided: bool = False
+    uv_length: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -95,21 +105,43 @@ class CornerSpec:
 class CornerRuntimeSettings:
     """Дешёвые corner-настройки, допустимые к изменению во время drag."""
 
-    acute_split_angle: float
+    miter_angle: float
+    kite_angle: float
+    split_angle: float
+    hairpin_angle: float
     apex_limit: float
 
     def __init__(
         self,
-        acute_split_angle=_ACUTE_SPLIT_ANGLE,
+        acute_split_angle=None,
         apex_limit=_MITER_LIMIT,
         *,
         miter_limit=None,
+        miter_angle=_MITER_ANGLE,
+        kite_angle=_KITE_ANGLE,
+        split_angle=None,
+        hairpin_angle=_HAIRPIN_ANGLE,
     ):
         # ``miter_limit`` остаётся constructor adapter для старых scripts.
         if miter_limit is not None:
             apex_limit = miter_limit
-        object.__setattr__(self, "acute_split_angle", float(acute_split_angle))
+        if split_angle is None:
+            split_angle = (
+                _SPLIT_ANGLE
+                if acute_split_angle is None
+                else acute_split_angle
+            )
+        object.__setattr__(self, "miter_angle", float(miter_angle))
+        object.__setattr__(self, "kite_angle", float(kite_angle))
+        object.__setattr__(self, "split_angle", float(split_angle))
+        object.__setattr__(self, "hairpin_angle", float(hairpin_angle))
         object.__setattr__(self, "apex_limit", float(apex_limit))
+
+    @property
+    def acute_split_angle(self):
+        """Compatibility alias для A10 и старых scripts."""
+
+        return self.split_angle
 
     @property
     def miter_limit(self):
@@ -125,11 +157,42 @@ def _normalized_corner_runtime_settings(settings):
         "apex_limit",
         getattr(settings, "miter_limit", _MITER_LIMIT),
     )
-    return CornerRuntimeSettings(
-        acute_split_angle=max(
-            0.0,
-            min(pi, float(settings.acute_split_angle)),
+    miter_angle = max(
+        0.0,
+        min(pi, float(getattr(settings, "miter_angle", _MITER_ANGLE))),
+    )
+    kite_angle = max(
+        0.0,
+        min(
+            miter_angle,
+            float(getattr(settings, "kite_angle", _KITE_ANGLE)),
         ),
+    )
+    split_angle = max(
+        0.0,
+        min(
+            kite_angle,
+            float(
+                getattr(
+                    settings,
+                    "split_angle",
+                    getattr(settings, "acute_split_angle", _SPLIT_ANGLE),
+                )
+            ),
+        ),
+    )
+    hairpin_angle = max(
+        0.0,
+        min(
+            split_angle,
+            float(getattr(settings, "hairpin_angle", _HAIRPIN_ANGLE)),
+        ),
+    )
+    return CornerRuntimeSettings(
+        miter_angle=miter_angle,
+        kite_angle=kite_angle,
+        split_angle=split_angle,
+        hairpin_angle=hairpin_angle,
         apex_limit=max(1.0, float(apex_limit)),
     )
 
@@ -138,7 +201,16 @@ def corner_runtime_settings_from_decal_settings(settings):
     """Единственный adapter immutable DecalSettings → runtime policy."""
 
     return CornerRuntimeSettings(
-        acute_split_angle=float(settings.corner_acute_split_angle),
+        miter_angle=float(
+            getattr(settings, "corner_miter_angle", _MITER_ANGLE)
+        ),
+        kite_angle=float(
+            getattr(settings, "corner_kite_angle", _KITE_ANGLE)
+        ),
+        split_angle=float(settings.corner_acute_split_angle),
+        hairpin_angle=float(
+            getattr(settings, "corner_hairpin_angle", _HAIRPIN_ANGLE)
+        ),
         apex_limit=float(
             getattr(
                 settings,
@@ -497,6 +569,7 @@ class _CropComponent:
     points: tuple[tuple[float, float], ...]
     uv_anchors: tuple[tuple[float, float], ...] = ()
     v_origin: float = 0.0
+    owner_site_indices: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1257,6 +1330,27 @@ def _segment_crop_polygon(site, alpha):
     ]
 
 
+def _site_lateral_u(site, point, alpha):
+    """Signed U для same-chart two-sided site, legacy parity для остальных."""
+
+    if site.two_sided:
+        direction = _norm2(_sub2(site.point_b, site.point_a))
+        if direction is not None:
+            signed_lateral = _cross2(
+                direction, _sub2(point, site.point_a)
+            )
+            return max(-1.0, min(1.0, signed_lateral / alpha))
+    distance, _t = _segment_point_distance2(
+        site.point_a, site.point_b, point
+    )
+    return site.uv_sign * max(0.0, min(1.0, distance / alpha))
+
+
+def _site_v_length(site, parameter):
+    uv_length = site.uv_length if site.uv_length > 0.0 else site.segment_length
+    return site.arc_start + site.arc_sign * parameter * uv_length
+
+
 def _corner_offset_lines(surface, corner, alpha):
     """Две ordered offset-линии intrinsic corner."""
 
@@ -1321,11 +1415,178 @@ def _corner_arc_origin(surface, corner):
     for site_index in corner.ordered_sites:
         site = surface.sites[site_index]
         values.append(
-            site.arc_start
-            if site.vert_a == corner.vert_index
-            else site.arc_start + site.segment_length
+            _site_v_length(
+                site, 0.0 if site.vert_a == corner.vert_index else 1.0
+            )
         )
     return sum(values) / len(values) if values else 0.0
+
+
+def _corner_frame_axes(surface, corner, alpha):
+    """Канонический UV frame: биссектриса +V, turn parity задаёт +U."""
+
+    offset_lines = _corner_offset_lines(surface, corner, alpha)
+    if len(offset_lines) != 2:
+        return None
+    cap_a = offset_lines[0][0]
+    cap_b = offset_lines[1][0]
+    intersection = _line_intersection(
+        offset_lines[0][0],
+        offset_lines[0][1],
+        offset_lines[1][0],
+        offset_lines[1][1],
+    )
+    target = intersection
+    if target is None:
+        target = (
+            (cap_a[0] + cap_b[0]) * 0.5,
+            (cap_a[1] + cap_b[1]) * 0.5,
+        )
+    forward = _norm2(_sub2(target, corner.point))
+    if forward is None:
+        return None
+    lateral = (-forward[1], forward[0])
+    if corner.turn_sign < 0.0:
+        lateral = (-lateral[0], -lateral[1])
+    return lateral, forward
+
+
+def _corner_component_from_polygon(
+    surface,
+    corner,
+    alpha,
+    kind,
+    side,
+    polygon,
+    *,
+    owner_site_indices=(),
+):
+    """Создаёт semantic crop с deterministic owner-independent UV."""
+
+    frame = _corner_frame_axes(surface, corner, alpha)
+    if frame is None:
+        return None
+    lateral, forward = frame
+    scale = max(alpha, _GEOMETRY_EPS)
+    anchors = []
+    for point in polygon:
+        delta = _sub2(point, corner.point)
+        anchors.append(
+            (
+                point,
+                (
+                    _dot2(delta, lateral) / scale,
+                    _dot2(delta, forward),
+                ),
+            )
+        )
+    component = _crop_component_from_anchors(
+        kind,
+        side,
+        tuple(anchors),
+        _corner_arc_origin(surface, corner),
+    )
+    if component is None:
+        return None
+    return replace(
+        component,
+        owner_site_indices=tuple(owner_site_indices),
+    )
+
+
+def _cap_crop_components(surface, corner, alpha):
+    """FLAT CAP: tangent-aligned terminal half-quad, без axis square."""
+
+    if len(corner.incident_sites) != 1:
+        return ()
+    site_index = corner.incident_sites[0]
+    site = surface.sites[site_index]
+    other = site.point_b if site.vert_a == corner.vert_index else site.point_a
+    tangent = _norm2(_sub2(other, corner.point))
+    if tangent is None:
+        return ()
+    lateral = (-tangent[1], tangent[0])
+    depth = min(alpha, site.segment_length * 0.5)
+    cap_a = (
+        corner.point[0] - lateral[0] * alpha,
+        corner.point[1] - lateral[1] * alpha,
+    )
+    cap_b = (
+        corner.point[0] + lateral[0] * alpha,
+        corner.point[1] + lateral[1] * alpha,
+    )
+    inner_b = (cap_b[0] + tangent[0] * depth, cap_b[1] + tangent[1] * depth)
+    inner_a = (cap_a[0] + tangent[0] * depth, cap_a[1] + tangent[1] * depth)
+    v_origin = _site_v_length(
+        site, 0.0 if site.vert_a == corner.vert_index else 1.0
+    )
+    component = _crop_component_from_anchors(
+        _CornerPolicy.CAP.value,
+        "START" if site.vert_a == corner.vert_index else "END",
+        (
+            (cap_a, (-1.0, 0.0)),
+            (cap_b, (1.0, 0.0)),
+            (inner_b, (1.0, depth)),
+            (inner_a, (-1.0, depth)),
+        ),
+        v_origin,
+    )
+    if component is None:
+        return ()
+    return (replace(component, owner_site_indices=(site_index,)),)
+
+
+def _limited_corner_apex(
+    corner, intersection, alpha, settings, diagnostics=None
+):
+    distance = _dist2(corner.point, intersection)
+    limit = alpha * settings.apex_limit
+    if distance <= limit or distance <= _GEOMETRY_EPS:
+        return intersection
+    if diagnostics is not None:
+        diagnostics.clamped_kite_count += 1
+    direction = _norm2(_sub2(intersection, corner.point))
+    return (
+        corner.point[0] + direction[0] * limit,
+        corner.point[1] + direction[1] * limit,
+    )
+
+
+def _fan_crop_components(
+    surface, corner, alpha, settings=None, diagnostics=None
+):
+    """Два независимых triangle-компонента по биссектрисе kite."""
+
+    settings = _normalized_corner_runtime_settings(settings)
+    offset_lines = _corner_offset_lines(surface, corner, alpha)
+    if len(offset_lines) != 2:
+        return ()
+    intersection = _line_intersection(
+        offset_lines[0][0],
+        offset_lines[0][1],
+        offset_lines[1][0],
+        offset_lines[1][1],
+    )
+    if intersection is None:
+        return ()
+    apex = _limited_corner_apex(
+        corner, intersection, alpha, settings, diagnostics
+    )
+    owner_sites = tuple(corner.incident_sites)
+    components = []
+    for side, cap in (("A", offset_lines[0][0]), ("B", offset_lines[1][0])):
+        component = _corner_component_from_polygon(
+            surface,
+            corner,
+            alpha,
+            _CornerPolicy.FAN.value,
+            side,
+            (corner.point, cap, apex),
+            owner_site_indices=owner_sites,
+        )
+        if component is not None:
+            components.append(component)
+    return tuple(components)
 
 
 def _crop_component_from_anchors(kind, side, anchors, v_origin=0.0):
@@ -1469,11 +1730,140 @@ def _acute_crop_components(
     return tuple(component for component in (inner, outer) if component)
 
 
+def _hairpin_crop_components(
+    surface, corner, alpha, settings=None, diagnostics=None
+):
+    """Стаб острого угла: inner остаётся, внешний spike не создаётся."""
+
+    components = _acute_crop_components(
+        surface, corner, alpha, settings, diagnostics
+    )
+    inner = next(
+        (component for component in components if component.side == "INNER"),
+        None,
+    )
+    if inner is None:
+        return ()
+    if diagnostics is not None:
+        diagnostics.apex_limit_saturated_count += 1
+    return (
+        replace(
+            inner,
+            kind=_CornerPolicy.HAIRPIN.value,
+            side="BLUNT",
+        ),
+    )
+
+
+def _junction_sector_specs(surface, corner):
+    """Occupied non-reflex angular sectors valence-N junction."""
+
+    rays = {}
+    for site_index in corner.incident_sites:
+        site = surface.sites[site_index]
+        other = site.point_b if site.vert_a == corner.vert_index else site.point_a
+        ray = _norm2(_sub2(other, corner.point))
+        if ray is not None:
+            rays[site_index] = ray
+    ordered = tuple(
+        sorted(
+            rays,
+            key=lambda site_index: (
+                atan2(rays[site_index][1], rays[site_index][0]),
+                site_index,
+            ),
+        )
+    )
+    if len(ordered) < 3:
+        return ()
+    specs = []
+    for sector_index, first_index in enumerate(ordered):
+        second_index = ordered[(sector_index + 1) % len(ordered)]
+        first_angle = atan2(rays[first_index][1], rays[first_index][0])
+        second_angle = atan2(rays[second_index][1], rays[second_index][0])
+        sector_angle = (second_angle - first_angle) % tau
+        # Reflex sector не занят patch-domain; straight sector pass-through.
+        if sector_angle >= pi - 1e-7 or sector_angle <= 1e-7:
+            continue
+        specs.append(
+            (
+                sector_index,
+                replace(
+                    corner,
+                    incident_sites=(first_index, second_index),
+                    ordered_sites=(first_index, second_index),
+                    turn_sign=1.0,
+                    interior_angle=sector_angle,
+                    extrusion_angle=sector_angle,
+                    is_convex=True,
+                ),
+            )
+        )
+    return tuple(specs)
+
+
+def _junction_crop_components(
+    surface, corner, alpha, settings, diagnostics=None
+):
+    """JUNCTION = deterministic fan независимых A11 corner sectors."""
+
+    components = []
+    for sector_index, sector in _junction_sector_specs(surface, corner):
+        policy = _classify_extrusion_angle(
+            sector.extrusion_angle, settings
+        )
+        sector_components = _corner_crop_components(
+            surface,
+            sector,
+            policy,
+            alpha,
+            settings,
+            diagnostics,
+        )
+        for component in sector_components:
+            side = f"SECTOR_{sector_index}"
+            if component.side:
+                side += f"_{component.side}"
+            components.append(
+                replace(
+                    component,
+                    side=side,
+                    owner_site_indices=sector.incident_sites,
+                )
+            )
+    return tuple(components)
+
+
+def _corner_runtime_policy_entries(surface, corner, policy, settings):
+    """Evaluator-owned semantic counts; JUNCTION разворачивается в sectors."""
+
+    if policy != _CornerPolicy.JUNCTION:
+        return (policy,)
+    return tuple(
+        _classify_extrusion_angle(sector.extrusion_angle, settings)
+        for _sector_index, sector in _junction_sector_specs(surface, corner)
+    )
+
+
 def _corner_crop_components(
     surface, corner, policy, alpha, settings, diagnostics=None
 ):
+    if policy == _CornerPolicy.CAP:
+        return _cap_crop_components(surface, corner, alpha)
+    if policy == _CornerPolicy.JUNCTION:
+        return _junction_crop_components(
+            surface, corner, alpha, settings, diagnostics
+        )
+    if policy == _CornerPolicy.FAN:
+        return _fan_crop_components(
+            surface, corner, alpha, settings, diagnostics
+        )
     if policy == _CornerPolicy.ACUTE_SPLIT:
         return _acute_crop_components(
+            surface, corner, alpha, settings, diagnostics
+        )
+    if policy == _CornerPolicy.HAIRPIN:
+        return _hairpin_crop_components(
             surface, corner, alpha, settings, diagnostics
         )
     polygon = _corner_crop_polygon(
@@ -1486,13 +1876,16 @@ def _corner_crop_components(
     )
     if len(polygon) < 3:
         return ()
-    return (
-        _CropComponent(
-            kind=policy.value,
-            side="",
-            points=tuple(polygon),
-        ),
+    component = _corner_component_from_polygon(
+        surface,
+        corner,
+        alpha,
+        policy.value,
+        "",
+        polygon,
+        owner_site_indices=corner.incident_sites,
     )
+    return (component,) if component is not None else ()
 
 
 def _corner_endpoint_ownership_crop(surface, corner, crop):
@@ -1515,7 +1908,10 @@ def _corner_endpoint_ownership_crop(surface, corner, crop):
             max(site.point_a, site.point_b),
         )
 
-    for site_index in sorted(set(corner.incident_sites), key=site_key):
+    owner_site_indices = (
+        crop.owner_site_indices or corner.incident_sites
+    )
+    for site_index in sorted(set(owner_site_indices), key=site_key):
         site = surface.sites[site_index]
         if corner.vert_index == site.vert_a:
             keep_point_a = True
@@ -1557,24 +1953,6 @@ def _corner_endpoint_ownership_crop(surface, corner, crop):
             mapped_anchors.append((uv[0], uv[1] - crop.v_origin))
         uv_anchors = tuple(mapped_anchors)
     return replace(crop, points=points, uv_anchors=uv_anchors)
-
-
-def _miter_requires_explicit_crop(surface, corner, alpha, settings):
-    """Implicit segment join достаточен, пока apex не требуется усекать."""
-
-    offset_lines = _corner_offset_lines(surface, corner, alpha)
-    if len(offset_lines) != 2:
-        return False
-    intersection = _line_intersection(
-        offset_lines[0][0],
-        offset_lines[0][1],
-        offset_lines[1][0],
-        offset_lines[1][1],
-    )
-    return (
-        intersection is not None
-        and _dist2(corner.point, intersection) > alpha * settings.apex_limit
-    )
 
 
 def _crop_component_uv(crop, point):
@@ -1634,12 +2012,7 @@ def _corner_crop_polygon(
 
     point = corner.point
     if len(corner.incident_sites) != 2:
-        return [
-            (point[0] - alpha, point[1] - alpha),
-            (point[0] + alpha, point[1] - alpha),
-            (point[0] + alpha, point[1] + alpha),
-            (point[0] - alpha, point[1] + alpha),
-        ]
+        return []
     if policy == _CornerPolicy.KITE:
         return _kite_crop_polygon(
             surface, corner, alpha, settings, diagnostics
@@ -2016,6 +2389,48 @@ def _provenance_owner_surfaces(node, raw_sites):
     return tuple(surfaces)
 
 
+def _assign_network_v_phases(raw_by_patch):
+    """Даёт connected selected network одну накопленную deterministic V-фазу."""
+
+    physical_edges = {}
+    for patch_sites in raw_by_patch.values():
+        for raw in patch_sites:
+            physical_edges.setdefault(raw["edge_index"], raw)
+    adjacency = {}
+    for raw in physical_edges.values():
+        vert_a = raw["vert_a"]
+        vert_b = raw["vert_b"]
+        length = float(raw["segment_length"])
+        adjacency.setdefault(vert_a, []).append((vert_b, length))
+        adjacency.setdefault(vert_b, []).append((vert_a, length))
+
+    distances = {}
+    remaining = set(adjacency)
+    while remaining:
+        root = min(remaining)
+        distances[root] = 0.0
+        queue = [(0.0, root)]
+        while queue:
+            distance, vert_index = heappop(queue)
+            if distance > distances.get(vert_index, float("inf")) + 1e-12:
+                continue
+            remaining.discard(vert_index)
+            for neighbour, edge_length in adjacency.get(vert_index, ()):
+                candidate = distance + edge_length
+                if candidate + 1e-12 < distances.get(
+                    neighbour, float("inf")
+                ):
+                    distances[neighbour] = candidate
+                    heappush(queue, (candidate, neighbour))
+
+    for patch_sites in raw_by_patch.values():
+        for raw in patch_sites:
+            phase_a = distances.get(raw["vert_a"], 0.0)
+            phase_b = distances.get(raw["vert_b"], phase_a)
+            raw["arc_start"] = phase_a
+            raw["arc_sign"] = 1.0 if phase_b >= phase_a else -1.0
+
+
 def _collect_patch_sites(graph, selected_edges):
     """Сохраняет patch/chain identity вместо сведения сети к голым runs."""
 
@@ -2023,6 +2438,7 @@ def _collect_patch_sites(graph, selected_edges):
     uses_by_edge = {}
     normals_by_vert = {}
     positions_by_vert = {}
+    chart_use_counts = {}
     for patch_id in sorted(graph.nodes):
         node = graph.nodes[patch_id]
         seen_edges = set()
@@ -2043,6 +2459,9 @@ def _collect_patch_sites(graph, selected_edges):
                     source_b = chain.vert_cos[next_index].copy()
                     length = (source_b - source_a).length
                     edge_index = int(chain.edge_indices[segment_index])
+                    if edge_index in selected_edges:
+                        key = (patch_id, edge_index)
+                        chart_use_counts[key] = chart_use_counts.get(key, 0) + 1
                     if (
                         edge_index in selected_edges
                         and edge_index not in seen_edges
@@ -2090,6 +2509,10 @@ def _collect_patch_sites(graph, selected_edges):
             sorted(uses, key=lambda item: (item["patch_id"], item["vert_a"], item["vert_b"]))
         ):
             raw["uv_sign"] = -1.0 if use_index % 2 == 0 else 1.0
+            raw["two_sided"] = (
+                chart_use_counts.get((raw["patch_id"], edge_index), 0) > 1
+            )
+    _assign_network_v_phases(raw_by_patch)
     return raw_by_patch, normals_by_vert, positions_by_vert
 
 
@@ -2215,6 +2638,29 @@ def _compile_corners(sites):
             )
             if intersection is not None:
                 miter_ratio = _dist2(point, intersection)
+        elif len(incident_sites) > 2:
+            rays = {}
+            for site_index in incident_sites:
+                site = sites[site_index]
+                other = (
+                    site.point_b
+                    if site.vert_a == vert_index
+                    else site.point_a
+                )
+                rays[site_index] = _norm2(_sub2(other, point))
+            ordered_sites = tuple(
+                sorted(
+                    incident_sites,
+                    key=lambda site_index: (
+                        atan2(
+                            rays[site_index][1], rays[site_index][0]
+                        )
+                        if rays[site_index] is not None
+                        else 0.0,
+                        site_index,
+                    ),
+                )
+            )
         corners.append(
             CornerSpec(
                 vert_index=vert_index,
@@ -2229,6 +2675,21 @@ def _compile_corners(sites):
             )
         )
     return tuple(corners)
+
+
+def _classify_extrusion_angle(extrusion_angle, settings):
+    """Ordered A11 band classifier; exact threshold chooses softer band."""
+
+    theta = max(0.0, min(pi, float(extrusion_angle)))
+    if theta + _ANGLE_CLASSIFICATION_EPS >= settings.miter_angle:
+        return _CornerPolicy.MITER
+    if theta + _ANGLE_CLASSIFICATION_EPS >= settings.kite_angle:
+        return _CornerPolicy.KITE
+    if theta + _ANGLE_CLASSIFICATION_EPS >= settings.split_angle:
+        return _CornerPolicy.FAN
+    if theta + _ANGLE_CLASSIFICATION_EPS >= settings.hairpin_angle:
+        return _CornerPolicy.ACUTE_SPLIT
+    return _CornerPolicy.HAIRPIN
 
 
 def classify_corner_runtime(corner, settings=None):
@@ -2247,13 +2708,7 @@ def classify_corner_runtime(corner, settings=None):
 
     if abs(corner.interior_angle - pi) <= 1e-7:
         return _CornerPolicy.MITER
-    if corner.extrusion_angle < settings.acute_split_angle:
-        return _CornerPolicy.ACUTE_SPLIT
-    if corner.is_convex:
-        return _CornerPolicy.MITER
-    if corner.interior_angle > pi:
-        return _CornerPolicy.KITE
-    return _CornerPolicy.MITER
+    return _classify_extrusion_angle(corner.extrusion_angle, settings)
 
 
 def _canonical_planar_basis(normal):
@@ -2386,6 +2841,9 @@ def _compile_surface(node, raw_sites, diagnostics=None):
             segment_length=quantized_length,
             uv_sign=raw["uv_sign"],
             inward_normal=inward_normal,
+            arc_sign=raw.get("arc_sign", 1.0),
+            two_sided=raw.get("two_sided", False),
+            uv_length=raw["segment_length"],
         )
         sites.append(site)
         # Угловая policy остаётся геометрическим фактом исходного контура.
@@ -3258,7 +3716,13 @@ def _synchronize_cross_surface_spine_stations(plan, faces):
         face.v_lengths = new_v_lengths
 
 
-def _junction_connector_faces(plan, faces, alpha):
+def _junction_connector_faces(
+    plan,
+    faces,
+    alpha,
+    corner_settings=None,
+    diagnostics=None,
+):
     """Закрывает парные cross-patch sectors до BMesh materialization.
 
     Внутри planar surface endpoint Voronoi-cell уже соединяет соседние
@@ -3354,7 +3818,86 @@ def _junction_connector_faces(plan, faces, alpha):
         # Cross-patch connector описывает поворот одной ветви. T/X junction
         # уже принадлежит surface Voronoi arrangement и не должен получать
         # произвольный greedy chord между несколькими ветвями.
-        if len(incident_edges_by_vertex.get(vert_index, ())) != 2:
+        incident_count = len(incident_edges_by_vertex.get(vert_index, ()))
+        if incident_count < 2:
+            continue
+        if incident_count > 2:
+            core_position = sum(
+                (port.core_position for port in ports),
+                Vector((0.0, 0.0, 0.0)),
+            ) / len(ports)
+            blended = sum(
+                (port.surface_normal for port in ports),
+                Vector((0.0, 0.0, 0.0)),
+            )
+            if blended.length_squared <= 1e-12:
+                continue
+            normal = blended.normalized()
+            projected = []
+            for port in ports:
+                direction = port.outer_position - core_position
+                direction -= normal * direction.dot(normal)
+                if direction.length_squared <= 1e-12:
+                    continue
+                projected.append((port, direction.normalized()))
+            if len(projected) < 3:
+                continue
+            basis_u = projected[0][1]
+            basis_v = normal.cross(basis_u).normalized()
+            ordered = sorted(
+                projected,
+                key=lambda item: (
+                    atan2(item[1].dot(basis_v), item[1].dot(basis_u)),
+                    item[0].edge_index,
+                    repr(item[0].outer_key),
+                ),
+            )
+            for sector_index, (first, first_direction) in enumerate(ordered):
+                second, second_direction = ordered[
+                    (sector_index + 1) % len(ordered)
+                ]
+                if (
+                    first.edge_index == second.edge_index
+                    or first.outer_key == second.outer_key
+                ):
+                    continue
+                signed_angle = atan2(
+                    normal.dot(first_direction.cross(second_direction)),
+                    max(-1.0, min(1.0, first_direction.dot(second_direction))),
+                )
+                sector_angle = signed_angle % tau
+                if sector_angle >= pi - 1e-7 or sector_angle <= 1e-7:
+                    continue
+                policy = _classify_extrusion_angle(
+                    sector_angle,
+                    _normalized_corner_runtime_settings(corner_settings),
+                )
+                entries = [first, second]
+                winding = (first.outer_position - core_position).cross(
+                    second.outer_position - core_position
+                )
+                if winding.dot(normal) < 0.0:
+                    entries.reverse()
+                connectors.append(
+                    _NetworkFace(
+                        surface_id=-1,
+                        surface_normal=normal,
+                        vert_keys=[("pv-sv", vert_index)]
+                        + [entry.outer_key for entry in entries],
+                        positions=[core_position]
+                        + [entry.outer_position for entry in entries],
+                        u_fracs=[0.0]
+                        + [entry.outer_u for entry in entries],
+                        v_lengths=[
+                            sum(entry.core_v for entry in entries) / 2.0
+                        ]
+                        + [entry.outer_v for entry in entries],
+                        component_kind=policy.value,
+                        component_side=f"JUNCTION_SECTOR_{sector_index}",
+                    )
+                )
+                if diagnostics is not None:
+                    diagnostics.record_runtime_policy(policy)
             continue
         # Одна ray — штатный открытый cap. Несколько rays образуют
         # независимые парные sectors; greedy matching детерминирован и не
@@ -3473,7 +4016,6 @@ def _evaluate_surface_crops(
             point_atoms_by_corner.setdefault(atom.corner_index, []).append(atom)
 
     corner_crops = {}
-    corners_by_site = {}
     # Обычный endpoint corner существует только там, где pyvoronoi дал
     # отдельную point-cell. Острый convex miter такой cell не имеет: две
     # segment-cells сходятся непосредственно по биссектрисе. Но его всё
@@ -3485,27 +4027,23 @@ def _evaluate_surface_crops(
         for corner in surface.corners
     )
     if diagnostics is not None:
-        for policy in runtime_policies:
-            diagnostics.record_runtime_policy(policy)
+        for corner, policy in zip(surface.corners, runtime_policies):
+            for entry in _corner_runtime_policy_entries(
+                surface, corner, policy, corner_settings
+            ):
+                diagnostics.record_runtime_policy(entry)
     explicit_corner_indices = {
         corner_index
         for corner_index, (corner, policy) in enumerate(
             zip(surface.corners, runtime_policies)
         )
         if len(corner.incident_sites) == 2
-        and (
-            policy == _CornerPolicy.ACUTE_SPLIT
-            or (
-                policy == _CornerPolicy.MITER
-                and _miter_requires_explicit_crop(
-                    surface, corner, alpha, corner_settings
-                )
-            )
-        )
+        and abs(corner.interior_angle - pi) > 1e-7
     }
     corner_indices = sorted(
         set(point_atoms_by_corner) | explicit_corner_indices
     )
+    crops_by_site = {}
     for corner_index in corner_indices:
         point_atoms = point_atoms_by_corner.get(corner_index, ())
         corner = surface.corners[corner_index]
@@ -3529,27 +4067,33 @@ def _evaluate_surface_crops(
         if not crops:
             continue
         corner_crops[corner_index] = crops
-        for site_index in corner.incident_sites:
-            corners_by_site.setdefault(site_index, []).append(corner_index)
-
-        owner_atoms = [
-            atom
-            for atom in surface.atoms
-            if (
-                atom.site_index in corner.incident_sites
-                and atom.cell_kind == "SEGMENT"
-            )
-            or (
-                atom.cell_kind == "POINT"
-                and atom.corner_index == corner_index
-            )
-        ]
-        owner_site_index = min(
-            (atom.site_index for atom in point_atoms),
-            default=min(corner.incident_sites),
-        )
-        owner_site = surface.sites[owner_site_index]
         for crop in crops:
+            owner_site_indices = (
+                crop.owner_site_indices or corner.incident_sites
+            )
+            for site_index in owner_site_indices:
+                crops_by_site.setdefault(site_index, []).append(crop)
+            owner_atoms = [
+                atom
+                for atom in surface.atoms
+                if (
+                    atom.site_index in owner_site_indices
+                    and atom.cell_kind == "SEGMENT"
+                )
+                or (
+                    atom.cell_kind == "POINT"
+                    and atom.corner_index == corner_index
+                )
+            ]
+            owner_site_index = min(
+                (
+                    atom.site_index
+                    for atom in point_atoms
+                    if atom.site_index in owner_site_indices
+                ),
+                default=min(owner_site_indices),
+            )
+            owner_site = surface.sites[owner_site_index]
             fragments = []
             for atom in owner_atoms:
                 for fragment in atom.fragments:
@@ -3575,11 +4119,7 @@ def _evaluate_surface_crops(
             points=tuple(_segment_crop_polygon(site, alpha)),
         )
         fragments = []
-        subtraction_crops = [
-            corner_crop
-            for corner_index in corners_by_site.get(atom.site_index, ())
-            for corner_crop in corner_crops[corner_index]
-        ]
+        subtraction_crops = crops_by_site.get(atom.site_index, ())
         for fragment in atom.fragments:
             clipped = _clip_to_convex(fragment, crop.points)
             if not clipped:
@@ -3680,17 +4220,15 @@ def evaluate_patch_voronoi_plan(
             if key in used_keys:
                 continue
             used_keys.add(key)
-            distance, t = _segment_point_distance2(
+            _distance, t = _segment_point_distance2(
                 site.point_a, site.point_b, point
             )
             vert_keys.append(key)
             positions.append(position)
             component_uv = _crop_component_uv(crop, point)
             if component_uv is None:
-                u_fracs.append(
-                    site.uv_sign * max(0.0, min(1.0, distance / alpha))
-                )
-                v_lengths.append(site.arc_start + t * site.segment_length)
+                u_fracs.append(_site_lateral_u(site, point, alpha))
+                v_lengths.append(_site_v_length(site, t))
             else:
                 u_fracs.append(component_uv[0])
                 v_lengths.append(component_uv[1])
@@ -3731,5 +4269,13 @@ def evaluate_patch_voronoi_plan(
             )
         )
     _synchronize_cross_surface_spine_stations(plan, faces)
-    faces.extend(_junction_connector_faces(plan, faces, alpha))
+    faces.extend(
+        _junction_connector_faces(
+            plan,
+            faces,
+            alpha,
+            corner_settings,
+            diagnostics,
+        )
+    )
     return faces

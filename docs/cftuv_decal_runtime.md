@@ -141,6 +141,38 @@ Drag меняет runtime threshold внутри уже compiled plan и не в
 preview, сохраняя identity preview object и mesh datablock. Ошибка evaluation
 оставляет последний валидный threshold и геометрию без stale/partial faces.
 
+### A11: approved corner bands, CAP/JUNCTION и UV
+
+Oracle `docs/decal_corner_bands.md` утверждён. Runtime использует четыре
+независимых ordered threshold `120/90/60/30°` и пять policy:
+`MITER -> KITE -> FAN -> ACUTE_SPLIT -> HAIRPIN`. Сравнивается только compiled
+`CornerSpec.extrusion_angle`; convex/concave задаёт parity, но не выбирает
+band. На границе побеждает более мягкий band. Normalization клампит
+`T1 >= T2 >= T3 >= T4`, поэтому совпавшие thresholds намеренно закрывают
+промежуточный band. Hysteresis в v1 нет.
+
+Каждый semantic corner crop получает owner-independent UV anchors в
+каноническом frame: биссектриса `+V`, поперечная ось `U` с turn parity,
+V-origin берётся из накопленной длины connected selected network. FAN
+материализуется двумя triangle-компонентами; ACUTE_SPLIT сохраняет отдельные
+INNER/OUTER UV на общем mesh edge; HAIRPIN оставляет blunt inner component и
+не создаёт spike. Domain/Voronoi clipping вправе добавить stations или
+триангулировать видимую часть, не меняя semantic kind/side.
+
+CAP больше не строит axis-aligned square: terminal component ориентирован по
+tangent выбранного site и имеет перпендикулярный FLAT торец. Valence-N
+JUNCTION разворачивается в детерминированно упорядоченные angular sectors;
+каждый non-reflex sector использует тот же band-classifier. Это действует как
+внутри planar surface, так и для cross-surface connector fan. Reflex и
+straight pass-through sectors не получают произвольного fill.
+
+V-фаза теперь назначается connected network traversal, а не сбрасывается на
+границе каждой `BoundaryChain`. Для two-sided same-chart site U вычисляется
+как signed lateral distance, поэтому обе rails получают `-1/+1`. MITER/KITE
+также используют semantic anchors и больше не зависят от случайного owner
+PyVoronoi atom. Legacy parity намеренно не добавлена: действует A10 gate
+`Legacy:0`, `Rejected:0`.
+
 ## Source transform and world/local units
 
 Публичный `DecalSettings` и modal properties хранят размеры в world units.

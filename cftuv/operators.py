@@ -233,15 +233,39 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
         ),
     )
     decal_corner_acute_split_angle: FloatProperty(
-        name="Acute Split Angle",
+        name="Split Angle",
         subtype="ANGLE",
         default=pi / 3.0,
         min=pi / 180.0,
         max=pi * 179.0 / 180.0,
         description=(
-            "Corner extrusion angles below this threshold use a two-part "
-            "acute split; evaluated without rebuilding the Voronoi diagram"
+            "Boundary between FAN and ACUTE_SPLIT corner bands; evaluated "
+            "without rebuilding the Voronoi diagram"
         ),
+    )
+    decal_corner_miter_angle: FloatProperty(
+        name="Miter Angle",
+        subtype="ANGLE",
+        default=2.0 * pi / 3.0,
+        min=0.0,
+        max=pi,
+        description="Boundary between continuous MITER and KITE bands",
+    )
+    decal_corner_kite_angle: FloatProperty(
+        name="Kite Angle",
+        subtype="ANGLE",
+        default=pi / 2.0,
+        min=0.0,
+        max=pi,
+        description="Boundary between KITE and FAN corner bands",
+    )
+    decal_corner_hairpin_angle: FloatProperty(
+        name="Hairpin Angle",
+        subtype="ANGLE",
+        default=pi / 6.0,
+        min=0.0,
+        max=pi,
+        description="Boundary between ACUTE_SPLIT and HAIRPIN bands",
     )
     decal_corner_miter_limit: FloatProperty(
         name="Apex Limit",
@@ -1463,7 +1487,9 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         return (
             f"MITER:{int(counts.get('MITER', 0))} "
             f"KITE:{int(counts.get('KITE', 0))} "
-            f"SPLIT:{int(counts.get('ACUTE_SPLIT', 0))} | "
+            f"FAN:{int(counts.get('FAN', 0))} "
+            f"SPLIT:{int(counts.get('ACUTE_SPLIT', 0))} "
+            f"HAIRPIN:{int(counts.get('HAIRPIN', 0))} | "
             f"{evaluation_ms:.1f} ms"
         )
 
@@ -1920,7 +1946,10 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         col.prop(s, "decal_offset")
         col.prop(s, "decal_seam_network")
         if s.decal_seam_network:
+            col.prop(s, "decal_corner_miter_angle")
+            col.prop(s, "decal_corner_kite_angle")
             col.prop(s, "decal_corner_acute_split_angle")
+            col.prop(s, "decal_corner_hairpin_angle")
             col.prop(s, "decal_corner_miter_limit")
         op = col.operator("hotspotuv.generate_decals", text="Decal Top", icon="TRIA_UP")
         op.mode = "TOP"
