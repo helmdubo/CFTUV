@@ -460,3 +460,47 @@ Chart build + admission на CPython unit harness (30 повторов):
 Для полного выделения support двух небольших intrinsic patches закономерно
 равен full patch (`60 / 60` triangles): все seam sites покрывают всю их
 поверхность. Полосная пропорциональность отдельно доказана крупным F5 выше.
+
+## Tranche D translational periodic charts
+
+Annulus support после единственного generating cut допускается только при
+доказанной трансляционной holonomy. Chart канонически ориентируется так, что
+periodic axis — `U`; period и все diagram images лежат на общей
+`DiagramTransform` quantum-grid. Конусный фрустум требует вращательной
+периодичности и явно отклоняется с `PERIODIC_HOLONOMY_UNSUPPORTED`.
+
+G7 запрещает только коллинеарный overlap generating cut с selected source
+edge. Транзверсальное пересечение кольцевой chain и cut является штатным:
+Voronoi sites у cut получают diagram-only images на `U ± period`. Atom хранит
+целочисленный image shift, а runtime применяет его к site/crop view; canonical
+sites и materialized faces не размножаются. При `alpha = period/2` фронты
+антиподально смыкаются без gap и double-cover; больший width отклоняется
+существующим `alpha_budget` preflight.
+
+Сварка не использует float modulo. Обе стороны cut сводятся только через
+`ChartCut.transition_key` и перечисленные `transition_equivalences`.
+Замкнутая selected-компонента получает одну детерминированную V-ориентацию;
+диапазон V равен физической длине кольца, а closure остаётся в канонической
+source vertex. Diagnostics/benchmark публикуют `periodic_copy_count` после
+compile и `periodic_weld_count` текущего evaluation. Ни один periodic кадр не
+вызывает новый `Pyvoronoi.Construct()`.
+
+Acceptance oracle — `tests/test_decal_tranche_d_acceptance.py`: восемь cases
+D4.1–D4.N2 покрывают круглый цилиндр, polygonal duct с hard fold'ами,
+near-cut images, collision через seam, reversed winding, точную половину
+period и оба канонических отказа. Non-periodic C7 fixtures остаются общим
+differential guard.
+
+Живой Blender 4.3.2 acceptance выполнен на отдельном open cylinder из 32
+quad facets с кольцевой boundary chain. Результат: один periodic domain,
+`period=12.5462`, `alpha_budget=6.2731`, `33` diagram copies, `2` seam weld,
+`MITER:32` без особого corner в точке cut. На width `0.5` получен один
+connected component из 32 faces, `vertical cut boundary edges = 0`,
+`overfull edges = 0`; median/p95 evaluator `48.29/48.97 ms`, repeated preview
+и confirm совпали, `Construct during drag = 0`.
+
+Non-periodic differential на `rounded_wall` сохранил 156 faces и прежний
+geometry digest
+`336c91d5304583b3c3a629a598244b013466338dcc442b79db85a4afd4fb353d`;
+periodic counters остались нулевыми. Полный machine-readable отчёт:
+`artifacts/decal_tranche_d_blender_acceptance.json`.

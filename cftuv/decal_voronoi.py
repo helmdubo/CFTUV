@@ -131,6 +131,7 @@ class CornerSpec:
     miter_ratio: float
     split_chord: tuple[tuple[float, float], tuple[float, float]] = ()
     static_wedge: tuple[tuple[float, float], ...] = ()
+    site_u_offsets: tuple[tuple[int, float], ...] = ()
 
 
 @dataclass(frozen=True, init=False)
@@ -1899,7 +1900,7 @@ def _corner_offset_lines(surface, corner, alpha):
 
     offset_lines = []
     for site_index in corner.ordered_sites:
-        site = surface.sites[site_index]
+        site = _corner_site_view(surface, corner, site_index)
         if site.segment_length <= _GEOMETRY_EPS:
             return []
         if site.vert_a == corner.vert_index:
@@ -1968,7 +1969,7 @@ def _kite_crop_polygon(
 def _corner_arc_origin(surface, corner):
     values = []
     for site_index in corner.ordered_sites:
-        site = surface.sites[site_index]
+        site = _corner_site_view(surface, corner, site_index)
         values.append(
             _site_v_length(
                 site, 0.0 if site.vert_a == corner.vert_index else 1.0
@@ -2055,7 +2056,7 @@ def _cap_crop_components(surface, corner, alpha):
     if len(corner.incident_sites) != 1:
         return ()
     site_index = corner.incident_sites[0]
-    site = surface.sites[site_index]
+    site = _corner_site_view(surface, corner, site_index)
     other = site.point_b if site.vert_a == corner.vert_index else site.point_a
     tangent = _norm2(_sub2(other, corner.point))
     if tangent is None:
@@ -2474,7 +2475,7 @@ def _junction_sector_specs(surface, corner):
 
     rays = {}
     for site_index in corner.incident_sites:
-        site = surface.sites[site_index]
+        site = _corner_site_view(surface, corner, site_index)
         other = site.point_b if site.vert_a == corner.vert_index else site.point_a
         ray = _norm2(_sub2(other, corner.point))
         if ray is not None:
@@ -2636,7 +2637,7 @@ def _corner_endpoint_ownership_crop(surface, corner, crop):
     points = list(crop.points)
 
     def site_key(site_index):
-        site = surface.sites[site_index]
+        site = _corner_site_view(surface, corner, site_index)
         return (
             site.edge_index,
             min(site.vert_a, site.vert_b),
@@ -2649,7 +2650,7 @@ def _corner_endpoint_ownership_crop(surface, corner, crop):
         crop.owner_site_indices or corner.incident_sites
     )
     for site_index in sorted(set(owner_site_indices), key=site_key):
-        site = surface.sites[site_index]
+        site = _corner_site_view(surface, corner, site_index)
         if corner.vert_index == site.vert_a:
             keep_point_a = True
         elif corner.vert_index == site.vert_b:
@@ -3307,7 +3308,27 @@ def _collect_patch_sites(graph, selected_edges):
     return raw_by_patch, normals_by_vert, positions_by_vert
 
 
-def _compile_corners(sites):
+def _corner_site_view_from_sites(sites, corner, site_index):
+    """Локальная periodic image incident site для геометрии corner."""
+
+    site = sites[site_index]
+    offset = dict(getattr(corner, "site_u_offsets", ())).get(
+        site_index, 0.0
+    )
+    if abs(offset) <= _GEOMETRY_EPS:
+        return site
+    return replace(
+        site,
+        point_a=(site.point_a[0] + offset, site.point_a[1]),
+        point_b=(site.point_b[0] + offset, site.point_b[1]),
+    )
+
+
+def _corner_site_view(surface, corner, site_index):
+    return _corner_site_view_from_sites(surface.sites, corner, site_index)
+
+
+def _compile_corners(sites, periodic_axis="", period=0.0):
     incidents = {}
     points = {}
     for site_index, site in enumerate(sites):
@@ -3321,7 +3342,49 @@ def _compile_corners(sites):
     corners = []
     for vert_index in sorted(incidents):
         incident_sites = tuple(sorted(incidents[vert_index]))
+        site_u_offsets = ()
         point = points[vert_index]
+        if periodic_axis == "U" and period > 0.0:
+            endpoint_u = {}
+            for site_index in incident_sites:
+                site = sites[site_index]
+                endpoint = (
+                    site.point_a
+                    if site.vert_a == vert_index
+                    else site.point_b
+                )
+                endpoint_u[site_index] = endpoint[0]
+            anchor_u = min(endpoint_u.values())
+            site_u_offsets = tuple(
+                (
+                    site_index,
+                    round((anchor_u - endpoint_u[site_index]) / period)
+                    * period,
+                )
+                for site_index in incident_sites
+            )
+            first_site = sites[incident_sites[0]]
+            first_endpoint = (
+                first_site.point_a
+                if first_site.vert_a == vert_index
+                else first_site.point_b
+            )
+            point = (
+                first_endpoint[0] + dict(site_u_offsets)[incident_sites[0]],
+                first_endpoint[1],
+            )
+        corner_view = CornerSpec(
+            vert_index=vert_index,
+            point=point,
+            incident_sites=incident_sites,
+            ordered_sites=incident_sites,
+            turn_sign=0.0,
+            interior_angle=0.0,
+            extrusion_angle=0.0,
+            is_convex=False,
+            miter_ratio=float("inf"),
+            site_u_offsets=site_u_offsets,
+        )
         ordered_sites = incident_sites
         turn_sign = 0.0
         interior_angle = 0.0
@@ -3333,7 +3396,9 @@ def _compile_corners(sites):
             incoming = []
             outgoing = []
             for site_index in incident_sites:
-                site = sites[site_index]
+                site = _corner_site_view_from_sites(
+                    sites, corner_view, site_index
+                )
                 if site.vert_a == vert_index:
                     other = site.point_b
                     outgoing.append(site_index)
@@ -3390,7 +3455,12 @@ def _compile_corners(sites):
                     is_convex = False
                 else:
                     inside_small_wedge = all(
-                        _dot2(bisector, sites[site_index].inward_normal)
+                        _dot2(
+                            bisector,
+                            _corner_site_view_from_sites(
+                                sites, corner_view, site_index
+                            ).inward_normal,
+                        )
                         >= -1e-7
                         for site_index in incident_sites
                     )
@@ -3406,7 +3476,9 @@ def _compile_corners(sites):
 
             offset_lines = []
             for site_index in incident_sites:
-                site = sites[site_index]
+                site = _corner_site_view_from_sites(
+                    sites, corner_view, site_index
+                )
                 other = site.point_b if site.vert_a == vert_index else site.point_a
                 direction = (
                     (other[0] - point[0]) / site.segment_length,
@@ -3432,7 +3504,9 @@ def _compile_corners(sites):
         elif len(incident_sites) > 2:
             rays = {}
             for site_index in incident_sites:
-                site = sites[site_index]
+                site = _corner_site_view_from_sites(
+                    sites, corner_view, site_index
+                )
                 other = (
                     site.point_b
                     if site.vert_a == vert_index
@@ -3463,6 +3537,7 @@ def _compile_corners(sites):
                 extrusion_angle=extrusion_angle,
                 is_convex=is_convex,
                 miter_ratio=miter_ratio,
+                site_u_offsets=site_u_offsets,
             )
         )
     return tuple(corners)
@@ -3945,9 +4020,23 @@ def _compile_surface(
     for site in sites:
         corner_points.setdefault(site.vert_a, site.point_a)
         corner_points.setdefault(site.vert_b, site.point_b)
+    periodic_axis = intrinsic_chart.periodic_axis if intrinsic_chart else ""
+    periodic_period = intrinsic_chart.period if intrinsic_chart else 0.0
+    compiled_corners = _compile_corners(
+        classification_sites,
+        periodic_axis=periodic_axis,
+        period=periodic_period,
+    )
     corners = tuple(
-        replace(corner, point=corner_points[corner.vert_index])
-        for corner in _compile_corners(classification_sites)
+        replace(
+            corner,
+            point=(
+                diagram_transform.quantize(corner.point)
+                if periodic_axis
+                else corner_points[corner.vert_index]
+            ),
+        )
+        for corner in compiled_corners
     )
     corner_by_vertex = {
         corner.vert_index: index for index, corner in enumerate(corners)
@@ -5847,7 +5936,12 @@ def _periodic_site_image(surface, site, shift):
     shift = int(shift)
     if not shift:
         return site
-    offset = shift * float(surface.domain.period)
+    return _translated_site_u(site, shift * float(surface.domain.period))
+
+
+def _translated_site_u(site, offset):
+    if abs(offset) <= _GEOMETRY_EPS:
+        return site
     return replace(
         site,
         point_a=(site.point_a[0] + offset, site.point_a[1]),
@@ -5861,7 +5955,12 @@ def _periodic_crop_image(surface, crop, shift):
     shift = int(shift)
     if not shift:
         return crop
-    offset = shift * float(surface.domain.period)
+    return _translated_crop_u(crop, shift * float(surface.domain.period))
+
+
+def _translated_crop_u(crop, offset):
+    if abs(offset) <= _GEOMETRY_EPS:
+        return crop
     return replace(
         crop,
         points=tuple((point[0] + offset, point[1]) for point in crop.points),
@@ -6022,26 +6121,36 @@ def _evaluate_surface_crops(
                 ),
                 default=min(owner_site_indices),
             )
-            owner_site = surface.sites[owner_site_index]
-            if split_dynamic_atoms:
-                atom_groups = tuple((atom,) for atom in owner_atoms)
-            else:
-                atoms_by_shift = {}
-                for atom in owner_atoms:
-                    atoms_by_shift.setdefault(atom.periodic_shift, []).append(
-                        atom
-                    )
-                atom_groups = tuple(
-                    tuple(atoms_by_shift[shift])
-                    for shift in sorted(atoms_by_shift)
+            corner_offsets = dict(getattr(corner, "site_u_offsets", ()))
+            periodic_period = float(
+                getattr(getattr(surface, "domain", None), "period", 0.0)
+            )
+
+            def atom_corner_offset(atom):
+                return (
+                    atom.periodic_shift * periodic_period
+                    - corner_offsets.get(atom.site_index, 0.0)
                 )
-            for atoms in atom_groups:
+
+            if split_dynamic_atoms:
+                atom_groups = tuple(
+                    (atom_corner_offset(atom), (atom,))
+                    for atom in owner_atoms
+                )
+            else:
+                atoms_by_offset = {}
+                for atom in owner_atoms:
+                    atoms_by_offset.setdefault(
+                        atom_corner_offset(atom), []
+                    ).append(atom)
+                atom_groups = tuple(
+                    (offset, tuple(atoms_by_offset[offset]))
+                    for offset in sorted(atoms_by_offset)
+                )
+            for image_offset, atoms in atom_groups:
                 if not atoms:
                     continue
-                periodic_shift = atoms[0].periodic_shift
-                image_crop = _periodic_crop_image(
-                    surface, crop, periodic_shift
-                )
+                image_crop = _translated_crop_u(crop, image_offset)
                 fragments = []
                 for atom in atoms:
                     for fragment in atom.fragments:
@@ -6050,8 +6159,11 @@ def _evaluate_surface_crops(
                         )
                         if clipped:
                             fragments.append(clipped)
-                image_site = _periodic_site_image(
-                    surface, owner_site, periodic_shift
+                image_site = _translated_site_u(
+                    _corner_site_view(
+                        surface, corner, owner_site_index
+                    ),
+                    image_offset,
                 )
                 _append_pending_fragments(
                     pending,

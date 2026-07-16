@@ -1286,6 +1286,15 @@ shift хранится целым числом на atom и применяетс
 
 ## D4. Приёмочные фикстуры
 
+Статус: **IMPLEMENTED**. Acceptance suite
+`tests/test_decal_tranche_d_acceptance.py` содержит все восемь fixture cases:
+round cylinder, hard polygonal duct, near-cut image, collision через seam,
+reversed winding, точное `period/2`, frustum reject и отсутствие legal cut.
+Общие gates: connected manifold, zero-area=0, duplicate faces=0,
+preview=confirm, `Construct()` неизменен после compile. D4.6 дополнительно
+сравнивает площадь arrangement с площадью periodic domain, одновременно
+доказывая gap=0 и double-cover=0.
+
 | # | Фикстура | Проверяет |
 |---|---|---|
 | D4.1 | Closed cylinder, кольцевая цепочка | базовый путь: cut транзверсален (DP1), copies, сварка |
