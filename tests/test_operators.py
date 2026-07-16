@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import types
+from math import pi
 from types import SimpleNamespace
 
 import bpy
@@ -41,6 +42,8 @@ from mathutils import Vector
 from cftuv.decal_modal import (
     DECAL_SIZE_MIN,
     decal_drag_anchor,
+    decal_drag_target_value,
+    decal_drag_targets,
     decal_drag_value,
 )
 from cftuv.decals import (
@@ -147,6 +150,185 @@ def test_decal_drag_clamps_to_positive_minimum_and_shift_is_precise():
     normal_delta = decal_drag_value(0.25, 10) - 0.25
     precise_delta = decal_drag_value(0.25, 10, precise=True) - 0.25
     assert precise_delta == pytest.approx(normal_delta * 0.1)
+
+
+def _a8_modal_fixture():
+    settings = DecalSettings(
+        width_seam=0.15,
+        corner_acute_split_angle=pi / 3.0,
+        corner_apex_limit=8.0,
+    )
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    operator._configure_modal_drag_targets(settings)
+    operator._rebase_modal_drag("W", 100, False)
+    operator._modal_state = object()
+    operator._modal_created = ["PreviewDecal"]
+    header = SimpleNamespace(text=None)
+    operator._modal_area = SimpleNamespace(
+        header_text_set=lambda text: setattr(header, "text", text)
+    )
+    generated_settings = []
+
+    def generate(_context, _state, current, preview=False):
+        generated_settings.append(current)
+        return DecalGenerationResult(
+            PreviewStatus.UPDATED,
+            "PreviewDecal",
+        )
+
+    operator._generate = generate
+    scene_settings = SimpleNamespace(
+        decal_width_seam=settings.width_seam,
+        decal_corner_acute_split_angle=settings.corner_acute_split_angle,
+        decal_corner_miter_limit=settings.corner_apex_limit,
+    )
+    context = SimpleNamespace(
+        scene=SimpleNamespace(hotspotuv_settings=scene_settings)
+    )
+    return operator, context, header, generated_settings
+
+
+def test_decal_shift_press_and_release_rebase_without_jump():
+    operator, context, _header, generated = _a8_modal_fixture()
+
+    operator.modal(
+        context,
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=120, shift=False),
+    )
+    normal_value = operator._modal_current_value
+    assert len(generated) == 1
+
+    operator.modal(
+        context,
+        SimpleNamespace(
+            type="LEFT_SHIFT",
+            value="PRESS",
+            mouse_x=120,
+            shift=True,
+        ),
+    )
+    assert operator._modal_current_value == normal_value
+    assert operator._modal_base_value == normal_value
+    assert operator._modal_start_mouse == 120
+    assert len(generated) == 1
+
+    operator.modal(
+        context,
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=130, shift=True),
+    )
+    precise_value = operator._modal_current_value
+    assert precise_value == pytest.approx(
+        decal_drag_target_value(
+            operator._modal_drag_targets["W"], normal_value, 10, True
+        )
+    )
+
+    operator.modal(
+        context,
+        SimpleNamespace(
+            type="LEFT_SHIFT",
+            value="RELEASE",
+            mouse_x=130,
+            shift=False,
+        ),
+    )
+    assert operator._modal_current_value == precise_value
+    assert operator._modal_base_value == precise_value
+    assert operator._modal_start_mouse == 130
+    assert len(generated) == 2
+
+
+def test_decal_drag_target_switch_w_a_m_rebases_and_keeps_settings():
+    operator, context, header, generated = _a8_modal_fixture()
+
+    operator.modal(
+        context,
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=120, shift=False),
+    )
+    width_value = operator._modal_current_settings.width_seam
+
+    operator.modal(
+        context,
+        SimpleNamespace(type="A", value="PRESS", mouse_x=120, shift=False),
+    )
+    assert operator._modal_current_value == pytest.approx(pi / 3.0)
+    assert operator._modal_start_mouse == 120
+    assert operator._modal_current_settings.width_seam == width_value
+    assert header.text.startswith("Acute Split Angle: 60.0\N{DEGREE SIGN}")
+    assert len(generated) == 1
+
+    operator.modal(
+        context,
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=122, shift=False),
+    )
+    angle_value = operator._modal_current_settings.corner_acute_split_angle
+    assert angle_value == pytest.approx(pi * 61.0 / 180.0)
+
+    operator.modal(
+        context,
+        SimpleNamespace(type="M", value="PRESS", mouse_x=122, shift=False),
+    )
+    assert operator._modal_current_value == 8.0
+    assert operator._modal_start_mouse == 122
+    assert operator._modal_current_settings.width_seam == width_value
+    assert operator._modal_current_settings.corner_acute_split_angle == angle_value
+    assert len(generated) == 2
+
+    operator.modal(
+        context,
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=126, shift=False),
+    )
+    assert operator._modal_current_settings.corner_apex_limit == pytest.approx(
+        8.2
+    )
+
+    operator.modal(
+        context,
+        SimpleNamespace(type="W", value="PRESS", mouse_x=126, shift=False),
+    )
+    assert operator._modal_current_value == width_value
+    assert operator._modal_start_mouse == 126
+    assert len(generated) == 3
+
+
+def test_decal_drag_target_clamps_distance_angle_and_ratio():
+    targets = {target.key: target for target in decal_drag_targets("SEAMS")}
+
+    assert decal_drag_target_value(targets["W"], 0.15, -10000) > 0.0
+    assert decal_drag_target_value(targets["A"], pi / 3.0, -10000) == pytest.approx(
+        pi / 180.0
+    )
+    assert decal_drag_target_value(targets["A"], pi / 3.0, 10000) == pytest.approx(
+        pi * 179.0 / 180.0
+    )
+    assert decal_drag_target_value(targets["M"], 8.0, -10000) == 1.0
+
+
+def test_decal_cancel_restores_all_operator_owned_targets():
+    operator, context, _header, _generated = _a8_modal_fixture()
+    operator._modal_preview_discarded = True
+
+    for event in (
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=120, shift=False),
+        SimpleNamespace(type="A", value="PRESS", mouse_x=120, shift=False),
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=124, shift=False),
+        SimpleNamespace(type="M", value="PRESS", mouse_x=124, shift=False),
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=130, shift=False),
+    ):
+        operator.modal(context, event)
+
+    operator.modal(
+        context,
+        SimpleNamespace(type="ESC", value="PRESS", shift=False),
+    )
+
+    scene_settings = context.scene.hotspotuv_settings
+    assert scene_settings.decal_width_seam == pytest.approx(0.15)
+    assert scene_settings.decal_corner_acute_split_angle == pytest.approx(
+        pi / 3.0
+    )
+    assert scene_settings.decal_corner_miter_limit == pytest.approx(8.0)
 
 
 def test_decal_modal_ignores_vertical_only_mousemove():

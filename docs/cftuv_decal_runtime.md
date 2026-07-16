@@ -99,6 +99,29 @@ state. Остальные статусы оставляют эти значен�
 последние валидные settings; отсутствие хотя бы одного valid state даёт явный
 error вместо подтверждения произвольного текущего cursor value.
 
+## Operator-owned drag targets
+
+Modal хранит immutable descriptors `DecalDragTarget` для трёх целей одного
+horizontal gesture:
+
+- `W` — `Trim Height`, `Corner Width` или `Seam Width` текущего mode;
+- `A` — `Acute Split Angle`, clamp `[1°, 179°]`;
+- `M` — `Apex Limit`, clamp `>= 1`.
+
+Каждый descriptor владеет settings field, Blender scene property, типом
+`DISTANCE / ANGLE / RATIO`, диапазоном и sensitivity. Property `update=` не
+участвует в runtime: compiled plan, preview state и last-valid transaction
+остаются у modal operator.
+
+Смена target и любое изменение состояния Shift выполняют input rebase:
+текущее принятое значение становится новым base, а текущий X мыши — новым
+start. Поэтому накопленный coarse delta никогда не пересчитывается с precise
+sensitivity и значение не скачет при нажатии/отпускании Shift либо переходе
+`W -> A -> M`. Угол хранится в радианах, но в header показывается в градусах.
+Невалидный кадр по-прежнему не меняет ни target value, ни общий settings
+snapshot. Esc/RMB восстанавливает исходные значения всех W/A/M properties,
+которые могли измениться за одну modal-сессию.
+
 ## Developer build identity
 
 В верхней части панели Hotspot UV показываются `Branch` и первые восемь

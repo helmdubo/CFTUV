@@ -28,8 +28,12 @@ from .analysis import (
 )
 from .constants import GP_DEBUG_PREFIX
 from .decal_modal import (
+    DECAL_DRAG_DISTANCE as _DECAL_DRAG_DISTANCE,
     DECAL_SIZE_MIN as _DECAL_SIZE_MIN,
-    decal_drag_value as _decal_drag_value,
+    DecalDragTarget as _DecalDragTarget,
+    decal_drag_target_value as _decal_drag_target_value,
+    decal_drag_targets as _decal_drag_targets,
+    format_decal_drag_value as _format_decal_drag_value,
     warp_decal_drag_cursor as _warp_decal_drag_cursor,
 )
 from .debug import (
@@ -1359,12 +1363,89 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             summary += " | " + suffix
         self.report({"INFO"}, summary)
 
+    def _active_modal_drag_target(self):
+        target = getattr(self, "_modal_drag_target", None)
+        if target is not None:
+            return target
+        return _DecalDragTarget(
+            "W",
+            getattr(self, "_modal_label", "Size"),
+            getattr(self, "_modal_settings_field", "width_seam"),
+            getattr(self, "_modal_property", "decal_width_seam"),
+            _DECAL_DRAG_DISTANCE,
+            _DECAL_SIZE_MIN,
+            None,
+            0.01,
+        )
+
+    def _configure_modal_drag_targets(self, settings):
+        targets = _decal_drag_targets(self.mode)
+        self._modal_drag_targets = {target.key: target for target in targets}
+        self._modal_drag_target = targets[0]
+        self._modal_initial_settings = settings
+        self._modal_base_settings = settings
+        self._modal_current_settings = settings
+
+    def _rebase_modal_drag(self, key, mouse_x, precise):
+        targets = getattr(self, "_modal_drag_targets", {})
+        target = targets.get(key)
+        if target is None:
+            target = self._active_modal_drag_target()
+            if target.key != key:
+                return False
+        settings = getattr(self, "_modal_current_settings", None)
+        if settings is None:
+            settings = getattr(self, "_modal_base_settings", None)
+        if settings is None:
+            return False
+        value = getattr(settings, target.settings_field)
+        self._modal_drag_target = target
+        self._modal_property = target.scene_property
+        self._modal_settings_field = target.settings_field
+        self._modal_label = target.label
+        self._modal_base_value = value
+        self._modal_current_value = value
+        self._modal_start_mouse = mouse_x
+        self._modal_last_mouse_x = mouse_x
+        self._modal_precise_mode = bool(precise)
+        return True
+
+    def _modal_value_text(self, value=None):
+        if value is None:
+            value = self._modal_current_value
+        return _format_decal_drag_value(
+            self._active_modal_drag_target(), value
+        )
+
+    def _restore_modal_scene_targets(self, scene_settings):
+        initial = getattr(self, "_modal_initial_settings", None)
+        if initial is None:
+            initial = getattr(self, "_modal_base_settings", None)
+        targets = tuple(getattr(self, "_modal_drag_targets", {}).values())
+        restored = False
+        for target in targets:
+            if initial is None or not hasattr(initial, target.settings_field):
+                continue
+            setattr(
+                scene_settings,
+                target.scene_property,
+                getattr(initial, target.settings_field),
+            )
+            restored = True
+        if not restored:
+            property_name = getattr(self, "_modal_property", None)
+            base_value = getattr(self, "_modal_base_value", None)
+            if property_name and base_value is not None:
+                setattr(scene_settings, property_name, base_value)
+
     def _set_modal_header(self, value, reason=""):
         area = getattr(self, "_modal_area", None)
         if area is None:
             return
+        target = self._active_modal_drag_target()
         text = (
-            f"{self._modal_label}: {value:.4f} | Move Left/Right | "
+            f"{target.label}: {self._modal_value_text(value)} | "
+            "W: size | A: acute | M: apex | Move Left/Right | "
             "Shift: precise | LMB/Enter: confirm | Esc/RMB: cancel"
         )
         if reason:
@@ -1403,17 +1484,8 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         if restore_scene:
             scene = getattr(context, "scene", None)
             scene_settings = getattr(scene, "hotspotuv_settings", None)
-            property_name = getattr(self, "_modal_property", None)
-            if scene_settings is not None and property_name:
-                base_value = getattr(self, "_modal_base_value", None)
-                if base_value is None:
-                    self._clear_modal_header()
-                    return
-                setattr(
-                    scene_settings,
-                    property_name,
-                    base_value,
-                )
+            if scene_settings is not None:
+                self._restore_modal_scene_targets(scene_settings)
         self._clear_modal_header()
 
     def cancel(self, context):
@@ -1442,26 +1514,9 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             self._modal_preview_state = DecalPreviewState()
             settings = state[2]
             self._modal_state = state
-            self._modal_base_settings = settings
-            self._modal_current_settings = settings
+            self._configure_modal_drag_targets(settings)
             self._modal_area = context.area
             self._modal_preview_discarded = False
-            if self.mode == "CORNERS":
-                self._modal_property = "decal_width_corner"
-                self._modal_settings_field = "width_corner"
-                self._modal_label = "Corner Width"
-                self._modal_base_value = settings.width_corner
-            elif self.mode == "SEAMS":
-                self._modal_property = "decal_width_seam"
-                self._modal_settings_field = "width_seam"
-                self._modal_label = "Seam Width"
-                self._modal_base_value = settings.width_seam
-            else:
-                self._modal_property = "decal_height_trim"
-                self._modal_settings_field = "height_trim"
-                self._modal_label = "Trim Height"
-                self._modal_base_value = settings.height_trim
-            self._modal_current_value = self._modal_base_value
             generation = _coerce_decal_generation_result(
                 self._generate(context, state, settings, preview=True)
             )
@@ -1484,7 +1539,9 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             self._modal_last_preview_error = None
             self._modal_created = _generation_result_names(generation)
             drag_anchor = _warp_decal_drag_cursor(context, source_obj, event)
-            self._modal_start_mouse = drag_anchor[0]
+            self._rebase_modal_drag(
+                "W", drag_anchor[0], bool(getattr(event, "shift", False))
+            )
             self._set_modal_header(self._modal_current_value)
             context.window_manager.modal_handler_add(self)
             return {"RUNNING_MODAL"}
@@ -1500,17 +1557,54 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             return {"CANCELLED"}
 
     def modal(self, context, event):
+        event_type = event.type
+        event_mouse_x = getattr(
+            event,
+            "mouse_x",
+            getattr(
+                self,
+                "_modal_last_mouse_x",
+                getattr(self, "_modal_start_mouse", 0),
+            ),
+        )
+        self._modal_last_mouse_x = event_mouse_x
+        precise_mode = bool(
+            getattr(
+                event,
+                "shift",
+                getattr(self, "_modal_precise_mode", False),
+            )
+        )
+        targets = getattr(self, "_modal_drag_targets", {})
+        if (
+            event_type in targets
+            and getattr(event, "value", "PRESS") == "PRESS"
+        ):
+            self._rebase_modal_drag(event_type, event_mouse_x, precise_mode)
+            self._set_modal_header(self._modal_current_value)
+            return {"RUNNING_MODAL"}
+        if precise_mode != getattr(self, "_modal_precise_mode", False):
+            target = self._active_modal_drag_target()
+            self._rebase_modal_drag(target.key, event_mouse_x, precise_mode)
+            self._set_modal_header(self._modal_current_value)
+            return {"RUNNING_MODAL"}
+
         if event.type == "MOUSEMOVE":
-            new_value = _decal_drag_value(
+            target = self._active_modal_drag_target()
+            new_value = _decal_drag_target_value(
+                target,
                 self._modal_base_value,
                 event.mouse_x - self._modal_start_mouse,
-                precise=bool(event.shift),
+                precise=getattr(self, "_modal_precise_mode", False),
             )
             if abs(new_value - self._modal_current_value) < 1e-9:
                 return {"RUNNING_MODAL"}
+            current_settings = getattr(self, "_modal_current_settings", None)
+            if current_settings is None:
+                current_settings = self._modal_base_settings
             settings = replace(
-                self._modal_base_settings,
-                **{self._modal_settings_field: new_value},
+                current_settings,
+                **{target.settings_field: new_value},
             )
             try:
                 # Быстрое превью во время drag; финальная точность — на
@@ -1545,7 +1639,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             self._modal_last_preview_error = None
             setattr(
                 context.scene.hotspotuv_settings,
-                self._modal_property,
+                target.scene_property,
                 new_value,
             )
             self._modal_created = _generation_result_names(generation)
@@ -1601,7 +1695,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             self._report_created(
                 self._modal_created,
                 self._modal_state,
-                f"{self._modal_label}:{self._modal_current_value:.4f}",
+                f"{self._modal_label}:{self._modal_value_text()}",
             )
             return {"FINISHED"}
 

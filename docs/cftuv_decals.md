@@ -132,7 +132,15 @@ convex/outer. Направления крыльев corner-strip меняютс�
   bounding box исходного объекта. Y остаётся в точке клика: вертикального warp
   нет, и движение вверх/вниз не участвует в расчёте размера. Если центр объекта
   вне экрана или не проецируется, используется центральный X окна 3D View.
-- `Shift` включает точную регулировку, LMB/Enter подтверждает, RMB/Esc отменяет.
+- `W` выбирает размер текущего mode, `A` — `Acute Split Angle`, `M` —
+  `Apex Limit`. Переключение цели использует текущее принятое значение и
+  текущий X мыши как новую базу, поэтому параметр не скачет.
+- `Shift` включает точную регулировку с input rebase как при нажатии, так и
+  при отпускании: уже накопленный coarse delta не пересчитывается с новой
+  sensitivity. Угол в header показывается в градусах.
+- LMB/Enter подтверждает общий последний валидный settings snapshot. RMB/Esc
+  отменяет preview и восстанавливает все W/A/M properties, изменённые в этой
+  modal-сессии.
 
 В Edge Select Mode `Decal Seams` также остаётся интерактивным: captured manual
 scope не меняется во время drag, повторно строятся только выбранные seam edges.
@@ -154,8 +162,8 @@ operators.py
 - `decals.py` — чистый потребитель PatchGraph (как `debug.py`): исходный
   BMesh не читается, вся геометрия берётся из `vert_cos` цепочек (локальное
   пространство source object).
-- `decal_modal.py` — единая экранная математика интерактивного размера:
-  проекция bbox, viewport fallback, cursor warp, чувствительность и минимум.
+- `decal_modal.py` — единая экранная математика и immutable target descriptors:
+  проекция bbox, viewport fallback, cursor warp, W/A/M sensitivity и clamps.
 - Модуль строит ленты в собственном `bmesh.new()` и материализует их
   объектами в коллекции `Decals_Generated` с `matrix_world` источника.
 - Настройки — frozen dataclass `DecalSettings` в `model.py` (инвариант «без

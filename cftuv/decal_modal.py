@@ -1,4 +1,7 @@
-"""Экранная математика modal-регулировки размеров декалей."""
+"""Экранная математика и targets modal-регулировки декалей."""
+
+from dataclasses import dataclass
+from math import degrees, pi
 
 from bpy_extras.view3d_utils import location_3d_to_region_2d
 from mathutils import Vector
@@ -7,12 +10,136 @@ from mathutils import Vector
 DECAL_SIZE_MIN = 0.001
 _VIEWPORT_INSET = 24
 
+DECAL_DRAG_DISTANCE = "DISTANCE"
+DECAL_DRAG_ANGLE = "ANGLE"
+DECAL_DRAG_RATIO = "RATIO"
+
+
+@dataclass(frozen=True)
+class DecalDragTarget:
+    """Operator-owned параметр одного horizontal drag gesture."""
+
+    key: str
+    label: str
+    settings_field: str
+    scene_property: str
+    kind: str
+    minimum: float
+    maximum: float | None
+    sensitivity: float
+
+
+_WIDTH_TARGETS = {
+    "TOP": DecalDragTarget(
+        "W",
+        "Trim Height",
+        "height_trim",
+        "decal_height_trim",
+        DECAL_DRAG_DISTANCE,
+        DECAL_SIZE_MIN,
+        None,
+        0.01,
+    ),
+    "BOTTOM": DecalDragTarget(
+        "W",
+        "Trim Height",
+        "height_trim",
+        "decal_height_trim",
+        DECAL_DRAG_DISTANCE,
+        DECAL_SIZE_MIN,
+        None,
+        0.01,
+    ),
+    "CORNERS": DecalDragTarget(
+        "W",
+        "Corner Width",
+        "width_corner",
+        "decal_width_corner",
+        DECAL_DRAG_DISTANCE,
+        DECAL_SIZE_MIN,
+        None,
+        0.01,
+    ),
+    "SEAMS": DecalDragTarget(
+        "W",
+        "Seam Width",
+        "width_seam",
+        "decal_width_seam",
+        DECAL_DRAG_DISTANCE,
+        DECAL_SIZE_MIN,
+        None,
+        0.01,
+    ),
+}
+
+_ACUTE_ANGLE_TARGET = DecalDragTarget(
+    "A",
+    "Acute Split Angle",
+    "corner_acute_split_angle",
+    "decal_corner_acute_split_angle",
+    DECAL_DRAG_ANGLE,
+    pi / 180.0,
+    pi * 179.0 / 180.0,
+    pi / 360.0,
+)
+
+_APEX_LIMIT_TARGET = DecalDragTarget(
+    "M",
+    "Apex Limit",
+    "corner_apex_limit",
+    "decal_corner_miter_limit",
+    DECAL_DRAG_RATIO,
+    1.0,
+    None,
+    0.05,
+)
+
+
+def decal_drag_targets(mode):
+    """Возвращает W/A/M descriptors в стабильном keyboard order."""
+
+    width_target = _WIDTH_TARGETS.get(mode)
+    if width_target is None:
+        raise ValueError(f"Unsupported decal drag mode: {mode}")
+    return (width_target, _ACUTE_ANGLE_TARGET, _APEX_LIMIT_TARGET)
+
+
+def _drag_step(target, base_value):
+    if target.kind == DECAL_DRAG_DISTANCE:
+        return max(target.minimum, abs(base_value) * target.sensitivity)
+    return target.sensitivity
+
+
+def decal_drag_target_value(target, base_value, mouse_delta, precise=False):
+    """Вычисляет target value и применяет descriptor-owned clamp."""
+
+    step = _drag_step(target, base_value)
+    if precise:
+        step *= 0.1
+    value = base_value + mouse_delta * step
+    value = max(target.minimum, value)
+    if target.maximum is not None:
+        value = min(target.maximum, value)
+    return value
+
+
+def format_decal_drag_value(target, value):
+    """Форматирует header value; ANGLE хранится в радианах."""
+
+    if target.kind == DECAL_DRAG_ANGLE:
+        return f"{degrees(value):.1f}\N{DEGREE SIGN}"
+    return f"{value:.4f}"
+
 
 def decal_drag_value(base_value, mouse_delta, precise=False):
-    sensitivity = max(0.001, abs(base_value) * 0.01)
-    if precise:
-        sensitivity *= 0.1
-    return max(DECAL_SIZE_MIN, base_value + mouse_delta * sensitivity)
+    """Compatibility wrapper прежней distance-only modal математики."""
+
+    return decal_drag_target_value(
+        _WIDTH_TARGETS["TOP"],
+        base_value,
+        mouse_delta,
+        precise=precise,
+    )
 
 
 def decal_drag_anchor(context, obj, fallback):
