@@ -4711,12 +4711,109 @@ def _insert_surface_edge_stations(polygons, tolerance):
     return rebuilt, inserted_stations
 
 
+def _intrinsic_boundary_segments(domain):
+    quantum = max(DECAL_WELD_DISTANCE * 0.01, 1e-10)
+
+    def point_key(point):
+        return (
+            round(float(point[0]) / quantum),
+            round(float(point[1]) / quantum),
+        )
+
+    segments = {}
+    for triangle in domain.boundary_triangles:
+        for index, first in enumerate(triangle):
+            second = triangle[(index + 1) % 3]
+            key = tuple(sorted((point_key(first), point_key(second))))
+            segments.setdefault(
+                key,
+                (
+                    (float(first[0]), float(first[1])),
+                    (float(second[0]), float(second[1])),
+                ),
+            )
+    return tuple(segments[key] for key in sorted(segments))
+
+
+def _segment_boundary_factors(first, second, boundary_a, boundary_b, tolerance):
+    edge = _sub2(second, first)
+    boundary = _sub2(boundary_b, boundary_a)
+    denominator = _cross2(edge, boundary)
+    relative = _sub2(boundary_a, first)
+    factors = []
+    edge_length = _dist2(first, second)
+    if edge_length <= _GEOMETRY_EPS:
+        return ()
+    endpoint_fraction = min(0.1, tolerance / edge_length)
+    if abs(denominator) > 1e-14:
+        factor = _cross2(relative, boundary) / denominator
+        boundary_factor = _cross2(relative, edge) / denominator
+        if (
+            endpoint_fraction < factor < 1.0 - endpoint_fraction
+            and -1e-9 <= boundary_factor <= 1.0 + 1e-9
+        ):
+            factors.append(float(factor))
+        return tuple(factors)
+
+    if abs(_cross2(relative, edge)) > tolerance * edge_length:
+        return ()
+    for candidate in (boundary_a, boundary_b):
+        distance, factor = _segment_point_distance2(first, second, candidate)
+        if (
+            distance <= tolerance
+            and endpoint_fraction < factor < 1.0 - endpoint_fraction
+        ):
+            factors.append(float(factor))
+    return tuple(sorted(set(factors)))
+
+
+def _insert_intrinsic_triangle_stations(polygons, domain, tolerance):
+    """Вставляет exact stations на crossings source triangle boundaries."""
+
+    segments = _intrinsic_boundary_segments(domain)
+    rebuilt = []
+    inserted = 0
+    for polygon in polygons:
+        result = []
+        for index, first in enumerate(polygon):
+            second = polygon[(index + 1) % len(polygon)]
+            result.append((float(first[0]), float(first[1])))
+            factors = set()
+            for boundary_a, boundary_b in segments:
+                factors.update(
+                    _segment_boundary_factors(
+                        first,
+                        second,
+                        boundary_a,
+                        boundary_b,
+                        tolerance,
+                    )
+                )
+            for factor in sorted(factors):
+                point = (
+                    first[0] + (second[0] - first[0]) * factor,
+                    first[1] + (second[1] - first[1]) * factor,
+                )
+                if _dist2(result[-1], point) <= tolerance * 0.5:
+                    continue
+                result.append(point)
+                inserted += 1
+        rebuilt.append(_dedupe_polygon(result, tolerance=tolerance * 0.5))
+    return rebuilt, inserted
+
+
 def _build_decal_arrangement(pending, tolerance):
     """Создаёт conforming subdivision отдельно на каждом owner surface."""
 
     grouped = {}
     for pending_index, pending_face in enumerate(pending):
-        grouped.setdefault(pending_face.surface.patch_id, []).append(
+        domain = pending_face.surface.domain
+        group_key = (
+            pending_face.surface.patch_id,
+            domain.kind,
+            domain.chart_id,
+        )
+        grouped.setdefault(group_key, []).append(
             (pending_index, pending_face)
         )
 
@@ -4727,6 +4824,12 @@ def _build_decal_arrangement(pending, tolerance):
             [entry[1].points for entry in entries], tolerance
         )
         inserted_stations += inserted
+        domain = entries[0][1].surface.domain
+        if domain.kind == "INTRINSIC":
+            polygons, inserted = _insert_intrinsic_triangle_stations(
+                polygons, domain, tolerance
+            )
+            inserted_stations += inserted
         for entry, polygon in zip(entries, polygons):
             if len(polygon) < 3 or abs(_polygon_area2(polygon)) <= 1e-10:
                 continue

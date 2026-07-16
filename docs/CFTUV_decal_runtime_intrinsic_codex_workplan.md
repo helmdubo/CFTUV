@@ -1042,6 +1042,13 @@ Patch Voronoi compile/evaluate не должен отличать PLANAR и INTR
 
 ## C5. Provenance-safe arrangement и surface-conforming edges
 
+Статус: **IMPLEMENTED**. Arrangement groups intrinsic faces по chart identity
+и после обычного cell-to-cell conforming pass вставляет deterministic stations
+во все crossings и collinear source vertices triangle-boundary graph. Каждая
+station затем разрешается существующим `DomainLocation`; physical fold edges
+получают общий transition key и least-squares offset lift по normals обеих
+owner faces, поэтому materialized edge следует facets, а не режет их 3D chord.
+
 ### Station provenance
 
 Каждая materialized station должна разрешаться в `DomainLocation`.
