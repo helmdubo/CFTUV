@@ -74,12 +74,20 @@ def test_c0_analysis_serializes_global_vertex_provenance():
         SimpleNamespace(faces=[face]), [0]
     )
 
-    mesh_verts, source_ids, triangles, face_ids, normals = serialized
+    (
+        mesh_verts,
+        source_ids,
+        triangles,
+        face_ids,
+        normals,
+        edge_indices,
+    ) = serialized
     assert len(mesh_verts) == 4
     assert source_ids == [101, 205, 309, 412]
     assert triangles == [(0, 1, 2), (0, 2, 3)]
     assert face_ids == [17, 17]
     assert len(normals) == 2
+    assert edge_indices == [(-1, -1, -1), (-1, -1, -1)]
 
 
 def test_c0_boundary_chain_seeds_keep_edge_face_and_chain_provenance():

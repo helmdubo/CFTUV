@@ -986,6 +986,14 @@ admission/cut policy остаётся C3, production routing — C6.
 
 ## C3. Developable admission и cut policy
 
+Статус: **IMPLEMENTED**. Утверждённый oracle из
+`docs/decal_chart_admission.md` реализован отдельным pure module:
+G1–G8, 2% defect/closure budget, numeric/area/overlap guards и canonical
+failure reasons. Disk проходит без cut; annulus получает максимум один
+детерминированный physical source-edge cut между boundary components, никогда
+не по synthetic triangulation diagonal или selected site. Остальная topology
+локально отклоняется без atlas-импровизации.
+
 Первый production slice принимает только charts, удовлетворяющие strict criteria:
 
 - topology disk/open strip;

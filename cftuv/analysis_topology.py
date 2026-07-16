@@ -360,6 +360,7 @@ def _begin_patch_topology_assembly(patch_id, patch_face_indices, bm):
         mesh_tris,
         mesh_tri_face_indices,
         mesh_tri_face_normals,
+        mesh_tri_edge_indices,
     ) = _serialize_patch_geometry(bm, patch_face_indices)
 
     node = PatchNode(
@@ -379,6 +380,7 @@ def _begin_patch_topology_assembly(patch_id, patch_face_indices, bm):
         mesh_tris=mesh_tris,
         mesh_tri_face_indices=mesh_tri_face_indices,
         mesh_tri_face_normals=mesh_tri_face_normals,
+        mesh_tri_edge_indices=mesh_tri_edge_indices,
     )
     return _PatchTopologyAssemblyState(
         patch_id=patch_id,
@@ -456,6 +458,21 @@ def _compute_centroid(bm, face_indices):
     return center / max(count, 1)
 
 
+def _serialized_triangle_edge_indices(face, source_vertex_ids):
+    physical_edges = {
+        tuple(sorted((int(edge.verts[0].index), int(edge.verts[1].index)))): int(
+            edge.index
+        )
+        for edge in getattr(face, "edges", ())
+    }
+    first, second, third = source_vertex_ids
+    return (
+        physical_edges.get(tuple(sorted((second, third))), -1),
+        physical_edges.get(tuple(sorted((third, first))), -1),
+        physical_edges.get(tuple(sorted((first, second))), -1),
+    )
+
+
 def _serialize_patch_geometry(bm, face_indices):
     """Serialize patch geometry/provenance for debug and intrinsic charts."""
 
@@ -465,6 +482,7 @@ def _serialize_patch_geometry(bm, face_indices):
     mesh_tris = []
     mesh_tri_face_indices = []
     mesh_tri_face_normals = []
+    mesh_tri_edge_indices = []
 
     for face_idx in face_indices:
         face = bm.faces[face_idx]
@@ -480,12 +498,26 @@ def _serialize_patch_geometry(bm, face_indices):
             mesh_tris.append(tuple(tri))
             mesh_tri_face_indices.append(int(face.index))
             mesh_tri_face_normals.append(face.normal.copy())
+            mesh_tri_edge_indices.append(
+                _serialized_triangle_edge_indices(
+                    face, tuple(vert.index for vert in face.verts)
+                )
+            )
             continue
 
         for tri_index in range(1, len(tri) - 1):
-            mesh_tris.append((tri[0], tri[tri_index], tri[tri_index + 1]))
+            local_triangle = (tri[0], tri[tri_index], tri[tri_index + 1])
+            source_triangle = (
+                int(face.verts[0].index),
+                int(face.verts[tri_index].index),
+                int(face.verts[tri_index + 1].index),
+            )
+            mesh_tris.append(local_triangle)
             mesh_tri_face_indices.append(int(face.index))
             mesh_tri_face_normals.append(face.normal.copy())
+            mesh_tri_edge_indices.append(
+                _serialized_triangle_edge_indices(face, source_triangle)
+            )
 
     return (
         mesh_verts,
@@ -493,6 +525,7 @@ def _serialize_patch_geometry(bm, face_indices):
         mesh_tris,
         mesh_tri_face_indices,
         mesh_tri_face_normals,
+        mesh_tri_edge_indices,
     )
 
 

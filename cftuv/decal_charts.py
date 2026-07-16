@@ -38,6 +38,7 @@ class ChartTriangle:
     source_vertex_ids: tuple[int, int, int]
     positions: tuple[Vec3, Vec3, Vec3]
     face_normal: Vec3
+    source_edge_indices: tuple[int, int, int] = (-1, -1, -1)
     chart_points: tuple[Vec2, ...] = ()
     parent_triangle_id: int = -1
     parent_source_edge: SourceEdge | None = None
@@ -51,6 +52,10 @@ class ChartTriangle:
             raise ValueError("Chart triangle source vertices must be unique")
         if len(self.positions) != 3 or len(self.face_normal) != 3:
             raise ValueError("Chart triangle source geometry must be 3D")
+        if len(self.source_edge_indices) != 3 or any(
+            edge_index < -1 for edge_index in self.source_edge_indices
+        ):
+            raise ValueError("Chart triangle source edge ids are invalid")
         if self.chart_points and len(self.chart_points) != 3:
             raise ValueError("Placed chart triangle must have three points")
         if self.parent_triangle_id < -1:
@@ -141,12 +146,18 @@ class ChartBoundaryEdge:
             raise ValueError("Chart boundary source edge must be canonical")
         if self.source_face_id < 0:
             raise ValueError("Chart boundary source face must be explicit")
-        if self.kind not in {"PATCH_BOUNDARY", "SUPPORT_CUT"}:
+        if self.kind not in {
+            "PATCH_BOUNDARY",
+            "SUPPORT_CUT",
+            "CHART_CUT",
+        }:
             raise ValueError("Chart boundary kind is unsupported")
         if self.kind == "PATCH_BOUNDARY" and self.neighbor_triangle_id >= 0:
             raise ValueError("Patch boundary cannot reference a neighbor")
         if self.kind == "SUPPORT_CUT" and self.neighbor_triangle_id < 0:
             raise ValueError("Support cut requires an excluded neighbor")
+        if self.kind == "CHART_CUT" and self.neighbor_triangle_id < 0:
+            raise ValueError("Chart cut requires its paired triangle")
 
     @property
     def key(self):
@@ -161,6 +172,7 @@ class ChartCut:
     triangle_ids: tuple[int, ...]
     reason: str
     transition_key: object
+    source_edge_index: int = -1
 
     def __post_init__(self):
         if self.source_edge[0] >= self.source_edge[1]:
@@ -173,6 +185,8 @@ class ChartCut:
             raise ValueError("Chart cut reason must be explicit")
         if self.transition_key is None:
             raise ValueError("Chart cut requires a transition key")
+        if self.source_edge_index < -1:
+            raise ValueError("Chart cut source edge index is invalid")
 
 
 @dataclass(frozen=True)
@@ -390,6 +404,9 @@ def chart_triangles_from_patch(node) -> tuple[ChartTriangle, ...]:
     triangles = tuple(node.mesh_tris)
     face_ids = tuple(getattr(node, "mesh_tri_face_indices", ()))
     face_normals = tuple(getattr(node, "mesh_tri_face_normals", ()))
+    triangle_edge_indices = tuple(
+        getattr(node, "mesh_tri_edge_indices", ())
+    )
     if not vertices or not triangles:
         raise ChartBuildFailure("EMPTY_PATCH_GEOMETRY", patch_id)
     if len(source_vertex_ids) != len(vertices):
@@ -435,6 +452,11 @@ def chart_triangles_from_patch(node) -> tuple[ChartTriangle, ...]:
                     _vec3(vertices[index]) for index in local_vertex_ids
                 ),
                 face_normal=_vec3(face_normals[triangle_id]),
+                source_edge_indices=(
+                    tuple(int(value) for value in triangle_edge_indices[triangle_id])
+                    if len(triangle_edge_indices) == len(triangles)
+                    else (-1, -1, -1)
+                ),
             )
         except (TypeError, ValueError) as exc:
             raise ChartBuildFailure(
@@ -907,7 +929,7 @@ def _validate_source_triangle_areas(chart):
         tolerance = max(1e-15, scale * scale * 1e-12)
         if scale <= 1e-15 or area_twice <= tolerance:
             raise ChartBuildFailure(
-                "ZERO_AREA_SOURCE_TRIANGLE",
+            "DEGENERATE_SOURCE_TRIANGLE",
                 chart.patch_id,
                 triangle_ids=(triangle.triangle_id,),
                 details=f"area2={area_twice:.12g} scale={scale:.12g}",

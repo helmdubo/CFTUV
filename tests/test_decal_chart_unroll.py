@@ -192,7 +192,7 @@ def test_c2_zero_area_source_triangle_is_explicit_failure():
     with pytest.raises(ChartBuildFailure) as captured:
         unroll_intrinsic_strip_chart(chart)
 
-    assert captured.value.code == "ZERO_AREA_SOURCE_TRIANGLE"
+    assert captured.value.code == "DEGENERATE_SOURCE_TRIANGLE"
     assert captured.value.patch_id == node.patch_id
     assert captured.value.triangle_ids == (0,)
 

@@ -274,6 +274,11 @@ class PatchNode:
     # её, чтобы не угадывать owner face по нормали fan-треугольника.
     mesh_tri_face_indices: list[int] = field(default_factory=list)
     mesh_tri_face_normals: list[Vector] = field(default_factory=list)
+    # Physical BMesh edge id для каждого local triangle edge (индексируется
+    # противоположной вершиной). Fan diagonals n-gon tessellation имеют -1.
+    mesh_tri_edge_indices: list[tuple[int, int, int]] = field(
+        default_factory=list
+    )
 
     @property
     def semantic_key(self) -> str:
