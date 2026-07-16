@@ -2124,6 +2124,7 @@ def test_surface_domain_separates_planar_solver_from_intrinsic_lift():
             ),
         ),
         periodic_axis="U",
+        normal_mode="SMOOTH_INTERPOLATED",
     )
     point = (0.25, 0.25)
     expected_position = Vector((0.25, 0.25, 0.25))
@@ -2176,6 +2177,159 @@ def test_b2_intrinsic_location_matches_reference_full_scan():
     assert indexed.triangle_grid.query_point(point) == (1,)
     assert tuple(indexed.lift(point, 0.2)) == pytest.approx(
         tuple(reference.lift(point, 0.2))
+    )
+
+
+def test_b3_domain_location_classifies_source_features_and_transitions():
+    source_positions = (
+        Vector((0.0, 0.0, 0.0)),
+        Vector((1.0, 0.0, 0.0)),
+        Vector((0.0, 1.0, 0.0)),
+    )
+    triangle = decal_voronoi._IntrinsicDomainTriangle(
+        chart_points=((0.0, 0.0), (1.0, 0.0), (0.0, 1.0)),
+        positions=source_positions,
+        normals=(Vector((0.0, 0.0, 1.0)),) * 3,
+        face_normal=Vector((0.0, 0.0, 1.0)),
+        source_triangle_id=500,
+        source_edge_ids=(20, 21, 22),
+        source_vertex_ids=(10, 11, 12),
+        edge_transition_keys=(None, None, "cut-22"),
+        vertex_transition_keys=("cut-10", None, None),
+    )
+    domain = decal_voronoi.DecalSurfaceDomain(
+        patch_id=1,
+        kind="INTRINSIC",
+        origin=Vector((0.0, 0.0, 0.0)),
+        reference_normal=Vector((0.0, 0.0, 1.0)),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+        boundary_triangles=(triangle.chart_points,),
+        intrinsic_triangles=(triangle,),
+        chart_id=7,
+    )
+
+    interior = domain.locate((0.25, 0.25))
+    edge = domain.locate((0.25, 0.0))
+    vertex = domain.locate((0.0, 0.0))
+    assert (
+        interior.chart_id,
+        interior.triangle_id,
+        interior.source_feature,
+        interior.source_feature_id,
+    ) == (7, 0, "TRIANGLE", 500)
+    assert (edge.source_feature, edge.source_feature_id) == ("EDGE", 22)
+    assert edge.transition_key == "cut-22"
+    assert (vertex.source_feature, vertex.source_feature_id) == (
+        "VERTEX",
+        10,
+    )
+    assert vertex.transition_key == "cut-10"
+
+
+def test_b3_hard_fold_lift_and_chart_cut_identity_are_shared():
+    normal_a = Vector((0.0, 0.0, 1.0))
+    normal_b = Vector((0.0, 1.0, 0.0))
+    source_a = Vector((0.0, 0.0, 0.0))
+    source_b = Vector((1.0, 0.0, 0.0))
+    triangle_a = decal_voronoi._IntrinsicDomainTriangle(
+        chart_points=((0.0, 0.0), (1.0, 0.0), (0.0, 1.0)),
+        positions=(source_a, source_b, Vector((0.0, 1.0, 0.0))),
+        normals=(normal_a,) * 3,
+        face_normal=normal_a,
+        source_triangle_id=30,
+        source_edge_ids=(None, None, 77),
+        source_vertex_ids=(100, 101, 102),
+        edge_transition_keys=(None, None, "fold-cut"),
+        vertex_transition_keys=("vertex-cut", None, None),
+    )
+    triangle_b = decal_voronoi._IntrinsicDomainTriangle(
+        chart_points=((10.0, 0.0), (11.0, 0.0), (10.0, -1.0)),
+        positions=(source_a, source_b, Vector((0.0, 0.0, 1.0))),
+        normals=(normal_b,) * 3,
+        face_normal=normal_b,
+        source_triangle_id=31,
+        source_edge_ids=(None, None, 77),
+        source_vertex_ids=(100, 101, 103),
+        edge_transition_keys=(None, None, "fold-cut"),
+        vertex_transition_keys=("vertex-cut", None, None),
+    )
+    domain = decal_voronoi.DecalSurfaceDomain(
+        patch_id=1,
+        kind="INTRINSIC",
+        origin=Vector((0.0, 0.0, 0.0)),
+        reference_normal=normal_a,
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+        boundary_triangles=(
+            triangle_a.chart_points,
+            triangle_b.chart_points,
+        ),
+        intrinsic_triangles=(triangle_a, triangle_b),
+        chart_id=9,
+    )
+    first = domain.locate((0.25, 0.0))
+    copied = domain.locate((10.25, 0.0))
+    surface = SimpleNamespace(domain=domain, patch_id=1)
+
+    assert first.source_feature == copied.source_feature == "EDGE"
+    assert first.source_feature_id == copied.source_feature_id == 77
+    assert decal_voronoi._domain_location_key(
+        surface, first
+    ) == decal_voronoi._domain_location_key(surface, copied)
+    expected = Vector((0.25, 0.2, 0.2))
+    assert tuple(domain.lift(first.uv, 0.2, first)) == pytest.approx(
+        tuple(expected)
+    )
+    assert tuple(domain.lift(copied.uv, 0.2, copied)) == pytest.approx(
+        tuple(expected)
+    )
+
+
+def test_b3_source_vertex_uses_all_incident_owner_planes():
+    normals = (
+        Vector((1.0, 0.0, 0.0)),
+        Vector((0.0, 1.0, 0.0)),
+        Vector((0.0, 0.0, 1.0)),
+    )
+    triangles = tuple(
+        decal_voronoi._IntrinsicDomainTriangle(
+            chart_points=(
+                (float(index * 10), 0.0),
+                (float(index * 10 + 1), 0.0),
+                (float(index * 10), 1.0),
+            ),
+            positions=(
+                Vector((0.0, 0.0, 0.0)),
+                Vector((1.0, 0.0, 0.0)),
+                Vector((0.0, 1.0, 0.0)),
+            ),
+            normals=(normal,) * 3,
+            face_normal=normal,
+            source_triangle_id=index,
+            source_vertex_ids=(900, 901 + index * 2, 902 + index * 2),
+            vertex_transition_keys=("vertex-900", None, None),
+        )
+        for index, normal in enumerate(normals)
+    )
+    domain = decal_voronoi.DecalSurfaceDomain(
+        patch_id=1,
+        kind="INTRINSIC",
+        origin=Vector((0.0, 0.0, 0.0)),
+        reference_normal=Vector((0.0, 0.0, 1.0)),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+        boundary_triangles=tuple(
+            triangle.chart_points for triangle in triangles
+        ),
+        intrinsic_triangles=triangles,
+    )
+    location = domain.locate((0.0, 0.0))
+
+    assert location.source_feature == "VERTEX"
+    assert location.source_feature_id == 900
+    assert tuple(domain.lift(location.uv, 0.2, location)) == pytest.approx(
+        (0.2, 0.2, 0.2)
     )
 
 

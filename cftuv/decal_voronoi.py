@@ -30,6 +30,7 @@ except ImportError:  # Unit tests используют минимальный ma
 from .constants import DECAL_WELD_DISTANCE
 from .decal_geometry import (
     DecalGeometryFace,
+    DomainLocation,
     lift_offset_position,
     polygon_area2,
     segment_point_distance2,
@@ -302,6 +303,26 @@ class _IntrinsicDomainTriangle:
     chart_points: tuple[tuple[float, float], ...]
     positions: tuple[Vector, ...]
     normals: tuple[Vector, ...]
+    face_normal: Vector | None = None
+    source_triangle_id: object | None = None
+    # Edge id имеет индекс противоположной локальной вершины triangle.
+    source_edge_ids: tuple[object | None, ...] = (None, None, None)
+    source_vertex_ids: tuple[object | None, ...] = (None, None, None)
+    edge_transition_keys: tuple[object | None, ...] = (None, None, None)
+    vertex_transition_keys: tuple[object | None, ...] = (None, None, None)
+
+    def __post_init__(self):
+        fields = (
+            self.chart_points,
+            self.positions,
+            self.normals,
+            self.source_edge_ids,
+            self.source_vertex_ids,
+            self.edge_transition_keys,
+            self.vertex_transition_keys,
+        )
+        if any(len(values) != 3 for values in fields):
+            raise ValueError("Intrinsic domain triangle fields must have 3 items")
 
 
 @dataclass(frozen=True)
@@ -403,10 +424,21 @@ class DecalSurfaceDomain:
     boundary_triangles: tuple[tuple[tuple[float, float], ...], ...]
     intrinsic_triangles: tuple[_IntrinsicDomainTriangle, ...] = ()
     periodic_axis: str = ""
+    chart_id: int = 0
+    normal_mode: str = "PIECEWISE_PLANAR_HARD"
     triangle_grid: _TriangleAabbGrid | None = None
     reference_full_scan: bool = False
 
     def __post_init__(self):
+        if self.kind not in {"PLANAR", "INTRINSIC"}:
+            raise ValueError(f"Unsupported decal domain kind: {self.kind}")
+        if self.normal_mode not in {
+            "PIECEWISE_PLANAR_HARD",
+            "SMOOTH_INTERPOLATED",
+        }:
+            raise ValueError(
+                f"Unsupported intrinsic normal mode: {self.normal_mode}"
+            )
         if self.triangle_grid is not None:
             return
         chart_triangles = (
@@ -426,8 +458,21 @@ class DecalSurfaceDomain:
         delta = position - self.origin
         return (delta.dot(self.basis_u), delta.dot(self.basis_v))
 
-    def _intrinsic_location(self, point):
-        best = None
+    def locate(self, point):
+        """Разрешает chart point в source feature только у lift boundary."""
+
+        uv = (float(point[0]), float(point[1]))
+        if self.kind == "PLANAR":
+            return DomainLocation(
+                chart_id=self.chart_id,
+                triangle_id=-1,
+                uv=uv,
+                barycentric=(1.0, 0.0, 0.0),
+                source_feature="TRIANGLE",
+                source_feature_id=("PLANAR", self.patch_id),
+            )
+        best_triangle_id = -1
+        best_weights = None
         best_margin = -float("inf")
         if self.reference_full_scan:
             triangle_ids = range(len(self.intrinsic_triangles))
@@ -440,29 +485,140 @@ class DecalSurfaceDomain:
                 continue
             margin = min(weights)
             if margin >= -1e-7 and margin > best_margin:
-                best = (triangle, weights)
+                best_triangle_id = triangle_id
+                best_weights = tuple(float(weight) for weight in weights)
                 best_margin = margin
-        return best
+        if best_weights is None:
+            return None
 
-    def normal_at(self, point):
-        if self.kind == "PLANAR":
-            return self.reference_normal.copy()
-        location = self._intrinsic_location(point)
-        if location is None:
-            raise ValueError("Point lies outside intrinsic decal domain")
-        triangle, weights = location
-        normal = sum(
-            (
-                triangle.normals[index] * weights[index]
-                for index in range(3)
-            ),
-            Vector((0.0, 0.0, 0.0)),
+        triangle = self.intrinsic_triangles[best_triangle_id]
+        feature_tolerance = 1e-7
+        boundary_weights = tuple(
+            index
+            for index, weight in enumerate(best_weights)
+            if abs(weight) <= feature_tolerance
         )
+        transition_key = None
+        if len(boundary_weights) >= 2:
+            feature_index = max(
+                range(3), key=lambda index: best_weights[index]
+            )
+            source_feature = "VERTEX"
+            source_feature_id = triangle.source_vertex_ids[feature_index]
+            transition_key = triangle.vertex_transition_keys[feature_index]
+        elif len(boundary_weights) == 1:
+            feature_index = boundary_weights[0]
+            source_feature = "EDGE"
+            source_feature_id = triangle.source_edge_ids[feature_index]
+            transition_key = triangle.edge_transition_keys[feature_index]
+        else:
+            feature_index = -1
+            source_feature = "TRIANGLE"
+            source_feature_id = triangle.source_triangle_id
+        if source_feature_id is None:
+            source_feature_id = (
+                self.chart_id,
+                best_triangle_id,
+                source_feature,
+                feature_index,
+            )
+        return DomainLocation(
+            chart_id=self.chart_id,
+            triangle_id=best_triangle_id,
+            uv=uv,
+            barycentric=best_weights,
+            source_feature=source_feature,
+            source_feature_id=source_feature_id,
+            transition_key=transition_key,
+        )
+
+    def _intrinsic_location(self, point):
+        """Compatibility view старого private adapter."""
+
+        location = self.locate(point)
+        if location is None:
+            return None
+        return (
+            self.intrinsic_triangles[location.triangle_id],
+            location.barycentric,
+        )
+
+    def _triangle_face_normal(self, triangle):
+        normal = triangle.face_normal
+        if normal is not None and normal.length_squared > 1e-12:
+            return normal.normalized()
+        blended = sum(
+            triangle.normals, Vector((0.0, 0.0, 0.0))
+        )
+        if blended.length_squared <= 1e-12:
+            return self.reference_normal.normalized()
+        return blended.normalized()
+
+    def _location_normals(self, location):
+        triangle = self.intrinsic_triangles[location.triangle_id]
+        if location.source_feature == "TRIANGLE":
+            return (self._triangle_face_normal(triangle),)
+        normals = []
+        for candidate in self.intrinsic_triangles:
+            feature_ids = (
+                candidate.source_edge_ids
+                if location.source_feature == "EDGE"
+                else candidate.source_vertex_ids
+            )
+            if location.source_feature_id not in feature_ids:
+                continue
+            normals.append(self._triangle_face_normal(candidate))
+        if not normals:
+            normals.append(self._triangle_face_normal(triangle))
+        return tuple(normals)
+
+    def _normal_at_location(self, location):
+        triangle = self.intrinsic_triangles[location.triangle_id]
+        if self.normal_mode == "SMOOTH_INTERPOLATED":
+            normal = sum(
+                (
+                    triangle.normals[index]
+                    * location.barycentric[index]
+                    for index in range(3)
+                ),
+                Vector((0.0, 0.0, 0.0)),
+            )
+        else:
+            normal = sum(
+                self._location_normals(location),
+                Vector((0.0, 0.0, 0.0)),
+            )
         if normal.length_squared <= 1e-12:
             return self.reference_normal.copy()
         return normal.normalized()
 
-    def lift(self, point, offset):
+    def source_position(self, location):
+        """Barycentric source position без decal offset."""
+
+        if self.kind == "PLANAR":
+            return (
+                self.origin
+                + self.basis_u * location.uv[0]
+                + self.basis_v * location.uv[1]
+            )
+        triangle = self.intrinsic_triangles[location.triangle_id]
+        return sum(
+            (
+                triangle.positions[index] * location.barycentric[index]
+                for index in range(3)
+            ),
+            Vector((0.0, 0.0, 0.0)),
+        )
+
+    def normal_at(self, point):
+        if self.kind == "PLANAR":
+            return self.reference_normal.copy()
+        location = self.locate(point)
+        if location is None:
+            raise ValueError("Point lies outside intrinsic decal domain")
+        return self._normal_at_location(location)
+
+    def lift(self, point, offset, location=None):
         if self.kind == "PLANAR":
             return (
                 self.origin
@@ -470,18 +626,15 @@ class DecalSurfaceDomain:
                 + self.basis_v * point[1]
                 + self.reference_normal * offset
             )
-        location = self._intrinsic_location(point)
+        location = location or self.locate(point)
         if location is None:
             raise ValueError("Point lies outside intrinsic decal domain")
-        triangle, weights = location
-        position = sum(
-            (
-                triangle.positions[index] * weights[index]
-                for index in range(3)
-            ),
-            Vector((0.0, 0.0, 0.0)),
+        position = self.source_position(location)
+        if self.normal_mode == "SMOOTH_INTERPOLATED":
+            return position + self._normal_at_location(location) * offset
+        return _lift_position(
+            position, self._location_normals(location), offset
         )
-        return position + self.normal_at(point) * offset
 
 
 @dataclass(frozen=True)
@@ -763,6 +916,16 @@ class _PendingArrangementFace:
     site: _PatchVoronoiSite
     points: tuple[tuple[float, float], ...]
     crop: _CropComponent
+
+
+@dataclass(frozen=True)
+class _ResolvedArrangementPoint:
+    """Affine lift endpoints и provenance одной materialized station."""
+
+    position_zero: Vector
+    position_full: Vector
+    vert_key: object
+    location: DomainLocation
 
 
 @dataclass(frozen=True)
@@ -4233,6 +4396,67 @@ def _build_decal_arrangement(pending, tolerance):
     )
 
 
+def _source_station_location(surface, point, source_feature, feature_id):
+    """Provenance для selected source spine, известная без chart lookup."""
+
+    location = surface.domain.locate(point)
+    if location is None:
+        raise ValueError("Source station lies outside decal surface domain")
+    return replace(
+        location,
+        source_feature=source_feature,
+        source_feature_id=feature_id,
+    )
+
+
+def _hashable_provenance(value):
+    try:
+        hash(value)
+    except TypeError:
+        return repr(value)
+    return value
+
+
+def _domain_location_key(surface, location):
+    """Shared identity source feature, включая chart-cut copies."""
+
+    quantum = max(DECAL_WELD_DISTANCE * 0.25, 1e-7)
+    if surface.domain.kind == "PLANAR":
+        # B3 не меняет stable planar serializer/vertex identity.
+        return (
+            "pv",
+            surface.patch_id,
+            round(location.uv[0] / quantum),
+            round(location.uv[1] / quantum),
+        )
+    if location.transition_key is not None:
+        identity = (
+            "TRANSITION",
+            _hashable_provenance(location.transition_key),
+        )
+    else:
+        identity = (
+            location.source_feature,
+            _hashable_provenance(location.source_feature_id),
+        )
+    if location.source_feature == "VERTEX":
+        return ("pv-feature",) + identity
+    if location.source_feature == "EDGE" or location.transition_key is not None:
+        source_position = surface.domain.source_position(location)
+        return (
+            "pv-feature",
+            *identity,
+            *(round(float(value) / quantum) for value in source_position),
+        )
+    return (
+        "pv",
+        surface.patch_id,
+        location.chart_id,
+        round(location.uv[0] / quantum),
+        round(location.uv[1] / quantum),
+    )
+
+
 def _position_and_key(
     plan,
     surface,
@@ -4258,27 +4482,39 @@ def _position_and_key(
             position = site.source_a.lerp(
                 plan.lifted_vertices[site.vert_a], lift_scale
             )
-            return position, ("pv-sv", site.vert_a)
+            location = _source_station_location(
+                surface, point, "VERTEX", site.vert_a
+            )
+            return position, ("pv-sv", site.vert_a), location
         if _dist2(point, site.point_b) <= endpoint_eps:
             position = site.source_b.lerp(
                 plan.lifted_vertices[site.vert_b], lift_scale
             )
-            return position, ("pv-sv", site.vert_b)
+            location = _source_station_location(
+                surface, point, "VERTEX", site.vert_b
+            )
+            return position, ("pv-sv", site.vert_b), location
         start = site.source_a.lerp(
             plan.lifted_vertices[site.vert_a], lift_scale
         )
         end = site.source_b.lerp(
             plan.lifted_vertices[site.vert_b], lift_scale
         )
-        return start.lerp(end, t), ("pv-se", site.edge_index, round(t, 7))
-    position = surface.domain.lift(point, effective_offset)
-    quantum = max(DECAL_WELD_DISTANCE * 0.25, 1e-7)
-    return position, (
-        "pv",
-        surface.patch_id,
-        round(point[0] / quantum),
-        round(point[1] / quantum),
+        location = _source_station_location(
+            surface, point, "EDGE", site.edge_index
+        )
+        return (
+            start.lerp(end, t),
+            ("pv-se", site.edge_index, round(t, 7)),
+            location,
+        )
+    location = surface.domain.locate(point)
+    if location is None:
+        raise ValueError("Point lies outside decal surface domain")
+    position = surface.domain.lift(
+        point, effective_offset, location=location
     )
+    return position, _domain_location_key(surface, location), location
 
 
 def _resolve_arrangement_point(
@@ -4326,7 +4562,7 @@ def _resolve_arrangement_point(
             best_factor = _factor
             best_site = candidate
     projection = (best_distance, best_factor)
-    position_zero, key_zero = _position_and_key(
+    position_zero, key_zero, location_zero = _position_and_key(
         plan,
         surface,
         best_site,
@@ -4335,7 +4571,7 @@ def _resolve_arrangement_point(
         0.0,
         projection=projection,
     )
-    position_full, key_full = _position_and_key(
+    position_full, key_full, location_full = _position_and_key(
         plan,
         surface,
         best_site,
@@ -4346,7 +4582,14 @@ def _resolve_arrangement_point(
     )
     if key_zero != key_full:
         raise RuntimeError("Arrangement identity depends on lift scale")
-    resolved = (position_zero, position_full, key_full)
+    if location_zero != location_full:
+        raise RuntimeError("Arrangement provenance depends on lift scale")
+    resolved = _ResolvedArrangementPoint(
+        position_zero=position_zero,
+        position_full=position_full,
+        vert_key=key_full,
+        location=location_full,
+    )
     cache[cache_key] = resolved
     return resolved
 
@@ -4364,7 +4607,7 @@ def _component_area_coefficients(
     endpoints = []
     used_keys = set()
     for point in component:
-        position_zero, position_full, key = _resolve_arrangement_point(
+        resolved = _resolve_arrangement_point(
             plan,
             surface,
             site,
@@ -4372,11 +4615,14 @@ def _component_area_coefficients(
             desired_scale,
             resolved_points,
         )
-        if key in used_keys:
+        if resolved.vert_key in used_keys:
             continue
-        used_keys.add(key)
+        used_keys.add(resolved.vert_key)
         endpoints.append(
-            (position_zero, position_full - position_zero)
+            (
+                resolved.position_zero,
+                resolved.position_full - resolved.position_zero,
+            )
         )
     if len(endpoints) < 3:
         return None
@@ -5131,7 +5377,7 @@ def evaluate_patch_voronoi_plan(
         v_lengths = []
         used_keys = set()
         for point in component:
-            position_zero, position_full, key = _resolve_arrangement_point(
+            resolved = _resolve_arrangement_point(
                 plan,
                 surface,
                 site,
@@ -5139,17 +5385,19 @@ def evaluate_patch_voronoi_plan(
                 desired_lift_scale,
                 resolved_points,
             )
-            position = position_zero.lerp(position_full, lift_fraction)
+            position = resolved.position_zero.lerp(
+                resolved.position_full, lift_fraction
+            )
             # Triangle boundaries и pyvoronoi endpoint-cells могут
             # дать две почти одинаковые 2D точки, которые после
             # conformal lift закономерно становятся одной вершиной.
-            if key in used_keys:
+            if resolved.vert_key in used_keys:
                 continue
-            used_keys.add(key)
+            used_keys.add(resolved.vert_key)
             _distance, t = _segment_point_distance2(
                 site.point_a, site.point_b, point
             )
-            vert_keys.append(key)
+            vert_keys.append(resolved.vert_key)
             positions.append(position)
             component_uv = _crop_component_uv(crop, point)
             if component_uv is None:

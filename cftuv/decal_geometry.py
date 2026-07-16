@@ -16,10 +16,29 @@ from .constants import DECAL_COPLANAR_DOT
 
 __all__ = (
     "DecalGeometryFace",
+    "DomainLocation",
     "lift_offset_position",
     "polygon_area2",
     "segment_point_distance2",
 )
+
+
+@dataclass(frozen=True)
+class DomainLocation:
+    """Chart coordinate с source provenance для conforming lift.
+
+    2D clipping продолжает передавать plain ``uv`` tuples. Location создаётся
+    только у station/materialization boundary, где уже требуется выбрать
+    source triangle, fold edge или source vertex.
+    """
+
+    chart_id: int
+    triangle_id: int
+    uv: tuple[float, float]
+    barycentric: tuple[float, float, float]
+    source_feature: str
+    source_feature_id: object
+    transition_key: object | None = None
 
 
 @dataclass
