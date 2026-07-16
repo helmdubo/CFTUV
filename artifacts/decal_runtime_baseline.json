@@ -6,7 +6,7 @@
     {
       "backend": "PATCH_VORONOI",
       "compile_failures": [],
-      "compile_ms": 165.9328,
+      "compile_ms": 162.8156,
       "construct_calls_during_drag": 0,
       "diagnostics_after_compile": {
         "apex_limit_saturated_count": 0,
@@ -29,26 +29,26 @@
         "tessellation_mesh_tri_fallbacks": 22
       },
       "object": "VERIFY_SRC_MANUAL_SEAMS",
-      "prepare_patch_graph_ms": 52.7577,
+      "prepare_patch_graph_ms": 46.2426,
       "selected_edge_count": 25,
       "widths": [
         {
-          "evaluate_confirm_ms": 26.4383,
+          "evaluate_confirm_ms": 24.0613,
           "evaluate_preview": {
-            "median_ms": 26.36035,
-            "p95_ms": 28.0165,
+            "median_ms": 25.2656,
+            "p95_ms": 26.2252,
             "samples_ms": [
-              28.0165,
-              24.7042
+              26.2252,
+              24.306
             ]
           },
           "geometry_digest": "156324aa60570c8d485e60d23f7ea9bed06ca4b4fddd62b0254f5bc49a61f612",
           "materialization": {
-            "median_ms": 1.16675,
-            "p95_ms": 1.2516,
+            "median_ms": 1.0473,
+            "p95_ms": 1.1532,
             "samples_ms": [
-              1.0819,
-              1.2516
+              1.1532,
+              0.9414
             ]
           },
           "mesh_counts": {
@@ -783,22 +783,22 @@
           "width": 2.0
         },
         {
-          "evaluate_confirm_ms": 28.1283,
+          "evaluate_confirm_ms": 23.4442,
           "evaluate_preview": {
-            "median_ms": 25.7362,
-            "p95_ms": 25.8835,
+            "median_ms": 23.7403,
+            "p95_ms": 23.8127,
             "samples_ms": [
-              25.8835,
-              25.5889
+              23.8127,
+              23.6679
             ]
           },
           "geometry_digest": "2747e26a4f5fb1433fe22892938105e8bc87fb204a56f3606bd144b489ad34a2",
           "materialization": {
-            "median_ms": 0.7089,
-            "p95_ms": 0.7124,
+            "median_ms": 0.7171,
+            "p95_ms": 0.7201,
             "samples_ms": [
-              0.7124,
-              0.7054
+              0.7201,
+              0.7141
             ]
           },
           "mesh_counts": {
@@ -1365,22 +1365,22 @@
           "width": 3.0
         },
         {
-          "evaluate_confirm_ms": 25.2753,
+          "evaluate_confirm_ms": 23.6144,
           "evaluate_preview": {
-            "median_ms": 25.14535,
-            "p95_ms": 25.5194,
+            "median_ms": 23.6149,
+            "p95_ms": 23.7994,
             "samples_ms": [
-              24.7713,
-              25.5194
+              23.7994,
+              23.4304
             ]
           },
           "geometry_digest": "b5d7735c115c5085543fb28f56533ebed398cc41322084aa5bc92c18e7f8c666",
           "materialization": {
-            "median_ms": 0.7991,
-            "p95_ms": 0.9055,
+            "median_ms": 0.71285,
+            "p95_ms": 0.7151,
             "samples_ms": [
-              0.6927,
-              0.9055
+              0.7106,
+              0.7151
             ]
           },
           "mesh_counts": {
@@ -1945,22 +1945,22 @@
           "width": 3.7076
         },
         {
-          "evaluate_confirm_ms": 24.2039,
+          "evaluate_confirm_ms": 22.9817,
           "evaluate_preview": {
-            "median_ms": 24.02885,
-            "p95_ms": 24.062,
+            "median_ms": 22.994,
+            "p95_ms": 23.0749,
             "samples_ms": [
-              24.062,
-              23.9957
+              23.0749,
+              22.9131
             ]
           },
           "geometry_digest": "631f90f0dda93a8c3a4368374c43b61b0aa5c269d22577f2ab474dff1e1364f2",
           "materialization": {
-            "median_ms": 0.78965,
-            "p95_ms": 0.8034,
+            "median_ms": 0.71155,
+            "p95_ms": 0.7201,
             "samples_ms": [
-              0.7759,
-              0.8034
+              0.703,
+              0.7201
             ]
           },
           "mesh_counts": {

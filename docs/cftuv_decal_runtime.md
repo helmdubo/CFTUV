@@ -15,9 +15,9 @@ Harness выполняет repeated preview и exact confirm для ширин
 compile не меняется во время width drag.
 
 Baseline Blender 4.3.2 на включённой fixture
-`VERIFY_SRC_MANUAL_SEAMS` (25 selected edges): compile `165.93 ms`, median
-preview evaluator `26.36 / 25.74 / 25.15 / 24.03 ms`; materialization
-`1.17 / 0.71 / 0.80 / 0.79 ms`. Во всех четырёх ширинах dropped faces = 0,
+`VERIFY_SRC_MANUAL_SEAMS` (25 selected edges): compile `162.82 ms`, median
+preview evaluator `25.27 / 23.74 / 23.61 / 22.99 ms`; materialization
+`1.05 / 0.72 / 0.71 / 0.71 ms`. Во всех четырёх ширинах dropped faces = 0,
 repeated output и preview/confirm совпали, `Construct during drag = 0`.
 Полный JSON лежит в `artifacts/decal_runtime_baseline.json`.
 
@@ -83,6 +83,21 @@ Modal `invoke`, обычный `execute` и headless/Python invocation обяз�
 компилировать один и тот же `ManualSeamDecalPlan`. Preview и confirm используют
 тот же evaluator с одинаковыми параметрами; отличается только точность
 материализации.
+
+## Structured generation transaction
+
+Внутренний `generate_decal_result()` возвращает immutable
+`DecalGenerationResult` со статусом `UPDATED`, `RETAINED_LAST_VALID`, `EMPTY`
+или `ERROR`, а также `object_name`, `topology_changed`, backend summary и
+runtime policy counts. Старый `generate_decal_objects() -> list[str]` сохранён
+как raising compatibility adapter для non-modal callers.
+
+Только `UPDATED` разрешает modal изменить scene property,
+`_modal_current_value`, `_modal_current_settings` и last-valid generation
+state. Остальные статусы оставляют эти значения и production geometry без
+изменений и выводят status/reason в header. Confirm всегда перестраивает
+последние валидные settings; отсутствие хотя бы одного valid state даёт явный
+error вместо подтверждения произвольного текущего cursor value.
 
 ## Developer build identity
 

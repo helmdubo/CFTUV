@@ -43,7 +43,11 @@ from cftuv.decal_modal import (
     decal_drag_anchor,
     decal_drag_value,
 )
-from cftuv.decals import DecalPreviewState
+from cftuv.decals import (
+    DecalGenerationResult,
+    DecalPreviewState,
+    PreviewStatus,
+)
 from cftuv.model import DecalSettings
 from cftuv.operators import HOTSPOTUV_OT_GenerateDecals
 
@@ -224,6 +228,124 @@ def test_decal_modal_keeps_last_valid_preview_after_runtime_error():
     assert operator._modal_current_settings is None
     assert operator._modal_last_preview_error == "invalid crop"
     assert scene_settings.decal_width_seam == 0.15
+
+
+def test_modal_invalid_status_series_preserves_last_valid_and_confirm_uses_it():
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    base_settings = DecalSettings(width_seam=0.15)
+    operator._modal_base_settings = base_settings
+    operator._modal_base_value = 0.15
+    operator._modal_current_value = 0.15
+    operator._modal_current_settings = base_settings
+    operator._modal_last_valid_settings = base_settings
+    operator._modal_start_mouse = 100
+    operator._modal_property = "decal_width_seam"
+    operator._modal_settings_field = "width_seam"
+    operator._modal_label = "Seam Width"
+    operator._modal_state = object()
+    operator._modal_created = ["BaseDecal"]
+    header = SimpleNamespace(text=None)
+    operator._modal_area = SimpleNamespace(
+        header_text_set=lambda text: setattr(header, "text", text)
+    )
+    operator.report = lambda *_args: None
+    operator._report_created = lambda *_args, **_kwargs: None
+    preview_results = iter(
+        (
+            DecalGenerationResult(
+                PreviewStatus.UPDATED,
+                "ValidDecal",
+                topology_changed=True,
+            ),
+            DecalGenerationResult(
+                PreviewStatus.RETAINED_LAST_VALID,
+                "ValidDecal",
+                reason="invalid crop",
+            ),
+            DecalGenerationResult(
+                PreviewStatus.EMPTY,
+                None,
+                reason="no faces",
+            ),
+            DecalGenerationResult(
+                PreviewStatus.ERROR,
+                None,
+                reason="backend exploded",
+            ),
+        )
+    )
+    confirm_calls = []
+
+    def generate(_context, _state, settings, preview=False):
+        if preview:
+            return next(preview_results)
+        confirm_calls.append(settings)
+        return DecalGenerationResult(PreviewStatus.UPDATED, "FinalDecal")
+
+    operator._generate = generate
+    scene_settings = SimpleNamespace(decal_width_seam=0.15)
+    context = SimpleNamespace(
+        scene=SimpleNamespace(hotspotuv_settings=scene_settings)
+    )
+
+    for mouse_x in (120, 130, 140, 150):
+        assert operator.modal(
+            context,
+            SimpleNamespace(
+                type="MOUSEMOVE",
+                mouse_x=mouse_x,
+                mouse_y=0,
+                shift=False,
+            ),
+        ) == {"RUNNING_MODAL"}
+
+    valid_value = decal_drag_value(0.15, 20)
+    assert operator._modal_current_value == pytest.approx(valid_value)
+    assert operator._modal_current_settings.width_seam == pytest.approx(
+        valid_value
+    )
+    assert operator._modal_last_valid_settings.width_seam == pytest.approx(
+        valid_value
+    )
+    assert scene_settings.decal_width_seam == pytest.approx(valid_value)
+    assert operator._modal_created == ["ValidDecal"]
+    assert operator._modal_last_preview_error == "backend exploded"
+    assert "ERROR: backend exploded" in header.text
+
+    assert operator.modal(
+        context,
+        SimpleNamespace(type="LEFTMOUSE", value="PRESS"),
+    ) == {"FINISHED"}
+    assert len(confirm_calls) == 1
+    assert confirm_calls[0].width_seam == pytest.approx(valid_value)
+    assert operator._modal_created == ["FinalDecal"]
+
+
+def test_modal_confirm_without_valid_settings_is_explicit_error():
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    operator._modal_label = "Seam Width"
+    operator._modal_current_value = 0.15
+    operator._modal_current_settings = None
+    operator._modal_created = []
+    operator._modal_state = object()
+    operator._modal_area = None
+    reports = []
+    operator.report = lambda level, message: reports.append((level, message))
+
+    result = operator.modal(
+        SimpleNamespace(),
+        SimpleNamespace(type="LEFTMOUSE", value="PRESS"),
+    )
+
+    assert result == {"CANCELLED"}
+    assert reports == [
+        (
+            {"ERROR"},
+            "Final decal rebuild failed: no valid preview settings",
+        )
+    ]
 
 
 def test_decal_drag_anchor_projects_bbox_center_and_clamps_to_viewport(monkeypatch):
@@ -408,15 +530,20 @@ def test_decal_generate_forwards_modal_plan(monkeypatch):
     calls = []
     monkeypatch.setattr(
         operators_module,
-        "generate_decal_objects",
-        lambda *args, **kwargs: calls.append((args, kwargs)) or ["Decal"],
+        "generate_decal_result",
+        lambda *args, **kwargs: calls.append((args, kwargs))
+        or operators_module.DecalGenerationResult(
+            operators_module.PreviewStatus.UPDATED,
+            "Decal",
+        ),
     )
 
-    created = operator._generate(
+    generation = operator._generate(
         SimpleNamespace(scene=object()), state, preview=True
     )
 
-    assert created == ["Decal"]
+    assert generation.status == operators_module.PreviewStatus.UPDATED
+    assert generation.object_name == "Decal"
     assert calls[0][1]["decal_plan"] is operator._modal_decal_plan
     assert calls[0][1]["preview_state"] is operator._modal_preview_state
     assert calls[0][1]["preview"] is True
@@ -506,6 +633,10 @@ def test_seam_modal_confirm_reports_seam_width():
     operator._modal_created = ["Decal"]
     operator._modal_state = object()
     operator._modal_area = None
+    operator._modal_last_valid_settings = DecalSettings(width_seam=0.30)
+    operator._generate = (
+        lambda _context, _state, _settings, preview=False: ["Decal"]
+    )
 
     reports = []
     operator._report_created = lambda created, state, suffix="": reports.append(

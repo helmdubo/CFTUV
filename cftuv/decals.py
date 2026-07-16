@@ -22,6 +22,7 @@ UV лент пишутся в прямоугольники атласа (DECAL_U
 """
 
 from dataclasses import dataclass
+from enum import Enum
 from math import atan2, pi
 
 import bpy
@@ -118,6 +119,25 @@ class DecalPreviewState:
     mesh_pointer: int = 0
     fast_updates: int = 0
     topology_rebuilds: int = 0
+
+
+class PreviewStatus(str, Enum):
+    UPDATED = "UPDATED"
+    RETAINED_LAST_VALID = "RETAINED_LAST_VALID"
+    EMPTY = "EMPTY"
+    ERROR = "ERROR"
+
+
+@dataclass(frozen=True)
+class DecalGenerationResult:
+    """Structured internal result generation/preview transaction."""
+
+    status: PreviewStatus
+    object_name: str | None
+    reason: str = ""
+    topology_changed: bool = False
+    backend_summary: str = ""
+    policy_counts: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass
@@ -349,6 +369,7 @@ class DecalMaterializationResult:
     source_face_count: int
     created_face_count: int
     created_vertex_count: int
+    policy_counts: tuple[tuple[str, int], ...] = ()
 
 
 class DecalMaterializationError(RuntimeError):
@@ -2188,6 +2209,7 @@ def _materialize_network_faces(
     scale = settings.uv_length_scale
     verts_by_key = {}
     created = 0
+    policy_counts = {}
 
     for face_index, network_face in enumerate(network_faces):
         loop_data = []
@@ -2220,6 +2242,12 @@ def _materialize_network_faces(
                 f"{type(exc).__name__}: {exc}",
             ) from exc
         created += 1
+        component_kind = str(
+            getattr(network_face, "component_kind", "") or "SURFACE"
+        )
+        policy_counts[component_kind] = (
+            policy_counts.get(component_kind, 0) + 1
+        )
     return DecalMaterializationResult(
         backend=str(backend),
         edge_indices=tuple(
@@ -2228,6 +2256,7 @@ def _materialize_network_faces(
         source_face_count=len(network_faces),
         created_face_count=created,
         created_vertex_count=len(verts_by_key),
+        policy_counts=tuple(sorted(policy_counts.items())),
     )
 
 
@@ -2560,6 +2589,18 @@ def _record_preview_state(
         preview_state.topology_rebuilds += 1
 
 
+def _prepare_decal_bmesh(bm):
+    """Выполняет destructive cleanup только внутри temporary BMesh."""
+
+    bmesh.ops.remove_doubles(
+        bm, verts=list(bm.verts), dist=DECAL_WELD_DISTANCE
+    )
+    loose_verts = [vert for vert in bm.verts if not vert.link_faces]
+    if loose_verts:
+        bmesh.ops.delete(bm, geom=loose_verts, context="VERTS")
+    return bool(bm.faces)
+
+
 def _finalize_decal_object(
     bm,
     name: str,
@@ -2567,16 +2608,14 @@ def _finalize_decal_object(
     scene,
     reuse_existing=False,
     preview_state=None,
+    prepared=False,
 ):
     """Сваривает ленты и материализует точный или persistent preview mesh."""
 
     old_obj = bpy.data.objects.get(name)
     try:
-        bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=DECAL_WELD_DISTANCE)
-        loose_verts = [vert for vert in bm.verts if not vert.link_faces]
-        if loose_verts:
-            bmesh.ops.delete(bm, geom=loose_verts, context="VERTS")
-        if not bm.faces:
+        has_faces = bool(bm.faces) if prepared else _prepare_decal_bmesh(bm)
+        if not has_faces:
             bm.free()
             if (
                 reuse_existing
@@ -2922,16 +2961,19 @@ def _fill_manual_chain_decals(
                     )
                     for partition in decal_plan.backend_partitions
                 ]
+                materialization_results = []
                 for partition, partition_faces in face_batches:
-                    _materialize_network_faces(
-                        bm,
-                        partition_faces,
-                        settings,
-                        uv_rect,
-                        backend=partition.backend,
-                        edge_indices=partition.edge_indices,
+                    materialization_results.append(
+                        _materialize_network_faces(
+                            bm,
+                            partition_faces,
+                            settings,
+                            uv_rect,
+                            backend=partition.backend,
+                            edge_indices=partition.edge_indices,
+                        )
                     )
-                return
+                return tuple(materialization_results)
 
             if (
                 decal_plan is not None
@@ -2962,15 +3004,16 @@ def _fill_manual_chain_decals(
                         preview,
                         "evaluation produced no faces",
                     )
-                _materialize_network_faces(
-                    bm,
-                    network_faces,
-                    settings,
-                    uv_rect,
-                    backend="PATCH_VORONOI",
-                    edge_indices=selected_edge_indices,
+                return (
+                    _materialize_network_faces(
+                        bm,
+                        network_faces,
+                        settings,
+                        uv_rect,
+                        backend="PATCH_VORONOI",
+                        edge_indices=selected_edge_indices,
+                    ),
                 )
-                return
 
             network_faces = None
             try:
@@ -2999,15 +3042,16 @@ def _fill_manual_chain_decals(
                     f"({exc!r}); falling back to miter pipeline"
                 )
             if network_faces:
-                _materialize_network_faces(
-                    bm,
-                    network_faces,
-                    settings,
-                    uv_rect,
-                    backend="LEGACY_NETWORK",
-                    edge_indices=selected_edge_indices,
+                return (
+                    _materialize_network_faces(
+                        bm,
+                        network_faces,
+                        settings,
+                        uv_rect,
+                        backend="LEGACY_NETWORK",
+                        edge_indices=selected_edge_indices,
+                    ),
                 )
-                return
         junction_specs = {}
         junction_cuts = {}
         if is_seam_mode:
@@ -3117,7 +3161,7 @@ def _fill_decal_bmesh(
     decal_plan=None,
 ):
     if chain_refs is not None and mode in ("CORNERS", "SEAMS"):
-        _fill_manual_chain_decals(
+        return _fill_manual_chain_decals(
             bm,
             graph,
             settings,
@@ -3126,7 +3170,7 @@ def _fill_decal_bmesh(
             selected_edge_indices=selected_edge_indices,
             preview=preview,
             decal_plan=decal_plan,
-        )
+        ) or ()
     elif mode in ("TOP", "BOTTOM"):
         top_runs, bottom_runs = _collect_trim_ribbon_runs(
             graph, chain_refs=chain_refs
@@ -3167,6 +3211,170 @@ def _fill_decal_bmesh(
                 DECAL_UV_RECT_SEAM,
                 closed=is_closed,
             )
+    return ()
+
+
+@dataclass(frozen=True)
+class _DecalTransactionResult:
+    obj: object | None
+    topology_changed: bool
+    policy_counts: tuple[tuple[str, int], ...]
+
+
+def _aggregate_policy_counts(materialization_results):
+    counts = {}
+    for result in materialization_results or ():
+        for kind, count in result.policy_counts:
+            counts[kind] = counts.get(kind, 0) + int(count)
+    return tuple(sorted(counts.items()))
+
+
+def _existing_decal_object(name):
+    data = getattr(bpy, "data", None)
+    objects = getattr(data, "objects", None)
+    getter = getattr(objects, "get", None)
+    if getter is None:
+        return None
+    obj = getter(name)
+    if (
+        obj is None
+        or getattr(obj, "mode", "OBJECT") == "EDIT"
+        or getattr(obj, "type", "MESH") != "MESH"
+        or getattr(obj, "data", None) is None
+    ):
+        return None
+    return obj
+
+
+def _generate_decal_transaction(
+    graph,
+    source_obj,
+    settings,
+    mode,
+    scene,
+    chain_refs,
+    selected_edge_indices,
+    preview,
+    decal_plan,
+    preview_state,
+):
+    """Выполняет raising generation path для structured/list adapters."""
+
+    topology_rebuilds_before = (
+        preview_state.topology_rebuilds if preview_state is not None else 0
+    )
+    bm = bmesh.new()
+    try:
+        materialization_results = _fill_decal_bmesh(
+            bm,
+            graph,
+            settings,
+            mode,
+            chain_refs=chain_refs,
+            selected_edge_indices=selected_edge_indices,
+            preview=preview,
+            decal_plan=decal_plan,
+        )
+        has_faces = _prepare_decal_bmesh(bm)
+    except Exception:
+        bm.free()
+        raise
+
+    if not has_faces:
+        bm.free()
+        return _DecalTransactionResult(None, False, ())
+
+    obj = _finalize_decal_object(
+        bm,
+        _decal_object_name(mode, source_obj),
+        source_obj,
+        scene,
+        reuse_existing=preview,
+        preview_state=preview_state,
+        prepared=True,
+    )
+    topology_changed = obj is not None
+    if preview_state is not None:
+        topology_changed = (
+            preview_state.topology_rebuilds > topology_rebuilds_before
+        )
+    return _DecalTransactionResult(
+        obj=obj,
+        topology_changed=topology_changed,
+        policy_counts=_aggregate_policy_counts(materialization_results),
+    )
+
+
+def generate_decal_result(
+    graph: PatchGraph,
+    source_obj,
+    settings: DecalSettings,
+    mode: str,
+    scene=None,
+    chain_refs=None,
+    selected_edge_indices=None,
+    preview=False,
+    decal_plan=None,
+    preview_state=None,
+) -> DecalGenerationResult:
+    """Генерирует decal и возвращает status без исключений geometry runtime."""
+
+    backend_summary = getattr(decal_plan, "backend_summary", "")
+    if mode not in DECAL_MODES:
+        return DecalGenerationResult(
+            PreviewStatus.ERROR,
+            None,
+            reason=f"Unknown decal mode: {mode}",
+            backend_summary=backend_summary,
+        )
+    if scene is None:
+        scene = bpy.context.scene
+    object_name = _decal_object_name(mode, source_obj)
+    try:
+        transaction = _generate_decal_transaction(
+            graph,
+            source_obj,
+            settings,
+            mode,
+            scene,
+            chain_refs,
+            selected_edge_indices,
+            preview,
+            decal_plan,
+            preview_state,
+        )
+    except Exception as exc:
+        retained = _existing_decal_object(object_name) if preview else None
+        return DecalGenerationResult(
+            (
+                PreviewStatus.RETAINED_LAST_VALID
+                if retained is not None
+                else PreviewStatus.ERROR
+            ),
+            getattr(retained, "name", None),
+            reason=str(exc),
+            backend_summary=backend_summary,
+        )
+
+    if transaction.obj is None:
+        retained = _existing_decal_object(object_name) if preview else None
+        return DecalGenerationResult(
+            (
+                PreviewStatus.RETAINED_LAST_VALID
+                if retained is not None
+                else PreviewStatus.EMPTY
+            ),
+            getattr(retained, "name", None),
+            reason="generation produced no faces",
+            backend_summary=backend_summary,
+        )
+    return DecalGenerationResult(
+        PreviewStatus.UPDATED,
+        transaction.obj.name,
+        topology_changed=transaction.topology_changed,
+        backend_summary=backend_summary,
+        policy_counts=transaction.policy_counts,
+    )
 
 
 def generate_decal_objects(
@@ -3181,7 +3389,7 @@ def generate_decal_objects(
     decal_plan=None,
     preview_state=None,
 ) -> list[str]:
-    """Генерирует decal-объект выбранного режима. Возвращает имена созданных.
+    """Compatibility wrapper: генерирует decal и возвращает имена объектов.
 
     preview=True — быстрый режим для интерактивного modal drag (SEAMS
     network): криволинейные границы не уточняются хордами. Финальная
@@ -3192,29 +3400,23 @@ def generate_decal_objects(
         raise ValueError(f"Unknown decal mode: {mode}")
     if scene is None:
         scene = bpy.context.scene
-
-    bm = bmesh.new()
-    try:
-        _fill_decal_bmesh(
-            bm,
-            graph,
-            settings,
-            mode,
-            chain_refs=chain_refs,
-            selected_edge_indices=selected_edge_indices,
-            preview=preview,
-            decal_plan=decal_plan,
-        )
-    except Exception:
-        bm.free()
-        raise
-
-    obj = _finalize_decal_object(
-        bm,
-        _decal_object_name(mode, source_obj),
+    transaction = _generate_decal_transaction(
+        graph,
         source_obj,
+        settings,
+        mode,
         scene,
-        reuse_existing=preview,
-        preview_state=preview_state,
+        chain_refs,
+        selected_edge_indices,
+        preview,
+        decal_plan,
+        preview_state,
     )
-    return [obj.name] if obj is not None else []
+    if transaction.obj is not None:
+        return [transaction.obj.name]
+    retained = (
+        _existing_decal_object(_decal_object_name(mode, source_obj))
+        if preview
+        else None
+    )
+    return [retained.name] if retained is not None else []

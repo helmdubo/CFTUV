@@ -236,6 +236,44 @@ def test_patch_voronoi_partition_runtime_failure_is_not_rebuilt_as_legacy(
     assert legacy_calls == []
 
 
+def test_patch_voronoi_partition_forwards_runtime_corner_settings(
+    monkeypatch,
+):
+    partition = decals_module._ManualSeamBackendPartition(
+        backend="PATCH_VORONOI",
+        edge_indices=(10,),
+        topology_component_count=1,
+        corner_runs=(),
+        boundary_runs=(),
+        compiled_plan=object(),
+    )
+    settings = DecalSettings(
+        corner_acute_split_angle=0.37,
+        corner_apex_limit=4.25,
+    )
+    captured = []
+
+    def evaluate(_plan, width, **kwargs):
+        captured.append((width, kwargs))
+        return ("face",)
+
+    monkeypatch.setattr(
+        decals_module, "evaluate_patch_voronoi_plan", evaluate
+    )
+
+    assert decals_module._evaluate_manual_backend_partition(
+        partition,
+        settings,
+        width=2.5,
+        preview=True,
+    ) == ("face",)
+    corner_settings = captured[0][1]["corner_settings"]
+    assert captured[0][0] == 2.5
+    assert captured[0][1]["preview"] is True
+    assert corner_settings.acute_split_angle == pytest.approx(0.37)
+    assert corner_settings.apex_limit == pytest.approx(4.25)
+
+
 def test_patch_voronoi_transaction_fails_before_any_bmesh_write(monkeypatch):
     patch_run = _backend_test_run((10,), (10, 11))
     partition = decals_module._ManualSeamBackendPartition(
@@ -283,7 +321,8 @@ def test_patch_voronoi_transaction_fails_before_any_bmesh_write(monkeypatch):
 def test_generate_decal_objects_reuses_existing_object_only_for_preview(
     monkeypatch,
 ):
-    fake_bm = object()
+    fake_bm = _FakeMaterializationBMesh()
+    fake_bm.faces.append(object())
     monkeypatch.setattr(
         decals_module.bmesh,
         "new",
@@ -294,6 +333,11 @@ def test_generate_decal_objects_reuses_existing_object_only_for_preview(
         decals_module,
         "_fill_decal_bmesh",
         lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "_prepare_decal_bmesh",
+        lambda bm: bool(bm.faces),
     )
     finalize_calls = []
     monkeypatch.setattr(
@@ -330,6 +374,129 @@ def test_generate_decal_objects_reuses_existing_object_only_for_preview(
     assert preview_names == ["Decal_Seams_Source"]
     assert final_names == ["Decal_Seams_Source"]
     assert finalize_calls == [(True, preview_state), (False, None)]
+
+
+def test_structured_generation_result_exposes_runtime_summary(monkeypatch):
+    monkeypatch.setattr(
+        decals_module,
+        "_generate_decal_transaction",
+        lambda *_args, **_kwargs: decals_module._DecalTransactionResult(
+            obj=SimpleNamespace(name="Decal_Seams_Source"),
+            topology_changed=False,
+            policy_counts=(("KITE", 2), ("SEGMENT", 4)),
+        ),
+    )
+    plan = SimpleNamespace(backend_summary="Patch Voronoi:1c/3e")
+
+    result = decals_module.generate_decal_result(
+        PatchGraph(),
+        SimpleNamespace(name="Source"),
+        DecalSettings(),
+        "SEAMS",
+        scene=object(),
+        decal_plan=plan,
+    )
+
+    assert result == decals_module.DecalGenerationResult(
+        status=decals_module.PreviewStatus.UPDATED,
+        object_name="Decal_Seams_Source",
+        topology_changed=False,
+        backend_summary="Patch Voronoi:1c/3e",
+        policy_counts=(("KITE", 2), ("SEGMENT", 4)),
+    )
+
+
+@pytest.mark.parametrize(
+    ("preview", "has_existing", "expected_status"),
+    (
+        (True, True, decals_module.PreviewStatus.RETAINED_LAST_VALID),
+        (True, False, decals_module.PreviewStatus.ERROR),
+        (False, True, decals_module.PreviewStatus.ERROR),
+    ),
+)
+def test_structured_generation_classifies_transaction_error(
+    monkeypatch, preview, has_existing, expected_status
+):
+    monkeypatch.setattr(
+        decals_module,
+        "_generate_decal_transaction",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("invalid crop")
+        ),
+    )
+    existing = SimpleNamespace(
+        name="Decal_Seams_Source",
+        mode="OBJECT",
+        type="MESH",
+        data=object(),
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "_existing_decal_object",
+        lambda _name: existing if has_existing else None,
+    )
+
+    result = decals_module.generate_decal_result(
+        PatchGraph(),
+        SimpleNamespace(name="Source"),
+        DecalSettings(),
+        "SEAMS",
+        scene=object(),
+        preview=preview,
+    )
+
+    assert result.status == expected_status
+    assert result.reason == "invalid crop"
+    assert result.object_name == (
+        "Decal_Seams_Source"
+        if expected_status == decals_module.PreviewStatus.RETAINED_LAST_VALID
+        else None
+    )
+
+
+@pytest.mark.parametrize(
+    ("preview", "has_existing", "expected_status"),
+    (
+        (True, True, decals_module.PreviewStatus.RETAINED_LAST_VALID),
+        (True, False, decals_module.PreviewStatus.EMPTY),
+        (False, True, decals_module.PreviewStatus.EMPTY),
+    ),
+)
+def test_structured_generation_classifies_empty_transaction(
+    monkeypatch, preview, has_existing, expected_status
+):
+    monkeypatch.setattr(
+        decals_module,
+        "_generate_decal_transaction",
+        lambda *_args, **_kwargs: decals_module._DecalTransactionResult(
+            obj=None,
+            topology_changed=False,
+            policy_counts=(),
+        ),
+    )
+    existing = SimpleNamespace(
+        name="Decal_Seams_Source",
+        mode="OBJECT",
+        type="MESH",
+        data=object(),
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "_existing_decal_object",
+        lambda _name: existing if has_existing else None,
+    )
+
+    result = decals_module.generate_decal_result(
+        PatchGraph(),
+        SimpleNamespace(name="Source"),
+        DecalSettings(),
+        "SEAMS",
+        scene=object(),
+        preview=preview,
+    )
+
+    assert result.status == expected_status
+    assert result.reason == "generation produced no faces"
 
 
 def _materialization_face(keys, kind="SEGMENT", side=""):
@@ -437,6 +604,7 @@ def test_materialization_returns_structured_complete_result():
         source_face_count=1,
         created_face_count=1,
         created_vertex_count=3,
+        policy_counts=(("SEGMENT", 1),),
     )
     assert len(bm.faces) == 1
 
