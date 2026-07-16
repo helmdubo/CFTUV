@@ -107,9 +107,6 @@ class _PatchConsoleView:
     spine_length: float = 0.0
     terminal_count: int = 0
     branch_count: int = 0
-    basis_u: str = ""
-    basis_v: str = ""
-    normal: str = ""
 
 
 @dataclass(frozen=True)
@@ -330,17 +327,9 @@ def _build_corner_console_view(corner_index, corner):
 def _build_loop_console_view(graph, patch_id, loop_summary, boundary_loop, frame_runs_by_loop):
     """Build one typed loop console view."""
 
-    chain_records = boundary_loop.iter_oriented_chain_records()
-    if not chain_records:
-        chain_records = tuple(
-            (graph.get_chain_use(patch_id, loop_summary.loop_index, chain_index), chain)
-            for chain_index, chain in enumerate(boundary_loop.chains)
-        )
-
     chain_views = tuple(
-        _build_chain_console_view(graph, patch_id, loop_summary.loop_index, chain_use.chain_index, chain)
-        for chain_use, chain in chain_records
-        if chain_use is not None
+        _build_chain_console_view(graph, patch_id, loop_summary.loop_index, chain_index, chain)
+        for chain_index, chain in enumerate(boundary_loop.chains)
     )
     run_views = tuple(
         _build_run_console_view(run_index, frame_run)
@@ -409,9 +398,6 @@ def _build_patch_console_view(graph, patch_summary, frame_runs_by_loop):
         spine_length=patch_summary.spine_length,
         terminal_count=patch_summary.terminal_count,
         branch_count=patch_summary.branch_count,
-        basis_u=f"({node.basis_u.x:.4f},{node.basis_u.y:.4f},{node.basis_u.z:.4f})",
-        basis_v=f"({node.basis_v.x:.4f},{node.basis_v.y:.4f},{node.basis_v.z:.4f})",
-        normal=f"({node.normal.x:.4f},{node.normal.y:.4f},{node.normal.z:.4f})",
     )
 
 
@@ -522,16 +508,12 @@ def _serialize_patch_console_view(patch_view):
             f" spine:{patch_view.spine_axis} len:{patch_view.spine_length:.1f}"
             f" T:{patch_view.terminal_count} B:{patch_view.branch_count}"
         )
-    basis_tag = ""
-    if patch_view.basis_u:
-        basis_tag = f"\n    basis: U={patch_view.basis_u} V={patch_view.basis_v} N={patch_view.normal}"
     lines = [
         f"  Patch {patch_view.patch_id}: {patch_view.patch_type} | facing:{patch_view.world_facing} | {patch_view.face_count}f | "
         f"loops:{len(patch_view.loop_views)}{_format_label_sequence_view(patch_view.loop_kind_labels)} "
         f"chains:{patch_view.chain_count} corners:{patch_view.corner_count} | "
         f"roles:{_format_label_sequence_view(patch_view.role_labels)}"
         f"{strip_tag}"
-        f"{basis_tag}"
     ]
     for loop_view in patch_view.loop_views:
         lines.extend(_serialize_loop_console_view(loop_view))

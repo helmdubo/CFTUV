@@ -15,7 +15,6 @@ try:
         CornerKind,
         FrameRole,
         LoopKind,
-        _build_chain_use,
     )
     from .analysis_records import (
         _RawBoundaryChain,
@@ -32,7 +31,6 @@ try:
         _find_corner_reference_point,
         _measure_corner_turn_angle,
         _build_geometric_loop_corners,
-        _sawtooth_promoted_role,
         _try_geometric_outer_loop_split,
     )
     from .console_debug import trace_console
@@ -49,7 +47,6 @@ except ImportError:
         CornerKind,
         FrameRole,
         LoopKind,
-        _build_chain_use,
     )
     from analysis_records import (
         _RawBoundaryChain,
@@ -66,18 +63,17 @@ except ImportError:
         _find_corner_reference_point,
         _measure_corner_turn_angle,
         _build_geometric_loop_corners,
-        _sawtooth_promoted_role,
         _try_geometric_outer_loop_split,
     )
     from console_debug import trace_console
 
 
 def _report_boundary_loop_invariant_violation(patch_id, loop_index, rule_code, detail):
-    trace_console(f"[CFTUV][TopologyInvariant] Patch {patch_id} Loop {loop_index} {rule_code} {detail}")
+    print(f"[CFTUV][TopologyInvariant] Patch {patch_id} Loop {loop_index} {rule_code} {detail}")
 
 
 def _report_patch_topology_invariant_violation(patch_id, rule_code, detail):
-    trace_console(f"[CFTUV][TopologyInvariant] Patch {patch_id} {rule_code} {detail}")
+    print(f"[CFTUV][TopologyInvariant] Patch {patch_id} {rule_code} {detail}")
 
 
 def _neighbor_for_side(edge_index, side_face_index, patch_face_indices, face_to_patch, patch_id, bm):
@@ -284,7 +280,7 @@ def _atomize_mesh_border_chains(_raw_loop, raw_chains):
 
     result = []
     for raw_chain in raw_chains:
-        if int(raw_chain.neighbor) == NB_MESH_BORDER and not raw_chain.is_corner_split:
+        if int(raw_chain.neighbor) == NB_MESH_BORDER:
             result.extend(_atomize_raw_chain_to_edges(raw_chain))
         else:
             result.append(raw_chain)
@@ -309,24 +305,6 @@ def _build_boundary_chain_objects(raw_chains, basis_u, basis_v):
         chain_vert_cos = [co.copy() for co in raw_chain.vert_cos]
         neighbor_id = int(raw_chain.neighbor)
         use_strict_guards = (neighbor_id != NB_MESH_BORDER)
-        raw_role = _classify_chain_frame_role(
-            chain_vert_cos,
-            basis_u,
-            basis_v,
-            strict_guards=use_strict_guards,
-        )
-        # Fallback: FREE chain с пилообразной детализацией вдоль одной
-        # оси patch → промоушен в H_FRAME / V_FRAME. Strict отсекает
-        # зубья по h_avg_deviation; composite-тест смотрит на форму
-        # ломаной в целом (хорда + PCA + zero-crossings).
-        if raw_role == FrameRole.FREE:
-            promoted = _sawtooth_promoted_role(chain_vert_cos, basis_u, basis_v)
-            if promoted is not None:
-                trace_console(
-                    f"[CFTUV][Sawtooth] promoted neighbor={neighbor_id} "
-                    f"verts={len(chain_vert_cos)} role={promoted.value}"
-                )
-                raw_role = promoted
         chains.append(
             BoundaryChain(
                 vert_indices=list(raw_chain.vert_indices),
@@ -335,7 +313,7 @@ def _build_boundary_chain_objects(raw_chains, basis_u, basis_v):
                 side_face_indices=list(raw_chain.side_face_indices),
                 neighbor_patch_id=neighbor_id,
                 is_closed=bool(raw_chain.is_closed),
-                frame_role=raw_role,
+                frame_role=_classify_chain_frame_role(chain_vert_cos, basis_u, basis_v, strict_guards=use_strict_guards),
                 start_loop_index=int(raw_chain.start_loop_index),
                 end_loop_index=int(raw_chain.end_loop_index),
                 is_corner_split=bool(raw_chain.is_corner_split),
@@ -344,19 +322,24 @@ def _build_boundary_chain_objects(raw_chains, basis_u, basis_v):
     return chains
 
 
-def _build_boundary_loop_chain_uses(boundary_loop, patch_id, loop_index):
-    chain_uses = []
-    for chain_index, chain in enumerate(boundary_loop.chains):
-        chain_uses.append(
-            _build_chain_use(
-                chain,
-                patch_id,
-                loop_index,
-                chain_index,
-                position_in_loop=chain_index,
+def _assign_boundary_chain_side_face_normals(chains, bm):
+    """Serialize the owner-face normal for every final chain segment."""
+
+    bm.faces.ensure_lookup_table()
+    face_count = len(bm.faces)
+    for chain in chains:
+        side_normals = []
+        for segment_index in range(len(chain.edge_indices)):
+            face_index = (
+                int(chain.side_face_indices[segment_index])
+                if segment_index < len(chain.side_face_indices)
+                else -1
             )
-        )
-    return chain_uses
+            if 0 <= face_index < face_count:
+                side_normals.append(bm.faces[face_index].normal.copy())
+            else:
+                side_normals.append(Vector((0.0, 0.0, 0.0)))
+        chain.side_face_normals = side_normals
 
 
 def _downgrade_same_role_point_contact_chains(chains, basis_u, basis_v, patch_id, loop_index):
@@ -459,8 +442,6 @@ def _merge_same_role_border_chains(chains):
             prev.neighbor_kind == ChainNeighborKind.MESH_BORDER
             and curr.neighbor_kind == ChainNeighborKind.MESH_BORDER
             and prev.frame_role == curr.frame_role
-            and not prev.is_corner_split
-            and not curr.is_corner_split
             and not prev.is_closed
             and not curr.is_closed
         )
@@ -488,8 +469,6 @@ def _merge_same_role_border_chains(chains):
             last.neighbor_kind == ChainNeighborKind.MESH_BORDER
             and first.neighbor_kind == ChainNeighborKind.MESH_BORDER
             and last.frame_role == first.frame_role
-            and not last.is_corner_split
-            and not first.is_corner_split
             and not last.is_closed
             and not first.is_closed
         )
@@ -843,14 +822,6 @@ def _validate_boundary_loop_topology(boundary_loop, patch_id, loop_index):
             "loop_has_geometry_but_no_chains",
         )
 
-    if boundary_loop.chain_uses and len(boundary_loop.chain_uses) != chain_count:
-        _report_boundary_loop_invariant_violation(
-            patch_id,
-            loop_index,
-            "CU1",
-            f"chain_use_count_mismatch expected={chain_count} actual={len(boundary_loop.chain_uses)}",
-        )
-
 
 def _validate_patch_loop_classification(node):
     if not node.boundary_loops:
@@ -1123,9 +1094,9 @@ def _annotate_boundary_loop_corner_wedges(boundary_loop, patch_face_indices, bm)
 def _finalize_boundary_loop_build(state, basis_u, basis_v, patch_id, loop_index, patch_face_indices, bm):
     boundary_loop = state.boundary_loop
     derived_topology = _derive_boundary_loop_topology(state, basis_u, basis_v, patch_id, loop_index)
+    _assign_boundary_chain_side_face_normals(derived_topology.chains, bm)
     boundary_loop.chains = derived_topology.chains
     boundary_loop.corners = derived_topology.corners
-    boundary_loop.chain_uses = _build_boundary_loop_chain_uses(boundary_loop, patch_id, loop_index)
     _assign_loop_chain_endpoint_topology(boundary_loop)
     _annotate_boundary_loop_corner_wedges(boundary_loop, patch_face_indices, bm)
     _validate_boundary_loop_topology(boundary_loop, patch_id, loop_index)

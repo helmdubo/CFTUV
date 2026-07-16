@@ -8,6 +8,8 @@ bl_info = {
     "category": "UV",
 }
 
+# Ленивый импорт operators: пакет остаётся импортируемым вне Blender
+# (pytest со стабами mathutils/bpy/bmesh из tests/conftest.py).
 def register():
     from .operators import register as _register
 
@@ -18,5 +20,6 @@ def unregister():
     from .operators import unregister as _unregister
 
     return _unregister()
+
 
 __all__ = ["bl_info", "register", "unregister"]

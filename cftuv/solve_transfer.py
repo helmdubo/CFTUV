@@ -5,8 +5,6 @@ from typing import Optional
 from mathutils import Vector
 
 try:
-    from .analysis import build_patch_graph_derived_topology
-    from .console_debug import trace_console
     from .model import (
         BoundaryLoop, FrameRole, FrameAxisKind, PatchGraph,
         ScaffoldPointKey, ScaffoldChainPlacement, ScaffoldPatchPlacement,
@@ -15,10 +13,7 @@ try:
     from .solve_records import *
     from .solve_frontier import build_root_scaffold_map
     from .solve_pin_policy import build_patch_pin_map
-    from .solve_skeleton import apply_skeleton_solve_to_scaffold_map
 except ImportError:
-    from analysis import build_patch_graph_derived_topology
-    from console_debug import trace_console
     from model import (
         BoundaryLoop, FrameRole, FrameAxisKind, PatchGraph,
         ScaffoldPointKey, ScaffoldChainPlacement, ScaffoldPatchPlacement,
@@ -27,7 +22,6 @@ except ImportError:
     from solve_records import *
     from solve_frontier import build_root_scaffold_map
     from solve_pin_policy import build_patch_pin_map
-    from solve_skeleton import apply_skeleton_solve_to_scaffold_map
 
 
 def _patch_scaffold_is_supported(patch_placement: Optional[ScaffoldPatchPlacement]) -> bool:
@@ -296,13 +290,10 @@ def _resolve_scaffold_uv_targets(
         if key.chain_index < 0 or key.chain_index >= len(boundary_loop.chains):
             return []
         chain = boundary_loop.chains[key.chain_index]
-        chain_use = graph.get_chain_use(key.patch_id, key.loop_index, key.chain_index)
-        if chain_use is None:
+        if key.source_point_index < 0 or key.source_point_index >= len(chain.vert_indices):
             return []
-        resolved_source_point = boundary_loop.resolve_chain_use_source_point(chain_use, key.source_point_index)
-        if resolved_source_point is None:
-            return []
-        loop_point_index, vert_index = resolved_source_point
+        loop_point_index = (chain.start_loop_index + key.source_point_index) % loop_count
+        vert_index = chain.vert_indices[key.source_point_index]
         if loop_point_index >= len(boundary_loop.vert_indices) or boundary_loop.vert_indices[loop_point_index] != vert_index:
             return []
     else:
@@ -582,7 +573,7 @@ def _print_phase1_preview_patch_report(
             f" max_gap={float(stats.max_chain_gap):.6f}"
             f" gaps={int(stats.chain_gap_count)}"
         )
-    trace_console(
+    print(
         f"[CFTUV][Phase1] Quilt {quilt_index} Patch {patch_id}: "
         f"scaffold={stats.scaffold_points} resolved={stats.resolved_scaffold_points} "
         f"uv_targets={stats.uv_targets_resolved} unresolved={stats.unresolved_scaffold_points} "
@@ -592,7 +583,7 @@ def _print_phase1_preview_patch_report(
 
 
 def _print_phase1_preview_quilt_report(quilt_index: int, patch_ids: list[int], stats: dict[str, int]) -> None:
-    trace_console(
+    print(
         f"[CFTUV][Phase1] Quilt {quilt_index}: patches={patch_ids} "
         f"scaffold={stats.get('scaffold_points', 0)} resolved={stats.get('resolved_scaffold_points', 0)} "
         f"uv_targets={stats.get('uv_targets_resolved', 0)} unresolved={stats.get('unresolved_scaffold_points', 0)} "
@@ -659,7 +650,6 @@ def _execute_phase1_preview_impl(
     except ImportError:
         from analysis import build_straighten_structural_support
     # Shape classification always runs; straighten-specific data gated by toggle.
-    derived_topology = build_patch_graph_derived_topology(patch_graph)
     inherited_role_map, patch_structural_summaries, patch_shape_classes, straighten_chain_refs, band_spine_data = build_straighten_structural_support(patch_graph)
     scaffold_map = build_root_scaffold_map(
         patch_graph, solve_plan, settings.final_scale,
@@ -670,16 +660,9 @@ def _execute_phase1_preview_impl(
         straighten_chain_refs=straighten_chain_refs if straighten_enabled else None,
         band_spine_data=band_spine_data if straighten_enabled else None,
     )
-    scaffold_map, _skeleton_reports = apply_skeleton_solve_to_scaffold_map(
-        patch_graph,
-        derived_topology,
-        scaffold_map,
-        solve_plan=solve_plan,
-        final_scale=settings.final_scale,
-    )
     unsupported_patch_ids = _collect_phase1_unsupported_patch_ids(scaffold_map)
     if unsupported_patch_ids:
-        trace_console(f"[CFTUV][Phase1] Unsupported patches: {unsupported_patch_ids}")
+        print(f"[CFTUV][Phase1] Unsupported patches: {unsupported_patch_ids}")
     quilt_plan_by_index = {quilt.quilt_index: quilt for quilt in solve_plan.quilts} if solve_plan is not None else {}
 
     supported_roots = 0
@@ -829,12 +812,12 @@ def _execute_phase1_preview_impl(
                         key = (f.index, lp.vert.index)
                         _pre_uv[key] = lp[uv_layer].uv.copy()
         bmesh.update_edit_mesh(obj.data)
-        trace_console(
+        print(
             f"[CFTUV][Phase1] Final Conformal: "
             f"patches={all_conformal_patch_ids} faces={sel_faces} "
             f"pinned={pinned_count} unpinned={unpinned_count}"
         )
-        trace_console(f"[CFTUV][Phase1] obj.mode={obj.mode} active={bpy.context.active_object == obj}")
+        print(f"[CFTUV][Phase1] obj.mode={obj.mode} active={bpy.context.active_object == obj}")
         bpy.ops.uv.unwrap(method='CONFORMAL', fill_holes=False, margin=0.0)
         conformal_applied += 1
         # Проверка: сколько UV изменилось
@@ -865,7 +848,7 @@ def _execute_phase1_preview_impl(
                             if (lp[uv2].uv - pre).length > 1e-6:
                                 _changed += 1
         bmesh.update_edit_mesh(obj.data)
-        trace_console(f"[CFTUV][Phase1] Conformal result: checked={_checked} changed={_changed}/{len(_pre_uv)}")
+        print(f"[CFTUV][Phase1] Conformal result: checked={_checked} changed={_changed}/{len(_pre_uv)}")
 
     if run_conformal and unsupported_patch_ids:
         for patch_id in unsupported_patch_ids:
@@ -880,7 +863,7 @@ def _execute_phase1_preview_impl(
             selected_face_count = len(_collect_patch_face_indices(patch_graph, [patch_id]))
             selected_uv_count = _count_selected_patch_uv_loops(bm, patch_graph, uv_layer, [patch_id])
             bmesh.update_edit_mesh(obj.data)
-            trace_console(
+            print(
                 f"[CFTUV][Phase1] Unsupported Patch {patch_id} Fallback Conformal: "
                 f"faces={selected_face_count} uv_loops={selected_uv_count}"
             )
@@ -903,7 +886,7 @@ def _execute_phase1_preview_impl(
             )
             bmesh.update_edit_mesh(obj.data)
     if not run_conformal:
-        trace_console(f"[CFTUV][Phase1] Transfer Only: quilts={len(scaffold_map.quilts)} patches={sorted(global_supported_patch_ids)}")
+        print(f"[CFTUV][Phase1] Transfer Only: quilts={len(scaffold_map.quilts)} patches={sorted(global_supported_patch_ids)}")
 
     if not keep_pins:
         bm = bmesh.from_edit_mesh(obj.data)
@@ -1061,16 +1044,16 @@ def validate_scaffold_uv_transfer(bm, graph, uv_layer, patch_placement, uv_offse
 
     # --- Console output ---
     if mismatches or seam_self_collapsed > 0:
-        trace_console(
+        print(
             f"[CFTUV][Validate] Patch {patch_placement.patch_id}: "
             f"{len(mismatches)} mismatches, "
             f"{seam_self_collapsed} collapsed SEAM_SELF verts "
             f"({verified_ok}/{total_points} OK)"
         )
         for m in mismatches:
-            trace_console(m)
+            print(m)
     else:
-        trace_console(
+        print(
             f"[CFTUV][Validate] Patch {patch_placement.patch_id}: "
             f"OK ({verified_ok}/{total_points} points verified)"
         )

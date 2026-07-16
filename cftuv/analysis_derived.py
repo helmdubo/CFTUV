@@ -4,7 +4,6 @@ from dataclasses import replace
 from types import MappingProxyType
 
 try:
-    from .console_debug import trace_console
     from .constants import (
         BAND_CAP_SIMILARITY_MIN,
         BAND_DIRECTIONAL_CONSISTENCY_MIN,
@@ -15,6 +14,7 @@ try:
     )
     from .model import BandMode, ChainNeighborKind, FrameRole, LoopKind, PatchType, WorldFacing
     from .analysis_records import (
+        BandSpineData,
         _FrameRun,
         _Junction,
         _JunctionStructuralKind,
@@ -30,10 +30,13 @@ try:
     )
     from .analysis_frame_runs import _build_patch_graph_loop_frame_results
     from .analysis_junctions import _build_junction_run_refs_by_corner, _build_patch_graph_junctions
-    from .analysis_shape_support import build_patch_shape_support
-    from .band_spine import _orient_side_pair, _resample_polyline
+    from .band_spine import (
+        _orient_side_pair,
+        _resample_polyline,
+        build_band_spine_from_groups,
+    )
+    from .structural_tokens import build_loop_signature, classify_patch_shape, LoopSignature, PatchShapeClass
 except ImportError:
-    from console_debug import trace_console
     from constants import (
         BAND_CAP_SIMILARITY_MIN,
         BAND_DIRECTIONAL_CONSISTENCY_MIN,
@@ -44,6 +47,7 @@ except ImportError:
     )
     from model import BandMode, ChainNeighborKind, FrameRole, LoopKind, PatchType, WorldFacing
     from analysis_records import (
+        BandSpineData,
         _FrameRun,
         _Junction,
         _JunctionStructuralKind,
@@ -59,8 +63,12 @@ except ImportError:
     )
     from analysis_frame_runs import _build_patch_graph_loop_frame_results
     from analysis_junctions import _build_junction_run_refs_by_corner, _build_patch_graph_junctions
-    from analysis_shape_support import build_patch_shape_support
-    from band_spine import _orient_side_pair, _resample_polyline
+    from band_spine import (
+        _orient_side_pair,
+        _resample_polyline,
+        build_band_spine_from_groups,
+    )
+    from structural_tokens import build_loop_signature, classify_patch_shape, LoopSignature, PatchShapeClass
 
 
 def _build_patch_topology_summaries(graph, loop_frame_results):
@@ -350,22 +358,13 @@ def _pick_band_side_pair(
                 if len(pair_side_axes) == 1 and next(iter(pair_side_axes)) == preferred_axis:
                     side_axis_match = 1
 
-            if chain_count == 4:
-                key = (
-                    cap_similarity,
-                    side_similarity,
-                    len_a + len_b,
-                    cap_group_strong_count,
-                    side_axis_match,
-                )
-            else:
-                key = (
-                    cap_group_strong_count,
-                    side_axis_match,
-                    cap_similarity,
-                    side_similarity,
-                    len_a + len_b,
-                )
+            key = (
+                cap_group_strong_count,
+                side_axis_match,
+                cap_similarity,
+                side_similarity,
+                len_a + len_b,
+            )
             if best_key is None or key > best_key:
                 best_key = key
                 best_pair = side_pair
@@ -409,16 +408,7 @@ def _measure_band_directional_consistency(
     if oriented is None:
         return 0.0, 0.0, 0.0, 0.0
 
-    (
-        _side_a_ref,
-        _side_b_ref,
-        side_a_points,
-        side_b_points,
-        _cap_start_refs,
-        _cap_end_refs,
-        _side_a_reversed,
-        _side_b_reversed,
-    ) = oriented
+    side_a_points, side_b_points, _cap_start_refs, _cap_end_refs, _side_b_reversed = oriented
     sample_count = max(len(side_a_points), len(side_b_points), BAND_DIRECTION_MIN_SAMPLES)
     side_a_samples = _resample_polyline(side_a_points, sample_count)
     side_b_samples = _resample_polyline(side_b_points, sample_count)
@@ -948,6 +938,8 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
                         or (chain.frame_role == FrameRole.FREE and (len(chain.vert_cos) <= 2 or len(chain.edge_indices) <= 1))
                     )
                     and chain_lengths[chain_index] > 0.0
+                    and mean_chain_length > 0.0
+                    and chain_lengths[chain_index] <= mean_chain_length * 0.5
                 )
             ]
             side_candidate_indices = [
@@ -955,7 +947,7 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
                 for chain_index, chain in enumerate(outer_chains)
                 if (
                     chain.frame_role == FrameRole.FREE
-                    and chain_lengths[chain_index] > 0.0
+                    and chain_lengths[chain_index] >= mean_chain_length * 1.2
                     and any(
                         ((chain_index - cap_index) % max(chain_count, 1) == 1)
                         or ((cap_index - chain_index) % max(chain_count, 1) == 1)
@@ -991,33 +983,6 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
                 if junction_supported_axis in {FrameRole.H_FRAME, FrameRole.V_FRAME} else
                 FrameRole.FREE
             )
-
-            # Fallback: derive band axis from cap chord direction (orthogonal).
-            # For closed patches (ring / truncated cone) side chains are nearly-
-            # closed circles whose first-to-last chord is near-zero, so the
-            # standard side-chord axis detection fails.  Cap chains (seam cuts)
-            # have long, clear chords running perpendicular to the band spine.
-            if (
-                supported_band_axis == FrameRole.FREE
-                and len(cap_candidate_indices) >= 2
-                and chain_count == 4
-            ):
-                cap_axes = set()
-                for cap_chain_index in cap_candidate_indices:
-                    cap_chain = outer_chains[cap_chain_index]
-                    if len(cap_chain.vert_cos) < 2:
-                        continue
-                    chord = cap_chain.vert_cos[-1] - cap_chain.vert_cos[0]
-                    u_span = abs(chord.dot(node.basis_u))
-                    v_span = abs(chord.dot(node.basis_v))
-                    if max(u_span, v_span) <= 1e-8:
-                        continue
-                    cap_axes.add(FrameRole.H_FRAME if u_span >= v_span else FrameRole.V_FRAME)
-                if len(cap_axes) == 1:
-                    cap_axis = next(iter(cap_axes))
-                    supported_band_axis = (
-                        FrameRole.V_FRAME if cap_axis == FrameRole.H_FRAME else FrameRole.H_FRAME
-                    )
 
             if axis_candidate == FrameRole.FREE and supported_band_axis in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
                 axis_candidate = supported_band_axis
@@ -1086,49 +1051,6 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
                     weak_band_bootstrap_used = True
                     side_candidate_indices = weak_side_candidate_indices
                     band_side_candidate_count = len(band_side_indices)
-            # ── SEAM_SELF closed-patch bootstrap (truncated cone / ring) ──
-            if (
-                len(band_side_indices) != 2
-                and chain_count == 4
-            ):
-                seam_self_indices = [
-                    ci for ci, ch in enumerate(outer_chains)
-                    if ch.neighbor_kind == ChainNeighborKind.SEAM_SELF
-                ]
-                non_seam_indices = [
-                    ci for ci, ch in enumerate(outer_chains)
-                    if ch.neighbor_kind != ChainNeighborKind.SEAM_SELF
-                ]
-                if (
-                    len(seam_self_indices) == 2
-                    and len(non_seam_indices) == 2
-                    and set(seam_self_indices) | set(non_seam_indices) == set(range(4))
-                ):
-                    seam_pair_is_opposite = (
-                        set(seam_self_indices) == {0, 2}
-                        or set(seam_self_indices) == {1, 3}
-                    )
-                    if seam_pair_is_opposite:
-                        side_pair_closed = tuple(non_seam_indices)
-                        side_axes_local = set()
-                        for si in side_pair_closed:
-                            sch = outer_chains[si]
-                            if len(sch.vert_cos) >= 2:
-                                chord = sch.vert_cos[-1] - sch.vert_cos[0]
-                                u_span = abs(chord.dot(node.basis_u))
-                                v_span = abs(chord.dot(node.basis_v))
-                                if max(u_span, v_span) > 1e-8:
-                                    side_axes_local.add(
-                                        FrameRole.H_FRAME if u_span >= v_span else FrameRole.V_FRAME
-                                    )
-                        if len(side_axes_local) == 1:
-                            supported_band_axis = next(iter(side_axes_local))
-                            if axis_candidate == FrameRole.FREE:
-                                axis_candidate = supported_band_axis
-                        band_side_indices = side_pair_closed
-                        cap_candidate_indices = list(seam_self_indices)
-                        side_candidate_indices = list(non_seam_indices)
-                        band_side_candidate_count = 2
             band_cap_path_groups = (
                 _build_band_cap_path_groups(chain_count, band_side_indices)
                 if len(band_side_indices) == 2 else
@@ -1163,18 +1085,6 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
                     )
                     for group in band_cap_path_groups
                 )
-                if (
-                    not any(band_cap_group_strong_flags)
-                    and chain_count == 4
-                    and len(band_cap_path_groups) == 2
-                ):
-                    all_caps_seam_self = all(
-                        outer_chains[ci].neighbor_kind == ChainNeighborKind.SEAM_SELF
-                        for group in band_cap_path_groups
-                        for ci in group
-                    )
-                    if all_caps_seam_self:
-                        band_cap_group_strong_flags = (True, True)
                 band_cap_count = len(band_cap_path_groups)
                 cap_group_lengths = tuple(
                     sum(chain_lengths[chain_index] for chain_index in group)
@@ -1332,50 +1242,41 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             )
             runtime_role_pattern_ok = runtime_role_pattern_ok_4chain or runtime_split_role_cover_all
 
-            has_holes = any(
-                boundary_loop.kind == LoopKind.HOLE for boundary_loop in node.boundary_loops
-            )
-            runtime_axis_present = runtime_band_axis in {FrameRole.H_FRAME, FrameRole.V_FRAME}
-            chain_topology_supported = chain_count <= 4 or split_cap_band_candidate
-            caps_reject = ""
-            if chain_count == 4 and len(runtime_cap_indices) != 2:
-                caps_reject = "missing_caps" if len(runtime_cap_indices) < 2 else "ambiguous_caps"
-            sides_reject = ""
-            if len(runtime_side_indices) != 2:
-                sides_reject = "missing_sides" if len(runtime_side_indices) < 2 else "ambiguous_sides"
-            strong_cap_present = not (
-                len(band_cap_path_groups) == 2 and not any(band_cap_group_strong_flags)
-            )
-            cap_pair_strong_enough = runtime_cap_pair_similarity >= BAND_CAP_SIMILARITY_MIN
-            direction_ok = (
-                simple_band_topology_4chain
-                or band_directional_consistency >= BAND_DIRECTIONAL_CONSISTENCY_MIN
-            )
-
-            band_rejection_constraints: tuple[tuple[str, bool], ...] = (
-                ("has_holes", not has_holes),
-                ("branch_junctions", branch_count == 0),
-                ("missing_runtime_axis", runtime_axis_present),
-                ("outer_chain_count_not_four", chain_topology_supported),
-                (caps_reject, not caps_reject),
-                (sides_reject, not sides_reject),
-                ("missing_strong_cap", strong_cap_present),
-                ("weak_cap_pair", cap_pair_strong_enough),
-                ("side_direction_mismatch", direction_ok),
-                ("runtime_role_pattern_mismatch", runtime_role_pattern_ok),
-            )
-            band_rejected_reason = next(
-                (reason for reason, ok in band_rejection_constraints if not ok),
-                "",
-            )
-
-            if not band_rejected_reason:
+            if any(boundary_loop.kind == LoopKind.HOLE for boundary_loop in node.boundary_loops):
+                band_rejected_reason = "has_holes"
+            elif branch_count > 0:
+                band_rejected_reason = "branch_junctions"
+            elif runtime_band_axis not in {FrameRole.H_FRAME, FrameRole.V_FRAME}:
+                band_rejected_reason = "missing_runtime_axis"
+            elif chain_count > 4 and not split_cap_band_candidate:
+                band_rejected_reason = "outer_chain_count_not_four"
+            elif chain_count == 4 and len(runtime_cap_indices) != 2:
+                band_rejected_reason = (
+                    "missing_caps" if len(runtime_cap_indices) < 2 else "ambiguous_caps"
+                )
+            elif len(runtime_side_indices) != 2:
+                band_rejected_reason = (
+                    "missing_sides" if len(runtime_side_indices) < 2 else "ambiguous_sides"
+                )
+            elif len(band_cap_path_groups) == 2 and not any(band_cap_group_strong_flags):
+                band_rejected_reason = "missing_strong_cap"
+            elif runtime_cap_pair_similarity < BAND_CAP_SIMILARITY_MIN:
+                band_rejected_reason = "weak_cap_pair"
+            elif (
+                not simple_band_topology_4chain
+                and band_directional_consistency < BAND_DIRECTIONAL_CONSISTENCY_MIN
+            ):
+                band_rejected_reason = "side_direction_mismatch"
+            elif not runtime_role_pattern_ok:
+                band_rejected_reason = "runtime_role_pattern_mismatch"
+            else:
                 band_mode = (
                     BandMode.HARD_BAND
                     if runtime_side_pair_similarity >= BAND_HARD_SIDE_SIMILARITY_MIN
                     else BandMode.SOFT_BAND
                 )
                 band_confirmed_for_runtime = True
+                band_rejected_reason = ""
                 if raw_outer_free_count > 0 or inherited_spine_count > 0 or single_sided_inherited_support:
                     band_requires_intervention = True
                     band_intervention_reject_reason = ""
@@ -1481,7 +1382,7 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             if band_mode != BandMode.NOT_BAND and not band_requires_intervention and band_intervention_reject_reason
             else ""
         )
-        trace_console(
+        print(
             f"[STRUCTURAL] P{patch_id}: "
             f"spine_runs={len(spine_roles_sorted)} spine_axis={spine_axis} spine_len={spine_length:.2f} "
             f"perimeter={perimeter:.2f} spine_ratio={spine_ratio:.2f} spine_score={spine_score:.2f} "
@@ -1491,7 +1392,7 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
             f"{inh_tag}{axis_tag}{junc_tag}{ss_tag}{band_tag}{band_candidate_tag}{band_mode_tag}{band_runtime_tag}{band_reject_tag}{band_intervene_tag}{band_intervene_reject_tag}"
         )
         if band_cap_count > 0 or band_side_candidate_count > 0:
-            trace_console(
+            print(
                 f"[BANDDBG] P{patch_id}: "
                 f"cap_candidates={cap_candidate_indices if 'cap_candidate_indices' in locals() else []} "
                 f"side_candidates={side_candidate_indices if 'side_candidate_indices' in locals() else []} "
@@ -1570,10 +1471,67 @@ def _build_patch_graph_derived_topology(graph, measure_chain_axis_metrics):
         for loop_summary in patch_summary.loop_summaries
     }
 
-    shape_support = build_patch_shape_support(
-        graph,
-        patch_summaries_by_id,
-    )
+    # --- Structural token pass ---
+    loop_signatures: dict[int, list[LoopSignature]] = {}
+    patch_shape_classes: dict[int, PatchShapeClass] = {}
+    for patch_id in sorted(graph.nodes.keys()):
+        node = graph.nodes[patch_id]
+        sigs: list[LoopSignature] = []
+        for loop_index, boundary_loop in enumerate(node.boundary_loops):
+            sig = build_loop_signature(patch_id, loop_index, boundary_loop, node)
+            sigs.append(sig)
+        loop_signatures[patch_id] = sigs
+        patch_shape_classes[patch_id] = classify_patch_shape(sigs, _debug_patch_id=patch_id)
+
+    # Solve reads a single structural truth source:
+    #   NOT_BAND  -> no strip support
+    #   SOFT_BAND -> strip topology support (caps + sides) from structural verdict
+    #   HARD_BAND -> same strip topology support with higher confidence tier
+    #
+    # Important: shape-only BAND classification remains diagnostic and must not
+    # drive solve. SOFT_BAND still needs spine topology; otherwise frontier falls
+    # back to generic H/V placement and collapses J/S-like strips into a small
+    # rectangular scaffold.
+    straighten_chain_refs: set[ChainRef] = set()
+    band_spine_data: dict[int, BandSpineData] = {}
+    for patch_id, patch_summary in patch_summaries_by_id.items():
+        if (
+            patch_summary.band_mode == BandMode.NOT_BAND
+            or not patch_summary.band_requires_intervention
+            or len(patch_summary.band_side_indices) != 2
+            or len(patch_summary.band_cap_path_groups) != 2
+        ):
+            continue
+        node = graph.nodes.get(patch_id)
+        if node is None:
+            continue
+        if any(boundary_loop.kind == LoopKind.HOLE for boundary_loop in node.boundary_loops):
+            continue
+        outer_signature = next(
+            (
+                sig
+                for sig in loop_signatures.get(patch_id, [])
+                if 0 <= sig.loop_index < len(node.boundary_loops)
+                and node.boundary_loops[sig.loop_index].kind == LoopKind.OUTER
+            ),
+            None,
+        )
+        if outer_signature is None:
+            continue
+
+        for chain_index in patch_summary.band_side_indices:
+            if 0 <= chain_index < outer_signature.chain_count:
+                straighten_chain_refs.add((patch_id, outer_signature.loop_index, chain_index))
+
+        spine_data = build_band_spine_from_groups(
+            graph,
+            patch_id,
+            outer_signature.loop_index,
+            patch_summary.band_side_indices,
+            patch_summary.band_cap_path_groups,
+        )
+        if spine_data is not None:
+            band_spine_data[patch_id] = spine_data
 
     return _PatchGraphDerivedTopology(
         patch_summaries=patch_summaries,
@@ -1588,9 +1546,8 @@ def _build_patch_graph_derived_topology(graph, measure_chain_axis_metrics):
         run_structural_roles=MappingProxyType(dict(run_structural_roles)),
         junction_structural_roles=MappingProxyType(dict(junction_structural_roles)),
         neighbor_inherited_roles=MappingProxyType(dict(neighbor_inherited_roles)),
-        patch_shape_classes=shape_support.patch_shape_classes,
-        loop_signatures=shape_support.loop_signatures,
-        loop_shape_interpretations=shape_support.loop_shape_interpretations,
-        straighten_chain_refs=shape_support.straighten_chain_refs,
-        band_spine_data=shape_support.band_spine_data,
+        patch_shape_classes=MappingProxyType(dict(patch_shape_classes)),
+        loop_signatures=MappingProxyType(dict(loop_signatures)),
+        straighten_chain_refs=frozenset(straighten_chain_refs),
+        band_spine_data=MappingProxyType(dict(band_spine_data)),
     )

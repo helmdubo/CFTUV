@@ -8,12 +8,11 @@ FLOOR_THRESHOLD = 0.9
 WALL_THRESHOLD = 0.3
 
 # BAND structural classification
-BAND_CAP_SIMILARITY_MIN = 0.97
+BAND_CAP_SIMILARITY_MIN = 0.95
 BAND_DIRECTIONAL_CONSISTENCY_MIN = 0.80
 BAND_HARD_SIDE_SIMILARITY_MIN = 0.80
 BAND_DIRECTION_BACKTRACK_RATIO = 0.02
-BAND_DIRECTION_MIN_SAMPLES = 16
-TUBE_SEAM_LENGTH_DOMINANCE_MIN = 1.10
+BAND_DIRECTION_MIN_SAMPLES = 8
 
 # Boundary chain neighbor types
 NB_MESH_BORDER = -1
@@ -27,34 +26,65 @@ FRAME_COMPOUND_LENGTH_THRESHOLD = 0.02
 FRAME_ALIGNMENT_THRESHOLD = FRAME_ALIGNMENT_THRESHOLD_V
 
 # Corner detection
-CORNER_ANGLE_THRESHOLD_DEG = 37.0
-
-# ============================================================
-# Sawtooth → H/V promotion (fallback после strict FREE)
-# ============================================================
-# Цель: FREE-chain у которой polyline «шумит» зубьями вдоль прямой оси,
-# но хорда и главная ось идут вдоль U или V patch-базиса, получает
-# шанс быть промотированной в H_FRAME / V_FRAME.
-#
-# Тест КОМПОЗИТНЫЙ — все четыре сигнала должны пройти одновременно,
-# чтобы гладкая дуга / S-кривая не проскочили как «зубья».
-SAWTOOTH_CHORD_AXIS_ALIGNMENT_MIN = 0.93
-# |chord · axis| / |chord| ≥ 0.93 → хорда в конусе ~21° от оси patch.
-# Диагональ 45° (≈0.707) отсекается.
-
-SAWTOOTH_PCA_EIGENVALUE_RATIO_MIN = 8.0
-# Отношение λ1 / λ2 для 2D-проекции точек в (U,V). ≥ 8 → polyline
-# «сильно вытянут» по одной оси, это линия с шумом, не дуга.
-
-SAWTOOTH_MIN_DIRECTION_REVERSALS = 3
-# Минимум смен знака производной перпендикулярной-к-хорде компоненты.
-# Чистая прямая = 0, дуга = 1, S-кривая = 2, 2 зубца = 3, 3 зубца = 5.
-# Этот сигнал ловит И cross-chord sawtooth (зубья по обе стороны хорды),
-# И same-side crenellation (декоративные канавки «вглубь стены»), чего
-# простой zero-crossing счёт не делает.
+CORNER_ANGLE_THRESHOLD_DEG = 30.0
 
 # Debug
 GP_DEBUG_PREFIX = "CFTUV_Debug_"
+
+# ============================================================
+# Decal producer (Phase 3)
+# ============================================================
+
+# Классификация граничного ребра WALL patch:
+# outward = edge_dir x patch_normal; score = outward . basis_v.
+# score > порога — верхняя кромка (TOP), score < -порога — нижняя (BOTTOM).
+DECAL_DIR_THRESHOLD = 0.5
+# Рёбра короче порога не участвуют в trim цепочках (шумовые кромки).
+DECAL_NOISE_THRESHOLD = 0.05
+# Пары WALL patches: dot(normal_a, normal_b) выше порога — копланарный
+# шов (seam лента), ниже — угол (corner лента).
+DECAL_COPLANAR_DOT = 0.99
+# Сварка вершин при финализации decal mesh (стыки лент).
+DECAL_WELD_DISTANCE = 0.001
+# Схлопывание последовательных точек спайна угловой ленты (как в прототипе).
+DECAL_SPINE_MERGE_DISTANCE = 0.01
+# Максимальное удаление miter-вершины от spine в долях ширины одного крыла.
+# Более длинное пересечение превращается в bevel и не создаёт острый шип.
+DECAL_CORNER_MITER_LIMIT = 4.0
+# Допустимый зазор между двумя offset-линиями в долях ширины крыла.
+# На неплоской станции линии могут быть skew — тогда нужен bevel join.
+DECAL_CORNER_JOIN_GAP_RATIO = 0.05
+# Decal network (seam Voronoi backend): два конца ветвей в junction с
+# dot(outgoing_a, outgoing_b) не выше порога считаются коллинеарным
+# продолжением и сливаются в один сквозной сайт (непрерывный UV через узел).
+DECAL_NETWORK_CONTINUATION_DOT = -0.866
+# Стиль закрытия reflex-промежутков junction: "MITER" — жёсткий стык
+# (общая miter-вершина на биссектрисе, прямой bevel за лимитом),
+# "ROUND" — округлая дуга радиуса α (законсервированная ветка).
+DECAL_NETWORK_JUNCTION_CAP_STYLE = "MITER"
+# Детализация КРИВОЙ биссектрисы клиппинга (parabola «конец сегмента против
+# бока другого» при наложении лент). Отдельно от weld/точности пересечений:
+# топология и момент столкновения остаются точными, грубеет только
+# tessellation уже найденной кривой.
+#   "HARD"   — одна прямая между crossings, без внутренних вершин;
+#   "LOW"    — 2-4 вершины на кривую (рекомендуемый default);
+#   "SMOOTH" — точная полилинизация с допуском weld.
+DECAL_NETWORK_CLIP_CURVE_STYLE = "LOW"
+# LOW: визуальный допуск кривой = max(weld, α * relative); плюс жёсткий
+# бюджет внутренних вершин на одну кривую — одинаковая плотность на
+# декалях разного размера, геометрия не разрастается.
+DECAL_NETWORK_CLIP_CURVE_RELATIVE = 0.15
+DECAL_NETWORK_CLIP_CURVE_BUDGET = 4
+DECAL_NETWORK_CLIP_CURVE_DEPTH = 3
+
+# Прямоугольники атласа для UV лент: (u_min, v_min, u_max, v_max).
+DECAL_UV_RECT_CORNER = (0.9, 0.0, 1.0, 1.0)
+DECAL_UV_RECT_SEAM = (0.9, 0.0, 1.0, 1.0)
+DECAL_UV_RECT_TOP = (0.0, 0.8, 1.0, 1.0)
+DECAL_UV_RECT_BOTTOM = (0.0, 0.0, 1.0, 0.2)
+
+# Коллекция для сгенерированных decal объектов.
+DECAL_COLLECTION_NAME = "Decals_Generated"
 
 # ============================================================
 # Scoring weights — задокументированы в Phase 3.5
@@ -106,16 +136,6 @@ SCORE_BRIDGE_FIRST_PATCH_PENALTY = 1.10
 SCORE_BRIDGE_CROSS_PATCH_PENALTY = 0.85
 SCORE_FREE_STRIP_CONNECTOR = 0.10
 SCORE_FREE_FRAME_NEIGHBOR = 0.05
-
-# --- P7 skeleton graph tolerances (S2) ---
-SKELETON_ROW_SPREAD_TOLERANCE = 0.01
-SKELETON_COL_SPREAD_TOLERANCE = 0.01
-SKELETON_SIBLING_LENGTH_TOLERANCE = 0.001
-SKELETON_SIBLING_WEIGHT = 5.0
-SKELETON_GAUGE_WEIGHT = 1_000_000.0
-SKELETON_MAX_RESIDUAL_WARN = 0.01
-SKELETON_MAX_CYCLE_RESIDUAL_APPLY = 0.25
-USE_SKELETON_SOLVE = True
 # --- Closure cut heuristic weights ---
 # Определяют score каждого seam edge как кандидата на UV cut.
 # Высокий score = edge лучше подходит как разрыв (rigid endpoints, clean cut).
