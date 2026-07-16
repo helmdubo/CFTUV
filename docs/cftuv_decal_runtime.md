@@ -202,3 +202,16 @@ Voronoi chart. Warped polygon остаётся отдельным tangent owner-
 соединяется с соседними surfaces junction-слоем. На полном `walls.010` это
 убирает ложный component fallback: все 23 components / 458 seam edges
 компилируются Patch Voronoi, `Legacy:0c/0e`.
+
+### Strict Patch Voronoi runtime
+
+После успешного compile backend фиксируется на весь modal lifetime. Ошибка
+Patch Voronoi evaluation или пустой runtime crop больше не перестраивает этот
+component через legacy Seam Network либо старый miter pipeline. Evaluation всех
+partitions выполняется до первой BMesh-записи; поэтому failure не оставляет
+частично материализованную сеть.
+
+Во время drag modal сохраняет последний валидный preview. На confirm ошибка
+становится явной (`PatchVoronoiRuntimeError`) и содержит число edges, width и
+preview/final mode. Legacy разрешён только для component, который был явно
+отклонён на compile-этапе и отражён в backend routing report.

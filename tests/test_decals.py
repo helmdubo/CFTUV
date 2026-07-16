@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 from mathutils import Vector
 
 from cftuv import decals as decals_module
@@ -177,6 +178,90 @@ def test_manual_seam_hybrid_materializes_both_backend_partitions(monkeypatch):
     )
 
     assert materialized == [("patch-face",), ("legacy-face",)]
+
+
+def test_patch_voronoi_partition_runtime_failure_is_not_rebuilt_as_legacy(
+    monkeypatch,
+):
+    patch_run = _backend_test_run((10,), (10, 11))
+    partition = decals_module._ManualSeamBackendPartition(
+        backend="PATCH_VORONOI",
+        edge_indices=(10,),
+        topology_component_count=1,
+        corner_runs=(patch_run,),
+        boundary_runs=(),
+        compiled_plan=object(),
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "evaluate_patch_voronoi_plan",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("broken crop")
+        ),
+    )
+    legacy_calls = []
+    monkeypatch.setattr(
+        decals_module,
+        "build_seam_network_faces",
+        lambda *_args, **_kwargs: legacy_calls.append(True),
+    )
+
+    with pytest.raises(
+        decals_module.PatchVoronoiRuntimeError,
+        match=r"1 edge\(s\).*broken crop",
+    ):
+        decals_module._evaluate_manual_backend_partition(
+            partition,
+            DecalSettings(),
+            width=3.7,
+            preview=True,
+        )
+
+    assert legacy_calls == []
+
+
+def test_patch_voronoi_transaction_fails_before_any_bmesh_write(monkeypatch):
+    patch_run = _backend_test_run((10,), (10, 11))
+    partition = decals_module._ManualSeamBackendPartition(
+        backend="PATCH_VORONOI",
+        edge_indices=(10,),
+        topology_component_count=1,
+        corner_runs=(patch_run,),
+        boundary_runs=(),
+        compiled_plan=object(),
+    )
+    plan = decals_module.ManualSeamDecalPlan(
+        corner_runs=(patch_run,),
+        boundary_runs=(),
+        backend_partitions=(partition,),
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "evaluate_patch_voronoi_plan",
+        lambda *_args, **_kwargs: (),
+    )
+    materialized = []
+    monkeypatch.setattr(
+        decals_module,
+        "_materialize_network_faces",
+        lambda *_args, **_kwargs: materialized.append(True),
+    )
+
+    with pytest.raises(
+        decals_module.PatchVoronoiRuntimeError,
+        match="evaluation produced no faces",
+    ):
+        decals_module._fill_manual_chain_decals(
+            object(),
+            object(),
+            DecalSettings(),
+            (),
+            mode="SEAMS",
+            selected_edge_indices=(10,),
+            decal_plan=plan,
+        )
+
+    assert materialized == []
 
 
 def test_generate_decal_objects_reuses_existing_object_only_for_preview(

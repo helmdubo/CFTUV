@@ -250,6 +250,21 @@ class ManualSeamDecalPlan:
         )
 
 
+class PatchVoronoiRuntimeError(RuntimeError):
+    """Compiled Patch Voronoi plan не имеет права молча сменить backend."""
+
+    def __init__(self, edge_indices, width, preview, reason):
+        self.edge_indices = tuple(int(index) for index in edge_indices)
+        self.width = float(width)
+        self.preview = bool(preview)
+        self.reason = str(reason)
+        super().__init__(
+            "Patch Voronoi runtime failed for "
+            f"{len(self.edge_indices)} edge(s) at width={self.width:.6g} "
+            f"preview={self.preview}: {self.reason}"
+        )
+
+
 def _join_ribbon_runs(first, second):
     """Соединяет два уже ориентированных run с общей конечной вершиной."""
 
@@ -2551,7 +2566,6 @@ def _evaluate_manual_backend_partition(
 ):
     """Вычисляет одну routing-группу без BMesh side effects."""
 
-    runs = list(partition.corner_runs + partition.boundary_runs)
     if partition.backend == "PATCH_VORONOI":
         try:
             faces = evaluate_patch_voronoi_plan(
@@ -2563,21 +2577,23 @@ def _evaluate_manual_backend_partition(
                     miter_limit=settings.corner_miter_limit,
                 ),
             )
-            if faces:
-                return faces
         except Exception as exc:
-            print(
-                "[CFTUV][Decals] Patch Voronoi partition failed "
-                f"({exc!r}); using legacy seam network for "
-                f"{len(partition.edge_indices)} edge(s)"
+            raise PatchVoronoiRuntimeError(
+                partition.edge_indices,
+                width,
+                preview,
+                repr(exc),
+            ) from exc
+        if not faces:
+            raise PatchVoronoiRuntimeError(
+                partition.edge_indices,
+                width,
+                preview,
+                "evaluation produced no faces",
             )
-        return build_seam_network_faces(
-            runs,
-            settings.offset,
-            width,
-            preview=preview,
-        )
+        return faces
 
+    runs = list(partition.corner_runs + partition.boundary_runs)
     try:
         faces = evaluate_seam_network_plan(
             partition.compiled_plan,
@@ -2628,71 +2644,66 @@ def _fill_manual_chain_decals(
             and (corner_runs or boundary_runs)
             and settings.seam_network
         ):
+            if decal_plan is not None and decal_plan.backend_partitions:
+                # Compiled Patch Voronoi partitions are strict: сначала
+                # вычисляем весь transaction, затем пишем BMesh. Runtime
+                # failure не должен незаметно менять topology на legacy.
+                face_batches = [
+                    _evaluate_manual_backend_partition(
+                        partition,
+                        settings,
+                        width,
+                        preview,
+                    )
+                    for partition in decal_plan.backend_partitions
+                ]
+                for partition_faces in face_batches:
+                    _materialize_network_faces(
+                        bm, partition_faces, settings, uv_rect
+                    )
+                return
+
+            if (
+                decal_plan is not None
+                and decal_plan.patch_voronoi_plan is not None
+            ):
+                try:
+                    network_faces = evaluate_patch_voronoi_plan(
+                        decal_plan.patch_voronoi_plan,
+                        width,
+                        preview=preview,
+                        corner_settings=CornerRuntimeSettings(
+                            acute_split_angle=(
+                                settings.corner_acute_split_angle
+                            ),
+                            miter_limit=settings.corner_miter_limit,
+                        ),
+                    )
+                except Exception as exc:
+                    raise PatchVoronoiRuntimeError(
+                        selected_edge_indices,
+                        width,
+                        preview,
+                        repr(exc),
+                    ) from exc
+                if not network_faces:
+                    raise PatchVoronoiRuntimeError(
+                        selected_edge_indices,
+                        width,
+                        preview,
+                        "evaluation produced no faces",
+                    )
+                _materialize_network_faces(
+                    bm, network_faces, settings, uv_rect
+                )
+                return
+
             network_faces = None
             try:
-                if (
-                    decal_plan is not None
-                    and decal_plan.backend_partitions
-                ):
-                    # Сначала вычисляем все partitions без BMesh writes.
-                    # Если emergency fallback тоже пуст, нижний miter path
-                    # получает чистый bm без частично записанного hybrid.
-                    face_batches = []
-                    for partition in decal_plan.backend_partitions:
-                        partition_faces = _evaluate_manual_backend_partition(
-                            partition,
-                            settings,
-                            width,
-                            preview,
-                        )
-                        if not partition_faces:
-                            raise ValueError(
-                                "Hybrid seam partition produced no faces"
-                            )
-                        face_batches.append(partition_faces)
-                    for partition_faces in face_batches:
-                        _materialize_network_faces(
-                            bm, partition_faces, settings, uv_rect
-                        )
-                    return
                 # Boundary wings — полноправные односторонние сайты сети:
                 # divider с соседними seam chains возникает и без общей
                 # source-вершины, чисто из конкуренции расстояний.
                 if (
-                    decal_plan is not None
-                    and decal_plan.patch_voronoi_plan is not None
-                ):
-                    try:
-                        network_faces = evaluate_patch_voronoi_plan(
-                            decal_plan.patch_voronoi_plan,
-                            width,
-                            preview=preview,
-                            corner_settings=CornerRuntimeSettings(
-                                acute_split_angle=(
-                                    settings.corner_acute_split_angle
-                                ),
-                                miter_limit=settings.corner_miter_limit,
-                            ),
-                        )
-                    except Exception as exc:
-                        print(
-                            "[CFTUV][Decals] Patch Voronoi backend failed "
-                            f"({exc!r}); using legacy seam network"
-                        )
-                        if decal_plan.network_plan is not None:
-                            network_faces = evaluate_seam_network_plan(
-                                decal_plan.network_plan,
-                                width,
-                                preview=preview,
-                            )
-                        else:
-                            network_faces = build_seam_network_faces(
-                                corner_runs + boundary_runs,
-                                settings.offset,
-                                width,
-                                preview=preview,
-                            )
-                elif (
                     decal_plan is not None
                     and decal_plan.network_plan is not None
                 ):
