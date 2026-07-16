@@ -1390,7 +1390,32 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
 
     def _configure_modal_drag_targets(self, settings):
         targets = _decal_drag_targets(self.mode)
-        self._modal_drag_targets = {target.key: target for target in targets}
+        decal_plan = getattr(self, "_modal_decal_plan", None)
+        live_corner_controls = bool(
+            getattr(decal_plan, "supports_live_corner_controls", False)
+        )
+        if live_corner_controls:
+            block_reason = ""
+        elif decal_plan is None:
+            block_reason = (
+                "Live corner controls require Patch Voronoi-only Seams"
+            )
+        elif getattr(decal_plan, "rejected_edges", ()):
+            block_reason = "Live corner controls require Rejected:0"
+        else:
+            block_reason = "Live corner controls require Legacy:0"
+        self._modal_corner_targets_enabled = live_corner_controls
+        self._modal_corner_target_block_reason = block_reason
+        self._modal_drag_targets = {
+            target.key: target
+            for target in targets
+            if target.key == "W" or live_corner_controls
+        }
+        self._modal_disabled_drag_targets = {
+            target.key: target
+            for target in targets
+            if target.key != "W" and not live_corner_controls
+        }
         self._modal_drag_target = targets[0]
         self._modal_initial_settings = settings
         self._modal_base_settings = settings
@@ -1427,6 +1452,21 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             self._active_modal_drag_target(), value
         )
 
+    def _modal_corner_diagnostics_text(self):
+        if not getattr(self, "_modal_corner_targets_enabled", False):
+            return ""
+        generation = getattr(self, "_modal_last_valid_result", None)
+        if generation is None:
+            return ""
+        counts = dict(getattr(generation, "policy_counts", ()) or ())
+        evaluation_ms = float(getattr(generation, "evaluation_ms", 0.0))
+        return (
+            f"MITER:{int(counts.get('MITER', 0))} "
+            f"KITE:{int(counts.get('KITE', 0))} "
+            f"SPLIT:{int(counts.get('ACUTE_SPLIT', 0))} | "
+            f"{evaluation_ms:.1f} ms"
+        )
+
     def _restore_modal_scene_targets(self, scene_settings):
         initial = getattr(self, "_modal_initial_settings", None)
         if initial is None:
@@ -1453,11 +1493,18 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         if area is None:
             return
         target = self._active_modal_drag_target()
-        text = (
-            f"{target.label}: {self._modal_value_text(value)} | "
+        label = "Acute Split" if target.key == "A" else target.label
+        parts = [f"{label}: {self._modal_value_text(value)}"]
+        diagnostics = self._modal_corner_diagnostics_text()
+        if diagnostics:
+            parts.append(diagnostics)
+        text = " | ".join(parts) + (
+            " | "
             "W: size | A: acute | M: apex | Move Left/Right | "
             "Shift: precise | LMB/Enter: confirm | Esc/RMB: cancel"
         )
+        if not reason:
+            reason = getattr(self, "_modal_corner_target_block_reason", "")
         if reason:
             text += f" | {reason}"
         area.header_text_set(text)
@@ -1586,6 +1633,18 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             )
         )
         targets = getattr(self, "_modal_drag_targets", {})
+        disabled_targets = getattr(
+            self, "_modal_disabled_drag_targets", {}
+        )
+        if (
+            event_type in disabled_targets
+            and getattr(event, "value", "PRESS") == "PRESS"
+        ):
+            self._set_modal_header(
+                self._modal_current_value,
+                getattr(self, "_modal_corner_target_block_reason", ""),
+            )
+            return {"RUNNING_MODAL"}
         if (
             event_type in targets
             and getattr(event, "value", "PRESS") == "PRESS"

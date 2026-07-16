@@ -24,6 +24,7 @@ UV лент пишутся в прямоугольники атласа (DECAL_U
 from dataclasses import dataclass
 from enum import Enum
 from math import atan2, pi
+from time import perf_counter
 
 import bpy
 import bmesh
@@ -51,6 +52,7 @@ from .decal_network import (
     evaluate_seam_network_plan,
 )
 from .decal_voronoi import (
+    PatchVoronoiDiagnostics,
     compile_patch_voronoi_attempt,
     compile_patch_voronoi_plan,
     corner_runtime_settings_from_decal_settings,
@@ -147,6 +149,7 @@ class DecalGenerationResult:
     topology_changed: bool = False
     backend_summary: str = ""
     policy_counts: tuple[tuple[str, int], ...] = ()
+    evaluation_ms: float = 0.0
 
 
 @dataclass
@@ -250,6 +253,15 @@ class _ManualSeamBackendPartition:
 
 
 @dataclass(frozen=True)
+class _ManualBackendEvaluation:
+    """Faces и evaluator-owned diagnostics одной routing partition."""
+
+    faces: tuple
+    evaluation_ms: float
+    policy_counts: tuple[tuple[str, int], ...] = ()
+
+
+@dataclass(frozen=True)
 class ManualSeamEdgeRejection:
     """Selected physical edge, который не имеет допустимого decal use."""
 
@@ -330,6 +342,16 @@ class ManualSeamDecalPlan:
         )
 
     @property
+    def supports_live_corner_controls(self):
+        """A/M применимы только ко всему чистому Patch Voronoi scope."""
+
+        selected = set(self.selected_edge_indices)
+        accepted = set(self.accepted_patch_voronoi_edge_indices)
+        return bool(selected) and selected == accepted and not (
+            self.accepted_legacy_edge_indices or self.rejected_edges
+        )
+
+    @property
     def backend_summary(self):
         if not self.backend_partitions and not self.rejected_edges:
             return ""
@@ -379,6 +401,7 @@ class DecalMaterializationResult:
     created_face_count: int
     created_vertex_count: int
     policy_counts: tuple[tuple[str, int], ...] = ()
+    evaluation_ms: float = 0.0
 
 
 class DecalMaterializationError(RuntimeError):
@@ -2199,6 +2222,8 @@ def _materialize_network_faces(
     *,
     backend="UNKNOWN",
     edge_indices=(),
+    evaluator_policy_counts=None,
+    evaluation_ms=0.0,
 ):
     """Материализует faces decal-сети в bmesh с shared вершинами по ключам.
 
@@ -2218,7 +2243,9 @@ def _materialize_network_faces(
     scale = settings.uv_length_scale
     verts_by_key = {}
     created = 0
-    policy_counts = {}
+    materialized_policy_counts = (
+        {} if evaluator_policy_counts is None else None
+    )
 
     for face_index, network_face in enumerate(network_faces):
         loop_data = []
@@ -2254,9 +2281,20 @@ def _materialize_network_faces(
         component_kind = str(
             getattr(network_face, "component_kind", "") or "SURFACE"
         )
-        policy_counts[component_kind] = (
-            policy_counts.get(component_kind, 0) + 1
+        if materialized_policy_counts is not None:
+            materialized_policy_counts[component_kind] = (
+                materialized_policy_counts.get(component_kind, 0) + 1
+            )
+    policy_counts = (
+        tuple(sorted(materialized_policy_counts.items()))
+        if materialized_policy_counts is not None
+        else tuple(
+            sorted(
+                (str(kind), int(count))
+                for kind, count in evaluator_policy_counts
+            )
         )
+    )
     return DecalMaterializationResult(
         backend=str(backend),
         edge_indices=tuple(
@@ -2265,7 +2303,8 @@ def _materialize_network_faces(
         source_face_count=len(network_faces),
         created_face_count=created,
         created_vertex_count=len(verts_by_key),
-        policy_counts=tuple(sorted(policy_counts.items())),
+        policy_counts=policy_counts,
+        evaluation_ms=float(evaluation_ms),
     )
 
 
@@ -2949,7 +2988,9 @@ def _evaluate_manual_backend_partition(
 ):
     """Вычисляет одну routing-группу без BMesh side effects."""
 
+    started = perf_counter()
     if partition.backend == "PATCH_VORONOI":
+        diagnostics = PatchVoronoiDiagnostics()
         try:
             faces = evaluate_patch_voronoi_plan(
                 partition.compiled_plan,
@@ -2958,6 +2999,7 @@ def _evaluate_manual_backend_partition(
                 corner_settings=corner_runtime_settings_from_decal_settings(
                     settings
                 ),
+                diagnostics=diagnostics,
             )
         except Exception as exc:
             raise PatchVoronoiRuntimeError(
@@ -2973,7 +3015,13 @@ def _evaluate_manual_backend_partition(
                 preview,
                 "evaluation produced no faces",
             )
-        return faces
+        return _ManualBackendEvaluation(
+            faces=tuple(faces),
+            evaluation_ms=(perf_counter() - started) * 1000.0,
+            policy_counts=tuple(
+                sorted(diagnostics.runtime_policy_counts.items())
+            ),
+        )
 
     runs = list(partition.corner_runs + partition.boundary_runs)
     try:
@@ -2983,17 +3031,25 @@ def _evaluate_manual_backend_partition(
             preview=preview,
         )
         if faces:
-            return faces
+            return _ManualBackendEvaluation(
+                faces=tuple(faces),
+                evaluation_ms=(perf_counter() - started) * 1000.0,
+            )
     except Exception as exc:
         print(
             "[CFTUV][Decals] Legacy seam partition failed "
             f"({exc!r}); rebuilding {len(partition.edge_indices)} edge(s)"
         )
-    return build_seam_network_faces(
-        runs,
-        settings.offset,
-        width,
-        preview=preview,
+    return _ManualBackendEvaluation(
+        faces=tuple(
+            build_seam_network_faces(
+                runs,
+                settings.offset,
+                width,
+                preview=preview,
+            )
+        ),
+        evaluation_ms=(perf_counter() - started) * 1000.0,
     )
 
 
@@ -3043,15 +3099,21 @@ def _fill_manual_chain_decals(
                     for partition in decal_plan.backend_partitions
                 ]
                 materialization_results = []
-                for partition, partition_faces in face_batches:
+                for partition, evaluation in face_batches:
                     materialization_results.append(
                         _materialize_network_faces(
                             bm,
-                            partition_faces,
+                            evaluation.faces,
                             settings,
                             uv_rect,
                             backend=partition.backend,
                             edge_indices=partition.edge_indices,
+                            evaluator_policy_counts=(
+                                evaluation.policy_counts
+                                if partition.backend == "PATCH_VORONOI"
+                                else None
+                            ),
+                            evaluation_ms=evaluation.evaluation_ms,
                         )
                     )
                 return tuple(materialization_results)
@@ -3060,6 +3122,8 @@ def _fill_manual_chain_decals(
                 decal_plan is not None
                 and decal_plan.patch_voronoi_plan is not None
             ):
+                diagnostics = PatchVoronoiDiagnostics()
+                started = perf_counter()
                 try:
                     network_faces = evaluate_patch_voronoi_plan(
                         decal_plan.patch_voronoi_plan,
@@ -3070,6 +3134,7 @@ def _fill_manual_chain_decals(
                                 settings
                             )
                         ),
+                        diagnostics=diagnostics,
                     )
                 except Exception as exc:
                     raise PatchVoronoiRuntimeError(
@@ -3093,6 +3158,12 @@ def _fill_manual_chain_decals(
                         uv_rect,
                         backend="PATCH_VORONOI",
                         edge_indices=selected_edge_indices,
+                        evaluator_policy_counts=tuple(
+                            sorted(
+                                diagnostics.runtime_policy_counts.items()
+                            )
+                        ),
+                        evaluation_ms=(perf_counter() - started) * 1000.0,
                     ),
                 )
 
@@ -3300,6 +3371,7 @@ class _DecalTransactionResult:
     obj: object | None
     topology_changed: bool
     policy_counts: tuple[tuple[str, int], ...]
+    evaluation_ms: float = 0.0
 
 
 def _aggregate_policy_counts(materialization_results):
@@ -3308,6 +3380,13 @@ def _aggregate_policy_counts(materialization_results):
         for kind, count in result.policy_counts:
             counts[kind] = counts.get(kind, 0) + int(count)
     return tuple(sorted(counts.items()))
+
+
+def _aggregate_evaluation_ms(materialization_results):
+    return sum(
+        float(getattr(result, "evaluation_ms", 0.0))
+        for result in materialization_results or ()
+    )
 
 
 def _existing_decal_object(name):
@@ -3438,6 +3517,7 @@ def _generate_decal_transaction(
         obj=obj,
         topology_changed=topology_changed,
         policy_counts=_aggregate_policy_counts(materialization_results),
+        evaluation_ms=_aggregate_evaluation_ms(materialization_results),
     )
 
 
@@ -3531,6 +3611,7 @@ def generate_decal_result(
         topology_changed=transaction.topology_changed,
         backend_summary=backend_summary,
         policy_counts=transaction.policy_counts,
+        evaluation_ms=transaction.evaluation_ms,
     )
 
 

@@ -184,16 +184,54 @@ def test_manual_seam_hybrid_materializes_both_backend_partitions(monkeypatch):
         decal_plan=plan,
     )
 
-    assert materialized == [
-        (
-            ("patch-face",),
-            {"backend": "PATCH_VORONOI", "edge_indices": (10,)},
-        ),
-        (
-            ("legacy-face",),
-            {"backend": "LEGACY_NETWORK", "edge_indices": (1,)},
-        ),
+    assert [entry[0] for entry in materialized] == [
+        ("patch-face",),
+        ("legacy-face",),
     ]
+    assert materialized[0][1]["backend"] == "PATCH_VORONOI"
+    assert materialized[0][1]["edge_indices"] == (10,)
+    assert materialized[0][1]["evaluator_policy_counts"] == ()
+    assert materialized[0][1]["evaluation_ms"] >= 0.0
+    assert materialized[1][1]["backend"] == "LEGACY_NETWORK"
+    assert materialized[1][1]["edge_indices"] == (1,)
+    assert materialized[1][1]["evaluator_policy_counts"] is None
+    assert materialized[1][1]["evaluation_ms"] >= 0.0
+
+
+def test_live_corner_controls_require_clean_patch_voronoi_accounting():
+    patch_partition = decals_module._ManualSeamBackendPartition(
+        backend="PATCH_VORONOI",
+        edge_indices=(10, 11),
+        topology_component_count=1,
+        corner_runs=(),
+        boundary_runs=(),
+        compiled_plan=object(),
+    )
+    clean = decals_module.ManualSeamDecalPlan(
+        corner_runs=(),
+        boundary_runs=(),
+        backend_partitions=(patch_partition,),
+        selected_edge_indices=(10, 11),
+    )
+    hybrid = decals_module.ManualSeamDecalPlan(
+        corner_runs=(),
+        boundary_runs=(),
+        backend_partitions=(
+            patch_partition,
+            decals_module._ManualSeamBackendPartition(
+                backend="LEGACY_NETWORK",
+                edge_indices=(12,),
+                topology_component_count=1,
+                corner_runs=(),
+                boundary_runs=(),
+                compiled_plan=object(),
+            ),
+        ),
+        selected_edge_indices=(10, 11, 12),
+    )
+
+    assert clean.supports_live_corner_controls is True
+    assert hybrid.supports_live_corner_controls is False
 
 
 def test_patch_voronoi_partition_runtime_failure_is_not_rebuilt_as_legacy(
@@ -255,18 +293,28 @@ def test_patch_voronoi_partition_forwards_runtime_corner_settings(
 
     def evaluate(_plan, width, **kwargs):
         captured.append((width, kwargs))
+        kwargs["diagnostics"].runtime_policy_counts.update(
+            {"MITER": 12, "KITE": 3, "ACUTE_SPLIT": 2}
+        )
         return ("face",)
 
     monkeypatch.setattr(
         decals_module, "evaluate_patch_voronoi_plan", evaluate
     )
 
-    assert decals_module._evaluate_manual_backend_partition(
+    evaluation = decals_module._evaluate_manual_backend_partition(
         partition,
         settings,
         width=2.5,
         preview=True,
-    ) == ("face",)
+    )
+    assert evaluation.faces == ("face",)
+    assert evaluation.evaluation_ms >= 0.0
+    assert evaluation.policy_counts == (
+        ("ACUTE_SPLIT", 2),
+        ("KITE", 3),
+        ("MITER", 12),
+    )
     corner_settings = captured[0][1]["corner_settings"]
     assert captured[0][0] == 2.5
     assert captured[0][1]["preview"] is True
@@ -405,6 +453,7 @@ def test_structured_generation_result_exposes_runtime_summary(monkeypatch):
             obj=SimpleNamespace(name="Decal_Seams_Source"),
             topology_changed=False,
             policy_counts=(("KITE", 2), ("SEGMENT", 4)),
+            evaluation_ms=12.5,
         ),
     )
     plan = SimpleNamespace(backend_summary="Patch Voronoi:1c/3e")
@@ -424,6 +473,7 @@ def test_structured_generation_result_exposes_runtime_summary(monkeypatch):
         topology_changed=False,
         backend_summary="Patch Voronoi:1c/3e",
         policy_counts=(("KITE", 2), ("SEGMENT", 4)),
+        evaluation_ms=12.5,
     )
 
 

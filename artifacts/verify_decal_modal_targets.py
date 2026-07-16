@@ -40,13 +40,19 @@ def main():
         corner_acute_split_angle=pi / 3.0,
         corner_apex_limit=8.0,
     )
-    operator = SimpleNamespace(mode="SEAMS")
+    operator = SimpleNamespace(
+        mode="SEAMS",
+        _modal_decal_plan=SimpleNamespace(
+            supports_live_corner_controls=True
+        ),
+    )
     _bind(
         operator,
         "_active_modal_drag_target",
         "_configure_modal_drag_targets",
         "_rebase_modal_drag",
         "_modal_value_text",
+        "_modal_corner_diagnostics_text",
         "_set_modal_header",
         "_restore_modal_scene_targets",
         "modal",
@@ -95,7 +101,7 @@ def main():
         SimpleNamespace(type="A", value="PRESS", mouse_x=120, shift=True),
     )
     assert operator._modal_current_value == pi / 3.0
-    assert header.text.startswith("Acute Split Angle: 60.0°")
+    assert header.text.startswith("Acute Split: 60.0°")
     operator.modal(
         context,
         SimpleNamespace(type="MOUSEMOVE", mouse_x=122, shift=True),

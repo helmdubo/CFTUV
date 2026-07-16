@@ -122,6 +122,25 @@ sensitivity и значение не скачет при нажатии/отпу
 snapshot. Esc/RMB восстанавливает исходные значения всех W/A/M properties,
 которые могли измениться за одну modal-сессию.
 
+### A10: live Acute Split для clean Patch Voronoi scope
+
+Corner targets `A` и `M` допускаются только когда весь captured manual SEAMS
+scope принят одним Patch Voronoi routing: selected edges в точности совпадают
+с accepted Patch Voronoi edges, а `Legacy:0` и `Rejected:0`. Частичное
+применение corner settings к clean partitions запрещено: если selection
+содержит Legacy component, `A/M` отключены и header явно сообщает
+`Live corner controls require Legacy:0`; при rejected edges показывается
+`Live corner controls require Rejected:0`. Target `W` остаётся доступным.
+
+Для активного `A` header имеет форму
+`Acute Split: 60.0° | MITER:12 KITE:3 SPLIT:2 | 22.4 ms`. Policy counts
+пишет сам Patch Voronoi evaluator во время текущего evaluation; отдельного
+обхода materialized faces нет. Время также относится только к evaluator.
+Drag меняет runtime threshold внутри уже compiled plan и не вызывает
+`Construct()`. Переход порога может менять MITER на ACUTE_SPLIT и топологию
+preview, сохраняя identity preview object и mesh datablock. Ошибка evaluation
+оставляет последний валидный threshold и геометрию без stale/partial faces.
+
 ## Source transform and world/local units
 
 Публичный `DecalSettings` и modal properties хранят размеры в world units.

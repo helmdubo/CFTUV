@@ -790,9 +790,12 @@ def test_corner_spec_classifies_intrinsic_convex_concave_and_acute():
 
 
 def test_corner_policy_threshold_changes_without_recompiling_plan():
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
     plan = compile_patch_voronoi_plan(
-        _acute_corner_graph(), [40, 41], offset=0.01
+        _acute_corner_graph(), [40, 41], offset=0.01,
+        diagnostics=diagnostics,
     )
+    construct_calls = diagnostics.construct_calls
     corner = next(
         item for item in plan.surfaces[0].corners if item.vert_index == 0
     )
@@ -817,15 +820,25 @@ def test_corner_policy_threshold_changes_without_recompiling_plan():
         width=1.0,
         preview=True,
         corner_settings=split_settings,
+        diagnostics=diagnostics,
     )
+    split_policy_counts = dict(diagnostics.runtime_policy_counts)
     miter_faces = evaluate_patch_voronoi_plan(
         plan,
         width=1.0,
         preview=True,
         corner_settings=miter_settings,
+        diagnostics=diagnostics,
     )
-    assert any(face.component_kind == "ACUTE_SPLIT" for face in split_faces)
+    miter_policy_counts = dict(diagnostics.runtime_policy_counts)
+    assert sum(
+        face.component_kind == "ACUTE_SPLIT" for face in split_faces
+    ) == 2
     assert not any(face.component_kind == "ACUTE_SPLIT" for face in miter_faces)
+    assert split_policy_counts["ACUTE_SPLIT"] == 1
+    assert miter_policy_counts.get("ACUTE_SPLIT", 0) == 0
+    assert miter_policy_counts["MITER"] > split_policy_counts.get("MITER", 0)
+    assert diagnostics.construct_calls == construct_calls
 
 
 def _apex_limit_evaluations(plan, acute_split_angle):

@@ -227,6 +227,9 @@ def _a8_modal_fixture():
     )
     operator = HOTSPOTUV_OT_GenerateDecals()
     operator.mode = "SEAMS"
+    operator._modal_decal_plan = SimpleNamespace(
+        supports_live_corner_controls=True
+    )
     operator._configure_modal_drag_targets(settings)
     operator._rebase_modal_drag("W", 100, False)
     operator._modal_state = object()
@@ -322,7 +325,7 @@ def test_decal_drag_target_switch_w_a_m_rebases_and_keeps_settings():
     assert operator._modal_current_value == pytest.approx(pi / 3.0)
     assert operator._modal_start_mouse == 120
     assert operator._modal_current_settings.width_seam == width_value
-    assert header.text.startswith("Acute Split Angle: 60.0\N{DEGREE SIGN}")
+    assert header.text.startswith("Acute Split: 60.0\N{DEGREE SIGN}")
     assert len(generated) == 1
 
     operator.modal(
@@ -357,6 +360,82 @@ def test_decal_drag_target_switch_w_a_m_rebases_and_keeps_settings():
     assert operator._modal_current_value == width_value
     assert operator._modal_start_mouse == 126
     assert len(generated) == 3
+
+
+def test_live_acute_header_uses_evaluator_policy_diagnostics():
+    operator, context, header, _generated = _a8_modal_fixture()
+    operator._modal_last_valid_result = DecalGenerationResult(
+        PreviewStatus.UPDATED,
+        "PreviewDecal",
+        policy_counts=(("MITER", 12), ("KITE", 3), ("ACUTE_SPLIT", 2)),
+        evaluation_ms=22.4,
+    )
+
+    operator.modal(
+        context,
+        SimpleNamespace(type="A", value="PRESS", mouse_x=100, shift=False),
+    )
+
+    assert header.text.startswith(
+        "Acute Split: 60.0\N{DEGREE SIGN} | "
+        "MITER:12 KITE:3 SPLIT:2 | 22.4 ms"
+    )
+
+
+def test_legacy_routing_disables_live_corner_targets():
+    settings = DecalSettings()
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    operator._modal_decal_plan = SimpleNamespace(
+        supports_live_corner_controls=False,
+        rejected_edges=(),
+    )
+    operator._configure_modal_drag_targets(settings)
+    operator._rebase_modal_drag("W", 100, False)
+    header = SimpleNamespace(text=None)
+    operator._modal_area = SimpleNamespace(
+        header_text_set=lambda text: setattr(header, "text", text)
+    )
+
+    result = operator.modal(
+        SimpleNamespace(),
+        SimpleNamespace(type="A", value="PRESS", mouse_x=120, shift=False),
+    )
+
+    assert result == {"RUNNING_MODAL"}
+    assert set(operator._modal_drag_targets) == {"W"}
+    assert set(operator._modal_disabled_drag_targets) == {"A", "M"}
+    assert operator._active_modal_drag_target().key == "W"
+    assert operator._modal_current_value == settings.width_seam
+    assert "Live corner controls require Legacy:0" in header.text
+
+
+def test_invalid_live_acute_frame_keeps_last_valid_threshold():
+    operator, context, header, _generated = _a8_modal_fixture()
+    operator.modal(
+        context,
+        SimpleNamespace(type="A", value="PRESS", mouse_x=100, shift=False),
+    )
+    valid_angle = operator._modal_current_value
+    operator._generate = lambda *_args, **_kwargs: DecalGenerationResult(
+        PreviewStatus.ERROR,
+        None,
+        reason="invalid acute topology",
+    )
+
+    result = operator.modal(
+        context,
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=120, shift=False),
+    )
+
+    assert result == {"RUNNING_MODAL"}
+    assert operator._modal_current_value == valid_angle
+    assert operator._modal_current_settings.corner_acute_split_angle == valid_angle
+    assert (
+        context.scene.hotspotuv_settings.decal_corner_acute_split_angle
+        == valid_angle
+    )
+    assert "ERROR: invalid acute topology" in header.text
 
 
 def test_decal_drag_target_clamps_distance_angle_and_ratio():

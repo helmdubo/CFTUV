@@ -175,11 +175,7 @@ def _benchmark_object(obj, args):
             preview_snapshots.append(snapshot)
             materialize_ms, counts = _materialization_metrics(faces, settings)
             materialization_timings.append(materialize_ms)
-            policy_counts = {}
-            for face in faces:
-                policy_counts[face.component_kind] = (
-                    policy_counts.get(face.component_kind, 0) + 1
-                )
+            policy_counts = dict(diagnostics.runtime_policy_counts)
 
         confirm_started = perf_counter()
         confirmed_faces = evaluate_patch_voronoi_plan(

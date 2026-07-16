@@ -135,6 +135,14 @@ convex/outer. Направления крыльев corner-strip меняютс�
 - `W` выбирает размер текущего mode, `A` — `Acute Split Angle`, `M` —
   `Apex Limit`. Переключение цели использует текущее принятое значение и
   текущий X мыши как новую базу, поэтому параметр не скачет.
+- Для manual `Decal Seams` targets `A/M` включаются только при clean Patch
+  Voronoi scope (`Legacy:0`, `Rejected:0`). Если хотя бы один component ушёл
+  в Legacy или был rejected, частичного изменения углов нет: `A/M` остаются
+  отключёнными, причина показана в header, а `W` продолжает менять ширину.
+- При активном `A` header показывает текущий порог и evaluator diagnostics:
+  `Acute Split: <deg> | MITER:<n> KITE:<n> SPLIT:<n> | <ms>`.
+  Перетаскивание переоценивает уже compiled Patch Voronoi plan без нового
+  `Construct()`; invalid frame сохраняет последнюю валидную геометрию.
 - `Shift` включает точную регулировку с input rebase как при нажатии, так и
   при отпускании: уже накопленный coarse delta не пересчитывается с новой
   sensitivity. Угол в header показывается в градусах.

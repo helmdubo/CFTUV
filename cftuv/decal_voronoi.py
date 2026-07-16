@@ -14,7 +14,7 @@ topology исходного mesh не должна отпечатываться 
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from math import atan2, isfinite, pi, sqrt, tau
 
@@ -333,6 +333,13 @@ class PatchVoronoiDiagnostics:
     clamped_kite_count: int = 0
     clamped_acute_count: int = 0
     apex_limit_saturated_count: int = 0
+    runtime_policy_counts: dict[str, int] = field(default_factory=dict)
+
+    def record_runtime_policy(self, policy):
+        key = str(getattr(policy, "value", policy))
+        self.runtime_policy_counts[key] = (
+            self.runtime_policy_counts.get(key, 0) + 1
+        )
 
     def as_dict(self):
         return {
@@ -349,6 +356,9 @@ class PatchVoronoiDiagnostics:
             "clamped_acute_count": int(self.clamped_acute_count),
             "apex_limit_saturated_count": int(
                 self.apex_limit_saturated_count
+            ),
+            "runtime_policy_counts": dict(
+                sorted(self.runtime_policy_counts.items())
             ),
         }
 
@@ -3474,6 +3484,9 @@ def _evaluate_surface_crops(
         classify_corner_runtime(corner, corner_settings)
         for corner in surface.corners
     )
+    if diagnostics is not None:
+        for policy in runtime_policies:
+            diagnostics.record_runtime_policy(policy)
     explicit_corner_indices = {
         corner_index
         for corner_index, (corner, policy) in enumerate(
@@ -3598,6 +3611,8 @@ def evaluate_patch_voronoi_plan(
     """Перестраивает extrusion polygons внутри статических Voronoi cells."""
 
     corner_settings = _normalized_corner_runtime_settings(corner_settings)
+    if diagnostics is not None:
+        diagnostics.runtime_policy_counts.clear()
     alpha = max(1e-6, float(width) * 0.5)
     lateral_at_full_offset = (
         abs(plan.offset) * plan.max_lateral_lift_ratio
