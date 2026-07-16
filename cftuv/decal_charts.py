@@ -1,14 +1,15 @@
-"""Immutable IR для developable intrinsic decal charts.
+"""Immutable IR и support builder для developable intrinsic decal charts.
 
-Модуль намеренно не импортирует ``bpy``/``bmesh`` и не строит adjacency или
-развёртку: C0 фиксирует data boundary, C1/C2 наполнят её алгоритмами. Входом
-служит только сериализованная геометрия ``PatchNode`` и provenance chains.
+Модуль намеренно не импортирует ``bpy``/``bmesh``. C0 фиксирует data boundary,
+C1 строит triangle adjacency и conservative strip support; hinge unroll
+остаётся следующим отдельным этапом. Входом служит только сериализованная
+геометрия ``PatchNode`` и provenance chains.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from math import isfinite
+from math import isfinite, sqrt
 
 
 Vec2 = tuple[float, float]
@@ -108,6 +109,36 @@ class ChartAdjacency:
 
 
 @dataclass(frozen=True)
+class ChartBoundaryEdge:
+    """Граница support с source provenance и excluded neighbor."""
+
+    triangle_id: int
+    local_edge: int
+    source_edge: SourceEdge
+    source_face_id: int
+    neighbor_triangle_id: int = -1
+    kind: str = "PATCH_BOUNDARY"
+
+    def __post_init__(self):
+        if self.triangle_id < 0 or not 0 <= self.local_edge < 3:
+            raise ValueError("Chart boundary triangle/local edge is invalid")
+        if self.source_edge[0] >= self.source_edge[1]:
+            raise ValueError("Chart boundary source edge must be canonical")
+        if self.source_face_id < 0:
+            raise ValueError("Chart boundary source face must be explicit")
+        if self.kind not in {"PATCH_BOUNDARY", "SUPPORT_CUT"}:
+            raise ValueError("Chart boundary kind is unsupported")
+        if self.kind == "PATCH_BOUNDARY" and self.neighbor_triangle_id >= 0:
+            raise ValueError("Patch boundary cannot reference a neighbor")
+        if self.kind == "SUPPORT_CUT" and self.neighbor_triangle_id < 0:
+            raise ValueError("Support cut requires an excluded neighbor")
+
+    @property
+    def key(self):
+        return (self.triangle_id, self.local_edge, self.source_edge)
+
+
+@dataclass(frozen=True)
 class ChartCut:
     """Детерминированный разрыв одной source-edge relation."""
 
@@ -174,6 +205,7 @@ class IntrinsicStripChart:
     triangles: tuple[ChartTriangle, ...]
     adjacency: tuple[ChartAdjacency, ...] = ()
     site_seeds: tuple[ChartSiteSeed, ...] = ()
+    boundary_edges: tuple[ChartBoundaryEdge, ...] = ()
     cuts: tuple[ChartCut, ...] = ()
     support_triangle_ids: tuple[int, ...] = ()
     alpha_budget: float = float("inf")
@@ -225,6 +257,24 @@ class IntrinsicStripChart:
             for seed in self.site_seeds
         ):
             raise ValueError("Chart site seed leaves support")
+        boundary_keys = tuple(edge.key for edge in self.boundary_edges)
+        if tuple(sorted(set(boundary_keys))) != boundary_keys:
+            raise ValueError("Chart boundary edges must be unique/sorted")
+        for edge in self.boundary_edges:
+            if edge.triangle_id not in support_ids:
+                raise ValueError("Chart boundary edge leaves support")
+            source_edge = triangles_by_id[
+                edge.triangle_id
+            ].source_edge_ids[edge.local_edge]
+            if source_edge != edge.source_edge:
+                raise ValueError(
+                    "Chart boundary local edge disagrees with provenance"
+                )
+            if (
+                edge.kind == "SUPPORT_CUT"
+                and edge.neighbor_triangle_id in support_ids
+            ):
+                raise ValueError("Chart support cut points inside support")
         for cut in self.cuts:
             if not set(cut.triangle_ids).issubset(support_ids):
                 raise ValueError("Chart cut leaves support")
@@ -368,14 +418,398 @@ def chart_site_seeds_from_chain(
     return tuple(result)
 
 
+def _edge_uses(triangles):
+    uses = {}
+    for triangle in triangles:
+        for local_edge, source_edge in enumerate(triangle.source_edge_ids):
+            uses.setdefault(source_edge, []).append(
+                (triangle.triangle_id, local_edge)
+            )
+    return {
+        edge: tuple(sorted(edge_uses)) for edge, edge_uses in uses.items()
+    }
+
+
+def build_triangle_adjacency(
+    triangles,
+    *,
+    patch_id=-1,
+) -> tuple[ChartAdjacency, ...]:
+    """Строит C1 adjacency по общим undirected source edges."""
+
+    triangles = tuple(triangles)
+    adjacency = []
+    for source_edge, uses in sorted(_edge_uses(triangles).items()):
+        if len(uses) > 2:
+            raise ChartBuildFailure(
+                "NON_MANIFOLD_CHART_EDGE",
+                patch_id,
+                triangle_ids=(triangle_id for triangle_id, _edge in uses),
+                details=f"source_edge={source_edge!r} uses={len(uses)}",
+            )
+        if len(uses) != 2:
+            continue
+        (triangle_a, local_edge_a), (triangle_b, local_edge_b) = uses
+        if triangle_a > triangle_b:
+            triangle_a, triangle_b = triangle_b, triangle_a
+            local_edge_a, local_edge_b = local_edge_b, local_edge_a
+        adjacency.append(
+            ChartAdjacency(
+                triangle_a=triangle_a,
+                triangle_b=triangle_b,
+                source_edge=source_edge,
+                local_edge_a=local_edge_a,
+                local_edge_b=local_edge_b,
+            )
+        )
+    return tuple(sorted(adjacency, key=lambda relation: relation.key))
+
+
+def _seed_sort_key(seed):
+    return (
+        seed.edge_index,
+        seed.source_vertex_ids,
+        seed.source_face_id,
+        seed.chain_ref or (-1, -1, -1),
+    )
+
+
+def _seed_components(site_seeds):
+    """Selected edge network components по общим source vertices."""
+
+    remaining = set(range(len(site_seeds)))
+    components = []
+    while remaining:
+        first = min(remaining)
+        remaining.remove(first)
+        component = {first}
+        vertices = set(site_seeds[first].source_vertex_ids)
+        changed = True
+        while changed:
+            changed = False
+            for seed_index in sorted(remaining):
+                if not vertices.intersection(
+                    site_seeds[seed_index].source_vertex_ids
+                ):
+                    continue
+                remaining.remove(seed_index)
+                component.add(seed_index)
+                vertices.update(site_seeds[seed_index].source_vertex_ids)
+                changed = True
+        components.append(tuple(sorted(component)))
+    return tuple(components)
+
+
+def _triangle_bounds(triangle):
+    return tuple(
+        (
+            min(position[axis] for position in triangle.positions),
+            max(position[axis] for position in triangle.positions),
+        )
+        for axis in range(3)
+    )
+
+
+def _segment_bounds(first, second):
+    return tuple(
+        (min(first[axis], second[axis]), max(first[axis], second[axis]))
+        for axis in range(3)
+    )
+
+
+def _aabb_distance(first, second):
+    distance2 = 0.0
+    for axis in range(3):
+        if first[axis][1] < second[axis][0]:
+            gap = second[axis][0] - first[axis][1]
+        elif second[axis][1] < first[axis][0]:
+            gap = first[axis][0] - second[axis][1]
+        else:
+            gap = 0.0
+        distance2 += gap * gap
+    return sqrt(distance2)
+
+
+def _triangle_neighbors(triangle_ids, adjacency):
+    neighbors = {triangle_id: set() for triangle_id in triangle_ids}
+    for relation in adjacency:
+        neighbors[relation.triangle_a].add(relation.triangle_b)
+        neighbors[relation.triangle_b].add(relation.triangle_a)
+    return {
+        triangle_id: tuple(sorted(values))
+        for triangle_id, values in neighbors.items()
+    }
+
+
+def _seed_owner_triangles(
+    site_seeds,
+    seed_indices,
+    triangles,
+    edge_uses,
+    patch_id,
+):
+    triangles_by_id = {
+        triangle.triangle_id: triangle for triangle in triangles
+    }
+    owners = set()
+    for seed_index in seed_indices:
+        seed = site_seeds[seed_index]
+        uses = edge_uses.get(seed.source_vertex_ids, ())
+        face_matches = tuple(
+            triangle_id
+            for triangle_id, _local_edge in uses
+            if triangles_by_id[triangle_id].source_face_id
+            == seed.source_face_id
+        )
+        if not face_matches:
+            raise ChartBuildFailure(
+                "SITE_SEED_NOT_IN_PATCH",
+                patch_id,
+                edge_ids=(seed.edge_index,),
+                details=(
+                    f"source_edge={seed.source_vertex_ids!r} "
+                    f"source_face={seed.source_face_id}"
+                ),
+            )
+        owners.update(face_matches)
+    return tuple(sorted(owners))
+
+
+def _component_support(
+    site_seeds,
+    seed_indices,
+    triangles,
+    adjacency,
+    alpha_budget,
+    patch_id,
+):
+    triangles_by_id = {
+        triangle.triangle_id: triangle for triangle in triangles
+    }
+    edge_uses = _edge_uses(triangles)
+    owner_ids = _seed_owner_triangles(
+        site_seeds,
+        seed_indices,
+        triangles,
+        edge_uses,
+        patch_id,
+    )
+    positions_by_vertex = {}
+    for triangle in triangles:
+        for vertex_id, position in zip(
+            triangle.source_vertex_ids, triangle.positions
+        ):
+            positions_by_vertex.setdefault(vertex_id, position)
+    seed_bounds = []
+    for seed_index in seed_indices:
+        first_id, second_id = site_seeds[seed_index].source_vertex_ids
+        if (
+            first_id not in positions_by_vertex
+            or second_id not in positions_by_vertex
+        ):
+            raise ChartBuildFailure(
+                "SITE_SEED_VERTEX_NOT_IN_PATCH",
+                patch_id,
+                edge_ids=(site_seeds[seed_index].edge_index,),
+            )
+        seed_bounds.append(
+            _segment_bounds(
+                positions_by_vertex[first_id],
+                positions_by_vertex[second_id],
+            )
+        )
+
+    tolerance = max(1e-9, alpha_budget * 1e-9)
+    candidates = {
+        triangle.triangle_id
+        for triangle in triangles
+        if any(
+            _aabb_distance(_triangle_bounds(triangle), bounds)
+            <= alpha_budget + tolerance
+            for bounds in seed_bounds
+        )
+    }
+    neighbors = _triangle_neighbors(triangles_by_id, adjacency)
+    # One-ring safety защищает от пограничной потери из-за AABB/numeric ties.
+    candidates.update(
+        neighbor
+        for triangle_id in tuple(candidates)
+        for neighbor in neighbors[triangle_id]
+    )
+    candidates.update(owner_ids)
+
+    support = set()
+    frontier = list(reversed(owner_ids))
+    while frontier:
+        triangle_id = frontier.pop()
+        if triangle_id in support or triangle_id not in candidates:
+            continue
+        support.add(triangle_id)
+        frontier.extend(
+            reversed(
+                tuple(
+                    neighbor
+                    for neighbor in neighbors[triangle_id]
+                    if neighbor not in support
+                )
+            )
+        )
+    return tuple(sorted(support))
+
+
+def _merge_overlapping_supports(component_supports):
+    parent = list(range(len(component_supports)))
+
+    def root(index):
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    for first in range(len(component_supports)):
+        first_support = set(component_supports[first][1])
+        for second in range(first + 1, len(component_supports)):
+            if not first_support.intersection(component_supports[second][1]):
+                continue
+            root_first = root(first)
+            root_second = root(second)
+            if root_first != root_second:
+                parent[root_second] = root_first
+
+    merged = {}
+    for index, (seed_indices, triangle_ids) in enumerate(component_supports):
+        bucket = merged.setdefault(root(index), [set(), set()])
+        bucket[0].update(seed_indices)
+        bucket[1].update(triangle_ids)
+    return tuple(
+        (tuple(sorted(seeds)), tuple(sorted(triangles)))
+        for _root, (seeds, triangles) in sorted(
+            merged.items(),
+            key=lambda item: (min(item[1][0]), min(item[1][1])),
+        )
+    )
+
+
+def _support_boundary_edges(triangles, support_ids):
+    triangles_by_id = {
+        triangle.triangle_id: triangle for triangle in triangles
+    }
+    uses = _edge_uses(triangles)
+    support = set(support_ids)
+    boundary = []
+    for triangle_id in support_ids:
+        triangle = triangles_by_id[triangle_id]
+        for local_edge, source_edge in enumerate(triangle.source_edge_ids):
+            other_uses = tuple(
+                other_id
+                for other_id, _other_edge in uses[source_edge]
+                if other_id != triangle_id
+            )
+            if any(other_id in support for other_id in other_uses):
+                continue
+            neighbor_id = other_uses[0] if other_uses else -1
+            boundary.append(
+                ChartBoundaryEdge(
+                    triangle_id=triangle_id,
+                    local_edge=local_edge,
+                    source_edge=source_edge,
+                    source_face_id=triangle.source_face_id,
+                    neighbor_triangle_id=neighbor_id,
+                    kind=(
+                        "SUPPORT_CUT"
+                        if neighbor_id >= 0
+                        else "PATCH_BOUNDARY"
+                    ),
+                )
+            )
+    return tuple(sorted(boundary, key=lambda edge: edge.key))
+
+
+def build_intrinsic_strip_charts(
+    node,
+    site_seeds,
+    alpha_budget,
+    *,
+    chart_id_start=0,
+) -> tuple[IntrinsicStripChart, ...]:
+    """Строит C1 adjacency/support IR без hinge unroll и admission."""
+
+    alpha_budget = float(alpha_budget)
+    if not isfinite(alpha_budget) or alpha_budget <= 0.0:
+        raise ValueError("C1 alpha budget must be finite and positive")
+    site_seeds = tuple(sorted(tuple(site_seeds), key=_seed_sort_key))
+    if not site_seeds:
+        raise ChartBuildFailure("NO_CHART_SITE_SEEDS", int(node.patch_id))
+    triangles = chart_triangles_from_patch(node)
+    patch_id = int(node.patch_id)
+    adjacency = build_triangle_adjacency(triangles, patch_id=patch_id)
+    components = _seed_components(site_seeds)
+    supports = tuple(
+        (
+            seed_indices,
+            _component_support(
+                site_seeds,
+                seed_indices,
+                triangles,
+                adjacency,
+                alpha_budget,
+                patch_id,
+            ),
+        )
+        for seed_indices in components
+    )
+    merged_supports = _merge_overlapping_supports(supports)
+    triangles_by_id = {
+        triangle.triangle_id: triangle for triangle in triangles
+    }
+    charts = []
+    for chart_offset, (seed_indices, support_ids) in enumerate(
+        merged_supports
+    ):
+        support_set = set(support_ids)
+        support_adjacency = tuple(
+            relation
+            for relation in adjacency
+            if relation.triangle_a in support_set
+            and relation.triangle_b in support_set
+        )
+        boundary_edges = _support_boundary_edges(triangles, support_ids)
+        chart_seeds = tuple(site_seeds[index] for index in seed_indices)
+        charts.append(
+            IntrinsicStripChart(
+                chart_id=int(chart_id_start) + chart_offset,
+                patch_id=int(node.patch_id),
+                triangles=tuple(
+                    triangles_by_id[triangle_id]
+                    for triangle_id in support_ids
+                ),
+                adjacency=support_adjacency,
+                site_seeds=chart_seeds,
+                boundary_edges=boundary_edges,
+                support_triangle_ids=support_ids,
+                alpha_budget=alpha_budget,
+                budget_source="STRIP_BUDGET",
+                metrics=ChartBuildMetrics(
+                    support_triangle_count=len(support_ids),
+                    adjacency_count=len(support_adjacency),
+                    boundary_edge_count=len(boundary_edges),
+                ),
+            )
+        )
+    return tuple(charts)
+
+
 __all__ = (
     "ChartAdjacency",
+    "ChartBoundaryEdge",
     "ChartBuildFailure",
     "ChartBuildMetrics",
     "ChartCut",
     "ChartSiteSeed",
     "ChartTriangle",
     "IntrinsicStripChart",
+    "build_intrinsic_strip_charts",
+    "build_triangle_adjacency",
     "chart_site_seeds_from_chain",
     "chart_triangles_from_patch",
 )

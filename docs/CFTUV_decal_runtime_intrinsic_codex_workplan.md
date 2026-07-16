@@ -917,6 +917,14 @@ PatchGraph не хранит live BMesh refs. Использовать serialize
 
 ## C1. Построение triangle adjacency и strip support
 
+Статус: **IMPLEMENTED**. `decal_charts.py` строит детерминированную adjacency
+по общим source edges, находит owner triangles selected site seeds и выполняет
+ограниченный одним `PatchNode` conservative flood: 3D AABB lower-bound к
+seed-segments плюс one-ring safety. Пересекающиеся supports независимых
+selected network components объединяются до chart solve. `ChartBoundaryEdge`
+фиксирует patch boundary/support cut вместе с triangle/local-edge/face/source
+edge provenance. Hinge unroll и production routing в этот срез не входят.
+
 1. Построить adjacency по общим undirected source edges.
 2. Seeds — owner triangles selected seam sites.
 3. Flood только внутри одного CFTUV patch/topological component.
