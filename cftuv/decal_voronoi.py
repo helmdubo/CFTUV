@@ -14,6 +14,7 @@ topology исходного mesh не должна отпечатываться 
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from heapq import heappop, heappush
@@ -304,6 +305,88 @@ class _IntrinsicDomainTriangle:
 
 
 @dataclass(frozen=True)
+class _TriangleAabbGrid:
+    """Неизменяемый AABB-index chart triangles.
+
+    ``cell_keys`` отсортированы и ищутся binary search. В отличие от dict в
+    frozen dataclass индекс нельзя случайно изменить между preview frames.
+    Triangle ids внутри каждой cell сохраняют исходный порядок full scan.
+    """
+
+    cell_size: float
+    cell_keys: tuple[tuple[int, int], ...]
+    triangle_ids: tuple[tuple[int, ...], ...]
+    all_triangle_ids: tuple[int, ...]
+
+    def _cell_triangle_ids(self, key):
+        index = bisect_left(self.cell_keys, key)
+        if index >= len(self.cell_keys) or self.cell_keys[index] != key:
+            return ()
+        return self.triangle_ids[index]
+
+    def query_aabb(self, min_x, min_y, max_x, max_y, tolerance=1e-10):
+        if self.cell_size <= 0.0:
+            return self.all_triangle_ids
+        min_grid_x = int((min_x - tolerance) // self.cell_size)
+        max_grid_x = int((max_x + tolerance) // self.cell_size)
+        min_grid_y = int((min_y - tolerance) // self.cell_size)
+        max_grid_y = int((max_y + tolerance) // self.cell_size)
+        candidates = set()
+        for grid_x in range(min_grid_x, max_grid_x + 1):
+            for grid_y in range(min_grid_y, max_grid_y + 1):
+                candidates.update(
+                    self._cell_triangle_ids((grid_x, grid_y))
+                )
+        return tuple(sorted(candidates))
+
+    def query_point(self, point, tolerance=1e-10):
+        return self.query_aabb(
+            point[0], point[1], point[0], point[1], tolerance
+        )
+
+
+def _build_triangle_aabb_grid(triangles):
+    """Компилирует детерминированный immutable grid из chart triangles."""
+
+    triangles = tuple(tuple(triangle) for triangle in triangles)
+    triangle_ids = tuple(range(len(triangles)))
+    if not triangles:
+        return _TriangleAabbGrid(0.0, (), (), ())
+    all_points = tuple(point for triangle in triangles for point in triangle)
+    min_x = min(point[0] for point in all_points)
+    max_x = max(point[0] for point in all_points)
+    min_y = min(point[1] for point in all_points)
+    max_y = max(point[1] for point in all_points)
+    diagonal = sqrt((max_x - min_x) ** 2 + (max_y - min_y) ** 2)
+    cell_size = max(
+        diagonal / max(2.0, sqrt(len(triangles)) * 2.0),
+        DECAL_WELD_DISTANCE * 4.0,
+    )
+    cells = {}
+    for triangle_id, triangle in enumerate(triangles):
+        triangle_min_x = min(point[0] for point in triangle)
+        triangle_max_x = max(point[0] for point in triangle)
+        triangle_min_y = min(point[1] for point in triangle)
+        triangle_max_y = max(point[1] for point in triangle)
+        min_grid_x = int(triangle_min_x // cell_size)
+        max_grid_x = int(triangle_max_x // cell_size)
+        min_grid_y = int(triangle_min_y // cell_size)
+        max_grid_y = int(triangle_max_y // cell_size)
+        for grid_x in range(min_grid_x, max_grid_x + 1):
+            for grid_y in range(min_grid_y, max_grid_y + 1):
+                cells.setdefault((grid_x, grid_y), []).append(triangle_id)
+    ordered = tuple(
+        (key, tuple(cells[key])) for key in sorted(cells)
+    )
+    return _TriangleAabbGrid(
+        cell_size=cell_size,
+        cell_keys=tuple(key for key, _ids in ordered),
+        triangle_ids=tuple(ids for _key, ids in ordered),
+        all_triangle_ids=triangle_ids,
+    )
+
+
+@dataclass(frozen=True)
 class DecalSurfaceDomain:
     """Surface adapter между intrinsic 2D solver и исходным mesh.
 
@@ -320,6 +403,20 @@ class DecalSurfaceDomain:
     boundary_triangles: tuple[tuple[tuple[float, float], ...], ...]
     intrinsic_triangles: tuple[_IntrinsicDomainTriangle, ...] = ()
     periodic_axis: str = ""
+    triangle_grid: _TriangleAabbGrid | None = None
+    reference_full_scan: bool = False
+
+    def __post_init__(self):
+        if self.triangle_grid is not None:
+            return
+        chart_triangles = (
+            tuple(triangle.chart_points for triangle in self.intrinsic_triangles)
+            if self.intrinsic_triangles
+            else self.boundary_triangles
+        )
+        object.__setattr__(
+            self, "triangle_grid", _build_triangle_aabb_grid(chart_triangles)
+        )
 
     def project(self, position):
         if self.kind != "PLANAR":
@@ -332,7 +429,12 @@ class DecalSurfaceDomain:
     def _intrinsic_location(self, point):
         best = None
         best_margin = -float("inf")
-        for triangle in self.intrinsic_triangles:
+        if self.reference_full_scan:
+            triangle_ids = range(len(self.intrinsic_triangles))
+        else:
+            triangle_ids = self.triangle_grid.query_point(point, 1e-7)
+        for triangle_id in triangle_ids:
+            triangle = self.intrinsic_triangles[triangle_id]
             weights = _triangle_weights2(point, triangle.chart_points)
             if weights is None:
                 continue
@@ -383,6 +485,17 @@ class DecalSurfaceDomain:
 
 
 @dataclass(frozen=True)
+class _CompiledSitePort:
+    """Width-independent endpoint relation для junction port matching."""
+
+    site_index: int
+    edge_index: int
+    vert_index: int
+    point: tuple[float, float]
+    source_category: int
+
+
+@dataclass(frozen=True)
 class _PatchVoronoiSurface:
     patch_id: int
     domain: DecalSurfaceDomain
@@ -392,6 +505,12 @@ class _PatchVoronoiSurface:
     diagram_transform: DiagramTransform
     site_grid_size: float
     site_grid: dict[tuple[int, int], tuple[int, ...]]
+    atoms_by_site: dict[int, tuple[int, ...]]
+    owner_atoms_by_corner: dict[int, tuple[int, ...]]
+    corners_by_site: dict[int, tuple[int, ...]]
+    sites_by_vertex: dict[int, tuple[int, ...]]
+    ports_by_vertex: dict[int, tuple["_CompiledSitePort", ...]]
+    ports_by_site: dict[int, tuple["_CompiledSitePort", ...]]
 
     @property
     def origin(self):
@@ -471,6 +590,7 @@ class PatchVoronoiDiagnostics:
     clamped_acute_count: int = 0
     apex_limit_saturated_count: int = 0
     runtime_policy_counts: dict[str, int] = field(default_factory=dict)
+    reference_full_scan: bool = False
 
     def record_runtime_policy(self, policy):
         key = str(getattr(policy, "value", policy))
@@ -1290,11 +1410,25 @@ def _point_in_triangle(point, triangle, tolerance=1e-10):
     return min(signs) >= -tolerance or max(signs) <= tolerance
 
 
-def _point_in_domain(point, triangles):
-    return any(_point_in_triangle(point, triangle) for triangle in triangles)
+def _point_in_domain(point, triangles, triangle_grid=None, reference=False):
+    if reference or triangle_grid is None:
+        triangle_ids = range(len(triangles))
+    else:
+        triangle_ids = triangle_grid.query_point(point)
+    return any(
+        _point_in_triangle(point, triangles[triangle_id])
+        for triangle_id in triangle_ids
+    )
 
 
-def _inward_site_normal(point_a, point_b, triangles, probe_distance):
+def _inward_site_normal(
+    point_a,
+    point_b,
+    triangles,
+    probe_distance,
+    triangle_grid=None,
+    reference=False,
+):
     """Выбирает нормаль segment в сторону owner patch, а не по winding chain."""
 
     dx = point_b[0] - point_a[0]
@@ -1312,8 +1446,12 @@ def _inward_site_normal(point_a, point_b, triangles, probe_distance):
         midpoint[0] - left[0] * probe_distance,
         midpoint[1] - left[1] * probe_distance,
     )
-    left_inside = _point_in_domain(left_probe, triangles)
-    right_inside = _point_in_domain(right_probe, triangles)
+    left_inside = _point_in_domain(
+        left_probe, triangles, triangle_grid, reference
+    )
+    right_inside = _point_in_domain(
+        right_probe, triangles, triangle_grid, reference
+    )
     if left_inside != right_inside:
         return left if left_inside else (-left[0], -left[1])
 
@@ -1321,7 +1459,14 @@ def _inward_site_normal(point_a, point_b, triangles, probe_distance):
     # owner triangle даёт устойчивый fallback без зависимости от winding.
     best_centroid = None
     best_distance = float("inf")
-    for triangle in triangles:
+    if reference or triangle_grid is None:
+        triangle_ids = range(len(triangles))
+    else:
+        triangle_ids = triangle_grid.query_point(
+            midpoint, max(probe_distance, DECAL_WELD_DISTANCE)
+        )
+    for triangle_id in triangle_ids:
+        triangle = triangles[triangle_id]
         centroid = (
             sum(point[0] for point in triangle) / 3.0,
             sum(point[1] for point in triangle) / 3.0,
@@ -3081,7 +3226,12 @@ def _corner_wedge_coordinates(sites, corner, point):
 
 
 def _compile_corner_split_chord(
-    sites, corner, diagram_vertices, triangles
+    sites,
+    corner,
+    diagram_vertices,
+    triangles,
+    triangle_grid=None,
+    reference=False,
 ):
     """Статичная B3-хорда, якорённая к первой Voronoi-вершине клина."""
 
@@ -3102,7 +3252,9 @@ def _compile_corner_split_chord(
         if coordinates is None or min(coordinates) < -tolerance:
             continue
         distance = _dist2(corner.point, point)
-        if distance <= tolerance or not _point_in_domain(point, triangles):
+        if distance <= tolerance or not _point_in_domain(
+            point, triangles, triangle_grid, reference
+        ):
             continue
         candidates.append((distance, point))
 
@@ -3238,6 +3390,70 @@ def _canonical_planar_basis(normal):
     return basis_u, basis_v
 
 
+def _compile_surface_relations(sites, corners, atoms):
+    """Строит width-independent relation indices одного surface."""
+
+    atoms_by_site = {}
+    for atom_index, atom in enumerate(atoms):
+        atoms_by_site.setdefault(atom.site_index, []).append(atom_index)
+
+    corners_by_site = {}
+    for corner_index, corner in enumerate(corners):
+        for site_index in corner.incident_sites:
+            corners_by_site.setdefault(site_index, []).append(corner_index)
+
+    sites_by_vertex = {}
+    ports_by_vertex = {}
+    ports_by_site = {}
+    for site_index, site in enumerate(sites):
+        sites_by_vertex.setdefault(site.vert_a, []).append(site_index)
+        sites_by_vertex.setdefault(site.vert_b, []).append(site_index)
+        for vert_index, point, source_category in (
+            (site.vert_a, site.point_a, 1),
+            (site.vert_b, site.point_b, 2),
+        ):
+            port = _CompiledSitePort(
+                site_index=site_index,
+                edge_index=site.edge_index,
+                vert_index=vert_index,
+                point=point,
+                source_category=source_category,
+            )
+            ports_by_vertex.setdefault(vert_index, []).append(port)
+            ports_by_site.setdefault(site_index, []).append(port)
+
+    owner_atoms_by_corner = {}
+    for corner_index, corner in enumerate(corners):
+        incident_sites = set(corner.incident_sites)
+        owner_atoms_by_corner[corner_index] = tuple(
+            atom_index
+            for atom_index, atom in enumerate(atoms)
+            if (
+                atom.cell_kind == "SEGMENT"
+                and atom.site_index in incident_sites
+            )
+            or (
+                atom.cell_kind == "POINT"
+                and atom.corner_index == corner_index
+            )
+        )
+
+    def frozen(mapping):
+        return {
+            key: tuple(values)
+            for key, values in sorted(mapping.items())
+        }
+
+    return (
+        frozen(atoms_by_site),
+        frozen(owner_atoms_by_corner),
+        frozen(corners_by_site),
+        frozen(sites_by_vertex),
+        frozen(ports_by_vertex),
+        frozen(ports_by_site),
+    )
+
+
 def _compile_surface(node, raw_sites, diagnostics=None):
     origin = node.centroid.copy()
     normal = node.normal.normalized()
@@ -3277,6 +3493,10 @@ def _compile_surface(node, raw_sites, diagnostics=None):
     )
     if not triangles:
         return None
+    triangle_grid = _build_triangle_aabb_grid(triangles)
+    reference_full_scan = bool(
+        diagnostics is not None and diagnostics.reference_full_scan
+    )
 
     all_points = [point for triangle in triangles for point in triangle]
     min_x = min(point[0] for point in all_points)
@@ -3343,7 +3563,12 @@ def _compile_surface(node, raw_sites, diagnostics=None):
     ):
         quantized_length = _dist2(point_a, point_b)
         inward_normal = _inward_site_normal(
-            point_a, point_b, triangles, probe_distance
+            point_a,
+            point_b,
+            triangles,
+            probe_distance,
+            triangle_grid,
+            reference_full_scan,
         )
         if (
             not all(isfinite(value) for value in inward_normal)
@@ -3385,6 +3610,8 @@ def _compile_surface(node, raw_sites, diagnostics=None):
                     raw_point_b,
                     triangles,
                     probe_distance,
+                    triangle_grid,
+                    reference_full_scan,
                 ),
             )
         )
@@ -3516,7 +3743,12 @@ def _compile_surface(node, raw_sites, diagnostics=None):
         replace(
             corner,
             split_chord=_compile_corner_split_chord(
-                sites, corner, diagram_vertices, triangles
+                sites,
+                corner,
+                diagram_vertices,
+                triangles,
+                triangle_grid,
+                reference_full_scan,
             ),
             static_wedge=_compile_corner_static_wedge(
                 sites, corner, triangles
@@ -3552,7 +3784,17 @@ def _compile_surface(node, raw_sites, diagnostics=None):
         site = sites[cell.site]
         fragments = []
         for cell_triangle in cell_triangles:
-            for domain_triangle in triangles:
+            if reference_full_scan:
+                domain_triangle_ids = range(len(triangles))
+            else:
+                domain_triangle_ids = triangle_grid.query_aabb(
+                    min(point[0] for point in cell_triangle),
+                    min(point[1] for point in cell_triangle),
+                    max(point[0] for point in cell_triangle),
+                    max(point[1] for point in cell_triangle),
+                )
+            for domain_triangle_id in domain_triangle_ids:
+                domain_triangle = triangles[domain_triangle_id]
                 clipped = _clip_to_triangle(cell_triangle, domain_triangle)
                 if (
                     len(clipped) < 3
@@ -3623,6 +3865,14 @@ def _compile_surface(node, raw_sites, diagnostics=None):
         for grid_x in range(min_grid_x, max_grid_x + 1):
             for grid_y in range(min_grid_y, max_grid_y + 1):
                 site_grid.setdefault((grid_x, grid_y), []).append(site_index)
+    (
+        atoms_by_site,
+        owner_atoms_by_corner,
+        corners_by_site,
+        sites_by_vertex,
+        ports_by_vertex,
+        ports_by_site,
+    ) = _compile_surface_relations(sites, corners, atoms)
     return _PatchVoronoiSurface(
         patch_id=node.patch_id,
         domain=DecalSurfaceDomain(
@@ -3633,6 +3883,8 @@ def _compile_surface(node, raw_sites, diagnostics=None):
             basis_u=basis_u,
             basis_v=basis_v,
             boundary_triangles=tuple(tuple(triangle) for triangle in triangles),
+            triangle_grid=triangle_grid,
+            reference_full_scan=reference_full_scan,
         ),
         sites=tuple(sites),
         corners=corners,
@@ -3642,6 +3894,12 @@ def _compile_surface(node, raw_sites, diagnostics=None):
         site_grid={
             key: tuple(indices) for key, indices in site_grid.items()
         },
+        atoms_by_site=atoms_by_site,
+        owner_atoms_by_corner=owner_atoms_by_corner,
+        corners_by_site=corners_by_site,
+        sites_by_vertex=sites_by_vertex,
+        ports_by_vertex=ports_by_vertex,
+        ports_by_site=ports_by_site,
     )
 
 
@@ -4316,13 +4574,22 @@ def _junction_connector_faces(
     }
     incident_edges_by_vertex = {}
     for surface in plan.surfaces:
-        for site in surface.sites:
-            incident_edges_by_vertex.setdefault(site.vert_a, set()).add(
-                site.edge_index
-            )
-            incident_edges_by_vertex.setdefault(site.vert_b, set()).add(
-                site.edge_index
-            )
+        if (
+            diagnostics is not None
+            and diagnostics.reference_full_scan
+        ) or not hasattr(surface, "ports_by_vertex"):
+            for site in surface.sites:
+                incident_edges_by_vertex.setdefault(site.vert_a, set()).add(
+                    site.edge_index
+                )
+                incident_edges_by_vertex.setdefault(site.vert_b, set()).add(
+                    site.edge_index
+                )
+        else:
+            for vert_index, ports in surface.ports_by_vertex.items():
+                incident_edges_by_vertex.setdefault(vert_index, set()).update(
+                    port.edge_index for port in ports
+                )
 
     edge_uses = {}
     for face_index, face in enumerate(faces):
@@ -4356,13 +4623,30 @@ def _junction_connector_faces(
             (outer_position - surface.origin).dot(surface.basis_v),
         )
         matching_sites = []
-        for site in surface.sites:
-            if site.vert_a == core_key[1]:
-                station = site.point_a
-            elif site.vert_b == core_key[1]:
-                station = site.point_b
-            else:
-                continue
+        if (
+            diagnostics is not None
+            and diagnostics.reference_full_scan
+        ) or not hasattr(surface, "ports_by_vertex"):
+            compiled_ports = tuple(
+                _CompiledSitePort(
+                    site_index=site_index,
+                    edge_index=site.edge_index,
+                    vert_index=core_key[1],
+                    point=(
+                        site.point_a
+                        if site.vert_a == core_key[1]
+                        else site.point_b
+                    ),
+                    source_category=(1 if site.vert_a == core_key[1] else 2),
+                )
+                for site_index, site in enumerate(surface.sites)
+                if core_key[1] in (site.vert_a, site.vert_b)
+            )
+        else:
+            compiled_ports = surface.ports_by_vertex.get(core_key[1], ())
+        for compiled_port in compiled_ports:
+            site = surface.sites[compiled_port.site_index]
+            station = compiled_port.point
             expected_outer = (
                 station[0] + site.inward_normal[0] * alpha,
                 station[1] + site.inward_normal[1] * alpha,
@@ -4589,10 +4873,31 @@ def _evaluate_surface_crops(
     неincident competitor, то есть появляются непосредственно при collision.
     """
 
+    reference_full_scan = bool(
+        diagnostics is not None and diagnostics.reference_full_scan
+    )
     point_atoms_by_corner = {}
-    for atom in surface.atoms:
-        if atom.cell_kind == "POINT" and atom.corner_index >= 0:
-            point_atoms_by_corner.setdefault(atom.corner_index, []).append(atom)
+    if reference_full_scan:
+        atom_indices_by_corner = {
+            corner_index: range(len(surface.atoms))
+            for corner_index in range(len(surface.corners))
+        }
+    elif hasattr(surface, "owner_atoms_by_corner"):
+        atom_indices_by_corner = surface.owner_atoms_by_corner
+    else:
+        atom_indices_by_corner = {
+            corner_index: range(len(surface.atoms))
+            for corner_index in range(len(surface.corners))
+        }
+    for corner_index, atom_indices in atom_indices_by_corner.items():
+        point_atoms = tuple(
+            surface.atoms[atom_index]
+            for atom_index in atom_indices
+            if surface.atoms[atom_index].cell_kind == "POINT"
+            and surface.atoms[atom_index].corner_index == corner_index
+        )
+        if point_atoms:
+            point_atoms_by_corner[corner_index] = point_atoms
 
     corner_crops = {}
     # Обычный endpoint corner существует только там, где pyvoronoi дал
@@ -4679,16 +4984,25 @@ def _evaluate_surface_crops(
             )
             for site_index in owner_site_indices:
                 crops_by_site.setdefault(site_index, []).append(crop)
+            if reference_full_scan:
+                owner_atom_indices = range(len(surface.atoms))
+            elif hasattr(surface, "owner_atoms_by_corner"):
+                owner_atom_indices = surface.owner_atoms_by_corner.get(
+                    corner_index, ()
+                )
+            else:
+                owner_atom_indices = range(len(surface.atoms))
             owner_atoms = [
-                atom
-                for atom in surface.atoms
+                surface.atoms[atom_index]
+                for atom_index in owner_atom_indices
                 if (
-                    atom.site_index in owner_site_indices
-                    and atom.cell_kind == "SEGMENT"
+                    surface.atoms[atom_index].site_index
+                    in owner_site_indices
+                    and surface.atoms[atom_index].cell_kind == "SEGMENT"
                 )
                 or (
-                    atom.cell_kind == "POINT"
-                    and atom.corner_index == corner_index
+                    surface.atoms[atom_index].cell_kind == "POINT"
+                    and surface.atoms[atom_index].corner_index == corner_index
                 )
             ]
             owner_site_index = min(

@@ -132,6 +132,119 @@ def _compiled_surface_topology(plan):
     )
 
 
+def test_b2_triangle_grid_is_immutable_and_never_omits_aabb_candidates():
+    triangles = []
+    for grid_x in range(8):
+        for grid_y in range(8):
+            point_a = (float(grid_x), float(grid_y))
+            point_b = (float(grid_x + 1), float(grid_y))
+            point_c = (float(grid_x + 1), float(grid_y + 1))
+            point_d = (float(grid_x), float(grid_y + 1))
+            triangles.extend(
+                (
+                    (point_a, point_b, point_c),
+                    (point_a, point_c, point_d),
+                )
+            )
+    triangles = tuple(triangles)
+    grid = decal_voronoi._build_triangle_aabb_grid(triangles)
+    bounds = (2.2, 3.2, 2.8, 3.8)
+    candidates = grid.query_aabb(*bounds)
+    exact = tuple(
+        triangle_id
+        for triangle_id, triangle in enumerate(triangles)
+        if not (
+            max(point[0] for point in triangle) < bounds[0]
+            or min(point[0] for point in triangle) > bounds[2]
+            or max(point[1] for point in triangle) < bounds[1]
+            or min(point[1] for point in triangle) > bounds[3]
+        )
+    )
+
+    assert set(exact).issubset(candidates)
+    assert len(candidates) < len(triangles) // 4
+    with pytest.raises(TypeError):
+        grid.cell_keys[0] = (100, 100)
+
+
+def test_b2_compiled_relation_indices_match_reference_scans():
+    plan = compile_patch_voronoi_plan(
+        _planar_two_site_graph(), [10, 12], offset=0.01
+    )
+    surface = plan.surfaces[0]
+
+    for site_index in range(len(surface.sites)):
+        assert surface.atoms_by_site.get(site_index, ()) == tuple(
+            atom_index
+            for atom_index, atom in enumerate(surface.atoms)
+            if atom.site_index == site_index
+        )
+        assert surface.corners_by_site.get(site_index, ()) == tuple(
+            corner_index
+            for corner_index, corner in enumerate(surface.corners)
+            if site_index in corner.incident_sites
+        )
+        assert tuple(
+            port.vert_index for port in surface.ports_by_site[site_index]
+        ) == (
+            surface.sites[site_index].vert_a,
+            surface.sites[site_index].vert_b,
+        )
+    for corner_index, corner in enumerate(surface.corners):
+        assert surface.owner_atoms_by_corner[corner_index] == tuple(
+            atom_index
+            for atom_index, atom in enumerate(surface.atoms)
+            if (
+                atom.cell_kind == "SEGMENT"
+                and atom.site_index in corner.incident_sites
+            )
+            or (
+                atom.cell_kind == "POINT"
+                and atom.corner_index == corner_index
+            )
+        )
+    for vert_index, site_indices in surface.sites_by_vertex.items():
+        assert site_indices == tuple(
+            site_index
+            for site_index, site in enumerate(surface.sites)
+            if vert_index in (site.vert_a, site.vert_b)
+        )
+        assert tuple(
+            port.site_index for port in surface.ports_by_vertex[vert_index]
+        ) == site_indices
+
+
+@pytest.mark.parametrize("width", (0.5, 1.0545852, 2.0, 4.0))
+def test_b2_indices_are_byte_identical_to_reference_full_scans(width):
+    graph, edge_indices = _wide_t_junction_front_graph()
+    indexed_diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+    reference_diagnostics = decal_voronoi.PatchVoronoiDiagnostics(
+        reference_full_scan=True
+    )
+    indexed_plan = compile_patch_voronoi_plan(
+        graph, edge_indices, offset=0.02, diagnostics=indexed_diagnostics
+    )
+    reference_plan = compile_patch_voronoi_plan(
+        graph, edge_indices, offset=0.02, diagnostics=reference_diagnostics
+    )
+
+    indexed_faces = evaluate_patch_voronoi_plan(
+        indexed_plan,
+        width=width,
+        preview=True,
+        diagnostics=indexed_diagnostics,
+    )
+    reference_faces = evaluate_patch_voronoi_plan(
+        reference_plan,
+        width=width,
+        preview=True,
+        diagnostics=reference_diagnostics,
+    )
+    assert decal_voronoi.serialize_network_faces(
+        indexed_faces
+    ) == decal_voronoi.serialize_network_faces(reference_faces)
+
+
 def test_adaptive_quantization_preserves_scaled_micro_sites():
     plan = compile_patch_voronoi_plan(
         _scaled_planar_two_site_graph(1.0e-4),
@@ -2025,6 +2138,45 @@ def test_surface_domain_separates_planar_solver_from_intrinsic_lift():
     )
     with pytest.raises(ValueError):
         intrinsic.project(Vector((0.0, 0.0, 0.0)))
+
+
+def test_b2_intrinsic_location_matches_reference_full_scan():
+    chart_triangles = (
+        ((0.0, 0.0), (1.0, 0.0), (0.0, 1.0)),
+        ((10.0, 0.0), (11.0, 0.0), (10.0, 1.0)),
+    )
+    intrinsic_triangles = tuple(
+        decal_voronoi._IntrinsicDomainTriangle(
+            chart_points=chart_points,
+            positions=tuple(
+                Vector((point[0], point[1], float(triangle_id)))
+                for point in chart_points
+            ),
+            normals=(Vector((0.0, 0.0, 1.0)),) * 3,
+        )
+        for triangle_id, chart_points in enumerate(chart_triangles)
+    )
+
+    def domain(reference_full_scan):
+        return decal_voronoi.DecalSurfaceDomain(
+            patch_id=0,
+            kind="INTRINSIC",
+            origin=Vector((0.0, 0.0, 0.0)),
+            reference_normal=Vector((0.0, 0.0, 1.0)),
+            basis_u=Vector((1.0, 0.0, 0.0)),
+            basis_v=Vector((0.0, 1.0, 0.0)),
+            boundary_triangles=chart_triangles,
+            intrinsic_triangles=intrinsic_triangles,
+            reference_full_scan=reference_full_scan,
+        )
+
+    point = (10.25, 0.25)
+    indexed = domain(False)
+    reference = domain(True)
+    assert indexed.triangle_grid.query_point(point) == (1,)
+    assert tuple(indexed.lift(point, 0.2)) == pytest.approx(
+        tuple(reference.lift(point, 0.2))
+    )
 
 
 def test_wide_t_junction_cells_remain_simple_and_non_overlapping():
