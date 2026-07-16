@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -217,6 +218,44 @@ def test_b2_compiled_relation_indices_match_reference_scans():
         assert tuple(
             port.site_index for port in surface.ports_by_vertex[vert_index]
         ) == site_indices
+
+
+def test_b4_full_component_records_requested_budget_without_false_limit():
+    plan = compile_patch_voronoi_plan(
+        _planar_two_site_graph(),
+        [10, 12],
+        offset=0.01,
+        alpha_budget=0.25,
+    )
+
+    assert plan.requested_alpha_budget == pytest.approx(0.25)
+    assert plan.alpha_budget == float("inf")
+    assert plan.budget_source == "FULL_CONNECTED_COMPONENT"
+    assert plan.active_triangle_ids(1000.0) == tuple(
+        tuple(range(len(surface.domain.boundary_triangles)))
+        for surface in plan.surfaces
+    )
+
+
+def test_b4_finite_strip_budget_rejects_before_evaluation():
+    plan = compile_patch_voronoi_plan(
+        _planar_two_site_graph(), [10, 12], offset=0.01
+    )
+    finite = replace(
+        plan,
+        alpha_budget=0.25,
+        budget_source="STRIP_BUDGET",
+        requested_alpha_budget=0.25,
+    )
+
+    assert finite.active_triangle_ids(0.25) == plan.support_triangle_ids
+    with pytest.raises(
+        decal_voronoi.DomainBudgetExceeded,
+        match="DOMAIN_BUDGET_EXCEEDED",
+    ):
+        evaluate_patch_voronoi_plan(
+            finite, width=0.5001, preview=True
+        )
 
 
 @pytest.mark.parametrize("width", (0.5, 1.0545852, 2.0, 4.0))

@@ -70,6 +70,17 @@ DECAL_MODES = ("TOP", "BOTTOM", "CORNERS", "SEAMS")
 _DECAL_PREVIEW_OBJECT_PREFIX = ".CFTUV_Preview"
 _DECAL_PREVIEW_MARKER = "cftuv_decal_preview"
 _DECAL_PREVIEW_SOURCE = "cftuv_decal_source"
+_DECAL_COMPILE_ALPHA_HEADROOM = 4.0
+
+
+def decal_compile_alpha_budget(settings):
+    """Начальный modal width получает явный запас intrinsic support."""
+
+    initial_alpha = max(1e-6, float(settings.width_seam) * 0.5)
+    return max(
+        initial_alpha * _DECAL_COMPILE_ALPHA_HEADROOM,
+        initial_alpha + DECAL_WELD_DISTANCE * 8.0,
+    )
 
 _MODE_OBJECT_SUFFIX = {
     "TOP": "Top",
@@ -2842,9 +2853,16 @@ def compile_manual_seam_decal_plan(
     graph: PatchGraph,
     settings: DecalSettings,
     selected_edge_indices,
+    *,
+    alpha_budget=None,
 ):
     """Собирает selected edges/runs и статическую сеть один раз на invoke."""
 
+    if alpha_budget is None:
+        alpha_budget = decal_compile_alpha_budget(settings)
+    alpha_budget = float(alpha_budget)
+    if not alpha_budget > 0.0:
+        raise ValueError("Decal compile alpha_budget must be positive")
     selected_edges = tuple(
         sorted({int(edge_index) for edge_index in selected_edge_indices or ()})
     )
@@ -2868,6 +2886,7 @@ def compile_manual_seam_decal_plan(
             accepted_scope_edges,
             settings.offset,
             allow_partial=True,
+            alpha_budget=alpha_budget,
         )
         compile_failures = attempt.failures
         rejected_seed = set(attempt.rejected_edge_indices)
@@ -2899,7 +2918,10 @@ def compile_manual_seam_decal_plan(
             # rejected topology component. Повторный strict compile строит
             # единый competition domain уже только для clean components.
             patch_voronoi_plan = compile_patch_voronoi_plan(
-                graph, accepted_edges, settings.offset
+                graph,
+                accepted_edges,
+                settings.offset,
+                alpha_budget=alpha_budget,
             )
             if patch_voronoi_plan is None:
                 # Не допускаем частичной материализации сомнительного plan:

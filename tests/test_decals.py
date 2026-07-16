@@ -102,7 +102,7 @@ def test_manual_seam_plan_routes_only_failed_topology_component_to_legacy(
     monkeypatch.setattr(
         decals_module,
         "compile_patch_voronoi_plan",
-        lambda _graph, edges, _offset: (
+        lambda _graph, edges, _offset, **_kwargs: (
             strict_calls.append(tuple(edges)) or accepted_plan
         ),
     )

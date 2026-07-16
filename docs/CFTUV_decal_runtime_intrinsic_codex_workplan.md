@@ -844,6 +844,14 @@ class DomainLocation:
 
 ## B4. Explicit width-budget contract для strip charts
 
+Статус: **IMPLEMENTED (contract slice)**. `PatchVoronoiPlan` теперь явно
+хранит `alpha_budget`, per-surface `support_triangle_ids`, `budget_source` и
+запрошенный compile budget. Текущий PLANAR full-component backend остаётся
+честно unbounded и не получает искусственного runtime clamp. Finite strip
+plans отклоняют excess width до crop/arrangement с
+`DOMAIN_BUDGET_EXCEEDED`; modal сохраняет last valid preview и выполняет
+controlled recompile только на confirm, никогда на raw `MOUSEMOVE`.
+
 Strip chart не может молча предполагать бесконечную будущую width.
 
 ### Plan fields

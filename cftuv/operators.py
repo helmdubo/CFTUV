@@ -55,6 +55,7 @@ from .decals import (
     PreviewStatus,
     chain_refs_for_edge_indices,
     compile_manual_seam_decal_plan,
+    decal_compile_alpha_budget,
     generate_decal_result,
     remove_decal_preview_object,
 )
@@ -1372,17 +1373,26 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             preview_state=getattr(self, "_modal_preview_state", None),
         )
 
-    def _compile_decal_plan(self, state):
+    def _compile_decal_plan(self, state, settings=None, alpha_budget=None):
         """Один backend lifetime для modal, execute и headless вызовов."""
 
         self._modal_decal_plan = None
         if self.mode == "SEAMS" and state[4] and state[6]:
             local_settings = local_decal_settings_for_source(
-                state[2], state[0]
+                settings or state[2], state[0]
             )
+            if alpha_budget is None:
+                alpha_budget = decal_compile_alpha_budget(local_settings)
             self._modal_decal_plan = compile_manual_seam_decal_plan(
-                state[1], local_settings, state[6]
+                state[1],
+                local_settings,
+                state[6],
+                alpha_budget=alpha_budget,
             )
+
+    @staticmethod
+    def _domain_budget_exceeded(reason):
+        return "DOMAIN_BUDGET_EXCEEDED" in str(reason or "")
 
     def _report_created(self, created, state, suffix=""):
         (
@@ -1628,6 +1638,8 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             self._modal_last_valid_settings = settings
             self._modal_last_valid_result = generation
             self._modal_last_preview_error = None
+            self._modal_pending_budget_settings = None
+            self._modal_pending_budget_value = None
             self._modal_created = _generation_result_names(generation)
             drag_anchor = _warp_decal_drag_cursor(context, source_obj, event)
             self._rebase_modal_drag(
@@ -1723,16 +1735,36 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                 # последний валидный preview. Confirm всё равно выполнит
                 # точную materialization либо явно сообщит об ошибке.
                 self._modal_last_preview_error = str(exc)
+                if self._domain_budget_exceeded(exc):
+                    self._modal_pending_budget_settings = settings
+                    self._modal_pending_budget_value = new_value
+                else:
+                    self._modal_pending_budget_settings = None
+                    self._modal_pending_budget_value = None
                 self._set_modal_header(
-                    self._modal_current_value,
+                    (
+                        new_value
+                        if self._domain_budget_exceeded(exc)
+                        else self._modal_current_value
+                    ),
                     f"RETAINED_LAST_VALID: {exc}",
                 )
                 return {"RUNNING_MODAL"}
             if generation.status != PreviewStatus.UPDATED:
                 reason = generation.reason or "generation was not updated"
                 self._modal_last_preview_error = reason
+                if self._domain_budget_exceeded(reason):
+                    self._modal_pending_budget_settings = settings
+                    self._modal_pending_budget_value = new_value
+                else:
+                    self._modal_pending_budget_settings = None
+                    self._modal_pending_budget_value = None
                 self._set_modal_header(
-                    self._modal_current_value,
+                    (
+                        new_value
+                        if self._domain_budget_exceeded(reason)
+                        else self._modal_current_value
+                    ),
                     f"{generation.status.value}: {reason}",
                 )
                 return {"RUNNING_MODAL"}
@@ -1740,6 +1772,8 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             self._modal_last_valid_settings = settings
             self._modal_last_valid_result = generation
             self._modal_last_preview_error = None
+            self._modal_pending_budget_settings = None
+            self._modal_pending_budget_value = None
             setattr(
                 context.scene.hotspotuv_settings,
                 target.scene_property,
@@ -1757,7 +1791,11 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER"} and event.value == "PRESS":
             # Перестраиваем подтверждённый размер в полной точности:
             # во время drag декаль строилась в preview-режиме.
-            final_settings = getattr(
+            pending_budget_settings = getattr(
+                self, "_modal_pending_budget_settings", None
+            )
+            controlled_recompile = pending_budget_settings is not None
+            final_settings = pending_budget_settings or getattr(
                 self,
                 "_modal_last_valid_settings",
                 getattr(self, "_modal_current_settings", None),
@@ -1769,7 +1807,15 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                     "Final decal rebuild failed: no valid preview settings",
                 )
                 return {"CANCELLED"}
+            previous_plan = getattr(self, "_modal_decal_plan", None)
             try:
+                if controlled_recompile:
+                    # Единственная разрешённая B4 recompile boundary. Raw
+                    # MOUSEMOVE только сохраняет last valid preview.
+                    self._compile_decal_plan(
+                        self._modal_state,
+                        settings=final_settings,
+                    )
                 generation = _coerce_decal_generation_result(
                     self._generate(
                         context,
@@ -1779,12 +1825,16 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                     )
                 )
             except Exception as exc:
+                if controlled_recompile:
+                    self._modal_decal_plan = previous_plan
                 self._discard_modal_preview(context, restore_scene=True)
                 self.report(
                     {"ERROR"}, f"Final decal rebuild failed: {exc}"
                 )
                 return {"CANCELLED"}
             if generation.status != PreviewStatus.UPDATED:
+                if controlled_recompile:
+                    self._modal_decal_plan = previous_plan
                 self._discard_modal_preview(context, restore_scene=True)
                 self.report(
                     {"ERROR"},
@@ -1792,6 +1842,21 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                     + (generation.reason or generation.status.value),
                 )
                 return {"CANCELLED"}
+            if controlled_recompile:
+                target = self._active_modal_drag_target()
+                final_value = getattr(
+                    final_settings, target.settings_field
+                )
+                setattr(
+                    context.scene.hotspotuv_settings,
+                    target.scene_property,
+                    final_value,
+                )
+                self._modal_current_settings = final_settings
+                self._modal_last_valid_settings = final_settings
+                self._modal_current_value = final_value
+                self._modal_pending_budget_settings = None
+                self._modal_pending_budget_value = None
             self._modal_created = _generation_result_names(generation)
             self._modal_last_valid_result = generation
             self._discard_modal_preview(context, restore_scene=False)

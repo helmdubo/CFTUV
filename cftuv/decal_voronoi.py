@@ -710,6 +710,88 @@ class PatchVoronoiPlan:
     surfaces: tuple[_PatchVoronoiSurface, ...]
     lifted_vertices: dict[int, Vector]
     max_lateral_lift_ratio: float
+    alpha_budget: float = float("inf")
+    support_triangle_ids: tuple[tuple[int, ...], ...] = ()
+    budget_source: str = "FULL_CONNECTED_COMPONENT"
+    requested_alpha_budget: float = float("inf")
+
+    def __post_init__(self):
+        if not self.alpha_budget > 0.0:
+            raise ValueError("Patch Voronoi alpha_budget must be positive")
+        if not self.requested_alpha_budget > 0.0:
+            raise ValueError(
+                "Patch Voronoi requested_alpha_budget must be positive"
+            )
+        support_triangle_ids = self.support_triangle_ids
+        if not support_triangle_ids:
+            support_triangle_ids = tuple(
+                tuple(
+                    range(
+                        len(surface.domain.intrinsic_triangles)
+                        if surface.domain.intrinsic_triangles
+                        else len(surface.domain.boundary_triangles)
+                    )
+                )
+                for surface in self.surfaces
+            )
+            object.__setattr__(
+                self, "support_triangle_ids", support_triangle_ids
+            )
+        if len(support_triangle_ids) != len(self.surfaces):
+            raise ValueError(
+                "Patch Voronoi support_triangle_ids must match surfaces"
+            )
+        for surface, triangle_ids in zip(
+            self.surfaces, support_triangle_ids
+        ):
+            triangle_count = (
+                len(surface.domain.intrinsic_triangles)
+                if surface.domain.intrinsic_triangles
+                else len(surface.domain.boundary_triangles)
+            )
+            if tuple(sorted(set(triangle_ids))) != tuple(triangle_ids):
+                raise ValueError(
+                    "Patch Voronoi support triangle ids must be unique/sorted"
+                )
+            if any(
+                triangle_id < 0 or triangle_id >= triangle_count
+                for triangle_id in triangle_ids
+            ):
+                raise ValueError(
+                    "Patch Voronoi support triangle id lies outside domain"
+                )
+        if not self.budget_source:
+            raise ValueError("Patch Voronoi budget_source must be explicit")
+
+    def active_triangle_ids(self, alpha):
+        """Возвращает compiled support либо явно отклоняет excess width."""
+
+        alpha = float(alpha)
+        if not isfinite(alpha) or alpha < 0.0:
+            raise ValueError("Runtime alpha must be finite and non-negative")
+        if alpha > self.alpha_budget + _GEOMETRY_EPS:
+            raise DomainBudgetExceeded(
+                alpha,
+                self.alpha_budget,
+                self.budget_source,
+            )
+        return self.support_triangle_ids
+
+
+class DomainBudgetExceeded(ValueError):
+    """Runtime width вышла за доказанную область compiled strip chart."""
+
+    code = "DOMAIN_BUDGET_EXCEEDED"
+
+    def __init__(self, requested_alpha, alpha_budget, budget_source):
+        self.requested_alpha = float(requested_alpha)
+        self.alpha_budget = float(alpha_budget)
+        self.budget_source = str(budget_source)
+        super().__init__(
+            f"{self.code}: alpha={self.requested_alpha:.6g} exceeds "
+            f"budget={self.alpha_budget:.6g} "
+            f"(source={self.budget_source})"
+        )
 
 
 @dataclass(frozen=True)
@@ -4089,6 +4171,7 @@ def compile_patch_voronoi_attempt(
     *,
     allow_partial=False,
     diagnostics=None,
+    alpha_budget=None,
 ):
     """Компилирует plan и локализует unsupported patches до physical edges.
 
@@ -4098,6 +4181,11 @@ def compile_patch_voronoi_attempt(
     потребовать исключить дополнительные соседние edges и повторный compile.
     """
 
+    requested_alpha_budget = (
+        float("inf") if alpha_budget is None else float(alpha_budget)
+    )
+    if not requested_alpha_budget > 0.0:
+        raise ValueError("Patch Voronoi compile alpha_budget must be positive")
     selected_edges = {
         int(edge_index) for edge_index in selected_edge_indices or ()
     }
@@ -4257,6 +4345,13 @@ def compile_patch_voronoi_attempt(
             surfaces=tuple(surfaces),
             lifted_vertices=lifted_vertices,
             max_lateral_lift_ratio=max_lateral_lift_ratio,
+            # PLANAR backend сейчас компилирует полный connected component:
+            # он честно поддерживает любую ширину внутри domain. Конечный
+            # requested budget уже проходит API и станет actual alpha_budget,
+            # когда C0/C1 начнут ограничивать intrinsic strip support.
+            alpha_budget=float("inf"),
+            budget_source="FULL_CONNECTED_COMPONENT",
+            requested_alpha_budget=requested_alpha_budget,
         )
     return PatchVoronoiCompileAttempt(
         plan=plan,
@@ -4266,7 +4361,12 @@ def compile_patch_voronoi_attempt(
 
 
 def compile_patch_voronoi_plan(
-    graph, selected_edge_indices, offset, *, diagnostics=None
+    graph,
+    selected_edge_indices,
+    offset,
+    *,
+    diagnostics=None,
+    alpha_budget=None,
 ):
     """Компилирует все touched surfaces или сохраняет legacy fallback."""
 
@@ -4276,6 +4376,7 @@ def compile_patch_voronoi_plan(
         offset,
         allow_partial=False,
         diagnostics=diagnostics,
+        alpha_budget=alpha_budget,
     ).plan
 
 
@@ -5346,6 +5447,9 @@ def evaluate_patch_voronoi_plan(
     if diagnostics is not None:
         diagnostics.runtime_policy_counts.clear()
     alpha = max(1e-6, float(width) * 0.5)
+    # Проверка выполняется до crop/arrangement: excess frame не имеет
+    # geometry side effects и modal может оставить последний valid preview.
+    plan.active_triangle_ids(alpha)
     lateral_at_full_offset = (
         abs(plan.offset) * plan.max_lateral_lift_ratio
     )

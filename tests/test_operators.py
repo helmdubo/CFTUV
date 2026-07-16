@@ -650,6 +650,77 @@ def test_modal_invalid_status_series_preserves_last_valid_and_confirm_uses_it():
     assert operator._modal_created == ["FinalDecal"]
 
 
+def test_b4_budget_excess_recompiles_only_on_confirm():
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    base_settings = DecalSettings(width_seam=0.15)
+    operator._modal_base_settings = base_settings
+    operator._modal_current_settings = base_settings
+    operator._modal_last_valid_settings = base_settings
+    operator._modal_base_value = 0.15
+    operator._modal_current_value = 0.15
+    operator._modal_start_mouse = 100
+    operator._modal_property = "decal_width_seam"
+    operator._modal_settings_field = "width_seam"
+    operator._modal_label = "Seam Width"
+    operator._modal_state = object()
+    operator._modal_decal_plan = "initial-plan"
+    operator._modal_created = ["LastValidDecal"]
+    operator._modal_preview_discarded = False
+    operator._modal_area = SimpleNamespace(header_text_set=lambda _text: None)
+    operator.report = lambda *_args: None
+    operator._report_created = lambda *_args, **_kwargs: None
+
+    compile_calls = []
+
+    def compile_plan(_state, settings=None, alpha_budget=None):
+        compile_calls.append((settings, alpha_budget))
+        operator._modal_decal_plan = "expanded-plan"
+
+    operator._compile_decal_plan = compile_plan
+    final_calls = []
+
+    def generate(_context, _state, settings, preview=False):
+        if preview:
+            return DecalGenerationResult(
+                PreviewStatus.RETAINED_LAST_VALID,
+                "LastValidDecal",
+                reason=(
+                    "DOMAIN_BUDGET_EXCEEDED: alpha=0.2 exceeds budget=0.1"
+                ),
+            )
+        final_calls.append((settings, operator._modal_decal_plan))
+        return DecalGenerationResult(PreviewStatus.UPDATED, "FinalDecal")
+
+    operator._generate = generate
+    scene_settings = SimpleNamespace(decal_width_seam=0.15)
+    context = SimpleNamespace(
+        scene=SimpleNamespace(hotspotuv_settings=scene_settings)
+    )
+
+    assert operator.modal(
+        context,
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=120, shift=False),
+    ) == {"RUNNING_MODAL"}
+    requested = decal_drag_value(0.15, 20)
+    assert compile_calls == []
+    assert operator._modal_current_value == pytest.approx(0.15)
+    assert operator._modal_pending_budget_settings.width_seam == pytest.approx(
+        requested
+    )
+    assert scene_settings.decal_width_seam == pytest.approx(0.15)
+
+    assert operator.modal(
+        context,
+        SimpleNamespace(type="LEFTMOUSE", value="PRESS"),
+    ) == {"FINISHED"}
+    assert len(compile_calls) == 1
+    assert compile_calls[0][0].width_seam == pytest.approx(requested)
+    assert final_calls[0][0].width_seam == pytest.approx(requested)
+    assert final_calls[0][1] == "expanded-plan"
+    assert scene_settings.decal_width_seam == pytest.approx(requested)
+
+
 def test_modal_confirm_without_valid_settings_is_explicit_error():
     operator = HOTSPOTUV_OT_GenerateDecals()
     operator.mode = "SEAMS"
@@ -801,7 +872,7 @@ def test_manual_edge_seams_enters_interactive_width_modal(monkeypatch):
     monkeypatch.setattr(
         operators_module,
         "compile_manual_seam_decal_plan",
-        lambda graph, plan_settings, edges: (
+        lambda graph, plan_settings, edges, **_kwargs: (
             compile_calls.append((graph, plan_settings, edges)) or modal_plan
         ),
     )
@@ -900,11 +971,15 @@ def test_seam_compile_plan_receives_local_metric_settings(monkeypatch):
         selected_edges,
     )
     compiled_settings = []
+    compiled_budgets = []
     monkeypatch.setattr(
         operators_module,
         "compile_manual_seam_decal_plan",
-        lambda _graph, local, _edges: compiled_settings.append(local)
-        or object(),
+        lambda _graph, local, _edges, **kwargs: (
+            compiled_settings.append(local)
+            or compiled_budgets.append(kwargs["alpha_budget"])
+            or object()
+        ),
     )
     operator = HOTSPOTUV_OT_GenerateDecals()
     operator.mode = "SEAMS"
@@ -914,6 +989,7 @@ def test_seam_compile_plan_receives_local_metric_settings(monkeypatch):
     assert compiled_settings[0].width_seam == pytest.approx(0.075)
     assert compiled_settings[0].offset == pytest.approx(0.01)
     assert compiled_settings[0].uv_length_scale == pytest.approx(0.50)
+    assert compiled_budgets == pytest.approx([0.15])
 
 
 def test_seam_execute_compiles_and_forwards_same_plan_as_modal(monkeypatch):
@@ -940,7 +1016,7 @@ def test_seam_execute_compiles_and_forwards_same_plan_as_modal(monkeypatch):
     monkeypatch.setattr(
         operators_module,
         "compile_manual_seam_decal_plan",
-        lambda graph, plan_settings, edges: (
+        lambda graph, plan_settings, edges, **_kwargs: (
             compile_calls.append((graph, plan_settings, edges)) or modal_plan
         ),
     )
