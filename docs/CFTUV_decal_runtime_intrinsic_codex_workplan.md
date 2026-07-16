@@ -752,6 +752,11 @@ class DiagramTransform:
 
 ## B1. Развязать shared decal types от legacy backend
 
+Статус: **IMPLEMENTED**. `DecalGeometryFace`, offset-plane lift и минимальные
+2D primitives вынесены в acyclic `cftuv/decal_geometry.py`; legacy private
+имена сохранены aliases. Differential относительно `6996539` byte-identical
+для трёх Patch Voronoi и трёх legacy network fixtures.
+
 Создать небольшой shared module, например `cftuv/decal_geometry.py`:
 
 - public face/result dataclasses;

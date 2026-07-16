@@ -54,6 +54,20 @@ from .constants import (
     DECAL_SPINE_MERGE_DISTANCE,
     DECAL_WELD_DISTANCE,
 )
+from .decal_geometry import (
+    DecalGeometryFace,
+    lift_offset_position,
+    polygon_area2,
+    segment_point_distance2,
+)
+
+
+# Compatibility aliases для legacy scripts/tests. Новые consumers импортируют
+# public contracts из decal_geometry напрямую.
+_NetworkFace = DecalGeometryFace
+_lift_position = lift_offset_position
+_polygon_area2 = polygon_area2
+_segment_point_distance2 = segment_point_distance2
 
 
 # ============================================================
@@ -102,19 +116,6 @@ def _rot90(a):
     return (-a[1], a[0])
 
 
-def _segment_point_distance2(seg_a, seg_b, q):
-    """(расстояние, clamped t) от точки до 2D сегмента."""
-
-    delta = _sub2(seg_b, seg_a)
-    denom = _dot2(delta, delta)
-    if denom < 1e-24:
-        return _dist2(q, seg_a), 0.0
-    t = _dot2(_sub2(q, seg_a), delta) / denom
-    t = max(0.0, min(1.0, t))
-    closest = _add2(seg_a, _mul2(delta, t))
-    return _dist2(q, closest), t
-
-
 def _line_intersection2(point_a, dir_a, point_b, dir_b):
     """Пересечение двух 2D прямых; None для (почти) параллельных."""
 
@@ -123,131 +124,6 @@ def _line_intersection2(point_a, dir_a, point_b, dir_b):
         return None
     t = _cross2(_sub2(point_b, point_a), dir_b) / denom
     return _add2(point_a, _mul2(dir_a, t))
-
-
-def _polygon_area2(points):
-    area = 0.0
-    for index in range(len(points)):
-        area += _cross2(points[index], points[(index + 1) % len(points)])
-    return area * 0.5
-
-
-# ============================================================
-# Лифт станций на offset-поверхности
-# ============================================================
-
-
-def _group_average_normals(normals):
-    """Группирует почти-одинаковые oriented normals и усредняет группы."""
-
-    groups = []
-    for normal in normals:
-        if normal.length_squared < 1e-12:
-            continue
-        candidate = normal.normalized()
-        placed = False
-        for group in groups:
-            if candidate.dot(group[0]) > DECAL_COPLANAR_DOT:
-                group[1].append(candidate)
-                placed = True
-                break
-        if not placed:
-            groups.append([candidate, [candidate]])
-    averaged = []
-    for _representative, members in groups:
-        total = Vector((0.0, 0.0, 0.0))
-        for member in members:
-            total = total + member
-        if total.length_squared > 1e-12:
-            averaged.append(total.normalized())
-    return averaged
-
-
-def _lift_position(source_pos, normals, offset):
-    """Least-squares пересечение offset-плоскостей owner surfaces точки.
-
-    Одна плоскость → source + n*offset; две → точка на линии пересечения
-    offset-плоскостей (эквивалент `_corner_spine_position`); три и более →
-    общий junction core (эквивалент legacy `_offset_plane_junction_center`).
-    """
-
-    unique = _group_average_normals(normals)
-    if not unique:
-        return source_pos.copy()
-    if len(unique) == 1:
-        return source_pos + unique[0] * offset
-    if len(unique) == 2:
-        dot = max(-1.0, min(1.0, unique[0].dot(unique[1])))
-        denominator = 1.0 + dot
-        if denominator > 1e-8:
-            # Minimum-norm точка линии пересечения двух offset-плоскостей.
-            delta = (unique[0] + unique[1]) * (offset / denominator)
-            return source_pos + delta
-
-    # Решаем normal equations напрямую. Итерационный projection сходился
-    # слишком медленно для почти встречных торцевых normals и оставлял core
-    # внутри одной из offset-плоскостей, из-за чего wing визуально загибался.
-    xx = sum(normal.x * normal.x for normal in unique)
-    xy = sum(normal.x * normal.y for normal in unique)
-    xz = sum(normal.x * normal.z for normal in unique)
-    yy = sum(normal.y * normal.y for normal in unique)
-    yz = sum(normal.y * normal.z for normal in unique)
-    zz = sum(normal.z * normal.z for normal in unique)
-    rhs = Vector(
-        tuple(
-            offset * sum(normal[axis] for normal in unique)
-            for axis in range(3)
-        )
-    )
-    trace = xx + yy + zz
-    determinant_limit = max(1e-14, trace * trace * trace * 1e-12)
-    determinant = (
-        xx * (yy * zz - yz * yz)
-        - xy * (xy * zz - yz * xz)
-        + xz * (xy * yz - yy * xz)
-    )
-    if abs(determinant) <= determinant_limit:
-        # Rank-deficient junction: alternating projections устойчивее
-        # инверсии почти сингулярной normal matrix.
-        delta = Vector((0.0, 0.0, 0.0))
-        for _iteration in range(128):
-            correction = Vector((0.0, 0.0, 0.0))
-            for normal in unique:
-                correction += normal * (offset - normal.dot(delta))
-            correction /= len(unique)
-            delta += correction
-            if correction.length_squared < 1e-20:
-                break
-        return source_pos + delta
-    cofactor_xx = yy * zz - yz * yz
-    cofactor_xy = xz * yz - xy * zz
-    cofactor_xz = xy * yz - xz * yy
-    cofactor_yy = xx * zz - xz * xz
-    cofactor_yz = xy * xz - xx * yz
-    cofactor_zz = xx * yy - xy * xy
-    delta = Vector(
-        (
-            (
-                cofactor_xx * rhs.x
-                + cofactor_xy * rhs.y
-                + cofactor_xz * rhs.z
-            )
-            / determinant,
-            (
-                cofactor_xy * rhs.x
-                + cofactor_yy * rhs.y
-                + cofactor_yz * rhs.z
-            )
-            / determinant,
-            (
-                cofactor_xz * rhs.x
-                + cofactor_yz * rhs.y
-                + cofactor_zz * rhs.z
-            )
-            / determinant,
-        )
-    )
-    return source_pos + delta
 
 
 def _corner_wing_directions(direction, normal_a, normal_b, dihedral_convexity=0.0):
@@ -1837,20 +1713,6 @@ def _simplify_collinear_surface_arrangement(
 # ============================================================
 # Сборка сети
 # ============================================================
-
-
-@dataclass
-class _NetworkFace:
-    """Готовая face декали: 3D позиции, shared-ключи вершин и UV-факты."""
-
-    surface_id: int
-    surface_normal: Vector
-    vert_keys: list
-    positions: list
-    u_fracs: list  # [-1..1]: −1 = внешний край стороны A, +1 = стороны B
-    v_lengths: list  # мировые единицы вдоль ветви
-    component_kind: str = "SURFACE"
-    component_side: str = ""
 
 
 def _branch_station_normals(branch):

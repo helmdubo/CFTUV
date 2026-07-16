@@ -27,12 +27,20 @@ except ImportError:  # Unit tests используют минимальный ma
     _tessellate_polygon = None
 
 from .constants import DECAL_WELD_DISTANCE
-from .decal_network import (
-    _NetworkFace,
-    _lift_position,
-    _polygon_area2,
-    _segment_point_distance2,
+from .decal_geometry import (
+    DecalGeometryFace,
+    lift_offset_position,
+    polygon_area2,
+    segment_point_distance2,
 )
+
+
+# Compatibility aliases для internal tests/старых scripts. Источник shared
+# contracts больше не legacy decal_network.
+_NetworkFace = DecalGeometryFace
+_lift_position = lift_offset_position
+_polygon_area2 = polygon_area2
+_segment_point_distance2 = segment_point_distance2
 
 try:
     import pyvoronoi
