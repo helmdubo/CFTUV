@@ -946,6 +946,15 @@ Tests:
 
 ## C2. Deterministic hinge unroll
 
+Статус: **IMPLEMENTED**. C1 support раскладывается immutable BFS по
+детерминированному root/site-owner и deterministic adjacency order. Каждый
+`ChartTriangle` хранит `parent_triangle_id`, `parent_source_edge` и три chart
+points; первая placement остаётся канонической, а повторный приход через cycle
+только измеряет loop-closure residual без усреднения координат. Реализованы
+edge-length/orientation validation, explicit zero-area failure и метрики angle
+defect, non-adjacent overlap, area ratio, closure и edge error. Developable
+admission/cut policy остаётся C3, production routing — C6.
+
 ### Algorithm
 
 1. Выбрать root triangle детерминированно:

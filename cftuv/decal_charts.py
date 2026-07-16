@@ -8,8 +8,9 @@ C1 строит triangle adjacency и conservative strip support; hinge unroll
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from math import isfinite, sqrt
+from collections import deque
+from dataclasses import dataclass, field, replace
+from math import acos, isfinite, pi, sqrt
 
 
 Vec2 = tuple[float, float]
@@ -38,6 +39,8 @@ class ChartTriangle:
     positions: tuple[Vec3, Vec3, Vec3]
     face_normal: Vec3
     chart_points: tuple[Vec2, ...] = ()
+    parent_triangle_id: int = -1
+    parent_source_edge: SourceEdge | None = None
 
     def __post_init__(self):
         if self.triangle_id < 0:
@@ -50,6 +53,18 @@ class ChartTriangle:
             raise ValueError("Chart triangle source geometry must be 3D")
         if self.chart_points and len(self.chart_points) != 3:
             raise ValueError("Placed chart triangle must have three points")
+        if self.parent_triangle_id < -1:
+            raise ValueError("Chart triangle parent id is invalid")
+        if self.parent_source_edge is not None and (
+            self.parent_source_edge[0] >= self.parent_source_edge[1]
+        ):
+            raise ValueError("Chart triangle parent edge must be canonical")
+        if (self.parent_triangle_id >= 0) != (
+            self.parent_source_edge is not None
+        ):
+            raise ValueError(
+                "Chart triangle parent id and edge must be set together"
+            )
 
     @property
     def is_placed(self) -> bool:
@@ -206,6 +221,7 @@ class IntrinsicStripChart:
     adjacency: tuple[ChartAdjacency, ...] = ()
     site_seeds: tuple[ChartSiteSeed, ...] = ()
     boundary_edges: tuple[ChartBoundaryEdge, ...] = ()
+    root_triangle_id: int = -1
     cuts: tuple[ChartCut, ...] = ()
     support_triangle_ids: tuple[int, ...] = ()
     alpha_budget: float = float("inf")
@@ -275,6 +291,48 @@ class IntrinsicStripChart:
                 and edge.neighbor_triangle_id in support_ids
             ):
                 raise ValueError("Chart support cut points inside support")
+        placed_ids = self.placed_triangle_ids
+        if self.root_triangle_id >= 0:
+            if self.root_triangle_id not in support_ids:
+                raise ValueError("Chart root leaves support")
+            if placed_ids != support_ids:
+                raise ValueError("Placed chart must cover its full support")
+            roots = tuple(
+                triangle.triangle_id
+                for triangle in self.triangles
+                if triangle.parent_triangle_id < 0
+            )
+            if roots != (self.root_triangle_id,):
+                raise ValueError("Placed chart must have one explicit root")
+            adjacency_edges = {
+                (
+                    relation.triangle_a,
+                    relation.triangle_b,
+                    relation.source_edge,
+                )
+                for relation in self.adjacency
+            }
+            for triangle in self.triangles:
+                if triangle.triangle_id == self.root_triangle_id:
+                    continue
+                parent_pair = tuple(
+                    sorted(
+                        (
+                            triangle.triangle_id,
+                            triangle.parent_triangle_id,
+                        )
+                    )
+                )
+                if (
+                    parent_pair[0],
+                    parent_pair[1],
+                    triangle.parent_source_edge,
+                ) not in adjacency_edges:
+                    raise ValueError(
+                        "Chart triangle parent edge is not adjacency"
+                    )
+        elif placed_ids:
+            raise ValueError("Placed chart requires an explicit root")
         for cut in self.cuts:
             if not set(cut.triangle_ids).issubset(support_ids):
                 raise ValueError("Chart cut leaves support")
@@ -799,6 +857,464 @@ def build_intrinsic_strip_charts(
     return tuple(charts)
 
 
+def _distance2(first, second):
+    dx = first[0] - second[0]
+    dy = first[1] - second[1]
+    return sqrt(dx * dx + dy * dy)
+
+
+def _distance3(first, second):
+    dx = first[0] - second[0]
+    dy = first[1] - second[1]
+    dz = first[2] - second[2]
+    return sqrt(dx * dx + dy * dy + dz * dz)
+
+
+def _cross2(first, second, third):
+    """Signed doubled area first-second-third."""
+
+    return (
+        (second[0] - first[0]) * (third[1] - first[1])
+        - (second[1] - first[1]) * (third[0] - first[0])
+    )
+
+
+def _source_area_twice(triangle):
+    first, second, third = triangle.positions
+    ab = tuple(second[axis] - first[axis] for axis in range(3))
+    ac = tuple(third[axis] - first[axis] for axis in range(3))
+    cross = (
+        ab[1] * ac[2] - ab[2] * ac[1],
+        ab[2] * ac[0] - ab[0] * ac[2],
+        ab[0] * ac[1] - ab[1] * ac[0],
+    )
+    return sqrt(sum(value * value for value in cross))
+
+
+def _triangle_scale(triangle):
+    first, second, third = triangle.positions
+    return max(
+        _distance3(first, second),
+        _distance3(second, third),
+        _distance3(third, first),
+    )
+
+
+def _validate_source_triangle_areas(chart):
+    for triangle in chart.triangles:
+        scale = _triangle_scale(triangle)
+        area_twice = _source_area_twice(triangle)
+        tolerance = max(1e-15, scale * scale * 1e-12)
+        if scale <= 1e-15 or area_twice <= tolerance:
+            raise ChartBuildFailure(
+                "ZERO_AREA_SOURCE_TRIANGLE",
+                chart.patch_id,
+                triangle_ids=(triangle.triangle_id,),
+                details=f"area2={area_twice:.12g} scale={scale:.12g}",
+            )
+
+
+def _root_triangle_id(chart):
+    owners = set()
+    if chart.site_seeds:
+        owners.update(
+            _seed_owner_triangles(
+                chart.site_seeds,
+                tuple(range(len(chart.site_seeds))),
+                chart.triangles,
+                _edge_uses(chart.triangles),
+                chart.patch_id,
+            )
+        )
+    return min(
+        chart.triangles,
+        key=lambda triangle: (
+            0 if triangle.triangle_id in owners else 1,
+            triangle.source_face_id,
+            triangle.triangle_id,
+        ),
+    ).triangle_id
+
+
+def _root_chart_points(triangle):
+    first, second, third = triangle.positions
+    edge_01 = _distance3(first, second)
+    edge_02 = _distance3(first, third)
+    edge_12 = _distance3(second, third)
+    x = (
+        edge_02 * edge_02
+        + edge_01 * edge_01
+        - edge_12 * edge_12
+    ) / (2.0 * edge_01)
+    height2 = max(0.0, edge_02 * edge_02 - x * x)
+    return ((0.0, 0.0), (edge_01, 0.0), (x, sqrt(height2)))
+
+
+def _triangle_point_map(triangle):
+    return dict(zip(triangle.source_vertex_ids, triangle.chart_points))
+
+
+def _hinge_child_points(parent, child, relation, patch_id):
+    edge_first, edge_second = relation.source_edge
+    parent_points = _triangle_point_map(parent)
+    first = parent_points[edge_first]
+    second = parent_points[edge_second]
+    parent_third_id = next(
+        vertex_id
+        for vertex_id in parent.source_vertex_ids
+        if vertex_id not in relation.source_edge
+    )
+    parent_third = parent_points[parent_third_id]
+
+    child_positions = dict(zip(child.source_vertex_ids, child.positions))
+    child_third_id = next(
+        vertex_id
+        for vertex_id in child.source_vertex_ids
+        if vertex_id not in relation.source_edge
+    )
+    edge_length = _distance2(first, second)
+    radius_first = _distance3(
+        child_positions[edge_first], child_positions[child_third_id]
+    )
+    radius_second = _distance3(
+        child_positions[edge_second], child_positions[child_third_id]
+    )
+    if edge_length <= 1e-15:
+        raise ChartBuildFailure(
+            "COLLAPSED_CHART_HINGE",
+            patch_id,
+            triangle_ids=(parent.triangle_id, child.triangle_id),
+            details=f"source_edge={relation.source_edge!r}",
+        )
+
+    along = (
+        radius_first * radius_first
+        - radius_second * radius_second
+        + edge_length * edge_length
+    ) / (2.0 * edge_length)
+    height2 = radius_first * radius_first - along * along
+    numeric_tolerance = max(1e-15, radius_first * radius_first * 1e-12)
+    if height2 < -numeric_tolerance:
+        raise ChartBuildFailure(
+            "INVALID_HINGE_GEOMETRY",
+            patch_id,
+            triangle_ids=(parent.triangle_id, child.triangle_id),
+            details=(
+                f"source_edge={relation.source_edge!r} "
+                f"height2={height2:.12g}"
+            ),
+        )
+    height = sqrt(max(0.0, height2))
+    direction = (
+        (second[0] - first[0]) / edge_length,
+        (second[1] - first[1]) / edge_length,
+    )
+    normal = (-direction[1], direction[0])
+    base = (
+        first[0] + direction[0] * along,
+        first[1] + direction[1] * along,
+    )
+    candidates = (
+        (base[0] + normal[0] * height, base[1] + normal[1] * height),
+        (base[0] - normal[0] * height, base[1] - normal[1] * height),
+    )
+    parent_side = _cross2(first, second, parent_third)
+    third = min(
+        candidates,
+        key=lambda candidate: (
+            0 if _cross2(first, second, candidate) * parent_side < 0.0 else 1,
+            candidate,
+        ),
+    )
+    points_by_vertex = {
+        edge_first: first,
+        edge_second: second,
+        child_third_id: third,
+    }
+    return tuple(
+        points_by_vertex[vertex_id]
+        for vertex_id in child.source_vertex_ids
+    )
+
+
+def _chart_adjacency_by_triangle(chart):
+    result = {triangle_id: [] for triangle_id in chart.support_triangle_ids}
+    for relation in chart.adjacency:
+        result[relation.triangle_a].append(
+            (relation.triangle_b, relation)
+        )
+        result[relation.triangle_b].append(
+            (relation.triangle_a, relation)
+        )
+    triangles = {
+        triangle.triangle_id: triangle for triangle in chart.triangles
+    }
+    return {
+        triangle_id: tuple(
+            sorted(
+                relations,
+                key=lambda item: (
+                    triangles[item[0]].source_face_id,
+                    item[0],
+                    item[1].source_edge,
+                ),
+            )
+        )
+        for triangle_id, relations in result.items()
+    }
+
+
+def _triangle_edge_relative_error(triangle):
+    source = triangle.positions
+    chart = triangle.chart_points
+    maximum = 0.0
+    for first, second in ((0, 1), (1, 2), (2, 0)):
+        source_length = _distance3(source[first], source[second])
+        chart_length = _distance2(chart[first], chart[second])
+        maximum = max(
+            maximum,
+            abs(chart_length - source_length) / max(source_length, 1e-15),
+        )
+    return maximum
+
+
+def _validate_chart_orientation(chart, root_triangle_id):
+    triangles = {
+        triangle.triangle_id: triangle for triangle in chart.triangles
+    }
+    root = triangles[root_triangle_id]
+    root_sign = _cross2(*root.chart_points)
+    tolerance = max(1e-15, _triangle_scale(root) ** 2 * 1e-12)
+    for triangle in chart.triangles:
+        signed_area = _cross2(*triangle.chart_points)
+        if signed_area * root_sign <= tolerance * tolerance:
+            raise ChartBuildFailure(
+                "INCONSISTENT_CHART_ORIENTATION",
+                chart.patch_id,
+                triangle_ids=(triangle.triangle_id,),
+                details=f"signed_area2={signed_area:.12g}",
+            )
+
+
+def _source_vertex_angle(triangle, vertex_index):
+    center = triangle.positions[vertex_index]
+    first = triangle.positions[(vertex_index + 1) % 3]
+    second = triangle.positions[(vertex_index + 2) % 3]
+    vector_first = tuple(first[axis] - center[axis] for axis in range(3))
+    vector_second = tuple(second[axis] - center[axis] for axis in range(3))
+    length_first = sqrt(sum(value * value for value in vector_first))
+    length_second = sqrt(sum(value * value for value in vector_second))
+    cosine = sum(
+        vector_first[axis] * vector_second[axis] for axis in range(3)
+    ) / (length_first * length_second)
+    return acos(max(-1.0, min(1.0, cosine)))
+
+
+def _discrete_angle_defect(chart):
+    boundary_vertices = {
+        vertex_id
+        for edge in chart.boundary_edges
+        for vertex_id in edge.source_edge
+    }
+    angle_sums = {}
+    for triangle in chart.triangles:
+        for vertex_index, vertex_id in enumerate(triangle.source_vertex_ids):
+            angle_sums[vertex_id] = angle_sums.get(vertex_id, 0.0) + (
+                _source_vertex_angle(triangle, vertex_index)
+            )
+    return max(
+        (
+            abs(2.0 * pi - angle_sum)
+            for vertex_id, angle_sum in angle_sums.items()
+            if vertex_id not in boundary_vertices
+        ),
+        default=0.0,
+    )
+
+
+def _triangles_overlap_area(first, second, tolerance):
+    axes = []
+    for triangle in (first, second):
+        for index in range(3):
+            edge_first = triangle[index]
+            edge_second = triangle[(index + 1) % 3]
+            dx = edge_second[0] - edge_first[0]
+            dy = edge_second[1] - edge_first[1]
+            length = sqrt(dx * dx + dy * dy)
+            axes.append((-dy / length, dx / length))
+    for axis in axes:
+        projection_first = tuple(
+            point[0] * axis[0] + point[1] * axis[1] for point in first
+        )
+        projection_second = tuple(
+            point[0] * axis[0] + point[1] * axis[1] for point in second
+        )
+        overlap = min(max(projection_first), max(projection_second)) - max(
+            min(projection_first), min(projection_second)
+        )
+        if overlap <= tolerance:
+            return False
+    return True
+
+
+def _triangle_overlap_count(chart):
+    adjacent_pairs = {
+        (relation.triangle_a, relation.triangle_b)
+        for relation in chart.adjacency
+    }
+    triangles = tuple(chart.triangles)
+    scale = max((_triangle_scale(triangle) for triangle in triangles), default=1.0)
+    tolerance = max(1e-12, scale * 1e-10)
+    count = 0
+    for first_index, first in enumerate(triangles):
+        for second in triangles[first_index + 1 :]:
+            pair = (first.triangle_id, second.triangle_id)
+            if pair in adjacent_pairs:
+                continue
+            if _triangles_overlap_area(
+                first.chart_points, second.chart_points, tolerance
+            ):
+                count += 1
+    return count
+
+
+def _chart_area_ratio(chart):
+    source_area = sum(
+        0.5 * _source_area_twice(triangle) for triangle in chart.triangles
+    )
+    chart_area = sum(
+        0.5 * abs(_cross2(*triangle.chart_points))
+        for triangle in chart.triangles
+    )
+    return chart_area / source_area
+
+
+def unroll_intrinsic_strip_chart(
+    chart,
+    *,
+    edge_relative_tolerance=1e-9,
+) -> IntrinsicStripChart:
+    """Детерминированно раскладывает C1 support через shared-edge hinges."""
+
+    edge_relative_tolerance = float(edge_relative_tolerance)
+    if (
+        not isfinite(edge_relative_tolerance)
+        or edge_relative_tolerance <= 0.0
+    ):
+        raise ValueError("C2 edge tolerance must be finite and positive")
+    if not chart.triangles:
+        raise ChartBuildFailure("EMPTY_CHART_SUPPORT", chart.patch_id)
+    if chart.placed_triangle_ids:
+        raise ChartBuildFailure("CHART_ALREADY_PLACED", chart.patch_id)
+    _validate_source_triangle_areas(chart)
+
+    triangles = {
+        triangle.triangle_id: triangle for triangle in chart.triangles
+    }
+    root_id = _root_triangle_id(chart)
+    root = replace(
+        triangles[root_id],
+        chart_points=_root_chart_points(triangles[root_id]),
+    )
+    placed = {root_id: root}
+    queue = deque((root_id,))
+    adjacency = _chart_adjacency_by_triangle(chart)
+    tree_edges = set()
+    measured_cycles = set()
+    max_loop_closure_residual = 0.0
+
+    while queue:
+        parent_id = queue.popleft()
+        parent = placed[parent_id]
+        for child_id, relation in adjacency[parent_id]:
+            child_source = triangles[child_id]
+            candidate_points = _hinge_child_points(
+                parent, child_source, relation, chart.patch_id
+            )
+            if child_id not in placed:
+                placed[child_id] = replace(
+                    child_source,
+                    chart_points=candidate_points,
+                    parent_triangle_id=parent_id,
+                    parent_source_edge=relation.source_edge,
+                )
+                tree_edges.add(relation.key)
+                queue.append(child_id)
+                continue
+            if relation.key in tree_edges or relation.key in measured_cycles:
+                continue
+            measured_cycles.add(relation.key)
+            max_loop_closure_residual = max(
+                max_loop_closure_residual,
+                max(
+                    _distance2(candidate, actual)
+                    for candidate, actual in zip(
+                        candidate_points, placed[child_id].chart_points
+                    )
+                ),
+            )
+
+    if set(placed) != set(chart.support_triangle_ids):
+        missing = set(chart.support_triangle_ids).difference(placed)
+        raise ChartBuildFailure(
+            "DISCONNECTED_CHART_SUPPORT",
+            chart.patch_id,
+            triangle_ids=missing,
+        )
+
+    placed_triangles = tuple(placed[triangle_id] for triangle_id in sorted(placed))
+    placed_chart = replace(
+        chart,
+        triangles=placed_triangles,
+        root_triangle_id=root_id,
+    )
+    _validate_chart_orientation(placed_chart, root_id)
+    max_edge_error = max(
+        _triangle_edge_relative_error(triangle)
+        for triangle in placed_chart.triangles
+    )
+    if max_edge_error > edge_relative_tolerance:
+        raise ChartBuildFailure(
+            "CHART_EDGE_LENGTH_ERROR",
+            chart.patch_id,
+            triangle_ids=placed_chart.support_triangle_ids,
+            details=(
+                f"error={max_edge_error:.12g} "
+                f"tolerance={edge_relative_tolerance:.12g}"
+            ),
+        )
+    return replace(
+        placed_chart,
+        metrics=ChartBuildMetrics(
+            support_triangle_count=len(placed_chart.support_triangle_ids),
+            adjacency_count=len(placed_chart.adjacency),
+            boundary_edge_count=len(placed_chart.boundary_edges),
+            cut_count=len(placed_chart.cuts),
+            max_edge_error=max_edge_error,
+            max_loop_closure_residual=max_loop_closure_residual,
+            discrete_angle_defect=_discrete_angle_defect(placed_chart),
+            triangle_overlap_count=_triangle_overlap_count(placed_chart),
+            chart_area_source_area_ratio=_chart_area_ratio(placed_chart),
+        ),
+    )
+
+
+def unroll_intrinsic_strip_charts(
+    charts,
+    *,
+    edge_relative_tolerance=1e-9,
+) -> tuple[IntrinsicStripChart, ...]:
+    """C2 batch helper с сохранением deterministic chart order."""
+
+    return tuple(
+        unroll_intrinsic_strip_chart(
+            chart,
+            edge_relative_tolerance=edge_relative_tolerance,
+        )
+        for chart in charts
+    )
+
+
 __all__ = (
     "ChartAdjacency",
     "ChartBoundaryEdge",
@@ -812,4 +1328,6 @@ __all__ = (
     "build_triangle_adjacency",
     "chart_site_seeds_from_chain",
     "chart_triangles_from_patch",
+    "unroll_intrinsic_strip_chart",
+    "unroll_intrinsic_strip_charts",
 )
