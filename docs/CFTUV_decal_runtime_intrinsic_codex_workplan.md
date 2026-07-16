@@ -1134,47 +1134,138 @@ Definition of done C: фаски, cylindrical fillets и open tubes обслуж
 
 # TRANCHE D — Periodic Domains
 
+Замкнутые трубы/кольца: чарт строится с одним deterministic cut
+(механика C уже умеет, fixture F4), а периодичность — метаданные
+поверх этого cut. Никакого нового типа чарта.
+
+## D-предрешения (утверждены; не пере-обсуждать в автономном режиме)
+
+**DP1 — Транзверсальное пересечение cut разрешено; коллинеарное —
+запрещено.** Уточнение G7 admission-оракула для periodic-случая:
+кольцевая цепочка вокруг трубы НЕИЗБЕЖНО пересекает каждую
+образующую, включая cut. Запрещено только совпадение cut с рёбрами
+selected chain (коллинеарный overlap — прежний
+`CUT_CROSSES_SELECTED_CHAIN`). Транзверсальное пересечение полосы
+декали с cut — штатный режим, который и обслуживают periodic copies.
+Без этого уточнения каждая кольцевая декаль была бы отвергнута —
+т.е. весь транш был бы пуст. Обновить формулировку G7 в
+`docs/decal_chart_admission.md` тем же коммитом, что и D1.
+
+**DP2 — Только трансляционная периодичность в v1.** Два cut-ребра в
+chart space обязаны быть параллельными трансляциями друг друга
+(взаимный поворот <= 0.02 rad — тот же бюджет, что G3). Кольцо на
+коническом фрустуме разворачивается в сектор кольца (периодичность
+вращательная) — v1 отказывает с новым reason
+`PERIODIC_HOLONOMY_UNSUPPORTED` -> component fallback. Конусные
+кольца — кандидат в E, не импровизировать.
+
+**DP3 — Период квантуется решёткой диаграммы.** `period` снапится к
+кванту `DiagramTransform` (B0) при compile, чтобы modulo-свёртка
+координат была бит-точной. Сварка вершин через periodic seam — ТОЛЬКО
+через transition equivalence keys (`ChartCut.transition_key`, B3/C0);
+сырой float `U % period` в качестве ключа запрещён. Станция на
+U = 0 и её образ на U = period — один и тот же ключ по построению.
+
+**DP4 — `alpha_budget` клампится в `period / 2`.** Drag шире —
+существующая B4-семантика `DOMAIN_BUDGET_EXCEEDED` (last valid
+preview + header), никакого нового UX. Ровно на `period/2` кольцевая
+декаль закрывает трубу целиком: фронты самосталкиваются вдоль
+антиподальной линии, покрытие обязано замкнуться без щели и без
+double-cover (это фикстура D4.6).
+
+**DP5 — Копии существуют только в диаграмме.** Sites/corners в зоне
+`alpha_budget` от любого из двух cut-краёв дублируются на
+`U ± period` как входы PyVoronoi; материализация дедуплицируется
+каноническими ключами (DP3). Ни одна грань не эмитится дважды; счётчик
+copies — в diagnostics/benchmark JSON.
+
 ## D0. Periodic IR
 
-Расширить domain:
+### Изменения
+- Расширить domain/chart: `periodic_axis` (уже поле), `period`
+  (квантованный, DP3), `wrap_origin`, ссылка на порождающий
+  `ChartCut`, transition equivalence map (canonical key <-> images).
+- Валидация в `__post_init__`: period > 0 при periodic_axis != "",
+  period кратен кванту, wrap_origin внутри [0, period).
+### Tests
+- IR-валидации; сериализация periodic-полей в benchmark JSON.
+### Acceptance
+- Никакого изменения поведения non-periodic путей (differential
+  walls + C7 fixtures — байт-в-байт).
 
-- `periodic_axis`;
-- `period`;
-- `wrap_origin`;
-- deterministic cut source features;
-- transition equivalence map.
+## D1. Cut selection для замкнутого support
 
-## D1. Cut selection
-
-Для annulus/tube выбрать cut:
-
-- не пересекает selected chain/sites;
-- максимально удалён от network в пределах support;
-- deterministic tie-break по source edge id;
-- записан в diagnostics.
+### Изменения
+- Кандидаты cut: пути по source-рёбрам вдоль periodic-направления.
+- Фильтр: без коллинеарного совпадения с selected chains (DP1).
+- Скоринг: максимальная дистанция до ближайшего selected site в
+  пределах support; tie-break по минимальному canonical source edge id.
+- Проверка DP2 (параллельность cut-краёв после unroll) — иначе
+  `PERIODIC_HOLONOMY_UNSUPPORTED`.
+- Выбор записан в diagnostics (`cut.reason`, дистанция, кандидаты).
+### Tests
+- Детерминизм при reversed enumeration и при повороте меша;
+- кольцевая цепочка (транзверсальная к cut) ПРИНИМАЕТСЯ (DP1);
+- конусный фрустум -> reject с точным reason.
 
 ## D2. Periodic Voronoi copies
 
-- sites в пределах `alpha_budget` от U-boundary получают copies `U ± period`;
-- domain boundary triangles при необходимости также копируются;
-- после clipping coordinates canonicalize modulo period;
-- keys через transition equivalence, не только quantized U/V.
+### Изменения
+- Зона копирования: `alpha_budget` от каждого cut-края; копируемые
+  сущности: sites, их endpoint corners, при необходимости boundary
+  triangles домена.
+- После clipping координаты канонизируются modulo period (бит-точно,
+  DP3); ключи станций/вершин — через equivalence map, не через U/V.
+- Диагностика: `periodic_copy_count`, `periodic_weld_count`.
+### Tests
+- Сварка через seam бит-точна: серия ширин, ни одного дубля ключа,
+  ни одной пары несваренных совпадающих вершин;
+- цепочка, лежащая ровно на cut-краю зоны копирования (граничный
+  случай квантования).
+### Stop condition
+- Если бит-точная сварка недостижима без изменения квантования B0 —
+  остановиться и задать вопрос, не ослаблять допуски сварки.
 
-## D3. UV transport
+## D3. UV transport через periodic seam
 
-- closed chain имеет один transport direction;
-- V continuity через periodic seam;
-- U side parity стабильна;
-- no duplicate faces на wrap.
+### Изменения
+- Замкнутая цепочка: один transport direction, V монотонна вдоль
+  кольца, V-шов — в детерминированной точке (closure point цепочки),
+  суммарная V-длина = длина кольца (для будущего snap на целые
+  повторы паттерна — ответственность texturing-слоя, producer отдаёт
+  факт).
+- U side parity стабильна через seam; winding валидируется против
+  owner normal (существующее правило).
+- S1-инварианты действуют: periodic images статичны, внутренние швы
+  не переезжают при width drag.
+### Tests
+- V-непрерывность и отсутствие V-скачка на seam (кроме closure
+  point); дубликаты faces на wrap = 0; S1 supporting-lines тест на
+  кольцевой фикстуре.
 
-## D4. Tests
+## D4. Приёмочные фикстуры
 
-- closed cylinder;
-- closed polygonal tube;
-- selected seam близко к chart cut;
-- collision через periodic boundary;
-- reversed winding/normal sign;
-- width до alpha_budget.
+| # | Фикстура | Проверяет |
+|---|---|---|
+| D4.1 | Closed cylinder, кольцевая цепочка | базовый путь: cut транзверсален (DP1), copies, сварка |
+| D4.2 | Closed polygonal tube (hex/oct duct, hard edges) | периодичность + fold'ы одновременно |
+| D4.3 | Selected chain на расстоянии < alpha от cut | copies обязаны включиться; сварка через seam |
+| D4.4 | Две цепочки, коллизия ЧЕРЕЗ periodic boundary | конкуренция фронтов сквозь seam |
+| D4.5 | Reversed winding / normal sign | детерминизм и parity |
+| D4.6 | Width drag до `alpha_budget = period/2` | антиподальное замыкание: gap = 0, double-cover = 0, S1 после самостолкновения |
+| D4.N1 | Конусный фрустум, кольцевая цепочка | **REJECT** `PERIODIC_HOLONOMY_UNSUPPORTED` + fallback |
+| D4.N2 | Cut, коллинеарный selected chain (все кандидаты) | **REJECT** `CUT_CROSSES_SELECTED_CHAIN` |
+
+Общие проверки — как в C7 (component connectivity, zero-area = 0,
+preview == confirm, `Construct() == 0` в drag, детерминизм).
+
+### Definition of done Tranche D
+1. Все восемь фикстур по таблице; счётчики copies/weld в отчёте.
+2. Кольцевой трим на замкнутой трубе закрывается без щели на любом
+   width вплоть до `period/2`.
+3. Non-periodic пути не изменились (differential C7 + walls).
+4. Обновлены `docs/decal_chart_admission.md` (G7 + DP1-DP2 reasons) и
+   `docs/cftuv_decal_runtime.md`.
 
 ---
 
