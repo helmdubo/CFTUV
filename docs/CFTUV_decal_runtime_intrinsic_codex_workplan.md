@@ -1082,6 +1082,15 @@ Station на source fold edge должна использовать adjacent fac
 
 ## C6. Integration и fallback
 
+Статус: **IMPLEMENTED**. `compile_patch_voronoi_attempt()` сохраняет
+PLANAR fast path, а non-planar PatchNode компилирует через C1–C5
+INTRINSIC developable chart pipeline. Chart/admission failure локализуется до
+всех selected sites затронутого patch component и явно маршрутизируется в
+LEGACY без частичного покрытия. Backend summary различает `PLANAR`,
+`INTRINSIC_DEVELOPABLE`, mixed plan и `LEGACY`, а также печатает canonical
+failure reasons. Runtime width/preview используют общий compiled plan; для
+intrinsic surfaces старые межплоскостные junction-connectors не создаются.
+
 1. `compile_patch_voronoi_attempt()`:
    - PLANAR fast path сохраняется;
    - non-planar patch сначала пробует intrinsic developable strip chart;

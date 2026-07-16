@@ -584,22 +584,38 @@ def _single_patch_fold_graph():
         basis_v=Vector((0.0, 1.0, 0.0)),
     )
     node.mesh_verts = verts
+    node.mesh_vert_indices = list(range(len(verts)))
     node.mesh_tris = [
         (0, 1, 2),
         (0, 2, 3),
         (0, 4, 1),
         (0, 5, 4),
     ]
+    node.mesh_tri_face_indices = [100, 100, 101, 101]
+    node.mesh_tri_face_normals = [
+        Vector((0.0, 0.0, 1.0)),
+        Vector((0.0, 0.0, 1.0)),
+        Vector((0.0, -1.0, 0.0)),
+        Vector((0.0, -1.0, 0.0)),
+    ]
+    node.mesh_tri_edge_indices = [
+        (-1, -1, -1),
+        (70, -1, -1),
+        (-1, -1, -1),
+        (71, -1, -1),
+    ]
     front = BoundaryChain(
         vert_indices=[3, 2],
         vert_cos=[verts[3], verts[2]],
         edge_indices=[70],
+        side_face_indices=[100],
         side_face_normals=[Vector((0.0, 0.0, 1.0))],
     )
     folded = BoundaryChain(
         vert_indices=[5, 4],
         vert_cos=[verts[5], verts[4]],
         edge_indices=[71],
+        side_face_indices=[101],
         side_face_normals=[Vector((0.0, -1.0, 0.0))],
     )
     node.boundary_loops = [BoundaryLoop(chains=[front, folded])]
@@ -2705,7 +2721,7 @@ def test_patch_voronoi_rejects_non_planar_owner_patch():
     assert attempt.plan is None
     assert attempt.rejected_edge_indices == (10, 12)
     assert [(failure.patch_id, failure.reason) for failure in attempt.failures] == [
-        (0, "NO_OWNER_SURFACES")
+        (0, "MISSING_SITE_FACE_PROVENANCE")
     ]
 
 
@@ -2713,6 +2729,7 @@ def test_warped_owner_face_uses_serialized_face_provenance():
     graph = _planar_two_site_graph()
     node = graph.nodes[0]
     node.mesh_verts[2] = Vector((4.0, 2.0, 0.01))
+    node.mesh_vert_indices = list(range(len(node.mesh_verts)))
     node.mesh_tri_face_indices = [17, 17]
     node.mesh_tri_face_normals = [
         Vector((0.0, -0.0025, 1.0)).normalized(),
@@ -2735,14 +2752,13 @@ def test_non_planar_topology_patch_compiles_real_planar_owner_surfaces():
         _single_patch_fold_graph(), [70, 71], offset=0.01
     )
     assert plan is not None
-    assert len(plan.surfaces) == 2
-    assert sorted(len(surface.sites) for surface in plan.surfaces) == [1, 1]
-    normals = {
-        tuple(round(value, 6) for value in surface.domain.reference_normal)
-        for surface in plan.surfaces
-    }
-    assert normals == {(0.0, -1.0, 0.0), (0.0, 0.0, 1.0)}
-    assert evaluate_patch_voronoi_plan(plan, width=0.5, preview=True)
+    assert plan.backend_kind == "INTRINSIC_DEVELOPABLE"
+    assert len(plan.surfaces) == 1
+    assert len(plan.surfaces[0].sites) == 2
+    assert plan.surfaces[0].domain.kind == "INTRINSIC"
+    faces = evaluate_patch_voronoi_plan(plan, width=0.5, preview=True)
+    assert faces
+    assert all(face.component_kind != "JUNCTION" for face in faces)
 
 
 def test_planar_crop_topology_is_stable_for_reversed_normal_and_float_noise():

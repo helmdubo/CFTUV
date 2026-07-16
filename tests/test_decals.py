@@ -127,7 +127,8 @@ def test_manual_seam_plan_routes_only_failed_topology_component_to_legacy(
     assert plan.backend_partitions[0].topology_component_count == 1
     assert plan.backend_partitions[1].edge_indices == (1, 2)
     assert plan.backend_summary == (
-        "Patch Voronoi:1c/1e | Legacy:1c/2e"
+        "PLANAR:1c/1e | LEGACY:1c/2e | "
+        "Fallback[NO_OWNER_SURFACES:x1]"
     )
 
 

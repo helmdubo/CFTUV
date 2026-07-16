@@ -28,6 +28,12 @@ except ImportError:  # Unit tests используют минимальный ma
     _tessellate_polygon = None
 
 from .constants import DECAL_WELD_DISTANCE
+from .decal_chart_admission import admit_intrinsic_strip_charts
+from .decal_charts import (
+    ChartBuildFailure,
+    ChartSiteSeed,
+    build_intrinsic_strip_charts,
+)
 from .decal_geometry import (
     DecalGeometryFace,
     DomainLocation,
@@ -829,6 +835,15 @@ class PatchVoronoiPlan:
                 self.budget_source,
             )
         return self.support_triangle_ids
+
+    @property
+    def backend_kind(self):
+        kinds = {surface.domain.kind for surface in self.surfaces}
+        if kinds == {"PLANAR"}:
+            return "PLANAR"
+        if kinds == {"INTRINSIC"}:
+            return "INTRINSIC_DEVELOPABLE"
+        return "PLANAR+INTRINSIC_DEVELOPABLE"
 
 
 class DomainBudgetExceeded(ValueError):
@@ -4398,6 +4413,60 @@ def _compile_intrinsic_surface(node, chart, raw_sites, diagnostics=None):
     )
 
 
+def _fallback_chart_alpha_budget(node):
+    """Конечный compile budget для diagnostic вызовов без runtime width."""
+
+    if not node.mesh_verts:
+        return 1.0
+    minimum = Vector(
+        tuple(min(point[axis] for point in node.mesh_verts) for axis in range(3))
+    )
+    maximum = Vector(
+        tuple(max(point[axis] for point in node.mesh_verts) for axis in range(3))
+    )
+    return max((maximum - minimum).length, 1e-6)
+
+
+def _intrinsic_chart_site_seeds(node, patch_sites):
+    """Строго сериализует sites; отсутствие provenance означает fallback."""
+
+    result = []
+    for raw in sorted(
+        patch_sites,
+        key=lambda item: (
+            int(item["edge_index"]),
+            int(item["owner_face_index"]),
+        ),
+    ):
+        edge_index = int(raw["edge_index"])
+        owner_face_index = int(raw["owner_face_index"])
+        if owner_face_index < 0:
+            raise ChartBuildFailure(
+                "MISSING_SITE_FACE_PROVENANCE",
+                int(node.patch_id),
+                edge_ids=(edge_index,),
+            )
+        try:
+            result.append(
+                ChartSiteSeed(
+                    edge_index=edge_index,
+                    source_vertex_ids=tuple(
+                        sorted((int(raw["vert_a"]), int(raw["vert_b"])))
+                    ),
+                    source_face_id=owner_face_index,
+                    chain_ref=None,
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            raise ChartBuildFailure(
+                "INVALID_SITE_PROVENANCE",
+                int(node.patch_id),
+                edge_ids=(edge_index,),
+                details=str(exc),
+            ) from exc
+    return tuple(result)
+
+
 def compile_patch_voronoi_attempt(
     graph,
     selected_edge_indices,
@@ -4455,23 +4524,44 @@ def compile_patch_voronoi_attempt(
     surfaces = []
     rejected_edges = set()
     failures = []
+    has_intrinsic_surface = False
     for patch_id in sorted(raw_by_patch):
         node = graph.nodes[patch_id]
         patch_sites = raw_by_patch[patch_id]
         if _patch_is_planar(node):
-            owner_surfaces = ((node, patch_sites),)
+            owner_surfaces = ((node, patch_sites, None),)
         else:
-            owner_surfaces = _planar_owner_surfaces(node, patch_sites)
-            if not owner_surfaces:
+            chart_budget = requested_alpha_budget
+            if not isfinite(chart_budget):
+                chart_budget = _fallback_chart_alpha_budget(node)
+            try:
+                chart_seeds = _intrinsic_chart_site_seeds(node, patch_sites)
+                charts = build_intrinsic_strip_charts(
+                    node,
+                    chart_seeds,
+                    alpha_budget=chart_budget,
+                )
+                charts = admit_intrinsic_strip_charts(
+                    charts,
+                    initial_alpha=chart_budget,
+                )
+            except ChartBuildFailure as exc:
+                # Chart builder принимает patch-wide seed set. До того как
+                # charts успешно разделены, локализовать отказ уже одного
+                # seed нельзя: hybrid router обязан вернуть весь этот patch
+                # component в legacy, иначе появится дырка между backend'ами.
                 edge_indices = tuple(
-                    sorted({int(site["edge_index"]) for site in patch_sites})
+                    sorted(
+                        {int(site["edge_index"]) for site in patch_sites}
+                    )
                 )
                 rejected_edges.update(edge_indices)
                 failures.append(
                     PatchVoronoiCompileFailure(
                         patch_id=int(patch_id),
-                        reason="NO_OWNER_SURFACES",
+                        reason=exc.code,
                         edge_indices=edge_indices,
+                        details=exc.details,
                     )
                 )
                 if not allow_partial:
@@ -4481,11 +4571,32 @@ def compile_patch_voronoi_attempt(
                         failures=tuple(failures),
                     )
                 continue
-        for owner_surface, owner_sites in owner_surfaces:
-            try:
-                surface = _compile_surface(
-                    owner_surface, owner_sites, diagnostics
+            owner_surfaces = tuple(
+                (
+                    node,
+                    tuple(
+                        raw
+                        for raw in patch_sites
+                        if int(raw["edge_index"])
+                        in {seed.edge_index for seed in chart.site_seeds}
+                    ),
+                    chart,
                 )
+                for chart in charts
+            )
+        for owner_surface, owner_sites, intrinsic_chart in owner_surfaces:
+            try:
+                if intrinsic_chart is None:
+                    surface = _compile_surface(
+                        owner_surface, owner_sites, diagnostics
+                    )
+                else:
+                    surface = _compile_intrinsic_surface(
+                        owner_surface,
+                        intrinsic_chart,
+                        owner_sites,
+                        diagnostics,
+                    )
             except _PatchVoronoiSurfaceCompileError as exc:
                 edge_indices = exc.edge_indices or tuple(
                     sorted(
@@ -4552,6 +4663,9 @@ def compile_patch_voronoi_attempt(
                     )
                 continue
             surfaces.append(surface)
+            has_intrinsic_surface = (
+                has_intrinsic_surface or surface.domain.kind == "INTRINSIC"
+            )
     lifted_vertices = {
         vert_index: _lift_position(
             positions_by_vert[vert_index], normals, float(offset)
@@ -4574,17 +4688,41 @@ def compile_patch_voronoi_attempt(
                     )
     plan = None
     if surfaces:
+        actual_alpha_budget = (
+            requested_alpha_budget
+            if has_intrinsic_surface
+            else float("inf")
+        )
+        if not isfinite(actual_alpha_budget):
+            actual_alpha_budget = max(
+                (
+                    surface.domain.alpha_budget
+                    for surface in surfaces
+                    if surface.domain.kind == "INTRINSIC"
+                ),
+                default=float("inf"),
+            )
         plan = PatchVoronoiPlan(
             offset=float(offset),
             surfaces=tuple(surfaces),
             lifted_vertices=lifted_vertices,
             max_lateral_lift_ratio=max_lateral_lift_ratio,
-            # PLANAR backend сейчас компилирует полный connected component:
-            # он честно поддерживает любую ширину внутри domain. Конечный
-            # requested budget уже проходит API и станет actual alpha_budget,
-            # когда C0/C1 начнут ограничивать intrinsic strip support.
-            alpha_budget=float("inf"),
-            budget_source="FULL_CONNECTED_COMPONENT",
+            alpha_budget=actual_alpha_budget,
+            support_triangle_ids=tuple(
+                tuple(
+                    range(
+                        len(surface.domain.intrinsic_triangles)
+                        if surface.domain.intrinsic_triangles
+                        else len(surface.domain.boundary_triangles)
+                    )
+                )
+                for surface in surfaces
+            ),
+            budget_source=(
+                "STRIP_BUDGET"
+                if has_intrinsic_surface
+                else "FULL_CONNECTED_COMPONENT"
+            ),
             requested_alpha_budget=requested_alpha_budget,
         )
     return PatchVoronoiCompileAttempt(
@@ -5270,10 +5408,18 @@ def _junction_connector_faces(
     """
 
     surfaces_by_id = {
-        surface.patch_id: surface for surface in plan.surfaces
+        surface.patch_id: surface
+        for surface in plan.surfaces
+        if getattr(getattr(surface, "domain", None), "kind", "PLANAR")
+        == "PLANAR"
     }
     incident_edges_by_vertex = {}
     for surface in plan.surfaces:
+        if (
+            getattr(getattr(surface, "domain", None), "kind", "PLANAR")
+            != "PLANAR"
+        ):
+            continue
         if (
             diagnostics is not None
             and diagnostics.reference_full_scan

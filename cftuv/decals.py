@@ -364,27 +364,50 @@ class ManualSeamDecalPlan:
 
     @property
     def backend_summary(self):
-        if not self.backend_partitions and not self.rejected_edges:
+        if (
+            not self.backend_partitions
+            and not self.rejected_edges
+            and not self.compile_failures
+        ):
             return ""
-        if not self.backend_partitions:
-            return f"Rejected:{len(self.rejected_edges)}e"
-        counts = {
-            "PATCH_VORONOI": [0, 0],
-            "LEGACY_NETWORK": [0, 0],
-        }
+        counts = {}
         for partition in self.backend_partitions:
-            bucket = counts.setdefault(partition.backend, [0, 0])
+            if partition.backend == "PATCH_VORONOI":
+                backend_label = getattr(
+                    partition.compiled_plan, "backend_kind", "PLANAR"
+                )
+            else:
+                backend_label = "LEGACY"
+            bucket = counts.setdefault(backend_label, [0, 0])
             bucket[0] += int(partition.topology_component_count)
             bucket[1] += len(partition.edge_indices)
-        patch_components, patch_edges = counts["PATCH_VORONOI"]
-        legacy_components, legacy_edges = counts["LEGACY_NETWORK"]
-        summary = (
-            f"Patch Voronoi:{patch_components}c/{patch_edges}e | "
-            f"Legacy:{legacy_components}c/{legacy_edges}e"
+        order = (
+            "PLANAR",
+            "INTRINSIC_DEVELOPABLE",
+            "PLANAR+INTRINSIC_DEVELOPABLE",
+            "LEGACY",
         )
+        parts = [
+            f"{label}:{counts[label][0]}c/{counts[label][1]}e"
+            for label in order
+            if label in counts
+        ]
+        failure_counts = {}
+        for failure in self.compile_failures:
+            reason = str(getattr(failure, "reason", "UNKNOWN"))
+            failure_counts[reason] = failure_counts.get(reason, 0) + 1
+        if failure_counts:
+            parts.append(
+                "Fallback["
+                + ",".join(
+                    f"{reason}:x{failure_counts[reason]}"
+                    for reason in sorted(failure_counts)
+                )
+                + "]"
+            )
         if self.rejected_edges:
-            summary += f" | Rejected:{len(self.rejected_edges)}e"
-        return summary
+            parts.append(f"Rejected:{len(self.rejected_edges)}e")
+        return " | ".join(parts)
 
 
 class PatchVoronoiRuntimeError(RuntimeError):
