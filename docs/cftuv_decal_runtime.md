@@ -15,9 +15,9 @@ Harness выполняет repeated preview и exact confirm для ширин
 compile не меняется во время width drag.
 
 Baseline Blender 4.3.2 на включённой fixture
-`VERIFY_SRC_MANUAL_SEAMS` (25 selected edges): compile `156.57 ms`, median
-preview evaluator `24.82 / 23.55 / 24.24 / 19.10 ms`; materialization
-`0.81 / 0.59 / 0.61 / 0.41 ms`. Во всех четырёх ширинах dropped faces = 0,
+`VERIFY_SRC_MANUAL_SEAMS` (25 selected edges): compile `161.92 ms`, median
+preview evaluator `25.57 / 24.42 / 23.89 / 26.38 ms`; materialization
+`0.92 / 0.58 / 0.57 / 0.81 ms`. Во всех четырёх ширинах dropped faces = 0,
 repeated output и preview/confirm совпали, `Construct during drag = 0`.
 Полный JSON лежит в `artifacts/decal_runtime_baseline.json`.
 
@@ -66,6 +66,13 @@ Optional `PatchVoronoiDiagnostics` содержит `clamped_miter_count`,
 `apex_limit_saturated_count`; изменение Apex Limit не вызывает новый
 `Pyvoronoi.Construct()`.
 
+Каждый corner crop до merge ограничивается endpoint ownership incident site:
+corner у `point_a` владеет `t <= 0.5`, corner у `point_b` — `t >= 0.5`.
+Midpoint divider перпендикулярен segment и определяется его физическими
+endpoints, а не индексами corner/site. Поэтому crops двух концов короткого
+segment не перекрываются даже при `width > segment_length`; segment-cell
+вычитает только уже ограниченные crops и сохраняет весь оставшийся coverage.
+
 Дополнительные acute/obtuse bands из референсного инструмента нельзя добавлять
 до определения их точной семантики. Они должны расширять
 `CornerRuntimeSettings`, а не возвращать policy в compile stage.
@@ -76,6 +83,14 @@ Modal `invoke`, обычный `execute` и headless/Python invocation обяз�
 компилировать один и тот же `ManualSeamDecalPlan`. Preview и confirm используют
 тот же evaluator с одинаковыми параметрами; отличается только точность
 материализации.
+
+## Developer build identity
+
+В верхней части панели Hotspot UV показываются `Branch` и первые восемь
+символов `Commit` checkout, из которого Blender импортировал аддон. Resolver
+читает Git metadata напрямую и поддерживает обычный checkout и linked
+worktree. Если аддон установлен без `.git`, обе строки честно показывают
+`unavailable`; упакованная копия не выдаётся за проверяемый commit.
 
 ## Persistent preview materialization
 

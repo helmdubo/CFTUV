@@ -991,6 +991,152 @@ def test_corner_absorbs_incident_point_cell_boundaries_before_collision():
     assert len(segment_faces) == len(plan.surfaces[0].sites)
 
 
+def _short_segment_endpoint_surface(reverse_site=False):
+    if reverse_site:
+        vert_a, vert_b = 1, 0
+        point_a, point_b = (1.0, 0.0), (0.0, 0.0)
+    else:
+        vert_a, vert_b = 0, 1
+        point_a, point_b = (0.0, 0.0), (1.0, 0.0)
+    site = decal_voronoi._PatchVoronoiSite(
+        patch_id=0,
+        edge_index=500,
+        vert_a=vert_a,
+        vert_b=vert_b,
+        source_a=Vector((*point_a, 0.0)),
+        source_b=Vector((*point_b, 0.0)),
+        point_a=point_a,
+        point_b=point_b,
+        arc_start=0.0,
+        segment_length=1.0,
+        uv_sign=1.0,
+        inward_normal=(0.0, 1.0),
+    )
+    corners = tuple(
+        decal_voronoi.CornerSpec(
+            vert_index=vert_index,
+            point=(float(vert_index), 0.0),
+            incident_sites=(0,),
+            ordered_sites=(0,),
+            turn_sign=1.0,
+            interior_angle=pi,
+            extrusion_angle=pi,
+            is_convex=vert_index == 0,
+            miter_ratio=1.0,
+        )
+        for vert_index in (0, 1)
+    )
+    segment_fragment = ((0.0, -1.0), (1.0, -1.0), (1.0, 1.0), (0.0, 1.0))
+    point_fragments = (
+        ((-1.0, -1.0), (0.0, -1.0), (0.0, 1.0), (-1.0, 1.0)),
+        ((1.0, -1.0), (2.0, -1.0), (2.0, 1.0), (1.0, 1.0)),
+    )
+    atoms = (
+        decal_voronoi._PatchVoronoiAtom(
+            site_index=0,
+            fragments=(segment_fragment,),
+            cell_kind="SEGMENT",
+        ),
+        decal_voronoi._PatchVoronoiAtom(
+            site_index=0,
+            fragments=(point_fragments[0],),
+            cell_kind="POINT",
+            corner_index=0,
+        ),
+        decal_voronoi._PatchVoronoiAtom(
+            site_index=0,
+            fragments=(point_fragments[1],),
+            cell_kind="POINT",
+            corner_index=1,
+        ),
+    )
+    return SimpleNamespace(sites=(site,), corners=corners, atoms=atoms)
+
+
+def _short_segment_owned_crops(monkeypatch, reverse_site=False):
+    monkeypatch.setattr(
+        decal_voronoi,
+        "classify_corner_runtime",
+        lambda corner, _settings=None: (
+            decal_voronoi._CornerPolicy.MITER
+            if corner.vert_index == 0
+            else decal_voronoi._CornerPolicy.KITE
+        ),
+    )
+    pending = []
+    decal_voronoi._evaluate_surface_crops(
+        _short_segment_endpoint_surface(reverse_site),
+        alpha=1.0,
+        pending=pending,
+        corner_settings=decal_voronoi.CornerRuntimeSettings(),
+    )
+    return pending
+
+
+def test_short_segment_corner_ownership_is_disjoint_and_order_independent(
+    monkeypatch,
+):
+    pending = _short_segment_owned_crops(monkeypatch, reverse_site=False)
+    assert {face.crop.kind for face in pending} == {"MITER", "KITE"}
+    assert len(pending) == 2
+
+    by_kind = {face.crop.kind: face for face in pending}
+    overlap = decal_voronoi._clip_to_convex(
+        by_kind["MITER"].points,
+        by_kind["KITE"].points,
+    )
+    assert not overlap or abs(decal_voronoi._polygon_area2(overlap)) <= 1e-10
+    assert sum(
+        abs(decal_voronoi._polygon_area2(face.points)) for face in pending
+    ) == pytest.approx(6.0)
+
+    shared_edge = set(by_kind["MITER"].points).intersection(
+        by_kind["KITE"].points
+    )
+    assert shared_edge == {(0.5, -1.0), (0.5, 1.0)}
+    face_keys = {
+        tuple(sorted(face.points))
+        for face in pending
+    }
+    assert len(face_keys) == len(pending)
+
+    reversed_pending = _short_segment_owned_crops(
+        monkeypatch, reverse_site=True
+    )
+
+    def signature(faces):
+        return {
+            face.crop.kind: tuple(sorted(face.points))
+            for face in faces
+        }
+
+    assert signature(reversed_pending) == signature(pending)
+
+
+def test_endpoint_ownership_preserves_affine_uv_after_triangle_clip():
+    surface = _short_segment_endpoint_surface()
+    corner = surface.corners[0]
+    crop = decal_voronoi._CropComponent(
+        kind="ACUTE_SPLIT",
+        side="OUTER",
+        points=((-1.0, -1.0), (1.0, -1.0), (0.0, 1.0)),
+        uv_anchors=((-1.0, -1.0), (1.0, -1.0), (0.0, 1.0)),
+        v_origin=2.0,
+    )
+
+    owned = decal_voronoi._corner_endpoint_ownership_crop(
+        surface, corner, crop
+    )
+
+    assert owned is not None
+    assert len(owned.points) == 4
+    assert len(owned.uv_anchors) == 4
+    for point in owned.points:
+        assert decal_voronoi._crop_component_uv(
+            owned, point
+        ) == pytest.approx((point[0], point[1] + 2.0))
+
+
 def test_planar_chart_is_invariant_to_patch_normal_sign():
     graph, edge_indices = _door_opening_graph()
     flipped_graph = deepcopy(graph)

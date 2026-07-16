@@ -1485,6 +1485,70 @@ def _corner_crop_components(
     )
 
 
+def _corner_endpoint_ownership_crop(surface, corner, crop):
+    """Ограничивает crop детерминированной половиной incident sites.
+
+    Endpoint ``point_a`` владеет ``t <= 0.5``, endpoint ``point_b`` —
+    ``t >= 0.5``. Divider определяется физическим segment, поэтому результат
+    не зависит от corner index, site index и направления site endpoints.
+    """
+
+    points = list(crop.points)
+
+    def site_key(site_index):
+        site = surface.sites[site_index]
+        return (
+            site.edge_index,
+            min(site.vert_a, site.vert_b),
+            max(site.vert_a, site.vert_b),
+            min(site.point_a, site.point_b),
+            max(site.point_a, site.point_b),
+        )
+
+    for site_index in sorted(set(corner.incident_sites), key=site_key):
+        site = surface.sites[site_index]
+        if corner.vert_index == site.vert_a:
+            keep_point_a = True
+        elif corner.vert_index == site.vert_b:
+            keep_point_a = False
+        else:
+            continue
+        midpoint = (
+            (site.point_a[0] + site.point_b[0]) * 0.5,
+            (site.point_a[1] + site.point_b[1]) * 0.5,
+        )
+        direction = _sub2(site.point_b, site.point_a)
+        if _dot2(direction, direction) <= _GEOMETRY_EPS * _GEOMETRY_EPS:
+            continue
+        divider_end = (
+            midpoint[0] - direction[1],
+            midpoint[1] + direction[0],
+        )
+        points = _clip_to_halfplane(
+            points,
+            midpoint,
+            divider_end,
+            keep_inside=keep_point_a,
+        )
+        if not points:
+            return None
+
+    points = tuple(points)
+    if points == crop.points:
+        return crop
+    uv_anchors = ()
+    if len(crop.uv_anchors) == len(crop.points):
+        mapped_anchors = []
+        for point in points:
+            uv = _crop_component_uv(crop, point)
+            if uv is None:
+                mapped_anchors = []
+                break
+            mapped_anchors.append((uv[0], uv[1] - crop.v_origin))
+        uv_anchors = tuple(mapped_anchors)
+    return replace(crop, points=points, uv_anchors=uv_anchors)
+
+
 def _miter_requires_explicit_crop(surface, corner, alpha, settings):
     """Implicit segment join достаточен, пока apex не требуется усекать."""
 
@@ -1504,16 +1568,32 @@ def _miter_requires_explicit_crop(surface, corner, alpha, settings):
 
 
 def _crop_component_uv(crop, point):
-    """Affine UV внутри triangle component; None оставляет site UV."""
+    """Affine UV component; None оставляет site UV."""
 
-    if len(crop.points) != 3 or len(crop.uv_anchors) != 3:
+    if len(crop.points) < 3 or len(crop.uv_anchors) != len(crop.points):
         return None
-    point_a, point_b, point_c = crop.points
+    anchor_indices = None
+    for second_index in range(1, len(crop.points) - 1):
+        for third_index in range(second_index + 1, len(crop.points)):
+            candidate = (0, second_index, third_index)
+            candidate_points = tuple(crop.points[index] for index in candidate)
+            denominator = _cross2(
+                _sub2(candidate_points[1], candidate_points[0]),
+                _sub2(candidate_points[2], candidate_points[0]),
+            )
+            if abs(denominator) > 1e-12:
+                anchor_indices = candidate
+                break
+        if anchor_indices is not None:
+            break
+    if anchor_indices is None:
+        return None
+    point_a, point_b, point_c = (
+        crop.points[index] for index in anchor_indices
+    )
     denominator = _cross2(
         _sub2(point_b, point_a), _sub2(point_c, point_a)
     )
-    if abs(denominator) <= 1e-12:
-        return None
     weight_b = _cross2(
         _sub2(point, point_a), _sub2(point_c, point_a)
     ) / denominator
@@ -1521,16 +1601,17 @@ def _crop_component_uv(crop, point):
         _sub2(point_b, point_a), _sub2(point, point_a)
     ) / denominator
     weight_a = 1.0 - weight_b - weight_c
+    anchors = tuple(crop.uv_anchors[index] for index in anchor_indices)
     u_value = sum(
         weight * uv[0]
         for weight, uv in zip(
-            (weight_a, weight_b, weight_c), crop.uv_anchors
+            (weight_a, weight_b, weight_c), anchors
         )
     )
     v_value = crop.v_origin + sum(
         weight * uv[1]
         for weight, uv in zip(
-            (weight_a, weight_b, weight_c), crop.uv_anchors
+            (weight_a, weight_b, weight_c), anchors
         )
     )
     return u_value, v_value
@@ -3406,13 +3487,21 @@ def _evaluate_surface_crops(
         point_atoms = point_atoms_by_corner.get(corner_index, ())
         corner = surface.corners[corner_index]
         policy = runtime_policies[corner_index]
-        crops = _corner_crop_components(
+        raw_crops = _corner_crop_components(
             surface,
             corner,
             policy,
             alpha,
             corner_settings,
             diagnostics,
+        )
+        crops = tuple(
+            owned_crop
+            for crop in raw_crops
+            for owned_crop in (
+                _corner_endpoint_ownership_crop(surface, corner, crop),
+            )
+            if owned_crop is not None
         )
         if not crops:
             continue
