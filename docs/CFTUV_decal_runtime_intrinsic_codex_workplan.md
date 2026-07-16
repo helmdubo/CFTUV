@@ -1107,6 +1107,16 @@ intrinsic surfaces старые межплоскостные junction-connectors
 
 ## C7. Acceptance fixtures developable
 
+Статус: **IMPLEMENTED**. Девять oracle-классов покрыты автоматическими C1–C7
+fixtures: F1/F2/F3/F4/F5/F6 проходят developable admission, N1/N2/N3 дают
+canonical rejection. C7 дополнительно проверяет multi-facet bevel без
+junction-connectors, geodesic half-width четверть-цилиндра, 96-сегментный
+strip support (`9/192` triangles) и merge двух фронтов на кривой. Живой
+Blender sweep на `rounded_wall` (68 seam edges) подтвердил единый connected
+result, no zero-area/overfull/connectors, preview/confirm parity и ноль
+повторных `Construct()` во время drag. Замеры записаны в
+`docs/cftuv_decal_runtime.md`.
+
 Обязательные Blender fixtures:
 
 1. Two-plane folded strip.

@@ -432,3 +432,31 @@ partitions выполняется до первой BMesh-записи; поэт
 становится явной (`PatchVoronoiRuntimeError`) и содержит число edges, width и
 preview/final mode. Legacy разрешён только для component, который был явно
 отклонён на compile-этапе и отражён в backend routing report.
+
+## Tranche C developable chart acceptance
+
+Дата замера: 2026-07-17. C7 synthetic F5 — цилиндрический fillet из 96
+сегментов / 192 source triangles, один end-site, `alpha_budget=0.05`.
+Chart build + admission на CPython unit harness (30 повторов):
+
+- support: `9 / 192` triangles (`4.69%`, не full patch);
+- mean: `3.780 ms`;
+- p95: `3.917 ms`;
+- max: `4.812 ms`.
+
+Живой Blender acceptance на production mesh `rounded_wall` (64 vertices,
+154 edges, 92 faces), все 68 seam edges: routing
+`PLANAR+INTRINSIC_DEVELOPABLE:1c/68e`, шесть surfaces, из них две intrinsic,
+без legacy/failure. Один compiled plan проверен на ширинах от `0.02` до
+`25.9034`: preview evaluator занимал `100–138 ms`; число PyVoronoi
+`Construct()` осталось `6` после всего drag sweep. На контрольных кадрах:
+
+- один edge-connected decal component после объединения фронтов;
+- zero-area faces = 0;
+- overfull edges = 0;
+- junction connector faces = 0;
+- preview/confirm serialization совпадает.
+
+Для полного выделения support двух небольших intrinsic patches закономерно
+равен full patch (`60 / 60` triangles): все seam sites покрывают всю их
+поверхность. Полосная пропорциональность отдельно доказана крупным F5 выше.
