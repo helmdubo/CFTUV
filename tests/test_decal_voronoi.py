@@ -2489,6 +2489,54 @@ def test_fragment_union_preserves_simple_concave_ngon():
     assert not decal_voronoi._polygon_is_convex(components[0])
 
 
+def test_fragment_union_falls_back_when_traced_loop_loses_area():
+    """Production T-junction stations не должны выбрасывать полосу union."""
+
+    fragments = [
+        [
+            (-3.8092498, 1.506048),
+            (-3.83964577, 1.50594658),
+            (-3.83964577, 1.47427826),
+            (-3.83960345, 1.47427826),
+        ],
+        [
+            (-3.7811233, 1.50614185),
+            (-3.8092498, 1.506048),
+            (-3.83960345, 1.47427826),
+            (-3.83956453, 1.47427826),
+        ],
+        [
+            (-3.34820625, 1.98860064),
+            (-3.34820625, 2.65209438),
+            (-3.83964577, 2.59418529),
+            (-3.83964577, 1.50594658),
+            (-3.8092498, 1.506048),
+        ],
+        [
+            (-3.34820625, 1.98860064),
+            (-3.8092498, 1.506048),
+            (-3.7811233, 1.50614185),
+            (-3.34820625, 1.74217883),
+        ],
+    ]
+
+    components = _merge_polygon_fragments(fragments, tolerance=0.00025)
+    source_area = sum(
+        abs(decal_voronoi._polygon_area2(fragment))
+        for fragment in fragments
+    )
+    merged_area = sum(
+        abs(decal_voronoi._polygon_area2(component))
+        for component in components
+    )
+
+    assert merged_area == pytest.approx(source_area, rel=1e-5)
+    assert all(
+        decal_voronoi._polygon_is_simple(component)
+        for component in components
+    )
+
+
 def test_fragment_union_keeps_point_contact_as_separate_components():
     components = _merge_polygon_fragments(
         [

@@ -1466,10 +1466,24 @@ def _merge_polygon_fragments(fragments, tolerance=1e-7, diagnostics=None):
         # простой concave contour Blender хранит одним корректным ngon.
         # Прежняя convex-only проверка отпечатывала triangulation domain в
         # митре ещё до реального столкновения соседних фронтов.
+        source_area = sum(
+            abs(_polygon_area2(normalized[index]))
+            for index in group_indices
+        )
+        traced_area = sum(abs(_polygon_area2(loop)) for loop in loops)
+        area_tolerance = max(
+            tolerance * tolerance * max(8, len(group_indices) * 4),
+            source_area * 1e-6,
+        )
         if (
             not loops
             or any(_polygon_area2(loop) < 0.0 for loop in loops)
             or any(not _polygon_is_simple(loop, tolerance) for loop in loops)
+            # Half-edge graph с T-junction stations может замкнуть формально
+            # простой, но неполный contour. Geometry source fragments уже
+            # непересекающиеся, поэтому их суммарная площадь — обязательный
+            # инвариант union; при расхождении сохраняем её decomposition.
+            or abs(traced_area - source_area) > area_tolerance
         ):
             if diagnostics is not None:
                 diagnostics.convex_fragment_decomposition_fallbacks += 1
