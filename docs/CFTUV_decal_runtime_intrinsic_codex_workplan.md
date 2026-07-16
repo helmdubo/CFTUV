@@ -703,6 +703,13 @@ Interior» (внесён поправкой). Кратко: внутренние
 
 ## B0. Adaptive DiagramTransform
 
+Статус: **IMPLEMENTED**. Compile boundary центрирует chart input,
+детерминированно выбирает совместимые `quantum/scale`, проверяет sites и
+guard frame до передачи в Boost и локализует невозможный диапазон как
+`DIAGRAM_DYNAMIC_RANGE_UNSUPPORTED`. Stable A10 fixtures (`planar`, `door`,
+`acute`) сохранены byte-identical; topology проверена на масштабах
+`1e-4 / 1 / 1e4` и при global translation.
+
 ### Цель
 Убрать fixed `_DIAGRAM_SCALE`/absolute quantum до длинных tube charts.
 

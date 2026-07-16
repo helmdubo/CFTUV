@@ -97,6 +97,55 @@ def _planar_two_site_graph():
     return graph
 
 
+def _scaled_planar_two_site_graph(scale, translation=None):
+    graph = deepcopy(_planar_two_site_graph())
+    node = graph.nodes[0]
+    translation = translation or Vector((0.0, 0.0, 0.0))
+    node.centroid = node.centroid * scale + translation
+    node.mesh_verts = [
+        point * scale + translation for point in node.mesh_verts
+    ]
+    for loop in node.boundary_loops:
+        for chain in loop.chains:
+            chain.vert_cos = [
+                point * scale + translation for point in chain.vert_cos
+            ]
+    return graph
+
+
+def _compiled_surface_topology(plan):
+    surface = plan.surfaces[0]
+    return (
+        len(surface.sites),
+        len(surface.corners),
+        tuple(
+            sorted(
+                (
+                    atom.site_index,
+                    atom.cell_kind,
+                    atom.source_category,
+                    len(atom.fragments),
+                )
+                for atom in surface.atoms
+            )
+        ),
+    )
+
+
+def test_adaptive_quantization_preserves_scaled_micro_sites():
+    plan = compile_patch_voronoi_plan(
+        _scaled_planar_two_site_graph(1.0e-4),
+        [10, 12],
+        offset=1.0e-6,
+    )
+    surface = plan.surfaces[0]
+
+    assert all(
+        site.segment_length > surface.diagram_transform.quantum
+        for site in surface.sites
+    )
+
+
 def test_quantized_duplicate_site_is_localized_as_compile_failure():
     graph = _planar_two_site_graph()
     chain = graph.nodes[0].boundary_loops[0].chains[0]
@@ -115,6 +164,83 @@ def test_quantized_duplicate_site_is_localized_as_compile_failure():
     assert "raw_length=" in failure.details
     assert "quantized_length=0" in failure.details
     assert "quantum=" in failure.details
+
+
+def test_diagram_transform_is_translation_invariant():
+    base = decal_voronoi._build_diagram_transform(
+        ((0.0, 0.0), (4.0, 0.0), (4.0, 2.0), (0.0, 2.0))
+    )
+    shift = (1.0e12, -2.0e12)
+    translated = decal_voronoi._build_diagram_transform(
+        tuple(
+            (point[0] + shift[0], point[1] + shift[1])
+            for point in ((0.0, 0.0), (4.0, 0.0), (4.0, 2.0), (0.0, 2.0))
+        )
+    )
+
+    assert translated.scale == base.scale
+    assert translated.quantum == base.quantum
+    assert translated.center == pytest.approx(
+        (base.center[0] + shift[0], base.center[1] + shift[1])
+    )
+    assert translated.to_diagram((shift[0] + 4.0, shift[1] + 2.0)) \
+        == pytest.approx(base.to_diagram((4.0, 2.0)))
+
+
+def test_diagram_topology_is_equivalent_across_scale_and_translation():
+    plans = [
+        compile_patch_voronoi_plan(
+            _scaled_planar_two_site_graph(scale),
+            [10, 12],
+            offset=0.01 * scale,
+        )
+        for scale in (1.0e-4, 1.0, 1.0e4)
+    ]
+    signatures = [_compiled_surface_topology(plan) for plan in plans]
+    assert signatures[0] == signatures[1] == signatures[2]
+    assert plans[0].surfaces[0].diagram_transform.scale \
+        > plans[1].surfaces[0].diagram_transform.scale \
+        > plans[2].surfaces[0].diagram_transform.scale
+
+    translated = compile_patch_voronoi_plan(
+        _scaled_planar_two_site_graph(
+            1.0, Vector((10000.0, -20000.0, 3000.0))
+        ),
+        [10, 12],
+        offset=0.01,
+    )
+    assert _compiled_surface_topology(translated) == signatures[1]
+
+
+def test_long_chart_stays_inside_diagram_integer_safety_range():
+    plan = compile_patch_voronoi_plan(
+        _scaled_planar_two_site_graph(25000.0),
+        [10, 12],
+        offset=250.0,
+    )
+    transform = plan.surfaces[0].diagram_transform
+
+    assert transform.max_abs_input * transform.scale <= (
+        decal_voronoi._DIAGRAM_INT_LIMIT * transform.int_safety_margin
+    )
+
+
+def test_unsupported_dynamic_range_is_localized_before_construct():
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+    attempt = decal_voronoi.compile_patch_voronoi_attempt(
+        _scaled_planar_two_site_graph(250000.0),
+        [10, 12],
+        offset=2500.0,
+        allow_partial=True,
+        diagnostics=diagnostics,
+    )
+
+    assert attempt.plan is None
+    assert attempt.rejected_edge_indices == (10, 12)
+    assert [failure.reason for failure in attempt.failures] == [
+        "DIAGRAM_DYNAMIC_RANGE_UNSUPPORTED"
+    ]
+    assert diagnostics.construct_calls == 0
 
 
 def test_corner_offset_lines_reject_zero_length_site():
@@ -1498,7 +1624,11 @@ def test_a12_split_chord_is_compiled_static_geometry_with_stable_uv():
                 ),
             )
         )
-    assert inner_frames[0] == inner_frames[1]
+    assert inner_frames[0][0] == inner_frames[1][0]
+    for first_uv, second_uv in zip(
+        inner_frames[0][1], inner_frames[1][1]
+    ):
+        assert first_uv == pytest.approx(second_uv, abs=1e-12)
 
 
 def test_a12_hairpin_materializes_blunt_front_after_static_chord():

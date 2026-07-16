@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from heapq import heappop, heappush
-from math import atan2, isfinite, pi, sqrt, tau
+from math import atan2, ceil, isfinite, pi, sqrt, tau
 
 from mathutils import Vector
 
@@ -40,8 +40,10 @@ except ImportError:  # Blender может открыть старый файл �
     pyvoronoi = None
 
 
-_DIAGRAM_SCALE = 100000
 _GEOMETRY_EPS = 1e-9
+_DIAGRAM_INT_LIMIT = (1 << 31) - 1
+_DIAGRAM_INT_SAFETY_MARGIN = 0.8
+_DIAGRAM_RELATIVE_QUANTUM = 1e-4
 _ANGLE_CLASSIFICATION_EPS = 1e-5
 _MITER_ANGLE = 2.0 * pi / 3.0
 _KITE_ANGLE = pi / 2.0
@@ -80,6 +82,47 @@ class _PatchVoronoiSite:
     arc_sign: float = 1.0
     two_sided: bool = False
     uv_length: float = 0.0
+
+
+@dataclass(frozen=True)
+class DiagramTransform:
+    """Детерминированная граница chart-space -> Boost integer space."""
+
+    center: tuple[float, float]
+    scale: float
+    inv_scale: float
+    quantum: float
+    max_abs_input: float
+    int_safety_margin: float
+
+    def quantize(self, point):
+        return tuple(
+            self.center[axis]
+            + round(
+                (float(point[axis]) - self.center[axis]) / self.quantum
+            )
+            * self.quantum
+            for axis in range(2)
+        )
+
+    def to_diagram(self, point):
+        quantized = self.quantize(point)
+        return (
+            quantized[0] - self.center[0],
+            quantized[1] - self.center[1],
+        )
+
+    def from_diagram(self, point):
+        return (
+            float(point[0]) + self.center[0],
+            float(point[1]) + self.center[1],
+        )
+
+
+@dataclass(frozen=True)
+class _DiagramVertex:
+    X: float
+    Y: float
 
 
 @dataclass(frozen=True)
@@ -338,6 +381,7 @@ class _PatchVoronoiSurface:
     sites: tuple[_PatchVoronoiSite, ...]
     corners: tuple[CornerSpec, ...]
     atoms: tuple[_PatchVoronoiAtom, ...]
+    diagram_transform: DiagramTransform
     site_grid_size: float
     site_grid: dict[tuple[int, int], tuple[int, ...]]
 
@@ -1150,9 +1194,22 @@ def _merge_polygon_fragments(fragments, tolerance=1e-7, diagnostics=None):
 
 
 def _patch_domain_triangles(
-    node, origin, basis_u, basis_v, diagnostics=None
+    node,
+    origin,
+    basis_u,
+    basis_v,
+    diagnostics=None,
+    quantize_point=None,
 ):
     """Триангулирует только boundary loops, не topology owner faces."""
+
+    def project_point(point):
+        projected = _project(point, origin, basis_u, basis_v)
+        return (
+            quantize_point(projected)
+            if quantize_point is not None
+            else projected
+        )
 
     domain_loops = []
     if _tessellate_polygon is not None:
@@ -1165,12 +1222,7 @@ def _patch_domain_triangles(
         )
         for boundary_loop in ordered_loops:
             points = _dedupe_polygon(
-                [
-                    _quantize_diagram_point(
-                        _project(point, origin, basis_u, basis_v)
-                    )
-                    for point in boundary_loop.vert_cos
-                ]
+                [project_point(point) for point in boundary_loop.vert_cos]
             )
             if len(points) < 3:
                 continue
@@ -1208,12 +1260,7 @@ def _patch_domain_triangles(
         diagnostics.tessellation_mesh_tri_fallbacks += 1
     triangles = []
     for tri in node.mesh_tris:
-        points = [
-            _quantize_diagram_point(
-                _project(node.mesh_verts[index], origin, basis_u, basis_v)
-            )
-            for index in tri
-        ]
+        points = [project_point(node.mesh_verts[index]) for index in tri]
         if abs(_polygon_area2(points)) > 1e-12:
             if _polygon_area2(points) < 0.0:
                 points.reverse()
@@ -2270,7 +2317,14 @@ def _corner_crop_polygon(
     return _convex_hull(points)
 
 
-def _edge_points(diagram, edges, vertices, edge_index, curve_step):
+def _edge_points(
+    diagram,
+    edges,
+    vertices,
+    edge_index,
+    curve_step,
+    diagram_transform=None,
+):
     edge = edges[edge_index]
     if edge.start < 0 or edge.end < 0:
         return None
@@ -2280,7 +2334,11 @@ def _edge_points(diagram, edges, vertices, edge_index, curve_step):
         return [start, end]
     try:
         points = [
-            (float(point[0]), float(point[1]))
+            (
+                diagram_transform.from_diagram(point)
+                if diagram_transform is not None
+                else (float(point[0]), float(point[1]))
+            )
             for point in diagram.DiscretizeCurvedEdge(
                 edge_index, curve_step, 0.0001
             )
@@ -2305,14 +2363,25 @@ def _edge_points(diagram, edges, vertices, edge_index, curve_step):
 
 
 def _cell_polygon(
-    diagram, edges, vertices, cell, curve_step, diagnostics=None
+    diagram,
+    edges,
+    vertices,
+    cell,
+    curve_step,
+    diagnostics=None,
+    diagram_transform=None,
 ):
     """Восстанавливает ordered boundary конечной pyvoronoi cell."""
 
     polygon = []
     for edge_index in cell.edges:
         edge_points = _edge_points(
-            diagram, edges, vertices, edge_index, curve_step
+            diagram,
+            edges,
+            vertices,
+            edge_index,
+            curve_step,
+            diagram_transform,
         )
         if edge_points is None:
             return None
@@ -2337,7 +2406,7 @@ def _cell_polygon(
     return polygon
 
 
-def _triangulate_cell_polygon(points):
+def _triangulate_cell_polygon(points, diagram_quantum=None):
     """Разбивает Voronoi-cell до clipping, сохраняя convex atoms."""
 
     polygon = _dedupe_polygon(points)
@@ -2393,9 +2462,14 @@ def _triangulate_cell_polygon(points):
             break
         if not ear_found:
             remaining_polygon = [polygon[index] for index in remaining]
+            quantum = (
+                DECAL_WELD_DISTANCE * 0.1
+                if diagram_quantum is None
+                else diagram_quantum
+            )
             if abs(_polygon_area2(remaining_polygon)) <= max(
                 1e-10,
-                _diagram_quantum() * _diagram_quantum(),
+                quantum * quantum,
             ):
                 # Все ненулевые ears уже покрыли исходную cell; Boost может
                 # оставить после них только коллинеарную zero-area цепочку.
@@ -2416,15 +2490,86 @@ def _project(point, origin, basis_u, basis_v):
     return (delta.dot(basis_u), delta.dot(basis_v))
 
 
-def _diagram_quantum():
-    return max(1.0 / _DIAGRAM_SCALE, DECAL_WELD_DISTANCE * 0.1)
+def _build_diagram_transform(points, edge_indices=()):
+    """Подбирает precision, не выводя centred input из Boost int range."""
 
+    points = tuple(
+        (float(point[0]), float(point[1])) for point in points
+    )
+    if not points or any(
+        not all(isfinite(value) for value in point) for point in points
+    ):
+        raise _PatchVoronoiSurfaceCompileError(
+            "DIAGRAM_DYNAMIC_RANGE_UNSUPPORTED",
+            edge_indices,
+            "diagram input is empty or non-finite",
+        )
+    min_x = min(point[0] for point in points)
+    max_x = max(point[0] for point in points)
+    min_y = min(point[1] for point in points)
+    max_y = max(point[1] for point in points)
+    extent_x = max_x - min_x
+    extent_y = max_y - min_y
+    diagonal = sqrt(extent_x * extent_x + extent_y * extent_y)
+    if not isfinite(diagonal) or diagonal <= 0.0:
+        raise _PatchVoronoiSurfaceCompileError(
+            "DIAGRAM_DYNAMIC_RANGE_UNSUPPORTED",
+            edge_indices,
+            f"degenerate chart extent={diagonal!r}",
+        )
+    center = ((min_x + max_x) * 0.5, (min_y + max_y) * 0.5)
+    desired_quantum = min(
+        DECAL_WELD_DISTANCE * 0.1,
+        diagonal * _DIAGRAM_RELATIVE_QUANTUM,
+    )
+    if not isfinite(desired_quantum) or desired_quantum <= 0.0:
+        raise _PatchVoronoiSurfaceCompileError(
+            "DIAGRAM_DYNAMIC_RANGE_UNSUPPORTED",
+            edge_indices,
+            f"invalid desired quantum={desired_quantum!r}",
+        )
 
-def _quantize_diagram_point(point):
-    quantum = _diagram_quantum()
-    return tuple(
-        round(value / quantum) * quantum
-        for value in point
+    # Guard frame на один chart diagonal шире domain. Этого достаточно,
+    # чтобы закрыть все cells, которые затем всё равно clip'ятся domain'ом.
+    guard_margin = max(diagonal, desired_quantum * 32.0)
+    max_abs_input = max(
+        abs(min_x - guard_margin - center[0]),
+        abs(max_x + guard_margin - center[0]),
+        abs(min_y - guard_margin - center[1]),
+        abs(max_y + guard_margin - center[1]),
+    )
+    safe_integer = _DIAGRAM_INT_LIMIT * _DIAGRAM_INT_SAFETY_MARGIN
+    maximum_scale = min(safe_integer / max_abs_input, safe_integer)
+    required_scale = float(ceil(1.0 / desired_quantum))
+    preferred_scale = float(ceil(10.0 / desired_quantum))
+    if (
+        not isfinite(maximum_scale)
+        or not isfinite(required_scale)
+        or required_scale < 1.0
+        or required_scale > maximum_scale
+    ):
+        raise _PatchVoronoiSurfaceCompileError(
+            "DIAGRAM_DYNAMIC_RANGE_UNSUPPORTED",
+            edge_indices,
+            (
+                f"extent={diagonal:.12g} desired_quantum="
+                f"{desired_quantum:.12g} required_scale="
+                f"{required_scale:.12g} maximum_scale="
+                f"{maximum_scale:.12g} max_abs_input="
+                f"{max_abs_input:.12g}"
+            ),
+        )
+    scale = float(int(min(preferred_scale, maximum_scale)))
+    inv_scale = 1.0 / scale
+    quantum_steps = max(1, int(desired_quantum * scale))
+    quantum = quantum_steps * inv_scale
+    return DiagramTransform(
+        center=center,
+        scale=scale,
+        inv_scale=inv_scale,
+        quantum=quantum,
+        max_abs_input=max_abs_input,
+        int_safety_margin=_DIAGRAM_INT_SAFETY_MARGIN,
     )
 
 
@@ -3089,8 +3234,38 @@ def _compile_surface(node, raw_sites, diagnostics=None):
     origin = node.centroid.copy()
     normal = node.normal.normalized()
     basis_u, basis_v = _canonical_planar_basis(normal)
+    raw_projected_sites = tuple(
+        (
+            _project(raw["source_a"], origin, basis_u, basis_v),
+            _project(raw["source_b"], origin, basis_u, basis_v),
+        )
+        for raw in raw_sites
+    )
+    transform_points = [
+        _project(point, origin, basis_u, basis_v)
+        for point in node.mesh_verts
+    ]
+    transform_points.extend(
+        _project(point, origin, basis_u, basis_v)
+        for loop in node.boundary_loops
+        for point in loop.vert_cos
+    )
+    transform_points.extend(
+        point
+        for endpoints in raw_projected_sites
+        for point in endpoints
+    )
+    diagram_transform = _build_diagram_transform(
+        transform_points,
+        (raw["edge_index"] for raw in raw_sites),
+    )
     triangles = _patch_domain_triangles(
-        node, origin, basis_u, basis_v, diagnostics
+        node,
+        origin,
+        basis_u,
+        basis_v,
+        diagnostics,
+        diagram_transform.quantize,
     )
     if not triangles:
         return None
@@ -3106,21 +3281,17 @@ def _compile_surface(node, raw_sites, diagnostics=None):
         min(diagonal * 1e-4, max(diagonal, 1.0) * 1e-3),
     )
     projected_sites = []
-    diagram_quantum = _diagram_quantum()
-    for raw in raw_sites:
-        raw_point_a = _project(raw["source_a"], origin, basis_u, basis_v)
-        raw_point_b = _project(raw["source_b"], origin, basis_u, basis_v)
+    diagram_quantum = diagram_transform.quantum
+    for raw, (raw_point_a, raw_point_b) in zip(
+        raw_sites, raw_projected_sites
+    ):
         # Один и тот же planar patch может прийти как отдельная плоскость
         # или как face объёмного mesh с микроскопически иными float32
         # координатами. Квантуем рабочие sites, а не только вход pyvoronoi:
         # иначе Voronoi cells совпадают, но realtime crop проходит разные
         # topology events на визуально идентичной геометрии.
-        point_a = _quantize_diagram_point(
-            raw_point_a
-        )
-        point_b = _quantize_diagram_point(
-            raw_point_b
-        )
+        point_a = diagram_transform.quantize(raw_point_a)
+        point_b = diagram_transform.quantize(raw_point_b)
         quantized_length = _dist2(point_a, point_b)
         if point_a == point_b or quantized_length <= diagram_quantum:
             raise _PatchVoronoiSurfaceCompileError(
@@ -3135,7 +3306,7 @@ def _compile_surface(node, raw_sites, diagnostics=None):
             )
         endpoint_key = tuple(
             sorted(
-                _quantize_diagram_point(point)
+                diagram_transform.quantize(point)
                 for point in (point_a, point_b)
             )
         )
@@ -3220,15 +3391,46 @@ def _compile_surface(node, raw_sites, diagnostics=None):
     corner_by_vertex = {
         corner.vert_index: index for index, corner in enumerate(corners)
     }
-    margin = max(10.0, diagonal * 8.0)
-    guard = (
-        (min_x - margin, min_y - margin),
-        (max_x + margin, min_y - margin),
-        (max_x + margin, max_y + margin),
-        (min_x - margin, max_y + margin),
+    margin = max(diagonal, diagram_quantum * 32.0)
+    guard = tuple(
+        diagram_transform.quantize(point)
+        for point in (
+            (min_x - margin, min_y - margin),
+            (max_x + margin, min_y - margin),
+            (max_x + margin, max_y + margin),
+            (min_x - margin, max_y + margin),
+        )
     )
+    actual_chart_points = [
+        endpoint
+        for site in sites
+        for endpoint in (site.point_a, site.point_b)
+    ]
+    actual_chart_points.extend(guard)
+    actual_diagram_points = tuple(
+        diagram_transform.to_diagram(point)
+        for point in actual_chart_points
+    )
+    maximum_integer_coordinate = max(
+        abs(value) * diagram_transform.scale
+        for point in actual_diagram_points
+        for value in point
+    )
+    safe_integer_coordinate = (
+        _DIAGRAM_INT_LIMIT * diagram_transform.int_safety_margin
+    )
+    if maximum_integer_coordinate > safe_integer_coordinate:
+        raise _PatchVoronoiSurfaceCompileError(
+            "DIAGRAM_DYNAMIC_RANGE_UNSUPPORTED",
+            (site.edge_index for site in sites),
+            (
+                f"actual_integer_coordinate={maximum_integer_coordinate:.12g} "
+                f"safe_integer_coordinate={safe_integer_coordinate:.12g}"
+            ),
+        )
 
-    diagram = pyvoronoi.Pyvoronoi(_DIAGRAM_SCALE)
+    diagram_scale = int(diagram_transform.scale)
+    diagram = pyvoronoi.Pyvoronoi(diagram_scale)
     diagram_segments = []
     diagram_endpoint_vertices = []
     for site in sites:
@@ -3239,19 +3441,22 @@ def _compile_surface(node, raw_sites, diagnostics=None):
             diagram_points = (site.point_b, site.point_a)
             endpoint_vertices = (site.vert_b, site.vert_a)
         diagram_segment = [
-            _quantize_diagram_point(point) for point in diagram_points
+            diagram_transform.to_diagram(point) for point in diagram_points
         ]
         diagram.AddSegment(diagram_segment)
         diagram_segments.append(diagram_segment)
         diagram_endpoint_vertices.append(endpoint_vertices)
     for index in range(4):
-        diagram_segment = [guard[index], guard[(index + 1) % 4]]
+        diagram_segment = [
+            diagram_transform.to_diagram(guard[index]),
+            diagram_transform.to_diagram(guard[(index + 1) % 4]),
+        ]
         diagram.AddSegment(diagram_segment)
         diagram_segments.append(diagram_segment)
 
     # Некоторые wheels меняют внутреннее состояние validation-методами даже
     # до Construct. Поэтому проверки выполняются на отдельном input diagram.
-    validation_diagram = pyvoronoi.Pyvoronoi(_DIAGRAM_SCALE)
+    validation_diagram = pyvoronoi.Pyvoronoi(diagram_scale)
     for segment in diagram_segments:
         validation_diagram.AddSegment(segment)
     for method_name, reason in (
@@ -3295,7 +3500,10 @@ def _compile_surface(node, raw_sites, diagnostics=None):
         DECAL_WELD_DISTANCE * 2.0,
     )
     diagram_edges = diagram.GetEdges()
-    diagram_vertices = diagram.GetVertices()
+    diagram_vertices = tuple(
+        _DiagramVertex(*diagram_transform.from_diagram((vertex.X, vertex.Y)))
+        for vertex in diagram.GetVertices()
+    )
     corners = tuple(
         replace(
             corner,
@@ -3324,10 +3532,13 @@ def _compile_surface(node, raw_sites, diagnostics=None):
             cell,
             curve_step,
             diagnostics,
+            diagram_transform,
         )
         if polygon is None:
             continue
-        cell_triangles = _triangulate_cell_polygon(polygon)
+        cell_triangles = _triangulate_cell_polygon(
+            polygon, diagram_transform.quantum
+        )
         if not cell_triangles:
             continue
         site = sites[cell.site]
@@ -3418,6 +3629,7 @@ def _compile_surface(node, raw_sites, diagnostics=None):
         sites=tuple(sites),
         corners=corners,
         atoms=tuple(atoms),
+        diagram_transform=diagram_transform,
         site_grid_size=site_grid_size,
         site_grid={
             key: tuple(indices) for key, indices in site_grid.items()
