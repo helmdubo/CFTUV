@@ -2537,6 +2537,54 @@ def test_fragment_union_falls_back_when_traced_loop_loses_area():
     )
 
 
+def test_pending_fragment_union_does_not_expose_pre_collision_triangulation():
+    """Runtime topology tolerance сохраняет близкие production stations."""
+
+    fragments = [
+        [
+            (-3.8092498, 1.506048),
+            (-3.83964577, 1.50594658),
+            (-3.83964577, 1.47427826),
+            (-3.83960345, 1.47427826),
+        ],
+        [
+            (-3.7811233, 1.50614185),
+            (-3.8092498, 1.506048),
+            (-3.83960345, 1.47427826),
+            (-3.83956453, 1.47427826),
+        ],
+        [
+            (-3.34820625, 1.98860064),
+            (-3.34820625, 2.65209438),
+            (-3.83964577, 2.59418529),
+            (-3.83964577, 1.50594658),
+            (-3.8092498, 1.506048),
+        ],
+        [
+            (-3.34820625, 1.98860064),
+            (-3.8092498, 1.506048),
+            (-3.7811233, 1.50614185),
+            (-3.34820625, 1.74217883),
+        ],
+    ]
+    pending = []
+
+    decal_voronoi._append_pending_fragments(
+        pending,
+        surface=object(),
+        site=object(),
+        crop=object(),
+        fragments=fragments,
+    )
+
+    assert len(pending) == 1
+    assert decal_voronoi._polygon_is_simple(pending[0].points)
+    assert abs(decal_voronoi._polygon_area2(pending[0].points)) == pytest.approx(
+        sum(abs(decal_voronoi._polygon_area2(fragment)) for fragment in fragments),
+        rel=1e-8,
+    )
+
+
 def test_fragment_union_keeps_point_contact_as_separate_components():
     components = _merge_polygon_fragments(
         [

@@ -51,6 +51,7 @@ except ImportError:  # Blender может открыть старый файл �
 
 
 _GEOMETRY_EPS = 1e-9
+_FRAGMENT_TOPOLOGY_TOLERANCE = max(1e-8, DECAL_WELD_DISTANCE * 0.01)
 _DIAGRAM_INT_LIMIT = (1 << 31) - 1
 _DIAGRAM_INT_SAFETY_MARGIN = 0.8
 _DIAGRAM_RELATIVE_QUANTUM = 1e-4
@@ -5095,9 +5096,13 @@ def _append_pending_fragments(
 ):
     """Сваривает fragments одного semantic owner до materialization."""
 
+    # Final BMesh weld намеренно крупнее, но применять его здесь нельзя:
+    # близкие curve/domain stations несут разную topology. Их преждевременное
+    # схлопывание создаёт ложный T-junction, после которого area-safe fallback
+    # сохраняет дырки закрытыми, но отпечатывает source triangulation.
     components = _merge_polygon_fragments(
         fragments,
-        tolerance=max(1e-8, DECAL_WELD_DISTANCE * 0.25),
+        tolerance=_FRAGMENT_TOPOLOGY_TOLERANCE,
         diagnostics=diagnostics,
     )
     for component in components:
