@@ -138,6 +138,49 @@ def test_corner_offset_lines_reject_zero_length_site():
     assert decal_voronoi._corner_offset_lines(surface, corner, 0.5) == []
 
 
+def test_network_face_serializer_is_stable_across_face_order():
+    first = decal_voronoi._NetworkFace(
+        surface_id=2,
+        surface_normal=Vector((0.0, 0.0, 1.0)),
+        vert_keys=[("b", 2), ("a", 1), ("c", 3)],
+        positions=[
+            Vector((1.000000001, 0.0, 0.0)),
+            Vector((0.0, 0.0, 0.0)),
+            Vector((0.0, 1.0, 0.0)),
+        ],
+        u_fracs=[1.0, -1.0, 0.0],
+        v_lengths=[2.0, 1.0, 3.0],
+        component_kind="SEGMENT",
+        component_side="",
+    )
+    second = decal_voronoi._NetworkFace(
+        surface_id=1,
+        surface_normal=Vector((0.0, 0.0, 1.0)),
+        vert_keys=[("d", 4), ("e", 5), ("f", 6)],
+        positions=[
+            Vector((2.0, 0.0, 0.0)),
+            Vector((3.0, 0.0, 0.0)),
+            Vector((2.0, 1.0, 0.0)),
+        ],
+        u_fracs=[-1.0, 1.0, 0.0],
+        v_lengths=[0.0, 0.0, 1.0],
+        component_kind="KITE",
+        component_side="OUTER",
+    )
+
+    forward = decal_voronoi.serialize_network_faces([first, second])
+    reversed_faces = decal_voronoi.serialize_network_faces([second, first])
+
+    assert forward == reversed_faces
+    assert forward["topology_signature"] == {
+        "vertex_count": 6,
+        "edge_count": 6,
+        "face_count": 2,
+        "face_loops": ((3, 4, 5), (0, 2, 1)),
+    }
+    assert forward["faces"][1]["positions"][2] == (1.0, 0.0, 0.0)
+
+
 def _face_area_xy(face):
     area = 0.0
     points = face.positions
@@ -522,6 +565,60 @@ def _wide_t_junction_front_graph():
     graph = PatchGraph()
     graph.add_node(node)
     return graph, edge_indices
+
+
+def test_width_drag_does_not_reconstruct_voronoi_diagram():
+    graph, edge_indices = _door_opening_graph()
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+    plan = compile_patch_voronoi_plan(
+        graph,
+        edge_indices,
+        offset=0.01,
+        diagnostics=diagnostics,
+    )
+    compile_construct_calls = diagnostics.construct_calls
+
+    snapshots = []
+    for width in (2.0, 3.0, 3.7076, 4.5):
+        faces = evaluate_patch_voronoi_plan(
+            plan,
+            width=width,
+            preview=True,
+            diagnostics=diagnostics,
+        )
+        snapshots.append(decal_voronoi.serialize_network_faces(faces))
+
+    assert compile_construct_calls > 0
+    assert diagnostics.construct_calls == compile_construct_calls
+    assert all(snapshot["faces"] for snapshot in snapshots)
+
+
+def test_repeated_preview_and_confirm_serialization_is_deterministic():
+    graph, edge_indices = _door_opening_graph()
+    first_plan = compile_patch_voronoi_plan(
+        graph, edge_indices, offset=0.01
+    )
+    second_plan = compile_patch_voronoi_plan(
+        graph, edge_indices, offset=0.01
+    )
+
+    first = decal_voronoi.serialize_network_faces(
+        evaluate_patch_voronoi_plan(
+            first_plan, width=3.7076, preview=True
+        )
+    )
+    repeated = decal_voronoi.serialize_network_faces(
+        evaluate_patch_voronoi_plan(
+            second_plan, width=3.7076, preview=True
+        )
+    )
+    confirmed = decal_voronoi.serialize_network_faces(
+        evaluate_patch_voronoi_plan(
+            first_plan, width=3.7076, preview=False
+        )
+    )
+
+    assert first == repeated == confirmed
 
 
 def test_patch_voronoi_front_rebuilds_and_never_leaves_patch():

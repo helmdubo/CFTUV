@@ -1,5 +1,31 @@
 # Decal runtime contract
 
+## Deterministic benchmark harness
+
+`artifacts/verify_decal_runtime.py` запускается внутри Blender и сохраняет
+JSON с PatchGraph/compile/evaluate/materialization timings, mesh/drop counts,
+runtime policy counts, backend routing и именованными fallback counters.
+`_NetworkFace` сериализуется детерминированно: face order и cyclic loop start
+канонизируются, positions и UV-факты округляются, topology signature и SHA-256
+geometry digest сохраняются для differential.
+
+Harness выполняет repeated preview и exact confirm для ширин
+`2.0 / 3.0 / 3.7076 / 4.5`. Он явно проверяет, что geometry snapshots
+совпадают между повторами и preview/confirm, а число `Construct()` после
+compile не меняется во время width drag.
+
+Baseline Blender 4.3.2 на включённой fixture
+`VERIFY_SRC_MANUAL_SEAMS` (25 selected edges): compile `165.67 ms`, median
+preview evaluator `25.53 / 24.07 / 24.89 / 18.74 ms`; materialization
+`0.95 / 0.64 / 0.60 / 0.41 ms`. Во всех четырёх ширинах dropped faces = 0,
+repeated output и preview/confirm совпали, `Construct during drag = 0`.
+Полный JSON лежит в `artifacts/decal_runtime_baseline.json`.
+
+Production fixtures `walls.003` и `walls.001` не входят в репозиторий. Harness
+по умолчанию запрашивает именно их и записывает отсутствующие имена в
+`missing_objects`; production baseline нужно снять тем же скриптом в исходном
+studio `.blend`, не подменяя его verification fixture.
+
 ## Static compile
 
 `compile_patch_voronoi_plan()` зависит только от выбранных seam edges,

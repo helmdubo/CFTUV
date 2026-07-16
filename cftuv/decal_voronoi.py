@@ -282,6 +282,28 @@ class PatchVoronoiCompileAttempt:
     failures: tuple[PatchVoronoiCompileFailure, ...] = ()
 
 
+@dataclass
+class PatchVoronoiDiagnostics:
+    """Явные compile/runtime counters без module-global состояния."""
+
+    construct_calls: int = 0
+    cell_disorder_fallbacks: int = 0
+    tessellation_mesh_tri_fallbacks: int = 0
+    convex_fragment_decomposition_fallbacks: int = 0
+
+    def as_dict(self):
+        return {
+            "construct_calls": int(self.construct_calls),
+            "cell_disorder_fallbacks": int(self.cell_disorder_fallbacks),
+            "tessellation_mesh_tri_fallbacks": int(
+                self.tessellation_mesh_tri_fallbacks
+            ),
+            "convex_fragment_decomposition_fallbacks": int(
+                self.convex_fragment_decomposition_fallbacks
+            ),
+        }
+
+
 class _PatchVoronoiSurfaceCompileError(RuntimeError):
     """Ожидаемый локальный отказ geometry/backend compile одной surface."""
 
@@ -293,6 +315,100 @@ class _PatchVoronoiSurfaceCompileError(RuntimeError):
         if self.details:
             message += f": {self.details}"
         super().__init__(message)
+
+
+def _stable_serialized_value(value, digits):
+    if isinstance(value, (tuple, list)):
+        return tuple(
+            _stable_serialized_value(item, digits) for item in value
+        )
+    if isinstance(value, float):
+        return round(value, digits)
+    if isinstance(value, (str, int, bool)) or value is None:
+        return value
+    try:
+        return tuple(round(float(component), digits) for component in value)
+    except TypeError:
+        return repr(value)
+
+
+def serialize_network_faces(network_faces, digits=8):
+    """Детерминированный JSON-ready snapshot evaluator output."""
+
+    digits = max(0, int(digits))
+    records = []
+    for face in network_faces:
+        loop_items = [
+            (
+                _stable_serialized_value(key, digits),
+                tuple(round(float(value), digits) for value in position),
+                (
+                    round(float(u_frac), digits),
+                    round(float(v_length), digits),
+                ),
+            )
+            for key, position, u_frac, v_length in zip(
+                face.vert_keys,
+                face.positions,
+                face.u_fracs,
+                face.v_lengths,
+            )
+        ]
+        if loop_items:
+            start = min(
+                range(len(loop_items)),
+                key=lambda index: tuple(
+                    repr(item[0])
+                    for item in loop_items[index:] + loop_items[:index]
+                ),
+            )
+            loop_items = loop_items[start:] + loop_items[:start]
+        records.append(
+            {
+                "surface_id": int(face.surface_id),
+                "component_kind": str(face.component_kind),
+                "component_side": str(face.component_side),
+                "vert_keys": tuple(item[0] for item in loop_items),
+                "positions": tuple(item[1] for item in loop_items),
+                "uv": tuple(item[2] for item in loop_items),
+            }
+        )
+    records.sort(
+        key=lambda record: (
+            record["surface_id"],
+            record["component_kind"],
+            record["component_side"],
+            repr(record["vert_keys"]),
+        )
+    )
+    ordered_keys = sorted(
+        {
+            key
+            for record in records
+            for key in record["vert_keys"]
+        },
+        key=repr,
+    )
+    index_by_key = {key: index for index, key in enumerate(ordered_keys)}
+    face_loops = tuple(
+        tuple(index_by_key[key] for key in record["vert_keys"])
+        for record in records
+    )
+    edges = {
+        tuple(sorted((loop[index], loop[(index + 1) % len(loop)])))
+        for loop in face_loops
+        for index in range(len(loop))
+    }
+    return {
+        "round_digits": digits,
+        "topology_signature": {
+            "vertex_count": len(ordered_keys),
+            "edge_count": len(edges),
+            "face_count": len(face_loops),
+            "face_loops": face_loops,
+        },
+        "faces": tuple(records),
+    }
 
 
 @dataclass(frozen=True)
@@ -728,7 +844,7 @@ def _convex_fragment_decomposition(polygons, tolerance):
         del result[second_index]
 
 
-def _merge_polygon_fragments(fragments, tolerance=1e-7):
+def _merge_polygon_fragments(fragments, tolerance=1e-7, diagnostics=None):
     """Собирает triangle-clips одной cell обратно в цельные contours.
 
     Internal edges совпадают попарно в противоположных направлениях и
@@ -875,6 +991,8 @@ def _merge_polygon_fragments(fragments, tolerance=1e-7):
             or any(_polygon_area2(loop) < 0.0 for loop in loops)
             or any(not _polygon_is_simple(loop, tolerance) for loop in loops)
         ):
+            if diagnostics is not None:
+                diagnostics.convex_fragment_decomposition_fallbacks += 1
             merged.extend(
                 _convex_fragment_decomposition(
                     [normalized[index] for index in group_indices],
@@ -886,7 +1004,9 @@ def _merge_polygon_fragments(fragments, tolerance=1e-7):
     return merged
 
 
-def _patch_domain_triangles(node, origin, basis_u, basis_v):
+def _patch_domain_triangles(
+    node, origin, basis_u, basis_v, diagnostics=None
+):
     """Триангулирует только boundary loops, не topology owner faces."""
 
     domain_loops = []
@@ -939,6 +1059,8 @@ def _patch_domain_triangles(node, origin, basis_u, basis_v):
             return triangles
 
     # Compatibility fallback для старых serialized graphs/unit tests.
+    if diagnostics is not None:
+        diagnostics.tessellation_mesh_tri_fallbacks += 1
     triangles = []
     for tri in node.mesh_tris:
         points = [
@@ -1345,7 +1467,9 @@ def _edge_points(diagram, edges, vertices, edge_index, curve_step):
     return points
 
 
-def _cell_polygon(diagram, edges, vertices, cell, curve_step):
+def _cell_polygon(
+    diagram, edges, vertices, cell, curve_step, diagnostics=None
+):
     """Восстанавливает ordered boundary конечной pyvoronoi cell."""
 
     polygon = []
@@ -1365,6 +1489,8 @@ def _cell_polygon(diagram, edges, vertices, cell, curve_step):
         else:
             # Cell.edges обычно уже циклически упорядочены. Этот fallback
             # сохраняет контур при небольшой ошибке округления backend.
+            if diagnostics is not None:
+                diagnostics.cell_disorder_fallbacks += 1
             polygon.extend(edge_points)
     polygon = _dedupe_polygon(polygon)
     if len(polygon) < 3 or abs(_polygon_area2(polygon)) <= 1e-12:
@@ -1918,12 +2044,12 @@ def _canonical_planar_basis(normal):
     return basis_u, basis_v
 
 
-def _compile_surface(node, raw_sites):
+def _compile_surface(node, raw_sites, diagnostics=None):
     origin = node.centroid.copy()
     normal = node.normal.normalized()
     basis_u, basis_v = _canonical_planar_basis(normal)
     triangles = _patch_domain_triangles(
-        node, origin, basis_u, basis_v
+        node, origin, basis_u, basis_v, diagnostics
     )
     if not triangles:
         return None
@@ -2105,6 +2231,8 @@ def _compile_surface(node, raw_sites):
             )
     try:
         diagram.Construct()
+        if diagnostics is not None:
+            diagnostics.construct_calls += 1
     except Exception as exc:
         raise _PatchVoronoiSurfaceCompileError(
             "PYVORONOI_CONSTRUCT_FAILED",
@@ -2134,7 +2262,12 @@ def _compile_surface(node, raw_sites):
         ):
             continue
         polygon = _cell_polygon(
-            diagram, diagram_edges, diagram_vertices, cell, curve_step
+            diagram,
+            diagram_edges,
+            diagram_vertices,
+            cell,
+            curve_step,
+            diagnostics,
         )
         if polygon is None:
             continue
@@ -2237,7 +2370,12 @@ def _compile_surface(node, raw_sites):
 
 
 def compile_patch_voronoi_attempt(
-    graph, selected_edge_indices, offset, *, allow_partial=False
+    graph,
+    selected_edge_indices,
+    offset,
+    *,
+    allow_partial=False,
+    diagnostics=None,
 ):
     """Компилирует plan и локализует unsupported patches до physical edges.
 
@@ -2310,7 +2448,9 @@ def compile_patch_voronoi_attempt(
                 continue
         for owner_surface, owner_sites in owner_surfaces:
             try:
-                surface = _compile_surface(owner_surface, owner_sites)
+                surface = _compile_surface(
+                    owner_surface, owner_sites, diagnostics
+                )
             except _PatchVoronoiSurfaceCompileError as exc:
                 edge_indices = exc.edge_indices or tuple(
                     sorted(
@@ -2412,7 +2552,9 @@ def compile_patch_voronoi_attempt(
     )
 
 
-def compile_patch_voronoi_plan(graph, selected_edge_indices, offset):
+def compile_patch_voronoi_plan(
+    graph, selected_edge_indices, offset, *, diagnostics=None
+):
     """Компилирует все touched surfaces или сохраняет legacy fallback."""
 
     return compile_patch_voronoi_attempt(
@@ -2420,6 +2562,7 @@ def compile_patch_voronoi_plan(graph, selected_edge_indices, offset):
         selected_edge_indices,
         offset,
         allow_partial=False,
+        diagnostics=diagnostics,
     ).plan
 
 
@@ -3041,12 +3184,15 @@ def _junction_connector_faces(plan, faces, alpha):
     return connectors
 
 
-def _append_pending_fragments(pending, surface, site, crop, fragments):
+def _append_pending_fragments(
+    pending, surface, site, crop, fragments, diagnostics=None
+):
     """Сваривает fragments одного semantic owner до materialization."""
 
     components = _merge_polygon_fragments(
         fragments,
         tolerance=max(1e-8, DECAL_WELD_DISTANCE * 0.25),
+        diagnostics=diagnostics,
     )
     for component in components:
         # _merge_polygon_fragments уже возвращает deduped валидные contours;
@@ -3068,7 +3214,9 @@ def _append_pending_fragments(pending, surface, site, crop, fragments):
         )
 
 
-def _evaluate_surface_crops(surface, alpha, pending, corner_settings):
+def _evaluate_surface_crops(
+    surface, alpha, pending, corner_settings, diagnostics=None
+):
     """Строит cell ownership без внутренних endpoint boundaries.
 
     pyvoronoi отдельно хранит point-cell и две incident segment-cells. Для
@@ -3147,7 +3295,12 @@ def _evaluate_surface_crops(surface, alpha, pending, corner_settings):
                     if clipped:
                         fragments.append(clipped)
             _append_pending_fragments(
-                pending, surface, owner_site, crop, fragments
+                pending,
+                surface,
+                owner_site,
+                crop,
+                fragments,
+                diagnostics,
             )
 
     for atom in surface.atoms:
@@ -3181,7 +3334,9 @@ def _evaluate_surface_crops(surface, alpha, pending, corner_settings):
                 if not pieces:
                     break
             fragments.extend(pieces)
-        _append_pending_fragments(pending, surface, site, crop, fragments)
+        _append_pending_fragments(
+            pending, surface, site, crop, fragments, diagnostics
+        )
 
 
 def evaluate_patch_voronoi_plan(
@@ -3189,6 +3344,7 @@ def evaluate_patch_voronoi_plan(
     width,
     preview=False,
     corner_settings=None,
+    diagnostics=None,
 ):
     """Перестраивает extrusion polygons внутри статических Voronoi cells."""
 
@@ -3211,6 +3367,7 @@ def evaluate_patch_voronoi_plan(
             alpha,
             pending,
             corner_settings,
+            diagnostics,
         )
 
     arrangement = _build_decal_arrangement(
