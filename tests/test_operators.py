@@ -492,7 +492,8 @@ def test_manual_edge_seams_enters_interactive_width_modal(monkeypatch):
     operator.mode = "SEAMS"
     generated_states = []
     operator._generate = lambda _context, generation_state, settings=None, preview=False: (
-        generated_states.append((generation_state, settings)) or ["Decal"]
+        generated_states.append((generation_state, settings, preview))
+        or [".CFTUV_Preview_Seams_Source"]
     )
 
     result = operator.invoke(
@@ -505,6 +506,7 @@ def test_manual_edge_seams_enters_interactive_width_modal(monkeypatch):
     assert operator._modal_property == "decal_width_seam"
     assert operator._modal_base_value == 0.15
     assert generated_states[0][0][-1] == selected_edges
+    assert generated_states[0][2] is True
     assert operator._modal_decal_plan is modal_plan
     assert isinstance(operator._modal_preview_state, DecalPreviewState)
     assert compile_calls == [(state[1], settings, selected_edges)]
@@ -593,7 +595,7 @@ def test_seam_execute_compiles_and_forwards_same_plan_as_modal(monkeypatch):
     assert generated_plans == [modal_plan]
 
 
-def test_seam_modal_cancel_restores_scene_width_and_base_geometry():
+def test_seam_modal_cancel_restores_scene_width_without_regeneration():
     operator = HOTSPOTUV_OT_GenerateDecals()
     operator.mode = "SEAMS"
     operator._modal_base_settings = DecalSettings(width_seam=0.15)
@@ -622,7 +624,93 @@ def test_seam_modal_cancel_restores_scene_width_and_base_geometry():
 
     assert result == {"CANCELLED"}
     assert scene_settings.decal_width_seam == 0.15
-    assert generated_settings == [operator._modal_base_settings]
+    assert generated_settings == []
+
+
+def test_forced_cancel_removes_preview_once_and_restores_scene(
+    monkeypatch,
+):
+    from cftuv import operators as operators_module
+
+    source = SimpleNamespace(name="Source")
+    preview_state = DecalPreviewState(
+        object_name=".CFTUV_Preview_Seams_Source"
+    )
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    operator._modal_state = (source, object(), DecalSettings(), None, False, 0, ())
+    operator._modal_preview_state = preview_state
+    operator._modal_preview_discarded = False
+    operator._modal_property = "decal_width_seam"
+    operator._modal_base_value = 0.15
+    operator._modal_area = None
+    removed = []
+    monkeypatch.setattr(
+        operators_module,
+        "remove_decal_preview_object",
+        lambda mode, obj, state: removed.append((mode, obj, state)) or True,
+    )
+    scene_settings = SimpleNamespace(decal_width_seam=0.40)
+    context = SimpleNamespace(
+        scene=SimpleNamespace(hotspotuv_settings=scene_settings)
+    )
+
+    operator.cancel(context)
+    operator.cancel(context)
+
+    assert removed == [("SEAMS", source, preview_state)]
+    assert scene_settings.decal_width_seam == 0.15
+
+
+def test_confirm_failure_removes_preview_and_leaves_cancelled_state(
+    monkeypatch,
+):
+    from cftuv import operators as operators_module
+
+    source = SimpleNamespace(name="Source")
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    operator._modal_state = (source, object(), DecalSettings(), None, False, 0, ())
+    operator._modal_preview_state = DecalPreviewState(
+        object_name=".CFTUV_Preview_Seams_Source"
+    )
+    operator._modal_preview_discarded = False
+    operator._modal_property = "decal_width_seam"
+    operator._modal_base_value = 0.15
+    operator._modal_current_value = 0.30
+    operator._modal_label = "Seam Width"
+    operator._modal_area = None
+    operator._modal_last_valid_settings = DecalSettings(width_seam=0.30)
+    operator._generate = lambda *_args, **_kwargs: DecalGenerationResult(
+        PreviewStatus.ERROR,
+        None,
+        reason="exact rebuild failed",
+    )
+    removed = []
+    monkeypatch.setattr(
+        operators_module,
+        "remove_decal_preview_object",
+        lambda mode, obj, state: removed.append((mode, obj, state)) or True,
+    )
+    reports = []
+    operator.report = lambda level, message: reports.append((level, message))
+    scene_settings = SimpleNamespace(decal_width_seam=0.30)
+    context = SimpleNamespace(
+        scene=SimpleNamespace(hotspotuv_settings=scene_settings)
+    )
+
+    result = operator.modal(
+        context,
+        SimpleNamespace(type="LEFTMOUSE", value="PRESS"),
+    )
+
+    assert result == {"CANCELLED"}
+    assert len(removed) == 1
+    assert scene_settings.decal_width_seam == 0.15
+    assert reports[-1] == (
+        {"ERROR"},
+        "Final decal rebuild failed: exact rebuild failed",
+    )
 
 
 def test_seam_modal_confirm_reports_seam_width():

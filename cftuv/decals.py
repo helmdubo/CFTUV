@@ -61,6 +61,10 @@ from .model import ChainNeighborKind, ChainRef, DecalSettings, PatchGraph, Patch
 
 DECAL_MODES = ("TOP", "BOTTOM", "CORNERS", "SEAMS")
 
+_DECAL_PREVIEW_OBJECT_PREFIX = ".CFTUV_Preview"
+_DECAL_PREVIEW_MARKER = "cftuv_decal_preview"
+_DECAL_PREVIEW_SOURCE = "cftuv_decal_source"
+
 _MODE_OBJECT_SUFFIX = {
     "TOP": "Top",
     "BOTTOM": "Bottom",
@@ -115,6 +119,7 @@ class DecalPreviewState:
 
     topology_signature: tuple = ()
     canonical_mesh_indices: tuple[int, ...] = ()
+    object_name: str = ""
     object_pointer: int = 0
     mesh_pointer: int = 0
     fast_updates: int = 0
@@ -2492,6 +2497,43 @@ def _decal_object_name(mode: str, source_obj) -> str:
     return f"Decal_{_MODE_OBJECT_SUFFIX[mode]}_{source_obj.name}"
 
 
+def _decal_preview_object_name(mode: str, source_obj) -> str:
+    return (
+        f"{_DECAL_PREVIEW_OBJECT_PREFIX}_"
+        f"{_MODE_OBJECT_SUFFIX[mode]}_{source_obj.name}"
+    )
+
+
+def _set_decal_preview_metadata(obj, source_obj):
+    """Помечает временный object для cleanup/export filters."""
+
+    try:
+        obj[_DECAL_PREVIEW_MARKER] = True
+        obj[_DECAL_PREVIEW_SOURCE] = source_obj.name
+    except TypeError:
+        # Lightweight unit-test doubles не реализуют Blender ID mapping.
+        setattr(obj, _DECAL_PREVIEW_MARKER, True)
+        setattr(obj, _DECAL_PREVIEW_SOURCE, source_obj.name)
+    obj.hide_render = True
+
+
+def _is_decal_preview_object(obj) -> bool:
+    getter = getattr(obj, "get", None)
+    if getter and getter(_DECAL_PREVIEW_MARKER, False):
+        return True
+    return bool(getattr(obj, _DECAL_PREVIEW_MARKER, False))
+
+
+def _copy_decal_mesh_metadata(source_mesh, target_mesh):
+    """Явно переносит material slots; object metadata сохраняет identity."""
+
+    source_materials = getattr(source_mesh, "materials", ())
+    target_materials = getattr(target_mesh, "materials", None)
+    if target_materials is not None:
+        for material in source_materials:
+            target_materials.append(material)
+
+
 def _bmesh_topology_payload(bm):
     """Каноническая face/loop signature, независимая от BMesh indices."""
 
@@ -2583,6 +2625,7 @@ def _record_preview_state(
         return
     preview_state.topology_signature = topology_signature
     preview_state.canonical_mesh_indices = canonical_mesh_indices
+    preview_state.object_name = obj.name
     preview_state.object_pointer = obj.as_pointer()
     preview_state.mesh_pointer = obj.data.as_pointer()
     if rebuilt:
@@ -2610,9 +2653,21 @@ def _finalize_decal_object(
     preview_state=None,
     prepared=False,
 ):
-    """Сваривает ленты и материализует точный или persistent preview mesh."""
+    """Материализует точный production или persistent preview mesh.
+
+    Production object никогда не удаляется: новый mesh сначала полностью
+    строится отдельно и только затем подменяет data-block существующего
+    object. Поэтому identity и object-level custom properties переживают
+    confirm, а старый mesh удаляется лишь после успешного swap.
+    """
 
     old_obj = bpy.data.objects.get(name)
+    if reuse_existing and old_obj is not None and not _is_decal_preview_object(
+        old_obj
+    ):
+        # Не присваиваем пользовательский object, случайно занявший internal
+        # name: Blender выдаст preview безопасный суффикс.
+        old_obj = None
     try:
         has_faces = bool(bm.faces) if prepared else _prepare_decal_bmesh(bm)
         if not has_faces:
@@ -2679,27 +2734,49 @@ def _finalize_decal_object(
             )
             return old_obj
 
-        if old_obj is not None:
-            if old_obj.mode == "EDIT":
-                # Старая декаль в edit-сессии — удалять нельзя (живой
-                # BMEditMesh); новая получит суффикс имени от Blender.
-                print(f"[CFTUV][Decals] '{name}' is in Edit Mode — keeping it, new object will be suffixed")
-            else:
-                old_mesh = old_obj.data
-                bpy.data.objects.remove(old_obj, do_unlink=True)
-                if old_mesh is not None and old_mesh.users == 0:
-                    bpy.data.meshes.remove(old_mesh)
+        if old_obj is not None and old_obj.mode == "EDIT":
+            raise RuntimeError(
+                f"Cannot update decal '{name}' while it is in Edit Mode"
+            )
 
         mesh = bpy.data.meshes.new(name + "_Geo")
-        bm.to_mesh(mesh)
+        try:
+            bm.to_mesh(mesh)
+            mesh.update()
+        except Exception:
+            if mesh.users == 0:
+                bpy.data.meshes.remove(mesh)
+            raise
     except Exception:
         bm.free()
         raise
     bm.free()
 
-    obj = bpy.data.objects.new(name, mesh)
-    _decal_collection(scene).objects.link(obj)
-    obj.matrix_world = source_obj.matrix_world.copy()
+    if old_obj is not None:
+        old_mesh = old_obj.data
+        try:
+            _copy_decal_mesh_metadata(old_mesh, mesh)
+        except Exception:
+            if mesh.users == 0:
+                bpy.data.meshes.remove(mesh)
+            raise
+        old_obj.data = mesh
+        old_obj.matrix_world = source_obj.matrix_world.copy()
+        if old_mesh is not None and old_mesh.users == 0:
+            bpy.data.meshes.remove(old_mesh)
+        obj = old_obj
+    else:
+        obj = None
+        try:
+            obj = bpy.data.objects.new(name, mesh)
+            _decal_collection(scene).objects.link(obj)
+            obj.matrix_world = source_obj.matrix_world.copy()
+        except Exception:
+            if obj is not None:
+                bpy.data.objects.remove(obj, do_unlink=True)
+            if mesh.users == 0:
+                bpy.data.meshes.remove(mesh)
+            raise
     _record_preview_state(
         preview_state,
         obj,
@@ -3246,6 +3323,47 @@ def _existing_decal_object(name):
     return obj
 
 
+def _existing_decal_preview_object(name):
+    obj = _existing_decal_object(name)
+    return obj if obj is not None and _is_decal_preview_object(obj) else None
+
+
+def _reset_decal_preview_state(preview_state):
+    if preview_state is None:
+        return
+    preview_state.topology_signature = ()
+    preview_state.canonical_mesh_indices = ()
+    preview_state.object_name = ""
+    preview_state.object_pointer = 0
+    preview_state.mesh_pointer = 0
+
+
+def remove_decal_preview_object(
+    mode: str,
+    source_obj,
+    preview_state=None,
+) -> bool:
+    """Удаляет только internal preview object и его orphan mesh."""
+
+    if mode not in DECAL_MODES:
+        return False
+    name = (
+        preview_state.object_name
+        if preview_state is not None and preview_state.object_name
+        else _decal_preview_object_name(mode, source_obj)
+    )
+    obj = _existing_decal_object(name)
+    if obj is None or not _is_decal_preview_object(obj):
+        _reset_decal_preview_state(preview_state)
+        return False
+    mesh = obj.data
+    bpy.data.objects.remove(obj, do_unlink=True)
+    if mesh is not None and mesh.users == 0:
+        bpy.data.meshes.remove(mesh)
+    _reset_decal_preview_state(preview_state)
+    return True
+
+
 def _generate_decal_transaction(
     graph,
     source_obj,
@@ -3284,15 +3402,26 @@ def _generate_decal_transaction(
         bm.free()
         return _DecalTransactionResult(None, False, ())
 
+    object_name = (
+        (
+            preview_state.object_name
+            if preview_state is not None and preview_state.object_name
+            else _decal_preview_object_name(mode, source_obj)
+        )
+        if preview
+        else _decal_object_name(mode, source_obj)
+    )
     obj = _finalize_decal_object(
         bm,
-        _decal_object_name(mode, source_obj),
+        object_name,
         source_obj,
         scene,
         reuse_existing=preview,
         preview_state=preview_state,
         prepared=True,
     )
+    if preview and obj is not None:
+        _set_decal_preview_metadata(obj, source_obj)
     topology_changed = obj is not None
     if preview_state is not None:
         topology_changed = (
@@ -3329,7 +3458,15 @@ def generate_decal_result(
         )
     if scene is None:
         scene = bpy.context.scene
-    object_name = _decal_object_name(mode, source_obj)
+    object_name = (
+        (
+            preview_state.object_name
+            if preview_state is not None and preview_state.object_name
+            else _decal_preview_object_name(mode, source_obj)
+        )
+        if preview
+        else _decal_object_name(mode, source_obj)
+    )
     try:
         transaction = _generate_decal_transaction(
             graph,
@@ -3344,7 +3481,9 @@ def generate_decal_result(
             preview_state,
         )
     except Exception as exc:
-        retained = _existing_decal_object(object_name) if preview else None
+        retained = (
+            _existing_decal_preview_object(object_name) if preview else None
+        )
         return DecalGenerationResult(
             (
                 PreviewStatus.RETAINED_LAST_VALID
@@ -3357,7 +3496,9 @@ def generate_decal_result(
         )
 
     if transaction.obj is None:
-        retained = _existing_decal_object(object_name) if preview else None
+        retained = (
+            _existing_decal_preview_object(object_name) if preview else None
+        )
         return DecalGenerationResult(
             (
                 PreviewStatus.RETAINED_LAST_VALID
@@ -3415,7 +3556,13 @@ def generate_decal_objects(
     if transaction.obj is not None:
         return [transaction.obj.name]
     retained = (
-        _existing_decal_object(_decal_object_name(mode, source_obj))
+        _existing_decal_preview_object(
+            (
+                preview_state.object_name
+                if preview_state is not None and preview_state.object_name
+                else _decal_preview_object_name(mode, source_obj)
+            )
+        )
         if preview
         else None
     )

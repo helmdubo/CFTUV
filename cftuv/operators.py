@@ -48,6 +48,7 @@ from .decals import (
     chain_refs_for_edge_indices,
     compile_manual_seam_decal_plan,
     generate_decal_result,
+    remove_decal_preview_object,
 )
 from .model import DecalSettings, MeshPreflightReport, UVSettings
 from .solve import (
@@ -1375,6 +1376,51 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         if area is not None:
             area.header_text_set(None)
 
+    def _discard_modal_preview(self, context, restore_scene):
+        """Idempotent terminal cleanup для Esc, confirm и forced cancel."""
+
+        if not getattr(self, "_modal_preview_discarded", False):
+            state = getattr(self, "_modal_state", None)
+            source_obj = (
+                state[0]
+                if isinstance(state, (tuple, list)) and state
+                else None
+            )
+            if source_obj is not None:
+                try:
+                    remove_decal_preview_object(
+                        self.mode,
+                        source_obj,
+                        getattr(self, "_modal_preview_state", None),
+                    )
+                except Exception as exc:
+                    reporter = getattr(self, "report", None)
+                    if callable(reporter):
+                        reporter(
+                            {"ERROR"}, f"Preview cleanup failed: {exc}"
+                        )
+            self._modal_preview_discarded = True
+        if restore_scene:
+            scene = getattr(context, "scene", None)
+            scene_settings = getattr(scene, "hotspotuv_settings", None)
+            property_name = getattr(self, "_modal_property", None)
+            if scene_settings is not None and property_name:
+                base_value = getattr(self, "_modal_base_value", None)
+                if base_value is None:
+                    self._clear_modal_header()
+                    return
+                setattr(
+                    scene_settings,
+                    property_name,
+                    base_value,
+                )
+        self._clear_modal_header()
+
+    def cancel(self, context):
+        """Blender callback при принудительном завершении modal/window."""
+
+        self._discard_modal_preview(context, restore_scene=True)
+
     def invoke(self, context, event):
         source_obj = context.active_object
         interactive_mode = self.mode in {"TOP", "BOTTOM", "CORNERS", "SEAMS"}
@@ -1394,31 +1440,12 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             state = _prepare_decal_generation(context)
             self._compile_decal_plan(state)
             self._modal_preview_state = DecalPreviewState()
-            generation = _coerce_decal_generation_result(
-                self._generate(context, state)
-            )
-            if generation.status != PreviewStatus.UPDATED:
-                level = (
-                    {"ERROR"}
-                    if generation.status == PreviewStatus.ERROR
-                    else {"WARNING"}
-                )
-                self.report(
-                    level,
-                    generation.reason
-                    or "No decals generated (check selection / wall geometry)",
-                )
-                return {"CANCELLED"}
-
             settings = state[2]
             self._modal_state = state
             self._modal_base_settings = settings
             self._modal_current_settings = settings
-            self._modal_last_valid_settings = settings
-            self._modal_last_valid_result = generation
-            self._modal_last_preview_error = None
             self._modal_area = context.area
-            self._modal_created = _generation_result_names(generation)
+            self._modal_preview_discarded = False
             if self.mode == "CORNERS":
                 self._modal_property = "decal_width_corner"
                 self._modal_settings_field = "width_corner"
@@ -1434,16 +1461,41 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                 self._modal_settings_field = "height_trim"
                 self._modal_label = "Trim Height"
                 self._modal_base_value = settings.height_trim
+            self._modal_current_value = self._modal_base_value
+            generation = _coerce_decal_generation_result(
+                self._generate(context, state, settings, preview=True)
+            )
+            if generation.status != PreviewStatus.UPDATED:
+                level = (
+                    {"ERROR"}
+                    if generation.status == PreviewStatus.ERROR
+                    else {"WARNING"}
+                )
+                self._discard_modal_preview(context, restore_scene=True)
+                self.report(
+                    level,
+                    generation.reason
+                    or "No decals generated (check selection / wall geometry)",
+                )
+                return {"CANCELLED"}
+
+            self._modal_last_valid_settings = settings
+            self._modal_last_valid_result = generation
+            self._modal_last_preview_error = None
+            self._modal_created = _generation_result_names(generation)
             drag_anchor = _warp_decal_drag_cursor(context, source_obj, event)
             self._modal_start_mouse = drag_anchor[0]
-            self._modal_current_value = self._modal_base_value
             self._set_modal_header(self._modal_current_value)
             context.window_manager.modal_handler_add(self)
             return {"RUNNING_MODAL"}
         except ValueError as exc:
+            if hasattr(self, "_modal_preview_state"):
+                self._discard_modal_preview(context, restore_scene=True)
             self.report({"WARNING"}, str(exc))
             return {"CANCELLED"}
         except Exception as exc:
+            if hasattr(self, "_modal_preview_state"):
+                self._discard_modal_preview(context, restore_scene=True)
             self.report({"ERROR"}, f"Generate Decals failed: {exc}")
             return {"CANCELLED"}
 
@@ -1502,29 +1554,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             return {"RUNNING_MODAL"}
 
         if event.type in {"ESC", "RIGHTMOUSE"} and event.value == "PRESS":
-            setattr(
-                context.scene.hotspotuv_settings,
-                self._modal_property,
-                self._modal_base_value,
-            )
-            try:
-                generation = _coerce_decal_generation_result(
-                    self._generate(
-                        context,
-                        self._modal_state,
-                        self._modal_base_settings,
-                    )
-                )
-                if generation.status != PreviewStatus.UPDATED:
-                    self.report(
-                        {"ERROR"},
-                        "Interactive decal cancel failed: "
-                        + (generation.reason or generation.status.value),
-                    )
-            except Exception as exc:
-                self.report({"ERROR"}, f"Interactive decal cancel failed: {exc}")
-            finally:
-                self._clear_modal_header()
+            self._discard_modal_preview(context, restore_scene=True)
             return {"CANCELLED"}
 
         if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER"} and event.value == "PRESS":
@@ -1536,7 +1566,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                 getattr(self, "_modal_current_settings", None),
             )
             if final_settings is None:
-                self._clear_modal_header()
+                self._discard_modal_preview(context, restore_scene=True)
                 self.report(
                     {"ERROR"},
                     "Final decal rebuild failed: no valid preview settings",
@@ -1552,13 +1582,13 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                     )
                 )
             except Exception as exc:
-                self._clear_modal_header()
+                self._discard_modal_preview(context, restore_scene=True)
                 self.report(
                     {"ERROR"}, f"Final decal rebuild failed: {exc}"
                 )
                 return {"CANCELLED"}
             if generation.status != PreviewStatus.UPDATED:
-                self._clear_modal_header()
+                self._discard_modal_preview(context, restore_scene=True)
                 self.report(
                     {"ERROR"},
                     "Final decal rebuild failed: "
@@ -1567,7 +1597,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                 return {"CANCELLED"}
             self._modal_created = _generation_result_names(generation)
             self._modal_last_valid_result = generation
-            self._clear_modal_header()
+            self._discard_modal_preview(context, restore_scene=False)
             self._report_created(
                 self._modal_created,
                 self._modal_state,

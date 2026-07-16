@@ -115,9 +115,22 @@ error вместо подтверждения произвольного тек�
 
 ## Persistent preview materialization
 
-Modal preview сохраняет один Blender object и один mesh datablock. Новый BMesh
-кадра записывается в существующий mesh через `BMesh.to_mesh()`; object/mesh не
-удаляются на каждом `MOUSEMOVE`. Confirm и cancel выполняют одну точную замену.
+Modal preview сохраняет один отдельный internal object
+`.CFTUV_Preview_<Mode>_<Source>` и один mesh datablock. Object помечен
+`cftuv_decal_preview`, содержит имя source и исключён из render. Production
+`Decal_*` не читается и не мутируется ни на invoke, ни на `MOUSEMOVE`.
+
+Новый BMesh кадра записывается в существующий preview mesh через
+`BMesh.to_mesh()`; object/mesh не удаляются на каждом `MOUSEMOVE`. Esc/RMB и
+Blender callback `cancel()` только удаляют preview object и orphan mesh и
+возвращают scene property/header — production geometry не регенерируется.
+
+Confirm сначала строит exact mesh в отдельном datablock. Только после
+успешной materialization существующий production object сохраняет identity и
+object-level custom properties, получает новый mesh и явно перенесённые
+material slots. Старый production mesh удаляется после swap только при
+`users == 0`. При exact failure production object/mesh остаются нетронутыми,
+а temporary preview очищается.
 
 Если runtime crop падает или временно не создаёт faces, modal продолжает
 работать и оставляет последний валидный preview. Невалидные промежуточные

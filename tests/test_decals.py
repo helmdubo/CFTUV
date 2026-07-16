@@ -340,15 +340,23 @@ def test_generate_decal_objects_reuses_existing_object_only_for_preview(
         lambda bm: bool(bm.faces),
     )
     finalize_calls = []
+
+    class FakeObject(dict):
+        def __init__(self, name):
+            super().__init__()
+            self.name = name
+            self.hide_render = False
+
+    def finalize(_bm, name, *_args, **kwargs):
+        finalize_calls.append(
+            (name, kwargs["reuse_existing"], kwargs["preview_state"])
+        )
+        return FakeObject(name)
+
     monkeypatch.setattr(
         decals_module,
         "_finalize_decal_object",
-        lambda *_args, **kwargs: (
-            finalize_calls.append(
-                (kwargs["reuse_existing"], kwargs["preview_state"])
-            )
-            or SimpleNamespace(name="Decal_Seams_Source")
-        ),
+        finalize,
     )
     source = SimpleNamespace(name="Source")
     preview_state = decals_module.DecalPreviewState()
@@ -371,9 +379,12 @@ def test_generate_decal_objects_reuses_existing_object_only_for_preview(
         preview=False,
     )
 
-    assert preview_names == ["Decal_Seams_Source"]
+    assert preview_names == [".CFTUV_Preview_Seams_Source"]
     assert final_names == ["Decal_Seams_Source"]
-    assert finalize_calls == [(True, preview_state), (False, None)]
+    assert finalize_calls == [
+        (".CFTUV_Preview_Seams_Source", True, preview_state),
+        ("Decal_Seams_Source", False, None),
+    ]
 
 
 def test_structured_generation_result_exposes_runtime_summary(monkeypatch):
@@ -406,6 +417,183 @@ def test_structured_generation_result_exposes_runtime_summary(monkeypatch):
     )
 
 
+def test_remove_preview_deletes_only_marked_object_and_orphan_mesh(monkeypatch):
+    class FakeObject(dict):
+        def __init__(self, name, mesh):
+            super().__init__(cftuv_decal_preview=True)
+            self.name = name
+            self.mode = "OBJECT"
+            self.type = "MESH"
+            self.data = mesh
+
+    mesh = SimpleNamespace(users=0)
+    name = ".CFTUV_Preview_Seams_Source"
+    preview = FakeObject(name, mesh)
+    objects = {name: preview}
+    removed_objects = []
+    removed_meshes = []
+
+    class ObjectStore:
+        def get(self, key):
+            return objects.get(key)
+
+        def remove(self, obj, do_unlink=False):
+            assert do_unlink is True
+            removed_objects.append(obj)
+            objects.pop(obj.name)
+
+    class MeshStore:
+        def remove(self, value):
+            removed_meshes.append(value)
+
+    monkeypatch.setattr(
+        decals_module.bpy,
+        "data",
+        SimpleNamespace(objects=ObjectStore(), meshes=MeshStore()),
+        raising=False,
+    )
+    state = decals_module.DecalPreviewState(
+        topology_signature=((4,),),
+        canonical_mesh_indices=(0, 1, 2, 3),
+        object_name=name,
+        object_pointer=10,
+        mesh_pointer=20,
+    )
+
+    removed = decals_module.remove_decal_preview_object(
+        "SEAMS", SimpleNamespace(name="Source"), state
+    )
+
+    assert removed is True
+    assert removed_objects == [preview]
+    assert removed_meshes == [mesh]
+    assert state.object_name == ""
+    assert state.object_pointer == 0
+    assert state.mesh_pointer == 0
+    assert state.topology_signature == ()
+
+
+def test_final_swap_preserves_object_identity_properties_and_materials(
+    monkeypatch,
+):
+    class Matrix:
+        def copy(self):
+            return self
+
+    class Mesh:
+        def __init__(self, materials=()):
+            self.materials = list(materials)
+            self.users = 0
+            self.updated = False
+
+        def update(self):
+            self.updated = True
+
+    class DecalObject(dict):
+        pass
+
+    old_mesh = Mesh(("Trim", "Damage"))
+    old_obj = DecalObject(artist="kept", export_tag="production")
+    old_obj.name = "Decal_Seams_Source"
+    old_obj.mode = "OBJECT"
+    old_obj.data = old_mesh
+    old_obj.matrix_world = Matrix()
+    new_mesh = Mesh()
+    removed_meshes = []
+
+    monkeypatch.setattr(
+        decals_module.bpy,
+        "data",
+        SimpleNamespace(
+            objects=SimpleNamespace(get=lambda _name: old_obj),
+            meshes=SimpleNamespace(
+                new=lambda _name: new_mesh,
+                remove=lambda mesh: removed_meshes.append(mesh),
+            ),
+        ),
+        raising=False,
+    )
+
+    class BMesh:
+        faces = [object()]
+        freed = False
+
+        def to_mesh(self, mesh):
+            assert mesh is new_mesh
+
+        def free(self):
+            self.freed = True
+
+    bm = BMesh()
+    source = SimpleNamespace(matrix_world=Matrix())
+
+    result = decals_module._finalize_decal_object(
+        bm,
+        old_obj.name,
+        source,
+        object(),
+        prepared=True,
+    )
+
+    assert result is old_obj
+    assert old_obj.data is new_mesh
+    assert dict(old_obj) == {
+        "artist": "kept",
+        "export_tag": "production",
+    }
+    assert new_mesh.materials == ["Trim", "Damage"]
+    assert removed_meshes == [old_mesh]
+    assert bm.freed is True
+
+
+def test_final_mesh_build_failure_does_not_touch_production_object(monkeypatch):
+    old_mesh = SimpleNamespace(materials=[], users=0)
+    old_obj = SimpleNamespace(
+        name="Decal_Seams_Source",
+        mode="OBJECT",
+        data=old_mesh,
+    )
+    temporary_mesh = SimpleNamespace(users=0)
+    removed_meshes = []
+    monkeypatch.setattr(
+        decals_module.bpy,
+        "data",
+        SimpleNamespace(
+            objects=SimpleNamespace(get=lambda _name: old_obj),
+            meshes=SimpleNamespace(
+                new=lambda _name: temporary_mesh,
+                remove=lambda mesh: removed_meshes.append(mesh),
+            ),
+        ),
+        raising=False,
+    )
+
+    class FailingBMesh:
+        faces = [object()]
+        freed = False
+
+        def to_mesh(self, _mesh):
+            raise RuntimeError("mesh conversion failed")
+
+        def free(self):
+            self.freed = True
+
+    bm = FailingBMesh()
+
+    with pytest.raises(RuntimeError, match="mesh conversion failed"):
+        decals_module._finalize_decal_object(
+            bm,
+            old_obj.name,
+            SimpleNamespace(matrix_world=object()),
+            object(),
+            prepared=True,
+        )
+
+    assert old_obj.data is old_mesh
+    assert removed_meshes == [temporary_mesh]
+    assert bm.freed is True
+
+
 @pytest.mark.parametrize(
     ("preview", "has_existing", "expected_status"),
     (
@@ -425,10 +613,11 @@ def test_structured_generation_classifies_transaction_error(
         ),
     )
     existing = SimpleNamespace(
-        name="Decal_Seams_Source",
+        name=".CFTUV_Preview_Seams_Source",
         mode="OBJECT",
         type="MESH",
         data=object(),
+        cftuv_decal_preview=True,
     )
     monkeypatch.setattr(
         decals_module,
@@ -448,7 +637,7 @@ def test_structured_generation_classifies_transaction_error(
     assert result.status == expected_status
     assert result.reason == "invalid crop"
     assert result.object_name == (
-        "Decal_Seams_Source"
+        ".CFTUV_Preview_Seams_Source"
         if expected_status == decals_module.PreviewStatus.RETAINED_LAST_VALID
         else None
     )
@@ -475,10 +664,11 @@ def test_structured_generation_classifies_empty_transaction(
         ),
     )
     existing = SimpleNamespace(
-        name="Decal_Seams_Source",
+        name=".CFTUV_Preview_Seams_Source",
         mode="OBJECT",
         type="MESH",
         data=object(),
+        cftuv_decal_preview=True,
     )
     monkeypatch.setattr(
         decals_module,
