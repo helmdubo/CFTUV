@@ -98,8 +98,28 @@ Median evaluator:
 Полный persistent modal preview на ширине `3.7076`: `23.90 ms` и
 `109.84 ms` соответственно.
 
+## Keyed fragment merge
+
+Surface crop возвращает несколько triangle fragments одной semantic cell.
+Раньше каждый fragment несколько раз заново проходил quantization, dedupe и
+signed-area validation: при union-find, boundary reconstruction и затем ещё
+раз в `_append_pending_fragments()`.
+
+Теперь runtime merge:
+
+- один раз нормализует fragment и вычисляет его quantized point keys;
+- переиспользует эти keys для union-find и boundary half-edges;
+- вычисляет signed area один раз на validation stage;
+- не повторяет dedupe уже валидного merged contour.
+
+Алгоритм объединения и topology policy не изменены. Differential против
+`f8e0d1b` совпал на `walls.003` и `walls.001` при ширинах
+`2.0 / 3.0 / 3.7076 / 4.5`. Дополнительное ускорение evaluator поверх affine
+cache: `24.96 -> 21.82 ms` (`1.14x`) и `109.83 -> 97.46 ms` (`1.13x`).
+Zero-area faces отсутствуют, persistent object/mesh identity сохранена.
+
 Следующий существенный performance-слой должен профилировать surface-local
-crop/fragment merge отдельно и использовать независимость owner surfaces.
+crop/clip отдельно и использовать независимость owner surfaces.
 Простое кэширование по width не подходит: глобальная ширина меняет все
 активные strips. BMesh остаётся точной транзакционной materialization на
 confirm и проверенным preview adapter.

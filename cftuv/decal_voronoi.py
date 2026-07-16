@@ -678,20 +678,6 @@ def _merge_polygon_fragments(fragments, tolerance=1e-7):
     Blender face не может хранить внутренний контур без разбиения.
     """
 
-    normalized = []
-    for fragment in fragments:
-        polygon = _dedupe_polygon(fragment, tolerance=tolerance)
-        if (
-            len(polygon) < 3
-            or abs(_polygon_area2(polygon)) <= tolerance * tolerance
-        ):
-            continue
-        if _polygon_area2(polygon) < 0.0:
-            polygon.reverse()
-        normalized.append(polygon)
-    if len(normalized) <= 1:
-        return normalized
-
     quantum = max(tolerance, 1e-10)
 
     def point_key(point):
@@ -699,6 +685,23 @@ def _merge_polygon_fragments(fragments, tolerance=1e-7):
             round(point[0] / quantum),
             round(point[1] / quantum),
         )
+
+    normalized = []
+    normalized_keys = []
+    for fragment in fragments:
+        polygon = _dedupe_polygon(fragment, tolerance=tolerance)
+        if len(polygon) < 3:
+            continue
+        area = _polygon_area2(polygon)
+        if abs(area) <= tolerance * tolerance:
+            continue
+        if area < 0.0:
+            polygon.reverse()
+        keys = tuple(point_key(point) for point in polygon)
+        normalized.append(polygon)
+        normalized_keys.append(keys)
+    if len(normalized) <= 1:
+        return normalized
 
     parents = list(range(len(normalized)))
 
@@ -715,11 +718,9 @@ def _merge_polygon_fragments(fragments, tolerance=1e-7):
             parents[second_root] = first_root
 
     edge_owners = {}
-    for fragment_index, polygon in enumerate(normalized):
-        for index, point in enumerate(polygon):
-            other = polygon[(index + 1) % len(polygon)]
-            key_a = point_key(point)
-            key_b = point_key(other)
+    for fragment_index, keys in enumerate(normalized_keys):
+        for index, key_a in enumerate(keys):
+            key_b = keys[(index + 1) % len(keys)]
             undirected = tuple(sorted((key_a, key_b)))
             previous_owner = edge_owners.get(undirected)
             if previous_owner is None:
@@ -737,10 +738,11 @@ def _merge_polygon_fragments(fragments, tolerance=1e-7):
         representatives = {}
         for fragment_index in group_indices:
             polygon = normalized[fragment_index]
+            keys = normalized_keys[fragment_index]
             for index, point in enumerate(polygon):
+                key_a = keys[index]
+                key_b = keys[(index + 1) % len(keys)]
                 other = polygon[(index + 1) % len(polygon)]
-                key_a = point_key(point)
-                key_b = point_key(other)
                 representatives.setdefault(key_a, point)
                 representatives.setdefault(key_b, other)
                 reverse = (key_b, key_a)
@@ -2664,13 +2666,14 @@ def _append_pending_fragments(pending, surface, site, crop, fragments):
         tolerance=max(1e-8, DECAL_WELD_DISTANCE * 0.25),
     )
     for component in components:
-        component = _dedupe_polygon(component, tolerance=1e-7)
-        if (
-            len(component) < 3
-            or abs(_polygon_area2(component)) <= 1e-10
-        ):
+        # _merge_polygon_fragments уже возвращает deduped валидные contours;
+        # повторный distance/area pass на каждом runtime crop был лишним.
+        if len(component) < 3:
             continue
-        if _polygon_area2(component) < 0.0:
+        area = _polygon_area2(component)
+        if abs(area) <= 1e-10:
+            continue
+        if area < 0.0:
             component.reverse()
         pending.append(
             _PendingArrangementFace(
