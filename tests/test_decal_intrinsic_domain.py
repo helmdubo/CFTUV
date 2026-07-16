@@ -18,6 +18,7 @@ from cftuv.decal_voronoi import (
     build_intrinsic_surface_domain,
     evaluate_patch_voronoi_plan,
     serialize_network_faces,
+    _periodic_transport_raw_sites,
 )
 from cftuv.model import PatchNode
 
@@ -117,6 +118,52 @@ def _periodic_annulus(segment_count=8):
         "two_sided": False,
     }
     return node, chart, raw_site
+
+
+def _source_edge_index(node, source_edge):
+    source_edge = tuple(sorted(source_edge))
+    for triangle, edge_indices in zip(
+        node.mesh_tris, node.mesh_tri_edge_indices
+    ):
+        for local_edge, edge_index in enumerate(edge_indices):
+            opposite = tuple(
+                sorted(
+                    (
+                        triangle[(local_edge + 1) % 3],
+                        triangle[(local_edge + 2) % 3],
+                    )
+                )
+            )
+            if opposite == source_edge:
+                return edge_index
+    raise AssertionError(f"missing source edge {source_edge!r}")
+
+
+def _periodic_ring_sites(node, segment_count=8):
+    result = []
+    for index in range(segment_count):
+        next_index = (index + 1) % segment_count
+        source_edge = tuple(sorted((index, next_index)))
+        edge_index = _source_edge_index(node, source_edge)
+        result.append(
+            {
+                "patch_id": node.patch_id,
+                "edge_index": edge_index,
+                "vert_a": index,
+                "vert_b": next_index,
+                "source_a": node.mesh_verts[index].copy(),
+                "source_b": node.mesh_verts[next_index].copy(),
+                "arc_start": 0.0,
+                "segment_length": (
+                    node.mesh_verts[next_index] - node.mesh_verts[index]
+                ).length,
+                "side_normal": Vector((0.0, 0.0, -1.0)),
+                "owner_face_index": 100 + index,
+                "uv_sign": -1.0,
+                "two_sided": False,
+            }
+        )
+    return tuple(result)
 
 
 def _folded_patch():
@@ -338,3 +385,66 @@ def test_d2_periodic_sites_are_copied_only_inside_diagram():
         )
         identities = [frozenset(face.vert_keys) for face in first]
         assert len(identities) == len(set(identities))
+
+
+def test_d3_periodic_cycle_has_one_monotonic_v_transport_direction():
+    node, _chart, _raw_site = _periodic_annulus()
+    raw_sites = _periodic_ring_sites(node)
+
+    transported = _periodic_transport_raw_sites(tuple(reversed(raw_sites)))
+
+    intervals = []
+    for raw in transported:
+        start = float(raw["arc_start"])
+        end = start + float(raw["arc_sign"]) * raw["segment_length"]
+        intervals.append(tuple(sorted((start, end))))
+    intervals.sort()
+    for first, second in zip(intervals, intervals[1:]):
+        assert first[1] == pytest.approx(second[0])
+    circumference = sum(raw["segment_length"] for raw in raw_sites)
+    assert intervals[0][0] == pytest.approx(0.0)
+    assert intervals[-1][1] == pytest.approx(circumference)
+
+
+def test_d3_periodic_images_use_shifted_crops_and_transition_welds():
+    node, chart, _raw_site = _periodic_annulus()
+    raw_sites = _periodic_ring_sites(node)
+    diagnostics = PatchVoronoiDiagnostics()
+    surface = _compile_intrinsic_surface(
+        node, chart, raw_sites, diagnostics
+    )
+    plan = PatchVoronoiPlan(
+        offset=0.01,
+        surfaces=(surface,),
+        lifted_vertices={
+            index: position.copy()
+            for index, position in enumerate(node.mesh_verts)
+        },
+        max_lateral_lift_ratio=0.0,
+        alpha_budget=chart.alpha_budget,
+        budget_source=chart.budget_source,
+        requested_alpha_budget=100.0,
+    )
+
+    preview = evaluate_patch_voronoi_plan(
+        plan, chart.period, preview=True, diagnostics=diagnostics
+    )
+    confirm = evaluate_patch_voronoi_plan(
+        plan, chart.period, preview=False
+    )
+
+    assert diagnostics.periodic_copy_count > 0
+    assert diagnostics.periodic_weld_count > 0
+    assert serialize_network_faces(preview) == serialize_network_faces(confirm)
+    assert len({frozenset(face.vert_keys) for face in preview}) == len(preview)
+    intervals = sorted(
+        (
+            min(site.arc_start, site.arc_start + site.arc_sign * site.uv_length),
+            max(site.arc_start, site.arc_start + site.arc_sign * site.uv_length),
+        )
+        for site in surface.sites
+    )
+    assert intervals[0][0] == pytest.approx(0.0)
+    assert intervals[-1][1] == pytest.approx(
+        sum(raw["segment_length"] for raw in raw_sites)
+    )

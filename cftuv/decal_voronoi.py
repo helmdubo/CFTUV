@@ -271,6 +271,7 @@ class _PatchVoronoiAtom:
     cell_kind: str
     corner_index: int = -1
     source_category: int = 0
+    periodic_shift: int = 0
 
 
 @dataclass(frozen=True)
@@ -503,6 +504,18 @@ class DecalSurfaceDomain:
         delta = position - self.origin
         return (delta.dot(self.basis_u), delta.dot(self.basis_v))
 
+    def canonical_transition_key(self, transition_key):
+        """Сворачивает только явно объявленные DP3-equivalence keys."""
+
+        if transition_key is None:
+            return None
+        for canonical_key, image_keys in self.transition_equivalences:
+            if transition_key == canonical_key or any(
+                transition_key == image_key for image_key in image_keys
+            ):
+                return canonical_key
+        return transition_key
+
     def locate(self, point):
         """Разрешает chart point в source feature только у lift boundary."""
 
@@ -574,7 +587,7 @@ class DecalSurfaceDomain:
             barycentric=best_weights,
             source_feature=source_feature,
             source_feature_id=source_feature_id,
-            transition_key=transition_key,
+            transition_key=self.canonical_transition_key(transition_key),
         )
 
     def _intrinsic_location(self, point):
@@ -4150,7 +4163,7 @@ def _compile_surface(
         )
         if not cell_triangles:
             continue
-        owner_site_index = diagram_site_records[cell.site][0]
+        owner_site_index, periodic_shift = diagram_site_records[cell.site][:2]
         site = sites[owner_site_index]
         fragments = []
         for cell_triangle in cell_triangles:
@@ -4194,6 +4207,7 @@ def _compile_surface(
                     cell_kind=cell_kind,
                     corner_index=corner_index,
                     source_category=source_category,
+                    periodic_shift=int(periodic_shift),
                 )
             )
     segment_site_indices = {
@@ -4400,7 +4414,91 @@ def _intrinsic_site_points(chart, raw_sites):
     return result
 
 
+def _periodic_transport_raw_sites(raw_sites):
+    """Разворачивает замкнутые selected-компоненты в монотонную V-фазу.
+
+    Изменение локально для periodic chart: non-periodic Dijkstra transport
+    остаётся бит-в-бит прежним. Направление цикла задают минимальная source
+    vertex и минимальный incident edge id, поэтому winding owner mesh на него
+    не влияет.
+    """
+
+    result = [dict(raw) for raw in raw_sites]
+    unique_edges = {}
+    for raw in result:
+        unique_edges.setdefault(int(raw["edge_index"]), raw)
+    adjacency = {}
+    for edge_index, raw in unique_edges.items():
+        first = int(raw["vert_a"])
+        second = int(raw["vert_b"])
+        length = float(raw["segment_length"])
+        adjacency.setdefault(first, []).append((edge_index, second, length))
+        adjacency.setdefault(second, []).append((edge_index, first, length))
+
+    remaining = set(adjacency)
+    transport = {}
+    while remaining:
+        root = min(remaining)
+        component_vertices = {root}
+        frontier = [root]
+        while frontier:
+            current = frontier.pop()
+            for _edge_index, neighbour, _length in adjacency[current]:
+                if neighbour not in component_vertices:
+                    component_vertices.add(neighbour)
+                    frontier.append(neighbour)
+        remaining.difference_update(component_vertices)
+        if any(len(adjacency[vertex]) != 2 for vertex in component_vertices):
+            continue
+
+        current = root
+        previous_edge = None
+        distance = 0.0
+        visited_edges = set()
+        while True:
+            candidates = sorted(
+                entry
+                for entry in adjacency[current]
+                if entry[0] != previous_edge
+            )
+            if not candidates:
+                break
+            edge_index, neighbour, length = candidates[0]
+            if edge_index in visited_edges:
+                break
+            visited_edges.add(edge_index)
+            transport[edge_index] = (current, neighbour, distance, length)
+            distance += length
+            previous_edge = edge_index
+            current = neighbour
+            if current == root:
+                break
+        component_edges = {
+            edge_index
+            for vertex in component_vertices
+            for edge_index, _neighbour, _length in adjacency[vertex]
+        }
+        if current != root or visited_edges != component_edges:
+            for edge_index in visited_edges:
+                transport.pop(edge_index, None)
+
+    for raw in result:
+        entry = transport.get(int(raw["edge_index"]))
+        if entry is None:
+            continue
+        start, end, distance, length = entry
+        if int(raw["vert_a"]) == start and int(raw["vert_b"]) == end:
+            raw["arc_start"] = distance
+            raw["arc_sign"] = 1.0
+        else:
+            raw["arc_start"] = distance + length
+            raw["arc_sign"] = -1.0
+    return tuple(result)
+
+
 def _compile_intrinsic_surface(node, chart, raw_sites, diagnostics=None):
+    if chart.periodic_axis:
+        raw_sites = _periodic_transport_raw_sites(raw_sites)
     intrinsic_triangles = _intrinsic_domain_triangles(chart)
     return _compile_surface(
         node,
@@ -5187,6 +5285,39 @@ def _resolve_arrangement_point(
     return resolved
 
 
+def _count_periodic_transition_welds(plan, resolved_points):
+    """Считает реально сведённые seam stations по DP3 keys, не по modulo."""
+
+    surfaces_by_identity = {id(surface): surface for surface in plan.surfaces}
+    stations = {}
+    for cache_key, resolved in resolved_points.items():
+        surface = surfaces_by_identity.get(cache_key[0])
+        if surface is None or not surface.domain.periodic_axis:
+            continue
+        transition_key = resolved.location.transition_key
+        if transition_key is None:
+            continue
+        canonical_key = surface.domain.canonical_transition_key(
+            transition_key
+        )
+        stations.setdefault(
+            (
+                id(surface),
+                _hashable_provenance(canonical_key),
+                resolved.vert_key,
+            ),
+            set(),
+        ).add(float(resolved.location.uv[0]))
+    count = 0
+    for (surface_identity, _transition_key, _vert_key), values in stations.items():
+        surface = surfaces_by_identity[surface_identity]
+        if len(values) < 2:
+            continue
+        if max(values) - min(values) >= surface.domain.period * (1.0 - 1e-7):
+            count += 1
+    return count
+
+
 def _component_area_coefficients(
     plan,
     surface,
@@ -5710,6 +5841,33 @@ def _append_pending_fragments(
         )
 
 
+def _periodic_site_image(surface, site, shift):
+    """Возвращает runtime-view site image без размножения compile IR."""
+
+    shift = int(shift)
+    if not shift:
+        return site
+    offset = shift * float(surface.domain.period)
+    return replace(
+        site,
+        point_a=(site.point_a[0] + offset, site.point_a[1]),
+        point_b=(site.point_b[0] + offset, site.point_b[1]),
+    )
+
+
+def _periodic_crop_image(surface, crop, shift):
+    """Переносит geometry crop; UV anchors остаются в transport frame."""
+
+    shift = int(shift)
+    if not shift:
+        return crop
+    offset = shift * float(surface.domain.period)
+    return replace(
+        crop,
+        points=tuple((point[0] + offset, point[1]) for point in crop.points),
+    )
+
+
 def _evaluate_surface_crops(
     surface, alpha, pending, corner_settings, diagnostics=None
 ):
@@ -5865,23 +6023,41 @@ def _evaluate_surface_crops(
                 default=min(owner_site_indices),
             )
             owner_site = surface.sites[owner_site_index]
-            atom_groups = (
-                ((atom,) for atom in owner_atoms)
-                if split_dynamic_atoms
-                else (owner_atoms,)
-            )
+            if split_dynamic_atoms:
+                atom_groups = tuple((atom,) for atom in owner_atoms)
+            else:
+                atoms_by_shift = {}
+                for atom in owner_atoms:
+                    atoms_by_shift.setdefault(atom.periodic_shift, []).append(
+                        atom
+                    )
+                atom_groups = tuple(
+                    tuple(atoms_by_shift[shift])
+                    for shift in sorted(atoms_by_shift)
+                )
             for atoms in atom_groups:
+                if not atoms:
+                    continue
+                periodic_shift = atoms[0].periodic_shift
+                image_crop = _periodic_crop_image(
+                    surface, crop, periodic_shift
+                )
                 fragments = []
                 for atom in atoms:
                     for fragment in atom.fragments:
-                        clipped = _clip_to_convex(fragment, crop.points)
+                        clipped = _clip_to_convex(
+                            fragment, image_crop.points
+                        )
                         if clipped:
                             fragments.append(clipped)
+                image_site = _periodic_site_image(
+                    surface, owner_site, periodic_shift
+                )
                 _append_pending_fragments(
                     pending,
                     surface,
-                    owner_site,
-                    crop,
+                    image_site,
+                    image_crop,
                     fragments,
                     diagnostics,
                 )
@@ -5889,14 +6065,21 @@ def _evaluate_surface_crops(
     for atom in surface.atoms:
         if atom.cell_kind == "POINT" and atom.corner_index in corner_crops:
             continue
-        site = surface.sites[atom.site_index]
+        site = _periodic_site_image(
+            surface,
+            surface.sites[atom.site_index],
+            atom.periodic_shift,
+        )
         crop = _CropComponent(
             kind="SEGMENT",
             side="",
             points=tuple(_segment_crop_polygon(site, alpha)),
         )
         fragments = []
-        subtraction_crops = crops_by_site.get(atom.site_index, ())
+        subtraction_crops = tuple(
+            _periodic_crop_image(surface, corner_crop, atom.periodic_shift)
+            for corner_crop in crops_by_site.get(atom.site_index, ())
+        )
         for fragment in atom.fragments:
             clipped = _clip_to_convex(fragment, crop.points)
             if not clipped:
@@ -5930,6 +6113,7 @@ def evaluate_patch_voronoi_plan(
     corner_settings = _normalized_corner_runtime_settings(corner_settings)
     if diagnostics is not None:
         diagnostics.runtime_policy_counts.clear()
+        diagnostics.periodic_weld_count = 0
     alpha = max(1e-6, float(width) * 0.5)
     # Проверка выполняется до crop/arrangement: excess frame не имеет
     # geometry side effects и modal может оставить последний valid preview.
@@ -6051,6 +6235,10 @@ def evaluate_patch_voronoi_plan(
             )
         )
     _synchronize_cross_surface_spine_stations(plan, faces)
+    if diagnostics is not None:
+        diagnostics.periodic_weld_count = _count_periodic_transition_welds(
+            plan, resolved_points
+        )
     faces.extend(
         _junction_connector_faces(
             plan,

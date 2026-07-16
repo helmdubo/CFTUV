@@ -1261,6 +1261,14 @@ selected sites у обоих cut-краёв на `U ± period`, включая �
 
 ## D3. UV transport через periodic seam
 
+Статус: **IMPLEMENTED**. Замкнутые selected-компоненты periodic chart получают
+единственное детерминированное направление V от минимальной source vertex и
+incident edge; суммарный диапазон равен физической длине кольца. Diagram image
+shift хранится целым числом на atom и применяется к runtime crop/site view,
+не размножая materialized IR. Seam identity канонизируется исключительно по
+`transition_equivalences`; `periodic_weld_count` считает фактически сведённые
+станции с двумя chart images. Float-modulo не используется.
+
 ### Изменения
 - Замкнутая цепочка: один transport direction, V монотонна вдоль
   кольца, V-шов — в детерминированной точке (closure point цепочки),
