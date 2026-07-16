@@ -337,7 +337,13 @@ class DecalSettings:
     # Runtime corner policy patch-Voronoi backend. Углы хранятся в радианах,
     # как Blender ANGLE properties; compiled Voronoi plan от них не зависит.
     corner_acute_split_angle: float = pi / 3.0
-    corner_miter_limit: float = 8.0
+    corner_apex_limit: float = 8.0
+
+    @property
+    def corner_miter_limit(self) -> float:
+        """Compatibility alias для старых consumers DecalSettings."""
+
+        return self.corner_apex_limit
 
     @staticmethod
     def from_blender_settings(settings) -> "DecalSettings":
@@ -354,7 +360,7 @@ class DecalSettings:
             corner_acute_split_angle=float(
                 getattr(settings, "decal_corner_acute_split_angle", pi / 3.0)
             ),
-            corner_miter_limit=float(
+            corner_apex_limit=float(
                 getattr(settings, "decal_corner_miter_limit", 8.0)
             ),
         )

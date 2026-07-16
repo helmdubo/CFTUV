@@ -15,9 +15,9 @@ Harness выполняет repeated preview и exact confirm для ширин
 compile не меняется во время width drag.
 
 Baseline Blender 4.3.2 на включённой fixture
-`VERIFY_SRC_MANUAL_SEAMS` (25 selected edges): compile `165.67 ms`, median
-preview evaluator `25.53 / 24.07 / 24.89 / 18.74 ms`; materialization
-`0.95 / 0.64 / 0.60 / 0.41 ms`. Во всех четырёх ширинах dropped faces = 0,
+`VERIFY_SRC_MANUAL_SEAMS` (25 selected edges): compile `156.57 ms`, median
+preview evaluator `24.82 / 23.55 / 24.24 / 19.10 ms`; materialization
+`0.81 / 0.59 / 0.61 / 0.41 ms`. Во всех четырёх ширинах dropped faces = 0,
 repeated output и preview/confirm совпали, `Construct during drag = 0`.
 Полный JSON лежит в `artifacts/decal_runtime_baseline.json`.
 
@@ -49,7 +49,22 @@ PatchGraph, owner surface charts и offset. Он один раз сохраня�
 
 - `Acute Split Angle` — ниже порога corner становится двухкомпонентным
   `ACUTE_SPLIT`;
-- `Miter Limit` — максимальная длина miter относительно half-width.
+- `Apex Limit` — максимальное расстояние удалённого apex относительно
+  half-width для `MITER`, `KITE` и outer-части `ACUTE_SPLIT`.
+
+Blender property id `decal_corner_miter_limit` сохранён для совместимости, но
+UI и runtime называют параметр `Apex Limit`; внутренний контракт —
+`CornerRuntimeSettings.apex_limit`. `_CornerPolicy.BEVEL` оставлен только как
+reserved enum и classifier его не возвращает. Дальний MITER/KITE apex заменяет
+усечённый contour. ACUTE_SPLIT всегда сохраняет INNER и OUTER components:
+outer apex двигается вдоль исходного apex ray и остаётся строго с внешней
+стороны cap chord. Если limit меньше геометрического minimum, используется
+minimum + epsilon и увеличивается `apex_limit_saturated_count`.
+
+Optional `PatchVoronoiDiagnostics` содержит `clamped_miter_count`,
+`clamped_kite_count`, `clamped_acute_count` и
+`apex_limit_saturated_count`; изменение Apex Limit не вызывает новый
+`Pyvoronoi.Construct()`.
 
 Дополнительные acute/obtuse bands из референсного инструмента нельзя добавлять
 до определения их точной семантики. Они должны расширять

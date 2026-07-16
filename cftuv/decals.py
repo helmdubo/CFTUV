@@ -50,9 +50,9 @@ from .decal_network import (
     evaluate_seam_network_plan,
 )
 from .decal_voronoi import (
-    CornerRuntimeSettings,
     compile_patch_voronoi_attempt,
     compile_patch_voronoi_plan,
+    corner_runtime_settings_from_decal_settings,
     evaluate_patch_voronoi_plan,
 )
 from .console_debug import is_verbose_console_enabled
@@ -2688,9 +2688,8 @@ def _evaluate_manual_backend_partition(
                 partition.compiled_plan,
                 width,
                 preview=preview,
-                corner_settings=CornerRuntimeSettings(
-                    acute_split_angle=settings.corner_acute_split_angle,
-                    miter_limit=settings.corner_miter_limit,
+                corner_settings=corner_runtime_settings_from_decal_settings(
+                    settings
                 ),
             )
         except Exception as exc:
@@ -2788,11 +2787,10 @@ def _fill_manual_chain_decals(
                         decal_plan.patch_voronoi_plan,
                         width,
                         preview=preview,
-                        corner_settings=CornerRuntimeSettings(
-                            acute_split_angle=(
-                                settings.corner_acute_split_angle
-                            ),
-                            miter_limit=settings.corner_miter_limit,
+                        corner_settings=(
+                            corner_runtime_settings_from_decal_settings(
+                                settings
+                            )
                         ),
                     )
                 except Exception as exc:

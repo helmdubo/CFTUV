@@ -91,22 +91,61 @@ class CornerSpec:
     miter_ratio: float
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class CornerRuntimeSettings:
     """Дешёвые corner-настройки, допустимые к изменению во время drag."""
 
-    acute_split_angle: float = _ACUTE_SPLIT_ANGLE
-    miter_limit: float = _MITER_LIMIT
+    acute_split_angle: float
+    apex_limit: float
+
+    def __init__(
+        self,
+        acute_split_angle=_ACUTE_SPLIT_ANGLE,
+        apex_limit=_MITER_LIMIT,
+        *,
+        miter_limit=None,
+    ):
+        # ``miter_limit`` остаётся constructor adapter для старых scripts.
+        if miter_limit is not None:
+            apex_limit = miter_limit
+        object.__setattr__(self, "acute_split_angle", float(acute_split_angle))
+        object.__setattr__(self, "apex_limit", float(apex_limit))
+
+    @property
+    def miter_limit(self):
+        """Compatibility alias; runtime geometry использует apex_limit."""
+
+        return self.apex_limit
 
 
 def _normalized_corner_runtime_settings(settings):
     settings = settings or CornerRuntimeSettings()
+    apex_limit = getattr(
+        settings,
+        "apex_limit",
+        getattr(settings, "miter_limit", _MITER_LIMIT),
+    )
     return CornerRuntimeSettings(
         acute_split_angle=max(
             0.0,
             min(pi, float(settings.acute_split_angle)),
         ),
-        miter_limit=max(1.0, float(settings.miter_limit)),
+        apex_limit=max(1.0, float(apex_limit)),
+    )
+
+
+def corner_runtime_settings_from_decal_settings(settings):
+    """Единственный adapter immutable DecalSettings → runtime policy."""
+
+    return CornerRuntimeSettings(
+        acute_split_angle=float(settings.corner_acute_split_angle),
+        apex_limit=float(
+            getattr(
+                settings,
+                "corner_apex_limit",
+                getattr(settings, "corner_miter_limit", _MITER_LIMIT),
+            )
+        ),
     )
 
 
@@ -290,6 +329,10 @@ class PatchVoronoiDiagnostics:
     cell_disorder_fallbacks: int = 0
     tessellation_mesh_tri_fallbacks: int = 0
     convex_fragment_decomposition_fallbacks: int = 0
+    clamped_miter_count: int = 0
+    clamped_kite_count: int = 0
+    clamped_acute_count: int = 0
+    apex_limit_saturated_count: int = 0
 
     def as_dict(self):
         return {
@@ -300,6 +343,12 @@ class PatchVoronoiDiagnostics:
             ),
             "convex_fragment_decomposition_fallbacks": int(
                 self.convex_fragment_decomposition_fallbacks
+            ),
+            "clamped_miter_count": int(self.clamped_miter_count),
+            "clamped_kite_count": int(self.clamped_kite_count),
+            "clamped_acute_count": int(self.clamped_acute_count),
+            "apex_limit_saturated_count": int(
+                self.apex_limit_saturated_count
             ),
         }
 
@@ -1224,9 +1273,12 @@ def _corner_offset_lines(surface, corner, alpha):
     return offset_lines
 
 
-def _kite_crop_polygon(surface, corner, alpha):
+def _kite_crop_polygon(
+    surface, corner, alpha, settings=None, diagnostics=None
+):
     """Один realtime kite из двух endpoint triangles convex corner."""
 
+    settings = _normalized_corner_runtime_settings(settings)
     offset_lines = _corner_offset_lines(surface, corner, alpha)
     if len(offset_lines) != 2:
         return []
@@ -1236,10 +1288,11 @@ def _kite_crop_polygon(surface, corner, alpha):
         offset_lines[1][0],
         offset_lines[1][1],
     )
-    if (
-        intersection is None
-        or _dist2(corner.point, intersection) > alpha * 8.0
+    if intersection is None or (
+        _dist2(corner.point, intersection) > alpha * settings.apex_limit
     ):
+        if diagnostics is not None:
+            diagnostics.clamped_kite_count += 1
         return _convex_hull(
             [corner.point, offset_lines[0][0], offset_lines[1][0]]
         )
@@ -1289,9 +1342,59 @@ def _crop_component_from_anchors(kind, side, anchors, v_origin=0.0):
     )
 
 
-def _acute_crop_components(surface, corner, alpha):
+def _clamped_acute_apex(
+    corner_point,
+    cap_a,
+    cap_b,
+    intersection,
+    alpha,
+    settings,
+    diagnostics,
+):
+    """Ограничивает outer apex, не перенося его внутрь cap chord."""
+
+    ray = _sub2(intersection, corner_point)
+    apex_distance = sqrt(_dot2(ray, ray))
+    if apex_distance <= _GEOMETRY_EPS:
+        return intersection
+    ray_direction = (ray[0] / apex_distance, ray[1] / apex_distance)
+    chord_direction = _sub2(cap_b, cap_a)
+    crossing = _line_intersection(
+        corner_point,
+        ray_direction,
+        cap_a,
+        chord_direction,
+    )
+    epsilon = max(_GEOMETRY_EPS * 10.0, alpha * 1e-6)
+    minimum_distance = 0.0
+    if crossing is not None:
+        crossing_ray = _sub2(crossing, corner_point)
+        crossing_distance = _dot2(crossing_ray, ray_direction)
+        if crossing_distance > 0.0:
+            minimum_distance = crossing_distance + epsilon
+    requested_distance = alpha * settings.apex_limit
+    effective_limit = requested_distance
+    if requested_distance < minimum_distance:
+        effective_limit = minimum_distance
+        if diagnostics is not None:
+            diagnostics.apex_limit_saturated_count += 1
+    target_distance = min(apex_distance, effective_limit)
+    if target_distance < apex_distance - epsilon:
+        if diagnostics is not None:
+            diagnostics.clamped_acute_count += 1
+        return (
+            corner_point[0] + ray_direction[0] * target_distance,
+            corner_point[1] + ray_direction[1] * target_distance,
+        )
+    return intersection
+
+
+def _acute_crop_components(
+    surface, corner, alpha, settings=None, diagnostics=None
+):
     """Разделяет острый kite на inner/outer faces во время drag."""
 
+    settings = _normalized_corner_runtime_settings(settings)
     offset_lines = _corner_offset_lines(surface, corner, alpha)
     if len(offset_lines) != 2:
         return ()
@@ -1303,8 +1406,8 @@ def _acute_crop_components(surface, corner, alpha):
     )
     if intersection is None:
         fallback = _crop_component_from_anchors(
-            _CornerPolicy.BEVEL.value,
-            "",
+            _CornerPolicy.ACUTE_SPLIT.value,
+            "INNER",
             (
                 (corner.point, (0.0, 0.0)),
                 (offset_lines[0][0], (-1.0, alpha)),
@@ -1320,8 +1423,17 @@ def _acute_crop_components(surface, corner, alpha):
         (cap_a[0] + cap_b[0]) * 0.5,
         (cap_a[1] + cap_b[1]) * 0.5,
     )
+    outer_apex = _clamped_acute_apex(
+        corner.point,
+        cap_a,
+        cap_b,
+        intersection,
+        alpha,
+        settings,
+        diagnostics,
+    )
     inner_height = _dist2(corner.point, chord_midpoint)
-    outer_height = _dist2(intersection, chord_midpoint)
+    outer_height = _dist2(outer_apex, chord_midpoint)
     orientation = 1.0 if corner.turn_sign >= 0.0 else -1.0
     v_origin = _corner_arc_origin(surface, corner)
     inner = _crop_component_from_anchors(
@@ -1339,7 +1451,7 @@ def _acute_crop_components(surface, corner, alpha):
         "OUTER",
         (
             (cap_a, (-orientation, 0.0)),
-            (intersection, (0.0, outer_height)),
+            (outer_apex, (0.0, outer_height)),
             (cap_b, (orientation, 0.0)),
         ),
         v_origin,
@@ -1347,15 +1459,20 @@ def _acute_crop_components(surface, corner, alpha):
     return tuple(component for component in (inner, outer) if component)
 
 
-def _corner_crop_components(surface, corner, policy, alpha, settings):
+def _corner_crop_components(
+    surface, corner, policy, alpha, settings, diagnostics=None
+):
     if policy == _CornerPolicy.ACUTE_SPLIT:
-        return _acute_crop_components(surface, corner, alpha)
+        return _acute_crop_components(
+            surface, corner, alpha, settings, diagnostics
+        )
     polygon = _corner_crop_polygon(
         surface,
         corner,
         policy,
         alpha,
         settings,
+        diagnostics,
     )
     if len(polygon) < 3:
         return ()
@@ -1365,6 +1482,24 @@ def _corner_crop_components(surface, corner, policy, alpha, settings):
             side="",
             points=tuple(polygon),
         ),
+    )
+
+
+def _miter_requires_explicit_crop(surface, corner, alpha, settings):
+    """Implicit segment join достаточен, пока apex не требуется усекать."""
+
+    offset_lines = _corner_offset_lines(surface, corner, alpha)
+    if len(offset_lines) != 2:
+        return False
+    intersection = _line_intersection(
+        offset_lines[0][0],
+        offset_lines[0][1],
+        offset_lines[1][0],
+        offset_lines[1][1],
+    )
+    return (
+        intersection is not None
+        and _dist2(corner.point, intersection) > alpha * settings.apex_limit
     )
 
 
@@ -1401,7 +1536,9 @@ def _crop_component_uv(crop, point):
     return u_value, v_value
 
 
-def _corner_crop_polygon(surface, corner, policy, alpha, settings):
+def _corner_crop_polygon(
+    surface, corner, policy, alpha, settings, diagnostics=None
+):
     """Runtime endpoint extrusion polygon выбранной corner policy."""
 
     point = corner.point
@@ -1413,7 +1550,9 @@ def _corner_crop_polygon(surface, corner, policy, alpha, settings):
             (point[0] - alpha, point[1] + alpha),
         ]
     if policy == _CornerPolicy.KITE:
-        return _kite_crop_polygon(surface, corner, alpha)
+        return _kite_crop_polygon(
+            surface, corner, alpha, settings, diagnostics
+        )
 
     offset_lines = _corner_offset_lines(surface, corner, alpha)
 
@@ -1426,10 +1565,11 @@ def _corner_crop_polygon(surface, corner, policy, alpha, settings):
     points = [point, offset_lines[0][0], offset_lines[1][0]]
     if (
         intersection is not None
-        and _dist2(point, intersection) <= alpha * settings.miter_limit
-        and policy != _CornerPolicy.BEVEL
+        and _dist2(point, intersection) <= alpha * settings.apex_limit
     ):
         points.append(intersection)
+    elif intersection is not None and diagnostics is not None:
+        diagnostics.clamped_miter_count += 1
     return _convex_hull(points)
 
 
@@ -1994,7 +2134,7 @@ def classify_corner_runtime(corner, settings=None):
     """Выбирает corner policy из compiled facts и текущих настроек.
 
     Функция не читает PyVoronoi и не меняет plan. Поэтому thresholds и
-    miter limit можно менять между preview frames без перекомпиляции sites.
+    apex limit можно менять между preview frames без перекомпиляции sites.
     """
 
     settings = _normalized_corner_runtime_settings(settings)
@@ -2012,9 +2152,7 @@ def classify_corner_runtime(corner, settings=None):
         return _CornerPolicy.MITER
     if corner.interior_angle > pi:
         return _CornerPolicy.KITE
-    if corner.miter_ratio <= settings.miter_limit:
-        return _CornerPolicy.MITER
-    return _CornerPolicy.BEVEL
+    return _CornerPolicy.MITER
 
 
 def _canonical_planar_basis(normal):
@@ -3247,8 +3385,19 @@ def _evaluate_surface_crops(
     )
     explicit_corner_indices = {
         corner_index
-        for corner_index, policy in enumerate(runtime_policies)
-        if policy == _CornerPolicy.ACUTE_SPLIT
+        for corner_index, (corner, policy) in enumerate(
+            zip(surface.corners, runtime_policies)
+        )
+        if len(corner.incident_sites) == 2
+        and (
+            policy == _CornerPolicy.ACUTE_SPLIT
+            or (
+                policy == _CornerPolicy.MITER
+                and _miter_requires_explicit_crop(
+                    surface, corner, alpha, corner_settings
+                )
+            )
+        )
     }
     corner_indices = sorted(
         set(point_atoms_by_corner) | explicit_corner_indices
@@ -3263,6 +3412,7 @@ def _evaluate_surface_crops(
             policy,
             alpha,
             corner_settings,
+            diagnostics,
         )
         if not crops:
             continue

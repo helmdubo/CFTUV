@@ -801,6 +801,163 @@ def test_corner_policy_threshold_changes_without_recompiling_plan():
     assert not any(face.component_kind == "ACUTE_SPLIT" for face in miter_faces)
 
 
+def _apex_limit_evaluations(plan, acute_split_angle):
+    results = {}
+    for apex_limit in (1.0, 8.0, 100.0):
+        settings = decal_voronoi.CornerRuntimeSettings(
+            acute_split_angle=acute_split_angle,
+            apex_limit=apex_limit,
+        )
+        diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+        preview = evaluate_patch_voronoi_plan(
+            plan,
+            width=1.0,
+            preview=True,
+            corner_settings=settings,
+            diagnostics=diagnostics,
+        )
+        confirmed = evaluate_patch_voronoi_plan(
+            plan,
+            width=1.0,
+            preview=False,
+            corner_settings=settings,
+        )
+        assert decal_voronoi.serialize_network_faces(
+            preview
+        ) == decal_voronoi.serialize_network_faces(confirmed)
+        assert all(_signed_face_area(face) > 1e-10 for face in preview)
+        results[apex_limit] = (preview, diagnostics)
+    return results
+
+
+def test_apex_limit_changes_convex_miter_contour():
+    plan = compile_patch_voronoi_plan(
+        _folded_turn_graph(), [30, 31], offset=0.01
+    )
+    results = _apex_limit_evaluations(plan, acute_split_angle=0.1)
+
+    snapshots = {
+        limit: decal_voronoi.serialize_network_faces(faces)
+        for limit, (faces, _diagnostics) in results.items()
+    }
+    assert snapshots[1.0] != snapshots[8.0]
+    assert snapshots[8.0] == snapshots[100.0]
+    assert sum(
+        face.component_kind == "MITER" for face in results[1.0][0]
+    ) == 1
+    assert results[1.0][1].clamped_miter_count == 1
+    assert results[8.0][1].clamped_miter_count == 0
+
+
+def test_apex_limit_changes_kite_contour():
+    graph, edge_indices = _door_opening_graph()
+    plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
+    results = _apex_limit_evaluations(plan, acute_split_angle=1.0)
+
+    snapshots = {
+        limit: decal_voronoi.serialize_network_faces(faces)
+        for limit, (faces, _diagnostics) in results.items()
+    }
+    assert snapshots[1.0] != snapshots[8.0]
+    assert snapshots[8.0] == snapshots[100.0]
+    assert results[1.0][1].clamped_kite_count == 2
+    assert results[8.0][1].clamped_kite_count == 0
+
+
+def test_apex_limit_clamps_acute_outer_without_gap():
+    plan = compile_patch_voronoi_plan(
+        _acute_notch_graph(), [53, 54], offset=0.01
+    )
+    surface = plan.surfaces[0]
+    corner = next(
+        item for item in surface.corners if item.vert_index == 4
+    )
+    low_settings = decal_voronoi.CornerRuntimeSettings(apex_limit=1.0)
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+    components = decal_voronoi._acute_crop_components(
+        surface,
+        corner,
+        alpha=0.5,
+        settings=low_settings,
+        diagnostics=diagnostics,
+    )
+
+    inner = next(component for component in components if component.side == "INNER")
+    outer = next(component for component in components if component.side == "OUTER")
+    shared_cap = set(inner.points).intersection(outer.points)
+    assert len(shared_cap) == 2
+    assert abs(decal_voronoi._polygon_area2(inner.points)) > 1e-10
+    assert abs(decal_voronoi._polygon_area2(outer.points)) > 1e-10
+    assert decal_voronoi._polygon_is_simple(list(inner.points))
+    assert decal_voronoi._polygon_is_simple(list(outer.points))
+    outer_apex = next(point for point in outer.points if point not in shared_cap)
+    assert decal_voronoi._dist2(corner.point, outer_apex) <= 0.5 + 1e-8
+    cap_a, cap_b = tuple(shared_cap)
+    corner_side = decal_voronoi._cross2(
+        decal_voronoi._sub2(cap_b, cap_a),
+        decal_voronoi._sub2(corner.point, cap_a),
+    )
+    apex_side = decal_voronoi._cross2(
+        decal_voronoi._sub2(cap_b, cap_a),
+        decal_voronoi._sub2(outer_apex, cap_a),
+    )
+    assert corner_side * apex_side < 0.0
+    assert diagnostics.clamped_acute_count == 1
+
+    results = _apex_limit_evaluations(plan, acute_split_angle=1.0)
+    snapshots = {
+        limit: decal_voronoi.serialize_network_faces(faces)
+        for limit, (faces, _diagnostics) in results.items()
+    }
+    assert snapshots[1.0] != snapshots[8.0]
+    assert snapshots[8.0] == snapshots[100.0]
+    assert all(
+        sum(face.component_kind == "ACUTE_SPLIT" for face in faces) == 2
+        for faces, _diagnostics in results.values()
+    )
+
+
+def test_bevel_policy_is_reserved_and_never_classified():
+    plan = compile_patch_voronoi_plan(
+        _folded_turn_graph(), [30, 31], offset=0.01
+    )
+    corner = next(
+        item for item in plan.surfaces[0].corners if item.vert_index == 0
+    )
+    legacy_bevel_candidate = decal_voronoi.replace(
+        corner,
+        is_convex=False,
+        interior_angle=pi * 0.75,
+        extrusion_angle=pi * 0.75,
+        miter_ratio=1000.0,
+    )
+
+    assert decal_voronoi.classify_corner_runtime(
+        legacy_bevel_candidate,
+        decal_voronoi.CornerRuntimeSettings(apex_limit=1.0),
+    ) == decal_voronoi._CornerPolicy.MITER
+    assert decal_voronoi.CornerRuntimeSettings(
+        miter_limit=3.0
+    ).apex_limit == 3.0
+
+
+def test_acute_apex_limit_saturates_outside_cap_chord():
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+    apex = decal_voronoi._clamped_acute_apex(
+        corner_point=(0.0, 0.0),
+        cap_a=(2.0, -1.0),
+        cap_b=(2.0, 1.0),
+        intersection=(4.0, 0.0),
+        alpha=0.5,
+        settings=decal_voronoi.CornerRuntimeSettings(apex_limit=1.0),
+        diagnostics=diagnostics,
+    )
+
+    assert apex[0] > 2.0
+    assert diagnostics.clamped_acute_count == 1
+    assert diagnostics.apex_limit_saturated_count == 1
+
+
 def test_convex_corner_builds_explicit_realtime_kite():
     graph, edge_indices = _door_opening_graph()
     plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)

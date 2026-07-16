@@ -6,41 +6,49 @@
     {
       "backend": "PATCH_VORONOI",
       "compile_failures": [],
-      "compile_ms": 165.6653,
+      "compile_ms": 156.5739,
       "construct_calls_during_drag": 0,
       "diagnostics_after_compile": {
+        "apex_limit_saturated_count": 0,
         "cell_disorder_fallbacks": 0,
+        "clamped_acute_count": 0,
+        "clamped_kite_count": 0,
+        "clamped_miter_count": 0,
         "construct_calls": 22,
         "convex_fragment_decomposition_fallbacks": 0,
         "tessellation_mesh_tri_fallbacks": 22
       },
       "diagnostics_final": {
+        "apex_limit_saturated_count": 0,
         "cell_disorder_fallbacks": 0,
+        "clamped_acute_count": 0,
+        "clamped_kite_count": 0,
+        "clamped_miter_count": 0,
         "construct_calls": 22,
         "convex_fragment_decomposition_fallbacks": 0,
         "tessellation_mesh_tri_fallbacks": 22
       },
       "object": "VERIFY_SRC_MANUAL_SEAMS",
-      "prepare_patch_graph_ms": 45.184,
+      "prepare_patch_graph_ms": 46.3735,
       "selected_edge_count": 25,
       "widths": [
         {
-          "evaluate_confirm_ms": 23.9748,
+          "evaluate_confirm_ms": 25.4369,
           "evaluate_preview": {
-            "median_ms": 25.53365,
-            "p95_ms": 25.5884,
+            "median_ms": 24.82235,
+            "p95_ms": 24.9008,
             "samples_ms": [
-              25.5884,
-              25.4789
+              24.9008,
+              24.7439
             ]
           },
           "geometry_digest": "358c601b35228cc24f5b36c0d90ed226592c8332fbcf4dce335157862656829f",
           "materialization": {
-            "median_ms": 0.95465,
-            "p95_ms": 1.0159,
+            "median_ms": 0.80565,
+            "p95_ms": 0.8463,
             "samples_ms": [
-              0.8934,
-              1.0159
+              0.8463,
+              0.765
             ]
           },
           "mesh_counts": {
@@ -787,22 +795,22 @@
           "width": 2.0
         },
         {
-          "evaluate_confirm_ms": 23.6083,
+          "evaluate_confirm_ms": 24.2102,
           "evaluate_preview": {
-            "median_ms": 24.07015,
-            "p95_ms": 24.5698,
+            "median_ms": 23.5473,
+            "p95_ms": 23.8062,
             "samples_ms": [
-              23.5705,
-              24.5698
+              23.2884,
+              23.8062
             ]
           },
           "geometry_digest": "fd8efcc4eecfad4d749a7c7a11dd710f73539143bc0be5cf63144b2eedb115b3",
           "materialization": {
-            "median_ms": 0.6395,
-            "p95_ms": 0.69,
+            "median_ms": 0.5866,
+            "p95_ms": 0.5881,
             "samples_ms": [
-              0.69,
-              0.589
+              0.5881,
+              0.5851
             ]
           },
           "mesh_counts": {
@@ -1375,22 +1383,22 @@
           "width": 3.0
         },
         {
-          "evaluate_confirm_ms": 23.7988,
+          "evaluate_confirm_ms": 24.2747,
           "evaluate_preview": {
-            "median_ms": 24.88665,
-            "p95_ms": 25.3761,
+            "median_ms": 24.243,
+            "p95_ms": 24.3769,
             "samples_ms": [
-              24.3972,
-              25.3761
+              24.3769,
+              24.1091
             ]
           },
           "geometry_digest": "daabc938f8b4926c2505d79a732f42008b9474e787015f9ad19f8097b741e34d",
           "materialization": {
-            "median_ms": 0.59815,
-            "p95_ms": 0.6052,
+            "median_ms": 0.61,
+            "p95_ms": 0.621,
             "samples_ms": [
-              0.6052,
-              0.5911
+              0.599,
+              0.621
             ]
           },
           "mesh_counts": {
@@ -1975,22 +1983,22 @@
           "width": 3.7076
         },
         {
-          "evaluate_confirm_ms": 19.4007,
+          "evaluate_confirm_ms": 18.8409,
           "evaluate_preview": {
-            "median_ms": 18.74295,
-            "p95_ms": 18.8163,
+            "median_ms": 19.0953,
+            "p95_ms": 19.1002,
             "samples_ms": [
-              18.8163,
-              18.6696
+              19.1002,
+              19.0904
             ]
           },
           "geometry_digest": "b30ac7ebe3f6e4e40c68b5eb47b118ae43ddae299ac1e31558bdd667492f1fe5",
           "materialization": {
-            "median_ms": 0.4093,
-            "p95_ms": 0.4146,
+            "median_ms": 0.41455,
+            "p95_ms": 0.4148,
             "samples_ms": [
-              0.4146,
-              0.404
+              0.4148,
+              0.4143
             ]
           },
           "mesh_counts": {

@@ -208,13 +208,13 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
         ),
     )
     decal_corner_miter_limit: FloatProperty(
-        name="Miter Limit",
+        name="Apex Limit",
         default=8.0,
         min=1.0,
         soft_max=16.0,
         description=(
-            "Maximum miter length as a multiple of half decal width; "
-            "evaluated at runtime"
+            "Maximum removed-apex distance as a multiple of half decal "
+            "width; evaluated at runtime for miter, kite and acute corners"
         ),
     )
     # Debug state
