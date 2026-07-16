@@ -40,6 +40,7 @@ cftuv/
 ├── debug.py
 ├── decals.py
 ├── decal_network.py
+├── decal_charts.py      # immutable IR для intrinsic strip charts
 ├── decal_voronoi.py     # patch-bounded segment Voronoi (`pyvoronoi`)
 ├── operators.py
 └── console_debug.py

@@ -356,6 +356,7 @@ def _begin_patch_topology_assembly(patch_id, patch_face_indices, bm):
     centroid = _compute_centroid(bm, patch_face_indices)
     (
         mesh_verts,
+        mesh_vert_indices,
         mesh_tris,
         mesh_tri_face_indices,
         mesh_tri_face_normals,
@@ -374,6 +375,7 @@ def _begin_patch_topology_assembly(patch_id, patch_face_indices, bm):
         basis_v=basis_v,
         boundary_loops=[],
         mesh_verts=mesh_verts,
+        mesh_vert_indices=mesh_vert_indices,
         mesh_tris=mesh_tris,
         mesh_tri_face_indices=mesh_tri_face_indices,
         mesh_tri_face_normals=mesh_tri_face_normals,
@@ -455,10 +457,11 @@ def _compute_centroid(bm, face_indices):
 
 
 def _serialize_patch_geometry(bm, face_indices):
-    """Serialize patch geometry into verts/tris for debug and reports."""
+    """Serialize patch geometry/provenance for debug and intrinsic charts."""
 
     vert_map = {}
     mesh_verts = []
+    mesh_vert_indices = []
     mesh_tris = []
     mesh_tri_face_indices = []
     mesh_tri_face_normals = []
@@ -470,6 +473,7 @@ def _serialize_patch_geometry(bm, face_indices):
             if vert.index not in vert_map:
                 vert_map[vert.index] = len(mesh_verts)
                 mesh_verts.append(vert.co.copy())
+                mesh_vert_indices.append(int(vert.index))
             tri.append(vert_map[vert.index])
 
         if len(tri) == 3:
@@ -485,6 +489,7 @@ def _serialize_patch_geometry(bm, face_indices):
 
     return (
         mesh_verts,
+        mesh_vert_indices,
         mesh_tris,
         mesh_tri_face_indices,
         mesh_tri_face_normals,

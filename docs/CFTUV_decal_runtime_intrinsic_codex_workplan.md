@@ -884,6 +884,14 @@ Supports двух selected chains на одной surface, пересекающ�
 
 ## C0. Chart builder module и IR
 
+Статус: **IMPLEMENTED**. Добавлен чистый `cftuv/decal_charts.py` без
+`bpy`/`bmesh`: immutable `ChartTriangle`, `ChartAdjacency`,
+`IntrinsicStripChart`, `ChartCut`, `ChartBuildMetrics`, `ChartBuildFailure` и
+serialized `ChartSiteSeed`. `PatchNode` теперь хранит `mesh_vert_indices`,
+поэтому triangle/BoundaryChain provenance связывается через исходные vertex,
+edge и face ids без live BMesh refs. C0 только валидирует и переносит IR;
+adjacency flood и support selection остаются C1, hinge unroll — C2.
+
 Создать отдельный module, например `cftuv/decal_charts.py`.
 
 Основные структуры:
