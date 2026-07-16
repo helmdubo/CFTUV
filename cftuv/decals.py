@@ -3417,7 +3417,10 @@ def _generate_decal_transaction(
         source_obj,
         scene,
         reuse_existing=preview,
-        preview_state=preview_state,
+        # Production materialization не имеет права перепривязывать state
+        # временного объекта. Иначе confirm записывает сюда имя Decal_*, а
+        # terminal cleanup теряет .CFTUV_Preview_* и оставляет оба объекта.
+        preview_state=preview_state if preview else None,
         prepared=True,
     )
     if preview and obj is not None:

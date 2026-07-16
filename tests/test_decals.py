@@ -473,6 +473,62 @@ def test_remove_preview_deletes_only_marked_object_and_orphan_mesh(monkeypatch):
     assert state.topology_signature == ()
 
 
+def test_production_transaction_does_not_rebind_preview_state(monkeypatch):
+    """Apply обязан оставить preview identity доступной terminal cleanup."""
+
+    class FakeBMesh:
+        def free(self):
+            pass
+
+    preview_name = ".CFTUV_Preview_Seams_Source"
+    preview_state = decals_module.DecalPreviewState(
+        object_name=preview_name,
+        object_pointer=10,
+        mesh_pointer=20,
+    )
+    finalized_states = []
+    monkeypatch.setattr(
+        decals_module.bmesh, "new", FakeBMesh, raising=False
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "_fill_decal_bmesh",
+        lambda *_args, **_kwargs: (),
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "_prepare_decal_bmesh",
+        lambda _bm: True,
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "_finalize_decal_object",
+        lambda *_args, **kwargs: (
+            finalized_states.append(kwargs["preview_state"])
+            or SimpleNamespace(name="Decal_Seams_Source")
+        ),
+    )
+
+    result = decals_module._generate_decal_transaction(
+        PatchGraph(),
+        SimpleNamespace(name="Source"),
+        DecalSettings(),
+        "SEAMS",
+        object(),
+        None,
+        None,
+        False,
+        None,
+        preview_state,
+    )
+
+    assert result.obj.name == "Decal_Seams_Source"
+    assert finalized_states == [None]
+    assert preview_state.object_name == preview_name
+    assert preview_state.object_pointer == 10
+    assert preview_state.mesh_pointer == 20
+
+
 def test_final_swap_preserves_object_identity_properties_and_materials(
     monkeypatch,
 ):

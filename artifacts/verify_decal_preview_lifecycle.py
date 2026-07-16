@@ -26,6 +26,7 @@ from cftuv.decals import (  # noqa: E402
     _set_decal_preview_metadata,
     remove_decal_preview_object,
 )
+from cftuv import decals as decals_module  # noqa: E402
 
 
 def _triangle_bmesh(scale=1.0):
@@ -49,6 +50,16 @@ def _source(name):
     obj = bpy.data.objects.new(name, mesh)
     bpy.context.scene.collection.objects.link(obj)
     return obj
+
+
+def _fill_transaction_triangle(bm, *_args, **_kwargs):
+    verts = (
+        bm.verts.new((0.0, 0.0, 0.0)),
+        bm.verts.new((1.0, 0.0, 0.0)),
+        bm.verts.new((0.0, 1.0, 0.0)),
+    )
+    bm.faces.new(verts)
+    return ()
 
 
 def main():
@@ -143,6 +154,51 @@ def main():
     assert remove_decal_preview_object(
         "SEAMS", source_without_final, empty_state
     ) is True
+
+    # Реальный Apply-order: production transaction выполняется до terminal
+    # cleanup и не должна переписать identity временного object.
+    apply_source = _source("A7_ApplyFlow")
+    apply_state = DecalPreviewState()
+    original_fill = decals_module._fill_decal_bmesh
+    decals_module._fill_decal_bmesh = _fill_transaction_triangle
+    try:
+        preview_result = decals_module._generate_decal_transaction(
+            None,
+            apply_source,
+            None,
+            "SEAMS",
+            scene,
+            None,
+            None,
+            True,
+            None,
+            apply_state,
+        )
+        apply_preview_name = preview_result.obj.name
+        assert apply_state.object_name == apply_preview_name
+        final_result = decals_module._generate_decal_transaction(
+            None,
+            apply_source,
+            None,
+            "SEAMS",
+            scene,
+            None,
+            None,
+            False,
+            None,
+            apply_state,
+        )
+        assert final_result.obj.name == _decal_object_name(
+            "SEAMS", apply_source
+        )
+        assert apply_state.object_name == apply_preview_name
+        assert remove_decal_preview_object(
+            "SEAMS", apply_source, apply_state
+        ) is True
+        assert bpy.data.objects.get(apply_preview_name) is None
+        assert bpy.data.objects.get(final_result.obj.name) is final_result.obj
+    finally:
+        decals_module._fill_decal_bmesh = original_fill
 
     generated = bpy.data.collections.get("Decals_Generated")
     assert generated is not None
