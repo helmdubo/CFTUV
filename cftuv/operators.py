@@ -232,6 +232,14 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
             "(continuous junctions); disable to use the legacy miter pipeline"
         ),
     )
+    decal_dynamic_corner_bands: BoolProperty(
+        name="Experimental Dynamic Corner Bands",
+        default=False,
+        description=(
+            "Enable the experimental A11 corner-band grammar; the stable "
+            "default keeps collision-resolved decal fronts fixed"
+        ),
+    )
     decal_corner_acute_split_angle: FloatProperty(
         name="Split Angle",
         subtype="ANGLE",
@@ -1946,10 +1954,13 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         col.prop(s, "decal_offset")
         col.prop(s, "decal_seam_network")
         if s.decal_seam_network:
-            col.prop(s, "decal_corner_miter_angle")
-            col.prop(s, "decal_corner_kite_angle")
+            col.prop(s, "decal_dynamic_corner_bands")
+            if s.decal_dynamic_corner_bands:
+                col.prop(s, "decal_corner_miter_angle")
+                col.prop(s, "decal_corner_kite_angle")
             col.prop(s, "decal_corner_acute_split_angle")
-            col.prop(s, "decal_corner_hairpin_angle")
+            if s.decal_dynamic_corner_bands:
+                col.prop(s, "decal_corner_hairpin_angle")
             col.prop(s, "decal_corner_miter_limit")
         op = col.operator("hotspotuv.generate_decals", text="Decal Top", icon="TRIA_UP")
         op.mode = "TOP"

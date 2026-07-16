@@ -334,6 +334,10 @@ class DecalSettings:
     # Seam Voronoi network backend (decal_network.py) для manual Decal Seams;
     # False возвращает legacy miter/junction pipeline целиком.
     seam_network: bool = True
+    # A11/A12 corner-band grammar оставлена как явный experimental path.
+    # Stable default сохраняет A10 collision semantics: разрешённая часть
+    # фронтира больше не перестраивается при последующем росте ширины.
+    dynamic_corner_bands: bool = False
     # Runtime corner policy patch-Voronoi backend. Углы хранятся в радианах,
     # как Blender ANGLE properties; compiled Voronoi plan от них не зависит.
     corner_miter_angle: float = 2.0 * pi / 3.0
@@ -366,6 +370,9 @@ class DecalSettings:
             offset=float(settings.decal_offset),
             uv_length_scale=uv_settings.final_scale,
             seam_network=bool(getattr(settings, "decal_seam_network", True)),
+            dynamic_corner_bands=bool(
+                getattr(settings, "decal_dynamic_corner_bands", False)
+            ),
             corner_miter_angle=float(
                 getattr(
                     settings,

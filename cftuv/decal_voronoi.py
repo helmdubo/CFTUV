@@ -112,6 +112,7 @@ class CornerRuntimeSettings:
     split_angle: float
     hairpin_angle: float
     apex_limit: float
+    dynamic_corner_bands: bool
 
     def __init__(
         self,
@@ -123,6 +124,7 @@ class CornerRuntimeSettings:
         kite_angle=_KITE_ANGLE,
         split_angle=None,
         hairpin_angle=_HAIRPIN_ANGLE,
+        dynamic_corner_bands=True,
     ):
         # ``miter_limit`` остаётся constructor adapter для старых scripts.
         if miter_limit is not None:
@@ -138,6 +140,9 @@ class CornerRuntimeSettings:
         object.__setattr__(self, "split_angle", float(split_angle))
         object.__setattr__(self, "hairpin_angle", float(hairpin_angle))
         object.__setattr__(self, "apex_limit", float(apex_limit))
+        object.__setattr__(
+            self, "dynamic_corner_bands", bool(dynamic_corner_bands)
+        )
 
     @property
     def acute_split_angle(self):
@@ -196,6 +201,9 @@ def _normalized_corner_runtime_settings(settings):
         split_angle=split_angle,
         hairpin_angle=hairpin_angle,
         apex_limit=max(1.0, float(apex_limit)),
+        dynamic_corner_bands=bool(
+            getattr(settings, "dynamic_corner_bands", True)
+        ),
     )
 
 
@@ -219,6 +227,9 @@ def corner_runtime_settings_from_decal_settings(settings):
                 "corner_apex_limit",
                 getattr(settings, "corner_miter_limit", _MITER_LIMIT),
             )
+        ),
+        dynamic_corner_bands=bool(
+            getattr(settings, "dynamic_corner_bands", False)
         ),
     )
 
@@ -1789,6 +1800,81 @@ def _acute_crop_components(
     return tuple(component for component in (inner, outer) if component)
 
 
+def _stable_acute_crop_components(
+    surface, corner, alpha, settings=None, diagnostics=None
+):
+    """A10 acute split: движется только внешний фронтир crop.
+
+    Stable path намеренно не вводит отдельную compiled-хорду. Semantic crop
+    целиком пересекается с неизменной Voronoi arrangement, поэтому уже
+    разрешённые cell boundaries не пересчитываются при росте ширины.
+    """
+
+    settings = _normalized_corner_runtime_settings(settings)
+    offset_lines = _corner_offset_lines(surface, corner, alpha)
+    if len(offset_lines) != 2:
+        return ()
+    intersection = _line_intersection(
+        offset_lines[0][0],
+        offset_lines[0][1],
+        offset_lines[1][0],
+        offset_lines[1][1],
+    )
+    if intersection is None:
+        fallback = _crop_component_from_anchors(
+            _CornerPolicy.ACUTE_SPLIT.value,
+            "INNER",
+            (
+                (corner.point, (0.0, 0.0)),
+                (offset_lines[0][0], (-1.0, alpha)),
+                (offset_lines[1][0], (1.0, alpha)),
+            ),
+            _corner_arc_origin(surface, corner),
+        )
+        return (fallback,) if fallback is not None else ()
+
+    cap_a = offset_lines[0][0]
+    cap_b = offset_lines[1][0]
+    chord_midpoint = (
+        (cap_a[0] + cap_b[0]) * 0.5,
+        (cap_a[1] + cap_b[1]) * 0.5,
+    )
+    outer_apex = _clamped_acute_apex(
+        corner.point,
+        cap_a,
+        cap_b,
+        intersection,
+        alpha,
+        settings,
+        diagnostics,
+    )
+    inner_height = _dist2(corner.point, chord_midpoint)
+    outer_height = _dist2(outer_apex, chord_midpoint)
+    orientation = 1.0 if corner.turn_sign >= 0.0 else -1.0
+    v_origin = _corner_arc_origin(surface, corner)
+    inner = _crop_component_from_anchors(
+        _CornerPolicy.ACUTE_SPLIT.value,
+        "INNER",
+        (
+            (corner.point, (0.0, 0.0)),
+            (cap_a, (-orientation, inner_height)),
+            (cap_b, (orientation, inner_height)),
+        ),
+        v_origin,
+    )
+    outer = _crop_component_from_anchors(
+        _CornerPolicy.ACUTE_SPLIT.value,
+        "OUTER",
+        (
+            (cap_a, (-orientation, 0.0)),
+            (outer_apex, (0.0, outer_height)),
+            (cap_b, (orientation, 0.0)),
+        ),
+        v_origin,
+    )
+    return tuple(component for component in (inner, outer) if component)
+
+
 def _hairpin_crop_components(
     surface, corner, alpha, settings=None, diagnostics=None
 ):
@@ -1946,6 +2032,29 @@ def _corner_runtime_policy_entries(surface, corner, policy, settings):
 def _corner_crop_components(
     surface, corner, policy, alpha, settings, diagnostics=None
 ):
+    settings = _normalized_corner_runtime_settings(settings)
+    if not settings.dynamic_corner_bands:
+        if policy == _CornerPolicy.ACUTE_SPLIT:
+            return _stable_acute_crop_components(
+                surface, corner, alpha, settings, diagnostics
+            )
+        polygon = _corner_crop_polygon(
+            surface,
+            corner,
+            policy,
+            alpha,
+            settings,
+            diagnostics,
+        )
+        if len(polygon) < 3:
+            return ()
+        return (
+            _CropComponent(
+                kind=policy.value,
+                side="",
+                points=tuple(polygon),
+            ),
+        )
     if policy == _CornerPolicy.CAP:
         return _cap_crop_components(surface, corner, alpha)
     if policy == _CornerPolicy.JUNCTION:
@@ -2053,6 +2162,24 @@ def _corner_endpoint_ownership_crop(surface, corner, crop):
     return replace(crop, points=points, uv_anchors=uv_anchors)
 
 
+def _miter_requires_explicit_crop(surface, corner, alpha, settings):
+    """Implicit Voronoi join достаточен, пока apex не требуется усекать."""
+
+    offset_lines = _corner_offset_lines(surface, corner, alpha)
+    if len(offset_lines) != 2:
+        return False
+    intersection = _line_intersection(
+        offset_lines[0][0],
+        offset_lines[0][1],
+        offset_lines[1][0],
+        offset_lines[1][1],
+    )
+    return (
+        intersection is not None
+        and _dist2(corner.point, intersection) > alpha * settings.apex_limit
+    )
+
+
 def _crop_component_uv(crop, point):
     """Affine UV component; None оставляет site UV."""
 
@@ -2110,7 +2237,15 @@ def _corner_crop_polygon(
 
     point = corner.point
     if len(corner.incident_sites) != 2:
-        return []
+        settings = _normalized_corner_runtime_settings(settings)
+        if settings.dynamic_corner_bands:
+            return []
+        return [
+            (point[0] - alpha, point[1] - alpha),
+            (point[0] + alpha, point[1] - alpha),
+            (point[0] + alpha, point[1] + alpha),
+            (point[0] - alpha, point[1] + alpha),
+        ]
     if policy == _CornerPolicy.KITE:
         return _kite_crop_polygon(
             surface, corner, alpha, settings, diagnostics
@@ -2911,6 +3046,14 @@ def classify_corner_runtime(corner, settings=None):
         return _CornerPolicy.JUNCTION
 
     if abs(corner.interior_angle - pi) <= 1e-7:
+        return _CornerPolicy.MITER
+    if not settings.dynamic_corner_bands:
+        if corner.extrusion_angle < settings.split_angle:
+            return _CornerPolicy.ACUTE_SPLIT
+        if corner.is_convex:
+            return _CornerPolicy.MITER
+        if corner.interior_angle > pi:
+            return _CornerPolicy.KITE
         return _CornerPolicy.MITER
     return _classify_extrusion_angle(corner.extrusion_angle, settings)
 
@@ -4248,14 +4391,32 @@ def _evaluate_surface_crops(
                 surface, corner, policy, corner_settings
             ):
                 diagnostics.record_runtime_policy(entry)
-    explicit_corner_indices = {
-        corner_index
-        for corner_index, (corner, policy) in enumerate(
-            zip(surface.corners, runtime_policies)
-        )
-        if len(corner.incident_sites) == 2
-        and abs(corner.interior_angle - pi) > 1e-7
-    }
+    if corner_settings.dynamic_corner_bands:
+        explicit_corner_indices = {
+            corner_index
+            for corner_index, (corner, policy) in enumerate(
+                zip(surface.corners, runtime_policies)
+            )
+            if len(corner.incident_sites) == 2
+            and abs(corner.interior_angle - pi) > 1e-7
+        }
+    else:
+        explicit_corner_indices = {
+            corner_index
+            for corner_index, (corner, policy) in enumerate(
+                zip(surface.corners, runtime_policies)
+            )
+            if len(corner.incident_sites) == 2
+            and (
+                policy == _CornerPolicy.ACUTE_SPLIT
+                or (
+                    policy == _CornerPolicy.MITER
+                    and _miter_requires_explicit_crop(
+                        surface, corner, alpha, corner_settings
+                    )
+                )
+            )
+        }
     corner_indices = sorted(
         set(point_atoms_by_corner) | explicit_corner_indices
     )
@@ -4283,27 +4444,21 @@ def _evaluate_surface_crops(
         if not crops:
             continue
         corner_crops[corner_index] = crops
-        static_interior_policy = policy in {
-            _CornerPolicy.FAN,
-            _CornerPolicy.ACUTE_SPLIT,
-            _CornerPolicy.HAIRPIN,
-        }
-        subtraction_crop = None
-        if static_interior_policy:
-            wedge = _corner_static_wedge_polygon(surface, corner)
-            if len(wedge) >= 3:
-                subtraction_crop = _CropComponent(
-                    kind="STATIC_CORNER_WEDGE",
-                    side="",
-                    points=tuple(wedge),
-                )
+        split_dynamic_atoms = (
+            corner_settings.dynamic_corner_bands
+            and policy
+            in {
+                _CornerPolicy.FAN,
+                _CornerPolicy.ACUTE_SPLIT,
+                _CornerPolicy.HAIRPIN,
+            }
+        )
         for crop in crops:
             owner_site_indices = (
                 crop.owner_site_indices or corner.incident_sites
             )
-            if subtraction_crop is None:
-                for site_index in owner_site_indices:
-                    crops_by_site.setdefault(site_index, []).append(crop)
+            for site_index in owner_site_indices:
+                crops_by_site.setdefault(site_index, []).append(crop)
             owner_atoms = [
                 atom
                 for atom in surface.atoms
@@ -4325,27 +4480,14 @@ def _evaluate_surface_crops(
                 default=min(owner_site_indices),
             )
             owner_site = surface.sites[owner_site_index]
-            if static_interior_policy:
-                # S1: граница compiled cell является station заморозки.
-                # Не свариваем уже разрешённую cell с фрагментом, который
-                # всё ещё режется движущимся фронтиром соседней cell.
-                for atom in owner_atoms:
-                    fragments = []
-                    for fragment in atom.fragments:
-                        clipped = _clip_to_convex(fragment, crop.points)
-                        if clipped:
-                            fragments.append(clipped)
-                    _append_pending_fragments(
-                        pending,
-                        surface,
-                        owner_site,
-                        crop,
-                        fragments,
-                        diagnostics,
-                    )
-            else:
+            atom_groups = (
+                ((atom,) for atom in owner_atoms)
+                if split_dynamic_atoms
+                else (owner_atoms,)
+            )
+            for atoms in atom_groups:
                 fragments = []
-                for atom in owner_atoms:
+                for atom in atoms:
                     for fragment in atom.fragments:
                         clipped = _clip_to_convex(fragment, crop.points)
                         if clipped:
@@ -4357,11 +4499,6 @@ def _evaluate_surface_crops(
                     crop,
                     fragments,
                     diagnostics,
-                )
-        if subtraction_crop is not None:
-            for site_index in corner.incident_sites:
-                crops_by_site.setdefault(site_index, []).append(
-                    subtraction_crop
                 )
 
     for atom in surface.atoms:

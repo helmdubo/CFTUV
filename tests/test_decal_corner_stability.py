@@ -175,14 +175,32 @@ def _face_uv_payload(face, alpha):
     )
 
 
+def _face_area(face):
+    points = [(position.x, position.y) for position in face.positions]
+    return abs(
+        sum(
+            points[index][0] * points[(index + 1) % len(points)][1]
+            - points[(index + 1) % len(points)][0] * points[index][1]
+            for index in range(len(points))
+        )
+        * 0.5
+    )
+
+
 @pytest.fixture(scope="module")
 def width_sweep():
     graph, edges = _silhouette_graph()
     plan = compile_patch_voronoi_plan(graph, edges, offset=0.01)
+    stable_settings = CornerRuntimeSettings(dynamic_corner_bands=False)
     return [
         (
             width,
-            evaluate_patch_voronoi_plan(plan, width=width, preview=True),
+            evaluate_patch_voronoi_plan(
+                plan,
+                width=width,
+                preview=True,
+                corner_settings=stable_settings,
+            ),
         )
         for width in _WIDTHS
     ]
@@ -238,6 +256,27 @@ def test_s1_resolved_faces_keep_geometry_and_uv(width_sweep):
             previous_stable = stable
 
 
+def test_stable_runtime_preserves_a10_coverage(width_sweep):
+    """Stable default не теряет полосы при уступке corner ownership."""
+
+    graph, edges = _silhouette_graph()
+    plan = compile_patch_voronoi_plan(graph, edges, offset=0.01)
+    dynamic_settings = CornerRuntimeSettings(dynamic_corner_bands=True)
+    for width, stable_faces in width_sweep:
+        dynamic_faces = evaluate_patch_voronoi_plan(
+            plan,
+            width=width,
+            preview=True,
+            corner_settings=dynamic_settings,
+        )
+        assert sum(map(_face_area, stable_faces)) == pytest.approx(
+            sum(map(_face_area, dynamic_faces)), abs=1e-8
+        )
+        assert sum(
+            face.component_kind == "SEGMENT" for face in stable_faces
+        ) == 4
+
+
 def test_s1_threshold_drag_preserves_common_frozen_face_uv():
     """При policy-switch UV общих замороженных граней побитово стабилен."""
 
@@ -247,13 +286,19 @@ def test_s1_threshold_drag_preserves_common_frozen_face_uv():
         plan,
         width=10.0,
         preview=True,
-        corner_settings=CornerRuntimeSettings(split_angle=60.0 * pi / 180.0),
+        corner_settings=CornerRuntimeSettings(
+            split_angle=60.0 * pi / 180.0,
+            dynamic_corner_bands=True,
+        ),
     )
     split_faces = evaluate_patch_voronoi_plan(
         plan,
         width=10.0,
         preview=True,
-        corner_settings=CornerRuntimeSettings(split_angle=70.0 * pi / 180.0),
+        corner_settings=CornerRuntimeSettings(
+            split_angle=70.0 * pi / 180.0,
+            dynamic_corner_bands=True,
+        ),
     )
     assert any(face.component_kind == "FAN" for face in fan_faces)
     assert any(face.component_kind == "ACUTE_SPLIT" for face in split_faces)
@@ -268,9 +313,15 @@ def test_s1_threshold_drag_preserves_common_frozen_face_uv():
         if signature not in fan_by_signature:
             continue
         common += 1
-        assert fan_by_signature[signature] == tuple(
-            zip(face.u_fracs, face.v_lengths)
+        payload = tuple(
+            (round(u_frac, 14), round(v_length, 14))
+            for u_frac, v_length in zip(face.u_fracs, face.v_lengths)
         )
+        expected = tuple(
+            (round(u_frac, 14), round(v_length, 14))
+            for u_frac, v_length in fan_by_signature[signature]
+        )
+        assert expected == payload
     assert common > 0
 
 
