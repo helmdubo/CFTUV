@@ -426,8 +426,12 @@ class DecalSurfaceDomain:
     intrinsic_triangles: tuple[_IntrinsicDomainTriangle, ...] = ()
     periodic_axis: str = ""
     chart_id: int = 0
+    alpha_budget: float = float("inf")
     normal_mode: str = "PIECEWISE_PLANAR_HARD"
     triangle_grid: _TriangleAabbGrid | None = None
+    source_edge_features: tuple[tuple[object, tuple[int, ...]], ...] = ()
+    source_vertex_features: tuple[tuple[object, tuple[int, ...]], ...] = ()
+    transition_metadata: tuple[tuple[object, str, object], ...] = ()
     reference_full_scan: bool = False
 
     def __post_init__(self):
@@ -440,6 +444,55 @@ class DecalSurfaceDomain:
             raise ValueError(
                 f"Unsupported intrinsic normal mode: {self.normal_mode}"
             )
+        if not self.alpha_budget > 0.0:
+            raise ValueError("Decal domain alpha budget must be positive")
+        if self.kind == "INTRINSIC" and self.intrinsic_triangles:
+            edge_features = {}
+            vertex_features = {}
+            transitions = set()
+            for triangle_id, triangle in enumerate(self.intrinsic_triangles):
+                for source_id, transition_key in zip(
+                    triangle.source_edge_ids,
+                    triangle.edge_transition_keys,
+                ):
+                    edge_features.setdefault(source_id, set()).add(triangle_id)
+                    if transition_key is not None:
+                        transitions.add((transition_key, "EDGE", source_id))
+                for source_id, transition_key in zip(
+                    triangle.source_vertex_ids,
+                    triangle.vertex_transition_keys,
+                ):
+                    vertex_features.setdefault(source_id, set()).add(triangle_id)
+                    if transition_key is not None:
+                        transitions.add((transition_key, "VERTEX", source_id))
+            if not self.source_edge_features:
+                object.__setattr__(
+                    self,
+                    "source_edge_features",
+                    tuple(
+                        (key, tuple(sorted(values)))
+                        for key, values in sorted(
+                            edge_features.items(), key=lambda item: repr(item[0])
+                        )
+                    ),
+                )
+            if not self.source_vertex_features:
+                object.__setattr__(
+                    self,
+                    "source_vertex_features",
+                    tuple(
+                        (key, tuple(sorted(values)))
+                        for key, values in sorted(
+                            vertex_features.items(), key=lambda item: repr(item[0])
+                        )
+                    ),
+                )
+            if not self.transition_metadata:
+                object.__setattr__(
+                    self,
+                    "transition_metadata",
+                    tuple(sorted(transitions, key=repr)),
+                )
         if self.triangle_grid is not None:
             return
         chart_triangles = (
@@ -3714,26 +3767,81 @@ def _compile_surface_relations(sites, corners, atoms):
     )
 
 
-def _compile_surface(node, raw_sites, diagnostics=None):
+def _normalized_intrinsic_triangles(intrinsic_triangles, quantize_point):
+    result = []
+    for triangle in intrinsic_triangles:
+        points = tuple(
+            quantize_point(point) for point in triangle.chart_points
+        )
+        if abs(_polygon_area2(points)) <= 1e-12:
+            raise _PatchVoronoiSurfaceCompileError(
+                "QUANTIZED_DEGENERATE_DOMAIN_TRIANGLE",
+                (),
+                f"source_triangle={triangle.source_triangle_id!r}",
+            )
+        if _polygon_area2(points) < 0.0:
+            triangle = replace(
+                triangle,
+                chart_points=tuple(reversed(points)),
+                positions=tuple(reversed(triangle.positions)),
+                normals=tuple(reversed(triangle.normals)),
+                source_edge_ids=tuple(reversed(triangle.source_edge_ids)),
+                source_vertex_ids=tuple(
+                    reversed(triangle.source_vertex_ids)
+                ),
+                edge_transition_keys=tuple(
+                    reversed(triangle.edge_transition_keys)
+                ),
+                vertex_transition_keys=tuple(
+                    reversed(triangle.vertex_transition_keys)
+                ),
+            )
+        else:
+            triangle = replace(triangle, chart_points=points)
+        result.append(triangle)
+    return tuple(result)
+
+
+def _compile_surface(
+    node,
+    raw_sites,
+    diagnostics=None,
+    *,
+    intrinsic_triangles=(),
+    intrinsic_site_points=None,
+    chart_id=0,
+    intrinsic_alpha_budget=float("inf"),
+):
     origin = node.centroid.copy()
     normal = node.normal.normalized()
     basis_u, basis_v = _canonical_planar_basis(normal)
-    raw_projected_sites = tuple(
-        (
-            _project(raw["source_a"], origin, basis_u, basis_v),
-            _project(raw["source_b"], origin, basis_u, basis_v),
+    if intrinsic_triangles:
+        raw_projected_sites = tuple(
+            intrinsic_site_points[int(raw["edge_index"])]
+            for raw in raw_sites
         )
-        for raw in raw_sites
-    )
-    transform_points = [
-        _project(point, origin, basis_u, basis_v)
-        for point in node.mesh_verts
-    ]
-    transform_points.extend(
-        _project(point, origin, basis_u, basis_v)
-        for loop in node.boundary_loops
-        for point in loop.vert_cos
-    )
+        transform_points = [
+            point
+            for triangle in intrinsic_triangles
+            for point in triangle.chart_points
+        ]
+    else:
+        raw_projected_sites = tuple(
+            (
+                _project(raw["source_a"], origin, basis_u, basis_v),
+                _project(raw["source_b"], origin, basis_u, basis_v),
+            )
+            for raw in raw_sites
+        )
+        transform_points = [
+            _project(point, origin, basis_u, basis_v)
+            for point in node.mesh_verts
+        ]
+        transform_points.extend(
+            _project(point, origin, basis_u, basis_v)
+            for loop in node.boundary_loops
+            for point in loop.vert_cos
+        )
     transform_points.extend(
         point
         for endpoints in raw_projected_sites
@@ -3743,14 +3851,24 @@ def _compile_surface(node, raw_sites, diagnostics=None):
         transform_points,
         (raw["edge_index"] for raw in raw_sites),
     )
-    triangles = _patch_domain_triangles(
-        node,
-        origin,
-        basis_u,
-        basis_v,
-        diagnostics,
-        diagram_transform.quantize,
-    )
+    compiled_intrinsic_triangles = ()
+    if intrinsic_triangles:
+        compiled_intrinsic_triangles = _normalized_intrinsic_triangles(
+            intrinsic_triangles, diagram_transform.quantize
+        )
+        triangles = [
+            triangle.chart_points
+            for triangle in compiled_intrinsic_triangles
+        ]
+    else:
+        triangles = _patch_domain_triangles(
+            node,
+            origin,
+            basis_u,
+            basis_v,
+            diagnostics,
+            diagram_transform.quantize,
+        )
     if not triangles:
         return None
     triangle_grid = _build_triangle_aabb_grid(triangles)
@@ -4134,19 +4252,23 @@ def _compile_surface(node, raw_sites, diagnostics=None):
         ports_by_vertex,
         ports_by_site,
     ) = _compile_surface_relations(sites, corners, atoms)
+    domain = DecalSurfaceDomain(
+        patch_id=node.patch_id,
+        kind="INTRINSIC" if compiled_intrinsic_triangles else "PLANAR",
+        origin=origin,
+        reference_normal=normal,
+        basis_u=basis_u,
+        basis_v=basis_v,
+        boundary_triangles=tuple(tuple(triangle) for triangle in triangles),
+        intrinsic_triangles=compiled_intrinsic_triangles,
+        chart_id=int(chart_id),
+        alpha_budget=float(intrinsic_alpha_budget),
+        triangle_grid=triangle_grid,
+        reference_full_scan=reference_full_scan,
+    )
     return _PatchVoronoiSurface(
         patch_id=node.patch_id,
-        domain=DecalSurfaceDomain(
-            patch_id=node.patch_id,
-            kind="PLANAR",
-            origin=origin,
-            reference_normal=normal,
-            basis_u=basis_u,
-            basis_v=basis_v,
-            boundary_triangles=tuple(tuple(triangle) for triangle in triangles),
-            triangle_grid=triangle_grid,
-            reference_full_scan=reference_full_scan,
-        ),
+        domain=domain,
         sites=tuple(sites),
         corners=corners,
         atoms=tuple(atoms),
@@ -4161,6 +4283,118 @@ def _compile_surface(node, raw_sites, diagnostics=None):
         sites_by_vertex=sites_by_vertex,
         ports_by_vertex=ports_by_vertex,
         ports_by_site=ports_by_site,
+    )
+
+
+def _intrinsic_domain_triangles(chart):
+    cuts_by_edge = {cut.source_edge: cut for cut in chart.cuts}
+    result = []
+    for triangle in chart.triangles:
+        face_normal = Vector(triangle.face_normal)
+        source_edge_ids = []
+        edge_transition_keys = []
+        for source_edge, edge_index in zip(
+            triangle.source_edge_ids, triangle.source_edge_indices
+        ):
+            cut = cuts_by_edge.get(source_edge)
+            source_edge_ids.append(
+                int(edge_index)
+                if edge_index >= 0
+                else ("TRIANGULATION_EDGE", source_edge)
+            )
+            if cut is not None:
+                edge_transition_keys.append(cut.transition_key)
+            elif edge_index >= 0:
+                edge_transition_keys.append(("SOURCE_EDGE", int(edge_index)))
+            else:
+                edge_transition_keys.append(None)
+        result.append(
+            _IntrinsicDomainTriangle(
+                chart_points=tuple(triangle.chart_points),
+                positions=tuple(Vector(point) for point in triangle.positions),
+                normals=(face_normal.copy(),) * 3,
+                face_normal=face_normal,
+                source_triangle_id=triangle.triangle_id,
+                source_edge_ids=tuple(source_edge_ids),
+                source_vertex_ids=tuple(triangle.source_vertex_ids),
+                edge_transition_keys=tuple(edge_transition_keys),
+                vertex_transition_keys=tuple(
+                    ("SOURCE_VERTEX", int(vertex_id))
+                    for vertex_id in triangle.source_vertex_ids
+                ),
+            )
+        )
+    return tuple(result)
+
+
+def build_intrinsic_surface_domain(node, chart):
+    """C4 adapter admitted chart → barycentric intrinsic domain."""
+
+    intrinsic_triangles = _intrinsic_domain_triangles(chart)
+    return DecalSurfaceDomain(
+        patch_id=int(node.patch_id),
+        kind="INTRINSIC",
+        origin=node.centroid.copy(),
+        reference_normal=node.normal.normalized(),
+        basis_u=node.basis_u.copy(),
+        basis_v=node.basis_v.copy(),
+        boundary_triangles=tuple(
+            triangle.chart_points for triangle in intrinsic_triangles
+        ),
+        intrinsic_triangles=intrinsic_triangles,
+        chart_id=int(chart.chart_id),
+        alpha_budget=float(chart.alpha_budget),
+    )
+
+
+def _intrinsic_site_points(chart, raw_sites):
+    result = {}
+    for raw in raw_sites:
+        source_edge = tuple(
+            sorted((int(raw["vert_a"]), int(raw["vert_b"])))
+        )
+        candidates = tuple(
+            triangle
+            for triangle in chart.triangles
+            if source_edge in triangle.source_edge_ids
+        )
+        owner_candidates = tuple(
+            triangle
+            for triangle in candidates
+            if triangle.source_face_id == int(raw["owner_face_index"])
+        )
+        candidates = owner_candidates or candidates
+        if not candidates:
+            raise _PatchVoronoiSurfaceCompileError(
+                "SITE_OUTSIDE_INTRINSIC_CHART",
+                (raw["edge_index"],),
+                f"source_edge={source_edge!r}",
+            )
+        owner = min(
+            candidates,
+            key=lambda triangle: (
+                triangle.source_face_id,
+                triangle.triangle_id,
+            ),
+        )
+        points = dict(zip(owner.source_vertex_ids, owner.chart_points))
+        result[int(raw["edge_index"])] = (
+            points[int(raw["vert_a"])],
+            points[int(raw["vert_b"])],
+        )
+    return result
+
+
+def _compile_intrinsic_surface(node, chart, raw_sites, diagnostics=None):
+    intrinsic_triangles = _intrinsic_domain_triangles(chart)
+    return _compile_surface(
+        node,
+        raw_sites,
+        diagnostics,
+        intrinsic_triangles=intrinsic_triangles,
+        intrinsic_site_points=_intrinsic_site_points(chart, raw_sites),
+        chart_id=chart.chart_id,
+        intrinsic_alpha_budget=chart.alpha_budget,
     )
 
 

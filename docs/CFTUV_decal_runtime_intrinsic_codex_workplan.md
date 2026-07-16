@@ -1017,6 +1017,13 @@ failure reasons. Disk проходит без cut; annulus получает ма
 
 ## C4. Создание INTRINSIC DecalSurfaceDomain
 
+Статус: **IMPLEMENTED**. Admitted chart преобразуется в
+`DecalSurfaceDomain(kind="INTRINSIC")` с barycentric source positions,
+piecewise face normals, immutable triangle AABB grid, physical/synthetic
+source-edge и source-vertex feature maps, `alpha_budget`, chart/cut transition
+metadata. Selected sites разрешаются по edge+owner-face provenance и проходят
+через тот же `_compile_surface()`/PyVoronoi core, что PLANAR domain.
+
 Chart builder выдаёт:
 
 - `boundary_triangles` в chart space;
