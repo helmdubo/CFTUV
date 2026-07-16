@@ -2378,6 +2378,61 @@ def test_wide_t_junction_cells_remain_simple_and_non_overlapping():
                             ) <= 1e-5
 
 
+def test_wide_t_junction_endpoint_front_never_loses_covered_point():
+    """Параболическая хорда не должна открывать мигрирующую дырку при drag."""
+
+    graph, edge_indices = _wide_t_junction_front_graph()
+    plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.02)
+    surface = plan.surfaces[0]
+    witness = (1.07068, 1.96819)
+
+    def inside_polygon(point, polygon):
+        inside = False
+        for index, point_a in enumerate(polygon):
+            point_b = polygon[(index + 1) % len(polygon)]
+            if (point_a[1] > point[1]) == (point_b[1] > point[1]):
+                continue
+            crossing_x = point_a[0] + (
+                (point[1] - point_a[1])
+                * (point_b[0] - point_a[0])
+                / (point_b[1] - point_a[1])
+            )
+            if crossing_x > point[0]:
+                inside = not inside
+        return inside
+
+    distance = min(
+        decal_voronoi._segment_point_distance2(
+            site.point_a, site.point_b, witness
+        )[0]
+        for site in surface.sites
+    )
+    for width in (1.10, 1.15, 1.20):
+        assert distance < width * 0.5
+        faces = evaluate_patch_voronoi_plan(
+            plan,
+            width=width,
+            preview=True,
+            corner_settings=decal_voronoi.CornerRuntimeSettings(
+                dynamic_corner_bands=False
+            ),
+        )
+        polygons = [
+            [
+                (
+                    (position - surface.origin).dot(surface.basis_u),
+                    (position - surface.origin).dot(surface.basis_v),
+                )
+                for position in face.positions
+            ]
+            for face in faces
+        ]
+        assert any(inside_polygon(witness, polygon) for polygon in polygons), (
+            f"width {width}: покрытая endpoint-зона исчезла между "
+            "Voronoi chord и segment front"
+        )
+
+
 @pytest.mark.parametrize(
     ("polygon", "expected"),
     [

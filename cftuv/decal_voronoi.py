@@ -3887,14 +3887,15 @@ def _compile_surface(node, raw_sites, diagnostics=None):
             f"{type(exc).__name__}: {exc}",
         ) from exc
 
-    # Curved segment-Voronoi bisectors are parabolas. Их прежняя частота
-    # (diagonal / 48) давала визуальный fan из десятков почти избыточных
-    # stations в широких collisions. Ограничиваем шаг и размером patch, и
-    # характерной длиной site: контур остаётся стабильным, но low-poly.
+    # Curved segment-Voronoi bisectors are parabolas. Слишком длинная хорда
+    # может ложно отдать кусок endpoint-cell соседнему segment-cell: его strip
+    # туда ещё не дошёл, поэтому при width drag возникает мигрирующая дырка.
+    # diagonal / 40 сохраняет low-poly contour, но удерживает chord error ниже
+    # размера видимого фронтирного зазора на широких production patches.
     sorted_site_lengths = sorted(site.segment_length for site in sites)
     median_site_length = sorted_site_lengths[len(sorted_site_lengths) // 2]
     curve_step = max(
-        min(diagonal / 20.0, median_site_length * 0.5),
+        min(diagonal / 40.0, median_site_length * 0.25),
         DECAL_WELD_DISTANCE * 2.0,
     )
     diagram_edges = diagram.GetEdges()
