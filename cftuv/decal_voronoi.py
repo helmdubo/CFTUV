@@ -31,8 +31,10 @@ from .constants import DECAL_WELD_DISTANCE
 from .decal_chart_admission import admit_intrinsic_strip_charts
 from .decal_charts import (
     ChartBuildFailure,
+    ChartCut,
     ChartSiteSeed,
     build_intrinsic_strip_charts,
+    validate_periodic_chart_fields,
 )
 from .decal_geometry import (
     DecalGeometryFace,
@@ -431,6 +433,11 @@ class DecalSurfaceDomain:
     boundary_triangles: tuple[tuple[tuple[float, float], ...], ...]
     intrinsic_triangles: tuple[_IntrinsicDomainTriangle, ...] = ()
     periodic_axis: str = ""
+    period: float = 0.0
+    period_quantum: float = 0.0
+    wrap_origin: float = 0.0
+    periodic_cut: ChartCut | None = None
+    transition_equivalences: tuple[tuple[object, tuple[object, ...]], ...] = ()
     chart_id: int = 0
     alpha_budget: float = float("inf")
     normal_mode: str = "PIECEWISE_PLANAR_HARD"
@@ -452,6 +459,16 @@ class DecalSurfaceDomain:
             )
         if not self.alpha_budget > 0.0:
             raise ValueError("Decal domain alpha budget must be positive")
+        validate_periodic_chart_fields(
+            self.periodic_axis,
+            self.period,
+            self.period_quantum,
+            self.wrap_origin,
+            self.periodic_cut,
+            self.transition_equivalences,
+        )
+        if self.periodic_axis and self.kind != "INTRINSIC":
+            raise ValueError("Periodic domain must be intrinsic")
         if self.kind == "INTRINSIC" and self.intrinsic_triangles:
             edge_features = {}
             vertex_features = {}
@@ -3826,6 +3843,7 @@ def _compile_surface(
     intrinsic_site_points=None,
     chart_id=0,
     intrinsic_alpha_budget=float("inf"),
+    intrinsic_chart=None,
 ):
     origin = node.centroid.copy()
     normal = node.normal.normalized()
@@ -4276,6 +4294,24 @@ def _compile_surface(
         basis_v=basis_v,
         boundary_triangles=tuple(tuple(triangle) for triangle in triangles),
         intrinsic_triangles=compiled_intrinsic_triangles,
+        periodic_axis=(
+            intrinsic_chart.periodic_axis if intrinsic_chart else ""
+        ),
+        period=(intrinsic_chart.period if intrinsic_chart else 0.0),
+        period_quantum=(
+            intrinsic_chart.period_quantum if intrinsic_chart else 0.0
+        ),
+        wrap_origin=(
+            intrinsic_chart.wrap_origin if intrinsic_chart else 0.0
+        ),
+        periodic_cut=(
+            intrinsic_chart.periodic_cut if intrinsic_chart else None
+        ),
+        transition_equivalences=(
+            intrinsic_chart.transition_equivalences
+            if intrinsic_chart
+            else ()
+        ),
         chart_id=int(chart_id),
         alpha_budget=float(intrinsic_alpha_budget),
         triangle_grid=triangle_grid,
@@ -4357,6 +4393,12 @@ def build_intrinsic_surface_domain(node, chart):
             triangle.chart_points for triangle in intrinsic_triangles
         ),
         intrinsic_triangles=intrinsic_triangles,
+        periodic_axis=chart.periodic_axis,
+        period=chart.period,
+        period_quantum=chart.period_quantum,
+        wrap_origin=chart.wrap_origin,
+        periodic_cut=chart.periodic_cut,
+        transition_equivalences=chart.transition_equivalences,
         chart_id=int(chart.chart_id),
         alpha_budget=float(chart.alpha_budget),
     )
@@ -4410,6 +4452,7 @@ def _compile_intrinsic_surface(node, chart, raw_sites, diagnostics=None):
         intrinsic_site_points=_intrinsic_site_points(chart, raw_sites),
         chart_id=chart.chart_id,
         intrinsic_alpha_budget=chart.alpha_budget,
+        intrinsic_chart=chart,
     )
 
 

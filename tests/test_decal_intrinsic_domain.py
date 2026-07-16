@@ -1,8 +1,14 @@
+from dataclasses import replace
+
 import pytest
 from mathutils import Vector
 
 from cftuv.decal_chart_admission import admit_intrinsic_strip_chart
-from cftuv.decal_charts import ChartSiteSeed, build_intrinsic_strip_charts
+from cftuv.decal_charts import (
+    ChartCut,
+    ChartSiteSeed,
+    build_intrinsic_strip_charts,
+)
 from cftuv.decal_geometry import lift_offset_position
 from cftuv.decal_voronoi import (
     _compile_intrinsic_surface,
@@ -85,6 +91,42 @@ def test_c4_chart_adapter_builds_intrinsic_domain_and_feature_maps():
     assert location.source_feature == "EDGE"
     assert location.source_feature_id == 12
     assert location.transition_key == ("SOURCE_EDGE", 12)
+
+
+def test_d0_periodic_chart_metadata_reaches_intrinsic_domain():
+    node, chart = _admitted_fold()
+    cut = ChartCut(
+        source_edge=(1, 2),
+        triangle_ids=(0, 1),
+        reason="PERIODIC_GENERATOR",
+        transition_key=("periodic-cut", chart.chart_id),
+        source_edge_index=12,
+    )
+    equivalences = (
+        (
+            cut.transition_key,
+            (("periodic-image", -1), ("periodic-image", 1)),
+        ),
+    )
+    chart = replace(
+        chart,
+        cuts=(cut,),
+        periodic_axis="U",
+        period=2.0,
+        period_quantum=0.25,
+        wrap_origin=0.0,
+        periodic_cut=cut,
+        transition_equivalences=equivalences,
+    )
+
+    domain = build_intrinsic_surface_domain(node, chart)
+
+    assert domain.periodic_axis == "U"
+    assert domain.period == 2.0
+    assert domain.period_quantum == 0.25
+    assert domain.wrap_origin == 0.0
+    assert domain.periodic_cut == cut
+    assert domain.transition_equivalences == equivalences
 
 
 def test_c4_fold_lift_uses_shared_source_edge_normals():

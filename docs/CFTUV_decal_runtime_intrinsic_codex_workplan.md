@@ -1191,6 +1191,12 @@ copies — в diagnostics/benchmark JSON.
 
 ## D0. Periodic IR
 
+Статус: **IMPLEMENTED**. `IntrinsicStripChart` и `DecalSurfaceDomain`
+получили валидируемые immutable periodic fields: axis, квантованный period,
+quantum, wrap origin, generating `ChartCut` и transition equivalences.
+Non-periodic IR запрещает скрытые periodic metadata. Benchmark JSON добавляет
+`periodic_domains` только при их наличии, сохраняя non-periodic report schema.
+
 ### Изменения
 - Расширить domain/chart: `periodic_axis` (уже поле), `period`
   (квантованный, DP3), `wrap_origin`, ссылка на порождающий

@@ -152,6 +152,31 @@ def _benchmark_object(obj, args):
     if attempt.plan is None:
         return result
 
+    periodic_domains = []
+    for surface in attempt.plan.surfaces:
+        domain = surface.domain
+        if not domain.periodic_axis:
+            continue
+        periodic_domains.append(
+            {
+                "surface_id": int(surface.patch_id),
+                "chart_id": int(domain.chart_id),
+                "axis": domain.periodic_axis,
+                "period": float(domain.period),
+                "period_quantum": float(domain.period_quantum),
+                "wrap_origin": float(domain.wrap_origin),
+                "cut_transition_key": repr(
+                    domain.periodic_cut.transition_key
+                ),
+                "transition_equivalence_count": len(
+                    domain.transition_equivalences
+                ),
+            }
+        )
+    if periodic_domains:
+        # Условное поле сохраняет byte-identical non-periodic reports.
+        result["periodic_domains"] = periodic_domains
+
     settings = DecalSettings(offset=args.offset)
     corner_settings = CornerRuntimeSettings()
     construct_calls_after_compile = diagnostics.construct_calls

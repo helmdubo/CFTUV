@@ -1,3 +1,4 @@
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -144,6 +145,40 @@ def test_c0_chart_ir_validates_relations_cuts_and_metrics():
     assert chart.support_triangle_ids == (0, 1)
     assert chart.placed_triangle_ids == ()
     assert chart.metrics.support_triangle_count == 2
+
+    periodic = replace(
+        chart,
+        periodic_axis="U",
+        period=2.0,
+        period_quantum=0.25,
+        wrap_origin=0.125,
+        periodic_cut=cut,
+        transition_equivalences=(
+            (
+                cut.transition_key,
+                (("periodic-image", -1), ("periodic-image", 1)),
+            ),
+        ),
+    )
+    assert periodic.period == 2.0
+    assert periodic.periodic_cut is cut
+
+    with pytest.raises(ValueError, match="period must be quantized"):
+        replace(periodic, period=2.1)
+    with pytest.raises(ValueError, match="wrap origin"):
+        replace(periodic, wrap_origin=2.0)
+    with pytest.raises(ValueError, match="generating cut"):
+        replace(periodic, periodic_cut=None)
+    with pytest.raises(ValueError, match="belong to chart cuts"):
+        replace(
+            periodic,
+            periodic_cut=ChartCut(
+                source_edge=(10, 20),
+                triangle_ids=(0,),
+                reason="OTHER",
+                transition_key=("other",),
+            ),
+        )
 
     with pytest.raises(ValueError, match="unknown triangle"):
         IntrinsicStripChart(

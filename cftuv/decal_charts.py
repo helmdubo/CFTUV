@@ -19,6 +19,63 @@ SourceEdge = tuple[int, int]
 ChainRef = tuple[int, int, int]
 
 
+def validate_periodic_chart_fields(
+    periodic_axis,
+    period,
+    period_quantum,
+    wrap_origin,
+    periodic_cut,
+    transition_equivalences,
+):
+    """Общий immutable контракт periodic chart/domain IR (D0/DP3)."""
+
+    axis = str(periodic_axis or "")
+    if axis not in {"", "U", "V"}:
+        raise ValueError("Periodic axis must be empty, U or V")
+    period = float(period)
+    quantum = float(period_quantum)
+    origin = float(wrap_origin)
+    equivalences = tuple(transition_equivalences or ())
+    if not axis:
+        if (
+            period != 0.0
+            or quantum != 0.0
+            or origin != 0.0
+            or periodic_cut is not None
+            or equivalences
+        ):
+            raise ValueError(
+                "Non-periodic chart cannot carry periodic metadata"
+            )
+        return
+    if not isfinite(period) or period <= 0.0:
+        raise ValueError("Periodic chart period must be finite and positive")
+    if not isfinite(quantum) or quantum <= 0.0:
+        raise ValueError("Periodic chart quantum must be finite and positive")
+    steps = round(period / quantum)
+    if steps <= 0 or abs(period - steps * quantum) > quantum * 1e-7:
+        raise ValueError("Periodic chart period must be quantized")
+    if not isfinite(origin) or not 0.0 <= origin < period:
+        raise ValueError("Periodic wrap origin must lie in [0, period)")
+    if periodic_cut is None:
+        raise ValueError("Periodic chart requires a generating cut")
+    canonical_keys = []
+    for item in equivalences:
+        if not isinstance(item, tuple) or len(item) != 2:
+            raise ValueError("Periodic transition equivalence is invalid")
+        canonical_key, image_keys = item
+        image_keys = tuple(image_keys)
+        if canonical_key is None or not image_keys:
+            raise ValueError(
+                "Periodic transition equivalence requires keys"
+            )
+        if len({repr(key) for key in image_keys}) != len(image_keys):
+            raise ValueError("Periodic transition images must be unique")
+        canonical_keys.append(repr(canonical_key))
+    if len(set(canonical_keys)) != len(canonical_keys):
+        raise ValueError("Periodic transition canonical keys must be unique")
+
+
 def _vec3(value) -> Vec3:
     return (float(value[0]), float(value[1]), float(value[2]))
 
@@ -241,6 +298,12 @@ class IntrinsicStripChart:
     alpha_budget: float = float("inf")
     budget_source: str = "FULL_CONNECTED_COMPONENT"
     metrics: ChartBuildMetrics = field(default_factory=ChartBuildMetrics)
+    periodic_axis: str = ""
+    period: float = 0.0
+    period_quantum: float = 0.0
+    wrap_origin: float = 0.0
+    periodic_cut: ChartCut | None = None
+    transition_equivalences: tuple[tuple[object, tuple[object, ...]], ...] = ()
 
     def __post_init__(self):
         if self.chart_id < 0 or self.patch_id < 0:
@@ -356,6 +419,16 @@ class IntrinsicStripChart:
             raise ValueError("Chart alpha budget must be positive")
         if not self.budget_source:
             raise ValueError("Chart budget source must be explicit")
+        validate_periodic_chart_fields(
+            self.periodic_axis,
+            self.period,
+            self.period_quantum,
+            self.wrap_origin,
+            self.periodic_cut,
+            self.transition_equivalences,
+        )
+        if self.periodic_cut is not None and self.periodic_cut not in self.cuts:
+            raise ValueError("Periodic generating cut must belong to chart cuts")
 
     @property
     def placed_triangle_ids(self) -> tuple[int, ...]:

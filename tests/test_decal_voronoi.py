@@ -2194,7 +2194,6 @@ def test_surface_domain_separates_planar_solver_from_intrinsic_lift():
                 normals=normals,
             ),
         ),
-        periodic_axis="U",
         normal_mode="SMOOTH_INTERPOLATED",
     )
     point = (0.25, 0.25)
