@@ -55,6 +55,7 @@ from .decal_voronoi import (
     compile_patch_voronoi_plan,
     evaluate_patch_voronoi_plan,
 )
+from .console_debug import is_verbose_console_enabled
 from .model import ChainNeighborKind, ChainRef, DecalSettings, PatchGraph, PatchType
 
 DECAL_MODES = ("TOP", "BOTTOM", "CORNERS", "SEAMS")
@@ -220,6 +221,31 @@ class _ManualSeamBackendPartition:
 
 
 @dataclass(frozen=True)
+class ManualSeamEdgeRejection:
+    """Selected physical edge, который не имеет допустимого decal use."""
+
+    edge_index: int
+    reason: str
+    use_count: int = 0
+    use_refs: tuple = ()
+
+
+@dataclass(frozen=True)
+class _ManualEdgeDecalCollection:
+    """Runs и полный accounting исходного selected-edge scope."""
+
+    corner_runs: tuple
+    boundary_runs: tuple
+    accepted_edge_indices: tuple[int, ...]
+    rejected_edges: tuple[ManualSeamEdgeRejection, ...]
+
+    def __iter__(self):
+        # Сохраняет старый private unpacking contract для geometry callers.
+        yield list(self.corner_runs)
+        yield list(self.boundary_runs)
+
+
+@dataclass(frozen=True)
 class ManualSeamDecalPlan:
     """Width-independent manual SEAMS scope для одного modal drag."""
 
@@ -229,11 +255,57 @@ class ManualSeamDecalPlan:
     patch_voronoi_plan: object = None
     backend_partitions: tuple[_ManualSeamBackendPartition, ...] = ()
     compile_failures: tuple = ()
+    selected_edge_indices: tuple[int, ...] = ()
+    rejected_edges: tuple[ManualSeamEdgeRejection, ...] = ()
+    direct_legacy_edge_indices: tuple[int, ...] = ()
+
+    @property
+    def rejected_edge_indices(self):
+        return tuple(rejection.edge_index for rejection in self.rejected_edges)
+
+    @property
+    def accepted_patch_voronoi_edge_indices(self):
+        return tuple(
+            sorted(
+                edge_index
+                for partition in self.backend_partitions
+                if partition.backend == "PATCH_VORONOI"
+                for edge_index in partition.edge_indices
+            )
+        )
+
+    @property
+    def accepted_legacy_edge_indices(self):
+        return tuple(
+            sorted(
+                set(self.direct_legacy_edge_indices).union(
+                    edge_index
+                    for partition in self.backend_partitions
+                    if partition.backend == "LEGACY_NETWORK"
+                    for edge_index in partition.edge_indices
+                )
+            )
+        )
+
+    @property
+    def accounting_is_exact(self):
+        selected = set(self.selected_edge_indices)
+        patch = set(self.accepted_patch_voronoi_edge_indices)
+        legacy = set(self.accepted_legacy_edge_indices)
+        rejected = set(self.rejected_edge_indices)
+        return (
+            not patch.intersection(legacy)
+            and not patch.intersection(rejected)
+            and not legacy.intersection(rejected)
+            and selected == patch.union(legacy, rejected)
+        )
 
     @property
     def backend_summary(self):
-        if not self.backend_partitions:
+        if not self.backend_partitions and not self.rejected_edges:
             return ""
+        if not self.backend_partitions:
+            return f"Rejected:{len(self.rejected_edges)}e"
         counts = {
             "PATCH_VORONOI": [0, 0],
             "LEGACY_NETWORK": [0, 0],
@@ -244,10 +316,13 @@ class ManualSeamDecalPlan:
             bucket[1] += len(partition.edge_indices)
         patch_components, patch_edges = counts["PATCH_VORONOI"]
         legacy_components, legacy_edges = counts["LEGACY_NETWORK"]
-        return (
+        summary = (
             f"Patch Voronoi:{patch_components}c/{patch_edges}e | "
             f"Legacy:{legacy_components}c/{legacy_edges}e"
         )
+        if self.rejected_edges:
+            summary += f" | Rejected:{len(self.rejected_edges)}e"
+        return summary
 
 
 class PatchVoronoiRuntimeError(RuntimeError):
@@ -777,7 +852,7 @@ def _manual_edge_pair_convexity(points, normal_a, normal_b):
 
 
 def _collect_manual_edge_decals(graph: PatchGraph, edge_indices):
-    """Selected physical edges as continuous analysis-owned corner runs."""
+    """Selected physical edges as runs с полным per-edge accounting."""
 
     selected_edges = {int(edge_index) for edge_index in edge_indices or ()}
     uses_by_edge = {edge_index: [] for edge_index in selected_edges}
@@ -818,9 +893,11 @@ def _collect_manual_edge_decals(graph: PatchGraph, edge_indices):
 
     paired_segments = []
     boundary_uses = {}
+    accepted_edges = set()
+    rejected_edges = []
     for edge_index in sorted(selected_edges):
         uses = sorted(uses_by_edge.get(edge_index, ()), key=lambda use: use[0])
-        if len(uses) >= 2:
+        if len(uses) == 2:
             _ref_a, vert_indices, points, normal_a = uses[0]
             _ref_b, _other_verts, _other_points, normal_b = uses[1]
             paired_segments.append(
@@ -837,14 +914,32 @@ def _collect_manual_edge_decals(graph: PatchGraph, edge_indices):
                     segment_edge_indices=[edge_index],
                 )
             )
+            accepted_edges.add(edge_index)
         elif len(uses) == 1:
             ref, vert_indices, points, normal = uses[0]
             boundary_uses.setdefault(ref[:3], []).append(
                 (ref[3], edge_index, vert_indices, points, normal)
             )
-    return (
-        _stitch_corner_runs(paired_segments),
-        _group_boundary_runs(boundary_uses),
+            accepted_edges.add(edge_index)
+        else:
+            reason = (
+                "NO_BOUNDARY_CHAIN_USE"
+                if not uses
+                else "NON_MANIFOLD_EDGE_USE"
+            )
+            rejected_edges.append(
+                ManualSeamEdgeRejection(
+                    edge_index=edge_index,
+                    reason=reason,
+                    use_count=len(uses),
+                    use_refs=tuple(use[0] for use in uses),
+                )
+            )
+    return _ManualEdgeDecalCollection(
+        corner_runs=tuple(_stitch_corner_runs(paired_segments)),
+        boundary_runs=tuple(_group_boundary_runs(boundary_uses)),
+        accepted_edge_indices=tuple(sorted(accepted_edges)),
+        rejected_edges=tuple(rejected_edges),
     )
 
 
@@ -2444,30 +2539,34 @@ def compile_manual_seam_decal_plan(
 ):
     """Собирает selected edges/runs и статическую сеть один раз на invoke."""
 
-    corner_runs, boundary_runs = _collect_manual_edge_decals(
+    selected_edges = tuple(
+        sorted({int(edge_index) for edge_index in selected_edge_indices or ()})
+    )
+    collection = _collect_manual_edge_decals(
         graph, selected_edge_indices
     )
+    corner_runs, boundary_runs = collection
+    accepted_scope_edges = collection.accepted_edge_indices
+    rejected_edges = collection.rejected_edges
     network_plan = None
     patch_voronoi_plan = None
     backend_partitions = []
     compile_failures = ()
+    direct_legacy_edges = ()
     if settings.seam_network and (corner_runs or boundary_runs):
-        selected_edges = tuple(
-            sorted(int(edge_index) for edge_index in selected_edge_indices)
-        )
         topology_components = _manual_seam_edge_components(
-            corner_runs + boundary_runs, selected_edges
+            corner_runs + boundary_runs, accepted_scope_edges
         )
         attempt = compile_patch_voronoi_attempt(
             graph,
-            selected_edges,
+            accepted_scope_edges,
             settings.offset,
             allow_partial=True,
         )
         compile_failures = attempt.failures
         rejected_seed = set(attempt.rejected_edge_indices)
         if attempt.plan is None and not rejected_seed:
-            rejected_seed.update(selected_edges)
+            rejected_seed.update(accepted_scope_edges)
 
         legacy_components = [
             component
@@ -2542,6 +2641,8 @@ def compile_manual_seam_decal_plan(
             and backend_partitions[0].backend == "LEGACY_NETWORK"
         ):
             network_plan = backend_partitions[0].compiled_plan
+    elif accepted_scope_edges:
+        direct_legacy_edges = accepted_scope_edges
     plan = ManualSeamDecalPlan(
         corner_runs=tuple(corner_runs),
         boundary_runs=tuple(boundary_runs),
@@ -2549,7 +2650,15 @@ def compile_manual_seam_decal_plan(
         patch_voronoi_plan=patch_voronoi_plan,
         backend_partitions=tuple(backend_partitions),
         compile_failures=tuple(compile_failures),
+        selected_edge_indices=selected_edges,
+        rejected_edges=tuple(rejected_edges),
+        direct_legacy_edge_indices=tuple(direct_legacy_edges),
     )
+    if not plan.accounting_is_exact:
+        raise AssertionError(
+            "Manual seam edge accounting invariant violated: "
+            "selected != patch_voronoi + legacy + rejected"
+        )
     if plan.backend_summary:
         print(f"[CFTUV][Decals] backend routing: {plan.backend_summary}")
     if plan.compile_failures:
@@ -2558,6 +2667,13 @@ def compile_manual_seam_decal_plan(
             for failure in plan.compile_failures
         )
         print(f"[CFTUV][Decals] partial fallback reasons: {details}")
+    if plan.rejected_edges and is_verbose_console_enabled():
+        details = ", ".join(
+            f"{rejection.edge_index}:{rejection.reason}"
+            f"(uses={rejection.use_count})"
+            for rejection in plan.rejected_edges
+        )
+        print(f"[CFTUV][Decals] rejected selected edges: {details}")
     return plan
 
 

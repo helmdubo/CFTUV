@@ -188,6 +188,21 @@ Runtime materialization транзакционна: сначала вычисл�
 partitions и только затем записываются в BMesh. Пустой либо аварийный partition
 не оставляет частично построенную hybrid-сетку.
 
+### Exact selected-edge accounting
+
+Manual SEAMS compile сохраняет строгую дизъюнктную разбивку:
+
+```text
+selected = accepted Patch Voronoi + accepted Legacy + rejected
+```
+
+Edge без единого `BoundaryChain` use получает `NO_BOUNDARY_CHAIN_USE` и не
+попадает ни в один geometry backend. Edge с тремя и более uses получает
+`NON_MANIFOLD_EDGE_USE`: первые две стороны больше не выбираются молча.
+Ровно один use остаётся допустимым односторонним boundary site, ровно два —
+парным seam site. Backend summary показывает `Rejected:<count>e`; при verbose
+console дополнительно печатаются причины и physical edge indices.
+
 ### Owner-face provenance
 
 `PatchNode.mesh_tris` теперь сохраняет выровненные `mesh_tri_face_indices` и

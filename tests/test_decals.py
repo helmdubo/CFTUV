@@ -74,7 +74,12 @@ def test_manual_seam_plan_routes_only_failed_topology_component_to_legacy(
             runs.append(joined)
         if 10 in edges:
             runs.append(isolated)
-        return runs, []
+        return decals_module._ManualEdgeDecalCollection(
+            corner_runs=tuple(runs),
+            boundary_runs=(),
+            accepted_edge_indices=tuple(sorted(edges)),
+            rejected_edges=(),
+        )
 
     accepted_plan = object()
     legacy_plan = object()
@@ -768,6 +773,69 @@ class TestManualChainDecals:
         assert len(paired_runs) == 1
         assert abs(paired_runs[0].segment_convexities[0]) > 0.99
         assert boundary_edges == []
+
+    def test_selected_edge_without_chain_use_is_rejected(self):
+        collection = _collect_manual_edge_decals(PatchGraph(), [404])
+
+        assert collection.accepted_edge_indices == ()
+        assert collection.corner_runs == ()
+        assert collection.boundary_runs == ()
+        assert [
+            (item.edge_index, item.reason, item.use_count)
+            for item in collection.rejected_edges
+        ] == [(404, "NO_BOUNDARY_CHAIN_USE", 0)]
+
+    def test_non_manifold_selected_edge_does_not_take_first_two_uses(self):
+        nodes = []
+        for patch_id, normal in enumerate(
+            ((0, 0, 1), (0, 1, 0), (1, 0, 0))
+        ):
+            chain = _make_chain(
+                [0, 1],
+                [(0, 0, 0), (1, 0, 0)],
+                -1,
+                edge_indices=[77],
+                side_face_normals=[normal],
+            )
+            nodes.append(
+                _make_wall_node(patch_id, normal, (0, 0, 1), [chain])
+            )
+
+        collection = _collect_manual_edge_decals(_make_graph(*nodes), [77])
+
+        assert collection.accepted_edge_indices == ()
+        assert collection.corner_runs == ()
+        assert collection.boundary_runs == ()
+        assert len(collection.rejected_edges) == 1
+        assert collection.rejected_edges[0].reason == "NON_MANIFOLD_EDGE_USE"
+        assert collection.rejected_edges[0].use_count == 3
+
+    def test_one_sided_boundary_and_missing_edge_account_exactly(self):
+        chain = _make_chain(
+            [0, 1],
+            [(0, 0, 0), (1, 0, 0)],
+            -1,
+            edge_indices=[70],
+            side_face_normals=[(0, 0, 1)],
+        )
+        graph = _make_graph(
+            _make_wall_node(0, (0, 0, 1), (0, 1, 0), [chain])
+        )
+
+        collection = _collect_manual_edge_decals(graph, [70, 99])
+        plan = decals_module.compile_manual_seam_decal_plan(
+            graph, DecalSettings(), (70, 99)
+        )
+
+        assert collection.accepted_edge_indices == (70,)
+        assert len(collection.boundary_runs) == 1
+        assert collection.rejected_edges[0].edge_index == 99
+        assert plan.selected_edge_indices == (70, 99)
+        assert plan.accepted_patch_voronoi_edge_indices == ()
+        assert plan.accepted_legacy_edge_indices == (70,)
+        assert plan.rejected_edge_indices == (99,)
+        assert plan.accounting_is_exact
+        assert plan.backend_summary.endswith("Rejected:1e")
 
     def test_corner_runs_preserve_surface_sides_across_chain_splits(self):
         first = _make_corner_run(0, 1, (0, 0, 0), (1, 0, 0), 5)
