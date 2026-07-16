@@ -138,6 +138,33 @@ def test_corner_offset_lines_reject_zero_length_site():
     assert decal_voronoi._corner_offset_lines(surface, corner, 0.5) == []
 
 
+def test_cell_triangulation_accepts_only_zero_area_collinear_remainder():
+    # Реальная segment-cell walls.010: ненулевые ears покрывают весь contour,
+    # после чего остаётся четыре коллинеарные stations. Это не compile failure.
+    polygon = [
+        (-2.508528, 4.30705),
+        (-2.508529, 4.3071),
+        (-76.00318, 4.3071),
+        (-76.00318, 1.7071),
+        (-2.508529, 1.7071),
+        (-2.5088, 1.7428),
+        (-2.5088, 2.9713),
+        (-2.508528, 3.00705),
+        (-2.5088, 3.0428),
+        (-2.5088, 4.2713),
+    ]
+
+    triangles = decal_voronoi._triangulate_cell_polygon(polygon)
+
+    assert triangles
+    assert sum(
+        decal_voronoi._polygon_area2(triangle) for triangle in triangles
+    ) == pytest.approx(
+        decal_voronoi._polygon_area2(polygon),
+        abs=1e-7,
+    )
+
+
 def test_network_face_serializer_is_stable_across_face_order():
     first = decal_voronoi._NetworkFace(
         surface_id=2,

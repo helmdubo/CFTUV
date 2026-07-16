@@ -1776,6 +1776,16 @@ def _triangulate_cell_polygon(points):
             ear_found = True
             break
         if not ear_found:
+            remaining_polygon = [polygon[index] for index in remaining]
+            if abs(_polygon_area2(remaining_polygon)) <= max(
+                1e-10,
+                _diagram_quantum() * _diagram_quantum(),
+            ):
+                # Все ненулевые ears уже покрыли исходную cell; Boost может
+                # оставить после них только коллинеарную zero-area цепочку.
+                # Это успешная triangulation, а не повод выбрасывать ранее
+                # собранные triangles и включать Legacy для всего component.
+                return triangles
             return []
         guard -= 1
     if len(remaining) == 3:
