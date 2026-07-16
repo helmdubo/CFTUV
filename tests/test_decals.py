@@ -48,6 +48,137 @@ def _make_wall_node(patch_id, normal, basis_v, chains):
     return node
 
 
+def _backend_test_run(edge_indices, vert_indices):
+    segment_count = len(edge_indices)
+    return _OrientedCornerRun(
+        vert_indices=list(vert_indices),
+        points=[Vector((float(index), 0.0, 0.0)) for index in vert_indices],
+        segment_normals_a=[Vector((0.0, 0.0, 1.0))] * segment_count,
+        segment_normals_b=[Vector((0.0, 1.0, 0.0))] * segment_count,
+        segment_convexities=[0.0] * segment_count,
+        segment_edge_indices=list(edge_indices),
+    )
+
+
+def test_manual_seam_plan_routes_only_failed_topology_component_to_legacy(
+    monkeypatch,
+):
+    joined = _backend_test_run((1, 2), (0, 1, 2))
+    isolated = _backend_test_run((10,), (10, 11))
+
+    def collect(_graph, edge_indices):
+        edges = set(edge_indices)
+        runs = []
+        if edges.intersection({1, 2}):
+            runs.append(joined)
+        if 10 in edges:
+            runs.append(isolated)
+        return runs, []
+
+    accepted_plan = object()
+    legacy_plan = object()
+    monkeypatch.setattr(decals_module, "_collect_manual_edge_decals", collect)
+    monkeypatch.setattr(
+        decals_module,
+        "compile_patch_voronoi_attempt",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            plan=object(),
+            rejected_edge_indices=(1,),
+            failures=(
+                SimpleNamespace(
+                    patch_id=99,
+                    reason="NO_OWNER_SURFACES",
+                ),
+            ),
+        ),
+    )
+    strict_calls = []
+    monkeypatch.setattr(
+        decals_module,
+        "compile_patch_voronoi_plan",
+        lambda _graph, edges, _offset: (
+            strict_calls.append(tuple(edges)) or accepted_plan
+        ),
+    )
+    legacy_calls = []
+    monkeypatch.setattr(
+        decals_module,
+        "compile_seam_network_plan",
+        lambda runs, _offset: legacy_calls.append(tuple(runs)) or legacy_plan,
+    )
+
+    plan = decals_module.compile_manual_seam_decal_plan(
+        object(), DecalSettings(), (1, 2, 10)
+    )
+
+    assert strict_calls == [(10,)]
+    assert len(legacy_calls) == 1
+    assert [partition.backend for partition in plan.backend_partitions] == [
+        "PATCH_VORONOI",
+        "LEGACY_NETWORK",
+    ]
+    assert plan.backend_partitions[0].edge_indices == (10,)
+    assert plan.backend_partitions[0].topology_component_count == 1
+    assert plan.backend_partitions[1].edge_indices == (1, 2)
+    assert plan.backend_summary == (
+        "Patch Voronoi:1c/1e | Legacy:1c/2e"
+    )
+
+
+def test_manual_seam_hybrid_materializes_both_backend_partitions(monkeypatch):
+    patch_run = _backend_test_run((10,), (10, 11))
+    legacy_run = _backend_test_run((1,), (0, 1))
+    patch_partition = decals_module._ManualSeamBackendPartition(
+        backend="PATCH_VORONOI",
+        edge_indices=(10,),
+        topology_component_count=1,
+        corner_runs=(patch_run,),
+        boundary_runs=(),
+        compiled_plan=object(),
+    )
+    legacy_partition = decals_module._ManualSeamBackendPartition(
+        backend="LEGACY_NETWORK",
+        edge_indices=(1,),
+        topology_component_count=1,
+        corner_runs=(legacy_run,),
+        boundary_runs=(),
+        compiled_plan=object(),
+    )
+    plan = decals_module.ManualSeamDecalPlan(
+        corner_runs=(patch_run, legacy_run),
+        boundary_runs=(),
+        backend_partitions=(patch_partition, legacy_partition),
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "evaluate_patch_voronoi_plan",
+        lambda *_args, **_kwargs: ("patch-face",),
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "evaluate_seam_network_plan",
+        lambda *_args, **_kwargs: ("legacy-face",),
+    )
+    materialized = []
+    monkeypatch.setattr(
+        decals_module,
+        "_materialize_network_faces",
+        lambda _bm, faces, _settings, _uv_rect: materialized.append(tuple(faces)),
+    )
+
+    decals_module._fill_manual_chain_decals(
+        object(),
+        object(),
+        DecalSettings(),
+        (),
+        mode="SEAMS",
+        selected_edge_indices=(1, 10),
+        decal_plan=plan,
+    )
+
+    assert materialized == [("patch-face",), ("legacy-face",)]
+
+
 def test_generate_decal_objects_reuses_existing_object_only_for_preview(
     monkeypatch,
 ):

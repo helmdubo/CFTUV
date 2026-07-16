@@ -521,6 +521,37 @@ def test_seam_modal_confirm_reports_seam_width():
     assert reports == [(["Decal"], operator._modal_state, "Seam Width:0.3000")]
 
 
+def test_decal_created_report_exposes_hybrid_backend_routing():
+    reports = []
+    operator = SimpleNamespace(
+        _modal_decal_plan=SimpleNamespace(
+            backend_summary="Patch Voronoi:22c/259e | Legacy:1c/199e"
+        ),
+        report=lambda level, message: reports.append((level, message)),
+    )
+    state = (
+        object(),
+        object(),
+        DecalSettings(),
+        ((0, 0, 0),),
+        True,
+        458,
+        tuple(range(458)),
+    )
+
+    HOTSPOTUV_OT_GenerateDecals._report_created(
+        operator, ["Decal_Seams_walls.010"], state
+    )
+
+    assert reports == [
+        (
+            {"INFO"},
+            "Created: Decal_Seams_walls.010 | chains:1 edges:458 | "
+            "Patch Voronoi:22c/259e | Legacy:1c/199e",
+        )
+    ]
+
+
 def test_seam_modal_confirm_rebuilds_last_drag_at_full_precision():
     # Во время drag декаль строится в preview-режиме; на подтверждении
     # LMB/Enter последний размер перегенерируется с preview=False.

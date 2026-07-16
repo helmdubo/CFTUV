@@ -264,6 +264,24 @@ class PatchVoronoiPlan:
 
 
 @dataclass(frozen=True)
+class PatchVoronoiCompileFailure:
+    """Локальный отказ compile, не обязанный отменять весь selection."""
+
+    patch_id: int
+    reason: str
+    edge_indices: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class PatchVoronoiCompileAttempt:
+    """Результат диагностического compile с rejected physical edges."""
+
+    plan: PatchVoronoiPlan | None
+    rejected_edge_indices: tuple[int, ...] = ()
+    failures: tuple[PatchVoronoiCompileFailure, ...] = ()
+
+
+@dataclass(frozen=True)
 class _DecalArrangementFace:
     """Cell face после общей surface-level edge conformity."""
 
@@ -2021,34 +2039,101 @@ def _compile_surface(node, raw_sites):
     )
 
 
-def compile_patch_voronoi_plan(graph, selected_edge_indices, offset):
-    """Компилирует диаграммы touched planar patches; иначе отдаёт fallback."""
+def compile_patch_voronoi_attempt(
+    graph, selected_edge_indices, offset, *, allow_partial=False
+):
+    """Компилирует plan и локализует unsupported patches до physical edges.
 
-    if pyvoronoi is None:
-        return None
-    selected_edges = {int(edge_index) for edge_index in selected_edge_indices or ()}
+    ``allow_partial=False`` сохраняет прежний all-or-nothing контракт.
+    Диагностический partial-режим нужен hybrid router: его неполный plan не
+    материализуется напрямую, потому что rejected topology component может
+    потребовать исключить дополнительные соседние edges и повторный compile.
+    """
+
+    selected_edges = {
+        int(edge_index) for edge_index in selected_edge_indices or ()
+    }
     if not selected_edges:
-        return None
+        return PatchVoronoiCompileAttempt(plan=None)
+    if pyvoronoi is None:
+        return PatchVoronoiCompileAttempt(
+            plan=None,
+            rejected_edge_indices=tuple(sorted(selected_edges)),
+            failures=(
+                PatchVoronoiCompileFailure(
+                    patch_id=-1,
+                    reason="PYVORONOI_UNAVAILABLE",
+                    edge_indices=tuple(sorted(selected_edges)),
+                ),
+            ),
+        )
     raw_by_patch, normals_by_vert, positions_by_vert = _collect_patch_sites(
         graph, selected_edges
     )
     if not raw_by_patch:
-        return None
+        return PatchVoronoiCompileAttempt(
+            plan=None,
+            rejected_edge_indices=tuple(sorted(selected_edges)),
+            failures=(
+                PatchVoronoiCompileFailure(
+                    patch_id=-1,
+                    reason="NO_PATCH_SITES",
+                    edge_indices=tuple(sorted(selected_edges)),
+                ),
+            ),
+        )
     surfaces = []
+    rejected_edges = set()
+    failures = []
     for patch_id in sorted(raw_by_patch):
         node = graph.nodes[patch_id]
+        patch_sites = raw_by_patch[patch_id]
         if _patch_is_planar(node):
-            owner_surfaces = ((node, raw_by_patch[patch_id]),)
+            owner_surfaces = ((node, patch_sites),)
         else:
-            owner_surfaces = _planar_owner_surfaces(
-                node, raw_by_patch[patch_id]
-            )
+            owner_surfaces = _planar_owner_surfaces(node, patch_sites)
             if not owner_surfaces:
-                return None
+                edge_indices = tuple(
+                    sorted({int(site["edge_index"]) for site in patch_sites})
+                )
+                rejected_edges.update(edge_indices)
+                failures.append(
+                    PatchVoronoiCompileFailure(
+                        patch_id=int(patch_id),
+                        reason="NO_OWNER_SURFACES",
+                        edge_indices=edge_indices,
+                    )
+                )
+                if not allow_partial:
+                    return PatchVoronoiCompileAttempt(
+                        plan=None,
+                        rejected_edge_indices=tuple(sorted(rejected_edges)),
+                        failures=tuple(failures),
+                    )
+                continue
         for owner_surface, owner_sites in owner_surfaces:
             surface = _compile_surface(owner_surface, owner_sites)
             if surface is None:
-                return None
+                edge_indices = tuple(
+                    sorted(
+                        {int(site["edge_index"]) for site in owner_sites}
+                    )
+                )
+                rejected_edges.update(edge_indices)
+                failures.append(
+                    PatchVoronoiCompileFailure(
+                        patch_id=int(patch_id),
+                        reason="SURFACE_COMPILE_FAILED",
+                        edge_indices=edge_indices,
+                    )
+                )
+                if not allow_partial:
+                    return PatchVoronoiCompileAttempt(
+                        plan=None,
+                        rejected_edge_indices=tuple(sorted(rejected_edges)),
+                        failures=tuple(failures),
+                    )
+                continue
             surfaces.append(surface)
     lifted_vertices = {
         vert_index: _lift_position(
@@ -2070,12 +2155,30 @@ def compile_patch_voronoi_plan(graph, selected_edge_indices, offset):
                         max_lateral_lift_ratio,
                         lateral.length / abs(float(offset)),
                     )
-    return PatchVoronoiPlan(
-        offset=float(offset),
-        surfaces=tuple(surfaces),
-        lifted_vertices=lifted_vertices,
-        max_lateral_lift_ratio=max_lateral_lift_ratio,
+    plan = None
+    if surfaces:
+        plan = PatchVoronoiPlan(
+            offset=float(offset),
+            surfaces=tuple(surfaces),
+            lifted_vertices=lifted_vertices,
+            max_lateral_lift_ratio=max_lateral_lift_ratio,
+        )
+    return PatchVoronoiCompileAttempt(
+        plan=plan,
+        rejected_edge_indices=tuple(sorted(rejected_edges)),
+        failures=tuple(failures),
     )
+
+
+def compile_patch_voronoi_plan(graph, selected_edge_indices, offset):
+    """Компилирует все touched surfaces или сохраняет legacy fallback."""
+
+    return compile_patch_voronoi_attempt(
+        graph,
+        selected_edge_indices,
+        offset,
+        allow_partial=False,
+    ).plan
 
 
 def _insert_surface_edge_stations(polygons, tolerance):

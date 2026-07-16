@@ -51,6 +51,7 @@ from .decal_network import (
 )
 from .decal_voronoi import (
     CornerRuntimeSettings,
+    compile_patch_voronoi_attempt,
     compile_patch_voronoi_plan,
     evaluate_patch_voronoi_plan,
 )
@@ -207,6 +208,18 @@ class _DecalJunctionSpec:
 
 
 @dataclass(frozen=True)
+class _ManualSeamBackendPartition:
+    """Независимая routing-группа нового или fallback backend."""
+
+    backend: str
+    edge_indices: tuple[int, ...]
+    topology_component_count: int
+    corner_runs: tuple
+    boundary_runs: tuple
+    compiled_plan: object = None
+
+
+@dataclass(frozen=True)
 class ManualSeamDecalPlan:
     """Width-independent manual SEAMS scope для одного modal drag."""
 
@@ -214,6 +227,27 @@ class ManualSeamDecalPlan:
     boundary_runs: tuple
     network_plan: object = None
     patch_voronoi_plan: object = None
+    backend_partitions: tuple[_ManualSeamBackendPartition, ...] = ()
+    compile_failures: tuple = ()
+
+    @property
+    def backend_summary(self):
+        if not self.backend_partitions:
+            return ""
+        counts = {
+            "PATCH_VORONOI": [0, 0],
+            "LEGACY_NETWORK": [0, 0],
+        }
+        for partition in self.backend_partitions:
+            bucket = counts.setdefault(partition.backend, [0, 0])
+            bucket[0] += int(partition.topology_component_count)
+            bucket[1] += len(partition.edge_indices)
+        patch_components, patch_edges = counts["PATCH_VORONOI"]
+        legacy_components, legacy_edges = counts["LEGACY_NETWORK"]
+        return (
+            f"Patch Voronoi:{patch_components}c/{patch_edges}e | "
+            f"Legacy:{legacy_components}c/{legacy_edges}e"
+        )
 
 
 def _join_ribbon_runs(first, second):
@@ -797,6 +831,56 @@ def _collect_manual_edge_decals(graph: PatchGraph, edge_indices):
         _stitch_corner_runs(paired_segments),
         _group_boundary_runs(boundary_uses),
     )
+
+
+def _manual_seam_edge_components(runs, selected_edge_indices):
+    """Physical selected-edge components по общим source vertices."""
+
+    selected_edges = {
+        int(edge_index) for edge_index in selected_edge_indices or ()
+    }
+    endpoints_by_edge = {}
+    for run in runs:
+        for segment_index, edge_index in enumerate(
+            run.segment_edge_indices
+        ):
+            if segment_index + 1 >= len(run.vert_indices):
+                continue
+            edge_index = int(edge_index)
+            if edge_index not in selected_edges:
+                continue
+            endpoints_by_edge.setdefault(
+                edge_index,
+                (
+                    int(run.vert_indices[segment_index]),
+                    int(run.vert_indices[segment_index + 1]),
+                ),
+            )
+
+    edges_by_vertex = {}
+    for edge_index, endpoints in endpoints_by_edge.items():
+        for vert_index in endpoints:
+            edges_by_vertex.setdefault(vert_index, []).append(edge_index)
+
+    unseen = set(selected_edges)
+    components = []
+    while unseen:
+        root = min(unseen)
+        unseen.remove(root)
+        component = {root}
+        stack = [root]
+        while stack:
+            edge_index = stack.pop()
+            for vert_index in endpoints_by_edge.get(edge_index, ()):
+                for neighbour in edges_by_vertex.get(vert_index, ()):
+                    if neighbour not in unseen:
+                        continue
+                    unseen.remove(neighbour)
+                    component.add(neighbour)
+                    stack.append(neighbour)
+        components.append(tuple(sorted(component)))
+    components.sort(key=lambda component: (component[0], len(component)))
+    return tuple(components)
 
 
 def _group_boundary_runs(boundary_uses):
@@ -2350,22 +2434,168 @@ def compile_manual_seam_decal_plan(
     )
     network_plan = None
     patch_voronoi_plan = None
+    backend_partitions = []
+    compile_failures = ()
     if settings.seam_network and (corner_runs or boundary_runs):
-        patch_voronoi_plan = compile_patch_voronoi_plan(
-            graph,
-            selected_edge_indices,
-            settings.offset,
+        selected_edges = tuple(
+            sorted(int(edge_index) for edge_index in selected_edge_indices)
         )
-        if patch_voronoi_plan is None:
-            network_plan = compile_seam_network_plan(
-                corner_runs + boundary_runs,
+        topology_components = _manual_seam_edge_components(
+            corner_runs + boundary_runs, selected_edges
+        )
+        attempt = compile_patch_voronoi_attempt(
+            graph,
+            selected_edges,
+            settings.offset,
+            allow_partial=True,
+        )
+        compile_failures = attempt.failures
+        rejected_seed = set(attempt.rejected_edge_indices)
+        if attempt.plan is None and not rejected_seed:
+            rejected_seed.update(selected_edges)
+
+        legacy_components = [
+            component
+            for component in topology_components
+            if rejected_seed.intersection(component)
+        ]
+        accepted_components = [
+            component
+            for component in topology_components
+            if not rejected_seed.intersection(component)
+        ]
+        accepted_edges = tuple(
+            sorted(
+                edge_index
+                for component in accepted_components
+                for edge_index in component
+            )
+        )
+
+        if not legacy_components and attempt.plan is not None:
+            patch_voronoi_plan = attempt.plan
+        elif accepted_edges:
+            # Partial probe мог скомпилировать surface, содержащую sites из
+            # rejected topology component. Повторный strict compile строит
+            # единый competition domain уже только для clean components.
+            patch_voronoi_plan = compile_patch_voronoi_plan(
+                graph, accepted_edges, settings.offset
+            )
+            if patch_voronoi_plan is None:
+                # Не допускаем частичной материализации сомнительного plan:
+                # этот редкий случай сохраняет прежний безопасный fallback.
+                legacy_components = list(topology_components)
+                accepted_components = []
+                accepted_edges = ()
+
+        if patch_voronoi_plan is not None and accepted_edges:
+            accepted_corner_runs, accepted_boundary_runs = (
+                _collect_manual_edge_decals(graph, accepted_edges)
+            )
+            backend_partitions.append(
+                _ManualSeamBackendPartition(
+                    backend="PATCH_VORONOI",
+                    edge_indices=accepted_edges,
+                    topology_component_count=len(accepted_components),
+                    corner_runs=tuple(accepted_corner_runs),
+                    boundary_runs=tuple(accepted_boundary_runs),
+                    compiled_plan=patch_voronoi_plan,
+                )
+            )
+
+        for component in legacy_components:
+            component_corner_runs, component_boundary_runs = (
+                _collect_manual_edge_decals(graph, component)
+            )
+            component_network_plan = compile_seam_network_plan(
+                component_corner_runs + component_boundary_runs,
                 settings.offset,
             )
-    return ManualSeamDecalPlan(
+            backend_partitions.append(
+                _ManualSeamBackendPartition(
+                    backend="LEGACY_NETWORK",
+                    edge_indices=tuple(component),
+                    topology_component_count=1,
+                    corner_runs=tuple(component_corner_runs),
+                    boundary_runs=tuple(component_boundary_runs),
+                    compiled_plan=component_network_plan,
+                )
+            )
+
+        if (
+            len(backend_partitions) == 1
+            and backend_partitions[0].backend == "LEGACY_NETWORK"
+        ):
+            network_plan = backend_partitions[0].compiled_plan
+    plan = ManualSeamDecalPlan(
         corner_runs=tuple(corner_runs),
         boundary_runs=tuple(boundary_runs),
         network_plan=network_plan,
         patch_voronoi_plan=patch_voronoi_plan,
+        backend_partitions=tuple(backend_partitions),
+        compile_failures=tuple(compile_failures),
+    )
+    if plan.backend_summary:
+        print(f"[CFTUV][Decals] backend routing: {plan.backend_summary}")
+    if plan.compile_failures:
+        details = ", ".join(
+            f"patch {failure.patch_id}:{failure.reason}"
+            for failure in plan.compile_failures
+        )
+        print(f"[CFTUV][Decals] partial fallback reasons: {details}")
+    return plan
+
+
+def _evaluate_manual_backend_partition(
+    partition, settings, width, preview
+):
+    """Вычисляет одну routing-группу без BMesh side effects."""
+
+    runs = list(partition.corner_runs + partition.boundary_runs)
+    if partition.backend == "PATCH_VORONOI":
+        try:
+            faces = evaluate_patch_voronoi_plan(
+                partition.compiled_plan,
+                width,
+                preview=preview,
+                corner_settings=CornerRuntimeSettings(
+                    acute_split_angle=settings.corner_acute_split_angle,
+                    miter_limit=settings.corner_miter_limit,
+                ),
+            )
+            if faces:
+                return faces
+        except Exception as exc:
+            print(
+                "[CFTUV][Decals] Patch Voronoi partition failed "
+                f"({exc!r}); using legacy seam network for "
+                f"{len(partition.edge_indices)} edge(s)"
+            )
+        return build_seam_network_faces(
+            runs,
+            settings.offset,
+            width,
+            preview=preview,
+        )
+
+    try:
+        faces = evaluate_seam_network_plan(
+            partition.compiled_plan,
+            width,
+            preview=preview,
+        )
+        if faces:
+            return faces
+    except Exception as exc:
+        print(
+            "[CFTUV][Decals] Legacy seam partition failed "
+            f"({exc!r}); rebuilding {len(partition.edge_indices)} edge(s)"
+        )
+    return build_seam_network_faces(
+        runs,
+        settings.offset,
+        width,
+        preview=preview,
     )
 
 
@@ -2400,6 +2630,31 @@ def _fill_manual_chain_decals(
         ):
             network_faces = None
             try:
+                if (
+                    decal_plan is not None
+                    and decal_plan.backend_partitions
+                ):
+                    # Сначала вычисляем все partitions без BMesh writes.
+                    # Если emergency fallback тоже пуст, нижний miter path
+                    # получает чистый bm без частично записанного hybrid.
+                    face_batches = []
+                    for partition in decal_plan.backend_partitions:
+                        partition_faces = _evaluate_manual_backend_partition(
+                            partition,
+                            settings,
+                            width,
+                            preview,
+                        )
+                        if not partition_faces:
+                            raise ValueError(
+                                "Hybrid seam partition produced no faces"
+                            )
+                        face_batches.append(partition_faces)
+                    for partition_faces in face_batches:
+                        _materialize_network_faces(
+                            bm, partition_faces, settings, uv_rect
+                        )
+                    return
                 # Boundary wings — полноправные односторонние сайты сети:
                 # divider с соседними seam chains возникает и без общей
                 # source-вершины, чисто из конкуренции расстояний.

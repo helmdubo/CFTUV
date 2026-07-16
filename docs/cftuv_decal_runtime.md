@@ -168,3 +168,22 @@ discretizer: увеличение `parabola_equation_tolerance` скрывает
 `UnsolvableParabolaEquation` локально заменяют оба направления twin edge
 общей хордой Boost endpoints. Поэтому одна некорректная парабола не отменяет
 compile всей seam-сети, а граница соседних cells остаётся общей и замкнутой.
+
+## Component-level hybrid routing
+
+Manual Decal Seams больше не переключает весь selection в legacy из-за одного
+unsupported patch. Selected physical edges сначала делятся на topology
+components по общим source vertices. Partial Patch Voronoi probe локализует
+rejected edges, после чего целиком отклоняются только содержащие их components.
+
+Все clean components повторно объединяются в один Patch Voronoi plan. Поэтому
+раздельные chains на общей owner surface сохраняют глобальную Voronoi
+competition и могут столкнуться при увеличении width. Rejected components не
+имеют общих selected vertices с clean plan и отдельно компилируются прежним
+Seam Network backend.
+
+Operator report и console явно показывают routing:
+`Patch Voronoi:<components>c/<edges>e | Legacy:<components>c/<edges>e`.
+Runtime materialization транзакционна: сначала вычисляются faces всех
+partitions и только затем записываются в BMesh. Пустой либо аварийный partition
+не оставляет частично построенную hybrid-сетку.

@@ -1160,6 +1160,14 @@ def test_patch_voronoi_rejects_non_planar_owner_patch():
     graph = _planar_two_site_graph()
     graph.nodes[0].mesh_verts[2] = Vector((4.0, 2.0, 0.2))
     assert compile_patch_voronoi_plan(graph, [10, 12], offset=0.01) is None
+    attempt = decal_voronoi.compile_patch_voronoi_attempt(
+        graph, [10, 12], offset=0.01, allow_partial=True
+    )
+    assert attempt.plan is None
+    assert attempt.rejected_edge_indices == (10, 12)
+    assert [(failure.patch_id, failure.reason) for failure in attempt.failures] == [
+        (0, "NO_OWNER_SURFACES")
+    ]
 
 
 def test_non_planar_topology_patch_compiles_real_planar_owner_surfaces():

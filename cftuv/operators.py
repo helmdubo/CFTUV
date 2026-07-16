@@ -1323,6 +1323,10 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         summary = "Created: " + ", ".join(created)
         if manual_selection:
             summary += f" | chains:{len(chain_refs)} edges:{edge_count}"
+        decal_plan = getattr(self, "_modal_decal_plan", None)
+        backend_summary = getattr(decal_plan, "backend_summary", "")
+        if backend_summary:
+            summary += " | " + backend_summary
         if suffix:
             summary += " | " + suffix
         self.report({"INFO"}, summary)
