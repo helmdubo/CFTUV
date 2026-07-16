@@ -878,6 +878,8 @@ class PatchVoronoiDiagnostics:
     clamped_kite_count: int = 0
     clamped_acute_count: int = 0
     apex_limit_saturated_count: int = 0
+    periodic_copy_count: int = 0
+    periodic_weld_count: int = 0
     runtime_policy_counts: dict[str, int] = field(default_factory=dict)
     reference_full_scan: bool = False
 
@@ -903,6 +905,8 @@ class PatchVoronoiDiagnostics:
             "apex_limit_saturated_count": int(
                 self.apex_limit_saturated_count
             ),
+            "periodic_copy_count": int(self.periodic_copy_count),
+            "periodic_weld_count": int(self.periodic_weld_count),
             "runtime_policy_counts": dict(
                 sorted(self.runtime_policy_counts.items())
             ),
@@ -3977,13 +3981,68 @@ def _compile_surface(
     diagram = pyvoronoi.Pyvoronoi(diagram_scale)
     diagram_segments = []
     diagram_endpoint_vertices = []
-    for site in sites:
-        if site.point_a <= site.point_b:
-            diagram_points = (site.point_a, site.point_b)
-            endpoint_vertices = (site.vert_a, site.vert_b)
+    diagram_site_records = [
+        (site_index, 0, site.point_a, site.point_b)
+        for site_index, site in enumerate(sites)
+    ]
+    if intrinsic_chart is not None and intrinsic_chart.periodic_axis:
+        period = float(intrinsic_chart.period)
+        quantum = diagram_transform.quantum
+        if (
+            intrinsic_chart.periodic_axis != "U"
+            or abs(period / quantum - round(period / quantum)) > 1e-7
+        ):
+            raise _PatchVoronoiSurfaceCompileError(
+                "PERIODIC_QUANTIZATION_MISMATCH",
+                (site.edge_index for site in sites),
+                (
+                    f"axis={intrinsic_chart.periodic_axis!r} "
+                    f"period={period:.12g} quantum={quantum:.12g}"
+                ),
+            )
+        lower = float(intrinsic_chart.wrap_origin)
+        upper = lower + period
+        budget = min(float(intrinsic_chart.alpha_budget), period * 0.5)
+        tolerance = quantum * 1e-7
+        images = []
+        for site_index, site in enumerate(sites):
+            endpoints = (site.point_a, site.point_b)
+            if min(abs(point[0] - lower) for point in endpoints) <= (
+                budget + tolerance
+            ):
+                images.append((site_index, 1))
+            if min(abs(point[0] - upper) for point in endpoints) <= (
+                budget + tolerance
+            ):
+                images.append((site_index, -1))
+        for site_index, shift in sorted(images):
+            site = sites[site_index]
+            shifted = tuple(
+                diagram_transform.quantize(
+                    (point[0] + shift * period, point[1])
+                )
+                for point in (site.point_a, site.point_b)
+            )
+            diagram_site_records.append(
+                (site_index, shift, shifted[0], shifted[1])
+            )
+        if diagnostics is not None:
+            diagnostics.periodic_copy_count += len(images)
+
+    for owner_site_index, _shift, record_a, record_b in diagram_site_records:
+        site = sites[owner_site_index]
+        point_by_vertex = {
+            site.vert_a: record_a,
+            site.vert_b: record_b,
+        }
+        ordered_vertices = tuple(sorted(point_by_vertex))
+        ordered_points = tuple(point_by_vertex[index] for index in ordered_vertices)
+        if ordered_points[0] <= ordered_points[1]:
+            diagram_points = ordered_points
+            endpoint_vertices = ordered_vertices
         else:
-            diagram_points = (site.point_b, site.point_a)
-            endpoint_vertices = (site.vert_b, site.vert_a)
+            diagram_points = tuple(reversed(ordered_points))
+            endpoint_vertices = tuple(reversed(ordered_vertices))
         diagram_segment = [
             diagram_transform.to_diagram(point) for point in diagram_points
         ]
@@ -4012,9 +4071,9 @@ def _compile_surface(
             continue
         invalid_indices = tuple(int(index) for index in method())
         invalid_edges = tuple(
-            sites[index].edge_index
+            sites[diagram_site_records[index][0]].edge_index
             for index in invalid_indices
-            if 0 <= index < len(sites)
+            if 0 <= index < len(diagram_site_records)
         )
         if invalid_edges:
             raise _PatchVoronoiSurfaceCompileError(
@@ -4070,7 +4129,7 @@ def _compile_surface(
     for cell in diagram.GetCells():
         if (
             cell.site < 0
-            or cell.site >= len(sites)
+            or cell.site >= len(diagram_site_records)
             or cell.is_open
             or cell.is_degenerate
         ):
@@ -4091,7 +4150,8 @@ def _compile_surface(
         )
         if not cell_triangles:
             continue
-        site = sites[cell.site]
+        owner_site_index = diagram_site_records[cell.site][0]
+        site = sites[owner_site_index]
         fragments = []
         for cell_triangle in cell_triangles:
             if reference_full_scan:
@@ -4129,7 +4189,7 @@ def _compile_surface(
                 corner_index = corner_by_vertex.get(source_vertex, -1)
             atoms.append(
                 _PatchVoronoiAtom(
-                    site_index=int(cell.site),
+                    site_index=int(owner_site_index),
                     fragments=tuple(fragments),
                     cell_kind=cell_kind,
                     corner_index=corner_index,

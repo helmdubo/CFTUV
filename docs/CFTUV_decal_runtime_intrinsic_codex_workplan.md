@@ -1235,6 +1235,14 @@ layout канонически ориентируется по U и period выч
 
 ## D2. Periodic Voronoi copies
 
+Статус: **IMPLEMENTED**. `_compile_surface()` добавляет diagram-only images
+selected sites у обоих cut-краёв на `U ± period`, включая точную границу
+`alpha_budget`. Image cells клипятся базовым intrinsic domain и возвращаются
+к canonical owner site до atom IR, поэтому materialized sites/faces не
+дублируются. Period проверяется на той же `DiagramTransform` quantum-grid;
+`periodic_copy_count` доступен в diagnostics/benchmark. Non-periodic input
+сохраняет прежний порядок PyVoronoi segments.
+
 ### Изменения
 - Зона копирования: `alpha_budget` от каждого cut-края; копируемые
   сущности: sites, их endpoint corners, при необходимости boundary

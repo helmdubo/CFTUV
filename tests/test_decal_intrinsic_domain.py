@@ -11,11 +11,112 @@ from cftuv.decal_charts import (
 )
 from cftuv.decal_geometry import lift_offset_position
 from cftuv.decal_voronoi import (
+    PatchVoronoiPlan,
+    PatchVoronoiDiagnostics,
     _compile_intrinsic_surface,
     _intrinsic_site_points,
     build_intrinsic_surface_domain,
+    evaluate_patch_voronoi_plan,
+    serialize_network_faces,
 )
 from cftuv.model import PatchNode
+
+
+def _periodic_annulus(segment_count=8):
+    from math import cos, pi, sin
+
+    positions = []
+    for height in (0.0, 1.0):
+        positions.extend(
+            Vector(
+                (
+                    cos(index * 2.0 * pi / segment_count),
+                    sin(index * 2.0 * pi / segment_count),
+                    height,
+                )
+            )
+            for index in range(segment_count)
+        )
+    triangles = []
+    face_ids = []
+    physical_edges = set()
+    for index in range(segment_count):
+        next_index = (index + 1) % segment_count
+        physical_edges.update(
+            (
+                tuple(sorted((index, next_index))),
+                tuple(
+                    sorted(
+                        (
+                            segment_count + index,
+                            segment_count + next_index,
+                        )
+                    )
+                ),
+                (index, segment_count + index),
+            )
+        )
+        triangles.extend(
+            (
+                (index, next_index, segment_count + next_index),
+                (index, segment_count + next_index, segment_count + index),
+            )
+        )
+        face_ids.extend((100 + index, 100 + index))
+    edge_indices = {
+        edge: 2000 + index for index, edge in enumerate(sorted(physical_edges))
+    }
+    triangle_edge_indices = []
+    for first, second, third in triangles:
+        triangle_edge_indices.append(
+            (
+                edge_indices.get(tuple(sorted((second, third))), -1),
+                edge_indices.get(tuple(sorted((third, first))), -1),
+                edge_indices.get(tuple(sorted((first, second))), -1),
+            )
+        )
+    node = PatchNode(
+        patch_id=71,
+        face_indices=sorted(set(face_ids)),
+        centroid=sum(positions, Vector()) / len(positions),
+        normal=Vector((1.0, 0.0, 0.0)),
+        basis_u=Vector((0.0, 1.0, 0.0)),
+        basis_v=Vector((0.0, 0.0, 1.0)),
+        mesh_verts=positions,
+        mesh_vert_indices=list(range(len(positions))),
+        mesh_tris=triangles,
+        mesh_tri_face_indices=face_ids,
+        mesh_tri_face_normals=[Vector((1.0, 0.0, 0.0))] * len(triangles),
+        mesh_tri_edge_indices=triangle_edge_indices,
+    )
+    selected_source_edge = (0, 1)
+    selected_edge_index = edge_indices[selected_source_edge]
+    seed = ChartSiteSeed(
+        edge_index=selected_edge_index,
+        source_vertex_ids=selected_source_edge,
+        source_face_id=100,
+        chain_ref=(node.patch_id, 0, 0),
+    )
+    chart = admit_intrinsic_strip_chart(
+        build_intrinsic_strip_charts(
+            node, (seed,), alpha_budget=100.0
+        )[0]
+    )
+    raw_site = {
+        "patch_id": node.patch_id,
+        "edge_index": selected_edge_index,
+        "vert_a": 0,
+        "vert_b": 1,
+        "source_a": positions[0].copy(),
+        "source_b": positions[1].copy(),
+        "arc_start": 0.0,
+        "segment_length": (positions[1] - positions[0]).length,
+        "side_normal": Vector((1.0, 0.0, 0.0)),
+        "owner_face_index": 100,
+        "uv_sign": -1.0,
+        "two_sided": False,
+    }
+    return node, chart, raw_site
 
 
 def _folded_patch():
@@ -202,3 +303,38 @@ def test_c4_intrinsic_surface_uses_same_voronoi_compile_core():
     assert len(surface.sites) == 1
     assert surface.sites[0].edge_index == 10
     assert surface.atoms
+
+
+def test_d2_periodic_sites_are_copied_only_inside_diagram():
+    node, chart, raw_site = _periodic_annulus()
+    diagnostics = PatchVoronoiDiagnostics()
+
+    surface = _compile_intrinsic_surface(
+        node, chart, (raw_site,), diagnostics
+    )
+
+    assert surface.domain.periodic_axis == "U"
+    assert diagnostics.periodic_copy_count > 0
+    assert len(surface.sites) == 1
+    assert {atom.site_index for atom in surface.atoms} == {0}
+    plan = PatchVoronoiPlan(
+        offset=0.01,
+        surfaces=(surface,),
+        lifted_vertices={
+            0: raw_site["source_a"] + raw_site["side_normal"] * 0.01,
+            1: raw_site["source_b"] + raw_site["side_normal"] * 0.01,
+        },
+        max_lateral_lift_ratio=0.0,
+        alpha_budget=chart.alpha_budget,
+        budget_source=chart.budget_source,
+        requested_alpha_budget=100.0,
+    )
+    for width in (0.1, chart.period):
+        first = evaluate_patch_voronoi_plan(plan, width, preview=True)
+        second = evaluate_patch_voronoi_plan(plan, width, preview=False)
+        assert first
+        assert serialize_network_faces(first) == serialize_network_faces(
+            second
+        )
+        identities = [frozenset(face.vert_keys) for face in first]
+        assert len(identities) == len(set(identities))
