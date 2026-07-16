@@ -187,3 +187,18 @@ Operator report и console явно показывают routing:
 Runtime materialization транзакционна: сначала вычисляются faces всех
 partitions и только затем записываются в BMesh. Пустой либо аварийный partition
 не оставляет частично построенную hybrid-сетку.
+
+### Owner-face provenance
+
+`PatchNode.mesh_tris` теперь сохраняет выровненные `mesh_tri_face_indices` и
+`mesh_tri_face_normals`. Это важно для quad/ngon: Blender polygon имеет одну
+owner-normal, тогда как его неявный triangle fan на слегка непланарной грани
+даёт несколько несовпадающих triangle planes. Decal backend назначает site
+исходной грани через `BoundaryChain.side_face_indices`, а не угадывает её по
+triangle normal.
+
+Планарные соседние faces с одной plane по-прежнему объединяются в общий
+Voronoi chart. Warped polygon остаётся отдельным tangent owner-surface и
+соединяется с соседними surfaces junction-слоем. На полном `walls.010` это
+убирает ложный component fallback: все 23 components / 458 seam edges
+компилируются Patch Voronoi, `Legacy:0c/0e`.

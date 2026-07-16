@@ -1474,6 +1474,14 @@ def _canonical_plane_key(normal, point):
 def _planar_owner_surfaces(node, raw_sites):
     """Делит непланарный patch по реальным owner-face planes."""
 
+    tri_face_indices = getattr(node, "mesh_tri_face_indices", ())
+    tri_face_normals = getattr(node, "mesh_tri_face_normals", ())
+    if (
+        len(tri_face_indices) == len(node.mesh_tris)
+        and len(tri_face_normals) == len(node.mesh_tris)
+    ):
+        return _provenance_owner_surfaces(node, raw_sites)
+
     triangles_by_plane = {}
     for triangle in node.mesh_tris:
         point_a, point_b, point_c = (
@@ -1520,6 +1528,102 @@ def _planar_owner_surfaces(node, raw_sites):
                     mesh_tris=tuple(triangles),
                 ),
                 group_sites,
+            )
+        )
+    return tuple(surfaces)
+
+
+def _provenance_owner_surfaces(node, raw_sites):
+    """Строит owner surfaces по source-face, а не по triangle fan normal.
+
+    Blender хранит нормаль polygon отдельно от неявной tessellation. У слегка
+    непланарного quad/ngon fan-треугольники имеют другие плоскости, поэтому
+    точное сопоставление по их normals теряло весь patch. Сначала восстанавливаем
+    исходные face-группы, затем объединяем только действительно coplanar faces.
+    """
+
+    triangles_by_face = {}
+    normals_by_face = {}
+    for triangle, face_index, face_normal in zip(
+        node.mesh_tris,
+        node.mesh_tri_face_indices,
+        node.mesh_tri_face_normals,
+    ):
+        face_index = int(face_index)
+        triangles_by_face.setdefault(face_index, []).append(tuple(triangle))
+        if face_normal.length_squared > _GEOMETRY_EPS:
+            normals_by_face.setdefault(face_index, face_normal.normalized())
+
+    group_by_face = {}
+    triangles_by_group = {}
+    normals_by_group = {}
+    for face_index in sorted(triangles_by_face):
+        triangles = triangles_by_face[face_index]
+        normal = normals_by_face.get(face_index)
+        if normal is None:
+            continue
+        used_indices = sorted({index for tri in triangles for index in tri})
+        if not used_indices:
+            continue
+        centroid = sum(
+            (node.mesh_verts[index] for index in used_indices),
+            Vector((0.0, 0.0, 0.0)),
+        ) / len(used_indices)
+        extent = max(
+            ((node.mesh_verts[index] - centroid).length for index in used_indices),
+            default=0.0,
+        )
+        planarity_tolerance = max(
+            DECAL_WELD_DISTANCE * 0.25,
+            extent * 1e-5,
+            1e-6,
+        )
+        max_residual = max(
+            abs((node.mesh_verts[index] - centroid).dot(normal))
+            for index in used_indices
+        )
+        # Непланарный polygon остаётся отдельным tangent owner surface.
+        # Планарные соседние faces можно безопасно объединить в общий chart.
+        group_key = (
+            ("FACE", face_index)
+            if max_residual > planarity_tolerance
+            else ("PLANE",) + _canonical_plane_key(normal, centroid)
+        )
+        group_by_face[face_index] = group_key
+        triangles_by_group.setdefault(group_key, []).extend(triangles)
+        normals_by_group.setdefault(group_key, normal)
+
+    sites_by_group = {}
+    for raw in raw_sites:
+        group_key = group_by_face.get(int(raw.get("owner_face_index", -1)))
+        if group_key is None:
+            return ()
+        sites_by_group.setdefault(group_key, []).append(raw)
+
+    surfaces = []
+    for group_index, group_key in enumerate(sorted(sites_by_group, key=repr)):
+        triangles = triangles_by_group.get(group_key, ())
+        if not triangles:
+            return ()
+        used_indices = sorted({index for tri in triangles for index in tri})
+        centroid = sum(
+            (node.mesh_verts[index] for index in used_indices),
+            Vector((0.0, 0.0, 0.0)),
+        ) / max(len(used_indices), 1)
+        surface_id = -(int(node.patch_id) * 1000 + group_index + 1)
+        surfaces.append(
+            (
+                _PlanarOwnerSurface(
+                    patch_id=surface_id,
+                    centroid=centroid,
+                    normal=normals_by_group[group_key].copy(),
+                    basis_u=node.basis_u,
+                    basis_v=node.basis_v,
+                    boundary_loops=(),
+                    mesh_verts=tuple(node.mesh_verts),
+                    mesh_tris=tuple(triangles),
+                ),
+                sites_by_group[group_key],
             )
         )
     return tuple(surfaces)
@@ -1572,6 +1676,11 @@ def _collect_patch_sites(graph, selected_edges):
                                 chain.side_face_normals[segment_index].copy()
                                 if segment_index < len(chain.side_face_normals)
                                 else node.normal.copy()
+                            ),
+                            "owner_face_index": (
+                                int(chain.side_face_indices[segment_index])
+                                if segment_index < len(chain.side_face_indices)
+                                else -1
                             ),
                         }
                         patch_sites.append(raw)

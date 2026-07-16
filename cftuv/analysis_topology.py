@@ -354,7 +354,12 @@ def _begin_patch_topology_assembly(patch_id, patch_face_indices, bm):
     patch_faces = [bm.faces[idx] for idx in patch_face_indices]
     raw_loops = _trace_boundary_loops(patch_faces)
     centroid = _compute_centroid(bm, patch_face_indices)
-    mesh_verts, mesh_tris = _serialize_patch_geometry(bm, patch_face_indices)
+    (
+        mesh_verts,
+        mesh_tris,
+        mesh_tri_face_indices,
+        mesh_tri_face_normals,
+    ) = _serialize_patch_geometry(bm, patch_face_indices)
 
     node = PatchNode(
         patch_id=patch_id,
@@ -370,6 +375,8 @@ def _begin_patch_topology_assembly(patch_id, patch_face_indices, bm):
         boundary_loops=[],
         mesh_verts=mesh_verts,
         mesh_tris=mesh_tris,
+        mesh_tri_face_indices=mesh_tri_face_indices,
+        mesh_tri_face_normals=mesh_tri_face_normals,
     )
     return _PatchTopologyAssemblyState(
         patch_id=patch_id,
@@ -453,6 +460,8 @@ def _serialize_patch_geometry(bm, face_indices):
     vert_map = {}
     mesh_verts = []
     mesh_tris = []
+    mesh_tri_face_indices = []
+    mesh_tri_face_normals = []
 
     for face_idx in face_indices:
         face = bm.faces[face_idx]
@@ -465,12 +474,21 @@ def _serialize_patch_geometry(bm, face_indices):
 
         if len(tri) == 3:
             mesh_tris.append(tuple(tri))
+            mesh_tri_face_indices.append(int(face.index))
+            mesh_tri_face_normals.append(face.normal.copy())
             continue
 
         for tri_index in range(1, len(tri) - 1):
             mesh_tris.append((tri[0], tri[tri_index], tri[tri_index + 1]))
+            mesh_tri_face_indices.append(int(face.index))
+            mesh_tri_face_normals.append(face.normal.copy())
 
-    return mesh_verts, mesh_tris
+    return (
+        mesh_verts,
+        mesh_tris,
+        mesh_tri_face_indices,
+        mesh_tri_face_normals,
+    )
 
 
 

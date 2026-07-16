@@ -1170,6 +1170,27 @@ def test_patch_voronoi_rejects_non_planar_owner_patch():
     ]
 
 
+def test_warped_owner_face_uses_serialized_face_provenance():
+    graph = _planar_two_site_graph()
+    node = graph.nodes[0]
+    node.mesh_verts[2] = Vector((4.0, 2.0, 0.01))
+    node.mesh_tri_face_indices = [17, 17]
+    node.mesh_tri_face_normals = [
+        Vector((0.0, -0.0025, 1.0)).normalized(),
+        Vector((0.0, -0.0025, 1.0)).normalized(),
+    ]
+    for chain in node.boundary_loops[0].chains:
+        chain.side_face_indices = [17]
+        chain.side_face_normals = [node.mesh_tri_face_normals[0].copy()]
+
+    plan = compile_patch_voronoi_plan(graph, [10, 12], offset=0.01)
+
+    assert plan is not None
+    assert len(plan.surfaces) == 1
+    assert sorted(site.edge_index for site in plan.surfaces[0].sites) == [10, 12]
+    assert evaluate_patch_voronoi_plan(plan, width=0.5, preview=True)
+
+
 def test_non_planar_topology_patch_compiles_real_planar_owner_surfaces():
     plan = compile_patch_voronoi_plan(
         _single_patch_fold_graph(), [70, 71], offset=0.01
