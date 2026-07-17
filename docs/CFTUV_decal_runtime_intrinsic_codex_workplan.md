@@ -112,9 +112,19 @@ Differential-дисциплина внутри среза: W1-W2 — EP1 бай�
    subedge; election-ассерт (локальный owner frame строго выше
    imported-копии, никаких chart_id-tie между разноранговыми);
    provenance-ассерт (imported frame трассируется к owner chart);
-   fault-injection порчи изометрии по-прежнему красный. Ассерт на
-   всех фикстурах: в опубликованных T2-контрактах нет интервалов
-   длиной <= 1 кванта.
+   fault-injection порчи изометрии по-прежнему красный. Пятый кейс
+   — T2-C coverage (та же transition (39,61): контракт публиковал
+   `(0, 2838, owner=None)` при материализованных subedges, стороны
+   несли imported-frames РАЗНЫХ sites 12036/12034, dV=0.050159,
+   у 12034 clamped-параметр): после фикса — election контракта
+   включает imported-image кандидатов, объявленный владелец над
+   всем материализованным спаном; инвариант T2-C (owner=None под
+   парным subedge = `ATLAS_TRANSITION_DESYNC`) зелёный на всех
+   фикстурах; R1-аудит images chart19 (endpoint-corner/12036);
+   `atlas_clamped_segment_face_count == 0` глобально; обе стороны
+   subedge трассируются к ОДНОМУ owner-frame'у (chart18), O1 в
+   tolerance на обоих концах. Ассерт на всех фикстурах: в
+   опубликованных T2-контрактах нет интервалов длиной <= 1 кванта.
 5. §9: записать T7-P3 evidence + пункт 4 прежнего списка §8b
    (bisector-ветка/single-hop guard, обоснование допуска).
 
