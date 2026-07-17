@@ -31,3 +31,28 @@ rail owner-path измеряется альтернативным triangle-strip
 Ни один provisional threshold не расходится с данными более чем вдвое.
 Stop condition E0.b не активирован; E1/E2 разрешены без калибровочной правки.
 
+## E1 feasibility audit — STOP CONDITION
+
+Перед реализацией margin relief выполнен отдельный audit E.3 saddle. Его
+sampled width error мал (`0.000841`), но single hinge chart содержит overlap
+внутри materialization zone, а не только в support margin:
+
+| Проверка | Лучший результат |
+|---|---:|
+| Baseline root | 361 overlaps |
+| Перебор deterministic roots вдоль chain | 296 overlaps |
+| Support обрезан до `distance <= alpha` | 291 overlaps |
+| Длина saddle уменьшена в 16 раз | 4 overlaps |
+
+Margin-кандидаты определяются source-distance не меньше `alpha`. На cliff
+они являются dual bridges внешних ears; на saddle одиночный margin cut снижает
+счётчик максимум с 361 до 356, но все remaining pairs лежат в core. Поэтому
+достижение обязательного E2 gate `triangle_overlap_count == 0` требует одного
+из двух запрещённых механизмов:
+
+1. interior cuts/transition maps ближе `alpha` к chain (нарушение EP4;
+   фактически E3 atlas);
+2. conformal/global solver вместо hinge unroll (нарушение EP2).
+
+Активирован stop condition Tranche E #2. Пороги и binary overlap gate не
+ослабляются; E1/E2 не имплементируются без отдельного design decision.
