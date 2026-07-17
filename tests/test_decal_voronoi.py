@@ -2528,6 +2528,26 @@ def test_patch_voronoi_fragment_union_removes_internal_triangulation():
     )) * 0.5 == pytest.approx(4.0)
 
 
+def test_fragment_union_normalizes_t_junction_before_edge_cancellation():
+    """Разное Boost-разбиение общей грани не создаёт runtime topology."""
+
+    components = _merge_polygon_fragments(
+        [
+            [(0.0, 0.0), (1.0, 0.0), (1.0, 2.0), (0.0, 2.0)],
+            [(1.0, 0.0), (2.0, 0.0), (2.0, 1.0), (1.0, 1.0)],
+            [(1.0, 1.0), (2.0, 1.0), (2.0, 2.0), (1.0, 2.0)],
+        ],
+        tolerance=1e-7,
+        normalize_t_junctions=True,
+    )
+
+    assert len(components) == 1
+    assert len(components[0]) == 4
+    assert abs(decal_voronoi._polygon_area2(components[0])) == pytest.approx(
+        4.0
+    )
+
+
 def test_fragment_union_preserves_simple_concave_ngon():
     components = _merge_polygon_fragments(
         [

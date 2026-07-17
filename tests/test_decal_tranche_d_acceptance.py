@@ -246,6 +246,21 @@ def _interior_supporting_lines(faces):
     }
 
 
+def _covered_source_spines(faces):
+    """Возвращает source-отрезки, реально присутствующие в materialization."""
+
+    covered = set()
+    for face in faces:
+        source_vertices = {
+            key[1]
+            for key in face.vert_keys
+            if isinstance(key, tuple) and key[:1] == ("pv-sv",)
+        }
+        if len(source_vertices) == 2:
+            covered.add(frozenset(source_vertices))
+    return covered
+
+
 def _arrangement_area(plan, width):
     pending = []
     alpha = width * 0.5
@@ -402,12 +417,16 @@ def test_d5_3_closed_ring_keeps_resolved_partition_during_drag():
     )
     period = plan.surfaces[0].domain.period
     reference_lines = None
+    expected_spines = {
+        frozenset((index, (index + 1) % 8)) for index in range(8)
+    }
 
     for fraction in (0.05, 0.1, 0.2, 0.4, 0.6, 0.8, 1.0):
         faces = evaluate_patch_voronoi_plan(
             plan, width=period * fraction, preview=True
         )
-        assert len(faces) == 8
+        _assert_connected_manifold(faces)
+        assert _covered_source_spines(faces) == expected_spines
         lines = _interior_supporting_lines(faces)
         if reference_lines is None:
             reference_lines = lines

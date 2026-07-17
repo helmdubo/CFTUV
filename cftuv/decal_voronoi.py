@@ -1491,7 +1491,12 @@ def _convex_fragment_decomposition(polygons, tolerance):
         del result[second_index]
 
 
-def _merge_polygon_fragments(fragments, tolerance=1e-7, diagnostics=None):
+def _merge_polygon_fragments(
+    fragments,
+    tolerance=1e-7,
+    diagnostics=None,
+    normalize_t_junctions=False,
+):
     """Собирает triangle-clips одной cell обратно в цельные contours.
 
     Internal edges совпадают попарно в противоположных направлениях и
@@ -1509,7 +1514,6 @@ def _merge_polygon_fragments(fragments, tolerance=1e-7, diagnostics=None):
         )
 
     normalized = []
-    normalized_keys = []
     for fragment in fragments:
         polygon = _dedupe_polygon(fragment, tolerance=tolerance)
         if len(polygon) < 3:
@@ -1519,11 +1523,24 @@ def _merge_polygon_fragments(fragments, tolerance=1e-7, diagnostics=None):
             continue
         if area < 0.0:
             polygon.reverse()
-        keys = tuple(point_key(point) for point in polygon)
         normalized.append(polygon)
-        normalized_keys.append(keys)
     if len(normalized) <= 1:
         return normalized
+
+    if normalize_t_junctions:
+        # Разные Boost wheels могут разбить periodic cell boundary
+        # неодинаково: одна clip-грань содержит T-station, соседняя остаётся
+        # цельной. Без общей станции half-edge union видит разные компоненты;
+        # при следующей ширине станция исчезает и получается topology-pop.
+        # Нормализуем разбиение до построения edge ownership, а не надеемся
+        # на поздний arrangement pass, где semantic faces уже разделены.
+        normalized, _inserted = _insert_surface_edge_stations(
+            normalized, tolerance
+        )
+    normalized_keys = [
+        tuple(point_key(point) for point in polygon)
+        for polygon in normalized
+    ]
 
     parents = list(range(len(normalized)))
 
@@ -5966,6 +5983,9 @@ def _append_pending_fragments(
         fragments,
         tolerance=_FRAGMENT_TOPOLOGY_TOLERANCE,
         diagnostics=diagnostics,
+        normalize_t_junctions=bool(
+            getattr(getattr(surface, "domain", None), "periodic_axis", "")
+        ),
     )
     for component in components:
         # _merge_polygon_fragments уже возвращает deduped валидные contours;
