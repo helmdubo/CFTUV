@@ -223,7 +223,7 @@ class ChartBoundaryEdge:
 
 @dataclass(frozen=True)
 class ChartCut:
-    """Детерминированный разрыв одной source-edge relation."""
+    """Детерминированный source-edge path одного chart-разрыва."""
 
     source_edge: SourceEdge
     triangle_ids: tuple[int, ...]
@@ -232,12 +232,22 @@ class ChartCut:
     source_edge_index: int = -1
     selection_distance: float = 0.0
     candidate_count: int = 0
+    source_edges: tuple[SourceEdge, ...] = ()
 
     def __post_init__(self):
         if self.source_edge[0] >= self.source_edge[1]:
             raise ValueError("Chart cut edge must be canonical")
-        if not self.triangle_ids or len(self.triangle_ids) > 2:
-            raise ValueError("Chart cut must reference one or two triangles")
+        source_edges = self.source_edges or (self.source_edge,)
+        if not self.source_edges:
+            object.__setattr__(self, "source_edges", source_edges)
+        if self.source_edge not in source_edges:
+            raise ValueError("Chart cut anchor must belong to source path")
+        if tuple(sorted(set(source_edges))) != source_edges:
+            raise ValueError("Chart cut source path must be unique/sorted")
+        if any(first >= second for first, second in source_edges):
+            raise ValueError("Chart cut path edges must be canonical")
+        if not self.triangle_ids:
+            raise ValueError("Chart cut must reference adjacent triangles")
         if tuple(sorted(set(self.triangle_ids))) != self.triangle_ids:
             raise ValueError("Chart cut triangle ids must be unique/sorted")
         if not self.reason:
@@ -422,7 +432,7 @@ class IntrinsicStripChart:
         for cut in self.cuts:
             if not set(cut.triangle_ids).issubset(support_ids):
                 raise ValueError("Chart cut leaves support")
-            if cut.source_edge not in support_edges:
+            if any(edge not in support_edges for edge in cut.source_edges):
                 raise ValueError("Chart cut edge leaves support")
         if not self.alpha_budget > 0.0:
             raise ValueError("Chart alpha budget must be positive")

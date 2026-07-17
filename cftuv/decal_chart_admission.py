@@ -170,11 +170,6 @@ def _adjacency_connected(chart, adjacency):
 def _annulus_cut(chart, edge_uses, boundary_components):
     if chart.cuts:
         raise ChartBuildFailure("MULTI_CUT_REQUIRED", chart.patch_id)
-    component_by_vertex = {
-        vertex_id: component_index
-        for component_index, component in enumerate(boundary_components)
-        for vertex_id in component
-    }
     selected_edges = {
         seed.source_vertex_ids for seed in chart.site_seeds
     }
@@ -185,7 +180,7 @@ def _annulus_cut(chart, edge_uses, boundary_components):
         triangle.triangle_id: triangle for triangle in chart.triangles
     }
     physical_edge_indices = {}
-    bridge_edges = []
+    path_edges = []
     for source_edge, uses in sorted(edge_uses.items()):
         if len(uses) != 2 or source_edge not in adjacency_by_edge:
             continue
@@ -195,25 +190,17 @@ def _annulus_cut(chart, edge_uses, boundary_components):
         }
         if len(edge_indices) != 1 or min(edge_indices) < 0:
             continue
-        first_component = component_by_vertex.get(source_edge[0], -1)
-        second_component = component_by_vertex.get(source_edge[1], -1)
-        if (
-            first_component < 0
-            or second_component < 0
-            or first_component == second_component
-        ):
-            continue
-        bridge_edges.append(source_edge)
+        path_edges.append(source_edge)
         physical_edge_indices[source_edge] = min(edge_indices)
-    eligible = tuple(
+    eligible_edges = tuple(
         source_edge
-        for source_edge in bridge_edges
+        for source_edge in path_edges
         if source_edge not in selected_edges
     )
-    if not eligible:
+    if not eligible_edges:
         reason = (
             "CUT_CROSSES_SELECTED_CHAIN"
-            if bridge_edges
+            if path_edges
             else "MULTI_CUT_REQUIRED"
         )
         raise ChartBuildFailure(
@@ -222,40 +209,92 @@ def _annulus_cut(chart, edge_uses, boundary_components):
             edge_ids=(
                 seed.edge_index
                 for seed in chart.site_seeds
-                if seed.source_vertex_ids in bridge_edges
+                if seed.source_vertex_ids in path_edges
             ),
         )
-
+    graph = {}
+    for source_edge in eligible_edges:
+        first, second = source_edge
+        graph.setdefault(first, []).append((second, source_edge))
+        graph.setdefault(second, []).append((first, source_edge))
+    target_vertices = set(boundary_components[1])
+    candidate_paths = []
+    for start in sorted(boundary_components[0]):
+        frontier = [(0, (), start)]
+        best = {}
+        while frontier:
+            hops, path, vertex_id = min(frontier)
+            frontier.remove((hops, path, vertex_id))
+            rank = (hops, path)
+            if vertex_id in best and best[vertex_id] <= rank:
+                continue
+            best[vertex_id] = rank
+            if vertex_id in target_vertices:
+                if path:
+                    candidate_paths.append(path)
+                break
+            for neighbor, source_edge in sorted(
+                graph.get(vertex_id, ()), key=lambda item: (item[1], item[0])
+            ):
+                if source_edge in path:
+                    continue
+                frontier.append((hops + 1, path + (source_edge,), neighbor))
+    unique_paths = tuple(sorted(set(candidate_paths)))
+    if not unique_paths:
+        raise ChartBuildFailure("MULTI_CUT_REQUIRED", chart.patch_id)
     scored = tuple(
-        (_distance_to_selected_sites(chart, source_edge), source_edge)
-        for source_edge in eligible
+        (
+            min(
+                _distance_to_selected_sites(chart, edge)
+                for edge in path
+            ),
+            len(path),
+            path,
+        )
+        for path in unique_paths
     )
-    maximum_distance = max(score for score, _edge in scored)
-    source_edge = min(
-        edge
-        for score, edge in scored
+    maximum_distance = max(score for score, _hops, _path in scored)
+    minimum_hops = min(
+        hops
+        for score, hops, _path in scored
         if abs(score - maximum_distance) <= 1e-12
     )
-    relation = adjacency_by_edge[source_edge]
+    source_edges = min(
+        path
+        for score, hops, path in scored
+        if abs(score - maximum_distance) <= 1e-12 and hops == minimum_hops
+    )
+    canonical_source_edges = tuple(sorted(source_edges))
+    source_edge = canonical_source_edges[0]
+    relations = tuple(adjacency_by_edge[edge] for edge in source_edges)
     adjacency = tuple(
         candidate
         for candidate in chart.adjacency
-        if candidate.source_edge != source_edge
+        if candidate.source_edge not in source_edges
     )
     if not _adjacency_connected(chart, adjacency):
         raise ChartBuildFailure(
             "MULTI_CUT_REQUIRED",
             chart.patch_id,
-            triangle_ids=(relation.triangle_a, relation.triangle_b),
-            details=f"disconnecting_cut={source_edge!r}",
+            triangle_ids=tuple(
+                sorted(
+                    {
+                        triangle_id
+                        for relation in relations
+                        for triangle_id in (
+                            relation.triangle_a,
+                            relation.triangle_b,
+                        )
+                    }
+                )
+            ),
+            details=f"disconnecting_cut={source_edges!r}",
         )
-
-    uses = edge_uses[source_edge]
     cut_boundary = tuple(
         ChartBoundaryEdge(
             triangle_id=triangle_id,
             local_edge=local_edge,
-            source_edge=source_edge,
+            source_edge=cut_edge,
             source_face_id=triangles[triangle_id].source_face_id,
             neighbor_triangle_id=(
                 relation.triangle_b
@@ -264,18 +303,29 @@ def _annulus_cut(chart, edge_uses, boundary_components):
             ),
             kind="CHART_CUT",
         )
-        for triangle_id, local_edge in uses
+        for cut_edge, relation in zip(source_edges, relations)
+        for triangle_id, local_edge in edge_uses[cut_edge]
     )
     cut = ChartCut(
         source_edge=source_edge,
         triangle_ids=tuple(
-            sorted((relation.triangle_a, relation.triangle_b))
+            sorted(
+                {
+                    triangle_id
+                    for relation in relations
+                    for triangle_id in (
+                        relation.triangle_a,
+                        relation.triangle_b,
+                    )
+                }
+            )
         ),
         reason="OPEN_ANNULUS",
-        transition_key=("chart-cut", chart.chart_id, source_edge),
+        transition_key=("chart-cut", chart.chart_id, canonical_source_edges),
         source_edge_index=physical_edge_indices[source_edge],
         selection_distance=maximum_distance,
-        candidate_count=len(eligible),
+        candidate_count=len(unique_paths),
+        source_edges=canonical_source_edges,
     )
     return replace(
         chart,
@@ -343,43 +393,55 @@ def _length2(vector):
     return sqrt(vector[0] * vector[0] + vector[1] * vector[1])
 
 
-def _periodic_cut_segments(chart, cut):
-    triangles = {
-        triangle.triangle_id: triangle for triangle in chart.triangles
-    }
-    result = []
-    for triangle_id in cut.triangle_ids:
-        triangle = triangles[triangle_id]
-        points = dict(zip(triangle.source_vertex_ids, triangle.chart_points))
-        try:
-            result.append(
-                (points[cut.source_edge[0]], points[cut.source_edge[1]])
-            )
-        except KeyError as exc:
+def _periodic_cut_point_pairs(chart, cut):
+    """Возвращает две chart-копии каждой source-вершины seam path."""
+
+    cut_edges = set(cut.source_edges)
+    points_by_vertex = {}
+    for triangle in chart.triangles:
+        if not cut_edges.intersection(triangle.source_edge_ids):
+            continue
+        for vertex_id, point in zip(
+            triangle.source_vertex_ids, triangle.chart_points
+        ):
+            if not any(vertex_id in edge for edge in cut_edges):
+                continue
+            unique = points_by_vertex.setdefault(vertex_id, [])
+            if not any(
+                _length2(_sub2(point, value)) <= 1e-9
+                for value in unique
+            ):
+                unique.append(point)
+    pairs = []
+    for vertex_id in sorted(points_by_vertex):
+        points = tuple(sorted(points_by_vertex[vertex_id]))
+        if len(points) != 2:
             raise ChartBuildFailure(
                 "PERIODIC_HOLONOMY_UNSUPPORTED",
                 chart.patch_id,
                 triangle_ids=cut.triangle_ids,
-                details="cut image loses source-edge endpoint",
-            ) from exc
-    if len(result) != 2:
+                details=(
+                    f"cut_vertex={vertex_id} images={len(points)}"
+                ),
+            )
+        pairs.append(points)
+    if len(pairs) < 2:
         raise ChartBuildFailure(
             "PERIODIC_HOLONOMY_UNSUPPORTED",
             chart.patch_id,
             triangle_ids=cut.triangle_ids,
-            details=f"cut_images={len(result)}",
+            details=f"cut_vertex_pairs={len(pairs)}",
         )
-    return tuple(result)
+    return tuple(pairs)
 
 
 def _periodicize_annulus(chart):
     """Доказывает translation holonomy и канонизирует period по DP2/DP3."""
 
     cut = chart.cuts[0]
-    first, second = _periodic_cut_segments(chart, cut)
-    translations = (
-        _sub2(second[0], first[0]),
-        _sub2(second[1], first[1]),
+    point_pairs = _periodic_cut_point_pairs(chart, cut)
+    translations = tuple(
+        _sub2(second, first) for first, second in point_pairs
     )
     lengths = tuple(_length2(value) for value in translations)
     if min(lengths) <= 1e-12:
@@ -389,12 +451,24 @@ def _periodicize_annulus(chart):
             triangle_ids=cut.triangle_ids,
             details=f"translation_lengths={lengths!r}",
         )
-    cosine = sum(
-        translations[0][axis] * translations[1][axis]
-        for axis in range(2)
-    ) / (lengths[0] * lengths[1])
-    angle = acos(max(-1.0, min(1.0, cosine)))
-    relative_length_error = abs(lengths[0] - lengths[1]) / max(lengths)
+    angles = tuple(
+        acos(
+            max(
+                -1.0,
+                min(
+                    1.0,
+                    sum(
+                        translations[0][axis] * translation[axis]
+                        for axis in range(2)
+                    )
+                    / (lengths[0] * length),
+                ),
+            )
+        )
+        for translation, length in zip(translations[1:], lengths[1:])
+    )
+    angle = max(angles, default=0.0)
+    relative_length_error = (max(lengths) - min(lengths)) / max(lengths)
     if (
         angle > CHART_DISTORTION_BUDGET
         or relative_length_error > CHART_DISTORTION_BUDGET
@@ -409,7 +483,7 @@ def _periodicize_annulus(chart):
             ),
         )
     translation = tuple(
-        (translations[0][axis] + translations[1][axis]) * 0.5
+        sum(value[axis] for value in translations) / len(translations)
         for axis in range(2)
     )
     rotation = -atan2(translation[1], translation[0])
@@ -455,12 +529,12 @@ def _periodicize_annulus(chart):
             chart.patch_id,
             details=exc.details,
         ) from exc
-    first, second = _periodic_cut_segments(provisional, cut)
-    first = tuple(transform.quantize(point) for point in first)
-    second = tuple(transform.quantize(point) for point in second)
-    quantized_translations = (
-        _sub2(second[0], first[0]),
-        _sub2(second[1], first[1]),
+    point_pairs = tuple(
+        tuple(transform.quantize(point) for point in pair)
+        for pair in _periodic_cut_point_pairs(provisional, cut)
+    )
+    quantized_translations = tuple(
+        _sub2(second, first) for first, second in point_pairs
     )
     period_values = tuple(value[0] for value in quantized_translations)
     transverse_values = tuple(value[1] for value in quantized_translations)
@@ -569,7 +643,10 @@ def admit_intrinsic_strip_chart(
     selected_edges = {
         seed.source_vertex_ids for seed in admitted.site_seeds
     }
-    if any(cut.source_edge in selected_edges for cut in admitted.cuts):
+    if any(
+        selected_edges.intersection(cut.source_edges)
+        for cut in admitted.cuts
+    ):
         raise ChartBuildFailure(
             "CUT_CROSSES_SELECTED_CHAIN",
             admitted.patch_id,

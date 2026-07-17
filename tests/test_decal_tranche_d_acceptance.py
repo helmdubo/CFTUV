@@ -27,9 +27,18 @@ from cftuv.decal_voronoi import (
 from cftuv.model import BoundaryChain, BoundaryLoop, PatchGraph, PatchNode
 
 
-def _closed_tube_graph(segment_count=8, *, top_radius=1.0, reversed_winding=False):
+def _closed_tube_graph(
+    segment_count=8,
+    *,
+    top_radius=1.0,
+    reversed_winding=False,
+    ring_count=2,
+):
     positions = []
-    for height, radius in ((0.0, 1.0), (4.0, top_radius)):
+    for row in range(ring_count):
+        factor = row / (ring_count - 1)
+        height = 4.0 * factor
+        radius = 1.0 + (top_radius - 1.0) * factor
         positions.extend(
             Vector(
                 (
@@ -44,35 +53,37 @@ def _closed_tube_graph(segment_count=8, *, top_radius=1.0, reversed_winding=Fals
     face_ids = []
     face_normals = []
     physical_edges = set()
-    for index in range(segment_count):
-        next_index = (index + 1) % segment_count
-        bottom = index
-        bottom_next = next_index
-        top = segment_count + index
-        top_next = segment_count + next_index
-        physical_edges.update(
-            (
-                tuple(sorted((bottom, bottom_next))),
-                tuple(sorted((top, top_next))),
-                tuple(sorted((bottom, top))),
-                tuple(sorted((bottom_next, top_next))),
+    for row in range(ring_count - 1):
+        for index in range(segment_count):
+            next_index = (index + 1) % segment_count
+            bottom = row * segment_count + index
+            bottom_next = row * segment_count + next_index
+            top = (row + 1) * segment_count + index
+            top_next = (row + 1) * segment_count + next_index
+            physical_edges.update(
+                (
+                    tuple(sorted((bottom, bottom_next))),
+                    tuple(sorted((top, top_next))),
+                    tuple(sorted((bottom, top))),
+                    tuple(sorted((bottom_next, top_next))),
+                )
             )
-        )
-        facet_triangles = (
-            (bottom, bottom_next, top_next),
-            (bottom, top_next, top),
-        )
-        if reversed_winding:
-            facet_triangles = tuple(
-                tuple(reversed(triangle)) for triangle in facet_triangles
+            facet_triangles = (
+                (bottom, bottom_next, top_next),
+                (bottom, top_next, top),
             )
-        triangles.extend(facet_triangles)
-        face_ids.extend((100 + index, 100 + index))
-        middle = (index + 0.5) * 2.0 * pi / segment_count
-        normal = Vector((cos(middle), sin(middle), 0.0))
-        if reversed_winding:
-            normal = normal * -1.0
-        face_normals.extend((normal.copy(), normal.copy()))
+            if reversed_winding:
+                facet_triangles = tuple(
+                    tuple(reversed(triangle)) for triangle in facet_triangles
+                )
+            triangles.extend(facet_triangles)
+            face_id = 100 + row * segment_count + index
+            face_ids.extend((face_id, face_id))
+            middle = (index + 0.5) * 2.0 * pi / segment_count
+            normal = Vector((cos(middle), sin(middle), 0.0))
+            if reversed_winding:
+                normal = normal * -1.0
+            face_normals.extend((normal.copy(), normal.copy()))
     edge_index_by_pair = {
         pair: 8000 + index for index, pair in enumerate(sorted(physical_edges))
     }
@@ -101,29 +112,39 @@ def _closed_tube_graph(segment_count=8, *, top_radius=1.0, reversed_winding=Fals
     )
 
     def ring_chain(row):
-        vertices = [row + index for index in range(segment_count)]
+        row_start = row * segment_count
+        vertices = [row_start + index for index in range(segment_count)]
         pairs = [
             tuple(sorted((vertices[index], vertices[(index + 1) % segment_count])))
             for index in range(segment_count)
         ]
+        owner_row = 0 if row == 0 else ring_count - 2
         owner_offset = 0 if row == 0 else -1
         return BoundaryChain(
             vert_indices=vertices,
             vert_cos=[positions[index] for index in vertices],
             edge_indices=[edge_index_by_pair[pair] for pair in pairs],
             side_face_indices=[
-                100 + ((index + owner_offset) % segment_count)
+                100
+                + owner_row * segment_count
+                + ((index + owner_offset) % segment_count)
                 for index in range(segment_count)
             ],
             side_face_normals=[
-                face_normals[((index + owner_offset) % segment_count) * 2]
+                face_normals[
+                    (
+                        owner_row * segment_count
+                        + ((index + owner_offset) % segment_count)
+                    )
+                    * 2
+                ]
                 for index in range(segment_count)
             ],
             is_closed=True,
         )
 
     bottom_chain = ring_chain(0)
-    top_chain = ring_chain(segment_count)
+    top_chain = ring_chain(ring_count - 1)
     node.boundary_loops = [
         BoundaryLoop(chains=[bottom_chain]),
         BoundaryLoop(chains=[top_chain]),
@@ -131,7 +152,10 @@ def _closed_tube_graph(segment_count=8, *, top_radius=1.0, reversed_winding=Fals
     graph = PatchGraph()
     graph.add_node(node)
     vertical_edges = tuple(
-        edge_index_by_pair[(index, segment_count + index)]
+        edge_index_by_pair[
+            (row * segment_count + index, (row + 1) * segment_count + index)
+        ]
+        for row in range(ring_count - 1)
         for index in range(segment_count)
     )
     return graph, node, tuple(bottom_chain.edge_indices), vertical_edges
@@ -249,6 +273,62 @@ def test_d4_1_2_closed_round_and_polygonal_tubes(segment_count):
     _assert_connected_manifold(faces)
     assert diagnostics.periodic_weld_count > 0
     assert diagnostics.runtime_policy_counts == {"MITER": segment_count}
+    assert serialize_network_faces(faces) == serialize_network_faces(
+        evaluate_patch_voronoi_plan(plan, width=0.5, preview=False)
+    )
+
+
+def test_d5_2_multiring_tube_uses_one_periodic_cut_path():
+    _graph, node, _ring_edges, _vertical_edges = _closed_tube_graph(
+        8, ring_count=3
+    )
+    middle_row = 8
+    seeds = tuple(
+        _seed(
+            node,
+            9100 + index,
+            (middle_row + index, middle_row + (index + 1) % 8),
+            100 + index,
+        )
+        for index in range(8)
+    )
+    chart = admit_intrinsic_strip_chart(
+        build_intrinsic_strip_charts(
+            node, seeds, alpha_budget=100.0
+        )[0]
+    )
+
+    assert chart.periodic_axis == "U"
+    assert len(chart.cuts) == 1
+    assert len(chart.periodic_cut.source_edges) == 2
+    raw_sites = tuple(
+        {
+            "patch_id": node.patch_id,
+            "edge_index": seed.edge_index,
+            "vert_a": seed.source_vertex_ids[0],
+            "vert_b": seed.source_vertex_ids[1],
+            "source_a": node.mesh_verts[seed.source_vertex_ids[0]].copy(),
+            "source_b": node.mesh_verts[seed.source_vertex_ids[1]].copy(),
+            "arc_start": float(index),
+            "segment_length": (
+                node.mesh_verts[seed.source_vertex_ids[1]]
+                - node.mesh_verts[seed.source_vertex_ids[0]]
+            ).length,
+            "side_normal": node.mesh_tri_face_normals[index * 2].copy(),
+            "owner_face_index": seed.source_face_id,
+            "uv_sign": -1.0,
+            "two_sided": True,
+        }
+        for index, seed in enumerate(seeds)
+    )
+    diagnostics = PatchVoronoiDiagnostics()
+    plan = _direct_plan(node, chart, raw_sites, diagnostics)
+    faces = evaluate_patch_voronoi_plan(
+        plan, width=0.5, preview=True, diagnostics=diagnostics
+    )
+
+    _assert_connected_manifold(faces)
+    assert diagnostics.periodic_weld_count > 0
     assert serialize_network_faces(faces) == serialize_network_faces(
         evaluate_patch_voronoi_plan(plan, width=0.5, preview=False)
     )

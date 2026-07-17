@@ -4399,7 +4399,11 @@ def _compile_surface(
 
 
 def _intrinsic_domain_triangles(chart):
-    cuts_by_edge = {cut.source_edge: cut for cut in chart.cuts}
+    cuts_by_edge = {
+        source_edge: cut
+        for cut in chart.cuts
+        for source_edge in cut.source_edges
+    }
     result = []
     for triangle in chart.triangles:
         face_normal = Vector(triangle.face_normal)
