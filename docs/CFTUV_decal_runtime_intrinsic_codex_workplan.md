@@ -71,12 +71,19 @@ Differential-дисциплина внутри среза: W1-W2 — EP1 бай�
 
 ## W1. Закрытие §8b по T7-P3 (atlas, EP1 байт-в-байт)
 
-1. Переложить WIP hard-gate на семантику T7-P3 (§3a, шесть пунктов —
+1. Переложить WIP hard-gate на семантику T7-P3 (§3a, СЕМЬ пунктов —
    предписание, не варианты): declared-token присвоение на любой
    дистанции + `atlas_declared_owner_count`; tie-break >= 2 токенов
-   только owner-space интервалом; sliver без декларации — строго
-   <= 1 квант + существующий счётчик; drop дальше кванта без
-   декларации — counted; сверка `expected_semantic_class` ->
+   только owner-space интервалом — ТОЧНЫЙ half-open containment
+   `[s_i, s_{i+1})`, последний интервал замкнут, proximity-стоп у
+   станции УДАЛЁН (T7-P3.3, follow-up stop chart 15); канонизация
+   вырожденных интервалов <= 1 кванта на T2-этапе до публикации
+   контракта, инвариант «нет интервалов <= 1q» + счётчик
+   `atlas_degenerate_interval_merge_count` (T7-P3.7, снимает
+   фантомную KITE/SEGMENT смену класса из near-boundary
+   нормализации); sliver без декларации — строго <= 1 квант +
+   существующий счётчик; drop дальше кванта без декларации —
+   counted; сверка `expected_semantic_class` ->
    `ATLAS_TRANSITION_DESYNC` при расхождении.
 2. Закоммитить подготовленный O1-UV фикс: сравнение СЫРЫХ per-side
    UV с каноническим до override, допуск `max(1.5 кванта, 2% alpha)`
@@ -88,7 +95,13 @@ Differential-дисциплина внутри среза: W1-W2 — EP1 бай�
 4. Регрессия на репро design-stop: saddle, width 0.25/0.5/1.0/2.0 —
    components == 1, double-cover == 0, `atlas_declared_owner_count`
    > 0, beyond-quantum sliver adoption == 0 (ассерт), drop-счётчики
-   стабильны по ширинам.
+   стабильны по ширинам. Отдельно оба follow-up face-кейса
+   (chart 15, transition (15, 37), width 0.25): same-class
+   SEGMENT-пара 12028/12030 с representative в 0.434q от станции —
+   классифицируется half-open без стопа; хвостовой 1q-интервал
+   12032 поглощён (счётчик > 0), face получает единственный
+   declared-токен KITE-владельца. Ассерт на всех фикстурах: в
+   опубликованных T2-контрактах нет интервалов длиной <= 1 кванта.
 5. §9: записать T7-P3 evidence + пункт 4 прежнего списка §8b
    (bisector-ветка/single-hop guard, обоснование допуска).
 
