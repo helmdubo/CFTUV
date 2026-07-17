@@ -12,11 +12,13 @@ from cftuv.decal_charts import (
     build_intrinsic_strip_charts,
 )
 from cftuv.decal_voronoi import (
+    CornerRuntimeSettings,
     DomainBudgetExceeded,
     PatchVoronoiPlan,
     PatchVoronoiDiagnostics,
     _build_decal_arrangement,
     _compile_intrinsic_surface,
+    _corner_atom_image_offset,
     _evaluate_surface_crops,
     _normalized_corner_runtime_settings,
     compile_patch_voronoi_attempt,
@@ -411,6 +413,82 @@ def test_d5_3_closed_ring_keeps_resolved_partition_during_drag():
             reference_lines = lines
         else:
             assert lines == reference_lines
+
+
+def test_d5_4_seam_corner_uses_same_image_for_emit_and_subtract():
+    _graph, node, ring_edges, vertical_edges = _closed_tube_graph(8)
+    seeds = tuple(
+        _seed(node, ring_edges[index], (index, (index + 1) % 8), 100 + index)
+        for index in range(8)
+    )
+    chart = admit_intrinsic_strip_chart(
+        build_intrinsic_strip_charts(
+            node, seeds, alpha_budget=100.0
+        )[0]
+    )
+    raw_sites = (
+        {
+            "patch_id": node.patch_id,
+            "edge_index": ring_edges[7],
+            "vert_a": 7,
+            "vert_b": 0,
+            "source_a": node.mesh_verts[7].copy(),
+            "source_b": node.mesh_verts[0].copy(),
+            "arc_start": 0.0,
+            "segment_length": (node.mesh_verts[0] - node.mesh_verts[7]).length,
+            "side_normal": node.mesh_tri_face_normals[14].copy(),
+            "owner_face_index": 107,
+            "uv_sign": -1.0,
+            "two_sided": True,
+        },
+        {
+            "patch_id": node.patch_id,
+            "edge_index": vertical_edges[0],
+            "vert_a": 0,
+            "vert_b": 8,
+            "source_a": node.mesh_verts[0].copy(),
+            "source_b": node.mesh_verts[8].copy(),
+            "arc_start": 1.0,
+            "segment_length": 4.0,
+            "side_normal": node.mesh_tri_face_normals[0].copy(),
+            "owner_face_index": 100,
+            "uv_sign": -1.0,
+            "two_sided": True,
+        },
+    )
+    plan = _direct_plan(node, chart, raw_sites)
+    surface = plan.surfaces[0]
+    seam_corner = next(
+        corner
+        for corner in surface.corners
+        if any(abs(offset) > 0.0 for _site, offset in corner.site_u_offsets)
+    )
+    offset_site = next(
+        site_index
+        for site_index, offset in seam_corner.site_u_offsets
+        if abs(offset) > 0.0
+    )
+    atoms = tuple(
+        atom for atom in surface.atoms if atom.site_index == offset_site
+    )
+
+    assert atoms
+    for atom in atoms:
+        expected = (
+            atom.periodic_shift * surface.domain.period
+            - dict(seam_corner.site_u_offsets)[offset_site]
+        )
+        assert _corner_atom_image_offset(
+            surface, seam_corner, atom
+        ) == pytest.approx(expected)
+    faces = evaluate_patch_voronoi_plan(
+        plan,
+        width=1.0,
+        preview=True,
+        corner_settings=CornerRuntimeSettings(dynamic_corner_bands=True),
+    )
+    _assert_connected_manifold(faces)
+    assert len({frozenset(face.vert_keys) for face in faces}) == len(faces)
 
 
 def test_d4_3_4_sites_near_cut_collide_through_periodic_boundary():

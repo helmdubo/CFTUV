@@ -5967,6 +5967,19 @@ def _translated_crop_u(crop, offset):
     )
 
 
+def _corner_atom_image_offset(surface, corner, atom):
+    """Единый transport corner crop для emission и subtraction."""
+
+    period = float(
+        getattr(getattr(surface, "domain", None), "period", 0.0)
+    )
+    corner_offsets = dict(getattr(corner, "site_u_offsets", ()))
+    return (
+        atom.periodic_shift * period
+        - corner_offsets.get(atom.site_index, 0.0)
+    )
+
+
 def _evaluate_surface_crops(
     surface, alpha, pending, corner_settings, diagnostics=None
 ):
@@ -6091,7 +6104,9 @@ def _evaluate_surface_crops(
                 crop.owner_site_indices or corner.incident_sites
             )
             for site_index in owner_site_indices:
-                crops_by_site.setdefault(site_index, []).append(crop)
+                crops_by_site.setdefault(site_index, []).append(
+                    (corner, crop)
+                )
             if reference_full_scan:
                 owner_atom_indices = range(len(surface.atoms))
             elif hasattr(surface, "owner_atoms_by_corner"):
@@ -6121,27 +6136,19 @@ def _evaluate_surface_crops(
                 ),
                 default=min(owner_site_indices),
             )
-            corner_offsets = dict(getattr(corner, "site_u_offsets", ()))
-            periodic_period = float(
-                getattr(getattr(surface, "domain", None), "period", 0.0)
-            )
-
-            def atom_corner_offset(atom):
-                return (
-                    atom.periodic_shift * periodic_period
-                    - corner_offsets.get(atom.site_index, 0.0)
-                )
-
             if split_dynamic_atoms:
                 atom_groups = tuple(
-                    (atom_corner_offset(atom), (atom,))
+                    (
+                        _corner_atom_image_offset(surface, corner, atom),
+                        (atom,),
+                    )
                     for atom in owner_atoms
                 )
             else:
                 atoms_by_offset = {}
                 for atom in owner_atoms:
                     atoms_by_offset.setdefault(
-                        atom_corner_offset(atom), []
+                        _corner_atom_image_offset(surface, corner, atom), []
                     ).append(atom)
                 atom_groups = tuple(
                     (offset, tuple(atoms_by_offset[offset]))
@@ -6189,8 +6196,13 @@ def _evaluate_surface_crops(
         )
         fragments = []
         subtraction_crops = tuple(
-            _periodic_crop_image(surface, corner_crop, atom.periodic_shift)
-            for corner_crop in crops_by_site.get(atom.site_index, ())
+            _translated_crop_u(
+                corner_crop,
+                _corner_atom_image_offset(surface, corner, atom),
+            )
+            for corner, corner_crop in crops_by_site.get(
+                atom.site_index, ()
+            )
         )
         for fragment in atom.fragments:
             clipped = _clip_to_convex(fragment, crop.points)
