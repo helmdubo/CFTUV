@@ -1317,6 +1317,69 @@ preview == confirm, `Construct() == 0` в drag, детерминизм).
 4. Обновлены `docs/decal_chart_admission.md` (G7 + DP1-DP2 reasons) и
    `docs/cftuv_decal_runtime.md`.
 
+## D5. Ремедиация по результатам независимого ревью (ОБЯЗАТЕЛЬНА до E)
+
+Ревью HEAD 191c22e: DP1/DP3/DP5 соблюдены (weld бит-точен на 10
+ширинах, копии только в диаграмме, антиподальное замыкание точное),
+но найдены дефекты. Выполнить как первый пакет любой следующей сессии.
+
+### D5.1 (HIGH) DP4 недостижим на production-пути
+`plan.alpha_budget` берёт requested-бюджет, если тот конечен
+(`decal_voronoi.py:~4879-4892`), а periodic-clamp живёт только на
+`chart/domain.alpha_budget` (`decal_chart_admission.py:~495`).
+Production (`decals.py:~76-83`) всегда передаёт конечный бюджет =>
+preflight `DOMAIN_BUDGET_EXCEEDED` (`decal_voronoi.py:~830`) для
+periodic-чартов не срабатывает никогда: drag шире `period/2` молча
+успешен. `docs/cftuv_decal_runtime.md` утверждает обратное.
+Фикс: `plan.alpha_budget = min(requested, domain-минимум по всем
+surfaces)`. Тест: D4.6 дополнить ассертом
+`width > period` -> `DOMAIN_BUDGET_EXCEEDED` через ПУБЛИЧНЫЙ
+`compile_patch_voronoi_plan` (не через ручную сборку плана — текущие
+тесты именно поэтому дефект не видят).
+
+### D5.2 (HIGH, scope) Cut-кандидаты — только одиночные рёбра
+`decal_chart_admission.py:~188-212`: кандидат cut — одно ребро между
+двумя boundary-компонентами. Труба высотой более одного quad-ряда
+отклоняется `MULTI_CUT_REQUIRED` при любом бюджете — весь periodic-путь
+работает только на вырожденной односегментной полосе. Реализовать
+D1 по спеке: cut = детерминированный ПУТЬ по source-рёбрам вдоль
+periodic-направления (тот же скоринг/tie-break). Фикстура: труба
+8x3 кольца вершин, кольцевая цепочка по среднему кольцу -> ADMIT,
+замыкание без щели. Без D5.2 DoD-2 транша считается невыполненным.
+
+### D5.3 (MEDIUM) Отсутствует periodic S1-тест — и он бы падал
+Требуемый D3 «S1 supporting-lines тест на кольцевой фикстуре» не
+написан. Фактический sweep по D4.1: счётчик граней прыгает
+14->8->10->8, шесть внутренних швов на статичных опорных прямых
+исчезают между ширинами (topology-pop; покрытие при этом точное —
+area ratio 1.0). Причина — width-чувствительный fragment merge через
+границы intrinsic-треугольников (вероятно унаследовано из C). Добавить
+S1-тест (паттерн `test_decal_corner_stability.py`) на D4.1-фикстуре и
+устранить pop. Если корень в C-merge — чинить там, differential C7
+пересдать осознанно.
+
+### D5.4 (LOW/MEDIUM) Латентная асимметрия seam-corner subtraction
+`decal_voronoi.py:~6191-6194`: subtraction переводит corner crops
+только на `atom.periodic_shift * period`, а emission-путь (~6129-6133)
+дополнительно учитывает `corner.site_u_offsets`. Для corner'а с
+crops, чьи sites пересекают cut с ненулевыми offsets — double cover.
+Сегодня недостижимо (seam-углы MITER-flat/CAP с нулевыми offsets),
+станет достижимым с D5.2. Выровнять формулы + тест с не-geodesic
+цепочкой через cut.
+
+### D5.5 (LOW) `budget_source` мислейбл + мёртвые equivalence-ключи
+`PERIODIC_HALF_PERIOD` ставится безусловно, даже когда связал
+strip-бюджет (`decal_chart_admission.py:~495-496`) — исправить.
+`transition_equivalences` image-ключи (`~483-491`) не используются
+ни одним resolve-путём — удалить или задействовать, не оставлять
+декоративную инфраструктуру.
+
+### Acceptance D5
+Все пять пунктов; полный suite зелёный; differential C7/walls
+байт-в-байт; D4.6 расширен budget-ассертом; periodic S1 тест зелёный;
+`docs/cftuv_decal_runtime.md` приведён в соответствие с фактическим
+поведением бюджета.
+
 ---
 
 # TRANCHE E — Non-developable / Approximate Charts
