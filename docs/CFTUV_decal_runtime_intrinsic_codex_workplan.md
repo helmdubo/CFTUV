@@ -1142,6 +1142,97 @@ Definition of done C: фаски, cylindrical fillets и open tubes обслуж
 
 ---
 
+## C8. Полевые дефекты кривых поверхностей (ремедиация по production-скриншотам)
+
+Диагностировано независимым расследованием с headless-репро (стена
+четверть-цилиндра + планарный top + планарный торец, chain по верхней
+кромке + arris). Три задачи, по одной на коммит. ВНИМАНИЕ: C8.1 и C8.2
+намеренно меняют exact-путь (это баг-фиксы) — differential пересдаётся
+осознанно с записью в docs; координация с T7-P работами в
+decal_voronoi.py обязательна (разные зоны файла: corner crops и key
+derivation против atlas transitions).
+
+### C8.1 FLAT CAP на stable-пути (вершинный «веер во все стороны»)
+
+Корень: классификация валентности-1 корректна (CAP), но при
+`dynamic_corner_bands=False` (production default)
+`_corner_crop_components` (`decal_voronoi.py:~2690-2711`) не доходит
+до tangent-aligned `_cap_crop_components` (`:~2176`, dynamic-only) и
+берёт `_corner_crop_polygon`, который для валентности != 2 возвращает
+**chart-axis-aligned квадрат `(x±alpha, y±alpha)`** (`:~2893-2902`).
+Endpoint point-cell не ограничен вглубь поверхности — blob заполняет
+квадрат на ОБЕИХ смежных поверхностях (замер: reach 1.27*alpha назад
+за вершину, расползание по стене до z=0.828). Это старый axis-aligned
+CAP дефект первого аудита, доживший на stable-пути.
+
+Фикс: policy CAP маршрутизируется в `_cap_crop_components` НЕЗАВИСИМО
+от dynamic_corner_bands (bands-оракул §7: FLAT — дефолт). Легаси-
+квадрат остаётся только для валентности > 2 до junction-фанов §7.
+Acceptance: на репро-фикстуре behind-reach конца цепочки ~0 (замерено:
+с dynamic=True уже так); грани CAP — 4-вершинные START/END полосы
+только на двух смежных через ребро поверхностях; differential:
+изменения только у valence-1 вершин.
+
+### C8.2 Source-feature ключи для PLANAR (несшитые полосы на переходе)
+
+Корень (три факта): (1) `DecalSurfaceDomain.locate` для PLANAR даёт
+константный provenance, а `_domain_location_key` (`:~6956-6963`)
+рано возвращает геометрический patch-local ключ `('pv', patch_id,
+uv)` ДО source-feature ветки (`:~6976-6994`), которой пользуются
+INTRINSIC-поверхности — смежные полосы, терминирующиеся на ОДНОМ
+невыбранном source-ребре, получают разные канонические ключи: ноль
+сварок, видимый зазор ~1.4*offset (каждая сторона лифтует по своей
+нормали). (2) Mid-spine сварки существуют только через одностороннее
+зеркалирование `_synchronize_cross_surface_spine_stations`
+(`:~7308-7402`) — knockout-эксперимент разваливает фикстуру на
+компоненты. (3) Единственный compiled owner у arris-ребра
+(`decals.py:~1065-1070` принимает single-use boundary run) даёт
+одностороннюю полосу, связанную с остальными только через
+вершинный ключ: edge-components = 2 на всех ширинах — точный репро
+скриншота.
+
+Фикс: (a) планарные owner-поверхности получают source-feature
+provenance (boundary source edge/vertex ids в compile; `locate()`
+резолвит границу в EDGE/VERTEX), PLANAR early-return в
+`_domain_location_key` снимается при наличии source feature — обе
+стороны любого общего source-ребра (выбранного и нет) выводят
+идентичные ключи, сварка становится key-exact вместо sync-зависимой;
+(b) single-use внутреннего seam-ребра — routed compile failure
+(legacy fallback), не молчаливая односторонняя полоса; (c) spine-sync
+обобщается на слияние уже разбитых runs по позиции вдоль общего
+source-сегмента. Acceptance: на репро edge-components == 1 на всех
+ширинах; зазор лифта на общем ребре == 0 (единая станция); knockout
+sync не разваливает компоненты (ключи самодостаточны).
+
+### C8.3 SMOOTH pass-through sub-band (сплиты convex-микроуглов)
+
+Корень: sub-band `tau <= 10 deg` из E4-поправки bands-оракула не
+реализован (откачен до M1 и не возвращён). На тесселированной гладкой
+кромке каждый convex-микроугол получает corner-компонент, тогда как
+concave-сторона обслуживается биссектрисой Вороного — асимметрия со
+скриншота 3.
+
+Фикс: политика SMOOTH по оракулу (`decal_corner_bands.md`, sub-band
+в MITER): angle-only порог (константа модуля), corner-компонент не
+создаётся, area point-cell'а классифицируется к смежным
+SEGMENT-владельцам по биссектрисе, V течёт насквозь. На stable-пути
+реализуется как pass-through в crop-слое (wedge-заполнение с kind
+SEGMENT и непрерывной V, сварка с сегментными гранями по общим
+ключам). Acceptance: на кромке 10-15 сегментов convex-сторона даёт
+ту же рёберную структуру, что concave (одно биссектрисное ребро на
+вершину, ноль дополнительных сплит-граней); углы tau > порога — без
+изменений; S1-тесты зелёные (критерий angle-only).
+
+### Порядок и связи
+
+C8.1 -> C8.3 -> C8.2 (по возрастанию blast-radius; C8.2 трогает
+key-пространство — после него пересдаётся differential сварок).
+G1 (imprint) строго после C8.2: обе задачи в merge/key-слое.
+
+---
+
+---
+
 # TRANCHE D — Periodic Domains
 
 Замкнутые трубы/кольца: чарт строится с одним deterministic cut
