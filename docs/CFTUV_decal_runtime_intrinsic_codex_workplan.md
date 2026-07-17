@@ -1319,44 +1319,167 @@ preview == confirm, `Construct() == 0` в drag, детерминизм).
 
 ---
 
-# TRANCHE E — Non-developable / Organic Research
+# TRANCHE E — Non-developable / Approximate Charts
 
-Не начинать как production implementation без отдельного spike.
+Пологая двойная кривизна: купола, апсиды, мягкие скалы. Механизм тот
+же hinge unroll (C2) — E добавляет ИЗМЕРЕНИЕ фактического искажения,
+второй admission-tier с явной маркировкой и одну пользовательскую
+ручку. Никакого нового солвера.
 
-## E0. Admission metrics spike
+## E-предрешения (утверждены; не пере-обсуждать в автономном режиме)
 
-На sphere/cliff fixtures измерить:
+**EP1 — Поведение по умолчанию не меняется ни на бит.** Gate G1-G8 с
+порогами C остаётся производственным дефолтом. E добавляет второй tier
+`APPROXIMATE` поверх: `EXACT` (defect <= 1e-4 rad) | `APPROXIMATE`
+(в пределах budget, с явной маркировкой) | REJECT. При дефолтных
+настройках admission-исходы всех C7/D4/walls фикстур байт-идентичны
+текущим — это differential-guardrail всего транша.
 
-- discrete angle defect;
-- alternate-path closure residual;
-- chart self-overlap;
-- sampled chart-distance vs mesh-path distance;
-- width distortion;
-- normal variation.
+**EP2 — Никаких внешних/новых солверов.** Запрещены собственные
+LSCM/ABF/exponential-map реализации И вызовы `bpy.ops.uv.unwrap`
+(ломает headless execution parity и инвариант 3). Единственный
+механизм E — существующий hinge unroll + измерение + admission.
+Если фикстура требует конформного солвера — это stop condition, не
+задача.
 
-## E1. Recommended first approximation
+**EP3 — Admission по ИЗМЕРЕННОМУ искажению, не только по прокси.**
+G3/G4 (angle defect / closure residual) остаются быстрым отсевом, но
+решение о tier'е принимает прямое сэмплирование ошибки ширины (E0
+harness): `max_width_error_sampled <= budget`. Прокси может ошибаться
+в обе стороны на неравномерной тесселяции — меряем то, что видит
+артист.
 
-Сначала проверить, достаточно ли локального hinge chart с deterministic cuts на узкой support strip. Не внедрять отдельный exponential-map solver, пока metrics не показывают необходимость.
+**EP4 — Внутри зоны материализации чарт непрерывен.** Никаких cuts и
+chart-переходов ближе `alpha_budget` к цепочке: разрез внутри полосы =
+видимая трещина трима. Curvature-relief cuts разрешены только в
+margin-зоне support'а (дальше `alpha_budget`); внутренние переходы —
+исключительно E3-атлас со сваркой transition-ключами (механизм
+доказан в D: seam weld бит-точен). В E1/E2 полоса — один связный
+кусок чарта.
 
-## E2. Distortion budget
+**EP5 — Ручка одна, и она compile-параметр.**
+`decal_chart_distortion_budget`: float, default `0.02`, min `0.005`,
+soft_max `0.05`, max `0.10`. Участвует в admission (compile stage) —
+поэтому НЕ modal drag target и НЕ поле `CornerRuntimeSettings`;
+изменение в панели требует повторного запуска оператора (как выбор
+backend'а). Default `0.02` == текущий G3-порог => EP1 выполняется
+автоматически.
 
-Approximate domain принимается только если:
+**EP6 — Знак кривизны безразличен.** Седло (отрицательная гауссова
+кривизна) обрабатывается тем же |defect|-критерием, что купол.
+Отдельных веток для эллиптических/гиперболических точек не заводить.
 
-- max width error <= утверждённого допуска;
-- no fold-over/self-overlap;
-- no topology ambiguity;
-- diagnostics явно маркируют `INTRINSIC_APPROXIMATE`.
+**EP7 — E3 в автономный объём НЕ входит.** Автономный прогон = E0 ->
+E1 -> E2 + дизайн-меморандум E3. Реализация атласа стартует только по
+отдельному решению пользователя с production-фикстурой, которую E2
+честно отверг. Причина: атлас — единственная часть E с настоящим
+архитектурным риском, её нельзя принимать без полевых данных E2.
 
-Иначе component fallback/reject. Silent approximation запрещена.
+## E0. Measurement harness + spike (два коммита)
 
-## E3. Multi-chart atlas
+### E0.a Harness (без изменения production-поведения)
 
-Только если реальные production assets требуют широкой декали на поверхности, не проходящей E2:
+- Расширить `ChartBuildMetrics`: `max_width_error_sampled`,
+  `max_station_normal_variation` (rad, по owner-набору станции),
+  `foldover_count` (если отличается от `triangle_overlap_count` —
+  задокументировать различие).
+- Измерение ширины — по определению §4 admission-оракула
+  (`docs/decal_chart_admission.md`): K >= 20 станций x 2 rails;
+  эталон mesh-расстояния — точный путь по развёрнутой triangle-strip
+  (не Dijkstra по рёбрам: он завышает).
+- Всё — в benchmark JSON (A0) и в `verify_decal_charts`-скрипт.
+- Acceptance: differential всех существующих фикстур байт-в-байт;
+  на C7-фикстурах `max_width_error_sampled <= 1%` (проверка самого
+  harness'а: на developable он обязан показывать ~0).
 
-- overlapping charts;
-- transition maps;
-- shared station keys;
-- cross-chart arrangement stitching.
+### E0.b Spike-отчёт (данные до кода admission)
+
+- Прогнать harness на новых кривых фикстурах (см. E2-таблицу) БЕЗ
+  изменения admission; результаты — таблицей в
+  `docs/decal_organic_spike.md`: fixture x {defect, residual,
+  width_error_sampled, normal_variation, overlap}.
+- Сверка с provisional-порогами E2. Расхождение больше чем вдвое по
+  любому порогу — stop condition: отчёт пользователю, пороги не
+  подгонять самостоятельно.
+
+## E1. Curvature-relief cuts в margin-зоне
+
+- Deterministic relief cuts из границы support'а внутрь, терминация
+  не ближе `alpha_budget` к цепочке (EP4); цель — устранение
+  2D self-overlap широких кривых support'ов, НЕ метрики внутри полосы.
+- Выбор детерминирован (max дистанция до цепочки, tie-break по
+  canonical edge id — паттерн D1); каждый cut с reason и
+  transition-ключом.
+- Acceptance: фикстура «широкий support на куполе», которая без
+  relief cuts даёт `CHART_SELF_OVERLAP`, с ними — admissible;
+  материализованная полоса без швов; differential C/D нетронут.
+
+## E2. Approximate tier + budget knob
+
+### Изменения
+
+- `IntrinsicStripChart.admission_tier: "EXACT" | "APPROXIMATE"`
+  (метрики остаются policy-free контейнером — tier живёт в chart).
+- Gate: EXACT если `discrete_angle_defect <= 1e-4` и
+  `max_width_error_sampled <= 0.005`; иначе APPROXIMATE если ВСЕ:
+  - `max_width_error_sampled <= budget` (EP5);
+  - `discrete_angle_defect <= 2 * budget` (быстрый отсев, G3');
+  - `triangle_overlap_count == 0` и `foldover_count == 0` (binary);
+  - `max_station_normal_variation <= 0.35 rad (~20°)` — стабильность
+    lift/offset (provisional, калибруется E0.b);
+  - G1/G5/G6/G7/G8 без изменений;
+  иначе REJECT.
+- Новые reasons: `DISTORTION_BUDGET_EXCEEDED`, `FOLDOVER_DETECTED`,
+  `NORMAL_VARIATION_EXCEEDED`. `NON_DEVELOPABLE_SUPPORT` остаётся для
+  отказа при выключенном approximate-пути (budget на дефолте).
+- Маркировка: tier в diagnostics, routing report
+  (`Approx:<n>c`), benchmark JSON; `approximate_admit_count`.
+- UI: одна FloatProperty (EP5) в панели Decals, tooltip честно
+  называет это допуском искажения ширины.
+- Offset-safety §4 workplan обязателен на APPROXIMATE-чартах
+  (кривизна там гарантированно ненулевая).
+
+### Фикстуры E2
+
+| # | Фикстура | Ожидание (budget=0.02 если не сказано) |
+|---|---|---|
+| E.1 | Кольцо-полоса на sphere cap, R >= 10*alpha | APPROXIMATE; width_err <= 2%; S1-стабильность швов при width drag |
+| E.2 | Мягкий cliff-band (displaced plane, bounded curvature) | APPROXIMATE; ноль трещин в полосе |
+| E.3 | Седло (гиперболическая точка, gentle) | APPROXIMATE (EP6) |
+| E.4 | Купол промежуточной кривизны | REJECT при 0.02; APPROXIMATE при budget=0.05 (семантика ручки) |
+| E.N1 | Sphere cap R ~ 2*alpha | REJECT `DISTORTION_BUDGET_EXCEEDED` даже при max budget |
+| E.N2 | Высокочастотный crumple | REJECT `FOLDOVER_DETECTED` |
+| E.N3 | Дефолтные настройки на E.4 | REJECT — исход идентичен поведению до E (EP1) |
+
+### Definition of done E (автономная часть)
+
+1. Фикстуры по таблице, отрицательные включительно; счётчики в отчёте.
+2. Differential: C7 + D4 + walls при дефолтах — байт-в-байт (EP1).
+3. `Construct() == 0` в drag; S1-тесты проходят на E.1.
+4. Полоса на APPROXIMATE-чарте не содержит внутренних швов чарта (EP4).
+5. `docs/decal_chart_admission.md` дополнен tier-таблицей и новыми
+   reasons; `docs/cftuv_decal_runtime.md` — замером E.1.
+6. `docs/decal_organic_spike.md` содержит данные E0.b и фактические
+   значения всех порогов.
+
+## E3. Multi-chart atlas — только дизайн-меморандум
+
+Автономный исполнитель НЕ реализует атлас (EP7). Деливеребл —
+`docs/decal_atlas_design.md`: overlapping charts, transition maps,
+shared station keys через механизм D-сварки, cross-chart arrangement
+stitching, оценка объёма, риски, и список production-случаев из E2,
+которые его оправдали бы. Плюс перечень того, что E2 уже покрыл — как
+аргумент возможно НЕ делать атлас вовсе.
+
+## Stop conditions Tranche E
+
+1. E0.b расходится с provisional-порогами более чем вдвое.
+2. Требуется конформный солвер или интерьерный cut (EP2/EP4).
+3. Измерение width error недетерминировано между прогонами.
+4. Differential при дефолтах меняется (EP1) — остановиться, не
+   «чинить» differential правкой эталонов.
+5. Фикстура E.1 требует ослабления S1 — остановиться (это сигнал
+   архитектурной проблемы, не допуска).
 
 ---
 
