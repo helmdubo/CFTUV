@@ -227,7 +227,7 @@ def test_e3_public_saddle_materializes_through_t_contract():
     assert attempt.plan is not None
     assert attempt.rejected_edge_indices == ()
     assert attempt.failures == ()
-    for width in (0.25, 0.5, 1.0):
+    for width in (0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0):
         diagnostics = PatchVoronoiDiagnostics()
         faces = evaluate_patch_voronoi_plan(
             attempt.plan,
@@ -236,14 +236,67 @@ def test_e3_public_saddle_materializes_through_t_contract():
             diagnostics=diagnostics,
         )
         component_count, overfull_count = _edge_component_stats(faces)
-        assert component_count == 1
-        assert overfull_count == 0
+        assert component_count == 1, width
+        assert overfull_count == 0, width
         assert diagnostics.atlas_sliver_owner_count > 0
         assert diagnostics.atlas_no_owner_drop_count == 0
+        assert diagnostics.atlas_semantic_import_count > 0
+        assert diagnostics.atlas_semantic_transition_count > 0
         assert (
             diagnostics.atlas_touch_no_token_drop_count
             + diagnostics.atlas_single_side_drop_count
         ) > 0
+
+
+def test_t8_rejects_missing_owner_semantic_transport():
+    node, seeds, alpha = saddle_fixture()
+    graph = PatchGraph()
+    graph.add_node(node)
+    plan = compile_patch_voronoi_plan(
+        graph,
+        tuple(seed.edge_index for seed in seeds),
+        offset=0.01,
+        alpha_budget=alpha,
+    )
+    diagnostics = PatchVoronoiDiagnostics(
+        semantic_transport_disabled_owner_ids=frozenset(
+            {("corner", 14)}
+        )
+    )
+    with pytest.raises(ValueError, match="ATLAS_CLASS_DESYNC"):
+        evaluate_patch_voronoi_plan(
+            plan,
+            width=1.0,
+            preview=True,
+            diagnostics=diagnostics,
+        )
+
+
+def test_t8_saddle_is_deterministic_for_reversed_seed_enumeration():
+    node, seeds, alpha = saddle_fixture()
+    graph = PatchGraph()
+    graph.add_node(node)
+    forward = compile_patch_voronoi_plan(
+        graph,
+        tuple(seed.edge_index for seed in seeds),
+        offset=0.01,
+        alpha_budget=alpha,
+    )
+    reversed_plan = compile_patch_voronoi_plan(
+        graph,
+        tuple(seed.edge_index for seed in reversed(seeds)),
+        offset=0.01,
+        alpha_budget=alpha,
+    )
+    assert serialize_network_faces(
+        evaluate_patch_voronoi_plan(
+            forward, width=1.0, preview=True
+        )
+    ) == serialize_network_faces(
+        evaluate_patch_voronoi_plan(
+            reversed_plan, width=1.0, preview=True
+        )
+    )
 
 
 def _edge_component_stats(faces):
