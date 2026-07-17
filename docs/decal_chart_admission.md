@@ -99,10 +99,11 @@ E0 harness разворачивает альтернативные triangle-stri
 shared edges и сравнивает кратчайший допустимый путь с chart half-width.
 Результаты живут в policy-free `ChartBuildMetrics`:
 `max_width_error_sampled`, `max_station_normal_variation` и
-`foldover_count`. Последний не дублирует `triangle_overlap_count`:
-foldover — инверсия ориентации отдельного triangle, overlap — площадь
-пересечения двух несмежных triangles. Для уже admitted C/D charts первый
-равен нулю, потому что C2 раньше отклоняет inconsistent orientation.
+`foldover_count`. Последний не дублирует `triangle_overlap_count`: foldover —
+инверсия ориентации отдельного triangle либо overlap source-участков с
+расхождением owner-нормалей больше 90°, тогда как overlap считает любую
+площадь пересечения двух несмежных triangles. Для уже admitted C/D charts
+foldover равен нулю.
 
 ---
 

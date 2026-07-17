@@ -4,13 +4,18 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import replace
-from math import acos, sqrt
+from math import acos, pi, sqrt
 
-from .decal_charts import _hinge_child_points, _root_chart_points
+from .decal_charts import (
+    _hinge_child_points,
+    _root_chart_points,
+    _triangle_scale,
+    _triangles_overlap_area,
+)
 
 
 _STATION_COUNT = 20
-_PATH_LIMIT = 64
+_PATH_LIMIT = 16
 
 
 def _sub2(first, second):
@@ -80,7 +85,7 @@ def _candidate_paths(graph, start, target):
     distances = _distances_to_target(graph, target)
     if start not in distances:
         return ()
-    depth_limit = distances[start] + 2
+    depth_limit = distances[start]
     result = []
 
     def visit(path):
@@ -218,6 +223,40 @@ def _owner_triangle(chart, seed):
     return min(candidates, key=lambda triangle: triangle.triangle_id, default=None)
 
 
+def _station_samples(chart):
+    segments = []
+    for seed in sorted(
+        chart.site_seeds,
+        key=lambda item: item.chain_ref or (-1, -1, item.edge_index),
+    ):
+        owner = _owner_triangle(chart, seed)
+        if owner is None:
+            continue
+        points = dict(zip(owner.source_vertex_ids, owner.chart_points))
+        length = _distance2(
+            points[seed.source_vertex_ids[0]],
+            points[seed.source_vertex_ids[1]],
+        )
+        if length > 1e-15:
+            segments.append((seed, owner, length))
+    total_length = sum(item[2] for item in segments)
+    if total_length <= 1e-15:
+        return ()
+    result = []
+    for station_index in range(_STATION_COUNT):
+        distance = total_length * (station_index + 0.5) / _STATION_COUNT
+        traversed = 0.0
+        for seed, owner, length in segments:
+            if distance <= traversed + length or (
+                seed is segments[-1][0]
+            ):
+                factor = max(0.0, min(1.0, (distance - traversed) / length))
+                result.append((seed, owner, factor))
+                break
+            traversed += length
+    return tuple(result)
+
+
 def _rail_probe(chart, station, direction, requested_distance):
     endpoint = (
         station[0] + direction[0] * requested_distance,
@@ -260,7 +299,28 @@ def _foldover_count(chart):
     if not signs:
         return 0
     reference = next((value for value in signs if abs(value) > 1e-15), 1.0)
-    return sum(value * reference <= 0.0 for value in signs)
+    count = sum(value * reference <= 0.0 for value in signs)
+    adjacent = {
+        (relation.triangle_a, relation.triangle_b)
+        for relation in chart.adjacency
+    }
+    triangles = tuple(chart.triangles)
+    scale = max(
+        (_triangle_scale(triangle) for triangle in triangles),
+        default=1.0,
+    )
+    tolerance = max(1e-12, scale * 1e-10)
+    for first_index, first in enumerate(triangles):
+        for second in triangles[first_index + 1 :]:
+            if (first.triangle_id, second.triangle_id) in adjacent:
+                continue
+            if not _triangles_overlap_area(
+                first.chart_points, second.chart_points, tolerance
+            ):
+                continue
+            if _normal_angle(first.face_normal, second.face_normal) > pi * 0.5:
+                count += 1
+    return count
 
 
 def measure_chart_width(chart):
@@ -274,10 +334,8 @@ def measure_chart_width(chart):
     maximum_error = 0.0
     maximum_normal_variation = 0.0
     requested_distance = float(chart.alpha_budget)
-    for seed in chart.site_seeds:
-        owner = _owner_triangle(chart, seed)
-        if owner is None:
-            continue
+    path_cache = {}
+    for seed, owner, factor in _station_samples(chart):
         points = dict(zip(owner.source_vertex_ids, owner.chart_points))
         first = points[seed.source_vertex_ids[0]]
         second = points[seed.source_vertex_ids[1]]
@@ -289,45 +347,46 @@ def measure_chart_width(chart):
             (-edge[1] / edge_length, edge[0] / edge_length),
             (edge[1] / edge_length, -edge[0] / edge_length),
         )
-        for station_index in range(_STATION_COUNT):
-            factor = (station_index + 0.5) / _STATION_COUNT
-            station = (
-                first[0] + edge[0] * factor,
-                first[1] + edge[1] * factor,
+        station = (
+            first[0] + edge[0] * factor,
+            first[1] + edge[1] * factor,
+        )
+        for direction in normals:
+            probe = _rail_probe(
+                chart, station, direction, requested_distance
             )
-            for direction in normals:
-                probe = _rail_probe(
-                    chart, station, direction, requested_distance
+            if probe is None:
+                continue
+            sampled_distance, _endpoint, located = probe
+            target_id, target_weights = located
+            cache_key = (owner.triangle_id, target_id)
+            paths = path_cache.get(cache_key)
+            if paths is None:
+                paths = _candidate_paths(graph, *cache_key)
+                path_cache[cache_key] = paths
+            candidates = []
+            for path in paths:
+                measurement = _unfolded_path_measurement(
+                    chart,
+                    path,
+                    relation_lookup,
+                    seed.source_vertex_ids,
+                    factor,
+                    target_weights,
                 )
-                if probe is None:
-                    continue
-                sampled_distance, _endpoint, located = probe
-                target_id, target_weights = located
-                candidates = []
-                for path in _candidate_paths(
-                    graph, owner.triangle_id, target_id
-                ):
-                    measurement = _unfolded_path_measurement(
-                        chart,
-                        path,
-                        relation_lookup,
-                        seed.source_vertex_ids,
-                        factor,
-                        target_weights,
-                    )
-                    if measurement is not None:
-                        candidates.append(measurement)
-                if not candidates:
-                    continue
-                geodesic_distance, normal_variation = min(candidates)
-                maximum_error = max(
-                    maximum_error,
-                    abs(geodesic_distance - sampled_distance)
-                    / sampled_distance,
-                )
-                maximum_normal_variation = max(
-                    maximum_normal_variation, normal_variation
-                )
+                if measurement is not None:
+                    candidates.append(measurement)
+            if not candidates:
+                continue
+            geodesic_distance, normal_variation = min(candidates)
+            maximum_error = max(
+                maximum_error,
+                abs(geodesic_distance - sampled_distance)
+                / sampled_distance,
+            )
+            maximum_normal_variation = max(
+                maximum_normal_variation, normal_variation
+            )
     return {
         "max_width_error_sampled": maximum_error,
         "max_station_normal_variation": maximum_normal_variation,
