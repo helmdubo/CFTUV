@@ -17,6 +17,7 @@ from __future__ import annotations
 from bisect import bisect_left
 from dataclasses import dataclass, field, replace
 from enum import Enum
+from fractions import Fraction
 from heapq import heappop, heappush
 from math import atan2, isfinite, pi, sqrt, tau
 
@@ -422,6 +423,7 @@ class DecalSurfaceDomain:
     transition_metadata: tuple[tuple[object, str, object], ...] = ()
     admission_tier: str = "EXACT"
     normalize_fragment_t_junctions: bool = False
+    location_tolerance: float = 1e-7
     reference_full_scan: bool = False
 
     def __post_init__(self):
@@ -429,6 +431,8 @@ class DecalSurfaceDomain:
             raise ValueError(f"Unsupported decal domain kind: {self.kind}")
         if self.admission_tier not in {"EXACT", "APPROXIMATE"}:
             raise ValueError("Decal domain admission tier is invalid")
+        if self.location_tolerance <= 0.0:
+            raise ValueError("Decal domain location tolerance must be positive")
         if self.normal_mode not in {
             "PIECEWISE_PLANAR_HARD",
             "SMOOTH_INTERPOLATED",
@@ -547,22 +551,51 @@ class DecalSurfaceDomain:
         if self.reference_full_scan:
             triangle_ids = range(len(self.intrinsic_triangles))
         else:
-            triangle_ids = self.triangle_grid.query_point(point, 1e-7)
-        for triangle_id in triangle_ids:
+            triangle_ids = self.triangle_grid.query_point(
+                point, self.location_tolerance
+            )
+        candidate_triangle_ids = tuple(triangle_ids)
+        for triangle_id in candidate_triangle_ids:
             triangle = self.intrinsic_triangles[triangle_id]
             weights = _triangle_weights2(point, triangle.chart_points)
             if weights is None:
                 continue
             margin = min(weights)
-            if margin >= -1e-7 and margin > best_margin:
+            if margin >= -self.location_tolerance and margin > best_margin:
                 best_triangle_id = triangle_id
                 best_weights = tuple(float(weight) for weight in weights)
                 best_margin = margin
+        if best_weights is None and self.admission_tier == "APPROXIMATE":
+            best_projection = None
+            for triangle_id in candidate_triangle_ids:
+                triangle = self.intrinsic_triangles[triangle_id]
+                for edge_index, first in enumerate(triangle.chart_points):
+                    second = triangle.chart_points[(edge_index + 1) % 3]
+                    distance, factor = _segment_point_distance2(
+                        first, second, point
+                    )
+                    if distance > self.location_tolerance * 2.0:
+                        continue
+                    projection = (
+                        first[0] + (second[0] - first[0]) * factor,
+                        first[1] + (second[1] - first[1]) * factor,
+                    )
+                    rank = (distance, triangle_id, edge_index)
+                    if best_projection is None or rank < best_projection[0]:
+                        best_projection = (rank, projection, triangle_id)
+            if best_projection is not None:
+                _rank, uv, best_triangle_id = best_projection
+                weights = _triangle_weights2(
+                    uv,
+                    self.intrinsic_triangles[best_triangle_id].chart_points,
+                )
+                if weights is not None:
+                    best_weights = tuple(float(value) for value in weights)
         if best_weights is None:
             return None
 
         triangle = self.intrinsic_triangles[best_triangle_id]
-        feature_tolerance = 1e-7
+        feature_tolerance = self.location_tolerance
         boundary_weights = tuple(
             index
             for index, weight in enumerate(best_weights)
@@ -1084,6 +1117,7 @@ class _DecalArrangementFace:
     site: _PatchVoronoiSite
     points: tuple[tuple[float, float], ...]
     crop: _CropComponent
+    point_keys: tuple[object, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -4472,6 +4506,12 @@ def _compile_surface(
             intrinsic_chart is not None
             and intrinsic_chart.admission_tier == "APPROXIMATE"
         ),
+        location_tolerance=(
+            max(1e-7, diagram_transform.quantum * 2.0)
+            if intrinsic_chart is not None
+            and intrinsic_chart.admission_tier == "APPROXIMATE"
+            else 1e-7
+        ),
         reference_full_scan=reference_full_scan,
     )
     return _PatchVoronoiSurface(
@@ -4722,6 +4762,8 @@ def _periodic_transport_raw_sites(raw_sites):
 
 def _compile_intrinsic_surface(node, chart, raw_sites, diagnostics=None):
     if diagnostics is not None:
+        if chart.admission_tier == "APPROXIMATE":
+            diagnostics.approximate_admit_count += 1
         diagnostics.max_width_error_sampled = max(
             diagnostics.max_width_error_sampled,
             chart.metrics.max_width_error_sampled,
@@ -4853,6 +4895,7 @@ def _compile_intrinsic_atlas_surfaces(
         diagnostics.atlas_unresolved_overlap_count += (
             atlas.unresolved_overlap_count
         )
+        diagnostics.margin_relief_cut_count += atlas.margin_relief_cut_count
         diagnostics.max_width_error_sampled = max(
             diagnostics.max_width_error_sampled,
             atlas.metrics.max_width_error_sampled,
@@ -4875,7 +4918,10 @@ def _compile_intrinsic_atlas_surfaces(
         for owner_chart_id, _triangle_id, _point in owner_records.values()
     }
     surfaces = []
-    for chart in atlas.charts:
+    for source_chart in atlas.charts:
+        chart = replace(
+            source_chart, admission_tier=atlas.admission_tier
+        )
         site_points = {}
         native_edges = {seed.edge_index for seed in chart.site_seeds}
         chart_points = tuple(
@@ -5075,7 +5121,8 @@ def compile_patch_voronoi_attempt(
                     for chart in charts
                 )
                 if any(
-                    chart.admission_tier == "APPROXIMATE"
+                    isinstance(chart, IntrinsicStripAtlas)
+                    and chart.admission_tier == "APPROXIMATE"
                     for chart in charts
                 ):
                     raise ChartBuildFailure(
@@ -5505,6 +5552,641 @@ def _insert_intrinsic_triangle_stations(polygons, domain, tolerance):
     return rebuilt, inserted
 
 
+def _m1_point_in_polygon(point, polygon, tolerance=1e-10):
+    inside = False
+    for index, first in enumerate(polygon):
+        second = polygon[(index + 1) % len(polygon)]
+        distance, _factor = _segment_point_distance2(first, second, point)
+        if distance <= tolerance:
+            return True
+        if (first[1] > point[1]) == (second[1] > point[1]):
+            continue
+        crossing_x = first[0] + (
+            (second[0] - first[0])
+            * (point[1] - first[1])
+            / (second[1] - first[1])
+        )
+        if crossing_x > point[0]:
+            inside = not inside
+    return inside
+
+
+def _m1_representative_point(polygon):
+    area2 = _polygon_area2(polygon)
+    if abs(area2) > 1e-18:
+        x_value = 0.0
+        y_value = 0.0
+        for index, first in enumerate(polygon):
+            second = polygon[(index + 1) % len(polygon)]
+            cross = first[0] * second[1] - second[0] * first[1]
+            x_value += (first[0] + second[0]) * cross
+            y_value += (first[1] + second[1]) * cross
+        centroid = (x_value / (3.0 * area2), y_value / (3.0 * area2))
+        if _m1_point_in_polygon(centroid, polygon):
+            return centroid
+    anchor = polygon[0]
+    for index in range(1, len(polygon) - 1):
+        candidate = (
+            (anchor[0] + polygon[index][0] + polygon[index + 1][0]) / 3.0,
+            (anchor[1] + polygon[index][1] + polygon[index + 1][1]) / 3.0,
+        )
+        if _m1_point_in_polygon(candidate, polygon):
+            return candidate
+    return polygon[0]
+
+
+def _m1_surface_arrangement(entries):
+    """E4: exact rational half-edge arrangement на B0 integer lattice."""
+
+    surface = entries[0][1].surface
+    quantum = max(float(surface.diagram_transform.quantum), 1e-10)
+    representatives = {}
+    transition_lattice = tuple(
+        (
+            repr(transition_key),
+            tuple(
+                (
+                    Fraction(round(point[0] / quantum)),
+                    Fraction(round(point[1] / quantum)),
+                )
+                for point in segment
+            ),
+        )
+        for transition_key, segment in sorted(
+            _m1_atlas_transition_segments(surface.domain).items(),
+            key=lambda item: repr(item[0]),
+        )
+    )
+
+    def lattice_point(point, prefer=False):
+        key = (
+            round(float(point[0]) / quantum),
+            round(float(point[1]) / quantum),
+        )
+        candidate = (Fraction(key[0]), Fraction(key[1]))
+        if prefer:
+            projections = []
+            for repr_key, (first, second) in transition_lattice:
+                direction = (second[0] - first[0], second[1] - first[1])
+                length2 = (
+                    direction[0] * direction[0]
+                    + direction[1] * direction[1]
+                )
+                if length2 <= 0:
+                    continue
+                relative = (
+                    candidate[0] - first[0],
+                    candidate[1] - first[1],
+                )
+                factor = (
+                    relative[0] * direction[0]
+                    + relative[1] * direction[1]
+                ) / length2
+                if not 0 <= factor <= 1:
+                    continue
+                cross = (
+                    relative[0] * direction[1]
+                    - relative[1] * direction[0]
+                )
+                if cross * cross * 4 > length2:
+                    continue
+                projection = (
+                    first[0] + direction[0] * factor,
+                    first[1] + direction[1] * factor,
+                )
+                projections.append((abs(cross), repr_key, projection))
+            if projections:
+                return min(projections)[-1]
+        if prefer or key not in representatives:
+            representatives[key] = (float(point[0]), float(point[1]))
+        return candidate
+
+    predicates = {}
+    raw_segments = []
+
+    def add_polygon(points, prefer=False):
+        keys = tuple(lattice_point(point, prefer=prefer) for point in points)
+        for index, first in enumerate(keys):
+            second = keys[(index + 1) % len(keys)]
+            if first != second:
+                raw_segments.append((first, second))
+        return keys
+
+    for pending_index, pending_face in entries:
+        crop_points = tuple(
+            (float(point[0]), float(point[1]))
+            for point in pending_face.crop.points
+        )
+        crop_keys = add_polygon(crop_points)
+        predicate_key = (
+            pending_face.crop.kind,
+            pending_face.crop.side,
+            int(pending_face.site.edge_index),
+            crop_keys,
+        )
+        predicates.setdefault(
+            predicate_key, (pending_index, pending_face, crop_points)
+        )
+
+    # Compile Voronoi boundaries are part of the same graph, but no longer
+    # carry ownership themselves.
+    for atom in surface.atoms:
+        for fragment in atom.fragments:
+            add_polygon(fragment)
+
+    domain_triangles = (
+        tuple(
+            triangle.chart_points
+            for triangle in surface.domain.intrinsic_triangles
+        )
+        if surface.domain.intrinsic_triangles
+        else surface.domain.boundary_triangles
+    )
+    for triangle in domain_triangles:
+        add_polygon(triangle, prefer=True)
+
+    # Duplicate input curves collapse before pairwise intersection.
+    segments = tuple(
+        (first, second)
+        for first, second in sorted(
+            {
+                tuple(sorted((first, second)))
+                for first, second in raw_segments
+            }
+        )
+    )
+    split_points = [set(segment) for segment in segments]
+
+    def cross(first, second, third):
+        return (
+            (second[0] - first[0]) * (third[1] - first[1])
+            - (second[1] - first[1]) * (third[0] - first[0])
+        )
+
+    def on_segment(point, first, second):
+        return (
+            cross(first, second, point) == 0
+            and min(first[0], second[0]) <= point[0] <= max(first[0], second[0])
+            and min(first[1], second[1]) <= point[1] <= max(first[1], second[1])
+        )
+
+    for first_index, (point_a, point_b) in enumerate(segments):
+        min_ax = min(point_a[0], point_b[0])
+        max_ax = max(point_a[0], point_b[0])
+        min_ay = min(point_a[1], point_b[1])
+        max_ay = max(point_a[1], point_b[1])
+        direction_a = (point_b[0] - point_a[0], point_b[1] - point_a[1])
+        for second_index in range(first_index + 1, len(segments)):
+            point_c, point_d = segments[second_index]
+            if (
+                max(point_c[0], point_d[0]) < min_ax
+                or min(point_c[0], point_d[0]) > max_ax
+                or max(point_c[1], point_d[1]) < min_ay
+                or min(point_c[1], point_d[1]) > max_ay
+            ):
+                continue
+            direction_b = (
+                point_d[0] - point_c[0],
+                point_d[1] - point_c[1],
+            )
+            denominator = (
+                direction_a[0] * direction_b[1]
+                - direction_a[1] * direction_b[0]
+            )
+            relative = (point_c[0] - point_a[0], point_c[1] - point_a[1])
+            if denominator == 0:
+                if relative[0] * direction_a[1] != relative[1] * direction_a[0]:
+                    continue
+                for candidate in (point_a, point_b, point_c, point_d):
+                    if on_segment(candidate, point_a, point_b) and on_segment(
+                        candidate, point_c, point_d
+                    ):
+                        split_points[first_index].add(candidate)
+                        split_points[second_index].add(candidate)
+                continue
+            factor_a = Fraction(
+                relative[0] * direction_b[1]
+                - relative[1] * direction_b[0],
+                denominator,
+            )
+            factor_b = Fraction(
+                relative[0] * direction_a[1]
+                - relative[1] * direction_a[0],
+                denominator,
+            )
+            if not (0 <= factor_a <= 1 and 0 <= factor_b <= 1):
+                continue
+            intersection = (
+                point_a[0] + direction_a[0] * factor_a,
+                point_a[1] + direction_a[1] * factor_a,
+            )
+            split_points[first_index].add(intersection)
+            split_points[second_index].add(intersection)
+
+    graph = {}
+    for (first, second), stations in zip(segments, split_points):
+        direction = (second[0] - first[0], second[1] - first[1])
+        ordered = sorted(
+            stations,
+            key=lambda point: (
+                (point[0] - first[0]) * direction[0]
+                + (point[1] - first[1]) * direction[1],
+                point,
+            ),
+        )
+        for point_a, point_b in zip(ordered, ordered[1:]):
+            if point_a == point_b:
+                continue
+            graph.setdefault(point_a, set()).add(point_b)
+            graph.setdefault(point_b, set()).add(point_a)
+
+    ordered_neighbors = {
+        vertex: tuple(
+            sorted(
+                neighbors,
+                key=lambda other: atan2(
+                    float(other[1] - vertex[1]),
+                    float(other[0] - vertex[0]),
+                ),
+            )
+        )
+        for vertex, neighbors in graph.items()
+    }
+    visited = set()
+    cycles = []
+    half_edge_count = sum(len(values) for values in graph.values())
+
+    def simple_cycles(walk):
+        first_index_by_vertex = {}
+        for index, vertex in enumerate(walk):
+            previous = first_index_by_vertex.get(vertex)
+            if previous is None:
+                first_index_by_vertex[vertex] = index
+                continue
+            inner = walk[previous:index]
+            outer = walk[:previous] + walk[index:]
+            result = []
+            if len(inner) >= 3:
+                result.extend(simple_cycles(inner))
+            if len(outer) >= 3:
+                result.extend(simple_cycles(outer))
+            return result
+        return [walk]
+
+    for start in sorted(
+        (first, second)
+        for first, neighbors in graph.items()
+        for second in neighbors
+    ):
+        if start in visited:
+            continue
+        cycle = []
+        current = start
+        for _step in range(half_edge_count + 1):
+            if current in visited:
+                break
+            visited.add(current)
+            first, second = current
+            cycle.append(first)
+            neighbors = ordered_neighbors[second]
+            reverse_index = neighbors.index(first)
+            third = neighbors[(reverse_index - 1) % len(neighbors)]
+            current = (second, third)
+            if current == start:
+                break
+        if current != start or len(cycle) < 3:
+            continue
+        for simple_cycle in simple_cycles(cycle):
+            area2 = sum(
+                first[0] * second[1] - second[0] * first[1]
+                for first, second in zip(
+                    simple_cycle, simple_cycle[1:] + simple_cycle[:1]
+                )
+            )
+            if area2 > 0:
+                cycles.append(tuple(simple_cycle))
+
+    ordered_predicates = tuple(
+        predicates[key] for key in sorted(predicates)
+    )
+
+    def output_point(point):
+        integer_key = None
+        if point[0].denominator == 1 and point[1].denominator == 1:
+            integer_key = (int(point[0]), int(point[1]))
+        if integer_key in representatives:
+            return representatives[integer_key]
+        return (float(point[0]) * quantum, float(point[1]) * quantum)
+
+    arranged = []
+    for cycle in cycles:
+        polygon = tuple(output_point(point) for point in cycle)
+        representative = _m1_representative_point(polygon)
+        locations = tuple(
+            surface.domain.locate(point) for point in polygon
+        )
+        atlas_segments = _m1_atlas_transition_segments(surface.domain)
+        strict_triangles = (
+            tuple(
+                triangle.chart_points
+                for triangle in surface.domain.intrinsic_triangles
+            )
+            if surface.domain.intrinsic_triangles and atlas_segments
+            else surface.domain.boundary_triangles
+        )
+        domain_tolerance = (
+            1e-10
+            if atlas_segments
+            else surface.domain.location_tolerance
+        )
+        if (
+            not any(
+                _point_in_triangle(
+                    representative,
+                    triangle,
+                    tolerance=domain_tolerance,
+                )
+                for triangle in strict_triangles
+            )
+            or any(
+                location is None for location in locations
+            )
+        ):
+            continue
+        owners = []
+        for pending_index, pending_face, crop in ordered_predicates:
+            if not _m1_point_in_polygon(representative, crop):
+                continue
+            priority = (
+                3
+                if pending_face.crop.kind == "JUNCTION"
+                else 1
+                if pending_face.crop.kind == "SEGMENT"
+                else 2
+            )
+            distance = _segment_point_distance2(
+                pending_face.site.point_a,
+                pending_face.site.point_b,
+                representative,
+            )[0]
+            owners.append(
+                (
+                    -priority,
+                    round(distance, 12),
+                    pending_face.crop.kind,
+                    pending_face.crop.side,
+                    pending_face.site.edge_index,
+                    pending_index,
+                    pending_face,
+                )
+            )
+        if not owners:
+            continue
+        owner = min(owners)[-1]
+        arranged.append(
+            _DecalArrangementFace(
+                surface=surface,
+                site=owner.site,
+                points=polygon,
+                crop=owner.crop,
+                point_keys=tuple(
+                    (
+                        "m1",
+                        surface.patch_id,
+                        surface.domain.chart_id,
+                        (point[0].numerator, point[0].denominator),
+                        (point[1].numerator, point[1].denominator),
+                    )
+                    for point in cycle
+                ),
+            )
+        )
+    arranged.sort(
+        key=lambda face: (
+            face.crop.kind,
+            face.crop.side,
+            face.site.edge_index,
+            face.points,
+        )
+    )
+    return tuple(arranged), max(0, len(graph) - len(representatives))
+
+
+def _m1_atlas_transition_segments(domain):
+    coordinate_edge_uses = {}
+    for triangle in domain.intrinsic_triangles:
+        for local_edge in range(3):
+            edge_vertices = tuple(
+                index for index in range(3) if index != local_edge
+            )
+            signature = tuple(
+                sorted(
+                    (
+                        round(triangle.chart_points[index][0], 12),
+                        round(triangle.chart_points[index][1], 12),
+                    )
+                    for index in edge_vertices
+                )
+            )
+            coordinate_edge_uses[signature] = (
+                coordinate_edge_uses.get(signature, 0) + 1
+            )
+    result = {}
+    for triangle in domain.intrinsic_triangles:
+        for local_edge, transition_key in enumerate(
+            triangle.edge_transition_keys
+        ):
+            if (
+                not isinstance(transition_key, tuple)
+                or transition_key[:1] != ("atlas-transition",)
+            ):
+                continue
+            source_edge = tuple(transition_key[2])
+            edge_vertices = tuple(
+                index for index in range(3) if index != local_edge
+            )
+            point_by_vertex = {
+                triangle.source_vertex_ids[index]: triangle.chart_points[index]
+                for index in edge_vertices
+            }
+            if set(point_by_vertex) == set(source_edge):
+                segment = tuple(
+                    point_by_vertex[vertex_id] for vertex_id in source_edge
+                )
+                signature = tuple(
+                    sorted(
+                        (round(point[0], 12), round(point[1], 12))
+                        for point in segment
+                    )
+                )
+                if coordinate_edge_uses.get(signature, 0) == 1:
+                    result[(transition_key, signature)] = segment
+    return result
+
+
+def _m1_insert_atlas_transition_stations(faces):
+    """R2: owner-side station set вычисляется один раз и зеркалится."""
+
+    segments_by_domain = {
+        id(face.surface.domain): _m1_atlas_transition_segments(
+            face.surface.domain
+        )
+        for face in faces
+        if face.surface.domain.admission_tier == "APPROXIMATE"
+    }
+    def rational_point(key):
+        if (
+            not isinstance(key, tuple)
+            or len(key) != 5
+            or key[:1] != ("m1",)
+        ):
+            return None
+        return (
+            Fraction(key[3][0], key[3][1]),
+            Fraction(key[4][0], key[4][1]),
+        )
+
+    def lattice_segment(face, segment):
+        quantum = face.surface.diagram_transform.quantum
+        return tuple(
+            (
+                Fraction(round(point[0] / quantum)),
+                Fraction(round(point[1] / quantum)),
+            )
+            for point in segment
+        )
+
+    def exact_factor(point, first, second):
+        direction = (second[0] - first[0], second[1] - first[1])
+        relative = (point[0] - first[0], point[1] - first[1])
+        if relative[0] * direction[1] != relative[1] * direction[0]:
+            return None
+        if abs(direction[0]) >= abs(direction[1]):
+            if direction[0] == 0:
+                return None
+            factor = relative[0] / direction[0]
+        else:
+            factor = relative[1] / direction[1]
+        return factor if 0 <= factor <= 1 else None
+
+    def transition_hits(face, point_key):
+        point = rational_point(point_key)
+        if point is None:
+            return ()
+        result = []
+        for local_key, segment in segments_by_domain.get(
+            id(face.surface.domain), {}
+        ).items():
+            transition_key = local_key[0]
+            first, second = lattice_segment(face, segment)
+            factor = exact_factor(point, first, second)
+            if factor is not None:
+                result.append((repr(transition_key), transition_key, factor))
+        return tuple(sorted(result))
+
+    stations = {}
+    for face in faces:
+        if len(face.point_keys) != len(face.points):
+            continue
+        for point_key in face.point_keys:
+            for _repr_key, transition_key, factor in transition_hits(
+                face, point_key
+            ):
+                stations.setdefault(transition_key, set()).add(factor)
+
+    rebuilt = []
+    inserted = 0
+
+    def canonical_transition_key(transition_key, factor):
+        if factor in {Fraction(0), Fraction(1)}:
+            source_edge = tuple(transition_key[2])
+            return (
+                "m1-source-vertex",
+                source_edge[0] if factor == 0 else source_edge[1],
+            )
+        return (
+            "m1-transition",
+            _hashable_provenance(transition_key),
+            (factor.numerator, factor.denominator),
+        )
+
+    for face in faces:
+        segments = segments_by_domain.get(id(face.surface.domain), {})
+        if not segments:
+            rebuilt.append(face)
+            continue
+        result_points = []
+        result_keys = []
+        source_keys = (
+            face.point_keys
+            if len(face.point_keys) == len(face.points)
+            else (None,) * len(face.points)
+        )
+        for index, first_point in enumerate(face.points):
+            second_point = face.points[(index + 1) % len(face.points)]
+            result_points.append(first_point)
+            first_hits = transition_hits(face, source_keys[index])
+            if first_hits:
+                _repr_key, hit_key, hit_factor = first_hits[0]
+                result_keys.append(
+                    canonical_transition_key(hit_key, hit_factor)
+                )
+            else:
+                result_keys.append(source_keys[index])
+            candidates = []
+            second_hits = {
+                transition_key: factor
+                for _repr_key, transition_key, factor in transition_hits(
+                    face,
+                    source_keys[(index + 1) % len(source_keys)],
+                )
+            }
+            for _repr_key, transition_key, first_factor in first_hits:
+                second_factor = second_hits.get(transition_key)
+                if second_factor is None or second_factor == first_factor:
+                    continue
+                low, high = sorted((first_factor, second_factor))
+                for station in stations.get(transition_key, ()):
+                    if low < station < high:
+                        edge_factor = float(
+                            (station - first_factor)
+                            / (second_factor - first_factor)
+                        )
+                        candidates.append(
+                            (
+                                edge_factor,
+                                repr(transition_key),
+                                transition_key,
+                                station,
+                            )
+                        )
+            for edge_factor, _repr_key, transition_key, station in sorted(
+                candidates
+            ):
+                point = (
+                    first_point[0]
+                    + (second_point[0] - first_point[0]) * edge_factor,
+                    first_point[1]
+                    + (second_point[1] - first_point[1]) * edge_factor,
+                )
+                if _dist2(result_points[-1], point) <= 1e-12:
+                    continue
+                result_points.append(point)
+                result_keys.append(
+                    canonical_transition_key(transition_key, station)
+                )
+                inserted += 1
+        rebuilt.append(
+            replace(
+                face,
+                points=tuple(result_points),
+                point_keys=tuple(result_keys),
+            )
+        )
+
+    return tuple(rebuilt), inserted
+
+
 def _build_decal_arrangement(pending, tolerance):
     """Создаёт conforming subdivision отдельно на каждом owner surface."""
 
@@ -5521,13 +6203,19 @@ def _build_decal_arrangement(pending, tolerance):
         )
 
     arranged_by_index = {}
+    m1_faces = []
     inserted_stations = 0
     for entries in grouped.values():
+        domain = entries[0][1].surface.domain
+        if domain.admission_tier == "APPROXIMATE":
+            faces, inserted = _m1_surface_arrangement(entries)
+            m1_faces.extend(faces)
+            inserted_stations += inserted
+            continue
         polygons, inserted = _insert_surface_edge_stations(
             [entry[1].points for entry in entries], tolerance
         )
         inserted_stations += inserted
-        domain = entries[0][1].surface.domain
         if domain.kind == "INTRINSIC":
             polygons, inserted = _insert_intrinsic_triangle_stations(
                 polygons, domain, tolerance
@@ -5545,11 +6233,13 @@ def _build_decal_arrangement(pending, tolerance):
                 points=tuple(polygon),
                 crop=pending_face.crop,
             )
-    return DecalArrangement(
-        faces=tuple(
+    faces = tuple(m1_faces) + tuple(
             arranged_by_index[index] for index in sorted(arranged_by_index)
-        ),
-        inserted_stations=inserted_stations,
+        )
+    faces, atlas_inserted = _m1_insert_atlas_transition_stations(faces)
+    return DecalArrangement(
+        faces=faces,
+        inserted_stations=inserted_stations + atlas_inserted,
     )
 
 
@@ -5583,6 +6273,18 @@ def _domain_location_key(surface, location):
         return (
             "pv",
             surface.patch_id,
+            round(location.uv[0] / quantum),
+            round(location.uv[1] / quantum),
+        )
+    if (
+        surface.domain.admission_tier == "APPROXIMATE"
+        and location.transition_key is None
+    ):
+        quantum = max(float(surface.diagram_transform.quantum), 1e-10)
+        return (
+            "m1",
+            surface.patch_id,
+            location.chart_id,
             round(location.uv[0] / quantum),
             round(location.uv[1] / quantum),
         )
@@ -5630,7 +6332,10 @@ def _position_and_key(
     else:
         distance, t = projection
     spine_eps = max(DECAL_WELD_DISTANCE * 0.25, site.segment_length * 1e-7)
-    if distance <= spine_eps:
+    if (
+        distance <= spine_eps
+        and surface.domain.admission_tier != "APPROXIMATE"
+    ):
         endpoint_eps = max(
             site.segment_length * 1e-6,
             min(DECAL_WELD_DISTANCE, site.segment_length * 0.01),
@@ -6719,7 +7424,7 @@ def evaluate_patch_voronoi_plan(
         u_fracs = []
         v_lengths = []
         used_keys = set()
-        for point in component:
+        for point_index, point in enumerate(component):
             resolved = _resolve_arrangement_point(
                 plan,
                 surface,
@@ -6731,16 +7436,21 @@ def evaluate_patch_voronoi_plan(
             position = resolved.position_zero.lerp(
                 resolved.position_full, lift_fraction
             )
+            vert_key = (
+                pending_face.point_keys[point_index]
+                if len(pending_face.point_keys) == len(component)
+                else resolved.vert_key
+            )
             # Triangle boundaries и pyvoronoi endpoint-cells могут
             # дать две почти одинаковые 2D точки, которые после
             # conformal lift закономерно становятся одной вершиной.
-            if resolved.vert_key in used_keys:
+            if vert_key in used_keys:
                 continue
-            used_keys.add(resolved.vert_key)
+            used_keys.add(vert_key)
             _distance, t = _segment_point_distance2(
                 site.point_a, site.point_b, point
             )
-            vert_keys.append(resolved.vert_key)
+            vert_keys.append(vert_key)
             positions.append(position)
             component_uv = _crop_component_uv(crop, point)
             if component_uv is None:

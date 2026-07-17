@@ -1,8 +1,4 @@
-from dataclasses import replace
-
 import pytest
-
-import cftuv.decal_voronoi as decal_voronoi
 
 from cftuv.decal_atlas import build_intrinsic_strip_atlas
 from cftuv.decal_chart_admission import (
@@ -210,19 +206,7 @@ def _edge_component_stats(faces):
     )
 
 
-@pytest.mark.xfail(strict=True, reason="E4 M1 arrangement pending")
-def test_e4_m1_sphere_is_single_cover_and_edge_connected(monkeypatch):
-    original_admit = decal_voronoi.admit_intrinsic_strip_runtime
-
-    def materialization_probe(*args, **kwargs):
-        admitted = original_admit(*args, **kwargs)
-        return replace(admitted, admission_tier="EXACT")
-
-    monkeypatch.setattr(
-        decal_voronoi,
-        "admit_intrinsic_strip_runtime",
-        materialization_probe,
-    )
+def test_e4_m1_sphere_is_single_cover_and_edge_connected():
     node, seeds, alpha = sphere_cap_fixture()
     graph = PatchGraph()
     graph.add_node(node)
@@ -232,7 +216,14 @@ def test_e4_m1_sphere_is_single_cover_and_edge_connected(monkeypatch):
         offset=0.01,
         alpha_budget=alpha,
     )
-    faces = evaluate_patch_voronoi_plan(plan, width=0.5, preview=True)
-    component_count, overfull_count = _edge_component_stats(faces)
-    assert overfull_count == 0
-    assert component_count == 1
+    previous_component_count = None
+    for width in (0.5, 1.0, 2.0):
+        faces = evaluate_patch_voronoi_plan(
+            plan, width=width, preview=True
+        )
+        component_count, overfull_count = _edge_component_stats(faces)
+        assert overfull_count == 0
+        assert component_count == 1
+        if previous_component_count is not None:
+            assert component_count <= previous_component_count
+        previous_component_count = component_count
