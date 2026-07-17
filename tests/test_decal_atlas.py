@@ -1,3 +1,5 @@
+from fractions import Fraction
+
 import pytest
 
 from cftuv.decal_atlas import build_intrinsic_strip_atlas
@@ -12,6 +14,7 @@ from cftuv.decal_charts import (
     unroll_intrinsic_strip_chart,
 )
 from cftuv.decal_voronoi import (
+    _m1_collinear_overlap,
     PatchVoronoiDiagnostics,
     compile_patch_voronoi_attempt,
     compile_patch_voronoi_plan,
@@ -36,6 +39,29 @@ def _unrolled(fixture):
     chart = build_intrinsic_strip_charts(node, seeds, alpha)[0]
     return unroll_intrinsic_strip_chart(
         _prepare_disk_topology(chart), edge_relative_tolerance=1e-5
+    )
+
+
+def test_e4_collinear_extent_distinguishes_disjoint_and_partial_overlap():
+    edge_a = (Fraction(0), Fraction(0))
+    edge_b = (Fraction(10), Fraction(0))
+
+    assert _m1_collinear_overlap(
+        (Fraction(20), Fraction(0)),
+        (Fraction(30), Fraction(0)),
+        edge_a,
+        edge_b,
+    ) is None
+    assert _m1_collinear_overlap(
+        (Fraction(-5), Fraction(0)),
+        (Fraction(5), Fraction(0)),
+        edge_a,
+        edge_b,
+    ) == (
+        Fraction(1, 2),
+        Fraction(1),
+        Fraction(0),
+        Fraction(1, 2),
     )
 
 

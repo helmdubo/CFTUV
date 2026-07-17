@@ -5657,6 +5657,44 @@ def _m1_exact_segment_intersection(first, second, edge_a, edge_b):
     return segment_factor, edge_factor, point
 
 
+def _m1_collinear_overlap(first, second, edge_a, edge_b):
+    """Exact extent overlap двух уже известных collinear segments.
+
+    Возвращает факторы границ overlap одновременно на локальной кривой и
+    каноническом transition. Совпадение бесконечных прямых без общего extent
+    возвращает ``None`` и не даёт права удалять локальную кривую.
+    """
+
+    edge_direction = (edge_b[0] - edge_a[0], edge_b[1] - edge_a[1])
+    if edge_direction == (0, 0) or first == second:
+        return None
+    axis = 0 if abs(edge_direction[0]) >= abs(edge_direction[1]) else 1
+    edge_delta = edge_direction[axis]
+    first_edge_factor = (first[axis] - edge_a[axis]) / edge_delta
+    second_edge_factor = (second[axis] - edge_a[axis]) / edge_delta
+    edge_start = max(Fraction(0), min(first_edge_factor, second_edge_factor))
+    edge_end = min(Fraction(1), max(first_edge_factor, second_edge_factor))
+    if edge_start > edge_end:
+        return None
+
+    segment_delta = second[axis] - first[axis]
+    if segment_delta == 0:
+        return None
+
+    def segment_factor(edge_factor):
+        coordinate = edge_a[axis] + edge_delta * edge_factor
+        return (coordinate - first[axis]) / segment_delta
+
+    segment_start = segment_factor(edge_start)
+    segment_end = segment_factor(edge_end)
+    return (
+        min(segment_start, segment_end),
+        max(segment_start, segment_end),
+        edge_start,
+        edge_end,
+    )
+
+
 def _m1_build_transition_contract(groups):
     """T1/T2: single-source 1D station set до локальных arrangements."""
 
@@ -5708,7 +5746,20 @@ def _m1_build_transition_contract(groups):
                 hit = _m1_exact_segment_intersection(
                     lattice_first, lattice_second, edge_a, edge_b
                 )
-                if hit is None or hit == "COLLINEAR":
+                if hit is None:
+                    continue
+                if hit == "COLLINEAR":
+                    overlap = _m1_collinear_overlap(
+                        lattice_first, lattice_second, edge_a, edge_b
+                    )
+                    if overlap is not None:
+                        for edge_factor in overlap[2:]:
+                            station = round(
+                                float(edge_factor) * station_extent
+                            )
+                            stations.add(
+                                max(0, min(station_extent, station))
+                            )
                     continue
                 station = round(float(hit[1]) * station_extent)
                 stations.add(max(0, min(station_extent, station)))
@@ -5802,7 +5853,20 @@ def _m1_build_transition_contract(groups):
                 hit = _m1_exact_segment_intersection(
                     lattice_first, lattice_second, edge_a, edge_b
                 )
-                if hit is None or hit == "COLLINEAR":
+                if hit is None:
+                    continue
+                if hit == "COLLINEAR":
+                    overlap = _m1_collinear_overlap(
+                        lattice_first, lattice_second, edge_a, edge_b
+                    )
+                    if overlap is not None:
+                        for edge_factor in overlap[2:]:
+                            station = round(
+                                float(edge_factor) * station_extent
+                            )
+                            stations.add(
+                                max(0, min(station_extent, station))
+                            )
                     continue
                 _segment_factor, edge_factor, _point = hit
                 station = round(float(edge_factor) * station_extent)
@@ -6044,7 +6108,7 @@ def _m1_surface_arrangement(entries, transition_sides=()):
 
     def conformed_path(first, second):
         replacements = {Fraction(0): first, Fraction(1): second}
-        lies_on_transition = False
+        covered_intervals = []
         for side, edge_a, edge_b, station_points in transition_records:
             edge_direction = (
                 edge_b[0] - edge_a[0], edge_b[1] - edge_a[1]
@@ -6093,33 +6157,60 @@ def _m1_surface_arrangement(entries, transition_sides=()):
             if hit is None:
                 continue
             if hit == "COLLINEAR":
-                lies_on_transition = True
+                overlap = _m1_collinear_overlap(
+                    first, second, edge_a, edge_b
+                )
+                if overlap is None:
+                    continue
+                (
+                    segment_start,
+                    segment_end,
+                    edge_start,
+                    edge_end,
+                ) = overlap
                 direction = (
                     second[0] - first[0], second[1] - first[1]
                 )
-                for station_point in station_points.values():
-                    if (
-                        min(first[0], second[0])
-                        <= station_point[0]
-                        <= max(first[0], second[0])
-                        and min(first[1], second[1])
-                        <= station_point[1]
-                        <= max(first[1], second[1])
-                    ):
-                        if abs(direction[0]) >= abs(direction[1]):
-                            if direction[0] == 0:
-                                continue
-                            factor = (
-                                station_point[0] - first[0]
-                            ) / direction[0]
-                        else:
-                            if direction[1] == 0:
-                                continue
-                            factor = (
-                                station_point[1] - first[1]
-                            ) / direction[1]
-                        if 0 <= factor <= 1:
-                            replacements[factor] = station_point
+                for edge_factor in (edge_start, edge_end):
+                    declared_station = round(
+                        float(edge_factor) * side.station_extent
+                    )
+                    station = min(
+                        side.stations,
+                        key=lambda value: (
+                            abs(value - declared_station), value
+                        ),
+                    )
+                    if abs(station - declared_station) > 1:
+                        raise ValueError(
+                            "ATLAS_TRANSITION_DESYNC: undeclared "
+                            "collinear endpoint"
+                        )
+                    canonical_point = station_points[station]
+                    factor = (
+                        (canonical_point[0] - first[0]) / direction[0]
+                        if abs(direction[0]) >= abs(direction[1])
+                        else (canonical_point[1] - first[1]) / direction[1]
+                    )
+                    if 0 <= factor <= 1:
+                        replacements[factor] = canonical_point
+                for station, station_point in station_points.items():
+                    station_factor = Fraction(
+                        station, side.station_extent
+                    )
+                    if not edge_start <= station_factor <= edge_end:
+                        continue
+                    factor = (
+                        (station_point[0] - first[0]) / direction[0]
+                        if abs(direction[0]) >= abs(direction[1])
+                        else (station_point[1] - first[1]) / direction[1]
+                    )
+                    if 0 <= factor <= 1:
+                        replacements[factor] = station_point
+                if segment_start < segment_end:
+                    covered_intervals.append(
+                        (segment_start, segment_end)
+                    )
                 continue
             segment_factor, edge_factor, _point = hit
             declared_station = round(
@@ -6144,23 +6235,23 @@ def _m1_surface_arrangement(entries, transition_sides=()):
                         "ATLAS_TRANSITION_DESYNC: endpoint shift exceeds quantum"
                     )
             replacements[segment_factor] = canonical_point
-        ordered_points = tuple(
-            point for _factor, point in sorted(replacements.items())
-        )
-        return ordered_points, lies_on_transition
+        return tuple(sorted(replacements.items())), tuple(covered_intervals)
 
     conformed_segments = []
     for first, second in raw_segments:
-        ordered_points, lies_on_transition = conformed_path(first, second)
-        if lies_on_transition:
-            continue
-        conformed_segments.extend(
-            (first_point, second_point)
-            for first_point, second_point in zip(
-                ordered_points, ordered_points[1:]
-            )
-            if first_point != second_point
-        )
+        ordered_path, covered_intervals = conformed_path(first, second)
+        for (first_factor, first_point), (
+            second_factor,
+            second_point,
+        ) in zip(ordered_path, ordered_path[1:]):
+            midpoint_factor = (first_factor + second_factor) / 2
+            if any(
+                start <= midpoint_factor <= end
+                for start, end in covered_intervals
+            ):
+                continue
+            if first_point != second_point:
+                conformed_segments.append((first_point, second_point))
 
     original_predicates = dict(predicates)
     conformed_predicates = {}
@@ -6168,7 +6259,8 @@ def _m1_surface_arrangement(entries, transition_sides=()):
         polygon = []
         for index, first in enumerate(crop_keys):
             second = crop_keys[(index + 1) % len(crop_keys)]
-            path, _lies_on_transition = conformed_path(first, second)
+            ordered_path, _covered_intervals = conformed_path(first, second)
+            path = tuple(point for _factor, point in ordered_path)
             if not polygon:
                 polygon.extend(path)
             elif polygon[-1] == path[0]:
