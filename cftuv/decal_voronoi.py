@@ -951,6 +951,10 @@ class PatchVoronoiDiagnostics:
     max_width_error_sampled: float = 0.0
     max_station_normal_variation: float = 0.0
     foldover_count: int = 0
+    atlas_sliver_owner_count: int = 0
+    atlas_no_owner_drop_count: int = 0
+    atlas_touch_no_token_drop_count: int = 0
+    atlas_single_side_drop_count: int = 0
     runtime_policy_counts: dict[str, int] = field(default_factory=dict)
     reference_full_scan: bool = False
 
@@ -996,6 +1000,18 @@ class PatchVoronoiDiagnostics:
                 self.max_station_normal_variation
             ),
             "foldover_count": int(self.foldover_count),
+            "atlas_sliver_owner_count": int(
+                self.atlas_sliver_owner_count
+            ),
+            "atlas_no_owner_drop_count": int(
+                self.atlas_no_owner_drop_count
+            ),
+            "atlas_touch_no_token_drop_count": int(
+                self.atlas_touch_no_token_drop_count
+            ),
+            "atlas_single_side_drop_count": int(
+                self.atlas_single_side_drop_count
+            ),
             "runtime_policy_counts": dict(
                 sorted(self.runtime_policy_counts.items())
             ),
@@ -1139,6 +1155,7 @@ class _M1TransitionSide:
     stations: tuple[int, ...]
     interior_sign: int
     interval_owners: tuple[tuple[int, int, object | None], ...]
+    single_declared_side: bool = False
 
 
 @dataclass(frozen=True)
@@ -5802,6 +5819,7 @@ def _m1_build_transition_contract(groups):
                             ordered_stations, ordered_stations[1:]
                         )
                     ),
+                    single_declared_side=True,
                 )
             )
             continue
@@ -6005,7 +6023,7 @@ def _m1_build_transition_contract(groups):
     }
 
 
-def _m1_surface_arrangement(entries, transition_sides=()):
+def _m1_surface_arrangement(entries, transition_sides=(), diagnostics=None):
     """E4: exact rational half-edge arrangement на B0 integer lattice."""
 
     surface = entries[0][1].surface
@@ -6472,9 +6490,20 @@ def _m1_surface_arrangement(entries, transition_sides=()):
         exact_representative = _m1_representative_point(cycle)
         polygon = tuple(output_point(point) for point in cycle)
         representative = _m1_representative_point(polygon)
+
+        def has_source_owner_at_representative():
+            return any(
+                _m1_point_in_polygon(
+                    exact_representative, original_crop
+                )
+                for _index, _face, _crop, original_crop
+                in ordered_predicates
+            )
+
         wrong_transition_side = False
         boundary_owner_tokens = set()
         touches_canonical_transition = False
+        touched_transition_sides = []
         for side, edge_a, edge_b, _station_points in transition_records:
             transition_orientations = []
             point_stations = {
@@ -6515,12 +6544,16 @@ def _m1_surface_arrangement(entries, transition_sides=()):
                     interval = tuple(
                         sorted((first_station, second_station))
                     )
-                    boundary_owner_tokens.add(
-                        interval_owner_by_key.get(interval)
+                    boundary_owner_tokens.update(
+                        owner
+                        for (start, end), owner
+                        in interval_owner_by_key.items()
+                        if interval[0] <= start < end <= interval[1]
                     )
             if not transition_orientations:
                 continue
             touches_canonical_transition = True
+            touched_transition_sides.append(side)
             if any(
                 orientation != side.interior_sign
                 for orientation in transition_orientations
@@ -6531,7 +6564,17 @@ def _m1_surface_arrangement(entries, transition_sides=()):
             continue
         boundary_owner_tokens.discard(None)
         if touches_canonical_transition and not boundary_owner_tokens:
-            continue
+            if not has_source_owner_at_representative():
+                # Margin/site-image fragment без локальной материи.
+                if diagnostics is not None:
+                    if any(
+                        side.single_declared_side
+                        for side in touched_transition_sides
+                    ):
+                        diagnostics.atlas_single_side_drop_count += 1
+                    else:
+                        diagnostics.atlas_touch_no_token_drop_count += 1
+                continue
         has_boundary_owner = bool(boundary_owner_tokens)
         locations = tuple(
             surface.domain.locate(point) for point in polygon
@@ -6644,6 +6687,8 @@ def _m1_surface_arrangement(entries, transition_sides=()):
                 )
             if sliver_owners:
                 sliver_owner = min(sliver_owners)
+                if diagnostics is not None:
+                    diagnostics.atlas_sliver_owner_count += 1
                 owners.append(
                     (
                         sliver_owner[1],
@@ -6672,6 +6717,11 @@ def _m1_surface_arrangement(entries, transition_sides=()):
                     f"owners={tuple(sorted(boundary_owner_tokens))!r} "
                     f"available={available_tokens!r}"
                 )
+            if (
+                diagnostics is not None
+                and has_source_owner_at_representative()
+            ):
+                diagnostics.atlas_no_owner_drop_count += 1
             continue
         owner = min(owners)[-1]
         arranged.append(
@@ -6758,7 +6808,7 @@ def _m1_atlas_transition_segments(domain):
     return result
 
 
-def _build_decal_arrangement(pending, tolerance):
+def _build_decal_arrangement(pending, tolerance, diagnostics=None):
     """Создаёт conforming subdivision отдельно на каждом owner surface."""
 
     grouped = {}
@@ -6781,7 +6831,9 @@ def _build_decal_arrangement(pending, tolerance):
         domain = entries[0][1].surface.domain
         if domain.admission_tier == "APPROXIMATE":
             faces, inserted = _m1_surface_arrangement(
-                entries, transition_contract.get(id(domain), ())
+                entries,
+                transition_contract.get(id(domain), ()),
+                diagnostics,
             )
             m1_faces.extend(faces)
             inserted_stations += inserted
@@ -6807,9 +6859,6 @@ def _build_decal_arrangement(pending, tolerance):
                 points=tuple(polygon),
                 crop=pending_face.crop,
             )
-    faces = tuple(m1_faces) + tuple(
-        arranged_by_index[index] for index in sorted(arranged_by_index)
-    )
     transition_ids_by_source_vertex = {}
     for sides in transition_contract.values():
         for side in sides:
@@ -6833,6 +6882,10 @@ def _build_decal_arrangement(pending, tolerance):
                 int(point_key[1]), set()
             )
         return set()
+
+    faces = tuple(m1_faces) + tuple(
+        arranged_by_index[index] for index in sorted(arranged_by_index)
+    )
 
     transition_edge_owners = {}
     for face in m1_faces:
@@ -7637,18 +7690,24 @@ def _append_pending_fragments(
 ):
     """Сваривает fragments одного semantic owner до materialization."""
 
-    # Final BMesh weld намеренно крупнее, но применять его здесь нельзя:
-    # близкие curve/domain stations несут разную topology. Их преждевременное
-    # схлопывание создаёт ложный T-junction, после которого area-safe fallback
-    # сохраняет дырки закрытыми, но отпечатывает source triangulation.
-    components = _merge_polygon_fragments(
-        fragments,
-        tolerance=_FRAGMENT_TOPOLOGY_TOLERANCE,
-        diagnostics=diagnostics,
-        normalize_t_junctions=bool(
-            getattr(getattr(surface, "domain", None), "periodic_axis", "")
-        ),
-    )
+    if surface.domain.admission_tier == "APPROXIMATE":
+        # M1 сам строит exact arrangement из compile atoms, domain edges и
+        # crop predicates. Legacy clip/subtract fragments он не читает, поэтому
+        # их вычисление и merge здесь только дублировали дорогую работу.
+        components = [list(crop.points)]
+    else:
+        # Final BMesh weld намеренно крупнее, но применять его здесь нельзя:
+        # близкие curve/domain stations несут разную topology. Их преждевременное
+        # схлопывание создаёт ложный T-junction, после которого area-safe fallback
+        # сохраняет дырки закрытыми, но отпечатывает source triangulation.
+        components = _merge_polygon_fragments(
+            fragments,
+            tolerance=_FRAGMENT_TOPOLOGY_TOLERANCE,
+            diagnostics=diagnostics,
+            normalize_t_junctions=bool(
+                getattr(getattr(surface, "domain", None), "periodic_axis", "")
+            ),
+        )
     for component in components:
         # _merge_polygon_fragments уже возвращает deduped валидные contours;
         # повторный distance/area pass на каждом runtime crop был лишним.
@@ -7921,14 +7980,17 @@ def _evaluate_surface_crops(
                 if not atoms:
                     continue
                 image_crop = _translated_crop_u(crop, image_offset)
-                fragments = []
-                for atom in atoms:
-                    for fragment in atom.fragments:
-                        clipped = _clip_to_convex(
-                            fragment, image_crop.points
-                        )
-                        if clipped:
-                            fragments.append(clipped)
+                if surface.domain.admission_tier == "APPROXIMATE":
+                    fragments = (image_crop.points,)
+                else:
+                    fragments = []
+                    for atom in atoms:
+                        for fragment in atom.fragments:
+                            clipped = _clip_to_convex(
+                                fragment, image_crop.points
+                            )
+                            if clipped:
+                                fragments.append(clipped)
                 image_site = _translated_site_u(
                     _corner_site_view(
                         surface, corner, owner_site_index
@@ -7967,22 +8029,25 @@ def _evaluate_surface_crops(
                 atom.site_index, ()
             )
         )
-        for fragment in atom.fragments:
-            clipped = _clip_to_convex(fragment, crop.points)
-            if not clipped:
-                continue
-            pieces = [clipped]
-            for corner_crop in subtraction_crops:
-                pieces = [
-                    outside
-                    for piece in pieces
-                    for outside in _subtract_convex_polygon(
-                        piece, corner_crop.points
-                    )
-                ]
-                if not pieces:
-                    break
-            fragments.extend(pieces)
+        if surface.domain.admission_tier == "APPROXIMATE":
+            fragments = (crop.points,)
+        else:
+            for fragment in atom.fragments:
+                clipped = _clip_to_convex(fragment, crop.points)
+                if not clipped:
+                    continue
+                pieces = [clipped]
+                for corner_crop in subtraction_crops:
+                    pieces = [
+                        outside
+                        for piece in pieces
+                        for outside in _subtract_convex_polygon(
+                            piece, corner_crop.points
+                        )
+                    ]
+                    if not pieces:
+                        break
+                fragments.extend(pieces)
         _append_pending_fragments(
             pending, surface, site, crop, fragments, diagnostics
         )
@@ -8002,6 +8067,10 @@ def evaluate_patch_voronoi_plan(
         diagnostics.runtime_policy_counts.clear()
         diagnostics.periodic_weld_count = 0
         diagnostics.interior_weld_count = 0
+        diagnostics.atlas_sliver_owner_count = 0
+        diagnostics.atlas_no_owner_drop_count = 0
+        diagnostics.atlas_touch_no_token_drop_count = 0
+        diagnostics.atlas_single_side_drop_count = 0
     alpha = max(1e-6, float(width) * 0.5)
     # Проверка выполняется до crop/arrangement: excess frame не имеет
     # geometry side effects и modal может оставить последний valid preview.
@@ -8029,6 +8098,7 @@ def evaluate_patch_voronoi_plan(
     arrangement = _build_decal_arrangement(
         pending,
         tolerance=max(1e-8, DECAL_WELD_DISTANCE * 0.5),
+        diagnostics=diagnostics,
     )
     pending = arrangement.faces
     desired_lift_scale = lift_scale

@@ -1,7 +1,9 @@
 from fractions import Fraction
+from types import SimpleNamespace
 
 import pytest
 
+import cftuv.decal_voronoi as decal_voronoi_module
 from cftuv.decal_atlas import build_intrinsic_strip_atlas
 from cftuv.decal_chart_admission import (
     _prepare_disk_topology,
@@ -63,6 +65,33 @@ def test_e4_collinear_extent_distinguishes_disjoint_and_partial_overlap():
         Fraction(0),
         Fraction(1, 2),
     )
+
+
+def test_e4_t_contract_rejects_missing_canonical_owner(monkeypatch):
+    transition_key = (
+        "atlas-transition",
+        "fixture",
+        (10, 11),
+        99,
+    )
+    segment = ((0.0, 0.0), (1.0, 0.0))
+    monkeypatch.setattr(
+        decal_voronoi_module,
+        "_m1_atlas_transition_segments",
+        lambda _domain: {((transition_key), "fixture"): segment},
+    )
+    groups = []
+    for chart_id in (1, 2):
+        surface = SimpleNamespace(
+            domain=SimpleNamespace(
+                admission_tier="APPROXIMATE",
+                chart_id=chart_id,
+            )
+        )
+        groups.append(((0, SimpleNamespace(surface=surface)),))
+
+    with pytest.raises(ValueError, match="ATLAS_TRANSITION_DESYNC"):
+        decal_voronoi_module._m1_build_transition_contract(groups)
 
 
 def test_e3_saddle_atlas_is_locally_injective_and_owns_each_triangle_once():
@@ -199,12 +228,22 @@ def test_e3_public_saddle_materializes_through_t_contract():
     assert attempt.rejected_edge_indices == ()
     assert attempt.failures == ()
     for width in (0.25, 0.5, 1.0):
+        diagnostics = PatchVoronoiDiagnostics()
         faces = evaluate_patch_voronoi_plan(
-            attempt.plan, width=width, preview=True
+            attempt.plan,
+            width=width,
+            preview=True,
+            diagnostics=diagnostics,
         )
         component_count, overfull_count = _edge_component_stats(faces)
         assert component_count == 1
         assert overfull_count == 0
+        assert diagnostics.atlas_sliver_owner_count > 0
+        assert diagnostics.atlas_no_owner_drop_count == 0
+        assert (
+            diagnostics.atlas_touch_no_token_drop_count
+            + diagnostics.atlas_single_side_drop_count
+        ) > 0
 
 
 def _edge_component_stats(faces):
