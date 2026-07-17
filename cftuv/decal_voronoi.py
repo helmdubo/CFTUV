@@ -34,7 +34,11 @@ from .decal_diagram import (
     DiagramTransformError,
     build_diagram_transform,
 )
-from .decal_chart_admission import admit_intrinsic_strip_charts
+from .decal_chart_admission import (
+    admit_intrinsic_strip_atlas,
+    admit_intrinsic_strip_charts,
+)
+from .decal_atlas import IntrinsicStripAtlas
 from .decal_charts import (
     ChartBuildFailure,
     ChartCut,
@@ -897,6 +901,11 @@ class PatchVoronoiDiagnostics:
     apex_limit_saturated_count: int = 0
     periodic_copy_count: int = 0
     periodic_weld_count: int = 0
+    atlas_chart_count: int = 0
+    atlas_site_image_count: int = 0
+    interior_transition_count: int = 0
+    interior_weld_count: int = 0
+    atlas_unresolved_overlap_count: int = 0
     max_width_error_sampled: float = 0.0
     max_station_normal_variation: float = 0.0
     foldover_count: int = 0
@@ -927,6 +936,15 @@ class PatchVoronoiDiagnostics:
             ),
             "periodic_copy_count": int(self.periodic_copy_count),
             "periodic_weld_count": int(self.periodic_weld_count),
+            "atlas_chart_count": int(self.atlas_chart_count),
+            "atlas_site_image_count": int(self.atlas_site_image_count),
+            "interior_transition_count": int(
+                self.interior_transition_count
+            ),
+            "interior_weld_count": int(self.interior_weld_count),
+            "atlas_unresolved_overlap_count": int(
+                self.atlas_unresolved_overlap_count
+            ),
             "max_width_error_sampled": float(
                 self.max_width_error_sampled
             ),
@@ -3864,6 +3882,7 @@ def _compile_surface(
     chart_id=0,
     intrinsic_alpha_budget=float("inf"),
     intrinsic_chart=None,
+    required_site_edge_indices=None,
 ):
     origin = node.centroid.copy()
     normal = node.normal.normalized()
@@ -4057,6 +4076,20 @@ def _compile_surface(
         periodic_axis=periodic_axis,
         period=periodic_period,
     )
+    required_edges = (
+        {site.edge_index for site in sites}
+        if required_site_edge_indices is None
+        else {int(edge_index) for edge_index in required_site_edge_indices}
+    )
+    if required_site_edge_indices is not None:
+        compiled_corners = tuple(
+            corner
+            for corner in compiled_corners
+            if any(
+                classification_sites[site_index].edge_index in required_edges
+                for site_index in corner.incident_sites
+            )
+        )
     corners = tuple(
         replace(
             corner,
@@ -4333,7 +4366,9 @@ def _compile_surface(
         atom.site_index for atom in atoms if atom.cell_kind == "SEGMENT"
     }
     missing_segment_sites = tuple(
-        index for index in range(len(sites)) if index not in segment_site_indices
+        index
+        for index, site in enumerate(sites)
+        if site.edge_index in required_edges and index not in segment_site_indices
     )
     if missing_segment_sites:
         raise _PatchVoronoiSurfaceCompileError(
@@ -4676,6 +4711,198 @@ def _compile_intrinsic_surface(node, chart, raw_sites, diagnostics=None):
     )
 
 
+def _affine_inverse(transform):
+    cosine, sine, tx, ty = transform
+    return (
+        cosine,
+        -sine,
+        -(cosine * tx + sine * ty),
+        sine * tx - cosine * ty,
+    )
+
+
+def _affine_compose(second, first):
+    """Возвращает transform second(first(point))."""
+
+    ac, ass, atx, aty = first
+    bc, bs, btx, bty = second
+    return (
+        bc * ac - bs * ass,
+        bs * ac + bc * ass,
+        bc * atx - bs * aty + btx,
+        bs * atx + bc * aty + bty,
+    )
+
+
+def _affine_point(transform, point):
+    cosine, sine, tx, ty = transform
+    return (
+        cosine * point[0] - sine * point[1] + tx,
+        sine * point[0] + cosine * point[1] + ty,
+    )
+
+
+def _atlas_transforms_from(atlas, owner_chart_id):
+    """Каноническое spanning-tree transport без повторного holonomy solve."""
+
+    graph = {chart.chart_id: [] for chart in atlas.charts}
+    for transition in atlas.transitions:
+        forward = (
+            transition.rotation_cos,
+            transition.rotation_sin,
+            transition.translation[0],
+            transition.translation[1],
+        )
+        graph[transition.owner_chart_id].append(
+            (transition.neighbor_chart_id, transition.transition_key, forward)
+        )
+        graph[transition.neighbor_chart_id].append(
+            (
+                transition.owner_chart_id,
+                transition.transition_key,
+                _affine_inverse(forward),
+            )
+        )
+    identity = (1.0, 0.0, 0.0, 0.0)
+    result = {owner_chart_id: identity}
+    queue = [owner_chart_id]
+    while queue:
+        current = queue.pop(0)
+        for neighbor, key, transform in sorted(
+            graph[current], key=lambda item: (item[0], repr(item[1]))
+        ):
+            if neighbor in result:
+                continue
+            result[neighbor] = _affine_compose(transform, result[current])
+            queue.append(neighbor)
+    if len(result) != len(graph):
+        raise _PatchVoronoiSurfaceCompileError(
+            "DISCONNECTED_ATLAS", (), f"owner_chart={owner_chart_id}"
+        )
+    return result
+
+
+def _atlas_vertex_owner(atlas, vertex_id):
+    candidates = []
+    for chart in atlas.charts:
+        for triangle in chart.triangles:
+            if vertex_id not in triangle.source_vertex_ids:
+                continue
+            points = dict(zip(triangle.source_vertex_ids, triangle.chart_points))
+            candidates.append(
+                (
+                    chart.chart_id,
+                    triangle.triangle_id,
+                    points[vertex_id],
+                )
+            )
+    if not candidates:
+        raise _PatchVoronoiSurfaceCompileError(
+            "SITE_OUTSIDE_INTRINSIC_ATLAS",
+            (),
+            f"source_vertex={vertex_id!r}",
+        )
+    return min(candidates, key=lambda item: (item[0], item[1]))
+
+
+def _compile_intrinsic_atlas_surfaces(
+    node, atlas, raw_sites, diagnostics=None
+):
+    """Компилирует atlas charts и R1 site images в их локальных frames."""
+
+    if diagnostics is not None:
+        diagnostics.atlas_chart_count += atlas.atlas_chart_count
+        diagnostics.interior_transition_count += (
+            atlas.interior_transition_count
+        )
+        diagnostics.atlas_unresolved_overlap_count += (
+            atlas.unresolved_overlap_count
+        )
+        diagnostics.max_width_error_sampled = max(
+            diagnostics.max_width_error_sampled,
+            atlas.metrics.max_width_error_sampled,
+        )
+        diagnostics.max_station_normal_variation = max(
+            diagnostics.max_station_normal_variation,
+            atlas.metrics.max_station_normal_variation,
+        )
+        diagnostics.foldover_count += atlas.metrics.foldover_count
+
+    vertex_ids = {
+        int(raw[key]) for raw in raw_sites for key in ("vert_a", "vert_b")
+    }
+    owner_records = {
+        vertex_id: _atlas_vertex_owner(atlas, vertex_id)
+        for vertex_id in vertex_ids
+    }
+    transforms_by_owner = {
+        owner_chart_id: _atlas_transforms_from(atlas, owner_chart_id)
+        for owner_chart_id, _triangle_id, _point in owner_records.values()
+    }
+    surfaces = []
+    for chart in atlas.charts:
+        site_points = {}
+        native_edges = {seed.edge_index for seed in chart.site_seeds}
+        chart_points = tuple(
+            point for triangle in chart.triangles for point in triangle.chart_points
+        )
+        budget = float(chart.alpha_budget)
+        chart_bounds = (
+            min(point[0] for point in chart_points) - budget,
+            min(point[1] for point in chart_points) - budget,
+            max(point[0] for point in chart_points) + budget,
+            max(point[1] for point in chart_points) + budget,
+        )
+        chart_raw_sites = []
+        for raw in raw_sites:
+            edge_index = int(raw["edge_index"])
+            endpoint_records = tuple(
+                owner_records[int(raw[key])] for key in ("vert_a", "vert_b")
+            )
+            points = tuple(
+                _affine_point(
+                    transforms_by_owner[owner_chart_id][chart.chart_id],
+                    point,
+                )
+                for owner_chart_id, _triangle_id, point in endpoint_records
+            )
+            site_min_x = min(point[0] for point in points)
+            site_max_x = max(point[0] for point in points)
+            site_min_y = min(point[1] for point in points)
+            site_max_y = max(point[1] for point in points)
+            if (
+                edge_index not in native_edges
+                and (
+                    site_max_x < chart_bounds[0]
+                    or site_min_x > chart_bounds[2]
+                    or site_max_y < chart_bounds[1]
+                    or site_min_y > chart_bounds[3]
+                )
+            ):
+                continue
+            site_points[edge_index] = points
+            chart_raw_sites.append(raw)
+            if diagnostics is not None and any(
+                owner_chart_id != chart.chart_id
+                for owner_chart_id, _triangle_id, _point in endpoint_records
+            ):
+                diagnostics.atlas_site_image_count += 1
+        surfaces.append(
+            _compile_surface(
+                node,
+                tuple(chart_raw_sites),
+                diagnostics,
+                intrinsic_triangles=_intrinsic_domain_triangles(chart),
+                intrinsic_site_points=site_points,
+                chart_id=chart.chart_id,
+                intrinsic_alpha_budget=chart.alpha_budget,
+                intrinsic_chart=chart,
+                required_site_edge_indices=native_edges,
+            )
+        )
+    return tuple(surfaces)
+
+
 def _fallback_chart_alpha_budget(node):
     """Конечный compile budget для diagnostic вызовов без runtime width."""
 
@@ -4803,10 +5030,23 @@ def compile_patch_voronoi_attempt(
                     chart_seeds,
                     alpha_budget=chart_budget,
                 )
-                charts = admit_intrinsic_strip_charts(
-                    charts,
-                    initial_alpha=chart_budget,
-                )
+                admitted = []
+                for chart in charts:
+                    try:
+                        admitted.append(
+                            admit_intrinsic_strip_charts(
+                                (chart,), initial_alpha=chart_budget
+                            )[0]
+                        )
+                    except ChartBuildFailure as exc:
+                        if exc.code != "CHART_SELF_OVERLAP":
+                            raise
+                        admitted.append(
+                            admit_intrinsic_strip_atlas(
+                                chart, initial_alpha=chart_budget
+                            )
+                        )
+                charts = tuple(admitted)
             except ChartBuildFailure as exc:
                 # Chart builder принимает patch-wide seed set. До того как
                 # charts успешно разделены, локализовать отказ уже одного
@@ -4836,11 +5076,15 @@ def compile_patch_voronoi_attempt(
             owner_surfaces = tuple(
                 (
                     node,
-                    tuple(
-                        raw
-                        for raw in patch_sites
-                        if int(raw["edge_index"])
-                        in {seed.edge_index for seed in chart.site_seeds}
+                    (
+                        tuple(patch_sites)
+                        if isinstance(chart, IntrinsicStripAtlas)
+                        else tuple(
+                            raw
+                            for raw in patch_sites
+                            if int(raw["edge_index"])
+                            in {seed.edge_index for seed in chart.site_seeds}
+                        )
                     ),
                     chart,
                 )
@@ -4849,15 +5093,24 @@ def compile_patch_voronoi_attempt(
         for owner_surface, owner_sites, intrinsic_chart in owner_surfaces:
             try:
                 if intrinsic_chart is None:
-                    surface = _compile_surface(
-                        owner_surface, owner_sites, diagnostics
+                    compiled_surfaces = (
+                        _compile_surface(owner_surface, owner_sites, diagnostics),
                     )
-                else:
-                    surface = _compile_intrinsic_surface(
+                elif isinstance(intrinsic_chart, IntrinsicStripAtlas):
+                    compiled_surfaces = _compile_intrinsic_atlas_surfaces(
                         owner_surface,
                         intrinsic_chart,
                         owner_sites,
                         diagnostics,
+                    )
+                else:
+                    compiled_surfaces = (
+                        _compile_intrinsic_surface(
+                            owner_surface,
+                            intrinsic_chart,
+                            owner_sites,
+                            diagnostics,
+                        ),
                     )
             except _PatchVoronoiSurfaceCompileError as exc:
                 edge_indices = exc.edge_indices or tuple(
@@ -4903,7 +5156,9 @@ def compile_patch_voronoi_attempt(
                         failures=tuple(failures),
                     )
                 continue
-            if surface is None:
+            if not compiled_surfaces or any(
+                surface is None for surface in compiled_surfaces
+            ):
                 edge_indices = tuple(
                     sorted(
                         {int(site["edge_index"]) for site in owner_sites}
@@ -4924,7 +5179,7 @@ def compile_patch_voronoi_attempt(
                         failures=tuple(failures),
                     )
                 continue
-            surfaces.append(surface)
+            surfaces.extend(compiled_surfaces)
     lifted_vertices = {
         vert_index: _lift_position(
             positions_by_vert[vert_index], normals, float(offset)
@@ -5481,6 +5736,28 @@ def _count_periodic_transition_welds(plan, resolved_points):
     return count
 
 
+def _count_atlas_transition_welds(plan, resolved_points):
+    """Считает equivalence stations, реально разделённые atlas charts."""
+
+    surfaces = {id(surface): surface for surface in plan.surfaces}
+    stations = {}
+    for cache_key, resolved in resolved_points.items():
+        transition_key = resolved.location.transition_key
+        if (
+            not isinstance(transition_key, tuple)
+            or transition_key[:1] != ("atlas-transition",)
+        ):
+            continue
+        stations.setdefault(
+            (_hashable_provenance(transition_key), resolved.vert_key), set()
+        ).add(cache_key[0])
+    return sum(
+        1
+        for surface_ids in stations.values()
+        if len({surfaces[value].domain.chart_id for value in surface_ids}) >= 2
+    )
+
+
 def _component_area_coefficients(
     plan,
     surface,
@@ -5532,7 +5809,7 @@ def _component_area_coefficients(
         sum(point[0] for point in component) / len(component),
         sum(point[1] for point in component) / len(component),
     )
-    normal = surface.domain.normal_at(centroid)
+    normal = _polygon_domain_normal(surface.domain, component, centroid)
     return (
         vector_qa.dot(normal) * 0.5,
         vector_qb.dot(normal) * 0.5,
@@ -6057,6 +6334,30 @@ def _corner_atom_image_offset(surface, corner, atom):
     )
 
 
+def _polygon_domain_normal(domain, component, centroid=None):
+    """Берёт normal из точки внутри domain даже для concave atlas contour."""
+
+    if centroid is None:
+        centroid = (
+            sum(point[0] for point in component) / len(component),
+            sum(point[1] for point in component) / len(component),
+        )
+    candidates = [centroid]
+    candidates.extend(component)
+    candidates.extend(
+        (
+            (first[0] + second[0]) * 0.5,
+            (first[1] + second[1]) * 0.5,
+        )
+        for first, second in zip(component, component[1:] + component[:1])
+    )
+    for point in candidates:
+        location = domain.locate(point)
+        if location is not None:
+            return domain.normal_at(point)
+    return domain.reference_normal.copy()
+
+
 def _evaluate_surface_crops(
     surface, alpha, pending, corner_settings, diagnostics=None
 ):
@@ -6315,6 +6616,7 @@ def evaluate_patch_voronoi_plan(
     if diagnostics is not None:
         diagnostics.runtime_policy_counts.clear()
         diagnostics.periodic_weld_count = 0
+        diagnostics.interior_weld_count = 0
     alpha = max(1e-6, float(width) * 0.5)
     # Проверка выполняется до crop/arrangement: excess frame не имеет
     # geometry side effects и modal может оставить последний valid preview.
@@ -6405,11 +6707,8 @@ def evaluate_patch_voronoi_plan(
         if face_identity in emitted_faces:
             continue
         emitted_faces.add(face_identity)
-        surface_normal = surface.domain.normal_at(
-            (
-                sum(point[0] for point in component) / len(component),
-                sum(point[1] for point in component) / len(component),
-            )
+        surface_normal = _polygon_domain_normal(
+            surface.domain, component
         )
         winding_normal = sum(
             (
@@ -6438,6 +6737,9 @@ def evaluate_patch_voronoi_plan(
     _synchronize_cross_surface_spine_stations(plan, faces)
     if diagnostics is not None:
         diagnostics.periodic_weld_count = _count_periodic_transition_welds(
+            plan, resolved_points
+        )
+        diagnostics.interior_weld_count = _count_atlas_transition_welds(
             plan, resolved_points
         )
     faces.extend(

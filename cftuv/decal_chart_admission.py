@@ -18,6 +18,7 @@ from .decal_charts import (
 )
 from .decal_diagram import DiagramTransformError, build_diagram_transform
 from .decal_chart_measurement import measure_chart_width
+from .decal_atlas import build_intrinsic_strip_atlas
 
 
 CHART_DISTORTION_BUDGET = 0.02
@@ -678,10 +679,59 @@ def admit_intrinsic_strip_charts(charts, *, initial_alpha=None):
     )
 
 
+def admit_intrinsic_strip_atlas(chart, *, initial_alpha=None):
+    """E3 admission: сохраняет strict numeric gates, заменяет только G2."""
+
+    prepared = _prepare_disk_topology(chart)
+    measured = unroll_intrinsic_strip_chart(
+        prepared,
+        edge_relative_tolerance=CHART_EDGE_RELATIVE_ERROR_LIMIT,
+    )
+    measured = replace(
+        measured,
+        metrics=replace(measured.metrics, **measure_chart_width(measured)),
+    )
+    metrics = measured.metrics
+    # EP1: плоский/developable self-overlap остаётся старым G2 reject.
+    # Atlas предназначен только для organic holonomy, доказанной ненулевым
+    # angle defect; он не становится общим обходом CHART_SELF_OVERLAP.
+    if metrics.discrete_angle_defect <= 1e-4:
+        raise ChartBuildFailure(
+            "CHART_SELF_OVERLAP",
+            measured.patch_id,
+            triangle_ids=measured.support_triangle_ids,
+        )
+    atlas = build_intrinsic_strip_atlas(measured)
+    normalization = _closure_normalization(measured, initial_alpha)
+    if (
+        metrics.discrete_angle_defect > CHART_DISTORTION_BUDGET
+        or metrics.max_loop_closure_residual
+        > CHART_DISTORTION_BUDGET * normalization
+    ):
+        raise ChartBuildFailure(
+            "NON_DEVELOPABLE_SUPPORT",
+            measured.patch_id,
+            triangle_ids=measured.support_triangle_ids,
+        )
+    if metrics.max_edge_error > CHART_EDGE_RELATIVE_ERROR_LIMIT:
+        raise ChartBuildFailure("CHART_NUMERIC_DISTORTION", measured.patch_id)
+    if (
+        abs(metrics.chart_area_source_area_ratio - 1.0)
+        > CHART_AREA_RATIO_ERROR_LIMIT
+    ):
+        raise ChartBuildFailure("CHART_NUMERIC_DISTORTION", measured.patch_id)
+    if any(item.metrics.triangle_overlap_count for item in atlas.charts):
+        raise ChartBuildFailure(
+            "ATLAS_INJECTIVITY_UNRESOLVED", measured.patch_id
+        )
+    return replace(atlas, metrics=metrics)
+
+
 __all__ = (
     "CHART_AREA_RATIO_ERROR_LIMIT",
     "CHART_DISTORTION_BUDGET",
     "CHART_EDGE_RELATIVE_ERROR_LIMIT",
     "admit_intrinsic_strip_chart",
     "admit_intrinsic_strip_charts",
+    "admit_intrinsic_strip_atlas",
 )

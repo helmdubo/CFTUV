@@ -1277,7 +1277,9 @@ def _triangles_overlap_area(first, second, tolerance):
     return True
 
 
-def _triangle_overlap_count(chart):
+def chart_triangle_overlap_pairs(chart):
+    """Детерминированные пары несмежных overlapping chart triangles."""
+
     adjacent_pairs = {
         (relation.triangle_a, relation.triangle_b)
         for relation in chart.adjacency
@@ -1285,7 +1287,7 @@ def _triangle_overlap_count(chart):
     triangles = tuple(chart.triangles)
     scale = max((_triangle_scale(triangle) for triangle in triangles), default=1.0)
     tolerance = max(1e-12, scale * 1e-10)
-    count = 0
+    pairs = []
     for first_index, first in enumerate(triangles):
         for second in triangles[first_index + 1 :]:
             pair = (first.triangle_id, second.triangle_id)
@@ -1294,8 +1296,12 @@ def _triangle_overlap_count(chart):
             if _triangles_overlap_area(
                 first.chart_points, second.chart_points, tolerance
             ):
-                count += 1
-    return count
+                pairs.append(pair)
+    return tuple(pairs)
+
+
+def _triangle_overlap_count(chart):
+    return len(chart_triangle_overlap_pairs(chart))
 
 
 def _chart_area_ratio(chart):
@@ -1447,6 +1453,7 @@ __all__ = (
     "build_intrinsic_strip_charts",
     "build_triangle_adjacency",
     "chart_site_seeds_from_chain",
+    "chart_triangle_overlap_pairs",
     "chart_triangles_from_patch",
     "unroll_intrinsic_strip_chart",
     "unroll_intrinsic_strip_charts",
