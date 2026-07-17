@@ -4876,20 +4876,16 @@ def compile_patch_voronoi_attempt(
                     )
     plan = None
     if surfaces:
+        intrinsic_budgets = tuple(
+            surface.domain.alpha_budget
+            for surface in surfaces
+            if surface.domain.kind == "INTRINSIC"
+        )
         actual_alpha_budget = (
-            requested_alpha_budget
-            if has_intrinsic_surface
+            min((requested_alpha_budget, *intrinsic_budgets))
+            if intrinsic_budgets
             else float("inf")
         )
-        if not isfinite(actual_alpha_budget):
-            actual_alpha_budget = max(
-                (
-                    surface.domain.alpha_budget
-                    for surface in surfaces
-                    if surface.domain.kind == "INTRINSIC"
-                ),
-                default=float("inf"),
-            )
         plan = PatchVoronoiPlan(
             offset=float(offset),
             surfaces=tuple(surfaces),

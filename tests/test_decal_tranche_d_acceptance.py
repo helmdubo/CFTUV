@@ -12,6 +12,7 @@ from cftuv.decal_charts import (
     build_intrinsic_strip_charts,
 )
 from cftuv.decal_voronoi import (
+    DomainBudgetExceeded,
     PatchVoronoiPlan,
     PatchVoronoiDiagnostics,
     _build_decal_arrangement,
@@ -379,6 +380,27 @@ def test_d4_6_half_period_saturates_without_gap_or_double_cover():
     assert serialize_network_faces(first) == serialize_network_faces(repeated)
     assert serialize_network_faces(first) == serialize_network_faces(confirmed)
     assert len({frozenset(face.vert_keys) for face in first}) == len(first)
+
+
+def test_d4_6_public_compile_enforces_periodic_half_period_budget():
+    graph, _node, ring_edges, _vertical_edges = _closed_tube_graph(8)
+    plan = compile_patch_voronoi_plan(
+        graph,
+        ring_edges,
+        offset=0.01,
+        alpha_budget=100.0,
+    )
+    period = plan.surfaces[0].domain.period
+
+    assert plan.alpha_budget == pytest.approx(period * 0.5)
+    evaluate_patch_voronoi_plan(plan, width=period, preview=True)
+    with pytest.raises(DomainBudgetExceeded) as captured:
+        evaluate_patch_voronoi_plan(
+            plan,
+            width=period * 1.01,
+            preview=True,
+        )
+    assert captured.value.code == "DOMAIN_BUDGET_EXCEEDED"
 
 
 def test_d4_n1_frustum_rejects_rotational_holonomy():
