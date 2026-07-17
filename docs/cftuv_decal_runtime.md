@@ -524,3 +524,29 @@ geometry digest
 `336c91d5304583b3c3a629a598244b013466338dcc442b79db85a4afd4fb353d`;
 periodic counters остались нулевыми. Полный machine-readable отчёт:
 `artifacts/decal_tranche_d_blender_acceptance.json`.
+
+## GPU preview overlay (F3)
+
+Display adapter modal preview: во время drag декаль рисуется GPU draw
+handler'ом (`cftuv/decal_gpu_preview.py`) без единой записи в mesh
+datablock и без depsgraph updates; confirm — прежняя точная BMesh
+materialization (parity by construction, FP4). Toggle
+`Preview Display: GPU | GPU Textured | Mesh` в панели Decals; mesh —
+отладочный fallback, автоматически используется в background и при
+любом отказе gpu-среды (постоянный fail-safe в рамках сессии).
+
+Семантика A6 сохранена: не-UPDATED кадр оставляет на экране последний
+валидный batch. Пересборка batch'ей — только при смене topology
+signature (kind/side/счётчик вершин на грань); чистое движение вершин
+при width drag перезаливает буферы. SOLID — полупрозрачная раскраска
+по component_kind + контур покрытия; GPU Textured — IMAGE-шейдер с
+первой image-текстурой активного материала источника.
+
+F0-lite split (headless, `artifacts/verify_decal_gpu_preview.py`,
+median по 7 кадрам): batch-build составляет 2.3-6.4% времени
+evaluator'а (silhouette 0.14-0.21 ms при evaluator 5-8 ms;
+fan_wall_24 4.0-5.0 ms при 75-82 ms). Кадр GPU-пути = evaluator +
+batch-build; mesh-write/depsgraph отсутствуют по построению.
+Колонка depsgraph заполняется только живой Blender-сессией — ручной
+чек-лист acceptance F3 (пп. 1-6 workplan) остаётся обязательным шагом
+перед merge в основную ветку.
