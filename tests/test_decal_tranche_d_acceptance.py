@@ -205,6 +205,45 @@ def _assert_connected_manifold(faces):
     assert not unseen
 
 
+def _supporting_line_key(first, second):
+    direction = second - first
+    if direction.length <= 1e-10:
+        return None
+    direction.normalize()
+    values = tuple(float(value) for value in direction)
+    if next((value for value in values if abs(value) > 1e-9), 1.0) < 0.0:
+        direction = direction * -1.0
+    moment = first.cross(direction)
+    return tuple(
+        round(float(value), 5) for value in (*direction, *moment)
+    )
+
+
+def _interior_supporting_lines(faces):
+    edge_uses = {}
+    for face in faces:
+        for index, first in enumerate(face.positions):
+            second = face.positions[(index + 1) % len(face.positions)]
+            key = tuple(
+                sorted(
+                    (
+                        tuple(round(float(value), 6) for value in first),
+                        tuple(round(float(value), 6) for value in second),
+                    )
+                )
+            )
+            edge_uses.setdefault(key, (0, first, second))
+            count, stored_first, stored_second = edge_uses[key]
+            edge_uses[key] = (count + 1, stored_first, stored_second)
+    return {
+        line
+        for count, first, second in edge_uses.values()
+        if count >= 2
+        for line in (_supporting_line_key(first, second),)
+        if line is not None
+    }
+
+
 def _arrangement_area(plan, width):
     pending = []
     alpha = width * 0.5
@@ -332,6 +371,46 @@ def test_d5_2_multiring_tube_uses_one_periodic_cut_path():
     assert serialize_network_faces(faces) == serialize_network_faces(
         evaluate_patch_voronoi_plan(plan, width=0.5, preview=False)
     )
+
+
+def test_d5_3_periodic_supporting_lines_never_disappear():
+    graph, _node, ring_edges, _vertical_edges = _closed_tube_graph(8)
+    plan = compile_patch_voronoi_plan(
+        graph, (ring_edges[0],), offset=0.01, alpha_budget=100.0
+    )
+    period = plan.surfaces[0].domain.period
+    previous_lines = set()
+
+    for fraction in (0.15, 0.2, 0.3, 0.5, 0.7, 0.8, 0.9, 1.0):
+        faces = evaluate_patch_voronoi_plan(
+            plan, width=period * fraction, preview=True
+        )
+        lines = _interior_supporting_lines(faces)
+        assert previous_lines <= lines, (
+            f"width={period * fraction:.6g}: periodic S1 lines vanished "
+            f"{sorted(previous_lines - lines)!r}"
+        )
+        previous_lines = lines
+
+
+def test_d5_3_closed_ring_keeps_resolved_partition_during_drag():
+    graph, _node, ring_edges, _vertical_edges = _closed_tube_graph(8)
+    plan = compile_patch_voronoi_plan(
+        graph, ring_edges, offset=0.01, alpha_budget=100.0
+    )
+    period = plan.surfaces[0].domain.period
+    reference_lines = None
+
+    for fraction in (0.05, 0.1, 0.2, 0.4, 0.6, 0.8, 1.0):
+        faces = evaluate_patch_voronoi_plan(
+            plan, width=period * fraction, preview=True
+        )
+        assert len(faces) == 8
+        lines = _interior_supporting_lines(faces)
+        if reference_lines is None:
+            reference_lines = lines
+        else:
+            assert lines == reference_lines
 
 
 def test_d4_3_4_sites_near_cut_collide_through_periodic_boundary():
