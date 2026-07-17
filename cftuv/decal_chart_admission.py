@@ -559,15 +559,21 @@ def _periodicize_annulus(chart):
         (
             canonical_key,
             (
-                ("periodic-image", chart.chart_id, cut.source_edge, -1),
-                ("periodic-image", chart.chart_id, cut.source_edge, 1),
+                ("periodic-image", chart.chart_id, cut.source_edges, -1),
+                ("periodic-image", chart.chart_id, cut.source_edges, 1),
             ),
         ),
     )
+    periodic_budget = period * 0.5
+    strip_budget = float(provisional.alpha_budget)
     return replace(
         provisional,
-        alpha_budget=min(float(provisional.alpha_budget), period * 0.5),
-        budget_source="PERIODIC_HALF_PERIOD",
+        alpha_budget=min(strip_budget, periodic_budget),
+        budget_source=(
+            provisional.budget_source
+            if strip_budget < periodic_budget
+            else "PERIODIC_HALF_PERIOD"
+        ),
         periodic_axis="U",
         period=period,
         period_quantum=transform.quantum,

@@ -47,11 +47,12 @@ workplan'а).
 | G4 | Невязка замыкания циклов, нормированная на полуширину | `<= 0.02 * N` | `max_loop_closure_residual`, `N` — см. ниже |
 | G5 | Относительная ошибка длин рёбер unroll (числ. точность, не distortion) | `<= 1e-5` | `max_edge_error` (relative) |
 | G6 | Сохранение площади чарта | `abs(ratio - 1) <= 0.01` | `chart_area_source_area_ratio` |
-| G7 | Cut policy: не более одного deterministic cut; только если после него чарт — disk. В periodic domain selected strip вправе пересекать cut транзверсально; запрещён только коллинеарный overlap selected source edge с generating cut | binary | `cuts`, `ChartCut.reason` |
+| G7 | Cut policy: не более одного deterministic source-edge cut-path; только если после него чарт — disk. В periodic domain selected strip вправе пересекать cut транзверсально; запрещён только коллинеарный overlap selected source edge с generating path | binary | `cuts`, `ChartCut.reason`, `ChartCut.source_edges` |
 | G8 | Однозначность размещения: каждый support-треугольник размещён ровно один раз | binary | `DISCONNECTED_CHART_SUPPORT` / dup guard C2 |
 
 Нормировка G4: `N = alpha_budget`, если бюджет конечен
-(`budget_source = STRIP_BUDGET`); для `FULL_CONNECTED_COMPONENT` —
+(`STRIP_BUDGET` или `PERIODIC_HALF_PERIOD`); для
+`FULL_CONNECTED_COMPONENT` —
 `N = max(compile-time initial alpha, средняя длина source-ребра
 support'а)`. Правило детерминировано и фиксируется в коде рядом с gate.
 

@@ -410,6 +410,7 @@ class DecalSurfaceDomain:
     transition_equivalences: tuple[tuple[object, tuple[object, ...]], ...] = ()
     chart_id: int = 0
     alpha_budget: float = float("inf")
+    budget_source: str = "FULL_CONNECTED_COMPONENT"
     normal_mode: str = "PIECEWISE_PLANAR_HARD"
     triangle_grid: _TriangleAabbGrid | None = None
     source_edge_features: tuple[tuple[object, tuple[int, ...]], ...] = ()
@@ -429,6 +430,8 @@ class DecalSurfaceDomain:
             )
         if not self.alpha_budget > 0.0:
             raise ValueError("Decal domain alpha budget must be positive")
+        if not self.budget_source:
+            raise ValueError("Decal domain budget source must be explicit")
         validate_periodic_chart_fields(
             self.periodic_axis,
             self.period,
@@ -4375,6 +4378,11 @@ def _compile_surface(
         ),
         chart_id=int(chart_id),
         alpha_budget=float(intrinsic_alpha_budget),
+        budget_source=(
+            intrinsic_chart.budget_source
+            if intrinsic_chart is not None
+            else "FULL_CONNECTED_COMPONENT"
+        ),
         triangle_grid=triangle_grid,
         reference_full_scan=reference_full_scan,
     )
@@ -4405,6 +4413,7 @@ def _intrinsic_domain_triangles(chart):
         for source_edge in cut.source_edges
     }
     result = []
+    image_keys_by_transition = dict(chart.transition_equivalences)
     for triangle in chart.triangles:
         face_normal = Vector(triangle.face_normal)
         source_edge_ids = []
@@ -4419,7 +4428,31 @@ def _intrinsic_domain_triangles(chart):
                 else ("TRIANGULATION_EDGE", source_edge)
             )
             if cut is not None:
-                edge_transition_keys.append(cut.transition_key)
+                transition_key = cut.transition_key
+                image_keys = tuple(
+                    image_keys_by_transition.get(transition_key, ())
+                )
+                if chart.periodic_axis and len(image_keys) == 2:
+                    points = dict(
+                        zip(
+                            triangle.source_vertex_ids,
+                            triangle.chart_points,
+                        )
+                    )
+                    midpoint_u = (
+                        points[source_edge[0]][0]
+                        + points[source_edge[1]][0]
+                    ) * 0.5
+                    side_index = (
+                        0
+                        if midpoint_u
+                        < chart.wrap_origin + chart.period * 0.5
+                        else 1
+                    )
+                    transition_key = tuple(
+                        sorted(image_keys, key=repr)
+                    )[side_index]
+                edge_transition_keys.append(transition_key)
             elif edge_index >= 0:
                 edge_transition_keys.append(("SOURCE_EDGE", int(edge_index)))
             else:
@@ -4466,6 +4499,7 @@ def build_intrinsic_surface_domain(node, chart):
         transition_equivalences=chart.transition_equivalences,
         chart_id=int(chart.chart_id),
         alpha_budget=float(chart.alpha_budget),
+        budget_source=chart.budget_source,
     )
 
 
@@ -4716,7 +4750,6 @@ def compile_patch_voronoi_attempt(
     surfaces = []
     rejected_edges = set()
     failures = []
-    has_intrinsic_surface = False
     for patch_id in sorted(raw_by_patch):
         node = graph.nodes[patch_id]
         patch_sites = raw_by_patch[patch_id]
@@ -4855,9 +4888,6 @@ def compile_patch_voronoi_attempt(
                     )
                 continue
             surfaces.append(surface)
-            has_intrinsic_surface = (
-                has_intrinsic_surface or surface.domain.kind == "INTRINSIC"
-            )
     lifted_vertices = {
         vert_index: _lift_position(
             positions_by_vert[vert_index], normals, float(offset)
@@ -4881,15 +4911,26 @@ def compile_patch_voronoi_attempt(
     plan = None
     if surfaces:
         intrinsic_budgets = tuple(
-            surface.domain.alpha_budget
+            (
+                surface.domain.alpha_budget,
+                surface.domain.budget_source,
+            )
             for surface in surfaces
             if surface.domain.kind == "INTRINSIC"
         )
-        actual_alpha_budget = (
-            min((requested_alpha_budget, *intrinsic_budgets))
-            if intrinsic_budgets
-            else float("inf")
-        )
+        if intrinsic_budgets:
+            domain_budget, domain_budget_source = min(intrinsic_budgets)
+            actual_alpha_budget = min(
+                requested_alpha_budget, domain_budget
+            )
+            actual_budget_source = (
+                domain_budget_source
+                if domain_budget <= requested_alpha_budget
+                else "STRIP_BUDGET"
+            )
+        else:
+            actual_alpha_budget = float("inf")
+            actual_budget_source = "FULL_CONNECTED_COMPONENT"
         plan = PatchVoronoiPlan(
             offset=float(offset),
             surfaces=tuple(surfaces),
@@ -4906,11 +4947,7 @@ def compile_patch_voronoi_attempt(
                 )
                 for surface in surfaces
             ),
-            budget_source=(
-                "STRIP_BUDGET"
-                if has_intrinsic_surface
-                else "FULL_CONNECTED_COMPONENT"
-            ),
+            budget_source=actual_budget_source,
             requested_alpha_budget=requested_alpha_budget,
         )
     return PatchVoronoiCompileAttempt(

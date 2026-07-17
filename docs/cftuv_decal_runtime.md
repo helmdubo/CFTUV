@@ -463,7 +463,7 @@ Chart build + admission на CPython unit harness (30 повторов):
 
 ## Tranche D translational periodic charts
 
-Annulus support после единственного generating cut допускается только при
+Annulus support после единственного generating cut-path допускается только при
 доказанной трансляционной holonomy. Chart канонически ориентируется так, что
 periodic axis — `U`; period и все diagram images лежат на общей
 `DiagramTransform` quantum-grid. Конусный фрустум требует вращательной
@@ -475,10 +475,16 @@ Voronoi sites у cut получают diagram-only images на `U ± period`. At
 целочисленный image shift, а runtime применяет его к site/crop view; canonical
 sites и materialized faces не размножаются. При `alpha = period/2` фронты
 антиподально смыкаются без gap и double-cover; больший width отклоняется
-существующим `alpha_budget` preflight.
+существующим `alpha_budget` preflight. Итоговый plan берёт минимум requested
+strip budget и бюджетов всех intrinsic domains; `budget_source` указывает
+реально связавший предел (`STRIP_BUDGET` либо `PERIODIC_HALF_PERIOD`).
 
-Сварка не использует float modulo. Обе стороны cut сводятся только через
-`ChartCut.transition_key` и перечисленные `transition_equivalences`.
+Generating cut является одним детерминированным путём source-рёбер между
+boundary-компонентами, поэтому поддерживает трубу из нескольких quad-рядов.
+Сварка не использует float modulo. Каждая сторона cut получает собственный
+periodic image-key; обе стороны сводятся только через
+`ChartCut.transition_key` и фактически используемые
+`transition_equivalences`.
 Замкнутая selected-компонента получает одну детерминированную V-ориентацию;
 диапазон V равен физической длине кольца, а closure остаётся в канонической
 source vertex. Diagnostics/benchmark публикуют `periodic_copy_count` после
@@ -490,6 +496,11 @@ D4.1–D4.N2 покрывают круглый цилиндр, polygonal duct с
 near-cut images, collision через seam, reversed winding, точную половину
 period и оба канонических отказа. Non-periodic C7 fixtures остаются общим
 differential guard.
+
+D5-remediation дополнительно проверяет public budget preflight, cut-path на
+трубе `8 x 3` колец, S1 supporting-lines при drag, одинаковый transport
+seam-corner crop для emission/subtraction и фактическое использование
+periodic image-ключей.
 
 Живой Blender 4.3.2 acceptance выполнен на отдельном open cylinder из 32
 quad facets с кольцевой boundary chain. Результат: один periodic domain,

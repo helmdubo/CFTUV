@@ -630,6 +630,7 @@ def test_d4_6_public_compile_enforces_periodic_half_period_budget():
     period = plan.surfaces[0].domain.period
 
     assert plan.alpha_budget == pytest.approx(period * 0.5)
+    assert plan.budget_source == "PERIODIC_HALF_PERIOD"
     evaluate_patch_voronoi_plan(plan, width=period, preview=True)
     with pytest.raises(DomainBudgetExceeded) as captured:
         evaluate_patch_voronoi_plan(
@@ -638,6 +639,53 @@ def test_d4_6_public_compile_enforces_periodic_half_period_budget():
             preview=True,
         )
     assert captured.value.code == "DOMAIN_BUDGET_EXCEEDED"
+
+
+def test_d5_5_periodic_budget_source_reports_the_binding_limit():
+    _graph, node, ring_edges, _vertical_edges = _closed_tube_graph(8)
+    seeds = tuple(
+        _seed(node, ring_edges[index], (index, (index + 1) % 8), 100 + index)
+        for index in range(8)
+    )
+    strip_limited = admit_intrinsic_strip_chart(
+        build_intrinsic_strip_charts(
+            node, seeds, alpha_budget=0.5
+        )[0]
+    )
+    periodic_limited = admit_intrinsic_strip_chart(
+        build_intrinsic_strip_charts(
+            node, seeds, alpha_budget=100.0
+        )[0]
+    )
+
+    assert strip_limited.alpha_budget == pytest.approx(0.5)
+    assert strip_limited.budget_source == "STRIP_BUDGET"
+    assert periodic_limited.alpha_budget == pytest.approx(
+        periodic_limited.period * 0.5
+    )
+    assert periodic_limited.budget_source == "PERIODIC_HALF_PERIOD"
+
+
+def test_d5_5_periodic_image_keys_are_used_by_domain_resolution():
+    graph, _node, ring_edges, _vertical_edges = _closed_tube_graph(8)
+    plan = compile_patch_voronoi_plan(
+        graph, ring_edges, offset=0.01, alpha_budget=100.0
+    )
+    domain = plan.surfaces[0].domain
+    cut = domain.periodic_cut
+    canonical, image_keys = domain.transition_equivalences[0]
+    used_keys = {
+        key
+        for triangle in domain.intrinsic_triangles
+        for key in triangle.edge_transition_keys
+        if key in image_keys
+    }
+
+    assert canonical == cut.transition_key
+    assert used_keys == set(image_keys)
+    assert {
+        domain.canonical_transition_key(key) for key in used_keys
+    } == {canonical}
 
 
 def test_d4_n1_frustum_rejects_rotational_holonomy():
