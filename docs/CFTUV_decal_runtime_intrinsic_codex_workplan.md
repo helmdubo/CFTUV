@@ -1693,6 +1693,41 @@ xfail, включить routing, пройти acceptance E2/E3 целиком.
 
 # TRANCHE F — Performance, Native C++, GPU
 
+## F-предрешения (последовательность и зависимости от E)
+
+**FP1 — Порядок исполнения: F0 -> F3 -> (E4) -> F1 -> F2.**
+GPU preview (F3) продвинут ВПЕРЁД и больше не гейтится долей
+materialization в кадре: его основная ценность — не миллисекунды, а
+**стабильность латентности**: во время drag исчезают все записи в
+mesh datablock и depsgraph-уведомления — источник viewport-статтера,
+не видимый в чистом времени evaluator'а. F3 — display adapter, он не
+трогает геометрическую семантику вообще (самый безопасный срез
+программы).
+
+**FP2 — Зависимость от Tranche E раздельная.**
+- F0 и F3 НЕ требуют E: работают на planar/C/D production-путях и
+  могут идти параллельно E4 (интерфейс faces стабилен: E4 меняет,
+  КАК грани вычисляются, не их формат).
+- F1 и F2 ЖЁСТКО ждут E4/M1: инкрементальность и порт на C++
+  строятся вокруг горячего цикла, а M1 меняет сам горячий цикл
+  (clip/subtract/merge -> arrangement + classification).
+  Оптимизировать или портировать pre-M1 конвейер = вкладываться в
+  код, который E4 выбрасывает.
+- E1/E2/E3 (organic admission/atlas) для F не требуются вовсе.
+
+**FP3 — Blender-версии.** F3 реализуется на базовом `gpu` API
+(`gpu.types.GPUShader`, `gpu_extras.batch`, `SpaceView3D.
+draw_handler_add`, `gpu.state`) — доступен во всём поддерживаемом
+диапазоне 4.1+; жёсткой зависимости от 4.5 НЕТ. Blender 4.5 LTS
+даёт выгоду прозрачно (Vulkan-бэкенд ускоряет те же вызовы);
+использовать 4.5-only API можно только за feature-детекцией с
+fallback, не как требование.
+
+**FP4 — Parity by construction.** GPU-путь рисует ТОТ ЖЕ выход
+evaluator'а, что пишется в mesh; confirm — прежняя точная BMesh
+materialization. Никакой shader/SDF-аппроксимации как authoritative
+preview (прежний запрет остаётся).
+
 ## F0. Phase-level profiler
 
 Evaluator timings минимум:
@@ -1708,11 +1743,19 @@ Evaluator timings минимум:
 - BMesh build;
 - mesh update.
 
-Записывать median/p95, не один best run.
+Записывать median/p95, не один best run. Дополнительно к фазам —
+**три интегральных времени реального modal-кадра** (через MCP-сессию
+Blender): evaluator, materialization, depsgraph/redraw остаток. Это
+даёт базу для честной оценки эффекта F3 до и после. Baseline-таблица:
+walls.003, walls.001, rounded_wall, D-труба 8x3, saddle (fallback).
 
 ---
 
-## F1. Python algorithmic/incremental pass
+## F1. Python algorithmic/incremental pass — ПОСЛЕ E4 (FP2)
+
+Инкрементальность формулируется в терминах M1-arrangement (это её
+естественная форма): интерьерные грани статичны по построению,
+между width-кадрами меняются только грани, пересечённые фронтиром.
 
 До native backend:
 
@@ -1737,21 +1780,31 @@ Evaluator timings минимум:
 
 ---
 
-## F2. Native backend decision spike
+## F2. Native backend decision spike — ПОСЛЕ F1-gate (FP2)
 
-Начинать только если profile показывает, что Python polygon pipeline остаётся доминирующим.
+Начинать только если profile показывает, что Python pipeline остаётся
+доминирующим ПОСЛЕ E4 и F1.
 
 ### Не предполагать заранее 10–50x
 Speedup считается только по prototype benchmark.
 
+### Объект порта — M1-конвейер, не legacy clip/subtract
+
+После E4 горячий цикл — snap-rounding сегментов + half-edge
+трассировка + point-in-region классификация. Полигональные booleans
+из него ИСЧЕЗАЮТ, поэтому прежний кандидат Clipper2 пере-оценивается:
+скорее всего он больше не нужен — маленькое собственное ядро
+(целочисленное пересечение отрезков + face tracing + классификация)
+проще, полностью детерминировано и легче держит bit-parity с
+Python-референсом.
+
 ### Варианты
 
-1. **Direct pybind11 port current semantics** — выше шанс bit/differential parity.
-2. **Clipper2/int64** — потенциально удобные booleans, но перед использованием проверить:
-   - license/redistribution;
-   - hole/concave semantics;
-   - provenance и deterministic ordering;
-   - отличие от текущего coverage.
+1. **Direct pybind11 port M1 semantics** — приоритетный: выше шанс
+   bit/differential parity, нет внешних лицензий.
+2. **Clipper2/int64** — только если prototype покажет, что своё ядро
+   недостаточно; проверить license/redistribution, provenance,
+   deterministic ordering, соответствие coverage.
 
 ### API boundary
 
@@ -1780,21 +1833,79 @@ sites + atoms + corner policies + crops + domain triangles
 
 ---
 
-## F3. GPU overlay — только display adapter
-
-### Gate
-
-Начинать, если после Python/native evaluator materialization/mesh update составляет заметную долю frame time (например >25%) либо мешает target FPS.
+## F3. GPU preview overlay — display adapter (можно начинать сейчас, FP1/FP2)
 
 ### Контракт
 
-- evaluator остаётся CPU/native exact;
-- GPU draw handler рисует exact output triangles/UV preview;
-- BMesh/mesh создаётся один раз на confirm;
+- evaluator остаётся CPU exact; GPU рисует ТОТ ЖЕ выход (FP4);
+- во время drag НОЛЬ записей в mesh datablock и ноль depsgraph
+  updates — весь preview живёт в draw handler;
+- confirm — одна точная BMesh materialization существующим путём;
+  cancel/ESC — снятие handler'а, сцена не тронута (контракт A7);
 - никакого shader/SDF approximation как authoritative preview;
-- cancel/lifecycle/view change обработаны.
+- headless/background (`bpy.app.background`) — GPU-путь запрещён,
+  автоматический fallback на mesh-preview; execute/headless parity
+  не меняется.
 
-GPU compute для polygon topology не входит в scope без отдельного доказанного research case.
+### Реализация (срезы, по одному коммиту)
+
+**F3.a Batch-строитель.** Триангуляция faces существующим
+детерминированным ear clip (concave n-gons); вершины уже лифтованы и
+offset'нуты — буферы position/uv/kind-color собираются как flat
+POD-массивы; `batch_for_shader` один на surface (или на
+component-kind для окраски). Пересборка batch'а ТОЛЬКО при смене
+topology signature (существующий механизм A-транша переиспользуется
+как критерий); при чистом движении вершин — перезаливка vertex buffer
+без пересборки.
+
+**F3.b Draw handler + lifecycle.** `SpaceView3D.draw_handler_add(...,
+'WINDOW', 'POST_VIEW')` на invoke; удаление на confirm/cancel/ESC и в
+`cancel()` (принудительное закрытие) — ноль утечек handler'ов
+(тест: 100 циклов invoke/cancel, счётчик хендлеров стабилен).
+`gpu.state`: depth_test LESS_EQUAL, depth_mask off, blend alpha;
+z-fighting закрыт существующим физическим offset декали.
+`region.tag_redraw()` вместо mesh-write в MOUSEMOVE.
+
+**F3.c Режимы отображения.** v1: SOLID — полупрозрачная заливка по
+component_kind (та же палитра, что debug) + POLYLINE-контур фронтира.
+v2 (отдельный коммит): TEXTURED — IMAGE-шейдер с trim-текстурой из
+активного материала, UV прямо из evaluator'а (это даёт превью
+паттерна кладки при drag — то, чего mesh-preview не показывал без
+материала). sRGB/color management учесть при биндинге
+(`gpu.texture.from_image`).
+
+**F3.d Toggle и совместимость.** `Preview Display: GPU | MESH`
+(default GPU, MESH — отладочный fallback и режим для окружений с
+проблемным GPU). Persistent-mesh путь НЕ удаляется: он остаётся
+confirm-механизмом и fallback'ом.
+
+### Acceptance
+
+1. Во время drag на walls.001: mesh-write counter == 0, depsgraph
+   updates == 0; кадр = evaluator + batch upload (замер в F0-таблицу
+   до/после).
+2. Confirm-выход байт-идентичен pre-F3 (differential): F3 не трогает
+   геометрию по построению.
+3. 100 циклов invoke/ESC/принудительный cancel — ноль утечек
+   handler'ов, ноль артефактов во viewport.
+4. Topology-переключение при threshold-drag (band flip) корректно
+   пересобирает batch за кадр.
+5. Multi-viewport (два 3D-окна) — оба рисуют; закрытие area
+  mid-drag не роняет modal.
+6. Работает на Blender 4.1 и 4.5 (feature-детекция, без 4.5-only
+   API); на 4.5 с Vulkan — прогон вручную, без спец-кода.
+
+### Честная оценка эффекта
+
+Сейчас materialization ~5-15% кадра: чистый выигрыш мс мал. Реальная
+ценность — исчезновение depsgraph-статтера и object churn во время
+drag (латентная стабильность) и готовая витрина для F1/F2: когда
+evaluator упадёт до единиц мс, GPU-кадр останется гладким без
+дополнительной работы.
+
+GPU compute для polygon topology не входит в scope без отдельного
+доказанного research case; единственный будущий кандидат — SDF hint
+overlay, и он явно НЕ планируется.
 
 ---
 
