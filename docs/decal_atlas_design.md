@@ -225,6 +225,52 @@ dependency policy, determinism, compile/evaluate split и differential. Сам �
 
 После review статус меняется на **APPROVED** с commit/reviewer evidence.
 
+## 8a. Вердикт глубокого ревью ed8e1e8 + b7817cf (T1-T6/M1)
+
+**ACCEPT с обязательными исправлениями.** Ни одного неверного вывода
+на фикстурах; EP1 подтверждён worktree-байт-сравнением с baseline
+(walls 1.0x, идентичные снапшоты); overfull=0, components=1,
+double-cover=0, реверс-энумерация бит-точна на sphere/saddle по 10
+ширинам; скрытого spatial post-weld нет; ориентация T-станций
+корректна по построению.
+
+Обязательные исправления до полного E-acceptance:
+
+1. **(блокирующее) COLLINEAR-drop**: `conformed_path`
+   (`decal_voronoi.py:~6095`) помечает `lies_on_transition` по
+   совпадению БЕСКОНЕЧНЫХ прямых без проверки перекрытия extent'ов —
+   26 реальных кривых/кадр удаляются на saddle без диагностики;
+   сегодня спасает случайная избыточность. Гейтить по фактическому
+   перекрытию, сохранять неперекрытые коллинеарные части.
+2. **(блокирующее) Учёт тихих потерь**: счётчики + ассерты (==0 в
+   тестах) для sliver-rule срабатываний, no-owner drop покрытых
+   in-domain граней (`:~6583` — голый continue), touch-no-token drop
+   и single-declared-side drop. Инвариант 11: ни один из этих путей
+   сегодня не наблюдаем.
+3. Закоммитить уже проходящие усиленные оракулы: 8-10-ширинные
+   sweeps с double-cover сэмплингом, реверс-энумерация через
+   публичный путь, негативный тест ATLAS_TRANSITION_DESYNC (8 raise-
+   сайтов — ноль тестов), UV-phase/kind непрерывность через
+   transition subedges.
+4. (до интерактивного APPROXIMATE) Отключить legacy clip/subtract
+   для APPROXIMATE-surfaces — его выход M1-ядром не читается,
+   бесплатный constant-factor.
+
+Sliver-правило (B0-bounded nearest-boundary, 1 квант): **условно
+допустимо** — детерминировано и coverage-preserving, но это отход от
+буквы stop-condition E4#2; легализуется как counted-механизм с
+границей в один квант; рост счётчиков или срабатывание zero-drop
+ассерта эскалирует в design decision, не правится на месте.
+
+Interval-owner форсинг у transition (обход 2D-предиката) — сверх
+T5-контракта; допущен как реализация R2-канона, но кросс-сторонняя
+непрерывность kind/UV обязана быть покрыта оракулом п.3.
+
+Perf: формальный гейт E4 пройден (walls 1.0x), но APPROXIMATE-кадр —
+секунды (saddle 4.3-8.5s, sphere 11-18s/frame): до F1/F2 путь
+непригоден для интерактивного drag — не подключать к modal без
+отдельного решения.
+
 ## 9. Implementation evidence
 
 - P0: periodic T-stations нормализуются до fragment union; D5.3 проверяет
