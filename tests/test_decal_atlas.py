@@ -159,7 +159,7 @@ def test_e2_cliff_is_approximate_locally_injective_atlas():
     assert all(not chart_triangle_overlap_pairs(item) for item in atlas.charts)
 
 
-def test_e3_public_saddle_routes_to_explicit_pending_fallback():
+def test_e3_public_saddle_materializes_through_t_contract():
     node, seeds, alpha = saddle_fixture()
     graph = PatchGraph()
     graph.add_node(node)
@@ -169,13 +169,16 @@ def test_e3_public_saddle_routes_to_explicit_pending_fallback():
         offset=0.01,
         alpha_budget=alpha,
     )
-    assert attempt.plan is None
-    assert attempt.rejected_edge_indices == tuple(
-        sorted(seed.edge_index for seed in seeds)
-    )
-    assert {failure.reason for failure in attempt.failures} == {
-        "APPROXIMATE_MATERIALIZATION_PENDING"
-    }
+    assert attempt.plan is not None
+    assert attempt.rejected_edge_indices == ()
+    assert attempt.failures == ()
+    for width in (0.25, 0.5, 1.0):
+        faces = evaluate_patch_voronoi_plan(
+            attempt.plan, width=width, preview=True
+        )
+        component_count, overfull_count = _edge_component_stats(faces)
+        assert component_count == 1
+        assert overfull_count == 0
 
 
 def _edge_component_stats(faces):

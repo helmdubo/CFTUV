@@ -1129,6 +1129,19 @@ class DecalArrangement:
 
 
 @dataclass(frozen=True)
+class _M1TransitionSide:
+    """Локальная копия канонического 1D atlas-transition (T1--T6)."""
+
+    transition_key: object
+    chart_id: int
+    segment: tuple[tuple[float, float], tuple[float, float]]
+    station_extent: int
+    stations: tuple[int, ...]
+    interior_sign: int
+    interval_owners: tuple[tuple[int, int, object | None], ...]
+
+
+@dataclass(frozen=True)
 class _CropComponent:
     """Один convex runtime crop с семантикой, живущей до NetworkFace."""
 
@@ -5120,19 +5133,6 @@ def compile_patch_voronoi_attempt(
                     )
                     for chart in charts
                 )
-                if any(
-                    isinstance(chart, IntrinsicStripAtlas)
-                    and chart.admission_tier == "APPROXIMATE"
-                    for chart in charts
-                ):
-                    raise ChartBuildFailure(
-                        "APPROXIMATE_MATERIALIZATION_PENDING",
-                        int(patch_id),
-                        edge_ids=(
-                            int(site["edge_index"])
-                            for site in patch_sites
-                        ),
-                    )
             except ChartBuildFailure as exc:
                 # Chart builder принимает patch-wide seed set. До того как
                 # charts успешно разделены, локализовать отказ уже одного
@@ -5595,28 +5595,358 @@ def _m1_representative_point(polygon):
     return polygon[0]
 
 
-def _m1_surface_arrangement(entries):
+def _m1_surface_curve_segments(entries):
+    """Возвращает все 2D-кривые, которые обязаны объявить T-пересечения."""
+
+    surface = entries[0][1].surface
+    polygons = [
+        tuple((float(point[0]), float(point[1])) for point in face.crop.points)
+        for _index, face in entries
+    ]
+    polygons.extend(
+        tuple((float(point[0]), float(point[1])) for point in fragment)
+        for atom in surface.atoms
+        for fragment in atom.fragments
+    )
+    polygons.extend(
+        tuple((float(point[0]), float(point[1])) for point in triangle)
+        for triangle in (
+            tuple(
+                item.chart_points
+                for item in surface.domain.intrinsic_triangles
+            )
+            if surface.domain.intrinsic_triangles
+            else surface.domain.boundary_triangles
+        )
+    )
+    return tuple(
+        (polygon[index], polygon[(index + 1) % len(polygon)])
+        for polygon in polygons
+        if len(polygon) >= 2
+        for index in range(len(polygon))
+        if polygon[index] != polygon[(index + 1) % len(polygon)]
+    )
+
+
+def _m1_exact_segment_intersection(first, second, edge_a, edge_b):
+    """Exact intersection: (segment factor, edge factor, point) или marker."""
+
+    direction = (second[0] - first[0], second[1] - first[1])
+    edge_direction = (edge_b[0] - edge_a[0], edge_b[1] - edge_a[1])
+
+    def cross(first_vector, second_vector):
+        return (
+            first_vector[0] * second_vector[1]
+            - first_vector[1] * second_vector[0]
+        )
+
+    denominator = cross(direction, edge_direction)
+    relative = (edge_a[0] - first[0], edge_a[1] - first[1])
+    if denominator == 0:
+        if cross(relative, direction) == 0:
+            return "COLLINEAR"
+        return None
+    segment_factor = cross(relative, edge_direction) / denominator
+    edge_factor = cross(relative, direction) / denominator
+    if not 0 <= segment_factor <= 1 or not 0 <= edge_factor <= 1:
+        return None
+    point = (
+        first[0] + direction[0] * segment_factor,
+        first[1] + direction[1] * segment_factor,
+    )
+    return segment_factor, edge_factor, point
+
+
+def _m1_build_transition_contract(groups):
+    """T1/T2: single-source 1D station set до локальных arrangements."""
+
+    declarations = {}
+    for entries in groups:
+        surface = entries[0][1].surface
+        if surface.domain.admission_tier != "APPROXIMATE":
+            continue
+        for local_key, segment in _m1_atlas_transition_segments(
+            surface.domain
+        ).items():
+            transition_key = local_key[0]
+            declarations.setdefault(transition_key, []).append(
+                (surface, entries, segment)
+            )
+
+    sides_by_domain = {}
+    for transition_key in sorted(declarations, key=repr):
+        declared_sides = sorted(
+            declarations[transition_key],
+            key=lambda item: item[0].domain.chart_id,
+        )
+        if len(declared_sides) == 1:
+            # У одиночной materialized стороны нет законной второй half-curve.
+            # Вставляем T как boundary, но помечаем все интервалы непокрытыми:
+            # это отсекает margin/site-image артефакт вместо отдельного острова.
+            surface, entries, segment = declared_sides[0]
+            quantum = max(
+                float(surface.diagram_transform.quantum), 1e-10
+            )
+            station_extent = max(
+                1,
+                round(sqrt(_dist2(segment[0], segment[1])) / quantum),
+            )
+            stations = {0, station_extent}
+            edge_a = tuple(
+                Fraction(round(value / quantum)) for value in segment[0]
+            )
+            edge_b = tuple(
+                Fraction(round(value / quantum)) for value in segment[1]
+            )
+            for first, second in _m1_surface_curve_segments(entries):
+                lattice_first = tuple(
+                    Fraction(round(value / quantum)) for value in first
+                )
+                lattice_second = tuple(
+                    Fraction(round(value / quantum)) for value in second
+                )
+                hit = _m1_exact_segment_intersection(
+                    lattice_first, lattice_second, edge_a, edge_b
+                )
+                if hit is None or hit == "COLLINEAR":
+                    continue
+                station = round(float(hit[1]) * station_extent)
+                stations.add(max(0, min(station_extent, station)))
+            ordered_stations = tuple(sorted(stations))
+            interior_vertices = [
+                triangle.chart_points[local_edge]
+                for triangle in surface.domain.intrinsic_triangles
+                for local_edge, key in enumerate(
+                    triangle.edge_transition_keys
+                )
+                if key == transition_key
+            ]
+            if len(interior_vertices) != 1:
+                raise ValueError(
+                    "ATLAS_TRANSITION_DESYNC: transition interior is ambiguous"
+                )
+            direction = (
+                segment[1][0] - segment[0][0],
+                segment[1][1] - segment[0][1],
+            )
+            relative = (
+                interior_vertices[0][0] - segment[0][0],
+                interior_vertices[0][1] - segment[0][1],
+            )
+            interior_cross = (
+                direction[0] * relative[1]
+                - direction[1] * relative[0]
+            )
+            sides_by_domain.setdefault(id(surface.domain), []).append(
+                _M1TransitionSide(
+                    transition_key=transition_key,
+                    chart_id=surface.domain.chart_id,
+                    segment=tuple(segment),
+                    station_extent=station_extent,
+                    stations=ordered_stations,
+                    interior_sign=1 if interior_cross > 0.0 else -1,
+                    interval_owners=tuple(
+                        (first, second, None)
+                        for first, second in zip(
+                            ordered_stations, ordered_stations[1:]
+                        )
+                    ),
+                )
+            )
+            continue
+        if len(declared_sides) != 2:
+            raise ValueError(
+                "ATLAS_TRANSITION_DESYNC: transition must have two sides"
+            )
+        owner_chart_id = int(transition_key[3])
+        owner_matches = tuple(
+            item
+            for item in declared_sides
+            if item[0].domain.chart_id == owner_chart_id
+        )
+        if len(owner_matches) != 1:
+            raise ValueError(
+                "ATLAS_TRANSITION_DESYNC: canonical owner is missing"
+            )
+        owner_surface, _owner_entries, owner_segment = owner_matches[0]
+        owner_quantum = max(
+            float(owner_surface.diagram_transform.quantum), 1e-10
+        )
+        station_extent = max(
+            1,
+            round(
+                sqrt(_dist2(owner_segment[0], owner_segment[1]))
+                / owner_quantum
+            ),
+        )
+        stations = {0, station_extent}
+        for surface, entries, segment in declared_sides:
+            quantum = max(float(surface.diagram_transform.quantum), 1e-10)
+            edge_a = (
+                Fraction(round(segment[0][0] / quantum)),
+                Fraction(round(segment[0][1] / quantum)),
+            )
+            edge_b = (
+                Fraction(round(segment[1][0] / quantum)),
+                Fraction(round(segment[1][1] / quantum)),
+            )
+            for first, second in _m1_surface_curve_segments(entries):
+                lattice_first = (
+                    Fraction(round(first[0] / quantum)),
+                    Fraction(round(first[1] / quantum)),
+                )
+                lattice_second = (
+                    Fraction(round(second[0] / quantum)),
+                    Fraction(round(second[1] / quantum)),
+                )
+                hit = _m1_exact_segment_intersection(
+                    lattice_first, lattice_second, edge_a, edge_b
+                )
+                if hit is None or hit == "COLLINEAR":
+                    continue
+                _segment_factor, edge_factor, _point = hit
+                station = round(float(edge_factor) * station_extent)
+                stations.add(max(0, min(station_extent, station)))
+        ordered_stations = tuple(sorted(stations))
+        canonical_coverage = []
+        for first_station, second_station in zip(
+            ordered_stations, ordered_stations[1:]
+        ):
+            factor = (
+                (first_station + second_station)
+                / (2.0 * station_extent)
+            )
+            side_coverage = []
+            # T3: обе half-curves объявляются owner'у. Покрытие интервала
+            # существует, если его объявила хотя бы одна локальная сторона;
+            # решение всё равно принимается здесь один раз и раздаётся обеим.
+            for _surface, candidate_entries, candidate_segment in declared_sides:
+                midpoint = (
+                    candidate_segment[0][0]
+                    + (candidate_segment[1][0] - candidate_segment[0][0])
+                    * factor,
+                    candidate_segment[0][1]
+                    + (candidate_segment[1][1] - candidate_segment[0][1])
+                    * factor,
+                )
+                side_coverage.append(
+                    any(
+                        _m1_point_in_polygon(
+                            midpoint, tuple(pending_face.crop.points)
+                        )
+                        for _pending_index, pending_face in candidate_entries
+                    )
+                )
+            canonical_coverage.append(any(side_coverage))
+        for surface, local_entries, segment in declared_sides:
+            interval_owners = []
+            for (
+                first_station,
+                second_station,
+            ), is_covered in zip(
+                zip(ordered_stations, ordered_stations[1:]),
+                canonical_coverage,
+            ):
+                local_owner = None
+                if is_covered:
+                    factor = (
+                        (first_station + second_station)
+                        / (2.0 * station_extent)
+                    )
+                    midpoint = (
+                        segment[0][0]
+                        + (segment[1][0] - segment[0][0]) * factor,
+                        segment[0][1]
+                        + (segment[1][1] - segment[0][1]) * factor,
+                    )
+                    local_candidates = []
+                    for pending_index, pending_face in local_entries:
+                        inside = _m1_point_in_polygon(
+                            midpoint, tuple(pending_face.crop.points)
+                        )
+                        priority = (
+                            3
+                            if pending_face.crop.kind == "JUNCTION"
+                            else 1
+                            if pending_face.crop.kind == "SEGMENT"
+                            else 2
+                        )
+                        distance = _segment_point_distance2(
+                            pending_face.site.point_a,
+                            pending_face.site.point_b,
+                            midpoint,
+                        )[0]
+                        local_candidates.append(
+                            (
+                                0 if inside else 1,
+                                -priority,
+                                round(distance, 12),
+                                pending_face.crop.kind,
+                                pending_face.crop.side,
+                                pending_face.site.edge_index,
+                                pending_index,
+                            )
+                        )
+                    if not local_candidates:
+                        raise ValueError(
+                            "ATLAS_TRANSITION_DESYNC: local site image is missing"
+                        )
+                    local_owner = int(min(local_candidates)[5])
+                interval_owners.append(
+                    (first_station, second_station, local_owner)
+                )
+            interior_vertices = []
+            for triangle in surface.domain.intrinsic_triangles:
+                for local_edge, key in enumerate(
+                    triangle.edge_transition_keys
+                ):
+                    if key == transition_key:
+                        interior_vertices.append(
+                            triangle.chart_points[local_edge]
+                        )
+            if len(interior_vertices) != 1:
+                raise ValueError(
+                    "ATLAS_TRANSITION_DESYNC: transition interior is ambiguous"
+                )
+            direction = (
+                segment[1][0] - segment[0][0],
+                segment[1][1] - segment[0][1],
+            )
+            relative = (
+                interior_vertices[0][0] - segment[0][0],
+                interior_vertices[0][1] - segment[0][1],
+            )
+            interior_cross = (
+                direction[0] * relative[1]
+                - direction[1] * relative[0]
+            )
+            if abs(interior_cross) <= 1e-12:
+                raise ValueError(
+                    "ATLAS_TRANSITION_DESYNC: degenerate transition interior"
+                )
+            sides_by_domain.setdefault(id(surface.domain), []).append(
+                _M1TransitionSide(
+                    transition_key=transition_key,
+                    chart_id=surface.domain.chart_id,
+                    segment=tuple(segment),
+                    station_extent=station_extent,
+                    stations=ordered_stations,
+                    interior_sign=1 if interior_cross > 0.0 else -1,
+                    interval_owners=tuple(interval_owners),
+                )
+            )
+    return {
+        domain_id: tuple(sorted(sides, key=lambda side: repr(side.transition_key)))
+        for domain_id, sides in sides_by_domain.items()
+    }
+
+
+def _m1_surface_arrangement(entries, transition_sides=()):
     """E4: exact rational half-edge arrangement на B0 integer lattice."""
 
     surface = entries[0][1].surface
     quantum = max(float(surface.diagram_transform.quantum), 1e-10)
     representatives = {}
-    transition_lattice = tuple(
-        (
-            repr(transition_key),
-            tuple(
-                (
-                    Fraction(round(point[0] / quantum)),
-                    Fraction(round(point[1] / quantum)),
-                )
-                for point in segment
-            ),
-        )
-        for transition_key, segment in sorted(
-            _m1_atlas_transition_segments(surface.domain).items(),
-            key=lambda item: repr(item[0]),
-        )
-    )
 
     def lattice_point(point, prefer=False):
         key = (
@@ -5624,39 +5954,6 @@ def _m1_surface_arrangement(entries):
             round(float(point[1]) / quantum),
         )
         candidate = (Fraction(key[0]), Fraction(key[1]))
-        if prefer:
-            projections = []
-            for repr_key, (first, second) in transition_lattice:
-                direction = (second[0] - first[0], second[1] - first[1])
-                length2 = (
-                    direction[0] * direction[0]
-                    + direction[1] * direction[1]
-                )
-                if length2 <= 0:
-                    continue
-                relative = (
-                    candidate[0] - first[0],
-                    candidate[1] - first[1],
-                )
-                factor = (
-                    relative[0] * direction[0]
-                    + relative[1] * direction[1]
-                ) / length2
-                if not 0 <= factor <= 1:
-                    continue
-                cross = (
-                    relative[0] * direction[1]
-                    - relative[1] * direction[0]
-                )
-                if cross * cross * 4 > length2:
-                    continue
-                projection = (
-                    first[0] + direction[0] * factor,
-                    first[1] + direction[1] * factor,
-                )
-                projections.append((abs(cross), repr_key, projection))
-            if projections:
-                return min(projections)[-1]
         if prefer or key not in representatives:
             representatives[key] = (float(point[0]), float(point[1]))
         return candidate
@@ -5685,7 +5982,7 @@ def _m1_surface_arrangement(entries):
             crop_keys,
         )
         predicates.setdefault(
-            predicate_key, (pending_index, pending_face, crop_points)
+            predicate_key, (pending_index, pending_face, crop_keys)
         )
 
     # Compile Voronoi boundaries are part of the same graph, but no longer
@@ -5704,6 +6001,200 @@ def _m1_surface_arrangement(entries):
     )
     for triangle in domain_triangles:
         add_polygon(triangle, prefer=True)
+
+    # T2/T3: все локальные кривые сначала режутся на едином 1D station set.
+    # После этого локальный half-edge tracer уже не имеет права изобретать
+    # дополнительные точки на transition.
+    transition_point_keys = {}
+    transition_records = []
+    for side in transition_sides:
+        edge_a = (
+            Fraction(round(side.segment[0][0] / quantum)),
+            Fraction(round(side.segment[0][1] / quantum)),
+        )
+        edge_b = (
+            Fraction(round(side.segment[1][0] / quantum)),
+            Fraction(round(side.segment[1][1] / quantum)),
+        )
+        station_points = {}
+        source_edge = tuple(side.transition_key[2])
+        for station in side.stations:
+            factor = Fraction(station, side.station_extent)
+            point = (
+                edge_a[0] + (edge_b[0] - edge_a[0]) * factor,
+                edge_a[1] + (edge_b[1] - edge_a[1]) * factor,
+            )
+            station_points[station] = point
+            if station == 0:
+                point_key = ("m1-source-vertex", source_edge[0])
+            elif station == side.station_extent:
+                point_key = ("m1-source-vertex", source_edge[1])
+            else:
+                point_key = (
+                    "m1-transition",
+                    _hashable_provenance(side.transition_key),
+                    int(station),
+                )
+            previous_key = transition_point_keys.setdefault(point, point_key)
+            if previous_key != point_key:
+                raise ValueError(
+                    "ATLAS_TRANSITION_DESYNC: conflicting transition vertex"
+                )
+        transition_records.append((side, edge_a, edge_b, station_points))
+
+    def conformed_path(first, second):
+        replacements = {Fraction(0): first, Fraction(1): second}
+        lies_on_transition = False
+        for side, edge_a, edge_b, station_points in transition_records:
+            edge_direction = (
+                edge_b[0] - edge_a[0], edge_b[1] - edge_a[1]
+            )
+            edge_length2 = (
+                edge_direction[0] * edge_direction[0]
+                + edge_direction[1] * edge_direction[1]
+            )
+            if edge_length2:
+                for endpoint_factor, endpoint in (
+                    (Fraction(0), first),
+                    (Fraction(1), second),
+                ):
+                    relative = (
+                        endpoint[0] - edge_a[0],
+                        endpoint[1] - edge_a[1],
+                    )
+                    projection = (
+                        relative[0] * edge_direction[0]
+                        + relative[1] * edge_direction[1]
+                    ) / edge_length2
+                    cross_distance = (
+                        relative[0] * edge_direction[1]
+                        - relative[1] * edge_direction[0]
+                    )
+                    if (
+                        0 <= projection <= 1
+                        and cross_distance * cross_distance <= edge_length2
+                    ):
+                        declared_station = round(
+                            float(projection) * side.station_extent
+                        )
+                        station = min(
+                            side.stations,
+                            key=lambda value: (
+                                abs(value - declared_station), value
+                            ),
+                        )
+                        if abs(station - declared_station) <= 1:
+                            replacements[endpoint_factor] = (
+                                station_points[station]
+                            )
+            hit = _m1_exact_segment_intersection(
+                first, second, edge_a, edge_b
+            )
+            if hit is None:
+                continue
+            if hit == "COLLINEAR":
+                lies_on_transition = True
+                direction = (
+                    second[0] - first[0], second[1] - first[1]
+                )
+                for station_point in station_points.values():
+                    if (
+                        min(first[0], second[0])
+                        <= station_point[0]
+                        <= max(first[0], second[0])
+                        and min(first[1], second[1])
+                        <= station_point[1]
+                        <= max(first[1], second[1])
+                    ):
+                        if abs(direction[0]) >= abs(direction[1]):
+                            if direction[0] == 0:
+                                continue
+                            factor = (
+                                station_point[0] - first[0]
+                            ) / direction[0]
+                        else:
+                            if direction[1] == 0:
+                                continue
+                            factor = (
+                                station_point[1] - first[1]
+                            ) / direction[1]
+                        if 0 <= factor <= 1:
+                            replacements[factor] = station_point
+                continue
+            segment_factor, edge_factor, _point = hit
+            declared_station = round(
+                float(edge_factor) * side.station_extent
+            )
+            station = min(
+                side.stations,
+                key=lambda value: (abs(value - declared_station), value),
+            )
+            if abs(station - declared_station) > 1:
+                raise ValueError(
+                    "ATLAS_TRANSITION_DESYNC: undeclared local intersection"
+                )
+            canonical_point = station_points[station]
+            previous = replacements.get(segment_factor)
+            if previous is not None and previous != canonical_point:
+                if (
+                    abs(float(previous[0] - canonical_point[0])) > 1.0
+                    or abs(float(previous[1] - canonical_point[1])) > 1.0
+                ):
+                    raise ValueError(
+                        "ATLAS_TRANSITION_DESYNC: endpoint shift exceeds quantum"
+                    )
+            replacements[segment_factor] = canonical_point
+        ordered_points = tuple(
+            point for _factor, point in sorted(replacements.items())
+        )
+        return ordered_points, lies_on_transition
+
+    conformed_segments = []
+    for first, second in raw_segments:
+        ordered_points, lies_on_transition = conformed_path(first, second)
+        if lies_on_transition:
+            continue
+        conformed_segments.extend(
+            (first_point, second_point)
+            for first_point, second_point in zip(
+                ordered_points, ordered_points[1:]
+            )
+            if first_point != second_point
+        )
+
+    original_predicates = dict(predicates)
+    conformed_predicates = {}
+    for key, (pending_index, pending_face, crop_keys) in predicates.items():
+        polygon = []
+        for index, first in enumerate(crop_keys):
+            second = crop_keys[(index + 1) % len(crop_keys)]
+            path, _lies_on_transition = conformed_path(first, second)
+            if not polygon:
+                polygon.extend(path)
+            elif polygon[-1] == path[0]:
+                polygon.extend(path[1:])
+            else:
+                polygon.extend(path)
+        if len(polygon) > 1 and polygon[0] == polygon[-1]:
+            polygon.pop()
+        compact = []
+        for point in polygon:
+            if not compact or compact[-1] != point:
+                compact.append(point)
+        conformed_predicates[key] = (
+            pending_index,
+            pending_face,
+            tuple(compact),
+        )
+    predicates = conformed_predicates
+
+    for side, _edge_a, _edge_b, station_points in transition_records:
+        conformed_segments.extend(
+            (station_points[first], station_points[second])
+            for first, second in zip(side.stations, side.stations[1:])
+            if station_points[first] != station_points[second]
+        )
+    raw_segments = conformed_segments
 
     # Duplicate input curves collapse before pairwise intersection.
     segments = tuple(
@@ -5867,7 +6358,13 @@ def _m1_surface_arrangement(entries):
                 cycles.append(tuple(simple_cycle))
 
     ordered_predicates = tuple(
-        predicates[key] for key in sorted(predicates)
+        (
+            predicates[key][0],
+            predicates[key][1],
+            predicates[key][2],
+            original_predicates[key][2],
+        )
+        for key in sorted(predicates)
     )
 
     def output_point(point):
@@ -5880,26 +6377,87 @@ def _m1_surface_arrangement(entries):
 
     arranged = []
     for cycle in cycles:
+        exact_representative = _m1_representative_point(cycle)
         polygon = tuple(output_point(point) for point in cycle)
         representative = _m1_representative_point(polygon)
+        wrong_transition_side = False
+        boundary_owner_tokens = set()
+        touches_canonical_transition = False
+        for side, edge_a, edge_b, _station_points in transition_records:
+            transition_orientations = []
+            point_stations = {
+                point: station
+                for station, point in _station_points.items()
+            }
+            interval_owner_by_key = {
+                (first, second): owner
+                for first, second, owner in side.interval_owners
+            }
+            edge_direction = (
+                edge_b[0] - edge_a[0], edge_b[1] - edge_a[1]
+            )
+            for first, second in zip(cycle, cycle[1:] + cycle[:1]):
+                if not (
+                    on_segment(first, edge_a, edge_b)
+                    and on_segment(second, edge_a, edge_b)
+                ):
+                    continue
+                cycle_direction = (
+                    second[0] - first[0], second[1] - first[1]
+                )
+                alignment = (
+                    cycle_direction[0] * edge_direction[0]
+                    + cycle_direction[1] * edge_direction[1]
+                )
+                if alignment:
+                    transition_orientations.append(
+                        1 if alignment > 0 else -1
+                    )
+                first_station = point_stations.get(first)
+                second_station = point_stations.get(second)
+                if (
+                    first_station is not None
+                    and second_station is not None
+                    and first_station != second_station
+                ):
+                    interval = tuple(
+                        sorted((first_station, second_station))
+                    )
+                    boundary_owner_tokens.add(
+                        interval_owner_by_key.get(interval)
+                    )
+            if not transition_orientations:
+                continue
+            touches_canonical_transition = True
+            if any(
+                orientation != side.interior_sign
+                for orientation in transition_orientations
+            ):
+                wrong_transition_side = True
+                break
+        if wrong_transition_side:
+            continue
+        boundary_owner_tokens.discard(None)
+        if touches_canonical_transition and not boundary_owner_tokens:
+            continue
+        has_boundary_owner = bool(boundary_owner_tokens)
         locations = tuple(
             surface.domain.locate(point) for point in polygon
         )
-        atlas_segments = _m1_atlas_transition_segments(surface.domain)
         strict_triangles = (
             tuple(
                 triangle.chart_points
                 for triangle in surface.domain.intrinsic_triangles
             )
-            if surface.domain.intrinsic_triangles and atlas_segments
+            if surface.domain.intrinsic_triangles and transition_sides
             else surface.domain.boundary_triangles
         )
         domain_tolerance = (
             1e-10
-            if atlas_segments
+            if transition_sides
             else surface.domain.location_tolerance
         )
-        if (
+        if not has_boundary_owner and (
             not any(
                 _point_in_triangle(
                     representative,
@@ -5908,14 +6466,23 @@ def _m1_surface_arrangement(entries):
                 )
                 for triangle in strict_triangles
             )
-            or any(
-                location is None for location in locations
-            )
+            or any(location is None for location in locations)
         ):
             continue
         owners = []
-        for pending_index, pending_face, crop in ordered_predicates:
-            if not _m1_point_in_polygon(representative, crop):
+        for pending_index, pending_face, crop, original_crop in ordered_predicates:
+            pending_token = int(pending_face.site.edge_index)
+            if has_boundary_owner and pending_token not in boundary_owner_tokens:
+                continue
+            if (
+                not has_boundary_owner
+                and not (
+                    _m1_point_in_polygon(exact_representative, crop)
+                    or _m1_point_in_polygon(
+                        exact_representative, original_crop
+                    )
+                )
+            ):
                 continue
             priority = (
                 3
@@ -5940,7 +6507,79 @@ def _m1_surface_arrangement(entries):
                     pending_face,
                 )
             )
+        if not owners and not has_boundary_owner:
+            # T3/T6: endpoint snap может оставить локальную ячейку уже одного
+            # B0-кванта между двумя исходными crop-предикатами. Это не новая
+            # материя и не spatial weld: arrangement уже построен, а семантика
+            # узкой ячейки наследуется от ближайшей исходной границы.
+            sliver_owners = []
+            for (
+                pending_index,
+                pending_face,
+                _crop,
+                original_crop,
+            ) in ordered_predicates:
+                boundary_distance = min(
+                    _segment_point_distance2(
+                        first,
+                        second,
+                        exact_representative,
+                    )[0]
+                    for first, second in zip(
+                        original_crop,
+                        original_crop[1:] + original_crop[:1],
+                    )
+                )
+                if boundary_distance > 1.0 + 1e-9:
+                    continue
+                priority = (
+                    3
+                    if pending_face.crop.kind == "JUNCTION"
+                    else 1
+                    if pending_face.crop.kind == "SEGMENT"
+                    else 2
+                )
+                sliver_owners.append(
+                    (
+                        round(float(boundary_distance), 12),
+                        -priority,
+                        pending_face.crop.kind,
+                        pending_face.crop.side,
+                        pending_face.site.edge_index,
+                        pending_index,
+                        pending_face,
+                    )
+                )
+            if sliver_owners:
+                sliver_owner = min(sliver_owners)
+                owners.append(
+                    (
+                        sliver_owner[1],
+                        sliver_owner[0],
+                        *sliver_owner[2:],
+                    )
+                )
         if not owners:
+            if has_boundary_owner:
+                available_tokens = tuple(
+                    sorted(
+                        {
+                            (
+                                face.crop.kind,
+                                face.crop.side,
+                                int(face.site.edge_index),
+                            )
+                            for _index, face, _crop, _original_crop
+                            in ordered_predicates
+                        }
+                    )
+                )
+                raise ValueError(
+                    "ATLAS_TRANSITION_DESYNC: owner image is missing "
+                    f"chart={surface.domain.chart_id} "
+                    f"owners={tuple(sorted(boundary_owner_tokens))!r} "
+                    f"available={available_tokens!r}"
+                )
             continue
         owner = min(owners)[-1]
         arranged.append(
@@ -5950,12 +6589,15 @@ def _m1_surface_arrangement(entries):
                 points=polygon,
                 crop=owner.crop,
                 point_keys=tuple(
-                    (
-                        "m1",
-                        surface.patch_id,
-                        surface.domain.chart_id,
-                        (point[0].numerator, point[0].denominator),
-                        (point[1].numerator, point[1].denominator),
+                    transition_point_keys.get(
+                        point,
+                        (
+                            "m1",
+                            surface.patch_id,
+                            surface.domain.chart_id,
+                            (point[0].numerator, point[0].denominator),
+                            (point[1].numerator, point[1].denominator),
+                        ),
                     )
                     for point in cycle
                 ),
@@ -6024,169 +6666,6 @@ def _m1_atlas_transition_segments(domain):
     return result
 
 
-def _m1_insert_atlas_transition_stations(faces):
-    """R2: owner-side station set вычисляется один раз и зеркалится."""
-
-    segments_by_domain = {
-        id(face.surface.domain): _m1_atlas_transition_segments(
-            face.surface.domain
-        )
-        for face in faces
-        if face.surface.domain.admission_tier == "APPROXIMATE"
-    }
-    def rational_point(key):
-        if (
-            not isinstance(key, tuple)
-            or len(key) != 5
-            or key[:1] != ("m1",)
-        ):
-            return None
-        return (
-            Fraction(key[3][0], key[3][1]),
-            Fraction(key[4][0], key[4][1]),
-        )
-
-    def lattice_segment(face, segment):
-        quantum = face.surface.diagram_transform.quantum
-        return tuple(
-            (
-                Fraction(round(point[0] / quantum)),
-                Fraction(round(point[1] / quantum)),
-            )
-            for point in segment
-        )
-
-    def exact_factor(point, first, second):
-        direction = (second[0] - first[0], second[1] - first[1])
-        relative = (point[0] - first[0], point[1] - first[1])
-        if relative[0] * direction[1] != relative[1] * direction[0]:
-            return None
-        if abs(direction[0]) >= abs(direction[1]):
-            if direction[0] == 0:
-                return None
-            factor = relative[0] / direction[0]
-        else:
-            factor = relative[1] / direction[1]
-        return factor if 0 <= factor <= 1 else None
-
-    def transition_hits(face, point_key):
-        point = rational_point(point_key)
-        if point is None:
-            return ()
-        result = []
-        for local_key, segment in segments_by_domain.get(
-            id(face.surface.domain), {}
-        ).items():
-            transition_key = local_key[0]
-            first, second = lattice_segment(face, segment)
-            factor = exact_factor(point, first, second)
-            if factor is not None:
-                result.append((repr(transition_key), transition_key, factor))
-        return tuple(sorted(result))
-
-    stations = {}
-    for face in faces:
-        if len(face.point_keys) != len(face.points):
-            continue
-        for point_key in face.point_keys:
-            for _repr_key, transition_key, factor in transition_hits(
-                face, point_key
-            ):
-                stations.setdefault(transition_key, set()).add(factor)
-
-    rebuilt = []
-    inserted = 0
-
-    def canonical_transition_key(transition_key, factor):
-        if factor in {Fraction(0), Fraction(1)}:
-            source_edge = tuple(transition_key[2])
-            return (
-                "m1-source-vertex",
-                source_edge[0] if factor == 0 else source_edge[1],
-            )
-        return (
-            "m1-transition",
-            _hashable_provenance(transition_key),
-            (factor.numerator, factor.denominator),
-        )
-
-    for face in faces:
-        segments = segments_by_domain.get(id(face.surface.domain), {})
-        if not segments:
-            rebuilt.append(face)
-            continue
-        result_points = []
-        result_keys = []
-        source_keys = (
-            face.point_keys
-            if len(face.point_keys) == len(face.points)
-            else (None,) * len(face.points)
-        )
-        for index, first_point in enumerate(face.points):
-            second_point = face.points[(index + 1) % len(face.points)]
-            result_points.append(first_point)
-            first_hits = transition_hits(face, source_keys[index])
-            if first_hits:
-                _repr_key, hit_key, hit_factor = first_hits[0]
-                result_keys.append(
-                    canonical_transition_key(hit_key, hit_factor)
-                )
-            else:
-                result_keys.append(source_keys[index])
-            candidates = []
-            second_hits = {
-                transition_key: factor
-                for _repr_key, transition_key, factor in transition_hits(
-                    face,
-                    source_keys[(index + 1) % len(source_keys)],
-                )
-            }
-            for _repr_key, transition_key, first_factor in first_hits:
-                second_factor = second_hits.get(transition_key)
-                if second_factor is None or second_factor == first_factor:
-                    continue
-                low, high = sorted((first_factor, second_factor))
-                for station in stations.get(transition_key, ()):
-                    if low < station < high:
-                        edge_factor = float(
-                            (station - first_factor)
-                            / (second_factor - first_factor)
-                        )
-                        candidates.append(
-                            (
-                                edge_factor,
-                                repr(transition_key),
-                                transition_key,
-                                station,
-                            )
-                        )
-            for edge_factor, _repr_key, transition_key, station in sorted(
-                candidates
-            ):
-                point = (
-                    first_point[0]
-                    + (second_point[0] - first_point[0]) * edge_factor,
-                    first_point[1]
-                    + (second_point[1] - first_point[1]) * edge_factor,
-                )
-                if _dist2(result_points[-1], point) <= 1e-12:
-                    continue
-                result_points.append(point)
-                result_keys.append(
-                    canonical_transition_key(transition_key, station)
-                )
-                inserted += 1
-        rebuilt.append(
-            replace(
-                face,
-                points=tuple(result_points),
-                point_keys=tuple(result_keys),
-            )
-        )
-
-    return tuple(rebuilt), inserted
-
-
 def _build_decal_arrangement(pending, tolerance):
     """Создаёт conforming subdivision отдельно на каждом owner surface."""
 
@@ -6205,10 +6684,13 @@ def _build_decal_arrangement(pending, tolerance):
     arranged_by_index = {}
     m1_faces = []
     inserted_stations = 0
+    transition_contract = _m1_build_transition_contract(grouped.values())
     for entries in grouped.values():
         domain = entries[0][1].surface.domain
         if domain.admission_tier == "APPROXIMATE":
-            faces, inserted = _m1_surface_arrangement(entries)
+            faces, inserted = _m1_surface_arrangement(
+                entries, transition_contract.get(id(domain), ())
+            )
             m1_faces.extend(faces)
             inserted_stations += inserted
             continue
@@ -6234,12 +6716,70 @@ def _build_decal_arrangement(pending, tolerance):
                 crop=pending_face.crop,
             )
     faces = tuple(m1_faces) + tuple(
-            arranged_by_index[index] for index in sorted(arranged_by_index)
+        arranged_by_index[index] for index in sorted(arranged_by_index)
+    )
+    transition_ids_by_source_vertex = {}
+    for sides in transition_contract.values():
+        for side in sides:
+            transition_id = _hashable_provenance(side.transition_key)
+            for source_vertex in side.transition_key[2]:
+                transition_ids_by_source_vertex.setdefault(
+                    int(source_vertex), set()
+                ).add(transition_id)
+
+    def point_transition_ids(point_key):
+        if (
+            isinstance(point_key, tuple)
+            and point_key[:1] == ("m1-transition",)
+        ):
+            return {point_key[1]}
+        if (
+            isinstance(point_key, tuple)
+            and point_key[:1] == ("m1-source-vertex",)
+        ):
+            return transition_ids_by_source_vertex.get(
+                int(point_key[1]), set()
+            )
+        return set()
+
+    transition_edge_owners = {}
+    for face in m1_faces:
+        if len(face.point_keys) != len(face.points):
+            continue
+        for index, first in enumerate(face.point_keys):
+            second = face.point_keys[(index + 1) % len(face.point_keys)]
+            shared_transition_ids = (
+                point_transition_ids(first)
+                & point_transition_ids(second)
+            )
+            if not shared_transition_ids:
+                continue
+            for transition_id in shared_transition_ids:
+                edge = (
+                    repr(transition_id),
+                    *sorted((repr(first), repr(second))),
+                )
+                transition_edge_owners.setdefault(edge, []).append(
+                    (
+                        face.surface.domain.chart_id,
+                        face.crop.kind,
+                        face.site.edge_index,
+                    )
+                )
+    overfull = {
+        edge: owners
+        for edge, owners in transition_edge_owners.items()
+        if len(owners) > 2
+    }
+    if overfull:
+        first_edge, owners = min(overfull.items(), key=lambda item: item[0])
+        raise ValueError(
+            "ATLAS_TRANSITION_DESYNC: overfull transition subedge "
+            f"edge={first_edge!r} owners={tuple(owners)!r}"
         )
-    faces, atlas_inserted = _m1_insert_atlas_transition_stations(faces)
     return DecalArrangement(
         faces=faces,
-        inserted_stations=inserted_stations + atlas_inserted,
+        inserted_stations=inserted_stations,
     )
 
 
