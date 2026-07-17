@@ -3113,6 +3113,47 @@ def _evaluate_manual_backend_partition(
     )
 
 
+@dataclass(frozen=True)
+class ManualSeamFacesResult:
+    """Faces-only результат для display adapters (GPU overlay, F3)."""
+
+    faces: tuple
+    policy_counts: tuple = ()
+    evaluation_ms: float = 0.0
+
+
+def evaluate_manual_seam_faces(
+    source_obj, settings, decal_plan, preview=True
+):
+    """Display-adapter путь: evaluated faces БЕЗ BMesh side effects.
+
+    Использует тот же transaction-порядок и те же evaluator'ы, что
+    mesh-путь (`_fill_manual_chain_decals`): parity by construction.
+    Исключения evaluator'а (включая DOMAIN_BUDGET_EXCEEDED) пробрасываются
+    вызывающему — modal обрабатывает их существующей A6-семантикой
+    RETAINED_LAST_VALID. Функция аддитивна и не трогает mesh-путь.
+    """
+
+    started = perf_counter()
+    local_settings = local_decal_settings_for_source(settings, source_obj)
+    width = local_settings.width_seam
+    faces = []
+    policy_totals = {}
+    for partition in decal_plan.backend_partitions:
+        evaluation = _evaluate_manual_backend_partition(
+            partition, local_settings, width, preview
+        )
+        faces.extend(evaluation.faces)
+        if partition.backend == "PATCH_VORONOI":
+            for kind, count in evaluation.policy_counts:
+                policy_totals[kind] = policy_totals.get(kind, 0) + count
+    return ManualSeamFacesResult(
+        faces=tuple(faces),
+        policy_counts=tuple(sorted(policy_totals.items())),
+        evaluation_ms=(perf_counter() - started) * 1000.0,
+    )
+
+
 def _fill_manual_chain_decals(
     bm,
     graph,
