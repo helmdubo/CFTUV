@@ -94,6 +94,16 @@ JSON (A0).
 геодезика по развёртке точна, поэтому проверка фактически ловит ошибки
 lift/provenance, а не математики.
 
+E0 harness разворачивает альтернативные triangle-strip пути между станцией
+и rail-точкой тем же hinge-механизмом C2, проверяет порядок пересечения
+shared edges и сравнивает кратчайший допустимый путь с chart half-width.
+Результаты живут в policy-free `ChartBuildMetrics`:
+`max_width_error_sampled`, `max_station_normal_variation` и
+`foldover_count`. Последний не дублирует `triangle_overlap_count`:
+foldover — инверсия ориентации отдельного triangle, overlap — площадь
+пересечения двух несмежных triangles. Для уже admitted C/D charts первый
+равен нулю, потому что C2 раньше отклоняет inconsistent orientation.
+
 ---
 
 ## 5. Приёмочная таблица фикстур (C7)

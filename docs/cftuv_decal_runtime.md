@@ -502,6 +502,12 @@ D5-remediation дополнительно проверяет public budget prefl
 seam-corner crop для emission/subtraction и фактическое использование
 periodic image-ключей.
 
+E0 measurement harness добавляет в compile diagnostics и benchmark JSON
+фактическую sampled-ошибку geodesic half-width, максимальную вариацию
+нормалей вдоль station-owner strip и число foldover. Скрипт
+`artifacts/verify_decal_charts.py` выгружает те же поля для Blender fixtures;
+admission policy на этом этапе не меняется.
+
 Живой Blender 4.3.2 acceptance выполнен на отдельном open cylinder из 32
 quad facets с кольцевой boundary chain. Результат: один periodic domain,
 `period=12.5462`, `alpha_budget=6.2731`, `33` diagram copies, `2` seam weld,

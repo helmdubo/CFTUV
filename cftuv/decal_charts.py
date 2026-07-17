@@ -278,6 +278,9 @@ class ChartBuildMetrics:
     discrete_angle_defect: float = 0.0
     triangle_overlap_count: int = 0
     chart_area_source_area_ratio: float = 1.0
+    max_width_error_sampled: float = 0.0
+    max_station_normal_variation: float = 0.0
+    foldover_count: int = 0
 
     def __post_init__(self):
         counts = (
@@ -286,6 +289,7 @@ class ChartBuildMetrics:
             self.boundary_edge_count,
             self.cut_count,
             self.triangle_overlap_count,
+            self.foldover_count,
         )
         if any(count < 0 for count in counts):
             raise ValueError("Chart metric counts must be non-negative")
@@ -294,6 +298,8 @@ class ChartBuildMetrics:
             self.max_loop_closure_residual,
             self.discrete_angle_defect,
             self.chart_area_source_area_ratio,
+            self.max_width_error_sampled,
+            self.max_station_normal_variation,
         )
         if any(not isfinite(float(value)) for value in values):
             raise ValueError("Chart metrics must be finite")

@@ -194,6 +194,8 @@ def test_c7_f3_quarter_cylinder_admission_preserves_developable_metric():
     assert chart.metrics.chart_area_source_area_ratio == pytest.approx(
         1.0, rel=1e-3
     )
+    assert chart.metrics.max_width_error_sampled <= 0.01
+    assert chart.metrics.foldover_count == 0
     plan = compile_patch_voronoi_plan(
         graph, (left_edge,), offset=0.01, alpha_budget=0.5
     )

@@ -897,6 +897,9 @@ class PatchVoronoiDiagnostics:
     apex_limit_saturated_count: int = 0
     periodic_copy_count: int = 0
     periodic_weld_count: int = 0
+    max_width_error_sampled: float = 0.0
+    max_station_normal_variation: float = 0.0
+    foldover_count: int = 0
     runtime_policy_counts: dict[str, int] = field(default_factory=dict)
     reference_full_scan: bool = False
 
@@ -924,6 +927,13 @@ class PatchVoronoiDiagnostics:
             ),
             "periodic_copy_count": int(self.periodic_copy_count),
             "periodic_weld_count": int(self.periodic_weld_count),
+            "max_width_error_sampled": float(
+                self.max_width_error_sampled
+            ),
+            "max_station_normal_variation": float(
+                self.max_station_normal_variation
+            ),
+            "foldover_count": int(self.foldover_count),
             "runtime_policy_counts": dict(
                 sorted(self.runtime_policy_counts.items())
             ),
@@ -4624,6 +4634,16 @@ def _periodic_transport_raw_sites(raw_sites):
 
 
 def _compile_intrinsic_surface(node, chart, raw_sites, diagnostics=None):
+    if diagnostics is not None:
+        diagnostics.max_width_error_sampled = max(
+            diagnostics.max_width_error_sampled,
+            chart.metrics.max_width_error_sampled,
+        )
+        diagnostics.max_station_normal_variation = max(
+            diagnostics.max_station_normal_variation,
+            chart.metrics.max_station_normal_variation,
+        )
+        diagnostics.foldover_count += chart.metrics.foldover_count
     if chart.periodic_axis:
         raw_sites = _periodic_transport_raw_sites(raw_sites)
     intrinsic_triangles = _intrinsic_domain_triangles(chart)

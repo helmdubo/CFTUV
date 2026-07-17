@@ -17,6 +17,7 @@ from .decal_charts import (
     unroll_intrinsic_strip_chart,
 )
 from .decal_diagram import DiagramTransformError, build_diagram_transform
+from .decal_chart_measurement import measure_chart_width
 
 
 CHART_DISTORTION_BUDGET = 0.02
@@ -594,6 +595,13 @@ def admit_intrinsic_strip_chart(
     admitted = unroll_intrinsic_strip_chart(
         prepared,
         edge_relative_tolerance=CHART_EDGE_RELATIVE_ERROR_LIMIT,
+    )
+    admitted = replace(
+        admitted,
+        metrics=replace(
+            admitted.metrics,
+            **measure_chart_width(admitted),
+        ),
     )
     if admitted.cuts and admitted.cuts[0].reason == "OPEN_ANNULUS":
         admitted = _periodicize_annulus(admitted)
