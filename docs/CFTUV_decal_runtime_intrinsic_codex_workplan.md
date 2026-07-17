@@ -1384,10 +1384,11 @@ strip-бюджет (`decal_chart_admission.py:~495-496`) — исправить.
 
 # TRANCHE E — Non-developable / Approximate Charts
 
-Пологая двойная кривизна: купола, апсиды, мягкие скалы. Механизм тот
-же hinge unroll (C2) — E добавляет ИЗМЕРЕНИЕ фактического искажения,
-второй admission-tier с явной маркировкой и одну пользовательскую
-ручку. Никакого нового солвера.
+Пологая двойная кривизна: купола, апсиды, мягкие скалы. Базовый механизм
+остаётся hinge unroll (C2), а E добавляет ИЗМЕРЕНИЕ фактического искажения,
+второй admission-tier, multi-chart atlas для interior overlap и одну
+пользовательскую ручку. Конформный backend допускается только как отдельный
+research fallback после отрицательного результата atlas-пути.
 
 ## E-предрешения (утверждены; не пере-обсуждать в автономном режиме)
 
@@ -1398,12 +1399,13 @@ strip-бюджет (`decal_chart_admission.py:~495-496`) — исправить.
 настройках admission-исходы всех C7/D4/walls фикстур байт-идентичны
 текущим — это differential-guardrail всего транша.
 
-**EP2 — Никаких внешних/новых солверов.** Запрещены собственные
-LSCM/ABF/exponential-map реализации И вызовы `bpy.ops.uv.unwrap`
-(ломает headless execution parity и инвариант 3). Единственный
-механизм E — существующий hinge unroll + измерение + admission.
-Если фикстура требует конформного солвера — это stop condition, не
-задача.
+**EP2 — Hinge/atlas first; conformal только отдельным исследованием.**
+Production-путь E строится из существующего hinge unroll, измерения,
+admission и E3-atlas. Собственные LSCM/ABF/exponential-map реализации и
+`bpy.ops.uv.unwrap` не добавляются в этот путь. Если atlas не способен
+пройти E.3 по метрикам, разрешён отдельный conformal spike с теми же
+policy-free метриками, headless/parity-анализом и собственным design review.
+Его результат не становится production backend автоматически.
 
 **EP3 — Admission по ИЗМЕРЕННОМУ искажению, не только по прокси.**
 G3/G4 (angle defect / closure residual) остаются быстрым отсевом, но
@@ -1412,13 +1414,13 @@ harness): `max_width_error_sampled <= budget`. Прокси может ошиб�
 в обе стороны на неравномерной тесселяции — меряем то, что видит
 артист.
 
-**EP4 — Внутри зоны материализации чарт непрерывен.** Никаких cuts и
-chart-переходов ближе `alpha_budget` к цепочке: разрез внутри полосы =
-видимая трещина трима. Curvature-relief cuts разрешены только в
-margin-зоне support'а (дальше `alpha_budget`); внутренние переходы —
-исключительно E3-атлас со сваркой transition-ключами (механизм
-доказан в D: seam weld бит-точен). В E1/E2 полоса — один связный
-кусок чарта.
+**EP4 — Материализованная полоса непрерывна, chart topology может быть
+атласной.** Curvature-relief cuts в margin-зоне остаются допустимы. Внутри
+`alpha_budget` разрешены только E3 chart-переходы: обе стороны перехода
+материализуются как одна поверхность и свариваются по каноническим
+transition keys механизма D. Raw cut, несваренная граница или UV-фазовый
+скачок внутри полосы запрещены. Поэтому «нет трещин» остаётся product
+инвариантом, но больше не означает «ровно один hinge chart».
 
 **EP5 — Ручка одна, и она compile-параметр.**
 `decal_chart_distortion_budget`: float, default `0.02`, min `0.005`,
@@ -1432,11 +1434,14 @@ backend'а). Default `0.02` == текущий G3-порог => EP1 выполн�
 кривизна) обрабатывается тем же |defect|-критерием, что купол.
 Отдельных веток для эллиптических/гиперболических точек не заводить.
 
-**EP7 — E3 в автономный объём НЕ входит.** Автономный прогон = E0 ->
-E1 -> E2 + дизайн-меморандум E3. Реализация атласа стартует только по
-отдельному решению пользователя с production-фикстурой, которую E2
-честно отверг. Причина: атлас — единственная часть E с настоящим
-архитектурным риском, её нельзя принимать без полевых данных E2.
+**EP7 — E3 разрешён и предшествует окончательной приёмке E2.** E0 дал
+полевое доказательство: gentle saddle имеет малую width error, но interior
+self-overlap single hinge chart. Пользователь разрешил реализацию atlas.
+Порядок продолжения: независимое review настоящего контракта и
+`docs/decal_atlas_design.md` -> E3 implementation -> E1 margin relief -> E2
+admission/UI. E.3 saddle остаётся целевой положительной фикстурой. Если E3
+не проходит её без нарушения EP1/EP3/EP4, разрешённое снижение scope должно
+быть явным: saddle становится REJECT/deferred, а не скрытой аппроксимацией.
 
 ## E0. Measurement harness + spike (два коммита)
 
@@ -1476,6 +1481,9 @@ E1 -> E2 + дизайн-меморандум E3. Реализация атлас
 - Acceptance: фикстура «широкий support на куполе», которая без
   relief cuts даёт `CHART_SELF_OVERLAP`, с ними — admissible;
   материализованная полоса без швов; differential C/D нетронут.
+- E1 не обязан устранять interior overlap E.3: это ответственность E3.
+  Margin relief и interior atlas используют один canonical transition-key
+  contract, но остаются разными compile decisions и разными counters.
 
 ## E2. Approximate tier + budget knob
 
@@ -1508,7 +1516,7 @@ E1 -> E2 + дизайн-меморандум E3. Реализация атлас
 |---|---|---|
 | E.1 | Кольцо-полоса на sphere cap, R >= 10*alpha | APPROXIMATE; width_err <= 2%; S1-стабильность швов при width drag |
 | E.2 | Мягкий cliff-band (displaced plane, bounded curvature) | APPROXIMATE; ноль трещин в полосе |
-| E.3 | Седло (гиперболическая точка, gentle) | APPROXIMATE (EP6) |
+| E.3 | Седло (гиперболическая точка, gentle) | APPROXIMATE через E3 atlas (EP6/EP7); ноль materialization cracks |
 | E.4 | Купол промежуточной кривизны | REJECT при 0.02; APPROXIMATE при budget=0.05 (семантика ручки) |
 | E.N1 | Sphere cap R ~ 2*alpha | REJECT `DISTORTION_BUDGET_EXCEEDED` даже при max budget |
 | E.N2 | Высокочастотный crumple | REJECT `FOLDOVER_DETECTED` |
@@ -1519,25 +1527,38 @@ E1 -> E2 + дизайн-меморандум E3. Реализация атлас
 1. Фикстуры по таблице, отрицательные включительно; счётчики в отчёте.
 2. Differential: C7 + D4 + walls при дефолтах — байт-в-байт (EP1).
 3. `Construct() == 0` в drag; S1-тесты проходят на E.1.
-4. Полоса на APPROXIMATE-чарте не содержит внутренних швов чарта (EP4).
+4. Полоса на APPROXIMATE atlas не содержит геометрических трещин или
+   UV-фазовых скачков на внутренних chart transitions (EP4).
 5. `docs/decal_chart_admission.md` дополнен tier-таблицей и новыми
    reasons; `docs/cftuv_decal_runtime.md` — замером E.1.
 6. `docs/decal_organic_spike.md` содержит данные E0.b и фактические
    значения всех порогов.
 
-## E3. Multi-chart atlas — только дизайн-меморандум
+## E3. Multi-chart atlas — design review и implementation
 
-Автономный исполнитель НЕ реализует атлас (EP7). Деливеребл —
-`docs/decal_atlas_design.md`: overlapping charts, transition maps,
-shared station keys через механизм D-сварки, cross-chart arrangement
-stitching, оценка объёма, риски, и список production-случаев из E2,
-которые его оправдали бы. Плюс перечень того, что E2 уже покрыл — как
-аргумент возможно НЕ делать атлас вовсе.
+Канонический design contract — `docs/decal_atlas_design.md`. До кода он
+проходит независимое review. Реализация обязана:
+
+- детерминированно разбить support на локально injective hinge charts;
+- хранить interior transitions как compile IR, не пересобирать их при drag;
+- использовать canonical source/station keys и D-style equivalence для
+  бит-точной геометрической сварки;
+- переносить непрерывную V-фазу и согласованный U через переход;
+- материализовать каждый source-region ровно один раз, без double cover;
+- публиковать `atlas_chart_count`, `interior_transition_count`,
+  `interior_weld_count` и per-chart admission metrics;
+- пройти E.3 saddle, не меняя C7/D4/walls differential и S1.
+
+Если эти условия недостижимы, зафиксировать failing fixture и отдельно
+выбрать один из уже разрешённых исходов: временно исключить saddle из
+положительного E2 scope либо открыть conformal research spike по EP2.
 
 ## Stop conditions Tranche E
 
 1. E0.b расходится с provisional-порогами более чем вдвое.
-2. Требуется конформный солвер или интерьерный cut (EP2/EP4).
+2. E3 не может построить injective atlas E.3 с бит-точной сваркой —
+   остановиться перед изменением квантования/материализации и вынести
+   evidence на решение: scope reduction либо conformal spike (EP2/EP7).
 3. Измерение width error недетерминировано между прогонами.
 4. Differential при дефолтах меняется (EP1) — остановиться, не
    «чинить» differential правкой эталонов.

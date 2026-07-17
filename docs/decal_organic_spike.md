@@ -54,5 +54,20 @@ Margin-кандидаты определяются source-distance не мень
    фактически E3 atlas);
 2. conformal/global solver вместо hinge unroll (нарушение EP2).
 
-Активирован stop condition Tranche E #2. Пороги и binary overlap gate не
-ослабляются; E1/E2 не имплементируются без отдельного design decision.
+Stop condition Tranche E #2 был активирован и корректно остановил E1/E2.
+Пороги и binary overlap gate не ослаблялись.
+
+## Решение пользователя после feasibility audit
+
+Пользователь разрешил все три обсуждавшихся направления. Они применяются
+последовательно, а не смешиваются в один неуправляемый production path:
+
+1. Основной путь — E3 multi-chart atlas с interior transitions и бит-точной
+   D-style сваркой; E.3 saddle остаётся положительной целевой фикстурой.
+2. Если atlas не проходит E.3 по метрикам и инвариантам, допустимо временно
+   исключить saddle из положительного E2 scope с явным REJECT/deferred.
+3. Conformal solver разрешён как отдельный research spike только после
+   отрицательного atlas evidence; он не включается в production автоматически.
+
+Stop condition считается разрешённым на уровне направления. До продолжения
+production-кода обновлённый atlas contract должен пройти независимое review.

@@ -105,6 +105,13 @@ shared edges и сравнивает кратчайший допустимый �
 площадь пересечения двух несмежных triangles. Для уже admitted C/D charts
 foldover равен нулю.
 
+Для E3 admission применяется к materialized atlas arrangement. Перекрытие
+служебных chart margins допустимо только если canonical ownership гарантирует,
+что source-region материализуется один раз. Несваренный interior transition,
+double materialization или unresolved overlap дают
+`ATLAS_INJECTIVITY_UNRESOLVED`; они не могут быть приняты повышением distortion
+budget. Локальные charts обязаны отдельно пройти width/normal/foldover gates.
+
 ---
 
 ## 5. Приёмочная таблица фикстур (C7)
