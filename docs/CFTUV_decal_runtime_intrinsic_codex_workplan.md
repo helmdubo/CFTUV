@@ -1728,6 +1728,44 @@ evaluator'а, что пишется в mesh; confirm — прежняя точн
 materialization. Никакой shader/SDF-аппроксимации как authoritative
 preview (прежний запрет остаётся).
 
+## Параллельный GPU-трек: протокол координации (F0-lite + F3)
+
+GPU-срез выполняется ОТДЕЛЬНЫМ исполнителем параллельно E4. Правила:
+
+1. **Ветка.** GPU-агент работает в отдельной ветке
+   `claude/decal-gpu-preview-f3`, созданной от зафиксированного
+   baseline-коммита основной ветки (указывается в стартовом задании).
+   В основную ветку E4-исполнителя GPU-агент НЕ пушит. Слияние — по
+   готовности F3, rebase GPU-ветки на актуальную основную; конфликтов
+   быть не должно при соблюдении п.2.
+2. **Владение файлами.** GPU-агент МОЖЕТ менять: новый модуль
+   `cftuv/decal_gpu_preview.py`, display-путь preview в
+   `cftuv/operators.py` / `cftuv/decal_modal.py`, benchmark-скрипты
+   `artifacts/`, новые тесты `tests/test_decal_gpu_preview.py`,
+   docs. GPU-агент НЕ КАСАЕТСЯ: `decal_voronoi.py`,
+   `decal_charts.py`, `decal_chart_admission.py`, `decal_network.py`,
+   геометрических путей `decals.py` — это территория E4. Потребность
+   изменить их = stop condition, не правка.
+3. **Замороженный интерфейс.** Контракт faces
+   (`DecalGeometryFace`: positions/u_fracs/v_lengths/
+   component_kind/component_side/vert_keys/surface_*) не меняется ни
+   одним из агентов в одностороннем порядке.
+4. **F0 делится.** GPU-агент делает **F0-lite**: интегральные времена
+   реального modal-кадра (evaluator total / materialization /
+   depsgraph-остаток) измерением СНАРУЖИ evaluator'а + baseline
+   до/после F3. Внутренний per-phase профайлер (правки внутри
+   `decal_voronoi.py`) — ПОСЛЕ E4, основным исполнителем: фазы
+   меняются вместе с M1.
+5. **Headless-тесты GPU-кода.** Модуль `gpu` недоступен в
+   background — batch-логика (триангуляция, сборка буферов, решение о
+   пересборке по topology signature, state-machine lifecycle
+   handler'а) тестируется как чистая логика через injected gpu-фасад
+   (паттерн существующих bpy-стабов conftest). Реальная отрисовка —
+   ручная проверка в Blender.
+6. **Preview-статусы.** Overlay обязан уважать A6-контракт: на
+   не-UPDATED кадре рисуется последний валидный batch; header-причина
+   — как в mesh-пути.
+
 ## F0. Phase-level profiler
 
 Evaluator timings минимум:
