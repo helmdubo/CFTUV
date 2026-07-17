@@ -56,9 +56,11 @@ from .decals import (
     chain_refs_for_edge_indices,
     compile_manual_seam_decal_plan,
     decal_compile_alpha_budget,
+    evaluate_manual_seam_faces,
     generate_decal_result,
     remove_decal_preview_object,
 )
+from .decal_gpu_preview import create_controller as create_gpu_preview
 from .model import DecalSettings, MeshPreflightReport, UVSettings
 from .solve import (
     build_root_scaffold_map,
@@ -296,6 +298,32 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
         description=(
             "Maximum removed-apex distance as a multiple of half decal "
             "width; evaluated at runtime for miter, kite and acute corners"
+        ),
+    )
+    decal_preview_display: EnumProperty(
+        name="Preview Display",
+        items=(
+            (
+                "GPU",
+                "GPU",
+                "Overlay preview via GPU draw handler: no mesh writes "
+                "during drag (F3, SOLID colors by component kind)",
+            ),
+            (
+                "GPU_TEXTURED",
+                "GPU Textured",
+                "GPU overlay with the source object's first image texture",
+            ),
+            (
+                "MESH",
+                "Mesh",
+                "Legacy persistent preview mesh (debug fallback)",
+            ),
+        ),
+        default="GPU",
+        description=(
+            "Modal drag preview display adapter; confirm always uses the "
+            "exact BMesh materialization"
         ),
     )
     # Debug state
@@ -1362,6 +1390,52 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             and obj.mode in {"EDIT", "OBJECT"}
         )
 
+    def _stop_gpu_preview(self):
+        controller = getattr(self, "_modal_gpu_preview", None)
+        if controller is not None:
+            try:
+                controller.stop()
+            except Exception:
+                pass
+
+    def _generate_gpu_frame(self, state, settings, preview):
+        """GPU display adapter кадр: faces без BMesh (F3).
+
+        Возвращает DecalGenerationResult либо None (=> mesh fallback).
+        Ошибки evaluator'а ПРОБРАСЫВАЮТСЯ — их обрабатывает существующая
+        A6-логика modal (RETAINED_LAST_VALID / budget). Ошибки adapter'а
+        не пробрасываются: постоянный fallback на mesh-путь.
+        """
+
+        controller = getattr(self, "_modal_gpu_preview", None)
+        if controller is None or controller.failed or not preview:
+            return None
+        result = evaluate_manual_seam_faces(
+            state[0],
+            settings,
+            self._modal_decal_plan,
+            preview=True,
+        )
+        if not result.faces:
+            controller.update((), "EMPTY")
+            return DecalGenerationResult(
+                PreviewStatus.EMPTY,
+                None,
+                reason="evaluation produced no faces",
+                evaluation_ms=result.evaluation_ms,
+            )
+        outcome = controller.update(result.faces, "UPDATED")
+        if outcome == "FAILED":
+            # Adapter умер: этот кадр и все последующие — mesh-путь.
+            self._modal_gpu_preview = None
+            return None
+        return DecalGenerationResult(
+            PreviewStatus.UPDATED,
+            None,
+            policy_counts=result.policy_counts,
+            evaluation_ms=result.evaluation_ms,
+        )
+
     def _generate(self, context, state, settings=None, preview=False):
         (
             obj,
@@ -1372,6 +1446,12 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             _edge_count,
             selected_edge_indices,
         ) = state
+        if preview and getattr(self, "_modal_gpu_preview", None) is not None:
+            gpu_result = self._generate_gpu_frame(
+                state, settings or base_settings, preview
+            )
+            if gpu_result is not None:
+                return gpu_result
         return generate_decal_result(
             patch_graph,
             obj,
@@ -1573,6 +1653,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
     def _discard_modal_preview(self, context, restore_scene):
         """Idempotent terminal cleanup для Esc, confirm и forced cancel."""
 
+        self._stop_gpu_preview()
         if not getattr(self, "_modal_preview_discarded", False):
             state = getattr(self, "_modal_state", None)
             source_obj = (
@@ -1626,6 +1707,29 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             self._compile_decal_plan(state)
             self._modal_preview_state = DecalPreviewState()
             settings = state[2]
+            # F3: GPU display adapter — только SEAMS с compiled plan;
+            # None => существующий mesh-preview без изменений.
+            self._modal_gpu_preview = None
+            decal_plan = getattr(self, "_modal_decal_plan", None)
+            if (
+                self.mode == "SEAMS"
+                and decal_plan is not None
+                and getattr(decal_plan, "backend_partitions", None)
+            ):
+                display_mode = str(
+                    getattr(
+                        getattr(
+                            context.scene, "hotspotuv_settings", None
+                        ),
+                        "decal_preview_display",
+                        "GPU",
+                    )
+                )
+                controller = create_gpu_preview(
+                    state[0], display_mode
+                )
+                if controller is not None and controller.start():
+                    self._modal_gpu_preview = controller
             self._modal_state = state
             self._configure_modal_drag_targets(settings)
             self._modal_area = context.area
@@ -1803,6 +1907,10 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER"} and event.value == "PRESS":
             # Перестраиваем подтверждённый размер в полной точности:
             # во время drag декаль строилась в preview-режиме.
+            # F3: overlay гасится ДО точной materialization — confirm
+            # всегда идёт существующим exact BMesh-путём.
+            self._stop_gpu_preview()
+            self._modal_gpu_preview = None
             pending_budget_settings = getattr(
                 self, "_modal_pending_budget_settings", None
             )
@@ -2040,6 +2148,7 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
             if s.decal_dynamic_corner_bands:
                 col.prop(s, "decal_corner_hairpin_angle")
             col.prop(s, "decal_corner_miter_limit")
+            col.prop(s, "decal_preview_display")
         op = col.operator("hotspotuv.generate_decals", text="Decal Top", icon="TRIA_UP")
         op.mode = "TOP"
         op = col.operator(
