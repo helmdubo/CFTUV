@@ -111,6 +111,9 @@ foldover равен нулю.
 double materialization или unresolved overlap дают
 `ATLAS_INJECTIVITY_UNRESOLVED`; они не могут быть приняты повышением distortion
 budget. Локальные charts обязаны отдельно пройти width/normal/foldover gates.
+Atlas separators имеют reason `ATLAS_SEPARATOR` и не учитываются G7 как
+generating cuts; каждый source triangle имеет ровно одного materialization
+owner.
 
 ---
 

@@ -1,7 +1,7 @@
 # Tranche E3 — Multi-chart atlas design contract
 
-Статус: **APPROVED с предусловием P0** (независимое ревью пройдено,
-поправки R1–R4 внесены ревьюером тем же коммитом). Пользователь разрешил
+Статус: **IMPLEMENTED** (`ba75d0c`; независимое ревью пройдено,
+P0 закрыт `578269a`, поправки R1–R4 реализованы). Пользователь разрешил
 interior transitions, временное исключение saddle при доказанной
 несостоятельности atlas и отдельный conformal research fallback.
 
@@ -156,3 +156,16 @@ dependency policy, determinism, compile/evaluate split и differential. Сам �
 7. полноту negative tests и canonical reject path.
 
 После review статус меняется на **APPROVED** с commit/reviewer evidence.
+
+## 9. Implementation evidence
+
+- P0: periodic T-stations нормализуются до fragment union; D5.3 проверяет
+  manifold, source-spine coverage и supporting-line stability на
+  `pyvoronoi 1.2.8`.
+- E.3 saddle: 24 locally-injective charts, 105 interior transitions,
+  6 separator iterations, ноль unresolved local overlaps.
+- Public compile: 276 atlas site images, 24 compile-time `Construct()`;
+  при width drag новых `Construct()` нет, interior weld count ненулевой.
+- Negative crumple возвращает `ATLAS_INJECTIVITY_UNRESOLVED` на заданном
+  iteration limit без partial atlas.
+- Полный headless suite после implementation: `331 passed`.

@@ -69,5 +69,13 @@ Stop condition Tranche E #2 был активирован и корректно 
 3. Conformal solver разрешён как отдельный research spike только после
    отрицательного atlas evidence; он не включается в production автоматически.
 
-Stop condition считается разрешённым на уровне направления. До продолжения
-production-кода обновлённый atlas contract должен пройти независимое review.
+Stop condition был разрешён на уровне направления; до продолжения
+production-кода обновлённый atlas contract прошёл независимое review.
+
+## Результат E3
+
+Независимое review пройдено, P0 закрыт, основной atlas-путь реализован в
+`ba75d0c`. E.3 saddle разбит за 6 bounded iterations на 24 locally-injective
+charts с 105 interior transitions. Public compile создаёт site images через
+переходы, materialization использует canonical transition keys и сохраняет
+compile topology при width drag без новых вызовов `Construct()`.

@@ -1536,6 +1536,9 @@ admission/UI. E.3 saddle остаётся целевой положительн�
 
 ## E3. Multi-chart atlas — design review и implementation
 
+Статус: **IMPLEMENTED** (`ba75d0c`). Предусловие P0 закрыто `578269a`;
+независимое review R1–R4 зафиксировано `55249aa`.
+
 Канонический design contract — `docs/decal_atlas_design.md`. До кода он
 проходит независимое review. Реализация обязана:
 
