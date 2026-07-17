@@ -35,8 +35,8 @@ from .decal_diagram import (
     build_diagram_transform,
 )
 from .decal_chart_admission import (
-    admit_intrinsic_strip_atlas,
-    admit_intrinsic_strip_charts,
+    CHART_DISTORTION_BUDGET,
+    admit_intrinsic_strip_runtime,
 )
 from .decal_atlas import IntrinsicStripAtlas
 from .decal_charts import (
@@ -420,11 +420,15 @@ class DecalSurfaceDomain:
     source_edge_features: tuple[tuple[object, tuple[int, ...]], ...] = ()
     source_vertex_features: tuple[tuple[object, tuple[int, ...]], ...] = ()
     transition_metadata: tuple[tuple[object, str, object], ...] = ()
+    admission_tier: str = "EXACT"
+    normalize_fragment_t_junctions: bool = False
     reference_full_scan: bool = False
 
     def __post_init__(self):
         if self.kind not in {"PLANAR", "INTRINSIC"}:
             raise ValueError(f"Unsupported decal domain kind: {self.kind}")
+        if self.admission_tier not in {"EXACT", "APPROXIMATE"}:
+            raise ValueError("Decal domain admission tier is invalid")
         if self.normal_mode not in {
             "PIECEWISE_PLANAR_HARD",
             "SMOOTH_INTERPOLATED",
@@ -779,6 +783,7 @@ class PatchVoronoiPlan:
     support_triangle_ids: tuple[tuple[int, ...], ...] = ()
     budget_source: str = "FULL_CONNECTED_COMPONENT"
     requested_alpha_budget: float = float("inf")
+    approximate_admit_count: int = 0
 
     def __post_init__(self):
         if not self.alpha_budget > 0.0:
@@ -787,6 +792,8 @@ class PatchVoronoiPlan:
             raise ValueError(
                 "Patch Voronoi requested_alpha_budget must be positive"
             )
+        if self.approximate_admit_count < 0:
+            raise ValueError("Approximate admit count must be non-negative")
         support_triangle_ids = self.support_triangle_ids
         if not support_triangle_ids:
             support_triangle_ids = tuple(
@@ -906,6 +913,8 @@ class PatchVoronoiDiagnostics:
     interior_transition_count: int = 0
     interior_weld_count: int = 0
     atlas_unresolved_overlap_count: int = 0
+    approximate_admit_count: int = 0
+    margin_relief_cut_count: int = 0
     max_width_error_sampled: float = 0.0
     max_station_normal_variation: float = 0.0
     foldover_count: int = 0
@@ -945,6 +954,8 @@ class PatchVoronoiDiagnostics:
             "atlas_unresolved_overlap_count": int(
                 self.atlas_unresolved_overlap_count
             ),
+            "approximate_admit_count": int(self.approximate_admit_count),
+            "margin_relief_cut_count": int(self.margin_relief_cut_count),
             "max_width_error_sampled": float(
                 self.max_width_error_sampled
             ),
@@ -4445,7 +4456,22 @@ def _compile_surface(
             if intrinsic_chart is not None
             else "FULL_CONNECTED_COMPONENT"
         ),
+        normal_mode=(
+            "SMOOTH_INTERPOLATED"
+            if intrinsic_chart is not None
+            and intrinsic_chart.admission_tier == "APPROXIMATE"
+            else "PIECEWISE_PLANAR_HARD"
+        ),
         triangle_grid=triangle_grid,
+        admission_tier=(
+            intrinsic_chart.admission_tier
+            if intrinsic_chart is not None
+            else "EXACT"
+        ),
+        normalize_fragment_t_junctions=bool(
+            intrinsic_chart is not None
+            and intrinsic_chart.admission_tier == "APPROXIMATE"
+        ),
         reference_full_scan=reference_full_scan,
     )
     return _PatchVoronoiSurface(
@@ -4562,6 +4588,15 @@ def build_intrinsic_surface_domain(node, chart):
         chart_id=int(chart.chart_id),
         alpha_budget=float(chart.alpha_budget),
         budget_source=chart.budget_source,
+        normal_mode=(
+            "SMOOTH_INTERPOLATED"
+            if chart.admission_tier == "APPROXIMATE"
+            else "PIECEWISE_PLANAR_HARD"
+        ),
+        admission_tier=chart.admission_tier,
+        normalize_fragment_t_junctions=(
+            chart.admission_tier == "APPROXIMATE"
+        ),
     )
 
 
@@ -4965,6 +5000,7 @@ def compile_patch_voronoi_attempt(
     allow_partial=False,
     diagnostics=None,
     alpha_budget=None,
+    distortion_budget=CHART_DISTORTION_BUDGET,
 ):
     """Компилирует plan и локализует unsupported patches до physical edges.
 
@@ -5030,23 +5066,26 @@ def compile_patch_voronoi_attempt(
                     chart_seeds,
                     alpha_budget=chart_budget,
                 )
-                admitted = []
-                for chart in charts:
-                    try:
-                        admitted.append(
-                            admit_intrinsic_strip_charts(
-                                (chart,), initial_alpha=chart_budget
-                            )[0]
-                        )
-                    except ChartBuildFailure as exc:
-                        if exc.code != "CHART_SELF_OVERLAP":
-                            raise
-                        admitted.append(
-                            admit_intrinsic_strip_atlas(
-                                chart, initial_alpha=chart_budget
-                            )
-                        )
-                charts = tuple(admitted)
+                charts = tuple(
+                    admit_intrinsic_strip_runtime(
+                        chart,
+                        initial_alpha=chart_budget,
+                        distortion_budget=distortion_budget,
+                    )
+                    for chart in charts
+                )
+                if any(
+                    chart.admission_tier == "APPROXIMATE"
+                    for chart in charts
+                ):
+                    raise ChartBuildFailure(
+                        "APPROXIMATE_MATERIALIZATION_PENDING",
+                        int(patch_id),
+                        edge_ids=(
+                            int(site["edge_index"])
+                            for site in patch_sites
+                        ),
+                    )
             except ChartBuildFailure as exc:
                 # Chart builder принимает patch-wide seed set. До того как
                 # charts успешно разделены, локализовать отказ уже одного
@@ -5241,6 +5280,13 @@ def compile_patch_voronoi_attempt(
             ),
             budget_source=actual_budget_source,
             requested_alpha_budget=requested_alpha_budget,
+            approximate_admit_count=len(
+                {
+                    surface.patch_id
+                    for surface in surfaces
+                    if surface.domain.admission_tier == "APPROXIMATE"
+                }
+            ),
         )
     return PatchVoronoiCompileAttempt(
         plan=plan,
@@ -5256,6 +5302,7 @@ def compile_patch_voronoi_plan(
     *,
     diagnostics=None,
     alpha_budget=None,
+    distortion_budget=CHART_DISTORTION_BUDGET,
 ):
     """Компилирует все touched surfaces или сохраняет legacy fallback."""
 
@@ -5266,6 +5313,7 @@ def compile_patch_voronoi_plan(
         allow_partial=False,
         diagnostics=diagnostics,
         alpha_budget=alpha_budget,
+        distortion_budget=distortion_budget,
     ).plan
 
 

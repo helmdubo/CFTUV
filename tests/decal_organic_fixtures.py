@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from math import cos, pi, sin, sqrt
+from math import cos, exp, pi, sin, sqrt
 
 from mathutils import Vector
 
@@ -167,6 +167,20 @@ def cliff_fixture(*, alpha=1.0, patch_id=91):
     )
 
 
+def wide_support_dome_fixture(*, alpha=1.0, patch_id=96):
+    """Широкий smooth bump: overlap начинается в support margin."""
+
+    return _surface_fixture(
+        lambda x, y: 3.0 * exp(-((x - 2.5) ** 2 + y * y) / 4.0),
+        alpha=alpha,
+        width=5.0,
+        length=5.0,
+        width_segments=20,
+        length_segments=20,
+        patch_id=patch_id,
+    )
+
+
 def saddle_fixture(radius=12.0, *, alpha=1.0, patch_id=92):
     return _surface_fixture(
         lambda x, y: (x * x - y * y) / (2.0 * radius),
@@ -192,4 +206,5 @@ __all__ = [
     "saddle_fixture",
     "sphere_cap_fixture",
     "tight_sphere_fixture",
+    "wide_support_dome_fixture",
 ]

@@ -233,6 +233,18 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
             "(continuous junctions); disable to use the legacy miter pipeline"
         ),
     )
+    decal_chart_distortion_budget: FloatProperty(
+        name="Chart Distortion Budget",
+        default=0.02,
+        min=0.005,
+        soft_max=0.05,
+        max=0.10,
+        subtype="FACTOR",
+        description=(
+            "Maximum measured intrinsic decal width error; compile-time "
+            "setting, applied when the decal operator starts"
+        ),
+    )
     decal_dynamic_corner_bands: BoolProperty(
         name="Experimental Dynamic Corner Bands",
         default=False,
@@ -2017,6 +2029,7 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         col.prop(s, "decal_width_seam")
         col.prop(s, "decal_height_trim")
         col.prop(s, "decal_offset")
+        col.prop(s, "decal_chart_distortion_budget")
         col.prop(s, "decal_seam_network")
         if s.decal_seam_network:
             col.prop(s, "decal_dynamic_corner_bands")

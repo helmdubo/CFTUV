@@ -329,6 +329,7 @@ class IntrinsicStripChart:
     wrap_origin: float = 0.0
     periodic_cut: ChartCut | None = None
     transition_equivalences: tuple[tuple[object, tuple[object, ...]], ...] = ()
+    admission_tier: str = "EXACT"
 
     def __post_init__(self):
         if self.chart_id < 0 or self.patch_id < 0:
@@ -454,6 +455,8 @@ class IntrinsicStripChart:
         )
         if self.periodic_cut is not None and self.periodic_cut not in self.cuts:
             raise ValueError("Periodic generating cut must belong to chart cuts")
+        if self.admission_tier not in {"EXACT", "APPROXIMATE"}:
+            raise ValueError("Intrinsic chart admission tier is invalid")
 
     @property
     def placed_triangle_ids(self) -> tuple[int, ...]:

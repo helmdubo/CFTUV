@@ -1,7 +1,14 @@
+from dataclasses import replace
+
 import pytest
 
+import cftuv.decal_voronoi as decal_voronoi
+
 from cftuv.decal_atlas import build_intrinsic_strip_atlas
-from cftuv.decal_chart_admission import _prepare_disk_topology
+from cftuv.decal_chart_admission import (
+    _prepare_disk_topology,
+    admit_intrinsic_strip_runtime,
+)
 from cftuv.decal_charts import (
     ChartBuildFailure,
     build_intrinsic_strip_charts,
@@ -10,13 +17,22 @@ from cftuv.decal_charts import (
 )
 from cftuv.decal_voronoi import (
     PatchVoronoiDiagnostics,
+    compile_patch_voronoi_attempt,
     compile_patch_voronoi_plan,
     evaluate_patch_voronoi_plan,
     serialize_network_faces,
 )
 from cftuv.model import PatchGraph
 
-from decal_organic_fixtures import crumple_fixture, saddle_fixture
+from decal_organic_fixtures import (
+    crumple_fixture,
+    cliff_fixture,
+    intermediate_dome_fixture,
+    saddle_fixture,
+    sphere_cap_fixture,
+    tight_sphere_fixture,
+    wide_support_dome_fixture,
+)
 
 
 def _unrolled(fixture):
@@ -35,11 +51,9 @@ def test_e3_saddle_atlas_is_locally_injective_and_owns_each_triangle_once():
     assert atlas.separator_iterations <= 8
     assert atlas.interior_transition_count > 0
     assert all(not chart_triangle_overlap_pairs(item) for item in atlas.charts)
-    assert all(
-        cut.reason == "ATLAS_SEPARATOR"
-        for item in atlas.charts
-        for cut in item.cuts
-    )
+    assert {
+        cut.reason for item in atlas.charts for cut in item.cuts
+    } <= {"ATLAS_SEPARATOR", "CURVATURE_RELIEF_MARGIN"}
     assert tuple(triangle_id for triangle_id, _owner in atlas.triangle_owners) == (
         chart.support_triangle_ids
     )
@@ -82,37 +96,143 @@ def test_e3_crumple_rejects_at_iteration_limit_without_partial_atlas():
     assert error.value.code == "ATLAS_INJECTIVITY_UNRESOLVED"
 
 
-def test_e3_public_saddle_compile_welds_transitions_and_drag_is_static():
+def _runtime_admit(fixture, budget=0.02):
+    node, seeds, alpha = fixture
+    chart = build_intrinsic_strip_charts(node, seeds, alpha)[0]
+    return admit_intrinsic_strip_runtime(
+        chart, initial_alpha=alpha, distortion_budget=budget
+    )
+
+
+def test_e2_tiers_and_distortion_budget_follow_measured_width_error():
+    sphere = _runtime_admit(sphere_cap_fixture())
+    assert sphere.admission_tier == "APPROXIMATE"
+
+    with pytest.raises(ChartBuildFailure) as default_error:
+        _runtime_admit(intermediate_dome_fixture(), budget=0.02)
+    assert default_error.value.code == "DISTORTION_BUDGET_EXCEEDED"
+    assert _runtime_admit(
+        intermediate_dome_fixture(), budget=0.05
+    ).admission_tier == "APPROXIMATE"
+
+    with pytest.raises(ChartBuildFailure) as hard_error:
+        _runtime_admit(tight_sphere_fixture(), budget=0.10)
+    assert hard_error.value.code == "DISTORTION_BUDGET_EXCEEDED"
+
+
+def test_e2_crumple_rejects_foldover_before_atlas_approximation():
+    with pytest.raises(ChartBuildFailure) as error:
+        _runtime_admit(crumple_fixture())
+    assert error.value.code == "FOLDOVER_DETECTED"
+
+
+def test_e1_wide_dome_overlap_uses_canonical_margin_relief_cuts():
+    fixture = wide_support_dome_fixture()
+    unrolled = _unrolled(fixture)
+    assert unrolled.metrics.triangle_overlap_count > 0
+
+    atlas = _runtime_admit(fixture)
+    margin_transitions = tuple(
+        transition
+        for transition in atlas.transitions
+        if transition.reason == "CURVATURE_RELIEF_MARGIN"
+    )
+    assert margin_transitions
+    assert atlas.margin_relief_cut_count == len(margin_transitions)
+    assert all(
+        transition.selection_distance >= atlas.charts[0].alpha_budget - 1e-9
+        for transition in margin_transitions
+    )
+    assert all(not chart_triangle_overlap_pairs(item) for item in atlas.charts)
+    cuts = {
+        (cut.transition_key, cut.reason, cut.source_edge)
+        for item in atlas.charts
+        for cut in item.cuts
+    }
+    assert all(
+        (transition.transition_key, transition.reason, transition.source_edge)
+        in cuts
+        for transition in atlas.transitions
+    )
+
+
+def test_e2_cliff_is_approximate_locally_injective_atlas():
+    atlas = _runtime_admit(cliff_fixture())
+    assert atlas.admission_tier == "APPROXIMATE"
+    assert atlas.metrics.max_width_error_sampled <= 0.02
+    assert all(not chart_triangle_overlap_pairs(item) for item in atlas.charts)
+
+
+def test_e3_public_saddle_routes_to_explicit_pending_fallback():
     node, seeds, alpha = saddle_fixture()
     graph = PatchGraph()
     graph.add_node(node)
-    diagnostics = PatchVoronoiDiagnostics()
+    attempt = compile_patch_voronoi_attempt(
+        graph,
+        tuple(seed.edge_index for seed in seeds),
+        offset=0.01,
+        alpha_budget=alpha,
+    )
+    assert attempt.plan is None
+    assert attempt.rejected_edge_indices == tuple(
+        sorted(seed.edge_index for seed in seeds)
+    )
+    assert {failure.reason for failure in attempt.failures} == {
+        "APPROXIMATE_MATERIALIZATION_PENDING"
+    }
+
+
+def _edge_component_stats(faces):
+    edge_owners = {}
+    for face_index, face in enumerate(faces):
+        for index, first in enumerate(face.vert_keys):
+            second = face.vert_keys[(index + 1) % len(face.vert_keys)]
+            edge = tuple(sorted((repr(first), repr(second))))
+            edge_owners.setdefault(edge, []).append(face_index)
+    neighbours = [set() for _face in faces]
+    for owners in edge_owners.values():
+        if len(owners) == 2:
+            first, second = owners
+            neighbours[first].add(second)
+            neighbours[second].add(first)
+    unseen = set(range(len(faces)))
+    component_count = 0
+    while unseen:
+        component_count += 1
+        frontier = [unseen.pop()]
+        while frontier:
+            for neighbour in neighbours[frontier.pop()]:
+                if neighbour in unseen:
+                    unseen.remove(neighbour)
+                    frontier.append(neighbour)
+    return component_count, sum(
+        len(owners) > 2 for owners in edge_owners.values()
+    )
+
+
+@pytest.mark.xfail(strict=True, reason="E4 M1 arrangement pending")
+def test_e4_m1_sphere_is_single_cover_and_edge_connected(monkeypatch):
+    original_admit = decal_voronoi.admit_intrinsic_strip_runtime
+
+    def materialization_probe(*args, **kwargs):
+        admitted = original_admit(*args, **kwargs)
+        return replace(admitted, admission_tier="EXACT")
+
+    monkeypatch.setattr(
+        decal_voronoi,
+        "admit_intrinsic_strip_runtime",
+        materialization_probe,
+    )
+    node, seeds, alpha = sphere_cap_fixture()
+    graph = PatchGraph()
+    graph.add_node(node)
     plan = compile_patch_voronoi_plan(
         graph,
         tuple(seed.edge_index for seed in seeds),
         offset=0.01,
         alpha_budget=alpha,
-        diagnostics=diagnostics,
     )
-
-    assert diagnostics.atlas_chart_count > 1
-    assert diagnostics.atlas_site_image_count > 0
-    assert diagnostics.interior_transition_count > 0
-    construct_calls = diagnostics.construct_calls
-    compiled_signature = tuple(
-        (surface.domain.chart_id, surface.domain.transition_metadata)
-        for surface in plan.surfaces
-    )
-    for width in (0.5, 1.0, 1.5, 2.0):
-        faces = evaluate_patch_voronoi_plan(
-            plan, width=width, preview=True, diagnostics=diagnostics
-        )
-        assert diagnostics.construct_calls == construct_calls
-        assert diagnostics.interior_weld_count > 0
-        assert compiled_signature == tuple(
-            (surface.domain.chart_id, surface.domain.transition_metadata)
-            for surface in plan.surfaces
-        )
-    assert serialize_network_faces(faces) == serialize_network_faces(
-        evaluate_patch_voronoi_plan(plan, width=2.0, preview=False)
-    )
+    faces = evaluate_patch_voronoi_plan(plan, width=0.5, preview=True)
+    component_count, overfull_count = _edge_component_stats(faces)
+    assert overfull_count == 0
+    assert component_count == 1

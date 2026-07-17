@@ -24,6 +24,9 @@ from .decal_atlas import build_intrinsic_strip_atlas
 CHART_DISTORTION_BUDGET = 0.02
 CHART_EDGE_RELATIVE_ERROR_LIMIT = 1e-5
 CHART_AREA_RATIO_ERROR_LIMIT = 0.01
+CHART_EXACT_DEFECT_LIMIT = 1e-4
+CHART_EXACT_WIDTH_ERROR_LIMIT = 0.005
+CHART_NORMAL_VARIATION_LIMIT = 0.35
 
 
 def _distance3(first, second):
@@ -727,6 +730,116 @@ def admit_intrinsic_strip_atlas(chart, *, initial_alpha=None):
     return replace(atlas, metrics=metrics)
 
 
+def admit_intrinsic_strip_runtime(
+    chart,
+    *,
+    initial_alpha=None,
+    distortion_budget=CHART_DISTORTION_BUDGET,
+):
+    """E2 tier policy поверх strict chart/atlas construction."""
+
+    distortion_budget = float(distortion_budget)
+    if not 0.005 <= distortion_budget <= 0.10:
+        raise ValueError("Chart distortion budget must be in [0.005, 0.10]")
+    prepared = _prepare_disk_topology(chart)
+    measured = unroll_intrinsic_strip_chart(
+        prepared,
+        edge_relative_tolerance=CHART_EDGE_RELATIVE_ERROR_LIMIT,
+    )
+    measured = replace(
+        measured,
+        metrics=replace(measured.metrics, **measure_chart_width(measured)),
+    )
+    if measured.cuts and measured.cuts[0].reason == "OPEN_ANNULUS":
+        measured = _periodicize_annulus(measured)
+    metrics = measured.metrics
+    if metrics.foldover_count:
+        raise ChartBuildFailure(
+            "FOLDOVER_DETECTED",
+            chart.patch_id,
+            triangle_ids=chart.support_triangle_ids,
+        )
+    if metrics.triangle_overlap_count:
+        if metrics.discrete_angle_defect <= CHART_EXACT_DEFECT_LIMIT:
+            raise ChartBuildFailure(
+                "CHART_SELF_OVERLAP",
+                chart.patch_id,
+                triangle_ids=chart.support_triangle_ids,
+            )
+        result = build_intrinsic_strip_atlas(measured)
+        result = replace(result, metrics=metrics)
+    else:
+        result = measured
+    if metrics.max_edge_error > CHART_EDGE_RELATIVE_ERROR_LIMIT:
+        raise ChartBuildFailure("CHART_NUMERIC_DISTORTION", result.patch_id)
+    if (
+        abs(metrics.chart_area_source_area_ratio - 1.0)
+        > CHART_AREA_RATIO_ERROR_LIMIT
+    ):
+        raise ChartBuildFailure("CHART_NUMERIC_DISTORTION", result.patch_id)
+    generating_cuts = tuple(
+        cut
+        for item in getattr(result, "charts", (result,))
+        for cut in item.cuts
+        if cut.reason not in {
+            "ATLAS_SEPARATOR",
+            "CURVATURE_RELIEF_MARGIN",
+        }
+    )
+    if len(generating_cuts) > 1:
+        raise ChartBuildFailure("MULTI_CUT_REQUIRED", result.patch_id)
+    normalization = _closure_normalization(measured, initial_alpha)
+    exact = (
+        metrics.discrete_angle_defect <= CHART_EXACT_DEFECT_LIMIT
+        and metrics.max_width_error_sampled <= CHART_EXACT_WIDTH_ERROR_LIMIT
+    )
+    if exact:
+        if (
+            metrics.max_loop_closure_residual
+            > CHART_DISTORTION_BUDGET * normalization
+        ):
+            raise ChartBuildFailure(
+                "NON_DEVELOPABLE_SUPPORT",
+                result.patch_id,
+                details=(
+                    f"closure={metrics.max_loop_closure_residual:.12g}"
+                ),
+            )
+        return replace(result, admission_tier="EXACT")
+    if metrics.max_width_error_sampled > distortion_budget:
+        raise ChartBuildFailure(
+            "DISTORTION_BUDGET_EXCEEDED",
+            result.patch_id,
+            details=(
+                f"error={metrics.max_width_error_sampled:.12g} "
+                f"budget={distortion_budget:.12g}"
+            ),
+        )
+    if metrics.max_station_normal_variation > CHART_NORMAL_VARIATION_LIMIT:
+        raise ChartBuildFailure(
+            "NORMAL_VARIATION_EXCEEDED",
+            result.patch_id,
+            details=(
+                f"variation={metrics.max_station_normal_variation:.12g}"
+            ),
+        )
+    if metrics.discrete_angle_defect > 2.0 * distortion_budget:
+        raise ChartBuildFailure(
+            "NON_DEVELOPABLE_SUPPORT",
+            result.patch_id,
+            details=f"defect={metrics.discrete_angle_defect:.12g}",
+        )
+    if metrics.max_loop_closure_residual > 2.0 * distortion_budget * normalization:
+        raise ChartBuildFailure(
+            "NON_DEVELOPABLE_SUPPORT",
+            result.patch_id,
+            details=(
+                f"closure={metrics.max_loop_closure_residual:.12g}"
+            ),
+        )
+    return replace(result, admission_tier="APPROXIMATE")
+
+
 __all__ = (
     "CHART_AREA_RATIO_ERROR_LIMIT",
     "CHART_DISTORTION_BUDGET",
@@ -734,4 +847,5 @@ __all__ = (
     "admit_intrinsic_strip_chart",
     "admit_intrinsic_strip_charts",
     "admit_intrinsic_strip_atlas",
+    "admit_intrinsic_strip_runtime",
 )

@@ -353,6 +353,7 @@ class DecalSettings:
     corner_acute_split_angle: float = pi / 3.0
     corner_hairpin_angle: float = pi / 6.0
     corner_apex_limit: float = 8.0
+    chart_distortion_budget: float = 0.02
 
     @property
     def corner_split_angle(self) -> float:
@@ -399,6 +400,9 @@ class DecalSettings:
             ),
             corner_apex_limit=float(
                 getattr(settings, "decal_corner_miter_limit", 8.0)
+            ),
+            chart_distortion_budget=float(
+                getattr(settings, "decal_chart_distortion_budget", 0.02)
             ),
         )
 

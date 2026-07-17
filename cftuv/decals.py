@@ -407,6 +407,19 @@ class ManualSeamDecalPlan:
             )
         if self.rejected_edges:
             parts.append(f"Rejected:{len(self.rejected_edges)}e")
+        approximate_count = sum(
+            int(
+                getattr(
+                    partition.compiled_plan,
+                    "approximate_admit_count",
+                    0,
+                )
+            )
+            for partition in self.backend_partitions
+            if partition.backend == "PATCH_VORONOI"
+        )
+        if approximate_count:
+            parts.append(f"Approx:{approximate_count}c")
         return " | ".join(parts)
 
 
@@ -2910,6 +2923,7 @@ def compile_manual_seam_decal_plan(
             settings.offset,
             allow_partial=True,
             alpha_budget=alpha_budget,
+            distortion_budget=settings.chart_distortion_budget,
         )
         compile_failures = attempt.failures
         rejected_seed = set(attempt.rejected_edge_indices)
@@ -2945,6 +2959,7 @@ def compile_manual_seam_decal_plan(
                 accepted_edges,
                 settings.offset,
                 alpha_budget=alpha_budget,
+                distortion_budget=settings.chart_distortion_budget,
             )
             if patch_voronoi_plan is None:
                 # Не допускаем частичной материализации сомнительного plan:

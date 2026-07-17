@@ -31,6 +31,8 @@ class InteriorChartTransition:
     rotation_cos: float
     rotation_sin: float
     translation: tuple[float, float]
+    reason: str = "ATLAS_SEPARATOR"
+    selection_distance: float = 0.0
 
     def __post_init__(self):
         if self.source_edge[0] >= self.source_edge[1]:
@@ -44,6 +46,11 @@ class InteriorChartTransition:
         )
         if any(not isfinite(float(value)) for value in values):
             raise ValueError("Atlas transition transform must be finite")
+        if self.reason not in {
+            "ATLAS_SEPARATOR",
+            "CURVATURE_RELIEF_MARGIN",
+        }:
+            raise ValueError("Atlas transition reason is invalid")
 
     def owner_to_neighbor(self, point):
         x, y = point
@@ -67,6 +74,7 @@ class IntrinsicStripAtlas:
     separator_iterations: int
     unresolved_overlap_count: int = 0
     metrics: ChartBuildMetrics = ChartBuildMetrics()
+    admission_tier: str = "APPROXIMATE"
 
     def __post_init__(self):
         chart_ids = tuple(chart.chart_id for chart in self.charts)
@@ -77,6 +85,8 @@ class IntrinsicStripAtlas:
             raise ValueError("Atlas triangle ownership must be unique")
         if self.separator_iterations < 0 or self.unresolved_overlap_count < 0:
             raise ValueError("Atlas counters must be non-negative")
+        if self.admission_tier not in {"EXACT", "APPROXIMATE"}:
+            raise ValueError("Intrinsic atlas admission tier is invalid")
 
     @property
     def atlas_chart_count(self):
@@ -85,6 +95,13 @@ class IntrinsicStripAtlas:
     @property
     def interior_transition_count(self):
         return len(self.transitions)
+
+    @property
+    def margin_relief_cut_count(self):
+        return sum(
+            transition.reason == "CURVATURE_RELIEF_MARGIN"
+            for transition in self.transitions
+        )
 
 
 def _chart_neighbors(chart):
@@ -132,8 +149,75 @@ def _tree_path(parent, first, second):
     return tuple(head + list(reversed(tail)))
 
 
-def _split_support(chart, overlap_pairs):
-    """Делит spanning tree сбалансированным edge на пути overlap owners."""
+def _source_positions(chart):
+    return {
+        vertex_id: position
+        for triangle in chart.triangles
+        for vertex_id, position in zip(
+            triangle.source_vertex_ids, triangle.positions
+        )
+    }
+
+
+def _point_segment_distance(point, first, second):
+    direction = tuple(second[i] - first[i] for i in range(3))
+    relative = tuple(point[i] - first[i] for i in range(3))
+    denominator = sum(value * value for value in direction)
+    if denominator <= 1e-24:
+        return sqrt(sum(value * value for value in relative))
+    factor = max(
+        0.0,
+        min(
+            1.0,
+            sum(relative[i] * direction[i] for i in range(3))
+            / denominator,
+        ),
+    )
+    delta = tuple(
+        point[i] - (first[i] + direction[i] * factor)
+        for i in range(3)
+    )
+    return sqrt(sum(value * value for value in delta))
+
+
+def _site_segments(chart, positions):
+    return tuple(
+        (positions[first], positions[second])
+        for seed in chart.site_seeds
+        for first, second in (seed.source_vertex_ids,)
+    )
+
+
+def _edge_site_distance(source_edge, positions, site_segments):
+    edge_a, edge_b = (positions[index] for index in source_edge)
+    return min(
+        (
+            distance
+            for site_a, site_b in site_segments
+            for distance in (
+                _point_segment_distance(edge_a, site_a, site_b),
+                _point_segment_distance(edge_b, site_a, site_b),
+                _point_segment_distance(site_a, edge_a, edge_b),
+                _point_segment_distance(site_b, edge_a, edge_b),
+            )
+        ),
+        default=float("inf"),
+    )
+
+
+def _triangle_site_distance(chart, triangle_id, positions, site_segments):
+    triangle = next(
+        item for item in chart.triangles if item.triangle_id == triangle_id
+    )
+    return min(
+        _point_segment_distance(point, site_a, site_b)
+        for point in triangle.positions
+        for site_a, site_b in site_segments
+    )
+
+
+def _split_support(chart, overlap_pairs, source_chart):
+    """Делит support; margin-overlap режет максимально далеко от chain."""
 
     neighbors = _chart_neighbors(chart)
     root = min(neighbors)
@@ -153,16 +237,46 @@ def _split_support(chart, overlap_pairs):
             stack.extend(children[current])
         return result
 
+    positions = _source_positions(source_chart)
+    site_segments = _site_segments(source_chart, positions)
+    relations = {
+        tuple(sorted((relation.triangle_a, relation.triangle_b))): relation
+        for relation in chart.adjacency
+    }
+    triangle_distances = {
+        triangle_id: _triangle_site_distance(
+            source_chart, triangle_id, positions, site_segments
+        )
+        for pair in overlap_pairs
+        for triangle_id in pair
+    }
     candidates = []
     total = len(neighbors)
     for overlap_pair in overlap_pairs:
+        margin_overlap = all(
+            triangle_distances[triangle_id]
+            >= source_chart.alpha_budget - 1e-9
+            for triangle_id in overlap_pair
+        )
         path = _tree_path(parent, *overlap_pair)
         for first, second in zip(path, path[1:]):
             child = first if parent[first] == second else second
             subtree = descendants(child)
+            balance = abs(total - 2 * len(subtree))
+            distance = -1.0
+            margin_rank = 1
+            if margin_overlap:
+                relation = relations[tuple(sorted((first, second)))]
+                distance = _edge_site_distance(
+                    relation.source_edge, positions, site_segments
+                )
+                if distance >= source_chart.alpha_budget - 1e-9:
+                    margin_rank = 0
             candidates.append(
                 (
-                    abs(total - 2 * len(subtree)),
+                    balance,
+                    margin_rank,
+                    -distance,
                     min(first, second),
                     max(first, second),
                     overlap_pair,
@@ -171,9 +285,15 @@ def _split_support(chart, overlap_pairs):
             )
     if not candidates:
         raise ChartBuildFailure("ATLAS_INJECTIVITY_UNRESOLVED", chart.patch_id)
-    _balance, _edge_a, _edge_b, _pair, subtree = min(
-        candidates, key=lambda item: item[:4]
-    )
+    (
+        _balance,
+        _margin_rank,
+        _distance,
+        _edge_a,
+        _edge_b,
+        _pair,
+        subtree,
+    ) = min(candidates, key=lambda item: item[:6])
     other = set(neighbors).difference(subtree)
     if not subtree or not other:
         raise ChartBuildFailure("ATLAS_INJECTIVITY_UNRESOLVED", chart.patch_id)
@@ -304,6 +424,17 @@ def _transition(source_chart, owner, neighbor, relation, atlas_id):
         ),
         default=-1,
     )
+    source_positions = _source_positions(source_chart)
+    selection_distance = _edge_site_distance(
+        relation.source_edge,
+        source_positions,
+        _site_segments(source_chart, source_positions),
+    )
+    reason = (
+        "CURVATURE_RELIEF_MARGIN"
+        if selection_distance >= source_chart.alpha_budget - 1e-9
+        else "ATLAS_SEPARATOR"
+    )
     return InteriorChartTransition(
         transition_key=(
             "atlas-transition", atlas_id, relation.source_edge,
@@ -318,6 +449,8 @@ def _transition(source_chart, owner, neighbor, relation, atlas_id):
         rotation_cos=cosine,
         rotation_sin=sine,
         translation=translation,
+        reason=reason,
+        selection_distance=selection_distance,
     )
 
 
@@ -351,7 +484,7 @@ def build_intrinsic_strip_atlas(chart, *, max_iterations=None):
             if not pairs:
                 next_supports.append(tuple(item.support_triangle_ids))
                 continue
-            next_supports.extend(_split_support(item, pairs))
+            next_supports.extend(_split_support(item, pairs, source_chart))
         supports = sorted(next_supports, key=lambda values: (min(values), values))
         placed = [
             _subchart(source_chart, support, (source_chart.chart_id << 16) + index)
@@ -398,9 +531,10 @@ def build_intrinsic_strip_atlas(chart, *, max_iterations=None):
                 ChartCut(
                     source_edge=transition.source_edge,
                     triangle_ids=(triangle_id,),
-                    reason="ATLAS_SEPARATOR",
+                    reason=transition.reason,
                     transition_key=transition.transition_key,
                     source_edge_index=transition.source_edge_index,
+                    selection_distance=transition.selection_distance,
                     source_edges=(transition.source_edge,),
                 )
             )
