@@ -2807,6 +2807,11 @@ def _corner_crop_components(
     surface, corner, policy, alpha, settings, diagnostics=None
 ):
     settings = _normalized_corner_runtime_settings(settings)
+    # FLAT CAP — базовая endpoint-семантика, а не dynamic band. Stable path
+    # обязан использовать tangent-aligned half-quad; axis-aligned square
+    # остаётся только legacy fallback для valence-N junction.
+    if policy == _CornerPolicy.CAP:
+        return _cap_crop_components(surface, corner, alpha)
     if not settings.dynamic_corner_bands:
         if policy == _CornerPolicy.ACUTE_SPLIT:
             return _stable_acute_crop_components(
@@ -2829,8 +2834,6 @@ def _corner_crop_components(
                 points=tuple(polygon),
             ),
         )
-    if policy == _CornerPolicy.CAP:
-        return _cap_crop_components(surface, corner, alpha)
     if policy == _CornerPolicy.JUNCTION:
         return _junction_crop_components(
             surface, corner, alpha, settings, diagnostics

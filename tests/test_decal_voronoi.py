@@ -1467,6 +1467,71 @@ def _short_segment_owned_crops(monkeypatch, reverse_site=False):
     return pending
 
 
+def _serialized_short_segment_owned_crops(settings):
+    pending = []
+    decal_voronoi._evaluate_surface_crops(
+        _short_segment_endpoint_surface(),
+        alpha=1.0,
+        pending=pending,
+        corner_settings=settings,
+    )
+    return tuple(
+        (
+            face.crop.kind,
+            face.crop.side,
+            tuple(face.points),
+            tuple(face.crop.uv_anchors),
+            face.crop.v_origin,
+        )
+        for face in pending
+    )
+
+
+def test_stable_flat_cap_matches_tangent_aligned_dynamic_cap():
+    stable = _serialized_short_segment_owned_crops(
+        decal_voronoi.CornerRuntimeSettings(dynamic_corner_bands=False)
+    )
+    dynamic = _serialized_short_segment_owned_crops(_BAND_SETTINGS)
+
+    assert stable == dynamic
+    assert {item[1] for item in stable} == {"START", "END"}
+
+
+def test_stable_flat_cap_never_reaches_behind_endpoint():
+    surface = _short_segment_endpoint_surface()
+    settings = decal_voronoi.CornerRuntimeSettings(
+        dynamic_corner_bands=False
+    )
+
+    for corner in surface.corners:
+        components = decal_voronoi._corner_crop_components(
+            surface,
+            corner,
+            decal_voronoi._CornerPolicy.CAP,
+            1.0,
+            settings,
+        )
+        assert len(components) == 1
+        assert len(components[0].points) == 4
+        site = surface.sites[corner.incident_sites[0]]
+        other = (
+            site.point_b
+            if site.vert_a == corner.vert_index
+            else site.point_a
+        )
+        tangent = decal_voronoi._norm2(
+            decal_voronoi._sub2(other, corner.point)
+        )
+        reaches = [
+            decal_voronoi._dot2(
+                decal_voronoi._sub2(point, corner.point), tangent
+            )
+            for point in components[0].points
+        ]
+        assert min(reaches) >= -1e-12
+        assert max(reaches) <= site.segment_length * 0.5 + 1e-12
+
+
 def test_short_segment_corner_ownership_is_disjoint_and_order_independent(
     monkeypatch,
 ):
