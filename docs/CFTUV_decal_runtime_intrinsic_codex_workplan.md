@@ -2643,6 +2643,31 @@ admission-код не трогать):
    исправен; дефект специфичен ненулевой гауссовой кривизне либо
    фикстуре.
 
+**Повторная валидация W4 выполнена** (`33868c7`, diagnostics-only;
+production/admission diff = 0). Оба исходных подозрения исключены:
+замер выполнялся непосредственно над unrolled intrinsic chart ДО
+отдельного вызова admission, legacy fallback вообще не вычислялся;
+обе dome-фикстуры лежат на одной широте `theta = pi/4`, при `R=5` и
+`alpha=1`. Точная формула и два 20x2 station-profile записаны в
+`artifacts/decal_w4_low_poly_measurements.json` (schema v2).
+
+Профиль локализует расхождение в самом текущем chart mapping:
+на dome_32x16 LEFT-сторона накапливает compression вдоль
+полуокружности от ~0 до 40.886%, не даёт локального seam/support
+пика; максимальный chart rail 1.0 соответствует hinge-unfolded
+distance 0.591140 и world chord 0.591071. Дополнительный sweep
+12x6..64x32 немонотонен (6.02% у 16x8 — локальный минимум,
+31.56-40.89% у 24x12..64x32), поэтому coarse-результат нельзя
+использовать как calibration point. Это не fallback и не ошибка
+широты; это discretization-dependent/non-convergent поведение
+глобального unroll на ненулевой Gaussian curvature.
+
+Следствие протокола: фактический 16x8 всё ещё честно выше 2%, а
+refined fixtures не сходятся к нему. Активируется развилка **(b)**:
+G3 остаётся закрыт и требует нового design decision о
+width-dependent admission / warning APPROXIMATE policy либо о смене
+chart parametrization. Пороги и proxy не изменены.
+
 Решение по G3 ПОСЛЕ валидных данных: (a) 16x8 <= 2% -> исходный
 план G3 без изменений (measured-first; прокси — только ранний exit
 по жёсткой константе); (b) честно > 2% -> G3 меняет характер

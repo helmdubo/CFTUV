@@ -1,13 +1,24 @@
 {
-  "schema": "cftuv.decal_w4_low_poly_measurements.v1",
+  "schema": "cftuv.decal_w4_low_poly_measurements.v2",
   "date": "2026-07-18",
+  "diagnostics_commit": "33868c7ec242dd0d69b3ac57326cb384ebe91b1b",
   "production_threshold_changes": false,
+  "measurement_contract": {
+    "mode": "INTRINSIC_CHART_PRE_ADMISSION",
+    "fallback_geometry_evaluated": false,
+    "station_sampling": "20 equal chart-arc-length segment midpoints",
+    "directions": "two chart-space normals to the selected site",
+    "probe": "alpha_budget, or 0.98 times the in-domain binary-search reach",
+    "distance": "minimum valid hinge-unfolded source-triangle path among shortest adjacency-hop candidates; at most 16 candidates",
+    "relative_error_formula": "abs(hinge_unfolded_distance - sampled_chart_distance) / sampled_chart_distance",
+    "aggregate": "maximum relative error over every measured station and side",
+    "admission": "evaluated separately after measurement only to record the reason"
+  },
   "normalization": {
     "alpha": 1.0,
     "radius": 5.0,
     "radius_to_alpha": 5.0,
-    "dome_path": "open half-parallel at 45 degrees latitude",
-    "cylinder_path": "open generator",
+    "dome_path": "open half-parallel at polar angle pi/4",
     "distortion_budget": 0.02
   },
   "fixtures": [
@@ -22,7 +33,44 @@
       "triangle_overlap_count": 0,
       "foldover_count": 0,
       "admission": "REJECT",
-      "reason": "DISTORTION_BUDGET_EXCEEDED"
+      "reason": "DISTORTION_BUDGET_EXCEEDED",
+      "geometry": {
+        "polar_angle_min_rad": 0.7853981633974483,
+        "polar_angle_max_rad": 0.7853981633974484,
+        "radius_min": 5.0,
+        "radius_max": 5.000000000000001,
+        "selected_path_chord_length": 11.03597517131772,
+        "requested_half_width": 1.0
+      },
+      "station_fractions": [
+        0.025, 0.075, 0.125, 0.175, 0.225,
+        0.275, 0.325, 0.375, 0.425, 0.475,
+        0.525, 0.575, 0.625, 0.675, 0.725,
+        0.775, 0.825, 0.875, 0.925, 0.975
+      ],
+      "left_relative_error_profile": [
+        0.0, 0.0, 0.0, 0.017418623, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0
+      ],
+      "right_relative_error_profile": [
+        0.0, 0.0, 0.0, 0.030115395, 0.060230047,
+        0.015057786, 0.045172818, 0.0, 0.030115395, 0.060230047,
+        0.015057786, 0.045172818, 0.0, 0.030115395, 0.060230047,
+        0.015057786, 0.045172818, 0.0, 0.030115395, 0.060230047
+      ],
+      "max_sample": {
+        "station_index": 9,
+        "station_fraction": 0.475,
+        "side": "RIGHT",
+        "sampled_chart_distance": 1.0,
+        "hinge_unfolded_distance": 0.939769952863,
+        "world_chord_distance": 0.939769952863,
+        "relative_width_error": 0.060230047137,
+        "normal_variation_rad": 0.196313533164,
+        "triangle_path": [86, 119, 118]
+      }
     },
     {
       "fixture": "dome_32x16",
@@ -35,53 +83,87 @@
       "triangle_overlap_count": 0,
       "foldover_count": 0,
       "admission": "REJECT",
-      "reason": "DISTORTION_BUDGET_EXCEEDED"
+      "reason": "DISTORTION_BUDGET_EXCEEDED",
+      "geometry": {
+        "polar_angle_min_rad": 0.7853981633974483,
+        "polar_angle_max_rad": 0.7853981633974484,
+        "radius_min": 5.0,
+        "radius_max": 5.000000000000001,
+        "selected_path_chord_length": 11.089373535927317,
+        "requested_half_width": 1.0
+      },
+      "station_fractions": [
+        0.025, 0.075, 0.125, 0.175, 0.225,
+        0.275, 0.325, 0.375, 0.425, 0.475,
+        0.525, 0.575, 0.625, 0.675, 0.725,
+        0.775, 0.825, 0.875, 0.925, 0.975
+      ],
+      "left_relative_error_profile": [
+        0.0, 0.002035943, 0.0, 0.0, 0.03643027,
+        0.055999692, 0.078325221, 0.102958747, 0.143143623, 0.174583785,
+        0.204934664, 0.232160999, 0.255262748, 0.319728576, 0.338003217,
+        0.344039292, 0.336755751, 0.408860095, 0.0, 0.0
+      ],
+      "right_relative_error_profile": [
+        0.0, 0.004563736, 0.010058549, 0.033437029, 0.027592421,
+        0.021747805, 0.015903181, 0.010058549, 0.033437029, 0.027592421,
+        0.021747805, 0.015903181, 0.010058549, 0.033437029, 0.027592421,
+        0.021747805, 0.015903181, 0.010054389, 0.033437029, 0.027592421
+      ],
+      "max_sample": {
+        "station_index": 17,
+        "station_fraction": 0.875,
+        "side": "LEFT",
+        "sampled_chart_distance": 1.0,
+        "hinge_unfolded_distance": 0.591139905455,
+        "world_chord_distance": 0.591070895423,
+        "relative_width_error": 0.408860094545,
+        "normal_variation_rad": 0.098266019894,
+        "triangle_path": [442, 443, 378]
+      }
     },
     {
       "fixture": "cylinder_12",
       "support_triangles": 48,
-      "defect_max_rad": 0.0,
-      "defect_mean_rad": 0.0,
-      "defect_sample_count": 7,
       "max_width_error_sampled": 1.3322676295501878e-15,
-      "max_station_normal_variation_rad": 0.5235987755982989,
-      "triangle_overlap_count": 0,
-      "foldover_count": 0,
       "admission": "EXACT",
       "reason": "NONE"
     },
     {
       "fixture": "cylinder_16",
       "support_triangles": 48,
-      "defect_max_rad": 0.0,
-      "defect_mean_rad": 0.0,
-      "defect_sample_count": 7,
       "max_width_error_sampled": 6.661338147750939e-16,
-      "max_station_normal_variation_rad": 0.3926990816987248,
-      "triangle_overlap_count": 0,
-      "foldover_count": 0,
       "admission": "EXACT",
       "reason": "NONE"
     },
     {
       "fixture": "cylinder_24",
       "support_triangles": 48,
-      "defect_max_rad": 0.0,
-      "defect_mean_rad": 0.0,
-      "defect_sample_count": 7,
       "max_width_error_sampled": 6.661338147750939e-16,
-      "max_station_normal_variation_rad": 0.26179938779914935,
-      "triangle_overlap_count": 0,
-      "foldover_count": 0,
       "admission": "EXACT",
       "reason": "NONE"
     }
   ],
+  "additional_resolution_sweep": [
+    {"dome": "12x6", "max_width_error_sampled": 0.115398},
+    {"dome": "16x8", "max_width_error_sampled": 0.060230},
+    {"dome": "24x12", "max_width_error_sampled": 0.315645},
+    {"dome": "32x16", "max_width_error_sampled": 0.408860},
+    {"dome": "48x24", "max_width_error_sampled": 0.335481},
+    {"dome": "64x32", "max_width_error_sampled": 0.396337}
+  ],
+  "diagnosis": {
+    "same_latitude_confirmed": true,
+    "intrinsic_chart_confirmed": true,
+    "legacy_fallback_excluded": true,
+    "profile_shape": "fine LEFT side accumulates compression along the half-parallel; not a seam-local spike",
+    "max_sample_chart_to_world": "chart rail 1.0 maps to world chord 0.591070895423",
+    "coarse_16x8_result": "non-convergent discretization alias, not a safe threshold calibration point",
+    "g3_branch": "B_REQUIRES_NEW_DESIGN_DECISION"
+  },
   "stop_condition": {
     "activated": true,
-    "fixture": "dome_16x8",
-    "observed_width_error": 0.06023004713694946,
-    "budget": 0.02,
-    "action": "NO_THRESHOLD_CHANGE; REVIEW_G3_DECISION"
+    "production_action": "NO_ADMISSION_OR_THRESHOLD_CHANGE",
+    "next_action": "REVIEW_WIDTH_DEPENDENT_OR_WARNING_APPROXIMATE_POLICY"
   }
 }
