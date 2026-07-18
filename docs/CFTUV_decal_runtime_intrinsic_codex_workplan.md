@@ -49,6 +49,15 @@ sweep). G3-решение принято. Актуальная очередь:
    compile-факт, без изменения материализации; предпросмотр
    русла (подсветка rails/плотин/полюсов) в Blender; фикстуры
    RF3-RF6, RF9 (трассировочная часть). Default-нейтрально.
+   **Результат R0:** IMPLEMENTED (`ed20953`). Добавлен immutable
+   topology-only rail-plan с полным edge/face provenance, structured
+   compile failures и отдельным Grease Pencil overlay; evaluator и
+   backend routing не читают rail-plan. Полевой `walls.010`: 458 seam
+   edges, 341 routes, 298 DAM, 43 PCHAIN, ноль compile failures;
+   `PLANAR+INTRINSIC_DEVELOPABLE:23c/458e` неизменён. Полный suite:
+   402 passed, 2 xfailed (`GL-pending`). Acceptance:
+   `artifacts/decal_r0_rail_preview.json` и
+   `artifacts/decal_r0_walls010_rails.png`.
 3. **R1 — Материализация PLANAR по руслам** (стена): RM1-RM6 на
    планарных поверхностях; закрывает V1+V2 (RF1); поглощает
    G1.2 и C8.7. Намеренная пересдача differential.
