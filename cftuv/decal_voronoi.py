@@ -28,7 +28,7 @@ try:
 except ImportError:  # Unit tests используют минимальный mathutils stub.
     _tessellate_polygon = None
 
-from .constants import DECAL_WELD_DISTANCE
+from .constants import DECAL_COPLANAR_DOT, DECAL_WELD_DISTANCE
 from .decal_diagram import (
     DIAGRAM_INT_LIMIT as _DIAGRAM_INT_LIMIT,
     DiagramTransform,
@@ -277,9 +277,18 @@ class _PatchVoronoiAtom:
     site_index: int
     fragments: tuple[tuple[tuple[float, float], ...], ...]
     cell_kind: str
+    fragment_triangle_ids: tuple[int, ...] = ()
     corner_index: int = -1
     source_category: int = 0
     periodic_shift: int = 0
+
+    def __post_init__(self):
+        if self.fragment_triangle_ids and (
+            len(self.fragment_triangle_ids) != len(self.fragments)
+        ):
+            raise ValueError(
+                "Patch Voronoi atom fragment provenance must be aligned"
+            )
 
 
 @dataclass(frozen=True)
@@ -291,6 +300,7 @@ class _IntrinsicDomainTriangle:
     normals: tuple[Vector, ...]
     face_normal: Vector | None = None
     source_triangle_id: object | None = None
+    source_face_id: object | None = None
     # Edge id имеет индекс противоположной локальной вершины triangle.
     source_edge_ids: tuple[object | None, ...] = (None, None, None)
     source_vertex_ids: tuple[object | None, ...] = (None, None, None)
@@ -439,6 +449,7 @@ class DecalSurfaceDomain:
         tuple[int, tuple[float, float, float], tuple[float, float, float]],
         ...,
     ] = ()
+    triangle_merge_groups: tuple[int, ...] = ()
     transition_metadata: tuple[tuple[object, str, object], ...] = ()
     admission_tier: str = "EXACT"
     normalize_fragment_t_junctions: bool = False
@@ -463,6 +474,17 @@ class DecalSurfaceDomain:
             raise ValueError("Decal domain alpha budget must be positive")
         if not self.budget_source:
             raise ValueError("Decal domain budget source must be explicit")
+        triangle_count = (
+            len(self.intrinsic_triangles)
+            if self.intrinsic_triangles
+            else len(self.boundary_triangles)
+        )
+        if self.triangle_merge_groups and (
+            len(self.triangle_merge_groups) != triangle_count
+        ):
+            raise ValueError(
+                "Decal domain triangle merge groups must be aligned"
+            )
         validate_periodic_chart_fields(
             self.periodic_axis,
             self.period,
@@ -1798,6 +1820,7 @@ def _merge_polygon_fragments(
     tolerance=1e-7,
     diagnostics=None,
     normalize_t_junctions=False,
+    merge_groups=None,
 ):
     """Собирает triangle-clips одной cell обратно в цельные contours.
 
@@ -1816,7 +1839,13 @@ def _merge_polygon_fragments(
         )
 
     normalized = []
-    for fragment in fragments:
+    normalized_merge_groups = []
+    source_merge_groups = (
+        tuple(merge_groups) if merge_groups is not None else ()
+    )
+    if len(source_merge_groups) != len(fragments):
+        source_merge_groups = (0,) * len(fragments)
+    for fragment_index, fragment in enumerate(fragments):
         polygon = _dedupe_polygon(fragment, tolerance=tolerance)
         if len(polygon) < 3:
             continue
@@ -1826,6 +1855,7 @@ def _merge_polygon_fragments(
         if area < 0.0:
             polygon.reverse()
         normalized.append(polygon)
+        normalized_merge_groups.append(source_merge_groups[fragment_index])
     if len(normalized) <= 1:
         return normalized
 
@@ -1863,11 +1893,14 @@ def _merge_polygon_fragments(
         for index, key_a in enumerate(keys):
             key_b = keys[(index + 1) % len(keys)]
             undirected = tuple(sorted((key_a, key_b)))
-            previous_owner = edge_owners.get(undirected)
-            if previous_owner is None:
-                edge_owners[undirected] = fragment_index
-            else:
-                union(fragment_index, previous_owner)
+            previous_owners = edge_owners.setdefault(undirected, [])
+            for previous_owner in previous_owners:
+                if (
+                    normalized_merge_groups[fragment_index]
+                    == normalized_merge_groups[previous_owner]
+                ):
+                    union(fragment_index, previous_owner)
+            previous_owners.append(fragment_index)
 
     groups = {}
     for fragment_index in range(len(normalized)):
@@ -4325,6 +4358,60 @@ def _normalized_intrinsic_triangles(intrinsic_triangles, quantize_point):
     return tuple(result)
 
 
+def _intrinsic_triangle_merge_groups(triangles):
+    """G1: объединяет только source-face coplanar adjacency."""
+
+    if not triangles:
+        return ()
+    parents = list(range(len(triangles)))
+
+    def find(index):
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(first, second):
+        first_root = find(first)
+        second_root = find(second)
+        if first_root != second_root:
+            parents[second_root] = first_root
+
+    owners_by_edge = {}
+    for triangle_id, triangle in enumerate(triangles):
+        for source_edge in triangle.source_edge_ids:
+            if source_edge is None:
+                continue
+            owners_by_edge.setdefault(source_edge, []).append(triangle_id)
+    for owners in owners_by_edge.values():
+        for first_position, first_id in enumerate(owners):
+            for second_id in owners[first_position + 1 :]:
+                first = triangles[first_id]
+                second = triangles[second_id]
+                same_face = (
+                    first.source_face_id is not None
+                    and first.source_face_id == second.source_face_id
+                )
+                normal_a = first.face_normal
+                normal_b = second.face_normal
+                coplanar = (
+                    normal_a is not None
+                    and normal_b is not None
+                    and normal_a.length_squared > _GEOMETRY_EPS
+                    and normal_b.length_squared > _GEOMETRY_EPS
+                    and normal_a.normalized().dot(normal_b.normalized())
+                    >= DECAL_COPLANAR_DOT
+                )
+                if same_face or coplanar:
+                    union(first_id, second_id)
+
+    group_by_root = {}
+    return tuple(
+        group_by_root.setdefault(find(triangle_id), len(group_by_root))
+        for triangle_id in range(len(triangles))
+    )
+
+
 def _planar_domain_source_features(
     node,
     raw_sites,
@@ -4871,6 +4958,7 @@ def _compile_surface(
         owner_site_index, periodic_shift = diagram_site_records[cell.site][:2]
         site = sites[owner_site_index]
         fragments = []
+        fragment_triangle_ids = []
         for cell_triangle in cell_triangles:
             if reference_full_scan:
                 domain_triangle_ids = range(len(triangles))
@@ -4892,6 +4980,7 @@ def _compile_surface(
                 if _polygon_area2(clipped) < 0.0:
                     clipped.reverse()
                 fragments.append(tuple(clipped))
+                fragment_triangle_ids.append(int(domain_triangle_id))
         if fragments:
             source_category = int(cell.source_category)
             corner_index = -1
@@ -4910,6 +4999,7 @@ def _compile_surface(
                     site_index=int(owner_site_index),
                     fragments=tuple(fragments),
                     cell_kind=cell_kind,
+                    fragment_triangle_ids=tuple(fragment_triangle_ids),
                     corner_index=corner_index,
                     source_category=source_category,
                     periodic_shift=int(periodic_shift),
@@ -4968,6 +5058,9 @@ def _compile_surface(
         planar_source_edges = ()
         planar_source_vertices = ()
         planar_source_edge_positions = ()
+        triangle_merge_groups = _intrinsic_triangle_merge_groups(
+            compiled_intrinsic_triangles
+        )
     else:
         (
             planar_source_edges,
@@ -4981,6 +5074,7 @@ def _compile_surface(
             basis_v,
             diagram_transform.quantize,
         )
+        triangle_merge_groups = (0,) * len(triangles)
     domain = DecalSurfaceDomain(
         patch_id=node.patch_id,
         kind="INTRINSIC" if compiled_intrinsic_triangles else "PLANAR",
@@ -4993,6 +5087,7 @@ def _compile_surface(
         planar_source_edges=planar_source_edges,
         planar_source_vertices=planar_source_vertices,
         planar_source_edge_positions=planar_source_edge_positions,
+        triangle_merge_groups=triangle_merge_groups,
         periodic_axis=(
             intrinsic_chart.periodic_axis if intrinsic_chart else ""
         ),
@@ -5130,6 +5225,7 @@ def _intrinsic_domain_triangles(chart):
                 normals=(face_normal.copy(),) * 3,
                 face_normal=face_normal,
                 source_triangle_id=triangle.triangle_id,
+                source_face_id=triangle.source_face_id,
                 source_edge_ids=tuple(source_edge_ids),
                 source_vertex_ids=tuple(triangle.source_vertex_ids),
                 edge_transition_keys=tuple(edge_transition_keys),
@@ -5157,6 +5253,9 @@ def build_intrinsic_surface_domain(node, chart):
             triangle.chart_points for triangle in intrinsic_triangles
         ),
         intrinsic_triangles=intrinsic_triangles,
+        triangle_merge_groups=_intrinsic_triangle_merge_groups(
+            intrinsic_triangles
+        ),
         periodic_axis=chart.periodic_axis,
         period=chart.period,
         period_quantum=chart.period_quantum,
@@ -12592,6 +12691,26 @@ def _surface_is_approximate(surface):
     )
 
 
+def _atom_fragment_records(surface, atom):
+    """Возвращает fragment вместе с G1 merge-group source triangle."""
+
+    triangle_ids = atom.fragment_triangle_ids
+    domain = getattr(surface, "domain", None)
+    merge_groups = getattr(domain, "triangle_merge_groups", ())
+    for fragment_index, fragment in enumerate(atom.fragments):
+        triangle_id = (
+            triangle_ids[fragment_index]
+            if fragment_index < len(triangle_ids)
+            else -1
+        )
+        merge_group = (
+            merge_groups[triangle_id]
+            if 0 <= triangle_id < len(merge_groups)
+            else 0
+        )
+        yield fragment, merge_group
+
+
 def _append_pending_fragments(
     pending,
     surface,
@@ -12600,6 +12719,7 @@ def _append_pending_fragments(
     fragments,
     diagnostics=None,
     absorbed_corner_vertices=(),
+    fragment_merge_groups=(),
 ):
     """Сваривает fragments одного semantic owner до materialization."""
 
@@ -12620,6 +12740,7 @@ def _append_pending_fragments(
             normalize_t_junctions=bool(
                 getattr(getattr(surface, "domain", None), "periodic_axis", "")
             ),
+            merge_groups=fragment_merge_groups,
         )
     for component in components:
         # _merge_polygon_fragments уже возвращает deduped валидные contours;
@@ -12948,15 +13069,20 @@ def _evaluate_surface_crops(
                 image_crop = _translated_crop_u(crop, image_offset)
                 if _surface_is_approximate(surface):
                     fragments = (image_crop.points,)
+                    fragment_merge_groups = ()
                 else:
                     fragments = []
+                    fragment_merge_groups = []
                     for atom in atoms:
-                        for fragment in atom.fragments:
+                        for fragment, merge_group in _atom_fragment_records(
+                            surface, atom
+                        ):
                             clipped = _clip_to_convex(
                                 fragment, image_crop.points
                             )
                             if clipped:
                                 fragments.append(clipped)
+                                fragment_merge_groups.append(merge_group)
                 image_site = _translated_site_u(
                     _corner_site_view(
                         surface, corner, owner_site_index
@@ -12971,6 +13097,7 @@ def _evaluate_surface_crops(
                     image_crop,
                     fragments,
                     diagnostics,
+                    fragment_merge_groups=fragment_merge_groups,
                 )
                 corner_emitted = corner_emitted or len(pending) > pending_count
         if not corner_emitted:
@@ -12990,6 +13117,7 @@ def _evaluate_surface_crops(
             points=tuple(_segment_crop_polygon(site, alpha)),
         )
         fragments = []
+        fragment_merge_groups = []
         subtraction_crops = tuple(
             _translated_crop_u(
                 corner_crop,
@@ -13001,8 +13129,11 @@ def _evaluate_surface_crops(
         )
         if _surface_is_approximate(surface):
             fragments = (crop.points,)
+            fragment_merge_groups = ()
         else:
-            for fragment in atom.fragments:
+            for fragment, merge_group in _atom_fragment_records(
+                surface, atom
+            ):
                 clipped = _clip_to_convex(fragment, crop.points)
                 if not clipped:
                     continue
@@ -13018,6 +13149,9 @@ def _evaluate_surface_crops(
                     if not pieces:
                         break
                 fragments.extend(pieces)
+                fragment_merge_groups.extend(
+                    merge_group for _piece in pieces
+                )
         _append_pending_fragments(
             pending,
             surface,
@@ -13032,6 +13166,7 @@ def _evaluate_surface_crops(
                 )
                 if corner_index in absorbed_corner_indices
             ),
+            fragment_merge_groups=fragment_merge_groups,
         )
 
 

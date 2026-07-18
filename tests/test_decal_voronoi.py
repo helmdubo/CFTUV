@@ -3190,6 +3190,62 @@ def test_patch_voronoi_fragment_union_removes_internal_triangulation():
     )) * 0.5 == pytest.approx(4.0)
 
 
+def test_g1_fragment_union_preserves_non_coplanar_source_face_imprint():
+    fragments = [
+        [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0)],
+        [(0.0, 0.0), (2.0, 2.0), (0.0, 2.0)],
+    ]
+
+    assert len(
+        _merge_polygon_fragments(fragments, merge_groups=(0, 0))
+    ) == 1
+    separated = _merge_polygon_fragments(
+        fragments, merge_groups=(0, 1)
+    )
+
+    assert len(separated) == 2
+    assert sum(
+        abs(decal_voronoi._polygon_area2(component))
+        for component in separated
+    ) == pytest.approx(4.0)
+
+
+def test_g1_triangle_groups_merge_only_same_face_or_coplanar_adjacency():
+    def triangle(source_face_id, face_normal, shared_edge):
+        return decal_voronoi._IntrinsicDomainTriangle(
+            chart_points=((0.0, 0.0), (1.0, 0.0), (0.0, 1.0)),
+            positions=(Vector(), Vector(), Vector()),
+            normals=(face_normal,) * 3,
+            face_normal=face_normal,
+            source_face_id=source_face_id,
+            source_edge_ids=(shared_edge, None, None),
+        )
+
+    same_face = (
+        triangle(10, Vector((0.0, 0.0, 1.0)), ("diag", 1)),
+        triangle(10, Vector((0.0, 1.0, 0.0)), ("diag", 1)),
+    )
+    coplanar_faces = (
+        triangle(10, Vector((0.0, 0.0, 1.0)), 51),
+        triangle(11, Vector((0.0, 0.0, 1.0)), 51),
+    )
+    folded_faces = (
+        triangle(10, Vector((0.0, 0.0, 1.0)), 52),
+        triangle(11, Vector((0.0, 1.0, 0.0)), 52),
+    )
+
+    assert decal_voronoi._intrinsic_triangle_merge_groups(same_face) == (
+        0,
+        0,
+    )
+    assert decal_voronoi._intrinsic_triangle_merge_groups(
+        coplanar_faces
+    ) == (0, 0)
+    assert decal_voronoi._intrinsic_triangle_merge_groups(
+        folded_faces
+    ) == (0, 1)
+
+
 def test_fragment_union_normalizes_t_junction_before_edge_cancellation():
     """Разное Boost-разбиение общей грани не создаёт runtime topology."""
 

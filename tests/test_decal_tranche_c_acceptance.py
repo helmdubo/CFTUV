@@ -260,3 +260,130 @@ def test_c7_f6_curved_competition_merges_and_remains_manifold():
             faces, component_count=component_count
         )
         assert all(face.component_kind != "JUNCTION" for face in faces)
+
+
+def _g1_source_edge_token(key):
+    if (
+        isinstance(key, tuple)
+        and len(key) >= 3
+        and key[:2] == ("pv-feature", "TRANSITION")
+        and isinstance(key[2], tuple)
+        and key[2][:1] == ("SOURCE_EDGE",)
+    ):
+        return int(key[2][1])
+    return None
+
+
+def _g1_source_vertex_token(key):
+    if (
+        isinstance(key, tuple)
+        and len(key) >= 3
+        and key[:2] == ("pv-feature", "TRANSITION")
+        and isinstance(key[2], tuple)
+        and key[2][:1] == ("SOURCE_VERTEX",)
+    ):
+        return int(key[2][1])
+    return None
+
+
+def _g1_imprint_records(faces, alpha, source_edge_by_vertices):
+    edge_owners = {}
+    for face_index, face in enumerate(faces):
+        for point_index, key_a in enumerate(face.vert_keys):
+            next_index = (point_index + 1) % len(face.vert_keys)
+            key_b = face.vert_keys[next_index]
+            edge_key = tuple(sorted((repr(key_a), repr(key_b))))
+            edge_owners.setdefault(edge_key, []).append(
+                (
+                    face_index,
+                    key_a,
+                    key_b,
+                    face.u_fracs[point_index] * alpha,
+                    face.v_lengths[point_index],
+                    face.u_fracs[next_index] * alpha,
+                    face.v_lengths[next_index],
+                )
+            )
+    records = {}
+    for owners in edge_owners.values():
+        if len(owners) != 2:
+            continue
+        edge_id = next(
+            (
+                token
+                for token in (
+                    _g1_source_edge_token(owners[0][1]),
+                    _g1_source_edge_token(owners[0][2]),
+                )
+                if token is not None
+            ),
+            None,
+        )
+        if edge_id is None:
+            source_vertices = frozenset(
+                token
+                for token in (
+                    _g1_source_vertex_token(owners[0][1]),
+                    _g1_source_vertex_token(owners[0][2]),
+                )
+                if token is not None
+            )
+            edge_id = source_edge_by_vertices.get(source_vertices)
+        if edge_id is None:
+            continue
+        # Одна и та же canonical station обязана иметь одинаковый UV
+        # с обеих сторон геометрического imprint, без UV-шва.
+        uv_by_key = []
+        for owner in owners:
+            uv_by_key.append(
+                {
+                    owner[1]: (owner[3], owner[4]),
+                    owner[2]: (owner[5], owner[6]),
+                }
+            )
+        assert set(uv_by_key[0]) == set(uv_by_key[1])
+        for key in uv_by_key[0]:
+            assert uv_by_key[0][key] == pytest.approx(
+                uv_by_key[1][key], abs=1e-6
+            )
+        records.setdefault(edge_id, []).append(owners)
+    return records
+
+
+def test_g1_curved_strip_imprints_crossed_source_folds_with_static_keys():
+    graph, _node, left_edge, _right_edge = _curved_strip_graph(
+        5, arc=pi / 3.0
+    )
+    plan = compile_patch_voronoi_plan(
+        graph, (left_edge,), offset=0.01, alpha_budget=0.7
+    )
+    surface = plan.surfaces[0]
+
+    assert surface.domain.kind == "INTRINSIC"
+    assert len(set(surface.domain.triangle_merge_groups)) == 5
+    source_edge_by_vertices = {}
+    for triangle in surface.domain.intrinsic_triangles:
+        for local_edge, edge_id in enumerate(triangle.source_edge_ids):
+            if not isinstance(edge_id, int):
+                continue
+            endpoints = frozenset(
+                triangle.source_vertex_ids[index]
+                for index in range(3)
+                if index != local_edge
+            )
+            source_edge_by_vertices[endpoints] = edge_id
+    previous_imprints = set()
+    for width, expected_count in ((0.4, 0), (0.8, 1), (1.2, 2)):
+        alpha = width * 0.5
+        faces = evaluate_patch_voronoi_plan(plan, width, preview=True)
+        _assert_manifold_connected_faces(faces)
+        records = _g1_imprint_records(
+            faces, alpha, source_edge_by_vertices
+        )
+        imprint_ids = set(records)
+
+        assert len(imprint_ids) == expected_count
+        assert previous_imprints <= imprint_ids
+        # S1: supporting curve задаётся compile-static source edge id;
+        # при drag она только появляется/удлиняется, но не переезжает.
+        previous_imprints = imprint_ids
