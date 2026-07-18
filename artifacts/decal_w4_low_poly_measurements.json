@@ -3,6 +3,14 @@
   "date": "2026-07-18",
   "diagnostics_commit": "33868c7ec242dd0d69b3ac57326cb384ebe91b1b",
   "production_threshold_changes": false,
+  "verification": {
+    "passed": 368,
+    "xfailed": 2,
+    "xfail_marker": "GL-pending",
+    "duration_seconds": 674.13,
+    "compileall": "passed",
+    "diff_check": "passed"
+  },
   "measurement_contract": {
     "mode": "INTRINSIC_CHART_PRE_ADMISSION",
     "fallback_geometry_evaluated": false,
