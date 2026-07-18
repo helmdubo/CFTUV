@@ -576,6 +576,44 @@ interval-owner токенов (`side.interval_owners` по накрытым
     absorbed при alpha=0.125, не-absorbed при 0.25) — по
     построению: флаг — факт исхода crop-квантования данного
     compile, не свойство угла.
+11. **Endpoint-requirement вокруг узла transition graph**
+    (разрешение W1 stop chart6, tiny face у source vertex 5:
+    KITE corner5 по (5,26) против SEGMENT 12010 по (5,27), общий
+    токен, `boundary_corners=()`; endpoint-случай T7-P3.10c,
+    под-случай T7-P2.2(a), теперь предписанный полностью). Смена
+    T8-класса может происходить не вдоль одной T, а ВОКРУГ общего
+    endpoint'а нескольких transitions — узла canonical transition
+    graph в source vertex. Requirement-стадия (T7-P3.9)
+    расширяется:
+    a. Для каждой пары (domain chart, source vertex), где сходятся
+       >= 2 transitions чарта, собираются endpoint-прилегающие
+       интервалы всех инцидентных transition-сторон; сравнение
+       token-blind по T8-классам (10b). Разные классы у соседних
+       по wedge инцидентных сторон => обязательная разделяющая
+       кривая, заякоренная в КАНОНИЧЕСКОЙ source-vertex станции —
+       ЕДИНЫЙ ключ, на который резолвятся endpoint-ключи ВСЕХ
+       инцидентных transitions (дисциплина T2-C.7: один источник,
+       много читателей; НЕ отдельные независимые якоря на каждую
+       T — двойная квантизация узла запрещена).
+    b. Owner supporting-кривой — semantic owner класс-пары (здесь
+       владелец corner5), НЕ transition owners: transition owners
+       владеют станциями (R2), не семантикой (R5.1). Кривая —
+       компайл-факт владельца (crop-edge kite, проходящий через
+       source vertex = апекс угла), трассируется владельцем в
+       СВОИХ координатах и отображается изометрической цепочкой в
+       consumer (T7-P2.1-3, один owner-проход).
+    c. Selection: инцидентная source vertex кривая границы
+       класс-пары в пределах кванта; не нашлась =>
+       `ATLAS_CLASS_DESYNC` ДО arrangement (мандат T7-P.1:
+       1D-ярлыки — сэмплы 2D-партиции владельца; смена класса
+       вокруг endpoint'а без кривой владельца через endpoint =
+       ложь деклараций либо дефект пробы).
+    d. Экспорт: якорь публикуется через anchor_stations-механизм
+       (A-INT.5) с endpoint-ключом, разделяемым всеми инцидентными
+       transitions; продолжение кривой в consumer-чарте — по
+       T7-P2.2 termination (reach / другая transition / triple
+       point). После вставки endpoint-соседство режется штатно;
+       возникающие sliver'ы — обычные T6-кандидаты.
 
 **T2-C — Coverage-инвариант T2-декларации (разрешение W1 stop
 «owner=None + разные SEGMENT sites на одном subedge»).**
