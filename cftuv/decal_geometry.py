@@ -93,7 +93,11 @@ def segment_point_distance2(seg_a, seg_b, point):
     return distance, parameter
 
 
-def _group_average_normals(normals):
+def _group_average_normals(
+    normals,
+    *,
+    coplanar_dot=DECAL_COPLANAR_DOT,
+):
     """Группирует почти одинаковые oriented normals."""
 
     groups = []
@@ -103,7 +107,7 @@ def _group_average_normals(normals):
         candidate = normal.normalized()
         placed = False
         for group in groups:
-            if candidate.dot(group[0]) > DECAL_COPLANAR_DOT:
+            if candidate.dot(group[0]) > coplanar_dot:
                 group[1].append(candidate)
                 placed = True
                 break
@@ -119,10 +123,19 @@ def _group_average_normals(normals):
     return averaged
 
 
-def lift_offset_position(source_pos, normals, offset):
+def lift_offset_position(
+    source_pos,
+    normals,
+    offset,
+    *,
+    coplanar_dot=DECAL_COPLANAR_DOT,
+):
     """Least-squares пересечение offset-плоскостей owner surfaces точки."""
 
-    unique = _group_average_normals(normals)
+    unique = _group_average_normals(
+        normals,
+        coplanar_dot=coplanar_dot,
+    )
     if not unique:
         return source_pos.copy()
     if len(unique) == 1:

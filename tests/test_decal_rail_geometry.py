@@ -19,10 +19,12 @@ from decal_rail_fixtures import (
     mesh_graph,
     planar_acute_join,
     planar_concave_corner_join,
+    planar_dihedral_strip,
     planar_quad_strip,
     planar_rf1_ring,
     planar_rf10_quarter_join,
     planar_rf10_with_disconnected_concave_face,
+    planar_shallow_dihedral_strip,
 )
 
 
@@ -245,6 +247,196 @@ def test_r1_width_drag_only_clips_compiled_cells_and_preview_equals_confirm():
     assert len(wide) == 8
     assert _face_signature(confirmed) == _face_signature(wide)
     assert all(position.z == 0.02 for face in wide for position in face.positions)
+
+
+def test_r1_dihedral_shared_keys_receive_one_canonical_offset_lift():
+    graph, _edge_ids, selected, _vertex_at = planar_dihedral_strip()
+    rail_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=1.0,
+    )
+    attempt = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=selected,
+    )
+    assert attempt.failures == ()
+
+    preview = evaluate_planar_rail_geometry_plan(
+        attempt.plan,
+        width=1.0,
+        offset=0.02,
+        preview=True,
+    )
+    confirmed = evaluate_planar_rail_geometry_plan(
+        attempt.plan,
+        width=1.0,
+        offset=0.02,
+        preview=False,
+    )
+    assert _face_signature(preview) == _face_signature(confirmed)
+    _assert_unique_key_positions(preview)
+
+    positions_by_key = {
+        key: tuple(float(value) for value in position)
+        for face in preview
+        for key, position in zip(face.vert_keys, face.positions)
+    }
+    assert positions_by_key[("rail-source-vertex", 0)] == (
+        -0.02,
+        0.0,
+        0.02,
+    )
+    assert positions_by_key[("rail-source-vertex", 1)] == (
+        -0.02,
+        1.0,
+        0.02,
+    )
+
+    source_positions = {
+        vertex.vertex_id: Vector(vertex.position)
+        for vertex in rail_plan.vertices
+    }
+    source_faces = {face.face_id: face for face in rail_plan.faces}
+    for face in preview:
+        source_face = source_faces[face.surface_id]
+        normal = Vector(source_face.normal)
+        origin = source_positions[source_face.vertex_ids[0]]
+        assert all(
+            isclose(normal.dot(position - origin), 0.02, abs_tol=1e-12)
+            for position in face.positions
+        )
+
+    node = graph.nodes[0]
+    node.mesh_tris.reverse()
+    node.mesh_tri_face_indices.reverse()
+    node.mesh_tri_edge_indices.reverse()
+    reversed_rail = decal_rails.compile_decal_rail_plan(
+        graph,
+        tuple(reversed(selected)),
+        alpha_budget=1.0,
+    )
+    reversed_plan = compile_planar_rail_geometry_attempt(
+        reversed_rail,
+        edge_indices=tuple(reversed(selected)),
+    ).plan
+    reversed_faces = evaluate_planar_rail_geometry_plan(
+        reversed_plan,
+        width=1.0,
+        offset=0.02,
+    )
+    assert reversed_rail == rail_plan
+    assert reversed_plan == attempt.plan
+    assert _face_signature(reversed_faces) == _face_signature(preview)
+
+
+def test_r1_canonical_offset_lift_rejects_any_raw_key_position_desync():
+    _rail_plan, plan = _compile_geometry(
+        planar_dihedral_strip(),
+        alpha_budget=1.0,
+    )
+    channels = list(plan.channels)
+    changed = False
+    for channel_index, channel in enumerate(channels):
+        cells = list(channel.cells)
+        for cell_index, cell in enumerate(cells):
+            vertices = list(cell.vertices)
+            for vertex_index, vertex in enumerate(vertices):
+                if (
+                    not changed
+                    and cell.owner_face_id == 1001
+                    and vertex.key == ("rail-source-vertex", 0)
+                ):
+                    vertices[vertex_index] = replace(
+                        vertex,
+                        position=(0.0, 0.0, 1e-15),
+                    )
+                    cells[cell_index] = replace(
+                        cell,
+                        vertices=tuple(vertices),
+                    )
+                    changed = True
+                    break
+        channels[channel_index] = replace(channel, cells=tuple(cells))
+    assert changed
+    broken_plan = replace(plan, channels=tuple(channels))
+
+    with pytest.raises(RailGeometryEvaluationError) as exc_info:
+        evaluate_planar_rail_geometry_plan(
+            broken_plan,
+            width=1.0,
+            offset=0.02,
+        )
+    assert (
+        exc_info.value.failure.reason
+        == "RAIL_GEOMETRY_SHARED_KEY_POSITION_DESYNC"
+    )
+    assert exc_info.value.failure.face_indices == (1000, 1001)
+
+
+def test_r1_shallow_dihedral_keeps_exact_offset_plane_incidence():
+    graph, _edge_ids, selected, _vertex_at = planar_shallow_dihedral_strip()
+    rail_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=1.0,
+    )
+    attempt = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=selected,
+    )
+    assert attempt.failures == ()
+
+    preview = evaluate_planar_rail_geometry_plan(
+        attempt.plan,
+        width=1.0,
+        offset=0.02,
+        preview=True,
+    )
+    confirmed = evaluate_planar_rail_geometry_plan(
+        attempt.plan,
+        width=1.0,
+        offset=0.02,
+        preview=False,
+    )
+    assert _face_signature(preview) == _face_signature(confirmed)
+    _assert_unique_key_positions(preview)
+
+    source_positions = {
+        vertex.vertex_id: Vector(vertex.position)
+        for vertex in rail_plan.vertices
+    }
+    source_faces = {face.face_id: face for face in rail_plan.faces}
+    for face in preview:
+        source_face = source_faces[face.surface_id]
+        normal = Vector(source_face.normal)
+        origin = source_positions[source_face.vertex_ids[0]]
+        assert all(
+            isclose(normal.dot(position - origin), 0.02, abs_tol=1e-12)
+            for position in face.positions
+        )
+
+    node = graph.nodes[0]
+    node.mesh_tris.reverse()
+    node.mesh_tri_face_indices.reverse()
+    node.mesh_tri_edge_indices.reverse()
+    reversed_rail = decal_rails.compile_decal_rail_plan(
+        graph,
+        tuple(reversed(selected)),
+        alpha_budget=1.0,
+    )
+    reversed_plan = compile_planar_rail_geometry_attempt(
+        reversed_rail,
+        edge_indices=tuple(reversed(selected)),
+    ).plan
+    reversed_faces = evaluate_planar_rail_geometry_plan(
+        reversed_plan,
+        width=1.0,
+        offset=0.02,
+    )
+    assert reversed_rail == rail_plan
+    assert reversed_plan == attempt.plan
+    assert _face_signature(reversed_faces) == _face_signature(preview)
 
 
 def test_r1_exact_source_station_never_emits_zero_area_cell():

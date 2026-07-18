@@ -17,7 +17,7 @@ from math import acos, pi, sqrt
 from mathutils import Vector
 
 from .constants import DECAL_CORNER_MITER_LIMIT
-from .decal_geometry import DecalGeometryFace
+from .decal_geometry import DecalGeometryFace, lift_offset_position
 from .decal_rails import RailStationKind, RailTermination
 
 
@@ -2881,6 +2881,56 @@ def _ordered_path_vertices(path):
     return tuple(ordered)
 
 
+def _apply_canonical_offset_lift(faces, offset):
+    """Один raw point и один offset-lift на каждый semantic vertex key."""
+
+    raw_position_by_key = {}
+    normal_keys_by_key = defaultdict(set)
+    face_ids_by_key = defaultdict(set)
+    occurrences = []
+    for face in faces:
+        normal_key = tuple(float(value) for value in face.surface_normal)
+        for vertex_index, (key, position) in enumerate(
+            zip(face.vert_keys, face.positions)
+        ):
+            raw_position = tuple(float(value) for value in position)
+            existing = raw_position_by_key.get(key)
+            if existing is not None and existing != raw_position:
+                raise RailGeometryEvaluationError(
+                    RailGeometryFailure(
+                        reason="RAIL_GEOMETRY_SHARED_KEY_POSITION_DESYNC",
+                        face_indices=tuple(
+                            sorted(
+                                face_ids_by_key[key].union(
+                                    (face.surface_id,)
+                                )
+                            )
+                        ),
+                        details=(
+                            ("vertex_key", key),
+                            ("canonical_raw_position", existing),
+                            ("conflicting_raw_position", raw_position),
+                        ),
+                    )
+                )
+            raw_position_by_key.setdefault(key, raw_position)
+            normal_keys_by_key[key].add(normal_key)
+            face_ids_by_key[key].add(face.surface_id)
+            occurrences.append((face, vertex_index, key))
+
+    lifted_by_key = {
+        key: lift_offset_position(
+            Vector(raw_position),
+            [Vector(normal) for normal in sorted(normal_keys_by_key[key])],
+            float(offset),
+            coplanar_dot=_RAIL_PLANAR_DOT,
+        )
+        for key, raw_position in raw_position_by_key.items()
+    }
+    for face, vertex_index, key in occurrences:
+        face.positions[vertex_index] = lifted_by_key[key].copy()
+
+
 def evaluate_planar_rail_geometry_plan(
     plan,
     width,
@@ -2995,48 +3045,49 @@ def evaluate_planar_rail_geometry_plan(
 
     output = []
     for channel, cell, clipped, _channel_alpha in pending:
-            owner_face = faces_by_id[cell.owner_face_id]
-            normal = Vector(owner_face.normal)
-            offset_vector = normal * float(offset)
-            # Временный adapter: R4 заменит эту запись единственным
-            # каноническим отображением (s, r) -> (U, V).
-            u_fracs = [channel.side_sign * vertex.r / alpha for vertex in clipped]
-            v_lengths = [vertex.s for vertex in clipped]
-            provenance = RailFaceProvenance(
-                component_id=plan.component.component_id,
-                channel_id=channel.channel_id,
-                cell_id=cell.cell_id,
-                corner_partition_id=None,
-                source_face_id=cell.owner_face_id,
-                source_edge_ids=cell.source_edge_ids,
-                boundary_path_ids=cell.boundary_path_ids,
-                route_ids=tuple(
-                    sorted(
-                        {
-                            route_id
-                            for vertex in clipped
-                            for route_id in vertex.route_ids
-                        }
-                    )
-                ),
-                station_keys=tuple(vertex.key for vertex in clipped),
-            )
-            output.append(
-                RailDecalGeometryFace(
-                    surface_id=cell.owner_face_id,
-                    surface_normal=normal,
-                    vert_keys=[vertex.key for vertex in clipped],
-                    positions=[Vector(vertex.position) + offset_vector for vertex in clipped],
-                    u_fracs=u_fracs,
-                    v_lengths=v_lengths,
-                    component_kind="RAIL_SEGMENT",
-                    component_side=(
-                        f"component:{plan.component.component_id}:"
-                        f"channel:{channel.channel_id}:face:{cell.owner_face_id}"
-                    ),
-                    rail_provenance=provenance,
+        owner_face = faces_by_id[cell.owner_face_id]
+        normal = Vector(owner_face.normal)
+        # Временный adapter: R4 заменит эту запись единственным
+        # каноническим отображением (s, r) -> (U, V).
+        u_fracs = [
+            channel.side_sign * vertex.r / alpha for vertex in clipped
+        ]
+        v_lengths = [vertex.s for vertex in clipped]
+        provenance = RailFaceProvenance(
+            component_id=plan.component.component_id,
+            channel_id=channel.channel_id,
+            cell_id=cell.cell_id,
+            corner_partition_id=None,
+            source_face_id=cell.owner_face_id,
+            source_edge_ids=cell.source_edge_ids,
+            boundary_path_ids=cell.boundary_path_ids,
+            route_ids=tuple(
+                sorted(
+                    {
+                        route_id
+                        for vertex in clipped
+                        for route_id in vertex.route_ids
+                    }
                 )
+            ),
+            station_keys=tuple(vertex.key for vertex in clipped),
+        )
+        output.append(
+            RailDecalGeometryFace(
+                surface_id=cell.owner_face_id,
+                surface_normal=normal,
+                vert_keys=[vertex.key for vertex in clipped],
+                positions=[Vector(vertex.position) for vertex in clipped],
+                u_fracs=u_fracs,
+                v_lengths=v_lengths,
+                component_kind="RAIL_SEGMENT",
+                component_side=(
+                    f"component:{plan.component.component_id}:"
+                    f"channel:{channel.channel_id}:face:{cell.owner_face_id}"
+                ),
+                rail_provenance=provenance,
             )
+        )
 
     partitions_by_id = {
         partition.partition_id: partition
@@ -3074,14 +3125,16 @@ def evaluate_planar_rail_geometry_plan(
             station_keys=tuple(vertex.key for vertex in vertices),
         )
         normal = Vector(owner_face.normal)
-        offset_vector = normal * float(offset)
         output.append(
             RailDecalGeometryFace(
                 surface_id=cell.owner_face_id,
                 surface_normal=normal,
                 vert_keys=[vertex.key for vertex in vertices],
-                positions=[Vector(vertex.position) + offset_vector for vertex in vertices],
-                u_fracs=[partition.side_sign * vertex.r / alpha for vertex in vertices],
+                positions=[Vector(vertex.position) for vertex in vertices],
+                u_fracs=[
+                    partition.side_sign * vertex.r / alpha
+                    for vertex in vertices
+                ],
                 v_lengths=[vertex.s for vertex in vertices],
                 component_kind="RAIL_CORNER",
                 component_side=(
@@ -3091,6 +3144,7 @@ def evaluate_planar_rail_geometry_plan(
                 rail_provenance=provenance,
             )
         )
+    _apply_canonical_offset_lift(output, offset)
     return tuple(output)
 
 

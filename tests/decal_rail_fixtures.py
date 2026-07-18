@@ -298,3 +298,51 @@ def planar_rf10_with_disconnected_concave_face():
         ((spine_path, False),),
     )
     return graph, edge_ids, selected, vertex_at
+
+
+def planar_dihedral_strip():
+    """Две quad-плоскости сходятся на одном selected spine edge."""
+
+    vertices = {
+        0: (0.0, 0.0, 0.0),
+        1: (0.0, 1.0, 0.0),
+        2: (-1.0, 0.0, 0.0),
+        3: (-1.0, 1.0, 0.0),
+        4: (0.0, 0.0, 1.0),
+        5: (0.0, 1.0, 1.0),
+    }
+    faces = [
+        (2, 0, 1, 3),
+        (0, 4, 5, 1),
+    ]
+    graph, edge_ids, selected = mesh_graph(
+        vertices,
+        faces,
+        (((0, 1), False),),
+    )
+    return graph, edge_ids, selected, {vertex_id: vertex_id for vertex_id in vertices}
+
+
+def planar_shallow_dihedral_strip():
+    """Пятиградусный fold, который нельзя группировать как coplanar rail."""
+
+    angle = 5.0 * pi / 180.0
+    outer = (cos(angle), 0.0, sin(angle))
+    vertices = {
+        0: (0.0, 0.0, 0.0),
+        1: (0.0, 1.0, 0.0),
+        2: (-1.0, 0.0, 0.0),
+        3: (-1.0, 1.0, 0.0),
+        4: outer,
+        5: (outer[0], 1.0, outer[2]),
+    }
+    faces = [
+        (2, 0, 1, 3),
+        (0, 4, 5, 1),
+    ]
+    graph, edge_ids, selected = mesh_graph(
+        vertices,
+        faces,
+        (((0, 1), False),),
+    )
+    return graph, edge_ids, selected, {vertex_id: vertex_id for vertex_id in vertices}
