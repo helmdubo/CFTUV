@@ -9,7 +9,7 @@ from pathlib import Path
 _UNAVAILABLE = "unavailable"
 _EMBEDDED_BRANCH = "claude/blender-decal-corner-preview-yq4lir"
 # Обновляется metadata-only commit после каждого implementation commit.
-_EMBEDDED_CODE_COMMIT = "34276baf159c4ee1593e626756c0bd5185820245"
+_EMBEDDED_CODE_COMMIT = "5352e7b45776204a4c15365375fb0b2a82410018"
 
 
 @dataclass(frozen=True)
