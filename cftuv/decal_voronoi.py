@@ -19,7 +19,7 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 from fractions import Fraction
 from heapq import heappop, heappush
-from math import atan2, isfinite, pi, sqrt, tau
+from math import atan2, gcd, isfinite, pi, sqrt, tau
 
 from mathutils import Vector
 
@@ -768,6 +768,7 @@ class _PatchVoronoiSurface:
     ports_by_vertex: dict[int, tuple["_CompiledSitePort", ...]]
     ports_by_site: dict[int, tuple["_CompiledSitePort", ...]]
     semantic_owner_chart_by_vertex: tuple[tuple[int, int], ...] = ()
+    native_site_edge_indices: tuple[int, ...] = ()
 
     @property
     def origin(self):
@@ -953,11 +954,19 @@ class PatchVoronoiDiagnostics:
     max_station_normal_variation: float = 0.0
     foldover_count: int = 0
     atlas_sliver_owner_count: int = 0
+    atlas_max_sliver_owner_distance: float = 0.0
     atlas_no_owner_drop_count: int = 0
+    atlas_declared_owner_count: int = 0
+    atlas_declared_owner_missing_count: int = 0
+    atlas_degenerate_interval_merge_count: int = 0
+    atlas_undeclared_materialized_interval_count: int = 0
+    atlas_clamped_segment_face_count: int = 0
+    atlas_v_continuation_count: int = 0
     atlas_touch_no_token_drop_count: int = 0
     atlas_single_side_drop_count: int = 0
     atlas_semantic_import_count: int = 0
     atlas_semantic_transition_count: int = 0
+    atlas_arrangement_integrity_failure_count: int = 0
     # Тестовое отключение транспорта для обязательного отрицательного T8.
     semantic_transport_disabled_owner_ids: frozenset = field(
         default_factory=frozenset,
@@ -973,7 +982,7 @@ class PatchVoronoiDiagnostics:
         )
 
     def as_dict(self):
-        return {
+        result = {
             "construct_calls": int(self.construct_calls),
             "cell_disorder_fallbacks": int(self.cell_disorder_fallbacks),
             "tessellation_mesh_tri_fallbacks": int(
@@ -1030,6 +1039,40 @@ class PatchVoronoiDiagnostics:
                 sorted(self.runtime_policy_counts.items())
             ),
         }
+        # Условные E-only поля сохраняют EP1 benchmark JSON exact-пути.
+        if self.atlas_declared_owner_count:
+            result["atlas_declared_owner_count"] = int(
+                self.atlas_declared_owner_count
+            )
+        if self.atlas_declared_owner_missing_count:
+            result["atlas_declared_owner_missing_count"] = int(
+                self.atlas_declared_owner_missing_count
+            )
+        if self.atlas_degenerate_interval_merge_count:
+            result["atlas_degenerate_interval_merge_count"] = int(
+                self.atlas_degenerate_interval_merge_count
+            )
+        if self.atlas_undeclared_materialized_interval_count:
+            result["atlas_undeclared_materialized_interval_count"] = int(
+                self.atlas_undeclared_materialized_interval_count
+            )
+        if self.atlas_clamped_segment_face_count:
+            result["atlas_clamped_segment_face_count"] = int(
+                self.atlas_clamped_segment_face_count
+            )
+        if self.atlas_v_continuation_count:
+            result["atlas_v_continuation_count"] = int(
+                self.atlas_v_continuation_count
+            )
+        if self.atlas_arrangement_integrity_failure_count:
+            result["atlas_arrangement_integrity_failure_count"] = int(
+                self.atlas_arrangement_integrity_failure_count
+            )
+        if self.atlas_max_sliver_owner_distance:
+            result["atlas_max_sliver_owner_distance"] = float(
+                self.atlas_max_sliver_owner_distance
+            )
+        return result
 
 
 class _PatchVoronoiSurfaceCompileError(RuntimeError):
@@ -1150,6 +1193,21 @@ class _DecalArrangementFace:
     point_keys: tuple[object, ...] = ()
     uv_site: _PatchVoronoiSite | None = None
     uv_point_transform: tuple[float, float, float, float] | None = None
+    uv_frame_transform: tuple[float, ...] | None = None
+    uv_frame_owner_chart_id: int | None = None
+    uv_frame_is_imported: bool = False
+    declared_owner_token: object | None = None
+    declared_semantic_class: object | None = None
+    absorbed_corner_vertices: tuple[int, ...] = ()
+    # T7-P3.10: corner predicate-curves, реально входящие в boundary face.
+    boundary_corner_vertices: tuple[int, ...] = ()
+    boundary_corner_edges: tuple[tuple[object, object, tuple[int, ...]], ...] = ()
+    boundary_crop_edges: tuple[tuple[object, object, tuple[object, ...]], ...] = ()
+    boundary_semantic_edges: tuple[
+        tuple[object, object, tuple[object, ...]], ...
+    ] = ()
+    # -1/+1 разрешает unbounded V только через соответствующий endpoint.
+    uv_v_continuation_endpoint: int = 0
     transition_uv: tuple[tuple[object, float, float], ...] = ()
 
 
@@ -1189,7 +1247,23 @@ class _M1ImportedSemantic:
     owner_edge_indices: tuple[int, ...]
     owner_region_points: tuple[tuple[float, float], ...]
     local_to_owner: tuple[float, float, float, float]
+    uv_local_to_owner: tuple[float, ...]
+    target_region_points: tuple[tuple[float, float], ...] = ()
     anchor_stations: tuple[tuple[int, object, int], ...] = ()
+    is_predicate_separator: bool = False
+    is_endpoint_separator: bool = False
+
+
+@dataclass(frozen=True)
+class _M1UVFrameDelegate:
+    """R5: site-frame владельца, перенесённый в consumer chart."""
+
+    owner_chart_id: int
+    target_chart_id: int
+    edge_index: int
+    owner_site: _PatchVoronoiSite
+    local_to_owner: tuple[float, ...]
+    absorbed_corner_vertices: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1211,6 +1285,7 @@ class _PendingArrangementFace:
     site: _PatchVoronoiSite
     points: tuple[tuple[float, float], ...]
     crop: _CropComponent
+    absorbed_corner_vertices: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -2051,6 +2126,16 @@ def _site_lateral_u(site, point, alpha):
 def _site_v_length(site, parameter):
     uv_length = site.uv_length if site.uv_length > 0.0 else site.segment_length
     return site.arc_start + site.arc_sign * parameter * uv_length
+
+
+def _site_unbounded_parameter(site, point):
+    """Линейный parameter site без endpoint clamp для T7-P3.8."""
+
+    direction = _sub2(site.point_b, site.point_a)
+    length2 = _dot2(direction, direction)
+    if length2 <= 1e-20:
+        return 0.0
+    return _dot2(_sub2(point, site.point_a), direction) / length2
 
 
 def _corner_offset_lines(surface, corner, alpha):
@@ -3741,6 +3826,10 @@ def _compile_corner_split_chord(
     candidates = []
     for vertex in diagram_vertices:
         point = (float(vertex.X), float(vertex.Y))
+        if not all(isfinite(value) for value in point):
+            # R1 image-only endpoint cells могут граничить с бесконечным
+            # Voronoi-ребром; такая служебная вершина не является B3-якорем.
+            continue
         coordinates = _corner_wedge_coordinates(sites, corner, point)
         if coordinates is None or min(coordinates) < -tolerance:
             continue
@@ -3993,6 +4082,7 @@ def _compile_surface(
     intrinsic_alpha_budget=float("inf"),
     intrinsic_chart=None,
     required_site_edge_indices=None,
+    corner_site_edge_indices=None,
     semantic_owner_chart_by_vertex=(),
 ):
     origin = node.centroid.copy()
@@ -4192,12 +4282,17 @@ def _compile_surface(
         if required_site_edge_indices is None
         else {int(edge_index) for edge_index in required_site_edge_indices}
     )
+    corner_edges = (
+        required_edges
+        if corner_site_edge_indices is None
+        else {int(edge_index) for edge_index in corner_site_edge_indices}
+    )
     if required_site_edge_indices is not None:
         compiled_corners = tuple(
             corner
             for corner in compiled_corners
             if any(
-                classification_sites[site_index].edge_index in required_edges
+                classification_sites[site_index].edge_index in corner_edges
                 for site_index in corner.incident_sites
             )
         )
@@ -4604,6 +4699,9 @@ def _compile_surface(
                 in semantic_owner_chart_by_vertex
             )
         ),
+        native_site_edge_indices=tuple(
+            sorted(int(edge_index) for edge_index in (required_site_edge_indices or ()))
+        ),
     )
 
 
@@ -4892,6 +4990,51 @@ def _affine_point(transform, point):
     )
 
 
+def _frame_affine_inverse(transform):
+    """Обратный общий affine для R5 UV-frame transport."""
+
+    m00, m01, m10, m11, tx, ty = transform
+    determinant = m00 * m11 - m01 * m10
+    if abs(determinant) <= 1e-20:
+        raise ValueError("ATLAS_TRANSITION_DESYNC: UV frame is singular")
+    inverse = 1.0 / determinant
+    i00 = m11 * inverse
+    i01 = -m01 * inverse
+    i10 = -m10 * inverse
+    i11 = m00 * inverse
+    return (
+        i00,
+        i01,
+        i10,
+        i11,
+        -(i00 * tx + i01 * ty),
+        -(i10 * tx + i11 * ty),
+    )
+
+
+def _frame_affine_compose(second, first):
+    """Возвращает общий affine second(first(point))."""
+
+    a00, a01, a10, a11, atx, aty = first
+    b00, b01, b10, b11, btx, bty = second
+    return (
+        b00 * a00 + b01 * a10,
+        b00 * a01 + b01 * a11,
+        b10 * a00 + b11 * a10,
+        b10 * a01 + b11 * a11,
+        b00 * atx + b01 * aty + btx,
+        b10 * atx + b11 * aty + bty,
+    )
+
+
+def _frame_affine_point(transform, point):
+    m00, m01, m10, m11, tx, ty = transform
+    return (
+        m00 * point[0] + m01 * point[1] + tx,
+        m10 * point[0] + m11 * point[1] + ty,
+    )
+
+
 def _atlas_transforms_from(atlas, owner_chart_id):
     """Каноническое spanning-tree transport без повторного holonomy solve."""
 
@@ -5052,6 +5195,9 @@ def _compile_intrinsic_atlas_surfaces(
                 intrinsic_alpha_budget=chart.alpha_budget,
                 intrinsic_chart=chart,
                 required_site_edge_indices=native_edges,
+                corner_site_edge_indices=tuple(
+                    int(raw["edge_index"]) for raw in chart_raw_sites
+                ),
                 semantic_owner_chart_by_vertex=tuple(
                     (
                         vertex_id,
@@ -5768,10 +5914,142 @@ def _m1_crop_semantic_class(crop):
     return ("CORNER", crop.kind, crop.semantic_owner_id)
 
 
-def _m1_build_transition_contract(groups, semantic_imports=None):
+def _m1_canonicalize_transition_intervals(intervals, diagnostics=None):
+    """T7-P3.7: поглощает T2-интервалы, неразличимые на B0-решётке."""
+
+    canonical = [list(interval) for interval in intervals]
+    while True:
+        degenerate_index = next(
+            (
+                index
+                for index, interval in enumerate(canonical)
+                if interval[2] is not None
+                and interval[1] - interval[0] <= 1
+            ),
+            None,
+        )
+        if degenerate_index is None:
+            break
+        if len(canonical) == 1:
+            raise ValueError(
+                "ATLAS_TRANSITION_DESYNC: transition is shorter than "
+                "the canonical quantum"
+            )
+
+        current = canonical[degenerate_index]
+        previous = (
+            canonical[degenerate_index - 1]
+            if degenerate_index > 0
+            else None
+        )
+        following = (
+            canonical[degenerate_index + 1]
+            if degenerate_index + 1 < len(canonical)
+            else None
+        )
+        if previous is None:
+            merge_into_previous = False
+        elif following is None:
+            merge_into_previous = True
+        else:
+            previous_same_class = previous[3] == current[3]
+            following_same_class = following[3] == current[3]
+            neighbors_same_class = previous[3] == following[3]
+            if neighbors_same_class:
+                # Поглощённый класс между эквивалентными соседями не
+                # создаёт две semantic смены; левый interval каноничен.
+                merge_into_previous = True
+            elif not previous_same_class and not following_same_class:
+                raise ValueError(
+                    "ATLAS_TRANSITION_DESYNC: two semantic class changes "
+                    "fall inside one transition quantum"
+                )
+            else:
+                merge_into_previous = previous_same_class
+
+        if merge_into_previous:
+            previous[1] = current[1]
+        else:
+            following[0] = current[0]
+        del canonical[degenerate_index]
+        if diagnostics is not None:
+            diagnostics.atlas_degenerate_interval_merge_count += 1
+
+    for first, second, owner, _semantic in canonical:
+        if owner is not None and second - first <= 1:
+            raise ValueError(
+                "ATLAS_TRANSITION_DESYNC: degenerate interval escaped "
+                "T2 canonicalization"
+            )
+    return tuple(tuple(interval) for interval in canonical)
+
+
+def _m1_anchor_coverage_boundaries(intervals, frontier_stations_by_token):
+    """T2-C.7: coverage election и frontier geometry читают один T-key."""
+
+    anchored = [list(interval) for interval in intervals]
+    for index in range(len(anchored) - 1):
+        previous = anchored[index]
+        following = anchored[index + 1]
+        if previous[1] != following[0]:
+            raise ValueError(
+                "ATLAS_TRANSITION_DESYNC: non-contiguous T2 intervals"
+            )
+        previous_covered = previous[2] is not None
+        following_covered = following[2] is not None
+        if previous_covered == following_covered:
+            continue
+        covered_owner = previous[2] if previous_covered else following[2]
+        declared_station = int(previous[1])
+        candidates = tuple(
+            sorted(frontier_stations_by_token.get(int(covered_owner), ()))
+        )
+        if not candidates:
+            raise ValueError(
+                "ATLAS_TRANSITION_DESYNC: coverage frontier has no "
+                "canonical station"
+            )
+        canonical_station = min(
+            candidates,
+            key=lambda station: (
+                abs(int(station) - declared_station),
+                int(station),
+            ),
+        )
+        if abs(int(canonical_station) - declared_station) > 1:
+            raise ValueError(
+                "ATLAS_TRANSITION_DESYNC: coverage declaration misses "
+                "its frontier station "
+                f"declared={declared_station} "
+                f"canonical={canonical_station} owner={covered_owner!r}"
+            )
+        previous[1] = int(canonical_station)
+        following[0] = int(canonical_station)
+        if previous[0] >= previous[1] or following[0] >= following[1]:
+            raise ValueError(
+                "ATLAS_TRANSITION_DESYNC: coverage anchor collapses interval"
+            )
+    return tuple(tuple(interval) for interval in anchored)
+
+
+def _m1_build_transition_contract(
+    groups,
+    semantic_imports=None,
+    diagnostics=None,
+):
     """T1/T2: single-source 1D station set до локальных arrangements."""
 
     semantic_imports = semantic_imports or {}
+
+    def published_anchor_stations(surface, transition_key):
+        transition_id = _hashable_provenance(transition_key)
+        return {
+            int(station)
+            for semantic in semantic_imports.get(id(surface.domain), ())
+            for _endpoint_index, anchor_key, station
+            in semantic.anchor_stations
+            if _hashable_provenance(anchor_key) == transition_id
+        }
 
     def curve_segments(surface, entries):
         yield from _m1_surface_curve_segments(entries)
@@ -5781,6 +6059,105 @@ def _m1_build_transition_contract(groups, semantic_imports=None):
                     "ATLAS_CLASS_DESYNC: imported semantic curve is not open"
                 )
             yield from zip(semantic.points, semantic.points[1:])
+
+    def imported_candidates(
+        surface, midpoint, segment=None, factor_fraction=None
+    ):
+        """T2-C: R1/T7 images участвуют в coverage до arrangement."""
+
+        for import_index, semantic in enumerate(
+            semantic_imports.get(id(surface.domain), ())
+        ):
+            owner_point = _affine_point(semantic.local_to_owner, midpoint)
+            if segment is not None and factor_fraction is not None:
+                quantum = max(
+                    float(surface.diagram_transform.quantum), 1e-10
+                )
+                edge_a = tuple(
+                    Fraction(round(value / quantum))
+                    for value in segment[0]
+                )
+                edge_b = tuple(
+                    Fraction(round(value / quantum))
+                    for value in segment[1]
+                )
+                target_point = (
+                    edge_a[0]
+                    + (edge_b[0] - edge_a[0]) * factor_fraction,
+                    edge_a[1]
+                    + (edge_b[1] - edge_a[1]) * factor_fraction,
+                )
+                target_region_points = semantic.target_region_points
+                if not target_region_points:
+                    owner_to_target = _affine_inverse(
+                        semantic.local_to_owner
+                    )
+                    target_region_points = tuple(
+                        _affine_point(owner_to_target, vertex)
+                        for vertex in semantic.owner_region_points
+                    )
+                target_region = tuple(
+                    (
+                        Fraction(round(vertex[0] / quantum)),
+                        Fraction(round(vertex[1] / quantum)),
+                    )
+                    for vertex in target_region_points
+                )
+                inside = _m1_point_in_polygon(
+                    target_point, target_region, tolerance=0.0
+                )
+            else:
+                inside = (
+                    _m1_point_in_polygon(
+                        midpoint, semantic.target_region_points
+                    )
+                    if semantic.target_region_points
+                    else _m1_point_in_polygon(
+                        owner_point, semantic.owner_region_points
+                    )
+                )
+            priority = (
+                3
+                if semantic.owner_crop.kind == "JUNCTION"
+                else 1
+                if semantic.owner_crop.kind == "SEGMENT"
+                else 2
+            )
+            distance = _segment_point_distance2(
+                semantic.owner_site.point_a,
+                semantic.owner_site.point_b,
+                owner_point,
+            )[0]
+            yield (
+                inside,
+                priority,
+                distance,
+                import_index,
+                semantic,
+            )
+
+    def local_crop_contains(surface, segment, crop_points, factor):
+        """T2-C.7: election читает ту же B0-геометрию, что arrangement."""
+
+        quantum = max(float(surface.diagram_transform.quantum), 1e-10)
+        edge_a = tuple(
+            Fraction(round(value / quantum)) for value in segment[0]
+        )
+        edge_b = tuple(
+            Fraction(round(value / quantum)) for value in segment[1]
+        )
+        point = (
+            edge_a[0] + (edge_b[0] - edge_a[0]) * factor,
+            edge_a[1] + (edge_b[1] - edge_a[1]) * factor,
+        )
+        polygon = tuple(
+            (
+                Fraction(round(vertex[0] / quantum)),
+                Fraction(round(vertex[1] / quantum)),
+            )
+            for vertex in crop_points
+        )
+        return _m1_point_in_polygon(point, polygon, tolerance=0.0)
 
     declarations = {}
     for entries in groups:
@@ -5813,7 +6190,11 @@ def _m1_build_transition_contract(groups, semantic_imports=None):
                 1,
                 round(_dist2(segment[0], segment[1]) / quantum),
             )
-            stations = {0, station_extent}
+            stations = {
+                0,
+                station_extent,
+                *published_anchor_stations(surface, transition_key),
+            }
             edge_a = tuple(
                 Fraction(round(value / quantum)) for value in segment[0]
             )
@@ -5848,6 +6229,15 @@ def _m1_build_transition_contract(groups, semantic_imports=None):
                 station = round(float(hit[1]) * station_extent)
                 stations.add(max(0, min(station_extent, station)))
             ordered_stations = tuple(sorted(stations))
+            canonical_intervals = _m1_canonicalize_transition_intervals(
+                tuple(
+                    (first, second, None, None)
+                    for first, second in zip(
+                        ordered_stations, ordered_stations[1:]
+                    )
+                ),
+                diagnostics,
+            )
             interior_vertices = [
                 triangle.chart_points[local_edge]
                 for triangle in surface.domain.intrinsic_triangles
@@ -5882,15 +6272,13 @@ def _m1_build_transition_contract(groups, semantic_imports=None):
                     interior_sign=1 if interior_cross > 0.0 else -1,
                     interval_owners=tuple(
                         (first, second, None)
-                        for first, second in zip(
-                            ordered_stations, ordered_stations[1:]
-                        )
+                        for first, second, _owner, _semantic
+                        in canonical_intervals
                     ),
                     interval_semantics=tuple(
                         (first, second, None)
-                        for first, second in zip(
-                            ordered_stations, ordered_stations[1:]
-                        )
+                        for first, second, _owner, _semantic
+                        in canonical_intervals
                     ),
                     single_declared_side=True,
                 )
@@ -5922,6 +6310,11 @@ def _m1_build_transition_contract(groups, semantic_imports=None):
             ),
         )
         stations = {0, station_extent}
+        for surface, _entries, _segment in declared_sides:
+            stations.update(
+                published_anchor_stations(surface, transition_key)
+            )
+        frontier_stations_by_token = {}
         for surface, entries, segment in declared_sides:
             quantum = max(float(surface.diagram_transform.quantum), 1e-10)
             edge_a = (
@@ -5932,6 +6325,47 @@ def _m1_build_transition_contract(groups, semantic_imports=None):
                 Fraction(round(segment[1][0] / quantum)),
                 Fraction(round(segment[1][1] / quantum)),
             )
+            for _pending_index, pending_face in entries:
+                crop_points = tuple(pending_face.crop.points)
+                for first, second in zip(
+                    crop_points, crop_points[1:] + crop_points[:1]
+                ):
+                    lattice_first = (
+                        Fraction(round(first[0] / quantum)),
+                        Fraction(round(first[1] / quantum)),
+                    )
+                    lattice_second = (
+                        Fraction(round(second[0] / quantum)),
+                        Fraction(round(second[1] / quantum)),
+                    )
+                    hit = _m1_exact_segment_intersection(
+                        lattice_first, lattice_second, edge_a, edge_b
+                    )
+                    if hit is None:
+                        continue
+                    edge_factors = ()
+                    if hit == "COLLINEAR":
+                        overlap = _m1_collinear_overlap(
+                            lattice_first,
+                            lattice_second,
+                            edge_a,
+                            edge_b,
+                        )
+                        if overlap is not None:
+                            edge_factors = overlap[2:]
+                    else:
+                        edge_factors = (hit[1],)
+                    for edge_factor in edge_factors:
+                        frontier_station = max(
+                            0,
+                            min(
+                                station_extent,
+                                round(float(edge_factor) * station_extent),
+                            ),
+                        )
+                        frontier_stations_by_token.setdefault(
+                            int(pending_face.site.edge_index), set()
+                        ).add(frontier_station)
             for first, second in curve_segments(surface, entries):
                 lattice_first = (
                     Fraction(round(first[0] / quantum)),
@@ -5969,10 +6403,11 @@ def _m1_build_transition_contract(groups, semantic_imports=None):
         for first_station, second_station in zip(
             ordered_stations, ordered_stations[1:]
         ):
-            factor = (
-                (first_station + second_station)
-                / (2.0 * station_extent)
+            factor_fraction = Fraction(
+                first_station + second_station,
+                2 * station_extent,
             )
+            factor = float(factor_fraction)
             side_coverage = []
             # T3: обе half-curves объявляются owner'у. Покрытие интервала
             # существует, если его объявила хотя бы одна локальная сторона;
@@ -5986,14 +6421,26 @@ def _m1_build_transition_contract(groups, semantic_imports=None):
                     + (candidate_segment[1][1] - candidate_segment[0][1])
                     * factor,
                 )
-                side_coverage.append(
-                    any(
-                        _m1_point_in_polygon(
-                            midpoint, tuple(pending_face.crop.points)
-                        )
-                        for _pending_index, pending_face in candidate_entries
+                local_coverage = any(
+                    local_crop_contains(
+                        _surface,
+                        candidate_segment,
+                        pending_face.crop.points,
+                        factor_fraction,
+                    )
+                    for _pending_index, pending_face in candidate_entries
+                )
+                image_coverage = any(
+                    inside
+                    for inside, _priority, _distance, _index, _semantic
+                    in imported_candidates(
+                        _surface,
+                        midpoint,
+                        candidate_segment,
+                        factor_fraction,
                     )
                 )
+                side_coverage.append(local_coverage or image_coverage)
             canonical_coverage.append(any(side_coverage))
             canonical_candidates = []
             if canonical_coverage[-1]:
@@ -6017,8 +6464,31 @@ def _m1_build_transition_contract(groups, semantic_imports=None):
                         * factor,
                     )
                     for pending_index, pending_face in candidate_entries:
-                        inside = _m1_point_in_polygon(
-                            midpoint, tuple(pending_face.crop.points)
+                        semantic_owner_id = (
+                            pending_face.crop.semantic_owner_id
+                        )
+                        if (
+                            pending_face.crop.kind != "SEGMENT"
+                            and isinstance(semantic_owner_id, tuple)
+                            and semantic_owner_id[:1] == ("corner",)
+                        ):
+                            declared_owner_chart = dict(
+                                candidate_surface.semantic_owner_chart_by_vertex
+                            ).get(int(semantic_owner_id[1]))
+                            if (
+                                declared_owner_chart is not None
+                                and int(declared_owner_chart)
+                                != int(candidate_surface.domain.chart_id)
+                            ):
+                                # T7: сосед не пере-выводит corner-класс из
+                                # своей локальной копии crop; он потребляет
+                                # только owner image ниже.
+                                continue
+                        inside = local_crop_contains(
+                            candidate_surface,
+                            candidate_segment,
+                            pending_face.crop.points,
+                            factor_fraction,
                         )
                         priority = (
                             3
@@ -6030,28 +6500,6 @@ def _m1_build_transition_contract(groups, semantic_imports=None):
                         semantic_class = _m1_crop_semantic_class(
                             pending_face.crop
                         )
-                        if pending_face.crop.kind != "SEGMENT":
-                            candidate_quantum = max(
-                                float(
-                                    candidate_surface.diagram_transform.quantum
-                                ),
-                                1e-10,
-                            )
-                            boundary_distance = min(
-                                _segment_point_distance2(
-                                    boundary_a,
-                                    boundary_b,
-                                    midpoint,
-                                )[0]
-                                for boundary_a, boundary_b in zip(
-                                    pending_face.crop.points,
-                                    pending_face.crop.points[1:]
-                                    + pending_face.crop.points[:1],
-                                )
-                            )
-                            if boundary_distance <= candidate_quantum * 1.5:
-                                semantic_class = ("SEGMENT",)
-                                priority = 1
                         distance = _segment_point_distance2(
                             pending_face.site.point_a,
                             pending_face.site.point_b,
@@ -6070,6 +6518,33 @@ def _m1_build_transition_contract(groups, semantic_imports=None):
                                 semantic_class,
                             )
                         )
+                    for (
+                        inside,
+                        priority,
+                        distance,
+                        import_index,
+                        semantic,
+                    ) in imported_candidates(
+                        candidate_surface,
+                        midpoint,
+                        candidate_segment,
+                        factor_fraction,
+                    ):
+                        canonical_candidates.append(
+                            (
+                                0 if inside else 1,
+                                -priority,
+                                round(distance, 12),
+                                semantic.owner_crop.kind,
+                                semantic.owner_crop.side,
+                                int(semantic.owner_site.edge_index),
+                                int(semantic.owner_chart_id),
+                                len(candidate_entries) + import_index,
+                                _m1_crop_semantic_class(
+                                    semantic.owner_crop
+                                ),
+                            )
+                        )
             canonical_candidate = (
                 min(canonical_candidates)
                 if canonical_candidates
@@ -6085,15 +6560,34 @@ def _m1_build_transition_contract(groups, semantic_imports=None):
                 if canonical_candidate is not None
                 else None
             )
+        anchored_intervals = _m1_anchor_coverage_boundaries(
+            tuple(
+                (
+                    first,
+                    second,
+                    owner,
+                    semantic_class,
+                )
+                for (first, second), owner, semantic_class in zip(
+                    zip(ordered_stations, ordered_stations[1:]),
+                    canonical_interval_owners,
+                    canonical_interval_semantics,
+                )
+            ),
+            frontier_stations_by_token,
+        )
+        canonical_intervals = _m1_canonicalize_transition_intervals(
+            anchored_intervals,
+            diagnostics,
+        )
         for surface, local_entries, segment in declared_sides:
             interval_owners = []
             for (
                 first_station,
                 second_station,
-            ), local_owner in zip(
-                zip(ordered_stations, ordered_stations[1:]),
-                canonical_interval_owners,
-            ):
+                local_owner,
+                _semantic_class,
+            ) in canonical_intervals:
                 interval_owners.append(
                     (first_station, second_station, local_owner)
                 )
@@ -6137,13 +6631,8 @@ def _m1_build_transition_contract(groups, semantic_imports=None):
                     interval_owners=tuple(interval_owners),
                     interval_semantics=tuple(
                         (first, second, semantic_class)
-                        for (first, second), semantic_class in zip(
-                            zip(
-                                ordered_stations,
-                                ordered_stations[1:],
-                            ),
-                            canonical_interval_semantics,
-                        )
+                        for first, second, _owner, semantic_class
+                        in canonical_intervals
                     ),
                 )
             )
@@ -6153,15 +6642,126 @@ def _m1_build_transition_contract(groups, semantic_imports=None):
     }
 
 
+def _m1_crop_structure_absorbed(points, quantum):
+    """True, если B0 crop не содержит ни одной interior lattice point."""
+
+    keys = tuple(
+        (
+            round(float(point[0]) / quantum),
+            round(float(point[1]) / quantum),
+        )
+        for point in points
+    )
+    unique_keys = tuple(dict.fromkeys(keys))
+    area2 = sum(
+        first[0] * second[1] - second[0] * first[1]
+        for first, second in zip(keys, keys[1:] + keys[:1])
+    )
+    boundary_points = sum(
+        gcd(
+            abs(second[0] - first[0]),
+            abs(second[1] - first[1]),
+        )
+        for first, second in zip(keys, keys[1:] + keys[:1])
+    )
+    # Pick: 2*I = |2A| - B + 2. I==0 не может дать face graph.
+    return (
+        len(unique_keys) < 3
+        or area2 == 0
+        or abs(area2) - boundary_points + 2 <= 0
+    )
+
+
+def _m1_prepare_absorbed_corner_structures(entries):
+    """T7-P3.8: оставляет absorbed boundary без corner ownership."""
+
+    surface = entries[0][1].surface
+    quantum = max(float(surface.diagram_transform.quantum), 1e-10)
+    absorbed_vertices_by_edge = {}
+    kept = []
+    for pending_index, pending_face in entries:
+        owner_id = pending_face.crop.semantic_owner_id
+        is_corner = (
+            pending_face.crop.kind != "SEGMENT"
+            and isinstance(owner_id, tuple)
+            and owner_id[:1] == ("corner",)
+        )
+        if not is_corner:
+            kept.append((pending_index, pending_face))
+            continue
+        absorbed = _m1_crop_structure_absorbed(
+            pending_face.crop.points, quantum
+        )
+        if not absorbed:
+            kept.append((pending_index, pending_face))
+            continue
+        corner_vertex = int(owner_id[1])
+        corner = next(
+            (
+                candidate
+                for candidate in surface.corners
+                if candidate.vert_index == corner_vertex
+            ),
+            None,
+        )
+        if corner is None:
+            raise ValueError(
+                "ATLAS_TRANSITION_DESYNC: absorbed corner is missing"
+            )
+        owner_site_indices = (
+            pending_face.crop.owner_site_indices or corner.incident_sites
+        )
+        for site_index in owner_site_indices:
+            edge_index = int(surface.sites[site_index].edge_index)
+            absorbed_vertices_by_edge.setdefault(edge_index, set()).add(
+                corner_vertex
+            )
+        # Boundary остаётся инертной conformity-кривой graph; T2 и
+        # materialization видят chain-continuous SEGMENT, не corner matter.
+        kept.append(
+            (
+                pending_index,
+                replace(
+                    pending_face,
+                    crop=replace(
+                        pending_face.crop,
+                        kind="SEGMENT",
+                        side="",
+                        semantic_owner_id=None,
+                    ),
+                ),
+            )
+        )
+
+    result = []
+    for pending_index, pending_face in kept:
+        if pending_face.crop.kind == "SEGMENT":
+            pending_face = replace(
+                pending_face,
+                absorbed_corner_vertices=tuple(
+                    sorted(
+                        set(pending_face.absorbed_corner_vertices)
+                        | absorbed_vertices_by_edge.get(
+                            int(pending_face.site.edge_index), set()
+                        )
+                    )
+                ),
+            )
+        result.append((pending_index, pending_face))
+    return result
+
+
 def _m1_surface_arrangement(
     entries,
     transition_sides=(),
     diagnostics=None,
     semantic_imports=(),
+    uv_frame_delegates=None,
 ):
     """E4: exact rational half-edge arrangement на B0 integer lattice."""
 
     surface = entries[0][1].surface
+    uv_frame_delegates = uv_frame_delegates or {}
     quantum = max(float(surface.diagram_transform.quantum), 1e-10)
     representatives = {}
 
@@ -6178,13 +6778,33 @@ def _m1_surface_arrangement(
     predicates = {}
     raw_segments = []
     semantic_segment_keys = set()
+    raw_corner_boundary_vertices = {}
+    raw_crop_boundary_ids = {}
+    raw_semantic_boundary_ids = {}
+    expected_crop_boundary_ids = set()
 
-    def add_polygon(points, prefer=False):
-        keys = tuple(lattice_point(point, prefer=prefer) for point in points)
+    def polygon_lattice_keys(points, prefer=False):
+        return tuple(
+            lattice_point(point, prefer=prefer) for point in points
+        )
+
+    def append_polygon_segments(keys, corner_vertices=(), crop_ids=()):
         for index, first in enumerate(keys):
             second = keys[(index + 1) % len(keys)]
             if first != second:
                 raw_segments.append((first, second))
+                if corner_vertices:
+                    raw_corner_boundary_vertices.setdefault(
+                        tuple(sorted((first, second))), set()
+                    ).update(corner_vertices)
+                if crop_ids:
+                    raw_crop_boundary_ids.setdefault(
+                        tuple(sorted((first, second))), set()
+                    ).update(crop_ids)
+
+    def add_polygon(points, prefer=False):
+        keys = polygon_lattice_keys(points, prefer=prefer)
+        append_polygon_segments(keys)
         return keys
 
     for pending_index, pending_face in entries:
@@ -6192,7 +6812,43 @@ def _m1_surface_arrangement(
             (float(point[0]), float(point[1]))
             for point in pending_face.crop.points
         )
-        crop_keys = add_polygon(crop_points)
+        crop_keys = polygon_lattice_keys(crop_points)
+        semantic_owner_id = pending_face.crop.semantic_owner_id
+        corner_vertices = (
+            (int(semantic_owner_id[1]),)
+            if (
+                pending_face.crop.kind != "SEGMENT"
+                and isinstance(semantic_owner_id, tuple)
+                and semantic_owner_id[:1] == ("corner",)
+            )
+            else ()
+        )
+        crop_id = (
+            int(pending_index),
+            pending_face.crop.kind,
+            pending_face.crop.side,
+            int(pending_face.site.edge_index),
+            _hashable_provenance(pending_face.crop.semantic_owner_id),
+        )
+        crop_area2 = sum(
+            first[0] * second[1] - second[0] * first[1]
+            for first, second in zip(
+                crop_keys, crop_keys[1:] + crop_keys[:1]
+            )
+        )
+        absorbed_structure = (
+            bool(pending_face.absorbed_corner_vertices)
+            and _m1_crop_structure_absorbed(crop_points, quantum)
+        )
+        if (
+            len(set(crop_keys)) >= 3
+            and crop_area2 != 0
+            and not absorbed_structure
+        ):
+            expected_crop_boundary_ids.add(crop_id)
+        append_polygon_segments(
+            crop_keys, corner_vertices, (crop_id,)
+        )
         predicate_key = (
             pending_face.crop.kind,
             pending_face.crop.side,
@@ -6253,12 +6909,29 @@ def _m1_surface_arrangement(
                 edge_a[0] + (edge_b[0] - edge_a[0]) * factor,
                 edge_a[1] + (edge_b[1] - edge_a[1]) * factor,
             )
-            if endpoint_index == 0:
-                if curve[0] != canonical_point:
-                    curve.insert(0, canonical_point)
-            elif endpoint_index == len(curve) - 1:
-                if curve[-1] != canonical_point:
-                    curve.append(canonical_point)
+            if (
+                semantic.is_endpoint_separator
+                and endpoint_index in (0, len(curve) - 1)
+            ):
+                # T7-P3.11e: endpoint уже обрезанной predicate-кривой
+                # переносится в общий source-vertex key субквантово;
+                # остальная compile-статичная кривая не сдвигается.
+                curve[endpoint_index] = canonical_point
+            elif (
+                semantic.is_predicate_separator
+                and endpoint_index in (0, len(curve) - 1)
+            ):
+                # T3 переносит supporting curve, не вращает её вокруг
+                # дальнего конца: иначе compile-static predicate-line
+                # перестаёт быть своей опорной прямой и рождает sliver.
+                delta = (
+                    canonical_point[0] - curve[endpoint_index][0],
+                    canonical_point[1] - curve[endpoint_index][1],
+                )
+                curve = [
+                    (point[0] + delta[0], point[1] + delta[1])
+                    for point in curve
+                ]
             else:
                 curve[endpoint_index] = canonical_point
         for first, second in zip(curve, curve[1:]):
@@ -6267,6 +6940,40 @@ def _m1_surface_arrangement(
             segment = (first, second)
             raw_segments.append(segment)
             imported_curves.append((semantic, segment))
+            semantic_id = (
+                int(semantic.owner_chart_id),
+                int(semantic.target_chart_id),
+                tuple(int(value) for value in semantic.owner_edge_indices),
+                semantic.owner_crop.kind,
+                semantic.owner_crop.side,
+                _hashable_provenance(
+                    semantic.owner_crop.semantic_owner_id
+                ),
+                bool(semantic.is_predicate_separator),
+                bool(semantic.is_endpoint_separator),
+                _hashable_provenance(semantic.transition_key),
+                tuple(
+                    (
+                        int(endpoint_index),
+                        _hashable_provenance(anchor_key),
+                        int(station),
+                    )
+                    for endpoint_index, anchor_key, station
+                    in semantic.anchor_stations
+                ),
+            )
+            raw_semantic_boundary_ids.setdefault(
+                tuple(sorted(segment)), set()
+            ).add(semantic_id)
+            semantic_owner_id = semantic.owner_crop.semantic_owner_id
+            if (
+                semantic.owner_crop.kind != "SEGMENT"
+                and isinstance(semantic_owner_id, tuple)
+                and semantic_owner_id[:1] == ("corner",)
+            ):
+                raw_corner_boundary_vertices.setdefault(
+                    tuple(sorted(segment)), set()
+                ).add(int(semantic_owner_id[1]))
     semantic_segment_keys.update(
         tuple(sorted(curve)) for _semantic, curve in imported_curves
     )
@@ -6314,6 +7021,7 @@ def _m1_surface_arrangement(
     def conformed_path(first, second, snap_near_transition=True):
         replacements = {Fraction(0): first, Fraction(1): second}
         covered_intervals = []
+        covered_transition_edges = []
         for side, edge_a, edge_b, station_points in transition_records:
             edge_direction = (
                 edge_b[0] - edge_a[0], edge_b[1] - edge_a[1]
@@ -6376,6 +7084,7 @@ def _m1_surface_arrangement(
                 direction = (
                     second[0] - first[0], second[1] - first[1]
                 )
+                boundary_stations = []
                 for edge_factor in (edge_start, edge_end):
                     declared_station = round(
                         float(edge_factor) * side.station_extent
@@ -6391,6 +7100,7 @@ def _m1_surface_arrangement(
                             "ATLAS_TRANSITION_DESYNC: undeclared "
                             "collinear endpoint"
                         )
+                    boundary_stations.append(station)
                     canonical_point = station_points[station]
                     factor = (
                         (canonical_point[0] - first[0]) / direction[0]
@@ -6416,6 +7126,33 @@ def _m1_surface_arrangement(
                     covered_intervals.append(
                         (segment_start, segment_end)
                     )
+                    overlap_stations = tuple(
+                        sorted(
+                            {
+                                *boundary_stations,
+                                *(
+                                    station
+                                    for station in side.stations
+                                    if edge_start
+                                    <= Fraction(
+                                        station, side.station_extent
+                                    )
+                                    <= edge_end
+                                ),
+                            }
+                        )
+                    )
+                    covered_transition_edges.extend(
+                        (
+                            station_points[first_station],
+                            station_points[second_station],
+                        )
+                        for first_station, second_station in zip(
+                            overlap_stations, overlap_stations[1:]
+                        )
+                        if station_points[first_station]
+                        != station_points[second_station]
+                    )
                 continue
             segment_factor, edge_factor, _point = hit
             declared_station = round(
@@ -6427,7 +7164,12 @@ def _m1_surface_arrangement(
             )
             if abs(station - declared_station) > 1:
                 raise ValueError(
-                    "ATLAS_TRANSITION_DESYNC: undeclared local intersection"
+                    "ATLAS_TRANSITION_DESYNC: undeclared local intersection "
+                    f"transition={side.transition_key!r} "
+                    f"declared={declared_station!r} nearest={station!r} "
+                    f"stations={side.stations!r} "
+                    f"curve={(first, second)!r} "
+                    f"semantic={tuple(sorted((first, second))) in semantic_segment_keys}"
                 )
             canonical_point = station_points[station]
             previous = replacements.get(segment_factor)
@@ -6440,11 +7182,57 @@ def _m1_surface_arrangement(
                         "ATLAS_TRANSITION_DESYNC: endpoint shift exceeds quantum"
                     )
             replacements[segment_factor] = canonical_point
-        return tuple(sorted(replacements.items())), tuple(covered_intervals)
+        return (
+            tuple(sorted(replacements.items())),
+            tuple(covered_intervals),
+            tuple(covered_transition_edges),
+        )
 
     conformed_segments = []
-    for first, second in raw_segments:
-        ordered_path, covered_intervals = conformed_path(
+    conformed_corner_boundary_vertices = {}
+    conformed_crop_boundary_ids = {}
+    conformed_semantic_boundary_ids = {}
+
+    def toggle_crop_boundary_ids(edge, crop_ids):
+        """Граница crop — Z2-cycle: совпавшие после B0 рёбра сокращаются."""
+
+        edge_key = tuple(sorted(edge))
+        bucket = conformed_crop_boundary_ids.setdefault(edge_key, set())
+        for crop_id in crop_ids:
+            if crop_id in bucket:
+                bucket.remove(crop_id)
+            else:
+                bucket.add(crop_id)
+        if not bucket:
+            conformed_crop_boundary_ids.pop(edge_key, None)
+
+    # Один и тот же raw edge приходит из crop, diagram и domain polygons.
+    # Геометрический граф читает его один раз; provenance уже объединён в
+    # raw_* maps. Иначе Z2-toggle ошибочно считает producer-дубликаты.
+    unique_raw_segments = tuple(
+        sorted(
+            {
+                tuple(sorted((first, second)))
+                for first, second in raw_segments
+                if first != second
+            }
+        )
+    )
+    for first, second in unique_raw_segments:
+        source_corner_vertices = raw_corner_boundary_vertices.get(
+            tuple(sorted((first, second))), ()
+        )
+        source_crop_ids = raw_crop_boundary_ids.get(
+            tuple(sorted((first, second))), ()
+        )
+        source_semantic_ids = raw_semantic_boundary_ids.get(
+            tuple(sorted((first, second))), ()
+        )
+        (
+            ordered_path,
+            covered_intervals,
+            covered_transition_edges,
+        ) = conformed_path(
             first,
             second,
             snap_near_transition=(
@@ -6452,6 +7240,20 @@ def _m1_surface_arrangement(
                 not in semantic_segment_keys
             ),
         )
+        for transition_edge in covered_transition_edges:
+            transition_edge_key = tuple(sorted(transition_edge))
+            if source_crop_ids:
+                toggle_crop_boundary_ids(
+                    transition_edge_key, source_crop_ids
+                )
+            if source_corner_vertices:
+                conformed_corner_boundary_vertices.setdefault(
+                    transition_edge_key, set()
+                ).update(source_corner_vertices)
+            if source_semantic_ids:
+                conformed_semantic_boundary_ids.setdefault(
+                    transition_edge_key, set()
+                ).update(source_semantic_ids)
         for (first_factor, first_point), (
             second_factor,
             second_point,
@@ -6463,7 +7265,20 @@ def _m1_surface_arrangement(
             ):
                 continue
             if first_point != second_point:
-                conformed_segments.append((first_point, second_point))
+                conformed_segment = (first_point, second_point)
+                conformed_segments.append(conformed_segment)
+                if source_corner_vertices:
+                    conformed_corner_boundary_vertices.setdefault(
+                        tuple(sorted(conformed_segment)), set()
+                    ).update(source_corner_vertices)
+                if source_crop_ids:
+                    toggle_crop_boundary_ids(
+                        conformed_segment, source_crop_ids
+                    )
+                if source_semantic_ids:
+                    conformed_semantic_boundary_ids.setdefault(
+                        tuple(sorted(conformed_segment)), set()
+                    ).update(source_semantic_ids)
 
     original_predicates = dict(predicates)
     conformed_predicates = {}
@@ -6471,7 +7286,11 @@ def _m1_surface_arrangement(
         polygon = []
         for index, first in enumerate(crop_keys):
             second = crop_keys[(index + 1) % len(crop_keys)]
-            ordered_path, _covered_intervals = conformed_path(first, second)
+            (
+                ordered_path,
+                _covered_intervals,
+                _covered_transition_edges,
+            ) = conformed_path(first, second)
             path = tuple(point for _factor, point in ordered_path)
             if not polygon:
                 polygon.extend(path)
@@ -6579,7 +7398,19 @@ def _m1_surface_arrangement(
             split_points[second_index].add(intersection)
 
     graph = {}
+    graph_corner_boundary_vertices = {}
+    graph_crop_boundary_ids = {}
+    graph_semantic_boundary_ids = {}
     for (first, second), stations in zip(segments, split_points):
+        segment_corner_vertices = conformed_corner_boundary_vertices.get(
+            tuple(sorted((first, second))), ()
+        )
+        segment_crop_ids = conformed_crop_boundary_ids.get(
+            tuple(sorted((first, second))), ()
+        )
+        segment_semantic_ids = conformed_semantic_boundary_ids.get(
+            tuple(sorted((first, second))), ()
+        )
         direction = (second[0] - first[0], second[1] - first[1])
         ordered = sorted(
             stations,
@@ -6594,6 +7425,63 @@ def _m1_surface_arrangement(
                 continue
             graph.setdefault(point_a, set()).add(point_b)
             graph.setdefault(point_b, set()).add(point_a)
+            if segment_corner_vertices:
+                graph_corner_boundary_vertices.setdefault(
+                    tuple(sorted((point_a, point_b))), set()
+                ).update(segment_corner_vertices)
+            if segment_crop_ids:
+                graph_crop_boundary_ids.setdefault(
+                    tuple(sorted((point_a, point_b))), set()
+                ).update(segment_crop_ids)
+            if segment_semantic_ids:
+                graph_semantic_boundary_ids.setdefault(
+                    tuple(sorted((point_a, point_b))), set()
+                ).update(segment_semantic_ids)
+
+    # A-INT: representative-классификация корректна только при целой
+    # замкнутой границе каждого predicate crop. Проверяем это до tracing.
+    crop_edges = {crop_id: set() for crop_id in expected_crop_boundary_ids}
+    for edge, crop_ids in graph_crop_boundary_ids.items():
+        for crop_id in crop_ids:
+            crop_edges.setdefault(crop_id, set()).add(edge)
+    for crop_id in sorted(expected_crop_boundary_ids, key=repr):
+        edges = crop_edges.get(crop_id, set())
+        adjacency = {}
+        for first, second in edges:
+            adjacency.setdefault(first, set()).add(second)
+            adjacency.setdefault(second, set()).add(first)
+        broken_vertices = tuple(
+            sorted(
+                (vertex, len(neighbors))
+                for vertex, neighbors in adjacency.items()
+                if len(neighbors) != 2
+            )
+        )
+        connected = set()
+        if adjacency:
+            queue = [min(adjacency)]
+            while queue:
+                vertex = queue.pop()
+                if vertex in connected:
+                    continue
+                connected.add(vertex)
+                queue.extend(adjacency[vertex] - connected)
+        if (
+            not edges
+            or broken_vertices
+            or len(connected) != len(adjacency)
+        ):
+            if diagnostics is not None:
+                diagnostics.atlas_arrangement_integrity_failure_count += 1
+            raise ValueError(
+                "ATLAS_ARRANGEMENT_INTEGRITY: conformed crop boundary "
+                "is not one closed cycle "
+                f"crop={crop_id!r} edges={len(edges)} "
+                f"vertices={len(adjacency)} connected={len(connected)} "
+                f"broken={broken_vertices!r} "
+                f"raw={tuple(edge for edge, ids in raw_crop_boundary_ids.items() if crop_id in ids)!r} "
+                f"conformed={tuple(edge for edge, ids in conformed_crop_boundary_ids.items() if crop_id in ids)!r}"
+            )
 
     ordered_neighbors = {
         vertex: tuple(
@@ -6681,9 +7569,117 @@ def _m1_surface_arrangement(
             int(semantic.owner_site.edge_index),
             semantic.owner_edge_indices,
             semantic.owner_region_points,
+            semantic.target_region_points,
             tuple(round(value, 12) for value in semantic.local_to_owner),
         )
         semantic_delegates.setdefault(delegate_key, semantic)
+
+    def exact_cycle_centroid(cycle):
+        area2 = sum(
+            first[0] * second[1] - second[0] * first[1]
+            for first, second in zip(cycle, cycle[1:] + cycle[:1])
+        )
+        if area2 == 0:
+            raise ValueError(
+                "ATLAS_ARRANGEMENT_INTEGRITY: zero-area traced cycle"
+            )
+        x_numerator = sum(
+            (first[0] + second[0])
+            * (first[0] * second[1] - second[0] * first[1])
+            for first, second in zip(cycle, cycle[1:] + cycle[:1])
+        )
+        y_numerator = sum(
+            (first[1] + second[1])
+            * (first[0] * second[1] - second[0] * first[1])
+            for first, second in zip(cycle, cycle[1:] + cycle[:1])
+        )
+        return (
+            x_numerator / (3 * area2),
+            y_numerator / (3 * area2),
+        )
+
+    cycle_area2 = {
+        cycle: abs(
+            sum(
+                first[0] * second[1] - second[0] * first[1]
+                for first, second in zip(
+                    cycle, cycle[1:] + cycle[:1]
+                )
+            )
+        )
+        for cycle in cycles
+    }
+    cycle_centroids = {
+        cycle: exact_cycle_centroid(cycle) for cycle in cycles
+    }
+    cycle_parent = {}
+    for cycle in cycles:
+        parent_candidates = tuple(
+            candidate
+            for candidate in cycles
+            if candidate is not cycle
+            and cycle_area2[candidate] > cycle_area2[cycle]
+            and _m1_point_in_polygon(
+                cycle_centroids[cycle], candidate, tolerance=0.0
+            )
+        )
+        cycle_parent[cycle] = (
+            min(
+                parent_candidates,
+                key=lambda candidate: (
+                    cycle_area2[candidate], candidate
+                ),
+            )
+            if parent_candidates
+            else None
+        )
+    cycle_children = {cycle: [] for cycle in cycles}
+    for cycle, parent in cycle_parent.items():
+        if parent is not None:
+            cycle_children[parent].append(cycle)
+
+    def region_representative(cycle):
+        children = tuple(cycle_children[cycle])
+
+        def in_region(point):
+            return _m1_point_in_polygon(
+                point, cycle, tolerance=0.0
+            ) and not any(
+                _m1_point_in_polygon(point, child, tolerance=0.0)
+                for child in children
+            )
+
+        centroid = cycle_centroids[cycle]
+        if in_region(centroid):
+            return centroid
+        # Сэмпл у собственной границы остаётся внутри outer cycle, но
+        # гарантированно выходит из вложенного immediate child.
+        for first, second in zip(cycle, cycle[1:] + cycle[:1]):
+            midpoint = (
+                (first[0] + second[0]) / 2,
+                (first[1] + second[1]) / 2,
+            )
+            for denominator in (16, 256, 4096):
+                candidate = (
+                    (
+                        midpoint[0] * (denominator - 1)
+                        + centroid[0]
+                    )
+                    / denominator,
+                    (
+                        midpoint[1] * (denominator - 1)
+                        + centroid[1]
+                    )
+                    / denominator,
+                )
+                if in_region(candidate):
+                    return candidate
+        if diagnostics is not None:
+            diagnostics.atlas_arrangement_integrity_failure_count += 1
+        raise ValueError(
+            "ATLAS_ARRANGEMENT_INTEGRITY: traced region has no "
+            f"representative cycle={cycle!r} children={children!r}"
+        )
 
     def output_point(point):
         integer_key = None
@@ -6695,9 +7691,12 @@ def _m1_surface_arrangement(
 
     arranged = []
     for cycle in cycles:
-        exact_representative = _m1_representative_point(cycle)
+        exact_representative = region_representative(cycle)
         polygon = tuple(output_point(point) for point in cycle)
-        representative = _m1_representative_point(polygon)
+        representative = (
+            float(exact_representative[0]) * quantum,
+            float(exact_representative[1]) * quantum,
+        )
 
         def has_source_owner_at_representative():
             return any(
@@ -6711,6 +7710,7 @@ def _m1_surface_arrangement(
         wrong_transition_side = False
         boundary_owner_tokens = set()
         boundary_semantic_classes = set()
+        boundary_owner_declarations = []
         touches_canonical_transition = False
         touched_transition_sides = []
         for side, edge_a, edge_b, _station_points in transition_records:
@@ -6758,21 +7758,28 @@ def _m1_surface_arrangement(
                     interval = tuple(
                         sorted((first_station, second_station))
                     )
-                    boundary_owner_tokens.update(
-                        owner
-                        for (start, end), owner
-                        in interval_owner_by_key.items()
-                        if interval[0] <= start < end <= interval[1]
-                    )
-                    boundary_semantic_classes.update(
-                        semantic_class
-                        for (start, end), semantic_class
-                        in interval_semantic_by_key.items()
-                        if (
-                            semantic_class is not None
-                            and interval[0] <= start < end <= interval[1]
+                    for (start, end), owner in interval_owner_by_key.items():
+                        overlap_start = max(interval[0], start)
+                        overlap_end = min(interval[1], end)
+                        if overlap_start >= overlap_end:
+                            continue
+                        semantic_class = interval_semantic_by_key.get(
+                            (start, end)
                         )
-                    )
+                        boundary_owner_tokens.add(owner)
+                        if semantic_class is not None:
+                            boundary_semantic_classes.add(semantic_class)
+                        boundary_owner_declarations.append(
+                            (
+                                side,
+                                start,
+                                end,
+                                overlap_start,
+                                overlap_end,
+                                owner,
+                                semantic_class,
+                            )
+                        )
             if not transition_orientations:
                 continue
             touches_canonical_transition = True
@@ -6786,6 +7793,29 @@ def _m1_surface_arrangement(
         if wrong_transition_side:
             continue
         boundary_owner_tokens.discard(None)
+        if len(boundary_semantic_classes) > 1:
+            boundary_corner_curves = tuple(
+                sorted(
+                    {
+                        corner_vertex
+                        for first, second in zip(
+                            cycle, cycle[1:] + cycle[:1]
+                        )
+                        for corner_vertex in graph_corner_boundary_vertices.get(
+                            tuple(sorted((first, second))), ()
+                        )
+                    }
+                )
+            )
+            raise ValueError(
+                "ATLAS_CLASS_DESYNC: one face spans different declared "
+                "semantic classes "
+                f"chart={surface.domain.chart_id} "
+                f"classes={tuple(sorted(boundary_semantic_classes, key=repr))!r} "
+                f"declarations={tuple((item[0].transition_key,) + item[1:] for item in boundary_owner_declarations)!r} "
+                f"boundary_corners={boundary_corner_curves!r} "
+                f"polygon={cycle!r}"
+            )
         expected_semantic_class = (
             next(iter(boundary_semantic_classes))
             if len(boundary_semantic_classes) == 1
@@ -6803,7 +7833,159 @@ def _m1_surface_arrangement(
                     else:
                         diagnostics.atlas_touch_no_token_drop_count += 1
                 continue
-        has_boundary_owner = bool(boundary_owner_tokens)
+
+        def resolve_declared_owner_token():
+            """T7-P3: выбирает owner только по T2 station intervals."""
+
+            if not boundary_owner_tokens:
+                return None
+            if len(boundary_owner_tokens) == 1:
+                return next(iter(boundary_owner_tokens))
+
+            transition_candidates = []
+            seen_sides = set()
+            for (
+                side,
+                _start,
+                _end,
+                _touch_start,
+                _touch_end,
+                _owner,
+                _semantic,
+            ) in sorted(
+                boundary_owner_declarations,
+                key=lambda item: (
+                    repr(item[0].transition_key),
+                    item[1],
+                    item[2],
+                    item[3],
+                    item[4],
+                    repr(item[5]),
+                ),
+            ):
+                side_key = (
+                    _hashable_provenance(side.transition_key),
+                    side.chart_id,
+                )
+                if side_key in seen_sides:
+                    continue
+                seen_sides.add(side_key)
+                direction = _sub2(side.segment[1], side.segment[0])
+                length2 = _dot2(direction, direction)
+                if length2 <= 1e-20:
+                    raise ValueError(
+                        "ATLAS_TRANSITION_DESYNC: degenerate declared "
+                        "transition"
+                    )
+                factor = _dot2(
+                    _sub2(representative, side.segment[0]), direction
+                ) / length2
+                station = factor * side.station_extent
+                touched_spans = sorted(
+                    {
+                        (touch_start, touch_end)
+                        for (
+                            declared_side,
+                            _interval_start,
+                            _interval_end,
+                            touch_start,
+                            touch_end,
+                            _declared_owner,
+                            _semantic_class,
+                        ) in boundary_owner_declarations
+                        if declared_side is side
+                    }
+                )
+                merged_spans = []
+                for touch_start, touch_end in touched_spans:
+                    if merged_spans and touch_start <= merged_spans[-1][1]:
+                        merged_spans[-1][1] = max(
+                            merged_spans[-1][1], touch_end
+                        )
+                    else:
+                        merged_spans.append([touch_start, touch_end])
+                if len(merged_spans) != 1:
+                    raise ValueError(
+                        "ATLAS_TRANSITION_DESYNC: one face has disjoint "
+                        "contact spans on a transition"
+                    )
+                touch_start, touch_end = merged_spans[0]
+                if station < touch_start:
+                    clamped_station = touch_start
+                elif station >= touch_end:
+                    # Station-span описывает покрытые интервалы, поэтому
+                    # правый конец принадлежит левому half-open интервалу.
+                    clamped_station = max(touch_start, touch_end - 1)
+                else:
+                    clamped_station = station
+                interval_semantics = {
+                    (start, end): semantic_class
+                    for start, end, semantic_class
+                    in side.interval_semantics
+                }
+                ordered_intervals = sorted(
+                    (
+                        start,
+                        end,
+                        owner,
+                        interval_semantics.get((start, end)),
+                    )
+                    for start, end, owner in side.interval_owners
+                )
+                side_matches = []
+                for interval_index, (
+                    start,
+                    end,
+                    owner,
+                    semantic_class,
+                ) in enumerate(ordered_intervals):
+                    # T7-P3.3: внутреннюю станцию забирает правый
+                    # half-open интервал; только последний замкнут справа.
+                    contains_station = start <= clamped_station < end
+                    if interval_index == len(ordered_intervals) - 1:
+                        contains_station = start <= clamped_station <= end
+                    if (
+                        owner is not None
+                        and contains_station
+                        and (
+                            expected_semantic_class is None
+                            or semantic_class == expected_semantic_class
+                        )
+                    ):
+                        side_matches.append((start, owner))
+                side_matches = sorted(set(side_matches))
+                if len(side_matches) != 1:
+                    raise ValueError(
+                        "ATLAS_TRANSITION_DESYNC: clamped station does not "
+                        "resolve one declared owner "
+                        f"transition={side.transition_key!r} "
+                        f"station={station!r} clamped={clamped_station!r} "
+                        f"touched={tuple(map(tuple, merged_spans))!r} "
+                        f"expected={expected_semantic_class!r} "
+                        f"intervals={tuple(ordered_intervals)!r} "
+                        f"declarations={tuple((item[0].transition_key,) + item[1:] for item in boundary_owner_declarations)!r} "
+                        f"polygon={cycle!r}"
+                    )
+                interval_start, owner = side_matches[0]
+                transition_candidates.append(
+                    (
+                        -(touch_end - touch_start),
+                        repr(_hashable_provenance(side.transition_key)),
+                        interval_start,
+                        owner,
+                    )
+                )
+            if not transition_candidates:
+                raise ValueError(
+                    "ATLAS_TRANSITION_DESYNC: no declared transition "
+                    "candidate"
+                )
+            # T7-P3.3b: максимальный station-contact, затем только
+            # канонические integer/provenance keys — без spatial distance.
+            return min(transition_candidates)[-1]
+
+        declared_owner_token = resolve_declared_owner_token()
+        has_boundary_owner = declared_owner_token is not None
         locations = tuple(
             surface.domain.locate(point) for point in polygon
         )
@@ -6835,7 +8017,7 @@ def _m1_surface_arrangement(
         owners = []
         for pending_index, pending_face, crop, original_crop in ordered_predicates:
             pending_token = int(pending_face.site.edge_index)
-            if has_boundary_owner and pending_token not in boundary_owner_tokens:
+            if has_boundary_owner and pending_token != declared_owner_token:
                 continue
             if not (
                 _m1_point_in_polygon(exact_representative, crop)
@@ -6867,6 +8049,48 @@ def _m1_surface_arrangement(
                     pending_face,
                 )
             )
+        if not owners and has_boundary_owner:
+            # T2-декларация уже решила семантику. Локальный face нужен только
+            # как носитель site-атрибутов; расстояние до crop не участвует.
+            carriers = []
+            for pending_index, pending_face, _crop, _original_crop in (
+                ordered_predicates
+            ):
+                if int(pending_face.site.edge_index) != declared_owner_token:
+                    continue
+                semantic_class = _m1_crop_semantic_class(pending_face.crop)
+                carriers.append(
+                    (
+                        0
+                        if semantic_class == expected_semantic_class
+                        else 1,
+                        pending_face.crop.kind,
+                        pending_face.crop.side,
+                        pending_index,
+                        pending_face,
+                    )
+                )
+            if not carriers:
+                if diagnostics is not None:
+                    diagnostics.atlas_declared_owner_missing_count += 1
+                raise ValueError(
+                    "ATLAS_TRANSITION_DESYNC: declared owner carrier is "
+                    "missing "
+                    f"chart={surface.domain.chart_id} "
+                    f"owner={declared_owner_token!r}"
+                )
+            carrier = min(carriers)
+            owners.append(
+                (
+                    0,
+                    0.0,
+                    carrier[1],
+                    carrier[2],
+                    declared_owner_token,
+                    carrier[3],
+                    carrier[4],
+                )
+            )
         if not owners:
             # T3/T6: endpoint snap может оставить локальную ячейку уже одного
             # B0-кванта между двумя исходными crop-предикатами. Это не новая
@@ -6879,12 +8103,6 @@ def _m1_surface_arrangement(
                 _crop,
                 original_crop,
             ) in ordered_predicates:
-                if (
-                    has_boundary_owner
-                    and int(pending_face.site.edge_index)
-                    not in boundary_owner_tokens
-                ):
-                    continue
                 boundary_distance = min(
                     _segment_point_distance2(
                         first,
@@ -6896,10 +8114,8 @@ def _m1_surface_arrangement(
                         original_crop[1:] + original_crop[:1],
                     )
                 )
-                if (
-                    boundary_distance > 1.0 + 1e-9
-                    and not has_boundary_owner
-                ):
+                # §8a: только недекларированный B0-sliver в пределах кванта.
+                if boundary_distance > 1.0 + 1e-9:
                     continue
                 priority = (
                     3
@@ -6920,21 +8136,13 @@ def _m1_surface_arrangement(
                     )
                 )
             if sliver_owners:
-                nearest_distance = min(item[0] for item in sliver_owners)
-                fallback_candidates = sliver_owners
-                if has_boundary_owner:
-                    segment_candidates = [
-                        item for item in sliver_owners
-                        if item[2] == "SEGMENT"
-                    ]
-                    if segment_candidates:
-                        fallback_candidates = segment_candidates
-                sliver_owner = min(fallback_candidates)
-                if (
-                    diagnostics is not None
-                    and sliver_owner[0] <= 1.0 + 1e-9
-                ):
+                sliver_owner = min(sliver_owners)
+                if diagnostics is not None:
                     diagnostics.atlas_sliver_owner_count += 1
+                    diagnostics.atlas_max_sliver_owner_distance = max(
+                        diagnostics.atlas_max_sliver_owner_distance,
+                        float(sliver_owner[0]),
+                    )
                 owners.append(
                     (
                         sliver_owner[1],
@@ -6943,26 +8151,6 @@ def _m1_surface_arrangement(
                     )
                 )
         if not owners:
-            if has_boundary_owner:
-                available_tokens = tuple(
-                    sorted(
-                        {
-                            (
-                                face.crop.kind,
-                                face.crop.side,
-                                int(face.site.edge_index),
-                            )
-                            for _index, face, _crop, _original_crop
-                            in ordered_predicates
-                        }
-                    )
-                )
-                raise ValueError(
-                    "ATLAS_TRANSITION_DESYNC: owner image is missing "
-                    f"chart={surface.domain.chart_id} "
-                    f"owners={tuple(sorted(boundary_owner_tokens))!r} "
-                    f"available={available_tokens!r}"
-                )
             if (
                 diagnostics is not None
                 and has_source_owner_at_representative()
@@ -6970,6 +8158,8 @@ def _m1_surface_arrangement(
                 diagnostics.atlas_no_owner_drop_count += 1
             continue
         owner = min(owners)[-1]
+        if has_boundary_owner and diagnostics is not None:
+            diagnostics.atlas_declared_owner_count += 1
         semantic_owner_id = owner.crop.semantic_owner_id
         if (
             owner.crop.kind != "SEGMENT"
@@ -6979,6 +8169,8 @@ def _m1_surface_arrangement(
                 int(semantic_owner_id[1]), surface.domain.chart_id
             )
             != surface.domain.chart_id
+            and expected_semantic_class
+            != _m1_crop_semantic_class(owner.crop)
         ):
             # Невладеющий chart хранит corner crop только как инертную
             # кривую arrangement. Без T7-импорта ярлык остаётся SEGMENT:
@@ -7017,7 +8209,7 @@ def _m1_surface_arrangement(
                 and (
                     not has_boundary_owner
                     or int(pending_face.site.edge_index)
-                    in boundary_owner_tokens
+                    == declared_owner_token
                 )
             ]
             if segment_images:
@@ -7048,8 +8240,7 @@ def _m1_surface_arrangement(
             if (
                 has_boundary_owner
                 and not (
-                    set(semantic.owner_edge_indices)
-                    & boundary_owner_tokens
+                    declared_owner_token in semantic.owner_edge_indices
                 )
             ):
                 continue
@@ -7058,9 +8249,16 @@ def _m1_surface_arrangement(
             )
             if (
                 expected_semantic_class is None
-                and not _m1_point_in_polygon(
-                    owner_point,
-                    semantic.owner_region_points,
+                and not (
+                    _m1_point_in_polygon(
+                        representative,
+                        semantic.target_region_points,
+                    )
+                    if semantic.target_region_points
+                    else _m1_point_in_polygon(
+                        owner_point,
+                        semantic.owner_region_points,
+                    )
                 )
             ):
                 continue
@@ -7092,10 +8290,44 @@ def _m1_surface_arrangement(
                 )
             )
         imported_semantic = (
-            min(imported_candidates)[-1]
+            min(
+                imported_candidates,
+                key=lambda item: (item[:-1], repr(item[-1])),
+            )[-1]
             if imported_candidates
             else None
         )
+        if (
+            imported_semantic is None
+            and expected_semantic_class is not None
+            and _m1_crop_semantic_class(owner.crop)
+            != expected_semantic_class
+        ):
+            # T2-C: R1 image/crop уже присутствует локально, даже если её
+            # class-separator не пересекал этот T и не попал в T7 curves.
+            # Контракт разрешает использовать её только как semantic carrier.
+            image_carriers = tuple(
+                pending_face
+                for _index, pending_face, _crop, _original_crop
+                in ordered_predicates
+                if _m1_crop_semantic_class(pending_face.crop)
+                == expected_semantic_class
+            )
+            if image_carriers:
+                owner = min(
+                    image_carriers,
+                    key=lambda face: (
+                        round(
+                            _segment_point_distance2(
+                                face.site.point_a,
+                                face.site.point_b,
+                                representative,
+                            )[0],
+                            12,
+                        ),
+                        face.site.edge_index,
+                    ),
+                )
         resolved_semantic_class = _m1_crop_semantic_class(
             imported_semantic.owner_crop
             if imported_semantic is not None
@@ -7111,32 +8343,166 @@ def _m1_surface_arrangement(
                 f"expected={expected_semantic_class!r} "
                 f"actual={resolved_semantic_class!r}"
             )
+        resolved_crop = (
+            imported_semantic.owner_crop
+            if imported_semantic is not None
+            else owner.crop
+        )
+        uv_frame_delegate = (
+            uv_frame_delegates.get(
+                (int(owner.site.edge_index), resolved_semantic_class)
+            )
+            if imported_semantic is None
+            else None
+        )
+        semantic_owner_id = resolved_crop.semantic_owner_id
+        local_uv_frame_owner = surface.domain.chart_id
+        if (
+            isinstance(semantic_owner_id, tuple)
+            and semantic_owner_id[:1] == ("corner",)
+        ):
+            local_uv_frame_owner = dict(
+                surface.semantic_owner_chart_by_vertex
+            ).get(int(semantic_owner_id[1]), local_uv_frame_owner)
+        boundary_corner_vertices = tuple(
+            sorted(
+                {
+                    corner_vertex
+                    for first, second in zip(
+                        cycle, cycle[1:] + cycle[:1]
+                    )
+                    for corner_vertex in graph_corner_boundary_vertices.get(
+                        tuple(sorted((first, second))), ()
+                    )
+                }
+            )
+        )
+        point_keys = tuple(
+            transition_point_keys.get(
+                point,
+                (
+                    "m1",
+                    surface.patch_id,
+                    surface.domain.chart_id,
+                    (point[0].numerator, point[0].denominator),
+                    (point[1].numerator, point[1].denominator),
+                ),
+            )
+            for point in cycle
+        )
+        boundary_corner_edges = tuple(
+            (
+                point_keys[index],
+                point_keys[(index + 1) % len(point_keys)],
+                tuple(
+                    sorted(
+                        graph_corner_boundary_vertices.get(
+                            tuple(
+                                sorted(
+                                    (
+                                        cycle[index],
+                                        cycle[(index + 1) % len(cycle)],
+                                    )
+                                )
+                            ),
+                            (),
+                        )
+                    )
+                ),
+            )
+            for index in range(len(cycle))
+            if graph_corner_boundary_vertices.get(
+                tuple(
+                    sorted(
+                        (
+                            cycle[index],
+                            cycle[(index + 1) % len(cycle)],
+                        )
+                    )
+                ),
+                (),
+            )
+        )
+        boundary_crop_edges = tuple(
+            (
+                point_keys[index],
+                point_keys[(index + 1) % len(point_keys)],
+                tuple(
+                    sorted(
+                        graph_crop_boundary_ids.get(
+                            tuple(
+                                sorted(
+                                    (
+                                        cycle[index],
+                                        cycle[(index + 1) % len(cycle)],
+                                    )
+                                )
+                            ),
+                            (),
+                        ),
+                        key=repr,
+                    )
+                ),
+            )
+            for index in range(len(cycle))
+            if graph_crop_boundary_ids.get(
+                tuple(
+                    sorted(
+                        (
+                            cycle[index],
+                            cycle[(index + 1) % len(cycle)],
+                        )
+                    )
+                ),
+                (),
+            )
+        )
+        boundary_semantic_edges = tuple(
+            (
+                point_keys[index],
+                point_keys[(index + 1) % len(point_keys)],
+                tuple(
+                    sorted(
+                        graph_semantic_boundary_ids.get(
+                            tuple(
+                                sorted(
+                                    (
+                                        cycle[index],
+                                        cycle[(index + 1) % len(cycle)],
+                                    )
+                                )
+                            ),
+                            (),
+                        ),
+                        key=repr,
+                    )
+                ),
+            )
+            for index in range(len(cycle))
+            if graph_semantic_boundary_ids.get(
+                tuple(
+                    sorted(
+                        (
+                            cycle[index],
+                            cycle[(index + 1) % len(cycle)],
+                        )
+                    )
+                ),
+                (),
+            )
+        )
         arranged.append(
             _DecalArrangementFace(
                 surface=surface,
                 site=owner.site,
                 points=polygon,
-                crop=(
-                    imported_semantic.owner_crop
-                    if imported_semantic is not None
-                    else owner.crop
-                ),
-                point_keys=tuple(
-                    transition_point_keys.get(
-                        point,
-                        (
-                            "m1",
-                            surface.patch_id,
-                            surface.domain.chart_id,
-                            (point[0].numerator, point[0].denominator),
-                            (point[1].numerator, point[1].denominator),
-                        ),
-                    )
-                    for point in cycle
-                ),
+                crop=resolved_crop,
+                point_keys=point_keys,
                 uv_site=(
                     imported_semantic.owner_site
                     if imported_semantic is not None
+                    else uv_frame_delegate.owner_site
+                    if uv_frame_delegate is not None
                     else None
                 ),
                 uv_point_transform=(
@@ -7144,6 +8510,42 @@ def _m1_surface_arrangement(
                     if imported_semantic is not None
                     else None
                 ),
+                uv_frame_transform=(
+                    imported_semantic.uv_local_to_owner
+                    if imported_semantic is not None
+                    else uv_frame_delegate.local_to_owner
+                    if uv_frame_delegate is not None
+                    else None
+                ),
+                uv_frame_owner_chart_id=(
+                    imported_semantic.owner_chart_id
+                    if imported_semantic is not None
+                    else uv_frame_delegate.owner_chart_id
+                    if uv_frame_delegate is not None
+                    else int(local_uv_frame_owner)
+                ),
+                uv_frame_is_imported=(
+                    imported_semantic is not None
+                    or uv_frame_delegate is not None
+                ),
+                declared_owner_token=declared_owner_token,
+                declared_semantic_class=expected_semantic_class,
+                absorbed_corner_vertices=(
+                    tuple(
+                        sorted(
+                            set(owner.absorbed_corner_vertices)
+                            | set(
+                                uv_frame_delegate.absorbed_corner_vertices
+                                if uv_frame_delegate is not None
+                                else ()
+                            )
+                        )
+                    )
+                ),
+                boundary_corner_vertices=boundary_corner_vertices,
+                boundary_corner_edges=boundary_corner_edges,
+                boundary_crop_edges=boundary_crop_edges,
+                boundary_semantic_edges=boundary_semantic_edges,
             )
         )
     arranged.sort(
@@ -7229,6 +8631,53 @@ def _m1_segment_isometry(source_segment, target_segment):
         - sine * source_segment[0][0]
         - cosine * source_segment[0][1],
     )
+
+
+def _m1_segment_frame_transform(source_segment, target_segment):
+    """R5: endpoint-exact UV-frame transport без изменения geometry isometry."""
+
+    source_direction = _sub2(source_segment[1], source_segment[0])
+    target_direction = _sub2(target_segment[1], target_segment[0])
+    source_length = sqrt(_dot2(source_direction, source_direction))
+    target_length = sqrt(_dot2(target_direction, target_direction))
+    if source_length <= 1e-20 or target_length <= 1e-20:
+        raise ValueError("ATLAS_TRANSITION_DESYNC: UV frame segment is degenerate")
+    source_tangent = (
+        source_direction[0] / source_length,
+        source_direction[1] / source_length,
+    )
+    target_tangent = (
+        target_direction[0] / target_length,
+        target_direction[1] / target_length,
+    )
+    source_normal = (-source_tangent[1], source_tangent[0])
+    target_normal = (-target_tangent[1], target_tangent[0])
+    tangent_scale = target_length / source_length
+    # Тангенциальный масштаб ровно совмещает обе station-endpoint; нормаль
+    # сохраняет физический масштаб и не меняет геометрию arrangement.
+    m00 = (
+        tangent_scale * target_tangent[0] * source_tangent[0]
+        + target_normal[0] * source_normal[0]
+    )
+    m01 = (
+        tangent_scale * target_tangent[0] * source_tangent[1]
+        + target_normal[0] * source_normal[1]
+    )
+    m10 = (
+        tangent_scale * target_tangent[1] * source_tangent[0]
+        + target_normal[1] * source_normal[0]
+    )
+    m11 = (
+        tangent_scale * target_tangent[1] * source_tangent[1]
+        + target_normal[1] * source_normal[1]
+    )
+    tx = target_segment[0][0] - (
+        m00 * source_segment[0][0] + m01 * source_segment[0][1]
+    )
+    ty = target_segment[0][1] - (
+        m10 * source_segment[0][0] + m11 * source_segment[0][1]
+    )
+    return m00, m01, m10, m11, tx, ty
 
 
 def _m1_transition_interior_sign(surface, transition_key, segment):
@@ -7384,6 +8833,7 @@ def _m1_build_semantic_imports(groups, diagnostics=None):
     """T7-P: owner экспортирует только открытые class separators."""
 
     chart_records = {}
+    target_corner_regions = {}
     sides_by_transition = {}
     for entries in groups:
         surface = entries[0][1].surface
@@ -7394,6 +8844,20 @@ def _m1_build_semantic_imports(groups, diagnostics=None):
             entries,
             surface,
         )
+        for _pending_index, pending_face in entries:
+            crop = pending_face.crop
+            if crop.kind == "SEGMENT" or crop.semantic_owner_id is None:
+                continue
+            target_corner_regions.setdefault(
+                (
+                    int(surface.domain.chart_id),
+                    crop.kind,
+                    crop.side,
+                    _hashable_provenance(crop.semantic_owner_id),
+                    int(pending_face.site.edge_index),
+                ),
+                tuple(crop.points),
+            )
         for local_key, segment in _m1_atlas_transition_segments(
             surface.domain
         ).items():
@@ -7421,6 +8885,9 @@ def _m1_build_semantic_imports(groups, diagnostics=None):
         forward = _m1_segment_isometry(
             first_record[3], second_record[3]
         )
+        forward_uv_frame = _m1_segment_frame_transform(
+            first_record[3], second_record[3]
+        )
         graph[first_id].append(
             (
                 second_id,
@@ -7428,6 +8895,7 @@ def _m1_build_semantic_imports(groups, diagnostics=None):
                 first_record[3],
                 first_record[4],
                 forward,
+                forward_uv_frame,
             )
         )
         graph[second_id].append(
@@ -7437,6 +8905,7 @@ def _m1_build_semantic_imports(groups, diagnostics=None):
                 second_record[3],
                 second_record[4],
                 _affine_inverse(forward),
+                _frame_affine_inverse(forward_uv_frame),
             )
         )
 
@@ -7498,11 +8967,14 @@ def _m1_build_semantic_imports(groups, diagnostics=None):
             )
         )
         identity_transform = (1.0, 0.0, 0.0, 0.0)
+        identity_uv_frame = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
         queue = [
             (
                 owner_chart_id,
                 owner_curves,
+                tuple(pending_face.crop.points),
                 identity_transform,
+                identity_uv_frame,
                 None,
             )
         ]
@@ -7511,7 +8983,9 @@ def _m1_build_semantic_imports(groups, diagnostics=None):
             (
                 current_chart_id,
                 current_curves,
+                current_region,
                 owner_to_current,
+                owner_frame_to_current,
                 incoming_transition,
             ) = queue.pop(0)
             current_surface = chart_records[current_chart_id][2]
@@ -7524,6 +8998,7 @@ def _m1_build_semantic_imports(groups, diagnostics=None):
                 current_segment,
                 current_interior_sign,
                 current_to_target,
+                current_frame_to_target,
             ) in sorted(
                 graph[current_chart_id],
                 key=lambda item: (item[0], repr(item[1])),
@@ -7540,8 +9015,22 @@ def _m1_build_semantic_imports(groups, diagnostics=None):
                 )
                 if not exported:
                     continue
+                target_region = _clip_to_halfplane(
+                    current_region,
+                    current_segment[0],
+                    current_segment[1],
+                    keep_inside=current_interior_sign < 0,
+                )
+                if len(target_region) < 3:
+                    raise ValueError(
+                        "ATLAS_CLASS_DESYNC: transported corner region "
+                        "collapsed before election"
+                    )
                 owner_to_target = _affine_compose(
                     current_to_target, owner_to_current
+                )
+                owner_frame_to_target = _frame_affine_compose(
+                    current_frame_to_target, owner_frame_to_current
                 )
                 mapped_curves = tuple(
                     tuple(
@@ -7550,7 +9039,104 @@ def _m1_build_semantic_imports(groups, diagnostics=None):
                     )
                     for curve in exported
                 )
+                mapped_region = tuple(
+                    _affine_point(current_to_target, point)
+                    for point in target_region
+                )
+                canonical_owner_chart_id = int(transition_key[3])
+                canonical_owner_record = sides_by_transition[
+                    transition_key
+                ].get(canonical_owner_chart_id)
+                if canonical_owner_record is None:
+                    raise ValueError(
+                        "ATLAS_TRANSITION_DESYNC: corner image owner side "
+                        "is missing"
+                    )
+                canonical_owner_surface = canonical_owner_record[2]
+                canonical_quantum = max(
+                    float(
+                        canonical_owner_surface.diagram_transform.quantum
+                    ),
+                    1e-10,
+                )
+                station_extent = max(
+                    1,
+                    round(
+                        _dist2(
+                            canonical_owner_record[3][0],
+                            canonical_owner_record[3][1],
+                        )
+                        / canonical_quantum
+                    ),
+                )
+                current_direction = _sub2(
+                    current_segment[1], current_segment[0]
+                )
+                current_length2 = _dot2(
+                    current_direction, current_direction
+                )
+                target_segment = sides_by_transition[transition_key][
+                    target_chart_id
+                ][3]
+                anchored_region = []
+                for current_point, mapped_point in zip(
+                    target_region, mapped_region
+                ):
+                    distance, factor = _segment_point_distance2(
+                        current_segment[0],
+                        current_segment[1],
+                        current_point,
+                    )
+                    if (
+                        current_length2 > 1e-20
+                        # A-INT.5: region и её boundary-curves потребляют
+                        # один и тот же допустимый station snap.
+                        and distance <= current_quantum * 1.5
+                        and -1e-9 <= factor <= 1.0 + 1e-9
+                    ):
+                        station = max(
+                            0,
+                            min(
+                                station_extent,
+                                round(float(factor) * station_extent),
+                            ),
+                        )
+                        canonical_factor = station / station_extent
+                        mapped_point = (
+                            target_segment[0][0]
+                            + (
+                                target_segment[1][0]
+                                - target_segment[0][0]
+                            )
+                            * canonical_factor,
+                            target_segment[0][1]
+                            + (
+                                target_segment[1][1]
+                                - target_segment[0][1]
+                            )
+                            * canonical_factor,
+                        )
+                    anchored_region.append(mapped_point)
+                mapped_region = tuple(anchored_region)
+                local_region_key = (
+                    int(target_chart_id),
+                    pending_face.crop.kind,
+                    pending_face.crop.side,
+                    _hashable_provenance(
+                        pending_face.crop.semantic_owner_id
+                    ),
+                    int(pending_face.site.edge_index),
+                )
+                local_region = target_corner_regions.get(local_region_key)
+                if local_region is not None:
+                    # T7-P3.15: target crop — только канонический B0
+                    # geometry carrier. Класс, owner и UV-frame по-прежнему
+                    # приходят из единственного semantic owner.
+                    mapped_region = tuple(local_region)
                 local_to_owner = _affine_inverse(owner_to_target)
+                uv_local_to_owner = _frame_affine_inverse(
+                    owner_frame_to_target
+                )
                 target_domain_id = chart_records[target_chart_id][0]
                 target_imports = imports_by_domain.setdefault(
                     target_domain_id, {}
@@ -7585,6 +9171,8 @@ def _m1_build_semantic_imports(groups, diagnostics=None):
                         owner_edge_indices=owner_edge_indices,
                         owner_region_points=pending_face.crop.points,
                         local_to_owner=local_to_owner,
+                        uv_local_to_owner=uv_local_to_owner,
+                        target_region_points=mapped_region,
                     )
                     if diagnostics is not None:
                         diagnostics.atlas_semantic_import_count += 1
@@ -7593,14 +9181,158 @@ def _m1_build_semantic_imports(groups, diagnostics=None):
                     (
                         target_chart_id,
                         mapped_curves,
+                        mapped_region,
                         owner_to_target,
+                        owner_frame_to_target,
                         transition_key,
                     )
                 )
+
+    def publish_anchor_stations(semantic):
+        """A-INT.4-6: owner один раз публикует все T-стыки chain."""
+
+        target_record = chart_records.get(int(semantic.target_chart_id))
+        if target_record is None:
+            raise ValueError(
+                "ATLAS_ARRANGEMENT_INTEGRITY: import target chart is missing"
+            )
+        target_surface = target_record[2]
+        target_quantum = max(
+            float(target_surface.diagram_transform.quantum), 1e-10
+        )
+        points = tuple(semantic.points)
+        rebuilt = []
+        anchors = []
+        for segment_index, (first, second) in enumerate(
+            zip(points, points[1:])
+        ):
+            lattice_first = tuple(
+                Fraction(round(value / target_quantum)) for value in first
+            )
+            lattice_second = tuple(
+                Fraction(round(value / target_quantum)) for value in second
+            )
+            intersections = {
+                Fraction(0): (
+                    float(first[0]),
+                    float(first[1]),
+                    [],
+                ),
+                Fraction(1): (
+                    float(second[0]),
+                    float(second[1]),
+                    [],
+                ),
+            }
+            for transition_key, sides in sorted(
+                sides_by_transition.items(), key=lambda item: repr(item[0])
+            ):
+                target_side = sides.get(int(semantic.target_chart_id))
+                if target_side is None:
+                    continue
+                target_segment = target_side[3]
+                edge_a = tuple(
+                    Fraction(round(value / target_quantum))
+                    for value in target_segment[0]
+                )
+                edge_b = tuple(
+                    Fraction(round(value / target_quantum))
+                    for value in target_segment[1]
+                )
+                hit = _m1_exact_segment_intersection(
+                    lattice_first, lattice_second, edge_a, edge_b
+                )
+                if hit is None or hit == "COLLINEAR":
+                    continue
+                segment_factor, edge_factor, _point = hit
+                owner_chart_id = int(transition_key[3])
+                owner_side = sides.get(owner_chart_id)
+                if owner_side is None:
+                    raise ValueError(
+                        "ATLAS_TRANSITION_DESYNC: anchor owner side is missing"
+                    )
+                owner_surface = owner_side[2]
+                owner_quantum = max(
+                    float(owner_surface.diagram_transform.quantum), 1e-10
+                )
+                station_extent = max(
+                    1,
+                    round(
+                        _dist2(owner_side[3][0], owner_side[3][1])
+                        / owner_quantum
+                    ),
+                )
+                station = max(
+                    0,
+                    min(
+                        station_extent,
+                        round(float(edge_factor) * station_extent),
+                    ),
+                )
+                canonical_factor = station / station_extent
+                canonical_point = (
+                    target_segment[0][0]
+                    + (
+                        target_segment[1][0] - target_segment[0][0]
+                    )
+                    * canonical_factor,
+                    target_segment[0][1]
+                    + (
+                        target_segment[1][1] - target_segment[0][1]
+                    )
+                    * canonical_factor,
+                )
+                previous = intersections.get(segment_factor)
+                if previous is not None:
+                    if (
+                        round(previous[0] / target_quantum)
+                        != round(canonical_point[0] / target_quantum)
+                        or round(previous[1] / target_quantum)
+                        != round(canonical_point[1] / target_quantum)
+                    ):
+                        raise ValueError(
+                            "ATLAS_TRANSITION_DESYNC: import anchors disagree"
+                        )
+                    anchor_records = previous[2]
+                    anchor_records.append((transition_key, station))
+                    intersections[segment_factor] = (
+                        canonical_point[0],
+                        canonical_point[1],
+                        anchor_records,
+                    )
+                else:
+                    intersections[segment_factor] = (
+                        canonical_point[0],
+                        canonical_point[1],
+                        [(transition_key, station)],
+                    )
+            for factor, (x_value, y_value, records) in sorted(
+                intersections.items()
+            ):
+                if segment_index and factor == 0:
+                    point_index = len(rebuilt) - 1
+                else:
+                    point_index = len(rebuilt)
+                    rebuilt.append((x_value, y_value))
+                anchors.extend(
+                    (point_index, transition_key, station)
+                    for transition_key, station in records
+                )
+        return replace(
+            semantic,
+            points=tuple(rebuilt),
+            anchor_stations=tuple(
+                sorted(set(anchors), key=repr)
+            ),
+        )
+
     return {
         domain_id: tuple(
             sorted(
-                imports.values(),
+                (
+                    publish_anchor_stations(semantic)
+                    for semantic in imports.values()
+                ),
                 key=lambda item: (
                     repr(item.transition_key),
                     item.owner_crop.kind,
@@ -7614,13 +9346,152 @@ def _m1_build_semantic_imports(groups, diagnostics=None):
     }
 
 
+def _m1_build_uv_frame_delegates(groups):
+    """R5: переносит owner site-frame независимо от локальной геометрии crop."""
+
+    chart_records = {}
+    sides_by_transition = {}
+    for entries in groups:
+        surface = entries[0][1].surface
+        if surface.domain.admission_tier != "APPROXIMATE":
+            continue
+        chart_records[surface.domain.chart_id] = (surface, entries)
+        for local_key, segment in _m1_atlas_transition_segments(
+            surface.domain
+        ).items():
+            sides_by_transition.setdefault(local_key[0], {})[
+                surface.domain.chart_id
+            ] = segment
+
+    graph = {chart_id: [] for chart_id in chart_records}
+    for transition_key in sorted(sides_by_transition, key=repr):
+        sides = sides_by_transition[transition_key]
+        if len(sides) != 2:
+            continue
+        (first_id, first_segment), (second_id, second_segment) = sorted(
+            sides.items()
+        )
+        forward = _m1_segment_frame_transform(
+            first_segment, second_segment
+        )
+        graph[first_id].append((second_id, transition_key, forward))
+        graph[second_id].append(
+            (first_id, transition_key, _frame_affine_inverse(forward))
+        )
+
+    semantic_sources = {}
+    semantic_keys_by_chart = {}
+    absorbed_by_edge_global = {}
+    for _chart_id, (_surface, entries) in chart_records.items():
+        for _pending_index, pending_face in entries:
+            if pending_face.crop.kind != "SEGMENT":
+                continue
+            absorbed_by_edge_global.setdefault(
+                int(pending_face.site.edge_index), set()
+            ).update(pending_face.absorbed_corner_vertices)
+    for chart_id, (surface, entries) in chart_records.items():
+        chart_sites = {
+            int(site.edge_index): site
+            for site in sorted(
+                surface.sites, key=lambda candidate: candidate.edge_index
+            )
+        }
+        for edge_index in surface.native_site_edge_indices:
+            site = chart_sites.get(int(edge_index))
+            if site is not None:
+                semantic_sources.setdefault(
+                    (int(edge_index), ("SEGMENT",)), []
+                ).append(
+                    (
+                        chart_id,
+                        site,
+                        tuple(
+                            sorted(
+                                absorbed_by_edge_global.get(
+                                    int(edge_index), ()
+                                )
+                            )
+                        ),
+                    )
+                )
+        owner_by_vertex = dict(surface.semantic_owner_chart_by_vertex)
+        for _pending_index, pending_face in entries:
+            semantic_class = _m1_crop_semantic_class(pending_face.crop)
+            semantic_key = (
+                int(pending_face.site.edge_index), semantic_class
+            )
+            semantic_keys_by_chart.setdefault(chart_id, set()).add(
+                semantic_key
+            )
+            owner_id = pending_face.crop.semantic_owner_id
+            if (
+                pending_face.crop.kind != "SEGMENT"
+                and isinstance(owner_id, tuple)
+                and owner_id[:1] == ("corner",)
+                and owner_by_vertex.get(int(owner_id[1]), chart_id)
+                == chart_id
+            ):
+                semantic_sources.setdefault(semantic_key, []).append(
+                    (chart_id, pending_face.site, ())
+                )
+
+    delegates_by_domain = {}
+    identity = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+    for semantic_key, candidates in sorted(
+        semantic_sources.items(), key=lambda item: repr(item[0])
+    ):
+        edge_index, _semantic_class = semantic_key
+        owner_chart_id, owner_site, owner_absorbed_corners = min(
+            candidates, key=lambda item: item[0]
+        )
+        owner_to_chart = {owner_chart_id: identity}
+        queue = [owner_chart_id]
+        while queue:
+            current_chart_id = queue.pop(0)
+            for target_chart_id, transition_key, current_to_target in sorted(
+                graph[current_chart_id],
+                key=lambda item: (item[0], repr(item[1])),
+            ):
+                if target_chart_id in owner_to_chart:
+                    continue
+                owner_to_chart[target_chart_id] = _frame_affine_compose(
+                    current_to_target, owner_to_chart[current_chart_id]
+                )
+                queue.append(target_chart_id)
+        for target_chart_id, target_keys in semantic_keys_by_chart.items():
+            if (
+                target_chart_id == owner_chart_id
+                or semantic_key not in target_keys
+            ):
+                continue
+            owner_to_target = owner_to_chart.get(target_chart_id)
+            if owner_to_target is None:
+                raise ValueError(
+                    "ATLAS_TRANSITION_DESYNC: UV frame consumer is disconnected"
+                )
+            target_surface = chart_records[target_chart_id][0]
+            delegates_by_domain.setdefault(id(target_surface.domain), {})[
+                semantic_key
+            ] = _M1UVFrameDelegate(
+                owner_chart_id=owner_chart_id,
+                target_chart_id=target_chart_id,
+                edge_index=edge_index,
+                owner_site=owner_site,
+                local_to_owner=_frame_affine_inverse(owner_to_target),
+                absorbed_corner_vertices=owner_absorbed_corners,
+            )
+    return delegates_by_domain
+
+
 def _m1_build_predicate_boundary_imports(
     groups,
     transition_contract,
+    semantic_imports=None,
     diagnostics=None,
 ):
     """T7-P2: продолжает owner predicate-boundary, а не её half-edge след."""
 
+    semantic_imports = semantic_imports or {}
     chart_records = {}
     sides_by_transition = {}
     for entries in groups:
@@ -7667,27 +9538,14 @@ def _m1_build_predicate_boundary_imports(
         tangent = _norm2(_sub2(segment_site.point_b, segment_site.point_a))
         if tangent is None:
             return None
-        direction = (-tangent[1], tangent[0])
         transition_direction = _sub2(
             owner_side.segment[1], owner_side.segment[0]
         )
-        intersection = _line_intersection(
-            anchor,
-            direction,
-            owner_side.segment[0],
-            transition_direction,
-        )
-        if intersection is None:
-            return None
         transition_length2 = _dot2(
             transition_direction, transition_direction
         )
         if transition_length2 <= 1e-20:
             return None
-        factor = _dot2(
-            _sub2(intersection, owner_side.segment[0]),
-            transition_direction,
-        ) / transition_length2
         canonical_factor = station / owner_side.station_extent
         canonical_point = (
             owner_side.segment[0][0]
@@ -7695,14 +9553,120 @@ def _m1_build_predicate_boundary_imports(
             owner_side.segment[0][1]
             + transition_direction[1] * canonical_factor,
         )
-        anchor_error = _dist2(intersection, canonical_point)
+        # Crop-boundary является первичным источником T7-P3.9. Для
+        # diagram-boundary сохраняем аналитический перпендикуляр через site
+        # endpoint: оба кандидата сравниваются в owner-space одной метрикой.
+        supporting_lines = [
+            (anchor, (-tangent[1], tangent[0])),
+        ]
+        crop_points = tuple(corner_face.crop.points)
+        for first, second in zip(
+            crop_points, crop_points[1:] + crop_points[:1]
+        ):
+            crop_direction = _norm2(_sub2(second, first))
+            if crop_direction is not None:
+                supporting_lines.append((first, crop_direction))
+        candidates = []
+        for line_anchor, direction in supporting_lines:
+            intersection = _line_intersection(
+                line_anchor,
+                direction,
+                owner_side.segment[0],
+                transition_direction,
+            )
+            if intersection is None:
+                continue
+            candidates.append(
+                (
+                    _dist2(intersection, canonical_point),
+                    round(_dist2(intersection, owner_side.segment[0]), 12),
+                    intersection,
+                    direction,
+                    corner_face,
+                    segment_face,
+                )
+            )
         return (
-            anchor_error,
-            round(_dist2(intersection, owner_side.segment[0]), 12),
-            intersection,
-            direction,
-            corner_face,
-            segment_face,
+            min(
+                candidates,
+                key=lambda item: (
+                    item[:4],
+                    int(item[4].site.edge_index),
+                    int(item[5].site.edge_index),
+                ),
+            )
+            if candidates
+            else None
+        )
+
+    def endpoint_supporting_candidate(
+        owner_side,
+        station,
+        corner_id,
+        corner_face,
+        segment_face,
+    ):
+        """T7-P3.11e: меряет узел до crop-кривой, не до её пересечения с T."""
+
+        transition_direction = _sub2(
+            owner_side.segment[1], owner_side.segment[0]
+        )
+        if _dot2(transition_direction, transition_direction) <= 1e-20:
+            return None
+        canonical_factor = station / owner_side.station_extent
+        canonical_point = (
+            owner_side.segment[0][0]
+            + transition_direction[0] * canonical_factor,
+            owner_side.segment[0][1]
+            + transition_direction[1] * canonical_factor,
+        )
+        corner_site = corner_face.site
+        if corner_id == corner_site.vert_a:
+            corner_origin = corner_site.point_a
+        elif corner_id == corner_site.vert_b:
+            corner_origin = corner_site.point_b
+        else:
+            return None
+        candidates = []
+        crop_points = tuple(corner_face.crop.points)
+        for first, second in zip(
+            crop_points, crop_points[1:] + crop_points[:1]
+        ):
+            direction = _norm2(_sub2(second, first))
+            if direction is None:
+                continue
+            curve_distance, factor = _segment_point_distance2(
+                first, second, canonical_point
+            )
+            continuation_index = max(
+                range(2),
+                key=lambda index: (
+                    _dist2((first, second)[index], corner_origin), index
+                ),
+            )
+            candidates.append(
+                (
+                    curve_distance,
+                    factor,
+                    continuation_index,
+                    first,
+                    second,
+                    canonical_point,
+                    corner_face,
+                    segment_face,
+                )
+            )
+        return (
+            min(
+                candidates,
+                key=lambda item: (
+                    item[:5],
+                    int(item[6].site.edge_index),
+                    int(item[7].site.edge_index),
+                ),
+            )
+            if candidates
+            else None
         )
 
     imports_by_domain = {}
@@ -7757,10 +9721,6 @@ def _m1_build_predicate_boundary_imports(
             segment_interval = (
                 previous if previous[3] == ("SEGMENT",) else current
             )
-            if corner_interval[2] == segment_interval[2]:
-                # Одинаковый site-token означает crop-boundary; её уже
-                # транспортирует T7-P без повторного separator.
-                continue
             owner_chart_id = None
             for chart_id, (surface, _entries) in chart_records.items():
                 candidate = dict(
@@ -7769,9 +9729,52 @@ def _m1_build_predicate_boundary_imports(
                 if candidate is not None:
                     owner_chart_id = int(candidate)
                     break
-            if owner_chart_id is None or owner_chart_id not in sides:
+            if owner_chart_id is None:
                 raise ValueError(
-                    "ATLAS_CLASS_DESYNC: predicate owner chart is missing"
+                    "ATLAS_CLASS_DESYNC: predicate owner chart is missing "
+                    f"transition={transition_id!r} station={station!r} "
+                    f"corner={corner_id!r} owner_chart={owner_chart_id!r} "
+                    f"side_charts={tuple(sorted(sides))!r} "
+                    f"classes={classes!r}"
+                )
+            if owner_chart_id not in sides:
+                transition_key = exemplar_side.transition_key
+                transition_identity = _hashable_provenance(
+                    transition_key
+                )
+                anchored_charts = {
+                    int(chart_id)
+                    for chart_id in sides
+                    if any(
+                        int(semantic.owner_chart_id) == owner_chart_id
+                        and _m1_crop_semantic_class(
+                            semantic.owner_crop
+                        )
+                        == corner_class
+                        and any(
+                            _hashable_provenance(anchor_key)
+                            == transition_identity
+                            and int(anchor_station) == int(station)
+                            for _endpoint, anchor_key, anchor_station
+                            in semantic.anchor_stations
+                        )
+                        for semantic in semantic_imports.get(
+                            id(chart_records[int(chart_id)][0].domain), ()
+                        )
+                    )
+                }
+                if anchored_charts == set(map(int, sides)):
+                    # T7-P2.2(a)/T7-P3.15: multi-hop crop image уже
+                    # принесла boundary владельца в оба локальных графа.
+                    # Повторный analytic separator здесь не строится.
+                    continue
+                raise ValueError(
+                    "ATLAS_CLASS_DESYNC: multi-hop predicate boundary is "
+                    "missing "
+                    f"transition={transition_id!r} station={station!r} "
+                    f"corner={corner_id!r} owner_chart={owner_chart_id!r} "
+                    f"side_charts={tuple(sorted(sides))!r} "
+                    f"anchored={tuple(sorted(anchored_charts))!r}"
                 )
             owner_surface, owner_entries = chart_records[owner_chart_id]
             owner_side = sides[owner_chart_id]
@@ -7815,17 +9818,32 @@ def _m1_build_predicate_boundary_imports(
                 raise ValueError(
                     "ATLAS_CLASS_DESYNC: predicate supporting curve is missing"
                 )
-            candidate = min(candidates)
+            candidate = min(
+                candidates,
+                key=lambda item: (
+                    item[:4],
+                    int(item[4].site.edge_index),
+                    int(item[5].site.edge_index),
+                ),
+            )
             anchor_tolerance = max(
                 float(owner_surface.diagram_transform.quantum) * 1.5,
                 float(owner_surface.domain.alpha_budget) * 0.02,
             )
             if candidate[0] > anchor_tolerance:
                 raise ValueError(
-                    "ATLAS_CLASS_DESYNC: predicate curve misses T station"
+                    "ATLAS_CLASS_DESYNC: predicate curve misses T station "
+                    f"transition={owner_side.transition_key!r} "
+                    f"station={station} error={candidate[0]!r} "
+                    f"tolerance={anchor_tolerance!r} "
+                    f"corner={corner_id} "
+                    f"tokens={(corner_interval[2], segment_interval[2])!r}"
                 )
             _error, _distance, owner_anchor, direction, corner_face, _ = candidate
             owner_to_target = _m1_segment_isometry(
+                owner_side.segment, target_side.segment
+            )
+            owner_frame_to_target = _m1_segment_frame_transform(
                 owner_side.segment, target_side.segment
             )
             mapped_anchor = _affine_point(owner_to_target, owner_anchor)
@@ -7840,6 +9858,25 @@ def _m1_build_predicate_boundary_imports(
                 )
                 for sign in (1.0, -1.0)
             )
+            owner_transition_direction = _sub2(
+                owner_side.segment[1], owner_side.segment[0]
+            )
+            owner_candidates = tuple(
+                (
+                    _cross2(
+                        owner_transition_direction,
+                        _sub2(endpoint, owner_anchor),
+                    )
+                    * owner_side.interior_sign,
+                    endpoint,
+                )
+                for endpoint in owner_endpoints
+            )
+            owner_interior_score, owner_endpoint = max(owner_candidates)
+            if owner_interior_score <= 0.0:
+                raise ValueError(
+                    "ATLAS_CLASS_DESYNC: predicate continuation leaves owner"
+                )
             mapped_endpoints = tuple(
                 _affine_point(owner_to_target, point)
                 for point in owner_endpoints
@@ -7883,9 +9920,29 @@ def _m1_build_predicate_boundary_imports(
             if import_key in processed:
                 continue
             processed.add(import_key)
+            identity_transform = (1.0, 0.0, 0.0, 0.0)
+            identity_frame = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+            imports_by_domain.setdefault(
+                id(owner_surface.domain), {}
+            )[import_key + ("OWNER",)] = _M1ImportedSemantic(
+                transition_key=owner_side.transition_key,
+                owner_chart_id=owner_chart_id,
+                target_chart_id=owner_chart_id,
+                points=(owner_anchor, owner_endpoint),
+                owner_crop=corner_face.crop,
+                owner_site=corner_face.site,
+                owner_edge_indices=owner_edge_indices,
+                owner_region_points=corner_face.crop.points,
+                local_to_owner=identity_transform,
+                uv_local_to_owner=identity_frame,
+                anchor_stations=(
+                    (0, owner_side.transition_key, station),
+                ),
+                is_predicate_separator=True,
+            )
             imports_by_domain.setdefault(
                 id(target_surface.domain), {}
-            )[import_key] = _M1ImportedSemantic(
+            )[import_key + ("TARGET",)] = _M1ImportedSemantic(
                 transition_key=owner_side.transition_key,
                 owner_chart_id=owner_chart_id,
                 target_chart_id=target_chart_id,
@@ -7895,14 +9952,360 @@ def _m1_build_predicate_boundary_imports(
                 owner_edge_indices=owner_edge_indices,
                 owner_region_points=corner_face.crop.points,
                 local_to_owner=_affine_inverse(owner_to_target),
+                uv_local_to_owner=_frame_affine_inverse(
+                    owner_frame_to_target
+                ),
                 anchor_stations=(
                     (0, owner_side.transition_key, station),
                 ),
+                is_predicate_separator=True,
             )
+    # T7-P3.11: обязательный separator вокруг общего source endpoint.
+    endpoint_groups = {}
+    for domain_id, sides in transition_contract.items():
+        for side in sides:
+            source_edge = tuple(side.transition_key[2])
+            owners = {
+                (first, second): owner
+                for first, second, owner in side.interval_owners
+            }
+            semantics = tuple(side.interval_semantics)
+            if not semantics:
+                continue
+            for source_vertex, interval in (
+                (source_edge[0], semantics[0]),
+                (source_edge[1], semantics[-1]),
+            ):
+                first, second, semantic_class = interval
+                owner = owners.get((first, second))
+                if owner is None or semantic_class is None:
+                    continue
+                endpoint_groups.setdefault(
+                    (int(domain_id), int(side.chart_id), int(source_vertex)),
+                    [],
+                ).append((side, int(owner), semantic_class))
+
+    for (domain_id, consumer_chart_id, source_vertex), records in sorted(
+        endpoint_groups.items()
+    ):
+        classes = tuple(sorted({item[2] for item in records}, key=repr))
+        if len(classes) <= 1:
+            continue
+        corner_classes = tuple(
+            item
+            for item in classes
+            if isinstance(item, tuple) and item[:1] == ("CORNER",)
+        )
+        if len(corner_classes) != 1 or ("SEGMENT",) not in classes:
+            raise ValueError(
+                "ATLAS_CLASS_DESYNC: unsupported endpoint predicate pair"
+            )
+        corner_class = corner_classes[0]
+        corner_owner = corner_class[2]
+        if (
+            not isinstance(corner_owner, tuple)
+            or len(corner_owner) != 2
+            or corner_owner[0] != "corner"
+        ):
+            raise ValueError(
+                "ATLAS_CLASS_DESYNC: endpoint semantic owner is inconsistent "
+                f"domain={domain_id} chart={consumer_chart_id} "
+                f"source_vertex={source_vertex} classes={classes!r} "
+                f"records={records!r}"
+            )
+        corner_owner_vertex = int(corner_owner[1])
+        semantic_owner_chart_id = next(
+            (
+                int(declared)
+                for surface, _entries in chart_records.values()
+                for declared in (
+                    dict(surface.semantic_owner_chart_by_vertex).get(
+                        corner_owner_vertex
+                    ),
+                )
+                if declared is not None
+            ),
+            None,
+        )
+        if semantic_owner_chart_id is None:
+            raise ValueError(
+                "ATLAS_CLASS_DESYNC: endpoint semantic owner is missing"
+            )
+        owner_surface, owner_entries = chart_records[
+            semantic_owner_chart_id
+        ]
+        consumer_surface, _consumer_entries = chart_records[
+            consumer_chart_id
+        ]
+        bridge = next(
+            (
+                (
+                    sides_by_transition[
+                        _hashable_provenance(consumer_side.transition_key)
+                    ][semantic_owner_chart_id],
+                    consumer_side,
+                )
+                for consumer_side, _owner, _class in records
+                if semantic_owner_chart_id
+                in sides_by_transition.get(
+                    _hashable_provenance(consumer_side.transition_key), {}
+                )
+            ),
+            None,
+        )
+        if bridge is None:
+            raise ValueError(
+                "ATLAS_CLASS_DESYNC: endpoint owner path is missing"
+            )
+        owner_side, consumer_side = bridge
+        owner_station = (
+            0
+            if source_vertex == tuple(owner_side.transition_key[2])[0]
+            else owner_side.station_extent
+        )
+        corner_tokens = {
+            owner
+            for _side, owner, semantic_class in records
+            if semantic_class == corner_class
+        }
+        segment_tokens = {
+            owner
+            for _side, owner, semantic_class in records
+            if semantic_class == ("SEGMENT",)
+        }
+        corner_faces = tuple(
+            pending_face
+            for _index, pending_face in owner_entries
+            if _m1_crop_semantic_class(pending_face.crop) == corner_class
+            and int(pending_face.site.edge_index) in corner_tokens
+        )
+        segment_faces = tuple(
+            pending_face
+            for _index, pending_face in owner_entries
+            if pending_face.crop.kind == "SEGMENT"
+            and int(pending_face.site.edge_index) in segment_tokens
+        )
+        candidates = tuple(
+            candidate
+            for corner_face in corner_faces
+            for segment_face in segment_faces
+            for candidate in (
+                endpoint_supporting_candidate(
+                    owner_side,
+                    owner_station,
+                    corner_owner_vertex,
+                    corner_face,
+                    segment_face,
+                ),
+            )
+            if candidate is not None
+        )
+        if not candidates:
+            raise ValueError(
+                "ATLAS_CLASS_DESYNC: endpoint supporting curve is missing "
+                f"domain={domain_id} chart={consumer_chart_id} "
+                f"source_vertex={source_vertex} "
+                f"corner_owner_vertex={corner_owner_vertex} "
+                f"owner_chart={semantic_owner_chart_id} "
+                f"corner_tokens={sorted(corner_tokens)!r} "
+                f"segment_tokens={sorted(segment_tokens)!r} "
+                f"corner_faces={len(corner_faces)} "
+                f"segment_faces={len(segment_faces)} records={records!r}"
+            )
+        candidate = min(
+            candidates,
+            key=lambda item: (
+                item[:5],
+                int(item[6].site.edge_index),
+                int(item[7].site.edge_index),
+            ),
+        )
+        owner_quantum = max(
+            float(owner_surface.diagram_transform.quantum), 1e-10
+        )
+        incidence_epsilon = max(1e-12, owner_quantum * 1e-9)
+        if candidate[0] > owner_quantum + incidence_epsilon:
+            raise ValueError(
+                "ATLAS_CLASS_DESYNC: endpoint predicate misses source vertex "
+                f"domain={domain_id} chart={consumer_chart_id} "
+                f"source_vertex={source_vertex} "
+                f"corner_owner_vertex={corner_owner_vertex} "
+                f"owner_chart={semantic_owner_chart_id} "
+                f"error={candidate[0]!r} quantum={owner_quantum!r} "
+                f"factor={candidate[1]!r} curve={candidate[3:5]!r} "
+                f"transition={owner_side.transition_key!r} "
+                f"station={owner_station} records={records!r}"
+            )
+        (
+            _curve_distance,
+            curve_factor,
+            continuation_index,
+            first,
+            second,
+            owner_anchor,
+            corner_face,
+            _face,
+        ) = candidate
+        # T3 endpoint-move: только субквантовый конец переходит в общий
+        # source-vertex key; кривая обрезается в ближайшей к узлу точке,
+        # а её продолжение от semantic owner остаётся неизменным.
+        owner_endpoint = (first, second)[continuation_index]
+        owner_to_consumer = _m1_segment_isometry(
+            owner_side.segment, consumer_side.segment
+        )
+        frame_to_consumer = _m1_segment_frame_transform(
+            owner_side.segment, consumer_side.segment
+        )
+        consumer_anchor = _affine_point(owner_to_consumer, owner_anchor)
+        consumer_endpoint = _affine_point(owner_to_consumer, owner_endpoint)
+        owner_edge_indices = tuple(sorted(corner_tokens | segment_tokens))
+        endpoint_key = (
+            "ENDPOINT",
+            consumer_chart_id,
+            source_vertex,
+            semantic_owner_chart_id,
+            corner_class,
+        )
+        identity_transform = (1.0, 0.0, 0.0, 0.0)
+        identity_frame = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+        imports_by_domain.setdefault(
+            id(owner_surface.domain), {}
+        )[endpoint_key + ("OWNER",)] = _M1ImportedSemantic(
+            transition_key=owner_side.transition_key,
+            owner_chart_id=semantic_owner_chart_id,
+            target_chart_id=semantic_owner_chart_id,
+            points=(owner_anchor, owner_endpoint),
+            owner_crop=corner_face.crop,
+            owner_site=corner_face.site,
+            owner_edge_indices=owner_edge_indices,
+            owner_region_points=corner_face.crop.points,
+            local_to_owner=identity_transform,
+            uv_local_to_owner=identity_frame,
+            anchor_stations=((0, owner_side.transition_key, owner_station),),
+            is_predicate_separator=True,
+            is_endpoint_separator=True,
+        )
+        imports_by_domain.setdefault(
+            id(consumer_surface.domain), {}
+        )[endpoint_key + ("CONSUMER",)] = _M1ImportedSemantic(
+            transition_key=consumer_side.transition_key,
+            owner_chart_id=semantic_owner_chart_id,
+            target_chart_id=consumer_chart_id,
+            points=(consumer_anchor, consumer_endpoint),
+            owner_crop=corner_face.crop,
+            owner_site=corner_face.site,
+            owner_edge_indices=owner_edge_indices,
+            owner_region_points=corner_face.crop.points,
+            local_to_owner=_affine_inverse(owner_to_consumer),
+            uv_local_to_owner=_frame_affine_inverse(frame_to_consumer),
+            anchor_stations=((0, consumer_side.transition_key, owner_station),),
+            is_predicate_separator=True,
+            is_endpoint_separator=True,
+        )
+
+    def anchor_reached_transitions(semantic):
+        target_surface = chart_records[int(semantic.target_chart_id)][0]
+        quantum = max(
+            float(target_surface.diagram_transform.quantum), 1e-10
+        )
+        points = tuple(semantic.points)
+        if len(points) != 2:
+            raise ValueError(
+                "ATLAS_ARRANGEMENT_INTEGRITY: predicate chain is not linear"
+            )
+        first, second = points
+        lattice_first = tuple(
+            Fraction(round(value / quantum)) for value in first
+        )
+        lattice_second = tuple(
+            Fraction(round(value / quantum)) for value in second
+        )
+        intersections = {
+            Fraction(0): [float(first[0]), float(first[1]), []],
+            Fraction(1): [float(second[0]), float(second[1]), []],
+        }
+        for endpoint_index, transition_key, station in semantic.anchor_stations:
+            factor = Fraction(0 if endpoint_index == 0 else 1)
+            intersections[factor][2].append((transition_key, int(station)))
+        anchored_transition_keys = {
+            _hashable_provenance(transition_key)
+            for _endpoint_index, transition_key, _station
+            in semantic.anchor_stations
+        }
+        for side in transition_contract.get(id(target_surface.domain), ()):
+            if (
+                _hashable_provenance(side.transition_key)
+                in anchored_transition_keys
+            ):
+                continue
+            edge_a = tuple(
+                Fraction(round(value / quantum))
+                for value in side.segment[0]
+            )
+            edge_b = tuple(
+                Fraction(round(value / quantum))
+                for value in side.segment[1]
+            )
+            hit = _m1_exact_segment_intersection(
+                lattice_first, lattice_second, edge_a, edge_b
+            )
+            if hit is None or hit == "COLLINEAR":
+                continue
+            segment_factor, edge_factor, _point = hit
+            declared_station = round(
+                float(edge_factor) * side.station_extent
+            )
+            station = min(
+                side.stations,
+                key=lambda value: (
+                    abs(int(value) - declared_station), int(value)
+                ),
+            )
+            if abs(int(station) - declared_station) > 1:
+                # Первая fixed-point итерация сама публикует новый T-key;
+                # следующий contract обязан прочитать уже его.
+                station = max(
+                    0, min(side.station_extent, declared_station)
+                )
+            canonical_factor = int(station) / side.station_extent
+            canonical_point = (
+                side.segment[0][0]
+                + (side.segment[1][0] - side.segment[0][0])
+                * canonical_factor,
+                side.segment[0][1]
+                + (side.segment[1][1] - side.segment[0][1])
+                * canonical_factor,
+            )
+            record = intersections.setdefault(
+                segment_factor,
+                [canonical_point[0], canonical_point[1], []],
+            )
+            record[0] = canonical_point[0]
+            record[1] = canonical_point[1]
+            record[2].append((side.transition_key, int(station)))
+        rebuilt = []
+        anchors = []
+        for point_index, (_factor, record) in enumerate(
+            sorted(intersections.items())
+        ):
+            rebuilt.append((record[0], record[1]))
+            anchors.extend(
+                (point_index, transition_key, station)
+                for transition_key, station in record[2]
+            )
+        return replace(
+            semantic,
+            points=tuple(rebuilt),
+            anchor_stations=tuple(sorted(set(anchors), key=repr)),
+        )
+
     result = {
         domain_id: tuple(
             sorted(
-                imports.values(),
+                (
+                    anchor_reached_transitions(semantic)
+                    for semantic in imports.values()
+                ),
                 key=lambda item: (
                     repr(item.transition_key),
                     repr(item.owner_crop.semantic_owner_id),
@@ -7912,11 +10315,72 @@ def _m1_build_predicate_boundary_imports(
         )
         for domain_id, imports in imports_by_domain.items()
     }
-    if diagnostics is not None:
-        diagnostics.atlas_semantic_import_count += sum(
-            len(imports) for imports in result.values()
-        )
     return result
+
+
+def _m1_validate_separator_requirements(
+    transition_contract, predicate_imports
+):
+    """T7-P3.9: каждая разрешимая class-change имеет anchor в обоих graphs."""
+
+    requirements = {}
+    for domain_id, sides in transition_contract.items():
+        for side in sides:
+            owners = {
+                (first, second): owner
+                for first, second, owner in side.interval_owners
+            }
+            intervals = tuple(
+                (
+                    first,
+                    second,
+                    owners.get((first, second)),
+                    semantic_class,
+                )
+                for first, second, semantic_class in side.interval_semantics
+            )
+            for previous, current in zip(intervals, intervals[1:]):
+                if (
+                    previous[1] != current[0]
+                    or previous[3] is None
+                    or current[3] is None
+                    or previous[3] == current[3]
+                ):
+                    continue
+                classes = (previous[3], current[3])
+                corner_count = sum(
+                    isinstance(item, tuple) and item[:1] == ("CORNER",)
+                    for item in classes
+                )
+                if corner_count != 1 or ("SEGMENT",) not in classes:
+                    continue
+                requirement_key = (
+                    _hashable_provenance(side.transition_key),
+                    int(previous[1]),
+                    tuple(sorted(classes, key=repr)),
+                )
+                requirements.setdefault(requirement_key, set()).add(
+                    int(domain_id)
+                )
+
+    for (transition_id, station, classes), domain_ids in sorted(
+        requirements.items(), key=lambda item: repr(item[0])
+    ):
+        for domain_id in sorted(domain_ids):
+            anchored = any(
+                _hashable_provenance(transition_key) == transition_id
+                and int(anchor_station) == station
+                for semantic in predicate_imports.get(domain_id, ())
+                for _endpoint, transition_key, anchor_station
+                in semantic.anchor_stations
+            )
+            if not anchored:
+                raise ValueError(
+                    "ATLAS_CLASS_DESYNC: class separator requirement is "
+                    "missing before arrangement "
+                    f"transition={transition_id!r} station={station} "
+                    f"classes={classes!r} domain={domain_id}"
+                )
 
 
 def _m1_semantic_class(face):
@@ -7985,13 +10449,25 @@ def _m1_raw_arrangement_uv(face, point, alpha):
 
     uv_site = face.uv_site or face.site
     uv_point = (
-        _affine_point(face.uv_point_transform, point)
+        _frame_affine_point(face.uv_frame_transform, point)
+        if face.uv_frame_transform is not None
+        else _affine_point(face.uv_point_transform, point)
         if face.uv_point_transform is not None
         else point
     )
-    _distance, parameter = _segment_point_distance2(
-        uv_site.point_a, uv_site.point_b, uv_point
-    )
+    raw_parameter = _site_unbounded_parameter(uv_site, uv_point)
+    continuation = face.uv_v_continuation_endpoint
+    if (
+        continuation < 0
+        and raw_parameter < 0.0
+        or continuation > 0
+        and raw_parameter > 1.0
+    ):
+        parameter = raw_parameter
+    else:
+        _distance, parameter = _segment_point_distance2(
+            uv_site.point_a, uv_site.point_b, uv_point
+        )
     component_uv = _crop_component_uv(face.crop, uv_point)
     if component_uv is not None:
         return component_uv
@@ -8017,6 +10493,13 @@ def _m1_arrangement_uv(face, point, point_key, alpha):
         if override is not None
         else _m1_raw_arrangement_uv(face, point, alpha)
     )
+    return u_fraction * alpha, v_length
+
+
+def _m1_raw_physical_arrangement_uv(face, point, alpha):
+    """Сырой физический UV до R2-канонизации transition-станции."""
+
+    u_fraction, v_length = _m1_raw_arrangement_uv(face, point, alpha)
     return u_fraction * alpha, v_length
 
 
@@ -8050,12 +10533,23 @@ def _m1_validate_semantic_transitions(
             first_class = _m1_transition_semantic_class(first)
             second_class = _m1_transition_semantic_class(second)
             collinear_boundary = first_class == second_class
-        if first_class != second_class:
-            raise ValueError(
-                "ATLAS_CLASS_DESYNC: T8 O1 semantic mismatch "
-                f"edge={edge_key!r} classes="
-                f"{(first_class, second_class)!r}"
-            )
+            if first_class != second_class:
+                face_diagnostics = tuple(
+                    (
+                        face.surface.domain.chart_id,
+                        face.site.edge_index,
+                        face.crop.kind,
+                        face.crop.side,
+                        face.transition_uv,
+                    )
+                    for face in (first_face, second_face)
+                )
+                raise ValueError(
+                    "ATLAS_CLASS_DESYNC: T8 O1 semantic mismatch "
+                    f"edge={edge_key!r} classes="
+                    f"{(first_class, second_class)!r} "
+                    f"faces={face_diagnostics!r}"
+                )
         first_uv = {
             first[1]: _m1_arrangement_uv(
                 first_face, first[3], first[1], alpha
@@ -8077,7 +10571,46 @@ def _m1_validate_semantic_transitions(
             float(second_face.surface.diagram_transform.quantum),
             1e-10,
         )
+        raw_first_uv = {
+            first[1]: _m1_raw_physical_arrangement_uv(
+                first_face, first[3], alpha
+            ),
+            first[2]: _m1_raw_physical_arrangement_uv(
+                first_face, first[4], alpha
+            ),
+        }
+        raw_second_uv = {
+            second[1]: _m1_raw_physical_arrangement_uv(
+                second_face, second[3], alpha
+            ),
+            second[2]: _m1_raw_physical_arrangement_uv(
+                second_face, second[4], alpha
+            ),
+        }
+        # R2 вправе публиковать одну owner-станцию, но не вправе скрывать
+        # holonomy/изометрическую ошибку больше принятого E2-бюджета.
+        raw_uv_tolerance = max(quantum * 1.5, abs(float(alpha)) * 0.02)
         for point_key in first_uv.keys() & second_uv.keys():
+            canonical_uv = first_uv[point_key]
+            for side_name, raw_uv in (
+                ("first", raw_first_uv[point_key]),
+                ("second", raw_second_uv[point_key]),
+            ):
+                if any(
+                    abs(raw_value - canonical_value) > raw_uv_tolerance
+                    for raw_value, canonical_value in zip(
+                        raw_uv, canonical_uv
+                    )
+                ):
+                    raise ValueError(
+                        "ATLAS_TRANSITION_DESYNC: T8 O1 raw UV mismatch "
+                        f"edge={edge_key!r} point={point_key!r} "
+                            f"side={side_name} raw={raw_uv!r} "
+                            f"canonical={canonical_uv!r} "
+                            f"tolerance={raw_uv_tolerance!r} "
+                            f"raw_sides={(raw_first_uv, raw_second_uv)!r} "
+                            f"frames={tuple((face.surface.domain.chart_id, face.site.edge_index, face.crop.kind, face.crop.semantic_owner_id, face.uv_site.edge_index if face.uv_site is not None else None, face.uv_frame_owner_chart_id, face.uv_frame_is_imported, face.uv_frame_transform) for face in (first_face, second_face))!r}"
+                        )
             if any(
                 abs(first_value - second_value) > quantum * 1.5
                 for first_value, second_value in zip(
@@ -8168,6 +10701,318 @@ def _m1_validate_semantic_transitions(
                 )
 
 
+def _m1_validate_materialized_transition_coverage(
+    transition_edge_records,
+    station_by_point,
+    transition_contract,
+    diagnostics=None,
+):
+    """T2-C: парный materialized subedge не может жить над owner=None."""
+
+    sides_by_transition = {}
+    for sides in transition_contract.values():
+        for side in sides:
+            transition_id = _hashable_provenance(side.transition_key)
+            sides_by_transition.setdefault(transition_id, []).append(side)
+    for edge_key, records in sorted(transition_edge_records.items()):
+        if len(records) != 2:
+            continue
+        transition_id = records[0][5]
+        stations = tuple(
+            station_by_point.get((repr(transition_id), point_key))
+            for point_key in records[0][1:3]
+        )
+        if None in stations or stations[0] == stations[1]:
+            raise ValueError(
+                "ATLAS_TRANSITION_DESYNC: materialized T2 interval "
+                "has no canonical station span"
+            )
+        span_start, span_end = sorted(int(station) for station in stations)
+        side_owner_sequences = []
+        for side in sorted(
+            sides_by_transition.get(transition_id, ()),
+            key=lambda candidate: candidate.chart_id,
+        ):
+            overlapping = tuple(
+                (start, end, owner)
+                for start, end, owner in side.interval_owners
+                if max(span_start, start) < min(span_end, end)
+            )
+            if not overlapping:
+                raise ValueError(
+                    "ATLAS_TRANSITION_DESYNC: materialized subedge is "
+                    "outside the published T2 contract"
+                )
+            if any(owner is None for _start, _end, owner in overlapping):
+                if diagnostics is not None:
+                    diagnostics.atlas_undeclared_materialized_interval_count += 1
+                raise ValueError(
+                    "ATLAS_TRANSITION_DESYNC: owner=None under materialized "
+                    f"transition subedge edge={edge_key!r} "
+                    f"span={(span_start, span_end)!r}"
+                )
+            side_owner_sequences.append(overlapping)
+        if len(side_owner_sequences) != 2:
+            raise ValueError(
+                "ATLAS_TRANSITION_DESYNC: materialized transition lacks "
+                "two published T2 sides"
+            )
+        if side_owner_sequences[0] != side_owner_sequences[1]:
+            raise ValueError(
+                "ATLAS_TRANSITION_DESYNC: T2 owner declaration differs "
+                "between materialized sides"
+            )
+
+
+def _m1_absorbed_v_continuation_endpoint(
+    face,
+    endpoint_sign,
+    alpha,
+    quantum,
+    region_corner_vertices=(),
+):
+    """T7-P3.8: доказывает same-chain SMOOTH endpoint ниже B0-resolution."""
+
+    if face.declared_semantic_class not in (None, ("SEGMENT",)):
+        return False
+    uv_site = face.uv_site or face.site
+    endpoint_vertex = (
+        uv_site.vert_a if endpoint_sign < 0 else uv_site.vert_b
+    )
+    if (
+        endpoint_vertex not in face.absorbed_corner_vertices
+        and endpoint_vertex not in face.boundary_corner_vertices
+        and endpoint_vertex not in region_corner_vertices
+    ):
+        return False
+    incident_indices = face.surface.sites_by_vertex.get(endpoint_vertex, ())
+    if len(incident_indices) != 2:
+        return False
+    incident_sites = tuple(
+        face.surface.sites[index] for index in incident_indices
+    )
+    if int(uv_site.edge_index) not in {
+        int(site.edge_index) for site in incident_sites
+    }:
+        return False
+    corner = next(
+        (
+            candidate
+            for candidate in face.surface.corners
+            if candidate.vert_index == endpoint_vertex
+            and len(candidate.incident_sites) == 2
+        ),
+        None,
+    )
+    if corner is None:
+        return False
+
+    # Same-chain V-фаза должна совпадать в общей вершине до разрешения
+    # континуации. На junction или разорванной phase это не SMOOTH-проход.
+    endpoint_values = []
+    for site in incident_sites:
+        parameter = 0.0 if site.vert_a == endpoint_vertex else 1.0
+        endpoint_values.append(_site_v_length(site, parameter))
+    if abs(endpoint_values[0] - endpoint_values[1]) > max(
+        1e-7, quantum * 1.5
+    ):
+        return False
+
+    # T7-P3.8/10: авторитет — либо absorbed исход B0, либо реально
+    # материализованная corner-кривая в boundary этой face. Числовой
+    # tau-порог и endpoint-перпендикуляр здесь не являются предикатами.
+    return True
+
+
+def _m1_region_corner_authorities(faces, point_transition_ids):
+    """T7-P3.12: переносит separator-authority по одному semantic region."""
+
+    faces = tuple(faces)
+    semantic_keys = tuple(
+        (
+            _hashable_provenance(face.declared_owner_token),
+            _hashable_provenance(face.declared_semantic_class),
+        )
+        for face in faces
+    )
+    edge_records = {}
+
+    def edge_key(face, first, second):
+        return (
+            int(face.surface.domain.chart_id),
+            *sorted((repr(first), repr(second))),
+        )
+
+    corner_ids_by_face_edge = {}
+    for face_index, face in enumerate(faces):
+        for first, second, corner_ids in face.boundary_corner_edges:
+            corner_ids_by_face_edge[
+                (face_index, edge_key(face, first, second))
+            ] = tuple(int(value) for value in corner_ids)
+        for index, first in enumerate(face.point_keys):
+            second = face.point_keys[(index + 1) % len(face.point_keys)]
+            key = edge_key(face, first, second)
+            edge_records.setdefault(key, []).append(
+                (face_index, first, second)
+            )
+
+    adjacency = {index: set() for index in range(len(faces))}
+    for records in edge_records.values():
+        unique_indices = tuple(
+            sorted({record[0] for record in records})
+        )
+        if len(unique_indices) != 2:
+            continue
+        first_index, second_index = unique_indices
+        if semantic_keys[first_index] != semantic_keys[second_index]:
+            continue
+        representative = records[0]
+        if point_transition_ids(
+            representative[1]
+        ) & point_transition_ids(representative[2]):
+            # T4: region-authority не переходит через chart boundary.
+            continue
+        adjacency[first_index].add(second_index)
+        adjacency[second_index].add(first_index)
+
+    component_by_index = {}
+    components = []
+    for start in range(len(faces)):
+        if start in component_by_index:
+            continue
+        component_index = len(components)
+        component = set()
+        queue = [start]
+        while queue:
+            face_index = queue.pop()
+            if face_index in component:
+                continue
+            component.add(face_index)
+            component_by_index[face_index] = component_index
+            queue.extend(adjacency[face_index] - component)
+        components.append(component)
+
+    authorities = {}
+    for component in components:
+        exemplar = min(component)
+        if semantic_keys[exemplar][1] != ("SEGMENT",):
+            continue
+        corner_vertices = set()
+        for face_index in component:
+            face = faces[face_index]
+            for edge_index, first in enumerate(face.point_keys):
+                second = face.point_keys[
+                    (edge_index + 1) % len(face.point_keys)
+                ]
+                key = edge_key(face, first, second)
+                neighbor_indices = {
+                    record[0]
+                    for record in edge_records.get(key, ())
+                    if record[0] != face_index
+                }
+                if neighbor_indices & component:
+                    continue
+                corner_vertices.update(
+                    corner_ids_by_face_edge.get((face_index, key), ())
+                )
+        for face_index in component:
+            authorities[id(faces[face_index])] = tuple(
+                sorted(corner_vertices)
+            )
+    return authorities
+
+
+def _m1_validate_segment_face_parameters(
+    faces,
+    alpha,
+    diagnostics=None,
+    region_corner_authorities=None,
+):
+    """T2-C/T7-P3.8: запрещает clamp, тотализируя SMOOTH V-проход."""
+
+    result = []
+    region_corner_authorities = region_corner_authorities or {}
+    for face in faces:
+        if face.crop.kind != "SEGMENT" or not face.points:
+            result.append(face)
+            continue
+        uv_site = face.uv_site or face.site
+        representative = _m1_representative_point(face.points)
+        uv_representative = (
+            _frame_affine_point(
+                face.uv_frame_transform, representative
+            )
+            if face.uv_frame_transform is not None
+            else _affine_point(
+                face.uv_point_transform, representative
+            )
+            if face.uv_point_transform is not None
+            else representative
+        )
+        length = max(float(uv_site.segment_length), 1e-20)
+        quantum = max(float(face.surface.diagram_transform.quantum), 1e-10)
+        parameter = _site_unbounded_parameter(uv_site, uv_representative)
+        overrun = (
+            -parameter * length
+            if parameter < 0.0
+            else (parameter - 1.0) * length
+            if parameter > 1.0
+            else 0.0
+        )
+        if overrun <= quantum:
+            result.append(face)
+            continue
+
+        continuation_endpoint = -1 if parameter < 0.0 else 1
+        if continuation_endpoint and _m1_absorbed_v_continuation_endpoint(
+            face,
+            continuation_endpoint,
+            alpha,
+            quantum,
+            region_corner_authorities.get(id(face), ()),
+        ):
+            if diagnostics is not None:
+                diagnostics.atlas_v_continuation_count += 1
+            result.append(
+                replace(
+                    face,
+                    uv_v_continuation_endpoint=continuation_endpoint,
+                )
+            )
+            continue
+
+        if diagnostics is not None:
+            diagnostics.atlas_clamped_segment_face_count += 1
+        endpoint_vertex = (
+            uv_site.vert_a if continuation_endpoint < 0 else uv_site.vert_b
+        )
+        endpoint_corner = next(
+            (
+                corner
+                for corner in face.surface.corners
+                if corner.vert_index == endpoint_vertex
+            ),
+            None,
+        )
+        raise ValueError(
+            "ATLAS_TRANSITION_DESYNC: materialized SEGMENT face is "
+            f"clamped beyond one quantum chart="
+            f"{face.surface.domain.chart_id} site={face.site.edge_index} "
+            f"overrun={overrun!r} "
+            f"quantum={quantum!r} "
+            f"declared_owner={face.declared_owner_token!r} "
+            f"declared_class={face.declared_semantic_class!r} "
+            f"uv_owner={face.uv_frame_owner_chart_id!r} "
+            f"uv_site={uv_site.edge_index!r} endpoint={endpoint_vertex!r} "
+            f"absorbed={face.absorbed_corner_vertices!r} "
+            f"boundary_corners={face.boundary_corner_vertices!r} "
+            f"incident={face.surface.sites_by_vertex.get(endpoint_vertex, ())!r} "
+            f"corner_angle={getattr(endpoint_corner, 'interior_angle', None)!r} "
+            f"point_keys={face.point_keys!r}"
+        )
+    return tuple(result)
+
+
 def _build_decal_arrangement(
     pending,
     tolerance,
@@ -8188,31 +11033,96 @@ def _build_decal_arrangement(
             (pending_index, pending_face)
         )
 
+    for group_key, entries in tuple(grouped.items()):
+        if entries[0][1].surface.domain.admission_tier == "APPROXIMATE":
+            grouped[group_key] = _m1_prepare_absorbed_corner_structures(
+                entries
+            )
+
     arranged_by_index = {}
     m1_faces = []
     inserted_stations = 0
-    base_transition_contract = _m1_build_transition_contract(
-        grouped.values()
-    )
     crop_semantic_imports = _m1_build_semantic_imports(
         grouped.values(), diagnostics
     )
-    predicate_semantic_imports = _m1_build_predicate_boundary_imports(
-        grouped.values(),
-        base_transition_contract,
-        diagnostics,
-    )
-    semantic_imports = {
-        domain_id: tuple(crop_semantic_imports.get(domain_id, ()))
-        + tuple(predicate_semantic_imports.get(domain_id, ()))
-        for domain_id in (
-            crop_semantic_imports.keys()
-            | predicate_semantic_imports.keys()
-        )
-    }
+    # R1 images сначала дополняют coverage. Каждый новый separator может
+    # сдвинуть station election на квант, поэтому T7-P3.9 замыкается до
+    # fixed point с границей R3, а не одним постфактум проходом.
+    predicate_import_sets = {}
     transition_contract = _m1_build_transition_contract(
-        grouped.values(), semantic_imports
+        grouped.values(), crop_semantic_imports, diagnostics
     )
+    semantic_imports = dict(crop_semantic_imports)
+
+    def predicate_import_key(semantic):
+        return (
+            _hashable_provenance(semantic.transition_key),
+            int(semantic.owner_chart_id),
+            int(semantic.target_chart_id),
+            semantic.owner_crop.kind,
+            semantic.owner_crop.side,
+            _hashable_provenance(
+                semantic.owner_crop.semantic_owner_id
+            ),
+            tuple(int(value) for value in semantic.owner_edge_indices),
+            bool(semantic.is_predicate_separator),
+            bool(semantic.is_endpoint_separator),
+        )
+
+    for _requirement_iteration in range(8):
+        produced = _m1_build_predicate_boundary_imports(
+            grouped.values(),
+            transition_contract,
+            semantic_imports,
+            diagnostics,
+        )
+        for domain_id, imports in produced.items():
+            collected = predicate_import_sets.setdefault(domain_id, {})
+            for semantic in imports:
+                # Fixed point заменяет предыдущую station-версию той же
+                # owner-кривой; накопление полного repr оставляло stale
+                # separators с уже не опубликованными T-ключами.
+                collected[predicate_import_key(semantic)] = semantic
+        predicate_semantic_imports = {
+            domain_id: tuple(
+                imports[key] for key in sorted(imports, key=repr)
+            )
+            for domain_id, imports in predicate_import_sets.items()
+        }
+        semantic_imports = {
+            domain_id: tuple(crop_semantic_imports.get(domain_id, ()))
+            + tuple(predicate_semantic_imports.get(domain_id, ()))
+            for domain_id in (
+                crop_semantic_imports.keys()
+                | predicate_semantic_imports.keys()
+            )
+        }
+        _m1_validate_separator_requirements(
+            transition_contract, semantic_imports
+        )
+        next_contract = _m1_build_transition_contract(
+            grouped.values(), semantic_imports, diagnostics
+        )
+        try:
+            _m1_validate_separator_requirements(
+                next_contract, semantic_imports
+            )
+        except ValueError as exc:
+            if "class separator requirement is missing" not in str(exc):
+                raise
+            transition_contract = next_contract
+            continue
+        transition_contract = next_contract
+        break
+    else:
+        raise ValueError(
+            "ATLAS_CLASS_DESYNC: separator requirement iteration limit"
+        )
+    if diagnostics is not None:
+        diagnostics.atlas_semantic_import_count += sum(
+            len(imports) for imports in predicate_import_sets.values()
+        )
+    uv_frame_delegates = _m1_build_uv_frame_delegates(grouped.values())
     for entries in grouped.values():
         domain = entries[0][1].surface.domain
         if domain.admission_tier == "APPROXIMATE":
@@ -8221,6 +11131,7 @@ def _build_decal_arrangement(
                 transition_contract.get(id(domain), ()),
                 diagnostics,
                 semantic_imports.get(id(domain), ()),
+                uv_frame_delegates.get(id(domain), {}),
             )
             m1_faces.extend(faces)
             inserted_stations += inserted
@@ -8273,6 +11184,24 @@ def _build_decal_arrangement(
     faces = tuple(m1_faces) + tuple(
         arranged_by_index[index] for index in sorted(arranged_by_index)
     )
+    if m1_faces:
+        if alpha is None:
+            raise ValueError(
+                "ATLAS_TRANSITION_DESYNC: M1 V validation needs alpha"
+            )
+        m1_faces = list(
+            _m1_validate_segment_face_parameters(
+                m1_faces,
+                float(alpha),
+                diagnostics,
+                _m1_region_corner_authorities(
+                    m1_faces, point_transition_ids
+                ),
+            )
+        )
+        faces = tuple(m1_faces) + tuple(
+            arranged_by_index[index] for index in sorted(arranged_by_index)
+        )
 
     transition_edge_owners = {}
     transition_edge_records = {}
@@ -8338,6 +11267,12 @@ def _build_decal_arrangement(
             "ATLAS_TRANSITION_DESYNC: overfull transition subedge "
             f"edge={first_edge!r} owners={tuple(owners)!r}"
         )
+    _m1_validate_materialized_transition_coverage(
+        transition_edge_records,
+        station_by_point,
+        transition_contract,
+        diagnostics,
+    )
     if alpha is not None:
         # T7/R2: владелец transition публикует UV-станцию один раз;
         # сосед потребляет её вместе с каноническим ключом точки.
@@ -8359,26 +11294,54 @@ def _build_decal_arrangement(
             for record in records:
                 face = record[0]
                 owner_id = face.crop.semantic_owner_id
-                authoritative_corner_uv = (
+                is_corner = (
                     isinstance(owner_id, tuple)
                     and owner_id[:1] == ("corner",)
-                    and (
-                        face.uv_site is not None
-                        or dict(
+                )
+                if is_corner:
+                    semantic_owner_chart_id = int(
+                        dict(
                             face.surface.semantic_owner_chart_by_vertex
                         ).get(
                             int(owner_id[1]), face.surface.domain.chart_id
                         )
-                        == face.surface.domain.chart_id
                     )
-                )
-                preference = (
-                    0
-                    if authoritative_corner_uv
-                    else 1
-                    if face.surface.domain.chart_id == owner_chart_id
-                    else 2
-                )
+                    if (
+                        face.uv_frame_owner_chart_id
+                        != semantic_owner_chart_id
+                    ):
+                        raise ValueError(
+                            "ATLAS_TRANSITION_DESYNC: UV frame provenance "
+                            f"owner={semantic_owner_chart_id} "
+                            f"actual={face.uv_frame_owner_chart_id}"
+                        )
+                    if (
+                        face.surface.domain.chart_id
+                        == semantic_owner_chart_id
+                        and not face.uv_frame_is_imported
+                    ):
+                        preference = 0
+                    elif face.uv_frame_is_imported:
+                        preference = 1
+                    else:
+                        raise ValueError(
+                            "ATLAS_TRANSITION_DESYNC: non-owner corner UV "
+                            "frame was not transported"
+                        )
+                else:
+                    # R5: transition owner публикует station key, но не UV.
+                    # Для segment/site frame локальный materialization owner
+                    # так же строго выше его transported-копии.
+                    if (
+                        face.uv_frame_is_imported
+                        and face.uv_frame_owner_chart_id
+                        == face.surface.domain.chart_id
+                    ):
+                        raise ValueError(
+                            "ATLAS_TRANSITION_DESYNC: imported UV frame "
+                            "points back to consumer chart"
+                        )
+                    preference = 1 if face.uv_frame_is_imported else 0
                 for point_key, point in (
                     (record[1], record[3]),
                     (record[2], record[4]),
@@ -9213,7 +12176,13 @@ def _surface_is_approximate(surface):
 
 
 def _append_pending_fragments(
-    pending, surface, site, crop, fragments, diagnostics=None
+    pending,
+    surface,
+    site,
+    crop,
+    fragments,
+    diagnostics=None,
+    absorbed_corner_vertices=(),
 ):
     """Сваривает fragments одного semantic owner до materialization."""
 
@@ -9251,6 +12220,9 @@ def _append_pending_fragments(
                 site=site,
                 points=tuple(component),
                 crop=crop,
+                absorbed_corner_vertices=tuple(
+                    sorted({int(vertex) for vertex in absorbed_corner_vertices})
+                ),
             )
         )
 
@@ -9380,6 +12352,37 @@ def _evaluate_surface_crops(
         classify_corner_runtime(corner, corner_settings)
         for corner in surface.corners
     )
+    structurally_absorbed_corner_indices = set()
+    if _surface_is_approximate(surface):
+        quantum = max(float(surface.diagram_transform.quantum), 1e-10)
+        for corner_index, (corner, policy) in enumerate(
+            zip(surface.corners, runtime_policies)
+        ):
+            if len(corner.incident_sites) != 2:
+                continue
+            raw_probe_crops = _corner_crop_components(
+                surface,
+                corner,
+                policy,
+                alpha,
+                corner_settings,
+                diagnostics=None,
+            )
+            owned_probe_crops = tuple(
+                owned_crop
+                for crop in raw_probe_crops
+                for owned_crop in (
+                    _corner_endpoint_ownership_crop(
+                        surface, corner, crop
+                    ),
+                )
+                if owned_crop is not None
+            )
+            if not owned_probe_crops or all(
+                _m1_crop_structure_absorbed(crop.points, quantum)
+                for crop in owned_probe_crops
+            ):
+                structurally_absorbed_corner_indices.add(corner_index)
     if diagnostics is not None:
         for corner, policy in zip(surface.corners, runtime_policies):
             for entry in _corner_runtime_policy_entries(
@@ -9415,6 +12418,15 @@ def _evaluate_surface_crops(
     corner_indices = sorted(
         set(point_atoms_by_corner) | explicit_corner_indices
     )
+    corner_indices_by_site = {}
+    for corner_index in sorted(
+        set(corner_indices) | structurally_absorbed_corner_indices
+    ):
+        for site_index in surface.corners[corner_index].incident_sites:
+            corner_indices_by_site.setdefault(site_index, []).append(
+                corner_index
+            )
+    absorbed_corner_indices = set(structurally_absorbed_corner_indices)
     crops_by_site = {}
     for corner_index in corner_indices:
         point_atoms = point_atoms_by_corner.get(corner_index, ())
@@ -9443,8 +12455,10 @@ def _evaluate_surface_crops(
             if owned_crop is not None
         )
         if not crops:
+            absorbed_corner_indices.add(corner_index)
             continue
         corner_crops[corner_index] = crops
+        corner_emitted = False
         split_dynamic_atoms = (
             corner_settings.dynamic_corner_bands
             and policy
@@ -9530,6 +12544,7 @@ def _evaluate_surface_crops(
                     ),
                     image_offset,
                 )
+                pending_count = len(pending)
                 _append_pending_fragments(
                     pending,
                     surface,
@@ -9538,6 +12553,9 @@ def _evaluate_surface_crops(
                     fragments,
                     diagnostics,
                 )
+                corner_emitted = corner_emitted or len(pending) > pending_count
+        if not corner_emitted:
+            absorbed_corner_indices.add(corner_index)
 
     for atom in surface.atoms:
         if atom.cell_kind == "POINT" and atom.corner_index in corner_crops:
@@ -9582,7 +12600,19 @@ def _evaluate_surface_crops(
                         break
                 fragments.extend(pieces)
         _append_pending_fragments(
-            pending, surface, site, crop, fragments, diagnostics
+            pending,
+            surface,
+            site,
+            crop,
+            fragments,
+            diagnostics,
+            absorbed_corner_vertices=tuple(
+                surface.corners[corner_index].vert_index
+                for corner_index in corner_indices_by_site.get(
+                    atom.site_index, ()
+                )
+                if corner_index in absorbed_corner_indices
+            ),
         )
 
 
@@ -9601,11 +12631,19 @@ def evaluate_patch_voronoi_plan(
         diagnostics.periodic_weld_count = 0
         diagnostics.interior_weld_count = 0
         diagnostics.atlas_sliver_owner_count = 0
+        diagnostics.atlas_max_sliver_owner_distance = 0.0
         diagnostics.atlas_no_owner_drop_count = 0
+        diagnostics.atlas_declared_owner_count = 0
+        diagnostics.atlas_declared_owner_missing_count = 0
+        diagnostics.atlas_degenerate_interval_merge_count = 0
+        diagnostics.atlas_undeclared_materialized_interval_count = 0
+        diagnostics.atlas_clamped_segment_face_count = 0
+        diagnostics.atlas_v_continuation_count = 0
         diagnostics.atlas_touch_no_token_drop_count = 0
         diagnostics.atlas_single_side_drop_count = 0
         diagnostics.atlas_semantic_import_count = 0
         diagnostics.atlas_semantic_transition_count = 0
+        diagnostics.atlas_arrangement_integrity_failure_count = 0
     alpha = max(1e-6, float(width) * 0.5)
     # Проверка выполняется до crop/arrangement: excess frame не имеет
     # geometry side effects и modal может оставить последний valid preview.
@@ -9695,15 +12733,29 @@ def evaluate_patch_voronoi_plan(
                 site.point_a, site.point_b, point
             )
             uv_point = (
-                _affine_point(
+                _frame_affine_point(
+                    pending_face.uv_frame_transform, point
+                )
+                if pending_face.uv_frame_transform is not None
+                else _affine_point(
                     pending_face.uv_point_transform, point
                 )
                 if pending_face.uv_point_transform is not None
                 else point
             )
-            _uv_distance, uv_t = _segment_point_distance2(
-                uv_site.point_a, uv_site.point_b, uv_point
-            )
+            raw_uv_t = _site_unbounded_parameter(uv_site, uv_point)
+            continuation = pending_face.uv_v_continuation_endpoint
+            if (
+                continuation < 0
+                and raw_uv_t < 0.0
+                or continuation > 0
+                and raw_uv_t > 1.0
+            ):
+                uv_t = raw_uv_t
+            else:
+                _uv_distance, uv_t = _segment_point_distance2(
+                    uv_site.point_a, uv_site.point_b, uv_point
+                )
             vert_keys.append(vert_key)
             positions.append(position)
             canonical_uv = transition_uv.get(vert_key)
