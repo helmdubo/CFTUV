@@ -68,6 +68,21 @@ sweep). G3-решение принято. Актуальная очередь:
    RM6-объём R1 (stable A10 для in-plane, полный bands ПОСЛЕ R3,
    dynamic bands остаётся EXPERIMENTAL/OFF). Фикстуры: RF1 +
    RF10 (планарный L-поворот, A10-семантика сохранена).
+   **Результат R1:** IMPLEMENTED (`572198e`, offset-lift fix
+   `21d9d6e`). Добавлен compile-static строгий backend
+   `RAIL_PLANAR`: surface-native cells с полным provenance,
+   виртуальные PLANAR rails для station-0 DAM, стабильный A10
+   in-plane corner, all-or-none routing конфликтующих footprints и
+   запрет runtime fallback. Shared semantic keys проходят exact raw
+   position oracle, после чего получают единый канонический lift по
+   всем incident owner normals; spatial post-weld отсутствует.
+   Полный suite: 434 passed, 2 xfailed (`GL-pending`), focused:
+   120 passed; independent review: ACCEPT. Локальные Blender-checks
+   RF10 и production `walls.001` зелёные, `rounded_wall` differential
+   неизменён. Артефакт: `artifacts/decal_r1_planar_rails.json`.
+   Финальная полевая приёмка §0d и скрины выполняются пользователем
+   на подготовленной им целевой сцене; до её результата R1 имеет
+   статус test candidate, а не окончательно принятый полевой срез.
 4. **R2 — Конкуренция и freeze в станциях**: RC1-RC3; RF7 +
    S1-регрессия в rail-координатах; слияние на эмиссии RM4.
 5. **R3 — Криволинейные поверхности** (сфера): RF2 (облегание),

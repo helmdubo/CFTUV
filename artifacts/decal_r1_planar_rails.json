@@ -1,0 +1,71 @@
+{
+  "schema": "cftuv.decal_r1_planar_rails.v1",
+  "date": "2026-07-18",
+  "baseline_head": "c097e24",
+  "implementation_commit": "572198e164bf083479c7598cc392a0f0bc77a9bd",
+  "offset_lift_fix_commit": "21d9d6e446dfd357cbba42c5fe10a54571a3b149",
+  "embedded_code_commit": "21d9d6e446dfd357cbba42c5fe10a54571a3b149",
+  "contract": {
+    "oracle": "docs/decal_rails.md",
+    "backend": "RAIL_PLANAR",
+    "compile_static": true,
+    "strict_runtime": true,
+    "runtime_fallback": false,
+    "dynamic_bands": "EXPERIMENTAL_OFF",
+    "spatial_post_weld": false,
+    "deferred_to_r2": ["RC1", "RC2", "RC3", "RM4"],
+    "deferred_to_r3_r4": ["curved_materialization", "rail_domain_uv"]
+  },
+  "geometry_guards": {
+    "shared_raw_key_position_oracle": "exact",
+    "canonical_offset_lift": "one position per semantic key from all incident owner normals",
+    "unsupported_concave_source_face": "RAIL_GEOMETRY_SOURCE_FACE_NON_CONVEX",
+    "shared_key_desync": "RAIL_GEOMETRY_SHARED_KEY_POSITION_DESYNC",
+    "non_planar_or_curved_owner": "structured compile failure"
+  },
+  "blender_candidate_checks": {
+    "source_scene": "E:/testscene.blend",
+    "blender_version": "4.3.2",
+    "rf10_temporary_planar_l": {
+      "backend": "RAIL_PLANAR:1c/2e",
+      "widths": [0.25, 0.5, 1.0, 2.0],
+      "connected_components": 1,
+      "overfull_edges": 0,
+      "zero_area_faces": 0,
+      "preview_equals_confirm": true,
+      "preview_object_reused": true,
+      "single_apply_object": true
+    },
+    "production_walls_001_edge_0": {
+      "backend": "RAIL_PLANAR:1c/1e",
+      "widths": [0.25, 0.5, 1.0, 2.0],
+      "vertices": 6,
+      "edges": 7,
+      "faces": 2,
+      "semantic_key_conflicts": 0,
+      "overfull_edges": 0,
+      "preview_equals_confirm": true
+    },
+    "rounded_wall_differential": {
+      "selected_seam_edges": 72,
+      "backend": "PLANAR+INTRINSIC_DEVELOPABLE:1c/72e | RailFallback[RAIL_GEOMETRY_BRANCH_UNSUPPORTED:x1]",
+      "unchanged": true
+    },
+    "temporary_objects_saved": false
+  },
+  "verification": {
+    "focused_passed": 120,
+    "full_suite_passed": 434,
+    "full_suite_xfailed": 2,
+    "xfail_marker": "GL-pending",
+    "full_suite_seconds": 781.44,
+    "compileall": "passed",
+    "diff_check": "passed",
+    "independent_review": "ACCEPT"
+  },
+  "field_acceptance": {
+    "status": "PENDING_USER_SCENE",
+    "policy": "docs/CFTUV_decal_runtime_intrinsic_codex_workplan.md#0d",
+    "note": "Пользователь готовит целевую сцену; локальные substitute-меши не объявляются финальной полевой приёмкой."
+  }
+}
