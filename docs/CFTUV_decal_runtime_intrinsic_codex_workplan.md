@@ -1782,6 +1782,19 @@ crop/weld-построителя, чинить построитель, collapse 
 для несмежных; смежные — либо структурно невозможны, либо
 collapsed+counted.
 
+**Результат C8.6:** закрыт структурно, без collapse-эвристики
+(`artifacts/decal_c8_6_materialization_identity.json`). Первый дефект —
+direct-site параметризовал physical edge по локальному направлению site,
+тогда как domain provenance использовал каноническое направление по
+source vertex-id. Второй дефект — cross-surface sync считал сегмент
+`INTERIOR -> pv-se` продолжением source edge по одному endpoint и вставлял
+уже присутствующую станцию в другую часть цикла. Identity теперь
+канонична, а station split допускается только на cycle-edge, оба конца
+которого структурно принадлежат тому же source edge. Hard fail и полный
+cycle-dump сохранены. Полевой `walls.010` (458 seam edges) проходит Apply
+на ширинах 0.25/0.5/1.0/2.0; повторных vertex keys в materialized faces —
+ноль. Полный suite: 382 passed, 2 xfailed (`GL-pending`).
+
 ### C8.3-cal SMOOTH-порог против полевых углов (полевой тест 2)
 
 Полевой репорт: convex-лента по арке сплитится между фейсами при
