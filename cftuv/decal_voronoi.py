@@ -76,6 +76,7 @@ _MITER_ANGLE = 2.0 * pi / 3.0
 _KITE_ANGLE = pi / 2.0
 _SPLIT_ANGLE = pi / 3.0
 _HAIRPIN_ANGLE = pi / 6.0
+_SMOOTH_TURN_ANGLE = pi / 18.0
 _MITER_LIMIT = 8.0
 
 
@@ -83,6 +84,7 @@ class _CornerPolicy(str, Enum):
     """Intrinsic corner policy; не зависит от способа lift на owner mesh."""
 
     CAP = "CAP"
+    SMOOTH = "SMOOTH"
     MITER = "MITER"
     KITE = "KITE"
     FAN = "FAN"
@@ -2335,6 +2337,100 @@ def _cap_crop_components(surface, corner, alpha):
     return (replace(component, owner_site_indices=(site_index,)),)
 
 
+def _smooth_crop_components(surface, corner, alpha, settings=None):
+    """Angle-only pass-through: две SEGMENT-половины по биссектрисе."""
+
+    if len(corner.ordered_sites) != 2:
+        return ()
+    polygon = _corner_crop_polygon(
+        surface,
+        corner,
+        _CornerPolicy.MITER,
+        alpha,
+        settings,
+    )
+    if len(polygon) < 3:
+        return ()
+    rays = []
+    for site_index in corner.ordered_sites:
+        site = _corner_site_view(surface, corner, site_index)
+        other = (
+            site.point_b
+            if site.vert_a == corner.vert_index
+            else site.point_a
+        )
+        ray = _norm2(_sub2(other, corner.point))
+        if ray is None:
+            return ()
+        rays.append(ray)
+    bisector = _norm2(
+        (rays[0][0] + rays[1][0], rays[0][1] + rays[1][1])
+    )
+    if bisector is None:
+        return ()
+    bisector_end = (
+        corner.point[0] + bisector[0],
+        corner.point[1] + bisector[1],
+    )
+    sites = tuple(
+        _corner_site_view(surface, corner, site_index)
+        for site_index in corner.ordered_sites
+    )
+
+    def site_uv(site, point):
+        parameter = _site_unbounded_parameter(site, point)
+        return (
+            _site_lateral_u(site, point, alpha),
+            _site_v_length(site, parameter),
+        )
+
+    split_tolerance = max(DECAL_WELD_DISTANCE * 0.1, 1e-9)
+    components = []
+    for site_index, site, ray in zip(
+        corner.ordered_sites,
+        sites,
+        rays,
+    ):
+        ray_side = _cross2(bisector, ray)
+        half = _clip_to_halfplane(
+            polygon,
+            corner.point,
+            bisector_end,
+            keep_inside=ray_side >= 0.0,
+        )
+        if len(half) < 3:
+            continue
+        anchors = []
+        for point in half:
+            on_bisector = abs(
+                _cross2(bisector, _sub2(point, corner.point))
+            ) <= split_tolerance
+            if on_bisector:
+                uv_values = tuple(
+                    site_uv(candidate, point) for candidate in sites
+                )
+                uv = (
+                    sum(value[0] for value in uv_values) * 0.5,
+                    sum(value[1] for value in uv_values) * 0.5,
+                )
+            else:
+                uv = site_uv(site, point)
+            anchors.append((point, uv))
+        component = _crop_component_from_anchors(
+            "SEGMENT",
+            "",
+            tuple(anchors),
+        )
+        if component is not None:
+            components.append(
+                replace(
+                    component,
+                    owner_site_indices=(site_index,),
+                )
+            )
+    return tuple(components)
+
+
 def _limited_corner_apex(
     corner, intersection, alpha, settings, diagnostics=None
 ):
@@ -2812,6 +2908,8 @@ def _corner_crop_components(
     # остаётся только legacy fallback для valence-N junction.
     if policy == _CornerPolicy.CAP:
         return _cap_crop_components(surface, corner, alpha)
+    if policy == _CornerPolicy.SMOOTH:
+        return _smooth_crop_components(surface, corner, alpha, settings)
     if not settings.dynamic_corner_bands:
         if policy == _CornerPolicy.ACUTE_SPLIT:
             return _stable_acute_crop_components(
@@ -3937,6 +4035,12 @@ def classify_corner_runtime(corner, settings=None):
 
     if abs(corner.interior_angle - pi) <= 1e-7:
         return _CornerPolicy.MITER
+    if (
+        not settings.dynamic_corner_bands
+        and pi - corner.extrusion_angle
+        <= _SMOOTH_TURN_ANGLE + _ANGLE_CLASSIFICATION_EPS
+    ):
+        return _CornerPolicy.SMOOTH
     if not settings.dynamic_corner_bands:
         if corner.extrusion_angle < settings.split_angle:
             return _CornerPolicy.ACUTE_SPLIT
@@ -3946,6 +4050,18 @@ def classify_corner_runtime(corner, settings=None):
             return _CornerPolicy.KITE
         return _CornerPolicy.MITER
     return _classify_extrusion_angle(corner.extrusion_angle, settings)
+
+
+def _classify_surface_corner_runtime(surface, corner, settings=None):
+    """Изолирует stable SMOOTH от замороженного APPROXIMATE atlas."""
+
+    policy = classify_corner_runtime(corner, settings)
+    if (
+        policy == _CornerPolicy.SMOOTH
+        and surface.domain.admission_tier == "APPROXIMATE"
+    ):
+        return _CornerPolicy.MITER
+    return policy
 
 
 def _canonical_planar_basis(normal):
@@ -12352,7 +12468,9 @@ def _evaluate_surface_crops(
     # на INNER/OUTER. Иначе длинный miter режется конкурентами как два
     # независимых крыла и визуально распадается при большой ширине.
     runtime_policies = tuple(
-        classify_corner_runtime(corner, corner_settings)
+        _classify_surface_corner_runtime(
+            surface, corner, corner_settings
+        )
         for corner in surface.corners
     )
     structurally_absorbed_corner_indices = set()
@@ -12409,7 +12527,10 @@ def _evaluate_surface_crops(
             )
             if len(corner.incident_sites) == 2
             and (
-                policy == _CornerPolicy.ACUTE_SPLIT
+                policy in {
+                    _CornerPolicy.SMOOTH,
+                    _CornerPolicy.ACUTE_SPLIT,
+                }
                 or (
                     policy == _CornerPolicy.MITER
                     and _miter_requires_explicit_crop(
@@ -12446,10 +12567,7 @@ def _evaluate_surface_crops(
         crops = tuple(
             replace(
                 owned_crop,
-                semantic_owner_id=(
-                    "corner",
-                    int(corner.vert_index),
-                ),
+                semantic_owner_id=("corner", int(corner.vert_index)),
             )
             for crop in raw_crops
             for owned_crop in (

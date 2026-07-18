@@ -893,6 +893,58 @@ def _wide_t_junction_front_graph():
     return graph, edge_indices
 
 
+def _smooth_arc_boundary_graph(segment_count=12):
+    """Convex planar boundary arc с поворотом 5 градусов на вершину."""
+
+    radius = 10.0
+    arc = [
+        Vector(
+            (
+                radius * sin((-30.0 + 60.0 * index / segment_count) * pi / 180.0),
+                radius * cos((-30.0 + 60.0 * index / segment_count) * pi / 180.0),
+                0.0,
+            )
+        )
+        for index in range(segment_count + 1)
+    ]
+    points = [Vector((-5.0, 0.0, 0.0)), Vector((5.0, 0.0, 0.0))]
+    points.extend(reversed(arc))
+    edge_indices = [700 + index for index in range(len(points))]
+    arc_vertex_indices = list(range(2, len(points)))
+    arc_edge_indices = edge_indices[2:-1]
+    node = PatchNode(
+        patch_id=70,
+        face_indices=[70],
+        centroid=sum(points, Vector()) / len(points),
+        normal=Vector((0.0, 0.0, 1.0)),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+        mesh_verts=points,
+        mesh_vert_indices=list(range(len(points))),
+        mesh_tris=[
+            (0, index, index + 1)
+            for index in range(1, len(points) - 1)
+        ],
+    )
+    node.boundary_loops = [
+        BoundaryLoop(
+            vert_indices=list(range(len(points))),
+            vert_cos=[point.copy() for point in points],
+            edge_indices=edge_indices,
+            chains=[
+                BoundaryChain(
+                    vert_indices=arc_vertex_indices,
+                    vert_cos=[points[index] for index in arc_vertex_indices],
+                    edge_indices=arc_edge_indices,
+                )
+            ],
+        )
+    ]
+    graph = PatchGraph()
+    graph.add_node(node)
+    return graph, arc_edge_indices
+
+
 def test_width_drag_does_not_reconstruct_voronoi_diagram():
     graph, edge_indices = _door_opening_graph()
     diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
@@ -1114,6 +1166,232 @@ def test_a11_oracle_angle_table(angle_degrees, expected):
     )
 
     assert decal_voronoi.classify_corner_runtime(corner, _BAND_SETTINGS) == expected
+
+
+def _smooth_corner_surface(turn_degrees=5.0):
+    turn = turn_degrees * pi / 180.0
+    sites = (
+        decal_voronoi._PatchVoronoiSite(
+            patch_id=0,
+            edge_index=600,
+            vert_a=10,
+            vert_b=11,
+            source_a=Vector((-2.0, 0.0, 0.0)),
+            source_b=Vector((0.0, 0.0, 0.0)),
+            point_a=(-2.0, 0.0),
+            point_b=(0.0, 0.0),
+            arc_start=0.0,
+            segment_length=2.0,
+            uv_sign=1.0,
+            inward_normal=(0.0, 1.0),
+            two_sided=True,
+        ),
+        decal_voronoi._PatchVoronoiSite(
+            patch_id=0,
+            edge_index=601,
+            vert_a=11,
+            vert_b=12,
+            source_a=Vector((0.0, 0.0, 0.0)),
+            source_b=Vector((2.0 * cos(turn), 2.0 * sin(turn), 0.0)),
+            point_a=(0.0, 0.0),
+            point_b=(2.0 * cos(turn), 2.0 * sin(turn)),
+            arc_start=2.0,
+            segment_length=2.0,
+            uv_sign=1.0,
+            inward_normal=(-sin(turn), cos(turn)),
+            two_sided=True,
+        ),
+    )
+    corner = decal_voronoi.CornerSpec(
+        vert_index=11,
+        point=(0.0, 0.0),
+        incident_sites=(0, 1),
+        ordered_sites=(0, 1),
+        turn_sign=1.0,
+        interior_angle=pi - turn,
+        extrusion_angle=pi - turn,
+        is_convex=True,
+        miter_ratio=1.0,
+    )
+    return SimpleNamespace(sites=sites), corner
+
+
+def test_c8_3_smooth_is_stable_angle_only_policy():
+    _surface, smooth_corner = _smooth_corner_surface(5.0)
+    _surface, miter_corner = _smooth_corner_surface(11.0)
+    stable = decal_voronoi.CornerRuntimeSettings(
+        dynamic_corner_bands=False
+    )
+
+    assert (
+        decal_voronoi.classify_corner_runtime(smooth_corner, stable)
+        == decal_voronoi._CornerPolicy.SMOOTH
+    )
+    assert (
+        decal_voronoi.classify_corner_runtime(miter_corner, stable)
+        == decal_voronoi._CornerPolicy.MITER
+    )
+    # Экспериментальная band-грамматика остаётся differential-неизменной.
+    assert (
+        decal_voronoi.classify_corner_runtime(
+            smooth_corner, _BAND_SETTINGS
+        )
+        == decal_voronoi._CornerPolicy.MITER
+    )
+    exact_surface = SimpleNamespace(
+        domain=SimpleNamespace(admission_tier="EXACT")
+    )
+    approximate_surface = SimpleNamespace(
+        domain=SimpleNamespace(admission_tier="APPROXIMATE")
+    )
+    assert (
+        decal_voronoi._classify_surface_corner_runtime(
+            exact_surface, smooth_corner, stable
+        )
+        == decal_voronoi._CornerPolicy.SMOOTH
+    )
+    # W-CP заморозил APPROXIMATE atlas до GL: C8.3 не меняет его семантику.
+    assert (
+        decal_voronoi._classify_surface_corner_runtime(
+            approximate_surface, smooth_corner, stable
+        )
+        == decal_voronoi._CornerPolicy.MITER
+    )
+
+
+def test_c8_3_smooth_uses_static_bisector_and_continuous_uv():
+    surface, corner = _smooth_corner_surface(5.0)
+    settings = decal_voronoi.CornerRuntimeSettings(
+        dynamic_corner_bands=False
+    )
+    supporting_lines = []
+
+    for alpha in (0.25, 0.5, 1.0):
+        components = decal_voronoi._smooth_crop_components(
+            surface,
+            corner,
+            alpha,
+            settings,
+        )
+        assert len(components) == 2
+        assert {component.kind for component in components} == {"SEGMENT"}
+        assert {
+            component.owner_site_indices for component in components
+        } == {(0,), (1,)}
+        shared = set(components[0].points).intersection(
+            components[1].points
+        )
+        assert len(shared) == 2
+        shared = sorted(shared)
+        direction = decal_voronoi._norm2(
+            decal_voronoi._sub2(shared[1], shared[0])
+        )
+        supporting_lines.append(
+            tuple(round(abs(value), 9) for value in direction)
+        )
+        for point in shared:
+            uv_values = []
+            for component in components:
+                point_index = component.points.index(point)
+                uv_values.append(
+                    (
+                        component.uv_anchors[point_index][0],
+                        component.v_origin
+                        + component.uv_anchors[point_index][1],
+                    )
+                )
+            assert uv_values[0] == pytest.approx(uv_values[1])
+
+    assert len(set(supporting_lines)) == 1
+
+
+def test_c8_3_dense_convex_arc_has_only_static_segment_bisectors():
+    graph, edge_indices = _smooth_arc_boundary_graph(12)
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+    plan = compile_patch_voronoi_plan(
+        graph,
+        edge_indices,
+        offset=0.01,
+        diagnostics=diagnostics,
+    )
+    settings = decal_voronoi.CornerRuntimeSettings(
+        dynamic_corner_bands=False
+    )
+    previous_lines = None
+
+    for width in (0.2, 0.4, 0.8):
+        faces = evaluate_patch_voronoi_plan(
+            plan,
+            width=width,
+            preview=True,
+            diagnostics=diagnostics,
+            corner_settings=settings,
+        )
+        assert diagnostics.runtime_policy_counts == {
+            "CAP": 2,
+            "SMOOTH": 11,
+        }
+        assert all(
+            face.component_kind in {"CAP", "SEGMENT"} for face in faces
+        )
+        lines = set()
+        surface = plan.surfaces[0]
+        for corner in surface.corners:
+            if decal_voronoi.classify_corner_runtime(corner, settings) is not (
+                decal_voronoi._CornerPolicy.SMOOTH
+            ):
+                continue
+            components = decal_voronoi._corner_crop_components(
+                surface,
+                corner,
+                decal_voronoi._CornerPolicy.SMOOTH,
+                width * 0.5,
+                settings,
+            )
+            assert len(components) == 2
+            assert all(component.kind == "SEGMENT" for component in components)
+            rays = []
+            for site_index in corner.ordered_sites:
+                site = surface.sites[site_index]
+                other = (
+                    site.point_b
+                    if site.vert_a == corner.vert_index
+                    else site.point_a
+                )
+                rays.append(
+                    decal_voronoi._norm2(
+                        decal_voronoi._sub2(other, corner.point)
+                    )
+                )
+            bisector = decal_voronoi._norm2(
+                (
+                    rays[0][0] + rays[1][0],
+                    rays[0][1] + rays[1][1],
+                )
+            )
+            assert bisector is not None
+            for component in components:
+                on_bisector = [
+                    point
+                    for point in component.points
+                    if abs(
+                        decal_voronoi._cross2(
+                            bisector,
+                            decal_voronoi._sub2(point, corner.point),
+                        )
+                    )
+                    <= 1e-8
+                ]
+                assert len(on_bisector) >= 2
+            a, b = -bisector[1], bisector[0]
+            c = -(a * corner.point[0] + b * corner.point[1])
+            if a < -1e-9 or (abs(a) <= 1e-9 and b < 0.0):
+                a, b, c = -a, -b, -c
+            lines.add((round(a, 6), round(b, 6), round(c, 6)))
+        assert len(lines) == 11
+        if previous_lines is not None:
+            assert lines == previous_lines
+        previous_lines = lines
 
 
 def test_a11_thresholds_normalize_in_order_and_soft_band_wins_equality():
