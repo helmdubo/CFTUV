@@ -1,0 +1,55 @@
+{
+  "schema": "cftuv.decal_w3_stable_caps.v1",
+  "date": "2026-07-18",
+  "previous_exact_baseline": "127cbdd",
+  "implementation_commits": {
+    "c8_1_flat_cap": "198eb45b59e8f58d0266025418e6920bed3f4ec6",
+    "c8_4_almost_closed_ring": "34276baf159c4ee1593e626756c0bd5185820245"
+  },
+  "new_exact_baseline": "34276baf159c4ee1593e626756c0bd5185820245",
+  "suite": {
+    "passed": 350,
+    "xfailed": 2,
+    "duration_seconds": 640.17,
+    "xfail_marker": "GL-pending"
+  },
+  "worktree_differential": {
+    "widths": [
+      0.2,
+      0.5,
+      1.0
+    ],
+    "closed_ring": {
+      "previous_bytes": 22920,
+      "current_bytes": 22920,
+      "previous_sha256": "2fac5995c22b0210ee4db670ab19337e8f96610916254be3afb9867727578158",
+      "current_sha256": "2fac5995c22b0210ee4db670ab19337e8f96610916254be3afb9867727578158",
+      "byte_identical": true
+    },
+    "almost_ring_n_minus_1": {
+      "previous_sha256": "36f088cf54b5ee66a1cd7c0f16ea7d6619f391a849804d51188adaaede892db2",
+      "current_sha256": "eb00ce75805ed15ca0adfbbc5f119cecc3c662ac20b29b4e0fcb833561552e65",
+      "change": "EXPECTED_VALENCE_1_CAP_FIX"
+    },
+    "almost_ring_n_minus_2": {
+      "previous_sha256": "fe5d0b1de36180f9f106df2ea3ace961ca2eaa047aef88ea36e87e93344cd3cf",
+      "current_sha256": "4b223d217c3127459af2125b4d1e70b3404e00b1e85d74a278e6121b15ec24cf",
+      "change": "EXPECTED_VALENCE_1_CAP_FIX"
+    }
+  },
+  "almost_ring_acceptance": {
+    "segment_count": 12,
+    "omitted_edge_counts": [
+      1,
+      2
+    ],
+    "connected_components": 1,
+    "boundary_components": 1,
+    "boundary_non_degree_two": 0,
+    "overfull_edges": 0,
+    "max_cap_tangent_dot": 0.0,
+    "x6_closed_anchor_mismatch": 0,
+    "x6_open_endpoint_mismatch_still_observable": true,
+    "l6_checker_changed": false
+  }
+}
