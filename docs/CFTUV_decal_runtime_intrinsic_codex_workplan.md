@@ -123,8 +123,17 @@ Differential-дисциплина внутри среза: W1-W2 — EP1 бай�
    фикстурах; R1-аудит images chart19 (endpoint-corner/12036);
    `atlas_clamped_segment_face_count == 0` глобально; обе стороны
    subedge трассируются к ОДНОМУ owner-frame'у (chart18), O1 в
-   tolerance на обоих концах. Ассерт на всех фикстурах: в
-   опубликованных T2-контрактах нет интервалов длиной <= 1 кванта.
+   tolerance на обоих концах. Шестой кейс — V-континуация
+   (T7-P3.8; chart4, transition (5,26) 4<->6, face stations
+   1111..1250, declared SEGMENT 12010, параметр за endpoint на
+   0.0669797 при q=1e-4, corner5 tau ~ 0.0006 rad, policy KITE):
+   после фикса V течёт сквозь corner5 без clamp'а;
+   `atlas_clamped_segment_face_count == 0` глобально БЕЗ ослабления
+   guard'а; `atlas_v_continuation_count > 0` на репро; континуация
+   только через углы с поглощённой (суб-квантовой) структурой —
+   ассерт; O1 в tolerance на subedge; кейсы 1-5 остаются зелёными.
+   Ассерт на всех фикстурах: в опубликованных T2-контрактах нет
+   интервалов длиной <= 1 кванта.
 5. §9: записать T7-P3 evidence + пункт 4 прежнего списка §8b
    (bisector-ветка/single-hop guard, обоснование допуска).
 
