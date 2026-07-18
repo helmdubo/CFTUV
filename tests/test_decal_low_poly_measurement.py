@@ -12,6 +12,9 @@ from cftuv.decal_chart_admission import (
     admit_intrinsic_strip_runtime,
 )
 from cftuv.decal_chart_measurement import measure_chart_width
+from cftuv.decal_chart_parametrization import (
+    parameterize_intrinsic_strip_width,
+)
 from cftuv.decal_charts import (
     ChartBuildFailure,
     _source_vertex_angle,
@@ -220,13 +223,15 @@ def _measure_low_poly_fixture(fixture):
         _prepare_disk_topology(chart),
         edge_relative_tolerance=1e-5,
     )
-    measured = measure_chart_width(unrolled)
-    profile = _measurement_profile(unrolled)
-    unrolled = replace(
-        unrolled,
-        metrics=replace(unrolled.metrics, **measured),
+    raw_measurement = measure_chart_width(unrolled)
+    parameterized = parameterize_intrinsic_strip_width(unrolled)
+    measured = measure_chart_width(parameterized)
+    profile = _measurement_profile(parameterized)
+    parameterized = replace(
+        parameterized,
+        metrics=replace(parameterized.metrics, **measured),
     )
-    defects = _angle_defect_values(unrolled)
+    defects = _angle_defect_values(parameterized)
     try:
         admitted = admit_intrinsic_strip_runtime(
             chart,
@@ -240,9 +245,10 @@ def _measure_low_poly_fixture(fixture):
         "defect_max": max(defects, default=0.0),
         "defect_mean": sum(defects) / len(defects) if defects else 0.0,
         "width_error": measured["max_width_error_sampled"],
+        "raw_width_error": raw_measurement["max_width_error_sampled"],
         "normal_variation": measured["max_station_normal_variation"],
         "reason": reason,
-        "measurement_mode": "INTRINSIC_CHART_PRE_ADMISSION",
+        "measurement_mode": "W4_WIDTH_PARAMETERIZED_PRE_ADMISSION",
         "fallback_geometry_evaluated": False,
         "fixture_geometry": _fixture_geometry_contract(
             node, seeds, alpha
@@ -257,13 +263,13 @@ def _measure_low_poly_fixture(fixture):
         (
             low_poly_dome_fixture(16, 8, patch_id=116),
             (0.063, 0.065),
-            (0.060, 0.061),
+            (0.036, 0.038),
             "DISTORTION_BUDGET_EXCEEDED",
         ),
         (
             low_poly_dome_fixture(32, 16, patch_id=132),
             (0.015, 0.017),
-            (0.408, 0.410),
+            (0.009, 0.010),
             "DISTORTION_BUDGET_EXCEEDED",
         ),
         (
@@ -317,7 +323,7 @@ def test_g3_dome_recheck_uses_same_latitude_and_exposes_error_profile():
 
     for measured in (coarse, fine):
         assert measured["measurement_mode"] == (
-            "INTRINSIC_CHART_PRE_ADMISSION"
+            "W4_WIDTH_PARAMETERIZED_PRE_ADMISSION"
         )
         assert measured["fallback_geometry_evaluated"] is False
         geometry = measured["fixture_geometry"]
@@ -334,17 +340,40 @@ def test_g3_dome_recheck_uses_same_latitude_and_exposes_error_profile():
             measured["width_error"]
         )
 
-    # На fine fixture ошибка одной стороны растёт вдоль ленты, а не
-    # возникает пиком на seam/support boundary. Это evidence для нового
-    # G3 design decision, не основание ослаблять admission-порог.
-    fine_left = tuple(
-        row
-        for row in fine["station_profile"]
-        if row["status"] == "MEASURED"
-        and row["side"] == "LEFT"
-        and 0.2 <= row["station_fraction"] <= 0.9
+    # W4 устраняет накопление holonomy: на fine fixture КАЖДАЯ станция
+    # согласуется с локальным hinge-unfold внутри E2-бюджета.
+    for row in fine["station_profile"]:
+        if row["status"] != "MEASURED":
+            continue
+        assert abs(
+            row["hinge_unfolded_distance"]
+            - row["sampled_chart_distance"]
+        ) <= 0.02
+
+
+def test_w4_dome_resolution_sweep_converges_monotonically():
+    errors = tuple(
+        _measure_low_poly_fixture(
+            low_poly_dome_fixture(
+                azimuth_segments,
+                latitude_segments,
+                patch_id=300 + azimuth_segments,
+            )
+        )["width_error"]
+        for azimuth_segments, latitude_segments in (
+            (12, 6),
+            (16, 8),
+            (20, 10),
+            (24, 12),
+            (32, 16),
+            (48, 24),
+            (64, 32),
+        )
     )
-    assert fine_left[0]["relative_width_error"] < 0.05
-    assert max(
-        row["relative_width_error"] for row in fine_left
-    ) > 0.40
+
+    assert all(
+        following < previous
+        for previous, following in zip(errors, errors[1:])
+    )
+    assert errors[0] < 0.09
+    assert errors[-1] < 0.003

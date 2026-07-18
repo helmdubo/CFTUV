@@ -2775,6 +2775,30 @@ rail при данных параметрах). Только после этог
 EP1-нейтральна, default-off; admission/proxy не трогать до
 re-sweep.
 
+**W4-fix реализован diagnostics-only** (`artifacts/
+decal_w4_low_poly_measurements.json`, schema v3). Новый модуль
+`decal_chart_parametrization.py` строит единую `(s, v)`-координату
+для каждой source-вершины open strip: site-chain становится `v=0`,
+`v` берётся из локального hinge-unfold ближайшего сегмента, а за
+концами цепочки `s` продолжается по касательной (terminal clamp не
+схлопывает endcap). Кандидат жёстко проверяется на orientation flip и
+triangle overlap. Production admission/routing не изменены.
+
+Re-sweep теперь строго монотонен и больше не зависит от случайного
+zigzag global BFS: `12x6..64x32 = 8.447%, 3.676%, 1.584%, 1.564%,
+0.919%, 0.408%, 0.230%`; foldover/overlap = 0, цилиндры остаются на
+численном нуле. На `32x16` каждая из 40 station-side проб внутри E2.
+Два результата требуют решения G3 до включения в production:
+
+1. `12x6` и `16x8` всё ещё честно выше 2% (8.447% и 3.676%);
+2. refined limit стремится ниже 0.3%, а не к предсказанным ~2%.
+
+**G3 остаётся закрыт:** не менять admission/proxy и не включать W4 в
+runtime, пока ревьювер не решит, являются ли coarse-отказы честной
+дискретизацией (тогда measured-first допускает начиная с `20x10`) или
+контракт W4 требует ещё одной конструкции. Полный текст запроса
+лежит в поле `reviewer_message` schema v3.
+
 ---
 
 # 4. Curvature-specific safety contract
