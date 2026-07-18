@@ -199,10 +199,205 @@ def crumple_fixture(*, alpha=1.0, patch_id=93):
     )
 
 
+def _indexed_surface_fixture(
+    positions,
+    cells,
+    path_vertices,
+    *,
+    alpha,
+    patch_id,
+):
+    """Общий indexed fixture для W4; production geometry не затрагивает."""
+
+    triangles = []
+    face_ids = []
+    face_normals = []
+    physical_edges = set()
+    face_normal_by_id = {}
+    for face_offset, cell in enumerate(cells):
+        face_id = 20000 + face_offset
+        physical_edges.update(
+            tuple(sorted((cell[index], cell[(index + 1) % len(cell)])))
+            for index in range(len(cell))
+        )
+        cell_triangles = ((cell[0], cell[1], cell[2]),)
+        if len(cell) == 4:
+            cell_triangles += ((cell[0], cell[2], cell[3]),)
+        for triangle in cell_triangles:
+            first, second, third = (
+                positions[index] for index in triangle
+            )
+            normal = (second - first).cross(third - first).normalized()
+            triangles.append(triangle)
+            face_ids.append(face_id)
+            face_normals.append(normal)
+            face_normal_by_id.setdefault(face_id, normal)
+    edge_index_by_pair = {
+        pair: 30000 + index
+        for index, pair in enumerate(sorted(physical_edges))
+    }
+    triangle_edge_indices = []
+    for first, second, third in triangles:
+        triangle_edge_indices.append(
+            (
+                edge_index_by_pair.get(tuple(sorted((second, third))), -1),
+                edge_index_by_pair.get(tuple(sorted((third, first))), -1),
+                edge_index_by_pair.get(tuple(sorted((first, second))), -1),
+            )
+        )
+    path_pairs = tuple(
+        tuple(sorted((path_vertices[index], path_vertices[index + 1])))
+        for index in range(len(path_vertices) - 1)
+    )
+    edge_indices = tuple(edge_index_by_pair[pair] for pair in path_pairs)
+    owner_face_ids = []
+    for pair in path_pairs:
+        owner_face_ids.append(
+            next(
+                20000 + face_offset
+                for face_offset, cell in enumerate(cells)
+                if pair[0] in cell and pair[1] in cell
+            )
+        )
+    node = PatchNode(
+        patch_id=patch_id,
+        face_indices=sorted(set(face_ids)),
+        centroid=sum(positions, Vector()) / len(positions),
+        normal=Vector((0.0, 0.0, 1.0)),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+        mesh_verts=list(positions),
+        mesh_vert_indices=list(range(len(positions))),
+        mesh_tris=triangles,
+        mesh_tri_face_indices=face_ids,
+        mesh_tri_face_normals=face_normals,
+        mesh_tri_edge_indices=triangle_edge_indices,
+    )
+    chain = BoundaryChain(
+        vert_indices=list(path_vertices),
+        vert_cos=[positions[index] for index in path_vertices],
+        edge_indices=list(edge_indices),
+        side_face_indices=owner_face_ids,
+        side_face_normals=[
+            face_normal_by_id[face_id] for face_id in owner_face_ids
+        ],
+    )
+    node.boundary_loops = [BoundaryLoop(chains=[chain])]
+    seeds = tuple(
+        ChartSiteSeed(
+            edge_index=edge_indices[index],
+            source_vertex_ids=path_pairs[index],
+            source_face_id=owner_face_ids[index],
+            chain_ref=(patch_id, 0, index),
+        )
+        for index in range(len(edge_indices))
+    )
+    return node, seeds, alpha
+
+
+def low_poly_dome_fixture(
+    azimuth_segments,
+    latitude_segments,
+    *,
+    radius=5.0,
+    alpha=1.0,
+    patch_id=100,
+):
+    """Полусфера W4 с локальной полуокружностью на средней широте."""
+
+    positions = [Vector((0.0, 0.0, radius))]
+    rings = []
+    for latitude_index in range(1, latitude_segments + 1):
+        theta = 0.5 * pi * latitude_index / latitude_segments
+        ring = []
+        for azimuth_index in range(azimuth_segments):
+            phi = 2.0 * pi * azimuth_index / azimuth_segments
+            ring.append(len(positions))
+            positions.append(
+                Vector(
+                    (
+                        radius * sin(theta) * cos(phi),
+                        radius * sin(theta) * sin(phi),
+                        radius * cos(theta),
+                    )
+                )
+            )
+        rings.append(ring)
+    cells = []
+    first_ring = rings[0]
+    for index in range(azimuth_segments):
+        cells.append(
+            (0, first_ring[index], first_ring[(index + 1) % azimuth_segments])
+        )
+    for ring_index in range(len(rings) - 1):
+        inner = rings[ring_index]
+        outer = rings[ring_index + 1]
+        for index in range(azimuth_segments):
+            next_index = (index + 1) % azimuth_segments
+            cells.append(
+                (inner[index], outer[index], outer[next_index], inner[next_index])
+            )
+    selected_ring = rings[max(0, latitude_segments // 2 - 1)]
+    # Полуокружность достаточно длинна для coarse-defect, но не создаёт
+    # почти-периодический cut: G3 измеряется отдельно от D/holonomy.
+    path_vertices = selected_ring[: azimuth_segments // 2 + 1]
+    return _indexed_surface_fixture(
+        positions,
+        cells,
+        path_vertices,
+        alpha=alpha,
+        patch_id=patch_id,
+    )
+
+
+def low_poly_cylinder_fixture(
+    azimuth_segments,
+    *,
+    height_segments=8,
+    radius=5.0,
+    height=4.0,
+    alpha=1.0,
+    patch_id=110,
+):
+    """Developable W4 control с выбранной открытой образующей."""
+
+    positions = []
+    rings = []
+    for height_index in range(height_segments + 1):
+        z = height * (height_index / height_segments - 0.5)
+        ring = []
+        for azimuth_index in range(azimuth_segments):
+            phi = 2.0 * pi * azimuth_index / azimuth_segments
+            ring.append(len(positions))
+            positions.append(
+                Vector((radius * cos(phi), radius * sin(phi), z))
+            )
+        rings.append(ring)
+    cells = []
+    for height_index in range(height_segments):
+        lower = rings[height_index]
+        upper = rings[height_index + 1]
+        for index in range(azimuth_segments):
+            next_index = (index + 1) % azimuth_segments
+            cells.append(
+                (lower[index], lower[next_index], upper[next_index], upper[index])
+            )
+    path_vertices = [ring[0] for ring in rings]
+    return _indexed_surface_fixture(
+        positions,
+        cells,
+        path_vertices,
+        alpha=alpha,
+        patch_id=patch_id,
+    )
+
+
 __all__ = [
     "cliff_fixture",
     "crumple_fixture",
     "intermediate_dome_fixture",
+    "low_poly_cylinder_fixture",
+    "low_poly_dome_fixture",
     "saddle_fixture",
     "sphere_cap_fixture",
     "tight_sphere_fixture",

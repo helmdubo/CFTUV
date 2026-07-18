@@ -1,0 +1,87 @@
+{
+  "schema": "cftuv.decal_w4_low_poly_measurements.v1",
+  "date": "2026-07-18",
+  "production_threshold_changes": false,
+  "normalization": {
+    "alpha": 1.0,
+    "radius": 5.0,
+    "radius_to_alpha": 5.0,
+    "dome_path": "open half-parallel at 45 degrees latitude",
+    "cylinder_path": "open generator",
+    "distortion_budget": 0.02
+  },
+  "fixtures": [
+    {
+      "fixture": "dome_16x8",
+      "support_triangles": 108,
+      "defect_max_rad": 0.06397415526534367,
+      "defect_mean_rad": 0.05387974866640354,
+      "defect_sample_count": 27,
+      "max_width_error_sampled": 0.06023004713694946,
+      "max_station_normal_variation_rad": 0.3911894777729917,
+      "triangle_overlap_count": 0,
+      "foldover_count": 0,
+      "admission": "REJECT",
+      "reason": "DISTORTION_BUDGET_EXCEEDED"
+    },
+    {
+      "fixture": "dome_32x16",
+      "support_triangles": 282,
+      "defect_max_rad": 0.016019478516165364,
+      "defect_mean_rad": 0.013503691794662655,
+      "defect_sample_count": 95,
+      "max_width_error_sampled": 0.40886009454520134,
+      "max_station_normal_variation_rad": 0.2942479701885539,
+      "triangle_overlap_count": 0,
+      "foldover_count": 0,
+      "admission": "REJECT",
+      "reason": "DISTORTION_BUDGET_EXCEEDED"
+    },
+    {
+      "fixture": "cylinder_12",
+      "support_triangles": 48,
+      "defect_max_rad": 0.0,
+      "defect_mean_rad": 0.0,
+      "defect_sample_count": 7,
+      "max_width_error_sampled": 1.3322676295501878e-15,
+      "max_station_normal_variation_rad": 0.5235987755982989,
+      "triangle_overlap_count": 0,
+      "foldover_count": 0,
+      "admission": "EXACT",
+      "reason": "NONE"
+    },
+    {
+      "fixture": "cylinder_16",
+      "support_triangles": 48,
+      "defect_max_rad": 0.0,
+      "defect_mean_rad": 0.0,
+      "defect_sample_count": 7,
+      "max_width_error_sampled": 6.661338147750939e-16,
+      "max_station_normal_variation_rad": 0.3926990816987248,
+      "triangle_overlap_count": 0,
+      "foldover_count": 0,
+      "admission": "EXACT",
+      "reason": "NONE"
+    },
+    {
+      "fixture": "cylinder_24",
+      "support_triangles": 48,
+      "defect_max_rad": 0.0,
+      "defect_mean_rad": 0.0,
+      "defect_sample_count": 7,
+      "max_width_error_sampled": 6.661338147750939e-16,
+      "max_station_normal_variation_rad": 0.26179938779914935,
+      "triangle_overlap_count": 0,
+      "foldover_count": 0,
+      "admission": "EXACT",
+      "reason": "NONE"
+    }
+  ],
+  "stop_condition": {
+    "activated": true,
+    "fixture": "dome_16x8",
+    "observed_width_error": 0.06023004713694946,
+    "budget": 0.02,
+    "action": "NO_THRESHOLD_CHANGE; REVIEW_G3_DECISION"
+  }
+}
