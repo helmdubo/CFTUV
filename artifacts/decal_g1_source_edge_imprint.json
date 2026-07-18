@@ -1,0 +1,57 @@
+{
+  "schema": "cftuv.decal_g1_source_edge_imprint.v1",
+  "date": "2026-07-18",
+  "baseline_head": "f48c288",
+  "implementation_commit": "723607d8f0f25533b20891674d347a1d87a73fca",
+  "suite": {
+    "passed": 367,
+    "xfailed": 2,
+    "duration_seconds": 704.23,
+    "xfail_marker": "GL-pending",
+    "compileall": "passed",
+    "diff_check": "passed"
+  },
+  "planar_differential": {
+    "fixtures": [
+      "planar_two_site",
+      "wide_t"
+    ],
+    "widths": [
+      0.2,
+      0.6,
+      1.0,
+      1.5
+    ],
+    "modes": [
+      "preview",
+      "confirm"
+    ],
+    "baseline_sha256": "9e1ca3fa4389a981bc7e38e59479bee1497aca95171b7f87c6b8dcce201dd263",
+    "current_sha256": "9e1ca3fa4389a981bc7e38e59479bee1497aca95171b7f87c6b8dcce201dd263",
+    "byte_identical": true
+  },
+  "curved_exact_acceptance": {
+    "fixture": "five-facet 60-degree developable strip",
+    "source_face_merge_groups": 5,
+    "widths": [
+      0.4,
+      0.8,
+      1.2
+    ],
+    "imprint_edge_counts": [
+      0,
+      1,
+      2
+    ],
+    "supporting_keys_monotonic": true,
+    "uv_continuity_tolerance": 1e-06,
+    "connected_manifold": true
+  },
+  "scope": {
+    "exact_intrinsic": "source-face folds preserved during fragment union",
+    "triangulation_diagonals": "always merged by source_face_id",
+    "coplanar_faces": "merged at DECAL_COPLANAR_DOT",
+    "approximate_atlas": "unchanged; domain edges already belong to arrangement",
+    "toggle_added": false
+  }
+}

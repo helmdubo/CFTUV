@@ -2523,6 +2523,15 @@ overlay, и он явно НЕ планируется.
 
 ## G1. Source-edge imprint на кривых поверхностях (утверждено пользователем)
 
+Статус: **IMPLEMENTED** (`723607d`). Exact intrinsic atoms сохраняют
+provenance исходного triangle; union объединяет их только внутри одной
+source-face/coplanar merge-group. Поэтому диагонали триангуляции исчезают,
+а реальные fold-рёбра остаются twin-boundaries с общими exact keys и
+непрерывным UV. APPROXIMATE atlas не изменён: domain-рёбра уже входят в его
+arrangement. Curved width-sweep даёт 0 -> 1 -> 2 монотонных compile-static
+imprint-рёбер; плоский differential с baseline `f48c288` байт-идентичен.
+Receipt: `artifacts/decal_g1_source_edge_imprint.json`.
+
 Продуктовая цель: широкая декаль на кривой поверхности (полусфера от
 кромки) получает ребро на каждом пересечённом source-ребре оригинала
 («вершины-близнецы» соединяются) — готовая облегающая сетка. Для
