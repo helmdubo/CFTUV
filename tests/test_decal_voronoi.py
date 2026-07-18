@@ -564,6 +564,88 @@ def _orthogonal_corner_graph():
     return graph
 
 
+def _planar_unselected_fold_graph():
+    """Две PLANAR-полосы встречаются на общем невыбранном edge 99."""
+
+    graph = PatchGraph()
+    patch_specs = (
+        (
+            20,
+            Vector((0.0, 0.0, 1.0)),
+            Vector((1.0, 0.0, 0.0)),
+            Vector((0.0, 1.0, 0.0)),
+            [
+                Vector((0.0, 0.0, 0.0)),
+                Vector((2.0, 0.0, 0.0)),
+                Vector((2.0, 0.5, 0.0)),
+                Vector((1.0, 0.5, 0.0)),
+                Vector((0.0, 0.5, 0.0)),
+            ],
+            [0, 1, 2, 6, 3],
+            [99, 101, 12, 10, 102],
+            [3, 6, 2],
+            [4, 3, 2],
+            [10, 12],
+        ),
+        (
+            21,
+            Vector((0.0, -1.0, 0.0)),
+            Vector((1.0, 0.0, 0.0)),
+            Vector((0.0, 0.0, 1.0)),
+            [
+                Vector((0.0, 0.0, 0.0)),
+                Vector((0.0, 0.0, 0.5)),
+                Vector((1.0, 0.0, 0.5)),
+                Vector((2.0, 0.0, 0.5)),
+                Vector((2.0, 0.0, 0.0)),
+            ],
+            [0, 4, 7, 5, 1],
+            [103, 11, 13, 104, 99],
+            [4, 7, 5],
+            [1, 2, 3],
+            [11, 13],
+        ),
+    )
+    for (
+        patch_id,
+        normal,
+        basis_u,
+        basis_v,
+        points,
+        loop_vertices,
+        loop_edges,
+        chain_vertices,
+        chain_point_indices,
+        chain_edges,
+    ) in patch_specs:
+        node = PatchNode(
+            patch_id=patch_id,
+            face_indices=[patch_id],
+            centroid=sum(points, Vector()) / len(points),
+            normal=normal,
+            basis_u=basis_u,
+            basis_v=basis_v,
+            mesh_verts=points,
+            mesh_tris=[(0, 1, 2), (0, 2, 3), (0, 3, 4)],
+        )
+        node.boundary_loops = [
+            BoundaryLoop(
+                vert_indices=loop_vertices,
+                vert_cos=points,
+                edge_indices=loop_edges,
+                chains=[
+                    BoundaryChain(
+                        vert_indices=chain_vertices,
+                        vert_cos=[points[index] for index in chain_point_indices],
+                        edge_indices=chain_edges,
+                    )
+                ],
+            )
+        ]
+        graph.add_node(node)
+    return graph, (10, 11, 12, 13)
+
+
 def _single_patch_fold_graph():
     """Один topology patch с двумя реальными owner-плоскостями."""
 
@@ -2496,6 +2578,131 @@ def test_cross_surface_spine_station_is_mirrored_without_new_face():
     assert neighbour.u_fracs[1] == pytest.approx(0.25)
     assert neighbour.v_lengths[1] == pytest.approx(1.0)
 
+
+def test_c8_2_cross_surface_spine_merges_already_split_runs():
+    first_station = ("pv-se", 40, 0.25)
+    second_station = ("pv-se", 40, 0.5)
+    first = decal_voronoi._NetworkFace(
+        surface_id=0,
+        surface_normal=Vector((0.0, 0.0, 1.0)),
+        vert_keys=[
+            ("pv-sv", 0),
+            first_station,
+            ("pv-sv", 1),
+            ("pv", 0, 1, 1),
+        ],
+        positions=[
+            Vector((0.0, 0.0, 0.0)),
+            Vector((0.25, 0.0, 0.0)),
+            Vector((1.0, 0.0, 0.0)),
+            Vector((0.0, 1.0, 0.0)),
+        ],
+        u_fracs=[0.0, 0.25, 1.0, 0.0],
+        v_lengths=[0.0, 1.0, 4.0, 0.0],
+    )
+    second = decal_voronoi._NetworkFace(
+        surface_id=1,
+        surface_normal=Vector((0.0, 1.0, 0.0)),
+        vert_keys=[
+            ("pv-sv", 0),
+            second_station,
+            ("pv-sv", 1),
+            ("pv", 1, 1, 1),
+        ],
+        positions=[
+            Vector((0.0, 0.0, 0.0)),
+            Vector((0.5, 0.0, 0.0)),
+            Vector((1.0, 0.0, 0.0)),
+            Vector((0.0, 0.0, 1.0)),
+        ],
+        u_fracs=[0.0, 0.5, 1.0, 0.0],
+        v_lengths=[0.0, 2.0, 4.0, 0.0],
+    )
+    plan = SimpleNamespace(
+        surfaces=(
+            SimpleNamespace(
+                sites=(
+                    SimpleNamespace(edge_index=40, vert_a=0, vert_b=1),
+                )
+            ),
+        )
+    )
+
+    decal_voronoi._synchronize_cross_surface_spine_stations(
+        plan, [first, second]
+    )
+
+    expected = [
+        ("pv-sv", 0),
+        first_station,
+        second_station,
+        ("pv-sv", 1),
+    ]
+    assert first.vert_keys[:4] == expected
+    assert second.vert_keys[:4] == expected
+    assert tuple(first.positions[2]) == pytest.approx((0.5, 0.0, 0.0))
+    assert tuple(second.positions[1]) == pytest.approx((0.25, 0.0, 0.0))
+
+
+def test_c8_2_unselected_fold_is_connected_without_spine_sync(monkeypatch):
+    graph, selected_edges = _planar_unselected_fold_graph()
+    plan = compile_patch_voronoi_plan(
+        graph, selected_edges, offset=0.01
+    )
+    assert plan is not None
+    assert {surface.domain.kind for surface in plan.surfaces} == {"PLANAR"}
+    monkeypatch.setattr(
+        decal_voronoi,
+        "_synchronize_cross_surface_spine_stations",
+        lambda _plan, _faces: None,
+    )
+
+    for width in (1.0, 1.2, 1.5):
+        faces = evaluate_patch_voronoi_plan(
+            plan, width=width, preview=True
+        )
+        assert faces
+        station_key = ("pv-se", 99, 0.5)
+        station_surfaces = {
+            face.surface_id
+            for face in faces
+            if station_key in face.vert_keys
+        }
+        assert station_surfaces == {20, 21}
+
+        edges_by_face = []
+        for face in faces:
+            edges_by_face.append(
+                {
+                    tuple(
+                        sorted(
+                            (
+                                face.vert_keys[index],
+                                face.vert_keys[(index + 1) % len(face.vert_keys)],
+                            ),
+                            key=repr,
+                        )
+                    )
+                    for index in range(len(face.vert_keys))
+                }
+            )
+        unseen = set(range(len(faces)))
+        components = 0
+        while unseen:
+            components += 1
+            stack = [unseen.pop()]
+            while stack:
+                face_index = stack.pop()
+                neighbours = {
+                    other_index
+                    for other_index in unseen
+                    if edges_by_face[face_index] & edges_by_face[other_index]
+                }
+                unseen.difference_update(neighbours)
+                stack.extend(neighbours)
+        assert components == 1
+
+
 def test_surface_domain_separates_planar_solver_from_intrinsic_lift():
     planar = decal_voronoi.DecalSurfaceDomain(
         patch_id=0,
@@ -2552,6 +2759,118 @@ def test_surface_domain_separates_planar_solver_from_intrinsic_lift():
     )
     with pytest.raises(ValueError):
         intrinsic.project(Vector((0.0, 0.0, 0.0)))
+
+
+def test_c8_2_planar_source_edge_keys_are_cross_surface_exact():
+    first = decal_voronoi.DecalSurfaceDomain(
+        patch_id=10,
+        kind="PLANAR",
+        origin=Vector((0.0, 0.0, 0.0)),
+        reference_normal=Vector((0.0, 0.0, 1.0)),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+        boundary_triangles=(),
+        planar_source_edges=((77, 100, 101, (0.0, 0.0), (1.0, 0.0)),),
+        planar_source_vertices=((100, (0.0, 0.0)), (101, (1.0, 0.0))),
+        planar_source_edge_positions=(
+            (77, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+        ),
+    )
+    second = decal_voronoi.DecalSurfaceDomain(
+        patch_id=11,
+        kind="PLANAR",
+        origin=Vector((1.0, 0.0, 0.0)),
+        reference_normal=Vector((0.0, -1.0, 0.0)),
+        basis_u=Vector((-1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 0.0, 1.0)),
+        boundary_triangles=(),
+        planar_source_edges=((77, 100, 101, (1.0, 0.0), (0.0, 0.0)),),
+        planar_source_vertices=((100, (1.0, 0.0)), (101, (0.0, 0.0))),
+        planar_source_edge_positions=(
+            (77, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+        ),
+    )
+    location_a = first.locate((0.375, 0.0))
+    location_b = second.locate((0.625, 0.0))
+    surface_a = SimpleNamespace(domain=first, patch_id=10)
+    surface_b = SimpleNamespace(domain=second, patch_id=11)
+
+    assert (location_a.source_feature, location_a.source_feature_id) == (
+        "EDGE",
+        77,
+    )
+    assert (location_b.source_feature, location_b.source_feature_id) == (
+        "EDGE",
+        77,
+    )
+    assert decal_voronoi._domain_location_key(
+        surface_a, location_a
+    ) == decal_voronoi._domain_location_key(surface_b, location_b)
+    assert decal_voronoi._domain_location_key(
+        surface_a, location_a
+    ) == ("pv-se", 77, 0.375)
+    assert decal_voronoi._domain_location_key(
+        surface_a, first.locate((0.0, 0.0))
+    ) == ("pv-sv", 100)
+
+
+def test_c8_2_planar_compile_keeps_unselected_boundary_provenance():
+    points = [
+        Vector((0.0, 0.0, 0.0)),
+        Vector((2.0, 0.0, 0.0)),
+        Vector((2.0, 1.0, 0.0)),
+        Vector((0.0, 1.0, 0.0)),
+    ]
+    node = PatchNode(
+        patch_id=12,
+        face_indices=[12],
+        centroid=sum(points, Vector()) / 4.0,
+        normal=Vector((0.0, 0.0, 1.0)),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+        mesh_verts=points,
+        mesh_tris=[(0, 1, 2), (0, 2, 3)],
+    )
+    node.boundary_loops = [
+        BoundaryLoop(
+            vert_indices=[0, 1, 2, 3],
+            vert_cos=points,
+            edge_indices=[80, 81, 82, 83],
+            chains=[
+                BoundaryChain(
+                    vert_indices=[0, 1],
+                    vert_cos=points[:2],
+                    edge_indices=[80],
+                )
+            ],
+        )
+    ]
+    graph = PatchGraph()
+    graph.add_node(node)
+
+    plan = compile_patch_voronoi_plan(graph, [80], offset=0.01)
+    domain = plan.surfaces[0].domain
+    assert {record[0] for record in domain.planar_source_edges} == {
+        80,
+        81,
+        82,
+        83,
+    }
+    edge_record = next(
+        record for record in domain.planar_source_edges if record[0] == 83
+    )
+    unselected_point = (
+        (edge_record[3][0] + edge_record[4][0]) * 0.5,
+        (edge_record[3][1] + edge_record[4][1]) * 0.5,
+    )
+    unselected = domain.locate(unselected_point)
+    assert (unselected.source_feature, unselected.source_feature_id) == (
+        "EDGE",
+        83,
+    )
+    assert decal_voronoi._domain_location_key(
+        plan.surfaces[0], unselected
+    ) == ("pv-se", 83, 0.5)
 
 
 def test_b2_intrinsic_location_matches_reference_full_scan():

@@ -422,6 +422,23 @@ class DecalSurfaceDomain:
     triangle_grid: _TriangleAabbGrid | None = None
     source_edge_features: tuple[tuple[object, tuple[int, ...]], ...] = ()
     source_vertex_features: tuple[tuple[object, tuple[int, ...]], ...] = ()
+    planar_source_edges: tuple[
+        tuple[
+            int,
+            int,
+            int,
+            tuple[float, float],
+            tuple[float, float],
+        ],
+        ...,
+    ] = ()
+    planar_source_vertices: tuple[
+        tuple[int, tuple[float, float]], ...
+    ] = ()
+    planar_source_edge_positions: tuple[
+        tuple[int, tuple[float, float, float], tuple[float, float, float]],
+        ...,
+    ] = ()
     transition_metadata: tuple[tuple[object, str, object], ...] = ()
     admission_tier: str = "EXACT"
     normalize_fragment_t_junctions: bool = False
@@ -539,6 +556,54 @@ class DecalSurfaceDomain:
 
         uv = (float(point[0]), float(point[1]))
         if self.kind == "PLANAR":
+            tolerance = max(
+                self.location_tolerance,
+                DECAL_WELD_DISTANCE * 0.25,
+            )
+            vertex_candidates = []
+            for vertex_id, vertex_uv in self.planar_source_vertices:
+                distance = _dist2(uv, vertex_uv)
+                if distance <= tolerance:
+                    vertex_candidates.append(
+                        (distance, int(vertex_id), vertex_uv)
+                    )
+            if vertex_candidates:
+                _distance, vertex_id, vertex_uv = min(vertex_candidates)
+                return DomainLocation(
+                    chart_id=self.chart_id,
+                    triangle_id=-1,
+                    uv=vertex_uv,
+                    barycentric=(1.0, 0.0, 0.0),
+                    source_feature="VERTEX",
+                    source_feature_id=vertex_id,
+                )
+            edge_candidates = []
+            for edge_record in self.planar_source_edges:
+                edge_id, _vert_a, _vert_b, point_a, point_b = edge_record
+                distance, parameter = _segment_point_distance2(
+                    point_a, point_b, uv
+                )
+                if distance > tolerance:
+                    continue
+                projection = (
+                    point_a[0] + (point_b[0] - point_a[0]) * parameter,
+                    point_a[1] + (point_b[1] - point_a[1]) * parameter,
+                )
+                edge_candidates.append(
+                    (distance, int(edge_id), parameter, projection)
+                )
+            if edge_candidates:
+                _distance, edge_id, _parameter, projection = min(
+                    edge_candidates
+                )
+                return DomainLocation(
+                    chart_id=self.chart_id,
+                    triangle_id=-1,
+                    uv=projection,
+                    barycentric=(1.0, 0.0, 0.0),
+                    source_feature="EDGE",
+                    source_feature_id=edge_id,
+                )
             return DomainLocation(
                 chart_id=self.chart_id,
                 triangle_id=-1,
@@ -636,6 +701,38 @@ class DecalSurfaceDomain:
             source_feature_id=source_feature_id,
             transition_key=self.canonical_transition_key(transition_key),
         )
+
+    def planar_edge_parameter(self, edge_id, point):
+        """Канонический параметр физического PLANAR source edge."""
+
+        source_point = (
+            self.origin
+            + self.basis_u * float(point[0])
+            + self.basis_v * float(point[1])
+        )
+        for candidate_id, source_a, source_b in (
+            self.planar_source_edge_positions
+        ):
+            if int(candidate_id) != int(edge_id):
+                continue
+            point_a = Vector(source_a)
+            delta = Vector(source_b) - point_a
+            denominator = delta.length_squared
+            if denominator <= _GEOMETRY_EPS:
+                return 0.0
+            return max(
+                0.0,
+                min(1.0, (source_point - point_a).dot(delta) / denominator),
+            )
+        for record in self.planar_source_edges:
+            candidate_id, _vert_a, _vert_b, point_a, point_b = record
+            if int(candidate_id) != int(edge_id):
+                continue
+            _distance, parameter = _segment_point_distance2(
+                point_a, point_b, point
+            )
+            return float(parameter)
+        return None
 
     def _intrinsic_location(self, point):
         """Compatibility view старого private adapter."""
@@ -3652,6 +3749,44 @@ def _collect_patch_sites(graph, selected_edges):
     return raw_by_patch, normals_by_vert, positions_by_vert
 
 
+def _single_use_internal_seam_failures(graph, selected_edges):
+    """Локализует внутренний edge без второй owner-side до compile."""
+
+    uses_by_edge = {int(edge_index): [] for edge_index in selected_edges}
+    for patch_id in sorted(graph.nodes):
+        node = graph.nodes[patch_id]
+        for loop_index, boundary_loop in enumerate(node.boundary_loops):
+            for chain_index, chain in enumerate(boundary_loop.chains):
+                for segment_index, edge_index in enumerate(chain.edge_indices):
+                    edge_index = int(edge_index)
+                    if edge_index not in uses_by_edge:
+                        continue
+                    uses_by_edge[edge_index].append(
+                        (
+                            int(patch_id),
+                            int(loop_index),
+                            int(chain_index),
+                            int(segment_index),
+                            int(chain.neighbor_patch_id),
+                        )
+                    )
+
+    failures = []
+    for edge_index in sorted(uses_by_edge):
+        uses = tuple(sorted(uses_by_edge[edge_index]))
+        if len(uses) != 1 or uses[0][4] == -1:
+            continue
+        failures.append(
+            PatchVoronoiCompileFailure(
+                patch_id=uses[0][0],
+                reason="SINGLE_USE_INTERNAL_SEAM",
+                edge_indices=(edge_index,),
+                details=f"use_ref={uses[0]!r}",
+            )
+        )
+    return tuple(failures)
+
+
 def _corner_site_view_from_sites(sites, corner, site_index):
     """Локальная periodic image incident site для геометрии corner."""
 
@@ -4188,6 +4323,99 @@ def _normalized_intrinsic_triangles(intrinsic_triangles, quantize_point):
             triangle = replace(triangle, chart_points=points)
         result.append(triangle)
     return tuple(result)
+
+
+def _planar_domain_source_features(
+    node,
+    raw_sites,
+    origin,
+    basis_u,
+    basis_v,
+    quantize_point,
+):
+    """Компилирует physical boundary provenance PLANAR-domain."""
+
+    edges = {}
+    edge_positions = {}
+    vertices = {}
+
+    def add_edge(edge_id, vert_a, vert_b, source_a, source_b):
+        edge_id = int(edge_id)
+        vert_a = int(vert_a)
+        vert_b = int(vert_b)
+        if vert_b < vert_a:
+            vert_a, vert_b = vert_b, vert_a
+            source_a, source_b = source_b, source_a
+        point_a = quantize_point(
+            _project(source_a, origin, basis_u, basis_v)
+        )
+        point_b = quantize_point(
+            _project(source_b, origin, basis_u, basis_v)
+        )
+        vertices.setdefault(vert_a, point_a)
+        vertices.setdefault(vert_b, point_b)
+        record = (edge_id, vert_a, vert_b, point_a, point_b)
+        position_record = (
+            edge_id,
+            tuple(float(value) for value in source_a),
+            tuple(float(value) for value in source_b),
+        )
+        previous = edges.get(edge_id)
+        if previous is None or repr(record) < repr(previous):
+            edges[edge_id] = record
+            edge_positions[edge_id] = position_record
+
+    for raw in raw_sites:
+        add_edge(
+            raw["edge_index"],
+            raw["vert_a"],
+            raw["vert_b"],
+            raw["source_a"],
+            raw["source_b"],
+        )
+
+    def add_polyline(vert_indices, vert_cos, edge_indices, is_closed):
+        if len(vert_indices) != len(vert_cos) or len(vert_cos) < 2:
+            return
+        for segment_index, edge_id in enumerate(edge_indices):
+            next_index = segment_index + 1
+            if next_index >= len(vert_cos):
+                if not is_closed:
+                    continue
+                next_index = 0
+            add_edge(
+                edge_id,
+                vert_indices[segment_index],
+                vert_indices[next_index],
+                vert_cos[segment_index],
+                vert_cos[next_index],
+            )
+
+    for boundary_loop in node.boundary_loops:
+        add_polyline(
+            boundary_loop.vert_indices,
+            boundary_loop.vert_cos,
+            boundary_loop.edge_indices,
+            True,
+        )
+        for chain in boundary_loop.chains:
+            add_polyline(
+                chain.vert_indices,
+                chain.vert_cos,
+                chain.edge_indices,
+                chain.is_closed,
+            )
+
+    return (
+        tuple(edges[edge_id] for edge_id in sorted(edges)),
+        tuple(
+            (vertex_id, vertices[vertex_id])
+            for vertex_id in sorted(vertices)
+        ),
+        tuple(
+            edge_positions[edge_id] for edge_id in sorted(edge_positions)
+        ),
+    )
 
 
 def _compile_surface(
@@ -4736,6 +4964,23 @@ def _compile_surface(
         ports_by_vertex,
         ports_by_site,
     ) = _compile_surface_relations(sites, corners, atoms)
+    if compiled_intrinsic_triangles:
+        planar_source_edges = ()
+        planar_source_vertices = ()
+        planar_source_edge_positions = ()
+    else:
+        (
+            planar_source_edges,
+            planar_source_vertices,
+            planar_source_edge_positions,
+        ) = _planar_domain_source_features(
+            node,
+            raw_sites,
+            origin,
+            basis_u,
+            basis_v,
+            diagram_transform.quantize,
+        )
     domain = DecalSurfaceDomain(
         patch_id=node.patch_id,
         kind="INTRINSIC" if compiled_intrinsic_triangles else "PLANAR",
@@ -4745,6 +4990,9 @@ def _compile_surface(
         basis_v=basis_v,
         boundary_triangles=tuple(tuple(triangle) for triangle in triangles),
         intrinsic_triangles=compiled_intrinsic_triangles,
+        planar_source_edges=planar_source_edges,
+        planar_source_vertices=planar_source_vertices,
+        planar_source_edge_positions=planar_source_edge_positions,
         periodic_axis=(
             intrinsic_chart.periodic_axis if intrinsic_chart else ""
         ),
@@ -5423,24 +5671,46 @@ def compile_patch_voronoi_attempt(
                 ),
             ),
         )
-    raw_by_patch, normals_by_vert, positions_by_vert = _collect_patch_sites(
+    internal_failures = _single_use_internal_seam_failures(
         graph, selected_edges
+    )
+    rejected_internal_edges = {
+        edge_index
+        for failure in internal_failures
+        for edge_index in failure.edge_indices
+    }
+    if internal_failures and not allow_partial:
+        return PatchVoronoiCompileAttempt(
+            plan=None,
+            rejected_edge_indices=tuple(sorted(rejected_internal_edges)),
+            failures=internal_failures,
+        )
+    compilable_edges = selected_edges - rejected_internal_edges
+    if not compilable_edges:
+        return PatchVoronoiCompileAttempt(
+            plan=None,
+            rejected_edge_indices=tuple(sorted(rejected_internal_edges)),
+            failures=internal_failures,
+        )
+    raw_by_patch, normals_by_vert, positions_by_vert = _collect_patch_sites(
+        graph, compilable_edges
     )
     if not raw_by_patch:
         return PatchVoronoiCompileAttempt(
             plan=None,
             rejected_edge_indices=tuple(sorted(selected_edges)),
-            failures=(
+            failures=internal_failures
+            + (
                 PatchVoronoiCompileFailure(
                     patch_id=-1,
                     reason="NO_PATCH_SITES",
-                    edge_indices=tuple(sorted(selected_edges)),
+                    edge_indices=tuple(sorted(compilable_edges)),
                 ),
             ),
         )
     surfaces = []
-    rejected_edges = set()
-    failures = []
+    rejected_edges = set(rejected_internal_edges)
+    failures = list(internal_failures)
     for patch_id in sorted(raw_by_patch):
         node = graph.nodes[patch_id]
         patch_sites = raw_by_patch[patch_id]
@@ -11554,7 +11824,19 @@ def _domain_location_key(surface, location):
 
     quantum = max(DECAL_WELD_DISTANCE * 0.25, 1e-7)
     if surface.domain.kind == "PLANAR":
-        # B3 не меняет stable planar serializer/vertex identity.
+        if location.source_feature == "VERTEX":
+            return ("pv-sv", int(location.source_feature_id))
+        if location.source_feature == "EDGE":
+            parameter = surface.domain.planar_edge_parameter(
+                location.source_feature_id, location.uv
+            )
+            if parameter is not None:
+                return (
+                    "pv-se",
+                    int(location.source_feature_id),
+                    round(parameter, 7),
+                )
+        # Interior PLANAR identity остаётся patch-local.
         return (
             "pv",
             surface.patch_id,
@@ -11906,20 +12188,23 @@ def _orientation_safe_lift_scale(plan, pending, desired_scale, resolved_points):
 
 
 def _synchronize_cross_surface_spine_stations(plan, faces):
-    """Зеркалит pv-se stations на общий source edge соседних surfaces.
+    """Объединяет pv-se stations общего source edge соседних surfaces.
 
     Arrangement conformal только внутри одной owner surface. Corner crop
-    может добавить точку на spine edge одной поверхности, пока соседняя
-    поверхность всё ещё содержит цельный pv-sv -> pv-sv edge. Без этой
-    синхронизации materialization получает геометрический T-контакт и
-    визуальную щель. Станция уже имеет общую 3D rail-position; здесь мы
-    лишь вставляем тот же key в соседний polygon loop.
+    может разбить source edge каждой поверхности в разных станциях. Без этой
+    синхронизации materialization получает геометрический T-контакт и щель.
+    Уже разбитые runs сливаются теми же canonical keys; новые faces не
+    создаются.
     """
 
+    endpoints_by_edge = {}
     edge_by_vertices = {}
     for surface in plan.surfaces:
         for site in surface.sites:
             pair = frozenset((site.vert_a, site.vert_b))
+            endpoints_by_edge.setdefault(
+                site.edge_index, (site.vert_a, site.vert_b)
+            )
             edge_by_vertices.setdefault(pair, site.edge_index)
 
     stations_by_edge = {}
@@ -11956,16 +12241,29 @@ def _synchronize_cross_surface_spine_stations(plan, faces):
             new_u_fracs.append(u_a)
             new_v_lengths.append(v_a)
 
-            if (
-                not isinstance(key_a, tuple)
-                or not isinstance(key_b, tuple)
-                or key_a[:1] != ("pv-sv",)
-                or key_b[:1] != ("pv-sv",)
-            ):
+            if not isinstance(key_a, tuple) or not isinstance(key_b, tuple):
                 continue
-            edge_index = edge_by_vertices.get(
-                frozenset((key_a[1], key_b[1]))
-            )
+            edge_ids = {
+                int(key[1])
+                for key in (key_a, key_b)
+                if key[:1] == ("pv-se",)
+            }
+            if len(edge_ids) > 1:
+                continue
+            if edge_ids:
+                edge_index = next(iter(edge_ids))
+                endpoints = endpoints_by_edge.get(edge_index, ())
+                if any(
+                    key[:1] == ("pv-sv",) and key[1] not in endpoints
+                    for key in (key_a, key_b)
+                ):
+                    continue
+            elif all(key[:1] == ("pv-sv",) for key in (key_a, key_b)):
+                edge_index = edge_by_vertices.get(
+                    frozenset((key_a[1], key_b[1]))
+                )
+            else:
+                edge_index = None
             station_records = stations_by_edge.get(edge_index, ())
             if not station_records:
                 continue

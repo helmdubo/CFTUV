@@ -1501,6 +1501,38 @@ class TestManualChainDecals:
         assert plan.accounting_is_exact
         assert plan.backend_summary.endswith("Rejected:1e")
 
+    def test_single_use_internal_seam_routes_component_to_legacy(self):
+        points = [
+            Vector((0.0, 0.0, 0.0)),
+            Vector((1.0, 0.0, 0.0)),
+            Vector((1.0, 1.0, 0.0)),
+            Vector((0.0, 1.0, 0.0)),
+        ]
+        chain = _make_chain(
+            [0, 1],
+            points[:2],
+            -2,
+            edge_indices=[170],
+            side_face_normals=[(0.0, 0.0, 1.0)],
+        )
+        node = _make_wall_node(17, (0, 0, 1), (0, 1, 0), [chain])
+        node.centroid = sum(points, Vector()) / 4.0
+        node.basis_u = Vector((1.0, 0.0, 0.0))
+        node.mesh_verts = points
+        node.mesh_tris = [(0, 1, 2), (0, 2, 3)]
+
+        plan = decals_module.compile_manual_seam_decal_plan(
+            _make_graph(node), DecalSettings(), (170,)
+        )
+
+        assert plan.accepted_patch_voronoi_edge_indices == ()
+        assert plan.accepted_legacy_edge_indices == (170,)
+        assert plan.rejected_edge_indices == ()
+        assert [failure.reason for failure in plan.compile_failures] == [
+            "SINGLE_USE_INTERNAL_SEAM"
+        ]
+        assert plan.accounting_is_exact
+
     def test_corner_runs_preserve_surface_sides_across_chain_splits(self):
         first = _make_corner_run(0, 1, (0, 0, 0), (1, 0, 0), 5)
         second = _make_corner_run(
