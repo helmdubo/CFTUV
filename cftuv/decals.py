@@ -52,6 +52,11 @@ from .decal_network import (
     evaluate_seam_network_plan,
 )
 from .decal_rails import compile_decal_rail_attempt
+from .decal_rail_geometry import (
+    RailGeometryFailure,
+    compile_planar_rail_geometry_attempt,
+    evaluate_planar_rail_geometry_plan,
+)
 from .decal_voronoi import (
     PatchVoronoiDiagnostics,
     compile_patch_voronoi_attempt,
@@ -311,9 +316,10 @@ class ManualSeamDecalPlan:
     selected_edge_indices: tuple[int, ...] = ()
     rejected_edges: tuple[ManualSeamEdgeRejection, ...] = ()
     direct_legacy_edge_indices: tuple[int, ...] = ()
-    # R0 хранит rail IR рядом с прежним plan, но evaluator его ещё не читает.
+    # Канонический rail IR общий для R0-overlay и принятого R1 PLANAR backend.
     rail_plan: object = None
     rail_compile_failures: tuple = ()
+    rail_geometry_failures: tuple = ()
 
     @property
     def rejected_edge_indices(self):
@@ -326,6 +332,17 @@ class ManualSeamDecalPlan:
                 edge_index
                 for partition in self.backend_partitions
                 if partition.backend == "PATCH_VORONOI"
+                for edge_index in partition.edge_indices
+            )
+        )
+
+    @property
+    def accepted_rail_planar_edge_indices(self):
+        return tuple(
+            sorted(
+                edge_index
+                for partition in self.backend_partitions
+                if partition.backend == "RAIL_PLANAR"
                 for edge_index in partition.edge_indices
             )
         )
@@ -346,14 +363,18 @@ class ManualSeamDecalPlan:
     @property
     def accounting_is_exact(self):
         selected = set(self.selected_edge_indices)
+        rail = set(self.accepted_rail_planar_edge_indices)
         patch = set(self.accepted_patch_voronoi_edge_indices)
         legacy = set(self.accepted_legacy_edge_indices)
         rejected = set(self.rejected_edge_indices)
         return (
-            not patch.intersection(legacy)
+            not rail.intersection(patch)
+            and not rail.intersection(legacy)
+            and not rail.intersection(rejected)
+            and not patch.intersection(legacy)
             and not patch.intersection(rejected)
             and not legacy.intersection(rejected)
-            and selected == patch.union(legacy, rejected)
+            and selected == rail.union(patch, legacy, rejected)
         )
 
     @property
@@ -372,11 +393,14 @@ class ManualSeamDecalPlan:
             not self.backend_partitions
             and not self.rejected_edges
             and not self.compile_failures
+            and not self.rail_geometry_failures
         ):
             return ""
         counts = {}
         for partition in self.backend_partitions:
-            if partition.backend == "PATCH_VORONOI":
+            if partition.backend == "RAIL_PLANAR":
+                backend_label = "RAIL_PLANAR"
+            elif partition.backend == "PATCH_VORONOI":
                 backend_label = getattr(
                     partition.compiled_plan, "backend_kind", "PLANAR"
                 )
@@ -386,6 +410,7 @@ class ManualSeamDecalPlan:
             bucket[0] += int(partition.topology_component_count)
             bucket[1] += len(partition.edge_indices)
         order = (
+            "RAIL_PLANAR",
             "PLANAR",
             "INTRINSIC_DEVELOPABLE",
             "PLANAR+INTRINSIC_DEVELOPABLE",
@@ -406,6 +431,19 @@ class ManualSeamDecalPlan:
                 + ",".join(
                     f"{reason}:x{failure_counts[reason]}"
                     for reason in sorted(failure_counts)
+                )
+                + "]"
+            )
+        rail_failure_counts = {}
+        for failure in self.rail_geometry_failures:
+            reason = str(getattr(failure, "reason", "UNKNOWN"))
+            rail_failure_counts[reason] = rail_failure_counts.get(reason, 0) + 1
+        if rail_failure_counts:
+            parts.append(
+                "RailFallback["
+                + ",".join(
+                    f"{reason}:x{rail_failure_counts[reason]}"
+                    for reason in sorted(rail_failure_counts)
                 )
                 + "]"
             )
@@ -437,6 +475,21 @@ class PatchVoronoiRuntimeError(RuntimeError):
         self.reason = str(reason)
         super().__init__(
             "Patch Voronoi runtime failed for "
+            f"{len(self.edge_indices)} edge(s) at width={self.width:.6g} "
+            f"preview={self.preview}: {self.reason}"
+        )
+
+
+class RailPlanarRuntimeError(RuntimeError):
+    """Compiled rail-plan обязан материализоваться без runtime fallback."""
+
+    def __init__(self, edge_indices, width, preview, reason):
+        self.edge_indices = tuple(int(index) for index in edge_indices)
+        self.width = float(width)
+        self.preview = bool(preview)
+        self.reason = str(reason)
+        super().__init__(
+            "PLANAR rail runtime failed for "
             f"{len(self.edge_indices)} edge(s) at width={self.width:.6g} "
             f"preview={self.preview}: {self.reason}"
         )
@@ -2940,6 +2993,76 @@ def _closed_polyline(points, is_closed):
     return points
 
 
+def _rail_geometry_owner_face_ids(plan):
+    """Возвращает полный PLANAR footprint immutable rail-plan на max budget."""
+
+    owner_face_ids = {
+        int(cell.owner_face_id)
+        for channel in plan.channels
+        for cell in channel.cells
+    }
+    owner_face_ids.update(
+        int(partition.owner_face_id)
+        for partition in plan.corner_partitions
+        if partition.owner_face_id is not None
+    )
+    owner_face_ids.update(
+        int(cell.owner_face_id)
+        for cell in getattr(plan, "corner_cells", ())
+    )
+    return frozenset(owner_face_ids)
+
+
+def _rail_geometry_scope_has_face_conflicts(compiled_components):
+    """R1 не смешивает независимые rail-конкуренты на одной source-грани."""
+
+    footprints = [
+        _rail_geometry_owner_face_ids(compiled_plan)
+        for _component, compiled_plan in compiled_components
+    ]
+    for index, footprint in enumerate(footprints):
+        for other_footprint in footprints[index + 1 :]:
+            if footprint.intersection(other_footprint):
+                return True
+    return False
+
+
+def _compile_rail_geometry_components(
+    rail_plan,
+    topology_components,
+    settings,
+):
+    """Компилирует R1 plans без частичного routing side effect."""
+
+    compiled_components = []
+    failures = []
+    for component in topology_components:
+        geometry_attempt = compile_planar_rail_geometry_attempt(
+            rail_plan,
+            edge_indices=component,
+            apex_limit=settings.corner_apex_limit,
+            split_angle=settings.corner_acute_split_angle,
+            dynamic_corner_bands=settings.dynamic_corner_bands,
+        )
+        if geometry_attempt.plan is None:
+            failures.extend(geometry_attempt.failures)
+            continue
+        compiled_components.append((component, geometry_attempt.plan))
+    return compiled_components, failures
+
+
+def _rail_geometry_required_trace_scale(compiled_components):
+    """Максимальный stable-A10 scale для сохранения modal headroom."""
+
+    scales = [1.0]
+    scales.extend(
+        float(scale)
+        for _component, plan in compiled_components
+        for _path_id, scale in plan.path_reach_scales
+    )
+    return max(scales)
+
+
 def compile_manual_seam_decal_plan(
     graph: PatchGraph,
     settings: DecalSettings,
@@ -2971,6 +3094,7 @@ def compile_manual_seam_decal_plan(
     direct_legacy_edges = ()
     rail_plan = None
     rail_compile_failures = ()
+    rail_geometry_failures = []
     if accepted_scope_edges:
         rail_attempt = compile_decal_rail_attempt(
             graph,
@@ -2984,71 +3108,233 @@ def compile_manual_seam_decal_plan(
         topology_components = _manual_seam_edge_components(
             corner_runs + boundary_runs, accepted_scope_edges
         )
-        attempt = compile_patch_voronoi_attempt(
-            graph,
-            accepted_scope_edges,
-            settings.offset,
-            allow_partial=True,
-            alpha_budget=alpha_budget,
-            distortion_budget=settings.chart_distortion_budget,
-        )
-        compile_failures = attempt.failures
-        rejected_seed = set(attempt.rejected_edge_indices)
-        if attempt.plan is None and not rejected_seed:
-            rejected_seed.update(accepted_scope_edges)
+        fallback_components = []
+        if rail_plan is None:
+            fallback_components = list(topology_components)
+        else:
+            compiled_components, geometry_failures = (
+                _compile_rail_geometry_components(
+                    rail_plan,
+                    topology_components,
+                    settings,
+                )
+            )
+            rail_geometry_failures.extend(geometry_failures)
 
-        legacy_components = [
-            component
-            for component in topology_components
-            if rejected_seed.intersection(component)
-        ]
-        accepted_components = [
-            component
-            for component in topology_components
-            if not rejected_seed.intersection(component)
-        ]
-        accepted_edges = tuple(
+            # До R2 Patch и rail не могут независимо доказывать отсутствие
+            # конкуренции. Поэтому R1 принимает весь scope только целиком:
+            # все компоненты PLANAR и их max-budget source-face footprints
+            # попарно не пересекаются. Иначе старый joint Patch backend
+            # сохраняет глобальную конкуренцию и single-cover.
+            all_components_compiled = (
+                len(compiled_components) == len(topology_components)
+            )
+            face_conflict = (
+                all_components_compiled
+                and _rail_geometry_scope_has_face_conflicts(compiled_components)
+            )
+            rail_scope_ready = all_components_compiled and not face_conflict
+
+            if rail_scope_ready:
+                # Stable A10 miter может требовать rail trace длиннее
+                # нейтральной ширины. Сохраняем исходный B4 headroom в
+                # эффективном (s, r)-домене одним compile-only retry;
+                # Patch budget при этом не меняется.
+                trace_scale = _rail_geometry_required_trace_scale(
+                    compiled_components
+                )
+                expanded_budget = (
+                    alpha_budget * trace_scale
+                    + DECAL_WELD_DISTANCE * 8.0
+                    if trace_scale > 1.0
+                    else float(rail_plan.alpha_budget)
+                )
+                if expanded_budget > float(rail_plan.alpha_budget):
+                    expanded_attempt = compile_decal_rail_attempt(
+                        graph,
+                        accepted_scope_edges,
+                        alpha_budget=expanded_budget,
+                        rail_mark_edge_indices=rail_mark_edge_indices,
+                    )
+                    if expanded_attempt.plan is None:
+                        rail_compile_failures = tuple(
+                            rail_compile_failures
+                        ) + tuple(expanded_attempt.failures)
+                        rail_geometry_failures.append(
+                            RailGeometryFailure(
+                                reason=(
+                                    "RAIL_GEOMETRY_SUPPORT_RECOMPILE_FAILED"
+                                ),
+                                edge_indices=tuple(accepted_scope_edges),
+                                details=(("trace_scale", trace_scale),),
+                            )
+                        )
+                        rail_scope_ready = False
+                    else:
+                        expanded_components, expanded_failures = (
+                            _compile_rail_geometry_components(
+                                expanded_attempt.plan,
+                                topology_components,
+                                settings,
+                            )
+                        )
+                        rail_geometry_failures.extend(expanded_failures)
+                        expanded_complete = (
+                            len(expanded_components)
+                            == len(topology_components)
+                        )
+                        expanded_conflict = (
+                            expanded_complete
+                            and _rail_geometry_scope_has_face_conflicts(
+                                expanded_components
+                            )
+                        )
+                        effective_budget_ok = (
+                            expanded_complete
+                            and all(
+                                float(plan.alpha_budget) >= alpha_budget
+                                for _component, plan in expanded_components
+                            )
+                        )
+                        if (
+                            expanded_complete
+                            and not expanded_conflict
+                            and effective_budget_ok
+                        ):
+                            rail_plan = expanded_attempt.plan
+                            rail_compile_failures = tuple(
+                                expanded_attempt.failures
+                            )
+                            compiled_components = expanded_components
+                        else:
+                            rail_scope_ready = False
+                            if expanded_conflict:
+                                face_conflict = True
+                            elif expanded_complete and not effective_budget_ok:
+                                rail_geometry_failures.append(
+                                    RailGeometryFailure(
+                                        reason=(
+                                            "RAIL_GEOMETRY_DOMAIN_BUDGET_"
+                                            "UNAVAILABLE"
+                                        ),
+                                        edge_indices=tuple(
+                                            accepted_scope_edges
+                                        ),
+                                        details=(
+                                            (
+                                                "required_alpha_budget",
+                                                alpha_budget,
+                                            ),
+                                        ),
+                                    )
+                                )
+
+            if not rail_scope_ready:
+                fallback_components = list(topology_components)
+                if face_conflict:
+                    rail_geometry_failures.append(
+                        RailGeometryFailure(
+                            reason="RAIL_GEOMETRY_COMPETITION_PENDING",
+                            edge_indices=tuple(
+                                edge_index
+                                for component in topology_components
+                                for edge_index in component
+                            ),
+                            details=(("component_count", len(topology_components)),),
+                        )
+                    )
+            else:
+                for component, compiled_plan in compiled_components:
+                    component_corner_runs, component_boundary_runs = (
+                        _collect_manual_edge_decals(graph, component)
+                    )
+                    backend_partitions.append(
+                        _ManualSeamBackendPartition(
+                            backend="RAIL_PLANAR",
+                            edge_indices=tuple(component),
+                            topology_component_count=1,
+                            corner_runs=tuple(component_corner_runs),
+                            boundary_runs=tuple(component_boundary_runs),
+                            compiled_plan=compiled_plan,
+                        )
+                    )
+
+        fallback_scope_edges = tuple(
             sorted(
                 edge_index
-                for component in accepted_components
+                for component in fallback_components
                 for edge_index in component
             )
         )
-
-        if not legacy_components and attempt.plan is not None:
-            patch_voronoi_plan = attempt.plan
-        elif accepted_edges:
-            # Partial probe мог скомпилировать surface, содержащую sites из
-            # rejected topology component. Повторный strict compile строит
-            # единый competition domain уже только для clean components.
-            patch_voronoi_plan = compile_patch_voronoi_plan(
+        legacy_components = []
+        accepted_components = []
+        accepted_edges = ()
+        if fallback_scope_edges:
+            attempt = compile_patch_voronoi_attempt(
                 graph,
-                accepted_edges,
+                fallback_scope_edges,
                 settings.offset,
+                allow_partial=True,
                 alpha_budget=alpha_budget,
                 distortion_budget=settings.chart_distortion_budget,
             )
-            if patch_voronoi_plan is None:
-                # Не допускаем частичной материализации сомнительного plan:
-                # этот редкий случай сохраняет прежний безопасный fallback.
-                legacy_components = list(topology_components)
-                accepted_components = []
-                accepted_edges = ()
+            compile_failures = attempt.failures
+            rejected_seed = set(attempt.rejected_edge_indices)
+            if attempt.plan is None and not rejected_seed:
+                rejected_seed.update(fallback_scope_edges)
 
-        if patch_voronoi_plan is not None and accepted_edges:
-            accepted_corner_runs, accepted_boundary_runs = (
-                _collect_manual_edge_decals(graph, accepted_edges)
-            )
-            backend_partitions.append(
-                _ManualSeamBackendPartition(
-                    backend="PATCH_VORONOI",
-                    edge_indices=accepted_edges,
-                    topology_component_count=len(accepted_components),
-                    corner_runs=tuple(accepted_corner_runs),
-                    boundary_runs=tuple(accepted_boundary_runs),
-                    compiled_plan=patch_voronoi_plan,
+            legacy_components = [
+                component
+                for component in fallback_components
+                if rejected_seed.intersection(component)
+            ]
+            accepted_components = [
+                component
+                for component in fallback_components
+                if not rejected_seed.intersection(component)
+            ]
+            accepted_edges = tuple(
+                sorted(
+                    edge_index
+                    for component in accepted_components
+                    for edge_index in component
                 )
             )
+
+            if not legacy_components and attempt.plan is not None:
+                patch_voronoi_plan = attempt.plan
+            elif accepted_edges:
+                # Partial probe мог скомпилировать surface, содержащую sites
+                # из rejected topology component. Strict compile строит
+                # competition domain только для оставшихся компонентов.
+                patch_voronoi_plan = compile_patch_voronoi_plan(
+                    graph,
+                    accepted_edges,
+                    settings.offset,
+                    alpha_budget=alpha_budget,
+                    distortion_budget=settings.chart_distortion_budget,
+                )
+                if patch_voronoi_plan is None:
+                    # Компонентная атомарность важнее частичного rail claim:
+                    # сомнительный plan остаётся на прежнем safe fallback.
+                    legacy_components = list(fallback_components)
+                    accepted_components = []
+                    accepted_edges = ()
+
+            if patch_voronoi_plan is not None and accepted_edges:
+                accepted_corner_runs, accepted_boundary_runs = (
+                    _collect_manual_edge_decals(graph, accepted_edges)
+                )
+                backend_partitions.append(
+                    _ManualSeamBackendPartition(
+                        backend="PATCH_VORONOI",
+                        edge_indices=accepted_edges,
+                        topology_component_count=len(accepted_components),
+                        corner_runs=tuple(accepted_corner_runs),
+                        boundary_runs=tuple(accepted_boundary_runs),
+                        compiled_plan=patch_voronoi_plan,
+                    )
+                )
 
         for component in legacy_components:
             component_corner_runs, component_boundary_runs = (
@@ -3088,11 +3374,20 @@ def compile_manual_seam_decal_plan(
         direct_legacy_edge_indices=tuple(direct_legacy_edges),
         rail_plan=rail_plan,
         rail_compile_failures=tuple(rail_compile_failures),
+        rail_geometry_failures=tuple(rail_geometry_failures),
     )
     if not plan.accounting_is_exact:
         raise AssertionError(
             "Manual seam edge accounting invariant violated: "
-            "selected != patch_voronoi + legacy + rejected"
+            "selected != rail_planar + patch_voronoi + legacy + rejected"
+        )
+    if plan.accepted_rail_planar_edge_indices and (
+        plan.accepted_patch_voronoi_edge_indices
+        or plan.accepted_legacy_edge_indices
+    ):
+        raise AssertionError(
+            "R1 routing invariant violated: RAIL_PLANAR cannot mix with "
+            "Patch/legacy before rail competition is implemented"
         )
     if plan.backend_summary:
         print(f"[CFTUV][Decals] backend routing: {plan.backend_summary}")
@@ -3123,6 +3418,33 @@ def _evaluate_manual_backend_partition(
     """Вычисляет одну routing-группу без BMesh side effects."""
 
     started = perf_counter()
+    if partition.backend == "RAIL_PLANAR":
+        try:
+            faces = evaluate_planar_rail_geometry_plan(
+                partition.compiled_plan,
+                width,
+                offset=settings.offset,
+                preview=preview,
+            )
+        except Exception as exc:
+            raise RailPlanarRuntimeError(
+                partition.edge_indices,
+                width,
+                preview,
+                repr(exc),
+            ) from exc
+        if not faces:
+            raise RailPlanarRuntimeError(
+                partition.edge_indices,
+                width,
+                preview,
+                "evaluation produced no faces",
+            )
+        return _ManualBackendEvaluation(
+            faces=tuple(faces),
+            evaluation_ms=(perf_counter() - started) * 1000.0,
+        )
+
     if partition.backend == "PATCH_VORONOI":
         diagnostics = PatchVoronoiDiagnostics()
         try:

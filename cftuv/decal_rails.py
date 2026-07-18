@@ -79,12 +79,23 @@ class RailSourceFace:
     face_id: int
     vertex_ids: tuple[int, ...]
     edge_ids: tuple[int, ...]
+    normal: tuple[float, float, float]
+    planarity_min_dot: float
+
+
+@dataclass(frozen=True)
+class RailChainUse:
+    chain_ref: tuple[int, int, int]
+    oriented_vertex_ids: tuple[int, int]
+    chain_edge_index: int
+    chain_is_closed: bool = False
 
 
 @dataclass(frozen=True)
 class RailSpineUse:
     edge_id: int
     vertex_ids: tuple[int, int]
+    chain_uses: tuple[RailChainUse, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -219,7 +230,49 @@ def _triangle_edge_vertices(triangle, opposite_slot):
     )
 
 
-def _canonical_face_cycle(face_id, edge_ids, edge_vertices):
+def _cross3(vector_a, vector_b):
+    return (
+        vector_a[1] * vector_b[2] - vector_a[2] * vector_b[1],
+        vector_a[2] * vector_b[0] - vector_a[0] * vector_b[2],
+        vector_a[0] * vector_b[1] - vector_a[1] * vector_b[0],
+    )
+
+
+def _sub3(point_a, point_b):
+    return tuple(a - b for a, b in zip(point_a, point_b))
+
+
+def _dot3(vector_a, vector_b):
+    return sum(a * b for a, b in zip(vector_a, vector_b))
+
+
+def _normalized3(vector):
+    length = sqrt(_dot3(vector, vector))
+    if length <= 0.0:
+        return None
+    return tuple(component / length for component in vector)
+
+
+def _cycle_normal(vertex_cycle, vertex_positions):
+    """Newell normal сохраняет winding исходной polygon face."""
+
+    normal = [0.0, 0.0, 0.0]
+    for index, vertex_id in enumerate(vertex_cycle):
+        point = vertex_positions[vertex_id]
+        other = vertex_positions[vertex_cycle[(index + 1) % len(vertex_cycle)]]
+        normal[0] += (point[1] - other[1]) * (point[2] + other[2])
+        normal[1] += (point[2] - other[2]) * (point[0] + other[0])
+        normal[2] += (point[0] - other[0]) * (point[1] + other[1])
+    return _normalized3(tuple(normal))
+
+
+def _canonical_face_cycle(
+    face_id,
+    edge_ids,
+    edge_vertices,
+    vertex_positions,
+    oriented_normal,
+):
     adjacency = defaultdict(list)
     edge_for_pair = {}
     for edge_id in sorted(edge_ids):
@@ -257,7 +310,24 @@ def _canonical_face_cycle(face_id, edge_ids, edge_vertices):
             edge_indices=edge_ids,
             details=(("face_id", int(face_id)),),
         )
-    vertex_cycle = min(cycles)
+    oriented_cycles = [
+        cycle
+        for cycle in cycles
+        if (
+            _cycle_normal(cycle, vertex_positions) is not None
+            and _dot3(
+                _cycle_normal(cycle, vertex_positions),
+                oriented_normal,
+            ) > 0.0
+        )
+    ]
+    if len(oriented_cycles) != 1:
+        raise _RailCompileError(
+            "SOURCE_FACE_ORIENTATION_INVALID",
+            edge_indices=edge_ids,
+            details=(("face_id", int(face_id)),),
+        )
+    vertex_cycle = oriented_cycles[0]
     ordered_edges = tuple(
         edge_for_pair[
             frozenset((vertex_cycle[index], vertex_cycle[(index + 1) % len(vertex_cycle)]))
@@ -267,16 +337,62 @@ def _canonical_face_cycle(face_id, edge_ids, edge_vertices):
     return vertex_cycle, ordered_edges
 
 
-def _source_pchain_edges(graph):
-    pchain_edges = set()
-    for node in getattr(graph, "nodes", {}).values():
-        for boundary_loop in getattr(node, "boundary_loops", ()):
-            for chain in getattr(boundary_loop, "chains", ()):
-                pchain_edges.update(
-                    int(edge_id) for edge_id in getattr(chain, "edge_indices", ())
+def _source_chain_records(graph):
+    records = defaultdict(list)
+    for patch_id in sorted(getattr(graph, "nodes", {})):
+        node = graph.nodes[patch_id]
+        for loop_index, boundary_loop in enumerate(
+            getattr(node, "boundary_loops", ())
+        ):
+            for chain_index, chain in enumerate(
+                getattr(boundary_loop, "chains", ())
+            ):
+                edge_ids = tuple(
+                    int(edge_id)
+                    for edge_id in getattr(chain, "edge_indices", ())
                     if int(edge_id) >= 0
                 )
-    return pchain_edges
+                vertex_ids = tuple(
+                    int(vertex_id)
+                    for vertex_id in getattr(chain, "vert_indices", ())
+                )
+                for edge_index, edge_id in enumerate(edge_ids):
+                    records[edge_id].append(
+                        (
+                            (int(patch_id), loop_index, chain_index),
+                            bool(getattr(chain, "is_closed", False)),
+                            edge_index,
+                            edge_ids,
+                            vertex_ids,
+                        )
+                    )
+    return records
+
+
+def _oriented_chain_edge(record, endpoints):
+    _chain_ref, is_closed, edge_index, edge_ids, vertex_ids = record
+    if len(vertex_ids) == len(edge_ids) + 1:
+        candidate = (vertex_ids[edge_index], vertex_ids[edge_index + 1])
+        if frozenset(candidate) == frozenset(endpoints):
+            return candidate, edge_index
+    if is_closed and len(vertex_ids) == len(edge_ids):
+        candidate = (
+            vertex_ids[edge_index],
+            vertex_ids[(edge_index + 1) % len(vertex_ids)],
+        )
+        if frozenset(candidate) == frozenset(endpoints):
+            return candidate, edge_index
+    candidates = []
+    for index in range(max(0, len(vertex_ids) - 1)):
+        candidate = (vertex_ids[index], vertex_ids[index + 1])
+        if frozenset(candidate) == frozenset(endpoints):
+            candidates.append((candidate, index))
+    if is_closed and len(vertex_ids) > 1:
+        candidate = (vertex_ids[-1], vertex_ids[0])
+        if frozenset(candidate) == frozenset(endpoints):
+            candidates.append((candidate, len(vertex_ids) - 1))
+    unique = tuple(sorted(set(candidates), key=lambda item: item[1]))
+    return unique[0] if len(unique) == 1 else None
 
 
 def _build_source_topology(
@@ -291,6 +407,7 @@ def _build_source_topology(
     edge_vertices = {}
     edge_face_ids = defaultdict(set)
     face_edge_ids = defaultdict(set)
+    face_triangle_normals = defaultdict(list)
 
     for patch_id in sorted(graph.nodes):
         node = graph.nodes[patch_id]
@@ -338,6 +455,25 @@ def _build_source_topology(
                 )
             global_triangle = tuple(local_vertex_ids[int(index)] for index in triangle)
             face_id = int(face_id)
+            point_a, point_b, point_c = (
+                vertex_positions[vertex_id]
+                for vertex_id in global_triangle
+            )
+            triangle_normal = _normalized3(
+                _cross3(
+                    _sub3(point_b, point_a),
+                    _sub3(point_c, point_a),
+                )
+            )
+            if triangle_normal is None:
+                raise _RailCompileError(
+                    "SOURCE_TRIANGLE_DEGENERATE",
+                    vertex_indices=global_triangle,
+                    details=(("face_id", face_id),),
+                )
+            face_triangle_normals[face_id].append(
+                (tuple(global_triangle), triangle_normal)
+            )
             for opposite_slot, edge_id in enumerate(physical_edges):
                 edge_id = int(edge_id)
                 if edge_id < 0:
@@ -372,20 +508,46 @@ def _build_source_topology(
 
     faces = []
     for face_id in sorted(face_edge_ids):
+        triangle_normals = tuple(
+            normal
+            for _triangle_key, normal in sorted(
+                face_triangle_normals[face_id],
+                key=lambda item: item[0],
+            )
+        )
+        normal_sum = tuple(
+            sum(normal[axis] for normal in triangle_normals)
+            for axis in range(3)
+        )
+        oriented_normal = _normalized3(normal_sum)
+        if oriented_normal is None:
+            raise _RailCompileError(
+                "SOURCE_FACE_ORIENTATION_INVALID",
+                edge_indices=face_edge_ids[face_id],
+                details=(("face_id", int(face_id)),),
+            )
         vertex_cycle, ordered_edges = _canonical_face_cycle(
             face_id,
             face_edge_ids[face_id],
             edge_vertices,
+            vertex_positions,
+            oriented_normal,
         )
         faces.append(
             RailSourceFace(
                 face_id=int(face_id),
                 vertex_ids=vertex_cycle,
                 edge_ids=ordered_edges,
+                normal=oriented_normal,
+                planarity_min_dot=min(
+                    _dot3(oriented_normal, triangle_normal)
+                    for triangle_normal in triangle_normals
+                ),
             )
         )
 
-    pchain_edges = _source_pchain_edges(graph)
+    chain_records = _source_chain_records(graph)
+    pchain_edges = set(chain_records)
     vertex_by_id = {
         vertex_id: RailSourceVertex(vertex_id, vertex_positions[vertex_id])
         for vertex_id in sorted(vertex_positions)
@@ -734,6 +896,7 @@ def compile_decal_rail_plan(
         frozenset(selected_edge_ids),
         frozenset(marked_edge_ids),
     )
+    chain_records = _source_chain_records(graph)
     if not selected_edge_ids:
         return DecalRailPlan(
             topology.vertices,
@@ -749,7 +912,31 @@ def compile_decal_rail_plan(
     spine_uses = []
     for edge_id in selected_edge_ids:
         edge = topology.edge_by_id[edge_id]
-        spine_uses.append(RailSpineUse(edge_id, edge.vertex_ids))
+        chain_uses = []
+        for record in chain_records.get(edge_id, ()):
+            oriented = _oriented_chain_edge(record, edge.vertex_ids)
+            if oriented is None:
+                continue
+            oriented_vertex_ids, chain_edge_index = oriented
+            chain_uses.append(
+                RailChainUse(
+                    chain_ref=record[0],
+                    oriented_vertex_ids=oriented_vertex_ids,
+                    chain_edge_index=chain_edge_index,
+                    chain_is_closed=record[1],
+                )
+            )
+        spine_uses.append(
+            RailSpineUse(
+                edge_id,
+                edge.vertex_ids,
+                tuple(sorted(set(chain_uses), key=lambda use: (
+                    use.chain_ref,
+                    use.chain_edge_index,
+                    use.oriented_vertex_ids,
+                ))),
+            )
+        )
         for vertex_id in edge.vertex_ids:
             selected_by_vertex[vertex_id].append(edge_id)
     barrier_vertices = {
@@ -904,6 +1091,7 @@ __all__ = [
     "RailRoute",
     "RailRouteKey",
     "RailRouteSegment",
+    "RailChainUse",
     "RailSideKey",
     "RailSourceEdge",
     "RailSourceFace",

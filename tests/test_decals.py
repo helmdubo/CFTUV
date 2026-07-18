@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from math import pi
 from types import SimpleNamespace
 
 import pytest
@@ -294,6 +295,492 @@ def test_r0_manual_compile_attaches_one_compile_static_rail_attempt(monkeypatch)
     assert plan.rail_plan is rail_plan
     assert plan.rail_compile_failures == (rail_failure,)
     assert plan.accepted_legacy_edge_indices == (7,)
+
+
+def test_r1_mixed_success_scope_stays_on_joint_patch_competition(monkeypatch):
+    joined = _backend_test_run((1, 2), (0, 1, 2))
+    isolated = _backend_test_run((10,), (10, 11))
+
+    def collect(_graph, edge_indices):
+        edges = set(edge_indices)
+        runs = []
+        if edges.intersection({1, 2}):
+            runs.append(joined)
+        if 10 in edges:
+            runs.append(isolated)
+        return decals_module._ManualEdgeDecalCollection(
+            corner_runs=tuple(runs),
+            boundary_runs=(),
+            accepted_edge_indices=tuple(sorted(edges)),
+            rejected_edges=(),
+        )
+
+    rail_plan = object()
+    rail_geometry_plan = object()
+    rail_failure = SimpleNamespace(reason="NON_PLANAR_RAIL_COMPONENT")
+    geometry_calls = []
+
+    def compile_geometry(plan, *, edge_indices, **kwargs):
+        geometry_calls.append((plan, tuple(edge_indices), kwargs))
+        if tuple(edge_indices) == (10,):
+            return SimpleNamespace(plan=rail_geometry_plan, failures=())
+        return SimpleNamespace(plan=None, failures=(rail_failure,))
+
+    patch_plan = SimpleNamespace(backend_kind="PLANAR")
+    patch_calls = []
+    monkeypatch.setattr(decals_module, "_collect_manual_edge_decals", collect)
+    monkeypatch.setattr(
+        decals_module,
+        "compile_decal_rail_attempt",
+        lambda *_args, **_kwargs: SimpleNamespace(plan=rail_plan, failures=()),
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "compile_planar_rail_geometry_attempt",
+        compile_geometry,
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "compile_patch_voronoi_attempt",
+        lambda _graph, edges, *_args, **_kwargs: (
+            patch_calls.append(tuple(edges))
+            or SimpleNamespace(
+                plan=patch_plan,
+                rejected_edge_indices=(),
+                failures=(),
+            )
+        ),
+    )
+
+    plan = decals_module.compile_manual_seam_decal_plan(
+        object(),
+        DecalSettings(),
+        (1, 2, 10),
+        alpha_budget=3.0,
+    )
+
+    assert geometry_calls == [
+        (
+            rail_plan,
+            (1, 2),
+            {
+                "apex_limit": 8.0,
+                "split_angle": pytest.approx(pi / 3.0),
+                "dynamic_corner_bands": False,
+            },
+        ),
+        (
+            rail_plan,
+            (10,),
+            {
+                "apex_limit": 8.0,
+                "split_angle": pytest.approx(pi / 3.0),
+                "dynamic_corner_bands": False,
+            },
+        ),
+    ]
+    assert patch_calls == [(1, 2, 10)]
+    assert [partition.backend for partition in plan.backend_partitions] == [
+        "PATCH_VORONOI",
+    ]
+    assert plan.backend_partitions[0].edge_indices == (1, 2, 10)
+    assert plan.accepted_rail_planar_edge_indices == ()
+    assert plan.accepted_patch_voronoi_edge_indices == (1, 2, 10)
+    assert plan.rail_geometry_failures == (rail_failure,)
+    assert plan.accounting_is_exact is True
+    assert plan.backend_summary == (
+        "PLANAR:2c/3e | RailFallback[NON_PLANAR_RAIL_COMPONENT:x1]"
+    )
+
+
+def test_r1_face_disjoint_scope_can_use_multiple_rail_partitions(monkeypatch):
+    joined = _backend_test_run((1, 2), (0, 1, 2))
+    isolated = _backend_test_run((10,), (10, 11))
+
+    def collect(_graph, edge_indices):
+        edges = set(edge_indices)
+        runs = []
+        if edges.intersection({1, 2}):
+            runs.append(joined)
+        if 10 in edges:
+            runs.append(isolated)
+        return decals_module._ManualEdgeDecalCollection(
+            corner_runs=tuple(runs),
+            boundary_runs=(),
+            accepted_edge_indices=tuple(sorted(edges)),
+            rejected_edges=(),
+        )
+
+    def geometry_plan(owner_face_id):
+        return SimpleNamespace(
+            channels=(
+                SimpleNamespace(
+                    cells=(SimpleNamespace(owner_face_id=owner_face_id),)
+                ),
+            ),
+            corner_partitions=(),
+            path_reach_scales=(),
+        )
+
+    plans = {(1, 2): geometry_plan(100), (10,): geometry_plan(200)}
+    rail_plan = SimpleNamespace(alpha_budget=3.0)
+    monkeypatch.setattr(decals_module, "_collect_manual_edge_decals", collect)
+    monkeypatch.setattr(
+        decals_module,
+        "compile_decal_rail_attempt",
+        lambda *_args, **_kwargs: SimpleNamespace(plan=rail_plan, failures=()),
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "compile_planar_rail_geometry_attempt",
+        lambda _plan, *, edge_indices, **_kwargs: SimpleNamespace(
+            plan=plans[tuple(edge_indices)], failures=()
+        ),
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "compile_patch_voronoi_attempt",
+        lambda *_args, **_kwargs: pytest.fail("disjoint rail scope used Patch"),
+    )
+
+    plan = decals_module.compile_manual_seam_decal_plan(
+        object(),
+        DecalSettings(),
+        (1, 2, 10),
+        alpha_budget=3.0,
+    )
+
+    assert [partition.backend for partition in plan.backend_partitions] == [
+        "RAIL_PLANAR",
+        "RAIL_PLANAR",
+    ]
+    assert plan.accepted_rail_planar_edge_indices == (1, 2, 10)
+    assert plan.accepted_patch_voronoi_edge_indices == ()
+    assert plan.rail_geometry_failures == ()
+    assert plan.accounting_is_exact is True
+
+
+def test_r1_same_face_components_stay_on_joint_patch_competition(monkeypatch):
+    joined = _backend_test_run((1, 2), (0, 1, 2))
+    isolated = _backend_test_run((10,), (10, 11))
+
+    def collect(_graph, edge_indices):
+        edges = set(edge_indices)
+        runs = []
+        if edges.intersection({1, 2}):
+            runs.append(joined)
+        if 10 in edges:
+            runs.append(isolated)
+        return decals_module._ManualEdgeDecalCollection(
+            corner_runs=tuple(runs),
+            boundary_runs=(),
+            accepted_edge_indices=tuple(sorted(edges)),
+            rejected_edges=(),
+        )
+
+    shared_plan = SimpleNamespace(
+        channels=(
+            SimpleNamespace(cells=(SimpleNamespace(owner_face_id=100),)),
+        ),
+        corner_partitions=(),
+    )
+    patch_plan = SimpleNamespace(backend_kind="PLANAR")
+    patch_calls = []
+    monkeypatch.setattr(decals_module, "_collect_manual_edge_decals", collect)
+    monkeypatch.setattr(
+        decals_module,
+        "compile_decal_rail_attempt",
+        lambda *_args, **_kwargs: SimpleNamespace(plan=object(), failures=()),
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "compile_planar_rail_geometry_attempt",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            plan=shared_plan, failures=()
+        ),
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "compile_patch_voronoi_attempt",
+        lambda _graph, edges, *_args, **_kwargs: (
+            patch_calls.append(tuple(edges))
+            or SimpleNamespace(
+                plan=patch_plan,
+                rejected_edge_indices=(),
+                failures=(),
+            )
+        ),
+    )
+
+    plan = decals_module.compile_manual_seam_decal_plan(
+        object(),
+        DecalSettings(),
+        (1, 2, 10),
+        alpha_budget=3.0,
+    )
+
+    assert patch_calls == [(1, 2, 10)]
+    assert [partition.backend for partition in plan.backend_partitions] == [
+        "PATCH_VORONOI"
+    ]
+    assert plan.accepted_rail_planar_edge_indices == ()
+    assert plan.accepted_patch_voronoi_edge_indices == (1, 2, 10)
+    assert [failure.reason for failure in plan.rail_geometry_failures] == [
+        "RAIL_GEOMETRY_COMPETITION_PENDING"
+    ]
+    assert plan.accounting_is_exact is True
+
+
+def test_r1_scope_conflict_includes_wide_corner_owner_faces():
+    def geometry_plan(channel_face_id, corner_face_id):
+        return SimpleNamespace(
+            channels=(
+                SimpleNamespace(
+                    cells=(SimpleNamespace(owner_face_id=channel_face_id),)
+                ),
+            ),
+            corner_partitions=(),
+            corner_cells=(SimpleNamespace(owner_face_id=corner_face_id),),
+        )
+
+    assert decals_module._rail_geometry_scope_has_face_conflicts(
+        (
+            ((1,), geometry_plan(100, 300)),
+            ((2,), geometry_plan(200, 300)),
+        )
+    ) is True
+
+
+def test_r1_miter_scale_recompiles_trace_to_preserve_effective_headroom(
+    monkeypatch,
+):
+    run = _backend_test_run((7,), (0, 1))
+    monkeypatch.setattr(
+        decals_module,
+        "_collect_manual_edge_decals",
+        lambda _graph, edges: decals_module._ManualEdgeDecalCollection(
+            corner_runs=(run,),
+            boundary_runs=(),
+            accepted_edge_indices=tuple(sorted(edges)),
+            rejected_edges=(),
+        ),
+    )
+    trace_scale = 5.758770483143633
+    base_budget = 2.0
+    expanded_budget = (
+        base_budget * trace_scale
+        + decals_module.DECAL_WELD_DISTANCE * 8.0
+    )
+    base_rail = SimpleNamespace(alpha_budget=base_budget)
+    expanded_rail = SimpleNamespace(alpha_budget=expanded_budget)
+
+    def geometry_plan(alpha_budget):
+        return SimpleNamespace(
+            channels=(
+                SimpleNamespace(cells=(SimpleNamespace(owner_face_id=100),)),
+            ),
+            corner_partitions=(),
+            path_reach_scales=((('corner', 7), trace_scale),),
+            alpha_budget=alpha_budget,
+        )
+
+    base_geometry = geometry_plan(base_budget / trace_scale)
+    expanded_geometry = geometry_plan(base_budget + 1.0e-6)
+    rail_calls = []
+
+    def compile_rail(_graph, _edges, **kwargs):
+        rail_calls.append(kwargs["alpha_budget"])
+        return SimpleNamespace(
+            plan=(
+                base_rail
+                if len(rail_calls) == 1
+                else expanded_rail
+            ),
+            failures=(),
+        )
+
+    geometry_calls = []
+
+    def compile_geometry(plan, **_kwargs):
+        geometry_calls.append(plan)
+        return SimpleNamespace(
+            plan=(
+                base_geometry
+                if plan is base_rail
+                else expanded_geometry
+            ),
+            failures=(),
+        )
+
+    monkeypatch.setattr(decals_module, "compile_decal_rail_attempt", compile_rail)
+    monkeypatch.setattr(
+        decals_module,
+        "compile_planar_rail_geometry_attempt",
+        compile_geometry,
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "compile_patch_voronoi_attempt",
+        lambda *_args, **_kwargs: pytest.fail(
+            "expanded rail support unexpectedly used Patch"
+        ),
+    )
+
+    plan = decals_module.compile_manual_seam_decal_plan(
+        object(),
+        DecalSettings(corner_acute_split_angle=pi / 180.0),
+        (7,),
+        alpha_budget=base_budget,
+    )
+
+    assert rail_calls == pytest.approx([base_budget, expanded_budget])
+    assert geometry_calls == [base_rail, expanded_rail]
+    assert plan.rail_plan is expanded_rail
+    assert plan.backend_partitions[0].backend == "RAIL_PLANAR"
+    assert plan.backend_partitions[0].compiled_plan is expanded_geometry
+    assert expanded_geometry.alpha_budget >= base_budget
+    assert plan.rail_geometry_failures == ()
+    assert plan.accounting_is_exact is True
+
+
+def test_r1_extended_trace_failure_keeps_whole_scope_on_patch(monkeypatch):
+    run = _backend_test_run((7,), (0, 1))
+    monkeypatch.setattr(
+        decals_module,
+        "_collect_manual_edge_decals",
+        lambda _graph, edges: decals_module._ManualEdgeDecalCollection(
+            corner_runs=(run,),
+            boundary_runs=(),
+            accepted_edge_indices=tuple(sorted(edges)),
+            rejected_edges=(),
+        ),
+    )
+    base_rail = SimpleNamespace(alpha_budget=2.0)
+    expanded_budget = 4.0 + decals_module.DECAL_WELD_DISTANCE * 8.0
+    expanded_rail = SimpleNamespace(alpha_budget=expanded_budget)
+    base_geometry = SimpleNamespace(
+        channels=(
+            SimpleNamespace(cells=(SimpleNamespace(owner_face_id=100),)),
+        ),
+        corner_partitions=(),
+        path_reach_scales=((('corner', 7), 2.0),),
+        alpha_budget=1.0,
+    )
+    expanded_failure = SimpleNamespace(
+        reason="RAIL_GEOMETRY_MERGE_UNSUPPORTED"
+    )
+    rail_calls = []
+
+    def compile_rail(_graph, _edges, **kwargs):
+        rail_calls.append(kwargs["alpha_budget"])
+        return SimpleNamespace(
+            plan=base_rail if len(rail_calls) == 1 else expanded_rail,
+            failures=(),
+        )
+
+    monkeypatch.setattr(decals_module, "compile_decal_rail_attempt", compile_rail)
+    monkeypatch.setattr(
+        decals_module,
+        "compile_planar_rail_geometry_attempt",
+        lambda plan, **_kwargs: (
+            SimpleNamespace(plan=base_geometry, failures=())
+            if plan is base_rail
+            else SimpleNamespace(plan=None, failures=(expanded_failure,))
+        ),
+    )
+    patch_plan = SimpleNamespace(backend_kind="PLANAR")
+    patch_calls = []
+    monkeypatch.setattr(
+        decals_module,
+        "compile_patch_voronoi_attempt",
+        lambda _graph, edges, *_args, **_kwargs: (
+            patch_calls.append(tuple(edges))
+            or SimpleNamespace(
+                plan=patch_plan,
+                rejected_edge_indices=(),
+                failures=(),
+            )
+        ),
+    )
+
+    plan = decals_module.compile_manual_seam_decal_plan(
+        object(),
+        DecalSettings(),
+        (7,),
+        alpha_budget=2.0,
+    )
+
+    assert rail_calls == pytest.approx([2.0, expanded_budget])
+    assert patch_calls == [(7,)]
+    assert plan.accepted_rail_planar_edge_indices == ()
+    assert plan.accepted_patch_voronoi_edge_indices == (7,)
+    assert plan.rail_plan is base_rail
+    assert plan.rail_geometry_failures == (expanded_failure,)
+    assert plan.accounting_is_exact is True
+
+
+def test_r1_planar_partition_uses_strict_rail_evaluator(monkeypatch):
+    compiled_plan = object()
+    partition = decals_module._ManualSeamBackendPartition(
+        backend="RAIL_PLANAR",
+        edge_indices=(7,),
+        topology_component_count=1,
+        corner_runs=(),
+        boundary_runs=(),
+        compiled_plan=compiled_plan,
+    )
+    calls = []
+    monkeypatch.setattr(
+        decals_module,
+        "evaluate_planar_rail_geometry_plan",
+        lambda plan, width, **kwargs: (
+            calls.append((plan, width, kwargs)) or ("rail-face",)
+        ),
+    )
+
+    evaluation = decals_module._evaluate_manual_backend_partition(
+        partition,
+        DecalSettings(offset=0.125),
+        2.0,
+        True,
+    )
+
+    assert evaluation.faces == ("rail-face",)
+    assert evaluation.evaluation_ms >= 0.0
+    assert calls == [
+        (
+            compiled_plan,
+            2.0,
+            {"offset": 0.125, "preview": True},
+        )
+    ]
+
+
+def test_r1_planar_partition_never_falls_back_at_runtime(monkeypatch):
+    partition = decals_module._ManualSeamBackendPartition(
+        backend="RAIL_PLANAR",
+        edge_indices=(7,),
+        topology_component_count=1,
+        corner_runs=(),
+        boundary_runs=(),
+        compiled_plan=object(),
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "evaluate_planar_rail_geometry_plan",
+        lambda *_args, **_kwargs: (),
+    )
+
+    with pytest.raises(decals_module.RailPlanarRuntimeError) as exc_info:
+        decals_module._evaluate_manual_backend_partition(
+            partition,
+            DecalSettings(),
+            1.0,
+            False,
+        )
+
+    assert exc_info.value.edge_indices == (7,)
+    assert exc_info.value.reason == "evaluation produced no faces"
 
 
 def test_live_corner_controls_require_clean_patch_voronoi_accounting():

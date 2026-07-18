@@ -1,0 +1,1021 @@
+from __future__ import annotations
+
+from dataclasses import replace
+from math import cos, isclose, pi, sqrt
+
+import pytest
+
+from mathutils import Vector
+
+from cftuv import decal_rails
+from cftuv.decal_rail_geometry import (
+    RailGeometryEvaluationError,
+    compile_planar_rail_geometry_attempt,
+    evaluate_planar_rail_geometry_plan,
+)
+from cftuv.model import BoundaryChain
+
+from decal_rail_fixtures import (
+    mesh_graph,
+    planar_acute_join,
+    planar_concave_corner_join,
+    planar_quad_strip,
+    planar_rf1_ring,
+    planar_rf10_quarter_join,
+    planar_rf10_with_disconnected_concave_face,
+)
+
+
+def _compile_geometry(fixture, *, alpha_budget=1.5, **compile_kwargs):
+    graph, _edge_ids, selected, _vertex_at = fixture
+    rail_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=alpha_budget,
+    )
+    attempt = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=selected,
+        **compile_kwargs,
+    )
+    assert attempt.failures == ()
+    assert attempt.plan is not None
+    return rail_plan, attempt.plan
+
+
+def _face_signature(faces):
+    return tuple(
+        (
+            face.surface_id,
+            tuple(face.vert_keys),
+            tuple(tuple(float(value) for value in position) for position in face.positions),
+            tuple(face.u_fracs),
+            tuple(face.v_lengths),
+            face.component_kind,
+            face.component_side,
+            face.rail_provenance,
+        )
+        for face in faces
+    )
+
+
+def _polygon_area(face):
+    origin = face.positions[0]
+    area = Vector((0.0, 0.0, 0.0))
+    for index in range(1, len(face.positions) - 1):
+        area += (face.positions[index] - origin).cross(
+            face.positions[index + 1] - origin
+        )
+    return area.length * 0.5
+
+
+def _edge_incidence(faces):
+    incidence = {}
+    for face_index, face in enumerate(faces):
+        for vertex_a, vertex_b in zip(
+            face.vert_keys,
+            face.vert_keys[1:] + face.vert_keys[:1],
+        ):
+            edge_key = frozenset((vertex_a, vertex_b))
+            incidence.setdefault(edge_key, []).append(face_index)
+    return incidence
+
+
+def _face_component_count(faces):
+    adjacency = {index: set() for index in range(len(faces))}
+    for owners in _edge_incidence(faces).values():
+        if len(owners) == 2:
+            adjacency[owners[0]].add(owners[1])
+            adjacency[owners[1]].add(owners[0])
+    unseen = set(adjacency)
+    component_count = 0
+    while unseen:
+        component_count += 1
+        pending = [unseen.pop()]
+        while pending:
+            current = pending.pop()
+            neighbors = adjacency[current].intersection(unseen)
+            unseen.difference_update(neighbors)
+            pending.extend(neighbors)
+    return component_count
+
+
+def _assert_unique_key_positions(faces):
+    positions_by_key = {}
+    for face in faces:
+        for key, position in zip(face.vert_keys, face.positions):
+            exact_position = tuple(float(value) for value in position)
+            if key in positions_by_key:
+                assert positions_by_key[key] == exact_position
+            else:
+                positions_by_key[key] = exact_position
+
+
+def _boundary_loop_count(faces):
+    boundary_edges = [
+        tuple(edge_key)
+        for edge_key, owners in _edge_incidence(faces).items()
+        if len(owners) == 1
+    ]
+    adjacency = {}
+    for vertex_a, vertex_b in boundary_edges:
+        adjacency.setdefault(vertex_a, set()).add(vertex_b)
+        adjacency.setdefault(vertex_b, set()).add(vertex_a)
+    assert adjacency
+    assert {len(neighbors) for neighbors in adjacency.values()} == {2}
+    unseen = set(adjacency)
+    loop_count = 0
+    while unseen:
+        loop_count += 1
+        pending = [unseen.pop()]
+        while pending:
+            current = pending.pop()
+            neighbors = adjacency[current].intersection(unseen)
+            unseen.difference_update(neighbors)
+            pending.extend(neighbors)
+    return loop_count
+
+
+def _point_line_distance(point, point_a, point_b):
+    tangent = point_b - point_a
+    return tangent.cross(point - point_a).length / tangent.length
+
+
+def _point_in_source_face(point, source_face, source_positions):
+    normal = Vector(source_face.normal)
+    polygon = [
+        Vector(source_positions[vertex_id])
+        for vertex_id in source_face.vertex_ids
+    ]
+    return all(
+        (polygon[(index + 1) % len(polygon)] - polygon[index])
+        .cross(point - polygon[index])
+        .dot(normal)
+        >= -1.0e-12
+        for index in range(len(polygon))
+    )
+
+
+def test_r1_regular_planar_channels_are_compile_static_and_fully_provenanced():
+    _rail_plan, plan = _compile_geometry(
+        planar_quad_strip(),
+        alpha_budget=1.5,
+    )
+
+    assert plan.component.is_closed is False
+    assert len(plan.channels) == 4
+    assert {len(channel.cells) for channel in plan.channels} == {2}
+    assert len(plan.cap_traces) == 4
+    assert all(trace.pieces for trace in plan.cap_traces)
+    assert all(
+        cell.source_edge_ids
+        and cell.boundary_path_ids
+        and all(
+                vertex.source_face_id == cell.owner_face_id
+                and vertex.source_feature
+                and vertex.source_feature_id is not None
+                and vertex.route_ids
+                and all(route_id >= 0 for route_id in vertex.route_ids)
+            for vertex in cell.vertices
+        )
+        for channel in plan.channels
+        for cell in channel.cells
+    )
+    assert all(
+        face.normal == (0.0, 0.0, 1.0)
+        and face.planarity_min_dot == 1.0
+        for face in plan.rail_plan.faces
+    )
+
+
+def test_r1_start_dam_uses_full_width_virtual_rail_without_taper():
+    _rail_plan, plan = _compile_geometry(
+        planar_quad_strip(),
+        alpha_budget=1.5,
+    )
+    faces = evaluate_planar_rail_geometry_plan(plan, width=1.0)
+
+    start_station_faces = [
+        face
+        for face in faces
+        if min(face.v_lengths) == 0.0
+    ]
+    assert len(start_station_faces) == 2
+    for face in start_station_faces:
+        at_start = [
+            abs(u_frac)
+            for u_frac, s in zip(face.u_fracs, face.v_lengths)
+            if s == 0.0
+        ]
+        assert sorted(at_start) == [0.0, 1.0]
+    assert all(
+        trace.pieces[-1].end.r == plan.alpha_budget
+        for trace in plan.cap_traces
+    )
+
+
+def test_r1_width_drag_only_clips_compiled_cells_and_preview_equals_confirm():
+    _rail_plan, plan = _compile_geometry(
+        planar_quad_strip(),
+        alpha_budget=1.5,
+    )
+    channel_snapshot = plan.channels
+
+    narrow = evaluate_planar_rail_geometry_plan(
+        plan,
+        width=0.5,
+        offset=0.02,
+        preview=True,
+    )
+    wide = evaluate_planar_rail_geometry_plan(
+        plan,
+        width=3.0,
+        offset=0.02,
+        preview=True,
+    )
+    confirmed = evaluate_planar_rail_geometry_plan(
+        plan,
+        width=3.0,
+        offset=0.02,
+        preview=False,
+    )
+
+    assert plan.channels is channel_snapshot
+    assert len(narrow) == 4
+    assert len(wide) == 8
+    assert _face_signature(confirmed) == _face_signature(wide)
+    assert all(position.z == 0.02 for face in wide for position in face.positions)
+
+
+def test_r1_exact_source_station_never_emits_zero_area_cell():
+    _rail_plan, plan = _compile_geometry(
+        planar_quad_strip(),
+        alpha_budget=1.5,
+    )
+
+    faces = evaluate_planar_rail_geometry_plan(plan, width=2.0)
+
+    assert len(faces) == 4
+    assert all(_polygon_area(face) > 0.0 for face in faces)
+    assert all(len(set(face.vert_keys)) == len(face.vert_keys) for face in faces)
+
+
+def test_r1_every_emitted_face_carries_complete_immutable_provenance():
+    _rail_plan, plan = _compile_geometry(
+        planar_rf10_quarter_join(),
+        alpha_budget=2.0,
+    )
+    faces = evaluate_planar_rail_geometry_plan(plan, width=3.0)
+
+    assert faces
+    assert all(
+        face.rail_provenance is not None
+        and face.rail_provenance.component_id == plan.component.component_id
+        and face.rail_provenance.source_face_id == face.surface_id
+        and face.rail_provenance.source_edge_ids
+        and face.rail_provenance.boundary_path_ids
+        and face.rail_provenance.route_ids
+        and face.rail_provenance.station_keys
+        for face in faces
+    )
+
+
+def test_r1_dynamic_bands_and_stable_acute_policy_fail_structurally():
+    graph, _edge_ids, selected, _vertex_at = planar_quad_strip()
+    rail_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=1.0,
+    )
+    dynamic = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=selected,
+        dynamic_corner_bands=True,
+    )
+    assert dynamic.plan is None
+    assert dynamic.failures[0].reason == "RAIL_GEOMETRY_DYNAMIC_BANDS_UNSUPPORTED"
+
+    graph, _edge_ids, selected, _vertex_at = planar_acute_join()
+    rail_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=0.25,
+    )
+    acute = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=selected,
+        split_angle=pi / 3.0,
+    )
+    assert acute.plan is None
+    assert acute.failures[0].reason == "RAIL_GEOMETRY_A10_POLICY_UNSUPPORTED"
+    assert dict(acute.failures[0].details)["extrusion_angle"] < pi / 3.0
+
+
+def test_r1_foreign_pchain_is_a_materialized_boundary_not_a_crossing():
+    graph, edge_ids, selected, vertex_at = planar_quad_strip()
+    foreign_pair = (vertex_at[(1, 1)], vertex_at[(1, 2)])
+    foreign_edge = edge_ids[tuple(sorted(foreign_pair))]
+    graph.nodes[0].boundary_loops[0].chains.append(
+        BoundaryChain(
+            vert_indices=list(foreign_pair),
+            edge_indices=[foreign_edge],
+        )
+    )
+    rail_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=1.5,
+    )
+    attempt = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=selected,
+    )
+
+    assert attempt.failures == ()
+    assert any(
+        route.termination == decal_rails.RailTermination.PCHAIN
+        for route in rail_plan.routes
+    )
+    faces = evaluate_planar_rail_geometry_plan(attempt.plan, width=3.0)
+    assert faces
+    assert max(position.x for face in faces for position in face.positions) == 1.0
+    limited_channels = [
+        channel for channel in attempt.plan.channels if channel.alpha_limit == 1.0
+    ]
+    assert len(limited_channels) == 2
+    for channel in limited_channels:
+        channel_faces = [
+            face
+            for face in faces
+            if face.rail_provenance.channel_id == channel.channel_id
+        ]
+        frontier_by_station = {}
+        for face in channel_faces:
+            for u_frac, station in zip(face.u_fracs, face.v_lengths):
+                frontier_by_station.setdefault(station, []).append(abs(u_frac))
+        assert any(
+            isclose(max(values), 2.0 / 3.0)
+            for values in frontier_by_station.values()
+        )
+
+
+def test_r1_virtual_cap_preserves_canonical_vertex_at_large_coordinates():
+    graph, _edge_ids, selected, _vertex_at = planar_quad_strip()
+    node = graph.nodes[0]
+    node.mesh_verts = [
+        Vector((point.x + 1.0e9, point.y - 1.0e9, point.z))
+        for point in node.mesh_verts
+    ]
+    rail_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=1.0,
+    )
+    attempt = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=selected,
+    )
+
+    assert attempt.failures == ()
+    assert all(
+        trace.pieces[-1].end.key[0] == "rail-source-vertex"
+        and trace.pieces[-1].end.source_feature == "SOURCE_VERTEX"
+        for trace in attempt.plan.cap_traces
+    )
+
+
+def test_r1_virtual_cap_stops_on_existing_rail_and_dam_vertex():
+    graph, _edge_ids, selected, _vertex_at = planar_quad_strip()
+    rail_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=1.5,
+    )
+    baseline = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=selected,
+    ).plan
+    first_hit = baseline.cap_traces[0].pieces[0].end
+    template = rail_plan.routes[0]
+    outside_vertex = next(
+        vertex.vertex_id
+        for vertex in rail_plan.vertices
+        if vertex.vertex_id not in baseline.component.vertex_ids
+    )
+    synthetic = replace(
+        template,
+        route_id=999,
+        key=replace(
+            template.key,
+            side=replace(
+                template.key.side,
+                spine_vertex_id=outside_vertex,
+            ),
+        ),
+        segments=(
+            replace(template.segments[0], edge_id=first_hit.source_edge_id),
+        ),
+    )
+    with_rail_barrier = replace(
+        rail_plan,
+        routes=rail_plan.routes + (synthetic,),
+    )
+    rail_attempt = compile_planar_rail_geometry_attempt(
+        with_rail_barrier,
+        edge_indices=selected,
+    )
+    assert rail_attempt.failures == ()
+    assert rail_attempt.plan.cap_traces[0].termination == "DAM"
+    assert len(rail_attempt.plan.cap_traces[0].pieces) == 1
+
+    dam_station = replace(
+        template.stations[0],
+        source_vertex_id=first_hit.source_feature_id,
+    )
+    dam_route = replace(
+        synthetic,
+        segments=(),
+        stations=(dam_station,),
+        termination=decal_rails.RailTermination.DAM,
+    )
+    dam_event = decal_rails.RailEvent(
+        decal_rails.RailEventKind.DAM,
+        dam_route.route_id,
+        dam_station.station_index,
+    )
+    with_dam_barrier = replace(
+        rail_plan,
+        routes=rail_plan.routes + (dam_route,),
+        events=rail_plan.events + (dam_event,),
+    )
+    dam_attempt = compile_planar_rail_geometry_attempt(
+        with_dam_barrier,
+        edge_indices=selected,
+    )
+    assert dam_attempt.failures == ()
+    assert dam_attempt.plan.cap_traces[0].termination == "DAM"
+    assert len(dam_attempt.plan.cap_traces[0].pieces) == 1
+
+
+def test_r1_closed_rf1_ring_has_seven_channels_and_two_cells_per_route():
+    fixture = planar_rf1_ring()
+    rail_plan, plan = _compile_geometry(fixture, alpha_budget=2.0)
+
+    assert plan.component.is_closed is True
+    assert plan.component.vertex_ids[0] == plan.component.vertex_ids[-1]
+    assert len(rail_plan.routes) == 7
+    assert all(len(route.segments) == 2 for route in rail_plan.routes)
+    assert len(plan.channels) == 7
+    assert {len(channel.cells) for channel in plan.channels} == {2}
+    assert len(plan.corners) == 7
+    assert {corner.policy for corner in plan.corners} == {
+        "STABLE_A10_IN_PLANE"
+    }
+    assert len(plan.corner_partitions) == 7
+    assert {partition.mode for partition in plan.corner_partitions} == {
+        "SHARED_MITER_ROUTE"
+    }
+    expected_ratio = 1.0 / cos(pi / 7.0)
+    assert all(
+        isclose(partition.miter_ratio, expected_ratio, rel_tol=1e-12)
+        for partition in plan.corner_partitions
+    )
+    assert plan.alpha_budget < rail_plan.alpha_budget
+
+    faces = evaluate_planar_rail_geometry_plan(plan, width=2.0)
+    assert len(faces) == 14
+    source_vertices = {
+        vertex.vertex_id: Vector(vertex.position)
+        for vertex in rail_plan.vertices
+    }
+    source_edges = {edge.edge_id: edge for edge in rail_plan.edges}
+    channels = {channel.channel_id: channel for channel in plan.channels}
+    measured = []
+    for face in faces:
+        channel_id = face.rail_provenance.channel_id
+        channel = channels[channel_id]
+        spine = source_edges[channel.spine_edge_id]
+        point_a, point_b = (
+            source_vertices[vertex_id] for vertex_id in spine.vertex_ids
+        )
+        measured.extend(
+            _point_line_distance(position, point_a, point_b)
+            for position, u_frac in zip(face.positions, face.u_fracs)
+            if isclose(abs(u_frac), 1.0, abs_tol=1e-12)
+        )
+    assert measured
+    assert all(isclose(value, 1.0, abs_tol=1e-12) for value in measured)
+    assert _boundary_loop_count(faces) == 2
+    _assert_unique_key_positions(faces)
+
+    with pytest.raises(RailGeometryEvaluationError) as exc_info:
+        evaluate_planar_rail_geometry_plan(
+            plan,
+            width=2.0 * plan.alpha_budget + 0.01,
+        )
+    assert exc_info.value.failure.reason == "RAIL_GEOMETRY_DOMAIN_BUDGET_EXCEEDED"
+    assert "DOMAIN_BUDGET_EXCEEDED" in exc_info.value.failure.reason
+
+
+def test_r1_rf10_planar_join_shares_the_compiled_corner_rail():
+    rail_plan, plan = _compile_geometry(
+        planar_rf10_quarter_join(),
+        alpha_budget=2.0,
+    )
+    assert len(plan.corners) == 1
+    assert len(plan.channels) == 4
+    assert {partition.mode for partition in plan.corner_partitions} == {
+        "INNER_DIVIDER",
+        "OUTER_FILL",
+    }
+    assert all(
+        isclose(partition.miter_ratio, sqrt(2.0), rel_tol=1e-12)
+        for partition in plan.corner_partitions
+    )
+
+    for width in (0.2, 0.5, 1.0, 2.0, 2.5, 3.0, 4.0):
+        preview = evaluate_planar_rail_geometry_plan(
+            plan,
+            width=width,
+            preview=True,
+        )
+        confirmed = evaluate_planar_rail_geometry_plan(
+            plan,
+            width=width,
+            preview=False,
+        )
+        assert _face_signature(preview) == _face_signature(confirmed)
+        assert _face_component_count(preview) == 1
+        assert _boundary_loop_count(preview) == 1
+        assert max(map(len, _edge_incidence(preview).values())) <= 2
+        assert all(_polygon_area(face) > 0.0 for face in preview)
+        _assert_unique_key_positions(preview)
+
+    narrow = evaluate_planar_rail_geometry_plan(plan, width=0.5)
+    assert len(narrow) == 6
+    inner_partition = next(
+        partition
+        for partition in plan.corner_partitions
+        if partition.mode == "INNER_DIVIDER"
+    )
+    inner_faces = [
+        face
+        for face in narrow
+        if face.surface_id == inner_partition.owner_face_id
+    ]
+    assert len(inner_faces) == 2
+    assert isclose(sum(map(_polygon_area, inner_faces)), 0.4375)
+    outer_faces = [
+        face for face in narrow if face.component_kind == "RAIL_CORNER"
+    ]
+    assert len(outer_faces) == 2
+    assert isclose(sum(map(_polygon_area, outer_faces)), 0.0625)
+    miter_position = next(
+        position
+        for outer_face in outer_faces
+        for key, position in zip(outer_face.vert_keys, outer_face.positions)
+        if key[0] == "rail-corner-frontier"
+    )
+    corner_position = next(
+        position
+        for outer_face in outer_faces
+        for key, position in zip(outer_face.vert_keys, outer_face.positions)
+        if key == ("rail-source-vertex", inner_partition.source_vertex_id)
+    )
+    assert isclose((miter_position - corner_position).length, 0.25 * sqrt(2.0))
+
+    at_station = evaluate_planar_rail_geometry_plan(plan, width=2.0)
+    station_corners = [
+        face for face in at_station if face.component_kind == "RAIL_CORNER"
+    ]
+    assert sum(
+        key[0] == "rail-source-vertex"
+        for face in station_corners
+        for key in face.vert_keys
+    ) >= 4
+    beyond_station = evaluate_planar_rail_geometry_plan(plan, width=3.0)
+    extended_corners = [
+        face for face in beyond_station if face.component_kind == "RAIL_CORNER"
+    ]
+    assert sum(
+        key[0] == "rail-source-vertex"
+        for face in extended_corners
+        for key in face.vert_keys
+    ) >= 4
+    assert sum(
+        key[0] == "rail-frontier"
+        for face in extended_corners
+        for key in face.vert_keys
+    ) >= 2
+
+    wide = evaluate_planar_rail_geometry_plan(plan, width=4.0)
+    wide_corners = [
+        face for face in wide if face.component_kind == "RAIL_CORNER"
+    ]
+    assert len({face.surface_id for face in wide_corners}) == 4
+    source_faces = {face.face_id: face for face in rail_plan.faces}
+    source_positions = {
+        vertex.vertex_id: vertex.position for vertex in rail_plan.vertices
+    }
+    assert all(
+        _point_in_source_face(
+            position,
+            source_faces[face.surface_id],
+            source_positions,
+        )
+        for face in wide_corners
+        for position in face.positions
+    )
+
+
+def test_r1_reversed_enumeration_is_bit_identical():
+    graph, _edge_ids, selected, _vertex_at = planar_rf1_ring()
+    forward_rail = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=2.0,
+    )
+    forward = compile_planar_rail_geometry_attempt(
+        forward_rail,
+        edge_indices=selected,
+    ).plan
+    node = graph.nodes[0]
+    node.mesh_tris.reverse()
+    node.mesh_tri_face_indices.reverse()
+    node.mesh_tri_edge_indices.reverse()
+    reversed_rail = decal_rails.compile_decal_rail_plan(
+        graph,
+        tuple(reversed(selected)),
+        alpha_budget=2.0,
+    )
+    reversed_plan = compile_planar_rail_geometry_attempt(
+        reversed_rail,
+        edge_indices=tuple(reversed(selected)),
+    ).plan
+
+    assert reversed_rail == forward_rail
+    assert reversed_plan == forward
+    reversed_faces = evaluate_planar_rail_geometry_plan(
+        reversed_plan,
+        width=3.0,
+    )
+    forward_faces = evaluate_planar_rail_geometry_plan(
+        forward,
+        width=3.0,
+    )
+    _assert_unique_key_positions(reversed_faces)
+    _assert_unique_key_positions(forward_faces)
+    assert _face_signature(reversed_faces) == _face_signature(forward_faces)
+
+
+def test_r1_closed_station_origin_comes_from_chain_provenance_not_vertex_id():
+    graph, _edge_ids, selected, _vertex_at = planar_rf1_ring()
+    rail_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=1.5,
+    )
+    original = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=selected,
+    ).plan
+    remap = {
+        vertex.vertex_id: 1000 - vertex.vertex_id * 7
+        for vertex in rail_plan.vertices
+    }
+    remapped_vertices = {
+        remap[vertex.vertex_id]: vertex.position
+        for vertex in rail_plan.vertices
+    }
+    remapped_faces = [
+        tuple(remap[vertex_id] for vertex_id in face.vertex_ids)
+        for face in rail_plan.faces
+    ]
+    source_chain = graph.nodes[0].boundary_loops[0].chains[0]
+    remapped_path = tuple(remap[vertex_id] for vertex_id in source_chain.vert_indices)
+    remapped_graph, _ids, remapped_selected = mesh_graph(
+        remapped_vertices,
+        remapped_faces,
+        ((remapped_path, True),),
+    )
+    remapped_rail = decal_rails.compile_decal_rail_plan(
+        remapped_graph,
+        remapped_selected,
+        alpha_budget=1.5,
+    )
+    remapped = compile_planar_rail_geometry_attempt(
+        remapped_rail,
+        edge_indices=remapped_selected,
+    ).plan
+    original_positions = {
+        vertex.vertex_id: vertex.position for vertex in rail_plan.vertices
+    }
+    remapped_positions = {
+        vertex.vertex_id: vertex.position for vertex in remapped_rail.vertices
+    }
+
+    assert tuple(
+        original_positions[station.source_vertex_id]
+        for station in original.component.stations
+    ) == tuple(
+        remapped_positions[station.source_vertex_id]
+        for station in remapped.component.stations
+    )
+    assert tuple(station.s for station in original.component.stations) == tuple(
+        station.s for station in remapped.component.stations
+    )
+
+
+def test_r1_rf10_corner_cells_are_reversed_enumeration_stable():
+    graph, _edge_ids, selected, _vertex_at = planar_rf10_quarter_join()
+    forward_rail = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=2.0,
+    )
+    forward = compile_planar_rail_geometry_attempt(
+        forward_rail,
+        edge_indices=selected,
+    ).plan
+    node = graph.nodes[0]
+    node.mesh_tris.reverse()
+    node.mesh_tri_face_indices.reverse()
+    node.mesh_tri_edge_indices.reverse()
+    reversed_rail = decal_rails.compile_decal_rail_plan(
+        graph,
+        tuple(reversed(selected)),
+        alpha_budget=2.0,
+    )
+    reversed_plan = compile_planar_rail_geometry_attempt(
+        reversed_rail,
+        edge_indices=tuple(reversed(selected)),
+    ).plan
+
+    assert reversed_rail == forward_rail
+    assert reversed_plan == forward
+    for width in (0.2, 0.5, 1.0, 2.0, 2.5, 3.0, 4.0):
+        reversed_faces = evaluate_planar_rail_geometry_plan(
+            reversed_plan,
+            width=width,
+        )
+        forward_faces = evaluate_planar_rail_geometry_plan(
+            forward,
+            width=width,
+        )
+        _assert_unique_key_positions(reversed_faces)
+        _assert_unique_key_positions(forward_faces)
+        assert _face_signature(reversed_faces) == _face_signature(forward_faces)
+
+
+def test_r1_concave_corner_source_face_fails_before_polygon_clipping():
+    graph, _edge_ids, selected, _vertex_at = planar_concave_corner_join()
+    forward_rail = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=2.0,
+    )
+    forward = compile_planar_rail_geometry_attempt(
+        forward_rail,
+        edge_indices=selected,
+    )
+
+    assert forward.plan is None
+    assert len(forward.failures) == 1
+    failure = forward.failures[0]
+    assert failure.reason == "RAIL_GEOMETRY_SOURCE_FACE_NON_CONVEX"
+    assert failure.face_indices == (1000,)
+    assert failure.edge_indices
+    assert failure.vertex_indices == (1, 3, 4, 5, 6, 7, 8, 9)
+    assert dict(failure.details)["corner_vertex_id"] == 1
+
+    node = graph.nodes[0]
+    node.mesh_tris.reverse()
+    node.mesh_tri_face_indices.reverse()
+    node.mesh_tri_edge_indices.reverse()
+    reversed_rail = decal_rails.compile_decal_rail_plan(
+        graph,
+        tuple(reversed(selected)),
+        alpha_budget=2.0,
+    )
+    reversed_attempt = compile_planar_rail_geometry_attempt(
+        reversed_rail,
+        edge_indices=tuple(reversed(selected)),
+    )
+
+    assert reversed_rail == forward_rail
+    assert reversed_attempt.plan is None
+    assert reversed_attempt.failures == forward.failures
+
+
+def test_r1_disconnected_concave_face_does_not_reject_corner_compile():
+    graph, _edge_ids, selected, _vertex_at = (
+        planar_rf10_with_disconnected_concave_face()
+    )
+    rail_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=2.0,
+    )
+    attempt = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=selected,
+    )
+
+    assert attempt.failures == ()
+    assert attempt.plan is not None
+    assert all(cell.owner_face_id != 1016 for cell in attempt.plan.corner_cells)
+
+
+def test_r1_rf10_corner_fill_cannot_cross_foreign_closed_pchain():
+    graph, _edge_ids, selected, _vertex_at = planar_rf10_quarter_join()
+    baseline = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=2.0,
+    )
+    blocked_face = next(face for face in baseline.faces if face.face_id == 1012)
+    graph.nodes[0].boundary_loops[0].chains.append(
+        BoundaryChain(
+            vert_indices=list(blocked_face.vertex_ids),
+            edge_indices=list(blocked_face.edge_ids),
+            is_closed=True,
+        )
+    )
+    rail_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=2.0,
+    )
+    attempt = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=selected,
+    )
+
+    assert attempt.failures == ()
+    assert all(
+        cell.owner_face_id != blocked_face.face_id
+        for cell in attempt.plan.corner_cells
+    )
+    wide = evaluate_planar_rail_geometry_plan(attempt.plan, width=4.0)
+    assert all(
+        not (
+            face.component_kind == "RAIL_CORNER"
+            and face.surface_id == blocked_face.face_id
+        )
+        for face in wide
+    )
+
+
+def test_r1_non_planar_source_face_is_structured_compile_failure():
+    graph, _edge_ids, selected, vertex_at = planar_quad_strip()
+    node = graph.nodes[0]
+    local_index = node.mesh_vert_indices.index(vertex_at[(1, 1)])
+    point = node.mesh_verts[local_index]
+    node.mesh_verts[local_index] = Vector((point.x, point.y, 2.0))
+    rail_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=1.0,
+    )
+    attempt = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=selected,
+    )
+
+    assert attempt.plan is None
+    assert attempt.failures[0].reason == "RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR"
+    assert attempt.failures[0].face_indices
+
+
+def test_r1_curved_owner_and_pole_are_structured_compile_failures():
+    graph, _edge_ids, selected, vertex_at = planar_quad_strip()
+    node = graph.nodes[0]
+    for coordinate in ((2, 0), (2, 1), (2, 2)):
+        local_index = node.mesh_vert_indices.index(vertex_at[coordinate])
+        point = node.mesh_verts[local_index]
+        node.mesh_verts[local_index] = Vector((point.x, point.y, 2.0))
+    curved_rail = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=2.0,
+    )
+    curved = compile_planar_rail_geometry_attempt(
+        curved_rail,
+        edge_indices=selected,
+    )
+    assert curved.plan is None
+    assert curved.failures[0].reason == "RAIL_GEOMETRY_CURVED_OWNER_UNSUPPORTED"
+
+    center = 0
+    ring = (1, 2, 3, 4)
+    vertices = {
+        center: (0.0, 0.0, 0.0),
+        1: (1.0, 0.0, 0.0),
+        2: (0.0, 1.0, 0.0),
+        3: (-1.0, 0.0, 0.0),
+        4: (0.0, -1.0, 0.0),
+    }
+    faces = [
+        (center, ring[index], ring[(index + 1) % len(ring)])
+        for index in range(len(ring))
+    ]
+    pole_graph, _ids, pole_selected = mesh_graph(
+        vertices,
+        faces,
+        (((1, 2, 3, 4), True),),
+    )
+    pole_rail = decal_rails.compile_decal_rail_plan(
+        pole_graph,
+        pole_selected,
+        alpha_budget=3.0,
+    )
+    pole = compile_planar_rail_geometry_attempt(
+        pole_rail,
+        edge_indices=pole_selected,
+    )
+    assert pole.plan is None
+    assert pole.failures[0].reason == "RAIL_GEOMETRY_POLE_UNSUPPORTED"
+
+
+def test_r1_merge_and_true_spine_branch_are_structured_failures():
+    vertices = {
+        0: (-1.0, 0.0, 0.0),
+        1: (-2.0, -1.0, 0.0),
+        2: (-2.0, 1.0, 0.0),
+        3: (1.0, 0.0, 0.0),
+        4: (2.0, -1.0, 0.0),
+        5: (2.0, 1.0, 0.0),
+        6: (0.0, 0.0, 0.0),
+    }
+    faces = [
+        (0, 1, 6),
+        (0, 6, 2),
+        (3, 4, 6),
+        (3, 6, 5),
+    ]
+    graph, _edge_ids, selected = mesh_graph(
+        vertices,
+        faces,
+        (
+            ((1, 0, 2), False),
+            ((4, 3, 5), False),
+        ),
+    )
+    rail_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        tuple(
+            edge_id
+            for chain in graph.nodes[0].boundary_loops[0].chains
+            for edge_id in chain.edge_indices
+        ),
+        alpha_budget=4.0,
+    )
+    merged_component = next(
+        component
+        for component in (
+            frozenset(chain.edge_indices)
+            for chain in graph.nodes[0].boundary_loops[0].chains
+        )
+        if any(
+            route.termination == decal_rails.RailTermination.MERGE
+            and route.key.side.spine_vertex_id in chain.vert_indices
+            for chain in graph.nodes[0].boundary_loops[0].chains
+            if frozenset(chain.edge_indices) == component
+            for route in rail_plan.routes
+        )
+    )
+    merged = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=merged_component,
+    )
+    assert merged.plan is None
+    assert merged.failures[0].reason == "RAIL_GEOMETRY_MERGE_UNSUPPORTED"
+
+    branch_use = replace(
+        rail_plan.spine_uses[0],
+        edge_id=999,
+        vertex_ids=(rail_plan.spine_uses[0].vertex_ids[0], 999),
+    )
+    branched_plan = replace(
+        rail_plan,
+        spine_uses=rail_plan.spine_uses + (branch_use,),
+        edges=rail_plan.edges
+        + (
+            replace(
+                rail_plan.edges[0],
+                edge_id=999,
+                vertex_ids=branch_use.vertex_ids,
+                is_spine=True,
+            ),
+        ),
+    )
+    branch_edges = tuple(use.edge_id for use in branched_plan.spine_uses[:2]) + (999,)
+    branch = compile_planar_rail_geometry_attempt(
+        branched_plan,
+        edge_indices=branch_edges,
+    )
+    assert branch.plan is None
+    assert branch.failures[0].reason in {
+        "RAIL_GEOMETRY_BRANCH_UNSUPPORTED",
+        "RAIL_GEOMETRY_COMPONENT_PARTIAL",
+    }

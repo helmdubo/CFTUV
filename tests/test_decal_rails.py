@@ -180,6 +180,39 @@ def test_r0_reversed_selected_enumeration_is_bit_identical():
     assert reordered_topology == forward
 
 
+def test_r0_shallow_nonplanar_ngon_normal_is_permutation_stable():
+    graph, edge_ids, vertex_at = _quad_strip()
+    selected = tuple(
+        edge_ids[tuple(sorted(pair))]
+        for pair in (
+            (vertex_at[(0, 0)], vertex_at[(0, 1)]),
+            (vertex_at[(0, 1)], vertex_at[(0, 2)]),
+        )
+    )
+    node = graph.nodes[0]
+    lifted_vertex = vertex_at[(1, 1)]
+    local_index = node.mesh_vert_indices.index(lifted_vertex)
+    point = node.mesh_verts[local_index]
+    node.mesh_verts[local_index] = Vector((point.x, point.y, 1.0e-6))
+
+    forward = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=1.0,
+    )
+    node.mesh_tris.reverse()
+    node.mesh_tri_face_indices.reverse()
+    node.mesh_tri_edge_indices.reverse()
+    reversed_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        tuple(reversed(selected)),
+        alpha_budget=1.0,
+    )
+
+    assert reversed_plan == forward
+    assert any(face.planarity_min_dot < 1.0 for face in forward.faces)
+
+
 def test_r0_non_quad_ambiguity_is_dam_until_artist_mark_bridges_it():
     graph, edge_ids, vertex_at = _quad_strip(with_ambiguity=True)
     selected = tuple(
