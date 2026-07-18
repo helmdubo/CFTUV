@@ -12355,6 +12355,17 @@ def _synchronize_cross_surface_spine_stations(plan, faces):
                 continue
             if edge_ids:
                 edge_index = next(iter(edge_ids))
+                # Станция source edge может делить только ребро face-cycle,
+                # оба конца которого имеют provenance того же source edge.
+                # Сегмент INTERIOR -> pv-se является crop/frontier, а не
+                # продолжением source edge; spatial proximity здесь рождает
+                # pinched cycle с несмежным повтором ключа (C8.6).
+                source_key_kinds = {("pv-se",), ("pv-sv",)}
+                if any(
+                    key[:1] not in source_key_kinds
+                    for key in (key_a, key_b)
+                ):
+                    continue
                 endpoints = endpoints_by_edge.get(edge_index, ())
                 if any(
                     key[:1] == ("pv-sv",) and key[1] not in endpoints

@@ -2644,6 +2644,51 @@ def test_c8_2_cross_surface_spine_merges_already_split_runs():
     assert tuple(second.positions[1]) == pytest.approx((0.25, 0.0, 0.0))
 
 
+def test_c8_6_spine_sync_does_not_split_interior_to_source_edge_frontier():
+    station_key = ("pv-se", 32, 0.9440057)
+    near_station_key = ("pv-se", 32, 0.9439329)
+    face = decal_voronoi._NetworkFace(
+        surface_id=109,
+        surface_normal=Vector((0.0, 0.0, 1.0)),
+        vert_keys=[
+            station_key,
+            ("pv-feature", "EDGE", "triangulation", 1),
+            ("pv", 109, 0, 883, 19771),
+            near_station_key,
+        ],
+        positions=[
+            Vector((0.9995, 0.0, 0.0)),
+            Vector((0.5, 1.0, 0.0)),
+            Vector((0.0, 0.0, 0.0)),
+            Vector((0.9996, 0.0, 0.0)),
+        ],
+        u_fracs=[0.9995, 0.5, 0.0, 0.9996],
+        v_lengths=[1.0, 1.0, 0.0, 1.0],
+        component_kind="SEGMENT",
+    )
+    plan = SimpleNamespace(
+        surfaces=(
+            SimpleNamespace(
+                sites=(
+                    SimpleNamespace(
+                        edge_index=32,
+                        vert_a=10,
+                        vert_b=20,
+                    ),
+                )
+            ),
+        )
+    )
+    original_keys = tuple(face.vert_keys)
+    original_positions = tuple(tuple(value) for value in face.positions)
+
+    decal_voronoi._synchronize_cross_surface_spine_stations(plan, [face])
+
+    assert tuple(face.vert_keys) == original_keys
+    assert tuple(tuple(value) for value in face.positions) == original_positions
+    assert len(face.vert_keys) == len(set(face.vert_keys))
+
+
 def test_c8_2_unselected_fold_is_connected_without_spine_sync(monkeypatch):
     graph, selected_edges = _planar_unselected_fold_graph()
     plan = compile_patch_voronoi_plan(
