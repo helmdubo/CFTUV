@@ -854,8 +854,57 @@ def test_materialization_rejects_late_invalid_face_before_any_bmesh_write():
     assert error.face_index == 1
     assert error.vertex_count == 3
     assert error.repeated_keys == (("v", 3),)
+    assert error.cycle_keys == (("v", 3), ("v", 3), ("v", 4))
+    assert error.repeated_occurrences == (
+        (("v", 3), (0, 1), ((0, 1),)),
+    )
     assert error.component_kind == "ACUTE_SPLIT"
     assert error.component_side == "OUTER"
+
+
+def test_materialization_reports_nonadjacent_repeat_as_bowtie():
+    invalid = _materialization_face(
+        (("v", 0), ("v", 1), ("v", 0), ("v", 2))
+    )
+
+    with pytest.raises(decals_module.DecalMaterializationError) as caught:
+        decals_module._validate_network_faces_for_materialization(
+            (invalid,), "PATCH_VORONOI", (32,)
+        )
+
+    error = caught.value
+    assert error.repeated_keys == (("v", 0),)
+    assert error.repeated_occurrences == (
+        (("v", 0), (0, 2), ()),
+    )
+    assert "repeated_occurrences" in str(error)
+
+
+def test_materialization_cycle_dump_does_not_mask_malformed_position():
+    invalid = _materialization_face((('v', 0), ('v', 0), ('v', 1)))
+    invalid.positions[0] = object()
+
+    with pytest.raises(decals_module.DecalMaterializationError) as caught:
+        decals_module._validate_network_faces_for_materialization(
+            (invalid,), "PATCH_VORONOI", (32,)
+        )
+
+    error = caught.value
+    assert error.reason == "repeated vertex keys"
+    assert isinstance(error.cycle_positions[0], str)
+
+
+@pytest.mark.parametrize("field_name", ("vert_keys", "positions"))
+def test_materialization_cycle_dump_handles_noniterable_loop_array(field_name):
+    invalid = _materialization_face((("v", 0), ("v", 1), ("v", 2)))
+    setattr(invalid, field_name, None)
+
+    with pytest.raises(decals_module.DecalMaterializationError) as caught:
+        decals_module._validate_network_faces_for_materialization(
+            (invalid,), "PATCH_VORONOI", (32,)
+        )
+
+    assert caught.value.reason.startswith("invalid loop arrays")
 
 
 class _FakeMaterializationBMesh:

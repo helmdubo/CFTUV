@@ -2814,6 +2814,196 @@ def test_c8_2_planar_source_edge_keys_are_cross_surface_exact():
     ) == ("pv-sv", 100)
 
 
+def _c8_6_planar_domain():
+    return decal_voronoi.DecalSurfaceDomain(
+        patch_id=12,
+        kind="PLANAR",
+        origin=Vector((0.0, 0.0, 0.0)),
+        reference_normal=Vector((0.0, 0.0, 1.0)),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+        boundary_triangles=(),
+        planar_source_edges=(
+            (32, 10, 20, (0.0, 0.0), (1.0, 0.0)),
+        ),
+        planar_source_vertices=(
+            (10, (0.0, 0.0)),
+            (20, (1.0, 0.0)),
+        ),
+        planar_source_edge_positions=(
+            (32, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+        ),
+    )
+
+
+def _c8_6_reversed_site():
+    return decal_voronoi._PatchVoronoiSite(
+        patch_id=12,
+        edge_index=32,
+        vert_a=20,
+        vert_b=10,
+        source_a=Vector((1.0, 0.0, 0.0)),
+        source_b=Vector((0.0, 0.0, 0.0)),
+        point_a=(1.0, 0.0),
+        point_b=(0.0, 0.0),
+        arc_start=0.0,
+        segment_length=1.0,
+        uv_sign=1.0,
+        inward_normal=(0.0, 1.0),
+    )
+
+
+def _c8_6_lift_plan(site):
+    return SimpleNamespace(
+        lifted_vertices={
+            10: Vector((0.0, 0.0, 0.1)),
+            20: Vector((1.0, 0.0, 0.1)),
+        },
+        surfaces=(SimpleNamespace(sites=(site,)),),
+    )
+
+
+def test_c8_6_reversed_direct_site_uses_canonical_source_edge_parameter():
+    domain = _c8_6_planar_domain()
+    surface = SimpleNamespace(domain=domain, patch_id=12)
+    site = _c8_6_reversed_site()
+    plan = _c8_6_lift_plan(site)
+
+    direct_keys = []
+    domain_keys = []
+    for parameter in (0.0559943, 0.9440057):
+        point = (parameter, 0.0)
+        _position, direct_key, location = decal_voronoi._position_and_key(
+            plan,
+            surface,
+            site,
+            point,
+            lift_scale=0.0,
+            effective_offset=0.0,
+        )
+        direct_keys.append(direct_key)
+        domain_keys.append(
+            decal_voronoi._domain_location_key(surface, location)
+        )
+
+    assert direct_keys == domain_keys
+    assert direct_keys == [
+        ("pv-se", 32, 0.0559943),
+        ("pv-se", 32, 0.9440057),
+    ]
+    assert len(set(direct_keys)) == 2
+
+
+def test_c8_6_exact_intrinsic_direct_site_keeps_canonical_pv_se_key():
+    triangle = decal_voronoi._IntrinsicDomainTriangle(
+        chart_points=((0.0, 0.0), (1.0, 0.0), (0.0, 1.0)),
+        positions=(
+            Vector((0.0, 0.0, 0.0)),
+            Vector((1.0, 0.0, 0.0)),
+            Vector((0.0, 1.0, 0.0)),
+        ),
+        normals=(Vector((0.0, 0.0, 1.0)),) * 3,
+        source_triangle_id=120,
+        source_face_id=12,
+        source_edge_ids=(33, 34, 32),
+        source_vertex_ids=(10, 20, 30),
+    )
+    domain = decal_voronoi.DecalSurfaceDomain(
+        patch_id=12,
+        kind="INTRINSIC",
+        origin=Vector((0.0, 0.0, 0.0)),
+        reference_normal=Vector((0.0, 0.0, 1.0)),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+        boundary_triangles=(),
+        intrinsic_triangles=(triangle,),
+    )
+    surface = SimpleNamespace(domain=domain, patch_id=12)
+    site = _c8_6_reversed_site()
+    plan = _c8_6_lift_plan(site)
+
+    keys = []
+    for parameter in (0.0559943, 0.9440057):
+        _position, key, location = decal_voronoi._position_and_key(
+            plan,
+            surface,
+            site,
+            (parameter, 0.0),
+            lift_scale=0.0,
+            effective_offset=0.0,
+        )
+        assert location.source_feature == "EDGE"
+        assert location.source_feature_id == 32
+        keys.append(key)
+
+    assert keys == [
+        ("pv-se", 32, 0.0559943),
+        ("pv-se", 32, 0.9440057),
+    ]
+
+
+@pytest.mark.parametrize("lift_scale", (0.0, 0.5, 1.0))
+def test_c8_6_cross_surface_sync_keeps_complementary_stations_unique(
+    lift_scale,
+):
+    from cftuv import decals as decals_module
+
+    domain = _c8_6_planar_domain()
+    surface = SimpleNamespace(domain=domain, patch_id=12)
+    site = _c8_6_reversed_site()
+    plan = _c8_6_lift_plan(site)
+    low_parameter = 0.0559943
+    high_parameter = 0.9440057
+    low_position, low_key, _location = decal_voronoi._position_and_key(
+        plan,
+        surface,
+        site,
+        (low_parameter, 0.0),
+        lift_scale=lift_scale,
+        effective_offset=0.0,
+    )
+    high_location = domain.locate((high_parameter, 0.0))
+    high_key = decal_voronoi._domain_location_key(surface, high_location)
+    high_position = Vector(
+        (high_parameter, 0.0, 0.1 * float(lift_scale))
+    )
+    assert low_key != high_key
+
+    def face(surface_id, station_key, station_position, interior_position):
+        return decal_voronoi._NetworkFace(
+            surface_id=surface_id,
+            surface_normal=Vector((0.0, 0.0, 1.0)),
+            vert_keys=[
+                ("pv-sv", 10),
+                station_key,
+                ("pv-sv", 20),
+                ("pv", surface_id, 1, 1),
+            ],
+            positions=[
+                Vector((0.0, 0.0, 0.1 * float(lift_scale))),
+                station_position,
+                Vector((1.0, 0.0, 0.1 * float(lift_scale))),
+                interior_position,
+            ],
+            u_fracs=[0.0, station_position.x, 1.0, 0.0],
+            v_lengths=[0.0, station_position.x, 1.0, 1.0],
+        )
+
+    faces = [
+        face(0, low_key, low_position, Vector((0.0, 1.0, 0.0))),
+        face(1, high_key, high_position, Vector((0.0, -1.0, 0.0))),
+    ]
+    decal_voronoi._synchronize_cross_surface_spine_stations(plan, faces)
+
+    for network_face in faces:
+        assert network_face.vert_keys.count(low_key) == 1
+        assert network_face.vert_keys.count(high_key) == 1
+        assert len(network_face.vert_keys) == len(set(network_face.vert_keys))
+    decals_module._validate_network_faces_for_materialization(
+        faces, "PATCH_VORONOI", (32,)
+    )
+
+
 def test_c8_2_planar_compile_keeps_unselected_boundary_provenance():
     points = [
         Vector((0.0, 0.0, 0.0)),

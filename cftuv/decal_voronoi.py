@@ -12031,9 +12031,13 @@ def _position_and_key(
         location = _source_station_location(
             surface, point, "EDGE", site.edge_index
         )
+        # Один physical source edge может быть скомпилирован с разных сторон
+        # в противоположных направлениях. Identity станции всегда ориентирован
+        # по vertex-id, как planar domain provenance, а не по направлению site.
+        canonical_t = t if site.vert_a < site.vert_b else 1.0 - t
         return (
             start.lerp(end, t),
-            ("pv-se", site.edge_index, round(t, 7)),
+            ("pv-se", site.edge_index, round(canonical_t, 7)),
             location,
         )
     location = surface.domain.locate(point)

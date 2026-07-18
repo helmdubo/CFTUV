@@ -463,6 +463,9 @@ class DecalMaterializationError(RuntimeError):
         reason,
         vertex_count,
         repeated_keys=(),
+        cycle_keys=(),
+        cycle_positions=(),
+        repeated_occurrences=(),
         component_kind="",
         component_side="",
     ):
@@ -474,6 +477,9 @@ class DecalMaterializationError(RuntimeError):
         self.reason = str(reason)
         self.vertex_count = int(vertex_count)
         self.repeated_keys = tuple(repeated_keys)
+        self.cycle_keys = tuple(cycle_keys)
+        self.cycle_positions = tuple(cycle_positions)
+        self.repeated_occurrences = tuple(repeated_occurrences)
         self.component_kind = str(component_kind or "")
         self.component_side = str(component_side or "")
         details = (
@@ -484,6 +490,11 @@ class DecalMaterializationError(RuntimeError):
         )
         if self.repeated_keys:
             details += f" repeated_keys={self.repeated_keys!r}"
+        if self.repeated_occurrences:
+            details += (
+                f" repeated_occurrences={self.repeated_occurrences!r}"
+                f" cycle={tuple(zip(self.cycle_keys, self.cycle_positions))!r}"
+            )
         super().__init__(f"Decal materialization failed: {details}")
 
 
@@ -2183,6 +2194,43 @@ def _materialization_error(
         vertex_count = len(getattr(network_face, "vert_keys", ()))
     except TypeError:
         vertex_count = -1
+    raw_cycle_keys = getattr(network_face, "vert_keys", ())
+    try:
+        cycle_keys = tuple(raw_cycle_keys)
+    except TypeError:
+        cycle_keys = (repr(raw_cycle_keys),)
+    raw_cycle_positions = getattr(network_face, "positions", ())
+    try:
+        raw_cycle_positions = tuple(raw_cycle_positions)
+    except TypeError:
+        cycle_positions = (repr(raw_cycle_positions),)
+    else:
+        cycle_positions = []
+        for position in raw_cycle_positions:
+            try:
+                cycle_positions.append(
+                    tuple(float(value) for value in position)
+                )
+            except (TypeError, ValueError):
+                # Диагностика не должна скрывать исходный hard fail, даже
+                # если повреждённая face несёт несерилизуемую позицию.
+                cycle_positions.append(repr(position))
+        cycle_positions = tuple(cycle_positions)
+    repeated_occurrences = []
+    cycle_count = len(cycle_keys)
+    for key in repeated_keys:
+        indices = tuple(
+            index
+            for index, candidate in enumerate(cycle_keys)
+            if candidate == key
+        )
+        adjacent_pairs = tuple(
+            (first, second)
+            for offset, first in enumerate(indices)
+            for second in indices[offset + 1 :]
+            if (second - first) % cycle_count in {1, cycle_count - 1}
+        )
+        repeated_occurrences.append((key, indices, adjacent_pairs))
     return DecalMaterializationError(
         backend=backend,
         edge_indices=edge_indices,
@@ -2190,6 +2238,9 @@ def _materialization_error(
         reason=reason,
         vertex_count=vertex_count,
         repeated_keys=repeated_keys,
+        cycle_keys=cycle_keys,
+        cycle_positions=cycle_positions,
+        repeated_occurrences=repeated_occurrences,
         component_kind=getattr(network_face, "component_kind", ""),
         component_side=getattr(network_face, "component_side", ""),
     )
