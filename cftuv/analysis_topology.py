@@ -282,6 +282,7 @@ def _iter_patch_neighbor_chain_refs(graph):
                     neighbor_patch_id=chain.neighbor_patch_id,
                     start_vert_index=chain.start_vert_index,
                     end_vert_index=chain.end_vert_index,
+                    is_closed=chain.is_closed,
                 )
 
 
@@ -326,7 +327,16 @@ def _validate_patch_graph_seam_consistency(graph):
                     f"shared={sorted(shared_vert_indices)}",
                 )
 
-            endpoint_pairs_by_patch.setdefault(chain_ref.patch_id, set()).add(chain_ref.endpoint_pair)
+            endpoint_pair = chain_ref.endpoint_pair
+            if chain_ref.is_closed and shared_vert_indices:
+                # Closed seam не имеет физического start/end. Обе стороны
+                # могут хранить разные loop anchors; для X6 канонизируем их
+                # одним минимальным source vertex общей seam.
+                anchor = min(shared_vert_indices)
+                endpoint_pair = (anchor, anchor)
+            endpoint_pairs_by_patch.setdefault(chain_ref.patch_id, set()).add(
+                endpoint_pair
+            )
 
         if not endpoint_pairs_by_patch.get(patch_a_id) or not endpoint_pairs_by_patch.get(patch_b_id):
             _report_graph_topology_invariant_violation(

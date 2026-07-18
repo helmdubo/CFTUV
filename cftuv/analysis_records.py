@@ -162,6 +162,7 @@ class _PatchNeighborChainRef:
     neighbor_patch_id: int
     start_vert_index: int
     end_vert_index: int
+    is_closed: bool = False
 
     @property
     def endpoint_pair(self) -> tuple[int, int]:

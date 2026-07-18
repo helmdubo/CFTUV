@@ -1,4 +1,4 @@
-from math import cos, pi, sin
+from math import cos, hypot, pi, sin
 
 import pytest
 from mathutils import Vector
@@ -17,7 +17,9 @@ from cftuv.decal_voronoi import (
     PatchVoronoiPlan,
     PatchVoronoiDiagnostics,
     _build_decal_arrangement,
+    _CornerPolicy,
     _compile_intrinsic_surface,
+    _corner_crop_components,
     _corner_atom_image_offset,
     _evaluate_surface_crops,
     _normalized_corner_runtime_settings,
@@ -332,6 +334,92 @@ def test_d4_1_2_closed_round_and_polygonal_tubes(segment_count):
     assert serialize_network_faces(faces) == serialize_network_faces(
         evaluate_patch_voronoi_plan(plan, width=0.5, preview=False)
     )
+
+
+@pytest.mark.parametrize("omitted_edge_count", (1, 2))
+def test_c8_4_almost_closed_ring_keeps_one_gap_without_cracks(
+    omitted_edge_count,
+):
+    graph, _node, ring_edges, _vertical_edges = _closed_tube_graph(12)
+    selected_edges = ring_edges[:-omitted_edge_count]
+    plan = compile_patch_voronoi_plan(
+        graph,
+        selected_edges,
+        offset=0.01,
+        alpha_budget=100.0,
+    )
+    surface = plan.surfaces[0]
+    endpoint_corners = [
+        corner for corner in surface.corners if len(corner.incident_sites) == 1
+    ]
+    assert len(endpoint_corners) == 2
+
+    # Торец каждого CAP перпендикулярен своей направляющей: локальный
+    # endpoint frame не поворачивает последний сегмент к periodic cut.
+    for corner in endpoint_corners:
+        component = _corner_crop_components(
+            surface,
+            corner,
+            _CornerPolicy.CAP,
+            0.5,
+            CornerRuntimeSettings(dynamic_corner_bands=False),
+        )[0]
+        site = surface.sites[corner.incident_sites[0]]
+        other = (
+            site.point_b
+            if site.vert_a == corner.vert_index
+            else site.point_a
+        )
+        tangent = other[0] - corner.point[0], other[1] - corner.point[1]
+        tangent_length = hypot(*tangent)
+        tangent = tangent[0] / tangent_length, tangent[1] / tangent_length
+        terminal = [
+            point
+            for point in component.points
+            if abs(
+                (point[0] - corner.point[0]) * tangent[0]
+                + (point[1] - corner.point[1]) * tangent[1]
+            )
+            <= 1e-9
+        ]
+        assert len(terminal) == 2
+        terminal_edge = (
+            terminal[1][0] - terminal[0][0],
+            terminal[1][1] - terminal[0][1],
+        )
+        assert abs(
+            terminal_edge[0] * tangent[0]
+            + terminal_edge[1] * tangent[1]
+        ) <= 1e-12
+
+    for width in (0.2, 0.5, 1.0):
+        faces = evaluate_patch_voronoi_plan(
+            plan,
+            width=width,
+            preview=True,
+            corner_settings=CornerRuntimeSettings(
+                dynamic_corner_bands=False
+            ),
+        )
+        _assert_connected_manifold(faces)
+        edge_owners = {}
+        for face_index, face in enumerate(faces):
+            for index, first in enumerate(face.vert_keys):
+                second = face.vert_keys[(index + 1) % len(face.vert_keys)]
+                key = tuple(sorted((repr(first), repr(second))))
+                edge_owners.setdefault(key, []).append(face_index)
+        assert all(len(owners) <= 2 for owners in edge_owners.values())
+        boundary_adjacency = {}
+        for (first, second), owners in edge_owners.items():
+            if len(owners) != 1:
+                continue
+            boundary_adjacency.setdefault(first, set()).add(second)
+            boundary_adjacency.setdefault(second, set()).add(first)
+        assert boundary_adjacency
+        assert all(
+            len(neighbours) == 2
+            for neighbours in boundary_adjacency.values()
+        )
 
 
 def test_d5_2_multiring_tube_uses_one_periodic_cut_path():
