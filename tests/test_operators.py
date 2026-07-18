@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import types
+from dataclasses import replace
 from math import pi
 from types import SimpleNamespace
 
@@ -842,6 +843,163 @@ def test_decal_invoke_starts_horizontal_drag_for_every_mode(monkeypatch, mode):
         assert header.text.startswith("Seam Width: 0.1500")
 
 
+def test_modal_rail_overlay_is_static_and_cleanup_is_idempotent(monkeypatch):
+    from cftuv import operators as operators_module
+
+    settings = DecalSettings(width_seam=0.15)
+    source = _bbox_object()
+    selected_edges = (5, 14)
+    state = (
+        source,
+        object(),
+        settings,
+        ((0, 0, 0),),
+        True,
+        len(selected_edges),
+        selected_edges,
+    )
+    rail_plans = (object(), object())
+    modal_plans = tuple(
+        SimpleNamespace(
+            rail_plan=rail_plan,
+            supports_live_corner_controls=False,
+            rejected_edges=(),
+        )
+        for rail_plan in rail_plans
+    )
+    compile_calls = []
+
+    def _compile(_graph, local_settings, edges, **_kwargs):
+        compile_calls.append((local_settings, edges))
+        return modal_plans[len(compile_calls) - 1]
+
+    monkeypatch.setattr(
+        operators_module,
+        "_prepare_decal_generation",
+        lambda _context: state,
+    )
+    monkeypatch.setattr(
+        operators_module,
+        "compile_manual_seam_decal_plan",
+        _compile,
+    )
+    monkeypatch.setattr(
+        operators_module,
+        "_warp_decal_drag_cursor",
+        lambda _context, _source, _event: (100, 200),
+    )
+    shown = []
+    cleared = []
+    removed = []
+    generation_calls = []
+    monkeypatch.setattr(
+        operators_module,
+        "create_decal_rail_visualization",
+        lambda plan, obj: shown.append((plan, obj, len(generation_calls))),
+    )
+    monkeypatch.setattr(
+        operators_module,
+        "clear_decal_rail_visualization",
+        lambda obj: cleared.append(obj),
+    )
+    monkeypatch.setattr(
+        operators_module,
+        "remove_decal_preview_object",
+        lambda mode, obj, preview_state: removed.append(
+            (mode, obj, preview_state)
+        ),
+    )
+
+    scene_settings = SimpleNamespace(decal_width_seam=settings.width_seam)
+    context = SimpleNamespace(
+        active_object=source,
+        window=object(),
+        area=SimpleNamespace(header_text_set=lambda _text: None),
+        window_manager=SimpleNamespace(modal_handler_add=lambda _operator: None),
+        scene=SimpleNamespace(hotspotuv_settings=scene_settings),
+    )
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+
+    def _generate(_context, _state, generation_settings=None, preview=False):
+        generation_calls.append((generation_settings, preview))
+        return DecalGenerationResult(
+            PreviewStatus.UPDATED,
+            f"Decal-{len(generation_calls)}",
+        )
+
+    operator._generate = _generate
+    operator._report_created = lambda *_args, **_kwargs: None
+
+    assert operator.invoke(
+        context,
+        SimpleNamespace(mouse_x=10, mouse_y=20),
+    ) == {"RUNNING_MODAL"}
+    assert shown == [(rail_plans[0], source, 1)]
+
+    assert operator.modal(
+        context,
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=120, shift=False),
+    ) == {"RUNNING_MODAL"}
+    assert shown == [(rail_plans[0], source, 1)]
+    assert len(compile_calls) == 1
+
+    pending_settings = replace(
+        operator._modal_last_valid_settings,
+        width_seam=0.40,
+    )
+    operator._modal_pending_budget_settings = pending_settings
+    operator._modal_pending_budget_value = pending_settings.width_seam
+    assert operator.modal(
+        context,
+        SimpleNamespace(type="LEFTMOUSE", value="PRESS"),
+    ) == {"FINISHED"}
+
+    assert len(compile_calls) == 2
+    assert operator._modal_decal_plan is modal_plans[1]
+    assert shown == [(rail_plans[0], source, 1)]
+    assert cleared == [source]
+    assert len(removed) == 1
+
+    operator.cancel(context)
+    operator.cancel(context)
+    assert cleared == [source]
+    assert len(removed) == 1
+
+
+def test_modal_rail_overlay_clears_stale_object_when_compile_has_no_plan(
+    monkeypatch,
+):
+    from cftuv import operators as operators_module
+
+    source = object()
+    shown = []
+    monkeypatch.setattr(
+        operators_module,
+        "create_decal_rail_visualization",
+        lambda plan, obj: shown.append((plan, obj)),
+    )
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    operator._modal_state = (
+        source,
+        object(),
+        DecalSettings(),
+        (),
+        True,
+        1,
+        (7,),
+    )
+    operator._modal_decal_plan = SimpleNamespace(rail_plan=None)
+    operator._modal_rail_visualization_shown = False
+    operator._modal_rail_visualization_cleared = False
+
+    operator._show_modal_rail_visualization()
+    operator._show_modal_rail_visualization()
+
+    assert shown == [(None, source)]
+
+
 def test_manual_edge_seams_enters_interactive_width_modal(monkeypatch):
     from cftuv import operators as operators_module
 
@@ -875,6 +1033,11 @@ def test_manual_edge_seams_enters_interactive_width_modal(monkeypatch):
         lambda graph, plan_settings, edges, **_kwargs: (
             compile_calls.append((graph, plan_settings, edges)) or modal_plan
         ),
+    )
+    monkeypatch.setattr(
+        operators_module,
+        "create_decal_rail_visualization",
+        lambda *_args: None,
     )
 
     cursor_warps = []
@@ -981,6 +1144,13 @@ def test_seam_compile_plan_receives_local_metric_settings(monkeypatch):
             or object()
         ),
     )
+    monkeypatch.setattr(
+        operators_module,
+        "create_decal_rail_visualization",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("compile must not show modal rail overlay")
+        ),
+    )
     operator = HOTSPOTUV_OT_GenerateDecals()
     operator.mode = "SEAMS"
 
@@ -1018,6 +1188,13 @@ def test_seam_execute_compiles_and_forwards_same_plan_as_modal(monkeypatch):
         "compile_manual_seam_decal_plan",
         lambda graph, plan_settings, edges, **_kwargs: (
             compile_calls.append((graph, plan_settings, edges)) or modal_plan
+        ),
+    )
+    monkeypatch.setattr(
+        operators_module,
+        "create_decal_rail_visualization",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("execute must not show modal rail overlay")
         ),
     )
 
@@ -1082,14 +1259,22 @@ def test_forced_cancel_removes_preview_once_and_restores_scene(
     operator._modal_state = (source, object(), DecalSettings(), None, False, 0, ())
     operator._modal_preview_state = preview_state
     operator._modal_preview_discarded = False
+    operator._modal_rail_visualization_shown = True
+    operator._modal_rail_visualization_cleared = False
     operator._modal_property = "decal_width_seam"
     operator._modal_base_value = 0.15
     operator._modal_area = None
     removed = []
+    cleared = []
     monkeypatch.setattr(
         operators_module,
         "remove_decal_preview_object",
         lambda mode, obj, state: removed.append((mode, obj, state)) or True,
+    )
+    monkeypatch.setattr(
+        operators_module,
+        "clear_decal_rail_visualization",
+        lambda obj: cleared.append(obj),
     )
     scene_settings = SimpleNamespace(decal_width_seam=0.40)
     context = SimpleNamespace(
@@ -1100,6 +1285,7 @@ def test_forced_cancel_removes_preview_once_and_restores_scene(
     operator.cancel(context)
 
     assert removed == [("SEAMS", source, preview_state)]
+    assert cleared == [source]
     assert scene_settings.decal_width_seam == 0.15
 
 

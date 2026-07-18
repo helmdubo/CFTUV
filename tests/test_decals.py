@@ -199,6 +199,103 @@ def test_manual_seam_hybrid_materializes_both_backend_partitions(monkeypatch):
     assert materialized[1][1]["evaluation_ms"] >= 0.0
 
 
+def test_r0_rail_plan_is_materialization_neutral(monkeypatch):
+    """R0 компилирует rail IR, но геометрию по нему ещё не строит."""
+
+    run = _backend_test_run((1,), (0, 1))
+    network_plan = object()
+    common = dict(
+        corner_runs=(run,),
+        boundary_runs=(),
+        network_plan=network_plan,
+        selected_edge_indices=(1,),
+        direct_legacy_edge_indices=(1,),
+    )
+    baseline = decals_module.ManualSeamDecalPlan(**common)
+    with_rail = decals_module.ManualSeamDecalPlan(
+        **common,
+        rail_plan=object(),
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "evaluate_seam_network_plan",
+        lambda plan, *_args, **_kwargs: (("face", plan is network_plan),),
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "_materialize_network_faces",
+        lambda _bm, faces, _settings, _uv_rect, **context: (
+            tuple(faces),
+            context["backend"],
+            tuple(context["edge_indices"]),
+        ),
+    )
+
+    def evaluate(plan):
+        return decals_module._fill_manual_chain_decals(
+            object(),
+            object(),
+            DecalSettings(),
+            (),
+            mode="SEAMS",
+            selected_edge_indices=(1,),
+            decal_plan=plan,
+        )
+
+    assert evaluate(with_rail) == evaluate(baseline)
+
+
+def test_r0_manual_compile_attaches_one_compile_static_rail_attempt(monkeypatch):
+    run = _backend_test_run((7,), (0, 1))
+    monkeypatch.setattr(
+        decals_module,
+        "_collect_manual_edge_decals",
+        lambda _graph, _edges: decals_module._ManualEdgeDecalCollection(
+            corner_runs=(run,),
+            boundary_runs=(),
+            accepted_edge_indices=(7,),
+            rejected_edges=(),
+        ),
+    )
+    rail_plan = object()
+    rail_failure = SimpleNamespace(reason="TEST_RAIL_DIAGNOSTIC")
+    calls = []
+
+    def compile_rails(graph, edges, **kwargs):
+        calls.append((graph, tuple(edges), kwargs))
+        return SimpleNamespace(plan=rail_plan, failures=(rail_failure,))
+
+    monkeypatch.setattr(
+        decals_module,
+        "compile_decal_rail_attempt",
+        compile_rails,
+    )
+    graph = object()
+    settings = DecalSettings(seam_network=False)
+
+    plan = decals_module.compile_manual_seam_decal_plan(
+        graph,
+        settings,
+        (7,),
+        alpha_budget=3.0,
+        rail_mark_edge_indices=(99,),
+    )
+
+    assert calls == [
+        (
+            graph,
+            (7,),
+            {
+                "alpha_budget": 3.0,
+                "rail_mark_edge_indices": (99,),
+            },
+        )
+    ]
+    assert plan.rail_plan is rail_plan
+    assert plan.rail_compile_failures == (rail_failure,)
+    assert plan.accepted_legacy_edge_indices == (7,)
+
+
 def test_live_corner_controls_require_clean_patch_voronoi_accounting():
     patch_partition = decals_module._ManualSeamBackendPartition(
         backend="PATCH_VORONOI",

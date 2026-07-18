@@ -42,7 +42,9 @@ from .decal_transform import (
 )
 from .debug import (
     apply_layer_visibility,
+    clear_decal_rail_visualization,
     clear_visualization,
+    create_decal_rail_visualization,
     create_frontier_visualization,
     create_visualization,
     get_gp_layer,
@@ -1570,6 +1572,54 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         if area is not None:
             area.header_text_set(None)
 
+    def _show_modal_rail_visualization(self):
+        """Один раз показывает compile-static rail plan текущего modal."""
+
+        if (
+            getattr(self, "_modal_rail_visualization_shown", False)
+            or getattr(self, "_modal_rail_visualization_cleared", False)
+        ):
+            return
+        self._modal_rail_visualization_shown = True
+        state = getattr(self, "_modal_state", None)
+        source_obj = (
+            state[0]
+            if isinstance(state, (tuple, list)) and state
+            else None
+        )
+        if (
+            self.mode != "SEAMS"
+            or not isinstance(state, (tuple, list))
+            or len(state) <= 4
+            or not state[4]
+        ):
+            return
+        decal_plan = getattr(self, "_modal_decal_plan", None)
+        rail_plan = getattr(decal_plan, "rail_plan", None)
+        if source_obj is not None:
+            create_decal_rail_visualization(rail_plan, source_obj)
+
+    def _clear_modal_rail_visualization(self):
+        """Идемпотентно удаляет rail overlay независимо от mesh preview."""
+
+        if getattr(self, "_modal_rail_visualization_cleared", False):
+            return
+        self._modal_rail_visualization_cleared = True
+        state = getattr(self, "_modal_state", None)
+        source_obj = (
+            state[0]
+            if isinstance(state, (tuple, list)) and state
+            else None
+        )
+        if source_obj is None:
+            return
+        try:
+            clear_decal_rail_visualization(source_obj)
+        except Exception as exc:
+            reporter = getattr(self, "report", None)
+            if callable(reporter):
+                reporter({"ERROR"}, f"Rail overlay cleanup failed: {exc}")
+
     def _discard_modal_preview(self, context, restore_scene):
         """Idempotent terminal cleanup для Esc, confirm и forced cancel."""
 
@@ -1594,6 +1644,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                             {"ERROR"}, f"Preview cleanup failed: {exc}"
                         )
             self._modal_preview_discarded = True
+        self._clear_modal_rail_visualization()
         if restore_scene:
             scene = getattr(context, "scene", None)
             scene_settings = getattr(scene, "hotspotuv_settings", None)
@@ -1607,6 +1658,8 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         self._discard_modal_preview(context, restore_scene=True)
 
     def invoke(self, context, event):
+        self._modal_rail_visualization_shown = False
+        self._modal_rail_visualization_cleared = False
         source_obj = context.active_object
         interactive_mode = self.mode in {"TOP", "BOTTOM", "CORNERS", "SEAMS"}
         edge_select_is_immediate = (
@@ -1647,6 +1700,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                 )
                 return {"CANCELLED"}
 
+            self._show_modal_rail_visualization()
             self._modal_last_valid_settings = settings
             self._modal_last_valid_result = generation
             self._modal_last_preview_error = None

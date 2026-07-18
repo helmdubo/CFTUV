@@ -51,6 +51,7 @@ from .decal_network import (
     compile_seam_network_plan,
     evaluate_seam_network_plan,
 )
+from .decal_rails import compile_decal_rail_attempt
 from .decal_voronoi import (
     PatchVoronoiDiagnostics,
     compile_patch_voronoi_attempt,
@@ -310,6 +311,9 @@ class ManualSeamDecalPlan:
     selected_edge_indices: tuple[int, ...] = ()
     rejected_edges: tuple[ManualSeamEdgeRejection, ...] = ()
     direct_legacy_edge_indices: tuple[int, ...] = ()
+    # R0 хранит rail IR рядом с прежним plan, но evaluator его ещё не читает.
+    rail_plan: object = None
+    rail_compile_failures: tuple = ()
 
     @property
     def rejected_edge_indices(self):
@@ -2942,6 +2946,7 @@ def compile_manual_seam_decal_plan(
     selected_edge_indices,
     *,
     alpha_budget=None,
+    rail_mark_edge_indices=(),
 ):
     """Собирает selected edges/runs и статическую сеть один раз на invoke."""
 
@@ -2964,6 +2969,17 @@ def compile_manual_seam_decal_plan(
     backend_partitions = []
     compile_failures = ()
     direct_legacy_edges = ()
+    rail_plan = None
+    rail_compile_failures = ()
+    if accepted_scope_edges:
+        rail_attempt = compile_decal_rail_attempt(
+            graph,
+            accepted_scope_edges,
+            alpha_budget=alpha_budget,
+            rail_mark_edge_indices=rail_mark_edge_indices,
+        )
+        rail_plan = rail_attempt.plan
+        rail_compile_failures = rail_attempt.failures
     if settings.seam_network and (corner_runs or boundary_runs):
         topology_components = _manual_seam_edge_components(
             corner_runs + boundary_runs, accepted_scope_edges
@@ -3070,6 +3086,8 @@ def compile_manual_seam_decal_plan(
         selected_edge_indices=selected_edges,
         rejected_edges=tuple(rejected_edges),
         direct_legacy_edge_indices=tuple(direct_legacy_edges),
+        rail_plan=rail_plan,
+        rail_compile_failures=tuple(rail_compile_failures),
     )
     if not plan.accounting_is_exact:
         raise AssertionError(
@@ -3084,6 +3102,11 @@ def compile_manual_seam_decal_plan(
             for failure in plan.compile_failures
         )
         print(f"[CFTUV][Decals] partial fallback reasons: {details}")
+    if plan.rail_compile_failures:
+        details = ", ".join(
+            str(failure.reason) for failure in plan.rail_compile_failures
+        )
+        print(f"[CFTUV][Decals] rail preview unavailable: {details}")
     if plan.rejected_edges and is_verbose_console_enabled():
         details = ", ".join(
             f"{rejection.edge_index}:{rejection.reason}"
