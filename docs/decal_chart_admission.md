@@ -35,9 +35,10 @@ single-cut policy, отрицательные fixtures и визуальный �
 ## 2. Admission gate (C3) — один набор порогов
 
 Чарт принимается, если выполнены ВСЕ условия. Иначе —
-`ChartBuildFailure(reason)` и component-level fallback на текущий
-planar/legacy путь. Молчаливая аппроксимация запрещена (инвариант 11
-workplan'а).
+`ChartBuildFailure(reason)` и атомарный отказ текущей SEAMS-транзакции
+до записи BMesh. Legacy-путь удалён: неподдержанная геометрия обязана
+быть видна как отсутствие текущего preview и явная причина. Молчаливая
+аппроксимация запрещена (инвариант 11 workplan'а).
 
 | # | Условие | Порог | Поле / проверка |
 |---|---|---|---|
@@ -76,8 +77,8 @@ support'а)`. Правило детерминировано и фиксируе�
 - `CUT_CROSSES_SELECTED_CHAIN` — G7;
 - `PERIODIC_HOLONOMY_UNSUPPORTED` — две стороны periodic cut не связаны
   чистой трансляцией (rotation или относительное изменение period > 0.02);
-- `MULTI_CUT_REQUIRED` — цикл не сводится одним cut (v1 отдаёт в
-  fallback, не импровизирует atlas);
+- `MULTI_CUT_REQUIRED` — цикл не сводится одним cut (v1 явно
+  отказывает, не импровизирует atlas);
 - `DEGENERATE_SOURCE_TRIANGLE` — нулевая площадь (существующий C2).
 
 Каждый reason виден в routing report; счётчики отказов — в benchmark
@@ -135,8 +136,8 @@ zero-area/non-manifold/overfull edges, отсутствие junction-connector
 | F4 | Open full cylinder, chart seam вне selected network | G7: один deterministic cut | ADMIT, `cut_count == 1` | cut.reason задан; cut не касается sites | детерминизм выбора cut при reversed enumeration |
 | F5 | Densely tessellated cylindrical fillet (64+ сегментов, радиус ~ alpha) | масштаб + полосный бюджет | ADMIT | `support_triangle_count` ~ полоса, не patch | offset-safety: `abs(offset)*max_kappa` предупреждение при offset >= радиуса скругления (§4 workplan) |
 | F6 | Две цепочки на одной кривой поверхности, коллизия при росте width | merge supports + Voronoi-конкуренция в одном чарте | ADMIT (один общий чарт) | supports объединены до solve | столкновение фронтов по биссектрисе; S1-стабильность швов после коллизии |
-| N1 | Sphere cap (тесселяция подобрана: max defect >= 0.05 rad) | gate отказывает по G3 | **REJECT** `NON_DEVELOPABLE_SUPPORT` | — | component ушёл в legacy fallback; отчёт показывает причину; никакой частичной геометрии |
-| N2 | Closed tube, selected chain коллинеарно лежит на единственном возможном cut | gate отказывает по G7 | **REJECT** `CUT_CROSSES_SELECTED_CHAIN` | — | fallback + reason в отчёте; транзверсальное пересечение для periodic domain разрешено |
+| N1 | Sphere cap (тесселяция подобрана: max defect >= 0.05 rad) | gate отказывает по G3 | **REJECT** `NON_DEVELOPABLE_SUPPORT` | — | вся SEAMS-транзакция явно отказывает; preview удалён; reason виден в отчёте; никакой частичной геометрии |
+| N2 | Closed tube, selected chain коллинеарно лежит на единственном возможном cut | gate отказывает по G7 | **REJECT** `CUT_CROSSES_SELECTED_CHAIN` | — | явный отказ + reason в отчёте; транзверсальное пересечение для periodic domain разрешено |
 | N3 | Полоса, самоперекрывающаяся в 2D (спираль/улитка с перехлёстом при заданном бюджете) | gate отказывает по G2 | **REJECT** `CHART_SELF_OVERLAP` | — | overlap_count > 0 зафиксирован в diagnostics |
 
 Отрицательные фикстуры обязательны: admission без доказанного отказа —
@@ -164,7 +165,7 @@ zero-area/non-manifold/overfull edges, отсутствие junction-connector
 1. Бюджет искажения ширины **2%** (G3 = 0.02 rad, G4 = 0.02·N) — или
    строже (1% для близких камер — тогда 0.01/0.01).
 2. Ноль пользовательских ручек в C: пороги — константы модуля.
-3. Политика одного cut в v1 (`MULTI_CUT_REQUIRED` → fallback).
+3. Политика одного cut в v1 (`MULTI_CUT_REQUIRED` → явный отказ).
 4. Состав отрицательных фикстур N1–N3.
 5. Критерий №2 из DoD (исчезновение connectors на фаске) как главный
    визуальный признак приёмки транша.

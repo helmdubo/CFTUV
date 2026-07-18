@@ -251,7 +251,9 @@ in-plane повороту; (c) corner ownership/provenance тегируется
   облегания больше не требует intrinsic-admission.
 - G3 (measured admission) — остаётся для КАЧЕСТВА UV
   (chart-слой), не для геометрии.
-- Legacy-бэкенд — fallback до полного покрытия TRANCHE R.
+- Legacy SEAMS backend удалён из production routing по прямому решению
+  пользователя. Неподдержанный rail/chart component остаётся явным
+  `Failed`, а не материализуется старой сетью или miter-пайплайном.
 - Атлас/GL/E-acceptance — пересматриваются ПОСЛЕ R: часть
   атласной сложности может стать ненужной (chart строится из
   rail-домена).

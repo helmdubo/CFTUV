@@ -228,11 +228,11 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
         description="Decal offset from the source surface to avoid z-fighting",
     )
     decal_seam_network: BoolProperty(
-        name="Seam Network (Voronoi)",
+        name="Deprecated Seam Network Toggle",
         default=True,
         description=(
-            "Build manual Decal Seams as one clipped nearest-branch network "
-            "(continuous junctions); disable to use the legacy miter pipeline"
+            "Compatibility-only saved property; Decal Seams always uses the "
+            "strict rail/Patch runtime and never enables legacy geometry"
         ),
     )
     decal_chart_distortion_budget: FloatProperty(
@@ -1457,9 +1457,11 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                 "Live corner controls require Patch Voronoi-only Seams"
             )
         elif getattr(decal_plan, "rejected_edges", ()):
-            block_reason = "Live corner controls require Rejected:0"
+            block_reason = "Live corner controls require Failed:0"
         else:
-            block_reason = "Live corner controls require Legacy:0"
+            block_reason = (
+                "Live corner controls require Patch Voronoi-only Seams"
+            )
         self._modal_corner_targets_enabled = live_corner_controls
         self._modal_corner_target_block_reason = block_reason
         self._modal_drag_targets = {
@@ -1778,7 +1780,10 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                 event.mouse_x - self._modal_start_mouse,
                 precise=getattr(self, "_modal_precise_mode", False),
             )
-            if abs(new_value - self._modal_current_value) < 1e-9:
+            if (
+                abs(new_value - self._modal_current_value) < 1e-9
+                and not getattr(self, "_modal_last_preview_error", None)
+            ):
                 return {"RUNNING_MODAL"}
             current_settings = getattr(self, "_modal_current_settings", None)
             if current_settings is None:
@@ -1796,10 +1801,9 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                     )
                 )
             except Exception as exc:
-                # Source topology и compiled plan неизменны, поэтому ошибка
-                # одного runtime crop не должна завершать modal и удалять
-                # последний валидный preview. Confirm всё равно выполнит
-                # точную materialization либо явно сообщит об ошибке.
+                # SEAMS не подтверждает старый кадр после ошибки: текущий
+                # дефект должен оставаться видимым. Остальные producer'ы
+                # сохраняют прежнюю last-valid семантику.
                 self._modal_last_preview_error = str(exc)
                 if self._domain_budget_exceeded(exc):
                     self._modal_pending_budget_settings = settings
@@ -1813,7 +1817,11 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                         if self._domain_budget_exceeded(exc)
                         else self._modal_current_value
                     ),
-                    f"RETAINED_LAST_VALID: {exc}",
+                    (
+                        f"ERROR: {exc}"
+                        if self.mode == "SEAMS"
+                        else f"RETAINED_LAST_VALID: {exc}"
+                    ),
                 )
                 return {"RUNNING_MODAL"}
             if generation.status != PreviewStatus.UPDATED:
@@ -1861,6 +1869,21 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                 self, "_modal_pending_budget_settings", None
             )
             controlled_recompile = pending_budget_settings is not None
+            current_preview_error = getattr(
+                self, "_modal_last_preview_error", None
+            )
+            if (
+                self.mode == "SEAMS"
+                and current_preview_error
+                and not controlled_recompile
+            ):
+                self._discard_modal_preview(context, restore_scene=True)
+                self.report(
+                    {"ERROR"},
+                    "Current SEAMS preview failed; confirmation cancelled: "
+                    + str(current_preview_error),
+                )
+                return {"CANCELLED"}
             final_settings = pending_budget_settings or getattr(
                 self,
                 "_modal_last_valid_settings",
@@ -2084,16 +2107,14 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         col.prop(s, "decal_height_trim")
         col.prop(s, "decal_offset")
         col.prop(s, "decal_chart_distortion_budget")
-        col.prop(s, "decal_seam_network")
-        if s.decal_seam_network:
-            col.prop(s, "decal_dynamic_corner_bands")
-            if s.decal_dynamic_corner_bands:
-                col.prop(s, "decal_corner_miter_angle")
-                col.prop(s, "decal_corner_kite_angle")
-            col.prop(s, "decal_corner_acute_split_angle")
-            if s.decal_dynamic_corner_bands:
-                col.prop(s, "decal_corner_hairpin_angle")
-            col.prop(s, "decal_corner_miter_limit")
+        col.prop(s, "decal_dynamic_corner_bands")
+        if s.decal_dynamic_corner_bands:
+            col.prop(s, "decal_corner_miter_angle")
+            col.prop(s, "decal_corner_kite_angle")
+        col.prop(s, "decal_corner_acute_split_angle")
+        if s.decal_dynamic_corner_bands:
+            col.prop(s, "decal_corner_hairpin_angle")
+        col.prop(s, "decal_corner_miter_limit")
         op = col.operator("hotspotuv.generate_decals", text="Decal Top", icon="TRIA_UP")
         op.mode = "TOP"
         op = col.operator(

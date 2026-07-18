@@ -44,8 +44,10 @@
     "spine_sync_disabled": true
   },
   "routing": {
+    "historical_pre_strict_seams_receipt": true,
     "single_use_internal_seam_reason": "SINGLE_USE_INTERNAL_SEAM",
     "single_use_internal_seam_backend": "LEGACY_NETWORK",
+    "current_runtime_policy": "ATOMIC_FAIL_CLOSED_NO_LEGACY",
     "mesh_border_single_use_unchanged": true
   }
 }

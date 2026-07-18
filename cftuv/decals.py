@@ -45,12 +45,6 @@ from .constants import (
     DECAL_WELD_DISTANCE,
     WORLD_UP,
 )
-from .decal_network import (
-    _corner_wing_directions,
-    build_seam_network_faces,
-    compile_seam_network_plan,
-    evaluate_seam_network_plan,
-)
 from .decal_rails import compile_decal_rail_attempt
 from .decal_rail_geometry import (
     RailGeometryFailure,
@@ -68,7 +62,6 @@ from .decal_transform import (
     DecalSourceTransformError,
     local_decal_settings_for_source,
 )
-from .console_debug import is_verbose_console_enabled
 from .model import ChainNeighborKind, ChainRef, DecalSettings, PatchGraph, PatchType
 
 DECAL_MODES = ("TOP", "BOTTOM", "CORNERS", "SEAMS")
@@ -259,7 +252,7 @@ class _DecalJunctionSpec:
 
 @dataclass(frozen=True)
 class _ManualSeamBackendPartition:
-    """Независимая routing-группа нового или fallback backend."""
+    """Независимая routing-группа строгого современного backend."""
 
     backend: str
     edge_indices: tuple[int, ...]
@@ -267,6 +260,13 @@ class _ManualSeamBackendPartition:
     corner_runs: tuple
     boundary_runs: tuple
     compiled_plan: object = None
+
+    def __post_init__(self):
+        if self.backend not in {"RAIL_PLANAR", "PATCH_VORONOI"}:
+            raise ValueError(
+                "Legacy/unknown SEAMS backend is disabled: "
+                f"{self.backend}"
+            )
 
 
 @dataclass(frozen=True)
@@ -321,6 +321,23 @@ class ManualSeamDecalPlan:
     rail_compile_failures: tuple = ()
     rail_geometry_failures: tuple = ()
 
+    def __post_init__(self):
+        if self.network_plan is not None or self.direct_legacy_edge_indices:
+            raise ValueError(
+                "Legacy SEAMS plans are disabled; compile a strict rail/chart plan"
+            )
+        invalid_backends = tuple(
+            str(getattr(partition, "backend", "UNKNOWN"))
+            for partition in self.backend_partitions
+            if getattr(partition, "backend", None)
+            not in {"RAIL_PLANAR", "PATCH_VORONOI"}
+        )
+        if invalid_backends:
+            raise ValueError(
+                "Legacy/unknown SEAMS partitions are disabled: "
+                + ",".join(invalid_backends)
+            )
+
     @property
     def rejected_edge_indices(self):
         return tuple(rejection.edge_index for rejection in self.rejected_edges)
@@ -349,32 +366,21 @@ class ManualSeamDecalPlan:
 
     @property
     def accepted_legacy_edge_indices(self):
-        return tuple(
-            sorted(
-                set(self.direct_legacy_edge_indices).union(
-                    edge_index
-                    for partition in self.backend_partitions
-                    if partition.backend == "LEGACY_NETWORK"
-                    for edge_index in partition.edge_indices
-                )
-            )
-        )
+        """Compatibility view: production routing больше не принимает legacy."""
+
+        return ()
 
     @property
     def accounting_is_exact(self):
         selected = set(self.selected_edge_indices)
         rail = set(self.accepted_rail_planar_edge_indices)
         patch = set(self.accepted_patch_voronoi_edge_indices)
-        legacy = set(self.accepted_legacy_edge_indices)
         rejected = set(self.rejected_edge_indices)
         return (
             not rail.intersection(patch)
-            and not rail.intersection(legacy)
             and not rail.intersection(rejected)
-            and not patch.intersection(legacy)
             and not patch.intersection(rejected)
-            and not legacy.intersection(rejected)
-            and selected == rail.union(patch, legacy, rejected)
+            and selected == rail.union(patch, rejected)
         )
 
     @property
@@ -383,9 +389,7 @@ class ManualSeamDecalPlan:
 
         selected = set(self.selected_edge_indices)
         accepted = set(self.accepted_patch_voronoi_edge_indices)
-        return bool(selected) and selected == accepted and not (
-            self.accepted_legacy_edge_indices or self.rejected_edges
-        )
+        return bool(selected) and selected == accepted and not self.rejected_edges
 
     @property
     def backend_summary(self):
@@ -405,7 +409,9 @@ class ManualSeamDecalPlan:
                     partition.compiled_plan, "backend_kind", "PLANAR"
                 )
             else:
-                backend_label = "LEGACY"
+                raise AssertionError(
+                    f"Unsupported strict SEAMS backend: {partition.backend}"
+                )
             bucket = counts.setdefault(backend_label, [0, 0])
             bucket[0] += int(partition.topology_component_count)
             bucket[1] += len(partition.edge_indices)
@@ -414,7 +420,6 @@ class ManualSeamDecalPlan:
             "PLANAR",
             "INTRINSIC_DEVELOPABLE",
             "PLANAR+INTRINSIC_DEVELOPABLE",
-            "LEGACY",
         )
         parts = [
             f"{label}:{counts[label][0]}c/{counts[label][1]}e"
@@ -427,7 +432,7 @@ class ManualSeamDecalPlan:
             failure_counts[reason] = failure_counts.get(reason, 0) + 1
         if failure_counts:
             parts.append(
-                "Fallback["
+                "Unsupported["
                 + ",".join(
                     f"{reason}:x{failure_counts[reason]}"
                     for reason in sorted(failure_counts)
@@ -440,7 +445,7 @@ class ManualSeamDecalPlan:
             rail_failure_counts[reason] = rail_failure_counts.get(reason, 0) + 1
         if rail_failure_counts:
             parts.append(
-                "RailFallback["
+                "RailUnsupported["
                 + ",".join(
                     f"{reason}:x{rail_failure_counts[reason]}"
                     for reason in sorted(rail_failure_counts)
@@ -448,7 +453,20 @@ class ManualSeamDecalPlan:
                 + "]"
             )
         if self.rejected_edges:
-            parts.append(f"Rejected:{len(self.rejected_edges)}e")
+            rejected_reason_counts = {}
+            for rejection in self.rejected_edges:
+                reason = str(rejection.reason or "UNKNOWN")
+                rejected_reason_counts[reason] = (
+                    rejected_reason_counts.get(reason, 0) + 1
+                )
+            parts.append(
+                f"Failed:{len(self.rejected_edges)}e["
+                + ",".join(
+                    f"{reason}:x{rejected_reason_counts[reason]}"
+                    for reason in sorted(rejected_reason_counts)
+                )
+                + "]"
+            )
         approximate_count = sum(
             int(
                 getattr(
@@ -492,6 +510,25 @@ class RailPlanarRuntimeError(RuntimeError):
             "PLANAR rail runtime failed for "
             f"{len(self.edge_indices)} edge(s) at width={self.width:.6g} "
             f"preview={self.preview}: {self.reason}"
+        )
+
+
+class StrictSeamRuntimeError(RuntimeError):
+    """Manual/automatic SEAMS не имеет права материализовать legacy."""
+
+    def __init__(self, edge_indices, reason):
+        self.edge_indices = tuple(
+            sorted({int(index) for index in edge_indices or ()})
+        )
+        self.reason = str(reason)
+        shown_edges = ",".join(str(index) for index in self.edge_indices[:12])
+        if len(self.edge_indices) > 12:
+            shown_edges += ",..."
+        super().__init__(
+            "Strict SEAMS runtime failed for "
+            f"{len(self.edge_indices)} edge(s)"
+            + (f" [{shown_edges}]" if shown_edges else "")
+            + f": {self.reason}"
         )
 
 
@@ -608,7 +645,7 @@ def _edge_key(vert_a: int, vert_b: int) -> tuple[int, int]:
 
 
 def _chain_segment_surface_frame(node, chain, segment_index):
-    """Local owner normal/up for one boundary segment, with legacy fallback."""
+    """Local owner normal/up с запасной patch-normal старых graph данных."""
 
     normal = node.normal.copy()
     if segment_index < len(chain.side_face_normals):
@@ -1154,7 +1191,18 @@ def _collect_manual_edge_decals(graph: PatchGraph, edge_indices):
         corner_runs=tuple(_stitch_corner_runs(paired_segments)),
         boundary_runs=tuple(_group_boundary_runs(boundary_uses)),
         accepted_edge_indices=tuple(sorted(accepted_edges)),
-        rejected_edges=tuple(rejected_edges),
+        rejected_edges=tuple(
+            sorted(
+                {
+                    int(rejection.edge_index): rejection
+                    for rejection in rejected_edges
+                }.values(),
+                key=lambda rejection: (
+                    int(rejection.edge_index),
+                    str(rejection.reason),
+                ),
+            )
+        ),
     )
 
 
@@ -1214,7 +1262,7 @@ def _group_boundary_runs(boundary_uses):
     Wing задаётся chain boundary-ориентацией (материал слева, n × t),
     поэтому runs строятся строго в порядке обхода chain и не реверсируются
     generic-ститчером. Сторона A пустая (нулевые нормали) — признак
-    односторонней ветви для decal_network.
+    односторонней ветви для compiled decal backend.
     """
 
     runs = []
@@ -1370,8 +1418,27 @@ def _build_trim_strip(bm, run, settings, is_top, uv_rect):
             loop[uv_layer].uv = uv
 
 
-# `_corner_wing_directions` перенесена в decal_network.py (общая для
-# legacy miter pipeline и network backend) и реэкспортируется отсюда.
+def _corner_wing_directions(
+    direction,
+    normal_a,
+    normal_b,
+    dihedral_convexity=0.0,
+):
+    """Направления крыльев CORNERS вдоль обеих owner-поверхностей."""
+
+    wing_dir_a = direction.cross(normal_a)
+    wing_dir_b = direction.cross(normal_b)
+    if wing_dir_a.length_squared < 1e-8 or wing_dir_b.length_squared < 1e-8:
+        return None
+
+    wing_dir_a = wing_dir_a.normalized()
+    wing_dir_b = wing_dir_b.normalized()
+    is_concave = dihedral_convexity < -0.01
+    if (wing_dir_a.dot(normal_b) < 0.0) == is_concave:
+        wing_dir_a = wing_dir_a * -1.0
+    if (wing_dir_b.dot(normal_a) < 0.0) == is_concave:
+        wing_dir_b = wing_dir_b * -1.0
+    return wing_dir_a, wing_dir_b
 
 
 def _corner_station_segment_indices(run, point_index):
@@ -2387,6 +2454,15 @@ def _materialize_network_faces(
     внутри поверхности, остаточные совпадения сваривает финальный weld.
     """
 
+    if backend not in {"RAIL_PLANAR", "PATCH_VORONOI"}:
+        raise StrictSeamRuntimeError(
+            edge_indices,
+            (
+                "LEGACY_NETWORK_MATERIALIZATION_DISABLED"
+                if backend == "LEGACY_NETWORK"
+                else f"UNSUPPORTED_MATERIALIZATION_BACKEND:{backend}"
+            ),
+        )
     network_faces = tuple(network_faces)
     _validate_network_faces_for_materialization(
         network_faces, backend, edge_indices
@@ -3063,6 +3139,40 @@ def _rail_geometry_required_trace_scale(compiled_components):
     return max(scales)
 
 
+def _strict_backend_component_rejections(
+    components,
+    failures,
+    *,
+    default_reason="PATCH_VORONOI_STRICT_COMPILE_FAILED",
+):
+    """Переводит неподдержанный topology-component в явные failed edges."""
+
+    result = []
+    for component in components:
+        component_edges = {int(edge_index) for edge_index in component}
+        reasons = sorted(
+            {
+                str(getattr(failure, "reason", "UNKNOWN"))
+                for failure in failures
+                if component_edges.intersection(
+                    int(edge_index)
+                    for edge_index in (
+                        getattr(failure, "edge_indices", ()) or ()
+                    )
+                )
+            }
+        )
+        reason = "+".join(reasons) if reasons else str(default_reason)
+        result.extend(
+            ManualSeamEdgeRejection(
+                edge_index=edge_index,
+                reason=reason,
+            )
+            for edge_index in sorted(component_edges)
+        )
+    return tuple(result)
+
+
 def compile_manual_seam_decal_plan(
     graph: PatchGraph,
     settings: DecalSettings,
@@ -3086,12 +3196,10 @@ def compile_manual_seam_decal_plan(
     )
     corner_runs, boundary_runs = collection
     accepted_scope_edges = collection.accepted_edge_indices
-    rejected_edges = collection.rejected_edges
-    network_plan = None
+    rejected_edges = list(collection.rejected_edges)
     patch_voronoi_plan = None
     backend_partitions = []
     compile_failures = ()
-    direct_legacy_edges = ()
     rail_plan = None
     rail_compile_failures = ()
     rail_geometry_failures = []
@@ -3104,7 +3212,7 @@ def compile_manual_seam_decal_plan(
         )
         rail_plan = rail_attempt.plan
         rail_compile_failures = rail_attempt.failures
-    if settings.seam_network and (corner_runs or boundary_runs):
+    if corner_runs or boundary_runs:
         topology_components = _manual_seam_edge_components(
             corner_runs + boundary_runs, accepted_scope_edges
         )
@@ -3266,7 +3374,7 @@ def compile_manual_seam_decal_plan(
                 for edge_index in component
             )
         )
-        legacy_components = []
+        failed_components = []
         accepted_components = []
         accepted_edges = ()
         if fallback_scope_edges:
@@ -3283,7 +3391,7 @@ def compile_manual_seam_decal_plan(
             if attempt.plan is None and not rejected_seed:
                 rejected_seed.update(fallback_scope_edges)
 
-            legacy_components = [
+            failed_components = [
                 component
                 for component in fallback_components
                 if rejected_seed.intersection(component)
@@ -3301,7 +3409,7 @@ def compile_manual_seam_decal_plan(
                 )
             )
 
-            if not legacy_components and attempt.plan is not None:
+            if not failed_components and attempt.plan is not None:
                 patch_voronoi_plan = attempt.plan
             elif accepted_edges:
                 # Partial probe мог скомпилировать surface, содержащую sites
@@ -3315,9 +3423,9 @@ def compile_manual_seam_decal_plan(
                     distortion_budget=settings.chart_distortion_budget,
                 )
                 if patch_voronoi_plan is None:
-                    # Компонентная атомарность важнее частичного rail claim:
-                    # сомнительный plan остаётся на прежнем safe fallback.
-                    legacy_components = list(fallback_components)
+                    # Компонентная атомарность важнее частичного результата:
+                    # без strict plan весь современный scope явно провален.
+                    failed_components = list(fallback_components)
                     accepted_components = []
                     accepted_edges = ()
 
@@ -3336,42 +3444,20 @@ def compile_manual_seam_decal_plan(
                     )
                 )
 
-        for component in legacy_components:
-            component_corner_runs, component_boundary_runs = (
-                _collect_manual_edge_decals(graph, component)
+        rejected_edges.extend(
+            _strict_backend_component_rejections(
+                failed_components,
+                compile_failures,
             )
-            component_network_plan = compile_seam_network_plan(
-                component_corner_runs + component_boundary_runs,
-                settings.offset,
-            )
-            backend_partitions.append(
-                _ManualSeamBackendPartition(
-                    backend="LEGACY_NETWORK",
-                    edge_indices=tuple(component),
-                    topology_component_count=1,
-                    corner_runs=tuple(component_corner_runs),
-                    boundary_runs=tuple(component_boundary_runs),
-                    compiled_plan=component_network_plan,
-                )
-            )
-
-        if (
-            len(backend_partitions) == 1
-            and backend_partitions[0].backend == "LEGACY_NETWORK"
-        ):
-            network_plan = backend_partitions[0].compiled_plan
-    elif accepted_scope_edges:
-        direct_legacy_edges = accepted_scope_edges
+        )
     plan = ManualSeamDecalPlan(
         corner_runs=tuple(corner_runs),
         boundary_runs=tuple(boundary_runs),
-        network_plan=network_plan,
         patch_voronoi_plan=patch_voronoi_plan,
         backend_partitions=tuple(backend_partitions),
         compile_failures=tuple(compile_failures),
         selected_edge_indices=selected_edges,
         rejected_edges=tuple(rejected_edges),
-        direct_legacy_edge_indices=tuple(direct_legacy_edges),
         rail_plan=rail_plan,
         rail_compile_failures=tuple(rail_compile_failures),
         rail_geometry_failures=tuple(rail_geometry_failures),
@@ -3379,15 +3465,14 @@ def compile_manual_seam_decal_plan(
     if not plan.accounting_is_exact:
         raise AssertionError(
             "Manual seam edge accounting invariant violated: "
-            "selected != rail_planar + patch_voronoi + legacy + rejected"
+            "selected != rail_planar + patch_voronoi + failed"
         )
     if plan.accepted_rail_planar_edge_indices and (
         plan.accepted_patch_voronoi_edge_indices
-        or plan.accepted_legacy_edge_indices
     ):
         raise AssertionError(
             "R1 routing invariant violated: RAIL_PLANAR cannot mix with "
-            "Patch/legacy before rail competition is implemented"
+            "Patch before rail competition is implemented"
         )
     if plan.backend_summary:
         print(f"[CFTUV][Decals] backend routing: {plan.backend_summary}")
@@ -3396,19 +3481,19 @@ def compile_manual_seam_decal_plan(
             f"patch {failure.patch_id}:{failure.reason}"
             for failure in plan.compile_failures
         )
-        print(f"[CFTUV][Decals] partial fallback reasons: {details}")
+        print(f"[CFTUV][Decals] unsupported surface reasons: {details}")
     if plan.rail_compile_failures:
         details = ", ".join(
             str(failure.reason) for failure in plan.rail_compile_failures
         )
-        print(f"[CFTUV][Decals] rail preview unavailable: {details}")
-    if plan.rejected_edges and is_verbose_console_enabled():
+        print(f"[CFTUV][Decals] rail materialization unavailable: {details}")
+    if plan.rejected_edges:
         details = ", ".join(
             f"{rejection.edge_index}:{rejection.reason}"
             f"(uses={rejection.use_count})"
             for rejection in plan.rejected_edges
         )
-        print(f"[CFTUV][Decals] rejected selected edges: {details}")
+        print(f"[CFTUV][Decals] failed selected edges: {details}")
     return plan
 
 
@@ -3479,33 +3564,9 @@ def _evaluate_manual_backend_partition(
             ),
         )
 
-    runs = list(partition.corner_runs + partition.boundary_runs)
-    try:
-        faces = evaluate_seam_network_plan(
-            partition.compiled_plan,
-            width,
-            preview=preview,
-        )
-        if faces:
-            return _ManualBackendEvaluation(
-                faces=tuple(faces),
-                evaluation_ms=(perf_counter() - started) * 1000.0,
-            )
-    except Exception as exc:
-        print(
-            "[CFTUV][Decals] Legacy seam partition failed "
-            f"({exc!r}); rebuilding {len(partition.edge_indices)} edge(s)"
-        )
-    return _ManualBackendEvaluation(
-        faces=tuple(
-            build_seam_network_faces(
-                runs,
-                settings.offset,
-                width,
-                preview=preview,
-            )
-        ),
-        evaluation_ms=(perf_counter() - started) * 1000.0,
+    raise StrictSeamRuntimeError(
+        partition.edge_indices,
+        f"UNSUPPORTED_BACKEND:{partition.backend}",
     )
 
 
@@ -3522,6 +3583,8 @@ def _fill_manual_chain_decals(
     """Manual edge scope: exact physical edges with local owner-side frames."""
 
     is_seam_mode = mode == "SEAMS"
+    if is_seam_mode and selected_edge_indices is None:
+        raise StrictSeamRuntimeError((), "SEAMS_REQUIRE_SELECTED_EDGE_PLAN")
     width = settings.width_seam if is_seam_mode else settings.width_corner
     uv_rect = DECAL_UV_RECT_SEAM if is_seam_mode else DECAL_UV_RECT_CORNER
 
@@ -3533,179 +3596,119 @@ def _fill_manual_chain_decals(
         else:
             corner_runs = decal_plan.corner_runs
             boundary_runs = decal_plan.boundary_runs
-        if (
-            is_seam_mode
-            and (corner_runs or boundary_runs)
-            and settings.seam_network
-        ):
-            if decal_plan is not None and decal_plan.backend_partitions:
-                # Compiled Patch Voronoi partitions are strict: сначала
-                # вычисляем весь transaction, затем пишем BMesh. Runtime
-                # failure не должен незаметно менять topology на legacy.
-                face_batches = [
-                    (
-                        partition,
-                        _evaluate_manual_backend_partition(
-                            partition,
-                            settings,
-                            width,
-                            preview,
-                        ),
-                    )
-                    for partition in decal_plan.backend_partitions
-                ]
-                materialization_results = []
-                for partition, evaluation in face_batches:
-                    materialization_results.append(
-                        _materialize_network_faces(
-                            bm,
-                            evaluation.faces,
-                            settings,
-                            uv_rect,
-                            backend=partition.backend,
-                            edge_indices=partition.edge_indices,
-                            evaluator_policy_counts=(
-                                evaluation.policy_counts
-                                if partition.backend == "PATCH_VORONOI"
-                                else None
-                            ),
-                            evaluation_ms=evaluation.evaluation_ms,
-                        )
-                    )
-                return tuple(materialization_results)
-
-            if (
-                decal_plan is not None
-                and decal_plan.patch_voronoi_plan is not None
-            ):
-                diagnostics = PatchVoronoiDiagnostics()
-                started = perf_counter()
-                try:
-                    network_faces = evaluate_patch_voronoi_plan(
-                        decal_plan.patch_voronoi_plan,
-                        width,
-                        preview=preview,
-                        corner_settings=(
-                            corner_runtime_settings_from_decal_settings(
-                                settings
-                            )
-                        ),
-                        diagnostics=diagnostics,
-                    )
-                except Exception as exc:
-                    raise PatchVoronoiRuntimeError(
-                        selected_edge_indices,
-                        width,
-                        preview,
-                        repr(exc),
-                    ) from exc
-                if not network_faces:
-                    raise PatchVoronoiRuntimeError(
-                        selected_edge_indices,
-                        width,
-                        preview,
-                        "evaluation produced no faces",
-                    )
-                return (
-                    _materialize_network_faces(
-                        bm,
-                        network_faces,
-                        settings,
-                        uv_rect,
-                        backend="PATCH_VORONOI",
-                        edge_indices=selected_edge_indices,
-                        evaluator_policy_counts=tuple(
-                            sorted(
-                                diagnostics.runtime_policy_counts.items()
-                            )
-                        ),
-                        evaluation_ms=(perf_counter() - started) * 1000.0,
-                    ),
-                )
-
-            network_faces = None
-            try:
-                # Boundary wings — полноправные односторонние сайты сети:
-                # divider с соседними seam chains возникает и без общей
-                # source-вершины, чисто из конкуренции расстояний.
-                if (
-                    decal_plan is not None
-                    and decal_plan.network_plan is not None
-                ):
-                    network_faces = evaluate_seam_network_plan(
-                        decal_plan.network_plan,
-                        width,
-                        preview=preview,
-                    )
-                else:
-                    network_faces = build_seam_network_faces(
-                        corner_runs + boundary_runs,
-                        settings.offset,
-                        width,
-                        preview=preview,
-                    )
-            except Exception as exc:  # непредвиденная геометрия — fallback
-                print(
-                    "[CFTUV][Decals] Seam network backend failed "
-                    f"({exc!r}); falling back to miter pipeline"
-                )
-            if network_faces:
-                return (
-                    _materialize_network_faces(
-                        bm,
-                        network_faces,
-                        settings,
-                        uv_rect,
-                        backend="LEGACY_NETWORK",
-                        edge_indices=selected_edge_indices,
-                    ),
-                )
-        junction_specs = {}
-        junction_cuts = {}
         if is_seam_mode:
-            junction_specs, junction_cuts = _prepare_seam_junctions(
-                corner_runs, settings, width / 2.0
-            )
-        junction_ports = []
-        for run_index, run in enumerate(corner_runs):
-            working_run = run
-            if is_seam_mode:
-                working_run = _trim_run_for_junctions(
-                    run,
-                    start_cut=junction_cuts.get((run_index, True), 0.0),
-                    end_cut=junction_cuts.get((run_index, False), 0.0),
+            if decal_plan is None:
+                raise StrictSeamRuntimeError(
+                    selected_edge_indices,
+                    "SEAMS_REQUIRE_COMPILED_PLAN",
                 )
-            is_coplanar = all(
-                normal_a.dot(normal_b) > DECAL_COPLANAR_DOT
-                for normal_a, normal_b in zip(
-                    working_run.segment_normals_a,
-                    working_run.segment_normals_b,
+            if type(decal_plan) is not ManualSeamDecalPlan:
+                raise StrictSeamRuntimeError(
+                    selected_edge_indices,
+                    "SEAMS_PLAN_TYPE_INVALID",
                 )
+            runtime_scope = tuple(
+                sorted({int(index) for index in selected_edge_indices})
             )
-            if is_seam_mode and is_coplanar:
-                junction_ports.extend(
-                    _build_selected_seam_ribbon_run(
+            raw_selected = tuple(
+                int(index) for index in decal_plan.selected_edge_indices
+            )
+            raw_accepted = tuple(
+                int(edge_index)
+                for partition in decal_plan.backend_partitions
+                for edge_index in partition.edge_indices
+            )
+            raw_rejected = tuple(
+                int(rejection.edge_index)
+                for rejection in decal_plan.rejected_edges
+            )
+            compiled_scope = tuple(sorted(set(raw_selected)))
+            accepted_scope = set(raw_accepted)
+            rejected_scope = set(raw_rejected)
+            structurally_exact = (
+                decal_plan.network_plan is None
+                and not decal_plan.direct_legacy_edge_indices
+                and all(
+                    type(partition) is _ManualSeamBackendPartition
+                    and partition.backend
+                    in {"RAIL_PLANAR", "PATCH_VORONOI"}
+                    for partition in decal_plan.backend_partitions
+                )
+                and len(raw_selected) == len(compiled_scope)
+                and len(raw_accepted) == len(accepted_scope)
+                and len(raw_rejected) == len(rejected_scope)
+                and not accepted_scope.intersection(rejected_scope)
+                and set(compiled_scope)
+                == accepted_scope.union(rejected_scope)
+            )
+            if not structurally_exact:
+                raise StrictSeamRuntimeError(
+                    compiled_scope,
+                    "SEAMS_PLAN_ACCOUNTING_MISMATCH",
+                )
+            if runtime_scope != compiled_scope:
+                scope_delta = tuple(
+                    sorted(set(runtime_scope).symmetric_difference(compiled_scope))
+                )
+                raise StrictSeamRuntimeError(
+                    scope_delta,
+                    "SEAMS_PLAN_SCOPE_MISMATCH:"
+                    f"runtime={runtime_scope},compiled={compiled_scope}",
+                )
+            if decal_plan.rejected_edges:
+                # SEAMS-транзакция атомарна: частично поддержанный scope не
+                # материализуется. Иначе щель выглядела бы как успешный
+                # результат, а неподдержанный компонент оставался бы скрыт.
+                raise StrictSeamRuntimeError(
+                    decal_plan.rejected_edge_indices,
+                    decal_plan.backend_summary
+                    or "UNSUPPORTED_SEAMS_COMPONENT",
+                )
+            if not decal_plan.backend_partitions:
+                raise StrictSeamRuntimeError(
+                    selected_edge_indices,
+                    decal_plan.backend_summary
+                    or "NO_SUPPORTED_SEAMS_BACKEND",
+                )
+            # Все современные partitions вычисляются до первой BMesh-записи.
+            # Ни compile-, ни runtime-отказ не может перейти в старую сеть.
+            face_batches = [
+                (
+                    partition,
+                    _evaluate_manual_backend_partition(
+                        partition,
+                        settings,
+                        width,
+                        preview,
+                    ),
+                )
+                for partition in decal_plan.backend_partitions
+            ]
+            materialization_results = []
+            for partition, evaluation in face_batches:
+                materialization_results.append(
+                    _materialize_network_faces(
                         bm,
-                        working_run,
+                        evaluation.faces,
                         settings,
                         uv_rect,
+                        backend=partition.backend,
+                        edge_indices=partition.edge_indices,
+                        evaluator_policy_counts=(
+                            evaluation.policy_counts
+                            if partition.backend == "PATCH_VORONOI"
+                            else None
+                        ),
+                        evaluation_ms=evaluation.evaluation_ms,
                     )
                 )
-                continue
-            built_ports = _build_corner_ribbon_run(
-                bm, working_run, settings, uv_rect, width=width
+            return tuple(materialization_results)
+        # Ниже остаётся только manual CORNERS producer: SEAMS всегда
+        # завершился выше через строгий compiled backend либо явный отказ.
+        for run in corner_runs:
+            _build_corner_ribbon_run(
+                bm, run, settings, uv_rect, width=width
             )
-            if is_seam_mode and built_ports:
-                junction_ports.extend(built_ports)
-        if is_seam_mode and junction_specs:
-            _build_seam_junctions(
-                bm,
-                junction_specs,
-                junction_ports,
-                settings,
-                uv_rect,
-            )
-        # Legacy-паритет: посегментные boundary-крылья, как до сети.
         for run in boundary_runs:
             for index in range(len(run.points) - 1):
                 _build_boundary_wing_strip(
@@ -3724,16 +3727,6 @@ def _fill_manual_chain_decals(
     )
     for points, normal_a, normal_b, is_closed, convexity in corner_chains:
         spine_points = _dedupe_polyline(points)
-        if is_seam_mode and normal_a.dot(normal_b) > DECAL_COPLANAR_DOT:
-            _build_seam_strip(
-                bm,
-                _closed_polyline(spine_points, is_closed),
-                normal_a,
-                settings,
-                uv_rect,
-                closed=is_closed,
-            )
-            continue
         _build_corner_strip(
             bm,
             _closed_polyline(spine_points, is_closed),
@@ -3768,6 +3761,13 @@ def _fill_decal_bmesh(
     preview=False,
     decal_plan=None,
 ):
+    if mode == "SEAMS" and (
+        chain_refs is None or selected_edge_indices is None
+    ):
+        raise StrictSeamRuntimeError(
+            selected_edge_indices or (),
+            "SEAMS_REQUIRE_SELECTED_EDGE_PLAN",
+        )
     if chain_refs is not None and mode in ("CORNERS", "SEAMS"):
         return _fill_manual_chain_decals(
             bm,
@@ -3800,24 +3800,6 @@ def _fill_decal_bmesh(
                 DECAL_UV_RECT_CORNER,
                 closed=is_closed,
                 dihedral_convexity=convexity,
-            )
-    elif mode == "SEAMS":
-        _corner_chains, automatic_seam_chains = _collect_wall_pair_chains(graph)
-        seam_chains = [
-            (points, normal_a, is_closed)
-            for points, normal_a, _normal_b, is_closed, _convexity
-            in automatic_seam_chains
-        ]
-        for points, normal, is_closed in seam_chains:
-            # Нормаль стороны-владельца (как n_sum_a в прототипе);
-            # automatic seam pair копланарна в пределах порога.
-            _build_seam_strip(
-                bm,
-                _closed_polyline(points, is_closed),
-                normal,
-                settings,
-                DECAL_UV_RECT_SEAM,
-                closed=is_closed,
             )
     return ()
 
@@ -4002,6 +3984,12 @@ def generate_decal_result(
     try:
         local_settings = local_decal_settings_for_source(settings, source_obj)
     except DecalSourceTransformError as exc:
+        if mode == "SEAMS" and preview:
+            remove_decal_preview_object(
+                mode,
+                source_obj,
+                preview_state,
+            )
         return DecalGenerationResult(
             PreviewStatus.ERROR,
             None,
@@ -4033,9 +4021,21 @@ def generate_decal_result(
             preview_state,
         )
     except Exception as exc:
-        retained = (
-            _existing_decal_preview_object(object_name) if preview else None
-        )
+        if mode == "SEAMS" and preview:
+            # Ошибка должна быть видима: старый корректный preview не имеет
+            # права маскировать провал текущей ширины или topology scope.
+            remove_decal_preview_object(
+                mode,
+                source_obj,
+                preview_state,
+            )
+            retained = None
+        else:
+            retained = (
+                _existing_decal_preview_object(object_name)
+                if preview
+                else None
+            )
         return DecalGenerationResult(
             (
                 PreviewStatus.RETAINED_LAST_VALID
@@ -4048,9 +4048,19 @@ def generate_decal_result(
         )
 
     if transaction.obj is None:
-        retained = (
-            _existing_decal_preview_object(object_name) if preview else None
-        )
+        if mode == "SEAMS" and preview:
+            remove_decal_preview_object(
+                mode,
+                source_obj,
+                preview_state,
+            )
+            retained = None
+        else:
+            retained = (
+                _existing_decal_preview_object(object_name)
+                if preview
+                else None
+            )
         return DecalGenerationResult(
             (
                 PreviewStatus.RETAINED_LAST_VALID
@@ -4092,23 +4102,43 @@ def generate_decal_objects(
 
     if mode not in DECAL_MODES:
         raise ValueError(f"Unknown decal mode: {mode}")
-    local_settings = local_decal_settings_for_source(settings, source_obj)
-    if scene is None:
-        scene = bpy.context.scene
-    transaction = _generate_decal_transaction(
-        graph,
-        source_obj,
-        local_settings,
-        mode,
-        scene,
-        chain_refs,
-        selected_edge_indices,
-        preview,
-        decal_plan,
-        preview_state,
-    )
+    try:
+        local_settings = local_decal_settings_for_source(settings, source_obj)
+        if scene is None:
+            scene = bpy.context.scene
+        transaction = _generate_decal_transaction(
+            graph,
+            source_obj,
+            local_settings,
+            mode,
+            scene,
+            chain_refs,
+            selected_edge_indices,
+            preview,
+            decal_plan,
+            preview_state,
+        )
+    except Exception:
+        if mode == "SEAMS" and preview:
+            remove_decal_preview_object(
+                mode,
+                source_obj,
+                preview_state,
+            )
+        raise
     if transaction.obj is not None:
         return [transaction.obj.name]
+    if mode == "SEAMS":
+        if preview:
+            remove_decal_preview_object(
+                mode,
+                source_obj,
+                preview_state,
+            )
+        raise StrictSeamRuntimeError(
+            selected_edge_indices or (),
+            "SEAMS_GENERATION_PRODUCED_NO_FACES",
+        )
     retained = (
         _existing_decal_preview_object(
             (

@@ -297,8 +297,8 @@ Junction = веер угловых секторов между последов�
 - **A4 ownership divider**: corner-конструкции дополнительно клипаются
   серединными полуплоскостями коротких сегментов; band от этого не
   зависит, страдает только протяжённость контура.
-- **Legacy backend**: band-модель НЕ портируется в legacy; действует
-  gate из A10 (`Legacy:0` для live corner controls).
+- **SEAMS backend**: legacy runtime удалён. Live corner controls действуют
+  только для clean Patch Voronoi scope (`Failed:0`); rail scope их не включает.
 - **Атлас/тексчеринг (R3)**: producer гарантирует канонические формы и
   фазу V; снап на слоты — отдельный слой (hotspot), вне этого oracle.
 

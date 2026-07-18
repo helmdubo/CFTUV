@@ -383,7 +383,7 @@ def test_live_acute_header_uses_evaluator_policy_diagnostics():
     )
 
 
-def test_legacy_routing_disables_live_corner_targets():
+def test_non_patch_routing_disables_live_corner_targets_with_strict_header():
     settings = DecalSettings()
     operator = HOTSPOTUV_OT_GenerateDecals()
     operator.mode = "SEAMS"
@@ -408,7 +408,34 @@ def test_legacy_routing_disables_live_corner_targets():
     assert set(operator._modal_disabled_drag_targets) == {"A", "M"}
     assert operator._active_modal_drag_target().key == "W"
     assert operator._modal_current_value == settings.width_seam
-    assert "Live corner controls require Legacy:0" in header.text
+    assert (
+        "Live corner controls require Patch Voronoi-only Seams"
+        in header.text
+    )
+
+
+def test_failed_scope_disables_live_corner_targets_with_failed_header():
+    settings = DecalSettings()
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    operator._modal_decal_plan = SimpleNamespace(
+        supports_live_corner_controls=False,
+        rejected_edges=(object(),),
+    )
+    operator._configure_modal_drag_targets(settings)
+    operator._rebase_modal_drag("W", 100, False)
+    header = SimpleNamespace(text=None)
+    operator._modal_area = SimpleNamespace(
+        header_text_set=lambda text: setattr(header, "text", text)
+    )
+
+    result = operator.modal(
+        SimpleNamespace(),
+        SimpleNamespace(type="A", value="PRESS", mouse_x=120, shift=False),
+    )
+
+    assert result == {"RUNNING_MODAL"}
+    assert "Live corner controls require Failed:0" in header.text
 
 
 def test_invalid_live_acute_frame_keeps_last_valid_threshold():
@@ -519,7 +546,7 @@ def test_decal_modal_ignores_vertical_only_mousemove():
     assert operator._modal_current_value == 0.25
 
 
-def test_decal_modal_keeps_last_valid_preview_after_runtime_error():
+def test_decal_modal_records_seams_error_without_advancing_drag_value():
     operator = HOTSPOTUV_OT_GenerateDecals()
     operator.mode = "SEAMS"
     operator._modal_base_settings = DecalSettings(width_seam=0.15)
@@ -552,14 +579,13 @@ def test_decal_modal_keeps_last_valid_preview_after_runtime_error():
     )
 
     assert result == {"RUNNING_MODAL"}
-    assert operator._modal_created == ["LastValidDecal"]
     assert operator._modal_current_value == 0.15
     assert operator._modal_current_settings is None
     assert operator._modal_last_preview_error == "invalid crop"
     assert scene_settings.decal_width_seam == 0.15
 
 
-def test_modal_invalid_status_series_preserves_last_valid_and_confirm_uses_it():
+def test_modal_invalid_status_series_cancels_instead_of_confirming_stale_frame():
     operator = HOTSPOTUV_OT_GenerateDecals()
     operator.mode = "SEAMS"
     base_settings = DecalSettings(width_seam=0.15)
@@ -574,11 +600,13 @@ def test_modal_invalid_status_series_preserves_last_valid_and_confirm_uses_it():
     operator._modal_label = "Seam Width"
     operator._modal_state = object()
     operator._modal_created = ["BaseDecal"]
+    operator._modal_preview_discarded = False
     header = SimpleNamespace(text=None)
     operator._modal_area = SimpleNamespace(
         header_text_set=lambda text: setattr(header, "text", text)
     )
-    operator.report = lambda *_args: None
+    reports = []
+    operator.report = lambda level, message: reports.append((level, message))
     operator._report_created = lambda *_args, **_kwargs: None
     preview_results = iter(
         (
@@ -645,10 +673,118 @@ def test_modal_invalid_status_series_preserves_last_valid_and_confirm_uses_it():
     assert operator.modal(
         context,
         SimpleNamespace(type="LEFTMOUSE", value="PRESS"),
-    ) == {"FINISHED"}
-    assert len(confirm_calls) == 1
-    assert confirm_calls[0].width_seam == pytest.approx(valid_value)
-    assert operator._modal_created == ["FinalDecal"]
+    ) == {"CANCELLED"}
+    assert confirm_calls == []
+    assert operator._modal_preview_discarded is True
+    assert scene_settings.decal_width_seam == pytest.approx(0.15)
+    assert header.text is None
+    assert reports[-1] == (
+        {"ERROR"},
+        "Current SEAMS preview failed; confirmation cancelled: "
+        "backend exploded",
+    )
+
+
+@pytest.mark.parametrize(
+    ("status", "reason"),
+    (
+        (PreviewStatus.ERROR, "strict backend failed"),
+        (PreviewStatus.EMPTY, "generation produced no faces"),
+    ),
+)
+@pytest.mark.parametrize("confirm_event", ("LEFTMOUSE", "RET", "NUMPAD_ENTER"))
+def test_seams_confirm_cancels_current_invalid_preview_without_final_rebuild(
+    status,
+    reason,
+    confirm_event,
+):
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    base_settings = DecalSettings(width_seam=0.15)
+    operator._modal_base_settings = base_settings
+    operator._modal_base_value = 0.15
+    operator._modal_current_value = 0.15
+    operator._modal_current_settings = base_settings
+    operator._modal_last_valid_settings = base_settings
+    operator._modal_start_mouse = 100
+    operator._modal_property = "decal_width_seam"
+    operator._modal_settings_field = "width_seam"
+    operator._modal_label = "Seam Width"
+    operator._modal_state = object()
+    operator._modal_preview_discarded = False
+    operator._modal_area = None
+    reports = []
+    operator.report = lambda level, message: reports.append((level, message))
+    final_calls = []
+
+    def generate(_context, _state, settings, preview=False):
+        if preview:
+            return DecalGenerationResult(status, None, reason=reason)
+        final_calls.append(settings)
+        return DecalGenerationResult(PreviewStatus.UPDATED, "FinalDecal")
+
+    operator._generate = generate
+    scene_settings = SimpleNamespace(decal_width_seam=0.15)
+    context = SimpleNamespace(
+        scene=SimpleNamespace(hotspotuv_settings=scene_settings)
+    )
+
+    assert operator.modal(
+        context,
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=120, shift=False),
+    ) == {"RUNNING_MODAL"}
+    assert operator._modal_last_preview_error == reason
+
+    assert operator.modal(
+        context,
+        SimpleNamespace(type=confirm_event, value="PRESS"),
+    ) == {"CANCELLED"}
+    assert final_calls == []
+    assert operator._modal_preview_discarded is True
+    assert scene_settings.decal_width_seam == pytest.approx(0.15)
+    assert reports[-1] == (
+        {"ERROR"},
+        "Current SEAMS preview failed; confirmation cancelled: " + reason,
+    )
+
+
+def test_seams_drag_retries_same_value_after_preview_error():
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    settings = DecalSettings(width_seam=0.15)
+    operator._modal_base_settings = settings
+    operator._modal_base_value = 0.15
+    operator._modal_current_value = 0.15
+    operator._modal_current_settings = settings
+    operator._modal_last_valid_settings = settings
+    operator._modal_last_preview_error = "previous strict failure"
+    operator._modal_start_mouse = 100
+    operator._modal_property = "decal_width_seam"
+    operator._modal_settings_field = "width_seam"
+    operator._modal_label = "Seam Width"
+    operator._modal_state = object()
+    operator._modal_area = None
+    preview_calls = []
+
+    def generate(_context, _state, current, preview=False):
+        preview_calls.append((current.width_seam, preview))
+        return DecalGenerationResult(PreviewStatus.UPDATED, "RecoveredDecal")
+
+    operator._generate = generate
+    scene_settings = SimpleNamespace(decal_width_seam=0.15)
+    context = SimpleNamespace(
+        scene=SimpleNamespace(hotspotuv_settings=scene_settings)
+    )
+
+    result = operator.modal(
+        context,
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=100, shift=False),
+    )
+
+    assert result == {"RUNNING_MODAL"}
+    assert preview_calls == [(pytest.approx(0.15), True)]
+    assert operator._modal_last_preview_error is None
+    assert operator._modal_created == ["RecoveredDecal"]
 
 
 def test_b4_budget_excess_recompiles_only_on_confirm():
@@ -669,7 +805,8 @@ def test_b4_budget_excess_recompiles_only_on_confirm():
     operator._modal_created = ["LastValidDecal"]
     operator._modal_preview_discarded = False
     operator._modal_area = SimpleNamespace(header_text_set=lambda _text: None)
-    operator.report = lambda *_args: None
+    reports = []
+    operator.report = lambda level, message: reports.append((level, message))
     operator._report_created = lambda *_args, **_kwargs: None
 
     compile_calls = []
@@ -1367,11 +1504,11 @@ def test_seam_modal_confirm_reports_seam_width():
     assert reports == [(["Decal"], operator._modal_state, "Seam Width:0.3000")]
 
 
-def test_decal_created_report_exposes_hybrid_backend_routing():
+def test_decal_created_report_exposes_strict_backend_routing():
     reports = []
     operator = SimpleNamespace(
         _modal_decal_plan=SimpleNamespace(
-            backend_summary="Patch Voronoi:22c/259e | Legacy:1c/199e"
+            backend_summary="PLANAR:22c/259e"
         ),
         report=lambda level, message: reports.append((level, message)),
     )
@@ -1393,7 +1530,7 @@ def test_decal_created_report_exposes_hybrid_backend_routing():
         (
             {"INFO"},
             "Created: Decal_Seams_walls.010 | chains:1 edges:458 | "
-            "Patch Voronoi:22c/259e | Legacy:1c/199e",
+            "PLANAR:22c/259e",
         )
     ]
 

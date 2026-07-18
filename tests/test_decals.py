@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from math import pi
 from types import SimpleNamespace
 
@@ -62,7 +63,7 @@ def _backend_test_run(edge_indices, vert_indices):
     )
 
 
-def test_manual_seam_plan_routes_only_failed_topology_component_to_legacy(
+def test_manual_seam_plan_rejects_failed_topology_component_atomically(
     monkeypatch,
 ):
     joined = _backend_test_run((1, 2), (0, 1, 2))
@@ -82,9 +83,13 @@ def test_manual_seam_plan_routes_only_failed_topology_component_to_legacy(
             rejected_edges=(),
         )
 
-    accepted_plan = object()
-    legacy_plan = object()
+    accepted_plan = SimpleNamespace(backend_kind="PLANAR")
     monkeypatch.setattr(decals_module, "_collect_manual_edge_decals", collect)
+    monkeypatch.setattr(
+        decals_module,
+        "compile_decal_rail_attempt",
+        lambda *_args, **_kwargs: SimpleNamespace(plan=None, failures=()),
+    )
     monkeypatch.setattr(
         decals_module,
         "compile_patch_voronoi_attempt",
@@ -95,6 +100,7 @@ def test_manual_seam_plan_routes_only_failed_topology_component_to_legacy(
                 SimpleNamespace(
                     patch_id=99,
                     reason="NO_OWNER_SURFACES",
+                    edge_indices=(1,),
                 ),
             ),
         ),
@@ -107,146 +113,123 @@ def test_manual_seam_plan_routes_only_failed_topology_component_to_legacy(
             strict_calls.append(tuple(edges)) or accepted_plan
         ),
     )
-    legacy_calls = []
-    monkeypatch.setattr(
-        decals_module,
-        "compile_seam_network_plan",
-        lambda runs, _offset: legacy_calls.append(tuple(runs)) or legacy_plan,
-    )
 
     plan = decals_module.compile_manual_seam_decal_plan(
         object(), DecalSettings(), (1, 2, 10)
     )
 
     assert strict_calls == [(10,)]
-    assert len(legacy_calls) == 1
     assert [partition.backend for partition in plan.backend_partitions] == [
         "PATCH_VORONOI",
-        "LEGACY_NETWORK",
     ]
     assert plan.backend_partitions[0].edge_indices == (10,)
     assert plan.backend_partitions[0].topology_component_count == 1
-    assert plan.backend_partitions[1].edge_indices == (1, 2)
+    assert plan.accepted_legacy_edge_indices == ()
+    assert plan.rejected_edge_indices == (1, 2)
+    assert {
+        rejection.edge_index: rejection.reason
+        for rejection in plan.rejected_edges
+    } == {1: "NO_OWNER_SURFACES", 2: "NO_OWNER_SURFACES"}
+    assert plan.accounting_is_exact is True
     assert plan.backend_summary == (
-        "PLANAR:1c/1e | LEGACY:1c/2e | "
-        "Fallback[NO_OWNER_SURFACES:x1]"
+        "PLANAR:1c/1e | Unsupported[NO_OWNER_SURFACES:x1] | "
+        "Failed:2e[NO_OWNER_SURFACES:x2]"
     )
 
 
-def test_manual_seam_hybrid_materializes_both_backend_partitions(monkeypatch):
-    patch_run = _backend_test_run((10,), (10, 11))
-    legacy_run = _backend_test_run((1,), (0, 1))
-    patch_partition = decals_module._ManualSeamBackendPartition(
-        backend="PATCH_VORONOI",
-        edge_indices=(10,),
-        topology_component_count=1,
-        corner_runs=(patch_run,),
-        boundary_runs=(),
-        compiled_plan=object(),
-    )
-    legacy_partition = decals_module._ManualSeamBackendPartition(
-        backend="LEGACY_NETWORK",
-        edge_indices=(1,),
-        topology_component_count=1,
-        corner_runs=(legacy_run,),
-        boundary_runs=(),
-        compiled_plan=object(),
-    )
-    plan = decals_module.ManualSeamDecalPlan(
-        corner_runs=(patch_run, legacy_run),
-        boundary_runs=(),
-        backend_partitions=(patch_partition, legacy_partition),
-    )
-    monkeypatch.setattr(
-        decals_module,
-        "evaluate_patch_voronoi_plan",
-        lambda *_args, **_kwargs: ("patch-face",),
-    )
-    monkeypatch.setattr(
-        decals_module,
-        "evaluate_seam_network_plan",
-        lambda *_args, **_kwargs: ("legacy-face",),
-    )
-    materialized = []
-    monkeypatch.setattr(
-        decals_module,
-        "_materialize_network_faces",
-        lambda _bm, faces, _settings, _uv_rect, **context: materialized.append(
-            (tuple(faces), context)
-        ),
-    )
-
-    decals_module._fill_manual_chain_decals(
-        object(),
-        object(),
-        DecalSettings(),
-        (),
-        mode="SEAMS",
-        selected_edge_indices=(1, 10),
-        decal_plan=plan,
-    )
-
-    assert [entry[0] for entry in materialized] == [
-        ("patch-face",),
-        ("legacy-face",),
-    ]
-    assert materialized[0][1]["backend"] == "PATCH_VORONOI"
-    assert materialized[0][1]["edge_indices"] == (10,)
-    assert materialized[0][1]["evaluator_policy_counts"] == ()
-    assert materialized[0][1]["evaluation_ms"] >= 0.0
-    assert materialized[1][1]["backend"] == "LEGACY_NETWORK"
-    assert materialized[1][1]["edge_indices"] == (1,)
-    assert materialized[1][1]["evaluator_policy_counts"] is None
-    assert materialized[1][1]["evaluation_ms"] >= 0.0
-
-
-def test_r0_rail_plan_is_materialization_neutral(monkeypatch):
-    """R0 компилирует rail IR, но геометрию по нему ещё не строит."""
-
-    run = _backend_test_run((1,), (0, 1))
-    network_plan = object()
-    common = dict(
-        corner_runs=(run,),
-        boundary_runs=(),
-        network_plan=network_plan,
-        selected_edge_indices=(1,),
-        direct_legacy_edge_indices=(1,),
-    )
-    baseline = decals_module.ManualSeamDecalPlan(**common)
-    with_rail = decals_module.ManualSeamDecalPlan(
-        **common,
-        rail_plan=object(),
-    )
-    monkeypatch.setattr(
-        decals_module,
-        "evaluate_seam_network_plan",
-        lambda plan, *_args, **_kwargs: (("face", plan is network_plan),),
-    )
-    monkeypatch.setattr(
-        decals_module,
-        "_materialize_network_faces",
-        lambda _bm, faces, _settings, _uv_rect, **context: (
-            tuple(faces),
-            context["backend"],
-            tuple(context["edge_indices"]),
-        ),
-    )
-
-    def evaluate(plan):
-        return decals_module._fill_manual_chain_decals(
-            object(),
-            object(),
-            DecalSettings(),
-            (),
-            mode="SEAMS",
-            selected_edge_indices=(1,),
-            decal_plan=plan,
+@pytest.mark.parametrize("backend", ("LEGACY_NETWORK", "UNKNOWN"))
+def test_manual_seam_backend_partition_rejects_disabled_backend(backend):
+    with pytest.raises(ValueError, match="backend is disabled"):
+        decals_module._ManualSeamBackendPartition(
+            backend=backend,
+            edge_indices=(1,),
+            topology_component_count=1,
+            corner_runs=(),
+            boundary_runs=(),
+            compiled_plan=object(),
         )
 
-    assert evaluate(with_rail) == evaluate(baseline)
+
+@pytest.mark.parametrize(
+    "legacy_fields",
+    (
+        {"network_plan": object()},
+        {"direct_legacy_edge_indices": (1,)},
+    ),
+)
+def test_manual_seam_plan_rejects_legacy_fields(legacy_fields):
+    with pytest.raises(ValueError, match="Legacy SEAMS plans are disabled"):
+        decals_module.ManualSeamDecalPlan(
+            corner_runs=(),
+            boundary_runs=(),
+            selected_edge_indices=(1,),
+            **legacy_fields,
+        )
 
 
-def test_r0_manual_compile_attaches_one_compile_static_rail_attempt(monkeypatch):
+def test_unknown_backend_evaluation_fails_visibly():
+    partition = SimpleNamespace(backend="UNKNOWN", edge_indices=(3,))
+
+    with pytest.raises(decals_module.StrictSeamRuntimeError) as exc_info:
+        decals_module._evaluate_manual_backend_partition(
+            partition,
+            DecalSettings(),
+            width=1.0,
+            preview=False,
+        )
+
+    assert exc_info.value.edge_indices == (3,)
+    assert exc_info.value.reason == "UNSUPPORTED_BACKEND:UNKNOWN"
+
+
+@pytest.mark.parametrize(
+    ("edge_indices", "expected_ids"),
+    (
+        ((7, 3, 7), "[3,7]"),
+        (tuple(range(15)), "[0,1,2,3,4,5,6,7,8,9,10,11,...]"),
+    ),
+)
+def test_strict_seam_runtime_error_lists_at_most_twelve_edge_ids(
+    edge_indices,
+    expected_ids,
+):
+    error = decals_module.StrictSeamRuntimeError(
+        edge_indices,
+        "UNSUPPORTED_TEST_SCOPE",
+    )
+
+    assert expected_ids in str(error)
+    assert str(error).endswith(": UNSUPPORTED_TEST_SCOPE")
+    assert error.edge_indices == tuple(sorted(set(edge_indices)))
+
+
+def test_strict_seams_do_not_reference_legacy_compilers_or_evaluators():
+    legacy_symbols = {
+        "build_seam_network_faces",
+        "compile_seam_network_plan",
+        "evaluate_seam_network_plan",
+    }
+    strict_runtime_source = "\n".join(
+        inspect.getsource(function)
+        for function in (
+            decals_module.compile_manual_seam_decal_plan,
+            decals_module._evaluate_manual_backend_partition,
+            decals_module._fill_manual_chain_decals,
+            decals_module._fill_decal_bmesh,
+        )
+    )
+
+    assert legacy_symbols.isdisjoint(vars(decals_module))
+    assert all(
+        symbol not in strict_runtime_source for symbol in legacy_symbols
+    )
+
+
+@pytest.mark.parametrize("seam_network", (False, True))
+def test_r0_manual_compile_ignores_legacy_toggle_and_attempts_modern_backend(
+    monkeypatch,
+    seam_network,
+):
     run = _backend_test_run((7,), (0, 1))
     monkeypatch.setattr(
         decals_module,
@@ -258,13 +241,12 @@ def test_r0_manual_compile_attaches_one_compile_static_rail_attempt(monkeypatch)
             rejected_edges=(),
         ),
     )
-    rail_plan = object()
     rail_failure = SimpleNamespace(reason="TEST_RAIL_DIAGNOSTIC")
-    calls = []
+    rail_calls = []
 
     def compile_rails(graph, edges, **kwargs):
-        calls.append((graph, tuple(edges), kwargs))
-        return SimpleNamespace(plan=rail_plan, failures=(rail_failure,))
+        rail_calls.append((graph, tuple(edges), kwargs))
+        return SimpleNamespace(plan=None, failures=(rail_failure,))
 
     monkeypatch.setattr(
         decals_module,
@@ -272,7 +254,21 @@ def test_r0_manual_compile_attaches_one_compile_static_rail_attempt(monkeypatch)
         compile_rails,
     )
     graph = object()
-    settings = DecalSettings(seam_network=False)
+    patch_plan = SimpleNamespace(backend_kind="PLANAR")
+    patch_calls = []
+    monkeypatch.setattr(
+        decals_module,
+        "compile_patch_voronoi_attempt",
+        lambda graph, edges, *_args, **kwargs: (
+            patch_calls.append((graph, tuple(edges), kwargs))
+            or SimpleNamespace(
+                plan=patch_plan,
+                rejected_edge_indices=(),
+                failures=(),
+            )
+        ),
+    )
+    settings = DecalSettings(seam_network=seam_network)
 
     plan = decals_module.compile_manual_seam_decal_plan(
         graph,
@@ -282,7 +278,7 @@ def test_r0_manual_compile_attaches_one_compile_static_rail_attempt(monkeypatch)
         rail_mark_edge_indices=(99,),
     )
 
-    assert calls == [
+    assert rail_calls == [
         (
             graph,
             (7,),
@@ -292,9 +288,13 @@ def test_r0_manual_compile_attaches_one_compile_static_rail_attempt(monkeypatch)
             },
         )
     ]
-    assert plan.rail_plan is rail_plan
+    assert [call[1] for call in patch_calls] == [(7,)]
+    assert plan.rail_plan is None
     assert plan.rail_compile_failures == (rail_failure,)
-    assert plan.accepted_legacy_edge_indices == (7,)
+    assert plan.accepted_patch_voronoi_edge_indices == (7,)
+    assert plan.accepted_legacy_edge_indices == ()
+    assert plan.rejected_edge_indices == ()
+    assert plan.accounting_is_exact is True
 
 
 def test_r1_mixed_success_scope_stays_on_joint_patch_competition(monkeypatch):
@@ -389,7 +389,7 @@ def test_r1_mixed_success_scope_stays_on_joint_patch_competition(monkeypatch):
     assert plan.rail_geometry_failures == (rail_failure,)
     assert plan.accounting_is_exact is True
     assert plan.backend_summary == (
-        "PLANAR:2c/3e | RailFallback[NON_PLANAR_RAIL_COMPONENT:x1]"
+        "PLANAR:2c/3e | RailUnsupported[NON_PLANAR_RAIL_COMPONENT:x1]"
     )
 
 
@@ -798,25 +798,41 @@ def test_live_corner_controls_require_clean_patch_voronoi_accounting():
         backend_partitions=(patch_partition,),
         selected_edge_indices=(10, 11),
     )
-    hybrid = decals_module.ManualSeamDecalPlan(
+    failed = decals_module.ManualSeamDecalPlan(
         corner_runs=(),
         boundary_runs=(),
-        backend_partitions=(
-            patch_partition,
-            decals_module._ManualSeamBackendPartition(
-                backend="LEGACY_NETWORK",
-                edge_indices=(12,),
-                topology_component_count=1,
-                corner_runs=(),
-                boundary_runs=(),
-                compiled_plan=object(),
+        backend_partitions=(patch_partition,),
+        rejected_edges=(
+            decals_module.ManualSeamEdgeRejection(
+                edge_index=12,
+                reason="NO_OWNER_SURFACES",
             ),
         ),
         selected_edge_indices=(10, 11, 12),
     )
 
     assert clean.supports_live_corner_controls is True
-    assert hybrid.supports_live_corner_controls is False
+    assert failed.accounting_is_exact is True
+    assert failed.supports_live_corner_controls is False
+
+
+def test_failed_backend_summary_counts_all_reasons_deterministically():
+    plan = decals_module.ManualSeamDecalPlan(
+        corner_runs=(),
+        boundary_runs=(),
+        selected_edge_indices=(1, 2, 3, 4),
+        rejected_edges=(
+            decals_module.ManualSeamEdgeRejection(4, "Z_REASON"),
+            decals_module.ManualSeamEdgeRejection(1, "A_REASON"),
+            decals_module.ManualSeamEdgeRejection(3, "Z_REASON"),
+            decals_module.ManualSeamEdgeRejection(2, ""),
+        ),
+    )
+
+    assert plan.accounting_is_exact is True
+    assert plan.backend_summary == (
+        "Failed:4e[A_REASON:x1,UNKNOWN:x1,Z_REASON:x2]"
+    )
 
 
 def test_patch_voronoi_partition_runtime_failure_is_not_rebuilt_as_legacy(
@@ -838,13 +854,6 @@ def test_patch_voronoi_partition_runtime_failure_is_not_rebuilt_as_legacy(
             RuntimeError("broken crop")
         ),
     )
-    legacy_calls = []
-    monkeypatch.setattr(
-        decals_module,
-        "build_seam_network_faces",
-        lambda *_args, **_kwargs: legacy_calls.append(True),
-    )
-
     with pytest.raises(
         decals_module.PatchVoronoiRuntimeError,
         match=r"1 edge\(s\).*broken crop",
@@ -855,8 +864,6 @@ def test_patch_voronoi_partition_runtime_failure_is_not_rebuilt_as_legacy(
             width=3.7,
             preview=True,
         )
-
-    assert legacy_calls == []
 
 
 def test_patch_voronoi_partition_forwards_runtime_corner_settings(
@@ -921,6 +928,7 @@ def test_patch_voronoi_transaction_fails_before_any_bmesh_write(monkeypatch):
         corner_runs=(patch_run,),
         boundary_runs=(),
         backend_partitions=(partition,),
+        selected_edge_indices=(10,),
     )
     monkeypatch.setattr(
         decals_module,
@@ -949,6 +957,329 @@ def test_patch_voronoi_transaction_fails_before_any_bmesh_write(monkeypatch):
         )
 
     assert materialized == []
+
+
+def test_strict_seams_without_compiled_plan_fail_before_bmesh_write(
+    monkeypatch,
+):
+    run = _backend_test_run((1,), (0, 1))
+    monkeypatch.setattr(
+        decals_module,
+        "_collect_manual_edge_decals",
+        lambda *_args, **_kwargs: decals_module._ManualEdgeDecalCollection(
+            corner_runs=(run,),
+            boundary_runs=(),
+            accepted_edge_indices=(1,),
+            rejected_edges=(),
+        ),
+    )
+    bm = SimpleNamespace(faces=[])
+
+    with pytest.raises(decals_module.StrictSeamRuntimeError) as exc_info:
+        decals_module._fill_manual_chain_decals(
+            bm,
+            object(),
+            DecalSettings(),
+            (),
+            mode="SEAMS",
+            selected_edge_indices=(1,),
+            decal_plan=None,
+        )
+
+    assert exc_info.value.edge_indices == (1,)
+    assert exc_info.value.reason == "SEAMS_REQUIRE_COMPILED_PLAN"
+    assert bm.faces == []
+
+
+def test_automatic_seams_without_selected_edge_plan_fail_before_bmesh_write():
+    bm = SimpleNamespace(faces=[])
+
+    with pytest.raises(decals_module.StrictSeamRuntimeError) as exc_info:
+        decals_module._fill_decal_bmesh(
+            bm,
+            object(),
+            DecalSettings(),
+            "SEAMS",
+        )
+
+    assert exc_info.value.edge_indices == ()
+    assert exc_info.value.reason == "SEAMS_REQUIRE_SELECTED_EDGE_PLAN"
+    assert bm.faces == []
+
+
+def test_failed_strict_component_aborts_supported_scope_before_evaluation(
+    monkeypatch,
+):
+    partition = decals_module._ManualSeamBackendPartition(
+        backend="PATCH_VORONOI",
+        edge_indices=(10,),
+        topology_component_count=1,
+        corner_runs=(),
+        boundary_runs=(),
+        compiled_plan=object(),
+    )
+    plan = decals_module.ManualSeamDecalPlan(
+        corner_runs=(),
+        boundary_runs=(),
+        backend_partitions=(partition,),
+        selected_edge_indices=(10, 11),
+        rejected_edges=(
+            decals_module.ManualSeamEdgeRejection(
+                edge_index=11,
+                reason="NO_OWNER_SURFACES",
+            ),
+        ),
+        compile_failures=(
+            SimpleNamespace(reason="NO_OWNER_SURFACES"),
+        ),
+    )
+    evaluated = []
+    materialized = []
+    monkeypatch.setattr(
+        decals_module,
+        "evaluate_patch_voronoi_plan",
+        lambda *_args, **_kwargs: evaluated.append(True) or ("face",),
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "_materialize_network_faces",
+        lambda *_args, **_kwargs: materialized.append(True),
+    )
+
+    with pytest.raises(decals_module.StrictSeamRuntimeError) as exc_info:
+        decals_module._fill_manual_chain_decals(
+            SimpleNamespace(faces=[]),
+            object(),
+            DecalSettings(),
+            (),
+            mode="SEAMS",
+            selected_edge_indices=(10, 11),
+            decal_plan=plan,
+        )
+
+    assert exc_info.value.edge_indices == (11,)
+    assert "Failed:1e" in exc_info.value.reason
+    assert evaluated == []
+    assert materialized == []
+
+
+def test_stale_strict_plan_scope_fails_before_evaluation(monkeypatch):
+    partition = decals_module._ManualSeamBackendPartition(
+        backend="PATCH_VORONOI",
+        edge_indices=(10,),
+        topology_component_count=1,
+        corner_runs=(),
+        boundary_runs=(),
+        compiled_plan=object(),
+    )
+    plan = decals_module.ManualSeamDecalPlan(
+        corner_runs=(),
+        boundary_runs=(),
+        backend_partitions=(partition,),
+        selected_edge_indices=(10,),
+    )
+    evaluated = []
+    monkeypatch.setattr(
+        decals_module,
+        "evaluate_patch_voronoi_plan",
+        lambda *_args, **_kwargs: evaluated.append(True) or ("face",),
+    )
+
+    with pytest.raises(decals_module.StrictSeamRuntimeError) as exc_info:
+        decals_module._fill_manual_chain_decals(
+            SimpleNamespace(faces=[]),
+            object(),
+            DecalSettings(),
+            (),
+            mode="SEAMS",
+            selected_edge_indices=(10, 11),
+            decal_plan=plan,
+        )
+
+    assert exc_info.value.edge_indices == (11,)
+    assert exc_info.value.reason == (
+        "SEAMS_PLAN_SCOPE_MISMATCH:runtime=(10, 11),compiled=(10,)"
+    )
+    assert evaluated == []
+
+
+def test_broken_strict_plan_accounting_fails_before_evaluation(monkeypatch):
+    partition = decals_module._ManualSeamBackendPartition(
+        backend="PATCH_VORONOI",
+        edge_indices=(10,),
+        topology_component_count=1,
+        corner_runs=(),
+        boundary_runs=(),
+        compiled_plan=object(),
+    )
+    plan = decals_module.ManualSeamDecalPlan(
+        corner_runs=(),
+        boundary_runs=(),
+        backend_partitions=(partition,),
+        selected_edge_indices=(10, 11),
+    )
+    evaluated = []
+    monkeypatch.setattr(
+        decals_module,
+        "evaluate_patch_voronoi_plan",
+        lambda *_args, **_kwargs: evaluated.append(True) or ("face",),
+    )
+
+    with pytest.raises(decals_module.StrictSeamRuntimeError) as exc_info:
+        decals_module._fill_manual_chain_decals(
+            SimpleNamespace(faces=[]),
+            object(),
+            DecalSettings(),
+            (),
+            mode="SEAMS",
+            selected_edge_indices=(10, 11),
+            decal_plan=plan,
+        )
+
+    assert exc_info.value.edge_indices == (10, 11)
+    assert exc_info.value.reason == "SEAMS_PLAN_ACCOUNTING_MISMATCH"
+    assert evaluated == []
+
+
+def test_fake_plan_cannot_bypass_runtime_accounting_with_claimed_property(
+    monkeypatch,
+):
+    fake_plan = SimpleNamespace(
+        corner_runs=(),
+        boundary_runs=(),
+        accounting_is_exact=True,
+    )
+    evaluated = []
+    monkeypatch.setattr(
+        decals_module,
+        "_evaluate_manual_backend_partition",
+        lambda *_args, **_kwargs: evaluated.append(True),
+    )
+
+    with pytest.raises(decals_module.StrictSeamRuntimeError) as exc_info:
+        decals_module._fill_manual_chain_decals(
+            SimpleNamespace(faces=[]),
+            object(),
+            DecalSettings(),
+            (),
+            mode="SEAMS",
+            selected_edge_indices=(10,),
+            decal_plan=fake_plan,
+        )
+
+    assert exc_info.value.edge_indices == (10,)
+    assert exc_info.value.reason == "SEAMS_PLAN_TYPE_INVALID"
+    assert evaluated == []
+
+
+def test_fake_backend_partition_fails_runtime_structural_accounting(
+    monkeypatch,
+):
+    fake_partition = SimpleNamespace(
+        backend="PATCH_VORONOI",
+        edge_indices=(10,),
+    )
+    plan = decals_module.ManualSeamDecalPlan(
+        corner_runs=(),
+        boundary_runs=(),
+        backend_partitions=(fake_partition,),
+        selected_edge_indices=(10,),
+    )
+    evaluated = []
+    monkeypatch.setattr(
+        decals_module,
+        "_evaluate_manual_backend_partition",
+        lambda *_args, **_kwargs: evaluated.append(True),
+    )
+
+    with pytest.raises(decals_module.StrictSeamRuntimeError) as exc_info:
+        decals_module._fill_manual_chain_decals(
+            SimpleNamespace(faces=[]),
+            object(),
+            DecalSettings(),
+            (),
+            mode="SEAMS",
+            selected_edge_indices=(10,),
+            decal_plan=plan,
+        )
+
+    assert exc_info.value.edge_indices == (10,)
+    assert exc_info.value.reason == "SEAMS_PLAN_ACCOUNTING_MISMATCH"
+    assert evaluated == []
+
+
+@pytest.mark.parametrize(
+    "malformation",
+    (
+        "DUPLICATE_SELECTED",
+        "DUPLICATE_ACCEPTED",
+        "DUPLICATE_REJECTED",
+        "ACCEPTED_REJECTED_OVERLAP",
+    ),
+)
+def test_raw_strict_plan_accounting_rejects_duplicates_and_overlap(
+    monkeypatch,
+    malformation,
+):
+    partition = decals_module._ManualSeamBackendPartition(
+        backend="PATCH_VORONOI",
+        edge_indices=(10,),
+        topology_component_count=1,
+        corner_runs=(),
+        boundary_runs=(),
+        compiled_plan=object(),
+    )
+    partitions = (partition,)
+    selected = (10,)
+    rejected = ()
+    runtime_scope = (10,)
+    if malformation == "DUPLICATE_SELECTED":
+        selected = (10, 10)
+    elif malformation == "DUPLICATE_ACCEPTED":
+        partitions = (partition, partition)
+    elif malformation == "DUPLICATE_REJECTED":
+        selected = (10, 11)
+        runtime_scope = (10, 11)
+        rejection = decals_module.ManualSeamEdgeRejection(
+            edge_index=11,
+            reason="UNSUPPORTED_TEST_SCOPE",
+        )
+        rejected = (rejection, rejection)
+    else:
+        rejected = (
+            decals_module.ManualSeamEdgeRejection(
+                edge_index=10,
+                reason="UNSUPPORTED_TEST_SCOPE",
+            ),
+        )
+    plan = decals_module.ManualSeamDecalPlan(
+        corner_runs=(),
+        boundary_runs=(),
+        backend_partitions=partitions,
+        selected_edge_indices=selected,
+        rejected_edges=rejected,
+    )
+    evaluated = []
+    monkeypatch.setattr(
+        decals_module,
+        "_evaluate_manual_backend_partition",
+        lambda *_args, **_kwargs: evaluated.append(True),
+    )
+
+    with pytest.raises(decals_module.StrictSeamRuntimeError) as exc_info:
+        decals_module._fill_manual_chain_decals(
+            SimpleNamespace(faces=[]),
+            object(),
+            DecalSettings(),
+            (),
+            mode="SEAMS",
+            selected_edge_indices=runtime_scope,
+            decal_plan=plan,
+        )
+
+    assert exc_info.value.edge_indices == tuple(sorted(set(selected)))
+    assert exc_info.value.reason == "SEAMS_PLAN_ACCOUNTING_MISMATCH"
+    assert evaluated == []
 
 
 def test_generate_decal_objects_reuses_existing_object_only_for_preview(
@@ -1298,7 +1629,7 @@ def test_final_mesh_build_failure_does_not_touch_production_object(monkeypatch):
 @pytest.mark.parametrize(
     ("preview", "has_existing", "expected_status"),
     (
-        (True, True, decals_module.PreviewStatus.RETAINED_LAST_VALID),
+        (True, True, decals_module.PreviewStatus.ERROR),
         (True, False, decals_module.PreviewStatus.ERROR),
         (False, True, decals_module.PreviewStatus.ERROR),
     ),
@@ -1330,6 +1661,14 @@ def test_structured_generation_classifies_transaction_error(
         "_existing_decal_object",
         lambda _name: existing if has_existing else None,
     )
+    removed = []
+    monkeypatch.setattr(
+        decals_module,
+        "remove_decal_preview_object",
+        lambda mode, source, preview_state=None: removed.append(
+            (mode, source.name, preview_state)
+        ),
+    )
 
     result = decals_module.generate_decal_result(
         PatchGraph(),
@@ -1342,17 +1681,14 @@ def test_structured_generation_classifies_transaction_error(
 
     assert result.status == expected_status
     assert result.reason == "invalid crop"
-    assert result.object_name == (
-        ".CFTUV_Preview_Seams_Source"
-        if expected_status == decals_module.PreviewStatus.RETAINED_LAST_VALID
-        else None
-    )
+    assert result.object_name is None
+    assert removed == ([("SEAMS", "Source", None)] if preview else [])
 
 
 @pytest.mark.parametrize(
     ("preview", "has_existing", "expected_status"),
     (
-        (True, True, decals_module.PreviewStatus.RETAINED_LAST_VALID),
+        (True, True, decals_module.PreviewStatus.EMPTY),
         (True, False, decals_module.PreviewStatus.EMPTY),
         (False, True, decals_module.PreviewStatus.EMPTY),
     ),
@@ -1386,6 +1722,14 @@ def test_structured_generation_classifies_empty_transaction(
         "_existing_decal_object",
         lambda _name: existing if has_existing else None,
     )
+    removed = []
+    monkeypatch.setattr(
+        decals_module,
+        "remove_decal_preview_object",
+        lambda mode, source, preview_state=None: removed.append(
+            (mode, source.name, preview_state)
+        ),
+    )
 
     result = decals_module.generate_decal_result(
         PatchGraph(),
@@ -1398,6 +1742,93 @@ def test_structured_generation_classifies_empty_transaction(
 
     assert result.status == expected_status
     assert result.reason == "generation produced no faces"
+    assert result.object_name is None
+    assert removed == ([("SEAMS", "Source", None)] if preview else [])
+
+
+def test_seams_source_transform_error_removes_preview(monkeypatch):
+    source = SimpleNamespace(name="Source")
+    preview_state = decals_module.DecalPreviewState(
+        object_name=".CFTUV_Preview_Seams_Source"
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "local_decal_settings_for_source",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            decals_module.DecalSourceTransformError(
+                "NON_UNIFORM_SOURCE_SCALE",
+                "source scale is unsupported",
+            )
+        ),
+    )
+    removed = []
+    monkeypatch.setattr(
+        decals_module,
+        "remove_decal_preview_object",
+        lambda mode, obj, state: removed.append((mode, obj, state)),
+    )
+
+    result = decals_module.generate_decal_result(
+        PatchGraph(),
+        source,
+        DecalSettings(),
+        "SEAMS",
+        scene=object(),
+        preview=True,
+        preview_state=preview_state,
+    )
+
+    assert result.status == decals_module.PreviewStatus.ERROR
+    assert result.object_name is None
+    assert result.reason == (
+        "NON_UNIFORM_SOURCE_SCALE: source scale is unsupported"
+    )
+    assert removed == [("SEAMS", source, preview_state)]
+
+
+def test_compatibility_seams_empty_preview_removes_object_and_raises(
+    monkeypatch,
+):
+    source = SimpleNamespace(name="Source")
+    preview_state = decals_module.DecalPreviewState(
+        object_name=".CFTUV_Preview_Seams_Source"
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "local_decal_settings_for_source",
+        lambda settings, _source: settings,
+    )
+    monkeypatch.setattr(
+        decals_module,
+        "_generate_decal_transaction",
+        lambda *_args, **_kwargs: decals_module._DecalTransactionResult(
+            obj=None,
+            topology_changed=False,
+            policy_counts=(),
+        ),
+    )
+    removed = []
+    monkeypatch.setattr(
+        decals_module,
+        "remove_decal_preview_object",
+        lambda mode, obj, state: removed.append((mode, obj, state)),
+    )
+
+    with pytest.raises(decals_module.StrictSeamRuntimeError) as exc_info:
+        decals_module.generate_decal_objects(
+            PatchGraph(),
+            source,
+            DecalSettings(),
+            "SEAMS",
+            scene=object(),
+            selected_edge_indices=(4, 9),
+            preview=True,
+            preview_state=preview_state,
+        )
+
+    assert exc_info.value.edge_indices == (4, 9)
+    assert exc_info.value.reason == "SEAMS_GENERATION_PRODUCED_NO_FACES"
+    assert removed == [("SEAMS", source, preview_state)]
 
 
 def _materialization_face(keys, kind="SEGMENT", side=""):
@@ -1544,12 +1975,12 @@ def test_materialization_returns_structured_complete_result():
         (_materialization_face((("v", 0), ("v", 1), ("v", 2))),),
         DecalSettings(),
         (0.0, 0.0, 1.0, 1.0),
-        backend="LEGACY_NETWORK",
+        backend="PATCH_VORONOI",
         edge_indices=(8,),
     )
 
     assert result == decals_module.DecalMaterializationResult(
-        backend="LEGACY_NETWORK",
+        backend="PATCH_VORONOI",
         edge_indices=(8,),
         source_face_count=1,
         created_face_count=1,
@@ -1557,6 +1988,44 @@ def test_materialization_returns_structured_complete_result():
         policy_counts=(("SEGMENT", 1),),
     )
     assert len(bm.faces) == 1
+
+
+def test_legacy_materialization_fails_before_bmesh_write():
+    bm = _FakeMaterializationBMesh()
+
+    with pytest.raises(decals_module.StrictSeamRuntimeError) as exc_info:
+        decals_module._materialize_network_faces(
+            bm,
+            (_materialization_face((("v", 0), ("v", 1), ("v", 2))),),
+            DecalSettings(),
+            (0.0, 0.0, 1.0, 1.0),
+            backend="LEGACY_NETWORK",
+            edge_indices=(8,),
+        )
+
+    assert exc_info.value.edge_indices == (8,)
+    assert exc_info.value.reason == "LEGACY_NETWORK_MATERIALIZATION_DISABLED"
+    assert len(bm.faces) == 0
+
+
+def test_unknown_materialization_backend_fails_before_bmesh_write():
+    bm = _FakeMaterializationBMesh()
+
+    with pytest.raises(decals_module.StrictSeamRuntimeError) as exc_info:
+        decals_module._materialize_network_faces(
+            bm,
+            (_materialization_face((("v", 0), ("v", 1), ("v", 2))),),
+            DecalSettings(),
+            (0.0, 0.0, 1.0, 1.0),
+            backend="UNKNOWN_TEST_BACKEND",
+            edge_indices=(13,),
+        )
+
+    assert exc_info.value.edge_indices == (13,)
+    assert exc_info.value.reason == (
+        "UNSUPPORTED_MATERIALIZATION_BACKEND:UNKNOWN_TEST_BACKEND"
+    )
+    assert len(bm.faces) == 0
 
 
 @pytest.mark.parametrize("preview", (False, True))
@@ -1595,14 +2064,29 @@ def test_invalid_face_frees_transaction_without_publishing(
     preview_state = decals_module.DecalPreviewState(
         topology_signature=((3,),),
         canonical_mesh_indices=(0, 1, 2),
+        object_name=".CFTUV_Preview_Seams_Source",
         object_pointer=101,
         mesh_pointer=202,
     )
+    monkeypatch.setattr(
+        decals_module,
+        "_existing_decal_object",
+        lambda _name: None,
+    )
+    original_remove = decals_module.remove_decal_preview_object
+    removed = []
+
+    def remove(mode, source, state):
+        removed.append((mode, source, state))
+        return original_remove(mode, source, state)
+
+    monkeypatch.setattr(decals_module, "remove_decal_preview_object", remove)
+    source = SimpleNamespace(name="Source")
 
     with pytest.raises(decals_module.DecalMaterializationError):
         decals_module.generate_decal_objects(
             PatchGraph(),
-            SimpleNamespace(name="Source"),
+            source,
             DecalSettings(),
             "SEAMS",
             scene=object(),
@@ -1613,9 +2097,19 @@ def test_invalid_face_frees_transaction_without_publishing(
     assert bm.freed
     assert published == []
     if preview:
+        assert removed == [("SEAMS", source, preview_state)]
+        assert preview_state.topology_signature == ()
+        assert preview_state.canonical_mesh_indices == ()
+        assert preview_state.object_name == ""
+        assert preview_state.object_pointer == 0
+        assert preview_state.mesh_pointer == 0
+    else:
+        assert removed == []
+        assert preview_state.topology_signature == ((3,),)
+        assert preview_state.canonical_mesh_indices == (0, 1, 2)
+        assert preview_state.object_name == ".CFTUV_Preview_Seams_Source"
         assert preview_state.object_pointer == 101
         assert preview_state.mesh_pointer == 202
-        assert preview_state.topology_signature == ((3,),)
 
 
 def _make_chain(
@@ -2129,12 +2623,24 @@ class TestManualChainDecals:
         assert collection.rejected_edges[0].edge_index == 99
         assert plan.selected_edge_indices == (70, 99)
         assert plan.accepted_patch_voronoi_edge_indices == ()
-        assert plan.accepted_legacy_edge_indices == (70,)
-        assert plan.rejected_edge_indices == (99,)
+        assert plan.accepted_legacy_edge_indices == ()
+        assert plan.rejected_edge_indices == (99, 70)
+        assert {
+            rejection.edge_index: rejection.reason
+            for rejection in plan.rejected_edges
+        } == {
+            70: "MISSING_SITE_FACE_PROVENANCE",
+            99: "NO_BOUNDARY_CHAIN_USE",
+        }
         assert plan.accounting_is_exact
-        assert plan.backend_summary.endswith("Rejected:1e")
+        assert plan.backend_summary == (
+            "Unsupported[MISSING_SITE_FACE_PROVENANCE:x1] | "
+            "Failed:2e["
+            "MISSING_SITE_FACE_PROVENANCE:x1,"
+            "NO_BOUNDARY_CHAIN_USE:x1]"
+        )
 
-    def test_single_use_internal_seam_routes_component_to_legacy(self):
+    def test_single_use_internal_seam_fails_component_visibly(self):
         points = [
             Vector((0.0, 0.0, 0.0)),
             Vector((1.0, 0.0, 0.0)),
@@ -2159,12 +2665,17 @@ class TestManualChainDecals:
         )
 
         assert plan.accepted_patch_voronoi_edge_indices == ()
-        assert plan.accepted_legacy_edge_indices == (170,)
-        assert plan.rejected_edge_indices == ()
+        assert plan.accepted_legacy_edge_indices == ()
+        assert plan.rejected_edge_indices == (170,)
+        assert plan.rejected_edges[0].reason == "SINGLE_USE_INTERNAL_SEAM"
         assert [failure.reason for failure in plan.compile_failures] == [
             "SINGLE_USE_INTERNAL_SEAM"
         ]
         assert plan.accounting_is_exact
+        assert plan.backend_summary == (
+            "Unsupported[SINGLE_USE_INTERNAL_SEAM:x1] | "
+            "Failed:1e[SINGLE_USE_INTERNAL_SEAM:x1]"
+        )
 
     def test_corner_runs_preserve_surface_sides_across_chain_splits(self):
         first = _make_corner_run(0, 1, (0, 0, 0), (1, 0, 0), 5)

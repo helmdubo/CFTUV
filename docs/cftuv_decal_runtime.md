@@ -126,11 +126,9 @@ snapshot. Esc/RMB восстанавливает исходные значени
 
 Corner targets `A` и `M` допускаются только когда весь captured manual SEAMS
 scope принят одним Patch Voronoi routing: selected edges в точности совпадают
-с accepted Patch Voronoi edges, а `Legacy:0` и `Rejected:0`. Частичное
-применение corner settings к clean partitions запрещено: если selection
-содержит Legacy component, `A/M` отключены и header явно сообщает
-`Live corner controls require Legacy:0`; при rejected edges показывается
-`Live corner controls require Rejected:0`. Target `W` остаётся доступным.
+с accepted Patch Voronoi edges и `Failed:0`. Legacy SEAMS runtime удалён;
+для rail routing header сообщает требование Patch Voronoi-only scope.
+`Failed` scope не запускает modal вообще: частичный `W`-preview запрещён.
 
 Для активного `A` header имеет форму
 `Acute Split: 60.0° | MITER:12 KITE:3 SPLIT:2 | 22.4 ms`. Policy counts
@@ -139,7 +137,7 @@ scope принят одним Patch Voronoi routing: selected edges в точн�
 Drag меняет runtime threshold внутри уже compiled plan и не вызывает
 `Construct()`. Переход порога может менять MITER на ACUTE_SPLIT и топологию
 preview, сохраняя identity preview object и mesh datablock. Ошибка evaluation
-оставляет последний валидный threshold и геометрию без stale/partial faces.
+не принимает новый threshold, удаляет preview и запрещает stale confirm.
 
 ### A11: approved corner bands, CAP/JUNCTION и UV
 
@@ -170,8 +168,7 @@ V-фаза теперь назначается connected network traversal, а �
 границе каждой `BoundaryChain`. Для two-sided same-chart site U вычисляется
 как signed lateral distance, поэтому обе rails получают `-1/+1`. MITER/KITE
 также используют semantic anchors и больше не зависят от случайного owner
-PyVoronoi atom. Legacy parity намеренно не добавлена: действует A10 gate
-`Legacy:0`, `Rejected:0`.
+PyVoronoi atom. Legacy parity отсутствует: действует A10 gate `Failed:0`.
 
 ## Source transform and world/local units
 
@@ -236,9 +233,10 @@ material slots. Старый production mesh удаляется после swap 
 `users == 0`. При exact failure production object/mesh остаются нетронутыми,
 а temporary preview очищается.
 
-Если runtime crop падает или временно не создаёт faces, modal продолжает
-работать и оставляет последний валидный preview. Невалидные промежуточные
-параметры не становятся final settings.
+Если SEAMS runtime crop падает или временно не создаёт faces, modal продолжает
+работать, но временный preview удаляется и confirm блокируется до следующего
+валидного кадра. Невалидные промежуточные параметры не становятся final
+settings. Остальные producers сохраняют прежнюю last-valid preview семантику.
 
 Blender 4.3 fixture `walls.003`, 27 selected seam edges: ширины
 `2.5 / 3.0 / 3.7076 / 3.9` сохранили одинаковые object/mesh pointers при
@@ -363,21 +361,23 @@ discretizer: увеличение `parabola_equation_tolerance` скрывает
 общей хордой Boost endpoints. Поэтому одна некорректная парабола не отменяет
 compile всей seam-сети, а граница соседних cells остаётся общей и замкнутой.
 
-## Component-level hybrid routing
+## Strict component routing
 
-Manual Decal Seams больше не переключает весь selection в legacy из-за одного
-unsupported patch. Selected physical edges сначала делятся на topology
+Manual Decal Seams не имеет legacy backend. Selected physical edges сначала
+делятся на topology
 components по общим source vertices. Partial Patch Voronoi probe локализует
-rejected edges, после чего целиком отклоняются только содержащие их components.
+rejected edges, после чего содержащие их components помечаются как `Failed`.
 
 Все clean components повторно объединяются в один Patch Voronoi plan. Поэтому
 раздельные chains на общей owner surface сохраняют глобальную Voronoi
-competition и могут столкнуться при увеличении width. Rejected components не
-имеют общих selected vertices с clean plan и отдельно компилируются прежним
-Seam Network backend.
+competition и могут столкнуться при увеличении width. Если есть хотя бы один
+`Failed` component, вся текущая SEAMS-транзакция атомарно отклоняется до
+evaluation/BMesh: текущий preview удаляется, а routing report содержит physical
+edges и каноническую причину. Частично «успешная» геометрия не маскирует отказ.
 
 Operator report и console явно показывают routing:
-`Patch Voronoi:<components>c/<edges>e | Legacy:<components>c/<edges>e`.
+`RAIL_PLANAR:<components>c/<edges>e | PLANAR:<components>c/<edges>e |
+Unsupported[<reason>:xN] | Failed:<edges>e[<reason>:xN]`.
 Runtime materialization транзакционна: сначала вычисляются faces всех
 partitions и только затем записываются в BMesh. Пустой либо аварийный partition
 не оставляет частично построенную hybrid-сетку.
@@ -387,23 +387,25 @@ partitions и только затем записываются в BMesh. Пус�
 возвращает `DecalMaterializationResult`; любое прежнее условие `dropped > 0`
 теперь бросает `DecalMaterializationError` с backend, physical edge indices,
 face index, исходным vertex count и component kind/side. Temporary BMesh
-полностью освобождается, finalize не вызывается: confirm не заменяет старый
-production object, а preview сохраняет last-valid object/mesh pointers.
+полностью освобождается, finalize не вызывается. Для SEAMS preview удаляется,
+а confirm текущего ошибочного кадра отменяется: last-valid mesh и last-valid
+settings не маскируют текущий runtime failure.
 
 ### Exact selected-edge accounting
 
 Manual SEAMS compile сохраняет строгую дизъюнктную разбивку:
 
 ```text
-selected = accepted Patch Voronoi + accepted Legacy + rejected
+selected = accepted RAIL_PLANAR + accepted Patch Voronoi + failed
 ```
 
 Edge без единого `BoundaryChain` use получает `NO_BOUNDARY_CHAIN_USE` и не
 попадает ни в один geometry backend. Edge с тремя и более uses получает
 `NON_MANIFOLD_EDGE_USE`: первые две стороны больше не выбираются молча.
 Ровно один use остаётся допустимым односторонним boundary site, ровно два —
-парным seam site. Backend summary показывает `Rejected:<count>e`; при verbose
-console дополнительно печатаются причины и physical edge indices.
+парным seam site. Backend summary показывает
+`Failed:<count>e[<reason>:xN]`; console всегда печатает причины и physical
+edge indices.
 
 ### Owner-face provenance
 
@@ -417,21 +419,22 @@ triangle normal.
 Планарные соседние faces с одной plane по-прежнему объединяются в общий
 Voronoi chart. Warped polygon остаётся отдельным tangent owner-surface и
 соединяется с соседними surfaces junction-слоем. На полном `walls.010` это
-убирает ложный component fallback: все 23 components / 458 seam edges
-компилируются Patch Voronoi, `Legacy:0c/0e`.
+убирает ложный component rejection: все 23 components / 458 seam edges
+компилируются Patch Voronoi, `Failed:0e`.
 
-### Strict Patch Voronoi runtime
+### Strict SEAMS runtime
 
 После успешного compile backend фиксируется на весь modal lifetime. Ошибка
-Patch Voronoi evaluation или пустой runtime crop больше не перестраивает этот
+RAIL_PLANAR/Patch Voronoi evaluation или пустой runtime crop не перестраивает
 component через legacy Seam Network либо старый miter pipeline. Evaluation всех
 partitions выполняется до первой BMesh-записи; поэтому failure не оставляет
-частично материализованную сеть.
+частично записанную транзакцию.
 
-Во время drag modal сохраняет последний валидный preview. На confirm ошибка
-становится явной (`PatchVoronoiRuntimeError`) и содержит число edges, width и
-preview/final mode. Legacy разрешён только для component, который был явно
-отклонён на compile-этапе и отражён в backend routing report.
+Во время SEAMS drag ошибка удаляет последний preview и возвращает structured
+`ERROR`: текущая поломка не скрывается старой геометрией. Compile-rejected
+components остаются явными `Failed`; наличие хотя бы одного из них атомарно
+останавливает весь selected scope до evaluation. Настройка
+`decal_seam_network=False` игнорируется и не может включить legacy.
 
 ## Tranche C developable chart acceptance
 

@@ -339,8 +339,8 @@ class DecalSettings:
     height_trim: float = 0.25
     offset: float = 0.02
     uv_length_scale: float = 0.25
-    # Seam Voronoi network backend (decal_network.py) для manual Decal Seams;
-    # False возвращает legacy miter/junction pipeline целиком.
+    # Compatibility-only поле старых .blend/scripts. Runtime его игнорирует:
+    # SEAMS всегда использует строгий rail/Patch plan, legacy отключён.
     seam_network: bool = True
     # A11/A12 corner-band grammar оставлена как явный experimental path.
     # Stable default сохраняет A10 collision semantics: разрешённая часть
@@ -378,7 +378,7 @@ class DecalSettings:
             height_trim=float(settings.decal_height_trim),
             offset=float(settings.decal_offset),
             uv_length_scale=uv_settings.final_scale,
-            seam_network=bool(getattr(settings, "decal_seam_network", True)),
+            seam_network=True,
             dynamic_corner_bands=bool(
                 getattr(settings, "decal_dynamic_corner_bands", False)
             ),

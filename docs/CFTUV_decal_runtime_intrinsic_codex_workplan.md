@@ -83,6 +83,14 @@ sweep). G3-решение принято. Актуальная очередь:
    Финальная полевая приёмка §0d и скрины выполняются пользователем
    на подготовленной им целевой сцене; до её результата R1 имеет
    статус test candidate, а не окончательно принятый полевой срез.
+   **Полевой арбитраж после R1:** legacy SEAMS runtime удаляется полностью.
+   UI-toggle скрыт и не является behavioral input; compile-rejected components
+   становятся `Failed`, unknown/legacy partition запрещён структурно,
+   automatic SEAMS без selected-edge plan отклоняется, runtime failure удаляет
+   last-valid preview и блокирует confirm старых settings. Один `Failed`
+   component атомарно отменяет весь выбранный SEAMS scope до BMesh-записи.
+   Patch/chart остаётся современным non-rail backend, но
+   переход в старую seam-network/miter геометрию невозможен.
 4. **R2 — Конкуренция и freeze в станциях**: RC1-RC3; RF7 +
    S1-регрессия в rail-координатах; слияние на эмиссии RM4.
 5. **R3 — Криволинейные поверхности** (сфера): RF2 (облегание),
@@ -598,9 +606,12 @@ git diff --check
 5. Связь с mesh принадлежит `DecalSurfaceDomain` и chart/provenance-слою.
 6. Никакого 3D nearest-surface поиска для intrinsic routing: геометрически близкие, но топологически далёкие поверхности не должны склеиваться.
 7. Patch и Chain остаются первичными сущностями CFTUV. Corner/Junction не становятся solve entities основного UV pipeline.
-8. Третьесторонние зависимости допускаются только внутри decal backend, документируются и имеют явный fallback.
+8. Третьесторонние зависимости допускаются только внутри decal backend,
+   документируются и имеют явную fail-closed причину при недоступности.
 9. Preview не имеет права уничтожать или мутировать production decal object до confirm.
-10. Невалидный промежуточный кадр оставляет последний валидный preview и последние валидные настройки.
+10. Невалидный SEAMS-кадр удаляет временный preview и не подтверждает
+    last-valid settings; остальные producers сохраняют прежнюю last-valid
+    семантику. Production object не затрагивается.
 11. Любая потеря face/site/selected edge должна быть либо допустимым формально описанным случаем, либо явной ошибкой/diagnostic. Молчаливые потери запрещены.
 12. Нельзя начинать C++ или GPU solve до прохождения соответствующего performance gate.
 
@@ -614,14 +625,14 @@ git diff --check
 - runtime `CornerRuntimeSettings` и `classify_corner_runtime()`;
 - тест изменения `Acute Split Angle` без повторной компиляции plan;
 - общий compile lifetime для `invoke()`, `execute()` и headless;
-- component-level hybrid routing Patch Voronoi / Legacy Network;
-- strict runtime: успешно скомпилированный Patch Voronoi component не меняет backend во время drag;
+- строгий component routing `RAIL_PLANAR` / Patch Voronoi без Legacy Network;
+- strict runtime: успешно скомпилированный component не меняет backend во время drag, а любой `Failed` атомарно отклоняет весь SEAMS scope;
 - persistent preview mesh и topology-signature fast path;
 - affine lift cache;
 - keyed fragment merge;
 - sweep broad phase для polygon simplicity;
 - `DecalSurfaceDomain(kind="INTRINSIC")` с barycentric `lift/normal_at` как интерфейсный задел;
-- piecewise-planar owner-surface fallback текущего поколения.
+- explicitly routed piecewise-planar owner-surface decomposition текущего поколения (современный Patch backend, не legacy).
 
 Текущие измеренные ориентиры из runtime docs нужно сохранить как baseline, а не как гарантированный результат после каждого изменения:
 
@@ -778,7 +789,8 @@ git diff --check
 
 ### Tests
 
-- raw edge `5e-5 BU` при текущем quantum -> rejected/fallback, без Python exception;
+- raw edge `5e-5 BU` при текущем quantum -> structured compile failure и
+  атомарный SEAMS fail-closed, без Python exception;
 - quantized duplicate endpoints;
 - injected `Construct()` failure;
 - missing segment atom;
@@ -786,7 +798,8 @@ git diff --check
 
 ### Acceptance
 
-Один плохой component не отменяет clean components. Routing report содержит точную причину.
+Compile локализует плохой component и сохраняет точную причину, но production
+SEAMS-транзакция атомарна: один `Failed` отменяет materialization всего scope.
 
 ---
 
@@ -795,7 +808,7 @@ git diff --check
 ### Инвариант
 
 ```text
-selected = accepted_patch_voronoi ∪ accepted_legacy ∪ rejected
+selected = accepted_rail_planar ∪ accepted_patch_voronoi ∪ failed
 ```
 
 Множества попарно не пересекаются. Ни одно selected edge не исчезает молча.
@@ -805,13 +818,14 @@ selected = accepted_patch_voronoi ∪ accepted_legacy ∪ rejected
 1. `_collect_manual_edge_decals()` должен возвращать accounting по каждому physical edge.
 2. Edge без BoundaryChain use:
    - `NO_BOUNDARY_CHAIN_USE`;
-   - не считать Patch Voronoi или Legacy geometry.
+   - не считать принятой rail/Patch geometry.
 3. `len(uses) >= 3`:
    - `NON_MANIFOLD_EDGE_USE`;
    - не брать первые две стороны.
 4. Edge с одной стороной допускается только как явно односторонний boundary site.
 5. Routing summary считает только реально скомпилированные edges.
-6. Operator report перечисляет rejected count и, в verbose mode, причины/indices.
+6. Operator/console report перечисляет `Failed` count, причины и physical
+   indices независимо от verbose toggle.
 
 ### Tests
 
@@ -865,7 +879,8 @@ selected = accepted_patch_voronoi ∪ accepted_legacy ∪ rejected
 
 1. `_materialize_network_faces()` возвращает structured result либо бросает `DecalMaterializationError`.
 2. `dropped > 0` запрещён:
-   - preview -> `RETAINED_LAST_VALID`;
+   - SEAMS preview -> `ERROR` с удалением текущего preview; другие producers
+     сохраняют прежнюю `RETAINED_LAST_VALID` семантику;
    - confirm -> ERROR, production object не заменяется.
 3. Все backend partitions сначала evaluate полностью, затем materialize в новый temporary BMesh.
 4. Любая ошибка materialization освобождает весь temporary BMesh; partial result не публикуется.
@@ -881,7 +896,8 @@ selected = accepted_patch_voronoi ∪ accepted_legacy ∪ rejected
 - injected invalid face после valid partition;
 - dropped face не оставляет partial geometry;
 - confirm не заменяет старый production object;
-- preview сохраняет last-valid pointers.
+- SEAMS preview очищает last-valid object/state; другие producers сохраняют
+  last-valid pointers.
 
 ---
 
@@ -1073,9 +1089,9 @@ A1–A9 полностью приняты.
 ### UX
 
 - Чистый Patch Voronoi selection: `A` включает drag `Acute Split Angle`.
-- Если routing содержит Legacy components:
-  - рекомендуемый первый вариант: corner targets disabled;
-  - header: `Live corner controls require Legacy:0`.
+- Для rail routing corner targets disabled с требованием Patch Voronoi-only.
+- Если routing содержит `Failed`, весь SEAMS scope атомарно отклоняется до
+  запуска modal.
 - Молчаливое применение только к части сети запрещено.
 
 ### Header diagnostics
@@ -1131,7 +1147,8 @@ Policy counts получать из evaluator diagnostics, не вторичны
    - V continuity между chain fragments;
    - signed lateral U для two-sided same-chart sites;
    - deterministic UV owner KITE/MITER.
-9. Решить legacy parity либо оставить permanent gate.
+9. Legacy parity не реализуется: SEAMS runtime удалён, unsupported scope
+   остаётся permanent fail-closed gate.
 
 ### Stop condition
 Без утверждённой таблицы semantics не добавлять четыре FloatProperty «по названиям со слайда».
@@ -1540,7 +1557,7 @@ failure reasons. Disk проходит без cut; annulus получает ма
 
 - не выдавать приблизительный silent result;
 - `ChartBuildFailure`;
-- component-level legacy fallback.
+- атомарный fail-closed всей текущей SEAMS-транзакции до BMesh.
 
 ### Cut scope первого slice
 
@@ -1614,26 +1631,27 @@ Station на source fold edge должна использовать adjacent fac
 
 ---
 
-## C6. Integration и fallback
+## C6. Integration и strict failure routing
 
 Статус: **IMPLEMENTED**. `compile_patch_voronoi_attempt()` сохраняет
 PLANAR fast path, а non-planar PatchNode компилирует через C1–C5
 INTRINSIC developable chart pipeline. Chart/admission failure локализуется до
-всех selected sites затронутого patch component и явно маршрутизируется в
-LEGACY без частичного покрытия. Backend summary различает `PLANAR`,
-`INTRINSIC_DEVELOPABLE`, mixed plan и `LEGACY`, а также печатает canonical
+всех selected sites затронутого patch component и помечается `Failed`.
+Наличие failure атомарно останавливает весь SEAMS scope до BMesh. Backend
+summary различает `PLANAR`, `INTRINSIC_DEVELOPABLE`, mixed plan и canonical
 failure reasons. Runtime width/preview используют общий compiled plan; для
 intrinsic surfaces старые межплоскостные junction-connectors не создаются.
 
 1. `compile_patch_voronoi_attempt()`:
    - PLANAR fast path сохраняется;
    - non-planar patch сначала пробует intrinsic developable strip chart;
-   - текущий mini-planar split можно оставить fallback'ом только если explicitly routed/documented.
+   - текущий mini-planar split допустим только как explicitly routed/documented
+     современная decomposition, не как legacy fallback.
 2. Failure локализуется на topology component.
 3. Backend summary показывает:
    - `PLANAR`;
    - `INTRINSIC_DEVELOPABLE`;
-   - `LEGACY`;
+   - `Failed`;
    - failure reasons.
 4. Runtime/preview settings общие.
 
@@ -1714,8 +1732,10 @@ source-edge/source-vertex provenance для выбранных и невыбра
 features; физические станции получают cross-surface exact `pv-se`/`pv-sv`
 keys. Spine-sync объединяет уже разбитые runs, но knockout-sync acceptance
 доказывает самодостаточность ключей. Single-use internal seam локально
-отказывает с `SINGLE_USE_INTERNAL_SEAM` и маршрутизируется в legacy. Receipt:
-`artifacts/decal_c8_2_planar_provenance.json`.
+отказывает с `SINGLE_USE_INTERNAL_SEAM`. Приведённый receipt
+`artifacts/decal_c8_2_planar_provenance.json` фиксирует историческое поведение
+до post-R1 field arbitration; production SEAMS теперь атомарно fail-closed и
+не маршрутизирует этот отказ в legacy.
 
 Корень (три факта): (1) `DecalSurfaceDomain.locate` для PLANAR даёт
 константный provenance, а `_domain_location_key` (`:~6956-6963`)
@@ -1739,8 +1759,8 @@ provenance (boundary source edge/vertex ids в compile; `locate()`
 `_domain_location_key` снимается при наличии source feature — обе
 стороны любого общего source-ребра (выбранного и нет) выводят
 идентичные ключи, сварка становится key-exact вместо sync-зависимой;
-(b) single-use внутреннего seam-ребра — routed compile failure
-(legacy fallback), не молчаливая односторонняя полоса; (c) spine-sync
+(b) single-use внутреннего seam-ребра — routed compile failure и атомарный
+fail-closed SEAMS scope, не молчаливая односторонняя полоса; (c) spine-sync
 обобщается на слияние уже разбитых runs по позиции вдоль общего
 source-сегмента. Acceptance: на репро edge-components == 1 на всех
 ширинах; зазор лифта на общем ребре == 0 (единая станция); knockout
@@ -1814,7 +1834,7 @@ SEGMENT и непрерывной V, сварка с сегментными гр
   HOLE/OUTER) на сферических патчах — ожидаемое расхождение:
   планарная проекция купола складывается, containment-порядок
   ненадёжен. Не задача C8.4; действий не требует (патч всё равно
-  отвергается admission и уходит в legacy).
+  отвергается admission и даёт явный fail-closed SEAMS reason).
 
 ### C8.5 Дырка на внешнем углу стыка двух лент (полевой тест 2)
 
@@ -2114,8 +2134,8 @@ chart space обязаны быть параллельными трансляц�
 (взаимный поворот <= 0.02 rad — тот же бюджет, что G3). Кольцо на
 коническом фрустуме разворачивается в сектор кольца (периодичность
 вращательная) — v1 отказывает с новым reason
-`PERIODIC_HOLONOMY_UNSUPPORTED` -> component fallback. Конусные
-кольца — кандидат в E, не импровизировать.
+`PERIODIC_HOLONOMY_UNSUPPORTED` -> component `Failed` и атомарный отказ
+текущей SEAMS-транзакции. Конусные кольца — кандидат в E, не импровизировать.
 
 **DP3 — Период квантуется решёткой диаграммы.** `period` снапится к
 кванту `DiagramTransform` (B0) при compile, чтобы modulo-свёртка
@@ -2251,7 +2271,7 @@ preview=confirm, `Construct()` неизменен после compile. D4.6 до�
 | D4.4 | Две цепочки, коллизия ЧЕРЕЗ periodic boundary | конкуренция фронтов сквозь seam |
 | D4.5 | Reversed winding / normal sign | детерминизм и parity |
 | D4.6 | Width drag до `alpha_budget = period/2` | антиподальное замыкание: gap = 0, double-cover = 0, S1 после самостолкновения |
-| D4.N1 | Конусный фрустум, кольцевая цепочка | **REJECT** `PERIODIC_HOLONOMY_UNSUPPORTED` + fallback |
+| D4.N1 | Конусный фрустум, кольцевая цепочка | **REJECT** `PERIODIC_HOLONOMY_UNSUPPORTED`, fail-closed без геометрии |
 | D4.N2 | Cut, коллинеарный selected chain (все кандидаты) | **REJECT** `CUT_CROSSES_SELECTED_CHAIN` |
 
 Общие проверки — как в C7 (component connectivity, zero-area = 0,
@@ -2621,9 +2641,9 @@ D5.3): он — механизм приёмки E4.
 
 Принять СЕЙЧАС с отключённым production-routing: policy/harness/IR
 ортогональны материализации. Условия: (a) APPROXIMATE-tier чарты НЕ
-материализуются — маршрут в существующий fallback с явным reason
+материализуются — fail-closed с явным reason
 `APPROXIMATE_MATERIALIZATION_PENDING` (инвариант 11 — никакого тихого
-успеха); (b) M1-оракул закоммичен strict-xfail; (c) EP1 differential
+успеха и legacy geometry); (b) M1-оракул закоммичен strict-xfail; (c) EP1 differential
 зелёный; (d) E3-atlas код — за тем же гейтом (его acceptance всё
 равно недостижим до E4: saddle 69 компонентов). После E4: снять
 xfail, включить routing, пройти acceptance E2/E3 целиком.
@@ -2733,7 +2753,7 @@ Evaluator timings минимум:
 **три интегральных времени реального modal-кадра** (через MCP-сессию
 Blender): evaluator, materialization, depsgraph/redraw остаток. Это
 даёт базу для честной оценки эффекта F3 до и после. Baseline-таблица:
-walls.003, walls.001, rounded_wall, D-труба 8x3, saddle (fallback).
+walls.003, walls.001, rounded_wall, D-труба 8x3, saddle (fail-closed diagnostic).
 
 ---
 
@@ -3179,7 +3199,7 @@ kappa_edge ≈ angle(normal_a, normal_b) / edge_length
 | Units | world width/offset/UV density correct for accepted transforms |
 | Routing | every component backend/failure explicit |
 | Performance | median + p95 before/after |
-| Fallback | unsupported chart/component isolated |
+| Failure policy | unsupported chart/component gives explicit atomic fail-closed result |
 
 ---
 
@@ -3276,10 +3296,11 @@ Blender differential walls.003/walls.001 widths 2.0/3.0/3.7076/4.5
 Пользователь выбирает seam network на архитектурном asset, запускает modal preview и получает:
 
 - live Width/Acute/Apex/band controls без повторного Voronoi solve;
-- строгий last-valid transaction и безопасный cancel;
+- строгую атомарную SEAMS-транзакцию и безопасный cancel; при текущем
+  отказе preview удаляется, чтобы дефект нельзя было принять за живой результат;
 - корректные corners без overlap/тихих потерь;
 - одинаковую metric width в world units;
 - один intrinsic decal network на фасках, cylindrical fillets и tubes;
-- explicit fallback на unsupported curvature;
+- explicit fail-closed на unsupported curvature без legacy geometry;
 - предсказуемый performance, подтверждённый p95 benchmarks;
 - optional native acceleration и GPU overlay только там, где они дают измеримый выигрыш.

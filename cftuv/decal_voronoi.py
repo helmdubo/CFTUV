@@ -8,8 +8,9 @@ patch, поэтому крылья не выходят за mesh boundary, не 
 триангуляция домена используется только для clipping и сваривается обратно:
 topology исходного mesh не должна отпечатываться на итоговой декали.
 
-``pyvoronoi`` изолирован в этом модуле. Если wheel недоступен или patch не
-планарен, вызывающий код явно возвращается к legacy seam-network backend.
+``pyvoronoi`` изолирован в этом модуле. Если wheel недоступен либо owner
+surface не поддержана, compile возвращает структурированный отказ; production
+SEAMS runtime больше не имеет legacy backend для маскировки такого отказа.
 """
 
 from __future__ import annotations
@@ -913,8 +914,8 @@ class _PlanarOwnerSurface:
     """Локальная coplanar часть patch для decal backend.
 
     Один topology patch может огибать фаску или extrusion. Для Voronoi это
-    не причина откатывать весь selection в legacy: его owner faces делятся
-    на независимые planar surfaces, а junction layer соединяет их rails.
+    не причина отклонять весь selection: его owner faces делятся на
+    независимые planar surfaces, а junction layer соединяет их rails.
     """
 
     patch_id: int
@@ -2240,7 +2241,7 @@ def _segment_crop_polygon(site, alpha):
 
 
 def _site_lateral_u(site, point, alpha):
-    """Signed U для same-chart two-sided site, legacy parity для остальных."""
+    """Signed U для same-chart two-sided site, compatibility UV для остальных."""
 
     if site.two_sided:
         direction = _norm2(_sub2(site.point_b, site.point_a))
@@ -3035,7 +3036,7 @@ def _corner_crop_components(
     settings = _normalized_corner_runtime_settings(settings)
     # FLAT CAP — базовая endpoint-семантика, а не dynamic band. Stable path
     # обязан использовать tangent-aligned half-quad; axis-aligned square
-    # остаётся только legacy fallback для valence-N junction.
+    # остаётся явный compile failure для неподдержанного valence-N junction.
     if policy == _CornerPolicy.CAP:
         return _cap_crop_components(surface, corner, alpha)
     if policy == _CornerPolicy.SMOOTH:
@@ -3432,7 +3433,7 @@ def _triangulate_cell_polygon(points, diagram_quantum=None):
                 # Все ненулевые ears уже покрыли исходную cell; Boost может
                 # оставить после них только коллинеарную zero-area цепочку.
                 # Это успешная triangulation, а не повод выбрасывать ранее
-                # собранные triangles и включать Legacy для всего component.
+                # собранные triangles и отклонять весь component.
                 return triangles
             return []
         guard -= 1
@@ -5837,8 +5838,8 @@ def compile_patch_voronoi_attempt(
             except ChartBuildFailure as exc:
                 # Chart builder принимает patch-wide seed set. До того как
                 # charts успешно разделены, локализовать отказ уже одного
-                # seed нельзя: hybrid router обязан вернуть весь этот patch
-                # component в legacy, иначе появится дырка между backend'ами.
+                # seed нельзя: strict router обязан отклонить весь этот patch
+                # component, иначе появится частично покрытый результат.
                 edge_indices = tuple(
                     sorted(
                         {int(site["edge_index"]) for site in patch_sites}
@@ -6052,7 +6053,7 @@ def compile_patch_voronoi_plan(
     alpha_budget=None,
     distortion_budget=CHART_DISTORTION_BUDGET,
 ):
-    """Компилирует все touched surfaces или сохраняет legacy fallback."""
+    """Строго компилирует все touched surfaces без смены backend."""
 
     return compile_patch_voronoi_attempt(
         graph,
@@ -12804,7 +12805,7 @@ def _append_pending_fragments(
 
     if _surface_is_approximate(surface):
         # M1 сам строит exact arrangement из compile atoms, domain edges и
-        # crop predicates. Legacy clip/subtract fragments он не читает, поэтому
+        # прежние clip/subtract fragments он не читает, поэтому
         # их вычисление и merge здесь только дублировали дорогую работу.
         components = [list(crop.points)]
     else:
