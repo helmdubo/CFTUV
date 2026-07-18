@@ -19,7 +19,7 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 from fractions import Fraction
 from heapq import heappop, heappush
-from math import atan2, gcd, isfinite, pi, sqrt, tau
+from math import atan2, cos, gcd, isfinite, pi, sqrt, tau
 
 from mathutils import Vector
 
@@ -12417,15 +12417,20 @@ def _junction_connector_faces(
     surfaces_by_id = {
         surface.patch_id: surface
         for surface in plan.surfaces
-        if getattr(getattr(surface, "domain", None), "kind", "PLANAR")
-        == "PLANAR"
+        if getattr(
+            getattr(surface, "domain", None),
+            "admission_tier",
+            "EXACT",
+        )
+        != "APPROXIMATE"
     }
     incident_edges_by_vertex = {}
     for surface in plan.surfaces:
-        if (
-            getattr(getattr(surface, "domain", None), "kind", "PLANAR")
-            != "PLANAR"
-        ):
+        if getattr(
+            getattr(surface, "domain", None),
+            "admission_tier",
+            "EXACT",
+        ) == "APPROXIMATE":
             continue
         if (
             diagnostics is not None
@@ -12471,10 +12476,15 @@ def _junction_connector_faces(
         core_index = face.vert_keys.index(core_key)
         outer_index = face.vert_keys.index(outer_key)
         outer_position = face.positions[outer_index]
-        outer_point = (
-            (outer_position - surface.origin).dot(surface.basis_u),
-            (outer_position - surface.origin).dot(surface.basis_v),
-        )
+        core_position = face.positions[core_index]
+        domain = getattr(surface, "domain", None)
+        domain_kind = getattr(domain, "kind", "PLANAR")
+        outer_point = None
+        if domain_kind == "PLANAR":
+            outer_point = (
+                (outer_position - surface.origin).dot(surface.basis_u),
+                (outer_position - surface.origin).dot(surface.basis_v),
+            )
         matching_sites = []
         if (
             diagnostics is not None
@@ -12500,19 +12510,73 @@ def _junction_connector_faces(
         for compiled_port in compiled_ports:
             site = surface.sites[compiled_port.site_index]
             station = compiled_port.point
-            expected_outer = (
-                station[0] + site.inward_normal[0] * alpha,
-                station[1] + site.inward_normal[1] * alpha,
+            if domain_kind == "PLANAR":
+                expected_outer = (
+                    station[0] + site.inward_normal[0] * alpha,
+                    station[1] + site.inward_normal[1] * alpha,
+                )
+                matching_sites.append(
+                    (_dist2(outer_point, expected_outer), site.edge_index)
+                )
+                continue
+
+            # Intrinsic rail может быть обрезан первым source-transition
+            # раньше alpha-frontier. Поэтому сравнение с полной alpha-точкой
+            # неверно: распознаём тот же compile-static inward луч через
+            # локальную изометрию chart -> source surface.
+            station_location = domain.locate(station)
+            if station_location is None:
+                continue
+            station_position = domain.source_position(station_location)
+            probe = max(
+                float(surface.diagram_transform.quantum),
+                float(domain.location_tolerance) * 4.0,
             )
+            expected_direction = None
+            for probe_scale in (1.0, 0.5, 0.25, 0.125, 0.0625):
+                probe_point = (
+                    station[0]
+                    + site.inward_normal[0] * probe * probe_scale,
+                    station[1]
+                    + site.inward_normal[1] * probe * probe_scale,
+                )
+                probe_location = domain.locate(probe_point)
+                if probe_location is None:
+                    continue
+                direction = (
+                    domain.source_position(probe_location)
+                    - station_position
+                )
+                if direction.length_squared > 1e-18:
+                    expected_direction = direction.normalized()
+                    break
+            if expected_direction is None:
+                continue
+            actual_direction = outer_position - core_position
+            actual_length = actual_direction.length
+            if actual_length <= _GEOMETRY_EPS:
+                continue
+            alignment = actual_direction.dot(expected_direction) / actual_length
+            # Source fold и offset-normal могут слегка повернуть lifted chord,
+            # но longitudinal spine edge остаётся почти ортогонален inward.
+            if alignment < cos(pi / 6.0):
+                continue
+            if actual_length > max(
+                DECAL_WELD_DISTANCE * 2.0,
+                alpha * 1.05 + abs(float(plan.offset)) * 2.0,
+            ):
+                continue
             matching_sites.append(
-                (_dist2(outer_point, expected_outer), site.edge_index)
+                ((1.0 - alignment) * max(alpha, 1e-12), site.edge_index)
             )
         if not matching_sites:
             continue
         match_distance, matched_edge_index = min(matching_sites)
         # Boundary edge большой Voronoi-cell тоже может начинаться в core,
         # но junction port обязан лежать у локального alpha-offset cap.
-        if match_distance > max(DECAL_WELD_DISTANCE, alpha * 0.05):
+        if domain_kind == "PLANAR" and match_distance > max(
+            DECAL_WELD_DISTANCE, alpha * 0.05
+        ):
             continue
         ports_by_vertex.setdefault(core_key[1], []).append(
             _JunctionPort(

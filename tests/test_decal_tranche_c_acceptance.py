@@ -108,6 +108,55 @@ def _curved_strip_graph(segment_count, *, arc=pi / 2.0):
     return graph, node, left_edge, right_edge
 
 
+def _mixed_backend_junction_graph(segment_count=8):
+    """Арка INTRINSIC встречает PLANAR-ленту в одной source-вершине."""
+
+    graph, _curved, curved_edge, _right_edge = _curved_strip_graph(
+        segment_count
+    )
+    planar_edge = 9000
+    positions = [
+        Vector((1.0, 0.0, 0.0)),
+        Vector((3.0, 0.0, 0.0)),
+        Vector((3.0, 2.0, 0.0)),
+        Vector((1.0, 2.0, 0.0)),
+    ]
+    normal = Vector((0.0, 0.0, 1.0))
+    node = PatchNode(
+        patch_id=62,
+        face_indices=[900],
+        centroid=sum(positions, Vector((0.0, 0.0, 0.0))) / 4.0,
+        normal=normal,
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+        mesh_verts=positions,
+        # Вершина 0 общая с endpoint цилиндрической ленты.
+        mesh_vert_indices=[0, 100, 101, 102],
+        mesh_tris=[(0, 1, 2), (0, 2, 3)],
+        mesh_tri_face_indices=[900, 900],
+        mesh_tri_face_normals=[normal.copy(), normal.copy()],
+        mesh_tri_edge_indices=[
+            (-1, -1, planar_edge),
+            (-1, -1, -1),
+        ],
+    )
+    node.boundary_loops = [
+        BoundaryLoop(
+            chains=[
+                BoundaryChain(
+                    vert_indices=[0, 100],
+                    vert_cos=positions[:2],
+                    edge_indices=[planar_edge],
+                    side_face_indices=[900],
+                    side_face_normals=[normal.copy()],
+                )
+            ]
+        )
+    ]
+    graph.add_node(node)
+    return graph, curved_edge, planar_edge
+
+
 def _seed(node, edge_index, pair, face_id):
     return ChartSiteSeed(
         edge_index=edge_index,
@@ -260,6 +309,48 @@ def test_c7_f6_curved_competition_merges_and_remains_manifold():
             faces, component_count=component_count
         )
         assert all(face.component_kind != "JUNCTION" for face in faces)
+
+
+@pytest.mark.parametrize("width", (0.74, 1.27, 1.61))
+def test_c8_5_mixed_backend_junction_closes_both_open_rails(width):
+    graph, curved_edge, planar_edge = _mixed_backend_junction_graph()
+    plan = compile_patch_voronoi_plan(
+        graph,
+        (curved_edge, planar_edge),
+        offset=0.01,
+        alpha_budget=1.0,
+    )
+
+    assert plan.backend_kind == "PLANAR+INTRINSIC_DEVELOPABLE"
+    assert {surface.domain.kind for surface in plan.surfaces} == {
+        "PLANAR",
+        "INTRINSIC",
+    }
+    faces = evaluate_patch_voronoi_plan(plan, width, preview=True)
+    _assert_manifold_connected_faces(faces)
+    connectors = [
+        face
+        for face in faces
+        if face.surface_id == -1 and ("pv-sv", 0) in face.vert_keys
+    ]
+    assert len(connectors) == 1
+
+    edge_uses = {}
+    for face in faces:
+        for index, key_a in enumerate(face.vert_keys):
+            key_b = face.vert_keys[(index + 1) % len(face.vert_keys)]
+            edge_key = tuple(sorted((key_a, key_b), key=repr))
+            edge_uses[edge_key] = edge_uses.get(edge_key, 0) + 1
+    connector = connectors[0]
+    core_key = ("pv-sv", 0)
+    for outer_key in connector.vert_keys:
+        if outer_key == core_key:
+            continue
+        edge_key = tuple(sorted((core_key, outer_key), key=repr))
+        assert edge_uses[edge_key] == 2
+    assert serialize_network_faces(faces) == serialize_network_faces(
+        evaluate_patch_voronoi_plan(plan, width, preview=False)
+    )
 
 
 def _g1_source_edge_token(key):
