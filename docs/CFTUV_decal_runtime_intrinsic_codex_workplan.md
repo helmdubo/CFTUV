@@ -1596,6 +1596,14 @@ Acceptance: на репро-фикстуре behind-reach конца цепоч�
 
 ### C8.2 Source-feature ключи для PLANAR (несшитые полосы на переходе)
 
+Статус: **IMPLEMENTED** (`e9b4596`). PLANAR domains компилируют
+source-edge/source-vertex provenance для выбранных и невыбранных boundary
+features; физические станции получают cross-surface exact `pv-se`/`pv-sv`
+keys. Spine-sync объединяет уже разбитые runs, но knockout-sync acceptance
+доказывает самодостаточность ключей. Single-use internal seam локально
+отказывает с `SINGLE_USE_INTERNAL_SEAM` и маршрутизируется в legacy. Receipt:
+`artifacts/decal_c8_2_planar_provenance.json`.
+
 Корень (три факта): (1) `DecalSurfaceDomain.locate` для PLANAR даёт
 константный provenance, а `_domain_location_key` (`:~6956-6963`)
 рано возвращает геометрический patch-local ключ `('pv', patch_id,
@@ -1626,6 +1634,11 @@ source-сегмента. Acceptance: на репро edge-components == 1 на �
 sync не разваливает компоненты (ключи самодостаточны).
 
 ### C8.3 SMOOTH pass-through sub-band (сплиты convex-микроуглов)
+
+Статус: **IMPLEMENTED** (`5352e7b`). Angle-only SMOOTH активен только
+для EXACT stable domains; APPROXIMATE atlas сохраняет W-CP семантику до GL.
+Convex dense-arc fixture даёт один статичный биссектор на micro-corner,
+SEGMENT-kind по обе стороны и непрерывную V-фазу.
 
 Корень: sub-band `tau <= 10 deg` из E4-поправки bands-оракула не
 реализован (откачен до M1 и не возвращён). На тесселированной гладкой
