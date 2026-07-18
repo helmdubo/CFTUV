@@ -621,7 +621,13 @@ def _loop_vertex_span(loop_vert_indices, start_loop_index, end_loop_index):
     start_loop_index %= vertex_count
     end_loop_index %= vertex_count
     if start_loop_index == end_loop_index:
-        return list(loop_vert_indices)
+        # Closed single-chain loop хранит anchor как начало chain и повторяет
+        # его в конце. Диагностический span обязан канонизировать тот же
+        # поворот, иначе корректная цепочка ложно нарушает X8.
+        rotated = list(loop_vert_indices[start_loop_index:]) + list(
+            loop_vert_indices[:start_loop_index]
+        )
+        return rotated + [rotated[0]]
 
     span = [loop_vert_indices[start_loop_index]]
     loop_index = start_loop_index
@@ -643,7 +649,11 @@ def _loop_edge_span(loop_edge_indices, start_loop_index, end_loop_index):
     start_loop_index %= edge_count
     end_loop_index %= edge_count
     if start_loop_index == end_loop_index:
-        return list(loop_edge_indices)
+        # У closed single-chain все рёбра используются один раз, но порядок
+        # начинается с anchor chain. Это диагностическая канонизация X7.
+        return list(loop_edge_indices[start_loop_index:]) + list(
+            loop_edge_indices[:start_loop_index]
+        )
 
     span = []
     loop_index = start_loop_index
