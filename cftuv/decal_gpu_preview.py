@@ -151,7 +151,31 @@ def _edge_key(a, b):
     return (ka, kb) if ka <= kb else (kb, ka)
 
 
-def build_preview_buffers(faces):
+def _transform_position(position, matrix_world):
+    """Переводит evaluator-local позицию в world без mathutils dependency."""
+
+    x = float(position[0])
+    y = float(position[1])
+    z = float(position[2])
+    if matrix_world is None:
+        return (x, y, z)
+    return (
+        float(matrix_world[0][0]) * x
+        + float(matrix_world[0][1]) * y
+        + float(matrix_world[0][2]) * z
+        + float(matrix_world[0][3]),
+        float(matrix_world[1][0]) * x
+        + float(matrix_world[1][1]) * y
+        + float(matrix_world[1][2]) * z
+        + float(matrix_world[1][3]),
+        float(matrix_world[2][0]) * x
+        + float(matrix_world[2][1]) * y
+        + float(matrix_world[2][2]) * z
+        + float(matrix_world[2][3]),
+    )
+
+
+def build_preview_buffers(faces, matrix_world=None):
     """Собирает плоские POD-буферы для GPU batch'ей.
 
     Возвращает dict: tri_positions/tri_colors/tri_uvs (развёрнутые по
@@ -165,23 +189,23 @@ def build_preview_buffers(faces):
     edge_counts = {}
     for face in faces:
         positions = face.positions
+        world_positions = tuple(
+            _transform_position(position, matrix_world)
+            for position in positions
+        )
         count = len(positions)
         for index in range(count):
-            edge = _edge_key(positions[index], positions[(index + 1) % count])
+            edge = _edge_key(
+                world_positions[index],
+                world_positions[(index + 1) % count],
+            )
             edge_counts[edge] = edge_counts.get(edge, 0) + 1
         color = _KIND_COLORS.get(face.component_kind, _DEFAULT_COLOR)
         u_fracs = face.u_fracs
         v_lengths = face.v_lengths
         for i0, i1, i2 in triangulate_face(positions, face.surface_normal):
             for corner in (i0, i1, i2):
-                position = positions[corner]
-                tri_positions.append(
-                    (
-                        float(position[0]),
-                        float(position[1]),
-                        float(position[2]),
-                    )
-                )
+                tri_positions.append(world_positions[corner])
                 tri_colors.append(color)
                 tri_uvs.append(
                     (
@@ -213,6 +237,7 @@ class GpuPreviewController:
     """
 
     adapter: object
+    matrix_world: object | None = None
     active: bool = False
     failed: bool = False
     last_buffers: dict | None = None
@@ -248,7 +273,7 @@ class GpuPreviewController:
         if status != "UPDATED" or not faces:
             self._request_redraw()
             return "RETAINED_LAST_VALID"
-        buffers = build_preview_buffers(faces)
+        buffers = build_preview_buffers(faces, self.matrix_world)
         rebuild = buffers["signature"] != self.last_signature
         try:
             self.adapter.upload(buffers, rebuild=rebuild)
@@ -421,4 +446,10 @@ def create_controller(source_obj=None, display_mode="GPU"):
             return None
     except Exception:
         return None
-    return GpuPreviewController(adapter=adapter)
+    matrix_world = getattr(source_obj, "matrix_world", None)
+    if hasattr(matrix_world, "copy"):
+        matrix_world = matrix_world.copy()
+    return GpuPreviewController(
+        adapter=adapter,
+        matrix_world=matrix_world,
+    )

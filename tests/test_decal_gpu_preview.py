@@ -108,6 +108,27 @@ def test_buffers_colors_by_kind_and_boundary_lines():
     assert buffers["tri_uvs"][0][0] == pytest.approx(0.5)
 
 
+def test_buffers_apply_source_matrix_world_to_faces_and_boundary_lines():
+    face = _face([(0, 0), (1, 0), (1, 1), (0, 1)], z=2.0)
+    matrix_world = (
+        (0.0, -2.0, 0.0, 10.0),
+        (3.0, 0.0, 0.0, -4.0),
+        (0.0, 0.0, 0.5, 7.0),
+        (0.0, 0.0, 0.0, 1.0),
+    )
+
+    buffers = build_preview_buffers((face,), matrix_world=matrix_world)
+
+    expected = {
+        (10.0, -4.0, 8.0),
+        (10.0, -1.0, 8.0),
+        (8.0, -1.0, 8.0),
+        (8.0, -4.0, 8.0),
+    }
+    assert set(buffers["tri_positions"]) == expected
+    assert set(buffers["line_positions"]) == expected
+
+
 def test_signature_stable_under_vertex_motion_only():
     base = [_face([(0, 0), (1, 0), (1, 1), (0, 1)], kind="SEGMENT")]
     moved = [_face([(0, 0), (1.5, 0), (1.5, 1.2), (0, 1)], kind="SEGMENT")]
