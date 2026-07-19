@@ -865,18 +865,6 @@ in-plane повороту; (c) corner ownership/provenance тегируется
   оба ребра доказывают один affine UV-transform, поэтому это один сосед,
   CAP принимает station-UV strip. Негатив с двумя разными SEGMENT-faces
   остаётся отдельным CAP без скрытого выбора.
-- **RF24 Явный Corner Join BEVEL (полевой запрос пользователя):**
-  пользовательский `Corner Join = MITER|BEVEL` — runtime-настройка
-  Patch Voronoi, compile plan не меняет. MITER сохраняет прежний apex;
-  BEVEL не ищет пересечение offset-линий и строит один semantic triangle
-  crop `(source corner, offset A, offset B)`. Если owner-face clipping
-  добавил вершины, итоговый polygon детерминированно триангулируется без
-  смены coverage/UV; финальные BEVEL-faces всегда треугольные. Apex Limit
-  на BEVEL не действует. CAP/SMOOTH/ACUTE_SPLIT и терминальные срезы не
-  меняются; default MITER остаётся byte-identical. GPU Solid: BEVEL —
-  фиолетовый. R1 `RAIL_PLANAR` BEVEL пока не материализует и возвращает
-  именованный `RAIL_GEOMETRY_BEVEL_UNSUPPORTED`, чтобы routing выбрал
-  Patch Voronoi; тихо оставить MITER при выбранном BEVEL запрещено.
 - **RF26 Скольжение обеих юбок по boundary (RR8b, полевой кейс
   «сильный рост»):** лента на patch, обе юбки достигают
   boundary-контуров (mesh border сверху, контур patch снизу); на

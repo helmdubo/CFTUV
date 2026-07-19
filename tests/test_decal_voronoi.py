@@ -1673,7 +1673,7 @@ def test_apex_limit_clamps_acute_outer_without_gap():
     )
 
 
-def test_bevel_join_mode_classifies_and_builds_one_triangle():
+def test_bevel_policy_is_reserved_and_never_classified():
     plan = compile_patch_voronoi_plan(
         _folded_turn_graph(), [30, 31], offset=0.01
     )
@@ -1688,65 +1688,13 @@ def test_bevel_join_mode_classifies_and_builds_one_triangle():
         miter_ratio=1000.0,
     )
 
-    miter_settings = decal_voronoi.CornerRuntimeSettings(apex_limit=1.0)
-    bevel_settings = decal_voronoi.CornerRuntimeSettings(
-        apex_limit=1000.0,
-        join_mode="BEVEL",
-    )
-    assert (
-        decal_voronoi.classify_corner_runtime(
-            legacy_bevel_candidate,
-            miter_settings,
-        )
-        == decal_voronoi._CornerPolicy.MITER
-    )
-    assert (
-        decal_voronoi.classify_corner_runtime(
-            legacy_bevel_candidate,
-            bevel_settings,
-        )
-        == decal_voronoi._CornerPolicy.BEVEL
-    )
-    polygon = decal_voronoi._corner_crop_polygon(
-        plan.surfaces[0],
-        corner,
-        decal_voronoi._CornerPolicy.BEVEL,
-        alpha=0.5,
-        settings=bevel_settings,
-    )
-    assert len(polygon) == 3
-    assert corner.point in polygon
+    assert decal_voronoi.classify_corner_runtime(
+        legacy_bevel_candidate,
+        decal_voronoi.CornerRuntimeSettings(apex_limit=1.0),
+    ) == decal_voronoi._CornerPolicy.MITER
     assert decal_voronoi.CornerRuntimeSettings(
         miter_limit=3.0
     ).apex_limit == 3.0
-
-
-def test_bevel_join_mode_is_independent_of_apex_limit():
-    plan = compile_patch_voronoi_plan(
-        _folded_turn_graph(), [30, 31], offset=0.01
-    )
-    snapshots = []
-    for apex_limit in (1.0, 1000.0):
-        diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
-        faces = evaluate_patch_voronoi_plan(
-            plan,
-            width=0.5,
-            preview=True,
-            corner_settings=decal_voronoi.CornerRuntimeSettings(
-                apex_limit=apex_limit,
-                join_mode="BEVEL",
-            ),
-            diagnostics=diagnostics,
-        )
-        bevel_faces = tuple(
-            face for face in faces if face.component_kind == "BEVEL"
-        )
-        assert bevel_faces
-        assert all(len(face.positions) == 3 for face in bevel_faces)
-        assert diagnostics.clamped_miter_count == 0
-        assert diagnostics.clamped_kite_count == 0
-        snapshots.append(decal_voronoi.serialize_network_faces(faces))
-    assert snapshots[0] == snapshots[1]
 
 
 def test_acute_apex_limit_saturates_outside_cap_chord():

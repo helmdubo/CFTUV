@@ -19,7 +19,6 @@ from dataclasses import dataclass, field
 _KIND_COLORS = {
     "SEGMENT": (0.24, 0.52, 0.89, 0.50),
     "MITER": (0.36, 0.72, 0.36, 0.55),
-    "BEVEL": (0.72, 0.45, 0.90, 0.55),
     "KITE": (0.93, 0.74, 0.25, 0.55),
     "FAN": (0.80, 0.55, 0.90, 0.55),
     "ACUTE_SPLIT": (0.92, 0.42, 0.34, 0.55),

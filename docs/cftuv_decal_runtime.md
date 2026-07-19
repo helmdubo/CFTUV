@@ -45,12 +45,8 @@ PatchGraph, owner surface charts и offset. Он один раз сохраня�
 `interior_angle`, `extrusion_angle`, `is_convex` и `miter_ratio`, после чего
 строит runtime crops и пересекает их с уже скомпилированными cells.
 
-Сейчас доступны три параметра, семантика которых уже определена backend:
+Сейчас доступны два параметра, семантика которых уже определена backend:
 
-- `Corner Join` — `MITER` сохраняет offset-line apex, `BEVEL` заменяет
-  обычный MITER/KITE corner semantic-треугольником
-  `(source corner, offset A, offset B)` и триангулирует результат
-  owner-face clipping без смены coverage/UV;
 - `Acute Split Angle` — ниже порога corner становится двухкомпонентным
   `ACUTE_SPLIT`;
 - `Apex Limit` — максимальное расстояние удалённого apex относительно
@@ -58,17 +54,12 @@ PatchGraph, owner surface charts и offset. Он один раз сохраня�
 
 Blender property id `decal_corner_miter_limit` сохранён для совместимости, но
 UI и runtime называют параметр `Apex Limit`; внутренний контракт —
-`CornerRuntimeSettings.apex_limit`. `BEVEL` возвращается только явным
-`Corner Join` и не читает Apex Limit; автоматический дальний MITER/KITE
-остаётся усечённым contour своей исходной policy. ACUTE_SPLIT всегда
-сохраняет INNER и OUTER components:
+`CornerRuntimeSettings.apex_limit`. `_CornerPolicy.BEVEL` оставлен только как
+reserved enum и classifier его не возвращает. Дальний MITER/KITE apex заменяет
+усечённый contour. ACUTE_SPLIT всегда сохраняет INNER и OUTER components:
 outer apex двигается вдоль исходного apex ray и остаётся строго с внешней
 стороны cap chord. Если limit меньше геометрического minimum, используется
 minimum + epsilon и увеличивается `apex_limit_saturated_count`.
-
-R1 `RAIL_PLANAR` не игнорирует этот переключатель: BEVEL даёт структурный
-`RAIL_GEOMETRY_BEVEL_UNSUPPORTED`, после чего routing использует Patch
-Voronoi. Нативная rail-corner материализация BEVEL остаётся будущим срезом.
 
 Optional `PatchVoronoiDiagnostics` содержит `clamped_miter_count`,
 `clamped_kite_count`, `clamped_acute_count` и
@@ -140,7 +131,7 @@ scope принят одним Patch Voronoi routing: selected edges в точн�
 `Failed` scope не запускает modal вообще: частичный `W`-preview запрещён.
 
 Для активного `A` header имеет форму
-`Acute Split: 60.0° | MITER:12 BEVEL:0 KITE:3 SPLIT:2 | 22.4 ms`. Policy counts
+`Acute Split: 60.0° | MITER:12 KITE:3 SPLIT:2 | 22.4 ms`. Policy counts
 пишет сам Patch Voronoi evaluator во время текущего evaluation; отдельного
 обхода materialized faces нет. Время также относится только к evaluator.
 Drag меняет runtime threshold внутри уже compiled plan и не вызывает

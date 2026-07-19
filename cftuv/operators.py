@@ -257,23 +257,6 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
             "default keeps collision-resolved decal fronts fixed"
         ),
     )
-    decal_corner_join_mode: EnumProperty(
-        name="Corner Join",
-        items=(
-            (
-                "MITER",
-                "Miter",
-                "Preserve the offset-line apex at ordinary corners",
-            ),
-            (
-                "BEVEL",
-                "Bevel",
-                "Cut the apex and materialize the corner with triangles",
-            ),
-        ),
-        default="MITER",
-        description="Shape of ordinary Patch Voronoi corner joins",
-    )
     decal_corner_acute_split_angle: FloatProperty(
         name="Split Angle",
         subtype="ANGLE",
@@ -1610,7 +1593,6 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         evaluation_ms = float(getattr(generation, "evaluation_ms", 0.0))
         return (
             f"MITER:{int(counts.get('MITER', 0))} "
-            f"BEVEL:{int(counts.get('BEVEL', 0))} "
             f"KITE:{int(counts.get('KITE', 0))} "
             f"FAN:{int(counts.get('FAN', 0))} "
             f"SPLIT:{int(counts.get('ACUTE_SPLIT', 0))} "
@@ -2218,7 +2200,6 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         col.prop(s, "decal_height_trim")
         col.prop(s, "decal_offset")
         col.prop(s, "decal_chart_distortion_budget")
-        col.prop(s, "decal_corner_join_mode")
         col.prop(s, "decal_dynamic_corner_bands")
         if s.decal_dynamic_corner_bands:
             col.prop(s, "decal_corner_miter_angle")
