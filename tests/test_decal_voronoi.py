@@ -1673,28 +1673,82 @@ def test_apex_limit_clamps_acute_outer_without_gap():
     )
 
 
-def test_bevel_policy_is_reserved_and_never_classified():
+def test_rf24_bevel_classifies_only_convex_miter_and_builds_triangle():
     plan = compile_patch_voronoi_plan(
         _folded_turn_graph(), [30, 31], offset=0.01
     )
     corner = next(
         item for item in plan.surfaces[0].corners if item.vert_index == 0
     )
-    legacy_bevel_candidate = decal_voronoi.replace(
+    reflex_candidate = decal_voronoi.replace(
         corner,
         is_convex=False,
-        interior_angle=pi * 0.75,
-        extrusion_angle=pi * 0.75,
+        interior_angle=pi * 1.5,
+        extrusion_angle=pi * 0.5,
         miter_ratio=1000.0,
     )
 
-    assert decal_voronoi.classify_corner_runtime(
-        legacy_bevel_candidate,
-        decal_voronoi.CornerRuntimeSettings(apex_limit=1.0),
-    ) == decal_voronoi._CornerPolicy.MITER
+    miter_settings = decal_voronoi.CornerRuntimeSettings(apex_limit=1.0)
+    bevel_settings = decal_voronoi.CornerRuntimeSettings(
+        apex_limit=1000.0,
+        join_mode="BEVEL",
+    )
+    assert corner.is_convex is True
+    assert (
+        decal_voronoi.classify_corner_runtime(corner, miter_settings)
+        == decal_voronoi._CornerPolicy.MITER
+    )
+    assert (
+        decal_voronoi.classify_corner_runtime(corner, bevel_settings)
+        == decal_voronoi._CornerPolicy.BEVEL
+    )
+    # RF24 negative: reflex остаётся KITE и не подменяется crop BEVEL.
+    assert (
+        decal_voronoi.classify_corner_runtime(
+            reflex_candidate, bevel_settings
+        )
+        == decal_voronoi._CornerPolicy.KITE
+    )
+    polygon = decal_voronoi._corner_crop_polygon(
+        plan.surfaces[0],
+        corner,
+        decal_voronoi._CornerPolicy.BEVEL,
+        alpha=0.5,
+        settings=bevel_settings,
+    )
+    assert len(polygon) == 3
+    assert corner.point in polygon
     assert decal_voronoi.CornerRuntimeSettings(
         miter_limit=3.0
     ).apex_limit == 3.0
+
+
+def test_rf24_bevel_final_faces_are_triangles_and_apex_independent():
+    plan = compile_patch_voronoi_plan(
+        _folded_turn_graph(), [30, 31], offset=0.01
+    )
+    snapshots = []
+    for apex_limit in (1.0, 1000.0):
+        diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+        faces = evaluate_patch_voronoi_plan(
+            plan,
+            width=0.5,
+            preview=True,
+            corner_settings=decal_voronoi.CornerRuntimeSettings(
+                apex_limit=apex_limit,
+                join_mode="BEVEL",
+            ),
+            diagnostics=diagnostics,
+        )
+        bevel_faces = tuple(
+            face for face in faces if face.component_kind == "BEVEL"
+        )
+        assert bevel_faces
+        assert all(len(face.positions) == 3 for face in bevel_faces)
+        assert diagnostics.clamped_miter_count == 0
+        assert diagnostics.clamped_kite_count == 0
+        snapshots.append(decal_voronoi.serialize_network_faces(faces))
+    assert snapshots[0] == snapshots[1]
 
 
 def test_acute_apex_limit_saturates_outside_cap_chord():

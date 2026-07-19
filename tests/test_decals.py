@@ -445,6 +445,7 @@ def test_r1_mixed_success_scope_stays_on_joint_patch_competition(monkeypatch):
                 "apex_limit": 8.0,
                 "split_angle": pytest.approx(pi / 3.0),
                 "dynamic_corner_bands": False,
+                "join_mode": "MITER",
             },
         ),
         (
@@ -454,6 +455,7 @@ def test_r1_mixed_success_scope_stays_on_joint_patch_competition(monkeypatch):
                 "apex_limit": 8.0,
                 "split_angle": pytest.approx(pi / 3.0),
                 "dynamic_corner_bands": False,
+                "join_mode": "MITER",
             },
         ),
     ]
@@ -958,6 +960,7 @@ def test_patch_voronoi_partition_forwards_runtime_corner_settings(
     settings = DecalSettings(
         corner_acute_split_angle=0.37,
         corner_apex_limit=4.25,
+        corner_join_mode="BEVEL",
     )
     captured = []
 
@@ -996,6 +999,7 @@ def test_patch_voronoi_partition_forwards_runtime_corner_settings(
     assert captured[0][1]["terminal_routing"] is terminal_routing
     assert corner_settings.acute_split_angle == pytest.approx(0.37)
     assert corner_settings.apex_limit == pytest.approx(4.25)
+    assert corner_settings.join_mode == "BEVEL"
 
 
 def test_patch_voronoi_transaction_fails_before_any_bmesh_write(monkeypatch):

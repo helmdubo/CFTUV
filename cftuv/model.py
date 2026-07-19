@@ -346,6 +346,9 @@ class DecalSettings:
     # Stable default сохраняет A10 collision semantics: разрешённая часть
     # фронтира больше не перестраивается при последующем росте ширины.
     dynamic_corner_bands: bool = False
+    # Художественный join только для выпуклого MITER-класса. Reflex/KITE
+    # остаётся собственной семантикой и этим переключателем не подменяется.
+    corner_join_mode: str = "MITER"
     # Runtime corner policy patch-Voronoi backend. Углы хранятся в радианах,
     # как Blender ANGLE properties; compiled Voronoi plan от них не зависит.
     corner_miter_angle: float = 2.0 * pi / 3.0
@@ -381,6 +384,9 @@ class DecalSettings:
             seam_network=True,
             dynamic_corner_bands=bool(
                 getattr(settings, "decal_dynamic_corner_bands", False)
+            ),
+            corner_join_mode=str(
+                getattr(settings, "decal_corner_join_mode", "MITER")
             ),
             corner_miter_angle=float(
                 getattr(

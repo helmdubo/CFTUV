@@ -1088,6 +1088,14 @@ def test_r1_dynamic_bands_and_stable_acute_policy_fail_structurally():
     assert dynamic.plan is None
     assert dynamic.failures[0].reason == "RAIL_GEOMETRY_DYNAMIC_BANDS_UNSUPPORTED"
 
+    bevel = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=selected,
+        join_mode="BEVEL",
+    )
+    assert bevel.plan is None
+    assert bevel.failures[0].reason == "RAIL_GEOMETRY_BEVEL_UNSUPPORTED"
+
     graph, _edge_ids, selected, _vertex_at = planar_acute_join()
     rail_plan = decal_rails.compile_decal_rail_plan(
         graph,

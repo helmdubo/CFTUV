@@ -152,6 +152,7 @@ class CornerRuntimeSettings:
     hairpin_angle: float
     apex_limit: float
     dynamic_corner_bands: bool
+    join_mode: str
 
     def __init__(
         self,
@@ -164,6 +165,7 @@ class CornerRuntimeSettings:
         split_angle=None,
         hairpin_angle=_HAIRPIN_ANGLE,
         dynamic_corner_bands=False,
+        join_mode="MITER",
     ):
         # ``miter_limit`` остаётся constructor adapter для старых scripts.
         if miter_limit is not None:
@@ -182,6 +184,10 @@ class CornerRuntimeSettings:
         object.__setattr__(
             self, "dynamic_corner_bands", bool(dynamic_corner_bands)
         )
+        join_mode = str(join_mode).upper()
+        if join_mode not in {"MITER", "BEVEL"}:
+            join_mode = "MITER"
+        object.__setattr__(self, "join_mode", join_mode)
 
     @property
     def acute_split_angle(self):
@@ -243,6 +249,7 @@ def _normalized_corner_runtime_settings(settings):
         dynamic_corner_bands=bool(
             getattr(settings, "dynamic_corner_bands", False)
         ),
+        join_mode=getattr(settings, "join_mode", "MITER"),
     )
 
 
@@ -270,6 +277,7 @@ def corner_runtime_settings_from_decal_settings(settings):
         dynamic_corner_bands=bool(
             getattr(settings, "dynamic_corner_bands", False)
         ),
+        join_mode=getattr(settings, "corner_join_mode", "MITER"),
     )
 
 
@@ -3427,6 +3435,12 @@ def _corner_crop_polygon(
         )
 
     offset_lines = _corner_offset_lines(surface, corner, alpha)
+    if policy == _CornerPolicy.BEVEL:
+        # BEVEL — только иной crop уже классифицированного convex MITER.
+        # Он не читает apex-limit и не меняет KITE/reflex policy.
+        return _convex_hull(
+            [point, offset_lines[0][0], offset_lines[1][0]]
+        )
 
     intersection = _line_intersection(
         offset_lines[0][0],
@@ -4372,22 +4386,33 @@ def classify_corner_runtime(corner, settings=None):
         return _CornerPolicy.JUNCTION
 
     if abs(corner.interior_angle - pi) <= 1e-7:
-        return _CornerPolicy.MITER
-    if (
+        policy = _CornerPolicy.MITER
+    elif (
         not settings.dynamic_corner_bands
         and pi - corner.extrusion_angle
         <= _SMOOTH_TURN_ANGLE + _ANGLE_CLASSIFICATION_EPS
     ):
-        return _CornerPolicy.SMOOTH
-    if not settings.dynamic_corner_bands:
+        policy = _CornerPolicy.SMOOTH
+    elif not settings.dynamic_corner_bands:
         if corner.extrusion_angle < settings.split_angle:
-            return _CornerPolicy.ACUTE_SPLIT
-        if corner.is_convex:
-            return _CornerPolicy.MITER
-        if corner.interior_angle > pi:
-            return _CornerPolicy.KITE
-        return _CornerPolicy.MITER
-    return _classify_extrusion_angle(corner.extrusion_angle, settings)
+            policy = _CornerPolicy.ACUTE_SPLIT
+        elif corner.is_convex:
+            policy = _CornerPolicy.MITER
+        elif corner.interior_angle > pi:
+            policy = _CornerPolicy.KITE
+        else:
+            policy = _CornerPolicy.MITER
+    else:
+        policy = _classify_extrusion_angle(
+            corner.extrusion_angle, settings
+        )
+    if (
+        settings.join_mode == "BEVEL"
+        and policy == _CornerPolicy.MITER
+        and corner.is_convex
+    ):
+        return _CornerPolicy.BEVEL
+    return policy
 
 
 def _classify_surface_corner_runtime(surface, corner, settings=None):
@@ -13541,6 +13566,7 @@ def _evaluate_surface_crops(
                 policy in {
                     _CornerPolicy.SMOOTH,
                     _CornerPolicy.ACUTE_SPLIT,
+                    _CornerPolicy.BEVEL,
                 }
                 or (
                     policy == _CornerPolicy.MITER
@@ -13998,6 +14024,34 @@ def _align_strip_cap_faces(faces):
     ]
 
 
+def _triangulate_bevel_faces(faces):
+    """Материализует BEVEL crop только треугольными final faces."""
+
+    result = []
+    for face in faces:
+        count = len(face.vert_keys)
+        if face.component_kind != "BEVEL" or count <= 3:
+            result.append(face)
+            continue
+        # Owner clipping может добавить вершины к исходному треугольному
+        # crop. Fan сохраняет то же покрытие/UV без второй геометрии.
+        for index in range(1, count - 1):
+            indices = (0, index, index + 1)
+            result.append(
+                _NetworkFace(
+                    surface_id=face.surface_id,
+                    surface_normal=face.surface_normal.copy(),
+                    vert_keys=[face.vert_keys[item] for item in indices],
+                    positions=[face.positions[item] for item in indices],
+                    u_fracs=[face.u_fracs[item] for item in indices],
+                    v_lengths=[face.v_lengths[item] for item in indices],
+                    component_kind=face.component_kind,
+                    component_side=face.component_side,
+                )
+            )
+    return result
+
+
 def _merge_terminal_partition_component(faces, component):
     """Собирает один простой boundary-cycle из RM9-partition faces."""
 
@@ -14401,4 +14455,6 @@ def evaluate_patch_voronoi_plan(
             diagnostics,
         )
     )
-    return _merge_terminal_partition_faces(faces)
+    return _merge_terminal_partition_faces(
+        _triangulate_bevel_faces(faces)
+    )

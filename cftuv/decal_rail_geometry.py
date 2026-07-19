@@ -4645,10 +4645,19 @@ def compile_planar_rail_geometry_attempt(
     apex_limit=DECAL_CORNER_MITER_LIMIT,
     split_angle=pi / 3.0,
     dynamic_corner_bands=False,
+    join_mode="MITER",
 ):
     """Compile-only PLANAR admission одного физического spine-компонента."""
 
     try:
+        if str(join_mode).upper() == "BEVEL":
+            # R1 rail-corner cells пока поддерживают только stable A10
+            # MITER. Явный отказ маршрутизирует selection в Patch backend,
+            # где переключатель не будет тихо проигнорирован.
+            raise _RailGeometryCompileError(
+                "RAIL_GEOMETRY_BEVEL_UNSUPPORTED",
+                edge_indices=edge_indices,
+            )
         if dynamic_corner_bands:
             raise _RailGeometryCompileError(
                 "RAIL_GEOMETRY_DYNAMIC_BANDS_UNSUPPORTED",
