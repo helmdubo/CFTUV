@@ -3705,7 +3705,12 @@ def _evaluate_manual_backend_partition(
             faces=tuple(faces),
             evaluation_ms=(perf_counter() - started) * 1000.0,
             policy_counts=tuple(
-                sorted(diagnostics.runtime_policy_counts.items())
+                sorted(
+                    {
+                        **diagnostics.runtime_policy_counts,
+                        **diagnostics.cap_keep_counts,
+                    }.items()
+                )
             ),
         )
 

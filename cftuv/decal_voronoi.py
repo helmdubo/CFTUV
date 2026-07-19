@@ -1103,6 +1103,7 @@ class PatchVoronoiDiagnostics:
         repr=False,
     )
     runtime_policy_counts: dict[str, int] = field(default_factory=dict)
+    cap_keep_counts: dict[str, int] = field(default_factory=dict)
     reference_full_scan: bool = False
 
     def record_runtime_policy(self, policy):
@@ -1110,6 +1111,12 @@ class PatchVoronoiDiagnostics:
         self.runtime_policy_counts[key] = (
             self.runtime_policy_counts.get(key, 0) + 1
         )
+
+    def record_cap_keep(self, reason):
+        key = str(reason)
+        if not key.startswith("CAP_KEEP_"):
+            key = f"CAP_KEEP_{key}"
+        self.cap_keep_counts[key] = self.cap_keep_counts.get(key, 0) + 1
 
     def as_dict(self):
         result = {
@@ -1197,6 +1204,10 @@ class PatchVoronoiDiagnostics:
         if self.atlas_arrangement_integrity_failure_count:
             result["atlas_arrangement_integrity_failure_count"] = int(
                 self.atlas_arrangement_integrity_failure_count
+            )
+        if self.cap_keep_counts:
+            result["cap_keep_counts"] = dict(
+                sorted(self.cap_keep_counts.items())
             )
         if self.atlas_max_sliver_owner_distance:
             result["atlas_max_sliver_owner_distance"] = float(
@@ -13960,13 +13971,92 @@ def _align_strip_cap_face(cap_face, cap_loop, strip_face, strip_loop):
     )
 
 
-def _align_strip_cap_faces(faces):
-    """Поглощает только однозначный coplanar CAP соседним strip'ом.
+def _align_strip_cap_neighbor(cap_face, strip_face, shared_edges):
+    """Один affine seed + shared-key canonicalization всей adjacency."""
+
+    adjacency = {}
+    cap_indices_by_key = {}
+    strip_facts_by_key = {}
+    seeds = []
+    for cap_use, strip_use in shared_edges:
+        cap_loop = cap_use[1]
+        strip_loop = strip_use[1]
+        cap_count = len(cap_face.vert_keys)
+        strip_count = len(strip_face.vert_keys)
+        cap_keys = (
+            cap_face.vert_keys[cap_loop],
+            cap_face.vert_keys[(cap_loop + 1) % cap_count],
+        )
+        strip_keys = (
+            strip_face.vert_keys[(strip_loop + 1) % strip_count],
+            strip_face.vert_keys[strip_loop],
+        )
+        if cap_keys != strip_keys:
+            return None, "CAP_KEEP_SHARED_GEOMETRY_MISMATCH"
+        adjacency.setdefault(cap_keys[0], set()).add(cap_keys[1])
+        adjacency.setdefault(cap_keys[1], set()).add(cap_keys[0])
+        for cap_index, strip_index, key in (
+            (cap_loop, (strip_loop + 1) % strip_count, cap_keys[0]),
+            ((cap_loop + 1) % cap_count, strip_loop, cap_keys[1]),
+        ):
+            cap_indices_by_key.setdefault(key, set()).add(cap_index)
+            fact = (
+                float(strip_face.u_fracs[strip_index]),
+                float(strip_face.v_lengths[strip_index]),
+            )
+            previous = strip_facts_by_key.setdefault(key, fact)
+            if previous != fact:
+                return None, "CAP_KEEP_STATION_KEY_DESYNC"
+        alignment = _align_strip_cap_face(
+            cap_face, cap_loop, strip_face, strip_loop
+        )
+        if alignment is not None:
+            cap_a = float(cap_face.u_fracs[cap_loop])
+            cap_b = float(
+                cap_face.u_fracs[(cap_loop + 1) % cap_count]
+            )
+            seeds.append(
+                (
+                    abs(cap_b - cap_a),
+                    repr(cap_keys),
+                    alignment[0],
+                )
+            )
+    if not adjacency or any(len(neighbors) > 2 for neighbors in adjacency.values()):
+        return None, "CAP_KEEP_SHARED_EDGE_DISCONNECTED"
+    pending = [min(adjacency, key=repr)]
+    visited = set()
+    while pending:
+        key = pending.pop()
+        if key in visited:
+            continue
+        visited.add(key)
+        pending.extend(adjacency[key])
+    if visited != set(adjacency):
+        return None, "CAP_KEEP_SHARED_EDGE_DISCONNECTED"
+    if not seeds:
+        return None, "CAP_KEEP_STATION_UV_DISCONTINUOUS"
+
+    # Самый широкий общий span — детерминированный affine seed. Все общие
+    # keys после этого читают UV из SEGMENT как единственного источника;
+    # так roundoff разных clipping pieces не превращается в epsilon-policy.
+    _span, _key, aligned = max(seeds, key=lambda item: (item[0], item[1]))
+    for key, cap_indices in cap_indices_by_key.items():
+        u_frac, v_length = strip_facts_by_key[key]
+        for cap_index in cap_indices:
+            aligned.u_fracs[cap_index] = u_frac
+            aligned.v_lengths[cap_index] = v_length
+    return aligned, None
+
+
+def _align_strip_cap_faces(faces, diagnostics=None):
+    """Поглощает CAP по однозначной station-UV смежности со strip'ом.
 
     CAP остаётся геометрически нужным закрытием owner surface, но перестаёт
     быть отдельным UV-piece: его поперечная координата аффинно привязывается
-    к общему ребру, а station V переносится одним сдвигом. Fold/CAP без
-    единственного SEGMENT-соседа остаются отдельной семантической гранью.
+    к общему ребру, а station V переносится одним сдвигом. Геометрическая
+    копланарность и surface_id не участвуют: fold не является UV seam.
+    Каждый непоглощённый CAP получает именованную counted-причину.
     """
 
     faces = tuple(faces)
@@ -13979,7 +14069,7 @@ def _align_strip_cap_faces(faces):
                 (face_index, loop_index, key, following)
             )
 
-    candidates_by_cap = {}
+    shared_by_cap = {}
     for uses in edge_uses.values():
         if len(uses) != 2:
             continue
@@ -13996,32 +14086,36 @@ def _align_strip_cap_faces(faces):
         strip_face = faces[strip_use[0]]
         if (
             strip_face.component_kind != "SEGMENT"
-            or cap_face.surface_id != strip_face.surface_id
-            or cap_face.surface_normal.dot(strip_face.surface_normal)
-            < DECAL_COPLANAR_DOT
+            or strip_face.surface_id != cap_face.surface_id
         ):
             continue
-        alignment = _align_strip_cap_face(
-            cap_face,
-            cap_use[1],
-            strip_face,
-            strip_use[1],
-        )
-        if alignment is not None:
-            aligned, transform = alignment
-            # Один semantic SEGMENT-сосед может делить с CAP несколько
-            # последовательных рёбер. Это одна adjacency, а не несколько
-            # кандидатов, если каждое ребро доказывает тот же affine-map.
-            candidates_by_cap.setdefault(cap_use[0], {})[
-                (strip_use[0], transform)
-            ] = aligned
+        shared_by_cap.setdefault(cap_use[0], {}).setdefault(
+            strip_use[0], []
+        ).append((cap_use, strip_use))
 
-    return [
-        next(iter(candidates.values()))
-        if len(candidates := candidates_by_cap.get(index, {})) == 1
-        else face
-        for index, face in enumerate(faces)
-    ]
+    replacements = {}
+    for cap_index, cap_face in enumerate(faces):
+        if cap_face.component_kind != "CAP":
+            continue
+        neighbors = shared_by_cap.get(cap_index, {})
+        if not neighbors:
+            reason = "CAP_KEEP_NO_SEGMENT_NEIGHBOR"
+        elif len(neighbors) != 1:
+            reason = "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS"
+        else:
+            strip_index, shared_edges = next(iter(neighbors.items()))
+            aligned, reason = _align_strip_cap_neighbor(
+                cap_face,
+                faces[strip_index],
+                shared_edges,
+            )
+            if aligned is not None:
+                replacements[cap_index] = aligned
+                continue
+        if diagnostics is not None:
+            diagnostics.record_cap_keep(reason)
+
+    return [replacements.get(index, face) for index, face in enumerate(faces)]
 
 
 def _triangulate_bevel_faces(faces):
@@ -14148,7 +14242,7 @@ def _merge_terminal_partition_component(faces, component):
     )
 
 
-def _merge_terminal_partition_faces(faces):
+def _merge_terminal_partition_faces(faces, diagnostics=None):
     """RD-1: убирает только lossless внутренние швы RM9 terminal cut.
 
     Геометрия terminal cut сначала остаётся разложенной на convex pieces для
@@ -14157,7 +14251,7 @@ def _merge_terminal_partition_faces(faces):
     boundary-cycle. Fold, UV seam, CAP и любой не-terminal edge не затрагиваются.
     """
 
-    faces = tuple(_align_strip_cap_faces(faces))
+    faces = tuple(_align_strip_cap_faces(faces, diagnostics))
     edge_uses = {}
     for face_index, face in enumerate(faces):
         count = len(face.vert_keys)
@@ -14220,6 +14314,7 @@ def evaluate_patch_voronoi_plan(
     corner_settings = _normalized_corner_runtime_settings(corner_settings)
     if diagnostics is not None:
         diagnostics.runtime_policy_counts.clear()
+        diagnostics.cap_keep_counts.clear()
         diagnostics.periodic_weld_count = 0
         diagnostics.interior_weld_count = 0
         diagnostics.atlas_sliver_owner_count = 0
@@ -14456,5 +14551,6 @@ def evaluate_patch_voronoi_plan(
         )
     )
     return _merge_terminal_partition_faces(
-        _triangulate_bevel_faces(faces)
+        _triangulate_bevel_faces(faces),
+        diagnostics,
     )

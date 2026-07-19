@@ -2898,12 +2898,35 @@ def test_rd1_rf23_cap_multi_edge_contact_is_one_strip_neighbor():
     assert facts["C"] == (2.0, 0.0)
 
 
-def test_rd1_rf12_fold_cap_keeps_semantic_edge_and_uv_piece():
+def test_r16_rf23_fold_cap_joins_station_uv_strip_without_coplanarity():
     faces = _rd1_terminal_partition_faces(cap_normal=(0.0, 1.0, 0.0))
-    merged = decal_voronoi._merge_terminal_partition_faces(faces)
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+    merged = decal_voronoi._merge_terminal_partition_faces(
+        faces, diagnostics
+    )
 
-    assert any(face.component_kind == "CAP" for face in merged)
-    assert len(merged) == 2
+    assert not any(face.component_kind == "CAP" for face in merged)
+    assert diagnostics.cap_keep_counts == {}
+    cap_piece = next(
+        face
+        for face in merged
+        if "CAP_ALIGNED" in face.component_side
+    )
+    strip_piece = next(
+        face
+        for face in merged
+        if face.component_side == "TERMINAL_START_MERGED"
+    )
+    for key in {"A", "G"}:
+        cap_index = cap_piece.vert_keys.index(key)
+        strip_index = strip_piece.vert_keys.index(key)
+        assert (
+            cap_piece.u_fracs[cap_index],
+            cap_piece.v_lengths[cap_index],
+        ) == (
+            strip_piece.u_fracs[strip_index],
+            strip_piece.v_lengths[strip_index],
+        )
 
 
 def test_rd1_rf12_cap_with_two_strip_neighbors_is_not_guessed():
@@ -2935,12 +2958,43 @@ def test_rd1_rf12_cap_with_two_strip_neighbors_is_not_guessed():
         side="",
     )
 
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
     merged = decal_voronoi._merge_terminal_partition_faces(
-        (cap, right, top)
+        (cap, right, top), diagnostics
     )
 
     assert len(merged) == 3
     assert sum(face.component_kind == "CAP" for face in merged) == 1
+    assert diagnostics.cap_keep_counts == {
+        "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1
+    }
+
+
+def test_r16_rf23_cap_keep_reports_station_uv_discontinuity():
+    cap, _first, _second, _body = _rd1_terminal_partition_faces()
+    cap = decal_voronoi.replace(
+        cap,
+        u_fracs=[0.0 for _value in cap.u_fracs],
+    )
+    strip = _rd1_partition_face(
+        ("A", "S", "SO", "G"),
+        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+         (1.0, 1.0, 0.0), (0.0, 1.0, 0.0)),
+        (0.0, 0.0, 1.0, 1.0),
+        (0.0, 1.0, 1.0, 0.0),
+        kind="SEGMENT",
+        side="BODY",
+    )
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+
+    aligned = decal_voronoi._align_strip_cap_faces(
+        (cap, strip), diagnostics
+    )
+
+    assert aligned[0].component_kind == "CAP"
+    assert diagnostics.cap_keep_counts == {
+        "CAP_KEEP_STATION_UV_DISCONTINUOUS": 1
+    }
 
 
 def test_rf19_perp_terminal_evaluation_is_bit_identical():
