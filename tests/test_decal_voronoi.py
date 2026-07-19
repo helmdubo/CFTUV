@@ -2645,6 +2645,37 @@ def test_rf19_developable_terminal_uses_owner_domain_not_site_half_plane():
             ) <= 1e-10
 
 
+def test_rf19_single_terminal_cut_may_absorb_short_site():
+    """Field repro: один широкий срез поглощает site без BODY/overlay."""
+
+    site = replace(
+        _short_segment_endpoint_surface().sites[0],
+        vert_a=1,
+        vert_b=49,
+        point_a=(0.7159545282, -0.0000445033),
+        point_b=(0.4866545282, 0.5263554967),
+        segment_length=0.5741737106,
+        inward_normal=(-0.9167957192, -0.3993564939),
+    )
+    guide = (-0.8780296331, 0.1051627040)
+
+    components = decal_voronoi._terminal_segment_crop_components(
+        site,
+        alpha=1.60238,
+        start_guide=guide,
+    )
+
+    assert components
+    assert not any(
+        component.side == "BODY" for component, _vertices in components
+    )
+    assert any(
+        guide in component.points
+        for component, _vertices in components
+        if component.side.startswith("TERMINAL_START_")
+    )
+
+
 def test_rf19_meeting_terminal_cuts_fail_instead_of_overlapping():
     site = _short_segment_endpoint_surface().sites[0]
     with pytest.raises(RuntimeError, match="TERMINAL_BRIDGE_CUTS_OVERLAP"):

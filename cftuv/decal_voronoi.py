@@ -2296,13 +2296,18 @@ def _terminal_segment_crop_components(
             _dot2(_sub2(guide, corner), direction),
         ) + base_depth
 
-    def terminal_spec(side, corner, guide, inner, outer, vertex_id):
+    def terminal_spec(
+        side, corner, guide, inner, outer, vertex_id, absorbed=False
+    ):
         if guide is None:
             return None
+        polygon = (corner, inner, outer, guide)
+        if absorbed:
+            polygon = tuple(_convex_hull(polygon))
         return {
             "side": side,
             "vertex_id": vertex_id,
-            "polygon": (corner, inner, outer, guide),
+            "polygon": polygon,
         }
 
     def terminal_components(spec):
@@ -2335,11 +2340,22 @@ def _terminal_segment_crop_components(
     end_depth = terminal_depth(
         site.point_b, end_guide, end_direction
     )
+    start_absorbed = False
+    end_absorbed = False
     if start_depth + end_depth > site.segment_length:
-        raise RuntimeError(
-            "TERMINAL_BRIDGE_CUTS_OVERLAP: "
-            f"patch={site.patch_id} edge={site.edge_index}"
-        )
+        if start_guide is not None and end_guide is None:
+            # Один терминальный срез может структурно поглотить весь
+            # короткий site: BODY пуст, но второго владельца не возникает.
+            start_depth = site.segment_length
+            start_absorbed = True
+        elif end_guide is not None and start_guide is None:
+            end_depth = site.segment_length
+            end_absorbed = True
+        else:
+            raise RuntimeError(
+                "TERMINAL_BRIDGE_CUTS_OVERLAP: "
+                f"patch={site.patch_id} edge={site.edge_index}"
+            )
     body_start = shifted(site.point_a, tangent, start_depth)
     body_end = shifted(site.point_b, tangent, -end_depth)
     start_spec = terminal_spec(
@@ -2349,6 +2365,7 @@ def _terminal_segment_crop_components(
         body_start,
         (body_start[0] + offset[0], body_start[1] + offset[1]),
         site.vert_a,
+        absorbed=start_absorbed,
     )
     end_spec = terminal_spec(
         "END",
@@ -2357,6 +2374,7 @@ def _terminal_segment_crop_components(
         body_end,
         (body_end[0] + offset[0], body_end[1] + offset[1]),
         site.vert_b,
+        absorbed=end_absorbed,
     )
     body = _convex_hull(
         (
