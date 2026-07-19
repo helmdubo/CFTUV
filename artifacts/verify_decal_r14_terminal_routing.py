@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import bmesh
@@ -23,7 +24,10 @@ if loaded_cftuv is not None:
                 del sys.modules[module_name]
 
 from cftuv.analysis import build_patch_graph  # noqa: E402
-from cftuv.decals import compile_manual_seam_decal_plan  # noqa: E402
+from cftuv.decals import (  # noqa: E402
+    compile_manual_seam_decal_plan,
+    evaluate_manual_seam_faces,
+)
 from cftuv.model import DecalSettings  # noqa: E402
 
 
@@ -101,26 +105,57 @@ def main():
             continue
         try:
             graph, selected = _source_graph(obj, requested_edges)
+            settings = DecalSettings(width_seam=0.8, offset=0.01)
             plan = compile_manual_seam_decal_plan(
                 graph,
-                DecalSettings(width_seam=0.8, offset=0.01),
+                settings,
                 selected,
             )
+            width_evaluations = []
+            for width in (0.4, 0.8):
+                try:
+                    evaluated = evaluate_manual_seam_faces(
+                        obj,
+                        replace(settings, width_seam=width),
+                        plan,
+                        preview=True,
+                    )
+                    width_evaluations.append(
+                        {
+                            "width": width,
+                            "status": "UPDATED",
+                            "face_count": len(evaluated.faces),
+                        }
+                    )
+                except Exception as exc:
+                    width_evaluations.append(
+                        {
+                            "width": width,
+                            "status": "ERROR",
+                            "error": repr(exc),
+                        }
+                    )
             report["objects"].append(
                 {
                     "object": object_name,
                     "status": "COMPILED",
                     "selected_edge_indices": list(selected),
+                    "saved_mesh_selected_edge_indices": [
+                        edge.index for edge in obj.data.edges if edge.select
+                    ],
                     "backend_summary": plan.backend_summary,
+                    "width_evaluations": width_evaluations,
                     "terminal_routing": [
                         {
                             "component_index": record.component_index,
+                            "patch_id": record.patch_id,
                             "spine_vertex_id": record.spine_vertex_id,
                             "spine_edge_id": record.spine_edge_id,
                             "source_face_ids": list(record.source_face_ids),
                             "choice": record.choice,
                             "edge_ids": list(record.edge_ids),
                             "plan_kind": record.plan_kind,
+                            "route_id": record.route_id,
                             "backend": record.backend,
                             "backend_kind": record.backend_kind,
                             "line": record.report_line,
@@ -129,6 +164,37 @@ def main():
                     ],
                 }
             )
+            if object_name == "sagging_wall":
+                saved_selection = tuple(
+                    sorted(edge.index for edge in obj.data.edges if edge.select)
+                )
+                if saved_selection and saved_selection != selected:
+                    saved_plan = compile_manual_seam_decal_plan(
+                        graph, settings, saved_selection
+                    )
+                    saved_widths = []
+                    for width in (0.4, 0.8):
+                        evaluated = evaluate_manual_seam_faces(
+                            obj,
+                            replace(settings, width_seam=width),
+                            saved_plan,
+                            preview=True,
+                        )
+                        saved_widths.append(
+                            {
+                                "width": width,
+                                "status": "UPDATED",
+                                "face_count": len(evaluated.faces),
+                            }
+                        )
+                    report["objects"][-1]["saved_selection_scope"] = {
+                        "selected_edge_indices": list(saved_selection),
+                        "backend_summary": saved_plan.backend_summary,
+                        "width_evaluations": saved_widths,
+                        "terminal_routing": list(
+                            saved_plan.terminal_routing_report
+                        ),
+                    }
         except Exception as exc:
             report["objects"].append(
                 {

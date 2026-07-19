@@ -2426,7 +2426,7 @@ def _corner_component_from_polygon(
     )
 
 
-def _cap_crop_components(surface, corner, alpha):
+def _cap_crop_components(surface, corner, alpha, guide_point=None):
     """FLAT CAP: tangent-aligned terminal half-quad, без axis square."""
 
     if len(corner.incident_sites) != 1:
@@ -2439,6 +2439,41 @@ def _cap_crop_components(surface, corner, alpha):
         return ()
     lateral = (-tangent[1], tangent[0])
     depth = min(alpha, site.segment_length * 0.5)
+    if guide_point is not None:
+        guide_delta = _sub2(guide_point, corner.point)
+        guide_side = _cross2(tangent, guide_delta)
+        if guide_side == 0.0:
+            raise RuntimeError(
+                "TERMINAL_BRIDGE_GUIDE_COLLINEAR: "
+                f"patch={surface.patch_id} vertex={corner.vert_index} "
+                f"edge={site.edge_index}"
+            )
+        guide_u = 1.0 if guide_side > 0.0 else -1.0
+        inner_corner = (
+            corner.point[0] + tangent[0] * depth,
+            corner.point[1] + tangent[1] * depth,
+        )
+        inner_guide = (
+            guide_point[0] + tangent[0] * depth,
+            guide_point[1] + tangent[1] * depth,
+        )
+        v_origin = _site_v_length(
+            site, 0.0 if site.vert_a == corner.vert_index else 1.0
+        )
+        component = _crop_component_from_anchors(
+            _CornerPolicy.CAP.value,
+            "START" if site.vert_a == corner.vert_index else "END",
+            (
+                (corner.point, (0.0, 0.0)),
+                (guide_point, (guide_u, 0.0)),
+                (inner_guide, (guide_u, depth)),
+                (inner_corner, (0.0, depth)),
+            ),
+            v_origin,
+        )
+        if component is None:
+            return ()
+        return (replace(component, owner_site_indices=(site_index,)),)
     cap_a = (
         corner.point[0] - lateral[0] * alpha,
         corner.point[1] - lateral[1] * alpha,
@@ -3031,14 +3066,22 @@ def _corner_runtime_policy_entries(surface, corner, policy, settings):
 
 
 def _corner_crop_components(
-    surface, corner, policy, alpha, settings, diagnostics=None
+    surface,
+    corner,
+    policy,
+    alpha,
+    settings,
+    diagnostics=None,
+    terminal_guide=None,
 ):
     settings = _normalized_corner_runtime_settings(settings)
     # FLAT CAP — базовая endpoint-семантика, а не dynamic band. Stable path
     # обязан использовать tangent-aligned half-quad; axis-aligned square
     # остаётся явный compile failure для неподдержанного valence-N junction.
     if policy == _CornerPolicy.CAP:
-        return _cap_crop_components(surface, corner, alpha)
+        return _cap_crop_components(
+            surface, corner, alpha, guide_point=terminal_guide
+        )
     if policy == _CornerPolicy.SMOOTH:
         return _smooth_crop_components(surface, corner, alpha, settings)
     if not settings.dynamic_corner_bands:
@@ -12919,8 +12962,252 @@ def _polygon_domain_normal(domain, component, centroid=None):
     return domain.reference_normal.copy()
 
 
+def _terminal_source_vertex_points(domain, vertex_id):
+    """Chart-images source vertex для read-only RM9 bridge."""
+
+    if domain.kind == "PLANAR":
+        points = tuple(
+            point
+            for source_vertex_id, point in domain.planar_source_vertices
+            if source_vertex_id == vertex_id
+        )
+    else:
+        points = tuple(
+            triangle.chart_points[local_index]
+            for triangle in domain.intrinsic_triangles
+            for local_index, source_vertex_id in enumerate(
+                triangle.source_vertex_ids
+            )
+            if source_vertex_id == vertex_id
+        )
+    return tuple(
+        dict.fromkeys((float(point[0]), float(point[1])) for point in points)
+    )
+
+
+def _terminal_source_edge_segments(domain, source_edge):
+    """Source edge в координатах одного chart, ориентированный rail IR."""
+
+    edge_id = source_edge.edge_id
+    vertex_ids = tuple(source_edge.vertex_ids)
+    segments = []
+    if domain.kind == "PLANAR":
+        for (
+            source_edge_id,
+            vert_a,
+            vert_b,
+            point_a,
+            point_b,
+        ) in domain.planar_source_edges:
+            if source_edge_id != edge_id:
+                continue
+            point_by_vertex = {vert_a: point_a, vert_b: point_b}
+            if set(point_by_vertex) != set(vertex_ids):
+                continue
+            segments.append(
+                tuple(point_by_vertex[vertex_id] for vertex_id in vertex_ids)
+            )
+    else:
+        for triangle in domain.intrinsic_triangles:
+            for local_edge, source_edge_id in enumerate(
+                triangle.source_edge_ids
+            ):
+                if source_edge_id != edge_id:
+                    continue
+                edge_vertices = tuple(
+                    index for index in range(3) if index != local_edge
+                )
+                point_by_vertex = {
+                    triangle.source_vertex_ids[index]: (
+                        triangle.chart_points[index]
+                    )
+                    for index in edge_vertices
+                }
+                if set(point_by_vertex) != set(vertex_ids):
+                    continue
+                segments.append(
+                    tuple(
+                        point_by_vertex[vertex_id]
+                        for vertex_id in vertex_ids
+                    )
+                )
+    return tuple(
+        dict.fromkeys(
+            tuple((float(point[0]), float(point[1])) for point in segment)
+            for segment in segments
+        )
+    )
+
+
+def _terminal_station_chart_points(domain, station, edge_by_id):
+    if station.kind.value == "VERTEX":
+        return _terminal_source_vertex_points(
+            domain, station.source_vertex_id
+        )
+    source_edge = edge_by_id[station.source_edge_id]
+    parameter = float(station.edge_parameter)
+    return tuple(
+        (
+            point_a[0] + (point_b[0] - point_a[0]) * parameter,
+            point_a[1] + (point_b[1] - point_a[1]) * parameter,
+        )
+        for point_a, point_b in _terminal_source_edge_segments(
+            domain, source_edge
+        )
+    )
+
+
+def _terminal_route_chart_point(
+    surface, terminal, rail_plan, alpha, corner_point
+):
+    """Читает station extent route и переносит его в CAP chart."""
+
+    route = next(
+        (
+            candidate
+            for candidate in rail_plan.routes
+            if candidate.route_id == terminal.route_id
+        ),
+        None,
+    )
+    if route is None or not route.segments or len(route.stations) < 2:
+        raise RuntimeError(
+            "TERMINAL_BRIDGE_ROUTE_MISSING: "
+            f"patch={surface.patch_id} vertex={terminal.spine_vertex_id} "
+            f"edge={terminal.spine_edge_id} route={terminal.route_id}"
+        )
+    station_by_index = {
+        station.station_index: station for station in route.stations
+    }
+    extent = min(float(alpha), float(route.stations[-1].distance))
+    interval = next(
+        (
+            (
+                station_by_index[segment.from_station_index],
+                station_by_index[segment.to_station_index],
+            )
+            for segment in route.segments
+            if (
+                station_by_index[segment.from_station_index].distance
+                <= extent
+                <= station_by_index[segment.to_station_index].distance
+            )
+        ),
+        None,
+    )
+    if interval is None:
+        raise RuntimeError(
+            "TERMINAL_BRIDGE_STATION_INTERVAL_MISSING: "
+            f"route={terminal.route_id} extent={extent:.9g}"
+        )
+    station_a, station_b = interval
+    edge_by_id = {edge.edge_id: edge for edge in rail_plan.edges}
+    points_a = _terminal_station_chart_points(
+        surface.domain, station_a, edge_by_id
+    )
+    points_b = _terminal_station_chart_points(
+        surface.domain, station_b, edge_by_id
+    )
+    if not points_a or not points_b:
+        raise RuntimeError(
+            "TERMINAL_BRIDGE_ROUTE_OUTSIDE_CAP_CHART: "
+            f"patch={surface.patch_id} chart={surface.domain.chart_id} "
+            f"vertex={terminal.spine_vertex_id} "
+            f"guide_edges={terminal.edge_ids}"
+        )
+    expected_length = float(station_b.distance - station_a.distance)
+    pair = min(
+        (
+            (
+                abs(sqrt(_dist2(point_a, point_b)) - expected_length),
+                (
+                    _dist2(point_a, corner_point)
+                    if station_a.distance == 0.0
+                    else 0.0
+                ),
+                point_a,
+                point_b,
+            )
+            for point_a in points_a
+            for point_b in points_b
+        ),
+        key=lambda item: (item[0], item[1], item[2], item[3]),
+    )
+    point_a, point_b = pair[2], pair[3]
+    interval_length = float(station_b.distance - station_a.distance)
+    factor = (
+        0.0
+        if interval_length <= 0.0
+        else (extent - float(station_a.distance)) / interval_length
+    )
+    return (
+        point_a[0] + (point_b[0] - point_a[0]) * factor,
+        point_a[1] + (point_b[1] - point_a[1]) * factor,
+    )
+
+
+def _surface_terminal_bridge_points(
+    surface,
+    terminal_routing,
+    rail_plan,
+    alpha,
+    consumed_terminal_ids=None,
+):
+    """RM9 guides одного Patch surface; PERP не меняет старый CAP."""
+
+    if rail_plan is None:
+        return {}
+    result = {}
+    for terminal in terminal_routing or ():
+        if (
+            terminal.backend != "PATCH_VORONOI"
+            or terminal.patch_id != surface.patch_id
+            or terminal.choice == "PERP"
+        ):
+            continue
+        key = (terminal.spine_vertex_id, terminal.spine_edge_id)
+        corner = next(
+            (
+                candidate
+                for candidate in surface.corners
+                if candidate.vert_index == terminal.spine_vertex_id
+                and len(candidate.incident_sites) == 1
+                and surface.sites[candidate.incident_sites[0]].edge_index
+                == terminal.spine_edge_id
+            ),
+            None,
+        )
+        if corner is None:
+            continue
+        point = _terminal_route_chart_point(
+            surface, terminal, rail_plan, alpha, corner.point
+        )
+        previous = result.get(key)
+        if previous is not None and previous != point:
+            raise RuntimeError(
+                "TERMINAL_BRIDGE_MULTIPLE_SIDE_GUIDES_UNSUPPORTED: "
+                f"patch={surface.patch_id} vertex={key[0]} edge={key[1]}"
+            )
+        result[key] = point
+        if consumed_terminal_ids is not None:
+            consumed_terminal_ids.add(
+                (
+                    terminal.patch_id,
+                    terminal.spine_vertex_id,
+                    terminal.spine_edge_id,
+                    terminal.route_id,
+                )
+            )
+    return result
+
+
 def _evaluate_surface_crops(
-    surface, alpha, pending, corner_settings, diagnostics=None
+    surface,
+    alpha,
+    pending,
+    corner_settings,
+    diagnostics=None,
+    terminal_bridge_points=None,
 ):
     """Строит cell ownership без внутренних endpoint boundaries.
 
@@ -12932,6 +13219,16 @@ def _evaluate_surface_crops(
     Параболические stations остаются только на реальной границе с
     неincident competitor, то есть появляются непосредственно при collision.
     """
+
+    terminal_bridge_points = terminal_bridge_points or {}
+
+    def terminal_guide(corner):
+        if len(corner.incident_sites) != 1:
+            return None
+        site = surface.sites[corner.incident_sites[0]]
+        return terminal_bridge_points.get(
+            (corner.vert_index, site.edge_index)
+        )
 
     reference_full_scan = bool(
         diagnostics is not None and diagnostics.reference_full_scan
@@ -12987,6 +13284,7 @@ def _evaluate_surface_crops(
                 alpha,
                 corner_settings,
                 diagnostics=None,
+                terminal_guide=terminal_guide(corner),
             )
             owned_probe_crops = tuple(
                 owned_crop
@@ -13062,6 +13360,7 @@ def _evaluate_surface_crops(
             alpha,
             corner_settings,
             diagnostics,
+            terminal_guide=terminal_guide(corner),
         )
         crops = tuple(
             replace(
@@ -13256,6 +13555,8 @@ def evaluate_patch_voronoi_plan(
     preview=False,
     corner_settings=None,
     diagnostics=None,
+    terminal_routing=(),
+    rail_plan=None,
 ):
     """Перестраивает extrusion polygons внутри статических Voronoi cells."""
 
@@ -13293,13 +13594,41 @@ def evaluate_patch_voronoi_plan(
     else:
         lift_scale = 1.0
     pending = []
+    expected_terminal_ids = {
+        (
+            terminal.patch_id,
+            terminal.spine_vertex_id,
+            terminal.spine_edge_id,
+            terminal.route_id,
+        )
+        for terminal in terminal_routing or ()
+        if terminal.backend == "PATCH_VORONOI"
+        and terminal.choice != "PERP"
+    }
+    consumed_terminal_ids = set()
     for surface in plan.surfaces:
+        terminal_bridge_points = _surface_terminal_bridge_points(
+            surface,
+            terminal_routing,
+            rail_plan,
+            alpha,
+            consumed_terminal_ids=consumed_terminal_ids,
+        )
         _evaluate_surface_crops(
             surface,
             alpha,
             pending,
             corner_settings,
             diagnostics,
+            terminal_bridge_points=terminal_bridge_points,
+        )
+    missing_terminal_ids = expected_terminal_ids.difference(
+        consumed_terminal_ids
+    )
+    if missing_terminal_ids:
+        raise RuntimeError(
+            "TERMINAL_BRIDGE_GUIDE_UNCONSUMED: "
+            + ",".join(repr(key) for key in sorted(missing_terminal_ids))
         )
 
     arrangement = _build_decal_arrangement(

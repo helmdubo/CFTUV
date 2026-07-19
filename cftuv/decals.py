@@ -283,6 +283,7 @@ class ManualSeamTerminalRouting:
     """RM9-диагностика одного торца без повторной деривации выбора."""
 
     component_index: int
+    patch_id: int
     spine_vertex_id: int
     spine_edge_id: int
     source_face_ids: tuple[int, ...]
@@ -291,6 +292,7 @@ class ManualSeamTerminalRouting:
     choice: str
     edge_ids: tuple[int, ...] = ()
     plan_kind: str = ""
+    route_id: int | None = None
 
     @property
     def report_line(self):
@@ -306,6 +308,7 @@ class ManualSeamTerminalRouting:
         )
         return (
             f"component={self.component_index} "
+            f"patch={self.patch_id} "
             f"terminal=v{self.spine_vertex_id}/e{self.spine_edge_id} "
             f"faces={','.join(str(face_id) for face_id in self.source_face_ids)} "
             f"choice={self.choice}{edge_suffix} backend={backend} "
@@ -1296,7 +1299,7 @@ def _manual_seam_edge_components(runs, selected_edge_indices):
     return tuple(components)
 
 
-def _manual_terminal_routing(rail_plan, backend_partitions):
+def _manual_terminal_routing(graph, rail_plan, backend_partitions):
     """RM9: публикует per-component terminal choice из rail IR."""
 
     if rail_plan is None or not all(
@@ -1338,6 +1341,16 @@ def _manual_terminal_routing(rail_plan, backend_partitions):
                 continue
             choice = "PERP"
             edge_ids = ()
+            patch_ids = tuple(
+                sorted(
+                    {
+                        int(graph.face_to_patch[face_id])
+                        for face_id in use.source_face_ids
+                        if face_id in getattr(graph, "face_to_patch", {})
+                    }
+                )
+            )
+            patch_id = patch_ids[0] if len(patch_ids) == 1 else -1
             if (
                 use.kind == RailTerminalKind.ROUTE
                 and use.route_edge_id is not None
@@ -1360,6 +1373,7 @@ def _manual_terminal_routing(rail_plan, backend_partitions):
             result.append(
                 ManualSeamTerminalRouting(
                     component_index=component_index,
+                    patch_id=patch_id,
                     spine_vertex_id=int(use.spine_vertex_id),
                     spine_edge_id=int(use.spine_edge_id),
                     source_face_ids=tuple(use.source_face_ids),
@@ -1368,6 +1382,7 @@ def _manual_terminal_routing(rail_plan, backend_partitions):
                     choice=choice,
                     edge_ids=edge_ids,
                     plan_kind=use.kind.value,
+                    route_id=use.route_id,
                 )
             )
     return tuple(sorted(result))
@@ -3566,7 +3581,7 @@ def compile_manual_seam_decal_plan(
             )
         )
     terminal_routing = _manual_terminal_routing(
-        rail_plan, tuple(backend_partitions)
+        graph, rail_plan, tuple(backend_partitions)
     )
     plan = ManualSeamDecalPlan(
         corner_runs=tuple(corner_runs),
@@ -3619,7 +3634,13 @@ def compile_manual_seam_decal_plan(
 
 
 def _evaluate_manual_backend_partition(
-    partition, settings, width, preview
+    partition,
+    settings,
+    width,
+    preview,
+    *,
+    rail_plan=None,
+    terminal_routing=(),
 ):
     """Вычисляет одну routing-группу без BMesh side effects."""
 
@@ -3662,6 +3683,8 @@ def _evaluate_manual_backend_partition(
                     settings
                 ),
                 diagnostics=diagnostics,
+                terminal_routing=terminal_routing,
+                rail_plan=rail_plan,
             )
         except Exception as exc:
             raise PatchVoronoiRuntimeError(
@@ -3719,7 +3742,12 @@ def evaluate_manual_seam_faces(
     policy_totals = {}
     for partition in decal_plan.backend_partitions:
         evaluation = _evaluate_manual_backend_partition(
-            partition, local_settings, width, preview
+            partition,
+            local_settings,
+            width,
+            preview,
+            rail_plan=decal_plan.rail_plan,
+            terminal_routing=decal_plan.terminal_routing,
         )
         faces.extend(evaluation.faces)
         if partition.backend == "PATCH_VORONOI":
@@ -3842,6 +3870,8 @@ def _fill_manual_chain_decals(
                         settings,
                         width,
                         preview,
+                        rail_plan=decal_plan.rail_plan,
+                        terminal_routing=decal_plan.terminal_routing,
                     ),
                 )
                 for partition in decal_plan.backend_partitions

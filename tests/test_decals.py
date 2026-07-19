@@ -120,7 +120,9 @@ def test_rm9_terminal_routing_reports_plan_choice_and_materializing_backend():
     )
 
     records = decals_module._manual_terminal_routing(
-        rail_plan, (partition,)
+        SimpleNamespace(face_to_patch={100: 4, 101: 4, 102: 4}),
+        rail_plan,
+        (partition,),
     )
 
     assert [(record.choice, record.edge_ids) for record in records] == [
@@ -134,7 +136,7 @@ def test_rm9_terminal_routing_reports_plan_choice_and_materializing_backend():
         for record in records
     )
     assert records[0].report_line == (
-        "component=0 terminal=v1/e10 faces=100 choice=PCHAIN 20,21 "
+        "component=0 patch=4 terminal=v1/e10 faces=100 choice=PCHAIN 20,21 "
         "backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
     )
 
@@ -970,11 +972,15 @@ def test_patch_voronoi_partition_forwards_runtime_corner_settings(
         decals_module, "evaluate_patch_voronoi_plan", evaluate
     )
 
+    rail_plan = object()
+    terminal_routing = (object(),)
     evaluation = decals_module._evaluate_manual_backend_partition(
         partition,
         settings,
         width=2.5,
         preview=True,
+        rail_plan=rail_plan,
+        terminal_routing=terminal_routing,
     )
     assert evaluation.faces == ("face",)
     assert evaluation.evaluation_ms >= 0.0
@@ -986,6 +992,8 @@ def test_patch_voronoi_partition_forwards_runtime_corner_settings(
     corner_settings = captured[0][1]["corner_settings"]
     assert captured[0][0] == 2.5
     assert captured[0][1]["preview"] is True
+    assert captured[0][1]["rail_plan"] is rail_plan
+    assert captured[0][1]["terminal_routing"] is terminal_routing
     assert corner_settings.acute_split_angle == pytest.approx(0.37)
     assert corner_settings.apex_limit == pytest.approx(4.25)
 

@@ -19,26 +19,28 @@
         80,
         83
       ],
+      "saved_mesh_selected_edge_indices": [
+        55,
+        59,
+        87
+      ],
       "backend_summary": "INTRINSIC_DEVELOPABLE:1c/10e | RailUnsupported[RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR:x1]",
+      "width_evaluations": [
+        {
+          "width": 0.4,
+          "status": "UPDATED",
+          "face_count": 46
+        },
+        {
+          "width": 0.8,
+          "status": "UPDATED",
+          "face_count": 47
+        }
+      ],
       "terminal_routing": [
         {
           "component_index": 0,
-          "spine_vertex_id": 49,
-          "spine_edge_id": 55,
-          "source_face_ids": [
-            20
-          ],
-          "choice": "PCHAIN",
-          "edge_ids": [
-            56
-          ],
-          "plan_kind": "ROUTE",
-          "backend": "PATCH_VORONOI",
-          "backend_kind": "INTRINSIC_DEVELOPABLE",
-          "line": "component=0 terminal=v49/e55 faces=20 choice=PCHAIN 56 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
-        },
-        {
-          "component_index": 0,
+          "patch_id": 1,
           "spine_vertex_id": 49,
           "spine_edge_id": 55,
           "source_face_ids": [
@@ -50,28 +52,14 @@
             87
           ],
           "plan_kind": "ROUTE",
+          "route_id": 1,
           "backend": "PATCH_VORONOI",
           "backend_kind": "INTRINSIC_DEVELOPABLE",
-          "line": "component=0 terminal=v49/e55 faces=49,50 choice=PCHAIN 87 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+          "line": "component=0 patch=1 terminal=v49/e55 faces=49,50 choice=PCHAIN 87 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
         },
         {
           "component_index": 0,
-          "spine_vertex_id": 59,
-          "spine_edge_id": 83,
-          "source_face_ids": [
-            29
-          ],
-          "choice": "PCHAIN",
-          "edge_ids": [
-            85
-          ],
-          "plan_kind": "ROUTE",
-          "backend": "PATCH_VORONOI",
-          "backend_kind": "INTRINSIC_DEVELOPABLE",
-          "line": "component=0 terminal=v59/e83 faces=29 choice=PCHAIN 85 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
-        },
-        {
-          "component_index": 0,
+          "patch_id": 1,
           "spine_vertex_id": 59,
           "spine_edge_id": 83,
           "source_face_ids": [
@@ -83,9 +71,46 @@
             88
           ],
           "plan_kind": "ROUTE",
+          "route_id": 12,
           "backend": "PATCH_VORONOI",
           "backend_kind": "INTRINSIC_DEVELOPABLE",
-          "line": "component=0 terminal=v59/e83 faces=31,33 choice=PCHAIN 88 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+          "line": "component=0 patch=1 terminal=v59/e83 faces=31,33 choice=PCHAIN 88 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+        },
+        {
+          "component_index": 0,
+          "patch_id": 3,
+          "spine_vertex_id": 49,
+          "spine_edge_id": 55,
+          "source_face_ids": [
+            20
+          ],
+          "choice": "PCHAIN",
+          "edge_ids": [
+            56
+          ],
+          "plan_kind": "ROUTE",
+          "route_id": 0,
+          "backend": "PATCH_VORONOI",
+          "backend_kind": "INTRINSIC_DEVELOPABLE",
+          "line": "component=0 patch=3 terminal=v49/e55 faces=20 choice=PCHAIN 56 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+        },
+        {
+          "component_index": 0,
+          "patch_id": 3,
+          "spine_vertex_id": 59,
+          "spine_edge_id": 83,
+          "source_face_ids": [
+            29
+          ],
+          "choice": "PCHAIN",
+          "edge_ids": [
+            85
+          ],
+          "plan_kind": "ROUTE",
+          "route_id": 11,
+          "backend": "PATCH_VORONOI",
+          "backend_kind": "INTRINSIC_DEVELOPABLE",
+          "line": "component=0 patch=3 terminal=v59/e83 faces=29 choice=PCHAIN 85 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
         }
       ]
     },
@@ -168,7 +193,24 @@
         197,
         198
       ],
+      "saved_mesh_selected_edge_indices": [
+        55,
+        59,
+        62
+      ],
       "backend_summary": "Unsupported[DISTORTION_BUDGET_EXCEEDED:x1] | RailUnsupported[RAIL_GEOMETRY_BRANCH_UNSUPPORTED:x1] | Failed:74e[DISTORTION_BUDGET_EXCEEDED:x74]",
+      "width_evaluations": [
+        {
+          "width": 0.4,
+          "status": "UPDATED",
+          "face_count": 0
+        },
+        {
+          "width": 0.8,
+          "status": "UPDATED",
+          "face_count": 0
+        }
+      ],
       "terminal_routing": []
     },
     {
@@ -202,8 +244,61 @@
         34,
         38
       ],
+      "saved_mesh_selected_edge_indices": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        11
+      ],
       "backend_summary": "INTRINSIC_DEVELOPABLE:1c/26e | RailUnsupported[RAIL_GEOMETRY_BRANCH_UNSUPPORTED:x1]",
-      "terminal_routing": []
+      "width_evaluations": [
+        {
+          "width": 0.4,
+          "status": "UPDATED",
+          "face_count": 76
+        },
+        {
+          "width": 0.8,
+          "status": "UPDATED",
+          "face_count": 79
+        }
+      ],
+      "terminal_routing": [],
+      "saved_selection_scope": {
+        "selected_edge_indices": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          11
+        ],
+        "backend_summary": "INTRINSIC_DEVELOPABLE:1c/8e | RailUnsupported[RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR:x1]",
+        "width_evaluations": [
+          {
+            "width": 0.4,
+            "status": "UPDATED",
+            "face_count": 51
+          },
+          {
+            "width": 0.8,
+            "status": "UPDATED",
+            "face_count": 54
+          }
+        ],
+        "terminal_routing": [
+          "component=0 patch=0 terminal=v4/e3 faces=17,19 choice=PCHAIN 2 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+          "component=0 patch=0 terminal=v11/e9 faces=11,16 choice=PCHAIN 10 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+          "component=0 patch=1 terminal=v4/e3 faces=4 choice=PCHAIN 2 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+          "component=0 patch=1 terminal=v11/e9 faces=2 choice=PCHAIN 24,19 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+        ]
+      }
     },
     {
       "object": "wall_noise_top",
@@ -220,7 +315,25 @@
         15,
         17
       ],
+      "saved_mesh_selected_edge_indices": [
+        12,
+        13,
+        14,
+        15
+      ],
       "backend_summary": "Unsupported[DEGENERATE_SOURCE_TRIANGLE:x1,DISTORTION_BUDGET_EXCEEDED:x1] | RailUnsupported[RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR:x1] | Failed:10e[DEGENERATE_SOURCE_TRIANGLE+DISTORTION_BUDGET_EXCEEDED:x10]",
+      "width_evaluations": [
+        {
+          "width": 0.4,
+          "status": "UPDATED",
+          "face_count": 0
+        },
+        {
+          "width": 0.8,
+          "status": "UPDATED",
+          "face_count": 0
+        }
+      ],
       "terminal_routing": []
     },
     {
@@ -233,7 +346,20 @@
         21,
         26
       ],
+      "saved_mesh_selected_edge_indices": [],
       "backend_summary": "Unsupported[DISTORTION_BUDGET_EXCEEDED:x1] | RailUnsupported[RAIL_GEOMETRY_CURVED_OWNER_UNSUPPORTED:x1] | Failed:5e[DISTORTION_BUDGET_EXCEEDED:x5]",
+      "width_evaluations": [
+        {
+          "width": 0.4,
+          "status": "UPDATED",
+          "face_count": 0
+        },
+        {
+          "width": 0.8,
+          "status": "UPDATED",
+          "face_count": 0
+        }
+      ],
       "terminal_routing": []
     },
     {
@@ -244,10 +370,281 @@
         504,
         553
       ],
+      "saved_mesh_selected_edge_indices": [
+        0,
+        2,
+        5,
+        6,
+        11,
+        14,
+        16,
+        18,
+        19,
+        21,
+        22,
+        23,
+        24,
+        37,
+        38,
+        39,
+        43,
+        45,
+        46,
+        47,
+        49,
+        55,
+        57,
+        59,
+        63,
+        64,
+        67,
+        68,
+        70,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81,
+        91,
+        98,
+        103,
+        105,
+        109,
+        112,
+        113,
+        115,
+        116,
+        120,
+        121,
+        123,
+        125,
+        130,
+        131,
+        132,
+        133,
+        134,
+        135,
+        136,
+        137,
+        141,
+        145,
+        148,
+        154,
+        155,
+        156,
+        157,
+        158,
+        159,
+        160,
+        165,
+        166,
+        170,
+        171,
+        173,
+        174,
+        178,
+        181,
+        185,
+        187,
+        188,
+        191,
+        193,
+        201,
+        202,
+        204,
+        205,
+        206,
+        207,
+        208,
+        209,
+        210,
+        214,
+        217,
+        218,
+        219,
+        220,
+        221,
+        222,
+        224,
+        227,
+        231,
+        232,
+        239,
+        240,
+        241,
+        244,
+        245,
+        247,
+        257,
+        264,
+        267,
+        268,
+        270,
+        273,
+        274,
+        277,
+        279,
+        282,
+        285,
+        287,
+        289,
+        291,
+        297,
+        298,
+        299,
+        300,
+        301,
+        305,
+        317,
+        319,
+        324,
+        328,
+        330,
+        331,
+        336,
+        341,
+        343,
+        346,
+        347,
+        349,
+        358,
+        359,
+        360,
+        363,
+        364,
+        365,
+        369,
+        377,
+        379,
+        381,
+        382,
+        383,
+        384,
+        388,
+        390,
+        393,
+        401,
+        403,
+        405,
+        408,
+        410,
+        411,
+        413,
+        414,
+        416,
+        418,
+        420,
+        421,
+        422,
+        424,
+        425,
+        426,
+        432,
+        433,
+        435,
+        440,
+        444,
+        446,
+        448,
+        449,
+        459,
+        466,
+        467,
+        469,
+        471,
+        475,
+        477,
+        479,
+        484,
+        485,
+        486,
+        489,
+        490,
+        492,
+        496,
+        501,
+        506,
+        507,
+        512,
+        513,
+        514,
+        515,
+        528,
+        529,
+        530,
+        532,
+        534,
+        536,
+        537,
+        548,
+        555,
+        558,
+        560,
+        564,
+        566,
+        567,
+        568,
+        573,
+        577,
+        582,
+        589,
+        592,
+        593,
+        596,
+        600,
+        602,
+        603,
+        605,
+        607,
+        614,
+        615,
+        618,
+        619,
+        620,
+        622,
+        623,
+        626,
+        627,
+        630,
+        632,
+        633,
+        636,
+        639,
+        640,
+        641,
+        642,
+        643,
+        644,
+        645,
+        646,
+        655,
+        665,
+        666,
+        668,
+        671,
+        672,
+        673,
+        675,
+        682
+      ],
       "backend_summary": "RAIL_PLANAR:1c/3e",
+      "width_evaluations": [
+        {
+          "width": 0.4,
+          "status": "UPDATED",
+          "face_count": 16
+        },
+        {
+          "width": 0.8,
+          "status": "UPDATED",
+          "face_count": 16
+        }
+      ],
       "terminal_routing": [
         {
           "component_index": 0,
+          "patch_id": 11,
           "spine_vertex_id": 128,
           "spine_edge_id": 504,
           "source_face_ids": [
@@ -262,12 +659,14 @@
             473
           ],
           "plan_kind": "ROUTE",
+          "route_id": 0,
           "backend": "RAIL_PLANAR",
           "backend_kind": "RAIL_PLANAR",
-          "line": "component=0 terminal=v128/e504 faces=80,83,84,85,93 choice=PCHAIN 473 backend=RAIL_PLANAR plan=ROUTE"
+          "line": "component=0 patch=11 terminal=v128/e504 faces=80,83,84,85,93 choice=PCHAIN 473 backend=RAIL_PLANAR plan=ROUTE"
         },
         {
           "component_index": 0,
+          "patch_id": 15,
           "spine_vertex_id": 248,
           "spine_edge_id": 412,
           "source_face_ids": [
@@ -278,9 +677,10 @@
             476
           ],
           "plan_kind": "ROUTE",
+          "route_id": 2,
           "backend": "RAIL_PLANAR",
           "backend_kind": "RAIL_PLANAR",
-          "line": "component=0 terminal=v248/e412 faces=149 choice=PCHAIN 476 backend=RAIL_PLANAR plan=ROUTE"
+          "line": "component=0 patch=15 terminal=v248/e412 faces=149 choice=PCHAIN 476 backend=RAIL_PLANAR plan=ROUTE"
         }
       ]
     }

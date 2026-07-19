@@ -1,0 +1,715 @@
+{
+  "terminals": [
+    {
+      "terminal": [
+        49,
+        55
+      ],
+      "source_face_ids": [
+        20
+      ],
+      "patch_ids": [
+        3
+      ],
+      "guide_edge_id": 56,
+      "guide_vertex_ids": [
+        38,
+        49
+      ],
+      "route_stations": [
+        {
+          "distance": 0.0,
+          "kind": "VERTEX",
+          "source_vertex_id": 49,
+          "source_edge_id": null,
+          "edge_parameter": null
+        },
+        {
+          "distance": 1.6,
+          "kind": "EDGE",
+          "source_vertex_id": null,
+          "source_edge_id": 56,
+          "edge_parameter": 0.6332227009906337
+        }
+      ],
+      "route_segments": [
+        {
+          "edge_id": 56,
+          "source_face_ids": [
+            0,
+            20
+          ]
+        }
+      ],
+      "surfaces": [
+        {
+          "patch_id": 3,
+          "chart_id": 0,
+          "kind": "INTRINSIC",
+          "source_faces": [
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29
+          ],
+          "cap_sites": [
+            {
+              "site_index": 0,
+              "edge_id": 55,
+              "point_a": [
+                0.06367377437533772,
+                0.5241128696460804
+              ],
+              "point_b": [
+                -2.6225624662146174e-05,
+                1.2869646080382324e-05
+              ]
+            }
+          ],
+          "terminal_vertex_points": [
+            [
+              -2.6225624662146174e-05,
+              1.2869646080382324e-05
+            ],
+            [
+              -2.6225624662146174e-05,
+              1.2869646080382324e-05
+            ]
+          ],
+          "guide_vertex_points": {
+            "38": [
+              [
+                4.273373774375338,
+                -0.8763871303539195
+              ]
+            ],
+            "49": [
+              [
+                -2.6225624662146174e-05,
+                1.2869646080382324e-05
+              ],
+              [
+                -2.6225624662146174e-05,
+                1.2869646080382324e-05
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "terminal": [
+        49,
+        55
+      ],
+      "source_face_ids": [
+        49,
+        50
+      ],
+      "patch_ids": [
+        1
+      ],
+      "guide_edge_id": 87,
+      "guide_vertex_ids": [
+        1,
+        49
+      ],
+      "route_stations": [
+        {
+          "distance": 0.0,
+          "kind": "VERTEX",
+          "source_vertex_id": 49,
+          "source_edge_id": null,
+          "edge_parameter": null
+        },
+        {
+          "distance": 0.5741477454542501,
+          "kind": "VERTEX",
+          "source_vertex_id": 1,
+          "source_edge_id": null,
+          "edge_parameter": null
+        }
+      ],
+      "route_segments": [
+        {
+          "edge_id": 87,
+          "source_face_ids": [
+            0,
+            49
+          ]
+        }
+      ],
+      "surfaces": [
+        {
+          "patch_id": 1,
+          "chart_id": 0,
+          "kind": "INTRINSIC",
+          "source_faces": [
+            1,
+            31,
+            32,
+            33,
+            34,
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54,
+            55,
+            56,
+            57
+          ],
+          "cap_sites": [
+            {
+              "site_index": 9,
+              "edge_id": 55,
+              "point_a": [
+                2.6362983717979986,
+                -1.0265612990528483
+              ],
+              "point_b": [
+                2.1275983717979985,
+                -0.8852612990528483
+              ]
+            }
+          ],
+          "terminal_vertex_points": [
+            [
+              2.6362983717979986,
+              -1.0265612990528483
+            ],
+            [
+              2.6362983717979986,
+              -1.0265612990528483
+            ]
+          ],
+          "guide_vertex_points": {
+            "1": [
+              [
+                2.7104983717979985,
+                -1.5958612990528485
+              ]
+            ],
+            "49": [
+              [
+                2.6362983717979986,
+                -1.0265612990528483
+              ],
+              [
+                2.6362983717979986,
+                -1.0265612990528483
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "terminal": [
+        59,
+        83
+      ],
+      "source_face_ids": [
+        29
+      ],
+      "patch_ids": [
+        3
+      ],
+      "guide_edge_id": 85,
+      "guide_vertex_ids": [
+        39,
+        59
+      ],
+      "route_stations": [
+        {
+          "distance": 0.0,
+          "kind": "VERTEX",
+          "source_vertex_id": 59,
+          "source_edge_id": null,
+          "edge_parameter": null
+        },
+        {
+          "distance": 1.6,
+          "kind": "EDGE",
+          "source_vertex_id": null,
+          "source_edge_id": 85,
+          "edge_parameter": 0.6325601361023361
+        }
+      ],
+      "route_segments": [
+        {
+          "edge_id": 85,
+          "source_face_ids": [
+            29,
+            85
+          ]
+        }
+      ],
+      "surfaces": [
+        {
+          "patch_id": 3,
+          "chart_id": 0,
+          "kind": "INTRINSIC",
+          "source_faces": [
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29
+          ],
+          "cap_sites": [
+            {
+              "site_index": 9,
+              "edge_id": 83,
+              "point_a": [
+                0.6786737743753379,
+                5.64301286964608
+              ],
+              "point_b": [
+                0.6101737743753379,
+                5.079112869646081
+              ]
+            }
+          ],
+          "terminal_vertex_points": [
+            [
+              0.6786737743753379,
+              5.64301286964608
+            ]
+          ],
+          "guide_vertex_points": {
+            "39": [
+              [
+                5.001373774375338,
+                5.118012869646081
+              ],
+              [
+                5.001373774375338,
+                5.118012869646081
+              ]
+            ],
+            "59": [
+              [
+                0.6786737743753379,
+                5.64301286964608
+              ]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "terminal": [
+        59,
+        83
+      ],
+      "source_face_ids": [
+        31,
+        33
+      ],
+      "patch_ids": [
+        1
+      ],
+      "guide_edge_id": 88,
+      "guide_vertex_ids": [
+        20,
+        59
+      ],
+      "route_stations": [
+        {
+          "distance": 0.0,
+          "kind": "VERTEX",
+          "source_vertex_id": 59,
+          "source_edge_id": null,
+          "edge_parameter": null
+        },
+        {
+          "distance": 0.5521240592852846,
+          "kind": "VERTEX",
+          "source_vertex_id": 20,
+          "source_edge_id": null,
+          "edge_parameter": null
+        }
+      ],
+      "route_segments": [
+        {
+          "edge_id": 88,
+          "source_face_ids": [
+            31,
+            85
+          ]
+        }
+      ],
+      "surfaces": [
+        {
+          "patch_id": 1,
+          "chart_id": 0,
+          "kind": "INTRINSIC",
+          "source_faces": [
+            1,
+            31,
+            32,
+            33,
+            34,
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51,
+            52,
+            53,
+            54,
+            55,
+            56,
+            57
+          ],
+          "cap_sites": [
+            {
+              "site_index": 2,
+              "edge_id": 83,
+              "point_a": [
+                -0.20990162820200164,
+                2.601738700947152
+              ],
+              "point_b": [
+                -0.11810162820200176,
+                3.162338700947152
+              ]
+            }
+          ],
+          "terminal_vertex_points": [
+            [
+              -0.11810162820200176,
+              3.162338700947152
+            ],
+            [
+              -0.11810162820200176,
+              3.162338700947152
+            ]
+          ],
+          "guide_vertex_points": {
+            "20": [
+              [
+                -0.6203016282020017,
+                3.391738700947152
+              ]
+            ],
+            "59": [
+              [
+                -0.11810162820200176,
+                3.162338700947152
+              ],
+              [
+                -0.11810162820200176,
+                3.162338700947152
+              ]
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "evaluations": [
+    {
+      "width": 0.4,
+      "face_count": 46
+    },
+    {
+      "width": 0.8,
+      "face_count": 47
+    }
+  ],
+  "sagging_saved_selection": [
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    11
+  ],
+  "sagging_saved_backend": "INTRINSIC_DEVELOPABLE:1c/8e | RailUnsupported[RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR:x1]",
+  "sagging_saved_terminal_routing": [
+    "component=0 patch=0 terminal=v4/e3 faces=17,19 choice=PCHAIN 2 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+    "component=0 patch=0 terminal=v11/e9 faces=11,16 choice=PCHAIN 10 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+    "component=0 patch=1 terminal=v4/e3 faces=4 choice=PCHAIN 2 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+    "component=0 patch=1 terminal=v11/e9 faces=2 choice=PCHAIN 24,19 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+  ],
+  "sagging_saved_evaluations": [
+    {
+      "width": 0.4,
+      "face_count": 51
+    },
+    {
+      "width": 0.8,
+      "face_count": 54
+    }
+  ],
+  "sagging_single_edge_routes": [
+    {
+      "selected_edge_id": 0,
+      "backend_summary": "RAIL_PLANAR:1c/1e",
+      "routing": [
+        "component=0 patch=0 terminal=v0/e0 faces=17,18,19 choice=PCHAIN 1 backend=RAIL_PLANAR plan=ROUTE",
+        "component=0 patch=0 terminal=v24/e0 faces=0,18,20 choice=PCHAIN 38 backend=RAIL_PLANAR plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 1,
+      "backend_summary": "RAIL_PLANAR:1c/1e",
+      "routing": [
+        "component=0 patch=0 terminal=v0/e1 faces=17,18,19 choice=PCHAIN 0 backend=RAIL_PLANAR plan=ROUTE",
+        "component=0 patch=0 terminal=v1/e1 faces=17 choice=PCHAIN 2,3 backend=RAIL_PLANAR plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 2,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_CURVED_PENDING_R3:x1]",
+      "routing": [
+        "component=0 patch=0 terminal=v1/e2 faces=17 choice=PCHAIN 1 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=0 terminal=v4/e2 faces=17,19 choice=PCHAIN 3,4 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v1/e2 faces=1 choice=PCHAIN 21 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v4/e2 faces=1 choice=PCHAIN 3,4 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 3,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_CURVED_PENDING_R3:x1]",
+      "routing": [
+        "component=0 patch=0 terminal=v4/e3 faces=17,19 choice=PCHAIN 2 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=0 terminal=v5/e3 faces=0,18,19 choice=PCHAIN 4,5 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v4/e3 faces=4 choice=PCHAIN 2 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v5/e3 faces=4 choice=PCHAIN 4,5 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 4,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_CURVED_PENDING_R3:x1]",
+      "routing": [
+        "component=0 patch=0 terminal=v5/e4 faces=0,18,19 choice=PCHAIN 3,2 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=0 terminal=v6/e4 faces=0,15,20 choice=PCHAIN 5 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v5/e4 faces=6 choice=PCHAIN 3,2 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v6/e4 faces=6 choice=PCHAIN 5 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 5,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_CURVED_PENDING_R3:x1]",
+      "routing": [
+        "component=0 patch=0 terminal=v6/e5 faces=22 choice=PCHAIN 4,3 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=0 terminal=v7/e5 faces=13,14,22 choice=PCHAIN 11 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v6/e5 faces=9 choice=PCHAIN 4,3 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v7/e5 faces=9 choice=PCHAIN 11 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 6,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_CURVED_PENDING_R3:x1]",
+      "routing": [
+        "component=0 patch=0 terminal=v3/e6 faces=13 choice=PCHAIN 11 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=0 terminal=v8/e6 faces=13,14 choice=PCHAIN 7,8 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v3/e6 faces=3,10 choice=PCHAIN 11 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v8/e6 faces=10 choice=PCHAIN 7,8 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 7,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR:x1]",
+      "routing": [
+        "component=0 patch=0 terminal=v8/e7 faces=13,14 choice=PCHAIN 6 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=0 terminal=v9/e7 faces=14,22 choice=PCHAIN 8,9 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v8/e7 faces=5 choice=PCHAIN 6 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v9/e7 faces=5 choice=PCHAIN 8,9 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 8,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR:x1]",
+      "routing": [
+        "component=0 patch=0 terminal=v9/e8 faces=12,15 choice=PCHAIN 7,6 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=0 terminal=v10/e8 faces=11,12 choice=PCHAIN 9 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v9/e8 faces=8 choice=PCHAIN 7,6 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v10/e8 faces=8 choice=PCHAIN 9 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 9,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR:x1]",
+      "routing": [
+        "component=0 patch=0 terminal=v10/e9 faces=11,12 choice=PCHAIN 8,7 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=0 terminal=v11/e9 faces=11,16 choice=PCHAIN 10 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v10/e9 faces=2 choice=PCHAIN 8,7 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v11/e9 faces=2 choice=PCHAIN 24,19 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 10,
+      "backend_summary": "RAIL_PLANAR:1c/1e",
+      "routing": [
+        "component=0 patch=0 terminal=v2/e10 faces=16 choice=PCHAIN 34 backend=RAIL_PLANAR plan=ROUTE",
+        "component=0 patch=0 terminal=v11/e10 faces=11,16 choice=PCHAIN 9,8 backend=RAIL_PLANAR plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 11,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_CURVED_PENDING_R3:x1]",
+      "routing": [
+        "component=0 patch=0 terminal=v3/e11 faces=13 choice=PCHAIN 6 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=0 terminal=v7/e11 faces=13,14,22 choice=PCHAIN 5 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v3/e11 faces=7,21 choice=PCHAIN 6 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v7/e11 faces=21 choice=PCHAIN 5 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 12,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_CURVED_PENDING_R3:x1]",
+      "routing": [
+        "component=0 patch=1 terminal=v12/e12 faces=1 choice=PCHAIN 21 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v13/e12 faces=1 choice=PCHAIN 13,14 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 13,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_CURVED_PENDING_R3:x1]",
+      "routing": [
+        "component=0 patch=1 terminal=v13/e13 faces=4 choice=PCHAIN 12 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v14/e13 faces=4 choice=PCHAIN 14,15 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 14,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_CURVED_PENDING_R3:x1]",
+      "routing": [
+        "component=0 patch=1 terminal=v14/e14 faces=6 choice=PCHAIN 13,12 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v15/e14 faces=6 choice=PCHAIN 15 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 15,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_CURVED_PENDING_R3:x1]",
+      "routing": [
+        "component=0 patch=1 terminal=v15/e15 faces=9 choice=PCHAIN 14,13 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v16/e15 faces=9 choice=PCHAIN 20,16 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 16,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_CURVED_PENDING_R3:x1]",
+      "routing": [
+        "component=0 patch=1 terminal=v17/e16 faces=3 choice=PCHAIN 20,15 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v18/e16 faces=3,10 choice=PCHAIN 17,18 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 17,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR:x1]",
+      "routing": [
+        "component=0 patch=1 terminal=v18/e17 faces=5 choice=PCHAIN 16,20 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v19/e17 faces=5 choice=PCHAIN 18 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 18,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR:x1]",
+      "routing": [
+        "component=0 patch=1 terminal=v19/e18 faces=8 choice=PCHAIN 17,16 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v20/e18 faces=8 choice=PCHAIN 19 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 19,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR:x1]",
+      "routing": [
+        "component=0 patch=1 terminal=v20/e19 faces=2 choice=PCHAIN 18 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v21/e19 faces=2 choice=PCHAIN 24 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 20,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_CURVED_PENDING_R3:x1]",
+      "routing": [
+        "component=0 patch=1 terminal=v16/e20 faces=7,21 choice=PCHAIN 15 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v17/e20 faces=7 choice=PCHAIN 16,17 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 21,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_CURVED_OWNER_UNSUPPORTED:x1]",
+      "routing": [
+        "component=0 patch=1 terminal=v1/e21 faces=1 choice=PCHAIN 2,3 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v12/e21 faces=1 choice=PCHAIN 12,13 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 24,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR:x1]",
+      "routing": [
+        "component=0 patch=1 terminal=v11/e24 faces=2 choice=PCHAIN 9,8 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=1 terminal=v21/e24 faces=2 choice=PCHAIN 19 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 33,
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/1e | RailUnsupported[RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR:x1]",
+      "routing": [
+        "component=0 patch=0 terminal=v22/e33 faces=15,20 choice=PCHAIN 38 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+        "component=0 patch=0 terminal=v23/e33 faces=11,12,15,16 choice=PCHAIN 34 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 34,
+      "backend_summary": "RAIL_PLANAR:1c/1e",
+      "routing": [
+        "component=0 patch=0 terminal=v2/e34 faces=16 choice=PCHAIN 10 backend=RAIL_PLANAR plan=ROUTE",
+        "component=0 patch=0 terminal=v23/e34 faces=11,12,15,16 choice=PCHAIN 33 backend=RAIL_PLANAR plan=ROUTE"
+      ]
+    },
+    {
+      "selected_edge_id": 38,
+      "backend_summary": "RAIL_PLANAR:1c/1e",
+      "routing": [
+        "component=0 patch=0 terminal=v22/e38 faces=15,20 choice=PCHAIN 33 backend=RAIL_PLANAR plan=ROUTE",
+        "component=0 patch=0 terminal=v24/e38 faces=0,18,20 choice=PCHAIN 0 backend=RAIL_PLANAR plan=ROUTE"
+      ]
+    }
+  ]
+}

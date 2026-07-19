@@ -2354,6 +2354,183 @@ def test_a11_cap_is_tangent_aligned_and_has_deterministic_uv():
     assert component.v_origin == pytest.approx(4.0)
 
 
+def test_rf19_production_cap_reads_terminal_route_station_extent():
+    site = decal_voronoi._PatchVoronoiSite(
+        patch_id=0,
+        edge_index=500,
+        vert_a=0,
+        vert_b=1,
+        source_a=Vector((0.0, 0.0, 0.0)),
+        source_b=Vector((2.0, 0.0, 0.0)),
+        point_a=(0.0, 0.0),
+        point_b=(2.0, 0.0),
+        arc_start=0.0,
+        segment_length=2.0,
+        uv_sign=1.0,
+        inward_normal=(0.0, 1.0),
+    )
+    corner = decal_voronoi.CornerSpec(
+        vert_index=0,
+        point=(0.0, 0.0),
+        incident_sites=(0,),
+        ordered_sites=(0,),
+        turn_sign=0.0,
+        interior_angle=pi,
+        extrusion_angle=pi,
+        is_convex=False,
+        miter_ratio=1.0,
+    )
+    guide_length = sqrt(5.0)
+    domain = decal_voronoi.DecalSurfaceDomain(
+        patch_id=0,
+        kind="PLANAR",
+        origin=Vector((0.0, 0.0, 0.0)),
+        reference_normal=Vector((0.0, 0.0, 1.0)),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+        boundary_triangles=(((0.0, 0.0), (2.0, 0.0), (1.0, 2.0)),),
+        planar_source_vertices=((0, (0.0, 0.0)), (2, (1.0, 2.0))),
+        planar_source_edges=((900, 0, 2, (0.0, 0.0), (1.0, 2.0)),),
+    )
+    surface = SimpleNamespace(
+        patch_id=0,
+        domain=domain,
+        sites=(site,),
+        corners=(corner,),
+    )
+    route = SimpleNamespace(
+        route_id=9,
+        stations=(
+            SimpleNamespace(
+                station_index=0,
+                distance=0.0,
+                kind=SimpleNamespace(value="VERTEX"),
+                source_vertex_id=0,
+                source_edge_id=None,
+                edge_parameter=None,
+            ),
+            SimpleNamespace(
+                station_index=1,
+                distance=guide_length,
+                kind=SimpleNamespace(value="VERTEX"),
+                source_vertex_id=2,
+                source_edge_id=None,
+                edge_parameter=None,
+            ),
+        ),
+        segments=(
+            SimpleNamespace(from_station_index=0, to_station_index=1),
+        ),
+    )
+    rail_plan = SimpleNamespace(
+        routes=(route,),
+        edges=(
+            SimpleNamespace(edge_id=900, vertex_ids=(0, 2)),
+        ),
+    )
+    terminal = SimpleNamespace(
+        backend="PATCH_VORONOI",
+        patch_id=0,
+        choice="PCHAIN",
+        spine_vertex_id=0,
+        spine_edge_id=500,
+        route_id=9,
+        edge_ids=(900,),
+    )
+
+    consumed = set()
+    narrow = decal_voronoi._surface_terminal_bridge_points(
+        surface,
+        (terminal,),
+        rail_plan,
+        alpha=0.25,
+        consumed_terminal_ids=consumed,
+    )[(0, 500)]
+    wide = decal_voronoi._surface_terminal_bridge_points(
+        surface, (terminal,), rail_plan, alpha=0.75
+    )[(0, 500)]
+
+    assert Vector(wide).normalized().dot(Vector((1.0, 2.0)).normalized()) \
+        == pytest.approx(1.0)
+    assert Vector(narrow).length == pytest.approx(0.25)
+    assert Vector(wide).length == pytest.approx(0.75)
+    assert consumed == {(0, 0, 500, 9)}
+    bridged = decal_voronoi._cap_crop_components(
+        surface, corner, alpha=0.75, guide_point=wide
+    )[0]
+    assert corner.point in bridged.points
+    assert wide in bridged.points
+    baseline = decal_voronoi._cap_crop_components(
+        surface, corner, alpha=0.75
+    )[0]
+    assert baseline == decal_voronoi._cap_crop_components(
+        surface, corner, alpha=0.75, guide_point=None
+    )[0]
+    perpendicular = SimpleNamespace(**{**vars(terminal), "choice": "PERP"})
+    assert decal_voronoi._surface_terminal_bridge_points(
+        surface, (perpendicular,), rail_plan, alpha=0.75
+    ) == {}
+
+
+def test_rf19_non_perp_terminal_cannot_be_silently_unconsumed():
+    terminal = SimpleNamespace(
+        backend="PATCH_VORONOI",
+        patch_id=4,
+        choice="PCHAIN",
+        spine_vertex_id=10,
+        spine_edge_id=20,
+        route_id=30,
+        edge_ids=(40,),
+    )
+    plan = SimpleNamespace(
+        offset=0.0,
+        max_lateral_lift_ratio=0.0,
+        surfaces=(),
+        active_triangle_ids=lambda _alpha: (),
+    )
+
+    with pytest.raises(
+        RuntimeError, match="TERMINAL_BRIDGE_GUIDE_UNCONSUMED"
+    ):
+        evaluate_patch_voronoi_plan(
+            plan,
+            width=0.5,
+            preview=True,
+            terminal_routing=(terminal,),
+            rail_plan=SimpleNamespace(routes=(), edges=()),
+        )
+
+
+def test_rf19_terminal_guide_does_not_change_non_cap_corner_policy():
+    graph, edge_indices = _door_opening_graph()
+    plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
+    surface = plan.surfaces[0]
+    corner = next(
+        candidate
+        for candidate in surface.corners
+        if len(candidate.incident_sites) == 2
+    )
+    settings = decal_voronoi.CornerRuntimeSettings()
+
+    baseline = decal_voronoi._corner_crop_components(
+        surface,
+        corner,
+        decal_voronoi._CornerPolicy.MITER,
+        0.25,
+        settings,
+    )
+    with_terminal_guide = decal_voronoi._corner_crop_components(
+        surface,
+        corner,
+        decal_voronoi._CornerPolicy.MITER,
+        0.25,
+        settings,
+        terminal_guide=(123.0, 456.0),
+    )
+
+    assert with_terminal_guide == baseline
+
+
 def test_a11_valence_n_junction_uses_ordered_non_reflex_sectors():
     directions = ((1.0, 0.0), (0.0, 1.0), (-1.0, 0.0))
     sites = tuple(
