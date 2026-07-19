@@ -12,6 +12,8 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from math import sqrt
 
+from .constants import DECAL_COPLANAR_DOT
+
 
 class RailStationKind(str, Enum):
     """Способ привязки станции к source topology."""
@@ -39,6 +41,15 @@ class RailEventKind(str, Enum):
     MARK = "MARK"
     PCHAIN = "PCHAIN"
     ALPHA = "ALPHA"
+
+
+class RailStartSectorKind(str, Enum):
+    """RR1b-классификация веерного сектора в routing IR."""
+
+    ROUTE = "ROUTE"
+    DIRECT = "DIRECT"
+    DAM = "DAM"
+    CORNER = "CORNER"
 
 
 @dataclass(frozen=True, order=True)
@@ -72,6 +83,7 @@ class RailSourceEdge:
     is_pchain: bool = False
     is_spine: bool = False
     is_marked: bool = False
+    is_fold: bool = False
 
 
 @dataclass(frozen=True)
@@ -135,6 +147,18 @@ class RailEvent:
 
 
 @dataclass(frozen=True)
+class RailStartSector:
+    """Топологический сектор между spine/boundary-делимитерами."""
+
+    sector_id: int
+    kind: RailStartSectorKind
+    spine_vertex_id: int
+    delimiter_edge_ids: tuple[int, ...]
+    internal_edge_ids: tuple[int, ...]
+    source_face_ids: tuple[int, ...]
+
+
+@dataclass(frozen=True)
 class DecalRailPlan:
     """Immutable R0 ledger; evaluator не имеет права читать его до R1."""
 
@@ -144,6 +168,7 @@ class DecalRailPlan:
     spine_uses: tuple[RailSpineUse, ...]
     routes: tuple[RailRoute, ...]
     events: tuple[RailEvent, ...]
+    start_sectors: tuple[RailStartSector, ...]
     alpha_budget: float
 
     @property
@@ -204,6 +229,7 @@ class _RailTopology:
     face_by_id: dict
     vertex_edges: dict
     edge_faces: dict
+    face_failures: dict
 
 
 def _point_tuple(value):
@@ -310,24 +336,30 @@ def _canonical_face_cycle(
             edge_indices=edge_ids,
             details=(("face_id", int(face_id)),),
         )
-    oriented_cycles = [
-        cycle
-        for cycle in cycles
-        if (
-            _cycle_normal(cycle, vertex_positions) is not None
-            and _dot3(
-                _cycle_normal(cycle, vertex_positions),
-                oriented_normal,
-            ) > 0.0
-        )
-    ]
-    if len(oriented_cycles) != 1:
-        raise _RailCompileError(
-            "SOURCE_FACE_ORIENTATION_INVALID",
-            edge_indices=edge_ids,
-            details=(("face_id", int(face_id)),),
-        )
-    vertex_cycle = oriented_cycles[0]
+    if oriented_normal is None:
+        # Provisional winding нужен до определения rail-footprint. Он не
+        # легализует грань: именованный отказ хранится отдельно и применяется
+        # только если materialization действительно коснётся этой грани.
+        vertex_cycle = min(cycles)
+    else:
+        oriented_cycles = [
+            cycle
+            for cycle in cycles
+            if (
+                _cycle_normal(cycle, vertex_positions) is not None
+                and _dot3(
+                    _cycle_normal(cycle, vertex_positions),
+                    oriented_normal,
+                ) > 0.0
+            )
+        ]
+        if len(oriented_cycles) != 1:
+            raise _RailCompileError(
+                "SOURCE_FACE_ORIENTATION_INVALID",
+                edge_indices=edge_ids,
+                details=(("face_id", int(face_id)),),
+            )
+        vertex_cycle = oriented_cycles[0]
     ordered_edges = tuple(
         edge_for_pair[
             frozenset((vertex_cycle[index], vertex_cycle[(index + 1) % len(vertex_cycle)]))
@@ -408,6 +440,7 @@ def _build_source_topology(
     edge_face_ids = defaultdict(set)
     face_edge_ids = defaultdict(set)
     face_triangle_normals = defaultdict(list)
+    face_triangle_vertices = defaultdict(set)
 
     for patch_id in sorted(graph.nodes):
         node = graph.nodes[patch_id]
@@ -459,21 +492,21 @@ def _build_source_topology(
                 vertex_positions[vertex_id]
                 for vertex_id in global_triangle
             )
+            face_triangle_vertices[face_id].update(global_triangle)
             triangle_normal = _normalized3(
                 _cross3(
                     _sub3(point_b, point_a),
                     _sub3(point_c, point_a),
                 )
             )
-            if triangle_normal is None:
-                raise _RailCompileError(
-                    "SOURCE_TRIANGLE_DEGENERATE",
-                    vertex_indices=global_triangle,
-                    details=(("face_id", face_id),),
+            # RV2: нулевая fan-тройка внутри валидного polygon face — всего
+            # лишь артефакт pivot-триангуляции. Нормаль грани собирается из
+            # остальных треугольников; отказ допустим лишь если вся грань
+            # действительно имеет нулевую площадь.
+            if triangle_normal is not None:
+                face_triangle_normals[face_id].append(
+                    (tuple(global_triangle), triangle_normal)
                 )
-            face_triangle_normals[face_id].append(
-                (tuple(global_triangle), triangle_normal)
-            )
             for opposite_slot, edge_id in enumerate(physical_edges):
                 edge_id = int(edge_id)
                 if edge_id < 0:
@@ -507,6 +540,7 @@ def _build_source_topology(
         )
 
     faces = []
+    face_failures = {}
     for face_id in sorted(face_edge_ids):
         triangle_normals = tuple(
             normal
@@ -515,39 +549,95 @@ def _build_source_topology(
                 key=lambda item: item[0],
             )
         )
-        normal_sum = tuple(
-            sum(normal[axis] for normal in triangle_normals)
-            for axis in range(3)
-        )
-        oriented_normal = _normalized3(normal_sum)
-        if oriented_normal is None:
-            raise _RailCompileError(
-                "SOURCE_FACE_ORIENTATION_INVALID",
-                edge_indices=face_edge_ids[face_id],
-                details=(("face_id", int(face_id)),),
+        try:
+            provisional_cycle, provisional_edges = _canonical_face_cycle(
+                face_id,
+                face_edge_ids[face_id],
+                edge_vertices,
+                vertex_positions,
+                None,
             )
-        vertex_cycle, ordered_edges = _canonical_face_cycle(
-            face_id,
-            face_edge_ids[face_id],
-            edge_vertices,
-            vertex_positions,
-            oriented_normal,
-        )
+        except _RailCompileError as exc:
+            face_failures[face_id] = exc.failure
+            provisional_cycle = tuple(
+                sorted(
+                    {
+                        vertex_id
+                        for edge_id in face_edge_ids[face_id]
+                        for vertex_id in edge_vertices[edge_id]
+                    }
+                )
+            )
+            provisional_edges = tuple(sorted(face_edge_ids[face_id]))
+
+        if triangle_normals:
+            normal_sum = tuple(
+                sum(normal[axis] for normal in triangle_normals)
+                for axis in range(3)
+            )
+            oriented_normal = _normalized3(normal_sum)
+            if oriented_normal is None:
+                face_failures.setdefault(
+                    face_id,
+                    RailCompileFailure(
+                        reason="SOURCE_FACE_ORIENTATION_INVALID",
+                        edge_indices=tuple(sorted(face_edge_ids[face_id])),
+                        details=(("face_id", int(face_id)),),
+                    ),
+                )
+                oriented_normal = triangle_normals[0]
+        else:
+            oriented_normal = None
+            face_failures.setdefault(
+                face_id,
+                RailCompileFailure(
+                    reason="SOURCE_TRIANGLE_DEGENERATE",
+                    edge_indices=tuple(sorted(face_edge_ids[face_id])),
+                    vertex_indices=tuple(
+                        sorted(face_triangle_vertices[face_id])
+                    ),
+                    details=(("face_id", int(face_id)),),
+                ),
+            )
+
+        if oriented_normal is None:
+            vertex_cycle = provisional_cycle
+            ordered_edges = provisional_edges
+            source_normal = (0.0, 0.0, 0.0)
+        else:
+            try:
+                vertex_cycle, ordered_edges = _canonical_face_cycle(
+                    face_id,
+                    face_edge_ids[face_id],
+                    edge_vertices,
+                    vertex_positions,
+                    oriented_normal,
+                )
+            except _RailCompileError as exc:
+                face_failures.setdefault(face_id, exc.failure)
+                vertex_cycle = provisional_cycle
+                ordered_edges = provisional_edges
+            source_normal = oriented_normal
         faces.append(
             RailSourceFace(
                 face_id=int(face_id),
                 vertex_ids=vertex_cycle,
                 edge_ids=ordered_edges,
-                normal=oriented_normal,
-                planarity_min_dot=min(
-                    _dot3(oriented_normal, triangle_normal)
-                    for triangle_normal in triangle_normals
+                normal=source_normal,
+                planarity_min_dot=(
+                    min(
+                        _dot3(source_normal, triangle_normal)
+                        for triangle_normal in triangle_normals
+                    )
+                    if triangle_normals
+                    else 0.0
                 ),
             )
         )
 
     chain_records = _source_chain_records(graph)
     pchain_edges = set(chain_records)
+    face_normal_by_id = {face.face_id: face.normal for face in faces}
     vertex_by_id = {
         vertex_id: RailSourceVertex(vertex_id, vertex_positions[vertex_id])
         for vertex_id in sorted(vertex_positions)
@@ -555,11 +645,20 @@ def _build_source_topology(
     edges = []
     for edge_id in sorted(edge_vertices):
         endpoints = edge_vertices[edge_id]
+        incident_faces = tuple(sorted(edge_face_ids[edge_id]))
+        is_fold = (
+            len(incident_faces) == 2
+            and _dot3(
+                face_normal_by_id[incident_faces[0]],
+                face_normal_by_id[incident_faces[1]],
+            )
+            <= DECAL_COPLANAR_DOT
+        )
         edges.append(
             RailSourceEdge(
                 edge_id=edge_id,
                 vertex_ids=endpoints,
-                face_indices=tuple(sorted(edge_face_ids[edge_id])),
+                face_indices=incident_faces,
                 length=_edge_length(
                     vertex_by_id[endpoints[0]],
                     vertex_by_id[endpoints[1]],
@@ -567,6 +666,7 @@ def _build_source_topology(
                 is_pchain=edge_id in pchain_edges,
                 is_spine=edge_id in selected_edge_ids,
                 is_marked=edge_id in marked_edge_ids,
+                is_fold=is_fold,
             )
         )
     edge_by_id = {edge.edge_id: edge for edge in edges}
@@ -591,7 +691,23 @@ def _build_source_topology(
             edge_id: frozenset(face_ids)
             for edge_id, face_ids in edge_face_ids.items()
         },
+        face_failures=face_failures,
     )
+
+
+def _validate_rail_footprint(topology, face_ids):
+    """RV1: применяет отложенные source-face отказы только в footprint."""
+
+    for face_id in sorted(set(face_ids)):
+        failure = topology.face_failures.get(face_id)
+        if failure is None:
+            continue
+        raise _RailCompileError(
+            failure.reason,
+            edge_indices=failure.edge_indices,
+            vertex_indices=failure.vertex_indices,
+            details=failure.details,
+        )
 
 
 def _other_vertex(edge, vertex_id):
@@ -652,6 +768,85 @@ def _start_side_groups(topology, spine_vertex_id, spine_edges):
     )
 
 
+def _faces_are_one_planar_region(topology, face_ids):
+    """RP2: тот же DECAL_COPLANAR_DOT, без rail-local epsilon."""
+
+    face_ids = tuple(sorted(set(face_ids)))
+    if len(face_ids) < 2:
+        return True
+    reference = topology.face_by_id[face_ids[0]].normal
+    return all(
+        _dot3(reference, topology.face_by_id[face_id].normal)
+        > DECAL_COPLANAR_DOT
+        for face_id in face_ids[1:]
+    )
+
+
+def _start_sector_groups(
+    topology,
+    spine_vertex_id,
+    spine_edges,
+    boundary_edges,
+):
+    """RR1a: режет веер вершины spine/boundary-делимитерами на сектора."""
+
+    incident_edges = tuple(
+        sorted(topology.vertex_edges.get(spine_vertex_id, ()))
+    )
+    incident_faces = {
+        face_id
+        for edge_id in incident_edges
+        for face_id in topology.edge_faces.get(edge_id, ())
+    }
+    delimiters = set(spine_edges).union(boundary_edges)
+    neighbors = {face_id: set() for face_id in incident_faces}
+    for edge_id in incident_edges:
+        if edge_id in delimiters:
+            continue
+        edge_faces = tuple(
+            sorted(
+                set(topology.edge_faces.get(edge_id, ())).intersection(
+                    incident_faces
+                )
+            )
+        )
+        for index, face_id in enumerate(edge_faces):
+            neighbors[face_id].update(edge_faces[:index])
+            neighbors[face_id].update(edge_faces[index + 1 :])
+
+    sectors = []
+    pending = set(incident_faces)
+    while pending:
+        seed = min(pending)
+        sector = set()
+        frontier = [seed]
+        while frontier:
+            face_id = frontier.pop()
+            if face_id in sector:
+                continue
+            sector.add(face_id)
+            frontier.extend(
+                sorted(neighbors[face_id].difference(sector), reverse=True)
+            )
+        pending.difference_update(sector)
+        internal_edges = tuple(
+            edge_id
+            for edge_id in incident_edges
+            if edge_id not in delimiters
+            and topology.edge_faces.get(edge_id, frozenset())
+            and set(topology.edge_faces[edge_id]).issubset(sector)
+        )
+        sector_delimiters = tuple(
+            edge_id
+            for edge_id in sorted(delimiters)
+            if set(topology.edge_faces.get(edge_id, ())).intersection(sector)
+        )
+        sectors.append(
+            (tuple(sorted(sector)), internal_edges, sector_delimiters)
+        )
+    return tuple(sorted(sectors))
+
+
 def _automatic_continuation(topology, vertex_id, incoming_edge_id):
     incident_edges = topology.vertex_edges.get(vertex_id, ())
     incident_faces = {
@@ -670,6 +865,7 @@ def _automatic_continuation(topology, vertex_id, incoming_edge_id):
         edge_id
         for edge_id in incident_edges
         if edge_id != incoming_edge_id
+        and topology.edge_by_id[edge_id].is_fold
         and not topology.edge_faces.get(edge_id, frozenset()).intersection(
             incoming_faces
         )
@@ -807,7 +1003,7 @@ def _trace_route(
                 current_edge_id,
             )
             if continuation is None:
-                return finish(RailTermination.DAM, RailEventKind.DAM)
+                return finish(RailTermination.PCHAIN, RailEventKind.PCHAIN)
             current_vertex_id = next_vertex_id
             current_edge_id = continuation
             continue
@@ -817,6 +1013,7 @@ def _trace_route(
             for edge_id in topology.vertex_edges.get(next_vertex_id, ())
             if edge_id != current_edge_id
             and topology.edge_by_id[edge_id].is_marked
+            and topology.edge_by_id[edge_id].is_fold
             and not topology.edge_by_id[edge_id].is_pchain
         ]
         if len(marked) == 1:
@@ -970,6 +1167,7 @@ def compile_decal_rail_plan(
             (),
             (),
             (),
+            (),
             alpha_budget,
         )
 
@@ -1011,9 +1209,16 @@ def compile_decal_rail_plan(
         for vertex_id in edge.vertex_ids
     }
     spine_vertices = frozenset(selected_by_vertex)
+    rr_face_ids = {
+        face_id
+        for spine_vertex_id in spine_vertices
+        for edge_id in topology.vertex_edges.get(spine_vertex_id, ())
+        for face_id in topology.edge_faces.get(edge_id, ())
+    }
 
     route_seeds = []
     start_dams = []
+    start_sectors = []
     for spine_vertex_id in sorted(selected_by_vertex):
         spine_edges = tuple(sorted(selected_by_vertex[spine_vertex_id]))
         spine_faces = {
@@ -1047,22 +1252,79 @@ def compile_decal_rail_plan(
             and not topology.edge_by_id[edge_id].is_pchain
         )
         used_candidates = set(boundary_edges)
-        side_groups = _start_side_groups(
-            topology,
-            spine_vertex_id,
-            spine_edges,
+        sectorized_start = (
+            len(spine_edges) == 2
+            or (len(spine_edges) == 1 and bool(boundary_edges))
         )
-        for side_faces, candidates in side_groups:
+        if sectorized_start:
+            side_groups = _start_sector_groups(
+                topology,
+                spine_vertex_id,
+                spine_edges,
+                boundary_edges,
+            )
+        else:
+            side_groups = tuple(
+                (side_faces, candidates, ())
+                for side_faces, candidates in _start_side_groups(
+                    topology,
+                    spine_vertex_id,
+                    spine_edges,
+                )
+            )
+        for side_faces, candidates, delimiters in side_groups:
             used_candidates.update(candidates)
             source_faces = tuple(
                 face_id for face_id in side_faces if face_id not in claimed_faces
             )
             if not source_faces:
                 continue
+            if _faces_are_one_planar_region(topology, side_faces):
+                # RP1: внутренняя triangulation плоскости не рождает ни
+                # route, ни station-0 DAM. Геометрию ведёт in-plane path R1.
+                claimed_faces.update(source_faces)
+                continue
+            spine_delimiters = tuple(
+                edge_id for edge_id in delimiters if edge_id in spine_edges
+            )
+            corner_sector = (
+                sectorized_start
+                and len(spine_delimiters) == 2
+                and len(candidates) != 1
+            )
+            if corner_sector:
+                start_sectors.append(
+                    RailStartSector(
+                        sector_id=len(start_sectors),
+                        kind=RailStartSectorKind.CORNER,
+                        spine_vertex_id=spine_vertex_id,
+                        delimiter_edge_ids=delimiters,
+                        internal_edge_ids=candidates,
+                        source_face_ids=tuple(sorted(side_faces)),
+                    )
+                )
+                claimed_faces.update(source_faces)
+                continue
+            # RR1a: spine+boundary сектор без внутреннего ребра уже
+            # является прямым RM7-руслом между делимитерами.
+            if sectorized_start and not candidates:
+                start_sectors.append(
+                    RailStartSector(
+                        sector_id=len(start_sectors),
+                        kind=RailStartSectorKind.DIRECT,
+                        spine_vertex_id=spine_vertex_id,
+                        delimiter_edge_ids=delimiters,
+                        internal_edge_ids=(),
+                        source_face_ids=tuple(sorted(side_faces)),
+                    )
+                )
+                claimed_faces.update(source_faces)
+                continue
             allowed = tuple(
                 edge_id
                 for edge_id in candidates
                 if not topology.edge_by_id[edge_id].is_pchain
+                and topology.edge_by_id[edge_id].is_fold
             )
             marked = tuple(
                 edge_id
@@ -1075,10 +1337,37 @@ def compile_decal_rail_plan(
             elif len(marked) == 1:
                 chosen = marked[0]
             if chosen is None:
+                if sectorized_start:
+                    start_sectors.append(
+                        RailStartSector(
+                            sector_id=len(start_sectors),
+                            kind=RailStartSectorKind.DAM,
+                            spine_vertex_id=spine_vertex_id,
+                            delimiter_edge_ids=delimiters,
+                            internal_edge_ids=candidates,
+                            source_face_ids=tuple(sorted(side_faces)),
+                        )
+                    )
+                dam_source_faces = tuple(
+                    face_id
+                    for face_id in source_faces
+                    if face_id in spine_faces
+                ) or source_faces
                 start_dams.append(
-                    RailSideKey(spine_vertex_id, -1, source_faces)
+                    RailSideKey(spine_vertex_id, -1, dam_source_faces)
                 )
             else:
+                if sectorized_start:
+                    start_sectors.append(
+                        RailStartSector(
+                            sector_id=len(start_sectors),
+                            kind=RailStartSectorKind.ROUTE,
+                            spine_vertex_id=spine_vertex_id,
+                            delimiter_edge_ids=delimiters,
+                            internal_edge_ids=candidates,
+                            source_face_ids=tuple(sorted(side_faces)),
+                        )
+                    )
                 route_seeds.append(
                     RailRouteKey(
                         RailSideKey(spine_vertex_id, chosen, source_faces)
@@ -1090,6 +1379,8 @@ def compile_decal_rail_plan(
         # заменяет уже найденную противоположную сторону.
         for edge_id in marked_incident:
             if edge_id in used_candidates:
+                continue
+            if not topology.edge_by_id[edge_id].is_fold:
                 continue
             source_faces = tuple(
                 face_id
@@ -1108,20 +1399,8 @@ def compile_decal_rail_plan(
                 )
             )
             claimed_faces.update(source_faces)
-        if not side_groups:
-            source_faces = tuple(
-                sorted(
-                    {
-                        face_id
-                        for edge_id in spine_edges
-                        for face_id in topology.edge_faces.get(edge_id, ())
-                    }.difference(claimed_faces)
-                )
-            )
-            if source_faces:
-                start_dams.append(
-                    RailSideKey(spine_vertex_id, -1, source_faces)
-                )
+        # RP1: свободный endpoint planar-ленты закрывается аналитической
+        # поперечной in-plane границей; topology-only DAM здесь запрещён.
 
     routes = []
     events = []
@@ -1146,6 +1425,12 @@ def compile_decal_rail_plan(
         next_route_id += 1
 
     routes, events = _apply_poles_and_merges(tuple(routes), tuple(events))
+    footprint_face_ids = set(rr_face_ids)
+    for route in routes:
+        footprint_face_ids.update(route.key.side.source_face_ids)
+        for segment in route.segments:
+            footprint_face_ids.update(segment.source_face_ids)
+    _validate_rail_footprint(topology, footprint_face_ids)
     return DecalRailPlan(
         vertices=topology.vertices,
         edges=topology.edges,
@@ -1153,6 +1438,7 @@ def compile_decal_rail_plan(
         spine_uses=tuple(spine_uses),
         routes=routes,
         events=events,
+        start_sectors=tuple(start_sectors),
         alpha_budget=alpha_budget,
     )
 
@@ -1203,6 +1489,8 @@ __all__ = [
     "RailSourceFace",
     "RailSourceVertex",
     "RailSpineUse",
+    "RailStartSector",
+    "RailStartSectorKind",
     "RailStation",
     "RailStationKind",
     "RailTermination",

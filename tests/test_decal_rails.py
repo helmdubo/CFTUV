@@ -110,7 +110,7 @@ def _flow_routes(plan):
     return tuple(route for route in plan.routes if route.key.side.start_edge_id >= 0)
 
 
-def test_r0_regular_quad_spine_traces_two_static_alpha_routes():
+def test_rp_planar_quad_strip_has_no_routes_dams_or_caps():
     graph, edge_ids, vertex_at = _quad_strip()
     selected = tuple(
         edge_ids[tuple(sorted(pair))]
@@ -125,23 +125,14 @@ def test_r0_regular_quad_spine_traces_two_static_alpha_routes():
         selected,
         alpha_budget=1.5,
     )
-    routes = _flow_routes(plan)
-
-    assert len(routes) == 2
-    assert {route.termination for route in routes} == {
-        decal_rails.RailTermination.ALPHA
-    }
-    assert all(route.stations[-1].kind == decal_rails.RailStationKind.EDGE for route in routes)
-    assert all(route.stations[-1].distance == 1.5 for route in routes)
-    assert all(len(route.segments) == len(route.stations) - 1 for route in routes)
-    assert all(route.key.side.source_face_ids for route in routes)
+    assert plan.routes == ()
+    assert plan.events == ()
+    assert plan.start_sectors == ()
     assert all(
-        segment.source_face_ids
-        for route in routes
-        for segment in route.segments
+        not edge.is_fold
+        for edge in plan.edges
+        if edge.edge_id not in selected
     )
-    assert dict(plan.event_counts)["ALPHA"] == 2
-    assert len([route for route in plan.routes if route.key.side.start_edge_id < 0]) == 2
 
 
 def test_r0_reversed_selected_enumeration_is_bit_identical():
@@ -213,7 +204,7 @@ def test_r0_shallow_nonplanar_ngon_normal_is_permutation_stable():
     assert any(face.planarity_min_dot < 1.0 for face in forward.faces)
 
 
-def test_r0_non_quad_ambiguity_is_dam_until_artist_mark_bridges_it():
+def test_rp_planar_topology_noise_and_artist_mark_do_not_create_rails():
     graph, edge_ids, vertex_at = _quad_strip(with_ambiguity=True)
     selected = tuple(
         edge_ids[tuple(sorted(pair))]
@@ -237,25 +228,14 @@ def test_r0_non_quad_ambiguity_is_dam_until_artist_mark_bridges_it():
         alpha_budget=1.75,
         rail_mark_edge_indices=(right_edge,),
     )
-    blocked_right = next(
-        route
-        for route in _flow_routes(blocked)
-        if route.stations[1].source_vertex_id == vertex_at[(1, 1)]
-    )
-    bridged_right = next(
-        route
-        for route in _flow_routes(bridged)
-        if route.stations[1].source_vertex_id == vertex_at[(1, 1)]
-    )
-
-    assert blocked_right.termination == decal_rails.RailTermination.DAM
-    assert blocked_right.stations[-1].source_vertex_id == vertex_at[(1, 1)]
-    assert bridged_right.termination == decal_rails.RailTermination.ALPHA
-    assert bridged_right.stations[-1].kind == decal_rails.RailStationKind.EDGE
-    assert dict(bridged.event_counts)["MARK"] == 1
+    assert blocked.routes == ()
+    assert blocked.events == ()
+    assert bridged.routes == ()
+    assert bridged.events == ()
+    assert bridged.start_sectors == ()
 
 
-def test_r0_conflicting_artist_marks_are_a_visible_dam():
+def test_rp_conflicting_marks_inside_planar_region_are_inert():
     graph, edge_ids, vertex_at = _quad_strip(with_ambiguity=True)
     selected = tuple(
         edge_ids[tuple(sorted(pair))]
@@ -275,20 +255,14 @@ def test_r0_conflicting_artist_marks_are_a_visible_dam():
         alpha_budget=1.75,
         rail_mark_edge_indices=marked,
     )
-    right = next(
-        route
-        for route in _flow_routes(plan)
-        if route.stations[1].source_vertex_id == vertex_at[(1, 1)]
-    )
-
     assert sum(
         vertex_at[(1, 1)] in edge.vertex_ids for edge in plan.edges
     ) == 5
-    assert right.termination == decal_rails.RailTermination.DAM
-    assert right.stations[-1].source_vertex_id == vertex_at[(1, 1)]
+    assert plan.routes == ()
+    assert plan.events == ()
 
 
-def test_r0_artist_mark_can_bridge_missing_start_junction():
+def test_rp_artist_mark_cannot_create_planar_start_route():
     graph, edge_ids, vertex_at = _quad_strip()
     selected_pairs = (
         (vertex_at[(0, 0)], vertex_at[(0, 1)]),
@@ -307,19 +281,12 @@ def test_r0_artist_mark_can_bridge_missing_start_junction():
         alpha_budget=0.5,
         rail_mark_edge_indices=(endpoint_mark,),
     )
-    endpoint_route = next(
-        route
-        for route in _flow_routes(plan)
-        if route.key.side.spine_vertex_id == vertex_at[(0, 0)]
-    )
-
-    assert endpoint_route.key.side.start_edge_id == endpoint_mark
-    assert endpoint_route.termination == decal_rails.RailTermination.ALPHA
-    assert endpoint_route.segments[0].edge_id == endpoint_mark
-    assert endpoint_route.segments[0].source_face_ids
+    assert plan.routes == ()
+    assert plan.events == ()
+    assert plan.start_sectors == ()
 
 
-def test_r0_pchain_boundary_beats_exact_alpha_equality():
+def test_rp_foreign_planar_pchain_is_clip_topology_not_a_route():
     graph, edge_ids, vertex_at = _quad_strip()
     selected = tuple(
         edge_ids[tuple(sorted(pair))]
@@ -343,18 +310,62 @@ def test_r0_pchain_boundary_beats_exact_alpha_equality():
         selected,
         alpha_budget=1.0,
     )
-    right = next(
+    assert plan.routes == ()
+    assert plan.events == ()
+    assert next(edge for edge in plan.edges if edge.edge_id == foreign_edge).is_pchain
+
+
+def test_rf14_rp_sector_fan_keeps_only_the_fold_boundary_route():
+    center = 0
+    spine_a = 1
+    sector_a = 2
+    boundary = 3
+    sector_b = 4
+    spine_b = 5
+    vertices = {
+        center: (0.0, 0.0, 0.0),
+        spine_a: (-1.0, 0.0, 0.0),
+        sector_a: (-1.0, 1.0, 0.0),
+        boundary: (0.0, 1.0, 0.0),
+        sector_b: (0.0, 1.0, 1.0),
+        spine_b: (0.0, 0.0, 1.0),
+    }
+    faces = [
+        (center, spine_a, sector_a),
+        (center, sector_a, boundary),
+        (center, boundary, sector_b),
+        (center, sector_b, spine_b),
+    ]
+    spine_pairs = ((center, spine_a), (center, spine_b))
+    boundary_pair = (center, boundary)
+    graph, edge_ids = _mesh_graph(
+        vertices,
+        faces,
+        spine_pairs,
+        extra_pchain_pairs=(boundary_pair,),
+    )
+    selected = tuple(
+        edge_ids[tuple(sorted(pair))] for pair in spine_pairs
+    )
+    boundary_edge = edge_ids[tuple(sorted(boundary_pair))]
+    plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=2.0,
+    )
+    center_routes = tuple(
         route
-        for route in _flow_routes(plan)
-        if route.stations[-1].source_vertex_id == vertex_at[(1, 1)]
+        for route in plan.routes
+        if route.key.side.spine_vertex_id == center
     )
 
-    assert right.stations[-1].distance == 1.0
-    assert right.termination == decal_rails.RailTermination.PCHAIN
-    assert dict(plan.event_counts)["PCHAIN"] >= 1
+    assert len(center_routes) == 1
+    assert center_routes[0].key.side.start_edge_id == boundary_edge
+    assert plan.start_sectors == ()
+    assert not any(event.kind == decal_rails.RailEventKind.DAM for event in plan.events)
 
 
-def test_r0_closed_fan_has_topological_pole_instead_of_merge():
+def test_rp_closed_planar_fan_has_no_routes_or_poles():
     center = 0
     ring = (1, 2, 3, 4)
     vertices = {
@@ -381,11 +392,9 @@ def test_r0_closed_fan_has_topological_pole_instead_of_merge():
         alpha_budget=3.0,
     )
 
-    assert len(plan.routes) == 4
-    assert all(route.termination == decal_rails.RailTermination.POLE for route in plan.routes)
-    assert all(route.stations[-1].source_vertex_id == center for route in plan.routes)
-    assert dict(plan.event_counts)["POLE"] == 4
-    assert "MERGE" not in dict(plan.event_counts)
+    assert plan.routes == ()
+    assert plan.events == ()
+    assert plan.start_sectors == ()
 
 
 def test_r0_merge_trims_only_later_route_and_keeps_canonical_owner():
@@ -481,7 +490,7 @@ def test_r0_pchain_boundary_cannot_be_relabelled_as_merge():
     assert events == (pchain_event,)
 
 
-def test_r0_public_compile_detects_two_rail_merge():
+def test_rp_public_compile_does_not_invent_merge_in_planar_fans():
     vertices = {
         0: (-1.0, 0.0, 0.0),
         1: (-2.0, -1.0, 0.0),
@@ -506,20 +515,9 @@ def test_r0_public_compile_detects_two_rail_merge():
         selected,
         alpha_budget=4.0,
     )
-    flow_routes = _flow_routes(plan)
-
-    assert len(flow_routes) == 2
-    assert {route.termination for route in flow_routes} == {
-        decal_rails.RailTermination.DAM,
-        decal_rails.RailTermination.MERGE,
-    }
-    merged = next(
-        route
-        for route in flow_routes
-        if route.termination == decal_rails.RailTermination.MERGE
-    )
-    assert merged.stations[-1].source_vertex_id == 6
-    assert dict(plan.event_counts)["MERGE"] == 1
+    assert plan.routes == ()
+    assert plan.events == ()
+    assert plan.start_sectors == ()
 
 
 def test_r0_missing_selected_edge_is_structured_compile_failure():
