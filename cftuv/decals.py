@@ -3249,6 +3249,7 @@ def _compile_rail_geometry_components(
             apex_limit=settings.corner_apex_limit,
             split_angle=settings.corner_acute_split_angle,
             dynamic_corner_bands=settings.dynamic_corner_bands,
+            join_mode=settings.corner_join_mode,
         )
         if geometry_attempt.plan is None:
             failures.extend(geometry_attempt.failures)

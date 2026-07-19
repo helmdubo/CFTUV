@@ -86,6 +86,12 @@ R0+R1+LEGACY-CUT; нижеследующий старый список сохр�
    считается несколькими соседями: совпадающие affine transforms
    дедуплицируются по semantic neighbor; две разные SEGMENT-face остаются
    неоднозначностью без поглощения.
+   **RF24 / Corner Join:** пользовательский режим `MITER|BEVEL` задаёт
+   форму обычных Patch Voronoi углов без recompile. BEVEL = один
+   semantic triangle crop без apex/intersection и независимо от Apex
+   Limit; owner-clipped n-gon триангулируется без смены coverage/UV, так
+   что финальные BEVEL-faces треугольные; default MITER и остальные corner
+   policies не меняются.
 3. **Полевой набор §0d.3b + ярусы §0d.3a** — собрать headless
    прогон по шести объектам, автоскрины в каждый отчёт.
    **Результат:** DONE в R1.2 (`artifacts/decal_r12_field_*.png`,
@@ -917,8 +923,11 @@ git diff --check
 
 - Property id `decal_corner_miter_limit` сохранить для обратной совместимости.
 - UI label и docs изменить на `Apex Limit`.
-- `_CornerPolicy.BEVEL` можно временно сохранить как `RESERVED` для будущего band-дизайна, но `classify_corner_runtime()` не должен возвращать его до P2-семантики.
-- Нельзя молча называть усечённый contour «BEVEL policy», пока не определены его UV и band semantics.
+- Исторический `RESERVED` снят по полевому решению RF24: явный
+  `Corner Join = BEVEL` возвращается только по пользовательскому
+  переключателю и означает один треугольный Patch Voronoi corner-piece.
+  Автоматический переход Apex Limit в BEVEL по-прежнему запрещён:
+  clamp остаётся MITER/KITE.
 
 ### Геометрический контракт
 

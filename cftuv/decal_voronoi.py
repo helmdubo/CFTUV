@@ -152,6 +152,7 @@ class CornerRuntimeSettings:
     hairpin_angle: float
     apex_limit: float
     dynamic_corner_bands: bool
+    join_mode: str
 
     def __init__(
         self,
@@ -164,6 +165,7 @@ class CornerRuntimeSettings:
         split_angle=None,
         hairpin_angle=_HAIRPIN_ANGLE,
         dynamic_corner_bands=False,
+        join_mode="MITER",
     ):
         # ``miter_limit`` остаётся constructor adapter для старых scripts.
         if miter_limit is not None:
@@ -182,6 +184,10 @@ class CornerRuntimeSettings:
         object.__setattr__(
             self, "dynamic_corner_bands", bool(dynamic_corner_bands)
         )
+        join_mode = str(join_mode).upper()
+        if join_mode not in {"MITER", "BEVEL"}:
+            join_mode = "MITER"
+        object.__setattr__(self, "join_mode", join_mode)
 
     @property
     def acute_split_angle(self):
@@ -243,6 +249,7 @@ def _normalized_corner_runtime_settings(settings):
         dynamic_corner_bands=bool(
             getattr(settings, "dynamic_corner_bands", False)
         ),
+        join_mode=getattr(settings, "join_mode", "MITER"),
     )
 
 
@@ -270,6 +277,7 @@ def corner_runtime_settings_from_decal_settings(settings):
         dynamic_corner_bands=bool(
             getattr(settings, "dynamic_corner_bands", False)
         ),
+        join_mode=getattr(settings, "corner_join_mode", "MITER"),
     )
 
 
@@ -3427,6 +3435,12 @@ def _corner_crop_polygon(
         )
 
     offset_lines = _corner_offset_lines(surface, corner, alpha)
+    if policy == _CornerPolicy.BEVEL:
+        # Явный художественный join: никакого apex/intersection и никакой
+        # зависимости от Apex Limit. Один corner-piece всегда треугольный.
+        return _convex_hull(
+            [point, offset_lines[0][0], offset_lines[1][0]]
+        )
 
     intersection = _line_intersection(
         offset_lines[0][0],
@@ -4347,9 +4361,17 @@ def _classify_extrusion_angle(extrusion_angle, settings):
 
     theta = max(0.0, min(pi, float(extrusion_angle)))
     if theta + _ANGLE_CLASSIFICATION_EPS >= settings.miter_angle:
-        return _CornerPolicy.MITER
+        return (
+            _CornerPolicy.BEVEL
+            if settings.join_mode == "BEVEL"
+            else _CornerPolicy.MITER
+        )
     if theta + _ANGLE_CLASSIFICATION_EPS >= settings.kite_angle:
-        return _CornerPolicy.KITE
+        return (
+            _CornerPolicy.BEVEL
+            if settings.join_mode == "BEVEL"
+            else _CornerPolicy.KITE
+        )
     if theta + _ANGLE_CLASSIFICATION_EPS >= settings.split_angle:
         return _CornerPolicy.FAN
     if theta + _ANGLE_CLASSIFICATION_EPS >= settings.hairpin_angle:
@@ -4383,10 +4405,14 @@ def classify_corner_runtime(corner, settings=None):
         if corner.extrusion_angle < settings.split_angle:
             return _CornerPolicy.ACUTE_SPLIT
         if corner.is_convex:
-            return _CornerPolicy.MITER
-        if corner.interior_angle > pi:
-            return _CornerPolicy.KITE
-        return _CornerPolicy.MITER
+            policy = _CornerPolicy.MITER
+        elif corner.interior_angle > pi:
+            policy = _CornerPolicy.KITE
+        else:
+            policy = _CornerPolicy.MITER
+        if settings.join_mode == "BEVEL":
+            return _CornerPolicy.BEVEL
+        return policy
     return _classify_extrusion_angle(corner.extrusion_angle, settings)
 
 
@@ -13541,6 +13567,7 @@ def _evaluate_surface_crops(
                 policy in {
                     _CornerPolicy.SMOOTH,
                     _CornerPolicy.ACUTE_SPLIT,
+                    _CornerPolicy.BEVEL,
                 }
                 or (
                     policy == _CornerPolicy.MITER
@@ -13998,6 +14025,35 @@ def _align_strip_cap_faces(faces):
     ]
 
 
+def _triangulate_bevel_faces(faces):
+    """Материализует BEVEL только треугольными faces без смены coverage."""
+
+    result = []
+    for face in faces:
+        count = len(face.vert_keys)
+        if face.component_kind != "BEVEL" or count <= 3:
+            result.append(face)
+            continue
+        # Crop BEVEL — выпуклый triangle в chart; owner-face clipping может
+        # добавить вершины. Fan сохраняет тот же polygon/UV без второго
+        # представления и гарантирует треугольную финальную топологию.
+        for index in range(1, count - 1):
+            indices = (0, index, index + 1)
+            result.append(
+                _NetworkFace(
+                    surface_id=face.surface_id,
+                    surface_normal=face.surface_normal.copy(),
+                    vert_keys=[face.vert_keys[item] for item in indices],
+                    positions=[face.positions[item] for item in indices],
+                    u_fracs=[face.u_fracs[item] for item in indices],
+                    v_lengths=[face.v_lengths[item] for item in indices],
+                    component_kind=face.component_kind,
+                    component_side=face.component_side,
+                )
+            )
+    return result
+
+
 def _merge_terminal_partition_component(faces, component):
     """Собирает один простой boundary-cycle из RM9-partition faces."""
 
@@ -14401,4 +14457,6 @@ def evaluate_patch_voronoi_plan(
             diagnostics,
         )
     )
-    return _merge_terminal_partition_faces(faces)
+    return _merge_terminal_partition_faces(
+        _triangulate_bevel_faces(faces)
+    )
