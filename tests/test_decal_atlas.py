@@ -357,7 +357,10 @@ def test_e3_public_saddle_materializes_through_t_contract(monkeypatch):
         )
 
 
+@pytest.mark.atlas_frozen
 def test_t8_rejects_missing_owner_semantic_transport():
+    """GL-pending saddle materialization; tier-2 не исполняет frozen путь."""
+
     node, seeds, alpha = saddle_fixture()
     graph = PatchGraph()
     graph.add_node(node)
@@ -600,7 +603,10 @@ def test_t7_p3_region_authority_stops_at_semantic_separator():
     assert authorities[id(second)] == ()
 
 
+@pytest.mark.atlas_frozen
 def test_e4_m1_sphere_is_single_cover_and_edge_connected():
+    """GL-pending sphere materialization на трёх ширинах."""
+
     node, seeds, alpha = sphere_cap_fixture()
     graph = PatchGraph()
     graph.add_node(node)

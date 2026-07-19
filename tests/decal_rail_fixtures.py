@@ -678,3 +678,79 @@ def rr9a_rf18_terminal_seam_snap(*, exact_tie=False):
         face_patch_ids=(0, 0, 0, 0, 1),
     )
     return graph, edge_ids, selected, {vertex_id: vertex_id for vertex_id in vertices}
+
+
+def rr9b_rf20_terminal_continuation():
+    """RF20-negative: unselected продолжение своей pChain делит стороны."""
+
+    vertices = {
+        0: (0.0, -1.0, 0.0),
+        1: (0.0, 0.0, 0.0),
+        2: (1.0, 0.0, 0.0),
+        4: (-1.0, 0.0, 0.0),
+        5: (0.0, 1.0, 0.0),
+    }
+    faces = [
+        (0, 1, 2),
+        (2, 1, 5),
+        (5, 1, 4),
+        (4, 1, 0),
+    ]
+    graph, edge_ids, _selected = mesh_graph(
+        vertices,
+        faces,
+        (((0, 1, 5), False),),
+        face_patch_ids=(0, 0, 1, 1),
+    )
+    selected = (edge_ids[(0, 1)],)
+    return graph, edge_ids, selected, {vertex_id: vertex_id for vertex_id in vertices}
+
+
+def rr9b_rf20_l_turn_continuation():
+    """RF20-positive: L-поворот своей pChain целиком лежит на стороне 0."""
+
+    vertices = {
+        0: (0.0, -1.0, 0.0),
+        1: (0.0, 0.0, 0.0),
+        2: (1.0, 0.0, 0.0),
+        3: (1.0, 1.0, 0.0),
+        5: (-1.0, 0.0, 0.0),
+    }
+    faces = [
+        (0, 1, 2),
+        (2, 1, 3),
+        (3, 1, 5),
+        (5, 1, 0),
+    ]
+    graph, edge_ids, _selected = mesh_graph(
+        vertices,
+        faces,
+        (((0, 1, 2), False),),
+        face_patch_ids=(0, 0, 0, 1),
+    )
+    selected = (edge_ids[(0, 1)],)
+    return graph, edge_ids, selected, {vertex_id: vertex_id for vertex_id in vertices}
+
+
+def rr9b_rf21_spine_reaches_mesh_border():
+    """RF21: конец seam внутри двух border-рёбер разных сторон."""
+
+    vertices = {
+        0: (0.0, -1.0, 0.0),
+        1: (0.0, 0.0, 0.0),
+        2: (-1.0, 0.0, 0.0),
+        3: (-1.0, -1.0, 0.0),
+        4: (1.0, 0.0, 0.0),
+        5: (1.0, -1.0, 0.0),
+    }
+    faces = [
+        (0, 1, 2, 3),
+        (0, 5, 4, 1),
+    ]
+    graph, edge_ids, selected = mesh_graph(
+        vertices,
+        faces,
+        (((0, 1), False),),
+        face_patch_ids=(0, 1),
+    )
+    return graph, edge_ids, selected, {vertex_id: vertex_id for vertex_id in vertices}

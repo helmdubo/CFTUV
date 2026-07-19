@@ -34,6 +34,7 @@ from decal_rail_fixtures import (
     planar_shallow_dihedral_strip,
     rr9_rf16_terminal_fold_caps,
     rr9a_rf18_terminal_seam_snap,
+    rr9b_rf21_spine_reaches_mesh_border,
 )
 
 
@@ -392,6 +393,43 @@ def test_r13_rr9a_width_drag_only_moves_extent_along_compiled_guide():
     )
 
 
+def test_r14_rf21_terminal_border_routes_clip_inside_owner_faces():
+    graph, edge_ids, selected, _vertex_at = rr9b_rf21_spine_reaches_mesh_border()
+    rail_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=0.75,
+    )
+    attempt = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=selected,
+    )
+
+    assert attempt.failures == ()
+    assert attempt.plan is not None
+    border_edges = {edge_ids[(1, 2)], edge_ids[(1, 4)]}
+    terminal = tuple(
+        use for use in rail_plan.terminal_uses if use.spine_vertex_id == 1
+    )
+    assert {use.route_edge_id for use in terminal} == border_edges
+
+    positions = {
+        vertex.vertex_id: vertex.position for vertex in rail_plan.vertices
+    }
+    faces_by_id = {face.face_id: face for face in rail_plan.faces}
+    evaluated = evaluate_planar_rail_geometry_plan(attempt.plan, width=1.0)
+    assert evaluated
+    assert all(
+        _point_in_source_face(
+            Vector(position),
+            faces_by_id[face.surface_id],
+            positions,
+        )
+        for face in evaluated
+        for position in face.positions
+    )
+
+
 @pytest.mark.skip(reason="R3-activation: RF18b curved materialization is deferred")
 def test_r3_rf18b_curved_terminal_snap_uses_the_same_selector():
     """Канонический placeholder: отдельный curved selector запрещён."""
@@ -579,7 +617,7 @@ def test_r11_rf13_fold_boundary_ignores_non_materialized_far_side():
     assert materialized
 
 
-def test_r11_rf13_one_fold_route_serves_two_face_sectors_with_shared_stations():
+def test_rr9b_rf13_collinear_fold_continuation_is_not_boundary_route():
     graph, edge_ids, selected, _vertices = planar_rf13_shared_fold_boundary()
     boundary_edge_id = edge_ids[(1, 2)]
     rail_plan = decal_rails.compile_decal_rail_plan(
@@ -592,9 +630,15 @@ def test_r11_rf13_one_fold_route_serves_two_face_sectors_with_shared_stations():
         for route in rail_plan.routes
         if route.key.side.start_edge_id == boundary_edge_id
     )
-    assert len(boundary_routes) == 1
-    boundary_route = boundary_routes[0]
-    assert len(boundary_route.key.side.source_face_ids) == 2
+    assert boundary_routes == ()
+    terminal = tuple(
+        use for use in rail_plan.terminal_uses if use.spine_vertex_id == 1
+    )
+    assert len(terminal) == 2
+    assert all(
+        use.kind == decal_rails.RailTerminalKind.IN_PLANE_EMPTY
+        for use in terminal
+    )
 
     attempt = compile_planar_rail_geometry_attempt(
         rail_plan,
@@ -602,25 +646,11 @@ def test_r11_rf13_one_fold_route_serves_two_face_sectors_with_shared_stations():
     )
     assert attempt.failures == ()
     assert attempt.plan is not None
-    route_paths = tuple(
-        path
-        for path in attempt.plan.boundary_paths
-        if path.route_id == boundary_route.route_id
-    )
-    assert len(route_paths) == 1
-    assert {
-        piece.owner_face_id for piece in route_paths[0].pieces
-    } == set(boundary_route.key.side.source_face_ids)
     materialized = evaluate_planar_rail_geometry_plan(
         attempt.plan,
         width=0.75,
     )
-    owner_faces = {
-        face.rail_provenance.source_face_id
-        for face in materialized
-        if boundary_route.route_id in face.rail_provenance.route_ids
-    }
-    assert owner_faces == set(boundary_route.key.side.source_face_ids)
+    assert materialized
 
 
 @pytest.mark.skip(reason="R3-scope: RM5a structural cap is non-planar only")

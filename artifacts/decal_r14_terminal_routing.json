@@ -20,8 +20,6 @@
         83
       ],
       "saved_mesh_selected_edge_indices": [
-        55,
-        59,
         87
       ],
       "backend_summary": "INTRINSIC_DEVELOPABLE:1c/10e | RailUnsupported[RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR:x1]",
@@ -30,7 +28,7 @@
           "width": 0.4,
           "status": "UPDATED",
           "face_count": 46,
-          "rail_plan_identity": 1730745636432,
+          "rail_plan_identity": 1987069161744,
           "compile_static": true,
           "overlap_count": 0,
           "terminal_cut_face_count": 7
@@ -39,7 +37,7 @@
           "width": 0.8,
           "status": "UPDATED",
           "face_count": 46,
-          "rail_plan_identity": 1730745636432,
+          "rail_plan_identity": 1987069161744,
           "compile_static": true,
           "overlap_count": 0,
           "terminal_cut_face_count": 7
@@ -199,20 +197,22 @@
         149,
         150,
         197,
-        198
+        198,
+        259,
+        270,
+        282,
+        302
       ],
       "saved_mesh_selected_edge_indices": [
-        55,
-        59,
-        62
+        56
       ],
-      "backend_summary": "Unsupported[DISTORTION_BUDGET_EXCEEDED:x1] | RailUnsupported[RAIL_GEOMETRY_BRANCH_UNSUPPORTED:x1] | Failed:74e[DISTORTION_BUDGET_EXCEEDED:x74]",
+      "backend_summary": "Unsupported[DISTORTION_BUDGET_EXCEEDED:x1] | RailUnsupported[RAIL_GEOMETRY_BRANCH_UNSUPPORTED:x1] | Failed:78e[DISTORTION_BUDGET_EXCEEDED:x78]",
       "width_evaluations": [
         {
           "width": 0.4,
           "status": "UPDATED",
           "face_count": 0,
-          "rail_plan_identity": 1730765758352,
+          "rail_plan_identity": 1987161316176,
           "compile_static": true,
           "overlap_count": 0,
           "terminal_cut_face_count": 0
@@ -221,7 +221,7 @@
           "width": 0.8,
           "status": "UPDATED",
           "face_count": 0,
-          "rail_plan_identity": 1730765758352,
+          "rail_plan_identity": 1987161316176,
           "compile_static": true,
           "overlap_count": 0,
           "terminal_cut_face_count": 0
@@ -251,83 +251,135 @@
         15,
         16,
         17,
-        18,
-        19,
         20,
-        21,
-        24,
-        33,
-        34,
-        38
+        26,
+        27,
+        31,
+        40,
+        42,
+        44,
+        48,
+        51,
+        54,
+        57,
+        58,
+        59,
+        60
       ],
       "saved_mesh_selected_edge_indices": [
-        2,
-        3,
         4,
         5,
         6,
         7,
         8,
-        9,
-        10,
-        11
+        44,
+        48,
+        51,
+        54,
+        57,
+        59
       ],
-      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/26e | RailUnsupported[RAIL_GEOMETRY_BRANCH_UNSUPPORTED:x1]",
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/32e | RailUnsupported[RAIL_GEOMETRY_BRANCH_UNSUPPORTED:x1]",
       "width_evaluations": [
         {
           "width": 0.4,
           "status": "UPDATED",
-          "face_count": 76,
-          "rail_plan_identity": 1730745452880,
+          "face_count": 118,
+          "rail_plan_identity": 1987073592592,
           "compile_static": true,
           "overlap_count": 0,
-          "terminal_cut_face_count": 0
+          "terminal_cut_face_count": 10
         },
         {
           "width": 0.8,
           "status": "UPDATED",
-          "face_count": 79,
-          "rail_plan_identity": 1730745452880,
+          "face_count": 122,
+          "rail_plan_identity": 1987073592592,
           "compile_static": true,
           "overlap_count": 0,
-          "terminal_cut_face_count": 0
+          "terminal_cut_face_count": 11
         }
       ],
-      "terminal_routing": [],
+      "terminal_routing": [
+        {
+          "component_index": 0,
+          "patch_id": 1,
+          "spine_vertex_id": 30,
+          "spine_edge_id": 58,
+          "source_face_ids": [
+            26
+          ],
+          "choice": "PCHAIN",
+          "edge_ids": [
+            55,
+            52,
+            49,
+            46
+          ],
+          "plan_kind": "ROUTE",
+          "route_id": 18,
+          "backend": "PATCH_VORONOI",
+          "backend_kind": "INTRINSIC_DEVELOPABLE",
+          "line": "component=0 patch=1 terminal=v30/e58 faces=26 choice=PCHAIN 55,52,49,46 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+        },
+        {
+          "component_index": 0,
+          "patch_id": 1,
+          "spine_vertex_id": 31,
+          "spine_edge_id": 60,
+          "source_face_ids": [
+            10
+          ],
+          "choice": "PCHAIN",
+          "edge_ids": [
+            46,
+            49,
+            52,
+            55
+          ],
+          "plan_kind": "ROUTE",
+          "route_id": 21,
+          "backend": "PATCH_VORONOI",
+          "backend_kind": "INTRINSIC_DEVELOPABLE",
+          "line": "component=0 patch=1 terminal=v31/e60 faces=10 choice=PCHAIN 46,49,52,55 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+        }
+      ],
       "saved_selection_scope": {
         "selected_edge_indices": [
-          2,
-          3,
           4,
           5,
           6,
           7,
           8,
-          9,
-          10,
-          11
+          44,
+          48,
+          51,
+          54,
+          57,
+          59
         ],
-        "backend_summary": "INTRINSIC_DEVELOPABLE:1c/10e | RailUnsupported[RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR:x1]",
+        "backend_summary": "INTRINSIC_DEVELOPABLE:1c/11e | RailUnsupported[RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR:x1]",
         "width_evaluations": [
           {
             "width": 0.4,
             "status": "UPDATED",
-            "face_count": 53,
+            "face_count": 67,
             "compile_static": true,
             "overlap_count": 0
           },
           {
             "width": 0.8,
             "status": "UPDATED",
-            "face_count": 56,
+            "face_count": 68,
             "compile_static": true,
             "overlap_count": 0
           }
         ],
         "terminal_routing": [
-          "component=0 patch=0 terminal=v1/e2 faces=17 choice=PCHAIN 1 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
-          "component=0 patch=0 terminal=v2/e10 faces=16 choice=PCHAIN 34 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
-          "component=0 patch=1 terminal=v1/e2 faces=1 choice=PCHAIN 21 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+          "component=0 patch=0 terminal=v4/e4 faces=0,15,16 choice=PERP backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=IN_PLANE_EMPTY",
+          "component=0 patch=0 terminal=v10/e8 faces=8,13 choice=PCHAIN 9 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+          "component=0 patch=1 terminal=v4/e4 faces=5 choice=FOLD 22 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+          "component=0 patch=1 terminal=v10/e8 faces=2 choice=PCHAIN 20,16 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
         ]
       }
     },
@@ -358,7 +410,7 @@
           "width": 0.4,
           "status": "UPDATED",
           "face_count": 0,
-          "rail_plan_identity": 1730765580496,
+          "rail_plan_identity": 1987172768848,
           "compile_static": true,
           "overlap_count": 0,
           "terminal_cut_face_count": 0
@@ -367,7 +419,7 @@
           "width": 0.8,
           "status": "UPDATED",
           "face_count": 0,
-          "rail_plan_identity": 1730765580496,
+          "rail_plan_identity": 1987172768848,
           "compile_static": true,
           "overlap_count": 0,
           "terminal_cut_face_count": 0
@@ -392,7 +444,7 @@
           "width": 0.4,
           "status": "UPDATED",
           "face_count": 0,
-          "rail_plan_identity": 1730747086352,
+          "rail_plan_identity": 1987173138576,
           "compile_static": true,
           "overlap_count": 0,
           "terminal_cut_face_count": 0
@@ -401,7 +453,7 @@
           "width": 0.8,
           "status": "UPDATED",
           "face_count": 0,
-          "rail_plan_identity": 1730747086352,
+          "rail_plan_identity": 1987173138576,
           "compile_static": true,
           "overlap_count": 0,
           "terminal_cut_face_count": 0
@@ -424,7 +476,7 @@
           "width": 0.4,
           "status": "UPDATED",
           "face_count": 16,
-          "rail_plan_identity": 1730786094864,
+          "rail_plan_identity": 1987097999120,
           "compile_static": true,
           "overlap_count": 0,
           "terminal_cut_face_count": 0
@@ -433,7 +485,7 @@
           "width": 0.8,
           "status": "UPDATED",
           "face_count": 16,
-          "rail_plan_identity": 1730786094864,
+          "rail_plan_identity": 1987097999120,
           "compile_static": true,
           "overlap_count": 0,
           "terminal_cut_face_count": 0

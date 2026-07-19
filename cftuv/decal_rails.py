@@ -905,8 +905,8 @@ def _select_terminal_pchain(
     return winners[0] if len(winners) == 1 else None
 
 
-def _terminal_side_groups(topology, spine_vertex_id, spine_edge_id):
-    """RR9/RR9a: стороны endpoint и единый compile-time выбор guide."""
+def _terminal_side_partition(topology, spine_vertex_id, spine_edge_id):
+    """RR9b: стороны endpoint, guide-кандидаты и continuation-делимитеры."""
 
     incident_edges = tuple(topology.vertex_edges.get(spine_vertex_id, ()))
     incident_faces = {
@@ -978,11 +978,35 @@ def _terminal_side_groups(topology, spine_vertex_id, spine_edge_id):
         for patch_id in patch_ids:
             patch_side_counts[patch_id] += 1
 
+    side_patch_keys = tuple(record[2] for record in sector_records)
+    patch_keys_are_unique = len(set(side_patch_keys)) == len(side_patch_keys)
+    continuation_edge_ids = set()
+    for edge_id in sorted(delimiters.difference({spine_edge_id})):
+        edge_faces = set(topology.edge_faces.get(edge_id, ()))
+        if patch_keys_are_unique:
+            edge_patch_ids = {
+                topology.face_patch_ids[face_id] for face_id in edge_faces
+            }
+            side_hits = sum(
+                bool(edge_patch_ids.intersection(patch_ids))
+                for patch_ids in side_patch_keys
+            )
+        else:
+            # SEAM_SELF: patch id общий у двух сторон, поэтому различителем
+            # остаются уже построенные face-sector веера.
+            side_hits = sum(
+                bool(edge_faces.intersection(sector))
+                for sector, _candidates, _patch_ids in sector_records
+            )
+        if side_hits > 1:
+            continuation_edge_ids.add(edge_id)
+
     groups = []
     for sector, sector_candidate_edge_ids, patch_ids in sector_records:
         pchain_edge_ids = tuple(
             edge_id
             for edge_id in sector_candidate_edge_ids
+            if edge_id not in continuation_edge_ids
             if topology.edge_by_id[edge_id].is_pchain
             and not topology.edge_by_id[edge_id].is_spine
         )
@@ -996,6 +1020,7 @@ def _terminal_side_groups(topology, spine_vertex_id, spine_edge_id):
                 edge_id
                 for edge_id in incident_edges
                 if edge_id != spine_edge_id
+                and edge_id not in continuation_edge_ids
                 and topology.edge_by_id[edge_id].is_pchain
                 and not topology.edge_by_id[edge_id].is_spine
                 and any(
@@ -1006,6 +1031,7 @@ def _terminal_side_groups(topology, spine_vertex_id, spine_edge_id):
         fallback_edge_ids = tuple(
             edge_id
             for edge_id in sector_candidate_edge_ids
+            if edge_id not in continuation_edge_ids
             if not topology.edge_by_id[edge_id].is_pchain
         )
         eligible = tuple(sorted(pchain_edge_ids or fallback_edge_ids))
@@ -1044,7 +1070,7 @@ def _terminal_side_groups(topology, spine_vertex_id, spine_edge_id):
                 kind,
             )
         )
-    return tuple(sorted(groups))
+    return tuple(sorted(groups)), tuple(sorted(continuation_edge_ids))
 
 
 def _start_sector_groups(
@@ -1538,11 +1564,22 @@ def compile_decal_rail_plan(
             for edge_id in spine_edges
             for face_id in topology.edge_faces.get(edge_id, ())
         }
+        terminal_side_groups = ()
+        terminal_delimiter_edges = ()
+        if len(spine_edges) == 1:
+            terminal_side_groups, terminal_delimiter_edges = (
+                _terminal_side_partition(
+                    topology,
+                    spine_vertex_id,
+                    spine_edges[0],
+                )
+            )
         boundary_faces = set()
         boundary_edges = tuple(
             edge_id
             for edge_id in topology.vertex_edges.get(spine_vertex_id, ())
             if edge_id not in spine_edges
+            and edge_id not in terminal_delimiter_edges
             and topology.edge_by_id[edge_id].is_pchain
         )
         for edge_id in boundary_edges:
@@ -1562,11 +1599,7 @@ def compile_decal_rail_plan(
                 candidate_edge_ids,
                 chosen_edge_id,
                 terminal_kind,
-            ) in _terminal_side_groups(
-                topology,
-                spine_vertex_id,
-                spine_edge_id,
-            ):
+            ) in terminal_side_groups:
                 terminal_uses.append(
                     RailTerminalUse(
                         spine_vertex_id=spine_vertex_id,

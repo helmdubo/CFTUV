@@ -9,6 +9,9 @@ from decal_rail_fixtures import (
     rr9_rf16_ambiguous_terminal_fan,
     rr9_rf16_terminal_fold_caps,
     rr9a_rf18_terminal_seam_snap,
+    rr9b_rf20_l_turn_continuation,
+    rr9b_rf20_terminal_continuation,
+    rr9b_rf21_spine_reaches_mesh_border,
 )
 
 
@@ -679,6 +682,74 @@ def test_rr9a_rf18_exact_tie_is_counted_and_mark_beats_snap():
     assert marked_side.kind == decal_rails.RailTerminalKind.ROUTE
     assert marked_side.route_edge_id == oblique_edge
     assert marked_side.route_id is not None
+
+
+def test_rr9b_rf20_own_pchain_continuation_is_delimiter_not_guide():
+    graph, edge_ids, selected, _vertex_at = rr9b_rf20_terminal_continuation()
+    plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=0.75,
+    )
+    continuation_edge = edge_ids[(1, 5)]
+    terminal = tuple(
+        use for use in plan.terminal_uses if use.spine_vertex_id == 1
+    )
+
+    assert len(terminal) == 2
+    assert all(
+        use.kind == decal_rails.RailTerminalKind.IN_PLANE_EMPTY
+        for use in terminal
+    )
+    assert all(
+        continuation_edge not in use.candidate_edge_ids for use in terminal
+    )
+    assert not any(
+        route.key.side.spine_vertex_id == 1
+        and route.key.side.start_edge_id == continuation_edge
+        for route in plan.routes
+    )
+
+
+def test_rr9b_rf20_l_turn_of_own_pchain_remains_side_guide():
+    graph, edge_ids, selected, _vertex_at = rr9b_rf20_l_turn_continuation()
+    plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=0.75,
+    )
+    turn_edge = edge_ids[(1, 2)]
+    terminal = tuple(
+        use for use in plan.terminal_uses if use.spine_vertex_id == 1
+    )
+    guided = tuple(use for use in terminal if use.route_edge_id == turn_edge)
+
+    assert len(terminal) == 2
+    assert len(guided) == 1
+    assert guided[0].kind == decal_rails.RailTerminalKind.ROUTE
+    assert guided[0].route_id is not None
+    assert sum(
+        use.kind == decal_rails.RailTerminalKind.IN_PLANE_EMPTY
+        for use in terminal
+    ) == 1
+
+
+def test_rr9b_rf21_mesh_border_owns_both_terminal_guides():
+    graph, edge_ids, selected, _vertex_at = rr9b_rf21_spine_reaches_mesh_border()
+    plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=0.75,
+    )
+    border_edges = {edge_ids[(1, 2)], edge_ids[(1, 4)]}
+    terminal = tuple(
+        use for use in plan.terminal_uses if use.spine_vertex_id == 1
+    )
+
+    assert len(terminal) == 2
+    assert {use.route_edge_id for use in terminal} == border_edges
+    assert all(use.kind == decal_rails.RailTerminalKind.ROUTE for use in terminal)
+    assert all(use.route_id is not None for use in terminal)
 
 
 def test_r0_missing_selected_edge_is_structured_compile_failure():
