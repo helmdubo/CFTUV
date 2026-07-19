@@ -63,6 +63,82 @@ def _backend_test_run(edge_indices, vert_indices):
     )
 
 
+def test_rm9_terminal_routing_reports_plan_choice_and_materializing_backend():
+    run = _backend_test_run((10,), (1, 2))
+    partition = SimpleNamespace(
+        backend="PATCH_VORONOI",
+        compiled_plan=SimpleNamespace(backend_kind="INTRINSIC_DEVELOPABLE"),
+        edge_indices=(10,),
+        corner_runs=(run,),
+        boundary_runs=(),
+    )
+    rail_plan = SimpleNamespace(
+        edges=(
+            SimpleNamespace(edge_id=20, is_pchain=True),
+            SimpleNamespace(edge_id=21, is_pchain=True),
+            SimpleNamespace(edge_id=30, is_pchain=False),
+        ),
+        routes=(
+            SimpleNamespace(
+                route_id=7,
+                segments=(
+                    SimpleNamespace(edge_id=20),
+                    SimpleNamespace(edge_id=21),
+                ),
+            ),
+            SimpleNamespace(
+                route_id=8,
+                segments=(SimpleNamespace(edge_id=30),),
+            ),
+        ),
+        terminal_uses=(
+            SimpleNamespace(
+                spine_vertex_id=1,
+                spine_edge_id=10,
+                source_face_ids=(100,),
+                kind=decals_module.RailTerminalKind.ROUTE,
+                route_edge_id=20,
+                route_id=7,
+            ),
+            SimpleNamespace(
+                spine_vertex_id=2,
+                spine_edge_id=10,
+                source_face_ids=(101,),
+                kind=decals_module.RailTerminalKind.ROUTE,
+                route_edge_id=30,
+                route_id=8,
+            ),
+            SimpleNamespace(
+                spine_vertex_id=2,
+                spine_edge_id=10,
+                source_face_ids=(102,),
+                kind=decals_module.RailTerminalKind.IN_PLANE_EMPTY,
+                route_edge_id=None,
+                route_id=None,
+            ),
+        ),
+    )
+
+    records = decals_module._manual_terminal_routing(
+        rail_plan, (partition,)
+    )
+
+    assert [(record.choice, record.edge_ids) for record in records] == [
+        ("PCHAIN", (20, 21)),
+        ("FOLD", (30,)),
+        ("PERP", ()),
+    ]
+    assert all(
+        record.backend == "PATCH_VORONOI"
+        and record.backend_kind == "INTRINSIC_DEVELOPABLE"
+        for record in records
+    )
+    assert records[0].report_line == (
+        "component=0 terminal=v1/e10 faces=100 choice=PCHAIN 20,21 "
+        "backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+    )
+
+
 def test_manual_seam_plan_rejects_failed_topology_component_atomically(
     monkeypatch,
 ):

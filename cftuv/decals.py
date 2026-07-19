@@ -45,7 +45,7 @@ from .constants import (
     DECAL_WELD_DISTANCE,
     WORLD_UP,
 )
-from .decal_rails import compile_decal_rail_attempt
+from .decal_rails import RailTerminalKind, compile_decal_rail_attempt
 from .decal_rail_geometry import (
     RailGeometryFailure,
     compile_planar_rail_geometry_attempt,
@@ -278,6 +278,41 @@ class _ManualBackendEvaluation:
     policy_counts: tuple[tuple[str, int], ...] = ()
 
 
+@dataclass(frozen=True, order=True)
+class ManualSeamTerminalRouting:
+    """RM9-диагностика одного торца без повторной деривации выбора."""
+
+    component_index: int
+    spine_vertex_id: int
+    spine_edge_id: int
+    source_face_ids: tuple[int, ...]
+    backend: str
+    backend_kind: str
+    choice: str
+    edge_ids: tuple[int, ...] = ()
+    plan_kind: str = ""
+
+    @property
+    def report_line(self):
+        edge_suffix = (
+            " " + ",".join(str(edge_id) for edge_id in self.edge_ids)
+            if self.edge_ids
+            else ""
+        )
+        backend = (
+            self.backend
+            if self.backend_kind == self.backend
+            else f"{self.backend}/{self.backend_kind}"
+        )
+        return (
+            f"component={self.component_index} "
+            f"terminal=v{self.spine_vertex_id}/e{self.spine_edge_id} "
+            f"faces={','.join(str(face_id) for face_id in self.source_face_ids)} "
+            f"choice={self.choice}{edge_suffix} backend={backend} "
+            f"plan={self.plan_kind}"
+        )
+
+
 @dataclass(frozen=True)
 class ManualSeamEdgeRejection:
     """Selected physical edge, который не имеет допустимого decal use."""
@@ -320,6 +355,7 @@ class ManualSeamDecalPlan:
     rail_plan: object = None
     rail_compile_failures: tuple = ()
     rail_geometry_failures: tuple = ()
+    terminal_routing: tuple[ManualSeamTerminalRouting, ...] = ()
 
     def __post_init__(self):
         if self.network_plan is not None or self.direct_legacy_edge_indices:
@@ -481,6 +517,10 @@ class ManualSeamDecalPlan:
         if approximate_count:
             parts.append(f"Approx:{approximate_count}c")
         return " | ".join(parts)
+
+    @property
+    def terminal_routing_report(self):
+        return tuple(record.report_line for record in self.terminal_routing)
 
 
 class PatchVoronoiRuntimeError(RuntimeError):
@@ -1254,6 +1294,83 @@ def _manual_seam_edge_components(runs, selected_edge_indices):
         components.append(tuple(sorted(component)))
     components.sort(key=lambda component: (component[0], len(component)))
     return tuple(components)
+
+
+def _manual_terminal_routing(rail_plan, backend_partitions):
+    """RM9: публикует per-component terminal choice из rail IR."""
+
+    if rail_plan is None or not all(
+        hasattr(rail_plan, name)
+        for name in ("edges", "routes", "terminal_uses")
+    ):
+        return ()
+    edge_by_id = {edge.edge_id: edge for edge in rail_plan.edges}
+    route_by_id = {route.route_id: route for route in rail_plan.routes}
+    component_records = []
+    for partition in backend_partitions:
+        components = _manual_seam_edge_components(
+            partition.corner_runs + partition.boundary_runs,
+            partition.edge_indices,
+        )
+        backend_kind = (
+            "RAIL_PLANAR"
+            if partition.backend == "RAIL_PLANAR"
+            else str(
+                getattr(partition.compiled_plan, "backend_kind", "PLANAR")
+            )
+        )
+        for component in components:
+            component_records.append(
+                (component[0], component, partition.backend, backend_kind)
+            )
+    component_records.sort(key=lambda item: (item[0], item[1]))
+
+    result = []
+    for component_index, (
+        _root_edge,
+        component,
+        backend,
+        backend_kind,
+    ) in enumerate(component_records):
+        component_edges = set(component)
+        for use in rail_plan.terminal_uses:
+            if use.spine_edge_id not in component_edges:
+                continue
+            choice = "PERP"
+            edge_ids = ()
+            if (
+                use.kind == RailTerminalKind.ROUTE
+                and use.route_edge_id is not None
+            ):
+                guide = edge_by_id[use.route_edge_id]
+                if guide.is_pchain:
+                    choice = "PCHAIN"
+                    route = route_by_id.get(use.route_id)
+                    route_edges = (
+                        tuple(segment.edge_id for segment in route.segments)
+                        if route is not None
+                        else ()
+                    )
+                    edge_ids = tuple(
+                        dict.fromkeys((use.route_edge_id,) + route_edges)
+                    )
+                else:
+                    choice = "FOLD"
+                    edge_ids = (use.route_edge_id,)
+            result.append(
+                ManualSeamTerminalRouting(
+                    component_index=component_index,
+                    spine_vertex_id=int(use.spine_vertex_id),
+                    spine_edge_id=int(use.spine_edge_id),
+                    source_face_ids=tuple(use.source_face_ids),
+                    backend=str(backend),
+                    backend_kind=backend_kind,
+                    choice=choice,
+                    edge_ids=edge_ids,
+                    plan_kind=use.kind.value,
+                )
+            )
+    return tuple(sorted(result))
 
 
 def _group_boundary_runs(boundary_uses):
@@ -3448,6 +3565,9 @@ def compile_manual_seam_decal_plan(
                 compile_failures,
             )
         )
+    terminal_routing = _manual_terminal_routing(
+        rail_plan, tuple(backend_partitions)
+    )
     plan = ManualSeamDecalPlan(
         corner_runs=tuple(corner_runs),
         boundary_runs=tuple(boundary_runs),
@@ -3459,6 +3579,7 @@ def compile_manual_seam_decal_plan(
         rail_plan=rail_plan,
         rail_compile_failures=tuple(rail_compile_failures),
         rail_geometry_failures=tuple(rail_geometry_failures),
+        terminal_routing=terminal_routing,
     )
     if not plan.accounting_is_exact:
         raise AssertionError(
@@ -3474,6 +3595,8 @@ def compile_manual_seam_decal_plan(
         )
     if plan.backend_summary:
         print(f"[CFTUV][Decals] backend routing: {plan.backend_summary}")
+    for line in plan.terminal_routing_report:
+        print(f"[CFTUV][Decals] terminal routing: {line}")
     if plan.compile_failures:
         details = ", ".join(
             f"patch {failure.patch_id}:{failure.reason}"
