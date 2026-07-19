@@ -34,6 +34,7 @@ from decal_rail_fixtures import (
     planar_shallow_dihedral_strip,
     rr9_rf16_terminal_fold_caps,
     rr9a_rf18_terminal_seam_snap,
+    rr8b_rf26_unequal_boundary_reach,
     rr9b_rf21_spine_reaches_mesh_border,
     rr9b_rf22_one_sided_boundary_continuation,
 )
@@ -454,6 +455,94 @@ def test_r14_rf22_one_sided_boundary_strip_has_transverse_terminal_caps():
         for face in evaluated
         for position in face.positions
     )
+
+
+def test_r15_rf26_boundary_contacts_use_independent_route_reach():
+    graph, edge_ids, selected, _vertex_at = (
+        rr8b_rf26_unequal_boundary_reach()
+    )
+    rail_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=3.0,
+    )
+    attempt = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=selected,
+    )
+
+    assert attempt.failures == ()
+    assert attempt.plan is not None
+    channel = attempt.plan.channels[0]
+    path_reaches = {
+        path.path_id: max(
+            vertex.r
+            for piece in path.pieces
+            for vertex in (piece.start, piece.end)
+        )
+        for path in attempt.plan.boundary_paths
+    }
+    short_path = min(path_reaches, key=path_reaches.get)
+    long_path = max(path_reaches, key=path_reaches.get)
+    assert path_reaches[short_path] == pytest.approx(1.0)
+    assert path_reaches[long_path] == pytest.approx(3.0)
+    assert channel.alpha_limit == pytest.approx(1.0)
+
+    def contact_radius(width, path_id):
+        evaluated = evaluate_planar_rail_geometry_plan(
+            attempt.plan,
+            width=width,
+        )
+        frontier = [
+            float(key[3])
+            for face in evaluated
+            for key in face.vert_keys
+            if key[:3] == (
+                "rail-frontier",
+                attempt.plan.component.component_id,
+                path_id,
+            )
+        ]
+        if frontier:
+            assert len(set(frontier)) == 1
+            return frontier[0]
+        return path_reaches[path_id]
+
+    widths = (0.5, 2.0, 3.0, 5.0)
+    short_contacts = tuple(
+        contact_radius(width, short_path) for width in widths
+    )
+    long_contacts = tuple(
+        contact_radius(width, long_path) for width in widths
+    )
+
+    assert short_contacts == pytest.approx((0.25, 1.0, 1.0, 1.0))
+    assert long_contacts == pytest.approx((0.25, 1.0, 1.5, 2.5))
+    assert all(
+        current >= previous
+        for previous, current in zip(long_contacts, long_contacts[1:])
+    )
+    assert long_contacts[-1] > channel.alpha_limit
+
+    # После конца короткого route контакт не превращается в безымянный
+    # аналитический clip: это единая каноническая станция source boundary.
+    post_limit_parameters = []
+    for width in widths[2:]:
+        evaluated = evaluate_planar_rail_geometry_plan(
+            attempt.plan,
+            width=width,
+        )
+        keys = [key for face in evaluated for key in face.vert_keys]
+        assert not any(key[:1] == ("rail-frontier-cell",) for key in keys)
+        stations = [
+            key
+            for key in keys
+            if key[:2]
+            == ("rail-source-edge-station", edge_ids[(2, 3)])
+        ]
+        assert len(stations) == 1
+        post_limit_parameters.append(float(stations[0][2]))
+    assert post_limit_parameters == pytest.approx((0.25, 0.75))
 
 
 @pytest.mark.skip(reason="R3-activation: RF18b curved materialization is deferred")

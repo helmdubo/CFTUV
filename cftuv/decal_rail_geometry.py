@@ -2166,6 +2166,77 @@ def _in_plane_station_lookup(*paths):
     return lookup
 
 
+def _domain_source_vertex_id(vertex):
+    if vertex.key[:1] == ("rail-source-vertex",):
+        return int(vertex.key[1])
+    return None
+
+
+def _source_edge_for_domain_segment(
+    vertex_a,
+    vertex_b,
+    *,
+    edge_id_by_vertices,
+    edges,
+):
+    """Возвращает физическое source-edge только при точном доказательстве."""
+
+    if (
+        vertex_a.source_edge_id is not None
+        and vertex_a.source_edge_id == vertex_b.source_edge_id
+    ):
+        return vertex_a.source_edge_id
+
+    source_vertex_a = _domain_source_vertex_id(vertex_a)
+    source_vertex_b = _domain_source_vertex_id(vertex_b)
+    if source_vertex_a is not None and source_vertex_b is not None:
+        return edge_id_by_vertices.get(
+            frozenset((source_vertex_a, source_vertex_b))
+        )
+
+    for edge_id, source_vertex_id in (
+        (vertex_a.source_edge_id, source_vertex_b),
+        (vertex_b.source_edge_id, source_vertex_a),
+    ):
+        if (
+            edge_id is not None
+            and source_vertex_id is not None
+            and source_vertex_id in edges[edge_id].vertex_ids
+        ):
+            return edge_id
+    return None
+
+
+def _source_edge_station(edge_id, position, *, edges, positions):
+    edge = edges[edge_id]
+    point_a = positions[edge.vertex_ids[0]]
+    point_b = positions[edge.vertex_ids[1]]
+    edge_vector = _sub3(point_b, point_a)
+    denominator = _dot3(edge_vector, edge_vector)
+    parameter = (
+        _dot3(_sub3(position, point_a), edge_vector) / denominator
+        if denominator > 0.0
+        else 0.0
+        )
+    if position == point_a:
+        return (
+            ("rail-source-vertex", edge.vertex_ids[0]),
+            "SOURCE_VERTEX",
+            edge.vertex_ids[0],
+        )
+    if position == point_b:
+        return (
+            ("rail-source-vertex", edge.vertex_ids[1]),
+            "SOURCE_VERTEX",
+            edge.vertex_ids[1],
+        )
+    return (
+        ("rail-source-edge-station", edge_id, parameter),
+        "SOURCE_EDGE",
+        (edge_id, parameter),
+    )
+
+
 def _in_plane_domain_vertex(
     *,
     position,
@@ -2242,6 +2313,9 @@ def _clip_in_plane_polygon(
     constraint_key,
     component_id,
     station_lookup,
+    edge_id_by_vertices,
+    edges,
+    positions,
 ):
     def value(vertex):
         coordinate = vertex.s if axis == "s" else vertex.r
@@ -2300,6 +2374,12 @@ def _clip_in_plane_polygon(
                 )
                 r = matched.r
             else:
+                source_edge_id = _source_edge_for_domain_segment(
+                    vertex_a,
+                    vertex_b,
+                    edge_id_by_vertices=edge_id_by_vertices,
+                    edges=edges,
+                )
                 shared_path_id = (
                     vertex_a.boundary_path_id
                     if vertex_a.boundary_path_id == vertex_b.boundary_path_id
@@ -2310,19 +2390,28 @@ def _clip_in_plane_polygon(
                     component_id,
                     constraint_key,
                 )
-                key = (
-                    "rail-in-plane-cut",
-                    component_id,
-                    constraint_key,
-                    tuple(sorted((vertex_a.key, vertex_b.key), key=repr)),
-                )
-                source_feature = "IN_PLANE_CUT"
-                source_feature_id = constraint_key
-                source_edge_id = (
-                    vertex_a.source_edge_id
-                    if vertex_a.source_edge_id == vertex_b.source_edge_id
-                    else None
-                )
+                if source_edge_id is not None:
+                    (
+                        key,
+                        source_feature,
+                        source_feature_id,
+                    ) = _source_edge_station(
+                        source_edge_id,
+                        position,
+                        edges=edges,
+                        positions=positions,
+                    )
+                else:
+                    key = (
+                        "rail-in-plane-cut",
+                        component_id,
+                        constraint_key,
+                        tuple(
+                            sorted((vertex_a.key, vertex_b.key), key=repr)
+                        ),
+                    )
+                    source_feature = "IN_PLANE_CUT"
+                    source_feature_id = constraint_key
                 station_index = None
                 route_ids = tuple(
                     sorted(set(vertex_a.route_ids).union(vertex_b.route_ids))
@@ -2486,6 +2575,10 @@ def _compile_in_plane_channel_cells(
     station_lookup = _in_plane_station_lookup(path_a, path_b)
     region_face_ids = _planar_region_face_ids(rail_plan, initial_face_id)
     edges = _edge_by_id(rail_plan)
+    edge_id_by_vertices = {
+        frozenset(edge.vertex_ids): edge.edge_id
+        for edge in rail_plan.edges
+    }
 
     def fold_intersects_window(edge):
         endpoint_values = []
@@ -2603,6 +2696,9 @@ def _compile_in_plane_channel_cells(
                     constraint_key=constraint_key,
                     component_id=component.component_id,
                     station_lookup=station_lookup,
+                    edge_id_by_vertices=edge_id_by_vertices,
+                    edges=edges,
+                    positions=positions,
                 )
                 if len(polygon) < 3:
                     break
@@ -2636,10 +2732,6 @@ def _compile_in_plane_channel_cells(
                 )
             )
     if cells:
-        edge_id_by_vertices = {
-            frozenset(edge.vertex_ids): edge.edge_id
-            for edge in rail_plan.edges
-        }
         vertex_ids_by_position = defaultdict(list)
         for source_vertex in rail_plan.vertices:
             vertex_ids_by_position[source_vertex.position].append(
@@ -4598,7 +4690,16 @@ def compile_planar_rail_geometry_attempt(
     return RailGeometryCompileAttempt(plan, ())
 
 
-def _interpolate_domain_vertex(vertex_a, vertex_b, alpha, component_id):
+def _interpolate_domain_vertex(
+    vertex_a,
+    vertex_b,
+    alpha,
+    component_id,
+    *,
+    edge_id_by_vertices,
+    edges,
+    positions,
+):
     if repr(vertex_b.key) < repr(vertex_a.key):
         vertex_a, vertex_b = vertex_b, vertex_a
     if alpha == vertex_a.r:
@@ -4632,7 +4733,21 @@ def _interpolate_domain_vertex(vertex_a, vertex_b, alpha, component_id):
         and vertex_a.boundary_path_id[:1] != ("CORNER",)
     ):
         shared_path_id = vertex_a.boundary_path_id
-    if shared_path_id is not None:
+    source_edge_id = _source_edge_for_domain_segment(
+        vertex_a,
+        vertex_b,
+        edge_id_by_vertices=edge_id_by_vertices,
+        edges=edges,
+    )
+    if source_edge_id is not None and shared_path_id is None:
+        key, source_feature, source_feature_id = _source_edge_station(
+            source_edge_id,
+            position,
+            edges=edges,
+            positions=positions,
+        )
+        path_id = shared_path_id or ("SOURCE_EDGE", source_edge_id)
+    elif shared_path_id is not None:
         analytic_specs = tuple(
             vertex.source_feature_id
             for vertex in (vertex_a, vertex_b)
@@ -4667,30 +4782,38 @@ def _interpolate_domain_vertex(vertex_a, vertex_b, alpha, component_id):
                 alpha,
             )
         path_id = shared_path_id
+        source_feature = "RAIL_FRONTIER"
+        source_feature_id = (vertex_a.key, vertex_b.key, alpha)
     else:
         ordered_keys = tuple(sorted((vertex_a.key, vertex_b.key), key=repr))
         key = ("rail-frontier-cell", component_id, ordered_keys, alpha)
         path_id = ("CELL", ordered_keys)
+        source_feature = "RAIL_FRONTIER"
+        source_feature_id = (vertex_a.key, vertex_b.key, alpha)
     return RailDomainVertex(
         key=key,
         position=position,
         s=s,
         r=alpha,
         boundary_path_id=path_id,
-        source_feature="RAIL_FRONTIER",
-        source_feature_id=(vertex_a.key, vertex_b.key, alpha),
-        source_edge_id=(
-            vertex_a.source_edge_id
-            if vertex_a.source_edge_id == vertex_b.source_edge_id
-            else None
-        ),
+        source_feature=source_feature,
+        source_feature_id=source_feature_id,
+        source_edge_id=source_edge_id,
         source_face_id=vertex_a.source_face_id,
         route_ids=tuple(sorted(set(vertex_a.route_ids).union(vertex_b.route_ids))),
         station_index=None,
     )
 
 
-def _clip_cell(cell, alpha, component_id):
+def _clip_cell(
+    cell,
+    alpha,
+    component_id,
+    *,
+    edge_id_by_vertices,
+    edges,
+    positions,
+):
     output = []
     vertices = cell.vertices
     for index, current in enumerate(vertices):
@@ -4704,6 +4827,9 @@ def _clip_cell(cell, alpha, component_id):
                     current,
                     alpha,
                     component_id,
+                    edge_id_by_vertices=edge_id_by_vertices,
+                    edges=edges,
+                    positions=positions,
                 )
             )
         if current_inside:
@@ -5126,14 +5252,42 @@ def evaluate_planar_rail_geometry_plan(
             )
         )
     faces_by_id = _face_by_id(plan.rail_plan)
+    edges_by_id = _edge_by_id(plan.rail_plan)
+    positions_by_vertex = _position_by_vertex(plan.rail_plan)
+    edge_id_by_vertices = {
+        frozenset(edge.vertex_ids): edge.edge_id
+        for edge in plan.rail_plan.edges
+    }
     pending = []
+    corner_channel_ids = {
+        channel_id
+        for partition in plan.corner_partitions
+        for channel_id in (
+            partition.previous_channel_id,
+            partition.next_channel_id,
+        )
+    }
     for channel in plan.channels:
-        channel_alpha = min(alpha, channel.alpha_limit)
+        # RR8b: ``alpha_limit`` — общий reach, до которого оба берега ещё
+        # имеют незавершённый route. Он не является пределом самого русла:
+        # после конца короткого route соответствующая вершина остаётся на
+        # структурной границе, а второй берег продолжает скользить по своим
+        # станциям. Сам polygon cell уже хранит оба независимых reach. У
+        # настоящего spine-corner общий предел пока принадлежит отдельной
+        # corner-partition и сохраняется до её независимой R4-параметризации.
+        channel_alpha = (
+            min(alpha, channel.alpha_limit)
+            if channel.channel_id in corner_channel_ids
+            else alpha
+        )
         for cell in channel.cells:
             clipped = _clip_cell(
                 cell,
                 channel_alpha,
                 plan.component.component_id,
+                edge_id_by_vertices=edge_id_by_vertices,
+                edges=edges_by_id,
+                positions=positions_by_vertex,
             )
             if not _positive_clipped_extent(cell, clipped, channel_alpha):
                 continue
@@ -5267,6 +5421,9 @@ def evaluate_planar_rail_geometry_plan(
                 piece,
                 angular_alpha,
                 plan.component.component_id,
+                edge_id_by_vertices=edge_id_by_vertices,
+                edges=edges_by_id,
+                positions=positions_by_vertex,
             )
             if not _positive_clipped_extent(
                 piece,
@@ -5330,6 +5487,9 @@ def evaluate_planar_rail_geometry_plan(
             cell,
             corner_alpha,
             plan.component.component_id,
+            edge_id_by_vertices=edge_id_by_vertices,
+            edges=edges_by_id,
+            positions=positions_by_vertex,
         )
         if not _positive_clipped_extent(cell, vertices, corner_alpha):
             continue

@@ -782,3 +782,24 @@ def rr9b_rf22_one_sided_boundary_continuation():
     )
     selected = (edge_ids[(1, 2)],)
     return graph, edge_ids, selected, {vertex_id: vertex_id for vertex_id in vertices}
+
+
+def rr8b_rf26_unequal_boundary_reach():
+    """RF26: один берег кончается раньше, второй продолжает boundary-route."""
+
+    vertices = {
+        0: (0.0, 0.0, 0.0),
+        1: (1.0, 0.0, 0.0),
+        2: (0.0, 1.0, 0.0),
+        3: (1.0, 3.0, 0.0),
+    }
+    faces = ((0, 1, 3, 2),)
+    graph, edge_ids, selected = mesh_graph(
+        vertices,
+        faces,
+        (((0, 1), False),),
+        # Короткая pChain структурно заканчивается в v2; противоположный
+        # mesh-border route имеет втрое больший station reach.
+        extra_pchain_paths=(((0, 2), False),),
+    )
+    return graph, edge_ids, selected, {vertex_id: vertex_id for vertex_id in vertices}
