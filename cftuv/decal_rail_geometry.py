@@ -16,9 +16,13 @@ from math import acos, pi, sqrt
 
 from mathutils import Vector
 
-from .constants import DECAL_CORNER_MITER_LIMIT
+from .constants import DECAL_COPLANAR_DOT, DECAL_CORNER_MITER_LIMIT
 from .decal_geometry import DecalGeometryFace, lift_offset_position
-from .decal_rails import RailStationKind, RailTermination
+from .decal_rails import (
+    RailStartSectorKind,
+    RailStationKind,
+    RailTermination,
+)
 
 
 # Это только arithmetic validity допуск представления одной плоскости, а не
@@ -67,7 +71,15 @@ class _RailGeometryCompileError(RuntimeError):
                 sorted({int(value) for value in vertex_indices})
             ),
             face_indices=tuple(sorted({int(value) for value in face_indices})),
-            route_ids=tuple(sorted({int(value) for value in route_ids})),
+            route_ids=tuple(
+                sorted(
+                    {
+                        int(value)
+                        for value in route_ids
+                        if value is not None
+                    }
+                )
+            ),
             details=tuple(details),
         )
 
@@ -108,7 +120,7 @@ class RailBoundaryVertex:
     source_feature: str
     source_feature_id: object
     source_edge_id: int | None
-    route_id: int
+    route_id: int | None
     station_index: int | None
 
 
@@ -126,7 +138,7 @@ class RailCapTrace:
     """RM5a virtual station-0 rail, compiled once in an owner plane."""
 
     trace_id: int
-    route_id: int
+    route_id: int | None
     spine_vertex_id: int
     spine_edge_id: int
     initial_face_id: int
@@ -138,12 +150,15 @@ class RailCapTrace:
 @dataclass(frozen=True)
 class RailBoundaryPath:
     path_id: tuple
-    route_id: int
+    route_id: int | None
     spine_vertex_id: int
     kind: str
     pieces: tuple[RailBoundaryPiece, ...]
     termination: str
     cap_trace_id: int | None = None
+    corner_sector_id: object | None = None
+    corner_side: int | None = None
+    owner_face_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -185,6 +200,36 @@ class RailChannel:
 
 
 @dataclass(frozen=True)
+class RailAngularPiece:
+    """Один source-face кусок RM7a-веера между двумя rail paths."""
+
+    piece_id: int
+    angular_channel_id: int
+    owner_face_id: int
+    spine_edge_id: int
+    sector_id: int
+    source_edge_ids: tuple[int, ...]
+    boundary_path_ids: tuple[tuple, tuple]
+    vertices: tuple[RailDomainVertex, ...]
+
+
+@dataclass(frozen=True)
+class RailAngularChannel:
+    """RM7a-веер с единым apex-s и независимыми r двух берегов."""
+
+    angular_channel_id: int
+    sector_id: int
+    spine_vertex_id: int
+    spine_edge_id: int
+    side_sign: int
+    apex_s: float
+    ordinary_path_id: tuple
+    boundary_path_id: tuple
+    pieces: tuple[RailAngularPiece, ...]
+    alpha_limit: float = 0.0
+
+
+@dataclass(frozen=True)
 class RailCornerUse:
     """Stable A10 ownership tag; dynamic five-band runtime stays disabled."""
 
@@ -205,6 +250,7 @@ class RailCornerPartition:
     previous_path_id: tuple
     next_path_id: tuple
     owner_face_id: int | None
+    owner_face_ids: tuple[int, ...]
     point: tuple[float, float, float]
     previous_lateral: tuple[float, float, float]
     next_lateral: tuple[float, float, float]
@@ -237,6 +283,8 @@ class RailFaceProvenance:
     boundary_path_ids: tuple[tuple, ...]
     route_ids: tuple[int, ...]
     station_keys: tuple[object, ...]
+    angular_channel_id: int | None = None
+    sector_id: int | None = None
 
 
 @dataclass
@@ -251,6 +299,7 @@ class PlanarRailGeometryPlan:
     rail_plan: object
     component: RailSpineComponent
     channels: tuple[RailChannel, ...]
+    angular_channels: tuple[RailAngularChannel, ...]
     cap_traces: tuple[RailCapTrace, ...]
     corners: tuple[RailCornerUse, ...]
     corner_partitions: tuple[RailCornerPartition, ...]
@@ -646,6 +695,534 @@ def _cap_direction(face, spine_edge, from_vertex_id, to_vertex_id, vertices):
     return _normalized3(direction)
 
 
+def _corner_sector_for_endpoint(
+    rail_plan,
+    spine_vertex_id,
+    spine_edge_id,
+    face_id,
+):
+    candidates = tuple(
+        sector
+        for sector in rail_plan.start_sectors
+        if sector.kind == RailStartSectorKind.CORNER
+        and sector.spine_vertex_id == spine_vertex_id
+        and spine_edge_id in sector.delimiter_edge_ids
+        and face_id in sector.source_face_ids
+    )
+    if len(candidates) > 1:
+        raise _RailGeometryCompileError(
+            "RAIL_GEOMETRY_CORNER_SECTOR_AMBIGUOUS",
+            edge_indices=(spine_edge_id,),
+            vertex_indices=(spine_vertex_id,),
+            face_indices=(face_id,),
+            details=(
+                ("sector_ids", tuple(sector.sector_id for sector in candidates)),
+            ),
+        )
+    return candidates[0] if candidates else None
+
+
+def _clip_ray_to_convex_face(
+    face,
+    origin,
+    direction,
+    alpha_budget,
+    positions,
+    corner_vertex_id,
+):
+    """Half-space пересечение ray с одной convex sector-face."""
+
+    if not _source_face_is_convex(face, positions):
+        raise _RailGeometryCompileError(
+            "RAIL_GEOMETRY_SOURCE_FACE_NON_CONVEX",
+            edge_indices=face.edge_ids,
+            vertex_indices=face.vertex_ids,
+            face_indices=(face.face_id,),
+            details=(("corner_vertex_id", corner_vertex_id),),
+        )
+    lower = 0.0
+    upper = float(alpha_budget)
+    for vertex_a_id, vertex_b_id in zip(
+        face.vertex_ids,
+        face.vertex_ids[1:] + face.vertex_ids[:1],
+    ):
+        point_a = positions[vertex_a_id]
+        point_b = positions[vertex_b_id]
+        edge_vector = _sub3(point_b, point_a)
+        value = _dot3(
+            _cross3(edge_vector, _sub3(origin, point_a)),
+            face.normal,
+        )
+        slope = _dot3(_cross3(edge_vector, direction), face.normal)
+        if slope == 0.0:
+            if value < 0.0:
+                return None
+            continue
+        boundary = -value / slope
+        if slope > 0.0:
+            lower = max(lower, boundary)
+        else:
+            upper = min(upper, boundary)
+        if upper < lower:
+            return None
+    return max(0.0, lower), min(float(alpha_budget), upper)
+
+
+def _clip_ray_to_convex_points(
+    points,
+    normal,
+    origin,
+    direction,
+    alpha_budget,
+):
+    lower = 0.0
+    upper = float(alpha_budget)
+    for point_a, point_b in zip(points, points[1:] + points[:1]):
+        edge_vector = _sub3(point_b, point_a)
+        value = _dot3(
+            _cross3(edge_vector, _sub3(origin, point_a)),
+            normal,
+        )
+        slope = _dot3(_cross3(edge_vector, direction), normal)
+        if slope == 0.0:
+            if value < 0.0:
+                return None
+            continue
+        boundary = -value / slope
+        if slope > 0.0:
+            lower = max(lower, boundary)
+        else:
+            upper = min(upper, boundary)
+        if upper < lower:
+            return None
+    return max(0.0, lower), min(float(alpha_budget), upper)
+
+
+def _corner_boundary_path(
+    rail_plan,
+    component,
+    interval,
+    endpoint_station_index,
+    initial_face_id,
+    side_sign,
+    sector,
+):
+    """RM6a: side-owned perpendicular, клиппированный union сектора."""
+
+    faces = _face_by_id(rail_plan)
+    edges = _edge_by_id(rail_plan)
+    positions = _position_by_vertex(rail_plan)
+    station = component.stations[endpoint_station_index]
+    corner_vertex_id = station.source_vertex_id
+    spine_edge = edges[interval.source_edge_id]
+    base_face = faces[initial_face_id]
+    bad_faces = tuple(
+        sorted(
+            face_id
+            for face_id in sector.source_face_ids
+            if _dot3(faces[face_id].normal, base_face.normal)
+            < _RAIL_PLANAR_DOT
+        )
+    )
+    if bad_faces:
+        raise _RailGeometryCompileError(
+            "RAIL_GEOMETRY_CORNER_SECTOR_NON_PLANAR",
+            edge_indices=sector.delimiter_edge_ids,
+            vertex_indices=(corner_vertex_id,),
+            face_indices=bad_faces,
+            details=(("sector_id", sector.sector_id),),
+        )
+    direction = _cap_direction(
+        base_face,
+        spine_edge,
+        component.vertex_ids[interval.from_station_index],
+        component.vertex_ids[interval.to_station_index],
+        positions,
+    )
+    if direction is None:
+        raise _RailGeometryCompileError(
+            "RAIL_GEOMETRY_CORNER_PATH_DIRECTION_INVALID",
+            edge_indices=(interval.source_edge_id,),
+            vertex_indices=(corner_vertex_id,),
+            face_indices=(initial_face_id,),
+        )
+    origin = positions[corner_vertex_id]
+    intervals = []
+    for face_id in sector.source_face_ids:
+        clipped = _clip_ray_to_convex_face(
+            faces[face_id],
+            origin,
+            direction,
+            rail_plan.alpha_budget,
+            positions,
+            corner_vertex_id,
+        )
+        if clipped is None:
+            continue
+        lower, upper = clipped
+        if upper > lower or (
+            lower == 0.0
+            and upper == 0.0
+            and corner_vertex_id in faces[face_id].vertex_ids
+        ):
+            intervals.append((lower, upper, face_id))
+
+    positive = sorted(
+        (lower, upper)
+        for lower, upper, _face_id in intervals
+        if upper > lower
+    )
+    coverage = 0.0
+    for lower, upper in positive:
+        if lower > coverage:
+            break
+        coverage = max(coverage, upper)
+        if coverage >= rail_plan.alpha_budget:
+            coverage = float(rail_plan.alpha_budget)
+            break
+    if coverage <= 0.0:
+        raise _RailGeometryCompileError(
+            "RAIL_GEOMETRY_CORNER_PATH_MATTER_EMPTY",
+            edge_indices=(interval.source_edge_id,),
+            vertex_indices=(corner_vertex_id,),
+            face_indices=sector.source_face_ids,
+            details=(("sector_id", sector.sector_id),),
+        )
+
+    path_id = (
+        "CORNER_PATH",
+        corner_vertex_id,
+        interval.source_edge_id,
+        side_sign,
+    )
+    vertices_by_r = {}
+
+    def boundary_vertex(radius):
+        cached = vertices_by_r.get(radius)
+        if cached is not None:
+            return cached
+        position = _add3(origin, _mul3(direction, radius))
+        if radius == 0.0:
+            key = ("rail-source-vertex", corner_vertex_id)
+            feature = "SOURCE_VERTEX"
+            feature_id = corner_vertex_id
+        else:
+            key = (
+                "rail-corner-r",
+                corner_vertex_id,
+                interval.source_edge_id,
+                side_sign,
+                radius,
+            )
+            feature = "CORNER_PATH"
+            feature_id = ("ANALYTIC_PATH", path_id, origin, direction)
+        vertex = RailBoundaryVertex(
+            key=key,
+            position=position,
+            r=float(radius),
+            source_feature=feature,
+            source_feature_id=feature_id,
+            source_edge_id=None,
+            route_id=None,
+            station_index=None,
+        )
+        vertices_by_r[radius] = vertex
+        return vertex
+
+    pieces = []
+    for lower, upper, face_id in sorted(
+        intervals,
+        key=lambda item: (item[0], item[1], item[2]),
+    ):
+        if lower > coverage:
+            continue
+        upper = min(upper, coverage)
+        if upper < lower:
+            continue
+        pieces.append(
+            RailBoundaryPiece(
+                # Channel traversal не переходит из segment в corner-sector:
+                # все face-attribution pieces читают одну геометрию path.
+                piece_index=0,
+                owner_face_id=face_id,
+                start=boundary_vertex(lower),
+                end=boundary_vertex(upper),
+                source_edge_ids=(),
+            )
+        )
+    return RailBoundaryPath(
+        path_id=path_id,
+        route_id=None,
+        spine_vertex_id=corner_vertex_id,
+        kind="CORNER",
+        pieces=tuple(pieces),
+        termination=(
+            "ALPHA"
+            if coverage >= rail_plan.alpha_budget
+            else "SECTOR_BORDER"
+        ),
+        corner_sector_id=sector.sector_id,
+        corner_side=side_sign,
+    )
+
+
+def _planar_region_face_ids(rail_plan, initial_face_id):
+    """RP2-region: flood только через канонически копланарные non-barriers."""
+
+    faces = _face_by_id(rail_plan)
+    edges = _edge_by_id(rail_plan)
+    owner_normal = faces[initial_face_id].normal
+    region = {initial_face_id}
+    pending = [initial_face_id]
+    while pending:
+        face_id = pending.pop()
+        for edge_id in faces[face_id].edge_ids:
+            edge = edges[edge_id]
+            if edge.is_pchain or edge.is_spine or edge.is_fold:
+                continue
+            for neighbor_id in edge.face_indices:
+                if neighbor_id == face_id or neighbor_id in region:
+                    continue
+                if (
+                    _dot3(faces[neighbor_id].normal, owner_normal)
+                    <= DECAL_COPLANAR_DOT
+                ):
+                    continue
+                region.add(neighbor_id)
+                pending.append(neighbor_id)
+    return tuple(sorted(region))
+
+
+def _in_plane_boundary_route(
+    rail_plan,
+    spine_vertex_id,
+    region_face_ids,
+):
+    edges = _edge_by_id(rail_plan)
+    region_face_ids = set(region_face_ids)
+    candidates = tuple(
+        route
+        for route in rail_plan.routes
+        if route.key.side.spine_vertex_id == spine_vertex_id
+        and route.key.side.start_edge_id >= 0
+        and edges[route.key.side.start_edge_id].is_pchain
+        and region_face_ids.intersection(route.key.side.source_face_ids)
+    )
+    if len(candidates) > 1:
+        raise _RailGeometryCompileError(
+            "RAIL_GEOMETRY_IN_PLANE_BOUNDARY_AMBIGUOUS",
+            vertex_indices=(spine_vertex_id,),
+            face_indices=region_face_ids,
+            route_ids=(route.route_id for route in candidates),
+            details=(("candidate_count", len(candidates)),),
+        )
+    return candidates[0] if candidates else None
+
+
+def _in_plane_boundary_path(
+    rail_plan,
+    component,
+    interval,
+    endpoint_station_index,
+    initial_face_id,
+    side_sign,
+    region_face_ids,
+):
+    """RP1/RM6a: аналитический полуперпендикуляр через planar region."""
+
+    faces = _face_by_id(rail_plan)
+    edges = _edge_by_id(rail_plan)
+    positions = _position_by_vertex(rail_plan)
+    station = component.stations[endpoint_station_index]
+    spine_vertex_id = station.source_vertex_id
+    spine_edge = edges[interval.source_edge_id]
+    base_face = faces[initial_face_id]
+    direction = _cap_direction(
+        base_face,
+        spine_edge,
+        component.vertex_ids[interval.from_station_index],
+        component.vertex_ids[interval.to_station_index],
+        positions,
+    )
+    if direction is None:
+        raise _RailGeometryCompileError(
+            "RAIL_GEOMETRY_IN_PLANE_PATH_DIRECTION_INVALID",
+            edge_indices=(interval.source_edge_id,),
+            vertex_indices=(spine_vertex_id,),
+            face_indices=(initial_face_id,),
+        )
+    origin = positions[spine_vertex_id]
+    intervals = []
+    for face_id in region_face_ids:
+        face = faces[face_id]
+        source_points = tuple(
+            positions[vertex_id] for vertex_id in face.vertex_ids
+        )
+        if _source_face_is_convex(face, positions):
+            atoms = (source_points,)
+        else:
+            atoms = _triangulate_in_plane_source_polygon(
+                source_points,
+                face.normal,
+            )
+            if not atoms:
+                raise _RailGeometryCompileError(
+                    "RAIL_GEOMETRY_SOURCE_FACE_TRIANGULATION_INVALID",
+                    edge_indices=face.edge_ids,
+                    vertex_indices=face.vertex_ids,
+                    face_indices=(face_id,),
+                )
+        for atom in atoms:
+            clipped = _clip_ray_to_convex_points(
+                atom,
+                face.normal,
+                origin,
+                direction,
+                rail_plan.alpha_budget,
+            )
+            if clipped is None:
+                continue
+            lower, upper = clipped
+            if upper > lower or (
+                lower == 0.0
+                and upper == 0.0
+                and spine_vertex_id in face.vertex_ids
+            ):
+                intervals.append((lower, upper, face_id))
+    coverage = 0.0
+    for lower, upper in sorted(
+        (lower, upper)
+        for lower, upper, _face_id in intervals
+        if upper > lower
+    ):
+        if lower > coverage:
+            break
+        coverage = max(coverage, upper)
+        if coverage >= rail_plan.alpha_budget:
+            coverage = float(rail_plan.alpha_budget)
+            break
+    if coverage <= 0.0:
+        raise _RailGeometryCompileError(
+            "RAIL_GEOMETRY_IN_PLANE_PATH_MATTER_EMPTY",
+            edge_indices=(interval.source_edge_id,),
+            vertex_indices=(spine_vertex_id,),
+            face_indices=region_face_ids,
+        )
+    internal_corner = sum(
+        spine_vertex_id in edges[edge_id].vertex_ids
+        for edge_id in component.edge_ids
+    ) == 2
+    incident_spine_edges = tuple(
+        edge_id
+        for edge_id in component.edge_ids
+        if spine_vertex_id in edges[edge_id].vertex_ids
+    )
+    collinear_join = False
+    if internal_corner:
+        outward = []
+        for edge_id in incident_spine_edges:
+            other_vertex_id = next(
+                vertex_id
+                for vertex_id in edges[edge_id].vertex_ids
+                if vertex_id != spine_vertex_id
+            )
+            outward.append(
+                _normalized3(
+                    _sub3(positions[other_vertex_id], origin)
+                )
+            )
+        collinear_join = (
+            None not in outward
+            and _cross3(outward[0], outward[1]) == (0.0, 0.0, 0.0)
+        )
+    if collinear_join:
+        kind = "IN_PLANE_JOIN"
+        path_id = (
+            "IN_PLANE_JOIN_PATH",
+            spine_vertex_id,
+            side_sign,
+        )
+    else:
+        kind = "CORNER" if internal_corner else "IN_PLANE"
+        path_id = (
+            "CORNER_PATH" if internal_corner else "IN_PLANE_PATH",
+            spine_vertex_id,
+            interval.source_edge_id,
+            side_sign,
+        )
+    vertices_by_r = {}
+
+    def boundary_vertex(radius):
+        cached = vertices_by_r.get(radius)
+        if cached is not None:
+            return cached
+        position = _add3(origin, _mul3(direction, radius))
+        if radius == 0.0:
+            key = ("rail-source-vertex", spine_vertex_id)
+            feature = "SOURCE_VERTEX"
+            feature_id = spine_vertex_id
+        else:
+            key = (
+                (
+                    "rail-in-plane-join-r",
+                    spine_vertex_id,
+                    side_sign,
+                    radius,
+                )
+                if collinear_join
+                else (
+                    "rail-in-plane-r",
+                    spine_vertex_id,
+                    interval.source_edge_id,
+                    side_sign,
+                    radius,
+                )
+            )
+            feature = "IN_PLANE_PATH"
+            feature_id = ("ANALYTIC_PATH", path_id, origin, direction)
+        vertex = RailBoundaryVertex(
+            key=key,
+            position=position,
+            r=float(radius),
+            source_feature=feature,
+            source_feature_id=feature_id,
+            source_edge_id=None,
+            route_id=None,
+            station_index=None,
+        )
+        vertices_by_r[radius] = vertex
+        return vertex
+
+    pieces = tuple(
+        RailBoundaryPiece(
+            piece_index=0,
+            owner_face_id=face_id,
+            start=boundary_vertex(lower),
+            end=boundary_vertex(min(upper, coverage)),
+            source_edge_ids=(),
+        )
+        for lower, upper, face_id in sorted(
+            intervals,
+            key=lambda item: (item[0], item[1], item[2]),
+        )
+        if lower <= coverage and min(upper, coverage) >= lower
+    )
+    region_key = ("PLANAR_REGION", tuple(region_face_ids))
+    return RailBoundaryPath(
+        path_id=path_id,
+        route_id=None,
+        spine_vertex_id=spine_vertex_id,
+        kind=kind,
+        pieces=pieces,
+        termination=(
+            "ALPHA" if coverage >= rail_plan.alpha_budget else "REGION_BORDER"
+        ),
+        corner_sector_id=region_key if internal_corner else None,
+        corner_side=side_sign if internal_corner else None,
+        owner_face_ids=tuple(region_face_ids),
+    )
+
+
 def _line_edge_intersection(origin, direction, face_normal, point_a, point_b):
     """Пересечение ray и segment в owner plane без выбора кандидата."""
 
@@ -950,6 +1527,127 @@ def _trace_virtual_cap(
     )
 
 
+def _dam_sector_for_endpoint(
+    rail_plan,
+    spine_vertex_id,
+    spine_edge_id,
+    face_id,
+):
+    candidates = tuple(
+        sector
+        for sector in rail_plan.start_sectors
+        if sector.kind == RailStartSectorKind.DAM
+        and sector.spine_vertex_id == spine_vertex_id
+        and spine_edge_id in sector.delimiter_edge_ids
+        and face_id in sector.source_face_ids
+    )
+    if len(candidates) > 1:
+        raise _RailGeometryCompileError(
+            "RAIL_GEOMETRY_STRUCTURAL_CAP_SECTOR_AMBIGUOUS",
+            edge_indices=(spine_edge_id,),
+            vertex_indices=(spine_vertex_id,),
+            face_indices=(face_id,),
+            details=(
+                ("sector_ids", tuple(sector.sector_id for sector in candidates)),
+            ),
+        )
+    return candidates[0] if candidates else None
+
+
+def _trace_structural_cap(
+    rail_plan,
+    *,
+    trace_id,
+    route,
+    spine_edge,
+    initial_face_id,
+    sector,
+):
+    """RM5a degradation: cap по смежному внутреннему ребру сектора."""
+
+    edges = _edge_by_id(rail_plan)
+    positions = _position_by_vertex(rail_plan)
+    spine_vertex_id = route.key.side.spine_vertex_id
+    candidates = tuple(
+        edge_id
+        for edge_id in sector.internal_edge_ids
+        if initial_face_id in edges[edge_id].face_indices
+        and spine_vertex_id in edges[edge_id].vertex_ids
+    )
+    if len(candidates) != 1:
+        raise _RailGeometryCompileError(
+            "RAIL_GEOMETRY_STRUCTURAL_CAP_EDGE_AMBIGUOUS",
+            edge_indices=candidates,
+            vertex_indices=(spine_vertex_id,),
+            face_indices=(initial_face_id,),
+            route_ids=(route.route_id,),
+            details=(("candidate_count", len(candidates)),),
+        )
+    edge = edges[candidates[0]]
+    other_vertex_id = (
+        edge.vertex_ids[1]
+        if edge.vertex_ids[0] == spine_vertex_id
+        else edge.vertex_ids[0]
+    )
+    origin = positions[spine_vertex_id]
+    end_position = positions[other_vertex_id]
+    direction = _normalized3(_sub3(end_position, origin))
+    if direction is None or not edge.length > 0.0:
+        raise _RailGeometryCompileError(
+            "RAIL_GEOMETRY_STRUCTURAL_CAP_EDGE_DEGENERATE",
+            edge_indices=(edge.edge_id,),
+            vertex_indices=edge.vertex_ids,
+            face_indices=(initial_face_id,),
+            route_ids=(route.route_id,),
+        )
+    start = RailBoundaryVertex(
+        key=("rail-source-vertex", spine_vertex_id),
+        position=origin,
+        r=0.0,
+        source_feature="SOURCE_VERTEX",
+        source_feature_id=spine_vertex_id,
+        source_edge_id=edge.edge_id,
+        route_id=route.route_id,
+        station_index=0,
+    )
+    end = RailBoundaryVertex(
+        key=("rail-source-vertex", other_vertex_id),
+        position=end_position,
+        r=edge.length,
+        source_feature="SOURCE_VERTEX",
+        source_feature_id=other_vertex_id,
+        source_edge_id=edge.edge_id,
+        route_id=route.route_id,
+        station_index=None,
+    )
+    piece = RailBoundaryPiece(
+        piece_index=0,
+        owner_face_id=initial_face_id,
+        start=start,
+        end=end,
+        source_edge_ids=(edge.edge_id,),
+    )
+    trace = RailCapTrace(
+        trace_id=trace_id,
+        route_id=route.route_id,
+        spine_vertex_id=spine_vertex_id,
+        spine_edge_id=spine_edge.edge_id,
+        initial_face_id=initial_face_id,
+        direction=direction,
+        pieces=(piece,),
+        termination="STRUCTURAL",
+    )
+    return trace, RailBoundaryPath(
+        path_id=("CAP", trace_id),
+        route_id=route.route_id,
+        spine_vertex_id=spine_vertex_id,
+        kind="CAP",
+        pieces=(piece,),
+        termination=trace.termination,
+        cap_trace_id=trace.trace_id,
+    )
+
+
 def _route_for_face(rail_plan, spine_vertex_id, face_id):
     candidates = [
         route
@@ -993,31 +1691,129 @@ def _path_for_endpoint(
     cap_traces,
 ):
     station = component.stations[endpoint_station_index]
-    route = _route_for_face(rail_plan, station.source_vertex_id, face_id)
+    corner_sector = _corner_sector_for_endpoint(
+        rail_plan,
+        station.source_vertex_id,
+        interval.source_edge_id,
+        face_id,
+    )
+    if corner_sector is not None:
+        face = _face_by_id(rail_plan)[face_id]
+        side_sign = _side_sign(
+            face,
+            interval.source_edge_id,
+            component.vertex_ids[interval.from_station_index],
+            component.vertex_ids[interval.to_station_index],
+        )
+        cache_key = (
+            "CORNER",
+            station.source_vertex_id,
+            interval.source_edge_id,
+            side_sign,
+        )
+        cached = trace_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        path = _corner_boundary_path(
+            rail_plan,
+            component,
+            interval,
+            endpoint_station_index,
+            face_id,
+            side_sign,
+            corner_sector,
+        )
+        trace_cache[cache_key] = path
+        return path
+    face = _face_by_id(rail_plan)[face_id]
+    side_sign = _side_sign(
+        face,
+        interval.source_edge_id,
+        component.vertex_ids[interval.from_station_index],
+        component.vertex_ids[interval.to_station_index],
+    )
+    region_face_ids = _planar_region_face_ids(rail_plan, face_id)
+    boundary_route = _in_plane_boundary_route(
+        rail_plan,
+        station.source_vertex_id,
+        region_face_ids,
+    )
+    if boundary_route is not None:
+        cache_key = ("ROUTE", boundary_route.route_id)
+        cached = trace_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        path = _route_boundary_path(rail_plan, boundary_route)
+        trace_cache[cache_key] = path
+        return path
+    route_candidates = tuple(
+        route
+        for route in rail_plan.routes
+        if route.key.side.spine_vertex_id == station.source_vertex_id
+        and face_id in route.key.side.source_face_ids
+        and route.key.side.start_edge_id >= 0
+        and not _edge_by_id(rail_plan)[route.key.side.start_edge_id].is_pchain
+    )
+    if not route_candidates:
+        cache_key = (
+            "IN_PLANE",
+            station.source_vertex_id,
+            interval.source_edge_id,
+            side_sign,
+        )
+        cached = trace_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        path = _in_plane_boundary_path(
+            rail_plan,
+            component,
+            interval,
+            endpoint_station_index,
+            face_id,
+            side_sign,
+            region_face_ids,
+        )
+        trace_cache[cache_key] = path
+        return path
+    if len(route_candidates) != 1:
+        raise _RailGeometryCompileError(
+            "RAIL_GEOMETRY_BOUNDARY_AMBIGUOUS",
+            vertex_indices=(station.source_vertex_id,),
+            face_indices=(face_id,),
+            route_ids=(route.route_id for route in route_candidates),
+            details=(("candidate_count", len(route_candidates)),),
+        )
+    route = route_candidates[0]
     if route.key.side.start_edge_id >= 0:
         faces = _face_by_id(rail_plan)
-        owner_normal = faces[face_id].normal
-        route_face_ids = {
-            source_face_id
-            for segment in route.segments
-            for source_face_id in segment.source_face_ids
-        }
-        curved_faces = tuple(
-            sorted(
+        route_edge = _edge_by_id(rail_plan)[route.key.side.start_edge_id]
+        if not route_edge.is_pchain:
+            owner_normal = faces[face_id].normal
+            route_face_ids = {
                 source_face_id
-                for source_face_id in route_face_ids
-                if _dot3(faces[source_face_id].normal, owner_normal)
-                < _RAIL_PLANAR_DOT
+                for segment in route.segments
+                for source_face_id in segment.source_face_ids
+            }
+            curved_faces = tuple(
+                sorted(
+                    source_face_id
+                    for source_face_id in route_face_ids
+                    if _dot3(faces[source_face_id].normal, owner_normal)
+                    < _RAIL_PLANAR_DOT
+                )
             )
-        )
-        if curved_faces:
-            raise _RailGeometryCompileError(
-                "RAIL_GEOMETRY_CURVED_OWNER_UNSUPPORTED",
-                edge_indices=(interval.source_edge_id,),
-                vertex_indices=(station.source_vertex_id,),
-                face_indices=(face_id, *curved_faces),
-                route_ids=(route.route_id,),
-            )
+            if curved_faces:
+                raise _RailGeometryCompileError(
+                    "RAIL_GEOMETRY_CURVED_OWNER_UNSUPPORTED",
+                    edge_indices=(interval.source_edge_id,),
+                    vertex_indices=(station.source_vertex_id,),
+                    face_indices=(face_id, *curved_faces),
+                    route_ids=(route.route_id,),
+                )
+        # RR8a: у boundary pChain один route и общие станции, но pieces
+        # принадлежат face-sector'ам. Дальняя сторона fold не участвует в
+        # текущем channel; фактическую кривизну материализуемой стороны ниже
+        # проверяет _compile_channel_cells по owner faces самих cells.
         return _route_boundary_path(rail_plan, route)
     if not (
         route.termination == RailTermination.DAM
@@ -1049,12 +1845,27 @@ def _path_for_endpoint(
         initial_face_id=face_id,
     )
     if not trace.pieces:
-        raise _RailGeometryCompileError(
-            "RAIL_GEOMETRY_VIRTUAL_CAP_EMPTY",
-            edge_indices=(interval.source_edge_id,),
-            vertex_indices=(station.source_vertex_id,),
-            face_indices=(face_id,),
-            route_ids=(route.route_id,),
+        sector = _dam_sector_for_endpoint(
+            rail_plan,
+            station.source_vertex_id,
+            interval.source_edge_id,
+            face_id,
+        )
+        if sector is None:
+            raise _RailGeometryCompileError(
+                "RAIL_GEOMETRY_VIRTUAL_CAP_EMPTY",
+                edge_indices=(interval.source_edge_id,),
+                vertex_indices=(station.source_vertex_id,),
+                face_indices=(face_id,),
+                route_ids=(route.route_id,),
+            )
+        trace, path = _trace_structural_cap(
+            rail_plan,
+            trace_id=len(cap_traces),
+            route=route,
+            spine_edge=edge,
+            initial_face_id=face_id,
+            sector=sector,
         )
     cap_traces.append(trace)
     trace_cache[cache_key] = path
@@ -1130,7 +1941,11 @@ def _domain_vertex(boundary_vertex, *, s, face_id, path_id):
         source_feature_id=boundary_vertex.source_feature_id,
         source_edge_id=boundary_vertex.source_edge_id,
         source_face_id=face_id,
-        route_ids=(boundary_vertex.route_id,),
+        route_ids=(
+            ()
+            if boundary_vertex.route_id is None
+            else (boundary_vertex.route_id,)
+        ),
         station_index=boundary_vertex.station_index,
     )
 
@@ -1269,6 +2084,865 @@ def _compile_channel_cells(
     return tuple(cells)
 
 
+def _in_plane_station_lookup(*paths):
+    lookup = defaultdict(list)
+    for path in paths:
+        for piece in path.pieces:
+            for vertex in (piece.start, piece.end):
+                lookup[vertex.position].append((path.path_id, vertex))
+    return lookup
+
+
+def _in_plane_domain_vertex(
+    *,
+    position,
+    source_vertex_id,
+    face_id,
+    point_a,
+    tangent,
+    lateral,
+    s_a,
+    component_id,
+    station_lookup,
+):
+    relative = _sub3(position, point_a)
+    s = s_a + _dot3(relative, tangent)
+    r = _dot3(relative, lateral)
+    matches = station_lookup.get(position, ())
+    matching_paths = {path_id for path_id, _vertex in matches}
+    if source_vertex_id is not None:
+        key = ("rail-source-vertex", source_vertex_id)
+        feature = "SOURCE_VERTEX"
+        feature_id = source_vertex_id
+    else:
+        key = (
+            "rail-in-plane-point",
+            component_id,
+            tuple(float(value) for value in position),
+        )
+        feature = "IN_PLANE_POINT"
+        feature_id = position
+    if len(matching_paths) == 1:
+        path_id, boundary_vertex = matches[0]
+        r = boundary_vertex.r
+        route_ids = (
+            ()
+            if boundary_vertex.route_id is None
+            else (boundary_vertex.route_id,)
+        )
+        source_edge_id = boundary_vertex.source_edge_id
+        station_index = boundary_vertex.station_index
+        key = boundary_vertex.key
+        feature = boundary_vertex.source_feature
+        feature_id = boundary_vertex.source_feature_id
+    else:
+        path_id = (
+            "IN_PLANE_SOURCE_VERTEX",
+            component_id,
+            source_vertex_id,
+        )
+        route_ids = ()
+        source_edge_id = None
+        station_index = None
+    return RailDomainVertex(
+        key=key,
+        position=position,
+        s=float(s),
+        r=float(r),
+        boundary_path_id=path_id,
+        source_feature=feature,
+        source_feature_id=feature_id,
+        source_edge_id=source_edge_id,
+        source_face_id=face_id,
+        route_ids=route_ids,
+        station_index=station_index,
+    )
+
+
+def _clip_in_plane_polygon(
+    polygon,
+    *,
+    axis,
+    bound,
+    keep_greater,
+    path_hint,
+    constraint_key,
+    component_id,
+    station_lookup,
+):
+    def value(vertex):
+        coordinate = vertex.s if axis == "s" else vertex.r
+        result = coordinate - bound
+        return result if keep_greater else -result
+
+    output = []
+    for index, current in enumerate(polygon):
+        previous = polygon[index - 1]
+        current_value = value(current)
+        previous_value = value(previous)
+        current_inside = current_value >= 0.0
+        previous_inside = previous_value >= 0.0
+        if current_inside != previous_inside:
+            vertex_a, value_a = previous, previous_value
+            vertex_b, value_b = current, current_value
+            if repr(vertex_b.key) < repr(vertex_a.key):
+                vertex_a, vertex_b = vertex_b, vertex_a
+                value_a, value_b = value_b, value_a
+            denominator = value_a - value_b
+            if denominator == 0.0:
+                raise _RailGeometryCompileError(
+                    "RAIL_GEOMETRY_IN_PLANE_CLIP_INVALID",
+                    face_indices=(current.source_face_id,),
+                    details=(("constraint", constraint_key),),
+                )
+            parameter = value_a / denominator
+            position = _add3(
+                vertex_a.position,
+                _mul3(_sub3(vertex_b.position, vertex_a.position), parameter),
+            )
+            s = vertex_a.s + (vertex_b.s - vertex_a.s) * parameter
+            r = vertex_a.r + (vertex_b.r - vertex_a.r) * parameter
+            if axis == "s":
+                s = float(bound)
+            else:
+                r = float(bound)
+            matches = station_lookup.get(position, ())
+            matched = next(
+                (
+                    boundary_vertex
+                    for matched_path_id, boundary_vertex in matches
+                    if matched_path_id == path_hint
+                ),
+                None,
+            )
+            if matched is not None:
+                key = matched.key
+                path_id = path_hint
+                source_feature = matched.source_feature
+                source_feature_id = matched.source_feature_id
+                source_edge_id = matched.source_edge_id
+                station_index = matched.station_index
+                route_ids = (
+                    () if matched.route_id is None else (matched.route_id,)
+                )
+                r = matched.r
+            else:
+                shared_path_id = (
+                    vertex_a.boundary_path_id
+                    if vertex_a.boundary_path_id == vertex_b.boundary_path_id
+                    else None
+                )
+                path_id = path_hint or shared_path_id or (
+                    "IN_PLANE_CUT",
+                    component_id,
+                    constraint_key,
+                )
+                key = (
+                    "rail-in-plane-cut",
+                    component_id,
+                    constraint_key,
+                    tuple(sorted((vertex_a.key, vertex_b.key), key=repr)),
+                )
+                source_feature = "IN_PLANE_CUT"
+                source_feature_id = constraint_key
+                source_edge_id = (
+                    vertex_a.source_edge_id
+                    if vertex_a.source_edge_id == vertex_b.source_edge_id
+                    else None
+                )
+                station_index = None
+                route_ids = tuple(
+                    sorted(set(vertex_a.route_ids).union(vertex_b.route_ids))
+                )
+            output.append(
+                RailDomainVertex(
+                    key=key,
+                    position=position,
+                    s=s,
+                    r=r,
+                    boundary_path_id=path_id,
+                    source_feature=source_feature,
+                    source_feature_id=source_feature_id,
+                    source_edge_id=source_edge_id,
+                    source_face_id=current.source_face_id,
+                    route_ids=route_ids,
+                    station_index=station_index,
+                )
+            )
+        if current_inside:
+            output.append(current)
+    deduplicated = []
+    for vertex in output:
+        coordinate = vertex.s if axis == "s" else vertex.r
+        arithmetic = 1e-12 * max(1.0, abs(coordinate), abs(bound))
+        if path_hint is not None and abs(coordinate - bound) <= arithmetic:
+            route_ids = set(vertex.route_ids)
+            if path_hint[:1] == ("ROUTE",):
+                route_ids.add(path_hint[1])
+            vertex = replace(
+                vertex,
+                boundary_path_id=path_hint,
+                route_ids=tuple(sorted(route_ids)),
+            )
+        if deduplicated and deduplicated[-1].key == vertex.key:
+            continue
+        deduplicated.append(vertex)
+    if deduplicated and deduplicated[0].key == deduplicated[-1].key:
+        deduplicated.pop()
+    return tuple(deduplicated)
+
+
+def _triangulate_in_plane_source_polygon(polygon, normal):
+    """RV2 для concave source-face: atoms без rail-семантики внутренних рёбер."""
+
+    points = _project_polygon(
+        tuple(
+            item.position if hasattr(item, "position") else item
+            for item in polygon
+        ),
+        normal,
+    )
+    signed_area = sum(
+        point_a[0] * point_b[1] - point_b[0] * point_a[1]
+        for point_a, point_b in zip(points, points[1:] + points[:1])
+    )
+    if signed_area == 0.0:
+        return ()
+    order = list(range(len(polygon)))
+    if signed_area < 0.0:
+        order.reverse()
+    triangles = []
+    guard = len(order) * len(order)
+    while len(order) > 3 and guard > 0:
+        ear_found = False
+        for position, current in enumerate(order):
+            previous = order[position - 1]
+            following = order[(position + 1) % len(order)]
+            turn = _orientation2(
+                points[previous],
+                points[current],
+                points[following],
+            )
+            tolerance = _polygon_arithmetic_tolerance(
+                (points[previous], points[current], points[following]),
+            )
+            if turn <= tolerance:
+                continue
+            triangle_points = (
+                points[previous],
+                points[current],
+                points[following],
+            )
+            if any(
+                candidate not in {previous, current, following}
+                and _point_in_polygon2(
+                    points[candidate],
+                    triangle_points,
+                    tolerance,
+                )
+                and not any(
+                    _point_on_segment2(
+                        points[candidate],
+                        triangle_points[index],
+                        triangle_points[(index + 1) % 3],
+                        tolerance,
+                    )
+                    for index in range(3)
+                )
+                for candidate in order
+            ):
+                continue
+            triangles.append(tuple(polygon[index] for index in (previous, current, following)))
+            del order[position]
+            ear_found = True
+            break
+        if not ear_found:
+            return ()
+        guard -= 1
+    if len(order) == 3:
+        triangles.append(tuple(polygon[index] for index in order))
+    return tuple(triangles)
+
+
+def _compile_in_plane_channel_cells(
+    *,
+    rail_plan,
+    channel_id,
+    component,
+    interval,
+    initial_face_id,
+    path_a,
+    path_b,
+    first_cell_id,
+):
+    """RP1: source-face intersection с аналитическим planar ribbon."""
+
+    faces = _face_by_id(rail_plan)
+    positions = _position_by_vertex(rail_plan)
+    face = faces[initial_face_id]
+    point_a = positions[component.vertex_ids[interval.from_station_index]]
+    point_b = positions[component.vertex_ids[interval.to_station_index]]
+    tangent = _normalized3(_sub3(point_b, point_a))
+    if tangent is None:
+        raise _RailGeometryCompileError(
+            "RAIL_GEOMETRY_SPINE_EDGE_DEGENERATE",
+            edge_indices=(interval.source_edge_id,),
+        )
+    side_sign = _side_sign(
+        face,
+        interval.source_edge_id,
+        component.vertex_ids[interval.from_station_index],
+        component.vertex_ids[interval.to_station_index],
+    )
+    lateral = _normalized3(_cross3(face.normal, tangent))
+    if lateral is None:
+        raise _RailGeometryCompileError(
+            "RAIL_GEOMETRY_IN_PLANE_LATERAL_INVALID",
+            edge_indices=(interval.source_edge_id,),
+            face_indices=(initial_face_id,),
+    )
+    lateral = _mul3(lateral, -side_sign)
+    s_a = component.stations[interval.from_station_index].s
+    s_b = component.stations[interval.to_station_index].s
+    maximum_window = (
+        point_a,
+        point_b,
+        _add3(point_b, _mul3(lateral, rail_plan.alpha_budget)),
+        _add3(point_a, _mul3(lateral, rail_plan.alpha_budget)),
+    )
+    station_lookup = _in_plane_station_lookup(path_a, path_b)
+    region_face_ids = _planar_region_face_ids(rail_plan, initial_face_id)
+    edges = _edge_by_id(rail_plan)
+
+    def fold_intersects_window(edge):
+        endpoint_values = []
+        for vertex_id in edge.vertex_ids:
+            relative = _sub3(positions[vertex_id], point_a)
+            endpoint_values.append(
+                (
+                    s_a + _dot3(relative, tangent),
+                    _dot3(relative, lateral),
+                )
+            )
+        lower = 0.0
+        upper = 1.0
+        for coordinate_index, minimum, maximum in (
+            (0, s_a, s_b),
+            (1, 0.0, rail_plan.alpha_budget),
+        ):
+            value_a = endpoint_values[0][coordinate_index]
+            value_b = endpoint_values[1][coordinate_index]
+            delta = value_b - value_a
+            if delta == 0.0:
+                if value_a < minimum or value_a > maximum:
+                    return False
+                continue
+            t_min = (minimum - value_a) / delta
+            t_max = (maximum - value_a) / delta
+            if t_min > t_max:
+                t_min, t_max = t_max, t_min
+            lower = max(lower, t_min)
+            upper = min(upper, t_max)
+            if upper < lower:
+                return False
+        return upper >= lower
+
+    blocking_folds = tuple(
+        sorted(
+            {
+                edge_id
+                for face_id in region_face_ids
+                for edge_id in faces[face_id].edge_ids
+                if edges[edge_id].is_fold
+                and not edges[edge_id].is_pchain
+                and not edges[edge_id].is_spine
+                and fold_intersects_window(edges[edge_id])
+            }
+        )
+    )
+    if blocking_folds:
+        raise _RailGeometryCompileError(
+            "RAIL_GEOMETRY_CURVED_PENDING_R3",
+            edge_indices=blocking_folds,
+            face_indices=region_face_ids,
+        )
+    cells = []
+    constraints = (
+        ("r", 0.0, True, None, (interval.source_edge_id, "SPINE")),
+        (
+            "r",
+            float(rail_plan.alpha_budget),
+            False,
+            None,
+            (interval.source_edge_id, "ALPHA"),
+        ),
+        ("s", s_a, True, path_a.path_id, (path_a.path_id, "FROM")),
+        ("s", s_b, False, path_b.path_id, (path_b.path_id, "TO")),
+    )
+    for face_id in region_face_ids:
+        owner_face = faces[face_id]
+        source_polygon = tuple(
+            _in_plane_domain_vertex(
+                position=positions[vertex_id],
+                source_vertex_id=vertex_id,
+                face_id=face_id,
+                point_a=point_a,
+                tangent=tangent,
+                lateral=lateral,
+                s_a=s_a,
+                component_id=component.component_id,
+                station_lookup=station_lookup,
+            )
+            for vertex_id in owner_face.vertex_ids
+        )
+        if _source_face_is_convex(owner_face, positions):
+            source_atoms = (source_polygon,)
+        else:
+            source_points = tuple(
+                vertex.position for vertex in source_polygon
+            )
+            if not _coplanar_polygons_overlap(
+                source_points,
+                maximum_window,
+                face.normal,
+            ):
+                continue
+            source_atoms = _triangulate_in_plane_source_polygon(
+                source_polygon,
+                owner_face.normal,
+            )
+            if not source_atoms:
+                raise _RailGeometryCompileError(
+                    "RAIL_GEOMETRY_SOURCE_FACE_TRIANGULATION_INVALID",
+                    edge_indices=owner_face.edge_ids,
+                    vertex_indices=owner_face.vertex_ids,
+                    face_indices=(face_id,),
+                )
+        for source_atom in source_atoms:
+            polygon = source_atom
+            for axis, bound, keep_greater, path_hint, constraint_key in constraints:
+                polygon = _clip_in_plane_polygon(
+                    polygon,
+                    axis=axis,
+                    bound=bound,
+                    keep_greater=keep_greater,
+                    path_hint=path_hint,
+                    constraint_key=constraint_key,
+                    component_id=component.component_id,
+                    station_lookup=station_lookup,
+                )
+                if len(polygon) < 3:
+                    break
+            if len(polygon) < 3:
+                continue
+            scale = max(
+                1.0,
+                *(
+                    _length3(_sub3(vertex.position, point_a))
+                    for vertex in polygon
+                ),
+            )
+            if _polygon_area_measure(polygon) <= scale * scale * 1e-12:
+                continue
+            polygon_normal = _polygon_normal(polygon)
+            if polygon_normal is None:
+                continue
+            if _dot3(polygon_normal, owner_face.normal) < 0.0:
+                polygon = tuple(reversed(polygon))
+            cells.append(
+                RailChannelCell(
+                    cell_id=first_cell_id + len(cells),
+                    channel_id=channel_id,
+                    owner_face_id=face_id,
+                    spine_edge_id=interval.source_edge_id,
+                    source_edge_ids=tuple(
+                        sorted({interval.source_edge_id, *owner_face.edge_ids})
+                    ),
+                    boundary_path_ids=(path_a.path_id, path_b.path_id),
+                    vertices=polygon,
+                )
+            )
+    if cells:
+        edge_id_by_vertices = {
+            frozenset(edge.vertex_ids): edge.edge_id
+            for edge in rail_plan.edges
+        }
+        vertex_ids_by_position = defaultdict(list)
+        for source_vertex in rail_plan.vertices:
+            vertex_ids_by_position[source_vertex.position].append(
+                source_vertex.vertex_id
+            )
+
+        def source_vertex_id(vertex):
+            if vertex.key[:1] == ("rail-source-vertex",):
+                return vertex.key[1]
+            candidates = vertex_ids_by_position.get(vertex.position, ())
+            return candidates[0] if len(candidates) == 1 else None
+
+        edge_owners = defaultdict(list)
+        for cell_index, cell in enumerate(cells):
+            vertices = cell.vertices
+            for vertex_a, vertex_b in zip(
+                vertices, vertices[1:] + vertices[:1]
+            ):
+                key_a = vertex_a.key
+                key_b = vertex_b.key
+                source_edge_id = None
+                source_vertex_a = source_vertex_id(vertex_a)
+                source_vertex_b = source_vertex_id(vertex_b)
+                if source_vertex_a is not None and source_vertex_b is not None:
+                    source_edge_id = edge_id_by_vertices.get(
+                        frozenset((source_vertex_a, source_vertex_b))
+                    )
+                is_barrier = source_edge_id is not None and (
+                    edges[source_edge_id].is_pchain
+                    or edges[source_edge_id].is_spine
+                    or edges[source_edge_id].is_fold
+                )
+                edge_owners[frozenset((key_a, key_b))].append(
+                    (cell_index, is_barrier)
+                )
+        adjacency = {index: set() for index in range(len(cells))}
+        for owners in edge_owners.values():
+            if len(owners) != 2:
+                continue
+            if owners[0][1] or owners[1][1]:
+                continue
+            adjacency[owners[0][0]].add(owners[1][0])
+            adjacency[owners[1][0]].add(owners[0][0])
+        reachable = {
+            index
+            for index, cell in enumerate(cells)
+            if sum(vertex.r == 0.0 for vertex in cell.vertices) >= 2
+        }
+        pending = list(reachable)
+        while pending:
+            current = pending.pop()
+            for neighbor in adjacency[current].difference(reachable):
+                reachable.add(neighbor)
+                pending.append(neighbor)
+        cells = [
+            replace(cell, cell_id=first_cell_id + kept_index)
+            for kept_index, cell in enumerate(
+                cell
+                for index, cell in enumerate(cells)
+                if index in reachable
+            )
+        ]
+    if not cells:
+        raise _RailGeometryCompileError(
+            "RAIL_GEOMETRY_IN_PLANE_CHANNEL_EMPTY",
+            edge_indices=(interval.source_edge_id,),
+            face_indices=region_face_ids,
+        )
+    return tuple(cells)
+
+
+def _route_for_sector_edges(
+    rail_plan,
+    sector,
+    edge_ids,
+    failure_reason,
+):
+    candidates = tuple(
+        route
+        for route in rail_plan.routes
+        if route.key.side.spine_vertex_id == sector.spine_vertex_id
+        and route.key.side.start_edge_id in edge_ids
+    )
+    if len(candidates) != 1:
+        raise _RailGeometryCompileError(
+            failure_reason,
+            edge_indices=edge_ids,
+            vertex_indices=(sector.spine_vertex_id,),
+            face_indices=sector.source_face_ids,
+            route_ids=(route.route_id for route in candidates),
+            details=(
+                ("sector_id", sector.sector_id),
+                ("candidate_count", len(candidates)),
+            ),
+        )
+    return candidates[0]
+
+
+def _cached_route_path(rail_plan, route, path_by_id):
+    path_id = ("ROUTE", route.route_id)
+    cached = path_by_id.get(path_id)
+    if cached is not None:
+        return cached
+    path = _route_boundary_path(rail_plan, route)
+    path_by_id[path.path_id] = path
+    return path
+
+
+def _compile_angular_pieces(
+    *,
+    rail_plan,
+    angular_channel_id,
+    sector,
+    spine_edge_id,
+    apex_s,
+    initial_face_id,
+    ordinary_path,
+    boundary_path,
+    first_piece_id,
+):
+    """RM7a per-face fan: оба берега имеют свой r и общий apex-s."""
+
+    faces = _face_by_id(rail_plan)
+    current_face_id = initial_face_id
+    minimum_ordinary = 0
+    minimum_boundary = 0
+    visited = set()
+    pieces = []
+    while current_face_id is not None:
+        if current_face_id in visited:
+            raise _RailGeometryCompileError(
+                "RAIL_GEOMETRY_ANGULAR_FACE_CYCLE",
+                face_indices=(current_face_id,),
+                route_ids=(ordinary_path.route_id, boundary_path.route_id),
+                details=(("sector_id", sector.sector_id),),
+            )
+        visited.add(current_face_id)
+        face = faces[current_face_id]
+        if face.planarity_min_dot < _RAIL_PLANAR_DOT:
+            raise _RailGeometryCompileError(
+                "RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR",
+                face_indices=(current_face_id,),
+            )
+        ordinary_piece = _piece_for_face(
+            ordinary_path,
+            current_face_id,
+            minimum_ordinary,
+        )
+        boundary_piece = _piece_for_face(
+            boundary_path,
+            current_face_id,
+            minimum_boundary,
+        )
+        if ordinary_piece is None or boundary_piece is None:
+            if not pieces:
+                raise _RailGeometryCompileError(
+                    "RAIL_GEOMETRY_ANGULAR_BOUNDARY_MISSING",
+                    edge_indices=(spine_edge_id,),
+                    vertex_indices=(sector.spine_vertex_id,),
+                    face_indices=(current_face_id,),
+                    route_ids=(ordinary_path.route_id, boundary_path.route_id),
+                    details=(("sector_id", sector.sector_id),),
+                )
+            break
+        minimum_ordinary = ordinary_piece.piece_index + 1
+        minimum_boundary = boundary_piece.piece_index + 1
+        vertices = (
+            _domain_vertex(
+                ordinary_piece.start,
+                s=apex_s,
+                face_id=current_face_id,
+                path_id=ordinary_path.path_id,
+            ),
+            _domain_vertex(
+                boundary_piece.start,
+                s=apex_s,
+                face_id=current_face_id,
+                path_id=boundary_path.path_id,
+            ),
+            _domain_vertex(
+                boundary_piece.end,
+                s=apex_s,
+                face_id=current_face_id,
+                path_id=boundary_path.path_id,
+            ),
+            _domain_vertex(
+                ordinary_piece.end,
+                s=apex_s,
+                face_id=current_face_id,
+                path_id=ordinary_path.path_id,
+            ),
+        )
+        polygon_normal = _polygon_normal(vertices)
+        if polygon_normal is None:
+            raise _RailGeometryCompileError(
+                "RAIL_GEOMETRY_ANGULAR_PIECE_DEGENERATE",
+                edge_indices=(spine_edge_id,),
+                vertex_indices=(sector.spine_vertex_id,),
+                face_indices=(current_face_id,),
+                route_ids=(ordinary_path.route_id, boundary_path.route_id),
+                details=(("sector_id", sector.sector_id),),
+            )
+        if _dot3(polygon_normal, face.normal) < 0.0:
+            vertices = tuple(reversed(vertices))
+        pieces.append(
+            RailAngularPiece(
+                piece_id=first_piece_id + len(pieces),
+                angular_channel_id=angular_channel_id,
+                owner_face_id=current_face_id,
+                spine_edge_id=spine_edge_id,
+                sector_id=sector.sector_id,
+                source_edge_ids=tuple(
+                    sorted(
+                        {
+                            *ordinary_piece.source_edge_ids,
+                            *boundary_piece.source_edge_ids,
+                        }
+                    )
+                ),
+                boundary_path_ids=(
+                    ordinary_path.path_id,
+                    boundary_path.path_id,
+                ),
+                vertices=vertices,
+            )
+        )
+        current_face_id = _next_face(
+            ordinary_path,
+            ordinary_piece,
+            boundary_path,
+            boundary_piece,
+            current_face_id,
+        )
+    return tuple(pieces)
+
+
+def _compile_angular_channels(rail_plan, component, path_by_id):
+    """Компилирует только RR1a route-сектора spine+boundary."""
+
+    edges = _edge_by_id(rail_plan)
+    faces = _face_by_id(rail_plan)
+    component_edge_ids = set(component.edge_ids)
+    interval_by_edge = {
+        interval.source_edge_id: interval for interval in component.intervals
+    }
+    station_by_vertex = {
+        station.source_vertex_id: station for station in component.stations
+    }
+    angular_channels = []
+    next_piece_id = 0
+    for sector in rail_plan.start_sectors:
+        if (
+            sector.kind != RailStartSectorKind.ROUTE
+            or sector.spine_vertex_id not in station_by_vertex
+        ):
+            continue
+        spine_delimiters = tuple(
+            edge_id
+            for edge_id in sector.delimiter_edge_ids
+            if edge_id in component_edge_ids
+        )
+        boundary_delimiters = tuple(
+            edge_id
+            for edge_id in sector.delimiter_edge_ids
+            if edge_id not in component_edge_ids and edges[edge_id].is_pchain
+        )
+        if not boundary_delimiters:
+            # spine-spine ROUTE-сектор остаётся обычным RR1-rail.
+            continue
+        if not spine_delimiters:
+            # Boundary-boundary сектор не является RM7a-интерфейсом spine.
+            continue
+        if len(spine_delimiters) != 1 or len(boundary_delimiters) != 1:
+            raise _RailGeometryCompileError(
+                "RAIL_GEOMETRY_ANGULAR_DELIMITER_AMBIGUOUS",
+                edge_indices=sector.delimiter_edge_ids,
+                vertex_indices=(sector.spine_vertex_id,),
+                face_indices=sector.source_face_ids,
+                details=(("sector_id", sector.sector_id),),
+            )
+        spine_edge_id = spine_delimiters[0]
+        boundary_edge_id = boundary_delimiters[0]
+        ordinary_route = _route_for_sector_edges(
+            rail_plan,
+            sector,
+            set(sector.internal_edge_ids),
+            "RAIL_GEOMETRY_ANGULAR_ORDINARY_ROUTE_AMBIGUOUS",
+        )
+        boundary_route = _route_for_sector_edges(
+            rail_plan,
+            sector,
+            {boundary_edge_id},
+            "RAIL_GEOMETRY_ANGULAR_BOUNDARY_ROUTE_AMBIGUOUS",
+        )
+        ordinary_path = _cached_route_path(
+            rail_plan,
+            ordinary_route,
+            path_by_id,
+        )
+        boundary_path = _cached_route_path(
+            rail_plan,
+            boundary_route,
+            path_by_id,
+        )
+        ordinary_faces = {piece.owner_face_id for piece in ordinary_path.pieces}
+        boundary_faces = {piece.owner_face_id for piece in boundary_path.pieces}
+        initial_faces = tuple(
+            sorted(
+                set(sector.source_face_ids)
+                .intersection(ordinary_faces)
+                .intersection(boundary_faces)
+            )
+        )
+        if len(initial_faces) != 1:
+            raise _RailGeometryCompileError(
+                "RAIL_GEOMETRY_ANGULAR_OWNER_AMBIGUOUS",
+                edge_indices=(spine_edge_id, boundary_edge_id),
+                vertex_indices=(sector.spine_vertex_id,),
+                face_indices=initial_faces or sector.source_face_ids,
+                route_ids=(ordinary_route.route_id, boundary_route.route_id),
+                details=(
+                    ("sector_id", sector.sector_id),
+                    ("candidate_count", len(initial_faces)),
+                ),
+            )
+        spine_owner_faces = tuple(
+            sorted(
+                set(sector.source_face_ids).intersection(
+                    edges[spine_edge_id].face_indices
+                )
+            )
+        )
+        if len(spine_owner_faces) != 1:
+            raise _RailGeometryCompileError(
+                "RAIL_GEOMETRY_ANGULAR_SIDE_AMBIGUOUS",
+                edge_indices=(spine_edge_id,),
+                vertex_indices=(sector.spine_vertex_id,),
+                face_indices=spine_owner_faces or sector.source_face_ids,
+                details=(("sector_id", sector.sector_id),),
+            )
+        interval = interval_by_edge[spine_edge_id]
+        side_sign = _side_sign(
+            faces[spine_owner_faces[0]],
+            spine_edge_id,
+            component.vertex_ids[interval.from_station_index],
+            component.vertex_ids[interval.to_station_index],
+        )
+        apex_s = station_by_vertex[sector.spine_vertex_id].s
+        pieces = _compile_angular_pieces(
+            rail_plan=rail_plan,
+            angular_channel_id=len(angular_channels),
+            sector=sector,
+            spine_edge_id=spine_edge_id,
+            apex_s=apex_s,
+            initial_face_id=initial_faces[0],
+            ordinary_path=ordinary_path,
+            boundary_path=boundary_path,
+            first_piece_id=next_piece_id,
+        )
+        next_piece_id += len(pieces)
+        angular_channels.append(
+            RailAngularChannel(
+                angular_channel_id=len(angular_channels),
+                sector_id=sector.sector_id,
+                spine_vertex_id=sector.spine_vertex_id,
+                spine_edge_id=spine_edge_id,
+                side_sign=side_sign,
+                apex_s=apex_s,
+                ordinary_path_id=ordinary_path.path_id,
+                boundary_path_id=boundary_path.path_id,
+                pieces=pieces,
+            )
+        )
+    return tuple(angular_channels)
+
+
 def _side_sign(face, spine_edge_id, from_vertex_id, to_vertex_id):
     oriented = _face_edge_orientation(face, spine_edge_id)
     return 1 if oriented == (to_vertex_id, from_vertex_id) else -1
@@ -1316,6 +2990,7 @@ def _compile_corner_partitions(
     rail_plan,
     component,
     channels,
+    angular_channels,
     path_by_id,
     apex_limit,
     split_angle,
@@ -1328,6 +3003,11 @@ def _compile_corner_partitions(
         channels_by_edge_sign[(channel.spine_edge_id, channel.side_sign)].append(
             channel
         )
+    angular_by_vertex_sign = defaultdict(list)
+    for angular_channel in angular_channels:
+        angular_by_vertex_sign[
+            (angular_channel.spine_vertex_id, angular_channel.side_sign)
+        ].append(angular_channel)
     station_by_vertex = {
         station.source_vertex_id: station for station in component.stations
     }
@@ -1379,11 +3059,83 @@ def _compile_corner_partitions(
             next_path = path_by_id[next_channel.from_path_id]
             previous_face = faces[previous_channel.initial_face_id]
             next_face = faces[next_channel.initial_face_id]
+            angular_candidates = tuple(
+                angular_by_vertex_sign.get(
+                    (corner_vertex_id, side_sign),
+                    (),
+                )
+            )
+            if angular_candidates:
+                expected_spine_edges = {
+                    previous_interval.source_edge_id,
+                    next_interval.source_edge_id,
+                }
+                actual_spine_edges = {
+                    channel.spine_edge_id for channel in angular_candidates
+                }
+                boundary_path_ids = {
+                    channel.boundary_path_id for channel in angular_candidates
+                }
+                complete_coverage = (
+                    len(angular_candidates) == 2
+                    and actual_spine_edges == expected_spine_edges
+                    and len(boundary_path_ids) == 1
+                )
+                if not complete_coverage:
+                    raise _RailGeometryCompileError(
+                        "RAIL_GEOMETRY_ANGULAR_COVERAGE_PARTIAL",
+                        edge_indices=expected_spine_edges.union(
+                            actual_spine_edges
+                        ),
+                        vertex_indices=(corner_vertex_id,),
+                        face_indices=tuple(
+                            sorted(
+                                {
+                                    piece.owner_face_id
+                                    for channel in angular_candidates
+                                    for piece in channel.pieces
+                                }
+                            )
+                        ),
+                        route_ids=(
+                            path_by_id[channel.ordinary_path_id].route_id
+                            for channel in angular_candidates
+                        ),
+                        details=(
+                            ("side_sign", side_sign),
+                            (
+                                "angular_channel_ids",
+                                tuple(
+                                    channel.angular_channel_id
+                                    for channel in angular_candidates
+                                ),
+                            ),
+                        ),
+                    )
+                # RM7a полностью закрыл vertex-side; RM6 здесь запрещён.
+                continue
+            shared_boundary_clip = (
+                previous_path.kind == "ROUTE"
+                and next_path.kind == "ROUTE"
+                and previous_path.path_id == next_path.path_id
+                and _edge_by_id(rail_plan)[
+                    next(
+                        route.key.side.start_edge_id
+                        for route in rail_plan.routes
+                        if route.route_id == previous_path.route_id
+                    )
+                ].is_pchain
+            )
             if _dot3(previous_face.normal, next_face.normal) < _RAIL_PLANAR_DOT:
+                if shared_boundary_clip:
+                    # RP3/RR8a: две planar-стороны заканчиваются на одной
+                    # pChain clip-line; cross-fold A10 здесь не существует.
+                    continue
                 raise _RailGeometryCompileError(
-                    "RAIL_GEOMETRY_CURVED_OWNER_UNSUPPORTED",
+                    "RAIL_GEOMETRY_CORNER_MECHANISM_MISSING",
                     face_indices=(previous_face.face_id, next_face.face_id),
                     vertex_indices=(corner_vertex_id,),
+                    details=(("side_sign", side_sign),),
                 )
 
             extrusion_angle = _corner_extrusion_angle(
@@ -1408,12 +3160,20 @@ def _compile_corner_partitions(
                 previous_path.kind == "CAP"
                 and next_path.kind == "CAP"
             )
+            corner_pair = (
+                previous_path.kind == "CORNER"
+                and next_path.kind == "CORNER"
+                and previous_path.corner_sector_id
+                == next_path.corner_sector_id
+                and previous_path.corner_side == side_sign
+                and next_path.corner_side == side_sign
+            )
             shared_route = (
                 previous_path.kind == "ROUTE"
                 and next_path.kind == "ROUTE"
                 and previous_path.path_id == next_path.path_id
             )
-            if cap_pair:
+            if cap_pair or corner_pair:
                 lateral_prev = _path_initial_direction(
                     previous_path,
                     corner_vertex_id,
@@ -1422,7 +3182,11 @@ def _compile_corner_partitions(
                     next_path,
                     corner_vertex_id,
                 )
-                direction_failure = "RAIL_GEOMETRY_CORNER_CAP_DIRECTION_INVALID"
+                direction_failure = (
+                    "RAIL_GEOMETRY_CORNER_PATH_DIRECTION_INVALID"
+                    if corner_pair
+                    else "RAIL_GEOMETRY_CORNER_CAP_DIRECTION_INVALID"
+                )
             elif shared_route:
                 # Offset-lines обеих incident strips сходятся на одной
                 # compile-static route; route лишь несёт их общий miter.
@@ -1482,6 +3246,7 @@ def _compile_corner_partitions(
                     vertex_indices=(corner_vertex_id,),
                     details=(("miter_ratio", miter_ratio),),
                 )
+            owner_face_ids = ()
             if shared_route:
                 route_direction = _path_initial_direction(
                     previous_path,
@@ -1504,6 +3269,52 @@ def _compile_corner_partitions(
                     )
                 mode = "SHARED_MITER_ROUTE"
                 owner_face_id = None
+            elif corner_pair:
+                sector = next(
+                    (
+                        sector
+                        for sector in rail_plan.start_sectors
+                        if sector.sector_id == previous_path.corner_sector_id
+                    ),
+                    None,
+                )
+                owner_face_ids = (
+                    previous_path.owner_face_ids
+                    if previous_path.owner_face_ids
+                    else sector.source_face_ids
+                )
+                non_planar = tuple(
+                    face_id
+                    for face_id in owner_face_ids
+                    if _dot3(faces[face_id].normal, previous_face.normal)
+                    < _RAIL_PLANAR_DOT
+                )
+                if non_planar:
+                    raise _RailGeometryCompileError(
+                        "RAIL_GEOMETRY_CORNER_SECTOR_NON_PLANAR",
+                        edge_indices=(
+                            sector.delimiter_edge_ids
+                            if sector is not None
+                            else (
+                                previous_interval.source_edge_id,
+                                next_interval.source_edge_id,
+                            )
+                        ),
+                        vertex_indices=(corner_vertex_id,),
+                        face_indices=non_planar,
+                        details=(
+                            ("sector_id", previous_path.corner_sector_id),
+                        ),
+                    )
+                if (
+                    previous_channel.initial_face_id
+                    == next_channel.initial_face_id
+                ):
+                    mode = "INNER_DIVIDER"
+                    owner_face_id = previous_channel.initial_face_id
+                else:
+                    mode = "OUTER_FILL"
+                    owner_face_id = None
             elif previous_channel.initial_face_id == next_channel.initial_face_id:
                 mode = "INNER_DIVIDER"
                 owner_face_id = previous_channel.initial_face_id
@@ -1538,6 +3349,7 @@ def _compile_corner_partitions(
                     previous_path_id=previous_path.path_id,
                     next_path_id=next_path.path_id,
                     owner_face_id=owner_face_id,
+                    owner_face_ids=tuple(owner_face_ids),
                     point=point,
                     previous_lateral=lateral_prev,
                     next_lateral=lateral_next,
@@ -1551,6 +3363,21 @@ def _compile_corner_partitions(
                     ),
                 )
             )
+    partition_keys = {
+        (partition.source_vertex_id, partition.side_sign)
+        for partition in partitions
+    }
+    angular_keys = {
+        (channel.spine_vertex_id, channel.side_sign)
+        for channel in angular_channels
+    }
+    conflicts = tuple(sorted(partition_keys.intersection(angular_keys)))
+    if conflicts:
+        raise _RailGeometryCompileError(
+            "RAIL_GEOMETRY_CORNER_MECHANISM_CONFLICT",
+            vertex_indices=(vertex_id for vertex_id, _side in conflicts),
+            details=(("vertex_sides", conflicts),),
+        )
     return tuple(partitions)
 
 
@@ -1598,7 +3425,7 @@ def _normalize_channels(channels, path_by_id, path_scales):
                         vertex,
                         r=(
                             vertex.r
-                            / path_scales[vertex.boundary_path_id]
+                            / path_scales.get(vertex.boundary_path_id, 1.0)
                         ),
                     )
                     for vertex in cell.vertices
@@ -1608,6 +3435,34 @@ def _normalize_channels(channels, path_by_id, path_scales):
         )
         normalized.append(
             replace(channel, cells=cells, alpha_limit=alpha_limit)
+        )
+    return tuple(normalized)
+
+
+def _normalize_angular_channels(angular_channels, path_by_id, path_scales):
+    normalized = []
+    for channel in angular_channels:
+        path_ids = (channel.ordinary_path_id, channel.boundary_path_id)
+        alpha_limit = min(
+            _path_reach(path_by_id[path_id]) / path_scales[path_id]
+            for path_id in path_ids
+        )
+        pieces = tuple(
+            replace(
+                piece,
+                vertices=tuple(
+                    replace(
+                        vertex,
+                        r=vertex.r
+                        / path_scales.get(vertex.boundary_path_id, 1.0),
+                    )
+                    for vertex in piece.vertices
+                ),
+            )
+            for piece in channel.pieces
+        )
+        normalized.append(
+            replace(channel, pieces=pieces, alpha_limit=alpha_limit)
         )
     return tuple(normalized)
 
@@ -1930,6 +3785,7 @@ def _corner_topology_reachable_faces(
 
 def _corner_compile_vertex(
     *,
+    component_id,
     partition,
     normal,
     face_id,
@@ -1977,8 +3833,12 @@ def _corner_compile_vertex(
     route_ids = tuple(
         sorted(
             {
-                path_by_id[partition.previous_path_id].route_id,
-                path_by_id[partition.next_path_id].route_id,
+                route_id
+                for route_id in (
+                    path_by_id[partition.previous_path_id].route_id,
+                    path_by_id[partition.next_path_id].route_id,
+                )
+                if route_id is not None
             }
         )
     )
@@ -1986,6 +3846,37 @@ def _corner_compile_vertex(
     arithmetic = 1e-12 * max(1.0, abs(radius))
     if abs(radius) <= arithmetic:
         radius = 0.0
+    if abs(radius - partition.alpha_limit) <= arithmetic:
+        radius = partition.alpha_limit
+    canonical_miter = _add3(
+        partition.point,
+        _mul3(partition.miter_vector, partition.alpha_limit),
+    )
+    if _length3(_sub3(position, canonical_miter)) <= arithmetic:
+        position = canonical_miter
+        radius = partition.alpha_limit
+        key = (
+            "rail-corner-miter",
+            component_id,
+            partition.partition_id,
+            radius,
+        )
+        path_id = ("CORNER", partition.partition_id)
+        source_feature = "CORNER_MITER"
+        source_feature_id = (partition.partition_id, radius)
+        source_edge_id = None
+        station_index = None
+    if (
+        path_hint is not None
+        and path_hint[:1]
+        in {
+            ("CORNER_PATH",),
+            ("IN_PLANE_PATH",),
+            ("IN_PLANE_JOIN_PATH",),
+        }
+        and key[:1] == ("rail-corner-compile-cut",)
+    ):
+        key = ("rail-frontier", component_id, path_hint, radius)
     return RailDomainVertex(
         key=key,
         position=position,
@@ -2004,6 +3895,7 @@ def _corner_compile_vertex(
 def _clip_corner_polygon_by_line(
     polygon,
     *,
+    component_id,
     partition,
     normal,
     face_id,
@@ -2083,6 +3975,7 @@ def _clip_corner_polygon_by_line(
             )
             output.append(
                 _corner_compile_vertex(
+                    component_id=component_id,
                     partition=partition,
                     normal=normal,
                     face_id=face_id,
@@ -2154,9 +4047,23 @@ def _compile_outer_corner_cells(
     }
     cells = []
     for partition in partitions:
-        if partition.mode != "OUTER_FILL" or partition.owner_face_id is None:
+        if partition.mode != "OUTER_FILL":
             continue
-        owner_face = faces[partition.owner_face_id]
+        if partition.owner_face_ids:
+            topology_reachable = frozenset(partition.owner_face_ids)
+            owner_face = faces[min(topology_reachable)]
+        elif partition.owner_face_id is not None:
+            owner_face = faces[partition.owner_face_id]
+            topology_reachable = _corner_topology_reachable_faces(
+                partition.owner_face_id,
+                owner_face.normal,
+                faces,
+                edges,
+                rail_edge_ids,
+                dam_vertex_ids,
+            )
+        else:
+            continue
         normal = owner_face.normal
         maximum_alpha = min(alpha_budget, partition.alpha_limit)
         previous = _add3(
@@ -2202,40 +4109,13 @@ def _compile_outer_corner_cells(
         )
         station_lookup = _corner_path_station_lookup(path_by_id, partition)
         candidate_polygons = {}
-        topology_reachable = _corner_topology_reachable_faces(
-            partition.owner_face_id,
-            normal,
-            faces,
-            edges,
-            rail_edge_ids,
-            dam_vertex_ids,
-        )
         for face_id in sorted(topology_reachable):
             face = faces[face_id]
             if _dot3(face.normal, normal) < _RAIL_PLANAR_DOT:
                 continue
-            source_polygon = tuple(
-                vertices[vertex_id] for vertex_id in face.vertex_ids
-            )
-            if not _source_face_is_convex(face, vertices):
-                if _coplanar_polygons_overlap(
-                    source_polygon,
-                    maximum_window,
-                    normal,
-                ):
-                    raise _RailGeometryCompileError(
-                        "RAIL_GEOMETRY_SOURCE_FACE_NON_CONVEX",
-                        edge_indices=face.edge_ids,
-                        vertex_indices=face.vertex_ids,
-                        face_indices=(face_id,),
-                        details=(
-                            ("corner_vertex_id", partition.source_vertex_id),
-                            ("corner_partition_id", partition.partition_id),
-                        ),
-                    )
-                continue
             polygon = tuple(
                 _corner_compile_vertex(
+                    component_id=component_id,
                     partition=partition,
                     normal=normal,
                     face_id=face_id,
@@ -2248,94 +4128,131 @@ def _compile_outer_corner_cells(
                 )
                 for vertex_id in face.vertex_ids
             )
-            for line_start, line_end, line_key, path_hint in clip_lines:
-                polygon = _clip_corner_polygon_by_line(
-                    polygon,
-                    partition=partition,
-                    normal=normal,
-                    face_id=face_id,
-                    path_by_id=path_by_id,
-                    station_lookup=station_lookup,
-                    line_start=line_start,
-                    line_end=line_end,
-                    interior_point=interior,
-                    line_key=line_key,
-                    path_hint=path_hint,
-                )
-                if len(polygon) < 3:
-                    break
-            if len(polygon) < 3:
-                continue
-            scale = max(
-                1.0,
-                *(
-                    _length3(_sub3(vertex.position, partition.point))
-                    for vertex in polygon
-                ),
-            )
-            if _polygon_area_measure(polygon) <= scale * scale * 1e-12:
-                continue
-            polygon_normal = _polygon_normal(polygon)
-            if polygon_normal is None:
-                continue
-            if _dot3(polygon_normal, face.normal) < 0.0:
-                polygon = tuple(reversed(polygon))
-            divider_values = tuple(
-                _divider_value(partition, vertex.position, normal)
-                for vertex in polygon
-            )
-            if any(value > 0.0 for value in divider_values) and any(
-                value < 0.0 for value in divider_values
-            ):
-                split_polygons = tuple(
-                    _clip_by_corner_divider(
-                        polygon,
-                        partition,
-                        normal,
-                        keep_sign,
-                        component_id,
-                        face_id,
-                    )
-                    for keep_sign in (-1, 1)
-                )
+            if _source_face_is_convex(face, vertices):
+                source_atoms = (polygon,)
             else:
-                split_polygons = (polygon,)
-            valid_polygons = tuple(
-                split_polygon
-                for split_polygon in split_polygons
-                if len(split_polygon) >= 3
-                and _polygon_area_measure(split_polygon) > scale * scale * 1e-12
-            )
-            if valid_polygons:
-                candidate_polygons[face_id] = valid_polygons
+                source_points = tuple(vertex.position for vertex in polygon)
+                if not _coplanar_polygons_overlap(
+                    source_points,
+                    maximum_window,
+                    normal,
+                ):
+                    continue
+                source_atoms = _triangulate_in_plane_source_polygon(
+                    polygon,
+                    face.normal,
+                )
+                if not source_atoms:
+                    raise _RailGeometryCompileError(
+                        "RAIL_GEOMETRY_SOURCE_FACE_TRIANGULATION_INVALID",
+                        edge_indices=face.edge_ids,
+                        vertex_indices=face.vertex_ids,
+                        face_indices=(face_id,),
+                        details=(
+                            ("corner_vertex_id", partition.source_vertex_id),
+                            ("corner_partition_id", partition.partition_id),
+                        ),
+                    )
+            face_polygons = []
+            for source_atom in source_atoms:
+                polygon = source_atom
+                for line_start, line_end, line_key, path_hint in clip_lines:
+                    polygon = _clip_corner_polygon_by_line(
+                        polygon,
+                        component_id=component_id,
+                        partition=partition,
+                        normal=normal,
+                        face_id=face_id,
+                        path_by_id=path_by_id,
+                        station_lookup=station_lookup,
+                        line_start=line_start,
+                        line_end=line_end,
+                        interior_point=interior,
+                        line_key=line_key,
+                        path_hint=path_hint,
+                    )
+                    if len(polygon) < 3:
+                        break
+                if len(polygon) < 3:
+                    continue
+                scale = max(
+                    1.0,
+                    *(
+                        _length3(_sub3(vertex.position, partition.point))
+                        for vertex in polygon
+                    ),
+                )
+                if _polygon_area_measure(polygon) <= scale * scale * 1e-12:
+                    continue
+                polygon_normal = _polygon_normal(polygon)
+                if polygon_normal is None:
+                    continue
+                if _dot3(polygon_normal, face.normal) < 0.0:
+                    polygon = tuple(reversed(polygon))
+                divider_values = tuple(
+                    _divider_value(partition, vertex.position, normal)
+                    for vertex in polygon
+                )
+                if any(value > 0.0 for value in divider_values) and any(
+                    value < 0.0 for value in divider_values
+                ):
+                    split_polygons = tuple(
+                        _clip_by_corner_divider(
+                            polygon,
+                            partition,
+                            normal,
+                            keep_sign,
+                            component_id,
+                            face_id,
+                        )
+                        for keep_sign in (-1, 1)
+                    )
+                else:
+                    split_polygons = (polygon,)
+                face_polygons.extend(
+                    split_polygon
+                    for split_polygon in split_polygons
+                    if len(split_polygon) >= 3
+                    and _polygon_area_measure(split_polygon)
+                    > scale * scale * 1e-12
+                )
+            if face_polygons:
+                candidate_polygons[face_id] = tuple(face_polygons)
 
-        if partition.owner_face_id not in candidate_polygons:
+        if partition.owner_face_ids:
+            # RM6a owner уже является полным sector-set; seed/flood выбора нет.
+            reachable = set(candidate_polygons)
+        elif partition.owner_face_id not in candidate_polygons:
             raise _RailGeometryCompileError(
                 "RAIL_GEOMETRY_CORNER_OWNER_CELL_MISSING",
                 vertex_indices=(partition.source_vertex_id,),
                 face_indices=(partition.owner_face_id,),
             )
-        candidate_ids = set(candidate_polygons)
-        reachable = {partition.owner_face_id}
-        pending = [partition.owner_face_id]
-        while pending:
-            face_id = pending.pop()
-            for edge_id in faces[face_id].edge_ids:
-                edge = edges[edge_id]
-                if (
-                    edge.is_pchain
-                    or edge.is_spine
-                    or edge_id in rail_edge_ids
-                    or any(
-                        vertex_id in dam_vertex_ids
-                        for vertex_id in edge.vertex_ids
-                    )
-                ):
-                    continue
-                for neighbor_id in edges[edge_id].face_indices:
-                    if neighbor_id in candidate_ids and neighbor_id not in reachable:
-                        reachable.add(neighbor_id)
-                        pending.append(neighbor_id)
+        else:
+            candidate_ids = set(candidate_polygons)
+            reachable = {partition.owner_face_id}
+            pending = [partition.owner_face_id]
+            while pending:
+                face_id = pending.pop()
+                for edge_id in faces[face_id].edge_ids:
+                    edge = edges[edge_id]
+                    if (
+                        edge.is_pchain
+                        or edge.is_spine
+                        or edge_id in rail_edge_ids
+                        or any(
+                            vertex_id in dam_vertex_ids
+                            for vertex_id in edge.vertex_ids
+                        )
+                    ):
+                        continue
+                    for neighbor_id in edges[edge_id].face_indices:
+                        if (
+                            neighbor_id in candidate_ids
+                            and neighbor_id not in reachable
+                        ):
+                            reachable.add(neighbor_id)
+                            pending.append(neighbor_id)
         for face_id in sorted(reachable):
             face = faces[face_id]
             for polygon in candidate_polygons[face_id]:
@@ -2426,7 +4343,25 @@ def _compile_planar_rail_geometry_plan(
             )
             path_by_id[path_a.path_id] = path_a
             path_by_id[path_b.path_id] = path_b
-            cells = _compile_channel_cells(
+            route_paths = tuple(
+                path for path in (path_a, path_b) if path.kind == "ROUTE"
+            )
+            compiler = (
+                _compile_channel_cells
+                if route_paths
+                and all(
+                    any(
+                        piece.owner_face_id == face_id
+                        for piece in path.pieces
+                    )
+                    for path in route_paths
+                )
+                else _compile_in_plane_channel_cells
+            )
+            # RP3/RR8a: pChain — явная clip-линия. Её станционные позиции,
+            # а не ортогональный in-plane суррогат, владеют границей русла
+            # и остаются общими для всех смежных секторов.
+            cells = compiler(
                 rail_plan=rail_plan,
                 channel_id=len(channels),
                 component=component,
@@ -2474,10 +4409,14 @@ def _compile_planar_rail_geometry_plan(
         for vertex_id, edge_ids in sorted(by_vertex_edges.items())
         if len(edge_ids) == 2
     )
+    # RP3: RailAngularChannel остаётся geometry-IR примитивом R3, но R1.1
+    # намеренно не активирует sector/angular materialization.
+    angular_channels = ()
     corner_partitions = _compile_corner_partitions(
         rail_plan,
         component,
         channels,
+        angular_channels,
         path_by_id,
         apex_limit,
         split_angle,
@@ -2487,6 +4426,11 @@ def _compile_planar_rail_geometry_plan(
         corner_partitions,
     )
     channels = _normalize_channels(channels, path_by_id, path_scales)
+    angular_channels = _normalize_angular_channels(
+        angular_channels,
+        path_by_id,
+        path_scales,
+    )
     channels, corner_partitions = _synchronize_corner_limits(
         channels,
         corner_partitions,
@@ -2509,6 +4453,7 @@ def _compile_planar_rail_geometry_plan(
         rail_plan=rail_plan,
         component=component,
         channels=tuple(channels),
+        angular_channels=tuple(angular_channels),
         cap_traces=tuple(cap_traces),
         corners=corners,
         corner_partitions=corner_partitions,
@@ -2613,6 +4558,21 @@ def _interpolate_domain_vertex(vertex_a, vertex_b, alpha, component_id):
     ):
         shared_path_id = vertex_a.boundary_path_id
     if shared_path_id is not None:
+        analytic_specs = tuple(
+            vertex.source_feature_id
+            for vertex in (vertex_a, vertex_b)
+            if isinstance(vertex.source_feature_id, tuple)
+            and vertex.source_feature_id[:1] == ("ANALYTIC_PATH",)
+            and vertex.source_feature_id[1] == shared_path_id
+        )
+        if analytic_specs:
+            origins = {spec[2] for spec in analytic_specs}
+            directions = {spec[3] for spec in analytic_specs}
+            if len(origins) == 1 and len(directions) == 1:
+                position = _add3(
+                    next(iter(origins)),
+                    _mul3(next(iter(directions)), alpha),
+                )
         if shared_path_id[:1] == ("CORNER",):
             ordered_keys = tuple(
                 sorted((vertex_a.key, vertex_b.key), key=repr)
@@ -2727,7 +4687,10 @@ def _positive_clipped_extent(cell, clipped, alpha):
             edge_indices=(cell.spine_edge_id,),
             face_indices=(cell.owner_face_id,),
             details=(
-                ("cell_id", cell.cell_id),
+                (
+                    "element_id",
+                    getattr(cell, "cell_id", getattr(cell, "piece_id", None)),
+                ),
                 ("area", area),
                 ("radial_extent", radial_extent),
             ),
@@ -2769,6 +4732,20 @@ def _divider_intersection(
     if parameter == 1.0:
         return vertex_b
     r = vertex_a.r + (vertex_b.r - vertex_a.r) * parameter
+    arithmetic = 1e-12 * max(1.0, abs(r), abs(vertex_a.r), abs(vertex_b.r))
+    if abs(r) <= arithmetic:
+        return replace(
+            vertex_a,
+            key=("rail-source-vertex", partition.source_vertex_id),
+            position=partition.point,
+            s=partition.s,
+            r=0.0,
+            boundary_path_id=("CORNER", partition.partition_id),
+            source_feature="SOURCE_VERTEX",
+            source_feature_id=partition.source_vertex_id,
+            source_edge_id=None,
+            station_index=0,
+        )
     if vertex_a.r == vertex_b.r:
         # Один semantic miter-key может прийти с двух соседних cell edges.
         # Считаем его из единственного compile-frame, а не двумя float lerp.
@@ -2852,6 +4829,22 @@ def _clip_by_corner_divider(
 
 
 def _ordered_path_vertices(path):
+    if path.kind == "CORNER":
+        by_key = {}
+        for piece in path.pieces:
+            for vertex in (piece.start, piece.end):
+                existing = by_key.get(vertex.key)
+                if existing is not None and existing.position != vertex.position:
+                    raise RailGeometryEvaluationError(
+                        RailGeometryFailure(
+                            reason="RAIL_GEOMETRY_BOUNDARY_PATH_DESYNC",
+                            details=(("path_id", path.path_id),),
+                        )
+                    )
+                by_key[vertex.key] = vertex
+        return tuple(
+            sorted(by_key.values(), key=lambda vertex: (vertex.r, repr(vertex.key)))
+        )
     by_index = defaultdict(set)
     for piece in path.pieces:
         by_index[piece.piece_index].add((piece.start, piece.end))
@@ -2862,7 +4855,9 @@ def _ordered_path_vertices(path):
             raise RailGeometryEvaluationError(
                 RailGeometryFailure(
                     reason="RAIL_GEOMETRY_BOUNDARY_PATH_DESYNC",
-                    route_ids=(path.route_id,),
+                    route_ids=(
+                        () if path.route_id is None else (path.route_id,)
+                    ),
                     details=(("piece_index", piece_index),),
                 )
             )
@@ -2873,7 +4868,9 @@ def _ordered_path_vertices(path):
             raise RailGeometryEvaluationError(
                 RailGeometryFailure(
                     reason="RAIL_GEOMETRY_BOUNDARY_PATH_DISCONTINUOUS",
-                    route_ids=(path.route_id,),
+                    route_ids=(
+                        () if path.route_id is None else (path.route_id,)
+                    ),
                     details=(("piece_index", piece_index),),
                 )
             )
@@ -2931,6 +4928,102 @@ def _apply_canonical_offset_lift(faces, offset):
         face.positions[vertex_index] = lifted_by_key[key].copy()
 
 
+def _canonicalize_analytic_frontiers(faces, plan):
+    """Один analytic raw point на path+alpha независимо от face clipping."""
+
+    path_by_id = {path.path_id: path for path in plan.boundary_paths}
+    frames = {}
+    for path_id, path in path_by_id.items():
+        if path_id[:1] not in {
+            ("CORNER_PATH",),
+            ("IN_PLANE_PATH",),
+            ("IN_PLANE_JOIN_PATH",),
+        }:
+            continue
+        origins = {
+            vertex.position
+            for piece in path.pieces
+            for vertex in (piece.start, piece.end)
+            if vertex.r == 0.0
+        }
+        direction = _path_initial_direction(path, path.spine_vertex_id)
+        if len(origins) == 1 and direction is not None:
+            frames[path_id] = (next(iter(origins)), direction)
+    frontier_r_by_path = defaultdict(set)
+    for face in faces:
+        for key in face.vert_keys:
+            if key[:1] == ("rail-frontier",) and len(key) == 4:
+                frontier_r_by_path[key[2]].add(float(key[3]))
+    for face in faces:
+        for vertex_index, key in enumerate(face.vert_keys):
+            if key[:1] == ("rail-frontier",) and len(key) == 4:
+                path_id = key[2]
+                frame = frames.get(path_id)
+                if frame is None:
+                    continue
+                origin, direction = frame
+                face.positions[vertex_index] = Vector(
+                    _add3(origin, _mul3(direction, float(key[3])))
+                )
+                continue
+            if key[:1] == ("rail-source-vertex",):
+                continue
+            provenance = face.rail_provenance
+            candidate_paths = (
+                ()
+                if provenance is None
+                else tuple(
+                    path_id
+                    for path_id in provenance.boundary_path_ids
+                    if path_id in frames
+                )
+            )
+            position = tuple(float(value) for value in face.positions[vertex_index])
+            matches = []
+            for path_id in candidate_paths:
+                origin, direction = frames[path_id]
+                relative = _sub3(position, origin)
+                radius = _dot3(relative, direction)
+                projected = _add3(origin, _mul3(direction, radius))
+                arithmetic = 1e-12 * max(
+                    1.0,
+                    abs(radius),
+                    _length3(relative),
+                )
+                if _length3(_sub3(position, projected)) > arithmetic:
+                    continue
+                if abs(radius) <= arithmetic:
+                    matches.append((path_id, 0.0, origin))
+                    continue
+                if radius < 0.0:
+                    continue
+                canonical_radii = tuple(
+                    value
+                    for value in frontier_r_by_path.get(path_id, ())
+                    if abs(value - radius) <= arithmetic
+                )
+                if len(canonical_radii) == 1:
+                    radius = canonical_radii[0]
+                    projected = _add3(origin, _mul3(direction, radius))
+                matches.append((path_id, radius, projected))
+            if len(matches) != 1:
+                continue
+            path_id, radius, projected = matches[0]
+            if radius == 0.0:
+                face.vert_keys[vertex_index] = (
+                    "rail-source-vertex",
+                    path_by_id[path_id].spine_vertex_id,
+                )
+            else:
+                face.vert_keys[vertex_index] = (
+                    "rail-frontier",
+                    plan.component.component_id,
+                    path_id,
+                    radius,
+                )
+            face.positions[vertex_index] = Vector(projected)
+
+
 def evaluate_planar_rail_geometry_plan(
     plan,
     width,
@@ -2983,9 +5076,13 @@ def evaluate_planar_rail_geometry_plan(
                 record
                 for record in pending
                 if record[0].channel_id == channel_id
-                and record[1].owner_face_id == partition.owner_face_id
             ]
-            if len(records) != 1:
+            anchor_records = [
+                record
+                for record in records
+                if record[1].owner_face_id == partition.owner_face_id
+            ]
+            if len(anchor_records) != 1:
                 raise RailGeometryEvaluationError(
                     RailGeometryFailure(
                         reason="RAIL_GEOMETRY_CORNER_CELL_MISSING",
@@ -2994,10 +5091,10 @@ def evaluate_planar_rail_geometry_plan(
                         details=(("channel_id", channel_id),),
                     )
                 )
-            record = records[0]
+            anchor_record = anchor_records[0]
             spine_vertices = [
                 vertex
-                for vertex in record[2]
+                for vertex in anchor_record[2]
                 if vertex.r == 0.0
                 and vertex.key
                 != ("rail-source-vertex", partition.source_vertex_id)
@@ -3025,23 +5122,22 @@ def evaluate_planar_rail_geometry_plan(
                         details=(("channel_id", channel_id),),
                     )
                 )
-            divided = _clip_by_corner_divider(
-                record[2],
-                partition,
-                owner_face.normal,
-                1 if owner_value > 0.0 else -1,
-                plan.component.component_id,
-            )
-            if not _positive_clipped_extent(record[1], divided, record[3]):
-                raise RailGeometryEvaluationError(
-                    RailGeometryFailure(
-                        reason="RAIL_GEOMETRY_CORNER_PARTITION_EMPTY",
-                        vertex_indices=(partition.source_vertex_id,),
-                        face_indices=(partition.owner_face_id,),
-                        details=(("channel_id", channel_id),),
-                    )
+            keep_sign = 1 if owner_value > 0.0 else -1
+            for record in tuple(records):
+                record_face = faces_by_id[record[1].owner_face_id]
+                divided = _clip_by_corner_divider(
+                    record[2],
+                    partition,
+                    record_face.normal,
+                    keep_sign,
+                    plan.component.component_id,
                 )
-            record[2] = divided
+                if not _positive_clipped_extent(
+                    record[1], divided, record[3]
+                ):
+                    pending.remove(record)
+                    continue
+                record[2] = divided
 
     output = []
     for channel, cell, clipped, _channel_alpha in pending:
@@ -3088,6 +5184,65 @@ def evaluate_planar_rail_geometry_plan(
                 rail_provenance=provenance,
             )
         )
+
+    for angular_channel in plan.angular_channels:
+        angular_alpha = min(alpha, angular_channel.alpha_limit)
+        for piece in angular_channel.pieces:
+            vertices = _clip_cell(
+                piece,
+                angular_alpha,
+                plan.component.component_id,
+            )
+            if not _positive_clipped_extent(
+                piece,
+                vertices,
+                angular_alpha,
+            ):
+                continue
+            owner_face = faces_by_id[piece.owner_face_id]
+            route_ids = tuple(
+                sorted(
+                    {
+                        route_id
+                        for vertex in vertices
+                        for route_id in vertex.route_ids
+                    }
+                )
+            )
+            provenance = RailFaceProvenance(
+                component_id=plan.component.component_id,
+                channel_id=None,
+                cell_id=None,
+                corner_partition_id=None,
+                source_face_id=piece.owner_face_id,
+                source_edge_ids=piece.source_edge_ids,
+                boundary_path_ids=piece.boundary_path_ids,
+                route_ids=route_ids,
+                station_keys=tuple(vertex.key for vertex in vertices),
+                angular_channel_id=angular_channel.angular_channel_id,
+                sector_id=angular_channel.sector_id,
+            )
+            normal = Vector(owner_face.normal)
+            output.append(
+                RailDecalGeometryFace(
+                    surface_id=piece.owner_face_id,
+                    surface_normal=normal,
+                    vert_keys=[vertex.key for vertex in vertices],
+                    positions=[Vector(vertex.position) for vertex in vertices],
+                    u_fracs=[
+                        angular_channel.side_sign * vertex.r / alpha
+                        for vertex in vertices
+                    ],
+                    v_lengths=[vertex.s for vertex in vertices],
+                    component_kind="RAIL_ANGULAR",
+                    component_side=(
+                        f"component:{plan.component.component_id}:"
+                        f"angular:{angular_channel.angular_channel_id}:"
+                        f"face:{piece.owner_face_id}"
+                    ),
+                    rail_provenance=provenance,
+                )
+            )
 
     partitions_by_id = {
         partition.partition_id: partition
@@ -3144,6 +5299,7 @@ def evaluate_planar_rail_geometry_plan(
                 rail_provenance=provenance,
             )
         )
+    _canonicalize_analytic_frontiers(output, plan)
     _apply_canonical_offset_lift(output, offset)
     return tuple(output)
 
@@ -3154,6 +5310,8 @@ __all__ = (
     "RailBoundaryPiece",
     "RailBoundaryVertex",
     "RailCapTrace",
+    "RailAngularChannel",
+    "RailAngularPiece",
     "RailChannel",
     "RailChannelCell",
     "RailCornerCell",
