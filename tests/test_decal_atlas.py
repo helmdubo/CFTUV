@@ -215,6 +215,7 @@ def test_e2_cliff_is_approximate_locally_injective_atlas():
     assert all(not chart_triangle_overlap_pairs(item) for item in atlas.charts)
 
 
+@pytest.mark.atlas_frozen
 @pytest.mark.xfail(
     reason=(
         "GL-pending: saddle materialization awaits the canonical Geometry "
@@ -380,6 +381,7 @@ def test_t8_rejects_missing_owner_semantic_transport():
         )
 
 
+@pytest.mark.atlas_frozen
 @pytest.mark.xfail(
     reason=(
         "GL-pending: reversed saddle parity awaits the canonical Geometry "
