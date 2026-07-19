@@ -186,6 +186,167 @@ def planar_rf11_boundary_join():
     return graph, edge_ids, selected, vertex_at
 
 
+def planar_rf13_collinear_fan_face():
+    """RF13/RV2: валидный face с нулевой первой fan-тройкой."""
+
+    vertices = {
+        0: (0.0, 0.0, 0.0),
+        1: (1.0, 0.0, 0.0),
+        2: (2.0, 0.0, 0.0),
+        3: (2.0, 2.0, 0.0),
+        4: (0.0, 2.0, 0.0),
+    }
+    graph, edge_ids, selected = mesh_graph(
+        vertices,
+        ((0, 1, 2, 3, 4),),
+        (((4, 0), False),),
+    )
+    return graph, edge_ids, selected, vertices
+
+
+def planar_rf13_with_remote_degenerate_face():
+    """RF13/RV1: истинно плохая грань лежит вне rail-footprint."""
+
+    graph, _edge_ids, _selected, vertex_at = planar_rf11_boundary_join()
+    vertices = {
+        vertex_id: tuple(graph.nodes[0].mesh_verts[local_index])
+        for local_index, vertex_id in enumerate(graph.nodes[0].mesh_vert_indices)
+    }
+    vertices.update(
+        {
+            100: (20.0, 0.0, 0.0),
+            101: (21.0, 0.0, 0.0),
+            102: (22.0, 0.0, 0.0),
+        }
+    )
+    faces = []
+    for y in range(2):
+        for x in range(-2, 2):
+            faces.append(
+                (
+                    vertex_at[(x, y)],
+                    vertex_at[(x + 1, y)],
+                    vertex_at[(x + 1, y + 1)],
+                    vertex_at[(x, y + 1)],
+                )
+            )
+    faces.append((100, 101, 102))
+    spine_path = (vertex_at[(0, 0)], vertex_at[(0, 1)])
+    boundary_path = tuple(vertex_at[(x, 1)] for x in range(-2, 3))
+    graph, edge_ids, selected = mesh_graph(
+        vertices,
+        faces,
+        ((spine_path, False),),
+        extra_pchain_paths=((boundary_path, False),),
+    )
+    return graph, edge_ids, selected, vertex_at
+
+
+def planar_rf13_degenerate_footprint_face():
+    """RF13 negative: полностью коллинеарная грань входит в footprint."""
+
+    vertices = {
+        0: (0.0, 0.0, 0.0),
+        1: (1.0, 0.0, 0.0),
+        2: (2.0, 0.0, 0.0),
+    }
+    graph, edge_ids, selected = mesh_graph(
+        vertices,
+        ((0, 1, 2),),
+        (((0, 1), False),),
+    )
+    return graph, edge_ids, selected, vertices
+
+
+def planar_rf13_fold_boundary_join():
+    """RR8a: pChain на 90-degree fold ограничивает один face-sector."""
+
+    vertices = {}
+    vertex_at = {}
+    next_id = 0
+    for row in range(3):
+        for x in range(-2, 3):
+            vertex_at[(x, row)] = next_id
+            vertices[next_id] = (
+                float(x),
+                0.0 if row == 0 else 1.0,
+                0.0 if row < 2 else 1.0,
+            )
+            next_id += 1
+    faces = []
+    for row in range(2):
+        for x in range(-2, 2):
+            faces.append(
+                (
+                    vertex_at[(x, row)],
+                    vertex_at[(x + 1, row)],
+                    vertex_at[(x + 1, row + 1)],
+                    vertex_at[(x, row + 1)],
+                )
+            )
+    spine_path = (vertex_at[(0, 0)], vertex_at[(0, 1)])
+    boundary_path = tuple(vertex_at[(x, 1)] for x in range(-2, 3))
+    graph, edge_ids, selected = mesh_graph(
+        vertices,
+        faces,
+        ((spine_path, False),),
+        extra_pchain_paths=((boundary_path, False),),
+    )
+    return graph, edge_ids, selected, vertex_at
+
+
+def planar_rf13_shared_fold_boundary():
+    """RR8a: один fold-route служит двум perpendicular face-sector'ам."""
+
+    vertices = {
+        0: (0.0, 0.0, 0.0),
+        1: (0.0, 1.0, 0.0),
+        2: (0.0, 2.0, 0.0),
+        3: (-1.0, 0.0, 0.0),
+        4: (-1.0, 2.0, 0.0),
+        5: (0.0, 0.0, 1.0),
+        6: (0.0, 2.0, 1.0),
+    }
+    faces = (
+        (3, 0, 1, 2, 4),
+        (0, 5, 6, 2, 1),
+    )
+    graph, edge_ids, selected = mesh_graph(
+        vertices,
+        faces,
+        (((0, 1), False),),
+        extra_pchain_paths=(((0, 1, 2), False),),
+    )
+    return graph, edge_ids, selected, vertices
+
+
+def planar_rf15_structural_cap_fan():
+    """RM5a: perpendicular вне spine-face, cap идёт по fan-ребру."""
+
+    vertices = {
+        0: (0.0, 0.0, 0.0),
+        1: (1.0, 0.0, 0.0),
+        2: (1.0, 1.0, 0.0),
+        3: (0.5, 1.0, 0.0),
+        4: (0.0, 1.0, 0.0),
+    }
+    faces = (
+        (0, 1, 2),
+        (0, 2, 3),
+        (0, 3, 4),
+    )
+    graph, edge_ids, selected = mesh_graph(
+        vertices,
+        faces,
+        (((0, 1), False),),
+        extra_pchain_paths=(
+            ((0, 4), False),
+            ((1, 2), False),
+        ),
+    )
+    return graph, edge_ids, selected, vertices
+
+
 def planar_rf10_quarter_join():
     """Настоящий grid-L: (0,-1) -> (0,0) -> (1,0)."""
 
