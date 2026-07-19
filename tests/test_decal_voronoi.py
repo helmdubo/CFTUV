@@ -2687,6 +2687,158 @@ def test_rf19_meeting_terminal_cuts_fail_instead_of_overlapping():
         )
 
 
+def _rd1_partition_face(keys, positions, u_fracs, v_lengths, *, kind, side, normal=(0.0, 0.0, 1.0)):
+    return decal_voronoi._NetworkFace(
+        surface_id=0,
+        surface_normal=Vector(normal),
+        vert_keys=list(keys),
+        positions=[Vector(position) for position in positions],
+        u_fracs=list(u_fracs),
+        v_lengths=list(v_lengths),
+        component_kind=kind,
+        component_side=side,
+    )
+
+
+def _rd1_terminal_partition_faces(*, cap_normal=(0.0, 0.0, 1.0)):
+    positions = {
+        "L0": (-1.0, 0.0, 0.0),
+        "L1": (-1.0, 1.0, 0.0),
+        "A": (0.0, 0.0, 0.0),
+        "G": (0.0, 1.0, 0.0),
+        "S": (1.0, 0.0, 0.0),
+        "SO": (1.0, 1.0, 0.0),
+        "E": (3.0, 0.0, 0.0),
+        "EO": (3.0, 1.0, 0.0),
+    }
+
+    def points(keys):
+        return [positions[key] for key in keys]
+
+    return (
+        _rd1_partition_face(
+            ("L0", "A", "G", "L1"),
+            points(("L0", "A", "G", "L1")),
+            (10.0, 10.0, 12.0, 12.0),
+            (49.0, 50.0, 50.0, 49.0),
+            kind="CAP",
+            side="START",
+            normal=cap_normal,
+        ),
+        _rd1_partition_face(
+            ("A", "S", "SO"),
+            points(("A", "S", "SO")),
+            (0.0, 0.0, 1.0),
+            (0.0, 1.0, 1.0),
+            kind="SEGMENT",
+            side="TERMINAL_START_0",
+        ),
+        _rd1_partition_face(
+            ("A", "SO", "G"),
+            points(("A", "SO", "G")),
+            (0.0, 1.0, 1.0),
+            (0.0, 1.0, 0.0),
+            kind="SEGMENT",
+            side="TERMINAL_START_1",
+        ),
+        _rd1_partition_face(
+            ("S", "E", "EO", "SO"),
+            points(("S", "E", "EO", "SO")),
+            (0.0, 0.0, 1.0, 1.0),
+            (1.0, 3.0, 3.0, 1.0),
+            kind="SEGMENT",
+            side="BODY",
+        ),
+    )
+
+
+def test_rd1_rf12_terminal_partition_merges_geometry_and_uv_strip():
+    merged = decal_voronoi._merge_terminal_partition_faces(
+        _rd1_terminal_partition_faces()
+    )
+
+    assert len(merged) == 1
+    face = merged[0]
+    assert face.component_kind == "SEGMENT"
+    assert face.component_side == "TERMINAL_START_MERGED"
+    assert set(face.vert_keys) == {"L0", "L1", "A", "G", "S", "SO", "E", "EO"}
+    facts = {
+        key: (u_frac, v_length)
+        for key, u_frac, v_length in zip(
+            face.vert_keys, face.u_fracs, face.v_lengths
+        )
+    }
+    assert facts["A"] == pytest.approx((0.0, 0.0))
+    assert facts["G"] == pytest.approx((1.0, 0.0))
+    assert facts["L0"] == pytest.approx((0.0, -1.0))
+    assert facts["L1"] == pytest.approx((1.0, -1.0))
+
+
+def test_rd1_rf12_perp_cap_joins_regular_segment_uv_strip():
+    cap, _first, _second, _body = _rd1_terminal_partition_faces()
+    regular = _rd1_partition_face(
+        ("A", "S", "SO", "G"),
+        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+         (1.0, 1.0, 0.0), (0.0, 1.0, 0.0)),
+        (0.0, 0.0, 1.0, 1.0),
+        (0.0, 1.0, 1.0, 0.0),
+        kind="SEGMENT",
+        side="",
+    )
+
+    merged = decal_voronoi._merge_terminal_partition_faces((cap, regular))
+
+    assert len(merged) == 1
+    assert merged[0].component_kind == "SEGMENT"
+    assert merged[0].component_side == "CAP_ALIGNED_MERGED"
+    assert not any(face.component_kind == "CAP" for face in merged)
+
+
+def test_rd1_rf12_fold_cap_keeps_semantic_edge_and_uv_piece():
+    faces = _rd1_terminal_partition_faces(cap_normal=(0.0, 1.0, 0.0))
+    merged = decal_voronoi._merge_terminal_partition_faces(faces)
+
+    assert any(face.component_kind == "CAP" for face in merged)
+    assert len(merged) == 2
+
+
+def test_rd1_rf12_cap_with_two_strip_neighbors_is_not_guessed():
+    cap = _rd1_partition_face(
+        ("A", "B", "C", "D"),
+        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+         (1.0, 1.0, 0.0), (0.0, 1.0, 0.0)),
+        (0.0, 1.0, 2.0, 1.0),
+        (0.0, 0.0, 1.0, 1.0),
+        kind="CAP",
+        side="START",
+    )
+    right = _rd1_partition_face(
+        ("B", "E", "F", "C"),
+        ((1.0, 0.0, 0.0), (2.0, 0.0, 0.0),
+         (2.0, 1.0, 0.0), (1.0, 1.0, 0.0)),
+        (0.0, 0.0, 1.0, 1.0),
+        (0.0, 1.0, 1.0, 0.0),
+        kind="SEGMENT",
+        side="",
+    )
+    top = _rd1_partition_face(
+        ("D", "C", "G", "H"),
+        ((0.0, 1.0, 0.0), (1.0, 1.0, 0.0),
+         (1.0, 2.0, 0.0), (0.0, 2.0, 0.0)),
+        (0.0, 1.0, 1.0, 0.0),
+        (0.0, 0.0, 1.0, 1.0),
+        kind="SEGMENT",
+        side="",
+    )
+
+    merged = decal_voronoi._merge_terminal_partition_faces(
+        (cap, right, top)
+    )
+
+    assert len(merged) == 3
+    assert sum(face.component_kind == "CAP" for face in merged) == 1
+
+
 def test_rf19_perp_terminal_evaluation_is_bit_identical():
     graph = _planar_two_site_graph()
     plan = compile_patch_voronoi_plan(graph, [10, 12], offset=0.01)

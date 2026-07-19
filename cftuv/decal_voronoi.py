@@ -13769,6 +13769,379 @@ def _evaluate_surface_crops(
             )
 
 
+def _terminal_partition_loop_fact(face, loop_index):
+    """Точный geometry/UV факт loop для lossless terminal merge."""
+
+    return (
+        tuple(float(value) for value in face.positions[loop_index]),
+        float(face.u_fracs[loop_index]),
+        float(face.v_lengths[loop_index]),
+    )
+
+
+def _terminal_partition_side(side):
+    """Участвует ли SEGMENT face во внутренней RM9-partition."""
+
+    value = str(side or "")
+    return (
+        value in {"BODY", "CAP_ALIGNED"}
+        or value.startswith("TERMINAL_")
+    )
+
+
+def _terminal_partition_edge_is_lossless(faces, first, second):
+    """Можно ли убрать общий edge без смены surface/UV семантики."""
+
+    first_face_index, first_loop, first_a, first_b = first
+    second_face_index, second_loop, second_a, second_b = second
+    first_face = faces[first_face_index]
+    second_face = faces[second_face_index]
+    first_side = str(first_face.component_side or "")
+    second_side = str(second_face.component_side or "")
+    cap_aligned_pair = (
+        first_side == "CAP_ALIGNED" or second_side == "CAP_ALIGNED"
+    )
+    terminal_partition_pair = (
+        _terminal_partition_side(first_side)
+        and _terminal_partition_side(second_side)
+        and (
+            first_side.startswith("TERMINAL_")
+            or second_side.startswith("TERMINAL_")
+        )
+    )
+    if first_face_index == second_face_index:
+        return False
+    if first_a != second_b or first_b != second_a:
+        return False
+    if (
+        first_face.component_kind != "SEGMENT"
+        or second_face.component_kind != "SEGMENT"
+        or not (cap_aligned_pair or terminal_partition_pair)
+        or first_face.surface_id != second_face.surface_id
+        or first_face.surface_normal.dot(second_face.surface_normal)
+        < DECAL_COPLANAR_DOT
+    ):
+        return False
+    first_count = len(first_face.vert_keys)
+    second_count = len(second_face.vert_keys)
+    return (
+        _terminal_partition_loop_fact(first_face, first_loop)
+        == _terminal_partition_loop_fact(
+            second_face, (second_loop + 1) % second_count
+        )
+        and _terminal_partition_loop_fact(
+            first_face, (first_loop + 1) % first_count
+        )
+        == _terminal_partition_loop_fact(second_face, second_loop)
+    )
+
+
+def _merged_terminal_partition_side(component_faces):
+    sides = {
+        "START"
+        if str(face.component_side).startswith("TERMINAL_START_")
+        else "END"
+        if str(face.component_side).startswith("TERMINAL_END_")
+        else "OTHER"
+        for face in component_faces
+        if str(face.component_side).startswith("TERMINAL_")
+    }
+    if sides == {"START"}:
+        return "TERMINAL_START_MERGED"
+    if sides == {"END"}:
+        return "TERMINAL_END_MERGED"
+    if not sides:
+        return "CAP_ALIGNED_MERGED"
+    return "TERMINAL_BOTH_MERGED"
+
+
+def _aligned_strip_cap_side(strip_side):
+    value = str(strip_side or "")
+    if value.startswith("TERMINAL_START_"):
+        return "TERMINAL_START_CAP_ALIGNED"
+    if value.startswith("TERMINAL_END_"):
+        return "TERMINAL_END_CAP_ALIGNED"
+    return "CAP_ALIGNED"
+
+
+def _align_strip_cap_face(cap_face, cap_loop, strip_face, strip_loop):
+    """Переводит CAP в station-UV соседнего strip."""
+
+    cap_count = len(cap_face.vert_keys)
+    strip_count = len(strip_face.vert_keys)
+    cap_a = cap_face.vert_keys[cap_loop]
+    cap_b = cap_face.vert_keys[(cap_loop + 1) % cap_count]
+    strip_a = strip_face.vert_keys[strip_loop]
+    strip_b = strip_face.vert_keys[
+        (strip_loop + 1) % strip_count
+    ]
+    if cap_a != strip_b or cap_b != strip_a:
+        return None
+    cap_a_fact = _terminal_partition_loop_fact(cap_face, cap_loop)
+    cap_b_fact = _terminal_partition_loop_fact(
+        cap_face, (cap_loop + 1) % cap_count
+    )
+    strip_a_fact = _terminal_partition_loop_fact(
+        strip_face, strip_loop
+    )
+    strip_b_fact = _terminal_partition_loop_fact(
+        strip_face, (strip_loop + 1) % strip_count
+    )
+    if cap_a_fact[0] != strip_b_fact[0] or cap_b_fact[0] != strip_a_fact[0]:
+        return None
+
+    cap_u_a = cap_a_fact[1]
+    cap_u_b = cap_b_fact[1]
+    strip_u_a = strip_b_fact[1]
+    strip_u_b = strip_a_fact[1]
+    cap_u_span = cap_u_b - cap_u_a
+    if cap_u_span == 0.0:
+        return None
+    u_scale = (strip_u_b - strip_u_a) / cap_u_span
+
+    cap_v = cap_a_fact[2]
+    strip_v = strip_b_fact[2]
+    v_offset = strip_v - cap_v
+    u_fracs = [
+        strip_u_a + (float(value) - cap_u_a) * u_scale
+        for value in cap_face.u_fracs
+    ]
+    v_lengths = [
+        float(value) + v_offset for value in cap_face.v_lengths
+    ]
+    # Shared keys — источник истины. Остаточный float drift CAP-frame не
+    # должен оставлять UV seam после структурного выравнивания.
+    u_fracs[cap_loop] = strip_u_a
+    v_lengths[cap_loop] = strip_v
+    cap_next = (cap_loop + 1) % cap_count
+    u_fracs[cap_next] = strip_u_b
+    v_lengths[cap_next] = strip_a_fact[2]
+    return _NetworkFace(
+        surface_id=cap_face.surface_id,
+        surface_normal=cap_face.surface_normal.copy(),
+        vert_keys=list(cap_face.vert_keys),
+        positions=list(cap_face.positions),
+        u_fracs=u_fracs,
+        v_lengths=v_lengths,
+        component_kind="SEGMENT",
+        component_side=_aligned_strip_cap_side(
+            strip_face.component_side
+        ),
+    )
+
+
+def _align_strip_cap_faces(faces):
+    """Поглощает только однозначный coplanar CAP соседним strip'ом.
+
+    CAP остаётся геометрически нужным закрытием owner surface, но перестаёт
+    быть отдельным UV-piece: его поперечная координата аффинно привязывается
+    к общему ребру, а station V переносится одним сдвигом. Fold/CAP без
+    единственного SEGMENT-соседа остаются отдельной семантической гранью.
+    """
+
+    faces = tuple(faces)
+    edge_uses = {}
+    for face_index, face in enumerate(faces):
+        count = len(face.vert_keys)
+        for loop_index, key in enumerate(face.vert_keys):
+            following = face.vert_keys[(loop_index + 1) % count]
+            edge_uses.setdefault(frozenset((key, following)), []).append(
+                (face_index, loop_index, key, following)
+            )
+
+    candidates_by_cap = {}
+    for uses in edge_uses.values():
+        if len(uses) != 2:
+            continue
+        first, second = uses
+        first_face = faces[first[0]]
+        second_face = faces[second[0]]
+        if first_face.component_kind == "CAP":
+            cap_use, strip_use = first, second
+        elif second_face.component_kind == "CAP":
+            cap_use, strip_use = second, first
+        else:
+            continue
+        cap_face = faces[cap_use[0]]
+        strip_face = faces[strip_use[0]]
+        if (
+            strip_face.component_kind != "SEGMENT"
+            or cap_face.surface_id != strip_face.surface_id
+            or cap_face.surface_normal.dot(strip_face.surface_normal)
+            < DECAL_COPLANAR_DOT
+        ):
+            continue
+        aligned = _align_strip_cap_face(
+            cap_face,
+            cap_use[1],
+            strip_face,
+            strip_use[1],
+        )
+        if aligned is not None:
+            candidates_by_cap.setdefault(cap_use[0], []).append(aligned)
+
+    return [
+        candidates[0]
+        if len(candidates := candidates_by_cap.get(index, ())) == 1
+        else face
+        for index, face in enumerate(faces)
+    ]
+
+
+def _merge_terminal_partition_component(faces, component):
+    """Собирает один простой boundary-cycle из RM9-partition faces."""
+
+    component = tuple(sorted(component))
+    component_faces = tuple(faces[index] for index in component)
+    reference_normal = component_faces[0].surface_normal
+    if any(
+        reference_normal.dot(face.surface_normal) < DECAL_COPLANAR_DOT
+        for face in component_faces[1:]
+    ):
+        return None
+
+    facts_by_key = {}
+    raw_by_key = {}
+    edge_uses = {}
+    for face_index in component:
+        face = faces[face_index]
+        count = len(face.vert_keys)
+        for loop_index, key in enumerate(face.vert_keys):
+            fact = _terminal_partition_loop_fact(face, loop_index)
+            previous = facts_by_key.setdefault(key, fact)
+            if previous != fact:
+                return None
+            raw_by_key.setdefault(
+                key,
+                (
+                    face.positions[loop_index],
+                    face.u_fracs[loop_index],
+                    face.v_lengths[loop_index],
+                ),
+            )
+            following = face.vert_keys[(loop_index + 1) % count]
+            edge_uses.setdefault(frozenset((key, following)), []).append(
+                (face_index, loop_index, key, following)
+            )
+
+    boundary = []
+    for uses in edge_uses.values():
+        if len(uses) == 1:
+            boundary.append(uses[0])
+            continue
+        if len(uses) != 2 or not _terminal_partition_edge_is_lossless(
+            faces, uses[0], uses[1]
+        ):
+            return None
+    if len(boundary) < 3:
+        return None
+
+    outgoing = {}
+    incoming = {}
+    for use in boundary:
+        _face_index, _loop_index, start, end = use
+        if start in outgoing or end in incoming:
+            return None
+        outgoing[start] = end
+        incoming[end] = start
+    if set(outgoing) != set(incoming):
+        return None
+
+    start = min(outgoing, key=repr)
+    cycle = []
+    visited_edges = set()
+    current = start
+    for _step in range(len(boundary) + 1):
+        if current == start and cycle:
+            break
+        if current in cycle or current not in outgoing:
+            return None
+        cycle.append(current)
+        following = outgoing[current]
+        visited_edges.add((current, following))
+        current = following
+    if current != start or len(visited_edges) != len(boundary):
+        return None
+    if len(cycle) < 3 or len(set(cycle)) != len(cycle):
+        return None
+
+    normal = Vector((0.0, 0.0, 0.0))
+    for face in component_faces:
+        normal = normal + face.surface_normal
+    if normal.length_squared <= _GEOMETRY_EPS * _GEOMETRY_EPS:
+        normal = reference_normal.copy()
+    else:
+        normal = normal.normalized()
+    return _NetworkFace(
+        surface_id=component_faces[0].surface_id,
+        surface_normal=normal,
+        vert_keys=list(cycle),
+        positions=[raw_by_key[key][0] for key in cycle],
+        u_fracs=[raw_by_key[key][1] for key in cycle],
+        v_lengths=[raw_by_key[key][2] for key in cycle],
+        component_kind="SEGMENT",
+        component_side=_merged_terminal_partition_side(component_faces),
+    )
+
+
+def _merge_terminal_partition_faces(faces):
+    """RD-1: убирает только lossless внутренние швы RM9 terminal cut.
+
+    Геометрия terminal cut сначала остаётся разложенной на convex pieces для
+    надёжного clipping/arrangement. После lift соседние SEGMENT pieces одной
+    surface с точными общими position/UV facts собираются обратно в один
+    boundary-cycle. Fold, UV seam, CAP и любой не-terminal edge не затрагиваются.
+    """
+
+    faces = tuple(_align_strip_cap_faces(faces))
+    edge_uses = {}
+    for face_index, face in enumerate(faces):
+        count = len(face.vert_keys)
+        for loop_index, key in enumerate(face.vert_keys):
+            following = face.vert_keys[(loop_index + 1) % count]
+            edge_uses.setdefault(frozenset((key, following)), []).append(
+                (face_index, loop_index, key, following)
+            )
+
+    adjacency = {}
+    for uses in edge_uses.values():
+        if len(uses) != 2 or not _terminal_partition_edge_is_lossless(
+            faces, uses[0], uses[1]
+        ):
+            continue
+        first = uses[0][0]
+        second = uses[1][0]
+        adjacency.setdefault(first, set()).add(second)
+        adjacency.setdefault(second, set()).add(first)
+
+    replacements = {}
+    removed = set()
+    remaining = set(adjacency)
+    while remaining:
+        seed = min(remaining)
+        stack = [seed]
+        component = set()
+        while stack:
+            current = stack.pop()
+            if current in component:
+                continue
+            component.add(current)
+            stack.extend(adjacency.get(current, ()))
+        remaining.difference_update(component)
+        merged = _merge_terminal_partition_component(faces, component)
+        if merged is None:
+            continue
+        first = min(component)
+        replacements[first] = merged
+        removed.update(component.difference({first}))
+
+    return [
+        replacements.get(index, face)
+        for index, face in enumerate(faces)
+        if index not in removed
+    ]
+
+
 def evaluate_patch_voronoi_plan(
     plan,
     width,
@@ -14018,4 +14391,4 @@ def evaluate_patch_voronoi_plan(
             diagnostics,
         )
     )
-    return faces
+    return _merge_terminal_partition_faces(faces)
