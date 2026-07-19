@@ -8,6 +8,7 @@ from decal_rail_fixtures import (
     planar_shallow_dihedral_strip,
     rr9_rf16_ambiguous_terminal_fan,
     rr9_rf16_terminal_fold_caps,
+    rr9a_rf18_terminal_seam_snap,
 )
 
 
@@ -612,6 +613,72 @@ def test_rr9_rf16_ambiguous_terminal_falls_back_counted_and_mark_bridges():
     assert bridged.kind == decal_rails.RailTerminalKind.ROUTE
     assert bridged.route_edge_id == marked_edge
     assert bridged.route_id is not None
+
+
+def test_rr9a_rf18_snap_selects_unique_wavefront_nearest_pchain():
+    graph, edge_ids, selected, _vertex_at = rr9a_rf18_terminal_seam_snap()
+    plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=0.75,
+    )
+    near_edge = edge_ids[(1, 2)]
+    oblique_edge = edge_ids[(1, 4)]
+    patch_side = next(
+        use
+        for use in plan.terminal_uses
+        if use.spine_vertex_id == 1 and 1000 in use.source_face_ids
+    )
+
+    assert patch_side.kind == decal_rails.RailTerminalKind.ROUTE
+    assert patch_side.candidate_edge_ids == tuple(sorted((near_edge, oblique_edge)))
+    assert patch_side.route_edge_id == near_edge
+    assert patch_side.route_id is not None
+    # RR8 не проигрывает RR9a: обе pChain опубликованы одной route каждая.
+    routes_by_edge = {
+        route.key.side.start_edge_id: route
+        for route in plan.routes
+        if route.key.side.spine_vertex_id == 1
+    }
+    assert near_edge in routes_by_edge
+    assert oblique_edge in routes_by_edge
+    assert routes_by_edge[near_edge].route_id == patch_side.route_id
+
+
+def test_rr9a_rf18_exact_tie_is_counted_and_mark_beats_snap():
+    tie_graph, tie_edges, tie_selected, _vertex_at = (
+        rr9a_rf18_terminal_seam_snap(exact_tie=True)
+    )
+    tied = decal_rails.compile_decal_rail_plan(
+        tie_graph,
+        tie_selected,
+        alpha_budget=0.75,
+    )
+    tied_side = next(
+        use
+        for use in tied.terminal_uses
+        if use.spine_vertex_id == 1 and 1000 in use.source_face_ids
+    )
+    assert tied_side.kind == decal_rails.RailTerminalKind.SNAP_TIE_DAM
+    assert tied_side.route_id is None
+    assert dict(tied.terminal_fallback_counts)["SNAP_TIE_DAM"] == 1
+
+    graph, edge_ids, selected, _vertex_at = rr9a_rf18_terminal_seam_snap()
+    oblique_edge = edge_ids[(1, 4)]
+    marked = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=0.75,
+        rail_mark_edge_indices=(oblique_edge,),
+    )
+    marked_side = next(
+        use
+        for use in marked.terminal_uses
+        if use.spine_vertex_id == 1 and 1000 in use.source_face_ids
+    )
+    assert marked_side.kind == decal_rails.RailTerminalKind.ROUTE
+    assert marked_side.route_edge_id == oblique_edge
+    assert marked_side.route_id is not None
 
 
 def test_r0_missing_selected_edge_is_structured_compile_failure():

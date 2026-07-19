@@ -33,6 +33,7 @@ from decal_rail_fixtures import (
     planar_rf13_with_remote_degenerate_face,
     planar_shallow_dihedral_strip,
     rr9_rf16_terminal_fold_caps,
+    rr9a_rf18_terminal_seam_snap,
 )
 
 
@@ -287,6 +288,113 @@ def test_r12_rr9_rf16_materialization_reads_diagonal_terminal_routes():
         for route_id in face.rail_provenance.route_ids
     }
     assert {use.route_id for use in terminal}.issubset(used_routes)
+
+
+def test_r13_rr9a_losing_pchain_remains_a_forced_clip_barrier():
+    graph, edge_ids, selected, _vertex_at = rr9a_rf18_terminal_seam_snap()
+    losing_edge = edge_ids[(1, 2)]
+    marked_oblique_edge = edge_ids[(1, 4)]
+    rail_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=1.25,
+        rail_mark_edge_indices=(marked_oblique_edge,),
+    )
+    terminal_use = next(
+        use
+        for use in rail_plan.terminal_uses
+        if use.spine_vertex_id == 1 and 1000 in use.source_face_ids
+    )
+    assert terminal_use.route_edge_id == marked_oblique_edge
+
+    losing_route = next(
+        route
+        for route in rail_plan.routes
+        if route.key.side.spine_vertex_id == 1
+        and route.key.side.start_edge_id == losing_edge
+    )
+    assert losing_route.route_id != terminal_use.route_id
+    losing_source = next(
+        edge for edge in rail_plan.edges if edge.edge_id == losing_edge
+    )
+    assert losing_source.is_pchain
+    assert losing_source.face_indices == (1000, 1001)
+
+    attempt = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=selected,
+    )
+    assert attempt.failures == ()
+    channel = next(
+        channel for channel in attempt.plan.channels if channel.initial_face_id == 1000
+    )
+    # Mark ведёт торец по косой route, но проигравшая pChain между
+    # копланарными 1000/1001 всё ещё рвёт flood-domain и клипует ленту.
+    assert channel.to_path_id == ("ROUTE", terminal_use.route_id)
+    assert {cell.owner_face_id for cell in channel.cells} == {1000}
+    evaluated = evaluate_planar_rail_geometry_plan(attempt.plan, width=2.5)
+    assert 1000 in {face.surface_id for face in evaluated}
+    assert 1001 not in {face.surface_id for face in evaluated}
+
+
+def test_r13_rr9a_width_drag_only_moves_extent_along_compiled_guide():
+    graph, edge_ids, selected, _vertex_at = rr9a_rf18_terminal_seam_snap()
+    rail_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=1.0,
+    )
+    terminal_use = next(
+        use
+        for use in rail_plan.terminal_uses
+        if use.spine_vertex_id == 1 and 1000 in use.source_face_ids
+    )
+    assert terminal_use.route_edge_id == edge_ids[(1, 2)]
+    attempt = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=selected,
+    )
+    assert attempt.failures == ()
+    geometry_plan = attempt.plan
+    compiled_paths = geometry_plan.boundary_paths
+
+    small = evaluate_planar_rail_geometry_plan(geometry_plan, width=0.4)
+    large = evaluate_planar_rail_geometry_plan(geometry_plan, width=1.4)
+    assert geometry_plan.rail_plan is rail_plan
+    assert geometry_plan.boundary_paths is compiled_paths
+
+    def terminal_frontier(faces):
+        face = next(face for face in faces if face.surface_id == 1000)
+        return next(
+            Vector(position)
+            for key, position in zip(face.vert_keys, face.positions)
+            if key[:3] == (
+                "rail-frontier",
+                selected[0],
+                ("ROUTE", terminal_use.route_id),
+            )
+        )
+
+    origin = Vector((0.0, 0.0, 0.0))
+    guide_direction = Vector((1.0, 0.1, 0.0)).normalized()
+    small_frontier = terminal_frontier(small)
+    large_frontier = terminal_frontier(large)
+    assert (small_frontier - origin).length < (large_frontier - origin).length
+    assert isclose(
+        (small_frontier - origin).normalized().dot(guide_direction),
+        1.0,
+        abs_tol=1e-9,
+    )
+    assert isclose(
+        (large_frontier - origin).normalized().dot(guide_direction),
+        1.0,
+        abs_tol=1e-9,
+    )
+
+
+@pytest.mark.skip(reason="R3-activation: RF18b curved materialization is deferred")
+def test_r3_rf18b_curved_terminal_snap_uses_the_same_selector():
+    """Канонический placeholder: отдельный curved selector запрещён."""
 
 
 def test_r11_rf11_boundary_pchain_preempts_cap_and_uses_plain_channel():

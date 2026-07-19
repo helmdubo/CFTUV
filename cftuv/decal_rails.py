@@ -56,6 +56,7 @@ class RailTerminalKind(str, Enum):
     """RR9-решение торцевого среза, опубликованное routing IR."""
 
     ROUTE = "ROUTE"
+    SNAP_TIE_DAM = "SNAP_TIE_DAM"
     IN_PLANE_EMPTY = "IN_PLANE_EMPTY"
     IN_PLANE_AMBIGUOUS = "IN_PLANE_AMBIGUOUS"
 
@@ -257,6 +258,7 @@ class _RailTopology:
     vertex_by_id: dict
     edge_by_id: dict
     face_by_id: dict
+    face_patch_ids: dict
     vertex_edges: dict
     edge_faces: dict
     face_failures: dict
@@ -471,6 +473,7 @@ def _build_source_topology(
     face_edge_ids = defaultdict(set)
     face_triangle_normals = defaultdict(list)
     face_triangle_vertices = defaultdict(set)
+    face_patch_ids = {}
 
     for patch_id in sorted(graph.nodes):
         node = graph.nodes[patch_id]
@@ -518,6 +521,16 @@ def _build_source_topology(
                 )
             global_triangle = tuple(local_vertex_ids[int(index)] for index in triangle)
             face_id = int(face_id)
+            previous_patch_id = face_patch_ids.get(face_id)
+            if previous_patch_id is not None and previous_patch_id != int(patch_id):
+                raise _RailCompileError(
+                    "SOURCE_FACE_PATCH_CONFLICT",
+                    details=(
+                        ("face_id", face_id),
+                        ("patch_ids", tuple(sorted((previous_patch_id, int(patch_id))))),
+                    ),
+                )
+            face_patch_ids[face_id] = int(patch_id)
             point_a, point_b, point_c = (
                 vertex_positions[vertex_id]
                 for vertex_id in global_triangle
@@ -713,6 +726,7 @@ def _build_source_topology(
         vertex_by_id=vertex_by_id,
         edge_by_id=edge_by_id,
         face_by_id=face_by_id,
+        face_patch_ids=face_patch_ids,
         vertex_edges={
             vertex_id: tuple(sorted(edge_ids))
             for vertex_id, edge_ids in vertex_edges.items()
@@ -818,8 +832,81 @@ def _is_terminal_rail_edge(edge):
     return edge.is_pchain or edge.is_fold or len(edge.face_indices) == 1
 
 
+def _terminal_snap_measure(
+    topology,
+    spine_vertex_id,
+    spine_edge_id,
+    candidate_edge_id,
+):
+    """RR9a: точная 3D-мера старого волнового направления, без epsilon."""
+
+    origin = topology.vertex_by_id[spine_vertex_id].position
+    spine_edge = topology.edge_by_id[spine_edge_id]
+    candidate_edge = topology.edge_by_id[candidate_edge_id]
+    spine_direction = _normalized3(
+        _sub3(
+            topology.vertex_by_id[
+                _other_vertex(spine_edge, spine_vertex_id)
+            ].position,
+            origin,
+        )
+    )
+    candidate_direction = _normalized3(
+        _sub3(
+            topology.vertex_by_id[
+                _other_vertex(candidate_edge, spine_vertex_id)
+            ].position,
+            origin,
+        )
+    )
+    if spine_direction is None or candidate_direction is None:
+        raise _RailCompileError(
+            "RAIL_TERMINAL_SNAP_DIRECTION_INVALID",
+            edge_indices=(spine_edge_id, candidate_edge_id),
+            vertex_indices=(spine_vertex_id,),
+        )
+    return abs(_dot3(candidate_direction, spine_direction))
+
+
+def _select_terminal_pchain(
+    topology,
+    spine_vertex_id,
+    spine_edge_id,
+    candidate_edge_ids,
+):
+    """RR9a: mark > уникальный argmin; точная ничья оставляет DAM."""
+
+    candidate_edge_ids = tuple(sorted(candidate_edge_ids))
+    marked = tuple(
+        edge_id
+        for edge_id in candidate_edge_ids
+        if topology.edge_by_id[edge_id].is_marked
+    )
+    if len(marked) == 1:
+        return marked[0]
+    if len(marked) > 1:
+        return None
+    measured = tuple(
+        (
+            _terminal_snap_measure(
+                topology,
+                spine_vertex_id,
+                spine_edge_id,
+                edge_id,
+            ),
+            edge_id,
+        )
+        for edge_id in candidate_edge_ids
+    )
+    minimum = min(measure for measure, _edge_id in measured)
+    winners = tuple(
+        edge_id for measure, edge_id in measured if measure == minimum
+    )
+    return winners[0] if len(winners) == 1 else None
+
+
 def _terminal_side_groups(topology, spine_vertex_id, spine_edge_id):
-    """Делит endpoint-веер по spine и terminal-rail делимитерам."""
+    """RR9/RR9a: стороны endpoint и единый compile-time выбор guide."""
 
     incident_edges = tuple(topology.vertex_edges.get(spine_vertex_id, ()))
     incident_faces = {
@@ -849,7 +936,7 @@ def _terminal_side_groups(topology, spine_vertex_id, spine_edge_id):
             neighbors[face_id].update(edge_faces[:index])
             neighbors[face_id].update(edge_faces[index + 1 :])
 
-    groups = []
+    sector_records = []
     pending = set(spine_faces)
     while pending:
         seed = min(pending)
@@ -864,30 +951,87 @@ def _terminal_side_groups(topology, spine_vertex_id, spine_edge_id):
                 sorted(neighbors[face_id].difference(sector), reverse=True)
             )
         pending.difference_update(sector)
-        candidate_edge_ids = tuple(
+        sector_candidate_edge_ids = tuple(
             edge_id
             for edge_id in sorted(delimiters)
             if edge_id != spine_edge_id
             and set(topology.edge_faces.get(edge_id, ())).intersection(sector)
         )
+        patch_ids = tuple(
+            sorted(
+                {
+                    topology.face_patch_ids[face_id]
+                    for face_id in sector.intersection(spine_faces)
+                }
+            )
+        )
+        sector_records.append(
+            (
+                tuple(sorted(sector)),
+                sector_candidate_edge_ids,
+                patch_ids,
+            )
+        )
+
+    patch_side_counts = defaultdict(int)
+    for _sector, _candidates, patch_ids in sector_records:
+        for patch_id in patch_ids:
+            patch_side_counts[patch_id] += 1
+
+    groups = []
+    for sector, sector_candidate_edge_ids, patch_ids in sector_records:
         pchain_edge_ids = tuple(
             edge_id
-            for edge_id in candidate_edge_ids
+            for edge_id in sector_candidate_edge_ids
             if topology.edge_by_id[edge_id].is_pchain
+            and not topology.edge_by_id[edge_id].is_spine
         )
-        eligible = pchain_edge_ids or candidate_edge_ids
+        # Обычная PATCH-seam имеет разные patch id по сторонам spine: тогда
+        # RR9a берёт ВСЕ внешние pChains данного patch, даже если проигравшая
+        # цепочка отделена внутри endpoint-веера. Для SEAM_SELF один patch id
+        # встречается с обеих сторон; sector остаётся структурным различителем.
+        if len(patch_ids) == 1 and patch_side_counts[patch_ids[0]] == 1:
+            side_patch_id = patch_ids[0]
+            pchain_edge_ids = tuple(
+                edge_id
+                for edge_id in incident_edges
+                if edge_id != spine_edge_id
+                and topology.edge_by_id[edge_id].is_pchain
+                and not topology.edge_by_id[edge_id].is_spine
+                and any(
+                    topology.face_patch_ids.get(face_id) == side_patch_id
+                    for face_id in topology.edge_faces.get(edge_id, ())
+                )
+            )
+        fallback_edge_ids = tuple(
+            edge_id
+            for edge_id in sector_candidate_edge_ids
+            if not topology.edge_by_id[edge_id].is_pchain
+        )
+        eligible = tuple(sorted(pchain_edge_ids or fallback_edge_ids))
         marked = tuple(
             edge_id
             for edge_id in eligible
             if topology.edge_by_id[edge_id].is_marked
         )
         chosen_edge_id = None
-        if len(eligible) == 1:
+        if pchain_edge_ids:
+            chosen_edge_id = _select_terminal_pchain(
+                topology,
+                spine_vertex_id,
+                spine_edge_id,
+                pchain_edge_ids,
+            )
+        elif len(eligible) == 1:
             chosen_edge_id = eligible[0]
         elif len(marked) == 1:
+            # RR9: fold/border сохраняют прежний structural mark-bridge;
+            # RR9a-snap к ним не применяется.
             chosen_edge_id = marked[0]
         if chosen_edge_id is not None:
             kind = RailTerminalKind.ROUTE
+        elif pchain_edge_ids:
+            kind = RailTerminalKind.SNAP_TIE_DAM
         elif eligible:
             kind = RailTerminalKind.IN_PLANE_AMBIGUOUS
         else:
@@ -1307,7 +1451,7 @@ def compile_decal_rail_plan(
     alpha_budget,
     rail_mark_edge_indices=(),
 ):
-    """Компилирует RR1-RR9 один раз; drag получает только готовые станции."""
+    """Компилирует RR1-RR9a один раз; drag получает готовые станции."""
 
     alpha_budget = float(alpha_budget)
     if not alpha_budget > 0.0:

@@ -9,7 +9,14 @@ from mathutils import Vector
 from cftuv.model import BoundaryChain, BoundaryLoop, PatchGraph, PatchNode
 
 
-def mesh_graph(vertices, faces, spine_paths, *, extra_pchain_paths=()):
+def mesh_graph(
+    vertices,
+    faces,
+    spine_paths,
+    *,
+    extra_pchain_paths=(),
+    face_patch_ids=None,
+):
     canonical_pairs = {
         tuple(sorted((int(vertex_a), int(vertex_b))))
         for face in faces
@@ -66,18 +73,61 @@ def mesh_graph(vertices, faces, spine_paths, *, extra_pchain_paths=()):
                 is_closed=is_closed,
             )
         )
-    node = PatchNode(
-        patch_id=0,
-        face_indices=list(range(1000, 1000 + len(faces))),
-    )
-    node.mesh_vert_indices = list(local_vertex_ids)
-    node.mesh_verts = [Vector(vertices[index]) for index in local_vertex_ids]
-    node.mesh_tris = triangles
-    node.mesh_tri_face_indices = triangle_faces
-    node.mesh_tri_edge_indices = triangle_edges
-    node.boundary_loops = [BoundaryLoop(chains=chains)]
     graph = PatchGraph()
-    graph.add_node(node)
+    if face_patch_ids is None:
+        face_patch_ids = (0,) * len(faces)
+    if len(face_patch_ids) != len(faces):
+        raise ValueError("face_patch_ids must match faces")
+    patch_by_face_id = {
+        1000 + face_index: int(face_patch_ids[face_index])
+        for face_index in range(len(faces))
+    }
+    for patch_id in sorted(set(patch_by_face_id.values())):
+        triangle_indices = tuple(
+            index
+            for index, face_id in enumerate(triangle_faces)
+            if patch_by_face_id[face_id] == patch_id
+        )
+        patch_vertex_ids = tuple(
+            sorted(
+                {
+                    local_vertex_ids[local_index]
+                    for triangle_index in triangle_indices
+                    for local_index in triangles[triangle_index]
+                }
+            )
+        )
+        patch_local_by_global = {
+            vertex_id: local_index
+            for local_index, vertex_id in enumerate(patch_vertex_ids)
+        }
+        node = PatchNode(
+            patch_id=patch_id,
+            face_indices=sorted(
+                face_id
+                for face_id, owner_patch_id in patch_by_face_id.items()
+                if owner_patch_id == patch_id
+            ),
+        )
+        node.mesh_vert_indices = list(patch_vertex_ids)
+        node.mesh_verts = [Vector(vertices[index]) for index in patch_vertex_ids]
+        node.mesh_tris = [
+            tuple(
+                patch_local_by_global[local_vertex_ids[local_index]]
+                for local_index in triangles[triangle_index]
+            )
+            for triangle_index in triangle_indices
+        ]
+        node.mesh_tri_face_indices = [
+            triangle_faces[index] for index in triangle_indices
+        ]
+        node.mesh_tri_edge_indices = [
+            triangle_edges[index] for index in triangle_indices
+        ]
+        # Для rail fixtures достаточно канонической pChain-провенанс на
+        # каждом owner-patch; _source_chain_records дедуплицирует продолжения.
+        node.boundary_loops = [BoundaryLoop(chains=list(chains))]
+        graph.add_node(node)
     selected = tuple(chains[0].edge_indices) if chains else ()
     return graph, edge_ids, selected
 
@@ -593,5 +643,38 @@ def rr9_rf16_ambiguous_terminal_fan():
         vertices,
         faces,
         (((0, 1), False),),
+    )
+    return graph, edge_ids, selected, {vertex_id: vertex_id for vertex_id in vertices}
+
+
+def rr9a_rf18_terminal_seam_snap(*, exact_tie=False):
+    """RF18: два внешних pChain в одном owner-patch стороны endpoint."""
+
+    vertices = {
+        0: (0.0, -2.0, 0.0),
+        1: (0.0, 0.0, 0.0),
+        2: ((1.0, 1.0, 0.0) if exact_tie else (1.0, 0.1, 0.0)),
+        3: (1.4, 1.0, 0.0),
+        4: (-1.0, 1.0, 0.0) if exact_tie else (0.45, 1.0, 0.0),
+        5: (-1.4, 0.0, 0.0),
+    }
+    faces = [
+        (0, 1, 2),
+        (2, 1, 3),
+        (3, 1, 4),
+        (4, 1, 5),
+        (5, 1, 0),
+    ]
+    graph, edge_ids, selected = mesh_graph(
+        vertices,
+        faces,
+        (((0, 1), False),),
+        extra_pchain_paths=(
+            ((1, 2), False),
+            ((1, 4), False),
+        ),
+        # Пара spine faces принадлежит разным patch. Оба внешних pChain
+        # входят в patch 0; второй также ограничивает patch 1.
+        face_patch_ids=(0, 0, 0, 0, 1),
     )
     return graph, edge_ids, selected, {vertex_id: vertex_id for vertex_id in vertices}
