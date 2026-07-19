@@ -21,6 +21,7 @@ from .decal_geometry import DecalGeometryFace, lift_offset_position
 from .decal_rails import (
     RailStartSectorKind,
     RailStationKind,
+    RailTerminalKind,
     RailTermination,
 )
 
@@ -1019,6 +1020,37 @@ def _in_plane_boundary_route(
     return candidates[0] if candidates else None
 
 
+def _terminal_use_for_endpoint(
+    rail_plan,
+    spine_vertex_id,
+    spine_edge_id,
+    face_id,
+):
+    """RR9: materialization читает terminal choice, не выводит его заново."""
+
+    candidates = tuple(
+        use
+        for use in rail_plan.terminal_uses
+        if use.spine_vertex_id == spine_vertex_id
+        and use.spine_edge_id == spine_edge_id
+        and face_id in use.source_face_ids
+    )
+    if len(candidates) > 1:
+        raise _RailGeometryCompileError(
+            "RAIL_GEOMETRY_TERMINAL_USE_AMBIGUOUS",
+            edge_indices=(spine_edge_id,),
+            vertex_indices=(spine_vertex_id,),
+            face_indices=(face_id,),
+            route_ids=(
+                use.route_id
+                for use in candidates
+                if use.route_id is not None
+            ),
+            details=(("candidate_count", len(candidates)),),
+        )
+    return candidates[0] if candidates else None
+
+
 def _in_plane_boundary_path(
     rail_plan,
     component,
@@ -1691,6 +1723,62 @@ def _path_for_endpoint(
     cap_traces,
 ):
     station = component.stations[endpoint_station_index]
+    face = _face_by_id(rail_plan)[face_id]
+    side_sign = _side_sign(
+        face,
+        interval.source_edge_id,
+        component.vertex_ids[interval.from_station_index],
+        component.vertex_ids[interval.to_station_index],
+    )
+    region_face_ids = _planar_region_face_ids(rail_plan, face_id)
+    terminal_use = _terminal_use_for_endpoint(
+        rail_plan,
+        station.source_vertex_id,
+        interval.source_edge_id,
+        face_id,
+    )
+    if terminal_use is not None:
+        if terminal_use.kind == RailTerminalKind.ROUTE:
+            routes = {
+                route.route_id: route for route in rail_plan.routes
+            }
+            route = routes.get(terminal_use.route_id)
+            if route is None:
+                raise _RailGeometryCompileError(
+                    "RAIL_GEOMETRY_TERMINAL_ROUTE_MISSING",
+                    edge_indices=(interval.source_edge_id,),
+                    vertex_indices=(station.source_vertex_id,),
+                    face_indices=(face_id,),
+                    route_ids=(terminal_use.route_id,),
+                )
+            cache_key = ("ROUTE", route.route_id)
+            cached = trace_cache.get(cache_key)
+            if cached is not None:
+                return cached
+            path = _route_boundary_path(rail_plan, route)
+            trace_cache[cache_key] = path
+            return path
+        cache_key = (
+            "IN_PLANE",
+            station.source_vertex_id,
+            interval.source_edge_id,
+            side_sign,
+        )
+        cached = trace_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        path = _in_plane_boundary_path(
+            rail_plan,
+            component,
+            interval,
+            endpoint_station_index,
+            face_id,
+            side_sign,
+            region_face_ids,
+        )
+        trace_cache[cache_key] = path
+        return path
+
     corner_sector = _corner_sector_for_endpoint(
         rail_plan,
         station.source_vertex_id,
@@ -1698,13 +1786,6 @@ def _path_for_endpoint(
         face_id,
     )
     if corner_sector is not None:
-        face = _face_by_id(rail_plan)[face_id]
-        side_sign = _side_sign(
-            face,
-            interval.source_edge_id,
-            component.vertex_ids[interval.from_station_index],
-            component.vertex_ids[interval.to_station_index],
-        )
         cache_key = (
             "CORNER",
             station.source_vertex_id,
@@ -1725,14 +1806,6 @@ def _path_for_endpoint(
         )
         trace_cache[cache_key] = path
         return path
-    face = _face_by_id(rail_plan)[face_id]
-    side_sign = _side_sign(
-        face,
-        interval.source_edge_id,
-        component.vertex_ids[interval.from_station_index],
-        component.vertex_ids[interval.to_station_index],
-    )
-    region_face_ids = _planar_region_face_ids(rail_plan, face_id)
     boundary_route = _in_plane_boundary_route(
         rail_plan,
         station.source_vertex_id,
@@ -4314,15 +4387,17 @@ def _compile_planar_rail_geometry_plan(
     path_by_id = {}
     next_cell_id = 0
     for interval in component.intervals:
-        spine_edge = _edge_by_id(rail_plan)[interval.source_edge_id]
         for face_id in interval.source_face_ids:
-            face = faces[face_id]
-            if face.planarity_min_dot < _RAIL_PLANAR_DOT:
+            if faces[face_id].planarity_min_dot < _RAIL_PLANAR_DOT:
                 raise _RailGeometryCompileError(
                     "RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR",
                     edge_indices=(interval.source_edge_id,),
                     face_indices=(face_id,),
                 )
+    for interval in component.intervals:
+        spine_edge = _edge_by_id(rail_plan)[interval.source_edge_id]
+        for face_id in interval.source_face_ids:
+            face = faces[face_id]
             path_a = _path_for_endpoint(
                 rail_plan,
                 component,

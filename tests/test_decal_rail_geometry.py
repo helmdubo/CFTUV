@@ -32,6 +32,7 @@ from decal_rail_fixtures import (
     planar_rf15_structural_cap_fan,
     planar_rf13_with_remote_degenerate_face,
     planar_shallow_dihedral_strip,
+    rr9_rf16_terminal_fold_caps,
 )
 
 
@@ -229,6 +230,63 @@ def test_rp_planar_endpoint_uses_full_width_analytic_path_without_taper():
         for path in plan.boundary_paths
         if path.kind == "IN_PLANE"
     )
+    assert all(
+        use.kind == decal_rails.RailTerminalKind.IN_PLANE_EMPTY
+        for use in plan.rail_plan.terminal_uses
+    )
+
+
+def test_r12_rr9_rf16_materialization_reads_diagonal_terminal_routes():
+    graph, _edge_ids, selected, vertex_at = rr9_rf16_terminal_fold_caps()
+    rail_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=0.75,
+    )
+    attempt = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=selected,
+    )
+
+    assert attempt.failures == ()
+    assert attempt.plan is not None
+    terminal = tuple(
+        use
+        for use in rail_plan.terminal_uses
+        if use.spine_vertex_id == vertex_at[1]
+    )
+    path_by_route = {
+        path.route_id: path
+        for path in attempt.plan.boundary_paths
+        if path.kind == "ROUTE"
+    }
+    endpoint = Vector((0.0, 1.0, 0.0))
+    positions = {
+        vertex.vertex_id: Vector(vertex.position) for vertex in rail_plan.vertices
+    }
+    edges = {edge.edge_id: edge for edge in rail_plan.edges}
+    for use in terminal:
+        path = path_by_route[use.route_id]
+        target_id = next(
+            vertex_id
+            for vertex_id in edges[use.route_edge_id].vertex_ids
+            if vertex_id != vertex_at[1]
+        )
+        expected = (positions[target_id] - endpoint).normalized()
+        assert path.pieces
+        for piece in path.pieces:
+            assert tuple(piece.start.position) == tuple(endpoint)
+            delta = Vector(piece.end.position) - endpoint
+            assert isclose(delta.length, 0.75, abs_tol=1e-9)
+            assert isclose(delta.normalized().dot(expected), 1.0, abs_tol=1e-9)
+
+    faces = evaluate_planar_rail_geometry_plan(attempt.plan, width=1.5)
+    used_routes = {
+        route_id
+        for face in faces
+        for route_id in face.rail_provenance.route_ids
+    }
+    assert {use.route_id for use in terminal}.issubset(used_routes)
 
 
 def test_r11_rf11_boundary_pchain_preempts_cap_and_uses_plain_channel():

@@ -86,13 +86,13 @@ def planar_quad_strip():
     vertices = {}
     vertex_at = {}
     next_id = 0
-    for y in range(3):
+    for y in range(-1, 4):
         for x in range(-2, 3):
             vertex_at[(x, y)] = next_id
             vertices[next_id] = (float(x), float(y), 0.0)
             next_id += 1
     faces = []
-    for y in range(2):
+    for y in range(-1, 3):
         for x in range(-2, 2):
             faces.append(
                 (
@@ -517,10 +517,10 @@ def planar_dihedral_strip():
     return graph, edge_ids, selected, {vertex_id: vertex_id for vertex_id in vertices}
 
 
-def planar_shallow_dihedral_strip():
-    """Пятиградусный fold, который нельзя группировать как coplanar rail."""
+def planar_shallow_dihedral_strip(angle_degrees=5.0):
+    """Мелкий fold для проверки канонического angular threshold."""
 
-    angle = 5.0 * pi / 180.0
+    angle = float(angle_degrees) * pi / 180.0
     outer = (cos(angle), 0.0, sin(angle))
     vertices = {
         0: (0.0, 0.0, 0.0),
@@ -533,6 +533,61 @@ def planar_shallow_dihedral_strip():
     faces = [
         (2, 0, 1, 3),
         (0, 4, 5, 1),
+    ]
+    graph, edge_ids, selected = mesh_graph(
+        vertices,
+        faces,
+        (((0, 1), False),),
+    )
+    return graph, edge_ids, selected, {vertex_id: vertex_id for vertex_id in vertices}
+
+
+def rr9_rf16_terminal_fold_caps():
+    """RF16: endpoint rails диагональны spine-перпендикуляру на обеих сторонах."""
+
+    vertices = {
+        0: (0.0, 0.0, 0.0),
+        1: (0.0, 1.0, 0.0),
+        2: (-1.0, -0.5, 0.0),
+        3: (-1.0, 1.5, 0.0),
+        4: (1.0, -0.5, 0.0),
+        5: (1.0, 1.5, 0.0),
+        6: (-2.0, -1.0, 0.0),
+        7: (0.0, -1.0, 0.0),
+        8: (2.0, -1.0, 0.0),
+        9: (-1.5, 2.0, 1.0),
+        10: (1.5, 2.0, 1.0),
+    }
+    faces = [
+        (2, 0, 1, 3),
+        (0, 4, 5, 1),
+        (6, 7, 0, 2),
+        (7, 8, 4, 0),
+        (3, 1, 9),
+        (1, 5, 10),
+    ]
+    graph, edge_ids, selected = mesh_graph(
+        vertices,
+        faces,
+        (((0, 1), False),),
+    )
+    return graph, edge_ids, selected, {vertex_id: vertex_id for vertex_id in vertices}
+
+
+def rr9_rf16_ambiguous_terminal_fan():
+    """RF16-negative: один planar sector выходит к двум border-кандидатам."""
+
+    vertices = {
+        0: (0.0, -1.0, 0.0),
+        1: (0.0, 0.0, 0.0),
+        2: (1.0, 0.0, 0.0),
+        3: (1.0, 1.0, 0.0),
+        4: (1.0, -1.0, 0.0),
+    }
+    faces = [
+        (0, 1, 2),
+        (1, 3, 2),
+        (1, 2, 4),
     ]
     graph, edge_ids, selected = mesh_graph(
         vertices,

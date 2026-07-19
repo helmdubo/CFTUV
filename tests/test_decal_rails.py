@@ -4,6 +4,11 @@ from mathutils import Vector
 
 from cftuv import decal_rails
 from cftuv.model import BoundaryChain, BoundaryLoop, PatchGraph, PatchNode
+from decal_rail_fixtures import (
+    planar_shallow_dihedral_strip,
+    rr9_rf16_ambiguous_terminal_fan,
+    rr9_rf16_terminal_fold_caps,
+)
 
 
 def _mesh_graph(vertices, faces, spine_pairs, *, extra_pchain_pairs=()):
@@ -72,13 +77,13 @@ def _quad_strip(*, with_ambiguity=False):
     vertices = {}
     vertex_at = {}
     next_id = 0
-    for y in range(3):
+    for y in range(-1, 4):
         for x in range(-2, 3):
             vertex_at[(x, y)] = next_id
             vertices[next_id] = (float(x), float(y), 0.0)
             next_id += 1
     faces = []
-    for y in range(2):
+    for y in range(-1, 3):
         for x in range(-2, 2):
             faces.append(
                 (
@@ -490,7 +495,7 @@ def test_r0_pchain_boundary_cannot_be_relabelled_as_merge():
     assert events == (pchain_event,)
 
 
-def test_rp_public_compile_does_not_invent_merge_in_planar_fans():
+def test_rr9_planar_border_routes_do_not_invent_merge_or_pole():
     vertices = {
         0: (-1.0, 0.0, 0.0),
         1: (-2.0, -1.0, 0.0),
@@ -515,9 +520,98 @@ def test_rp_public_compile_does_not_invent_merge_in_planar_fans():
         selected,
         alpha_budget=4.0,
     )
-    assert plan.routes == ()
-    assert plan.events == ()
+    assert len(plan.routes) == 4
+    assert all(
+        route.termination not in {
+            decal_rails.RailTermination.MERGE,
+            decal_rails.RailTermination.POLE,
+        }
+        for route in plan.routes
+    )
+    assert all(
+        use.kind == decal_rails.RailTerminalKind.ROUTE
+        for use in plan.terminal_uses
+    )
     assert plan.start_sectors == ()
+
+
+def test_user_four_degree_fold_threshold_is_canonical_for_rails():
+    classifications = []
+    for angle_degrees in (3.0, 5.0):
+        graph, _edge_ids, selected, _vertex_at = planar_shallow_dihedral_strip(
+            angle_degrees
+        )
+        plan = decal_rails.compile_decal_rail_plan(
+            graph,
+            selected,
+            alpha_budget=0.5,
+        )
+        selected_edge = next(
+            edge for edge in plan.edges if edge.edge_id == selected[0]
+        )
+        classifications.append(selected_edge.is_fold)
+
+    assert classifications == [False, True]
+
+
+def test_rr9_rf16_terminal_fold_routes_are_published_once_per_side():
+    graph, edge_ids, selected, _vertex_at = rr9_rf16_terminal_fold_caps()
+    plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=0.75,
+    )
+    expected_edges = {
+        edge_ids[(1, 3)],
+        edge_ids[(1, 5)],
+    }
+    terminal = tuple(
+        use for use in plan.terminal_uses if use.spine_vertex_id == 1
+    )
+
+    assert len(terminal) == 2
+    assert {use.route_edge_id for use in terminal} == expected_edges
+    assert all(use.kind == decal_rails.RailTerminalKind.ROUTE for use in terminal)
+    assert all(use.route_id is not None for use in terminal)
+    assert len({use.route_id for use in terminal}) == 2
+    assert plan.terminal_fallback_counts == (("IN_PLANE_EMPTY", 1),)
+
+
+def test_rr9_rf16_ambiguous_terminal_falls_back_counted_and_mark_bridges():
+    graph, edge_ids, selected, _vertex_at = rr9_rf16_ambiguous_terminal_fan()
+    ambiguous = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=0.5,
+    )
+    endpoint = next(
+        use for use in ambiguous.terminal_uses if use.spine_vertex_id == 1
+    )
+    expected_candidates = {
+        edge_ids[(1, 3)],
+        edge_ids[(1, 4)],
+    }
+
+    assert endpoint.kind == decal_rails.RailTerminalKind.IN_PLANE_AMBIGUOUS
+    assert set(endpoint.candidate_edge_ids) == expected_candidates
+    assert endpoint.route_id is None
+    assert ambiguous.terminal_fallback_counts == (
+        ("IN_PLANE_AMBIGUOUS", 1),
+    )
+
+    marked_edge = min(expected_candidates)
+    marked = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=0.5,
+        rail_mark_edge_indices=(marked_edge,),
+    )
+    bridged = next(
+        use for use in marked.terminal_uses if use.spine_vertex_id == 1
+    )
+    assert bridged.kind == decal_rails.RailTerminalKind.ROUTE
+    assert bridged.route_edge_id == marked_edge
+    assert bridged.route_id is not None
 
 
 def test_r0_missing_selected_edge_is_structured_compile_failure():
