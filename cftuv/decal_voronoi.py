@@ -1321,6 +1321,7 @@ class _DecalArrangementFace:
     declared_owner_token: object | None = None
     declared_semantic_class: object | None = None
     absorbed_corner_vertices: tuple[int, ...] = ()
+    terminal_cut_vertices: tuple[int, ...] = ()
     # T7-P3.10: corner predicate-curves, реально входящие в boundary face.
     boundary_corner_vertices: tuple[int, ...] = ()
     boundary_corner_edges: tuple[tuple[object, object, tuple[int, ...]], ...] = ()
@@ -1386,6 +1387,7 @@ class _M1UVFrameDelegate:
     owner_site: _PatchVoronoiSite
     local_to_owner: tuple[float, ...]
     absorbed_corner_vertices: tuple[int, ...] = ()
+    terminal_cut_vertices: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1408,6 +1410,7 @@ class _PendingArrangementFace:
     points: tuple[tuple[float, float], ...]
     crop: _CropComponent
     absorbed_corner_vertices: tuple[int, ...] = ()
+    terminal_cut_vertices: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -2240,6 +2243,146 @@ def _segment_crop_polygon(site, alpha):
     ]
 
 
+def _terminal_segment_crop_components(
+    site,
+    alpha,
+    start_guide=None,
+    end_guide=None,
+):
+    """RM9-fix: rail-срез и прежнее тело как один SEGMENT owner."""
+
+    if start_guide is None and end_guide is None:
+        return (
+            (
+                _CropComponent(
+                    kind="SEGMENT",
+                    side="",
+                    points=tuple(_segment_crop_polygon(site, alpha)),
+                ),
+                (),
+            ),
+        )
+    if site.two_sided:
+        raise RuntimeError(
+            "TERMINAL_BRIDGE_TWO_SIDED_SITE_UNSUPPORTED: "
+            f"patch={site.patch_id} edge={site.edge_index}"
+        )
+    tangent = _norm2(_sub2(site.point_b, site.point_a))
+    inward = _norm2(site.inward_normal)
+    if tangent is None or inward is None:
+        raise RuntimeError(
+            "TERMINAL_BRIDGE_SITE_FRAME_INVALID: "
+            f"patch={site.patch_id} edge={site.edge_index}"
+        )
+    offset = (inward[0] * alpha, inward[1] * alpha)
+    base_depth = min(alpha, site.segment_length * 0.5)
+
+    def shifted(point, direction, distance):
+        return (
+            point[0] + direction[0] * distance,
+            point[1] + direction[1] * distance,
+        )
+
+    def terminal_depth(corner, guide, direction, vertex_id):
+        if guide is None:
+            return 0.0
+        guide_side = _dot2(_sub2(guide, corner), inward)
+        if guide_side <= 0.0:
+            raise RuntimeError(
+                "TERMINAL_BRIDGE_GUIDE_OUTSIDE_OWNER: "
+                f"patch={site.patch_id} edge={site.edge_index} "
+                f"vertex={vertex_id}"
+            )
+        return max(
+            0.0,
+            _dot2(_sub2(guide, corner), direction),
+        ) + base_depth
+
+    def terminal_spec(side, corner, guide, inner, outer, vertex_id):
+        if guide is None:
+            return None
+        return {
+            "side": side,
+            "vertex_id": vertex_id,
+            "polygon": (corner, inner, outer, guide),
+        }
+
+    def terminal_components(spec):
+        if spec is None:
+            return ()
+        polygon = spec["polygon"]
+        triangles = _triangulate_cell_polygon(polygon)
+        if not triangles:
+            raise RuntimeError(
+                "TERMINAL_BRIDGE_CUT_INVALID: "
+                f"patch={site.patch_id} edge={site.edge_index} "
+                f"vertex={spec['vertex_id']}"
+            )
+        return tuple(
+            (
+                _CropComponent(
+                    kind="SEGMENT",
+                    side=f"TERMINAL_{spec['side']}_{index}",
+                    points=tuple(points),
+                ),
+                (spec["vertex_id"],),
+            )
+            for index, points in enumerate(triangles)
+        )
+
+    start_depth = terminal_depth(
+        site.point_a, start_guide, tangent, site.vert_a
+    )
+    end_direction = (-tangent[0], -tangent[1])
+    end_depth = terminal_depth(
+        site.point_b, end_guide, end_direction, site.vert_b
+    )
+    if start_depth + end_depth > site.segment_length:
+        raise RuntimeError(
+            "TERMINAL_BRIDGE_CUTS_OVERLAP: "
+            f"patch={site.patch_id} edge={site.edge_index}"
+        )
+    body_start = shifted(site.point_a, tangent, start_depth)
+    body_end = shifted(site.point_b, tangent, -end_depth)
+    start_spec = terminal_spec(
+        "START",
+        site.point_a,
+        start_guide,
+        body_start,
+        (body_start[0] + offset[0], body_start[1] + offset[1]),
+        site.vert_a,
+    )
+    end_spec = terminal_spec(
+        "END",
+        site.point_b,
+        end_guide,
+        body_end,
+        (body_end[0] + offset[0], body_end[1] + offset[1]),
+        site.vert_b,
+    )
+    body = _convex_hull(
+        (
+            body_start,
+            (body_start[0] + offset[0], body_start[1] + offset[1]),
+            (body_end[0] + offset[0], body_end[1] + offset[1]),
+            body_end,
+        )
+    )
+    result = []
+    result.extend(terminal_components(start_spec))
+    if body:
+        result.append(
+            (
+                _CropComponent(
+                    kind="SEGMENT", side="BODY", points=tuple(body)
+                ),
+                (),
+            )
+        )
+    result.extend(terminal_components(end_spec))
+    return tuple(result)
+
+
 def _site_lateral_u(site, point, alpha):
     """Signed U для same-chart two-sided site, compatibility UV для остальных."""
 
@@ -2426,7 +2569,7 @@ def _corner_component_from_polygon(
     )
 
 
-def _cap_crop_components(surface, corner, alpha, guide_point=None):
+def _cap_crop_components(surface, corner, alpha):
     """FLAT CAP: tangent-aligned terminal half-quad, без axis square."""
 
     if len(corner.incident_sites) != 1:
@@ -2439,41 +2582,6 @@ def _cap_crop_components(surface, corner, alpha, guide_point=None):
         return ()
     lateral = (-tangent[1], tangent[0])
     depth = min(alpha, site.segment_length * 0.5)
-    if guide_point is not None:
-        guide_delta = _sub2(guide_point, corner.point)
-        guide_side = _cross2(tangent, guide_delta)
-        if guide_side == 0.0:
-            raise RuntimeError(
-                "TERMINAL_BRIDGE_GUIDE_COLLINEAR: "
-                f"patch={surface.patch_id} vertex={corner.vert_index} "
-                f"edge={site.edge_index}"
-            )
-        guide_u = 1.0 if guide_side > 0.0 else -1.0
-        inner_corner = (
-            corner.point[0] + tangent[0] * depth,
-            corner.point[1] + tangent[1] * depth,
-        )
-        inner_guide = (
-            guide_point[0] + tangent[0] * depth,
-            guide_point[1] + tangent[1] * depth,
-        )
-        v_origin = _site_v_length(
-            site, 0.0 if site.vert_a == corner.vert_index else 1.0
-        )
-        component = _crop_component_from_anchors(
-            _CornerPolicy.CAP.value,
-            "START" if site.vert_a == corner.vert_index else "END",
-            (
-                (corner.point, (0.0, 0.0)),
-                (guide_point, (guide_u, 0.0)),
-                (inner_guide, (guide_u, depth)),
-                (inner_corner, (0.0, depth)),
-            ),
-            v_origin,
-        )
-        if component is None:
-            return ()
-        return (replace(component, owner_site_indices=(site_index,)),)
     cap_a = (
         corner.point[0] - lateral[0] * alpha,
         corner.point[1] - lateral[1] * alpha,
@@ -3079,9 +3187,11 @@ def _corner_crop_components(
     # обязан использовать tangent-aligned half-quad; axis-aligned square
     # остаётся явный compile failure для неподдержанного valence-N junction.
     if policy == _CornerPolicy.CAP:
-        return _cap_crop_components(
-            surface, corner, alpha, guide_point=terminal_guide
-        )
+        # RM9-fix: guide не создаёт отдельный CAP-owner. Он режет общий
+        # SEGMENT crop ниже; point-cell становится частью той же ленты.
+        if terminal_guide is not None:
+            return ()
+        return _cap_crop_components(surface, corner, alpha)
     if policy == _CornerPolicy.SMOOTH:
         return _smooth_crop_components(surface, corner, alpha, settings)
     if not settings.dynamic_corner_bands:
@@ -9074,6 +9184,16 @@ def _m1_surface_arrangement(
                         )
                     )
                 ),
+                terminal_cut_vertices=tuple(
+                    sorted(
+                        set(owner.terminal_cut_vertices)
+                        | set(
+                            uv_frame_delegate.terminal_cut_vertices
+                            if uv_frame_delegate is not None
+                            else ()
+                        )
+                    )
+                ),
                 boundary_corner_vertices=boundary_corner_vertices,
                 boundary_corner_edges=boundary_corner_edges,
                 boundary_crop_edges=boundary_crop_edges,
@@ -9914,6 +10034,7 @@ def _m1_build_uv_frame_delegates(groups):
     semantic_sources = {}
     semantic_keys_by_chart = {}
     absorbed_by_edge_global = {}
+    terminal_cuts_by_edge_global = {}
     for _chart_id, (_surface, entries) in chart_records.items():
         for _pending_index, pending_face in entries:
             if pending_face.crop.kind != "SEGMENT":
@@ -9921,6 +10042,9 @@ def _m1_build_uv_frame_delegates(groups):
             absorbed_by_edge_global.setdefault(
                 int(pending_face.site.edge_index), set()
             ).update(pending_face.absorbed_corner_vertices)
+            terminal_cuts_by_edge_global.setdefault(
+                int(pending_face.site.edge_index), set()
+            ).update(pending_face.terminal_cut_vertices)
     for chart_id, (surface, entries) in chart_records.items():
         chart_sites = {
             int(site.edge_index): site
@@ -9940,6 +10064,13 @@ def _m1_build_uv_frame_delegates(groups):
                         tuple(
                             sorted(
                                 absorbed_by_edge_global.get(
+                                    int(edge_index), ()
+                                )
+                            )
+                        ),
+                        tuple(
+                            sorted(
+                                terminal_cuts_by_edge_global.get(
                                     int(edge_index), ()
                                 )
                             )
@@ -9964,7 +10095,7 @@ def _m1_build_uv_frame_delegates(groups):
                 == chart_id
             ):
                 semantic_sources.setdefault(semantic_key, []).append(
-                    (chart_id, pending_face.site, ())
+                    (chart_id, pending_face.site, (), ())
                 )
 
     delegates_by_domain = {}
@@ -9973,9 +10104,12 @@ def _m1_build_uv_frame_delegates(groups):
         semantic_sources.items(), key=lambda item: repr(item[0])
     ):
         edge_index, _semantic_class = semantic_key
-        owner_chart_id, owner_site, owner_absorbed_corners = min(
-            candidates, key=lambda item: item[0]
-        )
+        (
+            owner_chart_id,
+            owner_site,
+            owner_absorbed_corners,
+            owner_terminal_cuts,
+        ) = min(candidates, key=lambda item: item[0])
         owner_to_chart = {owner_chart_id: identity}
         queue = [owner_chart_id]
         while queue:
@@ -10011,6 +10145,7 @@ def _m1_build_uv_frame_delegates(groups):
                 owner_site=owner_site,
                 local_to_owner=_frame_affine_inverse(owner_to_target),
                 absorbed_corner_vertices=owner_absorbed_corners,
+                terminal_cut_vertices=owner_terminal_cuts,
             )
     return delegates_by_domain
 
@@ -10989,8 +11124,19 @@ def _m1_raw_arrangement_uv(face, point, alpha):
     )
     raw_parameter = _site_unbounded_parameter(uv_site, uv_point)
     continuation = face.uv_v_continuation_endpoint
+    terminal_continuation = (
+        (
+            raw_parameter < 0.0
+            and uv_site.vert_a in face.terminal_cut_vertices
+        )
+        or (
+            raw_parameter > 1.0
+            and uv_site.vert_b in face.terminal_cut_vertices
+        )
+    )
     if (
-        continuation < 0
+        terminal_continuation
+        or continuation < 0
         and raw_parameter < 0.0
         or continuation > 0
         and raw_parameter > 1.0
@@ -11496,6 +11642,19 @@ def _m1_validate_segment_face_parameters(
             continue
 
         continuation_endpoint = -1 if parameter < 0.0 else 1
+        endpoint_vertex = (
+            uv_site.vert_a
+            if continuation_endpoint < 0
+            else uv_site.vert_b
+        )
+        if endpoint_vertex in face.terminal_cut_vertices:
+            result.append(
+                replace(
+                    face,
+                    uv_v_continuation_endpoint=continuation_endpoint,
+                )
+            )
+            continue
         if continuation_endpoint and _m1_absorbed_v_continuation_endpoint(
             face,
             continuation_endpoint,
@@ -11515,9 +11674,6 @@ def _m1_validate_segment_face_parameters(
 
         if diagnostics is not None:
             diagnostics.atlas_clamped_segment_face_count += 1
-        endpoint_vertex = (
-            uv_site.vert_a if continuation_endpoint < 0 else uv_site.vert_b
-        )
         endpoint_corner = next(
             (
                 corner
@@ -11688,6 +11844,10 @@ def _build_decal_arrangement(
                 site=pending_face.site,
                 points=tuple(polygon),
                 crop=pending_face.crop,
+                absorbed_corner_vertices=(
+                    pending_face.absorbed_corner_vertices
+                ),
+                terminal_cut_vertices=pending_face.terminal_cut_vertices,
             )
     transition_ids_by_source_vertex = {}
     for sides in transition_contract.values():
@@ -12842,6 +13002,7 @@ def _append_pending_fragments(
     fragments,
     diagnostics=None,
     absorbed_corner_vertices=(),
+    terminal_cut_vertices=(),
     fragment_merge_groups=(),
 ):
     """Сваривает fragments одного semantic owner до materialization."""
@@ -12883,6 +13044,9 @@ def _append_pending_fragments(
                 crop=crop,
                 absorbed_corner_vertices=tuple(
                     sorted({int(vertex) for vertex in absorbed_corner_vertices})
+                ),
+                terminal_cut_vertices=tuple(
+                    sorted({int(vertex) for vertex in terminal_cut_vertices})
                 ),
             )
         )
@@ -13230,6 +13394,19 @@ def _evaluate_surface_crops(
             (corner.vert_index, site.edge_index)
         )
 
+    def site_terminal_guides(site, periodic_shift=0):
+        guides = (
+            terminal_bridge_points.get((site.vert_a, site.edge_index)),
+            terminal_bridge_points.get((site.vert_b, site.edge_index)),
+        )
+        if not periodic_shift or not getattr(surface.domain, "period", 0.0):
+            return guides
+        offset = int(periodic_shift) * float(surface.domain.period)
+        return tuple(
+            None if guide is None else (guide[0] + offset, guide[1])
+            for guide in guides
+        )
+
     reference_full_scan = bool(
         diagnostics is not None and diagnostics.reference_full_scan
     )
@@ -13485,18 +13662,13 @@ def _evaluate_surface_crops(
     for atom in surface.atoms:
         if atom.cell_kind == "POINT" and atom.corner_index in corner_crops:
             continue
+        source_site = surface.sites[atom.site_index]
         site = _periodic_site_image(
-            surface,
-            surface.sites[atom.site_index],
-            atom.periodic_shift,
+            surface, source_site, atom.periodic_shift
         )
-        crop = _CropComponent(
-            kind="SEGMENT",
-            side="",
-            points=tuple(_segment_crop_polygon(site, alpha)),
+        start_guide, end_guide = site_terminal_guides(
+            source_site, atom.periodic_shift
         )
-        fragments = []
-        fragment_merge_groups = []
         subtraction_crops = tuple(
             _translated_crop_u(
                 corner_crop,
@@ -13506,47 +13678,58 @@ def _evaluate_surface_crops(
                 atom.site_index, ()
             )
         )
-        if _surface_is_approximate(surface):
-            fragments = (crop.points,)
-            fragment_merge_groups = ()
-        else:
-            for fragment, merge_group in _atom_fragment_records(
-                surface, atom
-            ):
-                clipped = _clip_to_convex(fragment, crop.points)
-                if not clipped:
-                    continue
-                pieces = [clipped]
-                for corner_crop in subtraction_crops:
-                    pieces = [
-                        outside
-                        for piece in pieces
-                        for outside in _subtract_convex_polygon(
-                            piece, corner_crop.points
-                        )
-                    ]
-                    if not pieces:
-                        break
-                fragments.extend(pieces)
-                fragment_merge_groups.extend(
-                    merge_group for _piece in pieces
-                )
-        _append_pending_fragments(
-            pending,
-            surface,
-            site,
-            crop,
-            fragments,
-            diagnostics,
-            absorbed_corner_vertices=tuple(
-                surface.corners[corner_index].vert_index
-                for corner_index in corner_indices_by_site.get(
-                    atom.site_index, ()
-                )
-                if corner_index in absorbed_corner_indices
-            ),
-            fragment_merge_groups=fragment_merge_groups,
-        )
+        for crop, terminal_cut_vertices in (
+            _terminal_segment_crop_components(
+                site,
+                alpha,
+                start_guide=start_guide,
+                end_guide=end_guide,
+            )
+        ):
+            fragments = []
+            fragment_merge_groups = []
+            if _surface_is_approximate(surface):
+                fragments = (crop.points,)
+                fragment_merge_groups = ()
+            else:
+                for fragment, merge_group in _atom_fragment_records(
+                    surface, atom
+                ):
+                    clipped = _clip_to_convex(fragment, crop.points)
+                    if not clipped:
+                        continue
+                    pieces = [clipped]
+                    for corner_crop in subtraction_crops:
+                        pieces = [
+                            outside
+                            for piece in pieces
+                            for outside in _subtract_convex_polygon(
+                                piece, corner_crop.points
+                            )
+                        ]
+                        if not pieces:
+                            break
+                    fragments.extend(pieces)
+                    fragment_merge_groups.extend(
+                        merge_group for _piece in pieces
+                    )
+            _append_pending_fragments(
+                pending,
+                surface,
+                site,
+                crop,
+                fragments,
+                diagnostics,
+                absorbed_corner_vertices=tuple(
+                    surface.corners[corner_index].vert_index
+                    for corner_index in corner_indices_by_site.get(
+                        atom.site_index, ()
+                    )
+                    if corner_index in absorbed_corner_indices
+                ),
+                terminal_cut_vertices=terminal_cut_vertices,
+                fragment_merge_groups=fragment_merge_groups,
+            )
 
 
 def evaluate_patch_voronoi_plan(
@@ -13708,8 +13891,21 @@ def evaluate_patch_voronoi_plan(
             )
             raw_uv_t = _site_unbounded_parameter(uv_site, uv_point)
             continuation = pending_face.uv_v_continuation_endpoint
+            terminal_continuation = (
+                (
+                    raw_uv_t < 0.0
+                    and uv_site.vert_a
+                    in pending_face.terminal_cut_vertices
+                )
+                or (
+                    raw_uv_t > 1.0
+                    and uv_site.vert_b
+                    in pending_face.terminal_cut_vertices
+                )
+            )
             if (
-                continuation < 0
+                terminal_continuation
+                or continuation < 0
                 and raw_uv_t < 0.0
                 or continuation > 0
                 and raw_uv_t > 1.0

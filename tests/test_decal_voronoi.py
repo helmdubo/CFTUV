@@ -2455,21 +2455,145 @@ def test_rf19_production_cap_reads_terminal_route_station_extent():
     assert Vector(narrow).length == pytest.approx(0.25)
     assert Vector(wide).length == pytest.approx(0.75)
     assert consumed == {(0, 0, 500, 9)}
-    bridged = decal_voronoi._cap_crop_components(
-        surface, corner, alpha=0.75, guide_point=wide
-    )[0]
-    assert corner.point in bridged.points
-    assert wide in bridged.points
+    bridged = decal_voronoi._terminal_segment_crop_components(
+        site, alpha=0.75, start_guide=wide
+    )
+    assert any(wide in component.points for component, _vertices in bridged)
+    assert all(component.kind == "SEGMENT" for component, _vertices in bridged)
+    assert any(vertices == (site.vert_a,) for _component, vertices in bridged)
+    assert decal_voronoi._corner_crop_components(
+        surface,
+        corner,
+        decal_voronoi._CornerPolicy.CAP,
+        0.75,
+        decal_voronoi.CornerRuntimeSettings(),
+        terminal_guide=wide,
+    ) == ()
     baseline = decal_voronoi._cap_crop_components(
         surface, corner, alpha=0.75
     )[0]
-    assert baseline == decal_voronoi._cap_crop_components(
-        surface, corner, alpha=0.75, guide_point=None
-    )[0]
+    assert baseline.kind == "CAP"
     perpendicular = SimpleNamespace(**{**vars(terminal), "choice": "PERP"})
     assert decal_voronoi._surface_terminal_bridge_points(
         surface, (perpendicular,), rail_plan, alpha=0.75
     ) == {}
+
+
+def test_rf19_terminal_cut_replaces_cap_without_overlay(monkeypatch):
+    monkeypatch.setattr(
+        decal_voronoi,
+        "classify_corner_runtime",
+        lambda _corner, _settings=None: decal_voronoi._CornerPolicy.CAP,
+    )
+    surface = _short_segment_endpoint_surface()
+    guide = (-0.25, 0.75)
+    pending = []
+    decal_voronoi._evaluate_surface_crops(
+        surface,
+        alpha=0.75,
+        pending=pending,
+        corner_settings=decal_voronoi.CornerRuntimeSettings(),
+        terminal_bridge_points={(0, 500): guide},
+    )
+
+    assert not any(
+        face.crop.kind == "CAP" and face.crop.side == "START"
+        for face in pending
+    )
+    assert any(
+        face.crop.kind == "CAP" and face.crop.side == "END"
+        for face in pending
+    )
+    assert any(guide in face.points for face in pending)
+    for index, first in enumerate(pending):
+        for second in pending[index + 1 :]:
+            overlap = decal_voronoi._clip_to_convex(
+                first.points, second.points
+            )
+            assert not overlap or abs(
+                decal_voronoi._polygon_area2(overlap)
+            ) <= 1e-10
+
+
+def test_rf19_oblique_terminal_cut_moves_only_its_terminal_zone():
+    surface = _short_segment_endpoint_surface()
+    site = surface.sites[0]
+    guide = (0.3, sqrt(0.75 * 0.75 - 0.3 * 0.3))
+    components = decal_voronoi._terminal_segment_crop_components(
+        site,
+        alpha=0.75,
+        start_guide=guide,
+    )
+    terminal = tuple(
+        component
+        for component, _vertices in components
+        if component.side.startswith("TERMINAL_START_")
+    )
+    body = next(
+        component
+        for component, _vertices in components
+        if component.side == "BODY"
+    )
+
+    assert any(guide in component.points for component in terminal)
+    assert min(point[0] for point in body.points) == pytest.approx(0.8)
+    for component in terminal:
+        overlap = decal_voronoi._clip_to_convex(
+            component.points, body.points
+        )
+        assert not overlap or abs(
+            decal_voronoi._polygon_area2(overlap)
+        ) <= 1e-10
+
+
+def test_rf19_meeting_terminal_cuts_fail_instead_of_overlapping():
+    site = _short_segment_endpoint_surface().sites[0]
+    with pytest.raises(RuntimeError, match="TERMINAL_BRIDGE_CUTS_OVERLAP"):
+        decal_voronoi._terminal_segment_crop_components(
+            site,
+            alpha=0.75,
+            start_guide=(0.3, sqrt(0.75 * 0.75 - 0.3 * 0.3)),
+            end_guide=(0.7, sqrt(0.75 * 0.75 - 0.3 * 0.3)),
+        )
+
+
+def test_rf19_perp_terminal_evaluation_is_bit_identical():
+    graph = _planar_two_site_graph()
+    plan = compile_patch_voronoi_plan(graph, [10, 12], offset=0.01)
+    surface = plan.surfaces[0]
+    corner = next(
+        candidate
+        for candidate in surface.corners
+        if len(candidate.incident_sites) == 1
+    )
+    site = surface.sites[corner.incident_sites[0]]
+    terminal = SimpleNamespace(
+        backend="PATCH_VORONOI",
+        patch_id=surface.patch_id,
+        choice="PERP",
+        spine_vertex_id=corner.vert_index,
+        spine_edge_id=site.edge_index,
+        route_id=None,
+        edge_ids=(),
+    )
+    baseline = evaluate_patch_voronoi_plan(
+        plan,
+        width=0.5,
+        preview=True,
+        corner_settings=_BAND_SETTINGS,
+    )
+    with_perp = evaluate_patch_voronoi_plan(
+        plan,
+        width=0.5,
+        preview=True,
+        corner_settings=_BAND_SETTINGS,
+        terminal_routing=(terminal,),
+        rail_plan=None,
+    )
+
+    assert decal_voronoi.serialize_network_faces(
+        with_perp
+    ) == decal_voronoi.serialize_network_faces(baseline)
 
 
 def test_rf19_non_perp_terminal_cannot_be_silently_unconsumed():

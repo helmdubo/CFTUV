@@ -12,8 +12,10 @@ import bpy
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+ARTIFACT_ROOT = REPO_ROOT / "artifacts"
+for path in (REPO_ROOT, ARTIFACT_ROOT):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
 loaded_cftuv = sys.modules.get("cftuv")
 if loaded_cftuv is not None:
@@ -29,6 +31,7 @@ from cftuv.decals import (  # noqa: E402
     evaluate_manual_seam_faces,
 )
 from cftuv.model import DecalSettings  # noqa: E402
+from inspect_r14_fix_terminal_overlap import _overlap_records  # noqa: E402
 
 
 FIELD_OBJECTS = {
@@ -90,7 +93,7 @@ def main():
     if bpy.context.object is not None and bpy.context.object.mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
     report = {
-        "schema": "cftuv.decal_r14.terminal-routing.v1",
+        "schema": "cftuv.decal_r14.terminal-routing.v2",
         "blender_version": bpy.app.version_string,
         "blend_file": bpy.data.filepath,
         "blend_saved": False,
@@ -111,6 +114,7 @@ def main():
                 settings,
                 selected,
             )
+            compiled_plan_id = id(plan.rail_plan)
             width_evaluations = []
             for width in (0.4, 0.8):
                 try:
@@ -125,6 +129,20 @@ def main():
                             "width": width,
                             "status": "UPDATED",
                             "face_count": len(evaluated.faces),
+                            "rail_plan_identity": id(plan.rail_plan),
+                            "compile_static": (
+                                id(plan.rail_plan) == compiled_plan_id
+                            ),
+                            "overlap_count": len(
+                                _overlap_records(evaluated.faces)
+                            ),
+                            "terminal_cut_face_count": sum(
+                                face.component_kind == "SEGMENT"
+                                and face.component_side.startswith(
+                                    "TERMINAL_"
+                                )
+                                for face in evaluated.faces
+                            ),
                         }
                     )
                 except Exception as exc:
@@ -172,6 +190,7 @@ def main():
                     saved_plan = compile_manual_seam_decal_plan(
                         graph, settings, saved_selection
                     )
+                    saved_plan_id = id(saved_plan.rail_plan)
                     saved_widths = []
                     for width in (0.4, 0.8):
                         evaluated = evaluate_manual_seam_faces(
@@ -185,6 +204,12 @@ def main():
                                 "width": width,
                                 "status": "UPDATED",
                                 "face_count": len(evaluated.faces),
+                                "compile_static": (
+                                    id(saved_plan.rail_plan) == saved_plan_id
+                                ),
+                                "overlap_count": len(
+                                    _overlap_records(evaluated.faces)
+                                ),
                             }
                         )
                     report["objects"][-1]["saved_selection_scope"] = {
@@ -207,9 +232,26 @@ def main():
         json.dumps(report, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    print("CFTUV_R14_TERMINAL_ROUTING=" + json.dumps(report, ensure_ascii=False))
+    summary = {
+        record["object"]: {
+            "status": record["status"],
+            "widths": record.get("width_evaluations", ()),
+        }
+        for record in report["objects"]
+    }
+    print(
+        "CFTUV_R14_TERMINAL_ROUTING="
+        + json.dumps(summary, ensure_ascii=False)
+    )
     if any(
-        record["status"] == "SCRIPT_ERROR" for record in report["objects"]
+        record["status"] == "SCRIPT_ERROR"
+        or any(
+            width["status"] != "UPDATED"
+            or not width["compile_static"]
+            or width["overlap_count"]
+            for width in record.get("width_evaluations", ())
+        )
+        for record in report["objects"]
     ):
         raise SystemExit(2)
 
