@@ -2794,6 +2794,56 @@ def test_rd1_rf12_perp_cap_joins_regular_segment_uv_strip():
     assert not any(face.component_kind == "CAP" for face in merged)
 
 
+def test_rd1_rf23_cap_multi_edge_contact_is_one_strip_neighbor():
+    positions = {
+        "L0": (-1.0, 0.0, 0.0),
+        "A": (0.0, 0.0, 0.0),
+        "B": (0.5, 0.0, 0.0),
+        "C": (1.0, 0.0, 0.0),
+        "L1": (1.0, -1.0, 0.0),
+        "L2": (-1.0, -1.0, 0.0),
+        "S0": (0.0, 1.0, 0.0),
+        "S1": (1.0, 1.0, 0.0),
+    }
+
+    def points(keys):
+        return tuple(positions[key] for key in keys)
+
+    cap_keys = ("L0", "A", "B", "C", "L1", "L2")
+    strip_keys = ("C", "B", "A", "S0", "S1")
+    cap = _rd1_partition_face(
+        cap_keys,
+        points(cap_keys),
+        (8.0, 10.0, 11.0, 12.0, 14.0, 8.0),
+        (49.0, 50.0, 50.0, 50.0, 49.0, 49.0),
+        kind="CAP",
+        side="START",
+    )
+    strip = _rd1_partition_face(
+        strip_keys,
+        points(strip_keys),
+        (2.0, 1.0, 0.0, 0.0, 2.0),
+        (0.0, 0.0, 0.0, 1.0, 1.0),
+        kind="SEGMENT",
+        side="BODY",
+    )
+
+    aligned = decal_voronoi._align_strip_cap_faces((cap, strip))
+
+    assert len(aligned) == 2
+    assert aligned[0].component_kind == "SEGMENT"
+    assert aligned[0].component_side == "CAP_ALIGNED"
+    facts = dict(
+        zip(
+            aligned[0].vert_keys,
+            zip(aligned[0].u_fracs, aligned[0].v_lengths),
+        )
+    )
+    assert facts["A"] == (0.0, 0.0)
+    assert facts["B"] == (1.0, 0.0)
+    assert facts["C"] == (2.0, 0.0)
+
+
 def test_rd1_rf12_fold_cap_keeps_semantic_edge_and_uv_piece():
     faces = _rd1_terminal_partition_faces(cap_normal=(0.0, 1.0, 0.0))
     merged = decal_voronoi._merge_terminal_partition_faces(faces)

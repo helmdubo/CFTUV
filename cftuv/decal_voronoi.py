@@ -13865,7 +13865,7 @@ def _aligned_strip_cap_side(strip_side):
 
 
 def _align_strip_cap_face(cap_face, cap_loop, strip_face, strip_loop):
-    """Переводит CAP в station-UV соседнего strip."""
+    """Переводит CAP в station-UV и возвращает факт affine-transform."""
 
     cap_count = len(cap_face.vert_keys)
     strip_count = len(strip_face.vert_keys)
@@ -13898,6 +13898,7 @@ def _align_strip_cap_face(cap_face, cap_loop, strip_face, strip_loop):
     if cap_u_span == 0.0:
         return None
     u_scale = (strip_u_b - strip_u_a) / cap_u_span
+    u_offset = strip_u_a - cap_u_a * u_scale
 
     cap_v = cap_a_fact[2]
     strip_v = strip_b_fact[2]
@@ -13916,17 +13917,20 @@ def _align_strip_cap_face(cap_face, cap_loop, strip_face, strip_loop):
     cap_next = (cap_loop + 1) % cap_count
     u_fracs[cap_next] = strip_u_b
     v_lengths[cap_next] = strip_a_fact[2]
-    return _NetworkFace(
-        surface_id=cap_face.surface_id,
-        surface_normal=cap_face.surface_normal.copy(),
-        vert_keys=list(cap_face.vert_keys),
-        positions=list(cap_face.positions),
-        u_fracs=u_fracs,
-        v_lengths=v_lengths,
-        component_kind="SEGMENT",
-        component_side=_aligned_strip_cap_side(
-            strip_face.component_side
+    return (
+        _NetworkFace(
+            surface_id=cap_face.surface_id,
+            surface_normal=cap_face.surface_normal.copy(),
+            vert_keys=list(cap_face.vert_keys),
+            positions=list(cap_face.positions),
+            u_fracs=u_fracs,
+            v_lengths=v_lengths,
+            component_kind="SEGMENT",
+            component_side=_aligned_strip_cap_side(
+                strip_face.component_side
+            ),
         ),
+        (u_scale, u_offset, v_offset),
     )
 
 
@@ -13971,18 +13975,24 @@ def _align_strip_cap_faces(faces):
             < DECAL_COPLANAR_DOT
         ):
             continue
-        aligned = _align_strip_cap_face(
+        alignment = _align_strip_cap_face(
             cap_face,
             cap_use[1],
             strip_face,
             strip_use[1],
         )
-        if aligned is not None:
-            candidates_by_cap.setdefault(cap_use[0], []).append(aligned)
+        if alignment is not None:
+            aligned, transform = alignment
+            # Один semantic SEGMENT-сосед может делить с CAP несколько
+            # последовательных рёбер. Это одна adjacency, а не несколько
+            # кандидатов, если каждое ребро доказывает тот же affine-map.
+            candidates_by_cap.setdefault(cap_use[0], {})[
+                (strip_use[0], transform)
+            ] = aligned
 
     return [
-        candidates[0]
-        if len(candidates := candidates_by_cap.get(index, ())) == 1
+        next(iter(candidates.values()))
+        if len(candidates := candidates_by_cap.get(index, {})) == 1
         else face
         for index, face in enumerate(faces)
     ]
