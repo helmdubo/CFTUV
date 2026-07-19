@@ -1,0 +1,28 @@
+{
+  "fixture": "RF12",
+  "task": "RD-1 provenance triage stop",
+  "source_object": "rounded_wall.001",
+  "selected_edge_indices": [55, 59, 62, 65, 68, 71, 74, 77, 80, 83],
+  "backend_summary": "PLANAR+INTRINSIC_DEVELOPABLE:1c/10e | RailUnsupported[RAIL_GEOMETRY_CURVED_OWNER_UNSUPPORTED:x1]",
+  "materialized_face_count": 36,
+  "component_face_counts": {
+    "SEGMENT": 30,
+    "KITE": 4,
+    "CAP_END": 2
+  },
+  "runtime_policy_counts": {
+    "CAP": 4,
+    "KITE": 4,
+    "MITER": 9,
+    "SMOOTH": 5
+  },
+  "diagnostic_short_edge_window": {
+    "note": "length < 0.06 is an inspection window only, never a runtime threshold",
+    "boundary_edge_count": 28,
+    "internal_edge_count": 2,
+    "boundary_provenance": ["SEGMENT", "KITE", "CAP", "alpha frontier"],
+    "internal_provenance": ["pv-se", "pv-sv", "owner surfaces 1 and 3", "offset-lift weld"]
+  },
+  "rm5a_present": false,
+  "decision": "STOP: both observed classes have semantic function; no deletion before reviewer identifies the complained class"
+}
