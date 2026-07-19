@@ -153,6 +153,39 @@ def planar_rf1_ring(station_count=7):
     return graph, edge_ids, selected, vertex_at
 
 
+def planar_rf11_boundary_join():
+    """RF11: открытый spine упирается в поперечный незаделенный pChain."""
+
+    vertices = {}
+    vertex_at = {}
+    next_id = 0
+    for y in range(3):
+        for x in range(-2, 3):
+            vertex_at[(x, y)] = next_id
+            vertices[next_id] = (float(x), float(y), 0.0)
+            next_id += 1
+    faces = []
+    for y in range(2):
+        for x in range(-2, 2):
+            faces.append(
+                (
+                    vertex_at[(x, y)],
+                    vertex_at[(x + 1, y)],
+                    vertex_at[(x + 1, y + 1)],
+                    vertex_at[(x, y + 1)],
+                )
+            )
+    spine_path = (vertex_at[(0, 0)], vertex_at[(0, 1)])
+    boundary_path = tuple(vertex_at[(x, 1)] for x in range(-2, 3))
+    graph, edge_ids, selected = mesh_graph(
+        vertices,
+        faces,
+        ((spine_path, False),),
+        extra_pchain_paths=((boundary_path, False),),
+    )
+    return graph, edge_ids, selected, vertex_at
+
+
 def planar_rf10_quarter_join():
     """Настоящий grid-L: (0,-1) -> (0,0) -> (1,0)."""
 

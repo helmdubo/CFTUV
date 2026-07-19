@@ -677,9 +677,59 @@ def _automatic_continuation(topology, vertex_id, incoming_edge_id):
     return candidates[0] if len(candidates) == 1 else None
 
 
-def _trace_route(topology, route_id, key, alpha_budget, barrier_vertices):
+def _chain_continuation(record, incoming_endpoints, vertex_id):
+    """Возвращает следующее ребро того же pChain в заданной вершине."""
+
+    oriented = _oriented_chain_edge(record, incoming_endpoints)
+    if oriented is None:
+        return None
+    (from_vertex_id, to_vertex_id), edge_index = oriented
+    _chain_ref, is_closed, _record_index, edge_ids, _vertex_ids = record
+    if vertex_id == to_vertex_id:
+        next_index = edge_index + 1
+        if next_index >= len(edge_ids):
+            next_index = 0 if is_closed else None
+    elif vertex_id == from_vertex_id:
+        next_index = edge_index - 1
+        if next_index < 0:
+            next_index = len(edge_ids) - 1 if is_closed else None
+    else:
+        return None
+    if next_index is None:
+        return None
+    return edge_ids[next_index]
+
+
+def _pchain_continuation(topology, chain_records, vertex_id, incoming_edge_id):
+    """RR8: boundary-rail продолжает только собственную seam-цепочку."""
+
+    incoming = topology.edge_by_id[incoming_edge_id]
+    candidates = {
+        continuation
+        for record in chain_records.get(incoming_edge_id, ())
+        for continuation in (
+            _chain_continuation(record, incoming.vertex_ids, vertex_id),
+        )
+        if continuation is not None
+        and continuation != incoming_edge_id
+        and continuation in topology.edge_by_id
+        and topology.edge_by_id[continuation].is_pchain
+    }
+    return next(iter(candidates)) if len(candidates) == 1 else None
+
+
+def _trace_route(
+    topology,
+    route_id,
+    key,
+    alpha_budget,
+    barrier_vertices,
+    spine_vertices,
+    chain_records,
+):
     start_vertex_id = key.side.spine_vertex_id
     current_edge_id = key.side.start_edge_id
+    boundary_route = topology.edge_by_id[current_edge_id].is_pchain
     stations = [_vertex_station(0, 0.0, start_vertex_id)]
     segments = []
     events = []
@@ -737,7 +787,9 @@ def _trace_route(topology, route_id, key, alpha_budget, barrier_vertices):
             _vertex_station(len(stations), distance, next_vertex_id)
         )
         record_segment(edge)
-        if next_vertex_id in barrier_vertices:
+        if boundary_route and next_vertex_id in spine_vertices:
+            return finish(RailTermination.PCHAIN, RailEventKind.PCHAIN)
+        if not boundary_route and next_vertex_id in barrier_vertices:
             return finish(RailTermination.PCHAIN, RailEventKind.PCHAIN)
         if distance >= alpha_budget:
             return finish(RailTermination.ALPHA, RailEventKind.ALPHA)
@@ -746,6 +798,19 @@ def _trace_route(topology, route_id, key, alpha_budget, barrier_vertices):
         if state in visited_states:
             return finish(RailTermination.DAM, RailEventKind.DAM)
         visited_states.add(state)
+
+        if boundary_route:
+            continuation = _pchain_continuation(
+                topology,
+                chain_records,
+                next_vertex_id,
+                current_edge_id,
+            )
+            if continuation is None:
+                return finish(RailTermination.DAM, RailEventKind.DAM)
+            current_vertex_id = next_vertex_id
+            current_edge_id = continuation
+            continue
 
         marked = [
             edge_id
@@ -880,7 +945,7 @@ def compile_decal_rail_plan(
     alpha_budget,
     rail_mark_edge_indices=(),
 ):
-    """Компилирует RR1-RR7 один раз; drag получает только готовые станции."""
+    """Компилирует RR1-RR8 один раз; drag получает только готовые станции."""
 
     alpha_budget = float(alpha_budget)
     if not alpha_budget > 0.0:
@@ -945,11 +1010,35 @@ def compile_decal_rail_plan(
         if edge.is_pchain
         for vertex_id in edge.vertex_ids
     }
+    spine_vertices = frozenset(selected_by_vertex)
 
     route_seeds = []
     start_dams = []
     for spine_vertex_id in sorted(selected_by_vertex):
         spine_edges = tuple(sorted(selected_by_vertex[spine_vertex_id]))
+        spine_faces = {
+            face_id
+            for edge_id in spine_edges
+            for face_id in topology.edge_faces.get(edge_id, ())
+        }
+        boundary_faces = set()
+        boundary_edges = tuple(
+            edge_id
+            for edge_id in topology.vertex_edges.get(spine_vertex_id, ())
+            if edge_id not in spine_edges
+            and topology.edge_by_id[edge_id].is_pchain
+        )
+        for edge_id in boundary_edges:
+            edge_faces = set(topology.edge_by_id[edge_id].face_indices)
+            shared_faces = tuple(sorted(edge_faces.intersection(spine_faces)))
+            source_faces = shared_faces or tuple(sorted(edge_faces))
+            boundary_faces.update(shared_faces)
+            route_seeds.append(
+                RailRouteKey(
+                    RailSideKey(spine_vertex_id, edge_id, source_faces)
+                )
+            )
+        claimed_faces = set(boundary_faces)
         marked_incident = tuple(
             edge_id
             for edge_id in topology.vertex_edges.get(spine_vertex_id, ())
@@ -957,7 +1046,7 @@ def compile_decal_rail_plan(
             and topology.edge_by_id[edge_id].is_marked
             and not topology.edge_by_id[edge_id].is_pchain
         )
-        used_candidates = set()
+        used_candidates = set(boundary_edges)
         side_groups = _start_side_groups(
             topology,
             spine_vertex_id,
@@ -965,6 +1054,11 @@ def compile_decal_rail_plan(
         )
         for side_faces, candidates in side_groups:
             used_candidates.update(candidates)
+            source_faces = tuple(
+                face_id for face_id in side_faces if face_id not in claimed_faces
+            )
+            if not source_faces:
+                continue
             allowed = tuple(
                 edge_id
                 for edge_id in candidates
@@ -982,42 +1076,52 @@ def compile_decal_rail_plan(
                 chosen = marked[0]
             if chosen is None:
                 start_dams.append(
-                    RailSideKey(spine_vertex_id, -1, side_faces)
+                    RailSideKey(spine_vertex_id, -1, source_faces)
                 )
             else:
                 route_seeds.append(
                     RailRouteKey(
-                        RailSideKey(spine_vertex_id, chosen, side_faces)
+                        RailSideKey(spine_vertex_id, chosen, source_faces)
                     )
                 )
+            claimed_faces.update(source_faces)
 
         # Явная разметка может определить отсутствующий RR1-sector, но не
         # заменяет уже найденную противоположную сторону.
         for edge_id in marked_incident:
             if edge_id in used_candidates:
                 continue
+            source_faces = tuple(
+                face_id
+                for face_id in topology.edge_by_id[edge_id].face_indices
+                if face_id not in claimed_faces
+            )
+            if not source_faces:
+                continue
             route_seeds.append(
                 RailRouteKey(
                     RailSideKey(
                         spine_vertex_id,
                         edge_id,
-                        topology.edge_by_id[edge_id].face_indices,
+                        source_faces,
                     )
                 )
             )
-        if not side_groups and not marked_incident:
+            claimed_faces.update(source_faces)
+        if not side_groups:
             source_faces = tuple(
                 sorted(
                     {
                         face_id
                         for edge_id in spine_edges
                         for face_id in topology.edge_faces.get(edge_id, ())
-                    }
+                    }.difference(claimed_faces)
                 )
             )
-            start_dams.append(
-                RailSideKey(spine_vertex_id, -1, source_faces)
-            )
+            if source_faces:
+                start_dams.append(
+                    RailSideKey(spine_vertex_id, -1, source_faces)
+                )
 
     routes = []
     events = []
@@ -1029,6 +1133,8 @@ def compile_decal_rail_plan(
             key,
             alpha_budget,
             barrier_vertices,
+            spine_vertices,
+            chain_records,
         )
         routes.append(route)
         events.extend(route_events)

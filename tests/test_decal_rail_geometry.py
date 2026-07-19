@@ -24,6 +24,7 @@ from decal_rail_fixtures import (
     planar_rf1_ring,
     planar_rf10_quarter_join,
     planar_rf10_with_disconnected_concave_face,
+    planar_rf11_boundary_join,
     planar_shallow_dihedral_strip,
 )
 
@@ -214,6 +215,72 @@ def test_r1_start_dam_uses_full_width_virtual_rail_without_taper():
         trace.pieces[-1].end.r == plan.alpha_budget
         for trace in plan.cap_traces
     )
+
+
+def test_r11_rf11_boundary_pchain_preempts_cap_and_uses_plain_channel():
+    graph, edge_ids, selected, vertex_at = planar_rf11_boundary_join()
+    rail_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=1.5,
+    )
+    endpoint_id = vertex_at[(0, 1)]
+    boundary_edge_ids = {
+        edge_ids[tuple(sorted((vertex_at[(0, 1)], vertex_at[(-1, 1)])))],
+        edge_ids[tuple(sorted((vertex_at[(0, 1)], vertex_at[(1, 1)])))],
+    }
+    boundary_routes = tuple(
+        route
+        for route in rail_plan.routes
+        if route.key.side.spine_vertex_id == endpoint_id
+        and route.key.side.start_edge_id in boundary_edge_ids
+    )
+
+    assert len(boundary_routes) == 2
+    assert {
+        route.key.side.start_edge_id for route in boundary_routes
+    } == boundary_edge_ids
+    assert all(
+        route.termination == decal_rails.RailTermination.ALPHA
+        for route in boundary_routes
+    )
+    assert all(len(route.segments) == 2 for route in boundary_routes)
+    assert all(route.stations[-1].distance == 1.5 for route in boundary_routes)
+    assert not any(
+        route.key.side.spine_vertex_id == endpoint_id
+        and route.key.side.start_edge_id < 0
+        for route in rail_plan.routes
+    )
+    boundary_chain = graph.nodes[0].boundary_loops[0].chains[1]
+    boundary_chain.vert_indices.reverse()
+    boundary_chain.edge_indices.reverse()
+    reversed_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        tuple(reversed(selected)),
+        alpha_budget=1.5,
+    )
+    assert reversed_plan == rail_plan
+
+    attempt = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=selected,
+    )
+    assert attempt.failures == ()
+    assert attempt.plan is not None
+    assert len(attempt.plan.cap_traces) == 2
+    assert attempt.plan.corner_partitions == ()
+    assert attempt.plan.corner_cells == ()
+
+    faces = evaluate_planar_rail_geometry_plan(attempt.plan, width=3.0)
+    endpoint_vertices = [
+        position
+        for face in faces
+        for position, station in zip(face.positions, face.v_lengths)
+        if station == 1.0
+    ]
+    assert endpoint_vertices
+    assert all(position.y == 1.0 for position in endpoint_vertices)
+    assert {face.component_kind for face in faces} == {"RAIL_SEGMENT"}
 
 
 def test_r1_width_drag_only_clips_compiled_cells_and_preview_equals_confirm():
