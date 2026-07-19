@@ -2739,48 +2739,6 @@ def test_rf19_meeting_terminal_cuts_fail_instead_of_overlapping():
         )
 
 
-def test_rf25_two_patch_terminal_routes_share_shortest_reach():
-    rail_plan = SimpleNamespace(
-        routes=(
-            SimpleNamespace(
-                route_id=10,
-                stations=(SimpleNamespace(distance=0.0), SimpleNamespace(distance=1.5)),
-            ),
-            SimpleNamespace(
-                route_id=11,
-                stations=(SimpleNamespace(distance=0.0), SimpleNamespace(distance=4.0)),
-            ),
-            SimpleNamespace(
-                route_id=12,
-                stations=(SimpleNamespace(distance=0.0), SimpleNamespace(distance=2.0)),
-            ),
-        )
-    )
-
-    def terminal(patch, route, *, vertex=10, choice="PCHAIN"):
-        return SimpleNamespace(
-            component_index=0,
-            patch_id=patch,
-            spine_vertex_id=vertex,
-            spine_edge_id=8,
-            backend="PATCH_VORONOI",
-            choice=choice,
-            route_id=route,
-        )
-
-    limits = decal_voronoi._shared_terminal_route_extent_limits(
-        (
-            terminal(0, 10),
-            terminal(1, 11),
-            terminal(0, 12, vertex=20),
-            terminal(1, None, vertex=20, choice="PERP"),
-        ),
-        rail_plan,
-    )
-
-    assert limits == {(0, 10, 8): 1.5}
-
-
 def _rd1_partition_face(keys, positions, u_fracs, v_lengths, *, kind, side, normal=(0.0, 0.0, 1.0)):
     return decal_voronoi._NetworkFace(
         surface_id=0,

@@ -13264,12 +13264,7 @@ def _terminal_station_chart_points(domain, station, edge_by_id):
 
 
 def _terminal_route_chart_point(
-    surface,
-    terminal,
-    rail_plan,
-    alpha,
-    corner_point,
-    shared_extent_limit=None,
+    surface, terminal, rail_plan, alpha, corner_point
 ):
     """Читает station extent route в его физическом owner-chart image."""
 
@@ -13290,10 +13285,7 @@ def _terminal_route_chart_point(
     station_by_index = {
         station.station_index: station for station in route.stations
     }
-    extent_limits = [float(alpha), float(route.stations[-1].distance)]
-    if shared_extent_limit is not None:
-        extent_limits.append(float(shared_extent_limit))
-    extent = min(extent_limits)
+    extent = min(float(alpha), float(route.stations[-1].distance))
     interval = next(
         (
             (
@@ -13381,51 +13373,12 @@ def _terminal_route_chart_point(
     return pair[4]
 
 
-def _shared_terminal_route_extent_limits(terminal_routing, rail_plan):
-    """Общий station reach двух patch-сторон одного физического торца."""
-
-    if rail_plan is None:
-        return {}
-    route_by_id = {
-        route.route_id: route
-        for route in getattr(rail_plan, "routes", ())
-    }
-    reaches = {}
-    for terminal in terminal_routing or ():
-        if (
-            terminal.backend != "PATCH_VORONOI"
-            or terminal.choice == "PERP"
-            or terminal.route_id is None
-        ):
-            continue
-        route = route_by_id.get(terminal.route_id)
-        if route is None or not route.stations:
-            continue
-        key = (
-            getattr(terminal, "component_index", 0),
-            terminal.spine_vertex_id,
-            terminal.spine_edge_id,
-        )
-        patch_reaches = reaches.setdefault(key, {})
-        reach = float(route.stations[-1].distance)
-        previous = patch_reaches.get(terminal.patch_id)
-        patch_reaches[terminal.patch_id] = (
-            reach if previous is None else min(previous, reach)
-        )
-    return {
-        key: min(patch_reaches.values())
-        for key, patch_reaches in reaches.items()
-        if len(patch_reaches) >= 2
-    }
-
-
 def _surface_terminal_bridge_points(
     surface,
     terminal_routing,
     rail_plan,
     alpha,
     consumed_terminal_ids=None,
-    shared_extent_limits=None,
 ):
     """RM9 guides одного Patch surface; PERP не меняет старый CAP."""
 
@@ -13454,18 +13407,7 @@ def _surface_terminal_bridge_points(
         if corner is None:
             continue
         point = _terminal_route_chart_point(
-            surface,
-            terminal,
-            rail_plan,
-            alpha,
-            corner.point,
-            shared_extent_limit=(shared_extent_limits or {}).get(
-                (
-                    getattr(terminal, "component_index", 0),
-                    terminal.spine_vertex_id,
-                    terminal.spine_edge_id,
-                )
-            ),
+            surface, terminal, rail_plan, alpha, corner.point
         )
         previous = result.get(key)
         if previous is not None and previous != point:
@@ -14323,10 +14265,6 @@ def evaluate_patch_voronoi_plan(
         and terminal.choice != "PERP"
     }
     consumed_terminal_ids = set()
-    shared_terminal_extent_limits = _shared_terminal_route_extent_limits(
-        terminal_routing,
-        rail_plan,
-    )
     for surface in plan.surfaces:
         terminal_bridge_points = _surface_terminal_bridge_points(
             surface,
@@ -14334,7 +14272,6 @@ def evaluate_patch_voronoi_plan(
             rail_plan,
             alpha,
             consumed_terminal_ids=consumed_terminal_ids,
-            shared_extent_limits=shared_terminal_extent_limits,
         )
         _evaluate_surface_crops(
             surface,
