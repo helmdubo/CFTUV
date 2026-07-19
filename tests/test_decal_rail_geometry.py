@@ -35,6 +35,7 @@ from decal_rail_fixtures import (
     rr9_rf16_terminal_fold_caps,
     rr9a_rf18_terminal_seam_snap,
     rr9b_rf21_spine_reaches_mesh_border,
+    rr9b_rf22_one_sided_boundary_continuation,
 )
 
 
@@ -425,6 +426,31 @@ def test_r14_rf21_terminal_border_routes_clip_inside_owner_faces():
             faces_by_id[face.surface_id],
             positions,
         )
+        for face in evaluated
+        for position in face.positions
+    )
+
+
+def test_r14_rf22_one_sided_boundary_strip_has_transverse_terminal_caps():
+    graph, _edge_ids, selected, _vertex_at = (
+        rr9b_rf22_one_sided_boundary_continuation()
+    )
+    rail_plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=0.75,
+    )
+    attempt = compile_planar_rail_geometry_attempt(
+        rail_plan,
+        edge_indices=selected,
+    )
+
+    assert attempt.failures == ()
+    assert attempt.plan is not None
+    evaluated = evaluate_planar_rail_geometry_plan(attempt.plan, width=1.0)
+    assert evaluated
+    assert all(
+        1.0 <= position[0] <= 2.0
         for face in evaluated
         for position in face.positions
     )

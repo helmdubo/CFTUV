@@ -905,7 +905,12 @@ def _select_terminal_pchain(
     return winners[0] if len(winners) == 1 else None
 
 
-def _terminal_side_partition(topology, spine_vertex_id, spine_edge_id):
+def _terminal_side_partition(
+    topology,
+    chain_records,
+    spine_vertex_id,
+    spine_edge_id,
+):
     """RR9b: стороны endpoint, guide-кандидаты и continuation-делимитеры."""
 
     incident_edges = tuple(topology.vertex_edges.get(spine_vertex_id, ()))
@@ -980,9 +985,28 @@ def _terminal_side_partition(topology, spine_vertex_id, spine_edge_id):
 
     side_patch_keys = tuple(record[2] for record in sector_records)
     patch_keys_are_unique = len(set(side_patch_keys)) == len(side_patch_keys)
+    boundary_chain_continuation = (
+        _pchain_continuation(
+            topology,
+            chain_records,
+            spine_vertex_id,
+            spine_edge_id,
+        )
+        if len(spine_faces) == 1
+        else None
+    )
     continuation_edge_ids = set()
     for edge_id in sorted(delimiters.difference({spine_edge_id})):
         edge_faces = set(topology.edge_faces.get(edge_id, ()))
+        if (
+            edge_id == boundary_chain_continuation
+            and len(edge_faces) == 1
+        ):
+            # RR9b: у одностороннего border-spine нет второй стороны,
+            # поэтому продолжение его source-pChain — делимитер, а не гид.
+            # Чужое border-ребро и RF21 остаются в обычной иерархии RR9.
+            continuation_edge_ids.add(edge_id)
+            continue
         if patch_keys_are_unique:
             edge_patch_ids = {
                 topology.face_patch_ids[face_id] for face_id in edge_faces
@@ -1570,6 +1594,7 @@ def compile_decal_rail_plan(
             terminal_side_groups, terminal_delimiter_edges = (
                 _terminal_side_partition(
                     topology,
+                    chain_records,
                     spine_vertex_id,
                     spine_edges[0],
                 )

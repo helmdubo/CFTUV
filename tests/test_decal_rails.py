@@ -12,6 +12,7 @@ from decal_rail_fixtures import (
     rr9b_rf20_l_turn_continuation,
     rr9b_rf20_terminal_continuation,
     rr9b_rf21_spine_reaches_mesh_border,
+    rr9b_rf22_one_sided_boundary_continuation,
 )
 
 
@@ -750,6 +751,39 @@ def test_rr9b_rf21_mesh_border_owns_both_terminal_guides():
     assert {use.route_edge_id for use in terminal} == border_edges
     assert all(use.kind == decal_rails.RailTerminalKind.ROUTE for use in terminal)
     assert all(use.route_id is not None for use in terminal)
+
+
+def test_rr9b_rf22_one_sided_boundary_continuations_are_delimiters():
+    graph, edge_ids, selected, _vertex_at = (
+        rr9b_rf22_one_sided_boundary_continuation()
+    )
+    plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=0.75,
+    )
+    continuation_edges = {edge_ids[(0, 1)], edge_ids[(2, 3)]}
+    terminal = tuple(
+        use
+        for use in plan.terminal_uses
+        if use.spine_vertex_id in {1, 2}
+    )
+
+    assert len(terminal) == 2
+    assert all(
+        use.kind == decal_rails.RailTerminalKind.IN_PLANE_EMPTY
+        for use in terminal
+    )
+    assert all(use.route_edge_id is None for use in terminal)
+    assert all(
+        continuation_edges.isdisjoint(use.candidate_edge_ids)
+        for use in terminal
+    )
+    assert not any(
+        route.key.side.spine_vertex_id in {1, 2}
+        and route.key.side.start_edge_id in continuation_edges
+        for route in plan.routes
+    )
 
 
 def test_r0_missing_selected_edge_is_structured_compile_failure():

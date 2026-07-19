@@ -754,3 +754,31 @@ def rr9b_rf21_spine_reaches_mesh_border():
         face_patch_ids=(0, 1),
     )
     return graph, edge_ids, selected, {vertex_id: vertex_id for vertex_id in vertices}
+
+
+def rr9b_rf22_one_sided_boundary_continuation():
+    """RF22: выбран середний отрезок односторонней boundary-pChain."""
+
+    vertices = {
+        0: (0.0, 0.0, 0.0),
+        1: (1.0, 0.0, 0.0),
+        2: (2.0, 0.0, 0.0),
+        3: (3.0, 0.0, 0.0),
+        4: (0.0, 1.0, 0.0),
+        5: (1.0, 1.0, 0.0),
+        6: (2.0, 1.0, 0.0),
+        7: (3.0, 1.0, 0.0),
+    }
+    faces = [
+        (0, 1, 5, 4),
+        (1, 2, 6, 5),
+        (2, 3, 7, 6),
+    ]
+    graph, edge_ids, _selected = mesh_graph(
+        vertices,
+        faces,
+        (((0, 1, 2, 3), False),),
+        face_patch_ids=(0, 0, 0),
+    )
+    selected = (edge_ids[(1, 2)],)
+    return graph, edge_ids, selected, {vertex_id: vertex_id for vertex_id in vertices}
