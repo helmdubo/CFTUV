@@ -2546,6 +2546,105 @@ def test_rf19_oblique_terminal_cut_moves_only_its_terminal_zone():
         ) <= 1e-10
 
 
+def test_rf19_developable_terminal_uses_owner_domain_not_site_half_plane():
+    """Field repro: owner-chart route легален при отрицательном local dot."""
+
+    site = replace(
+        _short_segment_endpoint_surface().sites[0],
+        vert_a=50,
+        vert_b=51,
+        point_a=(-0.0000322701, -0.0000166118),
+        point_b=(-0.1398322701, -0.5948166118),
+        segment_length=0.6110082487,
+        inward_normal=(0.9734729461, -0.2288021484),
+    )
+    guide_expected = (-0.4798878995, -1.4698930339)
+    guide_length = sqrt(
+        sum(
+            (guide_expected[index] - site.point_b[index]) ** 2
+            for index in range(2)
+        )
+    )
+    invalid_image = SimpleNamespace(
+        source_vertex_ids=(51, 52, 10),
+        source_edge_ids=(None, None, None),
+        chart_points=((0.0, 0.0), (1.0, 0.0), (0.0, 1.0)),
+    )
+    owner_image = SimpleNamespace(
+        source_vertex_ids=(51, 52, 11),
+        source_edge_ids=(None, None, None),
+        chart_points=(site.point_b, guide_expected, (-0.5, -0.5)),
+    )
+    domain = SimpleNamespace(
+        kind="INTRINSIC",
+        chart_id=4,
+        intrinsic_triangles=(invalid_image, owner_image),
+        locate=lambda point: object() if point[1] < -0.5 else None,
+    )
+    route = SimpleNamespace(
+        route_id=9,
+        stations=(
+            SimpleNamespace(
+                station_index=0,
+                distance=0.0,
+                kind=SimpleNamespace(value="VERTEX"),
+                source_vertex_id=51,
+                source_edge_id=None,
+                edge_parameter=None,
+            ),
+            SimpleNamespace(
+                station_index=1,
+                distance=guide_length,
+                kind=SimpleNamespace(value="VERTEX"),
+                source_vertex_id=52,
+                source_edge_id=None,
+                edge_parameter=None,
+            ),
+        ),
+        segments=(
+            SimpleNamespace(from_station_index=0, to_station_index=1),
+        ),
+    )
+    terminal = SimpleNamespace(
+        route_id=9,
+        spine_vertex_id=51,
+        edge_ids=(62, 65),
+    )
+
+    guide = decal_voronoi._terminal_route_chart_point(
+        SimpleNamespace(patch_id=1, domain=domain),
+        terminal,
+        SimpleNamespace(routes=(route,), edges=()),
+        alpha=guide_length,
+        corner_point=site.point_b,
+    )
+
+    assert guide == pytest.approx(guide_expected)
+    assert decal_voronoi._dot2(
+        decal_voronoi._sub2(guide, site.point_b), site.inward_normal
+    ) < 0.0
+
+    components = decal_voronoi._terminal_segment_crop_components(
+        site,
+        alpha=0.941325,
+        end_guide=guide,
+    )
+
+    assert any(
+        guide in component.points
+        for component, _vertices in components
+        if component.side.startswith("TERMINAL_END_")
+    )
+    for index, (first, _first_vertices) in enumerate(components):
+        for second, _second_vertices in components[index + 1 :]:
+            overlap = decal_voronoi._clip_to_convex(
+                first.points, second.points
+            )
+            assert not overlap or abs(
+                decal_voronoi._polygon_area2(overlap)
+            ) <= 1e-10
+
+
 def test_rf19_meeting_terminal_cuts_fail_instead_of_overlapping():
     site = _short_segment_endpoint_surface().sites[0]
     with pytest.raises(RuntimeError, match="TERMINAL_BRIDGE_CUTS_OVERLAP"):

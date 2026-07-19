@@ -2283,16 +2283,14 @@ def _terminal_segment_crop_components(
             point[1] + direction[1] * distance,
         )
 
-    def terminal_depth(corner, guide, direction, vertex_id):
+    def terminal_depth(corner, guide, direction):
         if guide is None:
             return 0.0
-        guide_side = _dot2(_sub2(guide, corner), inward)
-        if guide_side <= 0.0:
-            raise RuntimeError(
-                "TERMINAL_BRIDGE_GUIDE_OUTSIDE_OWNER: "
-                f"patch={site.patch_id} edge={site.edge_index} "
-                f"vertex={vertex_id}"
-            )
+        # ``inward_normal`` — локальный frame исходного site, а не
+        # глобальное полупространство developable owner-chart. На повороте
+        # поверхности легальный pChain может пересечь продолжение site и
+        # получить отрицательный dot. Принадлежность guide owner-домену уже
+        # доказана структурно при чтении station route.
         return max(
             0.0,
             _dot2(_sub2(guide, corner), direction),
@@ -2331,11 +2329,11 @@ def _terminal_segment_crop_components(
         )
 
     start_depth = terminal_depth(
-        site.point_a, start_guide, tangent, site.vert_a
+        site.point_a, start_guide, tangent
     )
     end_direction = (-tangent[0], -tangent[1])
     end_depth = terminal_depth(
-        site.point_b, end_guide, end_direction, site.vert_b
+        site.point_b, end_guide, end_direction
     )
     if start_depth + end_depth > site.segment_length:
         raise RuntimeError(
@@ -13224,7 +13222,7 @@ def _terminal_station_chart_points(domain, station, edge_by_id):
 def _terminal_route_chart_point(
     surface, terminal, rail_plan, alpha, corner_point
 ):
-    """Читает station extent route и переносит его в CAP chart."""
+    """Читает station extent route в его физическом owner-chart image."""
 
     route = next(
         (
@@ -13279,35 +13277,56 @@ def _terminal_route_chart_point(
             f"vertex={terminal.spine_vertex_id} "
             f"guide_edges={terminal.edge_ids}"
         )
-    expected_length = float(station_b.distance - station_a.distance)
-    pair = min(
-        (
-            (
-                abs(sqrt(_dist2(point_a, point_b)) - expected_length),
-                (
-                    _dist2(point_a, corner_point)
-                    if station_a.distance == 0.0
-                    else 0.0
-                ),
-                point_a,
-                point_b,
-            )
-            for point_a in points_a
-            for point_b in points_b
-        ),
-        key=lambda item: (item[0], item[1], item[2], item[3]),
-    )
-    point_a, point_b = pair[2], pair[3]
     interval_length = float(station_b.distance - station_a.distance)
     factor = (
         0.0
         if interval_length <= 0.0
         else (extent - float(station_a.distance)) / interval_length
     )
-    return (
-        point_a[0] + (point_b[0] - point_a[0]) * factor,
-        point_a[1] + (point_b[1] - point_a[1]) * factor,
+    expected_length = interval_length
+    supported_pairs = []
+    for point_a in points_a:
+        for point_b in points_b:
+            guide = (
+                point_a[0] + (point_b[0] - point_a[0]) * factor,
+                point_a[1] + (point_b[1] - point_a[1]) * factor,
+            )
+            if surface.domain.kind == "PLANAR":
+                guide_is_owned = _point_in_domain(
+                    guide,
+                    surface.domain.boundary_triangles,
+                    surface.domain.triangle_grid,
+                    surface.domain.reference_full_scan,
+                )
+            else:
+                guide_is_owned = surface.domain.locate(guide) is not None
+            if not guide_is_owned:
+                continue
+            supported_pairs.append(
+                (
+                    abs(sqrt(_dist2(point_a, point_b)) - expected_length),
+                    (
+                        _dist2(point_a, corner_point)
+                        if station_a.distance == 0.0
+                        else 0.0
+                    ),
+                    point_a,
+                    point_b,
+                    guide,
+                )
+            )
+    if not supported_pairs:
+        raise RuntimeError(
+            "TERMINAL_BRIDGE_ROUTE_OUTSIDE_OWNER_DOMAIN: "
+            f"patch={surface.patch_id} chart={surface.domain.chart_id} "
+            f"vertex={terminal.spine_vertex_id} "
+            f"guide_edges={terminal.edge_ids}"
+        )
+    pair = min(
+        supported_pairs,
+        key=lambda item: (item[0], item[1], item[2], item[3]),
     )
+    return pair[4]
 
 
 def _surface_terminal_bridge_points(
