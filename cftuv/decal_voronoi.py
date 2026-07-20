@@ -5027,8 +5027,24 @@ def _local_corner_strip(surface, corner, site_index, alpha):
 
     site = _corner_site_view(surface, corner, site_index)
     strip_polygon = _segment_crop_polygon(site, alpha)
+    period = float(getattr(surface.domain, "period", 0.0))
+    site_offset = dict(getattr(corner, "site_u_offsets", ())).get(
+        site_index, 0.0
+    )
+    if period > _GEOMETRY_EPS:
+        image_shift = int(round(float(site_offset) / period))
+        domain_triangles = tuple(
+            tuple(
+                (point[0] + shift * period, point[1])
+                for point in triangle
+            )
+            for shift in (image_shift - 1, image_shift, image_shift + 1)
+            for triangle in surface.domain.boundary_triangles
+        )
+    else:
+        domain_triangles = surface.domain.boundary_triangles
     fragments = []
-    for triangle in surface.domain.boundary_triangles:
+    for triangle in domain_triangles:
         clipped = _clip_to_triangle(strip_polygon, triangle)
         if len(clipped) >= 3 and abs(_polygon_area2(clipped)) > 1e-10:
             fragments.append(clipped)
@@ -5069,6 +5085,22 @@ def _local_corner_strip(surface, corner, site_index, alpha):
     target_candidates = []
     for point in (point for component in components for point in component):
         location = surface.domain.locate(point)
+        if location is None and period > _GEOMETRY_EPS:
+            lower = float(surface.domain.wrap_origin)
+            shift = int((point[0] - lower) // period)
+            canonical = (point[0] - shift * period, point[1])
+            candidates = (canonical, (canonical[0] - period, canonical[1]))
+            location = next(
+                (
+                    candidate_location
+                    for candidate in candidates
+                    if (
+                        candidate_location := surface.domain.locate(candidate)
+                    )
+                    is not None
+                ),
+                None,
+            )
         if location is None:
             continue
         parameter = _site_unbounded_parameter(site, point)
