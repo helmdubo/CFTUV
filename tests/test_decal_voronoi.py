@@ -2504,15 +2504,15 @@ def test_rf19_production_cap_reads_terminal_route_station_extent():
         surface, (terminal,), rail_plan, alpha=0.75
     )[(0, 500)]
 
-    assert Vector(wide).normalized().dot(Vector((1.0, 2.0)).normalized()) \
+    assert Vector(wide.point).normalized().dot(Vector((1.0, 2.0)).normalized()) \
         == pytest.approx(1.0)
-    assert Vector(narrow).length == pytest.approx(0.25)
-    assert Vector(wide).length == pytest.approx(0.75)
+    assert Vector(narrow.point).length == pytest.approx(0.25)
+    assert Vector(wide.point).length == pytest.approx(0.75)
     assert consumed == {(0, 0, 500, 9)}
     bridged = decal_voronoi._terminal_segment_crop_components(
         site, alpha=0.75, start_guide=wide
     )
-    assert any(wide in component.points for component, _vertices in bridged)
+    assert any(wide.point in component.points for component, _vertices in bridged)
     assert all(component.kind == "SEGMENT" for component, _vertices in bridged)
     assert any(vertices == (site.vert_a,) for _component, vertices in bridged)
     assert decal_voronoi._corner_crop_components(
@@ -2531,6 +2531,151 @@ def test_rf19_production_cap_reads_terminal_route_station_extent():
     assert decal_voronoi._surface_terminal_bridge_points(
         surface, (perpendicular,), rail_plan, alpha=0.75
     ) == {}
+
+
+def test_rf27_terminal_boundary_emits_route_vertices_instead_of_chord():
+    site = decal_voronoi._PatchVoronoiSite(
+        patch_id=0,
+        edge_index=500,
+        vert_a=0,
+        vert_b=1,
+        source_a=Vector((0.0, 0.0, 0.0)),
+        source_b=Vector((2.0, 0.0, 0.0)),
+        point_a=(0.0, 0.0),
+        point_b=(2.0, 0.0),
+        arc_start=0.0,
+        segment_length=2.0,
+        uv_sign=1.0,
+        inward_normal=(0.0, 1.0),
+    )
+    corner = decal_voronoi.CornerSpec(
+        vert_index=0,
+        point=(0.0, 0.0),
+        incident_sites=(0,),
+        ordered_sites=(0,),
+        turn_sign=0.0,
+        interior_angle=pi,
+        extrusion_angle=pi,
+        is_convex=False,
+        miter_ratio=1.0,
+    )
+    domain = decal_voronoi.DecalSurfaceDomain(
+        patch_id=0,
+        kind="PLANAR",
+        origin=Vector((0.0, 0.0, 0.0)),
+        reference_normal=Vector((0.0, 0.0, 1.0)),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+        boundary_triangles=(((0.0, 0.0), (2.0, 0.0), (0.0, 2.0)),),
+        planar_source_vertices=(
+            (0, (0.0, 0.0)),
+            (2, (0.0, 1.0)),
+            (3, (1.0, 1.0)),
+        ),
+        planar_source_edges=(
+            (900, 0, 2, (0.0, 0.0), (0.0, 1.0)),
+            (901, 2, 3, (0.0, 1.0), (1.0, 1.0)),
+        ),
+    )
+    surface = SimpleNamespace(
+        patch_id=0, domain=domain, sites=(site,), corners=(corner,)
+    )
+    stations = (
+        SimpleNamespace(
+            station_index=0,
+            distance=0.0,
+            kind=SimpleNamespace(value="VERTEX"),
+            source_vertex_id=0,
+            source_edge_id=None,
+            edge_parameter=None,
+        ),
+        SimpleNamespace(
+            station_index=1,
+            distance=1.0,
+            kind=SimpleNamespace(value="VERTEX"),
+            source_vertex_id=2,
+            source_edge_id=None,
+            edge_parameter=None,
+        ),
+        SimpleNamespace(
+            station_index=2,
+            distance=2.0,
+            kind=SimpleNamespace(value="VERTEX"),
+            source_vertex_id=3,
+            source_edge_id=None,
+            edge_parameter=None,
+        ),
+    )
+    route = SimpleNamespace(
+        route_id=9,
+        stations=stations,
+        segments=(
+            SimpleNamespace(
+                edge_id=900, from_station_index=0, to_station_index=1
+            ),
+            SimpleNamespace(
+                edge_id=901, from_station_index=1, to_station_index=2
+            ),
+        ),
+    )
+    rail_plan = SimpleNamespace(
+        routes=(route,),
+        edges=(
+            SimpleNamespace(edge_id=900, vertex_ids=(0, 2)),
+            SimpleNamespace(edge_id=901, vertex_ids=(2, 3)),
+        ),
+    )
+    terminal = SimpleNamespace(
+        backend="PATCH_VORONOI",
+        patch_id=0,
+        choice="PCHAIN",
+        spine_vertex_id=0,
+        spine_edge_id=500,
+        route_id=9,
+        edge_ids=(900, 901),
+    )
+
+    guide = decal_voronoi._surface_terminal_bridge_points(
+        surface, (terminal,), rail_plan, alpha=1.5
+    )[(0, 500)]
+    assert guide.point == pytest.approx((0.5, 1.0))
+    assert len(guide.contour_points) == 3
+    assert guide.contour_points[0] == pytest.approx((0.0, 0.0))
+    assert guide.contour_points[1] == pytest.approx((0.0, 1.0))
+    assert guide.contour_points[2] == pytest.approx((0.5, 1.0))
+    assert guide.source_vertex_ids == (0, 2)
+
+    components = decal_voronoi._terminal_segment_crop_components(
+        site, alpha=1.5, start_guide=guide
+    )
+    terminal_components = tuple(
+        (component, vertices)
+        for component, vertices in components
+        if component.side.startswith("TERMINAL_START_")
+    )
+    edge_counts = {}
+    for component, vertices in terminal_components:
+        assert vertices == (0, 2)
+        for first, second in zip(
+            component.points, component.points[1:] + component.points[:1]
+        ):
+            edge = tuple(sorted((first, second)))
+            edge_counts[edge] = edge_counts.get(edge, 0) + 1
+    assert edge_counts[tuple(sorted(((0.5, 1.0), (0.0, 1.0))))] == 1
+    assert edge_counts[tuple(sorted(((0.0, 1.0), (0.0, 0.0))))] == 1
+    assert edge_counts.get(tuple(sorted(((0.5, 1.0), (0.0, 0.0)))), 0) != 1
+    pending_face = SimpleNamespace(
+        terminal_cut_vertices=(0, 2),
+        point_keys=(),
+        points=((0.0, 1.0),),
+    )
+    resolved = SimpleNamespace(
+        vert_key=("pv-feature", "VERTEX", 2),
+        location=SimpleNamespace(source_feature="VERTEX", source_feature_id=2),
+    )
+    assert decal_voronoi._arrangement_face_vertex_key(
+        pending_face, 0, resolved
+    ) == ("rail-source-vertex", 2)
 
 
 def test_rf19_terminal_cut_replaces_cap_without_overlay(monkeypatch):

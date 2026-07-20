@@ -1433,6 +1433,15 @@ class _PendingArrangementFace:
 
 
 @dataclass(frozen=True)
+class _TerminalBridgeGuide:
+    """RM10: station contact вместе с пройденной contour-полилинией."""
+
+    point: tuple[float, float]
+    contour_points: tuple[tuple[float, float], ...]
+    source_vertex_ids: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
 class _ResolvedArrangementPoint:
     """Affine lift endpoints и provenance одной materialized station."""
 
@@ -2305,6 +2314,9 @@ def _terminal_segment_crop_components(
     def terminal_depth(corner, guide, direction):
         if guide is None:
             return 0.0
+        guide_point = (
+            guide.point if isinstance(guide, _TerminalBridgeGuide) else guide
+        )
         # ``inward_normal`` — локальный frame исходного site, а не
         # глобальное полупространство developable owner-chart. На повороте
         # поверхности легальный pChain может пересечь продолжение site и
@@ -2312,7 +2324,7 @@ def _terminal_segment_crop_components(
         # доказана структурно при чтении station route.
         return max(
             0.0,
-            _dot2(_sub2(guide, corner), direction),
+            _dot2(_sub2(guide_point, corner), direction),
         ) + base_depth
 
     def terminal_spec(
@@ -2320,13 +2332,54 @@ def _terminal_segment_crop_components(
     ):
         if guide is None:
             return None
-        polygon = (corner, inner, outer, guide)
-        if absorbed:
+        guide_point = (
+            guide.point if isinstance(guide, _TerminalBridgeGuide) else guide
+        )
+        contour_points = (
+            guide.contour_points
+            if isinstance(guide, _TerminalBridgeGuide)
+            else (corner, guide_point)
+        )
+        if not contour_points or contour_points[0] != corner:
+            raise RuntimeError(
+                "TERMINAL_BRIDGE_CONTOUR_START_DESYNC: "
+                f"patch={site.patch_id} edge={site.edge_index} "
+                f"vertex={vertex_id}"
+            )
+        if contour_points[-1] != guide_point:
+            raise RuntimeError(
+                "TERMINAL_BRIDGE_CONTOUR_END_DESYNC: "
+                f"patch={site.patch_id} edge={site.edge_index} "
+                f"vertex={vertex_id}"
+            )
+        # Полигон замыкается от contact к apex строго по route vertices.
+        # Старое (corner, inner, outer, guide) проводило здесь хорду.
+        polygon = (
+            corner,
+            inner,
+            outer,
+            guide_point,
+            *reversed(contour_points[1:-1]),
+        )
+        if absorbed and len(contour_points) <= 2:
             polygon = tuple(_convex_hull(polygon))
         return {
             "side": side,
             "vertex_id": vertex_id,
             "polygon": polygon,
+            "source_vertex_ids": tuple(
+                sorted(
+                    {
+                        int(vertex_id),
+                        *(
+                            int(source_vertex_id)
+                            for source_vertex_id in guide.source_vertex_ids
+                        ),
+                    }
+                )
+            )
+            if isinstance(guide, _TerminalBridgeGuide)
+            else (int(vertex_id),),
         }
 
     def terminal_components(spec):
@@ -2347,7 +2400,7 @@ def _terminal_segment_crop_components(
                     side=f"TERMINAL_{spec['side']}_{index}",
                     points=tuple(points),
                 ),
-                (spec["vertex_id"],),
+                spec["source_vertex_ids"],
             )
             for index, points in enumerate(triangles)
         )
@@ -13273,10 +13326,10 @@ def _terminal_station_chart_points(domain, station, edge_by_id):
     )
 
 
-def _terminal_route_chart_point(
+def _terminal_route_chart_guide(
     surface, terminal, rail_plan, alpha, corner_point
 ):
-    """Читает station extent route в его физическом owner-chart image."""
+    """RM10: читает contact и все пройденные route vertices owner-chart."""
 
     route = next(
         (
@@ -13380,7 +13433,83 @@ def _terminal_route_chart_point(
         supported_pairs,
         key=lambda item: (item[0], item[1], item[2], item[3]),
     )
-    return pair[4]
+    selected_points = {station_a.station_index: pair[2]}
+    ordered_stations = tuple(
+        sorted(
+            route.stations,
+            key=lambda station: (station.distance, station.station_index),
+        )
+    )
+    station_position = {
+        station.station_index: index
+        for index, station in enumerate(ordered_stations)
+    }
+    current_position = station_position[station_a.station_index]
+    next_point = pair[2]
+    for previous_position in range(current_position - 1, -1, -1):
+        previous_station = ordered_stations[previous_position]
+        next_station = ordered_stations[previous_position + 1]
+        candidates = _terminal_station_chart_points(
+            surface.domain, previous_station, edge_by_id
+        )
+        if not candidates:
+            raise RuntimeError(
+                "TERMINAL_BRIDGE_ROUTE_OUTSIDE_CAP_CHART: "
+                f"patch={surface.patch_id} chart={surface.domain.chart_id} "
+                f"vertex={terminal.spine_vertex_id} "
+                f"station={previous_station.station_index}"
+            )
+        expected = float(next_station.distance - previous_station.distance)
+        previous_point = min(
+            candidates,
+            key=lambda candidate: (
+                abs(sqrt(_dist2(candidate, next_point)) - expected),
+                (
+                    _dist2(candidate, corner_point)
+                    if previous_position == 0
+                    else 0.0
+                ),
+                candidate,
+            ),
+        )
+        selected_points[previous_station.station_index] = previous_point
+        next_point = previous_point
+
+    contour_points = [corner_point]
+    source_vertex_ids = {int(terminal.spine_vertex_id)}
+    for station in ordered_stations:
+        if station.distance <= 0.0 or station.distance > extent:
+            continue
+        point = selected_points.get(station.station_index)
+        if point is None:
+            if station.station_index == station_b.station_index and factor == 1.0:
+                point = pair[3]
+            else:
+                continue
+        if point != contour_points[-1]:
+            contour_points.append(point)
+        if station.source_vertex_id is not None:
+            source_vertex_ids.add(int(station.source_vertex_id))
+    guide_point = pair[4]
+    if guide_point != contour_points[-1]:
+        contour_points.append(guide_point)
+    if factor == 1.0 and station_b.source_vertex_id is not None:
+        source_vertex_ids.add(int(station_b.source_vertex_id))
+    return _TerminalBridgeGuide(
+        point=guide_point,
+        contour_points=tuple(contour_points),
+        source_vertex_ids=tuple(sorted(source_vertex_ids)),
+    )
+
+
+def _terminal_route_chart_point(
+    surface, terminal, rail_plan, alpha, corner_point
+):
+    """Compatibility view: только конечная station contact."""
+
+    return _terminal_route_chart_guide(
+        surface, terminal, rail_plan, alpha, corner_point
+    ).point
 
 
 def _surface_terminal_bridge_points(
@@ -13416,7 +13545,7 @@ def _surface_terminal_bridge_points(
         )
         if corner is None:
             continue
-        point = _terminal_route_chart_point(
+        point = _terminal_route_chart_guide(
             surface, terminal, rail_plan, alpha, corner.point
         )
         previous = result.get(key)
@@ -13436,6 +13565,18 @@ def _surface_terminal_bridge_points(
                 )
             )
     return result
+
+
+def _arrangement_face_vertex_key(pending_face, point_index, resolved):
+    """RM10 identity: contour source-vertex общий с rail geometry."""
+
+    if resolved.location.source_feature == "VERTEX":
+        source_vertex_id = int(resolved.location.source_feature_id)
+        if source_vertex_id in pending_face.terminal_cut_vertices:
+            return ("rail-source-vertex", source_vertex_id)
+    if len(pending_face.point_keys) == len(pending_face.points):
+        return pending_face.point_keys[point_index]
+    return resolved.vert_key
 
 
 def _evaluate_surface_crops(
@@ -13476,7 +13617,18 @@ def _evaluate_surface_crops(
             return guides
         offset = int(periodic_shift) * float(surface.domain.period)
         return tuple(
-            None if guide is None else (guide[0] + offset, guide[1])
+            None
+            if guide is None
+            else replace(
+                guide,
+                point=(guide.point[0] + offset, guide.point[1]),
+                contour_points=tuple(
+                    (point[0] + offset, point[1])
+                    for point in guide.contour_points
+                ),
+            )
+            if isinstance(guide, _TerminalBridgeGuide)
+            else (guide[0] + offset, guide[1])
             for guide in guides
         )
 
