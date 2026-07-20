@@ -46,6 +46,7 @@ _DECAL_RAIL_STYLES = {
     'Poles': ((1.0, 0.0, 1.0, 1.0), 9),    # magenta
     'Merges': ((0.0, 1.0, 0.0, 1.0), 9),   # green
     'Marks': ((1.0, 1.0, 0.0, 1.0), 9),    # yellow
+    'Freeze': ((1.0, 0.45, 0.0, 1.0), 11),  # orange
 }
 _DECAL_RAIL_EVENT_LAYER = {
     'DAM': 'Dams',
@@ -997,28 +998,29 @@ def _iter_decal_rail_events(plan):
             layer_name = _decal_rail_event_layer(event)
             if layer_name is not None:
                 yield layer_name, event
-        return
+    else:
+        # В компактной R0-схеме события являются типизированными станциями.
+        found_route_event = False
+        for route in _iter_decal_rail_paths(plan):
+            for station in _rail_sequence(route, 'stations'):
+                layer_name = _decal_rail_event_layer(station)
+                if layer_name is not None:
+                    found_route_event = True
+                    yield layer_name, station
 
-    # В компактной R0-схеме события являются типизированными станциями routes.
-    found_route_event = False
-    for route in _iter_decal_rail_paths(plan):
-        for station in _rail_sequence(route, 'stations'):
-            layer_name = _decal_rail_event_layer(station)
-            if layer_name is not None:
-                found_route_event = True
-                yield layer_name, station
-    if found_route_event:
-        return
+        if not found_route_event:
+            # Поддержка ledger с раздельными tuple классов событий.
+            for layer_name, names in (
+                ('Dams', ('dams', 'dam_stations')),
+                ('Poles', ('poles', 'pole_stations')),
+                ('Merges', ('merges', 'merge_stations')),
+                ('Marks', ('marks', 'rail_marks')),
+            ):
+                for event in _rail_sequence(ledger, *names):
+                    yield layer_name, event
 
-    # Поддержка ledger, где классы событий хранятся раздельными tuple.
-    for layer_name, names in (
-        ('Dams', ('dams', 'dam_stations')),
-        ('Poles', ('poles', 'pole_stations')),
-        ('Merges', ('merges', 'merge_stations')),
-        ('Marks', ('marks', 'rail_marks')),
-    ):
-        for event in _rail_sequence(ledger, *names):
-            yield layer_name, event
+    for locus in _rail_sequence(ledger, 'freeze_loci'):
+        yield 'Freeze', locus
 
 
 def _rail_event_point(plan, event, geometry_lookup):

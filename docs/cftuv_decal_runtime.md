@@ -569,6 +569,24 @@ serialization. The previously reported preview-only success was the modal
 last-valid frame retained before a controlled budget recompile, not a
 different evaluator validation path.
 
+## Rail competition ledger (R2 / RC1-RC3 / RR10)
+
+A physical multi-edge rail that starts on one selected pChain and terminates
+on a different selected pChain of the same patch is stored once. Reverse
+traces are canonicalized before pole/merge processing, so a shared thread is
+not represented as an owner route plus a synthetic `MERGE` route.
+
+The canonical route has two `RailRouteReading` records. Both reference the
+same route/stations, but measure accumulated distance from opposite chain
+origins. Their exact equality is compiled into a `RailFreezeLocus` on either
+a source vertex or a source-edge parameter. The lower canonical `chain_ref`
+owns an exact tie. Readings and freeze loci are topology/compile facts and do
+not change during width drag; the overlay draws freeze loci in orange.
+
+R2 only publishes this immutable competition IR. Direct discovery of a
+single-edge thread and non-planar materialization remain R3 work; no path
+search or second curved geometry representation is introduced here.
+
 ## GPU preview overlay (F3)
 
 Display adapter modal preview: во время drag декаль рисуется GPU draw

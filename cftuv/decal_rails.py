@@ -148,6 +148,31 @@ class RailRoute:
     termination: RailTermination
 
 
+@dataclass(frozen=True, order=True)
+class RailRouteReading:
+    """RC1: расстояния одного потока на канонических станциях route."""
+
+    route_id: int
+    chain_ref: tuple[int, int, int]
+    origin_vertex_id: int
+    source_face_ids: tuple[int, ...]
+    station_distances: tuple[float, ...]
+
+
+@dataclass(frozen=True, order=True)
+class RailFreezeLocus:
+    """RC3: compile-static граница встречи двух чтений одной нити."""
+
+    route_id: int
+    chain_refs: tuple[tuple[int, int, int], tuple[int, int, int]]
+    owner_chain_ref: tuple[int, int, int]
+    canonical_distance: float
+    kind: RailStationKind
+    source_vertex_id: int | None = None
+    source_edge_id: int | None = None
+    edge_parameter: float | None = None
+
+
 @dataclass(frozen=True)
 class RailEvent:
     kind: RailEventKind
@@ -182,13 +207,15 @@ class RailTerminalUse:
 
 @dataclass(frozen=True)
 class DecalRailPlan:
-    """Immutable R0 ledger; evaluator не имеет права читать его до R1."""
+    """Immutable rail ledger для compile-static routing и competition."""
 
     vertices: tuple[RailSourceVertex, ...]
     edges: tuple[RailSourceEdge, ...]
     faces: tuple[RailSourceFace, ...]
     spine_uses: tuple[RailSpineUse, ...]
     routes: tuple[RailRoute, ...]
+    route_readings: tuple[RailRouteReading, ...]
+    freeze_loci: tuple[RailFreezeLocus, ...]
     events: tuple[RailEvent, ...]
     start_sectors: tuple[RailStartSector, ...]
     terminal_uses: tuple[RailTerminalUse, ...]
@@ -1466,6 +1493,234 @@ def _start_dam_route(route_id, side_key):
     )
 
 
+def _spine_chain_refs_by_vertex(spine_uses):
+    refs_by_vertex = defaultdict(set)
+    for spine_use in spine_uses:
+        for vertex_id in spine_use.vertex_ids:
+            refs_by_vertex[vertex_id].update(
+                chain_use.chain_ref for chain_use in spine_use.chain_uses
+            )
+    return {
+        vertex_id: tuple(sorted(chain_refs))
+        for vertex_id, chain_refs in refs_by_vertex.items()
+    }
+
+
+def _thread_chain_pair(route, topology, chain_refs_by_vertex):
+    """RR10(e): распознаёт уже трассированный route между двумя chains."""
+
+    if route.termination != RailTermination.PCHAIN or not route.segments:
+        return None
+    if any(
+        topology.edge_by_id[segment.edge_id].is_pchain
+        for segment in route.segments
+    ):
+        return None
+    start_station = route.stations[0]
+    end_station = route.stations[-1]
+    if (
+        start_station.source_vertex_id is None
+        or end_station.source_vertex_id is None
+    ):
+        return None
+    patch_ids = {
+        topology.face_patch_ids[face_id]
+        for face_id in route.key.side.source_face_ids
+        if face_id in topology.face_patch_ids
+    }
+    if len(patch_ids) != 1:
+        return None
+    patch_id = next(iter(patch_ids))
+    start_refs = tuple(
+        chain_ref
+        for chain_ref in chain_refs_by_vertex.get(
+            start_station.source_vertex_id,
+            (),
+        )
+        if chain_ref[0] == patch_id
+    )
+    end_refs = tuple(
+        chain_ref
+        for chain_ref in chain_refs_by_vertex.get(
+            end_station.source_vertex_id,
+            (),
+        )
+        if chain_ref[0] == patch_id
+    )
+    if len(start_refs) != 1 or len(end_refs) != 1:
+        return None
+    if start_refs[0] == end_refs[0]:
+        return None
+    return start_refs[0], end_refs[0]
+
+
+def _thread_physical_key(route, chain_pair):
+    edge_ids = tuple(segment.edge_id for segment in route.segments)
+    reverse_edge_ids = tuple(reversed(edge_ids))
+    return tuple(sorted(chain_pair)), min(edge_ids, reverse_edge_ids)
+
+
+def _canonicalize_thread_routes(
+    routes,
+    events,
+    topology,
+    spine_uses,
+):
+    """RR10(c): удаляет обратное второе представление одной нити."""
+
+    chain_refs_by_vertex = _spine_chain_refs_by_vertex(spine_uses)
+    groups = defaultdict(list)
+    for route in routes:
+        chain_pair = _thread_chain_pair(
+            route,
+            topology,
+            chain_refs_by_vertex,
+        )
+        if chain_pair is None:
+            continue
+        groups[_thread_physical_key(route, chain_pair)].append(route)
+
+    owner_by_route_id = {route.route_id: route.route_id for route in routes}
+    for grouped_routes in groups.values():
+        if len(grouped_routes) < 2:
+            continue
+        owner = min(grouped_routes, key=lambda route: route.key)
+        owner_edge_ids = tuple(segment.edge_id for segment in owner.segments)
+        for route in grouped_routes:
+            edge_ids = tuple(segment.edge_id for segment in route.segments)
+            if edge_ids not in (owner_edge_ids, tuple(reversed(owner_edge_ids))):
+                continue
+            owner_by_route_id[route.route_id] = owner.route_id
+
+    kept_routes = tuple(
+        route
+        for route in routes
+        if owner_by_route_id[route.route_id] == route.route_id
+    )
+    dense_id_by_old = {
+        route.route_id: dense_id
+        for dense_id, route in enumerate(kept_routes)
+    }
+    dense_id_by_old.update(
+        {
+            route_id: dense_id_by_old[owner_id]
+            for route_id, owner_id in owner_by_route_id.items()
+            if owner_id in dense_id_by_old
+        }
+    )
+    canonical_routes = tuple(
+        replace(route, route_id=dense_id_by_old[route.route_id])
+        for route in kept_routes
+    )
+    canonical_events = tuple(
+        replace(event, route_id=dense_id_by_old[event.route_id])
+        for event in events
+        if owner_by_route_id[event.route_id] == event.route_id
+    )
+    route_start_aliases = {
+        (route.key.side.spine_vertex_id, route.key.side.start_edge_id): (
+            dense_id_by_old[route.route_id]
+        )
+        for route in routes
+    }
+    return canonical_routes, canonical_events, route_start_aliases
+
+
+def _freeze_locus_for_route(route, chain_pair, topology):
+    total_distance = route.stations[-1].distance
+    canonical_distance = total_distance / 2.0
+    for station in route.stations:
+        if station.distance == canonical_distance:
+            return RailFreezeLocus(
+                route_id=route.route_id,
+                chain_refs=tuple(sorted(chain_pair)),
+                owner_chain_ref=min(chain_pair),
+                canonical_distance=canonical_distance,
+                kind=station.kind,
+                source_vertex_id=station.source_vertex_id,
+                source_edge_id=station.source_edge_id,
+                edge_parameter=station.edge_parameter,
+            )
+    for segment in route.segments:
+        start = route.stations[segment.from_station_index]
+        end = route.stations[segment.to_station_index]
+        if not start.distance < canonical_distance < end.distance:
+            continue
+        edge = topology.edge_by_id[segment.edge_id]
+        if start.source_vertex_id is None:
+            raise _RailCompileError(
+                "RAIL_FREEZE_SEGMENT_START_INVALID",
+                edge_indices=(segment.edge_id,),
+            )
+        fraction = (
+            (canonical_distance - start.distance)
+            / (end.distance - start.distance)
+        )
+        edge_parameter = (
+            fraction
+            if start.source_vertex_id == edge.vertex_ids[0]
+            else 1.0 - fraction
+        )
+        return RailFreezeLocus(
+            route_id=route.route_id,
+            chain_refs=tuple(sorted(chain_pair)),
+            owner_chain_ref=min(chain_pair),
+            canonical_distance=canonical_distance,
+            kind=RailStationKind.EDGE,
+            source_edge_id=segment.edge_id,
+            edge_parameter=float(edge_parameter),
+        )
+    raise _RailCompileError(
+        "RAIL_FREEZE_LOCUS_UNRESOLVED",
+        edge_indices=tuple(segment.edge_id for segment in route.segments),
+    )
+
+
+def _compile_route_competition(routes, topology, spine_uses):
+    """RC1-RC3: два чтения и freeze для каждой RR10-нити."""
+
+    chain_refs_by_vertex = _spine_chain_refs_by_vertex(spine_uses)
+    readings = []
+    freeze_loci = []
+    for route in routes:
+        chain_pair = _thread_chain_pair(
+            route,
+            topology,
+            chain_refs_by_vertex,
+        )
+        if chain_pair is None:
+            continue
+        start_chain_ref, end_chain_ref = chain_pair
+        total_distance = route.stations[-1].distance
+        readings.extend(
+            (
+                RailRouteReading(
+                    route_id=route.route_id,
+                    chain_ref=start_chain_ref,
+                    origin_vertex_id=route.stations[0].source_vertex_id,
+                    source_face_ids=route.key.side.source_face_ids,
+                    station_distances=tuple(
+                        station.distance for station in route.stations
+                    ),
+                ),
+                RailRouteReading(
+                    route_id=route.route_id,
+                    chain_ref=end_chain_ref,
+                    origin_vertex_id=route.stations[-1].source_vertex_id,
+                    source_face_ids=route.segments[-1].source_face_ids,
+                    station_distances=tuple(
+                        total_distance - station.distance
+                        for station in route.stations
+                    ),
+                ),
+            )
+        )
+        freeze_loci.append(
+            _freeze_locus_for_route(route, chain_pair, topology)
+        )
+    return tuple(sorted(readings)), tuple(sorted(freeze_loci))
+
+
 def _apply_poles_and_merges(routes, events, protected_route_ids=()):
     """Полюс определяется до merge, затем общие хвосты принадлежат одному route."""
 
@@ -1565,7 +1820,7 @@ def compile_decal_rail_plan(
     alpha_budget,
     rail_mark_edge_indices=(),
 ):
-    """Компилирует RR1-RR9a один раз; drag получает готовые станции."""
+    """Компилирует RR1-RR10/RC1-RC3; drag читает готовые станции."""
 
     alpha_budget = float(alpha_budget)
     if not alpha_budget > 0.0:
@@ -1589,6 +1844,8 @@ def compile_decal_rail_plan(
             faces=topology.faces,
             spine_uses=(),
             routes=(),
+            route_readings=(),
+            freeze_loci=(),
             events=(),
             start_sectors=(),
             terminal_uses=(),
@@ -1911,6 +2168,12 @@ def compile_decal_rail_plan(
         events.extend(route_events)
         next_route_id += 1
 
+    routes, events, route_start_aliases = _canonicalize_thread_routes(
+        tuple(routes),
+        tuple(events),
+        topology,
+        tuple(spine_uses),
+    )
     protected_route_ids = {
         route.route_id
         for route in routes
@@ -1929,6 +2192,11 @@ def compile_decal_rail_plan(
         for route in routes
         if route.key.side.start_edge_id >= 0
     }
+    route_by_id = {route.route_id: route for route in routes}
+    for start_key, route_id in route_start_aliases.items():
+        route = route_by_id.get(route_id)
+        if route is not None:
+            route_by_start.setdefault(start_key, route)
     terminal_uses = tuple(
         replace(
             use,
@@ -1946,6 +2214,11 @@ def compile_decal_rail_plan(
         )
         for use in terminal_uses
     )
+    route_readings, freeze_loci = _compile_route_competition(
+        routes,
+        topology,
+        tuple(spine_uses),
+    )
     footprint_face_ids = set(rr_face_ids)
     for route in routes:
         footprint_face_ids.update(route.key.side.source_face_ids)
@@ -1958,6 +2231,8 @@ def compile_decal_rail_plan(
         faces=topology.faces,
         spine_uses=tuple(spine_uses),
         routes=routes,
+        route_readings=route_readings,
+        freeze_loci=freeze_loci,
         events=events,
         start_sectors=tuple(start_sectors),
         terminal_uses=terminal_uses,
@@ -2002,8 +2277,10 @@ __all__ = [
     "RailCompileFailure",
     "RailEvent",
     "RailEventKind",
+    "RailFreezeLocus",
     "RailRoute",
     "RailRouteKey",
+    "RailRouteReading",
     "RailRouteSegment",
     "RailChainUse",
     "RailSideKey",

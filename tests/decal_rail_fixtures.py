@@ -826,3 +826,61 @@ def rr8c_rf27_segmented_contour():
         extra_pchain_paths=extra_pchain_paths,
     )
     return graph, edge_ids, selected, {vertex_id: vertex_id for vertex_id in vertices}
+
+
+def rr10_rf7_opposing_cylinder(station_count=8):
+    """RF7/RF17: два seam-кольца связаны многорёберными нитями."""
+
+    heights = (0.0, 1.0, 2.0)
+    vertices = {}
+    vertex_at = {}
+    next_id = 0
+    for height_index, height in enumerate(heights):
+        for station in range(station_count):
+            angle = 2.0 * pi * station / station_count
+            vertex_at[(height_index, station)] = next_id
+            vertices[next_id] = (
+                cos(angle),
+                sin(angle),
+                height,
+            )
+            next_id += 1
+    faces = []
+    for height_index in range(len(heights) - 1):
+        for station in range(station_count):
+            next_station = (station + 1) % station_count
+            faces.append(
+                (
+                    vertex_at[(height_index, station)],
+                    vertex_at[(height_index, next_station)],
+                    vertex_at[(height_index + 1, next_station)],
+                    vertex_at[(height_index + 1, station)],
+                )
+            )
+    rings = tuple(
+        (
+            tuple(vertex_at[(height_index, station)] for station in range(station_count)),
+            True,
+        )
+        for height_index in (0, 2)
+    )
+    graph, edge_ids, _selected = mesh_graph(
+        vertices,
+        tuple(faces),
+        rings,
+    )
+    selected = tuple(
+        edge_ids[
+            tuple(
+                sorted(
+                    (
+                        vertex_at[(height_index, station)],
+                        vertex_at[(height_index, (station + 1) % station_count)],
+                    )
+                )
+            )
+        ]
+        for height_index in (0, 2)
+        for station in range(station_count)
+    )
+    return graph, edge_ids, selected, vertex_at

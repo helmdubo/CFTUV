@@ -16,6 +16,7 @@ from decal_rail_fixtures import (
     rr9b_rf21_spine_reaches_mesh_border,
     rr9b_rf22_one_sided_boundary_continuation,
     rr8c_rf27_segmented_contour,
+    rr10_rf7_opposing_cylinder,
 )
 
 
@@ -121,6 +122,95 @@ def _quad_strip(*, with_ambiguity=False):
 
 def _flow_routes(plan):
     return tuple(route for route in plan.routes if route.key.side.start_edge_id >= 0)
+
+
+def test_rf7_opposing_cylinder_has_one_route_two_readings_and_frozen_vertex():
+    graph, _edge_ids, selected, vertex_at = rr10_rf7_opposing_cylinder()
+
+    plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=10.0,
+    )
+
+    assert len(plan.routes) == 8
+    assert all(
+        route.termination == decal_rails.RailTermination.PCHAIN
+        for route in plan.routes
+    )
+    assert len(plan.route_readings) == 16
+    assert len(plan.freeze_loci) == 8
+    readings_by_route = {
+        route.route_id: tuple(
+            reading
+            for reading in plan.route_readings
+            if reading.route_id == route.route_id
+        )
+        for route in plan.routes
+    }
+    assert all(len(readings) == 2 for readings in readings_by_route.values())
+    assert all(
+        {
+            reading.station_distances for reading in readings
+        }
+        == {(0.0, 1.0, 2.0), (2.0, 1.0, 0.0)}
+        for readings in readings_by_route.values()
+    )
+    assert {
+        locus.source_vertex_id for locus in plan.freeze_loci
+    } == {
+        vertex_at[(1, station)] for station in range(8)
+    }
+    assert all(
+        locus.kind == decal_rails.RailStationKind.VERTEX
+        and locus.canonical_distance == 1.0
+        and locus.owner_chain_ref == min(locus.chain_refs)
+        for locus in plan.freeze_loci
+    )
+    # Обратные потоки не маскируются MERGE-событиями.
+    assert dict(plan.event_counts) == {"PCHAIN": 8}
+
+
+def test_rf7_freeze_is_compile_static_across_drag_and_enumeration():
+    graph, _edge_ids, selected, _vertex_at = rr10_rf7_opposing_cylinder()
+
+    narrow = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=3.0,
+    )
+    wide = decal_rails.compile_decal_rail_plan(
+        graph,
+        tuple(reversed(selected)),
+        alpha_budget=30.0,
+    )
+
+    assert wide.routes == narrow.routes
+    assert wide.route_readings == narrow.route_readings
+    assert wide.freeze_loci == narrow.freeze_loci
+
+
+def test_rf7_mid_edge_freeze_uses_source_edge_station_key():
+    graph, _edge_ids, selected, _vertex_at = rr10_rf7_opposing_cylinder()
+    node = graph.nodes[0]
+    for vertex_id in range(8, 16):
+        local_index = node.mesh_vert_indices.index(vertex_id)
+        point = node.mesh_verts[local_index]
+        node.mesh_verts[local_index] = Vector((point.x, point.y, 0.5))
+
+    plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=10.0,
+    )
+
+    assert all(
+        locus.kind == decal_rails.RailStationKind.EDGE
+        and locus.source_vertex_id is None
+        and locus.source_edge_id is not None
+        and locus.edge_parameter is not None
+        for locus in plan.freeze_loci
+    )
 
 
 def test_rp_planar_quad_strip_has_no_routes_dams_or_caps():

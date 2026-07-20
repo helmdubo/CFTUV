@@ -90,6 +90,9 @@ def test_rail_visualization_reads_immutable_ledger_and_uses_canonical_colors(mon
                 SimpleNamespace(kind='MERGE', source_vertex_id=10),
                 SimpleNamespace(kind='RAIL_MARK', route_id=30, station_index=1),
             ),
+            freeze_loci=(
+                SimpleNamespace(source_edge_id=20, edge_parameter=0.25),
+            ),
         )
     )
 
@@ -101,6 +104,7 @@ def test_rail_visualization_reads_immutable_ledger_and_uses_canonical_colors(mon
         'Poles',
         'Merges',
         'Marks',
+        'Freeze',
     ]
     assert materials == {
         'CFTUV_DecalRail_Rails': (0.0, 1.0, 1.0, 1.0),
@@ -108,12 +112,14 @@ def test_rail_visualization_reads_immutable_ledger_and_uses_canonical_colors(mon
         'CFTUV_DecalRail_Poles': (1.0, 0.0, 1.0, 1.0),
         'CFTUV_DecalRail_Merges': (0.0, 1.0, 0.0, 1.0),
         'CFTUV_DecalRail_Marks': (1.0, 1.0, 0.0, 1.0),
+        'CFTUV_DecalRail_Freeze': (1.0, 0.45, 0.0, 1.0),
     }
     assert sum(layer_name == 'Rails' for layer_name, *_rest in strokes) == 1
     assert sum(layer_name == 'Dams' for layer_name, *_rest in strokes) == 3
     assert sum(layer_name == 'Poles' for layer_name, *_rest in strokes) == 3
     assert sum(layer_name == 'Merges' for layer_name, *_rest in strokes) == 3
     assert sum(layer_name == 'Marks' for layer_name, *_rest in strokes) == 3
+    assert sum(layer_name == 'Freeze' for layer_name, *_rest in strokes) == 3
     rail_stroke = next(stroke for stroke in strokes if stroke[0] == 'Rails')
     assert rail_stroke[1] == (
         (0.0, 0.0, 0.0),

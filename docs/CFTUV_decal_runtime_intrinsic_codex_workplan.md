@@ -450,6 +450,19 @@ R0+R1+LEGACY-CUT; нижеследующий старый список сохр�
 5. **R2 — конкуренция/freeze в станциях** (RC1-RC3, RF7) + RR10
    «нити между chains»: единый route на нить, двойное чтение
    станций, freeze-локус вдоль нитей (RF17, часть R2).
+   **Результат R2:** compile-static часть реализована. На RF7 восемь
+   физических продольных нитей дают восемь routes вместо прежних
+   шестнадцати с восемью ложными `MERGE`; каждый route имеет два
+   `RailRouteReading` и один точный `RailFreezeLocus` (vertex либо
+   edge-parameter). Freeze/readings бит-идентичны при alpha 3 -> 30 и
+   обратном перечислении. Оранжевый overlay-marker читает тот же locus.
+   Ярус-2: `533 passed, 3 skipped, 4 deselected`.
+   Live Blender 4.3.2: RF7 `routes=8/readings=16/freeze=8`, overlay
+   `artifacts/decal_r2_rf7_overlay.png`; канонический полевой набор шести
+   объектов без `SCRIPT_ERROR`, отчёт
+   `artifacts/decal_r2_field_acceptance.json`; `.blend` не сохранён.
+   RR10(a,b) и consumer криволинейной геометрии не активированы досрочно:
+   они остаются R3-scope.
 6. **R3 — кривизна**: сфера облегает (RF2, полюс-CAP RM5);
    приёмка на half_sphere полевого набора; непланарный скоуп
    RR10 (прямое распознавание нитей + селектор (b)) активируется
