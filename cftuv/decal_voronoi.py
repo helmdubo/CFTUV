@@ -556,6 +556,7 @@ class DecalSurfaceDomain:
     basis_u: Vector
     basis_v: Vector
     boundary_triangles: tuple[tuple[tuple[float, float], ...], ...]
+    boundary_triangle_source_face_ids: tuple[object, ...] = ()
     intrinsic_triangles: tuple[_IntrinsicDomainTriangle, ...] = ()
     periodic_axis: str = ""
     period: float = 0.0
@@ -617,6 +618,23 @@ class DecalSurfaceDomain:
             if self.intrinsic_triangles
             else len(self.boundary_triangles)
         )
+        if self.boundary_triangle_source_face_ids and (
+            len(self.boundary_triangle_source_face_ids)
+            != len(self.boundary_triangles)
+        ):
+            raise ValueError(
+                "Decal planar source faces must be triangle-aligned"
+            )
+        if (
+            self.kind == "PLANAR"
+            and self.boundary_triangles
+            and not self.boundary_triangle_source_face_ids
+        ):
+            object.__setattr__(
+                self,
+                "boundary_triangle_source_face_ids",
+                (self.patch_id,) * len(self.boundary_triangles),
+            )
         if self.triangle_merge_groups and (
             len(self.triangle_merge_groups) != triangle_count
         ):
@@ -720,6 +738,23 @@ class DecalSurfaceDomain:
                 self.location_tolerance,
                 DECAL_WELD_DISTANCE * 0.25,
             )
+            triangle_id = -1
+            triangle_weights = (1.0, 0.0, 0.0)
+            best_margin = -float("inf")
+            triangle_ids = self.triangle_grid.query_point(uv, tolerance)
+            for candidate_id in triangle_ids:
+                weights = _triangle_weights2(
+                    uv, self.boundary_triangles[candidate_id]
+                )
+                if weights is None:
+                    continue
+                margin = min(weights)
+                if margin >= -tolerance and margin > best_margin:
+                    triangle_id = int(candidate_id)
+                    triangle_weights = tuple(
+                        float(weight) for weight in weights
+                    )
+                    best_margin = margin
             vertex_candidates = []
             for vertex_id, vertex_uv in self.planar_source_vertices:
                 distance = _dist2(uv, vertex_uv)
@@ -731,9 +766,9 @@ class DecalSurfaceDomain:
                 _distance, vertex_id, vertex_uv = min(vertex_candidates)
                 return DomainLocation(
                     chart_id=self.chart_id,
-                    triangle_id=-1,
+                    triangle_id=triangle_id,
                     uv=vertex_uv,
-                    barycentric=(1.0, 0.0, 0.0),
+                    barycentric=triangle_weights,
                     source_feature="VERTEX",
                     source_feature_id=vertex_id,
                 )
@@ -758,17 +793,17 @@ class DecalSurfaceDomain:
                 )
                 return DomainLocation(
                     chart_id=self.chart_id,
-                    triangle_id=-1,
+                    triangle_id=triangle_id,
                     uv=projection,
-                    barycentric=(1.0, 0.0, 0.0),
+                    barycentric=triangle_weights,
                     source_feature="EDGE",
                     source_feature_id=edge_id,
                 )
             return DomainLocation(
                 chart_id=self.chart_id,
-                triangle_id=-1,
+                triangle_id=triangle_id,
                 uv=uv,
-                barycentric=(1.0, 0.0, 0.0),
+                barycentric=triangle_weights,
                 source_feature="TRIANGLE",
                 source_feature_id=("PLANAR", self.patch_id),
             )
@@ -1065,6 +1100,7 @@ class _PlanarOwnerSurface:
     boundary_loops: tuple
     mesh_verts: tuple
     mesh_tris: tuple
+    mesh_tri_face_indices: tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -1618,6 +1654,41 @@ class _ResolvedArrangementPoint:
 
 
 @dataclass(frozen=True)
+class PatchVoronoiVertexProvenance:
+    """I5 source/edge/route/station facts одного output-loop."""
+
+    source_face_id: object
+    source_edge_id: int
+    route_id: object
+    station_key: object
+    domain_location: DomainLocation | None
+
+
+@dataclass(frozen=True)
+class PatchVoronoiFaceProvenance:
+    """Тотальная immutable provenance одной PatchVoronoi face."""
+
+    source_face_ids: tuple[object, ...]
+    source_edge_ids: tuple[int, ...]
+    route_ids: tuple[object, ...]
+    station_keys: tuple[object, ...]
+    vertices: tuple[PatchVoronoiVertexProvenance, ...]
+    semantic_owner_id: object | None = None
+
+    def __post_init__(self):
+        if not self.source_face_ids:
+            raise ValueError("PATCH_VORONOI_SOURCE_FACE_PROVENANCE_MISSING")
+        if not self.source_edge_ids:
+            raise ValueError("PATCH_VORONOI_SOURCE_EDGE_PROVENANCE_MISSING")
+        if not self.route_ids:
+            raise ValueError("PATCH_VORONOI_ROUTE_PROVENANCE_MISSING")
+        if not self.station_keys:
+            raise ValueError("PATCH_VORONOI_STATION_PROVENANCE_MISSING")
+        if len(self.vertices) != len(self.station_keys):
+            raise ValueError("PATCH_VORONOI_VERTEX_PROVENANCE_DESYNC")
+
+
+@dataclass(frozen=True)
 class _JunctionPort:
     """Открытый core-to-rail луч математической decal-сети."""
 
@@ -1630,6 +1701,8 @@ class _JunctionPort:
     outer_u: float
     outer_v: float
     core_v: float
+    core_provenance: PatchVoronoiVertexProvenance
+    outer_provenance: PatchVoronoiVertexProvenance
 
 
 def patch_voronoi_available():
@@ -4015,6 +4088,9 @@ def _planar_owner_surfaces(node, raw_sites):
         if not triangles:
             return ()
         group_sites = sites_by_plane[key]
+        fallback_face_id = int(
+            group_sites[0].get("owner_face_index", node.patch_id)
+        )
         normal = group_sites[0].get("side_normal", node.normal).normalized()
         used_indices = sorted({index for tri in triangles for index in tri})
         centroid = sum(
@@ -4033,6 +4109,7 @@ def _planar_owner_surfaces(node, raw_sites):
                     boundary_loops=(),
                     mesh_verts=tuple(node.mesh_verts),
                     mesh_tris=tuple(triangles),
+                    mesh_tri_face_indices=(fallback_face_id,) * len(triangles),
                 ),
                 group_sites,
             )
@@ -4063,6 +4140,7 @@ def _provenance_owner_surfaces(node, raw_sites):
 
     group_by_face = {}
     triangles_by_group = {}
+    triangle_faces_by_group = {}
     normals_by_group = {}
     for face_index in sorted(triangles_by_face):
         triangles = triangles_by_face[face_index]
@@ -4098,6 +4176,9 @@ def _provenance_owner_surfaces(node, raw_sites):
         )
         group_by_face[face_index] = group_key
         triangles_by_group.setdefault(group_key, []).extend(triangles)
+        triangle_faces_by_group.setdefault(group_key, []).extend(
+            (face_index,) * len(triangles)
+        )
         normals_by_group.setdefault(group_key, normal)
 
     sites_by_group = {}
@@ -4129,6 +4210,9 @@ def _provenance_owner_surfaces(node, raw_sites):
                     boundary_loops=(),
                     mesh_verts=tuple(node.mesh_verts),
                     mesh_tris=tuple(triangles),
+                    mesh_tri_face_indices=tuple(
+                        triangle_faces_by_group[group_key]
+                    ),
                 ),
                 sites_by_group[group_key],
             )
@@ -4839,6 +4923,15 @@ def _corner_station_key(surface, site, point):
 
 
 def _corner_point_source_face_id(surface, location, fallback):
+    if (
+        surface.domain.kind == "PLANAR"
+        and location is not None
+        and 0 <= int(location.triangle_id)
+        < len(surface.domain.boundary_triangle_source_face_ids)
+    ):
+        return surface.domain.boundary_triangle_source_face_ids[
+            int(location.triangle_id)
+        ]
     if (
         surface.domain.kind == "INTRINSIC"
         and location is not None
@@ -6036,6 +6129,7 @@ def _compile_surface(
         planar_source_edges = ()
         planar_source_vertices = ()
         planar_source_edge_positions = ()
+        planar_triangle_source_face_ids = ()
         triangle_merge_groups = _intrinsic_triangle_merge_groups(
             compiled_intrinsic_triangles
         )
@@ -6052,6 +6146,23 @@ def _compile_surface(
             basis_v,
             diagram_transform.quantize,
         )
+        mesh_tri_face_indices = tuple(
+            getattr(node, "mesh_tri_face_indices", ())
+        )
+        if len(mesh_tri_face_indices) == len(triangles):
+            planar_triangle_source_face_ids = mesh_tri_face_indices
+        else:
+            fallback_face_id = next(
+                (
+                    int(raw["owner_face_index"])
+                    for raw in raw_sites
+                    if int(raw.get("owner_face_index", -1)) >= 0
+                ),
+                int(node.patch_id),
+            )
+            planar_triangle_source_face_ids = (
+                fallback_face_id,
+            ) * len(triangles)
         triangle_merge_groups = (0,) * len(triangles)
     domain = DecalSurfaceDomain(
         patch_id=node.patch_id,
@@ -6061,6 +6172,9 @@ def _compile_surface(
         basis_u=basis_u,
         basis_v=basis_v,
         boundary_triangles=tuple(tuple(triangle) for triangle in triangles),
+        boundary_triangle_source_face_ids=tuple(
+            planar_triangle_source_face_ids
+        ),
         intrinsic_triangles=compiled_intrinsic_triangles,
         planar_source_edges=planar_source_edges,
         planar_source_vertices=planar_source_vertices,
@@ -12966,6 +13080,33 @@ def _hashable_provenance(value):
     return value
 
 
+def _ordered_unique_provenance(values):
+    by_key = {}
+    for value in values:
+        by_key.setdefault(repr(value), value)
+    return tuple(by_key[key] for key in sorted(by_key))
+
+
+def _patch_face_provenance(vertices, semantic_owner_id=None):
+    vertices = tuple(vertices)
+    if not vertices:
+        raise ValueError("PATCH_VORONOI_VERTEX_PROVENANCE_MISSING")
+    return PatchVoronoiFaceProvenance(
+        source_face_ids=_ordered_unique_provenance(
+            vertex.source_face_id for vertex in vertices
+        ),
+        source_edge_ids=tuple(
+            sorted({int(vertex.source_edge_id) for vertex in vertices})
+        ),
+        route_ids=_ordered_unique_provenance(
+            vertex.route_id for vertex in vertices
+        ),
+        station_keys=tuple(vertex.station_key for vertex in vertices),
+        vertices=vertices,
+        semantic_owner_id=semantic_owner_id,
+    )
+
+
 def _domain_location_key(surface, location):
     """Shared identity source feature, включая chart-cut copies."""
 
@@ -13358,6 +13499,18 @@ def _synchronize_cross_surface_spine_stations(plan, faces):
             )
             edge_by_vertices.setdefault(pair, site.edge_index)
 
+    provenance_by_key = {}
+    for face in faces:
+        provenance = getattr(face, "provenance", None)
+        if not isinstance(provenance, PatchVoronoiFaceProvenance):
+            raise RuntimeError("PATCH_VORONOI_FACE_PROVENANCE_MISSING")
+        if len(provenance.vertices) != len(face.vert_keys):
+            raise RuntimeError("PATCH_VORONOI_VERTEX_PROVENANCE_DESYNC")
+        for key, vertex_provenance in zip(
+            face.vert_keys, provenance.vertices
+        ):
+            provenance_by_key.setdefault(key, []).append(vertex_provenance)
+
     stations_by_edge = {}
     for face in faces:
         for key, position in zip(face.vert_keys, face.positions):
@@ -13377,6 +13530,11 @@ def _synchronize_cross_surface_spine_stations(plan, faces):
         new_positions = []
         new_u_fracs = []
         new_v_lengths = []
+        new_vertex_provenance = []
+        face_provenance = face.provenance
+        original_provenance = dict(
+            zip(face.vert_keys, face_provenance.vertices)
+        )
         for index in range(count):
             key_a = face.vert_keys[index]
             key_b = face.vert_keys[(index + 1) % count]
@@ -13391,6 +13549,7 @@ def _synchronize_cross_surface_spine_stations(plan, faces):
             new_positions.append(position_a)
             new_u_fracs.append(u_a)
             new_v_lengths.append(v_a)
+            new_vertex_provenance.append(original_provenance[key_a])
 
             if not isinstance(key_a, tuple) or not isinstance(key_b, tuple):
                 continue
@@ -13454,11 +13613,24 @@ def _synchronize_cross_surface_spine_stations(plan, faces):
                 new_positions.append(station_position.copy())
                 new_u_fracs.append(u_a + (u_b - u_a) * factor)
                 new_v_lengths.append(v_a + (v_b - v_a) * factor)
+                candidates = provenance_by_key.get(station_key, ())
+                if not candidates:
+                    raise RuntimeError(
+                        "PATCH_VORONOI_INSERTED_STATION_PROVENANCE_MISSING: "
+                        f"key={station_key!r}"
+                    )
+                new_vertex_provenance.append(
+                    min(candidates, key=repr)
+                )
 
         face.vert_keys = new_keys
         face.positions = new_positions
         face.u_fracs = new_u_fracs
         face.v_lengths = new_v_lengths
+        face.provenance = _patch_face_provenance(
+            new_vertex_provenance,
+            semantic_owner_id=face_provenance.semantic_owner_id,
+        )
 
 
 def _junction_connector_faces(
@@ -13533,6 +13705,12 @@ def _junction_connector_faces(
             continue
         face_index, _edge_index = uses[0]
         face = faces[face_index]
+        face_provenance = getattr(face, "provenance", None)
+        if not isinstance(face_provenance, PatchVoronoiFaceProvenance):
+            raise RuntimeError("PATCH_VORONOI_JUNCTION_PROVENANCE_MISSING")
+        provenance_by_key = dict(
+            zip(face.vert_keys, face_provenance.vertices)
+        )
         surface = surfaces_by_id.get(face.surface_id)
         if surface is None:
             continue
@@ -13652,6 +13830,8 @@ def _junction_connector_faces(
                 outer_u=face.u_fracs[outer_index],
                 outer_v=face.v_lengths[outer_index],
                 core_v=face.v_lengths[core_index],
+                core_provenance=provenance_by_key[core_key],
+                outer_provenance=provenance_by_key[outer_key],
             )
         )
 
@@ -13737,6 +13917,17 @@ def _junction_connector_faces(
                         + [entry.outer_v for entry in entries],
                         component_kind=policy.value,
                         component_side=f"JUNCTION_SECTOR_{sector_index}",
+                        provenance=_patch_face_provenance(
+                            (entries[0].core_provenance,)
+                            + tuple(
+                                entry.outer_provenance for entry in entries
+                            ),
+                            semantic_owner_id=(
+                                "junction-sector",
+                                int(vert_index),
+                                int(sector_index),
+                            ),
+                        ),
                     )
                 )
                 if diagnostics is not None:
@@ -13803,6 +13994,16 @@ def _junction_connector_faces(
                         (first.core_v + second.core_v) * 0.5
                     ]
                     + [entry.outer_v for entry in entries],
+                    provenance=_patch_face_provenance(
+                        (entries[0].core_provenance,)
+                        + tuple(
+                            entry.outer_provenance for entry in entries
+                        ),
+                        semantic_owner_id=(
+                            "junction-pair",
+                            int(vert_index),
+                        ),
+                    ),
                 )
             )
             used_ports.update((index, other_index))
@@ -15327,6 +15528,7 @@ def _align_strip_cap_face(cap_face, cap_loop, strip_face, strip_loop):
             component_side=_aligned_strip_cap_side(
                 strip_face.component_side
             ),
+            provenance=cap_face.provenance,
         ),
         (u_scale, u_offset, v_offset),
     )
@@ -15493,9 +15695,13 @@ def _merge_terminal_partition_component(faces, component):
 
     facts_by_key = {}
     raw_by_key = {}
+    provenance_by_key = {}
     edge_uses = {}
     for face_index in component:
         face = faces[face_index]
+        face_provenance = getattr(face, "provenance", None)
+        if not isinstance(face_provenance, PatchVoronoiFaceProvenance):
+            raise RuntimeError("PATCH_VORONOI_MERGE_PROVENANCE_MISSING")
         count = len(face.vert_keys)
         for loop_index, key in enumerate(face.vert_keys):
             fact = _terminal_partition_loop_fact(face, loop_index)
@@ -15509,6 +15715,9 @@ def _merge_terminal_partition_component(faces, component):
                     face.u_fracs[loop_index],
                     face.v_lengths[loop_index],
                 ),
+            )
+            provenance_by_key.setdefault(key, []).append(
+                face_provenance.vertices[loop_index]
             )
             following = face.vert_keys[(loop_index + 1) % count]
             edge_uses.setdefault(frozenset((key, following)), []).append(
@@ -15572,6 +15781,19 @@ def _merge_terminal_partition_component(faces, component):
         v_lengths=[raw_by_key[key][2] for key in cycle],
         component_kind="SEGMENT",
         component_side=_merged_terminal_partition_side(component_faces),
+        provenance=_patch_face_provenance(
+            tuple(
+                min(provenance_by_key[key], key=repr) for key in cycle
+            ),
+            semantic_owner_id=(
+                "terminal-merge",
+                _ordered_unique_provenance(
+                    face.provenance.semantic_owner_id
+                    for face in component_faces
+                    if face.provenance.semantic_owner_id is not None
+                ),
+            ),
+        ),
     )
 
 
@@ -15754,6 +15976,7 @@ def evaluate_patch_voronoi_plan(
         positions = []
         u_fracs = []
         v_lengths = []
+        vertex_provenance = []
         used_keys = set()
         transition_uv = {
             key: (u_fraction, v_length)
@@ -15825,6 +16048,24 @@ def evaluate_patch_voronoi_plan(
                 )
             vert_keys.append(vert_key)
             positions.append(position)
+            fallback_face_id = (
+                uv_site.owner_face_index
+                if uv_site.owner_face_index >= 0
+                else surface.patch_id
+            )
+            vertex_provenance.append(
+                PatchVoronoiVertexProvenance(
+                    source_face_id=_corner_point_source_face_id(
+                        surface, resolved.location, fallback_face_id
+                    ),
+                    source_edge_id=int(uv_site.edge_index),
+                    route_id=_corner_route_id(surface, uv_site),
+                    station_key=_corner_station_key(
+                        surface, uv_site, uv_point
+                    ),
+                    domain_location=resolved.location,
+                )
+            )
             canonical_uv = transition_uv.get(vert_key)
             if canonical_uv is not None:
                 u_fracs.append(canonical_uv[0])
@@ -15860,6 +16101,7 @@ def evaluate_patch_voronoi_plan(
             positions.reverse()
             u_fracs.reverse()
             v_lengths.reverse()
+            vertex_provenance.reverse()
         faces.append(
             _NetworkFace(
                 surface_id=surface.patch_id,
@@ -15870,6 +16112,10 @@ def evaluate_patch_voronoi_plan(
                 v_lengths=v_lengths,
                 component_kind=crop.kind,
                 component_side=crop.side,
+                provenance=_patch_face_provenance(
+                    vertex_provenance,
+                    semantic_owner_id=crop.semantic_owner_id,
+                ),
             )
         )
     _synchronize_cross_surface_spine_stations(plan, faces)

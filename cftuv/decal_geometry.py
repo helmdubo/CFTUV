@@ -59,6 +59,7 @@ class DecalGeometryFace:
     v_lengths: list
     component_kind: str = "SURFACE"
     component_side: str = ""
+    provenance: object | None = None
 
 
 @dataclass(frozen=True)
@@ -208,7 +209,10 @@ def geometry_batch_from_faces(faces, *, diagnostics=()) -> GeometryBatch:
                     getattr(face, "component_kind", "") or "SURFACE"
                 ),
                 component_side=str(getattr(face, "component_side", "") or ""),
-                provenance=getattr(face, "rail_provenance", None),
+                provenance=(
+                    getattr(face, "provenance", None)
+                    or getattr(face, "rail_provenance", None)
+                ),
             )
         )
     return GeometryBatch(

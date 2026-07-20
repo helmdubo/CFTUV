@@ -526,6 +526,36 @@ def _signed_face_area(face):
     return area_vector.dot(face.surface_normal) * 0.5
 
 
+def _test_patch_face_provenance(keys, *, face_id=0, edge_id=0):
+    route_id = ("test-route", int(face_id), int(edge_id))
+    vertices = tuple(
+        decal_voronoi.PatchVoronoiVertexProvenance(
+            source_face_id=int(face_id),
+            source_edge_id=int(edge_id),
+            route_id=route_id,
+            station_key=("test-station", key),
+            domain_location=None,
+        )
+        for key in keys
+    )
+    return decal_voronoi._patch_face_provenance(vertices)
+
+
+def _attach_test_patch_provenance(faces):
+    for face in faces:
+        edge_ids = tuple(
+            int(key[1])
+            for key in face.vert_keys
+            if isinstance(key, tuple) and key[:1] == ("pv-se",)
+        )
+        face.provenance = _test_patch_face_provenance(
+            face.vert_keys,
+            face_id=face.surface_id,
+            edge_id=(edge_ids[0] if edge_ids else 0),
+        )
+    return faces
+
+
 def _orthogonal_corner_graph():
     graph = PatchGraph()
     patch_specs = (
@@ -998,6 +1028,71 @@ def test_s_cm_a_bevel_is_test_only_planar_one_face_oracle():
             "P2",
         )
         assert len(faces[0].traces) == 3
+
+
+def test_i5_patch_voronoi_geometry_batch_provenance_is_total():
+    from cftuv.decal_geometry import geometry_batch_from_faces
+
+    graph, edge_indices = _door_opening_graph()
+    plan = compile_patch_voronoi_plan(
+        graph, edge_indices, offset=0.125
+    )
+    preview_faces = evaluate_patch_voronoi_plan(
+        plan, width=0.5, preview=True
+    )
+    confirm_faces = evaluate_patch_voronoi_plan(
+        plan, width=0.5, preview=False
+    )
+
+    preview_batch = geometry_batch_from_faces(preview_faces)
+    confirm_batch = geometry_batch_from_faces(confirm_faces)
+    assert preview_batch == confirm_batch
+    assert preview_batch.faces
+    for face in preview_batch.faces:
+        provenance = face.provenance
+        assert isinstance(
+            provenance, decal_voronoi.PatchVoronoiFaceProvenance
+        )
+        assert provenance.source_face_ids
+        assert provenance.source_edge_ids
+        assert provenance.route_ids
+        assert len(provenance.station_keys) == len(face.vert_keys)
+        assert len(provenance.vertices) == len(face.vert_keys)
+        assert all(
+            vertex.source_face_id is not None
+            and vertex.source_edge_id >= 0
+            and vertex.route_id is not None
+            and vertex.station_key is not None
+            for vertex in provenance.vertices
+        )
+
+
+def test_i5_planar_provenance_uses_the_containing_source_face():
+    domain = decal_voronoi.DecalSurfaceDomain(
+        patch_id=7,
+        kind="PLANAR",
+        origin=Vector((0.0, 0.0, 0.0)),
+        reference_normal=Vector((0.0, 0.0, 1.0)),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+        boundary_triangles=(
+            ((0.0, 0.0), (1.0, 0.0), (0.0, 1.0)),
+            ((1.0, 0.0), (1.0, 1.0), (0.0, 1.0)),
+        ),
+        boundary_triangle_source_face_ids=(101, 202),
+    )
+    surface = SimpleNamespace(domain=domain)
+    first = domain.locate((0.2, 0.2))
+    second = domain.locate((0.8, 0.8))
+
+    assert first.triangle_id == 0
+    assert second.triangle_id == 1
+    assert decal_voronoi._corner_point_source_face_id(
+        surface, first, -1
+    ) == 101
+    assert decal_voronoi._corner_point_source_face_id(
+        surface, second, -1
+    ) == 202
 
 
 def _wide_t_junction_front_graph():
@@ -3382,6 +3477,7 @@ def _rd1_partition_face(keys, positions, u_fracs, v_lengths, *, kind, side, norm
         v_lengths=list(v_lengths),
         component_kind=kind,
         component_side=side,
+        provenance=_test_patch_face_provenance(keys),
     )
 
 
@@ -3828,6 +3924,15 @@ def test_a11_cross_surface_valence_n_junction_builds_sector_fan():
                 ],
                 u_fracs=[0.0, 1.0, 1.0],
                 v_lengths=[0.0, 0.5, 1.0],
+                provenance=_test_patch_face_provenance(
+                    (
+                        ("pv-sv", 0),
+                        ("outer", index),
+                        ("tail", index),
+                    ),
+                    face_id=index,
+                    edge_id=900 + index,
+                ),
             )
         )
     diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
@@ -3936,9 +4041,8 @@ def test_cross_surface_spine_station_is_mirrored_without_new_face():
         )
     )
 
-    decal_voronoi._synchronize_cross_surface_spine_stations(
-        plan, [owner, neighbour]
-    )
+    faces = _attach_test_patch_provenance([owner, neighbour])
+    decal_voronoi._synchronize_cross_surface_spine_stations(plan, faces)
 
     assert neighbour.vert_keys == [
         ("pv-sv", 0),
@@ -4000,9 +4104,8 @@ def test_c8_2_cross_surface_spine_merges_already_split_runs():
         )
     )
 
-    decal_voronoi._synchronize_cross_surface_spine_stations(
-        plan, [first, second]
-    )
+    faces = _attach_test_patch_provenance([first, second])
+    decal_voronoi._synchronize_cross_surface_spine_stations(plan, faces)
 
     expected = [
         ("pv-sv", 0),
@@ -4054,7 +4157,9 @@ def test_c8_6_spine_sync_does_not_split_interior_to_source_edge_frontier():
     original_keys = tuple(face.vert_keys)
     original_positions = tuple(tuple(value) for value in face.positions)
 
-    decal_voronoi._synchronize_cross_surface_spine_stations(plan, [face])
+    decal_voronoi._synchronize_cross_surface_spine_stations(
+        plan, _attach_test_patch_provenance([face])
+    )
 
     assert tuple(face.vert_keys) == original_keys
     assert tuple(tuple(value) for value in face.positions) == original_positions
@@ -4410,7 +4515,9 @@ def test_c8_6_cross_surface_sync_keeps_complementary_stations_unique(
         face(0, low_key, low_position, Vector((0.0, 1.0, 0.0))),
         face(1, high_key, high_position, Vector((0.0, -1.0, 0.0))),
     ]
-    decal_voronoi._synchronize_cross_surface_spine_stations(plan, faces)
+    decal_voronoi._synchronize_cross_surface_spine_stations(
+        plan, _attach_test_patch_provenance(faces)
+    )
 
     for network_face in faces:
         assert network_face.vert_keys.count(low_key) == 1
