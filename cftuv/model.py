@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from .solve_records import QuiltFrontierTelemetry
+    from .surface_ir import SourceRevision
 
 
 class PatchType(str, Enum):
@@ -40,6 +41,13 @@ class FrameRole(str, Enum):
     V_FRAME = "V_FRAME"
     STRAIGHTEN = "STRAIGHTEN"
     FREE = "FREE"
+
+
+class CornerJoinMode(str, Enum):
+    """Compile input for the future CornerModel implementation."""
+
+    MITER = "MITER"
+    BEVEL = "BEVEL"
 
 
 class BandMode(str, Enum):
@@ -138,6 +146,19 @@ class FormattedReport:
     summary: str
 
 
+@dataclass(frozen=True)
+class DihedralSegmentPair:
+    """Two local chain-use normals for one physical boundary segment."""
+
+    segment_index: int
+    edge_index: int
+    owner_face_index: int
+    neighbor_face_index: int
+    owner_normal: tuple[float, float, float]
+    neighbor_normal: tuple[float, float, float]
+    convexity: float
+
+
 @dataclass
 class BoundaryChain:
     """Continuous part of a boundary loop with one neighbor.
@@ -169,6 +190,7 @@ class BoundaryChain:
     # Computed for two-sided PATCH and paired SEAM_SELF chain uses.
     # Zero for MESH_BORDER and an unpaired/degenerate SEAM_SELF use.
     dihedral_convexity: float = 0.0
+    dihedral_segment_pairs: tuple[DihedralSegmentPair, ...] = ()
 
     @property
     def neighbor_kind(self) -> ChainNeighborKind:
@@ -264,22 +286,6 @@ class PatchNode:
     # Composite topology
     boundary_loops: list[BoundaryLoop] = field(default_factory=list)
 
-    # Derived debug geometry
-    mesh_verts: list[Vector] = field(default_factory=list)
-    # Global source vertex id для каждого элемента mesh_verts. Нужен
-    # intrinsic chart builder для связи serialized triangles с chains.
-    mesh_vert_indices: list[int] = field(default_factory=list)
-    mesh_tris: list[tuple[int, int, int]] = field(default_factory=list)
-    # Face provenance для каждого serialized triangle. Decal backend использует
-    # её, чтобы не угадывать owner face по нормали fan-треугольника.
-    mesh_tri_face_indices: list[int] = field(default_factory=list)
-    mesh_tri_face_normals: list[Vector] = field(default_factory=list)
-    # Physical BMesh edge id для каждого local triangle edge (индексируется
-    # противоположной вершиной). Fan diagonals n-gon tessellation имеют -1.
-    mesh_tri_edge_indices: list[tuple[int, int, int]] = field(
-        default_factory=list
-    )
-
     @property
     def semantic_key(self) -> str:
         patch_type = self.patch_type.value if hasattr(self.patch_type, "value") else str(self.patch_type)
@@ -327,12 +333,8 @@ class UVSettings:
 
 
 @dataclass(frozen=True)
-class DecalSettings:
-    """Immutable snapshot of decal producer settings.
-
-    Размеры в мировых единицах. uv_length_scale — множитель длины дуги
-    вдоль ленты при записи UV (совпадает с UVSettings.final_scale).
-    """
+class _DecalSettingsValues:
+    """Общие значения двух метрически несовместимых settings-типов."""
 
     width_corner: float = 0.20
     width_seam: float = 0.15
@@ -348,7 +350,7 @@ class DecalSettings:
     dynamic_corner_bands: bool = False
     # Художественный join только для выпуклого MITER-класса. Reflex/KITE
     # остаётся собственной семантикой и этим переключателем не подменяется.
-    corner_join_mode: str = "MITER"
+    corner_join_mode: CornerJoinMode = CornerJoinMode.MITER
     # Runtime corner policy patch-Voronoi backend. Углы хранятся в радианах,
     # как Blender ANGLE properties; compiled Voronoi plan от них не зависит.
     corner_miter_angle: float = 2.0 * pi / 3.0
@@ -357,6 +359,13 @@ class DecalSettings:
     corner_hairpin_angle: float = pi / 6.0
     corner_apex_limit: float = 8.0
     chart_distortion_budget: float = 0.02
+
+    def __post_init__(self):
+        object.__setattr__(
+            self,
+            "corner_join_mode",
+            CornerJoinMode(self.corner_join_mode),
+        )
 
     @property
     def corner_split_angle(self) -> float:
@@ -370,12 +379,17 @@ class DecalSettings:
 
         return self.corner_apex_limit
 
+
+@dataclass(frozen=True)
+class WorldDecalSettings(_DecalSettingsValues):
+    """Immutable decal request whose dimensions are in world units."""
+
     @staticmethod
-    def from_blender_settings(settings) -> "DecalSettings":
-        """Build a DecalSettings object from the Blender PropertyGroup."""
+    def from_blender_settings(settings) -> "WorldDecalSettings":
+        """Build world-unit settings from the Blender PropertyGroup."""
 
         uv_settings = UVSettings.from_blender_settings(settings)
-        return DecalSettings(
+        return WorldDecalSettings(
             width_corner=float(settings.decal_width_corner),
             width_seam=float(settings.decal_width_seam),
             height_trim=float(settings.decal_height_trim),
@@ -385,7 +399,7 @@ class DecalSettings:
             dynamic_corner_bands=bool(
                 getattr(settings, "decal_dynamic_corner_bands", False)
             ),
-            corner_join_mode=str(
+            corner_join_mode=CornerJoinMode(
                 getattr(settings, "decal_corner_join_mode", "MITER")
             ),
             corner_miter_angle=float(
@@ -411,6 +425,16 @@ class DecalSettings:
                 getattr(settings, "decal_chart_distortion_budget", 0.02)
             ),
         )
+
+
+@dataclass(frozen=True)
+class LocalDecalSettings(_DecalSettingsValues):
+    """Immutable decal request converted into source-local units."""
+
+
+# Public compatibility name for saved scripts/tests. Runtime boundaries use
+# the explicit WorldDecalSettings/LocalDecalSettings types above.
+DecalSettings = WorldDecalSettings
 
 
 @dataclass(frozen=True)
@@ -443,6 +467,7 @@ class MeshPreflightReport:
 class PatchGraph:
     """Central IR with patch nodes, seam edges, and lookup tables."""
 
+    source_revision: SourceRevision | None = None
     nodes: dict[int, PatchNode] = field(default_factory=dict)
     edges: dict[PatchEdgeKey, SeamEdge] = field(default_factory=dict)
     face_to_patch: dict[int, int] = field(default_factory=dict)

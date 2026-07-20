@@ -20,8 +20,14 @@ from .constants import (
     DECAL_WELD_DISTANCE,
     WORLD_UP,
 )
-from .decal_rails import RailTerminalKind, compile_decal_rail_attempt
+from .decal_geometry import GeometryBatch, geometry_batch_from_faces
+from .decal_rails import (
+    DecalRailPlan,
+    RailTerminalKind,
+    compile_decal_rail_attempt,
+)
 from .decal_rail_geometry import (
+    PlanarRailGeometryPlan,
     RailGeometryFailure,
     compile_planar_rail_geometry_attempt,
     evaluate_planar_rail_geometry_plan,
@@ -30,6 +36,7 @@ from .decal_voronoi import (
     DECAL_CORNER_JOIN_ARCHIVED_UNTIL_CORNER_MODEL,
     DecalCornerJoinArchivedError,
     PatchVoronoiDiagnostics,
+    PatchVoronoiPlan,
     compile_patch_voronoi_attempt,
     compile_patch_voronoi_plan,
     corner_runtime_settings_from_decal_settings,
@@ -41,6 +48,12 @@ from .decal_transform import (
     local_decal_settings_for_source,
 )
 from .model import ChainRef, DecalSettings, PatchGraph
+from .surface_ir import (
+    AnalysisBundle,
+    AnalysisSchemaError,
+    DecalBackendKind,
+    PreviewFailurePolicy,
+)
 
 DECAL_MODES = ("TOP", "BOTTOM", "CORNERS", "SEAMS")
 SUPPORTED_DECAL_MODES = ("SEAMS",)
@@ -111,6 +124,8 @@ class DecalPreviewState:
 
 class PreviewStatus(str, Enum):
     UPDATED = "UPDATED"
+    # Compatibility value for old callers. Active adapters implement the
+    # sole PreviewFailurePolicy.CLEAR and never publish this status.
     RETAINED_LAST_VALID = "RETAINED_LAST_VALID"
     EMPTY = "EMPTY"
     ERROR = "ERROR"
@@ -183,28 +198,37 @@ class _OrientedCornerRun:
 class _ManualSeamBackendPartition:
     """Независимая routing-группа строгого современного backend."""
 
-    backend: str
+    backend: DecalBackendKind
     edge_indices: tuple[int, ...]
     topology_component_count: int
     corner_runs: tuple
     boundary_runs: tuple
-    compiled_plan: object = None
+    compiled_plan: PlanarRailGeometryPlan | PatchVoronoiPlan | None = None
 
     def __post_init__(self):
-        if self.backend not in {"RAIL_PLANAR", "PATCH_VORONOI"}:
+        try:
+            backend = DecalBackendKind(self.backend)
+        except ValueError as exc:
             raise ValueError(
                 "Legacy/unknown SEAMS backend is disabled: "
                 f"{self.backend}"
-            )
+            ) from exc
+        object.__setattr__(self, "backend", backend)
+        if self.compiled_plan is None:
+            raise ValueError(f"{backend.value} partition requires compiled plan")
 
 
 @dataclass(frozen=True)
 class _ManualBackendEvaluation:
     """Faces и evaluator-owned diagnostics одной routing partition."""
 
-    faces: tuple
+    geometry_batch: GeometryBatch
     evaluation_ms: float
     policy_counts: tuple[tuple[str, int], ...] = ()
+
+    @property
+    def faces(self):
+        return self.geometry_batch.faces
 
 
 @dataclass(frozen=True, order=True)
@@ -216,12 +240,15 @@ class ManualSeamTerminalRouting:
     spine_vertex_id: int
     spine_edge_id: int
     source_face_ids: tuple[int, ...]
-    backend: str
+    backend: DecalBackendKind
     backend_kind: str
     choice: str
     edge_ids: tuple[int, ...] = ()
     plan_kind: str = ""
     route_id: int | None = None
+
+    def __post_init__(self):
+        object.__setattr__(self, "backend", DecalBackendKind(self.backend))
 
     @property
     def report_line(self):
@@ -230,10 +257,11 @@ class ManualSeamTerminalRouting:
             if self.edge_ids
             else ""
         )
+        backend_value = self.backend.value
         backend = (
-            self.backend
-            if self.backend_kind == self.backend
-            else f"{self.backend}/{self.backend_kind}"
+            backend_value
+            if self.backend_kind == backend_value
+            else f"{backend_value}/{self.backend_kind}"
         )
         return (
             f"component={self.component_index} "
@@ -277,14 +305,14 @@ class ManualSeamDecalPlan:
     corner_runs: tuple
     boundary_runs: tuple
     network_plan: object = None
-    patch_voronoi_plan: object = None
+    patch_voronoi_plan: PatchVoronoiPlan | None = None
     backend_partitions: tuple[_ManualSeamBackendPartition, ...] = ()
     compile_failures: tuple = ()
     selected_edge_indices: tuple[int, ...] = ()
     rejected_edges: tuple[ManualSeamEdgeRejection, ...] = ()
     direct_legacy_edge_indices: tuple[int, ...] = ()
     # Канонический rail IR общий для R0-overlay и принятого R1 PLANAR backend.
-    rail_plan: object = None
+    rail_plan: DecalRailPlan | None = None
     rail_compile_failures: tuple = ()
     rail_geometry_failures: tuple = ()
     terminal_routing: tuple[ManualSeamTerminalRouting, ...] = ()
@@ -298,7 +326,7 @@ class ManualSeamDecalPlan:
             str(getattr(partition, "backend", "UNKNOWN"))
             for partition in self.backend_partitions
             if getattr(partition, "backend", None)
-            not in {"RAIL_PLANAR", "PATCH_VORONOI"}
+            not in {DecalBackendKind.RAIL_PLANAR, DecalBackendKind.PATCH_VORONOI}
         )
         if invalid_backends:
             raise ValueError(
@@ -316,7 +344,7 @@ class ManualSeamDecalPlan:
             sorted(
                 edge_index
                 for partition in self.backend_partitions
-                if partition.backend == "PATCH_VORONOI"
+                if partition.backend == DecalBackendKind.PATCH_VORONOI
                 for edge_index in partition.edge_indices
             )
         )
@@ -327,7 +355,7 @@ class ManualSeamDecalPlan:
             sorted(
                 edge_index
                 for partition in self.backend_partitions
-                if partition.backend == "RAIL_PLANAR"
+                if partition.backend == DecalBackendKind.RAIL_PLANAR
                 for edge_index in partition.edge_indices
             )
         )
@@ -370,9 +398,9 @@ class ManualSeamDecalPlan:
             return ""
         counts = {}
         for partition in self.backend_partitions:
-            if partition.backend == "RAIL_PLANAR":
+            if partition.backend == DecalBackendKind.RAIL_PLANAR:
                 backend_label = "RAIL_PLANAR"
-            elif partition.backend == "PATCH_VORONOI":
+            elif partition.backend == DecalBackendKind.PATCH_VORONOI:
                 backend_label = getattr(
                     partition.compiled_plan, "backend_kind", "PLANAR"
                 )
@@ -444,7 +472,7 @@ class ManualSeamDecalPlan:
                 )
             )
             for partition in self.backend_partitions
-            if partition.backend == "PATCH_VORONOI"
+            if partition.backend == DecalBackendKind.PATCH_VORONOI
         )
         if approximate_count:
             parts.append(f"Approx:{approximate_count}c")
@@ -599,13 +627,20 @@ def _join_corner_runs(first, second):
 
 
 def _chain_segment_surface_frame(node, chain, segment_index):
-    """Local owner normal/up с запасной patch-normal старых graph данных."""
+    """Local owner normal/up; semantic surface data has no fallback."""
 
-    normal = node.normal.copy()
-    if segment_index < len(chain.side_face_normals):
-        local_normal = chain.side_face_normals[segment_index]
-        if local_normal.length_squared > 1e-12:
-            normal = local_normal.normalized()
+    if segment_index >= len(chain.side_face_normals):
+        raise ValueError(
+            "DECAL_SEGMENT_SURFACE_NORMAL_MISSING: "
+            f"edge={chain.edge_indices[segment_index]}"
+        )
+    local_normal = chain.side_face_normals[segment_index]
+    if local_normal.length_squared <= 0.0:
+        raise ValueError(
+            "DECAL_SEGMENT_SURFACE_NORMAL_INVALID: "
+            f"edge={chain.edge_indices[segment_index]}"
+        )
+    normal = local_normal.normalized()
 
     up = WORLD_UP - normal * WORLD_UP.dot(normal)
     if up.length_squared > 1e-12:
@@ -700,15 +735,24 @@ def _manual_edge_pair_convexity(points, normal_a, normal_b):
     if len(points) < 2:
         return 0.0
     direction = points[1] - points[0]
-    if direction.length_squared < 1e-12:
+    if direction.length_squared <= 0.0:
         return 0.0
     cross = direction.normalized().cross(normal_a)
-    if cross.length_squared < 1e-12:
+    if cross.length_squared <= 0.0:
         return 0.0
     value = cross.normalized().dot(normal_b)
-    if abs(value) < 0.01:
-        return 0.0
     return max(-1.0, min(1.0, value))
+
+
+def _chain_segment_dihedral_pair(chain, segment_index):
+    return next(
+        (
+            pair
+            for pair in chain.dihedral_segment_pairs
+            if pair.segment_index == segment_index
+        ),
+        None,
+    )
 
 
 def _collect_manual_edge_decals(graph: PatchGraph, edge_indices):
@@ -748,6 +792,7 @@ def _collect_manual_edge_decals(graph: PatchGraph, edge_indices):
                                 chain.vert_cos[next_index].copy(),
                             ],
                             normal,
+                            _chain_segment_dihedral_pair(chain, segment_index),
                         )
                     )
 
@@ -758,25 +803,26 @@ def _collect_manual_edge_decals(graph: PatchGraph, edge_indices):
     for edge_index in sorted(selected_edges):
         uses = sorted(uses_by_edge.get(edge_index, ()), key=lambda use: use[0])
         if len(uses) == 2:
-            _ref_a, vert_indices, points, normal_a = uses[0]
-            _ref_b, _other_verts, _other_points, normal_b = uses[1]
+            _ref_a, vert_indices, points, normal_a, pair_a = uses[0]
+            _ref_b, _other_verts, _other_points, normal_b, pair_b = uses[1]
+            convexity = (
+                pair_a.convexity
+                if pair_a is not None and pair_b is not None
+                else _manual_edge_pair_convexity(points, normal_a, normal_b)
+            )
             paired_segments.append(
                 _OrientedCornerRun(
                     vert_indices=vert_indices,
                     points=points,
                     segment_normals_a=[normal_a],
                     segment_normals_b=[normal_b],
-                    segment_convexities=[
-                        _manual_edge_pair_convexity(
-                            points, normal_a, normal_b
-                        )
-                    ],
+                    segment_convexities=[convexity],
                     segment_edge_indices=[edge_index],
                 )
             )
             accepted_edges.add(edge_index)
         elif len(uses) == 1:
-            ref, vert_indices, points, normal = uses[0]
+            ref, vert_indices, points, normal, _pair = uses[0]
             boundary_uses.setdefault(ref[:3], []).append(
                 (ref[3], edge_index, vert_indices, points, normal)
             )
@@ -882,7 +928,7 @@ def _manual_terminal_routing(graph, rail_plan, backend_partitions):
         )
         backend_kind = (
             "RAIL_PLANAR"
-            if partition.backend == "RAIL_PLANAR"
+            if partition.backend == DecalBackendKind.RAIL_PLANAR
             else str(
                 getattr(partition.compiled_plan, "backend_kind", "PLANAR")
             )
@@ -942,7 +988,7 @@ def _manual_terminal_routing(graph, rail_plan, backend_partitions):
                     spine_vertex_id=int(use.spine_vertex_id),
                     spine_edge_id=int(use.spine_edge_id),
                     source_face_ids=tuple(use.source_face_ids),
-                    backend=str(backend),
+                    backend=(backend.value if isinstance(backend, DecalBackendKind) else str(backend)),
                     backend_kind=backend_kind,
                     choice=choice,
                     edge_ids=edge_ids,
@@ -1126,7 +1172,7 @@ def _validate_network_faces_for_materialization(
 
 def _materialize_network_faces(
     bm,
-    network_faces,
+    geometry_batch,
     settings,
     uv_rect,
     *,
@@ -1142,7 +1188,9 @@ def _materialize_network_faces(
     внутри поверхности, остаточные совпадения сваривает финальный weld.
     """
 
-    if backend not in {"RAIL_PLANAR", "PATCH_VORONOI"}:
+    try:
+        backend_kind = DecalBackendKind(backend)
+    except ValueError as exc:
         raise StrictSeamRuntimeError(
             edge_indices,
             (
@@ -1150,10 +1198,12 @@ def _materialize_network_faces(
                 if backend == "LEGACY_NETWORK"
                 else f"UNSUPPORTED_MATERIALIZATION_BACKEND:{backend}"
             ),
-        )
-    network_faces = tuple(network_faces)
+        ) from exc
+    if not isinstance(geometry_batch, GeometryBatch):
+        raise TypeError("BMeshMaterializer requires immutable GeometryBatch")
+    network_faces = geometry_batch.faces
     _validate_network_faces_for_materialization(
-        network_faces, backend, edge_indices
+        network_faces, backend_kind.value, edge_indices
     )
     uv_layer = bm.loops.layers.uv.verify()
     u_min, _v_min, u_max, _v_max = uv_rect
@@ -1215,7 +1265,7 @@ def _materialize_network_faces(
         )
     )
     return DecalMaterializationResult(
-        backend=str(backend),
+        backend=backend_kind.value,
         edge_indices=tuple(
             sorted({int(index) for index in edge_indices or ()})
         ),
@@ -1650,7 +1700,7 @@ def _strict_backend_component_rejections(
 
 
 def compile_manual_seam_decal_plan(
-    graph: PatchGraph,
+    analysis_bundle: AnalysisBundle,
     settings: DecalSettings,
     selected_edge_indices,
     *,
@@ -1660,6 +1710,13 @@ def compile_manual_seam_decal_plan(
     """Собирает selected edges/runs и статическую сеть один раз на invoke."""
 
     require_decal_corner_join_available(settings)
+    if not isinstance(analysis_bundle, AnalysisBundle):
+        raise AnalysisSchemaError(
+            "DECAL_ANALYSIS_SCHEMA_UNSUPPORTED",
+            "SEAMS compiler requires AnalysisBundle",
+        )
+    analysis_bundle.capabilities.require_supported()
+    graph = analysis_bundle.patch_graph
     if alpha_budget is None:
         alpha_budget = decal_compile_alpha_budget(settings)
     alpha_budget = float(alpha_budget)
@@ -1682,7 +1739,7 @@ def compile_manual_seam_decal_plan(
     rail_geometry_failures = []
     if accepted_scope_edges:
         rail_attempt = compile_decal_rail_attempt(
-            graph,
+            analysis_bundle,
             accepted_scope_edges,
             alpha_budget=alpha_budget,
             rail_mark_edge_indices=rail_mark_edge_indices,
@@ -1736,7 +1793,7 @@ def compile_manual_seam_decal_plan(
                 )
                 if expanded_budget > float(rail_plan.alpha_budget):
                     expanded_attempt = compile_decal_rail_attempt(
-                        graph,
+                        analysis_bundle,
                         accepted_scope_edges,
                         alpha_budget=expanded_budget,
                         rail_mark_edge_indices=rail_mark_edge_indices,
@@ -1835,7 +1892,7 @@ def compile_manual_seam_decal_plan(
                     )
                     backend_partitions.append(
                         _ManualSeamBackendPartition(
-                            backend="RAIL_PLANAR",
+                            backend=DecalBackendKind.RAIL_PLANAR,
                             edge_indices=tuple(component),
                             topology_component_count=1,
                             corner_runs=tuple(component_corner_runs),
@@ -1856,7 +1913,7 @@ def compile_manual_seam_decal_plan(
         accepted_edges = ()
         if fallback_scope_edges:
             attempt = compile_patch_voronoi_attempt(
-                graph,
+                analysis_bundle,
                 fallback_scope_edges,
                 settings.offset,
                 allow_partial=True,
@@ -1893,7 +1950,7 @@ def compile_manual_seam_decal_plan(
                 # из rejected topology component. Strict compile строит
                 # competition domain только для оставшихся компонентов.
                 patch_voronoi_plan = compile_patch_voronoi_plan(
-                    graph,
+                    analysis_bundle,
                     accepted_edges,
                     settings.offset,
                     alpha_budget=alpha_budget,
@@ -1912,7 +1969,7 @@ def compile_manual_seam_decal_plan(
                 )
                 backend_partitions.append(
                     _ManualSeamBackendPartition(
-                        backend="PATCH_VORONOI",
+                        backend=DecalBackendKind.PATCH_VORONOI,
                         edge_indices=accepted_edges,
                         topology_component_count=len(accepted_components),
                         corner_runs=tuple(accepted_corner_runs),
@@ -1992,7 +2049,7 @@ def _evaluate_manual_backend_partition(
     """Вычисляет одну routing-группу без BMesh side effects."""
 
     started = perf_counter()
-    if partition.backend == "RAIL_PLANAR":
+    if partition.backend == DecalBackendKind.RAIL_PLANAR:
         try:
             faces = evaluate_planar_rail_geometry_plan(
                 partition.compiled_plan,
@@ -2015,11 +2072,11 @@ def _evaluate_manual_backend_partition(
                 "evaluation produced no faces",
             )
         return _ManualBackendEvaluation(
-            faces=tuple(faces),
+            geometry_batch=geometry_batch_from_faces(faces),
             evaluation_ms=(perf_counter() - started) * 1000.0,
         )
 
-    if partition.backend == "PATCH_VORONOI":
+    if partition.backend == DecalBackendKind.PATCH_VORONOI:
         diagnostics = PatchVoronoiDiagnostics()
         try:
             faces = evaluate_patch_voronoi_plan(
@@ -2048,7 +2105,17 @@ def _evaluate_manual_backend_partition(
                 "evaluation produced no faces",
             )
         return _ManualBackendEvaluation(
-            faces=tuple(faces),
+            geometry_batch=geometry_batch_from_faces(
+                faces,
+                diagnostics=tuple(
+                    sorted(
+                        {
+                            **diagnostics.runtime_policy_counts,
+                            **diagnostics.cap_keep_counts,
+                        }.items()
+                    )
+                ),
+            ),
             evaluation_ms=(perf_counter() - started) * 1000.0,
             policy_counts=tuple(
                 sorted(
@@ -2066,13 +2133,31 @@ def _evaluate_manual_backend_partition(
     )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class ManualSeamFacesResult:
-    """Faces-only результат для display adapters (GPU overlay, F3)."""
+    """Immutable evaluator result shared by display adapters."""
 
-    faces: tuple
+    geometry_batch: GeometryBatch
     policy_counts: tuple = ()
     evaluation_ms: float = 0.0
+
+    def __init__(
+        self,
+        geometry_batch=None,
+        *,
+        faces=(),
+        policy_counts=(),
+        evaluation_ms=0.0,
+    ):
+        if geometry_batch is None:
+            geometry_batch = geometry_batch_from_faces(faces)
+        object.__setattr__(self, "geometry_batch", geometry_batch)
+        object.__setattr__(self, "policy_counts", tuple(policy_counts))
+        object.__setattr__(self, "evaluation_ms", float(evaluation_ms))
+
+    @property
+    def faces(self):
+        return self.geometry_batch.faces
 
 
 def evaluate_manual_seam_faces(
@@ -2083,8 +2168,8 @@ def evaluate_manual_seam_faces(
     Использует тот же transaction-порядок и те же evaluator'ы, что
     mesh-путь (`_fill_manual_chain_decals`): parity by construction.
     Исключения evaluator'а (включая DOMAIN_BUDGET_EXCEEDED) пробрасываются
-    вызывающему — modal обрабатывает их существующей A6-семантикой
-    RETAINED_LAST_VALID. Функция аддитивна и не трогает mesh-путь.
+    вызывающему; оба preview-adapter'а применяют единственную политику
+    PreviewFailurePolicy.CLEAR.
     """
 
     require_decal_corner_join_available(settings)
@@ -2103,11 +2188,11 @@ def evaluate_manual_seam_faces(
             terminal_routing=decal_plan.terminal_routing,
         )
         faces.extend(evaluation.faces)
-        if partition.backend == "PATCH_VORONOI":
+        if partition.backend == DecalBackendKind.PATCH_VORONOI:
             for kind, count in evaluation.policy_counts:
                 policy_totals[kind] = policy_totals.get(kind, 0) + count
     return ManualSeamFacesResult(
-        faces=tuple(faces),
+        geometry_batch=GeometryBatch(tuple(faces)),
         policy_counts=tuple(sorted(policy_totals.items())),
         evaluation_ms=(perf_counter() - started) * 1000.0,
     )
@@ -2180,7 +2265,10 @@ def _fill_manual_chain_decals(
                 and all(
                     type(partition) is _ManualSeamBackendPartition
                     and partition.backend
-                    in {"RAIL_PLANAR", "PATCH_VORONOI"}
+                    in {
+                        DecalBackendKind.RAIL_PLANAR,
+                        DecalBackendKind.PATCH_VORONOI,
+                    }
                     for partition in decal_plan.backend_partitions
                 )
                 and len(raw_selected) == len(compiled_scope)
@@ -2240,14 +2328,14 @@ def _fill_manual_chain_decals(
                 materialization_results.append(
                     _materialize_network_faces(
                         bm,
-                        evaluation.faces,
+                        evaluation.geometry_batch,
                         settings,
                         uv_rect,
                         backend=partition.backend,
                         edge_indices=partition.edge_indices,
                         evaluator_policy_counts=(
                             evaluation.policy_counts
-                            if partition.backend == "PATCH_VORONOI"
+                            if partition.backend == DecalBackendKind.PATCH_VORONOI
                             else None
                         ),
                         evaluation_ms=evaluation.evaluation_ms,
@@ -2460,6 +2548,7 @@ def generate_decal_result(
 ) -> DecalGenerationResult:
     """Генерирует decal и возвращает status без исключений geometry runtime."""
 
+    failure_policy = PreviewFailurePolicy.CLEAR
     backend_summary = getattr(decal_plan, "backend_summary", "")
     if mode not in DECAL_MODES:
         return DecalGenerationResult(
@@ -2515,15 +2604,6 @@ def generate_decal_result(
         )
     if scene is None:
         scene = bpy.context.scene
-    object_name = (
-        (
-            preview_state.object_name
-            if preview_state is not None and preview_state.object_name
-            else _decal_preview_object_name(mode, source_obj)
-        )
-        if preview
-        else _decal_object_name(mode, source_obj)
-    )
     try:
         transaction = _generate_decal_transaction(
             graph,
@@ -2538,53 +2618,29 @@ def generate_decal_result(
             preview_state,
         )
     except Exception as exc:
-        if mode == "SEAMS" and preview:
-            # Ошибка должна быть видима: старый корректный preview не имеет
-            # права маскировать провал текущей ширины или topology scope.
+        if preview and failure_policy == PreviewFailurePolicy.CLEAR:
             remove_decal_preview_object(
                 mode,
                 source_obj,
                 preview_state,
             )
-            retained = None
-        else:
-            retained = (
-                _existing_decal_preview_object(object_name)
-                if preview
-                else None
-            )
         return DecalGenerationResult(
-            (
-                PreviewStatus.RETAINED_LAST_VALID
-                if retained is not None
-                else PreviewStatus.ERROR
-            ),
-            getattr(retained, "name", None),
+            PreviewStatus.ERROR,
+            None,
             reason=str(exc),
             backend_summary=backend_summary,
         )
 
     if transaction.obj is None:
-        if mode == "SEAMS" and preview:
+        if preview and failure_policy == PreviewFailurePolicy.CLEAR:
             remove_decal_preview_object(
                 mode,
                 source_obj,
                 preview_state,
             )
-            retained = None
-        else:
-            retained = (
-                _existing_decal_preview_object(object_name)
-                if preview
-                else None
-            )
         return DecalGenerationResult(
-            (
-                PreviewStatus.RETAINED_LAST_VALID
-                if retained is not None
-                else PreviewStatus.EMPTY
-            ),
-            getattr(retained, "name", None),
+            PreviewStatus.EMPTY,
+            None,
             reason="generation produced no faces",
             backend_summary=backend_summary,
         )

@@ -22,6 +22,15 @@ from cftuv.decal_voronoi import (
 )
 from cftuv.model import PatchNode
 
+from analysis_surface_fixtures import attach_patch_surface
+
+_build_intrinsic_strip_charts = build_intrinsic_strip_charts
+
+
+def build_intrinsic_strip_charts(node, *args, **kwargs):
+    kwargs["patch_surface"] = node._test_patch_surface
+    return _build_intrinsic_strip_charts(node, *args, **kwargs)
+
 
 def _periodic_annulus(segment_count=8):
     from math import cos, pi, sin
@@ -83,6 +92,9 @@ def _periodic_annulus(segment_count=8):
         normal=Vector((1.0, 0.0, 0.0)),
         basis_u=Vector((0.0, 1.0, 0.0)),
         basis_v=Vector((0.0, 0.0, 1.0)),
+    )
+    attach_patch_surface(
+        node,
         mesh_verts=positions,
         mesh_vert_indices=list(range(len(positions))),
         mesh_tris=triangles,
@@ -178,11 +190,14 @@ def _folded_patch():
     for triangle in triangles:
         first, second, third = (positions[index] for index in triangle)
         normals.append((second - first).cross(third - first).normalized())
-    return PatchNode(
+    node = PatchNode(
         patch_id=61,
         face_indices=[10, 11],
         centroid=sum(positions, Vector()) / len(positions),
         normal=(normals[0] + normals[1]).normalized(),
+    )
+    return attach_patch_surface(
+        node,
         mesh_verts=list(positions),
         mesh_vert_indices=[0, 1, 2, 3],
         mesh_tris=list(triangles),

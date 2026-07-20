@@ -11,6 +11,15 @@ from cftuv.decal_charts import (
 )
 from cftuv.model import PatchNode
 
+from analysis_surface_fixtures import attach_patch_surface
+
+_build_intrinsic_strip_charts = build_intrinsic_strip_charts
+
+
+def build_intrinsic_strip_charts(node, *args, **kwargs):
+    kwargs["patch_surface"] = node._test_patch_surface
+    return _build_intrinsic_strip_charts(node, *args, **kwargs)
+
 
 def _node(
     positions,
@@ -21,9 +30,12 @@ def _node(
     triangle_edge_indices=None,
 ):
     face_ids = face_ids or list(range(100, 100 + len(triangles)))
-    return PatchNode(
+    node = PatchNode(
         patch_id=patch_id,
         face_indices=sorted(set(face_ids)),
+    )
+    return attach_patch_surface(
+        node,
         mesh_verts=[Vector(position) for position in positions],
         mesh_vert_indices=list(range(len(positions))),
         mesh_tris=list(triangles),

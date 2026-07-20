@@ -7,6 +7,7 @@ from mathutils import Vector
 from cftuv import decal_rails
 from cftuv.model import BoundaryChain, BoundaryLoop, PatchGraph, PatchNode
 from decal_rail_fixtures import (
+    analysis_bundle_from_graph_faces,
     planar_shallow_dihedral_strip,
     rr9_rf16_ambiguous_terminal_fan,
     rr9_rf16_terminal_fold_caps,
@@ -17,6 +18,7 @@ from decal_rail_fixtures import (
     rr9b_rf22_one_sided_boundary_continuation,
     rr8c_rf27_segmented_contour,
     rr10_rf7_opposing_cylinder,
+    rebuild_analysis_bundle,
 )
 
 
@@ -79,7 +81,7 @@ def _mesh_graph(vertices, faces, spine_pairs, *, extra_pchain_pairs=()):
     node.boundary_loops = [BoundaryLoop(chains=[chain])]
     graph = PatchGraph()
     graph.add_node(node)
-    return graph, edge_ids
+    return analysis_bundle_from_graph_faces(graph, vertices, faces, edge_ids), edge_ids
 
 
 def _quad_strip(*, with_ambiguity=False):
@@ -192,11 +194,17 @@ def test_rf7_freeze_is_compile_static_across_drag_and_enumeration():
 
 def test_rf7_mid_edge_freeze_uses_source_edge_station_key():
     graph, _edge_ids, selected, _vertex_at = rr10_rf7_opposing_cylinder()
-    node = graph.nodes[0]
-    for vertex_id in range(8, 16):
-        local_index = node.mesh_vert_indices.index(vertex_id)
-        point = node.mesh_verts[local_index]
-        node.mesh_verts[local_index] = Vector((point.x, point.y, 0.5))
+    graph = rebuild_analysis_bundle(
+        graph,
+        vertex_updates={
+            vertex_id: (
+                graph.patch_surface.vertex_by_id[vertex_id].position[0],
+                graph.patch_surface.vertex_by_id[vertex_id].position[1],
+                0.5,
+            )
+            for vertex_id in range(8, 16)
+        },
+    )
 
     plan = decal_rails.compile_decal_rail_plan(
         graph,
@@ -283,20 +291,21 @@ def test_r0_shallow_nonplanar_ngon_normal_is_permutation_stable():
             (vertex_at[(0, 1)], vertex_at[(0, 2)]),
         )
     )
-    node = graph.nodes[0]
     lifted_vertex = vertex_at[(1, 1)]
-    local_index = node.mesh_vert_indices.index(lifted_vertex)
-    point = node.mesh_verts[local_index]
-    node.mesh_verts[local_index] = Vector((point.x, point.y, 1.0e-6))
+    point = graph.patch_surface.vertex_by_id[lifted_vertex].position
+    graph = rebuild_analysis_bundle(
+        graph,
+        vertex_updates={
+            lifted_vertex: (point[0], point[1], 1.0e-6),
+        },
+    )
 
     forward = decal_rails.compile_decal_rail_plan(
         graph,
         selected,
         alpha_budget=1.0,
     )
-    node.mesh_tris.reverse()
-    node.mesh_tri_face_indices.reverse()
-    node.mesh_tri_edge_indices.reverse()
+    graph = rebuild_analysis_bundle(graph, reverse_triangles=True)
     reversed_plan = decal_rails.compile_decal_rail_plan(
         graph,
         tuple(reversed(selected)),

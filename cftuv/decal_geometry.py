@@ -7,7 +7,9 @@ offset-плоскостей owner surfaces.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
+from enum import Enum
+from math import isfinite
 
 from mathutils import Vector
 
@@ -17,6 +19,10 @@ from .constants import DECAL_COPLANAR_DOT
 __all__ = (
     "DecalGeometryFace",
     "DomainLocation",
+    "GeometryBatch",
+    "GeometryBatchValidationError",
+    "GeometryFace",
+    "geometry_batch_from_faces",
     "lift_offset_position",
     "polygon_area2",
     "segment_point_distance2",
@@ -53,6 +59,162 @@ class DecalGeometryFace:
     v_lengths: list
     component_kind: str = "SURFACE"
     component_side: str = ""
+
+
+@dataclass(frozen=True)
+class GeometryFace:
+    """Deeply immutable adapter payload emitted by a decal evaluator."""
+
+    surface_id: int
+    surface_normal: tuple[float, float, float]
+    vert_keys: tuple
+    positions: tuple[tuple[float, float, float], ...]
+    u_fracs: tuple[float, ...]
+    v_lengths: tuple[float, ...]
+    component_kind: str = "SURFACE"
+    component_side: str = ""
+    provenance: object | None = None
+
+
+@dataclass(frozen=True)
+class GeometryBatch:
+    """Single immutable source consumed by both preview and materializer."""
+
+    faces: tuple[GeometryFace, ...]
+    diagnostics: tuple[tuple[str, object], ...] = ()
+
+    def __post_init__(self):
+        if not isinstance(self.faces, tuple):
+            raise GeometryBatchValidationError(-1, "faces_not_tuple")
+        if not isinstance(self.diagnostics, tuple):
+            raise GeometryBatchValidationError(-1, "diagnostics_not_tuple")
+        for face_index, face in enumerate(self.faces):
+            if not isinstance(face, GeometryFace):
+                raise GeometryBatchValidationError(
+                    face_index, "face_not_immutable_geometry_face"
+                )
+            lengths = (
+                len(face.vert_keys),
+                len(face.positions),
+                len(face.u_fracs),
+                len(face.v_lengths),
+            )
+            if len(set(lengths)) != 1 or lengths[0] < 3:
+                raise GeometryBatchValidationError(
+                    face_index, f"loop_lengths={lengths}"
+                )
+            if not all(
+                isinstance(values, tuple)
+                for values in (
+                    face.surface_normal,
+                    face.vert_keys,
+                    face.positions,
+                    face.u_fracs,
+                    face.v_lengths,
+                )
+            ):
+                raise GeometryBatchValidationError(
+                    face_index, "mutable_loop_payload"
+                )
+            if len(face.surface_normal) != 3 or any(
+                not isfinite(float(value)) for value in face.surface_normal
+            ):
+                raise GeometryBatchValidationError(
+                    face_index, "invalid_surface_normal"
+                )
+            if any(
+                len(position) != 3
+                or any(not isfinite(float(value)) for value in position)
+                for position in face.positions
+            ):
+                raise GeometryBatchValidationError(
+                    face_index, "invalid_position"
+                )
+            if any(
+                not isfinite(float(value))
+                for values in (face.u_fracs, face.v_lengths)
+                for value in values
+            ):
+                raise GeometryBatchValidationError(
+                    face_index, "invalid_uv_fact"
+                )
+            try:
+                if len(set(face.vert_keys)) != len(face.vert_keys):
+                    raise GeometryBatchValidationError(
+                        face_index, "repeated_vert_keys"
+                    )
+            except TypeError as exc:
+                raise GeometryBatchValidationError(
+                    face_index, "unhashable_vert_key"
+                ) from exc
+            if not _deeply_immutable(face.provenance):
+                raise GeometryBatchValidationError(
+                    face_index, "mutable_provenance"
+                )
+        for diagnostic in self.diagnostics:
+            if (
+                not isinstance(diagnostic, tuple)
+                or len(diagnostic) != 2
+                or not isinstance(diagnostic[0], str)
+                or not _deeply_immutable(diagnostic[1])
+            ):
+                raise GeometryBatchValidationError(-1, "mutable_diagnostic")
+
+
+class GeometryBatchValidationError(ValueError):
+    """Evaluator output is invalid before either adapter can observe it."""
+
+    def __init__(self, face_index: int, reason: str):
+        self.face_index = int(face_index)
+        self.reason = str(reason)
+        super().__init__(
+            "DECAL_GEOMETRY_BATCH_INVALID: "
+            f"face={self.face_index} {self.reason}"
+        )
+
+
+def _deeply_immutable(value):
+    if value is None or isinstance(value, (str, bytes, int, float, bool, Enum)):
+        return True
+    if isinstance(value, tuple):
+        return all(_deeply_immutable(item) for item in value)
+    if isinstance(value, frozenset):
+        return all(_deeply_immutable(item) for item in value)
+    if is_dataclass(value):
+        params = getattr(type(value), "__dataclass_params__", None)
+        return bool(params and params.frozen) and all(
+            _deeply_immutable(getattr(value, item.name)) for item in fields(value)
+        )
+    return False
+
+
+def geometry_batch_from_faces(faces, *, diagnostics=()) -> GeometryBatch:
+    """Freeze mutable builder faces before any display/materialize adapter."""
+
+    frozen_faces = []
+    for face in faces:
+        frozen_faces.append(
+            GeometryFace(
+                surface_id=int(face.surface_id),
+                surface_normal=tuple(float(value) for value in face.surface_normal),
+                vert_keys=tuple(face.vert_keys),
+                positions=tuple(
+                    tuple(float(value) for value in position)
+                    for position in face.positions
+                ),
+                u_fracs=tuple(float(value) for value in face.u_fracs),
+                v_lengths=tuple(float(value) for value in face.v_lengths),
+                component_kind=str(
+                    getattr(face, "component_kind", "") or "SURFACE"
+                ),
+                component_side=str(getattr(face, "component_side", "") or ""),
+                provenance=getattr(face, "rail_provenance", None),
+            )
+        )
+    return GeometryBatch(
+        faces=tuple(frozen_faces),
+        diagnostics=tuple(diagnostics),
+    )
 
 
 def polygon_area2(points):

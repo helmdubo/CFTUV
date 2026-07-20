@@ -16,6 +16,13 @@ from decal_organic_fixtures import (
     tight_sphere_fixture,
 )
 
+_build_intrinsic_strip_charts = build_intrinsic_strip_charts
+
+
+def build_intrinsic_strip_charts(node, *args, **kwargs):
+    kwargs["patch_surface"] = node._test_patch_surface
+    return _build_intrinsic_strip_charts(node, *args, **kwargs)
+
 
 def _measure(fixture):
     node, seeds, alpha = fixture

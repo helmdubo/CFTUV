@@ -4650,7 +4650,15 @@ def compile_planar_rail_geometry_attempt(
     """Compile-only PLANAR admission одного физического spine-компонента."""
 
     try:
-        if str(join_mode).upper() == "BEVEL":
+        join_mode_value = str(
+            getattr(join_mode, "value", join_mode)
+        ).upper()
+        if join_mode_value not in {"MITER", "BEVEL"}:
+            raise _RailGeometryCompileError(
+                "RAIL_GEOMETRY_JOIN_MODE_UNSUPPORTED",
+                edge_indices=edge_indices,
+            )
+        if join_mode_value == "BEVEL":
             # R1 rail-corner cells пока поддерживают только stable A10
             # MITER. Явный отказ маршрутизирует selection в Patch backend,
             # где переключатель не будет тихо проигнорирован.

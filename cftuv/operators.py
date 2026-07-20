@@ -19,8 +19,8 @@ from bpy.props import (
     StringProperty,
 )
 from .analysis import (
+    build_analysis_bundle,
     build_straighten_structural_support,
-    build_patch_graph,
     format_patch_graph_report,
     format_patch_graph_snapshot_report,
     format_solver_input_preflight_report,
@@ -746,9 +746,9 @@ def _prepare_patch_graph(
     make_seams_by_sharp=False,
     use_all_faces=False,
 ):
-    """Prepare PatchGraph from the current context.
+    """Prepare an atomic AnalysisBundle from the current context.
 
-    Returns: (obj, bm, patch_graph, original_mode, selected_face_indices)
+    Returns: (obj, bm, analysis_bundle, original_mode, selected_face_indices)
     """
     obj = context.active_object
     if obj is None or obj.type != 'MESH':
@@ -789,8 +789,8 @@ def _prepare_patch_graph(
                 selection_message = _highlight_solver_preflight_issues(context, obj, bm, preflight)
                 raise _SolverPreflightSelectionError(report.summary, selection_message)
 
-        patch_graph = build_patch_graph(bm, face_indices, obj)
-        return obj, bm, patch_graph, original_mode, selected_face_indices
+        analysis_bundle = build_analysis_bundle(bm, face_indices, obj)
+        return obj, bm, analysis_bundle, original_mode, selected_face_indices
     except _SolverPreflightSelectionError:
         raise
     except Exception:
@@ -831,7 +831,7 @@ def _prepare_decal_generation(context):
                 "Edge Select Mode: select one or more seam-marked edges"
             )
 
-    obj, _bm, patch_graph, original_mode, selected_faces = _prepare_patch_graph(
+    obj, _bm, analysis_bundle, original_mode, selected_faces = _prepare_patch_graph(
         context,
         require_selection=not manual_selection,
         use_all_faces=manual_selection,
@@ -840,7 +840,7 @@ def _prepare_decal_generation(context):
         chain_refs = None
         if manual_selection:
             chain_refs = chain_refs_for_edge_indices(
-                patch_graph, selected_edge_indices
+                analysis_bundle.patch_graph, selected_edge_indices
             )
             if not chain_refs:
                 raise ValueError(
@@ -849,7 +849,7 @@ def _prepare_decal_generation(context):
         settings = DecalSettings.from_blender_settings(decal_settings)
         return (
             obj,
-            patch_graph,
+            analysis_bundle,
             settings,
             chain_refs,
             manual_selection,
@@ -864,12 +864,13 @@ def _prepare_decal_generation(context):
 
 def _build_solve_state(context, make_seams_by_sharp=False):
     """Полный solve state: PatchGraph + SolverGraph + SolvePlan + UVSettings."""
-    obj, bm, patch_graph, original_mode, sel = _prepare_patch_graph(
+    obj, bm, analysis_bundle, original_mode, sel = _prepare_patch_graph(
         context,
         require_selection=True,
         validate_for_solver=True,
         make_seams_by_sharp=make_seams_by_sharp,
     )
+    patch_graph = analysis_bundle.patch_graph
     settings = UVSettings.from_blender_settings(context.scene.hotspotuv_settings)
     solver_graph = build_solver_graph(
         patch_graph,
@@ -1438,12 +1439,16 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         controller = getattr(self, "_modal_gpu_preview", None)
         if controller is None or controller.failed or not preview:
             return None
-        result = evaluate_manual_seam_faces(
-            state[0],
-            settings,
-            self._modal_decal_plan,
-            preview=True,
-        )
+        try:
+            result = evaluate_manual_seam_faces(
+                state[0],
+                settings,
+                self._modal_decal_plan,
+                preview=True,
+            )
+        except Exception:
+            controller.update((), "ERROR")
+            raise
         if not result.faces:
             controller.update((), "EMPTY")
             return DecalGenerationResult(
@@ -1452,7 +1457,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                 reason="evaluation produced no faces",
                 evaluation_ms=result.evaluation_ms,
             )
-        outcome = controller.update(result.faces, "UPDATED")
+        outcome = controller.update(result.geometry_batch, "UPDATED")
         if outcome == "FAILED":
             self._modal_gpu_preview = None
             return None
@@ -1466,7 +1471,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
     def _generate(self, context, state, settings=None, preview=False):
         (
             obj,
-            patch_graph,
+            analysis_bundle,
             base_settings,
             chain_refs,
             _manual,
@@ -1480,7 +1485,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             if gpu_result is not None:
                 return gpu_result
         return generate_decal_result(
-            patch_graph,
+            analysis_bundle,
             obj,
             settings or base_settings,
             self.mode,
@@ -1929,9 +1934,8 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                     )
                 )
             except Exception as exc:
-                # SEAMS не подтверждает старый кадр после ошибки: текущий
-                # дефект должен оставаться видимым. Остальные producer'ы
-                # сохраняют прежнюю last-valid семантику.
+                # Единственная preview failure policy — CLEAR: текущий
+                # дефект не маскируется старым валидным кадром.
                 self._modal_last_preview_error = str(exc)
                 if self._domain_budget_exceeded(exc):
                     self._modal_pending_budget_settings = settings
@@ -1945,11 +1949,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                         if self._domain_budget_exceeded(exc)
                         else self._modal_current_value
                     ),
-                    (
-                        f"ERROR: {exc}"
-                        if self.mode == "SEAMS"
-                        else f"RETAINED_LAST_VALID: {exc}"
-                    ),
+                    f"ERROR: {exc}",
                 )
                 return {"RUNNING_MODAL"}
             if generation.status != PreviewStatus.UPDATED:

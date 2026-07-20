@@ -8,6 +8,7 @@ from mathutils import Vector
 
 from cftuv.decal_charts import ChartSiteSeed
 from cftuv.model import BoundaryChain, BoundaryLoop, PatchNode
+from analysis_surface_fixtures import attach_patch_surface
 
 
 def _surface_fixture(
@@ -73,6 +74,9 @@ def _surface_fixture(
         normal=Vector((0.0, 0.0, 1.0)),
         basis_u=Vector((1.0, 0.0, 0.0)),
         basis_v=Vector((0.0, 1.0, 0.0)),
+    )
+    attach_patch_surface(
+        node,
         mesh_verts=positions,
         mesh_vert_indices=list(range(len(positions))),
         mesh_tris=triangles,
@@ -266,6 +270,9 @@ def _indexed_surface_fixture(
         normal=Vector((0.0, 0.0, 1.0)),
         basis_u=Vector((1.0, 0.0, 0.0)),
         basis_v=Vector((0.0, 1.0, 0.0)),
+    )
+    attach_patch_surface(
+        node,
         mesh_verts=list(positions),
         mesh_vert_indices=list(range(len(positions))),
         mesh_tris=triangles,

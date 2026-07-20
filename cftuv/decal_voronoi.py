@@ -55,6 +55,7 @@ from .decal_geometry import (
     polygon_area2,
     segment_point_distance2,
 )
+from .surface_ir import AnalysisBundle, AnalysisSchemaError, DecalBackendKind
 
 
 # Compatibility aliases для internal tests/старых scripts. Источник shared
@@ -63,6 +64,68 @@ _NetworkFace = DecalGeometryFace
 _lift_position = lift_offset_position
 _polygon_area2 = polygon_area2
 _segment_point_distance2 = segment_point_distance2
+
+
+@dataclass(frozen=True)
+class _PatchSurfaceNodeView:
+    """Read-only algorithm view derived from one PatchSurfaceIR patch."""
+
+    node: object
+    mesh_verts: tuple
+    mesh_vert_indices: tuple[int, ...]
+    mesh_tris: tuple[tuple[int, int, int], ...]
+    mesh_tri_face_indices: tuple[int, ...]
+    mesh_tri_face_normals: tuple
+    mesh_tri_edge_indices: tuple[tuple[int, int, int], ...]
+    source_face_normals: tuple[tuple[int, tuple[float, float, float]], ...]
+
+    def __getattr__(self, name):
+        return getattr(self.node, name)
+
+
+def _patch_surface_node_view(node, patch_surface):
+    triangles = patch_surface.patch_triangles(node.patch_id)
+    source_vertex_ids = tuple(
+        sorted(
+            {
+                vertex_id
+                for triangle in triangles
+                for vertex_id in triangle.vertex_ids
+            }
+        )
+    )
+    local_by_source = {
+        vertex_id: local_index
+        for local_index, vertex_id in enumerate(source_vertex_ids)
+    }
+    vertex_by_id = patch_surface.vertex_by_id
+    face_by_id = patch_surface.face_by_id
+    return _PatchSurfaceNodeView(
+        node=node,
+        mesh_verts=tuple(
+            Vector(vertex_by_id[vertex_id].position)
+            for vertex_id in source_vertex_ids
+        ),
+        mesh_vert_indices=source_vertex_ids,
+        mesh_tris=tuple(
+            tuple(local_by_source[vertex_id] for vertex_id in triangle.vertex_ids)
+            for triangle in triangles
+        ),
+        mesh_tri_face_indices=tuple(
+            int(triangle.source_face_id) for triangle in triangles
+        ),
+        mesh_tri_face_normals=tuple(
+            Vector(triangle.triangle_normal) for triangle in triangles
+        ),
+        mesh_tri_edge_indices=tuple(
+            tuple(-1 if edge_id is None else int(edge_id) for edge_id in triangle.physical_edge_ids)
+            for triangle in triangles
+        ),
+        source_face_normals=tuple(
+            (face.face_id, face.polygon_normal)
+            for face in patch_surface.patch_faces(node.patch_id)
+        ),
+    )
 
 try:
     import pyvoronoi
@@ -98,13 +161,12 @@ class DecalCornerJoinArchivedError(RuntimeError):
 def require_decal_corner_join_available(settings):
     """Fail-fast для persisted/scripted BEVEL без коэрции в MITER."""
 
-    join_mode = str(
-        getattr(
-            settings,
-            "corner_join_mode",
-            getattr(settings, "join_mode", "MITER"),
-        )
-    ).upper()
+    join_mode_value = getattr(
+        settings,
+        "corner_join_mode",
+        getattr(settings, "join_mode", "MITER"),
+    )
+    join_mode = str(getattr(join_mode_value, "value", join_mode_value)).upper()
     if join_mode == "BEVEL":
         raise DecalCornerJoinArchivedError()
 
@@ -212,9 +274,11 @@ class CornerRuntimeSettings:
         object.__setattr__(
             self, "dynamic_corner_bands", bool(dynamic_corner_bands)
         )
-        join_mode = str(join_mode).upper()
+        join_mode = str(getattr(join_mode, "value", join_mode)).upper()
         if join_mode not in {"MITER", "BEVEL"}:
-            join_mode = "MITER"
+            raise ValueError(
+                f"DECAL_CORNER_JOIN_MODE_UNSUPPORTED:{join_mode}"
+            )
         object.__setattr__(self, "join_mode", join_mode)
 
     @property
@@ -3972,16 +4036,16 @@ def _provenance_owner_surfaces(node, raw_sites):
     """
 
     triangles_by_face = {}
-    normals_by_face = {}
-    for triangle, face_index, face_normal in zip(
+    normals_by_face = {
+        int(face_id): Vector(normal)
+        for face_id, normal in node.source_face_normals
+    }
+    for triangle, face_index in zip(
         node.mesh_tris,
         node.mesh_tri_face_indices,
-        node.mesh_tri_face_normals,
     ):
         face_index = int(face_index)
         triangles_by_face.setdefault(face_index, []).append(tuple(triangle))
-        if face_normal.length_squared > _GEOMETRY_EPS:
-            normals_by_face.setdefault(face_index, face_normal.normalized())
 
     group_by_face = {}
     triangles_by_group = {}
@@ -6381,7 +6445,7 @@ def _intrinsic_chart_site_seeds(node, patch_sites):
 
 
 def compile_patch_voronoi_attempt(
-    graph,
+    analysis_bundle,
     selected_edge_indices,
     offset,
     *,
@@ -6398,6 +6462,14 @@ def compile_patch_voronoi_attempt(
     потребовать исключить дополнительные соседние edges и повторный compile.
     """
 
+    if not isinstance(analysis_bundle, AnalysisBundle):
+        raise AnalysisSchemaError(
+            "DECAL_ANALYSIS_SCHEMA_UNSUPPORTED",
+            "Patch Voronoi compiler requires AnalysisBundle",
+        )
+    analysis_bundle.capabilities.require_supported()
+    graph = analysis_bundle.patch_graph
+    patch_surface = analysis_bundle.patch_surface
     requested_alpha_budget = (
         float("inf") if alpha_budget is None else float(alpha_budget)
     )
@@ -6461,7 +6533,10 @@ def compile_patch_voronoi_attempt(
     rejected_edges = set(rejected_internal_edges)
     failures = list(internal_failures)
     for patch_id in sorted(raw_by_patch):
-        node = graph.nodes[patch_id]
+        node = _patch_surface_node_view(
+            graph.nodes[patch_id],
+            patch_surface,
+        )
         patch_sites = raw_by_patch[patch_id]
         if _patch_is_planar(node):
             owner_surfaces = ((node, patch_sites, None),)
@@ -6475,6 +6550,7 @@ def compile_patch_voronoi_attempt(
                     node,
                     chart_seeds,
                     alpha_budget=chart_budget,
+                    patch_surface=patch_surface,
                 )
                 charts = tuple(
                     admit_intrinsic_strip_runtime(
@@ -6694,7 +6770,7 @@ def compile_patch_voronoi_attempt(
 
 
 def compile_patch_voronoi_plan(
-    graph,
+    analysis_bundle,
     selected_edge_indices,
     offset,
     *,
@@ -6705,7 +6781,7 @@ def compile_patch_voronoi_plan(
     """Строго компилирует все touched surfaces без смены backend."""
 
     return compile_patch_voronoi_attempt(
-        graph,
+        analysis_bundle,
         selected_edge_indices,
         offset,
         allow_partial=False,
@@ -14187,7 +14263,7 @@ def _surface_terminal_bridge_points(
     edge_by_id = {edge.edge_id: edge for edge in rail_plan.edges}
     for terminal in terminal_routing or ():
         if (
-            terminal.backend != "PATCH_VORONOI"
+            terminal.backend != DecalBackendKind.PATCH_VORONOI
             or terminal.patch_id != surface.patch_id
             or terminal.choice == "PERP"
         ):
@@ -15332,7 +15408,7 @@ def evaluate_patch_voronoi_plan(
             terminal.route_id,
         )
         for terminal in terminal_routing or ()
-        if terminal.backend == "PATCH_VORONOI"
+        if terminal.backend == DecalBackendKind.PATCH_VORONOI
         and terminal.choice != "PERP"
     }
     consumed_terminal_ids = set()

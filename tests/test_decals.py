@@ -14,6 +14,11 @@ from cftuv.decals import (
     _collect_manual_edge_decals,
     _stitch_corner_runs,
 )
+from cftuv.decal_geometry import (
+    DecalGeometryFace,
+    GeometryBatchValidationError,
+    geometry_batch_from_faces,
+)
 from cftuv.model import (
     BoundaryChain,
     BoundaryLoop,
@@ -22,6 +27,11 @@ from cftuv.model import (
     PatchType,
     DecalSettings,
 )
+from analysis_surface_fixtures import analysis_bundle_from_graph
+
+
+def _analysis_bundle(graph=None):
+    return analysis_bundle_from_graph(graph or PatchGraph())
 
 
 def _make_wall_node(patch_id, normal, basis_v, chains):
@@ -42,6 +52,22 @@ def _backend_test_run(edge_indices, vert_indices):
         segment_normals_b=[Vector((0.0, 1.0, 0.0))] * segment_count,
         segment_convexities=[0.0] * segment_count,
         segment_edge_indices=list(edge_indices),
+    )
+
+
+def _geometry_face(label):
+    return DecalGeometryFace(
+        surface_id=0,
+        surface_normal=Vector((0.0, 0.0, 1.0)),
+        vert_keys=[(label, 0), (label, 1), (label, 2)],
+        positions=[
+            Vector((0.0, 0.0, 0.0)),
+            Vector((1.0, 0.0, 0.0)),
+            Vector((0.0, 1.0, 0.0)),
+        ],
+        u_fracs=[0.0, 1.0, 0.0],
+        v_lengths=[0.0, 0.0, 1.0],
+        component_kind=label,
     )
 
 
@@ -175,7 +201,7 @@ def test_manual_seam_plan_rejects_failed_topology_component_atomically(
     )
 
     plan = decals_module.compile_manual_seam_decal_plan(
-        object(), DecalSettings(), (1, 2, 10)
+        _analysis_bundle(), DecalSettings(), (1, 2, 10)
     )
 
     assert strict_calls == [(10,)]
@@ -313,7 +339,7 @@ def test_r0_manual_compile_ignores_legacy_toggle_and_attempts_modern_backend(
         "compile_decal_rail_attempt",
         compile_rails,
     )
-    graph = object()
+    analysis_bundle = _analysis_bundle()
     patch_plan = SimpleNamespace(backend_kind="PLANAR")
     patch_calls = []
     monkeypatch.setattr(
@@ -331,7 +357,7 @@ def test_r0_manual_compile_ignores_legacy_toggle_and_attempts_modern_backend(
     settings = DecalSettings(seam_network=seam_network)
 
     plan = decals_module.compile_manual_seam_decal_plan(
-        graph,
+        analysis_bundle,
         settings,
         (7,),
         alpha_budget=3.0,
@@ -340,7 +366,7 @@ def test_r0_manual_compile_ignores_legacy_toggle_and_attempts_modern_backend(
 
     assert rail_calls == [
         (
-            graph,
+            analysis_bundle,
             (7,),
             {
                 "alpha_budget": 3.0,
@@ -413,7 +439,7 @@ def test_r1_mixed_success_scope_stays_on_joint_patch_competition(monkeypatch):
     )
 
     plan = decals_module.compile_manual_seam_decal_plan(
-        object(),
+        _analysis_bundle(),
         DecalSettings(),
         (1, 2, 10),
         alpha_budget=3.0,
@@ -506,7 +532,7 @@ def test_r1_face_disjoint_scope_can_use_multiple_rail_partitions(monkeypatch):
     )
 
     plan = decals_module.compile_manual_seam_decal_plan(
-        object(),
+        _analysis_bundle(),
         DecalSettings(),
         (1, 2, 10),
         alpha_budget=3.0,
@@ -575,7 +601,7 @@ def test_r1_same_face_components_stay_on_joint_patch_competition(monkeypatch):
     )
 
     plan = decals_module.compile_manual_seam_decal_plan(
-        object(),
+        _analysis_bundle(),
         DecalSettings(),
         (1, 2, 10),
         alpha_budget=3.0,
@@ -689,7 +715,7 @@ def test_r1_miter_scale_recompiles_trace_to_preserve_effective_headroom(
     )
 
     plan = decals_module.compile_manual_seam_decal_plan(
-        object(),
+        _analysis_bundle(),
         DecalSettings(corner_acute_split_angle=pi / 180.0),
         (7,),
         alpha_budget=base_budget,
@@ -766,7 +792,7 @@ def test_r1_extended_trace_failure_keeps_whole_scope_on_patch(monkeypatch):
     )
 
     plan = decals_module.compile_manual_seam_decal_plan(
-        object(),
+        _analysis_bundle(),
         DecalSettings(),
         (7,),
         alpha_budget=2.0,
@@ -796,7 +822,7 @@ def test_r1_planar_partition_uses_strict_rail_evaluator(monkeypatch):
         decals_module,
         "evaluate_planar_rail_geometry_plan",
         lambda plan, width, **kwargs: (
-            calls.append((plan, width, kwargs)) or ("rail-face",)
+            calls.append((plan, width, kwargs)) or (_geometry_face("rail-face"),)
         ),
     )
 
@@ -807,7 +833,7 @@ def test_r1_planar_partition_uses_strict_rail_evaluator(monkeypatch):
         True,
     )
 
-    assert evaluation.faces == ("rail-face",)
+    assert evaluation.faces[0].component_kind == "rail-face"
     assert evaluation.evaluation_ms >= 0.0
     assert calls == [
         (
@@ -951,7 +977,7 @@ def test_patch_voronoi_partition_forwards_runtime_corner_settings(
         kwargs["diagnostics"].runtime_policy_counts.update(
             {"MITER": 12, "KITE": 3, "ACUTE_SPLIT": 2}
         )
-        return ("face",)
+        return (_geometry_face("face"),)
 
     monkeypatch.setattr(
         decals_module, "evaluate_patch_voronoi_plan", evaluate
@@ -967,7 +993,7 @@ def test_patch_voronoi_partition_forwards_runtime_corner_settings(
         rail_plan=rail_plan,
         terminal_routing=terminal_routing,
     )
-    assert evaluation.faces == ("face",)
+    assert evaluation.faces[0].component_kind == "face"
     assert evaluation.evaluation_ms >= 0.0
     assert evaluation.policy_counts == (
         ("ACUTE_SPLIT", 2),
@@ -2017,6 +2043,8 @@ def test_compatibility_seams_empty_preview_removes_object_and_raises(
 def _materialization_face(keys, kind="SEGMENT", side=""):
     count = len(keys)
     return SimpleNamespace(
+        surface_id=0,
+        surface_normal=Vector((0.0, 0.0, 1.0)),
         vert_keys=list(keys),
         positions=[Vector((float(index), float(index % 2), 0.0)) for index in range(count)],
         u_fracs=[float(index) / max(1, count - 1) for index in range(count)],
@@ -2026,7 +2054,7 @@ def _materialization_face(keys, kind="SEGMENT", side=""):
     )
 
 
-def test_materialization_rejects_late_invalid_face_before_any_bmesh_write():
+def test_geometry_batch_rejects_late_invalid_face_before_any_adapter_write():
     valid = _materialization_face((("v", 0), ("v", 1), ("v", 2)))
     invalid = _materialization_face(
         (("v", 3), ("v", 3), ("v", 4)),
@@ -2034,30 +2062,12 @@ def test_materialization_rejects_late_invalid_face_before_any_bmesh_write():
         side="OUTER",
     )
 
-    with pytest.raises(decals_module.DecalMaterializationError) as caught:
-        # ``object()`` доказывает, что preflight нашёл второй face до любого
-        # доступа к BMesh после валидного первого face.
-        decals_module._materialize_network_faces(
-            object(),
-            (valid, invalid),
-            DecalSettings(),
-            (0.0, 0.0, 1.0, 1.0),
-            backend="PATCH_VORONOI",
-            edge_indices=(10, 11),
-        )
+    with pytest.raises(GeometryBatchValidationError) as caught:
+        geometry_batch_from_faces((valid, invalid))
 
     error = caught.value
-    assert error.backend == "PATCH_VORONOI"
-    assert error.edge_indices == (10, 11)
     assert error.face_index == 1
-    assert error.vertex_count == 3
-    assert error.repeated_keys == (("v", 3),)
-    assert error.cycle_keys == (("v", 3), ("v", 3), ("v", 4))
-    assert error.repeated_occurrences == (
-        (("v", 3), (0, 1), ((0, 1),)),
-    )
-    assert error.component_kind == "ACUTE_SPLIT"
-    assert error.component_side == "OUTER"
+    assert error.reason == "repeated_vert_keys"
 
 
 def test_materialization_reports_nonadjacent_repeat_as_bowtie():
@@ -2155,7 +2165,9 @@ def test_materialization_returns_structured_complete_result():
     bm = _FakeMaterializationBMesh()
     result = decals_module._materialize_network_faces(
         bm,
-        (_materialization_face((("v", 0), ("v", 1), ("v", 2))),),
+        geometry_batch_from_faces(
+            (_materialization_face((("v", 0), ("v", 1), ("v", 2))),)
+        ),
         DecalSettings(),
         (0.0, 0.0, 1.0, 1.0),
         backend="PATCH_VORONOI",
@@ -2230,7 +2242,7 @@ def test_invalid_face_frees_transaction_without_publishing(
     def fill(target_bm, *_args, **_kwargs):
         decals_module._materialize_network_faces(
             target_bm,
-            (valid, invalid),
+            geometry_batch_from_faces((valid, invalid)),
             DecalSettings(),
             (0.0, 0.0, 1.0, 1.0),
             backend="PATCH_VORONOI",
@@ -2266,7 +2278,7 @@ def test_invalid_face_frees_transaction_without_publishing(
     monkeypatch.setattr(decals_module, "remove_decal_preview_object", remove)
     source = SimpleNamespace(name="Source")
 
-    with pytest.raises(decals_module.DecalMaterializationError):
+    with pytest.raises(GeometryBatchValidationError):
         decals_module.generate_decal_objects(
             PatchGraph(),
             source,
@@ -2470,7 +2482,7 @@ class TestManualChainDecals:
 
         collection = _collect_manual_edge_decals(graph, [70, 99])
         plan = decals_module.compile_manual_seam_decal_plan(
-            graph, DecalSettings(), (70, 99)
+            _analysis_bundle(graph), DecalSettings(), (70, 99)
         )
 
         assert collection.accepted_edge_indices == (70,)
@@ -2484,14 +2496,14 @@ class TestManualChainDecals:
             rejection.edge_index: rejection.reason
             for rejection in plan.rejected_edges
         } == {
-            70: "MISSING_SITE_FACE_PROVENANCE",
+            70: "EMPTY_PATCH_GEOMETRY",
             99: "NO_BOUNDARY_CHAIN_USE",
         }
         assert plan.accounting_is_exact
         assert plan.backend_summary == (
-            "Unsupported[MISSING_SITE_FACE_PROVENANCE:x1] | "
+            "Unsupported[EMPTY_PATCH_GEOMETRY:x1] | "
             "Failed:2e["
-            "MISSING_SITE_FACE_PROVENANCE:x1,"
+            "EMPTY_PATCH_GEOMETRY:x1,"
             "NO_BOUNDARY_CHAIN_USE:x1]"
         )
 
@@ -2516,7 +2528,7 @@ class TestManualChainDecals:
         node.mesh_tris = [(0, 1, 2), (0, 2, 3)]
 
         plan = decals_module.compile_manual_seam_decal_plan(
-            _make_graph(node), DecalSettings(), (170,)
+            _analysis_bundle(_make_graph(node)), DecalSettings(), (170,)
         )
 
         assert plan.accepted_patch_voronoi_edge_indices == ()

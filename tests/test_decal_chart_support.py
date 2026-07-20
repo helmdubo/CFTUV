@@ -12,6 +12,20 @@ from cftuv.decal_charts import (
 )
 from cftuv.model import PatchNode
 
+from analysis_surface_fixtures import attach_patch_surface
+
+_build_intrinsic_strip_charts = build_intrinsic_strip_charts
+_chart_triangles_from_patch = chart_triangles_from_patch
+
+
+def build_intrinsic_strip_charts(node, *args, **kwargs):
+    kwargs["patch_surface"] = node._test_patch_surface
+    return _build_intrinsic_strip_charts(node, *args, **kwargs)
+
+
+def chart_triangles_from_patch(node):
+    return _chart_triangles_from_patch(node._test_patch_surface, node.patch_id)
+
 
 def _strip_patch(stations, *, patch_id=1, vertex_id_start=0):
     """Строит triangulated strip между двумя рядами заданных stations."""
@@ -38,9 +52,12 @@ def _strip_patch(stations, *, patch_id=1, vertex_id_start=0):
             )
         )
         face_ids.extend((100 + station, 100 + station))
-    return PatchNode(
+    node = PatchNode(
         patch_id=patch_id,
         face_indices=sorted(set(face_ids)),
+    )
+    return attach_patch_surface(
+        node,
         mesh_verts=positions,
         mesh_vert_indices=[
             vertex_id_start + index for index in range(len(positions))
@@ -115,6 +132,9 @@ def test_c1_non_manifold_triangle_edge_is_explicit_failure():
     node = PatchNode(
         patch_id=41,
         face_indices=[1, 2, 3],
+    )
+    attach_patch_surface(
+        node,
         mesh_verts=[
             Vector((0.0, 0.0, 0.0)),
             Vector((1.0, 0.0, 0.0)),

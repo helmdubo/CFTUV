@@ -30,6 +30,32 @@ from cftuv.decal_voronoi import (
 )
 from cftuv.model import BoundaryChain, BoundaryLoop, PatchGraph, PatchNode
 
+from analysis_surface_fixtures import (
+    analysis_bundle_from_graph,
+    attach_patch_surface,
+)
+
+_build_intrinsic_strip_charts = build_intrinsic_strip_charts
+_compile_patch_voronoi_attempt = compile_patch_voronoi_attempt
+_compile_patch_voronoi_plan = compile_patch_voronoi_plan
+
+
+def build_intrinsic_strip_charts(node, *args, **kwargs):
+    kwargs["patch_surface"] = node._test_patch_surface
+    return _build_intrinsic_strip_charts(node, *args, **kwargs)
+
+
+def compile_patch_voronoi_attempt(graph, *args, **kwargs):
+    return _compile_patch_voronoi_attempt(
+        analysis_bundle_from_graph(graph), *args, **kwargs
+    )
+
+
+def compile_patch_voronoi_plan(graph, *args, **kwargs):
+    return _compile_patch_voronoi_plan(
+        analysis_bundle_from_graph(graph), *args, **kwargs
+    )
+
 
 def _closed_tube_graph(
     segment_count=8,
@@ -107,6 +133,9 @@ def _closed_tube_graph(
         normal=Vector((-1.0 if reversed_winding else 1.0, 0.0, 0.0)),
         basis_u=Vector((0.0, 1.0, 0.0)),
         basis_v=Vector((0.0, 0.0, 1.0)),
+    )
+    attach_patch_surface(
+        node,
         mesh_verts=positions,
         mesh_vert_indices=list(range(len(positions))),
         mesh_tris=triangles,

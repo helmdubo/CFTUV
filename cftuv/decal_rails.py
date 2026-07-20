@@ -1,8 +1,9 @@
 """Compile-static rail topology для surface-native decal runtime.
 
-R0 намеренно не материализует геометрию. Модуль читает только сериализованный
-PatchGraph, строит детерминированные edge-loop маршруты и отдаёт immutable IR
-для preview. Ни Blender API, ни Voronoi/chart backend здесь не участвуют.
+R0 намеренно не материализует геометрию. Модуль читает только atomic
+AnalysisBundle: chain-топологию из PatchGraph и исходные polygon cycles /
+нормали из PatchSurfaceIR. Ни Blender API, ни Voronoi/chart backend здесь
+не участвуют.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from enum import Enum
 from math import sqrt
 
 from .constants import DECAL_COPLANAR_DOT
+from .surface_ir import AnalysisBundle, AnalysisSchemaError
 
 
 class RailStationKind(str, Enum):
@@ -306,23 +308,6 @@ def _edge_length(vertex_a, vertex_b):
     return sqrt(sum(component * component for component in delta))
 
 
-def _triangle_edge_vertices(triangle, opposite_slot):
-    """mesh_tri_edge_indices индексируется противоположной вершиной."""
-
-    return (
-        int(triangle[(opposite_slot + 1) % 3]),
-        int(triangle[(opposite_slot + 2) % 3]),
-    )
-
-
-def _cross3(vector_a, vector_b):
-    return (
-        vector_a[1] * vector_b[2] - vector_a[2] * vector_b[1],
-        vector_a[2] * vector_b[0] - vector_a[0] * vector_b[2],
-        vector_a[0] * vector_b[1] - vector_a[1] * vector_b[0],
-    )
-
-
 def _sub3(point_a, point_b):
     return tuple(a - b for a, b in zip(point_a, point_b))
 
@@ -336,96 +321,6 @@ def _normalized3(vector):
     if length <= 0.0:
         return None
     return tuple(component / length for component in vector)
-
-
-def _cycle_normal(vertex_cycle, vertex_positions):
-    """Newell normal сохраняет winding исходной polygon face."""
-
-    normal = [0.0, 0.0, 0.0]
-    for index, vertex_id in enumerate(vertex_cycle):
-        point = vertex_positions[vertex_id]
-        other = vertex_positions[vertex_cycle[(index + 1) % len(vertex_cycle)]]
-        normal[0] += (point[1] - other[1]) * (point[2] + other[2])
-        normal[1] += (point[2] - other[2]) * (point[0] + other[0])
-        normal[2] += (point[0] - other[0]) * (point[1] + other[1])
-    return _normalized3(tuple(normal))
-
-
-def _canonical_face_cycle(
-    face_id,
-    edge_ids,
-    edge_vertices,
-    vertex_positions,
-    oriented_normal,
-):
-    adjacency = defaultdict(list)
-    edge_for_pair = {}
-    for edge_id in sorted(edge_ids):
-        vert_a, vert_b = edge_vertices[edge_id]
-        adjacency[vert_a].append(vert_b)
-        adjacency[vert_b].append(vert_a)
-        edge_for_pair[frozenset((vert_a, vert_b))] = edge_id
-    if len(adjacency) < 3 or any(len(neighbors) != 2 for neighbors in adjacency.values()):
-        raise _RailCompileError(
-            "SOURCE_FACE_CYCLE_INVALID",
-            edge_indices=edge_ids,
-            vertex_indices=adjacency,
-            details=(("face_id", int(face_id)),),
-        )
-
-    start = min(adjacency)
-    cycles = []
-    for first in sorted(adjacency[start]):
-        cycle = [start]
-        previous = start
-        current = first
-        while current != start and len(cycle) <= len(adjacency):
-            cycle.append(current)
-            next_vertices = [
-                vertex for vertex in adjacency[current] if vertex != previous
-            ]
-            if len(next_vertices) != 1:
-                break
-            previous, current = current, next_vertices[0]
-        if current == start and len(cycle) == len(adjacency):
-            cycles.append(tuple(cycle))
-    if not cycles:
-        raise _RailCompileError(
-            "SOURCE_FACE_CYCLE_INVALID",
-            edge_indices=edge_ids,
-            details=(("face_id", int(face_id)),),
-        )
-    if oriented_normal is None:
-        # Provisional winding нужен до определения rail-footprint. Он не
-        # легализует грань: именованный отказ хранится отдельно и применяется
-        # только если materialization действительно коснётся этой грани.
-        vertex_cycle = min(cycles)
-    else:
-        oriented_cycles = [
-            cycle
-            for cycle in cycles
-            if (
-                _cycle_normal(cycle, vertex_positions) is not None
-                and _dot3(
-                    _cycle_normal(cycle, vertex_positions),
-                    oriented_normal,
-                ) > 0.0
-            )
-        ]
-        if len(oriented_cycles) != 1:
-            raise _RailCompileError(
-                "SOURCE_FACE_ORIENTATION_INVALID",
-                edge_indices=edge_ids,
-                details=(("face_id", int(face_id)),),
-            )
-        vertex_cycle = oriented_cycles[0]
-    ordered_edges = tuple(
-        edge_for_pair[
-            frozenset((vertex_cycle[index], vertex_cycle[(index + 1) % len(vertex_cycle)]))
-        ]
-        for index in range(len(vertex_cycle))
-    )
-    return vertex_cycle, ordered_edges
 
 
 def _source_chain_records(graph):
@@ -487,114 +382,35 @@ def _oriented_chain_edge(record, endpoints):
 
 
 def _build_source_topology(
-    graph,
+    analysis_bundle,
     selected_edge_ids,
     marked_edge_ids,
 ):
-    if not hasattr(graph, "nodes"):
-        raise _RailCompileError("PATCH_GRAPH_REQUIRED")
-
-    vertex_positions = {}
-    edge_vertices = {}
-    edge_face_ids = defaultdict(set)
-    face_edge_ids = defaultdict(set)
-    face_triangle_normals = defaultdict(list)
-    face_triangle_vertices = defaultdict(set)
-    face_patch_ids = {}
-
-    for patch_id in sorted(graph.nodes):
-        node = graph.nodes[patch_id]
-        local_vertex_ids = tuple(
-            int(vertex_id) for vertex_id in getattr(node, "mesh_vert_indices", ())
+    if not isinstance(analysis_bundle, AnalysisBundle):
+        raise AnalysisSchemaError(
+            "DECAL_ANALYSIS_SCHEMA_UNSUPPORTED",
+            "rail compiler requires AnalysisBundle",
         )
-        local_positions = tuple(getattr(node, "mesh_verts", ()))
-        triangles = tuple(getattr(node, "mesh_tris", ()))
-        triangle_faces = tuple(getattr(node, "mesh_tri_face_indices", ()))
-        triangle_edges = tuple(getattr(node, "mesh_tri_edge_indices", ()))
-        if not triangles:
-            continue
-        if len(local_vertex_ids) != len(local_positions):
-            raise _RailCompileError(
-                "SOURCE_VERTEX_PROVENANCE_MISSING",
-                details=(("patch_id", int(patch_id)),),
-            )
-        if not (
-            len(triangles) == len(triangle_faces) == len(triangle_edges)
-        ):
-            raise _RailCompileError(
-                "SOURCE_TRIANGLE_PROVENANCE_MISSING",
-                details=(("patch_id", int(patch_id)),),
-            )
+    analysis_bundle.capabilities.require_supported()
+    graph = analysis_bundle.patch_graph
+    surface = analysis_bundle.patch_surface
 
-        for local_index, vertex_id in enumerate(local_vertex_ids):
-            position = _point_tuple(local_positions[local_index])
-            existing = vertex_positions.get(vertex_id)
-            if existing is not None and existing != position:
-                raise _RailCompileError(
-                    "SOURCE_VERTEX_POSITION_CONFLICT",
-                    vertex_indices=(vertex_id,),
-                )
-            vertex_positions[vertex_id] = position
-
-        for triangle, face_id, physical_edges in zip(
-            triangles,
-            triangle_faces,
-            triangle_edges,
-        ):
-            if len(triangle) != 3 or len(physical_edges) != 3:
-                raise _RailCompileError(
-                    "SOURCE_TRIANGLE_INVALID",
-                    details=(("patch_id", int(patch_id)),),
-                )
-            global_triangle = tuple(local_vertex_ids[int(index)] for index in triangle)
-            face_id = int(face_id)
-            previous_patch_id = face_patch_ids.get(face_id)
-            if previous_patch_id is not None and previous_patch_id != int(patch_id):
-                raise _RailCompileError(
-                    "SOURCE_FACE_PATCH_CONFLICT",
-                    details=(
-                        ("face_id", face_id),
-                        ("patch_ids", tuple(sorted((previous_patch_id, int(patch_id))))),
-                    ),
-                )
-            face_patch_ids[face_id] = int(patch_id)
-            point_a, point_b, point_c = (
-                vertex_positions[vertex_id]
-                for vertex_id in global_triangle
-            )
-            face_triangle_vertices[face_id].update(global_triangle)
-            triangle_normal = _normalized3(
-                _cross3(
-                    _sub3(point_b, point_a),
-                    _sub3(point_c, point_a),
-                )
-            )
-            # RV2: нулевая fan-тройка внутри валидного polygon face — всего
-            # лишь артефакт pivot-триангуляции. Нормаль грани собирается из
-            # остальных треугольников; отказ допустим лишь если вся грань
-            # действительно имеет нулевую площадь.
-            if triangle_normal is not None:
-                face_triangle_normals[face_id].append(
-                    (tuple(global_triangle), triangle_normal)
-                )
-            for opposite_slot, edge_id in enumerate(physical_edges):
-                edge_id = int(edge_id)
-                if edge_id < 0:
-                    continue
-                local_a, local_b = _triangle_edge_vertices(
-                    global_triangle,
-                    opposite_slot,
-                )
-                endpoints = tuple(sorted((local_a, local_b)))
-                existing = edge_vertices.get(edge_id)
-                if existing is not None and existing != endpoints:
-                    raise _RailCompileError(
-                        "SOURCE_EDGE_PROVENANCE_CONFLICT",
-                        edge_indices=(edge_id,),
-                    )
-                edge_vertices[edge_id] = endpoints
-                edge_face_ids[edge_id].add(face_id)
-                face_edge_ids[face_id].add(edge_id)
+    vertex_positions = {
+        int(vertex.vertex_id): _point_tuple(vertex.position)
+        for vertex in surface.vertices
+    }
+    edge_vertices = {
+        int(edge.edge_id): tuple(sorted(int(value) for value in edge.vertex_ids))
+        for edge in surface.edges
+    }
+    edge_face_ids = {
+        int(edge.edge_id): set(int(value) for value in edge.source_face_ids)
+        for edge in surface.edges
+    }
+    face_patch_ids = {
+        int(face.face_id): int(face.patch_id) for face in surface.faces
+    }
+    triangle_by_id = surface.triangle_by_id
 
     missing_selected = sorted(set(selected_edge_ids).difference(edge_vertices))
     if missing_selected:
@@ -611,86 +427,30 @@ def _build_source_topology(
 
     faces = []
     face_failures = {}
-    for face_id in sorted(face_edge_ids):
+    for source_face in sorted(surface.faces, key=lambda item: item.face_id):
+        face_id = int(source_face.face_id)
+        vertex_cycle = tuple(int(value) for value in source_face.vertex_cycle)
+        ordered_edges = tuple(int(value) for value in source_face.edge_cycle)
         triangle_normals = tuple(
-            normal
-            for _triangle_key, normal in sorted(
-                face_triangle_normals[face_id],
-                key=lambda item: item[0],
+            _point_tuple(triangle_by_id[triangle_id].triangle_normal)
+            for triangle_id in source_face.triangle_ids
+            if _normalized3(
+                _point_tuple(triangle_by_id[triangle_id].triangle_normal)
             )
+            is not None
         )
-        try:
-            provisional_cycle, provisional_edges = _canonical_face_cycle(
-                face_id,
-                face_edge_ids[face_id],
-                edge_vertices,
-                vertex_positions,
-                None,
+        source_normal = _normalized3(_point_tuple(source_face.polygon_normal))
+        if source_normal is None or not triangle_normals:
+            face_failures[face_id] = RailCompileFailure(
+                reason="SOURCE_TRIANGLE_DEGENERATE",
+                edge_indices=ordered_edges,
+                vertex_indices=tuple(sorted(vertex_cycle)),
+                details=(("face_id", face_id),),
             )
-        except _RailCompileError as exc:
-            face_failures[face_id] = exc.failure
-            provisional_cycle = tuple(
-                sorted(
-                    {
-                        vertex_id
-                        for edge_id in face_edge_ids[face_id]
-                        for vertex_id in edge_vertices[edge_id]
-                    }
-                )
-            )
-            provisional_edges = tuple(sorted(face_edge_ids[face_id]))
-
-        if triangle_normals:
-            normal_sum = tuple(
-                sum(normal[axis] for normal in triangle_normals)
-                for axis in range(3)
-            )
-            oriented_normal = _normalized3(normal_sum)
-            if oriented_normal is None:
-                face_failures.setdefault(
-                    face_id,
-                    RailCompileFailure(
-                        reason="SOURCE_FACE_ORIENTATION_INVALID",
-                        edge_indices=tuple(sorted(face_edge_ids[face_id])),
-                        details=(("face_id", int(face_id)),),
-                    ),
-                )
-                oriented_normal = triangle_normals[0]
-        else:
-            oriented_normal = None
-            face_failures.setdefault(
-                face_id,
-                RailCompileFailure(
-                    reason="SOURCE_TRIANGLE_DEGENERATE",
-                    edge_indices=tuple(sorted(face_edge_ids[face_id])),
-                    vertex_indices=tuple(
-                        sorted(face_triangle_vertices[face_id])
-                    ),
-                    details=(("face_id", int(face_id)),),
-                ),
-            )
-
-        if oriented_normal is None:
-            vertex_cycle = provisional_cycle
-            ordered_edges = provisional_edges
-            source_normal = (0.0, 0.0, 0.0)
-        else:
-            try:
-                vertex_cycle, ordered_edges = _canonical_face_cycle(
-                    face_id,
-                    face_edge_ids[face_id],
-                    edge_vertices,
-                    vertex_positions,
-                    oriented_normal,
-                )
-            except _RailCompileError as exc:
-                face_failures.setdefault(face_id, exc.failure)
-                vertex_cycle = provisional_cycle
-                ordered_edges = provisional_edges
-            source_normal = oriented_normal
+            source_normal = source_normal or (0.0, 0.0, 0.0)
         faces.append(
             RailSourceFace(
-                face_id=int(face_id),
+                face_id=face_id,
                 vertex_ids=vertex_cycle,
                 edge_ids=ordered_edges,
                 normal=source_normal,
@@ -1814,7 +1574,7 @@ def _apply_poles_and_merges(routes, events, protected_route_ids=()):
 
 
 def compile_decal_rail_plan(
-    graph,
+    analysis_bundle,
     selected_edge_indices,
     *,
     alpha_budget,
@@ -1832,10 +1592,11 @@ def compile_decal_rail_plan(
         sorted({int(edge_id) for edge_id in rail_mark_edge_indices or ()})
     )
     topology = _build_source_topology(
-        graph,
+        analysis_bundle,
         frozenset(selected_edge_ids),
         frozenset(marked_edge_ids),
     )
+    graph = analysis_bundle.patch_graph
     chain_records = _source_chain_records(graph)
     if not selected_edge_ids:
         return DecalRailPlan(

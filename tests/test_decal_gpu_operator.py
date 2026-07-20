@@ -112,10 +112,9 @@ def test_generate_adapter_failure_falls_back_to_mesh(monkeypatch):
     assert controller.adapter.handler_count == 0
 
 
-def test_empty_faces_keep_overlay_and_report_empty(monkeypatch):
+def test_empty_faces_clear_overlay_and_report_empty(monkeypatch):
     operator, controller = _operator_with_controller()
     controller.update((_face([(0, 0), (1, 0), (1, 1)]),))
-    kept = controller.last_buffers
     monkeypatch.setattr(
         ops_module,
         "evaluate_manual_seam_faces",
@@ -125,7 +124,7 @@ def test_empty_faces_keep_overlay_and_report_empty(monkeypatch):
     result = operator._generate(_context(), _state(), "SETTINGS", preview=True)
 
     assert result.status == PreviewStatus.EMPTY
-    assert controller.last_buffers is kept
+    assert controller.last_buffers is None
 
 
 def test_stop_gpu_preview_is_idempotent():

@@ -28,6 +28,10 @@ try:
         _validate_patch_graph_derived_topology as _validate_patch_graph_derived_topology_impl,
         _validate_patch_graph_console_view as _validate_patch_graph_console_view_impl,
     )
+    from .analysis_surface import (
+        build_analysis_bundle as _build_analysis_bundle_impl,
+        validate_analysis_bundle,
+    )
 except ImportError:
     from model import FormattedReport
     from analysis_reporting import (
@@ -55,6 +59,21 @@ except ImportError:
         _validate_patch_graph_junctions as _validate_patch_graph_junctions_impl,
         _validate_patch_graph_derived_topology as _validate_patch_graph_derived_topology_impl,
         _validate_patch_graph_console_view as _validate_patch_graph_console_view_impl,
+    )
+    from analysis_surface import (
+        build_analysis_bundle as _build_analysis_bundle_impl,
+        validate_analysis_bundle,
+    )
+
+
+def build_analysis_bundle(bm, face_indices, obj=None):
+    """Build the atomic PatchGraph + PatchSurfaceIR analysis result."""
+
+    return _build_analysis_bundle_impl(
+        bm,
+        face_indices,
+        obj,
+        build_patch_graph,
     )
 
 

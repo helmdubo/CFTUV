@@ -23,6 +23,16 @@ from cftuv.model import (  # noqa: E402
     PatchGraph,
     PatchNode,
 )
+from analysis_surface_fixtures import analysis_bundle_from_graph  # noqa: E402
+
+
+_compile_patch_voronoi_plan = compile_patch_voronoi_plan
+
+
+def compile_patch_voronoi_plan(graph, *args, **kwargs):
+    return _compile_patch_voronoi_plan(
+        analysis_bundle_from_graph(graph), *args, **kwargs
+    )
 
 
 @pytest.mark.parametrize(
@@ -310,7 +320,10 @@ def test_quantized_duplicate_site_is_localized_as_compile_failure():
     chain.vert_cos[1] = Vector((0.0, 0.00005, 0.0))
 
     attempt = decal_voronoi.compile_patch_voronoi_attempt(
-        graph, [10], offset=0.01, allow_partial=True
+        analysis_bundle_from_graph(graph),
+        [10],
+        offset=0.01,
+        allow_partial=True,
     )
 
     assert attempt.plan is None
@@ -386,7 +399,9 @@ def test_long_chart_stays_inside_diagram_integer_safety_range():
 def test_unsupported_dynamic_range_is_localized_before_construct():
     diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
     attempt = decal_voronoi.compile_patch_voronoi_attempt(
-        _scaled_planar_two_site_graph(250000.0),
+        analysis_bundle_from_graph(
+            _scaled_planar_two_site_graph(250000.0)
+        ),
         [10, 12],
         offset=2500.0,
         allow_partial=True,
@@ -626,9 +641,9 @@ def _planar_unselected_fold_graph():
             normal=normal,
             basis_u=basis_u,
             basis_v=basis_v,
-            mesh_verts=points,
-            mesh_tris=[(0, 1, 2), (0, 2, 3), (0, 3, 4)],
         )
+        node.mesh_verts = points
+        node.mesh_tris = [(0, 1, 2), (0, 2, 3), (0, 3, 4)]
         node.boundary_loops = [
             BoundaryLoop(
                 vert_indices=loop_vertices,
@@ -1002,13 +1017,13 @@ def _smooth_arc_boundary_graph(segment_count=12):
         normal=Vector((0.0, 0.0, 1.0)),
         basis_u=Vector((1.0, 0.0, 0.0)),
         basis_v=Vector((0.0, 1.0, 0.0)),
-        mesh_verts=points,
-        mesh_vert_indices=list(range(len(points))),
-        mesh_tris=[
-            (0, index, index + 1)
-            for index in range(1, len(points) - 1)
-        ],
     )
+    node.mesh_verts = points
+    node.mesh_vert_indices = list(range(len(points)))
+    node.mesh_tris = [
+        (0, index, index + 1)
+        for index in range(1, len(points) - 1)
+    ]
     node.boundary_loops = [
         BoundaryLoop(
             vert_indices=list(range(len(points))),
@@ -4355,9 +4370,9 @@ def test_c8_2_planar_compile_keeps_unselected_boundary_provenance():
         normal=Vector((0.0, 0.0, 1.0)),
         basis_u=Vector((1.0, 0.0, 0.0)),
         basis_v=Vector((0.0, 1.0, 0.0)),
-        mesh_verts=points,
-        mesh_tris=[(0, 1, 2), (0, 2, 3)],
     )
+    node.mesh_verts = points
+    node.mesh_tris = [(0, 1, 2), (0, 2, 3)]
     node.boundary_loops = [
         BoundaryLoop(
             vert_indices=[0, 1, 2, 3],
@@ -4975,17 +4990,24 @@ def test_patch_domain_uses_boundary_loop_instead_of_owner_triangulation(
     ) == pytest.approx(4.0)
 
 
-def test_patch_voronoi_rejects_non_planar_owner_patch():
+def test_patch_voronoi_rejects_site_without_matching_source_face():
     graph = _planar_two_site_graph()
-    graph.nodes[0].mesh_verts[2] = Vector((4.0, 2.0, 0.2))
+    node = graph.nodes[0]
+    node.mesh_verts[2] = Vector((4.0, 2.0, 0.2))
+    # Source ids stay stable when the fixture coordinate is deliberately
+    # moved; production PatchSurfaceIR never infers identity from positions.
+    node.mesh_vert_indices = list(range(len(node.mesh_verts)))
     assert compile_patch_voronoi_plan(graph, [10, 12], offset=0.01) is None
     attempt = decal_voronoi.compile_patch_voronoi_attempt(
-        graph, [10, 12], offset=0.01, allow_partial=True
+        analysis_bundle_from_graph(graph),
+        [10, 12],
+        offset=0.01,
+        allow_partial=True,
     )
     assert attempt.plan is None
     assert attempt.rejected_edge_indices == (10, 12)
     assert [(failure.patch_id, failure.reason) for failure in attempt.failures] == [
-        (0, "MISSING_SITE_FACE_PROVENANCE")
+        (0, "SITE_SEED_NOT_IN_PATCH")
     ]
 
 
