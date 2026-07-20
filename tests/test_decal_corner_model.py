@@ -179,6 +179,39 @@ def test_resolved_corner_view_reuses_anchors_and_traces_contour_vertices():
     assert len(resolved.traces) == 3
 
 
+def test_resolved_corner_view_keeps_competition_stations_separate():
+    model = _model(CornerJoinMode.BEVEL)
+    derived = model.derive()
+    boundary = tuple(
+        (vertex.key, vertex.chart_point)
+        for vertex in derived.emission_boundary
+    )
+
+    resolved = model.resolve_after_competition(
+        boundary + (("rc-station", (0.1, 0.1)),),
+        derived=derived,
+    )
+
+    assert resolved.derived is derived
+    assert resolved.p1 is model.p1
+    assert resolved.p2 is model.p2
+    assert resolved.materialized_vertices == boundary
+    assert resolved.competition_vertices == (("rc-station", (0.1, 0.1)),)
+
+
+def test_resolved_corner_view_rejects_competition_station_outside_model():
+    model = _model(CornerJoinMode.BEVEL)
+    derived = model.derive()
+
+    with pytest.raises(
+        ValueError, match="CORNER_MATERIAL_VERTEX_OUTSIDE_SEMANTIC_CONTOUR"
+    ):
+        model.resolve_after_competition(
+            (("leak", (0.4, 0.4)),),
+            derived=derived,
+        )
+
+
 def test_resolved_miter_view_reuses_the_same_derived_boundary():
     model = _model(CornerJoinMode.MITER)
     derived = model.derive()

@@ -23,6 +23,7 @@ from cftuv.model import (  # noqa: E402
     PatchGraph,
     PatchNode,
 )
+from cftuv.surface_ir import CapacityPolicy  # noqa: E402
 from analysis_surface_fixtures import analysis_bundle_from_graph  # noqa: E402
 
 
@@ -257,6 +258,7 @@ def test_b4_finite_strip_budget_rejects_before_evaluation():
         alpha_budget=0.25,
         budget_source="STRIP_BUDGET",
         requested_alpha_budget=0.25,
+        capacity_policy=CapacityPolicy.CONTROLLED_RECOMPILE,
     )
 
     assert finite.active_triangle_ids(0.25) == plan.support_triangle_ids
@@ -267,6 +269,38 @@ def test_b4_finite_strip_budget_rejects_before_evaluation():
         evaluate_patch_voronoi_plan(
             finite, width=0.5001, preview=True
         )
+
+
+def test_i8_proven_capacity_saturates_to_compiled_support():
+    plan = compile_patch_voronoi_plan(
+        _planar_two_site_graph(), [10, 12], offset=0.01
+    )
+    proven = replace(
+        plan,
+        alpha_budget=0.25,
+        budget_source="PROVEN_WAVEFRONT_HEIGHT",
+        capacity_policy=CapacityPolicy.SATURATE_PROVEN,
+    )
+
+    assert proven.active_triangle_ids(1000.0) == plan.support_triangle_ids
+
+
+def test_i8_unproven_capacity_rejects_without_saturation_or_recompile():
+    plan = compile_patch_voronoi_plan(
+        _planar_two_site_graph(), [10, 12], offset=0.01
+    )
+    unproven = replace(
+        plan,
+        alpha_budget=0.25,
+        budget_source="APPROXIMATE_CHART",
+        capacity_policy=CapacityPolicy.REJECT_UNPROVEN,
+    )
+
+    with pytest.raises(
+        decal_voronoi.DomainCapacityUnproven,
+        match="DOMAIN_CAPACITY_UNPROVEN",
+    ):
+        unproven.active_triangle_ids(0.2501)
 
 
 @pytest.mark.parametrize("width", (0.5, 1.0545852, 2.0, 4.0))
@@ -1965,21 +1999,31 @@ def test_s_cm_a_join_does_not_leak_into_band_policy_classifier():
     ).apex_limit == 3.0
 
 
-def test_bevel_runtime_is_archived_for_preview_and_confirm():
+def test_bevel_preview_and_confirm_share_compiled_corner_model():
     graph, edge_indices = _door_opening_graph()
-    plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+    plan = compile_patch_voronoi_plan(
+        graph,
+        edge_indices,
+        offset=0.01,
+        diagnostics=diagnostics,
+        corner_join_mode="BEVEL",
+    )
     settings = decal_voronoi.CornerRuntimeSettings(join_mode="BEVEL")
-    for preview in (True, False):
-        with pytest.raises(
-            decal_voronoi.DecalCornerJoinArchivedError,
-            match="^DECAL_CORNER_JOIN_ARCHIVED_UNTIL_CORNER_MODEL$",
-        ):
+    snapshots = tuple(
+        decal_voronoi.serialize_network_faces(
             evaluate_patch_voronoi_plan(
                 plan,
                 width=0.5,
                 preview=preview,
                 corner_settings=settings,
+                diagnostics=diagnostics,
             )
+        )
+        for preview in (True, False)
+    )
+    assert snapshots[0] == snapshots[1]
+    assert diagnostics.resolved_corner_view_count > 0
 
 
 def test_rf28_bevel_preserves_own_segments_and_releases_competitor_to_chord():
@@ -2120,35 +2164,51 @@ def test_rf28_bevel_preserves_own_segments_and_releases_competitor_to_chord():
 def test_rf28_join_switch_is_local_and_roundtrip_deterministic():
     graph, edge_indices = _door_opening_graph()
     diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
-    plan = compile_patch_voronoi_plan(
+    miter_plan = compile_patch_voronoi_plan(
         graph, edge_indices, offset=0.01, diagnostics=diagnostics
     )
+    bevel_plan = compile_patch_voronoi_plan(
+        graph,
+        edge_indices,
+        offset=0.01,
+        diagnostics=diagnostics,
+        corner_join_mode="BEVEL",
+    )
     compile_construct_calls = diagnostics.construct_calls
-    settings = decal_voronoi.CornerRuntimeSettings(apex_limit=1000.0)
-    snapshots = [
+    miter_settings = decal_voronoi.CornerRuntimeSettings(apex_limit=1000.0)
+    bevel_settings = replace(miter_settings, join_mode="BEVEL")
+    miter_snapshots = [
         decal_voronoi.serialize_network_faces(
             evaluate_patch_voronoi_plan(
-                plan,
+                miter_plan,
                 width=3.0,
                 preview=True,
-                corner_settings=settings,
+                corner_settings=miter_settings,
                 diagnostics=diagnostics,
             )
         )
         for _index in range(2)
     ]
-    assert snapshots[0] == snapshots[1]
-    with pytest.raises(
-        decal_voronoi.DecalCornerJoinArchivedError,
-        match="^DECAL_CORNER_JOIN_ARCHIVED_UNTIL_CORNER_MODEL$",
-    ):
+    bevel_snapshot = decal_voronoi.serialize_network_faces(
         evaluate_patch_voronoi_plan(
-            plan,
+            bevel_plan,
             width=3.0,
             preview=True,
-            corner_settings=decal_voronoi.CornerRuntimeSettings(
-                join_mode="BEVEL"
-            ),
+            corner_settings=bevel_settings,
+            diagnostics=diagnostics,
+        )
+    )
+    assert miter_snapshots[0] == miter_snapshots[1]
+    assert bevel_snapshot != miter_snapshots[0]
+    with pytest.raises(
+        RuntimeError,
+        match="^DECAL_CORNER_JOIN_RECOMPILE_REQUIRED:",
+    ):
+        evaluate_patch_voronoi_plan(
+            miter_plan,
+            width=3.0,
+            preview=True,
+            corner_settings=bevel_settings,
             diagnostics=diagnostics,
         )
     assert diagnostics.construct_calls == compile_construct_calls
@@ -2169,9 +2229,17 @@ def test_rf24_bevel_band_turn_is_invariant_to_domain_winding_flip():
     flipped_graph.nodes[0].normal *= -1.0
     flipped_graph.nodes[0].basis_v *= -1.0
     plans = (
-        compile_patch_voronoi_plan(graph, edge_indices, offset=0.01),
         compile_patch_voronoi_plan(
-            flipped_graph, edge_indices, offset=0.01
+            graph,
+            edge_indices,
+            offset=0.01,
+            corner_join_mode="BEVEL",
+        ),
+        compile_patch_voronoi_plan(
+            flipped_graph,
+            edge_indices,
+            offset=0.01,
+            corner_join_mode="BEVEL",
         ),
     )
     classifications = []
@@ -2192,13 +2260,9 @@ def test_rf24_bevel_band_turn_is_invariant_to_domain_winding_flip():
                 if len(corner.incident_sites) == 2
             )
         )
-        with pytest.raises(
-            decal_voronoi.DecalCornerJoinArchivedError,
-            match="^DECAL_CORNER_JOIN_ARCHIVED_UNTIL_CORNER_MODEL$",
-        ):
-            evaluate_patch_voronoi_plan(
-                plan, width=0.5, preview=True, corner_settings=settings
-            )
+        assert evaluate_patch_voronoi_plan(
+            plan, width=0.5, preview=True, corner_settings=settings
+        )
     assert classifications[0] == classifications[1]
 
 
@@ -3326,15 +3390,53 @@ def test_rf19_single_terminal_cut_may_absorb_short_site():
     )
 
 
-def test_rf19_meeting_terminal_cuts_fail_instead_of_overlapping():
+def test_rf19_meeting_terminal_cuts_require_compile_static_freeze_locus():
     site = _short_segment_endpoint_surface().sites[0]
-    with pytest.raises(RuntimeError, match="TERMINAL_BRIDGE_CUTS_OVERLAP"):
+    with pytest.raises(
+        RuntimeError, match="RAIL_COMPETITION_METRIC_UNRESOLVED"
+    ):
         decal_voronoi._terminal_segment_crop_components(
             site,
             alpha=0.75,
             start_guide=(0.3, sqrt(0.75 * 0.75 - 0.3 * 0.3)),
             end_guide=(0.7, sqrt(0.75 * 0.75 - 0.3 * 0.3)),
         )
+
+
+def test_rf7_frozen_terminal_competition_partitions_short_site():
+    site = _short_segment_endpoint_surface().sites[0]
+    meeting = (0.5, 0.75)
+    locus = SimpleNamespace(
+        route_ids=(11, 12),
+        arrival_distances=(2.0, 2.0),
+        owner_chain_ref=(3, 4),
+    )
+    start = decal_voronoi._TerminalBridgeGuide(
+        point=meeting,
+        contour_points=(site.point_a, meeting),
+        route_id=11,
+        frozen=True,
+        freeze_locus=locus,
+    )
+    end = decal_voronoi._TerminalBridgeGuide(
+        point=meeting,
+        contour_points=(site.point_b, meeting),
+        route_id=12,
+        frozen=True,
+        freeze_locus=locus,
+    )
+
+    components = decal_voronoi._terminal_segment_crop_components(
+        site,
+        alpha=0.75,
+        start_guide=start,
+        end_guide=end,
+    )
+
+    assert components
+    assert not any(
+        component.side == "BODY" for component, _vertices in components
+    )
 
 
 def test_rf29_exhausted_route_clamps_to_last_constructible_station():
@@ -3426,6 +3528,36 @@ def test_rf29_unsaturated_invalid_cut_remains_named_failure():
         )
 
 
+@pytest.mark.parametrize(
+    ("policy", "reason"),
+    (
+        (
+            CapacityPolicy.CONTROLLED_RECOMPILE,
+            "TERMINAL_ROUTE_RECOMPILE_REQUIRED",
+        ),
+        (
+            CapacityPolicy.REJECT_UNPROVEN,
+            "TERMINAL_ROUTE_CAPACITY_UNPROVEN",
+        ),
+    ),
+)
+def test_i8_terminal_saturation_obeys_compiled_capacity_policy(
+    policy, reason
+):
+    site = _short_segment_endpoint_surface().sites[0]
+    guide = decal_voronoi._TerminalBridgeGuide(
+        point=(0.5, 2.0),
+        contour_points=(site.point_a, (0.5, 2.0)),
+        saturated=True,
+        capacity_policy=policy,
+    )
+
+    with pytest.raises(RuntimeError, match=reason):
+        decal_voronoi._resolve_terminal_site_saturation(
+            site, 2.0, guide, None
+        )
+
+
 def test_rf29_revisit_guard_stops_before_second_physical_edge_pass():
     edge = SimpleNamespace(edge_id=900, vertex_ids=(0, 1))
     route = SimpleNamespace(
@@ -3496,50 +3628,6 @@ def test_rf29_revisit_guard_stops_before_second_physical_edge_pass():
     assert guide.route_edge_ids == (900,)
     assert guide.route_reach == pytest.approx(1.0)
     assert guide.point == pytest.approx((1.0, 0.0))
-
-
-def test_rf29_opposing_contacts_meet_at_equal_accumulated_station():
-    edge = SimpleNamespace(edge_id=900, vertex_ids=(0, 1))
-
-    def route(route_id, start_vertex, end_vertex, start_edge):
-        return SimpleNamespace(
-            route_id=route_id,
-            key=SimpleNamespace(
-                side=SimpleNamespace(start_edge_id=start_edge)
-            ),
-            stations=(
-                SimpleNamespace(
-                    station_index=0,
-                    distance=0.0,
-                    source_vertex_id=start_vertex,
-                    source_edge_id=None,
-                    edge_parameter=None,
-                ),
-                SimpleNamespace(
-                    station_index=1,
-                    distance=10.0,
-                    source_vertex_id=end_vertex,
-                    source_edge_id=None,
-                    edge_parameter=None,
-                ),
-            ),
-            segments=(
-                SimpleNamespace(
-                    edge_id=900,
-                    from_station_index=0,
-                    to_station_index=1,
-                ),
-            ),
-        )
-
-    meeting = decal_voronoi._terminal_route_contact_meeting(
-        route(1, 0, 1, 11),
-        route(2, 1, 0, 22),
-        {900: edge},
-    )
-
-    assert meeting[:2] == pytest.approx((5.0, 5.0))
-    assert meeting[2:] == pytest.approx((900, 0.5))
 
 
 def _rd1_partition_face(keys, positions, u_fracs, v_lengths, *, kind, side, normal=(0.0, 0.0, 1.0)):

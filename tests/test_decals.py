@@ -145,7 +145,8 @@ def test_rm9_terminal_routing_reports_plan_choice_and_materializing_backend():
     )
     assert records[0].report_line == (
         "component=0 patch=4 terminal=v1/e10 faces=100 choice=PCHAIN 20,21 "
-        "backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+        "backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE "
+        "capacity=SATURATE_PROVEN"
     )
 
 
@@ -1010,51 +1011,17 @@ def test_patch_voronoi_partition_forwards_runtime_corner_settings(
     assert corner_settings.join_mode == "MITER"
 
 
-def test_bevel_runtime_gate_precedes_compile_and_bmesh(monkeypatch):
+def test_bevel_reaches_typed_compile_boundary_without_archive_gate():
     settings = DecalSettings(corner_join_mode="BEVEL")
-    reason = "^DECAL_CORNER_JOIN_ARCHIVED_UNTIL_CORNER_MODEL$"
-
+    assert (
+        decals_module.require_decal_corner_join_available(settings).value
+        == "BEVEL"
+    )
     with pytest.raises(
-        decals_module.DecalCornerJoinArchivedError,
-        match=reason,
+        decals_module.AnalysisSchemaError,
+        match="DECAL_ANALYSIS_SCHEMA_UNSUPPORTED",
     ):
         decals_module.compile_manual_seam_decal_plan(None, settings, ())
-
-    with pytest.raises(
-        decals_module.DecalCornerJoinArchivedError,
-        match=reason,
-    ):
-        decals_module.evaluate_manual_seam_faces(
-            None, settings, object(), preview=True
-        )
-
-    monkeypatch.setattr(
-        decals_module.bmesh,
-        "new",
-        lambda: (_ for _ in ()).throw(AssertionError("BMesh was opened")),
-        raising=False,
-    )
-    result = decals_module.generate_decal_result(
-        None,
-        None,
-        settings,
-        "SEAMS",
-    )
-    assert result.status == decals_module.PreviewStatus.ERROR
-    assert (
-        result.reason
-        == decals_module.DECAL_CORNER_JOIN_ARCHIVED_UNTIL_CORNER_MODEL
-    )
-    with pytest.raises(
-        decals_module.DecalCornerJoinArchivedError,
-        match=reason,
-    ):
-        decals_module.generate_decal_objects(
-            None,
-            None,
-            settings,
-            "SEAMS",
-        )
 
 
 @pytest.mark.parametrize(

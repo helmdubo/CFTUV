@@ -24,6 +24,7 @@ from .decal_geometry import GeometryBatch, geometry_batch_from_faces
 from .decal_rails import (
     DecalRailPlan,
     RailTerminalKind,
+    RailTermination,
     compile_decal_rail_attempt,
 )
 from .decal_rail_geometry import (
@@ -33,8 +34,6 @@ from .decal_rail_geometry import (
     evaluate_planar_rail_geometry_plan,
 )
 from .decal_voronoi import (
-    DECAL_CORNER_JOIN_ARCHIVED_UNTIL_CORNER_MODEL,
-    DecalCornerJoinArchivedError,
     PatchVoronoiDiagnostics,
     PatchVoronoiPlan,
     compile_patch_voronoi_attempt,
@@ -51,6 +50,7 @@ from .model import ChainRef, DecalSettings, PatchGraph
 from .surface_ir import (
     AnalysisBundle,
     AnalysisSchemaError,
+    CapacityPolicy,
     DecalBackendKind,
     PreviewFailurePolicy,
 )
@@ -246,9 +246,15 @@ class ManualSeamTerminalRouting:
     edge_ids: tuple[int, ...] = ()
     plan_kind: str = ""
     route_id: int | None = None
+    capacity_policy: CapacityPolicy = CapacityPolicy.SATURATE_PROVEN
 
     def __post_init__(self):
         object.__setattr__(self, "backend", DecalBackendKind(self.backend))
+        object.__setattr__(
+            self,
+            "capacity_policy",
+            CapacityPolicy(self.capacity_policy),
+        )
 
     @property
     def report_line(self):
@@ -269,7 +275,7 @@ class ManualSeamTerminalRouting:
             f"terminal=v{self.spine_vertex_id}/e{self.spine_edge_id} "
             f"faces={','.join(str(face_id) for face_id in self.source_face_ids)} "
             f"choice={self.choice}{edge_suffix} backend={backend} "
-            f"plan={self.plan_kind}"
+            f"plan={self.plan_kind} capacity={self.capacity_policy.value}"
         )
 
 
@@ -935,7 +941,13 @@ def _manual_terminal_routing(graph, rail_plan, backend_partitions):
         )
         for component in components:
             component_records.append(
-                (component[0], component, partition.backend, backend_kind)
+                (
+                    component[0],
+                    component,
+                    partition.backend,
+                    backend_kind,
+                    partition.compiled_plan,
+                )
             )
     component_records.sort(key=lambda item: (item[0], item[1]))
 
@@ -945,6 +957,7 @@ def _manual_terminal_routing(graph, rail_plan, backend_partitions):
         component,
         backend,
         backend_kind,
+        compiled_plan,
     ) in enumerate(component_records):
         component_edges = set(component)
         for use in rail_plan.terminal_uses:
@@ -981,6 +994,35 @@ def _manual_terminal_routing(graph, rail_plan, backend_partitions):
                 else:
                     choice = "FOLD"
                     edge_ids = (use.route_edge_id,)
+            backend_capacity_policy = CapacityPolicy(
+                getattr(
+                    compiled_plan,
+                    "capacity_policy",
+                    CapacityPolicy.SATURATE_PROVEN,
+                )
+            )
+            route = route_by_id.get(use.route_id)
+            route_termination = getattr(
+                route,
+                "termination",
+                RailTermination.PCHAIN,
+            )
+            if (
+                route is not None
+                and route_termination is RailTermination.ALPHA
+                and backend_capacity_policy
+                is not CapacityPolicy.REJECT_UNPROVEN
+            ):
+                capacity_policy = CapacityPolicy.CONTROLLED_RECOMPILE
+            elif (
+                route is not None
+                and route_termination is not RailTermination.ALPHA
+                and backend_capacity_policy
+                is not CapacityPolicy.REJECT_UNPROVEN
+            ):
+                capacity_policy = CapacityPolicy.SATURATE_PROVEN
+            else:
+                capacity_policy = backend_capacity_policy
             result.append(
                 ManualSeamTerminalRouting(
                     component_index=component_index,
@@ -994,6 +1036,7 @@ def _manual_terminal_routing(graph, rail_plan, backend_partitions):
                     edge_ids=edge_ids,
                     plan_kind=use.kind.value,
                     route_id=use.route_id,
+                    capacity_policy=capacity_policy,
                 )
             )
     return tuple(sorted(result))
@@ -1919,6 +1962,7 @@ def compile_manual_seam_decal_plan(
                 allow_partial=True,
                 alpha_budget=alpha_budget,
                 distortion_budget=settings.chart_distortion_budget,
+                corner_join_mode=settings.corner_join_mode,
             )
             compile_failures = attempt.failures
             rejected_seed = set(attempt.rejected_edge_indices)
@@ -1955,6 +1999,7 @@ def compile_manual_seam_decal_plan(
                     settings.offset,
                     alpha_budget=alpha_budget,
                     distortion_budget=settings.chart_distortion_budget,
+                    corner_join_mode=settings.corner_join_mode,
                 )
                 if patch_voronoi_plan is None:
                     # Компонентная атомарность важнее частичного результата:
@@ -2572,21 +2617,7 @@ def generate_decal_result(
             reason=exc.reason,
             backend_summary=backend_summary,
         )
-    try:
-        require_decal_corner_join_available(settings)
-    except DecalCornerJoinArchivedError as exc:
-        if preview:
-            remove_decal_preview_object(
-                mode,
-                source_obj,
-                preview_state,
-            )
-        return DecalGenerationResult(
-            PreviewStatus.ERROR,
-            None,
-            reason=exc.reason,
-            backend_summary=backend_summary,
-        )
+    require_decal_corner_join_available(settings)
     try:
         local_settings = local_decal_settings_for_source(settings, source_obj)
     except DecalSourceTransformError as exc:

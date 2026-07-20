@@ -263,6 +263,25 @@ def _point_segment_parameter(point, first, second):
     return parameter, _distance2(point, projection)
 
 
+def _point_in_polygon(point, polygon):
+    """Точный inside-тест только для post-competition validation."""
+
+    inside = False
+    previous = polygon[-1]
+    for current in polygon:
+        if (current[1] > point[1]) != (previous[1] > point[1]):
+            crossing_x = (
+                (previous[0] - current[0])
+                * (point[1] - current[1])
+                / (previous[1] - current[1])
+                + current[0]
+            )
+            if point[0] < crossing_x:
+                inside = not inside
+        previous = current
+    return inside
+
+
 @dataclass(frozen=True)
 class CornerModel:
     """Локальная форма после own-strip clip и до global competition."""
@@ -482,10 +501,17 @@ class CornerModel:
         )
         return (CornerEmissionFace(vertices=boundary, traces=traces),)
 
-    def resolve(self, materialized_vertices, *, tolerance=1e-8):
+    def resolve(
+        self,
+        materialized_vertices,
+        *,
+        derived=None,
+        tolerance=1e-8,
+    ):
         """Создаёт post-competition view без повторного вывода формы."""
 
-        derived = self.derive()
+        if derived is None:
+            derived = self.derive()
         traces = tuple(
             self.trace_materialized_vertex(
                 key,
@@ -504,6 +530,56 @@ class CornerModel:
             traces=traces,
         )
 
+    def resolve_after_competition(
+        self,
+        materialized_vertices,
+        *,
+        derived,
+        tolerance=1e-8,
+    ):
+        """Разделяет authoritative contour и внутренние RC-cut stations.
+
+        Конкуренция вправе вставлять вершины ВНУТРИ материи модели, но не
+        вправе выпускать их за её границу. Граничные вершины трассируются к
+        тем же V/P1/P2-рёбрам; внутренние сохраняются отдельными RC facts и
+        никогда не становятся вторым представлением формы угла.
+        """
+
+        boundary_vertices = []
+        competition_vertices = []
+        traces = []
+        polygon = tuple(
+            vertex.chart_point for vertex in derived.emission_boundary
+        )
+        for key, point in materialized_vertices:
+            try:
+                trace = self.trace_materialized_vertex(
+                    key,
+                    point,
+                    derived=derived,
+                    tolerance=tolerance,
+                )
+            except ValueError as exc:
+                if not str(exc).startswith(
+                    "CORNER_MATERIAL_VERTEX_OUTSIDE_SEMANTIC_CONTOUR"
+                ):
+                    raise
+                if not _point_in_polygon(point, polygon):
+                    raise
+                competition_vertices.append((key, point))
+                continue
+            boundary_vertices.append((key, point))
+            traces.append(trace)
+        return ResolvedCornerView(
+            model=self,
+            p1=self.p1,
+            p2=self.p2,
+            derived=derived,
+            materialized_vertices=tuple(boundary_vertices),
+            traces=tuple(traces),
+            competition_vertices=tuple(competition_vertices),
+        )
+
 
 @dataclass(frozen=True)
 class ResolvedCornerView:
@@ -515,6 +591,9 @@ class ResolvedCornerView:
     derived: CornerDerivedGeometry
     materialized_vertices: tuple[tuple[object, tuple[float, float]], ...]
     traces: tuple[CornerBoundaryTrace, ...]
+    competition_vertices: tuple[
+        tuple[object, tuple[float, float]], ...
+    ] = ()
 
     def __post_init__(self):
         if self.p1 is not self.model.p1 or self.p2 is not self.model.p2:

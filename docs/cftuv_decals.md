@@ -62,12 +62,17 @@ local metric только для положительного uniform scale. Non
 shear и mirror transform дают явный отказ до preview; исходному объекту нужно
 применить scale или убрать reflection.
 
-## Corner policy guard
+## CornerModel join contract
 
-До появления `CornerModel` runtime принимает только `MITER`. Сохранённый
-`.blend`, script или operator-вызов с `corner_join_mode=BEVEL` получает
-`DECAL_CORNER_JOIN_ARCHIVED_UNTIL_CORNER_MODEL`. UI-disable не является
-защитой, и тихая коэрция в `MITER` запрещена.
+`MITER` и `BEVEL` доступны как compile-time режимы одной `CornerModel`.
+Сохранённый `.blend`, script и operator-вызов проходят один и тот же compile;
+UI не блокирует `BEVEL`, а тихая коэрция в `MITER` запрещена. Смена join у
+уже скомпилированного plan даёт `DECAL_CORNER_JOIN_RECOMPILE_REQUIRED`.
+
+Свои strip-сегменты не меняются между режимами; меняется только материя угла.
+Для `BEVEL` семантический контур — ровно `V/P1/P2`, и чужая конкуренция вправе
+дойти до хорды. `ResolvedCornerView` после arrangement читает те же anchors и
+не выводит форму повторно.
 
 ## Modal contract
 

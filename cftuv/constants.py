@@ -41,7 +41,7 @@ DECAL_COPLANAR_DOT = 0.9975640502598242  # cos(4 degrees)
 # Сварка вершин при финализации decal mesh (стыки лент).
 DECAL_WELD_DISTANCE = 0.001
 # Максимальное удаление miter-вершины от spine в долях ширины одного крыла.
-# Используется compiled rail geometry; BEVEL runtime архивирован отдельно.
+# Используется compiled rail geometry; CornerModel join выбирается отдельно.
 DECAL_CORNER_MITER_LIMIT = 4.0
 # Прямоугольник атласа strict SEAMS: (u_min, v_min, u_max, v_max).
 DECAL_UV_RECT_SEAM = (0.9, 0.0, 1.0, 1.0)

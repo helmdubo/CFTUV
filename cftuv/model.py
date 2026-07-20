@@ -44,7 +44,7 @@ class FrameRole(str, Enum):
 
 
 class CornerJoinMode(str, Enum):
-    """Compile input for the future CornerModel implementation."""
+    """Compile input of the authoritative CornerModel."""
 
     MITER = "MITER"
     BEVEL = "BEVEL"

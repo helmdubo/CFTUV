@@ -268,14 +268,12 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
             ),
             (
                 "BEVEL",
-                "Bevel (Archived)",
-                "Unavailable until the CornerModel runtime is implemented",
+                "Bevel",
+                "Use the CornerModel chord at eligible exterior corners",
             ),
         ),
         default="MITER",
-        description=(
-            "BEVEL is archived until the CornerModel runtime is implemented"
-        ),
+        description="Compile-time CornerModel join style",
     )
     decal_corner_acute_split_angle: FloatProperty(
         name="Split Angle",
@@ -2242,7 +2240,6 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         col.prop(s, "decal_offset")
         col.prop(s, "decal_chart_distortion_budget")
         row = col.row(align=True)
-        row.enabled = False
         row.prop(s, "decal_corner_join_mode")
         col.prop(s, "decal_dynamic_corner_bands")
         if s.decal_dynamic_corner_bands:
