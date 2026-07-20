@@ -45,13 +45,19 @@ class CornerStationRef:
     s: float
     r: float
     tangent_away: tuple[float, float]
+    source_s_per_chart_unit: float
 
     def __post_init__(self):
         if len(self.tangent_away) != 2:
             raise ValueError("CORNER_STATION_TANGENT_INVALID")
         if not all(
             isfinite(float(value))
-            for value in (*self.tangent_away, self.s, self.r)
+            for value in (
+                *self.tangent_away,
+                self.s,
+                self.r,
+                self.source_s_per_chart_unit,
+            )
         ):
             raise ValueError("CORNER_STATION_NON_FINITE")
         length = sqrt(

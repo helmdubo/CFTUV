@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import inspect
 
 import pytest
@@ -15,6 +16,12 @@ from cftuv.decal_corner_model import (
     CornerStripVertex,
     CornerVertexRef,
     LocalClippedCornerStrip,
+)
+from cftuv.decal_distance_witness import (
+    CornerPolygonField2D,
+    DistanceFeatureKind,
+    MaterializedCornerPolygon2D,
+    materialized_corner_polygon,
 )
 from cftuv.model import CornerJoinMode
 
@@ -58,6 +65,7 @@ def _model(join):
         s=4.0,
         r=0.5,
         tangent_away=(1.0, 0.0),
+        source_s_per_chart_unit=1.0,
     )
     p2_station = CornerStationRef(
         route_id=("route", 5),
@@ -67,20 +75,21 @@ def _model(join):
         s=4.0,
         r=0.5,
         tangent_away=(0.0, 1.0),
+        source_s_per_chart_unit=1.0,
     )
     return CornerModel(
         seed=seed,
         p1=CornerAnchor(
             kind=CornerAnchorKind.P1,
             key=("P1", 11),
-            chart_point=(-0.5, 0.5),
+            chart_point=(0.0, 0.5),
             provenance=_provenance(3, ("station", 3)),
             station_ref=p1_station,
         ),
         p2=CornerAnchor(
             kind=CornerAnchorKind.P2,
             key=("P2", 11),
-            chart_point=(0.5, -0.5),
+            chart_point=(0.5, 0.0),
             provenance=_provenance(5, ("station", 5)),
             station_ref=p2_station,
         ),
@@ -199,7 +208,7 @@ def test_rf28_fan_discretization_cannot_masquerade_as_bevel_chord():
     with pytest.raises(
         ValueError, match="CORNER_MATERIAL_VERTEX_OUTSIDE_SEMANTIC_CONTOUR"
     ):
-        model.resolve((("legacy-fan-sample", (0.0, 0.4)),))
+        model.resolve((("legacy-fan-sample", (0.25, 0.45)),))
 
 
 def test_rf28_join_branch_is_owned_only_by_corner_model():
@@ -207,3 +216,90 @@ def test_rf28_join_branch_is_owned_only_by_corner_model():
 
     assert source.count("CornerJoinMode.BEVEL") == 1
     assert "CornerJoinMode.MITER" not in source
+
+
+def test_s_df2_lite_distance_witness_is_unsigned_and_labeled():
+    model = _model(CornerJoinMode.BEVEL)
+    derived = model.derive()
+    field = CornerPolygonField2D.from_model(
+        model, derived, requested_half_width=0.5
+    )
+
+    source = field.query_source(3, (0.25, 0.25))
+    assert source.distance == pytest.approx(0.25)
+    assert source.closest_point == pytest.approx((0.25, 0.0))
+    assert source.gradient == pytest.approx((0.0, 1.0))
+    assert source.site_id == 3
+    assert source.side is BandSide.POSITIVE
+    assert source.source_parameter == pytest.approx(0.25)
+    assert source.source_s == pytest.approx(4.25)
+    assert source.feature_kind is DistanceFeatureKind.SOURCE_INTERIOR
+
+    chord = field.query((0.4, 0.4))
+    assert chord.distance == pytest.approx(2**0.5 * 0.15)
+    assert chord.closest_point == pytest.approx((0.25, 0.25))
+    assert chord.site_id[-2:] == ("P1", "P2")
+    assert chord.side is BandSide.POSITIVE
+    assert chord.feature_kind is DistanceFeatureKind.CONTOUR_EDGE
+
+
+def test_s_df2_lite_samples_final_bevel_materialization_against_field():
+    model = _model(CornerJoinMode.BEVEL)
+    derived = model.derive()
+    field = CornerPolygonField2D.from_model(
+        model, derived, requested_half_width=0.5
+    )
+    polygon = materialized_corner_polygon(
+        model.emit_isolated()[0], owner_id=field.owner_id
+    )
+
+    comparison = field.compare_materialized((polygon,))
+
+    assert comparison.matches
+    assert comparison.samples
+    assert not comparison.coverage_mismatches
+    assert not comparison.width_errors
+    assert not comparison.owner_mismatches
+
+
+def test_s_df2_lite_rejects_apex_leak_width_and_owner_desync():
+    model = _model(CornerJoinMode.BEVEL)
+    field = CornerPolygonField2D.from_model(
+        model, model.derive(), requested_half_width=0.5
+    )
+    residual_apex = MaterializedCornerPolygon2D(
+        points=((0.0, 0.0), (0.0, 0.5), (0.5, 0.5), (0.5, 0.0)),
+        owner_id=field.owner_id,
+    )
+
+    leak = field.compare_materialized((residual_apex,))
+    wrong_owner = field.compare_materialized(
+        (replace(residual_apex, owner_id=("wrong-owner",)),)
+    )
+    wrong_width = replace(
+        field, requested_half_width=0.75
+    ).compare_materialized(
+        (
+            materialized_corner_polygon(
+                model.emit_isolated()[0], owner_id=field.owner_id
+            ),
+        )
+    )
+
+    assert not leak.matches
+    assert any(
+        sample.materialized_material and not sample.intended_material
+        for sample in leak.coverage_mismatches
+    )
+    assert wrong_owner.owner_mismatches == (("wrong-owner",),)
+    assert not wrong_owner.matches
+    assert {item[0] for item in wrong_width.width_errors} == {"P1", "P2"}
+    assert not wrong_width.matches
+
+
+def test_s_df2_lite_field_consumes_derived_shape_without_join_choice():
+    source = inspect.getsource(CornerPolygonField2D.from_model)
+
+    assert "CornerJoinMode" not in source
+    assert "BEVEL" not in source
+    assert "MITER" not in source

@@ -5137,6 +5137,16 @@ def _local_corner_strip(surface, corner, site_index, alpha):
                 s=float(_site_v_length(site, parameter)),
                 r=float(lateral),
                 tangent_away=tuple(float(value) for value in tangent_away),
+                source_s_per_chart_unit=(
+                    float(site.arc_sign)
+                    * (1.0 if site.vert_a == corner.vert_index else -1.0)
+                    * (
+                        float(site.uv_length)
+                        if site.uv_length > 0.0
+                        else float(site.segment_length)
+                    )
+                    / max(float(site.segment_length), _GEOMETRY_EPS)
+                ),
             ),
         )
         vertices_by_key.setdefault(key, vertex)

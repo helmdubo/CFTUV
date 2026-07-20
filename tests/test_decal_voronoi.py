@@ -1030,6 +1030,62 @@ def test_s_cm_a_bevel_is_test_only_planar_one_face_oracle():
         assert len(faces[0].traces) == 3
 
 
+def test_s_df2_lite_samples_final_miter_geometry_with_owner_and_width():
+    from cftuv.decal_distance_witness import (
+        CornerPolygonField2D,
+        materialized_corner_polygon,
+    )
+
+    graph, edge_indices = _door_opening_graph()
+    plan = compile_patch_voronoi_plan(
+        graph, edge_indices, offset=0.125
+    )
+    surface = plan.surfaces[0]
+    alpha = 0.25
+    settings = decal_voronoi.CornerRuntimeSettings()
+    models = decal_voronoi._build_local_corner_models(surface, alpha)
+    final_faces = evaluate_patch_voronoi_plan(
+        plan,
+        width=alpha * 2.0,
+        preview=True,
+        corner_settings=settings,
+    )
+    tested_owner_ids = []
+    for model in models:
+        owner_id = (
+            "corner-model",
+            model.seed.corner_vertex_id,
+            model.seed.sector_id,
+        )
+        owned_faces = tuple(
+            face
+            for face in final_faces
+            if face.provenance.semantic_owner_id == owner_id
+        )
+        if not owned_faces:
+            continue
+        derived = model.derive(
+            apex_limit=alpha * settings.apex_limit
+        )
+        field = CornerPolygonField2D.from_model(
+            model, derived, requested_half_width=alpha
+        )
+        polygons = tuple(
+            materialized_corner_polygon(
+                face, project=surface.domain.project
+            )
+            for face in owned_faces
+        )
+
+        comparison = field.compare_materialized(polygons)
+
+        assert comparison.matches
+        assert comparison.samples
+        tested_owner_ids.append(owner_id)
+
+    assert tested_owner_ids
+
+
 def test_i5_patch_voronoi_geometry_batch_provenance_is_total():
     from cftuv.decal_geometry import geometry_batch_from_faces
 
