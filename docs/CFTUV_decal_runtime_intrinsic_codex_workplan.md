@@ -1123,7 +1123,31 @@ differential-критерием; фазировка CornerModel; «3 верши�
 S2a-типы-до-R2 и S2b-сессия-после). Инварианты I1/I3/I4/I6/I8
 уточнены в брифе. Единственный владелец implementation-ветки —
 исполнитель; ревьювер — только docs-коммиты.
-**Статус S0 (первый коммит нового исполнителя `445b44d`):**
+**Статус S0: ПРИНЯТ ревью** (верифицировано по PR-ветке: annotated
+tag на `2831a22`, порядок S-guard->S0a->contract->S0b соблюдён,
+differential `semantic_equal`/`all_preview_confirm_equal`=true на
+обеих сюитах, runtime-гейт BEVEL, product contract до удаления;
+посажено в канон, PR #6 закрыт без merge).
+**Статус S1+S2a: ПРИНЯТ ревью** (`d78b16b`..`63c9f03`;
+верифицировано: surface_ir.py — AnalysisBundle/SourceRevision/
+cross-IR с именованной AnalysisCrossIrError; tessellation через
+calc_loop_triangles; GPU-рёбра по vert_keys;
+PreviewFailurePolicy.CLEAR в обоих адаптерах; typed
+World/Local/MetricContext; ярус-2 455 passed; intentional-diff
+таблица «было->стало->причина»). Открытые гейты из рисков среза:
+(1) MetricContext session-владение -> S2b (штатно);
+(2) **I5-gap: неполная provenance части PatchVoronoi faces —
+ОБЯЗАН закрыться ДО R2** (freeze запекает ключи поверх
+provenance; строить R2 на дырявой I5 запрещено) — закрытие в
+S-CM.a или отдельным микро-срезом до R2.
+**ТЕКУЩАЯ ЗАДАЧА — S-CM.a** (бриф §5-§6): фазы
+CornerSeed -> CornerModel (после локального owner-domain/own-strip
+клипа, ДО глобальной конкуренции) -> ResolvedCornerView; приёмка
+по семантическому контуру (V/P1/P2, без остаточного апекса,
+overlay и второй границы); планарный изолированный оракул — одна
+грань из трёх вершин; BEVEL остаётся за runtime-гейтом до
+R2+S-CM.b.
+Историческая заметка (первый коммит `445b44d`):
 фактически S0a (+удаление decal_network) — ПРИНЯТО
 предварительно; риски задекларированы корректно (блок «Риски»
 работает). Follow-ups до закрытия S0: (1) runtime-гейт BEVEL
