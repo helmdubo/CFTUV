@@ -267,13 +267,13 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
             ),
             (
                 "BEVEL",
-                "Bevel",
-                "Cut only convex MITER corners into triangles",
+                "Bevel (Archived)",
+                "Unavailable until the CornerModel runtime is implemented",
             ),
         ),
         default="MITER",
         description=(
-            "Shape of convex MITER joins; reflex KITE corners are unchanged"
+            "BEVEL is archived until the CornerModel runtime is implemented"
         ),
     )
     decal_corner_acute_split_angle: FloatProperty(
@@ -2220,7 +2220,9 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         col.prop(s, "decal_height_trim")
         col.prop(s, "decal_offset")
         col.prop(s, "decal_chart_distortion_budget")
-        col.prop(s, "decal_corner_join_mode")
+        row = col.row(align=True)
+        row.enabled = False
+        row.prop(s, "decal_corner_join_mode")
         col.prop(s, "decal_dynamic_corner_bands")
         if s.decal_dynamic_corner_bands:
             col.prop(s, "decal_corner_miter_angle")
