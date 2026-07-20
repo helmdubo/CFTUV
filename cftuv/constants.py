@@ -35,30 +35,16 @@ GP_DEBUG_PREFIX = "CFTUV_Debug_"
 # Decal producer (Phase 3)
 # ============================================================
 
-# Классификация граничного ребра WALL patch:
-# outward = edge_dir x patch_normal; score = outward . basis_v.
-# score > порога — верхняя кромка (TOP), score < -порога — нижняя (BOTTOM).
-DECAL_DIR_THRESHOLD = 0.5
-# Рёбра короче порога не участвуют в trim цепочках (шумовые кромки).
-DECAL_NOISE_THRESHOLD = 0.05
 # Пары WALL patches: угол между нормалями меньше 4 градусов — копланарный
 # шов (seam лента), от 4 градусов — угол (corner лента).
 DECAL_COPLANAR_DOT = 0.9975640502598242  # cos(4 degrees)
 # Сварка вершин при финализации decal mesh (стыки лент).
 DECAL_WELD_DISTANCE = 0.001
-# Схлопывание последовательных точек спайна угловой ленты (как в прототипе).
-DECAL_SPINE_MERGE_DISTANCE = 0.01
 # Максимальное удаление miter-вершины от spine в долях ширины одного крыла.
-# Более длинное пересечение превращается в bevel и не создаёт острый шип.
+# Используется compiled rail geometry; BEVEL runtime архивирован отдельно.
 DECAL_CORNER_MITER_LIMIT = 4.0
-# Допустимый зазор между двумя offset-линиями в долях ширины крыла.
-# На неплоской станции линии могут быть skew — тогда нужен bevel join.
-DECAL_CORNER_JOIN_GAP_RATIO = 0.05
-# Прямоугольники атласа для UV лент: (u_min, v_min, u_max, v_max).
-DECAL_UV_RECT_CORNER = (0.9, 0.0, 1.0, 1.0)
+# Прямоугольник атласа strict SEAMS: (u_min, v_min, u_max, v_max).
 DECAL_UV_RECT_SEAM = (0.9, 0.0, 1.0, 1.0)
-DECAL_UV_RECT_TOP = (0.0, 0.8, 1.0, 1.0)
-DECAL_UV_RECT_BOTTOM = (0.0, 0.0, 1.0, 0.2)
 
 # Коллекция для сгенерированных decal объектов.
 DECAL_COLLECTION_NAME = "Decals_Generated"
