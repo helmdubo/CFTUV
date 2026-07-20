@@ -55,9 +55,17 @@ non-uniform/shear/mirror/degenerate ДО всего)
     |
     v
 ANALYSIS  ->  AnalysisBundle:
-    PatchGraph        # ТОЛЬКО топология: patches, классификация,
-                      # chains, boundary; никакой геометрии
-    PatchSurfaceIR    # ЕДИНСТВЕННЫЙ источник поверхности:
+    source_revision   # ОБЩАЯ ревизия источника: оба IR несут один
+                      # SourceRevision; расхождение невозможно выразить
+    PatchGraph        # топология, классификация, chains, ordered
+                      # boundary geometry и solve-facing intrinsic
+                      # facts CFTUV (vert_cos, basis, patch
+                      # normal/area — ОСТАЮТСЯ: их потребляет solve).
+                      # Из него уходит ТОЛЬКО полная surface
+                      # tessellation (mesh_verts, mesh_vert_indices,
+                      # mesh_tris, mesh_tri_face_indices,
+                      # mesh_tri_face_normals, mesh_tri_edge_indices)
+    PatchSurfaceIR    # authoritative-представление ПОВЕРХНОСТИ:
                       #   SourceFace: face_id, patch_id,
                       #     vertex_cycle, edge_cycle,
                       #     polygon_normal, triangle_ids
@@ -65,9 +73,18 @@ ANALYSIS  ->  AnalysisBundle:
                       #     source_face_id, vertex_ids,
                       #     physical_edge_ids, triangle_normal
                       # tessellation = Blender loop-triangles,
-                      # НЕ произвольный fan
+                      # НЕ произвольный fan; диагональ тесселяции =
+                      # None, не фиктивный edge ID
     AnalysisCapabilities  # версии схем; несовместимость ->
                           # fail-fast DECAL_ANALYSIS_SCHEMA_UNSUPPORTED
+
+Cross-IR валидация AnalysisBundle (обязательная; иначе два IR —
+это болезнь Б1 в красивых dataclass): каждый vertex/edge/face
+PatchGraph существует в SurfaceIR; face_to_patch ==
+SourceFace.patch_id; каждое chain-ребро принадлежит своему
+boundary cycle; координаты одного source vertex не расходятся;
+triangle->face provenance тотальна; оба IR несут один
+source_revision.
     |
     v
 WorldDecalRequest --[MetricContext: fingerprint матрицы,
@@ -111,33 +128,58 @@ GeometryBatch (immutable):
 
 ЖЁСТКИЕ (проверены производством; нарушение = дефект ревью):
 
-- **I1 Compile-static (S1).** Трассировка, станции, конкуренция,
-  freeze — на compile. Drag меняет только материализованный
-  extent. `Construct()` в кадре запрещён.
+- **I1 Compile-static (S1).** Compile открывает ВСЕ topology
+  routes, станции, candidate-события, authority и support. Runtime
+  drag может менять coverage и эмитируемую connectivity при
+  пересечении ЗАРАНЕЕ представленных событий (столкновение,
+  freeze, смена станции), но НЕ может открывать новые routes,
+  менять support, повторно трассировать топологию или вызывать
+  `Construct()` в кадре. (Уточнение аудита: законные
+  topology-события на drag не запрещены — запрещено их
+  ОТКРЫТИЕ в runtime.)
 - **I2 Детерминизм.** Бит-идентичная регенерация; инвариантность
   к порядку перечисления рёбер, направлению обхода и флипу
   нормалей source-меша.
-- **I3 Ноль числовых выборов поведения.** Пороги/углы/округления
-  не выбирают ветку исполнения. Числа — только семантика:
-  ширина, `DECAL_COPLANAR_DOT` (единственный предикат излома,
-  сейчас cos 4°; смена — только решением пользователя),
-  бюджеты. `_RAIL_PLANAR_DOT` (1-1e-10) — допуск арифметической
-  представимости: только именованный fail либо counted
-  терминация, никогда выбор геометрии.
-- **I4 Один источник, много читателей.** Один идеальный объект —
-  одно представление. Действует для: формы угла (CornerModel),
-  контакта с границей (станционная точка), станций маршрута,
-  vert_keys.
+- **I3 Ноль НЕНАЗВАННЫХ числовых семантических решений.**
+  (Редакция аудита — принята.) Каждое число в системе обязано
+  принадлежать одному из трёх классов: (1) семантический параметр
+  (ширина, `DECAL_COPLANAR_DOT` — единственный предикат излома,
+  сейчас cos 4°, смена — только решением пользователя; бюджеты);
+  (2) каноническое представление/квантизация ключей; (3) guard
+  арифметической робастности (`_RAIL_PLANAR_DOT` и т.п.) — guard
+  вправе дать ТОЛЬКО именованный fail или counted терминацию,
+  никогда — молча выбрать другую геометрию. Число вне этих трёх
+  классов, выбирающее ветку поведения, — дефект.
+- **I4 Один authoritative объект, много derived read-only
+  проекций.** (Редакция аудита — принята.) Один идеальный объект —
+  ОДНО семантическое представление, принимающее решения; GPU
+  buffers и BMesh — тупые односторонние проекции `GeometryBatch`,
+  не самостоятельные источники (проекция не выводит топологию и
+  не принимает решений). Действует для: формы угла (CornerModel),
+  контакта с границей, станций маршрута, vert_keys.
 - **I5 Provenance тотальна.** Каждый эмитированный элемент знает
   source-грань, source-ребро, route и станцию.
-- **I6 Preview == confirm.** Единый evaluator и ЕДИНАЯ валидация;
-  состояние, достижимое в preview, не может падать на confirm.
+- **I6 Preview == confirm (семантически).** Preview и confirm
+  используют один `GeometryBatch` и один валидатор: геометрическая
+  и policy-валидация РАЗЛИЧАТЬСЯ не могут. Операционные сбои
+  публикации (memory, edit-mode, удалённый source, datablock) —
+  допустимы ТОЛЬКО как именованные транзакционные ошибки без
+  изменения production-объекта. Запрещена семантическая
+  асимметрия, а не существование runtime-сбоев Blender.
 - **I7 Fail-fast, именованно, честно.** Тихих фолбэков и
   деградаций нет. Неподдержанное — именованная ошибка; недоступная
   фича — выключенная кнопка, не подмена поведением.
-- **I8 Насыщение.** Ввод за пределами ёмкости поверхности
-  (ширина >> меша) — валидное состояние: клампы counted, не
-  ошибки (правило RR8d).
+- **I8 Насыщение — по plan-политике ёмкости.** Ввод за пределами
+  ёмкости поверхности — валидное состояние ТАМ, где план доказал
+  единственное максимальное покрытие. Plan-level контракт
+  `CapacityPolicy`: `SATURATE_PROVEN` (counted кламп, дефолт —
+  RR8d); `CONTROLLED_RECOMPILE` (компиляция нового support ВНЕ
+  сырого mouse-кадра; допустим только как явно задекларированная
+  политика плана и НЕ имеет права двигать замороженные границы —
+  RC3); `REJECT_UNPROVEN` (именованный отказ для
+  periodic/double-cover/неинъективных случаев, где максимальное
+  покрытие не доказано). Универсальный кламп без доказательства
+  запрещён.
 - **I9 Полевая приёмка первична.** Гейт §0d.0: отчёт полевого
   фикса обязан содержать рендер ракурса пользователя и
   по-стрелочное «было -> стало». Тесты геометрии — на ИТОГОВОЙ
@@ -234,21 +276,55 @@ class PreviewFailurePolicy(Enum): CLEAR                # дефолт и
     # пока единственная политика: «пусть ломается видимо» —
     # решение пользователя; GPU и mesh адаптеры ОБЯЗАНЫ совпадать
 
+# CornerModel — ФАЗИРОВАННЫЙ контракт (поправка аудита: снимает
+# цикл «competition -> clip -> model -> competition»). Один
+# ИСТОЧНИК формы, но не один объект на всех фазах времени:
+
+@dataclass(frozen=True)
+class CornerSeed:
+    """Compile-static факты угла (до какой-либо ширины)."""
+    apex_ref: VertexKey                 # фактический V (после
+                                        # offset/projection), не
+                                        # только corner_vertex_id
+    corner_vertex_id: int
+    incident_site_ids: tuple[int, int]  # УПОРЯДОЧЕННАЯ пара
+                                        # смежных spine/site
+    side: BandSide
+    sector_id: int | None               # valence-N junction
+    owner_surface_id: int
+    join: CornerJoinMode
+
 @dataclass(frozen=True)
 class CornerModel:
-    """Единственный источник формы угла (срез S-CM).
-    V + P1/P2, ПРОЧИТАННЫЕ из уже клипнутых внешних углов
-    собственных strip-сегментов (общие vert_keys), + join.
-    Из него derive: collision domain, ownership, UV, проекция,
-    3D-эмиссия. Родословная: угол = точечная ячейка Вороного
-    (прототип пользователя); MITER=апекс, BEVEL=хорда(P1,P2) —
-    два режима ОДНОЙ модели, не две реализации."""
-    corner_vertex_id: int
-    spine_edge_id: int
-    side: BandSide
-    p1_key: VertexKey; p2_key: VertexKey
-    join: CornerJoinMode
+    """Строится ПОСЛЕ owner-domain и own-strip ЛОКАЛЬНОГО клипа,
+    но ДО inter-corner/глобальной конкуренции. P1/P2 читаются из
+    клипнутых внешних углов собственных strip-сегментов (общие
+    vert_keys + provenance + station refs). Из модели derive:
+    collision domain, ownership, UV, проекция, эмиссия.
+    Родословная: угол = точечная ячейка Вороного (прототип
+    пользователя); MITER=апекс, BEVEL=хорда — два режима ОДНОЙ
+    модели."""
+    seed: CornerSeed
+    p1: CornerAnchor   # key + provenance + station ref
+    p2: CornerAnchor
+
+# ResolvedCornerView — вид угла ПОСЛЕ конкуренции/ownership:
+# ссылается на те же семантические якоря и ключи; форму НЕ
+# пере-деривирует.
 ```
+
+Приёмка BEVEL (поправка аудита — семантика вместо счёта вершин;
+прежняя формула «ровно 3 вершины» запекала планарность):
+- Общий контракт: семантический контур BEVEL = РОВНО V, P1, P2;
+  ни остаточного MITER-апекса, ни overlay-face, ни независимо
+  выведенной второй границы; каждая материализованная вершина
+  трассируется к рёбрам этого семантического контура.
+- Планарный изолированный оракул: без domain/collision
+  subdivision финальный угол = ОДНА грань из трёх вершин.
+- Криволинейный оракул (R3): допустимы несколько materialized
+  faces (surface stations, subdivision, клип границей), но ровно
+  три семантических якоря и одна authoritative родословная
+  границы.
 
 Curvature-readiness чеклист (для КАЖДОГО контракта S):
 - нормали — по треугольникам, не по патчу;
@@ -261,38 +337,62 @@ Curvature-readiness чеклист (для КАЖДОГО контракта S):
 - rails — топологические маршруты по рёбрам меша (surface-native,
   RM1): на кривизне геометрию несут они, не аналитика плоскости.
 
-### 6. Программа срезов
+### 6. Программа срезов (порядок уточнён аудитом — принят)
 
-- **S0 — АРХИВ-CUT** (детальный контур — §0g workplan):
-  архивная ветка, физическое удаление поколений 1 и 3, именованные
-  fail'ы отрезанных режимов, disabled-кнопки, синхронизация доков.
-  Движок в S0 не трогать.
-- **S1 — Контракт поверхности:** PatchSurfaceIR + Blender-
+- **S-guard** (первый отдельный коммит): BEVEL выключен не только
+  в UI — именованный runtime-гейт
+  `DECAL_CORNER_JOIN_ARCHIVED_UNTIL_CORNER_MODEL` для
+  сохранённых `.blend`, скриптов и operator-вызовов с
+  `corner_join_mode=BEVEL`; НИКАКОЙ тихой коэрции в MITER (I7).
+- **S0a — capability cut:** disabled UI, именованные fail'ы
+  режимов, runtime-гейты, README/доки; архивная ветка
+  `archive/legacy-decal-generations` + IMMUTABLE annotated tag на
+  исходный SHA (ветку можно случайно передвинуть — тег нельзя).
+  ПЕРЕД физическим удалением: написать
+  `docs/decal_archived_modes_product_contract.md` — только
+  наблюдаемая семантика TOP/BOTTOM/CORNERS (что означают, scope
+  выделения, семантика ширины, направление UV, closed-loop,
+  owner-side правила, принятые полевые фикстуры, что намеренно
+  не возвращается) — БЕЗ implementation notes; будущая пересдача
+  не должна требовать чтения архива.
+- **S0b — physical deletion:** инвентаризация зависимостей
+  символов; перенос РЕАЛЬНО общих scope/compiler-хелперов
+  (`_collect_manual_edge_decals`, `_manual_seam_edge_components`,
+  stitching/side-alignment и т.п. — strict SEAMS компилируется
+  через них!); удаление direct builders. «Движок не трогать» =
+  НОЛЬ семантических изменений strict SEAMS; выделение общих
+  хелперов РАЗРЕШЕНО. Критерий приёмки S0b — differential, не
+  просто зелёные тесты: для каждого поддержанного полевого
+  fixture: compiled plan digest до == после; GeometryBatch
+  serialization до == после; policy/fallback counters до ==
+  после; preview/confirm output до == после.
+- **S1 + S2a — фундамент данных (до R2):** PatchSurfaceIR +
+  AnalysisBundle/SourceRevision + cross-IR валидация; Blender-
   consistent tessellation + реальные нормали; footprint-scoped
-  preflight (именованные ранние ошибки; RV1 — без полномешевого
-  гейта); GPU-рёбра по vert_keys; PreviewFailurePolicy=CLEAR в
-  обоих адаптерах; dihedral по per-segment парам локальных
-  нормалей обеих chain uses. Регрессии: вогнутый U-образный n-gon,
-  non-planar quad/n-gon, reversed winding, сверка
-  площади/containment с Blender tessellation.
-- **S-CM — CornerModel:** единая пост-клип модель угла (контракт
-  выше). BEVEL возвращается в UI только отсюда. Приёмка на
-  финальной 3D-геометрии: BEVEL-грань = ровно 3 вершины; чужой
-  фронтир доходит до хорды; own-segments бит-идентичны MITER;
-  перекрытие соседних углов на большой ширине — через общую
-  конкуренцию.
-- **Ревизия заготовок** R1.9 (насыщение, `3d1abd8`) и R2-freeze
-  (`94bb679`): принять или переделать на новом фундаменте;
-  свежие BEVEL-коммиты (`6fc1e08`, `3a37745`) — материал, не
-  фундамент.
-- **R2 — конкуренция/freeze** (RC1-RC3, RF7, RR10: нить — один
-  route, ДВА чтения станций, freeze-локус).
-- **S2 — Типизированные границы:** World/LocalDecalSettings,
-  MetricContext, AnalysisCapabilities fail-fast,
-  DecalSessionController (operator — тонкий перевод событий),
-  immutable DTO.
+  preflight (RV1); GPU-рёбра по vert_keys;
+  PreviewFailurePolicy=CLEAR в обоих адаптерах; dihedral по
+  per-segment парам локальных нормалей обеих chain uses;
+  **плюс core-типы из S2:** World/LocalDecalSettings,
+  MetricContext, backend enums/tagged plans, immutable
+  GeometryBatch, AnalysisCapabilities. Регрессии: вогнутый
+  U-образный n-gon, non-planar quad/n-gon, reversed winding,
+  сверка площади/containment с Blender tessellation.
+- **S-CM.a — локальная семантика CornerModel** (до глобальной
+  конкуренции): фазы Seed -> Model -> ResolvedView (контракт §5);
+  приёмка по семантическому контуру (см. §5), планарный оракул —
+  одна грань из трёх вершин.
+- **Ревизия заготовок:** R1.9 (`3d1abd8`) и R2-freeze
+  (`94bb679`) — принять или переделать на новом фундаменте;
+  BEVEL-коммиты (`6fc1e08`, `3a37745`) — материал, не фундамент.
+- **R2 + S-CM.b — конкуренция/freeze + интеграция CornerModel:**
+  RC1-RC3, RF7, RR10 (нить — один route, ДВА чтения станций,
+  freeze-локус); финальная приёмка collision/ownership угла;
+  BEVEL возвращается в UI здесь.
+- **S2b — сессия/UI:** DecalSessionController, тонкий operator,
+  lifecycle cleanup.
 - **R3 — Кривизна:** сфера облегает (RF2), полюс-CAP, непланарный
-  скоуп RR10; полевая приёмка на half_sphere.
+  скоуп RR10; полевая приёмка на half_sphere; криволинейный
+  оракул CornerModel.
 - **S3 — Декомпозиция decal_voronoi.py по ownership** (compile /
   diagram / clipping-arrangement / chart transitions / lift /
   corner policy / UV / diagnostics) — только после контрактов;
@@ -326,8 +426,16 @@ Curvature-readiness чеклист (для КАЖДОГО контракта S):
 - **Дизайн-стопы:** потребность в числовом tie-break; конкуренция
   без ответа станционной метрики; неоднозначность merge; конфликт
   с каноном — стоп с фактами, не импровизация.
-- **Git:** ветка `claude/blender-decal-corner-preview-yq4lir`;
-  на отказ push — fetch+rebase (ревьювер пушит параллельно);
-  `.blend` не сохранять; установленный аддон синхронизировать и
-  сверять SHA-256; commit-подпись сборки видна в панели.
+- **Git — ЕДИНСТВЕННЫЙ владелец implementation-ветки (правило
+  аудита, принято):** код в implementation-ветку пишет ТОЛЬКО
+  исполнитель; ревьювер правит только docs (канон/план/бриф) и
+  делает это отдельными коммитами — при их появлении исполнитель
+  делает fetch+rebase ДО своей работы, не вперемешку; прямые
+  code-пуши ревьювера — только по явной передаче ownership.
+  Прочее: `.blend` не сохранять; установленный аддон
+  синхронизировать и сверять SHA-256; commit-подпись сборки видна
+  в панели. Архив: ветка + immutable tag; запрет чтения архива —
+  ПРОЦЕССНЫЙ (честно: техническим ограничением доступа ветка в
+  том же репозитории не является; истинная изоляция — отдельный
+  репозиторий/бандл, по решению пользователя).
 - Финальный арбитр всегда — пользователь в Blender на живой сцене.
