@@ -785,7 +785,7 @@ def rr9b_rf22_one_sided_boundary_continuation():
 
 
 def rr8b_rf26_unequal_boundary_reach():
-    """RF26: один берег кончается раньше, второй продолжает boundary-route."""
+    """RF26 geometry seed: два terminal route разной длины."""
 
     vertices = {
         0: (0.0, 0.0, 0.0),
@@ -798,8 +798,31 @@ def rr8b_rf26_unequal_boundary_reach():
         vertices,
         faces,
         (((0, 1), False),),
-        # Короткая pChain структурно заканчивается в v2; противоположный
-        # mesh-border route имеет втрое больший station reach.
         extra_pchain_paths=(((0, 2), False),),
+    )
+    return graph, edge_ids, selected, {vertex_id: vertex_id for vertex_id in vertices}
+
+
+def rr8c_rf27_segmented_contour():
+    """RF27: guide-chain заканчивается, но физический contour идёт за угол."""
+
+    vertices = {
+        0: (0.0, 0.0, 0.0),
+        1: (0.0, -1.0, 0.0),
+        2: (1.0, 0.0, 0.0),
+        3: (1.0, 2.0, 0.0),
+        4: (0.0, 2.0, 0.0),
+    }
+    faces = ((1, 0, 2, 3, 4),)
+    # Два BoundaryChain намеренно описывают один физический L-контур.
+    extra_pchain_paths = (
+        ((0, 2), False),
+        ((2, 3), False),
+    )
+    graph, edge_ids, selected = mesh_graph(
+        vertices,
+        faces,
+        (((0, 1), False),),
+        extra_pchain_paths=extra_pchain_paths,
     )
     return graph, edge_ids, selected, {vertex_id: vertex_id for vertex_id in vertices}

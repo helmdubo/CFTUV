@@ -275,8 +275,28 @@ R0+R1+LEGACY-CUT; нижеследующий старый список сохр�
    контакт скользит по КОНТУРУ (конкатенация цепочек при
    единственном продолжении), стороны остаются независимыми,
    закрывающая сущность не вводится; реализация A = RR8c + RF27.
-   B (`97eacf0`) и C (`ce532f9`) — IMPLEMENTED, приняты ревью
-   предварительно, полевой арбитр — пользователь.
+   B (`4b44e00`) и C (`807881c`) — IMPLEMENTED, приняты ревью
+   предварительно, полевой арбитр — пользователь. B реализована
+   только для базового `MITER + is_convex`; RF24 подтверждает final
+   triangle и сохранение KITE/reflex. C реализована по semantic
+   SEGMENT-соседу той же Patch-surface: normal/coplanarity не
+   участвует, общий multi-edge канонизируется по shared vertex keys
+   без epsilon; на `sagging_wall` `(6,7,8)` CAP `1 -> 0` при
+   ширинах `0.8/2.0/3.2/4.0`, результат `CAP_ALIGNED_MERGED`,
+   `CAP_KEEP` пуст. A остановлена по прямому stop-условию задачи:
+   полевая выборка целиком `PATCH_VORONOI/INTRINSIC_DEVELOPABLE`,
+   `corner_partitions=0`; v10/e8 имеет независимые boundary routes
+   e9 (reach 1.4750525512696153) и e20->16->42->15->40 (reach 4.0).
+   Значит видимая асимметрия — segmentation-stop, не corner
+   `alpha_limit`; A реализована как RR8c + RF27: короткий route
+   пользователя теперь `e9 -> e27 -> e26`, station distances
+   `0 -> 1.4750525512696153 -> 3.6034323730469593 -> 4.0`.
+   Стороны не связаны общим reach. R2 остаётся на паузе до полевой
+   приёмки всех трёх пунктов. Ярус-2: `520 passed / 3 skipped /
+   4 atlas_frozen deselected`; полевой набор: все шесть объектов
+   найдены, оба width-evaluation завершены на compile-static plan,
+   прежние именованные unsupported/rejected исходы noise/sphere
+   сохранены, новые runtime-ошибки отсутствуют; создано 6 field renders.
 5. **R2 — конкуренция/freeze в станциях** (RC1-RC3, RF7) + RR10
    «нити между chains»: единый route на нить, двойное чтение
    станций, freeze-локус вдоль нитей (RF17, часть R2).

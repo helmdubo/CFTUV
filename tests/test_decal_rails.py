@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from mathutils import Vector
 
 from cftuv import decal_rails
@@ -13,6 +15,7 @@ from decal_rail_fixtures import (
     rr9b_rf20_terminal_continuation,
     rr9b_rf21_spine_reaches_mesh_border,
     rr9b_rf22_one_sided_boundary_continuation,
+    rr8c_rf27_segmented_contour,
 )
 
 
@@ -372,7 +375,11 @@ def test_rf14_rp_sector_fan_keeps_only_the_fold_boundary_route():
     assert len(center_routes) == 1
     assert center_routes[0].key.side.start_edge_id == boundary_edge
     assert plan.start_sectors == ()
-    assert not any(event.kind == decal_rails.RailEventKind.DAM for event in plan.events)
+    # RR8c: seam route приходит в физическую развилку двух border-рёбер.
+    assert sum(
+        event.kind == decal_rails.RailEventKind.DAM
+        for event in plan.events
+    ) == 1
 
 
 def test_rp_closed_planar_fan_has_no_routes_or_poles():
@@ -784,6 +791,79 @@ def test_rr9b_rf22_one_sided_boundary_continuations_are_delimiters():
         and route.key.side.start_edge_id in continuation_edges
         for route in plan.routes
     )
+
+
+def test_rr8c_rf27_boundary_route_crosses_derived_chain_boundary():
+    graph, edge_ids, selected, _vertex_at = rr8c_rf27_segmented_contour()
+    plan = decal_rails.compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=2.0,
+    )
+    guide_edge = edge_ids[(0, 2)]
+    continuation_edge = edge_ids[(2, 3)]
+    route = next(
+        route
+        for route in plan.routes
+        if route.key.side.start_edge_id == guide_edge
+    )
+
+    assert tuple(segment.edge_id for segment in route.segments) == (
+        guide_edge,
+        continuation_edge,
+    )
+    assert route.stations[-1].distance == 2.0
+    assert route.stations[-1].source_edge_id == continuation_edge
+    assert route.termination == decal_rails.RailTermination.ALPHA
+
+
+def test_rr8c_rf27_contour_fork_is_counted_dam_without_hidden_choice():
+    incoming = decal_rails.RailSourceEdge(
+        100, (0, 1), (1000,), 1.0, is_pchain=True
+    )
+    branch_a = decal_rails.RailSourceEdge(
+        101, (1, 2), (1000,), 1.0, is_pchain=True
+    )
+    branch_b = decal_rails.RailSourceEdge(
+        102, (1, 3), (1001,), 1.0, is_pchain=True
+    )
+    topology = SimpleNamespace(
+        vertex_edges={1: (100, 101, 102)},
+        edge_by_id={
+            edge.edge_id: edge
+            for edge in (incoming, branch_a, branch_b)
+        },
+    )
+
+    continuation, stop_reason, event_kind = (
+        decal_rails._boundary_contour_continuation(
+            topology,
+            {},
+            1,
+            incoming.edge_id,
+            (incoming.edge_id,),
+        )
+    )
+    assert continuation is None
+    assert stop_reason == decal_rails.RailTermination.DAM
+    assert event_kind is None
+
+    physical_end = SimpleNamespace(
+        vertex_edges={1: (100,)},
+        edge_by_id={100: incoming},
+    )
+    continuation, stop_reason, event_kind = (
+        decal_rails._boundary_contour_continuation(
+            physical_end,
+            {},
+            1,
+            incoming.edge_id,
+            (incoming.edge_id,),
+        )
+    )
+    assert continuation is None
+    assert stop_reason == decal_rails.RailTermination.PCHAIN
+    assert event_kind is None
 
 
 def test_r0_missing_selected_edge_is_structured_compile_failure():

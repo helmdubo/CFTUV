@@ -45,17 +45,22 @@ PatchGraph, owner surface charts и offset. Он один раз сохраня�
 `interior_angle`, `extrusion_angle`, `is_convex` и `miter_ratio`, после чего
 строит runtime crops и пересекает их с уже скомпилированными cells.
 
-Сейчас доступны два параметра, семантика которых уже определена backend:
+Сейчас доступны три параметра, семантика которых уже определена backend:
 
 - `Acute Split Angle` — ниже порога corner становится двухкомпонентным
   `ACUTE_SPLIT`;
 - `Apex Limit` — максимальное расстояние удалённого apex относительно
   half-width для `MITER`, `KITE` и outer-части `ACUTE_SPLIT`.
+- `Corner Join` — `MITER` сохраняет обычный выпуклый apex, `BEVEL`
+  заменяет только базовый выпуклый `MITER` треугольным crop. Reflex/KITE,
+  ACUTE_SPLIT и остальные policy переключателем не подменяются.
 
 Blender property id `decal_corner_miter_limit` сохранён для совместимости, но
 UI и runtime называют параметр `Apex Limit`; внутренний контракт —
-`CornerRuntimeSettings.apex_limit`. `_CornerPolicy.BEVEL` оставлен только как
-reserved enum и classifier его не возвращает. Дальний MITER/KITE apex заменяет
+`CornerRuntimeSettings.apex_limit`. `CornerRuntimeSettings.join_mode=BEVEL`
+возвращает `_CornerPolicy.BEVEL` только при `policy == MITER` и
+`CornerSpec.is_convex`; owner clipping может разбить crop, но final BEVEL
+faces всегда треугольны. Дальний MITER/KITE apex заменяет
 усечённый contour. ACUTE_SPLIT всегда сохраняет INNER и OUTER components:
 outer apex двигается вдоль исходного apex ray и остаётся строго с внешней
 стороны cap chord. Если limit меньше геометрического minimum, используется
@@ -63,8 +68,22 @@ minimum + epsilon и увеличивается `apex_limit_saturated_count`.
 
 Optional `PatchVoronoiDiagnostics` содержит `clamped_miter_count`,
 `clamped_kite_count`, `clamped_acute_count` и
-`apex_limit_saturated_count`; изменение Apex Limit не вызывает новый
+`apex_limit_saturated_count`, а также counted причины сохранённых CAP в
+`cap_keep_counts` (`CAP_KEEP_<REASON>`); изменение Apex Limit не вызывает новый
 `Pyvoronoi.Construct()`.
+
+CAP сохраняет геометрическое закрытие, но при ровно одном semantic
+SEGMENT-соседе той же Patch-surface принимает его station-UV и становится
+частью strip. Совпадение normals не требуется: fold не является UV seam.
+Несколько общих рёбер образуют одну adjacency; общий UV канонизируется по
+shared vertex keys без числового допуска. Неоднозначность сохраняет CAP и
+обязана появиться в `cap_keep_counts`.
+
+Terminal boundary contact читает физический contour, а не границы
+производных `BoundaryChain`: если chain закончилась в вершине с ровно одним
+непройденным seam/border-продолжением, тот же station route продолжается за
+угол. Физический конец сохраняет CAP, развилка без единственного mark — DAM.
+Два берега торца имеют независимые route/reach и общим числом не связываются.
 
 Каждый corner crop до merge ограничивается endpoint ownership incident site:
 corner у `point_a` владеет `t <= 0.5`, corner у `point_b` — `t >= 0.5`.

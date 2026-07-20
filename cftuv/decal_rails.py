@@ -1250,6 +1250,57 @@ def _pchain_continuation(topology, chain_records, vertex_id, incoming_edge_id):
     return next(iter(candidates)) if len(candidates) == 1 else None
 
 
+def _boundary_contour_continuation(
+    topology,
+    chain_records,
+    vertex_id,
+    incoming_edge_id,
+    visited_edge_ids,
+):
+    """RR8c: chain — сегмент; station route читает физический контур."""
+
+    visited_edge_ids = frozenset(visited_edge_ids)
+    chain_edge_id = _pchain_continuation(
+        topology,
+        chain_records,
+        vertex_id,
+        incoming_edge_id,
+    )
+    if chain_edge_id is not None:
+        if chain_edge_id in visited_edge_ids:
+            return None, RailTermination.DAM, None
+        return chain_edge_id, None, None
+
+    contour_edge_ids = tuple(
+        edge_id
+        for edge_id in topology.vertex_edges.get(vertex_id, ())
+        if edge_id != incoming_edge_id
+        and not topology.edge_by_id[edge_id].is_spine
+        and (
+            topology.edge_by_id[edge_id].is_pchain
+            or len(topology.edge_by_id[edge_id].face_indices) == 1
+        )
+    )
+    candidates = tuple(
+        edge_id
+        for edge_id in contour_edge_ids
+        if edge_id not in visited_edge_ids
+    )
+    if len(candidates) == 1:
+        return candidates[0], None, None
+
+    marked = tuple(
+        edge_id
+        for edge_id in candidates
+        if topology.edge_by_id[edge_id].is_marked
+    )
+    if len(marked) == 1:
+        return marked[0], None, RailEventKind.MARK
+    if candidates or contour_edge_ids:
+        return None, RailTermination.DAM, None
+    return None, RailTermination.PCHAIN, None
+
+
 def _trace_route(
     topology,
     route_id,
@@ -1337,13 +1388,26 @@ def _trace_route(
         visited_states.add(state)
 
         if boundary_route:
-            continuation = _pchain_continuation(
-                topology,
-                chain_records,
-                next_vertex_id,
-                current_edge_id,
+            continuation, stop_reason, continuation_event = (
+                _boundary_contour_continuation(
+                    topology,
+                    chain_records,
+                    next_vertex_id,
+                    current_edge_id,
+                    (segment.edge_id for segment in segments),
+                )
             )
+            if continuation_event is not None:
+                events.append(
+                    RailEvent(
+                        continuation_event,
+                        route_id,
+                        len(stations) - 1,
+                    )
+                )
             if continuation is None:
+                if stop_reason == RailTermination.DAM:
+                    return finish(RailTermination.DAM, RailEventKind.DAM)
                 return finish(RailTermination.PCHAIN, RailEventKind.PCHAIN)
             current_vertex_id = next_vertex_id
             current_edge_id = continuation

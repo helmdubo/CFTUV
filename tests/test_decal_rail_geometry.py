@@ -466,6 +466,24 @@ def test_r15_rf26_boundary_contacts_use_independent_route_reach():
         selected,
         alpha_budget=3.0,
     )
+    # RF26 проверяет geometry-IR независимых reach. После RR8c исходный
+    # mesh contour честно продолжается за производный конец chain, поэтому
+    # физический short-end задаём прямо в каноническом route IR.
+    short_edge_id = edge_ids[(0, 2)]
+    rail_plan = replace(
+        rail_plan,
+        routes=tuple(
+            replace(
+                route,
+                stations=route.stations[:2],
+                segments=route.segments[:1],
+                termination=decal_rails.RailTermination.PCHAIN,
+            )
+            if route.key.side.start_edge_id == short_edge_id
+            else route
+            for route in rail_plan.routes
+        ),
+    )
     attempt = compile_planar_rail_geometry_attempt(
         rail_plan,
         edge_indices=selected,
@@ -481,6 +499,7 @@ def test_r15_rf26_boundary_contacts_use_independent_route_reach():
             for vertex in (piece.start, piece.end)
         )
         for path in attempt.plan.boundary_paths
+        if path.kind == "ROUTE"
     }
     short_path = min(path_reaches, key=path_reaches.get)
     long_path = max(path_reaches, key=path_reaches.get)

@@ -122,22 +122,22 @@
         {
           "width": 0.4,
           "status": "UPDATED",
-          "face_count": 43,
-          "rail_plan_identity": 2134032943376,
+          "face_count": 39,
+          "rail_plan_identity": 3105132064528,
           "compile_static": true
         },
         {
           "width": 0.8,
           "status": "UPDATED",
-          "face_count": 43,
-          "rail_plan_identity": 2134032943376,
+          "face_count": 39,
+          "rail_plan_identity": 3105132064528,
           "compile_static": true
         }
       ]
     },
     {
       "object": "rounded_wall_noise_top",
-      "selected_edge_count": 74,
+      "selected_edge_count": 78,
       "selected_edge_indices": [
         0,
         1,
@@ -212,9 +212,13 @@
         149,
         150,
         197,
-        198
+        198,
+        259,
+        270,
+        282,
+        302
       ],
-      "backend_summary": "Unsupported[DISTORTION_BUDGET_EXCEEDED:x1] | RailUnsupported[RAIL_GEOMETRY_BRANCH_UNSUPPORTED:x1] | Failed:74e[DISTORTION_BUDGET_EXCEEDED:x74]",
+      "backend_summary": "Unsupported[DISTORTION_BUDGET_EXCEEDED:x1] | RailUnsupported[RAIL_GEOMETRY_BRANCH_UNSUPPORTED:x1] | Failed:78e[DISTORTION_BUDGET_EXCEEDED:x78]",
       "accounting_is_exact": true,
       "accepted_rail_planar": [],
       "accepted_patch_voronoi": [],
@@ -514,6 +518,22 @@
         {
           "edge_index": 198,
           "reason": "DISTORTION_BUDGET_EXCEEDED"
+        },
+        {
+          "edge_index": 259,
+          "reason": "DISTORTION_BUDGET_EXCEEDED"
+        },
+        {
+          "edge_index": 270,
+          "reason": "DISTORTION_BUDGET_EXCEEDED"
+        },
+        {
+          "edge_index": 282,
+          "reason": "DISTORTION_BUDGET_EXCEEDED"
+        },
+        {
+          "edge_index": 302,
+          "reason": "DISTORTION_BUDGET_EXCEEDED"
         }
       ],
       "rail_compile_failures": [],
@@ -594,7 +614,11 @@
             149,
             150,
             197,
-            198
+            198,
+            259,
+            270,
+            282,
+            302
           ],
           "vertex_indices": [
             0,
@@ -618,21 +642,21 @@
           "width": 0.4,
           "status": "UPDATED",
           "face_count": 0,
-          "rail_plan_identity": 2134033876432,
+          "rail_plan_identity": 3105131736400,
           "compile_static": true
         },
         {
           "width": 0.8,
           "status": "UPDATED",
           "face_count": 0,
-          "rail_plan_identity": 2134033876432,
+          "rail_plan_identity": 3105131736400,
           "compile_static": true
         }
       ]
     },
     {
       "object": "sagging_wall",
-      "selected_edge_count": 26,
+      "selected_edge_count": 36,
       "selected_edge_indices": [
         0,
         1,
@@ -652,16 +676,26 @@
         15,
         16,
         17,
-        18,
-        19,
         20,
-        21,
-        24,
-        33,
-        34,
-        38
+        26,
+        27,
+        31,
+        40,
+        42,
+        44,
+        46,
+        48,
+        49,
+        51,
+        52,
+        54,
+        55,
+        57,
+        58,
+        59,
+        60
       ],
-      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/26e | RailUnsupported[RAIL_GEOMETRY_BRANCH_UNSUPPORTED:x1]",
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/36e | RailUnsupported[RAIL_GEOMETRY_BRANCH_UNSUPPORTED:x1]",
       "accounting_is_exact": true,
       "accepted_rail_planar": [],
       "accepted_patch_voronoi": [
@@ -683,14 +717,24 @@
         15,
         16,
         17,
-        18,
-        19,
         20,
-        21,
-        24,
-        33,
-        34,
-        38
+        26,
+        27,
+        31,
+        40,
+        42,
+        44,
+        46,
+        48,
+        49,
+        51,
+        52,
+        54,
+        55,
+        57,
+        58,
+        59,
+        60
       ],
       "rejected": [],
       "rail_compile_failures": [],
@@ -716,18 +760,28 @@
             15,
             16,
             17,
-            18,
-            19,
             20,
-            21,
-            24,
-            33,
-            34,
-            38
+            26,
+            27,
+            31,
+            40,
+            42,
+            44,
+            46,
+            48,
+            49,
+            51,
+            52,
+            54,
+            55,
+            57,
+            58,
+            59,
+            60
           ],
           "vertex_indices": [
             1,
-            11
+            10
           ],
           "face_indices": [],
           "details": []
@@ -740,15 +794,15 @@
         {
           "width": 0.4,
           "status": "UPDATED",
-          "face_count": 76,
-          "rail_plan_identity": 2134032562192,
+          "face_count": 130,
+          "rail_plan_identity": 3105132394896,
           "compile_static": true
         },
         {
           "width": 0.8,
           "status": "UPDATED",
-          "face_count": 79,
-          "rail_plan_identity": 2134032562192,
+          "face_count": 136,
+          "rail_plan_identity": 3105132394896,
           "compile_static": true
         }
       ]
@@ -885,14 +939,14 @@
           "width": 0.4,
           "status": "UPDATED",
           "face_count": 0,
-          "rail_plan_identity": 2134033556816,
+          "rail_plan_identity": 3105132477648,
           "compile_static": true
         },
         {
           "width": 0.8,
           "status": "UPDATED",
           "face_count": 0,
-          "rail_plan_identity": 2134033556816,
+          "rail_plan_identity": 3105132477648,
           "compile_static": true
         }
       ]
@@ -1025,14 +1079,14 @@
           "width": 0.4,
           "status": "UPDATED",
           "face_count": 0,
-          "rail_plan_identity": 2134033993488,
+          "rail_plan_identity": 3105132012048,
           "compile_static": true
         },
         {
           "width": 0.8,
           "status": "UPDATED",
           "face_count": 0,
-          "rail_plan_identity": 2134033993488,
+          "rail_plan_identity": 3105132012048,
           "compile_static": true
         }
       ]
@@ -1058,26 +1112,6 @@
       "rail_geometry_failures": [],
       "terminal_pchain_uses": [
         {
-          "spine_vertex_id": 128,
-          "spine_edge_id": 504,
-          "source_face_ids": [
-            80,
-            83,
-            84,
-            85,
-            93
-          ],
-          "kind": "ROUTE",
-          "pchain_candidate_edge_ids": [
-            473
-          ],
-          "candidate_measures_abs_dot": {
-            "473": 1.0
-          },
-          "chosen_edge_id": 473,
-          "route_id": 0
-        },
-        {
           "spine_vertex_id": 248,
           "spine_edge_id": 412,
           "source_face_ids": [
@@ -1091,7 +1125,7 @@
             "476": 0.0
           },
           "chosen_edge_id": 476,
-          "route_id": 2
+          "route_id": 1
         }
       ],
       "multi_candidate_terminal_count": 0,
@@ -1101,14 +1135,14 @@
           "width": 0.4,
           "status": "UPDATED",
           "face_count": 16,
-          "rail_plan_identity": 2134033826896,
+          "rail_plan_identity": 3105133640208,
           "compile_static": true
         },
         {
           "width": 0.8,
           "status": "UPDATED",
           "face_count": 16,
-          "rail_plan_identity": 2134033826896,
+          "rail_plan_identity": 3105133640208,
           "compile_static": true
         }
       ]
