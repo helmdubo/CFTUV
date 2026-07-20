@@ -485,11 +485,13 @@ R0+R1+LEGACY-CUT; нижеследующий старый список сохр�
    `RailRouteReading` и один точный `RailFreezeLocus` (vertex либо
    edge-parameter). Freeze/readings бит-идентичны при alpha 3 -> 30 и
    обратном перечислении. Оранжевый overlay-marker читает тот же locus.
-   Ярус-2: `533 passed, 3 skipped, 4 deselected`.
+   Ярус-2: `485 passed, 3 skipped, 4 deselected`.
    Live Blender 4.3.2: RF7 `routes=8/readings=16/freeze=8`, overlay
    `artifacts/decal_r2_rf7_overlay.png`; канонический полевой набор шести
-   объектов без `SCRIPT_ERROR`, отчёт
-   `artifacts/decal_r2_field_acceptance.json`; `.blend` не сохранён.
+   объектов, RF28 `walls.006`/`sagging_wall` и distance-witness сведены в
+   `artifacts/decal_r2_s_cm_b_field_acceptance.json` (`green=true`, source
+   `544f868`, `.blend` не сохранён). Именованные admission failures прежних
+   неподдержанных объектов сохранены, а не замаскированы.
    RR10(a,b) и consumer криволинейной геометрии не активированы досрочно:
    они остаются R3-scope.
 6. **R3 — кривизна**: сфера облегает (RF2, полюс-CAP RM5);
@@ -1175,8 +1177,21 @@ Heat — НЕТ (p95 2.52%, source-s 8.33%) — Heat дисквалифицир�
 пользователя. **Решение пользователя: A подтверждён.** Поле
 остаётся оракулом; R2 строится на станционной метрике. На старте
 R3 обязателен отдельный гейт интринсик-бэкенда ширины для
-кривизны (FMM — кандидат, Heat — не authority). **Текущая задача:
-R2 + S-CM.b.**
+кривизны (FMM — кандидат, Heat — не authority).
+**Статус R2 + S-CM.b: ВЫПОЛНЕН, ГОТОВ К РЕВЬЮ** (`de5ebec`..
+`544f868`). RC1-RC3/RR10: `8 routes / 16 readings / 8 freeze`, один
+физический route на нить, freeze бит-статичен при drag и обратном
+enumeration; RC4 остаётся именованным stop. `CapacityPolicy` финализирует
+R1.9, terminal overlap разрешается общей compile-static границей.
+`ResolvedCornerView` читает те же CornerModel/P1/P2 после конкуренции;
+BEVEL возвращён в UI как compile-event. RF28 на `walls.006` и
+`sagging_wall`: own strips MITER/BEVEL равны на widths 0.8/3.2,
+чужой фронтир получает 10 chord stations на wide wall, все 34 oracle
+records без leak/owner mismatch. Blender receipt `green=true`, 20/20
+preview==confirm, 10/10 round-trip, два wireframe-ракурса; tier-2
+`485 passed, 3 skipped, 4 deselected`. Отчёт:
+`artifacts/decal_r2_s_cm_b_gate_report.md`. **Следующий срез — S2b;
+R3 без отдельного стартового гейта не начинать.**
 Историческая заметка (первый коммит `445b44d`):
 фактически S0a (+удаление decal_network) — ПРИНЯТО
 предварительно; риски задекларированы корректно (блок «Риски»
