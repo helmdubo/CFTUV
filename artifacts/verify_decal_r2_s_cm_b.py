@@ -22,7 +22,8 @@ import bpy
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ARTIFACT_ROOT = REPO_ROOT / "artifacts"
-for path in (REPO_ROOT, ARTIFACT_ROOT):
+TESTS_ROOT = REPO_ROOT / "tests"
+for path in (REPO_ROOT, ARTIFACT_ROOT, TESTS_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
@@ -35,6 +36,7 @@ if loaded_cftuv is not None:
                 del sys.modules[module_name]
 
 from cftuv import decal_voronoi  # noqa: E402
+from cftuv.decal_rails import compile_decal_rail_plan  # noqa: E402
 from cftuv.decal_distance_witness import (  # noqa: E402
     CornerPolygonField2D,
     MaterializedCornerPolygon2D,
@@ -51,6 +53,7 @@ from cftuv.model import CornerJoinMode, DecalSettings  # noqa: E402
 
 import render_decal_r18_rc5 as field_render  # noqa: E402
 import verify_decal_r13_rr9a as field  # noqa: E402
+from decal_rail_fixtures import rr10_rf7_opposing_cylinder  # noqa: E402
 
 
 OUTPUT_JSON = ARTIFACT_ROOT / "decal_r2_s_cm_b_field_acceptance.json"
@@ -156,14 +159,67 @@ def _corner_local_segment_count(faces):
 
 
 def _freeze_record(locus):
+    station_key = (
+        ("VERTEX", int(locus.source_vertex_id))
+        if locus.source_vertex_id is not None
+        else (
+            "EDGE",
+            int(locus.source_edge_id),
+            float(locus.edge_parameter),
+        )
+    )
     return {
         "kind": locus.competition_kind.value,
         "route_ids": list(locus.route_ids),
         "arrival_distances": [float(value) for value in locus.arrival_distances],
+        "chain_refs": [list(value) for value in locus.chain_refs],
         "owner_chain_ref": repr(locus.owner_chain_ref),
-        "station_key": repr(locus.station_key),
+        "station_key": repr(station_key),
+        "canonical_distance": float(locus.canonical_distance),
+        "source_vertex_id": locus.source_vertex_id,
         "source_edge_id": locus.source_edge_id,
         "edge_parameter": locus.edge_parameter,
+    }
+
+
+def _rf7_rf17_receipt():
+    """Live-Blender receipt: одна нить, два чтения, immutable freeze."""
+
+    graph, _edge_ids, selected, _vertex_at = rr10_rf7_opposing_cylinder()
+    narrow = compile_decal_rail_plan(
+        graph,
+        selected,
+        alpha_budget=3.0,
+    )
+    wide = compile_decal_rail_plan(
+        graph,
+        tuple(reversed(selected)),
+        alpha_budget=30.0,
+    )
+    return {
+        "route_count": len(narrow.routes),
+        "route_reading_count": len(narrow.route_readings),
+        "freeze_locus_count": len(narrow.freeze_loci),
+        "event_counts": [list(value) for value in narrow.event_counts],
+        "all_routes_pchain": all(
+            route.termination.value == "PCHAIN" for route in narrow.routes
+        ),
+        "two_readings_per_route": all(
+            sum(
+                reading.route_id == route.route_id
+                for reading in narrow.route_readings
+            )
+            == 2
+            for route in narrow.routes
+        ),
+        "compile_static_across_drag_and_enumeration": (
+            wide.routes == narrow.routes
+            and wide.route_readings == narrow.route_readings
+            and wide.freeze_loci == narrow.freeze_loci
+        ),
+        "freeze_loci": [
+            _freeze_record(locus) for locus in narrow.freeze_loci
+        ],
     }
 
 
@@ -511,6 +567,16 @@ def _render_rf28_cases():
 
 
 def _is_green(report):
+    rf7 = report["rf7_rf17"]
+    if not (
+        rf7["route_count"] == 8
+        and rf7["route_reading_count"] == 16
+        and rf7["freeze_locus_count"] == 8
+        and rf7["all_routes_pchain"]
+        and rf7["two_readings_per_route"]
+        and rf7["compile_static_across_drag_and_enumeration"]
+    ):
+        return False
     records = report["rf28_cases"] + report["field_objects"]
     saw_foreign_frontier_at_chord = False
     for case in records:
@@ -561,6 +627,7 @@ def main():
         "blend_saved": False,
         "decision": "A",
         "quick": bool(args.quick),
+        "rf7_rf17": _rf7_rf17_receipt(),
         "rf28_cases": [],
         "field_objects": [],
         "renders": [],
