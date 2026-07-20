@@ -1792,8 +1792,8 @@ def test_apex_limit_changes_kite_contour():
     }
     assert snapshots[1.0] != snapshots[8.0]
     assert snapshots[8.0] == snapshots[100.0]
-    assert results[1.0][1].clamped_kite_count == 8
-    assert results[8.0][1].clamped_kite_count == 0
+    assert results[1.0][1].clamped_miter_count == 8
+    assert results[8.0][1].clamped_miter_count == 0
 
 
 def test_apex_limit_clamps_acute_outer_without_gap():
@@ -1877,6 +1877,25 @@ def test_s_cm_a_join_does_not_leak_into_band_policy_classifier():
         test_join_override="BEVEL",
     )
     assert any(model.derive().releases_competitor for model in bevel_models)
+    assert bevel_policy == decal_voronoi._CornerPolicy.KITE
+    miter_model = next(
+        model
+        for model in decal_voronoi._build_local_corner_models(
+            surface, alpha=0.25
+        )
+        if model.seed.corner_vertex_id == gap_corner.vert_index
+    )
+    components = decal_voronoi._corner_crop_components(
+        surface,
+        gap_corner,
+        bevel_policy,
+        0.25,
+        replace(bevel_settings, join_mode="MITER"),
+        corner_model=miter_model,
+    )
+    assert len(components) == 1
+    assert components[0].kind == "MITER"
+    assert components[0].semantic_owner_id[:1] == ("corner-model",)
     assert not hasattr(
         decal_voronoi, "_classify_emitted_corner_runtime"
     )
@@ -2170,12 +2189,12 @@ def test_corner_absorbs_incident_point_cell_boundaries_before_collision():
         plan, width=0.1, preview=True, corner_settings=_BAND_SETTINGS
     )
 
-    kite_faces = [face for face in faces if face.component_kind == "KITE"]
+    miter_faces = [face for face in faces if face.component_kind == "MITER"]
     segment_faces = [
         face for face in faces if face.component_kind == "SEGMENT"
     ]
-    assert len(kite_faces) == 8
-    assert all(len(face.positions) == 4 for face in kite_faces)
+    assert len(miter_faces) == 8
+    assert all(len(face.positions) == 4 for face in miter_faces)
     assert len(segment_faces) == len(plan.surfaces[0].sites)
 
 

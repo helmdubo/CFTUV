@@ -3548,7 +3548,10 @@ def _corner_crop_components(
         derived = corner_model.derive(
             apex_limit=alpha * settings.apex_limit
         )
-        if derived.releases_competitor or policy == _CornerPolicy.MITER:
+        if derived.releases_competitor or policy in {
+            _CornerPolicy.MITER,
+            _CornerPolicy.KITE,
+        }:
             if derived.miter_clamped and diagnostics is not None:
                 diagnostics.clamped_miter_count += 1
             owner_site = _corner_site_view(
