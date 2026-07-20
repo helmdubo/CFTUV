@@ -5086,6 +5086,7 @@ def _local_corner_strip(surface, corner, site_index, alpha):
     )
     vertices_by_key = {}
     target_candidates = []
+    cap_candidates = []
     for point in (point for component in components for point in component):
         location = surface.domain.locate(point)
         if location is None and period > _GEOMETRY_EPS:
@@ -5140,13 +5141,28 @@ def _local_corner_strip(surface, corner, site_index, alpha):
         )
         vertices_by_key.setdefault(key, vertex)
         target_candidates.append((_dist2(point, target), repr(key), key))
+        # P — внешний угол именно endpoint-cap собственного strip, а не
+        # ближайшая вершина его продольного rail. После насыщения domain
+        # cap клиппится на той же прямой через V; выбор rail/domain-угла
+        # заставлял P сходить с опорной прямой при width drag.
+        cap_line_error = abs(
+            _cross2(site.inward_normal, _sub2(point, corner.point))
+        )
+        if cap_line_error <= _FRAGMENT_TOPOLOGY_TOLERANCE:
+            cap_candidates.append((_dist2(point, target), repr(key), key))
     if not target_candidates:
         raise RuntimeError(
             "CORNER_LOCAL_STRIP_PROVENANCE_UNRESOLVED: "
             f"surface={surface.patch_id} vertex={corner.vert_index} "
             f"site={site_index}"
         )
-    _target_distance, _target_repr, outer_key = min(target_candidates)
+    if not cap_candidates:
+        raise RuntimeError(
+            "CORNER_LOCAL_STRIP_CAP_VERTEX_UNRESOLVED: "
+            f"surface={surface.patch_id} vertex={corner.vert_index} "
+            f"site={site_index}"
+        )
+    _target_distance, _target_repr, outer_key = min(cap_candidates)
     return LocalClippedCornerStrip(
         site_id=int(site_index),
         vertices=tuple(
