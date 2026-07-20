@@ -170,6 +170,29 @@ def test_resolved_corner_view_reuses_anchors_and_traces_contour_vertices():
     assert len(resolved.traces) == 3
 
 
+def test_resolved_miter_view_reuses_the_same_derived_boundary():
+    model = _model(CornerJoinMode.MITER)
+    derived = model.derive()
+    vertices = tuple(
+        (vertex.key, vertex.chart_point)
+        for vertex in derived.emission_boundary
+    )
+
+    resolved = model.resolve(vertices)
+
+    assert resolved.derived.emission_boundary == derived.emission_boundary
+    assert resolved.p1 is model.p1
+    assert resolved.p2 is model.p2
+    assert tuple(
+        trace.contour_edge for trace in resolved.traces
+    ) == (
+        ("V", "P1"),
+        ("V", "P1"),
+        ("P1", "MITER_APEX"),
+        ("MITER_APEX", "P2"),
+    )
+
+
 def test_rf28_fan_discretization_cannot_masquerade_as_bevel_chord():
     model = _model(CornerJoinMode.BEVEL)
 

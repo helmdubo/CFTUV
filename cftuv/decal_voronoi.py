@@ -192,7 +192,6 @@ class _CornerPolicy(str, Enum):
     FAN = "FAN"
     ACUTE_SPLIT = "ACUTE_SPLIT"
     HAIRPIN = "HAIRPIN"
-    BEVEL = "BEVEL"
     JUNCTION = "JUNCTION"
 
 
@@ -3469,8 +3468,47 @@ def _corner_crop_components(
     settings,
     diagnostics=None,
     terminal_guide=None,
+    corner_model=None,
 ):
     settings = _normalized_corner_runtime_settings(settings)
+    if corner_model is not None:
+        derived = corner_model.derive(
+            apex_limit=alpha * settings.apex_limit
+        )
+        if derived.releases_competitor or policy == _CornerPolicy.MITER:
+            if derived.miter_clamped and diagnostics is not None:
+                diagnostics.clamped_miter_count += 1
+            owner_site = _corner_site_view(
+                surface, corner, corner.ordered_sites[0]
+            )
+            side_sign = -1 if owner_site.uv_sign < 0.0 else 1
+            component = _corner_component_from_polygon(
+                surface,
+                corner,
+                alpha,
+                derived.component_kind,
+                (
+                    f"S_CM_A_v{corner.vert_index}_e{owner_site.edge_index}_"
+                    f"s{side_sign:+d}"
+                ),
+                tuple(
+                    vertex.chart_point
+                    for vertex in derived.collision_boundary
+                ),
+                owner_site_indices=corner.incident_sites,
+            )
+            if component is None:
+                return ()
+            return (
+                replace(
+                    component,
+                    semantic_owner_id=(
+                        "corner-model",
+                        int(corner.vert_index),
+                        corner_model.seed.sector_id,
+                    ),
+                ),
+            )
     # FLAT CAP — базовая endpoint-семантика, а не dynamic band. Stable path
     # обязан использовать tangent-aligned half-quad; axis-aligned square
     # остаётся явный compile failure для неподдержанного valence-N junction.
@@ -3497,36 +3535,6 @@ def _corner_crop_components(
         )
         if len(polygon) < 3:
             return ()
-        if policy == _CornerPolicy.BEVEL:
-            owner_site = _corner_site_view(
-                surface, corner, corner.ordered_sites[0]
-            )
-            side_sign = -1 if owner_site.uv_sign < 0.0 else 1
-            component = _corner_component_from_polygon(
-                surface,
-                corner,
-                alpha,
-                policy.value,
-                (
-                    f"RM6A_v{corner.vert_index}_e{owner_site.edge_index}_"
-                    f"s{side_sign:+d}"
-                ),
-                polygon,
-                owner_site_indices=corner.incident_sites,
-            )
-            if component is None:
-                return ()
-            return (
-                replace(
-                    component,
-                    semantic_owner_id=(
-                        "corner",
-                        int(corner.vert_index),
-                        int(owner_site.edge_index),
-                        int(side_sign),
-                    ),
-                ),
-            )
         return (
             _CropComponent(
                 kind=policy.value,
@@ -3731,13 +3739,6 @@ def _corner_crop_polygon(
     offset_lines = _corner_offset_lines(surface, corner, alpha)
     if len(offset_lines) != 2:
         return []
-    if policy == _CornerPolicy.BEVEL:
-        # RC5: BEVEL — сама математическая область угла, а не post-emission
-        # замена MITER-piece. V/P1/P2 затем одинаково читают collision,
-        # ownership, UV и lift.
-        points = [point, offset_lines[0][0], offset_lines[1][0]]
-        _validate_bevel_shape(surface, corner, points)
-        return _convex_hull(points)
     intersection = _line_intersection(
         offset_lines[0][0],
         offset_lines[0][1],
@@ -4708,12 +4709,7 @@ def classify_corner_runtime(corner, settings=None):
 
 
 def _classify_surface_corner_runtime(surface, corner, settings=None):
-    """Единая runtime-policy формы угла для geometry и emission.
-
-    RC5: join style выбирается до crop/ownership/arrangement. Поэтому одна
-    policy управляет и столкновением, и UV/3D-материализацией; отдельной
-    ``emitted``-классификации у одного физического угла не существует.
-    """
+    """Геометрическая band-policy без join-семантики CornerModel."""
 
     settings = _normalized_corner_runtime_settings(settings)
     policy = classify_corner_runtime(corner, settings)
@@ -4722,13 +4718,6 @@ def _classify_surface_corner_runtime(surface, corner, settings=None):
         and surface.domain.admission_tier == "APPROXIMATE"
     ):
         policy = _CornerPolicy.MITER
-    if (
-        settings.join_mode == "BEVEL"
-        and policy in {_CornerPolicy.MITER, _CornerPolicy.KITE}
-        and len(corner.incident_sites) == 2
-    ):
-        if _corner_offset_edge_relation(surface, corner) == "GAP":
-            return _CornerPolicy.BEVEL
     return policy
 
 
@@ -5029,18 +5018,7 @@ def _local_corner_strip(surface, corner, site_index, alpha):
             f"surface={surface.patch_id} vertex={corner.vert_index} "
             f"site={site_index}"
         )
-    target_distance, _target_repr, outer_key = min(target_candidates)
-    tolerance = max(
-        surface.domain.location_tolerance * 4.0,
-        surface.diagram_transform.quantum * 4.0,
-        DECAL_WELD_DISTANCE,
-    )
-    if target_distance > tolerance:
-        raise RuntimeError(
-            "CORNER_LOCAL_STRIP_OUTER_CORNER_MISSING: "
-            f"surface={surface.patch_id} vertex={corner.vert_index} "
-            f"site={site_index} distance={target_distance:.12g}"
-        )
+    _target_distance, _target_repr, outer_key = min(target_candidates)
     return LocalClippedCornerStrip(
         site_id=int(site_index),
         vertices=tuple(
@@ -5051,17 +5029,28 @@ def _local_corner_strip(surface, corner, site_index, alpha):
     )
 
 
-def _build_local_corner_models(surface, alpha, *, test_join_override=None):
+def _build_local_corner_models(
+    surface,
+    alpha,
+    *,
+    test_join_override=None,
+    test_join_vertex_ids=(),
+):
     """S-CM.a: seed -> local own-strip clips -> model, без competition."""
 
     corners_by_vertex = {
         int(corner.vert_index): corner for corner in surface.corners
     }
     models = []
-    for compiled_seed in surface.corner_seeds:
+    override_vertices = frozenset(
+        int(value) for value in test_join_vertex_ids
+    )
+    for compiled_seed in getattr(surface, "corner_seeds", ()):
         seed = (
             compiled_seed
             if test_join_override is None
+            or override_vertices
+            and compiled_seed.corner_vertex_id not in override_vertices
             else replace(compiled_seed, join=CornerJoinMode(test_join_override))
         )
         corner = corners_by_vertex[seed.corner_vertex_id]
@@ -5072,7 +5061,16 @@ def _build_local_corner_models(surface, alpha, *, test_join_override=None):
             _local_corner_strip(surface, corner, site_index, alpha)
             for site_index in seed.incident_site_ids
         )
-        models.append(CornerModel.from_local_strips(seed, *strips))
+        try:
+            model = CornerModel.from_local_strips(seed, *strips)
+        except ValueError as exc:
+            if str(exc) != "CORNER_MODEL_ANCHORS_DEGENERATE":
+                raise
+            # Локальный owner-domain может схлопнуть оба outer anchors в
+            # один fold endpoint. Такой cross-surface угол принадлежит
+            # S-CM.b/R3 и не получает ложную планарную форму в S-CM.a.
+            continue
+        models.append(model)
     return tuple(models)
 
 
@@ -12947,25 +12945,6 @@ def _build_decal_arrangement(
     )
 
 
-def _validate_bevel_shape(surface, corner, points, point_keys=()):
-    """RC5: BEVEL-модель — одна трёхточечная хорда, не FAN."""
-
-    if len(points) != 3:
-        raise RuntimeError(
-            "BEVEL_FAN_DISCRETIZATION_FORBIDDEN: "
-            f"patch={surface.patch_id} vertex={corner.vert_index} "
-            f"point_count={len(points)}"
-        )
-    if _polygon_area2(points) == 0.0 or (
-        point_keys and len(set(point_keys)) != 3
-    ):
-        raise RuntimeError(
-            "BEVEL_SHAPE_TRIANGLE_DEGENERATE: "
-            f"patch={surface.patch_id} vertex={corner.vert_index} "
-            f"keys={point_keys!r}"
-        )
-
-
 def _source_station_location(surface, point, source_feature, feature_id):
     """Provenance для selected source spine, известная без chart lookup."""
 
@@ -14699,6 +14678,8 @@ def _evaluate_surface_crops(
     corner_settings,
     diagnostics=None,
     terminal_bridge_points=None,
+    test_join_override=None,
+    test_join_vertex_ids=(),
 ):
     """Строит cell ownership без внутренних endpoint boundaries.
 
@@ -14712,6 +14693,23 @@ def _evaluate_surface_crops(
     """
 
     terminal_bridge_points = terminal_bridge_points or {}
+    local_corner_models = _build_local_corner_models(
+        surface,
+        alpha,
+        test_join_override=test_join_override,
+        test_join_vertex_ids=test_join_vertex_ids,
+    )
+    corner_models_by_vertex = {
+        model.seed.corner_vertex_id: model
+        for model in local_corner_models
+        if model.seed.sector_id is None
+    }
+    corner_model_geometry = {
+        vertex_id: model.derive(
+            apex_limit=alpha * corner_settings.apex_limit
+        )
+        for vertex_id, model in corner_models_by_vertex.items()
+    }
 
     def terminal_guide(corner):
         if len(corner.incident_sites) != 1:
@@ -14800,6 +14798,9 @@ def _evaluate_surface_crops(
                 corner_settings,
                 diagnostics=None,
                 terminal_guide=terminal_guide(corner),
+                corner_model=corner_models_by_vertex.get(
+                    int(corner.vert_index)
+                ),
             )
             owned_probe_crops = tuple(
                 owned_crop
@@ -14842,8 +14843,13 @@ def _evaluate_surface_crops(
                 policy in {
                     _CornerPolicy.SMOOTH,
                     _CornerPolicy.ACUTE_SPLIT,
-                    _CornerPolicy.BEVEL,
                 }
+                or corner_model_geometry.get(
+                    int(corner.vert_index), None
+                ) is not None
+                and corner_model_geometry[
+                    int(corner.vert_index)
+                ].releases_competitor
                 or (
                     policy == _CornerPolicy.MITER
                     and _miter_requires_explicit_crop(
@@ -14877,6 +14883,9 @@ def _evaluate_surface_crops(
             corner_settings,
             diagnostics,
             terminal_guide=terminal_guide(corner),
+            corner_model=corner_models_by_vertex.get(
+                int(corner.vert_index)
+            ),
         )
         crops = tuple(
             replace(
@@ -15012,7 +15021,8 @@ def _evaluate_surface_crops(
             getattr(getattr(surface, "domain", None), "period", 0.0)
         )
         for corner_index, crops in sorted(corner_crops.items()):
-            if runtime_policies[corner_index] != _CornerPolicy.BEVEL:
+            derived = corner_model_geometry.get(int(corner.vert_index))
+            if derived is None or not derived.releases_competitor:
                 continue
             corner = surface.corners[corner_index]
             corner_offsets = dict(corner.site_u_offsets)

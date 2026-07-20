@@ -181,7 +181,7 @@ class CornerBoundaryTrace:
     """Родословная materialized vertex на одном ребре semantic contour."""
 
     vertex_key: object
-    contour_edge: tuple[CornerAnchorKind, CornerAnchorKind]
+    contour_edge: tuple[str, str]
     parameter: float
 
 
@@ -194,6 +194,9 @@ class CornerDerivedGeometry:
     uv_boundary: tuple[CornerBoundaryVertex, ...]
     projection_boundary: tuple[CornerBoundaryVertex, ...]
     emission_boundary: tuple[CornerBoundaryVertex, ...]
+    releases_competitor: bool
+    component_kind: str
+    miter_clamped: bool
 
     def __post_init__(self):
         boundary = self.collision_boundary
@@ -331,7 +334,7 @@ class CornerModel:
 
         # Единственная ветка формы по join во всём runtime-контракте.
         if self.seed.join is CornerJoinMode.BEVEL:
-            return (vertex_v, vertex_p1, vertex_p2)
+            return (vertex_v, vertex_p1, vertex_p2), True, "BEVEL", False
 
         intersection = _line_intersection(
             self.p1.chart_point,
@@ -339,12 +342,19 @@ class CornerModel:
             self.p2.chart_point,
             self.p2.station_ref.tangent_away,
         )
-        if intersection is None or (
-            apex_limit is not None
+        miter_clamped = bool(
+            intersection is not None
+            and apex_limit is not None
             and _distance2(self.seed.apex_ref.chart_point, intersection)
             > float(apex_limit)
-        ):
-            return (vertex_v, vertex_p1, vertex_p2)
+        )
+        if intersection is None or miter_clamped:
+            return (
+                (vertex_v, vertex_p1, vertex_p2),
+                False,
+                "MITER",
+                miter_clamped,
+            )
         provenance = CornerPointProvenance(
             source_face_id=self.p1.provenance.source_face_id,
             source_edge_ids=tuple(
@@ -379,27 +389,48 @@ class CornerModel:
             provenance=provenance,
             station_refs=(self.p1.station_ref, self.p2.station_ref),
         )
-        return (vertex_v, vertex_p1, miter, vertex_p2)
+        return (
+            (vertex_v, vertex_p1, miter, vertex_p2),
+            False,
+            "MITER",
+            False,
+        )
 
     def derive(self, *, apex_limit=None):
         """Возвращает один shared boundary для всех локальных стадий."""
 
-        boundary = self._material_boundary(apex_limit=apex_limit)
+        (
+            boundary,
+            releases_competitor,
+            component_kind,
+            miter_clamped,
+        ) = self._material_boundary(apex_limit=apex_limit)
         return CornerDerivedGeometry(
             collision_boundary=boundary,
             ownership_boundary=boundary,
             uv_boundary=boundary,
             projection_boundary=boundary,
             emission_boundary=boundary,
+            releases_competitor=releases_competitor,
+            component_kind=component_kind,
+            miter_clamped=miter_clamped,
         )
 
-    def trace_materialized_vertex(self, vertex_key, point, *, tolerance=1e-8):
-        """Доказывает принадлежность точки одному из рёбер V/P1/P2."""
+    def trace_materialized_vertex(
+        self,
+        vertex_key,
+        point,
+        *,
+        derived=None,
+        tolerance=1e-8,
+    ):
+        """Доказывает принадлежность точки authoritative derived contour."""
 
-        anchors = (
-            (CornerAnchorKind.V, self.seed.apex_ref.chart_point),
-            (CornerAnchorKind.P1, self.p1.chart_point),
-            (CornerAnchorKind.P2, self.p2.chart_point),
+        if derived is None:
+            derived = self.derive()
+        anchors = tuple(
+            (vertex.semantic_id, vertex.chart_point)
+            for vertex in derived.emission_boundary
         )
         candidates = []
         for index, (start_kind, start) in enumerate(anchors):
@@ -433,9 +464,14 @@ class CornerModel:
     def emit_isolated(self):
         """Планарный oracle: одна face из authoritative boundary."""
 
-        boundary = self.derive().emission_boundary
+        derived = self.derive()
+        boundary = derived.emission_boundary
         traces = tuple(
-            self.trace_materialized_vertex(vertex.key, vertex.chart_point)
+            self.trace_materialized_vertex(
+                vertex.key,
+                vertex.chart_point,
+                derived=derived,
+            )
             for vertex in boundary
         )
         return (CornerEmissionFace(vertices=boundary, traces=traces),)
@@ -445,7 +481,12 @@ class CornerModel:
 
         derived = self.derive()
         traces = tuple(
-            self.trace_materialized_vertex(key, point, tolerance=tolerance)
+            self.trace_materialized_vertex(
+                key,
+                point,
+                derived=derived,
+                tolerance=tolerance,
+            )
             for key, point in materialized_vertices
         )
         return ResolvedCornerView(

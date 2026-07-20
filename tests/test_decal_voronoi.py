@@ -1748,7 +1748,7 @@ def test_apex_limit_clamps_acute_outer_without_gap():
     )
 
 
-def test_rf24_bevel_is_single_geometry_policy():
+def test_s_cm_a_join_does_not_leak_into_band_policy_classifier():
     graph, edge_indices = _door_opening_graph()
     plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
     surface = plan.surfaces[0]
@@ -1771,24 +1771,25 @@ def test_rf24_bevel_is_single_geometry_policy():
     bevel_policy = decal_voronoi._classify_surface_corner_runtime(
         surface, gap_corner, bevel_settings
     )
-    assert bevel_policy == decal_voronoi._CornerPolicy.BEVEL
-    assert bevel_policy != decal_voronoi._classify_surface_corner_runtime(
+    assert bevel_policy == decal_voronoi._classify_surface_corner_runtime(
         surface,
         gap_corner,
         replace(bevel_settings, join_mode="MITER"),
     )
-    assert (
-        decal_voronoi._classify_surface_corner_runtime(
-            surface, overlap_corner, bevel_settings
-        )
-        != decal_voronoi._CornerPolicy.BEVEL
+    bevel_models = decal_voronoi._build_local_corner_models(
+        surface,
+        alpha=0.25,
+        test_join_override="BEVEL",
     )
+    assert any(model.derive().releases_competitor for model in bevel_models)
     assert not hasattr(
         decal_voronoi, "_classify_emitted_corner_runtime"
     )
-    assert 'replace(settings, join_mode="MITER")' not in inspect.getsource(
+    classifier_source = inspect.getsource(
         decal_voronoi._classify_surface_corner_runtime
     )
+    assert "join_mode" not in classifier_source
+    assert "BEVEL" not in classifier_source
     assert decal_voronoi.CornerRuntimeSettings(
         miter_limit=3.0
     ).apex_limit == 3.0
@@ -1816,6 +1817,13 @@ def test_rf28_bevel_preserves_own_segments_and_releases_competitor_to_chord():
     plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
     surface = plan.surfaces[0]
     alpha = 1.0
+    gap_vertex_ids = {
+        corner.vert_index
+        for corner in surface.corners
+        if len(corner.incident_sites) == 2
+        and decal_voronoi._corner_offset_edge_relation(surface, corner)
+        == "GAP"
+    }
     pending = {}
     for join_mode in ("MITER", "BEVEL"):
         pending[join_mode] = []
@@ -1826,17 +1834,25 @@ def test_rf28_bevel_preserves_own_segments_and_releases_competitor_to_chord():
             decal_voronoi.CornerRuntimeSettings(
                 apex_limit=1000.0, join_mode=join_mode
             ),
+            test_join_override=join_mode,
+            test_join_vertex_ids=gap_vertex_ids,
         )
 
+    bevel_models = decal_voronoi._build_local_corner_models(
+        surface,
+        alpha,
+        test_join_override="BEVEL",
+        test_join_vertex_ids=gap_vertex_ids,
+    )
+    bevel_vertex_ids = {
+        model.seed.corner_vertex_id
+        for model in bevel_models
+        if model.derive().releases_competitor
+    }
     bevel_corners = tuple(
         corner
         for corner in surface.corners
-        if decal_voronoi._classify_surface_corner_runtime(
-            surface,
-            corner,
-            decal_voronoi.CornerRuntimeSettings(join_mode="BEVEL"),
-        )
-        == decal_voronoi._CornerPolicy.BEVEL
+        if corner.vert_index in bevel_vertex_ids
     )
     own_edges = {
         surface.sites[site_index].edge_index
@@ -1900,12 +1916,14 @@ def test_rf28_bevel_preserves_own_segments_and_releases_competitor_to_chord():
     )
     assert released_faces
     for corner in bevel_corners:
-        polygon = decal_voronoi._corner_crop_polygon(
-            surface,
-            corner,
-            decal_voronoi._CornerPolicy.BEVEL,
-            alpha,
-            decal_voronoi.CornerRuntimeSettings(join_mode="BEVEL"),
+        model = next(
+            model
+            for model in bevel_models
+            if model.seed.corner_vertex_id == corner.vert_index
+        )
+        polygon = tuple(
+            vertex.chart_point
+            for vertex in model.derive().collision_boundary
         )
         chord = tuple(point for point in polygon if point != corner.point)
         assert len(chord) == 2
@@ -1966,24 +1984,12 @@ def test_rf28_join_switch_is_local_and_roundtrip_deterministic():
     assert diagnostics.construct_calls == compile_construct_calls
 
 
-def test_rf28_bevel_fan_discretization_is_named_failure():
-    graph, edge_indices = _door_opening_graph()
-    plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
-    surface = plan.surfaces[0]
-    corner = next(item for item in surface.corners if item.vert_index == 2)
-    with pytest.raises(
-        RuntimeError, match="BEVEL_FAN_DISCRETIZATION_FORBIDDEN"
-    ):
-        decal_voronoi._validate_bevel_shape(
-            surface,
-            corner,
-            (
-                (0.0, 0.0),
-                (1.0, 0.0),
-                (1.0, 1.0),
-                (0.0, 1.0),
-            ),
-        )
+def test_rf28_arrangement_has_no_hardcoded_join_branch():
+    source = inspect.getsource(decal_voronoi._build_decal_arrangement)
+
+    assert "join_mode" not in source
+    assert "BEVEL" not in source
+    assert "MITER" not in source
 
 
 def test_rf24_bevel_band_turn_is_invariant_to_domain_winding_flip():
