@@ -206,6 +206,14 @@ class CornerDerivedGeometry:
             raise ValueError("CORNER_DERIVED_BOUNDARY_NOT_SHARED")
 
 
+@dataclass(frozen=True)
+class CornerEmissionFace:
+    """Изолированная локальная face до domain/collision subdivision."""
+
+    vertices: tuple[CornerBoundaryVertex, ...]
+    traces: tuple[CornerBoundaryTrace, ...]
+
+
 def _cross2(first, second):
     return first[0] * second[1] - first[1] * second[0]
 
@@ -422,6 +430,16 @@ class CornerModel:
             )
         return min(candidates, key=lambda item: (item[0], item[1]))[2]
 
+    def emit_isolated(self):
+        """Планарный oracle: одна face из authoritative boundary."""
+
+        boundary = self.derive().emission_boundary
+        traces = tuple(
+            self.trace_materialized_vertex(vertex.key, vertex.chart_point)
+            for vertex in boundary
+        )
+        return (CornerEmissionFace(vertices=boundary, traces=traces),)
+
     def resolve(self, materialized_vertices, *, tolerance=1e-8):
         """Создаёт post-competition view без повторного вывода формы."""
 
@@ -465,6 +483,7 @@ __all__ = (
     "CornerBoundaryTrace",
     "CornerBoundaryVertex",
     "CornerDerivedGeometry",
+    "CornerEmissionFace",
     "CornerModel",
     "CornerPointProvenance",
     "CornerSeed",

@@ -941,6 +941,65 @@ def _door_opening_graph():
     return graph, edge_indices
 
 
+def test_s_cm_a_compiles_seed_then_reads_anchors_from_local_strip_clips():
+    graph, edge_indices = _door_opening_graph()
+    plan = compile_patch_voronoi_plan(
+        graph, edge_indices, offset=0.125
+    )
+    surface = plan.surfaces[0]
+    models = decal_voronoi._build_local_corner_models(
+        surface, alpha=0.25
+    )
+
+    assert models
+    for model in models:
+        assert model.seed.apex_ref.position == tuple(
+            plan.lifted_vertices[model.seed.corner_vertex_id]
+        )
+        assert model.seed.incident_site_ids == (
+            model.p1.station_ref.site_id,
+            model.p2.station_ref.site_id,
+        )
+        corner = next(
+            corner
+            for corner in surface.corners
+            if corner.vert_index == model.seed.corner_vertex_id
+        )
+        strips = tuple(
+            decal_voronoi._local_corner_strip(
+                surface, corner, site_id, alpha=0.25
+            )
+            for site_id in model.seed.incident_site_ids
+        )
+        assert model.p1.key == strips[0].outer_corner.key
+        assert model.p2.key == strips[1].outer_corner.key
+        assert model.p1.provenance == strips[0].outer_corner.provenance
+
+
+def test_s_cm_a_bevel_is_test_only_planar_one_face_oracle():
+    graph, edge_indices = _door_opening_graph()
+    plan = compile_patch_voronoi_plan(
+        graph, edge_indices, offset=0.125
+    )
+    models = decal_voronoi._build_local_corner_models(
+        plan.surfaces[0],
+        alpha=0.25,
+        test_join_override="BEVEL",
+    )
+
+    assert models
+    for model in models:
+        faces = model.emit_isolated()
+        assert len(faces) == 1
+        assert len(faces[0].vertices) == 3
+        assert tuple(vertex.semantic_id for vertex in faces[0].vertices) == (
+            "V",
+            "P1",
+            "P2",
+        )
+        assert len(faces[0].traces) == 3
+
+
 def _wide_t_junction_front_graph():
     """Точный planar front patch walls.006 вокруг широкого T-junction."""
 

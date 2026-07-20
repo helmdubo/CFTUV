@@ -102,6 +102,10 @@ def test_corner_model_bevel_planar_isolated_oracle_is_one_triangle():
         "P2",
     )
     assert len(derived.emission_boundary) == 3
+    faces = model.emit_isolated()
+    assert len(faces) == 1
+    assert len(faces[0].vertices) == 3
+    assert len(faces[0].traces) == 3
 
 
 def test_corner_model_miter_and_bevel_share_the_same_anchor_instances():

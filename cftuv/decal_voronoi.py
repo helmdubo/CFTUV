@@ -55,6 +55,17 @@ from .decal_geometry import (
     polygon_area2,
     segment_point_distance2,
 )
+from .decal_corner_model import (
+    BandSide,
+    CornerModel,
+    CornerPointProvenance,
+    CornerSeed,
+    CornerStationRef,
+    CornerStripVertex,
+    CornerVertexRef,
+    LocalClippedCornerStrip,
+)
+from .model import CornerJoinMode
 from .surface_ir import AnalysisBundle, AnalysisSchemaError, DecalBackendKind
 
 
@@ -202,6 +213,7 @@ class _PatchVoronoiSite:
     arc_sign: float = 1.0
     two_sided: bool = False
     uv_length: float = 0.0
+    owner_face_index: int = -1
 
 
 @dataclass(frozen=True)
@@ -1018,6 +1030,7 @@ class _PatchVoronoiSurface:
     corner_release_atoms: dict[int, tuple[_CornerReleaseAtom, ...]]
     semantic_owner_chart_by_vertex: tuple[tuple[int, int], ...] = ()
     native_site_edge_indices: tuple[int, ...] = ()
+    corner_seeds: tuple[CornerSeed, ...] = ()
 
     @property
     def origin(self):
@@ -4810,6 +4823,259 @@ def _compile_surface_relations(sites, corners, atoms):
     )
 
 
+def _corner_route_id(surface, site):
+    return (
+        "patch-voronoi-route",
+        int(surface.patch_id),
+        int(site.edge_index),
+    )
+
+
+def _corner_station_key(surface, site, point):
+    quantum = max(float(surface.diagram_transform.quantum), 1e-10)
+    parameter = _site_unbounded_parameter(site, point)
+    tangent = _norm2(_sub2(site.point_b, site.point_a))
+    lateral = (
+        0.0
+        if tangent is None
+        else _cross2(tangent, _sub2(point, site.point_a))
+    )
+    return (
+        "patch-voronoi-station",
+        int(surface.patch_id),
+        int(site.edge_index),
+        round(_site_v_length(site, parameter) / quantum),
+        round(lateral / quantum),
+    )
+
+
+def _corner_point_source_face_id(surface, location, fallback):
+    if (
+        surface.domain.kind == "INTRINSIC"
+        and location is not None
+        and 0 <= int(location.triangle_id) < len(surface.domain.intrinsic_triangles)
+    ):
+        source_face_id = surface.domain.intrinsic_triangles[
+            int(location.triangle_id)
+        ].source_face_id
+        if source_face_id is not None:
+            return source_face_id
+    return int(fallback)
+
+
+def _corner_seed_records(surface, corner):
+    if len(corner.ordered_sites) == 2:
+        return ((None, corner),)
+    if len(corner.incident_sites) > 2:
+        return tuple(_junction_sector_specs(surface, corner))
+    return ()
+
+
+def _compile_corner_seeds(surface, lifted_vertices):
+    """Фиксирует V/order/owner/join до width-dependent model build."""
+
+    seeds = []
+    for corner in surface.corners:
+        for sector_id, sector in _corner_seed_records(surface, corner):
+            site_indices = tuple(int(value) for value in sector.ordered_sites)
+            if len(site_indices) != 2:
+                continue
+            sites = tuple(surface.sites[index] for index in site_indices)
+            route_ids = tuple(
+                _corner_route_id(surface, site) for site in sites
+            )
+            station_keys = tuple(
+                _corner_station_key(surface, site, sector.point)
+                for site in sites
+            )
+            source_edge_ids = tuple(
+                int(site.edge_index) for site in sites
+            )
+            owner_face_ids = tuple(
+                int(site.owner_face_index)
+                for site in sites
+                if int(site.owner_face_index) >= 0
+            )
+            owner_face_id = (
+                min(owner_face_ids)
+                if owner_face_ids
+                else int(surface.patch_id)
+            )
+            location = surface.domain.locate(sector.point)
+            provenance = CornerPointProvenance(
+                source_face_id=_corner_point_source_face_id(
+                    surface, location, owner_face_id
+                ),
+                source_edge_ids=source_edge_ids,
+                route_ids=route_ids,
+                station_keys=station_keys,
+                domain_location=location,
+            )
+            position = lifted_vertices.get(sector.vert_index)
+            if position is None:
+                position = surface.domain.lift(
+                    sector.point, 0.0, location=location
+                )
+            side = (
+                BandSide.NEGATIVE
+                if sites[0].uv_sign < 0.0
+                else BandSide.POSITIVE
+            )
+            seeds.append(
+                CornerSeed(
+                    apex_ref=CornerVertexRef(
+                        key=("pv-sv", int(sector.vert_index)),
+                        chart_point=tuple(float(value) for value in sector.point),
+                        position=tuple(float(value) for value in position),
+                        provenance=provenance,
+                    ),
+                    corner_vertex_id=int(sector.vert_index),
+                    incident_site_ids=site_indices,
+                    side=side,
+                    sector_id=(None if sector_id is None else int(sector_id)),
+                    owner_surface_id=int(surface.patch_id),
+                    join=CornerJoinMode.MITER,
+                )
+            )
+    return tuple(seeds)
+
+
+def _local_corner_strip(surface, corner, site_index, alpha):
+    """Клиппит own-strip owner-доменом без Voronoi-конкурентов."""
+
+    site = _corner_site_view(surface, corner, site_index)
+    strip_polygon = _segment_crop_polygon(site, alpha)
+    fragments = []
+    for triangle in surface.domain.boundary_triangles:
+        clipped = _clip_to_triangle(strip_polygon, triangle)
+        if len(clipped) >= 3 and abs(_polygon_area2(clipped)) > 1e-10:
+            fragments.append(clipped)
+    components = _merge_polygon_fragments(
+        fragments,
+        tolerance=_FRAGMENT_TOPOLOGY_TOLERANCE,
+        normalize_t_junctions=bool(
+            surface.domain.normalize_fragment_t_junctions
+        ),
+    )
+    if not components:
+        raise RuntimeError(
+            "CORNER_LOCAL_STRIP_CLIP_EMPTY: "
+            f"surface={surface.patch_id} vertex={corner.vert_index} "
+            f"site={site_index}"
+        )
+
+    if site.vert_a == corner.vert_index:
+        tangent_away = _norm2(_sub2(site.point_b, corner.point))
+    else:
+        tangent_away = _norm2(_sub2(site.point_a, corner.point))
+    if tangent_away is None:
+        raise RuntimeError(
+            "CORNER_LOCAL_STRIP_TANGENT_INVALID: "
+            f"surface={surface.patch_id} vertex={corner.vert_index}"
+        )
+    target = (
+        corner.point[0] + site.inward_normal[0] * alpha,
+        corner.point[1] + site.inward_normal[1] * alpha,
+    )
+    route_id = _corner_route_id(surface, site)
+    fallback_face_id = (
+        site.owner_face_index
+        if site.owner_face_index >= 0
+        else surface.patch_id
+    )
+    vertices_by_key = {}
+    target_candidates = []
+    for point in (point for component in components for point in component):
+        location = surface.domain.locate(point)
+        if location is None:
+            continue
+        parameter = _site_unbounded_parameter(site, point)
+        direction = _norm2(_sub2(site.point_b, site.point_a))
+        lateral = (
+            0.0
+            if direction is None
+            else _cross2(direction, _sub2(point, site.point_a))
+        )
+        station_key = _corner_station_key(surface, site, point)
+        provenance = CornerPointProvenance(
+            source_face_id=_corner_point_source_face_id(
+                surface, location, fallback_face_id
+            ),
+            source_edge_ids=(int(site.edge_index),),
+            route_ids=(route_id,),
+            station_keys=(station_key,),
+            domain_location=location,
+        )
+        key = _domain_location_key(surface, location)
+        vertex = CornerStripVertex(
+            key=key,
+            chart_point=tuple(float(value) for value in point),
+            provenance=provenance,
+            station_ref=CornerStationRef(
+                route_id=route_id,
+                site_id=int(site_index),
+                source_edge_id=int(site.edge_index),
+                station_key=station_key,
+                s=float(_site_v_length(site, parameter)),
+                r=float(lateral),
+                tangent_away=tuple(float(value) for value in tangent_away),
+            ),
+        )
+        vertices_by_key.setdefault(key, vertex)
+        target_candidates.append((_dist2(point, target), repr(key), key))
+    if not target_candidates:
+        raise RuntimeError(
+            "CORNER_LOCAL_STRIP_PROVENANCE_UNRESOLVED: "
+            f"surface={surface.patch_id} vertex={corner.vert_index} "
+            f"site={site_index}"
+        )
+    target_distance, _target_repr, outer_key = min(target_candidates)
+    tolerance = max(
+        surface.domain.location_tolerance * 4.0,
+        surface.diagram_transform.quantum * 4.0,
+        DECAL_WELD_DISTANCE,
+    )
+    if target_distance > tolerance:
+        raise RuntimeError(
+            "CORNER_LOCAL_STRIP_OUTER_CORNER_MISSING: "
+            f"surface={surface.patch_id} vertex={corner.vert_index} "
+            f"site={site_index} distance={target_distance:.12g}"
+        )
+    return LocalClippedCornerStrip(
+        site_id=int(site_index),
+        vertices=tuple(
+            vertices_by_key[key]
+            for key in sorted(vertices_by_key, key=repr)
+        ),
+        outer_corner_key=outer_key,
+    )
+
+
+def _build_local_corner_models(surface, alpha, *, test_join_override=None):
+    """S-CM.a: seed -> local own-strip clips -> model, без competition."""
+
+    corners_by_vertex = {
+        int(corner.vert_index): corner for corner in surface.corners
+    }
+    models = []
+    for compiled_seed in surface.corner_seeds:
+        seed = (
+            compiled_seed
+            if test_join_override is None
+            else replace(compiled_seed, join=CornerJoinMode(test_join_override))
+        )
+        corner = corners_by_vertex[seed.corner_vertex_id]
+        if seed.sector_id is not None:
+            sectors = dict(_junction_sector_specs(surface, corner))
+            corner = sectors[seed.sector_id]
+        strips = tuple(
+            _local_corner_strip(surface, corner, site_index, alpha)
+            for site_index in seed.incident_site_ids
+        )
+        models.append(CornerModel.from_local_strips(seed, *strips))
+    return tuple(models)
+
+
 def _compile_corner_release_atoms(
     *,
     diagram_transform,
@@ -5368,6 +5634,7 @@ def _compile_surface(
             arc_sign=raw.get("arc_sign", 1.0),
             two_sided=raw.get("two_sided", False),
             uv_length=raw["segment_length"],
+            owner_face_index=int(raw.get("owner_face_index", -1)),
         )
         sites.append(site)
         # Угловая policy остаётся геометрическим фактом исходного контура.
@@ -6699,6 +6966,13 @@ def compile_patch_voronoi_attempt(
         )
         for vert_index, normals in normals_by_vert.items()
     }
+    surfaces = [
+        replace(
+            surface,
+            corner_seeds=_compile_corner_seeds(surface, lifted_vertices),
+        )
+        for surface in surfaces
+    ]
     max_lateral_lift_ratio = 0.0
     if abs(float(offset)) > _GEOMETRY_EPS:
         for surface in surfaces:
