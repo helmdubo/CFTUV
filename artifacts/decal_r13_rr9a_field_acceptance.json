@@ -1,5 +1,5 @@
 {
-  "schema": "cftuv.decal_r13_rr9a.field.v1",
+  "schema": "cftuv.decal_r13_rr9a.field.v2",
   "blender_version": "4.3.2",
   "blend_file": "E:\\testscene.blend",
   "objects": [
@@ -123,14 +123,12 @@
           "width": 0.4,
           "status": "UPDATED",
           "face_count": 39,
-          "rail_plan_identity": 3105132064528,
           "compile_static": true
         },
         {
           "width": 0.8,
           "status": "UPDATED",
-          "face_count": 39,
-          "rail_plan_identity": 3105132064528,
+          "face_count": 40,
           "compile_static": true
         }
       ]
@@ -218,322 +216,322 @@
         282,
         302
       ],
-      "backend_summary": "Unsupported[DISTORTION_BUDGET_EXCEEDED:x1] | RailUnsupported[RAIL_GEOMETRY_BRANCH_UNSUPPORTED:x1] | Failed:78e[DISTORTION_BUDGET_EXCEEDED:x78]",
+      "backend_summary": "Unsupported[FOLDOVER_DETECTED:x1] | RailUnsupported[RAIL_GEOMETRY_BRANCH_UNSUPPORTED:x1] | Failed:78e[FOLDOVER_DETECTED:x78]",
       "accounting_is_exact": true,
       "accepted_rail_planar": [],
       "accepted_patch_voronoi": [],
       "rejected": [
         {
           "edge_index": 0,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 1,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 3,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 5,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 6,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 8,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 9,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 11,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 12,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 14,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 15,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 17,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 18,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 20,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 21,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 23,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 24,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 26,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 27,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 29,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 30,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 32,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 33,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 35,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 36,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 38,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 39,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 41,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 42,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 44,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 45,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 47,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 48,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 50,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 51,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 53,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 54,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 55,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 56,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 57,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 59,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 60,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 62,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 63,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 65,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 66,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 68,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 69,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 71,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 72,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 74,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 75,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 77,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 78,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 80,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 81,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 83,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 84,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 86,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 87,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 88,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 89,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 90,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 141,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 143,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 144,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 145,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 146,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 147,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 148,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 149,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 150,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 197,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 198,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 259,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 270,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 282,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         },
         {
           "edge_index": 302,
-          "reason": "DISTORTION_BUDGET_EXCEEDED"
+          "reason": "FOLDOVER_DETECTED"
         }
       ],
       "rail_compile_failures": [],
@@ -642,14 +640,12 @@
           "width": 0.4,
           "status": "UPDATED",
           "face_count": 0,
-          "rail_plan_identity": 3105131736400,
           "compile_static": true
         },
         {
           "width": 0.8,
           "status": "UPDATED",
           "face_count": 0,
-          "rail_plan_identity": 3105131736400,
           "compile_static": true
         }
       ]
@@ -795,14 +791,12 @@
           "width": 0.4,
           "status": "UPDATED",
           "face_count": 130,
-          "rail_plan_identity": 3105132394896,
           "compile_static": true
         },
         {
           "width": 0.8,
           "status": "UPDATED",
-          "face_count": 136,
-          "rail_plan_identity": 3105132394896,
+          "face_count": 137,
           "compile_static": true
         }
       ]
@@ -822,7 +816,7 @@
         15,
         17
       ],
-      "backend_summary": "Unsupported[DEGENERATE_SOURCE_TRIANGLE:x1,DISTORTION_BUDGET_EXCEEDED:x1] | RailUnsupported[RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR:x1] | Failed:10e[DEGENERATE_SOURCE_TRIANGLE+DISTORTION_BUDGET_EXCEEDED:x10]",
+      "backend_summary": "Unsupported[DEGENERATE_SOURCE_TRIANGLE:x1,DISTORTION_BUDGET_EXCEEDED:x1] | RailUnsupported[RAIL_GEOMETRY_BOUNDARY_PIECE_AMBIGUOUS:x1] | Failed:10e[DEGENERATE_SOURCE_TRIANGLE+DISTORTION_BUDGET_EXCEEDED:x10]",
       "accounting_is_exact": true,
       "accepted_rail_planar": [],
       "accepted_patch_voronoi": [],
@@ -871,10 +865,8 @@
       "rail_compile_failures": [],
       "rail_geometry_failures": [
         {
-          "reason": "RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR",
-          "edge_indices": [
-            15
-          ],
+          "reason": "RAIL_GEOMETRY_BOUNDARY_PIECE_AMBIGUOUS",
+          "edge_indices": [],
           "vertex_indices": [],
           "face_indices": [
             1
@@ -939,14 +931,12 @@
           "width": 0.4,
           "status": "UPDATED",
           "face_count": 0,
-          "rail_plan_identity": 3105132477648,
           "compile_static": true
         },
         {
           "width": 0.8,
           "status": "UPDATED",
           "face_count": 0,
-          "rail_plan_identity": 3105132477648,
           "compile_static": true
         }
       ]
@@ -1079,14 +1069,12 @@
           "width": 0.4,
           "status": "UPDATED",
           "face_count": 0,
-          "rail_plan_identity": 3105132012048,
           "compile_static": true
         },
         {
           "width": 0.8,
           "status": "UPDATED",
           "face_count": 0,
-          "rail_plan_identity": 3105132012048,
           "compile_static": true
         }
       ]
@@ -1134,15 +1122,13 @@
         {
           "width": 0.4,
           "status": "UPDATED",
-          "face_count": 16,
-          "rail_plan_identity": 3105133640208,
+          "face_count": 14,
           "compile_static": true
         },
         {
           "width": 0.8,
           "status": "UPDATED",
-          "face_count": 16,
-          "rail_plan_identity": 3105133640208,
+          "face_count": 14,
           "compile_static": true
         }
       ]
