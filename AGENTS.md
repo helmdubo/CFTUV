@@ -62,7 +62,6 @@ cftuv/
 ├── band_spine.py      # BAND runtime parametrization: section-based spine + UV targets
 ├── debug.py            # Grease Pencil visualization + GPENCIL/GREASEPENCIL v3 compatibility
 ├── decals.py           # Decal producer (Phase 3): trim/corner/seam mesh strips from PatchGraph
-├── decal_network.py    # Seam network backend: α-clipped nearest-branch partition (pure geometry)
 ├── decal_charts.py     # Immutable IR/input boundary for intrinsic strip charts
 ├── decal_voronoi.py    # Patch-bounded segment-Voronoi backend (pyvoronoi)
 ├── operators.py        # Blender UI wrappers (max 5 lines math)

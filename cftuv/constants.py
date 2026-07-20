@@ -54,29 +54,6 @@ DECAL_CORNER_MITER_LIMIT = 4.0
 # Допустимый зазор между двумя offset-линиями в долях ширины крыла.
 # На неплоской станции линии могут быть skew — тогда нужен bevel join.
 DECAL_CORNER_JOIN_GAP_RATIO = 0.05
-# Decal network (seam Voronoi backend): два конца ветвей в junction с
-# dot(outgoing_a, outgoing_b) не выше порога считаются коллинеарным
-# продолжением и сливаются в один сквозной сайт (непрерывный UV через узел).
-DECAL_NETWORK_CONTINUATION_DOT = -0.866
-# Стиль закрытия reflex-промежутков junction: "MITER" — жёсткий стык
-# (общая miter-вершина на биссектрисе, прямой bevel за лимитом),
-# "ROUND" — округлая дуга радиуса α (законсервированная ветка).
-DECAL_NETWORK_JUNCTION_CAP_STYLE = "MITER"
-# Детализация КРИВОЙ биссектрисы клиппинга (parabola «конец сегмента против
-# бока другого» при наложении лент). Отдельно от weld/точности пересечений:
-# топология и момент столкновения остаются точными, грубеет только
-# tessellation уже найденной кривой.
-#   "HARD"   — одна прямая между crossings, без внутренних вершин;
-#   "LOW"    — 2-4 вершины на кривую (рекомендуемый default);
-#   "SMOOTH" — точная полилинизация с допуском weld.
-DECAL_NETWORK_CLIP_CURVE_STYLE = "LOW"
-# LOW: визуальный допуск кривой = max(weld, α * relative); плюс жёсткий
-# бюджет внутренних вершин на одну кривую — одинаковая плотность на
-# декалях разного размера, геометрия не разрастается.
-DECAL_NETWORK_CLIP_CURVE_RELATIVE = 0.15
-DECAL_NETWORK_CLIP_CURVE_BUDGET = 4
-DECAL_NETWORK_CLIP_CURVE_DEPTH = 3
-
 # Прямоугольники атласа для UV лент: (u_min, v_min, u_max, v_max).
 DECAL_UV_RECT_CORNER = (0.9, 0.0, 1.0, 1.0)
 DECAL_UV_RECT_SEAM = (0.9, 0.0, 1.0, 1.0)

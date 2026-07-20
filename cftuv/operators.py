@@ -58,6 +58,7 @@ from .decals import (
     chain_refs_for_edge_indices,
     compile_manual_seam_decal_plan,
     decal_compile_alpha_budget,
+    decal_mode_archived_reason,
     evaluate_manual_seam_faces,
     generate_decal_result,
     remove_decal_preview_object,
@@ -1393,9 +1394,21 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
     mode: EnumProperty(
         name="Mode",
         items=[
-            ("TOP", "Trim Top", "Trim strips along upper WALL boundaries"),
-            ("BOTTOM", "Trim Bottom", "Trim strips along lower WALL boundaries"),
-            ("CORNERS", "Corners", "Corner strips along non-coplanar WALL-WALL seams"),
+            (
+                "TOP",
+                "Trim Top (Archived)",
+                "Unavailable until a mode-specific engine plan is implemented",
+            ),
+            (
+                "BOTTOM",
+                "Trim Bottom (Archived)",
+                "Unavailable until a mode-specific engine plan is implemented",
+            ),
+            (
+                "CORNERS",
+                "Corners (Archived)",
+                "Unavailable until a mode-specific engine plan is implemented",
+            ),
             ("SEAMS", "Seams", "Flat strips along coplanar WALL-WALL seams"),
         ],
         default="BOTTOM",
@@ -1756,6 +1769,10 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
     def invoke(self, context, event):
         self._modal_rail_visualization_shown = False
         self._modal_rail_visualization_cleared = False
+        archived_reason = decal_mode_archived_reason(self.mode)
+        if archived_reason:
+            self.report({"ERROR"}, archived_reason)
+            return {"CANCELLED"}
         source_obj = context.active_object
         interactive_mode = self.mode in {"TOP", "BOTTOM", "CORNERS", "SEAMS"}
         edge_select_is_immediate = (
@@ -2074,6 +2091,10 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         return {"RUNNING_MODAL"}
 
     def execute(self, context):
+        archived_reason = decal_mode_archived_reason(self.mode)
+        if archived_reason:
+            self.report({"ERROR"}, archived_reason)
+            return {"CANCELLED"}
         try:
             state = _prepare_decal_generation(context)
             self._compile_decal_plan(state)
@@ -2232,14 +2253,28 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
             col.prop(s, "decal_corner_hairpin_angle")
         col.prop(s, "decal_corner_miter_limit")
         col.prop(s, "decal_preview_display")
-        op = col.operator("hotspotuv.generate_decals", text="Decal Top", icon="TRIA_UP")
+        row = col.row(align=True)
+        row.enabled = False
+        op = row.operator(
+            "hotspotuv.generate_decals",
+            text="Decal Top (Archived)",
+            icon="TRIA_UP",
+        )
         op.mode = "TOP"
-        op = col.operator(
-            "hotspotuv.generate_decals", text="Decal Bottom", icon="TRIA_DOWN"
+        row = col.row(align=True)
+        row.enabled = False
+        op = row.operator(
+            "hotspotuv.generate_decals",
+            text="Decal Bottom (Archived)",
+            icon="TRIA_DOWN",
         )
         op.mode = "BOTTOM"
-        op = col.operator(
-            "hotspotuv.generate_decals", text="Decal Corners", icon="MOD_BEVEL"
+        row = col.row(align=True)
+        row.enabled = False
+        op = row.operator(
+            "hotspotuv.generate_decals",
+            text="Decal Corners (Archived)",
+            icon="MOD_BEVEL",
         )
         op.mode = "CORNERS"
         op = col.operator(

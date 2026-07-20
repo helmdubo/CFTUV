@@ -919,8 +919,7 @@ def test_decal_drag_anchor_falls_back_to_viewport_center_when_offscreen(monkeypa
     assert decal_drag_anchor(context, _bbox_object(), (7, 9)) == (500, 350)
 
 
-@pytest.mark.parametrize("mode", ("TOP", "BOTTOM", "CORNERS", "SEAMS"))
-def test_decal_invoke_starts_horizontal_drag_for_every_mode(monkeypatch, mode):
+def test_decal_invoke_starts_horizontal_drag_for_seams(monkeypatch):
     from cftuv import operators as operators_module
     from cftuv import decal_modal
 
@@ -960,7 +959,7 @@ def test_decal_invoke_starts_horizontal_drag_for_every_mode(monkeypatch, mode):
         window_manager=SimpleNamespace(modal_handler_add=lambda _operator: None),
     )
     operator = HOTSPOTUV_OT_GenerateDecals()
-    operator.mode = mode
+    operator.mode = "SEAMS"
     operator._generate = (
         lambda _context, _state, settings=None, preview=False: ["Decal"]
     )
@@ -974,10 +973,41 @@ def test_decal_invoke_starts_horizontal_drag_for_every_mode(monkeypatch, mode):
     assert cursor_warps == [(500, 654)]
     assert operator._modal_start_mouse == 500
     assert "Move Left/Right" in header.text
-    if mode == "SEAMS":
-        assert operator._modal_property == "decal_width_seam"
-        assert operator._modal_settings_field == "width_seam"
-        assert header.text.startswith("Seam Width: 0.1500")
+    assert operator._modal_property == "decal_width_seam"
+    assert operator._modal_settings_field == "width_seam"
+    assert header.text.startswith("Seam Width: 0.1500")
+
+
+@pytest.mark.parametrize(
+    ("mode", "reason"),
+    (
+        ("TOP", "DECAL_TOP_ARCHIVED_UNTIL_ENGINE_PLAN"),
+        ("BOTTOM", "DECAL_BOTTOM_ARCHIVED_UNTIL_ENGINE_PLAN"),
+        ("CORNERS", "DECAL_CORNERS_ARCHIVED_UNTIL_ENGINE_PLAN"),
+    ),
+)
+def test_archived_mode_operator_fails_before_analysis(
+    monkeypatch, mode, reason
+):
+    from cftuv import operators as operators_module
+
+    monkeypatch.setattr(
+        operators_module,
+        "_prepare_decal_generation",
+        lambda _context: (_ for _ in ()).throw(
+            AssertionError("Patch analysis was started")
+        ),
+    )
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = mode
+    reports = []
+    operator.report = lambda level, message: reports.append((level, message))
+
+    assert operator.invoke(SimpleNamespace(), SimpleNamespace()) == {
+        "CANCELLED"
+    }
+    assert operator.execute(SimpleNamespace()) == {"CANCELLED"}
+    assert reports == [({"ERROR"}, reason), ({"ERROR"}, reason)]
 
 
 def test_modal_rail_overlay_is_static_and_cleanup_is_idempotent(monkeypatch):

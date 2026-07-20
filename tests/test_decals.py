@@ -1049,6 +1049,56 @@ def test_bevel_runtime_gate_precedes_compile_and_bmesh(monkeypatch):
         )
 
 
+@pytest.mark.parametrize(
+    ("mode", "reason"),
+    (
+        ("TOP", "DECAL_TOP_ARCHIVED_UNTIL_ENGINE_PLAN"),
+        ("BOTTOM", "DECAL_BOTTOM_ARCHIVED_UNTIL_ENGINE_PLAN"),
+        ("CORNERS", "DECAL_CORNERS_ARCHIVED_UNTIL_ENGINE_PLAN"),
+    ),
+)
+def test_archived_modes_fail_before_transform_and_bmesh(
+    monkeypatch, mode, reason
+):
+    monkeypatch.setattr(
+        decals_module,
+        "local_decal_settings_for_source",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("Source transform was inspected")
+        ),
+    )
+    monkeypatch.setattr(
+        decals_module.bmesh,
+        "new",
+        lambda: (_ for _ in ()).throw(AssertionError("BMesh was opened")),
+        raising=False,
+    )
+
+    result = decals_module.generate_decal_result(
+        None,
+        None,
+        DecalSettings(),
+        mode,
+    )
+    assert result.status == decals_module.PreviewStatus.ERROR
+    assert result.reason == reason
+
+    with pytest.raises(decals_module.DecalModeArchivedError, match=reason):
+        decals_module.generate_decal_objects(
+            None,
+            None,
+            DecalSettings(),
+            mode,
+        )
+    with pytest.raises(decals_module.DecalModeArchivedError, match=reason):
+        decals_module._fill_decal_bmesh(
+            None,
+            None,
+            DecalSettings(),
+            mode,
+        )
+
+
 def test_patch_voronoi_transaction_fails_before_any_bmesh_write(monkeypatch):
     patch_run = _backend_test_run((10,), (10, 11))
     partition = decals_module._ManualSeamBackendPartition(
