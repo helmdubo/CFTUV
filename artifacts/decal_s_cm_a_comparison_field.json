@@ -1,0 +1,76 @@
+{
+  "after_commit": "2c611f8ede26cd21e8c73c5392a4d15a7941d8dc",
+  "all_preview_confirm_equal": true,
+  "before_commit": "0d6cd08a752e49a8c3f84856a8abbef621996cee",
+  "blend_sha256_equal": true,
+  "geometry_identity_changed_objects": [
+    "rounded_wall.001",
+    "sagging_wall"
+  ],
+  "objects": [
+    {
+      "geometry_identity_digest_equal": true,
+      "object": "building",
+      "plan_digest_equal": true,
+      "plan_semantics_equal": true,
+      "present_after": true,
+      "present_before": true,
+      "preview_confirm_equal": true,
+      "topology_and_policy_equal": true
+    },
+    {
+      "geometry_identity_digest_equal": true,
+      "object": "half_sphere",
+      "plan_digest_equal": true,
+      "plan_semantics_equal": true,
+      "present_after": true,
+      "present_before": true,
+      "preview_confirm_equal": true,
+      "topology_and_policy_equal": true
+    },
+    {
+      "geometry_identity_digest_equal": false,
+      "object": "rounded_wall.001",
+      "plan_digest_equal": false,
+      "plan_semantics_equal": true,
+      "present_after": true,
+      "present_before": true,
+      "preview_confirm_equal": true,
+      "topology_and_policy_equal": true
+    },
+    {
+      "geometry_identity_digest_equal": true,
+      "object": "rounded_wall_noise_top",
+      "plan_digest_equal": true,
+      "plan_semantics_equal": true,
+      "present_after": true,
+      "present_before": true,
+      "preview_confirm_equal": true,
+      "topology_and_policy_equal": true
+    },
+    {
+      "geometry_identity_digest_equal": false,
+      "object": "sagging_wall",
+      "plan_digest_equal": false,
+      "plan_semantics_equal": true,
+      "present_after": true,
+      "present_before": true,
+      "preview_confirm_equal": true,
+      "topology_and_policy_equal": true
+    },
+    {
+      "geometry_identity_digest_equal": true,
+      "object": "wall_noise_top",
+      "plan_digest_equal": true,
+      "plan_semantics_equal": true,
+      "present_after": true,
+      "present_before": true,
+      "preview_confirm_equal": true,
+      "topology_and_policy_equal": true
+    }
+  ],
+  "plan_digest_changes_are_i5_provenance": true,
+  "plan_semantics_equal": true,
+  "schema": "cftuv.decal_s_cm_a_comparison.v1",
+  "topology_and_policy_equal": true
+}

@@ -22,6 +22,16 @@ ARTIFACT_ROOT = SCRIPT_ROOT / "artifacts"
 OBJECT_NAME = os.environ.get("CFTUV_R18_OBJECT", "walls.001")
 WIDTH = float(os.environ.get("CFTUV_R18_WIDTH", "3.2"))
 JOIN_MODE = os.environ.get("CFTUV_R18_JOIN_MODE", "BEVEL").upper()
+EDGE_OVERRIDE = tuple(
+    int(value)
+    for value in os.environ.get("CFTUV_R18_EDGES", "").split(",")
+    if value.strip()
+)
+REPORT_LABEL = os.environ.get("CFTUV_R18_LABEL", "R1.8 RC5")
+LEGEND = os.environ.get(
+    "CFTUV_R18_LEGEND",
+    "orange = selected seams | cyan = strip | MAGENTA = emitted BEVEL",
+)
 OUTPUT_PNG = Path(
     os.environ.get(
         "CFTUV_R18_OUTPUT",
@@ -64,7 +74,7 @@ def main():
         item.hide_render = True
 
     obj = bpy.data.objects[OBJECT_NAME]
-    selected = tuple(
+    selected = EDGE_OVERRIDE or tuple(
         int(edge.index)
         for edge in obj.data.edges
         if edge.select and edge.use_seam
@@ -168,8 +178,8 @@ def main():
         )
 
     render_base._label(
-        f"R1.8 RC5 | {OBJECT_NAME} | {JOIN_MODE} | width {WIDTH:.1f}\n"
-        "orange = selected seams | cyan = strip | MAGENTA = emitted BEVEL",
+        f"{REPORT_LABEL} | {OBJECT_NAME} | {JOIN_MODE} | width {WIDTH:.1f}\n"
+        f"{LEGEND}",
         camera,
         screen_up * span * 0.58 + view * span * 0.035,
         span * 0.20,
