@@ -2528,6 +2528,39 @@ def _corner_offset_lines(surface, corner, alpha):
     return offset_lines
 
 
+def _corner_offset_edge_relation(surface, corner, alpha=1.0):
+    """RF24: различает щель и перекрытие по двум offset-рёбрам.
+
+    У каждой incident strip-квады offset-ребро начинается в P и идёт
+    вдоль source-segment от V. Если оба луча пересекаются впереди, квады
+    перекрываются. Если пересечение лежит позади обоих лучей, между ними
+    щель. В предикате нет normal/winding sign и нет числового порога.
+    """
+
+    offset_lines = _corner_offset_lines(surface, corner, alpha)
+    if len(offset_lines) != 2:
+        return "NONE"
+    point_a, direction_a = offset_lines[0]
+    point_b, direction_b = offset_lines[1]
+    denominator = _cross2(direction_a, direction_b)
+    if denominator == 0.0:
+        return "NONE"
+    delta = _sub2(point_b, point_a)
+    factor_a = _cross2(delta, direction_b) / denominator
+    factor_b = _cross2(delta, direction_a) / denominator
+    if factor_a > 0.0 and factor_b > 0.0:
+        return "OVERLAP"
+    if factor_a < 0.0 and factor_b < 0.0:
+        return "GAP"
+    if factor_a == 0.0 and factor_b == 0.0:
+        return "NONE"
+    raise RuntimeError(
+        "BEVEL_JOIN_SIDE_AMBIGUOUS: "
+        f"patch={surface.patch_id} vertex={corner.vert_index} "
+        f"edge_factors=({factor_a!r},{factor_b!r})"
+    )
+
+
 def _corner_static_wedge_polygon(surface, corner):
     """Compiled-domain wedge между endpoint perpendicular rays.
 
@@ -3282,6 +3315,11 @@ def _corner_crop_components(
         return _cap_crop_components(surface, corner, alpha)
     if policy == _CornerPolicy.SMOOTH:
         return _smooth_crop_components(surface, corner, alpha, settings)
+    if policy == _CornerPolicy.BEVEL:
+        raise RuntimeError(
+            "BEVEL_POST_CLIP_POINT_CELL_REQUIRED: "
+            f"patch={surface.patch_id} vertex={corner.vert_index}"
+        )
     if not settings.dynamic_corner_bands:
         if policy == _CornerPolicy.ACUTE_SPLIT:
             return _stable_acute_crop_components(
@@ -3500,10 +3538,9 @@ def _corner_crop_polygon(
 
     offset_lines = _corner_offset_lines(surface, corner, alpha)
     if policy == _CornerPolicy.BEVEL:
-        # BEVEL — только иной crop уже классифицированного convex MITER.
-        # Он не читает apex-limit и не меняет KITE/reflex policy.
-        return _convex_hull(
-            [point, offset_lines[0][0], offset_lines[1][0]]
+        raise RuntimeError(
+            "BEVEL_DIRECT_TRIANGLE_REQUIRED: "
+            f"patch={surface.patch_id} vertex={corner.vert_index}"
         )
 
     intersection = _line_intersection(
@@ -4436,10 +4473,12 @@ def _classify_extrusion_angle(extrusion_angle, settings):
 
 
 def classify_corner_runtime(corner, settings=None):
-    """Выбирает corner policy из compiled facts и текущих настроек.
+    """Выбирает базовую corner policy из compiled angle facts.
 
     Функция не читает PyVoronoi и не меняет plan. Поэтому thresholds и
     apex limit можно менять между preview frames без перекомпиляции sites.
+    Join-style здесь намеренно не применяется: GAP/OVERLAP требует двух
+    incident strip-квадов и принадлежит surface-aware selector ниже.
     """
 
     settings = _normalized_corner_runtime_settings(settings)
@@ -4470,24 +4509,29 @@ def classify_corner_runtime(corner, settings=None):
         policy = _classify_extrusion_angle(
             corner.extrusion_angle, settings
         )
-    if (
-        settings.join_mode == "BEVEL"
-        and policy == _CornerPolicy.MITER
-        and corner.is_convex
-    ):
-        return _CornerPolicy.BEVEL
     return policy
 
 
 def _classify_surface_corner_runtime(surface, corner, settings=None):
-    """Изолирует stable SMOOTH от замороженного APPROXIMATE atlas."""
+    """Surface-aware policy: BEVEL закрывает gap между strip-квадами."""
 
-    policy = classify_corner_runtime(corner, settings)
+    settings = _normalized_corner_runtime_settings(settings)
+    policy = classify_corner_runtime(
+        corner,
+        replace(settings, join_mode="MITER"),
+    )
     if (
         policy == _CornerPolicy.SMOOTH
         and surface.domain.admission_tier == "APPROXIMATE"
     ):
-        return _CornerPolicy.MITER
+        policy = _CornerPolicy.MITER
+    if (
+        settings.join_mode == "BEVEL"
+        and policy in {_CornerPolicy.MITER, _CornerPolicy.KITE}
+        and len(corner.incident_sites) == 2
+    ):
+        if _corner_offset_edge_relation(surface, corner) == "GAP":
+            return _CornerPolicy.BEVEL
     return policy
 
 
@@ -12206,6 +12250,242 @@ def _build_decal_arrangement(
     )
 
 
+def _arrangement_loop_uv(face, point_index, alpha):
+    """UV уже эмитированного loop; transition override сильнее site-frame."""
+
+    point_key = (
+        face.point_keys[point_index]
+        if len(face.point_keys) == len(face.points)
+        else None
+    )
+    override = next(
+        (
+            (u_fraction, v_length)
+            for key, u_fraction, v_length in face.transition_uv
+            if key == point_key
+        ),
+        None,
+    )
+    if override is not None:
+        return override
+    return _m1_raw_arrangement_uv(face, face.points[point_index], alpha)
+
+
+def _bevel_open_strip_corner(faces, surface, corner, site_index):
+    """Возвращает уже эмитированные V/P loop records одной incident strip."""
+
+    site = _corner_site_view(surface, corner, site_index)
+    surface_faces = tuple(
+        face
+        for face in faces
+        if face.surface is surface
+        and face.crop.kind == "SEGMENT"
+    )
+    edge_uses = {}
+    for face in surface_faces:
+        point_tokens = (
+            face.point_keys
+            if len(face.point_keys) == len(face.points)
+            else tuple(("chart-point", point) for point in face.points)
+        )
+        for index, first in enumerate(point_tokens):
+            second = point_tokens[(index + 1) % len(point_tokens)]
+            edge_uses.setdefault(frozenset((first, second)), 0)
+            edge_uses[frozenset((first, second))] += 1
+
+    site_faces = tuple(
+        face
+        for face in surface_faces
+        if int(face.site.edge_index) == int(site.edge_index)
+        and face.points
+    )
+    nearest_records = []
+    for face in site_faces:
+        corner_index = min(
+            range(len(face.points)),
+            key=lambda index: (
+                _dist2(face.points[index], corner.point), index
+            ),
+        )
+        nearest_records.append(
+            (
+                _dist2(face.points[corner_index], corner.point),
+                face,
+                corner_index,
+            )
+        )
+    if not nearest_records:
+        raise RuntimeError(
+            "BEVEL_POST_CLIP_SITE_FACE_MISSING: "
+            f"patch={surface.patch_id} vertex={corner.vert_index} "
+            f"edge={site.edge_index}"
+        )
+    nearest_distance = min(record[0] for record in nearest_records)
+    candidates = {}
+    for distance_to_corner, face, corner_index in nearest_records:
+        if distance_to_corner != nearest_distance:
+            continue
+        point_tokens = (
+            face.point_keys
+            if len(face.point_keys) == len(face.points)
+            else tuple(("chart-point", point) for point in face.points)
+        )
+        count = len(face.points)
+        point_token = point_tokens[corner_index]
+        for neighbor_index in (
+            (corner_index - 1) % count,
+            (corner_index + 1) % count,
+        ):
+            neighbor_token = point_tokens[neighbor_index]
+            edge_key = frozenset((point_token, neighbor_token))
+            if edge_uses.get(edge_key) != 1:
+                continue
+            neighbor_point = face.points[neighbor_index]
+            lateral_distance, _parameter = _segment_point_distance2(
+                site.point_a, site.point_b, neighbor_point
+            )
+            candidate_key = (neighbor_token, neighbor_point)
+            candidates.setdefault(
+                candidate_key,
+                (lateral_distance, face, corner_index, neighbor_index),
+            )
+    if not candidates:
+        raise RuntimeError(
+            "BEVEL_POST_CLIP_CORNER_AMBIGUOUS: "
+            f"patch={surface.patch_id} vertex={corner.vert_index} "
+            f"edge={site.edge_index} candidates={tuple(sorted(map(repr, candidates)))}"
+        )
+    max_distance = max(record[0] for record in candidates.values())
+    outer = tuple(
+        record[1:]
+        for record in candidates.values()
+        if record[0] == max_distance
+    )
+    if len(outer) != 1:
+        raise RuntimeError(
+            "BEVEL_POST_CLIP_OUTER_CORNER_AMBIGUOUS: "
+            f"patch={surface.patch_id} vertex={corner.vert_index} "
+            f"edge={site.edge_index} distance={max_distance!r}"
+        )
+    return outer[0]
+
+
+def _append_post_clip_bevel_joins(
+    faces, surfaces, corner_settings, alpha
+):
+    """Заполняет native point-cell треугольником из post-clip V/P1/P2."""
+
+    result = list(faces)
+    for surface in surfaces:
+        for corner in surface.corners:
+            if (
+                _classify_surface_corner_runtime(
+                    surface, corner, corner_settings
+                )
+                != _CornerPolicy.BEVEL
+            ):
+                continue
+            records = tuple(
+                _bevel_open_strip_corner(
+                    result, surface, corner, site_index
+                )
+                for site_index in corner.ordered_sites
+            )
+            first_face, first_v_index, first_p_index = records[0]
+            second_face, second_v_index, second_p_index = records[1]
+            v_keys = (
+                first_face.point_keys[first_v_index]
+                if len(first_face.point_keys) == len(first_face.points)
+                else ("chart-point", first_face.points[first_v_index]),
+                second_face.point_keys[second_v_index]
+                if len(second_face.point_keys) == len(second_face.points)
+                else ("chart-point", second_face.points[second_v_index]),
+            )
+            if v_keys[0] != v_keys[1]:
+                raise RuntimeError(
+                    "BEVEL_POST_CLIP_VERTEX_KEY_DESYNC: "
+                    f"patch={surface.patch_id} vertex={corner.vert_index} "
+                    f"keys={v_keys!r}"
+                )
+            points = (
+                first_face.points[first_v_index],
+                first_face.points[first_p_index],
+                second_face.points[second_p_index],
+            )
+            has_emitted_keys = (
+                len(first_face.point_keys) == len(first_face.points)
+                and len(second_face.point_keys) == len(second_face.points)
+            )
+            point_keys = (
+                (
+                    v_keys[0],
+                    first_face.point_keys[first_p_index],
+                    second_face.point_keys[second_p_index],
+                )
+                if has_emitted_keys
+                else ()
+            )
+            uv_anchors = (
+                _arrangement_loop_uv(first_face, first_v_index, alpha),
+                _arrangement_loop_uv(first_face, first_p_index, alpha),
+                _arrangement_loop_uv(second_face, second_p_index, alpha),
+            )
+            area = _polygon_area2(points)
+            if area == 0.0 or (
+                point_keys and len(set(point_keys)) != 3
+            ):
+                raise RuntimeError(
+                    "BEVEL_POST_CLIP_TRIANGLE_DEGENERATE: "
+                    f"patch={surface.patch_id} vertex={corner.vert_index} "
+                    f"keys={point_keys!r}"
+                )
+            if area < 0.0:
+                points = (points[0], points[2], points[1])
+                if point_keys:
+                    point_keys = (
+                        point_keys[0], point_keys[2], point_keys[1]
+                    )
+                uv_anchors = (
+                    uv_anchors[0], uv_anchors[2], uv_anchors[1]
+                )
+            owner_site = _corner_site_view(
+                surface, corner, corner.ordered_sites[0]
+            )
+            side_sign = -1 if owner_site.uv_sign < 0.0 else 1
+            owner_identity = (
+                "corner",
+                int(corner.vert_index),
+                int(owner_site.edge_index),
+                int(side_sign),
+            )
+            crop = _CropComponent(
+                kind=_CornerPolicy.BEVEL.value,
+                side=(
+                    f"RM6A_v{corner.vert_index}_e{owner_site.edge_index}_"
+                    f"s{side_sign:+d}"
+                ),
+                points=points,
+                uv_anchors=uv_anchors,
+                owner_site_indices=tuple(corner.ordered_sites),
+                semantic_owner_id=owner_identity,
+            )
+            result.append(
+                _DecalArrangementFace(
+                    surface=surface,
+                    site=owner_site,
+                    points=points,
+                    crop=crop,
+                    point_keys=point_keys,
+                    transition_uv=tuple(
+                        (key, uv[0], uv[1])
+                        for key, uv in zip(point_keys, uv_anchors)
+                    ),
+                    boundary_corner_vertices=(int(corner.vert_index),),
+                )
+            )
+    return tuple(result)
+
+
 def _source_station_location(surface, point, source_feature, feature_id):
     """Provenance для selected source spine, известная без chart lookup."""
 
@@ -13679,6 +13959,10 @@ def _evaluate_surface_crops(
         ):
             if len(corner.incident_sites) != 2:
                 continue
+            if policy == _CornerPolicy.BEVEL:
+                # BEVEL point-cell заполняется после arrangement вершинами
+                # уже клиппированных SEGMENT-квадов. Pre-crop здесь запрещён.
+                continue
             raw_probe_crops = _corner_crop_components(
                 surface,
                 corner,
@@ -13756,6 +14040,12 @@ def _evaluate_surface_crops(
         point_atoms = point_atoms_by_corner.get(corner_index, ())
         corner = surface.corners[corner_index]
         policy = runtime_policies[corner_index]
+        if policy == _CornerPolicy.BEVEL:
+            # Membership подавляет прежний point-atom owner. После общего
+            # arrangement его две открытые V--P границы дают ровно те P1/P2,
+            # которые уже эмитированы соседними strip-квадами.
+            corner_crops[corner_index] = ()
+            continue
         raw_crops = _corner_crop_components(
             surface,
             corner,
@@ -14270,34 +14560,6 @@ def _align_strip_cap_faces(faces, diagnostics=None):
     return [replacements.get(index, face) for index, face in enumerate(faces)]
 
 
-def _triangulate_bevel_faces(faces):
-    """Материализует BEVEL crop только треугольными final faces."""
-
-    result = []
-    for face in faces:
-        count = len(face.vert_keys)
-        if face.component_kind != "BEVEL" or count <= 3:
-            result.append(face)
-            continue
-        # Owner clipping может добавить вершины к исходному треугольному
-        # crop. Fan сохраняет то же покрытие/UV без второй геометрии.
-        for index in range(1, count - 1):
-            indices = (0, index, index + 1)
-            result.append(
-                _NetworkFace(
-                    surface_id=face.surface_id,
-                    surface_normal=face.surface_normal.copy(),
-                    vert_keys=[face.vert_keys[item] for item in indices],
-                    positions=[face.positions[item] for item in indices],
-                    u_fracs=[face.u_fracs[item] for item in indices],
-                    v_lengths=[face.v_lengths[item] for item in indices],
-                    component_kind=face.component_kind,
-                    component_side=face.component_side,
-                )
-            )
-    return result
-
-
 def _merge_terminal_partition_component(faces, component):
     """Собирает один простой boundary-cycle из RM9-partition faces."""
 
@@ -14541,7 +14803,12 @@ def evaluate_patch_voronoi_plan(
         diagnostics=diagnostics,
         alpha=alpha,
     )
-    pending = arrangement.faces
+    pending = _append_post_clip_bevel_joins(
+        arrangement.faces,
+        plan.surfaces,
+        corner_settings,
+        alpha,
+    )
     desired_lift_scale = lift_scale
     resolved_points = {}
     lift_scale = _orientation_safe_lift_scale(
@@ -14585,10 +14852,10 @@ def evaluate_patch_voronoi_plan(
             position = resolved.position_zero.lerp(
                 resolved.position_full, lift_fraction
             )
-            vert_key = (
-                pending_face.point_keys[point_index]
-                if len(pending_face.point_keys) == len(component)
-                else resolved.vert_key
+            vert_key = _arrangement_face_vertex_key(
+                pending_face,
+                point_index,
+                resolved,
             )
             # Triangle boundaries и pyvoronoi endpoint-cells могут
             # дать две почти одинаковые 2D точки, которые после
@@ -14702,7 +14969,4 @@ def evaluate_patch_voronoi_plan(
             diagnostics,
         )
     )
-    return _merge_terminal_partition_faces(
-        _triangulate_bevel_faces(faces),
-        diagnostics,
-    )
+    return _merge_terminal_partition_faces(faces, diagnostics)

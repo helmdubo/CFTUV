@@ -955,6 +955,19 @@ in-plane повороту; (c) corner ownership/provenance тегируется
   оба ребра доказывают один affine UV-transform, поэтому это один сосед,
   CAP принимает station-UV strip. Негатив с двумя разными SEGMENT-faces
   остаётся отдельным CAP без скрытого выбора.
+- **RF24 Corner Join BEVEL, native point-cell:** выбор стороны не
+  читает normal/winding/`uv_sign`: два offset-ребра incident strip-квадов
+  пересекаются впереди обоих сегментов = OVERLAP (штатный внутренний
+  clip), позади обоих = GAP (join). При `join_mode=BEVEL` только GAP
+  заполняет существующую point-cell прямым треугольником `(V,P1,P2)`;
+  `P1/P2` читаются ПОСЛЕ общего arrangement из единственных открытых
+  внешних углов уже клиппированных SEGMENT-faces вместе с их vertex/UV
+  facts. Pre-crop, convex hull, owner clipping и post-triangulation для
+  BEVEL запрещены; неоднозначная open-edge атрибуция — именованный fail.
+  Provenance = RM6a `(corner vertex, owner spine edge, side)`, слот
+  `_CornerPolicy.BEVEL`. На `sagging_wall (e6,e7,e8)` существует ровно
+  один BEVEL у `v8`; `v9` остаётся штатным OVERLAP/MITER. Флип normal /
+  chart winding сохраняет GAP/OVERLAP, identity и topology бит-в-бит.
 - **RF27 Контакт огибает угол контура (RR8c, sagging_wall
   v10/e8):** торцевая сторона с коротким guide-chain (e9, reach
   1.475) при ширине > reach ПРОДОЛЖАЕТ скольжение за угол контура

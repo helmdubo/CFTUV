@@ -1674,59 +1674,55 @@ def test_apex_limit_clamps_acute_outer_without_gap():
 
 
 def test_rf24_bevel_classifies_only_convex_miter_and_builds_triangle():
-    plan = compile_patch_voronoi_plan(
-        _folded_turn_graph(), [30, 31], offset=0.01
+    graph, edge_indices = _door_opening_graph()
+    plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
+    surface = plan.surfaces[0]
+    gap_corner = next(
+        item for item in surface.corners if item.vert_index == 2
     )
-    corner = next(
-        item for item in plan.surfaces[0].corners if item.vert_index == 0
+    overlap_corner = next(
+        item for item in surface.corners if item.vert_index == 0
     )
-    reflex_candidate = decal_voronoi.replace(
-        corner,
-        is_convex=False,
-        interior_angle=pi * 1.5,
-        extrusion_angle=pi * 0.5,
-        miter_ratio=1000.0,
-    )
-
-    miter_settings = decal_voronoi.CornerRuntimeSettings(apex_limit=1.0)
     bevel_settings = decal_voronoi.CornerRuntimeSettings(
         apex_limit=1000.0,
         join_mode="BEVEL",
     )
-    assert corner.is_convex is True
+    assert decal_voronoi._corner_offset_edge_relation(
+        surface, gap_corner
+    ) == "GAP"
+    assert decal_voronoi._corner_offset_edge_relation(
+        surface, overlap_corner
+    ) == "OVERLAP"
     assert (
-        decal_voronoi.classify_corner_runtime(corner, miter_settings)
-        == decal_voronoi._CornerPolicy.MITER
-    )
-    assert (
-        decal_voronoi.classify_corner_runtime(corner, bevel_settings)
+        decal_voronoi._classify_surface_corner_runtime(
+            surface, gap_corner, bevel_settings
+        )
         == decal_voronoi._CornerPolicy.BEVEL
     )
-    # RF24 negative: reflex остаётся KITE и не подменяется crop BEVEL.
     assert (
-        decal_voronoi.classify_corner_runtime(
-            reflex_candidate, bevel_settings
+        decal_voronoi._classify_surface_corner_runtime(
+            surface, overlap_corner, bevel_settings
         )
-        == decal_voronoi._CornerPolicy.KITE
+        != decal_voronoi._CornerPolicy.BEVEL
     )
-    polygon = decal_voronoi._corner_crop_polygon(
-        plan.surfaces[0],
-        corner,
-        decal_voronoi._CornerPolicy.BEVEL,
-        alpha=0.5,
-        settings=bevel_settings,
-    )
-    assert len(polygon) == 3
-    assert corner.point in polygon
+    # Pre-crop/hull путь конструктивно закрыт: BEVEL строится только после
+    # arrangement из уже эмитированных V/P1/P2.
+    with pytest.raises(RuntimeError, match="BEVEL_DIRECT_TRIANGLE_REQUIRED"):
+        decal_voronoi._corner_crop_polygon(
+            surface,
+            gap_corner,
+            decal_voronoi._CornerPolicy.BEVEL,
+            alpha=0.5,
+            settings=bevel_settings,
+        )
     assert decal_voronoi.CornerRuntimeSettings(
         miter_limit=3.0
     ).apex_limit == 3.0
 
 
 def test_rf24_bevel_final_faces_are_triangles_and_apex_independent():
-    plan = compile_patch_voronoi_plan(
-        _folded_turn_graph(), [30, 31], offset=0.01
-    )
+    graph, edge_indices = _door_opening_graph()
+    plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
     snapshots = []
     for apex_limit in (1.0, 1000.0):
         diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
@@ -1743,11 +1739,84 @@ def test_rf24_bevel_final_faces_are_triangles_and_apex_independent():
         bevel_faces = tuple(
             face for face in faces if face.component_kind == "BEVEL"
         )
-        assert bevel_faces
+        assert len(bevel_faces) == 2
         assert all(len(face.positions) == 3 for face in bevel_faces)
-        assert diagnostics.clamped_miter_count == 0
+        assert all(
+            face.component_side.startswith("RM6A_v")
+            for face in bevel_faces
+        )
+        edge_uses = {}
+        for face in faces:
+            for index, first in enumerate(face.vert_keys):
+                second = face.vert_keys[(index + 1) % len(face.vert_keys)]
+                edge_uses.setdefault(frozenset((first, second)), 0)
+                edge_uses[frozenset((first, second))] += 1
+        for face in bevel_faces:
+            corner_key = next(
+                key for key in face.vert_keys if key[:1] == ("pv-sv",)
+            )
+            p_keys = tuple(key for key in face.vert_keys if key != corner_key)
+            # V--P1 и V--P2 читают общие keys соседних strip-квадов;
+            # P1--P2 — единственная новая внешняя хорда.
+            assert all(
+                edge_uses[frozenset((corner_key, key))] == 2
+                for key in p_keys
+            )
+            assert edge_uses[frozenset(p_keys)] == 1
         assert diagnostics.clamped_kite_count == 0
-        snapshots.append(decal_voronoi.serialize_network_faces(faces))
+        snapshots.append(
+            decal_voronoi.serialize_network_faces(bevel_faces)
+        )
+    assert snapshots[0] == snapshots[1]
+
+
+def test_rf24_bevel_band_turn_is_invariant_to_domain_winding_flip():
+    settings = decal_voronoi.CornerRuntimeSettings(join_mode="BEVEL")
+    graph, edge_indices = _door_opening_graph()
+    flipped_graph = deepcopy(graph)
+    flipped_graph.nodes[0].normal *= -1.0
+    flipped_graph.nodes[0].basis_v *= -1.0
+    plans = (
+        compile_patch_voronoi_plan(graph, edge_indices, offset=0.01),
+        compile_patch_voronoi_plan(
+            flipped_graph, edge_indices, offset=0.01
+        ),
+    )
+    classifications = []
+    snapshots = []
+    for plan in plans:
+        surface = plan.surfaces[0]
+        classifications.append(
+            tuple(
+                (
+                    corner.vert_index,
+                    decal_voronoi._corner_offset_edge_relation(
+                        surface, corner
+                    ),
+                    decal_voronoi._classify_surface_corner_runtime(
+                        surface, corner, settings
+                    ),
+                )
+                for corner in surface.corners
+                if len(corner.incident_sites) == 2
+            )
+        )
+        faces = evaluate_patch_voronoi_plan(
+            plan, width=0.5, preview=True, corner_settings=settings
+        )
+        snapshots.append(
+            tuple(
+                sorted(
+                    (
+                        face.component_side,
+                        tuple(sorted(map(repr, face.vert_keys))),
+                    )
+                    for face in faces
+                    if face.component_kind == "BEVEL"
+                )
+            )
+        )
+    assert classifications[0] == classifications[1]
     assert snapshots[0] == snapshots[1]
 
 

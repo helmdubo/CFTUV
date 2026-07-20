@@ -357,6 +357,22 @@ R0+R1+LEGACY-CUT; нижеследующий старый список сохр�
    параллельного вида корнеров.
    Отчёт строго по гейту 0d.0: тот же ракурс, по-стрелочное
    «было -> стало». R2 — на паузе.
+   **Статус реализации R1.7: FIELD CANDIDATE (финальный арбитр —
+   пользователь).** RM10: production terminal guide теперь несёт
+   полную contour-полилинию; на v10 route `e9->e27->e26`
+   промежуточная source-вершина эмитируется и получает общий
+   `rail-source-vertex`, boundary-хорда отсутствует (RF27 negative
+   3). BEVEL: пер-угловая таблица выявила `v8=GAP`, `v9=OVERLAP`;
+   selector теперь читает пересечение offset-рёбер соседних strip-квадов
+   без normal/winding/`uv_sign`. Native point-cell `v8` заполняется
+   ровно одним прямым треугольником из post-clip `V/P1/P2` и общих
+   vertex/UV facts уже эмитированных SEGMENT-faces; pre-crop/hull,
+   owner clipping и post-triangulation отсутствуют. `v9` не меняется;
+   normal flip даёт ту же классификацию и topology (RF24).
+   Визуальный гейт 0d.0 выполнен на `sagging_wall (e6,e7,e8)`, одном
+   camera/view и widths 0.8/3.2: `decal_r17_before_bevel_labeled`,
+   `decal_r17_after_bevel_native_pointcell[_w08]` и
+   `decal_r17_before/after_boundary_routes`.
 5. **R2 — конкуренция/freeze в станциях** (RC1-RC3, RF7) + RR10
    «нити между chains»: единый route на нить, двойное чтение
    станций, freeze-локус вдоль нитей (RF17, часть R2).

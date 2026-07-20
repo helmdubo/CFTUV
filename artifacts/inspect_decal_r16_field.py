@@ -34,6 +34,8 @@ from cftuv.decal_rail_geometry import (  # noqa: E402
 )
 from cftuv.decal_voronoi import (  # noqa: E402
     PatchVoronoiDiagnostics,
+    _corner_offset_edge_relation,
+    _classify_surface_corner_runtime,
     corner_runtime_settings_from_decal_settings,
     evaluate_patch_voronoi_plan,
 )
@@ -134,6 +136,7 @@ def main():
         "partitions": [],
         "evaluations": [],
         "bevel_evaluations": [],
+        "bevel_corner_table": [],
     }
     if plan.rail_plan is not None:
         edge_by_id = {edge.edge_id: edge for edge in plan.rail_plan.edges}
@@ -313,6 +316,56 @@ def main():
         selected,
         alpha_budget=4.0,
     )
+    base_runtime = corner_runtime_settings_from_decal_settings(settings)
+    bevel_runtime = corner_runtime_settings_from_decal_settings(bevel_settings)
+    for backend in bevel_plan.backend_partitions:
+        if backend.backend != "PATCH_VORONOI":
+            continue
+        for surface_id, surface in enumerate(backend.compiled_plan.surfaces):
+            for corner in surface.corners:
+                payload["bevel_corner_table"].append(
+                    {
+                        "surface_id": int(surface_id),
+                        "patch_id": int(surface.patch_id),
+                        "chart_id": int(surface.domain.chart_id),
+                        "vertex_id": int(corner.vert_index),
+                        "source_position": list(
+                            map(float, obj.data.vertices[corner.vert_index].co)
+                        ),
+                        "chart_point": list(map(float, corner.point)),
+                        "incident_edges": [
+                            int(surface.sites[index].edge_index)
+                            for index in corner.incident_sites
+                        ],
+                        "site_uv_signs": [
+                            float(surface.sites[index].uv_sign)
+                            for index in corner.incident_sites
+                        ],
+                        "site_arc_signs": [
+                            float(surface.sites[index].arc_sign)
+                            for index in corner.incident_sites
+                        ],
+                        "site_inward_normals": [
+                            list(map(float, surface.sites[index].inward_normal))
+                            for index in corner.incident_sites
+                        ],
+                        "turn_sign": float(corner.turn_sign),
+                        "interior_angle": float(corner.interior_angle),
+                        "extrusion_angle": float(corner.extrusion_angle),
+                        "is_convex": bool(corner.is_convex),
+                        "join_relation": (
+                            _corner_offset_edge_relation(surface, corner)
+                            if len(corner.incident_sites) == 2
+                            else "NONE"
+                        ),
+                        "base_policy": _classify_surface_corner_runtime(
+                            surface, corner, base_runtime
+                        ).value,
+                        "bevel_policy": _classify_surface_corner_runtime(
+                            surface, corner, bevel_runtime
+                        ).value,
+                    }
+                )
     for width in (0.8, 3.2):
         evaluated = evaluate_manual_seam_faces(
             obj,
