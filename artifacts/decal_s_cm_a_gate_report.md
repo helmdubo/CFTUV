@@ -19,17 +19,24 @@ Runtime BEVEL по-прежнему fail-closed с
 `DECAL_CORNER_JOIN_ARCHIVED_UNTIL_CORNER_MODEL`; публичный preview/confirm его
 не включает до R2+S-CM.b.
 
+Amendment `e7e8c9e` закрыт в этом же срезе как S-DF2-lite: аналитический
+`DistanceWitness2D` + polygon-field служат только acceptance oracle и
+семплируют итоговые materialized faces. Oracle не участвует в production
+routing, не строит topology и не выбирает join.
+
 ## Атомарные коммиты
 
-1. `77d2dde` — typed phased CornerModel contracts и изолированные оракулы.
-2. `0d6cd08` — compile-static seeds и P1/P2 из локально клипнутых own-strips.
-3. `91d694a` — общий модельный путь MITER/тестового BEVEL.
-4. `547c231` — отдельный I5 micro-slice: total PatchVoronoi provenance.
-5. `56e24be` — локальный clip в периодических chart images.
-6. `bdd5f87` — legacy KITE band-policy направлена в MITER-режим CornerModel;
+1. `f28f1ae` — typed phased CornerModel contracts и изолированные оракулы.
+2. `bbecd37` — compile-static seeds и P1/P2 из локально клипнутых own-strips.
+3. `c29cc36` — общий модельный путь MITER/тестового BEVEL.
+4. `757b950` — отдельный I5 micro-slice: total PatchVoronoi provenance.
+5. `7b720f1` — локальный clip в периодических chart images.
+6. `b26dff6` — legacy KITE band-policy направлена в MITER-режим CornerModel;
    потребитель больше не сохраняет вторую форму угла.
-7. `2c611f8` — насыщенный owner-domain выбирает P на endpoint-cap, сохраняя
+7. `2f1a769` — насыщенный owner-domain выбирает P на endpoint-cap, сохраняя
    width-independent supporting lines при extreme-width drag.
+8. `a737c32` — S-DF2-lite: labeled distance witnesses, CornerModel polygon
+   field и sampling итоговой materialization по coverage/width/owner.
 
 ## Семантическая приёмка CornerModel
 
@@ -50,6 +57,30 @@ Runtime BEVEL по-прежнему fail-closed с
 - Статический поиск по runtime нашёл только две ожидаемые проверки:
   публичный BEVEL-гейт и единственную модельную ветку.
 
+## S-DF2-lite analytical oracle
+
+`DistanceWitness2D` возвращает не только неотрицательное расстояние, но и
+`closest_point`, gradient, site id, явный `BandSide`, source parameter,
+`source_s` и feature kind. Направление `source_s` берётся из station ref, а не
+угадывается по знаку chart-оси.
+
+`CornerPolygonField2D` получает уже готовый shared boundary от CornerModel.
+В нём отсутствует чтение `CornerJoinMode`, `MITER` или `BEVEL`: зависимость
+строго `join policy -> CornerModel -> oracle field`. Материализация переводится
+в chart как финальные faces с настоящим `semantic_owner_id`; векторные samples
+берутся из вершин, рёбер и face interiors intended/materialized polygons.
+
+Позитивные оракулы:
+
+- изолированный BEVEL `V/P1/P2` совпадает с intended field;
+- финальные production MITER faces после полного materialization совпадают по
+  coverage, обеим P-ширинам и owner.
+
+Негативы независимо ловят materialized область за BEVEL-хордой/остаточный
+апекс, неверную requested half-width и owner desync. Растрового поля, marching
+squares и min/max pseudo-SDF композиции нет: oracle не является
+полигонизатором и не создаёт production topology.
+
 ## I5 provenance gate
 
 I5 закрыт полностью до R2. Для каждой PatchVoronoi face и каждой вершины
@@ -59,15 +90,15 @@ alignment, terminal merge и финальную materialization; `GeometryBatch`
 замораживает её вместе с геометрией.
 
 Объём вне углов оказался ненулевым, поэтому вынесен в отдельный атомарный
-micro-slice `547c231`. После него остаточный gap равен нулю. Планарный oracle
+micro-slice `757b950`. После него остаточный gap равен нулю. Планарный oracle
 дополнительно проверяет, что face provenance указывает на фактический
 содержащий Blender-triangle/source face, а preview и confirm сериализуют
 одинаковую immutable batch.
 
 ## Differential MITER
 
-Baseline поведения: `0d6cd08` (seed/clip уже присутствуют, CornerModel ещё не
-владеет runtime-формой). After: `2c611f8`. Blender 4.3.2 / Python 3.11.9,
+Baseline поведения: `bbecd37` (seed/clip уже присутствуют, CornerModel ещё не
+владеет runtime-формой). After: `a737c32`. Blender 4.3.2 / Python 3.11.9,
 `E:\testscene.blend`, SHA-256
 `4d9014dc436ac80c284fdf7f473c693c8c81550ceb026db6db712c42737bae10`;
 сцена не сохранялась.
@@ -77,7 +108,8 @@ Baseline поведения: `0d6cd08` (seed/clip уже присутствую�
 - одинаковый blend hash и plan semantics на всех 6 полевых объектах;
 - topology/policy равны на обоих width для всех объектов;
 - `all_preview_confirm_equal=true`;
-- raw plan digest намеренно меняется там, где добавлена I5 provenance;
+- raw plan digest намеренно меняется там, где добавлены I5 provenance и
+  `CornerStationRef.source_s_per_chart_unit` для labeled S-DF witness;
 - geometry identity digest меняется на `rounded_wall.001` и `sagging_wall`,
   потому что внутренняя owner identity переходит `KITE -> MITER`; наблюдаемая
   геометрия обязательных ракурсов проверена отдельно пиксельно.
@@ -106,9 +138,9 @@ MITER-режиме нет. Пользовательских стрелок дл�
 ## Тестовые гейты
 
 - CornerModel/Voronoi/RF28/Tranche-D/extreme-width stability:
-  `154 passed`.
+  `159 passed` (включая S-DF2-lite positive/negative oracles).
 - Tier 2: `python -m pytest -m "not atlas_frozen" -q` ->
-  `466 passed, 3 skipped, 4 deselected` за 70.40 s.
+  `471 passed, 3 skipped, 4 deselected` за 73.52 s.
 - `python -m compileall -q ...` — PASS.
 - `git diff --check` — PASS.
 - Blender differential и два render job — PASS; `.blend` не сохранялся.
@@ -127,6 +159,9 @@ MITER-режиме нет. Пользовательских стрелок дл�
 4. Extreme-width suite выявил неверный выбор ближайшего rail/domain-угла как P.
    P теперь берётся с клипнутого endpoint-cap; все S1 supporting-line/freeze
    инварианты снова зелёные.
+5. Docs-only amendment `e7e8c9e` пришёл перед публикацией и добавил
+   S-DF2-lite в текущий gate. Он реализован отдельным oracle-коммитом; S-WF0
+   намеренно не начат.
 
 ## Риски
 
@@ -142,3 +177,10 @@ MITER-режиме нет. Пользовательских стрелок дл�
 - Текущий `E:\testscene.blend` имеет новый hash относительно более раннего
   S1+S2a отчёта. Все S-CM.a before/after receipts и кадры используют именно
   один текущий hash, поэтому differential внутри среза валиден.
+- S-DF2-lite — семплирующий аналитический oracle, а не формальное доказательство
+  равенства произвольных polygon unions. Он детерминированно покрывает vertices,
+  edge quartiles/midpoints и face interiors и имеет адресные негативы Б5;
+  production topology остаётся у vector arrangement.
+- S-WF0 не начинался. В коде S-CM.a не добавлено нового предположения
+  «rail всегда идёт по рёбрам»: вопрос edge-path против характеристики
+  intrinsic field остаётся открытым до отдельного пользовательского решения.

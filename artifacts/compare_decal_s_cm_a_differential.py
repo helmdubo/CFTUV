@@ -120,7 +120,11 @@ def main():
         "before_commit": before["source_commit"],
         "after_commit": after["source_commit"],
         "blend_sha256_equal": before["blend_sha256"] == after["blend_sha256"],
-        "plan_digest_changes_are_i5_provenance": True,
+        "plan_digest_changes_are_contract_metadata": True,
+        "plan_digest_change_reasons": [
+            "I5 total provenance",
+            "S-DF2-lite CornerStationRef source_s direction",
+        ],
         "objects": objects,
         "plan_semantics_equal": all(
             item["plan_semantics_equal"] for item in objects
