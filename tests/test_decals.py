@@ -960,7 +960,7 @@ def test_patch_voronoi_partition_forwards_runtime_corner_settings(
     settings = DecalSettings(
         corner_acute_split_angle=0.37,
         corner_apex_limit=4.25,
-        corner_join_mode="BEVEL",
+        corner_join_mode="MITER",
     )
     captured = []
 
@@ -999,7 +999,54 @@ def test_patch_voronoi_partition_forwards_runtime_corner_settings(
     assert captured[0][1]["terminal_routing"] is terminal_routing
     assert corner_settings.acute_split_angle == pytest.approx(0.37)
     assert corner_settings.apex_limit == pytest.approx(4.25)
-    assert corner_settings.join_mode == "BEVEL"
+    assert corner_settings.join_mode == "MITER"
+
+
+def test_bevel_runtime_gate_precedes_compile_and_bmesh(monkeypatch):
+    settings = DecalSettings(corner_join_mode="BEVEL")
+    reason = "^DECAL_CORNER_JOIN_ARCHIVED_UNTIL_CORNER_MODEL$"
+
+    with pytest.raises(
+        decals_module.DecalCornerJoinArchivedError,
+        match=reason,
+    ):
+        decals_module.compile_manual_seam_decal_plan(None, settings, ())
+
+    with pytest.raises(
+        decals_module.DecalCornerJoinArchivedError,
+        match=reason,
+    ):
+        decals_module.evaluate_manual_seam_faces(
+            None, settings, object(), preview=True
+        )
+
+    monkeypatch.setattr(
+        decals_module.bmesh,
+        "new",
+        lambda: (_ for _ in ()).throw(AssertionError("BMesh was opened")),
+        raising=False,
+    )
+    result = decals_module.generate_decal_result(
+        None,
+        None,
+        settings,
+        "SEAMS",
+    )
+    assert result.status == decals_module.PreviewStatus.ERROR
+    assert (
+        result.reason
+        == decals_module.DECAL_CORNER_JOIN_ARCHIVED_UNTIL_CORNER_MODEL
+    )
+    with pytest.raises(
+        decals_module.DecalCornerJoinArchivedError,
+        match=reason,
+    ):
+        decals_module.generate_decal_objects(
+            None,
+            None,
+            settings,
+            "SEAMS",
+        )
 
 
 def test_patch_voronoi_transaction_fails_before_any_bmesh_write(monkeypatch):

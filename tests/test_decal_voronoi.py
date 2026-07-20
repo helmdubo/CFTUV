@@ -1720,55 +1720,21 @@ def test_rf24_bevel_is_single_geometry_policy():
     ).apex_limit == 3.0
 
 
-def test_rf24_bevel_final_faces_are_triangles_and_apex_independent():
+def test_bevel_runtime_is_archived_for_preview_and_confirm():
     graph, edge_indices = _door_opening_graph()
     plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
-    snapshots = []
-    for apex_limit in (1.0, 1000.0):
-        diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
-        faces = evaluate_patch_voronoi_plan(
-            plan,
-            width=0.5,
-            preview=True,
-            corner_settings=decal_voronoi.CornerRuntimeSettings(
-                apex_limit=apex_limit,
-                join_mode="BEVEL",
-            ),
-            diagnostics=diagnostics,
-        )
-        bevel_faces = tuple(
-            face for face in faces if face.component_kind == "BEVEL"
-        )
-        assert len(bevel_faces) == 2
-        assert all(len(face.positions) == 3 for face in bevel_faces)
-        assert all(
-            face.component_side.startswith("RM6A_v")
-            for face in bevel_faces
-        )
-        edge_uses = {}
-        for face in faces:
-            for index, first in enumerate(face.vert_keys):
-                second = face.vert_keys[(index + 1) % len(face.vert_keys)]
-                edge_uses.setdefault(frozenset((first, second)), 0)
-                edge_uses[frozenset((first, second))] += 1
-        for face in bevel_faces:
-            corner_key = next(
-                key for key in face.vert_keys if key[:1] == ("pv-sv",)
+    settings = decal_voronoi.CornerRuntimeSettings(join_mode="BEVEL")
+    for preview in (True, False):
+        with pytest.raises(
+            decal_voronoi.DecalCornerJoinArchivedError,
+            match="^DECAL_CORNER_JOIN_ARCHIVED_UNTIL_CORNER_MODEL$",
+        ):
+            evaluate_patch_voronoi_plan(
+                plan,
+                width=0.5,
+                preview=preview,
+                corner_settings=settings,
             )
-            p_keys = tuple(key for key in face.vert_keys if key != corner_key)
-            # V--P1 и V--P2 читают общие keys соседних strip-квадов;
-            # P1--P2 — единственная новая внешняя хорда.
-            assert all(
-                edge_uses[frozenset((corner_key, key))] == 2
-                for key in p_keys
-            )
-            assert edge_uses[frozenset(p_keys)] == 1
-        # RC5a: BEVEL не проходит KITE/MITER apex-limit ветвью.
-        assert diagnostics.clamped_kite_count == 0
-        snapshots.append(
-            decal_voronoi.serialize_network_faces(bevel_faces)
-        )
-    assert snapshots[0] == snapshots[1]
 
 
 def test_rf28_bevel_preserves_own_segments_and_releases_competitor_to_chord():
@@ -1896,21 +1862,33 @@ def test_rf28_join_switch_is_local_and_roundtrip_deterministic():
         graph, edge_indices, offset=0.01, diagnostics=diagnostics
     )
     compile_construct_calls = diagnostics.construct_calls
-    snapshots = []
-    for join_mode in ("MITER", "BEVEL", "MITER", "BEVEL"):
-        faces = evaluate_patch_voronoi_plan(
+    settings = decal_voronoi.CornerRuntimeSettings(apex_limit=1000.0)
+    snapshots = [
+        decal_voronoi.serialize_network_faces(
+            evaluate_patch_voronoi_plan(
+                plan,
+                width=3.0,
+                preview=True,
+                corner_settings=settings,
+                diagnostics=diagnostics,
+            )
+        )
+        for _index in range(2)
+    ]
+    assert snapshots[0] == snapshots[1]
+    with pytest.raises(
+        decal_voronoi.DecalCornerJoinArchivedError,
+        match="^DECAL_CORNER_JOIN_ARCHIVED_UNTIL_CORNER_MODEL$",
+    ):
+        evaluate_patch_voronoi_plan(
             plan,
             width=3.0,
             preview=True,
             corner_settings=decal_voronoi.CornerRuntimeSettings(
-                apex_limit=1000.0,
-                join_mode=join_mode,
+                join_mode="BEVEL"
             ),
             diagnostics=diagnostics,
         )
-        snapshots.append(decal_voronoi.serialize_network_faces(faces))
-    assert snapshots[0] == snapshots[2]
-    assert snapshots[1] == snapshots[3]
     assert diagnostics.construct_calls == compile_construct_calls
 
 
@@ -1947,7 +1925,6 @@ def test_rf24_bevel_band_turn_is_invariant_to_domain_winding_flip():
         ),
     )
     classifications = []
-    snapshots = []
     for plan in plans:
         surface = plan.surfaces[0]
         classifications.append(
@@ -1965,23 +1942,14 @@ def test_rf24_bevel_band_turn_is_invariant_to_domain_winding_flip():
                 if len(corner.incident_sites) == 2
             )
         )
-        faces = evaluate_patch_voronoi_plan(
-            plan, width=0.5, preview=True, corner_settings=settings
-        )
-        snapshots.append(
-            tuple(
-                sorted(
-                    (
-                        face.component_side,
-                        tuple(sorted(map(repr, face.vert_keys))),
-                    )
-                    for face in faces
-                    if face.component_kind == "BEVEL"
-                )
+        with pytest.raises(
+            decal_voronoi.DecalCornerJoinArchivedError,
+            match="^DECAL_CORNER_JOIN_ARCHIVED_UNTIL_CORNER_MODEL$",
+        ):
+            evaluate_patch_voronoi_plan(
+                plan, width=0.5, preview=True, corner_settings=settings
             )
-        )
     assert classifications[0] == classifications[1]
-    assert snapshots[0] == snapshots[1]
 
 
 def test_acute_apex_limit_saturates_outside_cap_chord():

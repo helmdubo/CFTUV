@@ -80,6 +80,34 @@ _HAIRPIN_ANGLE = pi / 6.0
 _SMOOTH_TURN_ANGLE = pi / 18.0
 _MITER_LIMIT = 8.0
 
+# TRANCHE S: BEVEL возвращается только после пересдачи CornerModel.
+# Строка является публичной reason-семантикой для operator, .blend и scripts.
+DECAL_CORNER_JOIN_ARCHIVED_UNTIL_CORNER_MODEL = (
+    "DECAL_CORNER_JOIN_ARCHIVED_UNTIL_CORNER_MODEL"
+)
+
+
+class DecalCornerJoinArchivedError(RuntimeError):
+    """Запрошен архивированный runtime join до появления CornerModel."""
+
+    def __init__(self):
+        self.reason = DECAL_CORNER_JOIN_ARCHIVED_UNTIL_CORNER_MODEL
+        super().__init__(self.reason)
+
+
+def require_decal_corner_join_available(settings):
+    """Fail-fast для persisted/scripted BEVEL без коэрции в MITER."""
+
+    join_mode = str(
+        getattr(
+            settings,
+            "corner_join_mode",
+            getattr(settings, "join_mode", "MITER"),
+        )
+    ).upper()
+    if join_mode == "BEVEL":
+        raise DecalCornerJoinArchivedError()
+
 
 class _CornerPolicy(str, Enum):
     """Intrinsic corner policy; не зависит от способа lift на owner mesh."""
@@ -15256,6 +15284,7 @@ def evaluate_patch_voronoi_plan(
 ):
     """Перестраивает extrusion polygons внутри статических Voronoi cells."""
 
+    require_decal_corner_join_available(corner_settings)
     corner_settings = _normalized_corner_runtime_settings(corner_settings)
     if diagnostics is not None:
         diagnostics.runtime_policy_counts.clear()

@@ -52,11 +52,14 @@ from .decal_rail_geometry import (
     evaluate_planar_rail_geometry_plan,
 )
 from .decal_voronoi import (
+    DECAL_CORNER_JOIN_ARCHIVED_UNTIL_CORNER_MODEL,
+    DecalCornerJoinArchivedError,
     PatchVoronoiDiagnostics,
     compile_patch_voronoi_attempt,
     compile_patch_voronoi_plan,
     corner_runtime_settings_from_decal_settings,
     evaluate_patch_voronoi_plan,
+    require_decal_corner_join_available,
 )
 from .decal_transform import (
     DecalSourceTransformError,
@@ -3314,6 +3317,7 @@ def compile_manual_seam_decal_plan(
 ):
     """Собирает selected edges/runs и статическую сеть один раз на invoke."""
 
+    require_decal_corner_join_available(settings)
     if alpha_budget is None:
         alpha_budget = decal_compile_alpha_budget(settings)
     alpha_budget = float(alpha_budget)
@@ -3741,6 +3745,7 @@ def evaluate_manual_seam_faces(
     RETAINED_LAST_VALID. Функция аддитивна и не трогает mesh-путь.
     """
 
+    require_decal_corner_join_available(settings)
     started = perf_counter()
     local_settings = local_decal_settings_for_source(settings, source_obj)
     width = local_settings.width_seam
@@ -4097,6 +4102,7 @@ def _generate_decal_transaction(
 ):
     """Выполняет raising generation path с backend-local settings."""
 
+    require_decal_corner_join_available(settings)
     topology_rebuilds_before = (
         preview_state.topology_rebuilds if preview_state is not None else 0
     )
@@ -4177,6 +4183,21 @@ def generate_decal_result(
             PreviewStatus.ERROR,
             None,
             reason=f"Unknown decal mode: {mode}",
+            backend_summary=backend_summary,
+        )
+    try:
+        require_decal_corner_join_available(settings)
+    except DecalCornerJoinArchivedError as exc:
+        if preview:
+            remove_decal_preview_object(
+                mode,
+                source_obj,
+                preview_state,
+            )
+        return DecalGenerationResult(
+            PreviewStatus.ERROR,
+            None,
+            reason=exc.reason,
             backend_summary=backend_summary,
         )
     try:
@@ -4300,6 +4321,7 @@ def generate_decal_objects(
 
     if mode not in DECAL_MODES:
         raise ValueError(f"Unknown decal mode: {mode}")
+    require_decal_corner_join_available(settings)
     try:
         local_settings = local_decal_settings_for_source(settings, source_obj)
         if scene is None:
