@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, replace
 from enum import Enum
-from math import sqrt
+from math import isfinite, sqrt
 
 from .constants import DECAL_COPLANAR_DOT
 from .surface_ir import AnalysisBundle, AnalysisSchemaError
@@ -43,6 +43,13 @@ class RailEventKind(str, Enum):
     MARK = "MARK"
     PCHAIN = "PCHAIN"
     ALPHA = "ALPHA"
+
+
+class RailCompetitionKind(str, Enum):
+    """Структурный источник compile-static freeze-локуса."""
+
+    THREAD_DUAL_READING = "THREAD_DUAL_READING"
+    TERMINAL_ROUTE_PAIR = "TERMINAL_ROUTE_PAIR"
 
 
 class RailStartSectorKind(str, Enum):
@@ -173,6 +180,38 @@ class RailFreezeLocus:
     source_vertex_id: int | None = None
     source_edge_id: int | None = None
     edge_parameter: float | None = None
+    route_ids: tuple[int, int] = ()
+    arrival_distances: tuple[float, float] = ()
+    competition_kind: RailCompetitionKind = (
+        RailCompetitionKind.THREAD_DUAL_READING
+    )
+
+    def __post_init__(self):
+        route_ids = self.route_ids or (self.route_id, self.route_id)
+        arrivals = self.arrival_distances or (
+            self.canonical_distance,
+            self.canonical_distance,
+        )
+        if len(route_ids) != 2 or len(arrivals) != 2:
+            raise ValueError("RAIL_FREEZE_READING_PAIR_REQUIRED")
+        arrivals = tuple(float(value) for value in arrivals)
+        if any(not isfinite(value) or value < 0.0 for value in arrivals):
+            raise ValueError("RAIL_FREEZE_ARRIVAL_INVALID")
+        object.__setattr__(
+            self,
+            "route_ids",
+            tuple(int(value) for value in route_ids),
+        )
+        object.__setattr__(
+            self,
+            "arrival_distances",
+            arrivals,
+        )
+        object.__setattr__(
+            self,
+            "competition_kind",
+            RailCompetitionKind(self.competition_kind),
+        )
 
 
 @dataclass(frozen=True)
@@ -1400,6 +1439,11 @@ def _freeze_locus_for_route(route, chain_pair, topology):
                 source_vertex_id=station.source_vertex_id,
                 source_edge_id=station.source_edge_id,
                 edge_parameter=station.edge_parameter,
+                route_ids=(route.route_id, route.route_id),
+                arrival_distances=(
+                    canonical_distance,
+                    canonical_distance,
+                ),
             )
     for segment in route.segments:
         start = route.stations[segment.from_station_index]
@@ -1429,6 +1473,8 @@ def _freeze_locus_for_route(route, chain_pair, topology):
             kind=RailStationKind.EDGE,
             source_edge_id=segment.edge_id,
             edge_parameter=float(edge_parameter),
+            route_ids=(route.route_id, route.route_id),
+            arrival_distances=(canonical_distance, canonical_distance),
         )
     raise _RailCompileError(
         "RAIL_FREEZE_LOCUS_UNRESOLVED",
@@ -1436,7 +1482,262 @@ def _freeze_locus_for_route(route, chain_pair, topology):
     )
 
 
-def _compile_route_competition(routes, topology, spine_uses):
+def _station_edge_parameter(station, edge):
+    """Точный параметр station на физическом source edge."""
+
+    if (
+        station.source_edge_id == edge.edge_id
+        and station.edge_parameter is not None
+    ):
+        return float(station.edge_parameter)
+    if station.source_vertex_id == edge.vertex_ids[0]:
+        return 0.0
+    if station.source_vertex_id == edge.vertex_ids[1]:
+        return 1.0
+    return None
+
+
+def _route_origin_chain_ref(route, topology, chain_refs_by_vertex):
+    """RC1 tie-break authority одного route без геометрической эвристики."""
+
+    if not route.stations or route.stations[0].source_vertex_id is None:
+        return None
+    patch_ids = {
+        topology.face_patch_ids[face_id]
+        for face_id in route.key.side.source_face_ids
+        if face_id in topology.face_patch_ids
+    }
+    if len(patch_ids) != 1:
+        return None
+    patch_id = next(iter(patch_ids))
+    refs = tuple(
+        chain_ref
+        for chain_ref in chain_refs_by_vertex.get(
+            route.stations[0].source_vertex_id,
+            (),
+        )
+        if chain_ref[0] == patch_id
+    )
+    return refs[0] if len(refs) == 1 else None
+
+
+def _route_pair_freeze_locus(
+    route_a,
+    route_b,
+    topology,
+    chain_refs_by_vertex,
+):
+    """RC1: точная встреча двух terminal routes на общем source edge.
+
+    Функция вызывается только на compile. Runtime получает готовые station
+    distances и source-key локуса; повторно решать равенство запрещено RC3.
+    """
+
+    stations_a = {
+        station.station_index: station for station in route_a.stations
+    }
+    stations_b = {
+        station.station_index: station for station in route_b.stations
+    }
+    segments_b = defaultdict(list)
+    for segment in route_b.segments:
+        segments_b[segment.edge_id].append(segment)
+    candidates = []
+    unresolved_equal_intervals = []
+    for segment_a in route_a.segments:
+        edge = topology.edge_by_id.get(segment_a.edge_id)
+        if edge is None:
+            continue
+        station_a0 = stations_a[segment_a.from_station_index]
+        station_a1 = stations_a[segment_a.to_station_index]
+        parameter_a0 = _station_edge_parameter(station_a0, edge)
+        parameter_a1 = _station_edge_parameter(station_a1, edge)
+        if (
+            parameter_a0 is None
+            or parameter_a1 is None
+            or parameter_a0 == parameter_a1
+        ):
+            continue
+        for segment_b in segments_b.get(segment_a.edge_id, ()):
+            station_b0 = stations_b[segment_b.from_station_index]
+            station_b1 = stations_b[segment_b.to_station_index]
+            parameter_b0 = _station_edge_parameter(station_b0, edge)
+            parameter_b1 = _station_edge_parameter(station_b1, edge)
+            if (
+                parameter_b0 is None
+                or parameter_b1 is None
+                or parameter_b0 == parameter_b1
+            ):
+                continue
+            if (
+                (parameter_a1 - parameter_a0)
+                * (parameter_b1 - parameter_b0)
+                >= 0.0
+            ):
+                continue
+            low = max(
+                min(parameter_a0, parameter_a1),
+                min(parameter_b0, parameter_b1),
+            )
+            high = min(
+                max(parameter_a0, parameter_a1),
+                max(parameter_b0, parameter_b1),
+            )
+            if low > high:
+                continue
+
+            def arrival(station_0, station_1, parameter_0, parameter_1, value):
+                factor = (value - parameter_0) / (
+                    parameter_1 - parameter_0
+                )
+                return float(station_0.distance) + factor * float(
+                    station_1.distance - station_0.distance
+                )
+
+            difference_low = (
+                arrival(
+                    station_a0,
+                    station_a1,
+                    parameter_a0,
+                    parameter_a1,
+                    low,
+                )
+                - arrival(
+                    station_b0,
+                    station_b1,
+                    parameter_b0,
+                    parameter_b1,
+                    low,
+                )
+            )
+            difference_high = (
+                arrival(
+                    station_a0,
+                    station_a1,
+                    parameter_a0,
+                    parameter_a1,
+                    high,
+                )
+                - arrival(
+                    station_b0,
+                    station_b1,
+                    parameter_b0,
+                    parameter_b1,
+                    high,
+                )
+            )
+            if difference_low == 0.0 and difference_high == 0.0:
+                unresolved_equal_intervals.append(int(edge.edge_id))
+                continue
+            if difference_low == 0.0:
+                parameter = low
+            elif difference_high == 0.0:
+                parameter = high
+            elif difference_low * difference_high < 0.0:
+                parameter = low - difference_low * (high - low) / (
+                    difference_high - difference_low
+                )
+            else:
+                continue
+            arrival_a = arrival(
+                station_a0,
+                station_a1,
+                parameter_a0,
+                parameter_a1,
+                parameter,
+            )
+            arrival_b = arrival(
+                station_b0,
+                station_b1,
+                parameter_b0,
+                parameter_b1,
+                parameter,
+            )
+            candidates.append(
+                (
+                    max(arrival_a, arrival_b),
+                    min(route_a.key, route_b.key),
+                    max(route_a.key, route_b.key),
+                    int(edge.edge_id),
+                    float(parameter),
+                    float(arrival_a),
+                    float(arrival_b),
+                )
+            )
+    if unresolved_equal_intervals:
+        raise _RailCompileError(
+            "RAIL_COMPETITION_METRIC_UNRESOLVED",
+            edge_indices=tuple(sorted(set(unresolved_equal_intervals))),
+            details=(
+                (
+                    "route_ids",
+                    tuple(sorted((route_a.route_id, route_b.route_id))),
+                ),
+            ),
+        )
+    if not candidates:
+        return None
+
+    winner = min(candidates)
+    edge_id = winner[3]
+    edge_parameter = winner[4]
+    arrival_a = winner[5]
+    arrival_b = winner[6]
+    chain_a = _route_origin_chain_ref(
+        route_a, topology, chain_refs_by_vertex
+    )
+    chain_b = _route_origin_chain_ref(
+        route_b, topology, chain_refs_by_vertex
+    )
+    if chain_a is None or chain_b is None:
+        raise _RailCompileError(
+            "RAIL_COMPETITION_CHAIN_ID_UNRESOLVED",
+            edge_indices=(edge_id,),
+            details=(
+                (
+                    "route_ids",
+                    tuple(sorted((route_a.route_id, route_b.route_id))),
+                ),
+            ),
+        )
+    edge = topology.edge_by_id[edge_id]
+    source_vertex_id = None
+    kind = RailStationKind.EDGE
+    if edge_parameter == 0.0:
+        kind = RailStationKind.VERTEX
+        source_vertex_id = edge.vertex_ids[0]
+    elif edge_parameter == 1.0:
+        kind = RailStationKind.VERTEX
+        source_vertex_id = edge.vertex_ids[1]
+    route_ids = (route_a.route_id, route_b.route_id)
+    arrivals = (arrival_a, arrival_b)
+    if route_ids[1] < route_ids[0]:
+        route_ids = tuple(reversed(route_ids))
+        arrivals = tuple(reversed(arrivals))
+    chain_pair = tuple(sorted((chain_a, chain_b)))
+    return RailFreezeLocus(
+        route_id=route_ids[0],
+        route_ids=route_ids,
+        chain_refs=chain_pair,
+        owner_chain_ref=min(chain_pair),
+        canonical_distance=max(arrivals),
+        arrival_distances=arrivals,
+        kind=kind,
+        source_vertex_id=source_vertex_id,
+        source_edge_id=(None if source_vertex_id is not None else edge_id),
+        edge_parameter=(
+            None if source_vertex_id is not None else edge_parameter
+        ),
+        competition_kind=RailCompetitionKind.TERMINAL_ROUTE_PAIR,
+    )
+
+
+def _compile_route_competition(
+    routes,
+    topology,
+    spine_uses,
+    terminal_route_ids=(),
+):
     """RC1-RC3: два чтения и freeze для каждой RR10-нити."""
 
     chain_refs_by_vertex = _spine_chain_refs_by_vertex(spine_uses)
@@ -1478,6 +1779,27 @@ def _compile_route_competition(routes, topology, spine_uses):
         freeze_loci.append(
             _freeze_locus_for_route(route, chain_pair, topology)
         )
+    terminal_routes = tuple(
+        route
+        for route in routes
+        if route.route_id in frozenset(terminal_route_ids)
+        and route.segments
+    )
+    for index, route_a in enumerate(terminal_routes):
+        for route_b in terminal_routes[index + 1 :]:
+            if (
+                route_a.key.side.spine_vertex_id
+                == route_b.key.side.spine_vertex_id
+            ):
+                continue
+            locus = _route_pair_freeze_locus(
+                route_a,
+                route_b,
+                topology,
+                chain_refs_by_vertex,
+            )
+            if locus is not None:
+                freeze_loci.append(locus)
     return tuple(sorted(readings)), tuple(sorted(freeze_loci))
 
 
@@ -1979,6 +2301,11 @@ def compile_decal_rail_plan(
         routes,
         topology,
         tuple(spine_uses),
+        terminal_route_ids=tuple(
+            use.route_id
+            for use in terminal_uses
+            if use.route_id is not None
+        ),
     )
     footprint_face_ids = set(rr_face_ids)
     for route in routes:
@@ -2036,6 +2363,7 @@ __all__ = [
     "DecalRailPlan",
     "RailCompileAttempt",
     "RailCompileFailure",
+    "RailCompetitionKind",
     "RailEvent",
     "RailEventKind",
     "RailFreezeLocus",

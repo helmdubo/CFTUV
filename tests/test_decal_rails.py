@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 from mathutils import Vector
 
 from cftuv import decal_rails
@@ -219,6 +220,68 @@ def test_rf7_mid_edge_freeze_uses_source_edge_station_key():
         and locus.edge_parameter is not None
         for locus in plan.freeze_loci
     )
+
+
+def test_rm9_terminal_route_meeting_is_frozen_at_compile_station():
+    edge = decal_rails.RailSourceEdge(
+        edge_id=900,
+        vertex_ids=(0, 1),
+        face_indices=(100,),
+        length=10.0,
+    )
+
+    def route(route_id, start_vertex, end_vertex, start_edge):
+        return decal_rails.RailRoute(
+            route_id=route_id,
+            key=decal_rails.RailRouteKey(
+                decal_rails.RailSideKey(
+                    start_vertex,
+                    start_edge,
+                    (100,),
+                )
+            ),
+            stations=(
+                decal_rails.RailStation(
+                    0,
+                    0.0,
+                    decal_rails.RailStationKind.VERTEX,
+                    source_vertex_id=start_vertex,
+                ),
+                decal_rails.RailStation(
+                    1,
+                    10.0,
+                    decal_rails.RailStationKind.VERTEX,
+                    source_vertex_id=end_vertex,
+                ),
+            ),
+            segments=(
+                decal_rails.RailRouteSegment(900, 0, 1, (100,)),
+            ),
+            termination=decal_rails.RailTermination.PCHAIN,
+        )
+
+    locus = decal_rails._route_pair_freeze_locus(
+        route(1, 0, 1, 11),
+        route(2, 1, 0, 22),
+        SimpleNamespace(
+            edge_by_id={900: edge},
+            face_patch_ids={100: 0},
+        ),
+        {
+            0: ((0, 0, 0),),
+            1: ((0, 0, 1),),
+        },
+    )
+
+    assert locus.competition_kind is (
+        decal_rails.RailCompetitionKind.TERMINAL_ROUTE_PAIR
+    )
+    assert locus.route_ids == (1, 2)
+    assert locus.arrival_distances == pytest.approx((5.0, 5.0))
+    assert locus.kind is decal_rails.RailStationKind.EDGE
+    assert locus.source_edge_id == 900
+    assert locus.edge_parameter == pytest.approx(0.5)
+    assert locus.owner_chain_ref == (0, 0, 0)
 
 
 def test_rp_planar_quad_strip_has_no_routes_dams_or_caps():
