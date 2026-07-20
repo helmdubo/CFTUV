@@ -1,0 +1,53 @@
+{
+  "schema": "cftuv.decal_c8_2_planar_provenance.v1",
+  "date": "2026-07-18",
+  "baseline_head": "ad653b5",
+  "implementation_commit": "e9b4596a0f933903c00fa70f33792542579769de",
+  "suite": {
+    "passed": 364,
+    "xfailed": 2,
+    "duration_seconds": 668.73,
+    "xfail_marker": "GL-pending",
+    "compileall": "passed",
+    "diff_check": "passed"
+  },
+  "wcp_control_differential": {
+    "fixtures": [
+      "planar_two_site",
+      "wide_t"
+    ],
+    "widths": [
+      0.5,
+      1.0545852,
+      2.0,
+      4.0
+    ],
+    "baseline_sha256": "3cad35e46665e7c03219cd85341a41dcc0b06fb8e3f97b6690311a659b7e4968",
+    "current_sha256": "3cad35e46665e7c03219cd85341a41dcc0b06fb8e3f97b6690311a659b7e4968",
+    "byte_identical": true
+  },
+  "unselected_fold_knockout_sync": {
+    "widths": [
+      1.0,
+      1.2,
+      1.5
+    ],
+    "baseline_sha256": "8ae77df52d4ca2e46b0dfdc5b4a8487b2639214cdeb1b311a85a5b3d8e7d95b0",
+    "current_sha256": "d1d5e3a6919f4a0b82a309152b7236a169cc0ac22df6abf1636e6cbc5b9a5e63",
+    "baseline_edge_components": 2,
+    "current_edge_components": 1,
+    "canonical_station_key": [
+      "pv-se",
+      99,
+      0.5
+    ],
+    "spine_sync_disabled": true
+  },
+  "routing": {
+    "historical_pre_strict_seams_receipt": true,
+    "single_use_internal_seam_reason": "SINGLE_USE_INTERNAL_SEAM",
+    "single_use_internal_seam_backend": "LEGACY_NETWORK",
+    "current_runtime_policy": "ATOMIC_FAIL_CLOSED_NO_LEGACY",
+    "mesh_border_single_use_unchanged": true
+  }
+}

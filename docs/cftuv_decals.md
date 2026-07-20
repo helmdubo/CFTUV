@@ -45,11 +45,11 @@ FLOOR, SLOPE, потолки и другие ориентации равнопр
 При stitching сторона A/B выравнивается по непрерывности локальных нормалей, а
 не по patch id, поэтому смена chain/neighbor вдоль run не переставляет крылья.
 
-### SEAMS network backend (α-clipped partition)
+### Исторический decal_network prototype (не production runtime)
 
-В ручном Edge Select режиме выбранные chains образуют decal network. По
-умолчанию (`decal_seam_network`, панель Decals) сеть строится модулем
-`decal_network.py` как единое разбиение, а не сшивка независимых ribbons:
+Модуль `decal_network.py` сохраняется как исследовательская геометрия и набор
+регрессий, но SEAMS routing его больше не вызывает. Его прежняя конструкция
+была единым разбиением, а не сшивкой независимых ribbons:
 
 1. Ститченные runs превращаются в ветви-сайты; коллинеарные продолжения в
    junction сливаются в сквозные сайты с непрерывным UV через узел.
@@ -77,50 +77,39 @@ FLOOR, SLOPE, потолки и другие ориентации равнопр
 `T043-voronoi-decal-network.md`. Чистая геометрия покрыта
 `tests/test_decal_network.py` без Blender.
 
-### SEAMS legacy junctions (fallback)
+### SEAMS legacy runtime удалён
 
-При выключенном `decal_seam_network`, пустом результате или исключении
-network backend действует прежний miter/junction pipeline. Вершины с
-valence `2` продолжают собираться в обычные runs; valence `3+` становятся
-derived decal junctions, не меняя PatchGraph и не становясь solve entities.
+`decal_seam_network`, compiled `LEGACY_NETWORK`, one-shot seam network и
+прямой miter/junction pipeline больше не являются runtime-вариантами SEAMS.
+Старое Blender-свойство остаётся только для чтения прежних `.blend`, скрыто
+из панели и не влияет на поведение. Manual SEAMS принимает только явно
+скомпилированные `RAIL_PLANAR` и `PATCH_VORONOI` partitions.
 
-Для каждого junction:
+Неподдержанный topology component получает component-wide `Failed` с
+канонической compile-причиной. Один `Failed` атомарно отклоняет весь выбранный
+SEAMS scope до evaluation/BMesh. Если текущий drag-кадр падает, старый preview
+удаляется: ошибка видна геометрически и в header/console, а не маскируется
+last-valid mesh. Object/Face-mode automatic SEAMS без selected-edge plan также
+явно отклоняется. TOP/BOTTOM/CORNERS — отдельные producers и этим решением не
+изменены.
 
-1. Owner normals группируются в локальные offset-плоскости.
-2. Общий core рассчитывается как least-squares intersection этих плоскостей.
-3. Каждая incident branch обрезается перед junction. Cut учитывает половину
-   `Seam Width`, исходный offset spine и ограничивается длиной первого сегмента.
-4. Поперечные рёбра branches собираются по углу вокруг surface normal.
-5. На каждой owner surface angular region определяется по реальной стороне
-   крыльев, а не по кратчайшему углу между branch tangents. Поэтому spatial
-   corner корректно обрабатывает и complement-сектор больше 180 градусов.
-6. Outer-контуры соседних branches пересекаются как линии. Полученная miter
-   point лежит на усреднённом направлении между chains; для параллельного или
-   слишком длинного пересечения используется ограниченный midpoint fallback.
-7. Линия `core → miter point` физически делит region на две half-faces. Каждая
-   half-face получает UV относительно своей branch, поэтому это именно граница
-   двух декалей, а не branch spine внутри одного общего cap.
-8. Faces используют те же BMesh vertices/edges, что и branches после weld:
-   топологическая сшивка не создаёт coplanar overlap или overfull edges.
-9. Endpoint section хранит точные UV anchors branch. После создания каждой
-   half-face переходное поперечное ребро `branch → junction` сразу dissolves:
-   branch и его junction-продолжение становятся одним n-gon, а UV на месте
-   удалённого ребра остаётся непрерывным. В итоговой сетке сохраняются только
-   смысловые branch spine и усреднённые bisector dividers.
+User-facing routing включает детерминированные счётчики каждой canonical
+failure reason (`Failed:Ne[REASON:xN]`), а exception дополнительно показывает
+physical edge IDs; причины не спрятаны за verbose console.
 
-Плоский T получает по усреднённой divider-линии между каждой парой соседних
-направлений. Пространственный trihedral стык получает общий offset core и одну
-биссекторную линию на каждой owner surface — как на красной схеме. Та же схема
-допускает valence `4+` без выбора «главного» продолжения chain.
+Перед evaluation runtime дополнительно сверяет compiled accounting и точное
+равенство selected-edge scope. Устаревший plan для другого выделения не может
+тихо материализовать только известное ему подмножество.
 
-В автоматическом режиме внутренние и внешние углы различаются через canonical
-`BoundaryChain.dihedral_convexity`: negative — concave/inner, positive —
-convex/outer. Направления крыльев corner-strip меняются согласно этому знаку.
+После такого `ERROR` LMB/Enter не может подтвердить предыдущий валидный размер:
+confirm отменяется. Чтобы продолжить, нужно вернуть drag в поддержанный кадр;
+он вычисляется заново и только тогда снова становится подтверждаемым.
 
 ## Интерактивный размер автоматических декалей
 
-В Object Mode или Face Select Mode кнопки `Decal Top`, `Decal Bottom`,
-`Decal Corners` и `Decal Seams` запускают modal drag после первой генерации:
+В Object Mode или Face Select Mode кнопки `Decal Top`, `Decal Bottom` и
+`Decal Corners` запускают modal drag после первой генерации. `Decal Seams`
+требует ручного seam-edge scope в Edge Select Mode и compiled strict plan:
 
 - Top/Bottom/Corners/Seams используют один горизонтальный жест: движение мыши
   вправо увеличивает размер, движение влево уменьшает его.
@@ -132,7 +121,27 @@ convex/outer. Направления крыльев corner-strip меняютс�
   bounding box исходного объекта. Y остаётся в точке клика: вертикального warp
   нет, и движение вверх/вниз не участвует в расчёте размера. Если центр объекта
   вне экрана или не проецируется, используется центральный X окна 3D View.
-- `Shift` включает точную регулировку, LMB/Enter подтверждает, RMB/Esc отменяет.
+- `W` выбирает размер текущего mode, `A` — `Acute Split Angle`, `M` —
+  `Apex Limit`. Переключение цели использует текущее принятое значение и
+  текущий X мыши как новую базу, поэтому параметр не скачет.
+- Для manual `Decal Seams` targets `A/M` включаются только при clean Patch
+  Voronoi scope (`Failed:0`). Для rail scope `A/M` отключены. Любой failed
+  component останавливает весь modal до материализации и показывает причину.
+- При активном `A` header показывает текущий порог и evaluator diagnostics:
+  `Acute Split: <deg> | MITER:<n> KITE:<n> FAN:<n> SPLIT:<n> HAIRPIN:<n> | <ms>`.
+  Перетаскивание переоценивает уже compiled Patch Voronoi plan без нового
+  `Construct()`; invalid SEAMS frame удаляет preview и показывает ошибку.
+- Panel задаёт четыре ordered band thresholds: `Miter/Kite/Split/Hairpin
+  Angle` с defaults `120/90/60/30°`. Они выбирают пять semantic corner
+  policy по `extrusion_angle`; точное равенство относится к более мягкому
+  band. `A` остаётся live target для Split Angle, остальные thresholds входят
+  в immutable settings snapshot текущего запуска.
+- `Shift` включает точную регулировку с input rebase как при нажатии, так и
+  при отпускании: уже накопленный coarse delta не пересчитывается с новой
+  sensitivity. Угол в header показывается в градусах.
+- LMB/Enter подтверждает общий последний валидный settings snapshot. RMB/Esc
+  отменяет preview и восстанавливает все W/A/M properties, изменённые в этой
+  modal-сессии.
 
 В Edge Select Mode `Decal Seams` также остаётся интерактивным: captured manual
 scope не меняется во время drag, повторно строятся только выбранные seam edges.
@@ -154,10 +163,15 @@ operators.py
 - `decals.py` — чистый потребитель PatchGraph (как `debug.py`): исходный
   BMesh не читается, вся геометрия берётся из `vert_cos` цепочек (локальное
   пространство source object).
-- `decal_modal.py` — единая экранная математика интерактивного размера:
-  проекция bbox, viewport fallback, cursor warp, чувствительность и минимум.
+- `decal_modal.py` — единая экранная математика и immutable target descriptors:
+  проекция bbox, viewport fallback, cursor warp, W/A/M sensitivity и clamps.
 - Модуль строит ленты в собственном `bmesh.new()` и материализует их
   объектами в коллекции `Decals_Generated` с `matrix_world` источника.
+- Settings/modal задаются в world units. Перед backend они переводятся в
+  local metric через проверенный positive uniform scale source object:
+  размеры и offset делятся на scale, а `uv_length_scale` умножается на scale.
+  Non-uniform scale, shear и mirror transform отклоняются до preview с явной
+  ошибкой; применить scale либо убрать reflection нужно на исходном объекте.
 - Настройки — frozen dataclass `DecalSettings` в `model.py` (инвариант «без
   глобалов»); пороги и UV-ректы — в `constants.py` (`DECAL_*`).
 - Повторная генерация заменяет одноимённый объект (`Decal_<Mode>_<Source>`),
@@ -176,7 +190,7 @@ operators.py
    `side_face`: `outward = edge_dir × side_face_normal`; локальный `up` —
    проекция `WORLD_UP` на эту поверхность. Выше `DECAL_DIR_THRESHOLD` —
    верхняя кромка, ниже минус порога — нижняя. `patch.normal` используется
-   только как legacy fallback, если локальный sample отсутствует. Это важно
+   только как запасная compatibility-normal, если локальный sample отсутствует. Это важно
    для wrapped WALL patch: один patch может содержать весь периметр здания,
    и его средняя normal не описывает ни одну конкретную стену. Рёбра короче
    `DECAL_NOISE_THRESHOLD` пропускаются.

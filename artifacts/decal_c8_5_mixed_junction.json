@@ -1,0 +1,28 @@
+{
+  "schema": "cftuv.decal_c8_5_mixed_junction.v1",
+  "date": "2026-07-18",
+  "baseline_head": "00adbe91",
+  "implementation_commit": "bb6a9d77673b0b22eb70a0db5a4eb83ec1a3090c",
+  "root_cause": {
+    "backend": "PLANAR+INTRINSIC_DEVELOPABLE",
+    "builder": "Patch Voronoi junction connector",
+    "failure": "INTRINSIC surfaces were excluded from compiled junction ports"
+  },
+  "acceptance": {
+    "fixture": "8-segment quarter-cylinder meeting one planar wall at source vertex 0",
+    "widths": [0.74, 1.27, 1.61],
+    "connector_count_each_width": 1,
+    "rail_owner_count": 2,
+    "component_count": 1,
+    "preview_confirm_byte_identical": true,
+    "approximate_atlas_changed": false
+  },
+  "verification": {
+    "split_suite_passed": 371,
+    "split_suite_xfailed": 2,
+    "xfail_marker": "GL-pending",
+    "sphere_guard_seconds": 476.28,
+    "compileall": "passed",
+    "diff_check": "passed"
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "schema": "cftuv.decal_atlas_wcp.v1",
+  "date": "2026-07-18",
+  "baseline_head": "87777ba",
+  "scope": "T7-P3.15 checkpoint before Geometry Ledger",
+  "suite": {
+    "passed": 341,
+    "xfailed": 2,
+    "duration_seconds": 590.86,
+    "compileall": "passed",
+    "diff_check": "passed"
+  },
+  "ep1_worktree_differential": {
+    "baseline_head": "87777ba",
+    "fixtures": [
+      "wide_t",
+      "planar_two_site"
+    ],
+    "widths": [
+      0.5,
+      1.0545852,
+      2.0,
+      4.0
+    ],
+    "serialized_bytes": 24682,
+    "current_sha256": "938e8344b0e537a86d8a10d27f4b57a0ebe0268d3ebaaf917325fcc2cc8a7cb1",
+    "baseline_sha256": "938e8344b0e537a86d8a10d27f4b57a0ebe0268d3ebaaf917325fcc2cc8a7cb1",
+    "byte_identical": true
+  },
+  "saddle_receipt": [
+    {
+      "width": 0.25,
+      "faces": 128,
+      "connected_components": 1,
+      "overfull_edges": 0,
+      "atlas_declared_owner_count": 52,
+      "atlas_sliver_owner_count": 4,
+      "atlas_max_sliver_owner_distance": 0.245257589184,
+      "atlas_no_owner_drop_count": 0,
+      "atlas_semantic_import_count": 2,
+      "atlas_semantic_transition_count": 36,
+      "atlas_degenerate_interval_merge_count": 14,
+      "atlas_v_continuation_count": 10,
+      "atlas_touch_no_token_drop_count": 362
+    },
+    {
+      "width": 0.5,
+      "faces": 364,
+      "connected_components": 1,
+      "overfull_edges": 0,
+      "atlas_declared_owner_count": 145,
+      "atlas_sliver_owner_count": 8,
+      "atlas_max_sliver_owner_distance": 0.234696260466,
+      "atlas_no_owner_drop_count": 0,
+      "atlas_semantic_import_count": 29,
+      "atlas_semantic_transition_count": 104,
+      "atlas_degenerate_interval_merge_count": 72,
+      "atlas_v_continuation_count": 32,
+      "atlas_touch_no_token_drop_count": 298
+    }
+  ],
+  "gl_pending_xfails": [
+    "tests/test_decal_atlas.py::test_e3_public_saddle_materializes_through_t_contract",
+    "tests/test_decal_atlas.py::test_t8_saddle_is_deterministic_for_reversed_seed_enumeration"
+  ],
+  "atlas_code_frozen_until": "workplan section 0c Geometry Ledger"
+}

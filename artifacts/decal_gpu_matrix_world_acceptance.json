@@ -1,0 +1,9 @@
+{
+  "blender_version": "4.3.2",
+  "source_transform_applied": false,
+  "translation_rotation_non_uniform_scale": true,
+  "before_local_space_max_error": 4.858301610700637,
+  "after_matrix_world_max_error": 2.9802322387695312e-08,
+  "after_pass": true,
+  "image": "C:\\Users\\helmd\\Documents\\CFTUV_decal_runtime\\artifacts\\decal_gpu_matrix_world_before_after.png"
+}

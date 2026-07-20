@@ -1,0 +1,28 @@
+{
+  "schema": "cftuv.decal_r13_rr9a.rf18.v1",
+  "blender_version": "4.3.2",
+  "selected_spine_edge": 100,
+  "candidate_edges": [
+    103,
+    105
+  ],
+  "snap_chosen_edge": 103,
+  "snap_route_id": 2,
+  "small_width_frontier": [
+    0.19900743663311005,
+    0.019900744780898094,
+    0.0
+  ],
+  "large_width_frontier": [
+    0.696526050567627,
+    0.06965260207653046,
+    0.0
+  ],
+  "same_compiled_plan": true,
+  "mark_chosen_edge": 105,
+  "losing_edge": 103,
+  "losing_route_id": 2,
+  "losing_edge_remains_pchain": true,
+  "blend_saved": false,
+  "image": "C:\\Users\\helmd\\Documents\\CFTUV_decal_runtime\\artifacts\\decal_r13_rr9a_rf18_annotated.png"
+}

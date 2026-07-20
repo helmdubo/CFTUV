@@ -589,12 +589,12 @@ class TestSurfaceSpans:
         return _branch_from_run(run)
 
     def test_borderline_tessellation_groups_spans(self):
-        # ~7° между соседними нормалями — выше DECAL_COPLANAR_DOT: сегменты
+        # ~3° между соседними нормалями — выше DECAL_COPLANAR_DOT: сегменты
         # группируются по бегущему среднему, а не рубятся на каждой станции
         # (per-station flat caps + connectors выглядели зубцами на дуге).
         from cftuv.decal_network import _side_surface_spans
 
-        branch = self._arc_branch(7.0, 8)
+        branch = self._arc_branch(3.0, 8)
         spans = _side_surface_spans(branch, branch.normals_b)
         assert 1 < len(spans) < 8
         # Бегущее среднее не даёт схлопнуть пологую дугу в одну хорду.

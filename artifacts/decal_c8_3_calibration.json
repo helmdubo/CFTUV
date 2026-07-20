@@ -1,0 +1,59 @@
+{
+  "schema": "cftuv.decal_c8_3_calibration.v1",
+  "date": "2026-07-18",
+  "code_commit": "bb6a9d77673b0b22eb70a0db5a4eb83ec1a3090c",
+  "fixture": {
+    "kind": "PLANAR convex 90-degree boundary arc",
+    "segment_counts": [6, 7, 8, 9, 10],
+    "widths": [0.74, 1.27, 1.61],
+    "dynamic_corner_bands": false
+  },
+  "rows": [
+    {
+      "segments": 6,
+      "turn_degrees": 15.0,
+      "policy": "MITER",
+      "face_counts": [8, 8, 8],
+      "minimum_face_area": 0.1368826392862082,
+      "source_edge_imprint_vertex_occurrences": 0
+    },
+    {
+      "segments": 7,
+      "turn_degrees": 12.857143,
+      "policy": "MITER",
+      "face_counts": [9, 9, 9],
+      "minimum_face_area": 0.13689316536889448,
+      "source_edge_imprint_vertex_occurrences": 0
+    },
+    {
+      "segments": 8,
+      "turn_degrees": 11.25,
+      "policy": "MITER",
+      "face_counts": [10, 10, 10],
+      "minimum_face_area": 0.13688446259668507,
+      "source_edge_imprint_vertex_occurrences": 0
+    },
+    {
+      "segments": 9,
+      "turn_degrees": 10.0,
+      "policy": "SMOOTH",
+      "face_counts": [46, 47, 47],
+      "minimum_face_area": 0.0000017934723525431742,
+      "source_edge_imprint_vertex_occurrences": 0
+    },
+    {
+      "segments": 10,
+      "turn_degrees": 9.0,
+      "policy": "SMOOTH",
+      "face_counts": [52, 52, 52],
+      "minimum_face_area": 0.00006712087540935747,
+      "source_edge_imprint_vertex_occurrences": 0
+    }
+  ],
+  "decision_stop": {
+    "threshold_changed": false,
+    "reason": "raising the threshold would extend the sliver-producing SMOOTH arrangement",
+    "classification": "SMOOTH corner arrangement, not G1 imprint"
+  },
+  "reviewer_message": "C8.3-cal stop: на арке 90 градусов MITER при tau 11.25-15 даёт 8-10 стабильных faces, а SMOOTH при tau 10/9 скачком даёт 46-52 faces и min area до 1.79e-6; G1 imprint=0. Подъём порога расширит дефект. Нужен design decision: исправлять SMOOTH arrangement/fragment union либо временно отключить sub-band; порог не менялся."
+}

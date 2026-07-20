@@ -1,0 +1,121 @@
+{
+  "schema": "cftuv.decal_w4_low_poly_measurements.v3",
+  "date": "2026-07-18",
+  "status": "W4_IMPLEMENTED_G3_DECISION_PENDING",
+  "production_threshold_changes": false,
+  "production_admission_integration": false,
+  "measurement_contract": {
+    "mode": "W4_WIDTH_PARAMETERIZED_PRE_ADMISSION",
+    "fallback_geometry_evaluated": false,
+    "site_axis": "open selected chain, cumulative source chord length",
+    "width_axis": "signed perpendicular coordinate in a local hinge-unfold",
+    "open_endcap": "tangent continuation, no terminal station clamp",
+    "source_vertex_ownership": "one canonical coordinate per source vertex",
+    "station_sampling": "20 equal site-arc-length segment midpoints, both sides",
+    "relative_error_formula": "abs(hinge_unfolded_distance - sampled_chart_distance) / sampled_chart_distance",
+    "aggregate": "maximum over every measured station and side",
+    "runtime": "diagnostics-only/default-off until G3 review"
+  },
+  "normalization": {
+    "alpha": 1.0,
+    "radius": 5.0,
+    "dome_path": "open half-parallel at polar angle pi/4",
+    "e2_width_budget": 0.02
+  },
+  "sweep": [
+    {
+      "fixture": "dome_12x6",
+      "defect_max_rad": 0.09717520236378085,
+      "raw_width_error": 0.11539827681156023,
+      "w4_width_error": 0.08446920683699366,
+      "max_abs_station_delta": 0.08446920683699366,
+      "measured_station_sides": 40,
+      "production_reason": "DISTORTION_BUDGET_EXCEEDED"
+    },
+    {
+      "fixture": "dome_16x8",
+      "defect_max_rad": 0.06397415526534367,
+      "raw_width_error": 0.06023004713694946,
+      "w4_width_error": 0.036762546398619644,
+      "max_abs_station_delta": 0.036762546398619644,
+      "measured_station_sides": 40,
+      "production_reason": "DISTORTION_BUDGET_EXCEEDED"
+    },
+    {
+      "fixture": "dome_20x10",
+      "defect_max_rad": 0.03988715818616573,
+      "raw_width_error": 0.1612412519119678,
+      "w4_width_error": 0.01584284718832296,
+      "max_abs_station_delta": 0.01584284718832296,
+      "measured_station_sides": 40,
+      "production_reason": "DISTORTION_BUDGET_EXCEEDED"
+    },
+    {
+      "fixture": "dome_24x12",
+      "defect_max_rad": 0.02717663690997707,
+      "raw_width_error": 0.3156453491373654,
+      "w4_width_error": 0.01563663622006506,
+      "max_abs_station_delta": 0.01563663622006506,
+      "measured_station_sides": 40,
+      "production_reason": "DISTORTION_BUDGET_EXCEEDED"
+    },
+    {
+      "fixture": "dome_32x16",
+      "defect_max_rad": 0.016019478516165364,
+      "raw_width_error": 0.40886009454520134,
+      "w4_width_error": 0.009185452617653356,
+      "max_abs_station_delta": 0.009185452617653356,
+      "measured_station_sides": 40,
+      "production_reason": "DISTORTION_BUDGET_EXCEEDED"
+    },
+    {
+      "fixture": "dome_48x24",
+      "defect_max_rad": 0.0071218502137631035,
+      "raw_width_error": 0.33548112599398316,
+      "w4_width_error": 0.004081800827111293,
+      "max_abs_station_delta": 0.004081800827111293,
+      "measured_station_sides": 40,
+      "production_reason": "DISTORTION_BUDGET_EXCEEDED"
+    },
+    {
+      "fixture": "dome_64x32",
+      "defect_max_rad": 0.004006448386889794,
+      "raw_width_error": 0.3963374207970317,
+      "w4_width_error": 0.002295783269268492,
+      "max_abs_station_delta": 0.002295783269268492,
+      "measured_station_sides": 40,
+      "production_reason": "DISTORTION_BUDGET_EXCEEDED"
+    }
+  ],
+  "developable_controls": [
+    {
+      "fixture": "cylinder_12",
+      "raw_width_error": 1.3322676295501878e-15,
+      "w4_width_error": 5.551115123125783e-16,
+      "production_reason": "ADMIT_EXACT"
+    },
+    {
+      "fixture": "cylinder_16",
+      "raw_width_error": 6.661338147750939e-16,
+      "w4_width_error": 2.220446049250313e-16,
+      "production_reason": "ADMIT_EXACT"
+    },
+    {
+      "fixture": "cylinder_24",
+      "raw_width_error": 6.661338147750939e-16,
+      "w4_width_error": 1.1102230246251565e-16,
+      "production_reason": "ADMIT_EXACT"
+    }
+  ],
+  "verdict": {
+    "holonomy_accumulation_removed": true,
+    "resolution_sweep_strictly_monotonic": true,
+    "foldover_count": 0,
+    "triangle_overlap_count": 0,
+    "e2_budget_first_passing_fixture": "dome_20x10",
+    "coarse_12x6_and_16x8_still_exceed_budget": true,
+    "observed_limit": "converges below 0.3%, not to the predicted approximately 2%",
+    "next_action": "review G3 meaning of coarse discretization and smooth-limit target before production admission changes"
+  },
+  "reviewer_message": "W4-fix implemented diagnostics-only. Global holonomy churn is removed: sweep 12x6..64x32 is strictly monotonic 8.447% -> 3.676% -> 1.584% -> 1.564% -> 0.919% -> 0.408% -> 0.230%, with foldover=0 and overlap=0; cylinders stay numerical zero. Every station on 32x16 is inside E2. Two differences from the prediction require G3 decision: 12x6/16x8 remain above 2%, while the refined limit tends below 0.3% rather than approximately 2%. Admission/proxy and production routing are unchanged/default-off. Decide whether the coarse pair is an honest tessellation rejection and G3 may enable measured-first from 20x10, or whether W4 needs an additional construction before integration."
+}

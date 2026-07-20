@@ -22,7 +22,9 @@ UV лент пишутся в прямоугольники атласа (DECAL_U
 """
 
 from dataclasses import dataclass
+from enum import Enum
 from math import atan2, pi
+from time import perf_counter
 
 import bpy
 import bmesh
@@ -43,21 +45,41 @@ from .constants import (
     DECAL_WELD_DISTANCE,
     WORLD_UP,
 )
-from .decal_network import (
-    _corner_wing_directions,
-    build_seam_network_faces,
-    compile_seam_network_plan,
-    evaluate_seam_network_plan,
+from .decal_rails import RailTerminalKind, compile_decal_rail_attempt
+from .decal_rail_geometry import (
+    RailGeometryFailure,
+    compile_planar_rail_geometry_attempt,
+    evaluate_planar_rail_geometry_plan,
 )
 from .decal_voronoi import (
-    CornerRuntimeSettings,
+    PatchVoronoiDiagnostics,
     compile_patch_voronoi_attempt,
     compile_patch_voronoi_plan,
+    corner_runtime_settings_from_decal_settings,
     evaluate_patch_voronoi_plan,
+)
+from .decal_transform import (
+    DecalSourceTransformError,
+    local_decal_settings_for_source,
 )
 from .model import ChainNeighborKind, ChainRef, DecalSettings, PatchGraph, PatchType
 
 DECAL_MODES = ("TOP", "BOTTOM", "CORNERS", "SEAMS")
+
+_DECAL_PREVIEW_OBJECT_PREFIX = ".CFTUV_Preview"
+_DECAL_PREVIEW_MARKER = "cftuv_decal_preview"
+_DECAL_PREVIEW_SOURCE = "cftuv_decal_source"
+_DECAL_COMPILE_ALPHA_HEADROOM = 4.0
+
+
+def decal_compile_alpha_budget(settings):
+    """Начальный modal width получает явный запас intrinsic support."""
+
+    initial_alpha = max(1e-6, float(settings.width_seam) * 0.5)
+    return max(
+        initial_alpha * _DECAL_COMPILE_ALPHA_HEADROOM,
+        initial_alpha + DECAL_WELD_DISTANCE * 8.0,
+    )
 
 _MODE_OBJECT_SUFFIX = {
     "TOP": "Top",
@@ -113,10 +135,31 @@ class DecalPreviewState:
 
     topology_signature: tuple = ()
     canonical_mesh_indices: tuple[int, ...] = ()
+    object_name: str = ""
     object_pointer: int = 0
     mesh_pointer: int = 0
     fast_updates: int = 0
     topology_rebuilds: int = 0
+
+
+class PreviewStatus(str, Enum):
+    UPDATED = "UPDATED"
+    RETAINED_LAST_VALID = "RETAINED_LAST_VALID"
+    EMPTY = "EMPTY"
+    ERROR = "ERROR"
+
+
+@dataclass(frozen=True)
+class DecalGenerationResult:
+    """Structured internal result generation/preview transaction."""
+
+    status: PreviewStatus
+    object_name: str | None
+    reason: str = ""
+    topology_changed: bool = False
+    backend_summary: str = ""
+    policy_counts: tuple[tuple[str, int], ...] = ()
+    evaluation_ms: float = 0.0
 
 
 @dataclass
@@ -209,7 +252,7 @@ class _DecalJunctionSpec:
 
 @dataclass(frozen=True)
 class _ManualSeamBackendPartition:
-    """Независимая routing-группа нового или fallback backend."""
+    """Независимая routing-группа строгого современного backend."""
 
     backend: str
     edge_indices: tuple[int, ...]
@@ -217,6 +260,85 @@ class _ManualSeamBackendPartition:
     corner_runs: tuple
     boundary_runs: tuple
     compiled_plan: object = None
+
+    def __post_init__(self):
+        if self.backend not in {"RAIL_PLANAR", "PATCH_VORONOI"}:
+            raise ValueError(
+                "Legacy/unknown SEAMS backend is disabled: "
+                f"{self.backend}"
+            )
+
+
+@dataclass(frozen=True)
+class _ManualBackendEvaluation:
+    """Faces и evaluator-owned diagnostics одной routing partition."""
+
+    faces: tuple
+    evaluation_ms: float
+    policy_counts: tuple[tuple[str, int], ...] = ()
+
+
+@dataclass(frozen=True, order=True)
+class ManualSeamTerminalRouting:
+    """RM9-диагностика одного торца без повторной деривации выбора."""
+
+    component_index: int
+    patch_id: int
+    spine_vertex_id: int
+    spine_edge_id: int
+    source_face_ids: tuple[int, ...]
+    backend: str
+    backend_kind: str
+    choice: str
+    edge_ids: tuple[int, ...] = ()
+    plan_kind: str = ""
+    route_id: int | None = None
+
+    @property
+    def report_line(self):
+        edge_suffix = (
+            " " + ",".join(str(edge_id) for edge_id in self.edge_ids)
+            if self.edge_ids
+            else ""
+        )
+        backend = (
+            self.backend
+            if self.backend_kind == self.backend
+            else f"{self.backend}/{self.backend_kind}"
+        )
+        return (
+            f"component={self.component_index} "
+            f"patch={self.patch_id} "
+            f"terminal=v{self.spine_vertex_id}/e{self.spine_edge_id} "
+            f"faces={','.join(str(face_id) for face_id in self.source_face_ids)} "
+            f"choice={self.choice}{edge_suffix} backend={backend} "
+            f"plan={self.plan_kind}"
+        )
+
+
+@dataclass(frozen=True)
+class ManualSeamEdgeRejection:
+    """Selected physical edge, который не имеет допустимого decal use."""
+
+    edge_index: int
+    reason: str
+    use_count: int = 0
+    use_refs: tuple = ()
+
+
+@dataclass(frozen=True)
+class _ManualEdgeDecalCollection:
+    """Runs и полный accounting исходного selected-edge scope."""
+
+    corner_runs: tuple
+    boundary_runs: tuple
+    accepted_edge_indices: tuple[int, ...]
+    rejected_edges: tuple[ManualSeamEdgeRejection, ...]
+
+    def __iter__(self):
+        # Сохраняет старый private unpacking contract для geometry callers.
+        yield list(self.corner_runs)
+        yield list(self.boundary_runs)
 
 
 @dataclass(frozen=True)
@@ -229,25 +351,179 @@ class ManualSeamDecalPlan:
     patch_voronoi_plan: object = None
     backend_partitions: tuple[_ManualSeamBackendPartition, ...] = ()
     compile_failures: tuple = ()
+    selected_edge_indices: tuple[int, ...] = ()
+    rejected_edges: tuple[ManualSeamEdgeRejection, ...] = ()
+    direct_legacy_edge_indices: tuple[int, ...] = ()
+    # Канонический rail IR общий для R0-overlay и принятого R1 PLANAR backend.
+    rail_plan: object = None
+    rail_compile_failures: tuple = ()
+    rail_geometry_failures: tuple = ()
+    terminal_routing: tuple[ManualSeamTerminalRouting, ...] = ()
+
+    def __post_init__(self):
+        if self.network_plan is not None or self.direct_legacy_edge_indices:
+            raise ValueError(
+                "Legacy SEAMS plans are disabled; compile a strict rail/chart plan"
+            )
+        invalid_backends = tuple(
+            str(getattr(partition, "backend", "UNKNOWN"))
+            for partition in self.backend_partitions
+            if getattr(partition, "backend", None)
+            not in {"RAIL_PLANAR", "PATCH_VORONOI"}
+        )
+        if invalid_backends:
+            raise ValueError(
+                "Legacy/unknown SEAMS partitions are disabled: "
+                + ",".join(invalid_backends)
+            )
+
+    @property
+    def rejected_edge_indices(self):
+        return tuple(rejection.edge_index for rejection in self.rejected_edges)
+
+    @property
+    def accepted_patch_voronoi_edge_indices(self):
+        return tuple(
+            sorted(
+                edge_index
+                for partition in self.backend_partitions
+                if partition.backend == "PATCH_VORONOI"
+                for edge_index in partition.edge_indices
+            )
+        )
+
+    @property
+    def accepted_rail_planar_edge_indices(self):
+        return tuple(
+            sorted(
+                edge_index
+                for partition in self.backend_partitions
+                if partition.backend == "RAIL_PLANAR"
+                for edge_index in partition.edge_indices
+            )
+        )
+
+    @property
+    def accepted_legacy_edge_indices(self):
+        """Compatibility view: production routing больше не принимает legacy."""
+
+        return ()
+
+    @property
+    def accounting_is_exact(self):
+        selected = set(self.selected_edge_indices)
+        rail = set(self.accepted_rail_planar_edge_indices)
+        patch = set(self.accepted_patch_voronoi_edge_indices)
+        rejected = set(self.rejected_edge_indices)
+        return (
+            not rail.intersection(patch)
+            and not rail.intersection(rejected)
+            and not patch.intersection(rejected)
+            and selected == rail.union(patch, rejected)
+        )
+
+    @property
+    def supports_live_corner_controls(self):
+        """A/M применимы только ко всему чистому Patch Voronoi scope."""
+
+        selected = set(self.selected_edge_indices)
+        accepted = set(self.accepted_patch_voronoi_edge_indices)
+        return bool(selected) and selected == accepted and not self.rejected_edges
 
     @property
     def backend_summary(self):
-        if not self.backend_partitions:
+        if (
+            not self.backend_partitions
+            and not self.rejected_edges
+            and not self.compile_failures
+            and not self.rail_geometry_failures
+        ):
             return ""
-        counts = {
-            "PATCH_VORONOI": [0, 0],
-            "LEGACY_NETWORK": [0, 0],
-        }
+        counts = {}
         for partition in self.backend_partitions:
-            bucket = counts.setdefault(partition.backend, [0, 0])
+            if partition.backend == "RAIL_PLANAR":
+                backend_label = "RAIL_PLANAR"
+            elif partition.backend == "PATCH_VORONOI":
+                backend_label = getattr(
+                    partition.compiled_plan, "backend_kind", "PLANAR"
+                )
+            else:
+                raise AssertionError(
+                    f"Unsupported strict SEAMS backend: {partition.backend}"
+                )
+            bucket = counts.setdefault(backend_label, [0, 0])
             bucket[0] += int(partition.topology_component_count)
             bucket[1] += len(partition.edge_indices)
-        patch_components, patch_edges = counts["PATCH_VORONOI"]
-        legacy_components, legacy_edges = counts["LEGACY_NETWORK"]
-        return (
-            f"Patch Voronoi:{patch_components}c/{patch_edges}e | "
-            f"Legacy:{legacy_components}c/{legacy_edges}e"
+        order = (
+            "RAIL_PLANAR",
+            "PLANAR",
+            "INTRINSIC_DEVELOPABLE",
+            "PLANAR+INTRINSIC_DEVELOPABLE",
         )
+        parts = [
+            f"{label}:{counts[label][0]}c/{counts[label][1]}e"
+            for label in order
+            if label in counts
+        ]
+        failure_counts = {}
+        for failure in self.compile_failures:
+            reason = str(getattr(failure, "reason", "UNKNOWN"))
+            failure_counts[reason] = failure_counts.get(reason, 0) + 1
+        if failure_counts:
+            parts.append(
+                "Unsupported["
+                + ",".join(
+                    f"{reason}:x{failure_counts[reason]}"
+                    for reason in sorted(failure_counts)
+                )
+                + "]"
+            )
+        rail_failure_counts = {}
+        for failure in self.rail_geometry_failures:
+            reason = str(getattr(failure, "reason", "UNKNOWN"))
+            rail_failure_counts[reason] = rail_failure_counts.get(reason, 0) + 1
+        if rail_failure_counts:
+            parts.append(
+                "RailUnsupported["
+                + ",".join(
+                    f"{reason}:x{rail_failure_counts[reason]}"
+                    for reason in sorted(rail_failure_counts)
+                )
+                + "]"
+            )
+        if self.rejected_edges:
+            rejected_reason_counts = {}
+            for rejection in self.rejected_edges:
+                reason = str(rejection.reason or "UNKNOWN")
+                rejected_reason_counts[reason] = (
+                    rejected_reason_counts.get(reason, 0) + 1
+                )
+            parts.append(
+                f"Failed:{len(self.rejected_edges)}e["
+                + ",".join(
+                    f"{reason}:x{rejected_reason_counts[reason]}"
+                    for reason in sorted(rejected_reason_counts)
+                )
+                + "]"
+            )
+        approximate_count = sum(
+            int(
+                getattr(
+                    partition.compiled_plan,
+                    "approximate_admit_count",
+                    0,
+                )
+            )
+            for partition in self.backend_partitions
+            if partition.backend == "PATCH_VORONOI"
+        )
+        if approximate_count:
+            parts.append(f"Approx:{approximate_count}c")
+        return " | ".join(parts)
+
+    @property
+    def terminal_routing_report(self):
+        return tuple(record.report_line for record in self.terminal_routing)
 
 
 class PatchVoronoiRuntimeError(RuntimeError):
@@ -263,6 +539,100 @@ class PatchVoronoiRuntimeError(RuntimeError):
             f"{len(self.edge_indices)} edge(s) at width={self.width:.6g} "
             f"preview={self.preview}: {self.reason}"
         )
+
+
+class RailPlanarRuntimeError(RuntimeError):
+    """Compiled rail-plan обязан материализоваться без runtime fallback."""
+
+    def __init__(self, edge_indices, width, preview, reason):
+        self.edge_indices = tuple(int(index) for index in edge_indices)
+        self.width = float(width)
+        self.preview = bool(preview)
+        self.reason = str(reason)
+        super().__init__(
+            "PLANAR rail runtime failed for "
+            f"{len(self.edge_indices)} edge(s) at width={self.width:.6g} "
+            f"preview={self.preview}: {self.reason}"
+        )
+
+
+class StrictSeamRuntimeError(RuntimeError):
+    """Manual/automatic SEAMS не имеет права материализовать legacy."""
+
+    def __init__(self, edge_indices, reason):
+        self.edge_indices = tuple(
+            sorted({int(index) for index in edge_indices or ()})
+        )
+        self.reason = str(reason)
+        shown_edges = ",".join(str(index) for index in self.edge_indices[:12])
+        if len(self.edge_indices) > 12:
+            shown_edges += ",..."
+        super().__init__(
+            "Strict SEAMS runtime failed for "
+            f"{len(self.edge_indices)} edge(s)"
+            + (f" [{shown_edges}]" if shown_edges else "")
+            + f": {self.reason}"
+        )
+
+
+@dataclass(frozen=True)
+class DecalMaterializationResult:
+    """Полный успешный результат одной network-face partition."""
+
+    backend: str
+    edge_indices: tuple[int, ...]
+    source_face_count: int
+    created_face_count: int
+    created_vertex_count: int
+    policy_counts: tuple[tuple[str, int], ...] = ()
+    evaluation_ms: float = 0.0
+
+
+class DecalMaterializationError(RuntimeError):
+    """Fail-fast отказ network face до публикации temporary BMesh."""
+
+    def __init__(
+        self,
+        *,
+        backend,
+        edge_indices,
+        face_index,
+        reason,
+        vertex_count,
+        repeated_keys=(),
+        cycle_keys=(),
+        cycle_positions=(),
+        repeated_occurrences=(),
+        component_kind="",
+        component_side="",
+    ):
+        self.backend = str(backend or "UNKNOWN")
+        self.edge_indices = tuple(
+            sorted({int(index) for index in edge_indices or ()})
+        )
+        self.face_index = int(face_index)
+        self.reason = str(reason)
+        self.vertex_count = int(vertex_count)
+        self.repeated_keys = tuple(repeated_keys)
+        self.cycle_keys = tuple(cycle_keys)
+        self.cycle_positions = tuple(cycle_positions)
+        self.repeated_occurrences = tuple(repeated_occurrences)
+        self.component_kind = str(component_kind or "")
+        self.component_side = str(component_side or "")
+        details = (
+            f"backend={self.backend} edges={self.edge_indices} "
+            f"face={self.face_index} verts={self.vertex_count} "
+            f"component={self.component_kind}/{self.component_side or '-'} "
+            f"reason={self.reason}"
+        )
+        if self.repeated_keys:
+            details += f" repeated_keys={self.repeated_keys!r}"
+        if self.repeated_occurrences:
+            details += (
+                f" repeated_occurrences={self.repeated_occurrences!r}"
+                f" cycle={tuple(zip(self.cycle_keys, self.cycle_positions))!r}"
+            )
+        super().__init__(f"Decal materialization failed: {details}")
 
 
 def _join_ribbon_runs(first, second):
@@ -318,7 +688,7 @@ def _edge_key(vert_a: int, vert_b: int) -> tuple[int, int]:
 
 
 def _chain_segment_surface_frame(node, chain, segment_index):
-    """Local owner normal/up for one boundary segment, with legacy fallback."""
+    """Local owner normal/up с запасной patch-normal старых graph данных."""
 
     normal = node.normal.copy()
     if segment_index < len(chain.side_face_normals):
@@ -777,7 +1147,7 @@ def _manual_edge_pair_convexity(points, normal_a, normal_b):
 
 
 def _collect_manual_edge_decals(graph: PatchGraph, edge_indices):
-    """Selected physical edges as continuous analysis-owned corner runs."""
+    """Selected physical edges as runs с полным per-edge accounting."""
 
     selected_edges = {int(edge_index) for edge_index in edge_indices or ()}
     uses_by_edge = {edge_index: [] for edge_index in selected_edges}
@@ -818,9 +1188,11 @@ def _collect_manual_edge_decals(graph: PatchGraph, edge_indices):
 
     paired_segments = []
     boundary_uses = {}
+    accepted_edges = set()
+    rejected_edges = []
     for edge_index in sorted(selected_edges):
         uses = sorted(uses_by_edge.get(edge_index, ()), key=lambda use: use[0])
-        if len(uses) >= 2:
+        if len(uses) == 2:
             _ref_a, vert_indices, points, normal_a = uses[0]
             _ref_b, _other_verts, _other_points, normal_b = uses[1]
             paired_segments.append(
@@ -837,14 +1209,43 @@ def _collect_manual_edge_decals(graph: PatchGraph, edge_indices):
                     segment_edge_indices=[edge_index],
                 )
             )
+            accepted_edges.add(edge_index)
         elif len(uses) == 1:
             ref, vert_indices, points, normal = uses[0]
             boundary_uses.setdefault(ref[:3], []).append(
                 (ref[3], edge_index, vert_indices, points, normal)
             )
-    return (
-        _stitch_corner_runs(paired_segments),
-        _group_boundary_runs(boundary_uses),
+            accepted_edges.add(edge_index)
+        else:
+            reason = (
+                "NO_BOUNDARY_CHAIN_USE"
+                if not uses
+                else "NON_MANIFOLD_EDGE_USE"
+            )
+            rejected_edges.append(
+                ManualSeamEdgeRejection(
+                    edge_index=edge_index,
+                    reason=reason,
+                    use_count=len(uses),
+                    use_refs=tuple(use[0] for use in uses),
+                )
+            )
+    return _ManualEdgeDecalCollection(
+        corner_runs=tuple(_stitch_corner_runs(paired_segments)),
+        boundary_runs=tuple(_group_boundary_runs(boundary_uses)),
+        accepted_edge_indices=tuple(sorted(accepted_edges)),
+        rejected_edges=tuple(
+            sorted(
+                {
+                    int(rejection.edge_index): rejection
+                    for rejection in rejected_edges
+                }.values(),
+                key=lambda rejection: (
+                    int(rejection.edge_index),
+                    str(rejection.reason),
+                ),
+            )
+        ),
     )
 
 
@@ -898,13 +1299,102 @@ def _manual_seam_edge_components(runs, selected_edge_indices):
     return tuple(components)
 
 
+def _manual_terminal_routing(graph, rail_plan, backend_partitions):
+    """RM9: публикует per-component terminal choice из rail IR."""
+
+    if rail_plan is None or not all(
+        hasattr(rail_plan, name)
+        for name in ("edges", "routes", "terminal_uses")
+    ):
+        return ()
+    edge_by_id = {edge.edge_id: edge for edge in rail_plan.edges}
+    route_by_id = {route.route_id: route for route in rail_plan.routes}
+    component_records = []
+    for partition in backend_partitions:
+        components = _manual_seam_edge_components(
+            partition.corner_runs + partition.boundary_runs,
+            partition.edge_indices,
+        )
+        backend_kind = (
+            "RAIL_PLANAR"
+            if partition.backend == "RAIL_PLANAR"
+            else str(
+                getattr(partition.compiled_plan, "backend_kind", "PLANAR")
+            )
+        )
+        for component in components:
+            component_records.append(
+                (component[0], component, partition.backend, backend_kind)
+            )
+    component_records.sort(key=lambda item: (item[0], item[1]))
+
+    result = []
+    for component_index, (
+        _root_edge,
+        component,
+        backend,
+        backend_kind,
+    ) in enumerate(component_records):
+        component_edges = set(component)
+        for use in rail_plan.terminal_uses:
+            if use.spine_edge_id not in component_edges:
+                continue
+            choice = "PERP"
+            edge_ids = ()
+            patch_ids = tuple(
+                sorted(
+                    {
+                        int(graph.face_to_patch[face_id])
+                        for face_id in use.source_face_ids
+                        if face_id in getattr(graph, "face_to_patch", {})
+                    }
+                )
+            )
+            patch_id = patch_ids[0] if len(patch_ids) == 1 else -1
+            if (
+                use.kind == RailTerminalKind.ROUTE
+                and use.route_edge_id is not None
+            ):
+                guide = edge_by_id[use.route_edge_id]
+                if guide.is_pchain:
+                    choice = "PCHAIN"
+                    route = route_by_id.get(use.route_id)
+                    route_edges = (
+                        tuple(segment.edge_id for segment in route.segments)
+                        if route is not None
+                        else ()
+                    )
+                    edge_ids = tuple(
+                        dict.fromkeys((use.route_edge_id,) + route_edges)
+                    )
+                else:
+                    choice = "FOLD"
+                    edge_ids = (use.route_edge_id,)
+            result.append(
+                ManualSeamTerminalRouting(
+                    component_index=component_index,
+                    patch_id=patch_id,
+                    spine_vertex_id=int(use.spine_vertex_id),
+                    spine_edge_id=int(use.spine_edge_id),
+                    source_face_ids=tuple(use.source_face_ids),
+                    backend=str(backend),
+                    backend_kind=backend_kind,
+                    choice=choice,
+                    edge_ids=edge_ids,
+                    plan_kind=use.kind.value,
+                    route_id=use.route_id,
+                )
+            )
+    return tuple(sorted(result))
+
+
 def _group_boundary_runs(boundary_uses):
     """Односторонние boundary-runs по последовательным сегментам одной chain.
 
     Wing задаётся chain boundary-ориентацией (материал слева, n × t),
     поэтому runs строятся строго в порядке обхода chain и не реверсируются
     generic-ститчером. Сторона A пустая (нулевые нормали) — признак
-    односторонней ветви для decal_network.
+    односторонней ветви для compiled decal backend.
     """
 
     runs = []
@@ -1058,10 +1548,27 @@ def _build_trim_strip(bm, run, settings, is_top, uv_rect):
             continue
         for loop, uv in zip(face.loops, quad_uvs):
             loop[uv_layer].uv = uv
+def _corner_wing_directions(
+    direction,
+    normal_a,
+    normal_b,
+    dihedral_convexity=0.0,
+):
+    """Направления крыльев CORNERS вдоль обеих owner-поверхностей."""
 
+    wing_dir_a = direction.cross(normal_a)
+    wing_dir_b = direction.cross(normal_b)
+    if wing_dir_a.length_squared < 1e-8 or wing_dir_b.length_squared < 1e-8:
+        return None
 
-# `_corner_wing_directions` перенесена в decal_network.py (общая для
-# legacy miter pipeline и network backend) и реэкспортируется отсюда.
+    wing_dir_a = wing_dir_a.normalized()
+    wing_dir_b = wing_dir_b.normalized()
+    is_concave = dihedral_convexity < -0.01
+    if (wing_dir_a.dot(normal_b) < 0.0) == is_concave:
+        wing_dir_a = wing_dir_a * -1.0
+    if (wing_dir_b.dot(normal_a) < 0.0) == is_concave:
+        wing_dir_b = wing_dir_b * -1.0
+    return wing_dir_a, wing_dir_b
 
 
 def _corner_station_segment_indices(run, point_index):
@@ -1929,7 +2436,147 @@ def _build_seam_strip(bm, points, normal, settings, uv_rect, closed=False):
         face.loops[3][uv_layer].uv = (u_max, v_start)
 
 
-def _materialize_network_faces(bm, network_faces, settings, uv_rect):
+def _materialization_error(
+    network_face,
+    face_index,
+    backend,
+    edge_indices,
+    reason,
+    repeated_keys=(),
+):
+    try:
+        vertex_count = len(getattr(network_face, "vert_keys", ()))
+    except TypeError:
+        vertex_count = -1
+    raw_cycle_keys = getattr(network_face, "vert_keys", ())
+    try:
+        cycle_keys = tuple(raw_cycle_keys)
+    except TypeError:
+        cycle_keys = (repr(raw_cycle_keys),)
+    raw_cycle_positions = getattr(network_face, "positions", ())
+    try:
+        raw_cycle_positions = tuple(raw_cycle_positions)
+    except TypeError:
+        cycle_positions = (repr(raw_cycle_positions),)
+    else:
+        cycle_positions = []
+        for position in raw_cycle_positions:
+            try:
+                cycle_positions.append(
+                    tuple(float(value) for value in position)
+                )
+            except (TypeError, ValueError):
+                # Диагностика не должна скрывать исходный hard fail, даже
+                # если повреждённая face несёт несерилизуемую позицию.
+                cycle_positions.append(repr(position))
+        cycle_positions = tuple(cycle_positions)
+    repeated_occurrences = []
+    cycle_count = len(cycle_keys)
+    for key in repeated_keys:
+        indices = tuple(
+            index
+            for index, candidate in enumerate(cycle_keys)
+            if candidate == key
+        )
+        adjacent_pairs = tuple(
+            (first, second)
+            for offset, first in enumerate(indices)
+            for second in indices[offset + 1 :]
+            if (second - first) % cycle_count in {1, cycle_count - 1}
+        )
+        repeated_occurrences.append((key, indices, adjacent_pairs))
+    return DecalMaterializationError(
+        backend=backend,
+        edge_indices=edge_indices,
+        face_index=face_index,
+        reason=reason,
+        vertex_count=vertex_count,
+        repeated_keys=repeated_keys,
+        cycle_keys=cycle_keys,
+        cycle_positions=cycle_positions,
+        repeated_occurrences=repeated_occurrences,
+        component_kind=getattr(network_face, "component_kind", ""),
+        component_side=getattr(network_face, "component_side", ""),
+    )
+
+
+def _validate_network_faces_for_materialization(
+    network_faces, backend, edge_indices
+):
+    """Проверяет всю partition до первой записи в temporary BMesh."""
+
+    for face_index, network_face in enumerate(network_faces):
+        try:
+            lengths = tuple(
+                len(getattr(network_face, field, ()))
+                for field in (
+                    "vert_keys",
+                    "positions",
+                    "u_fracs",
+                    "v_lengths",
+                )
+            )
+        except TypeError as exc:
+            raise _materialization_error(
+                network_face,
+                face_index,
+                backend,
+                edge_indices,
+                f"invalid loop arrays: {exc}",
+            ) from exc
+        if len(set(lengths)) != 1:
+            raise _materialization_error(
+                network_face,
+                face_index,
+                backend,
+                edge_indices,
+                f"loop data length mismatch {lengths}",
+            )
+        seen_keys = set()
+        repeated_keys = []
+        try:
+            for key in network_face.vert_keys:
+                if key in seen_keys and key not in repeated_keys:
+                    repeated_keys.append(key)
+                seen_keys.add(key)
+        except TypeError as exc:
+            raise _materialization_error(
+                network_face,
+                face_index,
+                backend,
+                edge_indices,
+                f"unhashable vertex key: {exc}",
+            ) from exc
+        if repeated_keys:
+            raise _materialization_error(
+                network_face,
+                face_index,
+                backend,
+                edge_indices,
+                "repeated vertex keys",
+                repeated_keys,
+            )
+        if lengths[0] < 3:
+            raise _materialization_error(
+                network_face,
+                face_index,
+                backend,
+                edge_indices,
+                "fewer than three vertices",
+            )
+
+
+def _materialize_network_faces(
+    bm,
+    network_faces,
+    settings,
+    uv_rect,
+    *,
+    backend="UNKNOWN",
+    edge_indices=(),
+    evaluator_policy_counts=None,
+    evaluation_ms=0.0,
+):
     """Материализует faces decal-сети в bmesh с shared вершинами по ключам.
 
     Ключи ('sv', vert) сшивают spine-станции между крыльями/поверхностями и
@@ -1937,6 +2584,19 @@ def _materialize_network_faces(bm, network_faces, settings, uv_rect):
     внутри поверхности, остаточные совпадения сваривает финальный weld.
     """
 
+    if backend not in {"RAIL_PLANAR", "PATCH_VORONOI"}:
+        raise StrictSeamRuntimeError(
+            edge_indices,
+            (
+                "LEGACY_NETWORK_MATERIALIZATION_DISABLED"
+                if backend == "LEGACY_NETWORK"
+                else f"UNSUPPORTED_MATERIALIZATION_BACKEND:{backend}"
+            ),
+        )
+    network_faces = tuple(network_faces)
+    _validate_network_faces_for_materialization(
+        network_faces, backend, edge_indices
+    )
     uv_layer = bm.loops.layers.uv.verify()
     u_min, _v_min, u_max, _v_max = uv_rect
     u_mid = (u_min + u_max) / 2.0
@@ -1944,11 +2604,12 @@ def _materialize_network_faces(bm, network_faces, settings, uv_rect):
     scale = settings.uv_length_scale
     verts_by_key = {}
     created = 0
+    materialized_policy_counts = (
+        {} if evaluator_policy_counts is None else None
+    )
 
-    dropped = 0
-    for network_face in network_faces:
+    for face_index, network_face in enumerate(network_faces):
         loop_data = []
-        used_verts = set()
         for key, position, u_frac, v_length in zip(
             network_face.vert_keys,
             network_face.positions,
@@ -1959,34 +2620,53 @@ def _materialize_network_faces(bm, network_faces, settings, uv_rect):
             if vert is None:
                 vert = bm.verts.new(position)
                 verts_by_key[key] = vert
-            # Любой повтор вершины (не только соседний) делает loop
-            # невалидным для bmesh.faces.new — отбрасываем дубли заранее,
-            # чтобы валидная часть face материализовалась, а не исчезла.
-            if vert in used_verts:
-                continue
-            used_verts.add(vert)
             loop_data.append((vert, u_frac, v_length))
-        if len(loop_data) < 3:
-            dropped += 1
-            continue
         try:
             face = bm.faces.new(tuple(item[0] for item in loop_data))
-        except ValueError:
-            dropped += 1
-            continue
-        for loop, (_vert, u_frac, v_length) in zip(face.loops, loop_data):
-            loop[uv_layer].uv = (
-                u_mid + u_frac * u_radius,
-                v_length * scale,
-            )
+            for loop, (_vert, u_frac, v_length) in zip(
+                face.loops, loop_data
+            ):
+                loop[uv_layer].uv = (
+                    u_mid + u_frac * u_radius,
+                    v_length * scale,
+                )
+        except Exception as exc:
+            raise _materialization_error(
+                network_face,
+                face_index,
+                backend,
+                edge_indices,
+                f"{type(exc).__name__}: {exc}",
+            ) from exc
         created += 1
-    if dropped:
-        # Раньше исчезало молча; теперь потеря видна в консоли.
-        print(
-            f"[CFTUV][Decals] seam network: dropped {dropped} invalid "
-            f"face(s) of {len(network_faces)} during materialization"
+        component_kind = str(
+            getattr(network_face, "component_kind", "") or "SURFACE"
         )
-    return created
+        if materialized_policy_counts is not None:
+            materialized_policy_counts[component_kind] = (
+                materialized_policy_counts.get(component_kind, 0) + 1
+            )
+    policy_counts = (
+        tuple(sorted(materialized_policy_counts.items()))
+        if materialized_policy_counts is not None
+        else tuple(
+            sorted(
+                (str(kind), int(count))
+                for kind, count in evaluator_policy_counts
+            )
+        )
+    )
+    return DecalMaterializationResult(
+        backend=str(backend),
+        edge_indices=tuple(
+            sorted({int(index) for index in edge_indices or ()})
+        ),
+        source_face_count=len(network_faces),
+        created_face_count=created,
+        created_vertex_count=len(verts_by_key),
+        policy_counts=policy_counts,
+        evaluation_ms=float(evaluation_ms),
+    )
 
 
 def _build_seam_junctions(bm, specs, ports, settings, uv_rect):
@@ -2221,6 +2901,43 @@ def _decal_object_name(mode: str, source_obj) -> str:
     return f"Decal_{_MODE_OBJECT_SUFFIX[mode]}_{source_obj.name}"
 
 
+def _decal_preview_object_name(mode: str, source_obj) -> str:
+    return (
+        f"{_DECAL_PREVIEW_OBJECT_PREFIX}_"
+        f"{_MODE_OBJECT_SUFFIX[mode]}_{source_obj.name}"
+    )
+
+
+def _set_decal_preview_metadata(obj, source_obj):
+    """Помечает временный object для cleanup/export filters."""
+
+    try:
+        obj[_DECAL_PREVIEW_MARKER] = True
+        obj[_DECAL_PREVIEW_SOURCE] = source_obj.name
+    except TypeError:
+        # Lightweight unit-test doubles не реализуют Blender ID mapping.
+        setattr(obj, _DECAL_PREVIEW_MARKER, True)
+        setattr(obj, _DECAL_PREVIEW_SOURCE, source_obj.name)
+    obj.hide_render = True
+
+
+def _is_decal_preview_object(obj) -> bool:
+    getter = getattr(obj, "get", None)
+    if getter and getter(_DECAL_PREVIEW_MARKER, False):
+        return True
+    return bool(getattr(obj, _DECAL_PREVIEW_MARKER, False))
+
+
+def _copy_decal_mesh_metadata(source_mesh, target_mesh):
+    """Явно переносит material slots; object metadata сохраняет identity."""
+
+    source_materials = getattr(source_mesh, "materials", ())
+    target_materials = getattr(target_mesh, "materials", None)
+    if target_materials is not None:
+        for material in source_materials:
+            target_materials.append(material)
+
+
 def _bmesh_topology_payload(bm):
     """Каноническая face/loop signature, независимая от BMesh indices."""
 
@@ -2312,10 +3029,23 @@ def _record_preview_state(
         return
     preview_state.topology_signature = topology_signature
     preview_state.canonical_mesh_indices = canonical_mesh_indices
+    preview_state.object_name = obj.name
     preview_state.object_pointer = obj.as_pointer()
     preview_state.mesh_pointer = obj.data.as_pointer()
     if rebuilt:
         preview_state.topology_rebuilds += 1
+
+
+def _prepare_decal_bmesh(bm):
+    """Выполняет destructive cleanup только внутри temporary BMesh."""
+
+    bmesh.ops.remove_doubles(
+        bm, verts=list(bm.verts), dist=DECAL_WELD_DISTANCE
+    )
+    loose_verts = [vert for vert in bm.verts if not vert.link_faces]
+    if loose_verts:
+        bmesh.ops.delete(bm, geom=loose_verts, context="VERTS")
+    return bool(bm.faces)
 
 
 def _finalize_decal_object(
@@ -2325,16 +3055,26 @@ def _finalize_decal_object(
     scene,
     reuse_existing=False,
     preview_state=None,
+    prepared=False,
 ):
-    """Сваривает ленты и материализует точный или persistent preview mesh."""
+    """Материализует точный production или persistent preview mesh.
+
+    Production object никогда не удаляется: новый mesh сначала полностью
+    строится отдельно и только затем подменяет data-block существующего
+    object. Поэтому identity и object-level custom properties переживают
+    confirm, а старый mesh удаляется лишь после успешного swap.
+    """
 
     old_obj = bpy.data.objects.get(name)
+    if reuse_existing and old_obj is not None and not _is_decal_preview_object(
+        old_obj
+    ):
+        # Не присваиваем пользовательский object, случайно занявший internal
+        # name: Blender выдаст preview безопасный суффикс.
+        old_obj = None
     try:
-        bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=DECAL_WELD_DISTANCE)
-        loose_verts = [vert for vert in bm.verts if not vert.link_faces]
-        if loose_verts:
-            bmesh.ops.delete(bm, geom=loose_verts, context="VERTS")
-        if not bm.faces:
+        has_faces = bool(bm.faces) if prepared else _prepare_decal_bmesh(bm)
+        if not has_faces:
             bm.free()
             if (
                 reuse_existing
@@ -2398,27 +3138,49 @@ def _finalize_decal_object(
             )
             return old_obj
 
-        if old_obj is not None:
-            if old_obj.mode == "EDIT":
-                # Старая декаль в edit-сессии — удалять нельзя (живой
-                # BMEditMesh); новая получит суффикс имени от Blender.
-                print(f"[CFTUV][Decals] '{name}' is in Edit Mode — keeping it, new object will be suffixed")
-            else:
-                old_mesh = old_obj.data
-                bpy.data.objects.remove(old_obj, do_unlink=True)
-                if old_mesh is not None and old_mesh.users == 0:
-                    bpy.data.meshes.remove(old_mesh)
+        if old_obj is not None and old_obj.mode == "EDIT":
+            raise RuntimeError(
+                f"Cannot update decal '{name}' while it is in Edit Mode"
+            )
 
         mesh = bpy.data.meshes.new(name + "_Geo")
-        bm.to_mesh(mesh)
+        try:
+            bm.to_mesh(mesh)
+            mesh.update()
+        except Exception:
+            if mesh.users == 0:
+                bpy.data.meshes.remove(mesh)
+            raise
     except Exception:
         bm.free()
         raise
     bm.free()
 
-    obj = bpy.data.objects.new(name, mesh)
-    _decal_collection(scene).objects.link(obj)
-    obj.matrix_world = source_obj.matrix_world.copy()
+    if old_obj is not None:
+        old_mesh = old_obj.data
+        try:
+            _copy_decal_mesh_metadata(old_mesh, mesh)
+        except Exception:
+            if mesh.users == 0:
+                bpy.data.meshes.remove(mesh)
+            raise
+        old_obj.data = mesh
+        old_obj.matrix_world = source_obj.matrix_world.copy()
+        if old_mesh is not None and old_mesh.users == 0:
+            bpy.data.meshes.remove(old_mesh)
+        obj = old_obj
+    else:
+        obj = None
+        try:
+            obj = bpy.data.objects.new(name, mesh)
+            _decal_collection(scene).objects.link(obj)
+            obj.matrix_world = source_obj.matrix_world.copy()
+        except Exception:
+            if obj is not None:
+                bpy.data.objects.remove(obj, do_unlink=True)
+            if mesh.users == 0:
+                bpy.data.meshes.remove(mesh)
+            raise
     _record_preview_state(
         preview_state,
         obj,
@@ -2437,145 +3199,493 @@ def _closed_polyline(points, is_closed):
     return points
 
 
+def _rail_geometry_owner_face_ids(plan):
+    """Возвращает полный PLANAR footprint immutable rail-plan на max budget."""
+
+    owner_face_ids = {
+        int(cell.owner_face_id)
+        for channel in plan.channels
+        for cell in channel.cells
+    }
+    owner_face_ids.update(
+        int(partition.owner_face_id)
+        for partition in plan.corner_partitions
+        if partition.owner_face_id is not None
+    )
+    owner_face_ids.update(
+        int(cell.owner_face_id)
+        for cell in getattr(plan, "corner_cells", ())
+    )
+    return frozenset(owner_face_ids)
+
+
+def _rail_geometry_scope_has_face_conflicts(compiled_components):
+    """R1 не смешивает независимые rail-конкуренты на одной source-грани."""
+
+    footprints = [
+        _rail_geometry_owner_face_ids(compiled_plan)
+        for _component, compiled_plan in compiled_components
+    ]
+    for index, footprint in enumerate(footprints):
+        for other_footprint in footprints[index + 1 :]:
+            if footprint.intersection(other_footprint):
+                return True
+    return False
+
+
+def _compile_rail_geometry_components(
+    rail_plan,
+    topology_components,
+    settings,
+):
+    """Компилирует R1 plans без частичного routing side effect."""
+
+    compiled_components = []
+    failures = []
+    for component in topology_components:
+        geometry_attempt = compile_planar_rail_geometry_attempt(
+            rail_plan,
+            edge_indices=component,
+            apex_limit=settings.corner_apex_limit,
+            split_angle=settings.corner_acute_split_angle,
+            dynamic_corner_bands=settings.dynamic_corner_bands,
+            join_mode=settings.corner_join_mode,
+        )
+        if geometry_attempt.plan is None:
+            failures.extend(geometry_attempt.failures)
+            continue
+        compiled_components.append((component, geometry_attempt.plan))
+    return compiled_components, failures
+
+
+def _rail_geometry_required_trace_scale(compiled_components):
+    """Максимальный stable-A10 scale для сохранения modal headroom."""
+
+    scales = [1.0]
+    scales.extend(
+        float(scale)
+        for _component, plan in compiled_components
+        for _path_id, scale in plan.path_reach_scales
+    )
+    return max(scales)
+
+
+def _strict_backend_component_rejections(
+    components,
+    failures,
+    *,
+    default_reason="PATCH_VORONOI_STRICT_COMPILE_FAILED",
+):
+    """Переводит неподдержанный topology-component в явные failed edges."""
+
+    result = []
+    for component in components:
+        component_edges = {int(edge_index) for edge_index in component}
+        reasons = sorted(
+            {
+                str(getattr(failure, "reason", "UNKNOWN"))
+                for failure in failures
+                if component_edges.intersection(
+                    int(edge_index)
+                    for edge_index in (
+                        getattr(failure, "edge_indices", ()) or ()
+                    )
+                )
+            }
+        )
+        reason = "+".join(reasons) if reasons else str(default_reason)
+        result.extend(
+            ManualSeamEdgeRejection(
+                edge_index=edge_index,
+                reason=reason,
+            )
+            for edge_index in sorted(component_edges)
+        )
+    return tuple(result)
+
+
 def compile_manual_seam_decal_plan(
     graph: PatchGraph,
     settings: DecalSettings,
     selected_edge_indices,
+    *,
+    alpha_budget=None,
+    rail_mark_edge_indices=(),
 ):
     """Собирает selected edges/runs и статическую сеть один раз на invoke."""
 
-    corner_runs, boundary_runs = _collect_manual_edge_decals(
+    if alpha_budget is None:
+        alpha_budget = decal_compile_alpha_budget(settings)
+    alpha_budget = float(alpha_budget)
+    if not alpha_budget > 0.0:
+        raise ValueError("Decal compile alpha_budget must be positive")
+    selected_edges = tuple(
+        sorted({int(edge_index) for edge_index in selected_edge_indices or ()})
+    )
+    collection = _collect_manual_edge_decals(
         graph, selected_edge_indices
     )
-    network_plan = None
+    corner_runs, boundary_runs = collection
+    accepted_scope_edges = collection.accepted_edge_indices
+    rejected_edges = list(collection.rejected_edges)
     patch_voronoi_plan = None
     backend_partitions = []
     compile_failures = ()
-    if settings.seam_network and (corner_runs or boundary_runs):
-        selected_edges = tuple(
-            sorted(int(edge_index) for edge_index in selected_edge_indices)
-        )
-        topology_components = _manual_seam_edge_components(
-            corner_runs + boundary_runs, selected_edges
-        )
-        attempt = compile_patch_voronoi_attempt(
+    rail_plan = None
+    rail_compile_failures = ()
+    rail_geometry_failures = []
+    if accepted_scope_edges:
+        rail_attempt = compile_decal_rail_attempt(
             graph,
-            selected_edges,
-            settings.offset,
-            allow_partial=True,
+            accepted_scope_edges,
+            alpha_budget=alpha_budget,
+            rail_mark_edge_indices=rail_mark_edge_indices,
         )
-        compile_failures = attempt.failures
-        rejected_seed = set(attempt.rejected_edge_indices)
-        if attempt.plan is None and not rejected_seed:
-            rejected_seed.update(selected_edges)
+        rail_plan = rail_attempt.plan
+        rail_compile_failures = rail_attempt.failures
+    if corner_runs or boundary_runs:
+        topology_components = _manual_seam_edge_components(
+            corner_runs + boundary_runs, accepted_scope_edges
+        )
+        fallback_components = []
+        if rail_plan is None:
+            fallback_components = list(topology_components)
+        else:
+            compiled_components, geometry_failures = (
+                _compile_rail_geometry_components(
+                    rail_plan,
+                    topology_components,
+                    settings,
+                )
+            )
+            rail_geometry_failures.extend(geometry_failures)
 
-        legacy_components = [
-            component
-            for component in topology_components
-            if rejected_seed.intersection(component)
-        ]
-        accepted_components = [
-            component
-            for component in topology_components
-            if not rejected_seed.intersection(component)
-        ]
-        accepted_edges = tuple(
+            # До R2 Patch и rail не могут независимо доказывать отсутствие
+            # конкуренции. Поэтому R1 принимает весь scope только целиком:
+            # все компоненты PLANAR и их max-budget source-face footprints
+            # попарно не пересекаются. Иначе старый joint Patch backend
+            # сохраняет глобальную конкуренцию и single-cover.
+            all_components_compiled = (
+                len(compiled_components) == len(topology_components)
+            )
+            face_conflict = (
+                all_components_compiled
+                and _rail_geometry_scope_has_face_conflicts(compiled_components)
+            )
+            rail_scope_ready = all_components_compiled and not face_conflict
+
+            if rail_scope_ready:
+                # Stable A10 miter может требовать rail trace длиннее
+                # нейтральной ширины. Сохраняем исходный B4 headroom в
+                # эффективном (s, r)-домене одним compile-only retry;
+                # Patch budget при этом не меняется.
+                trace_scale = _rail_geometry_required_trace_scale(
+                    compiled_components
+                )
+                expanded_budget = (
+                    alpha_budget * trace_scale
+                    + DECAL_WELD_DISTANCE * 8.0
+                    if trace_scale > 1.0
+                    else float(rail_plan.alpha_budget)
+                )
+                if expanded_budget > float(rail_plan.alpha_budget):
+                    expanded_attempt = compile_decal_rail_attempt(
+                        graph,
+                        accepted_scope_edges,
+                        alpha_budget=expanded_budget,
+                        rail_mark_edge_indices=rail_mark_edge_indices,
+                    )
+                    if expanded_attempt.plan is None:
+                        rail_compile_failures = tuple(
+                            rail_compile_failures
+                        ) + tuple(expanded_attempt.failures)
+                        rail_geometry_failures.append(
+                            RailGeometryFailure(
+                                reason=(
+                                    "RAIL_GEOMETRY_SUPPORT_RECOMPILE_FAILED"
+                                ),
+                                edge_indices=tuple(accepted_scope_edges),
+                                details=(("trace_scale", trace_scale),),
+                            )
+                        )
+                        rail_scope_ready = False
+                    else:
+                        expanded_components, expanded_failures = (
+                            _compile_rail_geometry_components(
+                                expanded_attempt.plan,
+                                topology_components,
+                                settings,
+                            )
+                        )
+                        rail_geometry_failures.extend(expanded_failures)
+                        expanded_complete = (
+                            len(expanded_components)
+                            == len(topology_components)
+                        )
+                        expanded_conflict = (
+                            expanded_complete
+                            and _rail_geometry_scope_has_face_conflicts(
+                                expanded_components
+                            )
+                        )
+                        effective_budget_ok = (
+                            expanded_complete
+                            and all(
+                                float(plan.alpha_budget) >= alpha_budget
+                                for _component, plan in expanded_components
+                            )
+                        )
+                        if (
+                            expanded_complete
+                            and not expanded_conflict
+                            and effective_budget_ok
+                        ):
+                            rail_plan = expanded_attempt.plan
+                            rail_compile_failures = tuple(
+                                expanded_attempt.failures
+                            )
+                            compiled_components = expanded_components
+                        else:
+                            rail_scope_ready = False
+                            if expanded_conflict:
+                                face_conflict = True
+                            elif expanded_complete and not effective_budget_ok:
+                                rail_geometry_failures.append(
+                                    RailGeometryFailure(
+                                        reason=(
+                                            "RAIL_GEOMETRY_DOMAIN_BUDGET_"
+                                            "UNAVAILABLE"
+                                        ),
+                                        edge_indices=tuple(
+                                            accepted_scope_edges
+                                        ),
+                                        details=(
+                                            (
+                                                "required_alpha_budget",
+                                                alpha_budget,
+                                            ),
+                                        ),
+                                    )
+                                )
+
+            if not rail_scope_ready:
+                fallback_components = list(topology_components)
+                if face_conflict:
+                    rail_geometry_failures.append(
+                        RailGeometryFailure(
+                            reason="RAIL_GEOMETRY_COMPETITION_PENDING",
+                            edge_indices=tuple(
+                                edge_index
+                                for component in topology_components
+                                for edge_index in component
+                            ),
+                            details=(("component_count", len(topology_components)),),
+                        )
+                    )
+            else:
+                for component, compiled_plan in compiled_components:
+                    component_corner_runs, component_boundary_runs = (
+                        _collect_manual_edge_decals(graph, component)
+                    )
+                    backend_partitions.append(
+                        _ManualSeamBackendPartition(
+                            backend="RAIL_PLANAR",
+                            edge_indices=tuple(component),
+                            topology_component_count=1,
+                            corner_runs=tuple(component_corner_runs),
+                            boundary_runs=tuple(component_boundary_runs),
+                            compiled_plan=compiled_plan,
+                        )
+                    )
+
+        fallback_scope_edges = tuple(
             sorted(
                 edge_index
-                for component in accepted_components
+                for component in fallback_components
                 for edge_index in component
             )
         )
-
-        if not legacy_components and attempt.plan is not None:
-            patch_voronoi_plan = attempt.plan
-        elif accepted_edges:
-            # Partial probe мог скомпилировать surface, содержащую sites из
-            # rejected topology component. Повторный strict compile строит
-            # единый competition domain уже только для clean components.
-            patch_voronoi_plan = compile_patch_voronoi_plan(
-                graph, accepted_edges, settings.offset
-            )
-            if patch_voronoi_plan is None:
-                # Не допускаем частичной материализации сомнительного plan:
-                # этот редкий случай сохраняет прежний безопасный fallback.
-                legacy_components = list(topology_components)
-                accepted_components = []
-                accepted_edges = ()
-
-        if patch_voronoi_plan is not None and accepted_edges:
-            accepted_corner_runs, accepted_boundary_runs = (
-                _collect_manual_edge_decals(graph, accepted_edges)
-            )
-            backend_partitions.append(
-                _ManualSeamBackendPartition(
-                    backend="PATCH_VORONOI",
-                    edge_indices=accepted_edges,
-                    topology_component_count=len(accepted_components),
-                    corner_runs=tuple(accepted_corner_runs),
-                    boundary_runs=tuple(accepted_boundary_runs),
-                    compiled_plan=patch_voronoi_plan,
-                )
-            )
-
-        for component in legacy_components:
-            component_corner_runs, component_boundary_runs = (
-                _collect_manual_edge_decals(graph, component)
-            )
-            component_network_plan = compile_seam_network_plan(
-                component_corner_runs + component_boundary_runs,
+        failed_components = []
+        accepted_components = []
+        accepted_edges = ()
+        if fallback_scope_edges:
+            attempt = compile_patch_voronoi_attempt(
+                graph,
+                fallback_scope_edges,
                 settings.offset,
+                allow_partial=True,
+                alpha_budget=alpha_budget,
+                distortion_budget=settings.chart_distortion_budget,
             )
-            backend_partitions.append(
-                _ManualSeamBackendPartition(
-                    backend="LEGACY_NETWORK",
-                    edge_indices=tuple(component),
-                    topology_component_count=1,
-                    corner_runs=tuple(component_corner_runs),
-                    boundary_runs=tuple(component_boundary_runs),
-                    compiled_plan=component_network_plan,
+            compile_failures = attempt.failures
+            rejected_seed = set(attempt.rejected_edge_indices)
+            if attempt.plan is None and not rejected_seed:
+                rejected_seed.update(fallback_scope_edges)
+
+            failed_components = [
+                component
+                for component in fallback_components
+                if rejected_seed.intersection(component)
+            ]
+            accepted_components = [
+                component
+                for component in fallback_components
+                if not rejected_seed.intersection(component)
+            ]
+            accepted_edges = tuple(
+                sorted(
+                    edge_index
+                    for component in accepted_components
+                    for edge_index in component
                 )
             )
 
-        if (
-            len(backend_partitions) == 1
-            and backend_partitions[0].backend == "LEGACY_NETWORK"
-        ):
-            network_plan = backend_partitions[0].compiled_plan
+            if not failed_components and attempt.plan is not None:
+                patch_voronoi_plan = attempt.plan
+            elif accepted_edges:
+                # Partial probe мог скомпилировать surface, содержащую sites
+                # из rejected topology component. Strict compile строит
+                # competition domain только для оставшихся компонентов.
+                patch_voronoi_plan = compile_patch_voronoi_plan(
+                    graph,
+                    accepted_edges,
+                    settings.offset,
+                    alpha_budget=alpha_budget,
+                    distortion_budget=settings.chart_distortion_budget,
+                )
+                if patch_voronoi_plan is None:
+                    # Компонентная атомарность важнее частичного результата:
+                    # без strict plan весь современный scope явно провален.
+                    failed_components = list(fallback_components)
+                    accepted_components = []
+                    accepted_edges = ()
+
+            if patch_voronoi_plan is not None and accepted_edges:
+                accepted_corner_runs, accepted_boundary_runs = (
+                    _collect_manual_edge_decals(graph, accepted_edges)
+                )
+                backend_partitions.append(
+                    _ManualSeamBackendPartition(
+                        backend="PATCH_VORONOI",
+                        edge_indices=accepted_edges,
+                        topology_component_count=len(accepted_components),
+                        corner_runs=tuple(accepted_corner_runs),
+                        boundary_runs=tuple(accepted_boundary_runs),
+                        compiled_plan=patch_voronoi_plan,
+                    )
+                )
+
+        rejected_edges.extend(
+            _strict_backend_component_rejections(
+                failed_components,
+                compile_failures,
+            )
+        )
+    terminal_routing = _manual_terminal_routing(
+        graph, rail_plan, tuple(backend_partitions)
+    )
     plan = ManualSeamDecalPlan(
         corner_runs=tuple(corner_runs),
         boundary_runs=tuple(boundary_runs),
-        network_plan=network_plan,
         patch_voronoi_plan=patch_voronoi_plan,
         backend_partitions=tuple(backend_partitions),
         compile_failures=tuple(compile_failures),
+        selected_edge_indices=selected_edges,
+        rejected_edges=tuple(rejected_edges),
+        rail_plan=rail_plan,
+        rail_compile_failures=tuple(rail_compile_failures),
+        rail_geometry_failures=tuple(rail_geometry_failures),
+        terminal_routing=terminal_routing,
     )
+    if not plan.accounting_is_exact:
+        raise AssertionError(
+            "Manual seam edge accounting invariant violated: "
+            "selected != rail_planar + patch_voronoi + failed"
+        )
+    if plan.accepted_rail_planar_edge_indices and (
+        plan.accepted_patch_voronoi_edge_indices
+    ):
+        raise AssertionError(
+            "R1 routing invariant violated: RAIL_PLANAR cannot mix with "
+            "Patch before rail competition is implemented"
+        )
     if plan.backend_summary:
         print(f"[CFTUV][Decals] backend routing: {plan.backend_summary}")
+    for line in plan.terminal_routing_report:
+        print(f"[CFTUV][Decals] terminal routing: {line}")
     if plan.compile_failures:
         details = ", ".join(
             f"patch {failure.patch_id}:{failure.reason}"
             for failure in plan.compile_failures
         )
-        print(f"[CFTUV][Decals] partial fallback reasons: {details}")
+        print(f"[CFTUV][Decals] unsupported surface reasons: {details}")
+    if plan.rail_compile_failures:
+        details = ", ".join(
+            str(failure.reason) for failure in plan.rail_compile_failures
+        )
+        print(f"[CFTUV][Decals] rail materialization unavailable: {details}")
+    if plan.rejected_edges:
+        details = ", ".join(
+            f"{rejection.edge_index}:{rejection.reason}"
+            f"(uses={rejection.use_count})"
+            for rejection in plan.rejected_edges
+        )
+        print(f"[CFTUV][Decals] failed selected edges: {details}")
     return plan
 
 
 def _evaluate_manual_backend_partition(
-    partition, settings, width, preview
+    partition,
+    settings,
+    width,
+    preview,
+    *,
+    rail_plan=None,
+    terminal_routing=(),
 ):
     """Вычисляет одну routing-группу без BMesh side effects."""
 
+    started = perf_counter()
+    if partition.backend == "RAIL_PLANAR":
+        try:
+            faces = evaluate_planar_rail_geometry_plan(
+                partition.compiled_plan,
+                width,
+                offset=settings.offset,
+                preview=preview,
+            )
+        except Exception as exc:
+            raise RailPlanarRuntimeError(
+                partition.edge_indices,
+                width,
+                preview,
+                repr(exc),
+            ) from exc
+        if not faces:
+            raise RailPlanarRuntimeError(
+                partition.edge_indices,
+                width,
+                preview,
+                "evaluation produced no faces",
+            )
+        return _ManualBackendEvaluation(
+            faces=tuple(faces),
+            evaluation_ms=(perf_counter() - started) * 1000.0,
+        )
+
     if partition.backend == "PATCH_VORONOI":
+        diagnostics = PatchVoronoiDiagnostics()
         try:
             faces = evaluate_patch_voronoi_plan(
                 partition.compiled_plan,
                 width,
                 preview=preview,
-                corner_settings=CornerRuntimeSettings(
-                    acute_split_angle=settings.corner_acute_split_angle,
-                    miter_limit=settings.corner_miter_limit,
+                corner_settings=corner_runtime_settings_from_decal_settings(
+                    settings
                 ),
+                diagnostics=diagnostics,
+                terminal_routing=terminal_routing,
+                rail_plan=rail_plan,
             )
         except Exception as exc:
             raise PatchVoronoiRuntimeError(
@@ -2591,27 +3701,68 @@ def _evaluate_manual_backend_partition(
                 preview,
                 "evaluation produced no faces",
             )
-        return faces
+        return _ManualBackendEvaluation(
+            faces=tuple(faces),
+            evaluation_ms=(perf_counter() - started) * 1000.0,
+            policy_counts=tuple(
+                sorted(
+                    {
+                        **diagnostics.runtime_policy_counts,
+                        **diagnostics.cap_keep_counts,
+                    }.items()
+                )
+            ),
+        )
 
-    runs = list(partition.corner_runs + partition.boundary_runs)
-    try:
-        faces = evaluate_seam_network_plan(
-            partition.compiled_plan,
+    raise StrictSeamRuntimeError(
+        partition.edge_indices,
+        f"UNSUPPORTED_BACKEND:{partition.backend}",
+    )
+
+
+@dataclass(frozen=True)
+class ManualSeamFacesResult:
+    """Faces-only результат для display adapters (GPU overlay, F3)."""
+
+    faces: tuple
+    policy_counts: tuple = ()
+    evaluation_ms: float = 0.0
+
+
+def evaluate_manual_seam_faces(
+    source_obj, settings, decal_plan, preview=True
+):
+    """Display-adapter путь: evaluated faces БЕЗ BMesh side effects.
+
+    Использует тот же transaction-порядок и те же evaluator'ы, что
+    mesh-путь (`_fill_manual_chain_decals`): parity by construction.
+    Исключения evaluator'а (включая DOMAIN_BUDGET_EXCEEDED) пробрасываются
+    вызывающему — modal обрабатывает их существующей A6-семантикой
+    RETAINED_LAST_VALID. Функция аддитивна и не трогает mesh-путь.
+    """
+
+    started = perf_counter()
+    local_settings = local_decal_settings_for_source(settings, source_obj)
+    width = local_settings.width_seam
+    faces = []
+    policy_totals = {}
+    for partition in decal_plan.backend_partitions:
+        evaluation = _evaluate_manual_backend_partition(
+            partition,
+            local_settings,
             width,
-            preview=preview,
+            preview,
+            rail_plan=decal_plan.rail_plan,
+            terminal_routing=decal_plan.terminal_routing,
         )
-        if faces:
-            return faces
-    except Exception as exc:
-        print(
-            "[CFTUV][Decals] Legacy seam partition failed "
-            f"({exc!r}); rebuilding {len(partition.edge_indices)} edge(s)"
-        )
-    return build_seam_network_faces(
-        runs,
-        settings.offset,
-        width,
-        preview=preview,
+        faces.extend(evaluation.faces)
+        if partition.backend == "PATCH_VORONOI":
+            for kind, count in evaluation.policy_counts:
+                policy_totals[kind] = policy_totals.get(kind, 0) + count
+    return ManualSeamFacesResult(
+        faces=tuple(faces),
+        policy_counts=tuple(sorted(policy_totals.items())),
+        evaluation_ms=(perf_counter() - started) * 1000.0,
     )
 
 
@@ -2628,6 +3779,8 @@ def _fill_manual_chain_decals(
     """Manual edge scope: exact physical edges with local owner-side frames."""
 
     is_seam_mode = mode == "SEAMS"
+    if is_seam_mode and selected_edge_indices is None:
+        raise StrictSeamRuntimeError((), "SEAMS_REQUIRE_SELECTED_EDGE_PLAN")
     width = settings.width_seam if is_seam_mode else settings.width_corner
     uv_rect = DECAL_UV_RECT_SEAM if is_seam_mode else DECAL_UV_RECT_CORNER
 
@@ -2639,140 +3792,121 @@ def _fill_manual_chain_decals(
         else:
             corner_runs = decal_plan.corner_runs
             boundary_runs = decal_plan.boundary_runs
-        if (
-            is_seam_mode
-            and (corner_runs or boundary_runs)
-            and settings.seam_network
-        ):
-            if decal_plan is not None and decal_plan.backend_partitions:
-                # Compiled Patch Voronoi partitions are strict: сначала
-                # вычисляем весь transaction, затем пишем BMesh. Runtime
-                # failure не должен незаметно менять topology на legacy.
-                face_batches = [
+        if is_seam_mode:
+            if decal_plan is None:
+                raise StrictSeamRuntimeError(
+                    selected_edge_indices,
+                    "SEAMS_REQUIRE_COMPILED_PLAN",
+                )
+            if type(decal_plan) is not ManualSeamDecalPlan:
+                raise StrictSeamRuntimeError(
+                    selected_edge_indices,
+                    "SEAMS_PLAN_TYPE_INVALID",
+                )
+            runtime_scope = tuple(
+                sorted({int(index) for index in selected_edge_indices})
+            )
+            raw_selected = tuple(
+                int(index) for index in decal_plan.selected_edge_indices
+            )
+            raw_accepted = tuple(
+                int(edge_index)
+                for partition in decal_plan.backend_partitions
+                for edge_index in partition.edge_indices
+            )
+            raw_rejected = tuple(
+                int(rejection.edge_index)
+                for rejection in decal_plan.rejected_edges
+            )
+            compiled_scope = tuple(sorted(set(raw_selected)))
+            accepted_scope = set(raw_accepted)
+            rejected_scope = set(raw_rejected)
+            structurally_exact = (
+                decal_plan.network_plan is None
+                and not decal_plan.direct_legacy_edge_indices
+                and all(
+                    type(partition) is _ManualSeamBackendPartition
+                    and partition.backend
+                    in {"RAIL_PLANAR", "PATCH_VORONOI"}
+                    for partition in decal_plan.backend_partitions
+                )
+                and len(raw_selected) == len(compiled_scope)
+                and len(raw_accepted) == len(accepted_scope)
+                and len(raw_rejected) == len(rejected_scope)
+                and not accepted_scope.intersection(rejected_scope)
+                and set(compiled_scope)
+                == accepted_scope.union(rejected_scope)
+            )
+            if not structurally_exact:
+                raise StrictSeamRuntimeError(
+                    compiled_scope,
+                    "SEAMS_PLAN_ACCOUNTING_MISMATCH",
+                )
+            if runtime_scope != compiled_scope:
+                scope_delta = tuple(
+                    sorted(set(runtime_scope).symmetric_difference(compiled_scope))
+                )
+                raise StrictSeamRuntimeError(
+                    scope_delta,
+                    "SEAMS_PLAN_SCOPE_MISMATCH:"
+                    f"runtime={runtime_scope},compiled={compiled_scope}",
+                )
+            if decal_plan.rejected_edges:
+                # SEAMS-транзакция атомарна: частично поддержанный scope не
+                # материализуется. Иначе щель выглядела бы как успешный
+                # результат, а неподдержанный компонент оставался бы скрыт.
+                raise StrictSeamRuntimeError(
+                    decal_plan.rejected_edge_indices,
+                    decal_plan.backend_summary
+                    or "UNSUPPORTED_SEAMS_COMPONENT",
+                )
+            if not decal_plan.backend_partitions:
+                raise StrictSeamRuntimeError(
+                    selected_edge_indices,
+                    decal_plan.backend_summary
+                    or "NO_SUPPORTED_SEAMS_BACKEND",
+                )
+            # Все современные partitions вычисляются до первой BMesh-записи.
+            # Ни compile-, ни runtime-отказ не может перейти в старую сеть.
+            face_batches = [
+                (
+                    partition,
                     _evaluate_manual_backend_partition(
                         partition,
                         settings,
                         width,
                         preview,
-                    )
-                    for partition in decal_plan.backend_partitions
-                ]
-                for partition_faces in face_batches:
+                        rail_plan=decal_plan.rail_plan,
+                        terminal_routing=decal_plan.terminal_routing,
+                    ),
+                )
+                for partition in decal_plan.backend_partitions
+            ]
+            materialization_results = []
+            for partition, evaluation in face_batches:
+                materialization_results.append(
                     _materialize_network_faces(
-                        bm, partition_faces, settings, uv_rect
-                    )
-                return
-
-            if (
-                decal_plan is not None
-                and decal_plan.patch_voronoi_plan is not None
-            ):
-                try:
-                    network_faces = evaluate_patch_voronoi_plan(
-                        decal_plan.patch_voronoi_plan,
-                        width,
-                        preview=preview,
-                        corner_settings=CornerRuntimeSettings(
-                            acute_split_angle=(
-                                settings.corner_acute_split_angle
-                            ),
-                            miter_limit=settings.corner_miter_limit,
-                        ),
-                    )
-                except Exception as exc:
-                    raise PatchVoronoiRuntimeError(
-                        selected_edge_indices,
-                        width,
-                        preview,
-                        repr(exc),
-                    ) from exc
-                if not network_faces:
-                    raise PatchVoronoiRuntimeError(
-                        selected_edge_indices,
-                        width,
-                        preview,
-                        "evaluation produced no faces",
-                    )
-                _materialize_network_faces(
-                    bm, network_faces, settings, uv_rect
-                )
-                return
-
-            network_faces = None
-            try:
-                # Boundary wings — полноправные односторонние сайты сети:
-                # divider с соседними seam chains возникает и без общей
-                # source-вершины, чисто из конкуренции расстояний.
-                if (
-                    decal_plan is not None
-                    and decal_plan.network_plan is not None
-                ):
-                    network_faces = evaluate_seam_network_plan(
-                        decal_plan.network_plan,
-                        width,
-                        preview=preview,
-                    )
-                else:
-                    network_faces = build_seam_network_faces(
-                        corner_runs + boundary_runs,
-                        settings.offset,
-                        width,
-                        preview=preview,
-                    )
-            except Exception as exc:  # непредвиденная геометрия — fallback
-                print(
-                    "[CFTUV][Decals] Seam network backend failed "
-                    f"({exc!r}); falling back to miter pipeline"
-                )
-            if network_faces:
-                _materialize_network_faces(bm, network_faces, settings, uv_rect)
-                return
-        junction_specs = {}
-        junction_cuts = {}
-        if is_seam_mode:
-            junction_specs, junction_cuts = _prepare_seam_junctions(
-                corner_runs, settings, width / 2.0
-            )
-        junction_ports = []
-        for run_index, run in enumerate(corner_runs):
-            working_run = run
-            if is_seam_mode:
-                working_run = _trim_run_for_junctions(
-                    run,
-                    start_cut=junction_cuts.get((run_index, True), 0.0),
-                    end_cut=junction_cuts.get((run_index, False), 0.0),
-                )
-            is_coplanar = all(
-                normal_a.dot(normal_b) > DECAL_COPLANAR_DOT
-                for normal_a, normal_b in zip(
-                    working_run.segment_normals_a,
-                    working_run.segment_normals_b,
-                )
-            )
-            if is_seam_mode and is_coplanar:
-                junction_ports.extend(
-                    _build_selected_seam_ribbon_run(
                         bm,
-                        working_run,
+                        evaluation.faces,
                         settings,
                         uv_rect,
+                        backend=partition.backend,
+                        edge_indices=partition.edge_indices,
+                        evaluator_policy_counts=(
+                            evaluation.policy_counts
+                            if partition.backend == "PATCH_VORONOI"
+                            else None
+                        ),
+                        evaluation_ms=evaluation.evaluation_ms,
                     )
                 )
-                continue
-            built_ports = _build_corner_ribbon_run(
-                bm, working_run, settings, uv_rect, width=width
+            return tuple(materialization_results)
+        # Ниже остаётся только manual CORNERS producer: SEAMS всегда
+        # завершился выше через строгий compiled backend либо явный отказ.
+        for run in corner_runs:
+            _build_corner_ribbon_run(
+                bm, run, settings, uv_rect, width=width
             )
-            if is_seam_mode and built_ports:
-                junction_ports.extend(built_ports)
-        if is_seam_mode and junction_specs:
-            _build_seam_junctions(
-                bm,
-                junction_specs,
-                junction_ports,
-                settings,
-                uv_rect,
-            )
-        # Legacy-паритет: посегментные boundary-крылья, как до сети.
         for run in boundary_runs:
             for index in range(len(run.points) - 1):
                 _build_boundary_wing_strip(
@@ -2791,16 +3925,6 @@ def _fill_manual_chain_decals(
     )
     for points, normal_a, normal_b, is_closed, convexity in corner_chains:
         spine_points = _dedupe_polyline(points)
-        if is_seam_mode and normal_a.dot(normal_b) > DECAL_COPLANAR_DOT:
-            _build_seam_strip(
-                bm,
-                _closed_polyline(spine_points, is_closed),
-                normal_a,
-                settings,
-                uv_rect,
-                closed=is_closed,
-            )
-            continue
         _build_corner_strip(
             bm,
             _closed_polyline(spine_points, is_closed),
@@ -2835,8 +3959,15 @@ def _fill_decal_bmesh(
     preview=False,
     decal_plan=None,
 ):
+    if mode == "SEAMS" and (
+        chain_refs is None or selected_edge_indices is None
+    ):
+        raise StrictSeamRuntimeError(
+            selected_edge_indices or (),
+            "SEAMS_REQUIRE_SELECTED_EDGE_PLAN",
+        )
     if chain_refs is not None and mode in ("CORNERS", "SEAMS"):
-        _fill_manual_chain_decals(
+        return _fill_manual_chain_decals(
             bm,
             graph,
             settings,
@@ -2845,7 +3976,7 @@ def _fill_decal_bmesh(
             selected_edge_indices=selected_edge_indices,
             preview=preview,
             decal_plan=decal_plan,
-        )
+        ) or ()
     elif mode in ("TOP", "BOTTOM"):
         top_runs, bottom_runs = _collect_trim_ribbon_runs(
             graph, chain_refs=chain_refs
@@ -2868,24 +3999,284 @@ def _fill_decal_bmesh(
                 closed=is_closed,
                 dihedral_convexity=convexity,
             )
-    elif mode == "SEAMS":
-        _corner_chains, automatic_seam_chains = _collect_wall_pair_chains(graph)
-        seam_chains = [
-            (points, normal_a, is_closed)
-            for points, normal_a, _normal_b, is_closed, _convexity
-            in automatic_seam_chains
-        ]
-        for points, normal, is_closed in seam_chains:
-            # Нормаль стороны-владельца (как n_sum_a в прототипе);
-            # automatic seam pair копланарна в пределах порога.
-            _build_seam_strip(
-                bm,
-                _closed_polyline(points, is_closed),
-                normal,
-                settings,
-                DECAL_UV_RECT_SEAM,
-                closed=is_closed,
+    return ()
+
+
+@dataclass(frozen=True)
+class _DecalTransactionResult:
+    obj: object | None
+    topology_changed: bool
+    policy_counts: tuple[tuple[str, int], ...]
+    evaluation_ms: float = 0.0
+
+
+def _aggregate_policy_counts(materialization_results):
+    counts = {}
+    for result in materialization_results or ():
+        for kind, count in result.policy_counts:
+            counts[kind] = counts.get(kind, 0) + int(count)
+    return tuple(sorted(counts.items()))
+
+
+def _aggregate_evaluation_ms(materialization_results):
+    return sum(
+        float(getattr(result, "evaluation_ms", 0.0))
+        for result in materialization_results or ()
+    )
+
+
+def _existing_decal_object(name):
+    data = getattr(bpy, "data", None)
+    objects = getattr(data, "objects", None)
+    getter = getattr(objects, "get", None)
+    if getter is None:
+        return None
+    obj = getter(name)
+    if (
+        obj is None
+        or getattr(obj, "mode", "OBJECT") == "EDIT"
+        or getattr(obj, "type", "MESH") != "MESH"
+        or getattr(obj, "data", None) is None
+    ):
+        return None
+    return obj
+
+
+def _existing_decal_preview_object(name):
+    obj = _existing_decal_object(name)
+    return obj if obj is not None and _is_decal_preview_object(obj) else None
+
+
+def _reset_decal_preview_state(preview_state):
+    if preview_state is None:
+        return
+    preview_state.topology_signature = ()
+    preview_state.canonical_mesh_indices = ()
+    preview_state.object_name = ""
+    preview_state.object_pointer = 0
+    preview_state.mesh_pointer = 0
+
+
+def remove_decal_preview_object(
+    mode: str,
+    source_obj,
+    preview_state=None,
+) -> bool:
+    """Удаляет только internal preview object и его orphan mesh."""
+
+    if mode not in DECAL_MODES:
+        return False
+    name = (
+        preview_state.object_name
+        if preview_state is not None and preview_state.object_name
+        else _decal_preview_object_name(mode, source_obj)
+    )
+    obj = _existing_decal_object(name)
+    if obj is None or not _is_decal_preview_object(obj):
+        _reset_decal_preview_state(preview_state)
+        return False
+    mesh = obj.data
+    bpy.data.objects.remove(obj, do_unlink=True)
+    if mesh is not None and mesh.users == 0:
+        bpy.data.meshes.remove(mesh)
+    _reset_decal_preview_state(preview_state)
+    return True
+
+
+def _generate_decal_transaction(
+    graph,
+    source_obj,
+    settings,
+    mode,
+    scene,
+    chain_refs,
+    selected_edge_indices,
+    preview,
+    decal_plan,
+    preview_state,
+):
+    """Выполняет raising generation path с backend-local settings."""
+
+    topology_rebuilds_before = (
+        preview_state.topology_rebuilds if preview_state is not None else 0
+    )
+    bm = bmesh.new()
+    try:
+        materialization_results = _fill_decal_bmesh(
+            bm,
+            graph,
+            settings,
+            mode,
+            chain_refs=chain_refs,
+            selected_edge_indices=selected_edge_indices,
+            preview=preview,
+            decal_plan=decal_plan,
+        )
+        has_faces = _prepare_decal_bmesh(bm)
+    except Exception:
+        bm.free()
+        raise
+
+    if not has_faces:
+        bm.free()
+        return _DecalTransactionResult(None, False, ())
+
+    object_name = (
+        (
+            preview_state.object_name
+            if preview_state is not None and preview_state.object_name
+            else _decal_preview_object_name(mode, source_obj)
+        )
+        if preview
+        else _decal_object_name(mode, source_obj)
+    )
+    obj = _finalize_decal_object(
+        bm,
+        object_name,
+        source_obj,
+        scene,
+        reuse_existing=preview,
+        # Production materialization не имеет права перепривязывать state
+        # временного объекта. Иначе confirm записывает сюда имя Decal_*, а
+        # terminal cleanup теряет .CFTUV_Preview_* и оставляет оба объекта.
+        preview_state=preview_state if preview else None,
+        prepared=True,
+    )
+    if preview and obj is not None:
+        _set_decal_preview_metadata(obj, source_obj)
+    topology_changed = obj is not None
+    if preview_state is not None:
+        topology_changed = (
+            preview_state.topology_rebuilds > topology_rebuilds_before
+        )
+    return _DecalTransactionResult(
+        obj=obj,
+        topology_changed=topology_changed,
+        policy_counts=_aggregate_policy_counts(materialization_results),
+        evaluation_ms=_aggregate_evaluation_ms(materialization_results),
+    )
+
+
+def generate_decal_result(
+    graph: PatchGraph,
+    source_obj,
+    settings: DecalSettings,
+    mode: str,
+    scene=None,
+    chain_refs=None,
+    selected_edge_indices=None,
+    preview=False,
+    decal_plan=None,
+    preview_state=None,
+) -> DecalGenerationResult:
+    """Генерирует decal и возвращает status без исключений geometry runtime."""
+
+    backend_summary = getattr(decal_plan, "backend_summary", "")
+    if mode not in DECAL_MODES:
+        return DecalGenerationResult(
+            PreviewStatus.ERROR,
+            None,
+            reason=f"Unknown decal mode: {mode}",
+            backend_summary=backend_summary,
+        )
+    try:
+        local_settings = local_decal_settings_for_source(settings, source_obj)
+    except DecalSourceTransformError as exc:
+        if mode == "SEAMS" and preview:
+            remove_decal_preview_object(
+                mode,
+                source_obj,
+                preview_state,
             )
+        return DecalGenerationResult(
+            PreviewStatus.ERROR,
+            None,
+            reason=str(exc),
+            backend_summary=backend_summary,
+        )
+    if scene is None:
+        scene = bpy.context.scene
+    object_name = (
+        (
+            preview_state.object_name
+            if preview_state is not None and preview_state.object_name
+            else _decal_preview_object_name(mode, source_obj)
+        )
+        if preview
+        else _decal_object_name(mode, source_obj)
+    )
+    try:
+        transaction = _generate_decal_transaction(
+            graph,
+            source_obj,
+            local_settings,
+            mode,
+            scene,
+            chain_refs,
+            selected_edge_indices,
+            preview,
+            decal_plan,
+            preview_state,
+        )
+    except Exception as exc:
+        if mode == "SEAMS" and preview:
+            # Ошибка должна быть видима: старый корректный preview не имеет
+            # права маскировать провал текущей ширины или topology scope.
+            remove_decal_preview_object(
+                mode,
+                source_obj,
+                preview_state,
+            )
+            retained = None
+        else:
+            retained = (
+                _existing_decal_preview_object(object_name)
+                if preview
+                else None
+            )
+        return DecalGenerationResult(
+            (
+                PreviewStatus.RETAINED_LAST_VALID
+                if retained is not None
+                else PreviewStatus.ERROR
+            ),
+            getattr(retained, "name", None),
+            reason=str(exc),
+            backend_summary=backend_summary,
+        )
+
+    if transaction.obj is None:
+        if mode == "SEAMS" and preview:
+            remove_decal_preview_object(
+                mode,
+                source_obj,
+                preview_state,
+            )
+            retained = None
+        else:
+            retained = (
+                _existing_decal_preview_object(object_name)
+                if preview
+                else None
+            )
+        return DecalGenerationResult(
+            (
+                PreviewStatus.RETAINED_LAST_VALID
+                if retained is not None
+                else PreviewStatus.EMPTY
+            ),
+            getattr(retained, "name", None),
+            reason="generation produced no faces",
+            backend_summary=backend_summary,
+        )
+    return DecalGenerationResult(
+        PreviewStatus.UPDATED,
+        transaction.obj.name,
+        topology_changed=transaction.topology_changed,
+        backend_summary=backend_summary,
+        policy_counts=transaction.policy_counts,
+        evaluation_ms=transaction.evaluation_ms,
+    )
 
 
 def generate_decal_objects(
@@ -2900,7 +4291,7 @@ def generate_decal_objects(
     decal_plan=None,
     preview_state=None,
 ) -> list[str]:
-    """Генерирует decal-объект выбранного режима. Возвращает имена созданных.
+    """Compatibility wrapper: генерирует decal и возвращает имена объектов.
 
     preview=True — быстрый режим для интерактивного modal drag (SEAMS
     network): криволинейные границы не уточняются хордами. Финальная
@@ -2909,31 +4300,52 @@ def generate_decal_objects(
 
     if mode not in DECAL_MODES:
         raise ValueError(f"Unknown decal mode: {mode}")
-    if scene is None:
-        scene = bpy.context.scene
-
-    bm = bmesh.new()
     try:
-        _fill_decal_bmesh(
-            bm,
+        local_settings = local_decal_settings_for_source(settings, source_obj)
+        if scene is None:
+            scene = bpy.context.scene
+        transaction = _generate_decal_transaction(
             graph,
-            settings,
+            source_obj,
+            local_settings,
             mode,
-            chain_refs=chain_refs,
-            selected_edge_indices=selected_edge_indices,
-            preview=preview,
-            decal_plan=decal_plan,
+            scene,
+            chain_refs,
+            selected_edge_indices,
+            preview,
+            decal_plan,
+            preview_state,
         )
     except Exception:
-        bm.free()
+        if mode == "SEAMS" and preview:
+            remove_decal_preview_object(
+                mode,
+                source_obj,
+                preview_state,
+            )
         raise
-
-    obj = _finalize_decal_object(
-        bm,
-        _decal_object_name(mode, source_obj),
-        source_obj,
-        scene,
-        reuse_existing=preview,
-        preview_state=preview_state,
+    if transaction.obj is not None:
+        return [transaction.obj.name]
+    if mode == "SEAMS":
+        if preview:
+            remove_decal_preview_object(
+                mode,
+                source_obj,
+                preview_state,
+            )
+        raise StrictSeamRuntimeError(
+            selected_edge_indices or (),
+            "SEAMS_GENERATION_PRODUCED_NO_FACES",
+        )
+    retained = (
+        _existing_decal_preview_object(
+            (
+                preview_state.object_name
+                if preview_state is not None and preview_state.object_name
+                else _decal_preview_object_name(mode, source_obj)
+            )
+        )
+        if preview
+        else None
     )
-    return [obj.name] if obj is not None else []
+    return [retained.name] if retained is not None else []

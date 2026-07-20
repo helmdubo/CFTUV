@@ -1,0 +1,49 @@
+{
+  "schema": "cftuv.decal.rd1.rf12-cap-absorption.v1",
+  "source_object": "sagging_wall",
+  "selected_edge_indices": [3, 4, 5, 6, 7, 44, 48, 51, 54, 57, 59],
+  "width": 0.73,
+  "gpu_solid_legend": {
+    "blue": "SEGMENT",
+    "cyan": "CAP",
+    "ochre": "KITE"
+  },
+  "diagnosis": {
+    "origin": "CAP crop plus RM9 terminal routing, not Dynamic Corner Bands",
+    "geometry_role": "closes the PERP owner side; deleting its area opens a hole",
+    "redundant_role": "separate corner UV piece and internal edge against one coplanar SEGMENT neighbor",
+    "before_face_count": 70,
+    "before_cap_count": 2
+  },
+  "admission": [
+    "exactly one SEGMENT neighbor",
+    "same surface_id",
+    "canonical DECAL_COPLANAR_DOT classification",
+    "identical shared vertex positions",
+    "unambiguous shared edge"
+  ],
+  "operation": [
+    "affine U alignment from the two shared edge keys",
+    "station V translation anchored at the shared edge",
+    "exact shared-key UV overwrite",
+    "single boundary-cycle reconstruction"
+  ],
+  "after": {
+    "face_count": 65,
+    "cap_count": 0,
+    "absorbed_faces": 2,
+    "component_sides": [
+      "CAP_ALIGNED_MERGED",
+      "CAP_ALIGNED_MERGED",
+      "TERMINAL_START_MERGED",
+      "TERMINAL_END_MERGED"
+    ],
+    "internal_cap_edges": 0
+  },
+  "preserved": [
+    "CAP across a real fold",
+    "CAP with multiple eligible neighbors",
+    "shared-position mismatch",
+    "non-SEGMENT semantic neighbor"
+  ]
+}

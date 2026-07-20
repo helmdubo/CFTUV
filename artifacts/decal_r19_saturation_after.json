@@ -1,0 +1,2007 @@
+{
+  "schema": "cftuv.decal_r19.saturation.v1",
+  "blend": "E:\\testscene.blend",
+  "object": "sagging_wall",
+  "selected": [
+    6,
+    7,
+    8
+  ],
+  "width": 35.98,
+  "alpha": 17.99,
+  "mesh_diagonal": 10.275249109705808,
+  "rail_alpha_budget": 71.96,
+  "evaluations": {
+    "preview": {
+      "status": "OK",
+      "face_count": 13,
+      "policy_counts": [
+        [
+          "CAP",
+          4
+        ],
+        [
+          "KITE",
+          1
+        ],
+        [
+          "MITER",
+          1
+        ],
+        [
+          "SMOOTH",
+          2
+        ],
+        [
+          "TERMINAL_ROUTE_SATURATED",
+          3
+        ],
+        [
+          "TERMINAL_ROUTE_STATION_CLAMPED",
+          2
+        ]
+      ],
+      "snapshot_digest": "9560aab0085d6bebc0139d6e82e87abd1cf2d28b4c34aee95ff813c7303435b7",
+      "geometry_digest": "71d0220ba8925137a91c6d172bc1cf5ea2ec1b25b01c9e70707892972705c66f"
+    },
+    "confirm": {
+      "status": "OK",
+      "face_count": 13,
+      "policy_counts": [
+        [
+          "CAP",
+          4
+        ],
+        [
+          "KITE",
+          1
+        ],
+        [
+          "MITER",
+          1
+        ],
+        [
+          "SMOOTH",
+          2
+        ],
+        [
+          "TERMINAL_ROUTE_SATURATED",
+          3
+        ],
+        [
+          "TERMINAL_ROUTE_STATION_CLAMPED",
+          2
+        ]
+      ],
+      "snapshot_digest": "9560aab0085d6bebc0139d6e82e87abd1cf2d28b4c34aee95ff813c7303435b7",
+      "geometry_digest": "71d0220ba8925137a91c6d172bc1cf5ea2ec1b25b01c9e70707892972705c66f"
+    }
+  },
+  "terminal_v10_e8": [
+    {
+      "terminal": {
+        "patch_id": 0,
+        "spine_vertex_id": 10,
+        "spine_edge_id": 8,
+        "choice": "PCHAIN",
+        "route_id": 2,
+        "edge_ids": [
+          9,
+          27,
+          26,
+          31,
+          0,
+          1
+        ]
+      },
+      "alpha": 17.99,
+      "route": {
+        "termination": "DAM",
+        "segment_edge_ids": [
+          9,
+          27,
+          26,
+          31,
+          0,
+          1
+        ],
+        "revisited_edge_ids": [],
+        "reach": 12.688646436154528,
+        "saturated": true,
+        "stations": [
+          {
+            "index": 0,
+            "distance": 0.0,
+            "kind": "VERTEX",
+            "source_vertex_id": 10,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 1,
+            "distance": 1.4750525512696153,
+            "kind": "VERTEX",
+            "source_vertex_id": 2,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 2,
+            "distance": 3.6034323730469593,
+            "kind": "VERTEX",
+            "source_vertex_id": 21,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 3,
+            "distance": 5.731812194824303,
+            "kind": "VERTEX",
+            "source_vertex_id": 20,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 4,
+            "distance": 7.860192016601647,
+            "kind": "VERTEX",
+            "source_vertex_id": 22,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 5,
+            "distance": 9.988569931030359,
+            "kind": "VERTEX",
+            "source_vertex_id": 0,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 6,
+            "distance": 12.688646436154528,
+            "kind": "VERTEX",
+            "source_vertex_id": 1,
+            "source_edge_id": null,
+            "edge_parameter": null
+          }
+        ]
+      },
+      "guide": {
+        "point": [
+          0.23267553524127627,
+          -6.929514093201231
+        ],
+        "contour_points": [
+          [
+            2.1212755352412764,
+            1.4143859067987696
+          ],
+          [
+            0.7620755352412762,
+            1.9872859067987694
+          ],
+          [
+            -2.446475872375231e-05,
+            -1.4093201230469532e-05
+          ],
+          [
+            -0.7625244647587237,
+            -1.9871140932012308
+          ],
+          [
+            -1.5250244647587239,
+            -3.9742140932012306
+          ],
+          [
+            -2.2878244647587236,
+            -5.961214093201231
+          ],
+          [
+            0.23267553524127627,
+            -6.929514093201231
+          ]
+        ],
+        "source_vertex_ids": [
+          0,
+          1,
+          2,
+          10,
+          20,
+          21,
+          22
+        ]
+      },
+      "site": {
+        "vert_a": 9,
+        "vert_b": 10,
+        "point_a": [
+          2.6277755352412764,
+          -1.4093201230469532e-05
+        ],
+        "point_b": [
+          2.1212755352412764,
+          1.4143859067987696
+        ],
+        "length": 1.5023546884807197,
+        "inward_normal": [
+          -0.9414554438075704,
+          -0.33713743091666737
+        ]
+      },
+      "terminal_components_error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=0 edge=8 vertex=10')",
+      "station_cut_probe": [
+        {
+          "extent": 1.4750525512696153,
+          "guide": {
+            "point": [
+              0.7620755352412762,
+              1.9872859067987694
+            ],
+            "contour_points": [
+              [
+                2.1212755352412764,
+                1.4143859067987696
+              ],
+              [
+                0.7620755352412762,
+                1.9872859067987694
+              ]
+            ],
+            "source_vertex_ids": [
+              2,
+              10
+            ]
+          },
+          "status": "OK",
+          "component_count": 2,
+          "wide_status": "OK",
+          "wide_component_count": 2
+        },
+        {
+          "extent": 3.6034323730469593,
+          "guide": {
+            "point": [
+              -2.446475872375231e-05,
+              -1.4093201230469532e-05
+            ],
+            "contour_points": [
+              [
+                2.1212755352412764,
+                1.4143859067987696
+              ],
+              [
+                0.7620755352412762,
+                1.9872859067987694
+              ],
+              [
+                -2.446475872375231e-05,
+                -1.4093201230469532e-05
+              ]
+            ],
+            "source_vertex_ids": [
+              2,
+              10,
+              21
+            ]
+          },
+          "status": "OK",
+          "component_count": 4,
+          "wide_status": "OK",
+          "wide_component_count": 4
+        },
+        {
+          "extent": 5.731812194824303,
+          "guide": {
+            "point": [
+              -0.7625244647587237,
+              -1.9871140932012308
+            ],
+            "contour_points": [
+              [
+                2.1212755352412764,
+                1.4143859067987696
+              ],
+              [
+                0.7620755352412762,
+                1.9872859067987694
+              ],
+              [
+                -2.446475872375231e-05,
+                -1.4093201230469532e-05
+              ],
+              [
+                -0.7625244647587237,
+                -1.9871140932012308
+              ]
+            ],
+            "source_vertex_ids": [
+              2,
+              10,
+              20,
+              21
+            ]
+          },
+          "status": "ERROR",
+          "error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=0 edge=8 vertex=10')",
+          "wide_status": "ERROR",
+          "wide_error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=0 edge=8 vertex=10')"
+        },
+        {
+          "extent": 7.860192016601647,
+          "guide": {
+            "point": [
+              -1.5250244647587239,
+              -3.9742140932012306
+            ],
+            "contour_points": [
+              [
+                2.1212755352412764,
+                1.4143859067987696
+              ],
+              [
+                0.7620755352412762,
+                1.9872859067987694
+              ],
+              [
+                -2.446475872375231e-05,
+                -1.4093201230469532e-05
+              ],
+              [
+                -0.7625244647587237,
+                -1.9871140932012308
+              ],
+              [
+                -1.5250244647587239,
+                -3.9742140932012306
+              ]
+            ],
+            "source_vertex_ids": [
+              2,
+              10,
+              20,
+              21,
+              22
+            ]
+          },
+          "status": "ERROR",
+          "error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=0 edge=8 vertex=10')",
+          "wide_status": "ERROR",
+          "wide_error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=0 edge=8 vertex=10')"
+        },
+        {
+          "extent": 9.988569931030359,
+          "guide": {
+            "point": [
+              -2.2878244647587236,
+              -5.961214093201231
+            ],
+            "contour_points": [
+              [
+                2.1212755352412764,
+                1.4143859067987696
+              ],
+              [
+                0.7620755352412762,
+                1.9872859067987694
+              ],
+              [
+                -2.446475872375231e-05,
+                -1.4093201230469532e-05
+              ],
+              [
+                -0.7625244647587237,
+                -1.9871140932012308
+              ],
+              [
+                -1.5250244647587239,
+                -3.9742140932012306
+              ],
+              [
+                -2.2878244647587236,
+                -5.961214093201231
+              ]
+            ],
+            "source_vertex_ids": [
+              0,
+              2,
+              10,
+              20,
+              21,
+              22
+            ]
+          },
+          "status": "ERROR",
+          "error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=0 edge=8 vertex=10')",
+          "wide_status": "ERROR",
+          "wide_error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=0 edge=8 vertex=10')"
+        },
+        {
+          "extent": 12.688646436154528,
+          "guide": {
+            "point": [
+              0.23267553524127627,
+              -6.929514093201231
+            ],
+            "contour_points": [
+              [
+                2.1212755352412764,
+                1.4143859067987696
+              ],
+              [
+                0.7620755352412762,
+                1.9872859067987694
+              ],
+              [
+                -2.446475872375231e-05,
+                -1.4093201230469532e-05
+              ],
+              [
+                -0.7625244647587237,
+                -1.9871140932012308
+              ],
+              [
+                -1.5250244647587239,
+                -3.9742140932012306
+              ],
+              [
+                -2.2878244647587236,
+                -5.961214093201231
+              ],
+              [
+                0.23267553524127627,
+                -6.929514093201231
+              ]
+            ],
+            "source_vertex_ids": [
+              0,
+              1,
+              2,
+              10,
+              20,
+              21,
+              22
+            ]
+          },
+          "status": "ERROR",
+          "error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=0 edge=8 vertex=10')",
+          "wide_status": "ERROR",
+          "wide_error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=0 edge=8 vertex=10')"
+        }
+      ]
+    },
+    {
+      "terminal": {
+        "patch_id": 1,
+        "spine_vertex_id": 10,
+        "spine_edge_id": 8,
+        "choice": "PCHAIN",
+        "route_id": 3,
+        "edge_ids": [
+          20,
+          16,
+          42,
+          15,
+          40,
+          14,
+          58,
+          55,
+          52,
+          49,
+          46,
+          60,
+          13,
+          12,
+          11,
+          10,
+          17
+        ]
+      },
+      "alpha": 17.99,
+      "route": {
+        "termination": "DAM",
+        "segment_edge_ids": [
+          20,
+          16,
+          42,
+          15,
+          40,
+          14,
+          58,
+          55,
+          52,
+          49,
+          46,
+          60,
+          13,
+          12,
+          11,
+          10,
+          17
+        ],
+        "revisited_edge_ids": [],
+        "reach": 14.581049239268907,
+        "saturated": true,
+        "stations": [
+          {
+            "index": 0,
+            "distance": 0.0,
+            "kind": "VERTEX",
+            "source_vertex_id": 10,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 1,
+            "distance": 1.3323011447176067,
+            "kind": "VERTEX",
+            "source_vertex_id": 19,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 2,
+            "distance": 2.840541734012663,
+            "kind": "VERTEX",
+            "source_vertex_id": 24,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 3,
+            "distance": 3.2330793554373582,
+            "kind": "VERTEX",
+            "source_vertex_id": 18,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 4,
+            "distance": 3.5594238700455376,
+            "kind": "VERTEX",
+            "source_vertex_id": 23,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 5,
+            "distance": 5.391542027697234,
+            "kind": "VERTEX",
+            "source_vertex_id": 17,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 6,
+            "distance": 6.040686701551805,
+            "kind": "VERTEX",
+            "source_vertex_id": 16,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 7,
+            "distance": 6.719443283450762,
+            "kind": "VERTEX",
+            "source_vertex_id": 30,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 8,
+            "distance": 6.872005646859314,
+            "kind": "VERTEX",
+            "source_vertex_id": 32,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 9,
+            "distance": 6.956664186551562,
+            "kind": "VERTEX",
+            "source_vertex_id": 33,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 10,
+            "distance": 7.043010129418949,
+            "kind": "VERTEX",
+            "source_vertex_id": 34,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 11,
+            "distance": 7.197843793910189,
+            "kind": "VERTEX",
+            "source_vertex_id": 31,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 12,
+            "distance": 8.062630916096067,
+            "kind": "VERTEX",
+            "source_vertex_id": 15,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 13,
+            "distance": 9.788376993389939,
+            "kind": "VERTEX",
+            "source_vertex_id": 14,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 14,
+            "distance": 11.114041310709483,
+            "kind": "VERTEX",
+            "source_vertex_id": 13,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 15,
+            "distance": 12.192934330458206,
+            "kind": "VERTEX",
+            "source_vertex_id": 12,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 16,
+            "distance": 13.192871367564805,
+            "kind": "VERTEX",
+            "source_vertex_id": 11,
+            "source_edge_id": null,
+            "edge_parameter": null
+          },
+          {
+            "index": 17,
+            "distance": 14.581049239268907,
+            "kind": "VERTEX",
+            "source_vertex_id": 1,
+            "source_edge_id": null,
+            "edge_parameter": null
+          }
+        ]
+      },
+      "guide": {
+        "point": [
+          11.357120711010397,
+          2.813786892723786
+        ],
+        "contour_points": [
+          [
+            2.0711010397356233e-05,
+            -1.3107276213952801e-05
+          ],
+          [
+            -0.4134792889896026,
+            1.266486892723786
+          ],
+          [
+            1.0873207110103973,
+            1.4165868927237861
+          ],
+          [
+            1.4779207110103973,
+            1.455586892723786
+          ],
+          [
+            1.8032207110103973,
+            1.429886892723786
+          ],
+          [
+            3.629320711010397,
+            1.281086892723786
+          ],
+          [
+            4.275620711010397,
+            1.220486892723786
+          ],
+          [
+            4.953820711010398,
+            1.194286892723786
+          ],
+          [
+            5.106420711010397,
+            1.1912868927237859
+          ],
+          [
+            5.190620711010397,
+            1.199586892723786
+          ],
+          [
+            5.270120711010398,
+            1.233286892723786
+          ],
+          [
+            5.408720711010397,
+            1.302286892723786
+          ],
+          [
+            6.181420711010397,
+            1.690586892723786
+          ],
+          [
+            7.691820711010397,
+            2.525486892723786
+          ],
+          [
+            8.876320711010397,
+            3.1207868927237863
+          ],
+          [
+            9.840320711010397,
+            3.6051868927237862
+          ],
+          [
+            10.733820711010399,
+            4.054186892723786
+          ],
+          [
+            11.357120711010397,
+            2.813786892723786
+          ]
+        ],
+        "source_vertex_ids": [
+          1,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          23,
+          24,
+          30,
+          31,
+          32,
+          33,
+          34
+        ]
+      },
+      "site": {
+        "vert_a": 10,
+        "vert_b": 9,
+        "point_a": [
+          2.0711010397356233e-05,
+          -1.3107276213952801e-05
+        ],
+        "point_b": [
+          1.5023207110103973,
+          -1.3107276213952801e-05
+        ],
+        "length": 1.5023,
+        "inward_normal": [
+          -0.0,
+          1.0
+        ]
+      },
+      "terminal_components_error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')",
+      "station_cut_probe": [
+        {
+          "extent": 1.3323011447176067,
+          "guide": {
+            "point": [
+              -0.4134792889896026,
+              1.266486892723786
+            ],
+            "contour_points": [
+              [
+                2.0711010397356233e-05,
+                -1.3107276213952801e-05
+              ],
+              [
+                -0.4134792889896026,
+                1.266486892723786
+              ]
+            ],
+            "source_vertex_ids": [
+              10,
+              19
+            ]
+          },
+          "status": "OK",
+          "component_count": 2,
+          "wide_status": "OK",
+          "wide_component_count": 2
+        },
+        {
+          "extent": 2.840541734012663,
+          "guide": {
+            "point": [
+              1.0873207110103973,
+              1.4165868927237861
+            ],
+            "contour_points": [
+              [
+                2.0711010397356233e-05,
+                -1.3107276213952801e-05
+              ],
+              [
+                -0.4134792889896026,
+                1.266486892723786
+              ],
+              [
+                1.0873207110103973,
+                1.4165868927237861
+              ]
+            ],
+            "source_vertex_ids": [
+              10,
+              19,
+              24
+            ]
+          },
+          "status": "OK",
+          "component_count": 3,
+          "wide_status": "OK",
+          "wide_component_count": 3
+        },
+        {
+          "extent": 3.2330793554373582,
+          "guide": {
+            "point": [
+              1.4779207110103973,
+              1.455586892723786
+            ],
+            "contour_points": [
+              [
+                2.0711010397356233e-05,
+                -1.3107276213952801e-05
+              ],
+              [
+                -0.4134792889896026,
+                1.266486892723786
+              ],
+              [
+                1.0873207110103973,
+                1.4165868927237861
+              ],
+              [
+                1.4779207110103973,
+                1.455586892723786
+              ]
+            ],
+            "source_vertex_ids": [
+              10,
+              18,
+              19,
+              24
+            ]
+          },
+          "status": "OK",
+          "component_count": 4,
+          "wide_status": "OK",
+          "wide_component_count": 4
+        },
+        {
+          "extent": 3.5594238700455376,
+          "guide": {
+            "point": [
+              1.8032207110103973,
+              1.429886892723786
+            ],
+            "contour_points": [
+              [
+                2.0711010397356233e-05,
+                -1.3107276213952801e-05
+              ],
+              [
+                -0.4134792889896026,
+                1.266486892723786
+              ],
+              [
+                1.0873207110103973,
+                1.4165868927237861
+              ],
+              [
+                1.4779207110103973,
+                1.455586892723786
+              ],
+              [
+                1.8032207110103973,
+                1.429886892723786
+              ]
+            ],
+            "source_vertex_ids": [
+              10,
+              18,
+              19,
+              23,
+              24
+            ]
+          },
+          "status": "ERROR",
+          "error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')",
+          "wide_status": "ERROR",
+          "wide_error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')"
+        },
+        {
+          "extent": 5.391542027697234,
+          "guide": {
+            "point": [
+              3.629320711010397,
+              1.281086892723786
+            ],
+            "contour_points": [
+              [
+                2.0711010397356233e-05,
+                -1.3107276213952801e-05
+              ],
+              [
+                -0.4134792889896026,
+                1.266486892723786
+              ],
+              [
+                1.0873207110103973,
+                1.4165868927237861
+              ],
+              [
+                1.4779207110103973,
+                1.455586892723786
+              ],
+              [
+                1.8032207110103973,
+                1.429886892723786
+              ],
+              [
+                3.629320711010397,
+                1.281086892723786
+              ]
+            ],
+            "source_vertex_ids": [
+              10,
+              17,
+              18,
+              19,
+              23,
+              24
+            ]
+          },
+          "status": "ERROR",
+          "error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')",
+          "wide_status": "ERROR",
+          "wide_error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')"
+        },
+        {
+          "extent": 6.040686701551805,
+          "guide": {
+            "point": [
+              4.275620711010397,
+              1.220486892723786
+            ],
+            "contour_points": [
+              [
+                2.0711010397356233e-05,
+                -1.3107276213952801e-05
+              ],
+              [
+                -0.4134792889896026,
+                1.266486892723786
+              ],
+              [
+                1.0873207110103973,
+                1.4165868927237861
+              ],
+              [
+                1.4779207110103973,
+                1.455586892723786
+              ],
+              [
+                1.8032207110103973,
+                1.429886892723786
+              ],
+              [
+                3.629320711010397,
+                1.281086892723786
+              ],
+              [
+                4.275620711010397,
+                1.220486892723786
+              ]
+            ],
+            "source_vertex_ids": [
+              10,
+              16,
+              17,
+              18,
+              19,
+              23,
+              24
+            ]
+          },
+          "status": "ERROR",
+          "error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')",
+          "wide_status": "ERROR",
+          "wide_error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')"
+        },
+        {
+          "extent": 6.719443283450762,
+          "guide": {
+            "point": [
+              4.953820711010398,
+              1.194286892723786
+            ],
+            "contour_points": [
+              [
+                2.0711010397356233e-05,
+                -1.3107276213952801e-05
+              ],
+              [
+                -0.4134792889896026,
+                1.266486892723786
+              ],
+              [
+                1.0873207110103973,
+                1.4165868927237861
+              ],
+              [
+                1.4779207110103973,
+                1.455586892723786
+              ],
+              [
+                1.8032207110103973,
+                1.429886892723786
+              ],
+              [
+                3.629320711010397,
+                1.281086892723786
+              ],
+              [
+                4.275620711010397,
+                1.220486892723786
+              ],
+              [
+                4.953820711010398,
+                1.194286892723786
+              ]
+            ],
+            "source_vertex_ids": [
+              10,
+              16,
+              17,
+              18,
+              19,
+              23,
+              24,
+              30
+            ]
+          },
+          "status": "ERROR",
+          "error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')",
+          "wide_status": "ERROR",
+          "wide_error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')"
+        },
+        {
+          "extent": 6.872005646859314,
+          "guide": {
+            "point": [
+              5.106420711010397,
+              1.1912868927237859
+            ],
+            "contour_points": [
+              [
+                2.0711010397356233e-05,
+                -1.3107276213952801e-05
+              ],
+              [
+                -0.4134792889896026,
+                1.266486892723786
+              ],
+              [
+                1.0873207110103973,
+                1.4165868927237861
+              ],
+              [
+                1.4779207110103973,
+                1.455586892723786
+              ],
+              [
+                1.8032207110103973,
+                1.429886892723786
+              ],
+              [
+                3.629320711010397,
+                1.281086892723786
+              ],
+              [
+                4.275620711010397,
+                1.220486892723786
+              ],
+              [
+                4.953820711010398,
+                1.194286892723786
+              ],
+              [
+                5.106420711010397,
+                1.1912868927237859
+              ]
+            ],
+            "source_vertex_ids": [
+              10,
+              16,
+              17,
+              18,
+              19,
+              23,
+              24,
+              30,
+              32
+            ]
+          },
+          "status": "ERROR",
+          "error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')",
+          "wide_status": "ERROR",
+          "wide_error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')"
+        },
+        {
+          "extent": 6.956664186551562,
+          "guide": {
+            "point": [
+              5.190620711010397,
+              1.199586892723786
+            ],
+            "contour_points": [
+              [
+                2.0711010397356233e-05,
+                -1.3107276213952801e-05
+              ],
+              [
+                -0.4134792889896026,
+                1.266486892723786
+              ],
+              [
+                1.0873207110103973,
+                1.4165868927237861
+              ],
+              [
+                1.4779207110103973,
+                1.455586892723786
+              ],
+              [
+                1.8032207110103973,
+                1.429886892723786
+              ],
+              [
+                3.629320711010397,
+                1.281086892723786
+              ],
+              [
+                4.275620711010397,
+                1.220486892723786
+              ],
+              [
+                4.953820711010398,
+                1.194286892723786
+              ],
+              [
+                5.106420711010397,
+                1.1912868927237859
+              ],
+              [
+                5.190620711010397,
+                1.199586892723786
+              ]
+            ],
+            "source_vertex_ids": [
+              10,
+              16,
+              17,
+              18,
+              19,
+              23,
+              24,
+              30,
+              32,
+              33
+            ]
+          },
+          "status": "ERROR",
+          "error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')",
+          "wide_status": "ERROR",
+          "wide_error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')"
+        },
+        {
+          "extent": 7.043010129418949,
+          "guide": {
+            "point": [
+              5.270120711010398,
+              1.233286892723786
+            ],
+            "contour_points": [
+              [
+                2.0711010397356233e-05,
+                -1.3107276213952801e-05
+              ],
+              [
+                -0.4134792889896026,
+                1.266486892723786
+              ],
+              [
+                1.0873207110103973,
+                1.4165868927237861
+              ],
+              [
+                1.4779207110103973,
+                1.455586892723786
+              ],
+              [
+                1.8032207110103973,
+                1.429886892723786
+              ],
+              [
+                3.629320711010397,
+                1.281086892723786
+              ],
+              [
+                4.275620711010397,
+                1.220486892723786
+              ],
+              [
+                4.953820711010398,
+                1.194286892723786
+              ],
+              [
+                5.106420711010397,
+                1.1912868927237859
+              ],
+              [
+                5.190620711010397,
+                1.199586892723786
+              ],
+              [
+                5.270120711010398,
+                1.233286892723786
+              ]
+            ],
+            "source_vertex_ids": [
+              10,
+              16,
+              17,
+              18,
+              19,
+              23,
+              24,
+              30,
+              32,
+              33,
+              34
+            ]
+          },
+          "status": "ERROR",
+          "error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')",
+          "wide_status": "ERROR",
+          "wide_error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')"
+        },
+        {
+          "extent": 7.197843793910189,
+          "guide": {
+            "point": [
+              5.408720711010397,
+              1.302286892723786
+            ],
+            "contour_points": [
+              [
+                2.0711010397356233e-05,
+                -1.3107276213952801e-05
+              ],
+              [
+                -0.4134792889896026,
+                1.266486892723786
+              ],
+              [
+                1.0873207110103973,
+                1.4165868927237861
+              ],
+              [
+                1.4779207110103973,
+                1.455586892723786
+              ],
+              [
+                1.8032207110103973,
+                1.429886892723786
+              ],
+              [
+                3.629320711010397,
+                1.281086892723786
+              ],
+              [
+                4.275620711010397,
+                1.220486892723786
+              ],
+              [
+                4.953820711010398,
+                1.194286892723786
+              ],
+              [
+                5.106420711010397,
+                1.1912868927237859
+              ],
+              [
+                5.190620711010397,
+                1.199586892723786
+              ],
+              [
+                5.270120711010398,
+                1.233286892723786
+              ],
+              [
+                5.408720711010397,
+                1.302286892723786
+              ]
+            ],
+            "source_vertex_ids": [
+              10,
+              16,
+              17,
+              18,
+              19,
+              23,
+              24,
+              30,
+              31,
+              32,
+              33,
+              34
+            ]
+          },
+          "status": "ERROR",
+          "error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')",
+          "wide_status": "ERROR",
+          "wide_error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')"
+        },
+        {
+          "extent": 8.062630916096067,
+          "guide": {
+            "point": [
+              6.181420711010397,
+              1.690586892723786
+            ],
+            "contour_points": [
+              [
+                2.0711010397356233e-05,
+                -1.3107276213952801e-05
+              ],
+              [
+                -0.4134792889896026,
+                1.266486892723786
+              ],
+              [
+                1.0873207110103973,
+                1.4165868927237861
+              ],
+              [
+                1.4779207110103973,
+                1.455586892723786
+              ],
+              [
+                1.8032207110103973,
+                1.429886892723786
+              ],
+              [
+                3.629320711010397,
+                1.281086892723786
+              ],
+              [
+                4.275620711010397,
+                1.220486892723786
+              ],
+              [
+                4.953820711010398,
+                1.194286892723786
+              ],
+              [
+                5.106420711010397,
+                1.1912868927237859
+              ],
+              [
+                5.190620711010397,
+                1.199586892723786
+              ],
+              [
+                5.270120711010398,
+                1.233286892723786
+              ],
+              [
+                5.408720711010397,
+                1.302286892723786
+              ],
+              [
+                6.181420711010397,
+                1.690586892723786
+              ]
+            ],
+            "source_vertex_ids": [
+              10,
+              15,
+              16,
+              17,
+              18,
+              19,
+              23,
+              24,
+              30,
+              31,
+              32,
+              33,
+              34
+            ]
+          },
+          "status": "ERROR",
+          "error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')",
+          "wide_status": "ERROR",
+          "wide_error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')"
+        },
+        {
+          "extent": 9.788376993389939,
+          "guide": {
+            "point": [
+              7.691820711010397,
+              2.525486892723786
+            ],
+            "contour_points": [
+              [
+                2.0711010397356233e-05,
+                -1.3107276213952801e-05
+              ],
+              [
+                -0.4134792889896026,
+                1.266486892723786
+              ],
+              [
+                1.0873207110103973,
+                1.4165868927237861
+              ],
+              [
+                1.4779207110103973,
+                1.455586892723786
+              ],
+              [
+                1.8032207110103973,
+                1.429886892723786
+              ],
+              [
+                3.629320711010397,
+                1.281086892723786
+              ],
+              [
+                4.275620711010397,
+                1.220486892723786
+              ],
+              [
+                4.953820711010398,
+                1.194286892723786
+              ],
+              [
+                5.106420711010397,
+                1.1912868927237859
+              ],
+              [
+                5.190620711010397,
+                1.199586892723786
+              ],
+              [
+                5.270120711010398,
+                1.233286892723786
+              ],
+              [
+                5.408720711010397,
+                1.302286892723786
+              ],
+              [
+                6.181420711010397,
+                1.690586892723786
+              ],
+              [
+                7.691820711010397,
+                2.525486892723786
+              ]
+            ],
+            "source_vertex_ids": [
+              10,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              23,
+              24,
+              30,
+              31,
+              32,
+              33,
+              34
+            ]
+          },
+          "status": "ERROR",
+          "error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')",
+          "wide_status": "ERROR",
+          "wide_error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')"
+        },
+        {
+          "extent": 11.114041310709483,
+          "guide": {
+            "point": [
+              8.876320711010397,
+              3.1207868927237863
+            ],
+            "contour_points": [
+              [
+                2.0711010397356233e-05,
+                -1.3107276213952801e-05
+              ],
+              [
+                -0.4134792889896026,
+                1.266486892723786
+              ],
+              [
+                1.0873207110103973,
+                1.4165868927237861
+              ],
+              [
+                1.4779207110103973,
+                1.455586892723786
+              ],
+              [
+                1.8032207110103973,
+                1.429886892723786
+              ],
+              [
+                3.629320711010397,
+                1.281086892723786
+              ],
+              [
+                4.275620711010397,
+                1.220486892723786
+              ],
+              [
+                4.953820711010398,
+                1.194286892723786
+              ],
+              [
+                5.106420711010397,
+                1.1912868927237859
+              ],
+              [
+                5.190620711010397,
+                1.199586892723786
+              ],
+              [
+                5.270120711010398,
+                1.233286892723786
+              ],
+              [
+                5.408720711010397,
+                1.302286892723786
+              ],
+              [
+                6.181420711010397,
+                1.690586892723786
+              ],
+              [
+                7.691820711010397,
+                2.525486892723786
+              ],
+              [
+                8.876320711010397,
+                3.1207868927237863
+              ]
+            ],
+            "source_vertex_ids": [
+              10,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              23,
+              24,
+              30,
+              31,
+              32,
+              33,
+              34
+            ]
+          },
+          "status": "ERROR",
+          "error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')",
+          "wide_status": "ERROR",
+          "wide_error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')"
+        },
+        {
+          "extent": 12.192934330458206,
+          "guide": {
+            "point": [
+              9.840320711010397,
+              3.6051868927237862
+            ],
+            "contour_points": [
+              [
+                2.0711010397356233e-05,
+                -1.3107276213952801e-05
+              ],
+              [
+                -0.4134792889896026,
+                1.266486892723786
+              ],
+              [
+                1.0873207110103973,
+                1.4165868927237861
+              ],
+              [
+                1.4779207110103973,
+                1.455586892723786
+              ],
+              [
+                1.8032207110103973,
+                1.429886892723786
+              ],
+              [
+                3.629320711010397,
+                1.281086892723786
+              ],
+              [
+                4.275620711010397,
+                1.220486892723786
+              ],
+              [
+                4.953820711010398,
+                1.194286892723786
+              ],
+              [
+                5.106420711010397,
+                1.1912868927237859
+              ],
+              [
+                5.190620711010397,
+                1.199586892723786
+              ],
+              [
+                5.270120711010398,
+                1.233286892723786
+              ],
+              [
+                5.408720711010397,
+                1.302286892723786
+              ],
+              [
+                6.181420711010397,
+                1.690586892723786
+              ],
+              [
+                7.691820711010397,
+                2.525486892723786
+              ],
+              [
+                8.876320711010397,
+                3.1207868927237863
+              ],
+              [
+                9.840320711010397,
+                3.6051868927237862
+              ]
+            ],
+            "source_vertex_ids": [
+              10,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              23,
+              24,
+              30,
+              31,
+              32,
+              33,
+              34
+            ]
+          },
+          "status": "ERROR",
+          "error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')",
+          "wide_status": "ERROR",
+          "wide_error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')"
+        },
+        {
+          "extent": 13.192871367564805,
+          "guide": {
+            "point": [
+              10.733820711010399,
+              4.054186892723786
+            ],
+            "contour_points": [
+              [
+                2.0711010397356233e-05,
+                -1.3107276213952801e-05
+              ],
+              [
+                -0.4134792889896026,
+                1.266486892723786
+              ],
+              [
+                1.0873207110103973,
+                1.4165868927237861
+              ],
+              [
+                1.4779207110103973,
+                1.455586892723786
+              ],
+              [
+                1.8032207110103973,
+                1.429886892723786
+              ],
+              [
+                3.629320711010397,
+                1.281086892723786
+              ],
+              [
+                4.275620711010397,
+                1.220486892723786
+              ],
+              [
+                4.953820711010398,
+                1.194286892723786
+              ],
+              [
+                5.106420711010397,
+                1.1912868927237859
+              ],
+              [
+                5.190620711010397,
+                1.199586892723786
+              ],
+              [
+                5.270120711010398,
+                1.233286892723786
+              ],
+              [
+                5.408720711010397,
+                1.302286892723786
+              ],
+              [
+                6.181420711010397,
+                1.690586892723786
+              ],
+              [
+                7.691820711010397,
+                2.525486892723786
+              ],
+              [
+                8.876320711010397,
+                3.1207868927237863
+              ],
+              [
+                9.840320711010397,
+                3.6051868927237862
+              ],
+              [
+                10.733820711010399,
+                4.054186892723786
+              ]
+            ],
+            "source_vertex_ids": [
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              23,
+              24,
+              30,
+              31,
+              32,
+              33,
+              34
+            ]
+          },
+          "status": "ERROR",
+          "error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')",
+          "wide_status": "ERROR",
+          "wide_error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')"
+        },
+        {
+          "extent": 14.581049239268907,
+          "guide": {
+            "point": [
+              11.357120711010397,
+              2.813786892723786
+            ],
+            "contour_points": [
+              [
+                2.0711010397356233e-05,
+                -1.3107276213952801e-05
+              ],
+              [
+                -0.4134792889896026,
+                1.266486892723786
+              ],
+              [
+                1.0873207110103973,
+                1.4165868927237861
+              ],
+              [
+                1.4779207110103973,
+                1.455586892723786
+              ],
+              [
+                1.8032207110103973,
+                1.429886892723786
+              ],
+              [
+                3.629320711010397,
+                1.281086892723786
+              ],
+              [
+                4.275620711010397,
+                1.220486892723786
+              ],
+              [
+                4.953820711010398,
+                1.194286892723786
+              ],
+              [
+                5.106420711010397,
+                1.1912868927237859
+              ],
+              [
+                5.190620711010397,
+                1.199586892723786
+              ],
+              [
+                5.270120711010398,
+                1.233286892723786
+              ],
+              [
+                5.408720711010397,
+                1.302286892723786
+              ],
+              [
+                6.181420711010397,
+                1.690586892723786
+              ],
+              [
+                7.691820711010397,
+                2.525486892723786
+              ],
+              [
+                8.876320711010397,
+                3.1207868927237863
+              ],
+              [
+                9.840320711010397,
+                3.6051868927237862
+              ],
+              [
+                10.733820711010399,
+                4.054186892723786
+              ],
+              [
+                11.357120711010397,
+                2.813786892723786
+              ]
+            ],
+            "source_vertex_ids": [
+              1,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              23,
+              24,
+              30,
+              31,
+              32,
+              33,
+              34
+            ]
+          },
+          "status": "ERROR",
+          "error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')",
+          "wide_status": "ERROR",
+          "wide_error": "RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')"
+        }
+      ]
+    }
+  ],
+  "blend_saved": false,
+  "preview_confirm_equal": true,
+  "rf29_extreme": {
+    "width": 102.75249109705808,
+    "mesh_diagonal_multiple": 10.0,
+    "evaluations": {
+      "preview": {
+        "status": "OK",
+        "face_count": 13,
+        "policy_counts": [
+          [
+            "CAP",
+            4
+          ],
+          [
+            "KITE",
+            1
+          ],
+          [
+            "MITER",
+            1
+          ],
+          [
+            "SMOOTH",
+            2
+          ],
+          [
+            "TERMINAL_ROUTE_SATURATED",
+            3
+          ],
+          [
+            "TERMINAL_ROUTE_STATION_CLAMPED",
+            2
+          ]
+        ],
+        "snapshot_digest": "2ae4f93206210daef907e7f54a3275fc8a689a2f2548beb71e807d85fe32bee1",
+        "geometry_digest": "71d0220ba8925137a91c6d172bc1cf5ea2ec1b25b01c9e70707892972705c66f"
+      },
+      "confirm": {
+        "status": "OK",
+        "face_count": 13,
+        "policy_counts": [
+          [
+            "CAP",
+            4
+          ],
+          [
+            "KITE",
+            1
+          ],
+          [
+            "MITER",
+            1
+          ],
+          [
+            "SMOOTH",
+            2
+          ],
+          [
+            "TERMINAL_ROUTE_SATURATED",
+            3
+          ],
+          [
+            "TERMINAL_ROUTE_STATION_CLAMPED",
+            2
+          ]
+        ],
+        "snapshot_digest": "2ae4f93206210daef907e7f54a3275fc8a689a2f2548beb71e807d85fe32bee1",
+        "geometry_digest": "71d0220ba8925137a91c6d172bc1cf5ea2ec1b25b01c9e70707892972705c66f"
+      }
+    },
+    "preview_confirm_equal": true,
+    "geometry_saturated_equal_to_width_35_98": true
+  }
+}

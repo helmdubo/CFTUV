@@ -1,0 +1,53 @@
+{
+  "schema": "cftuv.decal_c8_6_materialization_identity.v1",
+  "date": "2026-07-18",
+  "baseline_head": "3363d71",
+  "implementation_commits": [
+    "a62d24b88814a77b545845b65a0cb3e5995d1a5a",
+    "3626846354b0b11770f05240097c6dad90161406"
+  ],
+  "root_causes": [
+    {
+      "builder": "direct selected-spine station identity",
+      "failure": "site-local t disagreed with source-edge orientation",
+      "fix": "canonical low-source-vertex to high-source-vertex parameter"
+    },
+    {
+      "builder": "cross-surface spine station synchronization",
+      "failure": "INTERIOR-to-pv-se crop frontier was treated as a source-edge run",
+      "fix": "both cycle endpoints must carry provenance of the same source edge"
+    }
+  ],
+  "diagnostics": {
+    "full_cycle_keys_and_positions": true,
+    "repeated_occurrence_indices": true,
+    "cyclic_adjacency_pairs": true,
+    "hard_fail_preserved": true
+  },
+  "field_acceptance": {
+    "object": "walls.010",
+    "temporary_copy": true,
+    "selected_seam_edges": 458,
+    "backend": "PLANAR+INTRINSIC_DEVELOPABLE:23c/458e",
+    "widths": [0.25, 0.5, 1.0, 2.0],
+    "operator_results": ["FINISHED", "FINISHED", "FINISHED", "FINISHED"],
+    "mesh_vertex_edge_face_counts": [
+      [1455, 2548, 959],
+      [1330, 2358, 965],
+      [1339, 2377, 970],
+      [1437, 2489, 973]
+    ],
+    "face_cycles_with_repeated_vertices": [0, 0, 0, 0],
+    "source_scene_restored": true
+  },
+  "verification": {
+    "targeted_passed": 168,
+    "full_suite_passed": 382,
+    "full_suite_xfailed": 2,
+    "xfail_marker": "GL-pending",
+    "full_suite_seconds": 798.34,
+    "compileall": "passed",
+    "diff_check": "passed",
+    "independent_review": "ACCEPT"
+  }
+}

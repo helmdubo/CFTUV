@@ -1,0 +1,86 @@
+{
+  "schema": "cftuv.decal_r14.fix2-beak.v1",
+  "oracle": "RR9b",
+  "field_case": {
+    "object": "sagging_wall",
+    "selected_edge_indices": [4, 5, 6, 7, 8, 44, 48, 51, 54, 57, 59],
+    "terminal_vertex": 4,
+    "spine_edge": 4,
+    "before_9b72_plan": [
+      {
+        "source_face_ids": [0, 15, 16],
+        "choice": "PCHAIN 3"
+      },
+      {
+        "source_face_ids": [5],
+        "choice": "PCHAIN 3"
+      }
+    ],
+    "after_rr9b_plan": [
+      {
+        "source_face_ids": [0, 15, 16],
+        "choice": "PERP",
+        "plan_kind": "IN_PLANE_EMPTY"
+      },
+      {
+        "source_face_ids": [5],
+        "choice": "FOLD 22",
+        "plan_kind": "ROUTE"
+      }
+    ],
+    "width_evaluations": [
+      {
+        "width": 0.4,
+        "face_count": 67,
+        "overlap_count": 0
+      },
+      {
+        "width": 0.8,
+        "face_count": 68,
+        "overlap_count": 0
+      }
+    ]
+  },
+  "live_ridge_repro": {
+    "object": "sagging_wall.001",
+    "selected_edge_indices": [26, 29, 32, 35],
+    "terminal_vertex": 29,
+    "spine_edge": 35,
+    "rejected_continuation_edge": 57,
+    "before": [
+      {
+        "source_face_ids": [17],
+        "choice": "PCHAIN 57"
+      },
+      {
+        "source_face_ids": [30],
+        "choice": "PCHAIN 57"
+      }
+    ],
+    "after": [
+      {
+        "source_face_ids": [17],
+        "choice": "FOLD_OR_BORDER 70"
+      },
+      {
+        "source_face_ids": [30],
+        "choice": "FOLD_OR_BORDER 36"
+      }
+    ],
+    "continuation_route_after": false
+  },
+  "rf19_wide_bisect": [
+    {
+      "commit": "9b72be0",
+      "result": "TERMINAL_BRIDGE_CUTS_OVERLAP"
+    },
+    {
+      "commit": "24744e8",
+      "result": "TERMINAL_BRIDGE_CUTS_OVERLAP"
+    },
+    {
+      "commit": "a31972a",
+      "result": "SUCCESS_SINGLE_TERMINAL_ABSORBED"
+    }
+  ]
+}

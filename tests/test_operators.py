@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import sys
 import types
+from dataclasses import replace
+from math import pi
 from types import SimpleNamespace
 
 import bpy
@@ -41,9 +43,15 @@ from mathutils import Vector
 from cftuv.decal_modal import (
     DECAL_SIZE_MIN,
     decal_drag_anchor,
+    decal_drag_target_value,
+    decal_drag_targets,
     decal_drag_value,
 )
-from cftuv.decals import DecalPreviewState
+from cftuv.decals import (
+    DecalGenerationResult,
+    DecalPreviewState,
+    PreviewStatus,
+)
 from cftuv.model import DecalSettings
 from cftuv.operators import HOTSPOTUV_OT_GenerateDecals
 
@@ -51,6 +59,47 @@ from cftuv.operators import HOTSPOTUV_OT_GenerateDecals
 class _IdentityMatrix:
     def __matmul__(self, value):
         return value
+
+    def __getitem__(self, index):
+        return (
+            (1.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (0.0, 0.0, 1.0),
+        )[index]
+
+    def to_3x3(self):
+        return self
+
+    def determinant(self):
+        return 1.0
+
+
+class _NonUniformMatrix(_IdentityMatrix):
+    def __getitem__(self, index):
+        return (
+            (2.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (0.0, 0.0, 1.0),
+        )[index]
+
+    def determinant(self):
+        return 2.0
+
+
+class _UniformScaleMatrix(_IdentityMatrix):
+    def __init__(self, scale):
+        self.scale = float(scale)
+
+    def __getitem__(self, index):
+        value = self.scale
+        return (
+            (value, 0.0, 0.0),
+            (0.0, value, 0.0),
+            (0.0, 0.0, value),
+        )[index]
+
+    def determinant(self):
+        return self.scale**3
 
 
 def _bbox_object():
@@ -145,6 +194,317 @@ def test_decal_drag_clamps_to_positive_minimum_and_shift_is_precise():
     assert precise_delta == pytest.approx(normal_delta * 0.1)
 
 
+def test_decal_preflight_rejects_non_metric_transform_before_analysis(
+    monkeypatch,
+):
+    from cftuv import operators as operators_module
+
+    source = _bbox_object()
+    source.matrix_world = _NonUniformMatrix()
+    analysis_calls = []
+    monkeypatch.setattr(
+        operators_module,
+        "_prepare_patch_graph",
+        lambda *_args, **_kwargs: analysis_calls.append(True),
+    )
+    context = SimpleNamespace(
+        active_object=source,
+        scene=SimpleNamespace(hotspotuv_settings=SimpleNamespace()),
+    )
+
+    with pytest.raises(
+        ValueError, match="NON_UNIFORM_OR_SHEARED_SOURCE_TRANSFORM"
+    ):
+        operators_module._prepare_decal_generation(context)
+
+    assert analysis_calls == []
+
+
+def _a8_modal_fixture():
+    settings = DecalSettings(
+        width_seam=0.15,
+        corner_acute_split_angle=pi / 3.0,
+        corner_apex_limit=8.0,
+    )
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    operator._modal_decal_plan = SimpleNamespace(
+        supports_live_corner_controls=True
+    )
+    operator._configure_modal_drag_targets(settings)
+    operator._rebase_modal_drag("W", 100, False)
+    operator._modal_state = object()
+    operator._modal_created = ["PreviewDecal"]
+    header = SimpleNamespace(text=None)
+    operator._modal_area = SimpleNamespace(
+        header_text_set=lambda text: setattr(header, "text", text)
+    )
+    generated_settings = []
+
+    def generate(_context, _state, current, preview=False):
+        generated_settings.append(current)
+        return DecalGenerationResult(
+            PreviewStatus.UPDATED,
+            "PreviewDecal",
+        )
+
+    operator._generate = generate
+    scene_settings = SimpleNamespace(
+        decal_width_seam=settings.width_seam,
+        decal_corner_acute_split_angle=settings.corner_acute_split_angle,
+        decal_corner_miter_limit=settings.corner_apex_limit,
+    )
+    context = SimpleNamespace(
+        scene=SimpleNamespace(hotspotuv_settings=scene_settings)
+    )
+    return operator, context, header, generated_settings
+
+
+def test_decal_shift_press_and_release_rebase_without_jump():
+    operator, context, _header, generated = _a8_modal_fixture()
+
+    operator.modal(
+        context,
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=120, shift=False),
+    )
+    normal_value = operator._modal_current_value
+    assert len(generated) == 1
+
+    operator.modal(
+        context,
+        SimpleNamespace(
+            type="LEFT_SHIFT",
+            value="PRESS",
+            mouse_x=120,
+            shift=True,
+        ),
+    )
+    assert operator._modal_current_value == normal_value
+    assert operator._modal_base_value == normal_value
+    assert operator._modal_start_mouse == 120
+    assert len(generated) == 1
+
+    operator.modal(
+        context,
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=130, shift=True),
+    )
+    precise_value = operator._modal_current_value
+    assert precise_value == pytest.approx(
+        decal_drag_target_value(
+            operator._modal_drag_targets["W"], normal_value, 10, True
+        )
+    )
+
+    operator.modal(
+        context,
+        SimpleNamespace(
+            type="LEFT_SHIFT",
+            value="RELEASE",
+            mouse_x=130,
+            shift=False,
+        ),
+    )
+    assert operator._modal_current_value == precise_value
+    assert operator._modal_base_value == precise_value
+    assert operator._modal_start_mouse == 130
+    assert len(generated) == 2
+
+
+def test_decal_drag_target_switch_w_a_m_rebases_and_keeps_settings():
+    operator, context, header, generated = _a8_modal_fixture()
+
+    operator.modal(
+        context,
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=120, shift=False),
+    )
+    width_value = operator._modal_current_settings.width_seam
+
+    operator.modal(
+        context,
+        SimpleNamespace(type="A", value="PRESS", mouse_x=120, shift=False),
+    )
+    assert operator._modal_current_value == pytest.approx(pi / 3.0)
+    assert operator._modal_start_mouse == 120
+    assert operator._modal_current_settings.width_seam == width_value
+    assert header.text.startswith("Acute Split: 60.0\N{DEGREE SIGN}")
+    assert len(generated) == 1
+
+    operator.modal(
+        context,
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=122, shift=False),
+    )
+    angle_value = operator._modal_current_settings.corner_acute_split_angle
+    assert angle_value == pytest.approx(pi * 61.0 / 180.0)
+
+    operator.modal(
+        context,
+        SimpleNamespace(type="M", value="PRESS", mouse_x=122, shift=False),
+    )
+    assert operator._modal_current_value == 8.0
+    assert operator._modal_start_mouse == 122
+    assert operator._modal_current_settings.width_seam == width_value
+    assert operator._modal_current_settings.corner_acute_split_angle == angle_value
+    assert len(generated) == 2
+
+    operator.modal(
+        context,
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=126, shift=False),
+    )
+    assert operator._modal_current_settings.corner_apex_limit == pytest.approx(
+        8.2
+    )
+
+    operator.modal(
+        context,
+        SimpleNamespace(type="W", value="PRESS", mouse_x=126, shift=False),
+    )
+    assert operator._modal_current_value == width_value
+    assert operator._modal_start_mouse == 126
+    assert len(generated) == 3
+
+
+def test_live_acute_header_uses_evaluator_policy_diagnostics():
+    operator, context, header, _generated = _a8_modal_fixture()
+    operator._modal_last_valid_result = DecalGenerationResult(
+        PreviewStatus.UPDATED,
+        "PreviewDecal",
+        policy_counts=(("MITER", 12), ("KITE", 3), ("ACUTE_SPLIT", 2)),
+        evaluation_ms=22.4,
+    )
+
+    operator.modal(
+        context,
+        SimpleNamespace(type="A", value="PRESS", mouse_x=100, shift=False),
+    )
+
+    assert header.text.startswith(
+        "Acute Split: 60.0\N{DEGREE SIGN} | "
+        "MITER:12 BEVEL:0 KITE:3 FAN:0 SPLIT:2 HAIRPIN:0 | 22.4 ms"
+    )
+
+
+def test_non_patch_routing_disables_live_corner_targets_with_strict_header():
+    settings = DecalSettings()
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    operator._modal_decal_plan = SimpleNamespace(
+        supports_live_corner_controls=False,
+        rejected_edges=(),
+    )
+    operator._configure_modal_drag_targets(settings)
+    operator._rebase_modal_drag("W", 100, False)
+    header = SimpleNamespace(text=None)
+    operator._modal_area = SimpleNamespace(
+        header_text_set=lambda text: setattr(header, "text", text)
+    )
+
+    result = operator.modal(
+        SimpleNamespace(),
+        SimpleNamespace(type="A", value="PRESS", mouse_x=120, shift=False),
+    )
+
+    assert result == {"RUNNING_MODAL"}
+    assert set(operator._modal_drag_targets) == {"W"}
+    assert set(operator._modal_disabled_drag_targets) == {"A", "M"}
+    assert operator._active_modal_drag_target().key == "W"
+    assert operator._modal_current_value == settings.width_seam
+    assert (
+        "Live corner controls require Patch Voronoi-only Seams"
+        in header.text
+    )
+
+
+def test_failed_scope_disables_live_corner_targets_with_failed_header():
+    settings = DecalSettings()
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    operator._modal_decal_plan = SimpleNamespace(
+        supports_live_corner_controls=False,
+        rejected_edges=(object(),),
+    )
+    operator._configure_modal_drag_targets(settings)
+    operator._rebase_modal_drag("W", 100, False)
+    header = SimpleNamespace(text=None)
+    operator._modal_area = SimpleNamespace(
+        header_text_set=lambda text: setattr(header, "text", text)
+    )
+
+    result = operator.modal(
+        SimpleNamespace(),
+        SimpleNamespace(type="A", value="PRESS", mouse_x=120, shift=False),
+    )
+
+    assert result == {"RUNNING_MODAL"}
+    assert "Live corner controls require Failed:0" in header.text
+
+
+def test_invalid_live_acute_frame_keeps_last_valid_threshold():
+    operator, context, header, _generated = _a8_modal_fixture()
+    operator.modal(
+        context,
+        SimpleNamespace(type="A", value="PRESS", mouse_x=100, shift=False),
+    )
+    valid_angle = operator._modal_current_value
+    operator._generate = lambda *_args, **_kwargs: DecalGenerationResult(
+        PreviewStatus.ERROR,
+        None,
+        reason="invalid acute topology",
+    )
+
+    result = operator.modal(
+        context,
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=120, shift=False),
+    )
+
+    assert result == {"RUNNING_MODAL"}
+    assert operator._modal_current_value == valid_angle
+    assert operator._modal_current_settings.corner_acute_split_angle == valid_angle
+    assert (
+        context.scene.hotspotuv_settings.decal_corner_acute_split_angle
+        == valid_angle
+    )
+    assert "ERROR: invalid acute topology" in header.text
+
+
+def test_decal_drag_target_clamps_distance_angle_and_ratio():
+    targets = {target.key: target for target in decal_drag_targets("SEAMS")}
+
+    assert decal_drag_target_value(targets["W"], 0.15, -10000) > 0.0
+    assert decal_drag_target_value(targets["A"], pi / 3.0, -10000) == pytest.approx(
+        pi / 180.0
+    )
+    assert decal_drag_target_value(targets["A"], pi / 3.0, 10000) == pytest.approx(
+        pi * 179.0 / 180.0
+    )
+    assert decal_drag_target_value(targets["M"], 8.0, -10000) == 1.0
+
+
+def test_decal_cancel_restores_all_operator_owned_targets():
+    operator, context, _header, _generated = _a8_modal_fixture()
+    operator._modal_preview_discarded = True
+
+    for event in (
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=120, shift=False),
+        SimpleNamespace(type="A", value="PRESS", mouse_x=120, shift=False),
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=124, shift=False),
+        SimpleNamespace(type="M", value="PRESS", mouse_x=124, shift=False),
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=130, shift=False),
+    ):
+        operator.modal(context, event)
+
+    operator.modal(
+        context,
+        SimpleNamespace(type="ESC", value="PRESS", shift=False),
+    )
+
+    scene_settings = context.scene.hotspotuv_settings
+    assert scene_settings.decal_width_seam == pytest.approx(0.15)
+    assert scene_settings.decal_corner_acute_split_angle == pytest.approx(
+        pi / 3.0
+    )
+    assert scene_settings.decal_corner_miter_limit == pytest.approx(8.0)
+
+
 def test_decal_modal_ignores_vertical_only_mousemove():
     operator = HOTSPOTUV_OT_GenerateDecals()
     operator.mode = "TOP"
@@ -186,7 +546,7 @@ def test_decal_modal_ignores_vertical_only_mousemove():
     assert operator._modal_current_value == 0.25
 
 
-def test_decal_modal_keeps_last_valid_preview_after_runtime_error():
+def test_decal_modal_records_seams_error_without_advancing_drag_value():
     operator = HOTSPOTUV_OT_GenerateDecals()
     operator.mode = "SEAMS"
     operator._modal_base_settings = DecalSettings(width_seam=0.15)
@@ -219,11 +579,310 @@ def test_decal_modal_keeps_last_valid_preview_after_runtime_error():
     )
 
     assert result == {"RUNNING_MODAL"}
-    assert operator._modal_created == ["LastValidDecal"]
     assert operator._modal_current_value == 0.15
     assert operator._modal_current_settings is None
     assert operator._modal_last_preview_error == "invalid crop"
     assert scene_settings.decal_width_seam == 0.15
+
+
+def test_modal_invalid_status_series_cancels_instead_of_confirming_stale_frame():
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    base_settings = DecalSettings(width_seam=0.15)
+    operator._modal_base_settings = base_settings
+    operator._modal_base_value = 0.15
+    operator._modal_current_value = 0.15
+    operator._modal_current_settings = base_settings
+    operator._modal_last_valid_settings = base_settings
+    operator._modal_start_mouse = 100
+    operator._modal_property = "decal_width_seam"
+    operator._modal_settings_field = "width_seam"
+    operator._modal_label = "Seam Width"
+    operator._modal_state = object()
+    operator._modal_created = ["BaseDecal"]
+    operator._modal_preview_discarded = False
+    header = SimpleNamespace(text=None)
+    operator._modal_area = SimpleNamespace(
+        header_text_set=lambda text: setattr(header, "text", text)
+    )
+    reports = []
+    operator.report = lambda level, message: reports.append((level, message))
+    operator._report_created = lambda *_args, **_kwargs: None
+    preview_results = iter(
+        (
+            DecalGenerationResult(
+                PreviewStatus.UPDATED,
+                "ValidDecal",
+                topology_changed=True,
+            ),
+            DecalGenerationResult(
+                PreviewStatus.RETAINED_LAST_VALID,
+                "ValidDecal",
+                reason="invalid crop",
+            ),
+            DecalGenerationResult(
+                PreviewStatus.EMPTY,
+                None,
+                reason="no faces",
+            ),
+            DecalGenerationResult(
+                PreviewStatus.ERROR,
+                None,
+                reason="backend exploded",
+            ),
+        )
+    )
+    confirm_calls = []
+
+    def generate(_context, _state, settings, preview=False):
+        if preview:
+            return next(preview_results)
+        confirm_calls.append(settings)
+        return DecalGenerationResult(PreviewStatus.UPDATED, "FinalDecal")
+
+    operator._generate = generate
+    scene_settings = SimpleNamespace(decal_width_seam=0.15)
+    context = SimpleNamespace(
+        scene=SimpleNamespace(hotspotuv_settings=scene_settings)
+    )
+
+    for mouse_x in (120, 130, 140, 150):
+        assert operator.modal(
+            context,
+            SimpleNamespace(
+                type="MOUSEMOVE",
+                mouse_x=mouse_x,
+                mouse_y=0,
+                shift=False,
+            ),
+        ) == {"RUNNING_MODAL"}
+
+    valid_value = decal_drag_value(0.15, 20)
+    assert operator._modal_current_value == pytest.approx(valid_value)
+    assert operator._modal_current_settings.width_seam == pytest.approx(
+        valid_value
+    )
+    assert operator._modal_last_valid_settings.width_seam == pytest.approx(
+        valid_value
+    )
+    assert scene_settings.decal_width_seam == pytest.approx(valid_value)
+    assert operator._modal_created == ["ValidDecal"]
+    assert operator._modal_last_preview_error == "backend exploded"
+    assert "ERROR: backend exploded" in header.text
+
+    assert operator.modal(
+        context,
+        SimpleNamespace(type="LEFTMOUSE", value="PRESS"),
+    ) == {"CANCELLED"}
+    assert confirm_calls == []
+    assert operator._modal_preview_discarded is True
+    assert scene_settings.decal_width_seam == pytest.approx(0.15)
+    assert header.text is None
+    assert reports[-1] == (
+        {"ERROR"},
+        "Current SEAMS preview failed; confirmation cancelled: "
+        "backend exploded",
+    )
+
+
+@pytest.mark.parametrize(
+    ("status", "reason"),
+    (
+        (PreviewStatus.ERROR, "strict backend failed"),
+        (PreviewStatus.EMPTY, "generation produced no faces"),
+    ),
+)
+@pytest.mark.parametrize("confirm_event", ("LEFTMOUSE", "RET", "NUMPAD_ENTER"))
+def test_seams_confirm_cancels_current_invalid_preview_without_final_rebuild(
+    status,
+    reason,
+    confirm_event,
+):
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    base_settings = DecalSettings(width_seam=0.15)
+    operator._modal_base_settings = base_settings
+    operator._modal_base_value = 0.15
+    operator._modal_current_value = 0.15
+    operator._modal_current_settings = base_settings
+    operator._modal_last_valid_settings = base_settings
+    operator._modal_start_mouse = 100
+    operator._modal_property = "decal_width_seam"
+    operator._modal_settings_field = "width_seam"
+    operator._modal_label = "Seam Width"
+    operator._modal_state = object()
+    operator._modal_preview_discarded = False
+    operator._modal_area = None
+    reports = []
+    operator.report = lambda level, message: reports.append((level, message))
+    final_calls = []
+
+    def generate(_context, _state, settings, preview=False):
+        if preview:
+            return DecalGenerationResult(status, None, reason=reason)
+        final_calls.append(settings)
+        return DecalGenerationResult(PreviewStatus.UPDATED, "FinalDecal")
+
+    operator._generate = generate
+    scene_settings = SimpleNamespace(decal_width_seam=0.15)
+    context = SimpleNamespace(
+        scene=SimpleNamespace(hotspotuv_settings=scene_settings)
+    )
+
+    assert operator.modal(
+        context,
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=120, shift=False),
+    ) == {"RUNNING_MODAL"}
+    assert operator._modal_last_preview_error == reason
+
+    assert operator.modal(
+        context,
+        SimpleNamespace(type=confirm_event, value="PRESS"),
+    ) == {"CANCELLED"}
+    assert final_calls == []
+    assert operator._modal_preview_discarded is True
+    assert scene_settings.decal_width_seam == pytest.approx(0.15)
+    assert reports[-1] == (
+        {"ERROR"},
+        "Current SEAMS preview failed; confirmation cancelled: " + reason,
+    )
+
+
+def test_seams_drag_retries_same_value_after_preview_error():
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    settings = DecalSettings(width_seam=0.15)
+    operator._modal_base_settings = settings
+    operator._modal_base_value = 0.15
+    operator._modal_current_value = 0.15
+    operator._modal_current_settings = settings
+    operator._modal_last_valid_settings = settings
+    operator._modal_last_preview_error = "previous strict failure"
+    operator._modal_start_mouse = 100
+    operator._modal_property = "decal_width_seam"
+    operator._modal_settings_field = "width_seam"
+    operator._modal_label = "Seam Width"
+    operator._modal_state = object()
+    operator._modal_area = None
+    preview_calls = []
+
+    def generate(_context, _state, current, preview=False):
+        preview_calls.append((current.width_seam, preview))
+        return DecalGenerationResult(PreviewStatus.UPDATED, "RecoveredDecal")
+
+    operator._generate = generate
+    scene_settings = SimpleNamespace(decal_width_seam=0.15)
+    context = SimpleNamespace(
+        scene=SimpleNamespace(hotspotuv_settings=scene_settings)
+    )
+
+    result = operator.modal(
+        context,
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=100, shift=False),
+    )
+
+    assert result == {"RUNNING_MODAL"}
+    assert preview_calls == [(pytest.approx(0.15), True)]
+    assert operator._modal_last_preview_error is None
+    assert operator._modal_created == ["RecoveredDecal"]
+
+
+def test_b4_budget_excess_recompiles_only_on_confirm():
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    base_settings = DecalSettings(width_seam=0.15)
+    operator._modal_base_settings = base_settings
+    operator._modal_current_settings = base_settings
+    operator._modal_last_valid_settings = base_settings
+    operator._modal_base_value = 0.15
+    operator._modal_current_value = 0.15
+    operator._modal_start_mouse = 100
+    operator._modal_property = "decal_width_seam"
+    operator._modal_settings_field = "width_seam"
+    operator._modal_label = "Seam Width"
+    operator._modal_state = object()
+    operator._modal_decal_plan = "initial-plan"
+    operator._modal_created = ["LastValidDecal"]
+    operator._modal_preview_discarded = False
+    operator._modal_area = SimpleNamespace(header_text_set=lambda _text: None)
+    reports = []
+    operator.report = lambda level, message: reports.append((level, message))
+    operator._report_created = lambda *_args, **_kwargs: None
+
+    compile_calls = []
+
+    def compile_plan(_state, settings=None, alpha_budget=None):
+        compile_calls.append((settings, alpha_budget))
+        operator._modal_decal_plan = "expanded-plan"
+
+    operator._compile_decal_plan = compile_plan
+    final_calls = []
+
+    def generate(_context, _state, settings, preview=False):
+        if preview:
+            return DecalGenerationResult(
+                PreviewStatus.RETAINED_LAST_VALID,
+                "LastValidDecal",
+                reason=(
+                    "DOMAIN_BUDGET_EXCEEDED: alpha=0.2 exceeds budget=0.1"
+                ),
+            )
+        final_calls.append((settings, operator._modal_decal_plan))
+        return DecalGenerationResult(PreviewStatus.UPDATED, "FinalDecal")
+
+    operator._generate = generate
+    scene_settings = SimpleNamespace(decal_width_seam=0.15)
+    context = SimpleNamespace(
+        scene=SimpleNamespace(hotspotuv_settings=scene_settings)
+    )
+
+    assert operator.modal(
+        context,
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=120, shift=False),
+    ) == {"RUNNING_MODAL"}
+    requested = decal_drag_value(0.15, 20)
+    assert compile_calls == []
+    assert operator._modal_current_value == pytest.approx(0.15)
+    assert operator._modal_pending_budget_settings.width_seam == pytest.approx(
+        requested
+    )
+    assert scene_settings.decal_width_seam == pytest.approx(0.15)
+
+    assert operator.modal(
+        context,
+        SimpleNamespace(type="LEFTMOUSE", value="PRESS"),
+    ) == {"FINISHED"}
+    assert len(compile_calls) == 1
+    assert compile_calls[0][0].width_seam == pytest.approx(requested)
+    assert final_calls[0][0].width_seam == pytest.approx(requested)
+    assert final_calls[0][1] == "expanded-plan"
+    assert scene_settings.decal_width_seam == pytest.approx(requested)
+
+
+def test_modal_confirm_without_valid_settings_is_explicit_error():
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    operator._modal_label = "Seam Width"
+    operator._modal_current_value = 0.15
+    operator._modal_current_settings = None
+    operator._modal_created = []
+    operator._modal_state = object()
+    operator._modal_area = None
+    reports = []
+    operator.report = lambda level, message: reports.append((level, message))
+
+    result = operator.modal(
+        SimpleNamespace(),
+        SimpleNamespace(type="LEFTMOUSE", value="PRESS"),
+    )
+
+    assert result == {"CANCELLED"}
+    assert reports == [
+        (
+            {"ERROR"},
+            "Final decal rebuild failed: no valid preview settings",
+        )
+    ]
 
 
 def test_decal_drag_anchor_projects_bbox_center_and_clamps_to_viewport(monkeypatch):
@@ -321,6 +980,163 @@ def test_decal_invoke_starts_horizontal_drag_for_every_mode(monkeypatch, mode):
         assert header.text.startswith("Seam Width: 0.1500")
 
 
+def test_modal_rail_overlay_is_static_and_cleanup_is_idempotent(monkeypatch):
+    from cftuv import operators as operators_module
+
+    settings = DecalSettings(width_seam=0.15)
+    source = _bbox_object()
+    selected_edges = (5, 14)
+    state = (
+        source,
+        object(),
+        settings,
+        ((0, 0, 0),),
+        True,
+        len(selected_edges),
+        selected_edges,
+    )
+    rail_plans = (object(), object())
+    modal_plans = tuple(
+        SimpleNamespace(
+            rail_plan=rail_plan,
+            supports_live_corner_controls=False,
+            rejected_edges=(),
+        )
+        for rail_plan in rail_plans
+    )
+    compile_calls = []
+
+    def _compile(_graph, local_settings, edges, **_kwargs):
+        compile_calls.append((local_settings, edges))
+        return modal_plans[len(compile_calls) - 1]
+
+    monkeypatch.setattr(
+        operators_module,
+        "_prepare_decal_generation",
+        lambda _context: state,
+    )
+    monkeypatch.setattr(
+        operators_module,
+        "compile_manual_seam_decal_plan",
+        _compile,
+    )
+    monkeypatch.setattr(
+        operators_module,
+        "_warp_decal_drag_cursor",
+        lambda _context, _source, _event: (100, 200),
+    )
+    shown = []
+    cleared = []
+    removed = []
+    generation_calls = []
+    monkeypatch.setattr(
+        operators_module,
+        "create_decal_rail_visualization",
+        lambda plan, obj: shown.append((plan, obj, len(generation_calls))),
+    )
+    monkeypatch.setattr(
+        operators_module,
+        "clear_decal_rail_visualization",
+        lambda obj: cleared.append(obj),
+    )
+    monkeypatch.setattr(
+        operators_module,
+        "remove_decal_preview_object",
+        lambda mode, obj, preview_state: removed.append(
+            (mode, obj, preview_state)
+        ),
+    )
+
+    scene_settings = SimpleNamespace(decal_width_seam=settings.width_seam)
+    context = SimpleNamespace(
+        active_object=source,
+        window=object(),
+        area=SimpleNamespace(header_text_set=lambda _text: None),
+        window_manager=SimpleNamespace(modal_handler_add=lambda _operator: None),
+        scene=SimpleNamespace(hotspotuv_settings=scene_settings),
+    )
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+
+    def _generate(_context, _state, generation_settings=None, preview=False):
+        generation_calls.append((generation_settings, preview))
+        return DecalGenerationResult(
+            PreviewStatus.UPDATED,
+            f"Decal-{len(generation_calls)}",
+        )
+
+    operator._generate = _generate
+    operator._report_created = lambda *_args, **_kwargs: None
+
+    assert operator.invoke(
+        context,
+        SimpleNamespace(mouse_x=10, mouse_y=20),
+    ) == {"RUNNING_MODAL"}
+    assert shown == [(rail_plans[0], source, 1)]
+
+    assert operator.modal(
+        context,
+        SimpleNamespace(type="MOUSEMOVE", mouse_x=120, shift=False),
+    ) == {"RUNNING_MODAL"}
+    assert shown == [(rail_plans[0], source, 1)]
+    assert len(compile_calls) == 1
+
+    pending_settings = replace(
+        operator._modal_last_valid_settings,
+        width_seam=0.40,
+    )
+    operator._modal_pending_budget_settings = pending_settings
+    operator._modal_pending_budget_value = pending_settings.width_seam
+    assert operator.modal(
+        context,
+        SimpleNamespace(type="LEFTMOUSE", value="PRESS"),
+    ) == {"FINISHED"}
+
+    assert len(compile_calls) == 2
+    assert operator._modal_decal_plan is modal_plans[1]
+    assert shown == [(rail_plans[0], source, 1)]
+    assert cleared == [source]
+    assert len(removed) == 1
+
+    operator.cancel(context)
+    operator.cancel(context)
+    assert cleared == [source]
+    assert len(removed) == 1
+
+
+def test_modal_rail_overlay_clears_stale_object_when_compile_has_no_plan(
+    monkeypatch,
+):
+    from cftuv import operators as operators_module
+
+    source = object()
+    shown = []
+    monkeypatch.setattr(
+        operators_module,
+        "create_decal_rail_visualization",
+        lambda plan, obj: shown.append((plan, obj)),
+    )
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    operator._modal_state = (
+        source,
+        object(),
+        DecalSettings(),
+        (),
+        True,
+        1,
+        (7,),
+    )
+    operator._modal_decal_plan = SimpleNamespace(rail_plan=None)
+    operator._modal_rail_visualization_shown = False
+    operator._modal_rail_visualization_cleared = False
+
+    operator._show_modal_rail_visualization()
+    operator._show_modal_rail_visualization()
+
+    assert shown == [(None, source)]
+
+
 def test_manual_edge_seams_enters_interactive_width_modal(monkeypatch):
     from cftuv import operators as operators_module
 
@@ -351,9 +1167,14 @@ def test_manual_edge_seams_enters_interactive_width_modal(monkeypatch):
     monkeypatch.setattr(
         operators_module,
         "compile_manual_seam_decal_plan",
-        lambda graph, plan_settings, edges: (
+        lambda graph, plan_settings, edges, **_kwargs: (
             compile_calls.append((graph, plan_settings, edges)) or modal_plan
         ),
+    )
+    monkeypatch.setattr(
+        operators_module,
+        "create_decal_rail_visualization",
+        lambda *_args: None,
     )
 
     cursor_warps = []
@@ -370,7 +1191,8 @@ def test_manual_edge_seams_enters_interactive_width_modal(monkeypatch):
     operator.mode = "SEAMS"
     generated_states = []
     operator._generate = lambda _context, generation_state, settings=None, preview=False: (
-        generated_states.append((generation_state, settings)) or ["Decal"]
+        generated_states.append((generation_state, settings, preview))
+        or [".CFTUV_Preview_Seams_Source"]
     )
 
     result = operator.invoke(
@@ -383,6 +1205,7 @@ def test_manual_edge_seams_enters_interactive_width_modal(monkeypatch):
     assert operator._modal_property == "decal_width_seam"
     assert operator._modal_base_value == 0.15
     assert generated_states[0][0][-1] == selected_edges
+    assert generated_states[0][2] is True
     assert operator._modal_decal_plan is modal_plan
     assert isinstance(operator._modal_preview_state, DecalPreviewState)
     assert compile_calls == [(state[1], settings, selected_edges)]
@@ -408,18 +1231,72 @@ def test_decal_generate_forwards_modal_plan(monkeypatch):
     calls = []
     monkeypatch.setattr(
         operators_module,
-        "generate_decal_objects",
-        lambda *args, **kwargs: calls.append((args, kwargs)) or ["Decal"],
+        "generate_decal_result",
+        lambda *args, **kwargs: calls.append((args, kwargs))
+        or operators_module.DecalGenerationResult(
+            operators_module.PreviewStatus.UPDATED,
+            "Decal",
+        ),
     )
 
-    created = operator._generate(
+    generation = operator._generate(
         SimpleNamespace(scene=object()), state, preview=True
     )
 
-    assert created == ["Decal"]
+    assert generation.status == operators_module.PreviewStatus.UPDATED
+    assert generation.object_name == "Decal"
     assert calls[0][1]["decal_plan"] is operator._modal_decal_plan
     assert calls[0][1]["preview_state"] is operator._modal_preview_state
     assert calls[0][1]["preview"] is True
+
+
+def test_seam_compile_plan_receives_local_metric_settings(monkeypatch):
+    from cftuv import operators as operators_module
+
+    source = _bbox_object()
+    source.matrix_world = _UniformScaleMatrix(2.0)
+    settings = DecalSettings(
+        width_seam=0.15,
+        offset=0.02,
+        uv_length_scale=0.25,
+    )
+    selected_edges = (5, 14)
+    state = (
+        source,
+        object(),
+        settings,
+        ((0, 0, 0),),
+        True,
+        len(selected_edges),
+        selected_edges,
+    )
+    compiled_settings = []
+    compiled_budgets = []
+    monkeypatch.setattr(
+        operators_module,
+        "compile_manual_seam_decal_plan",
+        lambda _graph, local, _edges, **kwargs: (
+            compiled_settings.append(local)
+            or compiled_budgets.append(kwargs["alpha_budget"])
+            or object()
+        ),
+    )
+    monkeypatch.setattr(
+        operators_module,
+        "create_decal_rail_visualization",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("compile must not show modal rail overlay")
+        ),
+    )
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+
+    operator._compile_decal_plan(state)
+
+    assert compiled_settings[0].width_seam == pytest.approx(0.075)
+    assert compiled_settings[0].offset == pytest.approx(0.01)
+    assert compiled_settings[0].uv_length_scale == pytest.approx(0.50)
+    assert compiled_budgets == pytest.approx([0.15])
 
 
 def test_seam_execute_compiles_and_forwards_same_plan_as_modal(monkeypatch):
@@ -428,7 +1305,7 @@ def test_seam_execute_compiles_and_forwards_same_plan_as_modal(monkeypatch):
     settings = DecalSettings()
     selected_edges = (5, 14)
     state = (
-        object(),
+        _bbox_object(),
         object(),
         settings,
         ((0, 0, 0),),
@@ -446,8 +1323,15 @@ def test_seam_execute_compiles_and_forwards_same_plan_as_modal(monkeypatch):
     monkeypatch.setattr(
         operators_module,
         "compile_manual_seam_decal_plan",
-        lambda graph, plan_settings, edges: (
+        lambda graph, plan_settings, edges, **_kwargs: (
             compile_calls.append((graph, plan_settings, edges)) or modal_plan
+        ),
+    )
+    monkeypatch.setattr(
+        operators_module,
+        "create_decal_rail_visualization",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("execute must not show modal rail overlay")
         ),
     )
 
@@ -466,7 +1350,7 @@ def test_seam_execute_compiles_and_forwards_same_plan_as_modal(monkeypatch):
     assert generated_plans == [modal_plan]
 
 
-def test_seam_modal_cancel_restores_scene_width_and_base_geometry():
+def test_seam_modal_cancel_restores_scene_width_without_regeneration():
     operator = HOTSPOTUV_OT_GenerateDecals()
     operator.mode = "SEAMS"
     operator._modal_base_settings = DecalSettings(width_seam=0.15)
@@ -495,7 +1379,102 @@ def test_seam_modal_cancel_restores_scene_width_and_base_geometry():
 
     assert result == {"CANCELLED"}
     assert scene_settings.decal_width_seam == 0.15
-    assert generated_settings == [operator._modal_base_settings]
+    assert generated_settings == []
+
+
+def test_forced_cancel_removes_preview_once_and_restores_scene(
+    monkeypatch,
+):
+    from cftuv import operators as operators_module
+
+    source = SimpleNamespace(name="Source")
+    preview_state = DecalPreviewState(
+        object_name=".CFTUV_Preview_Seams_Source"
+    )
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    operator._modal_state = (source, object(), DecalSettings(), None, False, 0, ())
+    operator._modal_preview_state = preview_state
+    operator._modal_preview_discarded = False
+    operator._modal_rail_visualization_shown = True
+    operator._modal_rail_visualization_cleared = False
+    operator._modal_property = "decal_width_seam"
+    operator._modal_base_value = 0.15
+    operator._modal_area = None
+    removed = []
+    cleared = []
+    monkeypatch.setattr(
+        operators_module,
+        "remove_decal_preview_object",
+        lambda mode, obj, state: removed.append((mode, obj, state)) or True,
+    )
+    monkeypatch.setattr(
+        operators_module,
+        "clear_decal_rail_visualization",
+        lambda obj: cleared.append(obj),
+    )
+    scene_settings = SimpleNamespace(decal_width_seam=0.40)
+    context = SimpleNamespace(
+        scene=SimpleNamespace(hotspotuv_settings=scene_settings)
+    )
+
+    operator.cancel(context)
+    operator.cancel(context)
+
+    assert removed == [("SEAMS", source, preview_state)]
+    assert cleared == [source]
+    assert scene_settings.decal_width_seam == 0.15
+
+
+def test_confirm_failure_removes_preview_and_leaves_cancelled_state(
+    monkeypatch,
+):
+    from cftuv import operators as operators_module
+
+    source = SimpleNamespace(name="Source")
+    operator = HOTSPOTUV_OT_GenerateDecals()
+    operator.mode = "SEAMS"
+    operator._modal_state = (source, object(), DecalSettings(), None, False, 0, ())
+    operator._modal_preview_state = DecalPreviewState(
+        object_name=".CFTUV_Preview_Seams_Source"
+    )
+    operator._modal_preview_discarded = False
+    operator._modal_property = "decal_width_seam"
+    operator._modal_base_value = 0.15
+    operator._modal_current_value = 0.30
+    operator._modal_label = "Seam Width"
+    operator._modal_area = None
+    operator._modal_last_valid_settings = DecalSettings(width_seam=0.30)
+    operator._generate = lambda *_args, **_kwargs: DecalGenerationResult(
+        PreviewStatus.ERROR,
+        None,
+        reason="exact rebuild failed",
+    )
+    removed = []
+    monkeypatch.setattr(
+        operators_module,
+        "remove_decal_preview_object",
+        lambda mode, obj, state: removed.append((mode, obj, state)) or True,
+    )
+    reports = []
+    operator.report = lambda level, message: reports.append((level, message))
+    scene_settings = SimpleNamespace(decal_width_seam=0.30)
+    context = SimpleNamespace(
+        scene=SimpleNamespace(hotspotuv_settings=scene_settings)
+    )
+
+    result = operator.modal(
+        context,
+        SimpleNamespace(type="LEFTMOUSE", value="PRESS"),
+    )
+
+    assert result == {"CANCELLED"}
+    assert len(removed) == 1
+    assert scene_settings.decal_width_seam == 0.15
+    assert reports[-1] == (
+        {"ERROR"},
+        "Final decal rebuild failed: exact rebuild failed",
+    )
 
 
 def test_seam_modal_confirm_reports_seam_width():
@@ -506,6 +1485,10 @@ def test_seam_modal_confirm_reports_seam_width():
     operator._modal_created = ["Decal"]
     operator._modal_state = object()
     operator._modal_area = None
+    operator._modal_last_valid_settings = DecalSettings(width_seam=0.30)
+    operator._generate = (
+        lambda _context, _state, _settings, preview=False: ["Decal"]
+    )
 
     reports = []
     operator._report_created = lambda created, state, suffix="": reports.append(
@@ -521,11 +1504,11 @@ def test_seam_modal_confirm_reports_seam_width():
     assert reports == [(["Decal"], operator._modal_state, "Seam Width:0.3000")]
 
 
-def test_decal_created_report_exposes_hybrid_backend_routing():
+def test_decal_created_report_exposes_strict_backend_routing():
     reports = []
     operator = SimpleNamespace(
         _modal_decal_plan=SimpleNamespace(
-            backend_summary="Patch Voronoi:22c/259e | Legacy:1c/199e"
+            backend_summary="PLANAR:22c/259e"
         ),
         report=lambda level, message: reports.append((level, message)),
     )
@@ -547,7 +1530,7 @@ def test_decal_created_report_exposes_hybrid_backend_routing():
         (
             {"INFO"},
             "Created: Decal_Seams_walls.010 | chains:1 edges:458 | "
-            "Patch Voronoi:22c/259e | Legacy:1c/199e",
+            "PLANAR:22c/259e",
         )
     ]
 

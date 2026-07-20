@@ -1,0 +1,39 @@
+{
+  "schema": "cftuv.decal_g1_1_needle_triage.v1",
+  "date": "2026-07-18",
+  "code_commit": "bb6a9d77673b0b22eb70a0db5a4eb83ec1a3090c",
+  "g1_exact_intrinsic": {
+    "fixture": "8-facet 90-degree developable strip",
+    "widths": [0.74, 1.27, 1.61],
+    "face_counts": [4, 8, 10],
+    "triangle_face_counts": [0, 0, 0],
+    "minimum_angles_degrees": [
+      89.97162686516386,
+      89.97152765180716,
+      89.97152765180721
+    ],
+    "needle_sliver_confirmed": false
+  },
+  "smooth_control": {
+    "fixture": "PLANAR 60-degree arc, 6 segments, tau=10 degrees",
+    "widths": [0.74, 1.27, 1.61],
+    "face_counts": [31, 31, 31],
+    "triangle_face_counts": [14, 14, 14],
+    "minimum_angles_degrees": [
+      4.99771983679158,
+      4.997861239392141,
+      4.997902934036756
+    ],
+    "minimum_triangle_areas": [
+      0.00009227512381682838,
+      0.00027178697444146354,
+      0.0004367902637793438
+    ],
+    "needle_sliver_confirmed": true
+  },
+  "decision": {
+    "g1_production_changed": false,
+    "reason": "contract permits merge only when imprint root is confirmed",
+    "owner": "C8.3 SMOOTH arrangement design-stop"
+  }
+}

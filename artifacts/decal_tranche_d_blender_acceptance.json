@@ -1,0 +1,43 @@
+{
+  "schema": "cftuv.decal_periodic_acceptance.v1",
+  "date": "2026-07-17",
+  "blender_version": "4.3.2",
+  "baseline_head": "562927a586f02a706e9f33de78885d21dbb758f1",
+  "periodic_fixture": {
+    "object": "CFTUV_D_PERIODIC_CYLINDER",
+    "source_faces": 32,
+    "selected_edges": 32,
+    "compile_ms": 106.0865,
+    "periodic_domains": 1,
+    "period": 12.5462,
+    "alpha_budget": 6.2731,
+    "periodic_copy_count": 33,
+    "periodic_weld_count": 2,
+    "runtime_policy_counts": {
+      "MITER": 32
+    },
+    "width": 0.5,
+    "evaluate_median_ms": 48.2942,
+    "evaluate_p95_ms": 48.9716,
+    "materialized_faces": 32,
+    "connected_components": 1,
+    "vertical_cut_boundary_edges": 0,
+    "overfull_edges": 0,
+    "repeated_preview_equal": true,
+    "preview_confirm_equal": true,
+    "construct_calls_during_drag": 0
+  },
+  "non_periodic_differential": {
+    "object": "rounded_wall",
+    "selected_edges": 68,
+    "compile_failures": [],
+    "materialized_faces": 156,
+    "geometry_digest": "336c91d5304583b3c3a629a598244b013466338dcc442b79db85a4afd4fb353d",
+    "periodic_domains": 0,
+    "periodic_copy_count": 0,
+    "periodic_weld_count": 0,
+    "repeated_preview_equal": true,
+    "preview_confirm_equal": true,
+    "construct_calls_during_drag": 0
+  }
+}

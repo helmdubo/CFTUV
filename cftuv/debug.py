@@ -36,6 +36,26 @@ _LABEL_LIFT = 0.025
 _GP_OBJECT_TYPES = {'GPENCIL', 'GREASEPENCIL'}
 _GP_V3_RADIUS_PER_PIXEL = 0.00075
 
+# Rail preview живёт отдельно от Analyze overlay: оба объекта можно
+# обновлять и удалять независимо.
+_DECAL_RAIL_GP_PREFIX = GP_DEBUG_PREFIX + 'DecalRails_'
+_DECAL_RAIL_MATERIAL_PREFIX = 'CFTUV_DecalRail_'
+_DECAL_RAIL_STYLES = {
+    'Rails': ((0.0, 1.0, 1.0, 1.0), 7),    # cyan
+    'Dams': ((1.0, 0.0, 0.0, 1.0), 9),     # red
+    'Poles': ((1.0, 0.0, 1.0, 1.0), 9),    # magenta
+    'Merges': ((0.0, 1.0, 0.0, 1.0), 9),   # green
+    'Marks': ((1.0, 1.0, 0.0, 1.0), 9),    # yellow
+    'Freeze': ((1.0, 0.45, 0.0, 1.0), 11),  # orange
+}
+_DECAL_RAIL_EVENT_LAYER = {
+    'DAM': 'Dams',
+    'POLE': 'Poles',
+    'MERGE': 'Merges',
+    'MARK': 'Marks',
+}
+_DECAL_RAIL_MARKER_SIZE = 0.025
+
 
 def _enum_value(value):
     return value.value if hasattr(value, 'value') else value
@@ -43,6 +63,10 @@ def _enum_value(value):
 
 def _get_gp_debug_name(source_obj):
     return GP_DEBUG_PREFIX + source_obj.name
+
+
+def _get_decal_rail_gp_name(source_obj):
+    return _DECAL_RAIL_GP_PREFIX + source_obj.name
 
 
 def is_gp_debug_object(obj):
@@ -151,6 +175,34 @@ def _get_or_create_gp_object(source_obj):
     gp_obj = bpy.data.objects.new(gp_name, gp_data)
     bpy.context.scene.collection.objects.link(gp_obj)
     gp_obj.matrix_world = source_obj.matrix_world.copy()
+    if hasattr(gp_data, 'stroke_depth_order'):
+        gp_data.stroke_depth_order = '3D'
+    if hasattr(gp_data, 'stroke_thickness_space'):
+        gp_data.stroke_thickness_space = 'SCREENSPACE'
+    return gp_obj
+
+
+def _get_or_create_decal_rail_gp_object(source_obj):
+    """Создаёт отдельный GP object для immutable rail plan."""
+    gp_name = _get_decal_rail_gp_name(source_obj)
+
+    if gp_name in bpy.data.objects:
+        gp_obj = bpy.data.objects[gp_name]
+        if is_gp_debug_object(gp_obj):
+            gp_obj.matrix_world = source_obj.matrix_world.copy()
+            return gp_obj
+        bpy.data.objects.remove(gp_obj, do_unlink=True)
+
+    gp_collection = _grease_pencil_object_collection()
+    if gp_collection is None:
+        raise RuntimeError("Grease Pencil data-block collection is unavailable in this Blender version")
+
+    gp_data = gp_collection.new(gp_name)
+    gp_obj = bpy.data.objects.new(gp_name, gp_data)
+    bpy.context.scene.collection.objects.link(gp_obj)
+    gp_obj.matrix_world = source_obj.matrix_world.copy()
+    if hasattr(gp_obj, 'show_in_front'):
+        gp_obj.show_in_front = True
     if hasattr(gp_data, 'stroke_depth_order'):
         gp_data.stroke_depth_order = '3D'
     if hasattr(gp_data, 'stroke_thickness_space'):
@@ -810,10 +862,278 @@ def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, s
     apply_layer_visibility(gp_data, settings_dict)
 
 
+def _rail_ledger(plan):
+    """Возвращает immutable ledger, не обращаясь к source mesh."""
+    return getattr(plan, 'ledger', plan)
+
+
+def _rail_attr(item, *names):
+    for name in names:
+        if isinstance(item, dict) and name in item:
+            return item[name]
+        if hasattr(item, name):
+            return getattr(item, name)
+    return None
+
+
+def _rail_vector(value):
+    if value is None:
+        return None
+    if isinstance(value, Vector):
+        return value.copy()
+    if all(hasattr(value, axis) for axis in ('x', 'y', 'z')):
+        return Vector((value.x, value.y, value.z))
+    try:
+        values = tuple(value)
+    except TypeError:
+        return None
+    if len(values) < 2:
+        return None
+    if len(values) == 2:
+        values = values + (0.0,)
+    return Vector(values[:3])
+
+
+def _rail_vertex_id(item):
+    return _rail_attr(item, 'vertex_id', 'source_vertex_id', 'id')
+
+
+def _rail_edge_id(item):
+    return _rail_attr(item, 'edge_id', 'source_edge_id', 'id')
+
+
+def _build_rail_geometry_lookup(plan):
+    """Индексирует каноническую геометрию B0 из plan ledger."""
+    ledger = _rail_ledger(plan)
+    vertices = {}
+    for vertex in _rail_sequence(ledger, 'vertices', 'rail_vertices'):
+        vertex_id = _rail_vertex_id(vertex)
+        position = _rail_item_point(vertex)
+        if vertex_id is not None and position is not None:
+            vertices[vertex_id] = position
+
+    edges = {}
+    for edge in _rail_sequence(ledger, 'edges', 'rail_edges'):
+        edge_id = _rail_edge_id(edge)
+        vertex_ids = _rail_attr(edge, 'vertex_ids', 'vertices', 'vert_ids')
+        if vertex_ids is None:
+            vert_a = _rail_attr(edge, 'vert_a', 'vertex_a')
+            vert_b = _rail_attr(edge, 'vert_b', 'vertex_b')
+            vertex_ids = (vert_a, vert_b)
+        vertex_ids = tuple(vertex_ids)
+        if edge_id is not None and len(vertex_ids) >= 2:
+            edges[edge_id] = (vertex_ids[0], vertex_ids[1])
+    return vertices, edges
+
+
+def _rail_item_point(item, geometry_lookup=None):
+    value = _rail_attr(
+        item,
+        'position',
+        'world_position',
+        'co',
+        'point',
+        'coord',
+        'source_position',
+    )
+    if value is None and geometry_lookup is not None:
+        vertices, edges = geometry_lookup
+        source_vertex_id = _rail_attr(item, 'source_vertex_id', 'vertex_id')
+        if source_vertex_id is not None and source_vertex_id in vertices:
+            return vertices[source_vertex_id].copy()
+
+        source_edge_id = _rail_attr(item, 'source_edge_id', 'edge_id')
+        parameter = _rail_attr(item, 'edge_parameter', 'parameter', 't')
+        if source_edge_id is not None and parameter is not None and source_edge_id in edges:
+            vert_a, vert_b = edges[source_edge_id]
+            if vert_a in vertices and vert_b in vertices:
+                return vertices[vert_a].lerp(vertices[vert_b], float(parameter))
+    if value is None:
+        # Для простых tuple-ledger фикстур item сам является координатой.
+        value = item
+    return _rail_vector(value)
+
+
+def _rail_item_points(item, geometry_lookup=None):
+    values = _rail_attr(item, 'stations', 'points', 'positions', 'polyline', 'vertices')
+    if values is None:
+        point = _rail_item_point(item, geometry_lookup)
+        return [point] if point is not None else []
+
+    result = []
+    for value in values:
+        point = _rail_item_point(value, geometry_lookup)
+        if point is not None:
+            result.append(point)
+    return result
+
+
+def _rail_sequence(owner, *names):
+    value = _rail_attr(owner, *names)
+    if value is None:
+        return ()
+    return tuple(value)
+
+
+def _iter_decal_rail_paths(plan):
+    ledger = _rail_ledger(plan)
+    return _rail_sequence(ledger, 'routes', 'rails', 'rail_paths', 'paths')
+
+
+def _decal_rail_event_layer(event):
+    kind = _rail_attr(event, 'kind', 'event_kind', 'type', 'termination')
+    kind = str(_enum_value(kind) or '').upper()
+    for token, layer_name in _DECAL_RAIL_EVENT_LAYER.items():
+        if token in kind:
+            return layer_name
+    return None
+
+
+def _iter_decal_rail_events(plan):
+    """Читает события только из plan ledger, с duck-typed схемой R0."""
+    ledger = _rail_ledger(plan)
+    events = _rail_sequence(ledger, 'events', 'rail_events')
+    if events:
+        for event in events:
+            layer_name = _decal_rail_event_layer(event)
+            if layer_name is not None:
+                yield layer_name, event
+    else:
+        # В компактной R0-схеме события являются типизированными станциями.
+        found_route_event = False
+        for route in _iter_decal_rail_paths(plan):
+            for station in _rail_sequence(route, 'stations'):
+                layer_name = _decal_rail_event_layer(station)
+                if layer_name is not None:
+                    found_route_event = True
+                    yield layer_name, station
+
+        if not found_route_event:
+            # Поддержка ledger с раздельными tuple классов событий.
+            for layer_name, names in (
+                ('Dams', ('dams', 'dam_stations')),
+                ('Poles', ('poles', 'pole_stations')),
+                ('Merges', ('merges', 'merge_stations')),
+                ('Marks', ('marks', 'rail_marks')),
+            ):
+                for event in _rail_sequence(ledger, *names):
+                    yield layer_name, event
+
+    for locus in _rail_sequence(ledger, 'freeze_loci'):
+        yield 'Freeze', locus
+
+
+def _rail_event_point(plan, event, geometry_lookup):
+    """Разрешает RailEvent через его каноническую route station."""
+    point = _rail_item_point(event, geometry_lookup)
+    if point is not None:
+        return point
+
+    route_id = _rail_attr(event, 'route_id')
+    station_index = _rail_attr(event, 'station_index')
+    if route_id is None or station_index is None:
+        return None
+    for route in _iter_decal_rail_paths(plan):
+        if _rail_attr(route, 'route_id', 'id') != route_id:
+            continue
+        stations = _rail_sequence(route, 'stations')
+        for station in stations:
+            if _rail_attr(station, 'station_index', 'index') == station_index:
+                return _rail_item_point(station, geometry_lookup)
+        if isinstance(station_index, int) and 0 <= station_index < len(stations):
+            return _rail_item_point(stations[station_index], geometry_lookup)
+    return None
+
+
+def _decal_rail_marker_segments(point):
+    size = _DECAL_RAIL_MARKER_SIZE
+    x = Vector((size, 0.0, 0.0))
+    y = Vector((0.0, size, 0.0))
+    z = Vector((0.0, 0.0, size))
+    return (
+        (point - x, point + x),
+        (point - y, point + y),
+        (point - z, point + z),
+    )
+
+
+def clear_decal_rail_visualization(source_obj):
+    """Удаляет только rail preview, сохраняя обычный Analyze overlay."""
+    gp_name = _get_decal_rail_gp_name(source_obj)
+    if gp_name in bpy.data.objects:
+        bpy.data.objects.remove(bpy.data.objects[gp_name], do_unlink=True)
+    for collection in _grease_pencil_collections():
+        if gp_name in collection:
+            collection.remove(collection[gp_name])
+
+    for material in list(bpy.data.materials):
+        if material.name.startswith(_DECAL_RAIL_MATERIAL_PREFIX) and material.users == 0:
+            bpy.data.materials.remove(material)
+
+
+def create_decal_rail_visualization(rail_plan, source_obj):
+    """Рисует compile-static rail ledger отдельным Grease Pencil object.
+
+    Функция намеренно duck-typed: R0 core может развивать immutable dataclass
+    без импорта его модуля в Blender compatibility layer. Source object нужен
+    только для имени и transform; топология меша здесь не читается.
+    """
+    if rail_plan is None:
+        clear_decal_rail_visualization(source_obj)
+        return None
+
+    gp_obj = _get_or_create_decal_rail_gp_object(source_obj)
+    gp_data = gp_obj.data
+    geometry_lookup = _build_rail_geometry_lookup(rail_plan)
+
+    frames = {}
+    material_indices = {}
+    for layer_name, (color, _line_width) in _DECAL_RAIL_STYLES.items():
+        layer = get_gp_layer(gp_data, layer_name)
+        if layer is not None:
+            _clear_gp_layer(layer)
+        else:
+            layer = gp_data.layers.new(layer_name, set_active=False)
+        frames[layer_name] = layer.frames[0] if layer.frames else layer.frames.new(0)
+        material_indices[layer_name] = _ensure_gp_material(
+            gp_data,
+            _DECAL_RAIL_MATERIAL_PREFIX + layer_name,
+            color,
+        )
+
+    rail_frame = frames['Rails']
+    rail_material = material_indices['Rails']
+    rail_width = _DECAL_RAIL_STYLES['Rails'][1]
+    for rail in _iter_decal_rail_paths(rail_plan):
+        points = _rail_item_points(rail, geometry_lookup)
+        if len(points) >= 2:
+            _add_gp_stroke(rail_frame, points, rail_material, line_width=rail_width)
+
+    for layer_name, event in _iter_decal_rail_events(rail_plan):
+        points = _rail_item_points(event, geometry_lookup)
+        if not points:
+            event_point = _rail_event_point(rail_plan, event, geometry_lookup)
+            points = [event_point] if event_point is not None else []
+        if not points:
+            continue
+        frame = frames[layer_name]
+        material = material_indices[layer_name]
+        line_width = _DECAL_RAIL_STYLES[layer_name][1]
+        if len(points) >= 2:
+            _add_gp_stroke(frame, points, material, line_width=line_width)
+            continue
+        for segment in _decal_rail_marker_segments(points[0]):
+            _add_gp_stroke(frame, segment, material, line_width=line_width)
+
+    return gp_obj
+
+
 __all__ = [
     'apply_layer_visibility',
+    'clear_decal_rail_visualization',
     'create_visualization',
     'clear_visualization',
+    'create_decal_rail_visualization',
     'create_frontier_visualization',
     'get_gp_layer',
     'gp_layer_name',

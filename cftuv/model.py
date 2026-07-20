@@ -266,11 +266,19 @@ class PatchNode:
 
     # Derived debug geometry
     mesh_verts: list[Vector] = field(default_factory=list)
+    # Global source vertex id для каждого элемента mesh_verts. Нужен
+    # intrinsic chart builder для связи serialized triangles с chains.
+    mesh_vert_indices: list[int] = field(default_factory=list)
     mesh_tris: list[tuple[int, int, int]] = field(default_factory=list)
     # Face provenance для каждого serialized triangle. Decal backend использует
     # её, чтобы не угадывать owner face по нормали fan-треугольника.
     mesh_tri_face_indices: list[int] = field(default_factory=list)
     mesh_tri_face_normals: list[Vector] = field(default_factory=list)
+    # Physical BMesh edge id для каждого local triangle edge (индексируется
+    # противоположной вершиной). Fan diagonals n-gon tessellation имеют -1.
+    mesh_tri_edge_indices: list[tuple[int, int, int]] = field(
+        default_factory=list
+    )
 
     @property
     def semantic_key(self) -> str:
@@ -331,13 +339,36 @@ class DecalSettings:
     height_trim: float = 0.25
     offset: float = 0.02
     uv_length_scale: float = 0.25
-    # Seam Voronoi network backend (decal_network.py) для manual Decal Seams;
-    # False возвращает legacy miter/junction pipeline целиком.
+    # Compatibility-only поле старых .blend/scripts. Runtime его игнорирует:
+    # SEAMS всегда использует строгий rail/Patch plan, legacy отключён.
     seam_network: bool = True
+    # A11/A12 corner-band grammar оставлена как явный experimental path.
+    # Stable default сохраняет A10 collision semantics: разрешённая часть
+    # фронтира больше не перестраивается при последующем росте ширины.
+    dynamic_corner_bands: bool = False
+    # Художественный join только для выпуклого MITER-класса. Reflex/KITE
+    # остаётся собственной семантикой и этим переключателем не подменяется.
+    corner_join_mode: str = "MITER"
     # Runtime corner policy patch-Voronoi backend. Углы хранятся в радианах,
     # как Blender ANGLE properties; compiled Voronoi plan от них не зависит.
+    corner_miter_angle: float = 2.0 * pi / 3.0
+    corner_kite_angle: float = pi / 2.0
     corner_acute_split_angle: float = pi / 3.0
-    corner_miter_limit: float = 8.0
+    corner_hairpin_angle: float = pi / 6.0
+    corner_apex_limit: float = 8.0
+    chart_distortion_budget: float = 0.02
+
+    @property
+    def corner_split_angle(self) -> float:
+        """A11 name; старое поле сохранено для file/script compatibility."""
+
+        return self.corner_acute_split_angle
+
+    @property
+    def corner_miter_limit(self) -> float:
+        """Compatibility alias для старых consumers DecalSettings."""
+
+        return self.corner_apex_limit
 
     @staticmethod
     def from_blender_settings(settings) -> "DecalSettings":
@@ -350,12 +381,34 @@ class DecalSettings:
             height_trim=float(settings.decal_height_trim),
             offset=float(settings.decal_offset),
             uv_length_scale=uv_settings.final_scale,
-            seam_network=bool(getattr(settings, "decal_seam_network", True)),
+            seam_network=True,
+            dynamic_corner_bands=bool(
+                getattr(settings, "decal_dynamic_corner_bands", False)
+            ),
+            corner_join_mode=str(
+                getattr(settings, "decal_corner_join_mode", "MITER")
+            ),
+            corner_miter_angle=float(
+                getattr(
+                    settings,
+                    "decal_corner_miter_angle",
+                    2.0 * pi / 3.0,
+                )
+            ),
+            corner_kite_angle=float(
+                getattr(settings, "decal_corner_kite_angle", pi / 2.0)
+            ),
             corner_acute_split_angle=float(
                 getattr(settings, "decal_corner_acute_split_angle", pi / 3.0)
             ),
-            corner_miter_limit=float(
+            corner_hairpin_angle=float(
+                getattr(settings, "decal_corner_hairpin_angle", pi / 6.0)
+            ),
+            corner_apex_limit=float(
                 getattr(settings, "decal_corner_miter_limit", 8.0)
+            ),
+            chart_distortion_budget=float(
+                getattr(settings, "decal_chart_distortion_budget", 0.02)
             ),
         )
 

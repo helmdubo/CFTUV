@@ -41,9 +41,9 @@ GP_DEBUG_PREFIX = "CFTUV_Debug_"
 DECAL_DIR_THRESHOLD = 0.5
 # Рёбра короче порога не участвуют в trim цепочках (шумовые кромки).
 DECAL_NOISE_THRESHOLD = 0.05
-# Пары WALL patches: dot(normal_a, normal_b) выше порога — копланарный
-# шов (seam лента), ниже — угол (corner лента).
-DECAL_COPLANAR_DOT = 0.99
+# Пары WALL patches: угол между нормалями меньше 4 градусов — копланарный
+# шов (seam лента), от 4 градусов — угол (corner лента).
+DECAL_COPLANAR_DOT = 0.9975640502598242  # cos(4 degrees)
 # Сварка вершин при финализации decal mesh (стыки лент).
 DECAL_WELD_DISTANCE = 0.001
 # Схлопывание последовательных точек спайна угловой ленты (как в прототипе).

@@ -1,0 +1,39 @@
+{
+  "schema": "cftuv.decal_r0_rail_preview.v1",
+  "date": "2026-07-18",
+  "baseline_head": "36ad1d1",
+  "implementation_commit": "ed20953ac27efbf30c869fa9946141cae11ec7f1",
+  "contract": {
+    "oracle": "docs/decal_rails.md",
+    "rules": ["RR1", "RR2", "RR3", "RR4", "RR5", "RR6", "RR7"],
+    "topology_only": true,
+    "compile_static": true,
+    "materialization_neutral": true,
+    "numeric_behavior_tie_breaks": 0
+  },
+  "field_acceptance": {
+    "object": "walls.010",
+    "temporary_copy": true,
+    "selected_seam_edges": 458,
+    "backend": "PLANAR+INTRINSIC_DEVELOPABLE:23c/458e",
+    "rail_routes": 341,
+    "events": {
+      "DAM": 298,
+      "PCHAIN": 43
+    },
+    "compile_failures": 0,
+    "segment_provenance_complete": true,
+    "screenshot": "artifacts/decal_r0_walls010_rails.png",
+    "source_scene_restored": true
+  },
+  "verification": {
+    "focused_passed": 125,
+    "full_suite_passed": 402,
+    "full_suite_xfailed": 2,
+    "xfail_marker": "GL-pending",
+    "full_suite_seconds": 887.45,
+    "compileall": "passed",
+    "diff_check": "passed",
+    "independent_review": "ACCEPT"
+  }
+}

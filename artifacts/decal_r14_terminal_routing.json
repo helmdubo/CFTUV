@@ -1,0 +1,497 @@
+{
+  "schema": "cftuv.decal_r14.terminal-routing.v2",
+  "blender_version": "4.3.2",
+  "blend_file": "E:\\testscene.blend",
+  "blend_saved": false,
+  "objects": [
+    {
+      "object": "rounded_wall.001",
+      "status": "COMPILED",
+      "selected_edge_indices": [
+        55,
+        59,
+        62,
+        65,
+        68,
+        71,
+        74,
+        77,
+        80,
+        83
+      ],
+      "saved_mesh_selected_edge_indices": [
+        55,
+        56,
+        87
+      ],
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/10e | RailUnsupported[RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR:x1]",
+      "width_evaluations": [
+        {
+          "width": 0.4,
+          "status": "UPDATED",
+          "face_count": 39,
+          "rail_plan_identity": 2319335359248,
+          "compile_static": true,
+          "overlap_count": 0,
+          "terminal_cut_face_count": 4
+        },
+        {
+          "width": 0.8,
+          "status": "UPDATED",
+          "face_count": 39,
+          "rail_plan_identity": 2319335359248,
+          "compile_static": true,
+          "overlap_count": 0,
+          "terminal_cut_face_count": 4
+        }
+      ],
+      "terminal_routing": [
+        {
+          "component_index": 0,
+          "patch_id": 1,
+          "spine_vertex_id": 49,
+          "spine_edge_id": 55,
+          "source_face_ids": [
+            49,
+            50
+          ],
+          "choice": "PCHAIN",
+          "edge_ids": [
+            87
+          ],
+          "plan_kind": "ROUTE",
+          "route_id": 1,
+          "backend": "PATCH_VORONOI",
+          "backend_kind": "INTRINSIC_DEVELOPABLE",
+          "line": "component=0 patch=1 terminal=v49/e55 faces=49,50 choice=PCHAIN 87 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+        },
+        {
+          "component_index": 0,
+          "patch_id": 1,
+          "spine_vertex_id": 59,
+          "spine_edge_id": 83,
+          "source_face_ids": [
+            31,
+            33
+          ],
+          "choice": "PCHAIN",
+          "edge_ids": [
+            88
+          ],
+          "plan_kind": "ROUTE",
+          "route_id": 12,
+          "backend": "PATCH_VORONOI",
+          "backend_kind": "INTRINSIC_DEVELOPABLE",
+          "line": "component=0 patch=1 terminal=v59/e83 faces=31,33 choice=PCHAIN 88 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+        },
+        {
+          "component_index": 0,
+          "patch_id": 3,
+          "spine_vertex_id": 49,
+          "spine_edge_id": 55,
+          "source_face_ids": [
+            20
+          ],
+          "choice": "PCHAIN",
+          "edge_ids": [
+            56
+          ],
+          "plan_kind": "ROUTE",
+          "route_id": 0,
+          "backend": "PATCH_VORONOI",
+          "backend_kind": "INTRINSIC_DEVELOPABLE",
+          "line": "component=0 patch=3 terminal=v49/e55 faces=20 choice=PCHAIN 56 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+        },
+        {
+          "component_index": 0,
+          "patch_id": 3,
+          "spine_vertex_id": 59,
+          "spine_edge_id": 83,
+          "source_face_ids": [
+            29
+          ],
+          "choice": "PCHAIN",
+          "edge_ids": [
+            85
+          ],
+          "plan_kind": "ROUTE",
+          "route_id": 11,
+          "backend": "PATCH_VORONOI",
+          "backend_kind": "INTRINSIC_DEVELOPABLE",
+          "line": "component=0 patch=3 terminal=v59/e83 faces=29 choice=PCHAIN 85 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+        }
+      ]
+    },
+    {
+      "object": "rounded_wall_noise_top",
+      "status": "COMPILED",
+      "selected_edge_indices": [
+        0,
+        1,
+        3,
+        5,
+        6,
+        8,
+        9,
+        11,
+        12,
+        14,
+        15,
+        17,
+        18,
+        20,
+        21,
+        23,
+        24,
+        26,
+        27,
+        29,
+        30,
+        32,
+        33,
+        35,
+        36,
+        38,
+        39,
+        41,
+        42,
+        44,
+        45,
+        47,
+        48,
+        50,
+        51,
+        53,
+        54,
+        55,
+        56,
+        57,
+        59,
+        60,
+        62,
+        63,
+        65,
+        66,
+        68,
+        69,
+        71,
+        72,
+        74,
+        75,
+        77,
+        78,
+        80,
+        81,
+        83,
+        84,
+        86,
+        87,
+        88,
+        89,
+        90,
+        141,
+        143,
+        144,
+        145,
+        146,
+        147,
+        148,
+        149,
+        150,
+        197,
+        198,
+        259,
+        270,
+        282,
+        302
+      ],
+      "saved_mesh_selected_edge_indices": [
+        56
+      ],
+      "backend_summary": "Unsupported[DISTORTION_BUDGET_EXCEEDED:x1] | RailUnsupported[RAIL_GEOMETRY_BRANCH_UNSUPPORTED:x1] | Failed:78e[DISTORTION_BUDGET_EXCEEDED:x78]",
+      "width_evaluations": [
+        {
+          "width": 0.4,
+          "status": "UPDATED",
+          "face_count": 0,
+          "rail_plan_identity": 2321049150992,
+          "compile_static": true,
+          "overlap_count": 0,
+          "terminal_cut_face_count": 0
+        },
+        {
+          "width": 0.8,
+          "status": "UPDATED",
+          "face_count": 0,
+          "rail_plan_identity": 2321049150992,
+          "compile_static": true,
+          "overlap_count": 0,
+          "terminal_cut_face_count": 0
+        }
+      ],
+      "terminal_routing": []
+    },
+    {
+      "object": "sagging_wall",
+      "status": "COMPILED",
+      "selected_edge_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        20,
+        26,
+        27,
+        31,
+        40,
+        42,
+        44,
+        46,
+        48,
+        49,
+        51,
+        52,
+        54,
+        55,
+        57,
+        58,
+        59,
+        60
+      ],
+      "saved_mesh_selected_edge_indices": [
+        5,
+        6,
+        7,
+        44,
+        48,
+        51,
+        54,
+        57,
+        59
+      ],
+      "backend_summary": "INTRINSIC_DEVELOPABLE:1c/36e | RailUnsupported[RAIL_GEOMETRY_BRANCH_UNSUPPORTED:x1]",
+      "width_evaluations": [
+        {
+          "width": 0.4,
+          "status": "UPDATED",
+          "face_count": 127,
+          "rail_plan_identity": 2321046520336,
+          "compile_static": true,
+          "overlap_count": 0,
+          "terminal_cut_face_count": 0
+        },
+        {
+          "width": 0.8,
+          "status": "UPDATED",
+          "face_count": 131,
+          "rail_plan_identity": 2321046520336,
+          "compile_static": true,
+          "overlap_count": 0,
+          "terminal_cut_face_count": 0
+        }
+      ],
+      "terminal_routing": [],
+      "saved_selection_scope": {
+        "selected_edge_indices": [
+          5,
+          6,
+          7,
+          44,
+          48,
+          51,
+          54,
+          57,
+          59
+        ],
+        "backend_summary": "INTRINSIC_DEVELOPABLE:1c/9e | RailUnsupported[RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR:x1]",
+        "width_evaluations": [
+          {
+            "width": 0.4,
+            "status": "UPDATED",
+            "face_count": 53,
+            "compile_static": true,
+            "overlap_count": 0
+          },
+          {
+            "width": 0.8,
+            "status": "UPDATED",
+            "face_count": 54,
+            "compile_static": true,
+            "overlap_count": 0
+          }
+        ],
+        "terminal_routing": [
+          "component=0 patch=0 terminal=v5/e5 faces=18 choice=FOLD 33 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+          "component=0 patch=0 terminal=v9/e7 faces=8,9 choice=PERP backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=IN_PLANE_EMPTY",
+          "component=0 patch=1 terminal=v5/e5 faces=7 choice=FOLD 24 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE",
+          "component=0 patch=1 terminal=v9/e7 faces=6,19 choice=FOLD 19 backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+        ]
+      }
+    },
+    {
+      "object": "wall_noise_top",
+      "status": "COMPILED",
+      "selected_edge_indices": [
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        17
+      ],
+      "saved_mesh_selected_edge_indices": [
+        12,
+        13,
+        14,
+        15
+      ],
+      "backend_summary": "Unsupported[DEGENERATE_SOURCE_TRIANGLE:x1,DISTORTION_BUDGET_EXCEEDED:x1] | RailUnsupported[RAIL_GEOMETRY_SOURCE_FACE_NON_PLANAR:x1] | Failed:10e[DEGENERATE_SOURCE_TRIANGLE+DISTORTION_BUDGET_EXCEEDED:x10]",
+      "width_evaluations": [
+        {
+          "width": 0.4,
+          "status": "UPDATED",
+          "face_count": 0,
+          "rail_plan_identity": 2321207901072,
+          "compile_static": true,
+          "overlap_count": 0,
+          "terminal_cut_face_count": 0
+        },
+        {
+          "width": 0.8,
+          "status": "UPDATED",
+          "face_count": 0,
+          "rail_plan_identity": 2321207901072,
+          "compile_static": true,
+          "overlap_count": 0,
+          "terminal_cut_face_count": 0
+        }
+      ],
+      "terminal_routing": []
+    },
+    {
+      "object": "half_sphere",
+      "status": "COMPILED",
+      "selected_edge_indices": [
+        6,
+        11,
+        16,
+        21,
+        26
+      ],
+      "saved_mesh_selected_edge_indices": [],
+      "backend_summary": "Unsupported[DISTORTION_BUDGET_EXCEEDED:x1] | RailUnsupported[RAIL_GEOMETRY_CURVED_OWNER_UNSUPPORTED:x1] | Failed:5e[DISTORTION_BUDGET_EXCEEDED:x5]",
+      "width_evaluations": [
+        {
+          "width": 0.4,
+          "status": "UPDATED",
+          "face_count": 0,
+          "rail_plan_identity": 2319335371792,
+          "compile_static": true,
+          "overlap_count": 0,
+          "terminal_cut_face_count": 0
+        },
+        {
+          "width": 0.8,
+          "status": "UPDATED",
+          "face_count": 0,
+          "rail_plan_identity": 2319335371792,
+          "compile_static": true,
+          "overlap_count": 0,
+          "terminal_cut_face_count": 0
+        }
+      ],
+      "terminal_routing": []
+    },
+    {
+      "object": "building",
+      "status": "COMPILED",
+      "selected_edge_indices": [
+        412,
+        504,
+        553
+      ],
+      "saved_mesh_selected_edge_indices": [],
+      "backend_summary": "RAIL_PLANAR:1c/3e",
+      "width_evaluations": [
+        {
+          "width": 0.4,
+          "status": "UPDATED",
+          "face_count": 16,
+          "rail_plan_identity": 2321214092176,
+          "compile_static": true,
+          "overlap_count": 0,
+          "terminal_cut_face_count": 0
+        },
+        {
+          "width": 0.8,
+          "status": "UPDATED",
+          "face_count": 16,
+          "rail_plan_identity": 2321214092176,
+          "compile_static": true,
+          "overlap_count": 0,
+          "terminal_cut_face_count": 0
+        }
+      ],
+      "terminal_routing": [
+        {
+          "component_index": 0,
+          "patch_id": 11,
+          "spine_vertex_id": 128,
+          "spine_edge_id": 504,
+          "source_face_ids": [
+            80,
+            83,
+            84,
+            85,
+            93
+          ],
+          "choice": "PCHAIN",
+          "edge_ids": [
+            473
+          ],
+          "plan_kind": "ROUTE",
+          "route_id": 0,
+          "backend": "RAIL_PLANAR",
+          "backend_kind": "RAIL_PLANAR",
+          "line": "component=0 patch=11 terminal=v128/e504 faces=80,83,84,85,93 choice=PCHAIN 473 backend=RAIL_PLANAR plan=ROUTE"
+        },
+        {
+          "component_index": 0,
+          "patch_id": 15,
+          "spine_vertex_id": 248,
+          "spine_edge_id": 412,
+          "source_face_ids": [
+            149
+          ],
+          "choice": "PCHAIN",
+          "edge_ids": [
+            476
+          ],
+          "plan_kind": "ROUTE",
+          "route_id": 2,
+          "backend": "RAIL_PLANAR",
+          "backend_kind": "RAIL_PLANAR",
+          "line": "component=0 patch=15 terminal=v248/e412 faces=149 choice=PCHAIN 476 backend=RAIL_PLANAR plan=ROUTE"
+        }
+      ]
+    }
+  ]
+}
