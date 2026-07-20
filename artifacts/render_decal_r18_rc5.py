@@ -86,8 +86,10 @@ def main():
         width_seam=WIDTH,
         corner_join_mode=JOIN_MODE,
     )
+    # Join — compile-static CornerSeed fact. После S-CM.b нельзя собирать
+    # MITER-plan и затем просить evaluator прочитать его как BEVEL.
     plan = compile_manual_seam_decal_plan(
-        graph, base, selected, alpha_budget=max(4.0, WIDTH)
+        graph, settings, selected, alpha_budget=max(4.0, WIDTH)
     )
     faces = evaluate_manual_seam_faces(
         obj, settings, plan, preview=True
