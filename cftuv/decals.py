@@ -68,6 +68,35 @@ from .decal_transform import (
 from .model import ChainNeighborKind, ChainRef, DecalSettings, PatchGraph, PatchType
 
 DECAL_MODES = ("TOP", "BOTTOM", "CORNERS", "SEAMS")
+SUPPORTED_DECAL_MODES = ("SEAMS",)
+ARCHIVED_DECAL_MODE_REASONS = {
+    "TOP": "DECAL_TOP_ARCHIVED_UNTIL_ENGINE_PLAN",
+    "BOTTOM": "DECAL_BOTTOM_ARCHIVED_UNTIL_ENGINE_PLAN",
+    "CORNERS": "DECAL_CORNERS_ARCHIVED_UNTIL_ENGINE_PLAN",
+}
+
+
+class DecalModeArchivedError(RuntimeError):
+    """Запрошен producer, архивированный до mode-specific engine plan."""
+
+    def __init__(self, mode):
+        self.mode = str(mode).upper()
+        self.reason = ARCHIVED_DECAL_MODE_REASONS[self.mode]
+        super().__init__(self.reason)
+
+
+def decal_mode_archived_reason(mode):
+    """Возвращает стабильную capability reason без изменения mode."""
+
+    return ARCHIVED_DECAL_MODE_REASONS.get(str(mode).upper(), "")
+
+
+def require_decal_mode_available(mode):
+    """Fail-fast для архивированных TOP/BOTTOM/CORNERS producers."""
+
+    normalized = str(mode).upper()
+    if normalized in ARCHIVED_DECAL_MODE_REASONS:
+        raise DecalModeArchivedError(normalized)
 
 _DECAL_PREVIEW_OBJECT_PREFIX = ".CFTUV_Preview"
 _DECAL_PREVIEW_MARKER = "cftuv_decal_preview"
@@ -3964,6 +3993,7 @@ def _fill_decal_bmesh(
     preview=False,
     decal_plan=None,
 ):
+    require_decal_mode_available(mode)
     if mode == "SEAMS" and (
         chain_refs is None or selected_edge_indices is None
     ):
@@ -4102,6 +4132,7 @@ def _generate_decal_transaction(
 ):
     """Выполняет raising generation path с backend-local settings."""
 
+    require_decal_mode_available(mode)
     require_decal_corner_join_available(settings)
     topology_rebuilds_before = (
         preview_state.topology_rebuilds if preview_state is not None else 0
@@ -4183,6 +4214,21 @@ def generate_decal_result(
             PreviewStatus.ERROR,
             None,
             reason=f"Unknown decal mode: {mode}",
+            backend_summary=backend_summary,
+        )
+    try:
+        require_decal_mode_available(mode)
+    except DecalModeArchivedError as exc:
+        if preview:
+            remove_decal_preview_object(
+                mode,
+                source_obj,
+                preview_state,
+            )
+        return DecalGenerationResult(
+            PreviewStatus.ERROR,
+            None,
+            reason=exc.reason,
             backend_summary=backend_summary,
         )
     try:
@@ -4321,6 +4367,7 @@ def generate_decal_objects(
 
     if mode not in DECAL_MODES:
         raise ValueError(f"Unknown decal mode: {mode}")
+    require_decal_mode_available(mode)
     require_decal_corner_join_available(settings)
     try:
         local_settings = local_decal_settings_for_source(settings, source_obj)

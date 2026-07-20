@@ -1,5 +1,12 @@
 # CFTUV Decal Producer (Phase 3)
 
+> **TRANCHE S status.** Единственный production mode — compiled strict
+> `SEAMS`. `TOP`, `BOTTOM` и `CORNERS` архивированы до пересдачи через
+> mode-specific plan → `GeometryBatch` → общие adapters и дают именованный
+> fail до analysis/BMesh. Их описание ниже временно сохраняет наблюдаемую
+> продуктовую семантику для `docs/decal_archived_modes_product_contract.md`;
+> это не описание доступного runtime.
+
 ## Обновление установленного аддона
 
 Decal producer и PatchGraph analysis обновляются только как единый пакет
@@ -45,44 +52,13 @@ FLOOR, SLOPE, потолки и другие ориентации равнопр
 При stitching сторона A/B выравнивается по непрерывности локальных нормалей, а
 не по patch id, поэтому смена chain/neighbor вдоль run не переставляет крылья.
 
-### Исторический decal_network prototype (не production runtime)
-
-Модуль `decal_network.py` сохраняется как исследовательская геометрия и набор
-регрессий, но SEAMS routing его больше не вызывает. Его прежняя конструкция
-была единым разбиением, а не сшивкой независимых ribbons:
-
-1. Ститченные runs превращаются в ветви-сайты; коллинеарные продолжения в
-   junction сливаются в сквозные сайты с непрерывным UV через узел.
-2. На каждой owner offset-плоскости каждая сторона ветви получает
-   α-полосу (α = `Seam Width / 2`), обрезанную полурегионами «ближе ко мне,
-   чем к соседним ветвям» — биссекторные dividers, обрезка близких
-   параллельных ветвей и T/Y/X-партиция получаются одной конструкцией.
-3. Reflex-промежутки junction по умолчанию закрываются жёсткой
-   miter-вершиной на биссектрисе (`DECAL_NETWORK_JUNCTION_CAP_STYLE =
-   MITER`; `ROUND` — законсервированная округлая дуга). Поперечных
-   endpoint-рёбер ветвей не существует по построению. Острые convex
-   round-join и кривые стыка детализируются профилем
-   `DECAL_NETWORK_CLIP_CURVE_STYLE` (`LOW` по умолчанию — бюджет вершин,
-   без веера; `HARD` — bevel; `SMOOTH` — точно). Момент топологического
-   события при этом остаётся точным.
-4. Лифт в 3D: интерьер станций → offset вдоль локальной normal,
-   fold-станции → пересечение offset-плоскостей, junction узлы →
-   least-squares core. Spine-вершины и cores сшиваются общим registry по
-   source vert index — крылья разных поверхностей водонепроницаемы.
-5. Смена owner-поверхности внутри ветви даёт разрез стороны и
-   connector-треугольник (аналог BEVEL); почти копланарные стыки сваривает
-   финальный weld.
-
-Детали и инварианты — `docs/goals/surface-conforming-decals/notes/`
-`T043-voronoi-decal-network.md`. Чистая геометрия покрыта
-`tests/test_decal_network.py` без Blender.
-
 ### SEAMS legacy runtime удалён
 
 `decal_seam_network`, compiled `LEGACY_NETWORK`, one-shot seam network и
 прямой miter/junction pipeline больше не являются runtime-вариантами SEAMS.
 Старое Blender-свойство остаётся только для чтения прежних `.blend`, скрыто
-из панели и не влияет на поведение. Manual SEAMS принимает только явно
+из панели и не влияет на поведение. Исторический `decal_network.py` удалён из
+рабочей ветки и сохранён только архивным tag. Manual SEAMS принимает только явно
 скомпилированные `RAIL_PLANAR` и `PATCH_VORONOI` partitions.
 
 Неподдержанный topology component получает component-wide `Failed` с
@@ -90,8 +66,8 @@ FLOOR, SLOPE, потолки и другие ориентации равнопр
 SEAMS scope до evaluation/BMesh. Если текущий drag-кадр падает, старый preview
 удаляется: ошибка видна геометрически и в header/console, а не маскируется
 last-valid mesh. Object/Face-mode automatic SEAMS без selected-edge plan также
-явно отклоняется. TOP/BOTTOM/CORNERS — отдельные producers и этим решением не
-изменены.
+явно отклоняется. TOP/BOTTOM/CORNERS сейчас недоступны и возвращают
+mode-specific `DECAL_*_ARCHIVED_UNTIL_ENGINE_PLAN`.
 
 User-facing routing включает детерминированные счётчики каждой canonical
 failure reason (`Failed:Ne[REASON:xN]`), а exception дополнительно показывает
@@ -107,14 +83,13 @@ confirm отменяется. Чтобы продолжить, нужно вер
 
 ## Интерактивный размер автоматических декалей
 
-В Object Mode или Face Select Mode кнопки `Decal Top`, `Decal Bottom` и
-`Decal Corners` запускают modal drag после первой генерации. `Decal Seams`
-требует ручного seam-edge scope в Edge Select Mode и compiled strict plan:
+Кнопки `Decal Top`, `Decal Bottom` и `Decal Corners` видимы disabled как карта
+архивированных capabilities. `Decal Seams` требует ручного seam-edge scope в
+Edge Select Mode и compiled strict plan:
 
-- Top/Bottom/Corners/Seams используют один горизонтальный жест: движение мыши
+- Seams использует горизонтальный жест: движение мыши
   вправо увеличивает размер, движение влево уменьшает его.
-- Top/Bottom меняют `Trim Height`, Corners меняет `Corner Width`, Seams —
-  `Seam Width` обоих крыльев.
+- Seams меняет `Seam Width` обоих крыльев.
 - Уменьшение ограничено положительным минимумом `0.001`, поэтому лента не
   схлопывается в нулевую геометрию.
 - После нажатия кнопки X курсора выравнивается по экранной проекции центра
@@ -145,7 +120,7 @@ confirm отменяется. Чтобы продолжить, нужно вер
 
 В Edge Select Mode `Decal Seams` также остаётся интерактивным: captured manual
 scope не меняется во время drag, повторно строятся только выбранные seam edges.
-Остальные manual decal modes остаются immediate и берут размер из panel settings.
+Архивированные manual modes не запускают preview или immediate generation.
 
 Генерация mesh-декалей (тримы, углы, швы) из PatchGraph. Логика перенесена из
 прототипа `hotspotingUV_mesh_decals_Full.py` (v1.2.0, «Global System») и
@@ -304,11 +279,8 @@ edge indices двух chain uses. Поэтому один seam на замкну
 - `tests/test_decals.py` — чистая геометрия (классификация кромок, сборка
   путей, биссектрисы, corner/seam разбор, дедупликация пар) на стабах
   `tests/conftest.py`, без Blender.
-- `tests/test_decal_network.py` — seam network backend: merge сквозных
-  сайтов, лифт offset-плоскостей, T/X/trihedral партиция, клип параллельных
-  ветвей, кольца, connector на смене поверхности.
-- Ручная проверка в Blender: Edit Mode → выделить стены → кнопки Decal
-  Top/Bottom/Corners/Seams; объекты появляются в `Decals_Generated`.
+- Ручная проверка в Blender: Edit Mode → выделить seam edges → `Decal Seams`;
+  объект появляется в `Decals_Generated`. Архивированные кнопки disabled.
 
 ### Пользовательский срез 1 — planar angle + closed trim orientation
 

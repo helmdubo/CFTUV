@@ -24,8 +24,8 @@ interactive seam decals:
 ```
 
 Core PatchGraph analysis and UV solve modules remain dependency-free. If the
-wheel is unavailable, or a touched owner patch is non-planar, Decal Seams
-explicitly falls back to the legacy intrinsic network backend.
+wheel is unavailable or a selected component is unsupported, Decal Seams
+fails with a named reason. There is no legacy geometry fallback.
 
 ## Repo Layout
 
@@ -39,7 +39,6 @@ cftuv/
 ├── solve.py             # facade (target: split into solve_* submodules)
 ├── debug.py
 ├── decals.py
-├── decal_network.py
 ├── decal_charts.py      # immutable IR для intrinsic strip charts
 ├── decal_voronoi.py     # patch-bounded segment Voronoi (`pyvoronoi`)
 ├── operators.py

@@ -1,5 +1,12 @@
 # Decal runtime contract
 
+> **TRANCHE S capability status.** Production runtime exposes only compiled
+> strict `SEAMS`. `TOP`, `BOTTOM` and `CORNERS` fail before analysis/BMesh with
+> mode-specific `DECAL_*_ARCHIVED_UNTIL_ENGINE_PLAN` reasons. `BEVEL` fails in
+> operator and scripted evaluation with
+> `DECAL_CORNER_JOIN_ARCHIVED_UNTIL_CORNER_MODEL`; neither gate coerces input
+> to another mode.
+
 ## Deterministic benchmark harness
 
 `artifacts/verify_decal_runtime.py` запускается внутри Blender и сохраняет
@@ -45,25 +52,19 @@ PatchGraph, owner surface charts и offset. Он один раз сохраня�
 `interior_angle`, `extrusion_angle`, `is_convex` и `miter_ratio`, после чего
 строит runtime crops и пересекает их с уже скомпилированными cells.
 
-Сейчас доступны три параметра, семантика которых уже определена backend:
+Сейчас runtime доступны два параметра, семантика которых определена backend:
 
 - `Acute Split Angle` — ниже порога corner становится двухкомпонентным
   `ACUTE_SPLIT`;
 - `Apex Limit` — максимальное расстояние удалённого apex относительно
   half-width для `MITER`, `KITE` и outer-части `ACUTE_SPLIT`.
-- `Corner Join` — `MITER` сохраняет обычный выпуклый apex, `BEVEL`
-  меняет только заполнение GAP-стороны углового piece на прямой
-  треугольник `(V,P1,P2)`. Arrangement, crops, limits и collision
-  ownership идут тем же путём, что при `MITER`.
+- `Corner Join` сохраняется в settings ради совместимости старых `.blend`, но
+  единственное доступное значение runtime — `MITER`. `BEVEL` архивирован до
+  фазированного `CornerModel` и всегда даёт именованный отказ.
 
 Blender property id `decal_corner_miter_limit` сохранён для совместимости, но
 UI и runtime называют параметр `Apex Limit`; внутренний контракт —
-`CornerRuntimeSettings.apex_limit`. Arrangement-классификатор никогда не
-возвращает `_CornerPolicy.BEVEL`: emission-классификатор выбирает его только
-для GAP между двумя уже эмитированными strip-квадами. Базовый MITER/KITE
-corner-piece после общего arrangement заменяется треугольником из его же
-post-clip `V/P1/P2`; segment faces и их station-UV остаются бит-идентичны
-режиму MITER. Дальний MITER/KITE apex заменяет
+`CornerRuntimeSettings.apex_limit`. Дальний MITER/KITE apex заменяет
 усечённый contour. ACUTE_SPLIT всегда сохраняет INNER и OUTER components:
 outer apex двигается вдоль исходного apex ray и остаётся строго с внешней
 стороны cap chord. Если limit меньше геометрического minimum, используется

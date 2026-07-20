@@ -1,12 +1,13 @@
 """B1 shared decal geometry contracts."""
 
 import ast
+import importlib.util
 from pathlib import Path
 
 import pytest
 from mathutils import Vector
 
-from cftuv import decal_network, decal_voronoi
+from cftuv import decal_voronoi
 from cftuv.decal_geometry import (
     DecalGeometryFace,
     lift_offset_position,
@@ -15,11 +16,8 @@ from cftuv.decal_geometry import (
 )
 
 
-def test_legacy_backend_aliases_shared_geometry_contracts():
-    assert decal_network._NetworkFace is DecalGeometryFace
-    assert decal_network._lift_position is lift_offset_position
-    assert decal_network._polygon_area2 is polygon_area2
-    assert decal_network._segment_point_distance2 is segment_point_distance2
+def test_legacy_decal_network_module_is_removed():
+    assert importlib.util.find_spec("cftuv.decal_network") is None
 
 
 def test_patch_voronoi_uses_shared_geometry_contracts():
