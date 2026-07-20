@@ -1,5 +1,6 @@
 # Research-only pins. Не являются зависимостями Blender addon.
 numpy==2.3.2
+scipy==1.16.3
 potpourri3d==1.4.0
 pygeodesic==0.1.11
 py_straight_skeleton==0.1.0
