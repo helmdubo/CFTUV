@@ -2297,6 +2297,14 @@ def compile_decal_rail_plan(
         )
         for use in terminal_uses
     )
+    footprint_face_ids = set(rr_face_ids)
+    for route in routes:
+        footprint_face_ids.update(route.key.side.source_face_ids)
+        for segment in route.segments:
+            footprint_face_ids.update(segment.source_face_ids)
+    # RV1/RV2 имеют приоритет над RC4: конкуренция не должна маскировать
+    # именованный дефект source-геометрии внутри уже известного footprint.
+    _validate_rail_footprint(topology, footprint_face_ids)
     route_readings, freeze_loci = _compile_route_competition(
         routes,
         topology,
@@ -2307,12 +2315,6 @@ def compile_decal_rail_plan(
             if use.route_id is not None
         ),
     )
-    footprint_face_ids = set(rr_face_ids)
-    for route in routes:
-        footprint_face_ids.update(route.key.side.source_face_ids)
-        for segment in route.segments:
-            footprint_face_ids.update(segment.source_face_ids)
-    _validate_rail_footprint(topology, footprint_face_ids)
     return DecalRailPlan(
         vertices=topology.vertices,
         edges=topology.edges,

@@ -29,6 +29,7 @@ from cftuv.decal_voronoi import (
     serialize_network_faces,
 )
 from cftuv.model import BoundaryChain, BoundaryLoop, PatchGraph, PatchNode
+from cftuv.surface_ir import CapacityPolicy
 
 from analysis_surface_fixtures import (
     analysis_bundle_from_graph,
@@ -774,7 +775,8 @@ def test_d4_6_public_compile_enforces_periodic_half_period_budget():
             width=period * 1.01,
             preview=True,
         )
-    assert captured.value.code == "DOMAIN_BUDGET_EXCEEDED"
+    assert captured.value.code == "DOMAIN_CAPACITY_UNPROVEN"
+    assert captured.value.capacity_policy is CapacityPolicy.REJECT_UNPROVEN
 
 
 def test_d5_5_periodic_budget_source_reports_the_binding_limit():
