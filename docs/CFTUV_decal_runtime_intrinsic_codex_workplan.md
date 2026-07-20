@@ -407,6 +407,16 @@ R0+R1+LEGACY-CUT; нижеследующий старый список сохр�
    RF28 дополнить кейсом: широкий drag в BEVEL даёт ту же нижнюю
    границу ленты, что MITER (посегментное сравнение), отличие
    только в форме углового куска.
+   **Результат R1.8:** FIELD CANDIDATE. BEVEL удалён из arrangement,
+   crops, limits, explicit membership и collision ownership; join style
+   читается только post-arrangement emission, где штатный MITER/KITE
+   owner-piece заменяется прямым треугольником из уже эмитированных
+   `V/P1/P2`. RF28: segment snapshots MITER/BEVEL равны на widths
+   0.5/3.0; BEVEL всегда 3 вершины; FAN даёт именованный fail;
+   MITER->BEVEL->MITER детерминирован. Поле: `walls.001` (133 seam,
+   48 BEVEL) и `sagging_wall` (1 BEVEL) сохраняют посегментную
+   границу на widths 0.8/3.2; канонический набор шести объектов
+   завершён без SCRIPT_ERROR, `.blend` не сохранён. R1.9 — следующий.
 4l. **R1.9 — Насыщение на экстремальной ширине (RR8d):** полевой
    стоп `TERMINAL_BRIDGE_CUT_INVALID: patch=0 edge=8 vertex=10`
    при width=35.98. 1) Диагноз: дамп состояния маршрута v10/e8 на

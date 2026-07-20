@@ -1051,6 +1051,18 @@ recompile). Дискретизация веером против beveled-угл�
   (детерминированно: бит-идентично при повторном переключении
   туда-обратно); негатив: fan-дискретизация фронтира против
   beveled-угла -> именованный fail.
+  **Результат R1.8:** FIELD CANDIDATE. Arrangement-классификатор
+  больше не возвращает BEVEL; удалены специальные BEVEL-ветки из
+  `_corner_crop_components`, `_corner_crop_polygon`, approximate-probe,
+  `explicit_corner_indices` и empty `corner_crops`. Единственная
+  join-style ветка живёт в post-arrangement emission: базовый
+  MITER/KITE owner-piece заменяется прямым `(V,P1,P2)`, собранным из
+  общих loop-facts двух SEGMENT-faces. RF28 доказывает равенство всех
+  SEGMENT-faces на widths 0.5/3.0, трёхвершинность BEVEL, именованный
+  `BEVEL_FAN_DISCRETIZATION_FORBIDDEN` и бит-идентичный round-trip
+  MITER->BEVEL->MITER. Поле `walls.001`: 133 seam, 48 BEVEL-piece,
+  MITER/BEVEL segment snapshots равны на widths 0.8/3.2;
+  `sagging_wall`: 1 piece, то же равенство.
 - **RF18b Терминальный снэп на кривизне (RR9a-финал; активируется
   с R3):** конфигурация RF18 на непланарном patch — селектор
   идентичен (argmin |dot| в 3D, единый код с планарным); простые

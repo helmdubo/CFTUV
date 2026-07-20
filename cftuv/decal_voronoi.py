@@ -3315,11 +3315,6 @@ def _corner_crop_components(
         return _cap_crop_components(surface, corner, alpha)
     if policy == _CornerPolicy.SMOOTH:
         return _smooth_crop_components(surface, corner, alpha, settings)
-    if policy == _CornerPolicy.BEVEL:
-        raise RuntimeError(
-            "BEVEL_POST_CLIP_POINT_CELL_REQUIRED: "
-            f"patch={surface.patch_id} vertex={corner.vert_index}"
-        )
     if not settings.dynamic_corner_bands:
         if policy == _CornerPolicy.ACUTE_SPLIT:
             return _stable_acute_crop_components(
@@ -3537,12 +3532,6 @@ def _corner_crop_polygon(
         )
 
     offset_lines = _corner_offset_lines(surface, corner, alpha)
-    if policy == _CornerPolicy.BEVEL:
-        raise RuntimeError(
-            "BEVEL_DIRECT_TRIANGLE_REQUIRED: "
-            f"patch={surface.patch_id} vertex={corner.vert_index}"
-        )
-
     intersection = _line_intersection(
         offset_lines[0][0],
         offset_lines[0][1],
@@ -4513,7 +4502,11 @@ def classify_corner_runtime(corner, settings=None):
 
 
 def _classify_surface_corner_runtime(surface, corner, settings=None):
-    """Surface-aware policy: BEVEL закрывает gap между strip-квадами."""
+    """Arrangement policy, не зависящая от визуального join style.
+
+    RC5: диаграмма, crop ownership и лимиты всегда идут штатным путём
+    MITER-конфигурации. BEVEL выбирается только при эмиссии corner-piece.
+    """
 
     settings = _normalized_corner_runtime_settings(settings)
     policy = classify_corner_runtime(
@@ -4525,6 +4518,14 @@ def _classify_surface_corner_runtime(surface, corner, settings=None):
         and surface.domain.admission_tier == "APPROXIMATE"
     ):
         policy = _CornerPolicy.MITER
+    return policy
+
+
+def _classify_emitted_corner_runtime(surface, corner, settings=None):
+    """RC5 emission policy: BEVEL отличается только заполнением piece."""
+
+    settings = _normalized_corner_runtime_settings(settings)
+    policy = _classify_surface_corner_runtime(surface, corner, settings)
     if (
         settings.join_mode == "BEVEL"
         and policy in {_CornerPolicy.MITER, _CornerPolicy.KITE}
@@ -12370,16 +12371,35 @@ def _bevel_open_strip_corner(faces, surface, corner, site_index):
     return outer[0]
 
 
+def _validate_bevel_emitted_piece(surface, corner, points, point_keys=()):
+    """RC5: эмитируемая BEVEL-граница — одна хорда, не FAN."""
+
+    if len(points) != 3:
+        raise RuntimeError(
+            "BEVEL_FAN_DISCRETIZATION_FORBIDDEN: "
+            f"patch={surface.patch_id} vertex={corner.vert_index} "
+            f"point_count={len(points)}"
+        )
+    if _polygon_area2(points) == 0.0 or (
+        point_keys and len(set(point_keys)) != 3
+    ):
+        raise RuntimeError(
+            "BEVEL_POST_CLIP_TRIANGLE_DEGENERATE: "
+            f"patch={surface.patch_id} vertex={corner.vert_index} "
+            f"keys={point_keys!r}"
+        )
+
+
 def _append_post_clip_bevel_joins(
     faces, surfaces, corner_settings, alpha
 ):
-    """Заполняет native point-cell треугольником из post-clip V/P1/P2."""
+    """RC5: заменяет MITER-piece post-clip треугольником V/P1/P2."""
 
     result = list(faces)
     for surface in surfaces:
         for corner in surface.corners:
             if (
-                _classify_surface_corner_runtime(
+                _classify_emitted_corner_runtime(
                     surface, corner, corner_settings
                 )
                 != _CornerPolicy.BEVEL
@@ -12431,14 +12451,9 @@ def _append_post_clip_bevel_joins(
                 _arrangement_loop_uv(second_face, second_p_index, alpha),
             )
             area = _polygon_area2(points)
-            if area == 0.0 or (
-                point_keys and len(set(point_keys)) != 3
-            ):
-                raise RuntimeError(
-                    "BEVEL_POST_CLIP_TRIANGLE_DEGENERATE: "
-                    f"patch={surface.patch_id} vertex={corner.vert_index} "
-                    f"keys={point_keys!r}"
-                )
+            _validate_bevel_emitted_piece(
+                surface, corner, points, point_keys
+            )
             if area < 0.0:
                 points = (points[0], points[2], points[1])
                 if point_keys:
@@ -12469,6 +12484,16 @@ def _append_post_clip_bevel_joins(
                 owner_site_indices=tuple(corner.ordered_sites),
                 semantic_owner_id=owner_identity,
             )
+            arrangement_owner_id = ("corner", int(corner.vert_index))
+            result = [
+                face
+                for face in result
+                if not (
+                    face.surface is surface
+                    and face.crop.kind != "SEGMENT"
+                    and face.crop.semantic_owner_id == arrangement_owner_id
+                )
+            ]
             result.append(
                 _DecalArrangementFace(
                     surface=surface,
@@ -13959,10 +13984,6 @@ def _evaluate_surface_crops(
         ):
             if len(corner.incident_sites) != 2:
                 continue
-            if policy == _CornerPolicy.BEVEL:
-                # BEVEL point-cell заполняется после arrangement вершинами
-                # уже клиппированных SEGMENT-квадов. Pre-crop здесь запрещён.
-                continue
             raw_probe_crops = _corner_crop_components(
                 surface,
                 corner,
@@ -14013,7 +14034,6 @@ def _evaluate_surface_crops(
                 policy in {
                     _CornerPolicy.SMOOTH,
                     _CornerPolicy.ACUTE_SPLIT,
-                    _CornerPolicy.BEVEL,
                 }
                 or (
                     policy == _CornerPolicy.MITER
@@ -14040,12 +14060,6 @@ def _evaluate_surface_crops(
         point_atoms = point_atoms_by_corner.get(corner_index, ())
         corner = surface.corners[corner_index]
         policy = runtime_policies[corner_index]
-        if policy == _CornerPolicy.BEVEL:
-            # Membership подавляет прежний point-atom owner. После общего
-            # arrangement его две открытые V--P границы дают ровно те P1/P2,
-            # которые уже эмитированы соседними strip-квадами.
-            corner_crops[corner_index] = ()
-            continue
         raw_crops = _corner_crop_components(
             surface,
             corner,

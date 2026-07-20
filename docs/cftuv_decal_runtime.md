@@ -52,15 +52,18 @@ PatchGraph, owner surface charts и offset. Он один раз сохраня�
 - `Apex Limit` — максимальное расстояние удалённого apex относительно
   half-width для `MITER`, `KITE` и outer-части `ACUTE_SPLIT`.
 - `Corner Join` — `MITER` сохраняет обычный выпуклый apex, `BEVEL`
-  заменяет только базовый выпуклый `MITER` треугольным crop. Reflex/KITE,
-  ACUTE_SPLIT и остальные policy переключателем не подменяются.
+  меняет только заполнение GAP-стороны углового piece на прямой
+  треугольник `(V,P1,P2)`. Arrangement, crops, limits и collision
+  ownership идут тем же путём, что при `MITER`.
 
 Blender property id `decal_corner_miter_limit` сохранён для совместимости, но
 UI и runtime называют параметр `Apex Limit`; внутренний контракт —
-`CornerRuntimeSettings.apex_limit`. `CornerRuntimeSettings.join_mode=BEVEL`
-возвращает `_CornerPolicy.BEVEL` только при `policy == MITER` и
-`CornerSpec.is_convex`; owner clipping может разбить crop, но final BEVEL
-faces всегда треугольны. Дальний MITER/KITE apex заменяет
+`CornerRuntimeSettings.apex_limit`. Arrangement-классификатор никогда не
+возвращает `_CornerPolicy.BEVEL`: emission-классификатор выбирает его только
+для GAP между двумя уже эмитированными strip-квадами. Базовый MITER/KITE
+corner-piece после общего arrangement заменяется треугольником из его же
+post-clip `V/P1/P2`; segment faces и их station-UV остаются бит-идентичны
+режиму MITER. Дальний MITER/KITE apex заменяет
 усечённый contour. ACUTE_SPLIT всегда сохраняет INNER и OUTER components:
 outer apex двигается вдоль исходного apex ray и остаётся строго с внешней
 стороны cap chord. Если limit меньше геометрического minimum, используется

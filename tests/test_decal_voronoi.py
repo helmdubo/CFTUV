@@ -1673,7 +1673,7 @@ def test_apex_limit_clamps_acute_outer_without_gap():
     )
 
 
-def test_rf24_bevel_classifies_only_convex_miter_and_builds_triangle():
+def test_rf24_bevel_is_emission_policy_not_arrangement_policy():
     graph, edge_indices = _door_opening_graph()
     plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
     surface = plan.surfaces[0]
@@ -1693,28 +1693,27 @@ def test_rf24_bevel_classifies_only_convex_miter_and_builds_triangle():
     assert decal_voronoi._corner_offset_edge_relation(
         surface, overlap_corner
     ) == "OVERLAP"
+    arrangement_policy = decal_voronoi._classify_surface_corner_runtime(
+        surface, gap_corner, bevel_settings
+    )
+    assert arrangement_policy == decal_voronoi._classify_surface_corner_runtime(
+        surface,
+        gap_corner,
+        replace(bevel_settings, join_mode="MITER"),
+    )
+    assert arrangement_policy != decal_voronoi._CornerPolicy.BEVEL
     assert (
-        decal_voronoi._classify_surface_corner_runtime(
+        decal_voronoi._classify_emitted_corner_runtime(
             surface, gap_corner, bevel_settings
         )
         == decal_voronoi._CornerPolicy.BEVEL
     )
     assert (
-        decal_voronoi._classify_surface_corner_runtime(
+        decal_voronoi._classify_emitted_corner_runtime(
             surface, overlap_corner, bevel_settings
         )
         != decal_voronoi._CornerPolicy.BEVEL
     )
-    # Pre-crop/hull путь конструктивно закрыт: BEVEL строится только после
-    # arrangement из уже эмитированных V/P1/P2.
-    with pytest.raises(RuntimeError, match="BEVEL_DIRECT_TRIANGLE_REQUIRED"):
-        decal_voronoi._corner_crop_polygon(
-            surface,
-            gap_corner,
-            decal_voronoi._CornerPolicy.BEVEL,
-            alpha=0.5,
-            settings=bevel_settings,
-        )
     assert decal_voronoi.CornerRuntimeSettings(
         miter_limit=3.0
     ).apex_limit == 3.0
@@ -1763,11 +1762,89 @@ def test_rf24_bevel_final_faces_are_triangles_and_apex_independent():
                 for key in p_keys
             )
             assert edge_uses[frozenset(p_keys)] == 1
-        assert diagnostics.clamped_kite_count == 0
+        # RC5: limits/collisions идут байт-в-байт MITER-конфигурацией;
+        # BEVEL отличается только заменой уже рассчитанного corner-piece.
+        assert diagnostics.clamped_kite_count == (2 if apex_limit == 1.0 else 0)
         snapshots.append(
             decal_voronoi.serialize_network_faces(bevel_faces)
         )
     assert snapshots[0] == snapshots[1]
+
+
+@pytest.mark.parametrize("width", (0.5, 3.0))
+def test_rf28_bevel_matches_miter_arrangement_except_corner_piece(width):
+    graph, edge_indices = _door_opening_graph()
+    plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
+    results = {}
+    for join_mode in ("MITER", "BEVEL"):
+        results[join_mode] = evaluate_patch_voronoi_plan(
+            plan,
+            width=width,
+            preview=True,
+            corner_settings=decal_voronoi.CornerRuntimeSettings(
+                apex_limit=1000.0,
+                join_mode=join_mode,
+            ),
+        )
+
+    def segment_snapshot(faces):
+        return decal_voronoi.serialize_network_faces(
+            tuple(face for face in faces if face.component_kind == "SEGMENT")
+        )
+
+    assert segment_snapshot(results["BEVEL"]) == segment_snapshot(
+        results["MITER"]
+    )
+    assert sum(
+        face.component_kind == "BEVEL" for face in results["BEVEL"]
+    ) == 2
+    assert not any(
+        face.component_kind == "KITE" for face in results["BEVEL"]
+    )
+    assert all(
+        len(face.positions) == 3
+        for face in results["BEVEL"]
+        if face.component_kind == "BEVEL"
+    )
+
+
+def test_rf28_join_switch_is_local_and_roundtrip_deterministic():
+    graph, edge_indices = _door_opening_graph()
+    plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
+    snapshots = []
+    for join_mode in ("MITER", "BEVEL", "MITER", "BEVEL"):
+        faces = evaluate_patch_voronoi_plan(
+            plan,
+            width=3.0,
+            preview=True,
+            corner_settings=decal_voronoi.CornerRuntimeSettings(
+                apex_limit=1000.0,
+                join_mode=join_mode,
+            ),
+        )
+        snapshots.append(decal_voronoi.serialize_network_faces(faces))
+    assert snapshots[0] == snapshots[2]
+    assert snapshots[1] == snapshots[3]
+
+
+def test_rf28_bevel_fan_discretization_is_named_failure():
+    graph, edge_indices = _door_opening_graph()
+    plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
+    surface = plan.surfaces[0]
+    corner = next(item for item in surface.corners if item.vert_index == 2)
+    with pytest.raises(
+        RuntimeError, match="BEVEL_FAN_DISCRETIZATION_FORBIDDEN"
+    ):
+        decal_voronoi._validate_bevel_emitted_piece(
+            surface,
+            corner,
+            (
+                (0.0, 0.0),
+                (1.0, 0.0),
+                (1.0, 1.0),
+                (0.0, 1.0),
+            ),
+        )
 
 
 def test_rf24_bevel_band_turn_is_invariant_to_domain_winding_flip():
@@ -1794,6 +1871,9 @@ def test_rf24_bevel_band_turn_is_invariant_to_domain_winding_flip():
                         surface, corner
                     ),
                     decal_voronoi._classify_surface_corner_runtime(
+                        surface, corner, settings
+                    ),
+                    decal_voronoi._classify_emitted_corner_runtime(
                         surface, corner, settings
                     ),
                 )
