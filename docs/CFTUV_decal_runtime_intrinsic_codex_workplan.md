@@ -986,6 +986,99 @@ Suite полный зелёный без атласных xfail; EP1 байт-в
 
 ---
 
+# 0g. TRANCHE S — структурное переоформление движка декалей
+# (ПРЕДЛОЖЕНИЕ ревью по внешнему критическому аудиту; ждёт «да»
+# пользователя)
+
+Контекст: внешний статический аудит (получен пользователем)
+оценил decal-подсистему 6.5-7/10: направление зависимостей и
+compile/evaluate/materialize — сильные; вход surface-геометрии,
+ownership слоёв и поддерживаемость — слабые. Решения пользователя,
+принятые сразу: (1) движок = ТОЛЬКО compiled strict SEAMS
+(scope -> rail/chart plan -> evaluator -> DecalGeometryFace ->
+materializer); (2) direct ribbon producers (TOP/BOTTOM/CORNERS +
+compatibility paths в decals.py) и исторический decal_network.py —
+ВЫРЕЗАЮТСЯ в архив, недоступный AI-агентам. Это заменяет пункт 1
+§0e («вырезается маршрутизация, не код») — теперь режется и код.
+
+Вердикты ревью по аудиту (принято/исправлено через канон):
+- **ПРИНЯТО P0:** fan-триангуляция n-gon от первой вершины —
+  генерализация нашего же RV2-эпизода (building face 277); опасна
+  вдвойне: rail-backend РЕКОНСТРУИРУЕТ циклы граней из fan-треугольников
+  (производная конструкция — нарушение «читать сам объект»).
+- **ПРИНЯТО P0:** GPU boundary reconstruction по округлённым до
+  1e-5 world-координатам, игнорируя vert_keys, — хрестоматийное
+  «второе представление» + скрытый epsilon; рёбра считать по
+  identity vert_keys, позиции — только в буфер.
+- **ПРИНЯТО:** расхождение mesh/GPU preview при ошибке; единый
+  PreviewFailurePolicy, дефолт = CLEAR («пусть ломается видимо» —
+  решение пользователя §0e, GPU-retain ему противоречит).
+- **ПРИНЯТО:** тихий фолбэк старого analysis (пустые
+  side_face_normals -> patch-average) — заменить fail-fast
+  `DECAL_ANALYSIS_SCHEMA_UNSUPPORTED` (тихих отклонений не бывает).
+- **ПРИНЯТО:** dihedral_convexity по несимметричным нормалям —
+  per-segment пары локальных нормалей обеих chain uses (один скаляр
+  на цепочку слаб для гнутых цепочек).
+- **ПРИНЯТО:** PatchSurfaceIR отдельно от PatchGraph (вариант
+  «чистое»); типизированные WorldDecalSettings/LocalDecalSettings +
+  MetricContext (конверсия ровно один раз); DecalSessionController
+  (operator = перевод событий); enums вместо строк; immutable DTO.
+  PatchSurfaceIR = первый реализованный кусок видения GL
+  (Geometry Ledger): «один источник, много читателей» на границе
+  analysis/decal; GL-чеклист переоценивается после.
+- **ИСПРАВЛЕНО через канон:** «включить общий mesh preflight» —
+  в лоб противоречит RV1 (валидация следует материализации;
+  геометрия вне footprint НЕ валит компиляцию: игровой ассет
+  всегда содержит грязную грань вдали). Принятая форма:
+  `validate_decal_surface_input` со скоупом FOOTPRINT/выбранных
+  компонентов — ранние ИМЕНОВАННЫЕ ошибки вместо
+  backend-specific, но без превращения всего меша в гейт;
+  полномешевая проверка — только counted-диагностика.
+- **ЗАМЕТКА:** README-обещание legacy-фолбэка — устарело после
+  LEGACY-CUT, исправить; roadmap-документы отстают от strict-SEAMS
+  кода — обновить.
+- **СЛЕДСТВИЕ АРХИВ-CUT:** функциональность TOP/BOTTOM/CORNERS
+  (тримы/юбки) гаснет до пересдачи на движке (mode-specific plan ->
+  GeometryBatch -> общие адаптеры) — как это было с legacy SEAMS;
+  оговорка §0e п.3 о намеренной семантике юбок переезжает в
+  требование к будущей пересдаче, не защищает старый код.
+
+Срезы TRANCHE S (порядок относительно R-очереди — ниже):
+- **S0 — АРХИВ-CUT:** поколения 1 и 3 выселяются в архивную ветку
+  `archive/legacy-decal-generations` и УДАЛЯЮТСЯ из рабочей ветки
+  (агентам архив не читать; возврат — только решением
+  пользователя); маршрутизация отрезанных режимов — именованные
+  fail'ы; README/доки синхронизированы; ярус-2 и полевой набор
+  зелёные после выселения.
+- **S1 — Контракт входной поверхности (P0-пакет):**
+  PatchSurfaceIR (канонические SourceFace/SurfaceTriangle,
+  Blender-consistent tessellation, реальные нормали треугольников;
+  rail читает циклы граней, chart — треугольники, реконструкция
+  из fan запрещена); footprint-scoped preflight;
+  concave/non-planar n-gon регрессии (U-образный n-gon, reversed
+  winding, сверка площади/containment с Blender tessellation);
+  GPU-рёбра по vert_keys; единый PreviewFailurePolicy=CLEAR;
+  dihedral per-segment pair facts.
+- **S2 — Типизированные границы:** WorldDecalSettings /
+  LocalDecalSettings / MetricContext (fingerprint матрицы);
+  AnalysisCapabilities + fail-fast схемы; DecalSessionController
+  (владение: request, metric context, compiled plan, last-valid,
+  recompile boundary, confirmability; operator — тонкий);
+  enums/tagged plans; immutable DecalGeometryFace.
+- **S3 — Декомпозиция decal_voronoi.py по ownership** (compile /
+  diagram / clipping-arrangement / chart transitions / lift /
+  corner policy / UV / diagnostics) — ТОЛЬКО после контрактов
+  S1-S2; механическое разрезание запрещено (согласие с аудитом).
+
+Предлагаемый порядок: закрыть текущие R1.8/R1.9 (в полёте) ->
+S0 (дёшево, сразу упрощает всё) -> S1 (фундамент: tessellation
+кормит и rail-реконструкцию, и chart; менять её ПОСЛЕ R2-freeze —
+переделка) -> R2 -> S2 -> R3 -> S3 (фоном/после). Обоснование:
+урок GL «не строить выше на неверном фундаменте» — S1 и есть
+фундамент под R2/R3.
+
+---
+
 # 0e. LEGACY-CUT (решение пользователя, обязательно)
 
 Пользовательское решение (полевой вход): LEGACY-fallback в режиме
