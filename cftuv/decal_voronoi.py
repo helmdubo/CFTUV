@@ -12863,13 +12863,18 @@ def _resolve_arrangement_corner_views(faces, corner_resolution_sources):
     """S-CM.b: post-competition view читает тот же Model/DerivedGeometry."""
 
     sources = {
-        (owner_id, int(chart_id)): (model, derived)
-        for owner_id, model, derived, chart_id in corner_resolution_sources
+        (int(patch_id), owner_id, int(chart_id)): (model, derived)
+        for patch_id, owner_id, model, derived, chart_id
+        in corner_resolution_sources
     }
     points_by_source = {source_key: {} for source_key in sources}
     for face in faces:
         owner_id = face.crop.semantic_owner_id
-        source_key = (owner_id, int(face.surface.domain.chart_id))
+        source_key = (
+            int(face.surface.patch_id),
+            owner_id,
+            int(face.surface.domain.chart_id),
+        )
         if source_key not in sources:
             continue
         for point_index, point in enumerate(face.points):
@@ -12890,7 +12895,7 @@ def _resolve_arrangement_corner_views(faces, corner_resolution_sources):
             if previous != canonical_point:
                 raise ValueError(
                     "RESOLVED_CORNER_KEY_POSITION_DESYNC: "
-                    f"owner={owner_id!r} chart={source_key[1]!r} key={key!r}"
+                    f"owner={owner_id!r} chart={source_key[2]!r} key={key!r}"
                 )
     return tuple(
         sources[source_key][0].resolve_after_competition(
@@ -15560,6 +15565,7 @@ def _evaluate_surface_crops(
 
     return tuple(
         (
+            int(surface.patch_id),
             (
                 "corner-model",
                 model.seed.corner_vertex_id,

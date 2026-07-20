@@ -2222,6 +2222,41 @@ def test_rf28_arrangement_has_no_hardcoded_join_branch():
     assert "MITER" not in source
 
 
+def test_s_cm_b_resolved_views_keep_patch_identity_when_chart_ids_collide():
+    graph, edge_indices = _door_opening_graph()
+    plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
+    surface = plan.surfaces[0]
+    model = decal_voronoi._build_local_corner_models(
+        surface, alpha=0.25
+    )[0]
+    derived = model.derive()
+    owner_id = decal_voronoi._resolved_corner_owner_id(model)
+    boundary = derived.emission_boundary
+
+    def arrangement_face(patch_id):
+        return SimpleNamespace(
+            surface=SimpleNamespace(
+                patch_id=patch_id,
+                domain=SimpleNamespace(chart_id=0),
+            ),
+            crop=SimpleNamespace(semantic_owner_id=owner_id),
+            points=tuple(vertex.chart_point for vertex in boundary),
+            point_keys=tuple(vertex.key for vertex in boundary),
+        )
+
+    sources = tuple(
+        (patch_id, owner_id, model, derived, 0)
+        for patch_id in (10, 11)
+    )
+    views = decal_voronoi._resolve_arrangement_corner_views(
+        tuple(arrangement_face(patch_id) for patch_id in (10, 11)),
+        sources,
+    )
+
+    assert len(views) == 2
+    assert all(view.p1 is model.p1 and view.p2 is model.p2 for view in views)
+
+
 def test_rf24_bevel_band_turn_is_invariant_to_domain_winding_flip():
     settings = decal_voronoi.CornerRuntimeSettings(join_mode="BEVEL")
     graph, edge_indices = _door_opening_graph()
