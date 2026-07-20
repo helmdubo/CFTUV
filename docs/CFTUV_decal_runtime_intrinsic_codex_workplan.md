@@ -431,6 +431,21 @@ R0+R1+LEGACY-CUT; нижеследующий старый список сохр�
    запрещены. Тест сузить, не удалять: own-segments идентичны +
    покрытие конкурента достигает хорды. R3 заблокирован до
    закрытия; R2 IR независим (подтверждено).
+   **Результат архитектурной пересдачи RC5a:** единый runtime selector
+   теперь выбирает MITER/BEVEL до ownership; `(V,P1,P2)` является
+   geometry-моделью BEVEL, а не post-arrangement заплаткой. Для каждой
+   point-cell compile хранит width-independent partition второго owner
+   (`_CornerReleaseAtom`), построенную по обычной конкуренции внешних
+   sites; runtime вычитает из неё фактическую join-материю и отдаёт
+   остаток достигшему его чужому SEGMENT. Incident sites исключены из
+   release-partition: собственные сегменты/лимиты остаются MITER-identical.
+   Старые `_classify_emitted_corner_runtime` и
+   `_append_post_clip_bevel_joins` удалены. RF28 разделён на две проверки:
+   own-segments идентичны; competitor достигает хорды без overlap.
+   Полевой `walls.001`: бирюзовый фронтир встречает 48 розовых BEVEL на
+   хордах, прежнего округлого обтекания нет; toggle compile-static в drag.
+   Ярус-2: 532 passed, 3 skipped, 4 deselected; полевой набор шести
+   объектов без `SCRIPT_ERROR`, `.blend` не сохранён.
 4l. **R1.9 — Насыщение на экстремальной ширине (RR8d):** полевой
    стоп `TERMINAL_BRIDGE_CUT_INVALID: patch=0 edge=8 vertex=10`
    при width=35.98. 1) Диагноз: дамп состояния маршрута v10/e8 на

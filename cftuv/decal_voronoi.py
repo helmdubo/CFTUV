@@ -301,6 +301,32 @@ class _PatchVoronoiAtom:
 
 
 @dataclass(frozen=True)
+class _CornerReleaseAtom:
+    """Второй owner point-cell после удаления материи угла RC5a.
+
+    Primary point-cell остаётся единственным источником формы угла. Эта
+    запись хранит только width-independent обычную конкуренцию в той части
+    cell, которую выбранный join может освободить.
+    """
+
+    corner_index: int
+    point_site_index: int
+    point_periodic_shift: int
+    owner_site_index: int
+    owner_periodic_shift: int
+    fragments: tuple[tuple[tuple[float, float], ...], ...]
+    fragment_triangle_ids: tuple[int, ...] = ()
+
+    def __post_init__(self):
+        if self.fragment_triangle_ids and (
+            len(self.fragment_triangle_ids) != len(self.fragments)
+        ):
+            raise ValueError(
+                "Corner release fragment provenance must be aligned"
+            )
+
+
+@dataclass(frozen=True)
 class _IntrinsicDomainTriangle:
     """Один triangle intrinsic chart и его lift-данные на owner mesh."""
 
@@ -897,6 +923,7 @@ class _PatchVoronoiSurface:
     sites_by_vertex: dict[int, tuple[int, ...]]
     ports_by_vertex: dict[int, tuple["_CompiledSitePort", ...]]
     ports_by_site: dict[int, tuple["_CompiledSitePort", ...]]
+    corner_release_atoms: dict[int, tuple[_CornerReleaseAtom, ...]]
     semantic_owner_chart_by_vertex: tuple[tuple[int, int], ...] = ()
     native_site_edge_indices: tuple[int, ...] = ()
 
@@ -3365,6 +3392,36 @@ def _corner_crop_components(
         )
         if len(polygon) < 3:
             return ()
+        if policy == _CornerPolicy.BEVEL:
+            owner_site = _corner_site_view(
+                surface, corner, corner.ordered_sites[0]
+            )
+            side_sign = -1 if owner_site.uv_sign < 0.0 else 1
+            component = _corner_component_from_polygon(
+                surface,
+                corner,
+                alpha,
+                policy.value,
+                (
+                    f"RM6A_v{corner.vert_index}_e{owner_site.edge_index}_"
+                    f"s{side_sign:+d}"
+                ),
+                polygon,
+                owner_site_indices=corner.incident_sites,
+            )
+            if component is None:
+                return ()
+            return (
+                replace(
+                    component,
+                    semantic_owner_id=(
+                        "corner",
+                        int(corner.vert_index),
+                        int(owner_site.edge_index),
+                        int(side_sign),
+                    ),
+                ),
+            )
         return (
             _CropComponent(
                 kind=policy.value,
@@ -3567,6 +3624,15 @@ def _corner_crop_polygon(
         )
 
     offset_lines = _corner_offset_lines(surface, corner, alpha)
+    if len(offset_lines) != 2:
+        return []
+    if policy == _CornerPolicy.BEVEL:
+        # RC5: BEVEL — сама математическая область угла, а не post-emission
+        # замена MITER-piece. V/P1/P2 затем одинаково читают collision,
+        # ownership, UV и lift.
+        points = [point, offset_lines[0][0], offset_lines[1][0]]
+        _validate_bevel_shape(surface, corner, points)
+        return _convex_hull(points)
     intersection = _line_intersection(
         offset_lines[0][0],
         offset_lines[0][1],
@@ -4537,30 +4603,20 @@ def classify_corner_runtime(corner, settings=None):
 
 
 def _classify_surface_corner_runtime(surface, corner, settings=None):
-    """Arrangement policy, не зависящая от визуального join style.
+    """Единая runtime-policy формы угла для geometry и emission.
 
-    RC5: диаграмма, crop ownership и лимиты всегда идут штатным путём
-    MITER-конфигурации. BEVEL выбирается только при эмиссии corner-piece.
+    RC5: join style выбирается до crop/ownership/arrangement. Поэтому одна
+    policy управляет и столкновением, и UV/3D-материализацией; отдельной
+    ``emitted``-классификации у одного физического угла не существует.
     """
 
     settings = _normalized_corner_runtime_settings(settings)
-    policy = classify_corner_runtime(
-        corner,
-        replace(settings, join_mode="MITER"),
-    )
+    policy = classify_corner_runtime(corner, settings)
     if (
         policy == _CornerPolicy.SMOOTH
         and surface.domain.admission_tier == "APPROXIMATE"
     ):
         policy = _CornerPolicy.MITER
-    return policy
-
-
-def _classify_emitted_corner_runtime(surface, corner, settings=None):
-    """RC5 emission policy: BEVEL отличается только заполнением piece."""
-
-    settings = _normalized_corner_runtime_settings(settings)
-    policy = _classify_surface_corner_runtime(surface, corner, settings)
     if (
         settings.join_mode == "BEVEL"
         and policy in {_CornerPolicy.MITER, _CornerPolicy.KITE}
@@ -4660,6 +4716,207 @@ def _compile_surface_relations(sites, corners, atoms):
         frozen(ports_by_vertex),
         frozen(ports_by_site),
     )
+
+
+def _compile_corner_release_atoms(
+    *,
+    diagram_transform,
+    diagram_site_records,
+    sites,
+    corners,
+    diagram_cells,
+    diagram_edges,
+    guard,
+    curve_step,
+    point_cell_records,
+    diagnostics=None,
+):
+    """Компилирует конкуренцию за освобождаемую часть point-cell RC5a.
+
+    BEVEL не меняет incident segments собственной ленты. Поэтому из
+    конкуренции за клин исключаются оба incident site, а кандидаты берутся
+    структурно из границы их Voronoi-региона. Partition не зависит от width
+    или join и во время drag только клиппится фактической формой угла.
+    """
+
+    if not point_cell_records:
+        return {}
+
+    def neighbor_cells(cell_index):
+        result = set()
+        cell = diagram_cells[cell_index]
+        for edge_index in cell.edges:
+            if edge_index < 0 or edge_index >= len(diagram_edges):
+                continue
+            twin_index = diagram_edges[edge_index].twin
+            if twin_index < 0 or twin_index >= len(diagram_edges):
+                continue
+            neighbor_index = diagram_edges[twin_index].cell
+            if 0 <= neighbor_index < len(diagram_cells):
+                result.add(int(neighbor_index))
+        return result
+
+    records_by_corner = {}
+    diagram_scale = int(diagram_transform.scale)
+    for record in point_cell_records:
+        (
+            primary_cell_index,
+            corner_index,
+            point_site_index,
+            point_periodic_shift,
+            primary_fragments,
+            primary_triangle_ids,
+        ) = record
+        corner = corners[corner_index]
+        incident_sites = set(corner.incident_sites)
+
+        queue = [int(primary_cell_index)]
+        visited = set()
+        candidate_record_indices = set()
+        while queue:
+            cell_index = queue.pop()
+            if cell_index in visited:
+                continue
+            visited.add(cell_index)
+            for neighbor_index in neighbor_cells(cell_index):
+                neighbor = diagram_cells[neighbor_index]
+                if not (0 <= neighbor.site < len(diagram_site_records)):
+                    continue
+                owner_site_index = int(
+                    diagram_site_records[neighbor.site][0]
+                )
+                if owner_site_index in incident_sites:
+                    queue.append(neighbor_index)
+                else:
+                    candidate_record_indices.add(int(neighbor.site))
+
+        if not candidate_record_indices:
+            continue
+        candidate_record_indices = tuple(sorted(candidate_record_indices))
+
+        if len(candidate_record_indices) == 1:
+            candidate_index = candidate_record_indices[0]
+            owner_site_index, owner_shift = diagram_site_records[
+                candidate_index
+            ][:2]
+            records_by_corner.setdefault(corner_index, []).append(
+                _CornerReleaseAtom(
+                    corner_index=corner_index,
+                    point_site_index=int(point_site_index),
+                    point_periodic_shift=int(point_periodic_shift),
+                    owner_site_index=int(owner_site_index),
+                    owner_periodic_shift=int(owner_shift),
+                    fragments=tuple(primary_fragments),
+                    fragment_triangle_ids=tuple(primary_triangle_ids),
+                )
+            )
+            continue
+
+        release_diagram = pyvoronoi.Pyvoronoi(diagram_scale)
+        candidate_records = tuple(
+            diagram_site_records[index]
+            for index in candidate_record_indices
+        )
+        for _site_index, _shift, point_a, point_b in candidate_records:
+            release_diagram.AddSegment(
+                [
+                    diagram_transform.to_diagram(point_a),
+                    diagram_transform.to_diagram(point_b),
+                ]
+            )
+        for guard_index in range(4):
+            release_diagram.AddSegment(
+                [
+                    diagram_transform.to_diagram(guard[guard_index]),
+                    diagram_transform.to_diagram(
+                        guard[(guard_index + 1) % 4]
+                    ),
+                ]
+            )
+        try:
+            release_diagram.Construct()
+            if diagnostics is not None:
+                diagnostics.construct_calls += 1
+        except Exception as exc:
+            raise _PatchVoronoiSurfaceCompileError(
+                "BEVEL_RELEASE_COMPETITION_COMPILE_FAILED",
+                (sites[index].edge_index for index in sorted(incident_sites)),
+                f"{type(exc).__name__}: {exc}",
+            ) from exc
+
+        release_edges = release_diagram.GetEdges()
+        release_vertices = tuple(
+            _DiagramVertex(
+                *diagram_transform.from_diagram((vertex.X, vertex.Y))
+            )
+            for vertex in release_diagram.GetVertices()
+        )
+        fragments_by_candidate = {}
+        triangles_by_candidate = {}
+        for cell in release_diagram.GetCells():
+            if (
+                cell.site < 0
+                or cell.site >= len(candidate_records)
+                or cell.is_open
+                or cell.is_degenerate
+            ):
+                continue
+            polygon = _cell_polygon(
+                release_diagram,
+                release_edges,
+                release_vertices,
+                cell,
+                curve_step,
+                diagnostics,
+                diagram_transform,
+            )
+            if polygon is None:
+                continue
+            for cell_triangle in _triangulate_cell_polygon(
+                polygon, diagram_transform.quantum
+            ):
+                for primary_fragment, triangle_id in zip(
+                    primary_fragments, primary_triangle_ids
+                ):
+                    clipped = _clip_to_convex(
+                        cell_triangle, primary_fragment
+                    )
+                    if (
+                        len(clipped) < 3
+                        or abs(_polygon_area2(clipped)) <= 1e-10
+                    ):
+                        continue
+                    if _polygon_area2(clipped) < 0.0:
+                        clipped.reverse()
+                    fragments_by_candidate.setdefault(
+                        int(cell.site), []
+                    ).append(tuple(clipped))
+                    triangles_by_candidate.setdefault(
+                        int(cell.site), []
+                    ).append(int(triangle_id))
+
+        for local_index in sorted(fragments_by_candidate):
+            owner_site_index, owner_shift = candidate_records[local_index][
+                :2
+            ]
+            records_by_corner.setdefault(corner_index, []).append(
+                _CornerReleaseAtom(
+                    corner_index=corner_index,
+                    point_site_index=int(point_site_index),
+                    point_periodic_shift=int(point_periodic_shift),
+                    owner_site_index=int(owner_site_index),
+                    owner_periodic_shift=int(owner_shift),
+                    fragments=tuple(fragments_by_candidate[local_index]),
+                    fragment_triangle_ids=tuple(
+                        triangles_by_candidate[local_index]
+                    ),
+                )
+            )
+
+    return {
+        corner_index: tuple(records)
+        for corner_index, records in sorted(records_by_corner.items())
+    }
 
 
 def _normalized_intrinsic_triangles(intrinsic_triangles, quantize_point):
@@ -5248,6 +5505,7 @@ def _compile_surface(
         DECAL_WELD_DISTANCE * 2.0,
     )
     diagram_edges = diagram.GetEdges()
+    diagram_cells = tuple(diagram.GetCells())
     diagram_vertices = tuple(
         _DiagramVertex(*diagram_transform.from_diagram((vertex.X, vertex.Y)))
         for vertex in diagram.GetVertices()
@@ -5270,7 +5528,8 @@ def _compile_surface(
         for corner in corners
     )
     atoms = []
-    for cell in diagram.GetCells():
+    point_cell_records = []
+    for cell_index, cell in enumerate(diagram_cells):
         if (
             cell.site < 0
             or cell.site >= len(diagram_site_records)
@@ -5344,6 +5603,29 @@ def _compile_surface(
                     periodic_shift=int(periodic_shift),
                 )
             )
+            if cell_kind == "POINT" and corner_index >= 0:
+                point_cell_records.append(
+                    (
+                        int(cell_index),
+                        int(corner_index),
+                        int(owner_site_index),
+                        int(periodic_shift),
+                        tuple(fragments),
+                        tuple(fragment_triangle_ids),
+                    )
+                )
+    corner_release_atoms = _compile_corner_release_atoms(
+        diagram_transform=diagram_transform,
+        diagram_site_records=tuple(diagram_site_records),
+        sites=tuple(sites),
+        corners=corners,
+        diagram_cells=diagram_cells,
+        diagram_edges=diagram_edges,
+        guard=guard,
+        curve_step=curve_step,
+        point_cell_records=tuple(point_cell_records),
+        diagnostics=diagnostics,
+    )
     segment_site_indices = {
         atom.site_index for atom in atoms if atom.cell_kind == "SEGMENT"
     }
@@ -5493,6 +5775,7 @@ def _compile_surface(
         sites_by_vertex=sites_by_vertex,
         ports_by_vertex=ports_by_vertex,
         ports_by_site=ports_by_site,
+        corner_release_atoms=corner_release_atoms,
         semantic_owner_chart_by_vertex=tuple(
             sorted(
                 (int(vertex_id), int(owner_chart_id))
@@ -12286,128 +12569,8 @@ def _build_decal_arrangement(
     )
 
 
-def _arrangement_loop_uv(face, point_index, alpha):
-    """UV уже эмитированного loop; transition override сильнее site-frame."""
-
-    point_key = (
-        face.point_keys[point_index]
-        if len(face.point_keys) == len(face.points)
-        else None
-    )
-    override = next(
-        (
-            (u_fraction, v_length)
-            for key, u_fraction, v_length in face.transition_uv
-            if key == point_key
-        ),
-        None,
-    )
-    if override is not None:
-        return override
-    return _m1_raw_arrangement_uv(face, face.points[point_index], alpha)
-
-
-def _bevel_open_strip_corner(faces, surface, corner, site_index):
-    """Возвращает уже эмитированные V/P loop records одной incident strip."""
-
-    site = _corner_site_view(surface, corner, site_index)
-    surface_faces = tuple(
-        face
-        for face in faces
-        if face.surface is surface
-        and face.crop.kind == "SEGMENT"
-    )
-    edge_uses = {}
-    for face in surface_faces:
-        point_tokens = (
-            face.point_keys
-            if len(face.point_keys) == len(face.points)
-            else tuple(("chart-point", point) for point in face.points)
-        )
-        for index, first in enumerate(point_tokens):
-            second = point_tokens[(index + 1) % len(point_tokens)]
-            edge_uses.setdefault(frozenset((first, second)), 0)
-            edge_uses[frozenset((first, second))] += 1
-
-    site_faces = tuple(
-        face
-        for face in surface_faces
-        if int(face.site.edge_index) == int(site.edge_index)
-        and face.points
-    )
-    nearest_records = []
-    for face in site_faces:
-        corner_index = min(
-            range(len(face.points)),
-            key=lambda index: (
-                _dist2(face.points[index], corner.point), index
-            ),
-        )
-        nearest_records.append(
-            (
-                _dist2(face.points[corner_index], corner.point),
-                face,
-                corner_index,
-            )
-        )
-    if not nearest_records:
-        raise RuntimeError(
-            "BEVEL_POST_CLIP_SITE_FACE_MISSING: "
-            f"patch={surface.patch_id} vertex={corner.vert_index} "
-            f"edge={site.edge_index}"
-        )
-    nearest_distance = min(record[0] for record in nearest_records)
-    candidates = {}
-    for distance_to_corner, face, corner_index in nearest_records:
-        if distance_to_corner != nearest_distance:
-            continue
-        point_tokens = (
-            face.point_keys
-            if len(face.point_keys) == len(face.points)
-            else tuple(("chart-point", point) for point in face.points)
-        )
-        count = len(face.points)
-        point_token = point_tokens[corner_index]
-        for neighbor_index in (
-            (corner_index - 1) % count,
-            (corner_index + 1) % count,
-        ):
-            neighbor_token = point_tokens[neighbor_index]
-            edge_key = frozenset((point_token, neighbor_token))
-            if edge_uses.get(edge_key) != 1:
-                continue
-            neighbor_point = face.points[neighbor_index]
-            lateral_distance, _parameter = _segment_point_distance2(
-                site.point_a, site.point_b, neighbor_point
-            )
-            candidate_key = (neighbor_token, neighbor_point)
-            candidates.setdefault(
-                candidate_key,
-                (lateral_distance, face, corner_index, neighbor_index),
-            )
-    if not candidates:
-        raise RuntimeError(
-            "BEVEL_POST_CLIP_CORNER_AMBIGUOUS: "
-            f"patch={surface.patch_id} vertex={corner.vert_index} "
-            f"edge={site.edge_index} candidates={tuple(sorted(map(repr, candidates)))}"
-        )
-    max_distance = max(record[0] for record in candidates.values())
-    outer = tuple(
-        record[1:]
-        for record in candidates.values()
-        if record[0] == max_distance
-    )
-    if len(outer) != 1:
-        raise RuntimeError(
-            "BEVEL_POST_CLIP_OUTER_CORNER_AMBIGUOUS: "
-            f"patch={surface.patch_id} vertex={corner.vert_index} "
-            f"edge={site.edge_index} distance={max_distance!r}"
-        )
-    return outer[0]
-
-
-def _validate_bevel_emitted_piece(surface, corner, points, point_keys=()):
-    """RC5: эмитируемая BEVEL-граница — одна хорда, не FAN."""
+def _validate_bevel_shape(surface, corner, points, point_keys=()):
+    """RC5: BEVEL-модель — одна трёхточечная хорда, не FAN."""
 
     if len(points) != 3:
         raise RuntimeError(
@@ -12419,131 +12582,10 @@ def _validate_bevel_emitted_piece(surface, corner, points, point_keys=()):
         point_keys and len(set(point_keys)) != 3
     ):
         raise RuntimeError(
-            "BEVEL_POST_CLIP_TRIANGLE_DEGENERATE: "
+            "BEVEL_SHAPE_TRIANGLE_DEGENERATE: "
             f"patch={surface.patch_id} vertex={corner.vert_index} "
             f"keys={point_keys!r}"
         )
-
-
-def _append_post_clip_bevel_joins(
-    faces, surfaces, corner_settings, alpha
-):
-    """RC5: заменяет MITER-piece post-clip треугольником V/P1/P2."""
-
-    result = list(faces)
-    for surface in surfaces:
-        for corner in surface.corners:
-            if (
-                _classify_emitted_corner_runtime(
-                    surface, corner, corner_settings
-                )
-                != _CornerPolicy.BEVEL
-            ):
-                continue
-            records = tuple(
-                _bevel_open_strip_corner(
-                    result, surface, corner, site_index
-                )
-                for site_index in corner.ordered_sites
-            )
-            first_face, first_v_index, first_p_index = records[0]
-            second_face, second_v_index, second_p_index = records[1]
-            v_keys = (
-                first_face.point_keys[first_v_index]
-                if len(first_face.point_keys) == len(first_face.points)
-                else ("chart-point", first_face.points[first_v_index]),
-                second_face.point_keys[second_v_index]
-                if len(second_face.point_keys) == len(second_face.points)
-                else ("chart-point", second_face.points[second_v_index]),
-            )
-            if v_keys[0] != v_keys[1]:
-                raise RuntimeError(
-                    "BEVEL_POST_CLIP_VERTEX_KEY_DESYNC: "
-                    f"patch={surface.patch_id} vertex={corner.vert_index} "
-                    f"keys={v_keys!r}"
-                )
-            points = (
-                first_face.points[first_v_index],
-                first_face.points[first_p_index],
-                second_face.points[second_p_index],
-            )
-            has_emitted_keys = (
-                len(first_face.point_keys) == len(first_face.points)
-                and len(second_face.point_keys) == len(second_face.points)
-            )
-            point_keys = (
-                (
-                    v_keys[0],
-                    first_face.point_keys[first_p_index],
-                    second_face.point_keys[second_p_index],
-                )
-                if has_emitted_keys
-                else ()
-            )
-            uv_anchors = (
-                _arrangement_loop_uv(first_face, first_v_index, alpha),
-                _arrangement_loop_uv(first_face, first_p_index, alpha),
-                _arrangement_loop_uv(second_face, second_p_index, alpha),
-            )
-            area = _polygon_area2(points)
-            _validate_bevel_emitted_piece(
-                surface, corner, points, point_keys
-            )
-            if area < 0.0:
-                points = (points[0], points[2], points[1])
-                if point_keys:
-                    point_keys = (
-                        point_keys[0], point_keys[2], point_keys[1]
-                    )
-                uv_anchors = (
-                    uv_anchors[0], uv_anchors[2], uv_anchors[1]
-                )
-            owner_site = _corner_site_view(
-                surface, corner, corner.ordered_sites[0]
-            )
-            side_sign = -1 if owner_site.uv_sign < 0.0 else 1
-            owner_identity = (
-                "corner",
-                int(corner.vert_index),
-                int(owner_site.edge_index),
-                int(side_sign),
-            )
-            crop = _CropComponent(
-                kind=_CornerPolicy.BEVEL.value,
-                side=(
-                    f"RM6A_v{corner.vert_index}_e{owner_site.edge_index}_"
-                    f"s{side_sign:+d}"
-                ),
-                points=points,
-                uv_anchors=uv_anchors,
-                owner_site_indices=tuple(corner.ordered_sites),
-                semantic_owner_id=owner_identity,
-            )
-            arrangement_owner_id = ("corner", int(corner.vert_index))
-            result = [
-                face
-                for face in result
-                if not (
-                    face.surface is surface
-                    and face.crop.kind != "SEGMENT"
-                    and face.crop.semantic_owner_id == arrangement_owner_id
-                )
-            ]
-            result.append(
-                _DecalArrangementFace(
-                    surface=surface,
-                    site=owner_site,
-                    points=points,
-                    crop=crop,
-                    point_keys=point_keys,
-                    transition_uv=tuple(
-                        (key, uv[0], uv[1])
-                        for key, uv in zip(point_keys, uv_anchors)
-                    ),
-                    boundary_corner_vertices=(int(corner.vert_index),),
-                )
-            )
-    return tuple(result)
 
 
 def _source_station_location(surface, point, source_feature, feature_id):
@@ -14422,6 +14464,7 @@ def _evaluate_surface_crops(
                 policy in {
                     _CornerPolicy.SMOOTH,
                     _CornerPolicy.ACUTE_SPLIT,
+                    _CornerPolicy.BEVEL,
                 }
                 or (
                     policy == _CornerPolicy.MITER
@@ -14460,7 +14503,11 @@ def _evaluate_surface_crops(
         crops = tuple(
             replace(
                 owned_crop,
-                semantic_owner_id=("corner", int(corner.vert_index)),
+                semantic_owner_id=(
+                    owned_crop.semantic_owner_id
+                    if owned_crop.semantic_owner_id is not None
+                    else ("corner", int(corner.vert_index))
+                ),
             )
             for crop in raw_crops
             for owned_crop in (
@@ -14576,6 +14623,88 @@ def _evaluate_surface_crops(
                 corner_emitted = corner_emitted or len(pending) > pending_count
         if not corner_emitted:
             absorbed_corner_indices.add(corner_index)
+
+    # RC5a: BEVEL освобождает часть primary point-cell. Она не исчезает и не
+    # остаётся невидимой стеной: compile-static second-owner partition отдаёт
+    # её дотекающим чужим SEGMENT-потокам. Собственные incident sites в этой
+    # partition отсутствуют, поэтому их faces/limits остаются MITER-identical.
+    release_atoms_by_corner = getattr(surface, "corner_release_atoms", {})
+    if release_atoms_by_corner and not _surface_is_approximate(surface):
+        period = float(
+            getattr(getattr(surface, "domain", None), "period", 0.0)
+        )
+        for corner_index, crops in sorted(corner_crops.items()):
+            if runtime_policies[corner_index] != _CornerPolicy.BEVEL:
+                continue
+            corner = surface.corners[corner_index]
+            corner_offsets = dict(corner.site_u_offsets)
+            for release_atom in release_atoms_by_corner.get(corner_index, ()):
+                join_offset = (
+                    release_atom.point_periodic_shift * period
+                    - corner_offsets.get(
+                        release_atom.point_site_index, 0.0
+                    )
+                )
+                image_join_crops = tuple(
+                    _translated_crop_u(crop, join_offset) for crop in crops
+                )
+                source_site = surface.sites[
+                    release_atom.owner_site_index
+                ]
+                site = _periodic_site_image(
+                    surface,
+                    source_site,
+                    release_atom.owner_periodic_shift,
+                )
+                start_guide, end_guide = site_terminal_guides(
+                    source_site, release_atom.owner_periodic_shift
+                )
+                for segment_crop, terminal_cut_vertices in (
+                    _terminal_segment_crop_components(
+                        site,
+                        alpha,
+                        start_guide=start_guide,
+                        end_guide=end_guide,
+                    )
+                ):
+                    fragments = []
+                    fragment_merge_groups = []
+                    for fragment, merge_group in _atom_fragment_records(
+                        surface, release_atom
+                    ):
+                        pieces = [fragment]
+                        for join_crop in image_join_crops:
+                            pieces = [
+                                outside
+                                for piece in pieces
+                                for outside in _subtract_convex_polygon(
+                                    piece, join_crop.points
+                                )
+                            ]
+                            if not pieces:
+                                break
+                        for piece in pieces:
+                            clipped = _clip_to_convex(
+                                piece, segment_crop.points
+                            )
+                            if (
+                                len(clipped) < 3
+                                or abs(_polygon_area2(clipped)) <= 1e-10
+                            ):
+                                continue
+                            fragments.append(clipped)
+                            fragment_merge_groups.append(merge_group)
+                    if fragments:
+                        _append_pending_fragments(
+                            pending,
+                            surface,
+                            site,
+                            segment_crop,
+                            fragments,
+                            diagnostics,
+                            terminal_cut_vertices=terminal_cut_vertices,
+                            fragment_merge_groups=fragment_merge_groups,
+                        )
 
     for atom in surface.atoms:
         if atom.cell_kind == "POINT" and atom.corner_index in corner_crops:
@@ -15210,12 +15339,7 @@ def evaluate_patch_voronoi_plan(
         diagnostics=diagnostics,
         alpha=alpha,
     )
-    pending = _append_post_clip_bevel_joins(
-        arrangement.faces,
-        plan.surfaces,
-        corner_settings,
-        alpha,
-    )
+    pending = arrangement.faces
     desired_lift_scale = lift_scale
     resolved_points = {}
     lift_scale = _orientation_safe_lift_scale(

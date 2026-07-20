@@ -1105,18 +1105,25 @@ beveled-угла достигает хорды.
   негативы: fan-дискретизация против beveled-угла -> именованный
   fail; `join_mode`, захардкоженный в arrangement -> именованный
   fail ревью кода.
-  **Результат R1.8:** FIELD CANDIDATE. Arrangement-классификатор
-  больше не возвращает BEVEL; удалены специальные BEVEL-ветки из
-  `_corner_crop_components`, `_corner_crop_polygon`, approximate-probe,
-  `explicit_corner_indices` и empty `corner_crops`. Единственная
-  join-style ветка живёт в post-arrangement emission: базовый
-  MITER/KITE owner-piece заменяется прямым `(V,P1,P2)`, собранным из
-  общих loop-facts двух SEGMENT-faces. RF28 доказывает равенство всех
-  SEGMENT-faces на widths 0.5/3.0, трёхвершинность BEVEL, именованный
-  `BEVEL_FAN_DISCRETIZATION_FORBIDDEN` и бит-идентичный round-trip
-  MITER->BEVEL->MITER. Поле `walls.001`: 133 seam, 48 BEVEL-piece,
-  MITER/BEVEL segment snapshots равны на widths 0.8/3.2;
-  `sagging_wall`: 1 piece, то же равенство.
+  **Результат R1.8/RC5a:** IMPLEMENTED (архитектурная пересдача).
+  Единственный `_classify_surface_corner_runtime()` выбирает join до
+  crop/ownership; отдельной emitted-policy и post-arrangement подмены
+  угла больше нет. BEVEL-модель `(V,P1,P2)` проходит общий путь crop ->
+  arrangement -> UV -> lift -> 3D emission. Point-cell компайл-статично
+  хранит `_CornerReleaseAtom`: partition второго владельца, построенную
+  обычной Voronoi-конкуренцией внешних (не incident) sites. В runtime из
+  неё вычитается ФАКТИЧЕСКАЯ материя выбранного join и остаток отдаётся
+  только достигшему его SEGMENT-потоку; собственной паре sites этот
+  остаток не выдаётся. Поэтому own-segments бит-идентичны MITER, а чужой
+  фронтир доходит до BEVEL-хорды без перекрытия. RF28: own edges
+  `204/205/206` идентичны, competitor `201` получает два chord-touching
+  фрагмента; toggle не вызывает нового Voronoi Construct и round-trip
+  детерминирован; FAN-геометрия даёт именованный fail. Полевой ракурс
+  `walls.001` (133 seam, 48 BEVEL): прежние округлые бирюзовые укусы
+  заменены встречей на розовых хордах; MITER-режим сохранён. Ярус-2
+  `pytest -q -m "not atlas_frozen"`: 532 passed, 3 skipped, 4 deselected.
+  Полевой набор из шести объектов завершён без `SCRIPT_ERROR`, все
+  width-evaluation compile-static, `.blend` не сохранён.
 - **RF29 Насыщение terminal route (RR8d):** на полевом
   `sagging_wall` (`e6,e7,e8`) width=35.98 даёт для v10/e8 два
   исчерпанных route без повторов: patch 0 reach=12.688646,
