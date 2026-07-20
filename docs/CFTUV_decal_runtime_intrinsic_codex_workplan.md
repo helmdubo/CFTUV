@@ -430,6 +430,23 @@ R0+R1+LEGACY-CUT; нижеследующий старый список сохр�
    назвать и устранить расхождение; 4) RF29: экстремальная ширина
    (>= 10x габарита) на sagging_wall — насыщение без ошибок,
    counted-события, done == preview. После R1.8, перед R2.
+   **Результат R1.9:** FIELD CANDIDATE. Диагноз v10/e8 исключил
+   намотку и встречу контактов: оба route исчерпаны без повторов, а
+   последний конструктивный station-prefix предшествует их физическому
+   концу (patch 0: 3.603432 из 12.688646; patch 1: 3.233079 из
+   14.581049). Runtime клампит только исчерпанный невалидный хвост;
+   unsaturated invalid по-прежнему fail. Defensive revisit-guard и
+   одномерная встречная station-конкуренция реализованы в том же consumer.
+   Полевой evaluator: width=35.98 и width=102.752491 (10x bbox diagonal)
+   проходят preview/final с бит-идентичной сериализацией; counted
+   `TERMINAL_ROUTE_SATURATED=3`,
+   `TERMINAL_ROUTE_STATION_CLAMPED=2`. Причина кажущегося расхождения
+   preview/done: UI показывал retained last-valid кадр до controlled
+   recompile; прямой старый evaluator на одном плане падал в обоих режимах.
+   Канонический набор шести объектов завершён без `SCRIPT_ERROR`; ярус-2:
+   `530 passed, 3 skipped, 4 deselected`. Аннотированный полевой гейт:
+   `artifacts/decal_r19_before_after_annotated.png`; `.blend` не сохранён.
+   R2 — следующий только после отдельного коммита и полевого отчёта R1.9.
 5. **R2 — конкуренция/freeze в станциях** (RC1-RC3, RF7) + RR10
    «нити между chains»: единый route на нить, двойное чтение
    станций, freeze-локус вдоль нитей (RF17, часть R2).

@@ -1097,6 +1097,10 @@ class PatchVoronoiDiagnostics:
     atlas_semantic_import_count: int = 0
     atlas_semantic_transition_count: int = 0
     atlas_arrangement_integrity_failure_count: int = 0
+    terminal_route_saturation_count: int = 0
+    terminal_route_station_clamp_count: int = 0
+    terminal_route_revisit_guard_count: int = 0
+    terminal_contact_meeting_count: int = 0
     # Тестовое отключение транспорта для обязательного отрицательного T8.
     semantic_transport_disabled_owner_ids: frozenset = field(
         default_factory=frozenset,
@@ -1171,6 +1175,18 @@ class PatchVoronoiDiagnostics:
             ),
             "atlas_semantic_transition_count": int(
                 self.atlas_semantic_transition_count
+            ),
+            "terminal_route_saturation_count": int(
+                self.terminal_route_saturation_count
+            ),
+            "terminal_route_station_clamp_count": int(
+                self.terminal_route_station_clamp_count
+            ),
+            "terminal_route_revisit_guard_count": int(
+                self.terminal_route_revisit_guard_count
+            ),
+            "terminal_contact_meeting_count": int(
+                self.terminal_contact_meeting_count
             ),
             "runtime_policy_counts": dict(
                 sorted(self.runtime_policy_counts.items())
@@ -1433,12 +1449,31 @@ class _PendingArrangementFace:
 
 
 @dataclass(frozen=True)
+class _TerminalBridgeStationPrefix:
+    """Конструктивный station-prefix одного terminal contour route."""
+
+    extent: float
+    point: tuple[float, float]
+    contour_points: tuple[tuple[float, float], ...]
+    source_vertex_ids: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
 class _TerminalBridgeGuide:
     """RM10: station contact вместе с пройденной contour-полилинией."""
 
     point: tuple[float, float]
     contour_points: tuple[tuple[float, float], ...]
     source_vertex_ids: tuple[int, ...] = ()
+    route_id: int | None = None
+    route_edge_ids: tuple[int, ...] = ()
+    extent: float = 0.0
+    route_reach: float = 0.0
+    station_prefixes: tuple[_TerminalBridgeStationPrefix, ...] = ()
+    saturated: bool = False
+    revisit_guarded: bool = False
+    station_clamped: bool = False
+    contact_met: bool = False
 
 
 @dataclass(frozen=True)
@@ -13653,14 +13688,46 @@ def _terminal_route_chart_guide(
     station_by_index = {
         station.station_index: station for station in route.stations
     }
-    extent = min(float(alpha), float(route.stations[-1].distance))
+    # RR8d: compile уже ставит DAM перед повторным обходом boundary, но
+    # materializer защищает тот же инвариант самостоятельно. Второй проход
+    # физического edge никогда не становится новой станцией контакта.
+    route_segments = []
+    route_segment_edge_ids = []
+    visited_edge_ids = set()
+    revisit_guarded = False
+    terminal_edge_ids = tuple(getattr(terminal, "edge_ids", ()) or ())
+    for segment_index, segment in enumerate(route.segments):
+        segment_edge_id = getattr(segment, "edge_id", None)
+        if segment_edge_id is None:
+            segment_edge_id = (
+                terminal_edge_ids[segment_index]
+                if segment_index < len(terminal_edge_ids)
+                else -(segment_index + 1)
+            )
+        if segment_edge_id in visited_edge_ids:
+            revisit_guarded = True
+            break
+        visited_edge_ids.add(segment_edge_id)
+        route_segments.append(segment)
+        route_segment_edge_ids.append(int(segment_edge_id))
+    if not route_segments:
+        raise RuntimeError(
+            "TERMINAL_BRIDGE_ROUTE_MISSING: "
+            f"patch={surface.patch_id} vertex={terminal.spine_vertex_id} "
+            f"edge={terminal.spine_edge_id} route={terminal.route_id}"
+        )
+    route_reach = float(
+        station_by_index[route_segments[-1].to_station_index].distance
+    )
+    requested_extent = float(alpha)
+    extent = min(requested_extent, route_reach)
     interval = next(
         (
             (
                 station_by_index[segment.from_station_index],
                 station_by_index[segment.to_station_index],
             )
-            for segment in route.segments
+            for segment in route_segments
             if (
                 station_by_index[segment.from_station_index].distance
                 <= extent
@@ -13739,9 +13806,17 @@ def _terminal_route_chart_guide(
         key=lambda item: (item[0], item[1], item[2], item[3]),
     )
     selected_points = {station_a.station_index: pair[2]}
+    valid_station_indices = {
+        route_segments[0].from_station_index,
+        *(segment.to_station_index for segment in route_segments),
+    }
     ordered_stations = tuple(
         sorted(
-            route.stations,
+            (
+                station
+                for station in route.stations
+                if station.station_index in valid_station_indices
+            ),
             key=lambda station: (station.distance, station.station_index),
         )
     )
@@ -13782,6 +13857,7 @@ def _terminal_route_chart_guide(
 
     contour_points = [corner_point]
     source_vertex_ids = {int(terminal.spine_vertex_id)}
+    station_prefixes = []
     for station in ordered_stations:
         if station.distance <= 0.0 or station.distance > extent:
             continue
@@ -13795,7 +13871,18 @@ def _terminal_route_chart_guide(
             contour_points.append(point)
         if station.source_vertex_id is not None:
             source_vertex_ids.add(int(station.source_vertex_id))
-    guide_point = pair[4]
+        station_prefixes.append(
+            _TerminalBridgeStationPrefix(
+                extent=float(station.distance),
+                point=contour_points[-1],
+                contour_points=tuple(contour_points),
+                source_vertex_ids=tuple(sorted(source_vertex_ids)),
+            )
+        )
+    # На vertex-station берём сам station point, а не алгебраически
+    # интерполированный эквивалент: два почти совпавших endpoint'а создавали
+    # ложное микроребро в насыщенном контуре.
+    guide_point = pair[3] if factor == 1.0 else pair[4]
     if guide_point != contour_points[-1]:
         contour_points.append(guide_point)
     if factor == 1.0 and station_b.source_vertex_id is not None:
@@ -13804,6 +13891,13 @@ def _terminal_route_chart_guide(
         point=guide_point,
         contour_points=tuple(contour_points),
         source_vertex_ids=tuple(sorted(source_vertex_ids)),
+        route_id=int(route.route_id),
+        route_edge_ids=tuple(route_segment_edge_ids),
+        extent=float(extent),
+        route_reach=float(route_reach),
+        station_prefixes=tuple(station_prefixes),
+        saturated=bool(requested_extent >= route_reach),
+        revisit_guarded=bool(revisit_guarded),
     )
 
 
@@ -13817,18 +13911,210 @@ def _terminal_route_chart_point(
     ).point
 
 
+def _terminal_station_prefix_guide(guide, prefix):
+    """RR8d: immutable view контакта на более ранней route-station."""
+
+    return replace(
+        guide,
+        point=prefix.point,
+        contour_points=prefix.contour_points,
+        source_vertex_ids=prefix.source_vertex_ids,
+        extent=float(prefix.extent),
+        station_prefixes=tuple(
+            candidate
+            for candidate in guide.station_prefixes
+            if candidate.extent <= prefix.extent
+        ),
+        saturated=True,
+        station_clamped=True,
+    )
+
+
+def _resolve_terminal_site_saturation(
+    site,
+    alpha,
+    start_guide,
+    end_guide,
+    diagnostics=None,
+):
+    """Клампит только исчерпанный одиночный route на последней valid station.
+
+    Обычный невалидный срез до конца route остаётся именованной ошибкой.
+    Два встречных контакта разрешаются отдельно станционной конкуренцией,
+    поэтому этот helper не связывает независимые стороны торца.
+    """
+
+    active = tuple(
+        guide for guide in (start_guide, end_guide) if guide is not None
+    )
+    if len(active) != 1 or not active[0].saturated:
+        return start_guide, end_guide
+    try:
+        _terminal_segment_crop_components(
+            site,
+            alpha,
+            start_guide=start_guide,
+            end_guide=end_guide,
+        )
+        return start_guide, end_guide
+    except RuntimeError as exc:
+        if not str(exc).startswith("TERMINAL_BRIDGE_CUT_INVALID:"):
+            raise
+
+    guide = active[0]
+    for prefix in reversed(guide.station_prefixes):
+        if prefix.extent >= guide.extent:
+            continue
+        candidate = _terminal_station_prefix_guide(guide, prefix)
+        candidate_start = candidate if start_guide is not None else None
+        candidate_end = candidate if end_guide is not None else None
+        try:
+            _terminal_segment_crop_components(
+                site,
+                alpha,
+                start_guide=candidate_start,
+                end_guide=candidate_end,
+            )
+        except RuntimeError as exc:
+            if str(exc).startswith("TERMINAL_BRIDGE_CUT_INVALID:"):
+                continue
+            raise
+        if diagnostics is not None:
+            diagnostics.terminal_route_station_clamp_count += 1
+            diagnostics.record_runtime_policy(
+                "TERMINAL_ROUTE_STATION_CLAMPED"
+            )
+        return candidate_start, candidate_end
+
+    raise RuntimeError(
+        "TERMINAL_BRIDGE_CUT_INVALID: "
+        f"patch={site.patch_id} edge={site.edge_index} "
+        f"vertex={site.vert_a if start_guide is not None else site.vert_b}"
+    )
+
+
+def _terminal_station_edge_parameter(station, edge):
+    """Канонический параметр station на source edge, без геометрического выбора."""
+
+    if (
+        getattr(station, "source_edge_id", None) == edge.edge_id
+        and getattr(station, "edge_parameter", None) is not None
+    ):
+        return float(station.edge_parameter)
+    source_vertex_id = getattr(station, "source_vertex_id", None)
+    if source_vertex_id == edge.vertex_ids[0]:
+        return 0.0
+    if source_vertex_id == edge.vertex_ids[1]:
+        return 1.0
+    return None
+
+
+def _terminal_route_contact_meeting(route_a, route_b, edge_by_id):
+    """RR8d(b): равная накопленная station на встречном общем edge.
+
+    Возвращает расстояния обоих чтений и каноническую точку общего edge.
+    Совпадающие по направлению интервалы не являются встречей контактов.
+    """
+
+    station_a = {
+        station.station_index: station for station in route_a.stations
+    }
+    station_b = {
+        station.station_index: station for station in route_b.stations
+    }
+    segments_b = {}
+    for segment in route_b.segments:
+        segments_b.setdefault(segment.edge_id, []).append(segment)
+    candidates = []
+    for segment_a in route_a.segments:
+        edge = edge_by_id.get(segment_a.edge_id)
+        if edge is None:
+            continue
+        a0 = station_a[segment_a.from_station_index]
+        a1 = station_a[segment_a.to_station_index]
+        ta0 = _terminal_station_edge_parameter(a0, edge)
+        ta1 = _terminal_station_edge_parameter(a1, edge)
+        if ta0 is None or ta1 is None or ta0 == ta1:
+            continue
+        for segment_b in segments_b.get(segment_a.edge_id, ()):
+            b0 = station_b[segment_b.from_station_index]
+            b1 = station_b[segment_b.to_station_index]
+            tb0 = _terminal_station_edge_parameter(b0, edge)
+            tb1 = _terminal_station_edge_parameter(b1, edge)
+            if tb0 is None or tb1 is None or tb0 == tb1:
+                continue
+            if (ta1 - ta0) * (tb1 - tb0) >= 0.0:
+                continue
+            low = max(min(ta0, ta1), min(tb0, tb1))
+            high = min(max(ta0, ta1), max(tb0, tb1))
+            if low > high:
+                continue
+
+            def accumulated(station_0, station_1, t0, t1, parameter):
+                factor = (parameter - t0) / (t1 - t0)
+                return float(station_0.distance) + factor * float(
+                    station_1.distance - station_0.distance
+                )
+
+            difference_low = (
+                accumulated(a0, a1, ta0, ta1, low)
+                - accumulated(b0, b1, tb0, tb1, low)
+            )
+            difference_high = (
+                accumulated(a0, a1, ta0, ta1, high)
+                - accumulated(b0, b1, tb0, tb1, high)
+            )
+            if difference_low == 0.0:
+                parameter = low
+            elif difference_high == 0.0:
+                parameter = high
+            elif difference_low * difference_high < 0.0:
+                parameter = low - difference_low * (high - low) / (
+                    difference_high - difference_low
+                )
+            else:
+                continue
+            distance_a = accumulated(a0, a1, ta0, ta1, parameter)
+            distance_b = accumulated(b0, b1, tb0, tb1, parameter)
+            if distance_a < 0.0 or distance_b < 0.0:
+                continue
+            chain_a = int(route_a.key.side.start_edge_id)
+            chain_b = int(route_b.key.side.start_edge_id)
+            candidates.append(
+                (
+                    max(distance_a, distance_b),
+                    min(chain_a, chain_b),
+                    max(chain_a, chain_b),
+                    int(edge.edge_id),
+                    float(parameter),
+                    float(distance_a),
+                    float(distance_b),
+                )
+            )
+    if not candidates:
+        return None
+    winner = min(candidates)
+    return winner[5], winner[6], winner[3], winner[4]
+
+
 def _surface_terminal_bridge_points(
     surface,
     terminal_routing,
     rail_plan,
     alpha,
     consumed_terminal_ids=None,
+    diagnostics=None,
 ):
     """RM9 guides одного Patch surface; PERP не меняет старый CAP."""
 
     if rail_plan is None:
         return {}
     result = {}
+    terminal_records = {}
+    route_by_id = {
+        route.route_id: route for route in rail_plan.routes
+    }
+    edge_by_id = {edge.edge_id: edge for edge in rail_plan.edges}
     for terminal in terminal_routing or ():
         if (
             terminal.backend != "PATCH_VORONOI"
@@ -13853,6 +14139,14 @@ def _surface_terminal_bridge_points(
         point = _terminal_route_chart_guide(
             surface, terminal, rail_plan, alpha, corner.point
         )
+        if diagnostics is not None and point.saturated:
+            diagnostics.terminal_route_saturation_count += 1
+            diagnostics.record_runtime_policy("TERMINAL_ROUTE_SATURATED")
+        if diagnostics is not None and point.revisit_guarded:
+            diagnostics.terminal_route_revisit_guard_count += 1
+            diagnostics.record_runtime_policy(
+                "TERMINAL_ROUTE_REVISIT_GUARDED"
+            )
         previous = result.get(key)
         if previous is not None and previous != point:
             raise RuntimeError(
@@ -13860,6 +14154,7 @@ def _surface_terminal_bridge_points(
                 f"patch={surface.patch_id} vertex={key[0]} edge={key[1]}"
             )
         result[key] = point
+        terminal_records[key] = (terminal, corner)
         if consumed_terminal_ids is not None:
             consumed_terminal_ids.add(
                 (
@@ -13869,6 +14164,99 @@ def _surface_terminal_bridge_points(
                     terminal.route_id,
                 )
             )
+    meeting_candidates = []
+    terminal_keys = tuple(sorted(terminal_records))
+    for index, key_a in enumerate(terminal_keys):
+        terminal_a, _corner_a = terminal_records[key_a]
+        route_a = route_by_id.get(terminal_a.route_id)
+        if route_a is None:
+            continue
+        for key_b in terminal_keys[index + 1 :]:
+            terminal_b, _corner_b = terminal_records[key_b]
+            if terminal_a.spine_vertex_id == terminal_b.spine_vertex_id:
+                continue
+            route_b = route_by_id.get(terminal_b.route_id)
+            if route_b is None:
+                continue
+            meeting = _terminal_route_contact_meeting(
+                route_a, route_b, edge_by_id
+            )
+            if meeting is None:
+                continue
+            distance_a, distance_b, edge_id, parameter = meeting
+            if alpha < distance_a or alpha < distance_b:
+                continue
+            meeting_candidates.append(
+                (
+                    max(distance_a, distance_b),
+                    min(route_a.key.side.start_edge_id, route_b.key.side.start_edge_id),
+                    edge_id,
+                    parameter,
+                    key_a,
+                    key_b,
+                    distance_a,
+                    distance_b,
+                )
+            )
+    met_keys = set()
+    for (
+        _distance,
+        _chain_id,
+        _edge_id,
+        _parameter,
+        key_a,
+        key_b,
+        distance_a,
+        distance_b,
+    ) in sorted(meeting_candidates):
+        if key_a in met_keys or key_b in met_keys:
+            continue
+        terminal_a, corner_a = terminal_records[key_a]
+        terminal_b, corner_b = terminal_records[key_b]
+        result[key_a] = replace(
+            _terminal_route_chart_guide(
+                surface,
+                terminal_a,
+                rail_plan,
+                distance_a,
+                corner_a.point,
+            ),
+            saturated=True,
+            contact_met=True,
+        )
+        result[key_b] = replace(
+            _terminal_route_chart_guide(
+                surface,
+                terminal_b,
+                rail_plan,
+                distance_b,
+                corner_b.point,
+            ),
+            saturated=True,
+            contact_met=True,
+        )
+        met_keys.update((key_a, key_b))
+        if diagnostics is not None:
+            diagnostics.terminal_contact_meeting_count += 1
+            diagnostics.record_runtime_policy("TERMINAL_CONTACT_MEETING")
+    for site in surface.sites:
+        start_key = (site.vert_a, site.edge_index)
+        end_key = (site.vert_b, site.edge_index)
+        start_guide = result.get(start_key)
+        end_guide = result.get(end_key)
+        if start_guide is None and end_guide is None:
+            continue
+        start_guide, end_guide = _resolve_terminal_site_saturation(
+            site,
+            alpha,
+            start_guide,
+            end_guide,
+            diagnostics,
+        )
+        if start_guide is not None:
+            result[start_key] = start_guide
+        if end_guide is not None:
+            result[end_key] = end_guide
     return result
 
 
@@ -14759,6 +15147,10 @@ def evaluate_patch_voronoi_plan(
         diagnostics.atlas_semantic_import_count = 0
         diagnostics.atlas_semantic_transition_count = 0
         diagnostics.atlas_arrangement_integrity_failure_count = 0
+        diagnostics.terminal_route_saturation_count = 0
+        diagnostics.terminal_route_station_clamp_count = 0
+        diagnostics.terminal_route_revisit_guard_count = 0
+        diagnostics.terminal_contact_meeting_count = 0
     alpha = max(1e-6, float(width) * 0.5)
     # Проверка выполняется до crop/arrangement: excess frame не имеет
     # geometry side effects и modal может оставить последний valid preview.
@@ -14793,6 +15185,7 @@ def evaluate_patch_voronoi_plan(
             rail_plan,
             alpha,
             consumed_terminal_ids=consumed_terminal_ids,
+            diagnostics=diagnostics,
         )
         _evaluate_surface_crops(
             surface,

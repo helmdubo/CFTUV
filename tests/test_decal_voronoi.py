@@ -3035,6 +3035,211 @@ def test_rf19_meeting_terminal_cuts_fail_instead_of_overlapping():
         )
 
 
+def test_rf29_exhausted_route_clamps_to_last_constructible_station():
+    """width >> mesh: invalid route tail is saturation, not a failed cut."""
+
+    site = replace(
+        _short_segment_endpoint_surface().sites[0],
+        patch_id=0,
+        edge_index=8,
+        vert_a=9,
+        vert_b=10,
+        point_a=(2.6277755352, -0.0000140932),
+        point_b=(2.1212755352, 1.4143859068),
+        segment_length=1.5023546885,
+        inward_normal=(-0.9414554438, -0.3371374309),
+    )
+    valid_points = (
+        site.point_b,
+        (0.7620755352, 1.9872859068),
+        (-0.0000244648, -0.0000140932),
+    )
+    invalid_points = valid_points + (
+        (-0.7625244648, -1.9871140932),
+        (-1.5250244648, -3.9742140932),
+        (-2.2878244648, -5.9612140932),
+        (0.2326755352, -6.9295140932),
+    )
+    guide = decal_voronoi._TerminalBridgeGuide(
+        point=invalid_points[-1],
+        contour_points=invalid_points,
+        source_vertex_ids=(0, 1, 2, 10, 20, 21, 22),
+        route_id=2,
+        route_edge_ids=(9, 27, 26, 31, 0, 1),
+        extent=12.6886464362,
+        route_reach=12.6886464362,
+        station_prefixes=(
+            decal_voronoi._TerminalBridgeStationPrefix(
+                1.4750525513,
+                valid_points[1],
+                valid_points[:2],
+                (2, 10),
+            ),
+            decal_voronoi._TerminalBridgeStationPrefix(
+                3.6034323730,
+                valid_points[2],
+                valid_points,
+                (2, 10, 21),
+            ),
+        ),
+        saturated=True,
+    )
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+
+    start, end = decal_voronoi._resolve_terminal_site_saturation(
+        site,
+        17.99,
+        None,
+        guide,
+        diagnostics,
+    )
+
+    assert start is None
+    assert end.station_clamped
+    assert end.extent == pytest.approx(3.6034323730)
+    assert end.point == valid_points[-1]
+    assert diagnostics.terminal_route_station_clamp_count == 1
+    assert diagnostics.runtime_policy_counts == {
+        "TERMINAL_ROUTE_STATION_CLAMPED": 1
+    }
+    assert decal_voronoi._terminal_segment_crop_components(
+        site, 17.99, end_guide=end
+    )
+
+
+def test_rf29_unsaturated_invalid_cut_remains_named_failure():
+    site = _short_segment_endpoint_surface().sites[0]
+    guide = decal_voronoi._TerminalBridgeGuide(
+        point=(0.5, -2.0),
+        contour_points=(site.point_a, (0.5, 1.0), (0.5, -2.0)),
+        saturated=False,
+    )
+
+    assert decal_voronoi._resolve_terminal_site_saturation(
+        site, 2.0, guide, None
+    ) == (guide, None)
+    with pytest.raises(RuntimeError, match="TERMINAL_BRIDGE_CUT_INVALID"):
+        decal_voronoi._terminal_segment_crop_components(
+            site, 2.0, start_guide=guide
+        )
+
+
+def test_rf29_revisit_guard_stops_before_second_physical_edge_pass():
+    edge = SimpleNamespace(edge_id=900, vertex_ids=(0, 1))
+    route = SimpleNamespace(
+        route_id=4,
+        stations=(
+            SimpleNamespace(
+                station_index=0,
+                distance=0.0,
+                kind=SimpleNamespace(value="VERTEX"),
+                source_vertex_id=0,
+                source_edge_id=None,
+                edge_parameter=None,
+            ),
+            SimpleNamespace(
+                station_index=1,
+                distance=1.0,
+                kind=SimpleNamespace(value="VERTEX"),
+                source_vertex_id=1,
+                source_edge_id=None,
+                edge_parameter=None,
+            ),
+            SimpleNamespace(
+                station_index=2,
+                distance=2.0,
+                kind=SimpleNamespace(value="VERTEX"),
+                source_vertex_id=0,
+                source_edge_id=None,
+                edge_parameter=None,
+            ),
+        ),
+        segments=(
+            SimpleNamespace(
+                edge_id=900, from_station_index=0, to_station_index=1
+            ),
+            SimpleNamespace(
+                edge_id=900, from_station_index=1, to_station_index=2
+            ),
+        ),
+    )
+    domain = decal_voronoi.DecalSurfaceDomain(
+        patch_id=0,
+        kind="PLANAR",
+        origin=Vector((0.0, 0.0, 0.0)),
+        reference_normal=Vector((0.0, 0.0, 1.0)),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+        boundary_triangles=(((0.0, 0.0), (1.0, 0.0), (0.0, 1.0)),),
+        planar_source_vertices=((0, (0.0, 0.0)), (1, (1.0, 0.0))),
+        planar_source_edges=((900, 0, 1, (0.0, 0.0), (1.0, 0.0)),),
+    )
+    terminal = SimpleNamespace(
+        route_id=4,
+        spine_vertex_id=0,
+        spine_edge_id=500,
+        edge_ids=(900, 900),
+    )
+
+    guide = decal_voronoi._terminal_route_chart_guide(
+        SimpleNamespace(patch_id=0, domain=domain),
+        terminal,
+        SimpleNamespace(routes=(route,), edges=(edge,)),
+        alpha=10.0,
+        corner_point=(0.0, 0.0),
+    )
+
+    assert guide.revisit_guarded
+    assert guide.saturated
+    assert guide.route_edge_ids == (900,)
+    assert guide.route_reach == pytest.approx(1.0)
+    assert guide.point == pytest.approx((1.0, 0.0))
+
+
+def test_rf29_opposing_contacts_meet_at_equal_accumulated_station():
+    edge = SimpleNamespace(edge_id=900, vertex_ids=(0, 1))
+
+    def route(route_id, start_vertex, end_vertex, start_edge):
+        return SimpleNamespace(
+            route_id=route_id,
+            key=SimpleNamespace(
+                side=SimpleNamespace(start_edge_id=start_edge)
+            ),
+            stations=(
+                SimpleNamespace(
+                    station_index=0,
+                    distance=0.0,
+                    source_vertex_id=start_vertex,
+                    source_edge_id=None,
+                    edge_parameter=None,
+                ),
+                SimpleNamespace(
+                    station_index=1,
+                    distance=10.0,
+                    source_vertex_id=end_vertex,
+                    source_edge_id=None,
+                    edge_parameter=None,
+                ),
+            ),
+            segments=(
+                SimpleNamespace(
+                    edge_id=900,
+                    from_station_index=0,
+                    to_station_index=1,
+                ),
+            ),
+        )
+
+    meeting = decal_voronoi._terminal_route_contact_meeting(
+        route(1, 0, 1, 11),
+        route(2, 1, 0, 22),
+        {900: edge},
+    )
+
+    assert meeting[:2] == pytest.approx((5.0, 5.0))
+    assert meeting[2:] == pytest.approx((900, 0.5))
+
+
 def _rd1_partition_face(keys, positions, u_fracs, v_lengths, *, kind, side, normal=(0.0, 0.0, 1.0)):
     return decal_voronoi._NetworkFace(
         surface_id=0,

@@ -547,6 +547,28 @@ geometry digest
 periodic counters остались нулевыми. Полный machine-readable отчёт:
 `artifacts/decal_tranche_d_blender_acceptance.json`.
 
+## Terminal-route saturation (R1.9 / RR8d)
+
+Terminal contact materialization consumes the compile-static station ledger.
+When requested alpha exhausts a contour route, exhaustion is a valid
+saturated state: the contact remains on the last station-prefix that produces
+a simple terminal cut. This fallback is deliberately unavailable before route
+exhaustion, so malformed ordinary cuts still raise
+`TERMINAL_BRIDGE_CUT_INVALID`.
+
+The materializer defensively stops before a repeated physical route edge even
+though rail compile already emits a DAM at that point. Opposing routes that
+meet on the same contour use equality of their accumulated station distances;
+the source `start_edge_id` supplies the structural ordering if several exact
+candidates exist. Runtime diagnostics expose saturation, station clamp,
+revisit guard, and contact meeting as counted events.
+
+On the user `sagging_wall` field case, width 35.98 and width 102.752491
+(10x mesh bbox diagonal) both produce identical preview/confirm network-face
+serialization. The previously reported preview-only success was the modal
+last-valid frame retained before a controlled budget recompile, not a
+different evaluator validation path.
+
 ## GPU preview overlay (F3)
 
 Display adapter modal preview: во время drag декаль рисуется GPU draw

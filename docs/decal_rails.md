@@ -1063,6 +1063,30 @@ recompile). Дискретизация веером против beveled-угл�
   MITER->BEVEL->MITER. Поле `walls.001`: 133 seam, 48 BEVEL-piece,
   MITER/BEVEL segment snapshots равны на widths 0.8/3.2;
   `sagging_wall`: 1 piece, то же равенство.
+- **RF29 Насыщение terminal route (RR8d):** на полевом
+  `sagging_wall` (`e6,e7,e8`) width=35.98 даёт для v10/e8 два
+  исчерпанных route без повторов: patch 0 reach=12.688646,
+  последняя конструктивная station=3.603432; patch 1
+  reach=14.581049, последняя конструктивная station=3.233079.
+  Materializer публикует station-prefixes из единого ledger и при
+  исчерпании клампит только невалидный хвост на последний доказанно
+  конструктивный prefix; до исчерпания тот же невалидный срез остаётся
+  `TERMINAL_BRIDGE_CUT_INVALID`. Defensive consumer-guard запрещает
+  второе чтение physical edge даже для повреждённого внешнего IR.
+  Встречные route на общем edge решаются точным равенством двух
+  накопленных station-параметризаций; совпадающие по направлению интервалы
+  встречей не считаются, структурный порядок задаёт `start_edge_id`.
+  Counted-события: `TERMINAL_ROUTE_SATURATED`,
+  `TERMINAL_ROUTE_STATION_CLAMPED`, `TERMINAL_ROUTE_REVISIT_GUARDED`,
+  `TERMINAL_CONTACT_MEETING`.
+  **Полевой результат R1.9:** на width=35.98 preview/confirm дают по 13
+  faces и бит-идентичную сериализацию (`saturated=3`, `clamped=2`);
+  на width=102.752491 (ровно 10x bbox-диагонали меша) тот же контракт
+  сохраняется; шесть полевых объектов без `SCRIPT_ERROR`, ярус-2
+  `530 passed, 3 skipped, 4 deselected`, `.blend` не сохранялся. Старое визуальное «preview прошёл»
+  было retained last-valid кадром перед controlled recompile: прямой вызов
+  старого evaluator на одном свежем плане падал одинаково при
+  `preview=True` и `preview=False`.
 - **RF18b Терминальный снэп на кривизне (RR9a-финал; активируется
   с R3):** конфигурация RF18 на непланарном patch — селектор
   идентичен (argmin |dot| в 3D, единый код с планарным); простые
