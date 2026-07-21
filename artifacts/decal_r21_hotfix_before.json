@@ -1,0 +1,735 @@
+{
+  "schema": "cftuv.decal_r21_hotfix.v1",
+  "source_commit": "e921fef",
+  "source_root": "C:\\Users\\helmd\\Documents\\CFTUV_r21_before",
+  "blender_version": "4.3.2",
+  "blend_file": "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_r21_user_field.blend",
+  "blend_sha256": "7db56e359deab0cca39426cabee66e16620f6de31aba68cdca3c19eed30c480f",
+  "blend_saved": false,
+  "rf30": {
+    "object": "walls.001",
+    "selected": [
+      0,
+      2,
+      4,
+      5,
+      6,
+      9,
+      10,
+      11,
+      12,
+      13,
+      18,
+      19,
+      20,
+      22,
+      25,
+      26,
+      27,
+      28,
+      30,
+      31,
+      32,
+      33,
+      34,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      45,
+      46,
+      48,
+      49,
+      50,
+      53,
+      54,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65,
+      66,
+      71,
+      72,
+      74,
+      75,
+      77,
+      78,
+      79,
+      81,
+      82,
+      84,
+      85,
+      87,
+      89,
+      90,
+      91,
+      92,
+      94,
+      96,
+      98,
+      101,
+      103,
+      105,
+      107,
+      108,
+      109,
+      110,
+      111,
+      112,
+      113,
+      116,
+      117,
+      118,
+      119,
+      120,
+      121,
+      122,
+      123,
+      124,
+      125,
+      126,
+      128,
+      130,
+      131,
+      132,
+      133,
+      136,
+      137,
+      138,
+      139,
+      140,
+      141,
+      142,
+      143,
+      144,
+      145,
+      149,
+      151,
+      152,
+      153,
+      154,
+      155,
+      156,
+      157,
+      158,
+      159,
+      160,
+      161,
+      162,
+      163,
+      164,
+      170,
+      171,
+      172,
+      174,
+      176,
+      179,
+      180,
+      181,
+      182,
+      183,
+      184,
+      185,
+      186,
+      187
+    ],
+    "join": "BEVEL",
+    "compiled_counts": {
+      "surface_count": 32,
+      "atom_count": 266,
+      "point_atom_count": 48,
+      "unbound_point_atom_count": 0,
+      "corner_release_atom_count": 82
+    },
+    "widths": [
+      {
+        "width": 0.8,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 278,
+            "digest": "01be6467f6141a66b8cabd87ef9826672751337949a901767f68eee10f5a2e85",
+            "policy_counts": [
+              [
+                "KITE",
+                48
+              ],
+              [
+                "MITER",
+                165
+              ],
+              [
+                "SMOOTH",
+                5
+              ]
+            ]
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 278,
+            "digest": "01be6467f6141a66b8cabd87ef9826672751337949a901767f68eee10f5a2e85",
+            "policy_counts": [
+              [
+                "KITE",
+                48
+              ],
+              [
+                "MITER",
+                165
+              ],
+              [
+                "SMOOTH",
+                5
+              ]
+            ]
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 1.6,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 266,
+            "digest": "38e24cb3b21ba9b2de18a1703c908cdbd010f49b7e55e5dd87e6f7045c5b1656",
+            "policy_counts": [
+              [
+                "KITE",
+                48
+              ],
+              [
+                "MITER",
+                165
+              ],
+              [
+                "SMOOTH",
+                5
+              ]
+            ]
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 266,
+            "digest": "38e24cb3b21ba9b2de18a1703c908cdbd010f49b7e55e5dd87e6f7045c5b1656",
+            "policy_counts": [
+              [
+                "KITE",
+                48
+              ],
+              [
+                "MITER",
+                165
+              ],
+              [
+                "SMOOTH",
+                5
+              ]
+            ]
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 3.2,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 266,
+            "digest": "57e05d4c8d148304d9f5468bfeb6dc1987ef721641868cbdbb316108dcf8f7df",
+            "policy_counts": [
+              [
+                "KITE",
+                48
+              ],
+              [
+                "MITER",
+                165
+              ],
+              [
+                "SMOOTH",
+                5
+              ]
+            ],
+            "edge_94_adjacency": {
+              "source_edge": 94,
+              "suspect_curve_witnesses": [
+                {
+                  "points": [
+                    [
+                      1.36333,
+                      -14.27457,
+                      18.22053
+                    ],
+                    [
+                      1.36333,
+                      -14.07382,
+                      18.29521
+                    ]
+                  ],
+                  "uses": [
+                    {
+                      "kind": "BEVEL",
+                      "source_edges": [
+                        45
+                      ]
+                    },
+                    {
+                      "kind": "SEGMENT",
+                      "source_edges": [
+                        94
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "points": [
+                    [
+                      1.36333,
+                      -14.07382,
+                      18.29521
+                    ],
+                    [
+                      1.36333,
+                      -13.87307,
+                      18.3201
+                    ]
+                  ],
+                  "uses": [
+                    {
+                      "kind": "BEVEL",
+                      "source_edges": [
+                        45
+                      ]
+                    },
+                    {
+                      "kind": "SEGMENT",
+                      "source_edges": [
+                        94
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "points": [
+                    [
+                      1.36333,
+                      -12.57307,
+                      18.3201
+                    ],
+                    [
+                      1.36333,
+                      -12.39574,
+                      18.30068
+                    ]
+                  ],
+                  "uses": [
+                    {
+                      "kind": "BEVEL",
+                      "source_edges": [
+                        36
+                      ]
+                    },
+                    {
+                      "kind": "SEGMENT",
+                      "source_edges": [
+                        94
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "all_suspect_curves_have_two_material_owners": true,
+              "single_use_edges": [
+                {
+                  "points": [
+                    [
+                      1.36333,
+                      -14.27458,
+                      18.72487
+                    ],
+                    [
+                      1.36333,
+                      -11.97155,
+                      18.72487
+                    ]
+                  ],
+                  "uses": [
+                    {
+                      "kind": "SEGMENT",
+                      "source_edges": [
+                        94
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 266,
+            "digest": "57e05d4c8d148304d9f5468bfeb6dc1987ef721641868cbdbb316108dcf8f7df",
+            "policy_counts": [
+              [
+                "KITE",
+                48
+              ],
+              [
+                "MITER",
+                165
+              ],
+              [
+                "SMOOTH",
+                5
+              ]
+            ],
+            "edge_94_adjacency": {
+              "source_edge": 94,
+              "suspect_curve_witnesses": [
+                {
+                  "points": [
+                    [
+                      1.36333,
+                      -14.27457,
+                      18.22053
+                    ],
+                    [
+                      1.36333,
+                      -14.07382,
+                      18.29521
+                    ]
+                  ],
+                  "uses": [
+                    {
+                      "kind": "BEVEL",
+                      "source_edges": [
+                        45
+                      ]
+                    },
+                    {
+                      "kind": "SEGMENT",
+                      "source_edges": [
+                        94
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "points": [
+                    [
+                      1.36333,
+                      -14.07382,
+                      18.29521
+                    ],
+                    [
+                      1.36333,
+                      -13.87307,
+                      18.3201
+                    ]
+                  ],
+                  "uses": [
+                    {
+                      "kind": "BEVEL",
+                      "source_edges": [
+                        45
+                      ]
+                    },
+                    {
+                      "kind": "SEGMENT",
+                      "source_edges": [
+                        94
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "points": [
+                    [
+                      1.36333,
+                      -12.57307,
+                      18.3201
+                    ],
+                    [
+                      1.36333,
+                      -12.39574,
+                      18.30068
+                    ]
+                  ],
+                  "uses": [
+                    {
+                      "kind": "BEVEL",
+                      "source_edges": [
+                        36
+                      ]
+                    },
+                    {
+                      "kind": "SEGMENT",
+                      "source_edges": [
+                        94
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "all_suspect_curves_have_two_material_owners": true,
+              "single_use_edges": [
+                {
+                  "points": [
+                    [
+                      1.36333,
+                      -14.27458,
+                      18.72487
+                    ],
+                    [
+                      1.36333,
+                      -11.97155,
+                      18.72487
+                    ]
+                  ],
+                  "uses": [
+                    {
+                      "kind": "SEGMENT",
+                      "source_edges": [
+                        94
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      }
+    ],
+    "field_oracle": {
+      "source_edge": 94,
+      "suspect_curve_witnesses": [
+        {
+          "points": [
+            [
+              1.36333,
+              -14.27457,
+              18.22053
+            ],
+            [
+              1.36333,
+              -14.07382,
+              18.29521
+            ]
+          ],
+          "uses": [
+            {
+              "kind": "BEVEL",
+              "source_edges": [
+                45
+              ]
+            },
+            {
+              "kind": "SEGMENT",
+              "source_edges": [
+                94
+              ]
+            }
+          ]
+        },
+        {
+          "points": [
+            [
+              1.36333,
+              -14.07382,
+              18.29521
+            ],
+            [
+              1.36333,
+              -13.87307,
+              18.3201
+            ]
+          ],
+          "uses": [
+            {
+              "kind": "BEVEL",
+              "source_edges": [
+                45
+              ]
+            },
+            {
+              "kind": "SEGMENT",
+              "source_edges": [
+                94
+              ]
+            }
+          ]
+        },
+        {
+          "points": [
+            [
+              1.36333,
+              -12.57307,
+              18.3201
+            ],
+            [
+              1.36333,
+              -12.39574,
+              18.30068
+            ]
+          ],
+          "uses": [
+            {
+              "kind": "BEVEL",
+              "source_edges": [
+                36
+              ]
+            },
+            {
+              "kind": "SEGMENT",
+              "source_edges": [
+                94
+              ]
+            }
+          ]
+        }
+      ],
+      "all_suspect_curves_have_two_material_owners": true,
+      "single_use_edges": [
+        {
+          "points": [
+            [
+              1.36333,
+              -14.27458,
+              18.72487
+            ],
+            [
+              1.36333,
+              -11.97155,
+              18.72487
+            ]
+          ],
+          "uses": [
+            {
+              "kind": "SEGMENT",
+              "source_edges": [
+                94
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "diagnosis": "MUTUAL_ARRIVAL_CONFIRMED"
+  },
+  "rf29b": {
+    "object": "sagging_wall",
+    "selected": [
+      6,
+      7,
+      8
+    ],
+    "join": "MITER",
+    "compiled_counts": {
+      "surface_count": 2,
+      "atom_count": 12,
+      "point_atom_count": 6,
+      "unbound_point_atom_count": 0,
+      "corner_release_atom_count": 6
+    },
+    "widths": [
+      {
+        "width": 7.8,
+        "evaluations": {
+          "preview": {
+            "status": "ERROR",
+            "error": "PatchVoronoiRuntimeError(\"Patch Voronoi runtime failed for 3 edge(s) at width=7.8 preview=True: RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')\")"
+          },
+          "confirm": {
+            "status": "ERROR",
+            "error": "PatchVoronoiRuntimeError(\"Patch Voronoi runtime failed for 3 edge(s) at width=7.8 preview=False: RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=1 edge=8 vertex=10')\")"
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 12.0,
+        "evaluations": {
+          "preview": {
+            "status": "ERROR",
+            "error": "PatchVoronoiRuntimeError(\"Patch Voronoi runtime failed for 3 edge(s) at width=12 preview=True: RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=0 edge=8 vertex=10')\")"
+          },
+          "confirm": {
+            "status": "ERROR",
+            "error": "PatchVoronoiRuntimeError(\"Patch Voronoi runtime failed for 3 edge(s) at width=12 preview=False: RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=0 edge=8 vertex=10')\")"
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 18.0,
+        "evaluations": {
+          "preview": {
+            "status": "ERROR",
+            "error": "PatchVoronoiRuntimeError(\"Patch Voronoi runtime failed for 3 edge(s) at width=18 preview=True: RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=0 edge=8 vertex=10')\")"
+          },
+          "confirm": {
+            "status": "ERROR",
+            "error": "PatchVoronoiRuntimeError(\"Patch Voronoi runtime failed for 3 edge(s) at width=18 preview=False: RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=0 edge=8 vertex=10')\")"
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 24.0,
+        "evaluations": {
+          "preview": {
+            "status": "ERROR",
+            "error": "PatchVoronoiRuntimeError(\"Patch Voronoi runtime failed for 3 edge(s) at width=24 preview=True: RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=0 edge=8 vertex=10')\")"
+          },
+          "confirm": {
+            "status": "ERROR",
+            "error": "PatchVoronoiRuntimeError(\"Patch Voronoi runtime failed for 3 edge(s) at width=24 preview=False: RuntimeError('TERMINAL_BRIDGE_CUT_INVALID: patch=0 edge=8 vertex=10')\")"
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 30.0,
+        "evaluations": {
+          "preview": {
+            "status": "ERROR",
+            "error": "PatchVoronoiRuntimeError('Patch Voronoi runtime failed for 3 edge(s) at width=30 preview=True: ValueError(\"CORNER_MATERIAL_VERTEX_OUTSIDE_SEMANTIC_CONTOUR: key=(\\'pv\\', 0, 0, -3390, -13059) point=(-0.8476085613957961, -3.2647216633195355)\")')"
+          },
+          "confirm": {
+            "status": "ERROR",
+            "error": "PatchVoronoiRuntimeError('Patch Voronoi runtime failed for 3 edge(s) at width=30 preview=False: ValueError(\"CORNER_MATERIAL_VERTEX_OUTSIDE_SEMANTIC_CONTOUR: key=(\\'pv\\', 0, 0, -3390, -13059) point=(-0.8476085613957961, -3.2647216633195355)\")')"
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 36.0,
+        "evaluations": {
+          "preview": {
+            "status": "ERROR",
+            "error": "PatchVoronoiRuntimeError('Patch Voronoi runtime failed for 3 edge(s) at width=36 preview=True: ValueError(\"CORNER_MATERIAL_VERTEX_OUTSIDE_SEMANTIC_CONTOUR: key=(\\'pv\\', 0, 0, -3390, -13059) point=(-0.8476085613957961, -3.2647216633195355)\")')"
+          },
+          "confirm": {
+            "status": "ERROR",
+            "error": "PatchVoronoiRuntimeError('Patch Voronoi runtime failed for 3 edge(s) at width=36 preview=False: ValueError(\"CORNER_MATERIAL_VERTEX_OUTSIDE_SEMANTIC_CONTOUR: key=(\\'pv\\', 0, 0, -3390, -13059) point=(-0.8476085613957961, -3.2647216633195355)\")')"
+          }
+        },
+        "preview_confirm_equal": true
+      }
+    ]
+  },
+  "green": false
+}
