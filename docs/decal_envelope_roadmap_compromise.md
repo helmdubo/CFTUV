@@ -166,6 +166,12 @@ AM8 policy pack хранится в `artifacts/envelope_ec0/pivot/` и вход�
 Гейт: пользователь принимает визуалы; ни одного private per-pChain domain;
 PhysicalChain/ChainUse не смешаны; B остаётся patch-level coverage clip.
 
+Текущий статус: kernel-implementer выпустил полный candidate в
+`artifacts/envelope_ec0/v2/` (16 v2 sidecars/листов, AM7 pivot cases и
+расширенная metamorphic matrix); AM8 pack остаётся в `pivot/`. Формальная и
+визуальная генерация завершена, но EC0-P ещё не `ACCEPTED`: ожидается явная
+приёмка пользователя по `docs/envelope_ec0_acceptance_guide.md`.
+
 **EC1 — Контракты, снапшот, изоляция**: структура kernel,
 SnapshotV1, `PhysicalChain`/`ChainUse`, `PatchDomain`/sectors/holes/barriers,
 seed IR, `FrontComponent`/active intervals, envelopes,

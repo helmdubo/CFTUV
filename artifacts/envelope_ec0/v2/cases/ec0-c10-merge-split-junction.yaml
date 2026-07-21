@@ -1,0 +1,126 @@
+schema: cftuv.envelope.ec0.case.v2
+case_id: EC0-C10
+slug: merge-split-junction
+title: Y merge and split junction
+status: DEFINED
+semantic_contracts:
+  - id: C10-S1
+    authority: FIELD_PROVEN
+    rule: Two incoming channels merge through one JunctionEnvelope and continue as one physical route without a hole or overlap.
+  - id: C10-S2
+    authority: MATHEMATICALLY_REQUIRED
+    rule: The merged route is one semantic object; reverse traces or input branches cannot duplicate its coverage.
+  - id: C10-S3
+    authority: USER_REQUIRED
+    rule: Branch station maps meet at a counted merge event and retain their own provenance upstream.
+skeleton:
+  nodes:
+    - {id: left_start, kind: PHYSICAL_ENDPOINT, roles: [BRANCH_A_START]}
+    - {id: right_start, kind: PHYSICAL_ENDPOINT, roles: [BRANCH_B_START]}
+    - {id: merge, kind: JUNCTION, roles: [Y, MERGE]}
+    - {id: out_end, kind: PHYSICAL_ENDPOINT, roles: [MERGED_END]}
+  edges:
+    - {id: branch_a, kind: SELECTED_SPINE, from: left_start, to: merge}
+    - {id: branch_b, kind: SELECTED_SPINE, from: right_start, to: merge}
+    - {id: merged, kind: SELECTED_SPINE, from: merge, to: out_end}
+envelopes:
+  - {id: strip_a, kind: StripEnvelope, source: branch_a, alpha_law: TWO_SIDED_LINEAR}
+  - {id: strip_b, kind: StripEnvelope, source: branch_b, alpha_law: TWO_SIDED_LINEAR}
+  - {id: strip_out, kind: StripEnvelope, source: merged, alpha_law: TWO_SIDED_LINEAR}
+  - {id: junction_env, kind: JunctionEnvelope, source: merge, alpha_law: MERGE_UNION}
+region_graph:
+  regions:
+    - {id: branch_a_region, semantic_kind: STRIP, owner: strip_a, station_model: BRANCH_A_S}
+    - {id: branch_b_region, semantic_kind: STRIP, owner: strip_b, station_model: BRANCH_B_S}
+    - {id: merge_sector_a, semantic_kind: JUNCTION_SECTOR, owner: junction_env, station_model: BRANCH_A_TO_MERGED}
+    - {id: merge_sector_b, semantic_kind: JUNCTION_SECTOR, owner: junction_env, station_model: BRANCH_B_TO_MERGED}
+    - {id: merged_region, semantic_kind: STRIP, owner: strip_out, station_model: MERGED_S}
+  edges:
+    - {regions: [branch_a_region, merge_sector_a], kind: STATION_CONTINUOUS}
+    - {regions: [branch_b_region, merge_sector_b], kind: STATION_CONTINUOUS}
+    - {regions: [merge_sector_a, merge_sector_b], kind: OWNERSHIP_DIVIDER}
+    - {regions: [merge_sector_a, merged_region], kind: MERGE_INTERFACE}
+    - {regions: [merge_sector_b, merged_region], kind: MERGE_INTERFACE}
+boundary_lineage:
+  - {boundary: outer_union, lineage: [strip_a, strip_b, strip_out, junction_env], role: COVERAGE_SILHOUETTE}
+  - {boundary: branch_divider, lineage: [junction_env, branch_a, branch_b], role: OWNERSHIP_DIVIDER}
+owners:
+  total: true
+  disjoint: true
+  tie_boundary_owner: NONE
+adjacency:
+  - {a: merge_sector_a, b: merge_sector_b, through: branch_divider}
+s_direction:
+  authority: DECLARED_BRANCH_AND_MERGED_ROUTES
+  upstream: BRANCH_LOCAL
+  downstream: SINGLE_MERGED_ROUTE_WITH_PROVENANCE_LINKS
+alpha_evolution:
+  - {stage: alpha_zero, coverage: Y_SKELETON, topology: NO_REGION}
+  - {stage: alpha_positive, coverage: CONNECTED_Y_UNION, topology: JUNCTION_SECTORS_PRESENT}
+  - {stage: alpha_larger, coverage: SAME_COMBINATORICS_WIDER, topology: MERGE_REMAINS_COUNTED}
+topology_events:
+  - {id: junction_birth, kind: BIRTH, height: ALPHA_ZERO, application: ATOMIC}
+  - {id: merge_event, kind: MERGE, height: ALPHA_MERGE, application: CLOSED_AT_AND_AFTER}
+forbidden:
+  - DUPLICATE_MERGED_ROUTE
+  - HOLE_IN_MERGE_WEDGE
+  - BRANCH_FIRST_WINS_OWNER
+  - UNCOUNTED_PROVENANCE_LOSS
+metamorphic_expectations:
+  matrix_row: EC0-C10
+  matrix_schema: cftuv.envelope.ec0.metamorphic_matrix.v2
+  pivot_required: [physical_chain_enumeration_permutation, chain_use_enumeration_permutation, seed_enumeration_permutation, front_component_enumeration_permutation, front_vertex_resampling, boundary_resegmentation_same_physical_contour, patch_domain_identity_preserving_rekey]
+  pivot_semantic_changes: [private_domain_per_pchain_policy_switch, owner_patch_reassignment]
+  required: [chain_enumeration_permutation, chain_storage_reverse, surface_winding_reverse, rigid_translation, coherent_uniform_scale, source_retriangulation, data_chain_split_merge, simultaneous_event_enumeration_permutation, small_perturbation_without_topology_change]
+  semantic_changes: [semantic_start_end_swap]
+canonical_digest_projection:
+  include: [region_graph, boundary_lineage, owners, adjacency, s_direction, topology_events, semantic_anchors]
+  exclude: [face_order, tessellation, duplicate_reverse_routes, branch_enumeration]
+
+patch_domains:
+  - {id: domain_main, owner_patch: owner_patch, surface_regime: INTRINSIC_PATCH_SURFACE, outer_boundary: outer_loop, holes: [], barriers: [OUTER_BOUNDARY], sectors: [upstream_a_use_left, upstream_a_use_right, upstream_b_use_left, upstream_b_use_right, downstream_use_left, downstream_use_right]}
+physical_chains:
+  - {id: upstream_a, kind: PHYSICAL_DECAL_SOURCE, source_lineage: upstream_a_semantic_line}
+  - {id: upstream_b, kind: PHYSICAL_DECAL_SOURCE, source_lineage: upstream_b_semantic_line}
+  - {id: downstream, kind: PHYSICAL_DECAL_SOURCE, source_lineage: downstream_semantic_line}
+chain_uses:
+  - {id: upstream_a_use, physical_chain: upstream_a, owner_patch: owner_patch, patch_domain: domain_main, boundary_loop: source_loop, orientation: SEMANTIC_START_TO_END, side: OWNER_INTERIOR, roles: [DECAL_SOURCE]}
+  - {id: upstream_b_use, physical_chain: upstream_b, owner_patch: owner_patch, patch_domain: domain_main, boundary_loop: source_loop, orientation: SEMANTIC_START_TO_END, side: OWNER_INTERIOR, roles: [DECAL_SOURCE]}
+  - {id: downstream_use, physical_chain: downstream, owner_patch: owner_patch, patch_domain: domain_main, boundary_loop: source_loop, orientation: SEMANTIC_START_TO_END, side: OWNER_INTERIOR, roles: [DECAL_SOURCE]}
+seeds:
+  - {id: front_seed_upstream_a_use, kind: FrontSeed, chain_use: upstream_a_use, owner_patch: owner_patch, sectors: [upstream_a_use_left, upstream_a_use_right]}
+  - {id: front_seed_upstream_b_use, kind: FrontSeed, chain_use: upstream_b_use, owner_patch: owner_patch, sectors: [upstream_b_use_left, upstream_b_use_right]}
+  - {id: front_seed_downstream_use, kind: FrontSeed, chain_use: downstream_use, owner_patch: owner_patch, sectors: [downstream_use_left, downstream_use_right]}
+  - {id: junction_seed_y, kind: JunctionSeed, source_relation: JUNCTION_SEED_Y, owner_patch: owner_patch, incident_chain_uses: [upstream_a_use, upstream_b_use, downstream_use]}
+front_components:
+  - {id: fc_upstream_a_use_left, chain_use: upstream_a_use, owner_patch: owner_patch, sector: upstream_a_use_left, active_intervals: ONE_OR_ZERO_EVENT_DRIVEN, branch_count: NON_INCREASING_FROM_ONE, lifecycle: COMPILE_TRACKED}
+  - {id: fc_upstream_a_use_right, chain_use: upstream_a_use, owner_patch: owner_patch, sector: upstream_a_use_right, active_intervals: ONE_OR_ZERO_EVENT_DRIVEN, branch_count: NON_INCREASING_FROM_ONE, lifecycle: COMPILE_TRACKED}
+  - {id: fc_upstream_b_use_left, chain_use: upstream_b_use, owner_patch: owner_patch, sector: upstream_b_use_left, active_intervals: ONE_OR_ZERO_EVENT_DRIVEN, branch_count: NON_INCREASING_FROM_ONE, lifecycle: COMPILE_TRACKED}
+  - {id: fc_upstream_b_use_right, chain_use: upstream_b_use, owner_patch: owner_patch, sector: upstream_b_use_right, active_intervals: ONE_OR_ZERO_EVENT_DRIVEN, branch_count: NON_INCREASING_FROM_ONE, lifecycle: COMPILE_TRACKED}
+  - {id: fc_downstream_use_left, chain_use: downstream_use, owner_patch: owner_patch, sector: downstream_use_left, active_intervals: ONE_OR_ZERO_EVENT_DRIVEN, branch_count: NON_INCREASING_FROM_ONE, lifecycle: COMPILE_TRACKED}
+  - {id: fc_downstream_use_right, chain_use: downstream_use, owner_patch: owner_patch, sector: downstream_use_right, active_intervals: ONE_OR_ZERO_EVENT_DRIVEN, branch_count: NON_INCREASING_FROM_ONE, lifecycle: COMPILE_TRACKED}
+evaluation_groups:
+  - {id: patch_eval_owner, owner_patch: owner_patch, patch_domain: domain_main, chain_uses: [upstream_a_use, upstream_b_use, downstream_use], seeds: [front_seed_upstream_a_use, front_seed_upstream_b_use, front_seed_downstream_use, junction_seed_y], front_components: [fc_upstream_a_use_left, fc_upstream_a_use_right, fc_upstream_b_use_left, fc_upstream_b_use_right, fc_downstream_use_left, fc_downstream_use_right], unit: ONE_PATCH_ALL_ACTIVE_SOURCES}
+coverage_contributions:
+  - {id: strip_upstream_a_use, kind: StripEnvelope, seed: front_seed_upstream_a_use, chain_use: upstream_a_use, front_components: [fc_upstream_a_use_left, fc_upstream_a_use_right], owner_patch: owner_patch, boundary_resolution: RESOLVED_BEFORE_PATCH_UNION}
+  - {id: strip_upstream_b_use, kind: StripEnvelope, seed: front_seed_upstream_b_use, chain_use: upstream_b_use, front_components: [fc_upstream_b_use_left, fc_upstream_b_use_right], owner_patch: owner_patch, boundary_resolution: RESOLVED_BEFORE_PATCH_UNION}
+  - {id: strip_downstream_use, kind: StripEnvelope, seed: front_seed_downstream_use, chain_use: downstream_use, front_components: [fc_downstream_use_left, fc_downstream_use_right], owner_patch: owner_patch, boundary_resolution: RESOLVED_BEFORE_PATCH_UNION}
+  - {id: contribution_junction_seed_y, kind: JunctionEnvelope, seed: junction_seed_y, chain_uses: [upstream_a_use, upstream_b_use, downstream_use], owner_patch: owner_patch, boundary_resolution: RESOLVED_BEFORE_PATCH_UNION}
+boundary_events: []
+capacity_states:
+  - {front_component: fc_upstream_a_use_left, requested_alpha: SHARED_PATCH_INPUT, effective_alpha: REQUESTED_ALPHA, capacity_reason: NONE, terminal_outcome: NAMED_OR_NONE}
+  - {front_component: fc_upstream_a_use_right, requested_alpha: SHARED_PATCH_INPUT, effective_alpha: REQUESTED_ALPHA, capacity_reason: NONE, terminal_outcome: NAMED_OR_NONE}
+  - {front_component: fc_upstream_b_use_left, requested_alpha: SHARED_PATCH_INPUT, effective_alpha: REQUESTED_ALPHA, capacity_reason: NONE, terminal_outcome: NAMED_OR_NONE}
+  - {front_component: fc_upstream_b_use_right, requested_alpha: SHARED_PATCH_INPUT, effective_alpha: REQUESTED_ALPHA, capacity_reason: NONE, terminal_outcome: NAMED_OR_NONE}
+  - {front_component: fc_downstream_use_left, requested_alpha: SHARED_PATCH_INPUT, effective_alpha: REQUESTED_ALPHA, capacity_reason: NONE, terminal_outcome: NAMED_OR_NONE}
+  - {front_component: fc_downstream_use_right, requested_alpha: SHARED_PATCH_INPUT, effective_alpha: REQUESTED_ALPHA, capacity_reason: NONE, terminal_outcome: NAMED_OR_NONE}
+patch_coverage:
+  - {id: resolved_patch_coverage, evaluation_group: patch_eval_owner, domain: domain_main, operation: EXACT_SINGLE_COVER_UNION, contributions: [strip_upstream_a_use, strip_upstream_b_use, strip_downstream_use, contribution_junction_seed_y], reachability: PROVEN_FROM_SEEDS, ownership_applied_after: true}
+interactions:
+  - {id: junction_assembly, kind: COMPILE_STATIC_JUNCTION_UNION, participants: [strip_upstream_a_use, strip_upstream_b_use, strip_downstream_use, contribution_junction_seed_y], gate: JUNCTION_SEED_PRESENT, coverage_effect: ADD_DECLARED_JUNCTION_CONTRIBUTION, owner_patch: owner_patch}
+pivot_digest_projection:
+  include: [patch_domains, physical_chains, chain_uses, seeds, front_components, evaluation_groups, coverage_contributions, boundary_events, capacity_states, patch_coverage, interactions]
+  exclude: [record_order, runtime_front_vertices, private_pchain_domains, sampled_tessellation, tolerance_selected_topology]
+visuals:
+  svg: artifacts/envelope_ec0/v2/sheets/ec0-c10-merge-split-junction.svg
+  png: artifacts/envelope_ec0/v2/sheets/ec0-c10-merge-split-junction.png

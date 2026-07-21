@@ -1,0 +1,138 @@
+schema: cftuv.envelope.ec0.case.v2
+case_id: EC0-C15
+slug: drag-topology-events
+title: Compile-static boundary and interval events during alpha drag
+status: DEFINED
+pivot_policy:
+  propagation: BOUNDARY_LIMITED_PROPAGATION
+  branch_count_rule: NON_INCREASING
+  obstacle_bypass: DEFERRED_TO_EC8_PLUS
+semantic_contracts:
+  - id: C15-S1
+    authority: USER_REQUIRED
+    rule: Drag may change connectivity only at compile-declared event heights; runtime may not discover routes, supports, or obstacle bypass.
+  - id: C15-S2
+    authority: MATHEMATICALLY_REQUIRED
+    rule: All events at one exact height are applied atomically and the result is independent of enumeration.
+  - id: C15-S3
+    authority: USER_REQUIRED
+    rule: At alpha equal to an event height the after-state is authoritative; reference and compiled evaluators compare before, at, and after.
+  - id: C15-S4
+    authority: USER_REQUIRED
+    rule: A boundary contact may shrink or collapse active intervals but cannot create obstacle-bypass branches in v1.
+  - id: C15-S5
+    authority: USER_REQUIRED
+    rule: Saturation of one FrontComponent does not stop another source in the same Patch evaluation group.
+skeleton:
+  patch: {id: owner_patch, kind: PATCH_DOMAIN}
+  nodes:
+    - {id: primary_start, kind: PHYSICAL_ENDPOINT, roles: [PRIMARY_SOURCE]}
+    - {id: primary_end, kind: PHYSICAL_ENDPOINT, roles: [PRIMARY_END]}
+    - {id: companion_start, kind: PHYSICAL_ENDPOINT, roles: [COMPANION_SOURCE]}
+    - {id: companion_end, kind: PHYSICAL_ENDPOINT, roles: [COMPANION_END]}
+  edges:
+    - {id: primary_spine, kind: SELECTED_SPINE, from: primary_start, to: primary_end, patch: owner_patch}
+    - {id: companion_spine, kind: SELECTED_SPINE, from: companion_start, to: companion_end, patch: owner_patch}
+  barriers:
+    - {id: outer_boundary, kind: DOMAIN_BOUNDARY, owner: NONE}
+v1_front_components_projection:
+  - {id: primary_component, source: primary_spine, patch: owner_patch, sector: primary_sector, active_intervals: COMPILE_TRACKED}
+  - {id: companion_component, source: companion_spine, patch: owner_patch, sector: companion_sector, active_intervals: COMPILE_TRACKED}
+envelopes:
+  - {id: primary_strip, kind: StripEnvelope, source: primary_spine, alpha_law: EVENT_SCHEDULED}
+  - {id: companion_strip, kind: StripEnvelope, source: companion_spine, alpha_law: EVENT_SCHEDULED}
+region_graph:
+  regions:
+    - {id: primary_before_contact, semantic_kind: STRIP, owner: primary_strip, active: BEFORE_PRIMARY_CONTACT}
+    - {id: primary_after_clip, semantic_kind: STRIP, owner: primary_strip, active: AFTER_PRIMARY_CONTACT}
+    - {id: companion_region, semantic_kind: STRIP, owner: companion_strip, active: ALL_ALPHA_AFTER_BIRTH}
+  edges:
+    - {regions: [primary_after_clip, OUTSIDE_DOMAIN], kind: BOUNDARY_CLIP_ADJACENCY}
+boundary_lineage:
+  - {boundary: primary_free_front, lineage: [primary_strip, alpha], role: COVERAGE_SILHOUETTE}
+  - {boundary: primary_contact, lineage: [primary_strip, outer_boundary, BOUNDARY_CONTACT], role: DOMAIN_AND_COVERAGE_BOUNDARY}
+  - {boundary: companion_free_front, lineage: [companion_strip, alpha], role: COVERAGE_SILHOUETTE}
+owners:
+  total: true
+  disjoint: true
+  boundary_owner: NONE
+adjacency:
+  - {a: primary_after_clip, b: OUTSIDE_DOMAIN, through: primary_contact}
+s_direction:
+  authority: SOURCE_LOCAL_STATIONS
+  primary: PRESERVED_THROUGH_CLIP_AND_COLLAPSE
+  companion: UNAFFECTED_BY_PRIMARY_CAPACITY
+alpha_evolution:
+  - {stage: before_event_batch, primary: ACTIVE_INTERVAL_APPROACHES_BOUNDARY, companion: CONTINUES, topology: TWO_FRONT_COMPONENTS}
+  - {stage: at_event_batch, primary: EXACT_AFTER_STATE_CLIP_AND_INTERVAL_COLLAPSE, companion: CONTINUES, topology: ATOMIC_BOUNDARY_CONTACT_AND_COLLAPSE}
+  - {stage: after_event_batch, primary: FRONT_EXHAUSTED_OR_CAPACITY_FROZEN, companion: CONTINUES_TO_REQUESTED_ALPHA, topology: NO_OBSTACLE_BRANCHES}
+topology_events:
+  - {id: birth, kind: BIRTH, height: ALPHA_ZERO, application: CLOSED_AT_AND_AFTER}
+  - {id: primary_contact, kind: BOUNDARY_CONTACT, height: ALPHA_PRIMARY_CONTACT, application: ATOMIC_PRIMARY_BATCH}
+  - {id: primary_interval_collapse, kind: COLLAPSE, height: ALPHA_PRIMARY_CONTACT, application: ATOMIC_PRIMARY_BATCH}
+  - {id: primary_exhaustion, kind: FRONT_EXHAUSTED, height: ALPHA_PRIMARY_EXHAUSTED, application: CLOSED_AT_AND_AFTER}
+  - {id: companion_contact, kind: BOUNDARY_CONTACT, height: ALPHA_COMPANION_CONTACT, application: CLOSED_AT_AND_AFTER}
+capacity_state:
+  requested_alpha: SHARED_DRAG_INPUT
+  per_component_effective_alpha: REQUIRED
+  primary_capacity_does_not_clamp: [companion_component, owner_patch]
+forbidden:
+  - RUNTIME_ROUTE_DISCOVERY
+  - EVENT_ORDER_DEPENDS_ON_ENUMERATION
+  - UNDEFINED_EXACT_EVENT_STATE
+  - TOLERANCE_CHOOSES_EVENT_ORDER
+  - COMPILED_REFERENCE_TOPOLOGY_MISMATCH
+  - OBSTACLE_SPLIT_BRANCH_CREATION
+  - OBSTACLE_MERGE_BEHIND_BARRIER
+  - GLOBAL_PATCH_STOP_ON_PRIMARY_CONTACT
+  - FIRST_OR_LAST_RUNTIME_VERTEX_DECIDES_EVENT
+metamorphic_expectations:
+  matrix_row: EC0-C15
+  matrix_schema: cftuv.envelope.ec0.metamorphic_matrix.v2
+  pivot_required: [physical_chain_enumeration_permutation, chain_use_enumeration_permutation, seed_enumeration_permutation, front_component_enumeration_permutation, front_vertex_resampling, boundary_resegmentation_same_physical_contour, patch_domain_identity_preserving_rekey]
+  pivot_semantic_changes: [private_domain_per_pchain_policy_switch, owner_patch_reassignment]
+  required: [chain_enumeration_permutation, chain_storage_reverse, surface_winding_reverse, rigid_translation, coherent_uniform_scale, source_retriangulation, data_chain_split_merge, simultaneous_event_enumeration_permutation, small_perturbation_without_topology_change]
+  semantic_changes: [semantic_start_end_swap, capacity_policy_switch]
+canonical_digest_projection:
+  include: [pivot_policy, front_components, region_graph, boundary_lineage, owners, adjacency, s_direction, topology_events, capacity_state, active_event_interval]
+  exclude: [face_order, tessellation, event_enumeration, runtime_discovery_cache, front_vertex_identity]
+
+patch_domains:
+  - {id: domain_main, owner_patch: owner_patch, surface_regime: INTRINSIC_PATCH_SURFACE, outer_boundary: outer_loop, holes: [], barriers: [OUTER_BOUNDARY], sectors: [primary_use_left, primary_use_right, companion_use_left, companion_use_right]}
+physical_chains:
+  - {id: primary, kind: PHYSICAL_DECAL_SOURCE, source_lineage: primary_semantic_line}
+  - {id: companion, kind: PHYSICAL_DECAL_SOURCE, source_lineage: companion_semantic_line}
+chain_uses:
+  - {id: primary_use, physical_chain: primary, owner_patch: owner_patch, patch_domain: domain_main, boundary_loop: source_loop, orientation: SEMANTIC_START_TO_END, side: OWNER_INTERIOR, roles: [DECAL_SOURCE]}
+  - {id: companion_use, physical_chain: companion, owner_patch: owner_patch, patch_domain: domain_main, boundary_loop: source_loop, orientation: SEMANTIC_START_TO_END, side: OWNER_INTERIOR, roles: [DECAL_SOURCE]}
+seeds:
+  - {id: front_seed_primary_use, kind: FrontSeed, chain_use: primary_use, owner_patch: owner_patch, sectors: [primary_use_left, primary_use_right]}
+  - {id: front_seed_companion_use, kind: FrontSeed, chain_use: companion_use, owner_patch: owner_patch, sectors: [companion_use_left, companion_use_right]}
+front_components:
+  - {id: fc_primary_use_left, chain_use: primary_use, owner_patch: owner_patch, sector: primary_use_left, active_intervals: ONE_OR_ZERO_EVENT_DRIVEN, branch_count: NON_INCREASING_FROM_ONE, lifecycle: COMPILE_TRACKED}
+  - {id: fc_primary_use_right, chain_use: primary_use, owner_patch: owner_patch, sector: primary_use_right, active_intervals: ONE_OR_ZERO_EVENT_DRIVEN, branch_count: NON_INCREASING_FROM_ONE, lifecycle: COMPILE_TRACKED}
+  - {id: fc_companion_use_left, chain_use: companion_use, owner_patch: owner_patch, sector: companion_use_left, active_intervals: ONE_OR_ZERO_EVENT_DRIVEN, branch_count: NON_INCREASING_FROM_ONE, lifecycle: COMPILE_TRACKED}
+  - {id: fc_companion_use_right, chain_use: companion_use, owner_patch: owner_patch, sector: companion_use_right, active_intervals: ONE_OR_ZERO_EVENT_DRIVEN, branch_count: NON_INCREASING_FROM_ONE, lifecycle: COMPILE_TRACKED}
+evaluation_groups:
+  - {id: patch_eval_owner, owner_patch: owner_patch, patch_domain: domain_main, chain_uses: [primary_use, companion_use], seeds: [front_seed_primary_use, front_seed_companion_use], front_components: [fc_primary_use_left, fc_primary_use_right, fc_companion_use_left, fc_companion_use_right], unit: ONE_PATCH_ALL_ACTIVE_SOURCES}
+coverage_contributions:
+  - {id: strip_primary_use, kind: StripEnvelope, seed: front_seed_primary_use, chain_use: primary_use, front_components: [fc_primary_use_left, fc_primary_use_right], owner_patch: owner_patch, boundary_resolution: RESOLVED_BEFORE_PATCH_UNION}
+  - {id: strip_companion_use, kind: StripEnvelope, seed: front_seed_companion_use, chain_use: companion_use, front_components: [fc_companion_use_left, fc_companion_use_right], owner_patch: owner_patch, boundary_resolution: RESOLVED_BEFORE_PATCH_UNION}
+boundary_events:
+  - {id: event_1_boundary_contact, kind: BOUNDARY_CONTACT, exact_height_key: ALPHA_BOUNDARY_CONTACT, boundary_provenance: [domain_main, OUTER_BOUNDARY], atomic_batch: CASE_DECLARED_BATCH_OR_PARTIAL_ORDER, active_interval_transition: COMPILE_DECLARED_AFTER_STATE}
+  - {id: event_2_interval_collapse, kind: INTERVAL_COLLAPSE, exact_height_key: ALPHA_INTERVAL_COLLAPSE, boundary_provenance: [domain_main, OUTER_BOUNDARY], atomic_batch: CASE_DECLARED_BATCH_OR_PARTIAL_ORDER, active_interval_transition: COMPILE_DECLARED_AFTER_STATE}
+  - {id: event_3_front_exhausted, kind: FRONT_EXHAUSTED, exact_height_key: ALPHA_FRONT_EXHAUSTED, boundary_provenance: [domain_main, OUTER_BOUNDARY], atomic_batch: CASE_DECLARED_BATCH_OR_PARTIAL_ORDER, active_interval_transition: COMPILE_DECLARED_AFTER_STATE}
+capacity_states:
+  - {front_component: fc_primary_use_left, requested_alpha: SHARED_PATCH_INPUT, effective_alpha: PER_COMPONENT_LAST_PROVEN_OR_REQUESTED, capacity_reason: BARRIER_SPLIT_REQUIRED_OR_PROVEN_ROUTE_END, terminal_outcome: NAMED_OR_NONE}
+  - {front_component: fc_primary_use_right, requested_alpha: SHARED_PATCH_INPUT, effective_alpha: PER_COMPONENT_LAST_PROVEN_OR_REQUESTED, capacity_reason: BARRIER_SPLIT_REQUIRED_OR_PROVEN_ROUTE_END, terminal_outcome: NAMED_OR_NONE}
+  - {front_component: fc_companion_use_left, requested_alpha: SHARED_PATCH_INPUT, effective_alpha: PER_COMPONENT_LAST_PROVEN_OR_REQUESTED, capacity_reason: BARRIER_SPLIT_REQUIRED_OR_PROVEN_ROUTE_END, terminal_outcome: NAMED_OR_NONE}
+  - {front_component: fc_companion_use_right, requested_alpha: SHARED_PATCH_INPUT, effective_alpha: PER_COMPONENT_LAST_PROVEN_OR_REQUESTED, capacity_reason: BARRIER_SPLIT_REQUIRED_OR_PROVEN_ROUTE_END, terminal_outcome: NAMED_OR_NONE}
+patch_coverage:
+  - {id: resolved_patch_coverage, evaluation_group: patch_eval_owner, domain: domain_main, operation: EXACT_SINGLE_COVER_UNION, contributions: [strip_primary_use, strip_companion_use], reachability: PROVEN_FROM_SEEDS, ownership_applied_after: true}
+interactions: []
+pivot_digest_projection:
+  include: [patch_domains, physical_chains, chain_uses, seeds, front_components, evaluation_groups, coverage_contributions, boundary_events, capacity_states, patch_coverage, interactions]
+  exclude: [record_order, runtime_front_vertices, private_pchain_domains, sampled_tessellation, tolerance_selected_topology]
+visuals:
+  svg: artifacts/envelope_ec0/v2/sheets/ec0-c15-drag-topology-events.svg
+  png: artifacts/envelope_ec0/v2/sheets/ec0-c15-drag-topology-events.png

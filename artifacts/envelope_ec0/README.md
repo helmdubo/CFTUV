@@ -3,12 +3,10 @@
 This directory is the review corpus for `docs/envelope_backend_semantics.md`.
 It contains no implementation fixtures and no sampled geometry authority.
 
-**Pivot status: v1 evidence, EC0-P revision required.** These sheets and
-sidecars preserve the 16 semantic outcomes and the user's case-16 choice B,
-but predate AM7. They do not consistently expose PatchDomain,
-PhysicalChain/ChainUse and compile-static seeds, so they do not open EC1.
-The replacement corpus must follow
-`docs/envelope_kernel_pivot_instructions.md` and sidecar schema v2 below.
+**Pivot status: v1 audit evidence.** These sheets and sidecars preserve the
+original 16 semantic outcomes and the user's case-16 choice B, but predate
+AM7. The completed EC0-P candidate is in `v2/` and is ready for explicit user
+review. EC1 remains closed until that acceptance.
 
 - `cases/` — one coordinate-free YAML semantic sidecar per canonical case.
 - `sheets/` — review sheets in SVG and PNG. Every sheet contains skeleton,
@@ -22,9 +20,10 @@ All participants are wings of one decal inside one owner Patch; cross-decal and
 cross-Patch collision is forbidden. Variant A and C sheets remain only as
 rejected decision evidence.
 
-The EC0-P rebaseline does not reopen that choice. It must redraw B as an
-interaction of source contributions inside one shared PatchDomain and add a
-separate self-collision view.
+The EC0-P rebaseline does not reopen that choice. It redraws B as an
+interaction of source contributions inside one shared PatchDomain and adds a
+separate self-collision view. That rebaseline is now present in `v2/`; the v1
+files remain non-canonical evidence rather than being silently upgraded.
 
 AM8 adds `BOUNDARY_LIMITED_PROPAGATION` for v1. Formal policy, its ten
 coordinate-free scenarios, metamorphic verdicts and the consolidated review

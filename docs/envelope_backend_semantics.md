@@ -1,32 +1,41 @@
 # Семантика envelope-бэкенда до алгоритма (EC0a + EC0b)
 
-Статус документа: **PIVOT REVISION REQUIRED (EC0-P)**. Семантические исходы
-16 случаев сохраняются; для case 16 пользователь выбрал **B — coverage clip**,
-а A/C отвергнуты. Но visual/sidecar corpus v1 был построен до AM7–AM8 и не
-различает во всех случаях `PatchDomain`, `PhysicalChain`, `ChainUse` и seeds.
-Поэтому он не открывает EC1 до повторного EC0-P выпуска и приёмки.
+Статус документа: **EC0-P CANDIDATE READY FOR USER REVIEW**. Семантические
+исходы 16 случаев перевыпущены в v2 с явными AM7–AM8 слоями; для case 16
+пользователь выбрал **B — coverage clip**, а A/C отвергнуты. Работа
+kernel-implementer для EC0a+EC0b завершена. EC1 остаётся закрыт до явной
+пользовательской приёмки этого корпуса.
 
 Основание: `docs/decal_envelope_roadmap_compromise.md` @ `a7d64ee`, включая
 AM1–AM6, `SemanticAuthority` и `CanonicalGeometryDigest`. При подготовке EC0
 старый backend и его implementation code не использовались. Переносится
 наблюдаемая продуктовая семантика, а не прежний механизм.
 
-Артефакты:
+Артефакты candidate:
 
-- визуальные листы SVG/PNG: `artifacts/envelope_ec0/sheets/`;
-- coordinate-free YAML-sidecars: `artifacts/envelope_ec0/cases/`;
-- метаморфная матрица AM3:
-  `artifacts/envelope_ec0/metamorphic_matrix.yaml`;
+- 16 визуальных листов SVG/PNG и обзор:
+  `artifacts/envelope_ec0/v2/sheets/`;
+- 16 coordinate-free YAML-sidecars v2:
+  `artifacts/envelope_ec0/v2/cases/`;
+- метаморфная матрица AM3+AM7+AM8:
+  `artifacts/envelope_ec0/v2/metamorphic_matrix.yaml`;
+- AM7 pivot-cases и их матрица/лист:
+  `artifacts/envelope_ec0/v2/pivot_topology_cases.yaml`;
 - описание sidecar-формата:
-  `artifacts/envelope_ec0/case_sidecar_schema.md`.
+  `artifacts/envelope_ec0/case_sidecar_schema.md`;
 - AM8 boundary policy pack:
-  `artifacts/envelope_ec0/pivot/`.
+  `artifacts/envelope_ec0/pivot/`;
+- русскоязычный маршрут приёмки без чтения YAML:
+  `docs/envelope_ec0_acceptance_guide.md`;
 - обязательные инструкции pivot:
   `docs/envelope_kernel_pivot_instructions.md`.
 
+V1 в `artifacts/envelope_ec0/cases/` и `sheets/` сохранён только как audit
+trail первоначальных решений и отвергнутых вариантов A/C.
+
 ## 1. Как читать визуальные листы
 
-Текущий v1-лист содержит пять зон:
+Архивный v1-лист содержит пять зон:
 
 1. `SKELETON` — редкий семантический skeleton: физические линии, углы,
    junction и domain/barrier;
@@ -39,11 +48,18 @@ AM1–AM6, `SemanticAuthority` и `CanonicalGeometryDigest`. При подгот
 Схемы не являются координатными фикстурами и не задают допуски. Их задача —
 утвердить topology, lineage, owner, adjacency, направление `s` и события.
 
-EC0-P заменяет/расширяет каждый лист так, чтобы отдельно были видны семь
+EC0-P v2 заменяет/расширяет каждый лист: отдельно показаны семь
 семантических слоёв: `PatchDomain`, physical chain identity, directed
 `ChainUse`, compile-static seeds, patch-level coverage union, interaction
 boundaries/events, ownership + UV/station flow. Простая картинка «декаль вокруг
 chain» больше не проходит гейт.
+
+Обзор всех 16 случаев: [PNG](../artifacts/envelope_ec0/v2/sheets/ec0p-overview.png) ·
+[SVG](../artifacts/envelope_ec0/v2/sheets/ec0p-overview.svg). AM7 identity
+pivot: [PNG](../artifacts/envelope_ec0/v2/pivot-topology-cases.png) ·
+[SVG](../artifacts/envelope_ec0/v2/pivot-topology-cases.svg). Подробные ссылки
+на каждый v2-лист и sidecar находятся в
+`artifacts/envelope_ec0/v2/README.md`.
 
 ## 2. SemanticAuthority
 
@@ -673,14 +689,14 @@ FrontComponent, но вызывать boundary resolver patch-level batch-опе
 - [x] Все девять вопросов §12 имеют финальное решение; blocked items отсутствуют.
 - [x] После выбора обновлены status/selected alternative в case 16 sidecar и
   `CanonicalGeometryDigest` projection.
-- [ ] Все cases перевыпущены как EC0-P: `PatchDomain`, PhysicalChain,
+- [x] Все cases перевыпущены как EC0-P: `PatchDomain`, PhysicalChain,
   directed ChainUse и seeds показаны отдельно от coverage/ownership.
-- [ ] Добавлены pivot-cases для seam A/B, `SEAM_SELF`, нескольких sources в
+- [x] Добавлены pivot-cases для seam A/B, `SEAM_SELF`, нескольких sources в
   одном PatchDomain и self-collision.
 - [ ] Принят EC0-P boundary pack из десяти AM8-сценариев: contact, sliding,
   exhaustion, hole/split, concavity, simultaneous contact, barrier rail и
   независимость других components.
-- [ ] Sidecars мигрированы на v2 и доказывают один patch-level unit of
+- [x] Sidecars мигрированы на v2 и доказывают один patch-level unit of
   execution без private per-pChain domain.
 - [ ] Пользователь принял EC0-P visual corpus.
 

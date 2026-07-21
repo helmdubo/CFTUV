@@ -77,3 +77,7 @@ v2 invariants:
 Existing v1 files remain decision evidence; they are not silently interpreted
 as v2. Migration must be explicit and followed by user acceptance of the
 corresponding EC0-P visual sheet.
+
+The explicit migration candidate lives in `v2/cases/`. Its schema and file
+inventory are mechanically validated, but its semantic status remains
+`READY_FOR_USER_REVIEW` until the user accepts the paired visual/prose corpus.

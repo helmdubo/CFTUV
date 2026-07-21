@@ -247,6 +247,10 @@ EC0-P закрыт только после пользовательской пр
 неименованных решений. Выбор B из прежнего case 16 переносится без повторного
 выбора; повторно проверяется его новый domain/use/seed контекст.
 
+Candidate corpus уже выпущен в `artifacts/envelope_ec0/v2/`; словесный маршрут
+приёмки — `docs/envelope_ec0_acceptance_guide.md`. До явного ответа пользователя
+статус остаётся `READY_FOR_USER_REVIEW`, и EC1 не начинается.
+
 ## 9. Запреты для review checklist
 
 - private field/domain на pChain, ChainUse, seed или envelope;

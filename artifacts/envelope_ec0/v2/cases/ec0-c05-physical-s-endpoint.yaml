@@ -1,0 +1,96 @@
+schema: cftuv.envelope.ec0.case.v2
+case_id: EC0-C05
+slug: physical-s-endpoint
+title: Physical end of s and CapEnvelope
+status: DEFINED
+semantic_contracts:
+  - id: C05-S1
+    authority: FIELD_PROVEN
+    rule: A CapEnvelope is born only at a physical semantic line end, not at a data-chain record boundary.
+  - id: C05-S2
+    authority: USER_REQUIRED
+    rule: The cap is a cut of the strip itself; it is never an overlay face or a second coverage layer.
+  - id: C05-S3
+    authority: MATHEMATICALLY_REQUIRED
+    rule: s is constant on the physical cap and does not reset or extrapolate beyond the endpoint.
+skeleton:
+  nodes:
+    - {id: upstream, kind: CONTINUATION, roles: [SEMANTIC_START_SIDE]}
+    - {id: physical_end, kind: PHYSICAL_ENDPOINT, roles: [SEMANTIC_END]}
+  edges:
+    - {id: spine, kind: SELECTED_SPINE, from: upstream, to: physical_end}
+envelopes:
+  - {id: strip, kind: StripEnvelope, source: spine, alpha_law: TWO_SIDED_LINEAR}
+  - {id: cap, kind: CapEnvelope, source: physical_end, alpha_law: END_CLOSURE}
+region_graph:
+  regions:
+    - {id: body, semantic_kind: STRIP, owner: strip, station_model: SPINE_S}
+    - {id: cap_region, semantic_kind: CAP, owner: cap, station_model: CONSTANT_END_S}
+  edges:
+    - {regions: [body, cap_region], kind: END_INTERFACE}
+boundary_lineage:
+  - {boundary: side_left, lineage: [strip, spine, LEFT], role: COVERAGE_SILHOUETTE}
+  - {boundary: side_right, lineage: [strip, spine, RIGHT], role: COVERAGE_SILHOUETTE}
+  - {boundary: physical_end_cut, lineage: [cap, physical_end], role: COVERAGE_SILHOUETTE}
+owners:
+  total: true
+  disjoint: true
+  tie_boundary_owner: NONE
+adjacency:
+  - {a: body, b: cap_region, through: PHYSICAL_END_INTERFACE}
+s_direction:
+  authority: SEMANTIC_START_TO_PHYSICAL_END
+  cap_station: CONSTANT_AT_END
+  data_boundary_effect: NONE
+alpha_evolution:
+  - {stage: before_positive_width, coverage: ZERO_MEASURE_SKELETON, topology: NO_REGION}
+  - {stage: positive_width, coverage: STRIP_CLOSED_BY_CAP, topology: BODY_PLUS_CAP}
+  - {stage: larger_width, coverage: CAP_MOVES_BY_DECLARED_LAW_ONLY, topology: UNCHANGED_UNTIL_DOMAIN_EVENT}
+topology_events:
+  - {id: cap_birth, kind: BIRTH, height: ALPHA_ZERO, application: CLOSED_AT_AND_AFTER}
+forbidden:
+  - CAP_AT_DATA_CHAIN_SPLIT
+  - S_RESET_AT_CAP_INTERFACE
+  - TERMINAL_OVERLAY_FACE
+  - CONTINUATION_PAST_PHYSICAL_END
+metamorphic_expectations:
+  matrix_row: EC0-C05
+  matrix_schema: cftuv.envelope.ec0.metamorphic_matrix.v2
+  pivot_required: [physical_chain_enumeration_permutation, chain_use_enumeration_permutation, seed_enumeration_permutation, front_component_enumeration_permutation, front_vertex_resampling, boundary_resegmentation_same_physical_contour, patch_domain_identity_preserving_rekey]
+  pivot_semantic_changes: [private_domain_per_pchain_policy_switch, owner_patch_reassignment]
+  required: [chain_enumeration_permutation, chain_storage_reverse, surface_winding_reverse, rigid_translation, coherent_uniform_scale, source_retriangulation, data_chain_split_merge, simultaneous_event_enumeration_permutation, small_perturbation_without_topology_change]
+  semantic_changes: [semantic_start_end_swap]
+canonical_digest_projection:
+  include: [region_graph, boundary_lineage, owners, adjacency, s_direction, topology_events, semantic_anchors]
+  exclude: [face_order, tessellation, data_chain_end_markers, overlay_faces]
+
+patch_domains:
+  - {id: domain_main, owner_patch: owner_patch, surface_regime: INTRINSIC_PATCH_SURFACE, outer_boundary: outer_loop, holes: [], barriers: [OUTER_BOUNDARY], sectors: [route_use_left, route_use_right]}
+physical_chains:
+  - {id: route, kind: PHYSICAL_DECAL_SOURCE, source_lineage: route_semantic_line}
+chain_uses:
+  - {id: route_use, physical_chain: route, owner_patch: owner_patch, patch_domain: domain_main, boundary_loop: source_loop, orientation: SEMANTIC_START_TO_END, side: OWNER_INTERIOR, roles: [DECAL_SOURCE]}
+seeds:
+  - {id: front_seed_route_use, kind: FrontSeed, chain_use: route_use, owner_patch: owner_patch, sectors: [route_use_left, route_use_right]}
+  - {id: cap_seed_end, kind: CapSeed, source_relation: CAP_SEED_END, owner_patch: owner_patch, incident_chain_uses: [route_use]}
+front_components:
+  - {id: fc_route_use_left, chain_use: route_use, owner_patch: owner_patch, sector: route_use_left, active_intervals: ONE_OR_ZERO_EVENT_DRIVEN, branch_count: NON_INCREASING_FROM_ONE, lifecycle: COMPILE_TRACKED}
+  - {id: fc_route_use_right, chain_use: route_use, owner_patch: owner_patch, sector: route_use_right, active_intervals: ONE_OR_ZERO_EVENT_DRIVEN, branch_count: NON_INCREASING_FROM_ONE, lifecycle: COMPILE_TRACKED}
+evaluation_groups:
+  - {id: patch_eval_owner, owner_patch: owner_patch, patch_domain: domain_main, chain_uses: [route_use], seeds: [front_seed_route_use, cap_seed_end], front_components: [fc_route_use_left, fc_route_use_right], unit: ONE_PATCH_ALL_ACTIVE_SOURCES}
+coverage_contributions:
+  - {id: strip_route_use, kind: StripEnvelope, seed: front_seed_route_use, chain_use: route_use, front_components: [fc_route_use_left, fc_route_use_right], owner_patch: owner_patch, boundary_resolution: RESOLVED_BEFORE_PATCH_UNION}
+  - {id: contribution_cap_seed_end, kind: CapEnvelope, seed: cap_seed_end, chain_uses: [route_use], owner_patch: owner_patch, boundary_resolution: RESOLVED_BEFORE_PATCH_UNION}
+boundary_events: []
+capacity_states:
+  - {front_component: fc_route_use_left, requested_alpha: SHARED_PATCH_INPUT, effective_alpha: REQUESTED_ALPHA, capacity_reason: NONE, terminal_outcome: NAMED_OR_NONE}
+  - {front_component: fc_route_use_right, requested_alpha: SHARED_PATCH_INPUT, effective_alpha: REQUESTED_ALPHA, capacity_reason: NONE, terminal_outcome: NAMED_OR_NONE}
+patch_coverage:
+  - {id: resolved_patch_coverage, evaluation_group: patch_eval_owner, domain: domain_main, operation: EXACT_SINGLE_COVER_UNION, contributions: [strip_route_use, contribution_cap_seed_end], reachability: PROVEN_FROM_SEEDS, ownership_applied_after: true}
+interactions: []
+pivot_digest_projection:
+  include: [patch_domains, physical_chains, chain_uses, seeds, front_components, evaluation_groups, coverage_contributions, boundary_events, capacity_states, patch_coverage, interactions]
+  exclude: [record_order, runtime_front_vertices, private_pchain_domains, sampled_tessellation, tolerance_selected_topology]
+visuals:
+  svg: artifacts/envelope_ec0/v2/sheets/ec0-c05-physical-s-endpoint.svg
+  png: artifacts/envelope_ec0/v2/sheets/ec0-c05-physical-s-endpoint.png

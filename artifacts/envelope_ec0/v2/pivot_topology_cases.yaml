@@ -1,0 +1,106 @@
+schema: cftuv.envelope.ec0.pivot_topology_cases.v1
+status: DEFINED
+purpose: Prove AM7 identity, domain, and evaluation-group rules independently of the sixteen outcome cases.
+semantic_contracts:
+  - {id: PTS-S1, authority: USER_REQUIRED, rule: PatchDomain is the only propagation field and pChain never owns a private solve domain.}
+  - {id: PTS-S2, authority: USER_REQUIRED, rule: A PhysicalChain and each directed patch-side ChainUse are distinct semantic identities.}
+  - {id: PTS-S3, authority: USER_REQUIRED, rule: Every active source of one owner Patch is evaluated in one patch-level group.}
+  - {id: PTS-S4, authority: USER_REQUIRED, rule: Physical seam uses in different Patches have independent lifecycle even when they share one PhysicalChain.}
+  - {id: PTS-S5, authority: USER_REQUIRED, rule: SEAM_SELF keeps two distinct directed uses in one PatchDomain and never merges them by physical-chain id.}
+  - {id: PTS-S6, authority: USER_REQUIRED, rule: Self-collision means two readings of one wing of one decal in one Patch and uses the selected B coverage clip.}
+
+cases:
+  - id: PTS-01
+    title: Physical seam A/B
+    status: DEFINED
+    patch_domains:
+      - {id: domain_a, owner_patch: patch_a, surface_regime: INTRINSIC_PATCH_SURFACE}
+      - {id: domain_b, owner_patch: patch_b, surface_regime: INTRINSIC_PATCH_SURFACE}
+    physical_chains:
+      - {id: seam_physical, kind: PHYSICAL_SEAM, incident_patches: [patch_a, patch_b]}
+    chain_uses:
+      - {id: seam_use_a, physical_chain: seam_physical, owner_patch: patch_a, patch_domain: domain_a, orientation: A_START_TO_END, side: PATCH_A, roles: [DECAL_SOURCE]}
+      - {id: seam_use_b, physical_chain: seam_physical, owner_patch: patch_b, patch_domain: domain_b, orientation: B_START_TO_END, side: PATCH_B, roles: [DECAL_SOURCE]}
+    seeds:
+      - {id: seed_a, kind: FrontSeed, chain_use: seam_use_a, owner_patch: patch_a}
+      - {id: seed_b, kind: FrontSeed, chain_use: seam_use_b, owner_patch: patch_b}
+    front_components:
+      - {id: component_a, key: [seam_use_a, patch_a, sector_a], lifecycle: INDEPENDENT}
+      - {id: component_b, key: [seam_use_b, patch_b, sector_b], lifecycle: INDEPENDENT}
+    evaluation_groups:
+      - {id: eval_a, owner_patch: patch_a, patch_domain: domain_a, sources: [seed_a]}
+      - {id: eval_b, owner_patch: patch_b, patch_domain: domain_b, sources: [seed_b]}
+    expected: TWO_DOMAINS_TWO_EVALUATIONS_NO_CROSS_PATCH_COLLISION
+    forbidden: [ONE_PHYSICAL_CHAIN_ONE_GLOBAL_FRONT, CAPACITY_CROSSES_PATCH_BOUNDARY, CROSS_PATCH_WING_INTERACTION]
+
+  - id: PTS-02
+    title: SEAM_SELF in one PatchDomain
+    status: DEFINED
+    patch_domains:
+      - {id: domain_main, owner_patch: patch_main, surface_regime: INTRINSIC_PATCH_SURFACE}
+    physical_chains:
+      - {id: self_seam_physical, kind: SEAM_SELF, incident_patches: [patch_main, patch_main]}
+    chain_uses:
+      - {id: self_use_left, physical_chain: self_seam_physical, owner_patch: patch_main, patch_domain: domain_main, orientation: LEFT_READING, side: LEFT, roles: [DECAL_SOURCE]}
+      - {id: self_use_right, physical_chain: self_seam_physical, owner_patch: patch_main, patch_domain: domain_main, orientation: RIGHT_READING, side: RIGHT, roles: [DECAL_SOURCE]}
+    seeds:
+      - {id: seed_left, kind: FrontSeed, chain_use: self_use_left, owner_patch: patch_main}
+      - {id: seed_right, kind: FrontSeed, chain_use: self_use_right, owner_patch: patch_main}
+    front_components:
+      - {id: component_left, key: [self_use_left, patch_main, sector_left], lifecycle: INDEPENDENT}
+      - {id: component_right, key: [self_use_right, patch_main, sector_right], lifecycle: INDEPENDENT}
+    evaluation_groups:
+      - {id: eval_main, owner_patch: patch_main, patch_domain: domain_main, sources: [seed_left, seed_right]}
+    expected: ONE_DOMAIN_ONE_EVALUATION_TWO_DISTINCT_USES
+    forbidden: [MERGE_USES_BY_PHYSICAL_CHAIN_ID, PRIVATE_DOMAIN_PER_USE, FIRST_USE_OWNS_SHARED_MATTER]
+
+  - id: PTS-03
+    title: Multiple pChain sources in one Patch
+    status: DEFINED
+    patch_domains:
+      - {id: domain_main, owner_patch: patch_main, surface_regime: INTRINSIC_PATCH_SURFACE}
+    physical_chains:
+      - {id: chain_a, kind: PHYSICAL_DECAL_SOURCE}
+      - {id: chain_b, kind: PHYSICAL_DECAL_SOURCE}
+    chain_uses:
+      - {id: use_a, physical_chain: chain_a, owner_patch: patch_main, patch_domain: domain_main, orientation: START_TO_END, side: OWNER_INTERIOR, roles: [DECAL_SOURCE]}
+      - {id: use_b, physical_chain: chain_b, owner_patch: patch_main, patch_domain: domain_main, orientation: START_TO_END, side: OWNER_INTERIOR, roles: [DECAL_SOURCE]}
+    seeds:
+      - {id: seed_a, kind: FrontSeed, chain_use: use_a, owner_patch: patch_main}
+      - {id: seed_b, kind: FrontSeed, chain_use: use_b, owner_patch: patch_main}
+    front_components:
+      - {id: component_a, key: [use_a, patch_main, sector_a], lifecycle: INDEPENDENT}
+      - {id: component_b, key: [use_b, patch_main, sector_b], lifecycle: INDEPENDENT}
+    evaluation_groups:
+      - {id: eval_main, owner_patch: patch_main, patch_domain: domain_main, sources: [seed_a, seed_b]}
+    patch_coverage: {operation: ONE_PATCH_SINGLE_COVER_UNION, contributions: [component_a, component_b]}
+    expected: ONE_DOMAIN_ONE_EVALUATION_ALL_SOURCES
+    forbidden: [PRIVATE_DOMAIN_PER_PCHAIN, SERIAL_FIRST_SOURCE_AUTHORITY, ONE_COMPONENT_CAPACITY_STOPS_PATCH]
+
+  - id: PTS-04
+    title: One-wing self-collision
+    status: DEFINED
+    patch_domains:
+      - {id: domain_main, owner_patch: patch_main, surface_regime: INTRINSIC_PATCH_SURFACE}
+    physical_chains:
+      - {id: self_chain, kind: PHYSICAL_DECAL_SOURCE}
+    chain_uses:
+      - {id: self_use, physical_chain: self_chain, owner_patch: patch_main, patch_domain: domain_main, orientation: SEMANTIC_START_TO_END, side: OWNER_INTERIOR, roles: [DECAL_SOURCE]}
+    seeds:
+      - {id: self_seed, kind: FrontSeed, chain_use: self_use, owner_patch: patch_main}
+    front_components:
+      - {id: self_component, key: [self_use, patch_main, self_sector], readings: [front_reading_a, front_reading_b], lifecycle: COMPILE_TRACKED}
+    evaluation_groups:
+      - {id: eval_main, owner_patch: patch_main, patch_domain: domain_main, sources: [self_seed]}
+    interactions:
+      - {id: self_meeting, participants: [front_reading_a, front_reading_b], gate: MUTUAL_ARRIVAL, effect: B_COVERAGE_CLIP_AT_EQUALITY_LOCUS}
+    expected: ONE_WING_TWO_READINGS_STABLE_B_CLIP
+    forbidden: [TREAT_READINGS_AS_TWO_DECALS, OWNERSHIP_ONLY_OVERLAP, NEW_INTERACTION_MATTER]
+
+canonical_digest_projection:
+  include: [patch_domains, physical_chains, chain_uses, seeds, front_components, evaluation_groups, expected, interactions]
+  exclude: [record_order, runtime_ids, tessellation, coordinates, tolerance]
+visuals:
+  svg: artifacts/envelope_ec0/v2/pivot-topology-cases.svg
+  png: artifacts/envelope_ec0/v2/pivot-topology-cases.png
+

@@ -1,0 +1,103 @@
+schema: cftuv.envelope.ec0.case.v2
+case_id: EC0-C12
+slug: curved-internal-divider
+title: Curved ownership divider inside unchanged coverage
+status: DEFINED
+semantic_contracts:
+  - id: C12-S1
+    authority: MATHEMATICALLY_REQUIRED
+    rule: An exact curved equality locus may partition ownership inside a component but cannot contribute to the coverage silhouette.
+  - id: C12-S2
+    authority: MATHEMATICALLY_REQUIRED
+    rule: Coverage remains the exact union of contributing envelopes on both sides of the divider.
+  - id: C12-S3
+    authority: USER_REQUIRED
+    rule: Divider lineage retains both competing primitive claims and the station or UV models that induced it.
+skeleton:
+  nodes:
+    - {id: source_a_start, kind: PHYSICAL_ENDPOINT, roles: [A_START]}
+    - {id: source_a_end, kind: PHYSICAL_ENDPOINT, roles: [A_END]}
+    - {id: source_b, kind: CORNER, roles: [LOCAL_CLAIM_B]}
+  edges:
+    - {id: source_a, kind: SELECTED_SPINE, from: source_a_start, to: source_a_end}
+envelopes:
+  - {id: envelope_a, kind: StripEnvelope, source: source_a, alpha_law: TWO_SIDED_LINEAR}
+  - {id: envelope_b, kind: CornerEnvelope, source: source_b, alpha_law: LOCAL_CORNER_CLAIM}
+region_graph:
+  regions:
+    - {id: owner_a_region, semantic_kind: STRIP_CLAIM, owner: envelope_a, station_model: A_S}
+    - {id: owner_b_region, semantic_kind: CORNER_CLAIM, owner: envelope_b, station_model: B_S}
+  edges:
+    - {regions: [owner_a_region, owner_b_region], kind: CURVED_OWNERSHIP_DIVIDER}
+boundary_lineage:
+  - {boundary: outer_union, lineage: [envelope_a, envelope_b], role: COVERAGE_SILHOUETTE}
+  - {boundary: equality_locus, lineage: [envelope_a, envelope_b, EXACT_EQUALITY], role: OWNERSHIP_DIVIDER}
+owners:
+  total: true
+  disjoint: true
+  tie_boundary_owner: NONE
+adjacency:
+  - {a: owner_a_region, b: owner_b_region, through: equality_locus}
+s_direction:
+  authority: OWNER_LOCAL_STATION_MODELS
+  across_divider: EXPLICIT_UV_OR_STATION_INTERFACE
+  reconstruction_after_boolean: FORBIDDEN
+alpha_evolution:
+  - {stage: before_overlap, coverage: DISJOINT_OR_TOUCHING_CLAIMS, topology: NO_DIVIDER}
+  - {stage: divider_birth, coverage: UNION_UNCHANGED_BY_DIVIDER, topology: DIVIDER_BIRTH_EVENT}
+  - {stage: after_birth, coverage: UNION_EVOLVES_BY_ENVELOPES_ONLY, topology: CURVED_DIVIDER_INTERNAL}
+topology_events:
+  - {id: divider_birth, kind: BIRTH, height: ALPHA_EQUALITY_BECOMES_INTERIOR, application: CLOSED_AT_AND_AFTER}
+forbidden:
+  - CURVED_DIVIDER_IN_COVERAGE_SILHOUETTE
+  - SAMPLED_PARABOLA_AS_TOPOLOGY_AUTHORITY
+  - PROVENANCE_RECONSTRUCTION_AFTER_BOOLEAN
+  - TOLERANCE_SELECTS_OWNER
+metamorphic_expectations:
+  matrix_row: EC0-C12
+  matrix_schema: cftuv.envelope.ec0.metamorphic_matrix.v2
+  pivot_required: [physical_chain_enumeration_permutation, chain_use_enumeration_permutation, seed_enumeration_permutation, front_component_enumeration_permutation, front_vertex_resampling, boundary_resegmentation_same_physical_contour, patch_domain_identity_preserving_rekey]
+  pivot_semantic_changes: [private_domain_per_pchain_policy_switch, owner_patch_reassignment]
+  required: [chain_enumeration_permutation, chain_storage_reverse, surface_winding_reverse, rigid_translation, coherent_uniform_scale, source_retriangulation, data_chain_split_merge, simultaneous_event_enumeration_permutation, small_perturbation_without_topology_change]
+  semantic_changes: [semantic_start_end_swap]
+canonical_digest_projection:
+  include: [region_graph, boundary_lineage, owners, adjacency, s_direction, topology_events, semantic_anchors, exact_curve_identity]
+  exclude: [face_order, tessellation, sampled_polyline, reconstructed_nearest_source]
+
+patch_domains:
+  - {id: domain_main, owner_patch: owner_patch, surface_regime: INTRINSIC_PATCH_SURFACE, outer_boundary: outer_loop, holes: [], barriers: [OUTER_BOUNDARY], sectors: [claim_a_use_left, claim_a_use_right, claim_b_use_left, claim_b_use_right]}
+physical_chains:
+  - {id: claim_a, kind: PHYSICAL_DECAL_SOURCE, source_lineage: claim_a_semantic_line}
+  - {id: claim_b, kind: PHYSICAL_DECAL_SOURCE, source_lineage: claim_b_semantic_line}
+chain_uses:
+  - {id: claim_a_use, physical_chain: claim_a, owner_patch: owner_patch, patch_domain: domain_main, boundary_loop: source_loop, orientation: SEMANTIC_START_TO_END, side: OWNER_INTERIOR, roles: [DECAL_SOURCE]}
+  - {id: claim_b_use, physical_chain: claim_b, owner_patch: owner_patch, patch_domain: domain_main, boundary_loop: source_loop, orientation: SEMANTIC_START_TO_END, side: OWNER_INTERIOR, roles: [DECAL_SOURCE]}
+seeds:
+  - {id: front_seed_claim_a_use, kind: FrontSeed, chain_use: claim_a_use, owner_patch: owner_patch, sectors: [claim_a_use_left, claim_a_use_right]}
+  - {id: front_seed_claim_b_use, kind: FrontSeed, chain_use: claim_b_use, owner_patch: owner_patch, sectors: [claim_b_use_left, claim_b_use_right]}
+front_components:
+  - {id: fc_claim_a_use_left, chain_use: claim_a_use, owner_patch: owner_patch, sector: claim_a_use_left, active_intervals: ONE_OR_ZERO_EVENT_DRIVEN, branch_count: NON_INCREASING_FROM_ONE, lifecycle: COMPILE_TRACKED}
+  - {id: fc_claim_a_use_right, chain_use: claim_a_use, owner_patch: owner_patch, sector: claim_a_use_right, active_intervals: ONE_OR_ZERO_EVENT_DRIVEN, branch_count: NON_INCREASING_FROM_ONE, lifecycle: COMPILE_TRACKED}
+  - {id: fc_claim_b_use_left, chain_use: claim_b_use, owner_patch: owner_patch, sector: claim_b_use_left, active_intervals: ONE_OR_ZERO_EVENT_DRIVEN, branch_count: NON_INCREASING_FROM_ONE, lifecycle: COMPILE_TRACKED}
+  - {id: fc_claim_b_use_right, chain_use: claim_b_use, owner_patch: owner_patch, sector: claim_b_use_right, active_intervals: ONE_OR_ZERO_EVENT_DRIVEN, branch_count: NON_INCREASING_FROM_ONE, lifecycle: COMPILE_TRACKED}
+evaluation_groups:
+  - {id: patch_eval_owner, owner_patch: owner_patch, patch_domain: domain_main, chain_uses: [claim_a_use, claim_b_use], seeds: [front_seed_claim_a_use, front_seed_claim_b_use], front_components: [fc_claim_a_use_left, fc_claim_a_use_right, fc_claim_b_use_left, fc_claim_b_use_right], unit: ONE_PATCH_ALL_ACTIVE_SOURCES}
+coverage_contributions:
+  - {id: strip_claim_a_use, kind: StripEnvelope, seed: front_seed_claim_a_use, chain_use: claim_a_use, front_components: [fc_claim_a_use_left, fc_claim_a_use_right], owner_patch: owner_patch, boundary_resolution: RESOLVED_BEFORE_PATCH_UNION}
+  - {id: strip_claim_b_use, kind: StripEnvelope, seed: front_seed_claim_b_use, chain_use: claim_b_use, front_components: [fc_claim_b_use_left, fc_claim_b_use_right], owner_patch: owner_patch, boundary_resolution: RESOLVED_BEFORE_PATCH_UNION}
+boundary_events: []
+capacity_states:
+  - {front_component: fc_claim_a_use_left, requested_alpha: SHARED_PATCH_INPUT, effective_alpha: REQUESTED_ALPHA, capacity_reason: NONE, terminal_outcome: NAMED_OR_NONE}
+  - {front_component: fc_claim_a_use_right, requested_alpha: SHARED_PATCH_INPUT, effective_alpha: REQUESTED_ALPHA, capacity_reason: NONE, terminal_outcome: NAMED_OR_NONE}
+  - {front_component: fc_claim_b_use_left, requested_alpha: SHARED_PATCH_INPUT, effective_alpha: REQUESTED_ALPHA, capacity_reason: NONE, terminal_outcome: NAMED_OR_NONE}
+  - {front_component: fc_claim_b_use_right, requested_alpha: SHARED_PATCH_INPUT, effective_alpha: REQUESTED_ALPHA, capacity_reason: NONE, terminal_outcome: NAMED_OR_NONE}
+patch_coverage:
+  - {id: resolved_patch_coverage, evaluation_group: patch_eval_owner, domain: domain_main, operation: EXACT_SINGLE_COVER_UNION, contributions: [strip_claim_a_use, strip_claim_b_use], reachability: PROVEN_FROM_SEEDS, ownership_applied_after: true}
+interactions:
+  - {id: ownership_claim_meeting, kind: EXACT_CLAIM_EQUALITY, participants: [strip_claim_a_use, strip_claim_b_use], gate: EQUALITY_EVENT, coverage_effect: NONE, ownership_effect: OWNERLESS_DIVIDER, owner_patch: owner_patch}
+pivot_digest_projection:
+  include: [patch_domains, physical_chains, chain_uses, seeds, front_components, evaluation_groups, coverage_contributions, boundary_events, capacity_states, patch_coverage, interactions]
+  exclude: [record_order, runtime_front_vertices, private_pchain_domains, sampled_tessellation, tolerance_selected_topology]
+visuals:
+  svg: artifacts/envelope_ec0/v2/sheets/ec0-c12-curved-internal-divider.svg
+  png: artifacts/envelope_ec0/v2/sheets/ec0-c12-curved-internal-divider.png
