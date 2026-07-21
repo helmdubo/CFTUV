@@ -565,7 +565,12 @@ class CornerModel:
                 ):
                     raise
                 if not _point_in_polygon(point, polygon):
-                    raise
+                    raise ValueError(
+                        "CORNER_MATERIAL_VERTEX_OUTSIDE_SEMANTIC_CONTOUR: "
+                        f"corner={self.seed.corner_vertex_id!r} "
+                        f"sector={self.seed.sector_id!r} key={key!r} "
+                        f"point={point!r} contour={polygon!r}"
+                    ) from exc
                 competition_vertices.append((key, point))
                 continue
             boundary_vertices.append((key, point))

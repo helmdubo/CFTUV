@@ -1601,6 +1601,42 @@ def test_c8_3_smooth_is_stable_angle_only_policy():
     )
 
 
+def test_rf29b_concave_corner_contour_is_decomposed_without_hull_growth():
+    surface, corner = _smooth_corner_surface(90.0)
+    polygon = (
+        (0.0, 0.0),
+        (1.0, 0.0),
+        (0.35, 0.35),
+        (0.0, 1.0),
+    )
+
+    components = decal_voronoi._corner_components_from_semantic_polygon(
+        surface,
+        corner,
+        1.0,
+        "MITER",
+        "",
+        polygon,
+        owner_site_indices=(0, 1),
+    )
+
+    semantic_area = abs(decal_voronoi._polygon_area2(polygon))
+    component_area = sum(
+        abs(decal_voronoi._polygon_area2(component.points))
+        for component in components
+    )
+    hull_area = abs(decal_voronoi._polygon_area2(
+        decal_voronoi._convex_hull(polygon)
+    ))
+    assert len(components) == 2
+    assert component_area == pytest.approx(semantic_area)
+    assert component_area < hull_area
+    assert all(
+        component.owner_site_indices == (0, 1)
+        for component in components
+    )
+
+
 def test_c8_3_smooth_uses_static_bisector_and_continuous_uv():
     surface, corner = _smooth_corner_surface(5.0)
     settings = decal_voronoi.CornerRuntimeSettings(
@@ -3546,6 +3582,82 @@ def test_rf29_exhausted_route_clamps_to_last_constructible_station():
     )
 
 
+def test_rf29b_bridge_capacity_clamps_before_route_is_exhausted():
+    """width=7.8: bridge capacity ends before the compiled route reach."""
+
+    site = replace(
+        _short_segment_endpoint_surface().sites[0],
+        patch_id=1,
+        edge_index=8,
+        vert_a=10,
+        vert_b=9,
+        point_a=(0.0000207110, -0.0000131073),
+        point_b=(1.5023207110, -0.0000131073),
+        segment_length=1.5023,
+        inward_normal=(0.0, 1.0),
+    )
+    valid = (
+        site.point_a,
+        (-0.4134792890, 1.2664868927),
+        (1.0873207110, 1.4165868927),
+        (1.4779207110, 1.4555868927),
+    )
+    invalid = valid + (
+        (1.8032207110, 1.4298868927),
+        (2.1426781135, 1.4022261614),
+    )
+    guide = decal_voronoi._TerminalBridgeGuide(
+        point=invalid[-1],
+        contour_points=invalid,
+        source_vertex_ids=(10, 18, 19, 23, 24),
+        route_id=3,
+        extent=3.9,
+        route_reach=14.5810492393,
+        station_prefixes=(
+            decal_voronoi._TerminalBridgeStationPrefix(
+                1.3323011447,
+                valid[1],
+                valid[:2],
+                (10, 19),
+            ),
+            decal_voronoi._TerminalBridgeStationPrefix(
+                2.8405417340,
+                valid[2],
+                valid[:3],
+                (10, 19, 24),
+            ),
+            decal_voronoi._TerminalBridgeStationPrefix(
+                3.2330793554,
+                valid[3],
+                valid,
+                (10, 18, 19, 24),
+            ),
+        ),
+        saturated=False,
+        capacity_policy=CapacityPolicy.SATURATE_PROVEN,
+    )
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+
+    start, end = decal_voronoi._resolve_terminal_site_saturation(
+        site,
+        3.9,
+        guide,
+        None,
+        diagnostics,
+    )
+
+    assert start.station_clamped
+    assert start.extent == pytest.approx(3.2330793554)
+    assert end is None
+    assert diagnostics.terminal_route_station_clamp_count == 1
+    assert diagnostics.runtime_policy_counts == {
+        "TERMINAL_ROUTE_STATION_CLAMPED": 1
+    }
+    assert decal_voronoi._terminal_segment_crop_components(
+        site, 3.9, start_guide=start
+    )
+
+
 def test_rf29_unsaturated_invalid_cut_remains_named_failure():
     site = _short_segment_endpoint_surface().sites[0]
     guide = decal_voronoi._TerminalBridgeGuide(
@@ -3554,12 +3666,9 @@ def test_rf29_unsaturated_invalid_cut_remains_named_failure():
         saturated=False,
     )
 
-    assert decal_voronoi._resolve_terminal_site_saturation(
-        site, 2.0, guide, None
-    ) == (guide, None)
     with pytest.raises(RuntimeError, match="TERMINAL_BRIDGE_CUT_INVALID"):
-        decal_voronoi._terminal_segment_crop_components(
-            site, 2.0, start_guide=guide
+        decal_voronoi._resolve_terminal_site_saturation(
+            site, 2.0, guide, None
         )
 
 

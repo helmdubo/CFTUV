@@ -3029,6 +3029,44 @@ def _corner_component_from_polygon(
     )
 
 
+def _corner_components_from_semantic_polygon(
+    surface,
+    corner,
+    alpha,
+    kind,
+    side,
+    polygon,
+    *,
+    owner_site_indices,
+):
+    """Сохраняет вогнутый semantic contour без подмены convex hull.
+
+    ``_CropComponent`` намеренно convex: clipping и subtraction полагаются
+    на этот контракт. Поэтому вогнутый CornerModel раскладывается на
+    детерминированные ears, а не расширяется до hull. Все pieces сохраняют
+    одного semantic owner; post-competition view по-прежнему читает одну
+    модель и те же authoritative anchors.
+    """
+
+    convex_parts = _triangulate_cell_polygon(polygon)
+    return tuple(
+        component
+        for component in (
+            _corner_component_from_polygon(
+                surface,
+                corner,
+                alpha,
+                kind,
+                side,
+                part,
+                owner_site_indices=owner_site_indices,
+            )
+            for part in convex_parts
+        )
+        if component is not None
+    )
+
+
 def _cap_crop_components(surface, corner, alpha):
     """FLAT CAP: tangent-aligned terminal half-quad, без axis square."""
 
@@ -3659,7 +3697,7 @@ def _corner_crop_components(
                 surface, corner, corner.ordered_sites[0]
             )
             side_sign = -1 if owner_site.uv_sign < 0.0 else 1
-            component = _corner_component_from_polygon(
+            components = _corner_components_from_semantic_polygon(
                 surface,
                 corner,
                 alpha,
@@ -3674,9 +3712,7 @@ def _corner_crop_components(
                 ),
                 owner_site_indices=corner.incident_sites,
             )
-            if component is None:
-                return ()
-            return (
+            return tuple(
                 replace(
                     component,
                     semantic_owner_id=(
@@ -3684,7 +3720,8 @@ def _corner_crop_components(
                         int(corner.vert_index),
                         corner_model.seed.sector_id,
                     ),
-                ),
+                )
+                for component in components
             )
     # FLAT CAP — базовая endpoint-семантика, а не dynamic band. Stable path
     # обязан использовать tangent-aligned half-quad; axis-aligned square
@@ -14801,25 +14838,33 @@ def _resolve_terminal_site_saturation(
     end_guide,
     diagnostics=None,
 ):
-    """Клампит только исчерпанный одиночный route на последней valid station.
+    """Клампит одиночный route на последней constructible station.
 
-    Обычный невалидный срез до конца route остаётся именованной ошибкой.
-    Два встречных контакта разрешаются отдельно станционной конкуренцией,
-    поэтому этот helper не связывает независимые стороны торца.
+    Геометрическая ёмкость terminal bridge может закончиться раньше route:
+    следующая station уже лежит в owner-domain, но polygon между station и
+    исходным site не triangulates. Поэтому ``route.saturated`` не является
+    валидатором ёмкости моста. Один и тот же pre-materialization validator
+    сначала пробует текущий guide, затем — station prefixes согласно
+    CapacityPolicy. Два встречных контакта разрешаются отдельно станционной
+    конкуренцией; независимые стороны торца здесь не связываются.
     """
 
     active = tuple(
         guide for guide in (start_guide, end_guide) if guide is not None
     )
-    if len(active) != 1 or not active[0].saturated:
+    if len(active) != 1:
         return start_guide, end_guide
-    capacity_policy = CapacityPolicy(active[0].capacity_policy)
-    if capacity_policy is CapacityPolicy.REJECT_UNPROVEN:
+    guide = active[0]
+    capacity_policy = CapacityPolicy(guide.capacity_policy)
+    if guide.saturated and capacity_policy is CapacityPolicy.REJECT_UNPROVEN:
         raise RuntimeError(
             "TERMINAL_ROUTE_CAPACITY_UNPROVEN: "
             f"patch={site.patch_id} edge={site.edge_index}"
         )
-    if capacity_policy is CapacityPolicy.CONTROLLED_RECOMPILE:
+    if (
+        guide.saturated
+        and capacity_policy is CapacityPolicy.CONTROLLED_RECOMPILE
+    ):
         raise RuntimeError(
             "TERMINAL_ROUTE_RECOMPILE_REQUIRED: "
             f"patch={site.patch_id} edge={site.edge_index}"
@@ -14836,7 +14881,16 @@ def _resolve_terminal_site_saturation(
         if not str(exc).startswith("TERMINAL_BRIDGE_CUT_INVALID:"):
             raise
 
-    guide = active[0]
+    if capacity_policy is CapacityPolicy.REJECT_UNPROVEN:
+        raise RuntimeError(
+            "TERMINAL_ROUTE_CAPACITY_UNPROVEN: "
+            f"patch={site.patch_id} edge={site.edge_index}"
+        )
+    if capacity_policy is CapacityPolicy.CONTROLLED_RECOMPILE:
+        raise RuntimeError(
+            "TERMINAL_ROUTE_RECOMPILE_REQUIRED: "
+            f"patch={site.patch_id} edge={site.edge_index}"
+        )
     for prefix in reversed(guide.station_prefixes):
         if prefix.extent >= guide.extent:
             continue
