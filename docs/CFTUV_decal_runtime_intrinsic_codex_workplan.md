@@ -1192,6 +1192,21 @@ preview==confirm, 10/10 round-trip, два wireframe-ракурса; tier-2
 `485 passed, 3 skipped, 4 deselected`. Отчёт:
 `artifacts/decal_r2_s_cm_b_gate_report.md`. **Следующий срез — S2b;
 R3 без отдельного стартового гейта не начинать.**
+**Ревью R2 + S-CM.b: ПРИНЯТО** (верифицировано по коду:
+freeze-локусы компилируются в станционных ключах, двойное чтение
+нитей подтверждено числами RF7/RF17 (16 чтений на 8 routes),
+CapacityPolicy интегрирован с SATURATE_PROVEN default,
+единственная join-ветка сохранена, `TERMINAL_BRIDGE_CUTS_OVERLAP`
+корректно заменён compile-static границей RC1 — канонизированный
+путь RM9-fix п.5). Остаточное условие закрытия BEVEL-саги:
+ЛИЧНАЯ полевая проверка пользователя MITER<->BEVEL на walls.006
+(width 3.2) и sagging_wall (edges 6/7/8) — это финальный арбитр
+по RF28. **ТЕКУЩАЯ ЗАДАЧА — S2b:** DecalSessionController
+(владение: request, metric context, compiled plan, last-valid,
+recompile boundary, confirmability), тонкий operator, lifecycle
+cleanup; MetricContext session-владение (риск из S1) закрывается
+здесь. После S2b — короткий гейт выбора R3-бэкенда ширины для
+кривизны (по данным S-WF0), затем R3.
 Историческая заметка (первый коммит `445b44d`):
 фактически S0a (+удаление decal_network) — ПРИНЯТО
 предварительно; риски задекларированы корректно (блок «Риски»
