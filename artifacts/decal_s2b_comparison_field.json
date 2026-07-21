@@ -1,0 +1,9 @@
+{
+  "after_commit": "2f10d97c41657f8eac0cad6552736161a1de6bf5",
+  "all_preview_confirm_equal": true,
+  "before_commit": "261f23800e540b04392add76c3501cb1198eeb96",
+  "object_count": 6,
+  "schema": "cftuv.decal_s0b_comparison.v1",
+  "semantic_equal": true,
+  "suite": "field"
+}
