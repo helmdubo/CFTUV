@@ -1,83 +1,78 @@
-# EC0 case sidecar schema
+# EC0 canonical case schema
 
-The YAML files are normative semantic descriptions, not geometry fixtures.
-They intentionally contain no points, vectors, coordinates, tolerances, or
-tessellation. Geometry in EC0a is reviewed in the paired visual sheet.
+Normative machine schema:
+`artifacts/envelope_ec0/corpus/schema/case.schema.json`.
 
-## v1 evidence schema
+JSON cases are semantic graphs, not sampled geometry fixtures. Coordinates,
+vectors, tolerances, tessellation, face count, presentation visuals, and
+runtime mesh order are forbidden.
 
-Required top-level fields in the existing v1 corpus:
+## Required top-level records
 
 - `schema`, `case_id`, `slug`, `title`, `status`;
-- `semantic_contracts`: each transferable rule with a `SemanticAuthority`;
-- `skeleton`, `envelopes`, `region_graph`, `boundary_lineage`, `owners`,
-  `adjacency`, `s_direction`, `alpha_evolution`, `topology_events`;
-- `forbidden`: named forbidden outcomes for this case;
-- `metamorphic_expectations`: AM3 transformation verdicts;
-- `canonical_digest_projection`: the semantic fields included in
-  `CanonicalGeometryDigest`;
-- `visuals`: relative paths to the review sheets.
+- `semantic_contracts`, each tagged with `SemanticAuthority`;
+- `analysis_snapshot` — facts and relations only;
+- `decal_request` — request id, selected uses, alpha/width and policies;
+- `expected_compiled_plan` — kernel-created seeds, components, contributions,
+  events, coverage, ownership, effective alpha/capacity and GeometryBatch
+  provenance;
+- `acceptance` — human-readable assertions derived from the same graph;
+- `canonical_digest_projection` — fields included in semantic digest.
 
-Allowed `status` values are `DEFINED`, `UNSUPPORTED_NAMED_FAILURE`, and
+Allowed status values: `DEFINED`, `UNSUPPORTED_NAMED_FAILURE`, and
 `BLOCKED_PENDING_USER_DECISION`.
 
-Allowed `SemanticAuthority` values are `USER_REQUIRED`, `FIELD_PROVEN`,
-`MATHEMATICALLY_REQUIRED`, `LEGACY_COMPATIBILITY`,
-`IMPLEMENTATION_ACCIDENT`, and `OPEN_RESEARCH`. The last three never make a
-rule canonical by themselves; they belong in the review list.
+Allowed authority values: `USER_REQUIRED`, `FIELD_PROVEN`,
+`MATHEMATICALLY_REQUIRED`, `LEGACY_COMPATIBILITY`, `IMPLEMENTATION_ACCIDENT`,
+and `OPEN_RESEARCH`. The last three belong to explicit review lists and cannot
+become canonical by presence alone.
 
-Metamorphic verdicts are `INVARIANT` or `SEMANTIC_CHANGE`. `INVARIANT` means
-that the semantic graph and digest are equal after applying the declared
-normalization/inverse transform; it does not mean that world coordinates stay
-numerically unchanged under scale, translation, or a permitted perturbation.
+## AnalysisSnapshotV1
 
-## v2 pivot schema — required before EC1
+Contains PatchDomains, PhysicalChains, directed ChainUses, BoundaryLoops,
+analysis-proven sectors, holes/barriers, SourceVertices, CornerRelations,
+JunctionRelations, and lineage. It must not contain seeds, fronts, runtime
+events, alpha, capacity, envelopes, or material state.
 
-EC0-P must migrate every case to `cftuv.envelope.ec0.case.v2`. In addition to
-the v1 semantic result, every v2 sidecar requires these top-level records:
+An ordinary ChainUse has one owner-interior sector. Extra sectors require
+analysis provenance; automatic abstract left/right sectors are invalid.
 
-- `patch_domains`: domain identity, surface regime, boundary-loop references,
-  holes, barriers and sectors, without coordinates;
-- `physical_chains`: physical source identity and source-vertex/edge lineage;
-- `chain_uses`: directed patch-side uses with physical-chain reference,
-  owner Patch, boundary loop, orientation, side and role set;
-- `seeds`: `FrontSeed`, `CornerSeed`, `JunctionSeed` and `CapSeed` records with
-  source relation and owner Patch;
-- `front_components`: one record per `(ChainUse, owner Patch, sector)` with
-  active-interval topology, branch count and lifecycle state;
-- `evaluation_groups`: exactly one group per active owner Patch containing all
-  sources evaluated together;
-- `coverage_contributions`: source/seed provenance plus boundary-resolution
-  state before patch union;
-- `boundary_events`: exact contact keys, boundary provenance, atomic batches
-  and active-interval transitions;
-- `capacity_states`: requested/effective alpha, `CapacityReason` and terminal
-  outcome per FrontComponent;
-- `patch_coverage`: one domain-clipped single-cover union per evaluation group;
-- `interactions`: declared front encounters, event gates and resolved-coverage
-  effects before ownership.
+## DecalRequestV1
 
-v2 invariants:
+Contains `decal_request_id`, selected ChainUse ids, requested alpha/width, and
+explicit policies. Different request ids never collide or share a plan merely
+because they reference the same Patch.
 
-- no pChain, ChainUse, seed or envelope owns a private domain;
-- a physical seam between two Patch records has two ChainUses;
-- `SEAM_SELF` preserves two distinct ChainUses in one PatchDomain;
-- every seed/envelope resolves through ChainUse to PhysicalChain and Patch;
-- all active sources of one Patch appear in one evaluation group;
-- outer boundary, holes and explicit `BARRIER` roles are non-owner constraints;
-- branch count of a v1 FrontComponent never increases;
-- `BARRIER_SPLIT_REQUIRED` clamps only the affected FrontComponent;
-- completion is based on active intervals, never first/last runtime vertex;
-- no region behind a hole/barrier exists without proven source reachability;
-- ownership partitions resolved patch coverage and does not create matter;
-- ordering of physical chains, uses, seeds and contributions is metamorphically
-  invariant;
-- no coordinate, tolerance, tessellation or runtime face count enters v2.
+## CompiledPatchEvaluationPlan
 
-Existing v1 files remain decision evidence; they are not silently interpreted
-as v2. Migration must be explicit and followed by user acceptance of the
-corresponding EC0-P visual sheet.
+Key: `(DecalRequestId, PatchDomainId)`. Contains all active sources of that
+request/domain together. Every component, contribution, interaction,
+PatchCoverage, ownership claim, digest record, and GeometryBatch provenance
+must preserve both ids.
 
-The explicit migration candidate lives in `v2/cases/`. Its schema and file
-inventory are mechanically validated, but its semantic status remains
-`READY_FOR_USER_REVIEW` until the user accepts the paired visual/prose corpus.
+Required semantic invariants include:
+
+- one ordinary ChainUse -> one owner-interior FrontComponent;
+- a physical seam A/B -> two ChainUses in two domains;
+- `SEAM_SELF` -> two distinct ChainUses in one domain;
+- `SOURCE_LAUNCH_BOUNDARY` does not block its own FrontSeed;
+- endpoint boundary contact may slide/shrink;
+- interior contact needing branch birth yields `BARRIER_SPLIT_REQUIRED` at the
+  same exact alpha;
+- CornerSeed/JunctionSeed references a confirmed relation;
+- EndpointClaimSeed is used for endpoint claims without a CornerRelation;
+- C13 foreign wing use is interaction-only, never incident to BEVEL seed;
+- cross-Patch junctions share relation/anchor but never collide;
+- mixed-alpha shared envelopes use incident effective-alpha vectors or return
+  `SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN`;
+- ownership partitions resolved coverage and never creates matter;
+- case 16 B applies only to same-request, same-Patch wings.
+
+Metamorphic verdicts live in `corpus/matrices/` and are `INVARIANT`,
+`SEMANTIC_CHANGE`, or preconditioned `CONDITIONAL`.
+
+Validation is executable:
+
+```text
+python tools/validate_envelope_ec0.py
+```

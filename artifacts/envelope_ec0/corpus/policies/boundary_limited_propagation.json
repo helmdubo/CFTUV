@@ -1,0 +1,122 @@
+{
+  "schema": "cftuv.envelope.ec0.boundary_policy.v2",
+  "policy_id": "BOUNDARY_LIMITED_PROPAGATION",
+  "status": "DEFINED",
+  "semantic_contracts": [
+    {
+      "id": "BLP-S1",
+      "authority": "USER_REQUIRED",
+      "rule": "Physical boundaries, holes, and explicit BARRIER uses are fixed non-owner constraints."
+    },
+    {
+      "id": "BLP-S2",
+      "authority": "USER_REQUIRED",
+      "rule": "Source launch support does not block its originating FrontSeed."
+    },
+    {
+      "id": "BLP-S3",
+      "authority": "USER_REQUIRED",
+      "rule": "Topological boundary identity alone does not imply a physical barrier."
+    },
+    {
+      "id": "BLP-S4",
+      "authority": "USER_REQUIRED",
+      "rule": "Endpoint contact may slide; interior split contact saturates immediately."
+    },
+    {
+      "id": "BLP-S5",
+      "authority": "MATHEMATICALLY_REQUIRED",
+      "rule": "Capacity remains local to one FrontComponent."
+    }
+  ],
+  "constraint_kinds": {
+    "TOPOLOGICAL_BOUNDARY_USE": "TOPOLOGY_ONLY_UNLESS_EXPLICIT_BARRIER",
+    "PHYSICAL_DOMAIN_BARRIER": "BLOCKS_NON_ORIGINATING_FRONTS",
+    "SOURCE_LAUNCH_BOUNDARY": "DOES_NOT_BLOCK_ORIGINATING_SEED"
+  },
+  "front_component_identity": [
+    "CHAIN_USE_ID",
+    "OWNER_PATCH_ID",
+    "ANALYSIS_PROVEN_SECTOR_ID"
+  ],
+  "branch_count_policy": "NON_INCREASING",
+  "scenarios": [
+    {
+      "id": "BLP-01",
+      "title": "Straight outer-boundary endpoint contact",
+      "contact_topology": "ENDPOINT_CONTACT",
+      "exact_event": "BOUNDARY_CONTACT",
+      "after_state": "CLIP_AND_OPTIONAL_SLIDE"
+    },
+    {
+      "id": "BLP-02",
+      "title": "Oblique endpoint sliding",
+      "contact_topology": "ENDPOINT_CONTACT",
+      "exact_event": "BOUNDARY_CONTACT",
+      "after_state": "CONTACT_SLIDES_INTERVAL_SHRINKS"
+    },
+    {
+      "id": "BLP-03",
+      "title": "Front exhaustion in narrow sector",
+      "contact_topology": "ENDPOINTS_CONVERGE",
+      "exact_event": "INTERVAL_COLLAPSE",
+      "after_state": "FRONT_EXHAUSTED"
+    },
+    {
+      "id": "BLP-04",
+      "title": "Hole endpoint contact",
+      "contact_topology": "ENDPOINT_CONTACT",
+      "exact_event": "BOUNDARY_CONTACT",
+      "after_state": "SLIDE_OR_SHRINK_ON_SAME_HOLE_COMPONENT"
+    },
+    {
+      "id": "BLP-05",
+      "title": "Hole interior contact",
+      "contact_topology": "INTERIOR_CONTACT",
+      "exact_event": "BARRIER_SPLIT_REQUIRED",
+      "after_state": "LOCAL_CAPACITY_AT_EXACT_CONTACT_ALPHA"
+    },
+    {
+      "id": "BLP-06",
+      "title": "Concave outer-boundary interior contact",
+      "contact_topology": "INTERIOR_CONTACT",
+      "exact_event": "BARRIER_SPLIT_REQUIRED",
+      "after_state": "LOCAL_CAPACITY_AT_EXACT_CONTACT_ALPHA"
+    },
+    {
+      "id": "BLP-07",
+      "title": "Simultaneous contacts",
+      "contact_topology": "DECLARED_MULTI_CONTACT",
+      "exact_event": "ATOMIC_BOUNDARY_BATCH",
+      "after_state": "ORDER_INDEPENDENT_AFTER_STATE"
+    },
+    {
+      "id": "BLP-08",
+      "title": "Explicit barrier rail",
+      "contact_topology": "EXPLICIT_BARRIER_CONTACT",
+      "exact_event": "BOUNDARY_CONTACT",
+      "after_state": "CLIP_OR_LOCAL_CAPACITY"
+    },
+    {
+      "id": "BLP-09",
+      "title": "Opposite Patch use remains independent",
+      "contact_topology": "SEPARATE_PATCH_EVALUATIONS",
+      "exact_event": "ONE_SIDE_CAPACITY",
+      "after_state": "OTHER_SIDE_CONTINUES"
+    },
+    {
+      "id": "BLP-10",
+      "title": "Another source in same Patch continues",
+      "contact_topology": "SEPARATE_FRONT_COMPONENTS",
+      "exact_event": "ONE_COMPONENT_CAPACITY",
+      "after_state": "COMPANION_CONTINUES"
+    }
+  ],
+  "forbidden": [
+    "BOUNDARY_CROSS_THEN_ROLLBACK",
+    "ACTIVE_BRANCH_COUNT_INCREASE",
+    "MATERIAL_TELEPORTS_BEHIND_OBSTACLE",
+    "ONE_COMPONENT_STOPS_PATCH",
+    "UNDEFINED_ENDPOINT_OR_INTERIOR_CONTACT"
+  ]
+}

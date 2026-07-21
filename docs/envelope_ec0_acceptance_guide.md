@@ -1,20 +1,24 @@
 # EC0-P: приёмка человеческими словами
 
-Этот файл — основной маршрут приёмки. Читать YAML не требуется. YAML нужен
-будущему implementer и тестам, чтобы словесные решения нельзя было незаметно
-исказить. Картинки тоже не требуют проверки размеров: они показывают связи,
-владение, направление UV и моменты событий, а не координаты.
+Этот файл — основной маршрут приёмки. Читать JSON не требуется: canonical JSON,
+JSON Schema и validator нужны будущему implementer и тестам, чтобы словесные
+решения нельзя было незаметно исказить.
+
+Презентационные SVG/PNG-листы, diagrams, contact sheets, slides и interactive
+HTML в этом проекте запрещены. Для runtime-диагностики разрешены скриншоты
+Blender viewport, UV Editor и debug overlays; они не заменяют текст/JSON.
 
 Короткая версия того, что предлагается принять:
 
 > Внутри одного Patch все юбки одной decal растут совместно в одном поле. У
-> каждой физической pChain есть направленное использование со стороны Patch,
-> а у каждого направления/сектора — свой отслеживаемый front. Сначала каждый
+> каждой физической pChain есть направленное использование со стороны Patch.
+> Обычное использование запускает одно owner-interior крыло; дополнительные
+> секторы возможны только если analysis действительно их доказал. Сначала каждый
 > front честно ограничивается границами Patch, затем вклады объединяются в одно
 > покрытие, затем встреча юбок обрезает это покрытие по выбранному правилу B,
 > и только после этого назначаются owner и UV/station.
 
-## Пять понятий, без которых картинки читаются неверно
+## Семь понятий, без которых контракт читается неверно
 
 1. **PatchDomain** — поверхность одного Patch, по которой может двигаться
    юбка. Это единственное поле вычисления. Отдельного мира «на каждую pChain»
@@ -25,25 +29,34 @@
    Одна физическая seam между Patch A/B имеет два разных ChainUse в двух
    PatchDomain. `SEAM_SELF` тоже имеет два ChainUse, но внутри одного
    PatchDomain.
-4. **FrontComponent** — отдельно отслеживаемое крыло/сектор. Оно может первым
-   упереться в boundary и замереть, не останавливая другую юбку или другой
-   сектор.
-5. **Patch coverage** — итоговая геометрическая материя одной decal в одном
+4. **DecalRequest** — одна пользовательская decal operation. Только её sources
+   внутри одного Patch участвуют в общем evaluation/collision. Разные decal
+   requests не сталкиваются.
+5. **FrontComponent** — одно owner-interior крыло обычного ChainUse. Оно может
+   первым упереться в boundary и замереть, не останавливая другую юбку.
+   Автоматического деления на абстрактные left/right нет.
+6. **Patch coverage** — итоговая геометрическая материя одной decal в одном
    Patch. Сначала строится одна неперекрывающаяся материя, затем внутри неё
    назначаются owner и UV. Ownership не создаёт и не удаляет геометрию.
+7. **План вычисления** — все sources одного `(DecalRequestId, PatchDomainId)`.
+   Это минимальная единица reference/compiled evaluation.
 
 Нормативный порядок всегда один:
 
-`PatchDomain → PhysicalChain/ChainUse → seeds/fronts → boundary clip → union
-одного Patch → встреча юбок → ownership → UV/station`.
+`AnalysisSnapshot + DecalRequest → seeds/fronts одного request/Patch → boundary
+clip → union → встреча юбок → ownership → UV/station → GeometryBatch`.
+
+AnalysisSnapshot содержит только факты/relations. Seeds, fronts, runtime events,
+effective alpha и envelopes принадлежат compiled plan, а не analysis.
 
 ## 16 основных случаев
 
 ### 01 — Прямая открытая полоса
 
-Одна pChain порождает полосу с двумя сторонами. Только физические начало и
-конец закрываются cap-срезами. Увеличение `alpha` делает полосу шире, не меняя
-её устройство.
+Один directed ChainUse порождает одно owner-interior крыло/strip и один
+FrontComponent. Две границы strip не означают два fronts. Только физические
+начало и конец закрываются cap-срезами. Увеличение `alpha` делает крыло шире,
+не меняя его устройство.
 
 Принять означает: `s` идёт от смыслового START к END; перестановка данных не
 переворачивает UV; cap не является вторым слоем поверх полосы.
@@ -149,8 +162,10 @@ core. При неоднозначности результат — named failure
 
 ### 11 — Владение коротким сегментом между двумя углами
 
-Claims двух endpoint corners встречаются на физической границе равенства. В
-симметричном случае это середина; в общем случае это не id-based выбор.
+Claims двух физических endpoints создаются `EndpointClaimSeed` и встречаются
+на границе равенства. Это не CornerSeed: у endpoint claim нет выдуманной
+двухсторонней CornerRelation. В симметричном случае divider лежит посередине;
+в общем случае это не id-based выбор.
 
 Принять означает: сама equality boundary не имеет owner. При росте `alpha`
 body может схлопнуться в объявленном event, но покрытие остаётся single-cover.
@@ -221,28 +236,39 @@ station/UV readings сохраняются по разные стороны гр
 Отвергнутый C создавал бы новую третью interaction-материю. Оба варианта остаются
 только историей решения.
 
-## Четыре AM7-проверки pivot
+## Семь pivot/correction-проверок
 
 - **Physical seam A/B:** одна PhysicalChain, но два направленных ChainUse, два
   PatchDomain и две независимые patch-evaluation. Событие/ёмкость одной стороны
   не останавливает другую.
 - **SEAM_SELF:** одна PhysicalChain, два ChainUse, один PatchDomain и одна
   patch-evaluation. Uses нельзя схлопнуть по общему physical id.
-- **Несколько pChains одного Patch:** все seeds/fronts входят в один evaluator
-  invocation; private domain на pChain запрещён.
+- **Несколько pChains одного request/Patch:** все seeds/fronts входят в один
+  evaluator invocation; private domain на pChain запрещён.
 - **Самостолкновение одной юбки:** два readings одного FrontComponent встречаются
   по тому же варианту B; это не две decal и не две Patch.
+- **Cross-Patch junction:** одна global JunctionRelation и shared anchor имеют
+  отдельные per-Patch projections. Между Patch collision нет, но anchors и
+  station topology не могут разъехаться.
+- **Mixed-alpha corner:** если одна incident юбка насыщена, corner использует
+  vector effective alpha и не растягивает frozen сторону. При отсутствии
+  единственного single-cover решения возвращается
+  `SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN`.
+- **Mixed-alpha junction:** то же правило действует на все incident arms;
+  соседние fronts продолжаются, materializer не дорисовывает щель.
 
 ## Десять AM8-проверок boundary
 
 Их можно принять тремя смысловыми группами:
 
-1. **Обычный контакт:** прямой контакт, скользящий контакт и полное исчерпание
-   узкого front. Front клиппируется, сокращается и может исчезнуть только через
-   named event.
-2. **Hole/concavity/barrier:** первое касание разрешено; необходимость обойти
-   obstacle двумя ветками приводит к локальному `BARRIER_SPLIT_REQUIRED`.
-   Barrier действует только при явной роли `BARRIER`.
+1. **Обычный контакт:** прямой endpoint contact, скользящий контакт и полное
+   исчерпание узкого front. Front клиппируется, сокращается и может исчезнуть
+   только через named event. Source launch boundary не блокирует собственный
+   seed.
+2. **Hole/concavity/barrier:** endpoint contact может однозначно slide/shrink;
+   interior contact, уже требующий две ветки, немедленно приводит к локальному
+   `BARRIER_SPLIT_REQUIRED` на том же alpha. Barrier действует только при
+   физической barrier-роли; топологическая boundary сама по себе недостаточна.
 3. **Независимость:** одновременные контакты не зависят от порядка; capacity
    одной patch-side или одной pChain не замораживает противоположную сторону,
    другую pChain или весь Patch.
@@ -290,13 +316,16 @@ station/UV readings сохраняются по разные стороны гр
 
 Если всё выше соответствует инструменту, достаточно ответить:
 
-> EC0-P принимаю: cases 01–16, AM7 pivot, AM8 boundary и список
-> «не переносить из legacy». Вариант case 16 остаётся B.
+> EC0-P correction candidate принимаю: cases 01–16, pivot/correction P01–P07,
+> AM8 boundary, AM9 corrections, AM10 text/JSON policy и список «не переносить
+> из legacy». Вариант case 16 остаётся B.
 
 Если не согласны, можно ответить только номерами, например:
 
 > Не принимаю 06 и AM8 hole: хочу другое поведение после первого контакта.
 
-До вашего явного ответа статус пакета — `READY_FOR_USER_REVIEW`, а не
-`ACCEPTED`. `BLOCKED_PENDING_USER_DECISION` внутри case corpus сейчас нет:
-предыдущий спорный case 16 уже закрыт вашим выбором B.
+До вашего явного ответа статус пакета —
+`CORRECTION_CANDIDATE_READY_FOR_EXTERNAL_REVIEW`, а не `ACCEPTED`.
+`BLOCKED_PENDING_USER_DECISION` внутри case corpus сейчас нет: предыдущий
+спорный case 16 закрыт вашим выбором B. Внешний review старого corpus на
+`b16be81` считается учтённым только после зелёного запуска validator.

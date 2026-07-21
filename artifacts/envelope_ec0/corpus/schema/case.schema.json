@@ -1,0 +1,412 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cftuv.envelope.ec0.case.v3",
+  "title": "CFTUV EC0 canonical semantic case",
+  "type": "object",
+  "required": [
+    "schema",
+    "case_id",
+    "slug",
+    "title",
+    "status",
+    "global_contract_ids",
+    "semantic_contracts",
+    "analysis_snapshot",
+    "decal_request",
+    "expected_compiled_plan",
+    "acceptance",
+    "metamorphic_expectations",
+    "canonical_geometry_digest"
+  ],
+  "properties": {
+    "schema": {
+      "const": "cftuv.envelope.ec0.case.v3"
+    },
+    "case_id": {
+      "type": "string",
+      "pattern": "^EC0-[CP][0-9]{2}$"
+    },
+    "slug": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "DEFINED",
+        "UNSUPPORTED_NAMED_FAILURE",
+        "BLOCKED_PENDING_USER_DECISION"
+      ]
+    },
+    "global_contract_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "semantic_contracts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/semanticContract"
+      }
+    },
+    "analysis_snapshot": {
+      "$ref": "#/$defs/analysisSnapshot"
+    },
+    "decal_request": {
+      "$ref": "#/$defs/decalRequest"
+    },
+    "expected_compiled_plan": {
+      "$ref": "#/$defs/compiledPlan"
+    },
+    "acceptance": {
+      "$ref": "#/$defs/acceptance"
+    },
+    "metamorphic_expectations": {
+      "type": "object",
+      "required": [
+        "matrix_case_id",
+        "matrix_file"
+      ],
+      "properties": {
+        "matrix_case_id": {
+          "type": "string"
+        },
+        "matrix_file": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "canonical_geometry_digest": {
+      "type": "object",
+      "required": [
+        "include",
+        "exclude"
+      ],
+      "properties": {
+        "include": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "idRecord": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "semanticContract": {
+      "type": "object",
+      "required": [
+        "id",
+        "authority",
+        "rule"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "authority": {
+          "enum": [
+            "USER_REQUIRED",
+            "FIELD_PROVEN",
+            "MATHEMATICALLY_REQUIRED"
+          ]
+        },
+        "rule": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "analysisSnapshot": {
+      "type": "object",
+      "required": [
+        "patches",
+        "patch_domains",
+        "source_vertices",
+        "physical_chains",
+        "chain_uses",
+        "boundary_constraints",
+        "corner_relations",
+        "junction_relations"
+      ],
+      "properties": {
+        "patches": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/idRecord"
+          }
+        },
+        "patch_domains": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/idRecord"
+          }
+        },
+        "source_vertices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/idRecord"
+          }
+        },
+        "physical_chains": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/idRecord"
+          }
+        },
+        "chain_uses": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/idRecord"
+          }
+        },
+        "boundary_constraints": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/idRecord"
+          }
+        },
+        "corner_relations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/idRecord"
+          }
+        },
+        "junction_relations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/idRecord"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "decalRequest": {
+      "type": "object",
+      "required": [
+        "decal_request_id",
+        "selected_chain_use_ids",
+        "requested_alpha",
+        "join_policy",
+        "material_policy",
+        "uv_policy"
+      ],
+      "properties": {
+        "decal_request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "selected_chain_use_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "requested_alpha": {
+          "type": "string"
+        },
+        "join_policy": {
+          "type": "string"
+        },
+        "material_policy": {
+          "type": "string"
+        },
+        "uv_policy": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "planKey": {
+      "type": "object",
+      "required": [
+        "decal_request_id",
+        "patch_domain_id"
+      ],
+      "properties": {
+        "decal_request_id": {
+          "type": "string"
+        },
+        "patch_domain_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "patchEvaluation": {
+      "type": "object",
+      "required": [
+        "id",
+        "plan_key",
+        "owner_patch_id",
+        "source_seed_ids",
+        "seeds",
+        "front_components",
+        "coverage_contributions",
+        "boundary_events",
+        "capacity_states",
+        "patch_coverage",
+        "interactions",
+        "ownership",
+        "station_flow",
+        "topology_events",
+        "geometry_batch_provenance"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "plan_key": {
+          "$ref": "#/$defs/planKey"
+        },
+        "owner_patch_id": {
+          "type": "string"
+        },
+        "source_seed_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "seeds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/idRecord"
+          }
+        },
+        "front_components": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/idRecord"
+          }
+        },
+        "coverage_contributions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/idRecord"
+          }
+        },
+        "boundary_events": {
+          "type": "array"
+        },
+        "capacity_states": {
+          "type": "array"
+        },
+        "patch_coverage": {
+          "type": "object"
+        },
+        "interactions": {
+          "type": "array"
+        },
+        "ownership": {
+          "type": "object"
+        },
+        "station_flow": {
+          "type": "object"
+        },
+        "topology_events": {
+          "type": "array"
+        },
+        "geometry_batch_provenance": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "compiledPlan": {
+      "type": "object",
+      "required": [
+        "patch_evaluations"
+      ],
+      "properties": {
+        "patch_evaluations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/patchEvaluation"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "acceptance": {
+      "type": "object",
+      "required": [
+        "coverage",
+        "ownership",
+        "adjacency",
+        "s_direction",
+        "alpha_evolution",
+        "forbidden"
+      ],
+      "properties": {
+        "coverage": {
+          "type": "string"
+        },
+        "ownership": {
+          "type": "string"
+        },
+        "adjacency": {
+          "type": "array"
+        },
+        "s_direction": {
+          "type": "string"
+        },
+        "alpha_evolution": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "forbidden": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

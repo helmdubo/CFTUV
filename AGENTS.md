@@ -56,10 +56,11 @@ Non-negotiable model:
   directed patch-side use with owner Patch, loop, orientation, side, and roles.
 - A seam between two Patches produces two ChainUses in different domains.
   `SEAM_SELF` produces two distinct ChainUses in one domain. Do not merge them.
-- All active sources of one Patch are evaluated together. The kernel produces
-  one patch-level single-cover union, then resolves interactions, then
-  ownership. Per-pChain materialization followed by post-hoc stitching is an
-  architectural regression.
+- All active sources of one `DecalRequestId` and one PatchDomain are evaluated
+  together. Execution key is `(DecalRequestId, PatchDomainId)`. The kernel
+  produces one patch-level single-cover union, then resolves interactions,
+  then ownership. Per-pChain materialization followed by post-hoc stitching is
+  an architectural regression.
 - Corner/Junction remain derived analysis relations, not primary topology or
   solve units. Their compile-static seeds are atomic envelope inputs.
 - Case 16 policy is B: same-decal, same-Patch wing contributions clip at the
@@ -67,12 +68,18 @@ Non-negotiable model:
   collision are forbidden. Self-collision uses the same contract.
 - A front may continue, reach a named event, or produce a named failure. Silent
   disappearance is forbidden.
-- Envelope v1 uses `BOUNDARY_LIMITED_PROPAGATION`. Each
-  `(ChainUse, owner Patch, sector)` has its own `FrontComponent` with active
-  intervals, but all components of one Patch remain one evaluation group.
-- Outer boundary, holes, and only ChainUses explicitly carrying `BARRIER` are
-  fixed non-owner constraints. Contact clips/shrinks a component; it does not
-  stop other sources or the opposite use of a physical chain.
+- Envelope v1 uses `BOUNDARY_LIMITED_PROPAGATION`. An ordinary directed
+  `ChainUse` has exactly one owner-interior `FrontComponent`. Additional
+  sectors/components are legal only when analysis explicitly proves distinct
+  Patch sectors; never synthesize default `left/right` sectors for one use.
+- Boundary facts distinguish `TOPOLOGICAL_BOUNDARY_USE`,
+  `PHYSICAL_DOMAIN_BARRIER`, and `SOURCE_LAUNCH_BOUNDARY`. A launch support
+  never blocks its originating seed. Topological seam-cut identity alone is
+  not a physical barrier. Contact clips/shrinks a component; it does not stop
+  other sources or the opposite use of a physical chain.
+- Endpoint contact may slide/shrink on the same boundary component. Interior
+  contact that would split an active interval emits `BARRIER_SPLIT_REQUIRED`
+  at the exact contact alpha; no ambiguous "slide or split later" state.
 - A v1 FrontComponent may not increase its active branch count. If obstacle
   bypass would require split/path choice/merge, emit capacity reason
   `BARRIER_SPLIT_REQUIRED`, preserve `requested_alpha`, clamp only that
@@ -87,7 +94,7 @@ Required pipeline:
 Patch/PhysicalChain/ChainUse facts
 → PatchDomain + sectors/holes/barriers
 → seeds
-→ FrontComponents and local contributions grouped by owner Patch
+→ FrontComponents and local contributions grouped by (DecalRequestId, PatchDomainId)
 → boundary-limited resolution
 → patch union
 → intra-Patch interactions
@@ -95,6 +102,31 @@ Patch/PhysicalChain/ChainUse facts
 → SemanticArrangement
 → GeometryBatch
 ```
+
+Contract ownership is one-way:
+
+```text
+AnalysisSnapshotV1 (host facts only)
++ DecalRequestV1 (user/request policy)
+→ CompiledPatchEvaluationPlan (kernel-owned seeds/fronts/envelopes/events)
+→ GeometryBatch
+```
+
+`AnalysisSnapshotV1` must never contain seeds, FrontComponents, envelopes,
+active intervals, effective alpha, capacity state, or kernel events.
+
+Cross-Patch collision remains forbidden, but cross-Patch topology coordination
+is required: one global `JunctionRelation` may produce per-Patch projections
+sharing one semantic anchor and provenance.
+
+Project artifact policy: do not create presentation visuals for requirements,
+roadmaps, reviews, handoffs, or acceptance. This includes SVG/PNG semantic
+sheets, contact sheets, slide-like diagrams, decks, and interactive HTML
+presentations. Prefer prose, code, JSON, schemas, validator code, and validator
+output. Screenshots captured from Blender viewport, UV Editor, or Blender debug
+overlays are allowed as diagnostic/runtime evidence; they are not semantic
+authority by themselves. Existing Grease Pencil/debug visualization remains a
+runtime diagnostic facility, not authorization to create presentation assets.
 
 Role separation remains mandatory:
 
@@ -104,9 +136,11 @@ Role separation remains mandatory:
 - Host Adapter Author maps contracts and does not repair geometry.
 - These roles run in separate sessions/contexts.
 
-EC1 must not start until EC0-P visuals and coordinate-free sidecars explicitly
-show PatchDomain, PhysicalChain, ChainUse, seeds, patch union, interactions,
-ownership, and UV/station flow and pass user acceptance.
+EC1 must not start until the canonical coordinate-free JSON corpus and prose
+explicitly define PatchDomain, PhysicalChain, ChainUse, request identity,
+seeds, patch union, interactions, ownership, UV/station flow, boundary contact
+topology, cross-Patch junction coordination, and mixed-alpha shared envelopes;
+the reproducible corpus validator must pass and the user must accept the text.
 
 ---
 
@@ -247,7 +281,8 @@ patches meet. Diagnostic/research entity, not solve runtime.
 - Types: dataclass for data, regular classes for operators
 - Core analysis/solve modules do not add third-party dependencies. Decal-only
   geometry dependencies must be documented, isolated behind their backend,
-  and have an explicit unavailable/unsupported fallback path.
+  and have an explicit named unavailable/unsupported outcome. Geometry
+  fallback is prohibited unless separately approved by the user.
 
 ---
 

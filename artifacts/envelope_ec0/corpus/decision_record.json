@@ -1,0 +1,57 @@
+{
+  "schema": "cftuv.envelope.ec0.decision_record.v1",
+  "source_history_commit": "b16be81e37e7fdd7ce3ae0f70aff41106952903e",
+  "decisions": [
+    {
+      "id": "AM4",
+      "authority": "USER_REQUIRED",
+      "selected": "B_COVERAGE_CLIP",
+      "rejected": [
+        "A_OWNERSHIP_ONLY",
+        "C_NEW_MATTER"
+      ],
+      "scope": "ONE_DECAL_REQUEST_ONE_OWNER_PATCH_INCLUDING_SELF_COLLISION"
+    },
+    {
+      "id": "VISUAL_POLICY",
+      "authority": "USER_REQUIRED",
+      "selected": "TEXT_JSON_VALIDATOR",
+      "rejected": [
+        "SVG_PRESENTATIONS",
+        "PNG_PRESENTATIONS",
+        "INTERACTIVE_PRESENTATIONS"
+      ],
+      "allowed": [
+        "BLENDER_SCREENSHOTS"
+      ]
+    }
+  ],
+  "review_only_not_semantic": [
+    {
+      "authority": "LEGACY_COMPATIBILITY",
+      "items": [
+        "LEGACY_FACE_COUNT_OR_TESSELLATION",
+        "LEGACY_NUMERIC_UV_CONVENTIONS_BEYOND_STATION_CONTINUITY",
+        "LEGACY_RUNTIME_NAMES_AS_REQUIRED_API"
+      ]
+    },
+    {
+      "authority": "IMPLEMENTATION_ACCIDENT",
+      "items": [
+        "AUTOMATIC_LEFT_RIGHT_SECTORS_PER_CHAIN_USE",
+        "STATION_BUCKETS_AS_REQUIRED_FREEZE_MECHANISM",
+        "FIRST_OR_LAST_GENERATED_VERTEX_AS_COMPLETION",
+        "PER_SOURCE_MATERIALIZATION_THEN_POST_HOC_UNION",
+        "DATA_RECORD_BOUNDARY_AS_PHYSICAL_CAP_OR_OWNER_DIVIDER"
+      ]
+    },
+    {
+      "authority": "OPEN_RESEARCH",
+      "items": [
+        "PRODUCTION_EXACT_ARRANGEMENT_BACKEND",
+        "OBSTACLE_BYPASS_WITH_SPLIT_AND_MERGE",
+        "NONLOCAL_OWNERSHIP_TOURNAMENT"
+      ]
+    }
+  ]
+}

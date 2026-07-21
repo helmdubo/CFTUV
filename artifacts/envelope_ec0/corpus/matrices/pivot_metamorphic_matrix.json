@@ -1,0 +1,222 @@
+{
+  "schema": "cftuv.envelope.ec0.pivot_metamorphic_matrix.v2",
+  "cases": [
+    "EC0-P01",
+    "EC0-P02",
+    "EC0-P03",
+    "EC0-P04",
+    "EC0-P05",
+    "EC0-P06",
+    "EC0-P07"
+  ],
+  "verdicts": [
+    {
+      "transform": "record_enumeration_permutation",
+      "definition": "Reorder canonical records.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "INVARIANT",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "chain_storage_reverse_preserve_semantics",
+      "definition": "Reverse storage while preserving semantic endpoints.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "INVARIANT",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "surface_winding_reverse_preserve_domain",
+      "definition": "Reverse storage winding while preserving domain interior.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "INVARIANT",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "rigid_translation",
+      "definition": "Translate all facts coherently.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "INVARIANT",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "coherent_uniform_scale",
+      "definition": "Scale geometry and alpha coherently.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "INVARIANT",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "source_retriangulation",
+      "definition": "Retriangulate the same surface.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "INVARIANT",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "data_chain_split_merge",
+      "definition": "Change data records without changing a PhysicalChain.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "INVARIANT",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "simultaneous_event_permutation",
+      "definition": "Reorder records inside one atomic event batch.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "INVARIANT",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "small_perturbation_without_topology_change",
+      "definition": "Perturb geometry while preserving topology and classification facts.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "INVARIANT",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "private_domain_per_source_switch",
+      "definition": "Create private source domains.",
+      "by_case": {
+        "EC0-P01": "SEMANTIC_CHANGE",
+        "EC0-P02": "SEMANTIC_CHANGE",
+        "EC0-P03": "SEMANTIC_CHANGE",
+        "EC0-P04": "SEMANTIC_CHANGE",
+        "EC0-P05": "SEMANTIC_CHANGE",
+        "EC0-P06": "SEMANTIC_CHANGE",
+        "EC0-P07": "SEMANTIC_CHANGE"
+      }
+    },
+    {
+      "transform": "merge_chain_uses_by_physical_id",
+      "definition": "Merge directed uses sharing PhysicalChain.",
+      "by_case": {
+        "EC0-P01": "SEMANTIC_CHANGE",
+        "EC0-P02": "SEMANTIC_CHANGE",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "INVARIANT",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "cross_patch_collision_enable",
+      "definition": "Enable cross-Patch competition.",
+      "by_case": {
+        "EC0-P01": "SEMANTIC_CHANGE",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "SEMANTIC_CHANGE",
+        "EC0-P06": "INVARIANT",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "shared_junction_anchor_split",
+      "definition": "Give projections unrelated anchors.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "SEMANTIC_CHANGE",
+        "EC0-P06": "INVARIANT",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "mixed_alpha_global_min_clamp",
+      "definition": "Clamp all incident fronts to min alpha.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "SEMANTIC_CHANGE",
+        "EC0-P07": "SEMANTIC_CHANGE"
+      }
+    },
+    {
+      "transform": "mixed_alpha_materializer_fill",
+      "definition": "Let materializer invent shared matter.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "SEMANTIC_CHANGE",
+        "EC0-P07": "SEMANTIC_CHANGE"
+      }
+    },
+    {
+      "transform": "interaction_policy_b_to_a_or_c",
+      "definition": "Replace B self-clip.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "SEMANTIC_CHANGE",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "INVARIANT",
+        "EC0-P07": "INVARIANT"
+      }
+    }
+  ]
+}

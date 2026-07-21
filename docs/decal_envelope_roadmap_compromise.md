@@ -1,12 +1,14 @@
 # Envelope-бэкенд: КОМПРОМИССНАЯ дорожная карта + PatchDomain pivot
-## Сведение планов двух ревьюверов, обновлённое AM7
+## Сведение планов двух ревьюверов, обновлённое AM10
 
 Исходники: `decal_envelope_roadmap_claude.md` (ревьювер A), план
 ревьювера B (в отчётах пользователя) и последующее инженерное ревью
 PatchDomain/ChainUse, принятое пользователем как pivot. Согласие исходных
-планов ~90%; ниже — пять решений, AM1–AM8 и обновлённые фазы EC0-P–EC8+.
+планов ~90%; ниже — пять решений, AM1–AM10 и обновлённые фазы EC0-P–EC8+.
 
-**Статус после pivot:** AM7–AM8 нормативно уточняют AM4 и ранние EC-фазы.
+**Статус после внешнего review:** AM7–AM10 нормативно уточняют AM3–AM5 и
+ранние EC-фазы. Corpus commit `b16be81` отклонён как канон и сохраняется только
+в git history; исправленный JSON-candidate требует новой приёмки.
 `Patch` — единственный domain распространения; pChain — source, не domain.
 EC1 не начинается до повторного EC0-P гейта.
 
@@ -71,7 +73,8 @@ station mapping, owner patch, домен. Тесселяция — downstream;
 число runtime-граней не входит в определение примитива.
 
 ### 3. Coverage, interaction и ownership — СОГЛАСОВАНО после pivot
-Все pChain sources одного `PatchDomain` вычисляются совместно. Сначала
+Все pChain sources одного `DecalRequestId` и одного `PatchDomain` вычисляются
+совместно. Сначала
 строится patch-level union вкладов, затем применяются явно объявленные
 interaction rules, и только после этого ownership делит уже существующую
 материю между source/station claims. Термины «внутрикомпонентный» и
@@ -119,20 +122,26 @@ arrival, CapacityPolicy переносится в kernel как СЕМАНТИЧ
 «CornerModel -> CornerSeed + CornerEnvelope» совпадает с
 фактической фазировкой S-CM — конфликт отсутствует.
 
-## Контракт снапшота — ОДИН, не два
+## Контракты — три раздельных уровня, не смешанный снапшот
 
-`AnalysisSnapshot` = ВЕРСИОНИРОВАННАЯ СЕРИАЛИЗАЦИЯ существующего
-`AnalysisBundle`, произведённая В ОДНОМ месте host-адаптера. Второй
-самостоятельный контракт анализа запрещён (болезнь Б1 на уровне
-контрактов). JSON на research-фазе читается глазами и диффается в Git.
-
-Snapshot обязан различать четыре уровня:
+`AnalysisSnapshotV1` = версионированная сериализация существующего
+`AnalysisBundle`, произведённая в одном месте host-адаптера. Это единственный
+межпакетный **analysis-контракт**; параллельная host-схема запрещена. Он содержит
+только наблюдённые facts/relations:
 
 1. source facts: `PatchDescriptor`, `PhysicalChain`, `ChainUse`,
    `BoundaryLoop`, `SourceVertex`, Corner/Junction relations;
-2. domain: `PatchDomain`, `PatchSector`, `DomainBoundary`, `Hole`, `Barrier`;
-3. seeds: `FrontSeed`, `CornerSeed`, `JunctionSeed`, `CapSeed`;
-4. material inputs: tagged envelope declarations.
+2. domain facts: `PatchDomain`, доказанные `PatchSector`, `DomainBoundary`,
+   `Hole`, `Barrier` и boundary lineage.
+
+Seeds, FrontComponents, events, alpha/capacity и material declarations в
+`AnalysisSnapshotV1` запрещены: это уже kernel runtime state.
+
+`DecalRequestV1` содержит `DecalRequestId`, выбранные ChainUses,
+requested width/alpha и policies. `CompiledPatchEvaluationPlan` ключуется
+`(DecalRequestId, PatchDomainId)` и содержит seeds, FrontComponents,
+contributions, event ledger, effective alpha, capacity, ownership и provenance
+будущего GeometryBatch. Все plan records несут request/domain identity.
 
 `PhysicalChain` хранит физическую identity рёбер/вершин и канонический
 физический порядок. `ChainUse` хранит directed patch-side view:
@@ -141,6 +150,11 @@ side и множество roles (`SELECTED_SPINE`, `DOMAIN_BOUNDARY`, `BARRIER`
 `FOLD_GUIDE`, `CHART_CUT`, `MARKED_ROUTE`). Одна physical seam между двумя
 Patch даёт два ChainUse; `SEAM_SELF` даёт два разных ChainUse одного Patch.
 Преждевременно сливать uses запрещено.
+
+Обычный directed `ChainUse` имеет один owner-interior sector и создаёт один
+`FrontComponent`. Автоматические абстрактные `left/right` sectors запрещены;
+несколько sectors/components возможны только при явном analysis-доказательстве
+реальной high-valence конфигурации.
 
 `PatchDescriptor` имеет ортогональные axes `SurfaceRegime` /
 `PatchShapeClass` / `context_tags`; WALL/FLOOR — контекст, не выбор
@@ -151,32 +165,37 @@ Patch даёт два ChainUse; `SEAM_SELF` даёт два разных ChainUs
 
 ## Объединённые фазы EC0-P–EC8
 
-**EC0-P — Pivot rebaseline, БЕЗ КОДА.** Существующие решения 16 случаев,
-включая выбранный пользователем B, сохраняются, но визуалы и sidecars
-перевыпускаются на правильных атомарных уровнях. Каждый лист обязан отдельно
-показывать `PatchDomain`, physical chain identity, directed `ChainUse`,
-compile-static seeds, patch-level coverage union, interaction boundaries,
-ownership и UV/station flow плюс alpha evolution. Sidecar v2 обязан хранить
-те же уровни без координат. Обязательные новые случаи/варианты: одна physical
-chain между двумя Patch; `SEAM_SELF` с двумя uses одного Patch; несколько
-pChain sources в общем PatchDomain; встреча разных sources; self-collision
-одного source; десять boundary-limited scenarios из AM8.
-AM8 policy pack хранится в `artifacts/envelope_ec0/pivot/` и входит в
-пользовательский EC0-P review corpus.
-Гейт: пользователь принимает визуалы; ни одного private per-pChain domain;
-PhysicalChain/ChainUse не смешаны; B остаётся patch-level coverage clip.
+**EC0-P — Pivot rebaseline, БЕЗ KERNEL-КОДА.** Решения 16 случаев, включая
+выбранный пользователем B, сохраняются, но corpus выпускается как prose +
+единый canonical JSON graph + JSON Schema + metamorphic matrices + validator.
+Презентационные SVG/PNG-листы, diagrams, contact sheets, slides и interactive
+HTML запрещены. Разрешены Blender viewport/UV/debug screenshots как
+диагностическое runtime evidence, но они не являются SemanticAuthority и не
+заменяют машинный контракт.
 
-Текущий статус: kernel-implementer выпустил полный candidate в
-`artifacts/envelope_ec0/v2/` (16 v2 sidecars/листов, AM7 pivot cases и
-расширенная metamorphic matrix); AM8 pack остаётся в `pivot/`. Формальная и
-визуальная генерация завершена, но EC0-P ещё не `ACCEPTED`: ожидается явная
-приёмка пользователя по `docs/envelope_ec0_acceptance_guide.md`.
+Каждый JSON case содержит только три разделённых уровня:
+`AnalysisSnapshotV1`, `DecalRequestV1`, ожидаемый
+`CompiledPatchEvaluationPlan`. Обязательные случаи: одна physical chain между
+двумя Patch; `SEAM_SELF` с двумя uses одного Patch; несколько pChain sources
+одного request в общем PatchDomain; встреча sources; self-collision; cross-Patch
+junction; mixed-alpha Corner/Junction; десять boundary-limited scenarios AM8.
+
+Гейт: пользователь принимает словесную семантику; validator/CI зелёный; ни
+одного private per-pChain domain; PhysicalChain/ChainUse не смешаны; ordinary
+ChainUse не раздваивается; request/domain identity тотальна; B остаётся
+patch-level coverage clip.
+
+Текущий статус: corpus commit `b16be81` отклонён внешним review. Исправленный
+candidate находится в `artifacts/envelope_ec0/corpus/`; до явной приёмки
+пользователя статус `CORRECTION_CANDIDATE_READY_FOR_EXTERNAL_REVIEW`, EC1 закрыт.
 
 **EC1 — Контракты, снапшот, изоляция**: структура kernel,
-SnapshotV1, `PhysicalChain`/`ChainUse`, `PatchDomain`/sectors/holes/barriers,
+`AnalysisSnapshotV1`, `DecalRequestV1`, `CompiledPatchEvaluationPlan`,
+`PhysicalChain`/`ChainUse`, `PatchDomain`/sectors/holes/barriers,
 seed IR, `FrontComponent`/active intervals, envelopes,
 Coverage/Interaction/Ownership records и EventLedger.
-Ingest группирует ВСЕ sources по owner Patch и создаёт один patch-level plan;
+Ingest группирует все sources одного request по owner Patch и создаёт один plan
+на `(DecalRequestId, PatchDomainId)`;
 API, компилирующий каждый pChain в отдельном поле, запрещён. Изоляция
 доказывается CI-запуском без bpy/cftuv. Гейт: повторный экспорт даёт
 идентичный hash; порядок PhysicalChain и ChainUse не влияет на digest;
@@ -264,8 +283,8 @@ join-политика вне CornerEnvelope; epsilon/k-подбор под фи�
 материи за hole/barrier. Каталог болезней Б1-Б7 — в приёмке ревью
 каждого EC-среза.
 
-## AMENDMENTS (AM1–AM6 согласованы двумя ревьюверами; AM7–AM8 —
-## последующие инженерные уточнения pivot, принятые пользователем)
+## AMENDMENTS (AM1–AM6 согласованы двумя ревьюверами; AM7–AM10 —
+## последующие инженерные уточнения и external-review corrections)
 
 **AM1 — Hermetic wheel-only CI + sparse checkout (усиление моей
 «CI-стены», признано: virtualenv недостаточен — корень checkout в
@@ -291,16 +310,17 @@ Kernel-агент работает в sparse checkout/worktree: только
   наблюдаемого поведения, список неизвестных случаев (corpus в
   EC1);
 - *Host adapter author* — читает обе стороны, только конвертирует
-  (AnalysisBundle -> SnapshotV1; GeometryBatch -> preview/
+  (AnalysisBundle -> AnalysisSnapshotV1; GeometryBatch -> preview/
   materialization), геометрических исправлений не делает.
 Роли — РАЗНЫЕ сессии/контексты агентов (разделение контекста —
 суть механизма).
 
-**AM3 — EC0 = картинки + формальные sidecars + метаморфная
-матрица.** EC0a — визуальные листы (приёмка пользователя);
-EC0b — YAML-sidecar на каждый случай: region graph, boundary
-lineage, owner, adjacency, направление s, topology events,
-forbidden-список — БЕЗ точных координат. Поверх каждого случая —
+**AM3 — EC0 = prose + canonical JSON + validator + метаморфная матрица.**
+Каждый случай хранит один authoritative ID graph: analysis facts/relations,
+request, ожидаемый compiled plan, region graph, boundary lineage, owner,
+adjacency, направление s, topology events и forbidden-список — без точных
+координат. JSON Schema и validator проверяют ссылочную целостность и
+кардинальности. Поверх каждого случая —
 метаморфные преобразования (перестановка/reverse цепочек и
 winding, scale/translation, другая триангуляция, разбиение/
 слияние data-chains при той же физической линии, одновременные
@@ -310,6 +330,9 @@ winding, scale/translation, другая триангуляция, разбие�
 конец физической линии»). Статусы случая: DEFINED /
 UNSUPPORTED_NAMED_FAILURE / BLOCKED_PENDING_USER_DECISION —
 честный BLOCKED лучше выдуманной семантики.
+
+Визуальные презентационные артефакты EC0 запрещены AM10; Blender-скриншоты
+остаются допустимым диагностическим evidence.
 
 **AM4 — EC2.5 Intra-Patch front interaction — уточнено pivot AM7.**
 В case 16 freeze: (A) только делит overlap; (B) обрезает source
@@ -323,14 +346,14 @@ decal identities, и больше не используется норматив
 IntraPatchFrontInteractionResolver -> ResolvedPatchCoverage ->
 OwnershipResolver -> SemanticArrangement`.
 
-**AM5 — SnapshotV1: kernel-owned граничная схема.** Уточнение
-«одного контракта»: AnalysisBundle — ВНУТРЕННЯЯ модель хоста;
-SnapshotV1 — ЕДИНСТВЕННЫЙ межпакетный контракт, владелец — kernel;
-адаптер хоста мапит одно в другое; kernel не импортирует
-AnalysisBundle; хост не создаёт свою копию SnapshotV1. JSON Schema
-генерируется из типов SnapshotV1; адаптер валидирует каждый
-экспорт. (Это не два семантических контракта: внутренняя модель +
-один граничный контракт.)
+**AM5 — AnalysisSnapshotV1: kernel-owned analysis boundary schema.**
+`AnalysisBundle` — внутренняя модель хоста; `AnalysisSnapshotV1` — единственный
+межпакетный analysis-контракт, владелец — kernel; адаптер мапит одно в другое,
+kernel не импортирует AnalysisBundle, хост не создаёт копию schema. Snapshot
+содержит только facts/relations. Request intent живёт в `DecalRequestV1`, а
+runtime result — в `CompiledPatchEvaluationPlan`; это разные уровни, не
+конкурирующие analysis-схемы. JSON Schema генерируется из типов, адаптер
+валидирует каждый экспорт.
 
 **AM6 — CGAL: границы возможностей и лицензия.**
 Arrangement_with_history даёт curve->edge lineage, но НЕ face
@@ -369,23 +392,28 @@ kernel от CGAL — только через отдельный лицензио
 
 AM7 не отменяет выбранный B, single-cover, SemanticAuthority или
 CanonicalGeometryDigest. Он меняет unit of execution и требует EC0-P
-перевыпуска визуалов/sidecars до EC1.
+перевыпуска prose/JSON corpus до EC1.
 
 **AM8 — Boundary-limited propagation v1 — принято как capability boundary.**
 
 - Outer boundary, hole loops и только те rails/ChainUses, у которых явно есть
   role `BARRIER`, являются неподвижными non-owner ограничителями domain.
-- На `(ChainUse, owner Patch, sector)` создаётся отдельный `FrontComponent` с
-  набором active continuous intervals. Все components Patch всё равно
-  вычисляются одной patch-level группой согласно AM7.
+- Обычный `(ChainUse, owner Patch)` имеет один доказанный owner-interior sector
+  и создаёт один `FrontComponent` с набором active continuous intervals.
+  Дополнительные sectors/components разрешены только как analysis-proven
+  high-valence facts. Все components `(DecalRequestId, PatchDomainId)`
+  вычисляются одной группой согласно AM7.
 - Boundary contact одного component не останавливает другую сторону physical
   chain, другие pChains или весь Patch.
-- Front не пересекает boundary и не откатывается: на точном alpha возникает
-  `BOUNDARY_CONTACT`. Разрешены exact clip, сокращение/исчезновение intervals и
-  движение contact point вдоль того же boundary component.
+- `TOPOLOGICAL_BOUNDARY_USE`, `PHYSICAL_DOMAIN_BARRIER` и
+  `SOURCE_LAUNCH_BOUNDARY` различаются. Source support не блокирует собственный
+  seed. Front не пересекает физический barrier и не откатывается: на точном
+  alpha возникает `BOUNDARY_CONTACT`. Endpoint contact может скользить или
+  сокращаться без split.
 - В v1 число active branches одного FrontComponent не увеличивается. Если
-  продолжение требует обхода hole/concave boundary, split, выбора пути или
-  последующего merge, возникает capacity reason `BARRIER_SPLIT_REQUIRED`.
+  interior contact уже требует split interval вокруг hole/concave boundary,
+  выбора пути или последующего merge, на том же exact alpha возникает capacity
+  reason `BARRIER_SPLIT_REQUIRED`.
 - Геометрия этого component фиксируется на `effective_alpha`; пользовательский
   `requested_alpha` сохраняется в diagnostics. Другие components продолжают.
 - `FRONT_EXHAUSTED` — успешное завершение. Capability outcome
@@ -399,6 +427,36 @@ AM8 уточняет pipeline:
 `seeds -> FrontComponents -> local contributions -> BoundaryLimitedResolver ->
 BoundaryResolvedContributions -> PatchPrimitiveUnion -> PatchCoverageClaims ->
 IntraPatchFrontInteractionResolver -> ResolvedPatchCoverage -> Ownership`.
+
+**AM9 — External-review semantic correction pass.**
+
+- Plan identity = `(DecalRequestId, PatchDomainId)`; contribution, interaction,
+  digest и GeometryBatch сохраняют оба id.
+- Один case содержит один authoritative ID graph. Старые параллельные
+  `skeleton/envelopes/region_graph` и pivot graph запрещены.
+- C11 endpoint claim создаёт `EndpointClaimSeed`, а не фиктивный one-incident
+  `CornerSeed`.
+- C12 claim B имеет одну identity: `CornerEnvelope` подтверждённой двухсторонней
+  CornerRelation; он не дублируется как StripEnvelope/PhysicalChain.
+- C13 BEVEL CornerSeed/CornerEnvelope содержит только incident bevel uses;
+  `other_wing_use` присутствует исключительно в interaction record.
+- Cross-Patch junction имеет одну глобальную JunctionRelation/shared anchor и
+  per-Patch projections; collision между PatchDomains запрещён, topology
+  coordination обязательна.
+- Shared Corner/Junction envelope хранит incident effective-alpha vector и не
+  растягивает frozen сторону. Неединственный single-cover результат даёт
+  `SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN`; соседние fronts продолжают.
+- Corpus проверяется воспроизводимым validator и CI. Старый v1/v2 corpus
+  остаётся только в git history.
+
+**AM10 — Text/JSON-only artifact policy, решение пользователя.**
+
+Для roadmap, requirements, review и acceptance запрещены презентационные
+визуальные артефакты: SVG/PNG semantic sheets, diagrams, contact sheets,
+slides и interactive HTML. Предпочтительны prose, code, JSON, schemas,
+metamorphic data и validator output. Исключение: скриншоты Blender viewport,
+UV Editor и debug overlays как диагностическое runtime evidence. Blender
+screenshots не получают SemanticAuthority и не заменяют JSON/prose assertions.
 
 **Дополнительно принято:**
 - **SemanticAuthority-классификация** переносимых поведений:
@@ -431,6 +489,7 @@ EC6 -> EC7 -> EC8 -> EC8+ (optional capability).
        по результатам coverage/ownership)
     -> EC4/EC5 -> EC6 -> EC7 -> EC8.
 ```
-Первый deliverable после pivot — НЕ код: EC0-P visual/sidecar rebaseline,
-AM8 boundary pack и SnapshotV1 schema review на уровнях
-facts/domain/seeds/FrontComponents/material inputs.
+Первый deliverable после correction — НЕ kernel-код: EC0-P prose/JSON corpus,
+AM8 boundary pack, JSON Schema и validator review на трёх раздельных уровнях:
+AnalysisSnapshotV1 facts/relations, DecalRequestV1 и
+CompiledPatchEvaluationPlan.

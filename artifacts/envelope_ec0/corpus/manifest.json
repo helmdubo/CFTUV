@@ -1,0 +1,97 @@
+{
+  "schema": "cftuv.envelope.ec0.corpus.v3",
+  "status": "CORRECTION_CANDIDATE_READY_FOR_EXTERNAL_REVIEW",
+  "canonical_format": "JSON",
+  "presentation_visual_policy": "FORBIDDEN",
+  "allowed_visual_evidence": [
+    "BLENDER_VIEWPORT_SCREENSHOT",
+    "BLENDER_UV_EDITOR_SCREENSHOT",
+    "BLENDER_DEBUG_OVERLAY_SCREENSHOT"
+  ],
+  "global_semantic_contracts": [
+    {
+      "id": "EC0-G01",
+      "authority": "USER_REQUIRED",
+      "rule": "PatchDomain is the only propagation field; no source owns a private solve domain."
+    },
+    {
+      "id": "EC0-G02",
+      "authority": "USER_REQUIRED",
+      "rule": "An ordinary ChainUse launches exactly one owner-interior FrontComponent; extra sectors require analysis provenance."
+    },
+    {
+      "id": "EC0-G03",
+      "authority": "MATHEMATICALLY_REQUIRED",
+      "rule": "Each case has one authoritative ID graph; hand-maintained skeleton/envelope/region duplicates are forbidden."
+    },
+    {
+      "id": "EC0-G04",
+      "authority": "USER_REQUIRED",
+      "rule": "Evaluation key is DecalRequestId plus PatchDomainId, containing all active sources of that request and domain."
+    },
+    {
+      "id": "EC0-G05",
+      "authority": "MATHEMATICALLY_REQUIRED",
+      "rule": "AnalysisSnapshot contains facts only; kernel owns seeds, fronts, events, envelopes, active intervals, and effective alpha."
+    },
+    {
+      "id": "EC0-G06",
+      "authority": "USER_REQUIRED",
+      "rule": "Boundary topology distinguishes TOPOLOGICAL_BOUNDARY_USE, PHYSICAL_DOMAIN_BARRIER, and SOURCE_LAUNCH_BOUNDARY."
+    },
+    {
+      "id": "EC0-G07",
+      "authority": "USER_REQUIRED",
+      "rule": "Endpoint contact may slide; interior contact needing branch birth saturates at exact contact alpha."
+    },
+    {
+      "id": "EC0-G08",
+      "authority": "USER_REQUIRED",
+      "rule": "Policy B clips same-request same-Patch coverage; cross-request and cross-Patch collision are forbidden."
+    },
+    {
+      "id": "EC0-G09",
+      "authority": "MATHEMATICALLY_REQUIRED",
+      "rule": "Cross-Patch junctions coordinate shared anchors without cross-Patch propagation competition."
+    },
+    {
+      "id": "EC0-G10",
+      "authority": "USER_REQUIRED",
+      "rule": "Presentation visuals are forbidden EC0 deliverables; use prose, JSON, validator output, and optional Blender screenshots."
+    }
+  ],
+  "case_files": [
+    "artifacts/envelope_ec0/corpus/cases/ec0-c01-straight-owner-wing.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-c02-convex-miter-corner.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-c03-convex-bevel-corner.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-c04-reflex-corner.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-c05-physical-s-endpoint.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-c06-boundary-endpoint-contact.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-c07-data-chain-segmentation.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-c08-t-junction.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-c09-x-junction.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-c10-y-merge-split.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-c11-short-segment-owner.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-c12-curved-internal-divider.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-c13-bevel-other-wing-contact.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-c14-proven-saturation.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-c15-drag-topology-events.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-c16-intrapatch-wing-freeze-b.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-p01-physical-seam-a-b.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-p02-seam-self-two-uses.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-p03-multiple-sources-one-patch.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-p04-one-wing-self-collision.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-p05-cross-patch-junction.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-p06-mixed-alpha-corner.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-p07-mixed-alpha-junction.json"
+  ],
+  "policy_files": [
+    "artifacts/envelope_ec0/corpus/policies/boundary_limited_propagation.json"
+  ],
+  "matrix_files": [
+    "artifacts/envelope_ec0/corpus/matrices/metamorphic_matrix.json",
+    "artifacts/envelope_ec0/corpus/matrices/pivot_metamorphic_matrix.json",
+    "artifacts/envelope_ec0/corpus/matrices/boundary_metamorphic_matrix.json"
+  ],
+  "validator": "tools/validate_envelope_ec0.py"
+}
