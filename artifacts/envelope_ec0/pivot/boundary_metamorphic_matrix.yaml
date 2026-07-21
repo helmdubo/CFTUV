@@ -1,0 +1,34 @@
+schema: cftuv.envelope.ec0.boundary_metamorphic_matrix.v1
+policy_id: BOUNDARY_LIMITED_PROPAGATION
+scenarios: [BLP-01, BLP-02, BLP-03, BLP-04, BLP-05, BLP-06, BLP-07, BLP-08, BLP-09, BLP-10]
+verdicts:
+  - transform: front_vertex_resampling
+    definition: Change runtime front vertices while preserving the same continuous intervals and exact events.
+    by_scenario: {BLP-01: INVARIANT, BLP-02: INVARIANT, BLP-03: INVARIANT, BLP-04: INVARIANT, BLP-05: INVARIANT, BLP-06: INVARIANT, BLP-07: INVARIANT, BLP-08: INVARIANT, BLP-09: INVARIANT, BLP-10: INVARIANT}
+  - transform: boundary_resegmentation_same_physical_contour
+    definition: Split or merge boundary records without changing the physical contour, domain interior, or barrier roles.
+    by_scenario: {BLP-01: INVARIANT, BLP-02: INVARIANT, BLP-03: INVARIANT, BLP-04: INVARIANT, BLP-05: INVARIANT, BLP-06: INVARIANT, BLP-07: INVARIANT, BLP-08: INVARIANT, BLP-09: INVARIANT, BLP-10: INVARIANT}
+  - transform: boundary_storage_reverse_preserve_domain_semantics
+    definition: Reverse stored loop order while preserving outer versus hole meaning and physical interior.
+    by_scenario: {BLP-01: INVARIANT, BLP-02: INVARIANT, BLP-03: INVARIANT, BLP-04: INVARIANT, BLP-05: INVARIANT, BLP-06: INVARIANT, BLP-07: INVARIANT, BLP-08: INVARIANT, BLP-09: INVARIANT, BLP-10: INVARIANT}
+  - transform: front_component_enumeration_permutation
+    definition: Reorder FrontComponent records inside one patch-level evaluation group.
+    by_scenario: {BLP-01: INVARIANT, BLP-02: INVARIANT, BLP-03: INVARIANT, BLP-04: INVARIANT, BLP-05: INVARIANT, BLP-06: INVARIANT, BLP-07: INVARIANT, BLP-08: INVARIANT, BLP-09: INVARIANT, BLP-10: INVARIANT}
+  - transform: simultaneous_boundary_event_permutation
+    definition: Reorder exact contacts inside one atomic event batch.
+    by_scenario: {BLP-01: INVARIANT, BLP-02: INVARIANT, BLP-03: INVARIANT, BLP-04: INVARIANT, BLP-05: INVARIANT, BLP-06: INVARIANT, BLP-07: INVARIANT, BLP-08: INVARIANT, BLP-09: INVARIANT, BLP-10: INVARIANT}
+  - transform: small_perturbation_without_event_order_change
+    definition: Perturb geometry without changing incidence, boundary identity, branch requirement, or exact event ordering.
+    by_scenario: {BLP-01: INVARIANT, BLP-02: INVARIANT, BLP-03: INVARIANT, BLP-04: INVARIANT, BLP-05: INVARIANT, BLP-06: INVARIANT, BLP-07: INVARIANT, BLP-08: INVARIANT, BLP-09: INVARIANT, BLP-10: INVARIANT}
+  - transform: rail_barrier_role_toggle
+    definition: Add or remove the BARRIER role on the rail ChainUse while preserving its geometry.
+    by_scenario: {BLP-01: INVARIANT, BLP-02: INVARIANT, BLP-03: INVARIANT, BLP-04: INVARIANT, BLP-05: INVARIANT, BLP-06: INVARIANT, BLP-07: INVARIANT, BLP-08: SEMANTIC_CHANGE, BLP-09: INVARIANT, BLP-10: INVARIANT}
+  - transform: obstacle_bypass_policy_enable
+    definition: Replace v1 non-branching capacity with a solver allowed to split and merge around obstacles.
+    by_scenario: {BLP-01: INVARIANT, BLP-02: INVARIANT, BLP-03: INVARIANT, BLP-04: INVARIANT, BLP-05: SEMANTIC_CHANGE, BLP-06: SEMANTIC_CHANGE, BLP-07: INVARIANT, BLP-08: SEMANTIC_CHANGE, BLP-09: INVARIANT, BLP-10: INVARIANT}
+  - transform: one_component_global_stop_policy
+    definition: Change a local FrontComponent capacity event into a stop for its physical chain or entire Patch.
+    by_scenario: {BLP-01: INVARIANT, BLP-02: INVARIANT, BLP-03: INVARIANT, BLP-04: INVARIANT, BLP-05: INVARIANT, BLP-06: INVARIANT, BLP-07: INVARIANT, BLP-08: INVARIANT, BLP-09: SEMANTIC_CHANGE, BLP-10: SEMANTIC_CHANGE}
+  - transform: requested_alpha_increase_after_capacity
+    definition: Increase requested alpha after a component reached proven effective alpha; geometry projection remains fixed but capacity diagnostics change.
+    by_scenario: {BLP-01: SEMANTIC_CHANGE, BLP-02: SEMANTIC_CHANGE, BLP-03: SEMANTIC_CHANGE, BLP-04: SEMANTIC_CHANGE, BLP-05: SEMANTIC_CHANGE, BLP-06: SEMANTIC_CHANGE, BLP-07: SEMANTIC_CHANGE, BLP-08: SEMANTIC_CHANGE, BLP-09: SEMANTIC_CHANGE, BLP-10: SEMANTIC_CHANGE}

@@ -1,0 +1,72 @@
+schema: cftuv.envelope.ec0.case.v1
+case_id: EC0-C03
+slug: convex-bevel-corner
+title: Convex BEVEL corner
+status: DEFINED
+semantic_contracts:
+  - id: C03-S1
+    authority: USER_REQUIRED
+    rule: BEVEL corner matter is exactly the V-P1-P2 triangle and its outer boundary is chord P1-P2.
+  - id: C03-S2
+    authority: FIELD_PROVEN
+    rule: Own strip regions are unchanged relative to MITER; only corner matter differs.
+  - id: C03-S3
+    authority: MATHEMATICALLY_REQUIRED
+    rule: The missing miter wedge is not covered by the BEVEL corner primitive.
+skeleton:
+  nodes:
+    - {id: start, kind: PHYSICAL_ENDPOINT, roles: [SEMANTIC_START]}
+    - {id: turn, kind: CORNER, roles: [CONVEX, BEVEL]}
+    - {id: end, kind: PHYSICAL_ENDPOINT, roles: [SEMANTIC_END]}
+  edges:
+    - {id: incoming, kind: SELECTED_SPINE, from: start, to: turn}
+    - {id: outgoing, kind: SELECTED_SPINE, from: turn, to: end}
+envelopes:
+  - {id: strip_in, kind: StripEnvelope, source: incoming, alpha_law: TWO_SIDED_LINEAR}
+  - {id: strip_out, kind: StripEnvelope, source: outgoing, alpha_law: TWO_SIDED_LINEAR}
+  - {id: corner, kind: CornerEnvelope, source: turn, join: BEVEL, semantic_anchors: [V, P1, P2], alpha_law: CHORD_CLOSURE}
+region_graph:
+  regions:
+    - {id: incoming_region, semantic_kind: STRIP, owner: strip_in, station_model: INCOMING_S}
+    - {id: bevel_region, semantic_kind: CORNER, owner: corner, station_model: CORNER_CONTINUATION}
+    - {id: outgoing_region, semantic_kind: STRIP, owner: strip_out, station_model: OUTGOING_S}
+  edges:
+    - {regions: [incoming_region, bevel_region], kind: CORNER_INTERFACE}
+    - {regions: [bevel_region, outgoing_region], kind: CORNER_INTERFACE}
+boundary_lineage:
+  - {boundary: bevel_chord, lineage: [corner, P1, P2], role: COVERAGE_SILHOUETTE}
+  - {boundary: incident_a, lineage: [corner, V, P1], role: COVERAGE_SILHOUETTE}
+  - {boundary: incident_b, lineage: [corner, V, P2], role: COVERAGE_SILHOUETTE}
+owners:
+  total: true
+  disjoint: true
+  tie_boundary_owner: NONE
+adjacency:
+  - {a: incoming_region, b: bevel_region, through: V_P1}
+  - {a: bevel_region, b: outgoing_region, through: V_P2}
+s_direction:
+  authority: ROUTE_CONTINUATION_THROUGH_CORNER
+  chord_rule: P1_AND_P2_RETAIN_INCIDENT_STATIONS
+  uv_mapping: {longitudinal: s, transverse: r}
+alpha_evolution:
+  - {stage: alpha_zero, coverage: POLYLINE_SKELETON, topology: NO_REGION}
+  - {stage: alpha_positive, coverage: BEVEL_CHORD_PRESENT, topology: THREE_SEMANTIC_REGIONS}
+  - {stage: alpha_larger, coverage: CHORD_MOVES_BY_DECLARED_ALPHA_LAW, topology: UNCHANGED_UNTIL_DECLARED_EVENT}
+topology_events:
+  - {id: birth, kind: BIRTH, height: ALPHA_ZERO, application: CLOSED_AT_AND_AFTER}
+forbidden:
+  - RESIDUAL_MITER_APEX
+  - FAN_OR_ARC_BEHIND_CHORD
+  - POST_ARRANGEMENT_BEVEL_PATCH
+  - BEVEL_CHANGES_OWN_STRIP_EXTENTS
+metamorphic_expectations:
+  matrix_row: EC0-C03
+  required: [chain_enumeration_permutation, chain_storage_reverse, surface_winding_reverse, rigid_translation, coherent_uniform_scale, source_retriangulation, data_chain_split_merge, simultaneous_event_enumeration_permutation, small_perturbation_without_topology_change]
+  semantic_changes: [semantic_start_end_swap, corner_join_switch]
+canonical_digest_projection:
+  include: [region_graph, boundary_lineage, owners, adjacency, s_direction, topology_events, semantic_anchors, join]
+  exclude: [face_order, tessellation, hidden_miter_apex, sampled_fan]
+visuals:
+  svg: artifacts/envelope_ec0/sheets/ec0-c03-convex-bevel-corner.svg
+  png: artifacts/envelope_ec0/sheets/ec0-c03-convex-bevel-corner.png
+

@@ -1,0 +1,79 @@
+schema: cftuv.envelope.ec0.case.v1
+case_id: EC0-C14
+slug: proven-saturation
+title: Proven capacity saturation
+status: DEFINED
+pivot_policy:
+  propagation: BOUNDARY_LIMITED_PROPAGATION
+  capacity_scope: FRONT_COMPONENT
+semantic_contracts:
+  - id: C14-S1
+    authority: FIELD_PROVEN
+    rule: SATURATE_PROVEN clamps coverage at the last constructible physical station and records a saturation event.
+  - id: C14-S2
+    authority: USER_REQUIRED
+    rule: Increasing alpha after saturation creates no new matter and does not move the terminal boundary.
+  - id: C14-S3
+    authority: MATHEMATICALLY_REQUIRED
+    rule: Saturation is valid only when the plan proves a unique maximal single-cover result; otherwise the outcome is a named failure or controlled recompile.
+  - id: C14-S4
+    authority: USER_REQUIRED
+    rule: BARRIER_SPLIT_REQUIRED preserves requested alpha, clamps only the affected FrontComponent to effective alpha, and does not stop other components.
+skeleton:
+  nodes:
+    - {id: source, kind: PHYSICAL_ENDPOINT, roles: [SEMANTIC_START]}
+    - {id: route_end, kind: PHYSICAL_ENDPOINT, roles: [PHYSICAL_CAPACITY_END]}
+  edges:
+    - {id: route, kind: SELECTED_SPINE, from: source, to: route_end}
+envelopes:
+  - {id: strip, kind: StripEnvelope, source: route, alpha_law: CLAMP_AT_PROVEN_CAPACITY}
+  - {id: terminal_cap, kind: CapEnvelope, source: route_end, alpha_law: FROZEN_AFTER_SATURATION}
+region_graph:
+  regions:
+    - {id: body, semantic_kind: STRIP, owner: strip, station_model: ROUTE_S}
+    - {id: terminal_region, semantic_kind: CAP, owner: terminal_cap, station_model: LAST_CONSTRUCTIBLE_S}
+  edges:
+    - {regions: [body, terminal_region], kind: SATURATED_END_INTERFACE}
+boundary_lineage:
+  - {boundary: free_sides, lineage: [strip, route], role: COVERAGE_SILHOUETTE}
+  - {boundary: saturated_end, lineage: [terminal_cap, route_end, LAST_CONSTRUCTIBLE_STATION], role: FROZEN_COVERAGE_SILHOUETTE}
+owners:
+  total: true
+  disjoint: true
+  tie_boundary_owner: NONE
+adjacency:
+  - {a: body, b: terminal_region, through: saturated_end}
+s_direction:
+  authority: SOURCE_TO_ROUTE_END
+  after_saturation: CLAMP_TO_LAST_CONSTRUCTIBLE_STATION
+  revisit_effect: NO_SECOND_TRAVERSAL
+alpha_evolution:
+  - {stage: below_capacity, coverage: GROWS_WITH_ALPHA, topology: UNSATURATED}
+  - {stage: at_capacity, coverage: MAXIMAL_PROVEN_SINGLE_COVER, topology: SATURATION_EVENT}
+  - {stage: beyond_capacity, coverage: IDENTICAL_TO_AT_CAPACITY, topology: FROZEN}
+capacity_state:
+  requested_alpha: MAY_EXCEED_EFFECTIVE_ALPHA
+  effective_alpha: LAST_PROVEN_UNAMBIGUOUS_STATE
+  capacity_reason: [PHYSICAL_ROUTE_EXHAUSTED, BARRIER_SPLIT_REQUIRED]
+  capability_outcome: BARRIER_BYPASS_UNSUPPORTED_WHEN_SPLIT_REQUIRED
+  user_status: BOUNDARY_CAPACITY_REACHED
+  scope: AFFECTED_FRONT_COMPONENT_ONLY
+topology_events:
+  - {id: saturation, kind: SATURATION, height: ALPHA_CAPACITY, application: CLOSED_AT_AND_AFTER}
+forbidden:
+  - UNIVERSAL_CLAMP_WITHOUT_CAPACITY_PROOF
+  - SECOND_PASS_AROUND_CLOSED_ROUTE
+  - PREVIEW_CONFIRM_CAPACITY_DIVERGENCE
+  - SILENT_FALLBACK_ON_UNPROVEN_CAPACITY
+  - GLOBAL_PATCH_CLAMP_FROM_ONE_COMPONENT
+  - OBSTACLE_BYPASS_BRANCH_CREATION_IN_V1
+metamorphic_expectations:
+  matrix_row: EC0-C14
+  required: [chain_enumeration_permutation, chain_storage_reverse, surface_winding_reverse, rigid_translation, coherent_uniform_scale, source_retriangulation, data_chain_split_merge, simultaneous_event_enumeration_permutation, small_perturbation_without_topology_change]
+  semantic_changes: [semantic_start_end_swap, capacity_policy_switch]
+canonical_digest_projection:
+  include: [pivot_policy, capacity_state, region_graph, boundary_lineage, owners, adjacency, s_direction, topology_events, semantic_anchors, capacity_policy]
+  exclude: [face_order, tessellation, repeated_route_edges, last_valid_ui_state]
+visuals:
+  svg: artifacts/envelope_ec0/sheets/ec0-c14-proven-saturation.svg
+  png: artifacts/envelope_ec0/sheets/ec0-c14-proven-saturation.png

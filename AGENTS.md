@@ -37,6 +37,79 @@ loop-sequential, or corner-based placement is an architectural regression.
 
 ---
 
+## Envelope Kernel Pivot Contract (AM7)
+
+This contract applies to the new Blender-free decal envelope kernel. It does
+not change the chain-first strongest-frontier rule of the existing UV solve.
+
+Before any EC0-P–EC8 kernel task, read:
+
+1. `docs/decal_envelope_roadmap_compromise.md`
+2. `docs/envelope_kernel_pivot_instructions.md`
+3. `docs/envelope_backend_semantics.md`
+
+Non-negotiable model:
+
+- `PatchDomain` is the propagation field. A pChain is a front source, never a
+  private field or independent solve domain.
+- `PhysicalChain` stores physical edge/vertex identity. `ChainUse` stores one
+  directed patch-side use with owner Patch, loop, orientation, side, and roles.
+- A seam between two Patches produces two ChainUses in different domains.
+  `SEAM_SELF` produces two distinct ChainUses in one domain. Do not merge them.
+- All active sources of one Patch are evaluated together. The kernel produces
+  one patch-level single-cover union, then resolves interactions, then
+  ownership. Per-pChain materialization followed by post-hoc stitching is an
+  architectural regression.
+- Corner/Junction remain derived analysis relations, not primary topology or
+  solve units. Their compile-static seeds are atomic envelope inputs.
+- Case 16 policy is B: same-decal, same-Patch wing contributions clip at the
+  mutual equality locus after mutual arrival. Cross-decal and cross-Patch
+  collision are forbidden. Self-collision uses the same contract.
+- A front may continue, reach a named event, or produce a named failure. Silent
+  disappearance is forbidden.
+- Envelope v1 uses `BOUNDARY_LIMITED_PROPAGATION`. Each
+  `(ChainUse, owner Patch, sector)` has its own `FrontComponent` with active
+  intervals, but all components of one Patch remain one evaluation group.
+- Outer boundary, holes, and only ChainUses explicitly carrying `BARRIER` are
+  fixed non-owner constraints. Contact clips/shrinks a component; it does not
+  stop other sources or the opposite use of a physical chain.
+- A v1 FrontComponent may not increase its active branch count. If obstacle
+  bypass would require split/path choice/merge, emit capacity reason
+  `BARRIER_SPLIT_REQUIRED`, preserve `requested_alpha`, clamp only that
+  component to proven `effective_alpha`, and report boundary capacity reached.
+- First/last front vertex criteria, boundary rollback, material teleportation
+  behind an obstacle, and global pChain/Patch stop are forbidden. Full obstacle
+  bypass belongs to EC8+.
+
+Required pipeline:
+
+```text
+Patch/PhysicalChain/ChainUse facts
+→ PatchDomain + sectors/holes/barriers
+→ seeds
+→ FrontComponents and local contributions grouped by owner Patch
+→ boundary-limited resolution
+→ patch union
+→ intra-Patch interactions
+→ ownership
+→ SemanticArrangement
+→ GeometryBatch
+```
+
+Role separation remains mandatory:
+
+- Kernel implementer does not read `cftuv/decal_voronoi.py` or legacy parts of
+  `cftuv/decals.py`.
+- Legacy Evidence Curator reads legacy evidence but does not write kernel code.
+- Host Adapter Author maps contracts and does not repair geometry.
+- These roles run in separate sessions/contexts.
+
+EC1 must not start until EC0-P visuals and coordinate-free sidecars explicitly
+show PatchDomain, PhysicalChain, ChainUse, seeds, patch union, interactions,
+ownership, and UV/station flow and pass user acceptance.
+
+---
+
 ## Module Layout
 
 ```text

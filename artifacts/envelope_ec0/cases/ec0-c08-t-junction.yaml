@@ -1,0 +1,77 @@
+schema: cftuv.envelope.ec0.case.v1
+case_id: EC0-C08
+slug: t-junction
+title: Three-arm T-junction
+status: DEFINED
+semantic_contracts:
+  - id: C08-S1
+    authority: USER_REQUIRED
+    rule: T-junction coverage is one connected union of the three incident strips and one JunctionEnvelope with no hole or overlap.
+  - id: C08-S2
+    authority: MATHEMATICALLY_REQUIRED
+    rule: The central junction owns its semantic matter; route enumeration cannot assign the core by first-wins.
+  - id: C08-S3
+    authority: USER_REQUIRED
+    rule: The trunk keeps continuous s through the junction while branch s has its semantic origin at the junction.
+skeleton:
+  nodes:
+    - {id: trunk_start, kind: PHYSICAL_ENDPOINT, roles: [SEMANTIC_START]}
+    - {id: junction, kind: JUNCTION, roles: [T, DEGREE_THREE]}
+    - {id: trunk_end, kind: PHYSICAL_ENDPOINT, roles: [SEMANTIC_END]}
+    - {id: branch_end, kind: PHYSICAL_ENDPOINT, roles: [BRANCH_END]}
+  edges:
+    - {id: trunk_in, kind: SELECTED_SPINE, from: trunk_start, to: junction, route: trunk}
+    - {id: trunk_out, kind: SELECTED_SPINE, from: junction, to: trunk_end, route: trunk}
+    - {id: branch, kind: SELECTED_SPINE, from: junction, to: branch_end, route: branch}
+envelopes:
+  - {id: strip_trunk_in, kind: StripEnvelope, source: trunk_in, alpha_law: TWO_SIDED_LINEAR}
+  - {id: strip_trunk_out, kind: StripEnvelope, source: trunk_out, alpha_law: TWO_SIDED_LINEAR}
+  - {id: strip_branch, kind: StripEnvelope, source: branch, alpha_law: TWO_SIDED_LINEAR}
+  - {id: junction_env, kind: JunctionEnvelope, source: junction, alpha_law: THREE_ARM_UNION}
+region_graph:
+  regions:
+    - {id: trunk_in_region, semantic_kind: STRIP, owner: strip_trunk_in, station_model: TRUNK_S}
+    - {id: junction_trunk_sector, semantic_kind: JUNCTION_SECTOR, owner: junction_env, station_model: TRUNK_S}
+    - {id: junction_branch_sector, semantic_kind: JUNCTION_SECTOR, owner: junction_env, station_model: BRANCH_S}
+    - {id: trunk_out_region, semantic_kind: STRIP, owner: strip_trunk_out, station_model: TRUNK_S}
+    - {id: branch_region, semantic_kind: STRIP, owner: strip_branch, station_model: BRANCH_S}
+  edges:
+    - {regions: [trunk_in_region, junction_trunk_sector], kind: STATION_CONTINUOUS}
+    - {regions: [junction_trunk_sector, trunk_out_region], kind: STATION_CONTINUOUS}
+    - {regions: [junction_branch_sector, branch_region], kind: STATION_CONTINUOUS}
+    - {regions: [junction_trunk_sector, junction_branch_sector], kind: UV_MODEL_DIVIDER}
+boundary_lineage:
+  - {boundary: outer_union, lineage: [strip_trunk_in, strip_trunk_out, strip_branch, junction_env], role: COVERAGE_SILHOUETTE}
+  - {boundary: internal_station_divider, lineage: [junction_env, trunk, branch], role: UV_OWNERSHIP_DIVIDER}
+owners:
+  total: true
+  disjoint: true
+  tie_boundary_owner: NONE
+adjacency:
+  - {a: junction_trunk_sector, b: junction_branch_sector, through: internal_station_divider}
+s_direction:
+  authority: DECLARED_ROUTE_IDENTITIES
+  trunk: CONTINUOUS_THROUGH_JUNCTION
+  branch: ZERO_AT_JUNCTION_AND_INCREASES_OUTWARD
+alpha_evolution:
+  - {stage: alpha_zero, coverage: T_SKELETON, topology: NO_REGION}
+  - {stage: alpha_positive, coverage: CONNECTED_THREE_ARM_UNION, topology: JUNCTION_SECTORS_PRESENT}
+  - {stage: alpha_larger, coverage: SAME_COMBINATORICS_WIDER, topology: UNCHANGED_UNTIL_EXTERNAL_EVENT}
+topology_events:
+  - {id: junction_birth, kind: BIRTH, height: ALPHA_ZERO, application: ATOMIC}
+forbidden:
+  - HOLE_AT_JUNCTION_CORE
+  - OVERLAPPING_ARM_FACES
+  - FIRST_WINS_JUNCTION_OWNER
+  - BRANCH_S_RESETS_TRUNK_S
+metamorphic_expectations:
+  matrix_row: EC0-C08
+  required: [chain_enumeration_permutation, chain_storage_reverse, surface_winding_reverse, rigid_translation, coherent_uniform_scale, source_retriangulation, data_chain_split_merge, simultaneous_event_enumeration_permutation, small_perturbation_without_topology_change]
+  semantic_changes: [semantic_start_end_swap]
+canonical_digest_projection:
+  include: [region_graph, boundary_lineage, owners, adjacency, s_direction, topology_events, semantic_anchors, route_pairing]
+  exclude: [face_order, tessellation, arm_enumeration, first_wins_owner]
+visuals:
+  svg: artifacts/envelope_ec0/sheets/ec0-c08-t-junction.svg
+  png: artifacts/envelope_ec0/sheets/ec0-c08-t-junction.png
+

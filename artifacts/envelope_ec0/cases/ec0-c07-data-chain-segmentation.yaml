@@ -1,0 +1,72 @@
+schema: cftuv.envelope.ec0.case.v1
+case_id: EC0-C07
+slug: data-chain-segmentation
+title: One physical line split into data chains
+status: DEFINED
+semantic_contracts:
+  - id: C07-S1
+    authority: MATHEMATICALLY_REQUIRED
+    rule: Splitting or merging data-chain records on the same physical semantic line changes no envelope, event, owner, or station value.
+  - id: C07-S2
+    authority: FIELD_PROVEN
+    rule: A derived chain boundary is neither a physical end nor a termination event.
+  - id: C07-S3
+    authority: MATHEMATICALLY_REQUIRED
+    rule: Boundary lineage and CanonicalGeometryDigest are normalized to the physical line identity.
+skeleton:
+  nodes:
+    - {id: start, kind: PHYSICAL_ENDPOINT, roles: [SEMANTIC_START]}
+    - {id: data_split, kind: STORAGE_PARTITION, roles: [NON_SEMANTIC]}
+    - {id: end, kind: PHYSICAL_ENDPOINT, roles: [SEMANTIC_END]}
+  edges:
+    - {id: chain_a, kind: DATA_CHAIN_USE, from: start, to: data_split, physical_line: line}
+    - {id: chain_b, kind: DATA_CHAIN_USE, from: data_split, to: end, physical_line: line}
+envelopes:
+  - {id: strip, kind: StripEnvelope, source: line, alpha_law: TWO_SIDED_LINEAR}
+  - {id: start_cap, kind: CapEnvelope, source: start, alpha_law: END_CLOSURE}
+  - {id: end_cap, kind: CapEnvelope, source: end, alpha_law: END_CLOSURE}
+region_graph:
+  regions:
+    - {id: body, semantic_kind: STRIP, owner: strip, station_model: PHYSICAL_LINE_S}
+    - {id: cap_start, semantic_kind: CAP, owner: start_cap, station_model: CONSTANT_START_S}
+    - {id: cap_end, semantic_kind: CAP, owner: end_cap, station_model: CONSTANT_END_S}
+  edges:
+    - {regions: [cap_start, body], kind: SEMANTIC_INTERFACE}
+    - {regions: [body, cap_end], kind: SEMANTIC_INTERFACE}
+boundary_lineage:
+  - {boundary: side_left, lineage: [strip, line, LEFT], role: COVERAGE_SILHOUETTE}
+  - {boundary: side_right, lineage: [strip, line, RIGHT], role: COVERAGE_SILHOUETTE}
+  - {boundary: storage_split, lineage: [data_split], role: NONE}
+owners:
+  total: true
+  disjoint: true
+  tie_boundary_owner: NONE
+adjacency:
+  - {a: cap_start, b: body, through: START_INTERFACE}
+  - {a: body, b: cap_end, through: END_INTERFACE}
+s_direction:
+  authority: PHYSICAL_LINE_START_TO_END
+  across_data_split: CONTINUOUS
+  station_reset: FORBIDDEN
+alpha_evolution:
+  - {stage: alpha_zero, coverage: PHYSICAL_LINE_SKELETON, topology: NO_REGION}
+  - {stage: alpha_positive, coverage: ONE_CONTINUOUS_STRIP, topology: STORAGE_SPLIT_INVISIBLE}
+  - {stage: alpha_larger, coverage: SAME_COMBINATORICS_WIDER, topology: STORAGE_SPLIT_INVISIBLE}
+topology_events:
+  - {id: birth, kind: BIRTH, height: ALPHA_ZERO, application: CLOSED_AT_AND_AFTER}
+forbidden:
+  - CAP_AT_STORAGE_PARTITION
+  - STATION_RESET_AT_STORAGE_PARTITION
+  - OWNER_CHANGE_AT_STORAGE_PARTITION
+  - DIGEST_DEPENDS_ON_CHAIN_RECORD_COUNT
+metamorphic_expectations:
+  matrix_row: EC0-C07
+  required: [chain_enumeration_permutation, chain_storage_reverse, surface_winding_reverse, rigid_translation, coherent_uniform_scale, source_retriangulation, data_chain_split_merge, simultaneous_event_enumeration_permutation, small_perturbation_without_topology_change]
+  semantic_changes: [semantic_start_end_swap]
+canonical_digest_projection:
+  include: [region_graph, boundary_lineage, owners, adjacency, s_direction, topology_events, semantic_anchors]
+  exclude: [face_order, tessellation, data_chain_partition, record_count, storage_ids]
+visuals:
+  svg: artifacts/envelope_ec0/sheets/ec0-c07-data-chain-segmentation.svg
+  png: artifacts/envelope_ec0/sheets/ec0-c07-data-chain-segmentation.png
+
