@@ -1206,7 +1206,8 @@ CapacityPolicy интегрирован с SATURATE_PROVEN default,
 operator тонкий, differential semantic no-op подтверждён,
 ярус-2 492).
 **Полевая проверка пользователя R2 нашла ДВА дефекта — R2.1
-hotfix ТЕКУЩАЯ ЗАДАЧА (гейт 0d.0):**
+hotfix: IMPLEMENTED, READY FOR REVIEW (`d98c58f` + `1b2d411`,
+гейт 0d.0):**
 **A. «Дуга там, где нет геометрии» (RC5b в оракуле):**
 конкуренционная биссектриса скругляет контур в зонах, куда
 материя конкурента не дотекает. Реализовать обоюдное прибытие:
@@ -1216,6 +1217,16 @@ alpha >= alpha_meet; до порога поток течёт свободно. S
 сохраняется (локус компилируется полностью, гейтится порогом
 события). RF30. Диагноз сначала: подтвердить на скрине
 пользователя, что дуга — биссектриса недотёкшего конкурента.
+**Исполнено:** раннее возражение по `walls.001` ОТОЗВАНО — это
+был неверный планарный меш. На каноническом вариативном
+`sagging_wall` RC5b подтверждён и реализован через 33
+compile-static mutual-arrival atoms + pointwise runtime release.
+Дополнительный пользовательский кейс `e7+e26` оформлен как RF31:
+два pChain-terminal на разных physical routes получают
+станционный `TERMINAL_SITE_PAIR` общего source edge (`t=0.5`),
+а встретившиеся START/END CAP сохраняют границу как SEGMENT.
+На 22 ширинах `0.2..36` в MITER/BEVEL CAP output = 0,
+preview==confirm; before при width>=2.4 имел 4 CAP.
 **B. Рецидив `TERMINAL_BRIDGE_CUT_INVALID`** (width=7.8,
 patch=1 e8/v10, снова только preview=False): насыщение
 RR8d/CapacityPolicy НЕ дошло до пути терминального моста
@@ -1224,8 +1235,21 @@ saturате-семантики (кламп counted вместо ошибки) + 
 валидация preview/confirm (I6: выяснить и устранить, почему
 done падает там, где preview прошёл — это уже ВТОРОЙ рецидив
 асимметрии). RF29b.
-После R2.1 — короткий гейт выбора R3-бэкенда ширины для
-кривизны (по данным S-WF0), затем R3.
+**Исполнено:** terminal constructibility перенесена в общий
+pre-materialization CapacityPolicy resolver; SATURATE_PROVEN
+клампит последний конструктивный station-prefix, counted. Все
+ширины 7.8..36 дают OK и preview==confirm. Прямая проверка base
+показала одинаковый fail preview/confirm; видимая асимметрия была
+last-valid UI, а структурная причина — разрыв фаз saturation и
+поздней bridge-validation.
+Итоговый receipt: frozen `sagging_wall` blend SHA-256
+`7db56e359deab0cca39426cabee66e16620f6de31aba68cdca3c19eed30c480f`,
+72/72 width-records OK и preview==confirm, acceptance
+`green=true`; targeted 168 passed; tier-2
+`500 passed, 3 skipped, 4 deselected`. Риски и особое мнение —
+`artifacts/decal_r21_hotfix_gate_report.md`.
+После приёмки R2.1 — короткий гейт выбора R3-бэкенда ширины для
+кривизны (по данным S-WF0), затем R3; до приёмки не начинать.
 Историческая заметка (первый коммит `445b44d`):
 фактически S0a (+удаление decal_network) — ПРИНЯТО
 предварительно; риски задекларированы корректно (блок «Риски»

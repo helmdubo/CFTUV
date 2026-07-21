@@ -897,6 +897,24 @@ alpha/домена/насыщения. Биссектриса, действую�
 поднятый на уровень конкуренции; и прямое применение «таблицы
 высот событий» из wavefront-заметки.) Фикстура RF30.
 
+**Статус R2.1:** реализовано pointwise, без production-поля.
+Intrinsic point-cell хранит compile-static reciprocal owner regions;
+runtime читает `arrived corner crop - blocking material`. На правильной
+полевой фикстуре `sagging_wall` compiled plan содержит 33
+mutual-arrival atoms, а dense sweep наблюдает counted
+`MUTUAL_ARRIVAL_RELEASE`. Предыдущая проверка стрелок на планарном
+`walls.001` отозвана как проверка неверного меша.
+
+**RC5b-pChain — встреча terminal fronts на общем selected site.**
+Два pChain-terminal могут войти с противоположных endpoints одного
+selected spine edge, но иметь разные физические boundary routes. Обычный
+route-pair detector их не видит. Для ровно такой структурно доказанной
+пары компилируется `TERMINAL_SITE_PAIR`: две station readings общего site,
+freeze в точке их равенства (для равных arrivals — `t=0.5`). После
+исчезновения BODY встречные START/END CAP одной surface и одного source
+edge получают общий station-UV и остаются SEGMENT; настоящий physical-end
+CAP сохраняется. Фикстура RF31.
+
 **RC4 — Роль 2D-диаграммы.** Классический 2D-Voronoi/chart
 сохраняет роли: admission (G3, качество UV), UV-параметризация,
 и разрешение углов in-plane (RM6). Геометрию лент он больше НЕ
@@ -1141,12 +1159,35 @@ alpha/домена/насыщения. Биссектриса, действую�
   alpha_meet и дальше держит S1-freeze; негатив: скругление
   контура биссектрисой в зоне, куда материя конкурента не
   дотекла, — именованный fail.
+  **Результат R2.1:** IMPLEMENTED (`1b2d411`) на канонической
+  вариативной фикстуре `sagging_wall`, selected
+  `3,4,5,6,7,8,9,11`: 33 mutual-arrival atoms, runtime release
+  наблюдается; 22 ширины `0.2..36` дают `OK` и
+  preview==confirm. Прежний вывод по `walls.001` ОТОЗВАН: это
+  был неверный планарный меш и он не являлся полевой фикстурой
+  пользовательского дефекта.
+- **RF31 Встреча двух pChain на общем selected site (полевые
+  «невидимая поверхность/fan» и strip -> бирюзовый CAP):**
+  `sagging_wall e7+e26`; terminal routes входят с
+  противоположных концов `e7`, но физически различны. На общем
+  site компилируется один `TERMINAL_SITE_PAIR`, `t=0.5`, arrivals
+  `0.7271339594/0.7271339594`; после встречи оба торца сохраняют
+  freeze-edge и materialize как SEGMENT. Негативы: одинаковый
+  endpoint, разные source edges, больше двух terminal uses или
+  настоящий physical route end НЕ допускают midpoint/pair
+  alignment. **Результат R2.1:** IMPLEMENTED (`1b2d411`): на 22
+  ширинах `0.2..36`, MITER и BEVEL, CAP output = 0,
+  `CAP_PAIR_ALIGNED` наблюдается, preview==confirm; base
+  `e921fef` имел 2 CAP с width 1.6 и 4 CAP с width >=2.4.
 - **RF29b Насыщение терминального моста (RR8d, полевой рецидив
   `TERMINAL_BRIDGE_CUT_INVALID` width=7.8, patch=1 e8/v10):**
   sagging_wall, ширины 7.8..36: мост НАСЫЩАЕТСЯ (кламп на
   последней валидной станции, counted), ошибка не выбрасывается;
   done == preview (единая валидация, I6); негатив: INVALID
   остаётся только для истинно неконструируемого среза.
+  **Результат R2.1:** IMPLEMENTED (`d98c58f` + `1b2d411`): все
+  шесть ширин `OK`, `TERMINAL_ROUTE_STATION_CLAMPED` counted,
+  полная GeometryBatch serialization preview==confirm.
 - **RF28 Столкновения у BEVEL-угла (RC5/RC5a, полевые скрины
   «веер вершин» и «розовые треугольники с пустыми выемками»):**
   стена с проёмами, join=BEVEL: чужая/встречная граница ДОХОДИТ

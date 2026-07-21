@@ -1,197 +1,226 @@
 {
-  "schema": "cftuv.decal_r21_hotfix.v1",
+  "schema": "cftuv.decal_r21_hotfix.v2",
   "source_commit": "e921fef",
   "source_root": "C:\\Users\\helmd\\Documents\\CFTUV_r21_before",
   "blender_version": "4.3.2",
   "blend_file": "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_r21_user_field.blend",
   "blend_sha256": "7db56e359deab0cca39426cabee66e16620f6de31aba68cdca3c19eed30c480f",
   "blend_saved": false,
-  "rf30": {
-    "object": "walls.001",
+  "rf30_mutual_arrival": {
+    "object": "sagging_wall",
     "selected": [
-      0,
-      2,
+      3,
       4,
       5,
       6,
+      7,
+      8,
       9,
-      10,
-      11,
-      12,
-      13,
-      18,
-      19,
-      20,
-      22,
-      25,
-      26,
-      27,
-      28,
-      30,
-      31,
-      32,
-      33,
-      34,
-      36,
-      37,
-      38,
-      39,
-      40,
-      41,
-      42,
-      43,
-      45,
-      46,
-      48,
-      49,
-      50,
-      53,
-      54,
-      56,
-      57,
-      58,
-      59,
-      60,
-      61,
-      62,
-      63,
-      64,
-      65,
-      66,
-      71,
-      72,
-      74,
-      75,
-      77,
-      78,
-      79,
-      81,
-      82,
-      84,
-      85,
-      87,
-      89,
-      90,
-      91,
-      92,
-      94,
-      96,
-      98,
-      101,
-      103,
-      105,
-      107,
-      108,
-      109,
-      110,
-      111,
-      112,
-      113,
-      116,
-      117,
-      118,
-      119,
-      120,
-      121,
-      122,
-      123,
-      124,
-      125,
-      126,
-      128,
-      130,
-      131,
-      132,
-      133,
-      136,
-      137,
-      138,
-      139,
-      140,
-      141,
-      142,
-      143,
-      144,
-      145,
-      149,
-      151,
-      152,
-      153,
-      154,
-      155,
-      156,
-      157,
-      158,
-      159,
-      160,
-      161,
-      162,
-      163,
-      164,
-      170,
-      171,
-      172,
-      174,
-      176,
-      179,
-      180,
-      181,
-      182,
-      183,
-      184,
-      185,
-      186,
-      187
+      11
     ],
     "join": "BEVEL",
-    "compiled_counts": {
-      "surface_count": 32,
-      "atom_count": 266,
-      "point_atom_count": 48,
-      "unbound_point_atom_count": 0,
-      "corner_release_atom_count": 82
+    "compiled": {
+      "surface_count": 2,
+      "domain_kinds": {
+        "INTRINSIC": 2
+      },
+      "atom_count": 29,
+      "point_atom_count": 15,
+      "corner_release_atom_count": 26,
+      "mutual_arrival_atom_count": 0,
+      "terminal_site_pair_loci": []
     },
     "widths": [
+      {
+        "width": 0.2,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 26,
+            "digest": "3a76dcdce84b55d25331efd310aa1e0c88c8b3b9a14896927a5361ad2e5ebf88",
+            "component_counts": {
+              "BEVEL": 6,
+              "SEGMENT": 20
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 26,
+            "digest": "3a76dcdce84b55d25331efd310aa1e0c88c8b3b9a14896927a5361ad2e5ebf88",
+            "component_counts": {
+              "BEVEL": 6,
+              "SEGMENT": 20
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 0.4,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 28,
+            "digest": "49e7ff2be84a8234b19962d8eea66e79dd7bd1527d1ddcb64082b3a982a04b32",
+            "component_counts": {
+              "BEVEL": 6,
+              "SEGMENT": 22
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 28,
+            "digest": "49e7ff2be84a8234b19962d8eea66e79dd7bd1527d1ddcb64082b3a982a04b32",
+            "component_counts": {
+              "BEVEL": 6,
+              "SEGMENT": 22
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 0.6,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 27,
+            "digest": "f415f8c7c9441840c2d847433b7d3ee7807fb81e4243f5419ad89711342cf123",
+            "component_counts": {
+              "BEVEL": 6,
+              "SEGMENT": 21
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 27,
+            "digest": "f415f8c7c9441840c2d847433b7d3ee7807fb81e4243f5419ad89711342cf123",
+            "component_counts": {
+              "BEVEL": 6,
+              "SEGMENT": 21
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
       {
         "width": 0.8,
         "evaluations": {
           "preview": {
             "status": "OK",
-            "face_count": 278,
-            "digest": "01be6467f6141a66b8cabd87ef9826672751337949a901767f68eee10f5a2e85",
-            "policy_counts": [
-              [
-                "KITE",
-                48
-              ],
-              [
-                "MITER",
-                165
-              ],
-              [
-                "SMOOTH",
-                5
-              ]
-            ]
+            "face_count": 27,
+            "digest": "bdbd6afbc17fd4bbf20592cf3f049c0a7da8864bd64921e5aa89500ba1c25221",
+            "component_counts": {
+              "BEVEL": 6,
+              "SEGMENT": 21
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4
+            }
           },
           "confirm": {
             "status": "OK",
-            "face_count": 278,
-            "digest": "01be6467f6141a66b8cabd87ef9826672751337949a901767f68eee10f5a2e85",
-            "policy_counts": [
-              [
-                "KITE",
-                48
-              ],
-              [
-                "MITER",
-                165
-              ],
-              [
-                "SMOOTH",
-                5
-              ]
-            ]
+            "face_count": 27,
+            "digest": "bdbd6afbc17fd4bbf20592cf3f049c0a7da8864bd64921e5aa89500ba1c25221",
+            "component_counts": {
+              "BEVEL": 6,
+              "SEGMENT": 21
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 1.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 27,
+            "digest": "d6842a698297a6513dedb40a06e25233144b078147517c8d3c7d99743c65d3ef",
+            "component_counts": {
+              "BEVEL": 6,
+              "SEGMENT": 21
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 27,
+            "digest": "d6842a698297a6513dedb40a06e25233144b078147517c8d3c7d99743c65d3ef",
+            "component_counts": {
+              "BEVEL": 6,
+              "SEGMENT": 21
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 1.2,
+        "evaluations": {
+          "preview": {
+            "status": "ERROR",
+            "error": "PatchVoronoiRuntimeError(\"Patch Voronoi runtime failed for 8 edge(s) at width=1.2 preview=True: RuntimeError('RAIL_COMPETITION_METRIC_UNRESOLVED: patch=1 edge=11 start_depth=0.5394301066866775 end_depth=0.5394361272893592 site_length=1.078860213373355')\")"
+          },
+          "confirm": {
+            "status": "ERROR",
+            "error": "PatchVoronoiRuntimeError(\"Patch Voronoi runtime failed for 8 edge(s) at width=1.2 preview=False: RuntimeError('RAIL_COMPETITION_METRIC_UNRESOLVED: patch=1 edge=11 start_depth=0.5394301066866775 end_depth=0.5394361272893592 site_length=1.078860213373355')\")"
           }
         },
         "preview_confirm_equal": true
@@ -200,42 +229,82 @@
         "width": 1.6,
         "evaluations": {
           "preview": {
+            "status": "ERROR",
+            "error": "PatchVoronoiRuntimeError(\"Patch Voronoi runtime failed for 8 edge(s) at width=1.6 preview=True: RuntimeError('RAIL_COMPETITION_METRIC_UNRESOLVED: patch=1 edge=11 start_depth=0.5394301066866775 end_depth=0.5394345995624596 site_length=1.078860213373355')\")"
+          },
+          "confirm": {
+            "status": "ERROR",
+            "error": "PatchVoronoiRuntimeError(\"Patch Voronoi runtime failed for 8 edge(s) at width=1.6 preview=False: RuntimeError('RAIL_COMPETITION_METRIC_UNRESOLVED: patch=1 edge=11 start_depth=0.5394301066866775 end_depth=0.5394345995624596 site_length=1.078860213373355')\")"
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 2.0,
+        "evaluations": {
+          "preview": {
+            "status": "ERROR",
+            "error": "PatchVoronoiRuntimeError(\"Patch Voronoi runtime failed for 8 edge(s) at width=2 preview=True: RuntimeError('RAIL_COMPETITION_METRIC_UNRESOLVED: patch=1 edge=11 start_depth=0.5394301066866775 end_depth=0.5394330718355601 site_length=1.078860213373355')\")"
+          },
+          "confirm": {
+            "status": "ERROR",
+            "error": "PatchVoronoiRuntimeError(\"Patch Voronoi runtime failed for 8 edge(s) at width=2 preview=False: RuntimeError('RAIL_COMPETITION_METRIC_UNRESOLVED: patch=1 edge=11 start_depth=0.5394301066866775 end_depth=0.5394330718355601 site_length=1.078860213373355')\")"
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 2.4,
+        "evaluations": {
+          "preview": {
+            "status": "ERROR",
+            "error": "PatchVoronoiRuntimeError(\"Patch Voronoi runtime failed for 8 edge(s) at width=2.4 preview=True: RuntimeError('RAIL_COMPETITION_METRIC_UNRESOLVED: patch=1 edge=11 start_depth=0.5394301066866775 end_depth=0.5394315441086605 site_length=1.078860213373355')\")"
+          },
+          "confirm": {
+            "status": "ERROR",
+            "error": "PatchVoronoiRuntimeError(\"Patch Voronoi runtime failed for 8 edge(s) at width=2.4 preview=False: RuntimeError('RAIL_COMPETITION_METRIC_UNRESOLVED: patch=1 edge=11 start_depth=0.5394301066866775 end_depth=0.5394315441086605 site_length=1.078860213373355')\")"
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 2.8,
+        "evaluations": {
+          "preview": {
             "status": "OK",
-            "face_count": 266,
-            "digest": "38e24cb3b21ba9b2de18a1703c908cdbd010f49b7e55e5dd87e6f7045c5b1656",
-            "policy_counts": [
-              [
-                "KITE",
-                48
-              ],
-              [
-                "MITER",
-                165
-              ],
-              [
-                "SMOOTH",
-                5
-              ]
-            ]
+            "face_count": 38,
+            "digest": "726df46fef7aac8e4fc0c66555d5e7cba8b9a052a44c6fca0cea84e31be19791",
+            "component_counts": {
+              "BEVEL": 6,
+              "CAP": 1,
+              "SEGMENT": 31
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 1
+            }
           },
           "confirm": {
             "status": "OK",
-            "face_count": 266,
-            "digest": "38e24cb3b21ba9b2de18a1703c908cdbd010f49b7e55e5dd87e6f7045c5b1656",
-            "policy_counts": [
-              [
-                "KITE",
-                48
-              ],
-              [
-                "MITER",
-                165
-              ],
-              [
-                "SMOOTH",
-                5
-              ]
-            ]
+            "face_count": 38,
+            "digest": "726df46fef7aac8e4fc0c66555d5e7cba8b9a052a44c6fca0cea84e31be19791",
+            "component_counts": {
+              "BEVEL": 6,
+              "CAP": 1,
+              "SEGMENT": 31
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 1
+            }
           }
         },
         "preview_confirm_equal": true
@@ -245,391 +314,1964 @@
         "evaluations": {
           "preview": {
             "status": "OK",
-            "face_count": 266,
-            "digest": "57e05d4c8d148304d9f5468bfeb6dc1987ef721641868cbdbb316108dcf8f7df",
-            "policy_counts": [
-              [
-                "KITE",
-                48
-              ],
-              [
-                "MITER",
-                165
-              ],
-              [
-                "SMOOTH",
-                5
-              ]
-            ],
-            "edge_94_adjacency": {
-              "source_edge": 94,
-              "suspect_curve_witnesses": [
-                {
-                  "points": [
-                    [
-                      1.36333,
-                      -14.27457,
-                      18.22053
-                    ],
-                    [
-                      1.36333,
-                      -14.07382,
-                      18.29521
-                    ]
-                  ],
-                  "uses": [
-                    {
-                      "kind": "BEVEL",
-                      "source_edges": [
-                        45
-                      ]
-                    },
-                    {
-                      "kind": "SEGMENT",
-                      "source_edges": [
-                        94
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "points": [
-                    [
-                      1.36333,
-                      -14.07382,
-                      18.29521
-                    ],
-                    [
-                      1.36333,
-                      -13.87307,
-                      18.3201
-                    ]
-                  ],
-                  "uses": [
-                    {
-                      "kind": "BEVEL",
-                      "source_edges": [
-                        45
-                      ]
-                    },
-                    {
-                      "kind": "SEGMENT",
-                      "source_edges": [
-                        94
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "points": [
-                    [
-                      1.36333,
-                      -12.57307,
-                      18.3201
-                    ],
-                    [
-                      1.36333,
-                      -12.39574,
-                      18.30068
-                    ]
-                  ],
-                  "uses": [
-                    {
-                      "kind": "BEVEL",
-                      "source_edges": [
-                        36
-                      ]
-                    },
-                    {
-                      "kind": "SEGMENT",
-                      "source_edges": [
-                        94
-                      ]
-                    }
-                  ]
-                }
-              ],
-              "all_suspect_curves_have_two_material_owners": true,
-              "single_use_edges": [
-                {
-                  "points": [
-                    [
-                      1.36333,
-                      -14.27458,
-                      18.72487
-                    ],
-                    [
-                      1.36333,
-                      -11.97155,
-                      18.72487
-                    ]
-                  ],
-                  "uses": [
-                    {
-                      "kind": "SEGMENT",
-                      "source_edges": [
-                        94
-                      ]
-                    }
-                  ]
-                }
-              ]
+            "face_count": 35,
+            "digest": "b1696a76d8229bc46287a4ed6c3d14681b012620c895f4077512bcbb1b91215a",
+            "component_counts": {
+              "BEVEL": 6,
+              "CAP": 1,
+              "SEGMENT": 28
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 5
             }
           },
           "confirm": {
             "status": "OK",
-            "face_count": 266,
-            "digest": "57e05d4c8d148304d9f5468bfeb6dc1987ef721641868cbdbb316108dcf8f7df",
-            "policy_counts": [
-              [
-                "KITE",
-                48
-              ],
-              [
-                "MITER",
-                165
-              ],
-              [
-                "SMOOTH",
-                5
-              ]
-            ],
-            "edge_94_adjacency": {
-              "source_edge": 94,
-              "suspect_curve_witnesses": [
-                {
-                  "points": [
-                    [
-                      1.36333,
-                      -14.27457,
-                      18.22053
-                    ],
-                    [
-                      1.36333,
-                      -14.07382,
-                      18.29521
-                    ]
-                  ],
-                  "uses": [
-                    {
-                      "kind": "BEVEL",
-                      "source_edges": [
-                        45
-                      ]
-                    },
-                    {
-                      "kind": "SEGMENT",
-                      "source_edges": [
-                        94
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "points": [
-                    [
-                      1.36333,
-                      -14.07382,
-                      18.29521
-                    ],
-                    [
-                      1.36333,
-                      -13.87307,
-                      18.3201
-                    ]
-                  ],
-                  "uses": [
-                    {
-                      "kind": "BEVEL",
-                      "source_edges": [
-                        45
-                      ]
-                    },
-                    {
-                      "kind": "SEGMENT",
-                      "source_edges": [
-                        94
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "points": [
-                    [
-                      1.36333,
-                      -12.57307,
-                      18.3201
-                    ],
-                    [
-                      1.36333,
-                      -12.39574,
-                      18.30068
-                    ]
-                  ],
-                  "uses": [
-                    {
-                      "kind": "BEVEL",
-                      "source_edges": [
-                        36
-                      ]
-                    },
-                    {
-                      "kind": "SEGMENT",
-                      "source_edges": [
-                        94
-                      ]
-                    }
-                  ]
-                }
-              ],
-              "all_suspect_curves_have_two_material_owners": true,
-              "single_use_edges": [
-                {
-                  "points": [
-                    [
-                      1.36333,
-                      -14.27458,
-                      18.72487
-                    ],
-                    [
-                      1.36333,
-                      -11.97155,
-                      18.72487
-                    ]
-                  ],
-                  "uses": [
-                    {
-                      "kind": "SEGMENT",
-                      "source_edges": [
-                        94
-                      ]
-                    }
-                  ]
-                }
-              ]
+            "face_count": 35,
+            "digest": "b1696a76d8229bc46287a4ed6c3d14681b012620c895f4077512bcbb1b91215a",
+            "component_counts": {
+              "BEVEL": 6,
+              "CAP": 1,
+              "SEGMENT": 28
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 5
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 4.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 35,
+            "digest": "0ee45a5086c8fd42c3222679db46a5a2dc81391af25ac565a917f91095cd32e9",
+            "component_counts": {
+              "BEVEL": 6,
+              "CAP": 1,
+              "SEGMENT": 28
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 5
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 35,
+            "digest": "0ee45a5086c8fd42c3222679db46a5a2dc81391af25ac565a917f91095cd32e9",
+            "component_counts": {
+              "BEVEL": 6,
+              "CAP": 1,
+              "SEGMENT": 28
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 5
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 5.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 37,
+            "digest": "64bf74329ac1a79d4cff3d9b926e5b638ddf923da938585c08f13f1f312d86b9",
+            "component_counts": {
+              "BEVEL": 6,
+              "CAP": 1,
+              "SEGMENT": 30
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 5
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 37,
+            "digest": "64bf74329ac1a79d4cff3d9b926e5b638ddf923da938585c08f13f1f312d86b9",
+            "component_counts": {
+              "BEVEL": 6,
+              "CAP": 1,
+              "SEGMENT": 30
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 5
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 6.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 38,
+            "digest": "0665bbbb160a960ed06867659955be93bf4a0d66dc9ae6980fbf88928df6888f",
+            "component_counts": {
+              "BEVEL": 6,
+              "CAP": 1,
+              "SEGMENT": 31
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 5
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 38,
+            "digest": "0665bbbb160a960ed06867659955be93bf4a0d66dc9ae6980fbf88928df6888f",
+            "component_counts": {
+              "BEVEL": 6,
+              "CAP": 1,
+              "SEGMENT": 31
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 5
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 7.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 40,
+            "digest": "b66a67156e3813fe12b6de67a5fc5a3f59581d0b6bbc221a23c45b7050950b26",
+            "component_counts": {
+              "BEVEL": 7,
+              "CAP": 1,
+              "SEGMENT": 32
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 5
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 40,
+            "digest": "b66a67156e3813fe12b6de67a5fc5a3f59581d0b6bbc221a23c45b7050950b26",
+            "component_counts": {
+              "BEVEL": 7,
+              "CAP": 1,
+              "SEGMENT": 32
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 5
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 7.8,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 36,
+            "digest": "7ee79c4f0fe541cc2af9334e3461c0938c6779bb012e07d76221109355373767",
+            "component_counts": {
+              "BEVEL": 7,
+              "CAP": 1,
+              "SEGMENT": 28
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 5
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 36,
+            "digest": "7ee79c4f0fe541cc2af9334e3461c0938c6779bb012e07d76221109355373767",
+            "component_counts": {
+              "BEVEL": 7,
+              "CAP": 1,
+              "SEGMENT": 28
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 5
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 9.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 39,
+            "digest": "fa5c5dd5a76f8684fcc7786b1229b39a9175c38ff632322d0b5ad61ef4f83e3e",
+            "component_counts": {
+              "BEVEL": 7,
+              "CAP": 1,
+              "SEGMENT": 31
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 5
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 39,
+            "digest": "fa5c5dd5a76f8684fcc7786b1229b39a9175c38ff632322d0b5ad61ef4f83e3e",
+            "component_counts": {
+              "BEVEL": 7,
+              "CAP": 1,
+              "SEGMENT": 31
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 5
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 12.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 38,
+            "digest": "2dac0c20b8601455713a6d0dd4d58bbdfdf6fb75dd0010dbda7397c62bd85f3b",
+            "component_counts": {
+              "BEVEL": 7,
+              "CAP": 1,
+              "SEGMENT": 30
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 5
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 38,
+            "digest": "2dac0c20b8601455713a6d0dd4d58bbdfdf6fb75dd0010dbda7397c62bd85f3b",
+            "component_counts": {
+              "BEVEL": 7,
+              "CAP": 1,
+              "SEGMENT": 30
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 5
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 18.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 37,
+            "digest": "8e4d0fb0e78342274ed91482f8d0d44d9e80a7e7773bc3a41f2936203967cab6",
+            "component_counts": {
+              "BEVEL": 7,
+              "CAP": 1,
+              "SEGMENT": 29
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 5
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 37,
+            "digest": "8e4d0fb0e78342274ed91482f8d0d44d9e80a7e7773bc3a41f2936203967cab6",
+            "component_counts": {
+              "BEVEL": 7,
+              "CAP": 1,
+              "SEGMENT": 29
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 5
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 24.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 38,
+            "digest": "f9470fe3a6f480d668e04b6358731919afcacf169eb745cc31a443aa0be6a60b",
+            "component_counts": {
+              "BEVEL": 7,
+              "CAP": 1,
+              "SEGMENT": 30
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 6,
+              "TERMINAL_ROUTE_STATION_CLAMPED": 1
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 38,
+            "digest": "f9470fe3a6f480d668e04b6358731919afcacf169eb745cc31a443aa0be6a60b",
+            "component_counts": {
+              "BEVEL": 7,
+              "CAP": 1,
+              "SEGMENT": 30
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 6,
+              "TERMINAL_ROUTE_STATION_CLAMPED": 1
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 30.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 36,
+            "digest": "7fa4e498a7cd696fb4aaa1b25f78b79503914f140745d5eae22e896a74c4932f",
+            "component_counts": {
+              "BEVEL": 7,
+              "CAP": 1,
+              "SEGMENT": 28
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 6,
+              "TERMINAL_ROUTE_STATION_CLAMPED": 1
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 36,
+            "digest": "7fa4e498a7cd696fb4aaa1b25f78b79503914f140745d5eae22e896a74c4932f",
+            "component_counts": {
+              "BEVEL": 7,
+              "CAP": 1,
+              "SEGMENT": 28
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 6,
+              "TERMINAL_ROUTE_STATION_CLAMPED": 1
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 36.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 39,
+            "digest": "b45e1c151f9b874dc54f786d12e427ffff85c92ef2b55db0f118b904d5085322",
+            "component_counts": {
+              "BEVEL": 7,
+              "CAP": 1,
+              "SEGMENT": 31
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 6,
+              "TERMINAL_ROUTE_STATION_CLAMPED": 1
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 39,
+            "digest": "b45e1c151f9b874dc54f786d12e427ffff85c92ef2b55db0f118b904d5085322",
+            "component_counts": {
+              "BEVEL": 7,
+              "CAP": 1,
+              "SEGMENT": 31
+            },
+            "policy_counts": {
+              "CAP": 10,
+              "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1,
+              "KITE": 3,
+              "MITER": 2,
+              "SMOOTH": 4,
+              "TERMINAL_ROUTE_SATURATED": 6,
+              "TERMINAL_ROUTE_STATION_CLAMPED": 1
             }
           }
         },
         "preview_confirm_equal": true
       }
-    ],
-    "field_oracle": {
-      "source_edge": 94,
-      "suspect_curve_witnesses": [
-        {
-          "points": [
-            [
-              1.36333,
-              -14.27457,
-              18.22053
-            ],
-            [
-              1.36333,
-              -14.07382,
-              18.29521
-            ]
-          ],
-          "uses": [
-            {
-              "kind": "BEVEL",
-              "source_edges": [
-                45
-              ]
-            },
-            {
-              "kind": "SEGMENT",
-              "source_edges": [
-                94
-              ]
-            }
-          ]
-        },
-        {
-          "points": [
-            [
-              1.36333,
-              -14.07382,
-              18.29521
-            ],
-            [
-              1.36333,
-              -13.87307,
-              18.3201
-            ]
-          ],
-          "uses": [
-            {
-              "kind": "BEVEL",
-              "source_edges": [
-                45
-              ]
-            },
-            {
-              "kind": "SEGMENT",
-              "source_edges": [
-                94
-              ]
-            }
-          ]
-        },
-        {
-          "points": [
-            [
-              1.36333,
-              -12.57307,
-              18.3201
-            ],
-            [
-              1.36333,
-              -12.39574,
-              18.30068
-            ]
-          ],
-          "uses": [
-            {
-              "kind": "BEVEL",
-              "source_edges": [
-                36
-              ]
-            },
-            {
-              "kind": "SEGMENT",
-              "source_edges": [
-                94
-              ]
-            }
-          ]
-        }
-      ],
-      "all_suspect_curves_have_two_material_owners": true,
-      "single_use_edges": [
-        {
-          "points": [
-            [
-              1.36333,
-              -14.27458,
-              18.72487
-            ],
-            [
-              1.36333,
-              -11.97155,
-              18.72487
-            ]
-          ],
-          "uses": [
-            {
-              "kind": "SEGMENT",
-              "source_edges": [
-                94
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    "diagnosis": "MUTUAL_ARRIVAL_CONFIRMED"
+    ]
   },
-  "rf29b": {
+  "rf31_pchain_drag_miter": {
+    "object": "sagging_wall",
+    "selected": [
+      7,
+      26
+    ],
+    "join": "MITER",
+    "compiled": {
+      "surface_count": 2,
+      "domain_kinds": {
+        "INTRINSIC": 2
+      },
+      "atom_count": 9,
+      "point_atom_count": 6,
+      "corner_release_atom_count": 4,
+      "mutual_arrival_atom_count": 0,
+      "terminal_site_pair_loci": []
+    },
+    "widths": [
+      {
+        "width": 0.2,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "e9c6e72c0762da784c6d90a410c622f186ca7d013b0d5b25c5897e3a1cbf5dc1",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "e9c6e72c0762da784c6d90a410c622f186ca7d013b0d5b25c5897e3a1cbf5dc1",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 0.4,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "3912cc4b1bb37db25452c78084ae5a48a73e97aae6ab68482280cffaf5076fd4",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "3912cc4b1bb37db25452c78084ae5a48a73e97aae6ab68482280cffaf5076fd4",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 0.6,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "c1d2f0340891473edc305ce9d598b460c0efbc4dc3822453aa46148592712b72",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "c1d2f0340891473edc305ce9d598b460c0efbc4dc3822453aa46148592712b72",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 0.8,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "9b3182bf37e75a31e49dad796eaa61b1f698be877cde1cbe3c3a742551ce8e31",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "9b3182bf37e75a31e49dad796eaa61b1f698be877cde1cbe3c3a742551ce8e31",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 1.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "e031fc639e8b4f69041bac0e3eb36bb2e353890e0d0338a3a3a5fc79a261e321",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "e031fc639e8b4f69041bac0e3eb36bb2e353890e0d0338a3a3a5fc79a261e321",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 1.2,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "2673d9fd541f24e4c71e45d3eb97e5c3faff498b75fb4043962dd338f793808c",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "2673d9fd541f24e4c71e45d3eb97e5c3faff498b75fb4043962dd338f793808c",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 1.6,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 4,
+            "digest": "8fa021ffd7519108e4ea68ceb6a377536716a62be8b7cb21ea96c24b1adc62a5",
+            "component_counts": {
+              "CAP": 2,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 4,
+            "digest": "8fa021ffd7519108e4ea68ceb6a377536716a62be8b7cb21ea96c24b1adc62a5",
+            "component_counts": {
+              "CAP": 2,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 2.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 4,
+            "digest": "700bbc9e49d673670fa548e254267070f86669af7caa5cf376233cc57dcda2aa",
+            "component_counts": {
+              "CAP": 2,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 4,
+            "digest": "700bbc9e49d673670fa548e254267070f86669af7caa5cf376233cc57dcda2aa",
+            "component_counts": {
+              "CAP": 2,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 2.4,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "e97da43655096964ad19784abbecf8c3415b1f442ac05f2ea980dddeb493c25e",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "e97da43655096964ad19784abbecf8c3415b1f442ac05f2ea980dddeb493c25e",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 2.8,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "1cf299c99b4c66e79f0100273669a6e59a4b6268c4dc8fe4e3cbb54a954faa4b",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "1cf299c99b4c66e79f0100273669a6e59a4b6268c4dc8fe4e3cbb54a954faa4b",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 3.2,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "8a05b4c1468c4791dac6d3fc0b73e596adff5d57456e727c0b1f28745f1fe4f9",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "8a05b4c1468c4791dac6d3fc0b73e596adff5d57456e727c0b1f28745f1fe4f9",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 4.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "d78410285ec8bb1513621fd209f110205ed380f80e0b30753ce0a4d9279e32b3",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "d78410285ec8bb1513621fd209f110205ed380f80e0b30753ce0a4d9279e32b3",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 5.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "55ac92bed7872e24cf3407fd1f9da97d14e0c5ee37dd485a0622cda698e24ed0",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "55ac92bed7872e24cf3407fd1f9da97d14e0c5ee37dd485a0622cda698e24ed0",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 6.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "0fe874338d022df228fa90d9cc38343f320b707671efc2715ab343455423a171",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "0fe874338d022df228fa90d9cc38343f320b707671efc2715ab343455423a171",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 7.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "276b5a3740d507bf8e684c245186166cae231761dd25514624756b310004134c",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "276b5a3740d507bf8e684c245186166cae231761dd25514624756b310004134c",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 7.8,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "75fe551e0c09f50e505974c837ebec33d0d61befed688885f2849071584cf326",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "75fe551e0c09f50e505974c837ebec33d0d61befed688885f2849071584cf326",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 9.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "3926c2425d86e219157486c37407b409183461c78f373544b7e124de836b2d07",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "3926c2425d86e219157486c37407b409183461c78f373544b7e124de836b2d07",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 12.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "3fc71c783b472f8fdaa0e627a404b69b9bee4eab48faafc46b992312f301df6e",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "3fc71c783b472f8fdaa0e627a404b69b9bee4eab48faafc46b992312f301df6e",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 18.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "15991908cb76f2241a4d7e068d74ade5be0d9848035270138eb0867747b2c3e2",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "15991908cb76f2241a4d7e068d74ade5be0d9848035270138eb0867747b2c3e2",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 24.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "b85ed151ed2bd3638900ee1a1b2cfd3e3e744db32f4d8370e806673934b8d739",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "b85ed151ed2bd3638900ee1a1b2cfd3e3e744db32f4d8370e806673934b8d739",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 30.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "6d55efe4ba7b7a1e9ab7bb7021b8cd8ffa6b374447a9f81ccb480dd00693f2a1",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "6d55efe4ba7b7a1e9ab7bb7021b8cd8ffa6b374447a9f81ccb480dd00693f2a1",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 36.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "9246f5df353995247225940104bc87594efe670399857e62c360a95101579f00",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "9246f5df353995247225940104bc87594efe670399857e62c360a95101579f00",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      }
+    ]
+  },
+  "rf31_pchain_drag_bevel": {
+    "object": "sagging_wall",
+    "selected": [
+      7,
+      26
+    ],
+    "join": "BEVEL",
+    "compiled": {
+      "surface_count": 2,
+      "domain_kinds": {
+        "INTRINSIC": 2
+      },
+      "atom_count": 9,
+      "point_atom_count": 6,
+      "corner_release_atom_count": 4,
+      "mutual_arrival_atom_count": 0,
+      "terminal_site_pair_loci": []
+    },
+    "widths": [
+      {
+        "width": 0.2,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "e9c6e72c0762da784c6d90a410c622f186ca7d013b0d5b25c5897e3a1cbf5dc1",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "e9c6e72c0762da784c6d90a410c622f186ca7d013b0d5b25c5897e3a1cbf5dc1",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 0.4,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "3912cc4b1bb37db25452c78084ae5a48a73e97aae6ab68482280cffaf5076fd4",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "3912cc4b1bb37db25452c78084ae5a48a73e97aae6ab68482280cffaf5076fd4",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 0.6,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "c1d2f0340891473edc305ce9d598b460c0efbc4dc3822453aa46148592712b72",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "c1d2f0340891473edc305ce9d598b460c0efbc4dc3822453aa46148592712b72",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 0.8,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "9b3182bf37e75a31e49dad796eaa61b1f698be877cde1cbe3c3a742551ce8e31",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "9b3182bf37e75a31e49dad796eaa61b1f698be877cde1cbe3c3a742551ce8e31",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 1.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "e031fc639e8b4f69041bac0e3eb36bb2e353890e0d0338a3a3a5fc79a261e321",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "e031fc639e8b4f69041bac0e3eb36bb2e353890e0d0338a3a3a5fc79a261e321",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 1.2,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "2673d9fd541f24e4c71e45d3eb97e5c3faff498b75fb4043962dd338f793808c",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 3,
+            "digest": "2673d9fd541f24e4c71e45d3eb97e5c3faff498b75fb4043962dd338f793808c",
+            "component_counts": {
+              "SEGMENT": 3
+            },
+            "policy_counts": {
+              "CAP": 6
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 1.6,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 4,
+            "digest": "8fa021ffd7519108e4ea68ceb6a377536716a62be8b7cb21ea96c24b1adc62a5",
+            "component_counts": {
+              "CAP": 2,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 4,
+            "digest": "8fa021ffd7519108e4ea68ceb6a377536716a62be8b7cb21ea96c24b1adc62a5",
+            "component_counts": {
+              "CAP": 2,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 2.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 4,
+            "digest": "700bbc9e49d673670fa548e254267070f86669af7caa5cf376233cc57dcda2aa",
+            "component_counts": {
+              "CAP": 2,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 4,
+            "digest": "700bbc9e49d673670fa548e254267070f86669af7caa5cf376233cc57dcda2aa",
+            "component_counts": {
+              "CAP": 2,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 2.4,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "e97da43655096964ad19784abbecf8c3415b1f442ac05f2ea980dddeb493c25e",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "e97da43655096964ad19784abbecf8c3415b1f442ac05f2ea980dddeb493c25e",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 2.8,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "1cf299c99b4c66e79f0100273669a6e59a4b6268c4dc8fe4e3cbb54a954faa4b",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "1cf299c99b4c66e79f0100273669a6e59a4b6268c4dc8fe4e3cbb54a954faa4b",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 3.2,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "8a05b4c1468c4791dac6d3fc0b73e596adff5d57456e727c0b1f28745f1fe4f9",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "8a05b4c1468c4791dac6d3fc0b73e596adff5d57456e727c0b1f28745f1fe4f9",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 4.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "d78410285ec8bb1513621fd209f110205ed380f80e0b30753ce0a4d9279e32b3",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "d78410285ec8bb1513621fd209f110205ed380f80e0b30753ce0a4d9279e32b3",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 5.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "55ac92bed7872e24cf3407fd1f9da97d14e0c5ee37dd485a0622cda698e24ed0",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "55ac92bed7872e24cf3407fd1f9da97d14e0c5ee37dd485a0622cda698e24ed0",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 6.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "0fe874338d022df228fa90d9cc38343f320b707671efc2715ab343455423a171",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "0fe874338d022df228fa90d9cc38343f320b707671efc2715ab343455423a171",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 7.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "276b5a3740d507bf8e684c245186166cae231761dd25514624756b310004134c",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "276b5a3740d507bf8e684c245186166cae231761dd25514624756b310004134c",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 7.8,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "75fe551e0c09f50e505974c837ebec33d0d61befed688885f2849071584cf326",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "75fe551e0c09f50e505974c837ebec33d0d61befed688885f2849071584cf326",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 9.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "3926c2425d86e219157486c37407b409183461c78f373544b7e124de836b2d07",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "3926c2425d86e219157486c37407b409183461c78f373544b7e124de836b2d07",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 12.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "3fc71c783b472f8fdaa0e627a404b69b9bee4eab48faafc46b992312f301df6e",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "3fc71c783b472f8fdaa0e627a404b69b9bee4eab48faafc46b992312f301df6e",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 18.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "15991908cb76f2241a4d7e068d74ade5be0d9848035270138eb0867747b2c3e2",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "15991908cb76f2241a4d7e068d74ade5be0d9848035270138eb0867747b2c3e2",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 24.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "b85ed151ed2bd3638900ee1a1b2cfd3e3e744db32f4d8370e806673934b8d739",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "b85ed151ed2bd3638900ee1a1b2cfd3e3e744db32f4d8370e806673934b8d739",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 30.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "6d55efe4ba7b7a1e9ab7bb7021b8cd8ffa6b374447a9f81ccb480dd00693f2a1",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "6d55efe4ba7b7a1e9ab7bb7021b8cd8ffa6b374447a9f81ccb480dd00693f2a1",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      },
+      {
+        "width": 36.0,
+        "evaluations": {
+          "preview": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "9246f5df353995247225940104bc87594efe670399857e62c360a95101579f00",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          },
+          "confirm": {
+            "status": "OK",
+            "face_count": 6,
+            "digest": "9246f5df353995247225940104bc87594efe670399857e62c360a95101579f00",
+            "component_counts": {
+              "CAP": 4,
+              "SEGMENT": 2
+            },
+            "policy_counts": {
+              "CAP": 6,
+              "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 4,
+              "TERMINAL_ROUTE_SATURATED": 2
+            }
+          }
+        },
+        "preview_confirm_equal": true
+      }
+    ]
+  },
+  "rf29b_terminal_capacity": {
     "object": "sagging_wall",
     "selected": [
       6,
@@ -637,12 +2279,16 @@
       8
     ],
     "join": "MITER",
-    "compiled_counts": {
+    "compiled": {
       "surface_count": 2,
+      "domain_kinds": {
+        "INTRINSIC": 2
+      },
       "atom_count": 12,
       "point_atom_count": 6,
-      "unbound_point_atom_count": 0,
-      "corner_release_atom_count": 6
+      "corner_release_atom_count": 6,
+      "mutual_arrival_atom_count": 0,
+      "terminal_site_pair_loci": []
     },
     "widths": [
       {
@@ -730,6 +2376,13 @@
         "preview_confirm_equal": true
       }
     ]
+  },
+  "oracles": {
+    "rf30_intrinsic_mutual_atoms": false,
+    "rf30_runtime_release_observed": false,
+    "rf31_site_pair_locus": false,
+    "rf31_no_cap_outputs": false,
+    "rf31_cap_pairs_aligned": false
   },
   "green": false
 }
