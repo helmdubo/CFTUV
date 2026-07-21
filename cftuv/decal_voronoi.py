@@ -425,6 +425,33 @@ class _CornerReleaseAtom:
 
 
 @dataclass(frozen=True)
+class _MutualArrivalAtom:
+    """RC5b: соседняя cell, временно возвращаемая материи угла.
+
+    Freeze-locus остаётся compile-static. Runtime только проверяет его
+    pointwise event height: материя угла уже покрывает точку, а материя
+    ``blocking_site`` ещё нет. После обоюдного прибытия обычная Voronoi-
+    граница снова является авторитетом.
+    """
+
+    corner_index: int
+    point_site_index: int
+    point_periodic_shift: int
+    blocking_site_index: int
+    blocking_periodic_shift: int
+    fragments: tuple[tuple[tuple[float, float], ...], ...]
+    fragment_triangle_ids: tuple[int, ...] = ()
+
+    def __post_init__(self):
+        if self.fragment_triangle_ids and (
+            len(self.fragment_triangle_ids) != len(self.fragments)
+        ):
+            raise ValueError(
+                "Mutual-arrival fragment provenance must be aligned"
+            )
+
+
+@dataclass(frozen=True)
 class _IntrinsicDomainTriangle:
     """Один triangle intrinsic chart и его lift-данные на owner mesh."""
 
@@ -1057,6 +1084,9 @@ class _PatchVoronoiSurface:
     ports_by_vertex: dict[int, tuple["_CompiledSitePort", ...]]
     ports_by_site: dict[int, tuple["_CompiledSitePort", ...]]
     corner_release_atoms: dict[int, tuple[_CornerReleaseAtom, ...]]
+    mutual_arrival_atoms: dict[int, tuple[_MutualArrivalAtom, ...]] = field(
+        default_factory=dict
+    )
     semantic_owner_chart_by_vertex: tuple[tuple[int, int], ...] = ()
     native_site_edge_indices: tuple[int, ...] = ()
     corner_seeds: tuple[CornerSeed, ...] = ()
@@ -5387,9 +5417,11 @@ def _compile_corner_release_atoms(
     guard,
     curve_step,
     point_cell_records,
+    atom_cell_records=(),
+    compile_mutual_arrival=False,
     diagnostics=None,
 ):
-    """Компилирует конкуренцию за освобождаемую часть point-cell RC5a.
+    """Компилирует двустороннюю конкуренцию вокруг point-cell RC5a/RC5b.
 
     BEVEL не меняет incident segments собственной ленты. Поэтому из
     конкуренции за клин исключаются оба incident site, а кандидаты берутся
@@ -5398,7 +5430,7 @@ def _compile_corner_release_atoms(
     """
 
     if not point_cell_records:
-        return {}
+        return {}, {}
 
     def neighbor_cells(cell_index):
         result = set()
@@ -5415,6 +5447,11 @@ def _compile_corner_release_atoms(
         return result
 
     records_by_corner = {}
+    mutual_records_by_corner = {}
+    atom_record_by_cell = {
+        int(record[0]): record for record in atom_cell_records
+    }
+    mutual_record_keys = set()
     diagram_scale = int(diagram_transform.scale)
     for record in point_cell_records:
         (
@@ -5431,6 +5468,7 @@ def _compile_corner_release_atoms(
         queue = [int(primary_cell_index)]
         visited = set()
         candidate_record_indices = set()
+        candidate_cells_by_record = {}
         while queue:
             cell_index = queue.pop()
             if cell_index in visited:
@@ -5447,10 +5485,66 @@ def _compile_corner_release_atoms(
                     queue.append(neighbor_index)
                 else:
                     candidate_record_indices.add(int(neighbor.site))
+                    candidate_cells_by_record.setdefault(
+                        int(neighbor.site), set()
+                    ).add(int(neighbor_index))
 
         if not candidate_record_indices:
             continue
         candidate_record_indices = tuple(sorted(candidate_record_indices))
+
+        # RC5b reciprocal side: point/corner matter may cross the same frozen
+        # locus into an external SEGMENT cell until that segment itself arrives.
+        # Only intrinsic charts need this extra IR: in an exact planar chart
+        # Euclidean segment-Voronoi distance and extrusion alpha coincide.
+        if compile_mutual_arrival:
+            for candidate_index in candidate_record_indices:
+                owner_site_index, owner_shift = diagram_site_records[
+                    candidate_index
+                ][:2]
+                for candidate_cell_index in sorted(
+                    candidate_cells_by_record.get(candidate_index, ())
+                ):
+                    atom_record = atom_record_by_cell.get(
+                        candidate_cell_index
+                    )
+                    if atom_record is None:
+                        continue
+                    (
+                        _cell_index,
+                        atom_site_index,
+                        atom_shift,
+                        atom_kind,
+                        atom_fragments,
+                        atom_triangle_ids,
+                    ) = atom_record
+                    if (
+                        atom_kind != "SEGMENT"
+                        or int(atom_site_index) != int(owner_site_index)
+                        or int(atom_shift) != int(owner_shift)
+                    ):
+                        continue
+                    record_key = (
+                        int(corner_index),
+                        int(point_periodic_shift),
+                        int(candidate_cell_index),
+                    )
+                    if record_key in mutual_record_keys:
+                        continue
+                    mutual_record_keys.add(record_key)
+                    mutual_records_by_corner.setdefault(
+                        corner_index, []
+                    ).append(
+                        _MutualArrivalAtom(
+                            corner_index=int(corner_index),
+                            point_site_index=int(point_site_index),
+                            point_periodic_shift=int(point_periodic_shift),
+                            blocking_site_index=int(owner_site_index),
+                            blocking_periodic_shift=int(owner_shift),
+                            fragments=tuple(atom_fragments),
+                            fragment_triangle_ids=tuple(atom_triangle_ids),
+                        )
+                    )
 
         if len(candidate_record_indices) == 1:
             candidate_index = candidate_record_indices[0]
@@ -5571,10 +5665,18 @@ def _compile_corner_release_atoms(
                 )
             )
 
-    return {
-        corner_index: tuple(records)
-        for corner_index, records in sorted(records_by_corner.items())
-    }
+    return (
+        {
+            corner_index: tuple(records)
+            for corner_index, records in sorted(records_by_corner.items())
+        },
+        {
+            corner_index: tuple(records)
+            for corner_index, records in sorted(
+                mutual_records_by_corner.items()
+            )
+        },
+    )
 
 
 def _normalized_intrinsic_triangles(intrinsic_triangles, quantize_point):
@@ -6188,6 +6290,7 @@ def _compile_surface(
     )
     atoms = []
     point_cell_records = []
+    atom_cell_records = []
     for cell_index, cell in enumerate(diagram_cells):
         if (
             cell.site < 0
@@ -6262,6 +6365,16 @@ def _compile_surface(
                     periodic_shift=int(periodic_shift),
                 )
             )
+            atom_cell_records.append(
+                (
+                    int(cell_index),
+                    int(owner_site_index),
+                    int(periodic_shift),
+                    cell_kind,
+                    tuple(fragments),
+                    tuple(fragment_triangle_ids),
+                )
+            )
             if cell_kind == "POINT" and corner_index >= 0:
                 point_cell_records.append(
                     (
@@ -6273,7 +6386,7 @@ def _compile_surface(
                         tuple(fragment_triangle_ids),
                     )
                 )
-    corner_release_atoms = _compile_corner_release_atoms(
+    corner_release_atoms, mutual_arrival_atoms = _compile_corner_release_atoms(
         diagram_transform=diagram_transform,
         diagram_site_records=tuple(diagram_site_records),
         sites=tuple(sites),
@@ -6283,6 +6396,8 @@ def _compile_surface(
         guard=guard,
         curve_step=curve_step,
         point_cell_records=tuple(point_cell_records),
+        atom_cell_records=tuple(atom_cell_records),
+        compile_mutual_arrival=bool(compiled_intrinsic_triangles),
         diagnostics=diagnostics,
     )
     segment_site_indices = {
@@ -6456,6 +6571,7 @@ def _compile_surface(
         ports_by_vertex=ports_by_vertex,
         ports_by_site=ports_by_site,
         corner_release_atoms=corner_release_atoms,
+        mutual_arrival_atoms=mutual_arrival_atoms,
         semantic_owner_chart_by_vertex=tuple(
             sorted(
                 (int(vertex_id), int(owner_chart_id))
@@ -14335,6 +14451,40 @@ def _atom_fragment_records(surface, atom):
         yield fragment, merge_group
 
 
+def _mutual_arrival_release_fragments(
+    surface,
+    atom,
+    corner_crop,
+    blocking_crops,
+):
+    """RC5b pointwise set: corner arrived AND blocker has not arrived."""
+
+    fragments = []
+    fragment_merge_groups = []
+    for fragment, merge_group in _atom_fragment_records(surface, atom):
+        pieces = [fragment]
+        for blocking_crop in blocking_crops:
+            pieces = [
+                outside
+                for piece in pieces
+                for outside in _subtract_convex_polygon(
+                    piece, blocking_crop.points
+                )
+            ]
+            if not pieces:
+                break
+        for piece in pieces:
+            clipped = _clip_to_convex(piece, corner_crop.points)
+            if (
+                len(clipped) < 3
+                or abs(_polygon_area2(clipped)) <= 1e-10
+            ):
+                continue
+            fragments.append(clipped)
+            fragment_merge_groups.append(merge_group)
+    return fragments, fragment_merge_groups
+
+
 def _append_pending_fragments(
     pending,
     surface,
@@ -14939,12 +15089,16 @@ def _surface_terminal_bridge_points(
     route_by_id = {
         route.route_id: route for route in rail_plan.routes
     }
-    terminal_freeze_by_routes = {
-        tuple(sorted(locus.route_ids)): locus
-        for locus in getattr(rail_plan, "freeze_loci", ())
-        if getattr(locus, "competition_kind", None)
-        is RailCompetitionKind.TERMINAL_ROUTE_PAIR
-    }
+    terminal_freeze_by_routes = {}
+    for locus in getattr(rail_plan, "freeze_loci", ()):
+        if getattr(locus, "competition_kind", None) not in {
+            RailCompetitionKind.TERMINAL_ROUTE_PAIR,
+            RailCompetitionKind.TERMINAL_SITE_PAIR,
+        }:
+            continue
+        terminal_freeze_by_routes.setdefault(
+            tuple(sorted(locus.route_ids)), []
+        ).append(locus)
     for terminal in terminal_routing or ():
         if (
             terminal.backend != DecalBackendKind.PATCH_VORONOI
@@ -15008,30 +15162,39 @@ def _surface_terminal_bridge_points(
             route_b = route_by_id.get(terminal_b.route_id)
             if route_b is None:
                 continue
-            locus = terminal_freeze_by_routes.get(
-                tuple(sorted((route_a.route_id, route_b.route_id)))
-            )
-            if locus is None:
-                continue
-            arrival_by_route = dict(
-                zip(locus.route_ids, locus.arrival_distances)
-            )
-            distance_a = arrival_by_route[route_a.route_id]
-            distance_b = arrival_by_route[route_b.route_id]
-            if alpha < distance_a or alpha < distance_b:
-                continue
-            meeting_candidates.append(
-                (
-                    max(distance_a, distance_b),
-                    locus.owner_chain_ref,
-                    locus.route_ids,
-                    key_a,
-                    key_b,
-                    distance_a,
-                    distance_b,
-                    locus,
+            for locus in terminal_freeze_by_routes.get(
+                tuple(sorted((route_a.route_id, route_b.route_id))),
+                (),
+            ):
+                if (
+                    locus.competition_kind
+                    is RailCompetitionKind.TERMINAL_SITE_PAIR
+                    and not (
+                        terminal_a.spine_edge_id
+                        == terminal_b.spine_edge_id
+                        == locus.source_edge_id
+                    )
+                ):
+                    continue
+                arrival_by_route = dict(
+                    zip(locus.route_ids, locus.arrival_distances)
                 )
-            )
+                distance_a = arrival_by_route[route_a.route_id]
+                distance_b = arrival_by_route[route_b.route_id]
+                if alpha < distance_a or alpha < distance_b:
+                    continue
+                meeting_candidates.append(
+                    (
+                        max(distance_a, distance_b),
+                        locus.owner_chain_ref,
+                        locus.route_ids,
+                        key_a,
+                        key_b,
+                        distance_a,
+                        distance_b,
+                        locus,
+                    )
+                )
     met_keys = set()
     for (
         _distance,
@@ -15042,35 +15205,57 @@ def _surface_terminal_bridge_points(
         distance_a,
         distance_b,
         locus,
-    ) in sorted(meeting_candidates):
+    ) in sorted(
+        meeting_candidates,
+        key=lambda item: item[:-1] + (repr(item[-1]),),
+    ):
         if key_a in met_keys or key_b in met_keys:
             continue
         terminal_a, corner_a = terminal_records[key_a]
         terminal_b, corner_b = terminal_records[key_b]
-        result[key_a] = replace(
-            _terminal_route_chart_guide(
-                surface,
-                terminal_a,
-                rail_plan,
-                distance_a,
-                corner_a.point,
-            ),
-            contact_met=True,
-            frozen=True,
-            freeze_locus=locus,
-        )
-        result[key_b] = replace(
-            _terminal_route_chart_guide(
-                surface,
-                terminal_b,
-                rail_plan,
-                distance_b,
-                corner_b.point,
-            ),
-            contact_met=True,
-            frozen=True,
-            freeze_locus=locus,
-        )
+        if (
+            locus.competition_kind
+            is RailCompetitionKind.TERMINAL_SITE_PAIR
+        ):
+            # Контакты продолжают идти по двум независимым pChain routes;
+            # freeze относится только к их общей station-partition на site.
+            result[key_a] = replace(
+                result[key_a],
+                contact_met=True,
+                frozen=True,
+                freeze_locus=locus,
+            )
+            result[key_b] = replace(
+                result[key_b],
+                contact_met=True,
+                frozen=True,
+                freeze_locus=locus,
+            )
+        else:
+            result[key_a] = replace(
+                _terminal_route_chart_guide(
+                    surface,
+                    terminal_a,
+                    rail_plan,
+                    distance_a,
+                    corner_a.point,
+                ),
+                contact_met=True,
+                frozen=True,
+                freeze_locus=locus,
+            )
+            result[key_b] = replace(
+                _terminal_route_chart_guide(
+                    surface,
+                    terminal_b,
+                    rail_plan,
+                    distance_b,
+                    corner_b.point,
+                ),
+                contact_met=True,
+                frozen=True,
+                freeze_locus=locus,
+            )
         met_keys.update((key_a, key_b))
         if diagnostics is not None:
             diagnostics.terminal_contact_meeting_count += 1
@@ -15462,6 +15647,103 @@ def _evaluate_surface_crops(
         if not corner_emitted:
             absorbed_corner_indices.add(corner_index)
 
+    # RC5b: reciprocal pointwise event-height gate. Compile-static locus
+    # вокруг point-cell не режет уже пришедшую материю угла, пока материя
+    # внешнего SEGMENT-владельца ещё не дошла до той же точки. Как только
+    # обе crop покрывают точку, обычная Voronoi-граница снова авторитетна.
+    mutual_atoms_by_corner = getattr(surface, "mutual_arrival_atoms", {})
+    if mutual_atoms_by_corner and not _surface_is_approximate(surface):
+        period = float(
+            getattr(getattr(surface, "domain", None), "period", 0.0)
+        )
+        for corner_index, crops in sorted(corner_crops.items()):
+            corner = surface.corners[corner_index]
+            corner_offsets = dict(corner.site_u_offsets)
+            for mutual_atom in mutual_atoms_by_corner.get(
+                corner_index, ()
+            ):
+                join_offset = (
+                    mutual_atom.point_periodic_shift * period
+                    - corner_offsets.get(
+                        mutual_atom.point_site_index, 0.0
+                    )
+                )
+                blocking_source_site = surface.sites[
+                    mutual_atom.blocking_site_index
+                ]
+                blocking_site = _periodic_site_image(
+                    surface,
+                    blocking_source_site,
+                    mutual_atom.blocking_periodic_shift,
+                )
+                start_guide, end_guide = site_terminal_guides(
+                    blocking_source_site,
+                    mutual_atom.blocking_periodic_shift,
+                )
+                blocking_crops = [
+                    component
+                    for component, _terminal_vertices in (
+                        _terminal_segment_crop_components(
+                            blocking_site,
+                            alpha,
+                            start_guide=start_guide,
+                            end_guide=end_guide,
+                        )
+                    )
+                ]
+                for blocking_corner, blocking_crop in crops_by_site.get(
+                    mutual_atom.blocking_site_index, ()
+                ):
+                    blocking_offsets = dict(
+                        blocking_corner.site_u_offsets
+                    )
+                    blocking_offset = (
+                        mutual_atom.blocking_periodic_shift * period
+                        - blocking_offsets.get(
+                            mutual_atom.blocking_site_index, 0.0
+                        )
+                    )
+                    blocking_crops.append(
+                        _translated_crop_u(blocking_crop, blocking_offset)
+                    )
+
+                for crop in crops:
+                    image_crop = _translated_crop_u(crop, join_offset)
+                    (
+                        fragments,
+                        fragment_merge_groups,
+                    ) = _mutual_arrival_release_fragments(
+                        surface,
+                        mutual_atom,
+                        image_crop,
+                        blocking_crops,
+                    )
+                    if not fragments:
+                        continue
+                    owner_site_indices = (
+                        crop.owner_site_indices or corner.incident_sites
+                    )
+                    owner_site_index = min(owner_site_indices)
+                    image_site = _translated_site_u(
+                        _corner_site_view(
+                            surface, corner, owner_site_index
+                        ),
+                        join_offset,
+                    )
+                    _append_pending_fragments(
+                        pending,
+                        surface,
+                        image_site,
+                        image_crop,
+                        fragments,
+                        diagnostics,
+                        fragment_merge_groups=fragment_merge_groups,
+                    )
+                    if diagnostics is not None:
+                        diagnostics.record_runtime_policy(
+                            "MUTUAL_ARRIVAL_RELEASE"
+                        )
+
     # RC5a: BEVEL освобождает часть primary point-cell. Она не исчезает и не
     # остаётся невидимой стеной: compile-static second-owner partition отдаёт
     # её дотекающим чужим SEGMENT-потокам. Собственные incident sites в этой
@@ -15800,57 +16082,66 @@ def _align_strip_cap_face(cap_face, cap_loop, strip_face, strip_loop):
     )
 
 
-def _align_strip_cap_neighbor(cap_face, strip_face, shared_edges):
+def _align_strip_cap_neighbors(cap_face, strip_neighbors):
     """Один affine seed + shared-key canonicalization всей adjacency."""
 
     adjacency = {}
     cap_indices_by_key = {}
     strip_facts_by_key = {}
     seeds = []
-    for cap_use, strip_use in shared_edges:
-        cap_loop = cap_use[1]
-        strip_loop = strip_use[1]
-        cap_count = len(cap_face.vert_keys)
-        strip_count = len(strip_face.vert_keys)
-        cap_keys = (
-            cap_face.vert_keys[cap_loop],
-            cap_face.vert_keys[(cap_loop + 1) % cap_count],
-        )
-        strip_keys = (
-            strip_face.vert_keys[(strip_loop + 1) % strip_count],
-            strip_face.vert_keys[strip_loop],
-        )
-        if cap_keys != strip_keys:
-            return None, "CAP_KEEP_SHARED_GEOMETRY_MISMATCH"
-        adjacency.setdefault(cap_keys[0], set()).add(cap_keys[1])
-        adjacency.setdefault(cap_keys[1], set()).add(cap_keys[0])
-        for cap_index, strip_index, key in (
-            (cap_loop, (strip_loop + 1) % strip_count, cap_keys[0]),
-            ((cap_loop + 1) % cap_count, strip_loop, cap_keys[1]),
-        ):
-            cap_indices_by_key.setdefault(key, set()).add(cap_index)
-            fact = (
-                float(strip_face.u_fracs[strip_index]),
-                float(strip_face.v_lengths[strip_index]),
+    for strip_face, shared_edges in strip_neighbors:
+        for cap_use, strip_use in shared_edges:
+            cap_loop = cap_use[1]
+            strip_loop = strip_use[1]
+            cap_count = len(cap_face.vert_keys)
+            strip_count = len(strip_face.vert_keys)
+            cap_keys = (
+                cap_face.vert_keys[cap_loop],
+                cap_face.vert_keys[(cap_loop + 1) % cap_count],
             )
-            previous = strip_facts_by_key.setdefault(key, fact)
-            if previous != fact:
-                return None, "CAP_KEEP_STATION_KEY_DESYNC"
-        alignment = _align_strip_cap_face(
-            cap_face, cap_loop, strip_face, strip_loop
-        )
-        if alignment is not None:
-            cap_a = float(cap_face.u_fracs[cap_loop])
-            cap_b = float(
-                cap_face.u_fracs[(cap_loop + 1) % cap_count]
+            strip_keys = (
+                strip_face.vert_keys[(strip_loop + 1) % strip_count],
+                strip_face.vert_keys[strip_loop],
             )
-            seeds.append(
+            if cap_keys != strip_keys:
+                return None, "CAP_KEEP_SHARED_GEOMETRY_MISMATCH"
+            adjacency.setdefault(cap_keys[0], set()).add(cap_keys[1])
+            adjacency.setdefault(cap_keys[1], set()).add(cap_keys[0])
+            for cap_index, strip_index, key in (
                 (
-                    abs(cap_b - cap_a),
-                    repr(cap_keys),
-                    alignment[0],
+                    cap_loop,
+                    (strip_loop + 1) % strip_count,
+                    cap_keys[0],
+                ),
+                (
+                    (cap_loop + 1) % cap_count,
+                    strip_loop,
+                    cap_keys[1],
+                ),
+            ):
+                cap_indices_by_key.setdefault(key, set()).add(cap_index)
+                fact = (
+                    float(strip_face.u_fracs[strip_index]),
+                    float(strip_face.v_lengths[strip_index]),
                 )
+                previous = strip_facts_by_key.setdefault(key, fact)
+                if previous != fact:
+                    return None, "CAP_KEEP_STATION_KEY_DESYNC"
+            alignment = _align_strip_cap_face(
+                cap_face, cap_loop, strip_face, strip_loop
             )
+            if alignment is not None:
+                cap_a = float(cap_face.u_fracs[cap_loop])
+                cap_b = float(
+                    cap_face.u_fracs[(cap_loop + 1) % cap_count]
+                )
+                seeds.append(
+                    (
+                        abs(cap_b - cap_a),
+                        repr(cap_keys),
+                        alignment[0],
+                    )
+                )
     if not adjacency or any(len(neighbors) > 2 for neighbors in adjacency.values()):
         return None, "CAP_KEEP_SHARED_EDGE_DISCONNECTED"
     pending = [min(adjacency, key=repr)]
@@ -15863,6 +16154,48 @@ def _align_strip_cap_neighbor(cap_face, strip_face, shared_edges):
         pending.extend(adjacency[key])
     if visited != set(adjacency):
         return None, "CAP_KEEP_SHARED_EDGE_DISCONNECTED"
+    endpoints = tuple(
+        sorted(
+            (
+                key
+                for key, neighbors in adjacency.items()
+                if len(neighbors) == 1
+            ),
+            key=repr,
+        )
+    )
+    if len(endpoints) != 2:
+        return None, "CAP_KEEP_SHARED_EDGE_DISCONNECTED"
+    ordered_keys = []
+    previous = None
+    current = endpoints[0]
+    while current is not None:
+        ordered_keys.append(current)
+        following = tuple(
+            key for key in adjacency[current] if key != previous
+        )
+        if not following:
+            break
+        if len(following) != 1:
+            return None, "CAP_KEEP_SHARED_EDGE_DISCONNECTED"
+        previous, current = current, following[0]
+    station_u = [strip_facts_by_key[key][0] for key in ordered_keys]
+    station_steps = [
+        second - first for first, second in zip(station_u, station_u[1:])
+    ]
+    if (
+        not station_steps
+        or any(step == 0.0 for step in station_steps)
+        or not (
+            all(step > 0.0 for step in station_steps)
+            or all(step < 0.0 for step in station_steps)
+        )
+    ):
+        return None, (
+            "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS"
+            if len(strip_neighbors) > 1
+            else "CAP_KEEP_STATION_UV_DISCONTINUOUS"
+        )
     if not seeds:
         return None, "CAP_KEEP_STATION_UV_DISCONTINUOUS"
 
@@ -15878,6 +16211,115 @@ def _align_strip_cap_neighbor(cap_face, strip_face, shared_edges):
     return aligned, None
 
 
+def _face_source_edges(face):
+    provenance = getattr(face, "provenance", None)
+    return frozenset(
+        int(value)
+        for value in getattr(provenance, "source_edge_ids", ())
+    )
+
+
+def _align_facing_cap_pairs(faces, diagnostics=None):
+    """Поглощает встретившиеся START/END CAP одного selected site.
+
+    После RC1 BODY короткого site может исчезнуть целиком. Тогда два CAP
+    больше не имеют SEGMENT-ребра, но их compile-static owner однозначен:
+    одна Patch-surface и один source edge. Общая CAP-CAP граница задаёт
+    точный affine map без геометрического выбора соседа.
+    """
+
+    edge_uses = {}
+    cap_with_segment_neighbor = set()
+    cap_pairs = {}
+    for face_index, face in enumerate(faces):
+        count = len(face.vert_keys)
+        for loop_index, key in enumerate(face.vert_keys):
+            following = face.vert_keys[(loop_index + 1) % count]
+            edge_uses.setdefault(frozenset((key, following)), []).append(
+                (face_index, loop_index, key, following)
+            )
+    for uses in edge_uses.values():
+        if len(uses) != 2:
+            continue
+        first, second = uses
+        first_face = faces[first[0]]
+        second_face = faces[second[0]]
+        kinds = {first_face.component_kind, second_face.component_kind}
+        if kinds == {"CAP", "SEGMENT"}:
+            cap_use = first if first_face.component_kind == "CAP" else second
+            segment_use = second if cap_use is first else first
+            if (
+                faces[cap_use[0]].surface_id
+                == faces[segment_use[0]].surface_id
+            ):
+                cap_with_segment_neighbor.add(cap_use[0])
+            continue
+        if kinds != {"CAP"} or first_face.surface_id != second_face.surface_id:
+            continue
+        pair = tuple(sorted((first[0], second[0])))
+        cap_pairs.setdefault(pair, []).append((first, second))
+
+    replacements = {}
+    occupied = set()
+    for pair, shared_uses in sorted(cap_pairs.items()):
+        first_index, second_index = pair
+        if (
+            first_index in occupied
+            or second_index in occupied
+            or first_index in cap_with_segment_neighbor
+            or second_index in cap_with_segment_neighbor
+        ):
+            continue
+        first_face = faces[first_index]
+        second_face = faces[second_index]
+        side_pair = {str(first_face.component_side), str(second_face.component_side)}
+        source_edges = _face_source_edges(first_face)
+        if (
+            side_pair != {"START", "END"}
+            or len(source_edges) != 1
+            or source_edges != _face_source_edges(second_face)
+        ):
+            continue
+        seed_index = (
+            first_index
+            if str(first_face.component_side) == "START"
+            else second_index
+        )
+        target_index = second_index if seed_index == first_index else first_index
+        seed_face = faces[seed_index]
+        target_face = faces[target_index]
+        oriented_shared = []
+        for first_use, second_use in shared_uses:
+            use_by_face = {
+                first_use[0]: first_use,
+                second_use[0]: second_use,
+            }
+            oriented_shared.append(
+                (use_by_face[target_index], use_by_face[seed_index])
+            )
+        aligned, _reason = _align_strip_cap_neighbors(
+            target_face,
+            ((seed_face, tuple(oriented_shared)),),
+        )
+        if aligned is None:
+            continue
+        replacements[seed_index] = replace(
+            seed_face,
+            component_kind="SEGMENT",
+            component_side="CAP_PAIR_START_ALIGNED",
+        )
+        replacements[target_index] = replace(
+            aligned,
+            component_side="CAP_PAIR_END_ALIGNED",
+        )
+        occupied.update(pair)
+        if diagnostics is not None:
+            diagnostics.record_runtime_policy("CAP_PAIR_ALIGNED")
+    return tuple(
+        replacements.get(index, face) for index, face in enumerate(faces)
+    )
+
+
 def _align_strip_cap_faces(faces, diagnostics=None):
     """Поглощает CAP по однозначной station-UV смежности со strip'ом.
 
@@ -15888,7 +16330,7 @@ def _align_strip_cap_faces(faces, diagnostics=None):
     Каждый непоглощённый CAP получает именованную counted-причину.
     """
 
-    faces = tuple(faces)
+    faces = _align_facing_cap_pairs(tuple(faces), diagnostics)
     edge_uses = {}
     for face_index, face in enumerate(faces):
         count = len(face.vert_keys)
@@ -15929,14 +16371,29 @@ def _align_strip_cap_faces(faces, diagnostics=None):
         neighbors = shared_by_cap.get(cap_index, {})
         if not neighbors:
             reason = "CAP_KEEP_NO_SEGMENT_NEIGHBOR"
-        elif len(neighbors) != 1:
-            reason = "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS"
         else:
-            strip_index, shared_edges = next(iter(neighbors.items()))
-            aligned, reason = _align_strip_cap_neighbor(
+            # У CAP есть структурный incident site. При встрече с чужой
+            # лентой same-surface геометрическая adjacency становится
+            # многозначной, но UV-owner остаётся однозначным: SEGMENT того
+            # же source edge. Это не эвристический выбор соседа, а сохранение
+            # compile-static site identity при RC1-конкуренции.
+            cap_source_edges = _face_source_edges(cap_face)
+            source_neighbors = {
+                strip_index: shared_edges
+                for strip_index, shared_edges in neighbors.items()
+                if cap_source_edges
+                & _face_source_edges(faces[strip_index])
+            }
+            if source_neighbors:
+                neighbors = source_neighbors
+            aligned, reason = _align_strip_cap_neighbors(
                 cap_face,
-                faces[strip_index],
-                shared_edges,
+                tuple(
+                    (faces[strip_index], shared_edges)
+                    for strip_index, shared_edges in sorted(
+                        neighbors.items()
+                    )
+                ),
             )
             if aligned is not None:
                 replacements[cap_index] = aligned

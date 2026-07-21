@@ -50,6 +50,7 @@ class RailCompetitionKind(str, Enum):
 
     THREAD_DUAL_READING = "THREAD_DUAL_READING"
     TERMINAL_ROUTE_PAIR = "TERMINAL_ROUTE_PAIR"
+    TERMINAL_SITE_PAIR = "TERMINAL_SITE_PAIR"
 
 
 class RailStartSectorKind(str, Enum):
@@ -1803,6 +1804,87 @@ def _compile_route_competition(
     return tuple(sorted(readings)), tuple(sorted(freeze_loci))
 
 
+def _terminal_site_pair_freeze_loci(
+    terminal_uses,
+    routes,
+    topology,
+    spine_uses,
+):
+    """RC5b: встреча двух pChain-terminal на общем selected site.
+
+    Их boundary routes физически различны, поэтому обычный route-pair
+    detector общего edge не видит. Но внутри общего spine site два BODY-
+    фронта имеют одну станционную метрику от противоположных endpoints и
+    compile-static встречаются на половине длины site.
+    """
+
+    route_by_id = {route.route_id: route for route in routes}
+    chain_refs_by_vertex = _spine_chain_refs_by_vertex(spine_uses)
+    groups = defaultdict(list)
+    for use in terminal_uses:
+        if use.route_id is None or use.kind is not RailTerminalKind.ROUTE:
+            continue
+        patch_ids = tuple(
+            sorted(
+                {
+                    topology.face_patch_ids[face_id]
+                    for face_id in use.source_face_ids
+                    if face_id in topology.face_patch_ids
+                }
+            )
+        )
+        if len(patch_ids) != 1:
+            continue
+        groups[(int(use.spine_edge_id), patch_ids[0])].append(use)
+
+    loci = []
+    for (spine_edge_id, _patch_id), uses in sorted(groups.items()):
+        edge = topology.edge_by_id.get(spine_edge_id)
+        if edge is None or len(uses) != 2:
+            continue
+        uses = tuple(sorted(uses))
+        if (
+            {use.spine_vertex_id for use in uses} != set(edge.vertex_ids)
+            or uses[0].route_id == uses[1].route_id
+        ):
+            continue
+        routes_pair = tuple(route_by_id.get(use.route_id) for use in uses)
+        if any(route is None for route in routes_pair):
+            continue
+        chains = tuple(
+            _route_origin_chain_ref(
+                route, topology, chain_refs_by_vertex
+            )
+            for route in routes_pair
+        )
+        if any(chain is None for chain in chains):
+            raise _RailCompileError(
+                "RAIL_COMPETITION_CHAIN_ID_UNRESOLVED",
+                edge_indices=(spine_edge_id,),
+                details=(("route_ids", tuple(use.route_id for use in uses)),),
+            )
+        half_length = float(edge.length) * 0.5
+        route_ids = tuple(int(use.route_id) for use in uses)
+        if route_ids[1] < route_ids[0]:
+            route_ids = tuple(reversed(route_ids))
+        chain_pair = tuple(sorted(chains))
+        loci.append(
+            RailFreezeLocus(
+                route_id=route_ids[0],
+                route_ids=route_ids,
+                chain_refs=chain_pair,
+                owner_chain_ref=min(chain_pair),
+                canonical_distance=half_length,
+                arrival_distances=(half_length, half_length),
+                kind=RailStationKind.EDGE,
+                source_edge_id=spine_edge_id,
+                edge_parameter=0.5,
+                competition_kind=RailCompetitionKind.TERMINAL_SITE_PAIR,
+            )
+        )
+    return tuple(sorted(loci))
+
+
 def _apply_poles_and_merges(routes, events, protected_route_ids=()):
     """Полюс определяется до merge, затем общие хвосты принадлежат одному route."""
 
@@ -2314,6 +2396,19 @@ def compile_decal_rail_plan(
             for use in terminal_uses
             if use.route_id is not None
         ),
+    )
+    freeze_loci = tuple(
+        sorted(
+            (
+                *freeze_loci,
+                *_terminal_site_pair_freeze_loci(
+                    terminal_uses,
+                    routes,
+                    topology,
+                    tuple(spine_uses),
+                ),
+            )
+        )
     )
     return DecalRailPlan(
         vertices=topology.vertices,

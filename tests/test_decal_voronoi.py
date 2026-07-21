@@ -2197,6 +2197,93 @@ def test_rf28_bevel_preserves_own_segments_and_releases_competitor_to_chord():
         )
 
 
+def test_r21_rc5b_intrinsic_corner_compiles_mutual_arrival_atoms():
+    """Статическая биссектриса не получает права резать до двух arrivals."""
+
+    graph, edge_indices = _wide_t_junction_front_graph()
+    node = graph.nodes[0]
+    lifted = [
+        Vector((point.x, point.y, 0.18 * ((index % 3) - 1)))
+        for index, point in enumerate(node.mesh_verts)
+    ]
+    node.mesh_verts = lifted
+    node.centroid = sum(lifted, Vector()) / len(lifted)
+    loop = node.boundary_loops[0]
+    loop.vert_cos = [point.copy() for point in lifted]
+    loop.chains[0].vert_cos = [point.copy() for point in lifted]
+
+    plan = compile_patch_voronoi_plan(
+        graph,
+        edge_indices,
+        offset=0.01,
+        corner_join_mode="BEVEL",
+    )
+    intrinsic_surfaces = tuple(
+        surface for surface in plan.surfaces if surface.domain.kind == "INTRINSIC"
+    )
+
+    assert intrinsic_surfaces
+    assert any(
+        records
+        for surface in intrinsic_surfaces
+        for records in surface.mutual_arrival_atoms.values()
+    )
+    assert all(
+        len(atom.fragments) == len(atom.fragment_triangle_ids)
+        for surface in intrinsic_surfaces
+        for records in surface.mutual_arrival_atoms.values()
+        for atom in records
+    )
+
+
+def test_r21_rc5b_release_is_corner_minus_blocking_arrival():
+    surface = SimpleNamespace(
+        domain=SimpleNamespace(triangle_merge_groups=(7,))
+    )
+    atom = decal_voronoi._MutualArrivalAtom(
+        corner_index=0,
+        point_site_index=0,
+        point_periodic_shift=0,
+        blocking_site_index=1,
+        blocking_periodic_shift=0,
+        fragments=(((0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)),),
+        fragment_triangle_ids=(0,),
+    )
+    corner = decal_voronoi._CropComponent(
+        kind="BEVEL",
+        side="",
+        points=((0.0, 0.0), (1.5, 0.0), (1.5, 1.5), (0.0, 1.5)),
+    )
+    partial_blocker = decal_voronoi._CropComponent(
+        kind="SEGMENT",
+        side="",
+        points=((1.0, 0.0), (2.0, 0.0), (2.0, 2.0), (1.0, 2.0)),
+    )
+
+    released, groups = decal_voronoi._mutual_arrival_release_fragments(
+        surface,
+        atom,
+        corner,
+        (partial_blocker,),
+    )
+
+    assert groups == [7]
+    released_area = sum(
+        abs(decal_voronoi._polygon_area2(fragment)) for fragment in released
+    ) * 0.5
+    assert 0.0 < released_area < 1.5 * 1.5
+    blocked, blocked_groups = (
+        decal_voronoi._mutual_arrival_release_fragments(
+            surface,
+            atom,
+            corner,
+            (corner,),
+        )
+    )
+    assert blocked == []
+    assert blocked_groups == []
+
+
 def test_rf28_join_switch_is_local_and_roundtrip_deterministic():
     graph, edge_indices = _door_opening_graph()
     diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
@@ -4001,6 +4088,128 @@ def test_rd1_rf12_cap_with_two_strip_neighbors_is_not_guessed():
     assert sum(face.component_kind == "CAP" for face in merged) == 1
     assert diagnostics.cap_keep_counts == {
         "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1
+    }
+
+
+def test_r21_cap_keeps_incident_site_owner_when_foreign_strip_arrives():
+    """RC1-встреча не превращает прежний strip обратно в бирюзовый CAP."""
+
+    cap = _rd1_partition_face(
+        ("A", "B", "C", "D"),
+        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+         (1.0, 1.0, 0.0), (0.0, 1.0, 0.0)),
+        (0.0, 1.0, 2.0, 1.0),
+        (0.0, 0.0, 1.0, 1.0),
+        kind="CAP",
+        side="START",
+    )
+    incident_strip = _rd1_partition_face(
+        ("B", "E", "F", "C"),
+        ((1.0, 0.0, 0.0), (2.0, 0.0, 0.0),
+         (2.0, 1.0, 0.0), (1.0, 1.0, 0.0)),
+        (0.0, 0.0, 1.0, 1.0),
+        (0.0, 1.0, 1.0, 0.0),
+        kind="SEGMENT",
+        side="",
+    )
+    foreign_strip = _rd1_partition_face(
+        ("D", "C", "G", "H"),
+        ((0.0, 1.0, 0.0), (1.0, 1.0, 0.0),
+         (1.0, 2.0, 0.0), (0.0, 2.0, 0.0)),
+        (0.0, 1.0, 1.0, 0.0),
+        (0.0, 0.0, 1.0, 1.0),
+        kind="SEGMENT",
+        side="",
+    )
+    cap = replace(
+        cap,
+        provenance=_test_patch_face_provenance(
+            cap.vert_keys, edge_id=5
+        ),
+    )
+    incident_strip = replace(
+        incident_strip,
+        provenance=_test_patch_face_provenance(
+            incident_strip.vert_keys, edge_id=5
+        ),
+    )
+    foreign_strip = replace(
+        foreign_strip,
+        provenance=_test_patch_face_provenance(
+            foreign_strip.vert_keys, edge_id=6
+        ),
+    )
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+
+    aligned = decal_voronoi._align_strip_cap_faces(
+        (cap, incident_strip, foreign_strip), diagnostics
+    )
+
+    assert aligned[0].component_kind == "SEGMENT"
+    assert aligned[0].component_side == "CAP_ALIGNED"
+    assert diagnostics.cap_keep_counts == {}
+
+
+def test_r21_facing_caps_of_one_site_remain_one_segment_strip():
+    start = _rd1_partition_face(
+        ("A", "B", "C", "D"),
+        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+         (1.0, 1.0, 0.0), (0.0, 1.0, 0.0)),
+        (-1.0, 0.0, 1.0, -1.0),
+        (0.0, 0.0, 1.0, 1.0),
+        kind="CAP",
+        side="START",
+    )
+    end = _rd1_partition_face(
+        ("B", "E", "F", "C"),
+        ((1.0, 0.0, 0.0), (2.0, 0.0, 0.0),
+         (2.0, 1.0, 0.0), (1.0, 1.0, 0.0)),
+        (0.0, 1.0, 1.0, 1.0),
+        (2.0, 2.0, 3.0, 3.0),
+        kind="CAP",
+        side="END",
+    )
+    start = replace(
+        start,
+        provenance=_test_patch_face_provenance(
+            start.vert_keys, edge_id=7
+        ),
+    )
+    end = replace(
+        end,
+        provenance=_test_patch_face_provenance(
+            end.vert_keys, edge_id=7
+        ),
+    )
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+
+    aligned = decal_voronoi._align_strip_cap_faces(
+        (start, end), diagnostics
+    )
+
+    assert all(face.component_kind == "SEGMENT" for face in aligned)
+    assert {face.component_side for face in aligned} == {
+        "CAP_PAIR_START_ALIGNED",
+        "CAP_PAIR_END_ALIGNED",
+    }
+    assert dict(diagnostics.runtime_policy_counts) == {
+        "CAP_PAIR_ALIGNED": 1
+    }
+    assert diagnostics.cap_keep_counts == {}
+
+    foreign_end = replace(
+        end,
+        provenance=_test_patch_face_provenance(
+            end.vert_keys, edge_id=8
+        ),
+    )
+    negative_diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+    unresolved = decal_voronoi._align_strip_cap_faces(
+        (start, foreign_end), negative_diagnostics
+    )
+    assert all(face.component_kind == "CAP" for face in unresolved)
+    assert negative_diagnostics.cap_keep_counts == {
+        "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 2
     }
 
 

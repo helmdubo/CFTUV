@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -282,6 +283,145 @@ def test_rm9_terminal_route_meeting_is_frozen_at_compile_station():
     assert locus.source_edge_id == 900
     assert locus.edge_parameter == pytest.approx(0.5)
     assert locus.owner_chain_ref == (0, 0, 0)
+
+
+def test_r21_terminal_site_pair_freezes_shared_spine_station():
+    """Два разных pChain route встречаются на общем selected site."""
+
+    shared_site = decal_rails.RailSourceEdge(
+        edge_id=900,
+        vertex_ids=(0, 1),
+        face_indices=(100,),
+        length=10.0,
+        is_spine=True,
+    )
+
+    def route(route_id, origin_vertex, route_edge):
+        return decal_rails.RailRoute(
+            route_id=route_id,
+            key=decal_rails.RailRouteKey(
+                decal_rails.RailSideKey(
+                    origin_vertex,
+                    route_edge,
+                    (100,),
+                )
+            ),
+            stations=(
+                decal_rails.RailStation(
+                    0,
+                    0.0,
+                    decal_rails.RailStationKind.VERTEX,
+                    source_vertex_id=origin_vertex,
+                ),
+                decal_rails.RailStation(
+                    1,
+                    3.0,
+                    decal_rails.RailStationKind.VERTEX,
+                    source_vertex_id=origin_vertex + 10,
+                ),
+            ),
+            segments=(
+                decal_rails.RailRouteSegment(
+                    route_edge, 0, 1, (100,)
+                ),
+            ),
+            termination=decal_rails.RailTermination.PCHAIN,
+        )
+
+    routes = (route(4, 0, 901), route(9, 1, 902))
+    terminal_uses = tuple(
+        decal_rails.RailTerminalUse(
+            spine_vertex_id=vertex_id,
+            spine_edge_id=900,
+            source_face_ids=(100,),
+            kind=decal_rails.RailTerminalKind.ROUTE,
+            route_edge_id=route_edge,
+            route_id=route_id,
+        )
+        for vertex_id, route_edge, route_id in (
+            (0, 901, 4),
+            (1, 902, 9),
+        )
+    )
+    spine_uses = (
+        decal_rails.RailSpineUse(
+            edge_id=900,
+            vertex_ids=(0, 1),
+            chain_uses=(
+                decal_rails.RailChainUse(
+                    chain_ref=(0, 0, 3),
+                    oriented_vertex_ids=(0, 1),
+                    chain_edge_index=0,
+                ),
+            ),
+        ),
+    )
+    topology = SimpleNamespace(
+        edge_by_id={900: shared_site},
+        face_patch_ids={100: 0},
+    )
+
+    loci = decal_rails._terminal_site_pair_freeze_loci(
+        terminal_uses,
+        routes,
+        topology,
+        spine_uses,
+    )
+
+    assert len(loci) == 1
+    locus = loci[0]
+    assert locus.competition_kind is (
+        decal_rails.RailCompetitionKind.TERMINAL_SITE_PAIR
+    )
+    assert locus.route_ids == (4, 9)
+    assert locus.arrival_distances == pytest.approx((5.0, 5.0))
+    assert locus.canonical_distance == pytest.approx(5.0)
+    assert locus.source_edge_id == 900
+    assert locus.edge_parameter == pytest.approx(0.5)
+
+
+def test_r21_terminal_site_pair_requires_opposite_site_endpoints():
+    route = decal_rails.RailRoute(
+        route_id=4,
+        key=decal_rails.RailRouteKey(
+            decal_rails.RailSideKey(0, 901, (100,))
+        ),
+        stations=(
+            decal_rails.RailStation(
+                0,
+                0.0,
+                decal_rails.RailStationKind.VERTEX,
+                source_vertex_id=0,
+            ),
+        ),
+        segments=(),
+        termination=decal_rails.RailTermination.PCHAIN,
+    )
+    terminal_uses = tuple(
+        decal_rails.RailTerminalUse(
+            spine_vertex_id=0,
+            spine_edge_id=900,
+            source_face_ids=(100,),
+            kind=decal_rails.RailTerminalKind.ROUTE,
+            route_id=route_id,
+        )
+        for route_id in (4, 9)
+    )
+    topology = SimpleNamespace(
+        edge_by_id={
+            900: decal_rails.RailSourceEdge(
+                900, (0, 1), (100,), 10.0, is_spine=True
+            )
+        },
+        face_patch_ids={100: 0},
+    )
+
+    assert decal_rails._terminal_site_pair_freeze_loci(
+        terminal_uses,
+        (route, replace(route, route_id=9)),
+        topology,
+        (),
+    ) == ()
 
 
 def test_rp_planar_quad_strip_has_no_routes_dams_or_caps():
