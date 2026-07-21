@@ -20,7 +20,6 @@ def _operator_with_controller():
     controller = GpuPreviewController(adapter=FakeAdapter())
     controller.start()
     operator._modal_gpu_preview = controller
-    operator._modal_decal_plan = object()
     return operator, controller
 
 
@@ -29,7 +28,17 @@ def _context():
 
 
 def _state():
-    return ("SOURCE_OBJ", None, "BASE_SETTINGS", None, True, 1, (1,))
+    return SimpleNamespace(
+        analysis_bundle=None,
+        source_obj="SOURCE_OBJ",
+        mode="SEAMS",
+        chain_refs=(),
+        selected_edge_indices=(1,),
+    )
+
+
+def _local_request():
+    return SimpleNamespace(settings="SETTINGS")
 
 
 def test_generate_routes_preview_to_gpu_and_skips_mesh(monkeypatch):
@@ -37,19 +46,21 @@ def test_generate_routes_preview_to_gpu_and_skips_mesh(monkeypatch):
     faces = (_face([(0, 0), (1, 0), (1, 1)]),)
     monkeypatch.setattr(
         ops_module,
-        "evaluate_manual_seam_faces",
-        lambda obj, settings, plan, preview=True: ManualSeamFacesResult(
+        "evaluate_manual_seam_faces_local",
+        lambda settings, plan, preview=True: ManualSeamFacesResult(
             faces=faces, policy_counts=(("MITER", 1),), evaluation_ms=1.5
         ),
     )
     mesh_calls = []
     monkeypatch.setattr(
         ops_module,
-        "generate_decal_result",
+        "generate_decal_result_local",
         lambda *args, **kwargs: mesh_calls.append(args),
     )
 
-    result = operator._generate(_context(), _state(), "SETTINGS", preview=True)
+    result = operator._evaluate_session(
+        _context(), _state(), _local_request(), object(), preview=True
+    )
 
     assert result.status == PreviewStatus.UPDATED
     assert result.object_name is None
@@ -62,18 +73,18 @@ def test_generate_confirm_never_routes_to_gpu(monkeypatch):
     operator, controller = _operator_with_controller()
     monkeypatch.setattr(
         ops_module,
-        "evaluate_manual_seam_faces",
+        "evaluate_manual_seam_faces_local",
         lambda *args, **kwargs: pytest.fail("GPU path used on confirm"),
     )
     sentinel = object()
     monkeypatch.setattr(
         ops_module,
-        "generate_decal_result",
+        "generate_decal_result_local",
         lambda *args, **kwargs: sentinel,
     )
 
-    assert operator._generate(
-        _context(), _state(), "SETTINGS", preview=False
+    assert operator._evaluate_session(
+        _context(), _state(), _local_request(), object(), preview=False
     ) is sentinel
     assert controller.updates == 0
 
@@ -84,9 +95,11 @@ def test_generate_gpu_evaluator_error_propagates(monkeypatch):
     def _boom(*_args, **_kwargs):
         raise RuntimeError("DOMAIN_BUDGET_EXCEEDED: width over budget")
 
-    monkeypatch.setattr(ops_module, "evaluate_manual_seam_faces", _boom)
+    monkeypatch.setattr(ops_module, "evaluate_manual_seam_faces_local", _boom)
     with pytest.raises(RuntimeError, match="DOMAIN_BUDGET_EXCEEDED"):
-        operator._generate(_context(), _state(), "SETTINGS", preview=True)
+        operator._evaluate_session(
+            _context(), _state(), _local_request(), object(), preview=True
+        )
 
 
 def test_generate_adapter_failure_falls_back_to_mesh(monkeypatch):
@@ -95,18 +108,18 @@ def test_generate_adapter_failure_falls_back_to_mesh(monkeypatch):
     faces = (_face([(0, 0), (1, 0), (1, 1)]),)
     monkeypatch.setattr(
         ops_module,
-        "evaluate_manual_seam_faces",
+        "evaluate_manual_seam_faces_local",
         lambda *args, **kwargs: ManualSeamFacesResult(faces=faces),
     )
     sentinel = object()
     monkeypatch.setattr(
         ops_module,
-        "generate_decal_result",
+        "generate_decal_result_local",
         lambda *args, **kwargs: sentinel,
     )
 
-    assert operator._generate(
-        _context(), _state(), "SETTINGS", preview=True
+    assert operator._evaluate_session(
+        _context(), _state(), _local_request(), object(), preview=True
     ) is sentinel
     assert operator._modal_gpu_preview is None
     assert controller.adapter.handler_count == 0
@@ -117,11 +130,13 @@ def test_empty_faces_clear_overlay_and_report_empty(monkeypatch):
     controller.update((_face([(0, 0), (1, 0), (1, 1)]),))
     monkeypatch.setattr(
         ops_module,
-        "evaluate_manual_seam_faces",
+        "evaluate_manual_seam_faces_local",
         lambda *args, **kwargs: ManualSeamFacesResult(faces=()),
     )
 
-    result = operator._generate(_context(), _state(), "SETTINGS", preview=True)
+    result = operator._evaluate_session(
+        _context(), _state(), _local_request(), object(), preview=True
+    )
 
     assert result.status == PreviewStatus.EMPTY
     assert controller.last_buffers is None
