@@ -1,6 +1,6 @@
 """Blender field acceptance для R1.3 / RR9a без сохранения ``.blend``.
 
-Собирает канонический PatchGraph для шести production-объектов, компилирует
+Собирает канонический AnalysisBundle для шести production-объектов, компилирует
 strict SEAMS plan один раз и дважды читает его при разных width. Отчёт отдельно
 публикует terminal pChain groups, выбранный guide и статичность rail-plan.
 """
@@ -28,7 +28,7 @@ if loaded_cftuv is not None:
             if module_name == "cftuv" or module_name.startswith("cftuv."):
                 del sys.modules[module_name]
 
-from cftuv.analysis import build_patch_graph  # noqa: E402
+from cftuv.analysis import build_analysis_bundle  # noqa: E402
 from cftuv.decal_rails import compile_decal_rail_attempt  # noqa: E402
 from cftuv.decals import (  # noqa: E402
     compile_manual_seam_decal_plan,
@@ -60,7 +60,9 @@ def _source_graph(obj, requested_edges):
     else:
         selected = tuple(sorted(int(edge_id) for edge_id in requested_edges))
     try:
-        graph = build_patch_graph(bm, [face.index for face in bm.faces], obj)
+        graph = build_analysis_bundle(
+            bm, [face.index for face in bm.faces], obj
+        )
     except ValueError as exc:
         bm.free()
         if "editmode" not in str(exc).lower():
@@ -83,7 +85,7 @@ def _source_graph(obj, requested_edges):
         else:
             selected = tuple(sorted(int(edge_id) for edge_id in requested_edges))
         try:
-            graph = build_patch_graph(
+            graph = build_analysis_bundle(
                 edit_bm,
                 [face.index for face in edit_bm.faces],
                 obj,
@@ -252,7 +254,6 @@ def _object_acceptance(obj, requested_edges):
                     "width": width,
                     "status": "UPDATED",
                     "face_count": len(evaluated.faces),
-                    "rail_plan_identity": id(plan.rail_plan),
                     "compile_static": id(plan.rail_plan) == compiled_plan_id,
                 }
             )
@@ -262,7 +263,6 @@ def _object_acceptance(obj, requested_edges):
                     "width": width,
                     "status": "ERROR",
                     "error": repr(exc),
-                    "rail_plan_identity": id(plan.rail_plan),
                     "compile_static": id(plan.rail_plan) == compiled_plan_id,
                 }
             )
@@ -273,7 +273,7 @@ def main():
     if bpy.context.object is not None and bpy.context.object.mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
     report = {
-        "schema": "cftuv.decal_r13_rr9a.field.v1",
+        "schema": "cftuv.decal_r13_rr9a.field.v2",
         "blender_version": bpy.app.version_string,
         "blend_file": bpy.data.filepath,
         "objects": [],

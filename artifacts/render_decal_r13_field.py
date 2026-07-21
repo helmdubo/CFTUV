@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -12,6 +13,7 @@ from mathutils import Vector
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ARTIFACT_ROOT = REPO_ROOT / "artifacts"
+OUTPUT_PREFIX = os.environ.get("CFTUV_FIELD_RENDER_PREFIX", "decal_r13_field")
 for path in (REPO_ROOT, ARTIFACT_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
@@ -237,7 +239,7 @@ def _render_object(obj, requested_edges, materials):
     scene = bpy.context.scene
     scene.render.filepath = str(
         ARTIFACT_ROOT
-        / f"decal_r13_field_{obj.name.replace('.', '_')}.png"
+        / f"{OUTPUT_PREFIX}_{obj.name.replace('.', '_')}.png"
     )
     bpy.ops.render.render(write_still=True)
 

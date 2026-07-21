@@ -2,11 +2,154 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from math import cos, pi, sin
 
 from mathutils import Vector
 
 from cftuv.model import BoundaryChain, BoundaryLoop, PatchGraph, PatchNode
+from cftuv.surface_ir import (
+    AnalysisBundle,
+    PatchSurfaceIR,
+    SourceEdge,
+    SourceFace,
+    SourceRevision,
+    SourceVertex,
+    SurfaceTriangle,
+)
+
+
+def _normal(points):
+    accumulated = [0.0, 0.0, 0.0]
+    for index, current in enumerate(points):
+        following = points[(index + 1) % len(points)]
+        accumulated[0] += (current.y - following.y) * (current.z + following.z)
+        accumulated[1] += (current.z - following.z) * (current.x + following.x)
+        accumulated[2] += (current.x - following.x) * (current.y + following.y)
+    accumulated = Vector(accumulated)
+    return accumulated.normalized() if accumulated.length_squared else accumulated
+
+
+def analysis_bundle_from_graph_faces(graph, vertices, faces, edge_ids=None):
+    """Build immutable analysis input for unit fixtures without BMesh."""
+
+    canonical_pairs = {
+        tuple(sorted((int(vertex_a), int(vertex_b))))
+        for face in faces
+        for vertex_a, vertex_b in zip(face, face[1:] + face[:1])
+    }
+    edge_ids = edge_ids or {
+        pair: 100 + index for index, pair in enumerate(sorted(canonical_pairs))
+    }
+    revision = SourceRevision("fixture", repr((vertices, faces, edge_ids)))
+    graph.source_revision = revision
+    edge_faces = {edge_id: set() for edge_id in edge_ids.values()}
+    source_faces = []
+    triangles = []
+    for face_id, face in enumerate(faces, 1000):
+        edge_cycle = tuple(
+            edge_ids[tuple(sorted(pair))]
+            for pair in zip(face, face[1:] + face[:1])
+        )
+        for edge_id in edge_cycle:
+            edge_faces[edge_id].add(face_id)
+        triangle_ids = []
+        boundary_pairs = {
+            tuple(sorted(pair)): edge_id
+            for pair, edge_id in zip(
+                zip(face, face[1:] + face[:1]),
+                edge_cycle,
+            )
+        }
+        for index in range(1, len(face) - 1):
+            vertex_ids = (face[0], face[index], face[index + 1])
+            points = [Vector(vertices[vertex_id]) for vertex_id in vertex_ids]
+            triangle_normal = (points[1] - points[0]).cross(points[2] - points[0])
+            if triangle_normal.length_squared:
+                triangle_normal.normalize()
+            triangle_id = len(triangles)
+            triangle_ids.append(triangle_id)
+            triangles.append(
+                SurfaceTriangle(
+                    triangle_id=triangle_id,
+                    source_face_id=face_id,
+                    vertex_ids=tuple(vertex_ids),
+                    physical_edge_ids=tuple(
+                        boundary_pairs.get(
+                            tuple(
+                                sorted(
+                                    (
+                                        vertex_ids[(opposite + 1) % 3],
+                                        vertex_ids[(opposite + 2) % 3],
+                                    )
+                                )
+                            )
+                        )
+                        for opposite in range(3)
+                    ),
+                    triangle_normal=tuple(triangle_normal),
+                )
+            )
+        source_faces.append(
+            SourceFace(
+                face_id=face_id,
+                patch_id=int(graph.face_to_patch[face_id]),
+                vertex_cycle=tuple(face),
+                edge_cycle=edge_cycle,
+                polygon_normal=tuple(
+                    _normal([Vector(vertices[vertex_id]) for vertex_id in face])
+                ),
+                triangle_ids=tuple(triangle_ids),
+            )
+        )
+    surface = PatchSurfaceIR(
+        source_revision=revision,
+        vertices=tuple(
+            SourceVertex(int(vertex_id), tuple(Vector(position)))
+            for vertex_id, position in sorted(vertices.items())
+        ),
+        edges=tuple(
+            SourceEdge(
+                edge_id=int(edge_id),
+                vertex_ids=tuple(pair),
+                source_face_ids=tuple(sorted(edge_faces[edge_id])),
+            )
+            for pair, edge_id in sorted(edge_ids.items(), key=lambda item: item[1])
+        ),
+        faces=tuple(source_faces),
+        triangles=tuple(triangles),
+    )
+    return AnalysisBundle(revision, graph, surface)
+
+
+def rebuild_analysis_bundle(bundle, *, vertex_updates=None, reverse_triangles=False):
+    """Rebuild a fixture after an explicit source edit."""
+
+    vertices = {
+        vertex.vertex_id: tuple(vertex.position)
+        for vertex in bundle.patch_surface.vertices
+    }
+    vertices.update(vertex_updates or {})
+    faces = tuple(face.vertex_cycle for face in bundle.patch_surface.faces)
+    edge_ids = {
+        tuple(sorted(edge.vertex_ids)): edge.edge_id
+        for edge in bundle.patch_surface.edges
+    }
+    rebuilt = analysis_bundle_from_graph_faces(
+        bundle.patch_graph,
+        vertices,
+        faces,
+        edge_ids,
+    )
+    if not reverse_triangles:
+        return rebuilt
+    return replace(
+        rebuilt,
+        patch_surface=replace(
+            rebuilt.patch_surface,
+            triangles=tuple(reversed(rebuilt.patch_surface.triangles)),
+        ),
+    )
 
 
 def mesh_graph(
@@ -25,40 +168,6 @@ def mesh_graph(
     edge_ids = {
         pair: 100 + index for index, pair in enumerate(sorted(canonical_pairs))
     }
-    local_vertex_ids = tuple(sorted(vertices))
-    local_by_global = {
-        vertex_id: local_index
-        for local_index, vertex_id in enumerate(local_vertex_ids)
-    }
-    triangles = []
-    triangle_faces = []
-    triangle_edges = []
-    for face_id, face in enumerate(faces, 1000):
-        boundary_pairs = {
-            tuple(sorted((vertex_a, vertex_b)))
-            for vertex_a, vertex_b in zip(face, face[1:] + face[:1])
-        }
-        for index in range(1, len(face) - 1):
-            global_triangle = (face[0], face[index], face[index + 1])
-            triangles.append(
-                tuple(local_by_global[vertex_id] for vertex_id in global_triangle)
-            )
-            triangle_faces.append(face_id)
-            opposite_edges = []
-            for opposite_slot in range(3):
-                pair = tuple(
-                    sorted(
-                        (
-                            global_triangle[(opposite_slot + 1) % 3],
-                            global_triangle[(opposite_slot + 2) % 3],
-                        )
-                    )
-                )
-                opposite_edges.append(
-                    edge_ids[pair] if pair in boundary_pairs else -1
-                )
-            triangle_edges.append(tuple(opposite_edges))
-
     chains = []
     for path, is_closed in tuple(spine_paths) + tuple(extra_pchain_paths):
         pairs = list(zip(path, path[1:]))
@@ -83,24 +192,6 @@ def mesh_graph(
         for face_index in range(len(faces))
     }
     for patch_id in sorted(set(patch_by_face_id.values())):
-        triangle_indices = tuple(
-            index
-            for index, face_id in enumerate(triangle_faces)
-            if patch_by_face_id[face_id] == patch_id
-        )
-        patch_vertex_ids = tuple(
-            sorted(
-                {
-                    local_vertex_ids[local_index]
-                    for triangle_index in triangle_indices
-                    for local_index in triangles[triangle_index]
-                }
-            )
-        )
-        patch_local_by_global = {
-            vertex_id: local_index
-            for local_index, vertex_id in enumerate(patch_vertex_ids)
-        }
         node = PatchNode(
             patch_id=patch_id,
             face_indices=sorted(
@@ -109,27 +200,12 @@ def mesh_graph(
                 if owner_patch_id == patch_id
             ),
         )
-        node.mesh_vert_indices = list(patch_vertex_ids)
-        node.mesh_verts = [Vector(vertices[index]) for index in patch_vertex_ids]
-        node.mesh_tris = [
-            tuple(
-                patch_local_by_global[local_vertex_ids[local_index]]
-                for local_index in triangles[triangle_index]
-            )
-            for triangle_index in triangle_indices
-        ]
-        node.mesh_tri_face_indices = [
-            triangle_faces[index] for index in triangle_indices
-        ]
-        node.mesh_tri_edge_indices = [
-            triangle_edges[index] for index in triangle_indices
-        ]
         # Для rail fixtures достаточно канонической pChain-провенанс на
         # каждом owner-patch; _source_chain_records дедуплицирует продолжения.
         node.boundary_loops = [BoundaryLoop(chains=list(chains))]
         graph.add_node(node)
     selected = tuple(chains[0].edge_indices) if chains else ()
-    return graph, edge_ids, selected
+    return analysis_bundle_from_graph_faces(graph, vertices, faces, edge_ids), edge_ids, selected
 
 
 def planar_quad_strip():
@@ -259,8 +335,8 @@ def planar_rf13_with_remote_degenerate_face():
 
     graph, _edge_ids, _selected, vertex_at = planar_rf11_boundary_join()
     vertices = {
-        vertex_id: tuple(graph.nodes[0].mesh_verts[local_index])
-        for local_index, vertex_id in enumerate(graph.nodes[0].mesh_vert_indices)
+        vertex.vertex_id: vertex.position
+        for vertex in graph.patch_surface.vertices
     }
     vertices.update(
         {

@@ -12,7 +12,12 @@ from cftuv.decal_transform import (
     local_decal_settings_for_source,
     validate_decal_source_transform,
 )
-from cftuv.model import DecalSettings, PatchGraph
+from cftuv.model import (
+    DecalSettings,
+    LocalDecalSettings,
+    PatchGraph,
+    WorldDecalSettings,
+)
 
 
 class _Matrix3:
@@ -71,6 +76,11 @@ def test_world_decal_settings_convert_to_local_metric_at_scale_two():
     assert local.uv_length_scale == pytest.approx(0.50)
     assert local.corner_acute_split_angle == settings.corner_acute_split_angle
     assert local.corner_apex_limit == settings.corner_apex_limit
+    assert isinstance(settings, WorldDecalSettings)
+    assert isinstance(local, LocalDecalSettings)
+    assert not isinstance(local, WorldDecalSettings)
+    with pytest.raises(TypeError, match="WorldDecalSettings required"):
+        decal_settings_to_local(local, 2.0)
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,2150 @@
+{
+  "schema": "cftuv.decal_rf30_inspect.v2",
+  "source_commit": "1b2d411",
+  "source_root": "C:\\Users\\helmd\\Documents\\CFTUV",
+  "blend_file": "C:\\Users\\helmd\\AppData\\Local\\Temp\\cftuv_r21_user_field.blend",
+  "blend_sha256": "7db56e359deab0cca39426cabee66e16620f6de31aba68cdca3c19eed30c480f",
+  "blend_saved": false,
+  "object": "sagging_wall",
+  "selected": [
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    11
+  ],
+  "join": "BEVEL",
+  "surfaces": [
+    {
+      "patch": 0,
+      "domain": "INTRINSIC",
+      "sites": [
+        {
+          "site": 0,
+          "edge": 9,
+          "vertices": [
+            10,
+            2
+          ]
+        },
+        {
+          "site": 1,
+          "edge": 8,
+          "vertices": [
+            9,
+            10
+          ]
+        },
+        {
+          "site": 2,
+          "edge": 7,
+          "vertices": [
+            8,
+            9
+          ]
+        },
+        {
+          "site": 3,
+          "edge": 4,
+          "vertices": [
+            4,
+            5
+          ]
+        },
+        {
+          "site": 4,
+          "edge": 5,
+          "vertices": [
+            5,
+            6
+          ]
+        },
+        {
+          "site": 5,
+          "edge": 6,
+          "vertices": [
+            7,
+            8
+          ]
+        },
+        {
+          "site": 6,
+          "edge": 3,
+          "vertices": [
+            3,
+            4
+          ]
+        }
+      ],
+      "corners": [
+        {
+          "corner": 0,
+          "vertex": 2,
+          "incident_sites": [
+            0
+          ]
+        },
+        {
+          "corner": 1,
+          "vertex": 3,
+          "incident_sites": [
+            6
+          ]
+        },
+        {
+          "corner": 2,
+          "vertex": 4,
+          "incident_sites": [
+            3,
+            6
+          ]
+        },
+        {
+          "corner": 3,
+          "vertex": 5,
+          "incident_sites": [
+            3,
+            4
+          ]
+        },
+        {
+          "corner": 4,
+          "vertex": 6,
+          "incident_sites": [
+            4
+          ]
+        },
+        {
+          "corner": 5,
+          "vertex": 7,
+          "incident_sites": [
+            5
+          ]
+        },
+        {
+          "corner": 6,
+          "vertex": 8,
+          "incident_sites": [
+            2,
+            5
+          ]
+        },
+        {
+          "corner": 7,
+          "vertex": 9,
+          "incident_sites": [
+            1,
+            2
+          ]
+        },
+        {
+          "corner": 8,
+          "vertex": 10,
+          "incident_sites": [
+            0,
+            1
+          ]
+        }
+      ],
+      "atoms": [
+        {
+          "atom": 0,
+          "site": 0,
+          "kind": "SEGMENT",
+          "corner": -1
+        },
+        {
+          "atom": 1,
+          "site": 1,
+          "kind": "SEGMENT",
+          "corner": -1
+        },
+        {
+          "atom": 2,
+          "site": 2,
+          "kind": "SEGMENT",
+          "corner": -1
+        },
+        {
+          "atom": 3,
+          "site": 3,
+          "kind": "POINT",
+          "corner": 3
+        },
+        {
+          "atom": 4,
+          "site": 4,
+          "kind": "SEGMENT",
+          "corner": -1
+        },
+        {
+          "atom": 5,
+          "site": 3,
+          "kind": "SEGMENT",
+          "corner": -1
+        },
+        {
+          "atom": 6,
+          "site": 2,
+          "kind": "POINT",
+          "corner": 6
+        },
+        {
+          "atom": 7,
+          "site": 5,
+          "kind": "SEGMENT",
+          "corner": -1
+        },
+        {
+          "atom": 8,
+          "site": 6,
+          "kind": "POINT",
+          "corner": 2
+        },
+        {
+          "atom": 9,
+          "site": 6,
+          "kind": "SEGMENT",
+          "corner": -1
+        },
+        {
+          "atom": 10,
+          "site": 5,
+          "kind": "POINT",
+          "corner": 5
+        },
+        {
+          "atom": 11,
+          "site": 4,
+          "kind": "POINT",
+          "corner": 4
+        },
+        {
+          "atom": 12,
+          "site": 6,
+          "kind": "POINT",
+          "corner": 1
+        }
+      ],
+      "corner_releases": [
+        {
+          "corner": 1,
+          "point_site": 6,
+          "owner_site": 3,
+          "owner_edge": 4,
+          "fragment_count": 1
+        },
+        {
+          "corner": 2,
+          "point_site": 6,
+          "owner_site": 4,
+          "owner_edge": 5,
+          "fragment_count": 3
+        },
+        {
+          "corner": 3,
+          "point_site": 3,
+          "owner_site": 2,
+          "owner_edge": 7,
+          "fragment_count": 2
+        },
+        {
+          "corner": 3,
+          "point_site": 3,
+          "owner_site": 5,
+          "owner_edge": 6,
+          "fragment_count": 5
+        },
+        {
+          "corner": 3,
+          "point_site": 3,
+          "owner_site": 6,
+          "owner_edge": 3,
+          "fragment_count": 2
+        },
+        {
+          "corner": 4,
+          "point_site": 4,
+          "owner_site": 5,
+          "owner_edge": 6,
+          "fragment_count": 7
+        },
+        {
+          "corner": 5,
+          "point_site": 5,
+          "owner_site": 4,
+          "owner_edge": 5,
+          "fragment_count": 5
+        },
+        {
+          "corner": 6,
+          "point_site": 2,
+          "owner_site": 0,
+          "owner_edge": 9,
+          "fragment_count": 1
+        },
+        {
+          "corner": 6,
+          "point_site": 2,
+          "owner_site": 1,
+          "owner_edge": 8,
+          "fragment_count": 6
+        },
+        {
+          "corner": 6,
+          "point_site": 2,
+          "owner_site": 3,
+          "owner_edge": 4,
+          "fragment_count": 1
+        },
+        {
+          "corner": 6,
+          "point_site": 2,
+          "owner_site": 4,
+          "owner_edge": 5,
+          "fragment_count": 20
+        }
+      ],
+      "mutual_arrivals": [
+        {
+          "corner": 1,
+          "point_site": 6,
+          "point_edge": 3,
+          "blocking_site": 3,
+          "blocking_edge": 4,
+          "fragment_count": 3
+        },
+        {
+          "corner": 1,
+          "point_site": 6,
+          "point_edge": 3,
+          "blocking_site": 4,
+          "blocking_edge": 5,
+          "fragment_count": 19
+        },
+        {
+          "corner": 2,
+          "point_site": 6,
+          "point_edge": 3,
+          "blocking_site": 4,
+          "blocking_edge": 5,
+          "fragment_count": 19
+        },
+        {
+          "corner": 3,
+          "point_site": 3,
+          "point_edge": 4,
+          "blocking_site": 5,
+          "blocking_edge": 6,
+          "fragment_count": 3
+        },
+        {
+          "corner": 3,
+          "point_site": 3,
+          "point_edge": 4,
+          "blocking_site": 6,
+          "blocking_edge": 3,
+          "fragment_count": 2
+        },
+        {
+          "corner": 4,
+          "point_site": 4,
+          "point_edge": 5,
+          "blocking_site": 3,
+          "blocking_edge": 4,
+          "fragment_count": 3
+        },
+        {
+          "corner": 4,
+          "point_site": 4,
+          "point_edge": 5,
+          "blocking_site": 5,
+          "blocking_edge": 6,
+          "fragment_count": 3
+        },
+        {
+          "corner": 4,
+          "point_site": 4,
+          "point_edge": 5,
+          "blocking_site": 6,
+          "blocking_edge": 3,
+          "fragment_count": 2
+        },
+        {
+          "corner": 5,
+          "point_site": 5,
+          "point_edge": 6,
+          "blocking_site": 2,
+          "blocking_edge": 7,
+          "fragment_count": 8
+        },
+        {
+          "corner": 5,
+          "point_site": 5,
+          "point_edge": 6,
+          "blocking_site": 4,
+          "blocking_edge": 5,
+          "fragment_count": 19
+        },
+        {
+          "corner": 6,
+          "point_site": 2,
+          "point_edge": 7,
+          "blocking_site": 0,
+          "blocking_edge": 9,
+          "fragment_count": 5
+        },
+        {
+          "corner": 6,
+          "point_site": 2,
+          "point_edge": 7,
+          "blocking_site": 1,
+          "blocking_edge": 8,
+          "fragment_count": 2
+        },
+        {
+          "corner": 6,
+          "point_site": 2,
+          "point_edge": 7,
+          "blocking_site": 4,
+          "blocking_edge": 5,
+          "fragment_count": 19
+        }
+      ]
+    },
+    {
+      "patch": 1,
+      "domain": "INTRINSIC",
+      "sites": [
+        {
+          "site": 0,
+          "edge": 8,
+          "vertices": [
+            10,
+            9
+          ]
+        },
+        {
+          "site": 1,
+          "edge": 7,
+          "vertices": [
+            9,
+            8
+          ]
+        },
+        {
+          "site": 2,
+          "edge": 6,
+          "vertices": [
+            8,
+            7
+          ]
+        },
+        {
+          "site": 3,
+          "edge": 5,
+          "vertices": [
+            6,
+            5
+          ]
+        },
+        {
+          "site": 4,
+          "edge": 4,
+          "vertices": [
+            5,
+            4
+          ]
+        },
+        {
+          "site": 5,
+          "edge": 11,
+          "vertices": [
+            12,
+            13
+          ]
+        },
+        {
+          "site": 6,
+          "edge": 3,
+          "vertices": [
+            4,
+            3
+          ]
+        }
+      ],
+      "corners": [
+        {
+          "corner": 0,
+          "vertex": 3,
+          "incident_sites": [
+            6
+          ]
+        },
+        {
+          "corner": 1,
+          "vertex": 4,
+          "incident_sites": [
+            4,
+            6
+          ]
+        },
+        {
+          "corner": 2,
+          "vertex": 5,
+          "incident_sites": [
+            3,
+            4
+          ]
+        },
+        {
+          "corner": 3,
+          "vertex": 6,
+          "incident_sites": [
+            3
+          ]
+        },
+        {
+          "corner": 4,
+          "vertex": 7,
+          "incident_sites": [
+            2
+          ]
+        },
+        {
+          "corner": 5,
+          "vertex": 8,
+          "incident_sites": [
+            1,
+            2
+          ]
+        },
+        {
+          "corner": 6,
+          "vertex": 9,
+          "incident_sites": [
+            0,
+            1
+          ]
+        },
+        {
+          "corner": 7,
+          "vertex": 10,
+          "incident_sites": [
+            0
+          ]
+        },
+        {
+          "corner": 8,
+          "vertex": 12,
+          "incident_sites": [
+            5
+          ]
+        },
+        {
+          "corner": 9,
+          "vertex": 13,
+          "incident_sites": [
+            5
+          ]
+        }
+      ],
+      "atoms": [
+        {
+          "atom": 0,
+          "site": 0,
+          "kind": "POINT",
+          "corner": 7
+        },
+        {
+          "atom": 1,
+          "site": 0,
+          "kind": "SEGMENT",
+          "corner": -1
+        },
+        {
+          "atom": 2,
+          "site": 0,
+          "kind": "POINT",
+          "corner": 6
+        },
+        {
+          "atom": 3,
+          "site": 1,
+          "kind": "SEGMENT",
+          "corner": -1
+        },
+        {
+          "atom": 4,
+          "site": 2,
+          "kind": "SEGMENT",
+          "corner": -1
+        },
+        {
+          "atom": 5,
+          "site": 2,
+          "kind": "POINT",
+          "corner": 4
+        },
+        {
+          "atom": 6,
+          "site": 3,
+          "kind": "POINT",
+          "corner": 3
+        },
+        {
+          "atom": 7,
+          "site": 3,
+          "kind": "SEGMENT",
+          "corner": -1
+        },
+        {
+          "atom": 8,
+          "site": 4,
+          "kind": "POINT",
+          "corner": 2
+        },
+        {
+          "atom": 9,
+          "site": 4,
+          "kind": "SEGMENT",
+          "corner": -1
+        },
+        {
+          "atom": 10,
+          "site": 5,
+          "kind": "POINT",
+          "corner": 9
+        },
+        {
+          "atom": 11,
+          "site": 5,
+          "kind": "SEGMENT",
+          "corner": -1
+        },
+        {
+          "atom": 12,
+          "site": 6,
+          "kind": "POINT",
+          "corner": 1
+        },
+        {
+          "atom": 13,
+          "site": 6,
+          "kind": "SEGMENT",
+          "corner": -1
+        },
+        {
+          "atom": 14,
+          "site": 5,
+          "kind": "POINT",
+          "corner": 8
+        },
+        {
+          "atom": 15,
+          "site": 6,
+          "kind": "POINT",
+          "corner": 0
+        }
+      ],
+      "corner_releases": [
+        {
+          "corner": 0,
+          "point_site": 6,
+          "owner_site": 4,
+          "owner_edge": 4,
+          "fragment_count": 2
+        },
+        {
+          "corner": 0,
+          "point_site": 6,
+          "owner_site": 5,
+          "owner_edge": 11,
+          "fragment_count": 2
+        },
+        {
+          "corner": 1,
+          "point_site": 6,
+          "owner_site": 3,
+          "owner_edge": 5,
+          "fragment_count": 1
+        },
+        {
+          "corner": 1,
+          "point_site": 6,
+          "owner_site": 5,
+          "owner_edge": 11,
+          "fragment_count": 1
+        },
+        {
+          "corner": 2,
+          "point_site": 4,
+          "owner_site": 5,
+          "owner_edge": 11,
+          "fragment_count": 3
+        },
+        {
+          "corner": 2,
+          "point_site": 4,
+          "owner_site": 6,
+          "owner_edge": 3,
+          "fragment_count": 2
+        },
+        {
+          "corner": 3,
+          "point_site": 3,
+          "owner_site": 2,
+          "owner_edge": 6,
+          "fragment_count": 8
+        },
+        {
+          "corner": 3,
+          "point_site": 3,
+          "owner_site": 4,
+          "owner_edge": 4,
+          "fragment_count": 2
+        },
+        {
+          "corner": 4,
+          "point_site": 2,
+          "owner_site": 1,
+          "owner_edge": 7,
+          "fragment_count": 4
+        },
+        {
+          "corner": 4,
+          "point_site": 2,
+          "owner_site": 3,
+          "owner_edge": 5,
+          "fragment_count": 6
+        },
+        {
+          "corner": 6,
+          "point_site": 0,
+          "owner_site": 2,
+          "owner_edge": 6,
+          "fragment_count": 1
+        },
+        {
+          "corner": 7,
+          "point_site": 0,
+          "owner_site": 1,
+          "owner_edge": 7,
+          "fragment_count": 1
+        },
+        {
+          "corner": 8,
+          "point_site": 5,
+          "owner_site": 6,
+          "owner_edge": 3,
+          "fragment_count": 4
+        },
+        {
+          "corner": 9,
+          "point_site": 5,
+          "owner_site": 3,
+          "owner_edge": 5,
+          "fragment_count": 3
+        },
+        {
+          "corner": 9,
+          "point_site": 5,
+          "owner_site": 4,
+          "owner_edge": 4,
+          "fragment_count": 2
+        }
+      ],
+      "mutual_arrivals": [
+        {
+          "corner": 0,
+          "point_site": 6,
+          "point_edge": 3,
+          "blocking_site": 4,
+          "blocking_edge": 4,
+          "fragment_count": 12
+        },
+        {
+          "corner": 0,
+          "point_site": 6,
+          "point_edge": 3,
+          "blocking_site": 5,
+          "blocking_edge": 11,
+          "fragment_count": 7
+        },
+        {
+          "corner": 1,
+          "point_site": 6,
+          "point_edge": 3,
+          "blocking_site": 3,
+          "blocking_edge": 5,
+          "fragment_count": 38
+        },
+        {
+          "corner": 1,
+          "point_site": 6,
+          "point_edge": 3,
+          "blocking_site": 5,
+          "blocking_edge": 11,
+          "fragment_count": 7
+        },
+        {
+          "corner": 2,
+          "point_site": 4,
+          "point_edge": 4,
+          "blocking_site": 5,
+          "blocking_edge": 11,
+          "fragment_count": 7
+        },
+        {
+          "corner": 2,
+          "point_site": 4,
+          "point_edge": 4,
+          "blocking_site": 6,
+          "blocking_edge": 3,
+          "fragment_count": 6
+        },
+        {
+          "corner": 3,
+          "point_site": 3,
+          "point_edge": 5,
+          "blocking_site": 4,
+          "blocking_edge": 4,
+          "fragment_count": 12
+        },
+        {
+          "corner": 4,
+          "point_site": 2,
+          "point_edge": 6,
+          "blocking_site": 1,
+          "blocking_edge": 7,
+          "fragment_count": 18
+        },
+        {
+          "corner": 6,
+          "point_site": 0,
+          "point_edge": 8,
+          "blocking_site": 2,
+          "blocking_edge": 6,
+          "fragment_count": 22
+        },
+        {
+          "corner": 7,
+          "point_site": 0,
+          "point_edge": 8,
+          "blocking_site": 1,
+          "blocking_edge": 7,
+          "fragment_count": 18
+        },
+        {
+          "corner": 8,
+          "point_site": 5,
+          "point_edge": 11,
+          "blocking_site": 1,
+          "blocking_edge": 7,
+          "fragment_count": 18
+        },
+        {
+          "corner": 8,
+          "point_site": 5,
+          "point_edge": 11,
+          "blocking_site": 2,
+          "blocking_edge": 6,
+          "fragment_count": 22
+        },
+        {
+          "corner": 8,
+          "point_site": 5,
+          "point_edge": 11,
+          "blocking_site": 3,
+          "blocking_edge": 5,
+          "fragment_count": 38
+        },
+        {
+          "corner": 8,
+          "point_site": 5,
+          "point_edge": 11,
+          "blocking_site": 4,
+          "blocking_edge": 4,
+          "fragment_count": 12
+        },
+        {
+          "corner": 8,
+          "point_site": 5,
+          "point_edge": 11,
+          "blocking_site": 6,
+          "blocking_edge": 3,
+          "fragment_count": 6
+        },
+        {
+          "corner": 9,
+          "point_site": 5,
+          "point_edge": 11,
+          "blocking_site": 1,
+          "blocking_edge": 7,
+          "fragment_count": 18
+        },
+        {
+          "corner": 9,
+          "point_site": 5,
+          "point_edge": 11,
+          "blocking_site": 2,
+          "blocking_edge": 6,
+          "fragment_count": 22
+        },
+        {
+          "corner": 9,
+          "point_site": 5,
+          "point_edge": 11,
+          "blocking_site": 3,
+          "blocking_edge": 5,
+          "fragment_count": 38
+        },
+        {
+          "corner": 9,
+          "point_site": 5,
+          "point_edge": 11,
+          "blocking_site": 4,
+          "blocking_edge": 4,
+          "fragment_count": 12
+        },
+        {
+          "corner": 9,
+          "point_site": 5,
+          "point_edge": 11,
+          "blocking_site": 6,
+          "blocking_edge": 3,
+          "fragment_count": 6
+        }
+      ]
+    }
+  ],
+  "widths": [
+    {
+      "alpha": 0.2,
+      "record_count": 0,
+      "total_area": 0,
+      "records": []
+    },
+    {
+      "alpha": 0.4,
+      "record_count": 0,
+      "total_area": 0,
+      "records": []
+    },
+    {
+      "alpha": 0.8,
+      "record_count": 4,
+      "total_area": 0.027134104756804778,
+      "records": [
+        {
+          "surface": 0,
+          "domain": "INTRINSIC",
+          "atom": 10,
+          "cell_kind": "POINT",
+          "primary_site": 5,
+          "primary_edge": 6,
+          "competitor_site": 4,
+          "competitor_edge": 5,
+          "area": 0.005805061698439307,
+          "witnesses": [
+            [
+              [
+                2.567231848889379,
+                2.9756814856239746
+              ],
+              [
+                2.4549914895242497,
+                3.066196021230287
+              ],
+              [
+                2.3574089244224457,
+                2.938010346205049
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 1,
+          "domain": "INTRINSIC",
+          "atom": 10,
+          "cell_kind": "POINT",
+          "primary_site": 5,
+          "primary_edge": 11,
+          "competitor_site": 4,
+          "competitor_edge": 4,
+          "area": 0.018708874030364697,
+          "witnesses": [
+            [
+              [
+                9.140417343196916,
+                2.595210605713459
+              ],
+              [
+                8.660100265186346,
+                2.3538558359102586
+              ],
+              [
+                8.703818552039882,
+                2.356916698164661
+              ],
+              [
+                8.874081744545611,
+                2.3871325635150176
+              ],
+              [
+                9.035464218393347,
+                2.4350218348640147
+              ],
+              [
+                9.187965973583092,
+                2.5005845122116543
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 1,
+          "domain": "INTRINSIC",
+          "atom": 12,
+          "cell_kind": "POINT",
+          "primary_site": 6,
+          "primary_edge": 3,
+          "competitor_site": 5,
+          "competitor_edge": 11,
+          "area": 0.0013476514384578309,
+          "witnesses": [
+            [
+              [
+                9.25641638481645,
+                2.416461346762136
+              ],
+              [
+                9.212742542079141,
+                2.5127278555350485
+              ],
+              [
+                9.187975014783838,
+                2.5005890553251993
+              ],
+              [
+                9.235523711335684,
+                2.405962995067029
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 1,
+          "domain": "INTRINSIC",
+          "atom": 14,
+          "cell_kind": "POINT",
+          "primary_site": 5,
+          "primary_edge": 11,
+          "competitor_site": 6,
+          "competitor_edge": 3,
+          "area": 0.001272517589542943,
+          "witnesses": [
+            [
+              [
+                10.187062256731192,
+                2.978622328932579
+              ],
+              [
+                10.152403164344962,
+                3.055018396055153
+              ],
+              [
+                10.123412834242444,
+                3.0418661675809
+              ],
+              [
+                10.161493486749185,
+                2.9660900543528124
+              ]
+            ],
+            [
+              [
+                10.123412834242444,
+                3.0418661675809
+              ],
+              [
+                10.123388971705877,
+                3.0418553417113148
+              ],
+              [
+                10.161466812310035,
+                2.966076980145648
+              ],
+              [
+                10.161493486749185,
+                2.9660900543528124
+              ]
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "alpha": 1.6,
+      "record_count": 4,
+      "total_area": 0.3449709461817785,
+      "records": [
+        {
+          "surface": 0,
+          "domain": "INTRINSIC",
+          "atom": 10,
+          "cell_kind": "POINT",
+          "primary_site": 5,
+          "primary_edge": 6,
+          "competitor_site": 4,
+          "competitor_edge": 5,
+          "area": 0.005805061698439085,
+          "witnesses": [
+            [
+              [
+                2.5672318488893793,
+                2.9756814856239746
+              ],
+              [
+                2.4549914895242497,
+                3.066196021230287
+              ],
+              [
+                2.3574089244224457,
+                2.938010346205049
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 1,
+          "domain": "INTRINSIC",
+          "atom": 10,
+          "cell_kind": "POINT",
+          "primary_site": 5,
+          "primary_edge": 11,
+          "competitor_site": 4,
+          "competitor_edge": 4,
+          "area": 0.319096125478179,
+          "witnesses": [
+            [
+              [
+                8.876320711059382,
+                3.120786892626305
+              ],
+              [
+                8.641446755374641,
+                2.3525498418239383
+              ],
+              [
+                8.703818552039882,
+                2.356916698164661
+              ],
+              [
+                8.874081744545611,
+                2.3871325635150176
+              ],
+              [
+                9.035464218393347,
+                2.4350218348640147
+              ],
+              [
+                9.187965973583092,
+                2.5005845122116543
+              ]
+            ],
+            [
+              [
+                8.876320711010397,
+                3.1207868927237876
+              ],
+              [
+                7.691869436011582,
+                2.5255113806876572
+              ],
+              [
+                7.719291809641362,
+                2.470938461392506
+              ],
+              [
+                7.93395859543705,
+                2.412787296749654
+              ],
+              [
+                8.139744662574746,
+                2.3723095381054433
+              ],
+              [
+                8.33665001105445,
+                2.3495051854598743
+              ],
+              [
+                8.524674640876164,
+                2.344374238812947
+              ],
+              [
+                8.641446755374641,
+                2.3525498418239383
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 1,
+          "domain": "INTRINSIC",
+          "atom": 14,
+          "cell_kind": "POINT",
+          "primary_site": 5,
+          "primary_edge": 11,
+          "competitor_site": 6,
+          "competitor_edge": 3,
+          "area": 0.015283789296764105,
+          "witnesses": [
+            [
+              [
+                10.187062256731192,
+                2.9786223289325786
+              ],
+              [
+                9.891204243412524,
+                3.6307567931698466
+              ],
+              [
+                9.840320711010397,
+                3.6051868927237862
+              ],
+              [
+                10.161493486749185,
+                2.9660900543528124
+              ]
+            ],
+            [
+              [
+                9.840320711012273,
+                3.605186892720054
+              ],
+              [
+                10.161466812310035,
+                2.966076980145648
+              ],
+              [
+                10.161493486749185,
+                2.9660900543528124
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 1,
+          "domain": "INTRINSIC",
+          "atom": 12,
+          "cell_kind": "POINT",
+          "primary_site": 6,
+          "primary_edge": 3,
+          "competitor_site": 5,
+          "competitor_edge": 11,
+          "area": 0.004785969708396287,
+          "witnesses": [
+            [
+              [
+                9.212742542079141,
+                2.5127278555350485
+              ],
+              [
+                9.187975014783838,
+                2.5005890553251993
+              ],
+              [
+                9.499620711010397,
+                1.8803868927237861
+              ]
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "alpha": 3.2,
+      "record_count": 8,
+      "total_area": 1.8209220564736455,
+      "records": [
+        {
+          "surface": 0,
+          "domain": "INTRINSIC",
+          "atom": 6,
+          "cell_kind": "POINT",
+          "primary_site": 2,
+          "primary_edge": 7,
+          "competitor_site": 4,
+          "competitor_edge": 5,
+          "area": 0.7765643900901369,
+          "witnesses": [
+            [
+              [
+                -0.5147655963128837,
+                3.28591743716707
+              ],
+              [
+                -0.5065479768302208,
+                3.233460884385664
+              ],
+              [
+                0.10753602593146616,
+                2.738242153372691
+              ],
+              [
+                0.3476690246511134,
+                2.7353501187405542
+              ],
+              [
+                0.5779390090561658,
+                2.7404119624228995
+              ],
+              [
+                0.6331156350877092,
+                2.7436703150278774
+              ],
+              [
+                -0.03892774637207497,
+                3.504072764669333
+              ],
+              [
+                -0.4336049358729022,
+                3.386558750002348
+              ]
+            ],
+            [
+              [
+                0.6331156350877092,
+                2.7436703150278774
+              ],
+              [
+                0.7983459791466232,
+                2.753427684419727
+              ],
+              [
+                1.0088899349224851,
+                2.7743972847310365
+              ],
+              [
+                1.696603551739587,
+                3.677786472172251
+              ],
+              [
+                1.3859339176113386,
+                3.9283212870922894
+              ],
+              [
+                -0.03892774637207497,
+                3.504072764669333
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 0,
+          "domain": "INTRINSIC",
+          "atom": 3,
+          "cell_kind": "POINT",
+          "primary_site": 3,
+          "primary_edge": 4,
+          "competitor_site": 5,
+          "competitor_edge": 6,
+          "area": 0.4379173287012541,
+          "witnesses": [
+            [
+              [
+                1.4073621681636808,
+                1.6900170737437543
+              ],
+              [
+                0.6489742303790174,
+                2.3016075246857186
+              ],
+              [
+                0.3144096261568755,
+                1.8621192863203389
+              ],
+              [
+                1.2672551437223338,
+                1.5059707383655552
+              ]
+            ],
+            [
+              [
+                0.8708833539580993,
+                0.985291809922929
+              ],
+              [
+                1.267255143722334,
+                1.5059707383655554
+              ],
+              [
+                0.31440962615687584,
+                1.8621192863203389
+              ],
+              [
+                0.09598335395809926,
+                1.575191809922929
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 0,
+          "domain": "INTRINSIC",
+          "atom": 6,
+          "cell_kind": "POINT",
+          "primary_site": 2,
+          "primary_edge": 7,
+          "competitor_site": 0,
+          "competitor_edge": 9,
+          "area": 0.22839710307082167,
+          "witnesses": [
+            [
+              [
+                -0.4927056760175114,
+                3.145099603514735
+              ],
+              [
+                0.20245303350666294,
+                3.2309556692856014
+              ],
+              [
+                -0.03892774637207497,
+                3.504072764669333
+              ],
+              [
+                -0.5262120852032584,
+                3.3589852337359556
+              ]
+            ],
+            [
+              [
+                0.20245303350666288,
+                3.230955669285602
+              ],
+              [
+                0.8675200380920652,
+                3.313095237855204
+              ],
+              [
+                0.8126188964419812,
+                3.757618364301872
+              ],
+              [
+                -0.03892774637207497,
+                3.504072764669333
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 0,
+          "domain": "INTRINSIC",
+          "atom": 6,
+          "cell_kind": "POINT",
+          "primary_site": 2,
+          "primary_edge": 7,
+          "competitor_site": 1,
+          "competitor_edge": 8,
+          "area": 0.03307228842965232,
+          "witnesses": [
+            [
+              [
+                -0.486468155323888,
+                3.1052828616735635
+              ],
+              [
+                -0.45492363988197765,
+                3.0784314201199514
+              ],
+              [
+                -0.11083160085243948,
+                3.4826635957718217
+              ],
+              [
+                -0.5262120852032584,
+                3.3589852337359556
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 0,
+          "domain": "INTRINSIC",
+          "atom": 10,
+          "cell_kind": "POINT",
+          "primary_site": 5,
+          "primary_edge": 6,
+          "competitor_site": 4,
+          "competitor_edge": 5,
+          "area": 0.005805061698439307,
+          "witnesses": [
+            [
+              [
+                2.5672318488893793,
+                2.9756814856239746
+              ],
+              [
+                2.45499148952425,
+                3.0661960212302874
+              ],
+              [
+                2.3574089244224457,
+                2.938010346205049
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 1,
+          "domain": "INTRINSIC",
+          "atom": 10,
+          "cell_kind": "POINT",
+          "primary_site": 5,
+          "primary_edge": 11,
+          "competitor_site": 4,
+          "competitor_edge": 4,
+          "area": 0.319096125478179,
+          "witnesses": [
+            [
+              [
+                8.876320711059382,
+                3.120786892626305
+              ],
+              [
+                8.641446755374641,
+                2.3525498418239383
+              ],
+              [
+                8.703818552039882,
+                2.356916698164661
+              ],
+              [
+                8.874081744545611,
+                2.3871325635150176
+              ],
+              [
+                9.035464218393347,
+                2.4350218348640147
+              ],
+              [
+                9.187965973583092,
+                2.5005845122116543
+              ]
+            ],
+            [
+              [
+                8.876320711010397,
+                3.1207868927237876
+              ],
+              [
+                7.691869436011582,
+                2.5255113806876572
+              ],
+              [
+                7.719291809641362,
+                2.470938461392506
+              ],
+              [
+                7.93395859543705,
+                2.412787296749654
+              ],
+              [
+                8.139744662574746,
+                2.3723095381054433
+              ],
+              [
+                8.33665001105445,
+                2.3495051854598743
+              ],
+              [
+                8.524674640876164,
+                2.344374238812947
+              ],
+              [
+                8.641446755374641,
+                2.3525498418239383
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 1,
+          "domain": "INTRINSIC",
+          "atom": 14,
+          "cell_kind": "POINT",
+          "primary_site": 5,
+          "primary_edge": 11,
+          "competitor_site": 6,
+          "competitor_edge": 3,
+          "area": 0.015283789296765882,
+          "witnesses": [
+            [
+              [
+                10.187062256731192,
+                2.9786223289325786
+              ],
+              [
+                9.891204243412526,
+                3.630756793169847
+              ],
+              [
+                9.840320711010397,
+                3.6051868927237862
+              ],
+              [
+                10.161493486749185,
+                2.9660900543528124
+              ]
+            ],
+            [
+              [
+                9.840320711012273,
+                3.605186892720054
+              ],
+              [
+                10.161466812310035,
+                2.966076980145648
+              ],
+              [
+                10.161493486749185,
+                2.9660900543528124
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 1,
+          "domain": "INTRINSIC",
+          "atom": 12,
+          "cell_kind": "POINT",
+          "primary_site": 6,
+          "primary_edge": 3,
+          "competitor_site": 5,
+          "competitor_edge": 11,
+          "area": 0.004785969708396287,
+          "witnesses": [
+            [
+              [
+                9.212742542079141,
+                2.5127278555350485
+              ],
+              [
+                9.187975014783838,
+                2.5005890553251993
+              ],
+              [
+                9.499620711010397,
+                1.8803868927237861
+              ]
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "alpha": 7.8,
+      "record_count": 10,
+      "total_area": 4.097108561824704,
+      "records": [
+        {
+          "surface": 0,
+          "domain": "INTRINSIC",
+          "atom": 3,
+          "cell_kind": "POINT",
+          "primary_site": 3,
+          "primary_edge": 4,
+          "competitor_site": 0,
+          "competitor_edge": 9,
+          "area": 1.176505530700159,
+          "witnesses": [
+            [
+              [
+                1.0304380725088604,
+                1.9939817943665634
+              ],
+              [
+                0.10753602593146616,
+                2.738242153372691
+              ],
+              [
+                -0.4313352786077439,
+                2.753346310759671
+              ],
+              [
+                -0.32941800364038776,
+                2.1027650901347155
+              ],
+              [
+                1.0821659144985272,
+                1.5751522153362965
+              ]
+            ],
+            [
+              [
+                1.157297436457944,
+                0.9668279067279446
+              ],
+              [
+                1.082165914498527,
+                1.575152215336297
+              ],
+              [
+                -0.3294180036403873,
+                2.1027650901347155
+              ],
+              [
+                -0.08257813474246323,
+                0.5270065099326668
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 0,
+          "domain": "INTRINSIC",
+          "atom": 6,
+          "cell_kind": "POINT",
+          "primary_site": 2,
+          "primary_edge": 7,
+          "competitor_site": 4,
+          "competitor_edge": 5,
+          "area": 0.7783349451640634,
+          "witnesses": [
+            [
+              [
+                -0.5065479768302208,
+                3.2334608843856643
+              ],
+              [
+                0.1075360259314666,
+                2.738242153372691
+              ],
+              [
+                0.3476690246511134,
+                2.7353501187405542
+              ],
+              [
+                0.5779390090561658,
+                2.7404119624228995
+              ],
+              [
+                0.6331156350877092,
+                2.7436703150278774
+              ],
+              [
+                -0.03892774637207497,
+                3.504072764669333
+              ],
+              [
+                -0.5262120852032584,
+                3.3589852337359556
+              ]
+            ],
+            [
+              [
+                0.6331156350877092,
+                2.7436703150278774
+              ],
+              [
+                0.7983459791466232,
+                2.753427684419727
+              ],
+              [
+                1.0088899349224851,
+                2.7743972847310365
+              ],
+              [
+                1.696603551739587,
+                3.6777864721722513
+              ],
+              [
+                1.385933917611338,
+                3.9283212870922894
+              ],
+              [
+                -0.03892774637207497,
+                3.504072764669333
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 0,
+          "domain": "INTRINSIC",
+          "atom": 3,
+          "cell_kind": "POINT",
+          "primary_site": 3,
+          "primary_edge": 4,
+          "competitor_site": 5,
+          "competitor_edge": 6,
+          "area": 0.7499920025210998,
+          "witnesses": [
+            [
+              [
+                1.4073621681636805,
+                1.6900170737437545
+              ],
+              [
+                0.6489742303790167,
+                2.301607524685719
+              ],
+              [
+                0.3144096261568762,
+                1.8621192863203386
+              ],
+              [
+                1.2672551437223336,
+                1.5059707383655552
+              ]
+            ],
+            [
+              [
+                0.7456712607601357,
+                0.8208116420654918
+              ],
+              [
+                1.2672551437223336,
+                1.5059707383655554
+              ],
+              [
+                0.3144096261568754,
+                1.8621192863203393
+              ],
+              [
+                -0.18828018911661495,
+                1.2017796730716053
+              ],
+              [
+                -0.08257813474246323,
+                0.5270065099326668
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 0,
+          "domain": "INTRINSIC",
+          "atom": 6,
+          "cell_kind": "POINT",
+          "primary_site": 2,
+          "primary_edge": 7,
+          "competitor_site": 0,
+          "competitor_edge": 9,
+          "area": 0.5616598778129164,
+          "witnesses": [
+            [
+              [
+                -0.4313352786077438,
+                2.753346310759671
+              ],
+              [
+                0.10753602593146616,
+                2.738242153372691
+              ],
+              [
+                0.3476690246511134,
+                2.7353501187405542
+              ],
+              [
+                0.5779390090561658,
+                2.7404119624228995
+              ],
+              [
+                0.6331156350877092,
+                2.7436703150278774
+              ],
+              [
+                -0.03892774637207497,
+                3.504072764669333
+              ],
+              [
+                -0.5262120852032584,
+                3.3589852337359556
+              ]
+            ],
+            [
+              [
+                0.6331156350877092,
+                2.7436703150278774
+              ],
+              [
+                0.7983459791466232,
+                2.753427684419727
+              ],
+              [
+                0.9349616867612766,
+                2.767034234056211
+              ],
+              [
+                0.8126188964419812,
+                3.757618364301872
+              ],
+              [
+                -0.03892774637207497,
+                3.504072764669333
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 0,
+          "domain": "INTRINSIC",
+          "atom": 8,
+          "cell_kind": "POINT",
+          "primary_site": 6,
+          "primary_edge": 3,
+          "competitor_site": 0,
+          "competitor_edge": 9,
+          "area": 0.45220407229692894,
+          "witnesses": [
+            [
+              [
+                0.21931698787422527,
+                -1.40191217477996
+              ],
+              [
+                1.1287684898554171,
+                -1.2895897268270946
+              ],
+              [
+                1.4017018151032392,
+                -1.0120635197037289
+              ],
+              [
+                1.323730938610829,
+                -0.38074954792696464
+              ],
+              [
+                0.12602124571899687,
+                -0.8056134313027108
+              ]
+            ],
+            [
+              [
+                1.401701815103239,
+                -1.0120635197037289
+              ],
+              [
+                1.1287684898554164,
+                -1.289589726827095
+              ],
+              [
+                1.2933379951559671,
+                -1.2692644542276414
+              ],
+              [
+                1.4160395672071076,
+                -1.1281533167438458
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 0,
+          "domain": "INTRINSIC",
+          "atom": 6,
+          "cell_kind": "POINT",
+          "primary_site": 2,
+          "primary_edge": 7,
+          "competitor_site": 1,
+          "competitor_edge": 8,
+          "area": 0.0334411871477549,
+          "witnesses": [
+            [
+              [
+                -0.4780125373172918,
+                3.0513070633054102
+              ],
+              [
+                -0.11083160085243893,
+                3.4826635957718217
+              ],
+              [
+                -0.5262120852032584,
+                3.3589852337359556
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 0,
+          "domain": "INTRINSIC",
+          "atom": 10,
+          "cell_kind": "POINT",
+          "primary_site": 5,
+          "primary_edge": 6,
+          "competitor_site": 4,
+          "competitor_edge": 5,
+          "area": 0.005805061698439307,
+          "witnesses": [
+            [
+              [
+                2.567231848889379,
+                2.9756814856239746
+              ],
+              [
+                2.454991489524249,
+                3.066196021230286
+              ],
+              [
+                2.3574089244224457,
+                2.938010346205049
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 1,
+          "domain": "INTRINSIC",
+          "atom": 10,
+          "cell_kind": "POINT",
+          "primary_site": 5,
+          "primary_edge": 11,
+          "competitor_site": 4,
+          "competitor_edge": 4,
+          "area": 0.3190961254781799,
+          "witnesses": [
+            [
+              [
+                8.876320711059382,
+                3.120786892626305
+              ],
+              [
+                8.641446755374641,
+                2.3525498418239383
+              ],
+              [
+                8.703818552039882,
+                2.356916698164661
+              ],
+              [
+                8.874081744545611,
+                2.3871325635150176
+              ],
+              [
+                9.035464218393347,
+                2.4350218348640147
+              ],
+              [
+                9.187965973583092,
+                2.5005845122116543
+              ]
+            ],
+            [
+              [
+                8.876320711010397,
+                3.1207868927237876
+              ],
+              [
+                7.691869436011583,
+                2.5255113806876572
+              ],
+              [
+                7.719291809641362,
+                2.470938461392506
+              ],
+              [
+                7.93395859543705,
+                2.412787296749654
+              ],
+              [
+                8.139744662574746,
+                2.3723095381054433
+              ],
+              [
+                8.33665001105445,
+                2.3495051854598743
+              ],
+              [
+                8.524674640876164,
+                2.344374238812947
+              ],
+              [
+                8.641446755374641,
+                2.3525498418239383
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 1,
+          "domain": "INTRINSIC",
+          "atom": 14,
+          "cell_kind": "POINT",
+          "primary_site": 5,
+          "primary_edge": 11,
+          "competitor_site": 6,
+          "competitor_edge": 3,
+          "area": 0.015283789296765882,
+          "witnesses": [
+            [
+              [
+                10.187062256731192,
+                2.9786223289325786
+              ],
+              [
+                9.891204243412524,
+                3.630756793169847
+              ],
+              [
+                9.840320711010397,
+                3.6051868927237862
+              ],
+              [
+                10.161493486749185,
+                2.9660900543528124
+              ]
+            ],
+            [
+              [
+                9.840320711012273,
+                3.605186892720054
+              ],
+              [
+                10.161466812310035,
+                2.966076980145648
+              ],
+              [
+                10.161493486749185,
+                2.9660900543528124
+              ]
+            ]
+          ]
+        },
+        {
+          "surface": 1,
+          "domain": "INTRINSIC",
+          "atom": 12,
+          "cell_kind": "POINT",
+          "primary_site": 6,
+          "primary_edge": 3,
+          "competitor_site": 5,
+          "competitor_edge": 11,
+          "area": 0.004785969708396287,
+          "witnesses": [
+            [
+              [
+                9.212742542079141,
+                2.5127278555350485
+              ],
+              [
+                9.187975014783838,
+                2.5005890553251993
+              ],
+              [
+                9.499620711010397,
+                1.8803868927237861
+              ]
+            ]
+          ]
+        }
+      ]
+    }
+  ]
+}

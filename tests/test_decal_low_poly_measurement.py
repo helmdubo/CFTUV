@@ -27,6 +27,13 @@ from decal_organic_fixtures import (
     low_poly_dome_fixture,
 )
 
+_build_intrinsic_strip_charts = build_intrinsic_strip_charts
+
+
+def build_intrinsic_strip_charts(node, *args, **kwargs):
+    kwargs["patch_surface"] = node._test_patch_surface
+    return _build_intrinsic_strip_charts(node, *args, **kwargs)
+
 
 def _angle_defect_values(chart):
     boundary_vertices = {

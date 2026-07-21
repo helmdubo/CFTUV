@@ -23,6 +23,17 @@ from cftuv.model import (  # noqa: E402
     PatchGraph,
     PatchNode,
 )
+from cftuv.surface_ir import CapacityPolicy  # noqa: E402
+from analysis_surface_fixtures import analysis_bundle_from_graph  # noqa: E402
+
+
+_compile_patch_voronoi_plan = compile_patch_voronoi_plan
+
+
+def compile_patch_voronoi_plan(graph, *args, **kwargs):
+    return _compile_patch_voronoi_plan(
+        analysis_bundle_from_graph(graph), *args, **kwargs
+    )
 
 
 @pytest.mark.parametrize(
@@ -247,6 +258,7 @@ def test_b4_finite_strip_budget_rejects_before_evaluation():
         alpha_budget=0.25,
         budget_source="STRIP_BUDGET",
         requested_alpha_budget=0.25,
+        capacity_policy=CapacityPolicy.CONTROLLED_RECOMPILE,
     )
 
     assert finite.active_triangle_ids(0.25) == plan.support_triangle_ids
@@ -257,6 +269,38 @@ def test_b4_finite_strip_budget_rejects_before_evaluation():
         evaluate_patch_voronoi_plan(
             finite, width=0.5001, preview=True
         )
+
+
+def test_i8_proven_capacity_saturates_to_compiled_support():
+    plan = compile_patch_voronoi_plan(
+        _planar_two_site_graph(), [10, 12], offset=0.01
+    )
+    proven = replace(
+        plan,
+        alpha_budget=0.25,
+        budget_source="PROVEN_WAVEFRONT_HEIGHT",
+        capacity_policy=CapacityPolicy.SATURATE_PROVEN,
+    )
+
+    assert proven.active_triangle_ids(1000.0) == plan.support_triangle_ids
+
+
+def test_i8_unproven_capacity_rejects_without_saturation_or_recompile():
+    plan = compile_patch_voronoi_plan(
+        _planar_two_site_graph(), [10, 12], offset=0.01
+    )
+    unproven = replace(
+        plan,
+        alpha_budget=0.25,
+        budget_source="APPROXIMATE_CHART",
+        capacity_policy=CapacityPolicy.REJECT_UNPROVEN,
+    )
+
+    with pytest.raises(
+        decal_voronoi.DomainCapacityUnproven,
+        match="DOMAIN_CAPACITY_UNPROVEN",
+    ):
+        unproven.active_triangle_ids(0.2501)
 
 
 @pytest.mark.parametrize("width", (0.5, 1.0545852, 2.0, 4.0))
@@ -310,7 +354,10 @@ def test_quantized_duplicate_site_is_localized_as_compile_failure():
     chain.vert_cos[1] = Vector((0.0, 0.00005, 0.0))
 
     attempt = decal_voronoi.compile_patch_voronoi_attempt(
-        graph, [10], offset=0.01, allow_partial=True
+        analysis_bundle_from_graph(graph),
+        [10],
+        offset=0.01,
+        allow_partial=True,
     )
 
     assert attempt.plan is None
@@ -386,7 +433,9 @@ def test_long_chart_stays_inside_diagram_integer_safety_range():
 def test_unsupported_dynamic_range_is_localized_before_construct():
     diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
     attempt = decal_voronoi.compile_patch_voronoi_attempt(
-        _scaled_planar_two_site_graph(250000.0),
+        analysis_bundle_from_graph(
+            _scaled_planar_two_site_graph(250000.0)
+        ),
         [10, 12],
         offset=2500.0,
         allow_partial=True,
@@ -511,6 +560,36 @@ def _signed_face_area(face):
     return area_vector.dot(face.surface_normal) * 0.5
 
 
+def _test_patch_face_provenance(keys, *, face_id=0, edge_id=0):
+    route_id = ("test-route", int(face_id), int(edge_id))
+    vertices = tuple(
+        decal_voronoi.PatchVoronoiVertexProvenance(
+            source_face_id=int(face_id),
+            source_edge_id=int(edge_id),
+            route_id=route_id,
+            station_key=("test-station", key),
+            domain_location=None,
+        )
+        for key in keys
+    )
+    return decal_voronoi._patch_face_provenance(vertices)
+
+
+def _attach_test_patch_provenance(faces):
+    for face in faces:
+        edge_ids = tuple(
+            int(key[1])
+            for key in face.vert_keys
+            if isinstance(key, tuple) and key[:1] == ("pv-se",)
+        )
+        face.provenance = _test_patch_face_provenance(
+            face.vert_keys,
+            face_id=face.surface_id,
+            edge_id=(edge_ids[0] if edge_ids else 0),
+        )
+    return faces
+
+
 def _orthogonal_corner_graph():
     graph = PatchGraph()
     patch_specs = (
@@ -626,9 +705,9 @@ def _planar_unselected_fold_graph():
             normal=normal,
             basis_u=basis_u,
             basis_v=basis_v,
-            mesh_verts=points,
-            mesh_tris=[(0, 1, 2), (0, 2, 3), (0, 3, 4)],
         )
+        node.mesh_verts = points
+        node.mesh_tris = [(0, 1, 2), (0, 2, 3), (0, 3, 4)]
         node.boundary_loops = [
             BoundaryLoop(
                 vert_indices=loop_vertices,
@@ -926,6 +1005,186 @@ def _door_opening_graph():
     return graph, edge_indices
 
 
+def test_s_cm_a_compiles_seed_then_reads_anchors_from_local_strip_clips():
+    graph, edge_indices = _door_opening_graph()
+    plan = compile_patch_voronoi_plan(
+        graph, edge_indices, offset=0.125
+    )
+    surface = plan.surfaces[0]
+    models = decal_voronoi._build_local_corner_models(
+        surface, alpha=0.25
+    )
+
+    assert models
+    for model in models:
+        assert model.seed.apex_ref.position == tuple(
+            plan.lifted_vertices[model.seed.corner_vertex_id]
+        )
+        assert model.seed.incident_site_ids == (
+            model.p1.station_ref.site_id,
+            model.p2.station_ref.site_id,
+        )
+        corner = next(
+            corner
+            for corner in surface.corners
+            if corner.vert_index == model.seed.corner_vertex_id
+        )
+        strips = tuple(
+            decal_voronoi._local_corner_strip(
+                surface, corner, site_id, alpha=0.25
+            )
+            for site_id in model.seed.incident_site_ids
+        )
+        assert model.p1.key == strips[0].outer_corner.key
+        assert model.p2.key == strips[1].outer_corner.key
+        assert model.p1.provenance == strips[0].outer_corner.provenance
+
+
+def test_s_cm_a_bevel_is_test_only_planar_one_face_oracle():
+    graph, edge_indices = _door_opening_graph()
+    plan = compile_patch_voronoi_plan(
+        graph, edge_indices, offset=0.125
+    )
+    models = decal_voronoi._build_local_corner_models(
+        plan.surfaces[0],
+        alpha=0.25,
+        test_join_override="BEVEL",
+    )
+
+    assert models
+    for model in models:
+        faces = model.emit_isolated()
+        assert len(faces) == 1
+        assert len(faces[0].vertices) == 3
+        assert tuple(vertex.semantic_id for vertex in faces[0].vertices) == (
+            "V",
+            "P1",
+            "P2",
+        )
+        assert len(faces[0].traces) == 3
+
+
+def test_s_df2_lite_samples_final_miter_geometry_with_owner_and_width():
+    from cftuv.decal_distance_witness import (
+        CornerPolygonField2D,
+        materialized_corner_polygon,
+    )
+
+    graph, edge_indices = _door_opening_graph()
+    plan = compile_patch_voronoi_plan(
+        graph, edge_indices, offset=0.125
+    )
+    surface = plan.surfaces[0]
+    alpha = 0.25
+    settings = decal_voronoi.CornerRuntimeSettings()
+    models = decal_voronoi._build_local_corner_models(surface, alpha)
+    final_faces = evaluate_patch_voronoi_plan(
+        plan,
+        width=alpha * 2.0,
+        preview=True,
+        corner_settings=settings,
+    )
+    tested_owner_ids = []
+    for model in models:
+        owner_id = (
+            "corner-model",
+            model.seed.corner_vertex_id,
+            model.seed.sector_id,
+        )
+        owned_faces = tuple(
+            face
+            for face in final_faces
+            if face.provenance.semantic_owner_id == owner_id
+        )
+        if not owned_faces:
+            continue
+        derived = model.derive(
+            apex_limit=alpha * settings.apex_limit
+        )
+        field = CornerPolygonField2D.from_model(
+            model, derived, requested_half_width=alpha
+        )
+        polygons = tuple(
+            materialized_corner_polygon(
+                face, project=surface.domain.project
+            )
+            for face in owned_faces
+        )
+
+        comparison = field.compare_materialized(polygons)
+
+        assert comparison.matches
+        assert comparison.samples
+        tested_owner_ids.append(owner_id)
+
+    assert tested_owner_ids
+
+
+def test_i5_patch_voronoi_geometry_batch_provenance_is_total():
+    from cftuv.decal_geometry import geometry_batch_from_faces
+
+    graph, edge_indices = _door_opening_graph()
+    plan = compile_patch_voronoi_plan(
+        graph, edge_indices, offset=0.125
+    )
+    preview_faces = evaluate_patch_voronoi_plan(
+        plan, width=0.5, preview=True
+    )
+    confirm_faces = evaluate_patch_voronoi_plan(
+        plan, width=0.5, preview=False
+    )
+
+    preview_batch = geometry_batch_from_faces(preview_faces)
+    confirm_batch = geometry_batch_from_faces(confirm_faces)
+    assert preview_batch == confirm_batch
+    assert preview_batch.faces
+    for face in preview_batch.faces:
+        provenance = face.provenance
+        assert isinstance(
+            provenance, decal_voronoi.PatchVoronoiFaceProvenance
+        )
+        assert provenance.source_face_ids
+        assert provenance.source_edge_ids
+        assert provenance.route_ids
+        assert len(provenance.station_keys) == len(face.vert_keys)
+        assert len(provenance.vertices) == len(face.vert_keys)
+        assert all(
+            vertex.source_face_id is not None
+            and vertex.source_edge_id >= 0
+            and vertex.route_id is not None
+            and vertex.station_key is not None
+            for vertex in provenance.vertices
+        )
+
+
+def test_i5_planar_provenance_uses_the_containing_source_face():
+    domain = decal_voronoi.DecalSurfaceDomain(
+        patch_id=7,
+        kind="PLANAR",
+        origin=Vector((0.0, 0.0, 0.0)),
+        reference_normal=Vector((0.0, 0.0, 1.0)),
+        basis_u=Vector((1.0, 0.0, 0.0)),
+        basis_v=Vector((0.0, 1.0, 0.0)),
+        boundary_triangles=(
+            ((0.0, 0.0), (1.0, 0.0), (0.0, 1.0)),
+            ((1.0, 0.0), (1.0, 1.0), (0.0, 1.0)),
+        ),
+        boundary_triangle_source_face_ids=(101, 202),
+    )
+    surface = SimpleNamespace(domain=domain)
+    first = domain.locate((0.2, 0.2))
+    second = domain.locate((0.8, 0.8))
+
+    assert first.triangle_id == 0
+    assert second.triangle_id == 1
+    assert decal_voronoi._corner_point_source_face_id(
+        surface, first, -1
+    ) == 101
+    assert decal_voronoi._corner_point_source_face_id(
+        surface, second, -1
+    ) == 202
+
+
 def _wide_t_junction_front_graph():
     """Точный planar front patch walls.006 вокруг широкого T-junction."""
 
@@ -1002,13 +1261,13 @@ def _smooth_arc_boundary_graph(segment_count=12):
         normal=Vector((0.0, 0.0, 1.0)),
         basis_u=Vector((1.0, 0.0, 0.0)),
         basis_v=Vector((0.0, 1.0, 0.0)),
-        mesh_verts=points,
-        mesh_vert_indices=list(range(len(points))),
-        mesh_tris=[
-            (0, index, index + 1)
-            for index in range(1, len(points) - 1)
-        ],
     )
+    node.mesh_verts = points
+    node.mesh_vert_indices = list(range(len(points)))
+    node.mesh_tris = [
+        (0, index, index + 1)
+        for index in range(1, len(points) - 1)
+    ]
     node.boundary_loops = [
         BoundaryLoop(
             vert_indices=list(range(len(points))),
@@ -1342,6 +1601,42 @@ def test_c8_3_smooth_is_stable_angle_only_policy():
     )
 
 
+def test_rf29b_concave_corner_contour_is_decomposed_without_hull_growth():
+    surface, corner = _smooth_corner_surface(90.0)
+    polygon = (
+        (0.0, 0.0),
+        (1.0, 0.0),
+        (0.35, 0.35),
+        (0.0, 1.0),
+    )
+
+    components = decal_voronoi._corner_components_from_semantic_polygon(
+        surface,
+        corner,
+        1.0,
+        "MITER",
+        "",
+        polygon,
+        owner_site_indices=(0, 1),
+    )
+
+    semantic_area = abs(decal_voronoi._polygon_area2(polygon))
+    component_area = sum(
+        abs(decal_voronoi._polygon_area2(component.points))
+        for component in components
+    )
+    hull_area = abs(decal_voronoi._polygon_area2(
+        decal_voronoi._convex_hull(polygon)
+    ))
+    assert len(components) == 2
+    assert component_area == pytest.approx(semantic_area)
+    assert component_area < hull_area
+    assert all(
+        component.owner_site_indices == (0, 1)
+        for component in components
+    )
+
+
 def test_c8_3_smooth_uses_static_bisector_and_continuous_uv():
     surface, corner = _smooth_corner_surface(5.0)
     settings = decal_voronoi.CornerRuntimeSettings(
@@ -1623,8 +1918,8 @@ def test_apex_limit_changes_kite_contour():
     }
     assert snapshots[1.0] != snapshots[8.0]
     assert snapshots[8.0] == snapshots[100.0]
-    assert results[1.0][1].clamped_kite_count == 8
-    assert results[8.0][1].clamped_kite_count == 0
+    assert results[1.0][1].clamped_miter_count == 8
+    assert results[8.0][1].clamped_miter_count == 0
 
 
 def test_apex_limit_clamps_acute_outer_without_gap():
@@ -1674,7 +1969,7 @@ def test_apex_limit_clamps_acute_outer_without_gap():
     )
 
 
-def test_rf24_bevel_is_single_geometry_policy():
+def test_s_cm_a_join_does_not_leak_into_band_policy_classifier():
     graph, edge_indices = _door_opening_graph()
     plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
     surface = plan.surfaces[0]
@@ -1697,78 +1992,74 @@ def test_rf24_bevel_is_single_geometry_policy():
     bevel_policy = decal_voronoi._classify_surface_corner_runtime(
         surface, gap_corner, bevel_settings
     )
-    assert bevel_policy == decal_voronoi._CornerPolicy.BEVEL
-    assert bevel_policy != decal_voronoi._classify_surface_corner_runtime(
+    assert bevel_policy == decal_voronoi._classify_surface_corner_runtime(
         surface,
         gap_corner,
         replace(bevel_settings, join_mode="MITER"),
     )
-    assert (
-        decal_voronoi._classify_surface_corner_runtime(
-            surface, overlap_corner, bevel_settings
-        )
-        != decal_voronoi._CornerPolicy.BEVEL
+    bevel_models = decal_voronoi._build_local_corner_models(
+        surface,
+        alpha=0.25,
+        test_join_override="BEVEL",
     )
+    assert any(model.derive().releases_competitor for model in bevel_models)
+    assert bevel_policy == decal_voronoi._CornerPolicy.KITE
+    miter_model = next(
+        model
+        for model in decal_voronoi._build_local_corner_models(
+            surface, alpha=0.25
+        )
+        if model.seed.corner_vertex_id == gap_corner.vert_index
+    )
+    components = decal_voronoi._corner_crop_components(
+        surface,
+        gap_corner,
+        bevel_policy,
+        0.25,
+        replace(bevel_settings, join_mode="MITER"),
+        corner_model=miter_model,
+    )
+    assert len(components) == 1
+    assert components[0].kind == "MITER"
+    assert components[0].semantic_owner_id[:1] == ("corner-model",)
     assert not hasattr(
         decal_voronoi, "_classify_emitted_corner_runtime"
     )
-    assert 'replace(settings, join_mode="MITER")' not in inspect.getsource(
+    classifier_source = inspect.getsource(
         decal_voronoi._classify_surface_corner_runtime
     )
+    assert "join_mode" not in classifier_source
+    assert "BEVEL" not in classifier_source
     assert decal_voronoi.CornerRuntimeSettings(
         miter_limit=3.0
     ).apex_limit == 3.0
 
 
-def test_rf24_bevel_final_faces_are_triangles_and_apex_independent():
+def test_bevel_preview_and_confirm_share_compiled_corner_model():
     graph, edge_indices = _door_opening_graph()
-    plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
-    snapshots = []
-    for apex_limit in (1.0, 1000.0):
-        diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
-        faces = evaluate_patch_voronoi_plan(
-            plan,
-            width=0.5,
-            preview=True,
-            corner_settings=decal_voronoi.CornerRuntimeSettings(
-                apex_limit=apex_limit,
-                join_mode="BEVEL",
-            ),
-            diagnostics=diagnostics,
-        )
-        bevel_faces = tuple(
-            face for face in faces if face.component_kind == "BEVEL"
-        )
-        assert len(bevel_faces) == 2
-        assert all(len(face.positions) == 3 for face in bevel_faces)
-        assert all(
-            face.component_side.startswith("RM6A_v")
-            for face in bevel_faces
-        )
-        edge_uses = {}
-        for face in faces:
-            for index, first in enumerate(face.vert_keys):
-                second = face.vert_keys[(index + 1) % len(face.vert_keys)]
-                edge_uses.setdefault(frozenset((first, second)), 0)
-                edge_uses[frozenset((first, second))] += 1
-        for face in bevel_faces:
-            corner_key = next(
-                key for key in face.vert_keys if key[:1] == ("pv-sv",)
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+    plan = compile_patch_voronoi_plan(
+        graph,
+        edge_indices,
+        offset=0.01,
+        diagnostics=diagnostics,
+        corner_join_mode="BEVEL",
+    )
+    settings = decal_voronoi.CornerRuntimeSettings(join_mode="BEVEL")
+    snapshots = tuple(
+        decal_voronoi.serialize_network_faces(
+            evaluate_patch_voronoi_plan(
+                plan,
+                width=0.5,
+                preview=preview,
+                corner_settings=settings,
+                diagnostics=diagnostics,
             )
-            p_keys = tuple(key for key in face.vert_keys if key != corner_key)
-            # V--P1 и V--P2 читают общие keys соседних strip-квадов;
-            # P1--P2 — единственная новая внешняя хорда.
-            assert all(
-                edge_uses[frozenset((corner_key, key))] == 2
-                for key in p_keys
-            )
-            assert edge_uses[frozenset(p_keys)] == 1
-        # RC5a: BEVEL не проходит KITE/MITER apex-limit ветвью.
-        assert diagnostics.clamped_kite_count == 0
-        snapshots.append(
-            decal_voronoi.serialize_network_faces(bevel_faces)
         )
+        for preview in (True, False)
+    )
     assert snapshots[0] == snapshots[1]
+    assert diagnostics.resolved_corner_view_count > 0
 
 
 def test_rf28_bevel_preserves_own_segments_and_releases_competitor_to_chord():
@@ -1776,6 +2067,13 @@ def test_rf28_bevel_preserves_own_segments_and_releases_competitor_to_chord():
     plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
     surface = plan.surfaces[0]
     alpha = 1.0
+    gap_vertex_ids = {
+        corner.vert_index
+        for corner in surface.corners
+        if len(corner.incident_sites) == 2
+        and decal_voronoi._corner_offset_edge_relation(surface, corner)
+        == "GAP"
+    }
     pending = {}
     for join_mode in ("MITER", "BEVEL"):
         pending[join_mode] = []
@@ -1786,17 +2084,25 @@ def test_rf28_bevel_preserves_own_segments_and_releases_competitor_to_chord():
             decal_voronoi.CornerRuntimeSettings(
                 apex_limit=1000.0, join_mode=join_mode
             ),
+            test_join_override=join_mode,
+            test_join_vertex_ids=gap_vertex_ids,
         )
 
+    bevel_models = decal_voronoi._build_local_corner_models(
+        surface,
+        alpha,
+        test_join_override="BEVEL",
+        test_join_vertex_ids=gap_vertex_ids,
+    )
+    bevel_vertex_ids = {
+        model.seed.corner_vertex_id
+        for model in bevel_models
+        if model.derive().releases_competitor
+    }
     bevel_corners = tuple(
         corner
         for corner in surface.corners
-        if decal_voronoi._classify_surface_corner_runtime(
-            surface,
-            corner,
-            decal_voronoi.CornerRuntimeSettings(join_mode="BEVEL"),
-        )
-        == decal_voronoi._CornerPolicy.BEVEL
+        if corner.vert_index in bevel_vertex_ids
     )
     own_edges = {
         surface.sites[site_index].edge_index
@@ -1860,12 +2166,14 @@ def test_rf28_bevel_preserves_own_segments_and_releases_competitor_to_chord():
     )
     assert released_faces
     for corner in bevel_corners:
-        polygon = decal_voronoi._corner_crop_polygon(
-            surface,
-            corner,
-            decal_voronoi._CornerPolicy.BEVEL,
-            alpha,
-            decal_voronoi.CornerRuntimeSettings(join_mode="BEVEL"),
+        model = next(
+            model
+            for model in bevel_models
+            if model.seed.corner_vertex_id == corner.vert_index
+        )
+        polygon = tuple(
+            vertex.chart_point
+            for vertex in model.derive().collision_boundary
         )
         chord = tuple(point for point in polygon if point != corner.point)
         assert len(chord) == 2
@@ -1889,49 +2197,187 @@ def test_rf28_bevel_preserves_own_segments_and_releases_competitor_to_chord():
         )
 
 
+def test_r21_rc5b_intrinsic_corner_compiles_mutual_arrival_atoms():
+    """Статическая биссектриса не получает права резать до двух arrivals."""
+
+    graph, edge_indices = _wide_t_junction_front_graph()
+    node = graph.nodes[0]
+    lifted = [
+        Vector((point.x, point.y, 0.18 * ((index % 3) - 1)))
+        for index, point in enumerate(node.mesh_verts)
+    ]
+    node.mesh_verts = lifted
+    node.centroid = sum(lifted, Vector()) / len(lifted)
+    loop = node.boundary_loops[0]
+    loop.vert_cos = [point.copy() for point in lifted]
+    loop.chains[0].vert_cos = [point.copy() for point in lifted]
+
+    plan = compile_patch_voronoi_plan(
+        graph,
+        edge_indices,
+        offset=0.01,
+        corner_join_mode="BEVEL",
+    )
+    intrinsic_surfaces = tuple(
+        surface for surface in plan.surfaces if surface.domain.kind == "INTRINSIC"
+    )
+
+    assert intrinsic_surfaces
+    assert any(
+        records
+        for surface in intrinsic_surfaces
+        for records in surface.mutual_arrival_atoms.values()
+    )
+    assert all(
+        len(atom.fragments) == len(atom.fragment_triangle_ids)
+        for surface in intrinsic_surfaces
+        for records in surface.mutual_arrival_atoms.values()
+        for atom in records
+    )
+
+
+def test_r21_rc5b_release_is_corner_minus_blocking_arrival():
+    surface = SimpleNamespace(
+        domain=SimpleNamespace(triangle_merge_groups=(7,))
+    )
+    atom = decal_voronoi._MutualArrivalAtom(
+        corner_index=0,
+        point_site_index=0,
+        point_periodic_shift=0,
+        blocking_site_index=1,
+        blocking_periodic_shift=0,
+        fragments=(((0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)),),
+        fragment_triangle_ids=(0,),
+    )
+    corner = decal_voronoi._CropComponent(
+        kind="BEVEL",
+        side="",
+        points=((0.0, 0.0), (1.5, 0.0), (1.5, 1.5), (0.0, 1.5)),
+    )
+    partial_blocker = decal_voronoi._CropComponent(
+        kind="SEGMENT",
+        side="",
+        points=((1.0, 0.0), (2.0, 0.0), (2.0, 2.0), (1.0, 2.0)),
+    )
+
+    released, groups = decal_voronoi._mutual_arrival_release_fragments(
+        surface,
+        atom,
+        corner,
+        (partial_blocker,),
+    )
+
+    assert groups == [7]
+    released_area = sum(
+        abs(decal_voronoi._polygon_area2(fragment)) for fragment in released
+    ) * 0.5
+    assert 0.0 < released_area < 1.5 * 1.5
+    blocked, blocked_groups = (
+        decal_voronoi._mutual_arrival_release_fragments(
+            surface,
+            atom,
+            corner,
+            (corner,),
+        )
+    )
+    assert blocked == []
+    assert blocked_groups == []
+
+
 def test_rf28_join_switch_is_local_and_roundtrip_deterministic():
     graph, edge_indices = _door_opening_graph()
     diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
-    plan = compile_patch_voronoi_plan(
+    miter_plan = compile_patch_voronoi_plan(
         graph, edge_indices, offset=0.01, diagnostics=diagnostics
     )
+    bevel_plan = compile_patch_voronoi_plan(
+        graph,
+        edge_indices,
+        offset=0.01,
+        diagnostics=diagnostics,
+        corner_join_mode="BEVEL",
+    )
     compile_construct_calls = diagnostics.construct_calls
-    snapshots = []
-    for join_mode in ("MITER", "BEVEL", "MITER", "BEVEL"):
-        faces = evaluate_patch_voronoi_plan(
-            plan,
+    miter_settings = decal_voronoi.CornerRuntimeSettings(apex_limit=1000.0)
+    bevel_settings = replace(miter_settings, join_mode="BEVEL")
+    miter_snapshots = [
+        decal_voronoi.serialize_network_faces(
+            evaluate_patch_voronoi_plan(
+                miter_plan,
+                width=3.0,
+                preview=True,
+                corner_settings=miter_settings,
+                diagnostics=diagnostics,
+            )
+        )
+        for _index in range(2)
+    ]
+    bevel_snapshot = decal_voronoi.serialize_network_faces(
+        evaluate_patch_voronoi_plan(
+            bevel_plan,
             width=3.0,
             preview=True,
-            corner_settings=decal_voronoi.CornerRuntimeSettings(
-                apex_limit=1000.0,
-                join_mode=join_mode,
-            ),
+            corner_settings=bevel_settings,
             diagnostics=diagnostics,
         )
-        snapshots.append(decal_voronoi.serialize_network_faces(faces))
-    assert snapshots[0] == snapshots[2]
-    assert snapshots[1] == snapshots[3]
+    )
+    assert miter_snapshots[0] == miter_snapshots[1]
+    assert bevel_snapshot != miter_snapshots[0]
+    with pytest.raises(
+        RuntimeError,
+        match="^DECAL_CORNER_JOIN_RECOMPILE_REQUIRED:",
+    ):
+        evaluate_patch_voronoi_plan(
+            miter_plan,
+            width=3.0,
+            preview=True,
+            corner_settings=bevel_settings,
+            diagnostics=diagnostics,
+        )
     assert diagnostics.construct_calls == compile_construct_calls
 
 
-def test_rf28_bevel_fan_discretization_is_named_failure():
+def test_rf28_arrangement_has_no_hardcoded_join_branch():
+    source = inspect.getsource(decal_voronoi._build_decal_arrangement)
+
+    assert "join_mode" not in source
+    assert "BEVEL" not in source
+    assert "MITER" not in source
+
+
+def test_s_cm_b_resolved_views_keep_patch_identity_when_chart_ids_collide():
     graph, edge_indices = _door_opening_graph()
     plan = compile_patch_voronoi_plan(graph, edge_indices, offset=0.01)
     surface = plan.surfaces[0]
-    corner = next(item for item in surface.corners if item.vert_index == 2)
-    with pytest.raises(
-        RuntimeError, match="BEVEL_FAN_DISCRETIZATION_FORBIDDEN"
-    ):
-        decal_voronoi._validate_bevel_shape(
-            surface,
-            corner,
-            (
-                (0.0, 0.0),
-                (1.0, 0.0),
-                (1.0, 1.0),
-                (0.0, 1.0),
+    model = decal_voronoi._build_local_corner_models(
+        surface, alpha=0.25
+    )[0]
+    derived = model.derive()
+    owner_id = decal_voronoi._resolved_corner_owner_id(model)
+    boundary = derived.emission_boundary
+
+    def arrangement_face(patch_id):
+        return SimpleNamespace(
+            surface=SimpleNamespace(
+                patch_id=patch_id,
+                domain=SimpleNamespace(chart_id=0),
             ),
+            crop=SimpleNamespace(semantic_owner_id=owner_id),
+            points=tuple(vertex.chart_point for vertex in boundary),
+            point_keys=tuple(vertex.key for vertex in boundary),
         )
+
+    sources = tuple(
+        (patch_id, owner_id, model, derived, 0)
+        for patch_id in (10, 11)
+    )
+    views = decal_voronoi._resolve_arrangement_corner_views(
+        tuple(arrangement_face(patch_id) for patch_id in (10, 11)),
+        sources,
+    )
+
+    assert len(views) == 2
+    assert all(view.p1 is model.p1 and view.p2 is model.p2 for view in views)
 
 
 def test_rf24_bevel_band_turn_is_invariant_to_domain_winding_flip():
@@ -1941,13 +2387,20 @@ def test_rf24_bevel_band_turn_is_invariant_to_domain_winding_flip():
     flipped_graph.nodes[0].normal *= -1.0
     flipped_graph.nodes[0].basis_v *= -1.0
     plans = (
-        compile_patch_voronoi_plan(graph, edge_indices, offset=0.01),
         compile_patch_voronoi_plan(
-            flipped_graph, edge_indices, offset=0.01
+            graph,
+            edge_indices,
+            offset=0.01,
+            corner_join_mode="BEVEL",
+        ),
+        compile_patch_voronoi_plan(
+            flipped_graph,
+            edge_indices,
+            offset=0.01,
+            corner_join_mode="BEVEL",
         ),
     )
     classifications = []
-    snapshots = []
     for plan in plans:
         surface = plan.surfaces[0]
         classifications.append(
@@ -1965,23 +2418,10 @@ def test_rf24_bevel_band_turn_is_invariant_to_domain_winding_flip():
                 if len(corner.incident_sites) == 2
             )
         )
-        faces = evaluate_patch_voronoi_plan(
+        assert evaluate_patch_voronoi_plan(
             plan, width=0.5, preview=True, corner_settings=settings
         )
-        snapshots.append(
-            tuple(
-                sorted(
-                    (
-                        face.component_side,
-                        tuple(sorted(map(repr, face.vert_keys))),
-                    )
-                    for face in faces
-                    if face.component_kind == "BEVEL"
-                )
-            )
-        )
     assert classifications[0] == classifications[1]
-    assert snapshots[0] == snapshots[1]
 
 
 def test_acute_apex_limit_saturates_outside_cap_chord():
@@ -2027,12 +2467,12 @@ def test_corner_absorbs_incident_point_cell_boundaries_before_collision():
         plan, width=0.1, preview=True, corner_settings=_BAND_SETTINGS
     )
 
-    kite_faces = [face for face in faces if face.component_kind == "KITE"]
+    miter_faces = [face for face in faces if face.component_kind == "MITER"]
     segment_faces = [
         face for face in faces if face.component_kind == "SEGMENT"
     ]
-    assert len(kite_faces) == 8
-    assert all(len(face.positions) == 4 for face in kite_faces)
+    assert len(miter_faces) == 8
+    assert all(len(face.positions) == 4 for face in miter_faces)
     assert len(segment_faces) == len(plan.surfaces[0].sites)
 
 
@@ -3108,15 +3548,53 @@ def test_rf19_single_terminal_cut_may_absorb_short_site():
     )
 
 
-def test_rf19_meeting_terminal_cuts_fail_instead_of_overlapping():
+def test_rf19_meeting_terminal_cuts_require_compile_static_freeze_locus():
     site = _short_segment_endpoint_surface().sites[0]
-    with pytest.raises(RuntimeError, match="TERMINAL_BRIDGE_CUTS_OVERLAP"):
+    with pytest.raises(
+        RuntimeError, match="RAIL_COMPETITION_METRIC_UNRESOLVED"
+    ):
         decal_voronoi._terminal_segment_crop_components(
             site,
             alpha=0.75,
             start_guide=(0.3, sqrt(0.75 * 0.75 - 0.3 * 0.3)),
             end_guide=(0.7, sqrt(0.75 * 0.75 - 0.3 * 0.3)),
         )
+
+
+def test_rf7_frozen_terminal_competition_partitions_short_site():
+    site = _short_segment_endpoint_surface().sites[0]
+    meeting = (0.5, 0.75)
+    locus = SimpleNamespace(
+        route_ids=(11, 12),
+        arrival_distances=(2.0, 2.0),
+        owner_chain_ref=(3, 4),
+    )
+    start = decal_voronoi._TerminalBridgeGuide(
+        point=meeting,
+        contour_points=(site.point_a, meeting),
+        route_id=11,
+        frozen=True,
+        freeze_locus=locus,
+    )
+    end = decal_voronoi._TerminalBridgeGuide(
+        point=meeting,
+        contour_points=(site.point_b, meeting),
+        route_id=12,
+        frozen=True,
+        freeze_locus=locus,
+    )
+
+    components = decal_voronoi._terminal_segment_crop_components(
+        site,
+        alpha=0.75,
+        start_guide=start,
+        end_guide=end,
+    )
+
+    assert components
+    assert not any(
+        component.side == "BODY" for component, _vertices in components
+    )
 
 
 def test_rf29_exhausted_route_clamps_to_last_constructible_station():
@@ -3191,6 +3669,82 @@ def test_rf29_exhausted_route_clamps_to_last_constructible_station():
     )
 
 
+def test_rf29b_bridge_capacity_clamps_before_route_is_exhausted():
+    """width=7.8: bridge capacity ends before the compiled route reach."""
+
+    site = replace(
+        _short_segment_endpoint_surface().sites[0],
+        patch_id=1,
+        edge_index=8,
+        vert_a=10,
+        vert_b=9,
+        point_a=(0.0000207110, -0.0000131073),
+        point_b=(1.5023207110, -0.0000131073),
+        segment_length=1.5023,
+        inward_normal=(0.0, 1.0),
+    )
+    valid = (
+        site.point_a,
+        (-0.4134792890, 1.2664868927),
+        (1.0873207110, 1.4165868927),
+        (1.4779207110, 1.4555868927),
+    )
+    invalid = valid + (
+        (1.8032207110, 1.4298868927),
+        (2.1426781135, 1.4022261614),
+    )
+    guide = decal_voronoi._TerminalBridgeGuide(
+        point=invalid[-1],
+        contour_points=invalid,
+        source_vertex_ids=(10, 18, 19, 23, 24),
+        route_id=3,
+        extent=3.9,
+        route_reach=14.5810492393,
+        station_prefixes=(
+            decal_voronoi._TerminalBridgeStationPrefix(
+                1.3323011447,
+                valid[1],
+                valid[:2],
+                (10, 19),
+            ),
+            decal_voronoi._TerminalBridgeStationPrefix(
+                2.8405417340,
+                valid[2],
+                valid[:3],
+                (10, 19, 24),
+            ),
+            decal_voronoi._TerminalBridgeStationPrefix(
+                3.2330793554,
+                valid[3],
+                valid,
+                (10, 18, 19, 24),
+            ),
+        ),
+        saturated=False,
+        capacity_policy=CapacityPolicy.SATURATE_PROVEN,
+    )
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+
+    start, end = decal_voronoi._resolve_terminal_site_saturation(
+        site,
+        3.9,
+        guide,
+        None,
+        diagnostics,
+    )
+
+    assert start.station_clamped
+    assert start.extent == pytest.approx(3.2330793554)
+    assert end is None
+    assert diagnostics.terminal_route_station_clamp_count == 1
+    assert diagnostics.runtime_policy_counts == {
+        "TERMINAL_ROUTE_STATION_CLAMPED": 1
+    }
+    assert decal_voronoi._terminal_segment_crop_components(
+        site, 3.9, start_guide=start
+    )
+
+
 def test_rf29_unsaturated_invalid_cut_remains_named_failure():
     site = _short_segment_endpoint_surface().sites[0]
     guide = decal_voronoi._TerminalBridgeGuide(
@@ -3199,12 +3753,39 @@ def test_rf29_unsaturated_invalid_cut_remains_named_failure():
         saturated=False,
     )
 
-    assert decal_voronoi._resolve_terminal_site_saturation(
-        site, 2.0, guide, None
-    ) == (guide, None)
     with pytest.raises(RuntimeError, match="TERMINAL_BRIDGE_CUT_INVALID"):
-        decal_voronoi._terminal_segment_crop_components(
-            site, 2.0, start_guide=guide
+        decal_voronoi._resolve_terminal_site_saturation(
+            site, 2.0, guide, None
+        )
+
+
+@pytest.mark.parametrize(
+    ("policy", "reason"),
+    (
+        (
+            CapacityPolicy.CONTROLLED_RECOMPILE,
+            "TERMINAL_ROUTE_RECOMPILE_REQUIRED",
+        ),
+        (
+            CapacityPolicy.REJECT_UNPROVEN,
+            "TERMINAL_ROUTE_CAPACITY_UNPROVEN",
+        ),
+    ),
+)
+def test_i8_terminal_saturation_obeys_compiled_capacity_policy(
+    policy, reason
+):
+    site = _short_segment_endpoint_surface().sites[0]
+    guide = decal_voronoi._TerminalBridgeGuide(
+        point=(0.5, 2.0),
+        contour_points=(site.point_a, (0.5, 2.0)),
+        saturated=True,
+        capacity_policy=policy,
+    )
+
+    with pytest.raises(RuntimeError, match=reason):
+        decal_voronoi._resolve_terminal_site_saturation(
+            site, 2.0, guide, None
         )
 
 
@@ -3280,50 +3861,6 @@ def test_rf29_revisit_guard_stops_before_second_physical_edge_pass():
     assert guide.point == pytest.approx((1.0, 0.0))
 
 
-def test_rf29_opposing_contacts_meet_at_equal_accumulated_station():
-    edge = SimpleNamespace(edge_id=900, vertex_ids=(0, 1))
-
-    def route(route_id, start_vertex, end_vertex, start_edge):
-        return SimpleNamespace(
-            route_id=route_id,
-            key=SimpleNamespace(
-                side=SimpleNamespace(start_edge_id=start_edge)
-            ),
-            stations=(
-                SimpleNamespace(
-                    station_index=0,
-                    distance=0.0,
-                    source_vertex_id=start_vertex,
-                    source_edge_id=None,
-                    edge_parameter=None,
-                ),
-                SimpleNamespace(
-                    station_index=1,
-                    distance=10.0,
-                    source_vertex_id=end_vertex,
-                    source_edge_id=None,
-                    edge_parameter=None,
-                ),
-            ),
-            segments=(
-                SimpleNamespace(
-                    edge_id=900,
-                    from_station_index=0,
-                    to_station_index=1,
-                ),
-            ),
-        )
-
-    meeting = decal_voronoi._terminal_route_contact_meeting(
-        route(1, 0, 1, 11),
-        route(2, 1, 0, 22),
-        {900: edge},
-    )
-
-    assert meeting[:2] == pytest.approx((5.0, 5.0))
-    assert meeting[2:] == pytest.approx((900, 0.5))
-
-
 def _rd1_partition_face(keys, positions, u_fracs, v_lengths, *, kind, side, normal=(0.0, 0.0, 1.0)):
     return decal_voronoi._NetworkFace(
         surface_id=0,
@@ -3334,6 +3871,7 @@ def _rd1_partition_face(keys, positions, u_fracs, v_lengths, *, kind, side, norm
         v_lengths=list(v_lengths),
         component_kind=kind,
         component_side=side,
+        provenance=_test_patch_face_provenance(keys),
     )
 
 
@@ -3550,6 +4088,128 @@ def test_rd1_rf12_cap_with_two_strip_neighbors_is_not_guessed():
     assert sum(face.component_kind == "CAP" for face in merged) == 1
     assert diagnostics.cap_keep_counts == {
         "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS": 1
+    }
+
+
+def test_r21_cap_keeps_incident_site_owner_when_foreign_strip_arrives():
+    """RC1-встреча не превращает прежний strip обратно в бирюзовый CAP."""
+
+    cap = _rd1_partition_face(
+        ("A", "B", "C", "D"),
+        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+         (1.0, 1.0, 0.0), (0.0, 1.0, 0.0)),
+        (0.0, 1.0, 2.0, 1.0),
+        (0.0, 0.0, 1.0, 1.0),
+        kind="CAP",
+        side="START",
+    )
+    incident_strip = _rd1_partition_face(
+        ("B", "E", "F", "C"),
+        ((1.0, 0.0, 0.0), (2.0, 0.0, 0.0),
+         (2.0, 1.0, 0.0), (1.0, 1.0, 0.0)),
+        (0.0, 0.0, 1.0, 1.0),
+        (0.0, 1.0, 1.0, 0.0),
+        kind="SEGMENT",
+        side="",
+    )
+    foreign_strip = _rd1_partition_face(
+        ("D", "C", "G", "H"),
+        ((0.0, 1.0, 0.0), (1.0, 1.0, 0.0),
+         (1.0, 2.0, 0.0), (0.0, 2.0, 0.0)),
+        (0.0, 1.0, 1.0, 0.0),
+        (0.0, 0.0, 1.0, 1.0),
+        kind="SEGMENT",
+        side="",
+    )
+    cap = replace(
+        cap,
+        provenance=_test_patch_face_provenance(
+            cap.vert_keys, edge_id=5
+        ),
+    )
+    incident_strip = replace(
+        incident_strip,
+        provenance=_test_patch_face_provenance(
+            incident_strip.vert_keys, edge_id=5
+        ),
+    )
+    foreign_strip = replace(
+        foreign_strip,
+        provenance=_test_patch_face_provenance(
+            foreign_strip.vert_keys, edge_id=6
+        ),
+    )
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+
+    aligned = decal_voronoi._align_strip_cap_faces(
+        (cap, incident_strip, foreign_strip), diagnostics
+    )
+
+    assert aligned[0].component_kind == "SEGMENT"
+    assert aligned[0].component_side == "CAP_ALIGNED"
+    assert diagnostics.cap_keep_counts == {}
+
+
+def test_r21_facing_caps_of_one_site_remain_one_segment_strip():
+    start = _rd1_partition_face(
+        ("A", "B", "C", "D"),
+        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+         (1.0, 1.0, 0.0), (0.0, 1.0, 0.0)),
+        (-1.0, 0.0, 1.0, -1.0),
+        (0.0, 0.0, 1.0, 1.0),
+        kind="CAP",
+        side="START",
+    )
+    end = _rd1_partition_face(
+        ("B", "E", "F", "C"),
+        ((1.0, 0.0, 0.0), (2.0, 0.0, 0.0),
+         (2.0, 1.0, 0.0), (1.0, 1.0, 0.0)),
+        (0.0, 1.0, 1.0, 1.0),
+        (2.0, 2.0, 3.0, 3.0),
+        kind="CAP",
+        side="END",
+    )
+    start = replace(
+        start,
+        provenance=_test_patch_face_provenance(
+            start.vert_keys, edge_id=7
+        ),
+    )
+    end = replace(
+        end,
+        provenance=_test_patch_face_provenance(
+            end.vert_keys, edge_id=7
+        ),
+    )
+    diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+
+    aligned = decal_voronoi._align_strip_cap_faces(
+        (start, end), diagnostics
+    )
+
+    assert all(face.component_kind == "SEGMENT" for face in aligned)
+    assert {face.component_side for face in aligned} == {
+        "CAP_PAIR_START_ALIGNED",
+        "CAP_PAIR_END_ALIGNED",
+    }
+    assert dict(diagnostics.runtime_policy_counts) == {
+        "CAP_PAIR_ALIGNED": 1
+    }
+    assert diagnostics.cap_keep_counts == {}
+
+    foreign_end = replace(
+        end,
+        provenance=_test_patch_face_provenance(
+            end.vert_keys, edge_id=8
+        ),
+    )
+    negative_diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
+    unresolved = decal_voronoi._align_strip_cap_faces(
+        (start, foreign_end), negative_diagnostics
+    )
+    assert all(face.component_kind == "CAP" for face in unresolved)
+    assert negative_diagnostics.cap_keep_counts == {
+        "CAP_KEEP_NO_SEGMENT_NEIGHBOR": 2
     }
 
 
@@ -3780,6 +4440,15 @@ def test_a11_cross_surface_valence_n_junction_builds_sector_fan():
                 ],
                 u_fracs=[0.0, 1.0, 1.0],
                 v_lengths=[0.0, 0.5, 1.0],
+                provenance=_test_patch_face_provenance(
+                    (
+                        ("pv-sv", 0),
+                        ("outer", index),
+                        ("tail", index),
+                    ),
+                    face_id=index,
+                    edge_id=900 + index,
+                ),
             )
         )
     diagnostics = decal_voronoi.PatchVoronoiDiagnostics()
@@ -3888,9 +4557,8 @@ def test_cross_surface_spine_station_is_mirrored_without_new_face():
         )
     )
 
-    decal_voronoi._synchronize_cross_surface_spine_stations(
-        plan, [owner, neighbour]
-    )
+    faces = _attach_test_patch_provenance([owner, neighbour])
+    decal_voronoi._synchronize_cross_surface_spine_stations(plan, faces)
 
     assert neighbour.vert_keys == [
         ("pv-sv", 0),
@@ -3952,9 +4620,8 @@ def test_c8_2_cross_surface_spine_merges_already_split_runs():
         )
     )
 
-    decal_voronoi._synchronize_cross_surface_spine_stations(
-        plan, [first, second]
-    )
+    faces = _attach_test_patch_provenance([first, second])
+    decal_voronoi._synchronize_cross_surface_spine_stations(plan, faces)
 
     expected = [
         ("pv-sv", 0),
@@ -4006,7 +4673,9 @@ def test_c8_6_spine_sync_does_not_split_interior_to_source_edge_frontier():
     original_keys = tuple(face.vert_keys)
     original_positions = tuple(tuple(value) for value in face.positions)
 
-    decal_voronoi._synchronize_cross_surface_spine_stations(plan, [face])
+    decal_voronoi._synchronize_cross_surface_spine_stations(
+        plan, _attach_test_patch_provenance([face])
+    )
 
     assert tuple(face.vert_keys) == original_keys
     assert tuple(tuple(value) for value in face.positions) == original_positions
@@ -4362,7 +5031,9 @@ def test_c8_6_cross_surface_sync_keeps_complementary_stations_unique(
         face(0, low_key, low_position, Vector((0.0, 1.0, 0.0))),
         face(1, high_key, high_position, Vector((0.0, -1.0, 0.0))),
     ]
-    decal_voronoi._synchronize_cross_surface_spine_stations(plan, faces)
+    decal_voronoi._synchronize_cross_surface_spine_stations(
+        plan, _attach_test_patch_provenance(faces)
+    )
 
     for network_face in faces:
         assert network_face.vert_keys.count(low_key) == 1
@@ -4387,9 +5058,9 @@ def test_c8_2_planar_compile_keeps_unselected_boundary_provenance():
         normal=Vector((0.0, 0.0, 1.0)),
         basis_u=Vector((1.0, 0.0, 0.0)),
         basis_v=Vector((0.0, 1.0, 0.0)),
-        mesh_verts=points,
-        mesh_tris=[(0, 1, 2), (0, 2, 3)],
     )
+    node.mesh_verts = points
+    node.mesh_tris = [(0, 1, 2), (0, 2, 3)]
     node.boundary_loops = [
         BoundaryLoop(
             vert_indices=[0, 1, 2, 3],
@@ -5007,17 +5678,24 @@ def test_patch_domain_uses_boundary_loop_instead_of_owner_triangulation(
     ) == pytest.approx(4.0)
 
 
-def test_patch_voronoi_rejects_non_planar_owner_patch():
+def test_patch_voronoi_rejects_site_without_matching_source_face():
     graph = _planar_two_site_graph()
-    graph.nodes[0].mesh_verts[2] = Vector((4.0, 2.0, 0.2))
+    node = graph.nodes[0]
+    node.mesh_verts[2] = Vector((4.0, 2.0, 0.2))
+    # Source ids stay stable when the fixture coordinate is deliberately
+    # moved; production PatchSurfaceIR never infers identity from positions.
+    node.mesh_vert_indices = list(range(len(node.mesh_verts)))
     assert compile_patch_voronoi_plan(graph, [10, 12], offset=0.01) is None
     attempt = decal_voronoi.compile_patch_voronoi_attempt(
-        graph, [10, 12], offset=0.01, allow_partial=True
+        analysis_bundle_from_graph(graph),
+        [10, 12],
+        offset=0.01,
+        allow_partial=True,
     )
     assert attempt.plan is None
     assert attempt.rejected_edge_indices == (10, 12)
     assert [(failure.patch_id, failure.reason) for failure in attempt.failures] == [
-        (0, "MISSING_SITE_FACE_PROVENANCE")
+        (0, "SITE_SEED_NOT_IN_PATCH")
     ]
 
 

@@ -342,8 +342,6 @@ def _cf_build_patch_shape_profile(
             hole_chain_count += len(boundary_loop.chains)
 
     if not outer_points:
-        outer_points.extend(node.mesh_verts)
-    if not outer_points:
         outer_points.append(node.centroid)
 
     origin = node.centroid

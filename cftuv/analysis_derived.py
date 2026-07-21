@@ -1290,13 +1290,19 @@ def _derive_patch_structural_summary(graph, frame_runs_by_loop, run_structural_r
                     band_requires_intervention = True
                     band_intervention_reject_reason = ""
 
-        # Bbox elongation: project boundary verts onto basis_u / basis_v
+        # Bbox elongation is a solve-facing boundary fact. Full surface
+        # tessellation belongs to PatchSurfaceIR and is intentionally absent
+        # from PatchNode.
         basis_u = node.basis_u
         basis_v = node.basis_v
-        mesh_verts = node.mesh_verts
-        if mesh_verts:
-            u_coords = [v.dot(basis_u) for v in mesh_verts]
-            v_coords = [v.dot(basis_v) for v in mesh_verts]
+        boundary_points = [
+            point
+            for boundary_loop in node.boundary_loops
+            for point in boundary_loop.vert_cos
+        ]
+        if boundary_points:
+            u_coords = [v.dot(basis_u) for v in boundary_points]
+            v_coords = [v.dot(basis_v) for v in boundary_points]
             w = max(u_coords) - min(u_coords)
             h = max(v_coords) - min(v_coords)
         else:

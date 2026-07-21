@@ -1,11 +1,8 @@
 from dataclasses import replace
-from types import SimpleNamespace
-
 import pytest
 from mathutils import Vector
 
 from cftuv import decal_charts
-from cftuv.analysis_topology import _serialize_patch_geometry
 from cftuv.decal_charts import (
     ChartAdjacency,
     ChartBuildFailure,
@@ -16,12 +13,17 @@ from cftuv.decal_charts import (
     chart_triangles_from_patch,
 )
 from cftuv.model import BoundaryChain, PatchNode
+from cftuv.surface_ir import PatchSurfaceIR
+from analysis_surface_fixtures import attach_patch_surface, patch_surface
 
 
 def _serialized_patch():
-    return PatchNode(
+    node = PatchNode(
         patch_id=7,
         face_indices=[70, 71],
+    )
+    return attach_patch_surface(
+        node,
         mesh_verts=[
             Vector((0.0, 0.0, 0.0)),
             Vector((1.0, 0.0, 0.0)),
@@ -39,7 +41,8 @@ def _serialized_patch():
 
 
 def test_c0_serialized_patch_builds_immutable_triangle_ir():
-    triangles = chart_triangles_from_patch(_serialized_patch())
+    node = _serialized_patch()
+    triangles = chart_triangles_from_patch(patch_surface(node), node.patch_id)
 
     assert tuple(triangle.triangle_id for triangle in triangles) == (0, 1)
     assert triangles[0].source_face_id == 70
@@ -60,35 +63,30 @@ def test_c0_serialized_patch_builds_immutable_triangle_ir():
 
 
 def test_c0_analysis_serializes_global_vertex_provenance():
-    vertices = [
-        SimpleNamespace(index=101, co=Vector((0.0, 0.0, 0.0))),
-        SimpleNamespace(index=205, co=Vector((1.0, 0.0, 0.0))),
-        SimpleNamespace(index=309, co=Vector((1.0, 1.0, 0.0))),
-        SimpleNamespace(index=412, co=Vector((0.0, 1.0, 0.0))),
-    ]
-    face = SimpleNamespace(
-        index=17,
-        verts=vertices,
-        normal=Vector((0.0, 0.0, 1.0)),
+    node = PatchNode(patch_id=7, face_indices=[17])
+    attach_patch_surface(
+        node,
+        mesh_verts=[
+            Vector((0.0, 0.0, 0.0)),
+            Vector((1.0, 0.0, 0.0)),
+            Vector((1.0, 1.0, 0.0)),
+            Vector((0.0, 1.0, 0.0)),
+        ],
+        mesh_vert_indices=[101, 205, 309, 412],
+        mesh_tris=[(0, 1, 2), (0, 2, 3)],
+        mesh_tri_face_indices=[17, 17],
     )
-    serialized = _serialize_patch_geometry(
-        SimpleNamespace(faces=[face]), [0]
+    surface = patch_surface(node)
+    assert tuple(vertex.vertex_id for vertex in surface.vertices) == (101, 205, 309, 412)
+    assert tuple(triangle.vertex_ids for triangle in surface.triangles) == (
+        (101, 205, 309),
+        (101, 309, 412),
     )
-
-    (
-        mesh_verts,
-        source_ids,
-        triangles,
-        face_ids,
-        normals,
-        edge_indices,
-    ) = serialized
-    assert len(mesh_verts) == 4
-    assert source_ids == [101, 205, 309, 412]
-    assert triangles == [(0, 1, 2), (0, 2, 3)]
-    assert face_ids == [17, 17]
-    assert len(normals) == 2
-    assert edge_indices == [(-1, -1, -1), (-1, -1, -1)]
+    assert all(triangle.source_face_id == 17 for triangle in surface.triangles)
+    assert all(
+        triangle.physical_edge_ids == (None, None, None)
+        for triangle in surface.triangles
+    )
 
 
 def test_c0_boundary_chain_seeds_keep_edge_face_and_chain_provenance():
@@ -110,7 +108,8 @@ def test_c0_boundary_chain_seeds_keep_edge_face_and_chain_provenance():
 
 
 def test_c0_chart_ir_validates_relations_cuts_and_metrics():
-    triangles = chart_triangles_from_patch(_serialized_patch())
+    node = _serialized_patch()
+    triangles = chart_triangles_from_patch(patch_surface(node), node.patch_id)
     adjacency = ChartAdjacency(
         triangle_a=0,
         triangle_b=1,
@@ -206,11 +205,18 @@ def test_c0_chart_ir_validates_relations_cuts_and_metrics():
 
 def test_c0_missing_patch_provenance_is_explicit_failure():
     node = _serialized_patch()
-    node.mesh_vert_indices = []
+    surface = patch_surface(node)
+    broken = PatchSurfaceIR(
+        source_revision=surface.source_revision,
+        vertices=surface.vertices[:-1],
+        edges=surface.edges,
+        faces=surface.faces,
+        triangles=surface.triangles,
+    )
 
     with pytest.raises(ChartBuildFailure) as captured:
-        chart_triangles_from_patch(node)
+        chart_triangles_from_patch(broken, node.patch_id)
 
-    assert captured.value.code == "MISSING_SOURCE_VERTEX_PROVENANCE"
+    assert captured.value.code == "INVALID_SERIALIZED_TRIANGLE"
     assert captured.value.patch_id == 7
-    assert "verts=4 ids=0" in captured.value.details
+    assert "source_vertices" in captured.value.details

@@ -1,5 +1,11 @@
 # Decal runtime contract
 
+> **TRANCHE S capability status.** Production runtime exposes only compiled
+> strict `SEAMS`. `TOP`, `BOTTOM` and `CORNERS` fail before analysis/BMesh with
+> mode-specific `DECAL_*_ARCHIVED_UNTIL_ENGINE_PLAN` reasons. `MITER` and
+> `BEVEL` are compile-time modes of the same `CornerModel`; both are available
+> in UI and scripted evaluation, with no coercion between them.
+
 ## Deterministic benchmark harness
 
 `artifacts/verify_decal_runtime.py` запускается внутри Blender и сохраняет
@@ -33,10 +39,12 @@ PatchGraph, owner surface charts и offset. Он один раз сохраня�
 
 - segment/endpoint Voronoi cells;
 - boundary-clipped atoms;
-- `CornerSpec` с геометрическими фактами угла;
+- `CornerSeed` (`V`, ordered incident sites, side, sector, owner, join);
 - surface lift provenance.
 
-Ширина и corner policy не входят в compiled plan.
+Ширина и угловые пороги не входят в compiled plan. `Corner Join` входит:
+смена `MITER ↔ BEVEL` требует локального compile угловых структур, а не
+runtime-подмены формы.
 
 ## Dynamic evaluation
 
@@ -45,25 +53,25 @@ PatchGraph, owner surface charts и offset. Он один раз сохраня�
 `interior_angle`, `extrusion_angle`, `is_convex` и `miter_ratio`, после чего
 строит runtime crops и пересекает их с уже скомпилированными cells.
 
-Сейчас доступны три параметра, семантика которых уже определена backend:
+Сейчас runtime доступны два параметра, семантика которых определена backend:
 
 - `Acute Split Angle` — ниже порога corner становится двухкомпонентным
   `ACUTE_SPLIT`;
 - `Apex Limit` — максимальное расстояние удалённого apex относительно
   half-width для `MITER`, `KITE` и outer-части `ACUTE_SPLIT`.
-- `Corner Join` — `MITER` сохраняет обычный выпуклый apex, `BEVEL`
-  меняет только заполнение GAP-стороны углового piece на прямой
-  треугольник `(V,P1,P2)`. Arrangement, crops, limits и collision
-  ownership идут тем же путём, что при `MITER`.
+- `Corner Join` выбирает `MITER` или `BEVEL` у compile-static `CornerSeed`.
+  Runtime settings обязаны совпадать со скомпилированным планом; устаревший
+  plan даёт `DECAL_CORNER_JOIN_RECOMPILE_REQUIRED` без коэрции.
+
+После локального own-strip clip `CornerModel` один раз читает `P1/P2` с их
+station refs и provenance. Collision, ownership, UV, projection и emission
+derive из этого же объекта. После общей конкуренции `ResolvedCornerView`
+ссылается на те же anchors и ту же derived boundary; вставленные RC-stations
+учитываются отдельно и не становятся вторым контуром угла.
 
 Blender property id `decal_corner_miter_limit` сохранён для совместимости, но
 UI и runtime называют параметр `Apex Limit`; внутренний контракт —
-`CornerRuntimeSettings.apex_limit`. Arrangement-классификатор никогда не
-возвращает `_CornerPolicy.BEVEL`: emission-классификатор выбирает его только
-для GAP между двумя уже эмитированными strip-квадами. Базовый MITER/KITE
-corner-piece после общего arrangement заменяется треугольником из его же
-post-clip `V/P1/P2`; segment faces и их station-UV остаются бит-идентичны
-режиму MITER. Дальний MITER/KITE apex заменяет
+`CornerRuntimeSettings.apex_limit`. Дальний MITER/KITE apex заменяет
 усечённый contour. ACUTE_SPLIT всегда сохраняет INNER и OUTER components:
 outer apex двигается вдоль исходного apex ray и остаётся строго с внешней
 стороны cap chord. Если limit меньше геометрического minimum, используется
@@ -550,18 +558,19 @@ periodic counters остались нулевыми. Полный machine-readab
 ## Terminal-route saturation (R1.9 / RR8d)
 
 Terminal contact materialization consumes the compile-static station ledger.
-When requested alpha exhausts a contour route, exhaustion is a valid
-saturated state: the contact remains on the last station-prefix that produces
-a simple terminal cut. This fallback is deliberately unavailable before route
-exhaustion, so malformed ordinary cuts still raise
-`TERMINAL_BRIDGE_CUT_INVALID`.
+When requested alpha exhausts a contour route, the plan-level
+`CapacityPolicy` decides the result. `SATURATE_PROVEN` keeps the last
+constructible station-prefix, `CONTROLLED_RECOMPILE` requests new support
+outside the raw mouse frame, and `REJECT_UNPROVEN` fails named for periodic,
+double-cover, or otherwise unproved capacity. Malformed ordinary cuts still
+raise `TERMINAL_BRIDGE_CUT_INVALID`.
 
 The materializer defensively stops before a repeated physical route edge even
-though rail compile already emits a DAM at that point. Opposing routes that
-meet on the same contour use equality of their accumulated station distances;
-the source `start_edge_id` supplies the structural ordering if several exact
-candidates exist. Runtime diagnostics expose saturation, station clamp,
-revisit guard, and contact meeting as counted events.
+though rail compile already emits a DAM at that point. Opposing routes use a
+compile-static equality of their accumulated station distances. The canonical
+`chain_ref` supplies the structural tie-break; runtime only reads the frozen
+station key. Runtime diagnostics expose saturation, station clamp, revisit
+guard, and contact meeting as counted events.
 
 On the user `sagging_wall` field case, width 35.98 and width 102.752491
 (10x mesh bbox diagonal) both produce identical preview/confirm network-face
@@ -576,16 +585,20 @@ on a different selected pChain of the same patch is stored once. Reverse
 traces are canonicalized before pole/merge processing, so a shared thread is
 not represented as an owner route plus a synthetic `MERGE` route.
 
-The canonical route has two `RailRouteReading` records. Both reference the
+An RR10 canonical route has two `RailRouteReading` records. Both reference the
 same route/stations, but measure accumulated distance from opposite chain
 origins. Their exact equality is compiled into a `RailFreezeLocus` on either
 a source vertex or a source-edge parameter. The lower canonical `chain_ref`
 owns an exact tie. Readings and freeze loci are topology/compile facts and do
 not change during width drag; the overlay draws freeze loci in orange.
 
-R2 only publishes this immutable competition IR. Direct discovery of a
-single-edge thread and non-planar materialization remain R3 work; no path
-search or second curved geometry representation is introduced here.
+Terminal routes use the same locus type with two route ids and two independent
+station readings. If their material cuts would overlap, the shared
+compile-static locus partitions the site; absence or ambiguity of the station
+answer stops with `RAIL_COMPETITION_METRIC_UNRESOLVED`. No 2D fallback is
+allowed. Direct discovery of a single-edge thread and non-planar
+materialization remain R3 work; no path search or second curved geometry
+representation is introduced here.
 
 ## GPU preview overlay (F3)
 

@@ -1,0 +1,80 @@
+{
+  "after_commit": "a737c32edafa3504a34a9ec6388dd65fb107d7ce",
+  "all_preview_confirm_equal": true,
+  "before_commit": "bbecd37a171613935501c5abd2607d8f12194caa",
+  "blend_sha256_equal": true,
+  "geometry_identity_changed_objects": [
+    "rounded_wall.001",
+    "sagging_wall"
+  ],
+  "objects": [
+    {
+      "geometry_identity_digest_equal": true,
+      "object": "building",
+      "plan_digest_equal": true,
+      "plan_semantics_equal": true,
+      "present_after": true,
+      "present_before": true,
+      "preview_confirm_equal": true,
+      "topology_and_policy_equal": true
+    },
+    {
+      "geometry_identity_digest_equal": true,
+      "object": "half_sphere",
+      "plan_digest_equal": true,
+      "plan_semantics_equal": true,
+      "present_after": true,
+      "present_before": true,
+      "preview_confirm_equal": true,
+      "topology_and_policy_equal": true
+    },
+    {
+      "geometry_identity_digest_equal": false,
+      "object": "rounded_wall.001",
+      "plan_digest_equal": false,
+      "plan_semantics_equal": true,
+      "present_after": true,
+      "present_before": true,
+      "preview_confirm_equal": true,
+      "topology_and_policy_equal": true
+    },
+    {
+      "geometry_identity_digest_equal": true,
+      "object": "rounded_wall_noise_top",
+      "plan_digest_equal": true,
+      "plan_semantics_equal": true,
+      "present_after": true,
+      "present_before": true,
+      "preview_confirm_equal": true,
+      "topology_and_policy_equal": true
+    },
+    {
+      "geometry_identity_digest_equal": false,
+      "object": "sagging_wall",
+      "plan_digest_equal": false,
+      "plan_semantics_equal": true,
+      "present_after": true,
+      "present_before": true,
+      "preview_confirm_equal": true,
+      "topology_and_policy_equal": true
+    },
+    {
+      "geometry_identity_digest_equal": true,
+      "object": "wall_noise_top",
+      "plan_digest_equal": true,
+      "plan_semantics_equal": true,
+      "present_after": true,
+      "present_before": true,
+      "preview_confirm_equal": true,
+      "topology_and_policy_equal": true
+    }
+  ],
+  "plan_digest_change_reasons": [
+    "I5 total provenance",
+    "S-DF2-lite CornerStationRef source_s direction"
+  ],
+  "plan_digest_changes_are_contract_metadata": true,
+  "plan_semantics_equal": true,
+  "schema": "cftuv.decal_s_cm_a_comparison.v1",
+  "topology_and_policy_equal": true
+}

@@ -12,6 +12,25 @@ from cftuv.decal_voronoi import (
 )
 from cftuv.model import BoundaryChain, BoundaryLoop, PatchGraph, PatchNode
 
+from analysis_surface_fixtures import (
+    analysis_bundle_from_graph,
+    attach_patch_surface,
+)
+
+_build_intrinsic_strip_charts = build_intrinsic_strip_charts
+_compile_patch_voronoi_plan = compile_patch_voronoi_plan
+
+
+def build_intrinsic_strip_charts(node, *args, **kwargs):
+    kwargs["patch_surface"] = node._test_patch_surface
+    return _build_intrinsic_strip_charts(node, *args, **kwargs)
+
+
+def compile_patch_voronoi_plan(graph, *args, **kwargs):
+    return _compile_patch_voronoi_plan(
+        analysis_bundle_from_graph(graph), *args, **kwargs
+    )
+
 
 def _curved_strip_graph(segment_count, *, arc=pi / 2.0):
     """Developable cylinder strip с source provenance на каждом facet."""
@@ -76,6 +95,9 @@ def _curved_strip_graph(segment_count, *, arc=pi / 2.0):
         normal=Vector((cos(arc * 0.5), sin(arc * 0.5), 0.0)),
         basis_u=Vector((0.0, 0.0, 1.0)),
         basis_v=Vector((-sin(arc * 0.5), cos(arc * 0.5), 0.0)),
+    )
+    attach_patch_surface(
+        node,
         mesh_verts=positions,
         mesh_vert_indices=list(range(len(positions))),
         mesh_tris=triangles,
@@ -129,6 +151,9 @@ def _mixed_backend_junction_graph(segment_count=8):
         normal=normal,
         basis_u=Vector((1.0, 0.0, 0.0)),
         basis_v=Vector((0.0, 1.0, 0.0)),
+    )
+    attach_patch_surface(
+        node,
         mesh_verts=positions,
         # Вершина 0 общая с endpoint цилиндрической ленты.
         mesh_vert_indices=[0, 100, 101, 102],

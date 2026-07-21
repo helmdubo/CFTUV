@@ -1,0 +1,201 @@
+{
+  "schema": "cftuv.decal_s1_surface_ir_blender.v1",
+  "blender_version": "4.3.2",
+  "verdict": "PASS",
+  "cases": [
+    {
+      "name": "concave_u_ngon",
+      "vertex_cycle": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "triangle_vertex_ids": [
+        [
+          1,
+          2,
+          3
+        ],
+        [
+          1,
+          3,
+          4
+        ],
+        [
+          6,
+          7,
+          0
+        ],
+        [
+          1,
+          4,
+          5
+        ],
+        [
+          5,
+          6,
+          0
+        ],
+        [
+          0,
+          1,
+          5
+        ]
+      ],
+      "triangle_area_3d": 7.0,
+      "triangle_normals": [
+        [
+          0.0,
+          -0.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          -0.0,
+          1.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "all_tessellation_diagonals_are_none": true,
+      "all_triangle_centroids_inside_polygon": true
+    },
+    {
+      "name": "non_planar_quad",
+      "vertex_cycle": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "triangle_vertex_ids": [
+        [
+          0,
+          1,
+          2
+        ],
+        [
+          0,
+          2,
+          3
+        ]
+      ],
+      "triangle_area_3d": 1.0770329666843454,
+      "triangle_normals": [
+        [
+          0.0,
+          -0.3713906811249247,
+          0.9284766889769309
+        ],
+        [
+          -0.3713906811249247,
+          0.0,
+          0.9284766889769309
+        ]
+      ],
+      "all_tessellation_diagonals_are_none": true
+    },
+    {
+      "name": "reversed_concave_u_ngon",
+      "vertex_cycle": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ],
+      "triangle_vertex_ids": [
+        [
+          0,
+          7,
+          6
+        ],
+        [
+          0,
+          6,
+          5
+        ],
+        [
+          3,
+          2,
+          1
+        ],
+        [
+          0,
+          5,
+          4
+        ],
+        [
+          4,
+          3,
+          1
+        ],
+        [
+          4,
+          1,
+          0
+        ]
+      ],
+      "triangle_area_3d": 7.0,
+      "triangle_normals": [
+        [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        [
+          0.0,
+          0.0,
+          -1.0
+        ],
+        [
+          0.0,
+          -0.0,
+          -1.0
+        ]
+      ],
+      "all_tessellation_diagonals_are_none": true
+    }
+  ]
+}

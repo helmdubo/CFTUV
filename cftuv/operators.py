@@ -19,8 +19,8 @@ from bpy.props import (
     StringProperty,
 )
 from .analysis import (
+    build_analysis_bundle,
     build_straighten_structural_support,
-    build_patch_graph,
     format_patch_graph_report,
     format_patch_graph_snapshot_report,
     format_solver_input_preflight_report,
@@ -37,9 +37,9 @@ from .decal_modal import (
     warp_decal_drag_cursor as _warp_decal_drag_cursor,
 )
 from .decal_transform import (
-    local_decal_settings_for_source,
-    validate_decal_source_transform,
+    metric_context_for_source,
 )
+from .decal_session import CapturedDecalRequest, DecalSessionController
 from .debug import (
     apply_layer_visibility,
     clear_decal_rail_visualization,
@@ -58,8 +58,9 @@ from .decals import (
     chain_refs_for_edge_indices,
     compile_manual_seam_decal_plan,
     decal_compile_alpha_budget,
-    evaluate_manual_seam_faces,
-    generate_decal_result,
+    decal_mode_archived_reason,
+    evaluate_manual_seam_faces_local,
+    generate_decal_result_local,
     remove_decal_preview_object,
 )
 from .decal_gpu_preview import create_controller as create_gpu_preview
@@ -268,13 +269,11 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
             (
                 "BEVEL",
                 "Bevel",
-                "Cut only convex MITER corners into triangles",
+                "Use the CornerModel chord at eligible exterior corners",
             ),
         ),
         default="MITER",
-        description=(
-            "Shape of convex MITER joins; reflex KITE corners are unchanged"
-        ),
+        description="Compile-time CornerModel join style",
     )
     decal_corner_acute_split_angle: FloatProperty(
         name="Split Angle",
@@ -745,9 +744,9 @@ def _prepare_patch_graph(
     make_seams_by_sharp=False,
     use_all_faces=False,
 ):
-    """Prepare PatchGraph from the current context.
+    """Prepare an atomic AnalysisBundle from the current context.
 
-    Returns: (obj, bm, patch_graph, original_mode, selected_face_indices)
+    Returns: (obj, bm, analysis_bundle, original_mode, selected_face_indices)
     """
     obj = context.active_object
     if obj is None or obj.type != 'MESH':
@@ -788,8 +787,8 @@ def _prepare_patch_graph(
                 selection_message = _highlight_solver_preflight_issues(context, obj, bm, preflight)
                 raise _SolverPreflightSelectionError(report.summary, selection_message)
 
-        patch_graph = build_patch_graph(bm, face_indices, obj)
-        return obj, bm, patch_graph, original_mode, selected_face_indices
+        analysis_bundle = build_analysis_bundle(bm, face_indices, obj)
+        return obj, bm, analysis_bundle, original_mode, selected_face_indices
     except _SolverPreflightSelectionError:
         raise
     except Exception:
@@ -811,14 +810,12 @@ def _restore_mode_and_selection(obj, original_mode, selected_face_indices):
         bpy.ops.object.mode_set(mode='OBJECT')
 
 
-def _prepare_decal_generation(context):
+def _prepare_decal_generation(context, mode="SEAMS"):
     """Собирает immutable state для immediate или modal decal generation."""
 
     decal_settings = context.scene.hotspotuv_settings
     source_obj = context.active_object
-    validate_decal_source_transform(
-        getattr(source_obj, "matrix_world", None)
-    )
+    metric_context = metric_context_for_source(source_obj)
     manual_selection = _is_edge_select_mode(context, source_obj)
     selected_edge_indices = []
     if manual_selection:
@@ -830,7 +827,7 @@ def _prepare_decal_generation(context):
                 "Edge Select Mode: select one or more seam-marked edges"
             )
 
-    obj, _bm, patch_graph, original_mode, selected_faces = _prepare_patch_graph(
+    obj, _bm, analysis_bundle, original_mode, selected_faces = _prepare_patch_graph(
         context,
         require_selection=not manual_selection,
         use_all_faces=manual_selection,
@@ -839,21 +836,22 @@ def _prepare_decal_generation(context):
         chain_refs = None
         if manual_selection:
             chain_refs = chain_refs_for_edge_indices(
-                patch_graph, selected_edge_indices
+                analysis_bundle.patch_graph, selected_edge_indices
             )
             if not chain_refs:
                 raise ValueError(
                     "Selected seam edges do not belong to PatchGraph boundary chains"
                 )
         settings = DecalSettings.from_blender_settings(decal_settings)
-        return (
-            obj,
-            patch_graph,
-            settings,
-            chain_refs,
-            manual_selection,
-            len(selected_edge_indices),
-            tuple(selected_edge_indices),
+        return CapturedDecalRequest(
+            mode=mode,
+            source_obj=obj,
+            analysis_bundle=analysis_bundle,
+            world_settings=settings,
+            metric_context=metric_context,
+            chain_refs=chain_refs,
+            manual_selection=manual_selection,
+            selected_edge_indices=tuple(selected_edge_indices),
         )
     finally:
         _restore_mode_and_selection(obj, original_mode, selected_faces)
@@ -863,12 +861,13 @@ def _prepare_decal_generation(context):
 
 def _build_solve_state(context, make_seams_by_sharp=False):
     """Полный solve state: PatchGraph + SolverGraph + SolvePlan + UVSettings."""
-    obj, bm, patch_graph, original_mode, sel = _prepare_patch_graph(
+    obj, bm, analysis_bundle, original_mode, sel = _prepare_patch_graph(
         context,
         require_selection=True,
         validate_for_solver=True,
         make_seams_by_sharp=make_seams_by_sharp,
     )
+    patch_graph = analysis_bundle.patch_graph
     settings = UVSettings.from_blender_settings(context.scene.hotspotuv_settings)
     solver_graph = build_solver_graph(
         patch_graph,
@@ -1393,9 +1392,21 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
     mode: EnumProperty(
         name="Mode",
         items=[
-            ("TOP", "Trim Top", "Trim strips along upper WALL boundaries"),
-            ("BOTTOM", "Trim Bottom", "Trim strips along lower WALL boundaries"),
-            ("CORNERS", "Corners", "Corner strips along non-coplanar WALL-WALL seams"),
+            (
+                "TOP",
+                "Trim Top (Archived)",
+                "Unavailable until a mode-specific engine plan is implemented",
+            ),
+            (
+                "BOTTOM",
+                "Trim Bottom (Archived)",
+                "Unavailable until a mode-specific engine plan is implemented",
+            ),
+            (
+                "CORNERS",
+                "Corners (Archived)",
+                "Unavailable until a mode-specific engine plan is implemented",
+            ),
             ("SEAMS", "Seams", "Flat strips along coplanar WALL-WALL seams"),
         ],
         default="BOTTOM",
@@ -1419,18 +1430,21 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         except Exception:
             pass
 
-    def _generate_gpu_frame(self, state, settings, preview):
+    def _generate_gpu_frame(self, request, local_request, plan, preview):
         """GPU display adapter: те же evaluated faces без BMesh writes."""
 
         controller = getattr(self, "_modal_gpu_preview", None)
         if controller is None or controller.failed or not preview:
             return None
-        result = evaluate_manual_seam_faces(
-            state[0],
-            settings,
-            self._modal_decal_plan,
-            preview=True,
-        )
+        try:
+            result = evaluate_manual_seam_faces_local(
+                local_request.settings,
+                plan,
+                preview=True,
+            )
+        except Exception:
+            controller.update((), "ERROR")
+            raise
         if not result.faces:
             controller.update((), "EMPTY")
             return DecalGenerationResult(
@@ -1439,7 +1453,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                 reason="evaluation produced no faces",
                 evaluation_ms=result.evaluation_ms,
             )
-        outcome = controller.update(result.faces, "UPDATED")
+        outcome = controller.update(result.geometry_batch, "UPDATED")
         if outcome == "FAILED":
             self._modal_gpu_preview = None
             return None
@@ -1450,70 +1464,115 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             evaluation_ms=result.evaluation_ms,
         )
 
-    def _generate(self, context, state, settings=None, preview=False):
-        (
-            obj,
-            patch_graph,
-            base_settings,
-            chain_refs,
-            _manual,
-            _edge_count,
-            selected_edge_indices,
-        ) = state
+    def _evaluate_session(
+        self,
+        context,
+        request,
+        local_request,
+        plan,
+        preview=False,
+    ):
+        """Blender display/materialization port для session controller."""
+
         if preview and getattr(self, "_modal_gpu_preview", None) is not None:
             gpu_result = self._generate_gpu_frame(
-                state, settings or base_settings, preview
+                request,
+                local_request,
+                plan,
+                preview,
             )
             if gpu_result is not None:
                 return gpu_result
-        return generate_decal_result(
-            patch_graph,
-            obj,
-            settings or base_settings,
-            self.mode,
+        session = getattr(self, "_decal_session", None)
+        preview_state = (
+            session.preview_state if session is not None else None
+        )
+        return generate_decal_result_local(
+            request.analysis_bundle,
+            request.source_obj,
+            local_request.settings,
+            request.mode,
             scene=context.scene,
-            chain_refs=chain_refs,
-            selected_edge_indices=selected_edge_indices,
+            chain_refs=request.chain_refs,
+            selected_edge_indices=request.selected_edge_indices,
             preview=preview,
-            decal_plan=getattr(self, "_modal_decal_plan", None),
-            preview_state=getattr(self, "_modal_preview_state", None),
+            decal_plan=plan,
+            preview_state=preview_state,
         )
 
-    def _compile_decal_plan(self, state, settings=None, alpha_budget=None):
-        """Один backend lifetime для modal, execute и headless вызовов."""
+    def _compile_session_plan(self, request, local_request):
+        """Compile-port; план возвращается controller'у, не хранится в UI."""
 
-        self._modal_decal_plan = None
-        if self.mode == "SEAMS" and state[4] and state[6]:
-            local_settings = local_decal_settings_for_source(
-                settings or state[2], state[0]
-            )
-            if alpha_budget is None:
-                alpha_budget = decal_compile_alpha_budget(local_settings)
-            self._modal_decal_plan = compile_manual_seam_decal_plan(
-                state[1],
+        if (
+            request.mode == "SEAMS"
+            and request.manual_selection
+            and request.selected_edge_indices
+        ):
+            local_settings = local_request.settings
+            return compile_manual_seam_decal_plan(
+                request.analysis_bundle,
                 local_settings,
-                state[6],
-                alpha_budget=alpha_budget,
+                request.selected_edge_indices,
+                alpha_budget=decal_compile_alpha_budget(local_settings),
             )
+        return None
 
-    @staticmethod
-    def _domain_budget_exceeded(reason):
-        return "DOMAIN_BUDGET_EXCEEDED" in str(reason or "")
+    def _clear_session_preview(self):
+        """CLEAR policy projection для обоих preview adapters."""
 
-    def _report_created(self, created, state, suffix=""):
-        (
-            _obj,
-            _graph,
-            _settings,
-            chain_refs,
-            manual_selection,
-            edge_count,
-            _selected_edge_indices,
-        ) = state
+        gpu = getattr(self, "_modal_gpu_preview", None)
+        if gpu is not None:
+            try:
+                gpu.update((), "ERROR")
+            except Exception:
+                pass
+        session = getattr(self, "_decal_session", None)
+        if session is None:
+            return
+        try:
+            remove_decal_preview_object(
+                session.request.mode,
+                session.request.source_obj,
+                session.preview_state,
+            )
+        except Exception as exc:
+            reporter = getattr(self, "report", None)
+            if callable(reporter):
+                reporter({"ERROR"}, f"Preview clear failed: {exc}")
+
+    def _create_session(self, context, request, *, preview_state):
+        session = DecalSessionController(
+            request,
+            compile_plan=lambda local: self._compile_session_plan(
+                request, local
+            ),
+            evaluate=lambda local, plan, preview: _coerce_decal_generation_result(
+                self._evaluate_session(
+                    context,
+                    request,
+                    local,
+                    plan,
+                    preview=preview,
+                )
+            ),
+            clear_preview=self._clear_session_preview,
+            cleanup=lambda restore: self._discard_session_resources(
+                context,
+                restore_scene=restore,
+            ),
+            preview_state=preview_state,
+        )
+        self._decal_session = session
+        return session
+
+    def _report_created(self, created, request, suffix=""):
         summary = "Created: " + ", ".join(created)
-        if manual_selection:
-            summary += f" | chains:{len(chain_refs)} edges:{edge_count}"
-        decal_plan = getattr(self, "_modal_decal_plan", None)
+        if request.manual_selection:
+            summary += (
+                f" | chains:{len(request.chain_refs)} edges:{request.edge_count}"
+            )
+        session = getattr(self, "_decal_session", None)
+        decal_plan = session.compiled_plan if session is not None else None
         backend_summary = getattr(decal_plan, "backend_summary", "")
         if backend_summary:
             summary += " | " + backend_summary
@@ -1538,7 +1597,8 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
 
     def _configure_modal_drag_targets(self, settings):
         targets = _decal_drag_targets(self.mode)
-        decal_plan = getattr(self, "_modal_decal_plan", None)
+        session = getattr(self, "_decal_session", None)
+        decal_plan = session.compiled_plan if session is not None else None
         live_corner_controls = bool(
             getattr(decal_plan, "supports_live_corner_controls", False)
         )
@@ -1567,9 +1627,6 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             if target.key != "W" and not live_corner_controls
         }
         self._modal_drag_target = targets[0]
-        self._modal_initial_settings = settings
-        self._modal_base_settings = settings
-        self._modal_current_settings = settings
 
     def _rebase_modal_drag(self, key, mouse_x, precise):
         targets = getattr(self, "_modal_drag_targets", {})
@@ -1578,11 +1635,10 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             target = self._active_modal_drag_target()
             if target.key != key:
                 return False
-        settings = getattr(self, "_modal_current_settings", None)
-        if settings is None:
-            settings = getattr(self, "_modal_base_settings", None)
-        if settings is None:
+        session = getattr(self, "_decal_session", None)
+        if session is None:
             return False
+        settings = session.current_world_settings
         value = getattr(settings, target.settings_field)
         self._modal_drag_target = target
         self._modal_property = target.scene_property
@@ -1605,7 +1661,8 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
     def _modal_corner_diagnostics_text(self):
         if not getattr(self, "_modal_corner_targets_enabled", False):
             return ""
-        generation = getattr(self, "_modal_last_valid_result", None)
+        session = getattr(self, "_decal_session", None)
+        generation = session.last_valid_result if session is not None else None
         if generation is None:
             return ""
         counts = dict(getattr(generation, "policy_counts", ()) or ())
@@ -1621,11 +1678,9 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         )
 
     def _restore_modal_scene_targets(self, scene_settings):
-        initial = getattr(self, "_modal_initial_settings", None)
-        if initial is None:
-            initial = getattr(self, "_modal_base_settings", None)
+        session = getattr(self, "_decal_session", None)
+        initial = session.request.world_settings if session is not None else None
         targets = tuple(getattr(self, "_modal_drag_targets", {}).values())
-        restored = False
         for target in targets:
             if initial is None or not hasattr(initial, target.settings_field):
                 continue
@@ -1634,12 +1689,6 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                 target.scene_property,
                 getattr(initial, target.settings_field),
             )
-            restored = True
-        if not restored:
-            property_name = getattr(self, "_modal_property", None)
-            base_value = getattr(self, "_modal_base_value", None)
-            if property_name and base_value is not None:
-                setattr(scene_settings, property_name, base_value)
 
     def _set_modal_header(self, value, reason=""):
         area = getattr(self, "_modal_area", None)
@@ -1676,20 +1725,16 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         ):
             return
         self._modal_rail_visualization_shown = True
-        state = getattr(self, "_modal_state", None)
-        source_obj = (
-            state[0]
-            if isinstance(state, (tuple, list)) and state
-            else None
-        )
+        session = getattr(self, "_decal_session", None)
+        request = session.request if session is not None else None
+        source_obj = request.source_obj if request is not None else None
         if (
             self.mode != "SEAMS"
-            or not isinstance(state, (tuple, list))
-            or len(state) <= 4
-            or not state[4]
+            or request is None
+            or not request.manual_selection
         ):
             return
-        decal_plan = getattr(self, "_modal_decal_plan", None)
+        decal_plan = session.compiled_plan
         rail_plan = getattr(decal_plan, "rail_plan", None)
         if source_obj is not None:
             create_decal_rail_visualization(rail_plan, source_obj)
@@ -1700,11 +1745,9 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         if getattr(self, "_modal_rail_visualization_cleared", False):
             return
         self._modal_rail_visualization_cleared = True
-        state = getattr(self, "_modal_state", None)
+        session = getattr(self, "_decal_session", None)
         source_obj = (
-            state[0]
-            if isinstance(state, (tuple, list)) and state
-            else None
+            session.request.source_obj if session is not None else None
         )
         if source_obj is None:
             return
@@ -1715,23 +1758,21 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             if callable(reporter):
                 reporter({"ERROR"}, f"Rail overlay cleanup failed: {exc}")
 
-    def _discard_modal_preview(self, context, restore_scene):
-        """Idempotent terminal cleanup для Esc, confirm и forced cancel."""
+    def _discard_session_resources(self, context, restore_scene):
+        """Blender cleanup-port; terminal ordering задаёт controller."""
 
         self._stop_gpu_preview()
-        if not getattr(self, "_modal_preview_discarded", False):
-            state = getattr(self, "_modal_state", None)
+        if not getattr(self, "_modal_resources_discarded", False):
+            session = getattr(self, "_decal_session", None)
             source_obj = (
-                state[0]
-                if isinstance(state, (tuple, list)) and state
-                else None
+                session.request.source_obj if session is not None else None
             )
             if source_obj is not None:
                 try:
                     remove_decal_preview_object(
                         self.mode,
                         source_obj,
-                        getattr(self, "_modal_preview_state", None),
+                        session.preview_state,
                     )
                 except Exception as exc:
                     reporter = getattr(self, "report", None)
@@ -1739,7 +1780,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                         reporter(
                             {"ERROR"}, f"Preview cleanup failed: {exc}"
                         )
-            self._modal_preview_discarded = True
+            self._modal_resources_discarded = True
         self._clear_modal_rail_visualization()
         if restore_scene:
             scene = getattr(context, "scene", None)
@@ -1751,11 +1792,19 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
     def cancel(self, context):
         """Blender callback при принудительном завершении modal/window."""
 
-        self._discard_modal_preview(context, restore_scene=True)
+        session = getattr(self, "_decal_session", None)
+        if session is not None:
+            session.cancel()
 
     def invoke(self, context, event):
+        self._decal_session = None
         self._modal_rail_visualization_shown = False
         self._modal_rail_visualization_cleared = False
+        self._modal_resources_discarded = False
+        archived_reason = decal_mode_archived_reason(self.mode)
+        if archived_reason:
+            self.report({"ERROR"}, archived_reason)
+            return {"CANCELLED"}
         source_obj = context.active_object
         interactive_mode = self.mode in {"TOP", "BOTTOM", "CORNERS", "SEAMS"}
         edge_select_is_immediate = (
@@ -1771,12 +1820,16 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             return self.execute(context)
 
         try:
-            state = _prepare_decal_generation(context)
-            self._compile_decal_plan(state)
-            self._modal_preview_state = DecalPreviewState()
-            settings = state[2]
+            request = _prepare_decal_generation(context, self.mode)
+            preview_state = DecalPreviewState()
+            self._modal_area = context.area
             self._modal_gpu_preview = None
-            decal_plan = getattr(self, "_modal_decal_plan", None)
+            session = self._create_session(
+                context,
+                request,
+                preview_state=preview_state,
+            )
+            decal_plan = session.compile()
             if (
                 self.mode == "SEAMS"
                 and decal_plan is not None
@@ -1789,23 +1842,22 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                         "GPU_TEXTURED",
                     )
                 )
-                controller = create_gpu_preview(state[0], display_mode)
+                controller = create_gpu_preview(
+                    request.source_obj,
+                    display_mode,
+                )
                 if controller is not None and controller.start():
                     self._modal_gpu_preview = controller
-            self._modal_state = state
-            self._configure_modal_drag_targets(settings)
-            self._modal_area = context.area
-            self._modal_preview_discarded = False
-            generation = _coerce_decal_generation_result(
-                self._generate(context, state, settings, preview=True)
-            )
+            self._configure_modal_drag_targets(request.world_settings)
+            evaluation = session.begin()
+            generation = evaluation.result
             if generation.status != PreviewStatus.UPDATED:
                 level = (
                     {"ERROR"}
                     if generation.status == PreviewStatus.ERROR
                     else {"WARNING"}
                 )
-                self._discard_modal_preview(context, restore_scene=True)
+                session.cancel()
                 self.report(
                     level,
                     generation.reason
@@ -1814,13 +1866,12 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                 return {"CANCELLED"}
 
             self._show_modal_rail_visualization()
-            self._modal_last_valid_settings = settings
-            self._modal_last_valid_result = generation
-            self._modal_last_preview_error = None
-            self._modal_pending_budget_settings = None
-            self._modal_pending_budget_value = None
             self._modal_created = _generation_result_names(generation)
-            drag_anchor = _warp_decal_drag_cursor(context, source_obj, event)
+            drag_anchor = _warp_decal_drag_cursor(
+                context,
+                request.source_obj,
+                event,
+            )
             self._rebase_modal_drag(
                 "W", drag_anchor[0], bool(getattr(event, "shift", False))
             )
@@ -1828,13 +1879,15 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             context.window_manager.modal_handler_add(self)
             return {"RUNNING_MODAL"}
         except ValueError as exc:
-            if hasattr(self, "_modal_preview_state"):
-                self._discard_modal_preview(context, restore_scene=True)
+            session = getattr(self, "_decal_session", None)
+            if session is not None:
+                session.cancel()
             self.report({"WARNING"}, str(exc))
             return {"CANCELLED"}
         except Exception as exc:
-            if hasattr(self, "_modal_preview_state"):
-                self._discard_modal_preview(context, restore_scene=True)
+            session = getattr(self, "_decal_session", None)
+            if session is not None:
+                session.cancel()
             self.report({"ERROR"}, f"Generate Decals failed: {exc}")
             return {"CANCELLED"}
 
@@ -1884,6 +1937,10 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             return {"RUNNING_MODAL"}
 
         if event.type == "MOUSEMOVE":
+            session = getattr(self, "_decal_session", None)
+            if session is None:
+                self.report({"ERROR"}, "DECAL_SESSION_MISSING")
+                return {"CANCELLED"}
             target = self._active_modal_drag_target()
             new_value = _decal_drag_target_value(
                 target,
@@ -1893,72 +1950,28 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             )
             if (
                 abs(new_value - self._modal_current_value) < 1e-9
-                and not getattr(self, "_modal_last_preview_error", None)
+                and not session.last_preview_failure
             ):
                 return {"RUNNING_MODAL"}
-            current_settings = getattr(self, "_modal_current_settings", None)
-            if current_settings is None:
-                current_settings = self._modal_base_settings
             settings = replace(
-                current_settings,
+                session.current_world_settings,
                 **{target.settings_field: new_value},
             )
-            try:
-                # Быстрое превью во время drag; финальная точность — на
-                # подтверждении (LMB/Enter).
-                generation = _coerce_decal_generation_result(
-                    self._generate(
-                        context, self._modal_state, settings, preview=True
-                    )
-                )
-            except Exception as exc:
-                # SEAMS не подтверждает старый кадр после ошибки: текущий
-                # дефект должен оставаться видимым. Остальные producer'ы
-                # сохраняют прежнюю last-valid семантику.
-                self._modal_last_preview_error = str(exc)
-                if self._domain_budget_exceeded(exc):
-                    self._modal_pending_budget_settings = settings
-                    self._modal_pending_budget_value = new_value
-                else:
-                    self._modal_pending_budget_settings = None
-                    self._modal_pending_budget_value = None
-                self._set_modal_header(
-                    (
-                        new_value
-                        if self._domain_budget_exceeded(exc)
-                        else self._modal_current_value
-                    ),
-                    (
-                        f"ERROR: {exc}"
-                        if self.mode == "SEAMS"
-                        else f"RETAINED_LAST_VALID: {exc}"
-                    ),
-                )
-                return {"RUNNING_MODAL"}
+            # Raw MOUSEMOVE никогда не компилирует: controller вызывает
+            # только evaluate-port текущего compile-static plan.
+            evaluation = session.preview(settings)
+            generation = evaluation.result
             if generation.status != PreviewStatus.UPDATED:
                 reason = generation.reason or "generation was not updated"
-                self._modal_last_preview_error = reason
-                if self._domain_budget_exceeded(reason):
-                    self._modal_pending_budget_settings = settings
-                    self._modal_pending_budget_value = new_value
-                else:
-                    self._modal_pending_budget_settings = None
-                    self._modal_pending_budget_value = None
                 self._set_modal_header(
                     (
                         new_value
-                        if self._domain_budget_exceeded(reason)
+                        if session.pending_recompile_request is not None
                         else self._modal_current_value
                     ),
                     f"{generation.status.value}: {reason}",
                 )
                 return {"RUNNING_MODAL"}
-            self._modal_current_settings = settings
-            self._modal_last_valid_settings = settings
-            self._modal_last_valid_result = generation
-            self._modal_last_preview_error = None
-            self._modal_pending_budget_settings = None
-            self._modal_pending_budget_value = None
             setattr(
                 context.scene.hotspotuv_settings,
                 target.scene_property,
@@ -1970,101 +1983,52 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
             return {"RUNNING_MODAL"}
 
         if event.type in {"ESC", "RIGHTMOUSE"} and event.value == "PRESS":
-            self._discard_modal_preview(context, restore_scene=True)
+            session = getattr(self, "_decal_session", None)
+            if session is not None:
+                session.cancel()
             return {"CANCELLED"}
 
         if event.type in {"LEFTMOUSE", "RET", "NUMPAD_ENTER"} and event.value == "PRESS":
-            # Перестраиваем подтверждённый размер в полной точности:
-            # во время drag декаль строилась в preview-режиме.
+            session = getattr(self, "_decal_session", None)
+            if session is None:
+                self.report({"ERROR"}, "DECAL_SESSION_MISSING")
+                return {"CANCELLED"}
             self._stop_gpu_preview()
             self._modal_gpu_preview = None
-            pending_budget_settings = getattr(
-                self, "_modal_pending_budget_settings", None
+            blocked_reason = (
+                session.last_preview_failure
+                if not session.is_confirmable
+                else ""
             )
-            controlled_recompile = pending_budget_settings is not None
-            current_preview_error = getattr(
-                self, "_modal_last_preview_error", None
-            )
-            if (
-                self.mode == "SEAMS"
-                and current_preview_error
-                and not controlled_recompile
-            ):
-                self._discard_modal_preview(context, restore_scene=True)
-                self.report(
-                    {"ERROR"},
-                    "Current SEAMS preview failed; confirmation cancelled: "
-                    + str(current_preview_error),
-                )
-                return {"CANCELLED"}
-            final_settings = pending_budget_settings or getattr(
-                self,
-                "_modal_last_valid_settings",
-                getattr(self, "_modal_current_settings", None),
-            )
-            if final_settings is None:
-                self._discard_modal_preview(context, restore_scene=True)
-                self.report(
-                    {"ERROR"},
-                    "Final decal rebuild failed: no valid preview settings",
-                )
-                return {"CANCELLED"}
-            previous_plan = getattr(self, "_modal_decal_plan", None)
-            try:
-                if controlled_recompile:
-                    # Единственная разрешённая B4 recompile boundary. Raw
-                    # MOUSEMOVE только сохраняет last valid preview.
-                    self._compile_decal_plan(
-                        self._modal_state,
-                        settings=final_settings,
-                    )
-                generation = _coerce_decal_generation_result(
-                    self._generate(
-                        context,
-                        self._modal_state,
-                        final_settings,
-                        preview=False,
-                    )
-                )
-            except Exception as exc:
-                if controlled_recompile:
-                    self._modal_decal_plan = previous_plan
-                self._discard_modal_preview(context, restore_scene=True)
-                self.report(
-                    {"ERROR"}, f"Final decal rebuild failed: {exc}"
-                )
-                return {"CANCELLED"}
+            controlled_recompile = session.pending_recompile_request is not None
+            evaluation = session.confirm()
+            generation = evaluation.result
             if generation.status != PreviewStatus.UPDATED:
-                if controlled_recompile:
-                    self._modal_decal_plan = previous_plan
-                self._discard_modal_preview(context, restore_scene=True)
-                self.report(
-                    {"ERROR"},
-                    "Final decal rebuild failed: "
-                    + (generation.reason or generation.status.value),
+                reason = generation.reason or generation.status.value
+                message = (
+                    "Current SEAMS preview failed; confirmation cancelled: "
+                    + blocked_reason
+                    if blocked_reason
+                    else "Final decal rebuild failed: " + reason
                 )
+                self.report({"ERROR"}, message)
                 return {"CANCELLED"}
             if controlled_recompile:
                 target = self._active_modal_drag_target()
                 final_value = getattr(
-                    final_settings, target.settings_field
+                    evaluation.world_settings,
+                    target.settings_field,
                 )
                 setattr(
                     context.scene.hotspotuv_settings,
                     target.scene_property,
                     final_value,
                 )
-                self._modal_current_settings = final_settings
-                self._modal_last_valid_settings = final_settings
                 self._modal_current_value = final_value
-                self._modal_pending_budget_settings = None
-                self._modal_pending_budget_value = None
             self._modal_created = _generation_result_names(generation)
-            self._modal_last_valid_result = generation
-            self._discard_modal_preview(context, restore_scene=False)
             self._report_created(
                 self._modal_created,
-                self._modal_state,
+                session.request,
                 f"{self._modal_label}:{self._modal_value_text()}",
             )
             return {"FINISHED"}
@@ -2074,13 +2038,19 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
         return {"RUNNING_MODAL"}
 
     def execute(self, context):
+        self._decal_session = None
+        archived_reason = decal_mode_archived_reason(self.mode)
+        if archived_reason:
+            self.report({"ERROR"}, archived_reason)
+            return {"CANCELLED"}
         try:
-            state = _prepare_decal_generation(context)
-            self._compile_decal_plan(state)
-            self._modal_preview_state = None
-            generation = _coerce_decal_generation_result(
-                self._generate(context, state)
+            request = _prepare_decal_generation(context, self.mode)
+            session = self._create_session(
+                context,
+                request,
+                preview_state=None,
             )
+            generation = session.execute().result
             if generation.status != PreviewStatus.UPDATED:
                 level = (
                     {"ERROR"}
@@ -2094,7 +2064,7 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
                 )
                 return {"CANCELLED"}
             created = _generation_result_names(generation)
-            self._report_created(created, state)
+            self._report_created(created, request)
             return {"FINISHED"}
         except ValueError as exc:
             self.report({"WARNING"}, str(exc))
@@ -2220,7 +2190,8 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         col.prop(s, "decal_height_trim")
         col.prop(s, "decal_offset")
         col.prop(s, "decal_chart_distortion_budget")
-        col.prop(s, "decal_corner_join_mode")
+        row = col.row(align=True)
+        row.prop(s, "decal_corner_join_mode")
         col.prop(s, "decal_dynamic_corner_bands")
         if s.decal_dynamic_corner_bands:
             col.prop(s, "decal_corner_miter_angle")
@@ -2230,14 +2201,28 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
             col.prop(s, "decal_corner_hairpin_angle")
         col.prop(s, "decal_corner_miter_limit")
         col.prop(s, "decal_preview_display")
-        op = col.operator("hotspotuv.generate_decals", text="Decal Top", icon="TRIA_UP")
+        row = col.row(align=True)
+        row.enabled = False
+        op = row.operator(
+            "hotspotuv.generate_decals",
+            text="Decal Top (Archived)",
+            icon="TRIA_UP",
+        )
         op.mode = "TOP"
-        op = col.operator(
-            "hotspotuv.generate_decals", text="Decal Bottom", icon="TRIA_DOWN"
+        row = col.row(align=True)
+        row.enabled = False
+        op = row.operator(
+            "hotspotuv.generate_decals",
+            text="Decal Bottom (Archived)",
+            icon="TRIA_DOWN",
         )
         op.mode = "BOTTOM"
-        op = col.operator(
-            "hotspotuv.generate_decals", text="Decal Corners", icon="MOD_BEVEL"
+        row = col.row(align=True)
+        row.enabled = False
+        op = row.operator(
+            "hotspotuv.generate_decals",
+            text="Decal Corners (Archived)",
+            icon="MOD_BEVEL",
         )
         op.mode = "CORNERS"
         op = col.operator(

@@ -5,9 +5,11 @@ from mathutils import Vector
 try:
     from .constants import GP_DEBUG_PREFIX
     from .model import FrameRole, LoopKind, PatchGraph, PatchType
+    from .surface_ir import AnalysisBundle, AnalysisSchemaError
 except ImportError:
     from constants import GP_DEBUG_PREFIX
     from model import FrameRole, LoopKind, PatchGraph, PatchType
+    from surface_ir import AnalysisBundle, AnalysisSchemaError
 
 
 _GP_STYLES = {
@@ -457,6 +459,19 @@ def clear_visualization(source_obj):
             bpy.data.materials.remove(mat)
 
 
+def _surface_triangles(analysis_bundle, patch_id):
+    if not isinstance(analysis_bundle, AnalysisBundle):
+        raise AnalysisSchemaError(
+            "DECAL_ANALYSIS_SCHEMA_UNSUPPORTED",
+            "debug visualization requires AnalysisBundle",
+        )
+    vertices = analysis_bundle.patch_surface.vertex_by_id
+    return tuple(
+        tuple(Vector(vertices[vertex_id].position) for vertex_id in triangle.vertex_ids)
+        for triangle in analysis_bundle.patch_surface.patch_triangles(patch_id)
+    )
+
+
 def _create_patch_mesh(graph: PatchGraph, source_obj):
     mesh_name = GP_DEBUG_PREFIX + 'Mesh_' + source_obj.name
 
@@ -476,13 +491,10 @@ def _create_patch_mesh(graph: PatchGraph, source_obj):
     patch_ids = sorted(graph.nodes.keys())
     for draw_index, patch_id in enumerate(patch_ids):
         node = graph.nodes[patch_id]
-        offset = len(all_verts)
-
-        for vert in node.mesh_verts:
-            all_verts.append(vert)
-
-        for tri in node.mesh_tris:
-            all_faces.append(tuple(index + offset for index in tri))
+        for triangle in _surface_triangles(graph, patch_id):
+            offset = len(all_verts)
+            all_verts.extend(triangle)
+            all_faces.append((offset, offset + 1, offset + 2))
             face_mat_indices.append(draw_index)
 
         hue = (draw_index * golden_ratio) % 1.0
@@ -650,14 +662,11 @@ def create_visualization(graph: PatchGraph, source_obj, settings_dict=None):
         patch_type = _enum_value(node.patch_type)
         patch_frame = patch_layers.get(patch_type, patch_layers[PatchType.WALL.value])
         patch_mat = patch_mat_indices[patch_id]
-        for tri in node.mesh_tris:
-            if len(tri) < 3:
-                continue
-            stroke = _new_gp_stroke(patch_frame, len(tri))
+        for triangle in _surface_triangles(graph, patch_id):
+            stroke = _new_gp_stroke(patch_frame, 3)
             stroke.material_index = patch_mat
             _set_gp_stroke_style(stroke, 1, True)
-            for point_index, vert_index in enumerate(tri):
-                point = node.mesh_verts[vert_index]
+            for point_index, point in enumerate(triangle):
                 _set_gp_stroke_point(stroke.points[point_index], point, 1)
 
         for boundary_loop in node.boundary_loops:
@@ -727,16 +736,13 @@ def _prepare_patch_fill_materials(graph, gp_data):
     return patch_mat_indices
 
 
-def _draw_patch_fill(gp_frame, node, mat_idx):
+def _draw_patch_fill(gp_frame, analysis_bundle, patch_id, mat_idx):
     """Рисует fill triangles patch'а на GP frame."""
-    for tri in node.mesh_tris:
-        if len(tri) < 3:
-            continue
-        stroke = _new_gp_stroke(gp_frame, len(tri))
+    for triangle in _surface_triangles(analysis_bundle, patch_id):
+        stroke = _new_gp_stroke(gp_frame, 3)
         stroke.material_index = mat_idx
         _set_gp_stroke_style(stroke, 1, True)
-        for point_index, vert_index in enumerate(tri):
-            point = node.mesh_verts[vert_index]
+        for point_index, point in enumerate(triangle):
             _set_gp_stroke_point(stroke.points[point_index], point, 1)
 
 
@@ -850,7 +856,12 @@ def create_frontier_visualization(graph: PatchGraph, scaffold_map, source_obj, s
             if placed_count >= patch_total_chains.get(pid, 999):
                 node = graph.nodes.get(pid)
                 if node is not None and pid in patch_fill_mats:
-                    _draw_patch_fill(gp_frame, node, patch_fill_mats[pid])
+                    _draw_patch_fill(
+                        gp_frame,
+                        graph,
+                        pid,
+                        patch_fill_mats[pid],
+                    )
         frame_cursor += step_frames[step_index]
 
     # Настраиваем timeline

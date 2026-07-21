@@ -5,6 +5,7 @@ from mathutils import Vector
 try:
     from .model import (
         ChainNeighborKind,
+        DihedralSegmentPair,
         PatchGraph,
         PatchNode,
         SeamEdge,
@@ -31,6 +32,7 @@ try:
 except ImportError:
     from model import (
         ChainNeighborKind,
+        DihedralSegmentPair,
         PatchGraph,
         PatchNode,
         SeamEdge,
@@ -364,15 +366,6 @@ def _begin_patch_topology_assembly(patch_id, patch_face_indices, bm):
     patch_faces = [bm.faces[idx] for idx in patch_face_indices]
     raw_loops = _trace_boundary_loops(patch_faces)
     centroid = _compute_centroid(bm, patch_face_indices)
-    (
-        mesh_verts,
-        mesh_vert_indices,
-        mesh_tris,
-        mesh_tri_face_indices,
-        mesh_tri_face_normals,
-        mesh_tri_edge_indices,
-    ) = _serialize_patch_geometry(bm, patch_face_indices)
-
     node = PatchNode(
         patch_id=patch_id,
         face_indices=list(patch_face_indices),
@@ -385,12 +378,6 @@ def _begin_patch_topology_assembly(patch_id, patch_face_indices, bm):
         basis_u=basis_u,
         basis_v=basis_v,
         boundary_loops=[],
-        mesh_verts=mesh_verts,
-        mesh_vert_indices=mesh_vert_indices,
-        mesh_tris=mesh_tris,
-        mesh_tri_face_indices=mesh_tri_face_indices,
-        mesh_tri_face_normals=mesh_tri_face_normals,
-        mesh_tri_edge_indices=mesh_tri_edge_indices,
     )
     return _PatchTopologyAssemblyState(
         patch_id=patch_id,
@@ -468,78 +455,6 @@ def _compute_centroid(bm, face_indices):
     return center / max(count, 1)
 
 
-def _serialized_triangle_edge_indices(face, source_vertex_ids):
-    physical_edges = {
-        tuple(sorted((int(edge.verts[0].index), int(edge.verts[1].index)))): int(
-            edge.index
-        )
-        for edge in getattr(face, "edges", ())
-    }
-    first, second, third = source_vertex_ids
-    return (
-        physical_edges.get(tuple(sorted((second, third))), -1),
-        physical_edges.get(tuple(sorted((third, first))), -1),
-        physical_edges.get(tuple(sorted((first, second))), -1),
-    )
-
-
-def _serialize_patch_geometry(bm, face_indices):
-    """Serialize patch geometry/provenance for debug and intrinsic charts."""
-
-    vert_map = {}
-    mesh_verts = []
-    mesh_vert_indices = []
-    mesh_tris = []
-    mesh_tri_face_indices = []
-    mesh_tri_face_normals = []
-    mesh_tri_edge_indices = []
-
-    for face_idx in face_indices:
-        face = bm.faces[face_idx]
-        tri = []
-        for vert in face.verts:
-            if vert.index not in vert_map:
-                vert_map[vert.index] = len(mesh_verts)
-                mesh_verts.append(vert.co.copy())
-                mesh_vert_indices.append(int(vert.index))
-            tri.append(vert_map[vert.index])
-
-        if len(tri) == 3:
-            mesh_tris.append(tuple(tri))
-            mesh_tri_face_indices.append(int(face.index))
-            mesh_tri_face_normals.append(face.normal.copy())
-            mesh_tri_edge_indices.append(
-                _serialized_triangle_edge_indices(
-                    face, tuple(vert.index for vert in face.verts)
-                )
-            )
-            continue
-
-        for tri_index in range(1, len(tri) - 1):
-            local_triangle = (tri[0], tri[tri_index], tri[tri_index + 1])
-            source_triangle = (
-                int(face.verts[0].index),
-                int(face.verts[tri_index].index),
-                int(face.verts[tri_index + 1].index),
-            )
-            mesh_tris.append(local_triangle)
-            mesh_tri_face_indices.append(int(face.index))
-            mesh_tri_face_normals.append(face.normal.copy())
-            mesh_tri_edge_indices.append(
-                _serialized_triangle_edge_indices(face, source_triangle)
-            )
-
-    return (
-        mesh_verts,
-        mesh_vert_indices,
-        mesh_tris,
-        mesh_tri_face_indices,
-        mesh_tri_face_normals,
-        mesh_tri_edge_indices,
-    )
-
-
-
 def _build_seam_edges(face_to_patch, bm):
     """Build SeamEdge relations between neighboring patches."""
 
@@ -586,99 +501,113 @@ def _build_seam_edges(face_to_patch, bm):
         for (patch_a_id, patch_b_id), info in seam_links.items()
     ]
 
-def _compute_chain_dihedral_convexity(chain, owner_normal, neighbor_normal):
-    """Вычисляет dihedral convexity для двух сторон одной chain.
+def _compute_segment_dihedral_convexity(points, owner_normal, neighbor_normal):
+    """Convexity одного physical segment из локальных нормалей двух uses."""
 
-    Использует chord chain как proxy направления seam edge.
-    Возвращает: -1..+1 (negative=concave/inner, positive=convex/outer).
-    """
-    if len(chain.vert_cos) < 2:
+    if len(points) != 2:
         return 0.0
-
-    edge_dir = chain.vert_cos[-1] - chain.vert_cos[0]
-    if edge_dir.length_squared < 1e-12:
+    edge_dir = points[1] - points[0]
+    if edge_dir.length_squared <= 0.0:
         return 0.0
     edge_dir = edge_dir.normalized()
-
-    # cross(edge, owner_normal) даёт вектор "от поверхности owner patch"
+    if owner_normal.length_squared <= 0.0 or neighbor_normal.length_squared <= 0.0:
+        return 0.0
+    owner_normal = owner_normal.normalized()
+    neighbor_normal = neighbor_normal.normalized()
     cross = edge_dir.cross(owner_normal)
-    if cross.length_squared < 1e-12:
+    if cross.length_squared <= 0.0:
         return 0.0
     cross = cross.normalized()
-
-    # dot с нормалью соседа:
-    # positive → нормали расходятся → convex (внешний угол)
-    # negative → нормали сходятся → concave (внутренний угол)
-    dot = cross.dot(neighbor_normal)
-
-    # Guard: слишком маленький сигнал → neutral
-    if abs(dot) < 0.01:
-        return 0.0
-    return max(-1.0, min(1.0, dot))
-
-
-def _chain_owner_surface_normal(chain, fallback_normal):
-    """Representative analysis-owned normal for one chain use."""
-
-    normal_sum = Vector((0.0, 0.0, 0.0))
-    for normal in chain.side_face_normals:
-        if normal.length_squared > 1e-12:
-            normal_sum += normal.normalized()
-    if normal_sum.length_squared > 1e-12:
-        return normal_sum.normalized()
-    return fallback_normal.copy()
+    return max(-1.0, min(1.0, cross.dot(neighbor_normal)))
 
 
 def _assign_chain_dihedral_convexity(patch_graph):
-    """Post-pass: convexity для PATCH и парных SEAM_SELF chains.
+    """Publish per-edge local-normal pairs, then a solve-only scalar view."""
 
-    Вызывается после полной сборки PatchGraph (nodes, loops, chains, seams).
-    Не изменяет topology — только заполняет derived contextual field.
-    """
-    self_seam_uses = {}
+    uses_by_edge = {}
     for patch_id, node in patch_graph.nodes.items():
+        for loop_index, boundary_loop in enumerate(node.boundary_loops):
+            for chain_index, chain in enumerate(boundary_loop.chains):
+                chain.dihedral_segment_pairs = ()
+                chain.dihedral_convexity = 0.0
+                if chain.neighbor_kind == ChainNeighborKind.MESH_BORDER:
+                    continue
+                for segment_index, edge_index in enumerate(chain.edge_indices):
+                    next_index = segment_index + 1
+                    if next_index >= len(chain.vert_cos):
+                        if not chain.is_closed:
+                            continue
+                        next_index = 0
+                    normal = (
+                        chain.side_face_normals[segment_index]
+                        if segment_index < len(chain.side_face_normals)
+                        else Vector((0.0, 0.0, 0.0))
+                    )
+                    face_index = (
+                        int(chain.side_face_indices[segment_index])
+                        if segment_index < len(chain.side_face_indices)
+                        else -1
+                    )
+                    uses_by_edge.setdefault(int(edge_index), []).append(
+                        (
+                            (patch_id, loop_index, chain_index, segment_index),
+                            chain,
+                            (chain.vert_cos[segment_index], chain.vert_cos[next_index]),
+                            normal,
+                            face_index,
+                        )
+                    )
+
+    pairs_by_chain = {}
+    for edge_index in sorted(uses_by_edge):
+        uses = sorted(uses_by_edge[edge_index], key=lambda item: item[0])
+        if len(uses) != 2:
+            continue
+        for owner, neighbor in ((uses[0], uses[1]), (uses[1], uses[0])):
+            owner_ref, owner_chain, points, owner_normal, owner_face = owner
+            _neighbor_ref, _neighbor_chain, _other_points, neighbor_normal, neighbor_face = neighbor
+            segment_index = owner_ref[3]
+            convexity = _compute_segment_dihedral_convexity(
+                points,
+                owner_normal,
+                neighbor_normal,
+            )
+            pairs_by_chain.setdefault(id(owner_chain), []).append(
+                DihedralSegmentPair(
+                    segment_index=segment_index,
+                    edge_index=edge_index,
+                    owner_face_index=owner_face,
+                    neighbor_face_index=neighbor_face,
+                    owner_normal=tuple(float(value) for value in owner_normal),
+                    neighbor_normal=tuple(float(value) for value in neighbor_normal),
+                    convexity=convexity,
+                )
+            )
+
+    for node in patch_graph.nodes.values():
         for boundary_loop in node.boundary_loops:
             for chain in boundary_loop.chains:
-                if chain.neighbor_kind == ChainNeighborKind.SEAM_SELF:
-                    edge_signature = tuple(sorted(int(i) for i in chain.edge_indices))
-                    if edge_signature:
-                        self_seam_uses.setdefault(
-                            (patch_id, edge_signature), []
-                        ).append(chain)
-                    continue
-                if chain.neighbor_kind != ChainNeighborKind.PATCH:
-                    continue
-                neighbor_node = patch_graph.nodes.get(chain.neighbor_patch_id)
-                if neighbor_node is None:
-                    continue
-                owner_normal = _chain_owner_surface_normal(chain, node.normal)
-                chain.dihedral_convexity = _compute_chain_dihedral_convexity(
-                    chain, owner_normal, neighbor_node.normal,
+                pairs = tuple(
+                    sorted(
+                        pairs_by_chain.get(id(chain), ()),
+                        key=lambda item: item.segment_index,
+                    )
                 )
-
-    for (patch_id, _edge_signature), chains in self_seam_uses.items():
-        if len(chains) != 2:
-            continue
-        node = patch_graph.nodes[patch_id]
-        chain_a, chain_b = chains
-        normal_a = _chain_owner_surface_normal(chain_a, node.normal)
-        normal_b = _chain_owner_surface_normal(chain_b, node.normal)
-        chain_a.dihedral_convexity = _compute_chain_dihedral_convexity(
-            chain_a, normal_a, normal_b,
-        )
-        chain_b.dihedral_convexity = _compute_chain_dihedral_convexity(
-            chain_b, normal_b, normal_a,
-        )
+                chain.dihedral_segment_pairs = pairs
+                if pairs:
+                    chain.dihedral_convexity = sum(
+                        pair.convexity for pair in pairs
+                    ) / len(pairs)
 
 
-def build_patch_graph(bm, face_indices, obj=None):
+def build_patch_graph(bm, face_indices, obj=None, source_revision=None):
     """Build a PatchGraph from BMesh patch analysis."""
 
     bm.faces.ensure_lookup_table()
     bm.edges.ensure_lookup_table()
     bm.verts.ensure_lookup_table()
 
-    patch_graph = PatchGraph()
+    patch_graph = PatchGraph(source_revision=source_revision)
     face_indices = _coerce_face_indices(bm, face_indices)
     if not face_indices:
         return patch_graph

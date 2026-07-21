@@ -11,27 +11,15 @@ from cftuv import decals as decals_module
 
 from cftuv.decals import (
     _OrientedCornerRun,
-    _OrientedRibbonRun,
-    _boundary_wing_direction,
-    _collect_manual_chain_decals,
     _collect_manual_edge_decals,
-    _collect_trim_ribbon_runs,
-    _collect_wall_pair_chains,
-    _corner_offset_join,
-    _corner_wing_directions,
-    _dedupe_polyline,
-    _junction_miter_position,
-    _offset_plane_junction_center,
-    _polyline_tangents,
-    _prepare_seam_junctions,
-    _ribbon_vertex_frames,
     _stitch_corner_runs,
-    _stitch_ribbon_runs,
-    _trim_run_for_junctions,
-    _trim_quad_layout,
-    _trim_quad_requires_flip,
-    chain_refs_for_edge_indices,
 )
+from cftuv.decal_geometry import (
+    DecalGeometryFace,
+    GeometryBatchValidationError,
+    geometry_batch_from_faces,
+)
+from cftuv.decal_transform import decal_settings_to_local
 from cftuv.model import (
     BoundaryChain,
     BoundaryLoop,
@@ -40,6 +28,11 @@ from cftuv.model import (
     PatchType,
     DecalSettings,
 )
+from analysis_surface_fixtures import analysis_bundle_from_graph
+
+
+def _analysis_bundle(graph=None):
+    return analysis_bundle_from_graph(graph or PatchGraph())
 
 
 def _make_wall_node(patch_id, normal, basis_v, chains):
@@ -60,6 +53,22 @@ def _backend_test_run(edge_indices, vert_indices):
         segment_normals_b=[Vector((0.0, 1.0, 0.0))] * segment_count,
         segment_convexities=[0.0] * segment_count,
         segment_edge_indices=list(edge_indices),
+    )
+
+
+def _geometry_face(label):
+    return DecalGeometryFace(
+        surface_id=0,
+        surface_normal=Vector((0.0, 0.0, 1.0)),
+        vert_keys=[(label, 0), (label, 1), (label, 2)],
+        positions=[
+            Vector((0.0, 0.0, 0.0)),
+            Vector((1.0, 0.0, 0.0)),
+            Vector((0.0, 1.0, 0.0)),
+        ],
+        u_fracs=[0.0, 1.0, 0.0],
+        v_lengths=[0.0, 0.0, 1.0],
+        component_kind=label,
     )
 
 
@@ -137,7 +146,8 @@ def test_rm9_terminal_routing_reports_plan_choice_and_materializing_backend():
     )
     assert records[0].report_line == (
         "component=0 patch=4 terminal=v1/e10 faces=100 choice=PCHAIN 20,21 "
-        "backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE"
+        "backend=PATCH_VORONOI/INTRINSIC_DEVELOPABLE plan=ROUTE "
+        "capacity=SATURATE_PROVEN"
     )
 
 
@@ -193,7 +203,7 @@ def test_manual_seam_plan_rejects_failed_topology_component_atomically(
     )
 
     plan = decals_module.compile_manual_seam_decal_plan(
-        object(), DecalSettings(), (1, 2, 10)
+        _analysis_bundle(), DecalSettings(), (1, 2, 10)
     )
 
     assert strict_calls == [(10,)]
@@ -331,7 +341,7 @@ def test_r0_manual_compile_ignores_legacy_toggle_and_attempts_modern_backend(
         "compile_decal_rail_attempt",
         compile_rails,
     )
-    graph = object()
+    analysis_bundle = _analysis_bundle()
     patch_plan = SimpleNamespace(backend_kind="PLANAR")
     patch_calls = []
     monkeypatch.setattr(
@@ -349,7 +359,7 @@ def test_r0_manual_compile_ignores_legacy_toggle_and_attempts_modern_backend(
     settings = DecalSettings(seam_network=seam_network)
 
     plan = decals_module.compile_manual_seam_decal_plan(
-        graph,
+        analysis_bundle,
         settings,
         (7,),
         alpha_budget=3.0,
@@ -358,7 +368,7 @@ def test_r0_manual_compile_ignores_legacy_toggle_and_attempts_modern_backend(
 
     assert rail_calls == [
         (
-            graph,
+            analysis_bundle,
             (7,),
             {
                 "alpha_budget": 3.0,
@@ -431,7 +441,7 @@ def test_r1_mixed_success_scope_stays_on_joint_patch_competition(monkeypatch):
     )
 
     plan = decals_module.compile_manual_seam_decal_plan(
-        object(),
+        _analysis_bundle(),
         DecalSettings(),
         (1, 2, 10),
         alpha_budget=3.0,
@@ -524,7 +534,7 @@ def test_r1_face_disjoint_scope_can_use_multiple_rail_partitions(monkeypatch):
     )
 
     plan = decals_module.compile_manual_seam_decal_plan(
-        object(),
+        _analysis_bundle(),
         DecalSettings(),
         (1, 2, 10),
         alpha_budget=3.0,
@@ -593,7 +603,7 @@ def test_r1_same_face_components_stay_on_joint_patch_competition(monkeypatch):
     )
 
     plan = decals_module.compile_manual_seam_decal_plan(
-        object(),
+        _analysis_bundle(),
         DecalSettings(),
         (1, 2, 10),
         alpha_budget=3.0,
@@ -707,7 +717,7 @@ def test_r1_miter_scale_recompiles_trace_to_preserve_effective_headroom(
     )
 
     plan = decals_module.compile_manual_seam_decal_plan(
-        object(),
+        _analysis_bundle(),
         DecalSettings(corner_acute_split_angle=pi / 180.0),
         (7,),
         alpha_budget=base_budget,
@@ -784,7 +794,7 @@ def test_r1_extended_trace_failure_keeps_whole_scope_on_patch(monkeypatch):
     )
 
     plan = decals_module.compile_manual_seam_decal_plan(
-        object(),
+        _analysis_bundle(),
         DecalSettings(),
         (7,),
         alpha_budget=2.0,
@@ -814,7 +824,7 @@ def test_r1_planar_partition_uses_strict_rail_evaluator(monkeypatch):
         decals_module,
         "evaluate_planar_rail_geometry_plan",
         lambda plan, width, **kwargs: (
-            calls.append((plan, width, kwargs)) or ("rail-face",)
+            calls.append((plan, width, kwargs)) or (_geometry_face("rail-face"),)
         ),
     )
 
@@ -825,7 +835,7 @@ def test_r1_planar_partition_uses_strict_rail_evaluator(monkeypatch):
         True,
     )
 
-    assert evaluation.faces == ("rail-face",)
+    assert evaluation.faces[0].component_kind == "rail-face"
     assert evaluation.evaluation_ms >= 0.0
     assert calls == [
         (
@@ -960,7 +970,7 @@ def test_patch_voronoi_partition_forwards_runtime_corner_settings(
     settings = DecalSettings(
         corner_acute_split_angle=0.37,
         corner_apex_limit=4.25,
-        corner_join_mode="BEVEL",
+        corner_join_mode="MITER",
     )
     captured = []
 
@@ -969,7 +979,7 @@ def test_patch_voronoi_partition_forwards_runtime_corner_settings(
         kwargs["diagnostics"].runtime_policy_counts.update(
             {"MITER": 12, "KITE": 3, "ACUTE_SPLIT": 2}
         )
-        return ("face",)
+        return (_geometry_face("face"),)
 
     monkeypatch.setattr(
         decals_module, "evaluate_patch_voronoi_plan", evaluate
@@ -985,7 +995,7 @@ def test_patch_voronoi_partition_forwards_runtime_corner_settings(
         rail_plan=rail_plan,
         terminal_routing=terminal_routing,
     )
-    assert evaluation.faces == ("face",)
+    assert evaluation.faces[0].component_kind == "face"
     assert evaluation.evaluation_ms >= 0.0
     assert evaluation.policy_counts == (
         ("ACUTE_SPLIT", 2),
@@ -999,7 +1009,86 @@ def test_patch_voronoi_partition_forwards_runtime_corner_settings(
     assert captured[0][1]["terminal_routing"] is terminal_routing
     assert corner_settings.acute_split_angle == pytest.approx(0.37)
     assert corner_settings.apex_limit == pytest.approx(4.25)
-    assert corner_settings.join_mode == "BEVEL"
+    assert corner_settings.join_mode == "MITER"
+
+
+def test_bevel_reaches_typed_compile_boundary_without_archive_gate():
+    settings = DecalSettings(corner_join_mode="BEVEL")
+    assert (
+        decals_module.require_decal_corner_join_available(settings).value
+        == "BEVEL"
+    )
+    with pytest.raises(
+        decals_module.AnalysisSchemaError,
+        match="DECAL_ANALYSIS_SCHEMA_UNSUPPORTED",
+    ):
+        decals_module.compile_manual_seam_decal_plan(None, settings, ())
+
+
+@pytest.mark.parametrize(
+    ("mode", "reason"),
+    (
+        ("TOP", "DECAL_TOP_ARCHIVED_UNTIL_ENGINE_PLAN"),
+        ("BOTTOM", "DECAL_BOTTOM_ARCHIVED_UNTIL_ENGINE_PLAN"),
+        ("CORNERS", "DECAL_CORNERS_ARCHIVED_UNTIL_ENGINE_PLAN"),
+    ),
+)
+def test_archived_modes_fail_before_transform_and_bmesh(
+    monkeypatch, mode, reason
+):
+    monkeypatch.setattr(
+        decals_module,
+        "local_decal_settings_for_source",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("Source transform was inspected")
+        ),
+    )
+    monkeypatch.setattr(
+        decals_module.bmesh,
+        "new",
+        lambda: (_ for _ in ()).throw(AssertionError("BMesh was opened")),
+        raising=False,
+    )
+
+    result = decals_module.generate_decal_result(
+        None,
+        None,
+        DecalSettings(),
+        mode,
+    )
+    assert result.status == decals_module.PreviewStatus.ERROR
+    assert result.reason == reason
+
+    with pytest.raises(decals_module.DecalModeArchivedError, match=reason):
+        decals_module.generate_decal_objects(
+            None,
+            None,
+            DecalSettings(),
+            mode,
+        )
+    with pytest.raises(decals_module.DecalModeArchivedError, match=reason):
+        decals_module._fill_decal_bmesh(
+            None,
+            None,
+            DecalSettings(),
+            mode,
+        )
+
+
+@pytest.mark.parametrize(
+    "symbol",
+    (
+        "_collect_trim_ribbon_runs",
+        "_collect_wall_pair_chains",
+        "_collect_manual_chain_decals",
+        "_build_trim_strip",
+        "_build_corner_ribbon_run",
+        "_build_corner_strip",
+        "_build_boundary_wing_strip",
+    ),
+)
+def test_archived_direct_builder_symbols_are_physically_absent(symbol):
+    assert not hasattr(decals_module, symbol)
 
 
 def test_patch_voronoi_transaction_fails_before_any_bmesh_write(monkeypatch):
@@ -1376,7 +1465,7 @@ def test_generate_decal_objects_reuses_existing_object_only_for_preview(
     monkeypatch.setattr(
         decals_module,
         "local_decal_settings_for_source",
-        lambda settings, _source: settings,
+        lambda settings, _source: decal_settings_to_local(settings, 1.0),
     )
     fake_bm = _FakeMaterializationBMesh()
     fake_bm.faces.append(object())
@@ -1448,7 +1537,7 @@ def test_structured_generation_result_exposes_runtime_summary(monkeypatch):
     monkeypatch.setattr(
         decals_module,
         "local_decal_settings_for_source",
-        lambda settings, _source: settings,
+        lambda settings, _source: decal_settings_to_local(settings, 1.0),
     )
     monkeypatch.setattr(
         decals_module,
@@ -1728,7 +1817,7 @@ def test_structured_generation_classifies_transaction_error(
     monkeypatch.setattr(
         decals_module,
         "local_decal_settings_for_source",
-        lambda settings, _source: settings,
+        lambda settings, _source: decal_settings_to_local(settings, 1.0),
     )
     monkeypatch.setattr(
         decals_module,
@@ -1787,7 +1876,7 @@ def test_structured_generation_classifies_empty_transaction(
     monkeypatch.setattr(
         decals_module,
         "local_decal_settings_for_source",
-        lambda settings, _source: settings,
+        lambda settings, _source: decal_settings_to_local(settings, 1.0),
     )
     monkeypatch.setattr(
         decals_module,
@@ -1884,7 +1973,7 @@ def test_compatibility_seams_empty_preview_removes_object_and_raises(
     monkeypatch.setattr(
         decals_module,
         "local_decal_settings_for_source",
-        lambda settings, _source: settings,
+        lambda settings, _source: decal_settings_to_local(settings, 1.0),
     )
     monkeypatch.setattr(
         decals_module,
@@ -1922,6 +2011,8 @@ def test_compatibility_seams_empty_preview_removes_object_and_raises(
 def _materialization_face(keys, kind="SEGMENT", side=""):
     count = len(keys)
     return SimpleNamespace(
+        surface_id=0,
+        surface_normal=Vector((0.0, 0.0, 1.0)),
         vert_keys=list(keys),
         positions=[Vector((float(index), float(index % 2), 0.0)) for index in range(count)],
         u_fracs=[float(index) / max(1, count - 1) for index in range(count)],
@@ -1931,7 +2022,7 @@ def _materialization_face(keys, kind="SEGMENT", side=""):
     )
 
 
-def test_materialization_rejects_late_invalid_face_before_any_bmesh_write():
+def test_geometry_batch_rejects_late_invalid_face_before_any_adapter_write():
     valid = _materialization_face((("v", 0), ("v", 1), ("v", 2)))
     invalid = _materialization_face(
         (("v", 3), ("v", 3), ("v", 4)),
@@ -1939,30 +2030,12 @@ def test_materialization_rejects_late_invalid_face_before_any_bmesh_write():
         side="OUTER",
     )
 
-    with pytest.raises(decals_module.DecalMaterializationError) as caught:
-        # ``object()`` доказывает, что preflight нашёл второй face до любого
-        # доступа к BMesh после валидного первого face.
-        decals_module._materialize_network_faces(
-            object(),
-            (valid, invalid),
-            DecalSettings(),
-            (0.0, 0.0, 1.0, 1.0),
-            backend="PATCH_VORONOI",
-            edge_indices=(10, 11),
-        )
+    with pytest.raises(GeometryBatchValidationError) as caught:
+        geometry_batch_from_faces((valid, invalid))
 
     error = caught.value
-    assert error.backend == "PATCH_VORONOI"
-    assert error.edge_indices == (10, 11)
     assert error.face_index == 1
-    assert error.vertex_count == 3
-    assert error.repeated_keys == (("v", 3),)
-    assert error.cycle_keys == (("v", 3), ("v", 3), ("v", 4))
-    assert error.repeated_occurrences == (
-        (("v", 3), (0, 1), ((0, 1),)),
-    )
-    assert error.component_kind == "ACUTE_SPLIT"
-    assert error.component_side == "OUTER"
+    assert error.reason == "repeated_vert_keys"
 
 
 def test_materialization_reports_nonadjacent_repeat_as_bowtie():
@@ -2060,7 +2133,9 @@ def test_materialization_returns_structured_complete_result():
     bm = _FakeMaterializationBMesh()
     result = decals_module._materialize_network_faces(
         bm,
-        (_materialization_face((("v", 0), ("v", 1), ("v", 2))),),
+        geometry_batch_from_faces(
+            (_materialization_face((("v", 0), ("v", 1), ("v", 2))),)
+        ),
         DecalSettings(),
         (0.0, 0.0, 1.0, 1.0),
         backend="PATCH_VORONOI",
@@ -2123,7 +2198,7 @@ def test_invalid_face_frees_transaction_without_publishing(
     monkeypatch.setattr(
         decals_module,
         "local_decal_settings_for_source",
-        lambda settings, _source: settings,
+        lambda settings, _source: decal_settings_to_local(settings, 1.0),
     )
     bm = _FakeMaterializationBMesh()
     monkeypatch.setattr(
@@ -2135,7 +2210,7 @@ def test_invalid_face_frees_transaction_without_publishing(
     def fill(target_bm, *_args, **_kwargs):
         decals_module._materialize_network_faces(
             target_bm,
-            (valid, invalid),
+            geometry_batch_from_faces((valid, invalid)),
             DecalSettings(),
             (0.0, 0.0, 1.0, 1.0),
             backend="PATCH_VORONOI",
@@ -2171,7 +2246,7 @@ def test_invalid_face_frees_transaction_without_publishing(
     monkeypatch.setattr(decals_module, "remove_decal_preview_object", remove)
     source = SimpleNamespace(name="Source")
 
-    with pytest.raises(decals_module.DecalMaterializationError):
+    with pytest.raises(GeometryBatchValidationError):
         decals_module.generate_decal_objects(
             PatchGraph(),
             source,
@@ -2230,16 +2305,6 @@ def _make_graph(*nodes):
     return graph
 
 
-def _make_ribbon_run(start, end, point_a, point_b, normal=(0, 1, 0)):
-    return _OrientedRibbonRun(
-        vert_indices=[start, end],
-        points=[Vector(point_a), Vector(point_b)],
-        segment_normals=[Vector(normal)],
-        segment_ups=[Vector((0, 0, 1))],
-        segment_chain_refs=[(start, 0, 0)],
-    )
-
-
 def _make_corner_run(
     start,
     end,
@@ -2257,324 +2322,6 @@ def _make_corner_run(
         segment_convexities=[1.0],
         segment_edge_indices=[edge_index],
     )
-
-
-def _ribbon_edges(runs):
-    return [
-        (run.vert_indices[index], run.vert_indices[index + 1])
-        for run in runs
-        for index in range(len(run.vert_indices) - 1)
-    ]
-
-
-class TestCollectTrimSegments:
-    def test_uses_local_owner_face_normal_instead_of_patch_average(self):
-        # Один wrapped WALL patch может содержать стены с разными нормалями.
-        # Средняя +Y ошибочно объявила бы нижнее +X ребро верхним; локальная
-        # owner-face normal -Y правильно оставляет его в BOTTOM.
-        chain = _make_chain(
-            [0, 1],
-            [(0, 0, 0), (1, 0, 0)],
-            -1,
-            side_face_normals=[(0, -1, 0)],
-        )
-        wall = _make_wall_node(0, (0, 1, 0), (0, 0, 1), [chain])
-        graph = _make_graph(wall)
-
-        top_runs, bottom_runs = _collect_trim_ribbon_runs(graph)
-
-        assert top_runs == []
-        assert _ribbon_edges(bottom_runs) == [(0, 1)]
-        assert bottom_runs[0].segment_normals[0].y == -1.0
-
-    def test_top_bottom_classification(self):
-        # Стена с нормалью +Y, вертикаль +Z. Верхняя кромка идёт по +X
-        # (outward = d x n = +Z), нижняя — по -X (outward = -Z).
-        top_chain = _make_chain([0, 1], [(0, 0, 1), (1, 0, 1)], -1)
-        bottom_chain = _make_chain([2, 3], [(1, 0, 0), (0, 0, 0)], -1)
-        side_chain = _make_chain([1, 2], [(1, 0, 1), (1, 0, 0)], -1)
-        wall = _make_wall_node(0, (0, 1, 0), (0, 0, 1), [top_chain, bottom_chain, side_chain])
-        graph = _make_graph(wall)
-
-        top_runs, bottom_runs = _collect_trim_ribbon_runs(graph)
-
-        assert _ribbon_edges(top_runs) == [(0, 1)]
-        assert _ribbon_edges(bottom_runs) == [(2, 3)]
-        normal = top_runs[0].segment_normals[0]
-        up = top_runs[0].segment_ups[0]
-        assert abs(normal.y - 1.0) < 1e-6
-        assert abs(up.z - 1.0) < 1e-6
-
-    def test_wall_wall_chains_excluded(self):
-        # Кромка к WALL соседу — под corner/seam декали, в тримы не идёт.
-        # Кромка к FLOOR соседу — идёт.
-        to_wall = _make_chain([0, 1], [(0, 0, 1), (1, 0, 1)], 1)
-        to_floor = _make_chain([2, 3], [(1, 0, 0), (0, 0, 0)], 2)
-        wall = _make_wall_node(0, (0, 1, 0), (0, 0, 1), [to_wall, to_floor])
-
-        other_wall = _make_wall_node(1, (1, 0, 0), (0, 0, 1), [])
-        floor = PatchNode(patch_id=2, face_indices=[200])
-        floor.patch_type = PatchType.FLOOR
-        graph = _make_graph(wall, other_wall, floor)
-
-        top_runs, bottom_runs = _collect_trim_ribbon_runs(graph)
-
-        assert top_runs == []
-        assert _ribbon_edges(bottom_runs) == [(2, 3)]
-
-    def test_non_wall_patches_ignored(self):
-        chain = _make_chain([0, 1], [(0, 0, 1), (1, 0, 1)], -1)
-        floor = PatchNode(patch_id=0, face_indices=[0])
-        floor.patch_type = PatchType.FLOOR
-        floor.boundary_loops = [BoundaryLoop(chains=[chain])]
-        graph = _make_graph(floor)
-
-        top_runs, bottom_runs = _collect_trim_ribbon_runs(graph)
-
-        assert top_runs == [] and bottom_runs == []
-
-    def test_short_edges_skipped(self):
-        chain = _make_chain([0, 1], [(0, 0, 1), (0.01, 0, 1)], -1)
-        wall = _make_wall_node(0, (0, 1, 0), (0, 0, 1), [chain])
-        graph = _make_graph(wall)
-
-        top_runs, bottom_runs = _collect_trim_ribbon_runs(graph)
-
-        assert top_runs == [] and bottom_runs == []
-
-    def test_selected_edge_enables_its_complete_chain(self):
-        top_chain = _make_chain(
-            [0, 1, 2],
-            [(0, 0, 1), (1, 0, 1), (2, 0, 1)],
-            -1,
-            edge_indices=[10, 11],
-        )
-        other_top_chain = _make_chain(
-            [3, 4],
-            [(3, 0, 1), (4, 0, 1)],
-            -1,
-            edge_indices=[12],
-        )
-        wall = _make_wall_node(
-            0,
-            (0, 1, 0),
-            (0, 0, 1),
-            [top_chain, other_top_chain],
-        )
-        graph = _make_graph(wall)
-
-        chain_refs = chain_refs_for_edge_indices(graph, [11])
-        top_runs, bottom_runs = _collect_trim_ribbon_runs(
-            graph, chain_refs=chain_refs
-        )
-
-        assert chain_refs == {(0, 0, 0)}
-        assert _ribbon_edges(top_runs) == [(0, 1), (1, 2)]
-        assert bottom_runs == []
-
-
-class TestOrientedRibbonRuns:
-    def test_mixed_chain_directions_form_one_closed_run(self):
-        runs = [
-            _make_ribbon_run(0, 1, (0, 0, 0), (1, 0, 0), (0, 1, 0)),
-            _make_ribbon_run(2, 1, (1, 1, 0), (1, 0, 0), (1, 0, 0)),
-            _make_ribbon_run(2, 3, (1, 1, 0), (0, 1, 0), (0, -1, 0)),
-            _make_ribbon_run(0, 3, (0, 0, 0), (0, 1, 0), (-1, 0, 0)),
-        ]
-
-        stitched = _stitch_ribbon_runs(runs)
-
-        assert len(stitched) == 1
-        ring = stitched[0]
-        assert ring.is_closed
-        assert ring.vert_indices == [0, 1, 2, 3, 0]
-        assert len(ring.segment_normals) == 4
-        frames = _ribbon_vertex_frames(ring)
-        assert (frames[0][0] - frames[-1][0]).length < 1e-9
-
-    def test_point_contact_branch_is_not_joined_arbitrarily(self):
-        runs = [
-            _make_ribbon_run(0, 1, (0, 0, 0), (1, 0, 0)),
-            _make_ribbon_run(1, 2, (1, 0, 0), (2, 0, 0)),
-            _make_ribbon_run(1, 3, (1, 0, 0), (1, 1, 0)),
-        ]
-
-        stitched = _stitch_ribbon_runs(runs)
-
-        assert len(stitched) == 3
-        assert all(len(run.vert_indices) == 2 for run in stitched)
-
-    def test_reversed_segment_requests_winding_flip(self):
-        down = Vector((0, 0, -1))
-        desired_normal = Vector((0, 1, 0))
-
-        assert not _trim_quad_requires_flip(
-            Vector((0, 0, 0)), Vector((1, 0, 0)), down, down, desired_normal
-        )
-        assert _trim_quad_requires_flip(
-            Vector((1, 0, 0)), Vector((0, 0, 0)), down, down, desired_normal
-        )
-
-    def test_winding_flip_does_not_swap_base_tip_uv(self):
-        verts, uvs = _trim_quad_layout(
-            "base_a", "base_b", "tip_a", "tip_b", 2.0, 3.0, 0.8, 1.0, True
-        )
-
-        uv_by_vert = dict(zip(verts, uvs))
-        assert uv_by_vert["base_a"][1] == 0.8
-        assert uv_by_vert["base_b"][1] == 0.8
-        assert uv_by_vert["tip_a"][1] == 1.0
-        assert uv_by_vert["tip_b"][1] == 1.0
-
-
-class TestCollectWallPairChains:
-    def test_paired_self_seam_on_wrapped_wall_becomes_corner(self):
-        side_a = _make_chain(
-            [0, 1],
-            [(0, 0, -1), (0, 0, 1)],
-            -2,
-            edge_indices=[42],
-            dihedral_convexity=0.5,
-            side_face_normals=[(0, 1, 0)],
-        )
-        side_b = _make_chain(
-            [1, 0],
-            [(0, 0, 1), (0, 0, -1)],
-            -2,
-            edge_indices=[42],
-            dihedral_convexity=0.5,
-            side_face_normals=[(1, 0, 0)],
-        )
-        wrapped_wall = _make_wall_node(
-            0, (0.707, 0.707, 0), (0, 0, 1), [side_a, side_b]
-        )
-        graph = _make_graph(wrapped_wall)
-
-        corner_chains, seam_chains = _collect_wall_pair_chains(graph)
-
-        assert len(corner_chains) == 1
-        assert seam_chains == []
-        points, normal_a, normal_b, _closed, convexity = corner_chains[0]
-        assert points == side_a.vert_cos
-        assert normal_a.dot(Vector((0, 1, 0))) > 0.999
-        assert normal_b.dot(Vector((1, 0, 0))) > 0.999
-        assert convexity == 0.5
-
-    def test_nearly_coplanar_self_seam_remains_corner(self):
-        side_a = _make_chain(
-            [0, 1],
-            [(0, 0, -1), (0, 0, 1)],
-            -2,
-            edge_indices=[42],
-            side_face_normals=[(0, 1, 0)],
-        )
-        side_b = _make_chain(
-            [1, 0],
-            [(0, 0, 1), (0, 0, -1)],
-            -2,
-            edge_indices=[42],
-            side_face_normals=[(0.05, 0.99875, 0)],
-        )
-        wrapped_wall = _make_wall_node(0, (0, 1, 0), (0, 0, 1), [side_a, side_b])
-
-        corner_chains, seam_chains = _collect_wall_pair_chains(
-            _make_graph(wrapped_wall)
-        )
-
-        assert len(corner_chains) == 1
-        assert seam_chains == []
-
-    def test_corner_vs_seam_split_and_dedupe(self):
-        # patch 0 | patch 1 — перпендикулярны (угол), patch 0 | patch 2 —
-        # копланарны (шов). Обратные цепочки от соседей должны быть
-        # отброшены дедупликацией (owner id < neighbor id).
-        corner_chain = _make_chain([0, 1], [(0, 0, 0), (0, 0, 1)], 1)
-        seam_chain = _make_chain([2, 3], [(1, 0, 0), (1, 0, 1)], 2)
-        wall_0 = _make_wall_node(0, (0, 1, 0), (0, 0, 1), [corner_chain, seam_chain])
-
-        back_chain = _make_chain([1, 0], [(0, 0, 1), (0, 0, 0)], 0)
-        wall_1 = _make_wall_node(1, (1, 0, 0), (0, 0, 1), [back_chain])
-
-        back_seam = _make_chain([3, 2], [(1, 0, 1), (1, 0, 0)], 0)
-        wall_2 = _make_wall_node(2, (0, 1, 0), (0, 0, 1), [back_seam])
-
-        graph = _make_graph(wall_0, wall_1, wall_2)
-        corner_chains, seam_chains = _collect_wall_pair_chains(graph)
-
-        assert len(corner_chains) == 1
-        assert len(seam_chains) == 1
-        corner_points, normal_a, normal_b, _closed, _convexity = corner_chains[0]
-        assert len(corner_points) == 2
-        assert abs(normal_a.y - 1.0) < 1e-6
-        assert abs(normal_b.x - 1.0) < 1e-6
-
-    def test_wall_floor_pairs_ignored(self):
-        chain = _make_chain([0, 1], [(0, 0, 0), (0, 0, 1)], 1)
-        wall = _make_wall_node(0, (0, 1, 0), (0, 0, 1), [chain])
-        floor = PatchNode(patch_id=1, face_indices=[100])
-        floor.patch_type = PatchType.FLOOR
-        graph = _make_graph(wall, floor)
-
-        corner_chains, seam_chains = _collect_wall_pair_chains(graph)
-
-        assert corner_chains == [] and seam_chains == []
-
-    def test_selected_shared_edge_captures_both_chain_sides(self):
-        owner_chain = _make_chain(
-            [0, 1],
-            [(0, 0, 0), (0, 0, 1)],
-            1,
-            edge_indices=[42],
-        )
-        neighbor_chain = _make_chain(
-            [1, 0],
-            [(0, 0, 1), (0, 0, 0)],
-            0,
-            edge_indices=[42],
-        )
-        wall_0 = _make_wall_node(0, (0, 1, 0), (0, 0, 1), [owner_chain])
-        wall_1 = _make_wall_node(1, (1, 0, 0), (0, 0, 1), [neighbor_chain])
-        graph = _make_graph(wall_0, wall_1)
-
-        chain_refs = chain_refs_for_edge_indices(graph, [42])
-        corner_chains, seam_chains = _collect_wall_pair_chains(
-            graph, chain_refs=chain_refs
-        )
-
-        assert chain_refs == {(0, 0, 0), (1, 0, 0)}
-        assert len(corner_chains) == 1
-        assert seam_chains == []
-
-    def test_unselected_wall_pair_is_filtered_out(self):
-        first_chain = _make_chain(
-            [0, 1],
-            [(0, 0, 0), (0, 0, 1)],
-            1,
-            edge_indices=[20],
-        )
-        selected_chain = _make_chain(
-            [2, 3],
-            [(1, 0, 0), (1, 0, 1)],
-            2,
-            edge_indices=[30],
-        )
-        wall_0 = _make_wall_node(
-            0,
-            (0, 1, 0),
-            (0, 0, 1),
-            [first_chain, selected_chain],
-        )
-        wall_1 = _make_wall_node(1, (1, 0, 0), (0, 0, 1), [])
-        wall_2 = _make_wall_node(2, (0, 1, 0), (0, 0, 1), [])
-        graph = _make_graph(wall_0, wall_1, wall_2)
-
-        chain_refs = chain_refs_for_edge_indices(graph, [30])
-        corner_chains, seam_chains = _collect_wall_pair_chains(
-            graph, chain_refs=chain_refs
-        )
-
-        assert corner_chains == []
-        assert len(seam_chains) == 1
 
 
 class TestManualChainDecals:
@@ -2703,7 +2450,7 @@ class TestManualChainDecals:
 
         collection = _collect_manual_edge_decals(graph, [70, 99])
         plan = decals_module.compile_manual_seam_decal_plan(
-            graph, DecalSettings(), (70, 99)
+            _analysis_bundle(graph), DecalSettings(), (70, 99)
         )
 
         assert collection.accepted_edge_indices == (70,)
@@ -2717,14 +2464,14 @@ class TestManualChainDecals:
             rejection.edge_index: rejection.reason
             for rejection in plan.rejected_edges
         } == {
-            70: "MISSING_SITE_FACE_PROVENANCE",
+            70: "EMPTY_PATCH_GEOMETRY",
             99: "NO_BOUNDARY_CHAIN_USE",
         }
         assert plan.accounting_is_exact
         assert plan.backend_summary == (
-            "Unsupported[MISSING_SITE_FACE_PROVENANCE:x1] | "
+            "Unsupported[EMPTY_PATCH_GEOMETRY:x1] | "
             "Failed:2e["
-            "MISSING_SITE_FACE_PROVENANCE:x1,"
+            "EMPTY_PATCH_GEOMETRY:x1,"
             "NO_BOUNDARY_CHAIN_USE:x1]"
         )
 
@@ -2749,7 +2496,7 @@ class TestManualChainDecals:
         node.mesh_tris = [(0, 1, 2), (0, 2, 3)]
 
         plan = decals_module.compile_manual_seam_decal_plan(
-            _make_graph(node), DecalSettings(), (170,)
+            _analysis_bundle(_make_graph(node)), DecalSettings(), (170,)
         )
 
         assert plan.accepted_patch_voronoi_edge_indices == ()
@@ -2796,339 +2543,3 @@ class TestManualChainDecals:
 
         assert len(stitched) == 3
         assert all(len(run.segment_edge_indices) == 1 for run in stitched)
-
-    def test_t_junction_prepares_equal_branch_cuts_for_seam_patch(self):
-        runs = _stitch_corner_runs(
-            [
-                _make_corner_run(
-                    1,
-                    2,
-                    (0, 0, 0),
-                    (2, 0, 0),
-                    5,
-                    normal_a=(0, 0, 1),
-                    normal_b=(0, 0, 1),
-                ),
-                _make_corner_run(
-                    1,
-                    3,
-                    (0, 0, 0),
-                    (-2, 0, 0),
-                    14,
-                    normal_a=(0, 0, 1),
-                    normal_b=(0, 0, 1),
-                ),
-                _make_corner_run(
-                    1,
-                    4,
-                    (0, 0, 0),
-                    (0, 2, 0),
-                    35,
-                    normal_a=(0, 0, 1),
-                    normal_b=(0, 0, 1),
-                ),
-            ]
-        )
-        settings = DecalSettings(width_seam=0.2, offset=0.02)
-
-        specs, cuts = _prepare_seam_junctions(runs, settings, 0.1)
-
-        assert set(specs) == {1}
-        assert len(cuts) == 3
-        assert all(abs(cut - 0.1) < 1e-6 for cut in cuts.values())
-        assert (specs[1].core_pos - Vector((0, 0, 0.02))).length < 1e-6
-
-        trimmed = _trim_run_for_junctions(runs[0], start_cut=cuts[(0, True)])
-        assert (trimmed.points[0] - Vector((0.1, 0, 0))).length < 1e-6
-        assert trimmed.vert_indices == runs[0].vert_indices
-
-    def test_trihedral_offset_planes_share_one_junction_core(self):
-        center = _offset_plane_junction_center(
-            Vector((0, 0, 0)),
-            [
-                Vector((1, 0, 0)),
-                Vector((0, 1, 0)),
-                Vector((0, 0, 1)),
-            ],
-            0.02,
-        )
-
-        assert (center - Vector((0.02, 0.02, 0.02))).length < 1e-6
-
-    def test_junction_miter_intersects_outer_branch_contours(self):
-        miter = _junction_miter_position(
-            Vector((0.02, 0.02, 0.02)),
-            Vector((0.12, -0.08, 0.02)),
-            Vector((1, 0, 0)),
-            Vector((-0.08, 0.12, 0.02)),
-            Vector((0, 1, 0)),
-            0.1,
-        )
-
-        assert (miter - Vector((-0.08, -0.08, 0.02))).length < 1e-6
-
-    def test_junction_miter_averages_parallel_outer_contours(self):
-        miter = _junction_miter_position(
-            Vector((0, 0, 0)),
-            Vector((-0.1, -0.1, 0)),
-            Vector((-1, 0, 0)),
-            Vector((0.1, -0.1, 0)),
-            Vector((1, 0, 0)),
-            0.1,
-        )
-
-        assert (miter - Vector((0, -0.1, 0))).length < 1e-6
-
-    def test_selected_self_seam_uses_both_owner_sides(self):
-        side_a = _make_chain(
-            [0, 1],
-            [(0, 0, -1), (0, 0, 1)],
-            -2,
-            edge_indices=[42],
-            side_face_normals=[(0, 1, 0)],
-        )
-        side_b = _make_chain(
-            [1, 0],
-            [(0, 0, 1), (0, 0, -1)],
-            -2,
-            edge_indices=[42],
-            side_face_normals=[(1, 0, 0)],
-        )
-        wrapped_wall = _make_wall_node(
-            0, (0.707, 0.707, 0), (0, 0, 1), [side_a, side_b]
-        )
-        graph = _make_graph(wrapped_wall)
-
-        chain_refs = chain_refs_for_edge_indices(graph, [42])
-        corner_chains, boundary_chains = _collect_manual_chain_decals(
-            graph, chain_refs
-        )
-
-        assert chain_refs == {(0, 0, 0), (0, 0, 1)}
-        assert len(corner_chains) == 1
-        assert boundary_chains == []
-
-    def test_patch_pair_ignores_semantic_patch_types(self):
-        owner_chain = _make_chain(
-            [0, 1],
-            [(0, 0, 0), (0, 0, 1)],
-            1,
-            edge_indices=[42],
-            dihedral_convexity=-1.0,
-        )
-        neighbor_chain = _make_chain(
-            [1, 0],
-            [(0, 0, 1), (0, 0, 0)],
-            0,
-            edge_indices=[42],
-            dihedral_convexity=-1.0,
-        )
-        floor = _make_wall_node(0, (0, 0, 1), (0, 1, 0), [owner_chain])
-        slope = _make_wall_node(1, (1, 0, 0), (0, 0, 1), [neighbor_chain])
-        floor.patch_type = PatchType.FLOOR
-        slope.patch_type = PatchType.SLOPE
-        graph = _make_graph(floor, slope)
-
-        chain_refs = chain_refs_for_edge_indices(graph, [42])
-        corner_chains, boundary_chains = _collect_manual_chain_decals(
-            graph, chain_refs
-        )
-
-        assert len(corner_chains) == 1
-        assert corner_chains[0][4] == -1.0
-        assert boundary_chains == []
-
-    def test_mesh_boundary_becomes_flat_corner_width_decal(self):
-        border_chain = _make_chain(
-            [0, 1, 2],
-            [(0, 0, 0), (1, 0, 0), (2, 0, 0)],
-            -1,
-            edge_indices=[7, 8],
-        )
-        floor = _make_wall_node(0, (0, 0, 1), (0, 1, 0), [border_chain])
-        floor.patch_type = PatchType.FLOOR
-        graph = _make_graph(floor)
-
-        chain_refs = chain_refs_for_edge_indices(graph, [8])
-        corner_chains, boundary_chains = _collect_manual_chain_decals(
-            graph, chain_refs
-        )
-
-        assert corner_chains == []
-        assert len(boundary_chains) == 1
-        assert len(boundary_chains[0][0]) == 3
-
-    def test_boundary_wing_points_inside_owner_patch(self):
-        wing_dir = _boundary_wing_direction(
-            Vector((1, 0, 0)),
-            Vector((0, 0, 1)),
-        )
-
-        assert wing_dir is not None
-        assert wing_dir.y > 0.0
-        assert abs(wing_dir.x) < 1e-9
-
-
-class TestCornerWingDirections:
-    def test_planar_wings_follow_non_right_dihedral(self):
-        # Две плоскости под 60/120 градусов вокруг вертикального seam.
-        # Направления крыльев должны сохранить этот угол, а не стать 90°.
-        wings = _corner_wing_directions(
-            Vector((0, 0, 1)),
-            Vector((0, -1, 0)),
-            Vector((0.8660254038, -0.5, 0)),
-            dihedral_convexity=1.0,
-        )
-
-        assert wings is not None
-        wing_a, wing_b = wings
-        assert abs(abs(wing_a.dot(wing_b)) - 0.5) < 1e-6
-        assert abs(wing_a.dot(wing_b)) > 0.1  # явно не 90°
-
-    def test_convex_wings_follow_patch_interiors(self):
-        wings = _corner_wing_directions(
-            Vector((0, 0, 1)),
-            Vector((0, -1, 0)),
-            Vector((1, 0, 0)),
-            dihedral_convexity=1.0,
-        )
-
-        assert wings is not None
-        wing_a, wing_b = wings
-        assert wing_a.x < 0.0
-        assert wing_b.y > 0.0
-
-    def test_concave_wings_are_not_inverted(self):
-        wings = _corner_wing_directions(
-            Vector((0, 0, -1)),
-            Vector((0, 1, 0)),
-            Vector((-1, 0, 0)),
-            dihedral_convexity=-1.0,
-        )
-
-        assert wings is not None
-        wing_a, wing_b = wings
-        assert wing_a.x < 0.0
-        assert wing_b.y > 0.0
-
-
-class TestCornerOffsetJoin:
-    def test_right_angle_miter_preserves_width_to_both_segments(self):
-        join = _corner_offset_join(
-            Vector((0, 0, 0)),
-            Vector((1, 0, 0)),
-            Vector((0, 1, 0)),
-            Vector((0, 1, 0)),
-            Vector((-1, 0, 0)),
-            1.0,
-        )
-
-        assert not join.is_bevel
-        assert (join.incoming - join.outgoing).length < 1e-9
-        assert abs(join.incoming.x + 1.0) < 1e-6
-        assert abs(join.incoming.y - 1.0) < 1e-6
-
-    def test_straight_offset_remains_one_shared_point(self):
-        join = _corner_offset_join(
-            Vector((0, 0, 0)),
-            Vector((1, 0, 0)),
-            Vector((0, 1, 0)),
-            Vector((1, 0, 0)),
-            Vector((0, 1, 0)),
-            0.5,
-        )
-
-        assert not join.is_bevel
-        assert (join.incoming - Vector((0, 0.5, 0))).length < 1e-9
-
-    def test_acute_turn_uses_bevel_instead_of_long_spike(self):
-        next_tangent = Vector((-0.984807753, 0.173648178, 0))
-        next_wing = Vector((-0.173648178, -0.984807753, 0))
-        join = _corner_offset_join(
-            Vector((0, 0, 0)),
-            Vector((1, 0, 0)),
-            Vector((0, 1, 0)),
-            next_tangent,
-            next_wing,
-            1.0,
-        )
-
-        assert join.is_bevel
-        assert join.incoming.length <= 1.000001
-        assert join.outgoing.length <= 1.000001
-
-    def test_skew_surface_offsets_use_bevel(self):
-        join = _corner_offset_join(
-            Vector((0, 0, 0)),
-            Vector((1, 0, 0)),
-            Vector((0, 1, 0)),
-            Vector((0, 1, 0)),
-            Vector((-1, 0, 1)).normalized(),
-            1.0,
-        )
-
-        assert join.is_bevel
-
-
-class TestPolylineTangents:
-    def test_straight_line(self):
-        points = [Vector((0, 0, 0)), Vector((1, 0, 0)), Vector((2, 0, 0))]
-        tangents = _polyline_tangents(points)
-        for tangent in tangents:
-            assert abs(tangent.x - 1.0) < 1e-6
-
-    def test_corner_bisector(self):
-        points = [Vector((0, 0, 0)), Vector((1, 0, 0)), Vector((1, 1, 0))]
-        tangents = _polyline_tangents(points)
-        mid = tangents[1]
-        assert abs(mid.x - mid.y) < 1e-6
-
-    def test_closed_wraparound_endpoints_match(self):
-        # Квадрат, замкнутый дублированием первой точки: касательные на
-        # обоих концах — одинаковая биссектриса последнего и первого
-        # сегментов (иначе крылья ленты дают щель на стыке кольца).
-        square = [
-            Vector((0, 0, 0)),
-            Vector((1, 0, 0)),
-            Vector((1, 1, 0)),
-            Vector((0, 1, 0)),
-            Vector((0, 0, 0)),
-        ]
-        tangents = _polyline_tangents(square, closed=True)
-        first, last = tangents[0], tangents[-1]
-        assert (first - last).length < 1e-9
-        # биссектриса сегментов (0,-1,0) и (1,0,0)
-        assert abs(first.x + first.y) < 1e-6 and first.x > 0
-
-
-class TestDedupePolyline:
-    def test_collapses_near_duplicates(self):
-        points = [
-            Vector((0, 0, 0)),
-            Vector((0.005, 0, 0)),
-            Vector((1, 0, 0)),
-        ]
-        result = _dedupe_polyline(points)
-        assert len(result) == 2
-        assert result[1].x == 1.0
-
-    def test_empty(self):
-        assert _dedupe_polyline([]) == []
-
-
-class TestTrimEdgeDedup:
-    def test_duplicate_edge_registered_once(self):
-        # Non-manifold: одно и то же ребро в двух WALL patches — в сборку
-        # путей должно попасть один раз (иначе путь дублируется обратно).
-        chain_a = _make_chain([0, 1], [(0, 0, 1), (1, 0, 1)], -1)
-        wall_a = _make_wall_node(0, (0, 1, 0), (0, 0, 1), [chain_a])
-        chain_b = _make_chain([1, 0], [(1, 0, 1), (0, 0, 1)], -1)
-        wall_b = _make_wall_node(1, (0, -1, 0), (0, 0, 1), [chain_b])
-        graph = _make_graph(wall_a, wall_b)
-
-        top_runs, bottom_runs = _collect_trim_ribbon_runs(graph)
-
-        # ребро (0,1) — верхняя кромка обеих стен, но ключ регистрируется
-        # только первым patch; дубликат отброшен (first-wins)
-        assert _ribbon_edges(top_runs) == [(0, 1)]
-        assert bottom_runs == []

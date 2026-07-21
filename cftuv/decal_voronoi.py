@@ -55,6 +55,24 @@ from .decal_geometry import (
     polygon_area2,
     segment_point_distance2,
 )
+from .decal_corner_model import (
+    BandSide,
+    CornerModel,
+    CornerPointProvenance,
+    CornerSeed,
+    CornerStationRef,
+    CornerStripVertex,
+    CornerVertexRef,
+    LocalClippedCornerStrip,
+)
+from .model import CornerJoinMode
+from .surface_ir import (
+    AnalysisBundle,
+    AnalysisSchemaError,
+    CapacityPolicy,
+    DecalBackendKind,
+)
+from .decal_rails import RailCompetitionKind
 
 
 # Compatibility aliases для internal tests/старых scripts. Источник shared
@@ -63,6 +81,68 @@ _NetworkFace = DecalGeometryFace
 _lift_position = lift_offset_position
 _polygon_area2 = polygon_area2
 _segment_point_distance2 = segment_point_distance2
+
+
+@dataclass(frozen=True)
+class _PatchSurfaceNodeView:
+    """Read-only algorithm view derived from one PatchSurfaceIR patch."""
+
+    node: object
+    mesh_verts: tuple
+    mesh_vert_indices: tuple[int, ...]
+    mesh_tris: tuple[tuple[int, int, int], ...]
+    mesh_tri_face_indices: tuple[int, ...]
+    mesh_tri_face_normals: tuple
+    mesh_tri_edge_indices: tuple[tuple[int, int, int], ...]
+    source_face_normals: tuple[tuple[int, tuple[float, float, float]], ...]
+
+    def __getattr__(self, name):
+        return getattr(self.node, name)
+
+
+def _patch_surface_node_view(node, patch_surface):
+    triangles = patch_surface.patch_triangles(node.patch_id)
+    source_vertex_ids = tuple(
+        sorted(
+            {
+                vertex_id
+                for triangle in triangles
+                for vertex_id in triangle.vertex_ids
+            }
+        )
+    )
+    local_by_source = {
+        vertex_id: local_index
+        for local_index, vertex_id in enumerate(source_vertex_ids)
+    }
+    vertex_by_id = patch_surface.vertex_by_id
+    face_by_id = patch_surface.face_by_id
+    return _PatchSurfaceNodeView(
+        node=node,
+        mesh_verts=tuple(
+            Vector(vertex_by_id[vertex_id].position)
+            for vertex_id in source_vertex_ids
+        ),
+        mesh_vert_indices=source_vertex_ids,
+        mesh_tris=tuple(
+            tuple(local_by_source[vertex_id] for vertex_id in triangle.vertex_ids)
+            for triangle in triangles
+        ),
+        mesh_tri_face_indices=tuple(
+            int(triangle.source_face_id) for triangle in triangles
+        ),
+        mesh_tri_face_normals=tuple(
+            Vector(triangle.triangle_normal) for triangle in triangles
+        ),
+        mesh_tri_edge_indices=tuple(
+            tuple(-1 if edge_id is None else int(edge_id) for edge_id in triangle.physical_edge_ids)
+            for triangle in triangles
+        ),
+        source_face_normals=tuple(
+            (face.face_id, face.polygon_normal)
+            for face in patch_surface.patch_faces(node.patch_id)
+        ),
+    )
 
 try:
     import pyvoronoi
@@ -80,6 +160,22 @@ _HAIRPIN_ANGLE = pi / 6.0
 _SMOOTH_TURN_ANGLE = pi / 18.0
 _MITER_LIMIT = 8.0
 
+DECAL_CORNER_JOIN_RECOMPILE_REQUIRED = (
+    "DECAL_CORNER_JOIN_RECOMPILE_REQUIRED"
+)
+
+
+def require_decal_corner_join_available(settings):
+    """S-CM.b compatibility gate: валидирует join без коэрции."""
+
+    join_mode_value = getattr(
+        settings,
+        "corner_join_mode",
+        getattr(settings, "join_mode", "MITER"),
+    )
+    join_mode = str(getattr(join_mode_value, "value", join_mode_value)).upper()
+    return CornerJoinMode(join_mode)
+
 
 class _CornerPolicy(str, Enum):
     """Intrinsic corner policy; не зависит от способа lift на owner mesh."""
@@ -91,7 +187,6 @@ class _CornerPolicy(str, Enum):
     FAN = "FAN"
     ACUTE_SPLIT = "ACUTE_SPLIT"
     HAIRPIN = "HAIRPIN"
-    BEVEL = "BEVEL"
     JUNCTION = "JUNCTION"
 
 
@@ -112,6 +207,7 @@ class _PatchVoronoiSite:
     arc_sign: float = 1.0
     two_sided: bool = False
     uv_length: float = 0.0
+    owner_face_index: int = -1
 
 
 @dataclass(frozen=True)
@@ -184,9 +280,11 @@ class CornerRuntimeSettings:
         object.__setattr__(
             self, "dynamic_corner_bands", bool(dynamic_corner_bands)
         )
-        join_mode = str(join_mode).upper()
+        join_mode = str(getattr(join_mode, "value", join_mode)).upper()
         if join_mode not in {"MITER", "BEVEL"}:
-            join_mode = "MITER"
+            raise ValueError(
+                f"DECAL_CORNER_JOIN_MODE_UNSUPPORTED:{join_mode}"
+            )
         object.__setattr__(self, "join_mode", join_mode)
 
     @property
@@ -327,6 +425,33 @@ class _CornerReleaseAtom:
 
 
 @dataclass(frozen=True)
+class _MutualArrivalAtom:
+    """RC5b: соседняя cell, временно возвращаемая материи угла.
+
+    Freeze-locus остаётся compile-static. Runtime только проверяет его
+    pointwise event height: материя угла уже покрывает точку, а материя
+    ``blocking_site`` ещё нет. После обоюдного прибытия обычная Voronoi-
+    граница снова является авторитетом.
+    """
+
+    corner_index: int
+    point_site_index: int
+    point_periodic_shift: int
+    blocking_site_index: int
+    blocking_periodic_shift: int
+    fragments: tuple[tuple[tuple[float, float], ...], ...]
+    fragment_triangle_ids: tuple[int, ...] = ()
+
+    def __post_init__(self):
+        if self.fragment_triangle_ids and (
+            len(self.fragment_triangle_ids) != len(self.fragments)
+        ):
+            raise ValueError(
+                "Mutual-arrival fragment provenance must be aligned"
+            )
+
+
+@dataclass(frozen=True)
 class _IntrinsicDomainTriangle:
     """Один triangle intrinsic chart и его lift-данные на owner mesh."""
 
@@ -453,6 +578,7 @@ class DecalSurfaceDomain:
     basis_u: Vector
     basis_v: Vector
     boundary_triangles: tuple[tuple[tuple[float, float], ...], ...]
+    boundary_triangle_source_face_ids: tuple[object, ...] = ()
     intrinsic_triangles: tuple[_IntrinsicDomainTriangle, ...] = ()
     periodic_axis: str = ""
     period: float = 0.0
@@ -514,6 +640,23 @@ class DecalSurfaceDomain:
             if self.intrinsic_triangles
             else len(self.boundary_triangles)
         )
+        if self.boundary_triangle_source_face_ids and (
+            len(self.boundary_triangle_source_face_ids)
+            != len(self.boundary_triangles)
+        ):
+            raise ValueError(
+                "Decal planar source faces must be triangle-aligned"
+            )
+        if (
+            self.kind == "PLANAR"
+            and self.boundary_triangles
+            and not self.boundary_triangle_source_face_ids
+        ):
+            object.__setattr__(
+                self,
+                "boundary_triangle_source_face_ids",
+                (self.patch_id,) * len(self.boundary_triangles),
+            )
         if self.triangle_merge_groups and (
             len(self.triangle_merge_groups) != triangle_count
         ):
@@ -617,6 +760,23 @@ class DecalSurfaceDomain:
                 self.location_tolerance,
                 DECAL_WELD_DISTANCE * 0.25,
             )
+            triangle_id = -1
+            triangle_weights = (1.0, 0.0, 0.0)
+            best_margin = -float("inf")
+            triangle_ids = self.triangle_grid.query_point(uv, tolerance)
+            for candidate_id in triangle_ids:
+                weights = _triangle_weights2(
+                    uv, self.boundary_triangles[candidate_id]
+                )
+                if weights is None:
+                    continue
+                margin = min(weights)
+                if margin >= -tolerance and margin > best_margin:
+                    triangle_id = int(candidate_id)
+                    triangle_weights = tuple(
+                        float(weight) for weight in weights
+                    )
+                    best_margin = margin
             vertex_candidates = []
             for vertex_id, vertex_uv in self.planar_source_vertices:
                 distance = _dist2(uv, vertex_uv)
@@ -628,9 +788,9 @@ class DecalSurfaceDomain:
                 _distance, vertex_id, vertex_uv = min(vertex_candidates)
                 return DomainLocation(
                     chart_id=self.chart_id,
-                    triangle_id=-1,
+                    triangle_id=triangle_id,
                     uv=vertex_uv,
-                    barycentric=(1.0, 0.0, 0.0),
+                    barycentric=triangle_weights,
                     source_feature="VERTEX",
                     source_feature_id=vertex_id,
                 )
@@ -655,17 +815,17 @@ class DecalSurfaceDomain:
                 )
                 return DomainLocation(
                     chart_id=self.chart_id,
-                    triangle_id=-1,
+                    triangle_id=triangle_id,
                     uv=projection,
-                    barycentric=(1.0, 0.0, 0.0),
+                    barycentric=triangle_weights,
                     source_feature="EDGE",
                     source_feature_id=edge_id,
                 )
             return DomainLocation(
                 chart_id=self.chart_id,
-                triangle_id=-1,
+                triangle_id=triangle_id,
                 uv=uv,
-                barycentric=(1.0, 0.0, 0.0),
+                barycentric=triangle_weights,
                 source_feature="TRIANGLE",
                 source_feature_id=("PLANAR", self.patch_id),
             )
@@ -924,8 +1084,12 @@ class _PatchVoronoiSurface:
     ports_by_vertex: dict[int, tuple["_CompiledSitePort", ...]]
     ports_by_site: dict[int, tuple["_CompiledSitePort", ...]]
     corner_release_atoms: dict[int, tuple[_CornerReleaseAtom, ...]]
+    mutual_arrival_atoms: dict[int, tuple[_MutualArrivalAtom, ...]] = field(
+        default_factory=dict
+    )
     semantic_owner_chart_by_vertex: tuple[tuple[int, int], ...] = ()
     native_site_edge_indices: tuple[int, ...] = ()
+    corner_seeds: tuple[CornerSeed, ...] = ()
 
     @property
     def origin(self):
@@ -961,6 +1125,7 @@ class _PlanarOwnerSurface:
     boundary_loops: tuple
     mesh_verts: tuple
     mesh_tris: tuple
+    mesh_tri_face_indices: tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -976,8 +1141,20 @@ class PatchVoronoiPlan:
     budget_source: str = "FULL_CONNECTED_COMPONENT"
     requested_alpha_budget: float = float("inf")
     approximate_admit_count: int = 0
+    capacity_policy: CapacityPolicy = CapacityPolicy.SATURATE_PROVEN
+    corner_join_mode: CornerJoinMode = CornerJoinMode.MITER
 
     def __post_init__(self):
+        object.__setattr__(
+            self,
+            "capacity_policy",
+            CapacityPolicy(self.capacity_policy),
+        )
+        object.__setattr__(
+            self,
+            "corner_join_mode",
+            CornerJoinMode(self.corner_join_mode),
+        )
         if not self.alpha_budget > 0.0:
             raise ValueError("Patch Voronoi alpha_budget must be positive")
         if not self.requested_alpha_budget > 0.0:
@@ -1033,11 +1210,26 @@ class PatchVoronoiPlan:
         alpha = float(alpha)
         if not isfinite(alpha) or alpha < 0.0:
             raise ValueError("Runtime alpha must be finite and non-negative")
+        if (
+            alpha > self.alpha_budget + _GEOMETRY_EPS
+            and self.capacity_policy is CapacityPolicy.SATURATE_PROVEN
+        ):
+            return self.support_triangle_ids
+        if (
+            alpha > self.alpha_budget + _GEOMETRY_EPS
+            and self.capacity_policy is CapacityPolicy.REJECT_UNPROVEN
+        ):
+            raise DomainCapacityUnproven(
+                alpha,
+                self.alpha_budget,
+                self.budget_source,
+            )
         if alpha > self.alpha_budget + _GEOMETRY_EPS:
             raise DomainBudgetExceeded(
                 alpha,
                 self.alpha_budget,
                 self.budget_source,
+                self.capacity_policy,
             )
         return self.support_triangle_ids
 
@@ -1056,14 +1248,36 @@ class DomainBudgetExceeded(ValueError):
 
     code = "DOMAIN_BUDGET_EXCEEDED"
 
-    def __init__(self, requested_alpha, alpha_budget, budget_source):
+    def __init__(
+        self,
+        requested_alpha,
+        alpha_budget,
+        budget_source,
+        capacity_policy=CapacityPolicy.CONTROLLED_RECOMPILE,
+    ):
         self.requested_alpha = float(requested_alpha)
         self.alpha_budget = float(alpha_budget)
         self.budget_source = str(budget_source)
+        self.capacity_policy = CapacityPolicy(capacity_policy)
         super().__init__(
             f"{self.code}: alpha={self.requested_alpha:.6g} exceeds "
             f"budget={self.alpha_budget:.6g} "
-            f"(source={self.budget_source})"
+            f"(source={self.budget_source}, "
+            f"policy={self.capacity_policy.value})"
+        )
+
+
+class DomainCapacityUnproven(DomainBudgetExceeded):
+    """I8: максимальное покрытие не доказано и не может быть клампнуто."""
+
+    code = "DOMAIN_CAPACITY_UNPROVEN"
+
+    def __init__(self, requested_alpha, alpha_budget, budget_source):
+        super().__init__(
+            requested_alpha,
+            alpha_budget,
+            budget_source,
+            CapacityPolicy.REJECT_UNPROVEN,
         )
 
 
@@ -1128,6 +1342,9 @@ class PatchVoronoiDiagnostics:
     terminal_route_station_clamp_count: int = 0
     terminal_route_revisit_guard_count: int = 0
     terminal_contact_meeting_count: int = 0
+    resolved_corner_view_count: int = 0
+    resolved_corner_boundary_vertex_count: int = 0
+    resolved_corner_competition_vertex_count: int = 0
     # Тестовое отключение транспорта для обязательного отрицательного T8.
     semantic_transport_disabled_owner_ids: frozenset = field(
         default_factory=frozenset,
@@ -1214,6 +1431,15 @@ class PatchVoronoiDiagnostics:
             ),
             "terminal_contact_meeting_count": int(
                 self.terminal_contact_meeting_count
+            ),
+            "resolved_corner_view_count": int(
+                self.resolved_corner_view_count
+            ),
+            "resolved_corner_boundary_vertex_count": int(
+                self.resolved_corner_boundary_vertex_count
+            ),
+            "resolved_corner_competition_vertex_count": int(
+                self.resolved_corner_competition_vertex_count
             ),
             "runtime_policy_counts": dict(
                 sorted(self.runtime_policy_counts.items())
@@ -1402,6 +1628,7 @@ class DecalArrangement:
 
     faces: tuple[_DecalArrangementFace, ...]
     inserted_stations: int
+    resolved_corner_views: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -1501,6 +1728,16 @@ class _TerminalBridgeGuide:
     revisit_guarded: bool = False
     station_clamped: bool = False
     contact_met: bool = False
+    frozen: bool = False
+    freeze_locus: object | None = None
+    capacity_policy: CapacityPolicy = CapacityPolicy.SATURATE_PROVEN
+
+    def __post_init__(self):
+        object.__setattr__(
+            self,
+            "capacity_policy",
+            CapacityPolicy(self.capacity_policy),
+        )
 
 
 @dataclass(frozen=True)
@@ -1511,6 +1748,41 @@ class _ResolvedArrangementPoint:
     position_full: Vector
     vert_key: object
     location: DomainLocation
+
+
+@dataclass(frozen=True)
+class PatchVoronoiVertexProvenance:
+    """I5 source/edge/route/station facts одного output-loop."""
+
+    source_face_id: object
+    source_edge_id: int
+    route_id: object
+    station_key: object
+    domain_location: DomainLocation | None
+
+
+@dataclass(frozen=True)
+class PatchVoronoiFaceProvenance:
+    """Тотальная immutable provenance одной PatchVoronoi face."""
+
+    source_face_ids: tuple[object, ...]
+    source_edge_ids: tuple[int, ...]
+    route_ids: tuple[object, ...]
+    station_keys: tuple[object, ...]
+    vertices: tuple[PatchVoronoiVertexProvenance, ...]
+    semantic_owner_id: object | None = None
+
+    def __post_init__(self):
+        if not self.source_face_ids:
+            raise ValueError("PATCH_VORONOI_SOURCE_FACE_PROVENANCE_MISSING")
+        if not self.source_edge_ids:
+            raise ValueError("PATCH_VORONOI_SOURCE_EDGE_PROVENANCE_MISSING")
+        if not self.route_ids:
+            raise ValueError("PATCH_VORONOI_ROUTE_PROVENANCE_MISSING")
+        if not self.station_keys:
+            raise ValueError("PATCH_VORONOI_STATION_PROVENANCE_MISSING")
+        if len(self.vertices) != len(self.station_keys):
+            raise ValueError("PATCH_VORONOI_VERTEX_PROVENANCE_DESYNC")
 
 
 @dataclass(frozen=True)
@@ -1526,6 +1798,8 @@ class _JunctionPort:
     outer_u: float
     outer_v: float
     core_v: float
+    core_provenance: PatchVoronoiVertexProvenance
+    outer_provenance: PatchVoronoiVertexProvenance
 
 
 def patch_voronoi_available():
@@ -2486,10 +2760,43 @@ def _terminal_segment_crop_components(
             end_depth = site.segment_length
             end_absorbed = True
         else:
-            raise RuntimeError(
-                "TERMINAL_BRIDGE_CUTS_OVERLAP: "
-                f"patch={site.patch_id} edge={site.edge_index}"
+            start_locus = getattr(start_guide, "freeze_locus", None)
+            end_locus = getattr(end_guide, "freeze_locus", None)
+            if (
+                not getattr(start_guide, "frozen", False)
+                or not getattr(end_guide, "frozen", False)
+                or start_locus is None
+                or start_locus is not end_locus
+            ):
+                raise RuntimeError(
+                    "RAIL_COMPETITION_METRIC_UNRESOLVED: "
+                    f"patch={site.patch_id} edge={site.edge_index} "
+                    f"start_depth={start_depth!r} end_depth={end_depth!r} "
+                    f"site_length={site.segment_length!r}"
+                )
+            arrivals = tuple(
+                float(value) for value in start_locus.arrival_distances
             )
+            arrival_total = sum(arrivals)
+            if len(arrivals) != 2 or not arrival_total > 0.0:
+                raise RuntimeError(
+                    "RAIL_COMPETITION_METRIC_UNRESOLVED: "
+                    f"patch={site.patch_id} edge={site.edge_index} "
+                    f"arrivals={arrivals!r}"
+                )
+            # RC1: полное покрытие site делится только immutable станционной
+            # метрикой freeze-locus. Геометрический overlap не голосует.
+            start_route_id = getattr(start_guide, "route_id", None)
+            arrival_by_route = dict(
+                zip(start_locus.route_ids, arrivals)
+            )
+            start_arrival = arrival_by_route.get(
+                start_route_id, arrivals[0]
+            )
+            start_depth = site.segment_length * (
+                start_arrival / arrival_total
+            )
+            end_depth = site.segment_length - start_depth
     body_start = shifted(site.point_a, tangent, start_depth)
     body_end = shifted(site.point_b, tangent, -end_depth)
     start_spec = terminal_spec(
@@ -2749,6 +3056,44 @@ def _corner_component_from_polygon(
     return replace(
         component,
         owner_site_indices=tuple(owner_site_indices),
+    )
+
+
+def _corner_components_from_semantic_polygon(
+    surface,
+    corner,
+    alpha,
+    kind,
+    side,
+    polygon,
+    *,
+    owner_site_indices,
+):
+    """Сохраняет вогнутый semantic contour без подмены convex hull.
+
+    ``_CropComponent`` намеренно convex: clipping и subtraction полагаются
+    на этот контракт. Поэтому вогнутый CornerModel раскладывается на
+    детерминированные ears, а не расширяется до hull. Все pieces сохраняют
+    одного semantic owner; post-competition view по-прежнему читает одну
+    модель и те же authoritative anchors.
+    """
+
+    convex_parts = _triangulate_cell_polygon(polygon)
+    return tuple(
+        component
+        for component in (
+            _corner_component_from_polygon(
+                surface,
+                corner,
+                alpha,
+                kind,
+                side,
+                part,
+                owner_site_indices=owner_site_indices,
+            )
+            for part in convex_parts
+        )
+        if component is not None
     )
 
 
@@ -3364,8 +3709,50 @@ def _corner_crop_components(
     settings,
     diagnostics=None,
     terminal_guide=None,
+    corner_model=None,
+    corner_derived=None,
 ):
     settings = _normalized_corner_runtime_settings(settings)
+    if corner_model is not None:
+        derived = corner_derived or corner_model.derive(
+            apex_limit=alpha * settings.apex_limit
+        )
+        if derived.releases_competitor or policy in {
+            _CornerPolicy.MITER,
+            _CornerPolicy.KITE,
+        }:
+            if derived.miter_clamped and diagnostics is not None:
+                diagnostics.clamped_miter_count += 1
+            owner_site = _corner_site_view(
+                surface, corner, corner.ordered_sites[0]
+            )
+            side_sign = -1 if owner_site.uv_sign < 0.0 else 1
+            components = _corner_components_from_semantic_polygon(
+                surface,
+                corner,
+                alpha,
+                derived.component_kind,
+                (
+                    f"S_CM_A_v{corner.vert_index}_e{owner_site.edge_index}_"
+                    f"s{side_sign:+d}"
+                ),
+                tuple(
+                    vertex.chart_point
+                    for vertex in derived.collision_boundary
+                ),
+                owner_site_indices=corner.incident_sites,
+            )
+            return tuple(
+                replace(
+                    component,
+                    semantic_owner_id=(
+                        "corner-model",
+                        int(corner.vert_index),
+                        corner_model.seed.sector_id,
+                    ),
+                )
+                for component in components
+            )
     # FLAT CAP — базовая endpoint-семантика, а не dynamic band. Stable path
     # обязан использовать tangent-aligned half-quad; axis-aligned square
     # остаётся явный compile failure для неподдержанного valence-N junction.
@@ -3392,36 +3779,6 @@ def _corner_crop_components(
         )
         if len(polygon) < 3:
             return ()
-        if policy == _CornerPolicy.BEVEL:
-            owner_site = _corner_site_view(
-                surface, corner, corner.ordered_sites[0]
-            )
-            side_sign = -1 if owner_site.uv_sign < 0.0 else 1
-            component = _corner_component_from_polygon(
-                surface,
-                corner,
-                alpha,
-                policy.value,
-                (
-                    f"RM6A_v{corner.vert_index}_e{owner_site.edge_index}_"
-                    f"s{side_sign:+d}"
-                ),
-                polygon,
-                owner_site_indices=corner.incident_sites,
-            )
-            if component is None:
-                return ()
-            return (
-                replace(
-                    component,
-                    semantic_owner_id=(
-                        "corner",
-                        int(corner.vert_index),
-                        int(owner_site.edge_index),
-                        int(side_sign),
-                    ),
-                ),
-            )
         return (
             _CropComponent(
                 kind=policy.value,
@@ -3626,13 +3983,6 @@ def _corner_crop_polygon(
     offset_lines = _corner_offset_lines(surface, corner, alpha)
     if len(offset_lines) != 2:
         return []
-    if policy == _CornerPolicy.BEVEL:
-        # RC5: BEVEL — сама математическая область угла, а не post-emission
-        # замена MITER-piece. V/P1/P2 затем одинаково читают collision,
-        # ownership, UV и lift.
-        points = [point, offset_lines[0][0], offset_lines[1][0]]
-        _validate_bevel_shape(surface, corner, points)
-        return _convex_hull(points)
     intersection = _line_intersection(
         offset_lines[0][0],
         offset_lines[0][1],
@@ -3909,6 +4259,9 @@ def _planar_owner_surfaces(node, raw_sites):
         if not triangles:
             return ()
         group_sites = sites_by_plane[key]
+        fallback_face_id = int(
+            group_sites[0].get("owner_face_index", node.patch_id)
+        )
         normal = group_sites[0].get("side_normal", node.normal).normalized()
         used_indices = sorted({index for tri in triangles for index in tri})
         centroid = sum(
@@ -3927,6 +4280,7 @@ def _planar_owner_surfaces(node, raw_sites):
                     boundary_loops=(),
                     mesh_verts=tuple(node.mesh_verts),
                     mesh_tris=tuple(triangles),
+                    mesh_tri_face_indices=(fallback_face_id,) * len(triangles),
                 ),
                 group_sites,
             )
@@ -3944,19 +4298,20 @@ def _provenance_owner_surfaces(node, raw_sites):
     """
 
     triangles_by_face = {}
-    normals_by_face = {}
-    for triangle, face_index, face_normal in zip(
+    normals_by_face = {
+        int(face_id): Vector(normal)
+        for face_id, normal in node.source_face_normals
+    }
+    for triangle, face_index in zip(
         node.mesh_tris,
         node.mesh_tri_face_indices,
-        node.mesh_tri_face_normals,
     ):
         face_index = int(face_index)
         triangles_by_face.setdefault(face_index, []).append(tuple(triangle))
-        if face_normal.length_squared > _GEOMETRY_EPS:
-            normals_by_face.setdefault(face_index, face_normal.normalized())
 
     group_by_face = {}
     triangles_by_group = {}
+    triangle_faces_by_group = {}
     normals_by_group = {}
     for face_index in sorted(triangles_by_face):
         triangles = triangles_by_face[face_index]
@@ -3992,6 +4347,9 @@ def _provenance_owner_surfaces(node, raw_sites):
         )
         group_by_face[face_index] = group_key
         triangles_by_group.setdefault(group_key, []).extend(triangles)
+        triangle_faces_by_group.setdefault(group_key, []).extend(
+            (face_index,) * len(triangles)
+        )
         normals_by_group.setdefault(group_key, normal)
 
     sites_by_group = {}
@@ -4023,6 +4381,9 @@ def _provenance_owner_surfaces(node, raw_sites):
                     boundary_loops=(),
                     mesh_verts=tuple(node.mesh_verts),
                     mesh_tris=tuple(triangles),
+                    mesh_tri_face_indices=tuple(
+                        triangle_faces_by_group[group_key]
+                    ),
                 ),
                 sites_by_group[group_key],
             )
@@ -4603,12 +4964,7 @@ def classify_corner_runtime(corner, settings=None):
 
 
 def _classify_surface_corner_runtime(surface, corner, settings=None):
-    """Единая runtime-policy формы угла для geometry и emission.
-
-    RC5: join style выбирается до crop/ownership/arrangement. Поэтому одна
-    policy управляет и столкновением, и UV/3D-материализацией; отдельной
-    ``emitted``-классификации у одного физического угла не существует.
-    """
+    """Геометрическая band-policy без join-семантики CornerModel."""
 
     settings = _normalized_corner_runtime_settings(settings)
     policy = classify_corner_runtime(corner, settings)
@@ -4617,13 +4973,6 @@ def _classify_surface_corner_runtime(surface, corner, settings=None):
         and surface.domain.admission_tier == "APPROXIMATE"
     ):
         policy = _CornerPolicy.MITER
-    if (
-        settings.join_mode == "BEVEL"
-        and policy in {_CornerPolicy.MITER, _CornerPolicy.KITE}
-        and len(corner.incident_sites) == 2
-    ):
-        if _corner_offset_edge_relation(surface, corner) == "GAP":
-            return _CornerPolicy.BEVEL
     return policy
 
 
@@ -4718,6 +5067,345 @@ def _compile_surface_relations(sites, corners, atoms):
     )
 
 
+def _corner_route_id(surface, site):
+    return (
+        "patch-voronoi-route",
+        int(surface.patch_id),
+        int(site.edge_index),
+    )
+
+
+def _corner_station_key(surface, site, point):
+    quantum = max(float(surface.diagram_transform.quantum), 1e-10)
+    parameter = _site_unbounded_parameter(site, point)
+    tangent = _norm2(_sub2(site.point_b, site.point_a))
+    lateral = (
+        0.0
+        if tangent is None
+        else _cross2(tangent, _sub2(point, site.point_a))
+    )
+    return (
+        "patch-voronoi-station",
+        int(surface.patch_id),
+        int(site.edge_index),
+        round(_site_v_length(site, parameter) / quantum),
+        round(lateral / quantum),
+    )
+
+
+def _corner_point_source_face_id(surface, location, fallback):
+    if (
+        surface.domain.kind == "PLANAR"
+        and location is not None
+        and 0 <= int(location.triangle_id)
+        < len(surface.domain.boundary_triangle_source_face_ids)
+    ):
+        return surface.domain.boundary_triangle_source_face_ids[
+            int(location.triangle_id)
+        ]
+    if (
+        surface.domain.kind == "INTRINSIC"
+        and location is not None
+        and 0 <= int(location.triangle_id) < len(surface.domain.intrinsic_triangles)
+    ):
+        source_face_id = surface.domain.intrinsic_triangles[
+            int(location.triangle_id)
+        ].source_face_id
+        if source_face_id is not None:
+            return source_face_id
+    return int(fallback)
+
+
+def _corner_seed_records(surface, corner):
+    if len(corner.ordered_sites) == 2:
+        return ((None, corner),)
+    if len(corner.incident_sites) > 2:
+        return tuple(_junction_sector_specs(surface, corner))
+    return ()
+
+
+def _compile_corner_seeds(
+    surface,
+    lifted_vertices,
+    requested_join=CornerJoinMode.MITER,
+):
+    """Фиксирует V/order/owner/join до width-dependent model build."""
+
+    requested_join = CornerJoinMode(requested_join)
+    seeds = []
+    for corner in surface.corners:
+        for sector_id, sector in _corner_seed_records(surface, corner):
+            site_indices = tuple(int(value) for value in sector.ordered_sites)
+            if len(site_indices) != 2:
+                continue
+            sites = tuple(surface.sites[index] for index in site_indices)
+            route_ids = tuple(
+                _corner_route_id(surface, site) for site in sites
+            )
+            station_keys = tuple(
+                _corner_station_key(surface, site, sector.point)
+                for site in sites
+            )
+            source_edge_ids = tuple(
+                int(site.edge_index) for site in sites
+            )
+            owner_face_ids = tuple(
+                int(site.owner_face_index)
+                for site in sites
+                if int(site.owner_face_index) >= 0
+            )
+            owner_face_id = (
+                min(owner_face_ids)
+                if owner_face_ids
+                else int(surface.patch_id)
+            )
+            location = surface.domain.locate(sector.point)
+            provenance = CornerPointProvenance(
+                source_face_id=_corner_point_source_face_id(
+                    surface, location, owner_face_id
+                ),
+                source_edge_ids=source_edge_ids,
+                route_ids=route_ids,
+                station_keys=station_keys,
+                domain_location=location,
+            )
+            position = lifted_vertices.get(sector.vert_index)
+            if position is None:
+                position = surface.domain.lift(
+                    sector.point, 0.0, location=location
+                )
+            side = (
+                BandSide.NEGATIVE
+                if sites[0].uv_sign < 0.0
+                else BandSide.POSITIVE
+            )
+            join = (
+                requested_join
+                if _corner_offset_edge_relation(surface, sector) == "GAP"
+                else CornerJoinMode.MITER
+            )
+            seeds.append(
+                CornerSeed(
+                    apex_ref=CornerVertexRef(
+                        key=("pv-sv", int(sector.vert_index)),
+                        chart_point=tuple(float(value) for value in sector.point),
+                        position=tuple(float(value) for value in position),
+                        provenance=provenance,
+                    ),
+                    corner_vertex_id=int(sector.vert_index),
+                    incident_site_ids=site_indices,
+                    side=side,
+                    sector_id=(None if sector_id is None else int(sector_id)),
+                    owner_surface_id=int(surface.patch_id),
+                    join=join,
+                )
+            )
+    return tuple(seeds)
+
+
+def _local_corner_strip(surface, corner, site_index, alpha):
+    """Клиппит own-strip owner-доменом без Voronoi-конкурентов."""
+
+    site = _corner_site_view(surface, corner, site_index)
+    strip_polygon = _segment_crop_polygon(site, alpha)
+    period = float(getattr(surface.domain, "period", 0.0))
+    site_offset = dict(getattr(corner, "site_u_offsets", ())).get(
+        site_index, 0.0
+    )
+    if period > _GEOMETRY_EPS:
+        image_shift = int(round(float(site_offset) / period))
+        domain_triangles = tuple(
+            tuple(
+                (point[0] + shift * period, point[1])
+                for point in triangle
+            )
+            for shift in (image_shift - 1, image_shift, image_shift + 1)
+            for triangle in surface.domain.boundary_triangles
+        )
+    else:
+        domain_triangles = surface.domain.boundary_triangles
+    fragments = []
+    for triangle in domain_triangles:
+        clipped = _clip_to_triangle(strip_polygon, triangle)
+        if len(clipped) >= 3 and abs(_polygon_area2(clipped)) > 1e-10:
+            fragments.append(clipped)
+    components = _merge_polygon_fragments(
+        fragments,
+        tolerance=_FRAGMENT_TOPOLOGY_TOLERANCE,
+        normalize_t_junctions=bool(
+            surface.domain.normalize_fragment_t_junctions
+        ),
+    )
+    if not components:
+        raise RuntimeError(
+            "CORNER_LOCAL_STRIP_CLIP_EMPTY: "
+            f"surface={surface.patch_id} vertex={corner.vert_index} "
+            f"site={site_index}"
+        )
+
+    if site.vert_a == corner.vert_index:
+        tangent_away = _norm2(_sub2(site.point_b, corner.point))
+    else:
+        tangent_away = _norm2(_sub2(site.point_a, corner.point))
+    if tangent_away is None:
+        raise RuntimeError(
+            "CORNER_LOCAL_STRIP_TANGENT_INVALID: "
+            f"surface={surface.patch_id} vertex={corner.vert_index}"
+        )
+    target = (
+        corner.point[0] + site.inward_normal[0] * alpha,
+        corner.point[1] + site.inward_normal[1] * alpha,
+    )
+    route_id = _corner_route_id(surface, site)
+    fallback_face_id = (
+        site.owner_face_index
+        if site.owner_face_index >= 0
+        else surface.patch_id
+    )
+    vertices_by_key = {}
+    target_candidates = []
+    cap_candidates = []
+    for point in (point for component in components for point in component):
+        location = surface.domain.locate(point)
+        if location is None and period > _GEOMETRY_EPS:
+            lower = float(surface.domain.wrap_origin)
+            shift = int((point[0] - lower) // period)
+            canonical = (point[0] - shift * period, point[1])
+            candidates = (canonical, (canonical[0] - period, canonical[1]))
+            location = next(
+                (
+                    candidate_location
+                    for candidate in candidates
+                    if (
+                        candidate_location := surface.domain.locate(candidate)
+                    )
+                    is not None
+                ),
+                None,
+            )
+        if location is None:
+            continue
+        parameter = _site_unbounded_parameter(site, point)
+        direction = _norm2(_sub2(site.point_b, site.point_a))
+        lateral = (
+            0.0
+            if direction is None
+            else _cross2(direction, _sub2(point, site.point_a))
+        )
+        station_key = _corner_station_key(surface, site, point)
+        provenance = CornerPointProvenance(
+            source_face_id=_corner_point_source_face_id(
+                surface, location, fallback_face_id
+            ),
+            source_edge_ids=(int(site.edge_index),),
+            route_ids=(route_id,),
+            station_keys=(station_key,),
+            domain_location=location,
+        )
+        key = _domain_location_key(surface, location)
+        vertex = CornerStripVertex(
+            key=key,
+            chart_point=tuple(float(value) for value in point),
+            provenance=provenance,
+            station_ref=CornerStationRef(
+                route_id=route_id,
+                site_id=int(site_index),
+                source_edge_id=int(site.edge_index),
+                station_key=station_key,
+                s=float(_site_v_length(site, parameter)),
+                r=float(lateral),
+                tangent_away=tuple(float(value) for value in tangent_away),
+                source_s_per_chart_unit=(
+                    float(site.arc_sign)
+                    * (1.0 if site.vert_a == corner.vert_index else -1.0)
+                    * (
+                        float(site.uv_length)
+                        if site.uv_length > 0.0
+                        else float(site.segment_length)
+                    )
+                    / max(float(site.segment_length), _GEOMETRY_EPS)
+                ),
+            ),
+        )
+        vertices_by_key.setdefault(key, vertex)
+        target_candidates.append((_dist2(point, target), repr(key), key))
+        # P — внешний угол именно endpoint-cap собственного strip, а не
+        # ближайшая вершина его продольного rail. После насыщения domain
+        # cap клиппится на той же прямой через V; выбор rail/domain-угла
+        # заставлял P сходить с опорной прямой при width drag.
+        cap_line_error = abs(
+            _cross2(site.inward_normal, _sub2(point, corner.point))
+        )
+        if cap_line_error <= _FRAGMENT_TOPOLOGY_TOLERANCE:
+            cap_candidates.append((_dist2(point, target), repr(key), key))
+    if not target_candidates:
+        raise RuntimeError(
+            "CORNER_LOCAL_STRIP_PROVENANCE_UNRESOLVED: "
+            f"surface={surface.patch_id} vertex={corner.vert_index} "
+            f"site={site_index}"
+        )
+    if not cap_candidates:
+        raise RuntimeError(
+            "CORNER_LOCAL_STRIP_CAP_VERTEX_UNRESOLVED: "
+            f"surface={surface.patch_id} vertex={corner.vert_index} "
+            f"site={site_index}"
+        )
+    _target_distance, _target_repr, outer_key = min(cap_candidates)
+    return LocalClippedCornerStrip(
+        site_id=int(site_index),
+        vertices=tuple(
+            vertices_by_key[key]
+            for key in sorted(vertices_by_key, key=repr)
+        ),
+        outer_corner_key=outer_key,
+    )
+
+
+def _build_local_corner_models(
+    surface,
+    alpha,
+    *,
+    test_join_override=None,
+    test_join_vertex_ids=(),
+):
+    """S-CM.a: seed -> local own-strip clips -> model, без competition."""
+
+    corners_by_vertex = {
+        int(corner.vert_index): corner for corner in surface.corners
+    }
+    models = []
+    override_vertices = frozenset(
+        int(value) for value in test_join_vertex_ids
+    )
+    for compiled_seed in getattr(surface, "corner_seeds", ()):
+        seed = (
+            compiled_seed
+            if test_join_override is None
+            or override_vertices
+            and compiled_seed.corner_vertex_id not in override_vertices
+            else replace(compiled_seed, join=CornerJoinMode(test_join_override))
+        )
+        corner = corners_by_vertex[seed.corner_vertex_id]
+        if seed.sector_id is not None:
+            sectors = dict(_junction_sector_specs(surface, corner))
+            corner = sectors[seed.sector_id]
+        strips = tuple(
+            _local_corner_strip(surface, corner, site_index, alpha)
+            for site_index in seed.incident_site_ids
+        )
+        try:
+            model = CornerModel.from_local_strips(seed, *strips)
+        except ValueError as exc:
+            if str(exc) != "CORNER_MODEL_ANCHORS_DEGENERATE":
+                raise
+            # Локальный owner-domain может схлопнуть оба outer anchors в
+            # один fold endpoint. Такой cross-surface угол принадлежит
+            # S-CM.b/R3 и не получает ложную планарную форму в S-CM.a.
+            continue
+        models.append(model)
+    return tuple(models)
+
+
 def _compile_corner_release_atoms(
     *,
     diagram_transform,
@@ -4729,9 +5417,11 @@ def _compile_corner_release_atoms(
     guard,
     curve_step,
     point_cell_records,
+    atom_cell_records=(),
+    compile_mutual_arrival=False,
     diagnostics=None,
 ):
-    """Компилирует конкуренцию за освобождаемую часть point-cell RC5a.
+    """Компилирует двустороннюю конкуренцию вокруг point-cell RC5a/RC5b.
 
     BEVEL не меняет incident segments собственной ленты. Поэтому из
     конкуренции за клин исключаются оба incident site, а кандидаты берутся
@@ -4740,7 +5430,7 @@ def _compile_corner_release_atoms(
     """
 
     if not point_cell_records:
-        return {}
+        return {}, {}
 
     def neighbor_cells(cell_index):
         result = set()
@@ -4757,6 +5447,11 @@ def _compile_corner_release_atoms(
         return result
 
     records_by_corner = {}
+    mutual_records_by_corner = {}
+    atom_record_by_cell = {
+        int(record[0]): record for record in atom_cell_records
+    }
+    mutual_record_keys = set()
     diagram_scale = int(diagram_transform.scale)
     for record in point_cell_records:
         (
@@ -4773,6 +5468,7 @@ def _compile_corner_release_atoms(
         queue = [int(primary_cell_index)]
         visited = set()
         candidate_record_indices = set()
+        candidate_cells_by_record = {}
         while queue:
             cell_index = queue.pop()
             if cell_index in visited:
@@ -4789,10 +5485,66 @@ def _compile_corner_release_atoms(
                     queue.append(neighbor_index)
                 else:
                     candidate_record_indices.add(int(neighbor.site))
+                    candidate_cells_by_record.setdefault(
+                        int(neighbor.site), set()
+                    ).add(int(neighbor_index))
 
         if not candidate_record_indices:
             continue
         candidate_record_indices = tuple(sorted(candidate_record_indices))
+
+        # RC5b reciprocal side: point/corner matter may cross the same frozen
+        # locus into an external SEGMENT cell until that segment itself arrives.
+        # Only intrinsic charts need this extra IR: in an exact planar chart
+        # Euclidean segment-Voronoi distance and extrusion alpha coincide.
+        if compile_mutual_arrival:
+            for candidate_index in candidate_record_indices:
+                owner_site_index, owner_shift = diagram_site_records[
+                    candidate_index
+                ][:2]
+                for candidate_cell_index in sorted(
+                    candidate_cells_by_record.get(candidate_index, ())
+                ):
+                    atom_record = atom_record_by_cell.get(
+                        candidate_cell_index
+                    )
+                    if atom_record is None:
+                        continue
+                    (
+                        _cell_index,
+                        atom_site_index,
+                        atom_shift,
+                        atom_kind,
+                        atom_fragments,
+                        atom_triangle_ids,
+                    ) = atom_record
+                    if (
+                        atom_kind != "SEGMENT"
+                        or int(atom_site_index) != int(owner_site_index)
+                        or int(atom_shift) != int(owner_shift)
+                    ):
+                        continue
+                    record_key = (
+                        int(corner_index),
+                        int(point_periodic_shift),
+                        int(candidate_cell_index),
+                    )
+                    if record_key in mutual_record_keys:
+                        continue
+                    mutual_record_keys.add(record_key)
+                    mutual_records_by_corner.setdefault(
+                        corner_index, []
+                    ).append(
+                        _MutualArrivalAtom(
+                            corner_index=int(corner_index),
+                            point_site_index=int(point_site_index),
+                            point_periodic_shift=int(point_periodic_shift),
+                            blocking_site_index=int(owner_site_index),
+                            blocking_periodic_shift=int(owner_shift),
+                            fragments=tuple(atom_fragments),
+                            fragment_triangle_ids=tuple(atom_triangle_ids),
+                        )
+                    )
 
         if len(candidate_record_indices) == 1:
             candidate_index = candidate_record_indices[0]
@@ -4913,10 +5665,18 @@ def _compile_corner_release_atoms(
                 )
             )
 
-    return {
-        corner_index: tuple(records)
-        for corner_index, records in sorted(records_by_corner.items())
-    }
+    return (
+        {
+            corner_index: tuple(records)
+            for corner_index, records in sorted(records_by_corner.items())
+        },
+        {
+            corner_index: tuple(records)
+            for corner_index, records in sorted(
+                mutual_records_by_corner.items()
+            )
+        },
+    )
 
 
 def _normalized_intrinsic_triangles(intrinsic_triangles, quantize_point):
@@ -5276,6 +6036,7 @@ def _compile_surface(
             arc_sign=raw.get("arc_sign", 1.0),
             two_sided=raw.get("two_sided", False),
             uv_length=raw["segment_length"],
+            owner_face_index=int(raw.get("owner_face_index", -1)),
         )
         sites.append(site)
         # Угловая policy остаётся геометрическим фактом исходного контура.
@@ -5529,6 +6290,7 @@ def _compile_surface(
     )
     atoms = []
     point_cell_records = []
+    atom_cell_records = []
     for cell_index, cell in enumerate(diagram_cells):
         if (
             cell.site < 0
@@ -5603,6 +6365,16 @@ def _compile_surface(
                     periodic_shift=int(periodic_shift),
                 )
             )
+            atom_cell_records.append(
+                (
+                    int(cell_index),
+                    int(owner_site_index),
+                    int(periodic_shift),
+                    cell_kind,
+                    tuple(fragments),
+                    tuple(fragment_triangle_ids),
+                )
+            )
             if cell_kind == "POINT" and corner_index >= 0:
                 point_cell_records.append(
                     (
@@ -5614,7 +6386,7 @@ def _compile_surface(
                         tuple(fragment_triangle_ids),
                     )
                 )
-    corner_release_atoms = _compile_corner_release_atoms(
+    corner_release_atoms, mutual_arrival_atoms = _compile_corner_release_atoms(
         diagram_transform=diagram_transform,
         diagram_site_records=tuple(diagram_site_records),
         sites=tuple(sites),
@@ -5624,6 +6396,8 @@ def _compile_surface(
         guard=guard,
         curve_step=curve_step,
         point_cell_records=tuple(point_cell_records),
+        atom_cell_records=tuple(atom_cell_records),
+        compile_mutual_arrival=bool(compiled_intrinsic_triangles),
         diagnostics=diagnostics,
     )
     segment_site_indices = {
@@ -5679,6 +6453,7 @@ def _compile_surface(
         planar_source_edges = ()
         planar_source_vertices = ()
         planar_source_edge_positions = ()
+        planar_triangle_source_face_ids = ()
         triangle_merge_groups = _intrinsic_triangle_merge_groups(
             compiled_intrinsic_triangles
         )
@@ -5695,6 +6470,23 @@ def _compile_surface(
             basis_v,
             diagram_transform.quantize,
         )
+        mesh_tri_face_indices = tuple(
+            getattr(node, "mesh_tri_face_indices", ())
+        )
+        if len(mesh_tri_face_indices) == len(triangles):
+            planar_triangle_source_face_ids = mesh_tri_face_indices
+        else:
+            fallback_face_id = next(
+                (
+                    int(raw["owner_face_index"])
+                    for raw in raw_sites
+                    if int(raw.get("owner_face_index", -1)) >= 0
+                ),
+                int(node.patch_id),
+            )
+            planar_triangle_source_face_ids = (
+                fallback_face_id,
+            ) * len(triangles)
         triangle_merge_groups = (0,) * len(triangles)
     domain = DecalSurfaceDomain(
         patch_id=node.patch_id,
@@ -5704,6 +6496,9 @@ def _compile_surface(
         basis_u=basis_u,
         basis_v=basis_v,
         boundary_triangles=tuple(tuple(triangle) for triangle in triangles),
+        boundary_triangle_source_face_ids=tuple(
+            planar_triangle_source_face_ids
+        ),
         intrinsic_triangles=compiled_intrinsic_triangles,
         planar_source_edges=planar_source_edges,
         planar_source_vertices=planar_source_vertices,
@@ -5776,6 +6571,7 @@ def _compile_surface(
         ports_by_vertex=ports_by_vertex,
         ports_by_site=ports_by_site,
         corner_release_atoms=corner_release_atoms,
+        mutual_arrival_atoms=mutual_arrival_atoms,
         semantic_owner_chart_by_vertex=tuple(
             sorted(
                 (int(vertex_id), int(owner_chart_id))
@@ -6353,7 +7149,7 @@ def _intrinsic_chart_site_seeds(node, patch_sites):
 
 
 def compile_patch_voronoi_attempt(
-    graph,
+    analysis_bundle,
     selected_edge_indices,
     offset,
     *,
@@ -6361,6 +7157,7 @@ def compile_patch_voronoi_attempt(
     diagnostics=None,
     alpha_budget=None,
     distortion_budget=CHART_DISTORTION_BUDGET,
+    corner_join_mode=CornerJoinMode.MITER,
 ):
     """Компилирует plan и локализует unsupported patches до physical edges.
 
@@ -6370,6 +7167,15 @@ def compile_patch_voronoi_attempt(
     потребовать исключить дополнительные соседние edges и повторный compile.
     """
 
+    if not isinstance(analysis_bundle, AnalysisBundle):
+        raise AnalysisSchemaError(
+            "DECAL_ANALYSIS_SCHEMA_UNSUPPORTED",
+            "Patch Voronoi compiler requires AnalysisBundle",
+        )
+    analysis_bundle.capabilities.require_supported()
+    corner_join_mode = CornerJoinMode(corner_join_mode)
+    graph = analysis_bundle.patch_graph
+    patch_surface = analysis_bundle.patch_surface
     requested_alpha_budget = (
         float("inf") if alpha_budget is None else float(alpha_budget)
     )
@@ -6433,7 +7239,10 @@ def compile_patch_voronoi_attempt(
     rejected_edges = set(rejected_internal_edges)
     failures = list(internal_failures)
     for patch_id in sorted(raw_by_patch):
-        node = graph.nodes[patch_id]
+        node = _patch_surface_node_view(
+            graph.nodes[patch_id],
+            patch_surface,
+        )
         patch_sites = raw_by_patch[patch_id]
         if _patch_is_planar(node):
             owner_surfaces = ((node, patch_sites, None),)
@@ -6447,6 +7256,7 @@ def compile_patch_voronoi_attempt(
                     node,
                     chart_seeds,
                     alpha_budget=chart_budget,
+                    patch_surface=patch_surface,
                 )
                 charts = tuple(
                     admit_intrinsic_strip_runtime(
@@ -6595,6 +7405,17 @@ def compile_patch_voronoi_attempt(
         )
         for vert_index, normals in normals_by_vert.items()
     }
+    surfaces = [
+        replace(
+            surface,
+            corner_seeds=_compile_corner_seeds(
+                surface,
+                lifted_vertices,
+                corner_join_mode,
+            ),
+        )
+        for surface in surfaces
+    ]
     max_lateral_lift_ratio = 0.0
     if abs(float(offset)) > _GEOMETRY_EPS:
         for surface in surfaces:
@@ -6632,6 +7453,16 @@ def compile_patch_voronoi_attempt(
         else:
             actual_alpha_budget = float("inf")
             actual_budget_source = "FULL_CONNECTED_COMPONENT"
+        if any(
+            surface.domain.period > 0.0
+            or surface.domain.admission_tier == "APPROXIMATE"
+            for surface in surfaces
+        ):
+            capacity_policy = CapacityPolicy.REJECT_UNPROVEN
+        elif isfinite(actual_alpha_budget):
+            capacity_policy = CapacityPolicy.CONTROLLED_RECOMPILE
+        else:
+            capacity_policy = CapacityPolicy.SATURATE_PROVEN
         plan = PatchVoronoiPlan(
             offset=float(offset),
             surfaces=tuple(surfaces),
@@ -6657,6 +7488,8 @@ def compile_patch_voronoi_attempt(
                     if surface.domain.admission_tier == "APPROXIMATE"
                 }
             ),
+            capacity_policy=capacity_policy,
+            corner_join_mode=corner_join_mode,
         )
     return PatchVoronoiCompileAttempt(
         plan=plan,
@@ -6666,24 +7499,26 @@ def compile_patch_voronoi_attempt(
 
 
 def compile_patch_voronoi_plan(
-    graph,
+    analysis_bundle,
     selected_edge_indices,
     offset,
     *,
     diagnostics=None,
     alpha_budget=None,
     distortion_budget=CHART_DISTORTION_BUDGET,
+    corner_join_mode=CornerJoinMode.MITER,
 ):
     """Строго компилирует все touched surfaces без смены backend."""
 
     return compile_patch_voronoi_attempt(
-        graph,
+        analysis_bundle,
         selected_edge_indices,
         offset,
         allow_partial=False,
         diagnostics=diagnostics,
         alpha_budget=alpha_budget,
         distortion_budget=distortion_budget,
+        corner_join_mode=corner_join_mode,
     ).plan
 
 
@@ -12169,11 +13004,73 @@ def _m1_validate_segment_face_parameters(
     return tuple(result)
 
 
+def _resolved_corner_owner_id(model):
+    return (
+        "corner-model",
+        int(model.seed.corner_vertex_id),
+        model.seed.sector_id,
+    )
+
+
+def _resolve_arrangement_corner_views(faces, corner_resolution_sources):
+    """S-CM.b: post-competition view читает тот же Model/DerivedGeometry."""
+
+    sources = {
+        (int(patch_id), owner_id, int(chart_id)): (model, derived)
+        for patch_id, owner_id, model, derived, chart_id
+        in corner_resolution_sources
+    }
+    points_by_source = {source_key: {} for source_key in sources}
+    for face in faces:
+        owner_id = face.crop.semantic_owner_id
+        source_key = (
+            int(face.surface.patch_id),
+            owner_id,
+            int(face.surface.domain.chart_id),
+        )
+        if source_key not in sources:
+            continue
+        for point_index, point in enumerate(face.points):
+            if len(face.point_keys) == len(face.points):
+                key = face.point_keys[point_index]
+            else:
+                location = face.surface.domain.locate(point)
+                if location is None:
+                    raise ValueError(
+                        "RESOLVED_CORNER_DOMAIN_LOCATION_MISSING: "
+                        f"owner={owner_id!r} point={point!r}"
+                    )
+                key = _domain_location_key(face.surface, location)
+            canonical_point = tuple(float(value) for value in point)
+            previous = points_by_source[source_key].setdefault(
+                key, canonical_point
+            )
+            if previous != canonical_point:
+                raise ValueError(
+                    "RESOLVED_CORNER_KEY_POSITION_DESYNC: "
+                    f"owner={owner_id!r} chart={source_key[2]!r} key={key!r}"
+                )
+    return tuple(
+        sources[source_key][0].resolve_after_competition(
+            tuple(
+                sorted(
+                    points_by_source[source_key].items(),
+                    key=lambda item: repr(item[0]),
+                )
+            ),
+            derived=sources[source_key][1],
+            tolerance=_FRAGMENT_TOPOLOGY_TOLERANCE,
+        )
+        for source_key in sorted(sources, key=repr)
+    )
+
+
 def _build_decal_arrangement(
     pending,
     tolerance,
     diagnostics=None,
     alpha=None,
+    corner_resolution_sources=(),
 ):
     """Создаёт conforming subdivision отдельно на каждом owner surface."""
 
@@ -12563,29 +13460,15 @@ def _build_decal_arrangement(
             arranged_by_index[index]
             for index in sorted(arranged_by_index)
         )
+    resolved_corner_views = _resolve_arrangement_corner_views(
+        faces,
+        corner_resolution_sources,
+    )
     return DecalArrangement(
         faces=faces,
         inserted_stations=inserted_stations,
+        resolved_corner_views=resolved_corner_views,
     )
-
-
-def _validate_bevel_shape(surface, corner, points, point_keys=()):
-    """RC5: BEVEL-модель — одна трёхточечная хорда, не FAN."""
-
-    if len(points) != 3:
-        raise RuntimeError(
-            "BEVEL_FAN_DISCRETIZATION_FORBIDDEN: "
-            f"patch={surface.patch_id} vertex={corner.vert_index} "
-            f"point_count={len(points)}"
-        )
-    if _polygon_area2(points) == 0.0 or (
-        point_keys and len(set(point_keys)) != 3
-    ):
-        raise RuntimeError(
-            "BEVEL_SHAPE_TRIANGLE_DEGENERATE: "
-            f"patch={surface.patch_id} vertex={corner.vert_index} "
-            f"keys={point_keys!r}"
-        )
 
 
 def _source_station_location(surface, point, source_feature, feature_id):
@@ -12607,6 +13490,33 @@ def _hashable_provenance(value):
     except TypeError:
         return repr(value)
     return value
+
+
+def _ordered_unique_provenance(values):
+    by_key = {}
+    for value in values:
+        by_key.setdefault(repr(value), value)
+    return tuple(by_key[key] for key in sorted(by_key))
+
+
+def _patch_face_provenance(vertices, semantic_owner_id=None):
+    vertices = tuple(vertices)
+    if not vertices:
+        raise ValueError("PATCH_VORONOI_VERTEX_PROVENANCE_MISSING")
+    return PatchVoronoiFaceProvenance(
+        source_face_ids=_ordered_unique_provenance(
+            vertex.source_face_id for vertex in vertices
+        ),
+        source_edge_ids=tuple(
+            sorted({int(vertex.source_edge_id) for vertex in vertices})
+        ),
+        route_ids=_ordered_unique_provenance(
+            vertex.route_id for vertex in vertices
+        ),
+        station_keys=tuple(vertex.station_key for vertex in vertices),
+        vertices=vertices,
+        semantic_owner_id=semantic_owner_id,
+    )
 
 
 def _domain_location_key(surface, location):
@@ -13001,6 +13911,18 @@ def _synchronize_cross_surface_spine_stations(plan, faces):
             )
             edge_by_vertices.setdefault(pair, site.edge_index)
 
+    provenance_by_key = {}
+    for face in faces:
+        provenance = getattr(face, "provenance", None)
+        if not isinstance(provenance, PatchVoronoiFaceProvenance):
+            raise RuntimeError("PATCH_VORONOI_FACE_PROVENANCE_MISSING")
+        if len(provenance.vertices) != len(face.vert_keys):
+            raise RuntimeError("PATCH_VORONOI_VERTEX_PROVENANCE_DESYNC")
+        for key, vertex_provenance in zip(
+            face.vert_keys, provenance.vertices
+        ):
+            provenance_by_key.setdefault(key, []).append(vertex_provenance)
+
     stations_by_edge = {}
     for face in faces:
         for key, position in zip(face.vert_keys, face.positions):
@@ -13020,6 +13942,11 @@ def _synchronize_cross_surface_spine_stations(plan, faces):
         new_positions = []
         new_u_fracs = []
         new_v_lengths = []
+        new_vertex_provenance = []
+        face_provenance = face.provenance
+        original_provenance = dict(
+            zip(face.vert_keys, face_provenance.vertices)
+        )
         for index in range(count):
             key_a = face.vert_keys[index]
             key_b = face.vert_keys[(index + 1) % count]
@@ -13034,6 +13961,7 @@ def _synchronize_cross_surface_spine_stations(plan, faces):
             new_positions.append(position_a)
             new_u_fracs.append(u_a)
             new_v_lengths.append(v_a)
+            new_vertex_provenance.append(original_provenance[key_a])
 
             if not isinstance(key_a, tuple) or not isinstance(key_b, tuple):
                 continue
@@ -13097,11 +14025,24 @@ def _synchronize_cross_surface_spine_stations(plan, faces):
                 new_positions.append(station_position.copy())
                 new_u_fracs.append(u_a + (u_b - u_a) * factor)
                 new_v_lengths.append(v_a + (v_b - v_a) * factor)
+                candidates = provenance_by_key.get(station_key, ())
+                if not candidates:
+                    raise RuntimeError(
+                        "PATCH_VORONOI_INSERTED_STATION_PROVENANCE_MISSING: "
+                        f"key={station_key!r}"
+                    )
+                new_vertex_provenance.append(
+                    min(candidates, key=repr)
+                )
 
         face.vert_keys = new_keys
         face.positions = new_positions
         face.u_fracs = new_u_fracs
         face.v_lengths = new_v_lengths
+        face.provenance = _patch_face_provenance(
+            new_vertex_provenance,
+            semantic_owner_id=face_provenance.semantic_owner_id,
+        )
 
 
 def _junction_connector_faces(
@@ -13176,6 +14117,12 @@ def _junction_connector_faces(
             continue
         face_index, _edge_index = uses[0]
         face = faces[face_index]
+        face_provenance = getattr(face, "provenance", None)
+        if not isinstance(face_provenance, PatchVoronoiFaceProvenance):
+            raise RuntimeError("PATCH_VORONOI_JUNCTION_PROVENANCE_MISSING")
+        provenance_by_key = dict(
+            zip(face.vert_keys, face_provenance.vertices)
+        )
         surface = surfaces_by_id.get(face.surface_id)
         if surface is None:
             continue
@@ -13295,6 +14242,8 @@ def _junction_connector_faces(
                 outer_u=face.u_fracs[outer_index],
                 outer_v=face.v_lengths[outer_index],
                 core_v=face.v_lengths[core_index],
+                core_provenance=provenance_by_key[core_key],
+                outer_provenance=provenance_by_key[outer_key],
             )
         )
 
@@ -13380,6 +14329,17 @@ def _junction_connector_faces(
                         + [entry.outer_v for entry in entries],
                         component_kind=policy.value,
                         component_side=f"JUNCTION_SECTOR_{sector_index}",
+                        provenance=_patch_face_provenance(
+                            (entries[0].core_provenance,)
+                            + tuple(
+                                entry.outer_provenance for entry in entries
+                            ),
+                            semantic_owner_id=(
+                                "junction-sector",
+                                int(vert_index),
+                                int(sector_index),
+                            ),
+                        ),
                     )
                 )
                 if diagnostics is not None:
@@ -13446,6 +14406,16 @@ def _junction_connector_faces(
                         (first.core_v + second.core_v) * 0.5
                     ]
                     + [entry.outer_v for entry in entries],
+                    provenance=_patch_face_provenance(
+                        (entries[0].core_provenance,)
+                        + tuple(
+                            entry.outer_provenance for entry in entries
+                        ),
+                        semantic_owner_id=(
+                            "junction-pair",
+                            int(vert_index),
+                        ),
+                    ),
                 )
             )
             used_ports.update((index, other_index))
@@ -13479,6 +14449,40 @@ def _atom_fragment_records(surface, atom):
             else 0
         )
         yield fragment, merge_group
+
+
+def _mutual_arrival_release_fragments(
+    surface,
+    atom,
+    corner_crop,
+    blocking_crops,
+):
+    """RC5b pointwise set: corner arrived AND blocker has not arrived."""
+
+    fragments = []
+    fragment_merge_groups = []
+    for fragment, merge_group in _atom_fragment_records(surface, atom):
+        pieces = [fragment]
+        for blocking_crop in blocking_crops:
+            pieces = [
+                outside
+                for piece in pieces
+                for outside in _subtract_convex_polygon(
+                    piece, blocking_crop.points
+                )
+            ]
+            if not pieces:
+                break
+        for piece in pieces:
+            clipped = _clip_to_convex(piece, corner_crop.points)
+            if (
+                len(clipped) < 3
+                or abs(_polygon_area2(clipped)) <= 1e-10
+            ):
+                continue
+            fragments.append(clipped)
+            fragment_merge_groups.append(merge_group)
+    return fragments, fragment_merge_groups
 
 
 def _append_pending_fragments(
@@ -13940,6 +14944,11 @@ def _terminal_route_chart_guide(
         station_prefixes=tuple(station_prefixes),
         saturated=bool(requested_extent >= route_reach),
         revisit_guarded=bool(revisit_guarded),
+        capacity_policy=getattr(
+            terminal,
+            "capacity_policy",
+            CapacityPolicy.SATURATE_PROVEN,
+        ),
     )
 
 
@@ -13979,18 +14988,37 @@ def _resolve_terminal_site_saturation(
     end_guide,
     diagnostics=None,
 ):
-    """Клампит только исчерпанный одиночный route на последней valid station.
+    """Клампит одиночный route на последней constructible station.
 
-    Обычный невалидный срез до конца route остаётся именованной ошибкой.
-    Два встречных контакта разрешаются отдельно станционной конкуренцией,
-    поэтому этот helper не связывает независимые стороны торца.
+    Геометрическая ёмкость terminal bridge может закончиться раньше route:
+    следующая station уже лежит в owner-domain, но polygon между station и
+    исходным site не triangulates. Поэтому ``route.saturated`` не является
+    валидатором ёмкости моста. Один и тот же pre-materialization validator
+    сначала пробует текущий guide, затем — station prefixes согласно
+    CapacityPolicy. Два встречных контакта разрешаются отдельно станционной
+    конкуренцией; независимые стороны торца здесь не связываются.
     """
 
     active = tuple(
         guide for guide in (start_guide, end_guide) if guide is not None
     )
-    if len(active) != 1 or not active[0].saturated:
+    if len(active) != 1:
         return start_guide, end_guide
+    guide = active[0]
+    capacity_policy = CapacityPolicy(guide.capacity_policy)
+    if guide.saturated and capacity_policy is CapacityPolicy.REJECT_UNPROVEN:
+        raise RuntimeError(
+            "TERMINAL_ROUTE_CAPACITY_UNPROVEN: "
+            f"patch={site.patch_id} edge={site.edge_index}"
+        )
+    if (
+        guide.saturated
+        and capacity_policy is CapacityPolicy.CONTROLLED_RECOMPILE
+    ):
+        raise RuntimeError(
+            "TERMINAL_ROUTE_RECOMPILE_REQUIRED: "
+            f"patch={site.patch_id} edge={site.edge_index}"
+        )
     try:
         _terminal_segment_crop_components(
             site,
@@ -14003,7 +15031,16 @@ def _resolve_terminal_site_saturation(
         if not str(exc).startswith("TERMINAL_BRIDGE_CUT_INVALID:"):
             raise
 
-    guide = active[0]
+    if capacity_policy is CapacityPolicy.REJECT_UNPROVEN:
+        raise RuntimeError(
+            "TERMINAL_ROUTE_CAPACITY_UNPROVEN: "
+            f"patch={site.patch_id} edge={site.edge_index}"
+        )
+    if capacity_policy is CapacityPolicy.CONTROLLED_RECOMPILE:
+        raise RuntimeError(
+            "TERMINAL_ROUTE_RECOMPILE_REQUIRED: "
+            f"patch={site.patch_id} edge={site.edge_index}"
+        )
     for prefix in reversed(guide.station_prefixes):
         if prefix.extent >= guide.extent:
             continue
@@ -14035,110 +15072,6 @@ def _resolve_terminal_site_saturation(
     )
 
 
-def _terminal_station_edge_parameter(station, edge):
-    """Канонический параметр station на source edge, без геометрического выбора."""
-
-    if (
-        getattr(station, "source_edge_id", None) == edge.edge_id
-        and getattr(station, "edge_parameter", None) is not None
-    ):
-        return float(station.edge_parameter)
-    source_vertex_id = getattr(station, "source_vertex_id", None)
-    if source_vertex_id == edge.vertex_ids[0]:
-        return 0.0
-    if source_vertex_id == edge.vertex_ids[1]:
-        return 1.0
-    return None
-
-
-def _terminal_route_contact_meeting(route_a, route_b, edge_by_id):
-    """RR8d(b): равная накопленная station на встречном общем edge.
-
-    Возвращает расстояния обоих чтений и каноническую точку общего edge.
-    Совпадающие по направлению интервалы не являются встречей контактов.
-    """
-
-    station_a = {
-        station.station_index: station for station in route_a.stations
-    }
-    station_b = {
-        station.station_index: station for station in route_b.stations
-    }
-    segments_b = {}
-    for segment in route_b.segments:
-        segments_b.setdefault(segment.edge_id, []).append(segment)
-    candidates = []
-    for segment_a in route_a.segments:
-        edge = edge_by_id.get(segment_a.edge_id)
-        if edge is None:
-            continue
-        a0 = station_a[segment_a.from_station_index]
-        a1 = station_a[segment_a.to_station_index]
-        ta0 = _terminal_station_edge_parameter(a0, edge)
-        ta1 = _terminal_station_edge_parameter(a1, edge)
-        if ta0 is None or ta1 is None or ta0 == ta1:
-            continue
-        for segment_b in segments_b.get(segment_a.edge_id, ()):
-            b0 = station_b[segment_b.from_station_index]
-            b1 = station_b[segment_b.to_station_index]
-            tb0 = _terminal_station_edge_parameter(b0, edge)
-            tb1 = _terminal_station_edge_parameter(b1, edge)
-            if tb0 is None or tb1 is None or tb0 == tb1:
-                continue
-            if (ta1 - ta0) * (tb1 - tb0) >= 0.0:
-                continue
-            low = max(min(ta0, ta1), min(tb0, tb1))
-            high = min(max(ta0, ta1), max(tb0, tb1))
-            if low > high:
-                continue
-
-            def accumulated(station_0, station_1, t0, t1, parameter):
-                factor = (parameter - t0) / (t1 - t0)
-                return float(station_0.distance) + factor * float(
-                    station_1.distance - station_0.distance
-                )
-
-            difference_low = (
-                accumulated(a0, a1, ta0, ta1, low)
-                - accumulated(b0, b1, tb0, tb1, low)
-            )
-            difference_high = (
-                accumulated(a0, a1, ta0, ta1, high)
-                - accumulated(b0, b1, tb0, tb1, high)
-            )
-            if difference_low == 0.0:
-                parameter = low
-            elif difference_high == 0.0:
-                parameter = high
-            elif difference_low * difference_high < 0.0:
-                parameter = low - difference_low * (high - low) / (
-                    difference_high - difference_low
-                )
-            else:
-                continue
-            distance_a = accumulated(a0, a1, ta0, ta1, parameter)
-            distance_b = accumulated(b0, b1, tb0, tb1, parameter)
-            if distance_a < 0.0 or distance_b < 0.0:
-                continue
-            chain_a = int(route_a.key.side.start_edge_id)
-            chain_b = int(route_b.key.side.start_edge_id)
-            candidates.append(
-                (
-                    max(distance_a, distance_b),
-                    min(chain_a, chain_b),
-                    max(chain_a, chain_b),
-                    int(edge.edge_id),
-                    float(parameter),
-                    float(distance_a),
-                    float(distance_b),
-                )
-            )
-    if not candidates:
-        return None
-    winner = min(candidates)
-    return winner[5], winner[6], winner[3], winner[4]
-
-
 def _surface_terminal_bridge_points(
     surface,
     terminal_routing,
@@ -14156,10 +15089,19 @@ def _surface_terminal_bridge_points(
     route_by_id = {
         route.route_id: route for route in rail_plan.routes
     }
-    edge_by_id = {edge.edge_id: edge for edge in rail_plan.edges}
+    terminal_freeze_by_routes = {}
+    for locus in getattr(rail_plan, "freeze_loci", ()):
+        if getattr(locus, "competition_kind", None) not in {
+            RailCompetitionKind.TERMINAL_ROUTE_PAIR,
+            RailCompetitionKind.TERMINAL_SITE_PAIR,
+        }:
+            continue
+        terminal_freeze_by_routes.setdefault(
+            tuple(sorted(locus.route_ids)), []
+        ).append(locus)
     for terminal in terminal_routing or ():
         if (
-            terminal.backend != "PATCH_VORONOI"
+            terminal.backend != DecalBackendKind.PATCH_VORONOI
             or terminal.patch_id != surface.patch_id
             or terminal.choice == "PERP"
         ):
@@ -14220,63 +15162,100 @@ def _surface_terminal_bridge_points(
             route_b = route_by_id.get(terminal_b.route_id)
             if route_b is None:
                 continue
-            meeting = _terminal_route_contact_meeting(
-                route_a, route_b, edge_by_id
-            )
-            if meeting is None:
-                continue
-            distance_a, distance_b, edge_id, parameter = meeting
-            if alpha < distance_a or alpha < distance_b:
-                continue
-            meeting_candidates.append(
-                (
-                    max(distance_a, distance_b),
-                    min(route_a.key.side.start_edge_id, route_b.key.side.start_edge_id),
-                    edge_id,
-                    parameter,
-                    key_a,
-                    key_b,
-                    distance_a,
-                    distance_b,
+            for locus in terminal_freeze_by_routes.get(
+                tuple(sorted((route_a.route_id, route_b.route_id))),
+                (),
+            ):
+                if (
+                    locus.competition_kind
+                    is RailCompetitionKind.TERMINAL_SITE_PAIR
+                    and not (
+                        terminal_a.spine_edge_id
+                        == terminal_b.spine_edge_id
+                        == locus.source_edge_id
+                    )
+                ):
+                    continue
+                arrival_by_route = dict(
+                    zip(locus.route_ids, locus.arrival_distances)
                 )
-            )
+                distance_a = arrival_by_route[route_a.route_id]
+                distance_b = arrival_by_route[route_b.route_id]
+                if alpha < distance_a or alpha < distance_b:
+                    continue
+                meeting_candidates.append(
+                    (
+                        max(distance_a, distance_b),
+                        locus.owner_chain_ref,
+                        locus.route_ids,
+                        key_a,
+                        key_b,
+                        distance_a,
+                        distance_b,
+                        locus,
+                    )
+                )
     met_keys = set()
     for (
         _distance,
-        _chain_id,
-        _edge_id,
-        _parameter,
+        _owner_chain_ref,
+        _route_ids,
         key_a,
         key_b,
         distance_a,
         distance_b,
-    ) in sorted(meeting_candidates):
+        locus,
+    ) in sorted(
+        meeting_candidates,
+        key=lambda item: item[:-1] + (repr(item[-1]),),
+    ):
         if key_a in met_keys or key_b in met_keys:
             continue
         terminal_a, corner_a = terminal_records[key_a]
         terminal_b, corner_b = terminal_records[key_b]
-        result[key_a] = replace(
-            _terminal_route_chart_guide(
-                surface,
-                terminal_a,
-                rail_plan,
-                distance_a,
-                corner_a.point,
-            ),
-            saturated=True,
-            contact_met=True,
-        )
-        result[key_b] = replace(
-            _terminal_route_chart_guide(
-                surface,
-                terminal_b,
-                rail_plan,
-                distance_b,
-                corner_b.point,
-            ),
-            saturated=True,
-            contact_met=True,
-        )
+        if (
+            locus.competition_kind
+            is RailCompetitionKind.TERMINAL_SITE_PAIR
+        ):
+            # Контакты продолжают идти по двум независимым pChain routes;
+            # freeze относится только к их общей station-partition на site.
+            result[key_a] = replace(
+                result[key_a],
+                contact_met=True,
+                frozen=True,
+                freeze_locus=locus,
+            )
+            result[key_b] = replace(
+                result[key_b],
+                contact_met=True,
+                frozen=True,
+                freeze_locus=locus,
+            )
+        else:
+            result[key_a] = replace(
+                _terminal_route_chart_guide(
+                    surface,
+                    terminal_a,
+                    rail_plan,
+                    distance_a,
+                    corner_a.point,
+                ),
+                contact_met=True,
+                frozen=True,
+                freeze_locus=locus,
+            )
+            result[key_b] = replace(
+                _terminal_route_chart_guide(
+                    surface,
+                    terminal_b,
+                    rail_plan,
+                    distance_b,
+                    corner_b.point,
+                ),
+                contact_met=True,
+                frozen=True,
+                freeze_locus=locus,
+            )
         met_keys.update((key_a, key_b))
         if diagnostics is not None:
             diagnostics.terminal_contact_meeting_count += 1
@@ -14321,6 +15300,8 @@ def _evaluate_surface_crops(
     corner_settings,
     diagnostics=None,
     terminal_bridge_points=None,
+    test_join_override=None,
+    test_join_vertex_ids=(),
 ):
     """Строит cell ownership без внутренних endpoint boundaries.
 
@@ -14334,6 +15315,31 @@ def _evaluate_surface_crops(
     """
 
     terminal_bridge_points = terminal_bridge_points or {}
+    local_corner_models = _build_local_corner_models(
+        surface,
+        alpha,
+        test_join_override=test_join_override,
+        test_join_vertex_ids=test_join_vertex_ids,
+    )
+    corner_models_by_key = {
+        (model.seed.corner_vertex_id, model.seed.sector_id): model
+        for model in local_corner_models
+    }
+    corner_model_geometry_by_key = {
+        key: model.derive(
+            apex_limit=alpha * corner_settings.apex_limit
+        )
+        for key, model in corner_models_by_key.items()
+    }
+    corner_models_by_vertex = {
+        vertex_id: model
+        for (vertex_id, sector_id), model in corner_models_by_key.items()
+        if sector_id is None
+    }
+    corner_model_geometry = {
+        vertex_id: corner_model_geometry_by_key[(vertex_id, None)]
+        for vertex_id in corner_models_by_vertex
+    }
 
     def terminal_guide(corner):
         if len(corner.incident_sites) != 1:
@@ -14422,6 +15428,12 @@ def _evaluate_surface_crops(
                 corner_settings,
                 diagnostics=None,
                 terminal_guide=terminal_guide(corner),
+                corner_model=corner_models_by_vertex.get(
+                    int(corner.vert_index)
+                ),
+                corner_derived=corner_model_geometry.get(
+                    int(corner.vert_index)
+                ),
             )
             owned_probe_crops = tuple(
                 owned_crop
@@ -14464,8 +15476,13 @@ def _evaluate_surface_crops(
                 policy in {
                     _CornerPolicy.SMOOTH,
                     _CornerPolicy.ACUTE_SPLIT,
-                    _CornerPolicy.BEVEL,
                 }
+                or corner_model_geometry.get(
+                    int(corner.vert_index), None
+                ) is not None
+                and corner_model_geometry[
+                    int(corner.vert_index)
+                ].releases_competitor
                 or (
                     policy == _CornerPolicy.MITER
                     and _miter_requires_explicit_crop(
@@ -14499,6 +15516,12 @@ def _evaluate_surface_crops(
             corner_settings,
             diagnostics,
             terminal_guide=terminal_guide(corner),
+            corner_model=corner_models_by_vertex.get(
+                int(corner.vert_index)
+            ),
+            corner_derived=corner_model_geometry.get(
+                int(corner.vert_index)
+            ),
         )
         crops = tuple(
             replace(
@@ -14624,6 +15647,103 @@ def _evaluate_surface_crops(
         if not corner_emitted:
             absorbed_corner_indices.add(corner_index)
 
+    # RC5b: reciprocal pointwise event-height gate. Compile-static locus
+    # вокруг point-cell не режет уже пришедшую материю угла, пока материя
+    # внешнего SEGMENT-владельца ещё не дошла до той же точки. Как только
+    # обе crop покрывают точку, обычная Voronoi-граница снова авторитетна.
+    mutual_atoms_by_corner = getattr(surface, "mutual_arrival_atoms", {})
+    if mutual_atoms_by_corner and not _surface_is_approximate(surface):
+        period = float(
+            getattr(getattr(surface, "domain", None), "period", 0.0)
+        )
+        for corner_index, crops in sorted(corner_crops.items()):
+            corner = surface.corners[corner_index]
+            corner_offsets = dict(corner.site_u_offsets)
+            for mutual_atom in mutual_atoms_by_corner.get(
+                corner_index, ()
+            ):
+                join_offset = (
+                    mutual_atom.point_periodic_shift * period
+                    - corner_offsets.get(
+                        mutual_atom.point_site_index, 0.0
+                    )
+                )
+                blocking_source_site = surface.sites[
+                    mutual_atom.blocking_site_index
+                ]
+                blocking_site = _periodic_site_image(
+                    surface,
+                    blocking_source_site,
+                    mutual_atom.blocking_periodic_shift,
+                )
+                start_guide, end_guide = site_terminal_guides(
+                    blocking_source_site,
+                    mutual_atom.blocking_periodic_shift,
+                )
+                blocking_crops = [
+                    component
+                    for component, _terminal_vertices in (
+                        _terminal_segment_crop_components(
+                            blocking_site,
+                            alpha,
+                            start_guide=start_guide,
+                            end_guide=end_guide,
+                        )
+                    )
+                ]
+                for blocking_corner, blocking_crop in crops_by_site.get(
+                    mutual_atom.blocking_site_index, ()
+                ):
+                    blocking_offsets = dict(
+                        blocking_corner.site_u_offsets
+                    )
+                    blocking_offset = (
+                        mutual_atom.blocking_periodic_shift * period
+                        - blocking_offsets.get(
+                            mutual_atom.blocking_site_index, 0.0
+                        )
+                    )
+                    blocking_crops.append(
+                        _translated_crop_u(blocking_crop, blocking_offset)
+                    )
+
+                for crop in crops:
+                    image_crop = _translated_crop_u(crop, join_offset)
+                    (
+                        fragments,
+                        fragment_merge_groups,
+                    ) = _mutual_arrival_release_fragments(
+                        surface,
+                        mutual_atom,
+                        image_crop,
+                        blocking_crops,
+                    )
+                    if not fragments:
+                        continue
+                    owner_site_indices = (
+                        crop.owner_site_indices or corner.incident_sites
+                    )
+                    owner_site_index = min(owner_site_indices)
+                    image_site = _translated_site_u(
+                        _corner_site_view(
+                            surface, corner, owner_site_index
+                        ),
+                        join_offset,
+                    )
+                    _append_pending_fragments(
+                        pending,
+                        surface,
+                        image_site,
+                        image_crop,
+                        fragments,
+                        diagnostics,
+                        fragment_merge_groups=fragment_merge_groups,
+                    )
+                    if diagnostics is not None:
+                        diagnostics.record_runtime_policy(
+                            "MUTUAL_ARRIVAL_RELEASE"
+                        )
+
     # RC5a: BEVEL освобождает часть primary point-cell. Она не исчезает и не
     # остаётся невидимой стеной: compile-static second-owner partition отдаёт
     # её дотекающим чужим SEGMENT-потокам. Собственные incident sites в этой
@@ -14634,9 +15754,10 @@ def _evaluate_surface_crops(
             getattr(getattr(surface, "domain", None), "period", 0.0)
         )
         for corner_index, crops in sorted(corner_crops.items()):
-            if runtime_policies[corner_index] != _CornerPolicy.BEVEL:
-                continue
             corner = surface.corners[corner_index]
+            derived = corner_model_geometry.get(int(corner.vert_index))
+            if derived is None or not derived.releases_competitor:
+                continue
             corner_offsets = dict(corner.site_u_offsets)
             for release_atom in release_atoms_by_corner.get(corner_index, ()):
                 join_offset = (
@@ -14777,6 +15898,22 @@ def _evaluate_surface_crops(
                 terminal_cut_vertices=terminal_cut_vertices,
                 fragment_merge_groups=fragment_merge_groups,
             )
+
+    return tuple(
+        (
+            int(surface.patch_id),
+            (
+                "corner-model",
+                model.seed.corner_vertex_id,
+                model.seed.sector_id,
+            ),
+            model,
+            derived,
+            int(surface.domain.chart_id),
+        )
+        for key, model in corner_models_by_key.items()
+        for derived in (corner_model_geometry_by_key[key],)
+    )
 
 
 def _terminal_partition_loop_fact(face, loop_index):
@@ -14939,62 +16076,72 @@ def _align_strip_cap_face(cap_face, cap_loop, strip_face, strip_loop):
             component_side=_aligned_strip_cap_side(
                 strip_face.component_side
             ),
+            provenance=cap_face.provenance,
         ),
         (u_scale, u_offset, v_offset),
     )
 
 
-def _align_strip_cap_neighbor(cap_face, strip_face, shared_edges):
+def _align_strip_cap_neighbors(cap_face, strip_neighbors):
     """Один affine seed + shared-key canonicalization всей adjacency."""
 
     adjacency = {}
     cap_indices_by_key = {}
     strip_facts_by_key = {}
     seeds = []
-    for cap_use, strip_use in shared_edges:
-        cap_loop = cap_use[1]
-        strip_loop = strip_use[1]
-        cap_count = len(cap_face.vert_keys)
-        strip_count = len(strip_face.vert_keys)
-        cap_keys = (
-            cap_face.vert_keys[cap_loop],
-            cap_face.vert_keys[(cap_loop + 1) % cap_count],
-        )
-        strip_keys = (
-            strip_face.vert_keys[(strip_loop + 1) % strip_count],
-            strip_face.vert_keys[strip_loop],
-        )
-        if cap_keys != strip_keys:
-            return None, "CAP_KEEP_SHARED_GEOMETRY_MISMATCH"
-        adjacency.setdefault(cap_keys[0], set()).add(cap_keys[1])
-        adjacency.setdefault(cap_keys[1], set()).add(cap_keys[0])
-        for cap_index, strip_index, key in (
-            (cap_loop, (strip_loop + 1) % strip_count, cap_keys[0]),
-            ((cap_loop + 1) % cap_count, strip_loop, cap_keys[1]),
-        ):
-            cap_indices_by_key.setdefault(key, set()).add(cap_index)
-            fact = (
-                float(strip_face.u_fracs[strip_index]),
-                float(strip_face.v_lengths[strip_index]),
+    for strip_face, shared_edges in strip_neighbors:
+        for cap_use, strip_use in shared_edges:
+            cap_loop = cap_use[1]
+            strip_loop = strip_use[1]
+            cap_count = len(cap_face.vert_keys)
+            strip_count = len(strip_face.vert_keys)
+            cap_keys = (
+                cap_face.vert_keys[cap_loop],
+                cap_face.vert_keys[(cap_loop + 1) % cap_count],
             )
-            previous = strip_facts_by_key.setdefault(key, fact)
-            if previous != fact:
-                return None, "CAP_KEEP_STATION_KEY_DESYNC"
-        alignment = _align_strip_cap_face(
-            cap_face, cap_loop, strip_face, strip_loop
-        )
-        if alignment is not None:
-            cap_a = float(cap_face.u_fracs[cap_loop])
-            cap_b = float(
-                cap_face.u_fracs[(cap_loop + 1) % cap_count]
+            strip_keys = (
+                strip_face.vert_keys[(strip_loop + 1) % strip_count],
+                strip_face.vert_keys[strip_loop],
             )
-            seeds.append(
+            if cap_keys != strip_keys:
+                return None, "CAP_KEEP_SHARED_GEOMETRY_MISMATCH"
+            adjacency.setdefault(cap_keys[0], set()).add(cap_keys[1])
+            adjacency.setdefault(cap_keys[1], set()).add(cap_keys[0])
+            for cap_index, strip_index, key in (
                 (
-                    abs(cap_b - cap_a),
-                    repr(cap_keys),
-                    alignment[0],
+                    cap_loop,
+                    (strip_loop + 1) % strip_count,
+                    cap_keys[0],
+                ),
+                (
+                    (cap_loop + 1) % cap_count,
+                    strip_loop,
+                    cap_keys[1],
+                ),
+            ):
+                cap_indices_by_key.setdefault(key, set()).add(cap_index)
+                fact = (
+                    float(strip_face.u_fracs[strip_index]),
+                    float(strip_face.v_lengths[strip_index]),
                 )
+                previous = strip_facts_by_key.setdefault(key, fact)
+                if previous != fact:
+                    return None, "CAP_KEEP_STATION_KEY_DESYNC"
+            alignment = _align_strip_cap_face(
+                cap_face, cap_loop, strip_face, strip_loop
             )
+            if alignment is not None:
+                cap_a = float(cap_face.u_fracs[cap_loop])
+                cap_b = float(
+                    cap_face.u_fracs[(cap_loop + 1) % cap_count]
+                )
+                seeds.append(
+                    (
+                        abs(cap_b - cap_a),
+                        repr(cap_keys),
+                        alignment[0],
+                    )
+                )
     if not adjacency or any(len(neighbors) > 2 for neighbors in adjacency.values()):
         return None, "CAP_KEEP_SHARED_EDGE_DISCONNECTED"
     pending = [min(adjacency, key=repr)]
@@ -15007,6 +16154,48 @@ def _align_strip_cap_neighbor(cap_face, strip_face, shared_edges):
         pending.extend(adjacency[key])
     if visited != set(adjacency):
         return None, "CAP_KEEP_SHARED_EDGE_DISCONNECTED"
+    endpoints = tuple(
+        sorted(
+            (
+                key
+                for key, neighbors in adjacency.items()
+                if len(neighbors) == 1
+            ),
+            key=repr,
+        )
+    )
+    if len(endpoints) != 2:
+        return None, "CAP_KEEP_SHARED_EDGE_DISCONNECTED"
+    ordered_keys = []
+    previous = None
+    current = endpoints[0]
+    while current is not None:
+        ordered_keys.append(current)
+        following = tuple(
+            key for key in adjacency[current] if key != previous
+        )
+        if not following:
+            break
+        if len(following) != 1:
+            return None, "CAP_KEEP_SHARED_EDGE_DISCONNECTED"
+        previous, current = current, following[0]
+    station_u = [strip_facts_by_key[key][0] for key in ordered_keys]
+    station_steps = [
+        second - first for first, second in zip(station_u, station_u[1:])
+    ]
+    if (
+        not station_steps
+        or any(step == 0.0 for step in station_steps)
+        or not (
+            all(step > 0.0 for step in station_steps)
+            or all(step < 0.0 for step in station_steps)
+        )
+    ):
+        return None, (
+            "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS"
+            if len(strip_neighbors) > 1
+            else "CAP_KEEP_STATION_UV_DISCONTINUOUS"
+        )
     if not seeds:
         return None, "CAP_KEEP_STATION_UV_DISCONTINUOUS"
 
@@ -15022,6 +16211,115 @@ def _align_strip_cap_neighbor(cap_face, strip_face, shared_edges):
     return aligned, None
 
 
+def _face_source_edges(face):
+    provenance = getattr(face, "provenance", None)
+    return frozenset(
+        int(value)
+        for value in getattr(provenance, "source_edge_ids", ())
+    )
+
+
+def _align_facing_cap_pairs(faces, diagnostics=None):
+    """Поглощает встретившиеся START/END CAP одного selected site.
+
+    После RC1 BODY короткого site может исчезнуть целиком. Тогда два CAP
+    больше не имеют SEGMENT-ребра, но их compile-static owner однозначен:
+    одна Patch-surface и один source edge. Общая CAP-CAP граница задаёт
+    точный affine map без геометрического выбора соседа.
+    """
+
+    edge_uses = {}
+    cap_with_segment_neighbor = set()
+    cap_pairs = {}
+    for face_index, face in enumerate(faces):
+        count = len(face.vert_keys)
+        for loop_index, key in enumerate(face.vert_keys):
+            following = face.vert_keys[(loop_index + 1) % count]
+            edge_uses.setdefault(frozenset((key, following)), []).append(
+                (face_index, loop_index, key, following)
+            )
+    for uses in edge_uses.values():
+        if len(uses) != 2:
+            continue
+        first, second = uses
+        first_face = faces[first[0]]
+        second_face = faces[second[0]]
+        kinds = {first_face.component_kind, second_face.component_kind}
+        if kinds == {"CAP", "SEGMENT"}:
+            cap_use = first if first_face.component_kind == "CAP" else second
+            segment_use = second if cap_use is first else first
+            if (
+                faces[cap_use[0]].surface_id
+                == faces[segment_use[0]].surface_id
+            ):
+                cap_with_segment_neighbor.add(cap_use[0])
+            continue
+        if kinds != {"CAP"} or first_face.surface_id != second_face.surface_id:
+            continue
+        pair = tuple(sorted((first[0], second[0])))
+        cap_pairs.setdefault(pair, []).append((first, second))
+
+    replacements = {}
+    occupied = set()
+    for pair, shared_uses in sorted(cap_pairs.items()):
+        first_index, second_index = pair
+        if (
+            first_index in occupied
+            or second_index in occupied
+            or first_index in cap_with_segment_neighbor
+            or second_index in cap_with_segment_neighbor
+        ):
+            continue
+        first_face = faces[first_index]
+        second_face = faces[second_index]
+        side_pair = {str(first_face.component_side), str(second_face.component_side)}
+        source_edges = _face_source_edges(first_face)
+        if (
+            side_pair != {"START", "END"}
+            or len(source_edges) != 1
+            or source_edges != _face_source_edges(second_face)
+        ):
+            continue
+        seed_index = (
+            first_index
+            if str(first_face.component_side) == "START"
+            else second_index
+        )
+        target_index = second_index if seed_index == first_index else first_index
+        seed_face = faces[seed_index]
+        target_face = faces[target_index]
+        oriented_shared = []
+        for first_use, second_use in shared_uses:
+            use_by_face = {
+                first_use[0]: first_use,
+                second_use[0]: second_use,
+            }
+            oriented_shared.append(
+                (use_by_face[target_index], use_by_face[seed_index])
+            )
+        aligned, _reason = _align_strip_cap_neighbors(
+            target_face,
+            ((seed_face, tuple(oriented_shared)),),
+        )
+        if aligned is None:
+            continue
+        replacements[seed_index] = replace(
+            seed_face,
+            component_kind="SEGMENT",
+            component_side="CAP_PAIR_START_ALIGNED",
+        )
+        replacements[target_index] = replace(
+            aligned,
+            component_side="CAP_PAIR_END_ALIGNED",
+        )
+        occupied.update(pair)
+        if diagnostics is not None:
+            diagnostics.record_runtime_policy("CAP_PAIR_ALIGNED")
+    return tuple(
+        replacements.get(index, face) for index, face in enumerate(faces)
+    )
+
+
 def _align_strip_cap_faces(faces, diagnostics=None):
     """Поглощает CAP по однозначной station-UV смежности со strip'ом.
 
@@ -15032,7 +16330,7 @@ def _align_strip_cap_faces(faces, diagnostics=None):
     Каждый непоглощённый CAP получает именованную counted-причину.
     """
 
-    faces = tuple(faces)
+    faces = _align_facing_cap_pairs(tuple(faces), diagnostics)
     edge_uses = {}
     for face_index, face in enumerate(faces):
         count = len(face.vert_keys)
@@ -15073,14 +16371,29 @@ def _align_strip_cap_faces(faces, diagnostics=None):
         neighbors = shared_by_cap.get(cap_index, {})
         if not neighbors:
             reason = "CAP_KEEP_NO_SEGMENT_NEIGHBOR"
-        elif len(neighbors) != 1:
-            reason = "CAP_KEEP_MULTIPLE_SEGMENT_NEIGHBORS"
         else:
-            strip_index, shared_edges = next(iter(neighbors.items()))
-            aligned, reason = _align_strip_cap_neighbor(
+            # У CAP есть структурный incident site. При встрече с чужой
+            # лентой same-surface геометрическая adjacency становится
+            # многозначной, но UV-owner остаётся однозначным: SEGMENT того
+            # же source edge. Это не эвристический выбор соседа, а сохранение
+            # compile-static site identity при RC1-конкуренции.
+            cap_source_edges = _face_source_edges(cap_face)
+            source_neighbors = {
+                strip_index: shared_edges
+                for strip_index, shared_edges in neighbors.items()
+                if cap_source_edges
+                & _face_source_edges(faces[strip_index])
+            }
+            if source_neighbors:
+                neighbors = source_neighbors
+            aligned, reason = _align_strip_cap_neighbors(
                 cap_face,
-                faces[strip_index],
-                shared_edges,
+                tuple(
+                    (faces[strip_index], shared_edges)
+                    for strip_index, shared_edges in sorted(
+                        neighbors.items()
+                    )
+                ),
             )
             if aligned is not None:
                 replacements[cap_index] = aligned
@@ -15105,9 +16418,13 @@ def _merge_terminal_partition_component(faces, component):
 
     facts_by_key = {}
     raw_by_key = {}
+    provenance_by_key = {}
     edge_uses = {}
     for face_index in component:
         face = faces[face_index]
+        face_provenance = getattr(face, "provenance", None)
+        if not isinstance(face_provenance, PatchVoronoiFaceProvenance):
+            raise RuntimeError("PATCH_VORONOI_MERGE_PROVENANCE_MISSING")
         count = len(face.vert_keys)
         for loop_index, key in enumerate(face.vert_keys):
             fact = _terminal_partition_loop_fact(face, loop_index)
@@ -15121,6 +16438,9 @@ def _merge_terminal_partition_component(faces, component):
                     face.u_fracs[loop_index],
                     face.v_lengths[loop_index],
                 ),
+            )
+            provenance_by_key.setdefault(key, []).append(
+                face_provenance.vertices[loop_index]
             )
             following = face.vert_keys[(loop_index + 1) % count]
             edge_uses.setdefault(frozenset((key, following)), []).append(
@@ -15184,6 +16504,19 @@ def _merge_terminal_partition_component(faces, component):
         v_lengths=[raw_by_key[key][2] for key in cycle],
         component_kind="SEGMENT",
         component_side=_merged_terminal_partition_side(component_faces),
+        provenance=_patch_face_provenance(
+            tuple(
+                min(provenance_by_key[key], key=repr) for key in cycle
+            ),
+            semantic_owner_id=(
+                "terminal-merge",
+                _ordered_unique_provenance(
+                    face.provenance.semantic_owner_id
+                    for face in component_faces
+                    if face.provenance.semantic_owner_id is not None
+                ),
+            ),
+        ),
     )
 
 
@@ -15257,6 +16590,16 @@ def evaluate_patch_voronoi_plan(
     """Перестраивает extrusion polygons внутри статических Voronoi cells."""
 
     corner_settings = _normalized_corner_runtime_settings(corner_settings)
+    runtime_join = CornerJoinMode(corner_settings.join_mode)
+    compiled_join = CornerJoinMode(
+        getattr(plan, "corner_join_mode", CornerJoinMode.MITER)
+    )
+    if runtime_join is not compiled_join:
+        raise RuntimeError(
+            f"{DECAL_CORNER_JOIN_RECOMPILE_REQUIRED}: "
+            f"compiled={compiled_join.value} "
+            f"runtime={runtime_join.value}"
+        )
     if diagnostics is not None:
         diagnostics.runtime_policy_counts.clear()
         diagnostics.cap_keep_counts.clear()
@@ -15280,6 +16623,9 @@ def evaluate_patch_voronoi_plan(
         diagnostics.terminal_route_station_clamp_count = 0
         diagnostics.terminal_route_revisit_guard_count = 0
         diagnostics.terminal_contact_meeting_count = 0
+        diagnostics.resolved_corner_view_count = 0
+        diagnostics.resolved_corner_boundary_vertex_count = 0
+        diagnostics.resolved_corner_competition_vertex_count = 0
     alpha = max(1e-6, float(width) * 0.5)
     # Проверка выполняется до crop/arrangement: excess frame не имеет
     # geometry side effects и modal может оставить последний valid preview.
@@ -15303,10 +16649,11 @@ def evaluate_patch_voronoi_plan(
             terminal.route_id,
         )
         for terminal in terminal_routing or ()
-        if terminal.backend == "PATCH_VORONOI"
+        if terminal.backend == DecalBackendKind.PATCH_VORONOI
         and terminal.choice != "PERP"
     }
     consumed_terminal_ids = set()
+    corner_resolution_sources = []
     for surface in plan.surfaces:
         terminal_bridge_points = _surface_terminal_bridge_points(
             surface,
@@ -15316,13 +16663,15 @@ def evaluate_patch_voronoi_plan(
             consumed_terminal_ids=consumed_terminal_ids,
             diagnostics=diagnostics,
         )
-        _evaluate_surface_crops(
-            surface,
-            alpha,
-            pending,
-            corner_settings,
-            diagnostics,
-            terminal_bridge_points=terminal_bridge_points,
+        corner_resolution_sources.extend(
+            _evaluate_surface_crops(
+                surface,
+                alpha,
+                pending,
+                corner_settings,
+                diagnostics,
+                terminal_bridge_points=terminal_bridge_points,
+            )
         )
     missing_terminal_ids = expected_terminal_ids.difference(
         consumed_terminal_ids
@@ -15338,7 +16687,20 @@ def evaluate_patch_voronoi_plan(
         tolerance=max(1e-8, DECAL_WELD_DISTANCE * 0.5),
         diagnostics=diagnostics,
         alpha=alpha,
+        corner_resolution_sources=tuple(corner_resolution_sources),
     )
+    if diagnostics is not None:
+        diagnostics.resolved_corner_view_count = len(
+            arrangement.resolved_corner_views
+        )
+        diagnostics.resolved_corner_boundary_vertex_count = sum(
+            len(view.materialized_vertices)
+            for view in arrangement.resolved_corner_views
+        )
+        diagnostics.resolved_corner_competition_vertex_count = sum(
+            len(view.competition_vertices)
+            for view in arrangement.resolved_corner_views
+        )
     pending = arrangement.faces
     desired_lift_scale = lift_scale
     resolved_points = {}
@@ -15365,6 +16727,7 @@ def evaluate_patch_voronoi_plan(
         positions = []
         u_fracs = []
         v_lengths = []
+        vertex_provenance = []
         used_keys = set()
         transition_uv = {
             key: (u_fraction, v_length)
@@ -15436,6 +16799,24 @@ def evaluate_patch_voronoi_plan(
                 )
             vert_keys.append(vert_key)
             positions.append(position)
+            fallback_face_id = (
+                uv_site.owner_face_index
+                if uv_site.owner_face_index >= 0
+                else surface.patch_id
+            )
+            vertex_provenance.append(
+                PatchVoronoiVertexProvenance(
+                    source_face_id=_corner_point_source_face_id(
+                        surface, resolved.location, fallback_face_id
+                    ),
+                    source_edge_id=int(uv_site.edge_index),
+                    route_id=_corner_route_id(surface, uv_site),
+                    station_key=_corner_station_key(
+                        surface, uv_site, uv_point
+                    ),
+                    domain_location=resolved.location,
+                )
+            )
             canonical_uv = transition_uv.get(vert_key)
             if canonical_uv is not None:
                 u_fracs.append(canonical_uv[0])
@@ -15471,6 +16852,7 @@ def evaluate_patch_voronoi_plan(
             positions.reverse()
             u_fracs.reverse()
             v_lengths.reverse()
+            vertex_provenance.reverse()
         faces.append(
             _NetworkFace(
                 surface_id=surface.patch_id,
@@ -15481,6 +16863,10 @@ def evaluate_patch_voronoi_plan(
                 v_lengths=v_lengths,
                 component_kind=crop.kind,
                 component_side=crop.side,
+                provenance=_patch_face_provenance(
+                    vertex_provenance,
+                    semantic_owner_id=crop.semantic_owner_id,
+                ),
             )
         )
     _synchronize_cross_surface_spine_stations(plan, faces)

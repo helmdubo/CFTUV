@@ -2,8 +2,8 @@
 
 Модуль намеренно не импортирует ``bpy``/``bmesh``. C0 фиксирует data boundary,
 C1 строит triangle adjacency и conservative strip support; hinge unroll
-остаётся следующим отдельным этапом. Входом служит только сериализованная
-геометрия ``PatchNode`` и provenance chains.
+остаётся следующим отдельным этапом. Входом служит ``PatchSurfaceIR`` и
+provenance chains; PatchNode не владеет полной tessellation.
 """
 
 from __future__ import annotations
@@ -496,77 +496,49 @@ class ChartBuildFailure(ValueError):
         super().__init__(message)
 
 
-def chart_triangles_from_patch(node) -> tuple[ChartTriangle, ...]:
-    """Создаёт C0 triangle snapshots только из serialized PatchNode fields."""
+def chart_triangles_from_patch(patch_surface, patch_id) -> tuple[ChartTriangle, ...]:
+    """Создаёт C0 snapshots прямо из authoritative SurfaceTriangle."""
 
-    patch_id = int(node.patch_id)
-    vertices = tuple(node.mesh_verts)
-    source_vertex_ids = tuple(getattr(node, "mesh_vert_indices", ()))
-    triangles = tuple(node.mesh_tris)
-    face_ids = tuple(getattr(node, "mesh_tri_face_indices", ()))
-    face_normals = tuple(getattr(node, "mesh_tri_face_normals", ()))
-    triangle_edge_indices = tuple(
-        getattr(node, "mesh_tri_edge_indices", ())
-    )
+    patch_id = int(patch_id)
+    vertices = patch_surface.vertex_by_id
+    triangles = patch_surface.patch_triangles(patch_id)
     if not vertices or not triangles:
         raise ChartBuildFailure("EMPTY_PATCH_GEOMETRY", patch_id)
-    if len(source_vertex_ids) != len(vertices):
-        raise ChartBuildFailure(
-            "MISSING_SOURCE_VERTEX_PROVENANCE",
-            patch_id,
-            details=f"verts={len(vertices)} ids={len(source_vertex_ids)}",
-        )
-    if len(set(source_vertex_ids)) != len(source_vertex_ids):
-        raise ChartBuildFailure(
-            "DUPLICATE_SOURCE_VERTEX_PROVENANCE",
-            patch_id,
-        )
-    if len(face_ids) != len(triangles) or len(face_normals) != len(triangles):
-        raise ChartBuildFailure(
-            "MISSING_TRIANGLE_FACE_PROVENANCE",
-            patch_id,
-            details=(
-                f"tris={len(triangles)} faces={len(face_ids)} "
-                f"normals={len(face_normals)}"
-            ),
-        )
 
     result = []
-    for triangle_id, local_vertex_ids in enumerate(triangles):
-        if len(local_vertex_ids) != 3 or any(
-            index < 0 or index >= len(vertices) for index in local_vertex_ids
+    for triangle in triangles:
+        if len(triangle.vertex_ids) != 3 or any(
+            vertex_id not in vertices for vertex_id in triangle.vertex_ids
         ):
             raise ChartBuildFailure(
                 "INVALID_SERIALIZED_TRIANGLE",
                 patch_id,
-                triangle_ids=(triangle_id,),
-                details=f"local_vertices={tuple(local_vertex_ids)!r}",
+                triangle_ids=(triangle.triangle_id,),
+                details=f"source_vertices={tuple(triangle.vertex_ids)!r}",
             )
         try:
-            triangle = ChartTriangle(
-                triangle_id=triangle_id,
-                source_face_id=int(face_ids[triangle_id]),
-                source_vertex_ids=tuple(
-                    int(source_vertex_ids[index]) for index in local_vertex_ids
-                ),
+            chart_triangle = ChartTriangle(
+                triangle_id=int(triangle.triangle_id),
+                source_face_id=int(triangle.source_face_id),
+                source_vertex_ids=tuple(int(value) for value in triangle.vertex_ids),
                 positions=tuple(
-                    _vec3(vertices[index]) for index in local_vertex_ids
+                    _vec3(vertices[vertex_id].position)
+                    for vertex_id in triangle.vertex_ids
                 ),
-                face_normal=_vec3(face_normals[triangle_id]),
-                source_edge_indices=(
-                    tuple(int(value) for value in triangle_edge_indices[triangle_id])
-                    if len(triangle_edge_indices) == len(triangles)
-                    else (-1, -1, -1)
+                face_normal=_vec3(triangle.triangle_normal),
+                source_edge_indices=tuple(
+                    -1 if edge_id is None else int(edge_id)
+                    for edge_id in triangle.physical_edge_ids
                 ),
             )
         except (TypeError, ValueError) as exc:
             raise ChartBuildFailure(
                 "INVALID_SERIALIZED_TRIANGLE",
                 patch_id,
-                triangle_ids=(triangle_id,),
+                triangle_ids=(triangle.triangle_id,),
                 details=str(exc),
             ) from exc
-        result.append(triangle)
+        result.append(chart_triangle)
     return tuple(result)
 
 
@@ -911,6 +883,7 @@ def build_intrinsic_strip_charts(
     site_seeds,
     alpha_budget,
     *,
+    patch_surface,
     chart_id_start=0,
 ) -> tuple[IntrinsicStripChart, ...]:
     """Строит C1 adjacency/support IR без hinge unroll и admission."""
@@ -921,7 +894,7 @@ def build_intrinsic_strip_charts(
     site_seeds = tuple(sorted(tuple(site_seeds), key=_seed_sort_key))
     if not site_seeds:
         raise ChartBuildFailure("NO_CHART_SITE_SEEDS", int(node.patch_id))
-    triangles = chart_triangles_from_patch(node)
+    triangles = chart_triangles_from_patch(patch_surface, node.patch_id)
     patch_id = int(node.patch_id)
     adjacency = build_triangle_adjacency(triangles, patch_id=patch_id)
     components = _seed_components(site_seeds)

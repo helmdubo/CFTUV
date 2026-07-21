@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
+import pytest
 from mathutils import Vector
 
 from cftuv import decal_rails
 from cftuv.model import BoundaryChain, BoundaryLoop, PatchGraph, PatchNode
 from decal_rail_fixtures import (
+    analysis_bundle_from_graph_faces,
     planar_shallow_dihedral_strip,
     rr9_rf16_ambiguous_terminal_fan,
     rr9_rf16_terminal_fold_caps,
@@ -17,6 +20,7 @@ from decal_rail_fixtures import (
     rr9b_rf22_one_sided_boundary_continuation,
     rr8c_rf27_segmented_contour,
     rr10_rf7_opposing_cylinder,
+    rebuild_analysis_bundle,
 )
 
 
@@ -79,7 +83,7 @@ def _mesh_graph(vertices, faces, spine_pairs, *, extra_pchain_pairs=()):
     node.boundary_loops = [BoundaryLoop(chains=[chain])]
     graph = PatchGraph()
     graph.add_node(node)
-    return graph, edge_ids
+    return analysis_bundle_from_graph_faces(graph, vertices, faces, edge_ids), edge_ids
 
 
 def _quad_strip(*, with_ambiguity=False):
@@ -192,11 +196,17 @@ def test_rf7_freeze_is_compile_static_across_drag_and_enumeration():
 
 def test_rf7_mid_edge_freeze_uses_source_edge_station_key():
     graph, _edge_ids, selected, _vertex_at = rr10_rf7_opposing_cylinder()
-    node = graph.nodes[0]
-    for vertex_id in range(8, 16):
-        local_index = node.mesh_vert_indices.index(vertex_id)
-        point = node.mesh_verts[local_index]
-        node.mesh_verts[local_index] = Vector((point.x, point.y, 0.5))
+    graph = rebuild_analysis_bundle(
+        graph,
+        vertex_updates={
+            vertex_id: (
+                graph.patch_surface.vertex_by_id[vertex_id].position[0],
+                graph.patch_surface.vertex_by_id[vertex_id].position[1],
+                0.5,
+            )
+            for vertex_id in range(8, 16)
+        },
+    )
 
     plan = decal_rails.compile_decal_rail_plan(
         graph,
@@ -211,6 +221,207 @@ def test_rf7_mid_edge_freeze_uses_source_edge_station_key():
         and locus.edge_parameter is not None
         for locus in plan.freeze_loci
     )
+
+
+def test_rm9_terminal_route_meeting_is_frozen_at_compile_station():
+    edge = decal_rails.RailSourceEdge(
+        edge_id=900,
+        vertex_ids=(0, 1),
+        face_indices=(100,),
+        length=10.0,
+    )
+
+    def route(route_id, start_vertex, end_vertex, start_edge):
+        return decal_rails.RailRoute(
+            route_id=route_id,
+            key=decal_rails.RailRouteKey(
+                decal_rails.RailSideKey(
+                    start_vertex,
+                    start_edge,
+                    (100,),
+                )
+            ),
+            stations=(
+                decal_rails.RailStation(
+                    0,
+                    0.0,
+                    decal_rails.RailStationKind.VERTEX,
+                    source_vertex_id=start_vertex,
+                ),
+                decal_rails.RailStation(
+                    1,
+                    10.0,
+                    decal_rails.RailStationKind.VERTEX,
+                    source_vertex_id=end_vertex,
+                ),
+            ),
+            segments=(
+                decal_rails.RailRouteSegment(900, 0, 1, (100,)),
+            ),
+            termination=decal_rails.RailTermination.PCHAIN,
+        )
+
+    locus = decal_rails._route_pair_freeze_locus(
+        route(1, 0, 1, 11),
+        route(2, 1, 0, 22),
+        SimpleNamespace(
+            edge_by_id={900: edge},
+            face_patch_ids={100: 0},
+        ),
+        {
+            0: ((0, 0, 0),),
+            1: ((0, 0, 1),),
+        },
+    )
+
+    assert locus.competition_kind is (
+        decal_rails.RailCompetitionKind.TERMINAL_ROUTE_PAIR
+    )
+    assert locus.route_ids == (1, 2)
+    assert locus.arrival_distances == pytest.approx((5.0, 5.0))
+    assert locus.kind is decal_rails.RailStationKind.EDGE
+    assert locus.source_edge_id == 900
+    assert locus.edge_parameter == pytest.approx(0.5)
+    assert locus.owner_chain_ref == (0, 0, 0)
+
+
+def test_r21_terminal_site_pair_freezes_shared_spine_station():
+    """Два разных pChain route встречаются на общем selected site."""
+
+    shared_site = decal_rails.RailSourceEdge(
+        edge_id=900,
+        vertex_ids=(0, 1),
+        face_indices=(100,),
+        length=10.0,
+        is_spine=True,
+    )
+
+    def route(route_id, origin_vertex, route_edge):
+        return decal_rails.RailRoute(
+            route_id=route_id,
+            key=decal_rails.RailRouteKey(
+                decal_rails.RailSideKey(
+                    origin_vertex,
+                    route_edge,
+                    (100,),
+                )
+            ),
+            stations=(
+                decal_rails.RailStation(
+                    0,
+                    0.0,
+                    decal_rails.RailStationKind.VERTEX,
+                    source_vertex_id=origin_vertex,
+                ),
+                decal_rails.RailStation(
+                    1,
+                    3.0,
+                    decal_rails.RailStationKind.VERTEX,
+                    source_vertex_id=origin_vertex + 10,
+                ),
+            ),
+            segments=(
+                decal_rails.RailRouteSegment(
+                    route_edge, 0, 1, (100,)
+                ),
+            ),
+            termination=decal_rails.RailTermination.PCHAIN,
+        )
+
+    routes = (route(4, 0, 901), route(9, 1, 902))
+    terminal_uses = tuple(
+        decal_rails.RailTerminalUse(
+            spine_vertex_id=vertex_id,
+            spine_edge_id=900,
+            source_face_ids=(100,),
+            kind=decal_rails.RailTerminalKind.ROUTE,
+            route_edge_id=route_edge,
+            route_id=route_id,
+        )
+        for vertex_id, route_edge, route_id in (
+            (0, 901, 4),
+            (1, 902, 9),
+        )
+    )
+    spine_uses = (
+        decal_rails.RailSpineUse(
+            edge_id=900,
+            vertex_ids=(0, 1),
+            chain_uses=(
+                decal_rails.RailChainUse(
+                    chain_ref=(0, 0, 3),
+                    oriented_vertex_ids=(0, 1),
+                    chain_edge_index=0,
+                ),
+            ),
+        ),
+    )
+    topology = SimpleNamespace(
+        edge_by_id={900: shared_site},
+        face_patch_ids={100: 0},
+    )
+
+    loci = decal_rails._terminal_site_pair_freeze_loci(
+        terminal_uses,
+        routes,
+        topology,
+        spine_uses,
+    )
+
+    assert len(loci) == 1
+    locus = loci[0]
+    assert locus.competition_kind is (
+        decal_rails.RailCompetitionKind.TERMINAL_SITE_PAIR
+    )
+    assert locus.route_ids == (4, 9)
+    assert locus.arrival_distances == pytest.approx((5.0, 5.0))
+    assert locus.canonical_distance == pytest.approx(5.0)
+    assert locus.source_edge_id == 900
+    assert locus.edge_parameter == pytest.approx(0.5)
+
+
+def test_r21_terminal_site_pair_requires_opposite_site_endpoints():
+    route = decal_rails.RailRoute(
+        route_id=4,
+        key=decal_rails.RailRouteKey(
+            decal_rails.RailSideKey(0, 901, (100,))
+        ),
+        stations=(
+            decal_rails.RailStation(
+                0,
+                0.0,
+                decal_rails.RailStationKind.VERTEX,
+                source_vertex_id=0,
+            ),
+        ),
+        segments=(),
+        termination=decal_rails.RailTermination.PCHAIN,
+    )
+    terminal_uses = tuple(
+        decal_rails.RailTerminalUse(
+            spine_vertex_id=0,
+            spine_edge_id=900,
+            source_face_ids=(100,),
+            kind=decal_rails.RailTerminalKind.ROUTE,
+            route_id=route_id,
+        )
+        for route_id in (4, 9)
+    )
+    topology = SimpleNamespace(
+        edge_by_id={
+            900: decal_rails.RailSourceEdge(
+                900, (0, 1), (100,), 10.0, is_spine=True
+            )
+        },
+        face_patch_ids={100: 0},
+    )
+
+    assert decal_rails._terminal_site_pair_freeze_loci(
+        terminal_uses,
+        (route, replace(route, route_id=9)),
+        topology,
+        (),
+    ) == ()
 
 
 def test_rp_planar_quad_strip_has_no_routes_dams_or_caps():
@@ -283,20 +494,21 @@ def test_r0_shallow_nonplanar_ngon_normal_is_permutation_stable():
             (vertex_at[(0, 1)], vertex_at[(0, 2)]),
         )
     )
-    node = graph.nodes[0]
     lifted_vertex = vertex_at[(1, 1)]
-    local_index = node.mesh_vert_indices.index(lifted_vertex)
-    point = node.mesh_verts[local_index]
-    node.mesh_verts[local_index] = Vector((point.x, point.y, 1.0e-6))
+    point = graph.patch_surface.vertex_by_id[lifted_vertex].position
+    graph = rebuild_analysis_bundle(
+        graph,
+        vertex_updates={
+            lifted_vertex: (point[0], point[1], 1.0e-6),
+        },
+    )
 
     forward = decal_rails.compile_decal_rail_plan(
         graph,
         selected,
         alpha_budget=1.0,
     )
-    node.mesh_tris.reverse()
-    node.mesh_tri_face_indices.reverse()
-    node.mesh_tri_edge_indices.reverse()
+    graph = rebuild_analysis_bundle(graph, reverse_triangles=True)
     reversed_plan = decal_rails.compile_decal_rail_plan(
         graph,
         tuple(reversed(selected)),

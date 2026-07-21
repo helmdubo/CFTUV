@@ -35,6 +35,28 @@ from decal_organic_fixtures import (
     tight_sphere_fixture,
     wide_support_dome_fixture,
 )
+from analysis_surface_fixtures import analysis_bundle_from_graph
+
+_build_intrinsic_strip_charts = build_intrinsic_strip_charts
+_compile_patch_voronoi_attempt = compile_patch_voronoi_attempt
+_compile_patch_voronoi_plan = compile_patch_voronoi_plan
+
+
+def build_intrinsic_strip_charts(node, *args, **kwargs):
+    kwargs["patch_surface"] = node._test_patch_surface
+    return _build_intrinsic_strip_charts(node, *args, **kwargs)
+
+
+def compile_patch_voronoi_attempt(graph, *args, **kwargs):
+    return _compile_patch_voronoi_attempt(
+        analysis_bundle_from_graph(graph), *args, **kwargs
+    )
+
+
+def compile_patch_voronoi_plan(graph, *args, **kwargs):
+    return _compile_patch_voronoi_plan(
+        analysis_bundle_from_graph(graph), *args, **kwargs
+    )
 
 
 def _unrolled(fixture):

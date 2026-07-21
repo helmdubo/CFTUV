@@ -18,12 +18,14 @@ from cftuv.decal_gpu_preview import (
 )
 
 
-def _face(points2d, kind="SEGMENT", side="", z=0.0):
+def _face(points2d, kind="SEGMENT", side="", z=0.0, keys=None):
     positions = [Vector((x, y, z)) for x, y in points2d]
+    if keys is None:
+        keys = [("fixture", float(x), float(y), float(z)) for x, y in points2d]
     return DecalGeometryFace(
         surface_id=0,
         surface_normal=Vector((0.0, 0.0, 1.0)),
-        vert_keys=[("k", index) for index in range(len(positions))],
+        vert_keys=list(keys),
         positions=positions,
         u_fracs=[0.0] * len(positions),
         v_lengths=[float(index) for index in range(len(positions))],
@@ -130,8 +132,9 @@ def test_buffers_apply_source_matrix_world_to_faces_and_boundary_lines():
 
 
 def test_signature_stable_under_vertex_motion_only():
-    base = [_face([(0, 0), (1, 0), (1, 1), (0, 1)], kind="SEGMENT")]
-    moved = [_face([(0, 0), (1.5, 0), (1.5, 1.2), (0, 1)], kind="SEGMENT")]
+    keys = [("stable", index) for index in range(4)]
+    base = [_face([(0, 0), (1, 0), (1, 1), (0, 1)], kind="SEGMENT", keys=keys)]
+    moved = [_face([(0, 0), (1.5, 0), (1.5, 1.2), (0, 1)], kind="SEGMENT", keys=keys)]
     flipped = [_face([(0, 0), (1, 0), (1, 1), (0, 1)], kind="KITE")]
     split = base + [_face([(2, 0), (3, 0), (3, 1)], kind="SEGMENT")]
     assert topology_signature(base) == topology_signature(moved)
@@ -145,7 +148,11 @@ def test_controller_update_vs_rebuild_decision():
     assert controller.start() is True
     faces = [_face([(0, 0), (1, 0), (1, 1), (0, 1)])]
     assert controller.update(faces) == "UPDATED"
-    moved = [_face([(0, 0), (2, 0), (2, 1), (0, 1)])]
+    stable_keys = faces[0].vert_keys
+    moved = [_face(
+        [(0, 0), (2, 0), (2, 1), (0, 1)],
+        keys=stable_keys,
+    )]
     assert controller.update(moved) == "UPDATED"
     changed = moved + [_face([(3, 0), (4, 0), (4, 1)], kind="CAP")]
     assert controller.update(changed) == "UPDATED"
@@ -154,21 +161,37 @@ def test_controller_update_vs_rebuild_decision():
     assert controller.rebuilds == 2 and controller.updates == 3
 
 
-def test_controller_retains_last_valid_on_bad_frames():
+def test_controller_clears_last_valid_on_bad_frames():
     adapter = FakeAdapter()
     controller = GpuPreviewController(adapter=adapter)
     controller.start()
     faces = [_face([(0, 0), (1, 0), (1, 1)])]
     controller.update(faces)
-    kept = controller.last_buffers
-    assert controller.update([], "UPDATED") == "RETAINED_LAST_VALID"
-    assert controller.update(faces, "ERROR") == "RETAINED_LAST_VALID"
-    assert (
-        controller.update(faces, "RETAINED_LAST_VALID")
-        == "RETAINED_LAST_VALID"
-    )
-    assert controller.last_buffers is kept
+    assert controller.update([], "UPDATED") == "CLEARED"
+    assert controller.update(faces, "ERROR") == "CLEARED"
+    assert controller.update(faces, "RETAINED_LAST_VALID") == "CLEARED"
+    assert controller.last_buffers is None
     assert len(adapter.uploads) == 1
+
+
+def test_boundary_identity_uses_vert_keys_not_rounded_positions():
+    first = _face(
+        [(0, 0), (1, 0), (1, 1), (0, 1)],
+        keys=(("a", 0), ("shared", 0), ("shared", 1), ("a", 1)),
+    )
+    second = _face(
+        [(1.000001, 0), (2, 0), (2, 1), (1.000001, 1)],
+        keys=(("shared", 0), ("b", 0), ("b", 1), ("shared", 1)),
+    )
+    assert len(build_preview_buffers((first, second))["line_positions"]) == 12
+
+    coincident_but_distinct = _face(
+        [(1, 0), (2, 0), (2, 1), (1, 1)],
+        keys=(("other", 0), ("b", 0), ("b", 1), ("other", 1)),
+    )
+    assert len(
+        build_preview_buffers((first, coincident_but_distinct))["line_positions"]
+    ) == 16
 
 
 def test_controller_lifecycle_idempotent_no_leaks():

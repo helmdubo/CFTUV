@@ -17,6 +17,7 @@ from cftuv.model import BoundaryChain
 
 from decal_rail_fixtures import (
     mesh_graph,
+    rebuild_analysis_bundle,
     planar_acute_join,
     planar_concave_corner_join,
     planar_dihedral_strip,
@@ -663,9 +664,10 @@ def test_r11_rf13_remote_degenerate_face_is_outside_validation_footprint():
 
 def test_r11_rf13_collinear_fan_triangle_materializes_valid_face():
     graph, _edge_ids, selected, _vertices = planar_rf13_collinear_fan_face()
-    node = graph.nodes[0]
+    triangle = graph.patch_surface.triangles[0]
     first_triangle = tuple(
-        node.mesh_verts[index] for index in node.mesh_tris[0]
+        Vector(graph.patch_surface.vertex_by_id[index].position)
+        for index in triangle.vertex_ids
     )
     assert (first_triangle[1] - first_triangle[0]).cross(
         first_triangle[2] - first_triangle[0]
@@ -918,10 +920,7 @@ def test_r1_dihedral_shared_keys_receive_one_canonical_offset_lift():
             for position in face.positions
         )
 
-    node = graph.nodes[0]
-    node.mesh_tris.reverse()
-    node.mesh_tri_face_indices.reverse()
-    node.mesh_tri_edge_indices.reverse()
+    graph = rebuild_analysis_bundle(graph, reverse_triangles=True)
     reversed_rail = decal_rails.compile_decal_rail_plan(
         graph,
         tuple(reversed(selected)),
@@ -1027,10 +1026,7 @@ def test_r1_shallow_dihedral_keeps_exact_offset_plane_incidence():
             for position in face.positions
         )
 
-    node = graph.nodes[0]
-    node.mesh_tris.reverse()
-    node.mesh_tri_face_indices.reverse()
-    node.mesh_tri_edge_indices.reverse()
+    graph = rebuild_analysis_bundle(graph, reverse_triangles=True)
     reversed_rail = decal_rails.compile_decal_rail_plan(
         graph,
         tuple(reversed(selected)),
@@ -1174,11 +1170,17 @@ def test_r1_foreign_pchain_is_a_materialized_boundary_not_a_crossing():
 
 def test_rp_analytic_path_preserves_canonical_vertex_at_large_coordinates():
     graph, _edge_ids, selected, _vertex_at = planar_quad_strip()
-    node = graph.nodes[0]
-    node.mesh_verts = [
-        Vector((point.x + 1.0e9, point.y - 1.0e9, point.z))
-        for point in node.mesh_verts
-    ]
+    graph = rebuild_analysis_bundle(
+        graph,
+        vertex_updates={
+            vertex.vertex_id: (
+                vertex.position[0] + 1.0e9,
+                vertex.position[1] - 1.0e9,
+                vertex.position[2],
+            )
+            for vertex in graph.patch_surface.vertices
+        },
+    )
     rail_plan = decal_rails.compile_decal_rail_plan(
         graph,
         selected,
@@ -1482,10 +1484,7 @@ def test_r1_reversed_enumeration_is_bit_identical():
         forward_rail,
         edge_indices=selected,
     ).plan
-    node = graph.nodes[0]
-    node.mesh_tris.reverse()
-    node.mesh_tri_face_indices.reverse()
-    node.mesh_tri_edge_indices.reverse()
+    graph = rebuild_analysis_bundle(graph, reverse_triangles=True)
     reversed_rail = decal_rails.compile_decal_rail_plan(
         graph,
         tuple(reversed(selected)),
@@ -1580,10 +1579,7 @@ def test_r1_rf10_corner_cells_are_reversed_enumeration_stable():
         forward_rail,
         edge_indices=selected,
     ).plan
-    node = graph.nodes[0]
-    node.mesh_tris.reverse()
-    node.mesh_tri_face_indices.reverse()
-    node.mesh_tri_edge_indices.reverse()
+    graph = rebuild_analysis_bundle(graph, reverse_triangles=True)
     reversed_rail = decal_rails.compile_decal_rail_plan(
         graph,
         tuple(reversed(selected)),
@@ -1631,10 +1627,7 @@ def test_rp_concave_corner_source_face_is_triangulated_and_stable():
     assert forward_faces
     assert all(_polygon_area(face) > 0.0 for face in forward_faces)
 
-    node = graph.nodes[0]
-    node.mesh_tris.reverse()
-    node.mesh_tri_face_indices.reverse()
-    node.mesh_tri_edge_indices.reverse()
+    graph = rebuild_analysis_bundle(graph, reverse_triangles=True)
     reversed_rail = decal_rails.compile_decal_rail_plan(
         graph,
         tuple(reversed(selected)),
@@ -1716,10 +1709,12 @@ def test_r1_rf10_corner_fill_cannot_cross_foreign_closed_pchain():
 
 def test_r1_non_planar_source_face_is_structured_compile_failure():
     graph, _edge_ids, selected, vertex_at = planar_quad_strip()
-    node = graph.nodes[0]
-    local_index = node.mesh_vert_indices.index(vertex_at[(1, 1)])
-    point = node.mesh_verts[local_index]
-    node.mesh_verts[local_index] = Vector((point.x, point.y, 2.0))
+    vertex_id = vertex_at[(1, 1)]
+    point = graph.patch_surface.vertex_by_id[vertex_id].position
+    graph = rebuild_analysis_bundle(
+        graph,
+        vertex_updates={vertex_id: (point[0], point[1], 2.0)},
+    )
     rail_plan = decal_rails.compile_decal_rail_plan(
         graph,
         selected,
@@ -1737,11 +1732,17 @@ def test_r1_non_planar_source_face_is_structured_compile_failure():
 
 def test_rp_curved_owner_is_deferred_to_r3_and_planar_fan_has_no_pole():
     graph, _edge_ids, selected, vertex_at = planar_quad_strip()
-    node = graph.nodes[0]
-    for coordinate in ((2, 0), (2, 1), (2, 2)):
-        local_index = node.mesh_vert_indices.index(vertex_at[coordinate])
-        point = node.mesh_verts[local_index]
-        node.mesh_verts[local_index] = Vector((point.x, point.y, 2.0))
+    graph = rebuild_analysis_bundle(
+        graph,
+        vertex_updates={
+            vertex_at[coordinate]: (
+                graph.patch_surface.vertex_by_id[vertex_at[coordinate]].position[0],
+                graph.patch_surface.vertex_by_id[vertex_at[coordinate]].position[1],
+                2.0,
+            )
+            for coordinate in ((2, 0), (2, 1), (2, 2))
+        },
+    )
     curved_rail = decal_rails.compile_decal_rail_plan(
         graph,
         selected,

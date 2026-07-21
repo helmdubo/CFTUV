@@ -1,0 +1,36 @@
+{
+  "all_pixel_equal": true,
+  "records": [
+    {
+      "after": "decal_s_cm_a_field_walls006_miter_w32.png",
+      "before": "decal_s_cm_a_before_walls006_miter_w32.png",
+      "changed_components": 0,
+      "object": "walls.006",
+      "pixel_equal": true,
+      "size_after": [
+        1800,
+        1100
+      ],
+      "size_before": [
+        1800,
+        1100
+      ]
+    },
+    {
+      "after": "decal_s_cm_a_field_sagging_wall_miter_w32.png",
+      "before": "decal_s_cm_a_before_sagging_wall_miter_w32.png",
+      "changed_components": 0,
+      "object": "sagging_wall[e6,e7,e8]",
+      "pixel_equal": true,
+      "size_after": [
+        1800,
+        1100
+      ],
+      "size_before": [
+        1800,
+        1100
+      ]
+    }
+  ],
+  "schema": "cftuv.decal_s_cm_a_field_pixels.v1"
+}

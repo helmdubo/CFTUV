@@ -29,6 +29,33 @@ from cftuv.decal_voronoi import (
     serialize_network_faces,
 )
 from cftuv.model import BoundaryChain, BoundaryLoop, PatchGraph, PatchNode
+from cftuv.surface_ir import CapacityPolicy
+
+from analysis_surface_fixtures import (
+    analysis_bundle_from_graph,
+    attach_patch_surface,
+)
+
+_build_intrinsic_strip_charts = build_intrinsic_strip_charts
+_compile_patch_voronoi_attempt = compile_patch_voronoi_attempt
+_compile_patch_voronoi_plan = compile_patch_voronoi_plan
+
+
+def build_intrinsic_strip_charts(node, *args, **kwargs):
+    kwargs["patch_surface"] = node._test_patch_surface
+    return _build_intrinsic_strip_charts(node, *args, **kwargs)
+
+
+def compile_patch_voronoi_attempt(graph, *args, **kwargs):
+    return _compile_patch_voronoi_attempt(
+        analysis_bundle_from_graph(graph), *args, **kwargs
+    )
+
+
+def compile_patch_voronoi_plan(graph, *args, **kwargs):
+    return _compile_patch_voronoi_plan(
+        analysis_bundle_from_graph(graph), *args, **kwargs
+    )
 
 
 def _closed_tube_graph(
@@ -107,6 +134,9 @@ def _closed_tube_graph(
         normal=Vector((-1.0 if reversed_winding else 1.0, 0.0, 0.0)),
         basis_u=Vector((0.0, 1.0, 0.0)),
         basis_v=Vector((0.0, 0.0, 1.0)),
+    )
+    attach_patch_surface(
+        node,
         mesh_verts=positions,
         mesh_vert_indices=list(range(len(positions))),
         mesh_tris=triangles,
@@ -745,7 +775,8 @@ def test_d4_6_public_compile_enforces_periodic_half_period_budget():
             width=period * 1.01,
             preview=True,
         )
-    assert captured.value.code == "DOMAIN_BUDGET_EXCEEDED"
+    assert captured.value.code == "DOMAIN_CAPACITY_UNPROVEN"
+    assert captured.value.capacity_policy is CapacityPolicy.REJECT_UNPROVEN
 
 
 def test_d5_5_periodic_budget_source_reports_the_binding_limit():

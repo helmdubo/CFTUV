@@ -23,6 +23,7 @@ from cftuv.decal_voronoi import (
     evaluate_patch_voronoi_plan,
 )
 from cftuv.model import BoundaryChain, BoundaryLoop, PatchGraph, PatchNode
+from tests.analysis_surface_fixtures import analysis_bundle_from_graph
 
 
 _WIDTHS = (1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 14.0, 18.0, 24.0, 30.0)
@@ -109,7 +110,7 @@ def _silhouette_graph():
     ]
     graph = PatchGraph()
     graph.add_node(node)
-    return graph, [60, 61, 62, 63]
+    return analysis_bundle_from_graph(graph), [60, 61, 62, 63]
 
 
 def _vert_key(position):

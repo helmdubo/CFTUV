@@ -7,12 +7,15 @@
 - модуль не импортирует ``gpu``/``bpy`` на верхнем уровне: batch-логика
   (триангуляция, буферы, решение о пересборке, state machine lifecycle)
   — чистая и тестируется headless через injected adapter;
-- A6-семантика: на не-UPDATED кадре overlay продолжает рисовать
-  последний валидный batch;
+- PreviewFailurePolicy=CLEAR: не-UPDATED кадр очищает overlay, как mesh
+  adapter, и не маскирует текущий отказ последним валидным batch;
 - ``bpy.app.background`` => фабрика возвращает ``None`` (mesh fallback).
 """
 
 from dataclasses import dataclass, field
+
+from .decal_geometry import GeometryBatch
+from .surface_ir import PreviewFailurePolicy
 
 
 # Палитра по component_kind — согласована с debug-раскраской (RGBA).
@@ -140,16 +143,16 @@ def topology_signature(faces):
     (REBUILD batch'ей).
     """
 
+    if isinstance(faces, GeometryBatch):
+        faces = faces.faces
     return tuple(
-        (face.component_kind, face.component_side, len(face.positions))
+        (
+            face.component_kind,
+            face.component_side,
+            tuple(face.vert_keys),
+        )
         for face in faces
     )
-
-
-def _edge_key(a, b):
-    ka = (round(float(a[0]), 5), round(float(a[1]), 5), round(float(a[2]), 5))
-    kb = (round(float(b[0]), 5), round(float(b[1]), 5), round(float(b[2]), 5))
-    return (ka, kb) if ka <= kb else (kb, ka)
 
 
 def _transform_position(position, matrix_world):
@@ -184,10 +187,13 @@ def build_preview_buffers(faces, matrix_world=None):
     инцидентной гранью), signature, counts.
     """
 
+    if isinstance(faces, GeometryBatch):
+        faces = faces.faces
     tri_positions = []
     tri_colors = []
     tri_uvs = []
     edge_counts = {}
+    edge_positions = {}
     for face in faces:
         positions = face.positions
         world_positions = tuple(
@@ -196,11 +202,20 @@ def build_preview_buffers(faces, matrix_world=None):
         )
         count = len(positions)
         for index in range(count):
-            edge = _edge_key(
-                world_positions[index],
-                world_positions[(index + 1) % count],
+            edge = frozenset(
+                (
+                    face.vert_keys[index],
+                    face.vert_keys[(index + 1) % count],
+                )
             )
             edge_counts[edge] = edge_counts.get(edge, 0) + 1
+            edge_positions.setdefault(
+                edge,
+                (
+                    world_positions[index],
+                    world_positions[(index + 1) % count],
+                ),
+            )
         color = _KIND_COLORS.get(face.component_kind, _DEFAULT_COLOR)
         u_fracs = face.u_fracs
         v_lengths = face.v_lengths
@@ -215,10 +230,11 @@ def build_preview_buffers(faces, matrix_world=None):
                     )
                 )
     line_positions = []
-    for (ka, kb), count in edge_counts.items():
+    for edge, count in edge_counts.items():
         if count == 1:
-            line_positions.append(ka)
-            line_positions.append(kb)
+            first, second = edge_positions[edge]
+            line_positions.append(first)
+            line_positions.append(second)
     return {
         "tri_positions": tri_positions,
         "tri_colors": tri_colors,
@@ -239,6 +255,7 @@ class GpuPreviewController:
 
     adapter: object
     matrix_world: object | None = None
+    failure_policy: PreviewFailurePolicy = PreviewFailurePolicy.CLEAR
     active: bool = False
     failed: bool = False
     last_buffers: dict | None = None
@@ -267,13 +284,15 @@ class GpuPreviewController:
         self._request_redraw()
 
     def update(self, faces, status="UPDATED"):
-        """Кадр preview. Не-UPDATED/пустой кадр сохраняет последний batch."""
+        """Publish one batch; any invalid/empty frame clears visible state."""
 
         if not self.active or self.failed:
             return "INACTIVE"
-        if status != "UPDATED" or not faces:
+        face_payload = faces.faces if isinstance(faces, GeometryBatch) else faces
+        if status != "UPDATED" or not face_payload:
+            self.clear()
             self._request_redraw()
-            return "RETAINED_LAST_VALID"
+            return "CLEARED"
         buffers = build_preview_buffers(faces, self.matrix_world)
         rebuild = buffers["signature"] != self.last_signature
         try:
@@ -289,6 +308,16 @@ class GpuPreviewController:
             self.rebuilds += 1
         self._request_redraw()
         return "UPDATED"
+
+    def clear(self):
+        if self.failure_policy != PreviewFailurePolicy.CLEAR:
+            raise AssertionError("Unsupported preview failure policy")
+        self.last_buffers = None
+        self.last_signature = None
+        try:
+            self.adapter.clear()
+        except AttributeError:
+            pass
 
     def _request_redraw(self):
         try:
@@ -378,6 +407,10 @@ class BlenderGpuAdapter:
             if buffers["line_positions"]
             else None
         )
+
+    def clear(self):
+        self._tri_batch = None
+        self._line_batch = None
 
     def draw(self):
         gpu = self._gpu

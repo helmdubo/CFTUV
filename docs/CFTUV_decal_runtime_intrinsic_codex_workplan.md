@@ -485,11 +485,13 @@ R0+R1+LEGACY-CUT; нижеследующий старый список сохр�
    `RailRouteReading` и один точный `RailFreezeLocus` (vertex либо
    edge-parameter). Freeze/readings бит-идентичны при alpha 3 -> 30 и
    обратном перечислении. Оранжевый overlay-marker читает тот же locus.
-   Ярус-2: `533 passed, 3 skipped, 4 deselected`.
+   Ярус-2: `485 passed, 3 skipped, 4 deselected`.
    Live Blender 4.3.2: RF7 `routes=8/readings=16/freeze=8`, overlay
    `artifacts/decal_r2_rf7_overlay.png`; канонический полевой набор шести
-   объектов без `SCRIPT_ERROR`, отчёт
-   `artifacts/decal_r2_field_acceptance.json`; `.blend` не сохранён.
+   объектов, RF28 `walls.006`/`sagging_wall` и distance-witness сведены в
+   `artifacts/decal_r2_s_cm_b_field_acceptance.json` (`green=true`, source
+   `544f868`, `.blend` не сохранён). Именованные admission failures прежних
+   неподдержанных объектов сохранены, а не замаскированы.
    RR10(a,b) и consumer криволинейной геометрии не активированы досрочно:
    они остаются R3-scope.
 6. **R3 — кривизна**: сфера облегает (RF2, полюс-CAP RM5);
@@ -1123,7 +1125,162 @@ differential-критерием; фазировка CornerModel; «3 верши�
 S2a-типы-до-R2 и S2b-сессия-после). Инварианты I1/I3/I4/I6/I8
 уточнены в брифе. Единственный владелец implementation-ветки —
 исполнитель; ревьювер — только docs-коммиты.
-**Статус S0 (первый коммит нового исполнителя `445b44d`):**
+**Статус S0: ПРИНЯТ ревью** (верифицировано по PR-ветке: annotated
+tag на `2831a22`, порядок S-guard->S0a->contract->S0b соблюдён,
+differential `semantic_equal`/`all_preview_confirm_equal`=true на
+обеих сюитах, runtime-гейт BEVEL, product contract до удаления;
+посажено в канон, PR #6 закрыт без merge).
+**Статус S1+S2a: ПРИНЯТ ревью** (`d78b16b`..`63c9f03`;
+верифицировано: surface_ir.py — AnalysisBundle/SourceRevision/
+cross-IR с именованной AnalysisCrossIrError; tessellation через
+calc_loop_triangles; GPU-рёбра по vert_keys;
+PreviewFailurePolicy.CLEAR в обоих адаптерах; typed
+World/Local/MetricContext; ярус-2 455 passed; intentional-diff
+таблица «было->стало->причина»). Открытые гейты из рисков среза:
+(1) MetricContext session-владение -> S2b (штатно);
+(2) **I5-gap: неполная provenance части PatchVoronoi faces —
+ОБЯЗАН закрыться ДО R2** (freeze запекает ключи поверх
+provenance; строить R2 на дырявой I5 запрещено) — закрытие в
+S-CM.a или отдельным микро-срезом до R2.
+**Статус S-CM.a + S-DF2-lite + I5-micro: ПРИНЯТ ревью**
+(`757b950`..`c5c6560`; верифицировано по коду: фазы
+Seed/Model/ResolvedView в decal_corner_model.py, ЕДИНСТВЕННАЯ
+join-ветка в CornerModel, KITE тоже через модель; runtime-гейт
+BEVEL без коэрции; decal_distance_witness.py — unsigned+BandSide,
+polygon-поле, сверка финальной материализации; I5 provenance
+тотальна — гейт до R2 закрыт; ярус-2 471 passed; полевое
+доказательство MITER-no-op: 0 изменённых RGBA-компонентов
+before/after 1800x1100 на walls.006 и sagging_wall).
+**ТЕКУЩАЯ ЗАДАЧА — S-WF0 (дизайн-гейт, спецификация в
+`docs/decal_wavefront_theory_note.md`):** research-спайк БЕЗ
+production-кода; сравнение rail/chart vs Heat/FMM vs точные
+геодезики vs 2D skeleton на восьми фикстурах (включая ОДНУ
+поверхность в ДВУХ триангуляциях); метрики из заметки;
+deliverable — данные + отчёт + рекомендация по исходам A/B/C;
+решение о природе rails на гладкой кривизне принимает
+ПОЛЬЗОВАТЕЛЬ по этим данным; канон RP до решения не меняется.
+После решения: R2 + S-CM.b.
+**Статус S-WF0: ВЫПОЛНЕН** (`ce64d13`..`880e1fd`; harness
+изолирован в research/, production не тронут). Данные:
+FMM на half_sphere width p95 11.01% -> 1.45%; на планарных L/T
+FMM ХУЖЕ точной аналитики (event edit 4/2, locus F1 0.807/0.690,
+width до 14.64%); ретриангуляция: current и FMM инвариантны,
+Heat — НЕТ (p95 2.52%, source-s 8.33%) — Heat дисквалифицирован
+как authority; гипотеза «rails запекают диагонали» НЕ
+подтвердилась — RP1-предикат уже отделяет фолды от шума
+тесселяции. Рекомендация исполнителя: A (поле — оракул).
+**Заключение ревью: ПОДДЕРЖИВАЮ A** с R3-райдером: для R2 поле
+хуже станционной метрики на планарном (данные против исхода B);
+для R3 кривизны интринсик-распространение — ЛИДИРУЮЩИЙ кандидат
+ширины (11% -> 1.45%), но НЕ Heat; финальный выбор R3-бэкенда —
+отдельный гейт на старте R3 по этим же данным. Ждёт «да»
+пользователя. **Решение пользователя: A подтверждён.** Поле
+остаётся оракулом; R2 строится на станционной метрике. На старте
+R3 обязателен отдельный гейт интринсик-бэкенда ширины для
+кривизны (FMM — кандидат, Heat — не authority).
+**Статус R2 + S-CM.b: ВЫПОЛНЕН, ГОТОВ К РЕВЬЮ** (`de5ebec`..
+`544f868`). RC1-RC3/RR10: `8 routes / 16 readings / 8 freeze`, один
+физический route на нить, freeze бит-статичен при drag и обратном
+enumeration; RC4 остаётся именованным stop. `CapacityPolicy` финализирует
+R1.9, terminal overlap разрешается общей compile-static границей.
+`ResolvedCornerView` читает те же CornerModel/P1/P2 после конкуренции;
+BEVEL возвращён в UI как compile-event. RF28 на `walls.006` и
+`sagging_wall`: own strips MITER/BEVEL равны на widths 0.8/3.2,
+чужой фронтир получает 10 chord stations на wide wall, все 34 oracle
+records без leak/owner mismatch. Blender receipt `green=true`, 20/20
+preview==confirm, 10/10 round-trip, два wireframe-ракурса; tier-2
+`485 passed, 3 skipped, 4 deselected`. Отчёт:
+`artifacts/decal_r2_s_cm_b_gate_report.md`. **Следующий срез — S2b;
+R3 без отдельного стартового гейта не начинать.**
+**Ревью R2 + S-CM.b: ПРИНЯТО** (верифицировано по коду:
+freeze-локусы компилируются в станционных ключах, двойное чтение
+нитей подтверждено числами RF7/RF17 (16 чтений на 8 routes),
+CapacityPolicy интегрирован с SATURATE_PROVEN default,
+единственная join-ветка сохранена, `TERMINAL_BRIDGE_CUTS_OVERLAP`
+корректно заменён compile-static границей RC1 — канонизированный
+путь RM9-fix п.5). Остаточное условие закрытия BEVEL-саги:
+ЛИЧНАЯ полевая проверка пользователя MITER<->BEVEL на walls.006
+(width 3.2) и sagging_wall (edges 6/7/8) — это финальный арбитр
+по RF28. ~~ТЕКУЩАЯ ЗАДАЧА — S2b~~ **S2b: ПРИНЯТ ревью**
+(`42fa2d9`..`e570ebb`; session-владение MetricContext закрыто,
+operator тонкий, differential semantic no-op подтверждён,
+ярус-2 492).
+**Полевая проверка пользователя R2 нашла ДВА дефекта — R2.1
+hotfix: IMPLEMENTED, READY FOR REVIEW (`d98c58f` + `1b2d411`,
+гейт 0d.0):**
+**A. «Дуга там, где нет геометрии» (RC5b в оракуле):**
+конкуренционная биссектриса скругляет контур в зонах, куда
+материя конкурента не дотекает. Реализовать обоюдное прибытие:
+каждая точка freeze-локуса несёт alpha_meet =
+max(arrival_A, arrival_B); клип/freeze действует только при
+alpha >= alpha_meet; до порога поток течёт свободно. S1
+сохраняется (локус компилируется полностью, гейтится порогом
+события). RF30. Диагноз сначала: подтвердить на скрине
+пользователя, что дуга — биссектриса недотёкшего конкурента.
+**Исполнено:** раннее возражение по `walls.001` ОТОЗВАНО — это
+был неверный планарный меш. На каноническом вариативном
+`sagging_wall` RC5b подтверждён и реализован через 33
+compile-static mutual-arrival atoms + pointwise runtime release.
+Дополнительный пользовательский кейс `e7+e26` оформлен как RF31:
+два pChain-terminal на разных physical routes получают
+станционный `TERMINAL_SITE_PAIR` общего source edge (`t=0.5`),
+а встретившиеся START/END CAP сохраняют границу как SEGMENT.
+На 22 ширинах `0.2..36` в MITER/BEVEL CAP output = 0,
+preview==confirm; before при width>=2.4 имел 4 CAP.
+**B. Рецидив `TERMINAL_BRIDGE_CUT_INVALID`** (width=7.8,
+patch=1 e8/v10, снова только preview=False): насыщение
+RR8d/CapacityPolicy НЕ дошло до пути терминального моста
+(raise на decal_voronoi.py:2698 жив). Довести мост до
+saturате-семантики (кламп counted вместо ошибки) + ЕДИНАЯ
+валидация preview/confirm (I6: выяснить и устранить, почему
+done падает там, где preview прошёл — это уже ВТОРОЙ рецидив
+асимметрии). RF29b.
+**Исполнено:** terminal constructibility перенесена в общий
+pre-materialization CapacityPolicy resolver; SATURATE_PROVEN
+клампит последний конструктивный station-prefix, counted. Все
+ширины 7.8..36 дают OK и preview==confirm. Прямая проверка base
+показала одинаковый fail preview/confirm; видимая асимметрия была
+last-valid UI, а структурная причина — разрыв фаз saturation и
+поздней bridge-validation.
+Итоговый receipt: frozen `sagging_wall` blend SHA-256
+`7db56e359deab0cca39426cabee66e16620f6de31aba68cdca3c19eed30c480f`,
+72/72 width-records OK и preview==confirm, acceptance
+`green=true`; targeted 168 passed; tier-2
+`500 passed, 3 skipped, 4 deselected`. Риски и особое мнение —
+`artifacts/decal_r21_hotfix_gate_report.md`.
+После приёмки R2.1 — короткий гейт выбора R3-бэкенда ширины для
+кривизны (по данным S-WF0), затем R3; до приёмки не начинать.
+**Ревью R2.1: ПРИНЯТО** (верифицировано по коду: mutual-arrival
+атомы; насыщение моста откатом по станционным префиксам, counted
+`TERMINAL_ROUTE_STATION_CLAMPED`, INVALID только для истинно
+неконструируемого; именованные исходы REJECT_UNPROVEN /
+CONTROLLED_RECOMPILE). I6-пост-мортем принят: валидация была
+симметрична, видимая асимметрия — last-valid UI; корень — разрыв
+фаз saturation/поздней bridge-validation, устранён переносом в
+общий pre-materialization resolver. Финальный арбитр —
+пользователь на обновлённом аддоне: (1) контур прямой до
+обоюдного прибытия (нет дуг в пустоте), (2) ширины до 36 без
+ошибок, (3) MITER<->BEVEL.
+**ТЕКУЩАЯ ЗАДАЧА — ГЕЙТ ВОЛНОВЫХ БЭКЕНДОВ (расширен решением
+по PLANAR_CORNER_SEEDED_SKELETON):** один дизайн-документ БЕЗ
+production-кода, покрывающий ОБА бэкенда под ОДНИМ
+event-IR-контрактом (WavefrontEvent/высоты, wavefront-заметка):
+(a) кривизна — авторитет ширины (FMM-кандидат, Heat
+дисквалифицирован, точные окна — референс), интеграция с
+rail-каноном (RM1, станции/(s,r), RP-скоуп), ретриангуляционная
+инвариантность; (b) планарный — ТРИ модели-кандидата (расширено MSD-разбором,
+см. заметку): A — PatchVoronoi (базлайн/оракул); B —
+corner-seeded kinetic wavefront; C — envelope union + отдельный
+ownership (kinetic только как event-ledger). Уточнённый вопрос
+гейта: внутри компонента — union+ownership, конкуренция — только
+межкомпонентная (два скоупа, см. поправку ревью в заметке).
+Event-модель, робастность, поэтапная миграция с differential
+против PatchVoronoi — для выбранной модели.
+До решения гейта планарный путь в maintenance mode (новые
+RC5-семантические патчи запрещены). ПОРЯДОК внедрения (R3-сфера
+против S4-планарного скелета первым) — решение пользователя на
+гейте. Решение — пользователь + ревью.
+Историческая заметка (первый коммит `445b44d`):
 фактически S0a (+удаление decal_network) — ПРИНЯТО
 предварительно; риски задекларированы корректно (блок «Риски»
 работает). Follow-ups до закрытия S0: (1) runtime-гейт BEVEL
