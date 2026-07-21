@@ -46,7 +46,7 @@ from .decal_transform import (
     DecalSourceTransformError,
     local_decal_settings_for_source,
 )
-from .model import ChainRef, DecalSettings, PatchGraph
+from .model import ChainRef, DecalSettings, LocalDecalSettings, PatchGraph
 from .surface_ir import (
     AnalysisBundle,
     AnalysisSchemaError,
@@ -2217,9 +2217,22 @@ def evaluate_manual_seam_faces(
     PreviewFailurePolicy.CLEAR.
     """
 
+    local_settings = local_decal_settings_for_source(settings, source_obj)
+    return evaluate_manual_seam_faces_local(
+        local_settings,
+        decal_plan,
+        preview=preview,
+    )
+
+
+def evaluate_manual_seam_faces_local(settings, decal_plan, preview=True):
+    """Session adapter: evaluate через уже доказанную local metric."""
+
+    if not isinstance(settings, LocalDecalSettings):
+        raise TypeError("LocalDecalSettings required for decal evaluation")
     require_decal_corner_join_available(settings)
     started = perf_counter()
-    local_settings = local_decal_settings_for_source(settings, source_obj)
+    local_settings = settings
     width = local_settings.width_seam
     faces = []
     policy_totals = {}
@@ -2633,13 +2646,64 @@ def generate_decal_result(
             reason=str(exc),
             backend_summary=backend_summary,
         )
+    return generate_decal_result_local(
+        graph,
+        source_obj,
+        local_settings,
+        mode,
+        scene=scene,
+        chain_refs=chain_refs,
+        selected_edge_indices=selected_edge_indices,
+        preview=preview,
+        decal_plan=decal_plan,
+        preview_state=preview_state,
+    )
+
+
+def generate_decal_result_local(
+    graph: PatchGraph,
+    source_obj,
+    settings: LocalDecalSettings,
+    mode: str,
+    scene=None,
+    chain_refs=None,
+    selected_edge_indices=None,
+    preview=False,
+    decal_plan=None,
+    preview_state=None,
+) -> DecalGenerationResult:
+    """Session adapter: materialize через один captured MetricContext."""
+
+    if not isinstance(settings, LocalDecalSettings):
+        raise TypeError("LocalDecalSettings required for decal materialization")
+    failure_policy = PreviewFailurePolicy.CLEAR
+    backend_summary = getattr(decal_plan, "backend_summary", "")
+    if mode not in DECAL_MODES:
+        return DecalGenerationResult(
+            PreviewStatus.ERROR,
+            None,
+            reason=f"Unknown decal mode: {mode}",
+            backend_summary=backend_summary,
+        )
+    try:
+        require_decal_mode_available(mode)
+    except DecalModeArchivedError as exc:
+        if preview:
+            remove_decal_preview_object(mode, source_obj, preview_state)
+        return DecalGenerationResult(
+            PreviewStatus.ERROR,
+            None,
+            reason=exc.reason,
+            backend_summary=backend_summary,
+        )
+    require_decal_corner_join_available(settings)
     if scene is None:
         scene = bpy.context.scene
     try:
         transaction = _generate_decal_transaction(
             graph,
             source_obj,
-            local_settings,
+            settings,
             mode,
             scene,
             chain_refs,

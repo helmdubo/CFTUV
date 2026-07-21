@@ -178,6 +178,14 @@ def local_decal_request_for_source(settings, source_obj):
     """Perform the only world->local conversion and retain its proof."""
 
     context = metric_context_for_source(source_obj)
+    return local_decal_request_for_metric_context(settings, context)
+
+
+def local_decal_request_for_metric_context(settings, context):
+    """Конвертирует новый world request через session-owned metric proof."""
+
+    if not isinstance(context, MetricContext):
+        raise TypeError("MetricContext required for decal request conversion")
     return LocalDecalRequest(
         settings=decal_settings_to_local(settings, context.uniform_scale),
         metric_context=context,

@@ -19,6 +19,7 @@ from cftuv.decal_geometry import (
     GeometryBatchValidationError,
     geometry_batch_from_faces,
 )
+from cftuv.decal_transform import decal_settings_to_local
 from cftuv.model import (
     BoundaryChain,
     BoundaryLoop,
@@ -1464,7 +1465,7 @@ def test_generate_decal_objects_reuses_existing_object_only_for_preview(
     monkeypatch.setattr(
         decals_module,
         "local_decal_settings_for_source",
-        lambda settings, _source: settings,
+        lambda settings, _source: decal_settings_to_local(settings, 1.0),
     )
     fake_bm = _FakeMaterializationBMesh()
     fake_bm.faces.append(object())
@@ -1536,7 +1537,7 @@ def test_structured_generation_result_exposes_runtime_summary(monkeypatch):
     monkeypatch.setattr(
         decals_module,
         "local_decal_settings_for_source",
-        lambda settings, _source: settings,
+        lambda settings, _source: decal_settings_to_local(settings, 1.0),
     )
     monkeypatch.setattr(
         decals_module,
@@ -1816,7 +1817,7 @@ def test_structured_generation_classifies_transaction_error(
     monkeypatch.setattr(
         decals_module,
         "local_decal_settings_for_source",
-        lambda settings, _source: settings,
+        lambda settings, _source: decal_settings_to_local(settings, 1.0),
     )
     monkeypatch.setattr(
         decals_module,
@@ -1875,7 +1876,7 @@ def test_structured_generation_classifies_empty_transaction(
     monkeypatch.setattr(
         decals_module,
         "local_decal_settings_for_source",
-        lambda settings, _source: settings,
+        lambda settings, _source: decal_settings_to_local(settings, 1.0),
     )
     monkeypatch.setattr(
         decals_module,
@@ -1972,7 +1973,7 @@ def test_compatibility_seams_empty_preview_removes_object_and_raises(
     monkeypatch.setattr(
         decals_module,
         "local_decal_settings_for_source",
-        lambda settings, _source: settings,
+        lambda settings, _source: decal_settings_to_local(settings, 1.0),
     )
     monkeypatch.setattr(
         decals_module,
@@ -2197,7 +2198,7 @@ def test_invalid_face_frees_transaction_without_publishing(
     monkeypatch.setattr(
         decals_module,
         "local_decal_settings_for_source",
-        lambda settings, _source: settings,
+        lambda settings, _source: decal_settings_to_local(settings, 1.0),
     )
     bm = _FakeMaterializationBMesh()
     monkeypatch.setattr(
