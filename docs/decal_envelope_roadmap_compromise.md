@@ -202,6 +202,105 @@ join-политика вне CornerEnvelope; epsilon/k-подбор под фи�
 интерфейса примитивов. Каталог болезней Б1-Б7 — в приёмке ревью
 каждого EC-среза.
 
+## AMENDMENTS (ревью компромисса ревьювером B; приняты ревьювером
+## A полностью — все шесть)
+
+**AM1 — Hermetic wheel-only CI + sparse checkout (усиление моей
+«CI-стены», признано: virtualenv недостаточен — корень checkout в
+sys.path делает `import cftuv` рабочим без установки).**
+Kernel-hermetic job: собрать kernel wheel -> чистый контейнер/
+каталог БЕЗ монтирования корня repo -> установить ТОЛЬКО wheel и
+declared deps -> PYTHONPATH очищен, Python isolated mode ->
+тесты из собранного артефакта -> статическая проверка
+import-графа. Два CI-job (kernel-hermetic, host-integration) в
+одном workflow — две тестовые границы, признано честно.
+Kernel-агент работает в sparse checkout/worktree: только
+`kernel/`, семантика EC0, компромисс, контрактные доки, fixtures
+— старого кода ФИЗИЧЕСКИ нет в рабочем каталоге.
+**Extraction-readiness gate (EC1):** каталог kernel копируется в
+пустой git-repo — сборка и hermetic-тесты проходят без изменения
+файлов.
+
+**AM2 — Три роли (закрывает дыру моего запрета на чтение):**
+- *Kernel implementer* — старый бэкенд не читает вообще;
+- *Legacy Evidence Curator* — читает старый код/тесты, kernel НЕ
+  пишет; производит только: AnalysisSnapshot-fixtures, ожидаемые
+  GeometryBatch, скриншоты, event-траектории, описания
+  наблюдаемого поведения, список неизвестных случаев (corpus в
+  EC1);
+- *Host adapter author* — читает обе стороны, только конвертирует
+  (AnalysisBundle -> SnapshotV1; GeometryBatch -> preview/
+  materialization), геометрических исправлений не делает.
+Роли — РАЗНЫЕ сессии/контексты агентов (разделение контекста —
+суть механизма).
+
+**AM3 — EC0 = картинки + формальные sidecars + метаморфная
+матрица.** EC0a — визуальные листы (приёмка пользователя);
+EC0b — YAML-sidecar на каждый случай: region graph, boundary
+lineage, owner, adjacency, направление s, topology events,
+forbidden-список — БЕЗ точных координат. Поверх каждого случая —
+метаморфные преобразования (перестановка/reverse цепочек и
+winding, scale/translation, другая триангуляция, разбиение/
+слияние data-chains при той же физической линии, одновременные
+события, малое возмущение без смены топологии): результат меняется
+ТОЛЬКО там, где преобразование меняет семантику — прямой тест
+против болезни Б7 («граница ChainDescriptor» != «семантический
+конец физической линии»). Статусы случая: DEFINED /
+UNSUPPORTED_NAMED_FAILURE / BLOCKED_PENDING_USER_DECISION —
+честный BLOCKED лучше выдуманной семантики.
+
+**AM4 — EC2.5 Intercomponent interaction — главная архитектурная
+поправка (принята; трёхстадийность признана).** Вопрос EC0-кейса
+16: freeze (A) только делит overlap (union до == после -> это
+ownership); (B) обрезает компоненты (union до != материя -> это
+coverage-взаимодействие); (C) порождает новую материю (отдельный
+оператор). Гипотеза канона (НЕ предрешение, проверяется в
+EC0/EC2.5): вариант B — взаимный клип покрытий по локусу
+станционного равенства, гейтированный обоюдным прибытием (RC5b);
+подтверждает/опровергает пользователь по рисункам. Пайплайн
+получает явную стадию: PrimitiveEnvelopeUnion -> ComponentCoverage
+-> IntercomponentInteractionResolver -> ResolvedCoverage ->
+OwnershipResolver -> SemanticArrangement.
+
+**AM5 — SnapshotV1: kernel-owned граничная схема.** Уточнение
+«одного контракта»: AnalysisBundle — ВНУТРЕННЯЯ модель хоста;
+SnapshotV1 — ЕДИНСТВЕННЫЙ межпакетный контракт, владелец — kernel;
+адаптер хоста мапит одно в другое; kernel не импортирует
+AnalysisBundle; хост не создаёт свою копию SnapshotV1. JSON Schema
+генерируется из типов SnapshotV1; адаптер валидирует каждый
+экспорт. (Это не два семантических контракта: внутренняя модель +
+один граничный контракт.)
+
+**AM6 — CGAL: границы возможностей и лицензия.**
+Arrangement_with_history даёт curve->edge lineage, но НЕ face
+coverage/claims — те обязаны рождаться в overlay через расширенный
+DCEL (не реконструироваться после Boolean); гейт EC2 дополнен:
+каждая arrangement-грань знает ПОЛНЫЙ набор покрывающих
+примитивов (FaceRecord.covering_primitive_ids / domain_membership
+/ interaction_state). Лицензия: 2D Arrangements — GPL; CGAL-оракул
+= отдельный test executable/container; production-зависимость
+kernel от CGAL — только через отдельный лицензионно-архитектурный
+гейт.
+
+**Дополнительно принято:**
+- **SemanticAuthority-классификация** переносимых поведений:
+  USER_REQUIRED / FIELD_PROVEN / MATHEMATICALLY_REQUIRED /
+  LEGACY_COMPATIBILITY / IMPLEMENTATION_ACCIDENT / OPEN_RESEARCH.
+  В EC0 переносится НАБЛЮДАЕМЫЙ результат (например, freeze), а
+  не обязательность старого механизма (например, «именно
+  станциями») — иначе старый дизайн проникнет через слишком
+  конкретный канон. Каждая переносимая спека получает тег.
+- **CanonicalGeometryDigest** для Compiled(alpha) ==
+  Reference(alpha): сравнение семантического графа (coverage
+  regions, lineage, ownership, adjacency, station/UV-модели,
+  события, якоря), НЕ порядка faces/float-массивов; координаты —
+  exact либо один именованный арифметический контракт; tolerance
+  НИКОГДА не выбирает топологию или владельца.
+
+Фазы после поправок: EC0a -> EC0b -> EC1 (+legacy evidence
+corpus) -> EC2 -> **EC2.5** -> EC3 -> EC4 -> EC5 -> EC6 -> EC7 ->
+EC8.
+
 ## Треки и текущее состояние
 
 ```
