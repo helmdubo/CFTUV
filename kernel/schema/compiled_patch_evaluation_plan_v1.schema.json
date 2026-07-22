@@ -1,0 +1,2723 @@
+{
+  "$defs": {
+    "AngleCertificateId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "AngleCertificateId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "AngularEnvelopeSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "AngularEnvelopeSpec"
+        },
+        "all_support_normal_speed": {
+          "type": "integer"
+        },
+        "angle_certificate_id": {
+          "$ref": "#/$defs/AngleCertificateId"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "envelope_spec_id": {
+          "$ref": "#/$defs/EnvelopeSpecId"
+        },
+        "exposure_policy": {
+          "enum": [
+            "EXPOSED_ONLY_WHEN_ON_RESOLVED_COVERAGE_SILHOUETTE",
+            "MAY_BECOME_INTERNAL_AFTER_EXACT_UNION"
+          ],
+          "type": "string"
+        },
+        "hidden_supports": {
+          "items": {
+            "$ref": "#/$defs/HiddenSupportSpecV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "incident_front_component_ids": {
+          "items": {
+            "$ref": "#/$defs/FrontComponentId"
+          },
+          "type": "array"
+        },
+        "mixed_alpha_policy": {
+          "enum": [
+            "INCIDENT_EFFECTIVE_ALPHA_VECTOR"
+          ],
+          "type": "string"
+        },
+        "owner_sector_id": {
+          "$ref": "#/$defs/OwnerSectorId"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "profile_family_id": {
+          "enum": [
+            "LINEAR_REFLEX_EQUAL_V1"
+          ],
+          "type": "string"
+        },
+        "resolved_hidden_edge_count": {
+          "type": "integer"
+        },
+        "selection_certificate_id": {
+          "$ref": "#/$defs/SelectionCertificateId"
+        },
+        "source_lineage_ids": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source_relation_id": {
+          "$ref": "#/$defs/CornerRelationId"
+        },
+        "source_seed_id": {
+          "$ref": "#/$defs/CornerSeedId"
+        },
+        "subdivision_policy": {
+          "enum": [
+            "EQUAL_REFLEX_EXCESS"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "envelope_spec_id",
+        "source_seed_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "source_lineage_ids",
+        "source_relation_id",
+        "owner_sector_id",
+        "angle_certificate_id",
+        "selection_certificate_id",
+        "profile_family_id",
+        "resolved_hidden_edge_count",
+        "subdivision_policy",
+        "hidden_supports",
+        "incident_front_component_ids",
+        "all_support_normal_speed",
+        "exposure_policy",
+        "mixed_alpha_policy"
+      ],
+      "type": "object"
+    },
+    "AngularProfileSelectionCertificateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "AngularProfileSelectionCertificateV1"
+        },
+        "admissibility_upper_bound": {
+          "enum": [
+            "DELTA_LEQ_K_PLUS_ONE_TIMES_DELTA_MAX"
+          ],
+          "type": "string"
+        },
+        "certificate_authority": {
+          "enum": [
+            "EXACT_OR_CERTIFIED_ANGLE_COMPARISON"
+          ],
+          "type": "string"
+        },
+        "certificate_id": {
+          "$ref": "#/$defs/SelectionCertificateId"
+        },
+        "corner_relation_id": {
+          "$ref": "#/$defs/CornerRelationId"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "local_profile_segment_count": {
+          "type": "integer"
+        },
+        "local_profile_support_count": {
+          "type": "integer"
+        },
+        "max_subturn_value_id": {
+          "enum": [
+            "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1"
+          ],
+          "type": "string"
+        },
+        "minimality_lower_bound": {
+          "enum": [
+            "K_EQ_ZERO_OR_K_TIMES_DELTA_MAX_LT_DELTA"
+          ],
+          "type": "string"
+        },
+        "owner_sector_id": {
+          "$ref": "#/$defs/OwnerSectorId"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "profile_family_id": {
+          "enum": [
+            "LINEAR_REFLEX_EQUAL_V1"
+          ],
+          "type": "string"
+        },
+        "reflex_angle_certificate_id": {
+          "$ref": "#/$defs/AngleCertificateId"
+        },
+        "regression_fixture_id": {
+          "oneOf": [
+            {
+              "enum": [
+                "LINEAR_REFLEX_K0_EQUAL_FIXTURE_V1",
+                "LINEAR_REFLEX_K1_EQUAL_FIXTURE_V1"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resolved_hidden_edge_count": {
+          "type": "integer"
+        },
+        "resolved_subturn_count": {
+          "type": "integer"
+        },
+        "selection_interval_certificate": {
+          "$ref": "#/$defs/SelectionIntervalCertificateV1"
+        },
+        "selection_law": {
+          "enum": [
+            "K_EQUALS_MAX_ZERO_CEIL_DELTA_OVER_DELTA_MAX_MINUS_ONE"
+          ],
+          "type": "string"
+        },
+        "selection_policy_id": {
+          "enum": [
+            "MIN_K_FOR_MAX_SUBTURN_V1"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "certificate_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "corner_relation_id",
+        "owner_sector_id",
+        "reflex_angle_certificate_id",
+        "profile_family_id",
+        "selection_policy_id",
+        "max_subturn_value_id",
+        "resolved_hidden_edge_count",
+        "resolved_subturn_count",
+        "local_profile_support_count",
+        "local_profile_segment_count",
+        "selection_law",
+        "minimality_lower_bound",
+        "admissibility_upper_bound",
+        "selection_interval_certificate",
+        "certificate_authority",
+        "regression_fixture_id"
+      ],
+      "type": "object"
+    },
+    "BoundaryConstraintId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "BoundaryConstraintId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "CapEnvelopeSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "CapEnvelopeSpec"
+        },
+        "closure_law_id": {
+          "enum": [
+            "PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1"
+          ],
+          "type": "string"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "effective_alpha_binding": {
+          "enum": [
+            "INCIDENT_FRONT_COMPONENT_VECTOR",
+            "INCIDENT_STRIP_EFFECTIVE_ALPHA"
+          ],
+          "type": "string"
+        },
+        "endpoint_role": {
+          "enum": [
+            "START",
+            "END"
+          ],
+          "type": "string"
+        },
+        "envelope_spec_id": {
+          "$ref": "#/$defs/EnvelopeSpecId"
+        },
+        "exact_two_pi_handling": {
+          "enum": [
+            "TERMINAL_OR_JUNCTION_NEVER_ANGULAR_PROFILE"
+          ],
+          "type": "string"
+        },
+        "incident_chain_use_id": {
+          "$ref": "#/$defs/ChainUseId"
+        },
+        "incident_strip_spec_id": {
+          "$ref": "#/$defs/EnvelopeSpecId"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "physical_terminal_source_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        },
+        "source_lineage_ids": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source_seed_id": {
+          "$ref": "#/$defs/CapSeedId"
+        },
+        "station_law": {
+          "enum": [
+            "SEMANTIC_CHAIN_USE_S",
+            "CONSTANT_PHYSICAL_ENDPOINT_S",
+            "PLAN_STATION_FLOW"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "envelope_spec_id",
+        "source_seed_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "source_lineage_ids",
+        "physical_terminal_source_vertex_id",
+        "incident_chain_use_id",
+        "incident_strip_spec_id",
+        "closure_law_id",
+        "endpoint_role",
+        "station_law",
+        "effective_alpha_binding",
+        "exact_two_pi_handling"
+      ],
+      "type": "object"
+    },
+    "CapSeedId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "CapSeedId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "CapSeedV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "CapSeedV1"
+        },
+        "chain_use_id": {
+          "$ref": "#/$defs/ChainUseId"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "endpoint_role": {
+          "enum": [
+            "START",
+            "END"
+          ],
+          "type": "string"
+        },
+        "owner_patch_id": {
+          "$ref": "#/$defs/PatchId"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "seed_id": {
+          "$ref": "#/$defs/CapSeedId"
+        },
+        "source_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        }
+      },
+      "required": [
+        "$type",
+        "seed_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "source_vertex_id",
+        "chain_use_id",
+        "owner_patch_id",
+        "endpoint_role"
+      ],
+      "type": "object"
+    },
+    "ChainUseId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "ChainUseId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "CompiledPatchEvaluationPlanV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "CompiledPatchEvaluationPlanV1"
+        },
+        "angular_profile_selection_certificates": {
+          "items": {
+            "$ref": "#/$defs/AngularProfileSelectionCertificateV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "envelope_instances": {
+          "items": {
+            "$ref": "#/$defs/EnvelopeInstanceV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "envelope_specs": {
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/StripEnvelopeSpec"
+              },
+              {
+                "$ref": "#/$defs/AngularEnvelopeSpec"
+              },
+              {
+                "$ref": "#/$defs/JunctionEnvelopeSpec"
+              },
+              {
+                "$ref": "#/$defs/CapEnvelopeSpec"
+              }
+            ]
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "evaluation_plan_id": {
+          "$ref": "#/$defs/EvaluationPlanId"
+        },
+        "event_ledger": {
+          "$ref": "#/$defs/EventLedgerContractV1"
+        },
+        "event_predicates": {
+          "items": {
+            "$ref": "#/$defs/EventPredicateDeclarationV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "event_transitions": {
+          "items": {
+            "$ref": "#/$defs/EventTransitionDeclarationV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "front_components": {
+          "items": {
+            "$ref": "#/$defs/FrontComponentV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "geometry_batch_provenance": {
+          "$ref": "#/$defs/GeometryBatchProvenanceV1"
+        },
+        "initial_front_spec": {
+          "$ref": "#/$defs/InitialFrontSpec"
+        },
+        "interactions": {
+          "items": {
+            "$ref": "#/$defs/InteractionDeclarationV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "named_outcomes": {
+          "items": {
+            "enum": [
+              "DECAL_ANALYSIS_SCHEMA_UNSUPPORTED",
+              "BARRIER_SPLIT_REQUIRED",
+              "BARRIER_BYPASS_UNSUPPORTED",
+              "SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN",
+              "OWNERSHIP_PARTITION_UNPROVEN",
+              "PENDING_EXACT_EVALUATION",
+              "APPROXIMATE_MATERIALIZATION_PENDING",
+              "JUNCTION_ROUTE_PAIRING_REQUIRED"
+            ],
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "owner_patch_id": {
+          "$ref": "#/$defs/PatchId"
+        },
+        "ownership": {
+          "$ref": "#/$defs/OwnershipPartitionV1"
+        },
+        "plan_key": {
+          "$ref": "#/$defs/PlanKeyV1"
+        },
+        "raw_coverage": {
+          "$ref": "#/$defs/RawCoverageRef"
+        },
+        "resolved_coverage": {
+          "$ref": "#/$defs/ResolvedCoverageRef"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "seeds": {
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/FrontSeedV1"
+              },
+              {
+                "$ref": "#/$defs/CornerSeedV1"
+              },
+              {
+                "$ref": "#/$defs/JunctionSeedV1"
+              },
+              {
+                "$ref": "#/$defs/CapSeedV1"
+              },
+              {
+                "$ref": "#/$defs/EndpointClaimSeedV1"
+              }
+            ]
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source_revision": {
+          "$ref": "#/$defs/SourceRevision"
+        },
+        "station_flow": {
+          "$ref": "#/$defs/StationFlowV1"
+        },
+        "tessellation_plan": {
+          "$ref": "#/$defs/TessellationPlanV1"
+        }
+      },
+      "required": [
+        "$type",
+        "schema_version",
+        "evaluation_plan_id",
+        "source_revision",
+        "plan_key",
+        "owner_patch_id",
+        "seeds",
+        "front_components",
+        "angular_profile_selection_certificates",
+        "envelope_specs",
+        "envelope_instances",
+        "initial_front_spec",
+        "event_predicates",
+        "event_transitions",
+        "event_ledger",
+        "raw_coverage",
+        "resolved_coverage",
+        "interactions",
+        "ownership",
+        "station_flow",
+        "tessellation_plan",
+        "geometry_batch_provenance",
+        "named_outcomes"
+      ],
+      "type": "object"
+    },
+    "CornerRelationId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "CornerRelationId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "CornerSeedId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "CornerSeedId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "CornerSeedV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "CornerSeedV1"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "ordered_incident_chain_use_ids": {
+          "items": {
+            "$ref": "#/$defs/ChainUseId"
+          },
+          "type": "array"
+        },
+        "owner_patch_id": {
+          "$ref": "#/$defs/PatchId"
+        },
+        "owner_sector_id": {
+          "$ref": "#/$defs/OwnerSectorId"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "profile_selection_certificate_id": {
+          "$ref": "#/$defs/SelectionCertificateId"
+        },
+        "seed_id": {
+          "$ref": "#/$defs/CornerSeedId"
+        },
+        "source_relation_id": {
+          "$ref": "#/$defs/CornerRelationId"
+        }
+      },
+      "required": [
+        "$type",
+        "seed_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "source_relation_id",
+        "owner_patch_id",
+        "owner_sector_id",
+        "ordered_incident_chain_use_ids",
+        "profile_selection_certificate_id"
+      ],
+      "type": "object"
+    },
+    "CoverageId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "CoverageId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "DecalRequestId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "DecalRequestId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "EffectiveAlphaBindingV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "EffectiveAlphaBindingV1"
+        },
+        "front_component_ids": {
+          "items": {
+            "$ref": "#/$defs/FrontComponentId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "kind": {
+          "enum": [
+            "INCIDENT_FRONT_COMPONENT_VECTOR",
+            "INCIDENT_STRIP_EFFECTIVE_ALPHA"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "kind",
+        "front_component_ids"
+      ],
+      "type": "object"
+    },
+    "EndpointClaimSeedId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "EndpointClaimSeedId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "EndpointClaimSeedV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "EndpointClaimSeedV1"
+        },
+        "chain_use_id": {
+          "$ref": "#/$defs/ChainUseId"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "endpoint_role": {
+          "enum": [
+            "START",
+            "END"
+          ],
+          "type": "string"
+        },
+        "owner_patch_id": {
+          "$ref": "#/$defs/PatchId"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "seed_id": {
+          "$ref": "#/$defs/EndpointClaimSeedId"
+        },
+        "source_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        }
+      },
+      "required": [
+        "$type",
+        "seed_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "source_vertex_id",
+        "chain_use_id",
+        "owner_patch_id",
+        "endpoint_role"
+      ],
+      "type": "object"
+    },
+    "EnvelopeInstanceId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "EnvelopeInstanceId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "EnvelopeInstanceV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "EnvelopeInstanceV1"
+        },
+        "boundary_resolution_state": {
+          "enum": [
+            "REQUIRED_BEFORE_PATCH_UNION",
+            "BOUNDARY_RESOLVED"
+          ],
+          "type": "string"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "effective_alpha_binding": {
+          "$ref": "#/$defs/EffectiveAlphaBindingV1"
+        },
+        "instance_id": {
+          "$ref": "#/$defs/EnvelopeInstanceId"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "spec_id": {
+          "$ref": "#/$defs/EnvelopeSpecId"
+        },
+        "spec_variant": {
+          "enum": [
+            "StripEnvelopeSpec",
+            "AngularEnvelopeSpec",
+            "JunctionEnvelopeSpec",
+            "CapEnvelopeSpec"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "instance_id",
+        "spec_id",
+        "spec_variant",
+        "decal_request_id",
+        "patch_domain_id",
+        "effective_alpha_binding",
+        "boundary_resolution_state"
+      ],
+      "type": "object"
+    },
+    "EnvelopeSpecId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "EnvelopeSpecId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "EqualityBoundaryId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "EqualityBoundaryId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "EqualityBoundaryRef": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "EqualityBoundaryRef"
+        },
+        "equality_boundary_id": {
+          "$ref": "#/$defs/EqualityBoundaryId"
+        },
+        "owner": {
+          "enum": [
+            "NONE"
+          ],
+          "type": "string"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "equality_boundary_id",
+        "owner",
+        "provenance"
+      ],
+      "type": "object"
+    },
+    "EvaluationPlanId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "EvaluationPlanId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "EventLedgerContractV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "EventLedgerContractV1"
+        },
+        "contract_id": {
+          "enum": [
+            "LAZY_DETERMINISTIC_EVENT_LEDGER_V1"
+          ],
+          "type": "string"
+        },
+        "pending_outcome": {
+          "enum": [
+            "DECAL_ANALYSIS_SCHEMA_UNSUPPORTED",
+            "BARRIER_SPLIT_REQUIRED",
+            "BARRIER_BYPASS_UNSUPPORTED",
+            "SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN",
+            "OWNERSHIP_PARTITION_UNPROVEN",
+            "PENDING_EXACT_EVALUATION",
+            "APPROXIMATE_MATERIALIZATION_PENDING",
+            "JUNCTION_ROUTE_PAIRING_REQUIRED"
+          ],
+          "type": "string"
+        },
+        "publish_policy": {
+          "enum": [
+            "COMPLETE_EXACT_STATE_ONLY"
+          ],
+          "type": "string"
+        },
+        "same_alpha_policy": {
+          "enum": [
+            "ATOMIC_DETERMINISTIC_BATCH"
+          ],
+          "type": "string"
+        },
+        "startup_scope": {
+          "enum": [
+            "LAWS_PREDICATES_TRANSITIONS_AND_IMMEDIATE_CANDIDATES"
+          ],
+          "type": "string"
+        },
+        "successor_scheduling": {
+          "enum": [
+            "LAZY"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "contract_id",
+        "startup_scope",
+        "successor_scheduling",
+        "same_alpha_policy",
+        "publish_policy",
+        "pending_outcome"
+      ],
+      "type": "object"
+    },
+    "EventParticipantRefV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "EventParticipantRefV1"
+        },
+        "kind": {
+          "enum": [
+            "FRONT_COMPONENT",
+            "ENVELOPE_SPEC",
+            "ENVELOPE_INSTANCE",
+            "HIDDEN_SUPPORT",
+            "BOUNDARY_CONSTRAINT"
+          ],
+          "type": "string"
+        },
+        "participant_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/FrontComponentId"
+            },
+            {
+              "$ref": "#/$defs/EnvelopeSpecId"
+            },
+            {
+              "$ref": "#/$defs/EnvelopeInstanceId"
+            },
+            {
+              "$ref": "#/$defs/HiddenSupportId"
+            },
+            {
+              "$ref": "#/$defs/BoundaryConstraintId"
+            }
+          ]
+        }
+      },
+      "required": [
+        "$type",
+        "kind",
+        "participant_id"
+      ],
+      "type": "object"
+    },
+    "EventPredicateDeclarationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "EventPredicateDeclarationV1"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "kind": {
+          "enum": [
+            "HIDDEN_EDGE_ACTIVATION",
+            "FRONT_EDGE_COLLAPSE",
+            "CAP_COLLAPSE",
+            "BOUNDARY_CONTACT",
+            "ENDPOINT_SLIDE_START",
+            "BARRIER_SPLIT_REQUIRED",
+            "FRONT_EXHAUSTED",
+            "EDGE_EDGE_CONTACT",
+            "VERTEX_EDGE_CONTACT",
+            "COVERAGE_COMPONENT_MERGE",
+            "COVERAGE_COMPONENT_SPLIT",
+            "SILHOUETTE_CHANGE",
+            "MUTUAL_ARRIVAL",
+            "FREEZE",
+            "CAPACITY",
+            "DIVIDER_BIRTH",
+            "DIVIDER_DEATH",
+            "UV_INTERFACE_CHANGE"
+          ],
+          "type": "string"
+        },
+        "participants": {
+          "items": {
+            "$ref": "#/$defs/EventParticipantRefV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "predicate_id": {
+          "$ref": "#/$defs/EventPredicateId"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "predicate_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "kind",
+        "participants",
+        "provenance"
+      ],
+      "type": "object"
+    },
+    "EventPredicateId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "EventPredicateId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "EventTransitionDeclarationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "EventTransitionDeclarationV1"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "input_topology_state_version": {
+          "$ref": "#/$defs/TopologyStateVersionId"
+        },
+        "output_topology_state_version": {
+          "$ref": "#/$defs/TopologyStateVersionId"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "predicate_id": {
+          "$ref": "#/$defs/EventPredicateId"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "same_alpha_batch_key": {
+          "$ref": "#/$defs/SameAlphaBatchKeyId"
+        },
+        "transition_id": {
+          "$ref": "#/$defs/EventTransitionId"
+        }
+      },
+      "required": [
+        "$type",
+        "transition_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "predicate_id",
+        "input_topology_state_version",
+        "output_topology_state_version",
+        "same_alpha_batch_key",
+        "provenance"
+      ],
+      "type": "object"
+    },
+    "EventTransitionId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "EventTransitionId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ExactRatioV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactRatioV1"
+        },
+        "denominator": {
+          "type": "integer"
+        },
+        "numerator": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "$type",
+        "numerator",
+        "denominator"
+      ],
+      "type": "object"
+    },
+    "FrontComponentId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "FrontComponentId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "FrontComponentV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "FrontComponentV1"
+        },
+        "active_interval_model": {
+          "enum": [
+            "CONTINUOUS_INTERVAL_SET"
+          ],
+          "type": "string"
+        },
+        "branch_count_policy": {
+          "enum": [
+            "NON_INCREASING"
+          ],
+          "type": "string"
+        },
+        "capacity_reason": {
+          "enum": [
+            "NONE",
+            "BARRIER_SPLIT_REQUIRED"
+          ],
+          "type": "string"
+        },
+        "chain_use_id": {
+          "$ref": "#/$defs/ChainUseId"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "effective_alpha": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/LocalLengthV1"
+            },
+            {
+              "$ref": "#/$defs/SymbolicLocalLengthV1"
+            }
+          ]
+        },
+        "front_component_id": {
+          "$ref": "#/$defs/FrontComponentId"
+        },
+        "front_reading_ids": {
+          "items": {
+            "$ref": "#/$defs/FrontReadingId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "front_seed_id": {
+          "$ref": "#/$defs/FrontSeedId"
+        },
+        "initial_branch_count": {
+          "type": "integer"
+        },
+        "lifecycle": {
+          "enum": [
+            "COMPILE_TRACKED"
+          ],
+          "type": "string"
+        },
+        "owner_patch_id": {
+          "$ref": "#/$defs/PatchId"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "requested_alpha": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/LocalLengthV1"
+            },
+            {
+              "$ref": "#/$defs/SymbolicLocalLengthV1"
+            }
+          ]
+        },
+        "sector_id": {
+          "$ref": "#/$defs/OwnerSectorId"
+        },
+        "terminal_outcome": {
+          "enum": [
+            "NONE",
+            "BOUNDARY_CAPACITY_REACHED",
+            "FRONT_EXHAUSTED_OR_CAPACITY_REACHED"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "front_component_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "front_seed_id",
+        "chain_use_id",
+        "owner_patch_id",
+        "sector_id",
+        "active_interval_model",
+        "initial_branch_count",
+        "branch_count_policy",
+        "lifecycle",
+        "front_reading_ids",
+        "requested_alpha",
+        "effective_alpha",
+        "capacity_reason",
+        "terminal_outcome"
+      ],
+      "type": "object"
+    },
+    "FrontReadingId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "FrontReadingId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "FrontSeedId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "FrontSeedId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "FrontSeedV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "FrontSeedV1"
+        },
+        "chain_use_id": {
+          "$ref": "#/$defs/ChainUseId"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "owner_patch_id": {
+          "$ref": "#/$defs/PatchId"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "sector_ids": {
+          "items": {
+            "$ref": "#/$defs/OwnerSectorId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "seed_id": {
+          "$ref": "#/$defs/FrontSeedId"
+        }
+      },
+      "required": [
+        "$type",
+        "seed_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "chain_use_id",
+        "owner_patch_id",
+        "sector_ids"
+      ],
+      "type": "object"
+    },
+    "GeometryBatchProvenanceV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "GeometryBatchProvenanceV1"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "resolved_coverage_id": {
+          "$ref": "#/$defs/CoverageId"
+        },
+        "shared_semantic_anchor_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SharedSemanticAnchorId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_lineage_ids": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "decal_request_id",
+        "patch_domain_id",
+        "resolved_coverage_id",
+        "source_lineage_ids",
+        "shared_semantic_anchor_id"
+      ],
+      "type": "object"
+    },
+    "HiddenSupportId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "HiddenSupportId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "HiddenSupportSpecV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "HiddenSupportSpecV1"
+        },
+        "direction_law": {
+          "enum": [
+            "ROTATE_INCOMING_SUPPORT_TOWARD_OUTGOING_INSIDE_ORIENTED_OWNER_SECTOR_BY_ORDINAL_SUBTURN"
+          ],
+          "type": "string"
+        },
+        "hidden_support_id": {
+          "$ref": "#/$defs/HiddenSupportId"
+        },
+        "ordinal": {
+          "type": "integer"
+        },
+        "owner_sector_id": {
+          "$ref": "#/$defs/OwnerSectorId"
+        },
+        "scope": {
+          "enum": [
+            "ANGULAR_ENVELOPE_SPEC_LOCAL"
+          ],
+          "type": "string"
+        },
+        "selection_certificate_id": {
+          "$ref": "#/$defs/SelectionCertificateId"
+        },
+        "source_relation_id": {
+          "$ref": "#/$defs/CornerRelationId"
+        },
+        "turn_fraction": {
+          "$ref": "#/$defs/ExactRatioV1"
+        },
+        "zero_length_at_alpha_zero": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "$type",
+        "hidden_support_id",
+        "ordinal",
+        "turn_fraction",
+        "direction_law",
+        "zero_length_at_alpha_zero",
+        "scope",
+        "source_relation_id",
+        "owner_sector_id",
+        "selection_certificate_id"
+      ],
+      "type": "object"
+    },
+    "InitialFrontFeatureRefV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "InitialFrontFeatureRefV1"
+        },
+        "kind": {
+          "enum": [
+            "STRIP_SUPPORT",
+            "ANGULAR_HIDDEN_SUPPORT",
+            "JUNCTION_SUPPORT",
+            "CAP_CLOSURE"
+          ],
+          "type": "string"
+        },
+        "source_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/EnvelopeSpecId"
+            },
+            {
+              "$ref": "#/$defs/HiddenSupportId"
+            }
+          ]
+        }
+      },
+      "required": [
+        "$type",
+        "kind",
+        "source_id"
+      ],
+      "type": "object"
+    },
+    "InitialFrontSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "InitialFrontSpec"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "fixed_constraint_ids": {
+          "items": {
+            "$ref": "#/$defs/BoundaryConstraintId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "support_features": {
+          "items": {
+            "$ref": "#/$defs/InitialFrontFeatureRefV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "decal_request_id",
+        "patch_domain_id",
+        "support_features",
+        "fixed_constraint_ids"
+      ],
+      "type": "object"
+    },
+    "InteractionDeclarationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "InteractionDeclarationV1"
+        },
+        "coverage_effect": {
+          "enum": [
+            "NONE",
+            "CLIP_EXISTING_CONTRIBUTIONS_AT_EQUALITY_LOCUS",
+            "CLIP_TO_EXPOSED_ANGULAR_PROFILE_BOUNDARY"
+          ],
+          "type": "string"
+        },
+        "creates_new_matter": {
+          "type": "boolean"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "event_gate_id": {
+          "$ref": "#/$defs/EventPredicateId"
+        },
+        "interaction_id": {
+          "$ref": "#/$defs/InteractionId"
+        },
+        "kind": {
+          "enum": [
+            "INTRAPATCH_POLICY_B",
+            "ANGULAR_PROFILE_FRONT_CONTACT"
+          ],
+          "type": "string"
+        },
+        "participant_envelope_instance_ids": {
+          "items": {
+            "$ref": "#/$defs/EnvelopeInstanceId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "interaction_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "kind",
+        "participant_envelope_instance_ids",
+        "event_gate_id",
+        "coverage_effect",
+        "creates_new_matter",
+        "provenance"
+      ],
+      "type": "object"
+    },
+    "InteractionId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "InteractionId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "JunctionEnvelopeSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "JunctionEnvelopeSpec"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "envelope_spec_id": {
+          "$ref": "#/$defs/EnvelopeSpecId"
+        },
+        "incident_front_component_ids": {
+          "items": {
+            "$ref": "#/$defs/FrontComponentId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "mixed_alpha_policy": {
+          "enum": [
+            "INCIDENT_EFFECTIVE_ALPHA_VECTOR"
+          ],
+          "type": "string"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "per_patch_projection_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/PerPatchProjectionId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "route_pairing_chain_use_ids": {
+          "items": {
+            "$ref": "#/$defs/ChainUseId"
+          },
+          "type": "array"
+        },
+        "shared_semantic_anchor_id": {
+          "$ref": "#/$defs/SharedSemanticAnchorId"
+        },
+        "source_lineage_ids": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source_relation_id": {
+          "$ref": "#/$defs/JunctionRelationId"
+        },
+        "source_seed_id": {
+          "$ref": "#/$defs/JunctionSeedId"
+        },
+        "support_law_id": {
+          "enum": [
+            "DECLARED_JUNCTION_RELATION_SUPPORTS_V1"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "envelope_spec_id",
+        "source_seed_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "source_lineage_ids",
+        "source_relation_id",
+        "incident_front_component_ids",
+        "support_law_id",
+        "route_pairing_chain_use_ids",
+        "shared_semantic_anchor_id",
+        "per_patch_projection_id",
+        "mixed_alpha_policy"
+      ],
+      "type": "object"
+    },
+    "JunctionRelationId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "JunctionRelationId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "JunctionSeedId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "JunctionSeedId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "JunctionSeedV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "JunctionSeedV1"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "incident_chain_use_ids": {
+          "items": {
+            "$ref": "#/$defs/ChainUseId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "owner_patch_id": {
+          "$ref": "#/$defs/PatchId"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "projection_role": {
+          "enum": [
+            "GLOBAL_RELATION",
+            "PER_PATCH_PROJECTION"
+          ],
+          "type": "string"
+        },
+        "seed_id": {
+          "$ref": "#/$defs/JunctionSeedId"
+        },
+        "shared_semantic_anchor_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SharedSemanticAnchorId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source_relation_id": {
+          "$ref": "#/$defs/JunctionRelationId"
+        }
+      },
+      "required": [
+        "$type",
+        "seed_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "source_relation_id",
+        "owner_patch_id",
+        "incident_chain_use_ids",
+        "projection_role",
+        "shared_semantic_anchor_id"
+      ],
+      "type": "object"
+    },
+    "LineageId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "LineageId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "LocalLengthV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "LocalLengthV1"
+        },
+        "metric_space": {
+          "enum": [
+            "SOURCE_LOCAL_INTRINSIC"
+          ],
+          "type": "string"
+        },
+        "value": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "value",
+        "metric_space"
+      ],
+      "type": "object"
+    },
+    "OwnerSectorId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "OwnerSectorId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "OwnershipClaimId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "OwnershipClaimId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "OwnershipClaimV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "OwnershipClaimV1"
+        },
+        "claimant_kind": {
+          "enum": [
+            "EnvelopeSpec",
+            "EnvelopeSpecGroup",
+            "EndpointClaimSeed",
+            "FrontReading"
+          ],
+          "type": "string"
+        },
+        "claimant_lineage_id": {
+          "$ref": "#/$defs/LineageId"
+        },
+        "coverage_id": {
+          "$ref": "#/$defs/CoverageId"
+        },
+        "envelope_instance_ids": {
+          "items": {
+            "$ref": "#/$defs/EnvelopeInstanceId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "envelope_spec_ids": {
+          "items": {
+            "$ref": "#/$defs/EnvelopeSpecId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "ownership_claim_id": {
+          "$ref": "#/$defs/OwnershipClaimId"
+        },
+        "selection_law_id": {
+          "$ref": "#/$defs/LineageId"
+        },
+        "station_model_ref": {
+          "enum": [
+            "SEMANTIC_CHAIN_USE_S",
+            "CONSTANT_PHYSICAL_ENDPOINT_S",
+            "PLAN_STATION_FLOW"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "ownership_claim_id",
+        "coverage_id",
+        "claimant_kind",
+        "claimant_lineage_id",
+        "envelope_spec_ids",
+        "envelope_instance_ids",
+        "selection_law_id",
+        "station_model_ref"
+      ],
+      "type": "object"
+    },
+    "OwnershipPartitionV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "OwnershipPartitionV1"
+        },
+        "claim_closure_obligation": {
+          "enum": [
+            "EQUALS_RESOLVED_COVERAGE"
+          ],
+          "type": "string"
+        },
+        "claim_interiors_obligation": {
+          "enum": [
+            "PAIRWISE_DISJOINT"
+          ],
+          "type": "string"
+        },
+        "claims": {
+          "items": {
+            "$ref": "#/$defs/OwnershipClaimV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "coverage_id": {
+          "$ref": "#/$defs/CoverageId"
+        },
+        "disjoint": {
+          "type": "boolean"
+        },
+        "equality_boundaries": {
+          "items": {
+            "$ref": "#/$defs/EqualityBoundaryRef"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "equality_boundary_owner": {
+          "enum": [
+            "NONE"
+          ],
+          "type": "string"
+        },
+        "named_unproven_outcome": {
+          "enum": [
+            "DECAL_ANALYSIS_SCHEMA_UNSUPPORTED",
+            "BARRIER_SPLIT_REQUIRED",
+            "BARRIER_BYPASS_UNSUPPORTED",
+            "SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN",
+            "OWNERSHIP_PARTITION_UNPROVEN",
+            "PENDING_EXACT_EVALUATION",
+            "APPROXIMATE_MATERIALIZATION_PENDING",
+            "JUNCTION_ROUTE_PAIRING_REQUIRED"
+          ],
+          "type": "string"
+        },
+        "partition_contract_id": {
+          "enum": [
+            "TOTAL_DISJOINT_RESOLVED_COVERAGE_V1"
+          ],
+          "type": "string"
+        },
+        "silhouette_effect": {
+          "enum": [
+            "NONE"
+          ],
+          "type": "string"
+        },
+        "total": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "$type",
+        "coverage_id",
+        "partition_contract_id",
+        "total",
+        "disjoint",
+        "silhouette_effect",
+        "equality_boundary_owner",
+        "named_unproven_outcome",
+        "claims",
+        "equality_boundaries",
+        "claim_interiors_obligation",
+        "claim_closure_obligation"
+      ],
+      "type": "object"
+    },
+    "PatchDomainId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PatchDomainId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PatchId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PatchId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PerPatchProjectionId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PerPatchProjectionId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PlanKeyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "PlanKeyV1"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        }
+      },
+      "required": [
+        "$type",
+        "decal_request_id",
+        "patch_domain_id"
+      ],
+      "type": "object"
+    },
+    "RawCoverageRef": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "RawCoverageRef"
+        },
+        "coverage_id": {
+          "$ref": "#/$defs/CoverageId"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "envelope_instance_ids": {
+          "items": {
+            "$ref": "#/$defs/EnvelopeInstanceId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "stage": {
+          "enum": [
+            "AFTER_BOUNDARY_RESOLVED_ENVELOPE_INSTANCES"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "coverage_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "stage",
+        "envelope_instance_ids"
+      ],
+      "type": "object"
+    },
+    "ResolvedCoverageRef": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ResolvedCoverageRef"
+        },
+        "coverage_id": {
+          "$ref": "#/$defs/CoverageId"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "interaction_ids": {
+          "items": {
+            "$ref": "#/$defs/InteractionId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "raw_coverage_id": {
+          "$ref": "#/$defs/CoverageId"
+        },
+        "stage": {
+          "enum": [
+            "AFTER_APPROVED_INTERACTIONS"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "coverage_id",
+        "raw_coverage_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "stage",
+        "interaction_ids"
+      ],
+      "type": "object"
+    },
+    "SameAlphaBatchKeyId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SameAlphaBatchKeyId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SelectionCertificateId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SelectionCertificateId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SelectionIntervalCertificateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "SelectionIntervalCertificateV1"
+        },
+        "lower_bound_integer": {
+          "type": "integer"
+        },
+        "lower_bound_kind": {
+          "enum": [
+            "OPEN",
+            "CLOSED"
+          ],
+          "type": "string"
+        },
+        "upper_bound_integer": {
+          "type": "integer"
+        },
+        "upper_bound_kind": {
+          "enum": [
+            "OPEN",
+            "CLOSED"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "lower_bound_kind",
+        "lower_bound_integer",
+        "upper_bound_kind",
+        "upper_bound_integer"
+      ],
+      "type": "object"
+    },
+    "SemanticArrangementId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SemanticArrangementId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SemanticBoundaryId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SemanticBoundaryId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SemanticInterfaceId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SemanticInterfaceId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SemanticRegionId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SemanticRegionId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SharedSemanticAnchorId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SharedSemanticAnchorId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SourceRevision": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceRevision"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SourceVertexId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceVertexId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "StationFlowV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "StationFlowV1"
+        },
+        "authority": {
+          "enum": [
+            "SEMANTIC_CHAIN_USE_ORIENTATION"
+          ],
+          "type": "string"
+        },
+        "longitudinal": {
+          "enum": [
+            "s",
+            "r"
+          ],
+          "type": "string"
+        },
+        "storage_reversal_effect": {
+          "enum": [
+            "NONE"
+          ],
+          "type": "string"
+        },
+        "transverse": {
+          "enum": [
+            "s",
+            "r"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "authority",
+        "longitudinal",
+        "transverse",
+        "storage_reversal_effect"
+      ],
+      "type": "object"
+    },
+    "StripEnvelopeSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "StripEnvelopeSpec"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "envelope_spec_id": {
+          "$ref": "#/$defs/EnvelopeSpecId"
+        },
+        "front_component_ids": {
+          "items": {
+            "$ref": "#/$defs/FrontComponentId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "source_lineage_ids": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source_seed_id": {
+          "$ref": "#/$defs/FrontSeedId"
+        },
+        "station_model_id": {
+          "enum": [
+            "SEMANTIC_CHAIN_USE_S",
+            "CONSTANT_PHYSICAL_ENDPOINT_S",
+            "PLAN_STATION_FLOW"
+          ],
+          "type": "string"
+        },
+        "support_law_id": {
+          "enum": [
+            "PLANAR_LINEAR_NORMAL_OFFSET_V1"
+          ],
+          "type": "string"
+        },
+        "terminal_interface_policy": {
+          "enum": [
+            "REFERENCED_ENVELOPE_SPECS",
+            "DOMAIN_OR_REQUEST_TERMINAL"
+          ],
+          "type": "string"
+        },
+        "terminal_interface_spec_ids": {
+          "items": {
+            "$ref": "#/$defs/EnvelopeSpecId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "transverse_model_id": {
+          "enum": [
+            "SIGNED_OWNER_INTERIOR_R"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "envelope_spec_id",
+        "source_seed_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "source_lineage_ids",
+        "front_component_ids",
+        "support_law_id",
+        "station_model_id",
+        "transverse_model_id",
+        "terminal_interface_spec_ids",
+        "terminal_interface_policy"
+      ],
+      "type": "object"
+    },
+    "SymbolicLocalLengthV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "SymbolicLocalLengthV1"
+        },
+        "metric_space": {
+          "enum": [
+            "SOURCE_LOCAL_INTRINSIC"
+          ],
+          "type": "string"
+        },
+        "symbol": {
+          "$ref": "#/$defs/SymbolicScalarId"
+        }
+      },
+      "required": [
+        "$type",
+        "symbol",
+        "metric_space"
+      ],
+      "type": "object"
+    },
+    "SymbolicScalarId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SymbolicScalarId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "TessellationPlanV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "TessellationPlanV1"
+        },
+        "allowed_internal_variation": {
+          "items": {
+            "enum": [
+              "INTERNAL_TRIANGULATION",
+              "INTERNAL_POLYGONIZATION",
+              "FACE_ORDER",
+              "SEMANTICALLY_EQUIVALENT_INTERNAL_DIAGONALS"
+            ],
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "contract_id": {
+          "enum": [
+            "DOWNSTREAM_TESSELLATION_AFTER_SEMANTIC_COALESCING_V1"
+          ],
+          "type": "string"
+        },
+        "forbidden_operations": {
+          "items": {
+            "enum": [
+              "PROFILE_SELECTION",
+              "HIDDEN_EDGE_COUNT_SELECTION",
+              "SILHOUETTE_GENERATION_OR_REPAIR",
+              "OWNER_OR_PROVENANCE_INFERENCE",
+              "PROFILE_BOUNDARY_DISSOLVE",
+              "FACE_COUNT_AS_SEMANTIC_AUTHORITY"
+            ],
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "input_arrangement_id": {
+          "$ref": "#/$defs/SemanticArrangementId"
+        },
+        "preserved_boundary_ids": {
+          "items": {
+            "$ref": "#/$defs/SemanticBoundaryId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "preserved_interface_ids": {
+          "items": {
+            "$ref": "#/$defs/SemanticInterfaceId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "semantic_digest_equivalence": {
+          "enum": [
+            "ALL_VALID_TESSELLATIONS_SHARE_ONE_SEMANTIC_DIGEST"
+          ],
+          "type": "string"
+        },
+        "semantic_region_ids": {
+          "items": {
+            "$ref": "#/$defs/SemanticRegionId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "shared_vertex_key_policy": {
+          "enum": [
+            "SEMANTIC_IDENTITY_NOT_COORDINATE"
+          ],
+          "type": "string"
+        },
+        "starts_after": {
+          "enum": [
+            "SEMANTIC_COALESCING"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "contract_id",
+        "starts_after",
+        "input_arrangement_id",
+        "semantic_region_ids",
+        "preserved_boundary_ids",
+        "preserved_interface_ids",
+        "shared_vertex_key_policy",
+        "allowed_internal_variation",
+        "forbidden_operations",
+        "semantic_digest_equivalence"
+      ],
+      "type": "object"
+    },
+    "TopologyStateVersionId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "TopologyStateVersionId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "cftuv.envelope.compiled_patch_evaluation_plan.v1",
+  "$ref": "#/$defs/CompiledPatchEvaluationPlanV1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CompiledPatchEvaluationPlanV1"
+}
