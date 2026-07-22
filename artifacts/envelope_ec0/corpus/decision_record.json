@@ -13,6 +13,55 @@
       "scope": "ONE_DECAL_REQUEST_ONE_OWNER_PATCH_INCLUDING_SELF_COLLISION"
     },
     {
+      "id": "AM11_ANGULAR_MODEL",
+      "authority": "USER_REQUIRED",
+      "selected": "LINEAR_REFLEX_ANGULAR_ENVELOPE_PROFILE",
+      "rejected": [
+        "SEPARATE_CORE_MITER_BEVEL_ROUND_ALGORITHMS",
+        "VORONOI_POINT_SITE_CORNER_SILHOUETTE",
+        "UNCONTROLLED_SAMPLED_FAN"
+      ],
+      "scope": "ANGULAR_ENVELOPE_CORE_SEMANTICS",
+      "notes": [
+        "CornerRelation and AngularEnvelopeSpec are different authority levels.",
+        "Zero-length hidden edges remain local support features inside AngularEnvelopeSpec.",
+        "A finite profile-controlled polygonal fan is accepted semantic boundary geometry.",
+        "Historic join names may exist only as UI or migration presets that compile to a profile."
+      ]
+    },
+    {
+      "id": "AM11_EVENT_LEDGER",
+      "authority": "USER_REQUIRED",
+      "selected": "LAZY_DETERMINISTIC_EVENT_LEDGER",
+      "rejected": [
+        "EAGER_COMPLETE_EVENT_SCHEDULE_BEFORE_FIRST_FRAME",
+        "SMALL_STEP_SIMULATION",
+        "RUNTIME_SEMANTIC_RULE_DISCOVERY"
+      ],
+      "scope": "COMPILED_PREVIEW_AND_DRAG",
+      "notes": [
+        "Envelope laws, event predicates and transition types are compiled before use.",
+        "Successor event instances may be scheduled lazily during drag.",
+        "Only complete exact states may be published."
+      ]
+    },
+    {
+      "id": "AM11_DOWNSTREAM_TESSELLATION",
+      "authority": "USER_REQUIRED",
+      "selected": "REPRESENTATION_AFTER_SEMANTIC_ARRANGEMENT",
+      "rejected": [
+        "TESSELLATION_SELECTS_SILHOUETTE",
+        "TESSELLATION_INFERS_OWNER_OR_PROVENANCE",
+        "POST_MESH_SHAPE_REPAIR"
+      ],
+      "scope": "SEMANTIC_ARRANGEMENT_TO_GEOMETRY_BATCH",
+      "notes": [
+        "Tessellation starts only after coverage, interactions, ownership and semantic coalescing are authoritative.",
+        "A profile-controlled AngularEnvelope fan is semantic geometry, not tessellation noise.",
+        "Internal fill diagonals and face decomposition are representational and excluded from the semantic digest."
+      ]
+    },
+    {
       "id": "VISUAL_POLICY",
       "authority": "USER_REQUIRED",
       "selected": "TEXT_JSON_VALIDATOR",
@@ -32,7 +81,8 @@
       "items": [
         "LEGACY_FACE_COUNT_OR_TESSELLATION",
         "LEGACY_NUMERIC_UV_CONVENTIONS_BEYOND_STATION_CONTINUITY",
-        "LEGACY_RUNTIME_NAMES_AS_REQUIRED_API"
+        "LEGACY_RUNTIME_NAMES_AS_REQUIRED_API",
+        "HISTORIC_MITER_BEVEL_ROUND_NAMES_AS_KERNEL_ALGORITHMS"
       ]
     },
     {
@@ -42,7 +92,9 @@
         "STATION_BUCKETS_AS_REQUIRED_FREEZE_MECHANISM",
         "FIRST_OR_LAST_GENERATED_VERTEX_AS_COMPLETION",
         "PER_SOURCE_MATERIALIZATION_THEN_POST_HOC_UNION",
-        "DATA_RECORD_BOUNDARY_AS_PHYSICAL_CAP_OR_OWNER_DIVIDER"
+        "DATA_RECORD_BOUNDARY_AS_PHYSICAL_CAP_OR_OWNER_DIVIDER",
+        "VORONOI_FAN_OR_ARC_AS_ANGULAR_SILHOUETTE",
+        "TESSELLATION_AS_SHAPE_AUTHORITY"
       ]
     },
     {
@@ -50,7 +102,9 @@
       "items": [
         "PRODUCTION_EXACT_ARRANGEMENT_BACKEND",
         "OBSTACLE_BYPASS_WITH_SPLIT_AND_MERGE",
-        "NONLOCAL_OWNERSHIP_TOURNAMENT"
+        "NONLOCAL_OWNERSHIP_TOURNAMENT",
+        "GLOBAL_CONFLICT_REFINEMENT_FOR_LINEAR_AXIS_EQUIVALENCE",
+        "GENERAL_CURVED_SURFACE_ENVELOPE_EVALUATOR"
       ]
     }
   ]
