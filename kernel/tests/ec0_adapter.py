@@ -34,6 +34,31 @@ def _endpoint_role(value: str) -> EndpointRole:  # noqa: F405
     return EndpointRole.START if "start" in value.lower() else EndpointRole.END  # noqa: F405
 
 
+def _junction_route_topology(item: dict[str, Any]) -> JunctionRouteTopologyV1:  # noqa: F405
+    route_pairing = item.get("route_pairing", [])
+    if len(route_pairing) == 2:
+        pair = JunctionRoutePairV1(  # noqa: F405
+            route_pairing_id=RoutePairingId(f"{item['id']}:route-pair:1"),  # noqa: F405
+            first_chain_use_id=ChainUseId(route_pairing[0]),  # noqa: F405
+            second_chain_use_id=ChainUseId(route_pairing[1]),  # noqa: F405
+            station_continuity_law=StationContinuityLaw.SEMANTIC_CHAIN_USE_S_CONTINUOUS_V1,  # noqa: F405
+        )
+        if item["relation_kind"] == "X":
+            return XJunctionRouteTopologyV1(frozenset({pair}))  # noqa: F405
+        return DeclaredRoutePairsTopologyV1(frozenset({pair}))  # noqa: F405
+    return UnavailableJunctionRouteTopologyV1(  # noqa: F405
+        JunctionRouteTopologyUnavailableReason.EC0_ROUTE_TOPOLOGY_NOT_RECORDED_V5  # noqa: F405
+    )
+
+
+def _route_pairing_ids(topology: JunctionRouteTopologyV1) -> frozenset[RoutePairingId]:  # noqa: F405
+    if isinstance(topology, TJunctionRouteTopologyV1):  # noqa: F405
+        return frozenset({topology.through_route_pair.route_pairing_id})
+    if isinstance(topology, (XJunctionRouteTopologyV1, YJunctionRouteTopologyV1, DeclaredRoutePairsTopologyV1)):  # noqa: F405
+        return frozenset(pair.route_pairing_id for pair in topology.route_pairs)
+    return frozenset()
+
+
 def _snapshot(case: dict[str, Any]) -> AnalysisSnapshotV1:  # noqa: F405
     raw = case["analysis_snapshot"]
     revision = SourceRevision(f"ec0-v5:{case['case_id']}")  # noqa: F405
@@ -75,6 +100,13 @@ def _snapshot(case: dict[str, Any]) -> AnalysisSnapshotV1:  # noqa: F405
         )
         for item in raw["patch_domains"]
     )
+    surface_metric_descriptors = frozenset(
+        UnavailableSurfaceMetricDescriptorV1(  # noqa: F405
+            patch_domain_id=item.patch_domain_id,
+            reason=SurfaceCoordinateUnavailableReason.EC0_COORDINATE_FREE_FIXTURE_V5,  # noqa: F405
+        )
+        for item in patch_domains
+    )
     source_vertices = frozenset(
         SourceVertexV1(  # noqa: F405
             SourceVertexId(item["id"]),  # noqa: F405
@@ -88,7 +120,9 @@ def _snapshot(case: dict[str, Any]) -> AnalysisSnapshotV1:  # noqa: F405
         PhysicalChainV1(  # noqa: F405
             physical_chain_id=PhysicalChainId(item["id"]),  # noqa: F405
             kind=PhysicalChainKind(item["kind"]),  # noqa: F405
+            is_closed=False,
             ordered_source_vertex_ids=(),
+            ordered_physical_edge_ids=(),
             source_lineage=_lineage(item.get("source_lineage")),
             data_record_lineage=_lineage(item.get("data_record_lineage")),
         )
@@ -116,6 +150,13 @@ def _snapshot(case: dict[str, Any]) -> AnalysisSnapshotV1:  # noqa: F405
             boundary_constraint_id=BoundaryConstraintId(item["id"]),  # noqa: F405
             patch_domain_id=PatchDomainId(domains_by_boundary[item["id"]]),  # noqa: F405
             constraint_kind=BoundaryConstraintKind(item["constraint_kind"]),  # noqa: F405
+            target=(
+                ChainUseConstraintTargetV1(ChainUseId(item["originating_chain_use_id"]))  # noqa: F405
+                if item.get("originating_chain_use_id")
+                else UnavailableBoundaryConstraintTargetV1(  # noqa: F405
+                    BoundaryConstraintTargetUnavailableReason.EC0_COORDINATE_FREE_FIXTURE_V5  # noqa: F405
+                )
+            ),
             originating_chain_use_id=(
                 ChainUseId(item["originating_chain_use_id"])  # noqa: F405
                 if item.get("originating_chain_use_id")
@@ -141,10 +182,16 @@ def _snapshot(case: dict[str, Any]) -> AnalysisSnapshotV1:  # noqa: F405
             incoming_support_ref=SourceSupportRefV1(  # noqa: F405
                 ChainUseId(item["incoming_support_ref"]["chain_use_id"]),  # noqa: F405
                 BoundaryConstraintId(item["incoming_support_ref"]["source_launch_boundary_id"]),  # noqa: F405
+                UnavailableSourceSupportDirectionV1(  # noqa: F405
+                    SupportDirectionUnavailableReason.EC0_SYMBOLIC_SUPPORT_ONLY_V5  # noqa: F405
+                ),
             ),
             outgoing_support_ref=SourceSupportRefV1(  # noqa: F405
                 ChainUseId(item["outgoing_support_ref"]["chain_use_id"]),  # noqa: F405
                 BoundaryConstraintId(item["outgoing_support_ref"]["source_launch_boundary_id"]),  # noqa: F405
+                UnavailableSourceSupportDirectionV1(  # noqa: F405
+                    SupportDirectionUnavailableReason.EC0_SYMBOLIC_SUPPORT_ONLY_V5  # noqa: F405
+                ),
             ),
             turn_orientation=TurnOrientation(item["turn_orientation"]),  # noqa: F405
             interior_selection_law=InteriorSelectionLaw(item["interior_selection_law"]),  # noqa: F405
@@ -159,6 +206,9 @@ def _snapshot(case: dict[str, Any]) -> AnalysisSnapshotV1:  # noqa: F405
             measure_source=AngleMeasureSource(item["measure_source"]),  # noqa: F405
             strict_range_certificate=StrictAngleRangeCertificate(item["strict_range_certificate"]),  # noqa: F405
             reflex_excess_law=ReflexExcessLaw(item["reflex_excess_law"]),  # noqa: F405
+            measure_payload=UnavailableReflexAngleMeasureV1(  # noqa: F405
+                AngleMeasureUnavailableReason.EC0_SYMBOLIC_ANGLE_ONLY_V5  # noqa: F405
+            ),
             exact_two_pi=item["exact_two_pi"],
         )
         for item in raw["reflex_angle_certificates"]
@@ -181,7 +231,7 @@ def _snapshot(case: dict[str, Any]) -> AnalysisSnapshotV1:  # noqa: F405
                 ChainUseId(value) for value in item["incident_chain_use_ids"]  # noqa: F405
             ),
             relation_kind=JunctionRelationKind(item["relation_kind"]),  # noqa: F405
-            route_pairing=tuple(ChainUseId(value) for value in item.get("route_pairing", [])),  # noqa: F405
+            route_topology=_junction_route_topology(item),
             shared_semantic_anchor_id=SharedSemanticAnchorId(item["shared_semantic_anchor_id"]),  # noqa: F405
         )
         for item in raw["junction_relations"]
@@ -203,11 +253,13 @@ def _snapshot(case: dict[str, Any]) -> AnalysisSnapshotV1:  # noqa: F405
         analysis_capabilities=capabilities,
         patches=patches,
         patch_domains=patch_domains,
+        surface_metric_descriptors=surface_metric_descriptors,
         surface_ir=PatchSurfaceIRV1(  # noqa: F405
             schema_version="cftuv.envelope.patch_surface_ir.v1",
             source_revision=revision,
             payload_mode=SurfacePayloadMode.EC0_COORDINATE_FREE_FIXTURE_V5,  # noqa: F405
             source_vertex_ids=frozenset(vertex.vertex_id for vertex in source_vertices),
+            source_edges=frozenset(),
             source_faces=frozenset(),
             surface_triangles=frozenset(),
         ),
@@ -220,6 +272,7 @@ def _snapshot(case: dict[str, Any]) -> AnalysisSnapshotV1:  # noqa: F405
         reflex_angle_certificates=reflex_angle_certificates,
         corner_relations=corner_relations,
         junction_relations=junction_relations,
+        terminal_relations=frozenset(),
     )
 
 
@@ -346,6 +399,7 @@ def _seeds(
                 CapSeedV1(  # noqa: F405
                     seed_id=CapSeedId(item["id"]),  # noqa: F405
                     source_vertex_id=SourceVertexId(item["source_vertex_id"]),  # noqa: F405
+                    terminal_relation_id=None,
                     chain_use_id=ChainUseId(item["chain_use_id"]),  # noqa: F405
                     owner_patch_id=PatchId(item["owner_patch_id"]),  # noqa: F405
                     endpoint_role=_endpoint_role(item["source_vertex_id"]),
@@ -357,6 +411,7 @@ def _seeds(
                 EndpointClaimSeedV1(  # noqa: F405
                     seed_id=EndpointClaimSeedId(item["id"]),  # noqa: F405
                     source_vertex_id=SourceVertexId(item["source_vertex_id"]),  # noqa: F405
+                    terminal_relation_id=None,
                     chain_use_id=ChainUseId(item["chain_use_id"]),  # noqa: F405
                     owner_patch_id=PatchId(item["owner_patch_id"]),  # noqa: F405
                     endpoint_role=_endpoint_role(item["source_vertex_id"]),
@@ -460,7 +515,7 @@ def _envelope_specs(
                         FrontComponentId(value) for value in item["incident_front_component_ids"]  # noqa: F405
                     ),
                     support_law_id=JunctionSupportLawId(item["support_law_id"]),  # noqa: F405
-                    route_pairing_chain_use_ids=relation.route_pairing,
+                    route_pairing_ids=_route_pairing_ids(relation.route_topology),
                     shared_semantic_anchor_id=relation.shared_semantic_anchor_id,
                     per_patch_projection_id=(
                         PerPatchProjectionId(item["source_seed_id"]) if projected else None  # noqa: F405
@@ -476,6 +531,7 @@ def _envelope_specs(
                 CapEnvelopeSpec(  # noqa: F405
                     source_seed_id=CapSeedId(item["source_seed_id"]),  # noqa: F405
                     physical_terminal_source_vertex_id=SourceVertexId(item["terminal_source_vertex_id"]),  # noqa: F405
+                    terminal_relation_id=None,
                     incident_chain_use_id=ChainUseId(item["incident_chain_use_id"]),  # noqa: F405
                     incident_strip_spec_id=EnvelopeSpecId(item["incident_strip_spec_id"]),  # noqa: F405
                     closure_law_id=CapClosureLawId(item["closure_law_id"]),  # noqa: F405

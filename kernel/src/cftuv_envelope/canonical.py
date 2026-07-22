@@ -53,6 +53,20 @@ def geometry_batch_semantic_digest(batch: GeometryBatchV1) -> GeometryBatchSeman
     semantic_vertices = frozenset(
         vertex for vertex in batch.vertices if vertex.vert_key in semantic_vertex_keys
     )
+    semantic_uv_projection = frozenset(
+        (
+            face.semantic_region_id,
+            face.ownership_claim_id,
+            fact.vert_key,
+            fact.uv,
+        )
+        for face in batch.faces
+        for fact in face.uv_facts
+        if fact.vert_key in semantic_vertex_keys
+    )
+    semantic_station_projection = frozenset(
+        fact for fact in batch.station_facts if fact.vert_key in semantic_vertex_keys
+    )
     projection = {
         "schema_version": batch.schema_version,
         "source_revision": batch.source_revision,
@@ -62,6 +76,8 @@ def geometry_batch_semantic_digest(batch: GeometryBatchV1) -> GeometryBatchSeman
         "boundary_chains": batch.boundary_chains,
         "interface_chains": batch.interface_chains,
         "semantic_vertices": semantic_vertices,
+        "semantic_uv_projection": semantic_uv_projection,
+        "semantic_station_projection": semantic_station_projection,
         "contract_versions": batch.contract_versions,
         "diagnostics": batch.diagnostics,
     }

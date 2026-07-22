@@ -11,6 +11,7 @@ from ..ids import (
     DecalRequestId,
     GeometryDiagnosticId,
     GeometryFaceId,
+    GeometryStationFactId,
     LineageId,
     MaterialId,
     OwnershipClaimId,
@@ -25,8 +26,9 @@ from ..ids import (
     SourceRevision,
     VertexKey,
 )
-from ..numeric import LocalPoint3V1, UvPoint2V1
+from ..numeric import LocalCoordinateV1, LocalPoint3V1, UvPoint2V1
 from ..outcomes import NamedOutcome
+from .envelopes import StationModelId
 
 
 GEOMETRY_BATCH_SCHEMA_V1 = "cftuv.envelope.geometry_batch.v1"
@@ -58,6 +60,18 @@ class GeometryVertexV1:
 class GeometryUvFactV1:
     vert_key: VertexKey
     uv: UvPoint2V1
+
+
+@dataclass(frozen=True, slots=True)
+class GeometryStationFactV1:
+    station_fact_id: GeometryStationFactId
+    vert_key: VertexKey
+    semantic_region_id: SemanticRegionId
+    ownership_claim_id: OwnershipClaimId
+    source_s: LocalCoordinateV1
+    source_r: LocalCoordinateV1
+    station_model_id: StationModelId
+    lineage_ids: frozenset[LineageId]
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,10 +127,10 @@ class GeometryBatchV1:
     patch_domain_id: PatchDomainId
     vertices: frozenset[GeometryVertexV1]
     faces: tuple[GeometryFaceV1, ...]
+    station_facts: frozenset[GeometryStationFactV1]
     semantic_regions: frozenset[GeometrySemanticRegionV1]
     boundary_chains: frozenset[GeometryBoundaryChainV1]
     interface_chains: frozenset[GeometryInterfaceChainV1]
     diagnostics: frozenset[GeometryDiagnosticV1]
     contract_versions: frozenset[ContractVersionId]
     semantic_digest: SemanticDigestValue
-

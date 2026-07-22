@@ -21,6 +21,7 @@ from ..ids import (
     SelectionCertificateId,
     SharedSemanticAnchorId,
     SourceVertexId,
+    TerminalRelationId,
 )
 
 
@@ -74,6 +75,7 @@ class CapSeedV1:
     decal_request_id: DecalRequestId
     patch_domain_id: PatchDomainId
     source_vertex_id: SourceVertexId
+    terminal_relation_id: TerminalRelationId | None
     chain_use_id: ChainUseId
     owner_patch_id: PatchId
     endpoint_role: EndpointRole
@@ -85,10 +87,10 @@ class EndpointClaimSeedV1:
     decal_request_id: DecalRequestId
     patch_domain_id: PatchDomainId
     source_vertex_id: SourceVertexId
+    terminal_relation_id: TerminalRelationId | None
     chain_use_id: ChainUseId
     owner_patch_id: PatchId
     endpoint_role: EndpointRole
 
 
 SeedV1 = FrontSeedV1 | CornerSeedV1 | JunctionSeedV1 | CapSeedV1 | EndpointClaimSeedV1
-

@@ -22,6 +22,17 @@ class SurfacePayloadMode(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class SourceEdgeV1:
+    edge_id: PhysicalEdgeId
+    vertex_a_id: SourceVertexId
+    vertex_b_id: SourceVertexId
+
+    def __post_init__(self) -> None:
+        if self.vertex_a_id == self.vertex_b_id:
+            raise ValueError("SourceEdgeV1 endpoints must be distinct")
+
+
+@dataclass(frozen=True, slots=True)
 class SourceFaceV1:
     face_id: SourceFaceId
     patch_id: PatchId
@@ -60,6 +71,6 @@ class PatchSurfaceIRV1:
     source_revision: SourceRevision
     payload_mode: SurfacePayloadMode
     source_vertex_ids: frozenset[SourceVertexId]
+    source_edges: frozenset[SourceEdgeV1]
     source_faces: frozenset[SourceFaceV1]
     surface_triangles: frozenset[SurfaceTriangleV1]
-

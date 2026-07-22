@@ -23,9 +23,11 @@ from ..ids import (
     OwnerSectorId,
     PatchDomainId,
     PerPatchProjectionId,
+    RoutePairingId,
     SelectionCertificateId,
     SharedSemanticAnchorId,
     SourceVertexId,
+    TerminalRelationId,
 )
 from ..numeric import ExactRatioV1
 from .request import (
@@ -227,7 +229,7 @@ class JunctionEnvelopeSpec:
     source_relation_id: JunctionRelationId
     incident_front_component_ids: frozenset[FrontComponentId]
     support_law_id: JunctionSupportLawId
-    route_pairing_chain_use_ids: tuple[ChainUseId, ...]
+    route_pairing_ids: frozenset[RoutePairingId]
     shared_semantic_anchor_id: SharedSemanticAnchorId
     per_patch_projection_id: PerPatchProjectionId | None
     mixed_alpha_policy: MixedAlphaPolicy
@@ -241,6 +243,7 @@ class CapEnvelopeSpec:
     patch_domain_id: PatchDomainId
     source_lineage_ids: frozenset[LineageId]
     physical_terminal_source_vertex_id: SourceVertexId
+    terminal_relation_id: TerminalRelationId | None
     incident_chain_use_id: ChainUseId
     incident_strip_spec_id: EnvelopeSpecId
     closure_law_id: CapClosureLawId

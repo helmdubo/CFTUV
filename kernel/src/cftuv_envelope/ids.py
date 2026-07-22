@@ -85,6 +85,11 @@ class AngleCertificateId(OpaqueId):
 
 
 @dataclass(frozen=True, slots=True)
+class PlanarityCertificateId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
 class CornerRelationId(OpaqueId):
     pass
 
@@ -246,6 +251,11 @@ class GeometryFaceId(OpaqueId):
 
 @dataclass(frozen=True, slots=True)
 class GeometryDiagnosticId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class GeometryStationFactId(OpaqueId):
     pass
 
 

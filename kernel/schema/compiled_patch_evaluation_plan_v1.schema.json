@@ -325,6 +325,16 @@
             "PLAN_STATION_FLOW"
           ],
           "type": "string"
+        },
+        "terminal_relation_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TerminalRelationId"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -335,6 +345,7 @@
         "patch_domain_id",
         "source_lineage_ids",
         "physical_terminal_source_vertex_id",
+        "terminal_relation_id",
         "incident_chain_use_id",
         "incident_strip_spec_id",
         "closure_law_id",
@@ -392,6 +403,16 @@
         },
         "source_vertex_id": {
           "$ref": "#/$defs/SourceVertexId"
+        },
+        "terminal_relation_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TerminalRelationId"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -400,6 +421,7 @@
         "decal_request_id",
         "patch_domain_id",
         "source_vertex_id",
+        "terminal_relation_id",
         "chain_use_id",
         "owner_patch_id",
         "endpoint_role"
@@ -513,7 +535,8 @@
               "OWNERSHIP_PARTITION_UNPROVEN",
               "PENDING_EXACT_EVALUATION",
               "APPROXIMATE_MATERIALIZATION_PENDING",
-              "JUNCTION_ROUTE_PAIRING_REQUIRED"
+              "JUNCTION_ROUTE_PAIRING_REQUIRED",
+              "ANGULAR_PROFILE_SELECTION_UNCERTAIN"
             ],
             "type": "string"
           },
@@ -788,6 +811,16 @@
         },
         "source_vertex_id": {
           "$ref": "#/$defs/SourceVertexId"
+        },
+        "terminal_relation_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TerminalRelationId"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -796,6 +829,7 @@
         "decal_request_id",
         "patch_domain_id",
         "source_vertex_id",
+        "terminal_relation_id",
         "chain_use_id",
         "owner_patch_id",
         "endpoint_role"
@@ -972,7 +1006,8 @@
             "OWNERSHIP_PARTITION_UNPROVEN",
             "PENDING_EXACT_EVALUATION",
             "APPROXIMATE_MATERIALIZATION_PENDING",
-            "JUNCTION_ROUTE_PAIRING_REQUIRED"
+            "JUNCTION_ROUTE_PAIRING_REQUIRED",
+            "ANGULAR_PROFILE_SELECTION_UNCERTAIN"
           ],
           "type": "string"
         },
@@ -1727,11 +1762,12 @@
             }
           ]
         },
-        "route_pairing_chain_use_ids": {
+        "route_pairing_ids": {
           "items": {
-            "$ref": "#/$defs/ChainUseId"
+            "$ref": "#/$defs/RoutePairingId"
           },
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "shared_semantic_anchor_id": {
           "$ref": "#/$defs/SharedSemanticAnchorId"
@@ -1766,7 +1802,7 @@
         "source_relation_id",
         "incident_front_component_ids",
         "support_law_id",
-        "route_pairing_chain_use_ids",
+        "route_pairing_ids",
         "shared_semantic_anchor_id",
         "per_patch_projection_id",
         "mixed_alpha_policy"
@@ -2057,7 +2093,8 @@
             "OWNERSHIP_PARTITION_UNPROVEN",
             "PENDING_EXACT_EVALUATION",
             "APPROXIMATE_MATERIALIZATION_PENDING",
-            "JUNCTION_ROUTE_PAIRING_REQUIRED"
+            "JUNCTION_ROUTE_PAIRING_REQUIRED",
+            "ANGULAR_PROFILE_SELECTION_UNCERTAIN"
           ],
           "type": "string"
         },
@@ -2243,6 +2280,23 @@
         "patch_domain_id",
         "stage",
         "interaction_ids"
+      ],
+      "type": "object"
+    },
+    "RoutePairingId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "RoutePairingId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
       ],
       "type": "object"
     },
@@ -2588,6 +2642,23 @@
       "properties": {
         "$id_type": {
           "const": "SymbolicScalarId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "TerminalRelationId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "TerminalRelationId"
         },
         "value": {
           "minLength": 1,

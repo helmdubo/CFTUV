@@ -22,6 +22,31 @@ class SurfaceCoordinateUnavailableReason(str, Enum):
     EC0_COORDINATE_FREE_FIXTURE_V5 = "EC0_COORDINATE_FREE_FIXTURE_V5"
 
 
+class IntervalEndpointKind(str, Enum):
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+
+
+@dataclass(frozen=True, slots=True)
+class LocalPoint2V1:
+    x: float
+    y: float
+
+    def __post_init__(self) -> None:
+        if not all(isfinite(value) for value in (self.x, self.y)):
+            raise ValueError("LocalPoint2V1 requires finite coordinates")
+
+
+@dataclass(frozen=True, slots=True)
+class LocalVector2V1:
+    x: float
+    y: float
+
+    def __post_init__(self) -> None:
+        if not all(isfinite(value) for value in (self.x, self.y)):
+            raise ValueError("LocalVector2V1 requires finite components")
+
+
 @dataclass(frozen=True, slots=True)
 class LocalPoint3V1:
     x: float
@@ -67,6 +92,18 @@ class LocalLengthV1:
 
 
 @dataclass(frozen=True, slots=True)
+class LocalCoordinateV1:
+    """Signed metric coordinate for semantic station/transverse facts."""
+
+    value: Decimal
+    metric_space: MetricSpace = MetricSpace.SOURCE_LOCAL_INTRINSIC
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.value, Decimal) or not self.value.is_finite():
+            raise ValueError("LocalCoordinateV1 requires a finite Decimal")
+
+
+@dataclass(frozen=True, slots=True)
 class SymbolicLocalLengthV1:
     """Явная coordinate-free величина только для принятого EC0 oracle."""
 
@@ -97,9 +134,33 @@ class ExactRatioV1:
 
 
 @dataclass(frozen=True, slots=True)
+class CertifiedDecimalIntervalV1:
+    """Exact decimal bounds supplied by an external measurement authority."""
+
+    lower: Decimal
+    upper: Decimal
+    lower_kind: IntervalEndpointKind
+    upper_kind: IntervalEndpointKind
+    absolute_error_bound: Decimal
+
+    def __post_init__(self) -> None:
+        values = (self.lower, self.upper, self.absolute_error_bound)
+        if not all(isinstance(value, Decimal) and value.is_finite() for value in values):
+            raise ValueError("CertifiedDecimalIntervalV1 requires finite Decimals")
+        if self.lower > self.upper:
+            raise ValueError("CertifiedDecimalIntervalV1 lower bound exceeds upper bound")
+        if self.absolute_error_bound < 0:
+            raise ValueError("CertifiedDecimalIntervalV1 error bound cannot be negative")
+        if self.lower == self.upper and (
+            self.lower_kind is IntervalEndpointKind.OPEN
+            or self.upper_kind is IntervalEndpointKind.OPEN
+        ):
+            raise ValueError("A zero-width certified interval must be closed")
+
+
+@dataclass(frozen=True, slots=True)
 class UnavailableSourcePositionV1:
     reason: SurfaceCoordinateUnavailableReason
 
 
 SourcePositionV1 = LocalPoint3V1 | UnavailableSourcePositionV1
-

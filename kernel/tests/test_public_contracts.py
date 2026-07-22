@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import inspect
 import types
 import typing
@@ -10,6 +11,9 @@ import pytest
 
 import cftuv_envelope
 from cftuv_envelope import ChainUseId, PatchId
+
+
+PUBLIC_API_V1_SHA256 = "b3629eba27fcdea5f8387021d536f272961cda1d9311950a770b378331876c16"
 
 
 def _public_record_types():
@@ -51,6 +55,18 @@ def test_all_public_records_are_frozen_and_slotted():
         assert hasattr(record, "__slots__"), record
 
 
+def test_top_level_public_api_is_explicit_and_snapshotted():
+    public_names = {
+        name
+        for name in dir(cftuv_envelope)
+        if not name.startswith("_") or name == "__version__"
+    }
+    assert public_names == set(cftuv_envelope.__all__)
+    assert len(cftuv_envelope.__all__) == len(set(cftuv_envelope.__all__))
+    digest = hashlib.sha256("\n".join(cftuv_envelope.__all__).encode("utf-8")).hexdigest()
+    assert digest == PUBLIC_API_V1_SHA256
+
+
 def test_public_dto_annotations_have_no_mutable_or_untyped_containers():
     for record in _public_record_types():
         hints = typing.get_type_hints(record)
@@ -76,4 +92,3 @@ def test_nested_collections_are_immutable(projections):
         projection.snapshot.patches.add(next(iter(projection.snapshot.patches)))
     with pytest.raises(FrozenInstanceError):
         projection.request.decal_request_id = projection.request.decal_request_id
-

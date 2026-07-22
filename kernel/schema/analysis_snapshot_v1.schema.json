@@ -15,6 +15,11 @@
               "ORIENTED_OWNER_SECTOR_V1",
               "REFLEX_ANGLE_CERTIFICATE_V1",
               "RELATION_LINEAGE_V1",
+              "AUTHORITATIVE_SURFACE_METRIC_V1",
+              "PHYSICAL_EDGE_TABLE_V1",
+              "BOUNDARY_CONSTRAINT_TARGET_V1",
+              "TYPED_JUNCTION_ROUTE_TOPOLOGY_V1",
+              "TERMINAL_RELATION_V1",
               "EC0_COORDINATE_FREE_FIXTURE_V5"
             ],
             "type": "string"
@@ -107,6 +112,30 @@
         },
         "surface_ir": {
           "$ref": "#/$defs/PatchSurfaceIRV1"
+        },
+        "surface_metric_descriptors": {
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/PlanarPatchFrameV1"
+              },
+              {
+                "$ref": "#/$defs/IntrinsicSurfaceMetricDescriptorV1"
+              },
+              {
+                "$ref": "#/$defs/UnavailableSurfaceMetricDescriptorV1"
+              }
+            ]
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "terminal_relations": {
+          "items": {
+            "$ref": "#/$defs/TerminalRelationV1"
+          },
+          "type": "array",
+          "uniqueItems": true
         }
       },
       "required": [
@@ -116,6 +145,7 @@
         "analysis_capabilities",
         "patches",
         "patch_domains",
+        "surface_metric_descriptors",
         "surface_ir",
         "source_vertices",
         "physical_chains",
@@ -125,7 +155,8 @@
         "angular_owner_sectors",
         "reflex_angle_certificates",
         "corner_relations",
-        "junction_relations"
+        "junction_relations",
+        "terminal_relations"
       ],
       "type": "object"
     },
@@ -198,6 +229,22 @@
         },
         "patch_domain_id": {
           "$ref": "#/$defs/PatchDomainId"
+        },
+        "target": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/BoundaryLoopConstraintTargetV1"
+            },
+            {
+              "$ref": "#/$defs/ChainUseConstraintTargetV1"
+            },
+            {
+              "$ref": "#/$defs/PhysicalEdgeSequenceConstraintTargetV1"
+            },
+            {
+              "$ref": "#/$defs/UnavailableBoundaryConstraintTargetV1"
+            }
+          ]
         }
       },
       "required": [
@@ -205,9 +252,26 @@
         "boundary_constraint_id",
         "patch_domain_id",
         "constraint_kind",
+        "target",
         "originating_chain_use_id",
         "blocks_originating_seed",
         "blocks_other_fronts"
+      ],
+      "type": "object"
+    },
+    "BoundaryLoopConstraintTargetV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "BoundaryLoopConstraintTargetV1"
+        },
+        "boundary_loop_id": {
+          "$ref": "#/$defs/BoundaryLoopId"
+        }
+      },
+      "required": [
+        "$type",
+        "boundary_loop_id"
       ],
       "type": "object"
     },
@@ -260,6 +324,123 @@
         "patch_domain_id",
         "kind",
         "ordered_chain_use_ids"
+      ],
+      "type": "object"
+    },
+    "CertifiedDecimalIntervalV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "CertifiedDecimalIntervalV1"
+        },
+        "absolute_error_bound": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        },
+        "lower": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        },
+        "lower_kind": {
+          "enum": [
+            "OPEN",
+            "CLOSED"
+          ],
+          "type": "string"
+        },
+        "upper": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        },
+        "upper_kind": {
+          "enum": [
+            "OPEN",
+            "CLOSED"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "lower",
+        "upper",
+        "lower_kind",
+        "upper_kind",
+        "absolute_error_bound"
+      ],
+      "type": "object"
+    },
+    "CertifiedPlanarSupportDirectionV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "CertifiedPlanarSupportDirectionV1"
+        },
+        "authority": {
+          "enum": [
+            "HOST_ANALYSIS_AUTHORITATIVE_V1"
+          ],
+          "type": "string"
+        },
+        "direction_in_domain": {
+          "$ref": "#/$defs/LocalVector2V1"
+        }
+      },
+      "required": [
+        "$type",
+        "direction_in_domain",
+        "authority"
+      ],
+      "type": "object"
+    },
+    "CertifiedReflexAngleMeasureV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "CertifiedReflexAngleMeasureV1"
+        },
+        "normalization_law": {
+          "enum": [
+            "VALUE_OVER_SYMBOLIC_PI_V1"
+          ],
+          "type": "string"
+        },
+        "orientation": {
+          "enum": [
+            "CCW_IN_OWNER_PATCH_ORIENTATION",
+            "CW_IN_OWNER_PATCH_ORIENTATION"
+          ],
+          "type": "string"
+        },
+        "phi_over_pi": {
+          "$ref": "#/$defs/CertifiedDecimalIntervalV1"
+        },
+        "reflex_excess_over_pi": {
+          "$ref": "#/$defs/CertifiedDecimalIntervalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "phi_over_pi",
+        "reflex_excess_over_pi",
+        "orientation",
+        "normalization_law"
+      ],
+      "type": "object"
+    },
+    "ChainUseConstraintTargetV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ChainUseConstraintTargetV1"
+        },
+        "chain_use_id": {
+          "$ref": "#/$defs/ChainUseId"
+        }
+      },
+      "required": [
+        "$type",
+        "chain_use_id"
       ],
       "type": "object"
     },
@@ -402,6 +583,67 @@
       ],
       "type": "object"
     },
+    "DeclaredRoutePairsTopologyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "DeclaredRoutePairsTopologyV1"
+        },
+        "route_pairs": {
+          "items": {
+            "$ref": "#/$defs/JunctionRoutePairV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "route_pairs"
+      ],
+      "type": "object"
+    },
+    "IntrinsicSurfaceMetricDescriptorV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "IntrinsicSurfaceMetricDescriptorV1"
+        },
+        "authority": {
+          "enum": [
+            "HOST_ANALYSIS_AUTHORITATIVE_V1"
+          ],
+          "type": "string"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "source_lineage": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "surface_regime": {
+          "enum": [
+            "INTRINSIC_PATCH_SURFACE",
+            "PLANAR",
+            "DEVELOPABLE",
+            "GENERAL_CURVED"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "patch_domain_id",
+        "surface_regime",
+        "authority",
+        "source_lineage"
+      ],
+      "type": "object"
+    },
     "JunctionRelationId": {
       "additionalProperties": false,
       "properties": {
@@ -444,11 +686,24 @@
           ],
           "type": "string"
         },
-        "route_pairing": {
-          "items": {
-            "$ref": "#/$defs/ChainUseId"
-          },
-          "type": "array"
+        "route_topology": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/TJunctionRouteTopologyV1"
+            },
+            {
+              "$ref": "#/$defs/XJunctionRouteTopologyV1"
+            },
+            {
+              "$ref": "#/$defs/YJunctionRouteTopologyV1"
+            },
+            {
+              "$ref": "#/$defs/DeclaredRoutePairsTopologyV1"
+            },
+            {
+              "$ref": "#/$defs/UnavailableJunctionRouteTopologyV1"
+            }
+          ]
         },
         "shared_semantic_anchor_id": {
           "$ref": "#/$defs/SharedSemanticAnchorId"
@@ -463,8 +718,39 @@
         "source_vertex_id",
         "incident_chain_use_ids",
         "relation_kind",
-        "route_pairing",
+        "route_topology",
         "shared_semantic_anchor_id"
+      ],
+      "type": "object"
+    },
+    "JunctionRoutePairV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "JunctionRoutePairV1"
+        },
+        "first_chain_use_id": {
+          "$ref": "#/$defs/ChainUseId"
+        },
+        "route_pairing_id": {
+          "$ref": "#/$defs/RoutePairingId"
+        },
+        "second_chain_use_id": {
+          "$ref": "#/$defs/ChainUseId"
+        },
+        "station_continuity_law": {
+          "enum": [
+            "SEMANTIC_CHAIN_USE_S_CONTINUOUS_V1"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "route_pairing_id",
+        "first_chain_use_id",
+        "second_chain_use_id",
+        "station_continuity_law"
       ],
       "type": "object"
     },
@@ -529,6 +815,50 @@
       ],
       "type": "object"
     },
+    "LocalLengthV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "LocalLengthV1"
+        },
+        "metric_space": {
+          "enum": [
+            "SOURCE_LOCAL_INTRINSIC"
+          ],
+          "type": "string"
+        },
+        "value": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "value",
+        "metric_space"
+      ],
+      "type": "object"
+    },
+    "LocalPoint2V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "LocalPoint2V1"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "$type",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
     "LocalPoint3V1": {
       "additionalProperties": false,
       "properties": {
@@ -550,6 +880,26 @@
         "x",
         "y",
         "z"
+      ],
+      "type": "object"
+    },
+    "LocalVector2V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "LocalVector2V1"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "$type",
+        "x",
+        "y"
       ],
       "type": "object"
     },
@@ -826,6 +1176,13 @@
         "schema_version": {
           "type": "string"
         },
+        "source_edges": {
+          "items": {
+            "$ref": "#/$defs/SourceEdgeV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
         "source_faces": {
           "items": {
             "$ref": "#/$defs/SourceFaceV1"
@@ -857,6 +1214,7 @@
         "source_revision",
         "payload_mode",
         "source_vertex_ids",
+        "source_edges",
         "source_faces",
         "surface_triangles"
       ],
@@ -892,6 +1250,9 @@
           "type": "array",
           "uniqueItems": true
         },
+        "is_closed": {
+          "type": "boolean"
+        },
         "kind": {
           "enum": [
             "PHYSICAL_DECAL_SOURCE",
@@ -899,6 +1260,12 @@
             "SEAM_SELF"
           ],
           "type": "string"
+        },
+        "ordered_physical_edge_ids": {
+          "items": {
+            "$ref": "#/$defs/PhysicalEdgeId"
+          },
+          "type": "array"
         },
         "ordered_source_vertex_ids": {
           "items": {
@@ -921,7 +1288,9 @@
         "$type",
         "physical_chain_id",
         "kind",
+        "is_closed",
         "ordered_source_vertex_ids",
+        "ordered_physical_edge_ids",
         "source_lineage",
         "data_record_lineage"
       ],
@@ -944,6 +1313,167 @@
       ],
       "type": "object"
     },
+    "PhysicalEdgeSequenceConstraintTargetV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "PhysicalEdgeSequenceConstraintTargetV1"
+        },
+        "is_closed": {
+          "type": "boolean"
+        },
+        "ordered_physical_edge_ids": {
+          "items": {
+            "$ref": "#/$defs/PhysicalEdgeId"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "$type",
+        "ordered_physical_edge_ids",
+        "is_closed"
+      ],
+      "type": "object"
+    },
+    "PlanarPatchFrameV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "PlanarPatchFrameV1"
+        },
+        "axis_u": {
+          "$ref": "#/$defs/LocalVector3V1"
+        },
+        "axis_v": {
+          "$ref": "#/$defs/LocalVector3V1"
+        },
+        "handedness": {
+          "enum": [
+            "RIGHT_HANDED_U_V_NORMAL",
+            "LEFT_HANDED_U_V_NORMAL"
+          ],
+          "type": "string"
+        },
+        "normal": {
+          "$ref": "#/$defs/LocalVector3V1"
+        },
+        "origin": {
+          "$ref": "#/$defs/LocalPoint3V1"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "planarity_certificate": {
+          "$ref": "#/$defs/PlanarityCertificateV1"
+        },
+        "projection_law": {
+          "enum": [
+            "DOT_WITH_AUTHORITATIVE_U_V_BASIS_V1"
+          ],
+          "type": "string"
+        },
+        "source_vertex_coordinates": {
+          "items": {
+            "$ref": "#/$defs/PlanarSourceVertexCoordinateV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "patch_domain_id",
+        "origin",
+        "axis_u",
+        "axis_v",
+        "normal",
+        "handedness",
+        "planarity_certificate",
+        "projection_law",
+        "source_vertex_coordinates"
+      ],
+      "type": "object"
+    },
+    "PlanarSourceVertexCoordinateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "PlanarSourceVertexCoordinateV1"
+        },
+        "domain_coordinate": {
+          "$ref": "#/$defs/LocalPoint2V1"
+        },
+        "source_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        }
+      },
+      "required": [
+        "$type",
+        "source_vertex_id",
+        "domain_coordinate"
+      ],
+      "type": "object"
+    },
+    "PlanarityCertificateId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PlanarityCertificateId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PlanarityCertificateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "PlanarityCertificateV1"
+        },
+        "authority": {
+          "enum": [
+            "HOST_ANALYSIS_AUTHORITATIVE_V1"
+          ],
+          "type": "string"
+        },
+        "certificate_id": {
+          "$ref": "#/$defs/PlanarityCertificateId"
+        },
+        "exact": {
+          "type": "boolean"
+        },
+        "law": {
+          "enum": [
+            "ALL_DOMAIN_SOURCE_VERTICES_ON_CERTIFIED_PLANE_V1"
+          ],
+          "type": "string"
+        },
+        "max_absolute_plane_distance": {
+          "$ref": "#/$defs/LocalLengthV1"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        }
+      },
+      "required": [
+        "$type",
+        "certificate_id",
+        "patch_domain_id",
+        "law",
+        "exact",
+        "max_absolute_plane_distance",
+        "authority"
+      ],
+      "type": "object"
+    },
     "ReflexAngleCertificateV1": {
       "additionalProperties": false,
       "properties": {
@@ -961,6 +1491,16 @@
             "ORIENTED_OWNER_SECTOR_ANGLE"
           ],
           "type": "string"
+        },
+        "measure_payload": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/CertifiedReflexAngleMeasureV1"
+            },
+            {
+              "$ref": "#/$defs/UnavailableReflexAngleMeasureV1"
+            }
+          ]
         },
         "measure_source": {
           "enum": [
@@ -992,7 +1532,25 @@
         "measure_source",
         "strict_range_certificate",
         "reflex_excess_law",
+        "measure_payload",
         "exact_two_pi"
+      ],
+      "type": "object"
+    },
+    "RoutePairingId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "RoutePairingId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
       ],
       "type": "object"
     },
@@ -1010,6 +1568,30 @@
       "required": [
         "$id_type",
         "value"
+      ],
+      "type": "object"
+    },
+    "SourceEdgeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "SourceEdgeV1"
+        },
+        "edge_id": {
+          "$ref": "#/$defs/PhysicalEdgeId"
+        },
+        "vertex_a_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        },
+        "vertex_b_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        }
+      },
+      "required": [
+        "$type",
+        "edge_id",
+        "vertex_a_id",
+        "vertex_b_id"
       ],
       "type": "object"
     },
@@ -1101,6 +1683,16 @@
         "chain_use_id": {
           "$ref": "#/$defs/ChainUseId"
         },
+        "direction_payload": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/CertifiedPlanarSupportDirectionV1"
+            },
+            {
+              "$ref": "#/$defs/UnavailableSourceSupportDirectionV1"
+            }
+          ]
+        },
         "source_launch_boundary_id": {
           "$ref": "#/$defs/BoundaryConstraintId"
         }
@@ -1108,7 +1700,8 @@
       "required": [
         "$type",
         "chain_use_id",
-        "source_launch_boundary_id"
+        "source_launch_boundary_id",
+        "direction_payload"
       ],
       "type": "object"
     },
@@ -1252,6 +1845,173 @@
       ],
       "type": "object"
     },
+    "TJunctionRouteTopologyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "TJunctionRouteTopologyV1"
+        },
+        "branch_chain_use_ids": {
+          "items": {
+            "$ref": "#/$defs/ChainUseId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "through_route_pair": {
+          "$ref": "#/$defs/JunctionRoutePairV1"
+        }
+      },
+      "required": [
+        "$type",
+        "through_route_pair",
+        "branch_chain_use_ids"
+      ],
+      "type": "object"
+    },
+    "TerminalRelationId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "TerminalRelationId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "TerminalRelationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "TerminalRelationV1"
+        },
+        "chain_use_id": {
+          "$ref": "#/$defs/ChainUseId"
+        },
+        "endpoint_role": {
+          "enum": [
+            "START",
+            "END",
+            "NON_CHAIN_ENDPOINT"
+          ],
+          "type": "string"
+        },
+        "owner_patch_id": {
+          "$ref": "#/$defs/PatchId"
+        },
+        "owner_sector_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/OwnerSectorId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "relation_kind": {
+          "enum": [
+            "PHYSICAL_CHAIN_ENDPOINT",
+            "SEAM_SELF_TERMINAL",
+            "POLE"
+          ],
+          "type": "string"
+        },
+        "source_lineage": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        },
+        "terminal_relation_id": {
+          "$ref": "#/$defs/TerminalRelationId"
+        }
+      },
+      "required": [
+        "$type",
+        "terminal_relation_id",
+        "source_vertex_id",
+        "chain_use_id",
+        "owner_patch_id",
+        "patch_domain_id",
+        "relation_kind",
+        "endpoint_role",
+        "owner_sector_id",
+        "source_lineage"
+      ],
+      "type": "object"
+    },
+    "UnavailableBoundaryConstraintTargetV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "UnavailableBoundaryConstraintTargetV1"
+        },
+        "reason": {
+          "enum": [
+            "EC0_COORDINATE_FREE_FIXTURE_V5"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "UnavailableJunctionRouteTopologyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "UnavailableJunctionRouteTopologyV1"
+        },
+        "reason": {
+          "enum": [
+            "EC0_ROUTE_TOPOLOGY_NOT_RECORDED_V5"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "UnavailableReflexAngleMeasureV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "UnavailableReflexAngleMeasureV1"
+        },
+        "reason": {
+          "enum": [
+            "EC0_SYMBOLIC_ANGLE_ONLY_V5"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "reason"
+      ],
+      "type": "object"
+    },
     "UnavailableSourcePositionV1": {
       "additionalProperties": false,
       "properties": {
@@ -1268,6 +2028,106 @@
       "required": [
         "$type",
         "reason"
+      ],
+      "type": "object"
+    },
+    "UnavailableSourceSupportDirectionV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "UnavailableSourceSupportDirectionV1"
+        },
+        "reason": {
+          "enum": [
+            "EC0_SYMBOLIC_SUPPORT_ONLY_V5"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "UnavailableSurfaceMetricDescriptorV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "UnavailableSurfaceMetricDescriptorV1"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "reason": {
+          "enum": [
+            "EC0_COORDINATE_FREE_FIXTURE_V5"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "patch_domain_id",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "XJunctionRouteTopologyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "XJunctionRouteTopologyV1"
+        },
+        "route_pairs": {
+          "items": {
+            "$ref": "#/$defs/JunctionRoutePairV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "route_pairs"
+      ],
+      "type": "object"
+    },
+    "YJunctionRouteTopologyV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "YJunctionRouteTopologyV1"
+        },
+        "ordered_branch_chain_use_ids": {
+          "items": {
+            "$ref": "#/$defs/ChainUseId"
+          },
+          "type": "array"
+        },
+        "route_pairs": {
+          "items": {
+            "$ref": "#/$defs/JunctionRoutePairV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "station_continuity_law": {
+          "enum": [
+            "SEMANTIC_CHAIN_USE_S_CONTINUOUS_V1"
+          ],
+          "type": "string"
+        },
+        "trunk_chain_use_id": {
+          "$ref": "#/$defs/ChainUseId"
+        }
+      },
+      "required": [
+        "$type",
+        "trunk_chain_use_id",
+        "ordered_branch_chain_use_ids",
+        "route_pairs",
+        "station_continuity_law"
       ],
       "type": "object"
     }
