@@ -60,6 +60,14 @@ ENVELOPE_VARIANTS = {
 ANGULAR_PROFILE_ID = "LINEAR_REFLEX_EQUAL_V1"
 ANGULAR_SELECTION_POLICY_ID = "MIN_K_FOR_MAX_SUBTURN_V1"
 ANGULAR_PARAMETER_ID = "LINEAR_REFLEX_MAX_SUBTURN_V1"
+ANGULAR_PARAMETER_VALUE_ID = "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1"
+ANGULAR_PARAMETER_VALUE = {
+    "value_id": ANGULAR_PARAMETER_VALUE_ID,
+    "exact_radian_expression": "PI_OVER_3",
+    "degrees": 60,
+    "turn_fraction": "1/6",
+    "unit": "ANGLE",
+}
 ANGULAR_SECTOR_CONTRACT = "ORIENTED_OWNER_ANGULAR_SECTOR_V1"
 HIDDEN_SUPPORT_GENERATION_LAW = "LINEAR_REFLEX_HIDDEN_SUPPORTS_V1"
 FIXTURE_EXPECTATIONS = {
@@ -344,11 +352,13 @@ def validate_spec_policy(policy):
     if parameters[ANGULAR_PARAMETER_ID].get("constraint") != "ZERO_LT_DELTA_MAX_LT_PI":
         raise ValidationError("max-subturn product parameter range is incomplete")
     if (
-        parameters[ANGULAR_PARAMETER_ID].get("default_status")
-        != "BLOCKED_PENDING_USER_DECISION"
-        or parameters[ANGULAR_PARAMETER_ID].get("approved_default_value") is not None
+        parameters[ANGULAR_PARAMETER_ID].get("default_status") != "USER_APPROVED"
+        or parameters[ANGULAR_PARAMETER_ID].get("approved_default_value")
+        != ANGULAR_PARAMETER_VALUE
+        or parameters[ANGULAR_PARAMETER_ID].get("change_control")
+        != "PRODUCT_SEMANTIC_CHANGE_REQUIRES_CORPUS_REVALIDATION_AND_USER_ACCEPTANCE"
     ):
-        raise ValidationError("max-subturn product parameter must not contain an agent-selected default")
+        raise ValidationError("max-subturn product parameter must preserve the user-selected exact 60-degree default")
 
     fixtures = {
         item.get("fixture_id"): item
@@ -490,6 +500,7 @@ def validate_angular_spec(
         "owner_sector_id": sector["id"],
         "profile_selection_policy_id": ANGULAR_SELECTION_POLICY_ID,
         "profile_selection_certificate_id": certificate["id"],
+        "max_subturn_value_id": ANGULAR_PARAMETER_VALUE_ID,
         "reflex_excess_law": "DELTA_EQUALS_PHI_MINUS_PI",
         "hidden_edge_count": expected_count,
         "hidden_edge_count_policy": "ANGLE_DRIVEN_MIN_K_FOR_MAX_SUBTURN",
@@ -555,6 +566,7 @@ def validate_angular_spec(
         "angular_profile_id": ANGULAR_PROFILE_ID,
         "selection_policy_id": ANGULAR_SELECTION_POLICY_ID,
         "max_subturn_parameter_ref": ANGULAR_PARAMETER_ID,
+        "max_subturn_value_id": ANGULAR_PARAMETER_VALUE_ID,
         "selection_law": "K_EQUALS_MAX_ZERO_CEIL_DELTA_OVER_DELTA_MAX_MINUS_ONE",
         "lower_bound_certificate": "K_EQ_ZERO_OR_K_TIMES_DELTA_MAX_LT_DELTA",
         "upper_bound_certificate": "DELTA_LEQ_K_PLUS_ONE_TIMES_DELTA_MAX",
@@ -567,12 +579,17 @@ def validate_angular_spec(
         "angular_profile_id": ANGULAR_PROFILE_ID,
         "selection_policy_id": ANGULAR_SELECTION_POLICY_ID,
         "max_subturn_parameter_ref": ANGULAR_PARAMETER_ID,
+        "max_subturn_value_id": ANGULAR_PARAMETER_VALUE_ID,
         "selection_authority": "NAMED_ANGLE_DRIVEN_PRODUCT_POLICY",
     }
     for key, expected in binding_values.items():
         if binding.get(key) != expected:
             fail(case_id, f"AngularEnvelopeSpec {spec['id']} request binding invalid {key}")
-    if seed.get("profile_selection_certificate_id") != certificate["id"] or seed.get("resolved_hidden_edge_count") != expected_count:
+    if (
+        seed.get("profile_selection_certificate_id") != certificate["id"]
+        or seed.get("resolved_hidden_edge_count") != expected_count
+        or seed.get("max_subturn_value_id") != ANGULAR_PARAMETER_VALUE_ID
+    ):
         fail(case_id, f"AngularEnvelopeSpec {spec['id']} seed selection result mismatch")
     fixture_id = spec.get("regression_fixture_id")
     if fixture_id:
@@ -1282,11 +1299,11 @@ def main() -> int:
     manifest = read_json(CORPUS / "manifest.json")
     if manifest.get("schema") != "cftuv.envelope.ec0.corpus.v5":
         raise ValidationError("manifest schema id mismatch")
-    if manifest.get("status") != "A1_A2_CORRECTION_CANDIDATE_BLOCKED_PENDING_USER_DECISION":
+    if manifest.get("status") != "A1_A2_CORRECTION_CANDIDATE_READY_FOR_FINAL_USER_ACCEPTANCE":
         raise ValidationError("manifest has unexpected review status")
     if manifest.get("active_session") != "SESSION_A_EC0_LINEAR_REFLEX_REBASELINE":
         raise ValidationError("manifest active session mismatch")
-    if manifest.get("ec1_gate") != "CLOSED_PENDING_MAX_SUBTURN_USER_DECISION_VALIDATOR_EXTERNAL_CI_AND_EXPLICIT_USER_ACCEPTANCE":
+    if manifest.get("ec1_gate") != "CLOSED_PENDING_EXTERNAL_CI_AND_EXPLICIT_USER_ACCEPTANCE":
         raise ValidationError("EC1 gate must remain closed")
     if manifest.get("canonical_format") != "JSON":
         raise ValidationError("manifest canonical format must be JSON")
@@ -1338,8 +1355,17 @@ def main() -> int:
         raise ValidationError("Session A handoff schema id mismatch")
     if handoff.get("active_slice") != "SESSION_A_EC0_LINEAR_REFLEX_REBASELINE":
         raise ValidationError("Session A handoff active slice mismatch")
-    if handoff.get("status") != "CANDIDATE_AWAITING_MAX_SUBTURN_USER_DECISION_EXTERNAL_CI_AND_EXPLICIT_USER_ACCEPTANCE":
+    if handoff.get("status") != "CANDIDATE_AWAITING_EXTERNAL_CI_AND_EXPLICIT_USER_ACCEPTANCE":
         raise ValidationError("Session A handoff must not claim premature acceptance")
+    handoff_parameter = handoff.get("product_parameter_decisions", {}).get(
+        ANGULAR_PARAMETER_ID, {}
+    )
+    if (
+        handoff_parameter.get("status") != "USER_SELECTED"
+        or {key: handoff_parameter.get(key) for key in ANGULAR_PARAMETER_VALUE}
+        != ANGULAR_PARAMETER_VALUE
+    ):
+        raise ValidationError("Session A handoff lost the user-selected 60-degree parameter")
     if handoff.get("legacy_paths_read", {}).get("read") is not False:
         raise ValidationError("Session A handoff must record that legacy geometry was not read")
     ci = handoff.get("ci", {})
@@ -1347,6 +1373,11 @@ def main() -> int:
         raise ValidationError("Session A handoff must delegate CI gate to the external GitHub check")
     if ci.get("status") not in {"PENDING", "PASS", "FAIL"}:
         raise ValidationError("Session A handoff CI status must be PENDING, PASS, or FAIL")
+    if ci.get("status") == "PENDING" and any(
+        ci.get(key) is not None
+        for key in ("tested_commit", "run_id", "run_url", "observed_conclusion")
+    ):
+        raise ValidationError("pending external CI receipt contains a speculative result")
     if "UNCOMMITTED_WORKTREE" in json.dumps(handoff):
         raise ValidationError("Session A handoff contains the stale uncommitted-worktree receipt")
     commit_receipt = handoff.get("commit_sha", {})
@@ -1355,8 +1386,9 @@ def main() -> int:
         or commit_receipt.get("semantic_content_commit")
         == commit_receipt.get("superseded_misleading_commit")
         or not re.fullmatch(r"[0-9a-f]{40}", commit_receipt.get("receipt_commit", ""))
+        or commit_receipt.get("max_subturn_selection_commit") != "PENDING_COMMIT"
         or commit_receipt.get("disposition")
-        != "PUBLISHED_WITH_LEASE_PROTECTED_HISTORY_REWRITE"
+        != "USER_VALUE_SELECTED_LOCAL_VALIDATION_PENDING"
     ):
         raise ValidationError("Session A handoff lacks a factual replacement semantic commit SHA")
     if ci.get("status") == "PASS" and (
@@ -1408,13 +1440,15 @@ def main() -> int:
         raise ValidationError("decision record lost the A2 orientation/cardinality law")
     max_subturn_decision = decisions.get("A1_MAX_SUBTURN_DEFAULT", {})
     if (
-        max_subturn_decision.get("status") != "BLOCKED_PENDING_USER_DECISION"
-        or max_subturn_decision.get("selected_value") is not None
-        or max_subturn_decision.get("forbidden_agent_action") != "DO_NOT_INVENT_OR_HIDE_A_DEFAULT_VALUE"
+        max_subturn_decision.get("status") != "USER_SELECTED"
+        or max_subturn_decision.get("selected_value") != ANGULAR_PARAMETER_VALUE
+        or max_subturn_decision.get("selection_source") != "EXPLICIT_USER_DECISION"
+        or max_subturn_decision.get("forbidden_agent_action")
+        != "DO_NOT_SILENTLY_RETUNE_OR_HIDE_A_DIFFERENT_VALUE"
     ):
-        raise ValidationError("max-subturn default must remain an explicit pending user decision")
-    if manifest.get("blocked_pending_user_decisions") != ["A1_MAX_SUBTURN_DEFAULT"]:
-        raise ValidationError("manifest must expose the pending max-subturn user decision")
+        raise ValidationError("decision record lost the user-selected exact 60-degree max-subturn default")
+    if manifest.get("blocked_pending_user_decisions") != []:
+        raise ValidationError("manifest still exposes a resolved pending user decision")
     review_groups = decision_record.get("review_only_not_semantic", [])
     if {item.get("authority") for item in review_groups} != REVIEW_ONLY_AUTHORITY:
         raise ValidationError("decision record must enumerate all review-only authorities")
@@ -1483,7 +1517,8 @@ def main() -> int:
     print("  legacy/implementation-accident/open-research review lists: explicit")
     print("  presentation artifacts: none; Blender screenshots remain policy-allowed")
     print("  factual receipt: corpus does not self-certify external GitHub CI")
-    print("  EC1 gate: CLOSED_PENDING_MAX_SUBTURN_USER_DECISION_EXTERNAL_CI_AND_EXPLICIT_USER_ACCEPTANCE")
+    print("  user-approved LINEAR_REFLEX_MAX_SUBTURN_V1 = PI/3 = 60 degrees: OK")
+    print("  EC1 gate: CLOSED_PENDING_EXTERNAL_CI_AND_EXPLICIT_USER_ACCEPTANCE")
     return 0
 
 

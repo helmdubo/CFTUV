@@ -1,8 +1,9 @@
 # EC0 external-review correction log
 
 Review target: branch `codex/ec0-envelope-semantics`, commit `b16be81`.
-Current disposition: v5 A1/A2 correction candidate; product max-subturn value,
-external CI and explicit user acceptance are still pending. History retained.
+Current disposition: v5 A1/A2 correction candidate with user-selected exact
+max-subturn `π/3 = 60°`; refreshed external CI and explicit final user
+acceptance are still pending. History retained.
 
 ## Applied corrections
 
@@ -108,12 +109,12 @@ diagnostic runtime evidence. They are not SemanticAuthority.
 
 ## Gate effect
 
-The corrections do not open EC1. The new corpus is a correction candidate until
-the user approves `LINEAR_REFLEX_MAX_SUBTURN_V1`, the local validator and real
-external GitHub workflow are green, and the user explicitly accepts the updated
-verbal semantics. `A1_MAX_SUBTURN_DEFAULT` is the one current
-`BLOCKED_PENDING_USER_DECISION`; case 16 remains user-selected policy B for
-wings of one DecalRequest in one Patch.
+The corrections do not open EC1. The user has approved
+`LINEAR_REFLEX_MAX_SUBTURN_V1 = π/3 = 60°`; the corpus remains a correction
+candidate until the refreshed local validator and real external GitHub workflow
+are green and the user explicitly accepts the updated verbal semantics. There
+are no current `BLOCKED_PENDING_USER_DECISION` items. Case 16 remains
+user-selected policy B for wings of one DecalRequest in one Patch.
 
 AM11 re-closes the EC0 semantic gate for angular cases until the canonical JSON
 corpus is migrated from join enums to explicit angular profiles. Existing
@@ -227,9 +228,8 @@ Before these edits the worktree was fetched and verified clean at remote commit
 `522bd4cfae8f5aaa7d5392e20ebe53101c2eef0c`, with zero local/remote divergence.
 The already-pushed Session A diff was not applied a second time. Commit
 `522bd4cf` used the misleading message “Implement coordinate-free decal
-envelope kernel”, although it contained only Session A semantic artifacts; its
-message is scheduled to be replaced by a factual docs/EC0 message during the
-final history rewrite.
+envelope kernel”, although it contained only Session A semantic artifacts; it
+was later replaced by the factual docs/EC0 history recorded below.
 
 A1 changes AM11 authority and all dependent active documents:
 
@@ -237,8 +237,9 @@ A1 changes AM11 authority and all dependent active documents:
 - `MIN_K_FOR_MAX_SUBTURN_V1` computes
   `k = max(0, ceil(Δ / Δ_MAX) - 1)` from an exact/certified oriented reflex
   angle;
-- `LINEAR_REFLEX_MAX_SUBTURN_V1` has no agent-selected default and remains
-  `BLOCKED_PENDING_USER_DECISION`;
+- at this A1 correction point `LINEAR_REFLEX_MAX_SUBTURN_V1` deliberately had
+  no agent-selected default; the later user selection of exact 60° is recorded
+  below and supersedes that temporary blocker;
 - K0/K1 names survive only as C02/C03 regression-result fixtures;
 - no permanent product case-to-k table remains.
 
@@ -274,9 +275,22 @@ not the corpus or local validator, is the CI authority.
 
 Current blockers:
 
-- user-approved value for `LINEAR_REFLEX_MAX_SUBTURN_V1`;
 - final local validator on the committed corpus;
 - actual external GitHub workflow result on the published commit;
 - repeat explicit user acceptance of the resulting A1/A2 semantics.
 
 EC1 remains closed.
+
+## User selection — LinearReflex max subturn
+
+The user selected the v1 production default:
+
+```text
+LINEAR_REFLEX_MAX_SUBTURN_V1 = pi / 3 = 60 degrees = 1/6 turn
+```
+
+This closes `A1_MAX_SUBTURN_DEFAULT`. It does not create K0/K1 product modes:
+`k` remains computed by `MIN_K_FOR_MAX_SUBTURN_V1` from each oriented-angle
+certificate. The user explicitly allows later adjustment after runtime tests;
+such an adjustment remains an explicit semantic change requiring corpus
+revalidation, external CI and renewed acceptance, never silent tuning.

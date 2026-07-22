@@ -113,12 +113,19 @@
     {
       "id": "A1_MAX_SUBTURN_DEFAULT",
       "authority": "USER_REQUIRED",
-      "status": "BLOCKED_PENDING_USER_DECISION",
+      "status": "USER_SELECTED",
       "parameter_ref": "LINEAR_REFLEX_MAX_SUBTURN_V1",
       "quantity": "MAX_ALLOWED_REFLEX_SUBTURN",
-      "selected_value": null,
-      "decision_required": "USER_APPROVED_NUMERIC_OR_NAMED_PRODUCT_VALUE",
-      "forbidden_agent_action": "DO_NOT_INVENT_OR_HIDE_A_DEFAULT_VALUE",
+      "selected_value": {
+        "value_id": "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1",
+        "exact_radian_expression": "PI_OVER_3",
+        "degrees": 60,
+        "turn_fraction": "1/6",
+        "unit": "ANGLE"
+      },
+      "selection_source": "EXPLICIT_USER_DECISION",
+      "change_control": "MAY_CHANGE_AFTER_RUNTIME_TESTS_BUT_REQUIRES_EXPLICIT_SEMANTIC_UPDATE_AND_REVALIDATION",
+      "forbidden_agent_action": "DO_NOT_SILENTLY_RETUNE_OR_HIDE_A_DIFFERENT_VALUE",
       "scope": "PRODUCTION_DECAL_REQUEST_DEFAULT"
     }
   ],

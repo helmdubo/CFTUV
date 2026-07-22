@@ -1,6 +1,6 @@
 {
   "schema": "cftuv.envelope.ec0.corpus.v5",
-  "status": "A1_A2_CORRECTION_CANDIDATE_BLOCKED_PENDING_USER_DECISION",
+  "status": "A1_A2_CORRECTION_CANDIDATE_READY_FOR_FINAL_USER_ACCEPTANCE",
   "canonical_format": "JSON",
   "presentation_visual_policy": "FORBIDDEN",
   "allowed_visual_evidence": [
@@ -67,7 +67,7 @@
     {
       "id": "EC0-G12",
       "authority": "USER_REQUIRED",
-      "rule": "AngularEnvelopeSpec uses LINEAR_REFLEX_EQUAL_V1; MIN_K_FOR_MAX_SUBTURN_V1 derives hidden-edge count from a certified oriented reflex angle rather than a manual per-corner selector."
+      "rule": "AngularEnvelopeSpec uses LINEAR_REFLEX_EQUAL_V1; MIN_K_FOR_MAX_SUBTURN_V1 derives hidden-edge count from a certified oriented reflex angle using the user-approved LINEAR_REFLEX_MAX_SUBTURN_V1 default of exactly PI/3 (60 degrees), rather than a manual per-corner selector."
     },
     {
       "id": "EC0-G13",
@@ -137,8 +137,6 @@
   "validator": "tools/validate_envelope_ec0.py",
   "handoff_file": "artifacts/envelope_ec0/corpus/session_a_handoff.json",
   "active_session": "SESSION_A_EC0_LINEAR_REFLEX_REBASELINE",
-  "ec1_gate": "CLOSED_PENDING_MAX_SUBTURN_USER_DECISION_VALIDATOR_EXTERNAL_CI_AND_EXPLICIT_USER_ACCEPTANCE",
-  "blocked_pending_user_decisions": [
-    "A1_MAX_SUBTURN_DEFAULT"
-  ]
+  "ec1_gate": "CLOSED_PENDING_EXTERNAL_CI_AND_EXPLICIT_USER_ACCEPTANCE",
+  "blocked_pending_user_decisions": []
 }

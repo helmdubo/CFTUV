@@ -1,7 +1,7 @@
 {
   "schema": "cftuv.envelope.ec0.session_handoff.v2",
   "active_slice": "SESSION_A_EC0_LINEAR_REFLEX_REBASELINE",
-  "status": "CANDIDATE_AWAITING_MAX_SUBTURN_USER_DECISION_EXTERNAL_CI_AND_EXPLICIT_USER_ACCEPTANCE",
+  "status": "CANDIDATE_AWAITING_EXTERNAL_CI_AND_EXPLICIT_USER_ACCEPTANCE",
   "input_contract_version": {
     "authority_document": "docs/decal_envelope_linear_axis_rebaseline.md",
     "amendment": "AM11_A1_A2_CORRECTION",
@@ -31,6 +31,17 @@
     "A2": "ORIENTED_OWNER_SECTOR_ORDERED_SUPPORTS_CERTIFIED_ANGLE_AND_K_PLUS_TWO",
     "A3": "FACTUAL_RECEIPT_WITH_EXTERNAL_GITHUB_CI_AUTHORITY"
   },
+  "product_parameter_decisions": {
+    "LINEAR_REFLEX_MAX_SUBTURN_V1": {
+      "status": "USER_SELECTED",
+      "value_id": "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1",
+      "exact_radian_expression": "PI_OVER_3",
+      "degrees": 60,
+      "turn_fraction": "1/6",
+      "unit": "ANGLE",
+      "change_control": "MAY_CHANGE_AFTER_RUNTIME_TESTS_WITH_EXPLICIT_CORPUS_UPDATE_REVALIDATION_AND_USER_ACCEPTANCE"
+    }
+  },
   "changed_paths": [
     "docs/decal_envelope_linear_axis_rebaseline.md",
     "docs/envelope_backend_semantics.md",
@@ -44,12 +55,13 @@
     "superseded_misleading_commit": "522bd4cfae8f5aaa7d5392e20ebe53101c2eef0c",
     "semantic_content_commit": "d5f3aae34f55f7cb1fd8a4017d1db8ea25d4d578",
     "receipt_commit": "7fbd32a4a990a89273ad8b8ddb7c66d03e05b473",
-    "disposition": "PUBLISHED_WITH_LEASE_PROTECTED_HISTORY_REWRITE"
+    "max_subturn_selection_commit": "PENDING_COMMIT",
+    "disposition": "USER_VALUE_SELECTED_LOCAL_VALIDATION_PENDING"
   },
   "tests": [
     {
       "command": "python tools/validate_envelope_ec0.py",
-      "result": "PASS_ON_SEMANTIC_COMMIT_D5F3AAE",
+      "result": "PENDING_60_DEGREE_SELECTION_FINAL_RUN",
       "case_count": 23,
       "main_case_count": 16,
       "pivot_case_count": 7,
@@ -73,11 +85,11 @@
     "required": true,
     "workflow": ".github/workflows/envelope-ec0-corpus.yml",
     "command_equivalence": "python tools/validate_envelope_ec0.py",
-    "tested_commit": "7fbd32a4a990a89273ad8b8ddb7c66d03e05b473",
-    "status": "PASS",
-    "run_id": 29949730053,
-    "run_url": "https://github.com/helmdubo/CFTUV/actions/runs/29949730053",
-    "observed_conclusion": "SUCCESS",
+    "tested_commit": null,
+    "status": "PENDING",
+    "run_id": null,
+    "run_url": null,
+    "observed_conclusion": null,
     "authority": "EXTERNAL_GITHUB_CHECK_NOT_STATIC_CORPUS_ASSERTION"
   },
   "semantic_digest_tested": {
@@ -105,14 +117,13 @@
     "APPROXIMATE_MATERIALIZATION_PENDING"
   ],
   "assumptions_not_proven": [
-    "LINEAR_REFLEX_MAX_SUBTURN_V1_HAS_NO_USER_APPROVED_DEFAULT_VALUE",
     "USER_HAS_NOT_YET_REPEATED_FINAL_ACCEPTANCE_AFTER_A1_A2",
     "HOST_HAS_NOT_YET_PROVEN_RUNTIME_PRODUCTION_OF_ORIENTED_SECTOR_AND_ANGLE_CERTIFICATES",
     "NO_PRODUCTION_BOOLEAN_OR_ARRANGEMENT_BACKEND_HAS_BEEN_SELECTED_OR_PROVEN",
     "NO_GEOMETRY_EVALUATOR_OR_BLENDER_RUNTIME_FIXTURE_WAS_BUILT_IN_SESSION_A"
   ],
   "risks": [
-    "THE_NAMED_DELTA_MAX_PRODUCT_PARAMETER_REQUIRES_A_STABLE_USER_FACING_VALUE_IN_A_LATER_REQUEST_CONTRACT",
+    "THE_USER_APPROVED_60_DEGREE_DEFAULT_MAY_BE_REVISED_AFTER_RUNTIME_TESTS_ONLY_THROUGH_EXPLICIT_SEMANTIC_CHANGE_CONTROL",
     "EXACT_CURVED_OWNERSHIP_AND_JUNCTIONS_REQUIRE_PROVEN_BACKEND_PROVENANCE_SUPPORT",
     "RUNTIME_UI_MUST_DISTINGUISH_REQUESTED_EFFECTIVE_AND_PENDING_ALPHA_STATES"
   ],
@@ -127,7 +138,7 @@
   },
   "next_session_allowlist": {
     "session": "SESSION_B_EC1_CONTRACTS_AND_HERMETIC_PACKAGE",
-    "condition": "ONLY_AFTER_MAX_SUBTURN_USER_DECISION_LOCAL_VALIDATOR_EXTERNAL_GITHUB_CI_AND_EXPLICIT_USER_ACCEPTANCE_OF_A1_A2",
+    "condition": "ONLY_AFTER_LOCAL_VALIDATOR_EXTERNAL_GITHUB_CI_AND_EXPLICIT_USER_ACCEPTANCE_OF_A1_A2_WITH_THE_60_DEGREE_DEFAULT",
     "inputs": [
       "ACCEPTED_SESSION_A_V5_CORPUS_AND_SCHEMA",
       "SURFACE_BOUNDARY_CONTRACTS",

@@ -296,6 +296,7 @@
         "angular_profile_id",
         "selection_policy_id",
         "max_subturn_parameter_ref",
+        "max_subturn_value_id",
         "selection_authority"
       ],
       "properties": {
@@ -305,6 +306,7 @@
         "angular_profile_id": {"const": "LINEAR_REFLEX_EQUAL_V1"},
         "selection_policy_id": {"const": "MIN_K_FOR_MAX_SUBTURN_V1"},
         "max_subturn_parameter_ref": {"const": "LINEAR_REFLEX_MAX_SUBTURN_V1"},
+        "max_subturn_value_id": {"const": "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1"},
         "selection_authority": {
           "const": "NAMED_ANGLE_DRIVEN_PRODUCT_POLICY"
         }
@@ -444,6 +446,7 @@
         "angular_profile_id",
         "selection_policy_id",
         "max_subturn_parameter_ref",
+        "max_subturn_value_id",
         "resolved_hidden_edge_count",
         "selection_law",
         "lower_bound_certificate",
@@ -459,6 +462,7 @@
         "angular_profile_id": {"const": "LINEAR_REFLEX_EQUAL_V1"},
         "selection_policy_id": {"const": "MIN_K_FOR_MAX_SUBTURN_V1"},
         "max_subturn_parameter_ref": {"const": "LINEAR_REFLEX_MAX_SUBTURN_V1"},
+        "max_subturn_value_id": {"const": "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1"},
         "resolved_hidden_edge_count": {"type": "integer", "minimum": 0},
         "selection_law": {"const": "K_EQUALS_MAX_ZERO_CEIL_DELTA_OVER_DELTA_MAX_MINUS_ONE"},
         "lower_bound_certificate": {"const": "K_EQ_ZERO_OR_K_TIMES_DELTA_MAX_LT_DELTA"},
@@ -505,6 +509,7 @@
         "owner_sector_id",
         "profile_selection_policy_id",
         "profile_selection_certificate_id",
+        "max_subturn_value_id",
         "reflex_excess_law",
         "hidden_edge_count",
         "hidden_edge_count_policy",
@@ -534,6 +539,7 @@
         "owner_sector_id": {"type": "string"},
         "profile_selection_policy_id": {"const": "MIN_K_FOR_MAX_SUBTURN_V1"},
         "profile_selection_certificate_id": {"type": "string"},
+        "max_subturn_value_id": {"const": "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1"},
         "reflex_excess_law": {"const": "DELTA_EQUALS_PHI_MINUS_PI"},
         "hidden_edge_count": {"type": "integer", "minimum": 0},
         "hidden_edge_count_policy": {"const": "ANGLE_DRIVEN_MIN_K_FOR_MAX_SUBTURN"},

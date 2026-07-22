@@ -1,12 +1,12 @@
 # Decal Envelope Engine — Linear-Axis rebaseline (AM11)
 
-Status: **NORMATIVE REBASELINE CANDIDATE — BLOCKED PENDING PRODUCT VALUE**.
+Status: **NORMATIVE REBASELINE CANDIDATE — PRODUCT VALUE SELECTED**.
 This document supersedes the old MITER/BEVEL/ROUND interpretation of
 `CornerEnvelope` for all new kernel work. EC1 implementation remains closed
 until the EC0 JSON corpus, schema and validator are migrated to this model,
-`LINEAR_REFLEX_MAX_SUBTURN_V1` receives an explicit user-approved product
-value, external CI passes, and the resulting semantics are explicitly accepted
-by the user.
+external CI passes, and the resulting semantics — including the user-selected
+`LINEAR_REFLEX_MAX_SUBTURN_V1 = pi/3 = 60 degrees` — are explicitly accepted by
+the user.
 
 The architectural north star is:
 
@@ -274,10 +274,16 @@ instead of trusting a separate case mapping. It must not be
 selected manually per corner, by fixture identity, sampling density,
 tessellation, face count, Boolean output or hidden epsilon fitting.
 
-The numeric or named product value of `LINEAR_REFLEX_MAX_SUBTURN_V1` is not
-chosen by Session A. Until the user approves it, the product default remains
-`BLOCKED_PENDING_USER_DECISION`; an implementation must not hide a new choice
-inside a numeric constant.
+The user-selected v1 product default is exact:
+
+```text
+LINEAR_REFLEX_MAX_SUBTURN_V1 = pi / 3 = 60 degrees = 1/6 turn
+```
+
+This is a product semantic value, not an implementation tolerance. The user
+may revise it after runtime tests, but that requires an explicit corpus update,
+revalidation and renewed acceptance; an implementation must not silently tune
+or hide a different numeric constant.
 
 For resolved `k`, hidden support ordinal `j`, where `1 <= j <= k`, is placed at
 turn fraction `j / (k + 1)` from the ordered incoming support toward the
@@ -558,8 +564,9 @@ Before EC1 implementation:
 8. Add downstream-tessellation invariants and semantic-digest equivalence.
 9. Reserve `SurfaceEvaluatorStrategy`, rail roles and `CrossPatchLiftRelation`
    in contracts without implementing EC8.
-10. Keep `LINEAR_REFLEX_MAX_SUBTURN_V1` blocked until the user supplies the
-    product value; do not invent a numeric default.
+10. Record the user-selected exact default
+    `LINEAR_REFLEX_MAX_SUBTURN_V1 = pi/3 = 60 degrees`; any later test-driven
+    revision is an explicit semantic change, not hidden tuning.
 11. Re-run corpus validation and external CI, then request explicit user
     acceptance.
 

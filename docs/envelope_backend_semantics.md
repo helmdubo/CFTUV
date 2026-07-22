@@ -2,7 +2,7 @@
 
 ## Статус и область
 
-Статус: `A1_A2_CORRECTION_CANDIDATE_BLOCKED_PENDING_USER_DECISION`.
+Статус: `A1_A2_CORRECTION_CANDIDATE_READY_FOR_FINAL_USER_ACCEPTANCE`.
 
 Это нормативная словесная спецификация EC0 после Linear-Axis rebaseline AM11.
 Она определяет входные факты, request policy, compiled semantic plan и
@@ -11,11 +11,10 @@ canonical JSON corpus v5 в `artifacts/envelope_ec0/corpus/`.
 
 EC1 закрыт до двух независимых условий:
 
-1. пользователь задаёт product value для
-   `LINEAR_REFLEX_MAX_SUBTURN_V1`;
-2. `python tools/validate_envelope_ec0.py` проходит без ошибок;
-3. внешний GitHub workflow проходит на опубликованном commit;
-4. пользователь явно принимает семантику Session A.
+1. `python tools/validate_envelope_ec0.py` проходит без ошибок;
+2. внешний GitHub workflow проходит на опубликованном commit;
+3. пользователь явно принимает семантику Session A вместе с выбранным
+   `LINEAR_REFLEX_MAX_SUBTURN_V1 = π/3 = 60°`.
 
 Документ не описывает geometry evaluator, Blender integration или production
 Boolean backend. Он не переносит legacy geometry и не разрешает исполнителю
@@ -210,11 +209,13 @@ dependent fields; он не доверяет отдельно записанно
 threshold, sampling, tessellation, face count и Boolean output не имеют
 SemanticAuthority. `[USER_REQUIRED]`
 
-Числовое или именованное продуктовое значение `Δ_MAX` пока не утверждено.
-`LINEAR_REFLEX_MAX_SUBTURN_V1` имеет статус
-`BLOCKED_PENDING_USER_DECISION`; Session A не назначает default и запрещает
-реализации прятать новый выбор в numeric constant. Формула и policy уже
-нормативны, значение parameter — ещё нет.
+Пользователь утвердил точное продуктовое значение:
+
+`LINEAR_REFLEX_MAX_SUBTURN_V1 = Δ_MAX = π/3 = 60° = 1/6 turn`.
+
+Это semantic default, а не implementation tolerance. После runtime tests его
+можно изменить только явной правкой corpus/policy, повторной валидацией и новой
+приёмкой. Молчаливый numeric retuning запрещён.
 
 ### Ориентированный owner-sector и hidden supports
 
@@ -440,9 +441,9 @@ CanonicalGeometryDigest. `[USER_REQUIRED]`
 16. **C16:** выбран B — same-request same-Patch contributions клиппируются
     equality locus без overlap и без новой matter.
 
-Все case outcomes имеют `DEFINED`. Отдельно заблокирован продуктовый parameter
-`A1_MAX_SUBTURN_DEFAULT`: corpus fixtures используют symbolic certified
-comparisons, но production default не утверждён.
+Все case outcomes имеют `DEFINED`; открытых
+`BLOCKED_PENDING_USER_DECISION` нет. Corpus fixtures используют symbolic
+certified comparisons относительно утверждённого `Δ_MAX = π/3`.
 
 ## Pivot/correction cases
 
@@ -525,28 +526,27 @@ Silent fallback, legacy repair, universal clamp и partial mesh publication
 
 EC0 закрывается только если одновременно:
 
-1. пользователь утверждает product value
-   `LINEAR_REFLEX_MAX_SUBTURN_V1`; сейчас это единственный явный
-   `BLOCKED_PENDING_USER_DECISION`;
-2. v5 corpus/schema/matrices проходят локальный validator;
-3. внешний GitHub workflow проходит на фактически опубликованном commit;
-4. пользователь принимает `LINEAR_REFLEX_EQUAL_V1`, angle-driven
-   `MIN_K_FOR_MAX_SUBTURN_V1`, ориентированный owner-sector и закон `k + 2`;
-5. приняты typed EnvelopeSpec union, Strip support law и Cap closure law;
-6. приняты explicit ownership claims, lazy event ledger и tessellation
+1. v5 corpus/schema/matrices проходят локальный validator;
+2. внешний GitHub workflow проходит на фактически опубликованном commit;
+3. пользователь принимает `LINEAR_REFLEX_EQUAL_V1`, angle-driven
+   `MIN_K_FOR_MAX_SUBTURN_V1`, exact default `Δ_MAX = π/3 = 60°`,
+   ориентированный owner-sector и закон `k + 2`;
+4. приняты typed EnvelopeSpec union, Strip support law и Cap closure law;
+5. приняты explicit ownership claims, lazy event ledger и tessellation
    invariants;
-7. закрыты corner owner, T-junction, конец `s`, C13 interaction, saturation,
+6. закрыты corner owner, T-junction, конец `s`, C13 interaction, saturation,
    curved internal divider, topology changes during drag и case 16 policy B;
-8. нет `BLOCKED_PENDING_USER_DECISION` или скрытого «решим потом»;
-9. нет presentation visuals в активном EC0 package.
+7. нет `BLOCKED_PENDING_USER_DECISION` или скрытого «решим потом»;
+8. нет presentation visuals в активном EC0 package.
 
 До явной пользовательской фразы приёмки EC1 остаётся закрыт даже при зелёном
 локальном validator.
 
 ## Риски
 
-- Значение `LINEAR_REFLEX_MAX_SUBTURN_V1` влияет на вычисленный `k` и поэтому
-  является продуктовым выбором, а не безопасным implementation tuning.
+- Утверждённые 60° влияют на вычисленный `k`; их будущая корректировка по
+  runtime tests является явным продуктовым изменением, а не безопасным
+  implementation tuning.
 - Symbolic fixture certificates проверяют алгоритм выбора, но не заменяют
   утверждение production parameter.
 - Exact curved ownership divider и Junction core требуют backend, сохраняющий
@@ -562,6 +562,6 @@ EC0 закрывается только если одновременно:
 
 Один `LINEAR_REFLEX_EQUAL_V1` лучше выражает геометрическую семью, чем перечень
 K0/K1 case presets. Дискретность должна следовать из certified angle и явно
-утверждённого `Δ_MAX`; она не должна зависеть от mesh density или экрана.
+утверждённого `Δ_MAX = 60°`; она не должна зависеть от mesh density или экрана.
 Отдельный новый `AngularProfileId` нужен только для действительно другого
 subdivision/motion law, а не для другого результата `k` той же policy.

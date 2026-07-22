@@ -1,17 +1,16 @@
 # EC0 Session A: приёмка человеческими словами
 
-Статус пакета: `A1_A2_CORRECTION_CANDIDATE_BLOCKED_PENDING_USER_DECISION`.
+Статус пакета: `A1_A2_CORRECTION_CANDIDATE_READY_FOR_FINAL_USER_ACCEPTANCE`.
 
 Это словесная версия Session A без geometry evaluator, Blender integration и
 выбора Boolean backend. Она помогает принять продуктовый смысл JSON corpus v5.
 Презентационные картинки не создаются; Blender screenshots допустимы только
 как будущие runtime-доказательства.
 
-Сейчас техническое направление A1/A2 принято, но EC0 ещё нельзя закрыть:
-пользователь не задал значение `LINEAR_REFLEX_MAX_SUBTURN_V1`. Агент не имеет
-права придумать число или спрятать default в коде/JSON. После этого выбора
-нужны зелёный локальный validator, реальный внешний GitHub workflow и повторная
-явная приёмка.
+Техническое направление A1/A2 принято. Пользователь выбрал точный default
+`LINEAR_REFLEX_MAX_SUBTURN_V1 = π/3 = 60°`. Для закрытия EC0 остаются зелёный
+локальный validator, реальный внешний GitHub workflow и повторная явная
+приёмка всего Session A contract.
 
 ## Главная модель
 
@@ -107,15 +106,19 @@ pChain, ChainUse, seam, barrier или новой host topology.
 union часть segments может оказаться внутри общей материи; exposed silhouette
 определяется только resolved coverage.
 
-## Что ещё должен выбрать пользователь
+## Выбранный max-subturn
 
-Формула и policy уже зафиксированы. Не зафиксировано только продуктовое
-значение `LINEAR_REFLEX_MAX_SUBTURN_V1` — максимально допустимый subturn.
+Пользователь выбрал:
 
-Это намеренный `BLOCKED_PENDING_USER_DECISION`, а не просьба агенту подобрать
-«разумное» число. Выбор можно оформить числовым значением или именованным
-product preset с однозначным значением и единицами. После выбора corpus должен
-быть обновлён и повторно проверен.
+```text
+LINEAR_REFLEX_MAX_SUBTURN_V1 = π/3 = 60° = 1/6 turn
+```
+
+Практически это означает: `k = 0` при `0° < Δ <= 60°`, `k = 1` при
+`60° < Δ <= 120°`, `k = 2` при `120° < Δ < 180°`. Это не новая case table:
+диапазоны следуют из общей формулы. После runtime tests значение можно поменять,
+но только явной semantic правкой с повторными validator/CI и приёмкой; скрытая
+перенастройка запрещена.
 
 ## Четыре EnvelopeSpec variants
 
@@ -239,9 +242,10 @@ arrangement.
 
 ## Риски
 
-- `Δ_MAX` заметно влияет на форму через computed `k`; это продуктовый выбор.
-- Symbolic regression certificates проверяют закон, но не заменяют production
-  default.
+- Выбранные 60° заметно влияют на форму через computed `k`; последующая
+  test-driven корректировка потребует явного semantic change control.
+- Symbolic regression certificates проверяют закон относительно утверждённого
+  production default, но не заменяют runtime geometry tests.
 - Exact curved divider/Junction требуют backend с curve/provenance support.
 - Host adapter обязан стабильно передать ChainUse, oriented sectors и angle
   certificates; kernel не должен реконструировать их эвристически.
@@ -251,12 +255,12 @@ arrangement.
 
 Один `LINEAR_REFLEX_EQUAL_V1` с angle-driven `k` лучше фиксированной таблицы
 K0/K1: все corners подчиняются одному закону, а рост локальной детализации
-объясняется измеренным сектором и явно утверждённым продуктовым пределом. Но
-этот предел нельзя выбирать исполнителю под видом технической константы.
+объясняется измеренным сектором и явно утверждённым пределом 60°. Если runtime
+tests покажут необходимость другого значения, безопаснее явно пересчитать и
+перепринять corpus, чем менять константу незаметно.
 
 ## Как продолжить приёмку
 
-Сначала пользователь должен сообщить значение
-`LINEAR_REFLEX_MAX_SUBTURN_V1` (с единицами либо через однозначный named preset).
-После обновления corpus, зелёного validator и реального GitHub workflow будет
-предложена короткая финальная фраза приёмки Session A. До этого EC1 закрыт.
+После зелёного validator и реального GitHub workflow будет предложена короткая
+финальная фраза приёмки Session A, включающая exact default 60°. До явного
+ответа пользователя EC1 закрыт.

@@ -247,7 +247,8 @@
         "angular_profile_id": "LINEAR_REFLEX_EQUAL_V1",
         "selection_policy_id": "MIN_K_FOR_MAX_SUBTURN_V1",
         "max_subturn_parameter_ref": "LINEAR_REFLEX_MAX_SUBTURN_V1",
-        "selection_authority": "NAMED_ANGLE_DRIVEN_PRODUCT_POLICY"
+        "selection_authority": "NAMED_ANGLE_DRIVEN_PRODUCT_POLICY",
+        "max_subturn_value_id": "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1"
       }
     ]
   },
@@ -308,7 +309,8 @@
             "profile_selection_policy_id": "MIN_K_FOR_MAX_SUBTURN_V1",
             "profile_selection_certificate_id": "corner_b_seed_relation_profile_selection_certificate",
             "resolved_hidden_edge_count": 0,
-            "profile_selection_authority": "ANGLE_DRIVEN_POLICY_CERTIFICATE"
+            "profile_selection_authority": "ANGLE_DRIVEN_POLICY_CERTIFICATE",
+            "max_subturn_value_id": "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1"
           }
         ],
         "front_components": [
@@ -543,7 +545,8 @@
             "profile_provenance": "ANGLE_DRIVEN_SELECTION_CERTIFICATE",
             "hidden_supports": [],
             "local_profile_segment_count_law": "K_PLUS_TWO",
-            "local_profile_segment_count": 2
+            "local_profile_segment_count": 2,
+            "max_subturn_value_id": "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1"
           }
         ],
         "envelope_instances": [
@@ -654,7 +657,8 @@
               "lower_bound_integer": 0,
               "upper_bound_kind": "CLOSED",
               "upper_bound_integer": 1
-            }
+            },
+            "max_subturn_value_id": "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1"
           }
         ]
       }

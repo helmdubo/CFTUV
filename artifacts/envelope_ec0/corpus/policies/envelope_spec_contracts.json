@@ -60,8 +60,15 @@
       "symbol": "DELTA_MAX",
       "constraint": "ZERO_LT_DELTA_MAX_LT_PI",
       "value_authority": "NAMED_PRODUCT_PARAMETER",
-      "default_status": "BLOCKED_PENDING_USER_DECISION",
-      "approved_default_value": null,
+      "default_status": "USER_APPROVED",
+      "approved_default_value": {
+        "value_id": "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1",
+        "exact_radian_expression": "PI_OVER_3",
+        "degrees": 60,
+        "turn_fraction": "1/6",
+        "unit": "ANGLE"
+      },
+      "change_control": "PRODUCT_SEMANTIC_CHANGE_REQUIRES_CORPUS_REVALIDATION_AND_USER_ACCEPTANCE",
       "coordinate_free_case_use": "CERTIFIED_COMPARISON_ONLY"
     }
   ],
