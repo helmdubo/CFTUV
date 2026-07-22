@@ -44,6 +44,49 @@ Current disposition: old corpus rejected as canonical; history retained.
     unavailable/unsupported outcome; geometry fallback is forbidden unless a
     later gate separately approves it.
 
+## AM11 Linear-Axis / sparse-envelope rebaseline
+
+The subsequent design review identified a higher-level semantic correction,
+recorded normatively in:
+
+`docs/decal_envelope_linear_axis_rebaseline.md`
+
+This is not a rollback of the PatchDomain/ChainUse correction. It preserves the
+validated architecture:
+
+- PatchDomain is the field;
+- pChain/ChainUse is a source;
+- Envelope contributions are resolved by exact union;
+- approved interaction precedes ownership;
+- ownership/UV/station dividers cannot alter the silhouette;
+- downstream tessellation is representational only.
+
+It changes the angular primitive model:
+
+- `CornerRelation` and generated angular material are explicitly different
+  authority levels;
+- the future kernel type is `AngularEnvelopeSpec`, not an alias for
+  `CornerRelation` or emitted faces;
+- independent core algorithms `MITER | BEVEL | ROUND` are superseded by one
+  linear-reflex profile family with declared zero-length hidden edges;
+- a finite profile-controlled fan is legal semantic boundary geometry;
+- hidden edges remain local support features and never become PhysicalChain,
+  ChainUse or global rails;
+- propagation is analytic between topology events;
+- the production event ledger is deterministic and may be expanded lazily
+  during drag rather than fully scheduled before the first frame;
+- a full generalized straight-skeleton solver remains optional.
+
+The v3 JSON corpus at commit `4c0cb57` therefore remains valid evidence for
+PatchDomain, request/domain identity, boundary-limited propagation,
+cross-Patch coordination and mixed-alpha behavior, but is **not accepted as the
+final AngularEnvelope semantic corpus**. In particular, old `join_policy =
+MITER/BEVEL/ROUND` records and dependent cases must be migrated before EC1.
+
+Required migration scope is defined in section 10 of the AM11 document. Until
+that migration, schema/validator update and explicit user acceptance, no kernel
+implementation may begin.
+
 ## User artifact-policy correction
 
 Presentation visual artifacts are forbidden for this project: no SVG/PNG
@@ -60,9 +103,12 @@ the validator/CI is green and the user explicitly accepts the updated verbal
 semantics. There are no current `BLOCKED_PENDING_USER_DECISION` cases; case 16
 remains user-selected policy B for wings of one DecalRequest in one Patch.
 
+AM11 re-closes the EC0 semantic gate for angular cases until the canonical JSON
+corpus is migrated from join enums to explicit angular profiles. Existing
+validator success does not override this semantic gate.
+
 ## Operational note
 
-At this correction snapshot the branch is still 2 commits ahead and 3 commits
-behind the locally known `origin/main`, matching the review warning. No rebase
-or merge was performed as part of semantic correction; reconcile with current
-main immediately before PR/merge, after preserving this validated workspace.
+The branch diverged from `main` during the EC0 work. No rebase or merge is
+performed as part of this semantic rebaseline; reconcile with current main only
+after preserving the validated EC0/AM11 workspace and before PR/merge.
