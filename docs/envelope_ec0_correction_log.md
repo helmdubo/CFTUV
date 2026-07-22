@@ -51,6 +51,15 @@ recorded normatively in:
 
 `docs/decal_envelope_linear_axis_rebaseline.md`
 
+Restricted-context execution and handoff boundaries are recorded in:
+
+`docs/envelope_external_agent_session_manifest.md`
+
+The session manifest is an operational companion to AM11. It does not redefine
+geometry; AM11 wins on any conflict. Kernel work must start a fresh session at
+semantic, contract, coverage/interaction/ownership, tessellation, event-ledger,
+native-port, host-integration and curved-research boundaries.
+
 This is not a rollback of the PatchDomain/ChainUse correction. It preserves the
 validated architecture:
 
