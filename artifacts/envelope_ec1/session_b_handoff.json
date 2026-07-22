@@ -8,8 +8,15 @@
     "session_a_acceptance_commit": "1fb0394a634c089ed590f544e4d524be28f52123"
   },
   "implementation_commit": "e9779b9114ad3770ceb2e6db865255bc1c174cf8",
+  "ci_portability_fix_commit": "7816dea6ac0e49d426930a71244d935cd13ca8e7",
   "branch": "codex/ec1-envelope-contracts",
   "worktree": "C:\\tmp\\CFTUV-ec1-envelope-contracts",
+  "remote": {
+    "repository": "https://github.com/helmdubo/CFTUV",
+    "branch_url": "https://github.com/helmdubo/CFTUV/tree/codex/ec1-envelope-contracts",
+    "initial_published_handoff_sha": "a94f43b7fc87aa50b2fa840adbe70bcb06ec6186",
+    "ci_tested_sha": "7816dea6ac0e49d426930a71244d935cd13ca8e7"
+  },
   "changed_paths": [
     ".github/workflows/envelope-kernel.yml",
     "artifacts/envelope_ec1/session_b_handoff.json",
@@ -46,22 +53,25 @@
   ],
   "tests": {
     "source_checkout": {
-      "command": "python -m pytest",
-      "result": "35 passed in 0.50s"
+      "command": "PYTHONPATH=kernel/src python -m pytest",
+      "result": "36 passed in 0.55s"
     },
     "hermetic_wheel_only": {
       "environment": "clean venv and standalone test directory; PYTHONPATH unset; python -I",
-      "result": "35 passed in 0.55s"
+      "local_result": "36 passed in 0.95s",
+      "external_result": "36 passed in 0.39s"
     },
     "extraction_readiness": {
       "environment": "kernel-only copy in an empty git repository; clean venv; PYTHONPATH unset; python -I",
-      "result": "35 passed in 0.80s",
+      "local_result": "36 passed in 0.87s",
+      "external_result": "36 passed in 0.52s",
       "kernel_only_git_status": "clean"
     },
     "fixture_projection": {
       "accepted_case_count": 23,
       "compiled_plan_count": 26,
       "hash_check": "PASS",
+      "hash_law": "SHA256_UTF8_LF_NORMALIZED_V1",
       "accepted_source_corpus_modified": false
     },
     "generated_contract_schemas": {
@@ -120,14 +130,25 @@
   },
   "external_ci": {
     "required_for_acceptance": true,
-    "status": "NOT_RUN_LOCAL_BRANCH_NOT_PUSHED",
-    "run_url": null
+    "status": "SUCCESS",
+    "head_sha": "7816dea6ac0e49d426930a71244d935cd13ca8e7",
+    "run_id": 29960463578,
+    "run_url": "https://github.com/helmdubo/CFTUV/actions/runs/29960463578",
+    "jobs": {
+      "kernel-hermetic": "SUCCESS",
+      "kernel-extraction-readiness": "SUCCESS"
+    },
+    "resolved_incident": {
+      "failed_run_id": 29959793758,
+      "failed_run_url": "https://github.com/helmdubo/CFTUV/actions/runs/29959793758",
+      "cause": "The fixture manifest hashed CRLF working-tree bytes while the Ubuntu runner checked out LF Git blobs.",
+      "resolution": "Fixture hashes now use the explicit SHA256_UTF8_LF_NORMALIZED_V1 law with a CRLF/LF regression test; public contracts were unchanged."
+    }
   },
   "assumptions_not_proven": [
     "The host adapter can emit complete authoritative SourceVertex, SourceFace, SurfaceTriangle, oriented owner-sector, and reflex-angle certificate records.",
     "The EC0 coordinate-free fixture capability validates semantic projection but does not prove the future host surface exporter.",
-    "No geometry evaluator, exact union, ownership proof, event scheduler, or triangulator has been implemented or mathematically proven.",
-    "External GitHub Actions execution remains pending until the branch is pushed."
+    "No geometry evaluator, exact union, ownership proof, event scheduler, or triangulator has been implemented or mathematically proven."
   ],
   "risks": [
     "Host-to-AnalysisSnapshot extraction remains a Session C integration risk.",
