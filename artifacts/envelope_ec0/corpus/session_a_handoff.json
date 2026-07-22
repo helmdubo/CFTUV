@@ -55,13 +55,13 @@
     "superseded_misleading_commit": "522bd4cfae8f5aaa7d5392e20ebe53101c2eef0c",
     "semantic_content_commit": "d5f3aae34f55f7cb1fd8a4017d1db8ea25d4d578",
     "receipt_commit": "7fbd32a4a990a89273ad8b8ddb7c66d03e05b473",
-    "max_subturn_selection_commit": "PENDING_COMMIT",
-    "disposition": "USER_VALUE_SELECTED_LOCAL_VALIDATION_PENDING"
+    "max_subturn_selection_commit": "10445ec8bcd51fc3ad9226e3ed823e769c76c14e",
+    "disposition": "USER_VALUE_SELECTED_COMMITTED_EXTERNAL_CI_PENDING"
   },
   "tests": [
     {
       "command": "python tools/validate_envelope_ec0.py",
-      "result": "PENDING_60_DEGREE_SELECTION_FINAL_RUN",
+      "result": "PASS_ON_60_DEGREE_SELECTION_COMMIT_10445EC",
       "case_count": 23,
       "main_case_count": 16,
       "pivot_case_count": 7,

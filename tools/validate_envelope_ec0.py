@@ -1386,9 +1386,11 @@ def main() -> int:
         or commit_receipt.get("semantic_content_commit")
         == commit_receipt.get("superseded_misleading_commit")
         or not re.fullmatch(r"[0-9a-f]{40}", commit_receipt.get("receipt_commit", ""))
-        or commit_receipt.get("max_subturn_selection_commit") != "PENDING_COMMIT"
+        or not re.fullmatch(
+            r"[0-9a-f]{40}", commit_receipt.get("max_subturn_selection_commit", "")
+        )
         or commit_receipt.get("disposition")
-        != "USER_VALUE_SELECTED_LOCAL_VALIDATION_PENDING"
+        != "USER_VALUE_SELECTED_COMMITTED_EXTERNAL_CI_PENDING"
     ):
         raise ValidationError("Session A handoff lacks a factual replacement semantic commit SHA")
     if ci.get("status") == "PASS" and (
