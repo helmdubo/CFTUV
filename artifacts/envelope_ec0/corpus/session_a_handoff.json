@@ -1,7 +1,7 @@
 {
   "schema": "cftuv.envelope.ec0.session_handoff.v2",
   "active_slice": "SESSION_A_EC0_LINEAR_REFLEX_REBASELINE",
-  "status": "CANDIDATE_AWAITING_EXTERNAL_CI_AND_EXPLICIT_USER_ACCEPTANCE",
+  "status": "CANDIDATE_AWAITING_EXPLICIT_USER_ACCEPTANCE",
   "input_contract_version": {
     "authority_document": "docs/decal_envelope_linear_axis_rebaseline.md",
     "amendment": "AM11_A1_A2_CORRECTION",
@@ -56,7 +56,8 @@
     "semantic_content_commit": "d5f3aae34f55f7cb1fd8a4017d1db8ea25d4d578",
     "receipt_commit": "7fbd32a4a990a89273ad8b8ddb7c66d03e05b473",
     "max_subturn_selection_commit": "10445ec8bcd51fc3ad9226e3ed823e769c76c14e",
-    "disposition": "USER_VALUE_SELECTED_COMMITTED_EXTERNAL_CI_PENDING"
+    "selection_receipt_commit": "7b19ac6ded428e98a16d284da0d546d93a898188",
+    "disposition": "USER_VALUE_SELECTED_PUBLISHED_EXTERNAL_CI_PASS"
   },
   "tests": [
     {
@@ -85,11 +86,11 @@
     "required": true,
     "workflow": ".github/workflows/envelope-ec0-corpus.yml",
     "command_equivalence": "python tools/validate_envelope_ec0.py",
-    "tested_commit": null,
-    "status": "PENDING",
-    "run_id": null,
-    "run_url": null,
-    "observed_conclusion": null,
+    "tested_commit": "7b19ac6ded428e98a16d284da0d546d93a898188",
+    "status": "PASS",
+    "run_id": 29951420810,
+    "run_url": "https://github.com/helmdubo/CFTUV/actions/runs/29951420810",
+    "observed_conclusion": "SUCCESS",
     "authority": "EXTERNAL_GITHUB_CHECK_NOT_STATIC_CORPUS_ASSERTION"
   },
   "semantic_digest_tested": {

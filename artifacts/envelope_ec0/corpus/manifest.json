@@ -137,6 +137,6 @@
   "validator": "tools/validate_envelope_ec0.py",
   "handoff_file": "artifacts/envelope_ec0/corpus/session_a_handoff.json",
   "active_session": "SESSION_A_EC0_LINEAR_REFLEX_REBASELINE",
-  "ec1_gate": "CLOSED_PENDING_EXTERNAL_CI_AND_EXPLICIT_USER_ACCEPTANCE",
+  "ec1_gate": "CLOSED_PENDING_EXPLICIT_USER_ACCEPTANCE",
   "blocked_pending_user_decisions": []
 }

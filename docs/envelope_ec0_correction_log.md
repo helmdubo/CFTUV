@@ -297,5 +297,7 @@ revalidation, external CI and renewed acceptance, never silent tuning.
 
 The selected value and all dependent authority artifacts were committed as
 `10445ec8bcd51fc3ad9226e3ed823e769c76c14e` with message
-`docs(ec0): select 60-degree LinearReflex max subturn`. At this receipt point,
-external CI for that selection commit remains `PENDING`.
+`docs(ec0): select 60-degree LinearReflex max subturn`. Receipt commit
+`7b19ac6ded428e98a16d284da0d546d93a898188` was published, and external GitHub
+Actions run `29951420810` concluded `SUCCESS`. The only remaining EC0 gate is
+explicit final user acceptance of Session A with the 60° default.

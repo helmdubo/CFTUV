@@ -1303,7 +1303,7 @@ def main() -> int:
         raise ValidationError("manifest has unexpected review status")
     if manifest.get("active_session") != "SESSION_A_EC0_LINEAR_REFLEX_REBASELINE":
         raise ValidationError("manifest active session mismatch")
-    if manifest.get("ec1_gate") != "CLOSED_PENDING_EXTERNAL_CI_AND_EXPLICIT_USER_ACCEPTANCE":
+    if manifest.get("ec1_gate") != "CLOSED_PENDING_EXPLICIT_USER_ACCEPTANCE":
         raise ValidationError("EC1 gate must remain closed")
     if manifest.get("canonical_format") != "JSON":
         raise ValidationError("manifest canonical format must be JSON")
@@ -1355,7 +1355,7 @@ def main() -> int:
         raise ValidationError("Session A handoff schema id mismatch")
     if handoff.get("active_slice") != "SESSION_A_EC0_LINEAR_REFLEX_REBASELINE":
         raise ValidationError("Session A handoff active slice mismatch")
-    if handoff.get("status") != "CANDIDATE_AWAITING_EXTERNAL_CI_AND_EXPLICIT_USER_ACCEPTANCE":
+    if handoff.get("status") != "CANDIDATE_AWAITING_EXPLICIT_USER_ACCEPTANCE":
         raise ValidationError("Session A handoff must not claim premature acceptance")
     handoff_parameter = handoff.get("product_parameter_decisions", {}).get(
         ANGULAR_PARAMETER_ID, {}
@@ -1389,8 +1389,11 @@ def main() -> int:
         or not re.fullmatch(
             r"[0-9a-f]{40}", commit_receipt.get("max_subturn_selection_commit", "")
         )
+        or not re.fullmatch(
+            r"[0-9a-f]{40}", commit_receipt.get("selection_receipt_commit", "")
+        )
         or commit_receipt.get("disposition")
-        != "USER_VALUE_SELECTED_COMMITTED_EXTERNAL_CI_PENDING"
+        != "USER_VALUE_SELECTED_PUBLISHED_EXTERNAL_CI_PASS"
     ):
         raise ValidationError("Session A handoff lacks a factual replacement semantic commit SHA")
     if ci.get("status") == "PASS" and (
@@ -1520,7 +1523,7 @@ def main() -> int:
     print("  presentation artifacts: none; Blender screenshots remain policy-allowed")
     print("  factual receipt: corpus does not self-certify external GitHub CI")
     print("  user-approved LINEAR_REFLEX_MAX_SUBTURN_V1 = PI/3 = 60 degrees: OK")
-    print("  EC1 gate: CLOSED_PENDING_EXTERNAL_CI_AND_EXPLICIT_USER_ACCEPTANCE")
+    print("  EC1 gate: CLOSED_PENDING_EXPLICIT_USER_ACCEPTANCE")
     return 0
 
 

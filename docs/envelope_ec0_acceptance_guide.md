@@ -261,6 +261,13 @@ tests покажут необходимость другого значения,
 
 ## Как продолжить приёмку
 
-После зелёного validator и реального GitHub workflow будет предложена короткая
-финальная фраза приёмки Session A, включающая exact default 60°. До явного
-ответа пользователя EC1 закрыт.
+Локальный validator и внешний GitHub workflow зелёные. Для закрытия Session A
+достаточно ответить:
+
+> Принимаю EC0 Session A: `LINEAR_REFLEX_EQUAL_V1`, angle-driven
+> `MIN_K_FOR_MAX_SUBTURN_V1`, exact default `Δ_MAX = π/3 = 60°`, oriented
+> owner-sector, typed EnvelopeSpec union, Strip/Cap laws, explicit ownership,
+> lazy event ledger, downstream tessellation invariants, cases C01–C16 и
+> P01–P07. Case 16 остаётся policy B.
+
+До этого явного ответа EC1 закрыт.
