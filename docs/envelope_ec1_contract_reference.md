@@ -1,6 +1,6 @@
 # Envelope kernel EC1 contract reference
 
-Status: `SESSION_B_R1_CANDIDATE_READY_FOR_CI`.
+Status: `SESSION_B_EC1_CONTRACT_CLOSED`; Session C is not opened.
 
 This reference describes the Blender-free public boundary implemented by
 Session B. It does not open Session C and contains no geometry evaluator.
