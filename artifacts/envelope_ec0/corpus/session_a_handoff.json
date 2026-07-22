@@ -42,14 +42,14 @@
   "commit_sha": {
     "base": "95d57ee",
     "superseded_misleading_commit": "522bd4cfae8f5aaa7d5392e20ebe53101c2eef0c",
-    "semantic_content_commit": "PENDING_HISTORY_REWRITE",
-    "receipt_commit": "COMMIT_CONTAINING_THIS_RECEIPT",
-    "disposition": "HISTORY_REWRITE_PENDING"
+    "semantic_content_commit": "d5f3aae34f55f7cb1fd8a4017d1db8ea25d4d578",
+    "receipt_commit": "SELF_REFERENCE_NOT_EMBEDDED_SEE_GIT_HISTORY",
+    "disposition": "SEMANTIC_COMMIT_CREATED_PUSH_PENDING"
   },
   "tests": [
     {
       "command": "python tools/validate_envelope_ec0.py",
-      "result": "PASS_ON_WORKTREE_BEFORE_HISTORY_REWRITE",
+      "result": "PASS_ON_SEMANTIC_COMMIT_D5F3AAE",
       "case_count": 23,
       "main_case_count": 16,
       "pivot_case_count": 7,

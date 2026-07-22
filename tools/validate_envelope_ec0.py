@@ -1349,6 +1349,15 @@ def main() -> int:
         raise ValidationError("Session A handoff CI status must be PENDING, PASS, or FAIL")
     if "UNCOMMITTED_WORKTREE" in json.dumps(handoff):
         raise ValidationError("Session A handoff contains the stale uncommitted-worktree receipt")
+    commit_receipt = handoff.get("commit_sha", {})
+    if (
+        not re.fullmatch(r"[0-9a-f]{40}", commit_receipt.get("semantic_content_commit", ""))
+        or commit_receipt.get("semantic_content_commit")
+        == commit_receipt.get("superseded_misleading_commit")
+        or commit_receipt.get("disposition")
+        != "SEMANTIC_COMMIT_CREATED_PUSH_PENDING"
+    ):
+        raise ValidationError("Session A handoff lacks a factual replacement semantic commit SHA")
     global_contracts = manifest.get("global_semantic_contracts", [])
     global_ids = {item.get("id") for item in global_contracts}
     if len(global_ids) != len(global_contracts) or any(item.get("authority") not in CANONICAL_AUTHORITY for item in global_contracts):

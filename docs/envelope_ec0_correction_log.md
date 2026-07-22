@@ -260,10 +260,14 @@ Current machine-readable versions are:
 No geometry evaluator, Blender integration, production Boolean selection or
 EC1 artifact was added. Legacy geometry paths were not read.
 
-The factual new semantic commit SHA, history-rewrite disposition and local test
-result are recorded in the machine-readable handoff after commit creation. The
-external CI field stays `PENDING` until an actual GitHub workflow run exists;
-the corpus and local validator do not self-certify that run.
+The misleading commit was amended to factual semantic commit
+`d5f3aae34f55f7cb1fd8a4017d1db8ea25d4d578` with message
+`docs(ec0): rebaseline LinearReflex semantic corpus`. A separate receipt commit
+records this SHA; a commit cannot embed its own final SHA, so the receipt commit
+is identified by the enclosing Git history. At the time this receipt was
+written, the lease-protected push and external workflow were still pending.
+The external CI field stays `PENDING` until an actual GitHub workflow run
+exists; the corpus and local validator do not self-certify that run.
 
 Current blockers:
 
