@@ -1,0 +1,157 @@
+{
+  "schema": "cftuv.envelope.ec1.session_handoff.v1",
+  "active_slice": "SESSION_B_EC1_CONTRACTS_AND_HERMETIC_PACKAGE",
+  "status": "CANDIDATE_READY_FOR_SESSION_B_REVIEW",
+  "input_contract": {
+    "ec0_case_schema": "cftuv.envelope.ec0.case.v5",
+    "envelope_spec_policy": "envelope_spec_contracts.v2",
+    "session_a_acceptance_commit": "1fb0394a634c089ed590f544e4d524be28f52123"
+  },
+  "implementation_commit": "e9779b9114ad3770ceb2e6db865255bc1c174cf8",
+  "branch": "codex/ec1-envelope-contracts",
+  "worktree": "C:\\tmp\\CFTUV-ec1-envelope-contracts",
+  "changed_paths": [
+    ".github/workflows/envelope-kernel.yml",
+    "artifacts/envelope_ec1/session_b_handoff.json",
+    "docs/envelope_ec1_contract_reference.md",
+    "kernel/"
+  ],
+  "package": {
+    "distribution": "cftuv-envelope-core",
+    "import_package": "cftuv_envelope",
+    "version": "0.1.0",
+    "python_requires": ">=3.10",
+    "runtime_dependencies": [],
+    "wheel_filename": "cftuv_envelope_core-0.1.0-py3-none-any.whl",
+    "wheel_sha256": "5b8864b6da64dffa5383b2c84e2e938646682425debe35a1087cfe257e58fc90"
+  },
+  "public_contracts": [
+    "AnalysisSnapshotV1",
+    "DecalRequestV1",
+    "CompiledPatchEvaluationPlanV1",
+    "StripEnvelopeSpec",
+    "AngularEnvelopeSpec",
+    "JunctionEnvelopeSpec",
+    "CapEnvelopeSpec",
+    "EnvelopeInstanceV1",
+    "InitialFrontSpec",
+    "EventPredicateSpecV1",
+    "EventTransitionDeclarationV1",
+    "RawCoverageRef",
+    "ResolvedCoverageRef",
+    "OwnershipPartitionV1",
+    "OwnershipClaimV1",
+    "TessellationPlanV1",
+    "GeometryBatchV1"
+  ],
+  "tests": {
+    "source_checkout": {
+      "command": "python -m pytest",
+      "result": "35 passed in 0.50s"
+    },
+    "hermetic_wheel_only": {
+      "environment": "clean venv and standalone test directory; PYTHONPATH unset; python -I",
+      "result": "35 passed in 0.55s"
+    },
+    "extraction_readiness": {
+      "environment": "kernel-only copy in an empty git repository; clean venv; PYTHONPATH unset; python -I",
+      "result": "35 passed in 0.80s",
+      "kernel_only_git_status": "clean"
+    },
+    "fixture_projection": {
+      "accepted_case_count": 23,
+      "compiled_plan_count": 26,
+      "hash_check": "PASS",
+      "accepted_source_corpus_modified": false
+    },
+    "generated_contract_schemas": {
+      "count": 4,
+      "drift_check": "PASS"
+    }
+  },
+  "canonical_digests_tested": [
+    "SnapshotDigest",
+    "SemanticPlanDigest",
+    "GeometryBatchSemanticDigest"
+  ],
+  "determinism_evidence": [
+    "canonical record round-trip equality",
+    "repeated canonical bytes equality",
+    "repeated SHA-256 equality",
+    "unordered record permutation invariance",
+    "hidden-support permutation invariance by ordinal",
+    "source retriangulation semantic-digest invariance",
+    "downstream tessellation semantic-digest invariance",
+    "semantic-change digest sensitivity"
+  ],
+  "named_unsupported_outcomes": [
+    "DECAL_ANALYSIS_SCHEMA_UNSUPPORTED",
+    "BARRIER_SPLIT_REQUIRED",
+    "BARRIER_BYPASS_UNSUPPORTED",
+    "SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN",
+    "OWNERSHIP_PARTITION_UNPROVEN",
+    "PENDING_EXACT_EVALUATION",
+    "APPROXIMATE_MATERIALIZATION_PENDING",
+    "JUNCTION_ROUTE_PAIRING_REQUIRED"
+  ],
+  "forbidden_import_scan": {
+    "result": "PASS",
+    "absent_imports": [
+      "bpy",
+      "mathutils",
+      "cftuv"
+    ],
+    "absent_modules": [
+      "evaluator.py",
+      "arrangement.py",
+      "boolean.py",
+      "wavefront_runtime.py",
+      "materializer.py",
+      "blender_adapter.py",
+      "native/"
+    ]
+  },
+  "extraction_readiness": {
+    "result": "PASS",
+    "parent_relative_runtime_paths": false,
+    "parent_repository_required": false,
+    "fixture_source_hashes_verified": true,
+    "wheel_importable_without_host": true
+  },
+  "external_ci": {
+    "required_for_acceptance": true,
+    "status": "NOT_RUN_LOCAL_BRANCH_NOT_PUSHED",
+    "run_url": null
+  },
+  "assumptions_not_proven": [
+    "The host adapter can emit complete authoritative SourceVertex, SourceFace, SurfaceTriangle, oriented owner-sector, and reflex-angle certificate records.",
+    "The EC0 coordinate-free fixture capability validates semantic projection but does not prove the future host surface exporter.",
+    "No geometry evaluator, exact union, ownership proof, event scheduler, or triangulator has been implemented or mathematically proven.",
+    "External GitHub Actions execution remains pending until the branch is pushed."
+  ],
+  "risks": [
+    "Host-to-AnalysisSnapshot extraction remains a Session C integration risk.",
+    "Public naming and schema shape still require independent reviewer acceptance before downstream implementation begins.",
+    "The exact PI_OVER_3 policy is frozen by EC0 authority and intentionally has no runtime override."
+  ],
+  "special_opinion": "The explicit EC0_COORDINATE_FREE_FIXTURE_V5 capability is the least misleading bridge from the semantic oracle to production contracts: it preserves fixture truth without inventing unavailable positions or face cycles. Full host snapshots remain subject to stricter surface validation.",
+  "legacy_paths": {
+    "legacy_implementation_read": false,
+    "reason": "The Session B sparse worktree physically excludes cftuv/ and no legacy geometry body informed the contracts.",
+    "incidental_pre_isolation_keyword_scan": {
+      "occurred": true,
+      "path": "cftuv/decals.py",
+      "content_seen": "Two matching docstring lines only; no implementation body was opened or used."
+    }
+  },
+  "next_session_allowlist": {
+    "status": "NOT_OPENED_REQUIRES_SESSION_B_REVIEW",
+    "allowed_inputs_after_acceptance": [
+      "kernel public contracts and generated schemas",
+      "hash-verified Session A v5 fixture projection",
+      "docs/envelope_ec1_contract_reference.md",
+      "artifacts/envelope_ec1/session_b_handoff.json"
+    ],
+    "legacy_geometry_allowed": false
+  }
+}
