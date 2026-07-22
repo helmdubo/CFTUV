@@ -1,5 +1,5 @@
 {
-  "schema": "cftuv.envelope.ec0.boundary_metamorphic_matrix.v2",
+  "schema": "cftuv.envelope.ec0.boundary_metamorphic_matrix.v3",
   "policy_id": "BOUNDARY_LIMITED_PROPAGATION",
   "scenarios": [
     "BLP-01",
@@ -124,6 +124,22 @@
         "BLP-08": "INVARIANT",
         "BLP-09": "SEMANTIC_CHANGE",
         "BLP-10": "SEMANTIC_CHANGE"
+      }
+    },
+    {
+      "transform": "downstream_tessellation_change_preserve_arrangement",
+      "definition": "Change only internal downstream faces after semantic coalescing.",
+      "by_scenario": {
+        "BLP-01": "INVARIANT",
+        "BLP-02": "INVARIANT",
+        "BLP-03": "INVARIANT",
+        "BLP-04": "INVARIANT",
+        "BLP-05": "INVARIANT",
+        "BLP-06": "INVARIANT",
+        "BLP-07": "INVARIANT",
+        "BLP-08": "INVARIANT",
+        "BLP-09": "INVARIANT",
+        "BLP-10": "INVARIANT"
       }
     }
   ]

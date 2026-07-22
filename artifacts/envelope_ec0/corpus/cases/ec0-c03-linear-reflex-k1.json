@@ -1,8 +1,8 @@
 {
   "schema": "cftuv.envelope.ec0.case.v5",
-  "case_id": "EC0-C04",
-  "slug": "reflex-corner",
-  "title": "Linear-reflex angular contribution internalized by union",
+  "case_id": "EC0-C03",
+  "slug": "linear-reflex-k1-angular-profile",
+  "title": "One-hidden-edge linear-reflex angular profile",
   "status": "DEFINED",
   "global_contract_ids": [
     "EC0-G01",
@@ -26,22 +26,22 @@
   ],
   "semantic_contracts": [
     {
-      "id": "EC0-C04-S1",
+      "id": "EC0-C03-S1",
       "authority": "USER_REQUIRED",
-      "rule": "The angle-driven Angular contribution may become internal after exact union; internal attribution interfaces do not add exterior matter."
+      "rule": "MIN_K_FOR_MAX_SUBTURN_V1 resolves k=1 from the angle certificate; the K1 fixture has one zero-length local hidden support and two equal reflex-excess subturns."
     },
     {
-      "id": "EC0-C04-S2",
+      "id": "EC0-C03-S2",
       "authority": "MATHEMATICALLY_REQUIRED",
       "rule": "All semantic records belong to one authoritative ID graph; result summaries only reference that graph."
     },
     {
-      "id": "EC0-C04-AM11",
+      "id": "EC0-C03-AM11",
       "authority": "USER_REQUIRED",
       "rule": "Envelope material is defined by the typed AM11 EnvelopeSpec union; downstream tessellation cannot select or repair its silhouette."
     },
     {
-      "id": "EC0-C04-A1A2",
+      "id": "EC0-C03-A1A2",
       "authority": "USER_REQUIRED",
       "rule": "LinearReflex hidden-edge count is selected from the certified oriented reflex angle by MIN_K_FOR_MAX_SUBTURN_V1; ordered supports and owner-sector orientation make every hidden support direction unambiguous."
     }
@@ -261,7 +261,7 @@
             "angular_profile_id": "LINEAR_REFLEX_EQUAL_V1",
             "profile_selection_policy_id": "MIN_K_FOR_MAX_SUBTURN_V1",
             "profile_selection_certificate_id": "corner_seed_relation_profile_selection_certificate",
-            "resolved_hidden_edge_count": 0,
+            "resolved_hidden_edge_count": 1,
             "profile_selection_authority": "ANGLE_DRIVEN_POLICY_CERTIFICATE"
           }
         ],
@@ -448,12 +448,12 @@
             "source_relation_id": "corner_seed_relation",
             "angular_profile_id": "LINEAR_REFLEX_EQUAL_V1",
             "reflex_excess_law": "DELTA_EQUALS_PHI_MINUS_PI",
-            "hidden_edge_count": 0,
+            "hidden_edge_count": 1,
             "subdivision_policy": "EQUAL_REFLEX_EXCESS",
             "subturn_count_law": "K_PLUS_ONE",
             "subturn_law": "DELTA_OVER_K_PLUS_ONE",
             "all_support_normal_speed": "UNIT",
-            "exposure_policy": "MAY_BECOME_INTERNAL_AFTER_EXACT_UNION",
+            "exposure_policy": "EXPOSED_ONLY_WHEN_ON_RESOLVED_COVERAGE_SILHOUETTE",
             "incident_effective_alpha_policy": "INCIDENT_EFFECTIVE_ALPHA_VECTOR",
             "owner_sector_id": "corner_seed_relation_owner_angular_sector",
             "profile_selection_policy_id": "MIN_K_FOR_MAX_SUBTURN_V1",
@@ -464,12 +464,29 @@
               "front_component_outgoing_use"
             ],
             "active_support_count_law": "K_PLUS_TWO",
-            "active_support_count": 2,
+            "active_support_count": 3,
             "hidden_support_generation_law": "ORDINALS_ONE_THROUGH_K_INSIDE_ORIENTED_OWNER_SECTOR",
             "profile_provenance": "ANGLE_DRIVEN_SELECTION_CERTIFICATE",
-            "hidden_supports": [],
+            "hidden_supports": [
+              {
+                "id": "angular_spec_hidden_support_1",
+                "ordinal": 1,
+                "turn_fraction": "1/2",
+                "direction_law": "ROTATE_INCOMING_SUPPORT_TOWARD_OUTGOING_INSIDE_ORIENTED_OWNER_SECTOR_BY_ORDINAL_SUBTURN",
+                "zero_length_at_alpha_zero": true,
+                "scope": "ANGULAR_ENVELOPE_SPEC_LOCAL",
+                "lineage": {
+                  "source_relation_id": "corner_seed_relation",
+                  "owner_sector_id": "corner_seed_relation_owner_angular_sector",
+                  "angular_profile_id": "LINEAR_REFLEX_EQUAL_V1",
+                  "selection_certificate_id": "corner_seed_relation_profile_selection_certificate"
+                },
+                "turn_fraction_law": "ORDINAL_OVER_K_PLUS_ONE"
+              }
+            ],
+            "regression_fixture_id": "LINEAR_REFLEX_K1_EQUAL_FIXTURE_V1",
             "local_profile_segment_count_law": "K_PLUS_TWO",
-            "local_profile_segment_count": 2
+            "local_profile_segment_count": 3
           }
         ],
         "envelope_instances": [
@@ -555,17 +572,18 @@
             "angular_profile_id": "LINEAR_REFLEX_EQUAL_V1",
             "selection_policy_id": "MIN_K_FOR_MAX_SUBTURN_V1",
             "max_subturn_parameter_ref": "LINEAR_REFLEX_MAX_SUBTURN_V1",
-            "resolved_hidden_edge_count": 0,
+            "resolved_hidden_edge_count": 1,
             "selection_law": "K_EQUALS_MAX_ZERO_CEIL_DELTA_OVER_DELTA_MAX_MINUS_ONE",
             "lower_bound_certificate": "K_EQ_ZERO_OR_K_TIMES_DELTA_MAX_LT_DELTA",
             "upper_bound_certificate": "DELTA_LEQ_K_PLUS_ONE_TIMES_DELTA_MAX",
             "certificate_authority": "EXACT_OR_CERTIFIED_ANGLE_COMPARISON",
+            "regression_fixture_id": "LINEAR_REFLEX_K1_EQUAL_FIXTURE_V1",
             "certified_ratio_interval": {
               "ratio": "DELTA_OVER_DELTA_MAX",
               "lower_bound_kind": "OPEN",
-              "lower_bound_integer": 0,
+              "lower_bound_integer": 1,
               "upper_bound_kind": "CLOSED",
-              "upper_bound_integer": 1
+              "upper_bound_integer": 2
             }
           }
         ]
@@ -573,23 +591,23 @@
     ]
   },
   "acceptance": {
-    "coverage": "INCIDENT_STRIP_AND_K0_ANGULAR_EXACT_UNION_WITHOUT_EXTRA_EXTERIOR_MATTER",
-    "ownership": "ONE_LAYER_WITH_INTERNAL_INTERFACE",
+    "coverage": "INCIDENT_STRIPS_PLUS_K1_PROFILE_CONTROLLED_ANGULAR_REGION",
+    "ownership": "ANGULAR_PROFILE_CORE_PARTITION",
     "adjacency": [],
-    "s_direction": "MONOTONE_NO_RESET",
+    "s_direction": "ROUTE_CONTINUES_THROUGH_CORNER",
     "alpha_evolution": [
-      "SOURCE_RELATION",
-      "ANGULAR_INSTANCE_BORN",
-      "CONTRIBUTION_FRONT_MAY_INTERNALIZE"
+      "ZERO_LENGTH_HIDDEN_SUPPORT",
+      "K1_PROFILE_ACTIVATES",
+      "CONTROLLED_BOUNDARY_MOVES_ANALYTICALLY"
     ],
     "forbidden": [
-      "EXTERIOR_MATTER_FROM_INTERNAL_INTERFACE",
-      "DOUBLE_COVER",
-      "OWNERSHIP_CHANGES_SILHOUETTE"
+      "UNCONTROLLED_SAMPLED_FAN",
+      "HIDDEN_SUPPORT_AS_CHAIN_USE",
+      "PROFILE_BOUNDARY_DISSOLVE"
     ]
   },
   "metamorphic_expectations": {
-    "matrix_case_id": "EC0-C04",
+    "matrix_case_id": "EC0-C03",
     "matrix_file": "artifacts/envelope_ec0/corpus/matrices/metamorphic_matrix.json"
   },
   "canonical_geometry_digest": {

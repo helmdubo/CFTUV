@@ -1,382 +1,567 @@
-# Envelope backend semantics — EC0 correction candidate
+# Envelope backend semantics — EC0 AM11 Linear-Reflex candidate
 
 ## Статус и область
 
-Статус: `CORRECTION_CANDIDATE_READY_FOR_EXTERNAL_REVIEW`.
+Статус: `A1_A2_CORRECTION_CANDIDATE_BLOCKED_PENDING_USER_DECISION`.
 
-Это нормативная словесная спецификация EC0a/EC0b после внешнего review ветки
-`codex/ec0-envelope-semantics` на commit `b16be81`. Corpus того commit отклонён
-как канон из-за ошибок cardinality, дублирования графов и смешения analysis с
-runtime. Он остаётся доступен в git history, но не является активной
-SemanticAuthority. EC1 не начинается до явной пользовательской приёмки этого
-исправления и зелёного валидатора.
+Это нормативная словесная спецификация EC0 после Linear-Axis rebaseline AM11.
+Она определяет входные факты, request policy, compiled semantic plan и
+приёмочные результаты нового Blender-free envelope kernel. Ей соответствует
+canonical JSON corpus v5 в `artifacts/envelope_ec0/corpus/`.
 
-Документ определяет поведение нового Blender-free envelope kernel. Он не
-описывает реализацию, не переносит legacy-код и не разрешает kernel-implementer
-читать `decal_voronoi.py` или legacy-части `decals.py`.
+EC1 закрыт до двух независимых условий:
+
+1. пользователь задаёт product value для
+   `LINEAR_REFLEX_MAX_SUBTURN_V1`;
+2. `python tools/validate_envelope_ec0.py` проходит без ошибок;
+3. внешний GitHub workflow проходит на опубликованном commit;
+4. пользователь явно принимает семантику Session A.
+
+Документ не описывает geometry evaluator, Blender integration или production
+Boolean backend. Он не переносит legacy geometry и не разрешает исполнителю
+этой роли читать `cftuv/decal_voronoi.py` либо geometry-части
+`cftuv/decals.py`. `[USER_REQUIRED]`
 
 ## Политика артефактов
 
-EC0 выпускается как prose, canonical JSON, JSON Schema, metamorphic matrices и
-validator/CI output. Презентационные SVG/PNG-листы, contact sheets, diagrams,
-slides и interactive HTML запрещены. Они бесполезны для пользовательской
-приёмки и хуже машинно-проверяемого текста для AI agents.
+Нормативные EC0-артефакты — prose, JSON, JSON Schema, metamorphic matrices и
+воспроизводимый validator/CI output. Презентационные SVG/PNG-листы, contact
+sheets, decks, diagrams и interactive HTML запрещены. `[USER_REQUIRED]`
 
-Разрешены диагностические скриншоты из Blender:
-
-- viewport;
-- UV Editor;
-- debug overlays.
-
-Такой скриншот фиксирует наблюдаемое runtime-поведение, но не получает
-SemanticAuthority и не заменяет JSON/prose assertion.
-
-Активный corpus: `artifacts/envelope_ec0/corpus/`.
-Схема: `artifacts/envelope_ec0/corpus/schema/case.schema.json`.
-Валидатор: `tools/validate_envelope_ec0.py`.
+Разрешены только диагностические скриншоты Blender viewport, UV Editor и debug
+overlays. Скриншот показывает runtime-наблюдение, но сам по себе не получает
+SemanticAuthority.
 
 ## SemanticAuthority
 
-Каждое переносимое правило обязано иметь один тег:
+В активную семантику разрешено переносить только утверждения с одним из тегов:
 
-- `USER_REQUIRED` — явно выбранное или подтверждённое пользователем поведение;
-- `FIELD_PROVEN` — устойчиво подтверждённый производственный результат;
-- `MATHEMATICALLY_REQUIRED` — необходимо для непротиворечивой topology,
-  provenance или determinism;
-- `LEGACY_COMPATIBILITY` — совместимость со старым поведением, ещё не принятая
-  как новый канон;
-- `IMPLEMENTATION_ACCIDENT` — следствие старого механизма, не семантика;
-- `OPEN_RESEARCH` — гипотеза, требующая исследования.
+- `USER_REQUIRED` — пользователь явно выбрал продуктовое поведение;
+- `FIELD_PROVEN` — результат устойчиво подтверждён производственной практикой;
+- `MATHEMATICALLY_REQUIRED` — правило необходимо для непротиворечивой
+  topology, provenance, exact partition или determinism.
 
-В активную семантику входят первые три категории. `LEGACY_COMPATIBILITY`,
-`IMPLEMENTATION_ACCIDENT` и `OPEN_RESEARCH` всегда находятся в явном списке
-«на пересмотр» и не получают нормативной силы автоматически.
+Следующие категории не являются каноном и всегда остаются в явном списке «на
+пересмотр»:
 
-## Три раздельных контракта
+- `LEGACY_COMPATIBILITY`;
+- `IMPLEMENTATION_ACCIDENT`;
+- `OPEN_RESEARCH`.
+
+Совпадение со старым preview не повышает правило до SemanticAuthority.
+
+## Разделение authority: snapshot, request и compiled plan
 
 ### AnalysisSnapshotV1
 
-`AnalysisSnapshotV1` содержит только host-observed facts и relations:
+Snapshot содержит только host-observed facts и relations:
 
-- PatchDescriptor и PatchDomain;
+- Patch и PatchDomain;
 - PhysicalChain и directed ChainUse;
-- BoundaryLoop, Hole, Barrier, SourceVertex;
-- analysis-proven PatchSector;
+- boundary constraints, holes/barriers и SourceVertex;
+- analysis-proven Patch sectors, включая `owner_sector_id`, ordered incident
+  supports и turn orientation;
 - CornerRelation и JunctionRelation;
-- boundary и physical lineage.
+- exact/certified oriented owner-sector angle certificates;
+- physical и boundary lineage.
 
-В snapshot запрещены kernel-created seeds, FrontComponents, active intervals,
-runtime events, requested/effective alpha, capacity, contributions, envelopes,
-ownership и GeometryBatch. `[MATHEMATICALLY_REQUIRED]`
+Snapshot не содержит seeds, FrontComponents, EnvelopeSpecs,
+EnvelopeInstances, active intervals, runtime events, requested/effective
+alpha, capacity, ownership или GeometryBatch. Это kernel-owned state.
+`[MATHEMATICALLY_REQUIRED]`
 
 ### DecalRequestV1
 
-`DecalRequestV1` содержит:
+Request содержит:
 
-- `decal_request_id`;
+- `DecalRequestId`;
 - выбранные ChainUses;
-- requested width/alpha;
-- join, cap, boundary, interaction и ownership policies.
+- requested alpha;
+- UV/station policy;
+- единый `AngularProfileId = LINEAR_REFLEX_EQUAL_V1` для подтверждённых Angular
+  relations;
+- named selection policy `MIN_K_FOR_MAX_SUBTURN_V1` и ссылку на её product
+  parameter `LINEAR_REFLEX_MAX_SUBTURN_V1`;
+- request-level interaction intent.
 
-Разные requests остаются разными decal operations даже на одном Patch.
+Angular profile не является analysis-фактом. Analysis сообщает relation,
+ориентированный owner-sector и angle certificate. Request выбирает единую
+profile family и named policy; compiled plan вычисляет `k` из certificate и
+policy. Ручной K0/K1 selector запрещён.
 `[USER_REQUIRED]`
+
+Разные requests остаются разными decal operations даже внутри одного Patch.
+Они не участвуют в collision друг с другом. `[USER_REQUIRED]`
 
 ### CompiledPatchEvaluationPlan
 
-План ключуется парой `(DecalRequestId, PatchDomainId)` и содержит все активные
-sources этого request в этом Patch:
+План ключуется `(DecalRequestId, PatchDomainId)` и содержит все активные sources
+этого request в этом PatchDomain:
 
-- FrontSeed, CornerSeed, JunctionSeed, CapSeed, EndpointClaimSeed;
-- FrontComponents и active intervals;
-- Strip/Corner/Junction/Cap contributions;
-- boundary и interaction event ledger;
-- requested/effective alpha и capacity;
-- PatchCoverage, ownership, station/UV claims;
-- provenance будущего GeometryBatch.
+- compile-static seeds;
+- FrontComponents, active intervals и capacity states;
+- typed EnvelopeSpecs и alpha-bound EnvelopeInstances;
+- boundary events и lazy deterministic event ledger;
+- exact patch union и разрешённые intra-Patch interactions;
+- явный ownership partition;
+- station/UV claims;
+- downstream-tessellation contract и GeometryBatch provenance.
 
-Каждый plan record сохраняет оба идентификатора. Per-pChain private plan/domain
-и post-hoc material union запрещены. `[USER_REQUIRED]`
+Per-pChain private evaluation с последующим stitching/union запрещён.
+`[USER_REQUIRED]`
 
-## Единственный authoritative graph
+## Единственный authoritative ID graph
 
-Каждый JSON case содержит ровно один ID graph:
+Каждый case имеет один canonical graph:
 
 1. `analysis_snapshot`;
 2. `decal_request`;
 3. `expected_compiled_plan`;
 4. `acceptance` assertions.
 
-Параллельные вручную поддерживаемые `skeleton`, `envelopes`, `region_graph` и
-«pivot graph» запрещены: они неизбежно расходятся. Любая summary — только
-человекочитаемое описание объектов canonical graph, не второй источник истины.
+Параллельные вручную поддерживаемые skeleton/envelope/region/pivot graphs
+запрещены. Summary может только ссылаться на canonical IDs, но не создавать
+второй источник истины. `[MATHEMATICALLY_REQUIRED]`
+
+## PatchDomain, ChainUse и FrontComponent
+
+`PatchDomain` — единственное propagation field. PhysicalChain, ChainUse, seed
+и EnvelopeSpec не владеют частным domain. `[USER_REQUIRED]`
+
+`PhysicalChain` хранит identity физической линии. `ChainUse` хранит один
+directed patch-side use с owner Patch, PatchDomain, orientation и roles.
+
+- seam между Patch A/B: одна PhysicalChain и два ChainUses в разных domains;
+- `SEAM_SELF`: одна PhysicalChain и два разных ChainUses в одном domain;
+- общий physical id не разрешает сливать uses;
+- топологический seam-cut сам по себе не становится физическим barrier.
+
+Обычный directed ChainUse имеет ровно один analysis-proven owner-interior
+sector и рождает один FrontComponent. Дополнительные sectors/components
+допустимы только при явном analysis proof реальных отдельных Patch sectors;
+автоматическая пара абстрактных сторон запрещена. `[USER_REQUIRED]`
+
+Capacity/contact одного component не останавливает остальные sources request.
+
+## Typed EnvelopeSpec union
+
+`EnvelopeSpec` — compile-static semantic law, а не emitted mesh. Его tagged
+union содержит ровно четыре варианта: `[USER_REQUIRED]`
+
+1. `StripEnvelopeSpec` — линейная юбка одного FrontComponent;
+2. `AngularEnvelopeSpec` — профиль связи incident fronts в строгом угловом
+   owner-sector;
+3. `JunctionEnvelopeSpec` — material law подтверждённой JunctionRelation;
+4. `CapEnvelopeSpec` — физическое terminal closure strip.
+
+`EnvelopeInstance` — отдельный record применения spec к incident effective
+alpha vector и boundary-resolved состоянию. Spec identity не меняется при drag;
+instance state меняется на точных событиях. Число emitted faces не является
+identity ни spec, ни instance. `[MATHEMATICALLY_REQUIRED]`
+
+Seeds и variants соотносятся так:
+
+- FrontSeed → StripEnvelopeSpec;
+- CornerSeed → AngularEnvelopeSpec;
+- JunctionSeed → JunctionEnvelopeSpec;
+- CapSeed → CapEnvelopeSpec;
+- EndpointClaimSeed создаёт ownership claim, но не выдумывает Angular relation.
+
+## AngularEnvelopeSpec и LinearReflexProfile
+
+### Геометрический сектор
+
+AngularEnvelopeSpec допустим только для owner-interior propagation sector с
+углом `π < φ < 2π`. Здесь `φ` — угол именно owner-sector, а не бытовая метка
+«выпуклый/вогнутый» исходной линии. Поэтому прежние разные corner labels больше
+не выбирают независимые kernel-алгоритмы. `[USER_REQUIRED]`
+
+Определяется reflex excess:
+
+`Δ = φ - π`, где `0 < Δ < π`.
+
+Exact `φ = 2π` не является обычным AngularEnvelopeSpec. Это physical terminal
+или Junction relation в зависимости от topology. `[MATHEMATICALLY_REQUIRED]`
+
+### Единый профиль и angle-driven selection
+
+Session A фиксирует один `AngularProfileId` v1:
+
+```text
+LINEAR_REFLEX_EQUAL_V1
+```
+
+Для него reflex excess делится на `k + 1` равных subturns. `k` вычисляется
+named product policy, а не выбирается отдельным profile ID:
+
+```text
+selection policy: MIN_K_FOR_MAX_SUBTURN_V1
+parameter:        LINEAR_REFLEX_MAX_SUBTURN_V1 = Δ_MAX
+k = max(0, ceil(Δ / Δ_MAX) - 1)
+```
+
+Это наименьшее целое `k >= 0`, для которого
+`Δ / (k + 1) <= Δ_MAX`. Compiled plan хранит exact/certified lower/upper
+comparison certificate в machine-readable форме
+`k < Δ / Δ_MAX <= k + 1` (для `k = 0` нижняя граница следует также из
+`Δ > 0`). Validator выводит `k` из этого interval certificate и сверяет все
+dependent fields; он не доверяет отдельно записанному `resolved_k`. Ручной
+выбор `k`, fixed case mapping, fixture-specific
+threshold, sampling, tessellation, face count и Boolean output не имеют
+SemanticAuthority. `[USER_REQUIRED]`
+
+Числовое или именованное продуктовое значение `Δ_MAX` пока не утверждено.
+`LINEAR_REFLEX_MAX_SUBTURN_V1` имеет статус
+`BLOCKED_PENDING_USER_DECISION`; Session A не назначает default и запрещает
+реализации прятать новый выбор в numeric constant. Формула и policy уже
+нормативны, значение parameter — ещё нет.
+
+### Ориентированный owner-sector и hidden supports
+
+Каждая Angular relation ссылается на analysis-proven `owner_sector_id` и
+хранит:
+
+- ordered incoming/outgoing `ChainUse` supports;
+- owner Patch и PatchDomain;
+- turn orientation в ориентации owner Patch;
+- exact или certified oriented angle `φ`;
+- strict certificate `π < φ < 2π`.
+
+Порядок supports — семантический. Простая перестановка records его не меняет,
+но swap incoming/outgoing без согласованного изменения orientation меняет
+семантику.
+
+Для вычисленного `k` hidden support с ordinal `j`, `1 <= j <= k`, располагается
+на turn fraction `j / (k + 1)` от incoming к outgoing support внутри
+ориентированного owner-sector. Hidden support:
+
+- принадлежит только своему AngularEnvelopeSpec;
+- хранит lineage relation + sector + profile + selection certificate;
+- не становится PhysicalChain, ChainUse, boundary rail или глобальной линией;
+- не участвует в host analysis;
+- может быть переставлена как storage record без изменения semantic digest.
+
+Профиль имеет `k + 2` active supports и `k + 2` локальных
+AngularEnvelope profile segments **до** clip/union/interaction. Это не
+обязательное число exposed silhouette segments: после resolution отдельные
+profile segments могут стать внутренними. Изменение certified angle или
+`Δ_MAX`, которое меняет вычисленный `k`, — семантическое изменение.
 `[MATHEMATICALLY_REQUIRED]`
 
-## Identity и cardinality
+### Regression fixtures, а не product mapping
 
-`PatchDomain` — единственное поле распространения. pChain, PhysicalChain,
-ChainUse, seed и envelope не владеют собственным domain. `[USER_REQUIRED]`
+`LINEAR_REFLEX_K0_EQUAL_FIXTURE_V1` и
+`LINEAR_REFLEX_K1_EQUAL_FIXTURE_V1` отмечают результаты regression cases, где
+policy certificate разрешает соответственно `k = 0` и `k = 1`. Они не являются
+`AngularProfileId`, пользовательским выбором или отдельной продуктовой таблицей.
+C02 и C03 — именованные K0/K1 fixtures. C04, C12, C13 и P06 также получают `k`
+только из angle certificate + policy и не закрепляют исторический case mapping.
+P07 остаётся `JunctionEnvelopeSpec`, поэтому Angular selection к нему не
+применяется.
 
-`PhysicalChain` — физическая identity линии и её канонический физический
-порядок. `ChainUse` — directed patch-side view этой линии.
+## Strip support law
 
-- seam между Patch A и Patch B: одна PhysicalChain, два ChainUses в разных
-  PatchDomains;
-- `SEAM_SELF`: одна PhysicalChain, два разных ChainUses в одном PatchDomain;
-- общий physical id не разрешает сливать uses;
-- topological seam сам по себе не становится physical barrier.
+`StripEnvelopeSpec` использует закон
+`PLANAR_LINEAR_NORMAL_OFFSET_V1`: `[MATHEMATICALLY_REQUIRED]`
 
-Обычный directed ChainUse имеет один analysis-proven owner-interior sector и
-рождает один FrontComponent. Он не получает автоматическую пару left/right.
-Несколько components допустимы только когда snapshot явно доказал несколько
-реальных owner-side sectors, например high-valence case. `[USER_REQUIRED]`
+- source support: `n · x = c`;
+- moving support: `n · x = c + alpha`;
+- `n` ориентирована в owner interior;
+- normal speed равна единице;
+- longitudinal axis задаётся semantic ChainUse station `s`;
+- transverse coordinate — signed owner-interior `r`;
+- terminal interfaces приходят только от ссылок на Angular, Junction или Cap
+  spec либо от явно объявленного domain/request terminal.
 
-Все FrontComponents одного `(DecalRequestId, PatchDomainId)` вычисляются вместе,
-но boundary/capacity одного component не останавливает остальные.
+Data-record split не меняет support law, не создаёт cap и не сбрасывает `s`.
 
-## Seeds и material contributions
+## Cap closure law
 
-- `FrontSeed` рождается из выбранного ChainUse.
-- `CornerSeed` требует подтверждённую CornerRelation и все её incident uses.
-- `JunctionSeed` требует подтверждённую JunctionRelation; per-Patch projection
-  не выдаётся за отдельный global junction.
-- `CapSeed` существует только на физическом конце route.
-- `EndpointClaimSeed` задаёт competing endpoint ownership; фиктивный
-  one-incident CornerSeed запрещён.
+`CapEnvelopeSpec` использует
+`PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1`: `[MATHEMATICALLY_REQUIRED]`
 
-`StripEnvelope | CornerEnvelope | JunctionEnvelope | CapEnvelope` — tagged
-union. Envelope является semantic contribution, а не independently emitted
-mesh. Число faces и tessellation не входят в identity.
+- cap допустим только на физическом endpoint route либо явной TerminalRelation;
+- cap соединяет две longitudinal boundaries incident strip;
+- station на cap постоянна и равна station физического endpoint;
+- effective alpha следует incident strip;
+- cap не является overlay matter;
+- data-record split не создаёт cap;
+- exact two-pi topology разрешается как Terminal/Junction, но не как обычный
+  AngularEnvelopeSpec.
 
 ## Boundary-limited propagation v1
 
-Boundary taxonomy:
+Boundary facts различают:
 
-- `TOPOLOGICAL_BOUNDARY_USE` — топологический факт;
-- `PHYSICAL_DOMAIN_BARRIER` — неподвижное препятствие propagation;
-- `SOURCE_LAUNCH_BOUNDARY` — support выбранного source, не блокирующий его
-  собственный seed при launch.
+- `TOPOLOGICAL_BOUNDARY_USE`;
+- `PHYSICAL_DOMAIN_BARRIER`;
+- `SOURCE_LAUNCH_BOUNDARY`.
 
-Outer boundary, holes и явно помеченные barrier rails ограничивают domain.
-Guide/fold/route без barrier role препятствием не становится.
+Launch support не блокирует originating seed. Outer boundary, holes и явно
+помеченные barrier rails ограничивают domain. Guide/fold/route без barrier role
+препятствием не становится. `[USER_REQUIRED]`
 
-Front не пересекает barrier с последующим rollback. На exact alpha контакта
-возникает `BOUNDARY_CONTACT`. Разрешены exact clip, shrink/disappearance active
-interval и движение endpoint contact по тому же boundary component.
+Endpoint contact может точно clip/slide/shrink на том же boundary component.
+Interior contact, уже требующий split active interval, выбора пути или merge,
+немедленно выдаёт `BARRIER_SPLIT_REQUIRED` на exact contact alpha.
 
-Ключевое различие:
-
-- endpoint contact может скользить и сокращаться без рождения ветви;
-- interior contact, который уже требует split interval, выбора обхода или
-  будущего merge, немедленно даёт `BARRIER_SPLIT_REQUIRED` на том же alpha.
-
-Branch count в v1 не увеличивается. Затронутый component сохраняет последний
-однозначный `effective_alpha`; requested alpha остаётся в diagnostics. Другие
-components продолжают. Полный obstacle bypass отложен.
-
-`FRONT_EXHAUSTED` — успешное именованное завершение.
-`BARRIER_BYPASS_UNSUPPORTED` показывается как boundary capacity reached, а не
-silent clamp или geometry fallback. `[USER_REQUIRED]`
+FrontComponent v1 не увеличивает branch count. Затронутый component сохраняет
+requested alpha, фиксирует последний доказанный effective alpha и named
+capacity reason; остальные components продолжаются. Silent disappearance,
+rollback и material teleportation за obstacle запрещены. `[USER_REQUIRED]`
 
 ## Coverage, interaction и ownership
 
-Нормативный порядок:
+Нормативный порядок: `[USER_REQUIRED]`
 
 ```text
 AnalysisSnapshotV1 + DecalRequestV1
-  -> seeds/components grouped by (request, PatchDomain)
-  -> local contributions
-  -> BoundaryLimitedResolver
-  -> PatchPrimitiveUnion
-  -> PatchCoverageClaims
-  -> IntraPatchFrontInteractionResolver
-  -> ResolvedPatchCoverage
-  -> OwnershipResolver
-  -> SemanticArrangement/Coalescing
-  -> GeometryBatch
+→ seeds/fronts/specs grouped by (DecalRequestId, PatchDomainId)
+→ alpha-bound EnvelopeInstances
+→ boundary-limited resolution
+→ exact patch single-cover union
+→ permitted intra-Patch interactions
+→ ResolvedCoverage
+→ explicit ownership partition
+→ UV/station arrangement and semantic coalescing
+→ downstream tessellation
+→ GeometryBatch
 ```
 
-Coverage сначала является reachability-aware union contributions одного
-request в одном PatchDomain. Голый Boolean не имеет права телепортировать
-материю за hole/barrier или терять provenance.
+### Interaction policy B
 
-Interaction B, выбранный пользователем для case 16:
+Сталкиваются только юбки/чтения одной и той же decal operation внутри одного
+PatchDomain. Это могут быть fronts разных pChains либо self-contact одного
+front. До mutual arrival coverage не меняется. После arrival существующие
+contributions клиппируются equality locus; новая третья материя не рождается.
+Cross-request и cross-Patch collision запрещены. `[USER_REQUIRED]`
 
-- сталкиваются крылья/юбки одной и той же decal operation;
-- sources — разные pChains либо self-collision одного source;
-- все участники имеют одинаковые DecalRequestId и PatchDomainId;
-- до mutual arrival coverage не меняется;
-- после arrival contributions клиппируются стабильным equality locus;
-- новые material regions не рождаются;
-- cross-request и cross-Patch collision запрещены.
+### Явные ownership claims
 
-Ownership идёт после resolved coverage. Он делит существующую материю на
-source/station/UV claims, но не создаёт и не удаляет coverage.
+Каждый patch plan объявляет claims до tessellation. Они обязаны удовлетворять
+`TOTAL_DISJOINT_RESOLVED_COVERAGE_V1`: `[MATHEMATICALLY_REQUIRED]`
+
+- interiors claims попарно не пересекаются;
+- union closures claims равен ResolvedCoverage;
+- equality boundary ownerless;
+- каждый claim ссылается на canonical EnvelopeSpec/EnvelopeInstance lineage;
+- ownership не изменяет silhouette;
+- недоказуемый partition возвращает `OWNERSHIP_PARTITION_UNPROVEN`.
+
+First-wins, smallest-id, tolerance-selected owner и восстановление provenance
+после Boolean запрещены.
+
+## Junction и mixed effective alpha
+
+JunctionRelation — derived analysis relation. JunctionEnvelopeSpec использует
+только объявленные relation supports и route pairing; kernel не угадывает их по
+порядку, углам или runtime IDs. `[USER_REQUIRED]`
+
+Cross-Patch junction имеет одну global relation и shared semantic anchor, затем
+отдельные per-Patch projections. Между domains нет propagation competition или
+collision, но topology/station coordination обязательна.
+`[MATHEMATICALLY_REQUIRED]`
+
+Angular/Junction spec при разных incident effective alpha получает полный
+incident vector. Frozen arm не растягивается до alpha соседа. Если vector не
+определяет единственный exact single-cover result, outcome —
+`SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN`; соседние fronts продолжаются.
 `[USER_REQUIRED]`
 
-## Corner, junction и mixed effective alpha
+## Lazy deterministic event ledger
 
-Corner/Junction — derived analysis relations, не новые primary topology units.
-Их compile-static seeds являются атомарными входами kernel.
+Compile/startup фиксирует immutable Envelope laws, current exact state, event
+predicates, transition types и немедленно достижимые candidates. Полный список
+всех будущих event instances заранее не требуется. `[USER_REQUIRED]`
 
-Cross-Patch junction имеет одну global JunctionRelation и shared anchor, затем
-отдельные per-Patch projections/contributions. Между PatchDomains нет
-propagation competition или collision, но topology/station coordination через
-общую relation обязательна. `[MATHEMATICALLY_REQUIRED]`
+После atomic event batch successor candidates планируются детерминированно и
+лениво. События одного exact alpha применяются одной unordered semantic batch;
+runtime ID order не влияет на результат. Backward drag использует checkpoint
+replay или deterministic undo. Наружу публикуется только complete exact state;
+во время незавершённого exact evaluation используется
+`PENDING_EXACT_EVALUATION`, а не partial mesh.
 
-Shared Corner/Junction envelope при разных effective alpha incident components
-использует incident effective-alpha vector. Frozen сторона не растягивается до
-alpha соседа. Если vector не определяет единственный single-cover result,
-возникает `SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN`; соседние fronts продолжают.
-Geometry materializer не имеет права закрывать щель по своему усмотрению.
-`[USER_REQUIRED]`
+## Downstream tessellation invariants
 
-## 16 канонических случаев
+Tessellation начинается только после resolved coverage, interactions,
+ownership, UV/station arrangement и semantic coalescing.
+`[MATHEMATICALLY_REQUIRED]`
 
-1. **C01 — straight owner-interior wing.** Один ChainUse -> один strip/front;
-   physical ends получают caps; data split не создаёт cap.
-2. **C02 — convex MITER.** Два incident uses и CornerRelation создают один
-   miter core; foreign uses запрещены.
-3. **C03 — convex BEVEL.** Один bevel chord/core без остаточного miter apex или
-   fan behind chord.
-4. **C04 — reflex corner.** Single-cover union без exterior convex wedge;
-   station не сбрасывается.
-5. **C05 — physical end of s.** Cap только на физическом конце, с постоянным
-   terminal station; record boundary не конец s.
-6. **C06 — endpoint boundary contact.** Exact contact, затем slide/shrink;
-   interior split не маскируется под slide.
-7. **C07 — data-chain segmentation.** Split/merge records не меняет physical
-   route, cap, owner, station ledger или digest.
-8. **C08 — T-junction.** Confirmed relation создаёт один junction core; порядок
-   arms не назначает owner.
-9. **C09 — X-junction.** Route pairing приходит из analysis; нельзя выводить
-   pairing из id или угла в kernel.
-10. **C10 — Y merge/split.** Один downstream single cover с сохранением полного
-    upstream provenance.
-11. **C11 — short segment endpoint claims.** Два EndpointClaimSeeds встречаются
-    на ownerless divider; one-incident CornerSeed и smallest-id wins запрещены.
-12. **C12 — curved internal divider.** Claim B имеет одну identity как
-    CornerEnvelope двух incident uses. Exact curved divider остаётся внутренним
-    ownership boundary и не меняет silhouette.
-13. **C13 — BEVEL under another wing.** CornerSeed содержит только bevel incident
-    uses; `other_wing_use` появляется лишь в same-request interaction после
-    mutual arrival.
-14. **C14 — proven saturation.** Один component freezes на effective alpha,
-    companion продолжает; global Patch clamp запрещён.
-15. **C15 — topology events during drag.** Compile-known simultaneous events
-    применяются атомарно; runtime route discovery и id ordering запрещены.
-16. **C16 — intra-Patch freeze B.** Same-request wings клиппируются equality
-    locus; ownership-only overlap и новая материя запрещены.
+Допустимо менять:
 
-Все 16 имеют status `DEFINED`. Нерешённых вариантов A/C нет: пользователь
-выбрал B, а затем уточнил, что участники всегда принадлежат одной decal
-operation.
+- внутреннюю triangulation/polygonization;
+- face order;
+- семантически эквивалентные внутренние diagonals.
+
+Обязательно сохраняются:
+
+- resolved coverage silhouette;
+- profile-controlled Angular boundary chain;
+- ownership boundaries;
+- UV/station interfaces;
+- source provenance;
+- shared semantic vertex identities.
+
+Tessellation не выбирает profile, hidden-edge count, silhouette, owner или
+provenance и не растворяет profile-controlled boundary. Face count не является
+semantic authority. Все допустимые tessellations одного arrangement имеют один
+CanonicalGeometryDigest. `[USER_REQUIRED]`
+
+## 16 canonical cases
+
+1. **C01:** один StripEnvelopeSpec одного ChainUse; physical terminals имеют
+   CapEnvelopeSpecs.
+2. **C02:** `LINEAR_REFLEX_EQUAL_V1`; angle certificate + policy разрешают
+   `k = 0` и фиксируют K0 regression result.
+3. **C03:** тот же profile; certificate + policy разрешают `k = 1`, поэтому
+   hidden support стоит на `1/2` reflex excess.
+4. **C04:** angle-driven Angular contribution может internalize после exact
+   union, не добавляя exterior matter.
+5. **C05:** Cap только на physical end of `s`.
+6. **C06:** endpoint boundary contact slide/shrink; interior split — named
+   capacity event.
+7. **C07:** data-chain segmentation не меняет physical route/spec/digest.
+8. **C08:** T-junction получает один JunctionEnvelopeSpec; arm order не
+   назначает owner.
+9. **C09:** X-junction route pairing приходит из relation.
+10. **C10:** Y merge/split хранит полный upstream provenance и один downstream
+    cover.
+11. **C11:** два EndpointClaimSeeds делят short strip; фиктивной Angular relation
+    нет.
+12. **C12:** claim B явно охватывает две incident strips и один angle-driven
+    AngularEnvelopeSpec; curved divider остаётся ownership-only internal curve.
+13. **C13:** Angular spec с policy-resolved `k` содержит только свои incident
+    uses; другая юбка той же decal/Patch входит только в post-arrival
+    interaction и встречает фактическую exposed profile boundary.
+14. **C14:** один component насыщается на proven effective alpha, companion
+    продолжает.
+15. **C15:** laws/predicates compile-declared, successor events lazy, same-alpha
+    transitions atomic.
+16. **C16:** выбран B — same-request same-Patch contributions клиппируются
+    equality locus без overlap и без новой matter.
+
+Все case outcomes имеют `DEFINED`. Отдельно заблокирован продуктовый parameter
+`A1_MAX_SUBTURN_DEFAULT`: corpus fixtures используют symbolic certified
+comparisons, но production default не утверждён.
 
 ## Pivot/correction cases
 
-- **P01:** physical seam A/B -> два independent Patch plans, shared physical id.
-- **P02:** `SEAM_SELF` -> два directed uses одного Patch, без auto-merge/barrier.
-- **P03:** несколько sources одного request -> один Patch evaluation/union.
-- **P04:** self-collision одного wing -> тот же B contract, две station readings.
-- **P05:** cross-Patch junction -> shared anchor, per-Patch projections, no
-  cross-Patch collision.
-- **P06:** mixed-alpha Corner -> incident vector либо named unproven outcome.
-- **P07:** mixed-alpha Junction -> incident vector либо named unproven outcome.
+- **P01:** physical seam A/B — два Patch plans, shared PhysicalChain identity.
+- **P02:** `SEAM_SELF` — два directed uses одного Patch, без auto-merge/barrier.
+- **P03:** все sources одного request/Patch входят в один evaluation/union.
+- **P04:** self-collision одного wing использует interaction policy B.
+- **P05:** cross-Patch junction имеет shared anchor и per-Patch projections без
+  collision.
+- **P06:** angle-driven Angular spec использует mixed incident effective-alpha
+  vector.
+- **P07:** Junction spec использует mixed incident effective-alpha vector.
 
-## Metamorphic matrix
+## Metamorphic matrix и CanonicalGeometryDigest
 
-Канон хранится в JSON matrices. Для каждого transform явно указано:
+Каждое transformation получает только один verdict:
 
-- `INVARIANT` — CanonicalGeometryDigest и семантический граф сохраняются;
-- `SEMANTIC_CHANGE` — меняется конкретный объявленный fact/request/policy;
-- `CONDITIONAL` — invariant только при сохранении указанных preconditions.
+- `INVARIANT` — canonical semantic graph/digest сохраняется;
+- `SEMANTIC_CHANGE` — меняется объявленный analysis/request/spec fact.
 
-Обязательные transforms: record/id permutation, ChainUse reverse вместе с
-направлением s, loop winding reverse, rigid translation, uniform scale вместе с
-width, retriangulation, data-chain split/merge при той же physical line,
-simultaneous event batching и малое возмущение без topology change. Ни iteration
-order, ни smallest id, ни tolerance не могут выбрать topology или owner.
+AM3 transformations покрывают permutation, storage reverse с сохранением
+семантического направления, winding reverse с сохранением domain, rigid
+translation, coherent scale, retriangulation, data-chain split/merge,
+simultaneous-event permutation и малое возмущение без topology change.
 
-## CanonicalGeometryDigest
+AM11 дополнительно фиксирует:
 
-Digest сравнивает semantic graph, а не face order или float buffer:
+- hidden-support record permutation — invariant;
+- coherent record permutation ориентированного owner-sector — invariant;
+- swap incident support order без coherent orientation update — semantic
+  change;
+- изменение certified angle или `Δ_MAX` через границу выбора `k` — semantic
+  change;
+- ручной override вычисленного hidden-edge count — semantic change и invalid
+  request;
+- изменение subdivision law — semantic change;
+- downstream tessellation при сохранении arrangement — invariant;
+- dissolve exposed profile-controlled boundary — semantic change.
 
-- request/domain identity;
-- coverage regions и adjacency;
-- full physical/boundary/source lineage;
-- owner и ownerless dividers;
-- station/UV models и direction s;
-- relation/seed/component/contribution identity;
-- active intervals, branch count и boundary history;
-- atomic events, requested/effective alpha и capacity;
-- anchors и shared-junction projections.
+Digest включает request/domain identity, specs/instances, full lineage,
+coverage/adjacency, ownership, station/UV, active/capacity state, exact events и
+shared anchors. Он исключает face order, internal fill diagonals, допустимую
+triangulation/polygonization и runtime face count.
 
-Permutation входов, record segmentation и tessellation не меняют digest, если
-не изменили семантику. `[MATHEMATICALLY_REQUIRED]`
+## Named outcomes
 
-## Named unsupported outcomes
-
-Неподдерживаемое поведение всегда имеет имя и provenance:
-
-- `BARRIER_SPLIT_REQUIRED` / `BARRIER_BYPASS_UNSUPPORTED`;
+- `BARRIER_SPLIT_REQUIRED`;
+- `BARRIER_BYPASS_UNSUPPORTED`;
 - `SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN`;
-- `APPROXIMATE_MATERIALIZATION_PENDING` до отдельного допуска соответствующего
-  geometry path;
-- другие capability gaps добавляются только как explicit named outcomes.
+- `OWNERSHIP_PARTITION_UNPROVEN`;
+- `PENDING_EXACT_EVALUATION`;
+- `APPROXIMATE_MATERIALIZATION_PENDING` до отдельного допуска geometry path.
 
-Silent fallback, legacy geometry repair и универсальный clamp запрещены.
+Silent fallback, legacy repair, universal clamp и partial mesh publication
+запрещены.
 
 ## На пересмотр — не семантика
 
-Следующее не переносится в новый канон без отдельного решения:
+- `[LEGACY_COMPATIBILITY]` прежние UI join labels могут существовать только как
+  request presets для единой family/policy; они не являются kernel types и не
+  могут вручную назначать `k`.
+- `[LEGACY_COMPATIBILITY]` exact legacy face count/tessellation.
+- `[LEGACY_COMPATIBILITY]` старые numeric UV conventions сверх station
+  direction/continuity.
+- `[IMPLEMENTATION_ACCIDENT]` station buckets как обязательный freeze mechanism.
+- `[IMPLEMENTATION_ACCIDENT]` автоматические left/right sectors одного ChainUse.
+- `[IMPLEMENTATION_ACCIDENT]` first/last generated vertex как terminal test.
+- `[IMPLEMENTATION_ACCIDENT]` per-pChain materialization и post-hoc stitching.
+- `[IMPLEMENTATION_ACCIDENT]` cap/owner divider на data-record boundary.
+- `[IMPLEMENTATION_ACCIDENT]` sampled fan или absent-apex repair как source of
+  Angular silhouette.
+- `[OPEN_RESEARCH]` production arrangement/Boolean/exact arithmetic package.
+- `[OPEN_RESEARCH]` obstacle bypass со split/path-choice/merge.
+- `[OPEN_RESEARCH]` generalized straight-skeleton backend.
+- `[OPEN_RESEARCH]` ownership tournament вне объявленных local claims.
 
-- `[LEGACY_COMPATIBILITY]` точное совпадение face count/tessellation старого
-  preview;
-- `[LEGACY_COMPATIBILITY]` старые UV numeric conventions сверх сохранения
-  station direction/continuity;
-- `[IMPLEMENTATION_ACCIDENT]` station buckets как обязательный механизм freeze;
-- `[IMPLEMENTATION_ACCIDENT]` автоматические left/right sectors на ChainUse;
-- `[IMPLEMENTATION_ACCIDENT]` first/last generated vertex как criterion end;
-- `[IMPLEMENTATION_ACCIDENT]` post-hoc union независимо материализованных
-  pChain meshes;
-- `[IMPLEMENTATION_ACCIDENT]` cap/owner divider на границе data record;
-- `[OPEN_RESEARCH]` production arrangement backend и exact arithmetic package;
-- `[OPEN_RESEARCH]` obstacle bypass со split/merge вокруг hole;
-- `[OPEN_RESEARCH]` ownership tournament вне уже определённых local claims.
+Ни один пункт этого списка не разрешён как молчаливый fallback.
 
 ## EC0 gate
 
-Гейт требует одновременно:
+EC0 закрывается только если одновременно:
 
-1. пользователь принимает словесное описание;
-2. все 16 + 7 pivot/correction cases проходят JSON Schema и validator;
-3. закрыты corner-owner, T-junction, конец s, BEVEL при чужом same-request
-   столкновении, saturation, curved internal divider, topology changes при drag
-   и case 16 freeze B;
-4. boundary endpoint/interior distinction, launch exception, cross-Patch
-   junction и mixed-alpha policy присутствуют явно;
-5. нет `BLOCKED_PENDING_USER_DECISION` и «решим потом» внутри EC0 scope;
-6. в активном EC0 package нет презентационных visual artifacts.
+1. пользователь утверждает product value
+   `LINEAR_REFLEX_MAX_SUBTURN_V1`; сейчас это единственный явный
+   `BLOCKED_PENDING_USER_DECISION`;
+2. v5 corpus/schema/matrices проходят локальный validator;
+3. внешний GitHub workflow проходит на фактически опубликованном commit;
+4. пользователь принимает `LINEAR_REFLEX_EQUAL_V1`, angle-driven
+   `MIN_K_FOR_MAX_SUBTURN_V1`, ориентированный owner-sector и закон `k + 2`;
+5. приняты typed EnvelopeSpec union, Strip support law и Cap closure law;
+6. приняты explicit ownership claims, lazy event ledger и tessellation
+   invariants;
+7. закрыты corner owner, T-junction, конец `s`, C13 interaction, saturation,
+   curved internal divider, topology changes during drag и case 16 policy B;
+8. нет `BLOCKED_PENDING_USER_DECISION` или скрытого «решим потом»;
+9. нет presentation visuals в активном EC0 package.
 
-Текущий candidate удовлетворяет формальным пунктам только после зелёного запуска
-`python tools/validate_envelope_ec0.py`; пользовательская приёмка остаётся
-отдельным обязательным решением.
+До явной пользовательской фразы приёмки EC1 остаётся закрыт даже при зелёном
+локальном validator.
 
 ## Риски
 
-- JSON corpus может быть внутренне согласован, но ошибочно отображён будущим
-  host adapter; это закрывается cross-contract validation и Blender screenshots.
-- Exact arrangement и mixed-alpha shared envelopes остаются сложными для
-  реализации, хотя их outcomes уже специфицированы.
-- Cross-Patch junction легко случайно превратить либо в collision, либо в два
-  независимых anchors; обе ошибки должен ловить digest/validator.
-- Запрет branch birth ограничивает первый backend на concave/hole domains; это
-  осознанная capability boundary, не дефект молчаливого fallback.
+- Значение `LINEAR_REFLEX_MAX_SUBTURN_V1` влияет на вычисленный `k` и поэтому
+  является продуктовым выбором, а не безопасным implementation tuning.
+- Symbolic fixture certificates проверяют алгоритм выбора, но не заменяют
+  утверждение production parameter.
+- Exact curved ownership divider и Junction core требуют backend, сохраняющий
+  curve/provenance; выбор backend не входит в EC0.
+- Host adapter ещё должен доказать стабильные два ChainUse для `SEAM_SELF` и
+  корректные relation sectors; kernel не должен реконструировать эти facts.
+- UI/debug обязаны различать requested alpha, per-component effective alpha и
+  pending exact evaluation.
+- C13 и C16 потребуют runtime fixtures как отдельный этап, хотя их semantic
+  outcomes уже определены.
 
 ## Особое мнение
 
-EC0 не доказывает вычислимость всех exact geometry операций и не должен
-притворяться реализационным дизайном. Его задача — сделать неверный результат
-обнаружимым: один граф, тотальная identity, именованные outcomes и executable
-validator. Если будущий kernel не может построить однозначный single-cover
-результат, честный named failure предпочтительнее правдоподобной геометрии,
-которую contract не объясняет.
+Один `LINEAR_REFLEX_EQUAL_V1` лучше выражает геометрическую семью, чем перечень
+K0/K1 case presets. Дискретность должна следовать из certified angle и явно
+утверждённого `Δ_MAX`; она не должна зависеть от mesh density или экрана.
+Отдельный новый `AngularProfileId` нужен только для действительно другого
+subdivision/motion law, а не для другого результата `k` той же policy.

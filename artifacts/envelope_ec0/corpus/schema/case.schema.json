@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "cftuv.envelope.ec0.case.v3",
-  "title": "CFTUV EC0 canonical semantic case",
+  "$id": "cftuv.envelope.ec0.case.v5",
+  "title": "CFTUV EC0 A1/A2 angle-driven LinearReflex semantic case",
   "type": "object",
   "required": [
     "schema",
@@ -20,7 +20,7 @@
   ],
   "properties": {
     "schema": {
-      "const": "cftuv.envelope.ec0.case.v3"
+      "const": "cftuv.envelope.ec0.case.v5"
     },
     "case_id": {
       "type": "string",
@@ -69,43 +69,10 @@
       "$ref": "#/$defs/acceptance"
     },
     "metamorphic_expectations": {
-      "type": "object",
-      "required": [
-        "matrix_case_id",
-        "matrix_file"
-      ],
-      "properties": {
-        "matrix_case_id": {
-          "type": "string"
-        },
-        "matrix_file": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false
+      "$ref": "#/$defs/metamorphicExpectation"
     },
     "canonical_geometry_digest": {
-      "type": "object",
-      "required": [
-        "include",
-        "exclude"
-      ],
-      "properties": {
-        "include": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string"
-          }
-        },
-        "exclude": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      },
-      "additionalProperties": false
+      "$ref": "#/$defs/canonicalDigest"
     }
   },
   "$defs": {
@@ -147,6 +114,98 @@
       },
       "additionalProperties": false
     },
+    "sourceSupportRef": {
+      "type": "object",
+      "required": [
+        "chain_use_id",
+        "source_launch_boundary_id"
+      ],
+      "properties": {
+        "chain_use_id": {"type": "string", "minLength": 1},
+        "source_launch_boundary_id": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "angularOwnerSector": {
+      "type": "object",
+      "required": [
+        "id",
+        "owner_patch_id",
+        "patch_domain_id",
+        "analysis_proven",
+        "ordered_incident_chain_use_ids",
+        "incoming_support_ref",
+        "outgoing_support_ref",
+        "turn_orientation",
+        "interior_selection_law"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "owner_patch_id": {"type": "string", "minLength": 1},
+        "patch_domain_id": {"type": "string", "minLength": 1},
+        "analysis_proven": {"const": true},
+        "ordered_incident_chain_use_ids": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {"type": "string"}
+        },
+        "incoming_support_ref": {"$ref": "#/$defs/sourceSupportRef"},
+        "outgoing_support_ref": {"$ref": "#/$defs/sourceSupportRef"},
+        "turn_orientation": {
+          "enum": [
+            "CCW_IN_OWNER_PATCH_ORIENTATION",
+            "CW_IN_OWNER_PATCH_ORIENTATION"
+          ]
+        },
+        "interior_selection_law": {
+          "const": "OWNER_PATCH_INTERIOR_BETWEEN_ORDERED_SUPPORTS"
+        }
+      },
+      "additionalProperties": false
+    },
+    "reflexAngleCertificate": {
+      "type": "object",
+      "required": [
+        "id",
+        "owner_sector_id",
+        "measure_law",
+        "measure_source",
+        "strict_range_certificate",
+        "reflex_excess_law",
+        "exact_two_pi"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "owner_sector_id": {"type": "string", "minLength": 1},
+        "measure_law": {"const": "ORIENTED_OWNER_SECTOR_ANGLE"},
+        "measure_source": {"const": "HOST_ANALYSIS_EXACT_OR_CERTIFIED"},
+        "strict_range_certificate": {"const": "STRICT_PI_LT_PHI_LT_2PI"},
+        "reflex_excess_law": {"const": "DELTA_EQUALS_PHI_MINUS_PI"},
+        "exact_two_pi": {"const": false}
+      },
+      "additionalProperties": false
+    },
+    "cornerRelation": {
+      "type": "object",
+      "required": [
+        "id",
+        "source_vertex_id",
+        "relation_kind",
+        "exact_two_pi",
+        "owner_sector_id",
+        "reflex_angle_measure_ref"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "source_vertex_id": {"type": "string", "minLength": 1},
+        "relation_kind": {"const": "ANGULAR_RELATION"},
+        "exact_two_pi": {"const": false},
+        "owner_sector_id": {"type": "string", "minLength": 1},
+        "reflex_angle_measure_ref": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
     "analysisSnapshot": {
       "type": "object",
       "required": [
@@ -157,6 +216,8 @@
         "chain_uses",
         "boundary_constraints",
         "corner_relations",
+        "angular_owner_sectors",
+        "reflex_angle_certificates",
         "junction_relations"
       ],
       "properties": {
@@ -204,7 +265,19 @@
         "corner_relations": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/idRecord"
+            "$ref": "#/$defs/cornerRelation"
+          }
+        },
+        "angular_owner_sectors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/angularOwnerSector"
+          }
+        },
+        "reflex_angle_certificates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reflexAngleCertificate"
           }
         },
         "junction_relations": {
@@ -216,15 +289,37 @@
       },
       "additionalProperties": false
     },
+    "angularProfileSelectionBinding": {
+      "type": "object",
+      "required": [
+        "corner_relation_id",
+        "angular_profile_id",
+        "selection_policy_id",
+        "max_subturn_parameter_ref",
+        "selection_authority"
+      ],
+      "properties": {
+        "corner_relation_id": {
+          "type": "string"
+        },
+        "angular_profile_id": {"const": "LINEAR_REFLEX_EQUAL_V1"},
+        "selection_policy_id": {"const": "MIN_K_FOR_MAX_SUBTURN_V1"},
+        "max_subturn_parameter_ref": {"const": "LINEAR_REFLEX_MAX_SUBTURN_V1"},
+        "selection_authority": {
+          "const": "NAMED_ANGLE_DRIVEN_PRODUCT_POLICY"
+        }
+      },
+      "additionalProperties": false
+    },
     "decalRequest": {
       "type": "object",
       "required": [
         "decal_request_id",
         "selected_chain_use_ids",
         "requested_alpha",
-        "join_policy",
         "material_policy",
-        "uv_policy"
+        "uv_policy",
+        "angular_profile_selection_bindings"
       ],
       "properties": {
         "decal_request_id": {
@@ -242,14 +337,17 @@
         "requested_alpha": {
           "type": "string"
         },
-        "join_policy": {
-          "type": "string"
-        },
         "material_policy": {
           "type": "string"
         },
         "uv_policy": {
           "type": "string"
+        },
+        "angular_profile_selection_bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/angularProfileSelectionBinding"
+          }
         }
       },
       "additionalProperties": false
@@ -270,6 +368,388 @@
       },
       "additionalProperties": false
     },
+    "stripEnvelopeSpec": {
+      "type": "object",
+      "required": [
+        "id",
+        "variant",
+        "source_seed_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "source_lineage_ids",
+        "front_component_ids",
+        "support_law_id",
+        "station_model_id",
+        "transverse_model_id",
+        "terminal_interface_spec_ids",
+        "terminal_interface_policy"
+      ],
+      "properties": {
+        "id": {"type": "string"},
+        "variant": {"const": "StripEnvelopeSpec"},
+        "source_seed_id": {"type": "string"},
+        "decal_request_id": {"type": "string"},
+        "patch_domain_id": {"type": "string"},
+        "source_lineage_ids": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"type": "string"}},
+        "front_component_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "support_law_id": {"const": "PLANAR_LINEAR_NORMAL_OFFSET_V1"},
+        "station_model_id": {"const": "SEMANTIC_CHAIN_USE_S"},
+        "transverse_model_id": {"const": "SIGNED_OWNER_INTERIOR_R"},
+        "terminal_interface_spec_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "terminal_interface_policy": {"enum": ["REFERENCED_ENVELOPE_SPECS", "DOMAIN_OR_REQUEST_TERMINAL"]}
+      },
+      "additionalProperties": false
+    },
+    "hiddenSupport": {
+      "type": "object",
+      "required": [
+        "id",
+        "ordinal",
+        "turn_fraction",
+        "turn_fraction_law",
+        "direction_law",
+        "zero_length_at_alpha_zero",
+        "scope",
+        "lineage"
+      ],
+      "properties": {
+        "id": {"type": "string"},
+        "ordinal": {"type": "integer", "minimum": 1},
+        "turn_fraction": {"type": "string"},
+        "turn_fraction_law": {"const": "ORDINAL_OVER_K_PLUS_ONE"},
+        "direction_law": {"const": "ROTATE_INCOMING_SUPPORT_TOWARD_OUTGOING_INSIDE_ORIENTED_OWNER_SECTOR_BY_ORDINAL_SUBTURN"},
+        "zero_length_at_alpha_zero": {"const": true},
+        "scope": {"const": "ANGULAR_ENVELOPE_SPEC_LOCAL"},
+        "lineage": {
+          "type": "object",
+          "required": ["source_relation_id", "owner_sector_id", "angular_profile_id", "selection_certificate_id"],
+          "properties": {
+            "source_relation_id": {"type": "string"},
+            "owner_sector_id": {"type": "string"},
+            "angular_profile_id": {"const": "LINEAR_REFLEX_EQUAL_V1"},
+            "selection_certificate_id": {"type": "string"}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "angularProfileSelectionCertificate": {
+      "type": "object",
+      "required": [
+        "id",
+        "source_relation_id",
+        "owner_sector_id",
+        "reflex_angle_measure_ref",
+        "angular_profile_id",
+        "selection_policy_id",
+        "max_subturn_parameter_ref",
+        "resolved_hidden_edge_count",
+        "selection_law",
+        "lower_bound_certificate",
+        "upper_bound_certificate",
+        "certified_ratio_interval",
+        "certificate_authority"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "source_relation_id": {"type": "string", "minLength": 1},
+        "owner_sector_id": {"type": "string", "minLength": 1},
+        "reflex_angle_measure_ref": {"type": "string", "minLength": 1},
+        "angular_profile_id": {"const": "LINEAR_REFLEX_EQUAL_V1"},
+        "selection_policy_id": {"const": "MIN_K_FOR_MAX_SUBTURN_V1"},
+        "max_subturn_parameter_ref": {"const": "LINEAR_REFLEX_MAX_SUBTURN_V1"},
+        "resolved_hidden_edge_count": {"type": "integer", "minimum": 0},
+        "selection_law": {"const": "K_EQUALS_MAX_ZERO_CEIL_DELTA_OVER_DELTA_MAX_MINUS_ONE"},
+        "lower_bound_certificate": {"const": "K_EQ_ZERO_OR_K_TIMES_DELTA_MAX_LT_DELTA"},
+        "upper_bound_certificate": {"const": "DELTA_LEQ_K_PLUS_ONE_TIMES_DELTA_MAX"},
+        "certified_ratio_interval": {
+          "type": "object",
+          "required": [
+            "ratio",
+            "lower_bound_kind",
+            "lower_bound_integer",
+            "upper_bound_kind",
+            "upper_bound_integer"
+          ],
+          "properties": {
+            "ratio": {"const": "DELTA_OVER_DELTA_MAX"},
+            "lower_bound_kind": {"const": "OPEN"},
+            "lower_bound_integer": {"type": "integer", "minimum": 0},
+            "upper_bound_kind": {"const": "CLOSED"},
+            "upper_bound_integer": {"type": "integer", "minimum": 1}
+          },
+          "additionalProperties": false
+        },
+        "certificate_authority": {"const": "EXACT_OR_CERTIFIED_ANGLE_COMPARISON"},
+        "regression_fixture_id": {
+          "enum": [
+            "LINEAR_REFLEX_K0_EQUAL_FIXTURE_V1",
+            "LINEAR_REFLEX_K1_EQUAL_FIXTURE_V1"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "angularEnvelopeSpec": {
+      "type": "object",
+      "required": [
+        "id",
+        "variant",
+        "source_seed_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "source_lineage_ids",
+        "source_relation_id",
+        "angular_profile_id",
+        "owner_sector_id",
+        "profile_selection_policy_id",
+        "profile_selection_certificate_id",
+        "reflex_excess_law",
+        "hidden_edge_count",
+        "hidden_edge_count_policy",
+        "subdivision_policy",
+        "subturn_count_law",
+        "subturn_law",
+        "hidden_supports",
+        "ordered_incident_front_component_ids",
+        "active_support_count_law",
+        "active_support_count",
+        "local_profile_segment_count_law",
+        "local_profile_segment_count",
+        "hidden_support_generation_law",
+        "all_support_normal_speed",
+        "profile_provenance",
+        "exposure_policy"
+      ],
+      "properties": {
+        "id": {"type": "string"},
+        "variant": {"const": "AngularEnvelopeSpec"},
+        "source_seed_id": {"type": "string"},
+        "decal_request_id": {"type": "string"},
+        "patch_domain_id": {"type": "string"},
+        "source_lineage_ids": {"type": "array", "minItems": 4, "uniqueItems": true, "items": {"type": "string"}},
+        "source_relation_id": {"type": "string"},
+        "angular_profile_id": {"const": "LINEAR_REFLEX_EQUAL_V1"},
+        "owner_sector_id": {"type": "string"},
+        "profile_selection_policy_id": {"const": "MIN_K_FOR_MAX_SUBTURN_V1"},
+        "profile_selection_certificate_id": {"type": "string"},
+        "reflex_excess_law": {"const": "DELTA_EQUALS_PHI_MINUS_PI"},
+        "hidden_edge_count": {"type": "integer", "minimum": 0},
+        "hidden_edge_count_policy": {"const": "ANGLE_DRIVEN_MIN_K_FOR_MAX_SUBTURN"},
+        "subdivision_policy": {"const": "EQUAL_REFLEX_EXCESS"},
+        "subturn_count_law": {"const": "K_PLUS_ONE"},
+        "subturn_law": {"const": "DELTA_OVER_K_PLUS_ONE"},
+        "hidden_supports": {"type": "array", "items": {"$ref": "#/$defs/hiddenSupport"}},
+        "ordered_incident_front_component_ids": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"type": "string"}},
+        "active_support_count_law": {"const": "K_PLUS_TWO"},
+        "active_support_count": {"type": "integer", "minimum": 2},
+        "local_profile_segment_count_law": {"const": "K_PLUS_TWO"},
+        "local_profile_segment_count": {"type": "integer", "minimum": 2},
+        "hidden_support_generation_law": {"const": "ORDINALS_ONE_THROUGH_K_INSIDE_ORIENTED_OWNER_SECTOR"},
+        "all_support_normal_speed": {"const": "UNIT"},
+        "profile_provenance": {"const": "ANGLE_DRIVEN_SELECTION_CERTIFICATE"},
+        "regression_fixture_id": {
+          "enum": [
+            "LINEAR_REFLEX_K0_EQUAL_FIXTURE_V1",
+            "LINEAR_REFLEX_K1_EQUAL_FIXTURE_V1"
+          ]
+        },
+        "exposure_policy": {"enum": ["EXPOSED_ONLY_WHEN_ON_RESOLVED_COVERAGE_SILHOUETTE", "MAY_BECOME_INTERNAL_AFTER_EXACT_UNION"]},
+        "incident_effective_alpha_policy": {"type": "string"},
+        "incident_effective_alpha_values": {"type": "object"},
+        "mixed_alpha_failure": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "junctionEnvelopeSpec": {
+      "type": "object",
+      "required": [
+        "id",
+        "variant",
+        "source_seed_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "source_lineage_ids",
+        "source_relation_id",
+        "incident_front_component_ids",
+        "support_law_id"
+      ],
+      "properties": {
+        "id": {"type": "string"},
+        "variant": {"const": "JunctionEnvelopeSpec"},
+        "source_seed_id": {"type": "string"},
+        "decal_request_id": {"type": "string"},
+        "patch_domain_id": {"type": "string"},
+        "source_lineage_ids": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"type": "string"}},
+        "source_relation_id": {"type": "string"},
+        "incident_front_component_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "support_law_id": {"const": "DECLARED_JUNCTION_RELATION_SUPPORTS_V1"},
+        "shared_semantic_anchor_id": {"type": "string"},
+        "incident_effective_alpha_policy": {"type": "string"},
+        "incident_effective_alpha_values": {"type": "object"},
+        "mixed_alpha_failure": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "capEnvelopeSpec": {
+      "type": "object",
+      "required": [
+        "id",
+        "variant",
+        "source_seed_id",
+        "decal_request_id",
+        "patch_domain_id",
+        "source_lineage_ids",
+        "closure_law_id",
+        "terminal_source_vertex_id",
+        "incident_chain_use_id",
+        "incident_strip_spec_id",
+        "endpoint_role",
+        "station_law",
+        "exact_two_pi_handling"
+      ],
+      "properties": {
+        "id": {"type": "string"},
+        "variant": {"const": "CapEnvelopeSpec"},
+        "source_seed_id": {"type": "string"},
+        "decal_request_id": {"type": "string"},
+        "patch_domain_id": {"type": "string"},
+        "source_lineage_ids": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"type": "string"}},
+        "closure_law_id": {"const": "PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1"},
+        "terminal_source_vertex_id": {"type": "string"},
+        "incident_chain_use_id": {"type": "string"},
+        "incident_strip_spec_id": {"type": "string"},
+        "endpoint_role": {"enum": ["START", "END"]},
+        "station_law": {"const": "CONSTANT_PHYSICAL_ENDPOINT_S"},
+        "exact_two_pi_handling": {"const": "TERMINAL_OR_JUNCTION_NEVER_ANGULAR_PROFILE"}
+      },
+      "additionalProperties": false
+    },
+    "envelopeSpec": {
+      "oneOf": [
+        {"$ref": "#/$defs/stripEnvelopeSpec"},
+        {"$ref": "#/$defs/angularEnvelopeSpec"},
+        {"$ref": "#/$defs/junctionEnvelopeSpec"},
+        {"$ref": "#/$defs/capEnvelopeSpec"}
+      ]
+    },
+    "envelopeInstance": {
+      "type": "object",
+      "required": [
+        "id",
+        "spec_id",
+        "spec_variant",
+        "decal_request_id",
+        "patch_domain_id",
+        "effective_alpha_binding",
+        "boundary_resolution"
+      ],
+      "properties": {
+        "id": {"type": "string"},
+        "spec_id": {"type": "string"},
+        "spec_variant": {"enum": ["StripEnvelopeSpec", "AngularEnvelopeSpec", "JunctionEnvelopeSpec", "CapEnvelopeSpec"]},
+        "decal_request_id": {"type": "string"},
+        "patch_domain_id": {"type": "string"},
+        "effective_alpha_binding": {
+          "type": "object",
+          "required": ["kind", "front_component_ids"],
+          "properties": {
+            "kind": {"enum": ["INCIDENT_FRONT_COMPONENT_VECTOR", "INCIDENT_STRIP_EFFECTIVE_ALPHA"]},
+            "front_component_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}}
+          },
+          "additionalProperties": false
+        },
+        "boundary_resolution": {"const": "REQUIRED_BEFORE_PATCH_UNION"}
+      },
+      "additionalProperties": false
+    },
+    "ownershipClaim": {
+      "type": "object",
+      "required": [
+        "id",
+        "coverage_id",
+        "claimant_kind",
+        "claimant_id",
+        "envelope_spec_ids",
+        "envelope_instance_ids",
+        "selection_law",
+        "station_model_ref"
+      ],
+      "properties": {
+        "id": {"type": "string"},
+        "coverage_id": {"type": "string"},
+        "claimant_kind": {"enum": ["EnvelopeSpec", "EnvelopeSpecGroup", "EndpointClaimSeed", "FrontReading"]},
+        "claimant_id": {"type": "string"},
+        "envelope_spec_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "envelope_instance_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "selection_law": {"type": "string", "minLength": 1},
+        "station_model_ref": {"const": "PLAN_STATION_FLOW"}
+      },
+      "additionalProperties": false
+    },
+    "ownership": {
+      "type": "object",
+      "required": [
+        "coverage_id",
+        "partition_contract_ref",
+        "total",
+        "disjoint",
+        "tie_boundary_owner",
+        "silhouette_effect",
+        "named_unproven_outcome",
+        "claims",
+        "proof_obligations"
+      ],
+      "properties": {
+        "coverage_id": {"type": "string"},
+        "partition_contract_ref": {"const": "TOTAL_DISJOINT_RESOLVED_COVERAGE_V1"},
+        "total": {"const": true},
+        "disjoint": {"const": true},
+        "tie_boundary_owner": {"const": "NONE"},
+        "silhouette_effect": {"const": "NONE"},
+        "named_unproven_outcome": {"const": "OWNERSHIP_PARTITION_UNPROVEN"},
+        "claims": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/ownershipClaim"}},
+        "proof_obligations": {
+          "type": "object",
+          "required": ["claim_interiors", "claim_closure_union", "equality_boundaries"],
+          "properties": {
+            "claim_interiors": {"const": "PAIRWISE_DISJOINT"},
+            "claim_closure_union": {"const": "EQUALS_RESOLVED_COVERAGE"},
+            "equality_boundaries": {"const": "OWNERLESS"}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "eventLedger": {
+      "type": "object",
+      "required": ["contract_ref", "startup_scope", "successor_scheduling", "same_alpha_policy", "publish_policy", "pending_outcome"],
+      "properties": {
+        "contract_ref": {"const": "LAZY_DETERMINISTIC_EVENT_LEDGER_V1"},
+        "startup_scope": {"const": "LAWS_PREDICATES_TRANSITIONS_AND_IMMEDIATE_CANDIDATES"},
+        "successor_scheduling": {"const": "LAZY"},
+        "same_alpha_policy": {"const": "ATOMIC_DETERMINISTIC_BATCH"},
+        "publish_policy": {"const": "COMPLETE_EXACT_STATE_ONLY"},
+        "pending_outcome": {"const": "PENDING_EXACT_EVALUATION"}
+      },
+      "additionalProperties": false
+    },
+    "downstreamTessellation": {
+      "type": "object",
+      "required": ["contract_ref", "starts_after", "input_authority", "profile_controlled_boundary_policy", "semantic_digest_equivalence", "allowed_internal_variation", "forbidden"],
+      "properties": {
+        "contract_ref": {"const": "DOWNSTREAM_TESSELLATION_AFTER_SEMANTIC_COALESCING_V1"},
+        "starts_after": {"const": "SEMANTIC_COALESCING"},
+        "input_authority": {"const": "RESOLVED_OWNERSHIP_UV_STATION_ARRANGEMENT"},
+        "profile_controlled_boundary_policy": {"const": "PRESERVE"},
+        "semantic_digest_equivalence": {"const": "ALL_VALID_TESSELLATIONS_SHARE_ONE_SEMANTIC_DIGEST"},
+        "allowed_internal_variation": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "forbidden": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
     "patchEvaluation": {
       "type": "object",
       "required": [
@@ -279,7 +759,6 @@
         "source_seed_ids",
         "seeds",
         "front_components",
-        "coverage_contributions",
         "boundary_events",
         "capacity_states",
         "patch_coverage",
@@ -287,123 +766,75 @@
         "ownership",
         "station_flow",
         "topology_events",
-        "geometry_batch_provenance"
+        "geometry_batch_provenance",
+        "envelope_specs",
+        "envelope_instances",
+        "angular_profile_selection_certificates",
+        "event_ledger",
+        "downstream_tessellation"
       ],
       "properties": {
-        "id": {
-          "type": "string"
-        },
-        "plan_key": {
-          "$ref": "#/$defs/planKey"
-        },
-        "owner_patch_id": {
-          "type": "string"
-        },
-        "source_seed_ids": {
+        "id": {"type": "string"},
+        "plan_key": {"$ref": "#/$defs/planKey"},
+        "owner_patch_id": {"type": "string"},
+        "source_seed_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "seeds": {"type": "array", "items": {"$ref": "#/$defs/idRecord"}},
+        "front_components": {"type": "array", "items": {"$ref": "#/$defs/idRecord"}},
+        "boundary_events": {"type": "array"},
+        "capacity_states": {"type": "array"},
+        "patch_coverage": {"type": "object"},
+        "interactions": {"type": "array"},
+        "ownership": {"$ref": "#/$defs/ownership"},
+        "station_flow": {"type": "object"},
+        "topology_events": {"type": "array"},
+        "geometry_batch_provenance": {"type": "object"},
+        "envelope_specs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/envelopeSpec"}},
+        "envelope_instances": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/envelopeInstance"}},
+        "angular_profile_selection_certificates": {
           "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "type": "string"
-          }
+          "items": {"$ref": "#/$defs/angularProfileSelectionCertificate"}
         },
-        "seeds": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/idRecord"
-          }
-        },
-        "front_components": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/idRecord"
-          }
-        },
-        "coverage_contributions": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/idRecord"
-          }
-        },
-        "boundary_events": {
-          "type": "array"
-        },
-        "capacity_states": {
-          "type": "array"
-        },
-        "patch_coverage": {
-          "type": "object"
-        },
-        "interactions": {
-          "type": "array"
-        },
-        "ownership": {
-          "type": "object"
-        },
-        "station_flow": {
-          "type": "object"
-        },
-        "topology_events": {
-          "type": "array"
-        },
-        "geometry_batch_provenance": {
-          "type": "object"
-        }
+        "event_ledger": {"$ref": "#/$defs/eventLedger"},
+        "downstream_tessellation": {"$ref": "#/$defs/downstreamTessellation"}
       },
       "additionalProperties": false
     },
     "compiledPlan": {
       "type": "object",
-      "required": [
-        "patch_evaluations"
-      ],
+      "required": ["patch_evaluations"],
       "properties": {
-        "patch_evaluations": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/patchEvaluation"
-          }
-        }
+        "patch_evaluations": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/patchEvaluation"}}
       },
       "additionalProperties": false
     },
     "acceptance": {
       "type": "object",
-      "required": [
-        "coverage",
-        "ownership",
-        "adjacency",
-        "s_direction",
-        "alpha_evolution",
-        "forbidden"
-      ],
+      "required": ["coverage", "ownership", "adjacency", "s_direction", "alpha_evolution", "forbidden"],
       "properties": {
-        "coverage": {
-          "type": "string"
-        },
-        "ownership": {
-          "type": "string"
-        },
-        "adjacency": {
-          "type": "array"
-        },
-        "s_direction": {
-          "type": "string"
-        },
-        "alpha_evolution": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string"
-          }
-        },
-        "forbidden": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string"
-          }
-        }
+        "coverage": {"type": "string"},
+        "ownership": {"type": "string"},
+        "adjacency": {"type": "array"},
+        "s_direction": {"type": "string"},
+        "alpha_evolution": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "forbidden": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
+    "metamorphicExpectation": {
+      "type": "object",
+      "required": ["matrix_case_id", "matrix_file"],
+      "properties": {
+        "matrix_case_id": {"type": "string"},
+        "matrix_file": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "canonicalDigest": {
+      "type": "object",
+      "required": ["include", "exclude"],
+      "properties": {
+        "include": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "exclude": {"type": "array", "items": {"type": "string"}}
       },
       "additionalProperties": false
     }

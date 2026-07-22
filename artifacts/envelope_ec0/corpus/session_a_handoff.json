@@ -1,0 +1,135 @@
+{
+  "schema": "cftuv.envelope.ec0.session_handoff.v2",
+  "active_slice": "SESSION_A_EC0_LINEAR_REFLEX_REBASELINE",
+  "status": "CANDIDATE_AWAITING_MAX_SUBTURN_USER_DECISION_EXTERNAL_CI_AND_EXPLICIT_USER_ACCEPTANCE",
+  "input_contract_version": {
+    "authority_document": "docs/decal_envelope_linear_axis_rebaseline.md",
+    "amendment": "AM11_A1_A2_CORRECTION",
+    "case_schema": "cftuv.envelope.ec0.case.v5",
+    "corpus_schema": "cftuv.envelope.ec0.corpus.v5",
+    "envelope_spec_policy": "cftuv.envelope.ec0.envelope_spec_contracts.v2"
+  },
+  "accepted_gate_from_previous_slice": {
+    "status": "TECHNICAL_PARTS_ACCEPTED_PROFILE_SELECTION_AND_ORIENTATION_RECLOSED",
+    "preserved_facts": [
+      "PATCH_DOMAIN_IS_PROPAGATION_FIELD",
+      "CHAIN_USE_IS_DIRECTED_PATCH_SIDE_SOURCE",
+      "PLAN_KEY_IS_DECAL_REQUEST_PLUS_PATCH_DOMAIN",
+      "BOUNDARY_LIMITED_PROPAGATION_V1",
+      "CROSS_PATCH_JUNCTION_COORDINATION_WITHOUT_COLLISION",
+      "CASE_16_POLICY_B",
+      "TYPED_ENVELOPE_SPEC_UNION",
+      "STRIP_AND_CAP_LAWS",
+      "EXPLICIT_OWNERSHIP_CLAIMS",
+      "LAZY_EVENT_LEDGER",
+      "DOWNSTREAM_TESSELLATION_BOUNDARY"
+    ],
+    "not_claimed": "NO_ACCEPTANCE_IS_CLAIMED_FOR_A1_A2_UNTIL_EXTERNAL_CI_AND_REPEAT_USER_REVIEW"
+  },
+  "correction_items": {
+    "A1": "LINEAR_REFLEX_EQUAL_V1_PLUS_MIN_K_FOR_MAX_SUBTURN_V1",
+    "A2": "ORIENTED_OWNER_SECTOR_ORDERED_SUPPORTS_CERTIFIED_ANGLE_AND_K_PLUS_TWO",
+    "A3": "FACTUAL_RECEIPT_WITH_EXTERNAL_GITHUB_CI_AUTHORITY"
+  },
+  "changed_paths": [
+    "docs/decal_envelope_linear_axis_rebaseline.md",
+    "docs/envelope_backend_semantics.md",
+    "docs/envelope_ec0_acceptance_guide.md",
+    "docs/envelope_ec0_correction_log.md",
+    "artifacts/envelope_ec0/corpus/**",
+    "tools/validate_envelope_ec0.py"
+  ],
+  "commit_sha": {
+    "base": "95d57ee",
+    "superseded_misleading_commit": "522bd4cfae8f5aaa7d5392e20ebe53101c2eef0c",
+    "semantic_content_commit": "PENDING_HISTORY_REWRITE",
+    "receipt_commit": "COMMIT_CONTAINING_THIS_RECEIPT",
+    "disposition": "HISTORY_REWRITE_PENDING"
+  },
+  "tests": [
+    {
+      "command": "python tools/validate_envelope_ec0.py",
+      "result": "PASS_ON_WORKTREE_BEFORE_HISTORY_REWRITE",
+      "case_count": 23,
+      "main_case_count": 16,
+      "pivot_case_count": 7,
+      "assertions": [
+        "SESSION_A_SCHEMA_CONFORMANCE",
+        "ANGLE_DRIVEN_MIN_K_SELECTION_CERTIFICATES",
+        "RESOLVED_K_DERIVED_FROM_CERTIFIED_DELTA_OVER_DELTA_MAX_INTERVAL",
+        "ORIENTED_OWNER_SECTORS_AND_ORDERED_SUPPORTS",
+        "K_PLUS_TWO_LOCAL_PROFILE_SUPPORT_AND_SEGMENT_CARDINALITY_BEFORE_RESOLUTION",
+        "TYPED_ENVELOPE_SPEC_UNION",
+        "STRIP_SUPPORT_AND_CAP_CLOSURE_LAWS",
+        "EXPLICIT_TOTAL_DISJOINT_OWNERSHIP_PARTITIONS",
+        "LAZY_DETERMINISTIC_EVENT_LEDGER",
+        "DOWNSTREAM_TESSELLATION_INVARIANTS",
+        "NO_PRESENTATION_ARTIFACTS",
+        "EC1_GATE_REMAINS_CLOSED"
+      ]
+    }
+  ],
+  "ci": {
+    "required": true,
+    "workflow": ".github/workflows/envelope-ec0-corpus.yml",
+    "command_equivalence": "python tools/validate_envelope_ec0.py",
+    "tested_commit": null,
+    "status": "PENDING",
+    "run_id": null,
+    "authority": "EXTERNAL_GITHUB_CHECK_NOT_STATIC_CORPUS_ASSERTION"
+  },
+  "semantic_digest_tested": {
+    "authority": "canonical_geometry_digest in every cftuv.envelope.ec0.case.v5 record",
+    "includes": [
+      "ANALYSIS_SNAPSHOT_INCLUDING_ORIENTED_SECTOR_AND_ANGLE_CERTIFICATE",
+      "DECAL_REQUEST_SELECTION_POLICY_IDENTITY",
+      "COMPILED_SELECTION_CERTIFICATE_AND_RESOLVED_K",
+      "COMPILED_PATCH_EVALUATIONS",
+      "ACCEPTANCE_ASSERTIONS"
+    ],
+    "excludes_as_representation_only": [
+      "DOWNSTREAM_FACE_ORDER",
+      "INTERNAL_FILL_DIAGONALS",
+      "VALID_INTERNAL_TRIANGULATION",
+      "RUNTIME_FACE_COUNT"
+    ]
+  },
+  "named_unsupported_outcomes": [
+    "BARRIER_SPLIT_REQUIRED",
+    "BARRIER_BYPASS_UNSUPPORTED",
+    "SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN",
+    "OWNERSHIP_PARTITION_UNPROVEN",
+    "PENDING_EXACT_EVALUATION",
+    "APPROXIMATE_MATERIALIZATION_PENDING"
+  ],
+  "assumptions_not_proven": [
+    "LINEAR_REFLEX_MAX_SUBTURN_V1_HAS_NO_USER_APPROVED_DEFAULT_VALUE",
+    "USER_HAS_NOT_YET_REPEATED_FINAL_ACCEPTANCE_AFTER_A1_A2",
+    "HOST_HAS_NOT_YET_PROVEN_RUNTIME_PRODUCTION_OF_ORIENTED_SECTOR_AND_ANGLE_CERTIFICATES",
+    "NO_PRODUCTION_BOOLEAN_OR_ARRANGEMENT_BACKEND_HAS_BEEN_SELECTED_OR_PROVEN",
+    "NO_GEOMETRY_EVALUATOR_OR_BLENDER_RUNTIME_FIXTURE_WAS_BUILT_IN_SESSION_A"
+  ],
+  "risks": [
+    "THE_NAMED_DELTA_MAX_PRODUCT_PARAMETER_REQUIRES_A_STABLE_USER_FACING_VALUE_IN_A_LATER_REQUEST_CONTRACT",
+    "EXACT_CURVED_OWNERSHIP_AND_JUNCTIONS_REQUIRE_PROVEN_BACKEND_PROVENANCE_SUPPORT",
+    "RUNTIME_UI_MUST_DISTINGUISH_REQUESTED_EFFECTIVE_AND_PENDING_ALPHA_STATES"
+  ],
+  "special_opinion": "KEEP_ONE_LINEAR_REFLEX_PROFILE_FAMILY_AND_DERIVE_K_FROM_CERTIFIED_ANGLE_USING_A_NAMED_MAX_SUBTURN_POLICY",
+  "legacy_paths_read": {
+    "read": false,
+    "paths": [
+      "cftuv/decal_voronoi.py",
+      "geometry parts of cftuv/decals.py"
+    ],
+    "reason": "FORBIDDEN_BY_SESSION_A_ROLE_SEPARATION"
+  },
+  "next_session_allowlist": {
+    "session": "SESSION_B_EC1_CONTRACTS_AND_HERMETIC_PACKAGE",
+    "condition": "ONLY_AFTER_MAX_SUBTURN_USER_DECISION_LOCAL_VALIDATOR_EXTERNAL_GITHUB_CI_AND_EXPLICIT_USER_ACCEPTANCE_OF_A1_A2",
+    "inputs": [
+      "ACCEPTED_SESSION_A_V5_CORPUS_AND_SCHEMA",
+      "SURFACE_BOUNDARY_CONTRACTS",
+      "GEOMETRY_BATCH_BOUNDARY_CONTRACTS"
+    ]
+  }
+}

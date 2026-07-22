@@ -1,8 +1,8 @@
 {
   "schema": "cftuv.envelope.ec0.case.v5",
-  "case_id": "EC0-C04",
-  "slug": "reflex-corner",
-  "title": "Linear-reflex angular contribution internalized by union",
+  "case_id": "EC0-C02",
+  "slug": "linear-reflex-direct-angular-profile",
+  "title": "Direct linear-reflex angular profile",
   "status": "DEFINED",
   "global_contract_ids": [
     "EC0-G01",
@@ -26,22 +26,22 @@
   ],
   "semantic_contracts": [
     {
-      "id": "EC0-C04-S1",
+      "id": "EC0-C02-S1",
       "authority": "USER_REQUIRED",
-      "rule": "The angle-driven Angular contribution may become internal after exact union; internal attribution interfaces do not add exterior matter."
+      "rule": "MIN_K_FOR_MAX_SUBTURN_V1 resolves k=0 from the angle certificate; the K0 fixture has no hidden support and exposes the direct incident-support intersection only when it lies on the resolved silhouette."
     },
     {
-      "id": "EC0-C04-S2",
+      "id": "EC0-C02-S2",
       "authority": "MATHEMATICALLY_REQUIRED",
       "rule": "All semantic records belong to one authoritative ID graph; result summaries only reference that graph."
     },
     {
-      "id": "EC0-C04-AM11",
+      "id": "EC0-C02-AM11",
       "authority": "USER_REQUIRED",
       "rule": "Envelope material is defined by the typed AM11 EnvelopeSpec union; downstream tessellation cannot select or repair its silhouette."
     },
     {
-      "id": "EC0-C04-A1A2",
+      "id": "EC0-C02-A1A2",
       "authority": "USER_REQUIRED",
       "rule": "LinearReflex hidden-edge count is selected from the certified oriented reflex angle by MIN_K_FOR_MAX_SUBTURN_V1; ordered supports and owner-sector orientation make every hidden support direction unambiguous."
     }
@@ -453,7 +453,7 @@
             "subturn_count_law": "K_PLUS_ONE",
             "subturn_law": "DELTA_OVER_K_PLUS_ONE",
             "all_support_normal_speed": "UNIT",
-            "exposure_policy": "MAY_BECOME_INTERNAL_AFTER_EXACT_UNION",
+            "exposure_policy": "EXPOSED_ONLY_WHEN_ON_RESOLVED_COVERAGE_SILHOUETTE",
             "incident_effective_alpha_policy": "INCIDENT_EFFECTIVE_ALPHA_VECTOR",
             "owner_sector_id": "corner_seed_relation_owner_angular_sector",
             "profile_selection_policy_id": "MIN_K_FOR_MAX_SUBTURN_V1",
@@ -468,6 +468,7 @@
             "hidden_support_generation_law": "ORDINALS_ONE_THROUGH_K_INSIDE_ORIENTED_OWNER_SECTOR",
             "profile_provenance": "ANGLE_DRIVEN_SELECTION_CERTIFICATE",
             "hidden_supports": [],
+            "regression_fixture_id": "LINEAR_REFLEX_K0_EQUAL_FIXTURE_V1",
             "local_profile_segment_count_law": "K_PLUS_TWO",
             "local_profile_segment_count": 2
           }
@@ -560,6 +561,7 @@
             "lower_bound_certificate": "K_EQ_ZERO_OR_K_TIMES_DELTA_MAX_LT_DELTA",
             "upper_bound_certificate": "DELTA_LEQ_K_PLUS_ONE_TIMES_DELTA_MAX",
             "certificate_authority": "EXACT_OR_CERTIFIED_ANGLE_COMPARISON",
+            "regression_fixture_id": "LINEAR_REFLEX_K0_EQUAL_FIXTURE_V1",
             "certified_ratio_interval": {
               "ratio": "DELTA_OVER_DELTA_MAX",
               "lower_bound_kind": "OPEN",
@@ -573,23 +575,23 @@
     ]
   },
   "acceptance": {
-    "coverage": "INCIDENT_STRIP_AND_K0_ANGULAR_EXACT_UNION_WITHOUT_EXTRA_EXTERIOR_MATTER",
-    "ownership": "ONE_LAYER_WITH_INTERNAL_INTERFACE",
+    "coverage": "INCIDENT_STRIPS_PLUS_K0_ANGULAR_PROFILE",
+    "ownership": "ANGULAR_PROFILE_CORE_PARTITION",
     "adjacency": [],
-    "s_direction": "MONOTONE_NO_RESET",
+    "s_direction": "ROUTE_CONTINUES_THROUGH_CORNER",
     "alpha_evolution": [
       "SOURCE_RELATION",
-      "ANGULAR_INSTANCE_BORN",
-      "CONTRIBUTION_FRONT_MAY_INTERNALIZE"
+      "K0_PROFILE_ACTIVATES",
+      "SAME_PROFILE_WIDER"
     ],
     "forbidden": [
-      "EXTERIOR_MATTER_FROM_INTERNAL_INTERFACE",
-      "DOUBLE_COVER",
-      "OWNERSHIP_CHANGES_SILHOUETTE"
+      "SEPARATE_JOIN_ALGORITHM",
+      "UNDECLARED_HIDDEN_SUPPORT",
+      "TESSELLATION_SELECTED_PROFILE"
     ]
   },
   "metamorphic_expectations": {
-    "matrix_case_id": "EC0-C04",
+    "matrix_case_id": "EC0-C02",
     "matrix_file": "artifacts/envelope_ec0/corpus/matrices/metamorphic_matrix.json"
   },
   "canonical_geometry_digest": {

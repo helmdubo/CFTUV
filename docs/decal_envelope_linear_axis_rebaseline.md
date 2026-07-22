@@ -1,9 +1,12 @@
 # Decal Envelope Engine — Linear-Axis rebaseline (AM11)
 
-Status: **NORMATIVE REBASELINE CANDIDATE**. This document supersedes the old
-MITER/BEVEL/ROUND interpretation of `CornerEnvelope` for all new kernel work.
-EC1 implementation remains closed until the EC0 JSON corpus, schema and
-validator are migrated to this model and explicitly accepted by the user.
+Status: **NORMATIVE REBASELINE CANDIDATE — BLOCKED PENDING PRODUCT VALUE**.
+This document supersedes the old MITER/BEVEL/ROUND interpretation of
+`CornerEnvelope` for all new kernel work. EC1 implementation remains closed
+until the EC0 JSON corpus, schema and validator are migrated to this model,
+`LINEAR_REFLEX_MAX_SUBTURN_V1` receives an explicit user-approved product
+value, external CI passes, and the resulting semantics are explicitly accepted
+by the user.
 
 The architectural north star is:
 
@@ -58,7 +61,10 @@ The following terms are not interchangeable.
 
 `CornerRelation`, `JunctionRelation` and `TerminalRelation` are observed or
 derived topology facts. They contain source identity, incident `ChainUse`s,
-Patch sectors, ordering and provenance. They do not generate geometry.
+Patch sectors, ordering and provenance. An angular relation additionally
+references an analysis-proven `owner_sector_id`, its ordered incoming/outgoing
+supports, a turn orientation and an exact or certified owner-sector angle.
+They do not generate geometry.
 
 ### 2.2 Seed
 
@@ -244,9 +250,47 @@ sampling.
 
 ### 4.4 Profile selection
 
-`k` must come from an explicit named product policy, for example a maximum
-allowed sub-turn or maximum moving-vertex-speed policy. It must not be selected
-by fixture-specific thresholds or hidden epsilon fitting.
+Session A defines one `AngularProfileId`:
+
+```text
+LINEAR_REFLEX_EQUAL_V1
+```
+
+It is parameterized by an angle-driven selection certificate; `K0` and `K1`
+are not separate product profiles. The selected policy is:
+
+```text
+MIN_K_FOR_MAX_SUBTURN_V1
+delta_max = LINEAR_REFLEX_MAX_SUBTURN_V1
+k = max(0, ceil(delta / delta_max) - 1)
+```
+
+Equivalently, `k` is the smallest non-negative integer for which
+`delta / (k + 1) <= delta_max`. The compiler derives it from the certified
+oriented owner-sector angle and the named request policy. A coordinate-free
+selection certificate may encode the exact/certified interval
+`k < delta / delta_max <= k + 1`; the validator derives `k` from that interval
+instead of trusting a separate case mapping. It must not be
+selected manually per corner, by fixture identity, sampling density,
+tessellation, face count, Boolean output or hidden epsilon fitting.
+
+The numeric or named product value of `LINEAR_REFLEX_MAX_SUBTURN_V1` is not
+chosen by Session A. Until the user approves it, the product default remains
+`BLOCKED_PENDING_USER_DECISION`; an implementation must not hide a new choice
+inside a numeric constant.
+
+For resolved `k`, hidden support ordinal `j`, where `1 <= j <= k`, is placed at
+turn fraction `j / (k + 1)` from the ordered incoming support toward the
+ordered outgoing support inside the oriented owner sector. The local profile
+has `k + 2` active supports and `k + 2` local AngularEnvelope profile segments
+before clipping, union and interaction. This is local profile cardinality, not
+a promise that all `k + 2` segments remain exposed on the final resolved
+silhouette.
+
+`LINEAR_REFLEX_K0_EQUAL_FIXTURE_V1` and
+`LINEAR_REFLEX_K1_EQUAL_FIXTURE_V1` are regression-result labels for cases in
+which the certificate resolves respectively to `k = 0` and `k = 1`. They are
+not `AngularProfileId`s, request choices or a permanent case-to-profile table.
 
 The local angle-only policy is a product definition, not a claim that the full
 Tanase–Veltkamp global epsilon-equivalence proof has been implemented. If global
@@ -500,11 +544,12 @@ alpha. It is not accepted as final AngularEnvelope semantics.
 
 Before EC1 implementation:
 
-1. Replace core `join_policy = MITER/BEVEL/ROUND` with an explicit angular
-   profile reference.
+1. Replace core `join_policy = MITER/BEVEL/ROUND` with
+   `LINEAR_REFLEX_EQUAL_V1` plus an angle-driven selection certificate.
 2. Migrate C02/C03/C04/C13/P06/P07 and any dependent matrices.
-3. Add `AngularEnvelopeSpec` fields for reflex angle class, hidden-edge count,
-   subdivision policy and hidden support lineage.
+3. Add `AngularEnvelopeSpec` fields for oriented owner-sector identity,
+   ordered incident supports, turn orientation, reflex-angle certificate,
+   computed hidden-edge count, subdivision policy and hidden support lineage.
 4. Add variant-specific tagged-union schema for all four Envelope specs.
 5. State support laws for StripEnvelope and closure laws for CapEnvelope.
 6. Make ownership claims explicit enough to prove total/disjoint partition.
@@ -513,7 +558,10 @@ Before EC1 implementation:
 8. Add downstream-tessellation invariants and semantic-digest equivalence.
 9. Reserve `SurfaceEvaluatorStrategy`, rail roles and `CrossPatchLiftRelation`
    in contracts without implementing EC8.
-10. Re-run corpus validation and request explicit user acceptance.
+10. Keep `LINEAR_REFLEX_MAX_SUBTURN_V1` blocked until the user supplies the
+    product value; do not invent a numeric default.
+11. Re-run corpus validation and external CI, then request explicit user
+    acceptance.
 
 No kernel implementation task may reinterpret an Envelope as an alias for
 legacy emitted faces.

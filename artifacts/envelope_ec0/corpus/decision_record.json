@@ -73,6 +73,53 @@
       "allowed": [
         "BLENDER_SCREENSHOTS"
       ]
+    },
+    {
+      "id": "A1_ANGULAR_PROFILE_SELECTION",
+      "authority": "USER_REQUIRED",
+      "selected": "MIN_K_FOR_MAX_SUBTURN_V1",
+      "angular_profile_id": "LINEAR_REFLEX_EQUAL_V1",
+      "parameter_ref": "LINEAR_REFLEX_MAX_SUBTURN_V1",
+      "selection_law": "K_EQUALS_MAX_ZERO_CEIL_DELTA_OVER_DELTA_MAX_MINUS_ONE",
+      "equivalent_constraint": "K_IS_MINIMUM_NONNEGATIVE_INTEGER_WITH_DELTA_OVER_K_PLUS_ONE_LEQ_DELTA_MAX",
+      "selection_inputs": [
+        "EXACT_OR_CERTIFIED_ORIENTED_REFLEX_ANGLE",
+        "USER_APPROVED_NAMED_MAX_SUBTURN_PARAMETER"
+      ],
+      "rejected": [
+        "MANUAL_K0_K1_PER_CORNER_PRODUCT_SELECTOR",
+        "HISTORIC_CASE_NAME_SELECTS_K",
+        "TESSELLATION_OR_FIXTURE_SELECTS_K"
+      ],
+      "scope": "ALL_ANGULAR_ENVELOPE_SPECS"
+    },
+    {
+      "id": "A2_ORIENTED_ANGULAR_SECTOR",
+      "authority": "USER_REQUIRED",
+      "selected": "ORDERED_SUPPORTS_INSIDE_ANALYSIS_PROVEN_OWNER_SECTOR",
+      "required_facts": [
+        "OWNER_SECTOR_ID",
+        "ORDERED_INCIDENT_CHAIN_USE_IDS",
+        "INCOMING_SUPPORT_REF",
+        "OUTGOING_SUPPORT_REF",
+        "TURN_ORIENTATION",
+        "REFLEX_ANGLE_MEASURE_REF"
+      ],
+      "hidden_support_turn_fraction_law": "J_OVER_K_PLUS_ONE_FOR_J_ONE_THROUGH_K",
+      "local_profile_cardinality_law": "K_PLUS_TWO_SUPPORTS_AND_K_PLUS_TWO_PROFILE_SEGMENTS_BEFORE_CLIP_UNION_INTERACTION",
+      "exposure_law": "LOCAL_PROFILE_SEGMENT_IS_EXPOSED_ONLY_WHEN_ON_RESOLVED_COVERAGE_SILHOUETTE",
+      "scope": "ANGULAR_RELATION_AND_HIDDEN_SUPPORT_DIRECTION"
+    },
+    {
+      "id": "A1_MAX_SUBTURN_DEFAULT",
+      "authority": "USER_REQUIRED",
+      "status": "BLOCKED_PENDING_USER_DECISION",
+      "parameter_ref": "LINEAR_REFLEX_MAX_SUBTURN_V1",
+      "quantity": "MAX_ALLOWED_REFLEX_SUBTURN",
+      "selected_value": null,
+      "decision_required": "USER_APPROVED_NUMERIC_OR_NAMED_PRODUCT_VALUE",
+      "forbidden_agent_action": "DO_NOT_INVENT_OR_HIDE_A_DEFAULT_VALUE",
+      "scope": "PRODUCTION_DECAL_REQUEST_DEFAULT"
     }
   ],
   "review_only_not_semantic": [

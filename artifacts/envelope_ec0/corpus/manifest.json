@@ -1,6 +1,6 @@
 {
-  "schema": "cftuv.envelope.ec0.corpus.v3",
-  "status": "CORRECTION_CANDIDATE_READY_FOR_EXTERNAL_REVIEW",
+  "schema": "cftuv.envelope.ec0.corpus.v5",
+  "status": "A1_A2_CORRECTION_CANDIDATE_BLOCKED_PENDING_USER_DECISION",
   "canonical_format": "JSON",
   "presentation_visual_policy": "FORBIDDEN",
   "allowed_visual_evidence": [
@@ -58,12 +58,52 @@
       "id": "EC0-G10",
       "authority": "USER_REQUIRED",
       "rule": "Presentation visuals are forbidden EC0 deliverables; use prose, JSON, validator output, and optional Blender screenshots."
+    },
+    {
+      "id": "EC0-G11",
+      "authority": "USER_REQUIRED",
+      "rule": "EnvelopeSpec is a typed union of Strip, Angular, Junction, and Cap variants; EnvelopeInstance is a separate alpha-bound contribution."
+    },
+    {
+      "id": "EC0-G12",
+      "authority": "USER_REQUIRED",
+      "rule": "AngularEnvelopeSpec uses LINEAR_REFLEX_EQUAL_V1; MIN_K_FOR_MAX_SUBTURN_V1 derives hidden-edge count from a certified oriented reflex angle rather than a manual per-corner selector."
+    },
+    {
+      "id": "EC0-G13",
+      "authority": "MATHEMATICALLY_REQUIRED",
+      "rule": "Strip support and Cap closure are referenced analytic laws; exact two-pi terminals are never ordinary AngularEnvelopeSpecs."
+    },
+    {
+      "id": "EC0-G14",
+      "authority": "MATHEMATICALLY_REQUIRED",
+      "rule": "Ownership claims explicitly form a total disjoint partition of ResolvedCoverage and have no silhouette effect."
+    },
+    {
+      "id": "EC0-G15",
+      "authority": "USER_REQUIRED",
+      "rule": "Downstream tessellation starts after semantic coalescing and all valid tessellations share one canonical semantic digest."
+    },
+    {
+      "id": "EC0-G16",
+      "authority": "USER_REQUIRED",
+      "rule": "Event predicates and transition laws are compiled, while successor event instances may be scheduled lazily; only complete exact states are published."
+    },
+    {
+      "id": "EC0-G17",
+      "authority": "USER_REQUIRED",
+      "rule": "Every Angular relation references one analysis-proven oriented owner-sector with ordered incoming/outgoing source supports and an exact or certified reflex-angle measure."
+    },
+    {
+      "id": "EC0-G18",
+      "authority": "MATHEMATICALLY_REQUIRED",
+      "rule": "A resolved LinearReflex profile with k hidden supports has k+2 active supports and k+2 local profile segments before clip, union, and interaction; this does not require k+2 exposed silhouette segments."
     }
   ],
   "case_files": [
     "artifacts/envelope_ec0/corpus/cases/ec0-c01-straight-owner-wing.json",
-    "artifacts/envelope_ec0/corpus/cases/ec0-c02-convex-miter-corner.json",
-    "artifacts/envelope_ec0/corpus/cases/ec0-c03-convex-bevel-corner.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-c02-linear-reflex-direct.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-c03-linear-reflex-k1.json",
     "artifacts/envelope_ec0/corpus/cases/ec0-c04-reflex-corner.json",
     "artifacts/envelope_ec0/corpus/cases/ec0-c05-physical-s-endpoint.json",
     "artifacts/envelope_ec0/corpus/cases/ec0-c06-boundary-endpoint-contact.json",
@@ -73,7 +113,7 @@
     "artifacts/envelope_ec0/corpus/cases/ec0-c10-y-merge-split.json",
     "artifacts/envelope_ec0/corpus/cases/ec0-c11-short-segment-owner.json",
     "artifacts/envelope_ec0/corpus/cases/ec0-c12-curved-internal-divider.json",
-    "artifacts/envelope_ec0/corpus/cases/ec0-c13-bevel-other-wing-contact.json",
+    "artifacts/envelope_ec0/corpus/cases/ec0-c13-angular-profile-other-wing-contact.json",
     "artifacts/envelope_ec0/corpus/cases/ec0-c14-proven-saturation.json",
     "artifacts/envelope_ec0/corpus/cases/ec0-c15-drag-topology-events.json",
     "artifacts/envelope_ec0/corpus/cases/ec0-c16-intrapatch-wing-freeze-b.json",
@@ -86,12 +126,19 @@
     "artifacts/envelope_ec0/corpus/cases/ec0-p07-mixed-alpha-junction.json"
   ],
   "policy_files": [
-    "artifacts/envelope_ec0/corpus/policies/boundary_limited_propagation.json"
+    "artifacts/envelope_ec0/corpus/policies/boundary_limited_propagation.json",
+    "artifacts/envelope_ec0/corpus/policies/envelope_spec_contracts.json"
   ],
   "matrix_files": [
     "artifacts/envelope_ec0/corpus/matrices/metamorphic_matrix.json",
     "artifacts/envelope_ec0/corpus/matrices/pivot_metamorphic_matrix.json",
     "artifacts/envelope_ec0/corpus/matrices/boundary_metamorphic_matrix.json"
   ],
-  "validator": "tools/validate_envelope_ec0.py"
+  "validator": "tools/validate_envelope_ec0.py",
+  "handoff_file": "artifacts/envelope_ec0/corpus/session_a_handoff.json",
+  "active_session": "SESSION_A_EC0_LINEAR_REFLEX_REBASELINE",
+  "ec1_gate": "CLOSED_PENDING_MAX_SUBTURN_USER_DECISION_VALIDATOR_EXTERNAL_CI_AND_EXPLICIT_USER_ACCEPTANCE",
+  "blocked_pending_user_decisions": [
+    "A1_MAX_SUBTURN_DEFAULT"
+  ]
 }

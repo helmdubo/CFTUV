@@ -1,5 +1,5 @@
 {
-  "schema": "cftuv.envelope.ec0.case.v3",
+  "schema": "cftuv.envelope.ec0.case.v5",
   "case_id": "EC0-P03",
   "slug": "multiple-sources-one-patch",
   "title": "Multiple sources in one Patch",
@@ -14,13 +14,31 @@
     "EC0-G07",
     "EC0-G08",
     "EC0-G09",
-    "EC0-G10"
+    "EC0-G10",
+    "EC0-G11",
+    "EC0-G12",
+    "EC0-G13",
+    "EC0-G14",
+    "EC0-G15",
+    "EC0-G16",
+    "EC0-G17",
+    "EC0-G18"
   ],
   "semantic_contracts": [
     {
       "id": "EC0-P03-S1",
       "authority": "USER_REQUIRED",
       "rule": "All sources of one DecalRequest and PatchDomain share one evaluator invocation."
+    },
+    {
+      "id": "EC0-P03-AM11",
+      "authority": "USER_REQUIRED",
+      "rule": "Envelope material is defined by the typed AM11 EnvelopeSpec union; downstream tessellation cannot select or repair its silhouette."
+    },
+    {
+      "id": "EC0-P03-A1A2",
+      "authority": "USER_REQUIRED",
+      "rule": "LinearReflex hidden-edge count is selected from the certified oriented reflex angle by MIN_K_FOR_MAX_SUBTURN_V1; ordered supports and owner-sector orientation make every hidden support direction unambiguous."
     }
   ],
   "analysis_snapshot": {
@@ -124,7 +142,9 @@
       }
     ],
     "corner_relations": [],
-    "junction_relations": []
+    "junction_relations": [],
+    "angular_owner_sectors": [],
+    "reflex_angle_certificates": []
   },
   "decal_request": {
     "decal_request_id": "request_main",
@@ -133,9 +153,9 @@
       "source_b_use"
     ],
     "requested_alpha": "REQUEST_ALPHA",
-    "join_policy": "CASE_DECLARED",
     "material_policy": "ONE_DECAL_REQUEST",
-    "uv_policy": "SEMANTIC_STATION_FLOW"
+    "uv_policy": "SEMANTIC_STATION_FLOW",
+    "angular_profile_selection_bindings": []
   },
   "expected_compiled_plan": {
     "patch_evaluations": [
@@ -194,30 +214,6 @@
             "lifecycle": "COMPILE_TRACKED"
           }
         ],
-        "coverage_contributions": [
-          {
-            "id": "strip_contribution_source_a_use",
-            "kind": "StripEnvelope",
-            "source_seed_id": "front_seed_source_a_use",
-            "front_component_ids": [
-              "front_component_source_a_use"
-            ],
-            "decal_request_id": "request_main",
-            "patch_domain_id": "domain_main",
-            "boundary_resolution": "REQUIRED_BEFORE_PATCH_UNION"
-          },
-          {
-            "id": "strip_contribution_source_b_use",
-            "kind": "StripEnvelope",
-            "source_seed_id": "front_seed_source_b_use",
-            "front_component_ids": [
-              "front_component_source_b_use"
-            ],
-            "decal_request_id": "request_main",
-            "patch_domain_id": "domain_main",
-            "boundary_resolution": "REQUIRED_BEFORE_PATCH_UNION"
-          }
-        ],
         "boundary_events": [],
         "capacity_states": [
           {
@@ -240,19 +236,57 @@
           "decal_request_id": "request_main",
           "patch_domain_id": "domain_main",
           "operation": "EXACT_SINGLE_COVER_UNION",
-          "contribution_ids": [
-            "strip_contribution_source_a_use",
-            "strip_contribution_source_b_use"
+          "reachability": "PROVEN_FROM_SOURCE_SEEDS",
+          "envelope_instance_ids": [
+            "strip_instance_source_a_use",
+            "strip_instance_source_b_use"
           ],
-          "reachability": "PROVEN_FROM_SOURCE_SEEDS"
+          "raw_coverage_stage": "AFTER_BOUNDARY_RESOLVED_ENVELOPE_INSTANCES"
         },
         "interactions": [],
         "ownership": {
           "coverage_id": "patch_coverage_main",
+          "partition_contract_ref": "TOTAL_DISJOINT_RESOLVED_COVERAGE_V1",
           "total": true,
           "disjoint": true,
           "tie_boundary_owner": "NONE",
-          "claims": []
+          "silhouette_effect": "NONE",
+          "named_unproven_outcome": "OWNERSHIP_PARTITION_UNPROVEN",
+          "claims": [
+            {
+              "id": "ownership_claim_strip_spec_source_a_use",
+              "coverage_id": "patch_coverage_main",
+              "claimant_kind": "EnvelopeSpec",
+              "claimant_id": "strip_spec_source_a_use",
+              "envelope_spec_ids": [
+                "strip_spec_source_a_use"
+              ],
+              "envelope_instance_ids": [
+                "strip_instance_source_a_use"
+              ],
+              "selection_law": "EXACT_RESOLVED_SOURCE_ATTRIBUTION_OPEN_CELL",
+              "station_model_ref": "PLAN_STATION_FLOW"
+            },
+            {
+              "id": "ownership_claim_strip_spec_source_b_use",
+              "coverage_id": "patch_coverage_main",
+              "claimant_kind": "EnvelopeSpec",
+              "claimant_id": "strip_spec_source_b_use",
+              "envelope_spec_ids": [
+                "strip_spec_source_b_use"
+              ],
+              "envelope_instance_ids": [
+                "strip_instance_source_b_use"
+              ],
+              "selection_law": "EXACT_RESOLVED_SOURCE_ATTRIBUTION_OPEN_CELL",
+              "station_model_ref": "PLAN_STATION_FLOW"
+            }
+          ],
+          "proof_obligations": {
+            "claim_interiors": "PAIRWISE_DISJOINT",
+            "claim_closure_union": "EQUALS_RESOLVED_COVERAGE",
+            "equality_boundaries": "OWNERLESS"
+          }
         },
         "station_flow": {
           "authority": "SEMANTIC_CHAIN_USE_ORIENTATION",
@@ -265,7 +299,107 @@
           "decal_request_id": "request_main",
           "patch_domain_id": "domain_main",
           "patch_coverage_id": "patch_coverage_main"
-        }
+        },
+        "envelope_specs": [
+          {
+            "id": "strip_spec_source_a_use",
+            "variant": "StripEnvelopeSpec",
+            "source_seed_id": "front_seed_source_a_use",
+            "decal_request_id": "request_main",
+            "patch_domain_id": "domain_main",
+            "source_lineage_ids": [
+              "front_seed_source_a_use",
+              "source_a_use"
+            ],
+            "front_component_ids": [
+              "front_component_source_a_use"
+            ],
+            "support_law_id": "PLANAR_LINEAR_NORMAL_OFFSET_V1",
+            "station_model_id": "SEMANTIC_CHAIN_USE_S",
+            "transverse_model_id": "SIGNED_OWNER_INTERIOR_R",
+            "terminal_interface_spec_ids": [],
+            "terminal_interface_policy": "DOMAIN_OR_REQUEST_TERMINAL"
+          },
+          {
+            "id": "strip_spec_source_b_use",
+            "variant": "StripEnvelopeSpec",
+            "source_seed_id": "front_seed_source_b_use",
+            "decal_request_id": "request_main",
+            "patch_domain_id": "domain_main",
+            "source_lineage_ids": [
+              "front_seed_source_b_use",
+              "source_b_use"
+            ],
+            "front_component_ids": [
+              "front_component_source_b_use"
+            ],
+            "support_law_id": "PLANAR_LINEAR_NORMAL_OFFSET_V1",
+            "station_model_id": "SEMANTIC_CHAIN_USE_S",
+            "transverse_model_id": "SIGNED_OWNER_INTERIOR_R",
+            "terminal_interface_spec_ids": [],
+            "terminal_interface_policy": "DOMAIN_OR_REQUEST_TERMINAL"
+          }
+        ],
+        "envelope_instances": [
+          {
+            "id": "strip_instance_source_a_use",
+            "spec_id": "strip_spec_source_a_use",
+            "spec_variant": "StripEnvelopeSpec",
+            "decal_request_id": "request_main",
+            "patch_domain_id": "domain_main",
+            "effective_alpha_binding": {
+              "kind": "INCIDENT_FRONT_COMPONENT_VECTOR",
+              "front_component_ids": [
+                "front_component_source_a_use"
+              ]
+            },
+            "boundary_resolution": "REQUIRED_BEFORE_PATCH_UNION"
+          },
+          {
+            "id": "strip_instance_source_b_use",
+            "spec_id": "strip_spec_source_b_use",
+            "spec_variant": "StripEnvelopeSpec",
+            "decal_request_id": "request_main",
+            "patch_domain_id": "domain_main",
+            "effective_alpha_binding": {
+              "kind": "INCIDENT_FRONT_COMPONENT_VECTOR",
+              "front_component_ids": [
+                "front_component_source_b_use"
+              ]
+            },
+            "boundary_resolution": "REQUIRED_BEFORE_PATCH_UNION"
+          }
+        ],
+        "event_ledger": {
+          "contract_ref": "LAZY_DETERMINISTIC_EVENT_LEDGER_V1",
+          "startup_scope": "LAWS_PREDICATES_TRANSITIONS_AND_IMMEDIATE_CANDIDATES",
+          "successor_scheduling": "LAZY",
+          "same_alpha_policy": "ATOMIC_DETERMINISTIC_BATCH",
+          "publish_policy": "COMPLETE_EXACT_STATE_ONLY",
+          "pending_outcome": "PENDING_EXACT_EVALUATION"
+        },
+        "downstream_tessellation": {
+          "contract_ref": "DOWNSTREAM_TESSELLATION_AFTER_SEMANTIC_COALESCING_V1",
+          "starts_after": "SEMANTIC_COALESCING",
+          "input_authority": "RESOLVED_OWNERSHIP_UV_STATION_ARRANGEMENT",
+          "profile_controlled_boundary_policy": "PRESERVE",
+          "semantic_digest_equivalence": "ALL_VALID_TESSELLATIONS_SHARE_ONE_SEMANTIC_DIGEST",
+          "allowed_internal_variation": [
+            "INTERNAL_TRIANGULATION",
+            "INTERNAL_POLYGONIZATION",
+            "FACE_ORDER",
+            "SEMANTICALLY_EQUIVALENT_INTERNAL_DIAGONALS"
+          ],
+          "forbidden": [
+            "PROFILE_SELECTION",
+            "HIDDEN_EDGE_COUNT_SELECTION",
+            "SILHOUETTE_GENERATION_OR_REPAIR",
+            "OWNER_OR_PROVENANCE_INFERENCE",
+            "PROFILE_BOUNDARY_DISSOLVE",
+            "FACE_COUNT_AS_SEMANTIC_AUTHORITY"
+          ]
+        },
+        "angular_profile_selection_certificates": []
       }
     ]
   },
@@ -298,7 +432,11 @@
       "tessellation",
       "sampled_front_vertices",
       "presentation_visuals",
-      "ui_state"
+      "ui_state",
+      "downstream_face_order",
+      "internal_fill_diagonals",
+      "valid_internal_triangulation",
+      "runtime_face_count"
     ]
   }
 }

@@ -1,331 +1,262 @@
-# EC0-P: приёмка человеческими словами
+# EC0 Session A: приёмка человеческими словами
+
+Статус пакета: `A1_A2_CORRECTION_CANDIDATE_BLOCKED_PENDING_USER_DECISION`.
+
+Это словесная версия Session A без geometry evaluator, Blender integration и
+выбора Boolean backend. Она помогает принять продуктовый смысл JSON corpus v5.
+Презентационные картинки не создаются; Blender screenshots допустимы только
+как будущие runtime-доказательства.
+
+Сейчас техническое направление A1/A2 принято, но EC0 ещё нельзя закрыть:
+пользователь не задал значение `LINEAR_REFLEX_MAX_SUBTURN_V1`. Агент не имеет
+права придумать число или спрятать default в коде/JSON. После этого выбора
+нужны зелёный локальный validator, реальный внешний GitHub workflow и повторная
+явная приёмка.
+
+## Главная модель
+
+Для одной decal request внутри одного PatchDomain все активные юбки считаются
+вместе:
+
+```text
+host facts + request
+→ seeds/fronts/specs
+→ alpha-bound instances
+→ boundary-limited resolution
+→ single-cover union
+→ разрешённые встречи юбок
+→ ownership
+→ UV/station
+→ semantic coalescing
+→ downstream tessellation
+→ GeometryBatch
+```
+
+Разные decals не сталкиваются. Разные PatchDomains не сталкиваются. Встречаться
+могут только contributions одной decal request в одном Patch; self-contact
+одной юбки подчиняется тому же policy B.
+
+## Девять понятий
+
+1. **PatchDomain** — единственное поле распространения.
+2. **PhysicalChain** — физическая identity линии.
+3. **ChainUse** — направленное использование PhysicalChain со стороны одного
+   Patch.
+4. **FrontComponent** — одно owner-interior крыло обычного ChainUse.
+5. **Analysis relation** — Corner/Junction/Terminal fact без геометрии.
+6. **EnvelopeSpec** — неизменный аналитический закон одного из четырёх variants.
+7. **EnvelopeInstance** — применение spec к effective alpha.
+8. **ResolvedCoverage** — итоговая single-cover материя после разрешённых
+   interactions.
+9. **Ownership** — полное непересекающееся разбиение этой материи; оно не меняет
+   силуэт.
 
-Этот файл — основной маршрут приёмки. Читать JSON не требуется: canonical JSON,
-JSON Schema и validator нужны будущему implementer и тестам, чтобы словесные
-решения нельзя было незаметно исказить.
+## Один AngularProfileId вместо K0/K1 profiles
+
+Для всех обычных reflex corners используется одна семья:
 
-Презентационные SVG/PNG-листы, diagrams, contact sheets, slides и interactive
-HTML в этом проекте запрещены. Для runtime-диагностики разрешены скриншоты
-Blender viewport, UV Editor и debug overlays; они не заменяют текст/JSON.
+```text
+AngularProfileId = LINEAR_REFLEX_EQUAL_V1
+```
+
+Analysis обязан передать ориентированный owner-sector:
+
+- `owner_sector_id`;
+- ordered incoming/outgoing supports;
+- turn orientation относительно owner Patch;
+- exact или certified oriented angle `φ`;
+- доказательство `π < φ < 2π`.
+
+Reflex excess равен `Δ = φ - π`. Request выбирает policy
+`MIN_K_FOR_MAX_SUBTURN_V1` и parameter
+`LINEAR_REFLEX_MAX_SUBTURN_V1 = Δ_MAX`. Compiled plan вычисляет:
 
-Короткая версия того, что предлагается принять:
-
-> Внутри одного Patch все юбки одной decal растут совместно в одном поле. У
-> каждой физической pChain есть направленное использование со стороны Patch.
-> Обычное использование запускает одно owner-interior крыло; дополнительные
-> секторы возможны только если analysis действительно их доказал. Сначала каждый
-> front честно ограничивается границами Patch, затем вклады объединяются в одно
-> покрытие, затем встреча юбок обрезает это покрытие по выбранному правилу B,
-> и только после этого назначаются owner и UV/station.
-
-## Семь понятий, без которых контракт читается неверно
-
-1. **PatchDomain** — поверхность одного Patch, по которой может двигаться
-   юбка. Это единственное поле вычисления. Отдельного мира «на каждую pChain»
-   нет.
-2. **PhysicalChain** — сама физическая исходная линия. Она отвечает на вопрос
-   «какая это pChain?», но ещё не задаёт сторону и направление работы.
-3. **ChainUse** — направленное использование PhysicalChain конкретным Patch.
-   Одна физическая seam между Patch A/B имеет два разных ChainUse в двух
-   PatchDomain. `SEAM_SELF` тоже имеет два ChainUse, но внутри одного
-   PatchDomain.
-4. **DecalRequest** — одна пользовательская decal operation. Только её sources
-   внутри одного Patch участвуют в общем evaluation/collision. Разные decal
-   requests не сталкиваются.
-5. **FrontComponent** — одно owner-interior крыло обычного ChainUse. Оно может
-   первым упереться в boundary и замереть, не останавливая другую юбку.
-   Автоматического деления на абстрактные left/right нет.
-6. **Patch coverage** — итоговая геометрическая материя одной decal в одном
-   Patch. Сначала строится одна неперекрывающаяся материя, затем внутри неё
-   назначаются owner и UV. Ownership не создаёт и не удаляет геометрию.
-7. **План вычисления** — все sources одного `(DecalRequestId, PatchDomainId)`.
-   Это минимальная единица reference/compiled evaluation.
-
-Нормативный порядок всегда один:
-
-`AnalysisSnapshot + DecalRequest → seeds/fronts одного request/Patch → boundary
-clip → union → встреча юбок → ownership → UV/station → GeometryBatch`.
-
-AnalysisSnapshot содержит только факты/relations. Seeds, fronts, runtime events,
-effective alpha и envelopes принадлежат compiled plan, а не analysis.
-
-## 16 основных случаев
-
-### 01 — Прямая открытая полоса
-
-Один directed ChainUse порождает одно owner-interior крыло/strip и один
-FrontComponent. Две границы strip не означают два fronts. Только физические
-начало и конец закрываются cap-срезами. Увеличение `alpha` делает крыло шире,
-не меняя его устройство.
-
-Принять означает: `s` идёт от смыслового START к END; перестановка данных не
-переворачивает UV; cap не является вторым слоем поверх полосы.
-
-Не допускается: круглый/fan-cap без отдельной политики, overlap на cap и
-зависимость результата от числа полигонов.
-
-### 02 — Выпуклый MITER-угол
-
-Две части полосы сходятся в настоящую вершину miter. Угол — отдельный
-семантический вклад, но вся геометрия после union остаётся одним покрытием.
-
-Принять означает: внешний силуэт доходит до единственного apex; внутренние
-границы owner/UV не могут изменить внешний контур.
-
-Не допускается: незаметная замена MITER на дугу/fan или смена типа угла во
-время обычного drag.
-
-### 03 — Выпуклый BEVEL-угол
-
-Угол срезан прямой chord между точками P1/P2. Материя угла — ровно треугольник
-V/P1/P2; отсутствующий miter-клин остаётся пустым.
-
-Принять означает: свои incident strips те же, что у MITER, меняется только
-угловая материя и силуэт chord.
-
-Не допускается: скрытый miter-apex, дуга или fan за chord.
-
-### 04 — Вогнутый (reflex) угол
-
-Вогнутый поворот не рождает внешний клин. Материя — union двух incident
-strips; внутренний стык служит adjacency/UV-интерфейсом, а не вторым слоем.
-
-Принять означает: направление нормали или порядок обхода не может превратить
-reflex в convex; `s` проходит поворот без сброса.
-
-Не допускается: bevel/miter-клин снаружи и double cover во внутреннем
-перекрытии.
-
-### 05 — Физический конец `s`
-
-Cap появляется только там, где физически заканчивается смысловая линия.
-Случайная граница record/data-chain концом не является.
-
-Принять означает: на cap значение `s` постоянно и равно конечной station;
-продолжения за физический конец нет.
-
-Не допускается: cap на разрезе данных, сброс `s` и дополнительный overlay-face.
-
-### 06 — Контакт с boundary PatchDomain
-
-Крыло доходит до outer boundary, hole или явно помеченного `BARRIER`, точно
-клиппируется и может однозначно скользить вдоль того же физического контура.
-Оно не вылетает наружу с последующим rollback.
-
-Принять означает: если обход потребовал бы рождения второй ветки, этот один
-FrontComponent останавливается с `BARRIER_SPLIT_REQUIRED`; остальные компоненты
-продолжают движение.
-
-Не допускается: хорда через поворот контура, телепортация за hole и глобальная
-остановка Patch от первого контакта.
-
-### 07 — Разбиение data-chain
-
-Одну физическую pChain разрешено хранить несколькими records. Это не создаёт
-новый cap, owner-divider, UV seam или topology event.
-
-Принять означает: после нормализации результат и digest равны случаю одной
-неразрезанной линии; station ledger непрерывен.
-
-Не допускается: трактовать конец record как физический конец.
-
-### 08 — T-junction
-
-Три incident arm объединяются с отдельной JunctionEnvelope-материей в центре.
-Покрытие связное, без дыры и без двойного слоя.
-
-Принять означает: trunk сохраняет `s` насквозь, branch начинает свой `s` в
-junction, а центр принадлежит junction, не «первому arm».
-
-Не допускается: first-wins owner и превращение UV-интерфейса в разрез силуэта.
-
-### 09 — X-junction
-
-Вход заранее объявляет две пары arms, образующие две route. Kernel не угадывает
-пары по порядку, углу или id.
-
-Принять означает: обе route сохраняют собственный `s` через общий junction
-core. При неоднозначности результат — named failure
-`JUNCTION_ROUTE_PAIRING_REQUIRED`.
-
-Не допускается: эвристическая pairing и зависимость от перечисления arms.
-
-### 10 — Y merge/split
-
-Два upstream-канала входят через один junction в один downstream route.
-Происхождение обоих upstream сохраняется, но downstream-материя не дублируется.
-
-Принять означает: merge — явное topology event; обратное чтение не создаёт
-второй слой того же downstream.
-
-Не допускается: потеря provenance или двукратное покрытие после merge.
-
-### 11 — Владение коротким сегментом между двумя углами
-
-Claims двух физических endpoints создаются `EndpointClaimSeed` и встречаются
-на границе равенства. Это не CornerSeed: у endpoint claim нет выдуманной
-двухсторонней CornerRelation. В симметричном случае divider лежит посередине;
-в общем случае это не id-based выбор.
-
-Принять означает: сама equality boundary не имеет owner. При росте `alpha`
-body может схлопнуться в объявленном event, но покрытие остаётся single-cover.
-
-Не допускается: smallest-id/first-wins и overlap двух corner regions.
-
-### 12 — Кривой внутренний divider
-
-Два station/ownership claim могут встречаться по точной кривой внутри уже
-существующего покрытия. Эта кривая делит owner и UV, но не является внешним
-краем геометрии.
-
-Принять означает: сохраняется lineage обоих claims; topology определяет точная
-кривая, а не её грубая polyline-картинка.
-
-Не допускается: выталкивание divider в silhouette и выбор owner по tolerance.
-
-### 13 — BEVEL при встрече с другой юбкой
-
-«Другая» здесь означает другую pChain **той же decal и того же Patch**. До
-mutual arrival она не влияет на BEVEL. После встречи юбка доходит до реальной
-bevel-chord P1/P2, а не огибает отсутствующий miter-apex.
-
-Принять означает: incident strips самого BEVEL не меняются; collision лишь
-разрешает границу между существующими вкладами после arrival.
-
-Не допускается: участие другой decal, другого Patch, fan/arc вокруг фантомного
-apex или эффект до встречи.
-
-### 14 — Доказанное насыщение
-
-Если дальнейший рост требует неподдерживаемого обхода или физический маршрут
-исчерпан, один FrontComponent остаётся на последнем доказанном состоянии.
-Общий requested `alpha` хранится отдельно от его effective `alpha`.
-
-Принять означает: замороженная геометрия конкретного компонента больше не
-растёт, но companion-компонент того же Patch продолжает движение.
-
-Не допускается: универсальный clamp без доказательства, тихий fallback и
-остановка всего Patch из-за одного front.
-
-### 15 — Topology events во время drag
-
-Связность может меняться только в событиях, заранее найденных compile:
-contact, collapse, exhaustion, saturation, freeze и разрешённые junction events.
-Все события одной точной высоты применяются атомарно.
-
-Принять означает: ровно на event height уже действует after-state; reference и
-compiled evaluator обязаны совпадать до, в и после события.
-
-Не допускается: runtime-угадывание нового пути, порядок по runtime id и
-obstacle split/merge в первой версии.
-
-### 16 — Встреча юбок: выбран вариант B
-
-Все участники — юбки/чтения **одной decal внутри одного owner Patch**. Это может
-быть встреча юбок разных pChains или самостолкновение одной юбки двумя её
-front/readings. Разные decal никогда не сталкиваются в этой системе.
-
-До mutual arrival вклады растут независимо. В момент встречи выбранный вариант
-**B** геометрически обрезает оба участвующих покрытия по locus равенства. При
-дальнейшем `alpha` locus остаётся на месте до следующего объявленного события.
-
-Принять означает: финального overlap нет, третья материя не рождается, а обе
-station/UV readings сохраняются по разные стороны границы.
-
-Отвергнутый A оставлял бы геометрический overlap и делил только ownership.
-Отвергнутый C создавал бы новую третью interaction-материю. Оба варианта остаются
-только историей решения.
-
-## Семь pivot/correction-проверок
-
-- **Physical seam A/B:** одна PhysicalChain, но два направленных ChainUse, два
-  PatchDomain и две независимые patch-evaluation. Событие/ёмкость одной стороны
-  не останавливает другую.
-- **SEAM_SELF:** одна PhysicalChain, два ChainUse, один PatchDomain и одна
-  patch-evaluation. Uses нельзя схлопнуть по общему physical id.
-- **Несколько pChains одного request/Patch:** все seeds/fronts входят в один
-  evaluator invocation; private domain на pChain запрещён.
-- **Самостолкновение одной юбки:** два readings одного FrontComponent встречаются
-  по тому же варианту B; это не две decal и не две Patch.
-- **Cross-Patch junction:** одна global JunctionRelation и shared anchor имеют
-  отдельные per-Patch projections. Между Patch collision нет, но anchors и
-  station topology не могут разъехаться.
-- **Mixed-alpha corner:** если одна incident юбка насыщена, corner использует
-  vector effective alpha и не растягивает frozen сторону. При отсутствии
-  единственного single-cover решения возвращается
-  `SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN`.
-- **Mixed-alpha junction:** то же правило действует на все incident arms;
-  соседние fronts продолжаются, materializer не дорисовывает щель.
-
-## Десять AM8-проверок boundary
-
-Их можно принять тремя смысловыми группами:
-
-1. **Обычный контакт:** прямой endpoint contact, скользящий контакт и полное
-   исчерпание узкого front. Front клиппируется, сокращается и может исчезнуть
-   только через named event. Source launch boundary не блокирует собственный
-   seed.
-2. **Hole/concavity/barrier:** endpoint contact может однозначно slide/shrink;
-   interior contact, уже требующий две ветки, немедленно приводит к локальному
-   `BARRIER_SPLIT_REQUIRED` на том же alpha. Barrier действует только при
-   физической barrier-роли; топологическая boundary сама по себе недостаточна.
-3. **Независимость:** одновременные контакты не зависят от порядка; capacity
-   одной patch-side или одной pChain не замораживает противоположную сторону,
-   другую pChain или весь Patch.
-
-Полное обтекание holes с split/path-choice/merge намеренно отложено в EC8+.
-Это не «решим потом» внутри первой версии: первая версия обязана вернуть
-именованный capacity outcome и не имеет права рисовать материю за obstacle.
-
-## Что явно не переносится в kernel
-
-Следующее остаётся в списке «на пересмотр», а не становится семантикой:
-
-- smallest id / first record побеждает точную ничью;
-- конкретный старый механизм station-distance как единственный способ freeze;
-- конец data record равен физическому концу;
-- cap/bridge добавляется вторым слоем faces;
-- fan/arc вокруг отсутствующего BEVEL-apex;
-- старые имена runtime-классов и ошибок как обязательный API;
-- face count, triangulation, loop start и округлённые float arrays в digest;
-- UI last-valid preview как часть kernel geometry;
-- epsilon, angle или id-order выбирает topology/owner/event order.
-
-Если вы принимаете этот раздел, implementer не сможет позже оправдать один из
-этих shortcuts словами «так было в legacy».
-
-## Риски и особое мнение
-
-Риски, которые остаются после EC0, не являются открытыми продуктовыми
-решениями:
-
-- exact curved divider и junction core потребуют backend, сохраняющий curve и
-  provenance; sampled polyline не годится как authority;
-- EC1 должен доказать, что host действительно передаёт стабильные два ChainUse
-  для `SEAM_SELF`, а не просить kernel угадать их;
-- digest и UI должны показывать общий requested `alpha` и отдельный effective
-  `alpha` каждого насыщенного FrontComponent;
-- case 16 потребует двух fixtures: разные pChains одной decal и self-collision
-  одной юбки.
-
-Особое мнение kernel-implementer: отдельный patch-level evaluation plan — самый
-ясный способ не вернуться к per-pChain solve. Это рекомендация формы IR, не
-дополнительная пользовательская семантика.
-
-## Как принять или отклонить
-
-Если всё выше соответствует инструменту, достаточно ответить:
-
-> EC0-P correction candidate принимаю: cases 01–16, pivot/correction P01–P07,
-> AM8 boundary, AM9 corrections, AM10 text/JSON policy и список «не переносить
-> из legacy». Вариант case 16 остаётся B.
-
-Если не согласны, можно ответить только номерами, например:
-
-> Не принимаю 06 и AM8 hole: хочу другое поведение после первого контакта.
-
-До вашего явного ответа статус пакета —
-`CORRECTION_CANDIDATE_READY_FOR_EXTERNAL_REVIEW`, а не `ACCEPTED`.
-`BLOCKED_PENDING_USER_DECISION` внутри case corpus сейчас нет: предыдущий
-спорный case 16 закрыт вашим выбором B. Внешний review старого corpus на
-`b16be81` считается учтённым только после зелёного запуска validator.
+```text
+k = max(0, ceil(Δ / Δ_MAX) - 1)
+```
+
+Иными словами, это минимальное `k >= 0`, при котором каждый равный subturn
+`Δ / (k + 1)` не превышает `Δ_MAX`.
+
+Coordinate-free fixture хранит certified interval
+`k < Δ / Δ_MAX <= k + 1`. Validator сам выводит из него `k` и только затем
+сверяет `resolved_hidden_edge_count`, seed, hidden supports и profile
+cardinality. Отдельная case-to-k таблица в этой проверке не участвует.
+
+`k` нельзя выбирать отдельной case table, ручным K0/K1 preset, количеством
+faces, sampling quality, epsilon или результатом Boolean. C02 и C03 сохраняют
+labels `LINEAR_REFLEX_K0_EQUAL_FIXTURE_V1` и
+`LINEAR_REFLEX_K1_EQUAL_FIXTURE_V1` только как regression results: policy
+certificate в них дал соответственно `k = 0` и `k = 1`.
+
+## Что делает hidden support
+
+При вычисленном `k` скрытая support с номером `j`, `1 <= j <= k`, ставится на
+долю поворота:
+
+```text
+j / (k + 1)
+```
+
+Поворот идёт от ordered incoming support к ordered outgoing support внутри
+owner-sector. Hidden support локальна своему AngularEnvelopeSpec и не является
+pChain, ChainUse, seam, barrier или новой host topology.
+
+До clip/union/interaction профиль имеет `k + 2` active supports и `k + 2`
+локальных profile segments. Это не число обязательных видимых рёбер. После
+union часть segments может оказаться внутри общей материи; exposed silhouette
+определяется только resolved coverage.
+
+## Что ещё должен выбрать пользователь
+
+Формула и policy уже зафиксированы. Не зафиксировано только продуктовое
+значение `LINEAR_REFLEX_MAX_SUBTURN_V1` — максимально допустимый subturn.
+
+Это намеренный `BLOCKED_PENDING_USER_DECISION`, а не просьба агенту подобрать
+«разумное» число. Выбор можно оформить числовым значением или именованным
+product preset с однозначным значением и единицами. После выбора corpus должен
+быть обновлён и повторно проверен.
+
+## Четыре EnvelopeSpec variants
+
+### StripEnvelopeSpec
+
+Обычная юбка ChainUse. Source support `n·x = c`, moving support
+`n·x = c + alpha`; `n` направлена в owner interior, normal speed равна единице.
+Station `s` идёт вдоль semantic ChainUse, signed `r` — поперёк. Data-record
+split не создаёт cap и не сбрасывает `s`.
+
+### AngularEnvelopeSpec
+
+Связывает только две ordered incident юбки подтверждённой CornerRelation.
+Содержит owner-sector, angle certificate, единый profile ID, policy selection
+certificate, computed `k` и hidden-support lineage. Случайная третья юбка не
+входит в CornerSeed/AngularEnvelopeSpec; она участвует позже как interaction
+participant.
+
+### JunctionEnvelopeSpec
+
+Описывает подтверждённый T/X/Y или cross-Patch junction. Route pairing и shared
+anchor приходят из relation, а не выбираются arm order или lowest id.
+Cross-Patch projections координируются, но propagation collision между Patch
+по-прежнему запрещён.
+
+### CapEnvelopeSpec
+
+Закрывает только физический конец strip route. Cap не появляется на конце
+storage record и не создаёт overlay matter. Exact `2π` terminal — Cap/Junction,
+а не обычный AngularEnvelopeSpec.
+
+## Ownership и tessellation
+
+Сначала вычисляется coverage, потом policy B, только потом ownership. Claims
+должны образовывать total/disjoint partition; equality boundary остаётся
+ownerless. First-wins/lowest-id и восстановление owner из Boolean face order
+запрещены.
+
+После semantic coalescing разрешено менять internal fill diagonals, triangles,
+polygons и face order. Нельзя менять silhouette, exposed profile-controlled
+segments, ownership/UV/station dividers, provenance и shared semantic vertices.
+Все допустимые tessellations одного arrangement имеют один
+CanonicalGeometryDigest.
+
+## События при drag
+
+Законы, predicates и transition types известны заранее; successor event
+instances разрешено планировать лениво. Все события одного exact alpha
+применяются атомарно. Наружу публикуется только complete state. Если exact state
+ещё не готов, остаётся последняя полная версия и возвращается
+`PENDING_EXACT_EVALUATION`.
+
+## 16 основных cases
+
+1. **C01:** один ChainUse → один strip/front; caps только на physical terminals.
+2. **C02:** единый profile, certificate/policy дают `k = 0` (K0 fixture result).
+3. **C03:** единый profile, certificate/policy дают `k = 1`; hidden support на
+   `1/2` excess (K1 fixture result).
+4. **C04:** локальные Angular segments могут стать внутренними после union;
+   spec identity сохраняется, внешний клин не добавляется.
+5. **C05:** конец `s` — только physical route end; cap на record end запрещён.
+6. **C06:** endpoint contact может slide/shrink; interior split возвращает
+   `BARRIER_SPLIT_REQUIRED` в exact alpha.
+7. **C07:** segmentation records не меняет physical route, spec и digest.
+8. **C08:** T-junction получает один JunctionEnvelopeSpec; arm order не выбирает
+   owner.
+9. **C09:** X route pairing приходит из JunctionRelation.
+10. **C10:** Y merge/split хранит полный upstream provenance и single cover.
+11. **C11:** два EndpointClaimSeeds делят short strip; фиктивного Angular spec
+    нет.
+12. **C12:** claim B ссылается на две strips и один angle-driven Angular spec;
+    curved divider меняет только ownership/UV, не silhouette.
+13. **C13:** Angular spec содержит только свои ordered incident uses. Третья
+    юбка той же decal/Patch встречает фактическую exposed profile boundary лишь
+    после mutual arrival.
+14. **C14:** насыщается только доказанно ограниченный component; companion
+    продолжает до своего effective alpha.
+15. **C15:** topology transitions exact/atomic; новые semantic rules во время
+    drag не изобретаются.
+16. **C16:** policy B — same-request same-Patch contributions клиппируются по
+    equality locus; overlap и новая третья matter отсутствуют.
+
+## Семь pivot checks
+
+- **P01:** физический seam A/B даёт два Patch plans и два ChainUses.
+- **P02:** `SEAM_SELF` сохраняет два distinct ChainUses одного Patch.
+- **P03:** все sources request/Patch входят в один plan/union.
+- **P04:** self-collision одной юбки использует policy B.
+- **P05:** cross-Patch junction делит anchor/provenance, но не collision field.
+- **P06:** angle-driven Angular spec получает vector incident effective alpha.
+- **P07:** Junction spec получает vector всех incident effective alpha.
+
+Неединственный mixed-alpha result возвращает
+`SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN`; materializer не дорисовывает щель.
+
+## Metamorphic expectations
+
+Инвариантны: record permutation, storage reverse при сохранении semantic
+orientation, coherent winding reverse, rigid transform, coherent scale,
+retriangulation, data-record split/merge, same-alpha event permutation,
+oriented-sector record permutation и downstream tessellation при сохранении
+arrangement.
+
+Семантику меняют: incoherent incident-support swap, angle или `Δ_MAX`, если
+изменился computed `k`, ручной override `k`, смена subdivision law и удаление
+фактического exposed profile-controlled segment.
+
+## На пересмотр — не семантика
+
+- `[LEGACY_COMPATIBILITY]` UI MITER/BEVEL/ROUND labels как request presets;
+- `[LEGACY_COMPATIBILITY]` legacy face count, triangulation и лишние numeric UV
+  conventions;
+- `[IMPLEMENTATION_ACCIDENT]` lowest-id owner, record-end cap, auto left/right
+  fronts, overlay bridge/cap, per-pChain materialization/post-hoc stitching;
+- `[IMPLEMENTATION_ACCIDENT]` sampled/repair geometry как Angular authority;
+- `[OPEN_RESEARCH]` production Boolean/arrangement library;
+- `[OPEN_RESEARCH]` obstacle bypass со split/path choice/merge;
+- `[OPEN_RESEARCH]` generalized straight-skeleton backend.
+
+Ни один пункт не разрешает silent fallback.
+
+## Риски
+
+- `Δ_MAX` заметно влияет на форму через computed `k`; это продуктовый выбор.
+- Symbolic regression certificates проверяют закон, но не заменяют production
+  default.
+- Exact curved divider/Junction требуют backend с curve/provenance support.
+- Host adapter обязан стабильно передать ChainUse, oriented sectors и angle
+  certificates; kernel не должен реконструировать их эвристически.
+- Runtime UI должен различать requested alpha, effective alpha и pending state.
+
+## Особое мнение
+
+Один `LINEAR_REFLEX_EQUAL_V1` с angle-driven `k` лучше фиксированной таблицы
+K0/K1: все corners подчиняются одному закону, а рост локальной детализации
+объясняется измеренным сектором и явно утверждённым продуктовым пределом. Но
+этот предел нельзя выбирать исполнителю под видом технической константы.
+
+## Как продолжить приёмку
+
+Сначала пользователь должен сообщить значение
+`LINEAR_REFLEX_MAX_SUBTURN_V1` (с единицами либо через однозначный named preset).
+После обновления corpus, зелёного validator и реального GitHub workflow будет
+предложена короткая финальная фраза приёмки Session A. До этого EC1 закрыт.

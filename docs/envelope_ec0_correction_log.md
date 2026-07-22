@@ -1,7 +1,8 @@
 # EC0 external-review correction log
 
 Review target: branch `codex/ec0-envelope-semantics`, commit `b16be81`.
-Current disposition: old corpus rejected as canonical; history retained.
+Current disposition: v5 A1/A2 correction candidate; product max-subturn value,
+external CI and explicit user acceptance are still pending. History retained.
 
 ## Applied corrections
 
@@ -108,9 +109,11 @@ diagnostic runtime evidence. They are not SemanticAuthority.
 ## Gate effect
 
 The corrections do not open EC1. The new corpus is a correction candidate until
-the validator/CI is green and the user explicitly accepts the updated verbal
-semantics. There are no current `BLOCKED_PENDING_USER_DECISION` cases; case 16
-remains user-selected policy B for wings of one DecalRequest in one Patch.
+the user approves `LINEAR_REFLEX_MAX_SUBTURN_V1`, the local validator and real
+external GitHub workflow are green, and the user explicitly accepts the updated
+verbal semantics. `A1_MAX_SUBTURN_DEFAULT` is the one current
+`BLOCKED_PENDING_USER_DECISION`; case 16 remains user-selected policy B for
+wings of one DecalRequest in one Patch.
 
 AM11 re-closes the EC0 semantic gate for angular cases until the canonical JSON
 corpus is migrated from join enums to explicit angular profiles. Existing
@@ -121,3 +124,152 @@ validator success does not override this semantic gate.
 The branch diverged from `main` during the EC0 work. No rebase or merge is
 performed as part of this semantic rebaseline; reconcile with current main only
 after preserving the validated EC0/AM11 workspace and before PR/merge.
+
+## Superseded Session A receipt — fixed K0/K1 proposal
+
+The following subsection is retained only as an audit record of the rejected
+fixed K0/K1 proposal. Its v4 catalog, case mapping, uncommitted SHA text and CI
+status are not current authority. They are superseded by the A1/A2 correction
+receipt appended below.
+
+Active slice: `SESSION_A_EC0_LINEAR_REFLEX_REBASELINE`.
+
+Input contract/version: AM11,
+`cftuv.envelope.ec0.case.v4`,
+`cftuv.envelope.ec0.corpus.v4` and
+`cftuv.envelope.ec0.envelope_spec_contracts.v1`.
+
+Accepted gate from previous slice: PatchDomain/ChainUse/request-domain,
+boundary-limited propagation, cross-Patch coordination and case 16 policy B
+facts were preserved. No earlier acceptance is treated as acceptance of the
+new K0/K1 catalog or mapping.
+
+Changed paths are limited to the Session A allowlist:
+
+- `docs/envelope_backend_semantics.md`;
+- `docs/envelope_ec0_acceptance_guide.md`;
+- this correction log;
+- `artifacts/envelope_ec0/corpus/**`;
+- `tools/validate_envelope_ec0.py`.
+
+The corpus now uses a strict typed union of `StripEnvelopeSpec`,
+`AngularEnvelopeSpec`, `JunctionEnvelopeSpec` and `CapEnvelopeSpec`, with a
+separate alpha-bound `EnvelopeInstance`. The named Angular profiles are:
+
+- `LINEAR_REFLEX_K0_EQUAL_V1`: zero hidden edges;
+- `LINEAR_REFLEX_K1_EQUAL_V1`: one hidden edge/support at reflex-excess turn
+  fraction `1/2`.
+
+Both profiles use equal subdivision of `Δ = φ - π` into `k + 1` subturns.
+Hidden-edge count is fixed by profile ID rather than threshold, tolerance,
+tessellation or face count. C02/C04/C12/P06 use K0; C03/C13 use K1; P07 remains
+a JunctionEnvelopeSpec.
+
+Every plan now explicitly references the Strip support law, physical Cap
+closure law, complete ownership partition, lazy deterministic event ledger and
+downstream-tessellation invariants. C15 no longer requires an eager complete
+future event schedule.
+
+Commit SHA: Session A changes are currently uncommitted on base `95d57ee`.
+The machine-readable receipt is
+`artifacts/envelope_ec0/corpus/session_a_handoff.json` and must be updated with
+the result SHA if the work is committed later.
+
+Tests and exact result:
+
+```text
+python tools/validate_envelope_ec0.py
+EC0 AM11 corpus validation OK
+canonical JSON cases: 23 (main=16, pivot=7)
+strict JSON Schema conformance: OK
+typed union/profile/law/ownership/event/tessellation regressions: OK
+EC1 gate: CLOSED_PENDING_EXPLICIT_USER_ACCEPTANCE
+```
+
+GitHub CI has not run for these uncommitted Session A changes. The existing
+`.github/workflows/envelope-ec0-corpus.yml` executes the same validator under
+Python 3.10 and will be required after commit/push before the gate can close.
+
+Named unsupported outcomes remain explicit:
+`BARRIER_SPLIT_REQUIRED`, `BARRIER_BYPASS_UNSUPPORTED`,
+`SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN`,
+`OWNERSHIP_PARTITION_UNPROVEN`, `PENDING_EXACT_EVALUATION` and
+`APPROXIMATE_MATERIALIZATION_PENDING`.
+
+Assumptions not proven:
+
+- the user has not yet accepted the K0/K1 catalog and case mapping;
+- no production Boolean/arrangement backend has been selected or proven;
+- the future host adapter has not proven stable ChainUse/sector/relation facts;
+- no geometry evaluator or Blender runtime fixture was built in Session A.
+
+Risks:
+
+- any future profile requires a new named ID and gate rather than retuning K0
+  or K1;
+- exact curved ownership/Junction behavior will require backend provenance
+  support;
+- runtime UI must distinguish requested, effective and pending alpha states.
+
+Special opinion: keep the first profile catalog minimal and explicit. Do not
+derive hidden-edge count from angle, sampling density or downstream faces.
+
+Legacy paths read: **no**. Neither `cftuv/decal_voronoi.py` nor geometry parts
+of `cftuv/decals.py` were read.
+
+Next session allowlist: Session B may receive only the accepted Session A
+corpus/schema plus surface and GeometryBatch boundary contracts, and may start
+only after validator/CI and explicit user acceptance. EC1 remains closed now.
+
+## Current Session A A1/A2 correction receipt
+
+Before these edits the worktree was fetched and verified clean at remote commit
+`522bd4cfae8f5aaa7d5392e20ebe53101c2eef0c`, with zero local/remote divergence.
+The already-pushed Session A diff was not applied a second time. Commit
+`522bd4cf` used the misleading message “Implement coordinate-free decal
+envelope kernel”, although it contained only Session A semantic artifacts; its
+message is scheduled to be replaced by a factual docs/EC0 message during the
+final history rewrite.
+
+A1 changes AM11 authority and all dependent active documents:
+
+- the only product profile family is `LINEAR_REFLEX_EQUAL_V1`;
+- `MIN_K_FOR_MAX_SUBTURN_V1` computes
+  `k = max(0, ceil(Δ / Δ_MAX) - 1)` from an exact/certified oriented reflex
+  angle;
+- `LINEAR_REFLEX_MAX_SUBTURN_V1` has no agent-selected default and remains
+  `BLOCKED_PENDING_USER_DECISION`;
+- K0/K1 names survive only as C02/C03 regression-result fixtures;
+- no permanent product case-to-k table remains.
+
+A2 makes angular orientation and cardinality explicit:
+
+- each Angular relation references `owner_sector_id`, ordered incoming/outgoing
+  supports, owner-patch turn orientation and an angle certificate;
+- hidden support ordinal `j` lies at `j / (k + 1)` inside that oriented sector;
+- `k + 2` counts local AngularEnvelope profile supports/segments before
+  clip/union/interaction, not guaranteed exposed silhouette segments.
+
+Current machine-readable versions are:
+
+- `cftuv.envelope.ec0.case.v5`;
+- `cftuv.envelope.ec0.corpus.v5`;
+- `cftuv.envelope.ec0.envelope_spec_contracts.v2`;
+- `artifacts/envelope_ec0/corpus/session_a_handoff.json` v2.
+
+No geometry evaluator, Blender integration, production Boolean selection or
+EC1 artifact was added. Legacy geometry paths were not read.
+
+The factual new semantic commit SHA, history-rewrite disposition and local test
+result are recorded in the machine-readable handoff after commit creation. The
+external CI field stays `PENDING` until an actual GitHub workflow run exists;
+the corpus and local validator do not self-certify that run.
+
+Current blockers:
+
+- user-approved value for `LINEAR_REFLEX_MAX_SUBTURN_V1`;
+- final local validator on the committed corpus;
+- actual external GitHub workflow result on the published commit;
+- repeat explicit user acceptance of the resulting A1/A2 semantics.
+
+EC1 remains closed.

@@ -1,5 +1,5 @@
 {
-  "schema": "cftuv.envelope.ec0.pivot_metamorphic_matrix.v2",
+  "schema": "cftuv.envelope.ec0.pivot_metamorphic_matrix.v4",
   "cases": [
     "EC0-P01",
     "EC0-P02",
@@ -215,6 +215,136 @@
         "EC0-P04": "SEMANTIC_CHANGE",
         "EC0-P05": "INVARIANT",
         "EC0-P06": "INVARIANT",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "angular_profile_selection_policy_switch",
+      "definition": "Change the named angle-driven selection policy while preserving the measured oriented sector.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "SEMANTIC_CHANGE",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "hidden_support_record_permutation",
+      "definition": "Reorder hidden-support records while preserving ordinal and lineage.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "INVARIANT",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "hidden_edge_count_change",
+      "definition": "Change k in an AngularEnvelopeSpec.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "SEMANTIC_CHANGE",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "angular_subdivision_policy_change",
+      "definition": "Change the declared reflex-excess subdivision policy.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "SEMANTIC_CHANGE",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "downstream_tessellation_change_preserve_arrangement",
+      "definition": "Change internal faces or diagonals after semantic coalescing without changing semantic boundaries.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "INVARIANT",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "oriented_angular_sector_record_permutation",
+      "definition": "Permute records while preserving ordered support semantics and owner-sector IDs.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "INVARIANT",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "incident_support_order_swap_without_orientation_update",
+      "definition": "Swap incoming/outgoing supports without the coherent turn-orientation mapping.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "SEMANTIC_CHANGE",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "reflex_angle_change_crossing_k_selection_boundary",
+      "definition": "Change the certified reflex angle so MIN_K_FOR_MAX_SUBTURN_V1 resolves another k.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "SEMANTIC_CHANGE",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "manual_resolved_k_override",
+      "definition": "Override the policy-certified hidden-edge count without changing angle or parameter.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "SEMANTIC_CHANGE",
+        "EC0-P07": "INVARIANT"
+      }
+    },
+    {
+      "transform": "max_subturn_parameter_change_crossing_k_selection_boundary",
+      "definition": "Change LINEAR_REFLEX_MAX_SUBTURN_V1 so the certified selection resolves another k.",
+      "by_case": {
+        "EC0-P01": "INVARIANT",
+        "EC0-P02": "INVARIANT",
+        "EC0-P03": "INVARIANT",
+        "EC0-P04": "INVARIANT",
+        "EC0-P05": "INVARIANT",
+        "EC0-P06": "SEMANTIC_CHANGE",
         "EC0-P07": "INVARIANT"
       }
     }
