@@ -1,7 +1,7 @@
 {
   "schema": "cftuv.envelope.ec0.session_handoff.v2",
   "active_slice": "SESSION_A_EC0_LINEAR_REFLEX_REBASELINE",
-  "status": "CANDIDATE_AWAITING_EXPLICIT_USER_ACCEPTANCE",
+  "status": "ACCEPTED_READY_FOR_SEPARATE_SESSION_B",
   "input_contract_version": {
     "authority_document": "docs/decal_envelope_linear_axis_rebaseline.md",
     "amendment": "AM11_A1_A2_CORRECTION",
@@ -10,7 +10,7 @@
     "envelope_spec_policy": "cftuv.envelope.ec0.envelope_spec_contracts.v2"
   },
   "accepted_gate_from_previous_slice": {
-    "status": "TECHNICAL_PARTS_ACCEPTED_PROFILE_SELECTION_AND_ORIENTATION_RECLOSED",
+    "status": "SESSION_A_FINAL_USER_ACCEPTANCE_RECORDED",
     "preserved_facts": [
       "PATCH_DOMAIN_IS_PROPAGATION_FIELD",
       "CHAIN_USE_IS_DIRECTED_PATCH_SIDE_SOURCE",
@@ -24,7 +24,14 @@
       "LAZY_EVENT_LEDGER",
       "DOWNSTREAM_TESSELLATION_BOUNDARY"
     ],
-    "not_claimed": "NO_ACCEPTANCE_IS_CLAIMED_FOR_A1_A2_UNTIL_EXTERNAL_CI_AND_REPEAT_USER_REVIEW"
+    "acceptance_decision_id": "SESSION_A_FINAL_ACCEPTANCE"
+  },
+  "final_user_acceptance": {
+    "status": "USER_ACCEPTED",
+    "accepted_contract": "EC0_SESSION_A_LINEAR_REFLEX_REBASELINE_V5_WITH_60_DEGREE_DEFAULT",
+    "evidence": "USER_DIRECTED_IMMEDIATE_CONTINUATION_IF_SESSION_A_WAS_NOT_YET_CLOSED",
+    "acceptance_commit": "PENDING_COMMIT",
+    "session_b_context_rule": "SEPARATE_RESTRICTED_CONTEXT_REQUIRED"
   },
   "correction_items": {
     "A1": "LINEAR_REFLEX_EQUAL_V1_PLUS_MIN_K_FOR_MAX_SUBTURN_V1",
@@ -44,6 +51,8 @@
   },
   "changed_paths": [
     "docs/decal_envelope_linear_axis_rebaseline.md",
+    "docs/envelope_engine_start_here.md",
+    "docs/envelope_external_agent_session_manifest.md",
     "docs/envelope_backend_semantics.md",
     "docs/envelope_ec0_acceptance_guide.md",
     "docs/envelope_ec0_correction_log.md",
@@ -78,7 +87,7 @@
         "LAZY_DETERMINISTIC_EVENT_LEDGER",
         "DOWNSTREAM_TESSELLATION_INVARIANTS",
         "NO_PRESENTATION_ARTIFACTS",
-        "EC1_GATE_REMAINS_CLOSED"
+        "SESSION_A_ACCEPTED_AND_SESSION_B_REQUIRES_SEPARATE_CONTEXT"
       ]
     }
   ],
@@ -118,7 +127,6 @@
     "APPROXIMATE_MATERIALIZATION_PENDING"
   ],
   "assumptions_not_proven": [
-    "USER_HAS_NOT_YET_REPEATED_FINAL_ACCEPTANCE_AFTER_A1_A2",
     "HOST_HAS_NOT_YET_PROVEN_RUNTIME_PRODUCTION_OF_ORIENTED_SECTOR_AND_ANGLE_CERTIFICATES",
     "NO_PRODUCTION_BOOLEAN_OR_ARRANGEMENT_BACKEND_HAS_BEEN_SELECTED_OR_PROVEN",
     "NO_GEOMETRY_EVALUATOR_OR_BLENDER_RUNTIME_FIXTURE_WAS_BUILT_IN_SESSION_A"
@@ -139,7 +147,7 @@
   },
   "next_session_allowlist": {
     "session": "SESSION_B_EC1_CONTRACTS_AND_HERMETIC_PACKAGE",
-    "condition": "ONLY_AFTER_LOCAL_VALIDATOR_EXTERNAL_GITHUB_CI_AND_EXPLICIT_USER_ACCEPTANCE_OF_A1_A2_WITH_THE_60_DEGREE_DEFAULT",
+    "condition": "SATISFIED_FOR_SEPARATE_SESSION_B_ONLY; DO_NOT_START_EC1_IN_THIS_SESSION_A_CONTEXT",
     "inputs": [
       "ACCEPTED_SESSION_A_V5_CORPUS_AND_SCHEMA",
       "SURFACE_BOUNDARY_CONTRACTS",

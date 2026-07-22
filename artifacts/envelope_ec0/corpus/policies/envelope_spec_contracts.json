@@ -1,6 +1,6 @@
 {
   "schema": "cftuv.envelope.ec0.envelope_spec_contracts.v2",
-  "status": "A1_A2_ANGLE_DRIVEN_LINEAR_REFLEX_CANDIDATE",
+  "status": "A1_A2_ANGLE_DRIVEN_LINEAR_REFLEX_ACCEPTED",
   "envelope_spec_variants": [
     "StripEnvelopeSpec",
     "AngularEnvelopeSpec",

@@ -1,16 +1,16 @@
 # EC0 Session A: приёмка человеческими словами
 
-Статус пакета: `A1_A2_CORRECTION_CANDIDATE_READY_FOR_FINAL_USER_ACCEPTANCE`.
+Статус пакета: `SESSION_A_ACCEPTED`.
 
 Это словесная версия Session A без geometry evaluator, Blender integration и
 выбора Boolean backend. Она помогает принять продуктовый смысл JSON corpus v5.
 Презентационные картинки не создаются; Blender screenshots допустимы только
 как будущие runtime-доказательства.
 
-Техническое направление A1/A2 принято. Пользователь выбрал точный default
-`LINEAR_REFLEX_MAX_SUBTURN_V1 = π/3 = 60°`. Для закрытия EC0 остаются зелёный
-локальный validator, реальный внешний GitHub workflow и повторная явная
-приёмка всего Session A contract.
+Техническое направление A1/A2, точный default
+`LINEAR_REFLEX_MAX_SUBTURN_V1 = π/3 = 60°` и весь Session A contract приняты
+пользователем. Локальный validator и внешний GitHub workflow зелёные. EC0
+Session A закрыта.
 
 ## Главная модель
 
@@ -261,8 +261,8 @@ tests покажут необходимость другого значения,
 
 ## Как продолжить приёмку
 
-Локальный validator и внешний GitHub workflow зелёные. Для закрытия Session A
-достаточно ответить:
+Пользователь дал директиву немедленно продолжить, если Session A ещё не была
+закрыта; она записана как `SESSION_A_FINAL_ACCEPTANCE` для следующего контракта:
 
 > Принимаю EC0 Session A: `LINEAR_REFLEX_EQUAL_V1`, angle-driven
 > `MIN_K_FOR_MAX_SUBTURN_V1`, exact default `Δ_MAX = π/3 = 60°`, oriented
@@ -270,4 +270,5 @@ tests покажут необходимость другого значения,
 > lazy event ledger, downstream tessellation invariants, cases C01–C16 и
 > P01–P07. Case 16 остаётся policy B.
 
-До этого явного ответа EC1 закрыт.
+Эта приёмка записана. Session B теперь разрешена только в отдельном restricted
+context; текущая Session A не должна начинать EC1.

@@ -1,12 +1,12 @@
 # Decal Envelope Engine — Linear-Axis rebaseline (AM11)
 
-Status: **NORMATIVE REBASELINE CANDIDATE — PRODUCT VALUE SELECTED**.
+Status: **NORMATIVE REBASELINE ACCEPTED — SESSION A CLOSED**.
 This document supersedes the old MITER/BEVEL/ROUND interpretation of
 `CornerEnvelope` for all new kernel work. EC1 implementation remains closed
-until the EC0 JSON corpus, schema and validator are migrated to this model,
-external CI passes, and the resulting semantics — including the user-selected
-`LINEAR_REFLEX_MAX_SUBTURN_V1 = pi/3 = 60 degrees` — are explicitly accepted by
-the user.
+The EC0 JSON corpus, schema and validator are migrated to this model; external
+CI is green; and the user has accepted the resulting semantics, including
+`LINEAR_REFLEX_MAX_SUBTURN_V1 = pi/3 = 60 degrees`. Session A is closed. EC1
+may start only as Session B in a new restricted context.
 
 The architectural north star is:
 
@@ -586,7 +586,9 @@ Reads only this document, EC0 semantics/corpus/schema/validator and the
 compromise roadmap. Writes JSON/schema/validator/docs only. Does not read legacy
 geometry code and does not create kernel code.
 
-Gate: user accepts the migrated semantic corpus.
+Gate: **PASSED** — the user accepted the migrated semantic corpus with the
+exact 60-degree max-subturn default. Session B must use a new restricted
+context; this Session A context must not implement EC1.
 
 ### Session B — EC1 contracts and hermetic package
 

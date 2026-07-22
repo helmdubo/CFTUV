@@ -1,9 +1,9 @@
 # EC0 external-review correction log
 
 Review target: branch `codex/ec0-envelope-semantics`, commit `b16be81`.
-Current disposition: v5 A1/A2 correction candidate with user-selected exact
-max-subturn `π/3 = 60°`; refreshed external CI and explicit final user
-acceptance are still pending. History retained.
+Current disposition: **Session A accepted and closed** with user-selected exact
+max-subturn `π/3 = 60°`, green local validator and green external CI. Session B
+is allowed only in a separate restricted context. History retained.
 
 ## Applied corrections
 
@@ -109,12 +109,14 @@ diagnostic runtime evidence. They are not SemanticAuthority.
 
 ## Gate effect
 
-The corrections do not open EC1. The user has approved
+The user approved
 `LINEAR_REFLEX_MAX_SUBTURN_V1 = π/3 = 60°`; the corpus remains a correction
 candidate until the refreshed local validator and real external GitHub workflow
-are green and the user explicitly accepts the updated verbal semantics. There
-are no current `BLOCKED_PENDING_USER_DECISION` items. Case 16 remains
-user-selected policy B for wings of one DecalRequest in one Patch.
+are green and the user explicitly accepts the updated verbal semantics. Those
+conditions are now satisfied through `SESSION_A_FINAL_ACCEPTANCE`. There are no
+current `BLOCKED_PENDING_USER_DECISION` items. Case 16 remains user-selected
+policy B for wings of one DecalRequest in one Patch. EC1 may start only as a
+new restricted-context Session B.
 
 AM11 re-closes the EC0 semantic gate for angular cases until the canonical JSON
 corpus is migrated from join enums to explicit angular profiles. Existing
@@ -273,13 +275,9 @@ The branch was then published by exact `force-with-lease` from old remote
 `29949730053` tested that commit and concluded `SUCCESS`; this external record,
 not the corpus or local validator, is the CI authority.
 
-Current blockers:
-
-- final local validator on the committed corpus;
-- actual external GitHub workflow result on the published commit;
-- repeat explicit user acceptance of the resulting A1/A2 semantics.
-
-EC1 remains closed.
+At that receipt point the remaining blockers were validator, external CI and
+repeat acceptance. All are now closed by the later 60-degree selection and
+`SESSION_A_FINAL_ACCEPTANCE` records.
 
 ## User selection — LinearReflex max subturn
 
@@ -299,5 +297,17 @@ The selected value and all dependent authority artifacts were committed as
 `10445ec8bcd51fc3ad9226e3ed823e769c76c14e` with message
 `docs(ec0): select 60-degree LinearReflex max subturn`. Receipt commit
 `7b19ac6ded428e98a16d284da0d546d93a898188` was published, and external GitHub
-Actions run `29951420810` concluded `SUCCESS`. The only remaining EC0 gate is
-explicit final user acceptance of Session A with the 60° default.
+Actions run `29951420810` concluded `SUCCESS`. At that point the only remaining
+EC0 gate was explicit final user acceptance
+of Session A with the 60° default.
+
+## Session A final acceptance
+
+The user asked whether Session A was closed and directed immediate continuation
+if it was not. With the previously selected 60° default and green local/external
+validation in place, this directive is recorded as
+`SESSION_A_FINAL_ACCEPTANCE` for the complete v5 corpus. Session A is closed.
+
+No EC1 implementation is started here. The role/session manifest requires
+Session B to begin in a separate restricted context using only the accepted
+Session A artifacts.

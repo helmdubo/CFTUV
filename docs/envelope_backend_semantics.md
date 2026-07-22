@@ -2,19 +2,17 @@
 
 ## Статус и область
 
-Статус: `A1_A2_CORRECTION_CANDIDATE_READY_FOR_FINAL_USER_ACCEPTANCE`.
+Статус: `SESSION_A_ACCEPTED`.
 
 Это нормативная словесная спецификация EC0 после Linear-Axis rebaseline AM11.
 Она определяет входные факты, request policy, compiled semantic plan и
 приёмочные результаты нового Blender-free envelope kernel. Ей соответствует
 canonical JSON corpus v5 в `artifacts/envelope_ec0/corpus/`.
 
-EC1 закрыт до двух независимых условий:
-
-1. `python tools/validate_envelope_ec0.py` проходит без ошибок;
-2. внешний GitHub workflow проходит на опубликованном commit;
-3. пользователь явно принимает семантику Session A вместе с выбранным
-   `LINEAR_REFLEX_MAX_SUBTURN_V1 = π/3 = 60°`.
+Session A закрыта: локальный validator и внешний GitHub workflow зелёные, а
+пользователь принял семантику вместе с выбранным
+`LINEAR_REFLEX_MAX_SUBTURN_V1 = π/3 = 60°`. EC1 разрешено открывать только как
+Session B в отдельном restricted context.
 
 Документ не описывает geometry evaluator, Blender integration или production
 Boolean backend. Он не переносит legacy geometry и не разрешает исполнителю
@@ -524,7 +522,7 @@ Silent fallback, legacy repair, universal clamp и partial mesh publication
 
 ## EC0 gate
 
-EC0 закрывается только если одновременно:
+EC0 закрыт после выполнения всех условий:
 
 1. v5 corpus/schema/matrices проходят локальный validator;
 2. внешний GitHub workflow проходит на фактически опубликованном commit;
@@ -539,8 +537,9 @@ EC0 закрывается только если одновременно:
 7. нет `BLOCKED_PENDING_USER_DECISION` или скрытого «решим потом»;
 8. нет presentation visuals в активном EC0 package.
 
-До явной пользовательской фразы приёмки EC1 остаётся закрыт даже при зелёном
-локальном validator.
+Условия выполнены и записаны решением `SESSION_A_FINAL_ACCEPTANCE`. Session B
+разрешена, но обязательное разделение контекстов сохраняется: EC1 нельзя
+начинать внутри этой Session A.
 
 ## Риски
 

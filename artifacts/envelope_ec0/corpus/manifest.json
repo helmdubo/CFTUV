@@ -1,6 +1,6 @@
 {
   "schema": "cftuv.envelope.ec0.corpus.v5",
-  "status": "A1_A2_CORRECTION_CANDIDATE_READY_FOR_FINAL_USER_ACCEPTANCE",
+  "status": "SESSION_A_ACCEPTED",
   "canonical_format": "JSON",
   "presentation_visual_policy": "FORBIDDEN",
   "allowed_visual_evidence": [
@@ -137,6 +137,7 @@
   "validator": "tools/validate_envelope_ec0.py",
   "handoff_file": "artifacts/envelope_ec0/corpus/session_a_handoff.json",
   "active_session": "SESSION_A_EC0_LINEAR_REFLEX_REBASELINE",
-  "ec1_gate": "CLOSED_PENDING_EXPLICIT_USER_ACCEPTANCE",
+  "ec1_gate": "OPEN_FOR_SEPARATE_SESSION_B",
+  "acceptance_decision_id": "SESSION_A_FINAL_ACCEPTANCE",
   "blocked_pending_user_decisions": []
 }

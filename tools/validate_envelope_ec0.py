@@ -285,7 +285,7 @@ def validate_against_schema(value, schema, root_schema, value_path="$", case_id=
 def validate_spec_policy(policy):
     if policy.get("schema") != "cftuv.envelope.ec0.envelope_spec_contracts.v2":
         raise ValidationError("EnvelopeSpec policy schema id mismatch")
-    if policy.get("status") != "A1_A2_ANGLE_DRIVEN_LINEAR_REFLEX_CANDIDATE":
+    if policy.get("status") != "A1_A2_ANGLE_DRIVEN_LINEAR_REFLEX_ACCEPTED":
         raise ValidationError("EnvelopeSpec policy has unexpected status")
     if set(policy.get("envelope_spec_variants", [])) != ENVELOPE_VARIANTS:
         raise ValidationError("EnvelopeSpec typed union differs from AM11")
@@ -1299,12 +1299,14 @@ def main() -> int:
     manifest = read_json(CORPUS / "manifest.json")
     if manifest.get("schema") != "cftuv.envelope.ec0.corpus.v5":
         raise ValidationError("manifest schema id mismatch")
-    if manifest.get("status") != "A1_A2_CORRECTION_CANDIDATE_READY_FOR_FINAL_USER_ACCEPTANCE":
+    if manifest.get("status") != "SESSION_A_ACCEPTED":
         raise ValidationError("manifest has unexpected review status")
     if manifest.get("active_session") != "SESSION_A_EC0_LINEAR_REFLEX_REBASELINE":
         raise ValidationError("manifest active session mismatch")
-    if manifest.get("ec1_gate") != "CLOSED_PENDING_EXPLICIT_USER_ACCEPTANCE":
-        raise ValidationError("EC1 gate must remain closed")
+    if manifest.get("ec1_gate") != "OPEN_FOR_SEPARATE_SESSION_B":
+        raise ValidationError("accepted Session A must open only the separate Session B gate")
+    if manifest.get("acceptance_decision_id") != "SESSION_A_FINAL_ACCEPTANCE":
+        raise ValidationError("manifest lacks the final Session A acceptance decision")
     if manifest.get("canonical_format") != "JSON":
         raise ValidationError("manifest canonical format must be JSON")
     expected_handoff = "artifacts/envelope_ec0/corpus/session_a_handoff.json"
@@ -1355,8 +1357,20 @@ def main() -> int:
         raise ValidationError("Session A handoff schema id mismatch")
     if handoff.get("active_slice") != "SESSION_A_EC0_LINEAR_REFLEX_REBASELINE":
         raise ValidationError("Session A handoff active slice mismatch")
-    if handoff.get("status") != "CANDIDATE_AWAITING_EXPLICIT_USER_ACCEPTANCE":
-        raise ValidationError("Session A handoff must not claim premature acceptance")
+    if handoff.get("status") != "ACCEPTED_READY_FOR_SEPARATE_SESSION_B":
+        raise ValidationError("Session A handoff acceptance status mismatch")
+    final_acceptance = handoff.get("final_user_acceptance", {})
+    if (
+        final_acceptance.get("status") != "USER_ACCEPTED"
+        or final_acceptance.get("accepted_contract")
+        != "EC0_SESSION_A_LINEAR_REFLEX_REBASELINE_V5_WITH_60_DEGREE_DEFAULT"
+        or final_acceptance.get("evidence")
+        != "USER_DIRECTED_IMMEDIATE_CONTINUATION_IF_SESSION_A_WAS_NOT_YET_CLOSED"
+        or final_acceptance.get("acceptance_commit") != "PENDING_COMMIT"
+        or final_acceptance.get("session_b_context_rule")
+        != "SEPARATE_RESTRICTED_CONTEXT_REQUIRED"
+    ):
+        raise ValidationError("Session A handoff lacks factual final user acceptance")
     handoff_parameter = handoff.get("product_parameter_decisions", {}).get(
         ANGULAR_PARAMETER_ID, {}
     )
@@ -1454,6 +1468,17 @@ def main() -> int:
         raise ValidationError("decision record lost the user-selected exact 60-degree max-subturn default")
     if manifest.get("blocked_pending_user_decisions") != []:
         raise ValidationError("manifest still exposes a resolved pending user decision")
+    final_decision = decisions.get("SESSION_A_FINAL_ACCEPTANCE", {})
+    if (
+        final_decision.get("status") != "USER_ACCEPTED"
+        or final_decision.get("accepted_contract")
+        != "EC0_SESSION_A_LINEAR_REFLEX_REBASELINE_V5_WITH_60_DEGREE_DEFAULT"
+        or final_decision.get("acceptance_evidence")
+        != "USER_DIRECTED_IMMEDIATE_CONTINUATION_IF_SESSION_A_WAS_NOT_YET_CLOSED"
+        or final_decision.get("next_session_rule")
+        != "SESSION_B_MAY_START_ONLY_IN_A_SEPARATE_RESTRICTED_CONTEXT"
+    ):
+        raise ValidationError("decision record lacks final Session A user acceptance")
     review_groups = decision_record.get("review_only_not_semantic", [])
     if {item.get("authority") for item in review_groups} != REVIEW_ONLY_AUTHORITY:
         raise ValidationError("decision record must enumerate all review-only authorities")
@@ -1523,7 +1548,8 @@ def main() -> int:
     print("  presentation artifacts: none; Blender screenshots remain policy-allowed")
     print("  factual receipt: corpus does not self-certify external GitHub CI")
     print("  user-approved LINEAR_REFLEX_MAX_SUBTURN_V1 = PI/3 = 60 degrees: OK")
-    print("  EC1 gate: CLOSED_PENDING_EXPLICIT_USER_ACCEPTANCE")
+    print("  Session A final user acceptance: RECORDED")
+    print("  EC1 gate: OPEN_FOR_SEPARATE_SESSION_B_ONLY")
     return 0
 
 

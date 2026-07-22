@@ -79,6 +79,11 @@ legacy modules.
 
 ## 4. Session A — EC0 Linear-Reflex corpus rebaseline
 
+Status: **PASSED / CLOSED**. The accepted v5 corpus uses
+`LINEAR_REFLEX_EQUAL_V1`, angle-driven `MIN_K_FOR_MAX_SUBTURN_V1`, and the
+user-selected exact default `LINEAR_REFLEX_MAX_SUBTURN_V1 = pi/3 = 60 degrees`.
+The accepted handoff opens Session B only in a fresh restricted context.
+
 ### Purpose
 
 Migrate the current EC0 corpus from `MITER/BEVEL/ROUND` core branching to the
@@ -98,8 +103,9 @@ AM11 `AngularEnvelopeSpec` / `LinearReflexProfile` model.
 
 - variant-specific tagged-union schema for
   `StripEnvelopeSpec | AngularEnvelopeSpec | JunctionEnvelopeSpec | CapEnvelopeSpec`;
-- explicit `AngularProfileId`, hidden-edge count, subdivision policy and hidden
-  support lineage;
+- one explicit `AngularProfileId`, angle-driven hidden-edge selection
+  certificate, oriented owner-sector, ordered supports, exact 60-degree
+  max-subturn default, subdivision policy and hidden support lineage;
 - removal of core join enums from the canonical request/plan model;
 - migrated C02/C03/C04/C13/P06/P07 and dependent matrices;
 - explicit support law for StripEnvelope and closure law for CapEnvelope;
@@ -119,8 +125,10 @@ Stop and report instead of inventing semantics if:
 
 ### Gate
 
-Validator green and explicit user acceptance of the migrated verbal/JSON
-semantics. EC1 stays closed before this gate.
+**PASSED.** Validator and external CI are green, and explicit user acceptance
+of the migrated verbal/JSON semantics is recorded as
+`SESSION_A_FINAL_ACCEPTANCE`. EC1 may start only as Session B in a new
+restricted context; continuing this Session A context is forbidden.
 
 ---
 

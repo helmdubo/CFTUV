@@ -21,9 +21,8 @@ Read in this order:
    `docs/envelope_kernel_pivot_instructions.md` — broader roadmap and AM7–AM10
    context.
 
-On conflict, AM11 wins. The current v3 corpus remains useful evidence for
-PatchDomain, ChainUse, request/domain identity, boundary-limited propagation,
-cross-Patch coordination and mixed-alpha behavior, but the old core
+On conflict, AM11 wins. Session A's accepted v5 corpus is the current semantic
+authority. The old v3 corpus remains audit evidence only; its core
 `MITER/BEVEL/ROUND` records are not accepted AngularEnvelope semantics.
 
 ## 2. North star
@@ -109,24 +108,28 @@ Different valid tessellations must have the same canonical semantic digest.
 
 ## 5. Current gate and next allowed task
 
-EC1 implementation is closed. The next allowed slice is **Session A — EC0
-Linear-Reflex corpus rebaseline**.
+Session A — EC0 Linear-Reflex corpus rebaseline is **accepted and closed**.
+The next allowed slice is **Session B — EC1 contracts and hermetic package**,
+started in a new restricted context.
 
-Session A may modify only EC0 prose, JSON, schema, matrices and validator. It
-must:
+The accepted Session A result:
 
-- replace core join enums with explicit angular profile references;
-- migrate C02/C03/C04/C13/P06/P07 and dependent matrices;
-- add variant-specific schema for all four EnvelopeSpec types;
-- encode hidden-edge count, subdivision policy and support lineage;
-- encode Strip support laws and Cap closure laws;
-- make ownership claims explicit enough to prove total/disjoint partition;
-- encode downstream-tessellation invariants;
-- keep EC1 closed until validator/CI is green and the user accepts the migrated
-  semantics.
+- replaced core join enums with explicit angular profile references;
+- migrated C02/C03/C04/C13/P06/P07 and dependent matrices;
+- added variant-specific schema for all four EnvelopeSpec types;
+- encoded angle-driven hidden-edge selection, subdivision and support lineage;
+- encoded Strip support laws and Cap closure laws;
+- made ownership claims explicit enough to prove total/disjoint partition;
+- encoded downstream-tessellation invariants;
+- uses `LINEAR_REFLEX_EQUAL_V1` with angle-driven
+  `MIN_K_FOR_MAX_SUBTURN_V1` and exact max-subturn `pi/3 = 60 degrees`;
+- passed local validator and external CI;
+- records `SESSION_A_FINAL_ACCEPTANCE`.
 
-No kernel evaluator, legacy geometry reuse or Blender integration belongs in
-Session A.
+Session B receives only the accepted v5 corpus/schema and the allowlisted
+surface/GeometryBatch boundary contracts. No geometry evaluator, Boolean union,
+ownership resolver, Blender adapter or native extension belongs in Session B.
+Do not continue this Session A context across the accepted-contract boundary.
 
 ## 6. Mandatory fresh-session boundaries
 
