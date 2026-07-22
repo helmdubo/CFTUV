@@ -12,14 +12,17 @@ from pathlib import Path
 SOURCE_COMMIT = "1fb0394a634c089ed590f544e4d524be28f52123"
 SOURCE_SCHEMA = "cftuv.envelope.ec0.corpus.v5"
 MANIFEST_NAME = "fixture_hash_manifest.json"
+HASH_LAW = "SHA256_UTF8_LF_NORMALIZED_V1"
+
+
+def _canonical_fixture_bytes(path: Path) -> bytes:
+    """Вернуть платформенно-независимые bytes принятого JSON corpus."""
+
+    return path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashlib.sha256(_canonical_fixture_bytes(path)).hexdigest()
 
 
 def _source_files(root: Path) -> tuple[Path, ...]:
@@ -36,6 +39,7 @@ def _manifest(root: Path) -> dict[str, object]:
         "schema": "cftuv.envelope.ec1.fixture_hash_manifest.v1",
         "source_commit": SOURCE_COMMIT,
         "source_schema": SOURCE_SCHEMA,
+        "hash_law": HASH_LAW,
         "files": files,
     }
 
@@ -47,7 +51,7 @@ def sync(source: Path, fixture_root: Path) -> None:
     for path in _source_files(source):
         destination = fixture_root / path.relative_to(source)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(path, destination)
+        destination.write_bytes(_canonical_fixture_bytes(path))
     manifest = _manifest(fixture_root)
     (fixture_root / MANIFEST_NAME).write_text(
         json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
@@ -64,6 +68,8 @@ def check(fixture_root: Path, source: Path | None) -> tuple[str, ...]:
     errors: list[str] = []
     if manifest.get("source_commit") != SOURCE_COMMIT:
         errors.append("fixture source commit mismatch")
+    if manifest.get("hash_law") != HASH_LAW:
+        errors.append("fixture hash law mismatch")
     expected_files = manifest.get("files")
     if not isinstance(expected_files, dict):
         return ("fixture manifest files must be an object",)
@@ -100,4 +106,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
