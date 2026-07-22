@@ -1366,7 +1366,9 @@ def main() -> int:
         != "EC0_SESSION_A_LINEAR_REFLEX_REBASELINE_V5_WITH_60_DEGREE_DEFAULT"
         or final_acceptance.get("evidence")
         != "USER_DIRECTED_IMMEDIATE_CONTINUATION_IF_SESSION_A_WAS_NOT_YET_CLOSED"
-        or final_acceptance.get("acceptance_commit") != "PENDING_COMMIT"
+        or not re.fullmatch(
+            r"[0-9a-f]{40}", final_acceptance.get("acceptance_commit", "")
+        )
         or final_acceptance.get("session_b_context_rule")
         != "SEPARATE_RESTRICTED_CONTEXT_REQUIRED"
     ):
@@ -1406,8 +1408,10 @@ def main() -> int:
         or not re.fullmatch(
             r"[0-9a-f]{40}", commit_receipt.get("selection_receipt_commit", "")
         )
+        or commit_receipt.get("session_a_closure_commit")
+        != final_acceptance.get("acceptance_commit")
         or commit_receipt.get("disposition")
-        != "USER_VALUE_SELECTED_PUBLISHED_EXTERNAL_CI_PASS"
+        != "SESSION_A_ACCEPTED_PUBLISHED_EXTERNAL_CI_PASS"
     ):
         raise ValidationError("Session A handoff lacks a factual replacement semantic commit SHA")
     if ci.get("status") == "PASS" and (

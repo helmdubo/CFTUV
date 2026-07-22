@@ -30,7 +30,7 @@
     "status": "USER_ACCEPTED",
     "accepted_contract": "EC0_SESSION_A_LINEAR_REFLEX_REBASELINE_V5_WITH_60_DEGREE_DEFAULT",
     "evidence": "USER_DIRECTED_IMMEDIATE_CONTINUATION_IF_SESSION_A_WAS_NOT_YET_CLOSED",
-    "acceptance_commit": "PENDING_COMMIT",
+    "acceptance_commit": "1fb0394a634c089ed590f544e4d524be28f52123",
     "session_b_context_rule": "SEPARATE_RESTRICTED_CONTEXT_REQUIRED"
   },
   "correction_items": {
@@ -66,12 +66,13 @@
     "receipt_commit": "7fbd32a4a990a89273ad8b8ddb7c66d03e05b473",
     "max_subturn_selection_commit": "10445ec8bcd51fc3ad9226e3ed823e769c76c14e",
     "selection_receipt_commit": "7b19ac6ded428e98a16d284da0d546d93a898188",
-    "disposition": "USER_VALUE_SELECTED_PUBLISHED_EXTERNAL_CI_PASS"
+    "session_a_closure_commit": "1fb0394a634c089ed590f544e4d524be28f52123",
+    "disposition": "SESSION_A_ACCEPTED_PUBLISHED_EXTERNAL_CI_PASS"
   },
   "tests": [
     {
       "command": "python tools/validate_envelope_ec0.py",
-      "result": "PASS_ON_60_DEGREE_SELECTION_COMMIT_10445EC",
+      "result": "PASS_ON_SESSION_A_CLOSURE_COMMIT_1FB0394",
       "case_count": 23,
       "main_case_count": 16,
       "pivot_case_count": 7,
@@ -95,10 +96,10 @@
     "required": true,
     "workflow": ".github/workflows/envelope-ec0-corpus.yml",
     "command_equivalence": "python tools/validate_envelope_ec0.py",
-    "tested_commit": "7b19ac6ded428e98a16d284da0d546d93a898188",
+    "tested_commit": "1fb0394a634c089ed590f544e4d524be28f52123",
     "status": "PASS",
-    "run_id": 29951420810,
-    "run_url": "https://github.com/helmdubo/CFTUV/actions/runs/29951420810",
+    "run_id": 29951958541,
+    "run_url": "https://github.com/helmdubo/CFTUV/actions/runs/29951958541",
     "observed_conclusion": "SUCCESS",
     "authority": "EXTERNAL_GITHUB_CHECK_NOT_STATIC_CORPUS_ASSERTION"
   },

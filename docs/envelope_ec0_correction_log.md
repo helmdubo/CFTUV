@@ -311,3 +311,8 @@ validation in place, this directive is recorded as
 No EC1 implementation is started here. The role/session manifest requires
 Session B to begin in a separate restricted context using only the accepted
 Session A artifacts.
+
+The acceptance closure was committed as
+`1fb0394a634c089ed590f544e4d524be28f52123` (`docs(ec0): close accepted
+Session A`). External GitHub Actions run `29951958541` tested that commit and
+concluded `SUCCESS`.
