@@ -266,8 +266,11 @@ The misleading commit was amended to factual semantic commit
 records this SHA; a commit cannot embed its own final SHA, so the receipt commit
 is identified by the enclosing Git history. At the time this receipt was
 written, the lease-protected push and external workflow were still pending.
-The external CI field stays `PENDING` until an actual GitHub workflow run
-exists; the corpus and local validator do not self-certify that run.
+The branch was then published by exact `force-with-lease` from old remote
+`522bd4cf` to receipt commit
+`7fbd32a4a990a89273ad8b8ddb7c66d03e05b473`. External GitHub Actions run
+`29949730053` tested that commit and concluded `SUCCESS`; this external record,
+not the corpus or local validator, is the CI authority.
 
 Current blockers:
 

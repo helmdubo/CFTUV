@@ -43,8 +43,8 @@
     "base": "95d57ee",
     "superseded_misleading_commit": "522bd4cfae8f5aaa7d5392e20ebe53101c2eef0c",
     "semantic_content_commit": "d5f3aae34f55f7cb1fd8a4017d1db8ea25d4d578",
-    "receipt_commit": "SELF_REFERENCE_NOT_EMBEDDED_SEE_GIT_HISTORY",
-    "disposition": "SEMANTIC_COMMIT_CREATED_PUSH_PENDING"
+    "receipt_commit": "7fbd32a4a990a89273ad8b8ddb7c66d03e05b473",
+    "disposition": "PUBLISHED_WITH_LEASE_PROTECTED_HISTORY_REWRITE"
   },
   "tests": [
     {
@@ -73,9 +73,11 @@
     "required": true,
     "workflow": ".github/workflows/envelope-ec0-corpus.yml",
     "command_equivalence": "python tools/validate_envelope_ec0.py",
-    "tested_commit": null,
-    "status": "PENDING",
-    "run_id": null,
+    "tested_commit": "7fbd32a4a990a89273ad8b8ddb7c66d03e05b473",
+    "status": "PASS",
+    "run_id": 29949730053,
+    "run_url": "https://github.com/helmdubo/CFTUV/actions/runs/29949730053",
+    "observed_conclusion": "SUCCESS",
     "authority": "EXTERNAL_GITHUB_CHECK_NOT_STATIC_CORPUS_ASSERTION"
   },
   "semantic_digest_tested": {

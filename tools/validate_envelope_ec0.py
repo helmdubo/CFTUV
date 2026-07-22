@@ -1354,10 +1354,19 @@ def main() -> int:
         not re.fullmatch(r"[0-9a-f]{40}", commit_receipt.get("semantic_content_commit", ""))
         or commit_receipt.get("semantic_content_commit")
         == commit_receipt.get("superseded_misleading_commit")
+        or not re.fullmatch(r"[0-9a-f]{40}", commit_receipt.get("receipt_commit", ""))
         or commit_receipt.get("disposition")
-        != "SEMANTIC_COMMIT_CREATED_PUSH_PENDING"
+        != "PUBLISHED_WITH_LEASE_PROTECTED_HISTORY_REWRITE"
     ):
         raise ValidationError("Session A handoff lacks a factual replacement semantic commit SHA")
+    if ci.get("status") == "PASS" and (
+        not re.fullmatch(r"[0-9a-f]{40}", ci.get("tested_commit", ""))
+        or not isinstance(ci.get("run_id"), int)
+        or ci.get("observed_conclusion") != "SUCCESS"
+        or ci.get("run_url")
+        != f"https://github.com/helmdubo/CFTUV/actions/runs/{ci.get('run_id')}"
+    ):
+        raise ValidationError("Session A handoff PASS lacks a factual external GitHub run receipt")
     global_contracts = manifest.get("global_semantic_contracts", [])
     global_ids = {item.get("id") for item in global_contracts}
     if len(global_ids) != len(global_contracts) or any(item.get("authority") not in CANONICAL_AUTHORITY for item in global_contracts):
