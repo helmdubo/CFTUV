@@ -23,7 +23,16 @@ approximate fallback.
 Session D-R1 hardening adds nominal interaction IDs, explicit front-reading
 and self-contact-pair compile declarations, fail-fast Cap reading selection,
 equivalent-locus provenance aggregation, and candidate-scoped unsupported
-Junction diagnostics. It does not open Session E.
+Junction diagnostics.
+
+Session D-R1 is accepted. The current gates are:
+
+- `current_gate = ACCEPTED`;
+- `session_v0 = OPEN` for the separate static Blender envelope debug bridge;
+- `session_e = NOT_OPEN`.
+
+This acceptance does not authorize ownership/UV work or production mesh decal
+materialization.
 
 ## Compile declarations for readings and self-contact
 
@@ -45,6 +54,10 @@ compiled reading records and requires an identical non-empty source lineage.
 Candidate generation consumes exactly that pair, suppresses the ordinary
 distinct-component interpretation for the declared pair, and never expands
 the declaration to every arrival model in an interaction component.
+
+The V0 Blender adapter must not infer self-contact pairs from proximity or from
+the presence of multiple readings. A real asset either exports no self-contact
+pair or uses an explicitly selected debug-fixture pair.
 
 ## Interaction components
 
@@ -212,6 +225,9 @@ corpus and contains exactly 23 executable cases. It covers:
 - reversed storage order;
 - rigid translation and uniform scale;
 - cross-Patch junction projections.
+
+Additional D-R1 cases are focused Python regression tests; they are not counted
+as canonical Session D JSON corpus cases.
 
 The repository workflow builds a wheel, tests it outside the checkout, copies
 the kernel into an empty repository, rebuilds and retests it there, and runs

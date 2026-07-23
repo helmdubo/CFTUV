@@ -1,6 +1,6 @@
 {
   "schema": "cftuv.envelope.ec2_5.session_d_handoff.v1",
-  "status": "CANDIDATE_READY_FOR_SESSION_D_R1_REVIEW",
+  "status": "SESSION_D_R1_ACCEPTED",
   "session": "D",
   "scope": "EC2.5_EXACT_RESOLVED_COVERAGE_INTERACTIONS",
   "branch": "codex/ec2_5-resolved-coverage-interactions",
@@ -54,9 +54,10 @@
   ],
   "output": "ResolvedCoverageResultV1",
   "review_context": {
-    "session_d_architecture": "ACCEPTED_BY_REVIEWER",
+    "session_d_architecture": "ACCEPTED",
     "prior_gate": "NEEDS_D_R1_HARDENING",
-    "current_gate": "AWAITING_D_R1_REVIEW",
+    "current_gate": "ACCEPTED",
+    "session_v0": "OPEN",
     "session_e": "NOT_OPEN"
   },
   "d_r1_hardening": [
@@ -120,16 +121,17 @@
     "worktree": "C:/tmp/CFTUV-ec2_5-resolved-coverage-interactions",
     "legacy_cftuv_source_present": false,
     "legacy_decal_geometry_read": false,
+    "session_v0_implementation_started": false,
     "session_e_opened": false
   },
   "approximation_used": false,
   "risks": [
-    "a host path that wants explicit self-contact must select a concrete compiled reading pair with one identical non-empty source lineage; the resolver does not guess a pair from all component models",
+    "the V0 Blender adapter must not infer self-contact from proximity or multiple readings; a real asset exports no pair or an explicit debug fixture selects one concrete compiled reading pair with one identical non-empty source lineage",
     "coordinate-free or named-unsupported Session C geometry does not receive invented reading declarations and therefore cannot enter the Session D geometry resolver",
     "Junction interaction remains unavailable until an exact Junction arrival law is separately accepted"
   ],
-  "special_opinion": "The reviewer should verify the explicit self-contact declaration boundary and equivalent-locus aggregation before accepting Session D-R1. Ownership work remains unauthorized.",
+  "special_opinion": "Session D-R1 was accepted by reviewer. Static Blender envelope debug is open in a separate V0 session; Session E ownership and UV remain unauthorized, and production mesh decal is not ready.",
   "next_session_allowlist": [
-    "Session D-R1 review and corrections only"
+    "SESSION_V0_BLENDER_ENVELOPE_DEBUG_BRIDGE"
   ]
 }
