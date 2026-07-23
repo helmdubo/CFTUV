@@ -1,46 +1,46 @@
 {
   "schema": "cftuv.envelope.ec2_5.session_d_handoff.v1",
-  "status": "CANDIDATE_READY_FOR_SESSION_D_REVIEW",
+  "status": "CANDIDATE_READY_FOR_SESSION_D_R1_REVIEW",
   "session": "D",
   "scope": "EC2.5_EXACT_RESOLVED_COVERAGE_INTERACTIONS",
   "branch": "codex/ec2_5-resolved-coverage-interactions",
   "accepted_session_c_r1_sha": "6c61ab311613cb7cf96e5c5098e857e78a98f0b8",
-  "implementation_sha": "3c72e358c91b30fb4bedd38d5865deac18d91d00",
-  "ci_tested_sha": "3c72e358c91b30fb4bedd38d5865deac18d91d00",
+  "implementation_sha": "bfe195b20b5c5c3b790e0c5ae4d6ac7880eda832",
+  "ci_tested_sha": "bfe195b20b5c5c3b790e0c5ae4d6ac7880eda832",
   "ci": {
     "workflow": "Envelope kernel contracts and reference evaluator",
-    "run_id": 30001926573,
-    "run_url": "https://github.com/helmdubo/CFTUV/actions/runs/30001926573",
+    "run_id": 30008327870,
+    "run_url": "https://github.com/helmdubo/CFTUV/actions/runs/30008327870",
     "conclusion": "success",
-    "started_at": "2026-07-23T11:07:17Z",
-    "completed_at": "2026-07-23T11:10:55Z",
+    "started_at": "2026-07-23T12:46:07Z",
+    "completed_at": "2026-07-23T12:49:50Z",
     "jobs": [
       {
         "name": "kernel-hermetic",
-        "job_id": 89188862043,
+        "job_id": 89209744380,
         "conclusion": "success",
-        "url": "https://github.com/helmdubo/CFTUV/actions/runs/30001926573/job/89188862043"
+        "url": "https://github.com/helmdubo/CFTUV/actions/runs/30008327870/job/89209744380"
       },
       {
         "name": "kernel-extraction-readiness",
-        "job_id": 89188862122,
+        "job_id": 89209744236,
         "conclusion": "success",
-        "url": "https://github.com/helmdubo/CFTUV/actions/runs/30001926573/job/89188862122"
+        "url": "https://github.com/helmdubo/CFTUV/actions/runs/30008327870/job/89209744236"
       }
     ]
   },
   "local_validation": {
     "source": {
-      "result": "162 passed",
-      "duration_seconds": 149.16
+      "result": "167 passed",
+      "duration_seconds": 149.42
     },
     "wheel_outside_checkout": {
-      "result": "162 passed",
-      "duration_seconds": 154.52
+      "result": "167 passed",
+      "duration_seconds": 148.85
     },
     "extracted_empty_repository": {
-      "result": "162 passed",
-      "duration_seconds": 148.26,
+      "result": "167 passed",
+      "duration_seconds": 136.62,
       "post_build_git_status": "clean"
     },
     "forbidden_import_scan": "OK",
@@ -53,6 +53,20 @@
     "RawCoverageResultV1"
   ],
   "output": "ResolvedCoverageResultV1",
+  "review_context": {
+    "session_d_architecture": "ACCEPTED_BY_REVIEWER",
+    "prior_gate": "NEEDS_D_R1_HARDENING",
+    "current_gate": "AWAITING_D_R1_REVIEW",
+    "session_e": "NOT_OPEN"
+  },
+  "d_r1_hardening": [
+    "FrontReadingDeclarationV1 binds FrontReadingId to one FrontComponentId, source support, physical interval, ChainUseId, OwnerSectorId, and arrival LawId",
+    "SelfContactPairDeclarationV1 admits exactly one explicit same-lineage reading pair through declare_reference_self_contacts and public resolve_coverage_interactions",
+    "Cap arrival requires exactly one matching incident source support; missing and ambiguous readings fail named without fallback",
+    "equivalent canonical equality lines aggregate proven Angular/Strip reading provenance or fail INTERACTION_EQUIVALENT_LOCUS_PROVENANCE_UNPROVEN",
+    "Session D public identities are nominal OpaqueId subclasses and cannot alias EnvelopeSpecId, EnvelopeInstanceId, FrontComponentId, or FrontReadingId",
+    "unsupported Junction arrival is candidate-scoped and is inert when no candidate requires the Junction reading"
+  ],
   "implemented": [
     "topology-only InteractionComponentV1 compilation",
     "exact Strip, Angular profile, and Cap front-arrival models",
@@ -62,7 +76,7 @@
     "explicit self-contact with two preserved front readings",
     "C13 third Strip versus exposed K0/K1/K2 Angular profile",
     "canonical ResolvedCoverageResultV1 semantic digest",
-    "named fail-closed multiway, coincident-law, missing-reading, and unsupported-Junction outcomes"
+    "named fail-closed multiway, coincident-law, missing-reading, ambiguous-Cap-reading, equivalent-locus-provenance, and unsupported-Junction outcomes"
   ],
   "semantic_invariants": [
     "one topological component remains the exact union of its Strip, Angular, Junction, and Cap envelopes",
@@ -107,5 +121,15 @@
     "legacy_cftuv_source_present": false,
     "legacy_decal_geometry_read": false,
     "session_e_opened": false
-  }
+  },
+  "approximation_used": false,
+  "risks": [
+    "a host path that wants explicit self-contact must select a concrete compiled reading pair with one identical non-empty source lineage; the resolver does not guess a pair from all component models",
+    "coordinate-free or named-unsupported Session C geometry does not receive invented reading declarations and therefore cannot enter the Session D geometry resolver",
+    "Junction interaction remains unavailable until an exact Junction arrival law is separately accepted"
+  ],
+  "special_opinion": "The reviewer should verify the explicit self-contact declaration boundary and equivalent-locus aggregation before accepting Session D-R1. Ownership work remains unauthorized.",
+  "next_session_allowlist": [
+    "Session D-R1 review and corrections only"
+  ]
 }
