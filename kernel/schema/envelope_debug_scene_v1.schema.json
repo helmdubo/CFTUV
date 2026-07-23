@@ -1,0 +1,779 @@
+{
+  "$defs": {
+    "DebugDiagnosticId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "DebugDiagnosticId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "DebugDiagnosticV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "DebugDiagnosticV1"
+        },
+        "diagnostic_id": {
+          "$ref": "#/$defs/DebugDiagnosticId"
+        },
+        "exact_anchor": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/DebugExactPoint2V1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "enum": [
+            "PATCH_DOMAIN_OUTER",
+            "PATCH_DOMAIN_HOLE",
+            "PHYSICAL_BARRIER",
+            "PHYSICAL_CHAIN",
+            "CHAIN_USE",
+            "SOURCE_SUPPORT",
+            "MOVING_FRONT",
+            "HIDDEN_SUPPORT",
+            "ENVELOPE_INSTANCE",
+            "RAW_COVERAGE",
+            "INTERACTION_COMPONENT",
+            "FRONT_READING",
+            "EQUALITY_LOCUS",
+            "RESOLVED_COVERAGE",
+            "RETAINED_REGION",
+            "REMOVED_REGION",
+            "EVENT_ANCHOR",
+            "DIAGNOSTIC",
+            "LABEL"
+          ],
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "patch_domain_id": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/PatchDomainId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "severity": {
+          "enum": [
+            "INFO",
+            "CAPACITY",
+            "UNSUPPORTED",
+            "ERROR"
+          ],
+          "type": "string"
+        },
+        "source_lineage_ids": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "stage": {
+          "enum": [
+            "ANALYSIS",
+            "COMPILE",
+            "ENVELOPE_INSTANCE",
+            "RAW_COVERAGE",
+            "INTERACTION",
+            "RESOLVED_COVERAGE",
+            "DIAGNOSTIC"
+          ],
+          "type": "string"
+        },
+        "style_key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "diagnostic_id",
+        "patch_domain_id",
+        "stage",
+        "kind",
+        "outcome",
+        "severity",
+        "message",
+        "exact_anchor",
+        "source_lineage_ids",
+        "style_key",
+        "label"
+      ],
+      "type": "object"
+    },
+    "DebugExactPoint2V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "DebugExactPoint2V1"
+        },
+        "x_expression": {
+          "type": "string"
+        },
+        "y_expression": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "x_expression",
+        "y_expression"
+      ],
+      "type": "object"
+    },
+    "DebugLabelV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "DebugLabelV1"
+        },
+        "exact_anchor": {
+          "$ref": "#/$defs/DebugExactPoint2V1"
+        },
+        "kind": {
+          "enum": [
+            "PATCH_DOMAIN_OUTER",
+            "PATCH_DOMAIN_HOLE",
+            "PHYSICAL_BARRIER",
+            "PHYSICAL_CHAIN",
+            "CHAIN_USE",
+            "SOURCE_SUPPORT",
+            "MOVING_FRONT",
+            "HIDDEN_SUPPORT",
+            "ENVELOPE_INSTANCE",
+            "RAW_COVERAGE",
+            "INTERACTION_COMPONENT",
+            "FRONT_READING",
+            "EQUALITY_LOCUS",
+            "RESOLVED_COVERAGE",
+            "RETAINED_REGION",
+            "REMOVED_REGION",
+            "EVENT_ANCHOR",
+            "DIAGNOSTIC",
+            "LABEL"
+          ],
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "semantic_id": {
+          "$ref": "#/$defs/DebugPrimitiveId"
+        },
+        "source_lineage_ids": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "stage": {
+          "enum": [
+            "ANALYSIS",
+            "COMPILE",
+            "ENVELOPE_INSTANCE",
+            "RAW_COVERAGE",
+            "INTERACTION",
+            "RESOLVED_COVERAGE",
+            "DIAGNOSTIC"
+          ],
+          "type": "string"
+        },
+        "style_key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "semantic_id",
+        "patch_domain_id",
+        "stage",
+        "kind",
+        "exact_anchor",
+        "source_lineage_ids",
+        "style_key",
+        "label"
+      ],
+      "type": "object"
+    },
+    "DebugLoopV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "DebugLoopV1"
+        },
+        "closed": {
+          "type": "boolean"
+        },
+        "exact_points": {
+          "items": {
+            "$ref": "#/$defs/DebugExactPoint2V1"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "PATCH_DOMAIN_OUTER",
+            "PATCH_DOMAIN_HOLE",
+            "PHYSICAL_BARRIER",
+            "PHYSICAL_CHAIN",
+            "CHAIN_USE",
+            "SOURCE_SUPPORT",
+            "MOVING_FRONT",
+            "HIDDEN_SUPPORT",
+            "ENVELOPE_INSTANCE",
+            "RAW_COVERAGE",
+            "INTERACTION_COMPONENT",
+            "FRONT_READING",
+            "EQUALITY_LOCUS",
+            "RESOLVED_COVERAGE",
+            "RETAINED_REGION",
+            "REMOVED_REGION",
+            "EVENT_ANCHOR",
+            "DIAGNOSTIC",
+            "LABEL"
+          ],
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "semantic_id": {
+          "$ref": "#/$defs/DebugPrimitiveId"
+        },
+        "source_lineage_ids": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "stage": {
+          "enum": [
+            "ANALYSIS",
+            "COMPILE",
+            "ENVELOPE_INSTANCE",
+            "RAW_COVERAGE",
+            "INTERACTION",
+            "RESOLVED_COVERAGE",
+            "DIAGNOSTIC"
+          ],
+          "type": "string"
+        },
+        "style_key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "semantic_id",
+        "patch_domain_id",
+        "stage",
+        "kind",
+        "exact_points",
+        "closed",
+        "source_lineage_ids",
+        "style_key",
+        "label"
+      ],
+      "type": "object"
+    },
+    "DebugPathV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "DebugPathV1"
+        },
+        "closed": {
+          "type": "boolean"
+        },
+        "exact_points": {
+          "items": {
+            "$ref": "#/$defs/DebugExactPoint2V1"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "PATCH_DOMAIN_OUTER",
+            "PATCH_DOMAIN_HOLE",
+            "PHYSICAL_BARRIER",
+            "PHYSICAL_CHAIN",
+            "CHAIN_USE",
+            "SOURCE_SUPPORT",
+            "MOVING_FRONT",
+            "HIDDEN_SUPPORT",
+            "ENVELOPE_INSTANCE",
+            "RAW_COVERAGE",
+            "INTERACTION_COMPONENT",
+            "FRONT_READING",
+            "EQUALITY_LOCUS",
+            "RESOLVED_COVERAGE",
+            "RETAINED_REGION",
+            "REMOVED_REGION",
+            "EVENT_ANCHOR",
+            "DIAGNOSTIC",
+            "LABEL"
+          ],
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "semantic_id": {
+          "$ref": "#/$defs/DebugPrimitiveId"
+        },
+        "source_lineage_ids": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "stage": {
+          "enum": [
+            "ANALYSIS",
+            "COMPILE",
+            "ENVELOPE_INSTANCE",
+            "RAW_COVERAGE",
+            "INTERACTION",
+            "RESOLVED_COVERAGE",
+            "DIAGNOSTIC"
+          ],
+          "type": "string"
+        },
+        "style_key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "semantic_id",
+        "patch_domain_id",
+        "stage",
+        "kind",
+        "exact_points",
+        "closed",
+        "source_lineage_ids",
+        "style_key",
+        "label"
+      ],
+      "type": "object"
+    },
+    "DebugPointV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "DebugPointV1"
+        },
+        "exact_point": {
+          "$ref": "#/$defs/DebugExactPoint2V1"
+        },
+        "kind": {
+          "enum": [
+            "PATCH_DOMAIN_OUTER",
+            "PATCH_DOMAIN_HOLE",
+            "PHYSICAL_BARRIER",
+            "PHYSICAL_CHAIN",
+            "CHAIN_USE",
+            "SOURCE_SUPPORT",
+            "MOVING_FRONT",
+            "HIDDEN_SUPPORT",
+            "ENVELOPE_INSTANCE",
+            "RAW_COVERAGE",
+            "INTERACTION_COMPONENT",
+            "FRONT_READING",
+            "EQUALITY_LOCUS",
+            "RESOLVED_COVERAGE",
+            "RETAINED_REGION",
+            "REMOVED_REGION",
+            "EVENT_ANCHOR",
+            "DIAGNOSTIC",
+            "LABEL"
+          ],
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "semantic_id": {
+          "$ref": "#/$defs/DebugPrimitiveId"
+        },
+        "source_lineage_ids": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "stage": {
+          "enum": [
+            "ANALYSIS",
+            "COMPILE",
+            "ENVELOPE_INSTANCE",
+            "RAW_COVERAGE",
+            "INTERACTION",
+            "RESOLVED_COVERAGE",
+            "DIAGNOSTIC"
+          ],
+          "type": "string"
+        },
+        "style_key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "semantic_id",
+        "patch_domain_id",
+        "stage",
+        "kind",
+        "exact_point",
+        "source_lineage_ids",
+        "style_key",
+        "label"
+      ],
+      "type": "object"
+    },
+    "DebugPrimitiveId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "DebugPrimitiveId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "DebugRegionV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "DebugRegionV1"
+        },
+        "closed": {
+          "type": "boolean"
+        },
+        "hole_exact_point_loops": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/DebugExactPoint2V1"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "PATCH_DOMAIN_OUTER",
+            "PATCH_DOMAIN_HOLE",
+            "PHYSICAL_BARRIER",
+            "PHYSICAL_CHAIN",
+            "CHAIN_USE",
+            "SOURCE_SUPPORT",
+            "MOVING_FRONT",
+            "HIDDEN_SUPPORT",
+            "ENVELOPE_INSTANCE",
+            "RAW_COVERAGE",
+            "INTERACTION_COMPONENT",
+            "FRONT_READING",
+            "EQUALITY_LOCUS",
+            "RESOLVED_COVERAGE",
+            "RETAINED_REGION",
+            "REMOVED_REGION",
+            "EVENT_ANCHOR",
+            "DIAGNOSTIC",
+            "LABEL"
+          ],
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "outer_exact_points": {
+          "items": {
+            "$ref": "#/$defs/DebugExactPoint2V1"
+          },
+          "type": "array"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "semantic_id": {
+          "$ref": "#/$defs/DebugPrimitiveId"
+        },
+        "source_lineage_ids": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "stage": {
+          "enum": [
+            "ANALYSIS",
+            "COMPILE",
+            "ENVELOPE_INSTANCE",
+            "RAW_COVERAGE",
+            "INTERACTION",
+            "RESOLVED_COVERAGE",
+            "DIAGNOSTIC"
+          ],
+          "type": "string"
+        },
+        "style_key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "semantic_id",
+        "patch_domain_id",
+        "stage",
+        "kind",
+        "outer_exact_points",
+        "hole_exact_point_loops",
+        "closed",
+        "source_lineage_ids",
+        "style_key",
+        "label"
+      ],
+      "type": "object"
+    },
+    "DecalRequestId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "DecalRequestId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "EnvelopeDebugSceneV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "EnvelopeDebugSceneV1"
+        },
+        "diagnostics": {
+          "items": {
+            "$ref": "#/$defs/DebugDiagnosticV1"
+          },
+          "type": "array"
+        },
+        "labels": {
+          "items": {
+            "$ref": "#/$defs/DebugLabelV1"
+          },
+          "type": "array"
+        },
+        "loops": {
+          "items": {
+            "$ref": "#/$defs/DebugLoopV1"
+          },
+          "type": "array"
+        },
+        "patch_domain_ids": {
+          "items": {
+            "$ref": "#/$defs/PatchDomainId"
+          },
+          "type": "array"
+        },
+        "paths": {
+          "items": {
+            "$ref": "#/$defs/DebugPathV1"
+          },
+          "type": "array"
+        },
+        "points": {
+          "items": {
+            "$ref": "#/$defs/DebugPointV1"
+          },
+          "type": "array"
+        },
+        "raw_coverage_digests": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "regions": {
+          "items": {
+            "$ref": "#/$defs/DebugRegionV1"
+          },
+          "type": "array"
+        },
+        "request_ids": {
+          "items": {
+            "$ref": "#/$defs/DecalRequestId"
+          },
+          "type": "array"
+        },
+        "requested_alpha": {
+          "$ref": "#/$defs/LocalLengthV1"
+        },
+        "resolved_coverage_digests": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "source_revision": {
+          "$ref": "#/$defs/SourceRevision"
+        }
+      },
+      "required": [
+        "$type",
+        "schema_version",
+        "source_revision",
+        "request_ids",
+        "patch_domain_ids",
+        "requested_alpha",
+        "points",
+        "paths",
+        "loops",
+        "regions",
+        "labels",
+        "diagnostics",
+        "raw_coverage_digests",
+        "resolved_coverage_digests"
+      ],
+      "type": "object"
+    },
+    "LineageId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "LineageId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "LocalLengthV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "LocalLengthV1"
+        },
+        "metric_space": {
+          "enum": [
+            "SOURCE_LOCAL_INTRINSIC"
+          ],
+          "type": "string"
+        },
+        "value": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "value",
+        "metric_space"
+      ],
+      "type": "object"
+    },
+    "PatchDomainId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PatchDomainId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SourceRevision": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceRevision"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "cftuv.envelope.debug_scene.v1",
+  "$ref": "#/$defs/EnvelopeDebugSceneV1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EnvelopeDebugSceneV1"
+}

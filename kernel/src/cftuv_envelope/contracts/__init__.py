@@ -2,6 +2,7 @@
 
 from .analysis import *  # noqa: F401,F403
 from .coverage import *  # noqa: F401,F403
+from .debug import *  # noqa: F401,F403
 from .envelopes import *  # noqa: F401,F403
 from .events import *  # noqa: F401,F403
 from .geometry_batch import *  # noqa: F401,F403

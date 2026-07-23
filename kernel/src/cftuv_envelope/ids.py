@@ -382,3 +382,13 @@ class EvaluationPlanId(OpaqueId):
 @dataclass(frozen=True, slots=True)
 class SemanticDigestValue(OpaqueId):
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class DebugPrimitiveId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class DebugDiagnosticId(OpaqueId):
+    pass

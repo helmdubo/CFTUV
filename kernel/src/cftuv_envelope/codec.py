@@ -11,7 +11,7 @@ from typing import Any, Generic, TypeVar, Union, get_args, get_origin, get_type_
 
 from . import ids, numeric
 from .contracts import analysis, coverage, envelopes, events, geometry_batch
-from .contracts import ownership, plan, request, seeds, surface, tessellation
+from .contracts import debug, ownership, plan, request, seeds, surface, tessellation
 from .ids import OpaqueId
 
 
@@ -36,6 +36,7 @@ _PUBLIC_MODULES = (
     seeds,
     surface,
     tessellation,
+    debug,
 )
 
 
@@ -264,3 +265,9 @@ class CompiledPlanCodecV1(ContractCodecV1[plan.CompiledPatchEvaluationPlanV1]):
 
 class GeometryBatchCodecV1(ContractCodecV1[geometry_batch.GeometryBatchV1]):
     root_type = geometry_batch.GeometryBatchV1
+
+
+class EnvelopeDebugSceneCodecV1(
+    ContractCodecV1[debug.EnvelopeDebugSceneV1]
+):
+    root_type = debug.EnvelopeDebugSceneV1

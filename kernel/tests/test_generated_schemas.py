@@ -7,6 +7,7 @@ from cftuv_envelope import (
     AnalysisSnapshotV1,
     CompiledPatchEvaluationPlanV1,
     DecalRequestV1,
+    EnvelopeDebugSceneV1,
     GeometryBatchV1,
     json_schema_for,
 )
@@ -32,6 +33,10 @@ def test_checked_in_schemas_are_generated_from_public_types():
         "geometry_batch_v1.schema.json": (
             GeometryBatchV1,
             "cftuv.envelope.geometry_batch.v1",
+        ),
+        "envelope_debug_scene_v1.schema.json": (
+            EnvelopeDebugSceneV1,
+            "cftuv.envelope.debug_scene.v1",
         ),
     }
     for filename, (record_type, schema_id) in expected.items():

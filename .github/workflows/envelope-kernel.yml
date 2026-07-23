@@ -4,10 +4,14 @@ on:
   push:
     paths:
       - "kernel/**"
+      - "cftuv/envelope_host_adapter.py"
+      - "tests/test_envelope_host_adapter.py"
       - ".github/workflows/envelope-kernel.yml"
   pull_request:
     paths:
       - "kernel/**"
+      - "cftuv/envelope_host_adapter.py"
+      - "tests/test_envelope_host_adapter.py"
       - ".github/workflows/envelope-kernel.yml"
 
 jobs:
@@ -74,3 +78,55 @@ jobs:
           env -u PYTHONPATH "$VENV/bin/python" -I tools/check_forbidden_imports.py src/cftuv_envelope
           env -u PYTHONPATH "$VENV/bin/python" -I tools/sync_session_a_fixtures.py --check --fixture-root fixtures/session_a_v5
           test -z "$(git status --porcelain)"
+
+  blender-free-host-bridge-v0a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /kernel/
+            /cftuv/__init__.py
+            /cftuv/envelope_host_adapter.py
+            /cftuv/model.py
+            /cftuv/surface_ir.py
+            /tests/conftest.py
+            /tests/test_envelope_host_adapter.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install exact host-test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check pytest sympy==1.14.0
+      - name: Test AnalysisBundle to DebugScene bridge
+        env:
+          PYTHONPATH: kernel/src
+        run: |
+          python -m pytest -q tests/test_envelope_host_adapter.py
+      - name: Prove adapter does not import legacy decal geometry
+        shell: bash
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          path = Path("cftuv/envelope_host_adapter.py")
+          tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+          imports = set()
+          for node in ast.walk(tree):
+              if isinstance(node, ast.Import):
+                  imports.update(alias.name for alias in node.names)
+              elif isinstance(node, ast.ImportFrom):
+                  imports.add(node.module or "")
+          forbidden = {
+              "cftuv.decal_voronoi",
+              "cftuv.decals",
+              "decal_voronoi",
+              "decals",
+          }
+          found = sorted(imports & forbidden)
+          if found:
+              raise SystemExit(f"forbidden host-adapter imports: {found}")
+          print("host adapter legacy-import scan: OK")
+          PY

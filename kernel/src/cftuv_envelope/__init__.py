@@ -16,9 +16,26 @@ from .codec import (
     CompiledPlanCodecV1,
     ContractCodecError,
     DecalRequestCodecV1,
+    EnvelopeDebugSceneCodecV1,
     GeometryBatchCodecV1,
     canonical_json_bytes,
 )
+from .contracts import debug as _debug
+from .contracts.debug import (
+    ENVELOPE_DEBUG_SCENE_SCHEMA_V1,
+    DebugDiagnosticSeverity,
+    DebugDiagnosticV1,
+    DebugExactPoint2V1,
+    DebugLabelV1,
+    DebugLoopV1,
+    DebugPathV1,
+    DebugPointV1,
+    DebugPrimitiveKind,
+    DebugRegionV1,
+    EnvelopeDebugSceneV1,
+    EnvelopeDebugStage,
+)
+from .debug_scene import build_envelope_debug_scene, validate_envelope_debug_scene
 from .contracts import analysis as _analysis
 from .contracts import coverage as _coverage
 from .contracts import envelopes as _envelopes
@@ -144,6 +161,7 @@ _PUBLIC_VALUE_MODULES = (
     _seeds,
     _surface,
     _tessellation,
+    _debug,
 )
 
 __all__ = (
@@ -153,6 +171,7 @@ __all__ = (
     "ContractCodecError",
     "DecalRequestCodecV1",
     "GeometryBatchCodecV1",
+    "EnvelopeDebugSceneCodecV1",
     "canonical_json_bytes",
     "SnapshotDigest",
     "SemanticPlanDigest",
@@ -243,6 +262,20 @@ __all__ = (
     "validate_geometry_batch",
     "validate_cross_contract_references",
     "validate_snapshot_request_references",
+    "ENVELOPE_DEBUG_SCENE_SCHEMA_V1",
+    "EnvelopeDebugStage",
+    "DebugPrimitiveKind",
+    "DebugDiagnosticSeverity",
+    "DebugExactPoint2V1",
+    "DebugPointV1",
+    "DebugPathV1",
+    "DebugLoopV1",
+    "DebugRegionV1",
+    "DebugLabelV1",
+    "DebugDiagnosticV1",
+    "EnvelopeDebugSceneV1",
+    "build_envelope_debug_scene",
+    "validate_envelope_debug_scene",
     "OpaqueId",
     "SourceRevision",
     "PatchId",
@@ -317,6 +350,8 @@ __all__ = (
     "SymbolicScalarId",
     "EvaluationPlanId",
     "SemanticDigestValue",
+    "DebugPrimitiveId",
+    "DebugDiagnosticId",
     "MetricSpace",
     "ExactAngleSymbol",
     "SurfaceCoordinateUnavailableReason",
@@ -550,6 +585,7 @@ for _module_name in (
     "version",
     "reference",
     "interactions",
+    "debug_scene",
 ):
     globals().pop(_module_name, None)
 
