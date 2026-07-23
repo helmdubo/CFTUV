@@ -1,0 +1,235 @@
+{
+  "schema": "cftuv.envelope.session_c.planar_fixture_set.v1",
+  "cases": [
+    {
+      "id": "SC-P01-STRAIGHT-STRIP",
+      "analysis_snapshot": {"builder": "straight_snapshot", "coordinates": [[0,0],[10,0],[10,10],[0,10]], "sources": [[[0,0],[10,0]]]},
+      "decal_request": {"alpha": "2", "selected_sources": ["source"]},
+      "expected_profile_k": null,
+      "expected_raw_topology": {"regions": 1, "holes": 0, "area": "20"},
+      "expected_silhouette_lineage": "TOTAL_ENVELOPE_INSTANCE_PHYSICAL_EDGE_CHAIN_USE_DOMAIN",
+      "expected_contributor_count": 1,
+      "expected_named_outcomes": []
+    },
+    {
+      "id": "SC-P02-PHYSICAL-CAPS",
+      "analysis_snapshot": {"builder": "straight_snapshot", "coordinates": [[0,0],[10,0],[10,10],[0,10]], "physical_endpoints": [[0,0],[10,0]]},
+      "decal_request": {"alpha": "2", "selected_sources": ["source"]},
+      "expected_profile_k": null,
+      "expected_raw_topology": {"regions": 1, "holes": 0, "cap_specs": 2},
+      "expected_silhouette_lineage": "PHYSICAL_TERMINAL_ONLY",
+      "expected_contributor_count": 1,
+      "expected_named_outcomes": []
+    },
+    {
+      "id": "SC-P03-ANGULAR-K0",
+      "analysis_snapshot": {"builder": "angular_snapshot", "anchor": [0,0], "incoming_normal": [1,0], "outgoing_normal": ["3/5","-4/5"]},
+      "decal_request": {"alpha": "1", "max_subturn": "PI_OVER_3"},
+      "expected_profile_k": 0,
+      "expected_raw_topology": {"regions": 1, "holes": 0, "local_profile_segments": 2},
+      "expected_silhouette_lineage": "PROFILE_SUPPORT_HISTORY",
+      "expected_contributor_count": 3,
+      "expected_named_outcomes": []
+    },
+    {
+      "id": "SC-P04-ANGULAR-K1",
+      "analysis_snapshot": {"builder": "angular_snapshot", "anchor": [0,0], "incoming_normal": [1,0], "outgoing_normal": ["-7/25","-24/25"]},
+      "decal_request": {"alpha": "1", "max_subturn": "PI_OVER_3"},
+      "expected_profile_k": 1,
+      "expected_raw_topology": {"regions": 1, "holes": 0, "local_profile_segments": 3},
+      "expected_silhouette_lineage": "PROFILE_SUPPORT_HISTORY",
+      "expected_contributor_count": 3,
+      "expected_named_outcomes": []
+    },
+    {
+      "id": "SC-P05-ANGULAR-K2",
+      "analysis_snapshot": {"builder": "angular_snapshot", "anchor": [0,0], "incoming_normal": [1,0], "outgoing_normal": ["-117/125","-44/125"]},
+      "decal_request": {"alpha": "1", "max_subturn": "PI_OVER_3"},
+      "expected_profile_k": 2,
+      "expected_raw_topology": {"regions": 1, "holes": 0, "local_profile_segments": 4},
+      "expected_silhouette_lineage": "PROFILE_SUPPORT_HISTORY",
+      "expected_contributor_count": 3,
+      "expected_named_outcomes": []
+    },
+    {
+      "id": "SC-P06-ANGULAR-INTERNALIZED",
+      "analysis_snapshot": {"builder": "arrangement_internalization_fixture", "outer": [[0,0],[6,0],[6,6],[0,6]], "angular": [[2,2],[4,2],[3,4]]},
+      "decal_request": {"alpha": "1", "selected_sources": ["covering-strip","angular"]},
+      "expected_profile_k": 0,
+      "expected_raw_topology": {"regions": 1, "holes": 0, "angular_exposed_edges": 0},
+      "expected_silhouette_lineage": "INTERNAL_CONTRIBUTOR_RETAINED_ON_REGION",
+      "expected_contributor_count": 2,
+      "expected_named_outcomes": []
+    },
+    {
+      "id": "SC-P07-DATA-CHAIN-SPLIT-MERGE",
+      "analysis_snapshot": {"builder": "straight_snapshot", "coordinates": [[0,0],[4,0],[6,0],[10,0]], "data_record_variants": [1,3]},
+      "decal_request": {"alpha": "2", "selected_sources": ["source"]},
+      "expected_profile_k": null,
+      "expected_raw_topology": {"regions": 1, "holes": 0, "semantic_digest_invariant": true},
+      "expected_silhouette_lineage": "PHYSICAL_ROUTE_NOT_DATA_RECORD",
+      "expected_contributor_count": 1,
+      "expected_named_outcomes": []
+    },
+    {
+      "id": "SC-P08-ENDPOINT-BOUNDARY-SLIDE",
+      "analysis_snapshot": {"builder": "triangle_endpoint_contact", "coordinates": [[-1,0],[1,0],[0,1]]},
+      "decal_request": {"alpha": "1", "selected_sources": ["base"]},
+      "expected_profile_k": null,
+      "expected_raw_topology": {"regions": 1, "holes": 0, "simultaneous_contacts": 2},
+      "expected_silhouette_lineage": "ENDPOINT_SLIDE_SAME_BOUNDARY_COMPONENT",
+      "expected_contributor_count": 1,
+      "expected_named_outcomes": []
+    },
+    {
+      "id": "SC-P09-HOLE-INTERIOR-SPLIT",
+      "analysis_snapshot": {"builder": "hole_ring_snapshot", "outer": [[0,0],[10,0],[10,10],[0,10]], "hole": [[4,3],[4,5],[6,5],[6,3]]},
+      "decal_request": {"alpha": "4", "selected_sources": ["bottom","top"]},
+      "expected_profile_k": null,
+      "expected_raw_topology": {"regions": 2, "holes": 0, "bottom_effective_alpha": "3", "top_effective_alpha": "4"},
+      "expected_silhouette_lineage": "EXACT_EVENT_ANCHOR_AND_HOLE_EDGE",
+      "expected_contributor_count": 2,
+      "expected_named_outcomes": ["BARRIER_SPLIT_REQUIRED"]
+    },
+    {
+      "id": "SC-P10-CONCAVE-OUTER-SPLIT",
+      "analysis_snapshot": {"builder": "concave_outer_snapshot", "coordinates": [[0,0],[10,0],[10,10],[6,10],[6,3],[4,3],[4,10],[0,10]]},
+      "decal_request": {"alpha": "4", "selected_sources": ["source"]},
+      "expected_profile_k": null,
+      "expected_raw_topology": {"regions": 1, "holes": 0, "effective_alpha": "3"},
+      "expected_silhouette_lineage": "EXACT_CONCAVE_EVENT_ANCHOR",
+      "expected_contributor_count": 1,
+      "expected_named_outcomes": ["BARRIER_SPLIT_REQUIRED"]
+    },
+    {
+      "id": "SC-P11-MULTIPLE-PCHAINS-ONE-DOMAIN",
+      "analysis_snapshot": {"builder": "overlap_sources_snapshot", "coordinates": [[0,0],[10,0],[10,10],[0,10]], "source_count": 2},
+      "decal_request": {"alpha": "2", "selected_sources": ["source-a","source-b"]},
+      "expected_profile_k": null,
+      "expected_raw_topology": {"regions": 1, "holes": 0, "single_cover": true},
+      "expected_silhouette_lineage": "BOTH_SOURCE_CONTRIBUTORS",
+      "expected_contributor_count": 2,
+      "expected_named_outcomes": []
+    },
+    {
+      "id": "SC-P12-SEAM-SELF-TWO-USES",
+      "analysis_snapshot": {"builder": "seam_self_snapshot", "seam": [[5,0],[5,10]], "domains": 1, "uses": 2},
+      "decal_request": {"alpha": "1", "selected_sources": ["use-a","use-b"]},
+      "expected_profile_k": null,
+      "expected_raw_topology": {"regions": 1, "holes": 0, "area": "20"},
+      "expected_silhouette_lineage": "TWO_DISTINCT_CHAIN_USES_ONE_PHYSICAL_CHAIN",
+      "expected_contributor_count": 2,
+      "expected_named_outcomes": []
+    },
+    {
+      "id": "SC-P13-PHYSICAL-SEAM-A-B",
+      "analysis_snapshot": {"builder": "physical_seam_snapshot", "seam": [[5,0],[5,10]], "domains": 2, "uses": 2},
+      "decal_request": {"alpha": "1", "selected_sources": ["use-a","use-b"]},
+      "expected_profile_k": null,
+      "expected_raw_topology": {"patch_plans": 2, "regions_per_plan": 1, "holes": 0, "cross_patch_collision": false},
+      "expected_silhouette_lineage": "SHARED_PHYSICAL_EDGE_DISTINCT_DOMAIN_USE",
+      "expected_contributor_count": 1,
+      "expected_named_outcomes": []
+    },
+    {
+      "id": "SC-P14-T-JUNCTION",
+      "analysis_snapshot": {"builder": "junction_snapshot", "kind": "T", "anchor": [0,0], "arms": [[0,-5],[5,0],[0,5]]},
+      "decal_request": {"alpha": "1", "selected_sources": ["arm-0","arm-1","arm-2"]},
+      "expected_profile_k": null,
+      "expected_raw_topology": {"regions": 1, "holes": 0, "route_pairs": 1},
+      "expected_silhouette_lineage": "DECLARED_T_ROUTE_TOPOLOGY",
+      "expected_contributor_count": 4,
+      "expected_named_outcomes": []
+    },
+    {
+      "id": "SC-P15-X-JUNCTION",
+      "analysis_snapshot": {"builder": "junction_snapshot", "kind": "X", "anchor": [0,0], "arms": [[0,-5],[5,0],[0,5],[-5,0]]},
+      "decal_request": {"alpha": "1", "selected_sources": ["arm-0","arm-1","arm-2","arm-3"]},
+      "expected_profile_k": null,
+      "expected_raw_topology": {"regions": 1, "holes": 0, "route_pairs": 2},
+      "expected_silhouette_lineage": "DECLARED_X_ROUTE_PAIRS",
+      "expected_contributor_count": 5,
+      "expected_named_outcomes": []
+    },
+    {
+      "id": "SC-P16-Y-JUNCTION",
+      "analysis_snapshot": {"builder": "junction_snapshot", "kind": "Y", "anchor": [0,0], "arms": [[0,-5],[5,0],[0,5]]},
+      "decal_request": {"alpha": "1", "selected_sources": ["trunk","branch-a","branch-b"]},
+      "expected_profile_k": null,
+      "expected_raw_topology": {"regions": 1, "holes": 0, "route_pairs": 2},
+      "expected_silhouette_lineage": "DECLARED_Y_UPSTREAM_DOWNSTREAM",
+      "expected_contributor_count": 4,
+      "expected_named_outcomes": []
+    },
+    {
+      "id": "SC-P17-CROSS-PATCH-JUNCTION",
+      "analysis_snapshot": {"builder": "physical_seam_snapshot", "cross_patch_junction": true, "anchor": [5,10], "domains": 2},
+      "decal_request": {"alpha": "1", "selected_sources": ["use-a","use-b"]},
+      "expected_profile_k": null,
+      "expected_raw_topology": {"patch_plans": 2, "holes": 0, "shared_anchor_count": 1, "projection_count": 2},
+      "expected_silhouette_lineage": "SHARED_ANCHOR_DISTINCT_PATCH_PROJECTIONS",
+      "expected_contributor_count": 2,
+      "expected_named_outcomes": []
+    },
+    {
+      "id": "SC-P18-CLOSED-CHAIN",
+      "analysis_snapshot": {"builder": "closed_hole_chain_snapshot", "closed_route": [[4,3],[4,5],[6,5],[6,3]]},
+      "decal_request": {"alpha": "1", "selected_sources": ["closed-source"]},
+      "expected_profile_k": null,
+      "expected_raw_topology": {"regions": null, "holes": null, "cap_specs": 0, "requires_declared_segment_corner_relations": true},
+      "expected_silhouette_lineage": "NO_SYNTHETIC_DATA_CAP",
+      "expected_contributor_count": 1,
+      "expected_named_outcomes": ["PLANAR_CHAIN_SUPPORT_NOT_LINEAR"]
+    },
+    {
+      "id": "SC-P19-VERY-SHORT-SOURCE",
+      "analysis_snapshot": {"builder": "straight_snapshot", "coordinates": [[0,0],["1/1000",0],[1,0],[1,1],[0,1]], "source": [[0,0],["1/1000",0]]},
+      "decal_request": {"alpha": "1/2", "selected_sources": ["short"]},
+      "expected_profile_k": null,
+      "expected_raw_topology": {"regions": 1, "holes": 0, "positive_exact_area": true},
+      "expected_silhouette_lineage": "NO_LENGTH_TOLERANCE_COLLAPSE",
+      "expected_contributor_count": 1,
+      "expected_named_outcomes": []
+    },
+    {
+      "id": "SC-P20-SIMULTANEOUS-EXACT-CONTACTS",
+      "analysis_snapshot": {"builder": "triangle_endpoint_contact", "coordinates": [[-1,0],[1,0],[0,1]]},
+      "decal_request": {"alpha": "1", "selected_sources": ["base"]},
+      "expected_profile_k": null,
+      "expected_raw_topology": {"regions": 1, "holes": 0, "same_alpha_event_count": 2},
+      "expected_silhouette_lineage": "ATOMIC_SAME_ALPHA_CONSTRUCTIONS",
+      "expected_contributor_count": 1,
+      "expected_named_outcomes": []
+    },
+    {
+      "id": "SC-P21-RETRIANGULATED-SURFACE",
+      "analysis_snapshot": {"builder": "straight_snapshot", "coordinates": [[0,0],[10,0],[10,10],[0,10]], "triangulations": ["DIAGONAL_02","DIAGONAL_13"]},
+      "decal_request": {"alpha": "2", "selected_sources": ["source"]},
+      "expected_profile_k": null,
+      "expected_raw_topology": {"regions": 1, "holes": 0, "semantic_digest_invariant": true},
+      "expected_silhouette_lineage": "SOURCE_FACE_NOT_TRIANGULATION",
+      "expected_contributor_count": 1,
+      "expected_named_outcomes": []
+    },
+    {
+      "id": "SC-P22-UNIFORM-SCALE-TRANSLATION",
+      "analysis_snapshot": {"builder": "straight_snapshot", "base_coordinates": [[0,0],[10,0],[10,10],[0,10]], "transform": {"scale": 3, "translation": [7,-11]}},
+      "decal_request": {"base_alpha": "2", "transformed_alpha": "6", "selected_sources": ["source"]},
+      "expected_profile_k": null,
+      "expected_raw_topology": {"regions": 1, "holes": 0, "area_scale": 9},
+      "expected_silhouette_lineage": "COHERENT_TRANSFORM",
+      "expected_contributor_count": 1,
+      "expected_named_outcomes": []
+    },
+    {
+      "id": "SC-P23-REVERSED-STORAGE-SEMANTIC-ORIENTATION",
+      "analysis_snapshot": {"builder": "straight_snapshot", "coordinates": [[0,0],[10,0],[10,10],[0,10]], "physical_storage_variants": ["FORWARD_A","REVERSED_B"]},
+      "decal_request": {"alpha": "2", "selected_sources": ["source"]},
+      "expected_profile_k": null,
+      "expected_raw_topology": {"regions": 1, "holes": 0, "semantic_digest_invariant": true},
+      "expected_silhouette_lineage": "SEMANTIC_DIRECTION_NOT_STORAGE_ORDER",
+      "expected_contributor_count": 1,
+      "expected_named_outcomes": []
+    }
+  ]
+}

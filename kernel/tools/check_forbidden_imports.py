@@ -9,7 +9,6 @@ from pathlib import Path
 
 FORBIDDEN_ROOTS = {"bpy", "mathutils", "cftuv"}
 FORBIDDEN_MODULE_FILES = {
-    "arrangement.py",
     "blender_adapter.py",
     "boolean.py",
     "evaluator.py",

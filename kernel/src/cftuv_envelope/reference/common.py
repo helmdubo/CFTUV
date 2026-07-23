@@ -1,0 +1,371 @@
+"""Shared exact geometry extraction for EC2 Envelope variants."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from hashlib import sha256
+
+import sympy as sp
+
+from ..contracts.analysis import (
+    AnalysisSnapshotV1,
+    CertifiedPlanarSupportDirectionV1,
+    ChainUseOrientation,
+    ChainUseV1,
+    OrientedOwnerSectorV1,
+    PlanarPatchFrameV1,
+)
+from ..ids import ChainUseId, PhysicalEdgeId, SourceVertexId
+from .contracts import ReferenceEnvelopeCompilationV1, ReferenceOutcome
+from .planar_types import (
+    BoundedSupportSegment,
+    ConstructionCertificate,
+    ConstructionKind,
+    ExactPlanarPoint,
+    ExactPlanarVector,
+    PlanarLoop,
+    PlanarRegion,
+    cross,
+    dot,
+    exact_sign,
+    left_normal,
+    point_add,
+    point_sub,
+    polygon_signed_area,
+    right_normal,
+    squared_length,
+    unit,
+    vector_scale,
+)
+from .provenance import ReferenceProvenanceV1, merge_provenance
+
+
+class ReferenceGeometryError(ValueError):
+    def __init__(self, outcome: ReferenceOutcome, message: str):
+        super().__init__(message)
+        self.outcome = outcome
+
+
+def stable_id(kind: str, *parts: object) -> str:
+    payload = "\x1f".join((kind, *(str(part) for part in parts))).encode("utf-8")
+    return f"{kind}:{sha256(payload).hexdigest()[:24]}"
+
+
+@dataclass(frozen=True, slots=True)
+class SourceSupportSegment:
+    chain_use_id: ChainUseId
+    physical_edge_id: PhysicalEdgeId
+    source_vertex_start_id: SourceVertexId
+    source_vertex_end_id: SourceVertexId
+    start: ExactPlanarPoint
+    end: ExactPlanarPoint
+    tangent: ExactPlanarVector
+    owner_normal: ExactPlanarVector
+    support_id: str
+    front_component_id: str
+    provenance: ReferenceProvenanceV1
+
+
+@dataclass(frozen=True, slots=True)
+class GeometryContext:
+    compilation: ReferenceEnvelopeCompilationV1
+    snapshot: AnalysisSnapshotV1
+    frame: PlanarPatchFrameV1
+    points_by_id: dict[SourceVertexId, ExactPlanarPoint]
+    uses_by_id: dict
+    chains_by_id: dict
+    source_edges_by_id: dict
+    source_faces_by_id: dict
+    provenance_by_spec_id: dict[str, ReferenceProvenanceV1]
+
+    @classmethod
+    def build(
+        cls, compilation: ReferenceEnvelopeCompilationV1, frame: PlanarPatchFrameV1
+    ) -> GeometryContext:
+        snapshot = compilation.analysis_snapshot
+        points = {
+            item.source_vertex_id: ExactPlanarPoint.from_values(
+                item.domain_coordinate.x, item.domain_coordinate.y
+            )
+            for item in frame.source_vertex_coordinates
+        }
+        return cls(
+            compilation=compilation,
+            snapshot=snapshot,
+            frame=frame,
+            points_by_id=points,
+            uses_by_id={item.chain_use_id: item for item in snapshot.chain_uses},
+            chains_by_id={item.physical_chain_id: item for item in snapshot.physical_chains},
+            source_edges_by_id={item.edge_id: item for item in snapshot.surface_ir.source_edges},
+            source_faces_by_id={item.face_id: item for item in snapshot.surface_ir.source_faces},
+            provenance_by_spec_id={
+                item.envelope_spec_id: item.provenance
+                for item in compilation.source_provenance
+            },
+        )
+
+    def directed_chain_vertices(self, chain_use: ChainUseV1) -> tuple[SourceVertexId, ...]:
+        chain = self.chains_by_id[chain_use.physical_chain_id]
+        vertices = chain.ordered_source_vertex_ids
+        if chain_use.orientation is ChainUseOrientation.B_START_TO_END:
+            vertices = tuple(reversed(vertices))
+        return vertices
+
+    def _edge_for_pair(
+        self, chain, start: SourceVertexId, end: SourceVertexId
+    ) -> PhysicalEdgeId:
+        allowed = set(chain.ordered_physical_edge_ids)
+        matches = [
+            edge.edge_id
+            for edge in self.snapshot.surface_ir.source_edges
+            if edge.edge_id in allowed
+            and {edge.vertex_a_id, edge.vertex_b_id} == {start, end}
+        ]
+        if len(matches) != 1:
+            raise ReferenceGeometryError(
+                ReferenceOutcome.PHYSICAL_EDGE_PROVENANCE_INCOMPLETE,
+                f"physical chain edge provenance is not total for {start}->{end}",
+            )
+        return matches[0]
+
+    def _analysis_direction(
+        self, chain_use_id: ChainUseId, source_vertex_id: SourceVertexId | None = None
+    ) -> ExactPlanarVector | None:
+        candidates = []
+        for sector in self.snapshot.angular_owner_sectors:
+            for reference in (sector.incoming_support_ref, sector.outgoing_support_ref):
+                if reference.chain_use_id != chain_use_id:
+                    continue
+                payload = reference.direction_payload
+                if isinstance(payload, CertifiedPlanarSupportDirectionV1):
+                    candidates.append(
+                        ExactPlanarVector.from_values(
+                            payload.direction_in_domain.x,
+                            payload.direction_in_domain.y,
+                        )
+                    )
+        if not candidates:
+            return None
+        first = unit(candidates[0])
+        for candidate in candidates[1:]:
+            normalized = unit(candidate)
+            if exact_sign(cross(first, normalized)) != 0 or exact_sign(dot(first, normalized)) <= 0:
+                raise ReferenceGeometryError(
+                    ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
+                    f"conflicting certified support directions for {chain_use_id}",
+                )
+        return first
+
+    def _face_side_normal(
+        self,
+        chain_use: ChainUseV1,
+        edge_id: PhysicalEdgeId,
+        start: ExactPlanarPoint,
+        end: ExactPlanarPoint,
+        tangent: ExactPlanarVector,
+    ) -> ExactPlanarVector | None:
+        owner_patch = chain_use.owner_patch_id
+        adjacent_faces = [
+            face
+            for face in self.snapshot.surface_ir.source_faces
+            if face.patch_id == owner_patch and edge_id in face.edge_cycle
+        ]
+        side_signs = set()
+        for face in adjacent_faces:
+            other_points = [
+                self.points_by_id[item]
+                for item in face.vertex_cycle
+                if item in self.points_by_id
+                and not (
+                    self.points_by_id[item] == start or self.points_by_id[item] == end
+                )
+            ]
+            for point in other_points:
+                sign = exact_sign(cross(tangent, point_sub(point, start)))
+                if sign:
+                    side_signs.add(sign)
+        if len(side_signs) == 1:
+            return left_normal(tangent) if next(iter(side_signs)) > 0 else right_normal(tangent)
+        if chain_use.orientation in (
+            ChainUseOrientation.A_START_TO_END,
+            ChainUseOrientation.B_START_TO_END,
+        ):
+            # B reverses the directed physical path above; owner interior remains
+            # the left side of the semantic direction for both patch-side uses.
+            return left_normal(tangent)
+        return None
+
+    def support_segments_for_use(
+        self, chain_use_id: ChainUseId, spec_id: str
+    ) -> tuple[SourceSupportSegment, ...]:
+        chain_use = self.uses_by_id[chain_use_id]
+        chain = self.chains_by_id[chain_use.physical_chain_id]
+        vertices = self.directed_chain_vertices(chain_use)
+        pairs = tuple(zip(vertices, vertices[1:]))
+        if chain.is_closed:
+            pairs += ((vertices[-1], vertices[0]),)
+        if not pairs:
+            raise ReferenceGeometryError(
+                ReferenceOutcome.PLANAR_CHAIN_SUPPORT_NOT_LINEAR,
+                f"ChainUse {chain_use_id} has no bounded support segments",
+            )
+        component_ids = sorted(
+            (
+                item.front_component_id.value
+                for item in self.compilation.front_components
+                if item.chain_use_id == chain_use_id
+            )
+        )
+        if len(component_ids) != 1:
+            raise ReferenceGeometryError(
+                ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
+                f"v1 geometry requires one owner-interior component for {chain_use_id}",
+            )
+        analysis_direction = self._analysis_direction(chain_use_id)
+        result = []
+        for ordinal, (start_id, end_id) in enumerate(pairs):
+            if start_id not in self.points_by_id or end_id not in self.points_by_id:
+                raise ReferenceGeometryError(
+                    ReferenceOutcome.REFERENCE_PLANAR_FRAME_REQUIRED,
+                    f"PlanarPatchFrameV1 lacks chain coordinate {start_id}->{end_id}",
+                )
+            start = self.points_by_id[start_id]
+            end = self.points_by_id[end_id]
+            edge_id = self._edge_for_pair(chain, start_id, end_id)
+            tangent = unit(point_sub(end, start))
+            face_normal = self._face_side_normal(chain_use, edge_id, start, end, tangent)
+            normal = None
+            if analysis_direction is not None:
+                if exact_sign(dot(analysis_direction, tangent)) == 0:
+                    normal = analysis_direction
+                elif exact_sign(cross(analysis_direction, tangent)) == 0:
+                    normal = face_normal
+                else:
+                    raise ReferenceGeometryError(
+                        ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
+                        f"certified support direction is neither tangent nor normal for {edge_id}",
+                    )
+            normal = normal or face_normal
+            if normal is None:
+                raise ReferenceGeometryError(
+                    ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
+                    f"owner-interior normal is ambiguous for {edge_id}",
+                )
+            normal = unit(normal)
+            support_id = stable_id("source-support", chain_use_id, edge_id)
+            base_provenance = self.provenance_by_spec_id[spec_id]
+            source_faces = frozenset(
+                face.face_id.value
+                for face in self.snapshot.surface_ir.source_faces
+                if edge_id in face.edge_cycle
+            )
+            provenance = merge_provenance(
+                base_provenance,
+                ReferenceProvenanceV1(
+                    support_ids=frozenset({support_id}),
+                    physical_edge_ids=frozenset({edge_id.value}),
+                    source_face_ids=source_faces,
+                ),
+            )
+            result.append(
+                SourceSupportSegment(
+                    chain_use_id=chain_use_id,
+                    physical_edge_id=edge_id,
+                    source_vertex_start_id=start_id,
+                    source_vertex_end_id=end_id,
+                    start=start,
+                    end=end,
+                    tangent=tangent,
+                    owner_normal=normal,
+                    support_id=support_id,
+                    front_component_id=component_ids[0],
+                    provenance=provenance,
+                )
+            )
+        adjacent = tuple(zip(result, result[1:]))
+        if chain.is_closed and len(result) > 1:
+            adjacent += ((result[-1], result[0]),)
+        sectors_by_id = {
+            item.owner_sector_id: item for item in self.snapshot.angular_owner_sectors
+        }
+        declared_corner_vertices = {
+            relation.source_vertex_id
+            for relation in self.snapshot.corner_relations
+            if relation.owner_sector_id in sectors_by_id
+            and chain_use_id
+            in sectors_by_id[relation.owner_sector_id].ordered_incident_chain_use_ids
+        }
+        for incoming, outgoing in adjacent:
+            if exact_sign(cross(incoming.tangent, outgoing.tangent)) == 0:
+                continue
+            if incoming.source_vertex_end_id not in declared_corner_vertices:
+                raise ReferenceGeometryError(
+                    ReferenceOutcome.PLANAR_CHAIN_SUPPORT_NOT_LINEAR,
+                    "non-linear ChainUse requires an explicit segment-corner support relation "
+                    f"at {incoming.source_vertex_end_id}",
+                )
+        return tuple(result)
+
+
+def source_vertex_certificate(source_vertex_id: SourceVertexId) -> ConstructionCertificate:
+    return ConstructionCertificate(
+        kind=ConstructionKind.SOURCE_VERTEX,
+        source_vertex_ids=frozenset({source_vertex_id.value}),
+    )
+
+
+def support_vertex_certificate(*support_ids: str) -> ConstructionCertificate:
+    return ConstructionCertificate(
+        kind=ConstructionKind.SUPPORT_SUPPORT_INTERSECTION,
+        support_ids=frozenset(support_ids),
+    )
+
+
+def make_segment(
+    segment_id: str,
+    start: ExactPlanarPoint,
+    end: ExactPlanarPoint,
+    *,
+    support_ids: frozenset[str],
+    provenance: ReferenceProvenanceV1,
+    start_certificates: frozenset[ConstructionCertificate],
+    end_certificates: frozenset[ConstructionCertificate],
+    boundary_constraint_ids: frozenset[str] = frozenset(),
+) -> BoundedSupportSegment:
+    return BoundedSupportSegment(
+        segment_id=segment_id,
+        start=start,
+        end=end,
+        support_ids=support_ids,
+        boundary_constraint_ids=boundary_constraint_ids,
+        provenance=provenance,
+        start_constructions=start_certificates,
+        end_constructions=end_certificates,
+    )
+
+
+def make_region(
+    region_id: str,
+    segments: tuple[BoundedSupportSegment, ...],
+    *,
+    instance_id: str,
+    spec_id: str,
+) -> PlanarRegion | None:
+    area = polygon_signed_area(segment.start for segment in segments)
+    sign = exact_sign(area)
+    if sign == 0:
+        return None
+    if sign < 0:
+        segments = tuple(segment.reversed() for segment in reversed(segments))
+    return PlanarRegion(
+        region_id=region_id,
+        outer=PlanarLoop(stable_id("envelope-loop", region_id), segments),
+        contributor_instance_ids=frozenset({instance_id}),
+        contributor_spec_ids=frozenset({spec_id}),
+    )
+
+
+def offset_point(
+    point: ExactPlanarPoint, normal: ExactPlanarVector, alpha: sp.Expr
+) -> ExactPlanarPoint:
+    return point_add(point, vector_scale(normal, alpha))

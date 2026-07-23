@@ -31,6 +31,31 @@ from .contracts import seeds as _seeds
 from .contracts import surface as _surface
 from .contracts import tessellation as _tessellation
 from .schema import ContractSchemaError, json_schema_for
+from .reference.compile import compile_reference_envelopes
+from .reference.contracts import (
+    REFERENCE_COMPILATION_SCHEMA_V1,
+    RAW_COVERAGE_RESULT_SCHEMA_V1,
+    BoundaryContactKind,
+    BoundaryResolvedEnvelopeV1,
+    ComponentEffectiveAlphaV1,
+    EnvelopeSourceProvenanceV1,
+    RawCoverageEdgeV1,
+    RawCoverageLoopKind,
+    RawCoverageLoopV1,
+    RawCoverageRegionV1,
+    RawCoverageResultV1,
+    RawCoverageVertexV1,
+    ReachabilityCertificateV1,
+    ReferenceCompileResultV1,
+    ReferenceDiagnosticSeverity,
+    ReferenceEnvelopeCompilationV1,
+    ReferenceEnvelopeInstanceV1,
+    ReferenceEvaluationDiagnosticV1,
+    ReferenceEvaluationResultV1,
+    ReferenceOutcome,
+)
+from .reference.provenance import ReferenceProvenanceV1
+from .reference.raw_coverage import evaluate_reference_raw_coverage
 from .validation import (
     ContractValidationError,
     ValidationCode,
@@ -76,6 +101,29 @@ __all__ = (
     "snapshot_digest",
     "semantic_plan_digest",
     "geometry_batch_semantic_digest",
+    "compile_reference_envelopes",
+    "evaluate_reference_raw_coverage",
+    "REFERENCE_COMPILATION_SCHEMA_V1",
+    "RAW_COVERAGE_RESULT_SCHEMA_V1",
+    "ReferenceOutcome",
+    "ReferenceDiagnosticSeverity",
+    "BoundaryContactKind",
+    "RawCoverageLoopKind",
+    "ReferenceProvenanceV1",
+    "ReferenceEvaluationDiagnosticV1",
+    "EnvelopeSourceProvenanceV1",
+    "ReferenceEnvelopeCompilationV1",
+    "ReferenceCompileResultV1",
+    "ReferenceEnvelopeInstanceV1",
+    "ReachabilityCertificateV1",
+    "BoundaryResolvedEnvelopeV1",
+    "RawCoverageVertexV1",
+    "RawCoverageEdgeV1",
+    "RawCoverageLoopV1",
+    "RawCoverageRegionV1",
+    "ComponentEffectiveAlphaV1",
+    "RawCoverageResultV1",
+    "ReferenceEvaluationResultV1",
     "ContractSchemaError",
     "json_schema_for",
     "ContractValidationError",
@@ -373,6 +421,7 @@ for _module_name in (
     "schema",
     "validation",
     "version",
+    "reference",
 ):
     globals().pop(_module_name, None)
 

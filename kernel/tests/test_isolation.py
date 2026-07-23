@@ -9,7 +9,6 @@ import cftuv_envelope
 
 FORBIDDEN = {"bpy", "mathutils", "cftuv"}
 FORBIDDEN_IMPLEMENTATION_MODULES = {
-    "arrangement.py",
     "blender_adapter.py",
     "boolean.py",
     "evaluator.py",
@@ -25,7 +24,10 @@ def test_blender_and_host_packages_are_physically_absent():
 
 def test_runtime_import_graph_has_no_host_or_blender_edges():
     package_root = Path(cftuv_envelope.__file__).resolve().parent
-    assert not (FORBIDDEN_IMPLEMENTATION_MODULES & {path.name for path in package_root.rglob("*.py")})
+    assert not (
+        FORBIDDEN_IMPLEMENTATION_MODULES
+        & {path.name for path in package_root.rglob("*.py")}
+    )
     for path in package_root.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):

@@ -1,4 +1,4 @@
-name: Envelope kernel contracts
+name: Envelope kernel contracts and reference evaluator
 
 on:
   push:

@@ -1,13 +1,19 @@
 # CFTUV Envelope Core
 
-Standalone, Blender-free public contracts for the CFTUV Envelope kernel.
+Standalone, Blender-free public contracts and exact planar reference evaluator
+for the CFTUV Envelope kernel.
 
-This EC1 package contains immutable data records, structural validators,
-canonical JSON codecs, and semantic digests. It deliberately contains no
-geometry evaluator, Boolean/arrangement implementation, ownership solver,
-event scheduler, triangulator, Blender adapter, or native extension.
+The EC1 layer contains immutable data records, structural validators,
+canonical JSON codecs, and semantic digests. The EC2 `reference` package adds
+a permanent full-recompute path from `AnalysisSnapshotV1 + DecalRequestV1` to
+provenance-preserving `RawCoverageResultV1`. It deliberately contains no
+interaction or ownership solver, event scheduler, tessellator, GeometryBatch
+materializer, Blender adapter, or native extension.
 
-The package has no runtime dependencies outside the Python standard library.
+SymPy is the exact algebraic-number and certified-sign dependency. Polygon
+arrangement, segment history, clipping, union, and provenance propagation are
+implemented by this package; SymPy is not used as a Boolean backend. There is
+no float, raster, SDF, Marching Squares, GEOS, or approximate fallback.
 
 Public boundaries:
 
@@ -20,6 +26,12 @@ Public boundaries:
   coverage references, ownership and downstream `TessellationPlanV1`;
 - `GeometryBatchV1` — immutable adapter boundary keyed by semantic
   `VertexKey`, not coordinates.
+- `ReferenceEnvelopeCompilationV1` — request/domain compilation containing
+  Strip, angle-selected Linear-Reflex Angular, physical Cap, and minimally
+  declared Junction envelopes;
+- `RawCoverageResultV1` — exact single-cover patch union with construction
+  certificates, reachability, contributor sets, and complete segment-history
+  provenance.
 
 Each top-level boundary has its own strict canonical JSON codec. JSON Schemas
 under `schema/` are generated from the same public types. Snapshot, semantic
@@ -28,6 +40,9 @@ plan and GeometryBatch semantic digests are deliberately separate.
 The accepted Session A v5 corpus is mirrored under `fixtures/session_a_v5/`
 with a SHA-256 manifest. The projection adapter exists only in `tests/`; the
 runtime package neither imports fixtures nor depends on the parent CFTUV repo.
+The separate coordinate-bearing Session C corpus is under
+`fixtures/session_c_planar_v1/`; it never supplies invented geometry to the
+accepted coordinate-free EC0 corpus.
 
 Useful checks from this directory:
 
