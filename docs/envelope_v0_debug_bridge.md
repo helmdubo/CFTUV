@@ -176,6 +176,52 @@ The runtime profile separately records `ANALYSIS_BUNDLE`, `SELECTION_SCOPE`,
 selection size, per-domain topology, Envelope specs, arrangement work, and GP
 stroke/point output. A compact timing table is also printed to the console.
 
+## V0-R1B host export and session lifecycle
+
+`cftuv/envelope_host_adapter.py` is now a thin compatibility facade. Runtime
+ownership is split into:
+
+- `envelope_topology_export.py`: immutable SourceRevision-scoped host-chain
+  collection, seam common refinement, whole-chain selection views, and
+  topology debug projection;
+- `envelope_metric_export.py`: selected PatchDomain exact metric and immutable
+  domain snapshot export;
+- `envelope_request_export.py`: `DecalRequestV1` construction and reference
+  C/D evaluation;
+- `envelope_debug_session.py`: explicit analysis/export cache ownership and
+  invalidation.
+
+The only legacy evidence used by this slice was the factual Session L0 report
+at commit
+`3e3e10864b093d63a56336494dd752efe18b2d6a:docs/envelope_legacy_planarity_chainuse_evidence.md`.
+No legacy geometry source was opened or called.
+
+Blender stores the controller only as the runtime attribute
+`context.window_manager._cftuv_envelope_debug_session`. There is no
+module-global controller or cache.
+
+The cache layers are:
+
+- `AnalysisBundleCache`: source object plus SourceRevision;
+- `TopologyExportCache`: SourceRevision;
+- `PatchMetricCache`: SourceRevision plus PatchDomainId;
+- `DomainGeometryCache`: SourceRevision plus PatchDomainId;
+- `CompiledEnvelopeCache`: declared with a SourceRevision, selected ChainUse,
+  and policy key, but disabled while the current reference compile contract
+  contains requested alpha.
+
+Request-scoped evaluation uses `AnalysisBundleIdView`, an immutable shallow
+ID filter over the full bundle. It does not construct a copied PatchGraph or
+PatchSurfaceIR. Selection and alpha rebuild request/evaluation state but keep
+analysis, normalized PhysicalChains, exact metric, and domain geometry.
+Visibility and view/camera changes do not enter the session pipeline.
+
+The SourceRevision fingerprint includes vertex coordinates, edge endpoints,
+seam flags, face cycles, and analysis scope. A changed revision or replaced
+object data invalidates all dependent layers before reuse. Profile JSON and
+the console report expose per-layer cache hits, misses, cumulative build
+counts, and invalidation count.
+
 ## V0-B validation
 
 `tests/blender/test_envelope_debug_bridge.py` is the Blender 4.3 background
@@ -194,6 +240,9 @@ smoke. It verifies:
 - stale-result clearing on empty selection;
 - explicit Clear cleanup;
 - no production decal object is created.
+- alpha `0.2 -> 0.3 -> 0.4` reuses one AnalysisBundle, topology export,
+  Patch metric, and domain geometry export;
+- vertex-coordinate and seam-flag changes invalidate every dependent cache.
 
 The viewport evidence fixture and capture live under
 `artifacts/envelope_v0/session_v0b_viewport.*`.

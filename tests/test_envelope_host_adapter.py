@@ -26,6 +26,9 @@ from cftuv.envelope_debug_profile import (  # noqa: E402
     EnvelopeDebugProfileBuilderV1,
     EnvelopeDomainStage,
 )
+from cftuv.envelope_debug_session import (  # noqa: E402
+    EnvelopeDebugSessionController,
+)
 from cftuv.envelope_topology_debug import (  # noqa: E402
     EnvelopeTopologyPairKind,
     EnvelopeTopologyPathKind,
@@ -1021,3 +1024,178 @@ def test_staged_multi_domain_selection_slices_edges_but_keeps_request_identity()
         len(item.request.selected_chain_use_ids) == 1
         for item in evaluation.domains
     )
+
+
+def _profile_counter(profile, name, patch_domain_id=None):
+    return next(
+        item.value
+        for item in profile.snapshot().counters
+        if item.name == name and item.patch_domain_id == patch_domain_id
+    )
+
+
+def _bundle_with_revision(bundle, digest):
+    revision = SourceRevision(bundle.source_revision.source_name, digest)
+    graph = PatchGraph(source_revision=revision)
+    for patch in bundle.patch_graph.nodes.values():
+        graph.add_node(patch)
+    for seam in bundle.patch_graph.edges.values():
+        graph.add_edge(seam)
+    return AnalysisBundle(
+        revision,
+        graph,
+        replace(bundle.patch_surface, source_revision=revision),
+        bundle.capabilities,
+    )
+
+
+def test_session_reuses_analysis_topology_metric_and_domain_for_alpha_changes():
+    bundle = _single_patch_bundle()
+    controller = EnvelopeDebugSessionController()
+    build_calls = 0
+    evaluations = []
+    profiles = []
+
+    def build():
+        nonlocal build_calls
+        build_calls += 1
+        return bundle
+
+    for alpha in (0.2, 0.3, 0.4):
+        profile = EnvelopeDebugProfileBuilderV1(
+            bundle.source_revision.source_name,
+            "EXACT_REFERENCE",
+        )
+        cached_bundle = controller.get_analysis_bundle(
+            "object",
+            "mesh",
+            bundle.source_revision,
+            build,
+            profile=profile,
+        )
+        evaluations.append(
+            evaluate_envelope_debug_staged(
+                cached_bundle,
+                frozenset({0}),
+                alpha,
+                profile=profile,
+                controller=controller,
+                source_object_key="object",
+                source_data_key="mesh",
+            )
+        )
+        profiles.append(profile)
+
+    assert build_calls == 1
+    assert controller.build_counts == {
+        "ANALYSIS_BUNDLE": 1,
+        "TOPOLOGY_EXPORT": 1,
+        "PATCH_METRIC": 1,
+        "DOMAIN_GEOMETRY": 1,
+        "COMPILED_ENVELOPE": 0,
+    }
+    assert [
+        str(item.domains[0].request.requested_alpha.value)
+        for item in evaluations
+    ] == ["0.2", "0.3", "0.4"]
+    domain_id = evaluations[0].domains[0].patch_domain_id
+    for profile in profiles[1:]:
+        assert _profile_counter(
+            profile,
+            "ANALYSIS_BUNDLE_CACHE_HIT",
+        ) == 1
+        assert _profile_counter(
+            profile,
+            "TOPOLOGY_EXPORT_CACHE_HIT",
+        ) == 1
+        assert _profile_counter(
+            profile,
+            "PATCH_METRIC_CACHE_HIT",
+            domain_id,
+        ) == 1
+        assert _profile_counter(
+            profile,
+            "DOMAIN_GEOMETRY_CACHE_HIT",
+            domain_id,
+        ) == 1
+        assert _profile_counter(
+            profile,
+            "COMPILED_ENVELOPE_CACHE_BYPASS_ALPHA_DEPENDENT",
+        ) == 1
+        stage_names = {item.stage for item in profile.snapshot().timings}
+        assert "HOST_CHAIN_COLLECTION" not in stage_names
+        assert "SEAM_PARTITION_NORMALIZATION" not in stage_names
+        assert "FRAME_ADMISSION" not in stage_names
+        assert "ANGULAR_RELATIONS" not in stage_names
+        assert "DOMAIN_GEOMETRY_EXPORT" not in stage_names
+
+
+def test_selection_change_rebuilds_request_but_reuses_source_caches():
+    bundle = _single_patch_bundle()
+    controller = EnvelopeDebugSessionController()
+    cached = controller.get_analysis_bundle(
+        "object",
+        "mesh",
+        bundle.source_revision,
+        lambda: bundle,
+    )
+    first = evaluate_envelope_debug_staged(
+        cached,
+        frozenset({0}),
+        0.25,
+        controller=controller,
+        source_object_key="object",
+        source_data_key="mesh",
+    )
+    second = evaluate_envelope_debug_staged(
+        cached,
+        frozenset({1}),
+        0.25,
+        controller=controller,
+        source_object_key="object",
+        source_data_key="mesh",
+    )
+
+    assert (
+        first.domains[0].request.selected_chain_use_ids
+        != second.domains[0].request.selected_chain_use_ids
+    )
+    assert controller.build_counts["ANALYSIS_BUNDLE"] == 1
+    assert controller.build_counts["TOPOLOGY_EXPORT"] == 1
+    assert controller.build_counts["PATCH_METRIC"] == 1
+    assert controller.build_counts["DOMAIN_GEOMETRY"] == 1
+
+
+def test_source_revision_and_data_replacement_invalidate_all_dependent_caches():
+    first_bundle = _single_patch_bundle()
+    second_bundle = _bundle_with_revision(
+        first_bundle,
+        "sha256:v0-plane-edited",
+    )
+    controller = EnvelopeDebugSessionController()
+
+    for bundle, data_key in (
+        (first_bundle, "mesh-a"),
+        (second_bundle, "mesh-a"),
+        (second_bundle, "mesh-b"),
+    ):
+        cached = controller.get_analysis_bundle(
+            "object",
+            data_key,
+            bundle.source_revision,
+            lambda bundle=bundle: bundle,
+        )
+        evaluate_envelope_debug_staged(
+            cached,
+            frozenset({0}),
+            0.2,
+            controller=controller,
+            source_object_key="object",
+            source_data_key=data_key,
+        )
+
+    assert controller.invalidation_count == 2
+    assert controller.build_counts["ANALYSIS_BUNDLE"] == 3
+    assert controller.build_counts["TOPOLOGY_EXPORT"] == 3
+    assert controller.build_counts["PATCH_METRIC"] == 3
+    assert controller.build_counts["DOMAIN_GEOMETRY"] == 3

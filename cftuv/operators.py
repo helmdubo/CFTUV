@@ -26,6 +26,7 @@ from .analysis import (
     format_solver_input_preflight_report,
     validate_solver_input_mesh,
 )
+from .analysis_surface import source_revision_from_bmesh
 from .constants import GP_DEBUG_PREFIX
 from .decal_modal import (
     DECAL_DRAG_DISTANCE as _DECAL_DRAG_DISTANCE,
@@ -2190,6 +2191,30 @@ def _envelope_stage_summary_text(profile):
     )
 
 
+def _envelope_runtime_key(value):
+    as_pointer = getattr(value, "as_pointer", None)
+    return int(as_pointer()) if callable(as_pointer) else id(value)
+
+
+def _envelope_debug_session(context):
+    from .envelope_debug_session import EnvelopeDebugSessionController
+
+    window_manager = context.window_manager
+    controller = getattr(
+        window_manager,
+        "_cftuv_envelope_debug_session",
+        None,
+    )
+    if not isinstance(controller, EnvelopeDebugSessionController):
+        controller = EnvelopeDebugSessionController()
+        setattr(
+            window_manager,
+            "_cftuv_envelope_debug_session",
+            controller,
+        )
+    return controller
+
+
 class _EnvelopeDebugBuildBase:
     exact_reference = False
     bl_options = {"REGISTER"}
@@ -2251,22 +2276,28 @@ class _EnvelopeDebugBuildBase:
             source_obj.name,
             "EXACT_REFERENCE" if self.exact_reference else "TOPOLOGY",
         )
-        obj = None
-        original_mode = "EDIT"
-        selected_faces = []
+        controller = _envelope_debug_session(context)
+        source_object_key = _envelope_runtime_key(source_obj)
+        source_data_key = _envelope_runtime_key(source_obj.data)
+        source_bm.faces.ensure_lookup_table()
+        face_indices = tuple(face.index for face in source_bm.faces)
+        source_revision = source_revision_from_bmesh(
+            source_bm,
+            source_obj,
+            face_indices,
+        )
         try:
-            with profile.measure("ANALYSIS_BUNDLE"):
-                (
-                    obj,
-                    _bm,
-                    analysis_bundle,
-                    original_mode,
-                    selected_faces,
-                ) = _prepare_patch_graph(
-                    context,
-                    require_selection=False,
-                    use_all_faces=True,
-                )
+            analysis_bundle = controller.get_analysis_bundle(
+                source_object_key,
+                source_data_key,
+                source_revision,
+                lambda: build_analysis_bundle(
+                    source_bm,
+                    face_indices,
+                    source_obj,
+                ),
+                profile=profile,
+            )
             if self.exact_reference:
                 from .envelope_host_adapter import (
                     evaluate_envelope_debug_staged,
@@ -2277,6 +2308,9 @@ class _EnvelopeDebugBuildBase:
                     frozenset(selected_edge_indices),
                     float(settings.envelope_debug_alpha),
                     profile=profile,
+                    controller=controller,
+                    source_object_key=source_object_key,
+                    source_data_key=source_data_key,
                 )
                 topology_scene = evaluation.topology_scene
                 exact_scenes = evaluation.exact_debug_scenes
@@ -2286,10 +2320,17 @@ class _EnvelopeDebugBuildBase:
                     build_envelope_topology_debug_scene,
                 )
 
+                topology_export = controller.get_topology_export(
+                    analysis_bundle,
+                    source_object_key,
+                    source_data_key,
+                    profile=profile,
+                )
                 topology_scene = build_envelope_topology_debug_scene(
                     analysis_bundle,
                     frozenset(selected_edge_indices),
                     profile=profile,
+                    topology_export=topology_export,
                 )
                 exact_scenes = ()
                 receipts = profile.snapshot().receipts
@@ -2300,13 +2341,7 @@ class _EnvelopeDebugBuildBase:
             self.report({"ERROR"}, f"Envelope topology failed: {exc}")
             return {"CANCELLED"}
         finally:
-            if obj is not None:
-                _restore_mode_and_selection(
-                    obj,
-                    original_mode,
-                    selected_faces,
-                )
-                _restore_edge_selection(obj, selected_edge_indices)
+            _restore_edge_selection(source_obj, selected_edge_indices)
 
         try:
             if self.exact_reference:
@@ -2824,14 +2859,23 @@ classes = (
 
 
 def register():
+    from .envelope_debug_session import (
+        register_window_manager_session_attribute,
+    )
+
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.Scene.hotspotuv_settings = PointerProperty(type=HOTSPOTUV_Settings)
+    register_window_manager_session_attribute()
     if _frontier_replay_frame_handler not in bpy.app.handlers.frame_change_post:
         bpy.app.handlers.frame_change_post.append(_frontier_replay_frame_handler)
 
 
 def unregister():
+    from .envelope_debug_session import (
+        unregister_window_manager_session_attribute,
+    )
+
     if _frontier_replay_frame_handler in bpy.app.handlers.frame_change_post:
         bpy.app.handlers.frame_change_post.remove(_frontier_replay_frame_handler)
     # Cleanup GP debug objects
@@ -2850,6 +2894,19 @@ def unregister():
             or text.name.startswith("CFTUV_EnvelopeProfile_")
         ):
             bpy.data.texts.remove(text)
+    for window_manager in bpy.data.window_managers:
+        controller = getattr(
+            window_manager,
+            "_cftuv_envelope_debug_session",
+            None,
+        )
+        if controller is not None:
+            controller.clear()
+            delattr(
+                window_manager,
+                "_cftuv_envelope_debug_session",
+            )
+    unregister_window_manager_session_attribute()
     if hasattr(bpy.types.Scene, "hotspotuv_settings"):
         del bpy.types.Scene.hotspotuv_settings
     for cls in reversed(classes):

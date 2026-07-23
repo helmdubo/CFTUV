@@ -1,0 +1,106 @@
+{
+  "schema": "cftuv.envelope.v0.session_v0_r1b_handoff.v1",
+  "status": "SESSION_V0_R1B_READY_FOR_REVIEW",
+  "session": "V0-R1B",
+  "scope": "HOST_ADAPTER_SLIMMING_AND_SESSION_CACHE",
+  "branch": "codex/v0-r1b-host-cache-adapter",
+  "base_sha": "5fb22ea6a974b38dade2251489a9f75713a9ba6d",
+  "implementation_sha": null,
+  "structure": {
+    "facade": "cftuv/envelope_host_adapter.py",
+    "facade_lines": 44,
+    "topology_export": "cftuv/envelope_topology_export.py",
+    "metric_export": "cftuv/envelope_metric_export.py",
+    "request_export": "cftuv/envelope_request_export.py",
+    "session_controller": "cftuv/envelope_debug_session.py"
+  },
+  "session_lifecycle": {
+    "controller": "EnvelopeDebugSessionController",
+    "owner": "context.window_manager._cftuv_envelope_debug_session",
+    "blender_runtime_mechanism": "registered Python descriptor on bpy.types.WindowManager",
+    "module_global_controller": false
+  },
+  "cache_layers": {
+    "AnalysisBundleCache": "source object + SourceRevision",
+    "TopologyExportCache": "SourceRevision",
+    "PatchMetricCache": "SourceRevision + PatchDomainId",
+    "DomainGeometryCache": "SourceRevision + PatchDomainId",
+    "CompiledEnvelopeCache": {
+      "key": "SourceRevision + selected ChainUses + policies",
+      "enabled": false,
+      "reason": "current reference compilation carries requested alpha"
+    }
+  },
+  "building_002_alpha_gate": {
+    "selection": [
+      12
+    ],
+    "alpha_sequence": [
+      0.2,
+      0.3,
+      0.4
+    ],
+    "selected_domains": 2,
+    "analysis_bundle_build_count": 1,
+    "topology_export_build_count": 1,
+    "patch_metric_build_count_per_domain": [
+      1,
+      1
+    ],
+    "domain_geometry_build_count_admitted_domain": 1,
+    "metric_rejected_domain_cached": true,
+    "third_build_cache_hits": {
+      "AnalysisBundleCache": 1,
+      "TopologyExportCache": 1,
+      "PatchMetricCache": [
+        1,
+        1
+      ],
+      "DomainGeometryCache": 1
+    },
+    "third_build_absent_stages": [
+      "HOST_CHAIN_COLLECTION",
+      "SEAM_PARTITION_NORMALIZATION",
+      "FRAME_ADMISSION",
+      "ANGULAR_RELATIONS",
+      "DOMAIN_GEOMETRY_EXPORT"
+    ],
+    "stage_summary": "Topology 2/2 | Metric 1/2 | Raw 1/2 | Resolved 1/2"
+  },
+  "building_002_invalidation_gate": {
+    "vertex_edit_invalidated": true,
+    "vertex_restore_invalidated": true,
+    "seam_edit_invalidated": true,
+    "seam_restore_invalidated": true,
+    "invalidation_delta": 4,
+    "dependent_exact_caches_empty_after_topology_rebuild": true,
+    "source_hash_restored": true,
+    "selection_restored": [
+      2,
+      3,
+      7
+    ],
+    "final_topology_summary": "Topology 4/4"
+  },
+  "validation": {
+    "host_renderer_operator_tests": "71 passed",
+    "blender_4_3_background_smoke": "ENVELOPE_DEBUG_BLENDER_SMOKE_OK",
+    "building_002_runtime_gate": "PASS",
+    "python_compileall": "PASS",
+    "git_diff_check": "PASS with line-ending warnings only"
+  },
+  "scope_guards": {
+    "analysis_bundle_deep_copy_per_build": false,
+    "request_uses_immutable_analysis_bundle_id_view": true,
+    "geometry_contracts_changed": false,
+    "envelope_semantics_changed": false,
+    "kernel_changed": false,
+    "legacy_geometry_read_or_called": false,
+    "legacy_evidence": "3e3e10864b093d63a56336494dd752efe18b2d6a:docs/envelope_legacy_planarity_chainuse_evidence.md"
+  },
+  "review_state": {
+    "committed": false,
+    "pushed": false,
+    "next_action": "REVIEW"
+  }
+}

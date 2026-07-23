@@ -19,11 +19,15 @@ The Blender operator never downloads packages.
 
 ## Files to copy
 
-For a manual update, copy these six files from the branch checkout into the
+For a manual update, copy these ten files from the branch checkout into the
 installed `cftuv` package:
 
 ```text
 cftuv\envelope_host_adapter.py
+cftuv\envelope_topology_export.py
+cftuv\envelope_metric_export.py
+cftuv\envelope_request_export.py
+cftuv\envelope_debug_session.py
 cftuv\envelope_debug_renderer.py
 cftuv\envelope_debug_profile.py
 cftuv\envelope_topology_debug.py
@@ -38,6 +42,10 @@ $Repo = "C:\path\to\CFTUV"
 $Addon = "$env:APPDATA\Blender Foundation\Blender\4.3\scripts\addons\cftuv"
 
 Copy-Item "$Repo\cftuv\envelope_host_adapter.py" $Addon -Force
+Copy-Item "$Repo\cftuv\envelope_topology_export.py" $Addon -Force
+Copy-Item "$Repo\cftuv\envelope_metric_export.py" $Addon -Force
+Copy-Item "$Repo\cftuv\envelope_request_export.py" $Addon -Force
+Copy-Item "$Repo\cftuv\envelope_debug_session.py" $Addon -Force
 Copy-Item "$Repo\cftuv\envelope_debug_renderer.py" $Addon -Force
 Copy-Item "$Repo\cftuv\envelope_debug_profile.py" $Addon -Force
 Copy-Item "$Repo\cftuv\envelope_topology_debug.py" $Addon -Force
@@ -95,6 +103,15 @@ In Blender 4.3:
 The result is a separate
 `CFTUV_DEBUG_Envelope_<source object>` Grease Pencil object. Build/Clear do
 not call the legacy Decal producer.
+
+The active WindowManager owns one runtime
+`_cftuv_envelope_debug_session`. Rebuilding at a different Alpha reuses the
+same AnalysisBundle, normalized topology export, selected-domain exact metric,
+and domain geometry. Changing edge selection rebuilds only request/evaluation
+state. Visibility, camera, and viewport changes do not touch these caches.
+Vertex coordinates, topology, seam flags, deletions, or replacement of the
+source mesh datablock change session identity and invalidate all dependent
+caches before evaluation.
 
 Exact-frame admission is applied only to PatchDomains reached by the selected
 PhysicalChains. An unselected tilted or non-exact patch cannot block a

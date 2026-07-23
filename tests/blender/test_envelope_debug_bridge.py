@@ -609,6 +609,146 @@ def _run_two_patch_smoke():
     ) is None
 
 
+def _profile_counter_values(profile, name):
+    return [
+        item["value"]
+        for item in profile["counters"]
+        if item["name"] == name
+    ]
+
+
+def _run_session_cache_smoke():
+    _reset_scene()
+    source_obj = _build_axis_plane()
+    settings = bpy.context.scene.hotspotuv_settings
+    profiles = []
+    for alpha in (0.2, 0.3, 0.4):
+        settings.envelope_debug_alpha = alpha
+        assert (
+            bpy.ops.hotspotuv.build_exact_reference_envelope_debug()
+            == {"FINISHED"}
+        )
+        profiles.append(
+            json.loads(
+                bpy.data.texts[
+                    "CFTUV_EnvelopeProfile_" + source_obj.name + ".json"
+                ].as_string()
+            )
+        )
+
+    assert hasattr(
+        bpy.context.window_manager,
+        "_cftuv_envelope_debug_session",
+    )
+    final = profiles[-1]
+    assert _profile_counter_values(
+        final,
+        "ANALYSIS_BUNDLE_BUILD_COUNT",
+    ) == [1]
+    assert _profile_counter_values(
+        final,
+        "TOPOLOGY_EXPORT_BUILD_COUNT",
+    ) == [1]
+    assert _profile_counter_values(
+        final,
+        "PATCH_METRIC_BUILD_COUNT",
+    ) == [1]
+    assert _profile_counter_values(
+        final,
+        "DOMAIN_GEOMETRY_BUILD_COUNT",
+    ) == [1]
+    assert _profile_counter_values(
+        final,
+        "ANALYSIS_BUNDLE_CACHE_HIT",
+    ) == [1]
+    assert _profile_counter_values(
+        final,
+        "TOPOLOGY_EXPORT_CACHE_HIT",
+    ) == [1]
+    assert _profile_counter_values(
+        final,
+        "PATCH_METRIC_CACHE_HIT",
+    ) == [1]
+    assert _profile_counter_values(
+        final,
+        "DOMAIN_GEOMETRY_CACHE_HIT",
+    ) == [1]
+    assert _profile_counter_values(
+        final,
+        "COMPILED_ENVELOPE_CACHE_BYPASS_ALPHA_DEPENDENT",
+    ) == [1]
+    later_stages = {item["stage"] for item in final["timings"]}
+    assert "HOST_CHAIN_COLLECTION" not in later_stages
+    assert "SEAM_PARTITION_NORMALIZATION" not in later_stages
+    assert "FRAME_ADMISSION" not in later_stages
+
+    controller = (
+        bpy.context.window_manager._cftuv_envelope_debug_session
+    )
+    counts_after_alpha = controller.build_counts
+    settings.envelope_debug_show_raw = not settings.envelope_debug_show_raw
+    assert controller.build_counts == counts_after_alpha
+
+    bm = bmesh.from_edit_mesh(source_obj.data)
+    bm.verts.ensure_lookup_table()
+    bm.verts[0].co.x += 0.125
+    bmesh.update_edit_mesh(source_obj.data)
+    assert (
+        bpy.ops.hotspotuv.build_exact_reference_envelope_debug()
+        == {"FINISHED"}
+    )
+    vertex_profile = json.loads(
+        bpy.data.texts[
+            "CFTUV_EnvelopeProfile_" + source_obj.name + ".json"
+        ].as_string()
+    )
+    assert _profile_counter_values(
+        vertex_profile,
+        "SESSION_CACHE_INVALIDATED",
+    ) == [1]
+    assert (
+        controller.build_counts["ANALYSIS_BUNDLE"]
+        == counts_after_alpha["ANALYSIS_BUNDLE"] + 1
+    )
+    assert (
+        controller.build_counts["TOPOLOGY_EXPORT"]
+        == counts_after_alpha["TOPOLOGY_EXPORT"] + 1
+    )
+    assert (
+        controller.build_counts["PATCH_METRIC"]
+        == counts_after_alpha["PATCH_METRIC"] + 1
+    )
+    assert (
+        controller.build_counts["DOMAIN_GEOMETRY"]
+        == counts_after_alpha["DOMAIN_GEOMETRY"] + 1
+    )
+
+    bm = bmesh.from_edit_mesh(source_obj.data)
+    bm.edges.ensure_lookup_table()
+    bm.edges[0].seam = not bm.edges[0].seam
+    bmesh.update_edit_mesh(source_obj.data)
+    assert (
+        bpy.ops.hotspotuv.build_exact_reference_envelope_debug()
+        == {"FINISHED"}
+    )
+    assert (
+        controller.build_counts["ANALYSIS_BUNDLE"]
+        == counts_after_alpha["ANALYSIS_BUNDLE"] + 2
+    )
+    assert (
+        controller.build_counts["TOPOLOGY_EXPORT"]
+        == counts_after_alpha["TOPOLOGY_EXPORT"] + 2
+    )
+    assert (
+        controller.build_counts["PATCH_METRIC"]
+        == counts_after_alpha["PATCH_METRIC"] + 2
+    )
+    assert (
+        controller.build_counts["DOMAIN_GEOMETRY"]
+        == counts_after_alpha["DOMAIN_GEOMETRY"] + 2
+    )
+
+
 def _run_patch_scoped_frame_smoke():
     _reset_scene()
     source_obj = _build_axis_plane_with_unselected_tilted_patch()
@@ -656,6 +796,7 @@ def _main():
         return
     _run_topology_only_smoke()
     _run_staged_metric_rejection_smoke()
+    _run_session_cache_smoke()
     _run_axis_plane_smoke()
     _run_two_patch_smoke()
     _run_patch_scoped_frame_smoke()

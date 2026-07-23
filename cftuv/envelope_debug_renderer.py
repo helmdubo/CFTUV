@@ -553,6 +553,27 @@ def _print_profile(profile) -> None:
         f"Raw {summary['raw']}/{summary['total']} | "
         f"Resolved {summary['resolved']}/{summary['total']}"
     )
+    cache_parts = []
+    for layer in (
+        "ANALYSIS_BUNDLE",
+        "TOPOLOGY_EXPORT",
+        "PATCH_METRIC",
+        "DOMAIN_GEOMETRY",
+    ):
+        hits = sum(
+            int(item.value)
+            for item in profile.counters
+            if item.name == f"{layer}_CACHE_HIT"
+        )
+        misses = sum(
+            int(item.value)
+            for item in profile.counters
+            if item.name == f"{layer}_CACHE_MISS"
+        )
+        if hits or misses:
+            cache_parts.append(f"{layer} H{hits}/M{misses}")
+    if cache_parts:
+        print("  Cache: " + " | ".join(cache_parts))
 
 
 def render_staged_envelope_debug(
