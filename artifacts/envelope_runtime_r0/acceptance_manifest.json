@@ -1,0 +1,96 @@
+{
+  "schema": "cftuv.envelope.runtime_r0_acceptance.v1",
+  "session": "SESSION_M_R1_RATIONAL_AFFINE_REFERENCE_AND_FILTERED_RUNTIME",
+  "status": {
+    "m_r1": "M_R1_OPEN",
+    "session_e": "SESSION_E_CLOSED",
+    "v0_r2": "V0_R2_CLOSED"
+  },
+  "branch": "codex/m-r1-runtime-metric-exact-fallback",
+  "accepted_base_sha": "51996a4a574a290042014c14ba29d1a034a605db",
+  "accepted_slices": [
+    {
+      "id": "SESSION_L0_LEGACY_PLANARITY_CHAINUSE_EVIDENCE",
+      "sha": "3e3e10864b093d63a56336494dd752efe18b2d6a",
+      "authority": "FACTUAL_EVIDENCE_ONLY"
+    },
+    {
+      "id": "SESSION_V0_R1A_STAGED_TOPOLOGY_DEBUG_AND_TELEMETRY",
+      "sha": "5fb22ea6a974b38dade2251489a9f75713a9ba6d",
+      "authority": "ACCEPTED_IMPLEMENTATION"
+    },
+    {
+      "id": "SESSION_V0_R1B_HOST_ADAPTER_SLIMMING_AND_CACHE",
+      "sha": "9132b1df8303847a4f75bb68cc28dcb79721a9cb",
+      "authority": "ACCEPTED_IMPLEMENTATION"
+    },
+    {
+      "id": "SESSION_C_R2A_SPARSE_PATCHDOMAIN_BOUNDARY",
+      "sha": "fe091b4f21cf15cd1888eaa6bab47a697c0b596a",
+      "authority": "ACCEPTED_IMPLEMENTATION"
+    },
+    {
+      "id": "SESSION_C_R2B_EXACT_ARRANGEMENT_BROADPHASE",
+      "sha": "c7bfed158802b767f7e94f6672cfb6b0181dae16",
+      "authority": "ACCEPTED_IMPLEMENTATION"
+    },
+    {
+      "id": "SESSION_M_R0_PLANAR_METRIC_CONTRACT_DECISION",
+      "sha": "5c4d91b8e1c9ed235f203c2859f031bb5b9804f5",
+      "authority": "ACCEPTED_ARCHITECTURAL_DECISION"
+    }
+  ],
+  "l0_ancestry_projection": {
+    "integrated_commit_sha": "51996a4a574a290042014c14ba29d1a034a605db",
+    "source_sha": "3e3e10864b093d63a56336494dd752efe18b2d6a",
+    "content": "BYTE_IDENTICAL",
+    "validator": "4 cases, 36 physical chains, 60 chain uses"
+  },
+  "accepted_carryovers": [
+    {
+      "id": "COMPILED_ENVELOPE_CACHE_ALPHA_DEPENDENCE",
+      "owner": "V0_R2",
+      "status": "OPEN",
+      "m_r1_action": "DO_NOT_ENABLE_CACHE"
+    },
+    {
+      "id": "HOST_REQUEST_EXPORT_COMPLEXITY",
+      "owner": "HOST_ADAPTER",
+      "status": "OPEN",
+      "m_r1_action": "DO_NOT_ADD_NUMERIC_LOGIC"
+    },
+    {
+      "id": "BUILDING_002_PATCH_0_CERTIFIED_PREDICATE",
+      "owner": "M_R1",
+      "status": "BLOCKING"
+    },
+    {
+      "id": "M_R0_ROTATION_SEMANTIC_DIVERGENCE",
+      "owner": "M_R1",
+      "status": "BLOCKING"
+    },
+    {
+      "id": "NEAR_PLANAR_PRODUCT_POLICY",
+      "owner": "FUTURE_POLICY_SLICE",
+      "status": "CLOSED_IN_M_R1",
+      "outcome": "RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED"
+    }
+  ],
+  "unaccepted_product_policies": [
+    "RUNTIME_PLANAR_RESIDUAL_BUDGET_CANDIDATE_V1",
+    "RUNTIME_FILTERED_PREDICATE_BOUND_CANDIDATE_V1"
+  ],
+  "admission_policy": "EXACT_SOURCE_PLANE_V1",
+  "scope_guards": {
+    "v0_r2_started": false,
+    "session_e_started": false,
+    "legacy_geometry_allowed": false,
+    "near_planar_projection_allowed": false,
+    "tolerance_topology_allowed": false,
+    "snapping_allowed": false,
+    "float_semantic_identity_allowed": false,
+    "envelope_semantics_change_allowed": false,
+    "interaction_semantics_change_allowed": false
+  },
+  "historical_handoffs_rewritten": false
+}
