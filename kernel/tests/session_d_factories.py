@@ -191,3 +191,76 @@ def angular_third_strip_state(hidden_count: int, alpha: str):
         raw_result.raw_coverage,
     )
     return compile_result.compilation, raw_result.raw_coverage, resolved
+
+
+def self_contact_snapshot(
+    alpha: str,
+) -> tuple[AnalysisSnapshotV1, DecalRequestV1]:
+    face = (
+        (0.0, 0.0),
+        (10.0, 0.0),
+        (10.0, 10.0),
+        (0.0, 10.0),
+    )
+    snapshot, request = straight_snapshot(
+        faces=(face,),
+        source_routes=(
+            {
+                "name": "self-left",
+                "points": ((0.0, 10.0), (0.0, 0.0)),
+            },
+            {
+                "name": "self-right",
+                "points": ((10.0, 0.0), (10.0, 10.0)),
+            },
+        ),
+        alpha=alpha,
+        revision_name=f"session-d-self-contact-{alpha}",
+    )
+    shared_lineage = frozenset({LineageId("self-front-lineage")})
+    return (
+        replace(
+            snapshot,
+            physical_chains=frozenset(
+                replace(item, source_lineage=shared_lineage)
+                for item in snapshot.physical_chains
+            ),
+        ),
+        request,
+    )
+
+
+@lru_cache(maxsize=None)
+def self_contact_state(alpha: str):
+    snapshot, request = self_contact_snapshot(alpha)
+    compile_result = compile_reference_envelopes(snapshot, request)
+    assert compile_result.compilation is not None, compile_result.diagnostics
+    readings = tuple(
+        sorted(
+            compile_result.compilation.front_reading_declarations,
+            key=lambda item: item.front_reading_id.value,
+        )
+    )
+    assert len(readings) == 2
+    self_compile = declare_reference_self_contacts(
+        compile_result.compilation,
+        (
+            (
+                readings[0].front_reading_id,
+                readings[1].front_reading_id,
+            ),
+        ),
+    )
+    assert self_compile.compilation is not None, self_compile.diagnostics
+    compilation = self_compile.compilation
+    raw_result = evaluate_reference_raw_coverage(
+        compilation,
+        alpha,
+    )
+    assert raw_result.raw_coverage is not None, raw_result.diagnostics
+    resolved = resolve_coverage_interactions(
+        compilation,
+        raw_result.raw_coverage.boundary_resolved_envelopes,
+        raw_result.raw_coverage,
+    )
+    return compilation, raw_result.raw_coverage, resolved

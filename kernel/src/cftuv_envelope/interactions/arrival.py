@@ -10,6 +10,21 @@ from ..contracts.envelopes import (
     JunctionEnvelopeSpec,
     StripEnvelopeSpec,
 )
+from ..ids import (
+    ActiveDomainCertificateId,
+    ArrivalModelId,
+    EnvelopeInstanceId,
+    EnvelopeSpecId,
+    ExactRegionId,
+    ExactSegmentId,
+    FrontComponentId,
+    FrontReadingId,
+    InteractionComponentId,
+    InteractionRelationId,
+    LawId,
+    LineageId,
+    SourceSupportId,
+)
 from ..reference.angular import _incident_normal, _interpolated_normals
 from ..reference.arrangement import ExactSegmentArrangementBackend
 from ..reference.boundary import build_domain_geometry
@@ -75,15 +90,19 @@ def _component_boundary_segments(
     contribution_regions = tuple(
         region
         for instance_id in component.envelope_instance_ids
-        if instance_id in resolved_by_instance
-        for region in resolved_by_instance[instance_id].envelope_instance.regions
+        if instance_id.value in resolved_by_instance
+        for region in resolved_by_instance[
+            instance_id.value
+        ].envelope_instance.regions
     )
     if not contribution_regions:
         return ()
     reachability = {
-        instance_id: resolved_by_instance[instance_id].reachability
+        instance_id.value: resolved_by_instance[
+            instance_id.value
+        ].reachability
         for instance_id in component.envelope_instance_ids
-        if instance_id in resolved_by_instance
+        if instance_id.value in resolved_by_instance
     }
     union = _ARRANGEMENT.exact_union(
         contribution_regions, domain_regions, reachability
@@ -106,43 +125,28 @@ def _component_boundary_segments(
     )
 
 
-def _front_reading_ids(
+def _front_reading_declaration(
     compilation: ReferenceEnvelopeCompilationV1,
-    front_component_id: str,
-    law_keys: tuple[str, ...],
-) -> tuple[tuple[str, ...], InteractionDiagnosticV1 | None]:
-    front_component = next(
+    front_component_id: FrontComponentId,
+    source_support_id: SourceSupportId,
+):
+    matches = tuple(
         item
-        for item in compilation.front_components
-        if item.front_component_id.value == front_component_id
+        for item in compilation.front_reading_declarations
+        if item.front_component_id == front_component_id
+        and item.source_support_id == source_support_id
     )
-    declared = tuple(sorted(item.value for item in front_component.front_reading_ids))
-    if declared and len(declared) != len(law_keys):
-        return (), InteractionDiagnosticV1(
+    if len(matches) != 1:
+        return None, InteractionDiagnosticV1(
             outcome=InteractionOutcome.SELF_CONTACT_READING_IDENTITY_UNPROVEN,
             severity=InteractionDiagnosticSeverity.UNSUPPORTED,
             message=(
-                f"{front_component_id} declares {len(declared)} readings for "
-                f"{len(law_keys)} distinct exact arrival laws"
+                f"{front_component_id} has {len(matches)} declarations for "
+                f"source support {source_support_id}"
             ),
-            arrival_model_ids=frozenset(law_keys),
+            interaction_component_ids=frozenset(),
         )
-    if declared:
-        return declared, None
-    return tuple(
-        stable_id("front-reading", front_component_id, law_key)
-        for law_key in law_keys
-    ), None
-
-
-def _law_key(normal, constant: ExactScalar) -> str:
-    return stable_id(
-        "arrival-law-key",
-        normal.x.expression,
-        normal.y.expression,
-        constant.expression,
-        "1",
-    )
+    return matches[0], None
 
 
 def _angular_support_data(context: GeometryContext, spec: AngularEnvelopeSpec):
@@ -183,6 +187,43 @@ def _angular_support_data(context: GeometryContext, spec: AngularEnvelopeSpec):
     return relation, anchor, tuple(support_ids), normals
 
 
+def _select_cap_incident_reading(
+    *,
+    cap_spec_id: EnvelopeSpecId,
+    component_id: InteractionComponentId,
+    source_support_id: SourceSupportId,
+    incident_models: tuple[StripArrivalModelV1, ...],
+) -> tuple[
+    StripArrivalModelV1 | None,
+    InteractionDiagnosticV1 | None,
+]:
+    exact_matches = tuple(
+        item
+        for item in incident_models
+        if item.arrival_law.support_id == source_support_id
+    )
+    if not exact_matches:
+        return None, InteractionDiagnosticV1(
+            InteractionOutcome.INTERACTION_MISSING_FRONT_READING,
+            InteractionDiagnosticSeverity.UNSUPPORTED,
+            f"Cap {cap_spec_id} has no exact incident Strip reading "
+            f"for {source_support_id}",
+            frozenset({component_id}),
+        )
+    if len(exact_matches) != 1:
+        return None, InteractionDiagnosticV1(
+            InteractionOutcome.INTERACTION_CAP_READING_AMBIGUOUS,
+            InteractionDiagnosticSeverity.UNSUPPORTED,
+            f"Cap {cap_spec_id} has {len(exact_matches)} exact incident "
+            f"Strip readings for {source_support_id}",
+            frozenset({component_id}),
+            frozenset(
+                item.arrival_model_id for item in exact_matches
+            ),
+        )
+    return exact_matches[0], None
+
+
 def compile_arrival_models(
     compilation: ReferenceEnvelopeCompilationV1,
     components: tuple[InteractionComponentV1, ...],
@@ -212,7 +253,7 @@ def compile_arrival_models(
         for item in boundary_resolved_envelopes
     }
     component_by_spec = {
-        spec_id: component
+        spec_id.value: component
         for component in components
         for spec_id in component.envelope_spec_ids
     }
@@ -225,6 +266,14 @@ def compile_arrival_models(
     models: list[ArrivalModelV1] = []
     diagnostics: list[InteractionDiagnosticV1] = []
     strip_models_by_spec: dict[str, list[StripArrivalModelV1]] = defaultdict(list)
+    explicit_self_reading_ids = frozenset(
+        reading_id
+        for declaration in compilation.self_contact_pair_declarations
+        for reading_id in (
+            declaration.left_front_reading_id,
+            declaration.right_front_reading_id,
+        )
+    )
 
     variant_order = {
         StripEnvelopeSpec: 0,
@@ -247,33 +296,28 @@ def compile_arrival_models(
         resolved = resolved_by_spec.get(spec_id)
         if isinstance(spec, JunctionEnvelopeSpec):
             model = UnsupportedJunctionArrivalModelV1(
-                arrival_model_id=stable_id(
+                arrival_model_id=ArrivalModelId(stable_id(
                     "junction-arrival-unproven", component.interaction_component_id, spec_id
-                ),
+                )),
                 model_kind=ArrivalModelKind.UNSUPPORTED_JUNCTION,
                 interaction_component_id=component.interaction_component_id,
-                decal_request_id=spec.decal_request_id.value,
-                patch_domain_id=spec.patch_domain_id.value,
-                envelope_spec_id=spec_id,
+                decal_request_id=spec.decal_request_id,
+                patch_domain_id=spec.patch_domain_id,
+                envelope_spec_id=spec.envelope_spec_id,
                 envelope_instance_id=(
-                    resolved.envelope_instance.envelope_instance_id
+                    EnvelopeInstanceId(
+                        resolved.envelope_instance.envelope_instance_id
+                    )
                     if resolved is not None
                     else None
                 ),
-                source_relation_id=spec.source_relation_id.value,
+                source_relation_id=InteractionRelationId(
+                    spec.source_relation_id.value
+                ),
                 outcome=InteractionOutcome.INTERACTION_JUNCTION_ARRIVAL_UNPROVEN,
                 message="Session C-R1 has no accepted exact Junction support law",
             )
             models.append(model)
-            diagnostics.append(
-                InteractionDiagnosticV1(
-                    model.outcome,
-                    InteractionDiagnosticSeverity.UNSUPPORTED,
-                    model.message,
-                    frozenset({component.interaction_component_id}),
-                    frozenset({model.arrival_model_id}),
-                )
-            )
             continue
         if resolved is None:
             diagnostics.append(
@@ -296,58 +340,75 @@ def compile_arrival_models(
             source_segments = context.support_segments_for_use(
                 seed.chain_use_id, spec_id
             )
-            grouped: dict[str, list] = defaultdict(list)
-            law_by_key = {}
-            source_by_key = {}
             for source in source_segments:
+                support_id = SourceSupportId(source.support_id)
+                front_component_id = FrontComponentId(
+                    source.front_component_id
+                )
+                declaration, issue = _front_reading_declaration(
+                    compilation,
+                    front_component_id,
+                    support_id,
+                )
+                if issue is not None:
+                    diagnostics.append(
+                        InteractionDiagnosticV1(
+                            issue.outcome,
+                            issue.severity,
+                            issue.message,
+                            frozenset(
+                                {component.interaction_component_id}
+                            ),
+                        )
+                    )
+                    continue
                 constant = _line_constant(source.owner_normal, source.start)
-                key = _law_key(source.owner_normal, constant)
                 law = ExactFrontArrivalLawV1(
-                    law_id=stable_id("strip-arrival-law", spec_id, key),
-                    support_id=source.support_id,
+                    law_id=declaration.arrival_law_id,
+                    support_id=support_id,
                     normal=source.owner_normal,
                     source_constant=constant,
                     normal_speed=ExactScalar.from_value(1),
                 )
                 moved_support_id = stable_id("moving-support", source.support_id)
-                grouped[key].extend(
+                active_boundary = (
+                    instance.exposed_segments
+                    if declaration.front_reading_id
+                    in explicit_self_reading_ids
+                    else component_boundary
+                )
+                active = tuple(
                     segment
-                    for segment in component_boundary
+                    for segment in active_boundary
                     if moved_support_id in segment.support_ids
                     and _segment_on_front(segment, law, resolved.effective_alpha)
                 )
-                law_by_key[key] = law
-                source_by_key[key] = source
-            law_keys = tuple(sorted(key for key, active in grouped.items() if active))
-            reading_ids, issue = _front_reading_ids(
-                compilation, next(iter(source_by_key.values())).front_component_id, law_keys
-            )
-            if issue is not None:
-                diagnostics.append(issue)
-                continue
-            for key, reading_id in zip(law_keys, reading_ids, strict=True):
-                source = source_by_key[key]
+                if not active:
+                    continue
                 model = StripArrivalModelV1(
-                    arrival_model_id=stable_id(
+                    arrival_model_id=ArrivalModelId(stable_id(
                         "strip-arrival-model",
                         component.interaction_component_id,
                         spec_id,
-                        key,
-                    ),
+                        support_id,
+                    )),
                     model_kind=ArrivalModelKind.STRIP,
                     interaction_component_id=component.interaction_component_id,
-                    decal_request_id=spec.decal_request_id.value,
-                    patch_domain_id=spec.patch_domain_id.value,
-                    envelope_spec_id=spec_id,
-                    envelope_instance_id=instance.envelope_instance_id,
-                    front_component_id=source.front_component_id,
-                    front_reading_id=reading_id,
-                    source_lineage_ids=frozenset(
-                        item.value for item in spec.source_lineage_ids
+                    decal_request_id=spec.decal_request_id,
+                    patch_domain_id=spec.patch_domain_id,
+                    envelope_spec_id=spec.envelope_spec_id,
+                    envelope_instance_id=EnvelopeInstanceId(
+                        instance.envelope_instance_id
                     ),
-                    arrival_law=law_by_key[key],
+                    front_component_id=front_component_id,
+                    front_reading_id=declaration.front_reading_id,
+                    source_lineage_ids=frozenset(
+                        LineageId(item.value)
+                        for item in spec.source_lineage_ids
+                    ),
+                    arrival_law=law,
                     active_segments=tuple(
-                        sorted(grouped[key], key=lambda item: item.segment_id)
+                        sorted(active, key=lambda item: item.segment_id)
                     ),
                     active_regions=instance.regions,
                     effective_alpha=resolved.effective_alpha,
@@ -363,10 +424,10 @@ def compile_arrival_models(
             )
             profile_laws = tuple(
                 ExactFrontArrivalLawV1(
-                    law_id=stable_id(
+                    law_id=LawId(stable_id(
                         "angular-profile-arrival-law", spec_id, ordinal, support_id
-                    ),
-                    support_id=support_id,
+                    )),
+                    support_id=SourceSupportId(support_id),
                     normal=normal,
                     source_constant=_line_constant(normal, anchor),
                     normal_speed=ExactScalar.from_value(1),
@@ -380,39 +441,41 @@ def compile_arrival_models(
                 active = tuple(
                     segment
                     for segment in component_boundary
-                    if support_id in segment.support_ids
+                    if support_id.value in segment.support_ids
                     and _segment_on_front(segment, law, resolved.effective_alpha)
                 )
                 if not active:
                     continue
-                reading_id = stable_id(
+                reading_id = FrontReadingId(stable_id(
                     "angular-profile-front-reading",
                     component.interaction_component_id,
                     support_id,
-                )
+                ))
                 models.append(
                     AngularProfileArrivalModelV1(
-                        arrival_model_id=stable_id(
+                        arrival_model_id=ArrivalModelId(stable_id(
                             "angular-profile-arrival-model",
                             component.interaction_component_id,
                             spec_id,
                             ordinal,
-                        ),
+                        )),
                         model_kind=ArrivalModelKind.ANGULAR_PROFILE,
                         interaction_component_id=component.interaction_component_id,
-                        decal_request_id=spec.decal_request_id.value,
-                        patch_domain_id=spec.patch_domain_id.value,
-                        envelope_spec_id=spec_id,
-                        envelope_instance_id=instance.envelope_instance_id,
-                        front_component_ids=frozenset(
-                            item.value
-                            for item in spec.incident_front_component_ids
+                        decal_request_id=spec.decal_request_id,
+                        patch_domain_id=spec.patch_domain_id,
+                        envelope_spec_id=spec.envelope_spec_id,
+                        envelope_instance_id=EnvelopeInstanceId(
+                            instance.envelope_instance_id
                         ),
+                        front_component_ids=spec.incident_front_component_ids,
                         front_reading_id=reading_id,
-                        source_relation_id=relation.corner_relation_id.value,
+                        source_relation_id=InteractionRelationId(
+                            relation.corner_relation_id.value
+                        ),
                         profile_support_ordinal=ordinal,
                         source_lineage_ids=frozenset(
-                            item.value for item in spec.source_lineage_ids
+                            LineageId(item.value)
+                            for item in spec.source_lineage_ids
                         ),
                         arrival_law=law,
                         component_profile_arrival_laws=profile_laws,
@@ -431,16 +494,6 @@ def compile_arrival_models(
             incident_models = strip_models_by_spec.get(
                 spec.incident_strip_spec_id.value, ()
             )
-            if not incident_models:
-                diagnostics.append(
-                    InteractionDiagnosticV1(
-                        InteractionOutcome.INTERACTION_MISSING_FRONT_READING,
-                        InteractionDiagnosticSeverity.UNSUPPORTED,
-                        f"Cap {spec_id} has no incident Strip arrival reading",
-                        frozenset({component.interaction_component_id}),
-                    )
-                )
-                continue
             source_segments = context.support_segments_for_use(
                 spec.incident_chain_use_id, spec.incident_strip_spec_id.value
             )
@@ -449,20 +502,17 @@ def compile_arrival_models(
                 if spec.endpoint_role.value == "START"
                 else source_segments[-1]
             )
-            constant = _line_constant(source.owner_normal, source.start)
-            law_key = _law_key(source.owner_normal, constant)
-            incident = next(
-                (
-                    item
-                    for item in incident_models
-                    if _law_key(
-                        item.arrival_law.normal,
-                        item.arrival_law.source_constant,
-                    )
-                    == law_key
-                ),
-                incident_models[0],
+            source_support_id = SourceSupportId(source.support_id)
+            incident, issue = _select_cap_incident_reading(
+                cap_spec_id=spec.envelope_spec_id,
+                component_id=component.interaction_component_id,
+                source_support_id=source_support_id,
+                incident_models=tuple(incident_models),
             )
+            if issue is not None:
+                diagnostics.append(issue)
+                continue
+            assert incident is not None
             terminal_support_id = stable_id(
                 "terminal-support",
                 source.support_id,
@@ -477,22 +527,25 @@ def compile_arrival_models(
                 continue
             models.append(
                 CapArrivalModelV1(
-                    arrival_model_id=stable_id(
+                    arrival_model_id=ArrivalModelId(stable_id(
                         "cap-arrival-model",
                         component.interaction_component_id,
                         spec_id,
-                    ),
+                    )),
                     model_kind=ArrivalModelKind.CAP,
                     interaction_component_id=component.interaction_component_id,
-                    decal_request_id=spec.decal_request_id.value,
-                    patch_domain_id=spec.patch_domain_id.value,
-                    envelope_spec_id=spec_id,
-                    envelope_instance_id=instance.envelope_instance_id,
-                    incident_strip_spec_id=spec.incident_strip_spec_id.value,
+                    decal_request_id=spec.decal_request_id,
+                    patch_domain_id=spec.patch_domain_id,
+                    envelope_spec_id=spec.envelope_spec_id,
+                    envelope_instance_id=EnvelopeInstanceId(
+                        instance.envelope_instance_id
+                    ),
+                    incident_strip_spec_id=spec.incident_strip_spec_id,
                     front_component_id=incident.front_component_id,
                     front_reading_id=incident.front_reading_id,
                     source_lineage_ids=frozenset(
-                        item.value for item in spec.source_lineage_ids
+                        LineageId(item.value)
+                        for item in spec.source_lineage_ids
                     ),
                     arrival_law=incident.arrival_law,
                     active_segments=tuple(
@@ -506,7 +559,9 @@ def compile_arrival_models(
             )
 
     return (
-        tuple(sorted(models, key=lambda item: item.arrival_model_id)),
+        tuple(
+            sorted(models, key=lambda item: item.arrival_model_id.value)
+        ),
         tuple(diagnostics),
     )
 
@@ -521,24 +576,36 @@ def front_arrival_reading(model) -> FrontArrivalReadingV1:
         arrival_law=model.arrival_law,
         effective_alpha=model.effective_alpha,
         active_segment_ids=tuple(
-            sorted(segment.segment_id for segment in model.active_segments)
+            ExactSegmentId(segment.segment_id)
+            for segment in sorted(
+                model.active_segments,
+                key=lambda item: item.segment_id,
+            )
         ),
     )
 
 
 def active_domain_certificate(model, locus_reachable: bool) -> ActiveDomainCertificateV1:
     return ActiveDomainCertificateV1(
-        certificate_id=stable_id(
+        certificate_id=ActiveDomainCertificateId(stable_id(
             "active-domain-certificate",
             model.arrival_model_id,
             *(sorted(segment.segment_id for segment in model.active_segments)),
-        ),
+        )),
         arrival_model_id=model.arrival_model_id,
         active_region_ids=tuple(
-            sorted(region.region_id for region in model.active_regions)
+            ExactRegionId(region.region_id)
+            for region in sorted(
+                model.active_regions,
+                key=lambda item: item.region_id,
+            )
         ),
         active_segment_ids=tuple(
-            sorted(segment.segment_id for segment in model.active_segments)
+            ExactSegmentId(segment.segment_id)
+            for segment in sorted(
+                model.active_segments,
+                key=lambda item: item.segment_id,
+            )
         ),
         locus_reachable=locus_reachable,
     )

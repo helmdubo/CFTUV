@@ -14,12 +14,17 @@ from ..ids import (
     FrontReadingId,
     FrontSeedId,
     LineageId,
+    LawId,
     OwnerSectorId,
     PatchDomainId,
     PatchId,
+    PhysicalEdgeId,
     SemanticArrangementId,
+    SelfContactPairDeclarationId,
     SharedSemanticAnchorId,
+    SourceSupportId,
     SourceRevision,
+    SourceVertexId,
 )
 from ..numeric import MetricLengthV1
 from ..outcomes import NamedOutcome
@@ -106,6 +111,34 @@ class FrontComponentV1:
 
 
 @dataclass(frozen=True, slots=True)
+class PhysicalSupportIntervalV1:
+    physical_edge_id: PhysicalEdgeId
+    start_vertex_id: SourceVertexId
+    end_vertex_id: SourceVertexId
+
+
+@dataclass(frozen=True, slots=True)
+class FrontReadingDeclarationV1:
+    front_reading_id: FrontReadingId
+    front_component_id: FrontComponentId
+    source_support_id: SourceSupportId
+    physical_interval: PhysicalSupportIntervalV1
+    chain_use_id: ChainUseId
+    owner_sector_id: OwnerSectorId
+    arrival_law_id: LawId
+
+
+@dataclass(frozen=True, slots=True)
+class SelfContactPairDeclarationV1:
+    declaration_id: SelfContactPairDeclarationId
+    left_front_component_id: FrontComponentId
+    right_front_component_id: FrontComponentId
+    left_front_reading_id: FrontReadingId
+    right_front_reading_id: FrontReadingId
+    source_lineage_ids: frozenset[LineageId]
+
+
+@dataclass(frozen=True, slots=True)
 class StationFlowV1:
     authority: StationFlowAuthority
     longitudinal: StationAxis
@@ -148,6 +181,12 @@ class CompiledPatchEvaluationPlanV1:
     tessellation_plan: TessellationPlanV1
     geometry_batch_provenance: GeometryBatchProvenanceV1
     named_outcomes: frozenset[NamedOutcome]
+    front_reading_declarations: frozenset[
+        FrontReadingDeclarationV1
+    ] = frozenset()
+    self_contact_pair_declarations: frozenset[
+        SelfContactPairDeclarationV1
+    ] = frozenset()
 
 
 CompiledPatchEvaluationPlan = CompiledPatchEvaluationPlanV1

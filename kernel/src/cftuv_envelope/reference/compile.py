@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 from fractions import Fraction
 from hashlib import sha256
@@ -54,11 +55,15 @@ from ..contracts.plan import (
     BranchCountPolicy,
     CapacityReason,
     FrontComponentV1,
+    FrontReadingDeclarationV1,
     FrontLifecycle,
     FrontTerminalOutcome,
+    PhysicalSupportIntervalV1,
     PlanKeyV1,
+    SelfContactPairDeclarationV1,
 )
 from ..contracts.request import DecalRequestV1
+from ..contracts.surface import SurfacePayloadMode
 from ..contracts.seeds import (
     CapSeedV1,
     CornerSeedV1,
@@ -72,12 +77,16 @@ from ..ids import (
     CornerSeedId,
     EnvelopeSpecId,
     FrontComponentId,
+    FrontReadingId,
     FrontSeedId,
     HiddenSupportId,
     JunctionSeedId,
+    LawId,
     PatchDomainId,
     PerPatchProjectionId,
     SelectionCertificateId,
+    SelfContactPairDeclarationId,
+    SourceSupportId,
 )
 from ..numeric import ExactRatioV1, IntervalEndpointKind, LocalLengthV1
 from ..validation import (
@@ -94,7 +103,10 @@ from .contracts import (
     ReferenceOutcome,
 )
 from .provenance import make_reference_provenance
-from .validation import validate_reference_geometry_certificates
+from .validation import (
+    validate_reference_geometry_certificates,
+    validate_reference_geometry_payload,
+)
 
 
 def _stable_value(kind: str, *parts: object) -> str:
@@ -155,6 +167,197 @@ def _physical_endpoint_order(chain_use, chain) -> tuple:
     if chain_use.orientation.value == "B_START_TO_END":
         vertices = tuple(reversed(vertices))
     return vertices[0], vertices[-1]
+
+
+def _attach_front_reading_declarations(
+    compilation: ReferenceEnvelopeCompilationV1,
+) -> ReferenceEnvelopeCompilationV1 | ReferenceCompileResultV1:
+    """Bind every exact source interval to one immutable reading declaration."""
+
+    from .common import GeometryContext, ReferenceGeometryError
+
+    if (
+        compilation.analysis_snapshot.surface_ir.payload_mode
+        is not SurfacePayloadMode.FULL_HOST_SURFACE
+    ):
+        return compilation
+    frame, diagnostics = validate_reference_geometry_payload(
+        compilation.analysis_snapshot,
+        compilation.plan_key.patch_domain_id,
+    )
+    if frame is None:
+        return ReferenceCompileResultV1(
+            diagnostics[0].outcome,
+            None,
+            diagnostics,
+        )
+    context = GeometryContext.build(compilation, frame)
+    declarations = set()
+    by_component: dict[FrontComponentId, list[FrontReadingDeclarationV1]] = {}
+    try:
+        for spec in sorted(
+            (
+                item
+                for item in compilation.envelope_specs
+                if isinstance(item, StripEnvelopeSpec)
+            ),
+            key=lambda item: item.envelope_spec_id.value,
+        ):
+            for source in context.support_segments_for_use(
+                next(
+                    item.chain_use_id
+                    for item in compilation.seeds
+                    if getattr(item, "seed_id", None) == spec.source_seed_id
+                ),
+                spec.envelope_spec_id.value,
+            ):
+                component_id = FrontComponentId(source.front_component_id)
+                support_id = SourceSupportId(source.support_id)
+                reading = FrontReadingDeclarationV1(
+                    front_reading_id=FrontReadingId(
+                        _stable_value(
+                            "front-reading",
+                            component_id,
+                            support_id,
+                        )
+                    ),
+                    front_component_id=component_id,
+                    source_support_id=support_id,
+                    physical_interval=PhysicalSupportIntervalV1(
+                        physical_edge_id=source.physical_edge_id,
+                        start_vertex_id=source.source_vertex_start_id,
+                        end_vertex_id=source.source_vertex_end_id,
+                    ),
+                    chain_use_id=source.chain_use_id,
+                    owner_sector_id=next(
+                        item.sector_id
+                        for item in compilation.front_components
+                        if item.front_component_id == component_id
+                    ),
+                    arrival_law_id=LawId(
+                        _stable_value(
+                            "strip-arrival-law",
+                            spec.envelope_spec_id,
+                            support_id,
+                        )
+                    ),
+                )
+                declarations.add(reading)
+                by_component.setdefault(component_id, []).append(reading)
+    except ReferenceGeometryError:
+        # Compile Session C остаётся topology-only для геометрии, которую
+        # evaluator отклоняет named outcome. Session D не выдумывает reading
+        # declarations без exact source supports.
+        return compilation
+
+    reading_ids_by_component = {
+        component_id: frozenset(
+            item.front_reading_id for item in component_declarations
+        )
+        for component_id, component_declarations in by_component.items()
+    }
+    return replace(
+        compilation,
+        front_components=frozenset(
+            replace(
+                component,
+                front_reading_ids=reading_ids_by_component.get(
+                    component.front_component_id,
+                    frozenset(),
+                ),
+            )
+            for component in compilation.front_components
+        ),
+        front_reading_declarations=frozenset(declarations),
+        self_contact_pair_declarations=frozenset(),
+    )
+
+
+def declare_reference_self_contacts(
+    compilation: ReferenceEnvelopeCompilationV1,
+    reading_pairs: tuple[tuple[FrontReadingId, FrontReadingId], ...],
+) -> ReferenceCompileResultV1:
+    """Attach only explicitly authorized same-lineage reading pairs."""
+
+    readings = {
+        item.front_reading_id: item
+        for item in compilation.front_reading_declarations
+    }
+    uses = {
+        item.chain_use_id: item
+        for item in compilation.analysis_snapshot.chain_uses
+    }
+    chains = {
+        item.physical_chain_id: item
+        for item in compilation.analysis_snapshot.physical_chains
+    }
+    declarations = set()
+    canonical_pairs = set()
+    for supplied_left, supplied_right in reading_pairs:
+        if supplied_left == supplied_right:
+            return _failure(
+                ReferenceOutcome.REFERENCE_INPUT_CONTRACT_INVALID,
+                "SelfContactPairDeclarationV1 requires two distinct readings",
+            )
+        left = readings.get(supplied_left)
+        right = readings.get(supplied_right)
+        if left is None or right is None:
+            return _failure(
+                ReferenceOutcome.REFERENCE_INPUT_CONTRACT_INVALID,
+                "SelfContactPairDeclarationV1 references an absent FrontReading",
+            )
+        pair_key = frozenset({supplied_left, supplied_right})
+        if pair_key in canonical_pairs:
+            return _failure(
+                ReferenceOutcome.REFERENCE_INPUT_CONTRACT_INVALID,
+                "duplicate SelfContactPairDeclarationV1 reading pair",
+            )
+        canonical_pairs.add(pair_key)
+        left_lineage = chains[
+            uses[left.chain_use_id].physical_chain_id
+        ].source_lineage
+        right_lineage = chains[
+            uses[right.chain_use_id].physical_chain_id
+        ].source_lineage
+        if not left_lineage or left_lineage != right_lineage:
+            return _failure(
+                ReferenceOutcome.REFERENCE_INPUT_CONTRACT_INVALID,
+                "self-contact readings must carry one identical non-empty "
+                "source lineage set",
+            )
+        ordered = tuple(
+            sorted(
+                (left, right),
+                key=lambda item: item.front_reading_id.value,
+            )
+        )
+        declarations.add(
+            SelfContactPairDeclarationV1(
+                declaration_id=SelfContactPairDeclarationId(
+                    _stable_value(
+                        "self-contact-pair",
+                        ordered[0].front_component_id,
+                        ordered[0].front_reading_id,
+                        ordered[1].front_component_id,
+                        ordered[1].front_reading_id,
+                    )
+                ),
+                left_front_component_id=ordered[0].front_component_id,
+                right_front_component_id=ordered[1].front_component_id,
+                left_front_reading_id=ordered[0].front_reading_id,
+                right_front_reading_id=ordered[1].front_reading_id,
+                source_lineage_ids=left_lineage,
+            )
+        )
+    declared = replace(
+        compilation,
+        self_contact_pair_declarations=frozenset(declarations),
+    )
+    return ReferenceCompileResultV1(
+        ReferenceOutcome.EXACT,
+        declared,
+        (),
+    )
 
 
 def compile_reference_envelopes(
@@ -688,4 +891,11 @@ def compile_reference_envelopes(
             )
         ),
     )
-    return ReferenceCompileResultV1(ReferenceOutcome.EXACT, compilation, ())
+    compiled_with_readings = _attach_front_reading_declarations(compilation)
+    if isinstance(compiled_with_readings, ReferenceCompileResultV1):
+        return compiled_with_readings
+    return ReferenceCompileResultV1(
+        ReferenceOutcome.EXACT,
+        compiled_with_readings,
+        (),
+    )

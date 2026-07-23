@@ -145,6 +145,16 @@ class FrontReadingId(OpaqueId):
 
 
 @dataclass(frozen=True, slots=True)
+class SourceSupportId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class SelfContactPairDeclarationId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
 class EnvelopeSpecId(OpaqueId):
     pass
 
@@ -171,6 +181,76 @@ class CoverageId(OpaqueId):
 
 @dataclass(frozen=True, slots=True)
 class InteractionId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class InteractionComponentId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class ArrivalModelId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class InteractionCandidateId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class InteractionRelationId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class MutualArrivalCertificateId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class EqualityLocusId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class EqualityLocusSegmentId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class InteractionApplicationId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedContributionId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class SameAlphaInteractionBatchId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class ActiveDomainCertificateId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class ExactSegmentId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class ExactRegionId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class ConstructionCertificateId(OpaqueId):
     pass
 
 

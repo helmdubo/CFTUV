@@ -6,7 +6,33 @@ from dataclasses import dataclass
 from enum import Enum
 
 from ..contracts.plan import PlanKeyV1
-from ..ids import SourceRevision
+from ..ids import (
+    ActiveDomainCertificateId,
+    ArrivalModelId,
+    ConstructionCertificateId,
+    DecalRequestId,
+    EnvelopeInstanceId,
+    EnvelopeSpecId,
+    EqualityLocusId,
+    EqualityLocusSegmentId,
+    ExactRegionId,
+    ExactSegmentId,
+    FrontComponentId,
+    FrontReadingId,
+    InteractionApplicationId,
+    InteractionCandidateId,
+    InteractionComponentId,
+    InteractionRelationId,
+    LawId,
+    LineageId,
+    MutualArrivalCertificateId,
+    PatchDomainId,
+    ResolvedContributionId,
+    SameAlphaInteractionBatchId,
+    SelfContactPairDeclarationId,
+    SourceRevision,
+    SourceSupportId,
+)
 from ..numeric import LocalLengthV1
 from ..reference.contracts import (
     RawCoverageEdgeV1,
@@ -52,6 +78,12 @@ class InteractionOutcome(str, Enum):
         "INTERACTION_COINCIDENT_ARRIVAL_LAWS_UNPROVEN"
     )
     INTERACTION_MISSING_FRONT_READING = "INTERACTION_MISSING_FRONT_READING"
+    INTERACTION_CAP_READING_AMBIGUOUS = (
+        "INTERACTION_CAP_READING_AMBIGUOUS"
+    )
+    INTERACTION_EQUIVALENT_LOCUS_PROVENANCE_UNPROVEN = (
+        "INTERACTION_EQUIVALENT_LOCUS_PROVENANCE_UNPROVEN"
+    )
     INTERACTION_EXACT_PREDICATE_UNDECIDABLE = (
         "INTERACTION_EXACT_PREDICATE_UNDECIDABLE"
     )
@@ -96,26 +128,26 @@ class InteractionDiagnosticV1:
     outcome: InteractionOutcome
     severity: InteractionDiagnosticSeverity
     message: str
-    interaction_component_ids: frozenset[str] = frozenset()
-    arrival_model_ids: frozenset[str] = frozenset()
+    interaction_component_ids: frozenset[InteractionComponentId] = frozenset()
+    arrival_model_ids: frozenset[ArrivalModelId] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
 class InteractionComponentV1:
-    interaction_component_id: str
-    decal_request_id: str
-    patch_domain_id: str
-    envelope_spec_ids: frozenset[str]
-    envelope_instance_ids: frozenset[str]
-    front_component_ids: frozenset[str]
-    relation_ids: frozenset[str]
-    source_lineage_ids: frozenset[str]
+    interaction_component_id: InteractionComponentId
+    decal_request_id: DecalRequestId
+    patch_domain_id: PatchDomainId
+    envelope_spec_ids: frozenset[EnvelopeSpecId]
+    envelope_instance_ids: frozenset[EnvelopeInstanceId]
+    front_component_ids: frozenset[FrontComponentId]
+    relation_ids: frozenset[InteractionRelationId]
+    source_lineage_ids: frozenset[LineageId]
 
 
 @dataclass(frozen=True, slots=True)
 class ExactFrontArrivalLawV1:
-    law_id: str
-    support_id: str
+    law_id: LawId
+    support_id: SourceSupportId
     normal: ExactPlanarVector
     source_constant: ExactScalar
     normal_speed: ExactScalar
@@ -123,16 +155,16 @@ class ExactFrontArrivalLawV1:
 
 @dataclass(frozen=True, slots=True)
 class StripArrivalModelV1:
-    arrival_model_id: str
+    arrival_model_id: ArrivalModelId
     model_kind: ArrivalModelKind
-    interaction_component_id: str
-    decal_request_id: str
-    patch_domain_id: str
-    envelope_spec_id: str
-    envelope_instance_id: str
-    front_component_id: str
-    front_reading_id: str
-    source_lineage_ids: frozenset[str]
+    interaction_component_id: InteractionComponentId
+    decal_request_id: DecalRequestId
+    patch_domain_id: PatchDomainId
+    envelope_spec_id: EnvelopeSpecId
+    envelope_instance_id: EnvelopeInstanceId
+    front_component_id: FrontComponentId
+    front_reading_id: FrontReadingId
+    source_lineage_ids: frozenset[LineageId]
     arrival_law: ExactFrontArrivalLawV1
     active_segments: tuple[BoundedSupportSegment, ...]
     active_regions: tuple[PlanarRegion, ...]
@@ -142,18 +174,18 @@ class StripArrivalModelV1:
 
 @dataclass(frozen=True, slots=True)
 class AngularProfileArrivalModelV1:
-    arrival_model_id: str
+    arrival_model_id: ArrivalModelId
     model_kind: ArrivalModelKind
-    interaction_component_id: str
-    decal_request_id: str
-    patch_domain_id: str
-    envelope_spec_id: str
-    envelope_instance_id: str
-    front_component_ids: frozenset[str]
-    front_reading_id: str
-    source_relation_id: str
+    interaction_component_id: InteractionComponentId
+    decal_request_id: DecalRequestId
+    patch_domain_id: PatchDomainId
+    envelope_spec_id: EnvelopeSpecId
+    envelope_instance_id: EnvelopeInstanceId
+    front_component_ids: frozenset[FrontComponentId]
+    front_reading_id: FrontReadingId
+    source_relation_id: InteractionRelationId
     profile_support_ordinal: int
-    source_lineage_ids: frozenset[str]
+    source_lineage_ids: frozenset[LineageId]
     arrival_law: ExactFrontArrivalLawV1
     component_profile_arrival_laws: tuple[ExactFrontArrivalLawV1, ...]
     active_segments: tuple[BoundedSupportSegment, ...]
@@ -165,17 +197,17 @@ class AngularProfileArrivalModelV1:
 
 @dataclass(frozen=True, slots=True)
 class CapArrivalModelV1:
-    arrival_model_id: str
+    arrival_model_id: ArrivalModelId
     model_kind: ArrivalModelKind
-    interaction_component_id: str
-    decal_request_id: str
-    patch_domain_id: str
-    envelope_spec_id: str
-    envelope_instance_id: str
-    incident_strip_spec_id: str
-    front_component_id: str
-    front_reading_id: str
-    source_lineage_ids: frozenset[str]
+    interaction_component_id: InteractionComponentId
+    decal_request_id: DecalRequestId
+    patch_domain_id: PatchDomainId
+    envelope_spec_id: EnvelopeSpecId
+    envelope_instance_id: EnvelopeInstanceId
+    incident_strip_spec_id: EnvelopeSpecId
+    front_component_id: FrontComponentId
+    front_reading_id: FrontReadingId
+    source_lineage_ids: frozenset[LineageId]
     arrival_law: ExactFrontArrivalLawV1
     active_segments: tuple[BoundedSupportSegment, ...]
     active_regions: tuple[PlanarRegion, ...]
@@ -186,14 +218,14 @@ class CapArrivalModelV1:
 
 @dataclass(frozen=True, slots=True)
 class UnsupportedJunctionArrivalModelV1:
-    arrival_model_id: str
+    arrival_model_id: ArrivalModelId
     model_kind: ArrivalModelKind
-    interaction_component_id: str
-    decal_request_id: str
-    patch_domain_id: str
-    envelope_spec_id: str
-    envelope_instance_id: str | None
-    source_relation_id: str
+    interaction_component_id: InteractionComponentId
+    decal_request_id: DecalRequestId
+    patch_domain_id: PatchDomainId
+    envelope_spec_id: EnvelopeSpecId
+    envelope_instance_id: EnvelopeInstanceId | None
+    source_relation_id: InteractionRelationId
     outcome: InteractionOutcome
     message: str
 
@@ -208,96 +240,104 @@ ArrivalModelV1 = (
 
 @dataclass(frozen=True, slots=True)
 class InteractionCandidateV1:
-    candidate_id: str
-    left_component_id: str
-    right_component_id: str
+    candidate_id: InteractionCandidateId
+    left_component_id: InteractionComponentId
+    right_component_id: InteractionComponentId
     candidate_kind: InteractionCandidateKind
-    decal_request_id: str
-    patch_domain_id: str
+    decal_request_id: DecalRequestId
+    patch_domain_id: PatchDomainId
     source_provenance: InteractionProvenanceV1
+    self_contact_pair_declaration_id: (
+        SelfContactPairDeclarationId | None
+    ) = None
+    participant_front_reading_ids: (
+        tuple[FrontReadingId, FrontReadingId] | None
+    ) = None
 
 
 @dataclass(frozen=True, slots=True)
 class FrontArrivalReadingV1:
-    front_reading_id: str
-    arrival_model_id: str
-    interaction_component_id: str
-    envelope_spec_id: str
-    envelope_instance_id: str
+    front_reading_id: FrontReadingId
+    arrival_model_id: ArrivalModelId
+    interaction_component_id: InteractionComponentId
+    envelope_spec_id: EnvelopeSpecId
+    envelope_instance_id: EnvelopeInstanceId
     arrival_law: ExactFrontArrivalLawV1
     effective_alpha: ExactScalar
-    active_segment_ids: tuple[str, ...]
+    active_segment_ids: tuple[ExactSegmentId, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class ActiveDomainCertificateV1:
-    certificate_id: str
-    arrival_model_id: str
-    active_region_ids: tuple[str, ...]
-    active_segment_ids: tuple[str, ...]
+    certificate_id: ActiveDomainCertificateId
+    arrival_model_id: ArrivalModelId
+    active_region_ids: tuple[ExactRegionId, ...]
+    active_segment_ids: tuple[ExactSegmentId, ...]
     locus_reachable: bool
 
 
 @dataclass(frozen=True, slots=True)
 class MutualArrivalCertificateV1:
-    certificate_id: str
-    candidate_id: str
+    certificate_id: MutualArrivalCertificateId
+    candidate_id: InteractionCandidateId
     left_front_reading: FrontArrivalReadingV1
     right_front_reading: FrontArrivalReadingV1
+    equivalent_left_front_readings: frozenset[FrontArrivalReadingV1]
+    equivalent_right_front_readings: frozenset[FrontArrivalReadingV1]
     exact_alpha: ExactScalar
-    arrival_laws: tuple[ExactFrontArrivalLawV1, ExactFrontArrivalLawV1]
-    active_domain_certificates: tuple[
-        ActiveDomainCertificateV1, ActiveDomainCertificateV1
-    ]
-    reachability_certificates: tuple[
-        ReachabilityCertificateV1, ReachabilityCertificateV1
-    ]
-    same_alpha_batch_identity: str
+    arrival_laws: tuple[ExactFrontArrivalLawV1, ...]
+    active_domain_certificates: tuple[ActiveDomainCertificateV1, ...]
+    reachability_certificates: tuple[ReachabilityCertificateV1, ...]
+    same_alpha_batch_identity: SameAlphaInteractionBatchId
 
 
 @dataclass(frozen=True, slots=True)
 class EqualityLocusSegmentV1:
-    segment_id: str
+    segment_id: EqualityLocusSegmentId
     start: ExactPlanarPoint
     end: ExactPlanarPoint
-    left_front_reading_id: str
-    right_front_reading_id: str
-    construction_certificate_id: str
+    left_front_reading_id: FrontReadingId
+    right_front_reading_id: FrontReadingId
+    participant_front_reading_ids: frozenset[FrontReadingId]
+    construction_certificate_id: ConstructionCertificateId
 
 
 @dataclass(frozen=True, slots=True)
 class EqualityLocusV1:
-    locus_id: str
+    locus_id: EqualityLocusId
     ordered_exact_segments: tuple[EqualityLocusSegmentV1, ...]
     event_anchor_points: tuple[ExactPlanarPoint, ...]
-    participant_front_reading_ids: tuple[str, str]
-    construction_certificate_ids: tuple[str, ...]
+    participant_front_reading_ids: frozenset[FrontReadingId]
+    construction_certificate_ids: tuple[ConstructionCertificateId, ...]
     owner: EqualityLocusOwner
 
 
 @dataclass(frozen=True, slots=True)
 class ResolvedContributionV1:
+    resolved_contribution_id: ResolvedContributionId
     original_envelope_instance: ReferenceEnvelopeInstanceV1
-    interaction_component_id: str
-    retained_front_reading_ids: frozenset[str]
+    interaction_component_id: InteractionComponentId
+    retained_front_reading_ids: frozenset[FrontReadingId]
     retained_exact_regions: tuple[PlanarRegion, ...]
     removed_exact_regions: tuple[PlanarRegion, ...]
-    interaction_ids: tuple[str, ...]
+    interaction_ids: tuple[InteractionApplicationId, ...]
     freeze_state: FreezeState
 
 
 @dataclass(frozen=True, slots=True)
 class InteractionApplicationV1:
-    interaction_id: str
+    interaction_id: InteractionApplicationId
     policy_id: str
-    candidate_id: str
-    mutual_arrival_certificate_id: str
-    equality_locus_id: str
-    participant_component_ids: tuple[str, str]
+    candidate_id: InteractionCandidateId
+    mutual_arrival_certificate_id: MutualArrivalCertificateId
+    equality_locus_id: EqualityLocusId
+    participant_component_ids: tuple[
+        InteractionComponentId, InteractionComponentId
+    ]
     coverage_effect: InteractionCoverageEffect
     creates_new_matter: bool
     exact_alpha: ExactScalar
-    same_alpha_batch_identity: str
+    same_alpha_batch_identity: SameAlphaInteractionBatchId
 
 
 @dataclass(frozen=True, slots=True)

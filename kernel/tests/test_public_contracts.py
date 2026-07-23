@@ -10,10 +10,25 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 import cftuv_envelope
-from cftuv_envelope import ChainUseId, PatchId
+from cftuv_envelope import (
+    ArrivalModelId,
+    ChainUseId,
+    EnvelopeInstanceId,
+    EnvelopeSpecId,
+    EqualityLocusId,
+    FrontComponentId,
+    FrontReadingId,
+    InteractionApplicationId,
+    InteractionCandidateId,
+    InteractionComponentId,
+    MutualArrivalCertificateId,
+    PatchId,
+    ResolvedContributionId,
+    SameAlphaInteractionBatchId,
+)
 
 
-PUBLIC_API_EC2_5_SHA256 = "979e47620bda7d6eb464e3be1ab26a09043029a1c102ccadf79f41b292fa0e79"
+PUBLIC_API_EC2_5_SHA256 = "f638651fd956a6e6aca5326b61f6a831d4891a68cebf7347753de139d048fa1d"
 
 
 def _public_record_types():
@@ -84,6 +99,24 @@ def test_typed_ids_reject_cross_identity_equality_and_mutation():
     assert patch_id != chain_use_id
     with pytest.raises(FrozenInstanceError):
         patch_id.value = "changed"
+
+
+def test_session_d_public_ids_are_nominally_distinct():
+    identities = (
+        InteractionComponentId("shared-text"),
+        ArrivalModelId("shared-text"),
+        FrontReadingId("shared-text"),
+        InteractionCandidateId("shared-text"),
+        MutualArrivalCertificateId("shared-text"),
+        EqualityLocusId("shared-text"),
+        InteractionApplicationId("shared-text"),
+        ResolvedContributionId("shared-text"),
+        SameAlphaInteractionBatchId("shared-text"),
+        EnvelopeSpecId("shared-text"),
+        EnvelopeInstanceId("shared-text"),
+        FrontComponentId("shared-text"),
+    )
+    assert len(set(identities)) == len(identities)
 
 
 def test_nested_collections_are_immutable(projections):

@@ -112,6 +112,37 @@ def test_c13_third_strip_meets_actual_exposed_k_profile(hidden_count):
         )
         for certificate in resolved.mutual_arrival_certificates
     )
+    merged_certificates = tuple(
+        certificate
+        for certificate in resolved.mutual_arrival_certificates
+        if (
+            len(certificate.equivalent_left_front_readings)
+            + len(certificate.equivalent_right_front_readings)
+        )
+        > 2
+    )
+    assert merged_certificates
+    loci_by_id = {
+        application.mutual_arrival_certificate_id: next(
+            locus
+            for locus in resolved.equality_loci
+            if locus.locus_id == application.equality_locus_id
+        )
+        for application in resolved.interaction_applications
+    }
+    for certificate in merged_certificates:
+        participant_ids = {
+            reading.front_reading_id
+            for reading in (
+                *certificate.equivalent_left_front_readings,
+                *certificate.equivalent_right_front_readings,
+            )
+        }
+        assert (
+            loci_by_id[certificate.certificate_id]
+            .participant_front_reading_ids
+            == participant_ids
+        )
     angular_models = tuple(
         item
         for item in after.arrival_models

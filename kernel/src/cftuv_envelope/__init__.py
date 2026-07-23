@@ -31,7 +31,10 @@ from .contracts import seeds as _seeds
 from .contracts import surface as _surface
 from .contracts import tessellation as _tessellation
 from .schema import ContractSchemaError, json_schema_for
-from .reference.compile import compile_reference_envelopes
+from .reference.compile import (
+    compile_reference_envelopes,
+    declare_reference_self_contacts,
+)
 from .reference.contracts import (
     REFERENCE_COMPILATION_SCHEMA_V1,
     RAW_COVERAGE_RESULT_SCHEMA_V1,
@@ -158,6 +161,7 @@ __all__ = (
     "semantic_plan_digest",
     "geometry_batch_semantic_digest",
     "compile_reference_envelopes",
+    "declare_reference_self_contacts",
     "evaluate_reference_raw_coverage",
     "REFERENCE_BOUNDARY_CAPABILITIES_V1",
     "RawCoverageSemanticDigest",
@@ -265,12 +269,28 @@ __all__ = (
     "EndpointClaimSeedId",
     "FrontComponentId",
     "FrontReadingId",
+    "SourceSupportId",
+    "SelfContactPairDeclarationId",
     "EnvelopeSpecId",
     "EnvelopeInstanceId",
     "HiddenSupportId",
     "SelectionCertificateId",
     "CoverageId",
     "InteractionId",
+    "InteractionComponentId",
+    "ArrivalModelId",
+    "InteractionCandidateId",
+    "InteractionRelationId",
+    "MutualArrivalCertificateId",
+    "EqualityLocusId",
+    "EqualityLocusSegmentId",
+    "InteractionApplicationId",
+    "ResolvedContributionId",
+    "SameAlphaInteractionBatchId",
+    "ActiveDomainCertificateId",
+    "ExactSegmentId",
+    "ExactRegionId",
+    "ConstructionCertificateId",
     "OwnershipClaimId",
     "EqualityBoundaryId",
     "EventPredicateId",
@@ -473,6 +493,9 @@ __all__ = (
     "StorageReversalEffect",
     "PlanKeyV1",
     "FrontComponentV1",
+    "PhysicalSupportIntervalV1",
+    "FrontReadingDeclarationV1",
+    "SelfContactPairDeclarationV1",
     "StationFlowV1",
     "GeometryBatchProvenanceV1",
     "CompiledPatchEvaluationPlanV1",

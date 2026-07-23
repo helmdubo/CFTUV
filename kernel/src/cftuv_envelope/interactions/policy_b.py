@@ -6,6 +6,10 @@ from dataclasses import dataclass
 
 import sympy as sp
 
+from ..ids import (
+    InteractionApplicationId,
+    ResolvedContributionId,
+)
 from ..reference.arrangement import (
     ExactSegmentArrangementBackend,
     _point_on_segment,
@@ -562,7 +566,7 @@ def apply_policy_b(
         for item in boundary_resolved_envelopes
     }
     component_by_instance = {
-        instance_id: component
+        instance_id.value: component
         for component in components
         for instance_id in component.envelope_instance_ids
     }
@@ -581,7 +585,7 @@ def apply_policy_b(
     applications = []
     self_outputs = []
     diagnostics = []
-    proof_groups: dict[str, list[ProvenInteractionV1]] = {}
+    proof_groups = {}
     for proof in proofs:
         proof_groups.setdefault(proof.candidate.candidate_id, []).append(proof)
 
@@ -597,11 +601,11 @@ def apply_policy_b(
         candidate = group[0].candidate
         prepared = []
         for proof in group:
-            interaction_id = stable_id(
+            interaction_id = InteractionApplicationId(stable_id(
                 "interaction-application",
                 proof.candidate.candidate_id,
                 proof.mutual_arrival_certificate.certificate_id,
-            )
+            ))
             prepared.append(
                 (
                     proof,
@@ -610,19 +614,21 @@ def apply_policy_b(
                         rectangle,
                         proof.clipped_locus.line,
                         keep_nonpositive=True,
-                        proof_id=interaction_id,
+                        proof_id=interaction_id.value,
                     ),
                     _halfplane_polygon(
                         rectangle,
                         proof.clipped_locus.line,
                         keep_nonpositive=False,
-                        proof_id=interaction_id,
+                        proof_id=interaction_id.value,
                     ),
                 )
             )
         if (
             candidate.candidate_kind
             is InteractionCandidateKind.EXPLICIT_SELF_CONTACT
+            and candidate.left_component_id
+            == candidate.right_component_id
         ):
             if len(prepared) != 1:
                 diagnostics.append(
@@ -636,7 +642,8 @@ def apply_policy_b(
                 continue
             proof, interaction_id, left_halfplane, right_halfplane = prepared[0]
             component = component_by_id[candidate.left_component_id]
-            for instance_id in component.envelope_instance_ids:
+            for typed_instance_id in component.envelope_instance_ids:
+                instance_id = typed_instance_id.value
                 if instance_id not in current:
                     continue
                 source = current[instance_id]
@@ -703,7 +710,8 @@ def apply_policy_b(
                 )
                 group_interaction_ids = tuple(item[1] for item in prepared)
                 profile_component = component_by_id[profile_component_id]
-                for instance_id in profile_component.envelope_instance_ids:
+                for typed_instance_id in profile_component.envelope_instance_ids:
+                    instance_id = typed_instance_id.value
                     if instance_id not in current:
                         continue
                     retained = current[instance_id]
@@ -735,10 +743,11 @@ def apply_policy_b(
                 profile_retained = tuple(
                     region
                     for instance_id in profile_component.envelope_instance_ids
-                    for region in current.get(instance_id, ())
+                    for region in current.get(instance_id.value, ())
                 )
                 other_component = component_by_id[other_component_id]
-                for instance_id in other_component.envelope_instance_ids:
+                for typed_instance_id in other_component.envelope_instance_ids:
+                    instance_id = typed_instance_id.value
                     if instance_id not in current:
                         continue
                     source = current[instance_id]
@@ -749,7 +758,7 @@ def apply_policy_b(
                         reachability[instance_id],
                         reachability,
                         domain_regions,
-                        candidate.candidate_id,
+                        candidate.candidate_id.value,
                     )
                     for clip_index, clip in enumerate(profile_retained):
                         removed[instance_id].extend(
@@ -801,7 +810,8 @@ def apply_policy_b(
                     group_interaction_ids = tuple(
                         item[1] for item in prepared
                     )
-                    for instance_id in component.envelope_instance_ids:
+                    for typed_instance_id in component.envelope_instance_ids:
+                        instance_id = typed_instance_id.value
                         if instance_id not in current:
                             continue
                         source = current[instance_id]
@@ -904,6 +914,13 @@ def apply_policy_b(
                 )
             contributions.append(
                 ResolvedContributionV1(
+                    resolved_contribution_id=ResolvedContributionId(
+                        stable_id(
+                            "resolved-contribution",
+                            instance_id,
+                            "aggregate",
+                        )
+                    ),
                     original_envelope_instance=item.envelope_instance,
                     interaction_component_id=component.interaction_component_id,
                     retained_front_reading_ids=frozenset(
@@ -920,6 +937,13 @@ def apply_policy_b(
                 continue
             contributions.append(
                 ResolvedContributionV1(
+                    resolved_contribution_id=ResolvedContributionId(
+                        stable_id(
+                            "resolved-contribution",
+                            instance_id,
+                            reading_id,
+                        )
+                    ),
                     original_envelope_instance=item.envelope_instance,
                     interaction_component_id=component.interaction_component_id,
                     retained_front_reading_ids=frozenset({reading_id}),
@@ -977,7 +1001,8 @@ def apply_policy_b(
                 (
                     proof.candidate.left_component_id,
                     proof.candidate.right_component_id,
-                )
+                ),
+                key=lambda item: item.value,
             )
         )
         for proof in proofs

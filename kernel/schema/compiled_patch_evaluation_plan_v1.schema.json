@@ -512,6 +512,13 @@
           "type": "array",
           "uniqueItems": true
         },
+        "front_reading_declarations": {
+          "items": {
+            "$ref": "#/$defs/FrontReadingDeclarationV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
         "geometry_batch_provenance": {
           "$ref": "#/$defs/GeometryBatchProvenanceV1"
         },
@@ -584,6 +591,13 @@
           "type": "array",
           "uniqueItems": true
         },
+        "self_contact_pair_declarations": {
+          "items": {
+            "$ref": "#/$defs/SelfContactPairDeclarationV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
         "source_revision": {
           "$ref": "#/$defs/SourceRevision"
         },
@@ -617,7 +631,9 @@
         "station_flow",
         "tessellation_plan",
         "geometry_batch_provenance",
-        "named_outcomes"
+        "named_outcomes",
+        "front_reading_declarations",
+        "self_contact_pair_declarations"
       ],
       "type": "object"
     },
@@ -1385,6 +1401,46 @@
       ],
       "type": "object"
     },
+    "FrontReadingDeclarationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "FrontReadingDeclarationV1"
+        },
+        "arrival_law_id": {
+          "$ref": "#/$defs/LawId"
+        },
+        "chain_use_id": {
+          "$ref": "#/$defs/ChainUseId"
+        },
+        "front_component_id": {
+          "$ref": "#/$defs/FrontComponentId"
+        },
+        "front_reading_id": {
+          "$ref": "#/$defs/FrontReadingId"
+        },
+        "owner_sector_id": {
+          "$ref": "#/$defs/OwnerSectorId"
+        },
+        "physical_interval": {
+          "$ref": "#/$defs/PhysicalSupportIntervalV1"
+        },
+        "source_support_id": {
+          "$ref": "#/$defs/SourceSupportId"
+        }
+      },
+      "required": [
+        "$type",
+        "front_reading_id",
+        "front_component_id",
+        "source_support_id",
+        "physical_interval",
+        "chain_use_id",
+        "owner_sector_id",
+        "arrival_law_id"
+      ],
+      "type": "object"
+    },
     "FrontReadingId": {
       "additionalProperties": false,
       "properties": {
@@ -1902,6 +1958,23 @@
       ],
       "type": "object"
     },
+    "LawId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "LawId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
     "LineageId": {
       "additionalProperties": false,
       "properties": {
@@ -2181,6 +2254,47 @@
       ],
       "type": "object"
     },
+    "PhysicalEdgeId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PhysicalEdgeId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PhysicalSupportIntervalV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "PhysicalSupportIntervalV1"
+        },
+        "end_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        },
+        "physical_edge_id": {
+          "$ref": "#/$defs/PhysicalEdgeId"
+        },
+        "start_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        }
+      },
+      "required": [
+        "$type",
+        "physical_edge_id",
+        "start_vertex_id",
+        "end_vertex_id"
+      ],
+      "type": "object"
+    },
     "PlanKeyV1": {
       "additionalProperties": false,
       "properties": {
@@ -2370,6 +2484,63 @@
       ],
       "type": "object"
     },
+    "SelfContactPairDeclarationId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SelfContactPairDeclarationId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SelfContactPairDeclarationV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "SelfContactPairDeclarationV1"
+        },
+        "declaration_id": {
+          "$ref": "#/$defs/SelfContactPairDeclarationId"
+        },
+        "left_front_component_id": {
+          "$ref": "#/$defs/FrontComponentId"
+        },
+        "left_front_reading_id": {
+          "$ref": "#/$defs/FrontReadingId"
+        },
+        "right_front_component_id": {
+          "$ref": "#/$defs/FrontComponentId"
+        },
+        "right_front_reading_id": {
+          "$ref": "#/$defs/FrontReadingId"
+        },
+        "source_lineage_ids": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "declaration_id",
+        "left_front_component_id",
+        "right_front_component_id",
+        "left_front_reading_id",
+        "right_front_reading_id",
+        "source_lineage_ids"
+      ],
+      "type": "object"
+    },
     "SemanticArrangementId": {
       "additionalProperties": false,
       "properties": {
@@ -2460,6 +2631,23 @@
       "properties": {
         "$id_type": {
           "const": "SourceRevision"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SourceSupportId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceSupportId"
         },
         "value": {
           "minLength": 1,

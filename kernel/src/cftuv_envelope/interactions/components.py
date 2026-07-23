@@ -13,6 +13,14 @@ from ..reference.contracts import (
     BoundaryResolvedEnvelopeV1,
     ReferenceEnvelopeCompilationV1,
 )
+from ..ids import (
+    EnvelopeInstanceId,
+    EnvelopeSpecId,
+    FrontComponentId,
+    InteractionComponentId,
+    InteractionRelationId,
+    LineageId,
+)
 from .contracts import InteractionComponentV1
 
 
@@ -92,40 +100,47 @@ def compile_interaction_components(
             instance.envelope_instance_id
         )
 
-    request_id = compilation.plan_key.decal_request_id.value
-    domain_id = compilation.plan_key.patch_domain_id.value
+    request_id = compilation.plan_key.decal_request_id
+    domain_id = compilation.plan_key.patch_domain_id
     components = []
     for spec_ids in groups.values():
         sorted_spec_ids = tuple(sorted(spec_ids))
-        component_id = stable_id(
+        component_id = InteractionComponentId(stable_id(
             "interaction-component", request_id, domain_id, *sorted_spec_ids
-        )
+        ))
         components.append(
             InteractionComponentV1(
                 interaction_component_id=component_id,
                 decal_request_id=request_id,
                 patch_domain_id=domain_id,
-                envelope_spec_ids=frozenset(spec_ids),
+                envelope_spec_ids=frozenset(
+                    EnvelopeSpecId(item) for item in spec_ids
+                ),
                 envelope_instance_ids=frozenset(
-                    instance_id
+                    EnvelopeInstanceId(instance_id)
                     for spec_id in spec_ids
                     for instance_id in instances_by_spec.get(spec_id, ())
                 ),
                 front_component_ids=frozenset(
-                    front_component_id
+                    FrontComponentId(front_component_id)
                     for spec_id in spec_ids
                     for front_component_id in _component_ids_for_spec(specs[spec_id])
                 ),
                 relation_ids=frozenset(
-                    relation_id
+                    InteractionRelationId(relation_id)
                     for spec_id in spec_ids
                     for relation_id in _relation_ids_for_spec(specs[spec_id])
                 ),
                 source_lineage_ids=frozenset(
-                    lineage_id.value
+                    LineageId(lineage_id.value)
                     for spec_id in spec_ids
                     for lineage_id in specs[spec_id].source_lineage_ids
                 ),
             )
         )
-    return tuple(sorted(components, key=lambda item: item.interaction_component_id))
+    return tuple(
+        sorted(
+            components,
+            key=lambda item: item.interaction_component_id.value,
+        )
+    )

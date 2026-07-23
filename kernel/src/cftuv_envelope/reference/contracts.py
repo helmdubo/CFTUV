@@ -11,7 +11,12 @@ from ..contracts.envelopes import (
 )
 from ..contracts.analysis import AnalysisSnapshotV1
 from ..contracts.events import InitialFrontSpec
-from ..contracts.plan import FrontComponentV1, PlanKeyV1
+from ..contracts.plan import (
+    FrontComponentV1,
+    FrontReadingDeclarationV1,
+    PlanKeyV1,
+    SelfContactPairDeclarationV1,
+)
 from ..contracts.request import DecalRequestV1
 from ..contracts.seeds import SeedV1
 from ..ids import PatchId, SourceRevision
@@ -125,6 +130,12 @@ class ReferenceEnvelopeCompilationV1:
     envelope_specs: frozenset[EnvelopeSpec]
     initial_front_spec: InitialFrontSpec
     source_provenance: frozenset[EnvelopeSourceProvenanceV1]
+    front_reading_declarations: frozenset[
+        FrontReadingDeclarationV1
+    ] = frozenset()
+    self_contact_pair_declarations: frozenset[
+        SelfContactPairDeclarationV1
+    ] = frozenset()
     diagnostics: tuple[ReferenceEvaluationDiagnosticV1, ...] = ()
 
 

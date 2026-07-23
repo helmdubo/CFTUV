@@ -59,6 +59,123 @@ def validate_interaction_inputs(
             issues.append(
                 f"EnvelopeSpec {spec.envelope_spec_id} escapes the plan request/domain"
             )
+    front_components = {
+        item.front_component_id: item
+        for item in compilation.front_components
+    }
+    declarations_by_reading = {}
+    declarations_by_support = {}
+    for declaration in compilation.front_reading_declarations:
+        declarations_by_reading.setdefault(
+            declaration.front_reading_id, []
+        ).append(declaration)
+        declarations_by_support.setdefault(
+            (
+                declaration.front_component_id,
+                declaration.source_support_id,
+            ),
+            [],
+        ).append(declaration)
+        component = front_components.get(declaration.front_component_id)
+        if component is None:
+            issues.append(
+                f"FrontReading {declaration.front_reading_id} references "
+                "an absent FrontComponent"
+            )
+            continue
+        if (
+            declaration.chain_use_id != component.chain_use_id
+            or declaration.owner_sector_id != component.sector_id
+        ):
+            issues.append(
+                f"FrontReading {declaration.front_reading_id} escapes its "
+                "FrontComponent ChainUse/OwnerSector"
+            )
+    if any(len(items) != 1 for items in declarations_by_reading.values()):
+        issues.append("FrontReading identity is not unique")
+    if any(len(items) != 1 for items in declarations_by_support.values()):
+        issues.append("FrontComponent source support has ambiguous readings")
+    for component in compilation.front_components:
+        compiled_readings = frozenset(
+            declaration.front_reading_id
+            for declaration in compilation.front_reading_declarations
+            if declaration.front_component_id
+            == component.front_component_id
+        )
+        if component.front_reading_ids != compiled_readings:
+            issues.append(
+                f"FrontComponent {component.front_component_id} reading IDs "
+                "differ from FrontReadingDeclarationV1"
+            )
+    seen_self_pairs = set()
+    uses = {
+        item.chain_use_id: item
+        for item in compilation.analysis_snapshot.chain_uses
+    }
+    chains = {
+        item.physical_chain_id: item
+        for item in compilation.analysis_snapshot.physical_chains
+    }
+    for declaration in compilation.self_contact_pair_declarations:
+        pair = frozenset(
+            {
+                declaration.left_front_reading_id,
+                declaration.right_front_reading_id,
+            }
+        )
+        if len(pair) != 2:
+            issues.append(
+                f"SelfContactPair {declaration.declaration_id} does not "
+                "contain two distinct readings"
+            )
+            continue
+        readings = tuple(
+            declarations_by_reading.get(reading_id, ())
+            for reading_id in pair
+        )
+        if any(len(items) != 1 for items in readings):
+            issues.append(
+                f"SelfContactPair {declaration.declaration_id} references "
+                "an absent or ambiguous reading"
+            )
+            continue
+        left_reading = declarations_by_reading[
+            declaration.left_front_reading_id
+        ][0]
+        right_reading = declarations_by_reading[
+            declaration.right_front_reading_id
+        ][0]
+        if (
+            left_reading.front_component_id
+            != declaration.left_front_component_id
+            or right_reading.front_component_id
+            != declaration.right_front_component_id
+        ):
+            issues.append(
+                f"SelfContactPair {declaration.declaration_id} component "
+                "identities differ from its FrontReadings"
+            )
+        left_lineage = chains[
+            uses[left_reading.chain_use_id].physical_chain_id
+        ].source_lineage
+        right_lineage = chains[
+            uses[right_reading.chain_use_id].physical_chain_id
+        ].source_lineage
+        if (
+            not declaration.source_lineage_ids
+            or declaration.source_lineage_ids != left_lineage
+            or declaration.source_lineage_ids != right_lineage
+        ):
+            issues.append(
+                f"SelfContactPair {declaration.declaration_id} lacks one "
+                "identical source lineage"
+            )
+        canonical_pair = (
+            pair,
+        )
+        if canonical_pair in seen_self_pairs:
+            issues.append("duplicate SelfContactPair declaration")
+        seen_self_pairs.add(canonical_pair)
     return tuple(
         InteractionDiagnosticV1(
             InteractionOutcome.INTERACTION_INPUT_CONTRACT_INVALID,

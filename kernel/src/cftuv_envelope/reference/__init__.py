@@ -1,7 +1,10 @@
 """Permanent full-recompute EC2 planar reference path."""
 
 from .contracts import *  # noqa: F401,F403
-from .compile import compile_reference_envelopes
+from .compile import (
+    compile_reference_envelopes,
+    declare_reference_self_contacts,
+)
 from .digest import (
     RawCoverageSemanticDigest,
     raw_coverage_semantic_projection,

@@ -20,6 +20,32 @@ tessellation, GeometryBatch production, event scheduler, Blender integration,
 native runtime, Voronoi/SDF/raster construction, floating tolerance, or
 approximate fallback.
 
+Session D-R1 hardening adds nominal interaction IDs, explicit front-reading
+and self-contact-pair compile declarations, fail-fast Cap reading selection,
+equivalent-locus provenance aggregation, and candidate-scoped unsupported
+Junction diagnostics. It does not open Session E.
+
+## Compile declarations for readings and self-contact
+
+Every exact Strip source support that can be evaluated is compiled into one
+`FrontReadingDeclarationV1`. A declaration binds the reading to:
+
+- one concrete `FrontComponentId`;
+- one `SourceSupportId` and physical edge interval;
+- one `ChainUseId` and `OwnerSectorId`;
+- one immutable arrival-law identity.
+
+The compiled `FrontComponentV1.front_reading_ids` must equal the declarations
+for that component. No resolver path invents reading IDs from an
+`InteractionComponent` or from emitted polygons.
+
+Self-contact is admitted only through `SelfContactPairDeclarationV1`.
+`declare_reference_self_contacts()` validates an explicit pair against the
+compiled reading records and requires an identical non-empty source lineage.
+Candidate generation consumes exactly that pair, suppresses the ordinary
+distinct-component interpretation for the declared pair, and never expands
+the declaration to every arrival model in an interaction component.
+
 ## Interaction components
 
 `InteractionComponentV1` is compiled from declared topology only:
@@ -60,7 +86,10 @@ reconstruct `T`.
 - Strip uses its source launch support.
 - Cap inherits the incident Strip reading and restricts contact to the Cap's
   physical active segment, so endpoint-only equality remains an exact event
-  anchor.
+  anchor. The incident support must have exactly one matching Strip reading;
+  absence returns `INTERACTION_MISSING_FRONT_READING`, and more than one exact
+  match returns `INTERACTION_CAP_READING_AMBIGUOUS`. There is no first-item
+  fallback.
 - An exposed Angular profile is piecewise:
 
   ```text
@@ -70,8 +99,10 @@ reconstruct `T`.
   Every selected support law is retained in the arrival model. A profile
   support participates only where it is dominant on the exposed component
   boundary.
-- Junction geometry has no invented v1 arrival law. A Junction that would
-  need one produces `INTERACTION_JUNCTION_ARRIVAL_UNPROVEN`.
+- Junction geometry has no invented v1 arrival law. The unsupported model is
+  inert unless a generated candidate actually requires that reading. Such a
+  candidate produces `INTERACTION_JUNCTION_ARRIVAL_UNPROVEN`; an unrelated
+  Junction in the same PatchDomain is not a stage-global failure.
 
 ## Mutual-arrival certificate
 
@@ -87,9 +118,16 @@ T_left(x) = T_right(x)
 
 The resulting line is clipped exactly against both active domains, their
 holes, Angular dominance half-planes, and Cap active segments. The first exact
-arrival alpha, two immutable front readings, two active-domain certificates,
-two Session C reachability certificates, and a same-alpha batch identity are
+arrival alpha, immutable front readings, active-domain certificates,
+Session C reachability certificates, and a same-alpha batch identity are
 recorded in `MutualArrivalCertificateV1`.
+
+Proofs on one canonical equality line are never selected by
+`arrival_model_id`. Endpoint Strip readings that are exactly the same exposed
+Angular support law are aggregated into one certificate with all readings,
+arrival laws, active-domain certificates, reachability, and locus provenance.
+If that semantic equivalence cannot be proved, resolution fails closed with
+`INTERACTION_EQUIVALENT_LOCUS_PROVENANCE_UNPROVEN`.
 
 Before the first mutual arrival no interaction application or equality locus
 is emitted. At and after it, the certificate stays frozen at that first exact
@@ -147,6 +185,14 @@ arrival at alpha 5 and verifies exact raw-area preservation after the event.
 The raw digest is a hard input gate. Supplied
 `BoundaryResolvedEnvelopeV1` values must exactly match the immutable set
 carried by `RawCoverageResultV1`.
+
+All Session D identities are nominal public value types:
+`InteractionComponentId`, `ArrivalModelId`, `FrontReadingId`,
+`InteractionCandidateId`, `MutualArrivalCertificateId`, `EqualityLocusId`,
+`InteractionApplicationId`, `ResolvedContributionId`, and
+`SameAlphaInteractionBatchId`. They remain distinct from
+`EnvelopeSpecId`, `EnvelopeInstanceId`, and `FrontComponentId` even when their
+text payloads are equal.
 
 ## Verification
 

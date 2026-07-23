@@ -5,14 +5,25 @@ from dataclasses import dataclass, replace
 import sympy as sp
 
 from cftuv_envelope import (
+    ArrivalModelId,
     ArrivalModelKind,
     CapArrivalModelV1,
+    DecalRequestId,
+    EnvelopeInstanceId,
+    EnvelopeSpecId,
     ExactFrontArrivalLawV1,
+    FrontComponentId,
+    FrontReadingId,
     InteractionCandidateKind,
     InteractionCandidateV1,
     InteractionComponentV1,
+    InteractionComponentId,
     InteractionOutcome,
+    LawId,
+    LineageId,
+    PatchDomainId,
     ReachabilityCertificateV1,
+    SourceSupportId,
     StripArrivalModelV1,
     generate_interaction_candidates,
     prove_mutual_arrivals,
@@ -38,7 +49,11 @@ from cftuv_envelope.reference.provenance import make_reference_provenance
 from cftuv_envelope.reference.validation import (
     validate_reference_geometry_payload,
 )
-from session_d_factories import angular_third_strip_state, opposing_strip_state
+from session_d_factories import (
+    angular_third_strip_state,
+    opposing_strip_state,
+    self_contact_state,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,14 +68,24 @@ def _component(
     domain: str = "domain",
 ) -> InteractionComponentV1:
     return InteractionComponentV1(
-        interaction_component_id=f"component:{name}",
-        decal_request_id=request,
-        patch_domain_id=domain,
-        envelope_spec_ids=frozenset({f"spec:{name}"}),
-        envelope_instance_ids=frozenset({f"instance:{name}"}),
-        front_component_ids=frozenset({f"front:{name}"}),
+        interaction_component_id=InteractionComponentId(
+            f"component:{name}"
+        ),
+        decal_request_id=DecalRequestId(request),
+        patch_domain_id=PatchDomainId(domain),
+        envelope_spec_ids=frozenset(
+            {EnvelopeSpecId(f"spec:{name}")}
+        ),
+        envelope_instance_ids=frozenset(
+            {EnvelopeInstanceId(f"instance:{name}")}
+        ),
+        front_component_ids=frozenset(
+            {FrontComponentId(f"front:{name}")}
+        ),
         relation_ids=frozenset(),
-        source_lineage_ids=frozenset({f"lineage:{name}"}),
+        source_lineage_ids=frozenset(
+            {LineageId(f"lineage:{name}")}
+        ),
     )
 
 
@@ -137,23 +162,29 @@ def _strip_model(
     effective=6,
 ) -> StripArrivalModelV1:
     law = ExactFrontArrivalLawV1(
-        law_id=f"law:{name}",
-        support_id=f"support:{name}",
+        law_id=LawId(f"law:{name}"),
+        support_id=SourceSupportId(f"support:{name}"),
         normal=ExactPlanarVector.from_values(*normal),
         source_constant=ExactScalar.from_value(constant),
         normal_speed=ExactScalar.from_value(1),
     )
     return StripArrivalModelV1(
-        arrival_model_id=f"model:{name}",
+        arrival_model_id=ArrivalModelId(f"model:{name}"),
         model_kind=ArrivalModelKind.STRIP,
-        interaction_component_id=f"component:{name}",
-        decal_request_id="request",
-        patch_domain_id="domain",
-        envelope_spec_id=f"spec:{name}",
-        envelope_instance_id=f"instance:{name}",
-        front_component_id=f"front:{name}",
-        front_reading_id=f"reading:{name}",
-        source_lineage_ids=frozenset({f"lineage:{name}"}),
+        interaction_component_id=InteractionComponentId(
+            f"component:{name}"
+        ),
+        decal_request_id=DecalRequestId("request"),
+        patch_domain_id=PatchDomainId("domain"),
+        envelope_spec_id=EnvelopeSpecId(f"spec:{name}"),
+        envelope_instance_id=EnvelopeInstanceId(
+            f"instance:{name}"
+        ),
+        front_component_id=FrontComponentId(f"front:{name}"),
+        front_reading_id=FrontReadingId(f"reading:{name}"),
+        source_lineage_ids=frozenset(
+            {LineageId(f"lineage:{name}")}
+        ),
         arrival_law=law,
         active_segments=region.outer.segments[2:3],
         active_regions=(region,),
@@ -325,15 +356,15 @@ def _proof_edge_observation(kind: str) -> dict[str, object]:
         )
         locus = clip_equality_locus_to_active_domains(
             ExactFrontArrivalLawV1(
-                "left-law",
-                "left-support",
+                LawId("left-law"),
+                SourceSupportId("left-support"),
                 ExactPlanarVector.from_values(1, 0),
                 ExactScalar.from_value(0),
                 ExactScalar.from_value(1),
             ),
             ExactFrontArrivalLawV1(
-                "right-law",
-                "right-support",
+                LawId("right-law"),
+                SourceSupportId("right-support"),
                 ExactPlanarVector.from_values(-1, 0),
                 ExactScalar.from_value(-10),
                 ExactScalar.from_value(1),
@@ -397,13 +428,13 @@ def _proof_edge_observation(kind: str) -> dict[str, object]:
         left = _strip_model("a", regions["a"], (1, 0), 0)
         right = _strip_model("b", regions["b"], (-1, 0), -10)
         cap = CapArrivalModelV1(
-            arrival_model_id="model:a-cap",
+            arrival_model_id=ArrivalModelId("model:a-cap"),
             model_kind=ArrivalModelKind.CAP,
             interaction_component_id=left.interaction_component_id,
-            decal_request_id="request",
-            patch_domain_id="domain",
-            envelope_spec_id="spec:a-cap",
-            envelope_instance_id="instance:a-cap",
+            decal_request_id=DecalRequestId("request"),
+            patch_domain_id=PatchDomainId("domain"),
+            envelope_spec_id=EnvelopeSpecId("spec:a-cap"),
+            envelope_instance_id=EnvelopeInstanceId("instance:a-cap"),
             incident_strip_spec_id=left.envelope_spec_id,
             front_component_id=left.front_component_id,
             front_reading_id=left.front_reading_id,
@@ -440,100 +471,25 @@ def _proof_edge_observation(kind: str) -> dict[str, object]:
 
 
 def _self_contact_observation() -> dict[str, object]:
-    compilation, raw, result = opposing_strip_state("6")
-    models = tuple(
-        item
-        for item in result.arrival_models
-        if isinstance(item, StripArrivalModelV1)
-    )
-    components = result.interaction_components
-    merged = InteractionComponentV1(
-        interaction_component_id="component:self",
-        decal_request_id=components[0].decal_request_id,
-        patch_domain_id=components[0].patch_domain_id,
-        envelope_spec_ids=frozenset().union(
-            *(item.envelope_spec_ids for item in components)
-        ),
-        envelope_instance_ids=frozenset().union(
-            *(item.envelope_instance_ids for item in components)
-        ),
-        front_component_ids=frozenset().union(
-            *(item.front_component_ids for item in components)
-        ),
-        relation_ids=frozenset(),
-        source_lineage_ids=frozenset().union(
-            *(item.source_lineage_ids for item in components)
-        ),
-    )
-    self_models = tuple(
-        replace(
-            model,
-            interaction_component_id=merged.interaction_component_id,
-            front_reading_id=f"self-reading:{index}",
-        )
-        for index, model in enumerate(models)
-    )
-    provenance = InteractionProvenanceV1(
-        decal_request_id=merged.decal_request_id,
-        patch_domain_id=merged.patch_domain_id,
-        interaction_component_ids=frozenset(
-            {merged.interaction_component_id}
-        ),
-        envelope_spec_ids=merged.envelope_spec_ids,
-        envelope_instance_ids=merged.envelope_instance_ids,
-        front_component_ids=merged.front_component_ids,
-        front_reading_ids=frozenset(
-            item.front_reading_id for item in self_models
-        ),
-        source_lineage_ids=merged.source_lineage_ids,
-    )
-    candidate = InteractionCandidateV1(
-        "candidate:self",
-        merged.interaction_component_id,
-        merged.interaction_component_id,
-        InteractionCandidateKind.EXPLICIT_SELF_CONTACT,
-        merged.decal_request_id,
-        merged.patch_domain_id,
-        provenance,
-    )
-    proofs, diagnostics = prove_mutual_arrivals((candidate,), self_models)
-    frame, _ = validate_reference_geometry_payload(
-        compilation.analysis_snapshot,
-        compilation.plan_key.patch_domain_id,
-    )
-    assert frame is not None
-    domain = build_domain_geometry(GeometryContext.build(compilation, frame))
-    policy = apply_policy_b(
-        proofs,
-        (merged,),
-        tuple(raw.boundary_resolved_envelopes),
-        raw,
-        domain.face_regions,
-    )
+    compilation, raw, result = self_contact_state("6")
+    resolved = result.resolved_coverage
+    assert resolved is not None
     return {
-        "proof_count": len(proofs),
+        "proof_count": len(resolved.mutual_arrival_certificates),
         "diagnostics": sorted(
-            item.outcome.value
-            for item in (*diagnostics, *policy.diagnostics)
+            item.outcome.value for item in result.diagnostics
         ),
         "front_reading_count": len(
-            {
-                reading.front_reading_id
-                for proof in proofs
-                for reading in (
-                    proof.mutual_arrival_certificate.left_front_reading,
-                    proof.mutual_arrival_certificate.right_front_reading,
-                )
-            }
+            compilation.front_reading_declarations
         ),
         "area_preserved": (
-            policy.resolved_union.exact_area_expression
+            resolved.exact_area_expression
             == raw.exact_area_expression
         ),
         "retained_front_reading_count": len(
             {
                 reading
-                for contribution in policy.resolved_contributions
+                for contribution in resolved.resolved_contributions
                 for reading in contribution.retained_front_reading_ids
             }
         ),

@@ -7,6 +7,13 @@ from functools import cmp_to_key
 
 import sympy as sp
 
+from ..ids import (
+    ConstructionCertificateId,
+    EqualityLocusId,
+    EqualityLocusSegmentId,
+    FrontReadingId,
+    MutualArrivalCertificateId,
+)
 from ..reference.arrangement import (
     _point_in_region,
     _point_on_segment,
@@ -334,35 +341,40 @@ def clip_equality_locus_to_active_domains(
 
 def public_equality_locus(
     clipped: ClippedEqualityLocusV1,
-    left_reading_id: str,
-    right_reading_id: str,
-    certificate_id: str,
+    left_reading_id: FrontReadingId,
+    right_reading_id: FrontReadingId,
+    certificate_id: MutualArrivalCertificateId,
+    participant_reading_ids: frozenset[FrontReadingId] | None = None,
 ) -> EqualityLocusV1:
-    locus_id = stable_id(
+    participants = participant_reading_ids or frozenset(
+        {left_reading_id, right_reading_id}
+    )
+    locus_id = EqualityLocusId(stable_id(
         "equality-locus",
         certificate_id,
         clipped.line.normal_x.expression,
         clipped.line.normal_y.expression,
         clipped.line.constant.expression,
-    )
-    construction_id = stable_id(
+    ))
+    construction_id = ConstructionCertificateId(stable_id(
         "equality-locus-construction",
         certificate_id,
         locus_id,
-    )
+    ))
     segments = tuple(
         EqualityLocusSegmentV1(
-            segment_id=stable_id(
+            segment_id=EqualityLocusSegmentId(stable_id(
                 "equality-locus-segment",
                 locus_id,
                 ordinal,
                 point_key(start),
                 point_key(end),
-            ),
+            )),
             start=start,
             end=end,
             left_front_reading_id=left_reading_id,
             right_front_reading_id=right_reading_id,
+            participant_front_reading_ids=participants,
             construction_certificate_id=construction_id,
         )
         for ordinal, (start, end) in enumerate(clipped.segments)
@@ -371,10 +383,7 @@ def public_equality_locus(
         locus_id=locus_id,
         ordered_exact_segments=segments,
         event_anchor_points=clipped.anchors,
-        participant_front_reading_ids=(
-            left_reading_id,
-            right_reading_id,
-        ),
+        participant_front_reading_ids=participants,
         construction_certificate_ids=(construction_id,),
         owner=EqualityLocusOwner.NONE,
     )
