@@ -4,6 +4,11 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+import sympy as sp
+
+from session_c_case_registry import execute_session_c_case
+
 
 FIXTURE_ROOT = Path(__file__).parents[1] / "fixtures" / "session_c_planar_v1"
 REQUIRED_CASE_IDS = {
@@ -33,6 +38,19 @@ REQUIRED_CASE_IDS = {
 }
 
 
+def _load_cases() -> list[dict]:
+    manifest = json.loads(
+        (FIXTURE_ROOT / "manifest.json").read_text(encoding="utf-8")
+    )
+    payload = json.loads(
+        (FIXTURE_ROOT / manifest["case_file"]).read_text(encoding="utf-8")
+    )
+    return payload["cases"]
+
+
+CASES = _load_cases()
+
+
 def _fixture_sha256(path: Path) -> str:
     content = path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
     return hashlib.sha256(content).hexdigest()
@@ -54,6 +72,34 @@ def test_session_c_coordinate_corpus_is_complete_and_declarative():
         assert item["expected_silhouette_lineage"]
         assert item["expected_contributor_count"] >= 1
         assert isinstance(item["expected_named_outcomes"], list)
+
+
+def _matches_expected(actual, expected) -> bool:
+    if isinstance(expected, str):
+        try:
+            return sp.sympify(actual) == sp.sympify(expected)
+        except (sp.SympifyError, TypeError):
+            return actual == expected
+    return actual == expected
+
+
+@pytest.mark.parametrize("case", CASES, ids=lambda item: item["id"])
+def test_every_session_c_case_executes_from_the_canonical_declaration(case):
+    receipt = execute_session_c_case(case)
+
+    assert receipt.profile_k == case["expected_profile_k"]
+    assert receipt.contributor_count == case["expected_contributor_count"]
+    assert list(receipt.named_outcomes) == sorted(
+        case["expected_named_outcomes"]
+    )
+    assert receipt.lineage_verified, case["expected_silhouette_lineage"]
+    for key, expected in case["expected_raw_topology"].items():
+        assert key in receipt.observed
+        assert _matches_expected(receipt.observed[key], expected), (
+            key,
+            receipt.observed[key],
+            expected,
+        )
 
 
 def test_session_c_corpus_hash_manifest_is_complete_and_newline_stable():

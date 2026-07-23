@@ -18,7 +18,7 @@ from .common import (
 )
 from .contracts import ReferenceEnvelopeInstanceV1
 from .planar_types import ExactScalar
-from .provenance import merge_provenance
+from .provenance import make_reference_provenance, merge_provenance
 
 
 def evaluate_strip_envelope(
@@ -52,7 +52,7 @@ def evaluate_strip_envelope(
     for ordinal, source in enumerate(source_segments):
         instance_provenance = merge_provenance(
             source.provenance,
-            type(source.provenance)(
+            make_reference_provenance(
                 envelope_instance_ids=frozenset({instance_id})
             ),
         )
@@ -109,7 +109,7 @@ def evaluate_strip_envelope(
                 support_ids=frozenset({moved_support_id}),
                 provenance=merge_provenance(
                     instance_provenance,
-                    type(source.provenance)(
+                    make_reference_provenance(
                         envelope_instance_ids=frozenset({instance_id}),
                         support_ids=frozenset({moved_support_id}),
                     ),
@@ -138,7 +138,7 @@ def evaluate_strip_envelope(
             exposed.extend(region.outer.segments)
     provenance = merge_provenance(
         context.provenance_by_spec_id[spec.envelope_spec_id.value],
-        type(context.provenance_by_spec_id[spec.envelope_spec_id.value])(
+        make_reference_provenance(
             envelope_instance_ids=frozenset({instance_id})
         ),
     )

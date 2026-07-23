@@ -37,7 +37,11 @@ from .planar_types import (
     unit,
     vector_scale,
 )
-from .provenance import ReferenceProvenanceV1, merge_provenance
+from .provenance import (
+    ReferenceProvenanceV1,
+    make_reference_provenance,
+    merge_provenance,
+)
 
 
 class ReferenceGeometryError(ValueError):
@@ -170,22 +174,37 @@ class GeometryContext:
             for face in self.snapshot.surface_ir.source_faces
             if face.patch_id == owner_patch and edge_id in face.edge_cycle
         ]
-        side_signs = set()
+        cycle_normals = []
         for face in adjacent_faces:
-            other_points = [
-                self.points_by_id[item]
-                for item in face.vertex_cycle
-                if item in self.points_by_id
-                and not (
-                    self.points_by_id[item] == start or self.points_by_id[item] == end
-                )
+            edge_ordinal = face.edge_cycle.index(edge_id)
+            cycle_start = self.points_by_id[face.vertex_cycle[edge_ordinal]]
+            cycle_end = self.points_by_id[
+                face.vertex_cycle[(edge_ordinal + 1) % len(face.vertex_cycle)]
             ]
-            for point in other_points:
-                sign = exact_sign(cross(tangent, point_sub(point, start)))
-                if sign:
-                    side_signs.add(sign)
-        if len(side_signs) == 1:
-            return left_normal(tangent) if next(iter(side_signs)) > 0 else right_normal(tangent)
+            cycle_area_sign = exact_sign(
+                polygon_signed_area(
+                    self.points_by_id[item] for item in face.vertex_cycle
+                )
+            )
+            same_direction = (
+                exact_sign(dot(tangent, point_sub(cycle_end, cycle_start))) > 0
+            )
+            interior_is_left = (cycle_area_sign > 0) == same_direction
+            cycle_normals.append(
+                left_normal(tangent)
+                if interior_is_left
+                else right_normal(tangent)
+            )
+        if len(cycle_normals) == 1:
+            return cycle_normals[0]
+        if cycle_normals:
+            first = cycle_normals[0]
+            if all(
+                exact_sign(cross(first, item)) == 0
+                and exact_sign(dot(first, item)) > 0
+                for item in cycle_normals[1:]
+            ):
+                return first
         if chain_use.orientation in (
             ChainUseOrientation.A_START_TO_END,
             ChainUseOrientation.B_START_TO_END,
@@ -261,7 +280,7 @@ class GeometryContext:
             )
             provenance = merge_provenance(
                 base_provenance,
-                ReferenceProvenanceV1(
+                make_reference_provenance(
                     support_ids=frozenset({support_id}),
                     physical_edge_ids=frozenset({edge_id.value}),
                     source_face_ids=source_faces,

@@ -1,6 +1,6 @@
 # EC2 planar reference envelope evaluator
 
-Status: `CANDIDATE_READY_FOR_SESSION_C_REVIEW`
+Status: `CANDIDATE_READY_FOR_SESSION_C_R1_REVIEW`
 
 Accepted input baseline: Session B-R1 closure commit
 `a18bd486ba198d6a14b81b703184c2402681576e`.
@@ -33,8 +33,9 @@ PhysicalChain data. EC0 coordinate-free records remain valid compilation and
 negative-validation inputs, but geometry evaluation returns
 `REFERENCE_GEOMETRY_PAYLOAD_REQUIRED`; it never invents coordinates.
 
-Finite host decimals are interpreted as exact decimal rationals. SymPy
-1.13-1.x supplies exact rational/algebraic expression manipulation and
+Finite host decimals are interpreted as exact decimal rationals. The oracle
+pins SymPy 1.14.0 because its algebraic serialization participates in stable
+IDs and digests. SymPy supplies exact rational/algebraic manipulation and
 certified sign queries. The package itself owns the segment arrangement,
 intersection history, clipping, and Boolean union. If a predicate cannot be
 proved, evaluation returns `REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE`.
@@ -44,14 +45,24 @@ or silent approximate fallback.
 Backend identity is
 `CFTUV_EXACT_SEGMENT_ARRANGEMENT_WITH_HISTORY`, version `1.0.0`.
 The standalone distribution version is `cftuv-envelope-core==0.2.0` with
-`sympy>=1.13,<2` as its only runtime dependency.
+`sympy==1.14.0` as its only runtime dependency.
 
 ## Compilation and envelope variants
 
 `compile_reference_envelopes` compiles exactly one request/domain plan and
 keeps the accepted EC1 authority direction: host facts and request policy are
 inputs; seeds, FrontComponents, envelope declarations, effective alpha, and
-events are kernel-owned outputs.
+events are kernel-owned outputs. Its public entrypoint validates the full
+Snapshot, Request, and cross-record references before scope selection.
+Selected ChainUses must resolve totally and exactly. Planar full-host
+admission also proves orthonormal frame basis and handedness, exact
+3D-to-frame-to-2D projection, and agreement between the certified angle
+interval and the ordered support directions.
+
+Reference v1 supports exactly one analysis-proven OwnerSector per ChainUse.
+Every geometry-facing component lookup is keyed by
+`(ChainUseId, OwnerSectorId)`; a second sector fails named with
+`REFERENCE_MULTISECTOR_CHAIN_USE_UNSUPPORTED`.
 
 - `StripEnvelope` evaluates every explicit straight physical support with an
   owner-interior unit-speed moving line. Collinear data segmentation is
@@ -64,10 +75,12 @@ events are kernel-owned outputs.
 - `CapEnvelope` is emitted only for physical endpoints / accepted
   `TerminalRelationV1` records. A data-record end does not create a cap, and a
   closed chain has none.
-- `JunctionEnvelope` implements only declared fixture semantics for T, X with
-  two explicit route pairs, Y with explicit upstream/downstream routes, and
-  per-Patch projections of a cross-Patch relation. Missing route topology
-  returns `JUNCTION_ROUTE_PAIRING_REQUIRED`.
+- `JunctionEnvelope` compilation preserves declared T/X/Y route pairing and
+  cross-Patch anchor/projection identities. No geometric support law has yet
+  been accepted, so evaluation fails closed with
+  `REFERENCE_JUNCTION_ENVELOPE_LAW_UNPROVEN`. The former convex-hull shape is
+  not part of the oracle. Missing route topology returns
+  `JUNCTION_ROUTE_PAIRING_REQUIRED`.
 
 ## Boundary-limited resolution
 
@@ -80,8 +93,18 @@ exact contact alpha and clamps only that FrontComponent. Other components
 continue.
 
 No crossing-and-rollback, obstacle bypass, material teleport, first/last
-vertex heuristic, or Patch-wide stop is used. A disconnected clipped result
-that would require bypass returns `BARRIER_BYPASS_UNSUPPORTED`.
+vertex heuristic, or Patch-wide stop is used. A finite explicit-barrier
+endpoint cannot be crossed after contact: continuation fails with
+`BARRIER_BYPASS_UNSUPPORTED`.
+
+Boundary capability is intentionally variant-specific:
+
+| variant | v1 capability |
+|---|---|
+| StripEnvelope | exact component contact, endpoint slide/shrink, and named split/bypass capacity |
+| AngularEnvelope | exact clip only when no boundary/explicit-barrier contact changes its area; contact fails `REFERENCE_ANGULAR_BOUNDARY_CONTACT_UNPROVEN` |
+| CapEnvelope | physical terminal geometry governed by the incident Strip component capacity |
+| JunctionEnvelope | geometry law unproven; evaluation fails named before materialization |
 
 ## Exact arrangement and RawCoverage
 
@@ -94,24 +117,32 @@ uncovered space. Coincident histories are merged before output.
 Every output vertex has one or more construction certificates from this
 closed set: `SOURCE_VERTEX`, `SUPPORT_SUPPORT_INTERSECTION`,
 `SUPPORT_BOUNDARY_INTERSECTION`, `BOUNDARY_BOUNDARY_INTERSECTION`, or
-`EVENT_ANCHOR`. Every silhouette edge preserves EnvelopeSpec,
-EnvelopeInstance, support, physical-edge/boundary, ChainUse, PatchDomain, and
-lineage claims supplied by arrangement history. Every region preserves its
-complete contributor set, including an Angular contribution that becomes
-fully internal. There is no post-Boolean nearest-source reconstruction.
+`EVENT_ANCHOR`. `BoundaryGeneratorProvenanceV1` holds only supports, physical
+edges, faces, and constraints that geometrically generate an output boundary.
+`CoverageContributorProvenanceV1` separately holds EnvelopeSpec,
+EnvelopeInstance, ChainUse, PatchDomain, and lineage contributors on the
+covered side. A covering contribution can therefore never pollute generator
+support IDs. Every region preserves its complete contributor set, including
+an Angular contribution that becomes fully internal. There is no post-Boolean
+nearest-source reconstruction.
 
 `RawCoverageResultV1` schema is
 `cftuv.envelope.raw_coverage_result.v1`. It records requested and effective
 component alphas, immutable EnvelopeInstances, boundary-resolution
 certificates, exact vertices/edges/loops/regions, exact area expression,
 diagnostics, and a canonical semantic digest. It remains pre-interaction and
-pre-ownership by construction.
+pre-ownership by construction. The standalone contract API is
+`raw_coverage_semantic_projection`,
+`raw_coverage_semantic_digest`, and `validate_raw_coverage_digest`.
 
 ## Permanent evidence
 
 `kernel/fixtures/session_c_planar_v1/` contains 23 coordinate-bearing
-declarations and its own LF-normalized SHA-256 manifest. It is independent of
-the accepted Session A v5 coordinate-free corpus.
+declarations and its own LF-normalized SHA-256 manifest. The corpus test reads
+every declaration, dispatches its registered Snapshot/Request builder, runs
+compile/evaluate, and checks the declared observations. JSON and executable
+fixtures are no longer two independently green representations. The corpus is
+independent of the accepted Session A v5 coordinate-free corpus.
 
 Permanent tests cover:
 
@@ -123,46 +154,36 @@ Permanent tests cover:
 - single-cover union, preserved holes, internalized Angular contributor
   claims, complete construction/provenance records, and physical seam A/B
   domain separation;
-- T/X/Y and cross-Patch declared junction semantics;
+- T/X/Y and cross-Patch compile contracts plus their named unproven geometry
+  outcome;
 - record/source order, semantic storage reversal, coherent rigid and uniform
   transforms, physical route split/merge, retriangulation, and hidden-support
   permutation;
 - semantic changes to angle selection, Delta-max validity, deleted profile
   support, and request identity;
-- an independent exact orthogonal-grid oracle for area, topology, silhouette
-  edge count, and contributor lineage.
+- an independent exact Fraction orthogonal-subset oracle for area, topology,
+  silhouette edge count, and contributor lineage. This evidence is explicitly
+  limited to the orthogonal subset.
 
 The package wheel is tested outside the checkout, and the `kernel/` subtree is
 also copied into an empty repository, built, installed, tested, import-scanned,
 schema-checked, and fixture-checked there.
 
-The final local and isolated-wheel suites each report 82 passing tests. The
-extracted-subtree suite also reports 82 passing tests, followed by successful
-forbidden-import, generated-schema, and accepted-fixture checks.
-
-Reference performance was measured on the Session C Windows host with Python
-3.13.1 and SymPy 1.14.0. Values below are medians of three full compilations
-and three independent per-alpha recomputations; no incremental cache or event
-queue was used:
-
-| fixture | compile | full recompute | Raw V/E/L/R |
-|---|---:|---:|---:|
-| straight strip | 0.186 ms | 78.441 ms | 4/4/1/1 |
-| Angular K=2 | 0.381 ms | 618.152 ms | 10/10/1/1 |
-| X junction | 0.408 ms | 4529.893 ms | 16/16/1/1 |
-| hole split | 0.278 ms | 1654.756 ms | 16/16/2/2 |
-
-These measurements describe the permanent oracle path and are not a modal
-latency claim.
+The factual local, wheel, extracted-subtree, and GitHub Actions receipts are
+recorded in `artifacts/envelope_ec2/session_c_handoff.json` after each final
+gate. Historical pre-R1 Junction timing is not retained because Junction
+geometry now correctly fails closed.
 
 ## Named outcomes and known limits
 
-The evaluator fails closed with named outcomes for missing/coordinate-free
-geometry, non-planar or ambiguous frames, incomplete physical-edge lineage,
-non-linear chain support without declared corner relations, uncertain Angular
-selection, missing Junction route topology, exact barrier split, unsupported
-bypass, unproven mixed effective alpha, undecidable exact predicates, and
-non-manifold arrangements.
+The evaluator fails closed with named outcomes for invalid or partial public
+input, multi-sector uses, inconsistent planar/angle certificates,
+missing/coordinate-free geometry, non-planar or ambiguous frames, incomplete
+physical-edge lineage, non-linear chain support without declared corner
+relations, uncertain Angular selection, missing Junction route topology,
+unproven Junction geometry, unproven Angular boundary contact, exact barrier
+split, unsupported bypass, unproven mixed effective alpha, undecidable exact
+predicates, and non-manifold arrangements.
 
 The deliberate v1 limitation exposed by the closed-chain fixture is that a
 piecewise-linear closed route requires explicit segment-corner relations for

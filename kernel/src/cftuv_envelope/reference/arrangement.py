@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import cmp_to_key
-from hashlib import sha256
 
 import sympy as sp
 
@@ -43,7 +42,12 @@ from .planar_types import (
     polygon_signed_area,
     vector_scale,
 )
-from .provenance import ReferenceProvenanceV1, merge_provenance
+from .provenance import (
+    ReferenceProvenanceV1,
+    merge_boundary_generator_provenance,
+    merge_coverage_contributor_provenance,
+    merge_provenance,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,7 +124,7 @@ def _intersection_certificate(
     )
 
 
-def _segment_intersections(
+def segment_intersections(
     left: BoundedSupportSegment, right: BoundedSupportSegment
 ) -> tuple[ExactPlanarPoint, ...]:
     p = left.start
@@ -283,7 +287,7 @@ class ExactSegmentArrangementBackend:
         for left_index, left in enumerate(boundaries):
             for right_index in range(left_index + 1, len(boundaries)):
                 right = boundaries[right_index]
-                intersections = _segment_intersections(left.segment, right.segment)
+                intersections = segment_intersections(left.segment, right.segment)
                 if intersections:
                     intersection_count += len(intersections)
                 certificate = _intersection_certificate(left.segment, right.segment)
@@ -380,16 +384,22 @@ class ExactSegmentArrangementBackend:
                 continue
             inside_contributions = contribution_left if coverage_left else contribution_right
             inside_domains = domain_left if coverage_left else domain_right
-            source_provenance = [
-                boundary.segment.provenance for boundary in history.source_boundaries
-            ]
-            covering_provenance = [
-                segment.provenance
-                for region in (*inside_contributions, *inside_domains)
-                for segment in region.outer.segments[:1]
-            ]
-            provenance = merge_provenance(
-                *source_provenance, *covering_provenance
+            boundary_generator = merge_boundary_generator_provenance(
+                *(
+                    boundary.segment.provenance.boundary_generator
+                    for boundary in history.source_boundaries
+                )
+            )
+            coverage_contributors = merge_coverage_contributor_provenance(
+                *(
+                    segment.provenance.coverage_contributors
+                    for region in (*inside_contributions, *inside_domains)
+                    for segment in region.outer.segments[:1]
+                )
+            )
+            provenance = ReferenceProvenanceV1(
+                boundary_generator=boundary_generator,
+                coverage_contributors=coverage_contributors,
             )
             instance_ids = frozenset(
                 item
@@ -563,22 +573,51 @@ class ExactSegmentArrangementBackend:
             spec_ids = set(provenance.envelope_spec_ids)
             instance_ids = set(provenance.envelope_instance_ids)
             probe = loop_points[outer.loop_id][0]
+            region_contributor_provenance = []
             for contribution in contribution_regions:
                 if _point_in_region(probe, contribution) >= 0 or any(
-                    _point_in_region(point, PlanarRegion("probe", PlanarLoop(outer.loop_id, tuple(
-                        BoundedSupportSegment(
-                            edge_by_id[edge_id].edge_id,
-                            output_by_edge_id[edge_id].start,
-                            output_by_edge_id[edge_id].end,
-                            frozenset(), frozenset(), edge_by_id[edge_id].provenance,
-                            edge_by_id[edge_id].construction_certificates,
-                            edge_by_id[edge_id].construction_certificates,
-                        ) for edge_id in outer.ordered_edge_ids
-                    )))) >= 0
+                    _point_in_region(
+                        point,
+                        PlanarRegion(
+                            "probe",
+                            PlanarLoop(
+                                outer.loop_id,
+                                tuple(
+                                    BoundedSupportSegment(
+                                        edge_by_id[edge_id].edge_id,
+                                        output_by_edge_id[edge_id].start,
+                                        output_by_edge_id[edge_id].end,
+                                        frozenset(),
+                                        frozenset(),
+                                        edge_by_id[edge_id].provenance,
+                                        edge_by_id[
+                                            edge_id
+                                        ].construction_certificates,
+                                        edge_by_id[
+                                            edge_id
+                                        ].construction_certificates,
+                                    )
+                                    for edge_id in outer.ordered_edge_ids
+                                ),
+                            ),
+                        ),
+                    )
+                    >= 0
                     for point in contribution.outer.points
                 ):
                     spec_ids.update(contribution.contributor_spec_ids)
                     instance_ids.update(contribution.contributor_instance_ids)
+                    region_contributor_provenance.extend(
+                        segment.provenance.coverage_contributors
+                        for segment in contribution.outer.segments[:1]
+                    )
+            provenance = ReferenceProvenanceV1(
+                boundary_generator=provenance.boundary_generator,
+                coverage_contributors=merge_coverage_contributor_provenance(
+                    provenance.coverage_contributors,
+                    *region_contributor_provenance,
+                ),
+            )
             regions.append(
                 RawCoverageRegionV1(
                     region_id=stable_id("raw-region", outer.loop_id),

@@ -16,7 +16,7 @@ from .common import (
 )
 from .contracts import ReferenceEnvelopeInstanceV1
 from .planar_types import ExactScalar
-from .provenance import ReferenceProvenanceV1, merge_provenance
+from .provenance import make_reference_provenance, merge_provenance
 
 
 def evaluate_cap_envelope(
@@ -46,7 +46,7 @@ def evaluate_cap_envelope(
     )
     provenance = merge_provenance(
         context.provenance_by_spec_id[spec.envelope_spec_id.value],
-        ReferenceProvenanceV1(
+        make_reference_provenance(
             envelope_instance_ids=frozenset({instance_id}),
             support_ids=frozenset({support_id}),
         ),

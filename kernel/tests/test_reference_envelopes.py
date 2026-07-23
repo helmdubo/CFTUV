@@ -80,3 +80,18 @@ def test_non_contract_delta_max_is_rejected_before_profile_selection():
 
     assert compiled.outcome is ReferenceOutcome.REFERENCE_INPUT_CONTRACT_INVALID
     assert compiled.compilation is None
+
+
+def test_angular_boundary_contact_fails_named_without_event_law():
+    snapshot, request = angular_snapshot(0)
+    compiled = compile_reference_envelopes(snapshot, request)
+
+    evaluated = evaluate_reference_raw_coverage(
+        compiled.compilation, Decimal("20")
+    )
+
+    assert (
+        evaluated.outcome
+        is ReferenceOutcome.REFERENCE_ANGULAR_BOUNDARY_CONTACT_UNPROVEN
+    )
+    assert evaluated.raw_coverage is None

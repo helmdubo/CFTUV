@@ -13,7 +13,7 @@ import cftuv_envelope
 from cftuv_envelope import ChainUseId, PatchId
 
 
-PUBLIC_API_V1_SHA256 = "4ad0535b280fba1a29c5762a3affd4a0bb73a5be4e20278083535d4b4aa2f3b1"
+PUBLIC_API_V1_SHA256 = "1e051a610b97132c0183b27572a500a0b96b7d91efb34cea70c1331a03568981"
 
 
 def _public_record_types():

@@ -53,8 +53,8 @@
     },
     {
       "id": "SC-P06-ANGULAR-INTERNALIZED",
-      "analysis_snapshot": {"builder": "arrangement_internalization_fixture", "outer": [[0,0],[6,0],[6,6],[0,6]], "angular": [[2,2],[4,2],[3,4]]},
-      "decal_request": {"alpha": "1", "selected_sources": ["covering-strip","angular"]},
+      "analysis_snapshot": {"builder": "arrangement_internalization_fixture", "outer": [[0,0],[6,0],[6,6],[0,6]], "angular": [[2,2],[4,2],[3,4]], "angular_profile": "LINEAR_REFLEX_K0"},
+      "decal_request": {"alpha": "1", "selected_sources": ["incoming","outgoing"]},
       "expected_profile_k": 0,
       "expected_raw_topology": {"regions": 1, "holes": 0, "angular_exposed_edges": 0},
       "expected_silhouette_lineage": "INTERNAL_CONTRIBUTOR_RETAINED_ON_REGION",
@@ -66,7 +66,7 @@
       "analysis_snapshot": {"builder": "straight_snapshot", "coordinates": [[0,0],[4,0],[6,0],[10,0]], "data_record_variants": [1,3]},
       "decal_request": {"alpha": "2", "selected_sources": ["source"]},
       "expected_profile_k": null,
-      "expected_raw_topology": {"regions": 1, "holes": 0, "semantic_digest_invariant": true},
+      "expected_raw_topology": {"regions": 1, "holes": 0, "silhouette_invariant": true},
       "expected_silhouette_lineage": "PHYSICAL_ROUTE_NOT_DATA_RECORD",
       "expected_contributor_count": 1,
       "expected_named_outcomes": []
@@ -136,40 +136,40 @@
       "analysis_snapshot": {"builder": "junction_snapshot", "kind": "T", "anchor": [0,0], "arms": [[0,-5],[5,0],[0,5]]},
       "decal_request": {"alpha": "1", "selected_sources": ["arm-0","arm-1","arm-2"]},
       "expected_profile_k": null,
-      "expected_raw_topology": {"regions": 1, "holes": 0, "route_pairs": 1},
+      "expected_raw_topology": {"regions": null, "holes": null, "route_pairs": 1, "compile_only": true},
       "expected_silhouette_lineage": "DECLARED_T_ROUTE_TOPOLOGY",
       "expected_contributor_count": 4,
-      "expected_named_outcomes": []
+      "expected_named_outcomes": ["REFERENCE_JUNCTION_ENVELOPE_LAW_UNPROVEN"]
     },
     {
       "id": "SC-P15-X-JUNCTION",
       "analysis_snapshot": {"builder": "junction_snapshot", "kind": "X", "anchor": [0,0], "arms": [[0,-5],[5,0],[0,5],[-5,0]]},
       "decal_request": {"alpha": "1", "selected_sources": ["arm-0","arm-1","arm-2","arm-3"]},
       "expected_profile_k": null,
-      "expected_raw_topology": {"regions": 1, "holes": 0, "route_pairs": 2},
+      "expected_raw_topology": {"regions": null, "holes": null, "route_pairs": 2, "compile_only": true},
       "expected_silhouette_lineage": "DECLARED_X_ROUTE_PAIRS",
       "expected_contributor_count": 5,
-      "expected_named_outcomes": []
+      "expected_named_outcomes": ["REFERENCE_JUNCTION_ENVELOPE_LAW_UNPROVEN"]
     },
     {
       "id": "SC-P16-Y-JUNCTION",
       "analysis_snapshot": {"builder": "junction_snapshot", "kind": "Y", "anchor": [0,0], "arms": [[0,-5],[5,0],[0,5]]},
       "decal_request": {"alpha": "1", "selected_sources": ["trunk","branch-a","branch-b"]},
       "expected_profile_k": null,
-      "expected_raw_topology": {"regions": 1, "holes": 0, "route_pairs": 2},
+      "expected_raw_topology": {"regions": null, "holes": null, "route_pairs": 2, "compile_only": true},
       "expected_silhouette_lineage": "DECLARED_Y_UPSTREAM_DOWNSTREAM",
       "expected_contributor_count": 4,
-      "expected_named_outcomes": []
+      "expected_named_outcomes": ["REFERENCE_JUNCTION_ENVELOPE_LAW_UNPROVEN"]
     },
     {
       "id": "SC-P17-CROSS-PATCH-JUNCTION",
       "analysis_snapshot": {"builder": "physical_seam_snapshot", "cross_patch_junction": true, "anchor": [5,10], "domains": 2},
       "decal_request": {"alpha": "1", "selected_sources": ["use-a","use-b"]},
       "expected_profile_k": null,
-      "expected_raw_topology": {"patch_plans": 2, "holes": 0, "shared_anchor_count": 1, "projection_count": 2},
+      "expected_raw_topology": {"patch_plans": 2, "regions": null, "holes": null, "shared_anchor_count": 1, "projection_count": 2, "compile_only": true},
       "expected_silhouette_lineage": "SHARED_ANCHOR_DISTINCT_PATCH_PROJECTIONS",
       "expected_contributor_count": 2,
-      "expected_named_outcomes": []
+      "expected_named_outcomes": ["REFERENCE_JUNCTION_ENVELOPE_LAW_UNPROVEN"]
     },
     {
       "id": "SC-P18-CLOSED-CHAIN",

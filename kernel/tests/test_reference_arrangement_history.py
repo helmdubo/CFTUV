@@ -10,7 +10,7 @@ from cftuv_envelope.reference.planar_types import (
     ConstructionKind,
     ExactPlanarPoint,
 )
-from cftuv_envelope.reference.provenance import ReferenceProvenanceV1
+from cftuv_envelope.reference.provenance import make_reference_provenance
 
 
 def _region(name: str, coordinates, *, spec_id: str, instance_id: str):
@@ -22,7 +22,7 @@ def _region(name: str, coordinates, *, spec_id: str, instance_id: str):
         )
         for index in range(len(points))
     )
-    provenance = ReferenceProvenanceV1(
+    provenance = make_reference_provenance(
         envelope_spec_ids=frozenset({spec_id}) if spec_id else frozenset(),
         envelope_instance_ids=frozenset({instance_id}) if instance_id else frozenset(),
         support_ids=frozenset({f"support:{name}"}),
@@ -85,4 +85,18 @@ def test_internalized_angular_profile_keeps_region_claim_without_silhouette_reco
     assert next(iter(result.regions)).contributor_envelope_spec_ids == frozenset(
         {"strip-spec", "angular-spec"}
     )
-    assert all("angular-spec" not in edge.provenance.envelope_spec_ids for edge in result.edges)
+    region = next(iter(result.regions))
+    assert (
+        region.provenance.coverage_contributors.envelope_spec_ids
+        == frozenset({"strip-spec", "angular-spec"})
+    )
+    assert all(
+        "angular-spec"
+        not in edge.provenance.coverage_contributors.envelope_spec_ids
+        for edge in result.edges
+    )
+    assert all(
+        "support:angular"
+        not in edge.provenance.boundary_generator.support_ids
+        for edge in result.edges
+    )

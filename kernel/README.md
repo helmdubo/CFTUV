@@ -10,7 +10,9 @@ provenance-preserving `RawCoverageResultV1`. It deliberately contains no
 interaction or ownership solver, event scheduler, tessellator, GeometryBatch
 materializer, Blender adapter, or native extension.
 
-SymPy is the exact algebraic-number and certified-sign dependency. Polygon
+SymPy 1.14.0 is pinned as the exact algebraic-number and certified-sign
+dependency because canonical algebra serialization participates in stable
+reference IDs and digests. Polygon
 arrangement, segment history, clipping, union, and provenance propagation are
 implemented by this package; SymPy is not used as a Boolean backend. There is
 no float, raster, SDF, Marching Squares, GEOS, or approximate fallback.
@@ -28,7 +30,7 @@ Public boundaries:
   `VertexKey`, not coordinates.
 - `ReferenceEnvelopeCompilationV1` — request/domain compilation containing
   Strip, angle-selected Linear-Reflex Angular, physical Cap, and minimally
-  declared Junction envelopes;
+  declared Junction envelopes; Junction geometry remains named-unproven;
 - `RawCoverageResultV1` — exact single-cover patch union with construction
   certificates, reachability, contributor sets, and complete segment-history
   provenance.

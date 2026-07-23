@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from dataclasses import replace
 from decimal import Decimal
-from hashlib import sha256
 
 import sympy as sp
 
-from ..codec import canonical_json_bytes
 from ..contracts.envelopes import (
     AngularEnvelopeSpec,
     CapEnvelopeSpec,
@@ -17,8 +15,9 @@ from ..contracts.envelopes import (
 )
 from ..numeric import LocalLengthV1, MetricSpace
 from .angular import evaluate_angular_envelope
-from .arrangement import ExactSegmentArrangementBackend
+from .arrangement import ExactSegmentArrangementBackend, segment_intersections
 from .boundary import (
+    BoundaryRole,
     build_domain_geometry,
     resolve_component_alphas,
 )
@@ -36,6 +35,7 @@ from .contracts import (
     ReferenceEvaluationResultV1,
     ReferenceOutcome,
 )
+from .digest import raw_coverage_semantic_digest
 from .junction import evaluate_junction_envelope
 from .planar_types import (
     CertifiedPredicateUndecidable,
@@ -43,12 +43,25 @@ from .planar_types import (
     PlanarLoop,
     PlanarRegion,
     exact_sign,
+    polygon_signed_area,
 )
 from .strip import evaluate_strip_envelope
 from .validation import validate_reference_geometry_payload
 
 
 REFERENCE_ARRANGEMENT_BACKEND = ExactSegmentArrangementBackend()
+
+# This is an explicit capability boundary, not a promise that every variant
+# shares the Strip event law.
+REFERENCE_BOUNDARY_CAPABILITIES_V1 = (
+    ("StripEnvelope", "EXACT_COMPONENT_CONTACT_AND_NAMED_CAPACITY"),
+    ("AngularEnvelope", "EXACT_CLIP_IF_NO_CONTACT_ELSE_NAMED_UNPROVEN"),
+    (
+        "CapEnvelope",
+        "DERIVED_PHYSICAL_TERMINAL_WITH_INCIDENT_STRIP_CAPACITY",
+    ),
+    ("JunctionEnvelope", "GEOMETRY_LAW_UNPROVEN_FAIL_CLOSED"),
+)
 
 
 def _failure(
@@ -140,7 +153,30 @@ def _clip_instance_to_domain(
         {instance.envelope_instance_id: reachability},
     )
     regions = _arrangement_regions(arrangement)
+    if instance.envelope_variant == "AngularEnvelope":
+        original_area = sum(
+            (
+                polygon_signed_area(segment.start for segment in region.outer.segments)
+                + sum(
+                    polygon_signed_area(segment.start for segment in hole.segments)
+                    for hole in region.holes
+                )
+            )
+            for region in instance.regions
+        )
+        if exact_sign(
+            original_area - ExactScalar(arrangement.exact_area_expression).as_expr()
+        ) != 0:
+            return (
+                None,
+                ReferenceOutcome.REFERENCE_ANGULAR_BOUNDARY_CONTACT_UNPROVEN,
+            )
     if len(regions) > 1:
+        if instance.envelope_variant == "AngularEnvelope":
+            return (
+                None,
+                ReferenceOutcome.REFERENCE_ANGULAR_BOUNDARY_CONTACT_UNPROVEN,
+            )
         return None, ReferenceOutcome.BARRIER_BYPASS_UNSUPPORTED
     exposed = tuple(
         segment for region in regions for segment in region.outer.segments
@@ -211,6 +247,18 @@ def evaluate_reference_raw_coverage(
                 instance = evaluate_cap_envelope(context, spec, alpha_value, effective)
             else:  # pragma: no cover - EC1 union is closed and validated.
                 raise TypeError(type(spec).__name__)
+            if isinstance(spec, AngularEnvelopeSpec) and any(
+                segment_intersections(exposed, barrier.segment)
+                for exposed in instance.exposed_segments
+                for barrier in domain.blocking_segments
+                if barrier.role is BoundaryRole.EXPLICIT_BARRIER
+            ):
+                return _failure(
+                    ReferenceOutcome.REFERENCE_ANGULAR_BOUNDARY_CONTACT_UNPROVEN,
+                    f"{spec.envelope_spec_id} contacts an explicit barrier "
+                    "without an approved Angular event law",
+                    existing=boundary_diagnostics,
+                )
             component_resolutions = [
                 resolutions[item] for item in component_ids if item in resolutions
             ]
@@ -294,8 +342,10 @@ def evaluate_reference_raw_coverage(
             semantic_digest="",
             diagnostics=boundary_diagnostics,
         )
-        digest = sha256(canonical_json_bytes(result)).hexdigest()
-        result = replace(result, semantic_digest=digest)
+        result = replace(
+            result,
+            semantic_digest=raw_coverage_semantic_digest(result).sha256_hex,
+        )
         capacity = next(
             (
                 item.capacity_outcome

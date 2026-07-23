@@ -54,8 +54,22 @@ from .reference.contracts import (
     ReferenceEvaluationResultV1,
     ReferenceOutcome,
 )
-from .reference.provenance import ReferenceProvenanceV1
-from .reference.raw_coverage import evaluate_reference_raw_coverage
+from .reference.digest import (
+    RawCoverageSemanticDigest,
+    raw_coverage_semantic_projection,
+    raw_coverage_semantic_digest,
+    validate_raw_coverage_digest,
+    validate_raw_coverage_semantic_digest,
+)
+from .reference.provenance import (
+    BoundaryGeneratorProvenanceV1,
+    CoverageContributorProvenanceV1,
+    ReferenceProvenanceV1,
+)
+from .reference.raw_coverage import (
+    REFERENCE_BOUNDARY_CAPABILITIES_V1,
+    evaluate_reference_raw_coverage,
+)
 from .validation import (
     ContractValidationError,
     ValidationCode,
@@ -66,6 +80,7 @@ from .validation import (
     validate_cross_contract_references,
     validate_decal_request,
     validate_geometry_batch,
+    validate_snapshot_request_references,
 )
 from .version import __version__
 
@@ -103,6 +118,12 @@ __all__ = (
     "geometry_batch_semantic_digest",
     "compile_reference_envelopes",
     "evaluate_reference_raw_coverage",
+    "REFERENCE_BOUNDARY_CAPABILITIES_V1",
+    "RawCoverageSemanticDigest",
+    "raw_coverage_semantic_projection",
+    "raw_coverage_semantic_digest",
+    "validate_raw_coverage_digest",
+    "validate_raw_coverage_semantic_digest",
     "REFERENCE_COMPILATION_SCHEMA_V1",
     "RAW_COVERAGE_RESULT_SCHEMA_V1",
     "ReferenceOutcome",
@@ -110,6 +131,8 @@ __all__ = (
     "BoundaryContactKind",
     "RawCoverageLoopKind",
     "ReferenceProvenanceV1",
+    "BoundaryGeneratorProvenanceV1",
+    "CoverageContributorProvenanceV1",
     "ReferenceEvaluationDiagnosticV1",
     "EnvelopeSourceProvenanceV1",
     "ReferenceEnvelopeCompilationV1",
@@ -135,6 +158,7 @@ __all__ = (
     "validate_compiled_plan",
     "validate_geometry_batch",
     "validate_cross_contract_references",
+    "validate_snapshot_request_references",
     "OpaqueId",
     "SourceRevision",
     "PatchId",

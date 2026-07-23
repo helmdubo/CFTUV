@@ -20,6 +20,10 @@ from cftuv_envelope.reference import (
     ReferenceOutcome,
     compile_reference_envelopes,
     evaluate_reference_raw_coverage,
+    raw_coverage_semantic_projection,
+    raw_coverage_semantic_digest,
+    validate_raw_coverage_digest,
+    validate_raw_coverage_semantic_digest,
 )
 from cftuv_envelope.reference.planar_types import exact_sign
 
@@ -58,6 +62,26 @@ def test_straight_strip_has_physical_caps_exact_area_and_total_provenance():
     assert all(edge.provenance.envelope_spec_ids for edge in raw.edges)
     assert all(edge.provenance.physical_edge_ids for edge in raw.edges)
     assert all(vertex.construction_certificates for vertex in raw.vertices)
+
+
+def test_raw_coverage_digest_api_excludes_only_its_own_digest_field():
+    snapshot, request = straight_snapshot(
+        faces=SQUARE,
+        source_routes=(
+            {"name": "source", "points": ((0.0, 0.0), (10.0, 0.0))},
+        ),
+        alpha="2",
+    )
+    _, evaluated = _evaluate(snapshot, request, Decimal("2"))
+    raw = evaluated.raw_coverage
+
+    assert validate_raw_coverage_semantic_digest(raw)
+    assert validate_raw_coverage_digest(raw)
+    assert raw_coverage_semantic_projection(raw).semantic_digest == ""
+    assert raw_coverage_semantic_digest(raw).sha256_hex == raw.semantic_digest
+    assert not validate_raw_coverage_semantic_digest(
+        replace(raw, exact_area_expression="999")
+    )
 
 
 def test_hole_interior_contact_saturates_only_the_affected_component_exactly():
@@ -187,6 +211,68 @@ def test_explicit_internal_barrier_reports_split_at_exact_contact_alpha():
     assert evaluated.outcome is ReferenceOutcome.BARRIER_SPLIT_REQUIRED
     state = next(iter(evaluated.raw_coverage.component_effective_alphas))
     assert state.effective_alpha.expression == "Integer(3)"
+
+
+def test_explicit_barrier_endpoint_continuation_fails_as_bypass():
+    filled_grid = (
+        ((0.0, 0.0), (4.0, 0.0), (4.0, 3.0), (4.0, 5.0), (4.0, 10.0), (0.0, 10.0)),
+        ((6.0, 0.0), (10.0, 0.0), (10.0, 10.0), (6.0, 10.0), (6.0, 5.0), (6.0, 3.0)),
+        ((4.0, 0.0), (6.0, 0.0), (6.0, 3.0), (4.0, 3.0)),
+        ((4.0, 3.0), (6.0, 3.0), (6.0, 5.0), (4.0, 5.0)),
+        ((4.0, 5.0), (6.0, 5.0), (6.0, 10.0), (4.0, 10.0)),
+    )
+    snapshot, request = straight_snapshot(
+        faces=filled_grid,
+        source_routes=(
+            {"name": "bottom-left", "points": ((0.0, 0.0), (4.0, 0.0))},
+        ),
+        alpha="4",
+    )
+    frame = next(iter(snapshot.surface_metric_descriptors))
+    coordinate_by_vertex = {
+        item.source_vertex_id: (item.domain_coordinate.x, item.domain_coordinate.y)
+        for item in frame.source_vertex_coordinates
+    }
+    barrier_edge = next(
+        edge.edge_id
+        for edge in snapshot.surface_ir.source_edges
+        if {
+            coordinate_by_vertex[edge.vertex_a_id],
+            coordinate_by_vertex[edge.vertex_b_id],
+        }
+        == {(4.0, 3.0), (6.0, 3.0)}
+    )
+    domain = next(iter(snapshot.patch_domains))
+    barrier_id = BoundaryConstraintId("explicit-endpoint-barrier")
+    barrier = BoundaryConstraintV1(
+        barrier_id,
+        domain.patch_domain_id,
+        BoundaryConstraintKind.PHYSICAL_DOMAIN_BARRIER,
+        PhysicalEdgeSequenceConstraintTargetV1((barrier_edge,), False),
+        None,
+        False,
+        True,
+    )
+    snapshot = replace(
+        snapshot,
+        patch_domains=frozenset(
+            {
+                replace(
+                    domain,
+                    boundary_constraint_ids=domain.boundary_constraint_ids
+                    | {barrier_id},
+                )
+            }
+        ),
+        boundary_constraints=snapshot.boundary_constraints | {barrier},
+    )
+
+    _, evaluated = _evaluate(snapshot, request, Decimal("4"))
+
+    assert evaluated.outcome is ReferenceOutcome.BARRIER_BYPASS_UNSUPPORTED
+    state = next(iter(evaluated.raw_coverage.component_effective_alphas))
+    assert state.effective_alpha.expression == "Integer(3)"
+    assert state.capacity_outcome is ReferenceOutcome.BARRIER_BYPASS_UNSUPPORTED
 
 
 def test_closed_non_linear_chain_has_no_caps_and_fails_named_without_corner_relations():

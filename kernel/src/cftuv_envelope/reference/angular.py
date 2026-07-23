@@ -33,7 +33,7 @@ from .planar_types import (
     support_intersection,
     unit,
 )
-from .provenance import ReferenceProvenanceV1, merge_provenance
+from .provenance import make_reference_provenance, merge_provenance
 
 
 def _incident_normal(
@@ -187,7 +187,7 @@ def evaluate_angular_envelope(
     )
     base_provenance = merge_provenance(
         context.provenance_by_spec_id[spec.envelope_spec_id.value],
-        ReferenceProvenanceV1(
+        make_reference_provenance(
             envelope_instance_ids=frozenset({instance_id}),
             support_ids=frozenset(support_ids),
         ),
@@ -246,7 +246,9 @@ def evaluate_angular_envelope(
                 support_ids=frozenset({support_id}),
                 provenance=merge_provenance(
                     base_provenance,
-                    ReferenceProvenanceV1(support_ids=frozenset({support_id})),
+                    make_reference_provenance(
+                        support_ids=frozenset({support_id})
+                    ),
                 ),
                 start_certificates=frozenset({point_certificates[ordinal]}),
                 end_certificates=frozenset({point_certificates[ordinal + 1]}),

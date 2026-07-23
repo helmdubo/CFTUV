@@ -46,8 +46,10 @@ from .planar_types import (
     polygon_signed_area,
     vector_scale,
 )
-from .provenance import ReferenceProvenanceV1
-from .provenance import merge_provenance
+from .provenance import (
+    make_reference_provenance,
+    merge_provenance,
+)
 
 
 class BoundaryRole(str, Enum):
@@ -150,7 +152,7 @@ def build_domain_geometry(context: GeometryContext) -> DomainGeometry:
                 item.boundary_constraint_id.value
                 for item in constraints_by_edge.get(edge_id, ())
             )
-            provenance = ReferenceProvenanceV1(
+            provenance = make_reference_provenance(
                 physical_edge_ids=frozenset({edge_id.value}),
                 source_face_ids=frozenset({face.face_id.value}),
                 chain_use_ids=frozenset(uses_by_edge.get(edge_id, ())),
@@ -251,7 +253,7 @@ def build_domain_geometry(context: GeometryContext) -> DomainGeometry:
             start,
             end,
             support_ids=frozenset({stable_id("barrier-support", edge_id)}),
-            provenance=ReferenceProvenanceV1(
+            provenance=make_reference_provenance(
                 physical_edge_ids=frozenset({edge_id.value}),
                 patch_domain_ids=frozenset(
                     {context.compilation.plan_key.patch_domain_id.value}
@@ -377,6 +379,7 @@ def resolve_component_alphas(
             )
         ):
             best_split = None
+            best_bypass = None
             endpoint_events = []
             for boundary in domain_geometry.blocking_segments:
                 if source.physical_edge_id.value in boundary.segment.provenance.physical_edge_ids:
@@ -414,10 +417,50 @@ def resolve_component_alphas(
                         candidate = (alpha, event_key, construction)
                         if best_split is None or exact_sign(alpha - best_split[0]) < 0:
                             best_split = candidate
+                    elif (
+                        boundary.role is BoundaryRole.EXPLICIT_BARRIER
+                        and not interior
+                        and exact_sign(requested - alpha) > 0
+                    ):
+                        candidate = (alpha, event_key, construction)
+                        if (
+                            best_bypass is None
+                            or exact_sign(alpha - best_bypass[0]) < 0
+                        ):
+                            best_bypass = candidate
                     else:
                         endpoint_events.append((alpha, event_key, construction, interior))
             diagnostics = []
-            if best_split is not None:
+            if best_bypass is not None and (
+                best_split is None
+                or exact_sign(best_bypass[0] - best_split[0]) < 0
+            ):
+                alpha, event_key, construction = best_bypass
+                diagnostic = ReferenceEvaluationDiagnosticV1(
+                    outcome=ReferenceOutcome.BARRIER_BYPASS_UNSUPPORTED,
+                    severity=ReferenceDiagnosticSeverity.CAPACITY,
+                    message=(
+                        "continuation beyond an explicit barrier endpoint "
+                        "would require unsupported obstacle bypass"
+                    ),
+                    envelope_spec_id=spec.envelope_spec_id.value,
+                    front_component_id=source.front_component_id,
+                    requested_alpha=requested_alpha,
+                    effective_alpha=ExactScalar.from_value(alpha),
+                    construction=construction,
+                )
+                diagnostics.append(diagnostic)
+                current = resolutions[source.front_component_id]
+                if exact_sign(alpha - current.effective_alpha.as_expr()) <= 0:
+                    resolutions[source.front_component_id] = ComponentResolution(
+                        source.front_component_id,
+                        requested_alpha,
+                        ExactScalar.from_value(alpha),
+                        ReferenceOutcome.BARRIER_BYPASS_UNSUPPORTED,
+                        tuple(sorted(set((*current.event_keys, event_key)))),
+                        tuple((*current.diagnostics, diagnostic)),
+                    )
+            elif best_split is not None:
                 alpha, event_key, construction = best_split
                 diagnostic = ReferenceEvaluationDiagnosticV1(
                     outcome=ReferenceOutcome.BARRIER_SPLIT_REQUIRED,

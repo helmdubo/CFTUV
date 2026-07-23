@@ -604,6 +604,24 @@ def validate_decal_request(request: DecalRequestV1) -> tuple[ValidationIssue, ..
     return tuple(issues)
 
 
+def validate_snapshot_request_references(
+    snapshot: AnalysisSnapshotV1,
+    request: DecalRequestV1,
+) -> tuple[ValidationIssue, ...]:
+    """Validate the complete public compile input before any scope resolution."""
+
+    issues = list(validate_analysis_snapshot(snapshot))
+    issues.extend(validate_decal_request(request))
+    use_ids = _values(snapshot.chain_uses, "chain_use_id")
+    _require_refs(
+        issues,
+        set(request.selected_chain_use_ids),
+        use_ids,
+        ("request", "selected_chain_use_ids"),
+    )
+    return tuple(issues)
+
+
 def _seed_id(seed: object) -> OpaqueId:
     return seed.seed_id
 

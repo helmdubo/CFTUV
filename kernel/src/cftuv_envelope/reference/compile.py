@@ -80,7 +80,10 @@ from ..ids import (
     SelectionCertificateId,
 )
 from ..numeric import ExactRatioV1, IntervalEndpointKind, LocalLengthV1
-from ..validation import validate_decal_request
+from ..validation import (
+    ValidationCode,
+    validate_snapshot_request_references,
+)
 from .contracts import (
     EnvelopeSourceProvenanceV1,
     REFERENCE_COMPILATION_SCHEMA_V1,
@@ -90,7 +93,8 @@ from .contracts import (
     ReferenceEvaluationDiagnosticV1,
     ReferenceOutcome,
 )
-from .provenance import ReferenceProvenanceV1
+from .provenance import make_reference_provenance
+from .validation import validate_reference_geometry_certificates
 
 
 def _stable_value(kind: str, *parts: object) -> str:
@@ -160,19 +164,31 @@ def compile_reference_envelopes(
 ) -> ReferenceCompileResultV1:
     """Compile immutable seeds/specs for exactly one request/domain plan."""
 
-    input_issues = validate_decal_request(request)
+    input_issues = validate_snapshot_request_references(snapshot, request)
     if input_issues:
+        if all(item.code is ValidationCode.ROUTE_TOPOLOGY for item in input_issues):
+            return _failure(
+                ReferenceOutcome.JUNCTION_ROUTE_PAIRING_REQUIRED,
+                "; ".join(
+                    f"{'.'.join(item.path)}: {item.message}" for item in input_issues
+                ),
+            )
         return _failure(
             ReferenceOutcome.REFERENCE_INPUT_CONTRACT_INVALID,
-            "; ".join(f"{item.path}: {item.message}" for item in input_issues),
+            "; ".join(
+                f"{'.'.join(item.path)}: {item.message}" for item in input_issues
+            ),
         )
 
     uses_by_id = {item.chain_use_id: item for item in snapshot.chain_uses}
-    selected_uses = [
-        uses_by_id[item]
-        for item in request.selected_chain_use_ids
-        if item in uses_by_id
-    ]
+    selected_uses = [uses_by_id[item] for item in request.selected_chain_use_ids]
+    if frozenset(item.chain_use_id for item in selected_uses) != (
+        request.selected_chain_use_ids
+    ):
+        return _failure(
+            ReferenceOutcome.REFERENCE_INPUT_CONTRACT_INVALID,
+            "selected ChainUse resolution must be total and exact",
+        )
     domain_ids = {item.patch_domain_id for item in selected_uses}
     if patch_domain_id is None:
         if len(domain_ids) != 1:
@@ -196,6 +212,15 @@ def compile_reference_envelopes(
             ReferenceOutcome.REFERENCE_PATCH_DOMAIN_SELECTION_REQUIRED,
             "selected PatchDomain is absent from AnalysisSnapshotV1",
         )
+    geometry_diagnostics = validate_reference_geometry_certificates(
+        snapshot, patch_domain_id
+    )
+    if geometry_diagnostics:
+        return ReferenceCompileResultV1(
+            geometry_diagnostics[0].outcome,
+            None,
+            geometry_diagnostics,
+        )
     local_uses = sorted(
         (item for item in selected_uses if item.patch_domain_id == patch_domain_id),
         key=lambda item: item.chain_use_id.value,
@@ -208,6 +233,8 @@ def compile_reference_envelopes(
 
     seeds = set()
     components = set()
+    component_by_use_sector = {}
+    sector_id_by_use = {}
     selection_certificates = set()
     specs_by_id = {}
     provenance_by_spec_id = {}
@@ -224,6 +251,13 @@ def compile_reference_envelopes(
                 ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
                 f"ChainUse {chain_use.chain_use_id} has no analysis-proven owner sector",
             )
+        if len(sectors) != 1:
+            return _failure(
+                ReferenceOutcome.REFERENCE_MULTISECTOR_CHAIN_USE_UNSUPPORTED,
+                "planar reference v1 requires exactly one analysis-proven "
+                f"OwnerSector per ChainUse; {chain_use.chain_use_id} has {len(sectors)}",
+            )
+        sector_id_by_use[chain_use.chain_use_id] = sectors[0].owner_sector_id
         front_seed_id = FrontSeedId(
             _stable_value("front-seed", request.decal_request_id, patch_domain_id, chain_use.chain_use_id)
         )
@@ -242,32 +276,34 @@ def compile_reference_envelopes(
                 _stable_value("front-component", front_seed_id, sector.owner_sector_id)
             )
             component_ids.add(component_id)
-            components.add(
-                FrontComponentV1(
-                    front_component_id=component_id,
-                    decal_request_id=request.decal_request_id,
-                    patch_domain_id=patch_domain_id,
-                    front_seed_id=front_seed_id,
-                    chain_use_id=chain_use.chain_use_id,
-                    owner_patch_id=domain.owner_patch_id,
-                    sector_id=sector.owner_sector_id,
-                    active_interval_model=ActiveIntervalModel.CONTINUOUS_INTERVAL_SET,
-                    initial_branch_count=1,
-                    branch_count_policy=BranchCountPolicy.NON_INCREASING,
-                    lifecycle=FrontLifecycle.COMPILE_TRACKED,
-                    front_reading_ids=frozenset(),
-                    requested_alpha=request.requested_alpha,
-                    effective_alpha=request.requested_alpha,
-                    capacity_reason=CapacityReason.NONE,
-                    terminal_outcome=FrontTerminalOutcome.NONE,
-                )
+            component = FrontComponentV1(
+                front_component_id=component_id,
+                decal_request_id=request.decal_request_id,
+                patch_domain_id=patch_domain_id,
+                front_seed_id=front_seed_id,
+                chain_use_id=chain_use.chain_use_id,
+                owner_patch_id=domain.owner_patch_id,
+                sector_id=sector.owner_sector_id,
+                active_interval_model=ActiveIntervalModel.CONTINUOUS_INTERVAL_SET,
+                initial_branch_count=1,
+                branch_count_policy=BranchCountPolicy.NON_INCREASING,
+                lifecycle=FrontLifecycle.COMPILE_TRACKED,
+                front_reading_ids=frozenset(),
+                requested_alpha=request.requested_alpha,
+                effective_alpha=request.requested_alpha,
+                capacity_reason=CapacityReason.NONE,
+                terminal_outcome=FrontTerminalOutcome.NONE,
             )
+            components.add(component)
+            component_by_use_sector[
+                (chain_use.chain_use_id, sector.owner_sector_id)
+            ] = component
         strip_id = EnvelopeSpecId(
             _stable_value("strip-spec", request.decal_request_id, patch_domain_id, chain_use.chain_use_id)
         )
         strip_ids_by_use[chain_use.chain_use_id] = strip_id
         chain = chains_by_id[chain_use.physical_chain_id]
-        provenance_by_spec_id[strip_id] = ReferenceProvenanceV1(
+        provenance_by_spec_id[strip_id] = make_reference_provenance(
             envelope_spec_ids=frozenset({strip_id.value}),
             physical_edge_ids=frozenset(item.value for item in chain.ordered_physical_edge_ids),
             chain_use_ids=frozenset({chain_use.chain_use_id.value}),
@@ -372,11 +408,12 @@ def compile_reference_envelopes(
             _stable_value("angular-spec", request.decal_request_id, relation.corner_relation_id)
         )
         incident_components = tuple(
-            next(
-                component.front_component_id
-                for component in components
-                if component.chain_use_id == chain_use_id
-            )
+            component_by_use_sector[
+                (
+                    chain_use_id,
+                    sector_id_by_use[chain_use_id],
+                )
+            ].front_component_id
             for chain_use_id in sector.ordered_incident_chain_use_ids
         )
         spec = AngularEnvelopeSpec(
@@ -412,7 +449,7 @@ def compile_reference_envelopes(
                 uses_by_id[chain_use_id].physical_chain_id
             ].ordered_physical_edge_ids
         }
-        provenance_by_spec_id[spec_id] = ReferenceProvenanceV1(
+        provenance_by_spec_id[spec_id] = make_reference_provenance(
             envelope_spec_ids=frozenset({spec_id.value}),
             support_ids=frozenset(item.hidden_support_id.value for item in hidden_supports),
             physical_edge_ids=frozenset(physical_edges),
@@ -494,7 +531,7 @@ def compile_reference_envelopes(
         junction_specs.append(spec)
         for chain_use_id in local_incident:
             interface_ids_by_use[chain_use_id].add(spec_id)
-        provenance_by_spec_id[spec_id] = ReferenceProvenanceV1(
+        provenance_by_spec_id[spec_id] = make_reference_provenance(
             envelope_spec_ids=frozenset({spec_id.value}),
             physical_edge_ids=frozenset(
                 item.value
@@ -568,7 +605,7 @@ def compile_reference_envelopes(
             )
             cap_specs.append(spec)
             interface_ids_by_use[chain_use.chain_use_id].add(spec_id)
-            provenance_by_spec_id[spec_id] = ReferenceProvenanceV1(
+            provenance_by_spec_id[spec_id] = make_reference_provenance(
                 envelope_spec_ids=frozenset({spec_id.value}),
                 physical_edge_ids=frozenset(item.value for item in chain.ordered_physical_edge_ids),
                 chain_use_ids=frozenset({chain_use.chain_use_id.value}),

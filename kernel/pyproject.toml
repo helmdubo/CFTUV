@@ -9,7 +9,7 @@ description = "Blender-free contracts and exact planar reference evaluator for t
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "CFTUV" }]
-dependencies = ["sympy>=1.13,<2"]
+dependencies = ["sympy==1.14.0"]
 
 [project.optional-dependencies]
 test = ["pytest>=8"]

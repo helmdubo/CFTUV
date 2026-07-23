@@ -60,12 +60,11 @@ def test_declared_t_x_y_junctions_keep_route_pairing_and_build_one_envelope(
     assert len(junctions) == 1
     assert len(junctions[0].route_pairing_ids) == route_pair_count
     evaluated = evaluate_reference_raw_coverage(compiled.compilation, Decimal("1"))
-    assert evaluated.outcome is ReferenceOutcome.EXACT
-    assert sum(
-        item.envelope_variant == "JunctionEnvelope"
-        for item in evaluated.raw_coverage.envelope_instances
-    ) == 1
-    assert len(evaluated.raw_coverage.regions) == 1
+    assert (
+        evaluated.outcome
+        is ReferenceOutcome.REFERENCE_JUNCTION_ENVELOPE_LAW_UNPROVEN
+    )
+    assert evaluated.raw_coverage is None
 
 
 def test_junction_route_pairing_is_never_guessed():
@@ -133,7 +132,11 @@ def test_cross_patch_junction_uses_one_anchor_and_distinct_per_patch_projections
         )
         specs.append(spec)
         evaluated = evaluate_reference_raw_coverage(compiled.compilation, Decimal("1"))
-        assert evaluated.outcome is ReferenceOutcome.EXACT
+        assert (
+            evaluated.outcome
+            is ReferenceOutcome.REFERENCE_JUNCTION_ENVELOPE_LAW_UNPROVEN
+        )
+        assert evaluated.raw_coverage is None
     assert specs[0].shared_semantic_anchor_id == specs[1].shared_semantic_anchor_id
     assert specs[0].per_patch_projection_id != specs[1].per_patch_projection_id
 
@@ -167,7 +170,7 @@ def test_seam_self_two_uses_remain_distinct_in_one_patch_union():
     assert len(region.contributor_envelope_spec_ids) >= 2
 
 
-def test_angle_certificate_change_crossing_threshold_changes_k_semantically():
+def test_angle_certificate_change_without_support_change_fails_closed():
     snapshot, request = angular_snapshot(0)
     baseline = compile_reference_envelopes(snapshot, request)
     assert next(
@@ -202,11 +205,11 @@ def test_angle_certificate_change_crossing_threshold_changes_k_semantically():
         ),
     )
     changed = compile_reference_envelopes(changed_snapshot, request)
-    assert next(
-        item
-        for item in changed.compilation.envelope_specs
-        if isinstance(item, AngularEnvelopeSpec)
-    ).resolved_hidden_edge_count == 1
+    assert (
+        changed.outcome
+        is ReferenceOutcome.REFERENCE_ANGLE_SUPPORT_CERTIFICATE_MISMATCH
+    )
+    assert changed.compilation is None
 
 
 def test_source_retriangulation_does_not_change_reference_raw_digest():
