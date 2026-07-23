@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import sys
 from pathlib import Path
 
@@ -14,6 +15,7 @@ if str(KERNEL_SRC) not in sys.path:
 from cftuv.envelope_host_adapter import (  # noqa: E402
     EnvelopeDebugHostOutcome,
     _canonical_chain,
+    _host_edge_number,
     build_envelope_analysis_snapshot,
     build_envelope_decal_request,
     evaluate_envelope_debug,
@@ -243,6 +245,118 @@ def _two_patch_seam_bundle():
             SurfaceTriangle(1, 0, (0, 2, 3), (2, 3, None), (0, 0, 1)),
             SurfaceTriangle(2, 1, (1, 4, 5), (5, None, 4), (0, 0, 1)),
             SurfaceTriangle(3, 1, (1, 5, 2), (6, 1, None), (0, 0, 1)),
+        ),
+    )
+    return AnalysisBundle(revision, graph, surface)
+
+
+def _mismatched_seam_partition_bundle():
+    revision = SourceRevision(
+        "v0-seam-partition",
+        "sha256:v0-seam-partition",
+    )
+    graph = PatchGraph(source_revision=revision)
+    coordinates = {
+        0: (0.0, 0.0, 0.0),
+        1: (2.0, 0.0, 0.0),
+        2: (2.0, 1.0, 0.0),
+        3: (2.0, 2.0, 0.0),
+        4: (0.0, 2.0, 0.0),
+        5: (4.0, 0.0, 0.0),
+        6: (4.0, 2.0, 0.0),
+    }
+
+    def chain(vertices, edges, neighbor=-1):
+        return BoundaryChain(
+            vert_indices=list(vertices),
+            vert_cos=[Vector(coordinates[item]) for item in vertices],
+            edge_indices=list(edges),
+            side_face_indices=[],
+            side_face_normals=[Vector((0, 0, 1)) for _ in edges],
+            neighbor_patch_id=neighbor,
+        )
+
+    left_loop = BoundaryLoop(
+        vert_indices=[0, 1, 2, 3, 4],
+        vert_cos=[Vector(coordinates[item]) for item in (0, 1, 2, 3, 4)],
+        edge_indices=[0, 1, 2, 3, 4],
+        side_face_indices=[0, 0, 0, 0, 0],
+        kind=LoopKind.OUTER,
+        chains=[
+            chain((0, 1), (0,)),
+            chain((1, 2), (1,), 1),
+            chain((2, 3), (2,), 1),
+            chain((3, 4), (3,)),
+            chain((4, 0), (4,)),
+        ],
+    )
+    right_loop = BoundaryLoop(
+        vert_indices=[1, 5, 6, 3, 2],
+        vert_cos=[Vector(coordinates[item]) for item in (1, 5, 6, 3, 2)],
+        edge_indices=[5, 6, 7, 2, 1],
+        side_face_indices=[1, 1, 1, 1, 1],
+        kind=LoopKind.OUTER,
+        chains=[
+            chain((1, 5), (5,)),
+            chain((5, 6), (6,)),
+            chain((6, 3), (7,)),
+            chain((3, 2, 1), (2, 1), 0),
+        ],
+    )
+    for patch_id, loop in enumerate((left_loop, right_loop)):
+        graph.add_node(
+            PatchNode(
+                patch_id=patch_id,
+                face_indices=[patch_id],
+                normal=Vector((0, 0, 1)),
+                basis_u=Vector((1, 0, 0)),
+                basis_v=Vector((0, 1, 0)),
+                patch_type=PatchType.FLOOR,
+                world_facing=WorldFacing.UP,
+                boundary_loops=[loop],
+            )
+        )
+    surface = PatchSurfaceIR(
+        revision,
+        vertices=tuple(
+            SourceVertex(vertex_id, coordinates[vertex_id])
+            for vertex_id in sorted(coordinates)
+        ),
+        edges=(
+            SourceEdge(0, (0, 1), (0,)),
+            SourceEdge(1, (1, 2), (0, 1)),
+            SourceEdge(2, (2, 3), (0, 1)),
+            SourceEdge(3, (3, 4), (0,)),
+            SourceEdge(4, (4, 0), (0,)),
+            SourceEdge(5, (1, 5), (1,)),
+            SourceEdge(6, (5, 6), (1,)),
+            SourceEdge(7, (6, 3), (1,)),
+        ),
+        faces=(
+            SourceFace(
+                0,
+                0,
+                (0, 1, 2, 3, 4),
+                (0, 1, 2, 3, 4),
+                (0, 0, 1),
+                (0, 1, 2),
+            ),
+            SourceFace(
+                1,
+                1,
+                (1, 5, 6, 3, 2),
+                (5, 6, 7, 2, 1),
+                (0, 0, 1),
+                (3, 4, 5),
+            ),
+        ),
+        triangles=(
+            SurfaceTriangle(0, 0, (0, 1, 2), (1, None, 0), (0, 0, 1)),
+            SurfaceTriangle(1, 0, (0, 2, 3), (2, None, None), (0, 0, 1)),
+            SurfaceTriangle(2, 0, (0, 3, 4), (3, 4, None), (0, 0, 1)),
+            SurfaceTriangle(3, 1, (1, 5, 6), (6, None, 5), (0, 0, 1)),
+            SurfaceTriangle(4, 1, (1, 6, 3), (7, None, None), (0, 0, 1)),
+            SurfaceTriangle(5, 1, (1, 3, 2), (2, 1, None), (0, 0, 1)),
         ),
     )
     return AnalysisBundle(revision, graph, surface)
@@ -481,6 +595,40 @@ def test_approximate_normalized_frame_fails_named_without_rounding():
     )
 
 
+def test_axis_frame_uses_canonical_plane_origin_without_float_subtraction():
+    bundle = _single_patch_bundle()
+    positions = (
+        (0.12345678901234566, 0.23456789012345677, 0.0),
+        (0.9876543210987654, 0.23456789012345677, 0.0),
+        (0.9876543210987654, 1.8765432109876542, 0.0),
+        (0.12345678901234566, 1.8765432109876542, 0.0),
+    )
+    surface = replace(
+        bundle.patch_surface,
+        vertices=tuple(
+            SourceVertex(vertex_id, position)
+            for vertex_id, position in enumerate(positions)
+        ),
+    )
+    offset_bundle = AnalysisBundle(
+        bundle.source_revision,
+        bundle.patch_graph,
+        surface,
+        bundle.capabilities,
+    )
+
+    evaluation = evaluate_envelope_debug(
+        offset_bundle,
+        frozenset({0}),
+        0.25,
+    )
+
+    assert evaluation.diagnostics == ()
+    assert evaluation.snapshot is not None
+    frame = next(iter(evaluation.snapshot.surface_metric_descriptors))
+    assert (frame.origin.x, frame.origin.y, frame.origin.z) == (0.0, 0.0, 0.0)
+
+
 def test_one_physical_seam_maps_to_two_domains_without_cross_patch_collision():
     evaluation = evaluate_envelope_debug(
         _two_patch_seam_bundle(),
@@ -508,6 +656,62 @@ def test_one_physical_seam_maps_to_two_domains_without_cross_patch_collision():
     assert len(evaluation.debug_scene.patch_domain_ids) == 2
     assert len(evaluation.debug_scene.raw_coverage_digests) == 2
     assert len(evaluation.debug_scene.resolved_coverage_digests) == 2
+
+
+def test_patch_side_seam_partitions_use_exact_common_refinement():
+    evaluation = evaluate_envelope_debug(
+        _mismatched_seam_partition_bundle(),
+        frozenset({1}),
+        0.25,
+    )
+
+    assert evaluation.diagnostics == ()
+    assert evaluation.snapshot is not None
+    selected_edges = {
+        _host_edge_number(edge_id)
+        for chain in evaluation.snapshot.physical_chains
+        if any(
+            _host_edge_number(edge_id) == 1
+            for edge_id in chain.ordered_physical_edge_ids
+        )
+        for edge_id in chain.ordered_physical_edge_ids
+    }
+    assert selected_edges == {1}
+    selected_chain = next(
+        chain
+        for chain in evaluation.snapshot.physical_chains
+        if tuple(
+            _host_edge_number(edge_id)
+            for edge_id in chain.ordered_physical_edge_ids
+        )
+        == (1,)
+    )
+    selected_uses = [
+        use
+        for use in evaluation.snapshot.chain_uses
+        if use.physical_chain_id == selected_chain.physical_chain_id
+    ]
+    assert len(selected_uses) == 2
+    assert len({use.patch_domain_id for use in selected_uses}) == 2
+
+
+def test_patch_side_seam_refinement_rejects_different_edge_coverage():
+    bundle = _mismatched_seam_partition_bundle()
+    coarse_use = bundle.patch_graph.nodes[1].boundary_loops[0].chains[-1]
+    coarse_use.vert_indices = [3, 2]
+    coarse_use.edge_indices = [2]
+
+    evaluation = evaluate_envelope_debug(
+        bundle,
+        frozenset({1}),
+        0.25,
+    )
+
+    assert evaluation.debug_scene is None
+    assert evaluation.diagnostics[0].outcome is (
+        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_CHAIN_USE_PAIR_UNAVAILABLE
+    )
+    assert "cover different physical edges" in evaluation.diagnostics[0].message
 
 
 def test_unselected_patch_domain_is_not_projected_into_debug_scene():

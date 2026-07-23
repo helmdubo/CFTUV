@@ -95,6 +95,17 @@ PhysicalChains. An unselected tilted or non-exact patch cannot block a
 selected exact-planar patch. A selected seam reaches both of its patch-side
 domains, so both frames must be certified.
 
+PatchDomains are split by Seam topology, not merely by a visually planar face
+selection. Sharp edges do not create PatchDomains. If one selected seam use
+belongs to a connected non-planar patch, mark the required patch boundaries
+as Seams and rebuild analysis; the bridge will not infer or insert those
+domain cuts.
+
+When the two patch sides declare different BoundaryChain segmentation over
+the same exact physical-edge route, V0 uses their exact common endpoint
+refinement. It never expands a partial selection: the selected edges must
+still equal one complete refined PhysicalChain.
+
 An unproved plane reports
 `ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE`. A partial chain reports
 `ENVELOPE_DEBUG_PARTIAL_CHAIN_SELECTION_UNSUPPORTED`. Neither case rounds the
@@ -103,6 +114,11 @@ sufficient: the selected PatchDomain's stored local U/V/N basis must also
 satisfy the exact orthonormal certificate. Arbitrarily tilted local mesh
 coordinates will commonly remain outside this V0 subset; an exact local mesh
 with rotation carried by `matrix_world` is supported.
+
+For signed-axis frames, the adapter uses the exact canonical point on the
+certified plane as the display/kernel origin. This avoids introducing a
+non-round-trippable coordinate by subtracting an arbitrary source vertex;
+source coordinates themselves remain unchanged.
 
 ## Preflight and smoke
 

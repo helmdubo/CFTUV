@@ -53,6 +53,13 @@ Selection is a set of complete physical edge routes. Selecting only part of a
 PhysicalChain returns
 `ENVELOPE_DEBUG_PARTIAL_CHAIN_SELECTION_UNSUPPORTED`.
 
+A physical seam may be segmented differently by its two host-side
+BoundaryChain lists. If both sides cover exactly the same non-repeated
+physical-edge set, the adapter computes the common refinement using only
+their declared endpoint vertices. Each resulting interval must have exactly
+two patch-side uses. Missing coverage, repeated edges, or an unproved
+partition still fails named; no coordinate or support heuristic participates.
+
 A physical seam maps to two ChainUses in two PatchDomains. `SEAM_SELF` maps to
 two distinct ChainUses in one PatchDomain. V0 never infers a
 `SelfContactPairDeclarationV1`; real host assets therefore compile no

@@ -117,10 +117,21 @@ class EnvelopeHostAdapterError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class _HostChainSlice:
+    neighbor_kind: ChainNeighborKind
+    neighbor_patch_id: int
+    is_closed: bool
+    vert_indices: tuple[int, ...]
+    edge_indices: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class _HostChainRecord:
     patch_id: int
     loop_index: int
     chain_index: int
+    source_chain_index: int
+    source_segment_index: int
     chain: object
     canonical_vertex_ids: tuple[int, ...]
     canonical_edge_ids: tuple[int, ...]
@@ -227,18 +238,217 @@ def _canonical_chain(chain) -> tuple[tuple[int, ...], tuple[int, ...], bool]:
     return vertices, edges, False
 
 
+def _host_chain_slice(chain) -> _HostChainSlice:
+    return _HostChainSlice(
+        chain.neighbor_kind,
+        int(chain.neighbor_patch_id),
+        bool(chain.is_closed),
+        tuple(int(item) for item in chain.vert_indices),
+        tuple(int(item) for item in chain.edge_indices),
+    )
+
+
+def _split_host_chain_slice(
+    chain: _HostChainSlice,
+    cut_vertex_ids: frozenset[int],
+) -> tuple[_HostChainSlice, ...]:
+    vertices = chain.vert_indices
+    edges = chain.edge_indices
+    if not chain.is_closed:
+        cut_indices = (
+            0,
+            *(
+                index
+                for index in range(1, len(vertices) - 1)
+                if vertices[index] in cut_vertex_ids
+            ),
+            len(vertices) - 1,
+        )
+        return tuple(
+            _HostChainSlice(
+                chain.neighbor_kind,
+                chain.neighbor_patch_id,
+                False,
+                vertices[start : end + 1],
+                edges[start:end],
+            )
+            for start, end in zip(
+                cut_indices[:-1],
+                cut_indices[1:],
+                strict=True,
+            )
+        )
+
+    cut_indices = tuple(
+        index
+        for index, vertex_id in enumerate(vertices)
+        if vertex_id in cut_vertex_ids
+    )
+    if not cut_indices:
+        return (chain,)
+    if len(cut_indices) < 2:
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_CHAIN_USE_PAIR_UNAVAILABLE,
+            "closed physical seam has fewer than two exact partition endpoints",
+        )
+    pieces = []
+    vertex_count = len(vertices)
+    for start, end in zip(
+        cut_indices,
+        cut_indices[1:] + (cut_indices[0] + vertex_count,),
+        strict=True,
+    ):
+        piece_vertices = tuple(
+            vertices[index % vertex_count]
+            for index in range(start, end + 1)
+        )
+        piece_edges = tuple(
+            edges[index % vertex_count]
+            for index in range(start, end)
+        )
+        pieces.append(
+            _HostChainSlice(
+                chain.neighbor_kind,
+                chain.neighbor_patch_id,
+                False,
+                piece_vertices,
+                piece_edges,
+            )
+        )
+    return tuple(pieces)
+
+
+def _normalize_physical_seam_partitions(
+    raw_records: tuple[_HostChainRecord, ...],
+) -> tuple[_HostChainRecord, ...]:
+    """Apply the exact common refinement declared by both patch-side uses."""
+
+    records_by_pair: dict[tuple[int, int], list[_HostChainRecord]] = {}
+    for record in raw_records:
+        if record.chain.neighbor_kind is not ChainNeighborKind.PATCH:
+            continue
+        pair = tuple(
+            sorted((record.patch_id, int(record.chain.neighbor_patch_id)))
+        )
+        records_by_pair.setdefault(pair, []).append(record)
+
+    cut_vertices_by_pair: dict[tuple[int, int], frozenset[int]] = {}
+    for pair, records in records_by_pair.items():
+        records_by_side = {
+            patch_id: [
+                record for record in records if record.patch_id == patch_id
+            ]
+            for patch_id in pair
+        }
+        # Request-scoped snapshots may intentionally omit the opposite domain.
+        if any(not side_records for side_records in records_by_side.values()):
+            continue
+        edge_sets_by_side = {}
+        for patch_id, side_records in records_by_side.items():
+            ordered_edges = [
+                edge_id
+                for record in side_records
+                for edge_id in record.chain.edge_indices
+            ]
+            if len(ordered_edges) != len(set(ordered_edges)):
+                raise EnvelopeHostAdapterError(
+                    EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_CHAIN_USE_PAIR_UNAVAILABLE,
+                    "one patch-side seam partition repeats a physical edge",
+                )
+            edge_sets_by_side[patch_id] = frozenset(ordered_edges)
+        if len(set(edge_sets_by_side.values())) != 1:
+            raise EnvelopeHostAdapterError(
+                EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_CHAIN_USE_PAIR_UNAVAILABLE,
+                "patch-side seam partitions cover different physical edges",
+            )
+        cut_vertices_by_pair[pair] = frozenset(
+            vertex_id
+            for record in records
+            if not record.chain.is_closed
+            for vertex_id in (
+                record.chain.vert_indices[0],
+                record.chain.vert_indices[-1],
+            )
+        )
+
+    expanded = []
+    for record in raw_records:
+        pair = (
+            tuple(
+                sorted((record.patch_id, int(record.chain.neighbor_patch_id)))
+            )
+            if record.chain.neighbor_kind is ChainNeighborKind.PATCH
+            else None
+        )
+        pieces = _split_host_chain_slice(
+            record.chain,
+            cut_vertices_by_pair.get(pair, frozenset()),
+        )
+        for segment_index, piece in enumerate(pieces):
+            vertices, edges, reversed_from_canonical = _canonical_chain(piece)
+            expanded.append(
+                _HostChainRecord(
+                    record.patch_id,
+                    record.loop_index,
+                    record.chain_index,
+                    record.source_chain_index,
+                    segment_index,
+                    piece,
+                    vertices,
+                    edges,
+                    reversed_from_canonical,
+                )
+            )
+
+    normalized = []
+    for patch_loop in sorted(
+        {(record.patch_id, record.loop_index) for record in expanded}
+    ):
+        loop_records = sorted(
+            (
+                record
+                for record in expanded
+                if (record.patch_id, record.loop_index) == patch_loop
+            ),
+            key=lambda record: (
+                record.source_chain_index,
+                record.source_segment_index,
+            ),
+        )
+        for chain_index, record in enumerate(loop_records):
+            normalized.append(
+                _HostChainRecord(
+                    record.patch_id,
+                    record.loop_index,
+                    chain_index,
+                    record.source_chain_index,
+                    record.source_segment_index,
+                    record.chain,
+                    record.canonical_vertex_ids,
+                    record.canonical_edge_ids,
+                    record.reversed_from_canonical,
+                )
+            )
+    return tuple(normalized)
+
+
 def _collect_host_chains(analysis_bundle: AnalysisBundle) -> tuple[_HostChainRecord, ...]:
     records = []
     for patch_id, patch in sorted(analysis_bundle.patch_graph.nodes.items()):
         for loop_index, loop in enumerate(patch.boundary_loops):
             for chain_index, chain in enumerate(loop.chains):
-                vertices, edges, reversed_from_canonical = _canonical_chain(chain)
+                chain_slice = _host_chain_slice(chain)
+                vertices, edges, reversed_from_canonical = _canonical_chain(
+                    chain_slice
+                )
                 records.append(
                     _HostChainRecord(
                         int(patch_id),
                         loop_index,
                         chain_index,
-                        chain,
+                        chain_index,
+                        0,
+                        chain_slice,
                         vertices,
                         edges,
                         reversed_from_canonical,
@@ -249,7 +459,7 @@ def _collect_host_chains(analysis_bundle: AnalysisBundle) -> tuple[_HostChainRec
             EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID,
             "AnalysisBundle contains no BoundaryChain records",
         )
-    return tuple(records)
+    return _normalize_physical_seam_partitions(tuple(records))
 
 
 def _host_chain_key(
@@ -542,11 +752,9 @@ def _exact_frame(
             "PatchDomain has no source vertices",
             patch_domain_id=patch_domain_id.value,
         )
-    origin_values = _vector3(host_vertex_by_id[min(patch_vertex_ids)].position)
     axis_u_values = _vector3(patch.basis_u)
     axis_v_values = _vector3(patch.basis_v)
     normal_values = _vector3(patch.normal)
-    origin = tuple(scalar(value) for value in origin_values)
     axis_u = tuple(scalar(value) for value in axis_u_values)
     axis_v = tuple(scalar(value) for value in axis_v_values)
     normal = tuple(scalar(value) for value in normal_values)
@@ -572,7 +780,7 @@ def _exact_frame(
     if any(item != 0 for item in basis_checks):
         raise EnvelopeHostAdapterError(
             EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-            "host planar basis is not exactly orthonormal",
+            f"host Patch {patch_id} planar basis is not exactly orthonormal",
             patch_domain_id=patch_domain_id.value,
         )
     cross_uv = cross(axis_u, axis_v)
@@ -583,9 +791,39 @@ def _exact_frame(
     else:
         raise EnvelopeHostAdapterError(
             EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-            "host planar basis handedness is not exactly certified",
+            f"host Patch {patch_id} planar basis handedness is not exactly certified",
             patch_domain_id=patch_domain_id.value,
         )
+
+    source_origin_values = _vector3(
+        host_vertex_by_id[min(patch_vertex_ids)].position
+    )
+
+    def signed_axis_index(vector):
+        nonzero = tuple(
+            index for index, value in enumerate(vector) if value != 0
+        )
+        if (
+            len(nonzero) == 1
+            and abs(vector[nonzero[0]]) == 1
+        ):
+            return nonzero[0]
+        return None
+
+    axis_indices = (
+        signed_axis_index(axis_u),
+        signed_axis_index(axis_v),
+        signed_axis_index(normal),
+    )
+    if None not in axis_indices and len(set(axis_indices)) == 3:
+        normal_index = axis_indices[2]
+        origin_values = tuple(
+            source_origin_values[index] if index == normal_index else 0.0
+            for index in range(3)
+        )
+    else:
+        origin_values = source_origin_values
+    origin = tuple(scalar(value) for value in origin_values)
 
     coordinates = []
     for vertex_id in patch_vertex_ids:
@@ -594,10 +832,13 @@ def _exact_frame(
         relative = tuple(
             value - base for value, base in zip(position, origin, strict=True)
         )
-        if dot(relative, normal) != 0:
+        plane_delta = dot(relative, normal)
+        if plane_delta != 0:
             raise EnvelopeHostAdapterError(
                 EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-                f"source vertex {vertex_id} is not exactly coplanar",
+                f"host Patch {patch_id} source vertex {vertex_id} is not "
+                "exactly coplanar; signed plane delta="
+                f"{float(plane_delta)!r}",
                 patch_domain_id=patch_domain_id.value,
             )
         exact_x = sympy.factor(dot(relative, axis_u))
@@ -612,7 +853,8 @@ def _exact_frame(
         ):
             raise EnvelopeHostAdapterError(
                 EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-                f"source vertex {vertex_id} planar coordinate has no exact float round-trip",
+                f"host Patch {patch_id} source vertex {vertex_id} planar "
+                "coordinate has no exact float round-trip",
                 patch_domain_id=patch_domain_id.value,
             )
         coordinates.append(
@@ -715,6 +957,29 @@ def _build_angular_relations(
         int(patch_id): analysis_bundle.patch_surface.patch_faces(int(patch_id))
         for patch_id in analysis_bundle.patch_graph.nodes
     }
+    normalized_refs_by_source: dict[
+        tuple[int, int, int],
+        tuple[tuple[int, int, int], ...],
+    ] = {}
+    source_refs = {
+        (
+            record.patch_id,
+            record.loop_index,
+            record.source_chain_index,
+        )
+        for record in record_by_ref.values()
+    }
+    for source_ref in source_refs:
+        normalized_refs_by_source[source_ref] = tuple(
+            ref
+            for ref, record in sorted(record_by_ref.items())
+            if (
+                record.patch_id,
+                record.loop_index,
+                record.source_chain_index,
+            )
+            == source_ref
+        )
 
     for patch_id, patch in sorted(analysis_bundle.patch_graph.nodes.items()):
         patch_id = int(patch_id)
@@ -804,22 +1069,27 @@ def _build_angular_relations(
                         "exact 2*pi corner must be Terminal/Junction, not Angular",
                         patch_domain_id=domain_id.value,
                     )
-                prev_ref = (
+                prev_source_ref = (
                     patch_id,
                     loop_index,
                     int(corner.prev_chain_index),
                 )
-                next_ref = (
+                next_source_ref = (
                     patch_id,
                     loop_index,
                     int(corner.next_chain_index),
                 )
-                if prev_ref not in record_by_ref or next_ref not in record_by_ref:
+                if (
+                    prev_source_ref not in normalized_refs_by_source
+                    or next_source_ref not in normalized_refs_by_source
+                ):
                     raise EnvelopeHostAdapterError(
                         EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
                         "BoundaryCorner incident ChainUse references are incomplete",
                         patch_domain_id=domain_id.value,
                     )
+                prev_ref = normalized_refs_by_source[prev_source_ref][-1]
+                next_ref = normalized_refs_by_source[next_source_ref][0]
                 anchor_vertex_id = int(corner.vert_index)
                 if anchor_vertex_id not in vertex_ids:
                     raise EnvelopeHostAdapterError(
@@ -1187,9 +1457,19 @@ def build_envelope_analysis_snapshot(
                 _typed_value("boundary-loop", revision, patch_id, loop_index)
             )
             loop_ids[(patch_id, loop_index)] = loop_id
+            ordered_refs = tuple(
+                (item.patch_id, item.loop_index, item.chain_index)
+                for item in sorted(
+                    host_chains,
+                    key=lambda record: record.chain_index,
+                )
+                if (
+                    item.patch_id == patch_id
+                    and item.loop_index == loop_index
+                )
+            )
             ordered_uses = tuple(
-                use_id_by_ref[(patch_id, loop_index, chain_index)]
-                for chain_index in range(len(loop.chains))
+                use_id_by_ref[ref] for ref in ordered_refs
             )
             boundary_loops.append(
                 kernel.BoundaryLoopV1(
