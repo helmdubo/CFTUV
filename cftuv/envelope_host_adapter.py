@@ -1,22 +1,40 @@
-"""Pure host mapping for the static exact-planar Envelope debug pipeline.
+"""Host mapping for staged topology and exact-planar Envelope debug.
 
 The module imports the standalone kernel lazily so the Blender add-on remains
-loadable when the wheel or its pinned SymPy dependency is unavailable.
+loadable, and topology debug remains usable, when the wheel or its pinned
+SymPy dependency is unavailable.
 """
 
 from __future__ import annotations
 
 import hashlib
 import importlib
+import inspect
 import json
 import math
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import TYPE_CHECKING
 
 from .model import ChainNeighborKind, LoopKind, PatchType
+from .envelope_debug_profile import (
+    EnvelopeDebugProfileBuilderV1,
+    EnvelopeDebugTimingV1,
+    EnvelopeDomainStage,
+    EnvelopeDomainStageReceiptV1,
+)
+from .envelope_topology_debug import (
+    ENVELOPE_TOPOLOGY_DEBUG_SCENE_SCHEMA_V1,
+    EnvelopeTopologyDebugPairV1,
+    EnvelopeTopologyDebugPathV1,
+    EnvelopeTopologyDebugSceneV1,
+    EnvelopeTopologyPairKind,
+    EnvelopeTopologyPathKind,
+    EnvelopeTopologySelectionDiagnosticV1,
+)
 
 if TYPE_CHECKING:
     import cftuv_envelope as envelope_kernel
@@ -78,12 +96,6 @@ class EnvelopeDebugHostDiagnosticV1:
 
 
 @dataclass(frozen=True, slots=True)
-class EnvelopeDebugTimingV1:
-    stage: str
-    elapsed_seconds: float
-
-
-@dataclass(frozen=True, slots=True)
 class EnvelopeDebugEvaluationV1:
     snapshot: envelope_kernel.AnalysisSnapshotV1 | None
     request: envelope_kernel.DecalRequestV1 | None
@@ -93,6 +105,50 @@ class EnvelopeDebugEvaluationV1:
     debug_scene: envelope_kernel.EnvelopeDebugSceneV1 | None
     diagnostics: tuple[EnvelopeDebugHostDiagnosticV1, ...]
     timings: tuple[EnvelopeDebugTimingV1, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class EnvelopeDebugDomainEvaluationV1:
+    patch_id: int
+    patch_domain_id: str
+    snapshot: envelope_kernel.AnalysisSnapshotV1 | None
+    request: envelope_kernel.DecalRequestV1 | None
+    compilation: envelope_kernel.ReferenceEnvelopeCompilationV1 | None
+    raw_result: envelope_kernel.RawCoverageResultV1 | None
+    interaction_result: (
+        envelope_kernel.InteractionResolutionResultV1 | None
+    )
+    debug_scene: envelope_kernel.EnvelopeDebugSceneV1 | None
+    receipt: EnvelopeDomainStageReceiptV1
+    diagnostics: tuple[EnvelopeDebugHostDiagnosticV1, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class EnvelopeDebugStagedEvaluationV1:
+    topology_scene: EnvelopeTopologyDebugSceneV1
+    domains: tuple[EnvelopeDebugDomainEvaluationV1, ...]
+
+    @property
+    def receipts(self) -> tuple[EnvelopeDomainStageReceiptV1, ...]:
+        return tuple(item.receipt for item in self.domains)
+
+    @property
+    def exact_debug_scenes(
+        self,
+    ) -> tuple[envelope_kernel.EnvelopeDebugSceneV1, ...]:
+        return tuple(
+            item.debug_scene
+            for item in self.domains
+            if item.debug_scene is not None
+        )
+
+    @property
+    def diagnostics(self) -> tuple[EnvelopeDebugHostDiagnosticV1, ...]:
+        return tuple(
+            diagnostic
+            for item in self.domains
+            for diagnostic in item.diagnostics
+        )
 
 
 class EnvelopeHostAdapterError(RuntimeError):
@@ -136,6 +192,12 @@ class _HostChainRecord:
     canonical_vertex_ids: tuple[int, ...]
     canonical_edge_ids: tuple[int, ...]
     reversed_from_canonical: bool
+
+
+def _measure(profile, stage: str, patch_domain_id: str | None = None):
+    if profile is None:
+        return nullcontext()
+    return profile.measure(stage, patch_domain_id)
 
 
 def _load_kernel():
@@ -432,7 +494,9 @@ def _normalize_physical_seam_partitions(
     return tuple(normalized)
 
 
-def _collect_host_chains(analysis_bundle: AnalysisBundle) -> tuple[_HostChainRecord, ...]:
+def _collect_raw_host_chains(
+    analysis_bundle: AnalysisBundle,
+) -> tuple[_HostChainRecord, ...]:
     records = []
     for patch_id, patch in sorted(analysis_bundle.patch_graph.nodes.items()):
         for loop_index, loop in enumerate(patch.boundary_loops):
@@ -459,7 +523,23 @@ def _collect_host_chains(analysis_bundle: AnalysisBundle) -> tuple[_HostChainRec
             EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID,
             "AnalysisBundle contains no BoundaryChain records",
         )
-    return _normalize_physical_seam_partitions(tuple(records))
+    return tuple(records)
+
+
+def _collect_host_chains(
+    analysis_bundle: AnalysisBundle,
+    *,
+    profile: EnvelopeDebugProfileBuilderV1 | None = None,
+    patch_domain_id: str | None = None,
+) -> tuple[_HostChainRecord, ...]:
+    with _measure(profile, "HOST_CHAIN_COLLECTION", patch_domain_id):
+        records = _collect_raw_host_chains(analysis_bundle)
+    with _measure(
+        profile,
+        "SEAM_PARTITION_NORMALIZATION",
+        patch_domain_id,
+    ):
+        return _normalize_physical_seam_partitions(records)
 
 
 def _host_chain_key(
@@ -514,11 +594,15 @@ def _validate_chain_group_topology(
         )
 
 
-def _selected_patch_scope(
+def _selected_chain_keys_and_patch_scope(
     analysis_bundle: AnalysisBundle,
     selected_physical_edge_ids: frozenset[int],
-) -> frozenset[int]:
-    """Resolve whole-chain selection before any per-domain metric admission."""
+    host_chains: tuple[_HostChainRecord, ...],
+) -> tuple[
+    frozenset[tuple[bool, tuple[int, ...], tuple[int, ...]]],
+    frozenset[int],
+]:
+    """Resolve whole-chain selection from already collected host topology."""
 
     if not selected_physical_edge_ids:
         raise EnvelopeHostAdapterError(
@@ -536,7 +620,6 @@ def _selected_patch_scope(
             f"selected physical edges are absent from AnalysisBundle: {sorted(unknown)}",
         )
 
-    host_chains = _collect_host_chains(analysis_bundle)
     chain_groups = _group_host_chains(host_chains)
     selected_keys = set()
     covered = set()
@@ -577,7 +660,339 @@ def _selected_patch_scope(
     for records in chain_groups.values():
         if any(record.patch_id in selected_patch_ids for record in records):
             _validate_chain_group_topology(records)
+    return frozenset(selected_keys), selected_patch_ids
+
+
+def _selected_patch_scope(
+    analysis_bundle: AnalysisBundle,
+    selected_physical_edge_ids: frozenset[int],
+) -> frozenset[int]:
+    """Resolve whole-chain selection before any per-domain metric admission."""
+
+    host_chains = _collect_host_chains(analysis_bundle)
+    _, selected_patch_ids = _selected_chain_keys_and_patch_scope(
+        analysis_bundle,
+        selected_physical_edge_ids,
+        host_chains,
+    )
     return selected_patch_ids
+
+
+def _host_local_points(
+    vertex_ids: tuple[int, ...],
+    host_vertex_by_id,
+) -> tuple[tuple[float, float, float], ...]:
+    try:
+        return tuple(
+            _vector3(host_vertex_by_id[vertex_id].position)
+            for vertex_id in vertex_ids
+        )
+    except KeyError as exc:
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID,
+            f"host topology references unknown source vertex {exc.args[0]}",
+        ) from exc
+
+
+def build_envelope_topology_debug_scene(
+    analysis_bundle: AnalysisBundle,
+    selected_physical_edge_ids: frozenset[int],
+    *,
+    profile: EnvelopeDebugProfileBuilderV1 | None = None,
+) -> EnvelopeTopologyDebugSceneV1:
+    """Project request-scoped host topology without loading kernel or SymPy."""
+
+    revision = _revision_value(analysis_bundle.source_revision)
+    with _measure(profile, "HOST_CHAIN_COLLECTION"):
+        raw_host_chains = _collect_raw_host_chains(analysis_bundle)
+    with _measure(profile, "SEAM_PARTITION_NORMALIZATION"):
+        host_chains = _normalize_physical_seam_partitions(raw_host_chains)
+    with _measure(profile, "SELECTION_SCOPE"):
+        selected_keys, selected_patch_ids = (
+            _selected_chain_keys_and_patch_scope(
+                analysis_bundle,
+                selected_physical_edge_ids,
+                host_chains,
+            )
+        )
+
+    domain_by_patch = {
+        patch_id: _typed_value("patch-domain", revision, patch_id)
+        for patch_id in sorted(selected_patch_ids)
+    }
+    host_vertex_by_id = analysis_bundle.patch_surface.vertex_by_id
+    chain_groups = _group_host_chains(host_chains)
+    paths: list[EnvelopeTopologyDebugPathV1] = []
+    pairs: list[EnvelopeTopologyDebugPairV1] = []
+    selection_diagnostics = []
+
+    if profile is not None:
+        profile.set_counter(
+            "MESH_FACES",
+            len(analysis_bundle.patch_surface.faces),
+        )
+        profile.set_counter(
+            "MESH_EDGES",
+            len(analysis_bundle.patch_surface.edges),
+        )
+        profile.set_counter(
+            "PATCH_COUNT",
+            len(analysis_bundle.patch_graph.nodes),
+        )
+        profile.set_counter("SELECTED_CHAINS", len(selected_keys))
+        profile.set_counter(
+            "SELECTED_DOMAINS",
+            len(selected_patch_ids),
+        )
+
+    with _measure(profile, "TOPOLOGY_SCENE"):
+        for patch_id in sorted(selected_patch_ids):
+            patch = analysis_bundle.patch_graph.nodes[patch_id]
+            domain_id = domain_by_patch[patch_id]
+            normal = _vector3(patch.normal)
+            patch_faces = analysis_bundle.patch_surface.patch_faces(patch_id)
+            patch_edge_ids = {
+                int(edge_id)
+                for face in patch_faces
+                for edge_id in face.edge_cycle
+            }
+            if profile is not None:
+                profile.set_counter(
+                    "FACES_PER_DOMAIN",
+                    len(patch_faces),
+                    domain_id,
+                )
+                profile.set_counter(
+                    "PHYSICAL_EDGES_PER_DOMAIN",
+                    len(patch_edge_ids),
+                    domain_id,
+                )
+                profile.set_receipt(
+                    EnvelopeDomainStageReceiptV1(
+                        patch_id,
+                        domain_id,
+                        EnvelopeDomainStage.TOPOLOGY_READY,
+                        EnvelopeDomainStage.TOPOLOGY_READY.value,
+                        "Topology built from AnalysisBundle host facts",
+                    )
+                )
+            for loop_index, loop in enumerate(patch.boundary_loops):
+                vertex_ids = tuple(int(item) for item in loop.vert_indices)
+                if (
+                    len(vertex_ids) > 1
+                    and vertex_ids[0] == vertex_ids[-1]
+                ):
+                    vertex_ids = vertex_ids[:-1]
+                edge_ids = tuple(int(item) for item in loop.edge_indices)
+                loop_kind = (
+                    EnvelopeTopologyPathKind.PATCH_HOLE_LOOP
+                    if loop.kind is LoopKind.HOLE
+                    else EnvelopeTopologyPathKind.PATCH_OUTER_LOOP
+                )
+                style_key = (
+                    "ENV_01_HOLES"
+                    if loop.kind is LoopKind.HOLE
+                    else "ENV_00_PATCH_DOMAIN"
+                )
+                loop_id = _typed_value(
+                    "boundary-loop",
+                    revision,
+                    patch_id,
+                    loop_index,
+                )
+                paths.append(
+                    EnvelopeTopologyDebugPathV1(
+                        semantic_id=loop_id,
+                        patch_domain_id=domain_id,
+                        kind=loop_kind,
+                        local_points=_host_local_points(
+                            vertex_ids,
+                            host_vertex_by_id,
+                        ),
+                        host_vertex_ids=vertex_ids,
+                        host_edge_ids=edge_ids,
+                        closed=True,
+                        directed=False,
+                        selected=False,
+                        style_key=style_key,
+                        label=f"Patch {patch_id} {loop.kind.value}",
+                        boundary_loop_id=loop_id,
+                        display_normal=normal,
+                    )
+                )
+
+        for key, records in sorted(chain_groups.items()):
+            visible_records = tuple(
+                record
+                for record in records
+                if record.patch_id in selected_patch_ids
+            )
+            if not visible_records:
+                continue
+            is_closed, canonical_edges, canonical_vertices = key
+            physical_chain_id = _typed_value(
+                "physical-chain",
+                revision,
+                is_closed,
+                canonical_edges,
+                canonical_vertices,
+            )
+            selected = key in selected_keys
+            first_patch = analysis_bundle.patch_graph.nodes[
+                visible_records[0].patch_id
+            ]
+            paths.append(
+                EnvelopeTopologyDebugPathV1(
+                    semantic_id=physical_chain_id,
+                    patch_domain_id=None,
+                    kind=EnvelopeTopologyPathKind.PHYSICAL_CHAIN,
+                    local_points=_host_local_points(
+                        canonical_vertices,
+                        host_vertex_by_id,
+                    ),
+                    host_vertex_ids=canonical_vertices,
+                    host_edge_ids=canonical_edges,
+                    closed=is_closed,
+                    directed=False,
+                    selected=selected,
+                    style_key="ENV_10_PHYSICAL_CHAINS",
+                    label=f"PhysicalChain {physical_chain_id}",
+                    physical_chain_id=physical_chain_id,
+                    display_normal=_vector3(first_patch.normal),
+                )
+            )
+            if selected:
+                paths.append(
+                    EnvelopeTopologyDebugPathV1(
+                        semantic_id=_typed_value(
+                            "selected-source",
+                            revision,
+                            physical_chain_id,
+                        ),
+                        patch_domain_id=None,
+                        kind=EnvelopeTopologyPathKind.SELECTED_SOURCE,
+                        local_points=_host_local_points(
+                            canonical_vertices,
+                            host_vertex_by_id,
+                        ),
+                        host_vertex_ids=canonical_vertices,
+                        host_edge_ids=canonical_edges,
+                        closed=is_closed,
+                        directed=False,
+                        selected=True,
+                        style_key="ENV_12_SELECTED_SOURCES",
+                        label=f"Selected source {physical_chain_id}",
+                        physical_chain_id=physical_chain_id,
+                        display_normal=_vector3(first_patch.normal),
+                    )
+                )
+                selection_diagnostics.append(
+                    EnvelopeTopologySelectionDiagnosticV1(
+                        "WHOLE_PHYSICAL_CHAIN_SELECTED",
+                        "Selected edges resolve to one complete PhysicalChain",
+                        physical_chain_id=physical_chain_id,
+                    )
+                )
+
+            use_ids = []
+            use_domain_ids = []
+            for record in sorted(
+                visible_records,
+                key=lambda item: (
+                    item.patch_id,
+                    item.loop_index,
+                    item.chain_index,
+                ),
+            ):
+                domain_id = domain_by_patch[record.patch_id]
+                use_id = _typed_value(
+                    "chain-use",
+                    revision,
+                    record.patch_id,
+                    record.loop_index,
+                    record.chain_index,
+                    canonical_edges,
+                )
+                use_ids.append(use_id)
+                use_domain_ids.append(domain_id)
+                vertex_ids = tuple(int(item) for item in record.chain.vert_indices)
+                if (
+                    len(vertex_ids) > 1
+                    and vertex_ids[0] == vertex_ids[-1]
+                ):
+                    vertex_ids = vertex_ids[:-1]
+                patch = analysis_bundle.patch_graph.nodes[record.patch_id]
+                paths.append(
+                    EnvelopeTopologyDebugPathV1(
+                        semantic_id=use_id,
+                        patch_domain_id=domain_id,
+                        kind=EnvelopeTopologyPathKind.DIRECTED_CHAIN_USE,
+                        local_points=_host_local_points(
+                            vertex_ids,
+                            host_vertex_by_id,
+                        ),
+                        host_vertex_ids=vertex_ids,
+                        host_edge_ids=tuple(
+                            int(item) for item in record.chain.edge_indices
+                        ),
+                        closed=bool(record.chain.is_closed),
+                        directed=True,
+                        selected=selected,
+                        style_key="ENV_11_CHAIN_USES",
+                        label=(
+                            f"Patch {record.patch_id} directed ChainUse "
+                            f"{record.loop_index}:{record.chain_index}"
+                        ),
+                        physical_chain_id=physical_chain_id,
+                        chain_use_id=use_id,
+                        boundary_loop_id=_typed_value(
+                            "boundary-loop",
+                            revision,
+                            record.patch_id,
+                            record.loop_index,
+                        ),
+                        display_normal=_vector3(patch.normal),
+                    )
+                )
+
+            if len(visible_records) == 2:
+                neighbor_kind = visible_records[0].chain.neighbor_kind
+                pair_kind = (
+                    EnvelopeTopologyPairKind.SEAM_SELF
+                    if neighbor_kind is ChainNeighborKind.SEAM_SELF
+                    else (
+                        EnvelopeTopologyPairKind.PATCH
+                        if neighbor_kind is ChainNeighborKind.PATCH
+                        else None
+                    )
+                )
+                if pair_kind is not None:
+                    pairs.append(
+                        EnvelopeTopologyDebugPairV1(
+                            pair_id=_typed_value(
+                                "chain-use-pair",
+                                revision,
+                                pair_kind.value,
+                                physical_chain_id,
+                            ),
+                            kind=pair_kind,
+                            physical_chain_id=physical_chain_id,
+                            chain_use_ids=tuple(use_ids),
+                            patch_domain_ids=tuple(use_domain_ids),
+                            host_edge_ids=canonical_edges,
+                        )
+                    )
+
+        scene = EnvelopeTopologyDebugSceneV1(
+            ENVELOPE_TOPOLOGY_DEBUG_SCENE_SCHEMA_V1,
+            revision,
+            tuple(domain_by_patch.values()),
+            tuple(sorted(int(item) for item in selected_physical_edge_ids)),
+            tuple(paths),
+            tuple(pairs),
+            tuple(selection_diagnostics),
+        )
+    return scene
 
 
 def _slice_analysis_bundle(
@@ -1454,18 +1869,29 @@ def build_envelope_analysis_snapshot(
     analysis_bundle: AnalysisBundle,
     *,
     included_patch_ids: frozenset[int] | None = None,
+    profile: EnvelopeDebugProfileBuilderV1 | None = None,
 ) -> envelope_kernel.AnalysisSnapshotV1:
     """Map one real host AnalysisBundle without geometry repair or fallback."""
 
     kernel, sympy = _load_kernel()
+    source_revision_value = _revision_value(analysis_bundle.source_revision)
+    profile_domain_id = None
+    if included_patch_ids is not None and len(included_patch_ids) == 1:
+        profile_patch_id = int(next(iter(included_patch_ids)))
+        profile_domain_id = _typed_value(
+            "patch-domain",
+            source_revision_value,
+            profile_patch_id,
+        )
     request_scoped = included_patch_ids is not None
     if included_patch_ids is not None:
-        analysis_bundle = _slice_analysis_bundle(
-            analysis_bundle,
-            frozenset(int(item) for item in included_patch_ids),
-        )
+        with _measure(profile, "BUNDLE_SLICE", profile_domain_id):
+            analysis_bundle = _slice_analysis_bundle(
+                analysis_bundle,
+                frozenset(int(item) for item in included_patch_ids),
+            )
     analysis_bundle.capabilities.require_supported()
-    revision = _revision_value(analysis_bundle.source_revision)
+    revision = source_revision_value
     source_revision = kernel.SourceRevision(revision)
     (
         vertex_ids,
@@ -1529,7 +1955,11 @@ def build_envelope_analysis_snapshot(
         surface_triangles,
     )
 
-    host_chains = _collect_host_chains(analysis_bundle)
+    host_chains = _collect_host_chains(
+        analysis_bundle,
+        profile=profile,
+        patch_domain_id=profile_domain_id,
+    )
     chain_groups = _group_host_chains(host_chains)
 
     physical_chains = []
@@ -1823,38 +2253,46 @@ def build_envelope_analysis_snapshot(
                 }
             )
         )
-        frame = _exact_frame(
-            kernel,
-            sympy,
-            revision=revision,
-            patch_id=patch_id,
-            patch=patch,
-            patch_domain_id=patch_domains[patch_id],
-            patch_vertex_ids=patch_vertex_ids,
-            host_vertex_by_id=host_vertex_by_id,
-            kernel_vertex_ids=vertex_ids,
-        )
+        domain_value = patch_domains[patch_id].value
+        with _measure(profile, "FRAME_ADMISSION", domain_value):
+            frame = _exact_frame(
+                kernel,
+                sympy,
+                revision=revision,
+                patch_id=patch_id,
+                patch=patch,
+                patch_domain_id=patch_domains[patch_id],
+                patch_vertex_ids=patch_vertex_ids,
+                host_vertex_by_id=host_vertex_by_id,
+                kernel_vertex_ids=vertex_ids,
+            )
         frames[patch_id] = frame
         metric_descriptors.append(frame)
 
-    (
-        angular_owner_sectors,
-        reflex_angle_certificates,
-        corner_relations,
-    ) = _build_angular_relations(
-        kernel,
-        sympy,
-        analysis_bundle=analysis_bundle,
-        revision=revision,
-        patch_ids=patch_ids,
-        patch_domains=patch_domains,
-        frames=frames,
-        use_id_by_ref=use_id_by_ref,
-        sector_id_by_ref=sector_id_by_ref,
-        launch_id_by_ref=launch_id_by_ref,
-        record_by_ref=record_by_ref,
-        vertex_ids=vertex_ids,
+    angular_timing_domain = (
+        next(iter(patch_domains.values())).value
+        if len(patch_domains) == 1
+        else None
     )
+    with _measure(profile, "ANGULAR_RELATIONS", angular_timing_domain):
+        (
+            angular_owner_sectors,
+            reflex_angle_certificates,
+            corner_relations,
+        ) = _build_angular_relations(
+            kernel,
+            sympy,
+            analysis_bundle=analysis_bundle,
+            revision=revision,
+            patch_ids=patch_ids,
+            patch_domains=patch_domains,
+            frames=frames,
+            use_id_by_ref=use_id_by_ref,
+            sector_id_by_ref=sector_id_by_ref,
+            launch_id_by_ref=launch_id_by_ref,
+            record_by_ref=record_by_ref,
+            vertex_ids=vertex_ids,
+        )
 
     domain_records = frozenset(
         kernel.PatchDomainV1(
@@ -1899,34 +2337,36 @@ def build_envelope_analysis_snapshot(
         frozenset(),
         frozenset(terminal_relations),
     )
-    issues = kernel.validate_analysis_snapshot(snapshot)
-    if issues:
-        message = "; ".join(
-            f"{item.code.value}:{'.'.join(item.path)}:{item.message}"
-            for item in issues
-        )
-        raise EnvelopeHostAdapterError(
-            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID,
-            message,
-        )
-    validation = importlib.import_module(
-        "cftuv_envelope.reference.validation"
-    )
-    for domain_id in sorted(
-        (item.patch_domain_id for item in snapshot.patch_domains),
-        key=lambda item: item.value,
-    ):
-        _, diagnostics = validation.validate_reference_geometry_payload(
-            snapshot, domain_id
-        )
-        if diagnostics:
-            raise EnvelopeHostAdapterError(
-                EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-                "; ".join(
-                    f"{item.outcome.value}:{item.message}" for item in diagnostics
-                ),
-                patch_domain_id=domain_id.value,
+    with _measure(profile, "SNAPSHOT_VALIDATION", angular_timing_domain):
+        issues = kernel.validate_analysis_snapshot(snapshot)
+        if issues:
+            message = "; ".join(
+                f"{item.code.value}:{'.'.join(item.path)}:{item.message}"
+                for item in issues
             )
+            raise EnvelopeHostAdapterError(
+                EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID,
+                message,
+            )
+        validation = importlib.import_module(
+            "cftuv_envelope.reference.validation"
+        )
+        for domain_id in sorted(
+            (item.patch_domain_id for item in snapshot.patch_domains),
+            key=lambda item: item.value,
+        ):
+            _, diagnostics = validation.validate_reference_geometry_payload(
+                snapshot, domain_id
+            )
+            if diagnostics:
+                raise EnvelopeHostAdapterError(
+                    EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
+                    "; ".join(
+                        f"{item.outcome.value}:{item.message}"
+                        for item in diagnostics
+                    ),
+                    patch_domain_id=domain_id.value,
+                )
     return snapshot
 
 
@@ -1944,6 +2384,8 @@ def build_envelope_decal_request(
     snapshot: envelope_kernel.AnalysisSnapshotV1,
     selected_physical_edge_ids: frozenset[int],
     alpha: float,
+    *,
+    decal_request_id_value: str | None = None,
 ) -> envelope_kernel.DecalRequestV1:
     """Compile whole-chain selection into one immutable debug request."""
 
@@ -2012,7 +2454,8 @@ def build_envelope_decal_request(
             f"requested alpha must be finite and non-negative: {alpha}",
         )
     request_id = kernel.DecalRequestId(
-        _typed_value(
+        decal_request_id_value
+        or _typed_value(
             "decal-request",
             snapshot.source_revision.value,
             tuple(sorted(item.value for item in selected_chain_ids)),
@@ -2282,14 +2725,335 @@ def evaluate_envelope_debug(
     )
 
 
+def _receipt_for_failure(
+    patch_id: int,
+    patch_domain_id: str,
+    stage: EnvelopeDomainStage,
+    diagnostic: EnvelopeDebugHostDiagnosticV1,
+) -> EnvelopeDomainStageReceiptV1:
+    outcome = (
+        diagnostic.outcome.value
+        if hasattr(diagnostic.outcome, "value")
+        else str(diagnostic.outcome)
+    )
+    return EnvelopeDomainStageReceiptV1(
+        patch_id,
+        patch_domain_id,
+        stage,
+        outcome,
+        diagnostic.message,
+    )
+
+
+def _profile_raw_telemetry(profile, patch_domain_id: str):
+    def record(
+        stage: str,
+        elapsed_seconds: float,
+        counters: dict[str, int | float] | None = None,
+    ) -> None:
+        profile.add_timing(stage, elapsed_seconds, patch_domain_id)
+        for name, value in (counters or {}).items():
+            profile.set_counter(name, value, patch_domain_id)
+
+    return record
+
+
+def evaluate_envelope_debug_staged(
+    analysis_bundle: AnalysisBundle,
+    selected_physical_edge_ids: frozenset[int],
+    alpha: float,
+    *,
+    profile: EnvelopeDebugProfileBuilderV1 | None = None,
+) -> EnvelopeDebugStagedEvaluationV1:
+    """Evaluate exact reference coverage per domain after host topology."""
+
+    if profile is None:
+        profile = EnvelopeDebugProfileBuilderV1(
+            analysis_bundle.source_revision.source_name,
+            "EXACT_REFERENCE",
+        )
+    topology_scene = build_envelope_topology_debug_scene(
+        analysis_bundle,
+        selected_physical_edge_ids,
+        profile=profile,
+    )
+    revision = _revision_value(analysis_bundle.source_revision)
+    patch_ids = tuple(
+        sorted(
+            int(patch_id)
+            for patch_id in analysis_bundle.patch_graph.nodes
+            if _typed_value("patch-domain", revision, int(patch_id))
+            in topology_scene.patch_domain_ids
+        )
+    )
+    global_request_id = _typed_value(
+        "decal-request",
+        revision,
+        tuple(
+            sorted(
+                path.physical_chain_id
+                for path in topology_scene.paths
+                if path.kind is EnvelopeTopologyPathKind.SELECTED_SOURCE
+                and path.physical_chain_id is not None
+            )
+        ),
+    )
+    selected_edges_by_domain: dict[str, set[int]] = {
+        domain_id: set()
+        for domain_id in topology_scene.patch_domain_ids
+    }
+    for path in topology_scene.paths:
+        if (
+            path.kind is EnvelopeTopologyPathKind.DIRECTED_CHAIN_USE
+            and path.selected
+            and path.patch_domain_id is not None
+        ):
+            selected_edges_by_domain[path.patch_domain_id].update(
+                path.host_edge_ids
+            )
+    domain_evaluations = []
+
+    try:
+        kernel, _ = _load_kernel()
+    except EnvelopeHostAdapterError as exc:
+        diagnostic = exc.diagnostic()
+        for patch_id in patch_ids:
+            domain_id = _typed_value(
+                "patch-domain",
+                revision,
+                patch_id,
+            )
+            receipt = _receipt_for_failure(
+                patch_id,
+                domain_id,
+                EnvelopeDomainStage.COMPILE_REJECTED,
+                diagnostic,
+            )
+            profile.set_receipt(receipt)
+            domain_evaluations.append(
+                EnvelopeDebugDomainEvaluationV1(
+                    patch_id,
+                    domain_id,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    receipt,
+                    (diagnostic,),
+                )
+            )
+        return EnvelopeDebugStagedEvaluationV1(
+            topology_scene,
+            tuple(domain_evaluations),
+        )
+
+    for patch_id in patch_ids:
+        domain_id = _typed_value("patch-domain", revision, patch_id)
+        snapshot = None
+        request = None
+        compilation = None
+        raw_result = None
+        interaction_result = None
+        debug_scene = None
+        diagnostics: list[EnvelopeDebugHostDiagnosticV1] = []
+
+        try:
+            with _measure(profile, "SNAPSHOT_EXPORT", domain_id):
+                snapshot = build_envelope_analysis_snapshot(
+                    analysis_bundle,
+                    included_patch_ids=frozenset({patch_id}),
+                    profile=profile,
+                )
+                request = build_envelope_decal_request(
+                    snapshot,
+                    frozenset(selected_edges_by_domain[domain_id]),
+                    alpha,
+                    decal_request_id_value=global_request_id,
+                )
+        except EnvelopeHostAdapterError as exc:
+            diagnostic = exc.diagnostic()
+            diagnostics.append(diagnostic)
+            stage = (
+                EnvelopeDomainStage.METRIC_REJECTED
+                if exc.outcome
+                is EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE
+                else EnvelopeDomainStage.COMPILE_REJECTED
+            )
+            receipt = _receipt_for_failure(
+                patch_id,
+                domain_id,
+                stage,
+                diagnostic,
+            )
+            profile.set_receipt(receipt)
+            domain_evaluations.append(
+                EnvelopeDebugDomainEvaluationV1(
+                    patch_id,
+                    domain_id,
+                    snapshot,
+                    request,
+                    None,
+                    None,
+                    None,
+                    None,
+                    receipt,
+                    tuple(diagnostics),
+                )
+            )
+            continue
+
+        with _measure(profile, "COMPILE", domain_id):
+            compile_result = kernel.compile_reference_envelopes(
+                snapshot,
+                request,
+            )
+        if compile_result.compilation is None:
+            diagnostics.extend(
+                _host_diagnostic_from_stage(
+                    item.outcome,
+                    item.message,
+                    next(iter(snapshot.patch_domains)).patch_domain_id,
+                )
+                for item in compile_result.diagnostics
+            )
+            diagnostic = diagnostics[0]
+            receipt = _receipt_for_failure(
+                patch_id,
+                domain_id,
+                EnvelopeDomainStage.COMPILE_REJECTED,
+                diagnostic,
+            )
+        else:
+            compilation = compile_result.compilation
+            profile.set_counter(
+                "ENVELOPE_SPECS",
+                len(compilation.envelope_specs),
+                domain_id,
+            )
+            raw_callable = kernel.evaluate_reference_raw_coverage
+            if "telemetry" in inspect.signature(raw_callable).parameters:
+                raw_evaluation = raw_callable(
+                    compilation,
+                    request.requested_alpha,
+                    telemetry=_profile_raw_telemetry(
+                        profile,
+                        domain_id,
+                    ),
+                )
+            else:
+                with _measure(profile, "RAW_UNION", domain_id):
+                    raw_evaluation = raw_callable(
+                        compilation,
+                        request.requested_alpha,
+                    )
+            if raw_evaluation.raw_coverage is None:
+                diagnostics.extend(
+                    _host_diagnostic_from_stage(
+                        item.outcome,
+                        item.message,
+                        compilation.plan_key.patch_domain_id,
+                    )
+                    for item in raw_evaluation.diagnostics
+                )
+                diagnostic = diagnostics[0]
+                receipt = _receipt_for_failure(
+                    patch_id,
+                    domain_id,
+                    EnvelopeDomainStage.RAW_REJECTED,
+                    diagnostic,
+                )
+            else:
+                raw_result = raw_evaluation.raw_coverage
+                with _measure(profile, "INTERACTION", domain_id):
+                    interaction_result = kernel.resolve_coverage_interactions(
+                        compilation,
+                        raw_result.boundary_resolved_envelopes,
+                        raw_result,
+                    )
+                if interaction_result.resolved_coverage is None:
+                    diagnostics.extend(
+                        _host_diagnostic_from_stage(
+                            item.outcome,
+                            item.message,
+                            compilation.plan_key.patch_domain_id,
+                        )
+                        for item in interaction_result.diagnostics
+                    )
+                    diagnostic = diagnostics[0]
+                    receipt = _receipt_for_failure(
+                        patch_id,
+                        domain_id,
+                        EnvelopeDomainStage.INTERACTION_REJECTED,
+                        diagnostic,
+                    )
+                else:
+                    receipt = EnvelopeDomainStageReceiptV1(
+                        patch_id,
+                        domain_id,
+                        EnvelopeDomainStage.RESOLVED,
+                        EnvelopeDomainStage.RESOLVED.value,
+                        "Exact reference Envelope reached ResolvedCoverage",
+                    )
+
+        profile.set_receipt(receipt)
+        with _measure(profile, "DEBUG_SCENE", domain_id):
+            try:
+                debug_scene = kernel.build_envelope_debug_scene(
+                    snapshot,
+                    request,
+                    (compilation,) if compilation is not None else (),
+                    (raw_result,) if raw_result is not None else (),
+                    (
+                        (interaction_result,)
+                        if interaction_result is not None
+                        else ()
+                    ),
+                    _scene_diagnostics(kernel, diagnostics),
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                diagnostics.append(
+                    EnvelopeDebugHostDiagnosticV1(
+                        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_PIPELINE_STAGE_FAILED,
+                        EnvelopeDebugHostSeverity.ERROR,
+                        f"DebugScene projection failed without fallback: {exc}",
+                        domain_id,
+                    )
+                )
+        domain_evaluations.append(
+            EnvelopeDebugDomainEvaluationV1(
+                patch_id,
+                domain_id,
+                snapshot,
+                request,
+                compilation,
+                raw_result,
+                interaction_result,
+                debug_scene,
+                receipt,
+                tuple(diagnostics),
+            )
+        )
+
+    return EnvelopeDebugStagedEvaluationV1(
+        topology_scene,
+        tuple(domain_evaluations),
+    )
+
+
 __all__ = (
+    "EnvelopeDebugDomainEvaluationV1",
     "EnvelopeDebugEvaluationV1",
     "EnvelopeDebugHostDiagnosticV1",
     "EnvelopeDebugHostOutcome",
     "EnvelopeDebugHostSeverity",
+    "EnvelopeDebugStagedEvaluationV1",
     "EnvelopeDebugTimingV1",
     "EnvelopeHostAdapterError",
     "build_envelope_analysis_snapshot",
     "build_envelope_decal_request",
+    "build_envelope_topology_debug_scene",
     "evaluate_envelope_debug",
+    "evaluate_envelope_debug_staged",
 )

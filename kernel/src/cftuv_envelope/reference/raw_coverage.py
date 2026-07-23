@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import replace
 from decimal import Decimal
+from typing import Callable
 
 import sympy as sp
 
@@ -50,6 +52,11 @@ from .validation import validate_reference_geometry_payload
 
 
 REFERENCE_ARRANGEMENT_BACKEND = ExactSegmentArrangementBackend()
+
+ReferenceTelemetryCallback = Callable[
+    [str, float, dict[str, int | float] | None],
+    None,
+]
 
 # This is an explicit capability boundary, not a promise that every variant
 # shares the Strip event law.
@@ -140,6 +147,30 @@ def _arrangement_regions(arrangement) -> tuple[PlanarRegion, ...]:
     )
 
 
+def _emit_telemetry(
+    telemetry: ReferenceTelemetryCallback | None,
+    stage: str,
+    started: float,
+    counters: dict[str, int | float] | None = None,
+) -> None:
+    """Diagnostic observation must never affect exact evaluation."""
+
+    if telemetry is None:
+        return
+    try:
+        telemetry(stage, time.perf_counter() - started, counters)
+    except Exception:
+        return
+
+
+def _region_segment_count(regions: tuple[PlanarRegion, ...]) -> int:
+    return sum(
+        len(region.outer.segments)
+        + sum(len(hole.segments) for hole in region.holes)
+        for region in regions
+    )
+
+
 def _clip_instance_to_domain(
     instance: ReferenceEnvelopeInstanceV1,
     domain_regions: tuple[PlanarRegion, ...],
@@ -190,6 +221,8 @@ def _clip_instance_to_domain(
 def evaluate_reference_raw_coverage(
     compilation: ReferenceEnvelopeCompilationV1,
     alpha: LocalLengthV1 | Decimal | int | str,
+    *,
+    telemetry: ReferenceTelemetryCallback | None = None,
 ) -> ReferenceEvaluationResultV1:
     """Rebuild one exact request/domain RawCoverage state from scratch."""
 
@@ -211,106 +244,150 @@ def evaluate_reference_raw_coverage(
         )
     try:
         context = GeometryContext.build(compilation, frame)
+        stage_started = time.perf_counter()
         domain = build_domain_geometry(context)
+        _emit_telemetry(
+            telemetry,
+            "DOMAIN_BUILD",
+            stage_started,
+            {
+                "DOMAIN_FACE_REGIONS": len(domain.face_regions),
+                "DOMAIN_BOUNDARY_SEGMENTS": len(domain.blocking_segments),
+            },
+        )
+        clip_elapsed = 0.0
+        stage_started = time.perf_counter()
         resolutions, boundary_diagnostics = resolve_component_alphas(
             context, alpha_value, domain
         )
+        clip_elapsed += time.perf_counter() - stage_started
         instances = []
         boundary_resolved = []
-        for spec in sorted(
-            compilation.envelope_specs, key=lambda item: item.envelope_spec_id.value
-        ):
-            component_ids = _component_ids_for_spec(compilation, spec)
-            effective_values = {
-                resolutions[item].effective_alpha.expression
-                for item in component_ids
-                if item in resolutions
-            }
-            if len(effective_values) > 1:
-                return _failure(
-                    ReferenceOutcome.SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN,
-                    f"{spec.envelope_spec_id} has a non-uniform incident effective-alpha vector",
-                    existing=boundary_diagnostics,
-                )
-            effective = (
-                ExactScalar(next(iter(effective_values))).as_expr()
-                if effective_values
-                else sp.Rational(str(alpha_value.value))
-            )
-            if isinstance(spec, StripEnvelopeSpec):
-                instance = evaluate_strip_envelope(context, spec, alpha_value, effective)
-            elif isinstance(spec, AngularEnvelopeSpec):
-                instance = evaluate_angular_envelope(context, spec, alpha_value, effective)
-            elif isinstance(spec, JunctionEnvelopeSpec):
-                instance = evaluate_junction_envelope(context, spec, alpha_value, effective)
-            elif isinstance(spec, CapEnvelopeSpec):
-                instance = evaluate_cap_envelope(context, spec, alpha_value, effective)
-            else:  # pragma: no cover - EC1 union is closed and validated.
-                raise TypeError(type(spec).__name__)
-            if isinstance(spec, AngularEnvelopeSpec) and any(
-                segment_intersections(exposed, barrier.segment)
-                for exposed in instance.exposed_segments
-                for barrier in domain.blocking_segments
-                if barrier.role is BoundaryRole.EXPLICIT_BARRIER
+        instance_elapsed = 0.0
+        try:
+            for spec in sorted(
+                compilation.envelope_specs,
+                key=lambda item: item.envelope_spec_id.value,
             ):
-                return _failure(
-                    ReferenceOutcome.REFERENCE_ANGULAR_BOUNDARY_CONTACT_UNPROVEN,
-                    f"{spec.envelope_spec_id} contacts an explicit barrier "
-                    "without an approved Angular event law",
-                    existing=boundary_diagnostics,
-                )
-            component_resolutions = [
-                resolutions[item] for item in component_ids if item in resolutions
-            ]
-            reachability = ReachabilityCertificateV1(
-                front_component_ids=component_ids,
-                source_launch_reachable=True,
-                initial_branch_count=len(component_ids),
-                effective_branch_count=len(component_ids),
-                boundary_event_keys=tuple(
-                    sorted(
-                        {
-                            event
-                            for resolution in component_resolutions
-                            for event in resolution.event_keys
-                        }
+                component_ids = _component_ids_for_spec(compilation, spec)
+                effective_values = {
+                    resolutions[item].effective_alpha.expression
+                    for item in component_ids
+                    if item in resolutions
+                }
+                if len(effective_values) > 1:
+                    return _failure(
+                        ReferenceOutcome.SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN,
+                        f"{spec.envelope_spec_id} has a non-uniform incident effective-alpha vector",
+                        existing=boundary_diagnostics,
                     )
-                ),
-                bypass_used=False,
-            )
-            clipped, clip_outcome = _clip_instance_to_domain(
-                instance, domain.face_regions, reachability
-            )
-            if clipped is None:
-                return _failure(
-                    clip_outcome or ReferenceOutcome.BARRIER_BYPASS_UNSUPPORTED,
-                    f"{spec.envelope_spec_id} would require obstacle bypass",
-                    existing=boundary_diagnostics,
+                effective = (
+                    ExactScalar(next(iter(effective_values))).as_expr()
+                    if effective_values
+                    else sp.Rational(str(alpha_value.value))
                 )
-            capacity_outcomes = {
-                item.capacity_outcome
-                for item in component_resolutions
-                if item.capacity_outcome is not None
-            }
-            capacity_outcome = (
-                next(iter(capacity_outcomes)) if capacity_outcomes else None
-            )
-            diagnostics = tuple(
-                diagnostic
-                for item in component_resolutions
-                for diagnostic in item.diagnostics
-            )
-            boundary_resolved.append(
-                BoundaryResolvedEnvelopeV1(
-                    envelope_instance=clipped,
-                    requested_alpha=alpha_value,
-                    effective_alpha=ExactScalar.from_value(effective),
-                    reachability=reachability,
-                    capacity_outcome=capacity_outcome,
-                    diagnostics=diagnostics,
+                stage_started = time.perf_counter()
+                if isinstance(spec, StripEnvelopeSpec):
+                    instance = evaluate_strip_envelope(
+                        context, spec, alpha_value, effective
+                    )
+                elif isinstance(spec, AngularEnvelopeSpec):
+                    instance = evaluate_angular_envelope(
+                        context, spec, alpha_value, effective
+                    )
+                elif isinstance(spec, JunctionEnvelopeSpec):
+                    instance = evaluate_junction_envelope(
+                        context, spec, alpha_value, effective
+                    )
+                elif isinstance(spec, CapEnvelopeSpec):
+                    instance = evaluate_cap_envelope(
+                        context, spec, alpha_value, effective
+                    )
+                else:  # pragma: no cover - EC1 union is closed and validated.
+                    raise TypeError(type(spec).__name__)
+                instance_elapsed += time.perf_counter() - stage_started
+                if isinstance(spec, AngularEnvelopeSpec) and any(
+                    segment_intersections(exposed, barrier.segment)
+                    for exposed in instance.exposed_segments
+                    for barrier in domain.blocking_segments
+                    if barrier.role is BoundaryRole.EXPLICIT_BARRIER
+                ):
+                    return _failure(
+                        ReferenceOutcome.REFERENCE_ANGULAR_BOUNDARY_CONTACT_UNPROVEN,
+                        f"{spec.envelope_spec_id} contacts an explicit barrier "
+                        "without an approved Angular event law",
+                        existing=boundary_diagnostics,
+                    )
+                component_resolutions = [
+                    resolutions[item]
+                    for item in component_ids
+                    if item in resolutions
+                ]
+                reachability = ReachabilityCertificateV1(
+                    front_component_ids=component_ids,
+                    source_launch_reachable=True,
+                    initial_branch_count=len(component_ids),
+                    effective_branch_count=len(component_ids),
+                    boundary_event_keys=tuple(
+                        sorted(
+                            {
+                                event
+                                for resolution in component_resolutions
+                                for event in resolution.event_keys
+                            }
+                        )
+                    ),
+                    bypass_used=False,
                 )
-            )
-            instances.append(clipped)
+                stage_started = time.perf_counter()
+                clipped, clip_outcome = _clip_instance_to_domain(
+                    instance, domain.face_regions, reachability
+                )
+                clip_elapsed += time.perf_counter() - stage_started
+                if clipped is None:
+                    return _failure(
+                        clip_outcome
+                        or ReferenceOutcome.BARRIER_BYPASS_UNSUPPORTED,
+                        f"{spec.envelope_spec_id} would require obstacle bypass",
+                        existing=boundary_diagnostics,
+                    )
+                capacity_outcomes = {
+                    item.capacity_outcome
+                    for item in component_resolutions
+                    if item.capacity_outcome is not None
+                }
+                capacity_outcome = (
+                    next(iter(capacity_outcomes))
+                    if capacity_outcomes
+                    else None
+                )
+                diagnostics = tuple(
+                    diagnostic
+                    for item in component_resolutions
+                    for diagnostic in item.diagnostics
+                )
+                boundary_resolved.append(
+                    BoundaryResolvedEnvelopeV1(
+                        envelope_instance=clipped,
+                        requested_alpha=alpha_value,
+                        effective_alpha=ExactScalar.from_value(effective),
+                        reachability=reachability,
+                        capacity_outcome=capacity_outcome,
+                        diagnostics=diagnostics,
+                    )
+                )
+                instances.append(clipped)
+        finally:
+            if telemetry is not None:
+                try:
+                    telemetry(
+                        "ENVELOPE_INSTANCE_BUILD",
+                        instance_elapsed,
+                        None,
+                    )
+                    telemetry("DOMAIN_CLIP", clip_elapsed, None)
+                except Exception:
+                    pass
 
         contribution_regions = tuple(
             region for instance in instances for region in instance.regions
@@ -319,11 +396,43 @@ def evaluate_reference_raw_coverage(
             item.envelope_instance.envelope_instance_id: item.reachability
             for item in boundary_resolved
         }
-        union = REFERENCE_ARRANGEMENT_BACKEND.exact_union(
-            contribution_regions,
-            domain.face_regions,
-            reachability_by_instance,
+        arrangement_input_segments = (
+            _region_segment_count(contribution_regions)
+            + _region_segment_count(domain.face_regions)
         )
+        stage_started = time.perf_counter()
+        try:
+            union = REFERENCE_ARRANGEMENT_BACKEND.exact_union(
+                contribution_regions,
+                domain.face_regions,
+                reachability_by_instance,
+            )
+        finally:
+            union_counters = {
+                "ARRANGEMENT_INPUT_SEGMENTS": arrangement_input_segments,
+                "ARRANGEMENT_PAIR_TESTS": (
+                    arrangement_input_segments
+                    * (arrangement_input_segments - 1)
+                    // 2
+                ),
+            }
+            if "union" in locals():
+                union_counters.update(
+                    {
+                        "ARRANGEMENT_INTERSECTIONS": (
+                            union.intersection_count
+                        ),
+                        "ARRANGEMENT_ATOMIC_SEGMENTS": (
+                            union.atomic_edge_count
+                        ),
+                    }
+                )
+            _emit_telemetry(
+                telemetry,
+                "RAW_UNION",
+                stage_started,
+                union_counters,
+            )
         result = RawCoverageResultV1(
             schema_version=RAW_COVERAGE_RESULT_SCHEMA_V1,
             source_revision=compilation.source_revision,

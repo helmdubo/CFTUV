@@ -8,6 +8,7 @@ from cftuv.envelope_debug_renderer import (
     ENVELOPE_DEBUG_LABEL_LAYER,
     ENVELOPE_DEBUG_LAYER_STYLES,
     envelope_debug_object_name,
+    envelope_debug_profile_text_name,
     envelope_debug_text_name,
     visibility_from_settings,
 )
@@ -19,6 +20,9 @@ REQUIRED_LAYERS = {
     "ENV_02_BARRIERS",
     "ENV_10_PHYSICAL_CHAINS",
     "ENV_11_CHAIN_USES",
+    "ENV_12_SELECTED_SOURCES",
+    "ENV_13_PATCH_PAIRS",
+    "ENV_14_SEAM_SELF_PAIRS",
     "ENV_20_SOURCE_SUPPORTS",
     "ENV_21_MOVING_FRONTS",
     "ENV_22_HIDDEN_SUPPORTS",
@@ -44,6 +48,10 @@ def test_v0b_layer_contract_is_complete_and_named():
         envelope_debug_text_name("Cube")
         == "CFTUV_EnvelopeDebug_Cube.json"
     )
+    assert (
+        envelope_debug_profile_text_name("Cube")
+        == "CFTUV_EnvelopeProfile_Cube.json"
+    )
 
 
 def test_visibility_groups_map_to_runtime_layers_without_geometry_changes():
@@ -62,6 +70,9 @@ def test_visibility_groups_map_to_runtime_layers_without_geometry_changes():
     visibility = visibility_from_settings(settings)
     assert visibility["ENV_00_PATCH_DOMAIN"] is False
     assert visibility["ENV_10_PHYSICAL_CHAINS"] is True
+    assert visibility["ENV_12_SELECTED_SOURCES"] is True
+    assert visibility["ENV_13_PATCH_PAIRS"] is True
+    assert visibility["ENV_14_SEAM_SELF_PAIRS"] is True
     assert visibility["ENV_20_SOURCE_SUPPORTS"] is False
     assert visibility["ENV_40_RAW_COVERAGE"] is False
     assert visibility["ENV_51_FRONT_READINGS"] is True

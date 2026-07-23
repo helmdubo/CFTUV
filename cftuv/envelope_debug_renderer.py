@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 
 import bpy
@@ -15,6 +16,7 @@ from .debug import (
 
 
 ENVELOPE_DEBUG_TEXT_PREFIX = "CFTUV_EnvelopeDebug_"
+ENVELOPE_DEBUG_PROFILE_TEXT_PREFIX = "CFTUV_EnvelopeProfile_"
 ENVELOPE_DEBUG_LABEL_LAYER = "ENV_LABELS"
 
 ENVELOPE_DEBUG_LAYER_STYLES = {
@@ -23,6 +25,9 @@ ENVELOPE_DEBUG_LAYER_STYLES = {
     "ENV_02_BARRIERS": ((1.00, 0.15, 0.15, 1.0), 8),
     "ENV_10_PHYSICAL_CHAINS": ((1.00, 0.80, 0.05, 1.0), 7),
     "ENV_11_CHAIN_USES": ((1.00, 0.45, 0.05, 1.0), 4),
+    "ENV_12_SELECTED_SOURCES": ((0.05, 1.00, 0.95, 1.0), 9),
+    "ENV_13_PATCH_PAIRS": ((0.95, 0.55, 0.10, 1.0), 8),
+    "ENV_14_SEAM_SELF_PAIRS": ((1.00, 0.15, 0.80, 1.0), 8),
     "ENV_20_SOURCE_SUPPORTS": ((0.05, 0.85, 0.95, 1.0), 5),
     "ENV_21_MOVING_FRONTS": ((0.20, 1.00, 0.45, 1.0), 5),
     "ENV_22_HIDDEN_SUPPORTS": ((0.85, 0.20, 1.00, 1.0), 7),
@@ -48,6 +53,9 @@ _VISIBILITY_GROUPS = {
     "envelope_debug_show_chains": (
         "ENV_10_PHYSICAL_CHAINS",
         "ENV_11_CHAIN_USES",
+        "ENV_12_SELECTED_SOURCES",
+        "ENV_13_PATCH_PAIRS",
+        "ENV_14_SEAM_SELF_PAIRS",
     ),
     "envelope_debug_show_supports": (
         "ENV_20_SOURCE_SUPPORTS",
@@ -80,6 +88,7 @@ class EnvelopeDebugRenderSummaryV1:
     text_name: str
     layer_count: int
     stroke_count: int
+    point_count: int
 
 
 def envelope_debug_object_name(source_obj_or_name) -> str:
@@ -98,6 +107,15 @@ def envelope_debug_text_name(source_obj_or_name) -> str:
         else source_obj_or_name.name
     )
     return ENVELOPE_DEBUG_TEXT_PREFIX + str(name) + ".json"
+
+
+def envelope_debug_profile_text_name(source_obj_or_name) -> str:
+    name = (
+        source_obj_or_name
+        if isinstance(source_obj_or_name, str)
+        else source_obj_or_name.name
+    )
+    return ENVELOPE_DEBUG_PROFILE_TEXT_PREFIX + str(name) + ".json"
 
 
 def visibility_from_settings(settings) -> dict[str, bool]:
@@ -124,6 +142,11 @@ def clear_envelope_debug(source_obj_or_name) -> None:
     text = bpy.data.texts.get(envelope_debug_text_name(source_obj_or_name))
     if text is not None:
         bpy.data.texts.remove(text)
+    profile_text = bpy.data.texts.get(
+        envelope_debug_profile_text_name(source_obj_or_name)
+    )
+    if profile_text is not None:
+        bpy.data.texts.remove(profile_text)
 
 
 def _vector3(value) -> Vector:
@@ -199,45 +222,180 @@ def _write_sidecar(text_name, payload) -> None:
     )
 
 
-def render_envelope_debug_scene(
-    scene,
-    source_obj,
-    *,
-    visibility_by_layer=None,
-) -> EnvelopeDebugRenderSummaryV1:
-    """Render one immutable DebugScene without changing semantic geometry."""
+def _topology_lift(record, layer_ordinal: int) -> list[Vector]:
+    normal = Vector(record.display_normal)
+    if normal.length_squared > 0.0:
+        normal.normalize()
+    lift = 0.0015 + 0.00035 * float(layer_ordinal)
+    return [
+        Vector(point) + normal * lift
+        for point in record.local_points
+    ]
 
-    import cftuv_envelope
-    import sympy
 
-    object_name = envelope_debug_object_name(source_obj)
-    text_name = envelope_debug_text_name(source_obj)
-    clear_envelope_debug(source_obj)
-    writer = GreasePencilDebugWriter(source_obj, object_name)
-    visibility = {
-        name: True for name in ENVELOPE_DEBUG_LAYER_STYLES
+def _topology_cross(center: Vector, normal: Vector, size: float = 0.025):
+    if normal.length_squared == 0.0:
+        normal = Vector((0.0, 0.0, 1.0))
+    else:
+        normal = normal.normalized()
+    helper = (
+        Vector((1.0, 0.0, 0.0))
+        if abs(normal.x) < 0.9
+        else Vector((0.0, 1.0, 0.0))
+    )
+    axis_u = normal.cross(helper).normalized()
+    axis_v = normal.cross(axis_u).normalized()
+    return (
+        (center - axis_u * size, center + axis_u * size),
+        (center - axis_v * size, center + axis_v * size),
+    )
+
+
+def _topology_record_mapping(record, layer_name, stroke_index):
+    return {
+        "layer": layer_name,
+        "stroke_index": stroke_index,
+        "semantic_id": record.semantic_id,
+        "stage": "TOPOLOGY",
+        "kind": record.kind.value,
+        "patch_domain_id": record.patch_domain_id,
+        "physical_chain_id": record.physical_chain_id,
+        "chain_use_id": record.chain_use_id,
+        "boundary_loop_id": record.boundary_loop_id,
+        "host_vertex_ids": list(record.host_vertex_ids),
+        "host_edge_ids": list(record.host_edge_ids),
+        "selected": record.selected,
+        "directed": record.directed,
+        "label": record.label,
     }
-    visibility.update(visibility_by_layer or {})
-    for layer_name, (color, _line_width) in ENVELOPE_DEBUG_LAYER_STYLES.items():
-        writer.ensure_layer(
-            layer_name,
-            color,
-            visible=visibility.get(layer_name, True),
-        )
 
+
+def _render_topology_scene(
+    scene,
+    writer,
+    layer_ordinals,
+    stroke_map,
+) -> tuple[list[dict], int]:
+    point_count = 0
+    path_by_physical_chain = {}
+    for record in scene.paths:
+        layer_name = record.style_key
+        points = _topology_lift(record, layer_ordinals[layer_name])
+        stroke_index = writer.add_path(
+            layer_name,
+            points,
+            line_width=ENVELOPE_DEBUG_LAYER_STYLES[layer_name][1],
+            cyclic=record.closed,
+        )
+        point_count += len(points)
+        if stroke_index is not None:
+            stroke_map.append(
+                _topology_record_mapping(
+                    record,
+                    layer_name,
+                    stroke_index,
+                )
+            )
+        if (
+            record.kind.value == "PHYSICAL_CHAIN"
+            and record.physical_chain_id is not None
+        ):
+            path_by_physical_chain[record.physical_chain_id] = (
+                points,
+                Vector(record.display_normal),
+            )
+
+        if record.directed and not record.closed and len(points) >= 2:
+            tangent = points[-1] - points[-2]
+            if tangent.length_squared > 0.0:
+                tangent.normalize()
+                normal = Vector(record.display_normal)
+                if normal.length_squared == 0.0:
+                    normal = Vector((0.0, 0.0, 1.0))
+                side = normal.cross(tangent)
+                if side.length_squared == 0.0:
+                    side = Vector((0.0, 1.0, 0.0))
+                else:
+                    side.normalize()
+                for endpoint in (
+                    points[-1] - tangent * 0.035 + side * 0.018,
+                    points[-1] - tangent * 0.035 - side * 0.018,
+                ):
+                    marker = (points[-1], endpoint)
+                    marker_index = writer.add_path(
+                        layer_name,
+                        marker,
+                        line_width=ENVELOPE_DEBUG_LAYER_STYLES[
+                            layer_name
+                        ][1],
+                    )
+                    point_count += 2
+                    if marker_index is not None:
+                        stroke_map.append(
+                            _topology_record_mapping(
+                                record,
+                                layer_name,
+                                marker_index,
+                            )
+                        )
+
+    pair_payloads = []
+    for pair in scene.pairs:
+        pair_payload = {
+            "pair_id": pair.pair_id,
+            "kind": pair.kind.value,
+            "physical_chain_id": pair.physical_chain_id,
+            "chain_use_ids": list(pair.chain_use_ids),
+            "patch_domain_ids": list(pair.patch_domain_ids),
+            "host_edge_ids": list(pair.host_edge_ids),
+        }
+        pair_payloads.append(pair_payload)
+        carrier = path_by_physical_chain.get(pair.physical_chain_id)
+        if carrier is None:
+            continue
+        points, normal = carrier
+        center = points[len(points) // 2]
+        layer_name = (
+            "ENV_13_PATCH_PAIRS"
+            if pair.kind.value == "PATCH"
+            else "ENV_14_SEAM_SELF_PAIRS"
+        )
+        for segment in _topology_cross(center, normal):
+            stroke_index = writer.add_path(
+                layer_name,
+                segment,
+                line_width=ENVELOPE_DEBUG_LAYER_STYLES[layer_name][1],
+            )
+            point_count += 2
+            if stroke_index is not None:
+                stroke_map.append(
+                    {
+                        **pair_payload,
+                        "layer": layer_name,
+                        "stroke_index": stroke_index,
+                        "stage": "TOPOLOGY",
+                    }
+                )
+    return pair_payloads, point_count
+
+
+def _render_exact_scene(
+    scene,
+    writer,
+    layer_ordinals,
+    stroke_map,
+    sympy,
+) -> tuple[list[dict], dict[str, int], int]:
     frame_by_domain = {
         item.patch_domain_id: item for item in scene.patch_frames
     }
-    layer_ordinals = {
-        name: ordinal
-        for ordinal, name in enumerate(ENVELOPE_DEBUG_LAYER_STYLES)
-    }
-    stroke_map = []
+    point_count = 0
 
     def frame_for(record):
         return frame_by_domain[record.patch_domain_id]
 
     def add_path_record(record, exact_points, *, cyclic):
+        nonlocal point_count
         layer_name = record.style_key
         frame = frame_for(record)
         points = [
@@ -255,6 +413,7 @@ def render_envelope_debug_scene(
             line_width=ENVELOPE_DEBUG_LAYER_STYLES[layer_name][1],
             cyclic=cyclic,
         )
+        point_count += len(points)
         if stroke_index is not None:
             stroke_map.append(
                 _record_mapping(record, layer_name, stroke_index)
@@ -282,6 +441,7 @@ def render_envelope_debug_scene(
                 segment,
                 line_width=ENVELOPE_DEBUG_LAYER_STYLES[record.style_key][1],
             )
+            point_count += 2
             stroke_map.append(
                 _record_mapping(record, record.style_key, stroke_index)
             )
@@ -301,6 +461,7 @@ def render_envelope_debug_scene(
                     ENVELOPE_DEBUG_LABEL_LAYER
                 ][1],
             )
+            point_count += 2
             stroke_map.append(
                 _record_mapping(
                     record,
@@ -343,6 +504,7 @@ def render_envelope_debug_scene(
                     "ENV_80_DIAGNOSTICS"
                 ][1],
             )
+            point_count += 2
             stroke_map.append(
                 {
                     **diagnostic_payload,
@@ -351,8 +513,6 @@ def render_envelope_debug_scene(
                 }
             )
 
-    request_ids = [_identity_value(item) for item in scene.request_ids]
-    domain_ids = [_identity_value(item) for item in scene.patch_domain_ids]
     stage_counts = {}
     for record in (
         *scene.points,
@@ -364,46 +524,248 @@ def render_envelope_debug_scene(
         stage = _stage_value(record)
         stage_counts[stage] = stage_counts.get(stage, 0) + 1
     stage_counts["DIAGNOSTIC"] = len(scene.diagnostics)
+    return diagnostics, stage_counts, point_count
+
+
+def _print_profile(profile) -> None:
+    print(
+        f"[CFTUV][EnvelopeProfile] {profile.source_name} "
+        f"{profile.build_kind}"
+    )
+    print("  Stage                         Domain                     ms")
+    for timing in profile.timings:
+        domain = timing.patch_domain_id or "-"
+        print(
+            f"  {timing.stage:<29} {domain[:24]:<24} "
+            f"{timing.elapsed_seconds * 1000.0:9.3f}"
+        )
+    dominant = profile.dominant_stage
+    if dominant is not None:
+        print(
+            f"  Dominant: {dominant[0]} "
+            f"{dominant[1] * 1000.0:.3f} ms"
+        )
+    summary = profile.stage_summary()
+    print(
+        "  Receipts: "
+        f"Topology {summary['topology']}/{summary['total']} | "
+        f"Metric {summary['metric']}/{summary['total']} | "
+        f"Raw {summary['raw']}/{summary['total']} | "
+        f"Resolved {summary['resolved']}/{summary['total']}"
+    )
+
+
+def render_staged_envelope_debug(
+    topology_scene,
+    exact_scenes,
+    source_obj,
+    *,
+    visibility_by_layer=None,
+    profile=None,
+) -> EnvelopeDebugRenderSummaryV1:
+    """Render topology plus any admitted exact-domain scenes atomically."""
+
+    exact_scenes = tuple(exact_scenes)
+    cftuv_envelope = None
+    sympy = None
+    if exact_scenes:
+        import cftuv_envelope as cftuv_envelope_module
+        import sympy as sympy_module
+
+        cftuv_envelope = cftuv_envelope_module
+        sympy = sympy_module
+
+    render_started = time.perf_counter()
+    object_name = envelope_debug_object_name(source_obj)
+    text_name = envelope_debug_text_name(source_obj)
+    clear_envelope_debug(source_obj)
+    writer = GreasePencilDebugWriter(source_obj, object_name)
+    visibility = {
+        name: True for name in ENVELOPE_DEBUG_LAYER_STYLES
+    }
+    visibility.update(visibility_by_layer or {})
+    for layer_name, (color, _line_width) in ENVELOPE_DEBUG_LAYER_STYLES.items():
+        writer.ensure_layer(
+            layer_name,
+            color,
+            visible=visibility.get(layer_name, True),
+        )
+
+    layer_ordinals = {
+        name: ordinal
+        for ordinal, name in enumerate(ENVELOPE_DEBUG_LAYER_STYLES)
+    }
+    stroke_map = []
+    pair_payloads = []
+    point_count = 0
+    if topology_scene is not None:
+        pair_payloads, topology_points = _render_topology_scene(
+            topology_scene,
+            writer,
+            layer_ordinals,
+            stroke_map,
+        )
+        point_count += topology_points
+
+    diagnostics = []
+    stage_counts = {}
+    request_ids = []
+    domain_ids = list(
+        topology_scene.patch_domain_ids
+        if topology_scene is not None
+        else ()
+    )
+    raw_digests = []
+    resolved_digests = []
+    requested_alpha = ""
+    source_revision = (
+        topology_scene.source_revision
+        if topology_scene is not None
+        else ""
+    )
+    for scene in exact_scenes:
+        scene_diagnostics, scene_counts, scene_points = _render_exact_scene(
+            scene,
+            writer,
+            layer_ordinals,
+            stroke_map,
+            sympy,
+        )
+        diagnostics.extend(scene_diagnostics)
+        point_count += scene_points
+        for stage, count in scene_counts.items():
+            stage_counts[stage] = stage_counts.get(stage, 0) + count
+        request_ids.extend(
+            _identity_value(item) for item in scene.request_ids
+        )
+        domain_ids.extend(
+            _identity_value(item) for item in scene.patch_domain_ids
+        )
+        raw_digests.extend(scene.raw_coverage_digests)
+        resolved_digests.extend(scene.resolved_coverage_digests)
+        requested_alpha = str(scene.requested_alpha.value)
+        source_revision = _identity_value(scene.source_revision)
+    if topology_scene is not None:
+        stage_counts["TOPOLOGY"] = len(topology_scene.paths)
+
+    request_ids = sorted(set(request_ids))
+    domain_ids = sorted(set(domain_ids))
+    raw_digests = sorted(set(raw_digests))
+    resolved_digests = sorted(set(resolved_digests))
+    kernel_version = (
+        cftuv_envelope.__version__
+        if cftuv_envelope is not None
+        else "NOT_LOADED_TOPOLOGY_ONLY"
+    )
+    profile_snapshot = profile.snapshot() if profile is not None else None
+    receipt_payload = (
+        profile_snapshot.to_payload()["receipts"]
+        if profile_snapshot is not None
+        else []
+    )
 
     gp_obj = writer.object
-    gp_obj["kernel_version"] = cftuv_envelope.__version__
-    gp_obj["source_revision"] = _identity_value(scene.source_revision)
+    gp_obj["kernel_version"] = kernel_version
+    gp_obj["source_revision"] = source_revision
     gp_obj["decal_request_ids"] = json.dumps(request_ids)
     gp_obj["patch_domain_ids"] = json.dumps(domain_ids)
-    gp_obj["requested_alpha"] = str(scene.requested_alpha.value)
-    gp_obj["raw_coverage_digests"] = json.dumps(
-        list(scene.raw_coverage_digests)
-    )
-    gp_obj["resolved_coverage_digests"] = json.dumps(
-        list(scene.resolved_coverage_digests)
-    )
-    gp_obj["stage_outcomes"] = json.dumps(
-        stage_counts,
+    gp_obj["requested_alpha"] = requested_alpha
+    gp_obj["raw_coverage_digests"] = json.dumps(raw_digests)
+    gp_obj["resolved_coverage_digests"] = json.dumps(resolved_digests)
+    gp_obj["stage_outcomes"] = json.dumps(stage_counts, sort_keys=True)
+    gp_obj["stage_receipts"] = json.dumps(
+        receipt_payload,
         sort_keys=True,
     )
 
+    if profile is not None:
+        profile.add_timing(
+            "GP_RENDER",
+            time.perf_counter() - render_started,
+        )
+        profile.set_counter("GP_STROKES", writer.stroke_count())
+        profile.set_counter("GP_POINTS", point_count)
+
     sidecar = {
-        "schema": "cftuv.envelope.debug_scene_runtime_sidecar.v1",
+        "schema": "cftuv.envelope.staged_debug_runtime_sidecar.v1",
         "object_name": object_name,
-        "kernel_version": cftuv_envelope.__version__,
-        "source_revision": _identity_value(scene.source_revision),
+        "kernel_version": kernel_version,
+        "source_revision": source_revision,
         "decal_request_ids": request_ids,
         "patch_domain_ids": domain_ids,
-        "requested_alpha": str(scene.requested_alpha.value),
-        "raw_coverage_digests": list(scene.raw_coverage_digests),
-        "resolved_coverage_digests": list(
-            scene.resolved_coverage_digests
-        ),
+        "requested_alpha": requested_alpha,
+        "raw_coverage_digests": raw_digests,
+        "resolved_coverage_digests": resolved_digests,
         "stage_outcomes": stage_counts,
+        "stage_receipts": receipt_payload,
+        "topology_pairs": pair_payloads,
+        "topology_selection_diagnostics": (
+            [
+                {
+                    "code": item.code,
+                    "message": item.message,
+                    "patch_domain_id": item.patch_domain_id,
+                    "physical_chain_id": item.physical_chain_id,
+                }
+                for item in topology_scene.selection_diagnostics
+            ]
+            if topology_scene is not None
+            else []
+        ),
         "strokes": stroke_map,
         "diagnostics": diagnostics,
     }
+    sidecar_started = time.perf_counter()
     _write_sidecar(text_name, sidecar)
+    if profile is not None:
+        profile.add_timing(
+            "SIDECAR_JSON",
+            time.perf_counter() - sidecar_started,
+        )
+        final_profile = profile.snapshot()
+        _write_sidecar(
+            envelope_debug_profile_text_name(source_obj),
+            final_profile.to_payload(),
+        )
+        _print_profile(final_profile)
     return EnvelopeDebugRenderSummaryV1(
         object_name,
         text_name,
         len(ENVELOPE_DEBUG_LAYER_STYLES),
         writer.stroke_count(),
+        point_count,
+    )
+
+
+def render_envelope_topology_debug_scene(
+    scene,
+    source_obj,
+    *,
+    visibility_by_layer=None,
+    profile=None,
+) -> EnvelopeDebugRenderSummaryV1:
+    return render_staged_envelope_debug(
+        scene,
+        (),
+        source_obj,
+        visibility_by_layer=visibility_by_layer,
+        profile=profile,
+    )
+
+
+def render_envelope_debug_scene(
+    scene,
+    source_obj,
+    *,
+    visibility_by_layer=None,
+) -> EnvelopeDebugRenderSummaryV1:
+    """Compatibility renderer for one immutable exact DebugScene."""
+
+    return render_staged_envelope_debug(
+        None,
+        (scene,),
+        source_obj,
+        visibility_by_layer=visibility_by_layer,
     )
 
 
@@ -414,7 +776,10 @@ __all__ = (
     "apply_envelope_debug_visibility",
     "clear_envelope_debug",
     "envelope_debug_object_name",
+    "envelope_debug_profile_text_name",
     "envelope_debug_text_name",
     "render_envelope_debug_scene",
+    "render_envelope_topology_debug_scene",
+    "render_staged_envelope_debug",
     "visibility_from_settings",
 )

@@ -380,6 +380,14 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
         name="Envelope Debug Outcome",
         default="",
     )
+    envelope_debug_stage_summary: StringProperty(
+        name="Envelope Stage Summary",
+        default="",
+    )
+    envelope_debug_domain_status: StringProperty(
+        name="Envelope Domain Status",
+        default="",
+    )
     envelope_debug_show_domains: BoolProperty(
         name="Domains",
         default=True,
@@ -2172,13 +2180,18 @@ def _envelope_debug_outcome_value(value):
     return str(value.value) if hasattr(value, "value") else str(value)
 
 
-class HOTSPOTUV_OT_BuildEnvelopeDebug(bpy.types.Operator):
-    bl_idname = "hotspotuv.build_envelope_debug"
-    bl_label = "Build Envelope Debug"
-    bl_description = (
-        "Compile exact-planar Envelope Raw/Resolved coverage from selected "
-        "whole PhysicalChains and render diagnostic Grease Pencil layers"
+def _envelope_stage_summary_text(profile):
+    summary = profile.stage_summary()
+    return (
+        f"Topology: {summary['topology']}/{summary['total']} | "
+        f"Metric: {summary['metric']}/{summary['total']} | "
+        f"Raw: {summary['raw']}/{summary['total']} | "
+        f"Resolved: {summary['resolved']}/{summary['total']}"
     )
+
+
+class _EnvelopeDebugBuildBase:
+    exact_reference = False
     bl_options = {"REGISTER"}
 
     @classmethod
@@ -2198,9 +2211,14 @@ class HOTSPOTUV_OT_BuildEnvelopeDebug(bpy.types.Operator):
             self.report({"ERROR"}, "Select a mesh object")
             return {"CANCELLED"}
 
+        from .envelope_debug_profile import (
+            EnvelopeDebugProfileBuilderV1,
+            EnvelopeDomainStage,
+        )
         from .envelope_debug_renderer import (
             clear_envelope_debug,
-            render_envelope_debug_scene,
+            render_envelope_topology_debug_scene,
+            render_staged_envelope_debug,
             visibility_from_settings,
         )
 
@@ -2212,46 +2230,74 @@ class HOTSPOTUV_OT_BuildEnvelopeDebug(bpy.types.Operator):
             if source_name:
                 clear_envelope_debug(source_name)
         settings.envelope_debug_source_object = source_obj.name
-        settings.envelope_debug_status = "Building..."
+        settings.envelope_debug_status = "Building topology..."
         settings.envelope_debug_outcome = ""
+        settings.envelope_debug_stage_summary = ""
+        settings.envelope_debug_domain_status = ""
 
         source_bm = bmesh.from_edit_mesh(source_obj.data)
         source_bm.edges.ensure_lookup_table()
         selected_edge_indices = _capture_selected_physical_edges(source_bm)
         if not selected_edge_indices:
             outcome = "ENVELOPE_DEBUG_EMPTY_SELECTION"
-            settings.envelope_debug_status = "Failed: select a whole PhysicalChain"
+            settings.envelope_debug_status = (
+                "Failed: select a whole PhysicalChain"
+            )
             settings.envelope_debug_outcome = outcome
             self.report({"WARNING"}, outcome)
             return {"CANCELLED"}
 
+        profile = EnvelopeDebugProfileBuilderV1(
+            source_obj.name,
+            "EXACT_REFERENCE" if self.exact_reference else "TOPOLOGY",
+        )
         obj = None
         original_mode = "EDIT"
         selected_faces = []
         try:
-            (
-                obj,
-                _bm,
-                analysis_bundle,
-                original_mode,
-                selected_faces,
-            ) = _prepare_patch_graph(
-                context,
-                require_selection=False,
-                use_all_faces=True,
-            )
-            from .envelope_host_adapter import evaluate_envelope_debug
+            with profile.measure("ANALYSIS_BUNDLE"):
+                (
+                    obj,
+                    _bm,
+                    analysis_bundle,
+                    original_mode,
+                    selected_faces,
+                ) = _prepare_patch_graph(
+                    context,
+                    require_selection=False,
+                    use_all_faces=True,
+                )
+            if self.exact_reference:
+                from .envelope_host_adapter import (
+                    evaluate_envelope_debug_staged,
+                )
 
-            evaluation = evaluate_envelope_debug(
-                analysis_bundle,
-                frozenset(selected_edge_indices),
-                float(settings.envelope_debug_alpha),
-            )
+                evaluation = evaluate_envelope_debug_staged(
+                    analysis_bundle,
+                    frozenset(selected_edge_indices),
+                    float(settings.envelope_debug_alpha),
+                    profile=profile,
+                )
+                topology_scene = evaluation.topology_scene
+                exact_scenes = evaluation.exact_debug_scenes
+                receipts = evaluation.receipts
+            else:
+                from .envelope_host_adapter import (
+                    build_envelope_topology_debug_scene,
+                )
+
+                topology_scene = build_envelope_topology_debug_scene(
+                    analysis_bundle,
+                    frozenset(selected_edge_indices),
+                    profile=profile,
+                )
+                exact_scenes = ()
+                receipts = profile.snapshot().receipts
         except Exception as exc:
             clear_envelope_debug(source_obj)
-            settings.envelope_debug_status = "Failed before render"
+            settings.envelope_debug_status = "Topology build failed"
             settings.envelope_debug_outcome = type(exc).__name__
-            self.report({"ERROR"}, f"Envelope Debug failed: {exc}")
+            self.report({"ERROR"}, f"Envelope topology failed: {exc}")
             return {"CANCELLED"}
         finally:
             if obj is not None:
@@ -2262,33 +2308,22 @@ class HOTSPOTUV_OT_BuildEnvelopeDebug(bpy.types.Operator):
                 )
                 _restore_edge_selection(obj, selected_edge_indices)
 
-        if evaluation.debug_scene is None:
-            diagnostic = (
-                evaluation.diagnostics[0]
-                if evaluation.diagnostics
-                else None
-            )
-            outcome = (
-                _envelope_debug_outcome_value(diagnostic.outcome)
-                if diagnostic is not None
-                else "ENVELOPE_DEBUG_PIPELINE_STAGE_FAILED"
-            )
-            message = (
-                diagnostic.message
-                if diagnostic is not None
-                else "Envelope Debug did not produce a DebugScene"
-            )
-            settings.envelope_debug_status = f"Failed: {outcome}"
-            settings.envelope_debug_outcome = outcome
-            self.report({"ERROR"}, f"{outcome}: {message}")
-            return {"CANCELLED"}
-
         try:
-            summary = render_envelope_debug_scene(
-                evaluation.debug_scene,
-                source_obj,
-                visibility_by_layer=visibility_from_settings(settings),
-            )
+            if self.exact_reference:
+                summary = render_staged_envelope_debug(
+                    topology_scene,
+                    exact_scenes,
+                    source_obj,
+                    visibility_by_layer=visibility_from_settings(settings),
+                    profile=profile,
+                )
+            else:
+                summary = render_envelope_topology_debug_scene(
+                    topology_scene,
+                    source_obj,
+                    visibility_by_layer=visibility_from_settings(settings),
+                    profile=profile,
+                )
         except Exception as exc:
             clear_envelope_debug(source_obj)
             settings.envelope_debug_status = "Failed during GP render"
@@ -2296,25 +2331,88 @@ class HOTSPOTUV_OT_BuildEnvelopeDebug(bpy.types.Operator):
             self.report({"ERROR"}, f"Envelope Debug render failed: {exc}")
             return {"CANCELLED"}
 
-        outcome = "EXACT"
-        if evaluation.diagnostics:
-            outcome = _envelope_debug_outcome_value(
-                evaluation.diagnostics[0].outcome
-            )
-        domain_count = len(evaluation.debug_scene.patch_domain_ids)
-        settings.envelope_debug_status = (
-            f"Built: {summary.stroke_count} strokes / "
-            f"{domain_count} domains"
+        final_profile = profile.snapshot()
+        settings.envelope_debug_stage_summary = (
+            _envelope_stage_summary_text(final_profile)
         )
-        settings.envelope_debug_outcome = outcome
+        missing = tuple(
+            item
+            for item in receipts
+            if item.stage is not EnvelopeDomainStage.RESOLVED
+        )
+        if not self.exact_reference:
+            settings.envelope_debug_status = (
+                f"Topology built: {summary.stroke_count} strokes"
+            )
+            settings.envelope_debug_outcome = "TOPOLOGY_READY"
+            settings.envelope_debug_domain_status = (
+                "Exact Envelope not requested"
+            )
+        elif missing:
+            first = missing[0]
+            settings.envelope_debug_status = (
+                "Topology built; Exact Envelope unavailable "
+                f"for {len(missing)}/{len(receipts)} domains"
+            )
+            settings.envelope_debug_outcome = first.outcome
+            settings.envelope_debug_domain_status = (
+                f"Patch {first.patch_id}: {first.stage.value}"
+            )
+        else:
+            settings.envelope_debug_status = (
+                f"Topology and Exact Envelope built: "
+                f"{summary.stroke_count} strokes"
+            )
+            settings.envelope_debug_outcome = "RESOLVED"
+            settings.envelope_debug_domain_status = (
+                f"All {len(receipts)} domains resolved"
+            )
+
+        report_level = {"WARNING"} if missing and self.exact_reference else {"INFO"}
         self.report(
-            {"INFO"},
+            report_level,
             (
                 f"Envelope Debug: {summary.stroke_count} strokes, "
-                f"{summary.layer_count} layers, {domain_count} domains"
+                f"{summary.point_count} points, {len(receipts)} domains"
             ),
         )
         return {"FINISHED"}
+
+
+class HOTSPOTUV_OT_BuildEnvelopeTopologyDebug(
+    _EnvelopeDebugBuildBase,
+    bpy.types.Operator,
+):
+    bl_idname = "hotspotuv.build_envelope_topology_debug"
+    bl_label = "Build Topology Debug"
+    bl_description = (
+        "Render Patch, BoundaryLoop, PhysicalChain, and directed ChainUse "
+        "host facts without loading the exact kernel or SymPy"
+    )
+
+
+class HOTSPOTUV_OT_BuildExactReferenceEnvelopeDebug(
+    _EnvelopeDebugBuildBase,
+    bpy.types.Operator,
+):
+    bl_idname = "hotspotuv.build_exact_reference_envelope_debug"
+    bl_label = "Build Exact Reference Envelope Debug"
+    bl_description = (
+        "Keep topology visible while evaluating exact reference Envelope "
+        "stages independently for every selected PatchDomain"
+    )
+    exact_reference = True
+
+
+class HOTSPOTUV_OT_BuildEnvelopeDebug(
+    _EnvelopeDebugBuildBase,
+    bpy.types.Operator,
+):
+    """Compatibility alias for saved scripts from the V0-B debug slice."""
+
+    bl_idname = "hotspotuv.build_envelope_debug"
+    bl_label = "Build Exact Reference Envelope Debug"
+    exact_reference = True
 
 
 class HOTSPOTUV_OT_ClearEnvelopeDebug(bpy.types.Operator):
@@ -2342,6 +2440,8 @@ class HOTSPOTUV_OT_ClearEnvelopeDebug(bpy.types.Operator):
         settings.envelope_debug_source_object = ""
         settings.envelope_debug_status = "Cleared"
         settings.envelope_debug_outcome = ""
+        settings.envelope_debug_stage_summary = ""
+        settings.envelope_debug_domain_status = ""
         self.report({"INFO"}, "Envelope Debug cleared")
         return {"FINISHED"}
 
@@ -2457,7 +2557,7 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
         layout.separator()
         envelope_box = layout.box()
         envelope_box.label(
-            text="Envelope Debug (Exact Planar)",
+            text="Envelope Debug (Staged)",
             icon="GREASEPENCIL",
         )
         envelope_box.label(
@@ -2465,18 +2565,27 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
             icon="INFO",
         )
         envelope_box.prop(s, "envelope_debug_alpha")
-        row = envelope_box.row(align=True)
-        row.operator(
-            "hotspotuv.build_envelope_debug",
-            text="Build",
+        envelope_box.operator(
+            "hotspotuv.build_envelope_topology_debug",
+            text="Build Topology Debug",
+            icon="OUTLINER_DATA_MESH",
+        )
+        envelope_box.operator(
+            "hotspotuv.build_exact_reference_envelope_debug",
+            text="Build Exact Reference Envelope Debug",
             icon="PLAY",
         )
+        row = envelope_box.row(align=True)
         row.operator(
             "hotspotuv.clear_envelope_debug",
-            text="Clear",
+            text="Clear Envelope Debug",
             icon="X",
         )
         envelope_box.label(text=s.envelope_debug_status)
+        if s.envelope_debug_stage_summary:
+            envelope_box.label(text=s.envelope_debug_stage_summary)
+        if s.envelope_debug_domain_status:
+            envelope_box.label(text=s.envelope_debug_domain_status)
         if s.envelope_debug_outcome:
             envelope_box.label(
                 text=f"Outcome: {s.envelope_debug_outcome}",
@@ -2700,6 +2809,8 @@ classes = (
     HOTSPOTUV_OT_SolvePhase1Preview,
     HOTSPOTUV_OT_CleanNonManifoldEdges,
     HOTSPOTUV_OT_GenerateDecals,
+    HOTSPOTUV_OT_BuildEnvelopeTopologyDebug,
+    HOTSPOTUV_OT_BuildExactReferenceEnvelopeDebug,
     HOTSPOTUV_OT_BuildEnvelopeDebug,
     HOTSPOTUV_OT_ClearEnvelopeDebug,
     # Legacy stubs (disabled)
@@ -2734,7 +2845,10 @@ def unregister():
         ):
             bpy.data.objects.remove(obj, do_unlink=True)
     for text in list(bpy.data.texts):
-        if text.name.startswith("CFTUV_EnvelopeDebug_"):
+        if (
+            text.name.startswith("CFTUV_EnvelopeDebug_")
+            or text.name.startswith("CFTUV_EnvelopeProfile_")
+        ):
             bpy.data.texts.remove(text)
     if hasattr(bpy.types.Scene, "hotspotuv_settings"):
         del bpy.types.Scene.hotspotuv_settings

@@ -19,12 +19,14 @@ The Blender operator never downloads packages.
 
 ## Files to copy
 
-For a manual update, copy these four files from the branch checkout into the
+For a manual update, copy these six files from the branch checkout into the
 installed `cftuv` package:
 
 ```text
 cftuv\envelope_host_adapter.py
 cftuv\envelope_debug_renderer.py
+cftuv\envelope_debug_profile.py
+cftuv\envelope_topology_debug.py
 cftuv\debug.py
 cftuv\operators.py
 ```
@@ -37,6 +39,8 @@ $Addon = "$env:APPDATA\Blender Foundation\Blender\4.3\scripts\addons\cftuv"
 
 Copy-Item "$Repo\cftuv\envelope_host_adapter.py" $Addon -Force
 Copy-Item "$Repo\cftuv\envelope_debug_renderer.py" $Addon -Force
+Copy-Item "$Repo\cftuv\envelope_debug_profile.py" $Addon -Force
+Copy-Item "$Repo\cftuv\envelope_topology_debug.py" $Addon -Force
 Copy-Item "$Repo\cftuv\debug.py" $Addon -Force
 Copy-Item "$Repo\cftuv\operators.py" $Addon -Force
 ```
@@ -84,7 +88,9 @@ In Blender 4.3:
    planar or non-planar patches.
 3. Enable Edge Select.
 4. Select every edge of one or more complete PhysicalChains.
-5. In `Envelope Debug (Exact Planar)`, set Alpha and press Build.
+5. In `Envelope Debug (Staged)`, use `Build Topology Debug` for the
+   dependency-free host projection, or set Alpha and use
+   `Build Exact Reference Envelope Debug`.
 
 The result is a separate
 `CFTUV_DEBUG_Envelope_<source object>` Grease Pencil object. Build/Clear do

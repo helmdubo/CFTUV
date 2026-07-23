@@ -1,0 +1,72 @@
+{
+  "schema": "cftuv.envelope.v0.session_v0_r1a_handoff.v1",
+  "status": "SESSION_V0_R1A_READY_FOR_REVIEW",
+  "session": "V0-R1A",
+  "scope": "STAGED_TOPOLOGY_DEBUG_AND_TELEMETRY",
+  "branch": "codex/v0-r1a-staged-debug-telemetry",
+  "base_sha": "e95d9039c35d420b68d42b61509fc51190b01b66",
+  "implementation_sha": null,
+  "implemented": [
+    "immutable host-only EnvelopeTopologyDebugSceneV1 with source-local 3D topology and host identities",
+    "separate Build Topology Debug and Build Exact Reference Envelope Debug actions",
+    "per-domain TOPOLOGY_READY, METRIC_REJECTED, COMPILE_REJECTED, RAW_REJECTED, INTERACTION_REJECTED, and RESOLVED receipts",
+    "staged rendering that preserves current topology and clears stale exact layers on late failure",
+    "named host, exact-kernel, renderer, and sidecar timings with workload counters",
+    "CFTUV_EnvelopeProfile_<object>.json Blender Text datablock and concise console table",
+    "multi-domain selection slicing with one shared DecalRequestId and domain-local selected ChainUses"
+  ],
+  "building_002_gate": {
+    "object": "building.002",
+    "mesh_faces": 15,
+    "mesh_edges": 38,
+    "patch_count": 13,
+    "selected_complete_physical_chain_edge": 12,
+    "selected_domains": 2,
+    "topology_only": {
+      "result": "FINISHED",
+      "kernel_version": "NOT_LOADED_TOPOLOGY_ONLY",
+      "patch_strokes": 2,
+      "physical_chain_strokes": 15,
+      "directed_chain_use_strokes": 48,
+      "summary": "Topology: 2/2 | Metric: 0/2 | Raw: 0/2 | Resolved: 0/2"
+    },
+    "exact_reference": {
+      "result": "FINISHED_WITH_PARTIAL_FAILURE",
+      "summary": "Topology: 2/2 | Metric: 1/2 | Raw: 1/2 | Resolved: 1/2",
+      "patch_3": {
+        "stage": "METRIC_REJECTED",
+        "outcome": "ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE",
+        "message": "host Patch 3 exact plane has no rational unit normal"
+      },
+      "patch_0": {
+        "stage": "RESOLVED"
+      },
+      "dominant_stage": "INTERACTION",
+      "dominant_stage_ms": 6787.7942
+    },
+    "topology_visible_after_metric_rejection": true,
+    "source_coordinate_hash_unchanged": true,
+    "original_edge_selection_restored": true
+  },
+  "validation": {
+    "host_renderer_operator_tests": "68 passed",
+    "selected_kernel_exact_reference_interaction_tests": "31 passed",
+    "blender_4_3_background_smoke": "ENVELOPE_DEBUG_BLENDER_SMOKE_OK",
+    "python_compileall": "OK",
+    "git_diff_check": "OK with line-ending warnings only"
+  },
+  "scope_guards": {
+    "geometry_contracts_changed": false,
+    "arrangement_optimized": false,
+    "ownership_added": false,
+    "mesh_output_added": false,
+    "legacy_geometry_read_or_called": false,
+    "topology_action_loads_kernel_wheel": false,
+    "topology_action_imports_sympy": false
+  },
+  "review_state": {
+    "committed": false,
+    "pushed": false,
+    "next_action": "REVIEW"
+  }
+}

@@ -17,6 +17,9 @@ REQUIRED_LAYERS = {
     "ENV_02_BARRIERS",
     "ENV_10_PHYSICAL_CHAINS",
     "ENV_11_CHAIN_USES",
+    "ENV_12_SELECTED_SOURCES",
+    "ENV_13_PATCH_PAIRS",
+    "ENV_14_SEAM_SELF_PAIRS",
     "ENV_20_SOURCE_SUPPORTS",
     "ENV_21_MOVING_FRONTS",
     "ENV_22_HIDDEN_SUPPORTS",
@@ -46,7 +49,10 @@ def _reset_scene():
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete(use_global=False)
     for text in list(bpy.data.texts):
-        if text.name.startswith("CFTUV_EnvelopeDebug_"):
+        if (
+            text.name.startswith("CFTUV_EnvelopeDebug_")
+            or text.name.startswith("CFTUV_EnvelopeProfile_")
+        ):
             bpy.data.texts.remove(text)
 
 
@@ -81,7 +87,7 @@ def _build_axis_plane():
     return obj
 
 
-def _build_two_patch_seam():
+def _build_two_patch_seam(*, nonplanar_second_patch=False):
     mesh = bpy.data.meshes.new("EnvelopeTwoPatchMesh")
     mesh.from_pydata(
         (
@@ -90,7 +96,11 @@ def _build_two_patch_seam():
             (2.0, 0.0, 0.0),
             (0.0, 1.0, 0.0),
             (1.0, 1.0, 0.0),
-            (2.0, 1.0, 0.0),
+            (
+                2.0,
+                1.0,
+                0.001 if nonplanar_second_patch else 0.0,
+            ),
         ),
         (),
         (
@@ -167,6 +177,10 @@ def _assert_debug_result(
     assert payload["object_name"] == object_name
     assert len(payload["patch_domain_ids"]) == expected_domain_count
     assert payload["strokes"]
+    profile = bpy.data.texts.get(
+        "CFTUV_EnvelopeProfile_" + source_obj.name + ".json"
+    )
+    assert profile is not None
     return gp_obj
 
 
@@ -499,6 +513,79 @@ def _run_axis_plane_smoke():
     assert bpy.data.texts.get(
         "CFTUV_EnvelopeDebug_" + source_obj.name + ".json"
     ) is None
+    assert bpy.data.texts.get(
+        "CFTUV_EnvelopeProfile_" + source_obj.name + ".json"
+    ) is None
+
+
+def _run_topology_only_smoke():
+    _reset_scene()
+    source_obj = _build_two_patch_seam()
+    assert (
+        bpy.ops.hotspotuv.build_envelope_topology_debug()
+        == {"FINISHED"}
+    )
+    gp_obj = bpy.data.objects[
+        "CFTUV_DEBUG_Envelope_" + source_obj.name
+    ]
+    assert gp_obj["kernel_version"] == "NOT_LOADED_TOPOLOGY_ONLY"
+    assert json.loads(gp_obj["raw_coverage_digests"]) == []
+    assert json.loads(gp_obj["resolved_coverage_digests"]) == []
+    assert len(json.loads(gp_obj["patch_domain_ids"])) == 2
+    sidecar = _sidecar_payload(source_obj)
+    assert sidecar["topology_pairs"]
+    assert any(
+        item["kind"] == "DIRECTED_CHAIN_USE"
+        for item in sidecar["strokes"]
+    )
+    profile = json.loads(
+        bpy.data.texts[
+            "CFTUV_EnvelopeProfile_" + source_obj.name + ".json"
+        ].as_string()
+    )
+    stages = {item["stage"] for item in profile["timings"]}
+    assert "TOPOLOGY_SCENE" in stages
+    assert "FRAME_ADMISSION" not in stages
+    assert profile["stage_summary"] == {
+        "metric": 0,
+        "raw": 0,
+        "resolved": 0,
+        "topology": 2,
+        "total": 2,
+    }
+
+
+def _run_staged_metric_rejection_smoke():
+    _reset_scene()
+    source_obj = _build_two_patch_seam(nonplanar_second_patch=True)
+    assert (
+        bpy.ops.hotspotuv.build_exact_reference_envelope_debug()
+        == {"FINISHED"}
+    )
+    gp_obj = bpy.data.objects[
+        "CFTUV_DEBUG_Envelope_" + source_obj.name
+    ]
+    assert len(json.loads(gp_obj["patch_domain_ids"])) == 2
+    receipts = json.loads(gp_obj["stage_receipts"])
+    assert len(receipts) == 2
+    assert {item["stage"] for item in receipts} >= {
+        "METRIC_REJECTED",
+    }
+    assert all(
+        layer in {_layer_name(item) for item in gp_obj.data.layers}
+        for layer in {
+            "ENV_00_PATCH_DOMAIN",
+            "ENV_10_PHYSICAL_CHAINS",
+            "ENV_11_CHAIN_USES",
+        }
+    )
+    settings = bpy.context.scene.hotspotuv_settings
+    assert "Topology built" in settings.envelope_debug_status
+    assert "Exact Envelope unavailable" in settings.envelope_debug_status
+    assert "Metric: 1/2" in settings.envelope_debug_stage_summary
+    assert settings.envelope_debug_domain_status.endswith(
+        "METRIC_REJECTED"
+    )
 
 
 def _run_two_patch_smoke():
@@ -516,6 +603,9 @@ def _run_two_patch_smoke():
     ) is None
     assert bpy.data.texts.get(
         "CFTUV_EnvelopeDebug_" + source_obj.name + ".json"
+    ) is None
+    assert bpy.data.texts.get(
+        "CFTUV_EnvelopeProfile_" + source_obj.name + ".json"
     ) is None
 
 
@@ -555,10 +645,17 @@ def _create_viewport_evidence(filepath):
 def _main():
     addon_utils.enable("cftuv", default_set=False, persistent=False)
     assert hasattr(bpy.ops.hotspotuv, "build_envelope_debug")
+    assert hasattr(bpy.ops.hotspotuv, "build_envelope_topology_debug")
+    assert hasattr(
+        bpy.ops.hotspotuv,
+        "build_exact_reference_envelope_debug",
+    )
     args = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     if len(args) == 2 and args[0] == "--evidence":
         _create_viewport_evidence(args[1])
         return
+    _run_topology_only_smoke()
+    _run_staged_metric_rejection_smoke()
     _run_axis_plane_smoke()
     _run_two_patch_smoke()
     _run_patch_scoped_frame_smoke()

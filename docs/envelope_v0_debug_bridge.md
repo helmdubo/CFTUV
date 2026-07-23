@@ -1,5 +1,26 @@
 # Session V0 Envelope Debug Bridge
 
+## V0-R1A staged boundary
+
+The Blender UI exposes two distinct actions. `Build Topology Debug` projects
+immutable `EnvelopeTopologyDebugSceneV1` records directly from
+`AnalysisBundle`. `Build Exact Reference Envelope Debug` keeps that topology
+projection and evaluates exact reference stages independently per selected
+PatchDomain.
+
+Topology records contain source-local 3D coordinates and host identities for
+Patch outer loops, holes, PhysicalChains, directed ChainUses, selected
+sources, physical PATCH pairs, and `SEAM_SELF` pairs. This projection does not
+load `cftuv-envelope-core`, import SymPy, construct `PlanarPatchFrameV1`, or
+evaluate an Envelope. It is diagnostic host evidence, not kernel geometry
+authority.
+
+Each selected domain ends with exactly one receipt:
+`TOPOLOGY_READY`, `METRIC_REJECTED`, `COMPILE_REJECTED`, `RAW_REJECTED`,
+`INTERACTION_REJECTED`, or `RESOLVED`. The UI reports stage numerators rather
+than a generic Built state. A late failure clears prior Raw/Resolved strokes
+and publishes the new topology plus the current named failure.
+
 ## V0-A boundary
 
 V0-A is the static, Blender-free diagnostic boundary consumed by V0-B.
@@ -77,9 +98,10 @@ one.
 Only PatchDomains reached by the request are projected into the DebugScene.
 Whole-chain selection is resolved before exact-frame admission, so unrelated
 unselected PatchDomains cannot reject the request. A failing selected domain
-has its own named diagnostic. The current facade publishes no scene when any
-selected domain fails; it does not retain an older or partially successful
-scene. Cross-Patch competition is never introduced.
+has its own named diagnostic. The staged facade publishes topology for every
+selected domain before metric admission. Exact scenes are request-scoped per
+admitted PatchDomain; a rejected domain cannot erase topology or suppress an
+admitted neighbor. Cross-Patch competition is never introduced.
 
 ## V0-B Grease Pencil projection
 
@@ -88,6 +110,8 @@ The immutable scene is rendered into an independent object named
 
 `ENV_00_PATCH_DOMAIN`, `ENV_01_HOLES`, `ENV_02_BARRIERS`,
 `ENV_10_PHYSICAL_CHAINS`, `ENV_11_CHAIN_USES`,
+`ENV_12_SELECTED_SOURCES`, `ENV_13_PATCH_PAIRS`,
+`ENV_14_SEAM_SELF_PAIRS`,
 `ENV_20_SOURCE_SUPPORTS`, `ENV_21_MOVING_FRONTS`,
 `ENV_22_HIDDEN_SUPPORTS`, `ENV_30_ENVELOPE_INSTANCES`,
 `ENV_40_RAW_COVERAGE`, `ENV_50_INTERACTION_COMPONENTS`,
@@ -107,7 +131,9 @@ The GP object copies the source object's `matrix_world` and stores kernel
 version, source revision, request IDs, PatchDomain IDs, alpha, Raw/Resolved
 digests, and stage counts as custom properties. The Text datablock
 `CFTUV_EnvelopeDebug_<source object>.json` stores the semantic ID to
-layer/stroke sidecar.
+layer/stroke sidecar. A second datablock,
+`CFTUV_EnvelopeProfile_<source object>.json`, stores per-domain receipts,
+stage timings, counters, and the dominant stage.
 
 All Blender-version-specific GP access remains in `cftuv/debug.py`.
 The renderer and operator use only `GreasePencilDebugWriter`.
@@ -115,14 +141,16 @@ The renderer and operator use only `GreasePencilDebugWriter`.
 ## Blender operator
 
 The `Hotspot UV` sidebar has a separate
-`Envelope Debug (Exact Planar)` box before the legacy Decals controls.
+`Envelope Debug (Staged)` box before the legacy Decals controls.
 
 1. Select the source mesh and enter Edit Mode.
 2. Enable Edge Select.
 3. Select every edge of one or more complete PhysicalChains.
-4. Set Alpha and press Build.
+4. Press `Build Topology Debug`, or set Alpha and press
+   `Build Exact Reference Envelope Debug`.
 
-Build always clears the prior Envelope object and sidecar before evaluation.
+Both builds always clear the prior Envelope object and sidecars before
+evaluation.
 An empty or invalid selection therefore cannot leave stale Raw/Resolved
 diagnostics. Clear removes only the Envelope debug object and sidecar; the
 existing Analyze and decal-rail GP objects remain independent.
@@ -133,11 +161,20 @@ Equality, Resolved, Diagnostics, and Labels.
 
 ## Failure and staging law
 
-`evaluate_envelope_debug()` recomputes from AnalysisBundle and publishes one
-new scene. It never retains a previous scene. If a stage fails, downstream
-records for that domain are absent and its named diagnostic is returned.
-V0-B must clear previous Envelope strokes before displaying the new staged
-result.
+`evaluate_envelope_debug_staged()` first publishes host topology, then
+recomputes exact reference stages per domain. It never retains a previous
+scene. If a stage fails, downstream records for that domain are absent and its
+named receipt is returned. V0-B clears previous Envelope strokes before
+displaying the new staged result.
+
+The runtime profile separately records `ANALYSIS_BUNDLE`, `SELECTION_SCOPE`,
+`HOST_CHAIN_COLLECTION`, `SEAM_PARTITION_NORMALIZATION`, `BUNDLE_SLICE`,
+`TOPOLOGY_SCENE`, `SNAPSHOT_EXPORT`, per-domain `FRAME_ADMISSION`,
+`ANGULAR_RELATIONS`, `SNAPSHOT_VALIDATION`, `COMPILE`, `DOMAIN_BUILD`,
+`ENVELOPE_INSTANCE_BUILD`, `DOMAIN_CLIP`, `RAW_UNION`, `INTERACTION`,
+`DEBUG_SCENE`, `GP_RENDER`, and `SIDECAR_JSON`. Counters cover host mesh and
+selection size, per-domain topology, Envelope specs, arrangement work, and GP
+stroke/point output. A compact timing table is also printed to the console.
 
 ## V0-B validation
 
@@ -151,7 +188,7 @@ smoke. It verifies:
 - exact before/at/after mutual-arrival equality-locus rendering;
 - hole and concave `BARRIER_SPLIT_REQUIRED` diagnostics;
 - named unsupported Junction diagnostics;
-- 19 named GP layers and semantic sidecar data;
+- 22 named GP layers and semantic sidecar data;
 - source mesh coordinates remain unchanged;
 - visibility callbacks;
 - stale-result clearing on empty selection;

@@ -18,7 +18,17 @@ from cftuv.envelope_host_adapter import (  # noqa: E402
     _host_edge_number,
     build_envelope_analysis_snapshot,
     build_envelope_decal_request,
+    build_envelope_topology_debug_scene,
     evaluate_envelope_debug,
+    evaluate_envelope_debug_staged,
+)
+from cftuv.envelope_debug_profile import (  # noqa: E402
+    EnvelopeDebugProfileBuilderV1,
+    EnvelopeDomainStage,
+)
+from cftuv.envelope_topology_debug import (  # noqa: E402
+    EnvelopeTopologyPairKind,
+    EnvelopeTopologyPathKind,
 )
 from cftuv.model import (  # noqa: E402
     BoundaryChain,
@@ -846,3 +856,168 @@ def test_seam_self_maps_to_two_uses_in_one_domain_without_self_contact_guessing(
     result = compile_reference_envelopes(snapshot, request)
     assert result.compilation is not None
     assert result.compilation.self_contact_pair_declarations == frozenset()
+
+
+def test_topology_scene_uses_host_facts_without_loading_exact_kernel(monkeypatch):
+    def reject_kernel_load():
+        raise AssertionError("topology debug must not load kernel or SymPy")
+
+    monkeypatch.setattr(
+        "cftuv.envelope_host_adapter._load_kernel",
+        reject_kernel_load,
+    )
+    profile = EnvelopeDebugProfileBuilderV1("v0-seam", "TOPOLOGY")
+
+    scene = build_envelope_topology_debug_scene(
+        _two_patch_seam_bundle(),
+        frozenset({1}),
+        profile=profile,
+    )
+
+    assert len(scene.patch_domain_ids) == 2
+    assert {
+        item.kind for item in scene.paths
+    } >= {
+        EnvelopeTopologyPathKind.PATCH_OUTER_LOOP,
+        EnvelopeTopologyPathKind.PHYSICAL_CHAIN,
+        EnvelopeTopologyPathKind.DIRECTED_CHAIN_USE,
+        EnvelopeTopologyPathKind.SELECTED_SOURCE,
+    }
+    selected_sources = [
+        item
+        for item in scene.paths
+        if item.kind is EnvelopeTopologyPathKind.SELECTED_SOURCE
+    ]
+    assert len(selected_sources) == 1
+    assert selected_sources[0].host_edge_ids == (1,)
+    patch_pairs = [
+        item
+        for item in scene.pairs
+        if item.kind is EnvelopeTopologyPairKind.PATCH
+        and item.host_edge_ids == (1,)
+    ]
+    assert len(patch_pairs) == 1
+    assert len(patch_pairs[0].chain_use_ids) == 2
+    assert {
+        item.stage for item in profile.snapshot().receipts
+    } == {EnvelopeDomainStage.TOPOLOGY_READY}
+
+
+def test_staged_exact_keeps_topology_when_one_domain_rejects_metric():
+    bundle = _two_patch_seam_bundle()
+    surface = replace(
+        bundle.patch_surface,
+        vertices=tuple(
+            replace(vertex, position=(4.0, 2.0, 0.001))
+            if vertex.vertex_id == 5
+            else vertex
+            for vertex in bundle.patch_surface.vertices
+        ),
+    )
+    bundle = AnalysisBundle(
+        bundle.source_revision,
+        bundle.patch_graph,
+        surface,
+        bundle.capabilities,
+    )
+    profile = EnvelopeDebugProfileBuilderV1(
+        "v0-seam",
+        "EXACT_REFERENCE",
+    )
+
+    evaluation = evaluate_envelope_debug_staged(
+        bundle,
+        frozenset({1}),
+        0.25,
+        profile=profile,
+    )
+
+    assert len(evaluation.topology_scene.patch_domain_ids) == 2
+    receipts = {item.patch_id: item for item in evaluation.receipts}
+    assert receipts[0].stage in {
+        EnvelopeDomainStage.INTERACTION_REJECTED,
+        EnvelopeDomainStage.RESOLVED,
+    }
+    assert receipts[1].stage is EnvelopeDomainStage.METRIC_REJECTED
+    assert "not exactly coplanar" in receipts[1].message
+    assert any(
+        scene.patch_domain_ids
+        for scene in evaluation.exact_debug_scenes
+    )
+    summary = profile.snapshot().stage_summary()
+    assert summary["topology"] == 2
+    assert summary["metric"] == 1
+    assert summary["raw"] == 1
+    assert summary["resolved"] in {0, 1}
+
+
+def test_exact_profile_exposes_named_stage_timings_and_counters():
+    profile = EnvelopeDebugProfileBuilderV1(
+        "v0-plane",
+        "EXACT_REFERENCE",
+    )
+    evaluation = evaluate_envelope_debug_staged(
+        _single_patch_bundle(),
+        frozenset({0}),
+        0.25,
+        profile=profile,
+    )
+    assert evaluation.topology_scene is not None
+
+    snapshot = profile.snapshot()
+    stages = {item.stage for item in snapshot.timings}
+    assert {
+        "SELECTION_SCOPE",
+        "HOST_CHAIN_COLLECTION",
+        "SEAM_PARTITION_NORMALIZATION",
+        "BUNDLE_SLICE",
+        "TOPOLOGY_SCENE",
+        "SNAPSHOT_EXPORT",
+        "FRAME_ADMISSION",
+        "ANGULAR_RELATIONS",
+        "SNAPSHOT_VALIDATION",
+        "COMPILE",
+        "DOMAIN_BUILD",
+        "ENVELOPE_INSTANCE_BUILD",
+        "DOMAIN_CLIP",
+        "RAW_UNION",
+        "INTERACTION",
+        "DEBUG_SCENE",
+    } <= stages
+    counter_names = {item.name for item in snapshot.counters}
+    assert {
+        "MESH_FACES",
+        "MESH_EDGES",
+        "PATCH_COUNT",
+        "SELECTED_CHAINS",
+        "SELECTED_DOMAINS",
+        "FACES_PER_DOMAIN",
+        "PHYSICAL_EDGES_PER_DOMAIN",
+        "DOMAIN_FACE_REGIONS",
+        "DOMAIN_BOUNDARY_SEGMENTS",
+        "ENVELOPE_SPECS",
+        "ARRANGEMENT_INPUT_SEGMENTS",
+        "ARRANGEMENT_PAIR_TESTS",
+        "ARRANGEMENT_INTERSECTIONS",
+        "ARRANGEMENT_ATOMIC_SEGMENTS",
+    } <= counter_names
+
+
+def test_staged_multi_domain_selection_slices_edges_but_keeps_request_identity():
+    evaluation = evaluate_envelope_debug_staged(
+        _two_patch_seam_bundle(),
+        frozenset({0, 5}),
+        0.25,
+    )
+
+    assert len(evaluation.domains) == 2
+    assert all(item.request is not None for item in evaluation.domains)
+    request_ids = {
+        item.request.decal_request_id
+        for item in evaluation.domains
+    }
+    assert len(request_ids) == 1
+    assert all(
+        len(item.request.selected_chain_use_ids) == 1
+        for item in evaluation.domains
+    )
