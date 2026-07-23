@@ -55,6 +55,35 @@ class _InputBoundary:
     segment: BoundedSupportSegment
     region: PlanarRegion
     is_domain: bool
+    semantic_key: tuple[str, ...]
+    aabb: ExactSegmentAabbV1
+
+
+@dataclass(frozen=True, slots=True)
+class ExactSegmentAabbV1:
+    """Exact closed AABB used only to reject impossible segment pairs."""
+
+    min_x: ExactScalar
+    max_x: ExactScalar
+    min_y: ExactScalar
+    max_y: ExactScalar
+
+
+@dataclass(frozen=True, slots=True)
+class ArrangementBuildCountersV1:
+    input_segments: int
+    all_possible_pairs: int
+    broadphase_candidate_pairs: int
+    narrowphase_tests: int
+    actual_intersections: int
+    atomic_edges: int
+
+
+@dataclass(frozen=True, slots=True)
+class _ArrangementBuildState:
+    boundaries: tuple[_InputBoundary, ...]
+    atomic: dict[tuple[tuple[str, str], tuple[str, str]], _AtomicHistory]
+    counters: ArrangementBuildCountersV1
 
 
 @dataclass(slots=True)
@@ -84,6 +113,32 @@ class _OrientedOutput:
 
 def _compare(left: sp.Expr, right: sp.Expr) -> int:
     return exact_sign(left - right)
+
+
+def _exact_ordered_pair(left: sp.Expr, right: sp.Expr) -> tuple[sp.Expr, sp.Expr]:
+    return (left, right) if _compare(left, right) <= 0 else (right, left)
+
+
+def _segment_aabb(segment: BoundedSupportSegment) -> ExactSegmentAabbV1:
+    start_x, start_y = segment.start.expressions()
+    end_x, end_y = segment.end.expressions()
+    min_x, max_x = _exact_ordered_pair(start_x, end_x)
+    min_y, max_y = _exact_ordered_pair(start_y, end_y)
+    return ExactSegmentAabbV1(
+        min_x=ExactScalar.from_value(min_x),
+        max_x=ExactScalar.from_value(max_x),
+        min_y=ExactScalar.from_value(min_y),
+        max_y=ExactScalar.from_value(max_y),
+    )
+
+
+def _aabbs_overlap(left: ExactSegmentAabbV1, right: ExactSegmentAabbV1) -> bool:
+    return (
+        _compare(left.max_x.as_expr(), right.min_x.as_expr()) >= 0
+        and _compare(right.max_x.as_expr(), left.min_x.as_expr()) >= 0
+        and _compare(left.max_y.as_expr(), right.min_y.as_expr()) >= 0
+        and _compare(right.max_y.as_expr(), left.min_y.as_expr()) >= 0
+    )
 
 
 def _between(value: sp.Expr, lower: sp.Expr, upper: sp.Expr) -> bool:
@@ -260,22 +315,106 @@ def _vertex_id(certificates: frozenset[ConstructionCertificate]) -> str:
 
 class ExactSegmentArrangementBackend:
     backend_identity = "CFTUV_EXACT_SEGMENT_ARRANGEMENT_WITH_HISTORY"
-    backend_version = "1.0.0"
+    backend_version = "2.0.0"
+
+    def _input_boundaries(
+        self,
+        contribution_regions: tuple[PlanarRegion, ...],
+        domain_regions: tuple[PlanarRegion, ...],
+    ) -> tuple[_InputBoundary, ...]:
+        boundaries = []
+        semantic_keys = set()
+        for is_domain, regions in (
+            (False, contribution_regions),
+            (True, domain_regions),
+        ):
+            for region in regions:
+                for loop in (region.outer, *region.holes):
+                    for segment in loop.segments:
+                        semantic_key = (
+                            segment.segment_id,
+                            "DOMAIN" if is_domain else "CONTRIBUTION",
+                            region.region_id,
+                            loop.loop_id,
+                            *point_key(segment.start),
+                            *point_key(segment.end),
+                        )
+                        if semantic_key in semantic_keys:
+                            raise ValueError(
+                                "duplicate semantic arrangement segment identity: "
+                                + "|".join(semantic_key)
+                            )
+                        semantic_keys.add(semantic_key)
+                        boundaries.append(
+                            _InputBoundary(
+                                segment=segment,
+                                region=region,
+                                is_domain=is_domain,
+                                semantic_key=semantic_key,
+                                aabb=_segment_aabb(segment),
+                            )
+                        )
+        return tuple(sorted(boundaries, key=lambda item: item.semantic_key))
+
+    @staticmethod
+    def _sweep_order_compare(
+        left: tuple[int, _InputBoundary],
+        right: tuple[int, _InputBoundary],
+    ) -> int:
+        comparison = _compare(
+            left[1].aabb.min_x.as_expr(),
+            right[1].aabb.min_x.as_expr(),
+        )
+        if comparison:
+            return comparison
+        return (left[1].semantic_key > right[1].semantic_key) - (
+            left[1].semantic_key < right[1].semantic_key
+        )
+
+    def _candidate_pairs(
+        self,
+        boundaries: tuple[_InputBoundary, ...],
+    ) -> tuple[tuple[int, int], ...]:
+        ordered = sorted(
+            enumerate(boundaries),
+            key=cmp_to_key(self._sweep_order_compare),
+        )
+        active: list[tuple[int, _InputBoundary]] = []
+        candidates = []
+        for current_index, current in ordered:
+            active = [
+                item
+                for item in active
+                if _compare(
+                    item[1].aabb.max_x.as_expr(),
+                    current.aabb.min_x.as_expr(),
+                )
+                >= 0
+            ]
+            for active_index, active_boundary in active:
+                if not _aabbs_overlap(active_boundary.aabb, current.aabb):
+                    continue
+                pair = tuple(sorted((active_index, current_index)))
+                candidates.append(pair)
+            active.append((current_index, current))
+        return tuple(
+            sorted(
+                candidates,
+                key=lambda pair: (
+                    boundaries[pair[0]].semantic_key,
+                    boundaries[pair[1]].semantic_key,
+                ),
+            )
+        )
 
     def build_arrangement(
         self,
         contribution_regions: tuple[PlanarRegion, ...],
         domain_regions: tuple[PlanarRegion, ...],
-    ):
-        boundaries = tuple(
-            _InputBoundary(segment, region, is_domain)
-            for is_domain, regions in (
-                (False, contribution_regions),
-                (True, domain_regions),
-            )
-            for region in regions
-            for loop in (region.outer, *region.holes)
-            for segment in loop.segments
+    ) -> _ArrangementBuildState:
+        boundaries = self._input_boundaries(
+            contribution_regions,
+            domain_regions,
         )
         split_points: dict[int, list[_PointHistory]] = {}
         for index, boundary in enumerate(boundaries):
@@ -284,27 +423,28 @@ class ExactSegmentArrangementBackend:
                 _PointHistory(boundary.segment.end, set(boundary.segment.end_constructions)),
             ]
         intersection_count = 0
-        for left_index, left in enumerate(boundaries):
-            for right_index in range(left_index + 1, len(boundaries)):
-                right = boundaries[right_index]
-                intersections = segment_intersections(left.segment, right.segment)
-                if intersections:
-                    intersection_count += len(intersections)
-                certificate = _intersection_certificate(left.segment, right.segment)
-                for point in intersections:
-                    for index in (left_index, right_index):
-                        existing = next(
-                            (
-                                item
-                                for item in split_points[index]
-                                if points_equal(item.point, point)
-                            ),
-                            None,
-                        )
-                        if existing is None:
-                            split_points[index].append(_PointHistory(point, {certificate}))
-                        else:
-                            existing.certificates.add(certificate)
+        candidate_pairs = self._candidate_pairs(boundaries)
+        for left_index, right_index in candidate_pairs:
+            left = boundaries[left_index]
+            right = boundaries[right_index]
+            intersections = segment_intersections(left.segment, right.segment)
+            if intersections:
+                intersection_count += len(intersections)
+            certificate = _intersection_certificate(left.segment, right.segment)
+            for point in intersections:
+                for index in (left_index, right_index):
+                    existing = next(
+                        (
+                            item
+                            for item in split_points[index]
+                            if points_equal(item.point, point)
+                        ),
+                        None,
+                    )
+                    if existing is None:
+                        split_points[index].append(_PointHistory(point, {certificate}))
+                    else:
+                        existing.certificates.add(certificate)
 
         atomic: dict[tuple[tuple[str, str], tuple[str, str]], _AtomicHistory] = {}
         for index, boundary in enumerate(boundaries):
@@ -349,7 +489,22 @@ class ExactSegmentArrangementBackend:
                 else:
                     history.start_certificates.update(right.certificates)
                     history.end_certificates.update(left.certificates)
-        return boundaries, atomic, intersection_count
+        input_segment_count = len(boundaries)
+        counters = ArrangementBuildCountersV1(
+            input_segments=input_segment_count,
+            all_possible_pairs=(
+                input_segment_count * (input_segment_count - 1) // 2
+            ),
+            broadphase_candidate_pairs=len(candidate_pairs),
+            narrowphase_tests=len(candidate_pairs),
+            actual_intersections=intersection_count,
+            atomic_edges=len(atomic),
+        )
+        return _ArrangementBuildState(
+            boundaries=boundaries,
+            atomic=atomic,
+            counters=counters,
+        )
 
     def exact_union(
         self,
@@ -357,9 +512,10 @@ class ExactSegmentArrangementBackend:
         domain_regions: tuple[PlanarRegion, ...],
         reachability_by_instance: dict[str, ReachabilityCertificateV1],
     ) -> ArrangementUnionV1:
-        _, atomic, intersection_count = self.build_arrangement(
+        build = self.build_arrangement(
             contribution_regions, domain_regions
         )
+        atomic = build.atomic
         outputs = []
         for history in atomic.values():
             contribution_left = []
@@ -637,6 +793,29 @@ class ExactSegmentArrangementBackend:
             loops=frozenset(loops),
             regions=frozenset(regions),
             exact_area_expression=ExactScalar.from_value(total_area).expression,
-            intersection_count=intersection_count,
-            atomic_edge_count=len(atomic),
+            input_segment_count=build.counters.input_segments,
+            all_possible_pair_count=build.counters.all_possible_pairs,
+            broadphase_candidate_pair_count=(
+                build.counters.broadphase_candidate_pairs
+            ),
+            narrowphase_test_count=build.counters.narrowphase_tests,
+            intersection_count=build.counters.actual_intersections,
+            atomic_edge_count=build.counters.atomic_edges,
+        )
+
+
+class ExhaustiveExactArrangementBackend(ExactSegmentArrangementBackend):
+    """Permanent differential oracle using canonical exhaustive pair tests."""
+
+    backend_identity = "CFTUV_EXACT_SEGMENT_ARRANGEMENT_EXHAUSTIVE_ORACLE"
+    backend_version = "1.0.0"
+
+    def _candidate_pairs(
+        self,
+        boundaries: tuple[_InputBoundary, ...],
+    ) -> tuple[tuple[int, int], ...]:
+        return tuple(
+            (left_index, right_index)
+            for left_index in range(len(boundaries))
+            for right_index in range(left_index + 1, len(boundaries))
         )

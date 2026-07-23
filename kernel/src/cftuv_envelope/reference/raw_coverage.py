@@ -427,7 +427,7 @@ def evaluate_reference_raw_coverage(
         finally:
             union_counters = {
                 "ARRANGEMENT_INPUT_SEGMENTS": arrangement_input_segments,
-                "ARRANGEMENT_PAIR_TESTS": (
+                "ARRANGEMENT_ALL_POSSIBLE_PAIRS": (
                     arrangement_input_segments
                     * (arrangement_input_segments - 1)
                     // 2
@@ -436,6 +436,17 @@ def evaluate_reference_raw_coverage(
             if "union" in locals():
                 union_counters.update(
                     {
+                        "ARRANGEMENT_BROADPHASE_CANDIDATE_PAIRS": (
+                            union.broadphase_candidate_pair_count
+                        ),
+                        "ARRANGEMENT_NARROWPHASE_TESTS": (
+                            union.narrowphase_test_count
+                        ),
+                        # Совместимый alias: теперь это фактические exact tests,
+                        # а не теоретическое число всех пар.
+                        "ARRANGEMENT_PAIR_TESTS": (
+                            union.narrowphase_test_count
+                        ),
                         "ARRANGEMENT_INTERSECTIONS": (
                             union.intersection_count
                         ),

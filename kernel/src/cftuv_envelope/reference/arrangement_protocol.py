@@ -22,6 +22,10 @@ class ArrangementUnionV1:
     loops: frozenset[RawCoverageLoopV1]
     regions: frozenset[RawCoverageRegionV1]
     exact_area_expression: str
+    input_segment_count: int
+    all_possible_pair_count: int
+    broadphase_candidate_pair_count: int
+    narrowphase_test_count: int
     intersection_count: int
     atomic_edge_count: int
 
