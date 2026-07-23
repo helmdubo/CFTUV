@@ -1,0 +1,310 @@
+{
+  "schema": "CFTUV_ENVELOPE_LEGACY_BUILDING_002_TIMINGS_V1",
+  "clock": "time.perf_counter",
+  "unit": "milliseconds",
+  "repetitions_per_case": 5,
+  "warmup_samples_included": false,
+  "analysis_input": "fresh bmesh.from_edit_mesh(object.data).copy() per repetition",
+  "execution_mode": {
+    "compile": "installed field runtime, exact hashes in manifest.json",
+    "evaluate": "preview/in-memory GeometryBatch",
+    "mesh_materialization": false,
+    "selection_mutation": false,
+    "scene_save": false
+  },
+  "settings": {
+    "width_corner": 0.2,
+    "width_seam": 0.15,
+    "height_trim": 0.25,
+    "offset": 0.02,
+    "uv_length_scale": 0.25,
+    "seam_network": true,
+    "dynamic": false,
+    "join_style": "MITER",
+    "apex_segments": 8,
+    "distortion_tolerance": 0.02
+  },
+  "cases": [
+    {
+      "id": "building_002_one_chain",
+      "selected_edge_ids": [
+        2
+      ],
+      "samples": [
+        {
+          "analysis_ms": 6.232200015801936,
+          "compile_ms": 7.806000008713454,
+          "evaluation_wall_ms": 3.598199982661754,
+          "evaluation_reported_ms": 3.5865000099875033
+        },
+        {
+          "analysis_ms": 5.937099980656058,
+          "compile_ms": 7.512199983466417,
+          "evaluation_wall_ms": 3.1649000011384487,
+          "evaluation_reported_ms": 3.155499987769872
+        },
+        {
+          "analysis_ms": 5.998100037686527,
+          "compile_ms": 7.959400012623519,
+          "evaluation_wall_ms": 3.199599974323064,
+          "evaluation_reported_ms": 3.1917000305838883
+        },
+        {
+          "analysis_ms": 5.940100003499538,
+          "compile_ms": 9.564400010276586,
+          "evaluation_wall_ms": 3.1377000268548727,
+          "evaluation_reported_ms": 3.1303000287152827
+        },
+        {
+          "analysis_ms": 6.283299997448921,
+          "compile_ms": 7.807500020135194,
+          "evaluation_wall_ms": 3.114699968136847,
+          "evaluation_reported_ms": 3.1060000183060765
+        }
+      ],
+      "median": {
+        "analysis_ms": 5.998100037686527,
+        "compile_ms": 7.807500020135194,
+        "evaluation_wall_ms": 3.1649000011384487,
+        "evaluation_reported_ms": 3.155499987769872
+      },
+      "routing_summary": "PLANAR:1c/1e",
+      "rail_status": "RAIL_COMPETITION_CHAIN_ID_UNRESOLVED",
+      "result": {
+        "status": "SUCCESS",
+        "geometry_batch_faces": 3,
+        "policy_counts": {
+          "CAP": 4
+        }
+      },
+      "representative_trace": [
+        "[CFTUV][Decals] backend routing: PLANAR:1c/1e",
+        "[CFTUV][Decals] rail materialization unavailable: RAIL_COMPETITION_CHAIN_ID_UNRESOLVED"
+      ]
+    },
+    {
+      "id": "building_002_three_chains",
+      "selected_edge_ids": [
+        2,
+        3,
+        7
+      ],
+      "samples": [
+        {
+          "analysis_ms": 6.05530000757426,
+          "compile_ms": 16.546000028029084,
+          "evaluation_wall_ms": 13.184499985072762,
+          "evaluation_reported_ms": 13.168899982701987
+        },
+        {
+          "analysis_ms": 5.839399993419647,
+          "compile_ms": 16.42929995432496,
+          "evaluation_wall_ms": 13.548700022511184,
+          "evaluation_reported_ms": 13.540899963118136
+        },
+        {
+          "analysis_ms": 5.957400018814951,
+          "compile_ms": 16.48709998698905,
+          "evaluation_wall_ms": 14.772600028663874,
+          "evaluation_reported_ms": 14.765199972316623
+        },
+        {
+          "analysis_ms": 5.986300006043166,
+          "compile_ms": 16.866300022229552,
+          "evaluation_wall_ms": 13.024399988353252,
+          "evaluation_reported_ms": 13.017599994782358
+        },
+        {
+          "analysis_ms": 5.866300023626536,
+          "compile_ms": 16.760199971031398,
+          "evaluation_wall_ms": 17.18929997878149,
+          "evaluation_reported_ms": 17.17770000686869
+        }
+      ],
+      "median": {
+        "analysis_ms": 5.957400018814951,
+        "compile_ms": 16.546000028029084,
+        "evaluation_wall_ms": 13.548700022511184,
+        "evaluation_reported_ms": 13.540899963118136
+      },
+      "routing_summary": "PLANAR:1c/3e | RailUnsupported[RAIL_GEOMETRY_BOUNDARY_PIECE_AMBIGUOUS:x1]",
+      "result": {
+        "status": "SUCCESS",
+        "geometry_batch_faces": 12,
+        "policy_counts": {
+          "CAP": 8,
+          "KITE": 2
+        }
+      },
+      "representative_trace": [
+        "[CFTUV][Decals] backend routing: PLANAR:1c/3e",
+        "[CFTUV][Decals] RailUnsupported[RAIL_GEOMETRY_BOUNDARY_PIECE_AMBIGUOUS:x1]"
+      ]
+    },
+    {
+      "id": "building_002_ten_chains",
+      "selected_edge_ids": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "samples": [
+        {
+          "analysis_ms": 5.862799996975809,
+          "compile_ms": 82.27189996978268,
+          "evaluation_wall_ms": 0.2943000290542841,
+          "evaluation_reported_ms": null
+        },
+        {
+          "analysis_ms": 8.75019998056814,
+          "compile_ms": 112.4959000153467,
+          "evaluation_wall_ms": 0.21889997879043221,
+          "evaluation_reported_ms": null
+        },
+        {
+          "analysis_ms": 9.303299942985177,
+          "compile_ms": 91.08019998529926,
+          "evaluation_wall_ms": 0.21219998598098755,
+          "evaluation_reported_ms": null
+        },
+        {
+          "analysis_ms": 6.193199951667339,
+          "compile_ms": 84.25879996502772,
+          "evaluation_wall_ms": 0.22749998606741428,
+          "evaluation_reported_ms": null
+        },
+        {
+          "analysis_ms": 6.489099992904812,
+          "compile_ms": 85.40919999359176,
+          "evaluation_wall_ms": 0.2324000233784318,
+          "evaluation_reported_ms": null
+        }
+      ],
+      "median": {
+        "analysis_ms": 6.489099992904812,
+        "compile_ms": 85.40919999359176,
+        "evaluation_wall_ms": 0.22749998606741428,
+        "evaluation_reported_ms": null
+      },
+      "routing_summary": "PLANAR:1c/10e | RailUnsupported[RAIL_GEOMETRY_IN_PLANE_PATH_MATTER_EMPTY:x1]",
+      "result": {
+        "status": "EVALUATION_FAILURE",
+        "geometry_batch_faces": null,
+        "failure_type": "PatchVoronoiRuntimeError",
+        "failure_code": "TERMINAL_ROUTE_RECOMPILE_REQUIRED",
+        "patch_id": 0,
+        "edge_id": 4
+      },
+      "representative_trace": [
+        "[CFTUV][Decals] backend routing: PLANAR:1c/10e",
+        "[CFTUV][Decals] RailUnsupported[RAIL_GEOMETRY_IN_PLANE_PATH_MATTER_EMPTY:x1]",
+        "PatchVoronoiRuntimeError: TERMINAL_ROUTE_RECOMPILE_REQUIRED: patch=0 edge=4"
+      ]
+    },
+    {
+      "id": "building_002_all_seam_chains",
+      "selected_edge_ids": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36
+      ],
+      "samples": [
+        {
+          "analysis_ms": 7.415200001560152,
+          "compile_ms": 148.9080999745056,
+          "evaluation_wall_ms": 107.9602999961935,
+          "evaluation_reported_ms": 107.89819998899475
+        },
+        {
+          "analysis_ms": 7.328699983190745,
+          "compile_ms": 108.27840003184974,
+          "evaluation_wall_ms": 84.11690004868433,
+          "evaluation_reported_ms": 84.10310000181198
+        },
+        {
+          "analysis_ms": 6.135300034657121,
+          "compile_ms": 135.28950000181794,
+          "evaluation_wall_ms": 98.53899996960536,
+          "evaluation_reported_ms": 98.51839998736978
+        },
+        {
+          "analysis_ms": 9.010799985844642,
+          "compile_ms": 133.82089999504387,
+          "evaluation_wall_ms": 85.13209997909144,
+          "evaluation_reported_ms": 85.10929998010397
+        },
+        {
+          "analysis_ms": 8.921700005885214,
+          "compile_ms": 139.89709998713806,
+          "evaluation_wall_ms": 89.3740999745205,
+          "evaluation_reported_ms": 89.35590001055971
+        }
+      ],
+      "median": {
+        "analysis_ms": 7.415200001560152,
+        "compile_ms": 135.28950000181794,
+        "evaluation_wall_ms": 89.3740999745205,
+        "evaluation_reported_ms": 89.35590001055971
+      },
+      "routing_summary": "PLANAR:1c/36e | RailUnsupported[RAIL_GEOMETRY_BRANCH_UNSUPPORTED:x1]",
+      "result": {
+        "status": "SUCCESS",
+        "geometry_batch_faces": 68,
+        "policy_counts": {
+          "KITE": 4,
+          "MITER": 56
+        }
+      },
+      "representative_trace": [
+        "[CFTUV][Decals] backend routing: PLANAR:1c/36e",
+        "[CFTUV][Decals] RailUnsupported[RAIL_GEOMETRY_BRANCH_UNSUPPORTED:x1]"
+      ]
+    }
+  ],
+  "interpretation": {
+    "analysis_time": "nearly flat on this 24-vertex asset because PatchGraph is rebuilt for the whole object",
+    "compile_time": "grows materially with selected physical chains; this is an observation, not a complexity guarantee",
+    "ten_chain_failure": "a stable field regression fixture; it is not evidence that the selected scope, chain uses, or Patch planarity failed",
+    "legacy_vs_v0_performance": "No direct V0 benchmark is asserted in L0 because this slice does not modify or benchmark the new evaluator."
+  }
+}
