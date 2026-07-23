@@ -1,0 +1,10 @@
+{
+  "schema": "cftuv.envelope.session_d.interaction_fixture_manifest.v1",
+  "status": "CANDIDATE_READY_FOR_SESSION_D_REVIEW",
+  "arithmetic": "SYMPY_EXACT_ALGEBRAIC_WITH_FAIL_CLOSED_PREDICATES",
+  "policy": "INTRAPATCH_POLICY_B_V1",
+  "case_file": "cases.json",
+  "case_count": 23,
+  "accepted_session_c_r1_sha": "6c61ab311613cb7cf96e5c5098e857e78a98f0b8",
+  "accepted_prior_corpora_modified": false
+}

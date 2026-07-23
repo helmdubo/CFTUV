@@ -1,0 +1,162 @@
+{
+  "schema": "cftuv.envelope.session_d.interaction_fixture_set.v1",
+  "cases": [
+    {
+      "id": "SD-I01-OPPOSING-BEFORE-MUTUAL-ARRIVAL",
+      "scenario": "opposing",
+      "parameters": {"alpha": "4"},
+      "source_stage": ["ReferenceEnvelopeCompilationV1", "BoundaryResolvedEnvelopeV1", "RawCoverageResultV1"],
+      "expected": {"outcome": "EXACT", "application_count": 0, "certificate_alphas": [], "digest_valid": true, "creates_new_matter": false}
+    },
+    {
+      "id": "SD-I02-OPPOSING-AT-EXACT-MUTUAL-ARRIVAL",
+      "scenario": "opposing",
+      "parameters": {"alpha": "5"},
+      "source_stage": ["ReferenceEnvelopeCompilationV1", "BoundaryResolvedEnvelopeV1", "RawCoverageResultV1"],
+      "expected": {"outcome": "EXACT", "application_count": 1, "certificate_alphas": ["5"], "digest_valid": true, "creates_new_matter": false}
+    },
+    {
+      "id": "SD-I03-OPPOSING-AFTER-MUTUAL-ARRIVAL",
+      "scenario": "opposing",
+      "parameters": {"alpha": "6"},
+      "source_stage": ["ReferenceEnvelopeCompilationV1", "BoundaryResolvedEnvelopeV1", "RawCoverageResultV1"],
+      "expected": {"outcome": "EXACT", "application_count": 1, "certificate_alphas": ["5"], "digest_valid": true, "creates_new_matter": false}
+    },
+    {
+      "id": "SD-I04-UNEQUAL-SOURCE-DISTANCE-RATIONAL-EVENT",
+      "scenario": "opposing",
+      "parameters": {"alpha": "5", "width": 9.0},
+      "source_stage": ["ReferenceEnvelopeCompilationV1", "BoundaryResolvedEnvelopeV1", "RawCoverageResultV1"],
+      "expected": {"outcome": "EXACT", "application_count": 1, "certificate_alphas": ["9/2"], "digest_valid": true}
+    },
+    {
+      "id": "SD-I05-EXPLICIT-STRIP-SELF-CONTACT",
+      "scenario": "explicit_self",
+      "source_stage": ["BoundaryResolvedEnvelopeV1", "RawCoverageResultV1"],
+      "expected": {"proof_count": 1, "front_reading_count": 2, "diagnostics": []}
+    },
+    {
+      "id": "SD-I06-SAME-GEOMETRY-DIFFERENT-REQUEST",
+      "scenario": "candidate_filter",
+      "parameters": {"kind": "request"},
+      "source_stage": ["ReferenceEnvelopeCompilationV1"],
+      "expected": {"candidate_count": 0}
+    },
+    {
+      "id": "SD-I07-SAME-GEOMETRY-DIFFERENT-PATCH-DOMAIN",
+      "scenario": "candidate_filter",
+      "parameters": {"kind": "patch"},
+      "source_stage": ["ReferenceEnvelopeCompilationV1"],
+      "expected": {"candidate_count": 0}
+    },
+    {
+      "id": "SD-I08-C13-THIRD-STRIP-EXPOSED-K0-PROFILE",
+      "scenario": "angular_c13",
+      "parameters": {"hidden_count": 0, "alpha": "5.1"},
+      "source_stage": ["ReferenceEnvelopeCompilationV1", "BoundaryResolvedEnvelopeV1", "RawCoverageResultV1"],
+      "expected": {"outcome": "EXACT", "certificate_alphas": ["5"], "profile_law_count": 2, "third_front_excluded_from_angular_seed": true, "area_preserved": true, "creates_new_matter": false}
+    },
+    {
+      "id": "SD-I09-C13-THIRD-STRIP-EXPOSED-K1-PROFILE",
+      "scenario": "angular_c13",
+      "parameters": {"hidden_count": 1, "alpha": "5.1"},
+      "source_stage": ["ReferenceEnvelopeCompilationV1", "BoundaryResolvedEnvelopeV1", "RawCoverageResultV1"],
+      "expected": {"outcome": "EXACT", "certificate_alphas": ["5"], "profile_law_count": 3, "third_front_excluded_from_angular_seed": true, "area_preserved": true, "creates_new_matter": false}
+    },
+    {
+      "id": "SD-I10-C13-THIRD-STRIP-EXPOSED-K2-PROFILE",
+      "scenario": "angular_c13",
+      "parameters": {"hidden_count": 2, "alpha": "5.1"},
+      "source_stage": ["ReferenceEnvelopeCompilationV1", "BoundaryResolvedEnvelopeV1", "RawCoverageResultV1"],
+      "expected": {"outcome": "EXACT", "certificate_alphas": ["5"], "profile_law_count": 4, "third_front_excluded_from_angular_seed": true, "area_preserved": true, "creates_new_matter": false}
+    },
+    {
+      "id": "SD-I11-C13-THIRD-STRIP-BEFORE-PROFILE-ARRIVAL",
+      "scenario": "angular_c13",
+      "parameters": {"hidden_count": 2, "alpha": "4"},
+      "source_stage": ["ReferenceEnvelopeCompilationV1", "BoundaryResolvedEnvelopeV1", "RawCoverageResultV1"],
+      "expected": {"outcome": "EXACT", "application_count": 0, "certificate_alphas": [], "profile_law_count": 4, "third_front_excluded_from_angular_seed": true, "area_preserved": true}
+    },
+    {
+      "id": "SD-I12-ONE-SIDED-ARRIVAL-SATURATED-COMPONENT",
+      "scenario": "proof_edge",
+      "parameters": {"kind": "saturated"},
+      "source_stage": ["BoundaryResolvedEnvelopeV1"],
+      "expected": {"proof_count": 0, "diagnostics": [], "batch_count": 0}
+    },
+    {
+      "id": "SD-I13-EQUALITY-LOCUS-TERMINATES-AT-OUTER-BOUNDARY",
+      "scenario": "opposing",
+      "parameters": {"alpha": "5"},
+      "source_stage": ["BoundaryResolvedEnvelopeV1", "RawCoverageResultV1"],
+      "expected": {"outcome": "EXACT", "application_count": 1, "certificate_alphas": ["5"], "creates_new_matter": false}
+    },
+    {
+      "id": "SD-I14-EQUALITY-LOCUS-TERMINATES-AT-HOLE",
+      "scenario": "proof_edge",
+      "parameters": {"kind": "hole"},
+      "source_stage": ["BoundaryResolvedEnvelopeV1"],
+      "expected": {"locus_segment_count": 2, "endpoint_y": ["0", "4", "6", "10"]}
+    },
+    {
+      "id": "SD-I15-TWO-INDEPENDENT-SAME-ALPHA-CONTACTS",
+      "scenario": "proof_edge",
+      "parameters": {"kind": "simultaneous"},
+      "source_stage": ["BoundaryResolvedEnvelopeV1"],
+      "expected": {"proof_count": 2, "diagnostics": [], "batch_count": 1}
+    },
+    {
+      "id": "SD-I16-TRIPLE-MEETING-NAMED-UNPROVEN",
+      "scenario": "proof_edge",
+      "parameters": {"kind": "triple"},
+      "source_stage": ["BoundaryResolvedEnvelopeV1"],
+      "expected": {"proof_count": 0, "diagnostics": ["MULTIWAY_INTERACTION_POLICY_UNPROVEN"], "batch_count": 0}
+    },
+    {
+      "id": "SD-I17-CAP-CONTACT-ENDPOINT-BOUNDED",
+      "scenario": "proof_edge",
+      "parameters": {"kind": "cap"},
+      "source_stage": ["BoundaryResolvedEnvelopeV1"],
+      "expected": {"proof_count": 1, "diagnostics": [], "anchor_count": 1}
+    },
+    {
+      "id": "SD-I18-INTERNALIZED-ANGULAR-SUPPORT-NOT-A-FRONT",
+      "scenario": "candidate_filter",
+      "parameters": {"kind": "internalized"},
+      "source_stage": ["ReferenceEnvelopeCompilationV1", "BoundaryResolvedEnvelopeV1"],
+      "expected": {"candidate_count": 1, "proof_count": 0, "diagnostics": []}
+    },
+    {
+      "id": "SD-I19-COINCIDENT-ARRIVAL-LAWS-NAMED-UNPROVEN",
+      "scenario": "proof_edge",
+      "parameters": {"kind": "coincident"},
+      "source_stage": ["BoundaryResolvedEnvelopeV1"],
+      "expected": {"proof_count": 0, "diagnostics": ["INTERACTION_COINCIDENT_ARRIVAL_LAWS_UNPROVEN"], "batch_count": 0}
+    },
+    {
+      "id": "SD-I20-REVERSED-INPUT-ORDER-STABLE",
+      "scenario": "reversed_order",
+      "source_stage": ["ReferenceEnvelopeCompilationV1", "BoundaryResolvedEnvelopeV1", "RawCoverageResultV1"],
+      "expected": {"forward_outcome": "EXACT", "reversed_outcome": "EXACT", "same_digest": true}
+    },
+    {
+      "id": "SD-I21-RIGID-TRANSFORM-AND-UNIFORM-SCALE",
+      "scenario": "transform_scale",
+      "source_stage": ["ReferenceEnvelopeCompilationV1", "BoundaryResolvedEnvelopeV1", "RawCoverageResultV1"],
+      "expected": {"translated_event": ["5"], "scaled_event": ["10"], "scaled_area": "Integer(400)", "both_exact": true}
+    },
+    {
+      "id": "SD-I22-SELF-CONTACT-AFTER-BOUNDARY-CLIP",
+      "scenario": "explicit_self",
+      "source_stage": ["BoundaryResolvedEnvelopeV1", "RawCoverageResultV1"],
+      "expected": {"proof_count": 1, "front_reading_count": 2, "retained_front_reading_count": 2, "area_preserved": true, "diagnostics": []}
+    },
+    {
+      "id": "SD-I23-CROSS-PATCH-JUNCTION-PROJECTIONS-NO-COLLISION",
+      "scenario": "candidate_filter",
+      "parameters": {"kind": "cross_patch_projection"},
+      "source_stage": ["ReferenceEnvelopeCompilationV1"],
+      "expected": {"candidate_count": 0}
+    }
+  ]
+}

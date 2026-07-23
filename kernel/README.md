@@ -6,9 +6,12 @@ for the CFTUV Envelope kernel.
 The EC1 layer contains immutable data records, structural validators,
 canonical JSON codecs, and semantic digests. The EC2 `reference` package adds
 a permanent full-recompute path from `AnalysisSnapshotV1 + DecalRequestV1` to
-provenance-preserving `RawCoverageResultV1`. It deliberately contains no
-interaction or ownership solver, event scheduler, tessellator, GeometryBatch
-materializer, Blender adapter, or native extension.
+provenance-preserving `RawCoverageResultV1`. The EC2.5 `interactions` package
+adds exact front-arrival models, mutual-arrival certificates, and
+`INTRAPATCH_POLICY_B_V1` partitioning of existing contributions into
+`ResolvedCoverageResultV1`. It deliberately contains no ownership solver,
+event scheduler, tessellator, GeometryBatch materializer, Blender adapter, or
+native extension.
 
 SymPy 1.14.0 is pinned as the exact algebraic-number and certified-sign
 dependency because canonical algebra serialization participates in stable
@@ -34,6 +37,10 @@ Public boundaries:
 - `RawCoverageResultV1` — exact single-cover patch union with construction
   certificates, reachability, contributor sets, and complete segment-history
   provenance.
+- `ResolvedCoverageResultV1` — the same exact global matter after
+  request/domain-scoped component competition, with mutual-arrival
+  certificates, ownerless equality loci, retained contribution regions, and a
+  distinct semantic digest.
 
 Each top-level boundary has its own strict canonical JSON codec. JSON Schemas
 under `schema/` are generated from the same public types. Snapshot, semantic
@@ -45,6 +52,10 @@ runtime package neither imports fixtures nor depends on the parent CFTUV repo.
 The separate coordinate-bearing Session C corpus is under
 `fixtures/session_c_planar_v1/`; it never supplies invented geometry to the
 accepted coordinate-free EC0 corpus.
+The Session D EC2.5 interaction corpus is under
+`fixtures/session_d_interactions_v1/`; its 23 declarations execute exact
+before/at/after, exposed Angular K-profile, boundary/hole, self-contact, and
+named fail-closed interaction cases.
 
 Useful checks from this directory:
 

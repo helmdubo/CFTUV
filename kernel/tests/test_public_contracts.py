@@ -13,7 +13,7 @@ import cftuv_envelope
 from cftuv_envelope import ChainUseId, PatchId
 
 
-PUBLIC_API_V1_SHA256 = "1e051a610b97132c0183b27572a500a0b96b7d91efb34cea70c1331a03568981"
+PUBLIC_API_EC2_5_SHA256 = "979e47620bda7d6eb464e3be1ab26a09043029a1c102ccadf79f41b292fa0e79"
 
 
 def _public_record_types():
@@ -64,7 +64,7 @@ def test_top_level_public_api_is_explicit_and_snapshotted():
     assert public_names == set(cftuv_envelope.__all__)
     assert len(cftuv_envelope.__all__) == len(set(cftuv_envelope.__all__))
     digest = hashlib.sha256("\n".join(cftuv_envelope.__all__).encode("utf-8")).hexdigest()
-    assert digest == PUBLIC_API_V1_SHA256
+    assert digest == PUBLIC_API_EC2_5_SHA256
 
 
 def test_public_dto_annotations_have_no_mutable_or_untyped_containers():
