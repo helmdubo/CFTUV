@@ -1,0 +1,153 @@
+{
+  "schema": "cftuv.envelope.session_c_handoff.v1",
+  "status": "CANDIDATE_READY_FOR_SESSION_C_REVIEW",
+  "active_slice": "Session C: EC2 Planar Reference Envelope Evaluator",
+  "branch": "codex/ec2-reference-envelope-evaluator",
+  "accepted_session_b_r1_sha": "a18bd486ba198d6a14b81b703184c2402681576e",
+  "implementation_commit_sha": "82f569b870ce86f9e4ecabd50df0667030de2359",
+  "reference_backend": {
+    "identity": "CFTUV_EXACT_SEGMENT_ARRANGEMENT_WITH_HISTORY",
+    "version": "1.0.0",
+    "distribution": "cftuv-envelope-core",
+    "distribution_version": "0.2.0",
+    "exact_arithmetic_dependency": "sympy>=1.13,<2",
+    "boolean_authority": "CFTUV segment arrangement with carried curve history"
+  },
+  "coordinate_fixture_corpus": {
+    "path": "kernel/fixtures/session_c_planar_v1",
+    "case_count": 23,
+    "hash_law": "SHA256_UTF8_LF_NORMALIZED_V1",
+    "accepted_session_a_v5_modified": false,
+    "coordinate_free_geometry_policy": "REFERENCE_GEOMETRY_PAYLOAD_REQUIRED"
+  },
+  "implemented_envelope_variants": [
+    "StripEnvelope",
+    "LINEAR_REFLEX_EQUAL_V1 AngularEnvelope K=0/1/2",
+    "physical CapEnvelope",
+    "minimal declared T/X/Y/cross-Patch JunctionEnvelope"
+  ],
+  "supported_patch_regimes": [
+    "FULL_HOST_SURFACE + PLANAR + one exact PlanarPatchFrameV1"
+  ],
+  "raw_coverage_contract": {
+    "schema": "cftuv.envelope.raw_coverage_result.v1",
+    "single_cover_union": true,
+    "pre_interaction": true,
+    "pre_ownership": true,
+    "contains_geometry_batch": false
+  },
+  "boundary_resolution": {
+    "outer": true,
+    "hole": true,
+    "explicit_physical_barrier": true,
+    "originating_launch_is_non_blocking": true,
+    "endpoint_clip_shrink_slide": true,
+    "interior_split_at_exact_alpha": "BARRIER_SPLIT_REQUIRED",
+    "local_component_saturation": true,
+    "obstacle_bypass": false
+  },
+  "provenance_completeness": {
+    "result": "PASS",
+    "method": "arrangement segment history only; no post-Boolean reconstruction",
+    "edge_claims": [
+      "EnvelopeSpecId",
+      "EnvelopeInstanceId",
+      "support id",
+      "physical edge or boundary constraint",
+      "ChainUseId",
+      "PatchDomainId",
+      "construction certificate"
+    ],
+    "region_contributor_sets": "complete, including fully internalized Angular contributions"
+  },
+  "named_outcomes": [
+    "REFERENCE_INPUT_CONTRACT_INVALID",
+    "REFERENCE_GEOMETRY_PAYLOAD_REQUIRED",
+    "REFERENCE_PLANAR_REGIME_REQUIRED",
+    "REFERENCE_PLANAR_FRAME_REQUIRED",
+    "REFERENCE_PLANAR_FRAME_AMBIGUOUS",
+    "REFERENCE_PATCH_DOMAIN_SELECTION_REQUIRED",
+    "REFERENCE_INVALID_ALPHA",
+    "PHYSICAL_EDGE_PROVENANCE_INCOMPLETE",
+    "PLANAR_CHAIN_SUPPORT_NOT_LINEAR",
+    "PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED",
+    "ANGULAR_PROFILE_SELECTION_UNCERTAIN",
+    "JUNCTION_ROUTE_PAIRING_REQUIRED",
+    "BARRIER_SPLIT_REQUIRED",
+    "BARRIER_BYPASS_UNSUPPORTED",
+    "SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN",
+    "REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE",
+    "REFERENCE_ARRANGEMENT_NON_MANIFOLD"
+  ],
+  "metamorphic_results": {
+    "result": "PASS",
+    "invariants": [
+      "record and source order",
+      "physical storage reversal with preserved semantic orientation",
+      "coherent rigid transform",
+      "coherent uniform scale",
+      "physical route split/merge",
+      "source retriangulation",
+      "hidden-support record permutation"
+    ],
+    "semantic_changes": [
+      "angle certificate crossing K threshold",
+      "non-contract Delta-max rejection",
+      "deleted hidden profile support",
+      "changed request identity"
+    ]
+  },
+  "independent_oracle": {
+    "result": "PASS",
+    "identity": "exact Fraction orthogonal-grid cell oracle",
+    "compared": [
+      "area",
+      "boundary edge count",
+      "component count",
+      "contributor lineage"
+    ]
+  },
+  "tests_and_exact_ci": {
+    "local_source_suite": "82 passed in 23.36s",
+    "isolated_wheel_suite": "82 passed in 24.13s",
+    "extracted_subtree_suite": "82 passed in 23.87s",
+    "forbidden_import_scan": "PASS",
+    "generated_schema_check": "PASS",
+    "accepted_session_a_fixture_check": "PASS",
+    "wheel": "cftuv_envelope_core-0.2.0-py3-none-any.whl",
+    "workflow": ".github/workflows/envelope-kernel.yml"
+  },
+  "measured_full_recompute_timings": {
+    "host": "Windows, Python 3.13.1, SymPy 1.14.0",
+    "law": "median of 3; fresh compilation and full per-alpha recompute; no incremental cache",
+    "fixtures": {
+      "straight_strip": {"compile_ms": 0.186, "recompute_ms": 78.441, "raw_v_e_l_r": [4, 4, 1, 1]},
+      "angular_k2": {"compile_ms": 0.381, "recompute_ms": 618.152, "raw_v_e_l_r": [10, 10, 1, 1]},
+      "junction_x": {"compile_ms": 0.408, "recompute_ms": 4529.893, "raw_v_e_l_r": [16, 16, 1, 1]},
+      "hole_split": {"compile_ms": 0.278, "recompute_ms": 1654.756, "raw_v_e_l_r": [16, 16, 2, 2]}
+    }
+  },
+  "approximation_used": false,
+  "legacy_paths_read": false,
+  "excluded_from_slice": [
+    "interactions and Case 16 policy B",
+    "ownership",
+    "station and UV partition",
+    "tessellation and GeometryBatch",
+    "event scheduling",
+    "Blender adapter",
+    "native production runtime"
+  ],
+  "risks": [
+    "The exact oracle is intentionally slow on junction arrangements and is not a modal latency target.",
+    "A piecewise-linear closed ChainUse requires explicit segment-corner relations at every bend; missing relations fail as PLANAR_CHAIN_SUPPORT_NOT_LINEAR and no synthetic caps are added.",
+    "SymPy certified-sign inability fails closed; there is no float fallback.",
+    "Obstacle bypass and branch-count increase remain outside v1 and stop with named capacity outcomes."
+  ],
+  "special_opinion": "Keep this exact history-preserving implementation permanent as the semantic oracle. Optimize only by differential comparison against its RawCoverage, not by weakening predicates or reconstructing provenance after Boolean output.",
+  "next_session_allowlist": [
+    "Session C review and factual corrections",
+    "Session D only after explicit user acceptance of this candidate"
+  ],
+  "session_d_open": false
+}
