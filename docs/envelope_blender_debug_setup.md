@@ -109,16 +109,22 @@ still equal one complete refined PhysicalChain.
 An unproved plane reports
 `ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE`. A partial chain reports
 `ENVELOPE_DEBUG_PARTIAL_CHAIN_SELECTION_UNSUPPORTED`. Neither case rounds the
-frame or falls back to legacy geometry. Geometric planarity alone is not yet
-sufficient: the selected PatchDomain's stored local U/V/N basis must also
-satisfy the exact orthonormal certificate. Arbitrarily tilted local mesh
-coordinates will commonly remain outside this V0 subset; an exact local mesh
-with rotation carried by `matrix_world` is supported.
+frame or falls back to legacy geometry. The adapter proves the plane from the
+PatchDomain source vertices and derives its exact frame; the approximate host
+U/V/N values are orientation hints, not the certificate.
 
-For signed-axis frames, the adapter uses the exact canonical point on the
-certified plane as the display/kernel origin. This avoids introducing a
-non-round-trippable coordinate by subtracting an arbitrary source vertex;
-source coordinates themselves remain unchanged.
+Exact coplanarity alone is still not sufficient under the V0 public
+float-valued frame contract. A plane whose exact unit normal has irrational
+components cannot be represented by `LocalVector3V1` without rounding, even
+when every source vertex lies exactly on that plane. It fails named rather
+than weakening the certificate. An exact local axis/rational frame with
+rotation carried by `matrix_world` remains supported.
+
+For signed-axis planes, the adapter derives a canonical tangent basis and uses
+the exact canonical point on the certified plane as the display/kernel origin.
+This avoids both normalized host-basis noise and a non-round-trippable
+coordinate introduced by subtracting an arbitrary source vertex; source
+coordinates themselves remain unchanged.
 
 ## Preflight and smoke
 

@@ -583,16 +583,17 @@ def test_partial_chain_selection_fails_named_without_expansion():
     )
 
 
-def test_approximate_normalized_frame_fails_named_without_rounding():
+def test_exact_plane_derives_frame_without_trusting_approximate_host_basis():
     evaluation = evaluate_envelope_debug(
         _single_patch_bundle(approximate_frame=True),
         frozenset({0}),
         1.0,
     )
-    assert evaluation.debug_scene is None
-    assert evaluation.diagnostics[0].outcome is (
-        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE
-    )
+    assert evaluation.diagnostics == ()
+    assert evaluation.snapshot is not None
+    assert evaluation.debug_scene is not None
+    frame = next(iter(evaluation.snapshot.surface_metric_descriptors))
+    assert (frame.normal.x, frame.normal.y, frame.normal.z) == (0.0, 0.0, 1.0)
 
 
 def test_axis_frame_uses_canonical_plane_origin_without_float_subtraction():
@@ -627,6 +628,45 @@ def test_axis_frame_uses_canonical_plane_origin_without_float_subtraction():
     assert evaluation.snapshot is not None
     frame = next(iter(evaluation.snapshot.surface_metric_descriptors))
     assert (frame.origin.x, frame.origin.y, frame.origin.z) == (0.0, 0.0, 0.0)
+
+
+def test_exact_plane_with_irrational_unit_normal_fails_named():
+    bundle = _single_patch_bundle()
+    root = 2.0**-0.5
+    bundle.patch_graph.nodes[0].normal = Vector((0.0, -root, root))
+    bundle.patch_graph.nodes[0].basis_u = Vector((1.0, 0.0, 0.0))
+    bundle.patch_graph.nodes[0].basis_v = Vector((0.0, root, root))
+    positions = (
+        (0.0, 0.0, 0.0),
+        (4.0, 0.0, 0.0),
+        (4.0, 1.0, 1.0),
+        (0.0, 1.0, 1.0),
+    )
+    surface = replace(
+        bundle.patch_surface,
+        vertices=tuple(
+            SourceVertex(vertex_id, position)
+            for vertex_id, position in enumerate(positions)
+        ),
+    )
+    bundle = AnalysisBundle(
+        bundle.source_revision,
+        bundle.patch_graph,
+        surface,
+        bundle.capabilities,
+    )
+
+    evaluation = evaluate_envelope_debug(
+        bundle,
+        frozenset({0}),
+        0.25,
+    )
+
+    assert evaluation.debug_scene is None
+    assert evaluation.diagnostics[0].outcome is (
+        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE
+    )
+    assert "no rational unit normal" in evaluation.diagnostics[0].message
 
 
 def test_one_physical_seam_maps_to_two_domains_without_cross_patch_collision():
@@ -752,11 +792,26 @@ def test_unselected_nonexact_patch_does_not_block_selected_exact_domain():
     assert len(evaluation.debug_scene.patch_domain_ids) == 1
 
 
-def test_selected_nonexact_patch_still_fails_exact_frame_admission():
+def test_selected_non_coplanar_patch_still_fails_exact_frame_admission():
     bundle = _two_patch_seam_bundle()
     root = 2.0**-0.5
     bundle.patch_graph.nodes[1].basis_u = Vector((root, root, 0.0))
     bundle.patch_graph.nodes[1].basis_v = Vector((-root, root, 0.0))
+    surface = replace(
+        bundle.patch_surface,
+        vertices=tuple(
+            replace(vertex, position=(4.0, 2.0, 0.000001))
+            if vertex.vertex_id == 5
+            else vertex
+            for vertex in bundle.patch_surface.vertices
+        ),
+    )
+    bundle = AnalysisBundle(
+        bundle.source_revision,
+        bundle.patch_graph,
+        surface,
+        bundle.capabilities,
+    )
 
     evaluation = evaluate_envelope_debug(
         bundle,
@@ -768,6 +823,7 @@ def test_selected_nonexact_patch_still_fails_exact_frame_admission():
     assert evaluation.diagnostics[0].outcome is (
         EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE
     )
+    assert "not exactly coplanar" in evaluation.diagnostics[0].message
 
 
 def test_seam_self_maps_to_two_uses_in_one_domain_without_self_contact_guessing():

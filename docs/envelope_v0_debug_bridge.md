@@ -30,9 +30,11 @@ repair geometry.
 
 V0 accepts only `PLANAR_EXACT` domains:
 
-- the host U, V, and N basis is exactly orthonormal under the decimal values
-  stored by Blender;
-- `cross(U, V)` exactly proves the declared handedness and normal;
+- all PatchDomain source vertices define one exact plane;
+- the adapter derives an exactly orthonormal U/V/N frame from that plane;
+- approximate host U/V/N values select orientation only and are not treated as
+  a planarity or orthonormality certificate;
+- `cross(U, V)` exactly proves the derived handedness and normal;
 - every source vertex is exactly coplanar;
 - every projected coordinate has an exact round-trip through the public
   float-valued frame contract;
@@ -43,6 +45,12 @@ An unproved frame returns
 `ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE`. An unproved Angular relation
 returns `ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE`. There is no
 basis rounding, tolerance, SDF/raster/Voronoi substitute, or legacy fallback.
+
+A geometrically exact plane can still be outside V0 when its exact unit normal
+requires irrational components. `LocalVector3V1` is float-valued, so such a
+normal cannot satisfy exact round-trip validation. Supporting that case
+requires a separately accepted algebraic-frame contract; the Blender adapter
+does not invent one for UI convenience.
 
 The PatchNode v1 schema has no shape-class field. Its declared V0 mapping is
 `PatchShapeClass.MIX`; an explicitly present but unknown shape class fails.

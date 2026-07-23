@@ -752,12 +752,6 @@ def _exact_frame(
             "PatchDomain has no source vertices",
             patch_domain_id=patch_domain_id.value,
         )
-    axis_u_values = _vector3(patch.basis_u)
-    axis_v_values = _vector3(patch.basis_v)
-    normal_values = _vector3(patch.normal)
-    axis_u = tuple(scalar(value) for value in axis_u_values)
-    axis_v = tuple(scalar(value) for value in axis_v_values)
-    normal = tuple(scalar(value) for value in normal_values)
 
     def dot(left, right):
         return sympy.factor(sum(a * b for a, b in zip(left, right, strict=True)))
@@ -768,6 +762,224 @@ def _exact_frame(
             sympy.factor(left[2] * right[0] - left[0] * right[2]),
             sympy.factor(left[0] * right[1] - left[1] * right[0]),
         )
+
+    def subtract(left, right):
+        return tuple(
+            sympy.factor(a - b)
+            for a, b in zip(left, right, strict=True)
+        )
+
+    def negate(vector):
+        return tuple(-item for item in vector)
+
+    def exact_float(value):
+        value = sympy.factor(value)
+        result = float(value)
+        if not math.isfinite(result) or scalar(result) != value:
+            return None
+        return result
+
+    def exact_float_vector(vector):
+        values = tuple(exact_float(item) for item in vector)
+        if any(item is None for item in values):
+            return None
+        return values
+
+    positions = {
+        vertex_id: tuple(
+            scalar(value)
+            for value in _vector3(host_vertex_by_id[vertex_id].position)
+        )
+        for vertex_id in patch_vertex_ids
+    }
+    source_origin_id = min(patch_vertex_ids)
+    source_origin = positions[source_origin_id]
+
+    raw_normal = None
+    other_vertex_ids = tuple(
+        vertex_id
+        for vertex_id in patch_vertex_ids
+        if vertex_id != source_origin_id
+    )
+    for left_index, left_vertex_id in enumerate(other_vertex_ids):
+        left = subtract(positions[left_vertex_id], source_origin)
+        for right_vertex_id in other_vertex_ids[left_index + 1:]:
+            right = subtract(positions[right_vertex_id], source_origin)
+            candidate = cross(left, right)
+            if any(item != 0 for item in candidate):
+                raw_normal = candidate
+                break
+        if raw_normal is not None:
+            break
+    if raw_normal is None:
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
+            f"host Patch {patch_id} source vertices do not define an exact plane",
+            patch_domain_id=patch_domain_id.value,
+        )
+
+    raw_normal_norm_squared = dot(raw_normal, raw_normal)
+    for vertex_id in patch_vertex_ids:
+        plane_delta = dot(
+            subtract(positions[vertex_id], source_origin),
+            raw_normal,
+        )
+        if plane_delta != 0:
+            signed_distance = float(plane_delta) / math.sqrt(
+                float(raw_normal_norm_squared)
+            )
+            raise EnvelopeHostAdapterError(
+                EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
+                f"host Patch {patch_id} source vertex {vertex_id} is not "
+                "exactly coplanar; signed plane delta="
+                f"{signed_distance!r}",
+                patch_domain_id=patch_domain_id.value,
+            )
+
+    host_axis_u = tuple(scalar(value) for value in _vector3(patch.basis_u))
+    host_axis_v = tuple(scalar(value) for value in _vector3(patch.basis_v))
+    host_normal = tuple(scalar(value) for value in _vector3(patch.normal))
+    orientation_dot = dot(raw_normal, host_normal)
+    if orientation_dot == 0:
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
+            f"host Patch {patch_id} exact plane orientation is not declared",
+            patch_domain_id=patch_domain_id.value,
+        )
+    if orientation_dot < 0:
+        raw_normal = negate(raw_normal)
+
+    normal_length = sympy.sqrt(dot(raw_normal, raw_normal))
+    if normal_length.is_Rational is not True:
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
+            f"host Patch {patch_id} exact plane has no rational unit normal",
+            patch_domain_id=patch_domain_id.value,
+        )
+    normal = tuple(sympy.factor(item / normal_length) for item in raw_normal)
+    normal_values = exact_float_vector(normal)
+    if normal_values is None:
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
+            f"host Patch {patch_id} exact unit normal has no exact public "
+            "float representation",
+            patch_domain_id=patch_domain_id.value,
+        )
+
+    def unit_vector(vector):
+        length_squared = dot(vector, vector)
+        if length_squared == 0:
+            return None
+        length = sympy.sqrt(length_squared)
+        if length.is_Rational is not True:
+            return None
+        result = tuple(sympy.factor(item / length) for item in vector)
+        if exact_float_vector(result) is None:
+            return None
+        return result
+
+    def canonical_direction(vector):
+        for item in vector:
+            if item == 0:
+                continue
+            return vector if item > 0 else negate(vector)
+        return vector
+
+    coordinate_axes = (
+        (sympy.Integer(1), sympy.Integer(0), sympy.Integer(0)),
+        (sympy.Integer(0), sympy.Integer(1), sympy.Integer(0)),
+        (sympy.Integer(0), sympy.Integer(0), sympy.Integer(1)),
+    )
+
+    def signed_axis_index(vector):
+        nonzero = tuple(
+            index for index, value in enumerate(vector) if value != 0
+        )
+        if (
+            len(nonzero) == 1
+            and abs(vector[nonzero[0]]) == 1
+        ):
+            return nonzero[0]
+        return None
+
+    normal_axis_index = signed_axis_index(normal)
+    tangent_candidates = set()
+    if normal_axis_index is not None:
+        for index, coordinate_axis in enumerate(coordinate_axes):
+            if index != normal_axis_index:
+                tangent_candidates.add(coordinate_axis)
+    else:
+        for coordinate_axis in coordinate_axes:
+            projected = tuple(
+                sympy.factor(
+                    component - dot(coordinate_axis, normal) * normal_component
+                )
+                for component, normal_component in zip(
+                    coordinate_axis,
+                    normal,
+                    strict=True,
+                )
+            )
+            candidate = unit_vector(projected)
+            if candidate is not None:
+                tangent_candidates.add(canonical_direction(candidate))
+        for vertex_id in other_vertex_ids:
+            candidate = unit_vector(
+                subtract(positions[vertex_id], source_origin)
+            )
+            if candidate is not None:
+                tangent_candidates.add(canonical_direction(candidate))
+
+    if not tangent_candidates:
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
+            f"host Patch {patch_id} exact plane has no exact public "
+            "float-valued tangent basis",
+            patch_domain_id=patch_domain_id.value,
+        )
+
+    host_handedness_measure = dot(
+        cross(host_axis_u, host_axis_v),
+        host_normal,
+    )
+    right_handed = host_handedness_measure >= 0
+    basis_candidates = []
+    for canonical_u in tangent_candidates:
+        for axis_u_candidate in (canonical_u, negate(canonical_u)):
+            axis_v_candidate = (
+                cross(normal, axis_u_candidate)
+                if right_handed
+                else cross(axis_u_candidate, normal)
+            )
+            if exact_float_vector(axis_v_candidate) is None:
+                continue
+            alignment = sympy.factor(
+                dot(axis_u_candidate, host_axis_u)
+                + dot(axis_v_candidate, host_axis_v)
+            )
+            basis_candidates.append(
+                (
+                    float(alignment),
+                    tuple(str(item) for item in axis_u_candidate),
+                    axis_u_candidate,
+                    axis_v_candidate,
+                )
+            )
+    if not basis_candidates:
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
+            f"host Patch {patch_id} exact plane has no exact public "
+            "float-valued orthonormal basis",
+            patch_domain_id=patch_domain_id.value,
+        )
+    _, _, axis_u, axis_v = max(
+        basis_candidates,
+        key=lambda item: (item[0], item[1]),
+    )
+    axis_u_values = exact_float_vector(axis_u)
+    axis_v_values = exact_float_vector(axis_v)
+    assert axis_u_values is not None
+    assert axis_v_values is not None
 
     basis_checks = (
         dot(axis_u, axis_u) - 1,
@@ -780,7 +992,7 @@ def _exact_frame(
     if any(item != 0 for item in basis_checks):
         raise EnvelopeHostAdapterError(
             EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-            f"host Patch {patch_id} planar basis is not exactly orthonormal",
+            f"host Patch {patch_id} derived planar basis is not exactly orthonormal",
             patch_domain_id=patch_domain_id.value,
         )
     cross_uv = cross(axis_u, axis_v)
@@ -796,29 +1008,11 @@ def _exact_frame(
         )
 
     source_origin_values = _vector3(
-        host_vertex_by_id[min(patch_vertex_ids)].position
+        host_vertex_by_id[source_origin_id].position
     )
-
-    def signed_axis_index(vector):
-        nonzero = tuple(
-            index for index, value in enumerate(vector) if value != 0
-        )
-        if (
-            len(nonzero) == 1
-            and abs(vector[nonzero[0]]) == 1
-        ):
-            return nonzero[0]
-        return None
-
-    axis_indices = (
-        signed_axis_index(axis_u),
-        signed_axis_index(axis_v),
-        signed_axis_index(normal),
-    )
-    if None not in axis_indices and len(set(axis_indices)) == 3:
-        normal_index = axis_indices[2]
+    if normal_axis_index is not None:
         origin_values = tuple(
-            source_origin_values[index] if index == normal_index else 0.0
+            source_origin_values[index] if index == normal_axis_index else 0.0
             for index in range(3)
         )
     else:
@@ -827,8 +1021,7 @@ def _exact_frame(
 
     coordinates = []
     for vertex_id in patch_vertex_ids:
-        position_values = _vector3(host_vertex_by_id[vertex_id].position)
-        position = tuple(scalar(value) for value in position_values)
+        position = positions[vertex_id]
         relative = tuple(
             value - base for value, base in zip(position, origin, strict=True)
         )
