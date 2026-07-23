@@ -9,6 +9,8 @@ from cftuv_envelope import (
     DecalRequestV1,
     EnvelopeDebugSceneV1,
     GeometryBatchV1,
+    RationalAffinePlanarMetricV2,
+    RuntimePlanarMetricV1,
     json_schema_for,
 )
 
@@ -37,6 +39,14 @@ def test_checked_in_schemas_are_generated_from_public_types():
         "envelope_debug_scene_v1.schema.json": (
             EnvelopeDebugSceneV1,
             "cftuv.envelope.debug_scene.v1",
+        ),
+        "rational_affine_planar_metric_v2.schema.json": (
+            RationalAffinePlanarMetricV2,
+            "cftuv.envelope.rational_affine_planar_metric.v2",
+        ),
+        "runtime_planar_metric_v1.schema.json": (
+            RuntimePlanarMetricV1,
+            "cftuv.envelope.runtime_planar_metric.v1",
         ),
     }
     for filename, (record_type, schema_id) in expected.items():

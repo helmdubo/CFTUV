@@ -12,6 +12,8 @@ from cftuv_envelope import (
     DecalRequestV1,
     EnvelopeDebugSceneV1,
     GeometryBatchV1,
+    RationalAffinePlanarMetricV2,
+    RuntimePlanarMetricV1,
     json_schema_for,
 )
 
@@ -29,6 +31,16 @@ SCHEMAS = (
         EnvelopeDebugSceneV1,
         "cftuv.envelope.debug_scene.v1",
         "envelope_debug_scene_v1.schema.json",
+    ),
+    (
+        RationalAffinePlanarMetricV2,
+        "cftuv.envelope.rational_affine_planar_metric.v2",
+        "rational_affine_planar_metric_v2.schema.json",
+    ),
+    (
+        RuntimePlanarMetricV1,
+        "cftuv.envelope.runtime_planar_metric.v1",
+        "runtime_planar_metric_v1.schema.json",
     ),
 )
 

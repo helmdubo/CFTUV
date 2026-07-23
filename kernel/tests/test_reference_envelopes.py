@@ -11,6 +11,8 @@ from cftuv_envelope.reference import (
     compile_reference_envelopes,
     evaluate_reference_raw_coverage,
 )
+from cftuv_envelope.reference.arrangement import ExactArrangementNonManifold
+from cftuv_envelope.reference import raw_coverage as raw_coverage_module
 from cftuv_envelope.reference.planar_types import exact_sign
 
 from reference_factories import angular_snapshot
@@ -50,6 +52,33 @@ def test_linear_reflex_k_uses_one_angle_driven_algorithm(hidden_count):
         angular.envelope_spec_id.value in edge.provenance.envelope_spec_ids
         for edge in raw.edges
     )
+
+
+def test_proven_non_manifold_union_has_precise_named_outcome(monkeypatch):
+    snapshot, request = angular_snapshot(0)
+    compilation = compile_reference_envelopes(
+        snapshot, request
+    ).compilation
+
+    def reject_non_manifold(*args, **kwargs):
+        raise ExactArrangementNonManifold(
+            "exact union boundary is non-manifold at a construction vertex"
+        )
+
+    monkeypatch.setattr(
+        raw_coverage_module.REFERENCE_ARRANGEMENT_BACKEND,
+        "exact_union",
+        reject_non_manifold,
+    )
+    evaluated = evaluate_reference_raw_coverage(
+        compilation, request.requested_alpha
+    )
+
+    assert (
+        evaluated.outcome
+        is ReferenceOutcome.REFERENCE_ARRANGEMENT_NON_MANIFOLD
+    )
+    assert "non-manifold" in evaluated.diagnostics[0].message
 
 
 def test_deleted_hidden_support_fails_named_instead_of_approximating_profile():

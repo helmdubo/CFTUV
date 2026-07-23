@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from typing import Iterable
 
 from .contracts.analysis import (
@@ -14,6 +15,7 @@ from .contracts.analysis import (
     PlanarPatchFrameV1,
 )
 from .contracts.envelopes import AngularEnvelopeSpec, StripEnvelopeSpec
+from .contracts.metric import RationalAffinePlanarMetricV2
 from .contracts.request import DecalRequestV1
 from .contracts.debug import (
     ENVELOPE_DEBUG_SCENE_SCHEMA_V1,
@@ -38,6 +40,8 @@ from .ids import (
     PatchDomainId,
     SourceRevision,
 )
+from .numeric import LocalPoint3V1, LocalVector3V1
+from .planar_metric import build_runtime_planar_metric
 from .interactions.contracts import (
     AngularProfileArrivalModelV1,
     CapArrivalModelV1,
@@ -124,14 +128,61 @@ def _raw_loop_points(result, loop) -> tuple[DebugExactPoint2V1, ...]:
 
 
 def _frame_points(snapshot: AnalysisSnapshotV1):
-    return {
-        frame.patch_domain_id: {
-            item.source_vertex_id: _local_debug_point(item.domain_coordinate)
-            for item in frame.source_vertex_coordinates
-        }
-        for frame in snapshot.surface_metric_descriptors
-        if isinstance(frame, PlanarPatchFrameV1)
-    }
+    result = {}
+    for frame in snapshot.surface_metric_descriptors:
+        if isinstance(frame, PlanarPatchFrameV1):
+            result[frame.patch_domain_id] = {
+                item.source_vertex_id: _local_debug_point(
+                    item.domain_coordinate
+                )
+                for item in frame.source_vertex_coordinates
+            }
+        elif isinstance(frame, RationalAffinePlanarMetricV2):
+            result[frame.patch_domain_id] = {
+                item.source_vertex_id: DebugExactPoint2V1(
+                    str(item.domain_coordinate.x.numerator)
+                    if item.domain_coordinate.x.denominator == 1
+                    else (
+                        f"{item.domain_coordinate.x.numerator}/"
+                        f"{item.domain_coordinate.x.denominator}"
+                    ),
+                    str(item.domain_coordinate.y.numerator)
+                    if item.domain_coordinate.y.denominator == 1
+                    else (
+                        f"{item.domain_coordinate.y.numerator}/"
+                        f"{item.domain_coordinate.y.denominator}"
+                    ),
+                )
+                for item in frame.exact_source_vertex_coordinates
+            }
+    return result
+
+
+def _debug_patch_frame(frame) -> DebugPatchFrameV1:
+    if isinstance(frame, PlanarPatchFrameV1):
+        return DebugPatchFrameV1(
+            frame.patch_domain_id,
+            frame.origin,
+            frame.axis_u,
+            frame.axis_v,
+            frame.normal,
+        )
+    view = build_runtime_planar_metric(frame).derived_binary64_view
+    a = view.basis_a
+    b = view.basis_b
+    normal = (
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x,
+    )
+    length = math.sqrt(sum(item * item for item in normal))
+    return DebugPatchFrameV1(
+        frame.patch_domain_id,
+        LocalPoint3V1(view.origin.x, view.origin.y, view.origin.z),
+        LocalVector3V1(a.x, a.y, a.z),
+        LocalVector3V1(b.x, b.y, b.z),
+        LocalVector3V1(*(item / length for item in normal)),
+    )
 
 
 def _directed_chain_points(snapshot, frame_points, chain_use):
@@ -722,18 +773,18 @@ def build_envelope_debug_scene(
         ),
         requested_alpha=request.requested_alpha,
         patch_frames=tuple(
-            DebugPatchFrameV1(
-                frame.patch_domain_id,
-                frame.origin,
-                frame.axis_u,
-                frame.axis_v,
-                frame.normal,
-            )
+            _debug_patch_frame(frame)
             for frame in sorted(
                 (
                     item
                     for item in snapshot.surface_metric_descriptors
-                    if isinstance(item, PlanarPatchFrameV1)
+                    if isinstance(
+                        item,
+                        (
+                            PlanarPatchFrameV1,
+                            RationalAffinePlanarMetricV2,
+                        ),
+                    )
                     and item.patch_domain_id in selected_domain_ids
                 ),
                 key=lambda item: item.patch_domain_id.value,

@@ -15,6 +15,10 @@ from ..contracts.analysis import (
     OrientedOwnerSectorV1,
     PlanarPatchFrameV1,
 )
+from ..contracts.metric import (
+    CertifiedAffineSupportDirectionV2,
+    RationalAffinePlanarMetricV2,
+)
 from ..ids import ChainUseId, PhysicalEdgeId, SourceVertexId
 from .contracts import ReferenceEnvelopeCompilationV1, ReferenceOutcome
 from .planar_types import (
@@ -25,18 +29,13 @@ from .planar_types import (
     ExactPlanarVector,
     PlanarLoop,
     PlanarRegion,
-    cross,
-    dot,
     exact_sign,
-    left_normal,
     point_add,
     point_sub,
     polygon_signed_area,
-    right_normal,
-    squared_length,
-    unit,
     vector_scale,
 )
+from .metric import ExactPlanarMetric
 from .provenance import (
     ReferenceProvenanceV1,
     make_reference_provenance,
@@ -74,7 +73,8 @@ class SourceSupportSegment:
 class GeometryContext:
     compilation: ReferenceEnvelopeCompilationV1
     snapshot: AnalysisSnapshotV1
-    frame: PlanarPatchFrameV1
+    frame: PlanarPatchFrameV1 | RationalAffinePlanarMetricV2
+    metric: ExactPlanarMetric
     points_by_id: dict[SourceVertexId, ExactPlanarPoint]
     uses_by_id: dict
     chains_by_id: dict
@@ -84,19 +84,33 @@ class GeometryContext:
 
     @classmethod
     def build(
-        cls, compilation: ReferenceEnvelopeCompilationV1, frame: PlanarPatchFrameV1
+        cls,
+        compilation: ReferenceEnvelopeCompilationV1,
+        frame: PlanarPatchFrameV1 | RationalAffinePlanarMetricV2,
     ) -> GeometryContext:
         snapshot = compilation.analysis_snapshot
-        points = {
-            item.source_vertex_id: ExactPlanarPoint.from_values(
-                item.domain_coordinate.x, item.domain_coordinate.y
-            )
-            for item in frame.source_vertex_coordinates
-        }
+        if isinstance(frame, PlanarPatchFrameV1):
+            coordinate_records = frame.source_vertex_coordinates
+        else:
+            coordinate_records = frame.exact_source_vertex_coordinates
+        points = {}
+        for item in coordinate_records:
+            coordinate = item.domain_coordinate
+            if isinstance(frame, PlanarPatchFrameV1):
+                x, y = coordinate.x, coordinate.y
+            else:
+                x = sp.Rational(
+                    coordinate.x.numerator, coordinate.x.denominator
+                )
+                y = sp.Rational(
+                    coordinate.y.numerator, coordinate.y.denominator
+                )
+            points[item.source_vertex_id] = ExactPlanarPoint.from_values(x, y)
         return cls(
             compilation=compilation,
             snapshot=snapshot,
             frame=frame,
+            metric=ExactPlanarMetric.from_descriptor(frame),
             points_by_id=points,
             uses_by_id={item.chain_use_id: item for item in snapshot.chain_uses},
             chains_by_id={item.physical_chain_id: item for item in snapshot.physical_chains},
@@ -148,12 +162,39 @@ class GeometryContext:
                             payload.direction_in_domain.y,
                         )
                     )
+                elif isinstance(payload, CertifiedAffineSupportDirectionV2):
+                    if (
+                        not isinstance(
+                            self.frame, RationalAffinePlanarMetricV2
+                        )
+                        or payload.reference_metric_id
+                        != self.frame.reference_metric_id
+                    ):
+                        raise ReferenceGeometryError(
+                            ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
+                            "affine support direction references another metric",
+                        )
+                    candidates.append(
+                        ExactPlanarVector.from_values(
+                            sp.Rational(
+                                payload.direction_in_domain.x.numerator,
+                                payload.direction_in_domain.x.denominator,
+                            ),
+                            sp.Rational(
+                                payload.direction_in_domain.y.numerator,
+                                payload.direction_in_domain.y.denominator,
+                            ),
+                        )
+                    )
         if not candidates:
             return None
-        first = unit(candidates[0])
+        first = self.metric.unit_g(candidates[0])
         for candidate in candidates[1:]:
-            normalized = unit(candidate)
-            if exact_sign(cross(first, normalized)) != 0 or exact_sign(dot(first, normalized)) <= 0:
+            normalized = self.metric.unit_g(candidate)
+            if (
+                exact_sign(self.metric.oriented_cross(first, normalized)) != 0
+                or exact_sign(self.metric.dot_g(first, normalized)) <= 0
+            ):
                 raise ReferenceGeometryError(
                     ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
                     f"conflicting certified support directions for {chain_use_id}",
@@ -187,21 +228,33 @@ class GeometryContext:
                 )
             )
             same_direction = (
-                exact_sign(dot(tangent, point_sub(cycle_end, cycle_start))) > 0
+                exact_sign(
+                    self.metric.dot_g(
+                        tangent, point_sub(cycle_end, cycle_start)
+                    )
+                )
+                > 0
             )
-            interior_is_left = (cycle_area_sign > 0) == same_direction
+            coordinate_interior_is_left = (
+                cycle_area_sign > 0
+            ) == same_direction
+            interior_is_left = coordinate_interior_is_left == (
+                self.metric.owner_orientation_sign > 0
+            )
             cycle_normals.append(
-                left_normal(tangent)
-                if interior_is_left
-                else right_normal(tangent)
+                self.metric.owner_normal_g(
+                    tangent,
+                    owner_left=interior_is_left,
+                    normalize=False,
+                )
             )
         if len(cycle_normals) == 1:
             return cycle_normals[0]
         if cycle_normals:
             first = cycle_normals[0]
             if all(
-                exact_sign(cross(first, item)) == 0
-                and exact_sign(dot(first, item)) > 0
+                exact_sign(self.metric.oriented_cross(first, item)) == 0
+                and exact_sign(self.metric.dot_g(first, item)) > 0
                 for item in cycle_normals[1:]
             ):
                 return first
@@ -211,7 +264,11 @@ class GeometryContext:
         ):
             # B reverses the directed physical path above; owner interior remains
             # the left side of the semantic direction for both patch-side uses.
-            return left_normal(tangent)
+            return self.metric.owner_normal_g(
+                tangent,
+                owner_left=True,
+                normalize=False,
+            )
         return None
 
     def support_segments_for_use(
@@ -246,18 +303,24 @@ class GeometryContext:
             if start_id not in self.points_by_id or end_id not in self.points_by_id:
                 raise ReferenceGeometryError(
                     ReferenceOutcome.REFERENCE_PLANAR_FRAME_REQUIRED,
-                    f"PlanarPatchFrameV1 lacks chain coordinate {start_id}->{end_id}",
+                    f"planar metric lacks chain coordinate {start_id}->{end_id}",
                 )
             start = self.points_by_id[start_id]
             end = self.points_by_id[end_id]
             edge_id = self._edge_for_pair(chain, start_id, end_id)
-            tangent = unit(point_sub(end, start))
+            tangent = self.metric.unit_g(point_sub(end, start))
             face_normal = self._face_side_normal(chain_use, edge_id, start, end, tangent)
             normal = None
             if analysis_direction is not None:
-                if exact_sign(dot(analysis_direction, tangent)) == 0:
+                if exact_sign(
+                    self.metric.dot_g(analysis_direction, tangent)
+                ) == 0:
                     normal = analysis_direction
-                elif exact_sign(cross(analysis_direction, tangent)) == 0:
+                elif exact_sign(
+                    self.metric.oriented_cross(
+                        analysis_direction, tangent
+                    )
+                ) == 0:
                     normal = face_normal
                 else:
                     raise ReferenceGeometryError(
@@ -270,7 +333,7 @@ class GeometryContext:
                     ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
                     f"owner-interior normal is ambiguous for {edge_id}",
                 )
-            normal = unit(normal)
+            normal = self.metric.unit_g(normal)
             support_id = stable_id("source-support", chain_use_id, edge_id)
             base_provenance = self.provenance_by_spec_id[spec_id]
             source_faces = frozenset(
@@ -315,7 +378,11 @@ class GeometryContext:
             in sectors_by_id[relation.owner_sector_id].ordered_incident_chain_use_ids
         }
         for incoming, outgoing in adjacent:
-            if exact_sign(cross(incoming.tangent, outgoing.tangent)) == 0:
+            if exact_sign(
+                self.metric.oriented_cross(
+                    incoming.tangent, outgoing.tangent
+                )
+            ) == 0:
                 continue
             if incoming.source_vertex_end_id not in declared_corner_vertices:
                 raise ReferenceGeometryError(

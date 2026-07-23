@@ -12,7 +12,6 @@ from .common import (
     ReferenceGeometryError,
     make_region,
     make_segment,
-    offset_point,
     source_vertex_certificate,
     stable_id,
     support_vertex_certificate,
@@ -24,15 +23,11 @@ from .planar_types import (
     ExactPlanarPoint,
     ExactPlanarVector,
     ExactScalar,
-    cross,
-    dot,
     exact_sign,
-    left_normal,
-    line_through_point,
     point_sub,
     support_intersection,
-    unit,
 )
+from .metric import ExactPlanarMetric
 from .provenance import make_reference_provenance, merge_provenance
 
 
@@ -68,14 +63,15 @@ def _incident_normal(
 
 
 def _interpolated_normals(
+    metric: ExactPlanarMetric,
     incoming: ExactPlanarVector,
     outgoing: ExactPlanarVector,
     count: int,
     orientation: TurnOrientation,
 ) -> tuple[ExactPlanarVector, ...]:
-    incoming = unit(incoming)
-    outgoing = unit(outgoing)
-    turn_cross = exact_sign(cross(incoming, outgoing))
+    incoming = metric.unit_g(incoming)
+    outgoing = metric.unit_g(outgoing)
+    turn_cross = exact_sign(metric.oriented_cross(incoming, outgoing))
     expected = 1 if orientation is TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION else -1
     if turn_cross != expected:
         raise ReferenceGeometryError(
@@ -85,9 +81,9 @@ def _interpolated_normals(
     if count == 0:
         return incoming, outgoing
     ix, iy = incoming.expressions()
-    lx, ly = left_normal(incoming).expressions()
+    lx, ly = metric.owner_normal_g(incoming, owner_left=True).expressions()
     if count == 1:
-        hidden = unit(
+        hidden = metric.unit_g(
             ExactPlanarVector.from_values(
                 ix + outgoing.x.as_expr(), iy + outgoing.y.as_expr()
             )
@@ -98,7 +94,7 @@ def _interpolated_normals(
             ReferenceOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN,
             "LINEAR_REFLEX_EQUAL_V1 supports only the proven v1 K=0/1/2 range",
         )
-    cosine_delta = sp.factor(dot(incoming, outgoing))
+    cosine_delta = sp.factor(metric.dot_g(incoming, outgoing))
     root_symbol = sp.Symbol("linear_reflex_cos_subturn", real=True)
     candidates = sp.solve(
         sp.Eq(4 * root_symbol**3 - 3 * root_symbol, cosine_delta),
@@ -131,7 +127,7 @@ def _interpolated_normals(
         cosine_double * iy + sine_double * ly,
     )
     for normal in (hidden_one, hidden_two):
-        if exact_sign(sp.factor(dot(normal, normal) - 1)) != 0:
+        if exact_sign(sp.factor(metric.dot_g(normal, normal) - 1)) != 0:
             raise ReferenceGeometryError(
                 ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
                 "hidden support unit-speed proof failed",
@@ -163,7 +159,11 @@ def evaluate_angular_envelope(
         context, sector.ordered_incident_chain_use_ids[-1], relation.source_vertex_id
     )
     normals = _interpolated_normals(
-        incoming, outgoing, spec.resolved_hidden_edge_count, sector.turn_orientation
+        context.metric,
+        incoming,
+        outgoing,
+        spec.resolved_hidden_edge_count,
+        sector.turn_orientation,
     )
     hidden_by_ordinal = {item.ordinal: item for item in spec.hidden_supports}
     expected_ordinals = set(range(1, spec.resolved_hidden_edge_count + 1))
@@ -193,7 +193,7 @@ def evaluate_angular_envelope(
         ),
     )
     moving_lines = tuple(
-        line_through_point(
+        context.metric.line_through_point_g(
             support_id,
             anchor,
             normal,
@@ -205,8 +205,8 @@ def evaluate_angular_envelope(
         ).at_alpha(effective_alpha)
         for support_id, normal in zip(support_ids, normals, strict=True)
     )
-    start = offset_point(anchor, normals[0], effective_alpha)
-    end = offset_point(anchor, normals[-1], effective_alpha)
+    start = context.metric.offset_support_g(anchor, normals[0], effective_alpha)
+    end = context.metric.offset_support_g(anchor, normals[-1], effective_alpha)
     intersections = tuple(
         support_intersection(left, right)
         for left, right in zip(moving_lines, moving_lines[1:])

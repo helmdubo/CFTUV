@@ -596,7 +596,7 @@ def test_partial_chain_selection_fails_named_without_expansion():
     )
 
 
-def test_exact_plane_derives_frame_without_trusting_approximate_host_basis():
+def test_exact_plane_derives_affine_metric_without_trusting_host_basis():
     evaluation = evaluate_envelope_debug(
         _single_patch_bundle(approximate_frame=True),
         frozenset({0}),
@@ -605,11 +605,13 @@ def test_exact_plane_derives_frame_without_trusting_approximate_host_basis():
     assert evaluation.diagnostics == ()
     assert evaluation.snapshot is not None
     assert evaluation.debug_scene is not None
-    frame = next(iter(evaluation.snapshot.surface_metric_descriptors))
-    assert (frame.normal.x, frame.normal.y, frame.normal.z) == (0.0, 0.0, 1.0)
+    metric = next(iter(evaluation.snapshot.surface_metric_descriptors))
+    normal = metric.planarity_certificate.exact_plane_normal
+    assert (normal.x.numerator, normal.y.numerator) == (0, 0)
+    assert normal.z.numerator > 0
 
 
-def test_axis_frame_uses_canonical_plane_origin_without_float_subtraction():
+def test_affine_metric_uses_canonical_source_vertex_origin_exactly():
     bundle = _single_patch_bundle()
     positions = (
         (0.12345678901234566, 0.23456789012345677, 0.0),
@@ -639,11 +641,17 @@ def test_axis_frame_uses_canonical_plane_origin_without_float_subtraction():
 
     assert evaluation.diagnostics == ()
     assert evaluation.snapshot is not None
-    frame = next(iter(evaluation.snapshot.surface_metric_descriptors))
-    assert (frame.origin.x, frame.origin.y, frame.origin.z) == (0.0, 0.0, 0.0)
+    metric = next(iter(evaluation.snapshot.surface_metric_descriptors))
+    exact_origin = metric.exact_origin
+    expected = tuple(value.as_integer_ratio() for value in positions[0])
+    assert (
+        (exact_origin.x.numerator, exact_origin.x.denominator),
+        (exact_origin.y.numerator, exact_origin.y.denominator),
+        (exact_origin.z.numerator, exact_origin.z.denominator),
+    ) == expected
 
 
-def test_exact_plane_with_irrational_unit_normal_fails_named():
+def test_exact_plane_with_irrational_unit_normal_uses_rational_affine_metric():
     bundle = _single_patch_bundle()
     root = 2.0**-0.5
     bundle.patch_graph.nodes[0].normal = Vector((0.0, -root, root))
@@ -675,11 +683,10 @@ def test_exact_plane_with_irrational_unit_normal_fails_named():
         0.25,
     )
 
-    assert evaluation.debug_scene is None
-    assert evaluation.diagnostics[0].outcome is (
-        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE
-    )
-    assert "no rational unit normal" in evaluation.diagnostics[0].message
+    assert evaluation.diagnostics == ()
+    assert evaluation.debug_scene is not None
+    metric = next(iter(evaluation.snapshot.surface_metric_descriptors))
+    assert metric.planarity_certificate.exact
 
 
 def test_one_physical_seam_maps_to_two_domains_without_cross_patch_collision():
@@ -834,9 +841,9 @@ def test_selected_non_coplanar_patch_still_fails_exact_frame_admission():
 
     assert evaluation.debug_scene is None
     assert evaluation.diagnostics[0].outcome is (
-        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE
+        EnvelopeDebugHostOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED
     )
-    assert "not exactly coplanar" in evaluation.diagnostics[0].message
+    assert "EXACT_SOURCE_PLANE_V1 rejected" in evaluation.diagnostics[0].message
 
 
 def test_seam_self_maps_to_two_uses_in_one_domain_without_self_contact_guessing():
@@ -942,7 +949,7 @@ def test_staged_exact_keeps_topology_when_one_domain_rejects_metric():
         EnvelopeDomainStage.RESOLVED,
     }
     assert receipts[1].stage is EnvelopeDomainStage.METRIC_REJECTED
-    assert "not exactly coplanar" in receipts[1].message
+    assert "EXACT_SOURCE_PLANE_V1 rejected" in receipts[1].message
     assert any(
         scene.patch_domain_ids
         for scene in evaluation.exact_debug_scenes

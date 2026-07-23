@@ -54,6 +54,9 @@ class EnvelopeDebugHostOutcome(str, Enum):
     ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE = (
         "ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE"
     )
+    RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED = (
+        "RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED"
+    )
     ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE = (
         "ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE"
     )
@@ -1459,8 +1462,25 @@ def _build_angular_relations(
     vertex_ids: dict[int, object],
 ):
     scalar = lambda value: sympy.Rational(str(float(value)))
+    metric_types = importlib.import_module(
+        "cftuv_envelope.reference.planar_types"
+    )
 
     def point_map(frame):
+        if isinstance(frame, kernel.RationalAffinePlanarMetricV2):
+            return {
+                item.source_vertex_id: (
+                    sympy.Rational(
+                        item.domain_coordinate.x.numerator,
+                        item.domain_coordinate.x.denominator,
+                    ),
+                    sympy.Rational(
+                        item.domain_coordinate.y.numerator,
+                        item.domain_coordinate.y.denominator,
+                    ),
+                )
+                for item in frame.exact_source_vertex_coordinates
+            }
         return {
             item.source_vertex_id: (
                 scalar(item.domain_coordinate.x),
@@ -1468,12 +1488,6 @@ def _build_angular_relations(
             )
             for item in frame.source_vertex_coordinates
         }
-
-    def cross(left, right):
-        return sympy.factor(left[0] * right[1] - left[1] * right[0])
-
-    def dot(left, right):
-        return sympy.factor(left[0] * right[0] + left[1] * right[1])
 
     angular_sectors = []
     angle_certificates = []
@@ -1512,7 +1526,14 @@ def _build_angular_relations(
         domain_id = patch_domains[patch_id]
         frame = frames[patch_id]
         coordinates = point_map(frame)
+        metric = kernel.ExactPlanarMetric.from_descriptor(frame)
         kernel_vertex_for_host = vertex_ids
+
+        def vector(value):
+            return metric_types.ExactPlanarVector.from_values(*value)
+
+        def expressions(value):
+            return value.expressions()
 
         def owner_normal(record: _HostChainRecord, anchor_vertex_id: int):
             host_vertices = tuple(int(item) for item in record.chain.vert_indices)
@@ -1531,7 +1552,8 @@ def _build_angular_relations(
             start = coordinates[kernel_vertex_for_host[start_vertex_id]]
             end = coordinates[kernel_vertex_for_host[end_vertex_id]]
             tangent = (end[0] - start[0], end[1] - start[1])
-            if dot(tangent, tangent) == 0:
+            tangent_vector = vector(tangent)
+            if metric.dot_g(tangent_vector, tangent_vector) == 0:
                 raise EnvelopeHostAdapterError(
                     EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
                     "BoundaryCorner incident support is degenerate",
@@ -1559,12 +1581,21 @@ def _build_angular_relations(
                     face_end[0] - face_start[0],
                     face_end[1] - face_start[1],
                 )
-                same_direction = dot(tangent, face_direction) > 0
-                interior_is_left = (twice_area > 0) == same_direction
+                same_direction = (
+                    metric.dot_g(tangent_vector, vector(face_direction)) > 0
+                )
+                coordinate_interior_is_left = (
+                    twice_area > 0
+                ) == same_direction
+                interior_is_left = coordinate_interior_is_left == (
+                    metric.owner_orientation_sign > 0
+                )
                 candidates.append(
-                    (-tangent[1], tangent[0])
-                    if interior_is_left
-                    else (tangent[1], -tangent[0])
+                    metric.owner_normal_g(
+                        tangent_vector,
+                        owner_left=interior_is_left,
+                        normalize=False,
+                    )
                 )
             if not candidates:
                 raise EnvelopeHostAdapterError(
@@ -1573,13 +1604,17 @@ def _build_angular_relations(
                     patch_domain_id=domain_id.value,
                 )
             first = candidates[0]
-            if any(cross(first, item) != 0 or dot(first, item) <= 0 for item in candidates[1:]):
+            if any(
+                metric.oriented_cross(first, item) != 0
+                or metric.dot_g(first, item) <= 0
+                for item in candidates[1:]
+            ):
                 raise EnvelopeHostAdapterError(
                     EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
                     "BoundaryCorner owner-face directions disagree",
                     patch_domain_id=domain_id.value,
                 )
-            return first
+            return expressions(first)
 
         for loop_index, loop in enumerate(patch.boundary_loops):
             for corner_index, corner in enumerate(loop.corners):
@@ -1629,16 +1664,22 @@ def _build_angular_relations(
                 outgoing_normal = owner_normal(
                     record_by_ref[next_ref], anchor_vertex_id
                 )
-                turn_cross = cross(incoming_normal, outgoing_normal)
+                incoming_vector = vector(incoming_normal)
+                outgoing_vector = vector(outgoing_normal)
+                turn_cross = metric.oriented_cross(
+                    incoming_vector, outgoing_vector
+                )
                 if turn_cross == 0:
                     raise EnvelopeHostAdapterError(
                         EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
                         "BoundaryCorner incident supports are parallel",
                         patch_domain_id=domain_id.value,
                     )
-                turn_dot = dot(incoming_normal, outgoing_normal)
+                cosine, sine = metric.angle_g(
+                    incoming_vector, outgoing_vector
+                )
                 delta = sympy.factor(
-                    sympy.atan2(abs(turn_cross), turn_dot) / sympy.pi
+                    sympy.atan2(abs(sine), cosine) / sympy.pi
                 )
                 if sympy.factor(host_phi - (1 + delta)) != 0:
                     raise EnvelopeHostAdapterError(
@@ -1688,15 +1729,26 @@ def _build_angular_relations(
                     )
                 used_sector_ids.add(owner_sector_id)
 
-                def exact_float(value):
-                    result = float(value)
-                    if scalar(result) != value:
+                def exact_rational(value):
+                    value = sympy.factor(value)
+                    if value.is_Rational is not True:
                         raise EnvelopeHostAdapterError(
                             EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
-                            "support direction has no exact float round-trip",
+                            "affine support direction is not rational",
                             patch_domain_id=domain_id.value,
                         )
-                    return result
+                    return kernel.ExactRationalV1(
+                        int(value.p), int(value.q)
+                    )
+
+                def direction_payload(value):
+                    return kernel.CertifiedAffineSupportDirectionV2(
+                        kernel.ExactVector2V1(
+                            exact_rational(value[0]),
+                            exact_rational(value[1]),
+                        ),
+                        frame.reference_metric_id,
+                    )
 
                 incoming_use_id = use_id_by_ref[prev_ref]
                 outgoing_use_id = use_id_by_ref[next_ref]
@@ -1710,24 +1762,12 @@ def _build_angular_relations(
                         kernel.SourceSupportRefV1(
                             incoming_use_id,
                             launch_id_by_ref[prev_ref],
-                            kernel.CertifiedPlanarSupportDirectionV1(
-                                kernel.LocalVector2V1(
-                                    exact_float(incoming_normal[0]),
-                                    exact_float(incoming_normal[1]),
-                                ),
-                                kernel.SupportDirectionAuthority.HOST_ANALYSIS_AUTHORITATIVE_V1,
-                            ),
+                            direction_payload(incoming_normal),
                         ),
                         kernel.SourceSupportRefV1(
                             outgoing_use_id,
                             launch_id_by_ref[next_ref],
-                            kernel.CertifiedPlanarSupportDirectionV1(
-                                kernel.LocalVector2V1(
-                                    exact_float(outgoing_normal[0]),
-                                    exact_float(outgoing_normal[1]),
-                                ),
-                                kernel.SupportDirectionAuthority.HOST_ANALYSIS_AUTHORITATIVE_V1,
-                            ),
+                            direction_payload(outgoing_normal),
                         ),
                         orientation,
                         kernel.InteriorSelectionLaw.OWNER_PATCH_INTERIOR_BETWEEN_ORDERED_SUPPORTS,
@@ -1781,6 +1821,50 @@ def _build_angular_relations(
         frozenset(angle_certificates),
         frozenset(corner_relations),
     )
+
+
+def _rational_affine_metric(
+    kernel,
+    *,
+    source_revision,
+    patch_domain_id,
+    owner_patch_id,
+    source_vertices,
+    source_faces,
+):
+    """Thin host delegation; exact chart construction belongs to the kernel."""
+
+    try:
+        return kernel.build_rational_affine_planar_metric(
+            source_revision=source_revision,
+            patch_domain_id=patch_domain_id,
+            owner_patch_id=owner_patch_id,
+            source_vertices=source_vertices,
+            source_faces=source_faces,
+            source_lineage=frozenset(
+                {
+                    kernel.LineageId(
+                        _typed_value(
+                            "metric-source",
+                            source_revision.value,
+                            patch_domain_id.value,
+                        )
+                    )
+                }
+            ),
+        )
+    except kernel.PlanarMetricAdmissionError as exc:
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED,
+            str(exc),
+            patch_domain_id=patch_domain_id.value,
+        ) from exc
+    except ValueError as exc:
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
+            str(exc),
+            patch_domain_id=patch_domain_id.value,
+        ) from exc
 
 
 def build_envelope_analysis_snapshot(
@@ -2179,28 +2263,15 @@ def build_envelope_analysis_snapshot(
                 _context_tags(kernel, patch),
             )
         )
-        patch_face_records = analysis_bundle.patch_surface.patch_faces(patch_id)
-        patch_vertex_ids = tuple(
-            sorted(
-                {
-                    int(vertex_id)
-                    for face in patch_face_records
-                    for vertex_id in face.vertex_cycle
-                }
-            )
-        )
         domain_value = patch_domains[patch_id].value
         with _measure(profile, "FRAME_ADMISSION", domain_value):
-            frame = _exact_frame(
+            frame = _rational_affine_metric(
                 kernel,
-                sympy,
-                revision=revision,
-                patch_id=patch_id,
-                patch=patch,
+                source_revision=source_revision,
                 patch_domain_id=patch_domains[patch_id],
-                patch_vertex_ids=patch_vertex_ids,
-                host_vertex_by_id=host_vertex_by_id,
-                kernel_vertex_ids=vertex_ids,
+                owner_patch_id=patch_ids[patch_id],
+                source_vertices=source_vertices,
+                source_faces=source_faces,
             )
         frames[patch_id] = frame
         metric_descriptors.append(frame)
@@ -2210,6 +2281,8 @@ def build_envelope_analysis_snapshot(
         if len(patch_domains) == 1
         else None
     )
+
+
     with _measure(profile, "ANGULAR_RELATIONS", angular_timing_domain):
         (
             angular_owner_sectors,
@@ -2824,7 +2897,10 @@ def evaluate_envelope_debug_staged(
             stage = (
                 EnvelopeDomainStage.METRIC_REJECTED
                 if exc.outcome
-                is EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE
+                in {
+                    EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
+                    EnvelopeDebugHostOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED,
+                }
                 else EnvelopeDomainStage.COMPILE_REJECTED
             )
             receipt = _receipt_for_failure(

@@ -17,7 +17,11 @@ from ..contracts.envelopes import (
 )
 from ..numeric import LocalLengthV1, MetricSpace
 from .angular import evaluate_angular_envelope
-from .arrangement import ExactSegmentArrangementBackend, segment_intersections
+from .arrangement import (
+    ExactArrangementNonManifold,
+    ExactSegmentArrangementBackend,
+    segment_intersections,
+)
 from .boundary import (
     BoundaryRole,
     build_domain_geometry,
@@ -498,6 +502,11 @@ def evaluate_reference_raw_coverage(
         )
     except ReferenceGeometryError as exc:
         return _failure(exc.outcome, str(exc))
+    except ExactArrangementNonManifold as exc:
+        return _failure(
+            ReferenceOutcome.REFERENCE_ARRANGEMENT_NON_MANIFOLD,
+            str(exc),
+        )
     except CertifiedPredicateUndecidable as exc:
         return _failure(
             ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,

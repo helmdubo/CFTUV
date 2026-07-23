@@ -18,6 +18,8 @@ from .codec import (
     DecalRequestCodecV1,
     EnvelopeDebugSceneCodecV1,
     GeometryBatchCodecV1,
+    RationalAffinePlanarMetricCodecV2,
+    RuntimePlanarMetricCodecV1,
     canonical_json_bytes,
 )
 from .contracts import debug as _debug
@@ -42,12 +44,24 @@ from .contracts import coverage as _coverage
 from .contracts import envelopes as _envelopes
 from .contracts import events as _events
 from .contracts import geometry_batch as _geometry_batch
+from .contracts import metric as _metric
 from .contracts import ownership as _ownership
 from .contracts import plan as _plan
 from .contracts import request as _request
 from .contracts import seeds as _seeds
 from .contracts import surface as _surface
 from .contracts import tessellation as _tessellation
+from .planar_metric import (
+    Binary64IntervalV1,
+    FilteredPredicateDecisionV1,
+    PlanarMetricAdmissionError,
+    RuntimePredicateTelemetryV1,
+    build_rational_affine_planar_metric,
+    build_runtime_planar_metric,
+    filtered_orient2d,
+    fraction_from_exact,
+    resolve_orient2d,
+)
 from .schema import ContractSchemaError, json_schema_for
 from .reference.compile import (
     compile_reference_envelopes,
@@ -92,6 +106,16 @@ from .reference.provenance import (
     BoundaryGeneratorProvenanceV1,
     CoverageContributorProvenanceV1,
     ReferenceProvenanceV1,
+)
+from .reference.metric import (
+    ExactPlanarMetric,
+    angle_G,
+    distance_to_support_G,
+    dot_G,
+    length_G,
+    offset_support_G,
+    owner_normal_G,
+    unit_G,
 )
 from .reference.raw_coverage import (
     REFERENCE_BOUNDARY_CAPABILITIES_V1,
@@ -148,7 +172,14 @@ from .validation import (
     validate_cross_contract_references,
     validate_decal_request,
     validate_geometry_batch,
+    validate_rational_affine_planar_metric,
+    validate_runtime_planar_metric,
     validate_snapshot_request_references,
+)
+from .runtime_metric import (
+    RuntimeMetricPerformanceReportV1,
+    RuntimeRawCoverageEvaluationV1,
+    evaluate_filtered_runtime_raw_coverage,
 )
 from .version import __version__
 
@@ -162,6 +193,7 @@ _PUBLIC_VALUE_MODULES = (
     _envelopes,
     _events,
     _geometry_batch,
+    _metric,
     _ownership,
     _plan,
     _request,
@@ -178,6 +210,8 @@ __all__ = (
     "ContractCodecError",
     "DecalRequestCodecV1",
     "GeometryBatchCodecV1",
+    "RationalAffinePlanarMetricCodecV2",
+    "RuntimePlanarMetricCodecV1",
     "EnvelopeDebugSceneCodecV1",
     "canonical_json_bytes",
     "SnapshotDigest",
@@ -247,6 +281,14 @@ __all__ = (
     "ReferenceProvenanceV1",
     "BoundaryGeneratorProvenanceV1",
     "CoverageContributorProvenanceV1",
+    "ExactPlanarMetric",
+    "dot_G",
+    "length_G",
+    "unit_G",
+    "owner_normal_G",
+    "distance_to_support_G",
+    "offset_support_G",
+    "angle_G",
     "ReferenceEvaluationDiagnosticV1",
     "EnvelopeSourceProvenanceV1",
     "ReferenceEnvelopeCompilationV1",
@@ -263,6 +305,15 @@ __all__ = (
     "ReferenceEvaluationResultV1",
     "ContractSchemaError",
     "json_schema_for",
+    "PlanarMetricAdmissionError",
+    "Binary64IntervalV1",
+    "FilteredPredicateDecisionV1",
+    "RuntimePredicateTelemetryV1",
+    "build_rational_affine_planar_metric",
+    "build_runtime_planar_metric",
+    "filtered_orient2d",
+    "fraction_from_exact",
+    "resolve_orient2d",
     "ContractValidationError",
     "ValidationCode",
     "ValidationIssue",
@@ -271,6 +322,11 @@ __all__ = (
     "validate_decal_request",
     "validate_compiled_plan",
     "validate_geometry_batch",
+    "validate_rational_affine_planar_metric",
+    "validate_runtime_planar_metric",
+    "RuntimeMetricPerformanceReportV1",
+    "RuntimeRawCoverageEvaluationV1",
+    "evaluate_filtered_runtime_raw_coverage",
     "validate_cross_contract_references",
     "validate_snapshot_request_references",
     "ENVELOPE_DEBUG_SCENE_SCHEMA_V1",
@@ -303,6 +359,8 @@ __all__ = (
     "OwnerSectorId",
     "AngleCertificateId",
     "PlanarityCertificateId",
+    "ReferenceMetricId",
+    "RuntimeMetricId",
     "CornerRelationId",
     "JunctionRelationId",
     "TerminalRelationId",
@@ -454,6 +512,35 @@ __all__ = (
     "JunctionRelationV1",
     "TerminalRelationV1",
     "AnalysisSnapshotV1",
+    "REFERENCE_PLANAR_METRIC_SCHEMA_V2",
+    "RUNTIME_PLANAR_METRIC_SCHEMA_V1",
+    "PlanarityAdmissionLawV1",
+    "AffineFrameSelectionLawV1",
+    "AffineReconstructionLawV1",
+    "AffineChartOrientationV1",
+    "RuntimePredicateFilterLawV1",
+    "RuntimePredicateResultV1",
+    "RuntimeMetricFallbackLawV1",
+    "MetricSemanticIdentityLawV1",
+    "ExactRationalV1",
+    "ExactPoint2V1",
+    "ExactVector2V1",
+    "ExactPoint3V1",
+    "ExactVector3V1",
+    "ExactMatrix2V1",
+    "ExactSourceVertexCoordinateV2",
+    "CertifiedAffineSupportDirectionV2",
+    "ExactSourcePlaneCertificateV1",
+    "RationalAffinePlanarMetricV2",
+    "Binary64Point2V1",
+    "Binary64Point3V1",
+    "Binary64Vector3V1",
+    "Binary64Matrix2V1",
+    "Binary64SourceVertexCoordinateV1",
+    "DerivedBinary64AffineViewV1",
+    "RuntimePredicateFilterContractV1",
+    "RuntimeMetricFallbackContractV1",
+    "RuntimePlanarMetricV1",
     "RawCoverageStage",
     "ResolvedCoverageStage",
     "RawCoverageRef",
@@ -598,6 +685,8 @@ for _module_name in (
     "reference",
     "interactions",
     "debug_scene",
+    "planar_metric",
+    "runtime_metric",
 ):
     globals().pop(_module_name, None)
 

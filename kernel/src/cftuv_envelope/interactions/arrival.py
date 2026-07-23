@@ -172,6 +172,7 @@ def _angular_support_data(context: GeometryContext, spec: AngularEnvelopeSpec):
         relation.source_vertex_id,
     )
     normals = _interpolated_normals(
+        context.metric,
         incoming,
         outgoing,
         spec.resolved_hidden_edge_count,
@@ -362,11 +363,14 @@ def compile_arrival_models(
                         )
                     )
                     continue
-                constant = _line_constant(source.owner_normal, source.start)
+                line_normal = context.metric.support_covector_g(
+                    source.owner_normal
+                )
+                constant = _line_constant(line_normal, source.start)
                 law = ExactFrontArrivalLawV1(
                     law_id=declaration.arrival_law_id,
                     support_id=support_id,
-                    normal=source.owner_normal,
+                    normal=line_normal,
                     source_constant=constant,
                     normal_speed=ExactScalar.from_value(1),
                 )
@@ -428,8 +432,10 @@ def compile_arrival_models(
                         "angular-profile-arrival-law", spec_id, ordinal, support_id
                     )),
                     support_id=SourceSupportId(support_id),
-                    normal=normal,
-                    source_constant=_line_constant(normal, anchor),
+                    normal=context.metric.support_covector_g(normal),
+                    source_constant=_line_constant(
+                        context.metric.support_covector_g(normal), anchor
+                    ),
                     normal_speed=ExactScalar.from_value(1),
                 )
                 for ordinal, (support_id, normal) in enumerate(

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
+from fractions import Fraction
 
 from .canonical import geometry_batch_semantic_digest
 from .contracts.analysis import (
@@ -22,6 +23,7 @@ from .contracts.analysis import (
     PatchFrameHandedness,
     PhysicalEdgeSequenceConstraintTargetV1,
     PlanarPatchFrameV1,
+    RationalAffinePlanarMetricV2,
     SurfaceRegime,
     TerminalEndpointRole,
     TJunctionRouteTopologyV1,
@@ -43,6 +45,20 @@ from .contracts.envelopes import (
 )
 from .contracts.events import EventParticipantKind, InitialFrontFeatureKind
 from .contracts.geometry_batch import GEOMETRY_BATCH_SCHEMA_V1, GeometryBatchV1
+from .contracts.metric import (
+    AffineFrameSelectionLawV1,
+    AffineReconstructionLawV1,
+    ExactMatrix2V1,
+    ExactPoint3V1,
+    ExactRationalV1,
+    ExactVector3V1,
+    MetricSemanticIdentityLawV1,
+    PlanarityAdmissionLawV1,
+    RuntimeMetricFallbackLawV1,
+    RuntimePlanarMetricV1,
+    RuntimePredicateFilterLawV1,
+    RuntimePredicateResultV1,
+)
 from .contracts.ownership import (
     ClaimClosureObligation,
     ClaimInteriorsObligation,
@@ -194,6 +210,191 @@ def _interval_strictly_below(interval: object, value: Decimal) -> bool:
     return interval.upper < value or (
         interval.upper == value and interval.upper_kind is IntervalEndpointKind.OPEN
     )
+
+
+def _fraction(value: ExactRationalV1) -> Fraction:
+    return Fraction(value.numerator, value.denominator)
+
+
+def _fraction_point3(
+    value: ExactPoint3V1 | ExactVector3V1,
+) -> tuple[Fraction, Fraction, Fraction]:
+    return _fraction(value.x), _fraction(value.y), _fraction(value.z)
+
+
+def _fraction_matrix2(
+    value: ExactMatrix2V1,
+) -> tuple[tuple[Fraction, Fraction], tuple[Fraction, Fraction]]:
+    return (
+        (_fraction(value.m00), _fraction(value.m01)),
+        (_fraction(value.m10), _fraction(value.m11)),
+    )
+
+
+def _fraction_dot3(left, right) -> Fraction:
+    return sum(
+        (a * b for a, b in zip(left, right, strict=True)),
+        Fraction(0),
+    )
+
+
+def _fraction_cross3(left, right):
+    return (
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    )
+
+
+def validate_rational_affine_planar_metric(
+    metric: RationalAffinePlanarMetricV2,
+) -> tuple[ValidationIssue, ...]:
+    issues: list[ValidationIssue] = []
+    path = ("RationalAffinePlanarMetricV2",)
+    if (
+        metric.frame_selection_law
+        is not AffineFrameSelectionLawV1.CANONICAL_SOURCE_VERTEX_BASIS_V1
+    ):
+        _issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("frame_selection_law",),
+            "unsupported deterministic affine-frame law",
+        )
+    certificate = metric.planarity_certificate
+    if (
+        certificate.patch_domain_id != metric.patch_domain_id
+        or certificate.admission_law
+        is not PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1
+        or certificate.reconstruction_law
+        is not AffineReconstructionLawV1.O_PLUS_U_A_PLUS_V_B_V1
+        or not certificate.exact
+    ):
+        _issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("planarity_certificate",),
+            "metric requires an exact same-domain source-plane certificate",
+        )
+    basis_a = _fraction_point3(metric.exact_basis_a)
+    basis_b = _fraction_point3(metric.exact_basis_b)
+    normal = _fraction_cross3(basis_a, basis_b)
+    if not any(normal):
+        _issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("exact_basis_a", "exact_basis_b"),
+            "affine basis vectors must be linearly independent",
+        )
+    if _fraction_point3(certificate.exact_plane_normal) != normal:
+        _issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("planarity_certificate", "exact_plane_normal"),
+            "plane normal must be the exact A cross B construction",
+        )
+    gram = _fraction_matrix2(metric.exact_gram_matrix)
+    expected_gram = (
+        (
+            _fraction_dot3(basis_a, basis_a),
+            _fraction_dot3(basis_a, basis_b),
+        ),
+        (
+            _fraction_dot3(basis_b, basis_a),
+            _fraction_dot3(basis_b, basis_b),
+        ),
+    )
+    if gram != expected_gram:
+        _issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("exact_gram_matrix",),
+            "Gram matrix does not equal the exact A/B dot products",
+        )
+    determinant = gram[0][0] * gram[1][1] - gram[0][1] * gram[1][0]
+    if determinant <= 0:
+        _issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("exact_gram_matrix",),
+            "Gram matrix must be positive definite",
+        )
+    else:
+        inverse = _fraction_matrix2(metric.exact_inverse_gram_matrix)
+        expected_inverse = (
+            (
+                gram[1][1] / determinant,
+                -gram[0][1] / determinant,
+            ),
+            (
+                -gram[1][0] / determinant,
+                gram[0][0] / determinant,
+            ),
+        )
+        if inverse != expected_inverse:
+            _issue(
+                issues,
+                ValidationCode.SURFACE_METRIC,
+                path + ("exact_inverse_gram_matrix",),
+                "inverse Gram matrix is not exact",
+            )
+    coordinate_ids = [
+        item.source_vertex_id
+        for item in metric.exact_source_vertex_coordinates
+    ]
+    if len(coordinate_ids) != len(set(coordinate_ids)):
+        _issue(
+            issues,
+            ValidationCode.DUPLICATE_ID,
+            path + ("exact_source_vertex_coordinates",),
+            "duplicate source vertex coordinate",
+        )
+    if set(coordinate_ids) != set(certificate.source_vertex_ids):
+        _issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("exact_source_vertex_coordinates",),
+            "coordinate and planarity-certificate vertex sets differ",
+        )
+    return tuple(issues)
+
+
+def validate_runtime_planar_metric(
+    metric: RuntimePlanarMetricV1,
+) -> tuple[ValidationIssue, ...]:
+    issues: list[ValidationIssue] = []
+    path = ("RuntimePlanarMetricV1",)
+    filter_contract = metric.predicate_filter_contract
+    fallback = metric.fallback_contract
+    if (
+        filter_contract.filter_law
+        is not RuntimePredicateFilterLawV1.BINARY64_OUTWARD_INTERVAL_V1
+        or filter_contract.uncertain_result
+        is not RuntimePredicateResultV1.EXACT_FALLBACK_REQUIRED
+        or not filter_contract.exact_zero_requires_fallback
+        or filter_contract.semantic_identity_law
+        is not MetricSemanticIdentityLawV1.EXACT_CONSTRUCTION_CERTIFICATES_ONLY
+    ):
+        _issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("predicate_filter_contract",),
+            "runtime predicate filter can only certify non-zero signs",
+        )
+    if (
+        fallback.fallback_law
+        is not RuntimeMetricFallbackLawV1.AUTHORITATIVE_REFERENCE_METRIC_V2
+        or fallback.authoritative_reference_metric_id
+        != metric.reference_metric_id
+        or not fallback.rounded_runtime_reconstruction_forbidden
+    ):
+        _issue(
+            issues,
+            ValidationCode.SURFACE_METRIC,
+            path + ("fallback_contract",),
+            "runtime fallback must name the authoritative reference metric",
+        )
+    return tuple(issues)
 
 
 def _junction_route_pairs(topology: object) -> frozenset[JunctionRoutePairV1]:
@@ -370,6 +571,66 @@ def validate_analysis_snapshot(snapshot: AnalysisSnapshotV1) -> tuple[Validation
             required_vertices = patch_vertices.get(domain.owner_patch_id, set())
             if full_surface and set(coordinate_ids) != required_vertices:
                 _issue(issues, ValidationCode.SURFACE_METRIC, path + ("source_vertex_coordinates",), "planar coordinates must cover all and only owner-patch surface vertices")
+        elif isinstance(descriptor, RationalAffinePlanarMetricV2):
+            for metric_issue in validate_rational_affine_planar_metric(
+                descriptor
+            ):
+                _issue(
+                    issues,
+                    metric_issue.code,
+                    path + metric_issue.path[1:],
+                    metric_issue.message,
+                )
+            certificate = descriptor.planarity_certificate
+            if certificate.certificate_id in planarity_ids:
+                _issue(issues, ValidationCode.DUPLICATE_ID, path + ("planarity_certificate",), "duplicate planarity certificate ID")
+            planarity_ids.add(certificate.certificate_id)
+            if domain.surface_regime is not SurfaceRegime.PLANAR:
+                _issue(issues, ValidationCode.SURFACE_METRIC, path, "RationalAffinePlanarMetricV2 requires a PLANAR PatchDomain")
+            if descriptor.source_revision != snapshot.source_revision:
+                _issue(issues, ValidationCode.CROSS_CONTRACT_MISMATCH, path + ("source_revision",), "metric and snapshot revisions differ")
+            coordinate_by_id = {
+                item.source_vertex_id: item.domain_coordinate
+                for item in descriptor.exact_source_vertex_coordinates
+            }
+            coordinate_ids = set(coordinate_by_id)
+            _require_refs(issues, coordinate_ids, vertex_ids, path + ("exact_source_vertex_coordinates",))
+            required_vertices = patch_vertices.get(domain.owner_patch_id, set())
+            if full_surface and coordinate_ids != required_vertices:
+                _issue(issues, ValidationCode.SURFACE_METRIC, path + ("exact_source_vertex_coordinates",), "exact affine coordinates must cover all and only owner-patch surface vertices")
+            origin = _fraction_point3(descriptor.exact_origin)
+            basis_a = _fraction_point3(descriptor.exact_basis_a)
+            basis_b = _fraction_point3(descriptor.exact_basis_b)
+            for vertex_id in coordinate_ids:
+                source = next(
+                    (
+                        item
+                        for item in snapshot.source_vertices
+                        if item.vertex_id == vertex_id
+                    ),
+                    None,
+                )
+                if source is None or not isinstance(source.position, LocalPoint3V1):
+                    continue
+                position = tuple(
+                    Fraction(*float(value).as_integer_ratio())
+                    for value in (
+                        source.position.x,
+                        source.position.y,
+                        source.position.z,
+                    )
+                )
+                coordinate = coordinate_by_id[vertex_id]
+                u = _fraction(coordinate.x)
+                v = _fraction(coordinate.y)
+                reconstructed = tuple(
+                    origin[index]
+                    + u * basis_a[index]
+                    + v * basis_b[index]
+                    for index in range(3)
+                )
+                if reconstructed != position:
+                    _issue(issues, ValidationCode.SURFACE_METRIC, path + ("exact_source_vertex_coordinates", str(vertex_id)), "exact affine reconstruction disagrees with source binary64 position")
         elif isinstance(descriptor, IntrinsicSurfaceMetricDescriptorV1):
             if descriptor.surface_regime != domain.surface_regime or descriptor.surface_regime is SurfaceRegime.PLANAR:
                 _issue(issues, ValidationCode.SURFACE_METRIC, path, "intrinsic metric regime must match a non-planar PatchDomain")

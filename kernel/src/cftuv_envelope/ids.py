@@ -90,6 +90,16 @@ class PlanarityCertificateId(OpaqueId):
 
 
 @dataclass(frozen=True, slots=True)
+class ReferenceMetricId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeMetricId(OpaqueId):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
 class CornerRelationId(OpaqueId):
     pass
 

@@ -50,6 +50,10 @@ from .provenance import (
 )
 
 
+class ExactArrangementNonManifold(CertifiedPredicateUndecidable):
+    """Exact construction history proves a non-manifold output boundary."""
+
+
 @dataclass(frozen=True, slots=True)
 class _InputBoundary:
     segment: BoundedSupportSegment
@@ -640,7 +644,7 @@ class ExactSegmentArrangementBackend:
             outgoing.setdefault(edge.start_vertex_id, []).append(edge)
             edge_by_start_end[(edge.start_vertex_id, edge.end_vertex_id)] = edge
         if any(len(items) != 1 for items in outgoing.values()):
-            raise CertifiedPredicateUndecidable(
+            raise ExactArrangementNonManifold(
                 "exact union boundary is non-manifold at a construction vertex"
             )
         unvisited = {edge.edge_id for edge in raw_edges}

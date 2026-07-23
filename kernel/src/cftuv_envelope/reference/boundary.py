@@ -25,8 +25,6 @@ from .planar_types import (
     ConstructionKind,
     ExactPlanarPoint,
     ExactScalar,
-    cross,
-    dot,
     exact_sign,
     point_add,
     point_key,
@@ -71,16 +69,22 @@ def build_domain_geometry(
 
 
 def _contact_candidates(
-    source: SourceSupportSegment, boundary: BlockingBoundarySegment
+    context: GeometryContext,
+    source: SourceSupportSegment,
+    boundary: BlockingBoundarySegment,
 ) -> tuple[tuple[sp.Expr, sp.Expr, ExactPlanarPoint], ...]:
     barrier = boundary.segment
     barrier_direction = point_sub(barrier.end, barrier.start)
     source_direction = point_sub(source.end, source.start)
-    length = sp.sqrt(dot(source_direction, source_direction))
-    s0 = dot(point_sub(barrier.start, source.start), source.tangent)
-    ds = dot(barrier_direction, source.tangent)
-    a0 = dot(point_sub(barrier.start, source.start), source.owner_normal)
-    da = dot(barrier_direction, source.owner_normal)
+    length = context.metric.length_g(source_direction)
+    s0 = context.metric.dot_g(
+        point_sub(barrier.start, source.start), source.tangent
+    )
+    ds = context.metric.dot_g(barrier_direction, source.tangent)
+    a0 = context.metric.dot_g(
+        point_sub(barrier.start, source.start), source.owner_normal
+    )
+    da = context.metric.dot_g(barrier_direction, source.owner_normal)
     candidates = {sp.Integer(0), sp.Integer(1)}
     if exact_sign(ds) != 0:
         candidates.add(sp.factor(-s0 / ds))
@@ -106,6 +110,7 @@ def _contact_candidates(
 
 
 def _continuous_support_intervals(
+    context: GeometryContext,
     segments: tuple[SourceSupportSegment, ...]
 ) -> tuple[SourceSupportSegment, ...]:
     if not segments:
@@ -114,11 +119,33 @@ def _continuous_support_intervals(
     for segment in segments[1:]:
         previous = groups[-1][-1]
         continuous = points_equal(previous.end, segment.start)
-        collinear = exact_sign(cross(previous.tangent, segment.tangent)) == 0
-        same_direction = exact_sign(dot(previous.tangent, segment.tangent)) > 0
+        collinear = (
+            exact_sign(
+                context.metric.oriented_cross(
+                    previous.tangent, segment.tangent
+                )
+            )
+            == 0
+        )
+        same_direction = (
+            exact_sign(
+                context.metric.dot_g(previous.tangent, segment.tangent)
+            )
+            > 0
+        )
         same_normal = (
-            exact_sign(cross(previous.owner_normal, segment.owner_normal)) == 0
-            and exact_sign(dot(previous.owner_normal, segment.owner_normal)) > 0
+            exact_sign(
+                context.metric.oriented_cross(
+                    previous.owner_normal, segment.owner_normal
+                )
+            )
+            == 0
+            and exact_sign(
+                context.metric.dot_g(
+                    previous.owner_normal, segment.owner_normal
+                )
+            )
+            > 0
         )
         if continuous and collinear and same_direction and same_normal:
             groups[-1].append(segment)
@@ -176,6 +203,7 @@ def resolve_component_alphas(
             if getattr(item, "seed_id", None) == spec.source_seed_id
         )
         for source in _continuous_support_intervals(
+            context,
             context.support_segments_for_use(
                 seed.chain_use_id, spec.envelope_spec_id.value
             )
@@ -186,13 +214,15 @@ def resolve_component_alphas(
             for boundary in domain_geometry.blocking_segments:
                 if source.physical_edge_id.value in boundary.segment.provenance.physical_edge_ids:
                     continue
-                for alpha, station, point in _contact_candidates(source, boundary):
+                for alpha, station, point in _contact_candidates(
+                    context, source, boundary
+                ):
                     if exact_sign(alpha) == 0:
                         continue
                     if exact_sign(alpha - requested) > 0:
                         continue
-                    source_length = sp.sqrt(
-                        dot(point_sub(source.end, source.start), point_sub(source.end, source.start))
+                    source_length = context.metric.length_g(
+                        point_sub(source.end, source.start)
                     )
                     interior = exact_sign(station) > 0 and exact_sign(station - source_length) < 0
                     split = interior and (

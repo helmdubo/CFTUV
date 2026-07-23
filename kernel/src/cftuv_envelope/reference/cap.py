@@ -9,7 +9,6 @@ from ..numeric import LocalLengthV1
 from .common import (
     GeometryContext,
     make_segment,
-    offset_point,
     source_vertex_certificate,
     stable_id,
     support_vertex_certificate,
@@ -37,7 +36,9 @@ def evaluate_cap_envelope(
         anchor = source.end
     if source_vertex_id != spec.physical_terminal_source_vertex_id:
         raise ValueError("CapEnvelope physical endpoint does not match its incident strip")
-    moved = offset_point(anchor, source.owner_normal, effective_alpha)
+    moved = context.metric.offset_support_g(
+        anchor, source.owner_normal, effective_alpha
+    )
     support_id = stable_id("cap-support", spec.envelope_spec_id)
     instance_id = stable_id(
         "envelope-instance",

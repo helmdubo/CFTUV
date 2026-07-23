@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cftuv-envelope-core"
-version = "0.5.0"
+version = "0.6.0"
 description = "Blender-free exact envelope coverage and resolved-interaction reference kernel"
 readme = "README.md"
 requires-python = ">=3.10"

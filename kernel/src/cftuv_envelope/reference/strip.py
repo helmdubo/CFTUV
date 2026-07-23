@@ -11,7 +11,6 @@ from .common import (
     GeometryContext,
     make_region,
     make_segment,
-    offset_point,
     source_vertex_certificate,
     stable_id,
     support_vertex_certificate,
@@ -56,8 +55,12 @@ def evaluate_strip_envelope(
                 envelope_instance_ids=frozenset({instance_id})
             ),
         )
-        moved_start = offset_point(source.start, source.owner_normal, effective_alpha)
-        moved_end = offset_point(source.end, source.owner_normal, effective_alpha)
+        moved_start = context.metric.offset_support_g(
+            source.start, source.owner_normal, effective_alpha
+        )
+        moved_end = context.metric.offset_support_g(
+            source.end, source.owner_normal, effective_alpha
+        )
         moved_support_id = stable_id("moving-support", source.support_id)
         start_terminal_id = stable_id("terminal-support", source.support_id, "start")
         end_terminal_id = stable_id("terminal-support", source.support_id, "end")

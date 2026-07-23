@@ -19,6 +19,7 @@ from .domain_geometry import (
     build_sparse_patch_domain_geometry,
 )
 from .planar_types import *  # noqa: F401,F403
+from .metric import *  # noqa: F401,F403
 from .provenance import *  # noqa: F401,F403
 from .raw_coverage import (
     REFERENCE_BOUNDARY_CAPABILITIES_V1,

@@ -37,6 +37,10 @@ from ..numeric import (
     SurfaceCoordinateUnavailableReason,
 )
 from .surface import PatchSurfaceIRV1
+from .metric import (
+    CertifiedAffineSupportDirectionV2,
+    RationalAffinePlanarMetricV2,
+)
 
 
 ANALYSIS_SNAPSHOT_SCHEMA_V1 = "cftuv.envelope.analysis_snapshot.v1"
@@ -258,6 +262,7 @@ class UnavailableSurfaceMetricDescriptorV1:
 
 SurfaceMetricDescriptorV1 = (
     PlanarPatchFrameV1
+    | RationalAffinePlanarMetricV2
     | IntrinsicSurfaceMetricDescriptorV1
     | UnavailableSurfaceMetricDescriptorV1
 )
@@ -391,7 +396,9 @@ class UnavailableSourceSupportDirectionV1:
 
 
 SourceSupportDirectionPayloadV1 = (
-    CertifiedPlanarSupportDirectionV1 | UnavailableSourceSupportDirectionV1
+    CertifiedPlanarSupportDirectionV1
+    | CertifiedAffineSupportDirectionV2
+    | UnavailableSourceSupportDirectionV1
 )
 
 

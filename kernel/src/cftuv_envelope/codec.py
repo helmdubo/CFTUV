@@ -11,7 +11,16 @@ from typing import Any, Generic, TypeVar, Union, get_args, get_origin, get_type_
 
 from . import ids, numeric
 from .contracts import analysis, coverage, envelopes, events, geometry_batch
-from .contracts import debug, ownership, plan, request, seeds, surface, tessellation
+from .contracts import (
+    debug,
+    metric,
+    ownership,
+    plan,
+    request,
+    seeds,
+    surface,
+    tessellation,
+)
 from .ids import OpaqueId
 
 
@@ -30,6 +39,7 @@ _PUBLIC_MODULES = (
     envelopes,
     events,
     geometry_batch,
+    metric,
     ownership,
     plan,
     request,
@@ -271,3 +281,15 @@ class EnvelopeDebugSceneCodecV1(
     ContractCodecV1[debug.EnvelopeDebugSceneV1]
 ):
     root_type = debug.EnvelopeDebugSceneV1
+
+
+class RationalAffinePlanarMetricCodecV2(
+    ContractCodecV1[metric.RationalAffinePlanarMetricV2]
+):
+    root_type = metric.RationalAffinePlanarMetricV2
+
+
+class RuntimePlanarMetricCodecV1(
+    ContractCodecV1[metric.RuntimePlanarMetricV1]
+):
+    root_type = metric.RuntimePlanarMetricV1

@@ -24,6 +24,12 @@ Public boundaries:
 
 - `AnalysisSnapshotV1` — versioned host facts, `PatchSurfaceIRV1`, directed
   `ChainUseV1` records, owner sectors, angle certificates and relations;
+- `RationalAffinePlanarMetricV2` — deterministic exact source-plane chart with
+  non-normalized basis vectors, exact Gram/inverse-Gram matrices and exact
+  reconstruction of every source vertex;
+- `RuntimePlanarMetricV1` — non-authoritative binary64 view whose uncertain
+  predicates fall back to the referenced `RationalAffinePlanarMetricV2`;
+  construction identity never comes from float coordinates;
 - `DecalRequestV1` — one request with explicit local metric and the accepted
   Linear-Reflex/boundary/interaction/ownership policies;
 - `CompiledPatchEvaluationPlanV1` — request/domain-scoped seeds, declarations,

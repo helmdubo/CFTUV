@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "kernel/**"
+      - "cftuv/envelope_*.py"
       - "cftuv/envelope_host_adapter.py"
       - "cftuv/envelope_debug_renderer.py"
       - "cftuv/debug.py"
@@ -15,6 +16,7 @@ on:
   pull_request:
     paths:
       - "kernel/**"
+      - "cftuv/envelope_*.py"
       - "cftuv/envelope_host_adapter.py"
       - "cftuv/envelope_debug_renderer.py"
       - "cftuv/debug.py"
@@ -100,8 +102,14 @@ jobs:
             /cftuv/__init__.py
             /cftuv/constants.py
             /cftuv/debug.py
+            /cftuv/envelope_debug_profile.py
             /cftuv/envelope_debug_renderer.py
+            /cftuv/envelope_debug_session.py
             /cftuv/envelope_host_adapter.py
+            /cftuv/envelope_metric_export.py
+            /cftuv/envelope_request_export.py
+            /cftuv/envelope_topology_debug.py
+            /cftuv/envelope_topology_export.py
             /cftuv/model.py
             /cftuv/surface_ir.py
             /tests/conftest.py
@@ -129,7 +137,11 @@ jobs:
 
           imports = set()
           for path in (
+              Path("cftuv/envelope_debug_session.py"),
               Path("cftuv/envelope_host_adapter.py"),
+              Path("cftuv/envelope_metric_export.py"),
+              Path("cftuv/envelope_request_export.py"),
+              Path("cftuv/envelope_topology_export.py"),
               Path("cftuv/envelope_debug_renderer.py"),
           ):
               tree = ast.parse(
