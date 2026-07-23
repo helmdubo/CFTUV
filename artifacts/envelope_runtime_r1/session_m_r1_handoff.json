@@ -1,0 +1,124 @@
+{
+  "schema": "cftuv.envelope.runtime_metric_m_r1_handoff.v1",
+  "session": "SESSION_M_R1_RATIONAL_AFFINE_REFERENCE_AND_FILTERED_RUNTIME",
+  "status": "M_R1_READY_FOR_REVIEW",
+  "branch": "codex/m-r1-runtime-metric-exact-fallback",
+  "accepted_base_sha": "51996a4a574a290042014c14ba29d1a034a605db",
+  "implementation_sha": "e38d1406b591d1189bf98bb850c8cab5d233f1c8",
+  "ci_tested_sha": "e38d1406b591d1189bf98bb850c8cab5d233f1c8",
+  "package": {
+    "name": "cftuv-envelope-core",
+    "version": "0.6.0"
+  },
+  "ci": {
+    "workflow": "Envelope kernel contracts",
+    "run_id": 30053100289,
+    "run_url": "https://github.com/helmdubo/CFTUV/actions/runs/30053100289",
+    "conclusion": "success",
+    "started_at": "2026-07-23T23:24:26Z",
+    "completed_at": "2026-07-23T23:30:25Z",
+    "jobs": [
+      {
+        "name": "kernel-hermetic",
+        "job_id": 89359156825,
+        "conclusion": "success",
+        "result": "205 passed",
+        "url": "https://github.com/helmdubo/CFTUV/actions/runs/30053100289/job/89359156825"
+      },
+      {
+        "name": "kernel-extraction-readiness",
+        "job_id": 89359156934,
+        "conclusion": "success",
+        "result": "205 passed; forbidden-import-scan OK; session-a-fixtures OK",
+        "url": "https://github.com/helmdubo/CFTUV/actions/runs/30053100289/job/89359156934"
+      },
+      {
+        "name": "blender-free-host-bridge-v0b",
+        "job_id": 89359156942,
+        "conclusion": "success",
+        "result": "26 passed; legacy-import scan OK",
+        "url": "https://github.com/helmdubo/CFTUV/actions/runs/30053100289/job/89359156942"
+      }
+    ]
+  },
+  "contracts": {
+    "reference_metric": "RationalAffinePlanarMetricV2",
+    "runtime_metric": "RuntimePlanarMetricV1",
+    "planarity_admission": "EXACT_SOURCE_PLANE_V1",
+    "near_planar_outcome": "RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED",
+    "runtime_view_authority": "NON_AUTHORITATIVE",
+    "fallback_authority": "AUTHORITATIVE_REFERENCE_METRIC_V2",
+    "semantic_identity": "EXACT_CONSTRUCTION_CERTIFICATES_ONLY"
+  },
+  "closed_gates": {
+    "m_r0_rotation_divergences": true,
+    "runtime_reference_full_record_equality": true,
+    "exact_fallback_evidence": true,
+    "building_002_patch_3_raw_coverage": true,
+    "building_002_patch_0_no_predicate_undecidable": true,
+    "all_field_scopes_reported": true,
+    "source_mesh_unchanged": true,
+    "wheel_ci": true,
+    "extracted_ci": true
+  },
+  "building_002": {
+    "source_file": "E:\\testscene.blend",
+    "source_object": "building.002",
+    "edge_12": {
+      "patch_0": "RAW_READY/EXACT",
+      "patch_3": "RAW_READY/EXACT"
+    },
+    "patch_0_precise_outcome": "REFERENCE_ARRANGEMENT_NON_MANIFOLD",
+    "patch_0_diagnostic": "exact union boundary is non-manifold at a construction vertex",
+    "field_scopes": [
+      "one_chain_l0",
+      "three_chains_l0",
+      "ten_chains_l0",
+      "all_seam_chains_l0"
+    ],
+    "silent_domain_omission": false,
+    "source_mesh_unchanged": true,
+    "mesh_fingerprint": "3205834b7ead22cf1eb8985902144ca1c7295a88b8015556b364be17d8ac9021"
+  },
+  "local_validation": {
+    "metric_focused": "17 passed",
+    "host_adapter_and_renderer": "26 passed",
+    "wheel_outside_checkout": "205 passed",
+    "extracted_kernel": "205 passed",
+    "generated_contract_schemas": "OK",
+    "forbidden_import_scan": "OK",
+    "accepted_session_a_fixture_projection": "OK",
+    "l0_evidence_validator": "4 cases, 36 physical chains, 60 chain uses"
+  },
+  "carryovers": [
+    {
+      "id": "COMPILED_ENVELOPE_CACHE_ALPHA_DEPENDENCE",
+      "owner": "V0_R2",
+      "status": "OPEN"
+    },
+    {
+      "id": "HOST_REQUEST_EXPORT_COMPLEXITY",
+      "owner": "HOST_ADAPTER",
+      "status": "OPEN"
+    },
+    {
+      "id": "BUILDING_002_PATCH_0_EXACT_UNION_NON_MANIFOLD",
+      "owner": "FUTURE_EXACT_GEOMETRY_SLICE",
+      "status": "NAMED_UNSUPPORTED"
+    },
+    {
+      "id": "NEAR_PLANAR_PRODUCT_POLICY",
+      "owner": "FUTURE_POLICY_SLICE",
+      "status": "NOT_IMPLEMENTED"
+    }
+  ],
+  "scope_guards": {
+    "legacy_geometry_read_or_invoked": false,
+    "near_planar_projection_implemented": false,
+    "tolerance_or_snapping_used": false,
+    "envelope_semantics_changed": false,
+    "interaction_semantics_changed": false,
+    "renderer_changed": false,
+    "v0_r2_started": false
+  }
+}
