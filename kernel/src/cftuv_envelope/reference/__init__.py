@@ -12,6 +12,12 @@ from .digest import (
     validate_raw_coverage_digest,
     validate_raw_coverage_semantic_digest,
 )
+from .domain_geometry import (
+    BlockingBoundarySegment,
+    BoundaryRole,
+    SparsePatchDomainGeometryV1,
+    build_sparse_patch_domain_geometry,
+)
 from .planar_types import *  # noqa: F401,F403
 from .provenance import *  # noqa: F401,F403
 from .raw_coverage import (

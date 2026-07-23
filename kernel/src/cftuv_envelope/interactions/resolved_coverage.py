@@ -149,7 +149,7 @@ def resolve_coverage_interactions(
         components,
         boundary_resolved,
         raw_coverage,
-        domain.face_regions,
+        domain.domain_regions,
     )
     diagnostics = (
         *arrival_diagnostics,

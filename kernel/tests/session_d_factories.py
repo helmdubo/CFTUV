@@ -85,12 +85,13 @@ def _with_third_strip(snapshot, request, alpha: str):
         lineage,
         frozenset(),
     )
+    loop = next(iter(snapshot.boundary_loops))
     use = ChainUseV1(
         use_id,
         chain_id,
         patch_id,
         domain_id,
-        BoundaryLoopId("outer-loop"),
+        loop.boundary_loop_id,
         ChainUseOrientation.A_START_TO_END,
         frozenset({ChainUseRole.DECAL_SOURCE}),
         LaunchLocusV1(
@@ -115,7 +116,6 @@ def _with_third_strip(snapshot, request, alpha: str):
         LawId("owner-sector"),
     )
     domain = next(iter(snapshot.patch_domains))
-    loop = next(iter(snapshot.boundary_loops))
     terminals = frozenset(
         TerminalRelationV1(
             TerminalRelationId(f"third-{role.value.lower()}"),
@@ -149,17 +149,6 @@ def _with_third_strip(snapshot, request, alpha: str):
                         | frozenset({launch_id})
                     ),
                     sectors=domain.sectors | frozenset({sector}),
-                )
-            }
-        ),
-        boundary_loops=frozenset(
-            {
-                replace(
-                    loop,
-                    ordered_chain_use_ids=(
-                        *loop.ordered_chain_use_ids,
-                        use_id,
-                    ),
                 )
             }
         ),

@@ -1,0 +1,88 @@
+{
+  "domains": [
+    {
+      "boundary_geometry_equal": true,
+      "boundary_physical_edge_lineage_equal": true,
+      "exact_area_expression": "Rational(137930496736749776215987205505377, 2000000000000000000000000000000)",
+      "exact_equivalent": true,
+      "face_boundary_segment_count": 16,
+      "hole_count": 0,
+      "internal_source_edge_count": 2,
+      "internal_source_edges_absent": true,
+      "outer_component_count": 1,
+      "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+      "patch_id": 0,
+      "source_face_count": 3,
+      "sparse_domain_segment_count": 12,
+      "stage": "EXACT_EQUIVALENT"
+    },
+    {
+      "boundary_geometry_equal": true,
+      "boundary_physical_edge_lineage_equal": true,
+      "exact_area_expression": "Rational(196622848510742578649139404297, 125000000000000000000000000000)",
+      "exact_equivalent": true,
+      "face_boundary_segment_count": 4,
+      "hole_count": 0,
+      "internal_source_edge_count": 0,
+      "internal_source_edges_absent": true,
+      "outer_component_count": 1,
+      "patch_domain_id": "host-v0:patch-domain:06e861ec98d0af361f10a35c",
+      "patch_id": 7,
+      "source_face_count": 1,
+      "sparse_domain_segment_count": 4,
+      "stage": "EXACT_EQUIVALENT"
+    },
+    {
+      "boundary_geometry_equal": true,
+      "boundary_physical_edge_lineage_equal": true,
+      "exact_area_expression": "Rational(196622848510742578649139404297, 125000000000000000000000000000)",
+      "exact_equivalent": true,
+      "face_boundary_segment_count": 4,
+      "hole_count": 0,
+      "internal_source_edge_count": 0,
+      "internal_source_edges_absent": true,
+      "outer_component_count": 1,
+      "patch_domain_id": "host-v0:patch-domain:070c6c4e2aaab70b1a2f45d2",
+      "patch_id": 10,
+      "source_face_count": 1,
+      "sparse_domain_segment_count": 4,
+      "stage": "EXACT_EQUIVALENT"
+    },
+    {
+      "boundary_geometry_equal": true,
+      "boundary_physical_edge_lineage_equal": true,
+      "exact_area_expression": "Rational(5000002384185794500000953674317, 1250000000000000000000000000000)",
+      "exact_equivalent": true,
+      "face_boundary_segment_count": 4,
+      "hole_count": 0,
+      "internal_source_edge_count": 0,
+      "internal_source_edges_absent": true,
+      "outer_component_count": 1,
+      "patch_domain_id": "host-v0:patch-domain:36eb7d6232a72fccedaa1c1d",
+      "patch_id": 12,
+      "source_face_count": 1,
+      "sparse_domain_segment_count": 4,
+      "stage": "EXACT_EQUIVALENT"
+    }
+  ],
+  "mesh_edges": 38,
+  "mesh_faces": 15,
+  "mesh_fingerprint_after": "7bb9661c13ee9e80060dca6bbcc4c90a6ac74b0e6537898652807141837b7671",
+  "mesh_fingerprint_before": "7bb9661c13ee9e80060dca6bbcc4c90a6ac74b0e6537898652807141837b7671",
+  "mesh_vertices": 24,
+  "schema": "cftuv.envelope.sparse_domain_report.v1",
+  "selected_patch_ids": [
+    0,
+    7,
+    10,
+    12
+  ],
+  "selected_physical_edge_ids": [
+    2,
+    3,
+    7
+  ],
+  "source_file": "E:\\testscene.blend",
+  "source_mesh_unchanged": true,
+  "source_object": "building.002"
+}

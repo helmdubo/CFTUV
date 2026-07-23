@@ -251,8 +251,25 @@ def evaluate_reference_raw_coverage(
             "DOMAIN_BUILD",
             stage_started,
             {
-                "DOMAIN_FACE_REGIONS": len(domain.face_regions),
-                "DOMAIN_BOUNDARY_SEGMENTS": len(domain.blocking_segments),
+                "DOMAIN_REGIONS": len(domain.domain_regions),
+                "DOMAIN_OUTER_LOOPS": len(domain.outer_loops),
+                "DOMAIN_HOLE_LOOPS": len(domain.hole_loops),
+                "DOMAIN_EXPLICIT_BARRIERS": len(domain.explicit_barriers),
+                "DOMAIN_SOURCE_FACE_CONTRIBUTORS": len(
+                    domain.source_face_contributor_ids
+                ),
+                "DOMAIN_FACE_BOUNDARY_SEGMENTS_ORACLE": sum(
+                    len(face.edge_cycle)
+                    for face in context.snapshot.surface_ir.source_faces
+                    if face.patch_id == context.compilation.owner_patch_id
+                ),
+                "DOMAIN_INPUT_SEGMENTS": domain.sparse_segment_count,
+                "DOMAIN_SPARSE_SEGMENTS": domain.sparse_segment_count,
+                "DOMAIN_BOUNDARY_SEGMENTS": domain.boundary_segment_count,
+                "ARRANGEMENT_DOMAIN_SEGMENTS": domain.boundary_segment_count,
+                "BOUNDARY_RESOLVER_BARRIER_SEGMENTS": len(
+                    domain.explicit_barriers
+                ),
             },
         )
         clip_elapsed = 0.0
@@ -341,7 +358,7 @@ def evaluate_reference_raw_coverage(
                 )
                 stage_started = time.perf_counter()
                 clipped, clip_outcome = _clip_instance_to_domain(
-                    instance, domain.face_regions, reachability
+                    instance, domain.domain_regions, reachability
                 )
                 clip_elapsed += time.perf_counter() - stage_started
                 if clipped is None:
@@ -398,13 +415,13 @@ def evaluate_reference_raw_coverage(
         }
         arrangement_input_segments = (
             _region_segment_count(contribution_regions)
-            + _region_segment_count(domain.face_regions)
+            + _region_segment_count(domain.domain_regions)
         )
         stage_started = time.perf_counter()
         try:
             union = REFERENCE_ARRANGEMENT_BACKEND.exact_union(
                 contribution_regions,
-                domain.face_regions,
+                domain.domain_regions,
                 reachability_by_instance,
             )
         finally:

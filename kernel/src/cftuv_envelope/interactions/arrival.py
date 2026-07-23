@@ -259,7 +259,7 @@ def compile_arrival_models(
     }
     boundary_by_component = {
         component.interaction_component_id: _component_boundary_segments(
-            component, resolved_by_instance, domain.face_regions
+            component, resolved_by_instance, domain.domain_regions
         )
         for component in components
     }

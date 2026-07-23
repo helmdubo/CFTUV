@@ -9,6 +9,8 @@ from dataclasses import dataclass
 class BoundaryGeneratorProvenanceV1:
     support_ids: frozenset[str] = frozenset()
     physical_edge_ids: frozenset[str] = frozenset()
+    physical_chain_ids: frozenset[str] = frozenset()
+    boundary_loop_ids: frozenset[str] = frozenset()
     source_face_ids: frozenset[str] = frozenset()
     boundary_constraint_ids: frozenset[str] = frozenset()
 
@@ -44,6 +46,14 @@ class ReferenceProvenanceV1:
         return self.boundary_generator.source_face_ids
 
     @property
+    def physical_chain_ids(self) -> frozenset[str]:
+        return self.boundary_generator.physical_chain_ids
+
+    @property
+    def boundary_loop_ids(self) -> frozenset[str]:
+        return self.boundary_generator.boundary_loop_ids
+
+    @property
     def boundary_constraint_ids(self) -> frozenset[str]:
         return self.boundary_generator.boundary_constraint_ids
 
@@ -74,6 +84,8 @@ def make_reference_provenance(
     envelope_instance_ids: frozenset[str] = frozenset(),
     support_ids: frozenset[str] = frozenset(),
     physical_edge_ids: frozenset[str] = frozenset(),
+    physical_chain_ids: frozenset[str] = frozenset(),
+    boundary_loop_ids: frozenset[str] = frozenset(),
     source_face_ids: frozenset[str] = frozenset(),
     chain_use_ids: frozenset[str] = frozenset(),
     patch_domain_ids: frozenset[str] = frozenset(),
@@ -84,6 +96,8 @@ def make_reference_provenance(
         boundary_generator=BoundaryGeneratorProvenanceV1(
             support_ids=support_ids,
             physical_edge_ids=physical_edge_ids,
+            physical_chain_ids=physical_chain_ids,
+            boundary_loop_ids=boundary_loop_ids,
             source_face_ids=source_face_ids,
             boundary_constraint_ids=boundary_constraint_ids,
         ),
@@ -104,6 +118,12 @@ def merge_boundary_generator_provenance(
         support_ids=frozenset().union(*(item.support_ids for item in items)),
         physical_edge_ids=frozenset().union(
             *(item.physical_edge_ids for item in items)
+        ),
+        physical_chain_ids=frozenset().union(
+            *(item.physical_chain_ids for item in items)
+        ),
+        boundary_loop_ids=frozenset().union(
+            *(item.boundary_loop_ids for item in items)
         ),
         source_face_ids=frozenset().union(
             *(item.source_face_ids for item in items)

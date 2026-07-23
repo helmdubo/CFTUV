@@ -112,9 +112,18 @@ def test_physical_seam_a_b_is_evaluated_as_two_domain_plans():
         )
         for item in results
     )
+    selected_use = next(
+        item
+        for item in snapshot.chain_uses
+        if item.chain_use_id in request.selected_chain_use_ids
+    )
+    shared_chain = next(
+        item
+        for item in snapshot.physical_chains
+        if item.physical_chain_id == selected_use.physical_chain_id
+    )
     shared_chain_edge_ids = frozenset(
-        item.value
-        for item in next(iter(snapshot.physical_chains)).ordered_physical_edge_ids
+        item.value for item in shared_chain.ordered_physical_edge_ids
     )
     assert all(shared_chain_edge_ids <= item for item in physical_edge_sets)
 

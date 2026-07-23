@@ -6,6 +6,303 @@ from decimal import Decimal
 from cftuv_envelope import *
 
 
+def _with_authoritative_sparse_boundaries(
+    snapshot: AnalysisSnapshotV1,
+) -> AnalysisSnapshotV1:
+    """Test-only face oracle exports complete BoundaryLoop/ChainUse facts.
+
+    Runtime never calls this helper.  Fixtures start from convenient source-face
+    cells, then cross the same host/kernel boundary as production by publishing
+    immutable ordered loops before reference evaluation.
+    """
+
+    edges_by_id = {
+        item.edge_id: item for item in snapshot.surface_ir.source_edges
+    }
+    frames_by_domain = {
+        item.patch_domain_id: item
+        for item in snapshot.surface_metric_descriptors
+        if isinstance(item, PlanarPatchFrameV1)
+    }
+    domains_by_patch = {
+        item.owner_patch_id: item for item in snapshot.patch_domains
+    }
+    existing_chains = {
+        item.physical_chain_id: item for item in snapshot.physical_chains
+    }
+    existing_uses = {
+        item.chain_use_id: item for item in snapshot.chain_uses
+    }
+    constraints = {
+        item
+        for item in snapshot.boundary_constraints
+        if not isinstance(item.target, BoundaryLoopConstraintTargetV1)
+    }
+    physical_chains = set(snapshot.physical_chains)
+    chain_uses = dict(existing_uses)
+    boundary_loops = []
+
+    def directed_records(chain_use):
+        chain = existing_chains[chain_use.physical_chain_id]
+        vertices = chain.ordered_source_vertex_ids
+        if chain_use.orientation is ChainUseOrientation.B_START_TO_END:
+            vertices = tuple(reversed(vertices))
+        pairs = tuple(zip(vertices, vertices[1:]))
+        if chain.is_closed:
+            pairs += ((vertices[-1], vertices[0]),)
+        records = []
+        for start_id, end_id in pairs:
+            edge_id = next(
+                edge_id
+                for edge_id in chain.ordered_physical_edge_ids
+                if {
+                    edges_by_id[edge_id].vertex_a_id,
+                    edges_by_id[edge_id].vertex_b_id,
+                }
+                == {start_id, end_id}
+            )
+            records.append((start_id, end_id, edge_id))
+        return tuple(records)
+
+    loop_ids_by_domain = {}
+    for patch_id, domain in sorted(
+        domains_by_patch.items(), key=lambda item: item[0].value
+    ):
+        faces = tuple(
+            item
+            for item in snapshot.surface_ir.source_faces
+            if item.patch_id == patch_id
+        )
+        occurrences = {}
+        for face in faces:
+            for ordinal, edge_id in enumerate(face.edge_cycle):
+                occurrences.setdefault(edge_id, []).append(
+                    (
+                        face.vertex_cycle[ordinal],
+                        face.vertex_cycle[(ordinal + 1) % len(face.vertex_cycle)],
+                        edge_id,
+                    )
+                )
+        exterior = tuple(
+            records[0] for records in occurrences.values() if len(records) == 1
+        )
+        outgoing = {}
+        for record in exterior:
+            outgoing.setdefault(record[0], []).append(record)
+        if any(len(items) != 1 for items in outgoing.values()):
+            raise ValueError("fixture source faces do not define manifold boundary loops")
+        unvisited = {item[2] for item in exterior}
+        raw_loops = []
+        while unvisited:
+            first = min(
+                (item for item in exterior if item[2] in unvisited),
+                key=lambda item: item[2].value,
+            )
+            loop = []
+            current = first
+            while current[2] in unvisited:
+                unvisited.remove(current[2])
+                loop.append(current)
+                following = outgoing.get(current[1], ())
+                if len(following) != 1:
+                    raise ValueError("fixture boundary loop is open")
+                current = following[0]
+            if current[2] != first[2]:
+                raise ValueError("fixture boundary loop does not close")
+            raw_loops.append(tuple(loop))
+
+        frame = frames_by_domain[domain.patch_domain_id]
+        coordinates = {
+            item.source_vertex_id: item.domain_coordinate
+            for item in frame.source_vertex_coordinates
+        }
+
+        def signed_area(records):
+            points = [coordinates[item[0]] for item in records]
+            return sum(
+                start.x * end.y - start.y * end.x
+                for start, end in zip(points, points[1:] + points[:1])
+            ) / 2
+
+        raw_loops.sort(
+            key=lambda records: (
+                0 if signed_area(records) > 0 else 1,
+                min(item[2].value for item in records),
+            )
+        )
+        domain_loop_ids = []
+        uses_in_domain = tuple(
+            sorted(
+                (
+                    item
+                    for item in existing_uses.values()
+                    if item.patch_domain_id == domain.patch_domain_id
+                ),
+                key=lambda item: item.chain_use_id.value,
+            )
+        )
+        for loop_index, records in enumerate(raw_loops):
+            loop_id = BoundaryLoopId(
+                f"fixture-boundary-loop:{domain.patch_domain_id.value}:{loop_index}"
+            )
+            domain_loop_ids.append(loop_id)
+            occupied = set()
+            chosen_by_start = {}
+            for chain_use in uses_in_domain:
+                candidate = directed_records(chain_use)
+                if not candidate or len(candidate) > len(records):
+                    continue
+                for start_index in range(len(records) - len(candidate) + 1):
+                    indices = set(
+                        range(start_index, start_index + len(candidate))
+                    )
+                    if indices & occupied:
+                        continue
+                    if tuple(records[index] for index in sorted(indices)) == candidate:
+                        chosen_by_start[start_index] = chain_use.chain_use_id
+                        occupied.update(indices)
+                        break
+            ordered_use_ids = []
+            index = 0
+            while index < len(records):
+                chosen_id = chosen_by_start.get(index)
+                if chosen_id is not None:
+                    selected_use = chain_uses[chosen_id]
+                    chain_uses[chosen_id] = replace(
+                        selected_use,
+                        boundary_loop_id=loop_id,
+                        roles=selected_use.roles
+                        | {
+                            ChainUseRole.DOMAIN_BOUNDARY,
+                            ChainUseRole.TOPOLOGICAL_BOUNDARY_USE,
+                        },
+                    )
+                    ordered_use_ids.append(chosen_id)
+                    index += len(directed_records(selected_use))
+                    continue
+                start_id, end_id, edge_id = records[index]
+                chain_id = PhysicalChainId(
+                    f"fixture-boundary-chain:{domain.patch_domain_id.value}:{edge_id.value}"
+                )
+                use_id = ChainUseId(
+                    f"fixture-boundary-use:{domain.patch_domain_id.value}:{edge_id.value}"
+                )
+                launch_id = BoundaryConstraintId(
+                    f"fixture-boundary-launch:{domain.patch_domain_id.value}:{edge_id.value}"
+                )
+                physical_chains.add(
+                    PhysicalChainV1(
+                        chain_id,
+                        PhysicalChainKind.PHYSICAL_DECAL_SOURCE,
+                        False,
+                        (start_id, end_id),
+                        (edge_id,),
+                        frozenset(
+                            {
+                                LineageId(
+                                    f"fixture-boundary-lineage:{domain.patch_domain_id.value}:{edge_id.value}"
+                                )
+                            }
+                        ),
+                        frozenset(),
+                    )
+                )
+                chain_uses[use_id] = ChainUseV1(
+                    use_id,
+                    chain_id,
+                    patch_id,
+                    domain.patch_domain_id,
+                    loop_id,
+                    ChainUseOrientation.A_START_TO_END,
+                    frozenset(
+                        {
+                            ChainUseRole.DOMAIN_BOUNDARY,
+                            ChainUseRole.TOPOLOGICAL_BOUNDARY_USE,
+                        }
+                    ),
+                    LaunchLocusV1(
+                        launch_id,
+                        OwnerInteriorDirection.OWNER_INTERIOR,
+                        True,
+                    ),
+                )
+                constraints.add(
+                    BoundaryConstraintV1(
+                        launch_id,
+                        domain.patch_domain_id,
+                        BoundaryConstraintKind.SOURCE_LAUNCH_BOUNDARY,
+                        ChainUseConstraintTargetV1(use_id),
+                        use_id,
+                        False,
+                        True,
+                    )
+                )
+                ordered_use_ids.append(use_id)
+                index += 1
+            loop_kind = (
+                BoundaryLoopKind.OUTER
+                if signed_area(records) > 0
+                else BoundaryLoopKind.HOLE
+            )
+            boundary_loops.append(
+                BoundaryLoopV1(
+                    loop_id,
+                    domain.patch_domain_id,
+                    loop_kind,
+                    tuple(ordered_use_ids),
+                )
+            )
+            topology_constraint_id = BoundaryConstraintId(
+                f"fixture-topological-boundary:{domain.patch_domain_id.value}:{loop_index}"
+            )
+            constraints.add(
+                BoundaryConstraintV1(
+                    topology_constraint_id,
+                    domain.patch_domain_id,
+                    BoundaryConstraintKind.TOPOLOGICAL_BOUNDARY_USE,
+                    BoundaryLoopConstraintTargetV1(loop_id),
+                    None,
+                    False,
+                    False,
+                )
+            )
+        loop_ids_by_domain[domain.patch_domain_id] = tuple(domain_loop_ids)
+
+    for use_id, chain_use in tuple(chain_uses.items()):
+        if chain_use.boundary_loop_id in {
+            item.boundary_loop_id for item in boundary_loops
+        }:
+            continue
+        loop_ids = loop_ids_by_domain[chain_use.patch_domain_id]
+        chain_uses[use_id] = replace(
+            chain_use,
+            boundary_loop_id=loop_ids[0],
+        )
+
+    constraints_by_domain = {}
+    for constraint in constraints:
+        constraints_by_domain.setdefault(constraint.patch_domain_id, set()).add(
+            constraint.boundary_constraint_id
+        )
+    patch_domains = frozenset(
+        replace(
+            domain,
+            boundary_constraint_ids=frozenset(
+                constraints_by_domain.get(domain.patch_domain_id, ())
+            ),
+        )
+        for domain in snapshot.patch_domains
+    )
+    return replace(
+        snapshot,
+        patch_domains=patch_domains,
+        physical_chains=frozenset(physical_chains),
+        chain_uses=frozenset(chain_uses.values()),
+        boundary_loops=frozenset(boundary_loops),
+        boundary_constraints=frozenset(constraints),
+    )
+
+
 def straight_snapshot(
     *,
     faces: tuple[tuple[tuple[float, float], ...], ...],
@@ -244,7 +541,10 @@ def straight_snapshot(
         frozenset(),
         frozenset(terminal_relations),
     )
-    return snapshot, reference_request(*selected_use_ids, alpha=alpha)
+    return (
+        _with_authoritative_sparse_boundaries(snapshot),
+        reference_request(*selected_use_ids, alpha=alpha),
+    )
 
 
 def reference_request(*chain_use_ids: ChainUseId, alpha: str = "1") -> DecalRequestV1:
@@ -272,15 +572,15 @@ def physical_seam_snapshot(
     *, cross_junction: bool = False
 ) -> tuple[AnalysisSnapshotV1, DecalRequestV1, tuple[PatchDomainId, PatchDomainId]]:
     faces = (
-        ((0.0, 0.0), (5.0, 0.0), (5.0, 10.0), (0.0, 10.0)),
-        ((5.0, 0.0), (10.0, 0.0), (10.0, 10.0), (5.0, 10.0)),
+        ((0.0, 0.0), (5.0, 0.0), (5.0, 5.0), (5.0, 10.0), (0.0, 10.0)),
+        ((5.0, 0.0), (10.0, 0.0), (10.0, 10.0), (5.0, 10.0), (5.0, 5.0)),
     )
     base, base_request = straight_snapshot(
         faces=faces,
         source_routes=(
             {
                 "name": "physical-seam",
-                "points": ((5.0, 0.0), (5.0, 10.0)),
+                "points": ((5.0, 0.0), (5.0, 5.0), (5.0, 10.0)),
                 "kind": "PHYSICAL_SEAM",
                 "uses": (("a", "A_START_TO_END"), ("b", "B_START_TO_END")),
             },
@@ -295,10 +595,25 @@ def physical_seam_snapshot(
         replace(face, patch_id=patch_ids[index])
         for index, face in enumerate(faces_by_index)
     )
-    chain = replace(
-        next(iter(base.physical_chains)), kind=PhysicalChainKind.PHYSICAL_SEAM
+    base_uses = tuple(
+        sorted(
+            (
+                item
+                for item in base.chain_uses
+                if item.chain_use_id in base_request.selected_chain_use_ids
+            ),
+            key=lambda item: item.chain_use_id.value,
+        )
     )
-    base_uses = tuple(sorted(base.chain_uses, key=lambda item: item.chain_use_id.value))
+    selected_chain_id = base_uses[0].physical_chain_id
+    chain = replace(
+        next(
+            item
+            for item in base.physical_chains
+            if item.physical_chain_id == selected_chain_id
+        ),
+        kind=PhysicalChainKind.PHYSICAL_SEAM,
+    )
     uses = tuple(
         replace(
             base_uses[index],
@@ -467,7 +782,7 @@ def physical_seam_snapshot(
         base_request,
         selected_chain_use_ids=frozenset(item.chain_use_id for item in uses),
     )
-    return snapshot, request, domain_ids
+    return _with_authoritative_sparse_boundaries(snapshot), request, domain_ids
 
 
 def _interval(lower: str, upper: str) -> CertifiedDecimalIntervalV1:
@@ -838,4 +1153,4 @@ def angular_snapshot(hidden_count: int) -> tuple[AnalysisSnapshotV1, DecalReques
         frozenset(),
         frozenset(),
     )
-    return snapshot, reference_request(*use_ids)
+    return _with_authoritative_sparse_boundaries(snapshot), reference_request(*use_ids)

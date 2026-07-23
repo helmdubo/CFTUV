@@ -366,14 +366,21 @@ def _straight_case(case):
             alpha="2",
         )
         first_c, first_e = _execute_plans(snapshot, request, ("2",))
-        chain = next(iter(snapshot.physical_chains))
-        use = next(iter(snapshot.chain_uses))
+        use = next(
+            item
+            for item in snapshot.chain_uses
+            if item.chain_use_id in request.selected_chain_use_ids
+        )
+        chain = next(
+            item
+            for item in snapshot.physical_chains
+            if item.physical_chain_id == use.physical_chain_id
+        )
         reversed_snapshot = replace(
             snapshot,
             physical_chains=frozenset(
-                {
-                    replace(
-                        chain,
+                replace(
+                    item,
                         ordered_source_vertex_ids=tuple(
                             reversed(chain.ordered_source_vertex_ids)
                         ),
@@ -381,10 +388,15 @@ def _straight_case(case):
                             reversed(chain.ordered_physical_edge_ids)
                         ),
                     )
-                }
+                if item.physical_chain_id == chain.physical_chain_id
+                else item
+                for item in snapshot.physical_chains
             ),
             chain_uses=frozenset(
-                {replace(use, orientation=ChainUseOrientation.B_START_TO_END)}
+                replace(item, orientation=ChainUseOrientation.B_START_TO_END)
+                if item.chain_use_id == use.chain_use_id
+                else item
+                for item in snapshot.chain_uses
             ),
             terminal_relations=frozenset(
                 replace(

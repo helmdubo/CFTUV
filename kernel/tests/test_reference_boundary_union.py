@@ -326,30 +326,52 @@ def test_data_record_lineage_and_storage_reversal_do_not_change_raw_digest():
         alpha="2",
     )
     _, baseline = _evaluate(snapshot, request, Decimal("2"))
-    chain = next(iter(snapshot.physical_chains))
+    chain_use = next(
+        item
+        for item in snapshot.chain_uses
+        if item.chain_use_id in request.selected_chain_use_ids
+    )
+    chain = next(
+        item
+        for item in snapshot.physical_chains
+        if item.physical_chain_id == chain_use.physical_chain_id
+    )
     changed_lineage = replace(
         snapshot,
         physical_chains=frozenset(
-            {replace(chain, data_record_lineage=frozenset({LineageId("split-a"), LineageId("split-b")}))}
+            replace(
+                item,
+                data_record_lineage=frozenset(
+                    {LineageId("split-a"), LineageId("split-b")}
+                ),
+            )
+            if item.physical_chain_id == chain.physical_chain_id
+            else item
+            for item in snapshot.physical_chains
         ),
     )
     _, lineage_result = _evaluate(changed_lineage, request, Decimal("2"))
     assert lineage_result.raw_coverage.semantic_digest == baseline.raw_coverage.semantic_digest
 
-    chain_use = next(iter(snapshot.chain_uses))
     reversed_snapshot = replace(
         snapshot,
         physical_chains=frozenset(
-            {
+            (
                 replace(
-                    chain,
+                    item,
                     ordered_source_vertex_ids=tuple(reversed(chain.ordered_source_vertex_ids)),
                     ordered_physical_edge_ids=tuple(reversed(chain.ordered_physical_edge_ids)),
                 )
-            }
+                if item.physical_chain_id == chain.physical_chain_id
+                else item
+            )
+            for item in snapshot.physical_chains
         ),
         chain_uses=frozenset(
-            {replace(chain_use, orientation=ChainUseOrientation.B_START_TO_END)}
+            replace(item, orientation=ChainUseOrientation.B_START_TO_END)
+            if item.chain_use_id == chain_use.chain_use_id
+            else item
+            for item in snapshot.chain_uses
         ),
         terminal_relations=frozenset(
             replace(

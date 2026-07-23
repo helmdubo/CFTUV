@@ -82,6 +82,12 @@ from .reference.digest import (
     validate_raw_coverage_digest,
     validate_raw_coverage_semantic_digest,
 )
+from .reference.domain_geometry import (
+    BlockingBoundarySegment,
+    BoundaryRole,
+    SparsePatchDomainGeometryV1,
+    build_sparse_patch_domain_geometry,
+)
 from .reference.provenance import (
     BoundaryGeneratorProvenanceV1,
     CoverageContributorProvenanceV1,
@@ -184,6 +190,10 @@ __all__ = (
     "declare_reference_self_contacts",
     "evaluate_reference_raw_coverage",
     "REFERENCE_BOUNDARY_CAPABILITIES_V1",
+    "BoundaryRole",
+    "BlockingBoundarySegment",
+    "SparsePatchDomainGeometryV1",
+    "build_sparse_patch_domain_geometry",
     "RawCoverageSemanticDigest",
     "raw_coverage_semantic_projection",
     "raw_coverage_semantic_digest",
