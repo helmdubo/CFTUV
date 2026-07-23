@@ -23,6 +23,7 @@ from .contracts.debug import (
     DebugLabelV1,
     DebugLoopV1,
     DebugPathV1,
+    DebugPatchFrameV1,
     DebugPointV1,
     DebugPrimitiveKind,
     DebugRegionV1,
@@ -193,6 +194,11 @@ def validate_envelope_debug_scene(scene: EnvelopeDebugSceneV1) -> tuple[str, ...
     if scene.schema_version != ENVELOPE_DEBUG_SCENE_SCHEMA_V1:
         issues.append("ENVELOPE_DEBUG_SCENE_SCHEMA_UNSUPPORTED")
     domains = set(scene.patch_domain_ids)
+    frame_domains = [item.patch_domain_id for item in scene.patch_frames]
+    if len(frame_domains) != len(set(frame_domains)):
+        issues.append("ENVELOPE_DEBUG_SCENE_DUPLICATE_PATCH_FRAME")
+    if set(frame_domains) != domains:
+        issues.append("ENVELOPE_DEBUG_SCENE_PATCH_FRAME_DOMAIN_MISMATCH")
     records = (*scene.points, *scene.paths, *scene.loops, *scene.regions, *scene.labels)
     identities = [record.semantic_id for record in records]
     if len(identities) != len(set(identities)):
@@ -715,6 +721,24 @@ def build_envelope_debug_scene(
             sorted(selected_domain_ids, key=lambda item: item.value)
         ),
         requested_alpha=request.requested_alpha,
+        patch_frames=tuple(
+            DebugPatchFrameV1(
+                frame.patch_domain_id,
+                frame.origin,
+                frame.axis_u,
+                frame.axis_v,
+                frame.normal,
+            )
+            for frame in sorted(
+                (
+                    item
+                    for item in snapshot.surface_metric_descriptors
+                    if isinstance(item, PlanarPatchFrameV1)
+                    and item.patch_domain_id in selected_domain_ids
+                ),
+                key=lambda item: item.patch_domain_id.value,
+            )
+        ),
         points=tuple(sorted(points, key=lambda item: item.semantic_id.value)),
         paths=tuple(sorted(paths, key=lambda item: item.semantic_id.value)),
         loops=tuple(sorted(loops, key=lambda item: item.semantic_id.value)),

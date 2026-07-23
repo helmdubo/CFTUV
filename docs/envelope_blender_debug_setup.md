@@ -1,68 +1,123 @@
 # Blender Envelope Debug setup
 
-## Current V0-A deliverable
+## Installed Blender 4.3 layout
 
-V0-A provides the exact host adapter and the standalone kernel DebugScene. It
-does not yet add a Blender button or Grease Pencil renderer. Install it now
-only for adapter/API inspection or for preparation of the separately gated
-V0-B runtime.
+The tested add-on package location is:
 
-From this checkout, build the standalone wheel:
+```text
+C:\Users\helmd\AppData\Roaming\Blender Foundation\Blender\4.3\scripts\addons\cftuv
+```
+
+Standalone Python dependencies are installed under:
+
+```text
+C:\Users\helmd\AppData\Roaming\Blender Foundation\Blender\4.3\scripts\addons\modules
+```
+
+V0-B requires `sympy==1.14.0` and `cftuv-envelope-core==0.5.0`.
+The Blender operator never downloads packages.
+
+## Files to copy
+
+For a manual update, copy these four files from the branch checkout into the
+installed `cftuv` package:
+
+```text
+cftuv\envelope_host_adapter.py
+cftuv\envelope_debug_renderer.py
+cftuv\debug.py
+cftuv\operators.py
+```
+
+PowerShell example:
 
 ```powershell
 $Repo = "C:\path\to\CFTUV"
-py -m pip install build
-py -m build --wheel "$Repo\kernel"
+$Addon = "$env:APPDATA\Blender Foundation\Blender\4.3\scripts\addons\cftuv"
+
+Copy-Item "$Repo\cftuv\envelope_host_adapter.py" $Addon -Force
+Copy-Item "$Repo\cftuv\envelope_debug_renderer.py" $Addon -Force
+Copy-Item "$Repo\cftuv\debug.py" $Addon -Force
+Copy-Item "$Repo\cftuv\operators.py" $Addon -Force
 ```
 
-Prepare the pinned dependency as a local wheel set on a machine with package
-access:
+Do not copy `kernel/src/cftuv_envelope` into `cftuv`. Install the standalone
+wheel into the `addons\modules` directory.
+
+## Build and install the kernel
+
+```powershell
+$Repo = "C:\path\to\CFTUV"
+$BlenderPython = "C:\Program Files\Blender Foundation\Blender 4.3\4.3\python\bin\python.exe"
+$Modules = "$env:APPDATA\Blender Foundation\Blender\4.3\scripts\addons\modules"
+
+py -m pip install build
+py -m build --wheel "$Repo\kernel"
+$KernelWheel = Get-ChildItem `
+    "$Repo\kernel\dist\cftuv_envelope_core-0.5.0-*.whl" |
+    Select-Object -First 1
+
+& $BlenderPython -m pip install `
+    --no-index --no-deps --upgrade `
+    --target $Modules `
+    $KernelWheel.FullName
+```
+
+Prepare the pinned SymPy wheel once on a machine with package access:
 
 ```powershell
 $Deps = Join-Path $Repo "blender-envelope-deps"
 New-Item -ItemType Directory -Force -Path $Deps
 py -m pip download --only-binary=:all: --dest $Deps "sympy==1.14.0"
+& $BlenderPython -m pip install `
+    --no-index --find-links $Deps --upgrade `
+    --target $Modules `
+    "sympy==1.14.0"
 ```
 
-Choose the Python executable shipped with the installed Blender version. For
-example, adjust both version components for Blender 4.5:
+## Runtime use
+
+In Blender 4.3:
+
+1. Open `View3D > Sidebar > Hotspot UV`.
+2. Select a mesh and enter Edit Mode. The whole mesh may contain several
+   planar or non-planar patches.
+3. Enable Edge Select.
+4. Select every edge of one or more complete PhysicalChains.
+5. In `Envelope Debug (Exact Planar)`, set Alpha and press Build.
+
+The result is a separate
+`CFTUV_DEBUG_Envelope_<source object>` Grease Pencil object. Build/Clear do
+not call the legacy Decal producer.
+
+Exact-frame admission is applied only to PatchDomains reached by the selected
+PhysicalChains. An unselected tilted or non-exact patch cannot block a
+selected exact-planar patch. A selected seam reaches both of its patch-side
+domains, so both frames must be certified.
+
+An unproved plane reports
+`ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE`. A partial chain reports
+`ENVELOPE_DEBUG_PARTIAL_CHAIN_SELECTION_UNSUPPORTED`. Neither case rounds the
+frame or falls back to legacy geometry. Geometric planarity alone is not yet
+sufficient: the selected PatchDomain's stored local U/V/N basis must also
+satisfy the exact orthonormal certificate. Arbitrarily tilted local mesh
+coordinates will commonly remain outside this V0 subset; an exact local mesh
+with rotation carried by `matrix_world` is supported.
+
+## Preflight and smoke
 
 ```powershell
-$BlenderPython = "C:\Program Files\Blender Foundation\Blender 4.5\4.5\python\bin\python.exe"
-& $BlenderPython -m ensurepip
-& $BlenderPython -m pip install --no-index --find-links $Deps "sympy==1.14.0"
-$KernelWheel = Get-ChildItem "$Repo\kernel\dist\cftuv_envelope_core-0.4.0-*.whl" | Select-Object -First 1
-& $BlenderPython -m pip install --no-index --force-reinstall $KernelWheel.FullName
+$Blender = "C:\Program Files\Blender Foundation\Blender 4.3\blender.exe"
+
+& $Blender --background --factory-startup --python-expr `
+  "import addon_utils, sympy, cftuv_envelope; addon_utils.enable('cftuv'); assert sympy.__version__ == '1.14.0'; assert cftuv_envelope.__version__ == '0.5.0'"
+
+& $Blender --background --factory-startup --python `
+  "$Repo\tests\blender\test_envelope_debug_bridge.py"
 ```
 
-The Blender operator must never download packages. Missing or mismatched
-dependencies are reported as `ENVELOPE_DEBUG_KERNEL_UNAVAILABLE` or
-`ENVELOPE_DEBUG_SYMPY_VERSION_UNSUPPORTED`.
+Expected final line:
 
-## File to copy into the add-on for V0-A
-
-Find the installed `cftuv` add-on package, then copy exactly one host file:
-
-```powershell
-$AddonDir = Join-Path $env:APPDATA "Blender Foundation\Blender\4.5\scripts\addons\cftuv"
-Copy-Item "$Repo\cftuv\envelope_host_adapter.py" "$AddonDir\envelope_host_adapter.py" -Force
+```text
+ENVELOPE_DEBUG_BLENDER_SMOKE_OK
 ```
-
-Do not copy `kernel/src/cftuv_envelope` into the add-on directory; install the
-wheel into Blender Python. V0-A does not change `cftuv/debug.py`,
-`cftuv/operators.py`, or registration files, so copying the adapter alone
-does not create a UI control.
-
-After the V0-A gate is accepted, V0-B will provide the exact list of runtime
-files to copy (renderer, centralized `debug.py` compatibility additions, and
-thin operator/registration changes) plus a Blender background smoke command.
-
-## Preflight
-
-The following command checks only dependency visibility:
-
-```powershell
-& $BlenderPython -c "import sympy, cftuv_envelope; assert sympy.__version__ == '1.14.0'; print(cftuv_envelope.__version__)"
-```
-
-Expected V0-A kernel version: `0.4.0`.

@@ -28,7 +28,7 @@ from cftuv_envelope import (
 )
 
 
-PUBLIC_API_V0_A_SHA256 = "1232fabba8e53ac15f7fa725400e809fe3934a95ca4cf5a3c4be7b8cfeda0d60"
+PUBLIC_API_V0_B_SHA256 = "5af1aea3fb0020d5a28af00561874e3f35025d74eae4b23c66cd12524d19a627"
 
 
 def _public_record_types():
@@ -79,7 +79,7 @@ def test_top_level_public_api_is_explicit_and_snapshotted():
     assert public_names == set(cftuv_envelope.__all__)
     assert len(cftuv_envelope.__all__) == len(set(cftuv_envelope.__all__))
     digest = hashlib.sha256("\n".join(cftuv_envelope.__all__).encode("utf-8")).hexdigest()
-    assert digest == PUBLIC_API_V0_A_SHA256
+    assert digest == PUBLIC_API_V0_B_SHA256
 
 
 def test_public_dto_annotations_have_no_mutable_or_untyped_containers():

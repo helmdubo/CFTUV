@@ -529,6 +529,43 @@ def test_unselected_patch_domain_is_not_projected_into_debug_scene():
     } == set(evaluation.debug_scene.patch_domain_ids)
 
 
+def test_unselected_nonexact_patch_does_not_block_selected_exact_domain():
+    bundle = _two_patch_seam_bundle()
+    root = 2.0**-0.5
+    bundle.patch_graph.nodes[1].basis_u = Vector((root, root, 0.0))
+    bundle.patch_graph.nodes[1].basis_v = Vector((-root, root, 0.0))
+
+    evaluation = evaluate_envelope_debug(
+        bundle,
+        frozenset({0}),
+        0.25,
+    )
+
+    assert evaluation.diagnostics == ()
+    assert evaluation.snapshot is not None
+    assert len(evaluation.snapshot.patch_domains) == 1
+    assert evaluation.debug_scene is not None
+    assert len(evaluation.debug_scene.patch_domain_ids) == 1
+
+
+def test_selected_nonexact_patch_still_fails_exact_frame_admission():
+    bundle = _two_patch_seam_bundle()
+    root = 2.0**-0.5
+    bundle.patch_graph.nodes[1].basis_u = Vector((root, root, 0.0))
+    bundle.patch_graph.nodes[1].basis_v = Vector((-root, root, 0.0))
+
+    evaluation = evaluate_envelope_debug(
+        bundle,
+        frozenset({4}),
+        0.25,
+    )
+
+    assert evaluation.debug_scene is None
+    assert evaluation.diagnostics[0].outcome is (
+        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE
+    )
+
+
 def test_seam_self_maps_to_two_uses_in_one_domain_without_self_contact_guessing():
     snapshot = build_envelope_analysis_snapshot(_self_seam_bundle())
     self_chains = [

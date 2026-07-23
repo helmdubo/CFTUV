@@ -310,6 +310,38 @@
       ],
       "type": "object"
     },
+    "DebugPatchFrameV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "DebugPatchFrameV1"
+        },
+        "axis_u": {
+          "$ref": "#/$defs/LocalVector3V1"
+        },
+        "axis_v": {
+          "$ref": "#/$defs/LocalVector3V1"
+        },
+        "normal": {
+          "$ref": "#/$defs/LocalVector3V1"
+        },
+        "origin": {
+          "$ref": "#/$defs/LocalPoint3V1"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        }
+      },
+      "required": [
+        "$type",
+        "patch_domain_id",
+        "origin",
+        "axis_u",
+        "axis_v",
+        "normal"
+      ],
+      "type": "object"
+    },
     "DebugPathV1": {
       "additionalProperties": false,
       "properties": {
@@ -632,6 +664,12 @@
           },
           "type": "array"
         },
+        "patch_frames": {
+          "items": {
+            "$ref": "#/$defs/DebugPatchFrameV1"
+          },
+          "type": "array"
+        },
         "paths": {
           "items": {
             "$ref": "#/$defs/DebugPathV1"
@@ -685,6 +723,7 @@
         "request_ids",
         "patch_domain_ids",
         "requested_alpha",
+        "patch_frames",
         "points",
         "paths",
         "loops",
@@ -734,6 +773,54 @@
         "$type",
         "value",
         "metric_space"
+      ],
+      "type": "object"
+    },
+    "LocalPoint3V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "LocalPoint3V1"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "$type",
+        "x",
+        "y",
+        "z"
+      ],
+      "type": "object"
+    },
+    "LocalVector3V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "LocalVector3V1"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "$type",
+        "x",
+        "y",
+        "z"
       ],
       "type": "object"
     },

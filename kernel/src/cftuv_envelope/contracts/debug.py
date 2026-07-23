@@ -13,7 +13,7 @@ from ..ids import (
     PatchDomainId,
     SourceRevision,
 )
-from ..numeric import LocalLengthV1
+from ..numeric import LocalLengthV1, LocalPoint3V1, LocalVector3V1
 
 
 ENVELOPE_DEBUG_SCENE_SCHEMA_V1 = "cftuv.envelope.debug_scene.v1"
@@ -56,6 +56,15 @@ class DebugDiagnosticSeverity(str, Enum):
     CAPACITY = "CAPACITY"
     UNSUPPORTED = "UNSUPPORTED"
     ERROR = "ERROR"
+
+
+@dataclass(frozen=True, slots=True)
+class DebugPatchFrameV1:
+    patch_domain_id: PatchDomainId
+    origin: LocalPoint3V1
+    axis_u: LocalVector3V1
+    axis_v: LocalVector3V1
+    normal: LocalVector3V1
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +177,7 @@ class EnvelopeDebugSceneV1:
     request_ids: tuple[DecalRequestId, ...]
     patch_domain_ids: tuple[PatchDomainId, ...]
     requested_alpha: LocalLengthV1
+    patch_frames: tuple[DebugPatchFrameV1, ...]
     points: tuple[DebugPointV1, ...]
     paths: tuple[DebugPathV1, ...]
     loops: tuple[DebugLoopV1, ...]

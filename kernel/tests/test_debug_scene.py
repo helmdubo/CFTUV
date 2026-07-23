@@ -54,6 +54,9 @@ def test_debug_scene_projects_ready_exact_results_and_roundtrips():
     assert validate_envelope_debug_scene(scene) == ()
     assert scene.raw_coverage_digests
     assert scene.resolved_coverage_digests
+    assert {item.patch_domain_id for item in scene.patch_frames} == set(
+        scene.patch_domain_ids
+    )
     assert any(item.style_key == "ENV_20_SOURCE_SUPPORTS" for item in scene.paths)
     assert any(item.style_key == "ENV_30_ENVELOPE_INSTANCES" for item in scene.regions)
     assert any(item.style_key == "ENV_40_RAW_COVERAGE" for item in scene.loops)

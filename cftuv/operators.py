@@ -41,6 +41,8 @@ from .decal_transform import (
 )
 from .decal_session import CapturedDecalRequest, DecalSessionController
 from .debug import (
+    ENVELOPE_DEBUG_GP_PREFIX,
+    GreasePencilDebugWriter,
     apply_layer_visibility,
     clear_decal_rail_visualization,
     clear_visualization,
@@ -197,6 +199,20 @@ class HOTSPOTUV_AddonPreferences(bpy.types.AddonPreferences):
         layout.prop(self, "clear_pins_after_phase1")
 
 
+def _update_envelope_debug_visibility(settings, _context):
+    """Обновляет только видимость уже построенных Envelope GP layers."""
+
+    source_name = str(settings.envelope_debug_source_object).strip()
+    if not source_name:
+        return
+    try:
+        from .envelope_debug_renderer import apply_envelope_debug_visibility
+
+        apply_envelope_debug_visibility(source_name, settings)
+    except (ImportError, RuntimeError, TypeError, ValueError) as exc:
+        print(f"[CFTUV][EnvelopeDebug] Visibility update failed: {exc}")
+
+
 class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
     target_texel_density: IntProperty(
         name="Target Texel Density (px/m)", default=512, min=1
@@ -344,6 +360,75 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
             "Modal drag display adapter; confirm always uses exact BMesh "
             "materialization"
         ),
+    )
+    # Exact-planar Envelope diagnostic bridge.
+    envelope_debug_alpha: FloatProperty(
+        name="Alpha",
+        default=0.25,
+        min=0.0,
+        description="Exact propagation alpha for a complete selected PhysicalChain",
+    )
+    envelope_debug_source_object: StringProperty(
+        name="Envelope Debug Source",
+        default="",
+    )
+    envelope_debug_status: StringProperty(
+        name="Envelope Debug Status",
+        default="Not built",
+    )
+    envelope_debug_outcome: StringProperty(
+        name="Envelope Debug Outcome",
+        default="",
+    )
+    envelope_debug_show_domains: BoolProperty(
+        name="Domains",
+        default=True,
+        update=_update_envelope_debug_visibility,
+    )
+    envelope_debug_show_chains: BoolProperty(
+        name="Chains",
+        default=True,
+        update=_update_envelope_debug_visibility,
+    )
+    envelope_debug_show_supports: BoolProperty(
+        name="Supports",
+        default=True,
+        update=_update_envelope_debug_visibility,
+    )
+    envelope_debug_show_envelopes: BoolProperty(
+        name="Envelopes",
+        default=True,
+        update=_update_envelope_debug_visibility,
+    )
+    envelope_debug_show_raw: BoolProperty(
+        name="Raw",
+        default=True,
+        update=_update_envelope_debug_visibility,
+    )
+    envelope_debug_show_readings: BoolProperty(
+        name="Readings",
+        default=True,
+        update=_update_envelope_debug_visibility,
+    )
+    envelope_debug_show_equality: BoolProperty(
+        name="Equality",
+        default=True,
+        update=_update_envelope_debug_visibility,
+    )
+    envelope_debug_show_resolved: BoolProperty(
+        name="Resolved",
+        default=True,
+        update=_update_envelope_debug_visibility,
+    )
+    envelope_debug_show_diagnostics: BoolProperty(
+        name="Diagnostics",
+        default=True,
+        update=_update_envelope_debug_visibility,
+    )
+    envelope_debug_show_labels: BoolProperty(
+        name="Labels",
+        default=True,
+        update=_update_envelope_debug_visibility,
     )
     # Debug state
     dbg_active: BoolProperty(
@@ -611,6 +696,11 @@ def _capture_face_selection(bm):
 def _capture_selected_seam_edges(bm):
     """Выбранные seam edges как seed для ручного decal-режима."""
     return [edge.index for edge in bm.edges if edge.select and edge.seam]
+
+
+def _capture_selected_physical_edges(bm):
+    """Выбранные physical edges для whole-chain Envelope debug request."""
+    return [edge.index for edge in bm.edges if edge.select]
 
 
 def _is_edge_select_mode(context, obj):
@@ -2075,6 +2165,188 @@ class HOTSPOTUV_OT_GenerateDecals(bpy.types.Operator):
 
 
 # ============================================================
+# ENVELOPE DEBUG — EXACT PLANAR, STATIC
+# ============================================================
+
+def _envelope_debug_outcome_value(value):
+    return str(value.value) if hasattr(value, "value") else str(value)
+
+
+class HOTSPOTUV_OT_BuildEnvelopeDebug(bpy.types.Operator):
+    bl_idname = "hotspotuv.build_envelope_debug"
+    bl_label = "Build Envelope Debug"
+    bl_description = (
+        "Compile exact-planar Envelope Raw/Resolved coverage from selected "
+        "whole PhysicalChains and render diagnostic Grease Pencil layers"
+    )
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return (
+            obj is not None
+            and obj.type == "MESH"
+            and obj.mode == "EDIT"
+            and bool(context.tool_settings.mesh_select_mode[1])
+        )
+
+    def execute(self, context):
+        settings = context.scene.hotspotuv_settings
+        source_obj = context.active_object
+        if source_obj is None or source_obj.type != "MESH":
+            self.report({"ERROR"}, "Select a mesh object")
+            return {"CANCELLED"}
+
+        from .envelope_debug_renderer import (
+            clear_envelope_debug,
+            render_envelope_debug_scene,
+            visibility_from_settings,
+        )
+
+        previous_source = str(settings.envelope_debug_source_object).strip()
+        for source_name in {
+            previous_source,
+            source_obj.name,
+        }:
+            if source_name:
+                clear_envelope_debug(source_name)
+        settings.envelope_debug_source_object = source_obj.name
+        settings.envelope_debug_status = "Building..."
+        settings.envelope_debug_outcome = ""
+
+        source_bm = bmesh.from_edit_mesh(source_obj.data)
+        source_bm.edges.ensure_lookup_table()
+        selected_edge_indices = _capture_selected_physical_edges(source_bm)
+        if not selected_edge_indices:
+            outcome = "ENVELOPE_DEBUG_EMPTY_SELECTION"
+            settings.envelope_debug_status = "Failed: select a whole PhysicalChain"
+            settings.envelope_debug_outcome = outcome
+            self.report({"WARNING"}, outcome)
+            return {"CANCELLED"}
+
+        obj = None
+        original_mode = "EDIT"
+        selected_faces = []
+        try:
+            (
+                obj,
+                _bm,
+                analysis_bundle,
+                original_mode,
+                selected_faces,
+            ) = _prepare_patch_graph(
+                context,
+                require_selection=False,
+                use_all_faces=True,
+            )
+            from .envelope_host_adapter import evaluate_envelope_debug
+
+            evaluation = evaluate_envelope_debug(
+                analysis_bundle,
+                frozenset(selected_edge_indices),
+                float(settings.envelope_debug_alpha),
+            )
+        except Exception as exc:
+            clear_envelope_debug(source_obj)
+            settings.envelope_debug_status = "Failed before render"
+            settings.envelope_debug_outcome = type(exc).__name__
+            self.report({"ERROR"}, f"Envelope Debug failed: {exc}")
+            return {"CANCELLED"}
+        finally:
+            if obj is not None:
+                _restore_mode_and_selection(
+                    obj,
+                    original_mode,
+                    selected_faces,
+                )
+                _restore_edge_selection(obj, selected_edge_indices)
+
+        if evaluation.debug_scene is None:
+            diagnostic = (
+                evaluation.diagnostics[0]
+                if evaluation.diagnostics
+                else None
+            )
+            outcome = (
+                _envelope_debug_outcome_value(diagnostic.outcome)
+                if diagnostic is not None
+                else "ENVELOPE_DEBUG_PIPELINE_STAGE_FAILED"
+            )
+            message = (
+                diagnostic.message
+                if diagnostic is not None
+                else "Envelope Debug did not produce a DebugScene"
+            )
+            settings.envelope_debug_status = f"Failed: {outcome}"
+            settings.envelope_debug_outcome = outcome
+            self.report({"ERROR"}, f"{outcome}: {message}")
+            return {"CANCELLED"}
+
+        try:
+            summary = render_envelope_debug_scene(
+                evaluation.debug_scene,
+                source_obj,
+                visibility_by_layer=visibility_from_settings(settings),
+            )
+        except Exception as exc:
+            clear_envelope_debug(source_obj)
+            settings.envelope_debug_status = "Failed during GP render"
+            settings.envelope_debug_outcome = type(exc).__name__
+            self.report({"ERROR"}, f"Envelope Debug render failed: {exc}")
+            return {"CANCELLED"}
+
+        outcome = "EXACT"
+        if evaluation.diagnostics:
+            outcome = _envelope_debug_outcome_value(
+                evaluation.diagnostics[0].outcome
+            )
+        domain_count = len(evaluation.debug_scene.patch_domain_ids)
+        settings.envelope_debug_status = (
+            f"Built: {summary.stroke_count} strokes / "
+            f"{domain_count} domains"
+        )
+        settings.envelope_debug_outcome = outcome
+        self.report(
+            {"INFO"},
+            (
+                f"Envelope Debug: {summary.stroke_count} strokes, "
+                f"{summary.layer_count} layers, {domain_count} domains"
+            ),
+        )
+        return {"FINISHED"}
+
+
+class HOTSPOTUV_OT_ClearEnvelopeDebug(bpy.types.Operator):
+    bl_idname = "hotspotuv.clear_envelope_debug"
+    bl_label = "Clear Envelope Debug"
+    bl_description = "Remove Envelope Debug GP object and JSON sidecar"
+    bl_options = {"REGISTER"}
+
+    def execute(self, context):
+        settings = context.scene.hotspotuv_settings
+        active_obj = context.active_object
+        source_names = {
+            str(settings.envelope_debug_source_object).strip(),
+            (
+                active_obj.name
+                if active_obj is not None and active_obj.type == "MESH"
+                else ""
+            ),
+        }
+        from .envelope_debug_renderer import clear_envelope_debug
+
+        for source_name in source_names:
+            if source_name:
+                clear_envelope_debug(source_name)
+        settings.envelope_debug_source_object = ""
+        settings.envelope_debug_status = "Cleared"
+        settings.envelope_debug_outcome = ""
+        self.report({"INFO"}, "Envelope Debug cleared")
+        return {"FINISHED"}
+
+
+# ============================================================
 # LEGACY OPERATORS — DISABLED
 # Будут пересобраны на ScaffoldMap в Phase 5.
 # ============================================================
@@ -2180,6 +2452,51 @@ class HOTSPOTUV_PT_Panel(bpy.types.Panel):
             text="Clean Non-Manifold Edges",
             icon="MESH_DATA",
         )
+
+        # --- Envelope Debug ---
+        layout.separator()
+        envelope_box = layout.box()
+        envelope_box.label(
+            text="Envelope Debug (Exact Planar)",
+            icon="GREASEPENCIL",
+        )
+        envelope_box.label(
+            text="Edit Mode / Edge Select / whole chain",
+            icon="INFO",
+        )
+        envelope_box.prop(s, "envelope_debug_alpha")
+        row = envelope_box.row(align=True)
+        row.operator(
+            "hotspotuv.build_envelope_debug",
+            text="Build",
+            icon="PLAY",
+        )
+        row.operator(
+            "hotspotuv.clear_envelope_debug",
+            text="Clear",
+            icon="X",
+        )
+        envelope_box.label(text=s.envelope_debug_status)
+        if s.envelope_debug_outcome:
+            envelope_box.label(
+                text=f"Outcome: {s.envelope_debug_outcome}",
+            )
+        visibility = envelope_box.grid_flow(
+            row_major=True,
+            columns=2,
+            even_columns=True,
+            align=True,
+        )
+        visibility.prop(s, "envelope_debug_show_domains")
+        visibility.prop(s, "envelope_debug_show_chains")
+        visibility.prop(s, "envelope_debug_show_supports")
+        visibility.prop(s, "envelope_debug_show_envelopes")
+        visibility.prop(s, "envelope_debug_show_raw")
+        visibility.prop(s, "envelope_debug_show_readings")
+        visibility.prop(s, "envelope_debug_show_equality")
+        visibility.prop(s, "envelope_debug_show_resolved")
+        visibility.prop(s, "envelope_debug_show_diagnostics")
+        visibility.prop(s, "envelope_debug_show_labels")
 
         # --- Decals ---
         layout.separator()
@@ -2383,6 +2700,8 @@ classes = (
     HOTSPOTUV_OT_SolvePhase1Preview,
     HOTSPOTUV_OT_CleanNonManifoldEdges,
     HOTSPOTUV_OT_GenerateDecals,
+    HOTSPOTUV_OT_BuildEnvelopeDebug,
+    HOTSPOTUV_OT_ClearEnvelopeDebug,
     # Legacy stubs (disabled)
     HOTSPOTUV_OT_UnwrapFaces,
     HOTSPOTUV_OT_ManualDock,
@@ -2406,8 +2725,17 @@ def unregister():
         bpy.app.handlers.frame_change_post.remove(_frontier_replay_frame_handler)
     # Cleanup GP debug objects
     for obj in list(bpy.data.objects):
-        if obj.name.startswith(GP_DEBUG_PREFIX):
+        if obj.name.startswith(ENVELOPE_DEBUG_GP_PREFIX):
+            GreasePencilDebugWriter.clear_object(obj.name)
+    for obj in list(bpy.data.objects):
+        if (
+            obj.name.startswith(GP_DEBUG_PREFIX)
+            and not obj.name.startswith(ENVELOPE_DEBUG_GP_PREFIX)
+        ):
             bpy.data.objects.remove(obj, do_unlink=True)
+    for text in list(bpy.data.texts):
+        if text.name.startswith("CFTUV_EnvelopeDebug_"):
+            bpy.data.texts.remove(text)
     if hasattr(bpy.types.Scene, "hotspotuv_settings"):
         del bpy.types.Scene.hotspotuv_settings
     for cls in reversed(classes):

@@ -252,6 +252,211 @@ def _collect_host_chains(analysis_bundle: AnalysisBundle) -> tuple[_HostChainRec
     return tuple(records)
 
 
+def _host_chain_key(
+    record: _HostChainRecord,
+) -> tuple[bool, tuple[int, ...], tuple[int, ...]]:
+    return (
+        bool(record.chain.is_closed),
+        record.canonical_edge_ids,
+        record.canonical_vertex_ids,
+    )
+
+
+def _group_host_chains(
+    host_chains: tuple[_HostChainRecord, ...],
+) -> dict[tuple[bool, tuple[int, ...], tuple[int, ...]], list[_HostChainRecord]]:
+    groups: dict[
+        tuple[bool, tuple[int, ...], tuple[int, ...]],
+        list[_HostChainRecord],
+    ] = {}
+    for record in host_chains:
+        groups.setdefault(_host_chain_key(record), []).append(record)
+    return groups
+
+
+def _validate_chain_group_topology(
+    records: list[_HostChainRecord],
+) -> None:
+    neighbor_kinds = {record.chain.neighbor_kind for record in records}
+    patch_group = {record.patch_id for record in records}
+    if len(neighbor_kinds) != 1:
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_PHYSICAL_CHAIN_INVALID,
+            "one canonical PhysicalChain has conflicting host neighbor kinds",
+        )
+    neighbor_kind = next(iter(neighbor_kinds))
+    if neighbor_kind is ChainNeighborKind.SEAM_SELF:
+        if len(records) != 2 or len(patch_group) != 1:
+            raise EnvelopeHostAdapterError(
+                EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_SELF_SEAM_USE_PAIR_UNAVAILABLE,
+                "SEAM_SELF requires exactly two host ChainUses in one PatchDomain",
+            )
+    elif neighbor_kind is ChainNeighborKind.PATCH:
+        if len(records) != 2 or len(patch_group) != 2:
+            raise EnvelopeHostAdapterError(
+                EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_CHAIN_USE_PAIR_UNAVAILABLE,
+                "physical seam requires two exact whole-chain patch-side uses",
+            )
+    elif len(records) != 1:
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_PHYSICAL_CHAIN_INVALID,
+            "ordinary host boundary source requires exactly one ChainUse",
+        )
+
+
+def _selected_patch_scope(
+    analysis_bundle: AnalysisBundle,
+    selected_physical_edge_ids: frozenset[int],
+) -> frozenset[int]:
+    """Resolve whole-chain selection before any per-domain metric admission."""
+
+    if not selected_physical_edge_ids:
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EMPTY_SELECTION,
+            "Envelope debug requires at least one selected physical edge",
+        )
+    selected_edges = frozenset(int(item) for item in selected_physical_edge_ids)
+    known_edges = {
+        int(item.edge_id) for item in analysis_bundle.patch_surface.edges
+    }
+    unknown = selected_edges - known_edges
+    if unknown:
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_SELECTED_EDGE_UNKNOWN,
+            f"selected physical edges are absent from AnalysisBundle: {sorted(unknown)}",
+        )
+
+    host_chains = _collect_host_chains(analysis_bundle)
+    chain_groups = _group_host_chains(host_chains)
+    selected_keys = set()
+    covered = set()
+    for key in sorted(chain_groups):
+        chain_edges = frozenset(key[1])
+        overlap = selected_edges & chain_edges
+        if not overlap:
+            continue
+        if overlap != chain_edges:
+            raise EnvelopeHostAdapterError(
+                EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_PARTIAL_CHAIN_SELECTION_UNSUPPORTED,
+                "V0 accepts only complete PhysicalChain selection; "
+                f"selected={sorted(overlap)} chain={sorted(chain_edges)}",
+            )
+        selected_keys.add(key)
+        covered.update(chain_edges)
+    if covered != set(selected_edges):
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_PARTIAL_CHAIN_SELECTION_UNSUPPORTED,
+            "selected edges do not resolve to an exact set of whole PhysicalChains",
+        )
+
+    selected_patch_ids = frozenset(
+        record.patch_id
+        for key in selected_keys
+        for record in chain_groups[key]
+    )
+    if not selected_patch_ids:
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EMPTY_SELECTION,
+            "whole-chain selection resolved to no PatchDomain",
+        )
+
+    # Exact-frame admission is request-scoped, but topology is not guessed.
+    # Every seam touching a selected domain must still have its real counterpart
+    # in the original AnalysisBundle before the opposite unselected domain is
+    # omitted from the evaluation slice.
+    for records in chain_groups.values():
+        if any(record.patch_id in selected_patch_ids for record in records):
+            _validate_chain_group_topology(records)
+    return selected_patch_ids
+
+
+def _slice_analysis_bundle(
+    analysis_bundle: AnalysisBundle,
+    included_patch_ids: frozenset[int],
+) -> AnalysisBundle:
+    """Create a request-domain view without changing source coordinates."""
+
+    from .model import PatchGraph
+    from .surface_ir import (
+        AnalysisBundle,
+        PatchSurfaceIR,
+        SourceEdge,
+    )
+
+    available_patch_ids = frozenset(
+        int(item) for item in analysis_bundle.patch_graph.nodes
+    )
+    unknown = included_patch_ids - available_patch_ids
+    if not included_patch_ids or unknown:
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID,
+            "request-scoped PatchDomain set is empty or unknown: "
+            f"{sorted(included_patch_ids)}",
+        )
+
+    revision = analysis_bundle.source_revision
+    graph = PatchGraph(source_revision=revision)
+    for patch_id in sorted(included_patch_ids):
+        graph.add_node(analysis_bundle.patch_graph.nodes[patch_id])
+    for seam in analysis_bundle.patch_graph.edges.values():
+        if (
+            int(seam.patch_a_id) in included_patch_ids
+            and int(seam.patch_b_id) in included_patch_ids
+        ):
+            graph.add_edge(seam)
+
+    faces = tuple(
+        item
+        for item in analysis_bundle.patch_surface.faces
+        if int(item.patch_id) in included_patch_ids
+    )
+    face_ids = {int(item.face_id) for item in faces}
+    edge_ids = {
+        int(edge_id)
+        for face in faces
+        for edge_id in face.edge_cycle
+    }
+    vertex_ids = {
+        int(vertex_id)
+        for face in faces
+        for vertex_id in face.vertex_cycle
+    }
+    edges = tuple(
+        SourceEdge(
+            int(item.edge_id),
+            tuple(int(value) for value in item.vertex_ids),
+            tuple(
+                int(face_id)
+                for face_id in item.source_face_ids
+                if int(face_id) in face_ids
+            ),
+        )
+        for item in analysis_bundle.patch_surface.edges
+        if int(item.edge_id) in edge_ids
+    )
+    surface = PatchSurfaceIR(
+        revision,
+        vertices=tuple(
+            item
+            for item in analysis_bundle.patch_surface.vertices
+            if int(item.vertex_id) in vertex_ids
+        ),
+        edges=edges,
+        faces=faces,
+        triangles=tuple(
+            item
+            for item in analysis_bundle.patch_surface.triangles
+            if int(item.source_face_id) in face_ids
+        ),
+    )
+    return AnalysisBundle(
+        revision,
+        graph,
+        surface,
+        analysis_bundle.capabilities,
+    )
+
+
 def _shape_class(kernel, patch) -> object:
     value = getattr(patch, "shape_class", None)
     if value is None:
@@ -784,10 +989,18 @@ def _build_angular_relations(
 
 def build_envelope_analysis_snapshot(
     analysis_bundle: AnalysisBundle,
+    *,
+    included_patch_ids: frozenset[int] | None = None,
 ) -> envelope_kernel.AnalysisSnapshotV1:
     """Map one real host AnalysisBundle without geometry repair or fallback."""
 
     kernel, sympy = _load_kernel()
+    request_scoped = included_patch_ids is not None
+    if included_patch_ids is not None:
+        analysis_bundle = _slice_analysis_bundle(
+            analysis_bundle,
+            frozenset(int(item) for item in included_patch_ids),
+        )
     analysis_bundle.capabilities.require_supported()
     revision = _revision_value(analysis_bundle.source_revision)
     source_revision = kernel.SourceRevision(revision)
@@ -854,14 +1067,7 @@ def build_envelope_analysis_snapshot(
     )
 
     host_chains = _collect_host_chains(analysis_bundle)
-    chain_groups: dict[tuple[bool, tuple[int, ...], tuple[int, ...]], list] = {}
-    for record in host_chains:
-        key = (
-            bool(record.chain.is_closed),
-            record.canonical_edge_ids,
-            record.canonical_vertex_ids,
-        )
-        chain_groups.setdefault(key, []).append(record)
+    chain_groups = _group_host_chains(host_chains)
 
     physical_chains = []
     chain_id_by_key = {}
@@ -884,7 +1090,16 @@ def build_envelope_analysis_snapshot(
                 )
             chain_kind = kernel.PhysicalChainKind.SEAM_SELF
         elif neighbor_kind is ChainNeighborKind.PATCH:
-            if len(records) != 2 or len(patch_group) != 2:
+            # A request-scoped snapshot may contain one use of a seam whose
+            # opposite PatchDomain was not selected. _selected_patch_scope()
+            # has already proved the complete pair in the source bundle.
+            exact_pair = len(records) == 2 and len(patch_group) == 2
+            external_scoped_use = (
+                request_scoped
+                and len(records) == 1
+                and len(patch_group) == 1
+            )
+            if not exact_pair and not external_scoped_use:
                 raise EnvelopeHostAdapterError(
                     EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_CHAIN_USE_PAIR_UNAVAILABLE,
                     "physical seam requires two exact whole-chain patch-side uses",
@@ -1432,7 +1647,14 @@ def evaluate_envelope_debug(
     started = time.perf_counter()
     try:
         kernel, _ = _load_kernel()
-        snapshot = build_envelope_analysis_snapshot(analysis_bundle)
+        included_patch_ids = _selected_patch_scope(
+            analysis_bundle,
+            selected_physical_edge_ids,
+        )
+        snapshot = build_envelope_analysis_snapshot(
+            analysis_bundle,
+            included_patch_ids=included_patch_ids,
+        )
         request = build_envelope_decal_request(
             snapshot, selected_physical_edge_ids, alpha
         )
