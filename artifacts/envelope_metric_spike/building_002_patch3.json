@@ -1,0 +1,745 @@
+{
+  "filtered_predicate_policy_candidate": {
+    "law": "abs(orient2d) > 64 * machine_epsilon * max_coordinate_delta_squared; otherwise exact fallback",
+    "orientation_error_multiplier": 64,
+    "policy_id": "RUNTIME_FILTERED_PREDICATE_BOUND_CANDIDATE_V1",
+    "status": "RESEARCH_CANDIDATE_NOT_PRODUCT_POLICY"
+  },
+  "fixture_result": {
+    "comparisons": {
+      "all_admitted_digests_stable": true,
+      "exact_model_semantic_result_equal": true,
+      "representation_digest_equal": false,
+      "runtime_vs_reference": {
+        "absolute_area_deviation": 6.661338147750939e-16,
+        "combinatorial_topology_equal": true,
+        "max_unlabeled_vertex_deviation": 0.0,
+        "max_vertex_deviation": 0.0,
+        "semantic_topology_and_provenance_equal": true,
+        "vertex_identity_equal": true
+      }
+    },
+    "expected_admission": true,
+    "fixture": "building_002_patch_3",
+    "models": {
+      "ALGEBRAIC_ORTHONORMAL_FRAME": {
+        "admission_outcome": "ADMITTED",
+        "admission_success": true,
+        "angle_certificate_complexity": {
+          "cosine_expression": "Integer(0)",
+          "expression_node_count": 7,
+          "orientation_sign": 1,
+          "peak_expression_length": 127
+        },
+        "arrangement_counters": {
+          "actual_intersections": 20,
+          "all_possible_pairs": 28,
+          "atomic_edges": 7,
+          "broadphase_candidate_pairs": 17,
+          "input_segments": 8,
+          "narrowphase_tests": 17
+        },
+        "chart": {
+          "domain_coordinates_all_rational": false,
+          "exact": true,
+          "normal_length_expression": "Mul(Rational(389, 2500000000000000000000000000000), Pow(Integer(262653219967805931343601013437543314550179844851187488034), Rational(1, 2)))"
+        },
+        "compile_seconds_median": 0.0029448000132106245,
+        "digest_stable_across_repeats": true,
+        "exact_sign_batch_seconds_median": 0.004215799970552325,
+        "expected_admission": true,
+        "expression_metrics": {
+          "expression_count": 41,
+          "expression_node_count": 77,
+          "peak_expression_length": 140,
+          "peak_expression_node_count": 5,
+          "total_expression_length": 1451
+        },
+        "filtered_predicates": null,
+        "frame_build_seconds_median": 0.0015811999910511076,
+        "invariant_digest": "f419a8be25a5bdce485f23b07854ed625cbd98571c6932c507b8345ac80b0711",
+        "model": "ALGEBRAIC_ORTHONORMAL_FRAME",
+        "peak_tracemalloc_bytes": 291196,
+        "physical_area_expression": "Mul(Rational(3, 10000000000000000), Pow(Integer(6359191663799732726541876792914), Rational(1, 2)))",
+        "physical_vertex_expressions": {
+          "raw-vertex:7878118660f4ce1df7d8dca0": [
+            "Rational(4842615127563477, 1000000000000000)",
+            "Rational(225077, 8192)",
+            "Rational(2009467, 32768)"
+          ],
+          "raw-vertex:816700c11e44e76d50feb456": [
+            "Rational(4542615127563477, 1000000000000000)",
+            "Rational(225077, 8192)",
+            "Rational(2009467, 32768)"
+          ],
+          "raw-vertex:fa2be6ba407339455b891c16": [
+            "Rational(4842615127563477, 1000000000000000)",
+            "Rational(27475217819213867, 1000000000000000)",
+            "Rational(798072624206543, 12500000000000)"
+          ],
+          "raw-vertex:fe42dfd768404ba89b71af42": [
+            "Rational(4542615127563477, 1000000000000000)",
+            "Rational(27475217819213867, 1000000000000000)",
+            "Rational(798072624206543, 12500000000000)"
+          ]
+        },
+        "raw_coverage_seconds_median": 0.16395489999558777,
+        "semantic_digest": "82e759a48437be9544704ef1d75fe112feb7b472e867bd29bde161f5d5d8344e",
+        "topology_projection": {
+          "edges": [
+            [
+              "raw-edge:4ff2dc0ea46522dfd2572e7a",
+              "raw-vertex:fe42dfd768404ba89b71af42",
+              "raw-vertex:fa2be6ba407339455b891c16",
+              [
+                "support:building-002-patch-3:domain",
+                "support:building-002-patch-3:strip"
+              ],
+              [
+                "edge:building-002-patch-3:domain:0",
+                "edge:building-002-patch-3:domain:1",
+                "edge:building-002-patch-3:domain:2",
+                "edge:building-002-patch-3:domain:3",
+                "edge:building-002-patch-3:strip:0",
+                "edge:building-002-patch-3:strip:1",
+                "edge:building-002-patch-3:strip:2",
+                "edge:building-002-patch-3:strip:3"
+              ]
+            ],
+            [
+              "raw-edge:57a6ba8d1c4b809b258be7cb",
+              "raw-vertex:816700c11e44e76d50feb456",
+              "raw-vertex:fe42dfd768404ba89b71af42",
+              [
+                "support:building-002-patch-3:strip"
+              ],
+              [
+                "edge:building-002-patch-3:strip:0",
+                "edge:building-002-patch-3:strip:1",
+                "edge:building-002-patch-3:strip:2",
+                "edge:building-002-patch-3:strip:3"
+              ]
+            ],
+            [
+              "raw-edge:e710938db5ab84266b715694",
+              "raw-vertex:7878118660f4ce1df7d8dca0",
+              "raw-vertex:816700c11e44e76d50feb456",
+              [
+                "support:building-002-patch-3:domain",
+                "support:building-002-patch-3:strip"
+              ],
+              [
+                "edge:building-002-patch-3:domain:0",
+                "edge:building-002-patch-3:domain:1",
+                "edge:building-002-patch-3:domain:2",
+                "edge:building-002-patch-3:domain:3",
+                "edge:building-002-patch-3:strip:0",
+                "edge:building-002-patch-3:strip:1",
+                "edge:building-002-patch-3:strip:2",
+                "edge:building-002-patch-3:strip:3"
+              ]
+            ],
+            [
+              "raw-edge:f42d3f25a480e23ad9471a01",
+              "raw-vertex:fa2be6ba407339455b891c16",
+              "raw-vertex:7878118660f4ce1df7d8dca0",
+              [
+                "support:building-002-patch-3:domain",
+                "support:building-002-patch-3:strip"
+              ],
+              [
+                "edge:building-002-patch-3:domain:0",
+                "edge:building-002-patch-3:domain:1",
+                "edge:building-002-patch-3:domain:2",
+                "edge:building-002-patch-3:domain:3",
+                "edge:building-002-patch-3:strip:0",
+                "edge:building-002-patch-3:strip:1",
+                "edge:building-002-patch-3:strip:2",
+                "edge:building-002-patch-3:strip:3"
+              ]
+            ]
+          ],
+          "loops": [
+            [
+              "raw-loop:91a941777c27647ce172a5a3",
+              "OUTER",
+              [
+                "raw-edge:4ff2dc0ea46522dfd2572e7a",
+                "raw-edge:f42d3f25a480e23ad9471a01",
+                "raw-edge:e710938db5ab84266b715694",
+                "raw-edge:57a6ba8d1c4b809b258be7cb"
+              ]
+            ]
+          ],
+          "regions": [
+            [
+              "raw-region:ace792d20d99c71a0ca0dd1e",
+              "raw-loop:91a941777c27647ce172a5a3",
+              [],
+              [
+                "spec:building-002-patch-3"
+              ]
+            ]
+          ]
+        }
+      },
+      "CERTIFIED_FLOAT_FILTERED_CANDIDATE": {
+        "admission_outcome": "ADMITTED",
+        "admission_success": true,
+        "angle_certificate_complexity": {
+          "cosine_expression": "Integer(0)",
+          "expression_node_count": 3,
+          "orientation_sign": 1,
+          "peak_expression_length": 40
+        },
+        "arrangement_counters": {
+          "actual_intersections": 20,
+          "all_possible_pairs": 28,
+          "atomic_edges": 7,
+          "broadphase_candidate_pairs": 17,
+          "input_segments": 8,
+          "narrowphase_tests": 17
+        },
+        "chart": {
+          "admission_budget": "2.521743774414784e-07",
+          "domain_coordinates_all_rational": true,
+          "exact": false,
+          "input_rounding": "BINARY64_VALUES_RATIONALIZED_FOR_EXACT_FALLBACK",
+          "max_absolute_plane_residual": "1.8749836617126467e-16",
+          "max_coordinate_ulp": "7.105427357601002e-15",
+          "residual_policy_id": "RUNTIME_PLANAR_RESIDUAL_BUDGET_CANDIDATE_V1"
+        },
+        "compile_seconds_median": 0.001137699990067631,
+        "digest_stable_across_repeats": true,
+        "exact_sign_batch_seconds_median": 0.0010474000009708107,
+        "expected_admission": true,
+        "expression_metrics": {
+          "expression_count": 41,
+          "expression_node_count": 41,
+          "peak_expression_length": 51,
+          "peak_expression_node_count": 1,
+          "total_expression_length": 819
+        },
+        "filtered_predicates": {
+          "candidate_pairs": 17,
+          "exact_fallback_fraction": "20/34",
+          "exact_fallbacks": 20,
+          "orientation_predicates": 34,
+          "policy_id": "RUNTIME_FILTERED_PREDICATE_BOUND_CANDIDATE_V1"
+        },
+        "frame_build_seconds_median": 0.0004175999783910811,
+        "invariant_digest": "8f3f5ec30074de1dfaf276a9a598bb1fb387c4e7d6dd945632137f3360e372ad",
+        "model": "CERTIFIED_FLOAT_FILTERED_CANDIDATE",
+        "peak_tracemalloc_bytes": 205552,
+        "physical_area_expression": "Rational(118206739425693, 156250000000000)",
+        "physical_vertex_expressions": {
+          "raw-vertex:7878118660f4ce1df7d8dca0": [
+            "Rational(4842615127563477, 1000000000000000)",
+            "Rational(4293003082275390624999720581202758067, 156250000000000000000000000000000000)",
+            "Rational(479094266891479509521245958033, 7812500000000000000000000000)"
+          ],
+          "raw-vertex:816700c11e44e76d50feb456": [
+            "Rational(4542615127563477, 1000000000000000)",
+            "Rational(4293003082275390624999720581202758067, 156250000000000000000000000000000000)",
+            "Rational(479094266891479509521245958033, 7812500000000000000000000000)"
+          ],
+          "raw-vertex:fa2be6ba407339455b891c16": [
+            "Rational(4842615127563477, 1000000000000000)",
+            "Rational(27475217819213867, 1000000000000000)",
+            "Rational(798072624206543, 12500000000000)"
+          ],
+          "raw-vertex:fe42dfd768404ba89b71af42": [
+            "Rational(4542615127563477, 1000000000000000)",
+            "Rational(27475217819213867, 1000000000000000)",
+            "Rational(798072624206543, 12500000000000)"
+          ]
+        },
+        "raw_coverage_seconds_median": 0.057992400019429624,
+        "semantic_digest": "5345d5ed34cae685f96ed4135718d922190a643d1a027ba15633f64c2d03227f",
+        "topology_projection": {
+          "edges": [
+            [
+              "raw-edge:4ff2dc0ea46522dfd2572e7a",
+              "raw-vertex:fe42dfd768404ba89b71af42",
+              "raw-vertex:fa2be6ba407339455b891c16",
+              [
+                "support:building-002-patch-3:domain",
+                "support:building-002-patch-3:strip"
+              ],
+              [
+                "edge:building-002-patch-3:domain:0",
+                "edge:building-002-patch-3:domain:1",
+                "edge:building-002-patch-3:domain:2",
+                "edge:building-002-patch-3:domain:3",
+                "edge:building-002-patch-3:strip:0",
+                "edge:building-002-patch-3:strip:1",
+                "edge:building-002-patch-3:strip:2",
+                "edge:building-002-patch-3:strip:3"
+              ]
+            ],
+            [
+              "raw-edge:57a6ba8d1c4b809b258be7cb",
+              "raw-vertex:816700c11e44e76d50feb456",
+              "raw-vertex:fe42dfd768404ba89b71af42",
+              [
+                "support:building-002-patch-3:strip"
+              ],
+              [
+                "edge:building-002-patch-3:strip:0",
+                "edge:building-002-patch-3:strip:1",
+                "edge:building-002-patch-3:strip:2",
+                "edge:building-002-patch-3:strip:3"
+              ]
+            ],
+            [
+              "raw-edge:e710938db5ab84266b715694",
+              "raw-vertex:7878118660f4ce1df7d8dca0",
+              "raw-vertex:816700c11e44e76d50feb456",
+              [
+                "support:building-002-patch-3:domain",
+                "support:building-002-patch-3:strip"
+              ],
+              [
+                "edge:building-002-patch-3:domain:0",
+                "edge:building-002-patch-3:domain:1",
+                "edge:building-002-patch-3:domain:2",
+                "edge:building-002-patch-3:domain:3",
+                "edge:building-002-patch-3:strip:0",
+                "edge:building-002-patch-3:strip:1",
+                "edge:building-002-patch-3:strip:2",
+                "edge:building-002-patch-3:strip:3"
+              ]
+            ],
+            [
+              "raw-edge:f42d3f25a480e23ad9471a01",
+              "raw-vertex:fa2be6ba407339455b891c16",
+              "raw-vertex:7878118660f4ce1df7d8dca0",
+              [
+                "support:building-002-patch-3:domain",
+                "support:building-002-patch-3:strip"
+              ],
+              [
+                "edge:building-002-patch-3:domain:0",
+                "edge:building-002-patch-3:domain:1",
+                "edge:building-002-patch-3:domain:2",
+                "edge:building-002-patch-3:domain:3",
+                "edge:building-002-patch-3:strip:0",
+                "edge:building-002-patch-3:strip:1",
+                "edge:building-002-patch-3:strip:2",
+                "edge:building-002-patch-3:strip:3"
+              ]
+            ]
+          ],
+          "loops": [
+            [
+              "raw-loop:91a941777c27647ce172a5a3",
+              "OUTER",
+              [
+                "raw-edge:4ff2dc0ea46522dfd2572e7a",
+                "raw-edge:f42d3f25a480e23ad9471a01",
+                "raw-edge:e710938db5ab84266b715694",
+                "raw-edge:57a6ba8d1c4b809b258be7cb"
+              ]
+            ]
+          ],
+          "regions": [
+            [
+              "raw-region:ace792d20d99c71a0ca0dd1e",
+              "raw-loop:91a941777c27647ce172a5a3",
+              [],
+              [
+                "spec:building-002-patch-3"
+              ]
+            ]
+          ]
+        }
+      },
+      "RATIONAL_AFFINE_GRAM": {
+        "admission_outcome": "ADMITTED",
+        "admission_success": true,
+        "angle_certificate_complexity": {
+          "cosine_expression": "Integer(0)",
+          "expression_node_count": 7,
+          "orientation_sign": 1,
+          "peak_expression_length": 140
+        },
+        "arrangement_counters": {
+          "actual_intersections": 20,
+          "all_possible_pairs": 28,
+          "atomic_edges": 7,
+          "broadphase_candidate_pairs": 19,
+          "input_segments": 8,
+          "narrowphase_tests": 19
+        },
+        "chart": {
+          "domain_coordinates_all_rational": true,
+          "exact": true,
+          "gram_determinant": "Rational(19872473949374180668422524477191245950523882151363270938396457, 3125000000000000000000000000000000000000000000000000000000000)"
+        },
+        "compile_seconds_median": 0.0009171999990940094,
+        "digest_stable_across_repeats": true,
+        "exact_sign_batch_seconds_median": 0.000624899985268712,
+        "expected_admission": true,
+        "expression_metrics": {
+          "expression_count": 41,
+          "expression_node_count": 41,
+          "peak_expression_length": 76,
+          "peak_expression_node_count": 1,
+          "total_expression_length": 1581
+        },
+        "filtered_predicates": null,
+        "frame_build_seconds_median": 0.002013700024690479,
+        "invariant_digest": "fbb319a1026a2c0e9f21e8c49f19f357071cdc2eff921fae427a4cd3d1b909ec",
+        "model": "RATIONAL_AFFINE_GRAM",
+        "peak_tracemalloc_bytes": 248893,
+        "physical_area_expression": "Mul(Rational(3, 64267352185090000000000000000), Pow(Integer(262653219967805931343601013437543314550179844851187488034), Rational(1, 2)))",
+        "physical_vertex_expressions": {
+          "raw-vertex:7878118660f4ce1df7d8dca0": [
+            "Rational(4842615127563477, 1000000000000000)",
+            "Rational(225077, 8192)",
+            "Rational(2009467, 32768)"
+          ],
+          "raw-vertex:816700c11e44e76d50feb456": [
+            "Rational(4542615127563477, 1000000000000000)",
+            "Rational(225077, 8192)",
+            "Rational(2009467, 32768)"
+          ],
+          "raw-vertex:fa2be6ba407339455b891c16": [
+            "Rational(4842615127563477, 1000000000000000)",
+            "Rational(27475217819213867, 1000000000000000)",
+            "Rational(798072624206543, 12500000000000)"
+          ],
+          "raw-vertex:fe42dfd768404ba89b71af42": [
+            "Rational(4542615127563477, 1000000000000000)",
+            "Rational(27475217819213867, 1000000000000000)",
+            "Rational(798072624206543, 12500000000000)"
+          ]
+        },
+        "raw_coverage_seconds_median": 0.054427600000053644,
+        "semantic_digest": "767754351bbff3f111556207f06e2bdd50013dc675b432ce7a7d6da4af9901d6",
+        "topology_projection": {
+          "edges": [
+            [
+              "raw-edge:4ff2dc0ea46522dfd2572e7a",
+              "raw-vertex:fe42dfd768404ba89b71af42",
+              "raw-vertex:fa2be6ba407339455b891c16",
+              [
+                "support:building-002-patch-3:domain",
+                "support:building-002-patch-3:strip"
+              ],
+              [
+                "edge:building-002-patch-3:domain:0",
+                "edge:building-002-patch-3:domain:1",
+                "edge:building-002-patch-3:domain:2",
+                "edge:building-002-patch-3:domain:3",
+                "edge:building-002-patch-3:strip:0",
+                "edge:building-002-patch-3:strip:1",
+                "edge:building-002-patch-3:strip:2",
+                "edge:building-002-patch-3:strip:3"
+              ]
+            ],
+            [
+              "raw-edge:57a6ba8d1c4b809b258be7cb",
+              "raw-vertex:816700c11e44e76d50feb456",
+              "raw-vertex:fe42dfd768404ba89b71af42",
+              [
+                "support:building-002-patch-3:strip"
+              ],
+              [
+                "edge:building-002-patch-3:strip:0",
+                "edge:building-002-patch-3:strip:1",
+                "edge:building-002-patch-3:strip:2",
+                "edge:building-002-patch-3:strip:3"
+              ]
+            ],
+            [
+              "raw-edge:e710938db5ab84266b715694",
+              "raw-vertex:7878118660f4ce1df7d8dca0",
+              "raw-vertex:816700c11e44e76d50feb456",
+              [
+                "support:building-002-patch-3:domain",
+                "support:building-002-patch-3:strip"
+              ],
+              [
+                "edge:building-002-patch-3:domain:0",
+                "edge:building-002-patch-3:domain:1",
+                "edge:building-002-patch-3:domain:2",
+                "edge:building-002-patch-3:domain:3",
+                "edge:building-002-patch-3:strip:0",
+                "edge:building-002-patch-3:strip:1",
+                "edge:building-002-patch-3:strip:2",
+                "edge:building-002-patch-3:strip:3"
+              ]
+            ],
+            [
+              "raw-edge:f42d3f25a480e23ad9471a01",
+              "raw-vertex:fa2be6ba407339455b891c16",
+              "raw-vertex:7878118660f4ce1df7d8dca0",
+              [
+                "support:building-002-patch-3:domain",
+                "support:building-002-patch-3:strip"
+              ],
+              [
+                "edge:building-002-patch-3:domain:0",
+                "edge:building-002-patch-3:domain:1",
+                "edge:building-002-patch-3:domain:2",
+                "edge:building-002-patch-3:domain:3",
+                "edge:building-002-patch-3:strip:0",
+                "edge:building-002-patch-3:strip:1",
+                "edge:building-002-patch-3:strip:2",
+                "edge:building-002-patch-3:strip:3"
+              ]
+            ]
+          ],
+          "loops": [
+            [
+              "raw-loop:91a941777c27647ce172a5a3",
+              "OUTER",
+              [
+                "raw-edge:4ff2dc0ea46522dfd2572e7a",
+                "raw-edge:f42d3f25a480e23ad9471a01",
+                "raw-edge:e710938db5ab84266b715694",
+                "raw-edge:57a6ba8d1c4b809b258be7cb"
+              ]
+            ]
+          ],
+          "regions": [
+            [
+              "raw-region:ace792d20d99c71a0ca0dd1e",
+              "raw-loop:91a941777c27647ce172a5a3",
+              [],
+              [
+                "spec:building-002-patch-3"
+              ]
+            ]
+          ]
+        }
+      }
+    },
+    "point_count": 4,
+    "relation": null,
+    "semantic_family": "building-002-patch-3",
+    "triangle_count": 2
+  },
+  "runtime_residual_policy_candidate": {
+    "coordinate_ulp_multiplier": 64,
+    "law": "max(relative_extent_factor * max(planar_extent, minimum_extent), coordinate_ulp_multiplier * max_coordinate_ulp)",
+    "minimum_extent": "1e-3",
+    "policy_id": "RUNTIME_PLANAR_RESIDUAL_BUDGET_CANDIDATE_V1",
+    "relative_extent_factor": "1e-7",
+    "status": "RESEARCH_CANDIDATE_NOT_PRODUCT_POLICY"
+  },
+  "schema": "cftuv.envelope.planar_metric_building_patch.v1",
+  "session": "SESSION_M_R0_PLANAR_METRIC_CONTRACT_DECISION",
+  "source": {
+    "boundary_loops": [
+      {
+        "chains": [
+          {
+            "chain_index": 0,
+            "edge_ids": [
+              12
+            ],
+            "neighbor_kind": "PATCH",
+            "neighbor_patch_id": 0,
+            "vertex_ids": [
+              1,
+              3
+            ]
+          },
+          {
+            "chain_index": 1,
+            "edge_ids": [
+              28
+            ],
+            "neighbor_kind": "PATCH",
+            "neighbor_patch_id": 8,
+            "vertex_ids": [
+              3,
+              15
+            ]
+          },
+          {
+            "chain_index": 2,
+            "edge_ids": [
+              24
+            ],
+            "neighbor_kind": "MESH_BORDER",
+            "neighbor_patch_id": -1,
+            "vertex_ids": [
+              15,
+              13
+            ]
+          },
+          {
+            "chain_index": 3,
+            "edge_ids": [
+              26
+            ],
+            "neighbor_kind": "PATCH",
+            "neighbor_patch_id": 2,
+            "vertex_ids": [
+              13,
+              1
+            ]
+          }
+        ],
+        "edge_ids": [
+          12,
+          28,
+          24,
+          26
+        ],
+        "kind": "OUTER",
+        "loop_index": 0,
+        "vertex_ids": [
+          1,
+          3,
+          15,
+          13
+        ]
+      }
+    ],
+    "current_v1_admission": {
+      "message": "host Patch 3 exact plane has no rational unit normal",
+      "outcome": "ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE",
+      "status": "REJECTED"
+    },
+    "faces": [
+      {
+        "edge_cycle": [
+          12,
+          28,
+          24,
+          26
+        ],
+        "face_id": 3,
+        "triangle_ids": [
+          5,
+          6
+        ],
+        "vertex_cycle": [
+          1,
+          3,
+          15,
+          13
+        ]
+      }
+    ],
+    "host_patch": {
+      "basis_u": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "basis_v": [
+        0.0,
+        -7.563609756289225e-07,
+        1.0
+      ],
+      "centroid": [
+        4.342615127563477,
+        27.4752197265625,
+        62.584938049316406
+      ],
+      "face_ids": [
+        3
+      ],
+      "normal": [
+        0.0,
+        1.0,
+        7.563609756289225e-07
+      ],
+      "vertex_ids": [
+        1,
+        3,
+        13,
+        15
+      ]
+    },
+    "mesh_edges": 38,
+    "mesh_faces": 15,
+    "mesh_fingerprint_after": "7bb9661c13ee9e80060dca6bbcc4c90a6ac74b0e6537898652807141837b7671",
+    "mesh_fingerprint_before": "7bb9661c13ee9e80060dca6bbcc4c90a6ac74b0e6537898652807141837b7671",
+    "mesh_vertices": 24,
+    "patch_id": 3,
+    "patch_ids": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "schema": "cftuv.envelope.metric_spike_host_patch.v1",
+    "source_file": "E:\\testscene.blend",
+    "source_mesh_unchanged": true,
+    "source_object": "building.002",
+    "source_revision": {
+      "digest": "63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e",
+      "source_name": "building.002"
+    },
+    "triangles": [
+      {
+        "source_face_id": 3,
+        "triangle_id": 5,
+        "vertex_ids": [
+          1,
+          3,
+          15
+        ]
+      },
+      {
+        "source_face_id": 3,
+        "triangle_id": 6,
+        "vertex_ids": [
+          1,
+          15,
+          13
+        ]
+      }
+    ],
+    "vertices": [
+      {
+        "position": [
+          4.842615127563477,
+          27.475217819213867,
+          63.84580993652344
+        ],
+        "vertex_id": 1
+      },
+      {
+        "position": [
+          4.842615127563477,
+          27.4752197265625,
+          61.324066162109375
+        ],
+        "vertex_id": 3
+      },
+      {
+        "position": [
+          3.8426151275634766,
+          27.475217819213867,
+          63.84580993652344
+        ],
+        "vertex_id": 13
+      },
+      {
+        "position": [
+          3.8426151275634766,
+          27.4752197265625,
+          61.324066162109375
+        ],
+        "vertex_id": 15
+      }
+    ]
+  },
+  "status": "RESEARCH_ONLY_NO_PRODUCTION_INTEGRATION"
+}

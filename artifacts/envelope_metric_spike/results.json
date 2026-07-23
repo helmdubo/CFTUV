@@ -1,0 +1,4718 @@
+{
+  "aggregate": {
+    "ALGEBRAIC_ORTHONORMAL_FRAME": {
+      "admitted_fixture_count": 9,
+      "compile_seconds_median": 0.0009295000345446169,
+      "expression_node_count_median": 41,
+      "frame_build_seconds_median": 0.0011974000371992588,
+      "peak_expression_length_max": 140,
+      "peak_tracemalloc_bytes_max": 643988,
+      "raw_coverage_seconds_median": 0.04438919998938218,
+      "rejected_fixture_count": 1
+    },
+    "CERTIFIED_FLOAT_FILTERED_CANDIDATE": {
+      "admitted_fixture_count": 9,
+      "compile_seconds_median": 0.0008107000030577183,
+      "expression_node_count_median": 41,
+      "frame_build_seconds_median": 0.0002826999989338219,
+      "peak_expression_length_max": 383,
+      "peak_tracemalloc_bytes_max": 754860,
+      "raw_coverage_seconds_median": 0.057992400019429624,
+      "rejected_fixture_count": 1
+    },
+    "RATIONAL_AFFINE_GRAM": {
+      "admitted_fixture_count": 9,
+      "compile_seconds_median": 0.0008235999848693609,
+      "expression_node_count_median": 41,
+      "frame_build_seconds_median": 0.0016804999904707074,
+      "peak_expression_length_max": 105,
+      "peak_tracemalloc_bytes_max": 637068,
+      "raw_coverage_seconds_median": 0.05269530002260581,
+      "rejected_fixture_count": 1
+    }
+  },
+  "environment": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.13.1",
+    "sympy": "1.14.0"
+  },
+  "filtered_predicate_policy_candidate": {
+    "law": "abs(orient2d) > 64 * machine_epsilon * max_coordinate_delta_squared; otherwise exact fallback",
+    "orientation_error_multiplier": 64,
+    "policy_id": "RUNTIME_FILTERED_PREDICATE_BOUND_CANDIDATE_V1",
+    "status": "RESEARCH_CANDIDATE_NOT_PRODUCT_POLICY"
+  },
+  "fixtures": [
+    {
+      "comparisons": {
+        "all_admitted_digests_stable": true,
+        "exact_model_semantic_result_equal": true,
+        "representation_digest_equal": true,
+        "runtime_vs_reference": {
+          "absolute_area_deviation": 0.0,
+          "combinatorial_topology_equal": true,
+          "max_unlabeled_vertex_deviation": 0.0,
+          "max_vertex_deviation": 0.0,
+          "semantic_topology_and_provenance_equal": true,
+          "vertex_identity_equal": true
+        }
+      },
+      "expected_admission": true,
+      "fixture": "axis_aligned_plane",
+      "models": {
+        "ALGEBRAIC_ORTHONORMAL_FRAME": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 3,
+            "orientation_sign": 1,
+            "peak_expression_length": 11
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 17,
+            "input_segments": 8,
+            "narrowphase_tests": 17
+          },
+          "chart": {
+            "domain_coordinates_all_rational": true,
+            "exact": true,
+            "normal_length_expression": "Integer(12)"
+          },
+          "compile_seconds_median": 0.0007133000181056559,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.00019599997904151678,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 14,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 426
+          },
+          "filtered_predicates": null,
+          "frame_build_seconds_median": 0.0011749999830499291,
+          "invariant_digest": "557dea860c71fee75188e1584bd083ea37b9d460321e9f2601e63161a1e784a4",
+          "model": "ALGEBRAIC_ORTHONORMAL_FRAME",
+          "peak_tracemalloc_bytes": 250428,
+          "physical_area_expression": "Integer(2)",
+          "physical_vertex_expressions": {
+            "raw-vertex:4dfacdd5c696840f6512b45f": [
+              "Integer(4)",
+              "Integer(0)",
+              "Integer(0)"
+            ],
+            "raw-vertex:9d451322a3fa2e3b9f1c5ff4": [
+              "Integer(4)",
+              "Rational(1, 2)",
+              "Integer(0)"
+            ],
+            "raw-vertex:e6f6705d8d7c3b0f2ff4b36a": [
+              "Integer(0)",
+              "Rational(1, 2)",
+              "Integer(0)"
+            ],
+            "raw-vertex:f26b31eb00318a4299a7d459": [
+              "Integer(0)",
+              "Integer(0)",
+              "Integer(0)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.04297539999242872,
+          "semantic_digest": "0319dc3c6f3ee4c5bad0395ff179684f8ed78b8e7f6d3284dd5ee569dc470e4e",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:295a6b4230c699e89ecbdd83",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:48fcd225351307a401c8f4ae",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e24435e01cb067958b7179b9",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e384988ed9b2a582512dd0ec",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                [
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:d3da749bdc75d419b40500e2",
+                "OUTER",
+                [
+                  "raw-edge:295a6b4230c699e89ecbdd83",
+                  "raw-edge:e24435e01cb067958b7179b9",
+                  "raw-edge:48fcd225351307a401c8f4ae",
+                  "raw-edge:e384988ed9b2a582512dd0ec"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:72d76d1bbc286930e14d762f",
+                "raw-loop:d3da749bdc75d419b40500e2",
+                [],
+                [
+                  "spec:base-plane"
+                ]
+              ]
+            ]
+          }
+        },
+        "CERTIFIED_FLOAT_FILTERED_CANDIDATE": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 3,
+            "orientation_sign": 1,
+            "peak_expression_length": 11
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 17,
+            "input_segments": 8,
+            "narrowphase_tests": 17
+          },
+          "chart": {
+            "admission_budget": "4e-07",
+            "domain_coordinates_all_rational": true,
+            "exact": false,
+            "input_rounding": "BINARY64_VALUES_RATIONALIZED_FOR_EXACT_FALLBACK",
+            "max_absolute_plane_residual": "0.0",
+            "max_coordinate_ulp": "8.881784197001252e-16",
+            "residual_policy_id": "RUNTIME_PLANAR_RESIDUAL_BUDGET_CANDIDATE_V1"
+          },
+          "compile_seconds_median": 0.000729300023522228,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.0001908999984152615,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 14,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 426
+          },
+          "filtered_predicates": {
+            "candidate_pairs": 17,
+            "exact_fallback_fraction": "20/34",
+            "exact_fallbacks": 20,
+            "orientation_predicates": 34,
+            "policy_id": "RUNTIME_FILTERED_PREDICATE_BOUND_CANDIDATE_V1"
+          },
+          "frame_build_seconds_median": 0.0002570999786257744,
+          "invariant_digest": "557dea860c71fee75188e1584bd083ea37b9d460321e9f2601e63161a1e784a4",
+          "model": "CERTIFIED_FLOAT_FILTERED_CANDIDATE",
+          "peak_tracemalloc_bytes": 216016,
+          "physical_area_expression": "Integer(2)",
+          "physical_vertex_expressions": {
+            "raw-vertex:4dfacdd5c696840f6512b45f": [
+              "Integer(4)",
+              "Integer(0)",
+              "Integer(0)"
+            ],
+            "raw-vertex:9d451322a3fa2e3b9f1c5ff4": [
+              "Integer(4)",
+              "Rational(1, 2)",
+              "Integer(0)"
+            ],
+            "raw-vertex:e6f6705d8d7c3b0f2ff4b36a": [
+              "Integer(0)",
+              "Rational(1, 2)",
+              "Integer(0)"
+            ],
+            "raw-vertex:f26b31eb00318a4299a7d459": [
+              "Integer(0)",
+              "Integer(0)",
+              "Integer(0)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.044319899985566735,
+          "semantic_digest": "0319dc3c6f3ee4c5bad0395ff179684f8ed78b8e7f6d3284dd5ee569dc470e4e",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:295a6b4230c699e89ecbdd83",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:48fcd225351307a401c8f4ae",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e24435e01cb067958b7179b9",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e384988ed9b2a582512dd0ec",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                [
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:d3da749bdc75d419b40500e2",
+                "OUTER",
+                [
+                  "raw-edge:295a6b4230c699e89ecbdd83",
+                  "raw-edge:e24435e01cb067958b7179b9",
+                  "raw-edge:48fcd225351307a401c8f4ae",
+                  "raw-edge:e384988ed9b2a582512dd0ec"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:72d76d1bbc286930e14d762f",
+                "raw-loop:d3da749bdc75d419b40500e2",
+                [],
+                [
+                  "spec:base-plane"
+                ]
+              ]
+            ]
+          }
+        },
+        "RATIONAL_AFFINE_GRAM": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 3,
+            "orientation_sign": 1,
+            "peak_expression_length": 11
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 19,
+            "input_segments": 8,
+            "narrowphase_tests": 19
+          },
+          "chart": {
+            "domain_coordinates_all_rational": true,
+            "exact": true,
+            "gram_determinant": "Integer(144)"
+          },
+          "compile_seconds_median": 0.0008028000011108816,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.0006235000328160822,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 15,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 470
+          },
+          "filtered_predicates": null,
+          "frame_build_seconds_median": 0.0015159000176936388,
+          "invariant_digest": "557dea860c71fee75188e1584bd083ea37b9d460321e9f2601e63161a1e784a4",
+          "model": "RATIONAL_AFFINE_GRAM",
+          "peak_tracemalloc_bytes": 214453,
+          "physical_area_expression": "Integer(2)",
+          "physical_vertex_expressions": {
+            "raw-vertex:4dfacdd5c696840f6512b45f": [
+              "Integer(4)",
+              "Integer(0)",
+              "Integer(0)"
+            ],
+            "raw-vertex:9d451322a3fa2e3b9f1c5ff4": [
+              "Integer(4)",
+              "Rational(1, 2)",
+              "Integer(0)"
+            ],
+            "raw-vertex:e6f6705d8d7c3b0f2ff4b36a": [
+              "Integer(0)",
+              "Rational(1, 2)",
+              "Integer(0)"
+            ],
+            "raw-vertex:f26b31eb00318a4299a7d459": [
+              "Integer(0)",
+              "Integer(0)",
+              "Integer(0)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.05198330001439899,
+          "semantic_digest": "0319dc3c6f3ee4c5bad0395ff179684f8ed78b8e7f6d3284dd5ee569dc470e4e",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:295a6b4230c699e89ecbdd83",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:48fcd225351307a401c8f4ae",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e24435e01cb067958b7179b9",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e384988ed9b2a582512dd0ec",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                [
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:d3da749bdc75d419b40500e2",
+                "OUTER",
+                [
+                  "raw-edge:295a6b4230c699e89ecbdd83",
+                  "raw-edge:e24435e01cb067958b7179b9",
+                  "raw-edge:48fcd225351307a401c8f4ae",
+                  "raw-edge:e384988ed9b2a582512dd0ec"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:72d76d1bbc286930e14d762f",
+                "raw-loop:d3da749bdc75d419b40500e2",
+                [],
+                [
+                  "spec:base-plane"
+                ]
+              ]
+            ]
+          }
+        }
+      },
+      "point_count": 4,
+      "relation": null,
+      "semantic_family": "base-plane",
+      "triangle_count": 2
+    },
+    {
+      "comparisons": {
+        "all_admitted_digests_stable": true,
+        "exact_model_semantic_result_equal": true,
+        "representation_digest_equal": true,
+        "runtime_vs_reference": {
+          "combinatorial_topology_equal": true,
+          "max_unlabeled_vertex_deviation": 6.106226635438361e-16,
+          "max_vertex_deviation": null,
+          "semantic_topology_and_provenance_equal": false,
+          "vertex_identity_equal": false
+        }
+      },
+      "expected_admission": true,
+      "fixture": "arbitrary_rotated_plane",
+      "models": {
+        "ALGEBRAIC_ORTHONORMAL_FRAME": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 3,
+            "orientation_sign": 1,
+            "peak_expression_length": 11
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 17,
+            "input_segments": 8,
+            "narrowphase_tests": 17
+          },
+          "chart": {
+            "domain_coordinates_all_rational": true,
+            "exact": true,
+            "normal_length_expression": "Integer(12)"
+          },
+          "compile_seconds_median": 0.0007164999842643738,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.00019039999460801482,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 15,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 452
+          },
+          "filtered_predicates": null,
+          "frame_build_seconds_median": 0.001330800005234778,
+          "invariant_digest": "b17f0faa4b6aa8dd4910c4193dcbc56812934b1b1a5051bedf1d76485ba470c4",
+          "model": "ALGEBRAIC_ORTHONORMAL_FRAME",
+          "peak_tracemalloc_bytes": 219132,
+          "physical_area_expression": "Integer(2)",
+          "physical_vertex_expressions": {
+            "raw-vertex:0403c3cd519c1a26ad38dcf2": [
+              "Rational(22, 3)",
+              "Rational(-7, 3)",
+              "Rational(31, 6)"
+            ],
+            "raw-vertex:a0f45bf30138e4da91c3b1d3": [
+              "Rational(25, 3)",
+              "Rational(2, 3)",
+              "Rational(23, 3)"
+            ],
+            "raw-vertex:db2282f28d3ef5b9d0d4e287": [
+              "Integer(7)",
+              "Integer(-2)",
+              "Integer(5)"
+            ],
+            "raw-vertex:ef6bed25fc8e6a73c50d276c": [
+              "Rational(26, 3)",
+              "Rational(1, 3)",
+              "Rational(47, 6)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.04270679998444393,
+          "semantic_digest": "617d3ed3cfcd72da23f74657c9bf232d7062a3c1f2fc451f70a2ee06df7217b9",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:144a0edd632723ca9a16151a",
+                "raw-vertex:a0f45bf30138e4da91c3b1d3",
+                "raw-vertex:ef6bed25fc8e6a73c50d276c",
+                [
+                  "support:arbitrary-plane:domain",
+                  "support:arbitrary-plane:strip"
+                ],
+                [
+                  "edge:arbitrary-plane:domain:0",
+                  "edge:arbitrary-plane:domain:1",
+                  "edge:arbitrary-plane:domain:2",
+                  "edge:arbitrary-plane:domain:3",
+                  "edge:arbitrary-plane:strip:0",
+                  "edge:arbitrary-plane:strip:1",
+                  "edge:arbitrary-plane:strip:2",
+                  "edge:arbitrary-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:4af115d006f4ad2827333272",
+                "raw-vertex:0403c3cd519c1a26ad38dcf2",
+                "raw-vertex:db2282f28d3ef5b9d0d4e287",
+                [
+                  "support:arbitrary-plane:domain",
+                  "support:arbitrary-plane:strip"
+                ],
+                [
+                  "edge:arbitrary-plane:domain:0",
+                  "edge:arbitrary-plane:domain:1",
+                  "edge:arbitrary-plane:domain:2",
+                  "edge:arbitrary-plane:domain:3",
+                  "edge:arbitrary-plane:strip:0",
+                  "edge:arbitrary-plane:strip:1",
+                  "edge:arbitrary-plane:strip:2",
+                  "edge:arbitrary-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:725b76987261bd02528d3a21",
+                "raw-vertex:db2282f28d3ef5b9d0d4e287",
+                "raw-vertex:a0f45bf30138e4da91c3b1d3",
+                [
+                  "support:arbitrary-plane:domain",
+                  "support:arbitrary-plane:strip"
+                ],
+                [
+                  "edge:arbitrary-plane:domain:0",
+                  "edge:arbitrary-plane:domain:1",
+                  "edge:arbitrary-plane:domain:2",
+                  "edge:arbitrary-plane:domain:3",
+                  "edge:arbitrary-plane:strip:0",
+                  "edge:arbitrary-plane:strip:1",
+                  "edge:arbitrary-plane:strip:2",
+                  "edge:arbitrary-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:78ffa6db5c0cdfa4ab11b1aa",
+                "raw-vertex:ef6bed25fc8e6a73c50d276c",
+                "raw-vertex:0403c3cd519c1a26ad38dcf2",
+                [
+                  "support:arbitrary-plane:strip"
+                ],
+                [
+                  "edge:arbitrary-plane:strip:0",
+                  "edge:arbitrary-plane:strip:1",
+                  "edge:arbitrary-plane:strip:2",
+                  "edge:arbitrary-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:a05b59840f568cfa5b503a48",
+                "OUTER",
+                [
+                  "raw-edge:144a0edd632723ca9a16151a",
+                  "raw-edge:78ffa6db5c0cdfa4ab11b1aa",
+                  "raw-edge:4af115d006f4ad2827333272",
+                  "raw-edge:725b76987261bd02528d3a21"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:c3947e370a402a601fdb09af",
+                "raw-loop:a05b59840f568cfa5b503a48",
+                [],
+                [
+                  "spec:arbitrary-plane"
+                ]
+              ]
+            ]
+          }
+        },
+        "CERTIFIED_FLOAT_FILTERED_CANDIDATE": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Mul(Rational(6533453693773436980660397301091043951560636911, 1439999999999999083092948179925031291471351499447131133625206706401202423013396703679885235224489268846530022222064467975621921), Pow(Integer(1439999999999999083092948179925031291471351499447131133625206706401202423013396703679885235224489268846530022222064467975621921), Rational(1, 2)))",
+            "expression_node_count": 7,
+            "orientation_sign": 1,
+            "peak_expression_length": 349
+          },
+          "arrangement_counters": {
+            "actual_intersections": 17,
+            "all_possible_pairs": 28,
+            "atomic_edges": 9,
+            "broadphase_candidate_pairs": 17,
+            "input_segments": 8,
+            "narrowphase_tests": 17
+          },
+          "chart": {
+            "admission_budget": "4e-07",
+            "domain_coordinates_all_rational": true,
+            "exact": false,
+            "input_rounding": "BINARY64_VALUES_RATIONALIZED_FOR_EXACT_FALLBACK",
+            "max_absolute_plane_residual": "8.049116928532385e-16",
+            "max_coordinate_ulp": "1.7763568394002505e-15",
+            "residual_policy_id": "RUNTIME_PLANAR_RESIDUAL_BUDGET_CANDIDATE_V1"
+          },
+          "compile_seconds_median": 0.008113000018056482,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.004348399990703911,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 101,
+            "peak_expression_length": 383,
+            "peak_expression_node_count": 9,
+            "total_expression_length": 3269
+          },
+          "filtered_predicates": {
+            "candidate_pairs": 17,
+            "exact_fallback_fraction": "20/34",
+            "exact_fallbacks": 20,
+            "orientation_predicates": 34,
+            "policy_id": "RUNTIME_FILTERED_PREDICATE_BOUND_CANDIDATE_V1"
+          },
+          "frame_build_seconds_median": 0.0003667999990284443,
+          "invariant_digest": "0380e176dc80bbb627d10bcd291a56d393a585fa33d7b0421eb3bc15ce123ba2",
+          "model": "CERTIFIED_FLOAT_FILTERED_CANDIDATE",
+          "peak_tracemalloc_bytes": 754860,
+          "physical_area_expression": "Mul(Rational(1, 320000000000000000000000000000000), Add(Integer(-5551115123125783), Mul(Integer(16), Pow(Integer(1600000000000000000000000000000030814879110195776956048439363089), Rational(1, 2)))))",
+          "physical_vertex_expressions": {
+            "raw-vertex:a0f45bf30138e4da91c3b1d3": [
+              "Rational(416666666666666678503717077085941482961625624739, 50000000000000000000000000000000000000000000000)",
+              "Rational(33333333333333301496282922914058517038374375261, 50000000000000000000000000000000000000000000000)",
+              "Rational(766666666666666658503717077085941482961625624739, 100000000000000000000000000000000000000000000000)"
+            ],
+            "raw-vertex:abf81e29a9fda0836c5b3b1c": [
+              "Mul(Rational(1, 400000000000000000000000000000000000000000000000), Add(Mul(Integer(3333333333333333), Pow(Integer(1600000000000000000000000000000030814879110195776956048439363089), Rational(1, 2))), Integer(2800000000000000000000000000000000000000000000000)))",
+              "Mul(Integer(-1), Rational(1, 400000000000000000000000000000000000000000000000), Add(Mul(Integer(3333333333333333), Pow(Integer(1600000000000000000000000000000030814879110195776956048439363089), Rational(1, 2))), Integer(800000000000000000000000000000000000000000000000)))",
+              "Mul(Rational(1, 800000000000000000000000000000000000000000000000), Add(Mul(Integer(3333333333333333), Pow(Integer(1600000000000000000000000000000030814879110195776956048439363089), Rational(1, 2))), Integer(4000000000000000000000000000000000000000000000000)))"
+            ],
+            "raw-vertex:db2282f28d3ef5b9d0d4e287": [
+              "Integer(7)",
+              "Integer(-2)",
+              "Integer(5)"
+            ],
+            "raw-vertex:f7fac1594f3f59ed253f2c0a": [
+              "Mul(Rational(1, 80000000000000000000000000000001540743955509788847802421968154450000000000000000000000000000000000000000000000), Add(Mul(Integer(666666666666666553740707307285146292595935938152500000000000000000000000000000), Pow(Integer(1600000000000000000000000000000030814879110195776956048439363089), Rational(1, 2))), Integer(666666666666666685605947323337519212271563581156496444127152983676242607100552071958953463585005174418881858771)))",
+              "Mul(Integer(-1), Rational(1, 80000000000000000000000000000001540743955509788847802421968154450000000000000000000000000000000000000000000000), Add(Integer(-53333333333333282394052676662494654424036006942517480088356490834636424112186148041046536414994825581118141229), Mul(Integer(666666666666666692518585385429707414808128123695000000000000000000000000000000), Pow(Integer(1600000000000000000000000000000030814879110195776956048439363089), Rational(1, 2)))))",
+              "Mul(Rational(1, 160000000000000000000000000000003081487911019577695604843936308900000000000000000000000000000000000000000000000), Add(Mul(Integer(666666666666666414962829229140585170383743752610000000000000000000000000000000), Pow(Integer(1600000000000000000000000000000030814879110195776956048439363089), Rational(1, 2))), Integer(1226666666666666653605947323337529997479252149677814763498726149287121638313290291958953463585005174418881858771)))"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.8349593000020832,
+          "semantic_digest": "bd614d7f30e7de0f8c50dd8e61e5cc349f8940ca169fdcff0ac2577a9ba4d34c",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:3a2d2e7e2cb81fa0a9c850c4",
+                "raw-vertex:a0f45bf30138e4da91c3b1d3",
+                "raw-vertex:f7fac1594f3f59ed253f2c0a",
+                [
+                  "support:arbitrary-plane:strip"
+                ],
+                [
+                  "edge:arbitrary-plane:strip:0",
+                  "edge:arbitrary-plane:strip:1",
+                  "edge:arbitrary-plane:strip:2",
+                  "edge:arbitrary-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:725b76987261bd02528d3a21",
+                "raw-vertex:db2282f28d3ef5b9d0d4e287",
+                "raw-vertex:a0f45bf30138e4da91c3b1d3",
+                [
+                  "support:arbitrary-plane:domain",
+                  "support:arbitrary-plane:strip"
+                ],
+                [
+                  "edge:arbitrary-plane:domain:0",
+                  "edge:arbitrary-plane:domain:1",
+                  "edge:arbitrary-plane:domain:2",
+                  "edge:arbitrary-plane:domain:3",
+                  "edge:arbitrary-plane:strip:0",
+                  "edge:arbitrary-plane:strip:1",
+                  "edge:arbitrary-plane:strip:2",
+                  "edge:arbitrary-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:c12dd18acd039d2e40d23ae6",
+                "raw-vertex:abf81e29a9fda0836c5b3b1c",
+                "raw-vertex:db2282f28d3ef5b9d0d4e287",
+                [
+                  "support:arbitrary-plane:domain"
+                ],
+                [
+                  "edge:arbitrary-plane:domain:0",
+                  "edge:arbitrary-plane:domain:1",
+                  "edge:arbitrary-plane:domain:2",
+                  "edge:arbitrary-plane:domain:3"
+                ]
+              ],
+              [
+                "raw-edge:cd4708d5202e36ddf08c6cca",
+                "raw-vertex:f7fac1594f3f59ed253f2c0a",
+                "raw-vertex:abf81e29a9fda0836c5b3b1c",
+                [
+                  "support:arbitrary-plane:strip"
+                ],
+                [
+                  "edge:arbitrary-plane:strip:0",
+                  "edge:arbitrary-plane:strip:1",
+                  "edge:arbitrary-plane:strip:2",
+                  "edge:arbitrary-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:88d9265ac4705e5b7e0d4204",
+                "OUTER",
+                [
+                  "raw-edge:3a2d2e7e2cb81fa0a9c850c4",
+                  "raw-edge:cd4708d5202e36ddf08c6cca",
+                  "raw-edge:c12dd18acd039d2e40d23ae6",
+                  "raw-edge:725b76987261bd02528d3a21"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:f454ae669a64ad03eb8e42ed",
+                "raw-loop:88d9265ac4705e5b7e0d4204",
+                [],
+                [
+                  "spec:arbitrary-plane"
+                ]
+              ]
+            ]
+          }
+        },
+        "RATIONAL_AFFINE_GRAM": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 3,
+            "orientation_sign": 1,
+            "peak_expression_length": 11
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 19,
+            "input_segments": 8,
+            "narrowphase_tests": 19
+          },
+          "chart": {
+            "domain_coordinates_all_rational": true,
+            "exact": true,
+            "gram_determinant": "Integer(144)"
+          },
+          "compile_seconds_median": 0.0008070000330917537,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.0006226000259630382,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 15,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 497
+          },
+          "filtered_predicates": null,
+          "frame_build_seconds_median": 0.0017098999815061688,
+          "invariant_digest": "b17f0faa4b6aa8dd4910c4193dcbc56812934b1b1a5051bedf1d76485ba470c4",
+          "model": "RATIONAL_AFFINE_GRAM",
+          "peak_tracemalloc_bytes": 213149,
+          "physical_area_expression": "Integer(2)",
+          "physical_vertex_expressions": {
+            "raw-vertex:0403c3cd519c1a26ad38dcf2": [
+              "Rational(22, 3)",
+              "Rational(-7, 3)",
+              "Rational(31, 6)"
+            ],
+            "raw-vertex:a0f45bf30138e4da91c3b1d3": [
+              "Rational(25, 3)",
+              "Rational(2, 3)",
+              "Rational(23, 3)"
+            ],
+            "raw-vertex:db2282f28d3ef5b9d0d4e287": [
+              "Integer(7)",
+              "Integer(-2)",
+              "Integer(5)"
+            ],
+            "raw-vertex:ef6bed25fc8e6a73c50d276c": [
+              "Rational(26, 3)",
+              "Rational(1, 3)",
+              "Rational(47, 6)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.050768000015523285,
+          "semantic_digest": "617d3ed3cfcd72da23f74657c9bf232d7062a3c1f2fc451f70a2ee06df7217b9",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:144a0edd632723ca9a16151a",
+                "raw-vertex:a0f45bf30138e4da91c3b1d3",
+                "raw-vertex:ef6bed25fc8e6a73c50d276c",
+                [
+                  "support:arbitrary-plane:domain",
+                  "support:arbitrary-plane:strip"
+                ],
+                [
+                  "edge:arbitrary-plane:domain:0",
+                  "edge:arbitrary-plane:domain:1",
+                  "edge:arbitrary-plane:domain:2",
+                  "edge:arbitrary-plane:domain:3",
+                  "edge:arbitrary-plane:strip:0",
+                  "edge:arbitrary-plane:strip:1",
+                  "edge:arbitrary-plane:strip:2",
+                  "edge:arbitrary-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:4af115d006f4ad2827333272",
+                "raw-vertex:0403c3cd519c1a26ad38dcf2",
+                "raw-vertex:db2282f28d3ef5b9d0d4e287",
+                [
+                  "support:arbitrary-plane:domain",
+                  "support:arbitrary-plane:strip"
+                ],
+                [
+                  "edge:arbitrary-plane:domain:0",
+                  "edge:arbitrary-plane:domain:1",
+                  "edge:arbitrary-plane:domain:2",
+                  "edge:arbitrary-plane:domain:3",
+                  "edge:arbitrary-plane:strip:0",
+                  "edge:arbitrary-plane:strip:1",
+                  "edge:arbitrary-plane:strip:2",
+                  "edge:arbitrary-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:725b76987261bd02528d3a21",
+                "raw-vertex:db2282f28d3ef5b9d0d4e287",
+                "raw-vertex:a0f45bf30138e4da91c3b1d3",
+                [
+                  "support:arbitrary-plane:domain",
+                  "support:arbitrary-plane:strip"
+                ],
+                [
+                  "edge:arbitrary-plane:domain:0",
+                  "edge:arbitrary-plane:domain:1",
+                  "edge:arbitrary-plane:domain:2",
+                  "edge:arbitrary-plane:domain:3",
+                  "edge:arbitrary-plane:strip:0",
+                  "edge:arbitrary-plane:strip:1",
+                  "edge:arbitrary-plane:strip:2",
+                  "edge:arbitrary-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:78ffa6db5c0cdfa4ab11b1aa",
+                "raw-vertex:ef6bed25fc8e6a73c50d276c",
+                "raw-vertex:0403c3cd519c1a26ad38dcf2",
+                [
+                  "support:arbitrary-plane:strip"
+                ],
+                [
+                  "edge:arbitrary-plane:strip:0",
+                  "edge:arbitrary-plane:strip:1",
+                  "edge:arbitrary-plane:strip:2",
+                  "edge:arbitrary-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:a05b59840f568cfa5b503a48",
+                "OUTER",
+                [
+                  "raw-edge:144a0edd632723ca9a16151a",
+                  "raw-edge:78ffa6db5c0cdfa4ab11b1aa",
+                  "raw-edge:4af115d006f4ad2827333272",
+                  "raw-edge:725b76987261bd02528d3a21"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:c3947e370a402a601fdb09af",
+                "raw-loop:a05b59840f568cfa5b503a48",
+                [],
+                [
+                  "spec:arbitrary-plane"
+                ]
+              ]
+            ]
+          }
+        }
+      },
+      "point_count": 4,
+      "relation": null,
+      "semantic_family": "arbitrary-plane",
+      "triangle_count": 2
+    },
+    {
+      "comparisons": {
+        "all_admitted_digests_stable": true,
+        "exact_model_semantic_result_equal": true,
+        "representation_digest_equal": true,
+        "runtime_vs_reference": {
+          "absolute_area_deviation": 0.0,
+          "combinatorial_topology_equal": true,
+          "max_unlabeled_vertex_deviation": 0.0,
+          "max_vertex_deviation": 0.0,
+          "semantic_topology_and_provenance_equal": true,
+          "vertex_identity_equal": true
+        }
+      },
+      "expected_admission": true,
+      "fixture": "forty_five_degrees",
+      "models": {
+        "ALGEBRAIC_ORTHONORMAL_FRAME": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 7,
+            "orientation_sign": 1,
+            "peak_expression_length": 49
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 17,
+            "input_segments": 8,
+            "narrowphase_tests": 17
+          },
+          "chart": {
+            "domain_coordinates_all_rational": false,
+            "exact": true,
+            "normal_length_expression": "Mul(Integer(12), Pow(Integer(2), Rational(1, 2)))"
+          },
+          "compile_seconds_median": 0.0016268999897874892,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.002061300037894398,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 57,
+            "peak_expression_length": 52,
+            "peak_expression_node_count": 5,
+            "total_expression_length": 586
+          },
+          "filtered_predicates": null,
+          "frame_build_seconds_median": 0.0012672999873757362,
+          "invariant_digest": "ec433484c3ed26693f40719a28835e1071c3f9d81c6d781ae565628bd714e275",
+          "model": "ALGEBRAIC_ORTHONORMAL_FRAME",
+          "peak_tracemalloc_bytes": 301874,
+          "physical_area_expression": "Integer(2)",
+          "physical_vertex_expressions": {
+            "raw-vertex:53d1466e020c581ac24e919b": [
+              "Integer(4)",
+              "Integer(0)",
+              "Integer(0)"
+            ],
+            "raw-vertex:85e4d62ad9a9e0e40da02fe1": [
+              "Integer(0)",
+              "Integer(0)",
+              "Integer(0)"
+            ],
+            "raw-vertex:8bb8c53831679a0025a08e15": [
+              "Integer(4)",
+              "Mul(Rational(1, 4), Pow(Integer(2), Rational(1, 2)))",
+              "Mul(Rational(1, 4), Pow(Integer(2), Rational(1, 2)))"
+            ],
+            "raw-vertex:fb96e24518b479f7fcebe9ab": [
+              "Integer(0)",
+              "Mul(Rational(1, 4), Pow(Integer(2), Rational(1, 2)))",
+              "Mul(Rational(1, 4), Pow(Integer(2), Rational(1, 2)))"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.3113856000127271,
+          "semantic_digest": "433082489eddeddcc89021634e7e3fb74178d496683b1de1fcd2bb737e821927",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:a0fe3cbb9b4ef460d10b901d",
+                "raw-vertex:fb96e24518b479f7fcebe9ab",
+                "raw-vertex:85e4d62ad9a9e0e40da02fe1",
+                [
+                  "support:forty-five-plane:domain",
+                  "support:forty-five-plane:strip"
+                ],
+                [
+                  "edge:forty-five-plane:domain:0",
+                  "edge:forty-five-plane:domain:1",
+                  "edge:forty-five-plane:domain:2",
+                  "edge:forty-five-plane:domain:3",
+                  "edge:forty-five-plane:strip:0",
+                  "edge:forty-five-plane:strip:1",
+                  "edge:forty-five-plane:strip:2",
+                  "edge:forty-five-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:ec18206574a768c3afcec14c",
+                "raw-vertex:8bb8c53831679a0025a08e15",
+                "raw-vertex:fb96e24518b479f7fcebe9ab",
+                [
+                  "support:forty-five-plane:strip"
+                ],
+                [
+                  "edge:forty-five-plane:strip:0",
+                  "edge:forty-five-plane:strip:1",
+                  "edge:forty-five-plane:strip:2",
+                  "edge:forty-five-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:fc67bd0c5e82f27b24117a28",
+                "raw-vertex:85e4d62ad9a9e0e40da02fe1",
+                "raw-vertex:53d1466e020c581ac24e919b",
+                [
+                  "support:forty-five-plane:domain",
+                  "support:forty-five-plane:strip"
+                ],
+                [
+                  "edge:forty-five-plane:domain:0",
+                  "edge:forty-five-plane:domain:1",
+                  "edge:forty-five-plane:domain:2",
+                  "edge:forty-five-plane:domain:3",
+                  "edge:forty-five-plane:strip:0",
+                  "edge:forty-five-plane:strip:1",
+                  "edge:forty-five-plane:strip:2",
+                  "edge:forty-five-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:fe62d43ab4015eaa48b071c4",
+                "raw-vertex:53d1466e020c581ac24e919b",
+                "raw-vertex:8bb8c53831679a0025a08e15",
+                [
+                  "support:forty-five-plane:domain",
+                  "support:forty-five-plane:strip"
+                ],
+                [
+                  "edge:forty-five-plane:domain:0",
+                  "edge:forty-five-plane:domain:1",
+                  "edge:forty-five-plane:domain:2",
+                  "edge:forty-five-plane:domain:3",
+                  "edge:forty-five-plane:strip:0",
+                  "edge:forty-five-plane:strip:1",
+                  "edge:forty-five-plane:strip:2",
+                  "edge:forty-five-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:a60dd096b2a607485a5db3dc",
+                "OUTER",
+                [
+                  "raw-edge:a0fe3cbb9b4ef460d10b901d",
+                  "raw-edge:fc67bd0c5e82f27b24117a28",
+                  "raw-edge:fe62d43ab4015eaa48b071c4",
+                  "raw-edge:ec18206574a768c3afcec14c"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:36ab2bfdff6914eae08f5420",
+                "raw-loop:a60dd096b2a607485a5db3dc",
+                [],
+                [
+                  "spec:forty-five-plane"
+                ]
+              ]
+            ]
+          }
+        },
+        "CERTIFIED_FLOAT_FILTERED_CANDIDATE": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 3,
+            "orientation_sign": 1,
+            "peak_expression_length": 43
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 17,
+            "input_segments": 8,
+            "narrowphase_tests": 17
+          },
+          "chart": {
+            "admission_budget": "4.2426406871192855e-07",
+            "domain_coordinates_all_rational": true,
+            "exact": false,
+            "input_rounding": "BINARY64_VALUES_RATIONALIZED_FOR_EXACT_FALLBACK",
+            "max_absolute_plane_residual": "0.0",
+            "max_coordinate_ulp": "8.881784197001252e-16",
+            "residual_policy_id": "RUNTIME_PLANAR_RESIDUAL_BUDGET_CANDIDATE_V1"
+          },
+          "compile_seconds_median": 0.0008107000030577183,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.0006258999928832054,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 44,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 560
+          },
+          "filtered_predicates": {
+            "candidate_pairs": 17,
+            "exact_fallback_fraction": "20/34",
+            "exact_fallbacks": 20,
+            "orientation_predicates": 34,
+            "policy_id": "RUNTIME_FILTERED_PREDICATE_BOUND_CANDIDATE_V1"
+          },
+          "frame_build_seconds_median": 0.00025939999613910913,
+          "invariant_digest": "2ee349d55dae86d42b104e4f337f3f213a7a85ceb8320c8ea729ae9b9ef6b5de",
+          "model": "CERTIFIED_FLOAT_FILTERED_CANDIDATE",
+          "peak_tracemalloc_bytes": 205819,
+          "physical_area_expression": "Integer(2)",
+          "physical_vertex_expressions": {
+            "raw-vertex:53d1466e020c581ac24e919b": [
+              "Integer(4)",
+              "Integer(0)",
+              "Integer(0)"
+            ],
+            "raw-vertex:85e4d62ad9a9e0e40da02fe1": [
+              "Integer(0)",
+              "Integer(0)",
+              "Integer(0)"
+            ],
+            "raw-vertex:8bb8c53831679a0025a08e15": [
+              "Integer(4)",
+              "Rational(1767766952966369, 5000000000000000)",
+              "Rational(1767766952966369, 5000000000000000)"
+            ],
+            "raw-vertex:fb96e24518b479f7fcebe9ab": [
+              "Integer(0)",
+              "Rational(1767766952966369, 5000000000000000)",
+              "Rational(1767766952966369, 5000000000000000)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.05406689998926595,
+          "semantic_digest": "6230b4f9ae6fa37ffbe948222d8e193abf3c1a2f6e02eea31ba0bac090e3d7a7",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:a0fe3cbb9b4ef460d10b901d",
+                "raw-vertex:fb96e24518b479f7fcebe9ab",
+                "raw-vertex:85e4d62ad9a9e0e40da02fe1",
+                [
+                  "support:forty-five-plane:domain",
+                  "support:forty-five-plane:strip"
+                ],
+                [
+                  "edge:forty-five-plane:domain:0",
+                  "edge:forty-five-plane:domain:1",
+                  "edge:forty-five-plane:domain:2",
+                  "edge:forty-five-plane:domain:3",
+                  "edge:forty-five-plane:strip:0",
+                  "edge:forty-five-plane:strip:1",
+                  "edge:forty-five-plane:strip:2",
+                  "edge:forty-five-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:ec18206574a768c3afcec14c",
+                "raw-vertex:8bb8c53831679a0025a08e15",
+                "raw-vertex:fb96e24518b479f7fcebe9ab",
+                [
+                  "support:forty-five-plane:strip"
+                ],
+                [
+                  "edge:forty-five-plane:strip:0",
+                  "edge:forty-five-plane:strip:1",
+                  "edge:forty-five-plane:strip:2",
+                  "edge:forty-five-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:fc67bd0c5e82f27b24117a28",
+                "raw-vertex:85e4d62ad9a9e0e40da02fe1",
+                "raw-vertex:53d1466e020c581ac24e919b",
+                [
+                  "support:forty-five-plane:domain",
+                  "support:forty-five-plane:strip"
+                ],
+                [
+                  "edge:forty-five-plane:domain:0",
+                  "edge:forty-five-plane:domain:1",
+                  "edge:forty-five-plane:domain:2",
+                  "edge:forty-five-plane:domain:3",
+                  "edge:forty-five-plane:strip:0",
+                  "edge:forty-five-plane:strip:1",
+                  "edge:forty-five-plane:strip:2",
+                  "edge:forty-five-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:fe62d43ab4015eaa48b071c4",
+                "raw-vertex:53d1466e020c581ac24e919b",
+                "raw-vertex:8bb8c53831679a0025a08e15",
+                [
+                  "support:forty-five-plane:domain",
+                  "support:forty-five-plane:strip"
+                ],
+                [
+                  "edge:forty-five-plane:domain:0",
+                  "edge:forty-five-plane:domain:1",
+                  "edge:forty-five-plane:domain:2",
+                  "edge:forty-five-plane:domain:3",
+                  "edge:forty-five-plane:strip:0",
+                  "edge:forty-five-plane:strip:1",
+                  "edge:forty-five-plane:strip:2",
+                  "edge:forty-five-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:a60dd096b2a607485a5db3dc",
+                "OUTER",
+                [
+                  "raw-edge:a0fe3cbb9b4ef460d10b901d",
+                  "raw-edge:fc67bd0c5e82f27b24117a28",
+                  "raw-edge:fe62d43ab4015eaa48b071c4",
+                  "raw-edge:ec18206574a768c3afcec14c"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:36ab2bfdff6914eae08f5420",
+                "raw-loop:a60dd096b2a607485a5db3dc",
+                [],
+                [
+                  "spec:forty-five-plane"
+                ]
+              ]
+            ]
+          }
+        },
+        "RATIONAL_AFFINE_GRAM": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 7,
+            "orientation_sign": 1,
+            "peak_expression_length": 49
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 19,
+            "input_segments": 8,
+            "narrowphase_tests": 19
+          },
+          "chart": {
+            "domain_coordinates_all_rational": true,
+            "exact": true,
+            "gram_determinant": "Integer(288)"
+          },
+          "compile_seconds_median": 0.006368600006680936,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.002055999997537583,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 93,
+            "peak_expression_length": 85,
+            "peak_expression_node_count": 7,
+            "total_expression_length": 1034
+          },
+          "filtered_predicates": null,
+          "frame_build_seconds_median": 0.0015938000287860632,
+          "invariant_digest": "ec433484c3ed26693f40719a28835e1071c3f9d81c6d781ae565628bd714e275",
+          "model": "RATIONAL_AFFINE_GRAM",
+          "peak_tracemalloc_bytes": 333687,
+          "physical_area_expression": "Integer(2)",
+          "physical_vertex_expressions": {
+            "raw-vertex:53d1466e020c581ac24e919b": [
+              "Integer(4)",
+              "Integer(0)",
+              "Integer(0)"
+            ],
+            "raw-vertex:85e4d62ad9a9e0e40da02fe1": [
+              "Integer(0)",
+              "Integer(0)",
+              "Integer(0)"
+            ],
+            "raw-vertex:8bb8c53831679a0025a08e15": [
+              "Integer(4)",
+              "Mul(Rational(1, 4), Pow(Integer(2), Rational(1, 2)))",
+              "Mul(Rational(1, 4), Pow(Integer(2), Rational(1, 2)))"
+            ],
+            "raw-vertex:fb96e24518b479f7fcebe9ab": [
+              "Integer(0)",
+              "Mul(Rational(1, 4), Pow(Integer(2), Rational(1, 2)))",
+              "Mul(Rational(1, 4), Pow(Integer(2), Rational(1, 2)))"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.5376875999500044,
+          "semantic_digest": "433082489eddeddcc89021634e7e3fb74178d496683b1de1fcd2bb737e821927",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:a0fe3cbb9b4ef460d10b901d",
+                "raw-vertex:fb96e24518b479f7fcebe9ab",
+                "raw-vertex:85e4d62ad9a9e0e40da02fe1",
+                [
+                  "support:forty-five-plane:domain",
+                  "support:forty-five-plane:strip"
+                ],
+                [
+                  "edge:forty-five-plane:domain:0",
+                  "edge:forty-five-plane:domain:1",
+                  "edge:forty-five-plane:domain:2",
+                  "edge:forty-five-plane:domain:3",
+                  "edge:forty-five-plane:strip:0",
+                  "edge:forty-five-plane:strip:1",
+                  "edge:forty-five-plane:strip:2",
+                  "edge:forty-five-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:ec18206574a768c3afcec14c",
+                "raw-vertex:8bb8c53831679a0025a08e15",
+                "raw-vertex:fb96e24518b479f7fcebe9ab",
+                [
+                  "support:forty-five-plane:strip"
+                ],
+                [
+                  "edge:forty-five-plane:strip:0",
+                  "edge:forty-five-plane:strip:1",
+                  "edge:forty-five-plane:strip:2",
+                  "edge:forty-five-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:fc67bd0c5e82f27b24117a28",
+                "raw-vertex:85e4d62ad9a9e0e40da02fe1",
+                "raw-vertex:53d1466e020c581ac24e919b",
+                [
+                  "support:forty-five-plane:domain",
+                  "support:forty-five-plane:strip"
+                ],
+                [
+                  "edge:forty-five-plane:domain:0",
+                  "edge:forty-five-plane:domain:1",
+                  "edge:forty-five-plane:domain:2",
+                  "edge:forty-five-plane:domain:3",
+                  "edge:forty-five-plane:strip:0",
+                  "edge:forty-five-plane:strip:1",
+                  "edge:forty-five-plane:strip:2",
+                  "edge:forty-five-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:fe62d43ab4015eaa48b071c4",
+                "raw-vertex:53d1466e020c581ac24e919b",
+                "raw-vertex:8bb8c53831679a0025a08e15",
+                [
+                  "support:forty-five-plane:domain",
+                  "support:forty-five-plane:strip"
+                ],
+                [
+                  "edge:forty-five-plane:domain:0",
+                  "edge:forty-five-plane:domain:1",
+                  "edge:forty-five-plane:domain:2",
+                  "edge:forty-five-plane:domain:3",
+                  "edge:forty-five-plane:strip:0",
+                  "edge:forty-five-plane:strip:1",
+                  "edge:forty-five-plane:strip:2",
+                  "edge:forty-five-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:a60dd096b2a607485a5db3dc",
+                "OUTER",
+                [
+                  "raw-edge:a0fe3cbb9b4ef460d10b901d",
+                  "raw-edge:fc67bd0c5e82f27b24117a28",
+                  "raw-edge:fe62d43ab4015eaa48b071c4",
+                  "raw-edge:ec18206574a768c3afcec14c"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:36ab2bfdff6914eae08f5420",
+                "raw-loop:a60dd096b2a607485a5db3dc",
+                [],
+                [
+                  "spec:forty-five-plane"
+                ]
+              ]
+            ]
+          }
+        }
+      },
+      "point_count": 4,
+      "relation": null,
+      "semantic_family": "forty-five-plane",
+      "triangle_count": 2
+    },
+    {
+      "comparisons": {
+        "all_admitted_digests_stable": true,
+        "exact_model_semantic_result_equal": true,
+        "representation_digest_equal": true,
+        "runtime_vs_reference": {
+          "absolute_area_deviation": 4.440892098500626e-16,
+          "combinatorial_topology_equal": true,
+          "max_unlabeled_vertex_deviation": 2.220446049250313e-16,
+          "max_vertex_deviation": 2.220446049250313e-16,
+          "semantic_topology_and_provenance_equal": true,
+          "vertex_identity_equal": true
+        }
+      },
+      "expected_admission": true,
+      "fixture": "irrational_normal",
+      "models": {
+        "ALGEBRAIC_ORTHONORMAL_FRAME": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Rational(1, 2)",
+            "expression_node_count": 7,
+            "orientation_sign": 1,
+            "peak_expression_length": 49
+          },
+          "arrangement_counters": {
+            "actual_intersections": 17,
+            "all_possible_pairs": 28,
+            "atomic_edges": 9,
+            "broadphase_candidate_pairs": 17,
+            "input_segments": 8,
+            "narrowphase_tests": 17
+          },
+          "chart": {
+            "domain_coordinates_all_rational": false,
+            "exact": true,
+            "normal_length_expression": "Mul(Integer(12), Pow(Integer(3), Rational(1, 2)))"
+          },
+          "compile_seconds_median": 0.0038379000034183264,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.006657299993094057,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 117,
+            "peak_expression_length": 121,
+            "peak_expression_node_count": 11,
+            "total_expression_length": 1247
+          },
+          "filtered_predicates": null,
+          "frame_build_seconds_median": 0.002549800032284111,
+          "invariant_digest": "98d654a2e4328a387a1533d11788ef34abacae1ccfcf2edc6ba735e7a6061586",
+          "model": "ALGEBRAIC_ORTHONORMAL_FRAME",
+          "peak_tracemalloc_bytes": 643988,
+          "physical_area_expression": "Mul(Rational(1, 24), Add(Mul(Integer(-1), Pow(Integer(3), Rational(1, 2))), Mul(Integer(48), Pow(Integer(2), Rational(1, 2)))))",
+          "physical_vertex_expressions": {
+            "raw-vertex:9fcd2b666631bfbec3aadfa9": [
+              "Integer(6)",
+              "Integer(-1)",
+              "Integer(5)"
+            ],
+            "raw-vertex:9ff3523eed65382516edcc6b": [
+              "Mul(Rational(1, 6), Add(Pow(Integer(6), Rational(1, 2)), Integer(12)))",
+              "Integer(3)",
+              "Mul(Integer(-1), Rational(1, 6), Add(Integer(-30), Pow(Integer(6), Rational(1, 2))))"
+            ],
+            "raw-vertex:b6922ff982bf4a2259aea21e": [
+              "Mul(Rational(1, 12), Add(Pow(Integer(6), Rational(1, 2)), Integer(72)))",
+              "Mul(Rational(1, 12), Add(Integer(-12), Pow(Integer(6), Rational(1, 2))))",
+              "Mul(Integer(-1), Rational(1, 6), Add(Integer(-30), Pow(Integer(6), Rational(1, 2))))"
+            ],
+            "raw-vertex:c4ba54262bf4d9318d768cbb": [
+              "Integer(2)",
+              "Integer(3)",
+              "Integer(5)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.7261071999673732,
+          "semantic_digest": "9e3bf03d4fd64ebf74fe0b68418adf87226edd6f7417316af17d426acded9b24",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:31b507146f1b6640599922fe",
+                "raw-vertex:c4ba54262bf4d9318d768cbb",
+                "raw-vertex:9fcd2b666631bfbec3aadfa9",
+                [
+                  "support:irrational-normal-plane:domain",
+                  "support:irrational-normal-plane:strip"
+                ],
+                [
+                  "edge:irrational-normal-plane:domain:0",
+                  "edge:irrational-normal-plane:domain:1",
+                  "edge:irrational-normal-plane:domain:2",
+                  "edge:irrational-normal-plane:domain:3",
+                  "edge:irrational-normal-plane:strip:0",
+                  "edge:irrational-normal-plane:strip:1",
+                  "edge:irrational-normal-plane:strip:2",
+                  "edge:irrational-normal-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:3b0c259ff11cc57e8075e9f3",
+                "raw-vertex:b6922ff982bf4a2259aea21e",
+                "raw-vertex:9ff3523eed65382516edcc6b",
+                [
+                  "support:irrational-normal-plane:strip"
+                ],
+                [
+                  "edge:irrational-normal-plane:strip:0",
+                  "edge:irrational-normal-plane:strip:1",
+                  "edge:irrational-normal-plane:strip:2",
+                  "edge:irrational-normal-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:5fb7bc6726467de1ac704102",
+                "raw-vertex:9ff3523eed65382516edcc6b",
+                "raw-vertex:c4ba54262bf4d9318d768cbb",
+                [
+                  "support:irrational-normal-plane:domain"
+                ],
+                [
+                  "edge:irrational-normal-plane:domain:0",
+                  "edge:irrational-normal-plane:domain:1",
+                  "edge:irrational-normal-plane:domain:2",
+                  "edge:irrational-normal-plane:domain:3"
+                ]
+              ],
+              [
+                "raw-edge:cd7b194ae81024835f08d544",
+                "raw-vertex:9fcd2b666631bfbec3aadfa9",
+                "raw-vertex:b6922ff982bf4a2259aea21e",
+                [
+                  "support:irrational-normal-plane:strip"
+                ],
+                [
+                  "edge:irrational-normal-plane:strip:0",
+                  "edge:irrational-normal-plane:strip:1",
+                  "edge:irrational-normal-plane:strip:2",
+                  "edge:irrational-normal-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:a475b52b4e8a80d01ea3f5c9",
+                "OUTER",
+                [
+                  "raw-edge:31b507146f1b6640599922fe",
+                  "raw-edge:cd7b194ae81024835f08d544",
+                  "raw-edge:3b0c259ff11cc57e8075e9f3",
+                  "raw-edge:5fb7bc6726467de1ac704102"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:246ef2d1736b9a0cee46d405",
+                "raw-loop:a475b52b4e8a80d01ea3f5c9",
+                [],
+                [
+                  "spec:irrational-normal-plane"
+                ]
+              ]
+            ]
+          }
+        },
+        "CERTIFIED_FLOAT_FILTERED_CANDIDATE": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Mul(Rational(5303300858899105, 112499999999999950478915585392081), Pow(Integer(112499999999999950478915585392081), Rational(1, 2)))",
+            "expression_node_count": 7,
+            "orientation_sign": 1,
+            "peak_expression_length": 131
+          },
+          "arrangement_counters": {
+            "actual_intersections": 17,
+            "all_possible_pairs": 28,
+            "atomic_edges": 9,
+            "broadphase_candidate_pairs": 17,
+            "input_segments": 8,
+            "narrowphase_tests": 17
+          },
+          "chart": {
+            "admission_budget": "7.778174593052022e-07",
+            "domain_coordinates_all_rational": true,
+            "exact": false,
+            "input_rounding": "BINARY64_VALUES_RATIONALIZED_FOR_EXACT_FALLBACK",
+            "max_absolute_plane_residual": "4.440892098500626e-16",
+            "max_coordinate_ulp": "1.7763568394002505e-15",
+            "residual_policy_id": "RUNTIME_PLANAR_RESIDUAL_BUDGET_CANDIDATE_V1"
+          },
+          "compile_seconds_median": 0.0012023000163026154,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.002274499973282218,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 73,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 1016
+          },
+          "filtered_predicates": {
+            "candidate_pairs": 17,
+            "exact_fallback_fraction": "16/34",
+            "exact_fallbacks": 16,
+            "orientation_predicates": 34,
+            "policy_id": "RUNTIME_FILTERED_PREDICATE_BOUND_CANDIDATE_V1"
+          },
+          "frame_build_seconds_median": 0.00027870002668350935,
+          "invariant_digest": "6204cf5ac1438f41389a53a8143e1332dbb19eb1722d5ae85114e8516d9404b9",
+          "model": "CERTIFIED_FLOAT_FILTERED_CANDIDATE",
+          "peak_tracemalloc_bytes": 257292,
+          "physical_area_expression": "Rational(1012713980246830768593117738773, 367423461417476700000000000000)",
+          "physical_vertex_expressions": {
+            "raw-vertex:9fcd2b666631bfbec3aadfa9": [
+              "Rational(119999999999999994478719195161, 20000000000000000000000000000)",
+              "Rational(-19999999999999994478719195161, 20000000000000000000000000000)",
+              "Integer(5)"
+            ],
+            "raw-vertex:9ff3523eed65382516edcc6b": [
+              "Rational(55302932677184586120404069276701, 22963966338592293750000000000000)",
+              "Rational(137783798031553761918741803670727, 45927932677184587500000000000000)",
+              "Rational(91835034190722741, 20000000000000000)"
+            ],
+            "raw-vertex:b6922ff982bf4a2259aea21e": [
+              "Rational(124082482904638624078719195161, 20000000000000000000000000000)",
+              "Rational(-15917517095361364878719195161, 20000000000000000000000000000)",
+              "Rational(91835034190722741, 20000000000000000)"
+            ],
+            "raw-vertex:c4ba54262bf4d9318d768cbb": [
+              "Integer(2)",
+              "Integer(3)",
+              "Integer(5)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.06710019998718053,
+          "semantic_digest": "e4ab53f460bc34917c8a638c6950a36a09203c60fdd525e2f1f119c0ccae63d2",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:31b507146f1b6640599922fe",
+                "raw-vertex:c4ba54262bf4d9318d768cbb",
+                "raw-vertex:9fcd2b666631bfbec3aadfa9",
+                [
+                  "support:irrational-normal-plane:domain",
+                  "support:irrational-normal-plane:strip"
+                ],
+                [
+                  "edge:irrational-normal-plane:domain:0",
+                  "edge:irrational-normal-plane:domain:1",
+                  "edge:irrational-normal-plane:domain:2",
+                  "edge:irrational-normal-plane:domain:3",
+                  "edge:irrational-normal-plane:strip:0",
+                  "edge:irrational-normal-plane:strip:1",
+                  "edge:irrational-normal-plane:strip:2",
+                  "edge:irrational-normal-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:3b0c259ff11cc57e8075e9f3",
+                "raw-vertex:b6922ff982bf4a2259aea21e",
+                "raw-vertex:9ff3523eed65382516edcc6b",
+                [
+                  "support:irrational-normal-plane:strip"
+                ],
+                [
+                  "edge:irrational-normal-plane:strip:0",
+                  "edge:irrational-normal-plane:strip:1",
+                  "edge:irrational-normal-plane:strip:2",
+                  "edge:irrational-normal-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:5fb7bc6726467de1ac704102",
+                "raw-vertex:9ff3523eed65382516edcc6b",
+                "raw-vertex:c4ba54262bf4d9318d768cbb",
+                [
+                  "support:irrational-normal-plane:domain"
+                ],
+                [
+                  "edge:irrational-normal-plane:domain:0",
+                  "edge:irrational-normal-plane:domain:1",
+                  "edge:irrational-normal-plane:domain:2",
+                  "edge:irrational-normal-plane:domain:3"
+                ]
+              ],
+              [
+                "raw-edge:cd7b194ae81024835f08d544",
+                "raw-vertex:9fcd2b666631bfbec3aadfa9",
+                "raw-vertex:b6922ff982bf4a2259aea21e",
+                [
+                  "support:irrational-normal-plane:strip"
+                ],
+                [
+                  "edge:irrational-normal-plane:strip:0",
+                  "edge:irrational-normal-plane:strip:1",
+                  "edge:irrational-normal-plane:strip:2",
+                  "edge:irrational-normal-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:a475b52b4e8a80d01ea3f5c9",
+                "OUTER",
+                [
+                  "raw-edge:31b507146f1b6640599922fe",
+                  "raw-edge:cd7b194ae81024835f08d544",
+                  "raw-edge:3b0c259ff11cc57e8075e9f3",
+                  "raw-edge:5fb7bc6726467de1ac704102"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:246ef2d1736b9a0cee46d405",
+                "raw-loop:a475b52b4e8a80d01ea3f5c9",
+                [],
+                [
+                  "spec:irrational-normal-plane"
+                ]
+              ]
+            ]
+          }
+        },
+        "RATIONAL_AFFINE_GRAM": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Rational(1, 2)",
+            "expression_node_count": 7,
+            "orientation_sign": 1,
+            "peak_expression_length": 49
+          },
+          "arrangement_counters": {
+            "actual_intersections": 17,
+            "all_possible_pairs": 28,
+            "atomic_edges": 9,
+            "broadphase_candidate_pairs": 19,
+            "input_segments": 8,
+            "narrowphase_tests": 19
+          },
+          "chart": {
+            "domain_coordinates_all_rational": true,
+            "exact": true,
+            "gram_determinant": "Integer(432)"
+          },
+          "compile_seconds_median": 0.005187599977944046,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.0031219999655149877,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 99,
+            "peak_expression_length": 105,
+            "peak_expression_node_count": 9,
+            "total_expression_length": 1111
+          },
+          "filtered_predicates": null,
+          "frame_build_seconds_median": 0.002034400007687509,
+          "invariant_digest": "98d654a2e4328a387a1533d11788ef34abacae1ccfcf2edc6ba735e7a6061586",
+          "model": "RATIONAL_AFFINE_GRAM",
+          "peak_tracemalloc_bytes": 637068,
+          "physical_area_expression": "Mul(Rational(1, 24), Add(Mul(Integer(-1), Pow(Integer(3), Rational(1, 2))), Mul(Integer(48), Pow(Integer(2), Rational(1, 2)))))",
+          "physical_vertex_expressions": {
+            "raw-vertex:9fcd2b666631bfbec3aadfa9": [
+              "Integer(6)",
+              "Integer(-1)",
+              "Integer(5)"
+            ],
+            "raw-vertex:9ff3523eed65382516edcc6b": [
+              "Mul(Rational(1, 6), Add(Pow(Integer(6), Rational(1, 2)), Integer(12)))",
+              "Integer(3)",
+              "Mul(Integer(-1), Rational(1, 6), Add(Integer(-30), Pow(Integer(6), Rational(1, 2))))"
+            ],
+            "raw-vertex:b6922ff982bf4a2259aea21e": [
+              "Mul(Rational(1, 12), Add(Pow(Integer(6), Rational(1, 2)), Integer(72)))",
+              "Mul(Rational(1, 12), Add(Integer(-12), Pow(Integer(6), Rational(1, 2))))",
+              "Mul(Integer(-1), Rational(1, 6), Add(Integer(-30), Pow(Integer(6), Rational(1, 2))))"
+            ],
+            "raw-vertex:c4ba54262bf4d9318d768cbb": [
+              "Integer(2)",
+              "Integer(3)",
+              "Integer(5)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.6168257999815978,
+          "semantic_digest": "9e3bf03d4fd64ebf74fe0b68418adf87226edd6f7417316af17d426acded9b24",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:31b507146f1b6640599922fe",
+                "raw-vertex:c4ba54262bf4d9318d768cbb",
+                "raw-vertex:9fcd2b666631bfbec3aadfa9",
+                [
+                  "support:irrational-normal-plane:domain",
+                  "support:irrational-normal-plane:strip"
+                ],
+                [
+                  "edge:irrational-normal-plane:domain:0",
+                  "edge:irrational-normal-plane:domain:1",
+                  "edge:irrational-normal-plane:domain:2",
+                  "edge:irrational-normal-plane:domain:3",
+                  "edge:irrational-normal-plane:strip:0",
+                  "edge:irrational-normal-plane:strip:1",
+                  "edge:irrational-normal-plane:strip:2",
+                  "edge:irrational-normal-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:3b0c259ff11cc57e8075e9f3",
+                "raw-vertex:b6922ff982bf4a2259aea21e",
+                "raw-vertex:9ff3523eed65382516edcc6b",
+                [
+                  "support:irrational-normal-plane:strip"
+                ],
+                [
+                  "edge:irrational-normal-plane:strip:0",
+                  "edge:irrational-normal-plane:strip:1",
+                  "edge:irrational-normal-plane:strip:2",
+                  "edge:irrational-normal-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:5fb7bc6726467de1ac704102",
+                "raw-vertex:9ff3523eed65382516edcc6b",
+                "raw-vertex:c4ba54262bf4d9318d768cbb",
+                [
+                  "support:irrational-normal-plane:domain"
+                ],
+                [
+                  "edge:irrational-normal-plane:domain:0",
+                  "edge:irrational-normal-plane:domain:1",
+                  "edge:irrational-normal-plane:domain:2",
+                  "edge:irrational-normal-plane:domain:3"
+                ]
+              ],
+              [
+                "raw-edge:cd7b194ae81024835f08d544",
+                "raw-vertex:9fcd2b666631bfbec3aadfa9",
+                "raw-vertex:b6922ff982bf4a2259aea21e",
+                [
+                  "support:irrational-normal-plane:strip"
+                ],
+                [
+                  "edge:irrational-normal-plane:strip:0",
+                  "edge:irrational-normal-plane:strip:1",
+                  "edge:irrational-normal-plane:strip:2",
+                  "edge:irrational-normal-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:a475b52b4e8a80d01ea3f5c9",
+                "OUTER",
+                [
+                  "raw-edge:31b507146f1b6640599922fe",
+                  "raw-edge:cd7b194ae81024835f08d544",
+                  "raw-edge:3b0c259ff11cc57e8075e9f3",
+                  "raw-edge:5fb7bc6726467de1ac704102"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:246ef2d1736b9a0cee46d405",
+                "raw-loop:a475b52b4e8a80d01ea3f5c9",
+                [],
+                [
+                  "spec:irrational-normal-plane"
+                ]
+              ]
+            ]
+          }
+        }
+      },
+      "point_count": 4,
+      "relation": null,
+      "semantic_family": "irrational-normal-plane",
+      "triangle_count": 2
+    },
+    {
+      "comparisons": {
+        "all_admitted_digests_stable": true,
+        "exact_model_semantic_result_equal": true,
+        "representation_digest_equal": true,
+        "runtime_vs_reference": {
+          "absolute_area_deviation": 0.0,
+          "combinatorial_topology_equal": true,
+          "max_unlabeled_vertex_deviation": 0.0,
+          "max_vertex_deviation": 0.0,
+          "semantic_topology_and_provenance_equal": true,
+          "vertex_identity_equal": true
+        }
+      },
+      "expected_admission": true,
+      "fixture": "micro_scale",
+      "models": {
+        "ALGEBRAIC_ORTHONORMAL_FRAME": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 3,
+            "orientation_sign": 1,
+            "peak_expression_length": 31
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 17,
+            "input_segments": 8,
+            "narrowphase_tests": 17
+          },
+          "chart": {
+            "domain_coordinates_all_rational": true,
+            "exact": true,
+            "normal_length_expression": "Rational(3, 250000000000000000)"
+          },
+          "compile_seconds_median": 0.0009831000352278352,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.0010218999814242125,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 31,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 590
+          },
+          "filtered_predicates": null,
+          "frame_build_seconds_median": 0.0011974000371992588,
+          "invariant_digest": "557dea860c71fee75188e1584bd083ea37b9d460321e9f2601e63161a1e784a4",
+          "model": "ALGEBRAIC_ORTHONORMAL_FRAME",
+          "peak_tracemalloc_bytes": 225218,
+          "physical_area_expression": "Rational(1, 500000000000000000)",
+          "physical_vertex_expressions": {
+            "raw-vertex:4dfacdd5c696840f6512b45f": [
+              "Rational(1, 250000000)",
+              "Integer(0)",
+              "Integer(0)"
+            ],
+            "raw-vertex:9d451322a3fa2e3b9f1c5ff4": [
+              "Rational(1, 250000000)",
+              "Rational(1, 2000000000)",
+              "Integer(0)"
+            ],
+            "raw-vertex:e6f6705d8d7c3b0f2ff4b36a": [
+              "Integer(0)",
+              "Rational(1, 2000000000)",
+              "Integer(0)"
+            ],
+            "raw-vertex:f26b31eb00318a4299a7d459": [
+              "Integer(0)",
+              "Integer(0)",
+              "Integer(0)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.06119789998047054,
+          "semantic_digest": "f7f04b8158e8e526d6dfb09434a5bdd9f02eee9506601112f4f5b683d39a8b40",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:295a6b4230c699e89ecbdd83",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:48fcd225351307a401c8f4ae",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e24435e01cb067958b7179b9",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e384988ed9b2a582512dd0ec",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                [
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:d3da749bdc75d419b40500e2",
+                "OUTER",
+                [
+                  "raw-edge:295a6b4230c699e89ecbdd83",
+                  "raw-edge:e24435e01cb067958b7179b9",
+                  "raw-edge:48fcd225351307a401c8f4ae",
+                  "raw-edge:e384988ed9b2a582512dd0ec"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:72d76d1bbc286930e14d762f",
+                "raw-loop:d3da749bdc75d419b40500e2",
+                [],
+                [
+                  "spec:base-plane"
+                ]
+              ]
+            ]
+          }
+        },
+        "CERTIFIED_FLOAT_FILTERED_CANDIDATE": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 3,
+            "orientation_sign": 1,
+            "peak_expression_length": 31
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 17,
+            "input_segments": 8,
+            "narrowphase_tests": 17
+          },
+          "chart": {
+            "admission_budget": "1e-10",
+            "domain_coordinates_all_rational": true,
+            "exact": false,
+            "input_rounding": "BINARY64_VALUES_RATIONALIZED_FOR_EXACT_FALLBACK",
+            "max_absolute_plane_residual": "0.0",
+            "max_coordinate_ulp": "8.271806125530277e-25",
+            "residual_policy_id": "RUNTIME_PLANAR_RESIDUAL_BUDGET_CANDIDATE_V1"
+          },
+          "compile_seconds_median": 0.0009873000090010464,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.0010288999765180051,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 31,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 590
+          },
+          "filtered_predicates": {
+            "candidate_pairs": 17,
+            "exact_fallback_fraction": "34/34",
+            "exact_fallbacks": 34,
+            "orientation_predicates": 34,
+            "policy_id": "RUNTIME_FILTERED_PREDICATE_BOUND_CANDIDATE_V1"
+          },
+          "frame_build_seconds_median": 0.0003331000334583223,
+          "invariant_digest": "557dea860c71fee75188e1584bd083ea37b9d460321e9f2601e63161a1e784a4",
+          "model": "CERTIFIED_FLOAT_FILTERED_CANDIDATE",
+          "peak_tracemalloc_bytes": 208307,
+          "physical_area_expression": "Rational(1, 500000000000000000)",
+          "physical_vertex_expressions": {
+            "raw-vertex:4dfacdd5c696840f6512b45f": [
+              "Rational(1, 250000000)",
+              "Integer(0)",
+              "Integer(0)"
+            ],
+            "raw-vertex:9d451322a3fa2e3b9f1c5ff4": [
+              "Rational(1, 250000000)",
+              "Rational(1, 2000000000)",
+              "Integer(0)"
+            ],
+            "raw-vertex:e6f6705d8d7c3b0f2ff4b36a": [
+              "Integer(0)",
+              "Rational(1, 2000000000)",
+              "Integer(0)"
+            ],
+            "raw-vertex:f26b31eb00318a4299a7d459": [
+              "Integer(0)",
+              "Integer(0)",
+              "Integer(0)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.0612890999764204,
+          "semantic_digest": "f7f04b8158e8e526d6dfb09434a5bdd9f02eee9506601112f4f5b683d39a8b40",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:295a6b4230c699e89ecbdd83",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:48fcd225351307a401c8f4ae",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e24435e01cb067958b7179b9",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e384988ed9b2a582512dd0ec",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                [
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:d3da749bdc75d419b40500e2",
+                "OUTER",
+                [
+                  "raw-edge:295a6b4230c699e89ecbdd83",
+                  "raw-edge:e24435e01cb067958b7179b9",
+                  "raw-edge:48fcd225351307a401c8f4ae",
+                  "raw-edge:e384988ed9b2a582512dd0ec"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:72d76d1bbc286930e14d762f",
+                "raw-loop:d3da749bdc75d419b40500e2",
+                [],
+                [
+                  "spec:base-plane"
+                ]
+              ]
+            ]
+          }
+        },
+        "RATIONAL_AFFINE_GRAM": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 3,
+            "orientation_sign": 1,
+            "peak_expression_length": 31
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 19,
+            "input_segments": 8,
+            "narrowphase_tests": 19
+          },
+          "chart": {
+            "domain_coordinates_all_rational": true,
+            "exact": true,
+            "gram_determinant": "Rational(9, 62500000000000000000000000000000000)"
+          },
+          "compile_seconds_median": 0.0010831999825313687,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.00062369997613132,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 30,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 677
+          },
+          "filtered_predicates": null,
+          "frame_build_seconds_median": 0.0018352000042796135,
+          "invariant_digest": "557dea860c71fee75188e1584bd083ea37b9d460321e9f2601e63161a1e784a4",
+          "model": "RATIONAL_AFFINE_GRAM",
+          "peak_tracemalloc_bytes": 237165,
+          "physical_area_expression": "Rational(1, 500000000000000000)",
+          "physical_vertex_expressions": {
+            "raw-vertex:4dfacdd5c696840f6512b45f": [
+              "Rational(1, 250000000)",
+              "Integer(0)",
+              "Integer(0)"
+            ],
+            "raw-vertex:9d451322a3fa2e3b9f1c5ff4": [
+              "Rational(1, 250000000)",
+              "Rational(1, 2000000000)",
+              "Integer(0)"
+            ],
+            "raw-vertex:e6f6705d8d7c3b0f2ff4b36a": [
+              "Integer(0)",
+              "Rational(1, 2000000000)",
+              "Integer(0)"
+            ],
+            "raw-vertex:f26b31eb00318a4299a7d459": [
+              "Integer(0)",
+              "Integer(0)",
+              "Integer(0)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.052498300035949796,
+          "semantic_digest": "f7f04b8158e8e526d6dfb09434a5bdd9f02eee9506601112f4f5b683d39a8b40",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:295a6b4230c699e89ecbdd83",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:48fcd225351307a401c8f4ae",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e24435e01cb067958b7179b9",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e384988ed9b2a582512dd0ec",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                [
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:d3da749bdc75d419b40500e2",
+                "OUTER",
+                [
+                  "raw-edge:295a6b4230c699e89ecbdd83",
+                  "raw-edge:e24435e01cb067958b7179b9",
+                  "raw-edge:48fcd225351307a401c8f4ae",
+                  "raw-edge:e384988ed9b2a582512dd0ec"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:72d76d1bbc286930e14d762f",
+                "raw-loop:d3da749bdc75d419b40500e2",
+                [],
+                [
+                  "spec:base-plane"
+                ]
+              ]
+            ]
+          }
+        }
+      },
+      "point_count": 4,
+      "relation": "SCALE_OF_axis_aligned_plane",
+      "semantic_family": "base-plane",
+      "triangle_count": 2
+    },
+    {
+      "comparisons": {
+        "all_admitted_digests_stable": true,
+        "exact_model_semantic_result_equal": true,
+        "representation_digest_equal": true,
+        "runtime_vs_reference": {
+          "absolute_area_deviation": 0.0,
+          "combinatorial_topology_equal": true,
+          "max_unlabeled_vertex_deviation": 0.0,
+          "max_vertex_deviation": 0.0,
+          "semantic_topology_and_provenance_equal": true,
+          "vertex_identity_equal": true
+        }
+      },
+      "expected_admission": true,
+      "fixture": "huge_coordinates",
+      "models": {
+        "ALGEBRAIC_ORTHONORMAL_FRAME": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 3,
+            "orientation_sign": 1,
+            "peak_expression_length": 11
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 17,
+            "input_segments": 8,
+            "narrowphase_tests": 17
+          },
+          "chart": {
+            "domain_coordinates_all_rational": true,
+            "exact": true,
+            "normal_length_expression": "Integer(12)"
+          },
+          "compile_seconds_median": 0.0006958000012673438,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.00019310001516714692,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 23,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 463
+          },
+          "filtered_predicates": null,
+          "frame_build_seconds_median": 0.0010458000469952822,
+          "invariant_digest": "fa82069890eab7a9b3a86be0703ef6f43c9f97e79ec244a562efec083490d90d",
+          "model": "ALGEBRAIC_ORTHONORMAL_FRAME",
+          "peak_tracemalloc_bytes": 229788,
+          "physical_area_expression": "Integer(2)",
+          "physical_vertex_expressions": {
+            "raw-vertex:4082ca2b1591c71f82244042": [
+              "Integer(1000000000004)",
+              "Rational(-1999999999999, 2)",
+              "Integer(1000000000000)"
+            ],
+            "raw-vertex:941c9936c1758d9a9891482e": [
+              "Integer(1000000000004)",
+              "Integer(-1000000000000)",
+              "Integer(1000000000000)"
+            ],
+            "raw-vertex:bb789c2eaad7732a984e1921": [
+              "Integer(1000000000000)",
+              "Rational(-1999999999999, 2)",
+              "Integer(1000000000000)"
+            ],
+            "raw-vertex:e99d712aff16135ff90e8fc9": [
+              "Integer(1000000000000)",
+              "Integer(-1000000000000)",
+              "Integer(1000000000000)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.044294599967543036,
+          "semantic_digest": "ca9052343630ce8473807436d3766bde463e62555cec87eb50f5a6389e44426a",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:135f58f1ad4f348741a6fafa",
+                "raw-vertex:bb789c2eaad7732a984e1921",
+                "raw-vertex:e99d712aff16135ff90e8fc9",
+                [
+                  "support:huge-coordinate-plane:domain",
+                  "support:huge-coordinate-plane:strip"
+                ],
+                [
+                  "edge:huge-coordinate-plane:domain:0",
+                  "edge:huge-coordinate-plane:domain:1",
+                  "edge:huge-coordinate-plane:domain:2",
+                  "edge:huge-coordinate-plane:domain:3",
+                  "edge:huge-coordinate-plane:strip:0",
+                  "edge:huge-coordinate-plane:strip:1",
+                  "edge:huge-coordinate-plane:strip:2",
+                  "edge:huge-coordinate-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:773ef457dc045146c47682eb",
+                "raw-vertex:941c9936c1758d9a9891482e",
+                "raw-vertex:4082ca2b1591c71f82244042",
+                [
+                  "support:huge-coordinate-plane:domain",
+                  "support:huge-coordinate-plane:strip"
+                ],
+                [
+                  "edge:huge-coordinate-plane:domain:0",
+                  "edge:huge-coordinate-plane:domain:1",
+                  "edge:huge-coordinate-plane:domain:2",
+                  "edge:huge-coordinate-plane:domain:3",
+                  "edge:huge-coordinate-plane:strip:0",
+                  "edge:huge-coordinate-plane:strip:1",
+                  "edge:huge-coordinate-plane:strip:2",
+                  "edge:huge-coordinate-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:af1ee92ab71bb6e72bd6193b",
+                "raw-vertex:4082ca2b1591c71f82244042",
+                "raw-vertex:bb789c2eaad7732a984e1921",
+                [
+                  "support:huge-coordinate-plane:strip"
+                ],
+                [
+                  "edge:huge-coordinate-plane:strip:0",
+                  "edge:huge-coordinate-plane:strip:1",
+                  "edge:huge-coordinate-plane:strip:2",
+                  "edge:huge-coordinate-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:c0bb6528f0af48eb04ba807d",
+                "raw-vertex:e99d712aff16135ff90e8fc9",
+                "raw-vertex:941c9936c1758d9a9891482e",
+                [
+                  "support:huge-coordinate-plane:domain",
+                  "support:huge-coordinate-plane:strip"
+                ],
+                [
+                  "edge:huge-coordinate-plane:domain:0",
+                  "edge:huge-coordinate-plane:domain:1",
+                  "edge:huge-coordinate-plane:domain:2",
+                  "edge:huge-coordinate-plane:domain:3",
+                  "edge:huge-coordinate-plane:strip:0",
+                  "edge:huge-coordinate-plane:strip:1",
+                  "edge:huge-coordinate-plane:strip:2",
+                  "edge:huge-coordinate-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:5afcf0ebb52ee4251ed91f30",
+                "OUTER",
+                [
+                  "raw-edge:135f58f1ad4f348741a6fafa",
+                  "raw-edge:c0bb6528f0af48eb04ba807d",
+                  "raw-edge:773ef457dc045146c47682eb",
+                  "raw-edge:af1ee92ab71bb6e72bd6193b"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:b01d7b44c78f623b197dcffe",
+                "raw-loop:5afcf0ebb52ee4251ed91f30",
+                [],
+                [
+                  "spec:huge-coordinate-plane"
+                ]
+              ]
+            ]
+          }
+        },
+        "CERTIFIED_FLOAT_FILTERED_CANDIDATE": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 3,
+            "orientation_sign": 1,
+            "peak_expression_length": 11
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 17,
+            "input_segments": 8,
+            "narrowphase_tests": 17
+          },
+          "chart": {
+            "admission_budget": "0.0078125",
+            "domain_coordinates_all_rational": true,
+            "exact": false,
+            "input_rounding": "BINARY64_VALUES_RATIONALIZED_FOR_EXACT_FALLBACK",
+            "max_absolute_plane_residual": "0.0",
+            "max_coordinate_ulp": "0.0001220703125",
+            "residual_policy_id": "RUNTIME_PLANAR_RESIDUAL_BUDGET_CANDIDATE_V1"
+          },
+          "compile_seconds_median": 0.0007461999775841832,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.0001900999923236668,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 23,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 463
+          },
+          "filtered_predicates": {
+            "candidate_pairs": 17,
+            "exact_fallback_fraction": "20/34",
+            "exact_fallbacks": 20,
+            "orientation_predicates": 34,
+            "policy_id": "RUNTIME_FILTERED_PREDICATE_BOUND_CANDIDATE_V1"
+          },
+          "frame_build_seconds_median": 0.0002826999989338219,
+          "invariant_digest": "fa82069890eab7a9b3a86be0703ef6f43c9f97e79ec244a562efec083490d90d",
+          "model": "CERTIFIED_FLOAT_FILTERED_CANDIDATE",
+          "peak_tracemalloc_bytes": 230349,
+          "physical_area_expression": "Integer(2)",
+          "physical_vertex_expressions": {
+            "raw-vertex:4082ca2b1591c71f82244042": [
+              "Integer(1000000000004)",
+              "Rational(-1999999999999, 2)",
+              "Integer(1000000000000)"
+            ],
+            "raw-vertex:941c9936c1758d9a9891482e": [
+              "Integer(1000000000004)",
+              "Integer(-1000000000000)",
+              "Integer(1000000000000)"
+            ],
+            "raw-vertex:bb789c2eaad7732a984e1921": [
+              "Integer(1000000000000)",
+              "Rational(-1999999999999, 2)",
+              "Integer(1000000000000)"
+            ],
+            "raw-vertex:e99d712aff16135ff90e8fc9": [
+              "Integer(1000000000000)",
+              "Integer(-1000000000000)",
+              "Integer(1000000000000)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.045486200018785894,
+          "semantic_digest": "ca9052343630ce8473807436d3766bde463e62555cec87eb50f5a6389e44426a",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:135f58f1ad4f348741a6fafa",
+                "raw-vertex:bb789c2eaad7732a984e1921",
+                "raw-vertex:e99d712aff16135ff90e8fc9",
+                [
+                  "support:huge-coordinate-plane:domain",
+                  "support:huge-coordinate-plane:strip"
+                ],
+                [
+                  "edge:huge-coordinate-plane:domain:0",
+                  "edge:huge-coordinate-plane:domain:1",
+                  "edge:huge-coordinate-plane:domain:2",
+                  "edge:huge-coordinate-plane:domain:3",
+                  "edge:huge-coordinate-plane:strip:0",
+                  "edge:huge-coordinate-plane:strip:1",
+                  "edge:huge-coordinate-plane:strip:2",
+                  "edge:huge-coordinate-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:773ef457dc045146c47682eb",
+                "raw-vertex:941c9936c1758d9a9891482e",
+                "raw-vertex:4082ca2b1591c71f82244042",
+                [
+                  "support:huge-coordinate-plane:domain",
+                  "support:huge-coordinate-plane:strip"
+                ],
+                [
+                  "edge:huge-coordinate-plane:domain:0",
+                  "edge:huge-coordinate-plane:domain:1",
+                  "edge:huge-coordinate-plane:domain:2",
+                  "edge:huge-coordinate-plane:domain:3",
+                  "edge:huge-coordinate-plane:strip:0",
+                  "edge:huge-coordinate-plane:strip:1",
+                  "edge:huge-coordinate-plane:strip:2",
+                  "edge:huge-coordinate-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:af1ee92ab71bb6e72bd6193b",
+                "raw-vertex:4082ca2b1591c71f82244042",
+                "raw-vertex:bb789c2eaad7732a984e1921",
+                [
+                  "support:huge-coordinate-plane:strip"
+                ],
+                [
+                  "edge:huge-coordinate-plane:strip:0",
+                  "edge:huge-coordinate-plane:strip:1",
+                  "edge:huge-coordinate-plane:strip:2",
+                  "edge:huge-coordinate-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:c0bb6528f0af48eb04ba807d",
+                "raw-vertex:e99d712aff16135ff90e8fc9",
+                "raw-vertex:941c9936c1758d9a9891482e",
+                [
+                  "support:huge-coordinate-plane:domain",
+                  "support:huge-coordinate-plane:strip"
+                ],
+                [
+                  "edge:huge-coordinate-plane:domain:0",
+                  "edge:huge-coordinate-plane:domain:1",
+                  "edge:huge-coordinate-plane:domain:2",
+                  "edge:huge-coordinate-plane:domain:3",
+                  "edge:huge-coordinate-plane:strip:0",
+                  "edge:huge-coordinate-plane:strip:1",
+                  "edge:huge-coordinate-plane:strip:2",
+                  "edge:huge-coordinate-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:5afcf0ebb52ee4251ed91f30",
+                "OUTER",
+                [
+                  "raw-edge:135f58f1ad4f348741a6fafa",
+                  "raw-edge:c0bb6528f0af48eb04ba807d",
+                  "raw-edge:773ef457dc045146c47682eb",
+                  "raw-edge:af1ee92ab71bb6e72bd6193b"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:b01d7b44c78f623b197dcffe",
+                "raw-loop:5afcf0ebb52ee4251ed91f30",
+                [],
+                [
+                  "spec:huge-coordinate-plane"
+                ]
+              ]
+            ]
+          }
+        },
+        "RATIONAL_AFFINE_GRAM": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 3,
+            "orientation_sign": 1,
+            "peak_expression_length": 11
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 19,
+            "input_segments": 8,
+            "narrowphase_tests": 19
+          },
+          "chart": {
+            "domain_coordinates_all_rational": true,
+            "exact": true,
+            "gram_determinant": "Integer(144)"
+          },
+          "compile_seconds_median": 0.0008002999820746481,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.0006167000392451882,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 23,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 507
+          },
+          "filtered_predicates": null,
+          "frame_build_seconds_median": 0.001530999958049506,
+          "invariant_digest": "fa82069890eab7a9b3a86be0703ef6f43c9f97e79ec244a562efec083490d90d",
+          "model": "RATIONAL_AFFINE_GRAM",
+          "peak_tracemalloc_bytes": 213139,
+          "physical_area_expression": "Integer(2)",
+          "physical_vertex_expressions": {
+            "raw-vertex:4082ca2b1591c71f82244042": [
+              "Integer(1000000000004)",
+              "Rational(-1999999999999, 2)",
+              "Integer(1000000000000)"
+            ],
+            "raw-vertex:941c9936c1758d9a9891482e": [
+              "Integer(1000000000004)",
+              "Integer(-1000000000000)",
+              "Integer(1000000000000)"
+            ],
+            "raw-vertex:bb789c2eaad7732a984e1921": [
+              "Integer(1000000000000)",
+              "Rational(-1999999999999, 2)",
+              "Integer(1000000000000)"
+            ],
+            "raw-vertex:e99d712aff16135ff90e8fc9": [
+              "Integer(1000000000000)",
+              "Integer(-1000000000000)",
+              "Integer(1000000000000)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.05269530002260581,
+          "semantic_digest": "ca9052343630ce8473807436d3766bde463e62555cec87eb50f5a6389e44426a",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:135f58f1ad4f348741a6fafa",
+                "raw-vertex:bb789c2eaad7732a984e1921",
+                "raw-vertex:e99d712aff16135ff90e8fc9",
+                [
+                  "support:huge-coordinate-plane:domain",
+                  "support:huge-coordinate-plane:strip"
+                ],
+                [
+                  "edge:huge-coordinate-plane:domain:0",
+                  "edge:huge-coordinate-plane:domain:1",
+                  "edge:huge-coordinate-plane:domain:2",
+                  "edge:huge-coordinate-plane:domain:3",
+                  "edge:huge-coordinate-plane:strip:0",
+                  "edge:huge-coordinate-plane:strip:1",
+                  "edge:huge-coordinate-plane:strip:2",
+                  "edge:huge-coordinate-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:773ef457dc045146c47682eb",
+                "raw-vertex:941c9936c1758d9a9891482e",
+                "raw-vertex:4082ca2b1591c71f82244042",
+                [
+                  "support:huge-coordinate-plane:domain",
+                  "support:huge-coordinate-plane:strip"
+                ],
+                [
+                  "edge:huge-coordinate-plane:domain:0",
+                  "edge:huge-coordinate-plane:domain:1",
+                  "edge:huge-coordinate-plane:domain:2",
+                  "edge:huge-coordinate-plane:domain:3",
+                  "edge:huge-coordinate-plane:strip:0",
+                  "edge:huge-coordinate-plane:strip:1",
+                  "edge:huge-coordinate-plane:strip:2",
+                  "edge:huge-coordinate-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:af1ee92ab71bb6e72bd6193b",
+                "raw-vertex:4082ca2b1591c71f82244042",
+                "raw-vertex:bb789c2eaad7732a984e1921",
+                [
+                  "support:huge-coordinate-plane:strip"
+                ],
+                [
+                  "edge:huge-coordinate-plane:strip:0",
+                  "edge:huge-coordinate-plane:strip:1",
+                  "edge:huge-coordinate-plane:strip:2",
+                  "edge:huge-coordinate-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:c0bb6528f0af48eb04ba807d",
+                "raw-vertex:e99d712aff16135ff90e8fc9",
+                "raw-vertex:941c9936c1758d9a9891482e",
+                [
+                  "support:huge-coordinate-plane:domain",
+                  "support:huge-coordinate-plane:strip"
+                ],
+                [
+                  "edge:huge-coordinate-plane:domain:0",
+                  "edge:huge-coordinate-plane:domain:1",
+                  "edge:huge-coordinate-plane:domain:2",
+                  "edge:huge-coordinate-plane:domain:3",
+                  "edge:huge-coordinate-plane:strip:0",
+                  "edge:huge-coordinate-plane:strip:1",
+                  "edge:huge-coordinate-plane:strip:2",
+                  "edge:huge-coordinate-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:5afcf0ebb52ee4251ed91f30",
+                "OUTER",
+                [
+                  "raw-edge:135f58f1ad4f348741a6fafa",
+                  "raw-edge:c0bb6528f0af48eb04ba807d",
+                  "raw-edge:773ef457dc045146c47682eb",
+                  "raw-edge:af1ee92ab71bb6e72bd6193b"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:b01d7b44c78f623b197dcffe",
+                "raw-loop:5afcf0ebb52ee4251ed91f30",
+                [],
+                [
+                  "spec:huge-coordinate-plane"
+                ]
+              ]
+            ]
+          }
+        }
+      },
+      "point_count": 4,
+      "relation": null,
+      "semantic_family": "huge-coordinate-plane",
+      "triangle_count": 2
+    },
+    {
+      "comparisons": {
+        "all_admitted_digests_stable": true,
+        "exact_model_semantic_result_equal": false,
+        "representation_digest_equal": false,
+        "runtime_vs_reference": null
+      },
+      "expected_admission": false,
+      "fixture": "nearly_planar_outside_budget",
+      "models": {
+        "ALGEBRAIC_ORTHONORMAL_FRAME": {
+          "admission_outcome": "ALL_SOURCE_VERTICES_ON_EXACT_PLANE_FAILED",
+          "admission_success": false,
+          "expected_admission": false,
+          "model": "ALGEBRAIC_ORTHONORMAL_FRAME"
+        },
+        "CERTIFIED_FLOAT_FILTERED_CANDIDATE": {
+          "admission_outcome": "RUNTIME_PLANAR_RESIDUAL_BUDGET_EXCEEDED:residual=0.0009999999444444492:budget=4e-07",
+          "admission_success": false,
+          "expected_admission": false,
+          "model": "CERTIFIED_FLOAT_FILTERED_CANDIDATE"
+        },
+        "RATIONAL_AFFINE_GRAM": {
+          "admission_outcome": "ALL_SOURCE_VERTICES_ON_EXACT_PLANE_FAILED",
+          "admission_success": false,
+          "expected_admission": false,
+          "model": "RATIONAL_AFFINE_GRAM"
+        }
+      },
+      "point_count": 4,
+      "relation": null,
+      "semantic_family": "nearly-planar-plane",
+      "triangle_count": 2
+    },
+    {
+      "comparisons": {
+        "all_admitted_digests_stable": true,
+        "exact_model_semantic_result_equal": true,
+        "representation_digest_equal": true,
+        "runtime_vs_reference": {
+          "absolute_area_deviation": 0.0,
+          "combinatorial_topology_equal": true,
+          "max_unlabeled_vertex_deviation": 0.0,
+          "max_vertex_deviation": 0.0,
+          "semantic_topology_and_provenance_equal": true,
+          "vertex_identity_equal": true
+        }
+      },
+      "expected_admission": true,
+      "fixture": "same_plane_different_triangulation",
+      "models": {
+        "ALGEBRAIC_ORTHONORMAL_FRAME": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 3,
+            "orientation_sign": 1,
+            "peak_expression_length": 11
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 17,
+            "input_segments": 8,
+            "narrowphase_tests": 17
+          },
+          "chart": {
+            "domain_coordinates_all_rational": true,
+            "exact": true,
+            "normal_length_expression": "Integer(12)"
+          },
+          "compile_seconds_median": 0.0009295000345446169,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.00018929998623207211,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 14,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 426
+          },
+          "filtered_predicates": null,
+          "frame_build_seconds_median": 0.0010512999724596739,
+          "invariant_digest": "557dea860c71fee75188e1584bd083ea37b9d460321e9f2601e63161a1e784a4",
+          "model": "ALGEBRAIC_ORTHONORMAL_FRAME",
+          "peak_tracemalloc_bytes": 227873,
+          "physical_area_expression": "Integer(2)",
+          "physical_vertex_expressions": {
+            "raw-vertex:4dfacdd5c696840f6512b45f": [
+              "Integer(4)",
+              "Integer(0)",
+              "Integer(0)"
+            ],
+            "raw-vertex:9d451322a3fa2e3b9f1c5ff4": [
+              "Integer(4)",
+              "Rational(1, 2)",
+              "Integer(0)"
+            ],
+            "raw-vertex:e6f6705d8d7c3b0f2ff4b36a": [
+              "Integer(0)",
+              "Rational(1, 2)",
+              "Integer(0)"
+            ],
+            "raw-vertex:f26b31eb00318a4299a7d459": [
+              "Integer(0)",
+              "Integer(0)",
+              "Integer(0)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.04435869998997077,
+          "semantic_digest": "0319dc3c6f3ee4c5bad0395ff179684f8ed78b8e7f6d3284dd5ee569dc470e4e",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:295a6b4230c699e89ecbdd83",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:48fcd225351307a401c8f4ae",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e24435e01cb067958b7179b9",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e384988ed9b2a582512dd0ec",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                [
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:d3da749bdc75d419b40500e2",
+                "OUTER",
+                [
+                  "raw-edge:295a6b4230c699e89ecbdd83",
+                  "raw-edge:e24435e01cb067958b7179b9",
+                  "raw-edge:48fcd225351307a401c8f4ae",
+                  "raw-edge:e384988ed9b2a582512dd0ec"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:72d76d1bbc286930e14d762f",
+                "raw-loop:d3da749bdc75d419b40500e2",
+                [],
+                [
+                  "spec:base-plane"
+                ]
+              ]
+            ]
+          }
+        },
+        "CERTIFIED_FLOAT_FILTERED_CANDIDATE": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 3,
+            "orientation_sign": 1,
+            "peak_expression_length": 11
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 17,
+            "input_segments": 8,
+            "narrowphase_tests": 17
+          },
+          "chart": {
+            "admission_budget": "4e-07",
+            "domain_coordinates_all_rational": true,
+            "exact": false,
+            "input_rounding": "BINARY64_VALUES_RATIONALIZED_FOR_EXACT_FALLBACK",
+            "max_absolute_plane_residual": "0.0",
+            "max_coordinate_ulp": "8.881784197001252e-16",
+            "residual_policy_id": "RUNTIME_PLANAR_RESIDUAL_BUDGET_CANDIDATE_V1"
+          },
+          "compile_seconds_median": 0.000720099953468889,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.0001897999900393188,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 14,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 426
+          },
+          "filtered_predicates": {
+            "candidate_pairs": 17,
+            "exact_fallback_fraction": "20/34",
+            "exact_fallbacks": 20,
+            "orientation_predicates": 34,
+            "policy_id": "RUNTIME_FILTERED_PREDICATE_BOUND_CANDIDATE_V1"
+          },
+          "frame_build_seconds_median": 0.00026080000679939985,
+          "invariant_digest": "557dea860c71fee75188e1584bd083ea37b9d460321e9f2601e63161a1e784a4",
+          "model": "CERTIFIED_FLOAT_FILTERED_CANDIDATE",
+          "peak_tracemalloc_bytes": 247127,
+          "physical_area_expression": "Integer(2)",
+          "physical_vertex_expressions": {
+            "raw-vertex:4dfacdd5c696840f6512b45f": [
+              "Integer(4)",
+              "Integer(0)",
+              "Integer(0)"
+            ],
+            "raw-vertex:9d451322a3fa2e3b9f1c5ff4": [
+              "Integer(4)",
+              "Rational(1, 2)",
+              "Integer(0)"
+            ],
+            "raw-vertex:e6f6705d8d7c3b0f2ff4b36a": [
+              "Integer(0)",
+              "Rational(1, 2)",
+              "Integer(0)"
+            ],
+            "raw-vertex:f26b31eb00318a4299a7d459": [
+              "Integer(0)",
+              "Integer(0)",
+              "Integer(0)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.04447300004540011,
+          "semantic_digest": "0319dc3c6f3ee4c5bad0395ff179684f8ed78b8e7f6d3284dd5ee569dc470e4e",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:295a6b4230c699e89ecbdd83",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:48fcd225351307a401c8f4ae",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e24435e01cb067958b7179b9",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e384988ed9b2a582512dd0ec",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                [
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:d3da749bdc75d419b40500e2",
+                "OUTER",
+                [
+                  "raw-edge:295a6b4230c699e89ecbdd83",
+                  "raw-edge:e24435e01cb067958b7179b9",
+                  "raw-edge:48fcd225351307a401c8f4ae",
+                  "raw-edge:e384988ed9b2a582512dd0ec"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:72d76d1bbc286930e14d762f",
+                "raw-loop:d3da749bdc75d419b40500e2",
+                [],
+                [
+                  "spec:base-plane"
+                ]
+              ]
+            ]
+          }
+        },
+        "RATIONAL_AFFINE_GRAM": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 3,
+            "orientation_sign": 1,
+            "peak_expression_length": 11
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 19,
+            "input_segments": 8,
+            "narrowphase_tests": 19
+          },
+          "chart": {
+            "domain_coordinates_all_rational": true,
+            "exact": true,
+            "gram_determinant": "Integer(144)"
+          },
+          "compile_seconds_median": 0.0008235999848693609,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.0006227000267244875,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 15,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 470
+          },
+          "filtered_predicates": null,
+          "frame_build_seconds_median": 0.0015229000127874315,
+          "invariant_digest": "557dea860c71fee75188e1584bd083ea37b9d460321e9f2601e63161a1e784a4",
+          "model": "RATIONAL_AFFINE_GRAM",
+          "peak_tracemalloc_bytes": 262491,
+          "physical_area_expression": "Integer(2)",
+          "physical_vertex_expressions": {
+            "raw-vertex:4dfacdd5c696840f6512b45f": [
+              "Integer(4)",
+              "Integer(0)",
+              "Integer(0)"
+            ],
+            "raw-vertex:9d451322a3fa2e3b9f1c5ff4": [
+              "Integer(4)",
+              "Rational(1, 2)",
+              "Integer(0)"
+            ],
+            "raw-vertex:e6f6705d8d7c3b0f2ff4b36a": [
+              "Integer(0)",
+              "Rational(1, 2)",
+              "Integer(0)"
+            ],
+            "raw-vertex:f26b31eb00318a4299a7d459": [
+              "Integer(0)",
+              "Integer(0)",
+              "Integer(0)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.052254200039897114,
+          "semantic_digest": "0319dc3c6f3ee4c5bad0395ff179684f8ed78b8e7f6d3284dd5ee569dc470e4e",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:295a6b4230c699e89ecbdd83",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:48fcd225351307a401c8f4ae",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e24435e01cb067958b7179b9",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e384988ed9b2a582512dd0ec",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                [
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:d3da749bdc75d419b40500e2",
+                "OUTER",
+                [
+                  "raw-edge:295a6b4230c699e89ecbdd83",
+                  "raw-edge:e24435e01cb067958b7179b9",
+                  "raw-edge:48fcd225351307a401c8f4ae",
+                  "raw-edge:e384988ed9b2a582512dd0ec"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:72d76d1bbc286930e14d762f",
+                "raw-loop:d3da749bdc75d419b40500e2",
+                [],
+                [
+                  "spec:base-plane"
+                ]
+              ]
+            ]
+          }
+        }
+      },
+      "point_count": 4,
+      "relation": "RETRIANGULATION_OF_axis_aligned_plane",
+      "semantic_family": "base-plane",
+      "triangle_count": 2
+    },
+    {
+      "comparisons": {
+        "all_admitted_digests_stable": true,
+        "exact_model_semantic_result_equal": true,
+        "representation_digest_equal": true,
+        "runtime_vs_reference": {
+          "combinatorial_topology_equal": true,
+          "max_unlabeled_vertex_deviation": 7.850462293418876e-17,
+          "max_vertex_deviation": null,
+          "semantic_topology_and_provenance_equal": false,
+          "vertex_identity_equal": false
+        }
+      },
+      "expected_admission": true,
+      "fixture": "same_plane_after_object_rotation",
+      "models": {
+        "ALGEBRAIC_ORTHONORMAL_FRAME": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 3,
+            "orientation_sign": 1,
+            "peak_expression_length": 11
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 17,
+            "input_segments": 8,
+            "narrowphase_tests": 17
+          },
+          "chart": {
+            "domain_coordinates_all_rational": true,
+            "exact": true,
+            "normal_length_expression": "Integer(12)"
+          },
+          "compile_seconds_median": 0.0007087000412866473,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.00019150000298395753,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 15,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 443
+          },
+          "filtered_predicates": null,
+          "frame_build_seconds_median": 0.001160499989055097,
+          "invariant_digest": "557dea860c71fee75188e1584bd083ea37b9d460321e9f2601e63161a1e784a4",
+          "model": "ALGEBRAIC_ORTHONORMAL_FRAME",
+          "peak_tracemalloc_bytes": 227188,
+          "physical_area_expression": "Integer(2)",
+          "physical_vertex_expressions": {
+            "raw-vertex:4dfacdd5c696840f6512b45f": [
+              "Rational(12, 5)",
+              "Rational(16, 5)",
+              "Integer(0)"
+            ],
+            "raw-vertex:9d451322a3fa2e3b9f1c5ff4": [
+              "Integer(2)",
+              "Rational(7, 2)",
+              "Integer(0)"
+            ],
+            "raw-vertex:e6f6705d8d7c3b0f2ff4b36a": [
+              "Rational(-2, 5)",
+              "Rational(3, 10)",
+              "Integer(0)"
+            ],
+            "raw-vertex:f26b31eb00318a4299a7d459": [
+              "Integer(0)",
+              "Integer(0)",
+              "Integer(0)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.04438919998938218,
+          "semantic_digest": "2be9004cd04b1446a07fbf1fff8c1b0d109772763bf3a18eb86b55fb95d624cc",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:295a6b4230c699e89ecbdd83",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:48fcd225351307a401c8f4ae",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e24435e01cb067958b7179b9",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e384988ed9b2a582512dd0ec",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                [
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:d3da749bdc75d419b40500e2",
+                "OUTER",
+                [
+                  "raw-edge:295a6b4230c699e89ecbdd83",
+                  "raw-edge:e24435e01cb067958b7179b9",
+                  "raw-edge:48fcd225351307a401c8f4ae",
+                  "raw-edge:e384988ed9b2a582512dd0ec"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:72d76d1bbc286930e14d762f",
+                "raw-loop:d3da749bdc75d419b40500e2",
+                [],
+                [
+                  "spec:base-plane"
+                ]
+              ]
+            ]
+          }
+        },
+        "CERTIFIED_FLOAT_FILTERED_CANDIDATE": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 3,
+            "orientation_sign": 1,
+            "peak_expression_length": 11
+          },
+          "arrangement_counters": {
+            "actual_intersections": 19,
+            "all_possible_pairs": 28,
+            "atomic_edges": 9,
+            "broadphase_candidate_pairs": 17,
+            "input_segments": 8,
+            "narrowphase_tests": 17
+          },
+          "chart": {
+            "admission_budget": "4e-07",
+            "domain_coordinates_all_rational": true,
+            "exact": false,
+            "input_rounding": "BINARY64_VALUES_RATIONALIZED_FOR_EXACT_FALLBACK",
+            "max_absolute_plane_residual": "0.0",
+            "max_coordinate_ulp": "8.881784197001252e-16",
+            "residual_policy_id": "RUNTIME_PLANAR_RESIDUAL_BUDGET_CANDIDATE_V1"
+          },
+          "compile_seconds_median": 0.0007927999831736088,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.0006169999833218753,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 78,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 679
+          },
+          "filtered_predicates": {
+            "candidate_pairs": 17,
+            "exact_fallback_fraction": "20/34",
+            "exact_fallbacks": 20,
+            "orientation_predicates": 34,
+            "policy_id": "RUNTIME_FILTERED_PREDICATE_BOUND_CANDIDATE_V1"
+          },
+          "frame_build_seconds_median": 0.0002998000127263367,
+          "invariant_digest": "b68cb954a97f5e4f753a8a368f6171c530f11ae40ad261c4906fc09108f19162",
+          "model": "CERTIFIED_FLOAT_FILTERED_CANDIDATE",
+          "peak_tracemalloc_bytes": 235783,
+          "physical_area_expression": "Rational(479999999999999997779553950749687, 240000000000000000000000000000000)",
+          "physical_vertex_expressions": {
+            "raw-vertex:4dfacdd5c696840f6512b45f": [
+              "Rational(12, 5)",
+              "Rational(16, 5)",
+              "Integer(0)"
+            ],
+            "raw-vertex:8602cbcf458a3a057398b8cc": [
+              "Rational(-39999999999999997779553950749687, 100000000000000000000000000000000)",
+              "Rational(22500000000000002220446049250313, 75000000000000000000000000000000)",
+              "Integer(0)"
+            ],
+            "raw-vertex:9d451322a3fa2e3b9f1c5ff4": [
+              "Integer(2)",
+              "Rational(7, 2)",
+              "Integer(0)"
+            ],
+            "raw-vertex:f26b31eb00318a4299a7d459": [
+              "Integer(0)",
+              "Integer(0)",
+              "Integer(0)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.058922500000335276,
+          "semantic_digest": "22d95018413a429bd1375238763f36b083a659e555a9d601a952d92452cc63e6",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:1a6a65c49e5c328a981cf8cb",
+                "raw-vertex:8602cbcf458a3a057398b8cc",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                [
+                  "support:base-plane:domain"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3"
+                ]
+              ],
+              [
+                "raw-edge:1aefb963f64234a75caa2b69",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                "raw-vertex:8602cbcf458a3a057398b8cc",
+                [
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:48fcd225351307a401c8f4ae",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e24435e01cb067958b7179b9",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:c6542d642b206225d78c9a84",
+                "OUTER",
+                [
+                  "raw-edge:1a6a65c49e5c328a981cf8cb",
+                  "raw-edge:e24435e01cb067958b7179b9",
+                  "raw-edge:48fcd225351307a401c8f4ae",
+                  "raw-edge:1aefb963f64234a75caa2b69"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:a34db3c44d53df036a36ae7d",
+                "raw-loop:c6542d642b206225d78c9a84",
+                [],
+                [
+                  "spec:base-plane"
+                ]
+              ]
+            ]
+          }
+        },
+        "RATIONAL_AFFINE_GRAM": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 3,
+            "orientation_sign": 1,
+            "peak_expression_length": 11
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 19,
+            "input_segments": 8,
+            "narrowphase_tests": 19
+          },
+          "chart": {
+            "domain_coordinates_all_rational": true,
+            "exact": true,
+            "gram_determinant": "Integer(144)"
+          },
+          "compile_seconds_median": 0.0008214000263251364,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.0006202000076882541,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 15,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 480
+          },
+          "filtered_predicates": null,
+          "frame_build_seconds_median": 0.0016804999904707074,
+          "invariant_digest": "557dea860c71fee75188e1584bd083ea37b9d460321e9f2601e63161a1e784a4",
+          "model": "RATIONAL_AFFINE_GRAM",
+          "peak_tracemalloc_bytes": 253287,
+          "physical_area_expression": "Integer(2)",
+          "physical_vertex_expressions": {
+            "raw-vertex:4dfacdd5c696840f6512b45f": [
+              "Rational(12, 5)",
+              "Rational(16, 5)",
+              "Integer(0)"
+            ],
+            "raw-vertex:9d451322a3fa2e3b9f1c5ff4": [
+              "Integer(2)",
+              "Rational(7, 2)",
+              "Integer(0)"
+            ],
+            "raw-vertex:e6f6705d8d7c3b0f2ff4b36a": [
+              "Rational(-2, 5)",
+              "Rational(3, 10)",
+              "Integer(0)"
+            ],
+            "raw-vertex:f26b31eb00318a4299a7d459": [
+              "Integer(0)",
+              "Integer(0)",
+              "Integer(0)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.05366649996722117,
+          "semantic_digest": "2be9004cd04b1446a07fbf1fff8c1b0d109772763bf3a18eb86b55fb95d624cc",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:295a6b4230c699e89ecbdd83",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:48fcd225351307a401c8f4ae",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e24435e01cb067958b7179b9",
+                "raw-vertex:f26b31eb00318a4299a7d459",
+                "raw-vertex:4dfacdd5c696840f6512b45f",
+                [
+                  "support:base-plane:domain",
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:domain:0",
+                  "edge:base-plane:domain:1",
+                  "edge:base-plane:domain:2",
+                  "edge:base-plane:domain:3",
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e384988ed9b2a582512dd0ec",
+                "raw-vertex:9d451322a3fa2e3b9f1c5ff4",
+                "raw-vertex:e6f6705d8d7c3b0f2ff4b36a",
+                [
+                  "support:base-plane:strip"
+                ],
+                [
+                  "edge:base-plane:strip:0",
+                  "edge:base-plane:strip:1",
+                  "edge:base-plane:strip:2",
+                  "edge:base-plane:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:d3da749bdc75d419b40500e2",
+                "OUTER",
+                [
+                  "raw-edge:295a6b4230c699e89ecbdd83",
+                  "raw-edge:e24435e01cb067958b7179b9",
+                  "raw-edge:48fcd225351307a401c8f4ae",
+                  "raw-edge:e384988ed9b2a582512dd0ec"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:72d76d1bbc286930e14d762f",
+                "raw-loop:d3da749bdc75d419b40500e2",
+                [],
+                [
+                  "spec:base-plane"
+                ]
+              ]
+            ]
+          }
+        }
+      },
+      "point_count": 4,
+      "relation": "RIGID_ROTATION_OF_axis_aligned_plane",
+      "semantic_family": "base-plane",
+      "triangle_count": 2
+    },
+    {
+      "comparisons": {
+        "all_admitted_digests_stable": true,
+        "exact_model_semantic_result_equal": true,
+        "representation_digest_equal": false,
+        "runtime_vs_reference": {
+          "absolute_area_deviation": 6.661338147750939e-16,
+          "combinatorial_topology_equal": true,
+          "max_unlabeled_vertex_deviation": 0.0,
+          "max_vertex_deviation": 0.0,
+          "semantic_topology_and_provenance_equal": true,
+          "vertex_identity_equal": true
+        }
+      },
+      "expected_admission": true,
+      "fixture": "building_002_patch_3",
+      "models": {
+        "ALGEBRAIC_ORTHONORMAL_FRAME": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 7,
+            "orientation_sign": 1,
+            "peak_expression_length": 127
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 17,
+            "input_segments": 8,
+            "narrowphase_tests": 17
+          },
+          "chart": {
+            "domain_coordinates_all_rational": false,
+            "exact": true,
+            "normal_length_expression": "Mul(Rational(389, 2500000000000000000000000000000), Pow(Integer(262653219967805931343601013437543314550179844851187488034), Rational(1, 2)))"
+          },
+          "compile_seconds_median": 0.0029448000132106245,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.004215799970552325,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 77,
+            "peak_expression_length": 140,
+            "peak_expression_node_count": 5,
+            "total_expression_length": 1451
+          },
+          "filtered_predicates": null,
+          "frame_build_seconds_median": 0.0015811999910511076,
+          "invariant_digest": "f419a8be25a5bdce485f23b07854ed625cbd98571c6932c507b8345ac80b0711",
+          "model": "ALGEBRAIC_ORTHONORMAL_FRAME",
+          "peak_tracemalloc_bytes": 291196,
+          "physical_area_expression": "Mul(Rational(3, 10000000000000000), Pow(Integer(6359191663799732726541876792914), Rational(1, 2)))",
+          "physical_vertex_expressions": {
+            "raw-vertex:7878118660f4ce1df7d8dca0": [
+              "Rational(4842615127563477, 1000000000000000)",
+              "Rational(225077, 8192)",
+              "Rational(2009467, 32768)"
+            ],
+            "raw-vertex:816700c11e44e76d50feb456": [
+              "Rational(4542615127563477, 1000000000000000)",
+              "Rational(225077, 8192)",
+              "Rational(2009467, 32768)"
+            ],
+            "raw-vertex:fa2be6ba407339455b891c16": [
+              "Rational(4842615127563477, 1000000000000000)",
+              "Rational(27475217819213867, 1000000000000000)",
+              "Rational(798072624206543, 12500000000000)"
+            ],
+            "raw-vertex:fe42dfd768404ba89b71af42": [
+              "Rational(4542615127563477, 1000000000000000)",
+              "Rational(27475217819213867, 1000000000000000)",
+              "Rational(798072624206543, 12500000000000)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.16395489999558777,
+          "semantic_digest": "82e759a48437be9544704ef1d75fe112feb7b472e867bd29bde161f5d5d8344e",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:4ff2dc0ea46522dfd2572e7a",
+                "raw-vertex:fe42dfd768404ba89b71af42",
+                "raw-vertex:fa2be6ba407339455b891c16",
+                [
+                  "support:building-002-patch-3:domain",
+                  "support:building-002-patch-3:strip"
+                ],
+                [
+                  "edge:building-002-patch-3:domain:0",
+                  "edge:building-002-patch-3:domain:1",
+                  "edge:building-002-patch-3:domain:2",
+                  "edge:building-002-patch-3:domain:3",
+                  "edge:building-002-patch-3:strip:0",
+                  "edge:building-002-patch-3:strip:1",
+                  "edge:building-002-patch-3:strip:2",
+                  "edge:building-002-patch-3:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:57a6ba8d1c4b809b258be7cb",
+                "raw-vertex:816700c11e44e76d50feb456",
+                "raw-vertex:fe42dfd768404ba89b71af42",
+                [
+                  "support:building-002-patch-3:strip"
+                ],
+                [
+                  "edge:building-002-patch-3:strip:0",
+                  "edge:building-002-patch-3:strip:1",
+                  "edge:building-002-patch-3:strip:2",
+                  "edge:building-002-patch-3:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e710938db5ab84266b715694",
+                "raw-vertex:7878118660f4ce1df7d8dca0",
+                "raw-vertex:816700c11e44e76d50feb456",
+                [
+                  "support:building-002-patch-3:domain",
+                  "support:building-002-patch-3:strip"
+                ],
+                [
+                  "edge:building-002-patch-3:domain:0",
+                  "edge:building-002-patch-3:domain:1",
+                  "edge:building-002-patch-3:domain:2",
+                  "edge:building-002-patch-3:domain:3",
+                  "edge:building-002-patch-3:strip:0",
+                  "edge:building-002-patch-3:strip:1",
+                  "edge:building-002-patch-3:strip:2",
+                  "edge:building-002-patch-3:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:f42d3f25a480e23ad9471a01",
+                "raw-vertex:fa2be6ba407339455b891c16",
+                "raw-vertex:7878118660f4ce1df7d8dca0",
+                [
+                  "support:building-002-patch-3:domain",
+                  "support:building-002-patch-3:strip"
+                ],
+                [
+                  "edge:building-002-patch-3:domain:0",
+                  "edge:building-002-patch-3:domain:1",
+                  "edge:building-002-patch-3:domain:2",
+                  "edge:building-002-patch-3:domain:3",
+                  "edge:building-002-patch-3:strip:0",
+                  "edge:building-002-patch-3:strip:1",
+                  "edge:building-002-patch-3:strip:2",
+                  "edge:building-002-patch-3:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:91a941777c27647ce172a5a3",
+                "OUTER",
+                [
+                  "raw-edge:4ff2dc0ea46522dfd2572e7a",
+                  "raw-edge:f42d3f25a480e23ad9471a01",
+                  "raw-edge:e710938db5ab84266b715694",
+                  "raw-edge:57a6ba8d1c4b809b258be7cb"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:ace792d20d99c71a0ca0dd1e",
+                "raw-loop:91a941777c27647ce172a5a3",
+                [],
+                [
+                  "spec:building-002-patch-3"
+                ]
+              ]
+            ]
+          }
+        },
+        "CERTIFIED_FLOAT_FILTERED_CANDIDATE": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 3,
+            "orientation_sign": 1,
+            "peak_expression_length": 40
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 17,
+            "input_segments": 8,
+            "narrowphase_tests": 17
+          },
+          "chart": {
+            "admission_budget": "2.521743774414784e-07",
+            "domain_coordinates_all_rational": true,
+            "exact": false,
+            "input_rounding": "BINARY64_VALUES_RATIONALIZED_FOR_EXACT_FALLBACK",
+            "max_absolute_plane_residual": "1.8749836617126467e-16",
+            "max_coordinate_ulp": "7.105427357601002e-15",
+            "residual_policy_id": "RUNTIME_PLANAR_RESIDUAL_BUDGET_CANDIDATE_V1"
+          },
+          "compile_seconds_median": 0.001137699990067631,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.0010474000009708107,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 51,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 819
+          },
+          "filtered_predicates": {
+            "candidate_pairs": 17,
+            "exact_fallback_fraction": "20/34",
+            "exact_fallbacks": 20,
+            "orientation_predicates": 34,
+            "policy_id": "RUNTIME_FILTERED_PREDICATE_BOUND_CANDIDATE_V1"
+          },
+          "frame_build_seconds_median": 0.0004175999783910811,
+          "invariant_digest": "8f3f5ec30074de1dfaf276a9a598bb1fb387c4e7d6dd945632137f3360e372ad",
+          "model": "CERTIFIED_FLOAT_FILTERED_CANDIDATE",
+          "peak_tracemalloc_bytes": 205552,
+          "physical_area_expression": "Rational(118206739425693, 156250000000000)",
+          "physical_vertex_expressions": {
+            "raw-vertex:7878118660f4ce1df7d8dca0": [
+              "Rational(4842615127563477, 1000000000000000)",
+              "Rational(4293003082275390624999720581202758067, 156250000000000000000000000000000000)",
+              "Rational(479094266891479509521245958033, 7812500000000000000000000000)"
+            ],
+            "raw-vertex:816700c11e44e76d50feb456": [
+              "Rational(4542615127563477, 1000000000000000)",
+              "Rational(4293003082275390624999720581202758067, 156250000000000000000000000000000000)",
+              "Rational(479094266891479509521245958033, 7812500000000000000000000000)"
+            ],
+            "raw-vertex:fa2be6ba407339455b891c16": [
+              "Rational(4842615127563477, 1000000000000000)",
+              "Rational(27475217819213867, 1000000000000000)",
+              "Rational(798072624206543, 12500000000000)"
+            ],
+            "raw-vertex:fe42dfd768404ba89b71af42": [
+              "Rational(4542615127563477, 1000000000000000)",
+              "Rational(27475217819213867, 1000000000000000)",
+              "Rational(798072624206543, 12500000000000)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.057992400019429624,
+          "semantic_digest": "5345d5ed34cae685f96ed4135718d922190a643d1a027ba15633f64c2d03227f",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:4ff2dc0ea46522dfd2572e7a",
+                "raw-vertex:fe42dfd768404ba89b71af42",
+                "raw-vertex:fa2be6ba407339455b891c16",
+                [
+                  "support:building-002-patch-3:domain",
+                  "support:building-002-patch-3:strip"
+                ],
+                [
+                  "edge:building-002-patch-3:domain:0",
+                  "edge:building-002-patch-3:domain:1",
+                  "edge:building-002-patch-3:domain:2",
+                  "edge:building-002-patch-3:domain:3",
+                  "edge:building-002-patch-3:strip:0",
+                  "edge:building-002-patch-3:strip:1",
+                  "edge:building-002-patch-3:strip:2",
+                  "edge:building-002-patch-3:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:57a6ba8d1c4b809b258be7cb",
+                "raw-vertex:816700c11e44e76d50feb456",
+                "raw-vertex:fe42dfd768404ba89b71af42",
+                [
+                  "support:building-002-patch-3:strip"
+                ],
+                [
+                  "edge:building-002-patch-3:strip:0",
+                  "edge:building-002-patch-3:strip:1",
+                  "edge:building-002-patch-3:strip:2",
+                  "edge:building-002-patch-3:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e710938db5ab84266b715694",
+                "raw-vertex:7878118660f4ce1df7d8dca0",
+                "raw-vertex:816700c11e44e76d50feb456",
+                [
+                  "support:building-002-patch-3:domain",
+                  "support:building-002-patch-3:strip"
+                ],
+                [
+                  "edge:building-002-patch-3:domain:0",
+                  "edge:building-002-patch-3:domain:1",
+                  "edge:building-002-patch-3:domain:2",
+                  "edge:building-002-patch-3:domain:3",
+                  "edge:building-002-patch-3:strip:0",
+                  "edge:building-002-patch-3:strip:1",
+                  "edge:building-002-patch-3:strip:2",
+                  "edge:building-002-patch-3:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:f42d3f25a480e23ad9471a01",
+                "raw-vertex:fa2be6ba407339455b891c16",
+                "raw-vertex:7878118660f4ce1df7d8dca0",
+                [
+                  "support:building-002-patch-3:domain",
+                  "support:building-002-patch-3:strip"
+                ],
+                [
+                  "edge:building-002-patch-3:domain:0",
+                  "edge:building-002-patch-3:domain:1",
+                  "edge:building-002-patch-3:domain:2",
+                  "edge:building-002-patch-3:domain:3",
+                  "edge:building-002-patch-3:strip:0",
+                  "edge:building-002-patch-3:strip:1",
+                  "edge:building-002-patch-3:strip:2",
+                  "edge:building-002-patch-3:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:91a941777c27647ce172a5a3",
+                "OUTER",
+                [
+                  "raw-edge:4ff2dc0ea46522dfd2572e7a",
+                  "raw-edge:f42d3f25a480e23ad9471a01",
+                  "raw-edge:e710938db5ab84266b715694",
+                  "raw-edge:57a6ba8d1c4b809b258be7cb"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:ace792d20d99c71a0ca0dd1e",
+                "raw-loop:91a941777c27647ce172a5a3",
+                [],
+                [
+                  "spec:building-002-patch-3"
+                ]
+              ]
+            ]
+          }
+        },
+        "RATIONAL_AFFINE_GRAM": {
+          "admission_outcome": "ADMITTED",
+          "admission_success": true,
+          "angle_certificate_complexity": {
+            "cosine_expression": "Integer(0)",
+            "expression_node_count": 7,
+            "orientation_sign": 1,
+            "peak_expression_length": 140
+          },
+          "arrangement_counters": {
+            "actual_intersections": 20,
+            "all_possible_pairs": 28,
+            "atomic_edges": 7,
+            "broadphase_candidate_pairs": 19,
+            "input_segments": 8,
+            "narrowphase_tests": 19
+          },
+          "chart": {
+            "domain_coordinates_all_rational": true,
+            "exact": true,
+            "gram_determinant": "Rational(19872473949374180668422524477191245950523882151363270938396457, 3125000000000000000000000000000000000000000000000000000000000)"
+          },
+          "compile_seconds_median": 0.0009171999990940094,
+          "digest_stable_across_repeats": true,
+          "exact_sign_batch_seconds_median": 0.000624899985268712,
+          "expected_admission": true,
+          "expression_metrics": {
+            "expression_count": 41,
+            "expression_node_count": 41,
+            "peak_expression_length": 76,
+            "peak_expression_node_count": 1,
+            "total_expression_length": 1581
+          },
+          "filtered_predicates": null,
+          "frame_build_seconds_median": 0.002013700024690479,
+          "invariant_digest": "fbb319a1026a2c0e9f21e8c49f19f357071cdc2eff921fae427a4cd3d1b909ec",
+          "model": "RATIONAL_AFFINE_GRAM",
+          "peak_tracemalloc_bytes": 248893,
+          "physical_area_expression": "Mul(Rational(3, 64267352185090000000000000000), Pow(Integer(262653219967805931343601013437543314550179844851187488034), Rational(1, 2)))",
+          "physical_vertex_expressions": {
+            "raw-vertex:7878118660f4ce1df7d8dca0": [
+              "Rational(4842615127563477, 1000000000000000)",
+              "Rational(225077, 8192)",
+              "Rational(2009467, 32768)"
+            ],
+            "raw-vertex:816700c11e44e76d50feb456": [
+              "Rational(4542615127563477, 1000000000000000)",
+              "Rational(225077, 8192)",
+              "Rational(2009467, 32768)"
+            ],
+            "raw-vertex:fa2be6ba407339455b891c16": [
+              "Rational(4842615127563477, 1000000000000000)",
+              "Rational(27475217819213867, 1000000000000000)",
+              "Rational(798072624206543, 12500000000000)"
+            ],
+            "raw-vertex:fe42dfd768404ba89b71af42": [
+              "Rational(4542615127563477, 1000000000000000)",
+              "Rational(27475217819213867, 1000000000000000)",
+              "Rational(798072624206543, 12500000000000)"
+            ]
+          },
+          "raw_coverage_seconds_median": 0.054427600000053644,
+          "semantic_digest": "767754351bbff3f111556207f06e2bdd50013dc675b432ce7a7d6da4af9901d6",
+          "topology_projection": {
+            "edges": [
+              [
+                "raw-edge:4ff2dc0ea46522dfd2572e7a",
+                "raw-vertex:fe42dfd768404ba89b71af42",
+                "raw-vertex:fa2be6ba407339455b891c16",
+                [
+                  "support:building-002-patch-3:domain",
+                  "support:building-002-patch-3:strip"
+                ],
+                [
+                  "edge:building-002-patch-3:domain:0",
+                  "edge:building-002-patch-3:domain:1",
+                  "edge:building-002-patch-3:domain:2",
+                  "edge:building-002-patch-3:domain:3",
+                  "edge:building-002-patch-3:strip:0",
+                  "edge:building-002-patch-3:strip:1",
+                  "edge:building-002-patch-3:strip:2",
+                  "edge:building-002-patch-3:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:57a6ba8d1c4b809b258be7cb",
+                "raw-vertex:816700c11e44e76d50feb456",
+                "raw-vertex:fe42dfd768404ba89b71af42",
+                [
+                  "support:building-002-patch-3:strip"
+                ],
+                [
+                  "edge:building-002-patch-3:strip:0",
+                  "edge:building-002-patch-3:strip:1",
+                  "edge:building-002-patch-3:strip:2",
+                  "edge:building-002-patch-3:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:e710938db5ab84266b715694",
+                "raw-vertex:7878118660f4ce1df7d8dca0",
+                "raw-vertex:816700c11e44e76d50feb456",
+                [
+                  "support:building-002-patch-3:domain",
+                  "support:building-002-patch-3:strip"
+                ],
+                [
+                  "edge:building-002-patch-3:domain:0",
+                  "edge:building-002-patch-3:domain:1",
+                  "edge:building-002-patch-3:domain:2",
+                  "edge:building-002-patch-3:domain:3",
+                  "edge:building-002-patch-3:strip:0",
+                  "edge:building-002-patch-3:strip:1",
+                  "edge:building-002-patch-3:strip:2",
+                  "edge:building-002-patch-3:strip:3"
+                ]
+              ],
+              [
+                "raw-edge:f42d3f25a480e23ad9471a01",
+                "raw-vertex:fa2be6ba407339455b891c16",
+                "raw-vertex:7878118660f4ce1df7d8dca0",
+                [
+                  "support:building-002-patch-3:domain",
+                  "support:building-002-patch-3:strip"
+                ],
+                [
+                  "edge:building-002-patch-3:domain:0",
+                  "edge:building-002-patch-3:domain:1",
+                  "edge:building-002-patch-3:domain:2",
+                  "edge:building-002-patch-3:domain:3",
+                  "edge:building-002-patch-3:strip:0",
+                  "edge:building-002-patch-3:strip:1",
+                  "edge:building-002-patch-3:strip:2",
+                  "edge:building-002-patch-3:strip:3"
+                ]
+              ]
+            ],
+            "loops": [
+              [
+                "raw-loop:91a941777c27647ce172a5a3",
+                "OUTER",
+                [
+                  "raw-edge:4ff2dc0ea46522dfd2572e7a",
+                  "raw-edge:f42d3f25a480e23ad9471a01",
+                  "raw-edge:e710938db5ab84266b715694",
+                  "raw-edge:57a6ba8d1c4b809b258be7cb"
+                ]
+              ]
+            ],
+            "regions": [
+              [
+                "raw-region:ace792d20d99c71a0ca0dd1e",
+                "raw-loop:91a941777c27647ce172a5a3",
+                [],
+                [
+                  "spec:building-002-patch-3"
+                ]
+              ]
+            ]
+          }
+        }
+      },
+      "point_count": 4,
+      "relation": null,
+      "semantic_family": "building-002-patch-3",
+      "triangle_count": 2
+    }
+  ],
+  "gate": {
+    "all_digests_stable": true,
+    "exact_a_b_semantic_equivalence": true,
+    "production_contracts_changed": false,
+    "runtime_candidate_status": "STOPPED_NOT_READY_FOR_PRODUCTION",
+    "runtime_semantic_match_fixture_count": 7,
+    "runtime_semantic_mismatch_fixtures": [
+      "arbitrary_rotated_plane",
+      "same_plane_after_object_rotation"
+    ]
+  },
+  "iterations_per_admitted_model": 5,
+  "metamorphic_relations": {
+    "retriangulation": {
+      "ALGEBRAIC_ORTHONORMAL_FRAME": true,
+      "CERTIFIED_FLOAT_FILTERED_CANDIDATE": true,
+      "RATIONAL_AFFINE_GRAM": true
+    },
+    "rotation": {
+      "ALGEBRAIC_ORTHONORMAL_FRAME": true,
+      "CERTIFIED_FLOAT_FILTERED_CANDIDATE": false,
+      "RATIONAL_AFFINE_GRAM": true
+    },
+    "scale": {
+      "ALGEBRAIC_ORTHONORMAL_FRAME": true,
+      "CERTIFIED_FLOAT_FILTERED_CANDIDATE": true,
+      "RATIONAL_AFFINE_GRAM": true
+    }
+  },
+  "runtime_residual_policy_candidate": {
+    "coordinate_ulp_multiplier": 64,
+    "law": "max(relative_extent_factor * max(planar_extent, minimum_extent), coordinate_ulp_multiplier * max_coordinate_ulp)",
+    "minimum_extent": "1e-3",
+    "policy_id": "RUNTIME_PLANAR_RESIDUAL_BUDGET_CANDIDATE_V1",
+    "relative_extent_factor": "1e-7",
+    "status": "RESEARCH_CANDIDATE_NOT_PRODUCT_POLICY"
+  },
+  "schema": "cftuv.envelope.planar_metric_spike_results.v1",
+  "session": "SESSION_M_R0_PLANAR_METRIC_CONTRACT_DECISION",
+  "status": "RESEARCH_ONLY_NO_PRODUCTION_INTEGRATION"
+}
