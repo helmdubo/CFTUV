@@ -135,12 +135,12 @@ class ExactScalar:
         return _parse_expr(self.expression)
 
 
-class _IntervalUnsupported(Exception):
+class IntervalEnclosureUnsupported(Exception):
     """Узел выражения, для которого нет интервального правила."""
 
 
-def _to_interval(expression: sp.Expr):
-    """Строгая интервальная оболочка выражения.
+def interval_enclosure(expression: sp.Expr):
+    """Строгая интервальная оболочка выражения при текущей `iv.prec`.
 
     Каждая операция расширяет интервал наружу, поэтому истинное значение
     гарантированно лежит внутри результата. Это не оценка и не порог: если
@@ -154,22 +154,22 @@ def _to_interval(expression: sp.Expr):
     if expression.is_Add:
         total = iv.mpf(0)
         for term in expression.args:
-            total = total + _to_interval(term)
+            total = total + interval_enclosure(term)
         return total
     if expression.is_Mul:
         product = iv.mpf(1)
         for term in expression.args:
-            product = product * _to_interval(term)
+            product = product * interval_enclosure(term)
         return product
     if expression.is_Pow:
         base, exponent = expression.args
-        enclosure = _to_interval(base)
+        enclosure = interval_enclosure(base)
         if exponent.is_Integer:
             return enclosure ** int(exponent)
         if exponent.is_Rational and exponent.q == 2:
             root = iv.sqrt(enclosure)
             return root if exponent.p == 1 else root ** int(exponent.p)
-    raise _IntervalUnsupported(str(expression))
+    raise IntervalEnclosureUnsupported(str(expression))
 
 
 def _certified_interval_sign(expression: sp.Expr, precision: int = 80) -> int | None:
@@ -187,8 +187,8 @@ def _certified_interval_sign(expression: sp.Expr, precision: int = 80) -> int | 
     saved = iv.prec
     iv.prec = precision
     try:
-        enclosure = _to_interval(expression)
-    except (_IntervalUnsupported, ArithmeticError, ValueError, TypeError):
+        enclosure = interval_enclosure(expression)
+    except (IntervalEnclosureUnsupported, ArithmeticError, ValueError, TypeError):
         return None
     finally:
         iv.prec = saved
