@@ -1416,37 +1416,6 @@ def _exact_frame(
     )
 
 
-def _decimal_interval_from_rational(
-    kernel,
-    sympy,
-    value,
-    *,
-    patch_domain_id: str,
-):
-    value = sympy.factor(value)
-    if value.is_Rational is not True:
-        raise EnvelopeHostAdapterError(
-            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
-            f"angular ratio is not an exact rational multiple of pi: {value}",
-            patch_domain_id=patch_domain_id,
-        )
-    numerator = int(value.p)
-    denominator = int(value.q)
-    scale = 10**28
-    lower_units = numerator * scale // denominator
-    upper_units = -((-numerator * scale) // denominator)
-    lower = Decimal(lower_units).scaleb(-28)
-    upper = Decimal(upper_units).scaleb(-28)
-    interval_kind = kernel.IntervalEndpointKind.CLOSED
-    return kernel.CertifiedDecimalIntervalV1(
-        lower,
-        upper,
-        interval_kind,
-        interval_kind,
-        upper - lower,
-    )
-
-
 def _build_angular_relations(
     kernel,
     sympy,
@@ -1465,6 +1434,9 @@ def _build_angular_relations(
     scalar = lambda value: sympy.Rational(str(float(value)))
     metric_types = importlib.import_module(
         "cftuv_envelope.reference.planar_types"
+    )
+    angle_measure = importlib.import_module(
+        "cftuv_envelope.reference.angle_measure"
     )
 
     def point_map(frame):
@@ -1702,44 +1674,18 @@ def _build_angular_relations(
                 cosine, sine = metric.angle_g(
                     incoming_vector, outgoing_vector
                 )
-                delta = sympy.factor(
-                    sympy.atan2(abs(sine), cosine) / sympy.pi
-                )
-                exact_phi = sympy.factor(1 + delta)
-                interval_phi = _decimal_interval_from_rational(
-                    kernel,
-                    sympy,
-                    exact_phi,
-                    patch_domain_id=domain_id.value,
-                )
-                if exact_phi >= 2:
+                try:
+                    interval_phi, interval_delta = (
+                        angle_measure.reflex_angle_intervals_over_pi(
+                            sine, cosine
+                        )
+                    )
+                except angle_measure.CertifiedAngleUnavailable as error:
                     raise EnvelopeHostAdapterError(
                         EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
-                        "exact 2*pi corner must be Terminal/Junction, not Angular",
+                        str(error),
                         patch_domain_id=domain_id.value,
-                    )
-                interval_delta = kernel.CertifiedDecimalIntervalV1(
-                    interval_phi.lower - Decimal(1),
-                    interval_phi.upper - Decimal(1),
-                    interval_phi.lower_kind,
-                    interval_phi.upper_kind,
-                    interval_phi.absolute_error_bound,
-                )
-                exact_delta_interval = _decimal_interval_from_rational(
-                    kernel,
-                    sympy,
-                    delta,
-                    patch_domain_id=domain_id.value,
-                )
-                if (
-                    interval_delta.lower != exact_delta_interval.lower
-                    or interval_delta.upper != exact_delta_interval.upper
-                ):
-                    raise EnvelopeHostAdapterError(
-                        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
-                        "phi and reflex-excess rational intervals disagree",
-                        patch_domain_id=domain_id.value,
-                    )
+                    ) from error
                 orientation = (
                     kernel.TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION
                     if turn_cross > 0
