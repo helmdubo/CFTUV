@@ -1,0 +1,68 @@
+name: Host addon suite
+
+# До введения этого workflow CI проверял только Blender-free ядро и тонкий
+# мост хоста. Вне проверки оставалось ~1.1 МБ самого сложного и численно
+# хрупкого кода (decal_voronoi, decal_rails, analysis_*, solve_*, frontier_*)
+# и большая часть host-тестов. Ошибки в них находились только вручную и только
+# в поле.
+
+on:
+  push:
+    paths:
+      - "cftuv/**"
+      - "tests/**"
+      - "tools/**"
+      - "pytest.ini"
+      - "AGENTS.md"
+      - ".github/workflows/host-suite.yml"
+  pull_request:
+    paths:
+      - "cftuv/**"
+      - "tests/**"
+      - "tools/**"
+      - "pytest.ini"
+      - "AGENTS.md"
+      - ".github/workflows/host-suite.yml"
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      # mathutils/bpy/bmesh подменяются заглушками в tests/conftest.py —
+      # Blender для этого набора не нужен.
+      - name: Install dependencies
+        run: |
+          python -m pip install --disable-pip-version-check \
+            pytest "pyvoronoi>=1.2.8" sympy==1.14.0
+
+      # Отдельным шагом и первым: структурные правила должны падать быстро
+      # и с понятным сообщением, до того как утонут в общем прогоне.
+      - name: Architecture invariants
+        env:
+          PYTHONPATH: kernel/src
+        run: python -m pytest tests/test_architecture.py -q -p no:cacheprovider
+
+      - name: Host suite
+        env:
+          PYTHONPATH: kernel/src
+        run: python -m pytest tests -q -p no:cacheprovider
+
+      # Чистый клон обязан быть зелёным без ручных флагов. Если кто-то добавит
+      # красный тест и «временно» задеselect'ит его через pytest.ini,
+      # предыдущий шаг это скроет, а этот — нет.
+      - name: Frozen acceptance is accounted for, not forgotten
+        run: |
+          set -euo pipefail
+          FROZEN=$(python -m pytest tests -q -p no:cacheprovider \
+            --collect-only -m atlas_frozen 2>/dev/null | grep -c '::' || true)
+          echo "atlas_frozen tests: $FROZEN"
+          if [ "$FROZEN" -gt 4 ]; then
+            echo "Число замороженных тестов выросло с 4 до $FROZEN."
+            echo "Заморозка — не способ починить красный тест."
+            exit 1
+          fi
