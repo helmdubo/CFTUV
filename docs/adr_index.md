@@ -8,6 +8,9 @@ Machine-readable index status: `CURRENT_AUTHORITY_INDEX`.
 |---|---|---|---|
 | BASE-00: recover the canonical integration baseline from `codex/fix-host-reflex-corner-envelope`, import the Envelope v1 execution pack, and reconcile it with the selected consolidated C-R2C gate | Accepted by release owner with docs-only amendment | `e4db68371cab83a6a26368bf9a95eda74ae8d02e` | `artifacts/envelope_baseline/session_base_00_control_plane_amendment.md` |
 | DOC-00: canonical control status selects one authority order; historical session documents cannot dispatch work | Accepted by release owner | `779371b2cb62bce7295c522a51c05a968c8f653b` | `artifacts/envelope_doc_00/session_doc_00_handoff.md` |
+| FIX-00: portable `building.002` point-contact fixture and exact cross-revision reproduction | Accepted by release owner | `f870cba6b48b81d95ec390e7d46129c2550d1728` | `artifacts/envelope_fix_00/session_fix_00_handoff.md` |
+| DOC-00 + FIX-00 dependency integration | Accepted canonical content | `361102a6539ffbbe6fa8957a04bf12a9bae42bd8` | `artifacts/envelope_control_plane/session_doc_fix_dependency_acceptance.md` |
+| D-R2-00: conditional atomic multiway interaction contract | Active product-owner gate; implementation not started | `361102a6539ffbbe6fa8957a04bf12a9bae42bd8` | `docs/agent_execution/envelope_v1/cards/D-R2-00_Conditional_atomic_multiway_interaction_contract_gate.md` |
 
 The immutable content SHA deliberately precedes live control-metadata updates.
 Agents read `docs/architecture_status.json` from

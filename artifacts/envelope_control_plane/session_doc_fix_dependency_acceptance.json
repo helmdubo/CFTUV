@@ -1,0 +1,66 @@
+{
+  "schema": "cftuv.envelope.dependency_acceptance.v1",
+  "status": "DOC_00_AND_FIX_00_ACCEPTED_AND_INTEGRATED",
+  "canonical_control_ref": "codex/base-00-canonical-integration",
+  "previous_accepted_integration_sha": "e4db68371cab83a6a26368bf9a95eda74ae8d02e",
+  "accepted_integration_sha": "361102a6539ffbbe6fa8957a04bf12a9bae42bd8",
+  "accepted_integration_tree_oid": "070448c32cdde0bb49b93478fdd598edbfec8439",
+  "accepted_on": "2026-07-24",
+  "accepted_by": "RELEASE_OWNER",
+  "dependencies": [
+    {
+      "card": "DOC-00",
+      "decision": "ACCEPTED_BY_RELEASE_OWNER",
+      "authority": "release owner approved progression from DOC-00 to FIX-00",
+      "implementation_sha": "779371b2cb62bce7295c522a51c05a968c8f653b",
+      "published_head_sha": "7e9285807576ead70257e4037f1ae492562194c5",
+      "handoff_paths": [
+        "artifacts/envelope_doc_00/session_doc_00_handoff.json",
+        "artifacts/envelope_doc_00/session_doc_00_handoff.md"
+      ]
+    },
+    {
+      "card": "FIX-00",
+      "decision": "ACCEPTED_BY_RELEASE_OWNER",
+      "authority": "explicit user instruction: принимаю",
+      "implementation_sha": "f870cba6b48b81d95ec390e7d46129c2550d1728",
+      "published_head_sha": "adc46144922ad1b191c4328797f5ca6a0653e46e",
+      "handoff_paths": [
+        "artifacts/envelope_fix_00/session_fix_00_handoff.json",
+        "artifacts/envelope_fix_00/session_fix_00_handoff.md"
+      ]
+    }
+  ],
+  "integration_commits": [
+    "428da85bb21a8651543a6732781f8ee151e8d73e",
+    "8c7ace0415435e7f789d8b6d6b2a9073be09346a",
+    "1e85bc58a3a8bfa00509af6cebd9c356102edc1a",
+    "361102a6539ffbbe6fa8957a04bf12a9bae42bd8"
+  ],
+  "validation": {
+    "doc_00_authority_content_integrated": true,
+    "doc_00_handoff_integrated": true,
+    "fix_00_fixture_and_tools_integrated": true,
+    "fix_00_handoff_integrated": true,
+    "dependency_content_equivalence": "PASS",
+    "control_plane_json_and_crossrefs": "PASS",
+    "fix_00_focused_tests": "5 passed in 1.94s",
+    "git_diff_check": "PASS",
+    "legacy_geometry_read_or_invoked": false,
+    "kernel_implementation_changed": false,
+    "host_implementation_changed": false,
+    "source_mesh_opened_or_mutated": false
+  },
+  "dispatch": {
+    "active_card": "D-R2-00",
+    "active_card_path": "docs/agent_execution/envelope_v1/cards/D-R2-00_Conditional_atomic_multiway_interaction_contract_gate.md",
+    "state": "PRODUCT_OWNER_CONTRACT_ACCEPTANCE_REQUIRED_BEFORE_IMPLEMENTATION"
+  },
+  "known_separate_issue": {
+    "id": "HOST_EXACT_ANGULAR_CERTIFICATE_EXPORT_REGRESSION",
+    "outcome": "ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE",
+    "status": "OPEN_SEPARATE_CARD_REQUIRED",
+    "blocks_d_r2_00": false,
+    "reason": "FIX-00 supplies an immutable portable AnalysisSnapshotV1 and DecalRequestV1."
+  }
+}

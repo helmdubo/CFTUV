@@ -1,14 +1,51 @@
 {
   "schema": "cftuv.architecture_status.v1",
   "repository": "helmdubo/CFTUV",
-  "status": "BASE_00_ACCEPTED",
-  "acceptance_state": "ACCEPTED_BY_RELEASE_OWNER",
+  "status": "D_R2_00_PRODUCT_OWNER_GATE",
+  "acceptance_state": "DOC_00_AND_FIX_00_ACCEPTED_BY_RELEASE_OWNER",
   "accepted_integration_ref": "codex/base-00-canonical-integration",
-  "accepted_integration_sha": "e4db68371cab83a6a26368bf9a95eda74ae8d02e",
+  "accepted_integration_sha": "361102a6539ffbbe6fa8957a04bf12a9bae42bd8",
   "integration_predecessor_sha": "c2622d07020338e5231b81f41655fe6c74cdca72",
   "reviewed_baseline_sha": "df587ed166cfb0e0b615148f08c583b4477c5ac4",
   "execution_pack_source_sha": "30211467886e2717e3fcc2bcb157563b35f40945",
   "execution_pack_version": "1.1.1",
+  "dependency_integration": {
+    "content_sha": "361102a6539ffbbe6fa8957a04bf12a9bae42bd8",
+    "content_tree_oid": "070448c32cdde0bb49b93478fdd598edbfec8439",
+    "previous_accepted_integration_sha": "e4db68371cab83a6a26368bf9a95eda74ae8d02e",
+    "integrated_cards": [
+      {
+        "id": "DOC-00",
+        "implementation_sha": "779371b2cb62bce7295c522a51c05a968c8f653b",
+        "published_head_sha": "7e9285807576ead70257e4037f1ae492562194c5",
+        "integrated_commits": [
+          "428da85bb21a8651543a6732781f8ee151e8d73e",
+          "8c7ace0415435e7f789d8b6d6b2a9073be09346a"
+        ]
+      },
+      {
+        "id": "FIX-00",
+        "implementation_sha": "f870cba6b48b81d95ec390e7d46129c2550d1728",
+        "published_head_sha": "adc46144922ad1b191c4328797f5ca6a0653e46e",
+        "integrated_commits": [
+          "1e85bc58a3a8bfa00509af6cebd9c356102edc1a",
+          "361102a6539ffbbe6fa8957a04bf12a9bae42bd8"
+        ]
+      }
+    ]
+  },
+  "dependency_acceptance": {
+    "DOC-00": {
+      "decision": "ACCEPTED_BY_RELEASE_OWNER",
+      "accepted_on": "2026-07-24",
+      "authority": "release owner approved progression from DOC-00 to FIX-00"
+    },
+    "FIX-00": {
+      "decision": "ACCEPTED_BY_RELEASE_OWNER",
+      "accepted_on": "2026-07-24",
+      "authority": "explicit user instruction: принимаю"
+    }
+  },
   "control_plane_amendment": {
     "reason": "reconcile the execution pack with the selected consolidated C-R2C baseline",
     "previous_integration_sha": "955213c64b62f96df8d76de568671a31dd3310c5",
@@ -42,8 +79,8 @@
       "REVIEWER"
     ]
   },
-  "active_slice": "DOC-00",
-  "current_card_path": "docs/agent_execution/envelope_v1/cards/DOC-00_Documentation_authority_and_AI_onboarding_correction.md",
+  "active_slice": "D-R2-00",
+  "current_card_path": "docs/agent_execution/envelope_v1/cards/D-R2-00_Conditional_atomic_multiway_interaction_contract_gate.md",
   "active_correctness_blocker": {
     "id": "MULTIWAY_INTERACTION_POLICY_UNPROVEN",
     "owner": "D_R2",
@@ -73,7 +110,7 @@
     },
     {
       "rank": 5,
-      "path": "docs/agent_execution/envelope_v1/cards/DOC-00_Documentation_authority_and_AI_onboarding_correction.md",
+      "path": "docs/agent_execution/envelope_v1/cards/D-R2-00_Conditional_atomic_multiway_interaction_contract_gate.md",
       "label": "ACTIVE_CARD"
     },
     {
@@ -90,7 +127,7 @@
     "docs/envelope_engine_start_here.md": "CURRENT_ENVELOPE_ONBOARDING_AUTHORITY",
     "docs/agent_execution/envelope_v1/01_GLOBAL_CANON.md": "ACCEPTED_GLOBAL_CANON",
     "docs/agent_execution/envelope_v1/02_AGENT_PROTOCOL.md": "CURRENT_EXECUTION_PROTOCOL",
-    "docs/agent_execution/envelope_v1/cards/DOC-00_Documentation_authority_and_AI_onboarding_correction.md": "ACTIVE_CARD",
+    "docs/agent_execution/envelope_v1/cards/D-R2-00_Conditional_atomic_multiway_interaction_contract_gate.md": "ACTIVE_CARD",
     "docs/envelope_external_agent_session_manifest.md": "SUPERSEDED_FOR_ACTIVE_DISPATCH",
     "docs/decal_envelope_linear_axis_rebaseline.md": "ACCEPTED_SCOPED_SEMANTIC_EVIDENCE",
     "docs/envelope_backend_semantics.md": "ACCEPTED_SCOPED_SEMANTIC_EVIDENCE",
@@ -106,14 +143,14 @@
     "superseded": "Retained evidence that cannot dispatch current work.",
     "experimental": "EXPERIMENTAL_NON_AUTHORITY; cannot override current, accepted or active-card authority."
   },
-  "last_accepted_gate": "BASE-00",
+  "last_accepted_gate": "DOC_00_AND_FIX_00",
   "last_accepted_gate_details": {
-    "sha": "e4db68371cab83a6a26368bf9a95eda74ae8d02e",
-    "status": "ACCEPTED_WITH_DOCS_ONLY_AMENDMENT",
+    "sha": "361102a6539ffbbe6fa8957a04bf12a9bae42bd8",
+    "status": "DEPENDENCIES_ACCEPTED_AND_INTEGRATED",
     "code_bearing_predecessor_sha": "c2622d07020338e5231b81f41655fe6c74cdca72",
-    "ci_run_id": 30095478731,
-    "ci_url": "https://github.com/helmdubo/CFTUV/actions/runs/30095478731",
-    "conclusion": "success"
+    "doc_00_implementation_sha": "779371b2cb62bce7295c522a51c05a968c8f653b",
+    "fix_00_implementation_sha": "f870cba6b48b81d95ec390e7d46129c2550d1728",
+    "conclusion": "accepted"
   },
   "package": {
     "name": "cftuv-envelope-core",
@@ -135,23 +172,24 @@
     "artifacts/envelope_baseline/session_base_00_handoff.json",
     "artifacts/envelope_baseline/session_base_00_handoff.md",
     "artifacts/envelope_baseline/session_base_00_control_plane_amendment.json",
-    "artifacts/envelope_baseline/session_base_00_control_plane_amendment.md"
-  ],
-  "candidate_handoff_paths": [
+    "artifacts/envelope_baseline/session_base_00_control_plane_amendment.md",
     "artifacts/envelope_doc_00/session_doc_00_handoff.json",
-    "artifacts/envelope_doc_00/session_doc_00_handoff.md"
+    "artifacts/envelope_doc_00/session_doc_00_handoff.md",
+    "artifacts/envelope_fix_00/session_fix_00_handoff.json",
+    "artifacts/envelope_fix_00/session_fix_00_handoff.md",
+    "artifacts/envelope_control_plane/session_doc_fix_dependency_acceptance.json",
+    "artifacts/envelope_control_plane/session_doc_fix_dependency_acceptance.md"
   ],
+  "candidate_handoff_paths": [],
   "dispatch": {
-    "parallel_ready_cards": [
-      "DOC-00",
-      "FIX-00"
+    "ready_cards": [
+      "D-R2-00"
     ],
     "blocked_cards": [
       {
-        "card": "D-R2-00",
+        "card": "C-R2D-01",
         "requires_accepted": [
-          "DOC-00",
-          "FIX-00"
+          "D-R2-00"
         ]
       }
     ],
@@ -184,14 +222,17 @@
     "independent_context_review": "PASS_AFTER_3_ACTIONABLE_FINDINGS_REMEDIATED",
     "git_diff_check": "PASS",
     "semantic_subtree_comparison": "IDENTICAL_KERNEL_CFTUV_TESTS_WORKFLOWS",
-    "doc_00_remote_ci": "NOT_RUN_DOC_ONLY_BRANCH"
+    "doc_00_remote_ci": "NOT_RUN_DOC_ONLY_BRANCH",
+    "dependency_content_equivalence": "PASS",
+    "dependency_control_plane_crossrefs": "PASS",
+    "fix_00_focused_tests": "5 passed in 1.94s"
   },
   "semantic_tree_oids": {
-    "accepted_integration_content_tree": "70579a29715aa846d88e409c85c53144b341386b",
+    "accepted_integration_content_tree": "070448c32cdde0bb49b93478fdd598edbfec8439",
     "original_v1_1_tree": "ff75de519f0410193808ea8c474b82effe9ae1c1",
-    "kernel": "51485c555b6739326fa46b5a507fdc795da8aab9",
+    "kernel": "66f30fede46607700706b96f1c95d33ca8264bb0",
     "cftuv": "c9df63347ff5fe216f4b3e4dd15d9d257fbef814",
-    "tests": "c1e129238931054bbb6fa7468c41e1e17493547a",
+    "tests": "1ef9c039eeb6a9d2afd23b43dc500bca5996825b",
     "workflows": "f37881cbf99f372aa4d22d508f869b9e447ce2ad"
   },
   "resolved_issues": [
@@ -204,6 +245,11 @@
       "id": "BASE_00_HUMAN_ACCEPTANCE_RECORDED",
       "status": "RESOLVED",
       "resolution": "Release owner accepted BASE-00 with the docs-only amendment on 2026-07-24."
+    },
+    {
+      "id": "DOC_00_AND_FIX_00_ACCEPTED_AND_INTEGRATED",
+      "status": "RESOLVED",
+      "resolution": "Both dependency branches were accepted by the release owner and integrated into immutable content SHA 361102a6539ffbbe6fa8957a04bf12a9bae42bd8."
     }
   ],
   "known_blockers": [
@@ -236,11 +282,18 @@
       "id": "DOC_00_CI_HOOK_OUTSIDE_ALLOWLIST",
       "owner": "CONTROL_PLANE_MAINTAINER",
       "status": "NAMED_LIMITATION"
+    },
+    {
+      "id": "HOST_EXACT_ANGULAR_CERTIFICATE_EXPORT_REGRESSION",
+      "owner": "HOST_ADAPTER",
+      "status": "OPEN_SEPARATE_CARD_REQUIRED",
+      "outcome": "ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE",
+      "does_not_block": "D-R2-00 portable kernel reproduction"
     }
   ],
   "next_cards_after_acceptance": [
-    "FIX-00",
-    "D-R2-00_AFTER_FIX_00_ACCEPTANCE"
+    "D-R2-00_PRODUCT_OWNER_ACCEPTANCE",
+    "C-R2D-01_AFTER_D_R2_00_ACCEPTANCE"
   ],
   "scope_guards": {
     "legacy_geometry_read_or_invoked": false,
@@ -255,6 +308,10 @@
     "tests_changed_by_doc00": false,
     "workflow_changed_by_doc00": false,
     "source_mesh_opened_or_mutated_by_doc00": false,
+    "kernel_implementation_changed_by_dependency_integration": false,
+    "host_implementation_changed_by_dependency_integration": false,
+    "portable_fixture_integrated": true,
+    "source_mesh_opened_or_mutated_by_dependency_integration": false,
     "main_merged": false
   }
 }
