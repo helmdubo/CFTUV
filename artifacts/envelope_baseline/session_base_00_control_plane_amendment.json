@@ -1,0 +1,55 @@
+{
+  "schema": "cftuv.envelope.baseline.control_plane_amendment.v1",
+  "status": "READY_FOR_HUMAN_REVIEW",
+  "acceptance_state": "HUMAN_ACCEPTANCE_PENDING",
+  "branch": "codex/base-00-canonical-integration",
+  "selected_code_baseline_sha": "c2622d07020338e5231b81f41655fe6c74cdca72",
+  "previous_content_sha": "955213c64b62f96df8d76de568671a31dd3310c5",
+  "amended_content_sha": "e4db68371cab83a6a26368bf9a95eda74ae8d02e",
+  "amended_content_tree_oid": "70579a29715aa846d88e409c85c53144b341386b",
+  "execution_pack_version": "1.1.1",
+  "commits": [
+    "49cfa218d7d6704f30ae1de6788cd350e0e52f83",
+    "729e33025409f51a7dae816b300bd1ed618acf5e",
+    "e4db68371cab83a6a26368bf9a95eda74ae8d02e"
+  ],
+  "resolved_issue": {
+    "id": "CONTROL_PLANE_BASELINE_MISMATCH",
+    "prior_state": "The execution pack scheduled C-R2C work already accepted in the selected baseline.",
+    "resolution": "C-R2C cards are superseded; DOC-00 and FIX-00 precede D-R2-00.",
+    "active_correctness_carryover": "MULTIWAY_INTERACTION_POLICY_UNPROVEN"
+  },
+  "diff_from_selected_code_baseline": {
+    "files_changed": 51,
+    "insertions": 6013,
+    "deletions": 0,
+    "scope": "documentation and control-plane only"
+  },
+  "semantic_tree_oids": {
+    "kernel": "51485c555b6739326fa46b5a507fdc795da8aab9",
+    "cftuv": "c9df63347ff5fe216f4b3e4dd15d9d257fbef814",
+    "tests": "c1e129238931054bbb6fa7468c41e1e17493547a",
+    "workflows": "f37881cbf99f372aa4d22d508f869b9e447ce2ad"
+  },
+  "validation": {
+    "json_and_dependency_crossrefs": "OK",
+    "active_doc_00_packet_generation": "OK",
+    "superseded_c_r2c_packet_rejection": "OK",
+    "packet_builder_python_syntax": "OK",
+    "git_diff_check": "OK",
+    "remote_ci_for_unchanged_semantic_subtrees": "https://github.com/helmdubo/CFTUV/actions/runs/30095478731"
+  },
+  "next_cards_after_acceptance": [
+    "DOC-00",
+    "FIX-00",
+    "D-R2-00_AFTER_DOC_00_AND_FIX_00"
+  ],
+  "scope_guards": {
+    "control_plane_only": true,
+    "geometry_changed": false,
+    "contracts_changed": false,
+    "tests_changed": false,
+    "workflow_changed": false,
+    "source_mesh_opened_or_mutated": false
+  }
+}

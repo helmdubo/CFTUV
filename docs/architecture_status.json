@@ -1,13 +1,25 @@
 {
   "schema": "cftuv.architecture_status.v1",
   "repository": "helmdubo/CFTUV",
-  "status": "BASE_00_READY_FOR_REVIEW",
+  "status": "BASE_00_AMENDMENT_READY_FOR_REVIEW",
   "acceptance_state": "HUMAN_ACCEPTANCE_PENDING",
   "accepted_integration_ref": "codex/base-00-canonical-integration",
-  "accepted_integration_sha": "955213c64b62f96df8d76de568671a31dd3310c5",
+  "accepted_integration_sha": "e4db68371cab83a6a26368bf9a95eda74ae8d02e",
   "integration_predecessor_sha": "c2622d07020338e5231b81f41655fe6c74cdca72",
   "reviewed_baseline_sha": "df587ed166cfb0e0b615148f08c583b4477c5ac4",
   "execution_pack_source_sha": "30211467886e2717e3fcc2bcb157563b35f40945",
+  "execution_pack_version": "1.1.1",
+  "control_plane_amendment": {
+    "reason": "reconcile the execution pack with the selected consolidated C-R2C baseline",
+    "previous_integration_sha": "955213c64b62f96df8d76de568671a31dd3310c5",
+    "content_sha": "e4db68371cab83a6a26368bf9a95eda74ae8d02e",
+    "content_tree_oid": "70579a29715aa846d88e409c85c53144b341386b",
+    "commits": [
+      "49cfa218d7d6704f30ae1de6788cd350e0e52f83",
+      "729e33025409f51a7dae816b300bd1ed618acf5e",
+      "e4db68371cab83a6a26368bf9a95eda74ae8d02e"
+    ]
+  },
   "active_slice": "BASE-00",
   "last_accepted_gate": "C_R2C_PLUS_HOST_REFLEX_CORNER_CI",
   "last_accepted_gate_details": {
@@ -36,7 +48,9 @@
   ],
   "candidate_handoff_paths": [
     "artifacts/envelope_baseline/session_base_00_handoff.json",
-    "artifacts/envelope_baseline/session_base_00_handoff.md"
+    "artifacts/envelope_baseline/session_base_00_handoff.md",
+    "artifacts/envelope_baseline/session_base_00_control_plane_amendment.json",
+    "artifacts/envelope_baseline/session_base_00_control_plane_amendment.md"
   ],
   "validation": {
     "local_python": "3.13",
@@ -47,16 +61,28 @@
     "blender_free_host_bridge": "26 passed",
     "host_legacy_import_scan": "OK",
     "base_00_metadata_diff_check": "OK",
-    "execution_pack_diff_check": "KNOWN_MARKDOWN_HARD_BREAKS_PRESERVED_FROM_3021146",
+    "execution_pack_diff_check": "AMENDED_V1_1_1_FOR_SELECTED_C_R2C_BASELINE",
+    "control_plane_manifest_crossrefs": "OK",
+    "packet_builder_active_card": "OK",
+    "packet_builder_superseded_rejection": "OK",
+    "control_plane_diff_check": "OK",
     "remote_ci": "success"
   },
   "semantic_tree_oids": {
-    "repository_before_base00_metadata": "ff75de519f0410193808ea8c474b82effe9ae1c1",
+    "accepted_integration_content_tree": "70579a29715aa846d88e409c85c53144b341386b",
+    "original_v1_1_tree": "ff75de519f0410193808ea8c474b82effe9ae1c1",
     "kernel": "51485c555b6739326fa46b5a507fdc795da8aab9",
     "cftuv": "c9df63347ff5fe216f4b3e4dd15d9d257fbef814",
     "tests": "c1e129238931054bbb6fa7468c41e1e17493547a",
     "workflows": "f37881cbf99f372aa4d22d508f869b9e447ce2ad"
   },
+  "resolved_issues": [
+    {
+      "id": "CONTROL_PLANE_BASELINE_MISMATCH",
+      "status": "RESOLVED",
+      "resolution": "C-R2C cards are superseded by the accepted consolidated gate; D-R2-00 follows DOC-00 and FIX-00."
+    }
+  ],
   "known_blockers": [
     {
       "id": "BASE_00_HUMAN_ACCEPTANCE_PENDING",
@@ -99,6 +125,7 @@
     "contracts_changed_by_base00": false,
     "tests_changed_by_base00": false,
     "workflow_changed_by_base00": false,
+    "control_plane_only_amendment": true,
     "source_mesh_opened_or_mutated_by_base00": false,
     "main_merged": false
   }
