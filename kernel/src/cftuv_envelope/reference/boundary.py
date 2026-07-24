@@ -25,6 +25,7 @@ from .planar_types import (
     ConstructionKind,
     ExactPlanarPoint,
     ExactScalar,
+    exact_normalize,
     exact_sign,
     point_add,
     point_key,
@@ -87,16 +88,16 @@ def _contact_candidates(
     da = context.metric.dot_g(barrier_direction, source.owner_normal)
     candidates = {sp.Integer(0), sp.Integer(1)}
     if exact_sign(ds) != 0:
-        candidates.add(sp.factor(-s0 / ds))
-        candidates.add(sp.factor((length - s0) / ds))
+        candidates.add(exact_normalize(-s0 / ds))
+        candidates.add(exact_normalize((length - s0) / ds))
     if exact_sign(da) != 0:
-        candidates.add(sp.factor(-a0 / da))
+        candidates.add(exact_normalize(-a0 / da))
     result = []
     for parameter in candidates:
         if exact_sign(parameter) < 0 or exact_sign(parameter - 1) > 0:
             continue
-        station = sp.factor(s0 + parameter * ds)
-        alpha = sp.factor(a0 + parameter * da)
+        station = exact_normalize(s0 + parameter * ds)
+        alpha = exact_normalize(a0 + parameter * da)
         if exact_sign(station) < 0 or exact_sign(station - length) > 0:
             continue
         if exact_sign(alpha) < 0:

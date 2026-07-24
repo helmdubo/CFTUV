@@ -31,10 +31,11 @@ from ..reference.planar_types import (
     PlanarRegion,
     cross,
     dot,
+    exact_normalize,
     exact_sign,
     point_key,
-    points_equal,
     point_sub,
+    points_equal,
     polygon_signed_area,
 )
 from ..reference.provenance import (
@@ -118,7 +119,7 @@ def _halfplane_polygon(
 
     def value(point: ExactPlanarPoint) -> sp.Expr:
         x, y = point.expressions()
-        return sp.factor(a * x + b * y - d)
+        return exact_normalize(a * x + b * y - d)
 
     def inside(point: ExactPlanarPoint) -> bool:
         sign = exact_sign(value(point))
@@ -134,10 +135,10 @@ def _halfplane_polygon(
         if start_inside and end_inside:
             clipped.append(end)
         elif start_inside != end_inside:
-            denominator = sp.factor(start_value - end_value)
+            denominator = exact_normalize(start_value - end_value)
             if exact_sign(denominator) == 0:
                 raise ValueError("halfplane edge crossing has zero denominator")
-            parameter = sp.factor(start_value / denominator)
+            parameter = exact_normalize(start_value / denominator)
             sx, sy = start.expressions()
             ex, ey = end.expressions()
             crossing = ExactPlanarPoint.from_values(
@@ -410,7 +411,7 @@ def _edge_halfplane(
     dy = ey - sy
     normal_x = dy
     normal_y = -dx
-    constant = sp.factor(normal_x * sx + normal_y * sy)
+    constant = exact_normalize(normal_x * sx + normal_y * sy)
     line = ExactEqualityLineV1(
         ExactScalar.from_value(normal_x),
         ExactScalar.from_value(normal_y),

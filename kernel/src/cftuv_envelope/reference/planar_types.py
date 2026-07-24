@@ -37,7 +37,41 @@ def _expr(value: ExactScalar | sp.Expr | Decimal | Fraction | int | float | str)
     return sp.sympify(value)
 
 
+# Сколько раз пришлось уйти на символьный путь. Ноль означает, что вся
+# арифметика осталась рациональной; рост счётчика — сигнал, что в предикаты
+# протекли радикалы (см. ROADMAP, Фаза 2, пункт «развести предикаты и
+# конструкции»). Только наблюдение, на поведение не влияет.
+SYMBOLIC_FALLBACK_COUNTS = {"canonical": 0, "sign": 0, "normalize": 0}
+
+
+def exact_normalize(value: sp.Expr) -> sp.Expr:
+    """Канонизировать точное значение, не платя за факторизацию числа.
+
+    Заменяет прямые вызовы `sp.factor(...)` по всему evaluator'у. Семантика
+    та же: для рационального результата `factor` возвращает его же, потому что
+    SymPy сокращает дробь и нормализует знак уже при конструировании. Разница
+    только в цене — `factor` запускает полиномиальную факторизацию там, где
+    делить нечего.
+
+    Символьный путь сохранён без изменений: выражения с радикалами
+    (`length_g`, `unit_g`, `angle_g`) по-прежнему проходят через `factor`.
+    """
+
+    if value.is_Rational:
+        return value
+    SYMBOLIC_FALLBACK_COUNTS["normalize"] += 1
+    return sp.factor(value)
+
+
 def _canonical_expr(value: sp.Expr) -> str:
+    # Рациональное число уже канонично: SymPy нормализует знак и сокращает
+    # дробь при конструировании, поэтому factor(cancel(x)) возвращает ровно x,
+    # а srepr — ту же строку. Замерено на реальных входах evaluator'а: 100%
+    # вызовов приходят сюда с Rational/Integer, и factor на них — чистая
+    # трата (40% времени ядра по профилю).
+    if value.is_Rational:
+        return sp.srepr(value)
+    SYMBOLIC_FALLBACK_COUNTS["canonical"] += 1
     simplified = sp.factor(sp.cancel(value))
     return sp.srepr(simplified)
 
@@ -64,7 +98,16 @@ class ExactScalar:
 
 
 def exact_sign(value: ExactScalar | sp.Expr | Decimal | Fraction | int | float | str) -> int:
-    candidate = sp.factor(sp.cancel(_expr(value)))
+    expression = _expr(value)
+    # Знак рационального числа решается сравнением числителя с нулём и не
+    # требует ни факторизации, ни машины предположений SymPy. Это ~99.8%
+    # вызовов в реальном прогоне evaluator'а.
+    if expression.is_Rational:
+        if expression.is_zero:
+            return 0
+        return 1 if expression.is_positive else -1
+    SYMBOLIC_FALLBACK_COUNTS["sign"] += 1
+    candidate = sp.factor(sp.cancel(expression))
     if candidate == 0 or candidate.is_zero is True:
         return 0
     if candidate.is_positive is True:
@@ -134,13 +177,13 @@ def vector_scale(vector: ExactPlanarVector, scalar: object) -> ExactPlanarVector
 def dot(left: ExactPlanarVector, right: ExactPlanarVector) -> sp.Expr:
     lx, ly = left.expressions()
     rx, ry = right.expressions()
-    return sp.factor(lx * rx + ly * ry)
+    return exact_normalize(lx * rx + ly * ry)
 
 
 def cross(left: ExactPlanarVector, right: ExactPlanarVector) -> sp.Expr:
     lx, ly = left.expressions()
     rx, ry = right.expressions()
-    return sp.factor(lx * ry - ly * rx)
+    return exact_normalize(lx * ry - ly * rx)
 
 
 def squared_length(vector: ExactPlanarVector) -> sp.Expr:
@@ -272,7 +315,7 @@ def support_intersection(
     c, d = right.normal.expressions()
     e = left.constant.as_expr()
     f = right.constant.as_expr()
-    determinant = sp.factor(a * d - b * c)
+    determinant = exact_normalize(a * d - b * c)
     if exact_sign(determinant) == 0:
         raise ValueError("parallel supports have no unique intersection")
     return ExactPlanarPoint.from_values(
@@ -300,7 +343,7 @@ def polygon_signed_area(points: Iterable[ExactPlanarPoint]) -> sp.Expr:
         sx, sy = start.expressions()
         ex, ey = end.expressions()
         twice_area += sx * ey - sy * ex
-    return sp.factor(twice_area / 2)
+    return exact_normalize(twice_area / 2)
 
 
 def _half(vector: ExactPlanarVector) -> int:

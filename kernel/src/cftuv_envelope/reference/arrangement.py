@@ -37,6 +37,7 @@ from .planar_types import (
     PlanarRegion,
     cross,
     dot,
+    exact_normalize,
     exact_sign,
     point_add,
     point_key,
@@ -237,8 +238,8 @@ def segment_intersections(
     denominator = cross(r, s)
     q_minus_p = point_sub(q, p)
     if exact_sign(denominator) != 0:
-        t = sp.factor(cross(q_minus_p, s) / denominator)
-        u = sp.factor(cross(q_minus_p, r) / denominator)
+        t = exact_normalize(cross(q_minus_p, s) / denominator)
+        u = exact_normalize(cross(q_minus_p, r) / denominator)
         if _between(t, sp.Integer(0), sp.Integer(1)) and _between(
             u, sp.Integer(0), sp.Integer(1)
         ):
@@ -256,7 +257,7 @@ def segment_intersections(
 
 def _parameter(segment: BoundedSupportSegment, point: ExactPlanarPoint) -> sp.Expr:
     direction = point_sub(segment.end, segment.start)
-    return sp.factor(dot(point_sub(point, segment.start), direction) / dot(direction, direction))
+    return exact_normalize(dot(point_sub(point, segment.start), direction) / dot(direction, direction))
 
 
 def _point_in_loop(point: ExactPlanarPoint, loop: PlanarLoop) -> int:

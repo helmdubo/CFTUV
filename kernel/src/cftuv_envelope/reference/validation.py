@@ -30,6 +30,7 @@ from .metric import ExactPlanarMetric
 from .planar_types import (
     CertifiedPredicateUndecidable,
     ExactPlanarVector,
+    exact_normalize,
     exact_sign,
 )
 
@@ -43,14 +44,14 @@ def _point3(value) -> tuple[sp.Expr, sp.Expr, sp.Expr]:
 
 
 def _dot3(left, right) -> sp.Expr:
-    return sp.factor(sum(a * b for a, b in zip(left, right, strict=True)))
+    return exact_normalize(sum(a * b for a, b in zip(left, right, strict=True)))
 
 
 def _cross3(left, right) -> tuple[sp.Expr, sp.Expr, sp.Expr]:
     return (
-        sp.factor(left[1] * right[2] - left[2] * right[1]),
-        sp.factor(left[2] * right[0] - left[0] * right[2]),
-        sp.factor(left[0] * right[1] - left[1] * right[0]),
+        exact_normalize(left[1] * right[2] - left[2] * right[1]),
+        exact_normalize(left[2] * right[0] - left[0] * right[2]),
+        exact_normalize(left[0] * right[1] - left[1] * right[0]),
     )
 
 

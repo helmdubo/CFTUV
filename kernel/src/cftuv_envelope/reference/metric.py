@@ -19,6 +19,7 @@ from .planar_types import (
     ExactPlanarVector,
     ExactScalar,
     OrientedSupportLine,
+    exact_normalize,
     exact_sign,
     point_add,
     vector_scale,
@@ -74,13 +75,13 @@ class ExactPlanarMetric:
         rx, ry = right.expressions()
         gx = self.gram[0][0] * rx + self.gram[0][1] * ry
         gy = self.gram[1][0] * rx + self.gram[1][1] * ry
-        return sp.factor(lx * gx + ly * gy)
+        return exact_normalize(lx * gx + ly * gy)
 
     def length_g(self, vector: ExactPlanarVector) -> sp.Expr:
         squared = self.dot_g(vector, vector)
         if exact_sign(squared) <= 0:
             raise ValueError("zero vector has no metric length")
-        return sp.sqrt(sp.factor(squared))
+        return sp.sqrt(exact_normalize(squared))
 
     def unit_g(self, vector: ExactPlanarVector) -> ExactPlanarVector:
         return vector_scale(vector, 1 / self.length_g(vector))
@@ -90,7 +91,7 @@ class ExactPlanarMetric:
     ) -> sp.Expr:
         lx, ly = left.expressions()
         rx, ry = right.expressions()
-        return sp.factor(
+        return exact_normalize(
             self.owner_orientation_sign * (lx * ry - ly * rx)
         )
 
@@ -171,11 +172,11 @@ class ExactPlanarMetric:
         left = self.unit_g(incoming)
         right = self.unit_g(outgoing)
         cosine = self.dot_g(left, right)
-        determinant = sp.factor(
+        determinant = exact_normalize(
             self.gram[0][0] * self.gram[1][1]
             - self.gram[0][1] * self.gram[1][0]
         )
-        sine = sp.factor(
+        sine = exact_normalize(
             sp.sqrt(determinant) * self.oriented_cross(left, right)
         )
         return cosine, sine

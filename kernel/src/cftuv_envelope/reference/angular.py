@@ -23,6 +23,7 @@ from .planar_types import (
     ExactPlanarPoint,
     ExactPlanarVector,
     ExactScalar,
+    exact_normalize,
     exact_sign,
     point_sub,
     support_intersection,
@@ -94,7 +95,7 @@ def _interpolated_normals(
             ReferenceOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN,
             "LINEAR_REFLEX_EQUAL_V1 supports only the proven v1 K=0/1/2 range",
         )
-    cosine_delta = sp.factor(metric.dot_g(incoming, outgoing))
+    cosine_delta = exact_normalize(metric.dot_g(incoming, outgoing))
     root_symbol = sp.Symbol("linear_reflex_cos_subturn", real=True)
     candidates = sp.solve(
         sp.Eq(4 * root_symbol**3 - 3 * root_symbol, cosine_delta),
@@ -114,20 +115,20 @@ def _interpolated_normals(
             ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
             "could not prove the unique oriented one-third support direction",
         )
-    cosine_step = sp.factor(admissible[0])
-    sine_step = expected * sp.sqrt(sp.factor(1 - cosine_step**2))
+    cosine_step = exact_normalize(admissible[0])
+    sine_step = expected * sp.sqrt(exact_normalize(1 - cosine_step**2))
     hidden_one = ExactPlanarVector.from_values(
         cosine_step * ix + sine_step * lx,
         cosine_step * iy + sine_step * ly,
     )
-    cosine_double = sp.factor(2 * cosine_step**2 - 1)
-    sine_double = sp.factor(2 * cosine_step * sine_step)
+    cosine_double = exact_normalize(2 * cosine_step**2 - 1)
+    sine_double = exact_normalize(2 * cosine_step * sine_step)
     hidden_two = ExactPlanarVector.from_values(
         cosine_double * ix + sine_double * lx,
         cosine_double * iy + sine_double * ly,
     )
     for normal in (hidden_one, hidden_two):
-        if exact_sign(sp.factor(metric.dot_g(normal, normal) - 1)) != 0:
+        if exact_sign(exact_normalize(metric.dot_g(normal, normal) - 1)) != 0:
             raise ReferenceGeometryError(
                 ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
                 "hidden support unit-speed proof failed",
