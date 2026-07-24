@@ -1,5 +1,17 @@
 # CFTUV AI Agent Execution Pack v1.1.1
 
+> **Протокол handoff-документов остановлен (2026-07-24).** Состояние репозитория
+> и есть handoff: `tests/test_architecture.py` (исполняемые правила), `DECISIONS.md`
+> (журнал решений), `ROADMAP.md` (порядок работ), `ACCEPTANCE.md` (критерии приёмки).
+> Не создавайте per-session handoff-файлы и не записывайте «record ... handoff»
+> коммиты — 28 из 50 коммитов истории были такими, и ни один не помешал
+> `band_operator.py` вернуться в дерево вопреки трём документам, его запрещавшим.
+>
+> Карточки ниже сохранены как **описание задач**, а не как протокол исполнения.
+> Их технические разделы (цели, границы, требуемые ворота) остаются полезными;
+> разделы про handoff-артефакты и статусные манифесты — нет.
+> Причина решения: `DECISIONS.md`, раздел «Процесс».
+
 This directory is a **repository-resident execution control plane** for external AI agents.
 
 ## Project owner: start here
