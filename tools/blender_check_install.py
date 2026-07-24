@@ -34,6 +34,25 @@ def _probe(module_name: str, why: str) -> object | None:
     return module
 
 
+def _fingerprint(root: str) -> str:
+    """sha256 по содержимому всех .py пакета: ловит и старую копию, и частичную."""
+
+    import hashlib
+
+    if not root or not os.path.isdir(root):
+        return "<нет каталога>"
+    digest = hashlib.sha256()
+    for current, directories, files in os.walk(root):
+        directories[:] = sorted(item for item in directories if item != "__pycache__")
+        for name in sorted(files):
+            if not name.endswith(".py"):
+                continue
+            path = os.path.join(current, name)
+            digest.update(os.path.relpath(path, root).replace("\\", "/").encode())
+            digest.update(open(path, "rb").read().replace(b"\r\n", b"\n"))
+    return digest.hexdigest()[:16]
+
+
 def main() -> None:
     print("\n=== окружение ===")
     print(f"  python: {sys.executable}")
@@ -91,6 +110,17 @@ def main() -> None:
     print("\n=== опциональное (только легаси-декали) ===")
     _probe("pyvoronoi", "легаси-бэкенд Decal Seams; без него — именованный отказ")
 
+    print("\n=== отпечаток установленных копий ===")
+    # Список «маркеров свежести» устаревал бы вместе с кодом, поэтому его тут
+    # нет. Вместо него хеш содержимого: сравните с выводом
+    # `python3 tools/blender_check_install.py --fingerprint` в репозитории.
+    # Расхождение = копия из другой ветки либо скопирована частично. Ровно так
+    # правка углового сертификата один раз оказалась «установлена», не будучи ею.
+    for label, module in (("cftuv_envelope", kernel), ("cftuv", addon)):
+        if module is None:
+            continue
+        _line("ОК ", f"{label}: {_fingerprint(os.path.dirname(module.__file__))}")
+
     print("\n=== устаревшие кэши ===")
     stale = []
     for module_name in ("cftuv_envelope", "cftuv"):
@@ -129,4 +159,12 @@ def main() -> None:
         print("  Всё на месте. Можно запускать Build Envelope Debug.")
 
 
-main()
+if "--fingerprint" in sys.argv:
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for label, relative in (
+        ("cftuv_envelope", "kernel/src/cftuv_envelope"),
+        ("cftuv", "cftuv"),
+    ):
+        print(f"  {label}: {_fingerprint(os.path.join(here, relative))}")
+else:
+    main()
