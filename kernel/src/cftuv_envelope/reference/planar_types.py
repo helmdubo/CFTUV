@@ -12,6 +12,7 @@ from decimal import Decimal
 from enum import Enum
 from fractions import Fraction
 from functools import cmp_to_key, lru_cache
+import re
 from typing import Iterable
 
 import sympy as sp
@@ -63,6 +64,26 @@ def exact_normalize(value: sp.Expr) -> sp.Expr:
     return sp.factor(value)
 
 
+# srepr рационального числа — это ровно `Integer(n)` или `Rational(p, q)`:
+# составное выражение всегда начинается с имени внешнего узла (`Add(`, `Mul(`,
+# `Pow(`, …), поэтому якорные шаблоны ниже не могут совпасть с чем-то другим.
+_INTEGER_SREPR = re.compile(r"\AInteger\((-?\d+)\)\Z")
+_RATIONAL_SREPR = re.compile(r"\ARational\((-?\d+), (-?\d+)\)\Z")
+
+
+def _rational_srepr(value: sp.Expr) -> str:
+    """`sp.srepr` для рационального, собранный напрямую.
+
+    `sp.srepr` идёт через общий обход дерева и стоит 4.2 мкс; здесь та же
+    строка получается за 0.25 мкс. Эквивалентность проверяется в
+    `kernel/tests/test_exact_numeric_fast_path.py`.
+    """
+
+    if value.is_Integer:
+        return f"Integer({value.p})"
+    return f"Rational({value.p}, {value.q})"
+
+
 def _canonical_expr(value: sp.Expr) -> str:
     # Рациональное число уже канонично: SymPy нормализует знак и сокращает
     # дробь при конструировании, поэтому factor(cancel(x)) возвращает ровно x,
@@ -70,7 +91,7 @@ def _canonical_expr(value: sp.Expr) -> str:
     # вызовов приходят сюда с Rational/Integer, и factor на них — чистая
     # трата (40% времени ядра по профилю).
     if value.is_Rational:
-        return sp.srepr(value)
+        return _rational_srepr(value)
     SYMBOLIC_FALLBACK_COUNTS["canonical"] += 1
     simplified = sp.factor(sp.cancel(value))
     return sp.srepr(simplified)
@@ -78,6 +99,15 @@ def _canonical_expr(value: sp.Expr) -> str:
 
 @lru_cache(maxsize=32768)
 def _parse_expr(expression: str) -> sp.Expr:
+    # Обратная сторона `_rational_srepr`: разбор рациональной формы напрямую,
+    # без общего парсера SymPy. Шаблоны якорные, поэтому составное выражение
+    # сюда не проваливается.
+    match = _INTEGER_SREPR.match(expression)
+    if match is not None:
+        return sp.Integer(int(match.group(1)))
+    match = _RATIONAL_SREPR.match(expression)
+    if match is not None:
+        return sp.Rational(int(match.group(1)), int(match.group(2)))
     return sp.sympify(expression)
 
 

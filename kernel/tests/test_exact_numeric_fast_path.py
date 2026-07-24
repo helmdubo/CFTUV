@@ -20,6 +20,7 @@ import pytest
 import sympy as sp
 
 from cftuv_envelope.reference.planar_types import (
+    ExactScalar,
     SYMBOLIC_FALLBACK_COUNTS,
     exact_normalize,
     exact_sign,
@@ -67,6 +68,34 @@ def test_rational_fast_path_matches_symbolic_path(value: sp.Expr):
     assert planar_types._canonical_expr(value) == _slow_canonical(value)
     assert exact_sign(value) == _slow_sign(value)
     assert sp.srepr(exact_normalize(value)) == sp.srepr(sp.factor(value))
+
+
+@pytest.mark.parametrize("value", _rational_corpus(), ids=sp.srepr)
+def test_hand_rolled_srepr_matches_sympy(value: sp.Expr):
+    """Строка — идентичность ExactScalar и вход дайджестов: только побитово."""
+
+    assert planar_types._rational_srepr(value) == sp.srepr(value)
+
+
+@pytest.mark.parametrize("value", _rational_corpus(), ids=sp.srepr)
+def test_hand_rolled_parse_matches_sympify(value: sp.Expr):
+    text = planar_types._canonical_expr(value)
+    assert planar_types._parse_expr(text) == sp.sympify(text)
+
+
+@pytest.mark.parametrize("value", _rational_corpus(), ids=sp.srepr)
+def test_scalar_round_trip_preserves_the_value(value: sp.Expr):
+    assert ExactScalar.from_value(value).as_expr() == value
+
+
+def test_composite_srepr_is_not_mistaken_for_a_rational():
+    """Якорные шаблоны не должны хватать составное выражение за префикс."""
+
+    composite = sp.Integer(3) * sp.sqrt(2) + sp.Rational(1, 4)
+    text = sp.srepr(composite)
+    assert planar_types._parse_expr(text) == sp.sympify(text)
+    assert planar_types._INTEGER_SREPR.match(text) is None
+    assert planar_types._RATIONAL_SREPR.match(text) is None
 
 
 def test_rational_corpus_never_touches_the_symbolic_path():
