@@ -176,6 +176,21 @@ class DecalBackendKind(str, Enum):
     PATCH_VORONOI = "PATCH_VORONOI"
 
 
+class HostPlanarityPolicy(str, Enum):
+    """Какую плоскость хост объявляет ядру для патча.
+
+    Объявляется явно, а не выбирается ядром при отказе: координаты Blender —
+    binary64 без гарантии компланарности, поэтому строгая приёмка отвергала
+    почти любой отредактированный меш.
+    """
+
+    EXACT_SOURCE_PLANE_V1 = "EXACT_SOURCE_PLANE_V1"
+    NEAR_PLANAR_PROJECTION_V1 = "NEAR_PLANAR_PROJECTION_V1"
+
+
+HOST_PLANARITY_POLICY = HostPlanarityPolicy.NEAR_PLANAR_PROJECTION_V1
+
+
 class PreviewFailurePolicy(str, Enum):
     CLEAR = "CLEAR"
 
@@ -193,6 +208,8 @@ __all__ = (
     "AnalysisSchemaError",
     "CapacityPolicy",
     "DecalBackendKind",
+    "HOST_PLANARITY_POLICY",
+    "HostPlanarityPolicy",
     "PatchSurfaceIR",
     "PreviewFailurePolicy",
     "SourceEdge",

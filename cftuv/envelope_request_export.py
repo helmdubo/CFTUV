@@ -20,6 +20,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from .model import ChainNeighborKind, LoopKind, PatchType
+from .surface_ir import HOST_PLANARITY_POLICY
 from .envelope_debug_profile import (
     EnvelopeDebugProfileBuilderV1,
     EnvelopeDebugTimingV1,
@@ -1865,6 +1866,7 @@ def _rational_affine_metric(
             owner_patch_id=owner_patch_id,
             source_vertices=source_vertices,
             source_faces=source_faces,
+            planarity_policy=kernel.PlanarityAdmissionLawV1(HOST_PLANARITY_POLICY.value),
             source_lineage=frozenset(
                 {
                     kernel.LineageId(

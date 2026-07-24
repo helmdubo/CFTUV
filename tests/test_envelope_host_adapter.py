@@ -858,7 +858,13 @@ def test_selected_non_coplanar_patch_still_fails_exact_frame_admission():
     assert evaluation.diagnostics[0].outcome is (
         EnvelopeDebugHostOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED
     )
-    assert "EXACT_SOURCE_PLANE_V1 rejected" in evaluation.diagnostics[0].message
+    # Хост объявляет NEAR_PLANAR_PROJECTION_V1, поэтому отказ теперь
+    # приходит от бюджета невязки, а не от требования побитовой
+    # компланарности. Отклонение 1e-6 при размере патча 4 превышает
+    # бюджет ~4e-7 и обязано быть отвергнутым по-прежнему.
+    assert "beyond the declared near-planar budget" in (
+        evaluation.diagnostics[0].message
+    )
 
 
 def test_seam_self_maps_to_two_uses_in_one_domain_without_self_contact_guessing():
@@ -964,7 +970,7 @@ def test_staged_exact_keeps_topology_when_one_domain_rejects_metric():
         EnvelopeDomainStage.RESOLVED,
     }
     assert receipts[1].stage is EnvelopeDomainStage.METRIC_REJECTED
-    assert "EXACT_SOURCE_PLANE_V1 rejected" in receipts[1].message
+    assert "beyond the declared near-planar budget" in receipts[1].message
     assert any(
         scene.patch_domain_ids
         for scene in evaluation.exact_debug_scenes
