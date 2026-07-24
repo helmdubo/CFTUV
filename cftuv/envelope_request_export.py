@@ -1535,7 +1535,7 @@ def _build_angular_relations(
         def expressions(value):
             return value.expressions()
 
-        def owner_normal(record: _HostChainRecord, anchor_vertex_id: int):
+        def owner_support(record: _HostChainRecord, anchor_vertex_id: int):
             host_vertices = tuple(int(item) for item in record.chain.vert_indices)
             if anchor_vertex_id == host_vertices[0]:
                 start_vertex_id, end_vertex_id = host_vertices[0], host_vertices[1]
@@ -1614,22 +1614,10 @@ def _build_angular_relations(
                     "BoundaryCorner owner-face directions disagree",
                     patch_domain_id=domain_id.value,
                 )
-            return expressions(first)
+            return expressions(first), tangent
 
         for loop_index, loop in enumerate(patch.boundary_loops):
             for corner_index, corner in enumerate(loop.corners):
-                try:
-                    host_phi = sympy.Rational(str(float(corner.turn_angle_deg))) / 180
-                except (TypeError, ValueError):
-                    continue
-                if host_phi <= 1:
-                    continue
-                if host_phi >= 2:
-                    raise EnvelopeHostAdapterError(
-                        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
-                        "exact 2*pi corner must be Terminal/Junction, not Angular",
-                        patch_domain_id=domain_id.value,
-                    )
                 prev_source_ref = (
                     patch_id,
                     loop_index,
@@ -1658,41 +1646,77 @@ def _build_angular_relations(
                         "BoundaryCorner source vertex is absent from PatchSurfaceIR",
                         patch_domain_id=domain_id.value,
                     )
-                incoming_normal = owner_normal(
+                incoming_normal, incoming_tangent = owner_support(
                     record_by_ref[prev_ref], anchor_vertex_id
                 )
-                outgoing_normal = owner_normal(
+                outgoing_normal, outgoing_tangent = owner_support(
                     record_by_ref[next_ref], anchor_vertex_id
                 )
                 incoming_vector = vector(incoming_normal)
                 outgoing_vector = vector(outgoing_normal)
+                incoming_tangent_vector = vector(incoming_tangent)
+                outgoing_tangent_vector = vector(outgoing_tangent)
                 turn_cross = metric.oriented_cross(
-                    incoming_vector, outgoing_vector
+                    incoming_tangent_vector,
+                    outgoing_tangent_vector,
                 )
                 if turn_cross == 0:
+                    if metric.dot_g(
+                        incoming_tangent_vector,
+                        outgoing_tangent_vector,
+                    ) > 0:
+                        continue
                     raise EnvelopeHostAdapterError(
                         EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
-                        "BoundaryCorner incident supports are parallel",
+                        "exact 2*pi corner must be Terminal/Junction, not Angular",
                         patch_domain_id=domain_id.value,
                     )
+                incoming_interior_side = metric.oriented_cross(
+                    incoming_tangent_vector,
+                    incoming_vector,
+                )
+                outgoing_interior_side = metric.oriented_cross(
+                    outgoing_tangent_vector,
+                    outgoing_vector,
+                )
+                if (
+                    incoming_interior_side == 0
+                    or outgoing_interior_side == 0
+                    or (
+                        incoming_interior_side > 0
+                    ) != (
+                        outgoing_interior_side > 0
+                    )
+                ):
+                    raise EnvelopeHostAdapterError(
+                        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
+                        "BoundaryCorner exact owner-interior sides disagree",
+                        patch_domain_id=domain_id.value,
+                    )
+                is_reflex = (
+                    turn_cross * incoming_interior_side < 0
+                )
+                if not is_reflex:
+                    continue
                 cosine, sine = metric.angle_g(
                     incoming_vector, outgoing_vector
                 )
                 delta = sympy.factor(
                     sympy.atan2(abs(sine), cosine) / sympy.pi
                 )
-                if sympy.factor(host_phi - (1 + delta)) != 0:
-                    raise EnvelopeHostAdapterError(
-                        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
-                        "BoundaryCorner turn_angle_deg disagrees with exact support directions",
-                        patch_domain_id=domain_id.value,
-                    )
+                exact_phi = sympy.factor(1 + delta)
                 interval_phi = _decimal_interval_from_rational(
                     kernel,
                     sympy,
-                    host_phi,
+                    exact_phi,
                     patch_domain_id=domain_id.value,
                 )
+                if exact_phi >= 2:
+                    raise EnvelopeHostAdapterError(
+                        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
+                        "exact 2*pi corner must be Terminal/Junction, not Angular",
+                        patch_domain_id=domain_id.value,
+                    )
                 interval_delta = kernel.CertifiedDecimalIntervalV1(
                     interval_phi.lower - Decimal(1),
                     interval_phi.upper - Decimal(1),

@@ -424,7 +424,9 @@ def _reflex_bundle(hidden_count: int):
             (0.0, 4.0, 0.0),
         ),
     }
-    turn_angle_by_k = {0: 225.0, 1: 270.0, 2: 315.0}
+    # Host analysis stores the unsigned turn between ordered boundary
+    # tangents, not the interior reflex angle.
+    turn_angle_by_k = {0: 45.0, 1: 90.0, 2: 135.0}
     coordinates = coordinates_by_k[hidden_count]
     revision = SourceRevision(
         f"v0-angular-k{hidden_count}",
@@ -580,8 +582,21 @@ def test_real_analysis_bundle_compiles_exact_k0_k1_k2_angular(hidden_count):
         for item in result.compilation.envelope_specs
         if type(item).__name__ == "AngularEnvelopeSpec"
     ]
+    cap_specs = [
+        item
+        for item in result.compilation.envelope_specs
+        if type(item).__name__ == "CapEnvelopeSpec"
+    ]
     assert len(angular_specs) == 1
     assert angular_specs[0].resolved_hidden_edge_count == hidden_count
+    assert len(snapshot.corner_relations) == 1
+    assert len(cap_specs) == 2
+    assert all(
+        angular_specs[0].envelope_spec_id
+        in item.terminal_interface_spec_ids
+        for item in result.compilation.envelope_specs
+        if type(item).__name__ == "StripEnvelopeSpec"
+    )
 
 
 def test_partial_chain_selection_fails_named_without_expansion():
