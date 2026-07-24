@@ -27,6 +27,8 @@ from .contracts.metric import (
     ExactSourceVertexCoordinateV2,
     ExactVector3V1,
     MetricSemanticIdentityLawV1,
+    NearPlanarProjectionCertificateV1,
+    NearPlanarResidualBudgetLawV1,
     PlanarityAdmissionLawV1,
     RationalAffinePlanarMetricV2,
     RuntimeMetricFallbackContractV1,
@@ -128,6 +130,120 @@ def _matrix2_record(value) -> ExactMatrix2V1:
     )
 
 
+_RELATIVE_EXTENT_FACTOR = Fraction(1, 10**7)
+_MINIMUM_EXTENT = Fraction(1, 10**3)
+_COORDINATE_ULP_MULTIPLIER = 64
+
+
+@dataclass(frozen=True, slots=True)
+class _NearPlanarFacts:
+    planar_extent: Fraction
+    residual_budget: Fraction
+    max_residual_squared: Fraction
+    projected: tuple[SourceVertexId, ...]
+
+
+def _project_onto_exact_plane(*, positions, origin, normal, off_plane):
+    """Спроецировать отклонившиеся вершины на плоскость — точно, в дробях.
+
+    `p - ((p-o)·n / (n·n)) · n` считается в рациональных числах, поэтому вниз
+    по конвейеру арифметика остаётся точной. Приблизителен только выбор
+    плоскости, и он записывается в сертификат.
+
+    Невязка сравнивается с бюджетом в квадрате, чтобы не вводить корень.
+    """
+
+    normal_squared = _dot3(normal, normal)
+    max_residual_squared = Fraction(0)
+    for vertex_id in off_plane:
+        deviation = _dot3(_sub3(positions[vertex_id], origin), normal)
+        residual_squared = deviation * deviation / normal_squared
+        max_residual_squared = max(max_residual_squared, residual_squared)
+
+    planar_extent = max(
+        max(point[axis] for point in positions.values())
+        - min(point[axis] for point in positions.values())
+        for axis in range(3)
+    )
+    max_ulp = Fraction(0)
+    for point in positions.values():
+        for value in point:
+            magnitude = math.ulp(float(value)) if value else math.ulp(1.0)
+            max_ulp = max(max_ulp, Fraction(*magnitude.as_integer_ratio()))
+
+    budget = max(
+        _RELATIVE_EXTENT_FACTOR * max(planar_extent, _MINIMUM_EXTENT),
+        _COORDINATE_ULP_MULTIPLIER * max_ulp,
+    )
+    if max_residual_squared > budget * budget:
+        raise PlanarMetricAdmissionError(
+            NamedOutcome.NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED,
+            "source deviates beyond the declared near-planar budget: "
+            f"vertices={[item.value for item in off_plane]}",
+        )
+
+    for vertex_id in off_plane:
+        scale = _dot3(_sub3(positions[vertex_id], origin), normal) / normal_squared
+        positions[vertex_id] = tuple(
+            positions[vertex_id][axis] - scale * normal[axis] for axis in range(3)
+        )
+    return _NearPlanarFacts(
+        planar_extent=planar_extent,
+        residual_budget=budget,
+        max_residual_squared=max_residual_squared,
+        projected=off_plane,
+    )
+
+
+def _planarity_certificate(
+    *, source_revision, patch_domain_id, normal, required_ids, near_planar_facts
+):
+    """Сертификат допуска плоскости: точный либо near-planar с записью невязки."""
+
+    if near_planar_facts is None:
+        return ExactSourcePlaneCertificateV1(
+            certificate_id=PlanarityCertificateId(
+                _stable_id(
+                    "exact-source-plane",
+                    source_revision.value,
+                    patch_domain_id.value,
+                )
+            ),
+            patch_domain_id=patch_domain_id,
+            admission_law=PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1,
+            exact=True,
+            exact_plane_normal=_vector3_record(normal),
+            source_vertex_ids=frozenset(required_ids),
+            reconstruction_law=AffineReconstructionLawV1.O_PLUS_U_A_PLUS_V_B_V1,
+        )
+    return NearPlanarProjectionCertificateV1(
+        certificate_id=PlanarityCertificateId(
+            _stable_id(
+                "near-planar-projection",
+                source_revision.value,
+                patch_domain_id.value,
+            )
+        ),
+        patch_domain_id=patch_domain_id,
+        source_revision=source_revision,
+        admission_law=PlanarityAdmissionLawV1.NEAR_PLANAR_PROJECTION_V1,
+        exact=False,
+        exact_plane_normal=_vector3_record(normal),
+        source_vertex_ids=frozenset(required_ids),
+        reconstruction_law=AffineReconstructionLawV1.O_PLUS_U_A_PLUS_V_B_V1,
+        residual_budget_law=(
+            NearPlanarResidualBudgetLawV1.RELATIVE_EXTENT_OR_ULP_V1
+        ),
+        relative_extent_factor=_rational(_RELATIVE_EXTENT_FACTOR),
+        minimum_extent=_rational(_MINIMUM_EXTENT),
+        coordinate_ulp_multiplier=_COORDINATE_ULP_MULTIPLIER,
+        planar_extent=_rational(near_planar_facts.planar_extent),
+        residual_budget=_rational(near_planar_facts.residual_budget),
+        max_residual=_rational(near_planar_facts.max_residual_squared),
+        projected_source_vertex_ids=frozenset(near_planar_facts.projected),
+    )
+
+
 def build_rational_affine_planar_metric(
     *,
     source_revision: SourceRevision,
@@ -136,6 +252,9 @@ def build_rational_affine_planar_metric(
     source_vertices: Iterable[SourceVertexV1],
     source_faces: Iterable[SourceFaceV1],
     source_lineage: frozenset[LineageId] = frozenset(),
+    planarity_policy: PlanarityAdmissionLawV1 = (
+        PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1
+    ),
 ) -> RationalAffinePlanarMetricV2:
     """Build the canonical exact chart from stable source identities.
 
@@ -208,11 +327,16 @@ def build_rational_affine_planar_metric(
         for vertex_id in required_ids
         if _dot3(_sub3(positions[vertex_id], origin), normal) != 0
     )
+    near_planar_facts = None
     if off_plane:
-        raise PlanarMetricAdmissionError(
-            NamedOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED,
-            "EXACT_SOURCE_PLANE_V1 rejected source vertices: "
-            + ", ".join(item.value for item in off_plane),
+        if planarity_policy is not PlanarityAdmissionLawV1.NEAR_PLANAR_PROJECTION_V1:
+            raise PlanarMetricAdmissionError(
+                NamedOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED,
+                "EXACT_SOURCE_PLANE_V1 rejected source vertices: "
+                + ", ".join(item.value for item in off_plane),
+            )
+        near_planar_facts = _project_onto_exact_plane(
+            positions=positions, origin=origin, normal=normal, off_plane=off_plane
         )
 
     g00 = _dot3(first, first)
@@ -274,22 +398,12 @@ def build_rational_affine_planar_metric(
             *(item.value for item in required_ids),
         )
     )
-    certificate = ExactSourcePlaneCertificateV1(
-        certificate_id=PlanarityCertificateId(
-            _stable_id(
-                "exact-source-plane",
-                source_revision.value,
-                patch_domain_id.value,
-            )
-        ),
+    certificate = _planarity_certificate(
+        source_revision=source_revision,
         patch_domain_id=patch_domain_id,
-        admission_law=PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1,
-        exact=True,
-        exact_plane_normal=_vector3_record(normal),
-        source_vertex_ids=frozenset(required_ids),
-        reconstruction_law=(
-            AffineReconstructionLawV1.O_PLUS_U_A_PLUS_V_B_V1
-        ),
+        normal=normal,
+        required_ids=required_ids,
+        near_planar_facts=near_planar_facts,
     )
     return RationalAffinePlanarMetricV2(
         reference_metric_id=metric_id,

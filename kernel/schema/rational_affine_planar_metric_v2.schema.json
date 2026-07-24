@@ -100,7 +100,8 @@
         },
         "admission_law": {
           "enum": [
-            "EXACT_SOURCE_PLANE_V1"
+            "EXACT_SOURCE_PLANE_V1",
+            "NEAR_PLANAR_PROJECTION_V1"
           ],
           "type": "string"
         },
@@ -203,6 +204,100 @@
       ],
       "type": "object"
     },
+    "NearPlanarProjectionCertificateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "NearPlanarProjectionCertificateV1"
+        },
+        "admission_law": {
+          "enum": [
+            "EXACT_SOURCE_PLANE_V1",
+            "NEAR_PLANAR_PROJECTION_V1"
+          ],
+          "type": "string"
+        },
+        "certificate_id": {
+          "$ref": "#/$defs/PlanarityCertificateId"
+        },
+        "coordinate_ulp_multiplier": {
+          "type": "integer"
+        },
+        "exact": {
+          "type": "boolean"
+        },
+        "exact_plane_normal": {
+          "$ref": "#/$defs/ExactVector3V1"
+        },
+        "max_residual": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "minimum_extent": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "planar_extent": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "projected_source_vertex_ids": {
+          "items": {
+            "$ref": "#/$defs/SourceVertexId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "reconstruction_law": {
+          "enum": [
+            "O_PLUS_U_A_PLUS_V_B_V1"
+          ],
+          "type": "string"
+        },
+        "relative_extent_factor": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "residual_budget": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "residual_budget_law": {
+          "enum": [
+            "RELATIVE_EXTENT_OR_ULP_V1"
+          ],
+          "type": "string"
+        },
+        "source_revision": {
+          "$ref": "#/$defs/SourceRevision"
+        },
+        "source_vertex_ids": {
+          "items": {
+            "$ref": "#/$defs/SourceVertexId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "certificate_id",
+        "patch_domain_id",
+        "source_revision",
+        "admission_law",
+        "exact",
+        "exact_plane_normal",
+        "source_vertex_ids",
+        "reconstruction_law",
+        "residual_budget_law",
+        "relative_extent_factor",
+        "minimum_extent",
+        "coordinate_ulp_multiplier",
+        "planar_extent",
+        "residual_budget",
+        "max_residual",
+        "projected_source_vertex_ids"
+      ],
+      "type": "object"
+    },
     "PatchDomainId": {
       "additionalProperties": false,
       "properties": {
@@ -282,7 +377,14 @@
           "$ref": "#/$defs/PatchDomainId"
         },
         "planarity_certificate": {
-          "$ref": "#/$defs/ExactSourcePlaneCertificateV1"
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ExactSourcePlaneCertificateV1"
+            },
+            {
+              "$ref": "#/$defs/NearPlanarProjectionCertificateV1"
+            }
+          ]
         },
         "reference_metric_id": {
           "$ref": "#/$defs/ReferenceMetricId"

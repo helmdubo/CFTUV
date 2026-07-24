@@ -16,3 +16,6 @@ class NamedOutcome(str, Enum):
     RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED = (
         "RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED"
     )
+    # Источник отклоняется от плоскости больше объявленного бюджета: это уже
+    # не шум представления, а другая геометрия. Отказ именованный.
+    NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED = "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED"

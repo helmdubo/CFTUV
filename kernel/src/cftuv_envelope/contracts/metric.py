@@ -25,6 +25,18 @@ RUNTIME_PLANAR_METRIC_SCHEMA_V1 = "cftuv.envelope.runtime_planar_metric.v1"
 
 class PlanarityAdmissionLawV1(str, Enum):
     EXACT_SOURCE_PLANE_V1 = "EXACT_SOURCE_PLANE_V1"
+    # Источник не компланарен побитово, но укладывается в объявленный бюджет
+    # невязки. Вершины проецируются на плоскость ТОЧНО, в рациональных числах:
+    # ниже по конвейеру арифметика остаётся точной, приблизительным является
+    # только выбор входа, и он записан в сертификате.
+    NEAR_PLANAR_PROJECTION_V1 = "NEAR_PLANAR_PROJECTION_V1"
+
+
+class NearPlanarResidualBudgetLawV1(str, Enum):
+    # max(relative_extent_factor * max(planar_extent, minimum_extent),
+    #     coordinate_ulp_multiplier * max_coordinate_ulp)
+    # Исследовано в M-R0 как RUNTIME_PLANAR_RESIDUAL_BUDGET_CANDIDATE_V1.
+    RELATIVE_EXTENT_OR_ULP_V1 = "RELATIVE_EXTENT_OR_ULP_V1"
 
 
 class AffineFrameSelectionLawV1(str, Enum):
@@ -147,6 +159,49 @@ class ExactSourcePlaneCertificateV1:
 
 
 @dataclass(frozen=True, slots=True)
+class NearPlanarProjectionCertificateV1:
+    """Запись о том, что вход был спроецирован, и на сколько он отклонялся.
+
+    Карта N0 требует: ни один солвер не сглаживает и не проецирует молча, и
+    каждая неточная политика записывает масштаб, метод, бюджет невязки и
+    ревизию источника. Проекция здесь точная (рациональная); приблизителен
+    выбор плоскости, и именно он зафиксирован этими полями.
+    """
+
+    certificate_id: PlanarityCertificateId
+    patch_domain_id: PatchDomainId
+    source_revision: SourceRevision
+    admission_law: PlanarityAdmissionLawV1
+    exact: bool
+    exact_plane_normal: ExactVector3V1
+    source_vertex_ids: frozenset[SourceVertexId]
+    reconstruction_law: AffineReconstructionLawV1
+    residual_budget_law: NearPlanarResidualBudgetLawV1
+    relative_extent_factor: ExactRationalV1
+    minimum_extent: ExactRationalV1
+    coordinate_ulp_multiplier: int
+    planar_extent: ExactRationalV1
+    residual_budget: ExactRationalV1
+    max_residual: ExactRationalV1
+    projected_source_vertex_ids: frozenset[SourceVertexId]
+
+    def __post_init__(self) -> None:
+        if self.exact:
+            raise ValueError(
+                "NearPlanarProjectionCertificateV1 describes a non-exact plane"
+            )
+        if self.admission_law is not PlanarityAdmissionLawV1.NEAR_PLANAR_PROJECTION_V1:
+            raise ValueError(
+                "NearPlanarProjectionCertificateV1 requires "
+                "NEAR_PLANAR_PROJECTION_V1"
+            )
+        if not self.projected_source_vertex_ids:
+            raise ValueError(
+                "near-planar certificate must name the projected vertices"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class RationalAffinePlanarMetricV2:
     reference_metric_id: ReferenceMetricId
     patch_domain_id: PatchDomainId
@@ -161,7 +216,9 @@ class RationalAffinePlanarMetricV2:
     ]
     chart_orientation: AffineChartOrientationV1
     frame_selection_law: AffineFrameSelectionLawV1
-    planarity_certificate: ExactSourcePlaneCertificateV1
+    planarity_certificate: (
+        ExactSourcePlaneCertificateV1 | NearPlanarProjectionCertificateV1
+    )
     source_lineage: frozenset[LineageId]
 
 
