@@ -341,6 +341,7 @@ def test_c4_selected_sites_are_created_from_chart_provenance():
     assert points == (chart_by_vertex[0], chart_by_vertex[1])
 
 
+@pytest.mark.requires_pyvoronoi
 def test_c4_intrinsic_surface_uses_same_voronoi_compile_core():
     node, chart = _admitted_fold()
     raw_site = {
@@ -367,6 +368,7 @@ def test_c4_intrinsic_surface_uses_same_voronoi_compile_core():
     assert surface.atoms
 
 
+@pytest.mark.requires_pyvoronoi
 def test_d2_periodic_sites_are_copied_only_inside_diagram():
     node, chart, raw_site = _periodic_annulus()
     diagnostics = PatchVoronoiDiagnostics()
@@ -421,6 +423,7 @@ def test_d3_periodic_cycle_has_one_monotonic_v_transport_direction():
     assert intervals[-1][1] == pytest.approx(circumference)
 
 
+@pytest.mark.requires_pyvoronoi
 def test_d3_periodic_images_use_shifted_crops_and_transition_welds():
     node, chart, _raw_site = _periodic_annulus()
     raw_sites = _periodic_ring_sites(node)

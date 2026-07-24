@@ -2436,6 +2436,7 @@ class TestManualChainDecals:
         assert collection.rejected_edges[0].reason == "NON_MANIFOLD_EDGE_USE"
         assert collection.rejected_edges[0].use_count == 3
 
+    @pytest.mark.requires_pyvoronoi
     def test_one_sided_boundary_and_missing_edge_account_exactly(self):
         chain = _make_chain(
             [0, 1],
@@ -2475,6 +2476,7 @@ class TestManualChainDecals:
             "NO_BOUNDARY_CHAIN_USE:x1]"
         )
 
+    @pytest.mark.requires_pyvoronoi
     def test_single_use_internal_seam_fails_component_visibly(self):
         points = [
             Vector((0.0, 0.0, 0.0)),
