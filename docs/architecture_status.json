@@ -26,10 +26,91 @@
     "accepted_on": "2026-07-24",
     "authority": "explicit user instruction"
   },
-  "active_slice": "BASE-00",
-  "last_accepted_gate": "C_R2C_PLUS_HOST_REFLEX_CORNER_CI",
+  "base_00_acceptance": {
+    "status": "ACCEPTED_WITH_DOCS_ONLY_AMENDMENT",
+    "content_sha": "e4db68371cab83a6a26368bf9a95eda74ae8d02e",
+    "content_tree_oid": "70579a29715aa846d88e409c85c53144b341386b",
+    "control_plane_receipt": {
+      "ref": "codex/base-00-canonical-integration",
+      "paths": [
+        "artifacts/envelope_baseline/session_base_00_control_plane_amendment.json",
+        "artifacts/envelope_baseline/session_base_00_control_plane_amendment.md"
+      ]
+    },
+    "accepted_by": [
+      "RELEASE_OWNER",
+      "REVIEWER"
+    ]
+  },
+  "active_slice": "DOC-00",
+  "current_card_path": "docs/agent_execution/envelope_v1/cards/DOC-00_Documentation_authority_and_AI_onboarding_correction.md",
+  "active_correctness_blocker": {
+    "id": "MULTIWAY_INTERACTION_POLICY_UNPROVEN",
+    "owner": "D_R2",
+    "status": "OPEN"
+  },
+  "authority_order": [
+    {
+      "rank": 1,
+      "path": "docs/architecture_status.json",
+      "ref": "codex/base-00-canonical-integration",
+      "label": "LIVE_CONTROL_AUTHORITY"
+    },
+    {
+      "rank": 2,
+      "path": "AGENTS.md",
+      "label": "CURRENT_ONBOARDING_AUTHORITY"
+    },
+    {
+      "rank": 3,
+      "path": "docs/agent_execution/envelope_v1/01_GLOBAL_CANON.md",
+      "label": "ACCEPTED_GLOBAL_CANON"
+    },
+    {
+      "rank": 4,
+      "path": "docs/agent_execution/envelope_v1/02_AGENT_PROTOCOL.md",
+      "label": "CURRENT_EXECUTION_PROTOCOL"
+    },
+    {
+      "rank": 5,
+      "path": "docs/agent_execution/envelope_v1/cards/DOC-00_Documentation_authority_and_AI_onboarding_correction.md",
+      "label": "ACTIVE_CARD"
+    },
+    {
+      "rank": 6,
+      "path": "accepted_handoff_paths",
+      "label": "ACCEPTED_DEPENDENCY_EVIDENCE"
+    }
+  ],
+  "document_labels": {
+    "README.md": "CURRENT_ONBOARDING_AUTHORITY",
+    "AGENTS.md": "CURRENT_ONBOARDING_AUTHORITY",
+    "docs/architecture_status.json": "LIVE_CONTROL_AUTHORITY",
+    "docs/adr_index.md": "CURRENT_AUTHORITY_INDEX",
+    "docs/envelope_engine_start_here.md": "CURRENT_ENVELOPE_ONBOARDING_AUTHORITY",
+    "docs/agent_execution/envelope_v1/01_GLOBAL_CANON.md": "ACCEPTED_GLOBAL_CANON",
+    "docs/agent_execution/envelope_v1/02_AGENT_PROTOCOL.md": "CURRENT_EXECUTION_PROTOCOL",
+    "docs/agent_execution/envelope_v1/cards/DOC-00_Documentation_authority_and_AI_onboarding_correction.md": "ACTIVE_CARD",
+    "docs/envelope_external_agent_session_manifest.md": "SUPERSEDED_FOR_ACTIVE_DISPATCH",
+    "docs/decal_envelope_linear_axis_rebaseline.md": "ACCEPTED_SCOPED_SEMANTIC_EVIDENCE",
+    "docs/envelope_backend_semantics.md": "ACCEPTED_SCOPED_SEMANTIC_EVIDENCE",
+    "docs/decal_envelope_roadmap_compromise.md": "SUPERSEDED_FOR_ACTIVE_DISPATCH",
+    "docs/envelope_kernel_pivot_instructions.md": "SUPERSEDED_FOR_ACTIVE_DISPATCH",
+    "docs/envelope_ec0_correction_log.md": "HISTORICAL_AUDIT_EVIDENCE",
+    "cftuv/decals.py": "SCOPED_LEGACY_RUNTIME",
+    "cftuv/decal_voronoi.py": "SCOPED_LEGACY_RUNTIME"
+  },
+  "document_label_vocabulary": {
+    "current": "May route an agent within its declared authority scope.",
+    "accepted": "Accepted semantic or dependency evidence; cannot select an active card.",
+    "superseded": "Retained evidence that cannot dispatch current work.",
+    "experimental": "EXPERIMENTAL_NON_AUTHORITY; cannot override current, accepted or active-card authority."
+  },
+  "last_accepted_gate": "BASE-00",
   "last_accepted_gate_details": {
-    "sha": "c2622d07020338e5231b81f41655fe6c74cdca72",
+    "sha": "e4db68371cab83a6a26368bf9a95eda74ae8d02e",
+    "status": "ACCEPTED_WITH_DOCS_ONLY_AMENDMENT",
+    "code_bearing_predecessor_sha": "c2622d07020338e5231b81f41655fe6c74cdca72",
     "ci_run_id": 30095478731,
     "ci_url": "https://github.com/helmdubo/CFTUV/actions/runs/30095478731",
     "conclusion": "success"
@@ -56,7 +137,31 @@
     "artifacts/envelope_baseline/session_base_00_control_plane_amendment.json",
     "artifacts/envelope_baseline/session_base_00_control_plane_amendment.md"
   ],
-  "candidate_handoff_paths": [],
+  "candidate_handoff_paths": [
+    "artifacts/envelope_doc_00/session_doc_00_handoff.json",
+    "artifacts/envelope_doc_00/session_doc_00_handoff.md"
+  ],
+  "dispatch": {
+    "parallel_ready_cards": [
+      "DOC-00",
+      "FIX-00"
+    ],
+    "blocked_cards": [
+      {
+        "card": "D-R2-00",
+        "requires_accepted": [
+          "DOC-00",
+          "FIX-00"
+        ]
+      }
+    ],
+    "superseded_cards": [
+      "C-R2C-01",
+      "C-R2C-02",
+      "C-R2C-03",
+      "C-R2C-04"
+    ]
+  },
   "validation": {
     "local_python": "3.13",
     "wheel_outside_checkout": "224 passed",
@@ -71,7 +176,15 @@
     "packet_builder_active_card": "OK",
     "packet_builder_superseded_rejection": "OK",
     "control_plane_diff_check": "OK",
-    "remote_ci": "success"
+    "base_00_remote_ci": "success",
+    "baseline_doc_audit": "STALE_EMBEDDED_STATUS_AND_AM11_SESSION_DISPATCH_CONFIRMED",
+    "documentation_link_validator_scope": "AUTHORITY_LINK_SCOPE_V1",
+    "documentation_link_validator": "PASS_21_LOCAL_PATHS_2_CANONICAL_RECEIPTS",
+    "status_manifest_schema": "PASS",
+    "independent_context_review": "PASS_AFTER_3_ACTIONABLE_FINDINGS_REMEDIATED",
+    "git_diff_check": "PASS",
+    "semantic_subtree_comparison": "IDENTICAL_KERNEL_CFTUV_TESTS_WORKFLOWS",
+    "doc_00_remote_ci": "NOT_RUN_DOC_ONLY_BRANCH"
   },
   "semantic_tree_oids": {
     "accepted_integration_content_tree": "70579a29715aa846d88e409c85c53144b341386b",
@@ -118,11 +231,16 @@
       "id": "HOST_REQUEST_EXPORT_COMPLEXITY",
       "owner": "HOST_ADAPTER",
       "status": "OPEN"
+    },
+    {
+      "id": "DOC_00_CI_HOOK_OUTSIDE_ALLOWLIST",
+      "owner": "CONTROL_PLANE_MAINTAINER",
+      "status": "NAMED_LIMITATION"
     }
   ],
   "next_cards_after_acceptance": [
-    "DOC-00",
-    "FIX-00"
+    "FIX-00",
+    "D-R2-00_AFTER_FIX_00_ACCEPTANCE"
   ],
   "scope_guards": {
     "legacy_geometry_read_or_invoked": false,
@@ -132,6 +250,11 @@
     "workflow_changed_by_base00": false,
     "control_plane_only_amendment": true,
     "source_mesh_opened_or_mutated_by_base00": false,
+    "geometry_changed_by_doc00": false,
+    "contracts_changed_by_doc00": false,
+    "tests_changed_by_doc00": false,
+    "workflow_changed_by_doc00": false,
+    "source_mesh_opened_or_mutated_by_doc00": false,
     "main_merged": false
   }
 }

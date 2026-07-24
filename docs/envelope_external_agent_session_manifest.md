@@ -1,6 +1,17 @@
 # Envelope Engine — external-agent session manifest
 
-Status: **NORMATIVE OPERATIONAL COMPANION TO AM11**.
+Document status: `SUPERSEDED_FOR_ACTIVE_DISPATCH`.
+Semantic evidence status: `ACCEPTED_HISTORICAL_STAGE_MODEL`.
+
+This document is retained without deleting its accepted historical session
+evidence. It no longer chooses the active slice, branch, next session or
+backend. For current work, read `docs/architecture_status.json` from
+`codex/base-00-canonical-integration`, then `AGENTS.md`,
+`docs/envelope_engine_start_here.md`, the global canon, protocol and exact
+`current_card_path` named by the status manifest.
+
+All “next session” and “common entry packet” statements below are scoped to
+the historical A–J sequence and cannot override the live control plane.
 
 This document turns
 `docs/decal_envelope_linear_axis_rebaseline.md` into restricted-context work

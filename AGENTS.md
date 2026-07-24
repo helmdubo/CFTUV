@@ -1,5 +1,45 @@
 # AGENTS.md — Project Context for AI Agents
 
+## Envelope v1 documentation authority
+
+Machine-readable document status: `CURRENT_ONBOARDING_AUTHORITY`.
+
+For every Envelope v1 task, resolve live control metadata before reading
+implementation context:
+
+1. read `docs/architecture_status.json` from
+   `codex/base-00-canonical-integration`;
+2. read `docs/agent_execution/envelope_v1/01_GLOBAL_CANON.md`;
+3. read `docs/agent_execution/envelope_v1/02_AGENT_PROTOCOL.md`;
+4. read the exact `current_card_path` named by the status manifest;
+5. read only accepted dependency handoffs and paths allowlisted by that card.
+
+The immutable implementation base comes from `accepted_integration_sha` in the
+live status manifest. An older copy of that manifest embedded in the immutable
+commit must not override the canonical control ref.
+
+Current architecture map:
+
+```text
+host facts/request
+→ Blender-free Envelope compiler/evaluator in kernel/
+→ RawCoverage / approved interactions / ownership
+→ semantic arrangement and GeometryBatch
+→ optional host preview/materialization
+```
+
+The existing `cftuv/decals.py` and `cftuv/decal_voronoi.py` paths, including
+their `pyvoronoi` backend, are `SCOPED_LEGACY_RUNTIME`. They are context for the
+existing decal producer, not implementation authority for the new Envelope
+kernel. A kernel agent must not read or modify them unless its exact card
+assigns the Legacy Evidence Curator or Host Adapter role.
+
+Start at `docs/envelope_engine_start_here.md` for the human-readable authority
+map. Historical session manifests and semantic rebaseline documents retain
+evidence value but cannot dispatch work.
+
+---
+
 ## What is this project
 
 CFTUV (Constraint-First Trim UV) — Blender addon for semi-procedural UV unwrapping
@@ -7,9 +47,9 @@ of architectural hard-surface assets under trim sheet / tile workflows.
 
 Target: AA-AAA game environment art. Blender 4.1+, Python 3.10+.
 Single developer, in-house studio tool. Core analysis/solve code uses only
-Blender built-ins. The decal producer may use an explicitly documented
-specialized geometry backend; `pyvoronoi` is the approved dependency for
-patch-bounded segment-Voronoi construction.
+Blender built-ins. The existing decal producer may use its explicitly
+documented `pyvoronoi` backend; that scoped legacy runtime dependency is not a
+dependency or semantic authority of the new Blender-free Envelope kernel.
 
 **Architectural debt.** This codebase contains `ARCHITECTURAL_DEBT: <ID>`
 markers at sites with known suboptimal design. Before substantially modifying
@@ -37,16 +77,25 @@ loop-sequential, or corner-based placement is an architectural regression.
 
 ---
 
-## Envelope Kernel Pivot Contract (AM7)
+## Envelope Kernel Contract
+
+Machine-readable section status: `ACCEPTED_SEMANTIC_CONTRACT`.
 
 This contract applies to the new Blender-free decal envelope kernel. It does
 not change the chain-first strongest-frontier rule of the existing UV solve.
 
-Before any EC0-P–EC8 kernel task, read:
+Bootstrap every active task through the authority order at the top of this
+file. `docs/envelope_backend_semantics.md` remains
+`ACCEPTED_SCOPED_SEMANTIC_EVIDENCE`. The earlier roadmap and pivot
+instructions are `SUPERSEDED_FOR_ACTIVE_DISPATCH`; they are retained only as
+historical context:
 
 1. `docs/decal_envelope_roadmap_compromise.md`
 2. `docs/envelope_kernel_pivot_instructions.md`
-3. `docs/envelope_backend_semantics.md`
+
+The accepted scoped semantic reference is:
+
+1. `docs/envelope_backend_semantics.md`
 
 Non-negotiable model:
 
@@ -136,11 +185,11 @@ Role separation remains mandatory:
 - Host Adapter Author maps contracts and does not repair geometry.
 - These roles run in separate sessions/contexts.
 
-EC1 must not start until the canonical coordinate-free JSON corpus and prose
-explicitly define PatchDomain, PhysicalChain, ChainUse, request identity,
-seeds, patch union, interactions, ownership, UV/station flow, boundary contact
-topology, cross-Patch junction coordination, and mixed-alpha shared envelopes;
-the reproducible corpus validator must pass and the user must accept the text.
+The historical EC1 gate required the canonical coordinate-free JSON corpus and
+prose to define PatchDomain, PhysicalChain, ChainUse, request identity, seeds,
+patch union, interactions, ownership, UV/station flow, boundary contact
+topology, cross-Patch junction coordination, and mixed-alpha shared envelopes.
+That gate is accepted evidence, not current dispatch authority.
 
 ---
 
@@ -168,9 +217,9 @@ cftuv/
 ├── shape_classify.py   # Shape policy: BAND/MIX classification, FREE→STRAIGHTEN interpretation
 ├── band_spine.py      # BAND runtime parametrization: section-based spine + UV targets
 ├── debug.py            # Grease Pencil visualization + GPENCIL/GREASEPENCIL v3 compatibility
-├── decals.py           # Decal producer (Phase 3): trim/corner/seam mesh strips from PatchGraph
+├── decals.py           # scoped legacy decal runtime; not Envelope-kernel authority
 ├── decal_charts.py     # Immutable IR/input boundary for intrinsic strip charts
-├── decal_voronoi.py    # Patch-bounded segment-Voronoi backend (pyvoronoi)
+├── decal_voronoi.py    # scoped legacy pyvoronoi backend
 ├── operators.py        # Blender UI wrappers (max 5 lines math)
 └── console_debug.py    # Verbose console toggle
 ```
@@ -348,13 +397,19 @@ Role-layer contract:
 - Reporting/debug should show effective structural role as primary and raw role as secondary when they diverge.
 `Solve Phase 1 Preview` clears final UV pins by default; Add-on Preferences may keep
 them for debug inspection. `Transfer Only` keeps pins.
-Phase 8 alignment / drift work is a separate roadmap in `docs/cftuv_alignment_drift_roadmap.md`.
+The former Phase 8 alignment/drift roadmap is absent from this baseline and is
+not current authority. Any new alignment slice must be selected by the live
+status manifest and its exact card.
 
 ---
 
 ## Scoring Refactor Contract
 
-Current score refactor plan lives in **`docs/cftuv_score_refactor_plan.md`**. Read it before changing frontier scoring, patch context, seam scoring, or related telemetry.
+The former standalone score-refactor plan is absent from this baseline. The
+contract below is retained project context; before changing frontier scoring,
+patch context, seam scoring or telemetry, require an exact current task and
+read the relevant sections of `docs/cftuv_architecture.md` and
+`docs/cftuv_reference.md`.
 
 Mandatory rules for all agents working on scoring:
 
@@ -406,10 +461,8 @@ Compatibility target includes legacy Blender 4.1 GPENCIL and modern Blender 4.5.
 - regression checklist and mesh set
 - scoring weight documentation
 
-**`docs/cftuv_alignment_drift_roadmap.md`** — read when your task touches:
-- row / column scatter
-- closure drift after scaffold build
-- future alignment pass design
-- pre-transfer / post-frontier correction ideas
+Alignment/drift work has no standalone roadmap file in this baseline. Do not
+infer such work from historical references in companion docs; follow the live
+status and exact assigned card.
 
 For most tasks, this file alone is sufficient.

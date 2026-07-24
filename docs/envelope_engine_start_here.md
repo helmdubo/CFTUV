@@ -1,29 +1,57 @@
 # Envelope Engine — START HERE
 
-Status: **NORMATIVE ENTRYPOINT FOR AM11 WORK**.
+Document status: `CURRENT_ENVELOPE_ONBOARDING_AUTHORITY`.
 
 This file is the first document for every new Envelope-kernel session. It does
-not replace the detailed contracts; it selects their order and prevents an
-agent from starting an implementation slice against superseded EC0 semantics.
+not replace detailed contracts. It defines their authority order and prevents
+an agent from starting a slice from historical session sequencing.
 
 ## 1. Read order and precedence
 
-Read in this order:
+Resolve dispatch in this order:
 
-1. `docs/decal_envelope_linear_axis_rebaseline.md` — AM11 geometry and engine
-   north star; highest authority for the new angular model.
-2. `docs/envelope_external_agent_session_manifest.md` — restricted-context
-   execution slices and handoff rules.
-3. `docs/envelope_ec0_correction_log.md` — audit trail and current gate state.
-4. `docs/envelope_backend_semantics.md` — retained EC0 semantics that do not
-   conflict with AM11.
-5. `docs/decal_envelope_roadmap_compromise.md` and
-   `docs/envelope_kernel_pivot_instructions.md` — broader roadmap and AM7–AM10
-   context.
+1. `docs/architecture_status.json` from
+   `codex/base-00-canonical-integration` — live control state, immutable base,
+   active blocker and `current_card_path`.
+2. `AGENTS.md` — repository invariants, role separation and forbidden context.
+3. `docs/agent_execution/envelope_v1/01_GLOBAL_CANON.md` — accepted Envelope v1
+   architecture and dependency order.
+4. `docs/agent_execution/envelope_v1/02_AGENT_PROTOCOL.md` — branch, allowlist,
+   gate and handoff rules.
+5. The exact card at `current_card_path` — sole authority for the active slice.
+6. Accepted dependency handoffs named by the live status, then only the card's
+   allowlisted files.
 
-On conflict, AM11 wins. Session A's accepted v5 corpus is the current semantic
-authority. The old v3 corpus remains audit evidence only; its core
-`MITER/BEVEL/ROUND` records are not accepted AngularEnvelope semantics.
+The immutable base may contain an older copy of `docs/architecture_status.json`;
+never let it downgrade the canonical live control state.
+
+Document classifications:
+
+- `docs/decal_envelope_linear_axis_rebaseline.md`:
+  `ACCEPTED_SCOPED_SEMANTIC_EVIDENCE`;
+- `docs/envelope_backend_semantics.md`:
+  `ACCEPTED_SCOPED_SEMANTIC_EVIDENCE`;
+- `docs/envelope_external_agent_session_manifest.md`:
+  `SUPERSEDED_FOR_ACTIVE_DISPATCH`;
+- older v3 `MITER/BEVEL/ROUND` corpus:
+  `HISTORICAL_AUDIT_EVIDENCE`;
+- `cftuv/decals.py`, `cftuv/decal_voronoi.py` and `pyvoronoi`:
+  `SCOPED_LEGACY_RUNTIME`.
+
+These labels preserve historical evidence without allowing it to select the
+current branch, card or backend.
+
+Current architecture map:
+
+```text
+AnalysisSnapshotV1 + DecalRequestV1
+→ kernel-owned CompiledPatchEvaluationPlan
+→ exact RawCoverage
+→ approved interactions and ownership
+→ SemanticArrangement
+→ GeometryBatch
+→ optional host preview/materialization
+```
 
 ## 2. North star
 
@@ -108,11 +136,27 @@ Different valid tessellations must have the same canonical semantic digest.
 
 ## 5. Current gate and next allowed task
 
-Session A — EC0 Linear-Reflex corpus rebaseline is **accepted and closed**.
-The next allowed slice is **Session B — EC1 contracts and hermetic package**,
-started in a new restricted context.
+`BASE-00` is accepted at immutable content SHA
+`e4db68371cab83a6a26368bf9a95eda74ae8d02e`, including its docs-only
+control-plane amendment.
 
-The accepted Session A result:
+The active slice on this branch is `DOC-00`. Its exact card is
+`docs/agent_execution/envelope_v1/cards/DOC-00_Documentation_authority_and_AI_onboarding_correction.md`.
+`FIX-00` is a separate parallel card and is not part of this session.
+`D-R2-00` remains blocked until both `DOC-00` and `FIX-00` are accepted. The
+active correctness blocker carried to D-R2 is
+`MULTIWAY_INTERACTION_POLICY_UNPROVEN`.
+
+`C-R2C-01` through `C-R2C-04` are
+`SUPERSEDED_BY_ACCEPTED_C_R2C_GATE` and must not be dispatched.
+
+The live status manifest remains authoritative if this branch text later
+becomes stale.
+
+## 6. Historical accepted gates and stage boundaries
+
+Session A — EC0 Linear-Reflex corpus rebaseline is accepted and closed. Its
+accepted result:
 
 - replaced core join enums with explicit angular profile references;
 - migrated C02/C03/C04/C13/P06/P07 and dependent matrices;
@@ -126,14 +170,8 @@ The accepted Session A result:
 - passed local validator and external CI;
 - records `SESSION_A_FINAL_ACCEPTANCE`.
 
-Session B receives only the accepted v5 corpus/schema and the allowlisted
-surface/GeometryBatch boundary contracts. No geometry evaluator, Boolean union,
-ownership resolver, Blender adapter or native extension belongs in Session B.
-Do not continue this Session A context across the accepted-contract boundary.
-
-## 6. Mandatory fresh-session boundaries
-
-Start a new restricted-context session at each boundary:
+The historical stage model required a new restricted-context session at each
+boundary:
 
 1. EC0 semantics/corpus → EC1 public contracts and hermetic package.
 2. Contracts → EC2 full-recompute reference Envelope evaluator.
@@ -146,10 +184,10 @@ Start a new restricted-context session at each boundary:
 9. Planar production → curved/developable research.
 10. Stable coverage contracts → separate cross-Patch lift work.
 
-Do not keep one long-running agent across these boundaries merely because it
-still has context. Each new session receives only this file, AM11, the session
-manifest, the accepted artifact from the immediately preceding gate, the exact
-slice task and its owned fixtures/tests.
+These boundaries remain architectural evidence, but they do not dispatch a
+current task. Every new session receives the live status, AGENTS, global canon,
+protocol, exact active card, accepted predecessor handoffs, and only its
+owned fixtures/tests.
 
 ## 7. Handoff minimum
 
