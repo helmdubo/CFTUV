@@ -8,13 +8,16 @@ Work in repository `helmdubo/CFTUV`.
 Active task: `<CARD_ID>`
 Card path: `docs/agent_execution/envelope_v1/cards/<CARD_FILE>.md`
 Accepted base SHA: `<SHA>`
+Canonical control status ref: `codex/base-00-canonical-integration`
 Working branch/worktree: `<BRANCH_OR_PATH>`
 Accepted dependency handoffs:
 - `<HANDOFF_PATH>`
 
 Read in order:
 1. `AGENTS.md`
-2. `docs/architecture_status.json` (not applicable to BASE-00)
+2. current control status from
+   `git show codex/base-00-canonical-integration:docs/architecture_status.json`
+   (not applicable to BASE-00)
 3. `docs/agent_execution/envelope_v1/01_GLOBAL_CANON.md`
 4. `docs/agent_execution/envelope_v1/02_AGENT_PROTOCOL.md`
 5. the exact active task card
@@ -22,6 +25,10 @@ Read in order:
 7. only code/tests in the card allowlist
 
 Implement only this card. Do not read legacy decal geometry unless this card explicitly assigns that role. Do not start downstream tasks. If a new product semantic choice is needed, stop with a named issue. Commit the card scope and leave the mandatory repository handoff and exact evidence.
+
+The accepted base was resolved from the canonical control ref. If the content
+commit contains an older copy of `docs/architecture_status.json`, do not use
+that older self-referential value to change the supplied base SHA.
 ```
 
 ## BASE-00 exception

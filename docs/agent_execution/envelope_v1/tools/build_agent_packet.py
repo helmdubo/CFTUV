@@ -22,6 +22,12 @@ def _load_json(path: Path) -> dict[str, Any]:
 def _find_task(manifest: dict[str, Any], card_id: str) -> dict[str, Any]:
     for task in manifest.get("tasks", []):
         if task.get("id") == card_id:
+            status = str(task.get("status", ""))
+            if status.startswith("SUPERSEDED_"):
+                raise SystemExit(
+                    f"card {card_id!r} is {status} and must not be executed; "
+                    "read its satisfied_by receipt and select an active card"
+                )
             return task
     known = ", ".join(task.get("id", "?") for task in manifest.get("tasks", []))
     raise SystemExit(f"unknown card {card_id!r}; known cards: {known}")
@@ -63,6 +69,7 @@ def _repo_prompt(
     base_sha: str,
     handoffs: list[Path],
     branch: str | None,
+    control_ref: str | None,
 ) -> str:
     card_path = pack_root / task["file"]
     rel_card = card_path.relative_to(repo_root) if card_path.is_relative_to(repo_root) else card_path
@@ -73,6 +80,20 @@ def _repo_prompt(
         if task["id"] == "BASE-00"
         else f"Accepted integration SHA: `{base_sha}`"
     )
+    control_note = (
+        f"\nCanonical control status ref: `{control_ref}`\n"
+        "The accepted SHA above was resolved from that ref. After creating a "
+        "card branch from the immutable content SHA, do not replace it with an "
+        "older self-referential status copy embedded in that content commit."
+        if control_ref
+        else ""
+    )
+    status_step = (
+        f"current control status from "
+        f"`git show {control_ref}:docs/architecture_status.json`"
+        if control_ref
+        else "`docs/architecture_status.json` (skip only for BASE-00)"
+    )
     branch_line = f"Working branch/worktree: `{branch}`\n" if branch else ""
     deps = ", ".join(task.get("dependencies", [])) or "none"
     return f"""Work in repository `helmdubo/CFTUV`.
@@ -80,13 +101,13 @@ def _repo_prompt(
 Active task: `{task['id']}` — {task['title']}
 Card path: `{rel_card}`
 Dependencies declared by the card: `{deps}`
-{base_note}
+{base_note}{control_note}
 {branch_line}Accepted dependency handoffs:
 {handoff_lines}
 
 Read in this order:
 1. `AGENTS.md`
-2. `docs/architecture_status.json` (skip only for BASE-00)
+2. {status_step}
 3. `{pack_root.relative_to(repo_root) if pack_root.is_relative_to(repo_root) else pack_root}/01_GLOBAL_CANON.md`
 4. `{pack_root.relative_to(repo_root) if pack_root.is_relative_to(repo_root) else pack_root}/02_AGENT_PROTOCOL.md`
 5. the exact active card
@@ -106,6 +127,7 @@ def _offline_packet(
     base_sha: str,
     handoffs: list[Path],
     branch: str | None,
+    control_ref: str | None,
 ) -> str:
     sections: list[tuple[str, str]] = []
     sections.append(
@@ -118,6 +140,7 @@ def _offline_packet(
                     "title": task["title"],
                     "dependencies": task.get("dependencies", []),
                     "base_sha": base_sha,
+                    "control_status_ref": control_ref,
                     "branch_or_worktree": branch,
                     "handoffs": [str(path) for path in handoffs],
                     "warning": "This packet authorizes exactly one card.",
@@ -176,6 +199,12 @@ def main() -> int:
     manifest = _load_json(pack_root / "task_manifest.json")
     task = _find_task(manifest, args.card)
     base_sha = _accepted_sha(repo_root, manifest, args.card)
+    control_ref: str | None = None
+    if task["id"] != "BASE-00":
+        status = _load_json(repo_root / "docs" / "architecture_status.json")
+        value = status.get("accepted_integration_ref")
+        if isinstance(value, str) and value:
+            control_ref = value
 
     if task.get("dependencies") and not args.handoff:
         print(
@@ -192,6 +221,7 @@ def main() -> int:
             base_sha=base_sha,
             handoffs=args.handoff,
             branch=args.branch,
+            control_ref=control_ref,
         )
     else:
         text = _offline_packet(
@@ -202,6 +232,7 @@ def main() -> int:
             base_sha=base_sha,
             handoffs=args.handoff,
             branch=args.branch,
+            control_ref=control_ref,
         )
 
     if args.output:

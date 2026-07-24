@@ -43,6 +43,8 @@ The accepted gate provides:
 `C-R2C-01` through `C-R2C-04` are
 `SUPERSEDED_BY_ACCEPTED_C_R2C_GATE`. They remain in the pack as historical
 planning evidence and are not runnable cards.
+`tools/build_agent_packet.py` rejects these IDs instead of emitting an
+implementation prompt.
 
 The consolidated implementation used some different internal/public type
 boundaries than the draft decomposition. That difference does not authorize
@@ -71,3 +73,8 @@ onboarding authority before the new interaction contract starts.
 This amendment changes only the repository-resident execution control plane.
 It does not change kernel geometry, host code, public contracts, tests,
 workflows, fixtures, or source meshes.
+
+The canonical control ref stores `docs/architecture_status.json`; the
+immutable content SHA cannot contain a status file that points to itself.
+Bootstrap output therefore carries both the resolved content SHA and
+`codex/base-00-canonical-integration` as the control status ref.

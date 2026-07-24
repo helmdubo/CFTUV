@@ -31,6 +31,14 @@ Recommended branch names:
 agent/<card-id-lowercase>-<short-slug>
 ```
 
+`docs/architecture_status.json` is control metadata on the canonical
+integration ref. Because it records an immutable content SHA, the content
+commit may contain an older copy of the self-referential status file. Resolve
+the SHA once from `codex/base-00-canonical-integration` (or from the offline
+packet produced there), create the card branch from that SHA, and do not
+downgrade it by rereading the older embedded copy. The bootstrap tool prints
+both the immutable content SHA and the canonical control status ref.
+
 ## Change discipline
 
 Before editing:

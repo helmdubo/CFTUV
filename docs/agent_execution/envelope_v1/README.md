@@ -75,6 +75,7 @@ D-R2-00 after DOC-00 and FIX-00
 The consolidated occurrence-aware C-R2C gate is already present in the
 selected code baseline `c2622d0...`. Its four decomposition cards are retained
 as superseded historical planning records and must not be executed.
+`build_agent_packet.py` rejects those superseded card IDs.
 
 Later cards are deliberately blocked. Do not parallelize ownership, runtime or
 curved implementation with the active baseline/interaction-contract sequence.

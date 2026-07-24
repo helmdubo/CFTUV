@@ -151,12 +151,21 @@ python docs/agent_execution/envelope_v1/tools/build_agent_packet.py \
 Для всех карточек после BASE-00:
 
 ```bash
+git show \
+  codex/base-00-canonical-integration:docs/architecture_status.json \
+  > /tmp/cftuv-architecture-status.json
+
 BASE_SHA=$(python - <<'PY'
 import json
-print(json.load(open('docs/architecture_status.json'))['accepted_integration_sha'])
+print(json.load(open('/tmp/cftuv-architecture-status.json'))['accepted_integration_sha'])
 PY
 )
 ```
+
+Команду выполняют из worktree/ref, где
+`codex/base-00-canonical-integration` обновлён. После создания карточной ветки
+не нужно повторно вычислять base из более старой копии status, встроенной в
+immutable content commit.
 
 ### Шаг 3 — одна карточка, одна ветка
 
@@ -249,6 +258,7 @@ Work in repository `helmdubo/CFTUV`.
 Active task: `<CARD_ID>`
 Card path: `docs/agent_execution/envelope_v1/cards/<CARD_FILE>.md`
 Accepted base: `<IMMUTABLE_SHA>`
+Canonical control status ref: `codex/base-00-canonical-integration`
 Working branch: `<BRANCH>`
 Accepted dependency handoffs:
 - `<PATH_1>`
@@ -256,7 +266,9 @@ Accepted dependency handoffs:
 
 Read in this order:
 1. `AGENTS.md`
-2. `docs/architecture_status.json` (except BASE-00)
+2. current control status from
+   `git show codex/base-00-canonical-integration:docs/architecture_status.json`
+   (except BASE-00)
 3. `docs/agent_execution/envelope_v1/01_GLOBAL_CANON.md`
 4. `docs/agent_execution/envelope_v1/02_AGENT_PROTOCOL.md`
 5. the exact active card
@@ -264,6 +276,10 @@ Read in this order:
 
 Implement only this card. Do not read legacy decal geometry unless the card explicitly assigns the legacy-curator role. Do not start downstream cards. Leave the mandatory repository handoff and exact test evidence. Stop with a named issue rather than inventing product semantics.
 ```
+
+Переданный `Accepted base` уже разрешён из canonical control ref. Не заменяйте
+его значением из более старой self-referential копии status внутри content
+commit.
 
 Для `BASE-00` замените строку `Accepted base` на:
 
