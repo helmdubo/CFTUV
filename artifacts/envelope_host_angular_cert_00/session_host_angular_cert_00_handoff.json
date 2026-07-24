@@ -1,0 +1,123 @@
+{
+  "schema": "cftuv.envelope.host_angular_cert_00_handoff.v1",
+  "status": "READY_FOR_REVIEW",
+  "active_slice": "HOST-ANG-00",
+  "base_integration_sha": "361102a6539ffbbe6fa8957a04bf12a9bae42bd8",
+  "implementation_sha": "b943ccb6cdaa0d970b3bbcd4dbeccecf75f93b7e",
+  "ci_tested_sha": "b943ccb6cdaa0d970b3bbcd4dbeccecf75f93b7e",
+  "branch": "codex/host-angular-cert-00-exact-export",
+  "authorization": {
+    "state": "AUTHORIZED_BY_PRODUCT_OWNER",
+    "date": "2026-07-24",
+    "scope": "Create and execute a separate card for ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE."
+  },
+  "accepted_predecessor": {
+    "card": "FIX-00",
+    "implementation_sha": "f870cba6b48b81d95ec390e7d46129c2550d1728",
+    "handoff": "artifacts/envelope_fix_00/session_fix_00_handoff.md"
+  },
+  "contract_versions": {
+    "analysis_snapshot": "cftuv.envelope.analysis_snapshot.v1",
+    "decal_request": "cftuv.envelope.decal_request.v1",
+    "raw_coverage": "cftuv.envelope.raw_coverage_result.v2",
+    "kernel_package": "0.7.0"
+  },
+  "changed_paths": [
+    "cftuv/envelope_request_export.py",
+    "tests/test_envelope_host_adapter.py",
+    "docs/envelope_v0_debug_bridge.md",
+    "docs/agent_execution/envelope_v1/README.md",
+    "docs/agent_execution/envelope_v1/CHANGELOG.md",
+    "docs/agent_execution/envelope_v1/task_manifest.json",
+    "docs/agent_execution/envelope_v1/cards/HOST-ANG-00_Exact_angular_certificate_export.md",
+    "artifacts/envelope_host_angular_cert_00/**"
+  ],
+  "public_api_schema_changes": "NONE",
+  "algorithm": [
+    "Retain the exact support-derived reflex angle as authority.",
+    "Use a high-precision numerical value only to seed outward decimal candidates.",
+    "Prove the lower and upper candidates independently with exact support-cosine predicates on the monotone interval (0, pi).",
+    "Translate the certified reflex-excess interval by exactly one to construct phi/pi.",
+    "Preserve the rational-ratio fast path and the named fail-closed outcome."
+  ],
+  "tests": [
+    {
+      "command": "python -m pytest tests/test_envelope_host_adapter.py -q",
+      "result": "25 passed in 10.87s"
+    },
+    {
+      "command": "python -m pytest tests/test_envelope_host_adapter.py tests/test_envelope_debug_renderer_contract.py tests/test_envelope_metric_spike_artifacts.py -q",
+      "result": "33 passed in 11.54s"
+    },
+    {
+      "command": "python -m py_compile cftuv/envelope_request_export.py tests/test_envelope_host_adapter.py",
+      "result": "PASS"
+    },
+    {
+      "command": "build_agent_packet.py --card HOST-ANG-00",
+      "result": "PASS"
+    },
+    {
+      "command": "git diff --check",
+      "result": "PASS"
+    }
+  ],
+  "host_field_gate": {
+    "blender_version": "4.3.2",
+    "repeat_exports_byte_equal": true,
+    "source_mesh_unchanged": true,
+    "contract_validation_issue_count": 0,
+    "stage": "RAW_READY",
+    "outcome": "EXACT",
+    "receipt": "artifacts/envelope_host_angular_cert_00/field_receipt.json"
+  },
+  "differential_result": {
+    "fix_00_request_byte_equal": true,
+    "fix_00_non_angular_snapshot_records_equal": true,
+    "complete_snapshot_byte_equal": false,
+    "reason": "The current exact exporter adds four proved Angular records that the accepted older exporter omitted.",
+    "old_raw_facts": {
+      "regions": 3,
+      "point_contacts": 2
+    },
+    "current_raw_facts": {
+      "regions": 1,
+      "point_contacts": 0
+    }
+  },
+  "named_unsupported_outcomes": [
+    {
+      "outcome": "ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE",
+      "status": "RESOLVED_FOR_THE_BUILDING_002_NON_RATIONAL_RATIO"
+    },
+    {
+      "outcome": "ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE",
+      "status": "PRESERVED_WHEN_EXACT_BOUND_COMPARISON_IS_UNDECIDABLE"
+    }
+  ],
+  "assumptions_not_proven": [
+    "No claim is made that every SymPy transcendental comparison is decidable; undecidable cases remain fail-closed.",
+    "The V1 Decimal relation is limited to 27 fractional digits by its 28-digit exact phi-minus-one validation context.",
+    "The older FIX-00 point-contact export remains a kernel fixture, not a current exact host-export oracle."
+  ],
+  "performance_counters": {
+    "claim": "NOT_A_PERFORMANCE_CARD",
+    "candidate_guard_schedule_is_bounded": true,
+    "semantic_telemetry_used_for_behavior": false
+  },
+  "forbidden_legacy_paths_read": {
+    "read": false,
+    "reason": null
+  },
+  "source_mesh_mutation_check": {
+    "before": "6eb41c1d243367a2424edc3f664a8f9c61d185e0866be827fa28bf8c44d55f3a",
+    "after": "6eb41c1d243367a2424edc3f664a8f9c61d185e0866be827fa28bf8c44d55f3a",
+    "unchanged": true
+  },
+  "next_session_allowlist": {
+    "instruction": "Do not silently replace the accepted FIX-00 portable kernel fixture. Any control-plane integration must review the explicit angular differential in the field receipt.",
+    "write_paths": []
+  },
+  "suggested_next_card": "C-R2D-01 after independent acceptance of D-R2-00; HOST-ANG-00 itself requires only review/integration.",
+  "rollback_notes": "Revert implementation commit b943ccb6cdaa0d970b3bbcd4dbeccecf75f93b7e and the subsequent handoff commit. Kernel files and accepted FIX-00 fixture bytes are unchanged."
+}

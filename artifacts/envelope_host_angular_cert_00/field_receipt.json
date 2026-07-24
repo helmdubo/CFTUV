@@ -1,0 +1,83 @@
+{
+  "schema": "cftuv.envelope.host_angular_cert_00.field_receipt.v1",
+  "card": "HOST-ANG-00",
+  "implementation_sha": "b943ccb6cdaa0d970b3bbcd4dbeccecf75f93b7e",
+  "blender_version": "4.3.2",
+  "fixture": {
+    "id": "building_002_point_contact_v1",
+    "selected_physical_edge_ids": [
+      2,
+      3,
+      7
+    ],
+    "requested_alpha": "0.25",
+    "source_mesh_fingerprint_before": "6eb41c1d243367a2424edc3f664a8f9c61d185e0866be827fa28bf8c44d55f3a",
+    "source_mesh_fingerprint_after": "6eb41c1d243367a2424edc3f664a8f9c61d185e0866be827fa28bf8c44d55f3a",
+    "source_mesh_unchanged": true
+  },
+  "export": {
+    "outcome": "EXACT",
+    "angular_owner_sector_count": 4,
+    "corner_relation_count": 4,
+    "reflex_angle_certificate_count": 4,
+    "analysis_snapshot_sha256": "4661bb68385c8f72628eb6ef1b712acead5ab1d021a14376a77787862584dfe4",
+    "decal_request_sha256": "e51a36f44413d3c481a8c88fea5e8f2252528c7ac30fb9036cfb2ed8ca624d75",
+    "host_mesh_sha256": "96832f64737f7de60e74dd0f29b7682291d4631d81361d49ac7243b7f546f600",
+    "manifest_sha256": "dbe7d82c0cf795550db6ab0a89b5de8bff5217283cf46be6b364ea720b6e9413",
+    "repeat_byte_equal": true,
+    "contract_validation_issue_counts": {
+      "analysis_snapshot": 0,
+      "cross_references": 0,
+      "decal_request": 0
+    }
+  },
+  "certified_reflex_excess_intervals": [
+    {
+      "lower": "0.5",
+      "upper": "0.5",
+      "absolute_error_bound": "0"
+    },
+    {
+      "lower": "0.5",
+      "upper": "0.5",
+      "absolute_error_bound": "0"
+    },
+    {
+      "lower": "0.500000240757182542983974037",
+      "upper": "0.500000240757182542983974042",
+      "absolute_error_bound": "0.000000000000000000000000005"
+    },
+    {
+      "lower": "0.50010689650843996861663167",
+      "upper": "0.500106896508439968616631675",
+      "absolute_error_bound": "0.000000000000000000000000005"
+    }
+  ],
+  "fix_00_differential": {
+    "accepted_analysis_snapshot_sha256": "ca1076a25af312aa7277e84ad624136a0c5fa4e70c73b675f2e8c6d2cc7613d1",
+    "analysis_snapshot_byte_equal": false,
+    "non_angular_snapshot_records_equal": true,
+    "decal_request_byte_equal": true,
+    "authorized_difference": [
+      "angular_owner_sectors",
+      "corner_relations",
+      "reflex_angle_certificates"
+    ],
+    "reason": "The accepted FIX-00 exporter omitted Angular records; the current exact-support exporter admits four proved reflex relations."
+  },
+  "kernel_result": {
+    "stage": "RAW_READY",
+    "outcome": "EXACT",
+    "raw_schema_version": "cftuv.envelope.raw_coverage_result.v2",
+    "semantic_digest": "1ae4404ece65704f092fc87e9b28d11941995d1c0b7607a8e1324f4ff42cfee8",
+    "exact_area_expression": "Mul(Rational(32768, 373821260323), Add(Mul(Integer(524288), Pow(Integer(2), Rational(1, 2))), Integer(3222257)))",
+    "boundary_occurrence_count": 14,
+    "loop_count": 1,
+    "point_contact_count": 0,
+    "region_count": 1
+  },
+  "named_outcomes": {
+    "resolved_for_field": "ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE",
+    "undecidable_predicate_behavior": "ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE"
+  }
+}
