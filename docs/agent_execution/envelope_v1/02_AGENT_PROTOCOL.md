@@ -38,6 +38,9 @@ the SHA once from `codex/base-00-canonical-integration` (or from the offline
 packet produced there), create the card branch from that SHA, and do not
 downgrade it by rereading the older embedded copy. The bootstrap tool prints
 both the immutable content SHA and the canonical control status ref.
+Repository handoff receipts listed by the bootstrap are read from the same
+canonical control ref when the immutable content commit contains an older
+metadata copy.
 
 ## Change discipline
 

@@ -279,7 +279,8 @@ Implement only this card. Do not read legacy decal geometry unless the card expl
 
 Переданный `Accepted base` уже разрешён из canonical control ref. Не заменяйте
 его значением из более старой self-referential копии status внутри content
-commit.
+commit. Handoff-файлы, которые bootstrap помечает как control metadata,
+читайте указанной командой `git show <control-ref>:<path>`.
 
 Для `BASE-00` замените строку `Accepted base` на:
 

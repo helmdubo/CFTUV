@@ -78,3 +78,5 @@ The canonical control ref stores `docs/architecture_status.json`; the
 immutable content SHA cannot contain a status file that points to itself.
 Bootstrap output therefore carries both the resolved content SHA and
 `codex/base-00-canonical-integration` as the control status ref.
+Accepted handoff receipts are likewise read from that control ref when the
+immutable content commit contains their older metadata copy.

@@ -73,7 +73,20 @@ def _repo_prompt(
 ) -> str:
     card_path = pack_root / task["file"]
     rel_card = card_path.relative_to(repo_root) if card_path.is_relative_to(repo_root) else card_path
-    handoff_lines = "\n".join(f"- `{path}`" for path in handoffs) or "- none (BASE-00 only, or supply accepted dependency handoffs)"
+    if handoffs and control_ref:
+        handoff_lines = "\n".join(
+            (
+                f"- `{path.as_posix()}` from `{control_ref}` "
+                f"(`git show {control_ref}:{path.as_posix()}`)"
+                if not path.is_absolute()
+                else f"- `{path}`"
+            )
+            for path in handoffs
+        )
+    else:
+        handoff_lines = "\n".join(f"- `{path}`" for path in handoffs)
+    if not handoff_lines:
+        handoff_lines = "- none (BASE-00 only, or supply accepted dependency handoffs)"
     base_note = (
         f"Reviewed baseline SHA: `{base_sha}`\n"
         "`docs/architecture_status.json` does not exist yet; creating it is part of BASE-00."
@@ -111,7 +124,7 @@ Read in this order:
 3. `{pack_root.relative_to(repo_root) if pack_root.is_relative_to(repo_root) else pack_root}/01_GLOBAL_CANON.md`
 4. `{pack_root.relative_to(repo_root) if pack_root.is_relative_to(repo_root) else pack_root}/02_AGENT_PROTOCOL.md`
 5. the exact active card
-6. accepted dependency handoffs
+6. accepted dependency handoffs from the canonical control ref shown above
 7. only code/tests in the card allowlist
 
 Implement only this card. Do not read legacy decal geometry unless the card explicitly assigns that role. Do not start downstream cards. If a new product semantic decision is required, stop with a named issue instead of inventing behavior. Leave the mandatory repository handoff and exact test evidence.
