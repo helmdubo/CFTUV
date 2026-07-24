@@ -1,0 +1,267 @@
+{
+  "schema": "cftuv.envelope.session_d_r2_atomic_point_contact_contract.v1",
+  "status": "PRODUCT_OWNER_ACCEPTED",
+  "contract_id": "ATOMIC_OWNERLESS_POINT_CONTACT_V1",
+  "pairwise_sequential_application": "FORBIDDEN",
+  "supported_effect": "ATOMIC_OWNERLESS_POINT_CONTACT_IDENTITY",
+  "unsupported_outcome": "MULTIWAY_INTERACTION_POLICY_UNPROVEN",
+  "cases": [
+    {
+      "id": "D-R2-PC-BEFORE",
+      "requested_alpha": "Rational(1, 2)",
+      "event_alpha": "Integer(1)",
+      "participants": ["component:a", "component:b", "component:c"],
+      "hyperedges": [
+        {
+          "candidate_id": "candidate:a-c",
+          "participant_component_ids": ["component:a", "component:c"],
+          "locus_dimension": 0,
+          "anchor_ids": ["anchor:p"]
+        },
+        {
+          "candidate_id": "candidate:b-c",
+          "participant_component_ids": ["component:b", "component:c"],
+          "locus_dimension": 0,
+          "anchor_ids": ["anchor:q"]
+        }
+      ],
+      "pairwise_positive_area_intersections": ["Integer(0)", "Integer(0)", "Integer(0)"],
+      "point_contact_records_complete": true,
+      "provenance_complete": true,
+      "ownership_required": false,
+      "raw_union_digest": "synthetic:point-contact-chain",
+      "expected": {
+        "outcome": "EXACT",
+        "application_count": 0,
+        "equality_anchor_count": 0,
+        "coverage_effect": "NONE_BEFORE_MUTUAL_ARRIVAL",
+        "resolved_union_digest": "synthetic:point-contact-chain"
+      }
+    },
+    {
+      "id": "D-R2-PC-AT",
+      "requested_alpha": "Integer(1)",
+      "event_alpha": "Integer(1)",
+      "participants": ["component:a", "component:b", "component:c"],
+      "hyperedges": [
+        {
+          "candidate_id": "candidate:a-c",
+          "participant_component_ids": ["component:a", "component:c"],
+          "locus_dimension": 0,
+          "anchor_ids": ["anchor:p"]
+        },
+        {
+          "candidate_id": "candidate:b-c",
+          "participant_component_ids": ["component:b", "component:c"],
+          "locus_dimension": 0,
+          "anchor_ids": ["anchor:q"]
+        }
+      ],
+      "pairwise_positive_area_intersections": ["Integer(0)", "Integer(0)", "Integer(0)"],
+      "point_contact_records_complete": true,
+      "provenance_complete": true,
+      "ownership_required": false,
+      "raw_union_digest": "synthetic:point-contact-chain",
+      "expected": {
+        "outcome": "EXACT",
+        "application_count": 2,
+        "equality_anchor_count": 2,
+        "equality_owner": "NONE",
+        "coverage_effect": "ATOMIC_OWNERLESS_POINT_CONTACT_IDENTITY",
+        "resolved_union_digest": "synthetic:point-contact-chain"
+      }
+    },
+    {
+      "id": "D-R2-PC-AFTER-STILL-POINT-ONLY",
+      "requested_alpha": "Rational(3, 2)",
+      "event_alpha": "Integer(1)",
+      "participants": ["component:a", "component:b", "component:c"],
+      "hyperedges": [
+        {
+          "candidate_id": "candidate:a-c",
+          "participant_component_ids": ["component:a", "component:c"],
+          "locus_dimension": 0,
+          "anchor_ids": ["anchor:p"]
+        },
+        {
+          "candidate_id": "candidate:b-c",
+          "participant_component_ids": ["component:b", "component:c"],
+          "locus_dimension": 0,
+          "anchor_ids": ["anchor:q"]
+        }
+      ],
+      "pairwise_positive_area_intersections": ["Integer(0)", "Integer(0)", "Integer(0)"],
+      "point_contact_records_complete": true,
+      "provenance_complete": true,
+      "ownership_required": false,
+      "raw_union_digest": "synthetic:point-contact-chain",
+      "expected": {
+        "outcome": "EXACT",
+        "application_count": 2,
+        "equality_anchor_count": 2,
+        "equality_owner": "NONE",
+        "coverage_effect": "ATOMIC_OWNERLESS_POINT_CONTACT_IDENTITY",
+        "resolved_union_digest": "synthetic:point-contact-chain"
+      }
+    },
+    {
+      "id": "D-R2-PC-AFTER-POSITIVE-AREA-OVERLAP",
+      "requested_alpha": "Rational(3, 2)",
+      "event_alpha": "Integer(1)",
+      "participants": ["component:a", "component:b", "component:c"],
+      "hyperedges": [
+        {
+          "candidate_id": "candidate:a-c",
+          "participant_component_ids": ["component:a", "component:c"],
+          "locus_dimension": 0,
+          "anchor_ids": ["anchor:p"]
+        },
+        {
+          "candidate_id": "candidate:b-c",
+          "participant_component_ids": ["component:b", "component:c"],
+          "locus_dimension": 0,
+          "anchor_ids": ["anchor:q"]
+        }
+      ],
+      "pairwise_positive_area_intersections": ["Integer(0)", "Rational(1, 16)", "Integer(0)"],
+      "point_contact_records_complete": true,
+      "provenance_complete": true,
+      "ownership_required": false,
+      "raw_union_digest": "synthetic:overlap",
+      "expected": {
+        "outcome": "MULTIWAY_INTERACTION_POLICY_UNPROVEN",
+        "application_count": 0,
+        "equality_anchor_count": 0,
+        "resolved_union_digest": null
+      }
+    },
+    {
+      "id": "D-R2-PC-SEGMENT-LOCUS",
+      "requested_alpha": "Integer(1)",
+      "event_alpha": "Integer(1)",
+      "participants": ["component:a", "component:b", "component:c"],
+      "hyperedges": [
+        {
+          "candidate_id": "candidate:a-b",
+          "participant_component_ids": ["component:a", "component:b"],
+          "locus_dimension": 1,
+          "anchor_ids": []
+        },
+        {
+          "candidate_id": "candidate:b-c",
+          "participant_component_ids": ["component:b", "component:c"],
+          "locus_dimension": 1,
+          "anchor_ids": []
+        }
+      ],
+      "pairwise_positive_area_intersections": ["Integer(0)", "Integer(0)", "Integer(0)"],
+      "point_contact_records_complete": false,
+      "provenance_complete": true,
+      "ownership_required": false,
+      "raw_union_digest": "synthetic:segment-locus",
+      "expected": {
+        "outcome": "MULTIWAY_INTERACTION_POLICY_UNPROVEN",
+        "application_count": 0,
+        "equality_anchor_count": 0,
+        "resolved_union_digest": null
+      }
+    },
+    {
+      "id": "D-R2-PC-OWNERSHIP-REQUIRED",
+      "requested_alpha": "Integer(1)",
+      "event_alpha": "Integer(1)",
+      "participants": ["component:a", "component:b", "component:c"],
+      "hyperedges": [
+        {
+          "candidate_id": "candidate:a-c",
+          "participant_component_ids": ["component:a", "component:c"],
+          "locus_dimension": 0,
+          "anchor_ids": ["anchor:p"]
+        },
+        {
+          "candidate_id": "candidate:b-c",
+          "participant_component_ids": ["component:b", "component:c"],
+          "locus_dimension": 0,
+          "anchor_ids": ["anchor:q"]
+        }
+      ],
+      "pairwise_positive_area_intersections": ["Integer(0)", "Integer(0)", "Integer(0)"],
+      "point_contact_records_complete": true,
+      "provenance_complete": true,
+      "ownership_required": true,
+      "raw_union_digest": "synthetic:ownership-required",
+      "expected": {
+        "outcome": "MULTIWAY_INTERACTION_POLICY_UNPROVEN",
+        "application_count": 0,
+        "equality_anchor_count": 0,
+        "resolved_union_digest": null
+      }
+    }
+  ],
+  "field_case": {
+    "id": "D-R2-FIELD-BUILDING-002-POINT-CONTACT",
+    "portable_fixture_hash": "efbae17746688b517ce40fa71efa85c2ff7b8ba59573ada93fb3758663a70515",
+    "requested_alpha": "Rational(1, 4)",
+    "event_alpha": "Integer(0)",
+    "same_alpha_batch_id": "same-alpha-interaction-batch:dbc396b10d21141573cf595c",
+    "participants": [
+      "interaction-component:1767e474e1d7e9dac01cddcc",
+      "interaction-component:abc72f2b7aac635f1d3e7402",
+      "interaction-component:d64c828b8741a80c81ba7005"
+    ],
+    "hyperedges": [
+      {
+        "candidate_id": "interaction-candidate:1893ac56df2911fd2eb2c115",
+        "participant_component_ids": [
+          "interaction-component:1767e474e1d7e9dac01cddcc",
+          "interaction-component:d64c828b8741a80c81ba7005"
+        ],
+        "participant_front_reading_ids": [
+          "front-reading:e530dd2ec2bb939e7e37d6f1",
+          "front-reading:f24a590ff1d00bb52444d77d"
+        ],
+        "mutual_arrival_certificate_id": "mutual-arrival-certificate:6c777871640f0690eb160087",
+        "equality_locus_id": "equality-locus:57c49976fe528f5c345f99e9",
+        "locus_dimension": 0,
+        "anchor": {
+          "x": "Rational(232403250106, 373821260323)",
+          "y": "Rational(240403797009, 373821260323)"
+        }
+      },
+      {
+        "candidate_id": "interaction-candidate:bf1c0bb62254224fd0c6dd6e",
+        "participant_component_ids": [
+          "interaction-component:abc72f2b7aac635f1d3e7402",
+          "interaction-component:d64c828b8741a80c81ba7005"
+        ],
+        "participant_front_reading_ids": [
+          "front-reading:7e5f9f35fccb41f8121b6b94",
+          "front-reading:f24a590ff1d00bb52444d77d"
+        ],
+        "mutual_arrival_certificate_id": "mutual-arrival-certificate:31b4e4ec1ddd19721dae4228",
+        "equality_locus_id": "equality-locus:6435b355642a8b1b86768da4",
+        "locus_dimension": 0,
+        "anchor": {
+          "x": "Rational(2651330823508, 373821260323)",
+          "y": "Rational(-452766086928, 373821260323)"
+        }
+      }
+    ],
+    "pairwise_positive_area_intersections": ["Integer(0)", "Integer(0)", "Integer(0)"],
+    "point_contact_count": 2,
+    "point_contact_records_complete": true,
+    "provenance_complete": true,
+    "ownership_required": false,
+    "raw_union_digest": "622e1f6eec09e64bc1294c37643af19f630086005f9af21f10ac4cd6ed0e987a",
+    "exact_area": "Rational(122766786560, 373821260323)",
+    "expected": {
+      "outcome": "EXACT",
+      "application_count": 2,
+      "equality_anchor_count": 2,
+      "equality_owner": "NONE",
+      "coverage_effect": "ATOMIC_OWNERLESS_POINT_CONTACT_IDENTITY",
+      "resolved_union_digest": "622e1f6eec09e64bc1294c37643af19f630086005f9af21f10ac4cd6ed0e987a"
+    },
+    "current_runtime_outcome_until_later_implementation": "MULTIWAY_INTERACTION_POLICY_UNPROVEN"
+  }
+}

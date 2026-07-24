@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from itertools import permutations
+import json
+from pathlib import Path
 
+import cftuv_envelope as kernel
 import sympy as sp
 
 from cftuv_envelope import (
@@ -38,6 +42,11 @@ from cftuv_envelope.interactions.equality_locus import (
     clip_equality_locus_to_active_domains,
 )
 from cftuv_envelope.interactions.policy_b import apply_policy_b
+from cftuv_envelope.interactions.policy_b import _component_intersection_area
+from cftuv_envelope.interactions.contracts import (
+    ATOMIC_OWNERLESS_POINT_CONTACT_V1,
+    InteractionCoverageEffect,
+)
 from cftuv_envelope.interactions.provenance import InteractionProvenanceV1
 from cftuv_envelope.reference.boundary import build_domain_geometry
 from cftuv_envelope.reference.common import (
@@ -585,3 +594,285 @@ def test_cross_patch_junction_projections_never_form_collision_candidate():
     assert generate_interaction_candidates(
         (projection_a, projection_b), ()
     ) == ()
+
+
+_D_R2_FIXTURE = (
+    Path(__file__).parents[1]
+    / "fixtures"
+    / "session_d_interactions_v1"
+    / "d_r2_atomic_point_contact_cases.json"
+)
+_BUILDING_002_FIXTURE = (
+    Path(__file__).parents[1]
+    / "fixtures"
+    / "building_002_point_contact_v1"
+)
+
+
+def _d_r2_anchor_count(hyperedge: dict) -> int:
+    if "anchor_ids" in hyperedge:
+        return len(hyperedge["anchor_ids"])
+    return int("anchor" in hyperedge)
+
+
+def _d_r2_hypergraph_is_connected(case: dict) -> bool:
+    participants = frozenset(case["participants"])
+    adjacency = {item: set() for item in participants}
+    for hyperedge in case["hyperedges"]:
+        edge_participants = tuple(hyperedge["participant_component_ids"])
+        if len(edge_participants) < 2:
+            return False
+        if not set(edge_participants).issubset(participants):
+            return False
+        for left in edge_participants:
+            adjacency[left].update(
+                right for right in edge_participants if right != left
+            )
+    if not participants:
+        return False
+    visited = set()
+    pending = [next(iter(participants))]
+    while pending:
+        current = pending.pop()
+        if current in visited:
+            continue
+        visited.add(current)
+        pending.extend(adjacency[current] - visited)
+    return visited == set(participants)
+
+
+def _d_r2_contract_projection(case: dict) -> dict:
+    requested_alpha = sp.sympify(case["requested_alpha"])
+    event_alpha = sp.sympify(case["event_alpha"])
+    if requested_alpha < event_alpha:
+        return {
+            "outcome": InteractionOutcome.EXACT.value,
+            "application_count": 0,
+            "equality_anchor_count": 0,
+            "coverage_effect": (
+                InteractionCoverageEffect.NONE_BEFORE_MUTUAL_ARRIVAL.value
+            ),
+            "resolved_union_digest": case["raw_union_digest"],
+        }
+
+    point_only = all(
+        hyperedge["locus_dimension"] == 0
+        and _d_r2_anchor_count(hyperedge) > 0
+        for hyperedge in case["hyperedges"]
+    )
+    interiors_disjoint = all(
+        sp.sympify(value) == 0
+        for value in case["pairwise_positive_area_intersections"]
+    )
+    admitted = (
+        len(case["participants"]) >= 3
+        and _d_r2_hypergraph_is_connected(case)
+        and point_only
+        and interiors_disjoint
+        and case["point_contact_records_complete"]
+        and case["provenance_complete"]
+        and not case["ownership_required"]
+    )
+    if not admitted:
+        return {
+            "outcome": InteractionOutcome.MULTIWAY_INTERACTION_POLICY_UNPROVEN.value,
+            "application_count": 0,
+            "equality_anchor_count": 0,
+            "resolved_union_digest": None,
+        }
+    return {
+        "outcome": InteractionOutcome.EXACT.value,
+        "application_count": len(case["hyperedges"]),
+        "equality_anchor_count": sum(
+            _d_r2_anchor_count(hyperedge)
+            for hyperedge in case["hyperedges"]
+        ),
+        "equality_owner": "NONE",
+        "coverage_effect": (
+            InteractionCoverageEffect
+            .ATOMIC_OWNERLESS_POINT_CONTACT_IDENTITY
+            .value
+        ),
+        "resolved_union_digest": case["raw_union_digest"],
+    }
+
+
+def test_d_r2_contract_fixture_before_at_after_and_unsupported_boundary():
+    payload = json.loads(_D_R2_FIXTURE.read_text(encoding="utf-8"))
+
+    assert payload["contract_id"] == ATOMIC_OWNERLESS_POINT_CONTACT_V1
+    assert payload["pairwise_sequential_application"] == "FORBIDDEN"
+    assert payload["supported_effect"] == (
+        InteractionCoverageEffect
+        .ATOMIC_OWNERLESS_POINT_CONTACT_IDENTITY
+        .value
+    )
+    assert len(payload["cases"]) == 6
+    for case in payload["cases"]:
+        assert _d_r2_contract_projection(case) == case["expected"]
+
+
+def test_d_r2_contract_is_invariant_under_all_participant_and_edge_permutations():
+    payload = json.loads(_D_R2_FIXTURE.read_text(encoding="utf-8"))
+
+    for original in (*payload["cases"], payload["field_case"]):
+        expected = _d_r2_contract_projection(original)
+        projections = set()
+        for participant_order in permutations(original["participants"]):
+            for edge_order in permutations(original["hyperedges"]):
+                permuted = {
+                    **original,
+                    "participants": list(participant_order),
+                    "hyperedges": list(edge_order),
+                }
+                projections.add(
+                    json.dumps(
+                        _d_r2_contract_projection(permuted),
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                )
+        assert projections == {
+            json.dumps(expected, sort_keys=True, separators=(",", ":"))
+        }
+
+
+def test_d_r2_field_fixture_matches_the_accepted_point_only_hypergraph():
+    payload = json.loads(_D_R2_FIXTURE.read_text(encoding="utf-8"))
+    field = payload["field_case"]
+    snapshot = kernel.AnalysisSnapshotCodecV1.loads(
+        (_BUILDING_002_FIXTURE / "analysis_snapshot.json").read_bytes()
+    )
+    request = kernel.DecalRequestCodecV1.loads(
+        (_BUILDING_002_FIXTURE / "decal_request.json").read_bytes()
+    )
+    compiled_result = kernel.compile_reference_envelopes(snapshot, request)
+    assert compiled_result.compilation is not None
+    compilation = compiled_result.compilation
+    raw_result = kernel.evaluate_reference_raw_coverage(
+        compilation, request.requested_alpha.value
+    )
+    assert raw_result.raw_coverage is not None
+    raw = raw_result.raw_coverage
+    boundary_resolved = tuple(raw.boundary_resolved_envelopes)
+    components = kernel.compile_interaction_components(
+        compilation, boundary_resolved
+    )
+    models, model_diagnostics = kernel.compile_arrival_models(
+        compilation, components, boundary_resolved
+    )
+    assert model_diagnostics == ()
+    candidates = kernel.generate_interaction_candidates(
+        components, models, compilation
+    )
+
+    pair_proofs = []
+    for candidate in candidates:
+        proofs, diagnostics = kernel.prove_mutual_arrivals(
+            (candidate,), models
+        )
+        assert diagnostics == ()
+        pair_proofs.extend(proofs)
+    assert len(pair_proofs) == 2
+    assert {
+        proof.mutual_arrival_certificate.same_alpha_batch_identity.value
+        for proof in pair_proofs
+    } == {field["same_alpha_batch_id"]}
+    assert {
+        proof.mutual_arrival_certificate.exact_alpha.expression
+        for proof in pair_proofs
+    } == {field["event_alpha"]}
+
+    observed_edges = []
+    for proof in pair_proofs:
+        assert proof.clipped_locus.segments == ()
+        assert len(proof.clipped_locus.anchors) == 1
+        anchor = proof.clipped_locus.anchors[0]
+        observed_edges.append(
+            {
+                "candidate_id": proof.candidate.candidate_id.value,
+                "participant_component_ids": sorted(
+                    (
+                        proof.candidate.left_component_id.value,
+                        proof.candidate.right_component_id.value,
+                    )
+                ),
+                "participant_front_reading_ids": sorted(
+                    (
+                        proof.mutual_arrival_certificate
+                        .left_front_reading
+                        .front_reading_id
+                        .value,
+                        proof.mutual_arrival_certificate
+                        .right_front_reading
+                        .front_reading_id
+                        .value,
+                    )
+                ),
+                "mutual_arrival_certificate_id": (
+                    proof.mutual_arrival_certificate.certificate_id.value
+                ),
+                "equality_locus_id": proof.equality_locus.locus_id.value,
+                "locus_dimension": 0,
+                "anchor": {
+                    "x": anchor.x.expression,
+                    "y": anchor.y.expression,
+                },
+            }
+        )
+    expected_edges = [
+        {
+            **item,
+            "participant_component_ids": sorted(
+                item["participant_component_ids"]
+            ),
+            "participant_front_reading_ids": sorted(
+                item["participant_front_reading_ids"]
+            ),
+        }
+        for item in field["hyperedges"]
+    ]
+    assert sorted(
+        observed_edges, key=lambda item: item["candidate_id"]
+    ) == sorted(expected_edges, key=lambda item: item["candidate_id"])
+
+    resolved_by_instance = {
+        item.envelope_instance.envelope_instance_id: item
+        for item in boundary_resolved
+    }
+    reachability = {
+        instance_id: item.reachability
+        for instance_id, item in resolved_by_instance.items()
+    }
+    regions_by_component = {
+        component.interaction_component_id: tuple(
+            region
+            for instance_id in component.envelope_instance_ids
+            for region in resolved_by_instance[
+                instance_id.value
+            ].envelope_instance.regions
+        )
+        for component in components
+    }
+    intersection_areas = []
+    for index, left in enumerate(components):
+        for right in components[index + 1:]:
+            intersection_areas.append(
+                _component_intersection_area(
+                    regions_by_component[left.interaction_component_id],
+                    regions_by_component[right.interaction_component_id],
+                    reachability,
+                )
+            )
+    assert intersection_areas == [0, 0, 0]
+    assert raw.semantic_digest == field["raw_union_digest"]
+    assert raw.exact_area_expression == field["exact_area"]
+    assert len(raw.point_contacts) == field["point_contact_count"]
+    assert _d_r2_contract_projection(field) == field["expected"]
+
+    current = kernel.resolve_coverage_interactions(
+        compilation, boundary_resolved, raw
+    )
+    assert current.outcome is (
+        InteractionOutcome.MULTIWAY_INTERACTION_POLICY_UNPROVEN
+    )

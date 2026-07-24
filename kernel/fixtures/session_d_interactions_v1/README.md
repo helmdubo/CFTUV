@@ -17,6 +17,14 @@ The cases intentionally include exact rational events, holes, endpoint-only
 Cap contact, explicit self-contact, independent same-alpha contacts, and named
 fail-closed outcomes for unsupported multiway or coincident arrivals.
 
+`d_r2_atomic_point_contact_cases.json` is the accepted additive D-R2 contract
+corpus. It admits only atomic ownerless point-contact identity batches:
+zero-dimensional exact loci, complete `PointContactRecordV1` evidence,
+pairwise-disjoint positive-area interiors, and no ownership dependency.
+Positive-length loci, positive-area overlap, or ownership requirements remain
+`MULTIWAY_INTERACTION_POLICY_UNPROVEN`. The original 23 Session D cases remain
+unchanged.
+
 The corpus does not define ownership, station/UV flow, tessellation,
 `GeometryBatch`, event scheduling, Blender/native execution, Voronoi, SDF,
 rasterization, tolerance predicates, or arrival reconstruction from emitted

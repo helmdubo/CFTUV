@@ -5,6 +5,10 @@
   "policy": "INTRAPATCH_POLICY_B_V1",
   "case_file": "cases.json",
   "case_count": 23,
+  "d_r2_contract_file": "d_r2_atomic_point_contact_cases.json",
+  "d_r2_contract_case_count": 6,
+  "d_r2_contract_id": "ATOMIC_OWNERLESS_POINT_CONTACT_V1",
+  "d_r2_status": "PRODUCT_OWNER_ACCEPTED",
   "accepted_session_c_r1_sha": "6c61ab311613cb7cf96e5c5098e857e78a98f0b8",
   "accepted_prior_corpora_modified": false
 }

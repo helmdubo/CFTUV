@@ -1,8 +1,9 @@
 {
   "files": {
-    "README.md": "697ba84346b3a19d86ac53d1c486febc8287c8fdd3232c10922da5b00593d70c",
+    "README.md": "0f7307ed40e4814e20fb638bc00a480d8fff3ca0fbc868da7333f686583c2830",
     "cases.json": "2b54fc9061612b2c1fff85b1fda0a542f7442e1aa2991b4fde68c3af042b015c",
-    "manifest.json": "f53119f792b15fc363f5f7cf74c6339e5aed2f68e0933afc1b2b97155924ddd9"
+    "d_r2_atomic_point_contact_cases.json": "89d27d8d308eecfed74df54c5d29ad2e3e1f38cd5ced80671de6ff05c6eaea44",
+    "manifest.json": "4a266795a57d4f851fcac7827c7b34154922af55e7dd02d5c31ef163a0207596"
   },
   "hash_law": "SHA256_UTF8_LF_NORMALIZED_V1",
   "schema": "cftuv.envelope.session_d.interaction_fixture_hash_manifest.v1",
