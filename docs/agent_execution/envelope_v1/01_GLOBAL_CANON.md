@@ -1,6 +1,6 @@
 # CFTUV Envelope Decal Engine — global canon for external agents
 
-Version: `1.0`  
+Version: `1.1.1`\
 Prepared: `2026-07-24`  
 Repository: `helmdubo/CFTUV`  
 Reviewed immutable baseline: `df587ed166cfb0e0b615148f08c583b4477c5ac4`  
@@ -46,16 +46,26 @@ The old `cftuv/decal_voronoi.py` and legacy geometry in `cftuv/decals.py` are no
 
 The semantic architecture is strong; the computational architecture is still reference-grade.
 
-Current exact arrangement:
+The selected code baseline `c2622d0...` already contains the consolidated
+occurrence-aware C-R2C gate:
 
-- merges all equal coordinates into one `RawCoverageVertexV1`;
-- requires one outgoing boundary edge per merged vertex;
-- uses boundary vertices as containment probes;
-- clips each Envelope separately and then unions all clipped results again;
-- converts public arrangement DTOs back into internal `PlanarRegion` values;
-- compiles `requested_alpha` and `effective_alpha` into `FrontComponentV1`.
+- one exact geometric `RawCoverageVertexV1` may have multiple
+  `BoundaryVertexOccurrenceV1` records;
+- `PointContactRecordV1` preserves lower-dimensional contact without joining
+  positive-area components;
+- exact circular ordering and a covered-left successor map replace
+  one-outgoing-edge traversal;
+- containment uses exact witnesses/winding rather than boundary-vertex probes;
+- `building.002`, selected edges 2/3/7, reaches RawCoverage V2 without
+  `REFERENCE_ARRANGEMENT_NON_MANIFOLD`.
 
-The immediate correctness blocker is the false non-manifold failure at point contacts. The largest structural performance debt is repeated arrangement construction.
+The active correctness carryover is
+`MULTIWAY_INTERACTION_POLICY_UNPROVEN` in the interaction stage. The largest
+structural performance debt remains repeated arrangement construction:
+Envelopes are clipped separately, public arrangement DTOs are converted back
+to internal `PlanarRegion` values, and a final union is rebuilt. Static
+identity is also still mixed with alpha-specific state in
+`FrontComponentV1`.
 
 ## 4. Reflex profile canon
 
@@ -92,7 +102,11 @@ The project must first obtain a correct end-to-end reference `GeometryBatch`. A 
 
 ## 6. Baseline warning
 
-The reviewed commit remains addressable, but the original branch ref was not returned by GitHub during plan preparation. The reviewed history is also diverged from `main`. Never tell an agent only “start from the old branch”. The first gate creates a canonical integration ref and records its immutable SHA.
+The historical reviewed commit remains addressable, but later work must resolve
+the candidate/accepted integration SHA and active cards from
+`docs/architecture_status.json`. The canonical ref is
+`codex/base-00-canonical-integration`. Never onboard from the old reviewed
+branch name or from default `main` alone.
 
 ## 7. Common forbidden paths for kernel agents
 

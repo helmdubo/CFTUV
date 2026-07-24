@@ -1,18 +1,16 @@
 {
   "schema": "cftuv.ai_agent_execution_plan.v1",
-  "version": "1.1",
+  "version": "1.1.1",
   "prepared_at": "2026-07-24",
   "repository": "helmdubo/CFTUV",
   "reviewed_baseline_sha": "df587ed166cfb0e0b615148f08c583b4477c5ac4",
   "mr1_implementation_sha": "e38d1406b591d1189bf98bb850c8cab5d233f1c8",
+  "selected_code_baseline_sha": "c2622d07020338e5231b81f41655fe6c74cdca72",
   "active_queue": [
     "BASE-00",
     "DOC-00",
     "FIX-00",
-    "C-R2C-01",
-    "C-R2C-02",
-    "C-R2C-03",
-    "C-R2C-04"
+    "D-R2-00"
   ],
   "rules": {
     "one_card_one_branch": true,
@@ -26,7 +24,7 @@
       "id": "BASE-00",
       "title": "Canonical integration baseline and branch recovery",
       "phase": "Baseline",
-      "status": "READY",
+      "status": "READY_FOR_REVIEW",
       "dependencies": [],
       "role": "Release integrator",
       "parallel_group": "none",
@@ -84,8 +82,8 @@
       "file": "cards/FIX-00_Portable_building_002_reproduction_and_fixture_extraction.md",
       "objective": "Create a portable serialized `AnalysisSnapshotV1 + DecalRequestV1` reproducer and a minimal Blender-side fixture or scene generator for the selected edges 2, 3 and 7.",
       "acceptance_summary": [
-        "Before C-R2C, the portable kernel fixture returns `REFERENCE_ARRANGEMENT_NON_MANIFOLD` at the same point-contact topology.",
-        "After C-R2C, the same immutable fixture reaches RawCoverage.",
+        "At historical baseline `df587ed...`, the portable kernel fixture returns `REFERENCE_ARRANGEMENT_NON_MANIFOLD` at the same point-contact topology.",
+        "At selected baseline `c2622d0...`, the same immutable fixture reaches RawCoverage V2.",
         "Fixture hash and source mesh fingerprint are stable."
       ],
       "deliverables": [
@@ -98,7 +96,13 @@
       "id": "C-R2C-01",
       "title": "Occurrence-aware arrangement contracts",
       "phase": "C-R2C",
-      "status": "BLOCKED",
+      "status": "SUPERSEDED_BY_ACCEPTED_C_R2C_GATE",
+      "satisfied_by": {
+        "implementation_sha": "43e69d3889d273ed19daee9239ae0e311a1b213d",
+        "handoff_sha": "979870f17d7890d96f008609966bdeb24d8b0b58",
+        "selected_code_baseline_sha": "c2622d07020338e5231b81f41655fe6c74cdca72",
+        "handoff_path": "docs/session_c_r2c_regularized_boundary_rotation_handoff.md"
+      },
       "dependencies": [
         "BASE-00",
         "FIX-00"
@@ -124,7 +128,13 @@
       "id": "C-R2C-02",
       "title": "Exact boundary rotation system and successor map",
       "phase": "C-R2C",
-      "status": "BLOCKED",
+      "status": "SUPERSEDED_BY_ACCEPTED_C_R2C_GATE",
+      "satisfied_by": {
+        "implementation_sha": "43e69d3889d273ed19daee9239ae0e311a1b213d",
+        "handoff_sha": "979870f17d7890d96f008609966bdeb24d8b0b58",
+        "selected_code_baseline_sha": "c2622d07020338e5231b81f41655fe6c74cdca72",
+        "handoff_path": "docs/session_c_r2c_regularized_boundary_rotation_handoff.md"
+      },
       "dependencies": [
         "C-R2C-01"
       ],
@@ -149,7 +159,13 @@
       "id": "C-R2C-03",
       "title": "Face extraction, loops and containment without vertex probes",
       "phase": "C-R2C",
-      "status": "BLOCKED",
+      "status": "SUPERSEDED_BY_ACCEPTED_C_R2C_GATE",
+      "satisfied_by": {
+        "implementation_sha": "43e69d3889d273ed19daee9239ae0e311a1b213d",
+        "handoff_sha": "979870f17d7890d96f008609966bdeb24d8b0b58",
+        "selected_code_baseline_sha": "c2622d07020338e5231b81f41655fe6c74cdca72",
+        "handoff_path": "docs/session_c_r2c_regularized_boundary_rotation_handoff.md"
+      },
       "dependencies": [
         "C-R2C-02"
       ],
@@ -175,7 +191,14 @@
       "id": "C-R2C-04",
       "title": "Occurrence propagation, field gate and independent verification",
       "phase": "C-R2C",
-      "status": "BLOCKED",
+      "status": "SUPERSEDED_BY_ACCEPTED_C_R2C_GATE",
+      "satisfied_by": {
+        "implementation_sha": "43e69d3889d273ed19daee9239ae0e311a1b213d",
+        "handoff_sha": "979870f17d7890d96f008609966bdeb24d8b0b58",
+        "selected_code_baseline_sha": "c2622d07020338e5231b81f41655fe6c74cdca72",
+        "ci_run_id": 30095478731,
+        "handoff_path": "docs/session_c_r2c_regularized_boundary_rotation_handoff.md"
+      },
       "dependencies": [
         "C-R2C-03"
       ],
@@ -202,15 +225,16 @@
       "id": "D-R2-00",
       "title": "Conditional atomic multiway interaction contract gate",
       "phase": "Session D",
-      "status": "CONDITIONAL",
+      "status": "READY_AFTER_DOC_AND_FIX",
       "dependencies": [
-        "C-R2C-04"
+        "DOC-00",
+        "FIX-00"
       ],
       "role": "Interaction contract author",
       "parallel_group": "none",
       "size": "M",
       "file": "cards/D-R2-00_Conditional_atomic_multiway_interaction_contract_gate.md",
-      "objective": "If and only if the C-R2C field gate exposes a multiway failure, define the atomic same-alpha contract or preserve a named unsupported outcome.",
+      "objective": "The accepted C-R2C field gate exposes a multiway failure; define the atomic same-alpha contract or formally preserve the named unsupported outcome.",
       "acceptance_summary": [
         "All participant permutations produce the same result or the same named unsupported outcome.",
         "No new matter or gap is introduced.",
@@ -226,7 +250,7 @@
       "phase": "C-R2D",
       "status": "BLOCKED",
       "dependencies": [
-        "C-R2C-04"
+        "D-R2-00"
       ],
       "role": "Kernel data-model author",
       "parallel_group": "none",
@@ -302,7 +326,7 @@
       "status": "BLOCKED",
       "dependencies": [
         "C-R2D-03",
-        "D-R2-00 if activated"
+        "D-R2-00"
       ],
       "role": "Interaction geometry implementer",
       "parallel_group": "none",

@@ -1,6 +1,6 @@
 # CFTUV Envelope Decal Engine — final execution plan
 
-Version: `1.1`  
+Version: `1.1.1`\
 Date: `2026-07-24`  
 Reviewed baseline: `df587ed166cfb0e0b615148f08c583b4477c5ac4`
 
@@ -29,7 +29,7 @@ Deliver a decal engine that:
 | Gate | Result required |
 |---|---|
 | B0 | Canonical integration SHA, reproducible CI, current authority docs |
-| C-R2C | Point contacts and branch coordinates represented without false non-manifold failure |
+| C-R2C | **Accepted in baseline `c2622d0...`**: point contacts and branch coordinates represented without false non-manifold failure |
 | C-R2D | One labeled RawCoverage overlay and cell-complex DTO projection |
 | D-R3 | ResolvedCoverage represented as a derived cell complex without polygon round-trip |
 | C-R2E | StaticPatchProgram and EvaluationState(alpha) separated; alpha cache works |
@@ -48,9 +48,9 @@ BASE-00
  ├─ DOC-00
  └─ FIX-00
        ↓
-C-R2C-01 → C-R2C-02 → C-R2C-03 → C-R2C-04
-       ↓
-[conditional D-R2-00]
+C-R2C consolidated gate [accepted in c2622d0]
+       ↓ observed field carryover
+D-R2-00
        ↓
 C-R2D-01 → C-R2D-02 → C-R2D-03 → D-R3-01
        ↓
@@ -71,18 +71,21 @@ S0-01 → S1-01
 
 ## Immediate queue
 
-Only these cards should be started now:
+Only these cards are in the current acceptance sequence:
 
-1. `BASE-00` — canonical integration baseline.
-2. `DOC-00` — authority/onboarding correction, parallel after baseline.
-3. `FIX-00` — portable `building.002` reproduction, parallel after baseline.
-4. `C-R2C-01` through `C-R2C-04` — occurrence-aware exact topology.
+1. `BASE-00` — complete its human review.
+2. `DOC-00` — authority/onboarding correction, parallel after accepted baseline.
+3. `FIX-00` — portable `building.002` reproduction, parallel after accepted baseline.
+4. `D-R2-00` — after both baseline cards are accepted, resolve or formally
+   preserve the observed atomic multiway interaction outcome.
 
-Do not start ownership, runtime, native or curved implementation in parallel with C-R2C.
+`C-R2C-01` through `C-R2C-04` are superseded by the consolidated accepted gate
+at `c2622d0...`; do not execute them. Do not start ownership, runtime, native or
+curved implementation in parallel with the active baseline/interaction gate.
 
 ## Architectural staging
 
-### Stage 1 — Correct topological identity
+### Stage 1 — Correct topological identity (accepted in baseline)
 
 Replace:
 
@@ -101,6 +104,12 @@ ArrangementPoint
 → exact rotation system
 → face-sector successor
 ```
+
+The selected baseline implements this stage through `RawCoverageResultV2`,
+`RawCoverageVertexV1`, `BoundaryVertexOccurrenceV1`,
+`PointContactRecordV1`, exact covered-left successor construction, and
+occurrence-aware debug projection. Differences in internal naming from the
+historical four-card decomposition do not reopen the gate.
 
 ### Stage 2 — Correct computational data flow
 

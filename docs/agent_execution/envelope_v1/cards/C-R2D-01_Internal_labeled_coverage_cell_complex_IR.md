@@ -2,7 +2,7 @@
 
 Status: **BLOCKED**  
 Phase: `C-R2D`  
-Dependencies: `C-R2C-04`  
+Dependencies: `D-R2-00`\
 Primary role: `Kernel data-model author`  
 Parallel group: `none`  
 Relative size: `L`

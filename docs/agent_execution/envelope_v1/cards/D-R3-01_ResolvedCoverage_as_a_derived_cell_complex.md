@@ -2,7 +2,7 @@
 
 Status: **BLOCKED**  
 Phase: `Session D hardening`  
-Dependencies: `C-R2D-03, D-R2-00 if activated`  
+Dependencies: `C-R2D-03, D-R2-00`\
 Primary role: `Interaction geometry implementer`  
 Parallel group: `none`  
 Relative size: `XL`

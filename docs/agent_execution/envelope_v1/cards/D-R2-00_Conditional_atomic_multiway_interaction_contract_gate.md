@@ -1,8 +1,8 @@
 # D-R2-00 — Conditional atomic multiway interaction contract gate
 
-Status: **CONDITIONAL**  
+Status: **READY_AFTER_DOC_AND_FIX**\
 Phase: `Session D`  
-Dependencies: `C-R2C-04`  
+Dependencies: `DOC-00, FIX-00`\
 Primary role: `Interaction contract author`  
 Parallel group: `none`  
 Relative size: `M`
@@ -19,17 +19,25 @@ If a new product semantic decision is required, stop with a named issue instead 
 
 ## Context
 
-After point-contact topology is fixed, three or more InteractionComponents may meet at one exact alpha/point/locus. Pairwise sequential resolution would be order-dependent.
+The selected baseline already fixes point-contact topology. Its accepted
+`building.002` field receipt reaches RawCoverage and then returns
+`MULTIWAY_INTERACTION_POLICY_UNPROVEN`. Three or more InteractionComponents may
+meet at one exact alpha/point/locus; pairwise sequential resolution would be
+order-dependent.
 
 ## Objective
 
-If and only if the C-R2C field gate exposes a multiway failure, define the atomic same-alpha contract or preserve a named unsupported outcome.
+Define the atomic same-alpha contract for the reproduced field case, or
+formally preserve the named unsupported outcome. The activation condition is
+already met by the accepted C-R2C field receipt.
 
 ## Required reading
 
 - AGENTS.md at the accepted integration SHA
 - 01_GLOBAL_CANON.md from this execution pack
+- BASELINE_RECONCILIATION.md from this execution pack
 - accepted handoff from every dependency card
+- docs/session_c_r2c_regularized_boundary_rotation_handoff.md
 - kernel/src/cftuv_envelope/interactions/**
 - docs/envelope_ec2_5_interaction_resolver.md
 - C-R2C field receipt
@@ -49,7 +57,8 @@ If and only if the C-R2C field gate exposes a multiway failure, define the atomi
 - Do not broaden product semantics beyond this card.
 - Do not implement A-vs-B then winner-vs-C.
 - Do not change Envelope geometry or ownership.
-- Do not activate this card without a reproducible multiway fixture.
+- Do not start implementation until `FIX-00` provides the portable multiway
+  fixture and `DOC-00` is accepted.
 
 ## Required design
 

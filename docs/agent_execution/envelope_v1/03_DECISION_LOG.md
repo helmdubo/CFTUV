@@ -3,7 +3,8 @@
 ## Accepted without change
 
 - Preserve the Envelope semantic model.
-- C-R2C occurrence-aware topology is the immediate blocker.
+- C-R2C occurrence-aware topology was the immediate blocker at plan-drafting
+  time.
 - Repeated RawCoverage arrangements are a major structural cost.
 - Compile-static data and alpha state must be separated.
 - Ownership must be dimension-aware.
@@ -35,3 +36,20 @@ The data model must be fixed before ownership. Full production optimization does
 4. Performance telemetry and benchmark cases are installed early, even though native optimization is deferred.
 5. “One arrangement” is defined as a persistent/derived cell-complex pipeline, not one monolithic stage mixing coverage, interactions, ownership and tessellation.
 6. A curved-evaluator contract audit occurs before curved implementation so planar contracts do not become an accidental dead end.
+
+## BASE-00 baseline reconciliation
+
+BASE-00 selected `c2622d07020338e5231b81f41655fe6c74cdca72`,
+which already contains the consolidated occurrence-aware C-R2C implementation,
+field verification, and host reflex-corner export. Therefore:
+
+- `C-R2C-01` through `C-R2C-04` are superseded planning decompositions, not
+  runnable cards;
+- the point-contact false non-manifold failure is no longer the active
+  correctness blocker;
+- the accepted field result reaches RawCoverage and then exposes
+  `MULTIWAY_INTERACTION_POLICY_UNPROVEN`;
+- after `DOC-00` and `FIX-00`, the next contract gate is `D-R2-00`;
+- any new C-R2C delta requires a new amendment/card and may not be inferred
+  merely because the consolidated implementation used different internal type
+  names than the historical decomposition.

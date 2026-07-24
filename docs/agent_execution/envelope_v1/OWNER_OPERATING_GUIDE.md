@@ -128,14 +128,13 @@ PR or worktree, if already created
 ```bash
 python docs/agent_execution/envelope_v1/tools/build_agent_packet.py \
   --repo-root . \
-  --card C-R2C-01 \
+  --card DOC-00 \
   --mode offline \
   --handoff artifacts/envelope_baseline/session_base_00_handoff.md \
-  --handoff artifacts/envelope_fixture/session_fix_00_handoff.md \
-  --output /tmp/C-R2C-01_AGENT_PACKET.md
+  --output /tmp/DOC-00_AGENT_PACKET.md
 ```
 
-В новый чат прикладывается **один** файл `C-R2C-01_AGENT_PACKET.md`, а не весь execution pack.
+В новый чат прикладывается **один** файл `DOC-00_AGENT_PACKET.md`, а не весь execution pack.
 
 ---
 
@@ -162,7 +161,7 @@ PY
 ### Шаг 3 — одна карточка, одна ветка
 
 ```bash
-git switch --create agent/c-r2c-01-occurrence-contracts "$BASE_SHA"
+git switch --create agent/doc-00-authority "$BASE_SHA"
 ```
 
 Не объединяйте несколько карточек в одну ветку или PR.
@@ -186,10 +185,9 @@ contract author
 ```bash
 python docs/agent_execution/envelope_v1/tools/build_agent_packet.py \
   --repo-root . \
-  --card C-R2C-01 \
+  --card DOC-00 \
   --mode repo \
-  --handoff artifacts/envelope_baseline/session_base_00_handoff.md \
-  --handoff artifacts/envelope_fixture/session_fix_00_handoff.md
+  --handoff artifacts/envelope_baseline/session_base_00_handoff.md
 ```
 
 Скопируйте полученный короткий prompt в новую сессию.
@@ -306,13 +304,19 @@ artifacts/envelope_<slice>/...
 1. BASE-00
 2. DOC-00 и FIX-00 — отдельные ветки/сессии после BASE-00
 3. принять оба handoff
-4. C-R2C-01 — contract session
-5. C-R2C-02 — implementation session
-6. C-R2C-03 — implementation session
-7. C-R2C-04 — independent verification + field gate
+4. D-R2-00 — atomic multiway interaction contract gate
+5. после принятого D-R2-00 открыть C-R2D-01
 ```
 
-Хотя `C-R2C-01` формально зависит от BASE-00 и FIX-00, на практике рекомендуется также принять `DOC-00` до первого крупного kernel implementation session, чтобы onboarding authority уже не противоречила legacy README/AGENTS sections.
+`C-R2C-01`…`C-R2C-04` не запускаются: выбранный baseline
+`c2622d0...` уже содержит консолидированный принятый C-R2C gate. Карточки
+сохранены как superseded historical planning records. Любой новый delta для
+этого слоя требует отдельной amendment-карточки.
+
+`D-R2-00` запускается только после принятия `DOC-00` и `FIX-00`, потому что
+accepted field receipt уже воспроизводит
+`MULTIWAY_INTERACTION_POLICY_UNPROVEN`, а portable fixture и непротиворечивый
+onboarding должны быть готовы до нового semantic contract.
 
 ---
 

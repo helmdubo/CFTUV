@@ -19,7 +19,11 @@ If a new product semantic decision is required, stop with a named issue instead 
 
 ## Context
 
-The active field blocker was captured from a developer-local Blender scene. Kernel agents need a hermetic reproduction that does not depend on `E:\testscene.blend`.
+The historical point-contact blocker was captured from a developer-local
+Blender scene. The selected baseline `c2622d0...` already reaches RawCoverage;
+kernel agents still need a hermetic reproduction that does not depend on
+`E:\testscene.blend` and can be replayed against both immutable historical
+states.
 
 ## Objective
 
@@ -53,7 +57,9 @@ Create a portable serialized `AnalysisSnapshotV1 + DecalRequestV1` reproducer an
 
 ## Required design
 
-- The kernel fixture must reproduce the exact pre-fix outcome and preserve stable source IDs.
+- The kernel fixture must reproduce the exact pre-fix outcome at
+  `df587ed...`, the accepted post-fix outcome at `c2622d0...`, and preserve
+  stable source IDs.
 - The Blender fixture/generator is evidence for host extraction, not semantic authority.
 - Store source mesh fingerprints and selected ChainUse/PhysicalChain IDs.
 
@@ -67,8 +73,10 @@ Create a portable serialized `AnalysisSnapshotV1 + DecalRequestV1` reproducer an
 
 ## Acceptance criteria
 
-- Before C-R2C, the portable kernel fixture returns `REFERENCE_ARRANGEMENT_NON_MANIFOLD` at the same point-contact topology.
-- After C-R2C, the same immutable fixture reaches RawCoverage.
+- At historical baseline `df587ed...`, the portable kernel fixture returns
+  `REFERENCE_ARRANGEMENT_NON_MANIFOLD` at the same point-contact topology.
+- At selected baseline `c2622d0...`, the same immutable fixture reaches
+  RawCoverage V2 with the accepted occurrence/contact facts.
 - Fixture hash and source mesh fingerprint are stable.
 
 ## Required tests and evidence

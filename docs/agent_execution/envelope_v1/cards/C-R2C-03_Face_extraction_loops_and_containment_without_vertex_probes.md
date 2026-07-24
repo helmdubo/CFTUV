@@ -1,25 +1,32 @@
 # C-R2C-03 — Face extraction, loops and containment without vertex probes
 
-Status: **BLOCKED**  
+Status: **SUPERSEDED_BY_ACCEPTED_C_R2C_GATE — DO NOT EXECUTE**\
 Phase: `C-R2C`  
 Dependencies: `C-R2C-02`  
 Primary role: `Kernel geometry implementer`  
 Parallel group: `none`  
 Relative size: `L`
 
-## Copy-paste start prompt
+Satisfied by the consolidated C-R2C implementation at
+`43e69d3889d273ed19daee9239ae0e311a1b213d`, handoff
+`979870f17d7890d96f008609966bdeb24d8b0b58`, and selected baseline
+`c2622d07020338e5231b81f41655fe6c74cdca72`.
+
+This decomposition is retained as historical planning evidence. It is not an
+active task. Any new face-extraction delta requires a new card.
+
+## Non-execution notice
 
 ```text
-You are the implementation agent for `C-R2C-03` in `helmdubo/CFTUV`.
-Start only from the accepted integration SHA recorded in `docs/architecture_status.json`.
-Read the card and its allowlist. Do not read legacy decal geometry unless this card explicitly assigns that role.
-Implement only this slice, preserve all global invariants, run the listed gates, and leave the required handoff artifacts.
-If a new product semantic decision is required, stop with a named issue instead of inventing behavior.
+Do not execute C-R2C-03. Read the accepted consolidated C-R2C handoff:
+docs/session_c_r2c_regularized_boundary_rotation_handoff.md
 ```
 
 ## Context
 
-After successor construction, the arrangement must extract loops and area components without using a boundary vertex as an inside probe.
+The selected baseline already extracts closed face walks from exact successors
+and uses exact witnesses/winding rather than boundary vertices as containment
+probes.
 
 ## Objective
 

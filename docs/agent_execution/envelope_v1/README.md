@@ -1,4 +1,4 @@
-# CFTUV AI Agent Execution Pack v1.1
+# CFTUV AI Agent Execution Pack v1.1.1
 
 This directory is a **repository-resident execution control plane** for external AI agents.
 
@@ -26,7 +26,7 @@ For a repo-connected agent, generate the short bootstrap prompt:
 ```bash
 python docs/agent_execution/envelope_v1/tools/build_agent_packet.py \
   --repo-root . \
-  --card C-R2C-01 \
+  --card DOC-00 \
   --mode repo \
   --handoff <accepted-handoff-path>
 ```
@@ -36,10 +36,10 @@ For a chat without repository access, generate one minimal attachment:
 ```bash
 python docs/agent_execution/envelope_v1/tools/build_agent_packet.py \
   --repo-root . \
-  --card C-R2C-01 \
+  --card DOC-00 \
   --mode offline \
   --handoff <accepted-handoff-path> \
-  --output /tmp/C-R2C-01_AGENT_PACKET.md
+  --output /tmp/DOC-00_AGENT_PACKET.md
 ```
 
 ## Agent reading order
@@ -60,21 +60,24 @@ python docs/agent_execution/envelope_v1/tools/build_agent_packet.py \
 3. `01_GLOBAL_CANON.md`
 4. `02_AGENT_PROTOCOL.md`
 5. `03_DECISION_LOG.md`
-6. `task_manifest.json`
-7. `SESSION_BOOTSTRAP_TEMPLATE.md`
+6. `BASELINE_RECONCILIATION.md`
+7. `task_manifest.json`
+8. `SESSION_BOOTSTRAP_TEMPLATE.md`
 
 ## Immediate cards
 
 ```text
 BASE-00
 DOC-00 and FIX-00 after BASE-00
-C-R2C-01
-C-R2C-02
-C-R2C-03
-C-R2C-04
+D-R2-00 after DOC-00 and FIX-00
 ```
 
-Later cards are deliberately blocked. Do not parallelize ownership, runtime or curved implementation with the active topology slice.
+The consolidated occurrence-aware C-R2C gate is already present in the
+selected code baseline `c2622d0...`. Its four decomposition cards are retained
+as superseded historical planning records and must not be executed.
+
+Later cards are deliberately blocked. Do not parallelize ownership, runtime or
+curved implementation with the active baseline/interaction-contract sequence.
 
 Reviewed baseline: `df587ed166cfb0e0b615148f08c583b4477c5ac4`  
 M-R1 implementation/CI SHA: `e38d1406b591d1189bf98bb850c8cab5d233f1c8`

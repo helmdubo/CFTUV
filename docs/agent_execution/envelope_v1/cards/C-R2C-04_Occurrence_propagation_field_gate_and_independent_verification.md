@@ -1,25 +1,33 @@
 # C-R2C-04 — Occurrence propagation, field gate and independent verification
 
-Status: **BLOCKED**  
+Status: **SUPERSEDED_BY_ACCEPTED_C_R2C_GATE — DO NOT EXECUTE**\
 Phase: `C-R2C`  
 Dependencies: `C-R2C-03`  
 Primary role: `Independent verifier plus host adapter author`  
 Parallel group: `none`  
 Relative size: `M`
 
-## Copy-paste start prompt
+Satisfied by the consolidated C-R2C implementation at
+`43e69d3889d273ed19daee9239ae0e311a1b213d`, handoff
+`979870f17d7890d96f008609966bdeb24d8b0b58`, host reflex export at
+`c2622d07020338e5231b81f41655fe6c74cdca72`, and CI run
+`30095478731`.
+
+This decomposition is retained as historical planning evidence. It is not an
+active task. Any new host/field delta requires a new card.
+
+## Non-execution notice
 
 ```text
-You are the implementation agent for `C-R2C-04` in `helmdubo/CFTUV`.
-Start only from the accepted integration SHA recorded in `docs/architecture_status.json`.
-Read the card and its allowlist. Do not read legacy decal geometry unless this card explicitly assigns that role.
-Implement only this slice, preserve all global invariants, run the listed gates, and leave the required handoff artifacts.
-If a new product semantic decision is required, stop with a named issue instead of inventing behavior.
+Do not execute C-R2C-04. Read the accepted consolidated C-R2C handoff:
+docs/session_c_r2c_regularized_boundary_rotation_handoff.md
 ```
 
 ## Context
 
-Kernel topology is not complete until occurrence identities survive debug projection and the portable/field fixture passes.
+The selected baseline propagates occurrence/contact records to debug projection
+and passes the accepted `building.002` field gate through RawCoverage. The
+portable fixture remains a separate `FIX-00` deliverable.
 
 ## Objective
 

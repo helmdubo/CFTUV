@@ -1,25 +1,35 @@
 # C-R2C-01 — Occurrence-aware arrangement contracts
 
-Status: **BLOCKED**  
+Status: **SUPERSEDED_BY_ACCEPTED_C_R2C_GATE — DO NOT EXECUTE**\
 Phase: `C-R2C`  
 Dependencies: `BASE-00, FIX-00`  
 Primary role: `Kernel contract author`  
 Parallel group: `none`  
 Relative size: `M`
 
-## Copy-paste start prompt
+Satisfied by the consolidated C-R2C implementation at
+`43e69d3889d273ed19daee9239ae0e311a1b213d`, handoff
+`979870f17d7890d96f008609966bdeb24d8b0b58`, and selected baseline
+`c2622d07020338e5231b81f41655fe6c74cdca72`.
+
+This decomposition is retained as historical planning evidence. It is not an
+active task, and differences in type names do not authorize a new
+implementation branch. Any remaining contract delta requires a new card and
+explicit acceptance scope.
+
+## Non-execution notice
 
 ```text
-You are the implementation agent for `C-R2C-01` in `helmdubo/CFTUV`.
-Start only from the accepted integration SHA recorded in `docs/architecture_status.json`.
-Read the card and its allowlist. Do not read legacy decal geometry unless this card explicitly assigns that role.
-Implement only this slice, preserve all global invariants, run the listed gates, and leave the required handoff artifacts.
-If a new product semantic decision is required, stop with a named issue instead of inventing behavior.
+Do not execute C-R2C-01. Read the accepted consolidated C-R2C handoff:
+docs/session_c_r2c_regularized_boundary_rotation_handoff.md
 ```
 
 ## Context
 
-The arrangement currently stores one vertex per exact coordinate. At point contacts this loses the distinction between geometric point and boundary occurrence.
+At plan-drafting time, the arrangement stored one vertex per exact coordinate
+and lost boundary occurrences at point contacts. The selected baseline now
+separates `RawCoverageVertexV1`, `BoundaryVertexOccurrenceV1`, and
+`PointContactRecordV1`.
 
 ## Objective
 

@@ -1,11 +1,17 @@
 # BASE-00 — Canonical integration baseline and branch recovery
 
-Status: **READY**  
+Status: **READY_FOR_REVIEW**\
 Phase: `Baseline`  
 Dependencies: `None`  
 Primary role: `Release integrator`  
 Parallel group: `none`  
 Relative size: `S`
+
+Control-plane reconciliation: the selected baseline is
+`c2622d07020338e5231b81f41655fe6c74cdca72`, which already contains the
+consolidated accepted C-R2C gate. Execution-pack v1.1.1 therefore supersedes
+the historical `C-R2C-01`…`C-R2C-04` decomposition and opens `D-R2-00` only
+after `DOC-00` and `FIX-00`.
 
 ## Copy-paste start prompt
 
