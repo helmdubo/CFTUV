@@ -59,8 +59,13 @@ V0 accepts only `PLANAR_EXACT` domains:
 - every source vertex is exactly coplanar;
 - every projected coordinate has an exact round-trip through the public
   float-valued frame contract;
-- Angular relations have exact owner-side support directions and a certified
-  rational interval for `phi/pi` and `(phi-pi)/pi`.
+- Angular relations have exact owner-side support directions and certified
+  decimal intervals for `phi/pi` and `(phi-pi)/pi`. The angle ratio itself
+  need not be a rational multiple of pi: each emitted decimal bound is proved
+  against the exact support cosine, and `phi/pi` is the exact translation of
+  the certified reflex-excess interval by one. V1 uses at most 27 fractional
+  digits so that this translation remains exact under its 28-digit Decimal
+  validation context.
 
 An unproved frame returns
 `ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE`. An unproved Angular relation

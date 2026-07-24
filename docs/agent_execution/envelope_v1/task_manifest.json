@@ -1,6 +1,6 @@
 {
   "schema": "cftuv.ai_agent_execution_plan.v1",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "prepared_at": "2026-07-24",
   "repository": "helmdubo/CFTUV",
   "reviewed_baseline_sha": "df587ed166cfb0e0b615148f08c583b4477c5ac4",
@@ -10,7 +10,8 @@
     "BASE-00",
     "DOC-00",
     "FIX-00",
-    "D-R2-00"
+    "D-R2-00",
+    "HOST-ANG-00"
   ],
   "rules": {
     "one_card_one_branch": true,
@@ -242,6 +243,32 @@
       ],
       "deliverables": [
         "Accepted multiway ADR and fixtures, or a formal decision to remain unsupported."
+      ]
+    },
+    {
+      "id": "HOST-ANG-00",
+      "title": "Exact angular certificate export for non-rational pi ratios",
+      "phase": "Host Adapter",
+      "status": "AUTHORIZED_BY_PRODUCT_OWNER",
+      "dependencies": [
+        "FIX-00"
+      ],
+      "role": "Host Adapter Author",
+      "parallel_group": "none",
+      "size": "M",
+      "file": "cards/HOST-ANG-00_Exact_angular_certificate_export.md",
+      "objective": "Replace the accidental rational-multiple-of-pi restriction with exact predicate-certified decimal bounds while preserving fail-closed host admission.",
+      "acceptance_summary": [
+        "The current building.002 exporter no longer stops merely because an exact support-derived angle is not a rational multiple of pi.",
+        "Every emitted decimal bound is certified against exact support geometry.",
+        "No approximate host angle, tolerance, snapping or legacy geometry fallback is introduced.",
+        "An undecidable certificate still returns ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE.",
+        "The accepted FIX-00 request and all non-angular snapshot records remain unchanged; newly admitted exact angular records are an explicit version-local difference."
+      ],
+      "deliverables": [
+        "Host exporter implementation and regression tests.",
+        "Current-exporter field receipt.",
+        "Host Adapter handoff JSON/Markdown."
       ]
     },
     {

@@ -1446,6 +1446,108 @@ def _decimal_interval_from_rational(
     )
 
 
+def _certified_decimal_interval_from_exact_angle_ratio(
+    kernel,
+    sympy,
+    metric_types,
+    value,
+    cosine,
+    *,
+    patch_domain_id: str,
+):
+    """Построить decimal-интервал и доказать его по exact support cosine."""
+
+    value = sympy.factor(value)
+    if value.is_Rational is True:
+        return _decimal_interval_from_rational(
+            kernel,
+            sympy,
+            value,
+            patch_domain_id=patch_domain_id,
+        )
+
+    # V1 проверяет точный сдвиг ``phi - 1`` в стандартном Decimal-контексте
+    # precision=28. 27 дробных знаков сохраняют delta и phi без округления:
+    # delta имеет <=27 значащих цифр, phi — <=28.
+    decimal_places = 27
+    scale = 10**decimal_places
+    approximation = sympy.N(value * scale, decimal_places + 48)
+    if (
+        approximation.is_real is not True
+        or approximation.is_finite is not True
+    ):
+        raise EnvelopeHostAdapterError(
+            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
+            "exact angular ratio has no finite real decimal enclosure seed",
+            patch_domain_id=patch_domain_id,
+        )
+    seed_lower_units = int(sympy.floor(approximation))
+    seed_upper_units = int(sympy.ceiling(approximation))
+    undecidable = metric_types.CertifiedPredicateUndecidable
+
+    # Численная оценка только предлагает кандидатов. Авторитетом остаются два
+    # exact-предиката ниже; расширение никогда не превращается в tolerance.
+    guard_units_values = (
+        2,
+        8,
+        32,
+        128,
+        512,
+        2_048,
+        8_192,
+        32_768,
+        131_072,
+        1_048_576,
+        1_073_741_824,
+        1 << 60,
+    )
+    for guard_units in guard_units_values:
+        lower_units = seed_lower_units - guard_units
+        upper_units = seed_upper_units + guard_units
+        if lower_units <= 0 or upper_units >= scale:
+            continue
+        lower_ratio = sympy.Rational(lower_units, scale)
+        upper_ratio = sympy.Rational(upper_units, scale)
+        try:
+            lower_cmp = metric_types.exact_sign(
+                cosine - sympy.cos(sympy.pi * lower_ratio)
+            )
+            upper_cmp = metric_types.exact_sign(
+                cosine - sympy.cos(sympy.pi * upper_ratio)
+            )
+        except undecidable:
+            continue
+        # cos(pi*x) строго убывает на (0, 1). Поэтому эти знаки
+        # доказывают lower <= value <= upper без сравнения по tolerance.
+        if lower_cmp <= 0 and upper_cmp >= 0:
+            def decimal_from_units(units):
+                whole, fractional = divmod(units, scale)
+                return Decimal(
+                    f"{whole}.{fractional:0{decimal_places}d}"
+                )
+
+            lower = decimal_from_units(lower_units)
+            upper = decimal_from_units(upper_units)
+            error_bound = decimal_from_units(
+                upper_units - lower_units
+            )
+            interval_kind = kernel.IntervalEndpointKind.CLOSED
+            return kernel.CertifiedDecimalIntervalV1(
+                lower,
+                upper,
+                interval_kind,
+                interval_kind,
+                error_bound,
+            )
+
+    raise EnvelopeHostAdapterError(
+        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
+        "exact support predicates could not certify decimal angular bounds "
+        f"for ratio {value}",
+        patch_domain_id=patch_domain_id,
+    )
+
+
 def _build_angular_relations(
     kernel,
     sympy,
@@ -1704,41 +1806,30 @@ def _build_angular_relations(
                 delta = sympy.factor(
                     sympy.atan2(abs(sine), cosine) / sympy.pi
                 )
-                exact_phi = sympy.factor(1 + delta)
-                interval_phi = _decimal_interval_from_rational(
-                    kernel,
-                    sympy,
-                    exact_phi,
-                    patch_domain_id=domain_id.value,
+                interval_delta = (
+                    _certified_decimal_interval_from_exact_angle_ratio(
+                        kernel,
+                        sympy,
+                        metric_types,
+                        delta,
+                        cosine,
+                        patch_domain_id=domain_id.value,
+                    )
                 )
+                exact_phi = sympy.factor(1 + delta)
                 if exact_phi >= 2:
                     raise EnvelopeHostAdapterError(
                         EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
                         "exact 2*pi corner must be Terminal/Junction, not Angular",
                         patch_domain_id=domain_id.value,
                     )
-                interval_delta = kernel.CertifiedDecimalIntervalV1(
-                    interval_phi.lower - Decimal(1),
-                    interval_phi.upper - Decimal(1),
-                    interval_phi.lower_kind,
-                    interval_phi.upper_kind,
-                    interval_phi.absolute_error_bound,
+                interval_phi = kernel.CertifiedDecimalIntervalV1(
+                    interval_delta.lower + Decimal(1),
+                    interval_delta.upper + Decimal(1),
+                    interval_delta.lower_kind,
+                    interval_delta.upper_kind,
+                    interval_delta.absolute_error_bound,
                 )
-                exact_delta_interval = _decimal_interval_from_rational(
-                    kernel,
-                    sympy,
-                    delta,
-                    patch_domain_id=domain_id.value,
-                )
-                if (
-                    interval_delta.lower != exact_delta_interval.lower
-                    or interval_delta.upper != exact_delta_interval.upper
-                ):
-                    raise EnvelopeHostAdapterError(
-                        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
-                        "phi and reflex-excess rational intervals disagree",
-                        patch_domain_id=domain_id.value,
-                    )
                 orientation = (
                     kernel.TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION
                     if turn_cross > 0

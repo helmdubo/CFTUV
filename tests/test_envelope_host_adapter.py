@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import importlib
 import sys
 from pathlib import Path
 
@@ -14,6 +15,7 @@ if str(KERNEL_SRC) not in sys.path:
 
 from cftuv.envelope_host_adapter import (  # noqa: E402
     EnvelopeDebugHostOutcome,
+    EnvelopeHostAdapterError,
     _canonical_chain,
     _host_edge_number,
     build_envelope_analysis_snapshot,
@@ -21,6 +23,9 @@ from cftuv.envelope_host_adapter import (  # noqa: E402
     build_envelope_topology_debug_scene,
     evaluate_envelope_debug,
     evaluate_envelope_debug_staged,
+)
+from cftuv.envelope_request_export import (  # noqa: E402
+    _certified_decimal_interval_from_exact_angle_ratio,
 )
 from cftuv.envelope_debug_profile import (  # noqa: E402
     EnvelopeDebugProfileBuilderV1,
@@ -564,6 +569,73 @@ def test_real_analysis_bundle_runs_public_static_pipeline():
     assert all(
         not item.self_contact_pair_declarations
         for item in evaluation.compilations
+    )
+
+
+def test_non_rational_pi_ratio_gets_exact_support_certified_decimal_bounds():
+    kernel = importlib.import_module("cftuv_envelope")
+    sympy = importlib.import_module("sympy")
+    metric_types = importlib.import_module(
+        "cftuv_envelope.reference.planar_types"
+    )
+    delta = sympy.factor(
+        1 - sympy.atan(sympy.Integer(1_322_120)) / sympy.pi
+    )
+    assert delta.is_Rational is not True
+    cosine = sympy.cos(sympy.pi * delta)
+
+    interval = _certified_decimal_interval_from_exact_angle_ratio(
+        kernel,
+        sympy,
+        metric_types,
+        delta,
+        cosine,
+        patch_domain_id="patch-domain:non-rational-angular-regression",
+    )
+
+    lower = sympy.Rational(str(interval.lower))
+    upper = sympy.Rational(str(interval.upper))
+    assert interval.lower < interval.upper
+    assert metric_types.exact_sign(
+        cosine - sympy.cos(sympy.pi * lower)
+    ) <= 0
+    assert metric_types.exact_sign(
+        cosine - sympy.cos(sympy.pi * upper)
+    ) >= 0
+
+
+def test_undecidable_non_rational_angular_bounds_remain_named_fail_closed():
+    kernel = importlib.import_module("cftuv_envelope")
+    sympy = importlib.import_module("sympy")
+    metric_types = importlib.import_module(
+        "cftuv_envelope.reference.planar_types"
+    )
+
+    class UndecidablePredicates:
+        CertifiedPredicateUndecidable = (
+            metric_types.CertifiedPredicateUndecidable
+        )
+
+        @staticmethod
+        def exact_sign(_value):
+            raise metric_types.CertifiedPredicateUndecidable(
+                "intentional regression fixture"
+            )
+
+    delta = sympy.factor(
+        1 - sympy.atan(sympy.Integer(1_322_120)) / sympy.pi
+    )
+    with pytest.raises(EnvelopeHostAdapterError) as captured:
+        _certified_decimal_interval_from_exact_angle_ratio(
+            kernel,
+            sympy,
+            UndecidablePredicates,
+            delta,
+            sympy.cos(sympy.pi * delta),
+            patch_domain_id="patch-domain:undecidable-angular-regression",
+        )
+    assert captured.value.outcome is (
+        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE
     )
 
 

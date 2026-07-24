@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.1.2 — 2026-07-24
+
+- Added the independently scoped `HOST-ANG-00` Host Adapter card after the
+  accepted FIX-00 field extraction exposed
+  `ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE`.
+- Authorized exact predicate-certified decimal angular bounds for
+  support-derived angles whose ratio to pi is not rational.
+- Kept approximate host corner angles, tolerance, snapping and legacy decal
+  geometry outside the card.
+
 ## v1.1.1 — 2026-07-24
 
 - Reconciled the control plane with selected code baseline `c2622d0...`.

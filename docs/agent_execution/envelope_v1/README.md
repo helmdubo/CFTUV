@@ -1,4 +1,4 @@
-# CFTUV AI Agent Execution Pack v1.1.1
+# CFTUV AI Agent Execution Pack v1.1.2
 
 This directory is a **repository-resident execution control plane** for external AI agents.
 
