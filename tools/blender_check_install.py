@@ -13,8 +13,13 @@ import os
 import sys
 
 
+FAILURES: list[str] = []
+
+
 def _line(status: str, text: str) -> None:
     print(f"  [{status}] {text}")
+    if status.strip() in {"НЕТ", "!!!"}:
+        FAILURES.append(text)
 
 
 def _probe(module_name: str, why: str) -> object | None:
@@ -103,6 +108,11 @@ def main() -> None:
         _line("ОК ", "лишних кэшей не видно")
 
     print("\n=== итог ===")
+    if FAILURES:
+        print(f"  НЕ ГОТОВО: {len(FAILURES)} проблем(ы).")
+        for item in FAILURES:
+            print(f"    - {item}")
+        print()
     if kernel is None or sympy is None:
         print("  НЕ ГОТОВО. Смотрите строки [НЕТ] выше.")
         print("  Чаще всего: sympy не установлен в Python именно ЭТОГО Blender.")
@@ -111,6 +121,10 @@ def main() -> None:
         print("  Ядро на месте, аддон не найден.")
         print("  Скопируйте папку cftuv/ в каталог аддонов и включите его")
         print("  в Edit → Preferences → Add-ons.")
+    elif FAILURES:
+        print("  Устраните строки выше и запустите проверку снова.")
+        print("  Чаще всего это устаревшая копия cftuv/ в папке аддонов:")
+        print("  скопируйте её заново и перезапустите Blender.")
     else:
         print("  Всё на месте. Можно запускать Build Envelope Debug.")
 
