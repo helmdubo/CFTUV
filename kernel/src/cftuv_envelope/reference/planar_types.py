@@ -16,6 +16,7 @@ import re
 from typing import Iterable
 
 import sympy as sp
+from mpmath import iv
 
 
 class CertifiedPredicateUndecidable(ValueError):
@@ -42,7 +43,14 @@ def _expr(value: ExactScalar | sp.Expr | Decimal | Fraction | int | float | str)
 # арифметика осталась рациональной; рост счётчика — сигнал, что в предикаты
 # протекли радикалы (см. ROADMAP, Фаза 2, пункт «развести предикаты и
 # конструкции»). Только наблюдение, на поведение не влияет.
-SYMBOLIC_FALLBACK_COUNTS = {"canonical": 0, "sign": 0, "normalize": 0}
+SYMBOLIC_FALLBACK_COUNTS = {
+    "canonical": 0,
+    "sign": 0,
+    "normalize": 0,
+    # Сколько раз интервальный фильтр не смог доказать знак и пришлось
+    # разворачивать полный символьный путь.
+    "exact_sign_symbolic": 0,
+}
 
 
 def exact_normalize(value: sp.Expr) -> sp.Expr:
@@ -127,6 +135,70 @@ class ExactScalar:
         return _parse_expr(self.expression)
 
 
+class _IntervalUnsupported(Exception):
+    """Узел выражения, для которого нет интервального правила."""
+
+
+def _to_interval(expression: sp.Expr):
+    """Строгая интервальная оболочка выражения.
+
+    Каждая операция расширяет интервал наружу, поэтому истинное значение
+    гарантированно лежит внутри результата. Это не оценка и не порог: если
+    оболочка не содержит нуля, знак **доказан**.
+    """
+
+    if expression.is_Integer:
+        return iv.mpf(int(expression))
+    if expression.is_Rational:
+        return iv.mpf(int(expression.p)) / iv.mpf(int(expression.q))
+    if expression.is_Add:
+        total = iv.mpf(0)
+        for term in expression.args:
+            total = total + _to_interval(term)
+        return total
+    if expression.is_Mul:
+        product = iv.mpf(1)
+        for term in expression.args:
+            product = product * _to_interval(term)
+        return product
+    if expression.is_Pow:
+        base, exponent = expression.args
+        enclosure = _to_interval(base)
+        if exponent.is_Integer:
+            return enclosure ** int(exponent)
+        if exponent.is_Rational and exponent.q == 2:
+            root = iv.sqrt(enclosure)
+            return root if exponent.p == 1 else root ** int(exponent.p)
+    raise _IntervalUnsupported(str(expression))
+
+
+def _certified_interval_sign(expression: sp.Expr, precision: int = 80) -> int | None:
+    """Знак, доказанный интервальной оболочкой, либо None.
+
+    Возвращает результат только когда оболочка целиком лежит по одну сторону
+    от нуля. Настоящий ноль и всё, что оболочка не разделяет, уходит в точный
+    символьный путь без изменений — тождество доказать интервалом нельзя.
+
+    Это тот же приём, которым пользуются промышленные геометрические ядра:
+    дешёвый фильтр отвечает в подавляющем большинстве случаев, точная
+    арифметика остаётся для спорных. Порога здесь нет — есть сертификат.
+    """
+
+    saved = iv.prec
+    iv.prec = precision
+    try:
+        enclosure = _to_interval(expression)
+    except (_IntervalUnsupported, ArithmeticError, ValueError, TypeError):
+        return None
+    finally:
+        iv.prec = saved
+    if enclosure.a > 0:
+        return 1
+    if enclosure.b < 0:
+        return -1
+    return None
+
+
 def exact_sign(value: ExactScalar | sp.Expr | Decimal | Fraction | int | float | str) -> int:
     expression = _expr(value)
     # Знак рационального числа решается сравнением числителя с нулём и не
@@ -137,6 +209,12 @@ def exact_sign(value: ExactScalar | sp.Expr | Decimal | Fraction | int | float |
             return 0
         return 1 if expression.is_positive else -1
     SYMBOLIC_FALLBACK_COUNTS["sign"] += 1
+    # Сначала пробуем доказать знак дешёвой интервальной оболочкой; точный
+    # символьный путь ниже остаётся для случаев, где оболочка накрывает ноль.
+    certified = _certified_interval_sign(expression)
+    if certified is not None:
+        return certified
+    SYMBOLIC_FALLBACK_COUNTS["exact_sign_symbolic"] += 1
     candidate = sp.factor(sp.cancel(expression))
     if candidate == 0 or candidate.is_zero is True:
         return 0

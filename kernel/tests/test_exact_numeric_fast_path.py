@@ -117,3 +117,70 @@ def test_algebraic_values_still_take_the_symbolic_path():
     assert exact_sign(algebraic) == 1
     assert SYMBOLIC_FALLBACK_COUNTS["sign"] == before + 1
     assert exact_sign(-algebraic) == -1
+
+
+# --------------------------------------------------------------------------
+# Сертифицированный интервальный фильтр знака
+#
+# Фильтр обязан либо доказать знак, либо честно вернуть None. Ошибочный знак
+# здесь означает неверную топологию arrangement'а — то есть ровно тот класс
+# отказов, ради которого точное ядро и строилось.
+# --------------------------------------------------------------------------
+
+
+def _algebraic_corpus() -> tuple[sp.Expr, ...]:
+    half_root_two = sp.sqrt(2) / 2
+    return (
+        sp.Rational(3, 7) + sp.Rational(2, 5) * sp.sqrt(2),
+        sp.Rational(3, 7) - sp.Rational(2, 5) * sp.sqrt(2),
+        sp.sqrt(3) - sp.Rational(17320508, 10**7),
+        sp.Rational(17320508, 10**7) - sp.sqrt(3),
+        (sp.Rational(3, 7) + sp.Rational(2, 5) * sp.sqrt(13))
+        * (sp.Rational(5, 11) - sp.Rational(1, 9) * sp.sqrt(7)),
+        half_root_two - sp.Rational(7071067811865475, 10**16),
+        sp.Rational(1, 10**20) * sp.sqrt(3),
+        -sp.Rational(1, 10**20) * sp.sqrt(5),
+        sp.sqrt(sp.Rational(5, 8) - sp.sqrt(5) / 8),
+    )
+
+
+_TRUE_ZEROS = (
+    sp.sqrt(2) * sp.sqrt(3) - sp.sqrt(6),
+    sp.Rational(1, 2) * sp.sqrt(3) - sp.Rational(1, 2) * sp.sqrt(3),
+    (sp.sqrt(2) + 1) * (sp.sqrt(2) - 1) - 1,
+)
+
+
+@pytest.mark.parametrize("value", _algebraic_corpus(), ids=str)
+def test_interval_filter_never_contradicts_the_exact_path(value: sp.Expr):
+    certified = planar_types._certified_interval_sign(value)
+    if certified is None:
+        pytest.skip("оболочка накрыла ноль — законный уход в точный путь")
+    assert certified == exact_sign(value)
+
+
+@pytest.mark.parametrize("value", _TRUE_ZEROS, ids=str)
+def test_interval_filter_refuses_to_decide_a_true_zero(value: sp.Expr):
+    """Тождественный ноль интервалом не доказать — обязан быть None."""
+
+    assert planar_types._certified_interval_sign(value) is None
+    assert exact_sign(value) == 0
+
+
+def test_interval_filter_returns_none_for_unsupported_nodes():
+    """Неизвестный узел — не повод угадать знак."""
+
+    symbol = sp.Symbol("t", positive=True)
+    assert planar_types._certified_interval_sign(symbol + 1) is None
+    assert planar_types._certified_interval_sign(sp.cos(sp.Rational(1, 3))) is None
+
+
+def test_interval_filter_restores_global_precision():
+    """`mpmath.iv.prec` — глобальное состояние; фильтр не имеет права его сдвигать."""
+
+    from mpmath import iv
+
+    before = iv.prec
+    planar_types._certified_interval_sign(sp.sqrt(2) - sp.Rational(1, 3))
+    planar_types._certified_interval_sign(sp.Symbol("q"))
+    assert iv.prec == before
