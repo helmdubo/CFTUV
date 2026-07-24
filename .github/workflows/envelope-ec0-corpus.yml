@@ -1,0 +1,24 @@
+name: Envelope EC0 corpus
+
+on:
+  push:
+    paths:
+      - "artifacts/envelope_ec0/**"
+      - "tools/validate_envelope_ec0.py"
+      - ".github/workflows/envelope-ec0-corpus.yml"
+  pull_request:
+    paths:
+      - "artifacts/envelope_ec0/**"
+      - "tools/validate_envelope_ec0.py"
+      - ".github/workflows/envelope-ec0-corpus.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Validate canonical EC0 JSON corpus
+        run: python tools/validate_envelope_ec0.py

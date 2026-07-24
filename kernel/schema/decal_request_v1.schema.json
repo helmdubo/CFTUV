@@ -1,0 +1,256 @@
+{
+  "$defs": {
+    "ChainUseId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "ChainUseId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "DecalRequestId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "DecalRequestId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "DecalRequestV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "DecalRequestV1"
+        },
+        "angular_profile_family_id": {
+          "enum": [
+            "LINEAR_REFLEX_EQUAL_V1"
+          ],
+          "type": "string"
+        },
+        "angular_profile_selection_policy_id": {
+          "enum": [
+            "MIN_K_FOR_MAX_SUBTURN_V1"
+          ],
+          "type": "string"
+        },
+        "boundary_policy_id": {
+          "enum": [
+            "BOUNDARY_LIMITED_PROPAGATION"
+          ],
+          "type": "string"
+        },
+        "cap_policy_id": {
+          "enum": [
+            "PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1"
+          ],
+          "type": "string"
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "interaction_policy_id": {
+          "enum": [
+            "INTRAPATCH_POLICY_B_V1"
+          ],
+          "type": "string"
+        },
+        "material_policy_id": {
+          "$ref": "#/$defs/PolicyId"
+        },
+        "max_subturn_exact_value": {
+          "$ref": "#/$defs/ExactAngleV1"
+        },
+        "max_subturn_parameter_id": {
+          "enum": [
+            "LINEAR_REFLEX_MAX_SUBTURN_V1"
+          ],
+          "type": "string"
+        },
+        "max_subturn_value_id": {
+          "enum": [
+            "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1"
+          ],
+          "type": "string"
+        },
+        "metric_space": {
+          "enum": [
+            "SOURCE_LOCAL_INTRINSIC"
+          ],
+          "type": "string"
+        },
+        "ownership_policy_id": {
+          "enum": [
+            "TOTAL_DISJOINT_RESOLVED_COVERAGE_V1"
+          ],
+          "type": "string"
+        },
+        "requested_alpha": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/LocalLengthV1"
+            },
+            {
+              "$ref": "#/$defs/SymbolicLocalLengthV1"
+            }
+          ]
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "selected_chain_use_ids": {
+          "items": {
+            "$ref": "#/$defs/ChainUseId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "uv_policy_id": {
+          "$ref": "#/$defs/PolicyId"
+        }
+      },
+      "required": [
+        "$type",
+        "schema_version",
+        "decal_request_id",
+        "selected_chain_use_ids",
+        "requested_alpha",
+        "metric_space",
+        "angular_profile_family_id",
+        "angular_profile_selection_policy_id",
+        "max_subturn_parameter_id",
+        "max_subturn_value_id",
+        "max_subturn_exact_value",
+        "cap_policy_id",
+        "boundary_policy_id",
+        "interaction_policy_id",
+        "ownership_policy_id",
+        "material_policy_id",
+        "uv_policy_id"
+      ],
+      "type": "object"
+    },
+    "ExactAngleV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactAngleV1"
+        },
+        "symbol": {
+          "enum": [
+            "PI_OVER_3"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "symbol"
+      ],
+      "type": "object"
+    },
+    "LocalLengthV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "LocalLengthV1"
+        },
+        "metric_space": {
+          "enum": [
+            "SOURCE_LOCAL_INTRINSIC"
+          ],
+          "type": "string"
+        },
+        "value": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "value",
+        "metric_space"
+      ],
+      "type": "object"
+    },
+    "PolicyId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PolicyId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SymbolicLocalLengthV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "SymbolicLocalLengthV1"
+        },
+        "metric_space": {
+          "enum": [
+            "SOURCE_LOCAL_INTRINSIC"
+          ],
+          "type": "string"
+        },
+        "symbol": {
+          "$ref": "#/$defs/SymbolicScalarId"
+        }
+      },
+      "required": [
+        "$type",
+        "symbol",
+        "metric_space"
+      ],
+      "type": "object"
+    },
+    "SymbolicScalarId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SymbolicScalarId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "cftuv.envelope.decal_request.v1",
+  "$ref": "#/$defs/DecalRequestV1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DecalRequestV1"
+}

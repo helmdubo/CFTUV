@@ -1,0 +1,447 @@
+{
+  "mesh_counts": {
+    "edges": 38,
+    "faces": 15,
+    "vertices": 24
+  },
+  "mesh_fingerprint_after": "3205834b7ead22cf1eb8985902144ca1c7295a88b8015556b364be17d8ac9021",
+  "mesh_fingerprint_before": "3205834b7ead22cf1eb8985902144ca1c7295a88b8015556b364be17d8ac9021",
+  "runs": [
+    {
+      "domains": [
+        {
+          "message": "authoritative exact RawCoverage unavailable",
+          "outcome": "REFERENCE_ARRANGEMENT_NON_MANIFOLD",
+          "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+          "patch_id": 0,
+          "raw_semantic_digest": null,
+          "runtime": {
+            "construction_authority": "RationalAffinePlanarMetricV2",
+            "diagnostics": [
+              {
+                "message": "exact union boundary is non-manifold at a construction vertex",
+                "outcome": "REFERENCE_ARRANGEMENT_NON_MANIFOLD"
+              }
+            ],
+            "outcome": "REFERENCE_ARRANGEMENT_NON_MANIFOLD",
+            "performance": {
+              "exact_fallback_count": 0,
+              "expression_size": 0,
+              "fallback_fraction": "0/10",
+              "fast_path_certified_count": 10,
+              "filtered_predicate_count": 10,
+              "peak_memory_bytes": 1750953,
+              "raw_coverage_seconds": 7.218628100003116,
+              "reference_metric_build_seconds": 0.001740699983201921,
+              "runtime_view_build_seconds": 0.0003352999920025468
+            },
+            "semantic_digest": null
+          },
+          "stage": "RAW_REJECTED"
+        },
+        {
+          "message": "authoritative exact RawCoverage available",
+          "outcome": "EXACT",
+          "patch_domain_id": "host-v0:patch-domain:06e861ec98d0af361f10a35c",
+          "patch_id": 7,
+          "raw_semantic_digest": "356a56e3710826fa7b34d92be0a17aeb13dc47289180d9de1d6b13f2df7fbfd2",
+          "runtime": {
+            "construction_authority": "RationalAffinePlanarMetricV2",
+            "diagnostics": [],
+            "outcome": "EXACT",
+            "performance": {
+              "exact_fallback_count": 0,
+              "expression_size": 15,
+              "fallback_fraction": "0/2",
+              "fast_path_certified_count": 2,
+              "filtered_predicate_count": 2,
+              "peak_memory_bytes": 1220214,
+              "raw_coverage_seconds": 0.7704209000221454,
+              "reference_metric_build_seconds": 0.0006942999898456037,
+              "runtime_view_build_seconds": 0.00010760000441223383
+            },
+            "semantic_digest": "356a56e3710826fa7b34d92be0a17aeb13dc47289180d9de1d6b13f2df7fbfd2"
+          },
+          "stage": "RAW_READY"
+        },
+        {
+          "message": "authoritative exact RawCoverage available",
+          "outcome": "EXACT",
+          "patch_domain_id": "host-v0:patch-domain:070c6c4e2aaab70b1a2f45d2",
+          "patch_id": 10,
+          "raw_semantic_digest": "2698a0577d77a6bbba2597b96e978f60024bddc500c4fe8078e55ff0425a9ae2",
+          "runtime": {
+            "construction_authority": "RationalAffinePlanarMetricV2",
+            "diagnostics": [],
+            "outcome": "EXACT",
+            "performance": {
+              "exact_fallback_count": 0,
+              "expression_size": 15,
+              "fallback_fraction": "0/2",
+              "fast_path_certified_count": 2,
+              "filtered_predicate_count": 2,
+              "peak_memory_bytes": 1240133,
+              "raw_coverage_seconds": 0.7422252999967895,
+              "reference_metric_build_seconds": 0.0006921999738551676,
+              "runtime_view_build_seconds": 0.00011029996676370502
+            },
+            "semantic_digest": "2698a0577d77a6bbba2597b96e978f60024bddc500c4fe8078e55ff0425a9ae2"
+          },
+          "stage": "RAW_READY"
+        },
+        {
+          "message": "authoritative exact RawCoverage available",
+          "outcome": "EXACT",
+          "patch_domain_id": "host-v0:patch-domain:36eb7d6232a72fccedaa1c1d",
+          "patch_id": 12,
+          "raw_semantic_digest": "bdd309fe32557635321495a1aee6f4f5c64973fdb09d1229869b334ec3d6b454",
+          "runtime": {
+            "construction_authority": "RationalAffinePlanarMetricV2",
+            "diagnostics": [],
+            "outcome": "EXACT",
+            "performance": {
+              "exact_fallback_count": 0,
+              "expression_size": 16,
+              "fallback_fraction": "0/2",
+              "fast_path_certified_count": 2,
+              "filtered_predicate_count": 2,
+              "peak_memory_bytes": 1224748,
+              "raw_coverage_seconds": 0.8267856000456959,
+              "reference_metric_build_seconds": 0.0006936999852769077,
+              "runtime_view_build_seconds": 0.0001115999766625464
+            },
+            "semantic_digest": "bdd309fe32557635321495a1aee6f4f5c64973fdb09d1229869b334ec3d6b454"
+          },
+          "stage": "RAW_READY"
+        }
+      ],
+      "profile": {
+        "build_kind": "M_R1_FIELD",
+        "counters": [
+          {
+            "name": "FACES_PER_DOMAIN",
+            "patch_domain_id": "host-v0:patch-domain:06e861ec98d0af361f10a35c",
+            "value": 1
+          },
+          {
+            "name": "FACES_PER_DOMAIN",
+            "patch_domain_id": "host-v0:patch-domain:070c6c4e2aaab70b1a2f45d2",
+            "value": 1
+          },
+          {
+            "name": "FACES_PER_DOMAIN",
+            "patch_domain_id": "host-v0:patch-domain:36eb7d6232a72fccedaa1c1d",
+            "value": 1
+          },
+          {
+            "name": "FACES_PER_DOMAIN",
+            "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+            "value": 3
+          },
+          {
+            "name": "MESH_EDGES",
+            "patch_domain_id": null,
+            "value": 38
+          },
+          {
+            "name": "MESH_FACES",
+            "patch_domain_id": null,
+            "value": 15
+          },
+          {
+            "name": "PATCH_COUNT",
+            "patch_domain_id": null,
+            "value": 13
+          },
+          {
+            "name": "PHYSICAL_EDGES_PER_DOMAIN",
+            "patch_domain_id": "host-v0:patch-domain:06e861ec98d0af361f10a35c",
+            "value": 4
+          },
+          {
+            "name": "PHYSICAL_EDGES_PER_DOMAIN",
+            "patch_domain_id": "host-v0:patch-domain:070c6c4e2aaab70b1a2f45d2",
+            "value": 4
+          },
+          {
+            "name": "PHYSICAL_EDGES_PER_DOMAIN",
+            "patch_domain_id": "host-v0:patch-domain:36eb7d6232a72fccedaa1c1d",
+            "value": 4
+          },
+          {
+            "name": "PHYSICAL_EDGES_PER_DOMAIN",
+            "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+            "value": 14
+          },
+          {
+            "name": "SELECTED_CHAINS",
+            "patch_domain_id": null,
+            "value": 3
+          },
+          {
+            "name": "SELECTED_DOMAINS",
+            "patch_domain_id": null,
+            "value": 4
+          }
+        ],
+        "dominant_stage": {
+          "elapsed_seconds": 9.562853699957486,
+          "stage": "RAW_UNION"
+        },
+        "receipts": [
+          {
+            "message": "Topology built from AnalysisBundle host facts",
+            "outcome": "TOPOLOGY_READY",
+            "patch_domain_id": "host-v0:patch-domain:06e861ec98d0af361f10a35c",
+            "patch_id": 7,
+            "stage": "TOPOLOGY_READY"
+          },
+          {
+            "message": "Topology built from AnalysisBundle host facts",
+            "outcome": "TOPOLOGY_READY",
+            "patch_domain_id": "host-v0:patch-domain:070c6c4e2aaab70b1a2f45d2",
+            "patch_id": 10,
+            "stage": "TOPOLOGY_READY"
+          },
+          {
+            "message": "Topology built from AnalysisBundle host facts",
+            "outcome": "TOPOLOGY_READY",
+            "patch_domain_id": "host-v0:patch-domain:36eb7d6232a72fccedaa1c1d",
+            "patch_id": 12,
+            "stage": "TOPOLOGY_READY"
+          },
+          {
+            "message": "Topology built from AnalysisBundle host facts",
+            "outcome": "TOPOLOGY_READY",
+            "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+            "patch_id": 0,
+            "stage": "TOPOLOGY_READY"
+          }
+        ],
+        "schema": "cftuv.envelope.debug_profile.v1",
+        "source_name": "building.002",
+        "stage_summary": {
+          "metric": 0,
+          "raw": 0,
+          "resolved": 0,
+          "topology": 4,
+          "total": 4
+        },
+        "timings": [
+          {
+            "elapsed_seconds": 0.0005058000097051263,
+            "patch_domain_id": null,
+            "stage": "HOST_CHAIN_COLLECTION"
+          },
+          {
+            "elapsed_seconds": 0.0008542999858036637,
+            "patch_domain_id": null,
+            "stage": "SEAM_PARTITION_NORMALIZATION"
+          },
+          {
+            "elapsed_seconds": 0.00010820000898092985,
+            "patch_domain_id": null,
+            "stage": "SELECTION_SCOPE"
+          },
+          {
+            "elapsed_seconds": 0.0015036999830044806,
+            "patch_domain_id": null,
+            "stage": "TOPOLOGY_SCENE"
+          },
+          {
+            "elapsed_seconds": 0.0034981000353582203,
+            "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+            "stage": "BUNDLE_SLICE"
+          },
+          {
+            "elapsed_seconds": 9.600003249943256e-05,
+            "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+            "stage": "HOST_CHAIN_COLLECTION"
+          },
+          {
+            "elapsed_seconds": 0.00015759997768327594,
+            "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+            "stage": "SEAM_PARTITION_NORMALIZATION"
+          },
+          {
+            "elapsed_seconds": 0.001740699983201921,
+            "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+            "stage": "FRAME_ADMISSION"
+          },
+          {
+            "elapsed_seconds": 0.0004767999635078013,
+            "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+            "stage": "ANGULAR_RELATIONS"
+          },
+          {
+            "elapsed_seconds": 0.0013304000021889806,
+            "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+            "stage": "SNAPSHOT_VALIDATION"
+          },
+          {
+            "elapsed_seconds": 0.011109400016721338,
+            "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+            "stage": "SNAPSHOT_EXPORT"
+          },
+          {
+            "elapsed_seconds": 0.03657320002093911,
+            "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+            "stage": "COMPILE"
+          },
+          {
+            "elapsed_seconds": 7.221797599981073,
+            "patch_domain_id": "host-v0:patch-domain:bf66337616136188f314fb69",
+            "stage": "RAW_UNION"
+          },
+          {
+            "elapsed_seconds": 8.209998486563563e-05,
+            "patch_domain_id": "host-v0:patch-domain:06e861ec98d0af361f10a35c",
+            "stage": "BUNDLE_SLICE"
+          },
+          {
+            "elapsed_seconds": 4.710000939667225e-05,
+            "patch_domain_id": "host-v0:patch-domain:06e861ec98d0af361f10a35c",
+            "stage": "HOST_CHAIN_COLLECTION"
+          },
+          {
+            "elapsed_seconds": 6.54000323265791e-05,
+            "patch_domain_id": "host-v0:patch-domain:06e861ec98d0af361f10a35c",
+            "stage": "SEAM_PARTITION_NORMALIZATION"
+          },
+          {
+            "elapsed_seconds": 0.0006942999898456037,
+            "patch_domain_id": "host-v0:patch-domain:06e861ec98d0af361f10a35c",
+            "stage": "FRAME_ADMISSION"
+          },
+          {
+            "elapsed_seconds": 0.00015570002142339945,
+            "patch_domain_id": "host-v0:patch-domain:06e861ec98d0af361f10a35c",
+            "stage": "ANGULAR_RELATIONS"
+          },
+          {
+            "elapsed_seconds": 0.0005712000420317054,
+            "patch_domain_id": "host-v0:patch-domain:06e861ec98d0af361f10a35c",
+            "stage": "SNAPSHOT_VALIDATION"
+          },
+          {
+            "elapsed_seconds": 0.002839099965058267,
+            "patch_domain_id": "host-v0:patch-domain:06e861ec98d0af361f10a35c",
+            "stage": "SNAPSHOT_EXPORT"
+          },
+          {
+            "elapsed_seconds": 0.0031384999747388065,
+            "patch_domain_id": "host-v0:patch-domain:06e861ec98d0af361f10a35c",
+            "stage": "COMPILE"
+          },
+          {
+            "elapsed_seconds": 0.7709273000364192,
+            "patch_domain_id": "host-v0:patch-domain:06e861ec98d0af361f10a35c",
+            "stage": "RAW_UNION"
+          },
+          {
+            "elapsed_seconds": 8.890003664419055e-05,
+            "patch_domain_id": "host-v0:patch-domain:070c6c4e2aaab70b1a2f45d2",
+            "stage": "BUNDLE_SLICE"
+          },
+          {
+            "elapsed_seconds": 4.829996032640338e-05,
+            "patch_domain_id": "host-v0:patch-domain:070c6c4e2aaab70b1a2f45d2",
+            "stage": "HOST_CHAIN_COLLECTION"
+          },
+          {
+            "elapsed_seconds": 6.829999620094895e-05,
+            "patch_domain_id": "host-v0:patch-domain:070c6c4e2aaab70b1a2f45d2",
+            "stage": "SEAM_PARTITION_NORMALIZATION"
+          },
+          {
+            "elapsed_seconds": 0.0006921999738551676,
+            "patch_domain_id": "host-v0:patch-domain:070c6c4e2aaab70b1a2f45d2",
+            "stage": "FRAME_ADMISSION"
+          },
+          {
+            "elapsed_seconds": 0.0001309000072069466,
+            "patch_domain_id": "host-v0:patch-domain:070c6c4e2aaab70b1a2f45d2",
+            "stage": "ANGULAR_RELATIONS"
+          },
+          {
+            "elapsed_seconds": 0.0005610999651253223,
+            "patch_domain_id": "host-v0:patch-domain:070c6c4e2aaab70b1a2f45d2",
+            "stage": "SNAPSHOT_VALIDATION"
+          },
+          {
+            "elapsed_seconds": 0.002819299988914281,
+            "patch_domain_id": "host-v0:patch-domain:070c6c4e2aaab70b1a2f45d2",
+            "stage": "SNAPSHOT_EXPORT"
+          },
+          {
+            "elapsed_seconds": 0.002763100026641041,
+            "patch_domain_id": "host-v0:patch-domain:070c6c4e2aaab70b1a2f45d2",
+            "stage": "COMPILE"
+          },
+          {
+            "elapsed_seconds": 0.7427579999784939,
+            "patch_domain_id": "host-v0:patch-domain:070c6c4e2aaab70b1a2f45d2",
+            "stage": "RAW_UNION"
+          },
+          {
+            "elapsed_seconds": 8.38999985717237e-05,
+            "patch_domain_id": "host-v0:patch-domain:36eb7d6232a72fccedaa1c1d",
+            "stage": "BUNDLE_SLICE"
+          },
+          {
+            "elapsed_seconds": 4.529999569058418e-05,
+            "patch_domain_id": "host-v0:patch-domain:36eb7d6232a72fccedaa1c1d",
+            "stage": "HOST_CHAIN_COLLECTION"
+          },
+          {
+            "elapsed_seconds": 6.580003537237644e-05,
+            "patch_domain_id": "host-v0:patch-domain:36eb7d6232a72fccedaa1c1d",
+            "stage": "SEAM_PARTITION_NORMALIZATION"
+          },
+          {
+            "elapsed_seconds": 0.0006936999852769077,
+            "patch_domain_id": "host-v0:patch-domain:36eb7d6232a72fccedaa1c1d",
+            "stage": "FRAME_ADMISSION"
+          },
+          {
+            "elapsed_seconds": 0.00014190003275871277,
+            "patch_domain_id": "host-v0:patch-domain:36eb7d6232a72fccedaa1c1d",
+            "stage": "ANGULAR_RELATIONS"
+          },
+          {
+            "elapsed_seconds": 0.0005510000046342611,
+            "patch_domain_id": "host-v0:patch-domain:36eb7d6232a72fccedaa1c1d",
+            "stage": "SNAPSHOT_VALIDATION"
+          },
+          {
+            "elapsed_seconds": 0.0028579000500030816,
+            "patch_domain_id": "host-v0:patch-domain:36eb7d6232a72fccedaa1c1d",
+            "stage": "SNAPSHOT_EXPORT"
+          },
+          {
+            "elapsed_seconds": 0.0034507999662309885,
+            "patch_domain_id": "host-v0:patch-domain:36eb7d6232a72fccedaa1c1d",
+            "stage": "COMPILE"
+          },
+          {
+            "elapsed_seconds": 0.8273707999614999,
+            "patch_domain_id": "host-v0:patch-domain:36eb7d6232a72fccedaa1c1d",
+            "stage": "RAW_UNION"
+          }
+        ]
+      },
+      "scope": "three_chains_l0",
+      "selected_physical_edge_ids": [
+        2,
+        3,
+        7
+      ],
+      "topology_elapsed_seconds": 0.003303100005723536
+    }
+  ],
+  "schema": "cftuv.envelope.runtime_metric_building_gate.v1",
+  "source_file": "E:\\testscene.blend",
+  "source_mesh_unchanged": true,
+  "source_object": "building.002",
+  "status": "COMPLETE"
+}

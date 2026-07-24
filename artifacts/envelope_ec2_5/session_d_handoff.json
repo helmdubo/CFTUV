@@ -1,0 +1,137 @@
+{
+  "schema": "cftuv.envelope.ec2_5.session_d_handoff.v1",
+  "status": "SESSION_D_R1_ACCEPTED",
+  "session": "D",
+  "scope": "EC2.5_EXACT_RESOLVED_COVERAGE_INTERACTIONS",
+  "branch": "codex/ec2_5-resolved-coverage-interactions",
+  "accepted_session_c_r1_sha": "6c61ab311613cb7cf96e5c5098e857e78a98f0b8",
+  "implementation_sha": "bfe195b20b5c5c3b790e0c5ae4d6ac7880eda832",
+  "ci_tested_sha": "bfe195b20b5c5c3b790e0c5ae4d6ac7880eda832",
+  "ci": {
+    "workflow": "Envelope kernel contracts and reference evaluator",
+    "run_id": 30008327870,
+    "run_url": "https://github.com/helmdubo/CFTUV/actions/runs/30008327870",
+    "conclusion": "success",
+    "started_at": "2026-07-23T12:46:07Z",
+    "completed_at": "2026-07-23T12:49:50Z",
+    "jobs": [
+      {
+        "name": "kernel-hermetic",
+        "job_id": 89209744380,
+        "conclusion": "success",
+        "url": "https://github.com/helmdubo/CFTUV/actions/runs/30008327870/job/89209744380"
+      },
+      {
+        "name": "kernel-extraction-readiness",
+        "job_id": 89209744236,
+        "conclusion": "success",
+        "url": "https://github.com/helmdubo/CFTUV/actions/runs/30008327870/job/89209744236"
+      }
+    ]
+  },
+  "local_validation": {
+    "source": {
+      "result": "167 passed",
+      "duration_seconds": 149.42
+    },
+    "wheel_outside_checkout": {
+      "result": "167 passed",
+      "duration_seconds": 148.85
+    },
+    "extracted_empty_repository": {
+      "result": "167 passed",
+      "duration_seconds": 136.62,
+      "post_build_git_status": "clean"
+    },
+    "forbidden_import_scan": "OK",
+    "generated_contract_schemas": "OK",
+    "accepted_session_a_fixture_projection": "OK"
+  },
+  "inputs": [
+    "ReferenceEnvelopeCompilationV1",
+    "BoundaryResolvedEnvelopeV1[]",
+    "RawCoverageResultV1"
+  ],
+  "output": "ResolvedCoverageResultV1",
+  "review_context": {
+    "session_d_architecture": "ACCEPTED",
+    "prior_gate": "NEEDS_D_R1_HARDENING",
+    "current_gate": "ACCEPTED",
+    "session_v0": "OPEN",
+    "session_e": "NOT_OPEN"
+  },
+  "d_r1_hardening": [
+    "FrontReadingDeclarationV1 binds FrontReadingId to one FrontComponentId, source support, physical interval, ChainUseId, OwnerSectorId, and arrival LawId",
+    "SelfContactPairDeclarationV1 admits exactly one explicit same-lineage reading pair through declare_reference_self_contacts and public resolve_coverage_interactions",
+    "Cap arrival requires exactly one matching incident source support; missing and ambiguous readings fail named without fallback",
+    "equivalent canonical equality lines aggregate proven Angular/Strip reading provenance or fail INTERACTION_EQUIVALENT_LOCUS_PROVENANCE_UNPROVEN",
+    "Session D public identities are nominal OpaqueId subclasses and cannot alias EnvelopeSpecId, EnvelopeInstanceId, FrontComponentId, or FrontReadingId",
+    "unsupported Junction arrival is candidate-scoped and is inert when no candidate requires the Junction reading"
+  ],
+  "implemented": [
+    "topology-only InteractionComponentV1 compilation",
+    "exact Strip, Angular profile, and Cap front-arrival models",
+    "exact active-domain equality-locus clipping",
+    "MutualArrivalCertificateV1",
+    "INTRAPATCH_POLICY_B_V1 exact partition of existing contributions",
+    "explicit self-contact with two preserved front readings",
+    "C13 third Strip versus exposed K0/K1/K2 Angular profile",
+    "canonical ResolvedCoverageResultV1 semantic digest",
+    "named fail-closed multiway, coincident-law, missing-reading, ambiguous-Cap-reading, equivalent-locus-provenance, and unsupported-Junction outcomes"
+  ],
+  "semantic_invariants": [
+    "one topological component remains the exact union of its Strip, Angular, Junction, and Cap envelopes",
+    "competition is limited to distinct same-request same-PatchDomain components or explicit self-contact",
+    "before mutual arrival there is no interaction application",
+    "at and after mutual arrival existing matter is partitioned on the exact equality locus",
+    "participant retained interiors do not overlap",
+    "participant retained union has no gap relative to pre-interaction participant matter",
+    "the equality locus has no owner",
+    "no interaction creates new matter",
+    "the resolved global exact union equals RawCoverageResultV1",
+    "arrival is derived from source support laws and never reconstructed from emitted polygons"
+  ],
+  "fixture_corpus": {
+    "root": "kernel/fixtures/session_d_interactions_v1",
+    "case_count": 23,
+    "hash_law": "SHA256_UTF8_LF_NORMALIZED_V1",
+    "manifest": "kernel/fixtures/session_d_interactions_v1/fixture_hash_manifest.json",
+    "accepted_prior_corpora_modified": false
+  },
+  "primary_implementation": [
+    "kernel/src/cftuv_envelope/interactions/contracts.py",
+    "kernel/src/cftuv_envelope/interactions/arrival.py",
+    "kernel/src/cftuv_envelope/interactions/mutual_arrival.py",
+    "kernel/src/cftuv_envelope/interactions/equality_locus.py",
+    "kernel/src/cftuv_envelope/interactions/policy_b.py",
+    "kernel/src/cftuv_envelope/interactions/resolved_coverage.py"
+  ],
+  "documentation": "docs/envelope_ec2_5_interaction_resolver.md",
+  "not_implemented": [
+    "ownership",
+    "station or UV flow",
+    "tessellation",
+    "GeometryBatch materialization",
+    "event scheduler",
+    "Blender integration",
+    "native runtime",
+    "Voronoi, SDF, raster, tolerance, or approximate fallback"
+  ],
+  "restricted_session": {
+    "worktree": "C:/tmp/CFTUV-ec2_5-resolved-coverage-interactions",
+    "legacy_cftuv_source_present": false,
+    "legacy_decal_geometry_read": false,
+    "session_v0_implementation_started": false,
+    "session_e_opened": false
+  },
+  "approximation_used": false,
+  "risks": [
+    "the V0 Blender adapter must not infer self-contact from proximity or multiple readings; a real asset exports no pair or an explicit debug fixture selects one concrete compiled reading pair with one identical non-empty source lineage",
+    "coordinate-free or named-unsupported Session C geometry does not receive invented reading declarations and therefore cannot enter the Session D geometry resolver",
+    "Junction interaction remains unavailable until an exact Junction arrival law is separately accepted"
+  ],
+  "special_opinion": "Session D-R1 was accepted by reviewer. Static Blender envelope debug is open in a separate V0 session; Session E ownership and UV remain unauthorized, and production mesh decal is not ready.",
+  "next_session_allowlist": [
+    "SESSION_V0_BLENDER_ENVELOPE_DEBUG_BRIDGE"
+  ]
+}

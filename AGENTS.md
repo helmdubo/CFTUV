@@ -37,6 +37,113 @@ loop-sequential, or corner-based placement is an architectural regression.
 
 ---
 
+## Envelope Kernel Pivot Contract (AM7)
+
+This contract applies to the new Blender-free decal envelope kernel. It does
+not change the chain-first strongest-frontier rule of the existing UV solve.
+
+Before any EC0-P–EC8 kernel task, read:
+
+1. `docs/decal_envelope_roadmap_compromise.md`
+2. `docs/envelope_kernel_pivot_instructions.md`
+3. `docs/envelope_backend_semantics.md`
+
+Non-negotiable model:
+
+- `PatchDomain` is the propagation field. A pChain is a front source, never a
+  private field or independent solve domain.
+- `PhysicalChain` stores physical edge/vertex identity. `ChainUse` stores one
+  directed patch-side use with owner Patch, loop, orientation, side, and roles.
+- A seam between two Patches produces two ChainUses in different domains.
+  `SEAM_SELF` produces two distinct ChainUses in one domain. Do not merge them.
+- All active sources of one `DecalRequestId` and one PatchDomain are evaluated
+  together. Execution key is `(DecalRequestId, PatchDomainId)`. The kernel
+  produces one patch-level single-cover union, then resolves interactions,
+  then ownership. Per-pChain materialization followed by post-hoc stitching is
+  an architectural regression.
+- Corner/Junction remain derived analysis relations, not primary topology or
+  solve units. Their compile-static seeds are atomic envelope inputs.
+- Case 16 policy is B: same-decal, same-Patch wing contributions clip at the
+  mutual equality locus after mutual arrival. Cross-decal and cross-Patch
+  collision are forbidden. Self-collision uses the same contract.
+- A front may continue, reach a named event, or produce a named failure. Silent
+  disappearance is forbidden.
+- Envelope v1 uses `BOUNDARY_LIMITED_PROPAGATION`. An ordinary directed
+  `ChainUse` has exactly one owner-interior `FrontComponent`. Additional
+  sectors/components are legal only when analysis explicitly proves distinct
+  Patch sectors; never synthesize default `left/right` sectors for one use.
+- Boundary facts distinguish `TOPOLOGICAL_BOUNDARY_USE`,
+  `PHYSICAL_DOMAIN_BARRIER`, and `SOURCE_LAUNCH_BOUNDARY`. A launch support
+  never blocks its originating seed. Topological seam-cut identity alone is
+  not a physical barrier. Contact clips/shrinks a component; it does not stop
+  other sources or the opposite use of a physical chain.
+- Endpoint contact may slide/shrink on the same boundary component. Interior
+  contact that would split an active interval emits `BARRIER_SPLIT_REQUIRED`
+  at the exact contact alpha; no ambiguous "slide or split later" state.
+- A v1 FrontComponent may not increase its active branch count. If obstacle
+  bypass would require split/path choice/merge, emit capacity reason
+  `BARRIER_SPLIT_REQUIRED`, preserve `requested_alpha`, clamp only that
+  component to proven `effective_alpha`, and report boundary capacity reached.
+- First/last front vertex criteria, boundary rollback, material teleportation
+  behind an obstacle, and global pChain/Patch stop are forbidden. Full obstacle
+  bypass belongs to EC8+.
+
+Required pipeline:
+
+```text
+Patch/PhysicalChain/ChainUse facts
+→ PatchDomain + sectors/holes/barriers
+→ seeds
+→ FrontComponents and local contributions grouped by (DecalRequestId, PatchDomainId)
+→ boundary-limited resolution
+→ patch union
+→ intra-Patch interactions
+→ ownership
+→ SemanticArrangement
+→ GeometryBatch
+```
+
+Contract ownership is one-way:
+
+```text
+AnalysisSnapshotV1 (host facts only)
++ DecalRequestV1 (user/request policy)
+→ CompiledPatchEvaluationPlan (kernel-owned seeds/fronts/envelopes/events)
+→ GeometryBatch
+```
+
+`AnalysisSnapshotV1` must never contain seeds, FrontComponents, envelopes,
+active intervals, effective alpha, capacity state, or kernel events.
+
+Cross-Patch collision remains forbidden, but cross-Patch topology coordination
+is required: one global `JunctionRelation` may produce per-Patch projections
+sharing one semantic anchor and provenance.
+
+Project artifact policy: do not create presentation visuals for requirements,
+roadmaps, reviews, handoffs, or acceptance. This includes SVG/PNG semantic
+sheets, contact sheets, slide-like diagrams, decks, and interactive HTML
+presentations. Prefer prose, code, JSON, schemas, validator code, and validator
+output. Screenshots captured from Blender viewport, UV Editor, or Blender debug
+overlays are allowed as diagnostic/runtime evidence; they are not semantic
+authority by themselves. Existing Grease Pencil/debug visualization remains a
+runtime diagnostic facility, not authorization to create presentation assets.
+
+Role separation remains mandatory:
+
+- Kernel implementer does not read `cftuv/decal_voronoi.py` or legacy parts of
+  `cftuv/decals.py`.
+- Legacy Evidence Curator reads legacy evidence but does not write kernel code.
+- Host Adapter Author maps contracts and does not repair geometry.
+- These roles run in separate sessions/contexts.
+
+EC1 must not start until the canonical coordinate-free JSON corpus and prose
+explicitly define PatchDomain, PhysicalChain, ChainUse, request identity,
+seeds, patch union, interactions, ownership, UV/station flow, boundary contact
+topology, cross-Patch junction coordination, and mixed-alpha shared envelopes;
+the reproducible corpus validator must pass and the user must accept the text.
+
+---
+
 ## Module Layout
 
 ```text
@@ -174,7 +281,8 @@ patches meet. Diagnostic/research entity, not solve runtime.
 - Types: dataclass for data, regular classes for operators
 - Core analysis/solve modules do not add third-party dependencies. Decal-only
   geometry dependencies must be documented, isolated behind their backend,
-  and have an explicit unavailable/unsupported fallback path.
+  and have an explicit named unavailable/unsupported outcome. Geometry
+  fallback is prohibited unless separately approved by the user.
 
 ---
 

@@ -1,0 +1,170 @@
+{
+  "schema": "cftuv.envelope.v0.session_v0_handoff.v1",
+  "status": "SESSION_V0_READY_FOR_REVIEW",
+  "session": "V0",
+  "scope": "BLENDER_ENVELOPE_DEBUG_BRIDGE",
+  "branch": "codex/v0-blender-envelope-debug",
+  "accepted_session_d_r1_base_sha": "d90c0c366ed32dd0bee3647e21e89772e26c3a83",
+  "v0_a_receipt_sha": "74e6207ac34e2c2998f3186f50b024c77488eab7",
+  "implementation_sha": "c642c5e0182ae8e4a6d0f90c0992f9d3c5a27a3a",
+  "ci_tested_sha": "c642c5e0182ae8e4a6d0f90c0992f9d3c5a27a3a",
+  "ci": {
+    "workflow": "Envelope kernel contracts",
+    "run_id": 30031928486,
+    "run_url": "https://github.com/helmdubo/CFTUV/actions/runs/30031928486",
+    "conclusion": "success",
+    "started_at": "2026-07-23T18:01:33Z",
+    "completed_at": "2026-07-23T18:05:12Z",
+    "jobs": [
+      {
+        "name": "blender-free-host-bridge-v0b",
+        "job_id": 89290317104,
+        "conclusion": "success",
+        "url": "https://github.com/helmdubo/CFTUV/actions/runs/30031928486/job/89290317104"
+      },
+      {
+        "name": "kernel-hermetic",
+        "job_id": 89290317088,
+        "conclusion": "success",
+        "url": "https://github.com/helmdubo/CFTUV/actions/runs/30031928486/job/89290317088"
+      },
+      {
+        "name": "kernel-extraction-readiness",
+        "job_id": 89290316963,
+        "conclusion": "success",
+        "url": "https://github.com/helmdubo/CFTUV/actions/runs/30031928486/job/89290316963"
+      }
+    ]
+  },
+  "local_validation": {
+    "kernel_source": {
+      "result": "172 passed",
+      "duration_seconds": 150.52
+    },
+    "host_and_renderer_contracts": {
+      "result": "19 passed",
+      "duration_seconds": 2.94
+    },
+    "wheel_outside_checkout": {
+      "result": "172 passed",
+      "duration_seconds": 153.05
+    },
+    "extracted_empty_repository": {
+      "result": "172 passed",
+      "duration_seconds": 150.98,
+      "post_build_git_status": "clean"
+    },
+    "blender_4_3_background_smoke": "ENVELOPE_DEBUG_BLENDER_SMOKE_OK",
+    "request_scoped_patch_frame_fixture": {
+      "selected_domains": 1,
+      "unselected_tilted_patch_present": true,
+      "grease_pencil_layers": 19,
+      "grease_pencil_strokes": 45,
+      "exact_frame_unavailable": false
+    },
+    "building_002_source_asset": {
+      "blend_path": "E:/testscene.blend",
+      "selected_edges": [
+        11,
+        12
+      ],
+      "host_patch_id": 3,
+      "source_face_ids": [
+        3
+      ],
+      "source_vertices_exactly_coplanar": true,
+      "approximate_host_basis_used_as_certificate": false,
+      "exact_unit_normal_is_rational": false,
+      "result": "ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE",
+      "reason": "host Patch 3 exact plane has no rational unit normal",
+      "source_file_modified_or_saved": false
+    },
+    "forbidden_kernel_import_scan": "OK",
+    "host_legacy_import_scan": "OK",
+    "generated_contract_schemas": "OK",
+    "accepted_session_a_fixture_projection": "OK"
+  },
+  "implemented": [
+    "immutable Blender-free EnvelopeDebugSceneV1 with exact patch display frames",
+    "GreasePencilDebugWriter compatibility boundary centralized in cftuv/debug.py",
+    "19-layer Envelope Debug renderer with semantic sidecar Text data",
+    "thin Build, Clear, alpha, and ten visibility controls in the Hotspot UV panel",
+    "public AnalysisBundle to Snapshot, Request, RawCoverage, ResolvedCoverage, and DebugScene pipeline",
+    "request-scoped exact-frame admission after whole-PhysicalChain selection",
+    "full source seam-pair topology validation before omitting unselected PatchDomains",
+    "exact endpoint-topology common refinement for unequal patch-side seam partitions",
+    "exact plane and frame derivation from PatchDomain source vertices",
+    "approximate host U/V/N used only as orientation hints",
+    "canonical signed-axis plane origins without arbitrary-vertex subtraction",
+    "host Patch and signed plane delta in exact-coplanarity failures",
+    "source matrix_world display lift without returning floats to kernel semantics",
+    "CLEAR behavior for empty selection and failed rebuild",
+    "Blender 4.3 addon installation with cftuv-envelope-core 0.5.0 and sympy 1.14.0"
+  ],
+  "frame_admission": {
+    "scope": "PATCH_DOMAINS_REACHED_BY_SELECTED_WHOLE_PHYSICAL_CHAINS",
+    "whole_mesh_planarity_required": false,
+    "unselected_patch_can_block": false,
+    "selected_physical_seam_requires_both_patch_domains": true,
+    "basis_rounding": false,
+    "tolerance": false,
+    "legacy_fallback": false,
+    "exact_seam_partition_common_refinement": true,
+    "geometry_derived_frame": true,
+    "host_basis_certificate_required": false,
+    "remaining_v0_limit": "Every selected PatchDomain must be exactly coplanar and admit an exact orthonormal frame and 2D coordinates representable through the public float-valued contracts. An exact plane with an irrational unit normal remains outside V0 and requires a separately accepted algebraic-frame contract. Seam topology defines PatchDomains; Sharp flags do not split them."
+  },
+  "blender_runtime": {
+    "version": "4.3.2",
+    "addon_path": "C:/Users/helmd/AppData/Roaming/Blender Foundation/Blender/4.3/scripts/addons/cftuv",
+    "dependency_path": "C:/Users/helmd/AppData/Roaming/Blender Foundation/Blender/4.3/scripts/addons/modules",
+    "kernel_version": "0.5.0",
+    "sympy_version": "1.14.0",
+    "installed_file_hashes_match_checkout": true,
+    "viewport_evidence": [
+      "artifacts/envelope_v0/session_v0b_viewport.blend",
+      "artifacts/envelope_v0/session_v0b_viewport.png"
+    ]
+  },
+  "smoke_coverage": [
+    "axis-aligned exact-planar domain",
+    "selected exact patch with unrelated unselected tilted patch",
+    "two planar PatchDomains on one physical seam",
+    "unequal patch-side seam partitions with exact common refinement",
+    "canonical signed-axis plane origin without float-subtraction round-trip failure",
+    "exact plane accepted despite approximate host normalized basis",
+    "exact plane with irrational unit normal rejected by named diagnostic",
+    "K0 K1 K2 Angular hidden supports",
+    "mutual arrival before at after equality locus",
+    "hole and concave BARRIER_SPLIT_REQUIRED",
+    "unsupported Junction diagnostic",
+    "stale result clearing",
+    "explicit Clear",
+    "source mesh non-mutation",
+    "absence of production decal objects"
+  ],
+  "not_implemented": [
+    "ownership",
+    "station or UV flow",
+    "tessellation",
+    "GeometryBatch production",
+    "production decal mesh",
+    "modal drag or event scheduler",
+    "native runtime",
+    "curved PatchDomain evaluation",
+    "algebraic exact planar frame representation",
+    "automatic self-contact declaration",
+    "legacy decal geometry fallback"
+  ],
+  "restricted_session": {
+    "worktree": "C:/tmp/CFTUV-v0-blender-envelope-debug",
+    "legacy_decal_voronoi_present": false,
+    "legacy_decals_present": false,
+    "legacy_decal_geometry_read": false,
+    "session_e_opened": false
+  },
+  "next_gate": {
+    "session_v0": "REVIEW_REQUIRED",
+    "session_e": "NOT_OPEN"
+  }
+}

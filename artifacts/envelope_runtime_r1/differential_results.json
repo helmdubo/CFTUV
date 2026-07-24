@@ -1,0 +1,95 @@
+{
+  "schema": "cftuv.envelope.runtime_metric_m_r1_receipt.v1",
+  "session": "SESSION_M_R1_RATIONAL_AFFINE_REFERENCE_AND_FILTERED_RUNTIME",
+  "status": "LOCAL_ACCEPTANCE_COMPLETE_CI_PENDING",
+  "accepted_base_sha": "51996a4a574a290042014c14ba29d1a034a605db",
+  "metric_contracts": {
+    "package_version": "0.6.0",
+    "reference": "RationalAffinePlanarMetricV2",
+    "runtime": "RuntimePlanarMetricV1",
+    "admission": "EXACT_SOURCE_PLANE_V1",
+    "near_planar_outcome": "RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED",
+    "runtime_authority": "DERIVED_BINARY64_VIEW_ONLY",
+    "fallback_authority": "AUTHORITATIVE_REFERENCE_METRIC_V2",
+    "semantic_identity": "EXACT_CONSTRUCTION_CERTIFICATES_ONLY"
+  },
+  "blocking_corpus": {
+    "runtime_equals_reference_fields": [
+      "semantic_vertices",
+      "atomic_edges",
+      "loops",
+      "regions",
+      "provenance",
+      "event_identity",
+      "failure_identity",
+      "semantic_digest"
+    ],
+    "fixtures": [
+      "axis_aligned",
+      "arbitrary_rotated_plane",
+      "forty_five_degrees",
+      "irrational_unit_normal",
+      "micro_scale",
+      "huge_coordinates",
+      "same_plane_after_rotation",
+      "surface_retriangulation",
+      "nearly_planar_outside_policy"
+    ],
+    "rotation_divergences_from_m_r0": "CLOSED",
+    "rigid_rotation_full_raw_result_equal": true,
+    "surface_retriangulation_raw_digest_equal": true,
+    "near_planar_projection_used": false,
+    "snapping_used": false,
+    "tolerance_used": false
+  },
+  "filtered_predicate_evidence": {
+    "fixture": "collinear source-vertex orient2d",
+    "filtered_predicate_count": 2,
+    "fast_path_certified_count": 1,
+    "exact_fallback_count": 1,
+    "fallback_fraction": "1/2",
+    "fallback_source": "RationalAffinePlanarMetricV2 exact source coordinates",
+    "rounded_runtime_frame_rationalized": false
+  },
+  "building_002": {
+    "source_file": "E:\\testscene.blend",
+    "source_object": "building.002",
+    "full_scope_receipt": "artifacts/envelope_runtime_r1/building_002.json",
+    "precise_patch0_receipt": "artifacts/envelope_runtime_r1/patch0_diagnostic.json",
+    "selected_edge_12": {
+      "patch_0": "RAW_READY/EXACT",
+      "patch_3": "RAW_READY/EXACT"
+    },
+    "field_scopes_recorded": [
+      "one_chain_l0",
+      "three_chains_l0",
+      "ten_chains_l0",
+      "all_seam_chains_l0"
+    ],
+    "silent_domain_omission": false,
+    "patch_0_final_outcome": "REFERENCE_ARRANGEMENT_NON_MANIFOLD",
+    "patch_0_previous_generic_outcome": "REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE",
+    "patch_0_exact_diagnostic": "exact union boundary is non-manifold at a construction vertex",
+    "source_mesh_unchanged": true,
+    "mesh_fingerprint_before": "3205834b7ead22cf1eb8985902144ca1c7295a88b8015556b364be17d8ac9021",
+    "mesh_fingerprint_after": "3205834b7ead22cf1eb8985902144ca1c7295a88b8015556b364be17d8ac9021"
+  },
+  "local_validation": {
+    "metric_focused": "17 passed in 25.55s",
+    "host_adapter_and_renderer": "26 passed in 11.12s",
+    "wheel_outside_checkout": "205 passed in 246.59s",
+    "extracted_kernel": "205 passed in 247.37s",
+    "generated_contract_schemas": "OK",
+    "forbidden_import_scan": "OK",
+    "accepted_session_a_fixture_projection": "OK",
+    "l0_evidence_validator": "4 cases, 36 physical chains, 60 chain uses"
+  },
+  "scope_guards": {
+    "legacy_geometry_read_or_invoked": false,
+    "envelope_semantics_changed": false,
+    "interaction_policy_changed": false,
+    "ownership_changed": false,
+    "renderer_changed": false,
+    "v0_r2_started": false
+  }
+}

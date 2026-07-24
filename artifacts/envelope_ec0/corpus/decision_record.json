@@ -1,0 +1,187 @@
+{
+  "schema": "cftuv.envelope.ec0.decision_record.v1",
+  "source_history_commit": "b16be81e37e7fdd7ce3ae0f70aff41106952903e",
+  "decisions": [
+    {
+      "id": "AM4",
+      "authority": "USER_REQUIRED",
+      "selected": "B_COVERAGE_CLIP",
+      "rejected": [
+        "A_OWNERSHIP_ONLY",
+        "C_NEW_MATTER"
+      ],
+      "scope": "ONE_DECAL_REQUEST_ONE_OWNER_PATCH_INCLUDING_SELF_COLLISION"
+    },
+    {
+      "id": "AM11_ANGULAR_MODEL",
+      "authority": "USER_REQUIRED",
+      "selected": "LINEAR_REFLEX_ANGULAR_ENVELOPE_PROFILE",
+      "rejected": [
+        "SEPARATE_CORE_MITER_BEVEL_ROUND_ALGORITHMS",
+        "VORONOI_POINT_SITE_CORNER_SILHOUETTE",
+        "UNCONTROLLED_SAMPLED_FAN"
+      ],
+      "scope": "ANGULAR_ENVELOPE_CORE_SEMANTICS",
+      "notes": [
+        "CornerRelation and AngularEnvelopeSpec are different authority levels.",
+        "Zero-length hidden edges remain local support features inside AngularEnvelopeSpec.",
+        "A finite profile-controlled polygonal fan is accepted semantic boundary geometry.",
+        "Historic join names may exist only as UI or migration presets that compile to a profile."
+      ]
+    },
+    {
+      "id": "AM11_EVENT_LEDGER",
+      "authority": "USER_REQUIRED",
+      "selected": "LAZY_DETERMINISTIC_EVENT_LEDGER",
+      "rejected": [
+        "EAGER_COMPLETE_EVENT_SCHEDULE_BEFORE_FIRST_FRAME",
+        "SMALL_STEP_SIMULATION",
+        "RUNTIME_SEMANTIC_RULE_DISCOVERY"
+      ],
+      "scope": "COMPILED_PREVIEW_AND_DRAG",
+      "notes": [
+        "Envelope laws, event predicates and transition types are compiled before use.",
+        "Successor event instances may be scheduled lazily during drag.",
+        "Only complete exact states may be published."
+      ]
+    },
+    {
+      "id": "AM11_DOWNSTREAM_TESSELLATION",
+      "authority": "USER_REQUIRED",
+      "selected": "REPRESENTATION_AFTER_SEMANTIC_ARRANGEMENT",
+      "rejected": [
+        "TESSELLATION_SELECTS_SILHOUETTE",
+        "TESSELLATION_INFERS_OWNER_OR_PROVENANCE",
+        "POST_MESH_SHAPE_REPAIR"
+      ],
+      "scope": "SEMANTIC_ARRANGEMENT_TO_GEOMETRY_BATCH",
+      "notes": [
+        "Tessellation starts only after coverage, interactions, ownership and semantic coalescing are authoritative.",
+        "A profile-controlled AngularEnvelope fan is semantic geometry, not tessellation noise.",
+        "Internal fill diagonals and face decomposition are representational and excluded from the semantic digest."
+      ]
+    },
+    {
+      "id": "VISUAL_POLICY",
+      "authority": "USER_REQUIRED",
+      "selected": "TEXT_JSON_VALIDATOR",
+      "rejected": [
+        "SVG_PRESENTATIONS",
+        "PNG_PRESENTATIONS",
+        "INTERACTIVE_PRESENTATIONS"
+      ],
+      "allowed": [
+        "BLENDER_SCREENSHOTS"
+      ]
+    },
+    {
+      "id": "A1_ANGULAR_PROFILE_SELECTION",
+      "authority": "USER_REQUIRED",
+      "selected": "MIN_K_FOR_MAX_SUBTURN_V1",
+      "angular_profile_id": "LINEAR_REFLEX_EQUAL_V1",
+      "parameter_ref": "LINEAR_REFLEX_MAX_SUBTURN_V1",
+      "selection_law": "K_EQUALS_MAX_ZERO_CEIL_DELTA_OVER_DELTA_MAX_MINUS_ONE",
+      "equivalent_constraint": "K_IS_MINIMUM_NONNEGATIVE_INTEGER_WITH_DELTA_OVER_K_PLUS_ONE_LEQ_DELTA_MAX",
+      "selection_inputs": [
+        "EXACT_OR_CERTIFIED_ORIENTED_REFLEX_ANGLE",
+        "USER_APPROVED_NAMED_MAX_SUBTURN_PARAMETER"
+      ],
+      "rejected": [
+        "MANUAL_K0_K1_PER_CORNER_PRODUCT_SELECTOR",
+        "HISTORIC_CASE_NAME_SELECTS_K",
+        "TESSELLATION_OR_FIXTURE_SELECTS_K"
+      ],
+      "scope": "ALL_ANGULAR_ENVELOPE_SPECS"
+    },
+    {
+      "id": "A2_ORIENTED_ANGULAR_SECTOR",
+      "authority": "USER_REQUIRED",
+      "selected": "ORDERED_SUPPORTS_INSIDE_ANALYSIS_PROVEN_OWNER_SECTOR",
+      "required_facts": [
+        "OWNER_SECTOR_ID",
+        "ORDERED_INCIDENT_CHAIN_USE_IDS",
+        "INCOMING_SUPPORT_REF",
+        "OUTGOING_SUPPORT_REF",
+        "TURN_ORIENTATION",
+        "REFLEX_ANGLE_MEASURE_REF"
+      ],
+      "hidden_support_turn_fraction_law": "J_OVER_K_PLUS_ONE_FOR_J_ONE_THROUGH_K",
+      "local_profile_cardinality_law": "K_PLUS_TWO_SUPPORTS_AND_K_PLUS_TWO_PROFILE_SEGMENTS_BEFORE_CLIP_UNION_INTERACTION",
+      "exposure_law": "LOCAL_PROFILE_SEGMENT_IS_EXPOSED_ONLY_WHEN_ON_RESOLVED_COVERAGE_SILHOUETTE",
+      "scope": "ANGULAR_RELATION_AND_HIDDEN_SUPPORT_DIRECTION"
+    },
+    {
+      "id": "A1_MAX_SUBTURN_DEFAULT",
+      "authority": "USER_REQUIRED",
+      "status": "USER_SELECTED",
+      "parameter_ref": "LINEAR_REFLEX_MAX_SUBTURN_V1",
+      "quantity": "MAX_ALLOWED_REFLEX_SUBTURN",
+      "selected_value": {
+        "value_id": "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1",
+        "exact_radian_expression": "PI_OVER_3",
+        "degrees": 60,
+        "turn_fraction": "1/6",
+        "unit": "ANGLE"
+      },
+      "selection_source": "EXPLICIT_USER_DECISION",
+      "change_control": "MAY_CHANGE_AFTER_RUNTIME_TESTS_BUT_REQUIRES_EXPLICIT_SEMANTIC_UPDATE_AND_REVALIDATION",
+      "forbidden_agent_action": "DO_NOT_SILENTLY_RETUNE_OR_HIDE_A_DIFFERENT_VALUE",
+      "scope": "PRODUCTION_DECAL_REQUEST_DEFAULT"
+    },
+    {
+      "id": "SESSION_A_FINAL_ACCEPTANCE",
+      "authority": "USER_REQUIRED",
+      "status": "USER_ACCEPTED",
+      "accepted_contract": "EC0_SESSION_A_LINEAR_REFLEX_REBASELINE_V5_WITH_60_DEGREE_DEFAULT",
+      "acceptance_evidence": "USER_DIRECTED_IMMEDIATE_CONTINUATION_IF_SESSION_A_WAS_NOT_YET_CLOSED",
+      "accepted_items": [
+        "LINEAR_REFLEX_EQUAL_V1",
+        "MIN_K_FOR_MAX_SUBTURN_V1",
+        "LINEAR_REFLEX_MAX_SUBTURN_V1_EQUALS_PI_OVER_3_60_DEGREES",
+        "ORIENTED_OWNER_SECTOR_AND_ORDERED_SUPPORTS",
+        "K_PLUS_TWO_LOCAL_PROFILE_CARDINALITY",
+        "TYPED_ENVELOPE_SPEC_UNION",
+        "STRIP_SUPPORT_AND_CAP_CLOSURE_LAWS",
+        "EXPLICIT_OWNERSHIP_PARTITION",
+        "LAZY_DETERMINISTIC_EVENT_LEDGER",
+        "DOWNSTREAM_TESSELLATION_INVARIANTS",
+        "CASES_C01_THROUGH_C16_AND_P01_THROUGH_P07",
+        "CASE_16_POLICY_B"
+      ],
+      "next_session_rule": "SESSION_B_MAY_START_ONLY_IN_A_SEPARATE_RESTRICTED_CONTEXT"
+    }
+  ],
+  "review_only_not_semantic": [
+    {
+      "authority": "LEGACY_COMPATIBILITY",
+      "items": [
+        "LEGACY_FACE_COUNT_OR_TESSELLATION",
+        "LEGACY_NUMERIC_UV_CONVENTIONS_BEYOND_STATION_CONTINUITY",
+        "LEGACY_RUNTIME_NAMES_AS_REQUIRED_API",
+        "HISTORIC_MITER_BEVEL_ROUND_NAMES_AS_KERNEL_ALGORITHMS"
+      ]
+    },
+    {
+      "authority": "IMPLEMENTATION_ACCIDENT",
+      "items": [
+        "AUTOMATIC_LEFT_RIGHT_SECTORS_PER_CHAIN_USE",
+        "STATION_BUCKETS_AS_REQUIRED_FREEZE_MECHANISM",
+        "FIRST_OR_LAST_GENERATED_VERTEX_AS_COMPLETION",
+        "PER_SOURCE_MATERIALIZATION_THEN_POST_HOC_UNION",
+        "DATA_RECORD_BOUNDARY_AS_PHYSICAL_CAP_OR_OWNER_DIVIDER",
+        "VORONOI_FAN_OR_ARC_AS_ANGULAR_SILHOUETTE",
+        "TESSELLATION_AS_SHAPE_AUTHORITY"
+      ]
+    },
+    {
+      "authority": "OPEN_RESEARCH",
+      "items": [
+        "PRODUCTION_EXACT_ARRANGEMENT_BACKEND",
+        "OBSTACLE_BYPASS_WITH_SPLIT_AND_MERGE",
+        "NONLOCAL_OWNERSHIP_TOURNAMENT",
+        "GLOBAL_CONFLICT_REFINEMENT_FOR_LINEAR_AXIS_EQUIVALENCE",
+        "GENERAL_CURVED_SURFACE_ENVELOPE_EVALUATOR"
+      ]
+    }
+  ]
+}

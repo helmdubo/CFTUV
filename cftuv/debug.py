@@ -57,6 +57,8 @@ _DECAL_RAIL_EVENT_LAYER = {
     'MARK': 'Marks',
 }
 _DECAL_RAIL_MARKER_SIZE = 0.025
+ENVELOPE_DEBUG_GP_PREFIX = 'CFTUV_DEBUG_Envelope_'
+ENVELOPE_DEBUG_MATERIAL_PREFIX = 'CFTUV_EnvelopeDebug_'
 
 
 def _enum_value(value):
@@ -255,6 +257,14 @@ def _new_gp_stroke(frame, point_count):
     return drawing.strokes[-1]
 
 
+def _gp_frame_strokes(frame):
+    strokes = getattr(frame, 'strokes', None)
+    if strokes is not None:
+        return strokes
+    drawing = getattr(frame, 'drawing', None)
+    return getattr(drawing, 'strokes', ()) if drawing is not None else ()
+
+
 def _set_gp_stroke_style(stroke, line_width, cyclic):
     if hasattr(stroke, 'line_width'):
         stroke.line_width = line_width
@@ -284,12 +294,13 @@ def _set_gp_stroke_point(point, location, line_width):
 
 def _add_gp_stroke(frame, points, mat_idx, line_width=4, cyclic=False):
     if len(points) < 2:
-        return
+        return None
     stroke = _new_gp_stroke(frame, len(points))
     stroke.material_index = mat_idx
     _set_gp_stroke_style(stroke, line_width, cyclic)
     for index, point in enumerate(points):
         _set_gp_stroke_point(stroke.points[index], point, line_width)
+    return stroke
 
 
 def _ensure_gp_material(gp_data, mat_name, color_rgba):
@@ -307,6 +318,123 @@ def _ensure_gp_material(gp_data, mat_name, color_rgba):
             return index
     gp_data.materials.append(mat)
     return len(gp_data.materials) - 1
+
+
+class GreasePencilDebugWriter:
+    """Единая version-aware запись произвольных diagnostic GP paths."""
+
+    def __init__(
+        self,
+        source_obj,
+        object_name,
+        *,
+        material_prefix=ENVELOPE_DEBUG_MATERIAL_PREFIX,
+    ):
+        self.object_name = str(object_name)
+        self.material_prefix = str(material_prefix)
+        self.clear_object(self.object_name, material_prefix=self.material_prefix)
+
+        gp_collection = _grease_pencil_object_collection()
+        if gp_collection is None:
+            raise RuntimeError(
+                "Grease Pencil data-block collection is unavailable "
+                "in this Blender version"
+            )
+        gp_data = gp_collection.new(self.object_name)
+        gp_obj = bpy.data.objects.new(self.object_name, gp_data)
+        bpy.context.scene.collection.objects.link(gp_obj)
+        gp_obj.matrix_world = source_obj.matrix_world.copy()
+        if hasattr(gp_obj, 'show_in_front'):
+            gp_obj.show_in_front = True
+        gp_obj.hide_render = True
+        if hasattr(gp_data, 'stroke_depth_order'):
+            gp_data.stroke_depth_order = '3D'
+        if hasattr(gp_data, 'stroke_thickness_space'):
+            gp_data.stroke_thickness_space = 'SCREENSPACE'
+
+        self.object = gp_obj
+        self.data = gp_data
+        self._frames = {}
+        self._material_indices = {}
+
+    @staticmethod
+    def clear_object(object_name, *, material_prefix=None):
+        gp_obj = bpy.data.objects.get(str(object_name))
+        gp_data = None
+        if gp_obj is not None:
+            gp_data = getattr(gp_obj, 'data', None)
+            bpy.data.objects.remove(gp_obj, do_unlink=True)
+        if gp_data is not None and getattr(gp_data, 'users', 0) == 0:
+            for collection in _grease_pencil_collections():
+                try:
+                    collection.remove(gp_data)
+                    break
+                except (KeyError, RuntimeError, TypeError):
+                    continue
+        if material_prefix:
+            for material in list(bpy.data.materials):
+                if (
+                    material.name.startswith(str(material_prefix))
+                    and material.users == 0
+                ):
+                    bpy.data.materials.remove(material)
+
+    @staticmethod
+    def set_layer_visibility(object_name, visibility_by_layer):
+        gp_obj = bpy.data.objects.get(str(object_name))
+        if not is_gp_debug_object(gp_obj):
+            return False
+        for layer_name, visible in visibility_by_layer.items():
+            layer = get_gp_layer(gp_obj.data, layer_name)
+            if layer is not None:
+                layer.hide = not bool(visible)
+        return True
+
+    def ensure_layer(
+        self,
+        layer_name,
+        color_rgba,
+        *,
+        visible=True,
+    ):
+        layer_name = str(layer_name)
+        layer = get_gp_layer(self.data, layer_name)
+        if layer is None:
+            layer = self.data.layers.new(layer_name, set_active=False)
+        else:
+            _clear_gp_layer(layer)
+        frame = layer.frames[0] if layer.frames else layer.frames.new(0)
+        layer.hide = not bool(visible)
+        material_index = _ensure_gp_material(
+            self.data,
+            self.material_prefix + layer_name,
+            color_rgba,
+        )
+        self._frames[layer_name] = frame
+        self._material_indices[layer_name] = material_index
+        return layer
+
+    def add_path(
+        self,
+        layer_name,
+        points,
+        *,
+        line_width=4,
+        cyclic=False,
+    ):
+        frame = self._frames[str(layer_name)]
+        stroke_index = len(_gp_frame_strokes(frame))
+        stroke = _add_gp_stroke(
+            frame,
+            list(points),
+            self._material_indices[str(layer_name)],
+            line_width=int(line_width),
+            cyclic=bool(cyclic),
+        )
+        return stroke_index if stroke is not None else None
+
+    def stroke_count(self):
+        return sum(len(_gp_frame_strokes(frame)) for frame in self._frames.values())
 
 
 def _ensure_gp_fill_material(gp_data, mat_name, color_rgba):
@@ -1140,6 +1268,8 @@ def create_decal_rail_visualization(rail_plan, source_obj):
 
 
 __all__ = [
+    'ENVELOPE_DEBUG_GP_PREFIX',
+    'GreasePencilDebugWriter',
     'apply_layer_visibility',
     'clear_decal_rail_visualization',
     'create_visualization',

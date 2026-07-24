@@ -1,0 +1,808 @@
+{
+  "$defs": {
+    "ChainUseId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "ChainUseId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ContractVersionId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "ContractVersionId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "DecalRequestId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "DecalRequestId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "GeometryBatchV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "GeometryBatchV1"
+        },
+        "boundary_chains": {
+          "items": {
+            "$ref": "#/$defs/GeometryBoundaryChainV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "contract_versions": {
+          "items": {
+            "$ref": "#/$defs/ContractVersionId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "decal_request_id": {
+          "$ref": "#/$defs/DecalRequestId"
+        },
+        "diagnostics": {
+          "items": {
+            "$ref": "#/$defs/GeometryDiagnosticV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "faces": {
+          "items": {
+            "$ref": "#/$defs/GeometryFaceV1"
+          },
+          "type": "array"
+        },
+        "interface_chains": {
+          "items": {
+            "$ref": "#/$defs/GeometryInterfaceChainV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "semantic_digest": {
+          "$ref": "#/$defs/SemanticDigestValue"
+        },
+        "semantic_regions": {
+          "items": {
+            "$ref": "#/$defs/GeometrySemanticRegionV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source_revision": {
+          "$ref": "#/$defs/SourceRevision"
+        },
+        "station_facts": {
+          "items": {
+            "$ref": "#/$defs/GeometryStationFactV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "vertices": {
+          "items": {
+            "$ref": "#/$defs/GeometryVertexV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "schema_version",
+        "source_revision",
+        "decal_request_id",
+        "patch_domain_id",
+        "vertices",
+        "faces",
+        "station_facts",
+        "semantic_regions",
+        "boundary_chains",
+        "interface_chains",
+        "diagnostics",
+        "contract_versions",
+        "semantic_digest"
+      ],
+      "type": "object"
+    },
+    "GeometryBoundaryChainV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "GeometryBoundaryChainV1"
+        },
+        "ordered_vert_keys": {
+          "items": {
+            "$ref": "#/$defs/VertexKey"
+          },
+          "type": "array"
+        },
+        "semantic_boundary_id": {
+          "$ref": "#/$defs/SemanticBoundaryId"
+        }
+      },
+      "required": [
+        "$type",
+        "semantic_boundary_id",
+        "ordered_vert_keys"
+      ],
+      "type": "object"
+    },
+    "GeometryDiagnosticId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "GeometryDiagnosticId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "GeometryDiagnosticV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "GeometryDiagnosticV1"
+        },
+        "diagnostic_id": {
+          "$ref": "#/$defs/GeometryDiagnosticId"
+        },
+        "outcome": {
+          "enum": [
+            "DECAL_ANALYSIS_SCHEMA_UNSUPPORTED",
+            "BARRIER_SPLIT_REQUIRED",
+            "BARRIER_BYPASS_UNSUPPORTED",
+            "SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN",
+            "OWNERSHIP_PARTITION_UNPROVEN",
+            "PENDING_EXACT_EVALUATION",
+            "APPROXIMATE_MATERIALIZATION_PENDING",
+            "JUNCTION_ROUTE_PAIRING_REQUIRED",
+            "ANGULAR_PROFILE_SELECTION_UNCERTAIN",
+            "RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED"
+          ],
+          "type": "string"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "severity": {
+          "enum": [
+            "INFO",
+            "WARNING",
+            "ERROR"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "diagnostic_id",
+        "severity",
+        "outcome",
+        "provenance"
+      ],
+      "type": "object"
+    },
+    "GeometryFaceId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "GeometryFaceId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "GeometryFaceV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "GeometryFaceV1"
+        },
+        "face_id": {
+          "$ref": "#/$defs/GeometryFaceId"
+        },
+        "material_id": {
+          "$ref": "#/$defs/MaterialId"
+        },
+        "ordered_vert_keys": {
+          "items": {
+            "$ref": "#/$defs/VertexKey"
+          },
+          "type": "array"
+        },
+        "ownership_claim_id": {
+          "$ref": "#/$defs/OwnershipClaimId"
+        },
+        "provenance": {
+          "$ref": "#/$defs/GeometryProvenanceV1"
+        },
+        "semantic_region_id": {
+          "$ref": "#/$defs/SemanticRegionId"
+        },
+        "uv_facts": {
+          "items": {
+            "$ref": "#/$defs/GeometryUvFactV1"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "$type",
+        "face_id",
+        "ordered_vert_keys",
+        "uv_facts",
+        "semantic_region_id",
+        "ownership_claim_id",
+        "provenance",
+        "material_id"
+      ],
+      "type": "object"
+    },
+    "GeometryInterfaceChainV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "GeometryInterfaceChainV1"
+        },
+        "ordered_vert_keys": {
+          "items": {
+            "$ref": "#/$defs/VertexKey"
+          },
+          "type": "array"
+        },
+        "semantic_interface_id": {
+          "$ref": "#/$defs/SemanticInterfaceId"
+        }
+      },
+      "required": [
+        "$type",
+        "semantic_interface_id",
+        "ordered_vert_keys"
+      ],
+      "type": "object"
+    },
+    "GeometryProvenanceV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "GeometryProvenanceV1"
+        },
+        "chain_use_ids": {
+          "items": {
+            "$ref": "#/$defs/ChainUseId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "lineage_ids": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "physical_edge_ids": {
+          "items": {
+            "$ref": "#/$defs/PhysicalEdgeId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source_face_ids": {
+          "items": {
+            "$ref": "#/$defs/SourceFaceId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "source_face_ids",
+        "physical_edge_ids",
+        "chain_use_ids",
+        "lineage_ids"
+      ],
+      "type": "object"
+    },
+    "GeometrySemanticRegionV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "GeometrySemanticRegionV1"
+        },
+        "material_id": {
+          "$ref": "#/$defs/MaterialId"
+        },
+        "ownership_claim_id": {
+          "$ref": "#/$defs/OwnershipClaimId"
+        },
+        "provenance": {
+          "$ref": "#/$defs/GeometryProvenanceV1"
+        },
+        "semantic_region_id": {
+          "$ref": "#/$defs/SemanticRegionId"
+        }
+      },
+      "required": [
+        "$type",
+        "semantic_region_id",
+        "ownership_claim_id",
+        "material_id",
+        "provenance"
+      ],
+      "type": "object"
+    },
+    "GeometryStationFactId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "GeometryStationFactId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "GeometryStationFactV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "GeometryStationFactV1"
+        },
+        "lineage_ids": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "ownership_claim_id": {
+          "$ref": "#/$defs/OwnershipClaimId"
+        },
+        "semantic_region_id": {
+          "$ref": "#/$defs/SemanticRegionId"
+        },
+        "source_r": {
+          "$ref": "#/$defs/LocalCoordinateV1"
+        },
+        "source_s": {
+          "$ref": "#/$defs/LocalCoordinateV1"
+        },
+        "station_fact_id": {
+          "$ref": "#/$defs/GeometryStationFactId"
+        },
+        "station_model_id": {
+          "enum": [
+            "SEMANTIC_CHAIN_USE_S",
+            "CONSTANT_PHYSICAL_ENDPOINT_S",
+            "PLAN_STATION_FLOW"
+          ],
+          "type": "string"
+        },
+        "vert_key": {
+          "$ref": "#/$defs/VertexKey"
+        }
+      },
+      "required": [
+        "$type",
+        "station_fact_id",
+        "vert_key",
+        "semantic_region_id",
+        "ownership_claim_id",
+        "source_s",
+        "source_r",
+        "station_model_id",
+        "lineage_ids"
+      ],
+      "type": "object"
+    },
+    "GeometryUvFactV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "GeometryUvFactV1"
+        },
+        "uv": {
+          "$ref": "#/$defs/UvPoint2V1"
+        },
+        "vert_key": {
+          "$ref": "#/$defs/VertexKey"
+        }
+      },
+      "required": [
+        "$type",
+        "vert_key",
+        "uv"
+      ],
+      "type": "object"
+    },
+    "GeometryVertexV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "GeometryVertexV1"
+        },
+        "position": {
+          "$ref": "#/$defs/LocalPoint3V1"
+        },
+        "provenance": {
+          "$ref": "#/$defs/GeometryProvenanceV1"
+        },
+        "semantic_location_ref": {
+          "$ref": "#/$defs/SemanticLocationId"
+        },
+        "vert_key": {
+          "$ref": "#/$defs/VertexKey"
+        }
+      },
+      "required": [
+        "$type",
+        "vert_key",
+        "position",
+        "semantic_location_ref",
+        "provenance"
+      ],
+      "type": "object"
+    },
+    "LineageId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "LineageId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "LocalCoordinateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "LocalCoordinateV1"
+        },
+        "metric_space": {
+          "enum": [
+            "SOURCE_LOCAL_INTRINSIC"
+          ],
+          "type": "string"
+        },
+        "value": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "value",
+        "metric_space"
+      ],
+      "type": "object"
+    },
+    "LocalPoint3V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "LocalPoint3V1"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "$type",
+        "x",
+        "y",
+        "z"
+      ],
+      "type": "object"
+    },
+    "MaterialId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "MaterialId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "OwnershipClaimId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "OwnershipClaimId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PatchDomainId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PatchDomainId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PhysicalEdgeId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PhysicalEdgeId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SemanticBoundaryId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SemanticBoundaryId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SemanticDigestValue": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SemanticDigestValue"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SemanticInterfaceId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SemanticInterfaceId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SemanticLocationId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SemanticLocationId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SemanticRegionId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SemanticRegionId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SourceFaceId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceFaceId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SourceRevision": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceRevision"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "UvPoint2V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "UvPoint2V1"
+        },
+        "u": {
+          "type": "number"
+        },
+        "v": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "$type",
+        "u",
+        "v"
+      ],
+      "type": "object"
+    },
+    "VertexKey": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "VertexKey"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "cftuv.envelope.geometry_batch.v1",
+  "$ref": "#/$defs/GeometryBatchV1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GeometryBatchV1"
+}

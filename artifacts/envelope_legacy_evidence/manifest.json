@@ -1,0 +1,197 @@
+{
+  "schema": "CFTUV_ENVELOPE_LEGACY_EVIDENCE_MANIFEST_V1",
+  "session": "SESSION_L0_LEGACY_PLANARITY_CHAINUSE_EVIDENCE",
+  "role": "Legacy Evidence Curator",
+  "branch": "codex/l0-legacy-planarity-chainuse-evidence",
+  "base": {
+    "ref": "origin/codex/v0-blender-envelope-debug",
+    "commit": "e95d9039c35d420b68d42b61509fc51190b01b66"
+  },
+  "legacy_authorities": [
+    {
+      "purpose": "production-routing boundary immediately before legacy SEAMS routing removal",
+      "commit": "c70a98bb4965d1113520843e54c6e7e759b92de5"
+    },
+    {
+      "purpose": "archived final legacy source and regression-test authority",
+      "commit": "2831a223224c2e84bc39c9c405c8aefe459fd7c1"
+    }
+  ],
+  "field_trace": {
+    "collected_at": "2026-07-23T23:01:15.7566596+04:00",
+    "scene_path": "E:\\testscene.blend",
+    "object_name": "building.002",
+    "object_source_digest": "63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e",
+    "blender_version": "4.3.2",
+    "python_version": "3.11.9",
+    "platform": "Windows-10-10.0.26200-SP0",
+    "object_transform": {
+      "location": [
+        3.67889404296875,
+        5.518670558929443,
+        9.743640899658203
+      ],
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "pre_state": {
+      "mode": "EDIT",
+      "scene_dirty": true,
+      "selected_edge_ids": [
+        2,
+        3,
+        7
+      ],
+      "mesh_counts": {
+        "vertices": 24,
+        "edges": 38,
+        "faces": 15
+      }
+    },
+    "post_state": {
+      "mode": "EDIT",
+      "scene_dirty": true,
+      "selected_edge_ids": [
+        2,
+        3,
+        7
+      ],
+      "mesh_counts": {
+        "vertices": 24,
+        "edges": 38,
+        "faces": 15
+      }
+    },
+    "subsequent_concurrent_observation": {
+      "observed_at": "2026-07-23T23:17:30.8631496+04:00",
+      "selected_edge_ids": [
+        12
+      ],
+      "mesh_counts": {
+        "vertices": 24,
+        "edges": 38,
+        "faces": 15
+      },
+      "note": "Observed after the verified L0 post_state while other Blender work was active. L0 did not restore or modify the newer selection; it is excluded from the four evidence scenarios."
+    },
+    "mutation_policy": {
+      "analysis_input": "bmesh.from_edit_mesh(object.data).copy()",
+      "geometry_materialized": false,
+      "selection_changed": false,
+      "scene_saved": false
+    }
+  },
+  "installed_runtime_provenance": {
+    "classification": "exact field-runtime module hashes; no Git commit identity is claimed",
+    "addon_root": "C:\\Users\\helmd\\AppData\\Roaming\\Blender Foundation\\Blender\\4.3\\scripts\\addons\\cftuv",
+    "sha256": {
+      "analysis.py": "f002251b642346b5216f1f2ce443da8cfd62b6281dea017bbd2a28f115ea5272",
+      "analysis_boundary.py": "5d3e5698fb1fe2ce45e8e51d76a52e194de4610458f05898a7356ab94f73b295",
+      "analysis_boundary_loops.py": "07c94880330fe9017a761326f4434293f04be3bb3fe42a542ec19425d2e35ed5",
+      "analysis_classification.py": "9466c3c1fdee253c99a111a97bfca25e12e940cd6e570f76fc2b7c2fd787efc6",
+      "analysis_topology.py": "0d9f3f6bdf44354593e9c1644ee93276c402e71ef1cf969abc453ac191a99b18",
+      "model.py": "d027863240017707a9031149d8c0369bcbd2e7b888deade431d9e963d2009263",
+      "surface_ir.py": "4e05deed14d98eac98ca93608a7e648fa879087c1bb78712744cc9fcd5239069",
+      "decals.py": "302029d1e89567d8d4cebcc9ff8eb68d599ceca5e7f4b479df851fac4a9180db",
+      "decal_voronoi.py": "abc7da7a07b80e2748efbee6f5712de0984800dd2212ef02b3282b01a32b2dde",
+      "decal_charts.py": "6f33952e762ae133f55390126e4db3fab002b83b0457d26e325c458072dc8bb6",
+      "decal_rails.py": "ceaad1762b9b0a4b4c95cb84ea4cc05999f503e0c14f0828349af30f142b9d0e"
+    }
+  },
+  "runtime_constants_observed": {
+    "DECAL_WELD_DISTANCE": 0.001,
+    "DECAL_COPLANAR_DOT": 0.9975640502598242,
+    "DECAL_COPLANAR_ANGLE_DEGREES_DERIVED": 4.000000000000042,
+    "authority_note": "The four-degree rail threshold is recorded as legacy routing/product policy, not as Patch planarity canon."
+  },
+  "evidence_files": {
+    "report": "docs/envelope_legacy_planarity_chainuse_evidence.md",
+    "cases": "artifacts/envelope_legacy_evidence/building_002_cases.json",
+    "timings": "artifacts/envelope_legacy_evidence/timings.json",
+    "validator": "tools/validate_envelope_legacy_evidence.py"
+  },
+  "code_path_index": [
+    {
+      "fact": "whole-Patch positional planarity predicate",
+      "authority": "2831a223224c2e84bc39c9c405c8aefe459fd7c1:cftuv/decal_voronoi.py:3839-3853",
+      "symbol": "_patch_is_planar"
+    },
+    {
+      "fact": "normal, centroid and orthonormal basis construction",
+      "authority": "2831a223224c2e84bc39c9c405c8aefe459fd7c1:cftuv/analysis_classification.py:82-156",
+      "symbols": [
+        "_classify_patch",
+        "_build_patch_basis"
+      ]
+    },
+    {
+      "fact": "whole-Patch serialized vertices and fan triangles",
+      "authority": "2831a223224c2e84bc39c9c405c8aefe459fd7c1:cftuv/analysis_topology.py:458-539",
+      "symbols": [
+        "_compute_centroid",
+        "_serialize_patch_geometry"
+      ]
+    },
+    {
+      "fact": "owner-side boundary cycle and neighbor-kind chain splitting",
+      "authority": "2831a223224c2e84bc39c9c405c8aefe459fd7c1:cftuv/analysis_boundary.py:49-153; cftuv/analysis_boundary_loops.py:79-170",
+      "symbols": [
+        "_is_boundary_side",
+        "_trace_boundary_loops",
+        "_neighbor_for_side",
+        "_split_loop_into_chains_by_neighbor"
+      ]
+    },
+    {
+      "fact": "BoundaryChain stored identity, orientation, sides and endpoints",
+      "authority": "2831a223224c2e84bc39c9c405c8aefe459fd7c1:cftuv/model.py:142-193",
+      "symbol": "BoundaryChain"
+    },
+    {
+      "fact": "selected edge promotes to complete BoundaryChain refs",
+      "authority": "2831a223224c2e84bc39c9c405c8aefe459fd7c1:cftuv/decals.py:707-728",
+      "symbol": "chain_refs_for_edge_indices"
+    },
+    {
+      "fact": "exact per-edge use cardinality and owner-side resolution",
+      "authority": "2831a223224c2e84bc39c9c405c8aefe459fd7c1:cftuv/decals.py:1149-1249",
+      "symbol": "_collect_manual_edge_decals"
+    },
+    {
+      "fact": "patch-side selected site traversal and internal single-use failure",
+      "authority": "2831a223224c2e84bc39c9c405c8aefe459fd7c1:cftuv/decal_voronoi.py:4075-4195",
+      "symbols": [
+        "_collect_patch_sites",
+        "_single_use_internal_seam_failures"
+      ]
+    },
+    {
+      "fact": "active planar-versus-intrinsic compile routing before legacy removal",
+      "authority": "c70a98bb4965d1113520843e54c6e7e759b92de5:cftuv/decal_voronoi.py:5733-6044",
+      "symbols": [
+        "_compile_patch_voronoi_plan_impl",
+        "compile_patch_voronoi_plan"
+      ]
+    }
+  ],
+  "scenario_ids": [
+    "building_002_one_chain",
+    "building_002_three_chains",
+    "building_002_ten_chains",
+    "building_002_all_seam_chains"
+  ],
+  "reproduction": {
+    "validate_command": "python tools/validate_envelope_legacy_evidence.py",
+    "fixture_is_legacy_free": true,
+    "requires_blender": false,
+    "notes": "The checked-in validator consumes only the JSON corpus. Recollecting timings requires Blender and the exact installed-runtime hashes above."
+  }
+}

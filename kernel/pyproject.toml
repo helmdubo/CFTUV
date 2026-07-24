@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cftuv-envelope-core"
+version = "0.7.0"
+description = "Blender-free exact envelope coverage and resolved-interaction reference kernel"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "CFTUV" }]
+dependencies = ["sympy==1.14.0"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+dev = ["build>=1", "pytest>=8"]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

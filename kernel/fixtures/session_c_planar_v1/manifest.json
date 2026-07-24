@@ -1,0 +1,10 @@
+{
+  "schema": "cftuv.envelope.session_c.planar_fixture_manifest.v1",
+  "status": "CANDIDATE_READY_FOR_SESSION_C_REVIEW",
+  "coordinate_system": "AUTHORITATIVE_PLANAR_PATCH_FRAME_V1",
+  "arithmetic": "SYMPY_EXACT_ALGEBRAIC_WITH_FAIL_CLOSED_PREDICATES",
+  "case_file": "cases.json",
+  "case_count": 23,
+  "session_b_r1_acceptance_sha": "a18bd486ba198d6a14b81b703184c2402681576e",
+  "accepted_session_a_corpus_modified": false
+}

@@ -1,0 +1,223 @@
+{
+  "schema": "cftuv.envelope.session_c_handoff.v1",
+  "status": "CANDIDATE_READY_FOR_SESSION_C_R1_REVIEW",
+  "active_slice": "SESSION_C_R1_REFERENCE_ORACLE_HARDENING",
+  "branch": "codex/ec2-reference-envelope-evaluator",
+  "accepted_session_b_r1_sha": "a18bd486ba198d6a14b81b703184c2402681576e",
+  "implementation_commit_sha": "3c008ec25dbd7413711f33dd8beb4a439ef3c621",
+  "review_status": {
+    "session_c_architecture": "ACCEPTED",
+    "exact_reference_evaluator_direction": "ACCEPTED",
+    "session_c_gate": "C_R1_IMPLEMENTED_AWAITING_REVIEW",
+    "session_d": "NOT_OPEN"
+  },
+  "r1_hardening_receipt": {
+    "public_snapshot_request_reference_validation": "PASS; no partial selected-use resolution",
+    "geometry_component_key": "(ChainUseId, OwnerSectorId); multi-sector v1 fails named",
+    "planar_frame_3d_2d_consistency": "PASS",
+    "angle_certificate_support_direction_consistency": "PASS",
+    "owner_side_law": "ordered owner-face cycle and winding; concave n-gon fixture PASS",
+    "junction_geometry": "former convex hull removed; fail named until support law acceptance",
+    "explicit_barrier_endpoint_bypass": "BARRIER_BYPASS_UNSUPPORTED",
+    "variant_boundary_capabilities": "published and tested",
+    "executable_planar_corpus": "23/23 PASS",
+    "provenance_namespace_split": "PASS",
+    "raw_coverage_digest_contract": "PASS",
+    "sympy_pin": "1.14.0"
+  },
+  "reference_backend": {
+    "identity": "CFTUV_EXACT_SEGMENT_ARRANGEMENT_WITH_HISTORY",
+    "version": "1.0.0",
+    "distribution": "cftuv-envelope-core",
+    "distribution_version": "0.2.0",
+    "exact_arithmetic_dependency": "sympy==1.14.0",
+    "canonical_algebra_version_policy": "exact pin because SymPy algebra serialization participates in stable IDs and digests",
+    "boolean_authority": "CFTUV segment arrangement with carried curve history"
+  },
+  "coordinate_fixture_corpus": {
+    "path": "kernel/fixtures/session_c_planar_v1",
+    "case_count": 23,
+    "execution_policy": "every JSON declaration dispatches through session_c_case_registry and runs compile/evaluate assertions",
+    "executable_case_result": "23/23 PASS",
+    "hash_law": "SHA256_UTF8_LF_NORMALIZED_V1",
+    "accepted_session_a_v5_modified": false,
+    "coordinate_free_geometry_policy": "REFERENCE_GEOMETRY_PAYLOAD_REQUIRED"
+  },
+  "implemented_envelope_variants": [
+    "StripEnvelope",
+    "LINEAR_REFLEX_EQUAL_V1 AngularEnvelope K=0/1/2",
+    "physical CapEnvelope",
+    "minimal declared T/X/Y/cross-Patch JunctionEnvelope compile contract; geometry fails REFERENCE_JUNCTION_ENVELOPE_LAW_UNPROVEN"
+  ],
+  "supported_patch_regimes": [
+    "FULL_HOST_SURFACE + PLANAR + one exact PlanarPatchFrameV1"
+  ],
+  "raw_coverage_contract": {
+    "schema": "cftuv.envelope.raw_coverage_result.v1",
+    "single_cover_union": true,
+    "pre_interaction": true,
+    "pre_ownership": true,
+    "contains_geometry_batch": false,
+    "digest_api": [
+      "raw_coverage_semantic_projection",
+      "raw_coverage_semantic_digest",
+      "validate_raw_coverage_digest"
+    ]
+  },
+  "boundary_resolution": {
+    "universal_variant_claim": false,
+    "outer": "Strip exact; Angular no-contact exact else named unproven",
+    "hole": "Strip exact; Angular contact named unproven",
+    "explicit_physical_barrier": "Strip exact split/bypass; Angular contact named unproven",
+    "originating_launch_is_non_blocking": true,
+    "endpoint_clip_shrink_slide": true,
+    "interior_split_at_exact_alpha": "BARRIER_SPLIT_REQUIRED",
+    "finite_barrier_endpoint_continuation": "BARRIER_BYPASS_UNSUPPORTED",
+    "local_component_saturation": true,
+    "obstacle_bypass": false,
+    "variant_capabilities": {
+      "StripEnvelope": "EXACT_COMPONENT_CONTACT_AND_NAMED_CAPACITY",
+      "AngularEnvelope": "EXACT_CLIP_IF_NO_CONTACT_ELSE_REFERENCE_ANGULAR_BOUNDARY_CONTACT_UNPROVEN",
+      "CapEnvelope": "DERIVED_PHYSICAL_TERMINAL_WITH_INCIDENT_STRIP_CAPACITY",
+      "JunctionEnvelope": "REFERENCE_JUNCTION_ENVELOPE_LAW_UNPROVEN"
+    }
+  },
+  "provenance_completeness": {
+    "result": "PASS",
+    "method": "arrangement segment history only; no post-Boolean reconstruction",
+    "boundary_generator_provenance": [
+      "support id",
+      "physical edge",
+      "source face",
+      "boundary constraint"
+    ],
+    "coverage_contributor_provenance": [
+      "EnvelopeSpecId",
+      "EnvelopeInstanceId",
+      "ChainUseId",
+      "PatchDomainId",
+      "lineage id"
+    ],
+    "construction_certificates": "preserved separately on exact vertices and edges",
+    "generator_contributor_namespace_separation": "PASS",
+    "region_contributor_sets": "complete, including fully internalized Angular contributions"
+  },
+  "named_outcomes": [
+    "REFERENCE_INPUT_CONTRACT_INVALID",
+    "REFERENCE_GEOMETRY_PAYLOAD_REQUIRED",
+    "REFERENCE_PLANAR_REGIME_REQUIRED",
+    "REFERENCE_PLANAR_FRAME_REQUIRED",
+    "REFERENCE_PLANAR_FRAME_AMBIGUOUS",
+    "REFERENCE_PLANAR_FRAME_CERTIFICATE_MISMATCH",
+    "REFERENCE_ANGLE_SUPPORT_CERTIFICATE_MISMATCH",
+    "REFERENCE_MULTISECTOR_CHAIN_USE_UNSUPPORTED",
+    "REFERENCE_PATCH_DOMAIN_SELECTION_REQUIRED",
+    "REFERENCE_INVALID_ALPHA",
+    "PHYSICAL_EDGE_PROVENANCE_INCOMPLETE",
+    "PLANAR_CHAIN_SUPPORT_NOT_LINEAR",
+    "PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED",
+    "ANGULAR_PROFILE_SELECTION_UNCERTAIN",
+    "JUNCTION_ROUTE_PAIRING_REQUIRED",
+    "REFERENCE_JUNCTION_ENVELOPE_LAW_UNPROVEN",
+    "REFERENCE_ANGULAR_BOUNDARY_CONTACT_UNPROVEN",
+    "BARRIER_SPLIT_REQUIRED",
+    "BARRIER_BYPASS_UNSUPPORTED",
+    "SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN",
+    "REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE",
+    "REFERENCE_ARRANGEMENT_NON_MANIFOLD"
+  ],
+  "metamorphic_results": {
+    "result": "PASS",
+    "invariants": [
+      "record and source order",
+      "physical storage reversal with preserved semantic orientation",
+      "coherent rigid transform",
+      "coherent uniform scale",
+      "physical route split/merge",
+      "source retriangulation",
+      "hidden-support record permutation"
+    ],
+    "semantic_changes": [
+      "angle certificate change without coherent support change fails certificate consistency",
+      "non-contract Delta-max rejection",
+      "deleted hidden profile support",
+      "changed request identity"
+    ]
+  },
+  "independent_oracle": {
+    "result": "PASS",
+    "identity": "exact Fraction orthogonal-subset grid cell oracle",
+    "scope": "orthogonal subset only; no broad K1/K2, concave, or Junction proof is claimed",
+    "compared": [
+      "area",
+      "boundary edge count",
+      "component count",
+      "contributor lineage"
+    ]
+  },
+  "tests_and_exact_ci": {
+    "local_source_suite": "116 passed in 24.50s",
+    "isolated_wheel_suite": "116 passed in 23.90s",
+    "extracted_subtree_suite": "116 passed in 24.30s",
+    "forbidden_import_scan": "PASS",
+    "generated_schema_check": "PASS",
+    "accepted_session_a_fixture_check": "PASS",
+    "wheel": "cftuv_envelope_core-0.2.0-py3-none-any.whl",
+    "workflow": ".github/workflows/envelope-kernel.yml",
+    "github_actions": {
+      "run_id": 29995352197,
+      "run_url": "https://github.com/helmdubo/CFTUV/actions/runs/29995352197",
+      "event": "push",
+      "ci_tested_sha": "3c008ec25dbd7413711f33dd8beb4a439ef3c621",
+      "status": "completed",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "kernel-hermetic",
+          "job_id": 89167615335,
+          "url": "https://github.com/helmdubo/CFTUV/actions/runs/29995352197/job/89167615335",
+          "conclusion": "success"
+        },
+        {
+          "name": "kernel-extraction-readiness",
+          "job_id": 89167615311,
+          "url": "https://github.com/helmdubo/CFTUV/actions/runs/29995352197/job/89167615311",
+          "conclusion": "success"
+        }
+      ],
+      "non_blocking_annotations": [
+        "actions/checkout@v4 and actions/setup-python@v5 emitted Node.js 20 deprecation notices"
+      ]
+    }
+  },
+  "measured_full_recompute_timings": {
+    "status": "NOT_REMEASURED_AFTER_R1",
+    "reason": "pre-R1 Junction geometry timing is invalid after fail-closed correction; performance is not an acceptance gate"
+  },
+  "approximation_used": false,
+  "legacy_paths_read": false,
+  "excluded_from_slice": [
+    "interactions and Case 16 policy B",
+    "ownership",
+    "station and UV partition",
+    "tessellation and GeometryBatch",
+    "event scheduling",
+    "Blender adapter",
+    "native production runtime"
+  ],
+  "risks": [
+    "The exact oracle is intentionally not a modal latency target.",
+    "Junction geometry is deliberately unavailable until a route-topology/sector-support law is separately accepted.",
+    "Angular boundary or explicit-barrier contact fails named until its event law is separately proved.",
+    "Planar reference v1 rejects multiple analysis-proven sectors for one ChainUse.",
+    "A piecewise-linear closed ChainUse requires explicit segment-corner relations at every bend; missing relations fail as PLANAR_CHAIN_SUPPORT_NOT_LINEAR and no synthetic caps are added.",
+    "SymPy certified-sign inability fails closed; there is no float fallback.",
+    "Obstacle bypass and branch-count increase remain outside v1 and stop with named capacity outcomes."
+  ],
+  "special_opinion": "Keep this exact history-preserving implementation permanent as the semantic oracle. Optimize only by differential comparison against its RawCoverage, not by weakening predicates or reconstructing provenance after Boolean output.",
+  "next_session_allowlist": [
+    "Session C review and factual corrections",
+    "Session D only after explicit user acceptance of this candidate"
+  ],
+  "session_d_open": false
+}

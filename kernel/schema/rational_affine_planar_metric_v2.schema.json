@@ -1,0 +1,375 @@
+{
+  "$defs": {
+    "ExactMatrix2V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactMatrix2V1"
+        },
+        "m00": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "m01": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "m10": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "m11": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "m00",
+        "m01",
+        "m10",
+        "m11"
+      ],
+      "type": "object"
+    },
+    "ExactPoint2V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactPoint2V1"
+        },
+        "x": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "y": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "ExactPoint3V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactPoint3V1"
+        },
+        "x": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "y": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "z": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "x",
+        "y",
+        "z"
+      ],
+      "type": "object"
+    },
+    "ExactRationalV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactRationalV1"
+        },
+        "denominator": {
+          "type": "integer"
+        },
+        "numerator": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "$type",
+        "numerator",
+        "denominator"
+      ],
+      "type": "object"
+    },
+    "ExactSourcePlaneCertificateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactSourcePlaneCertificateV1"
+        },
+        "admission_law": {
+          "enum": [
+            "EXACT_SOURCE_PLANE_V1"
+          ],
+          "type": "string"
+        },
+        "certificate_id": {
+          "$ref": "#/$defs/PlanarityCertificateId"
+        },
+        "exact": {
+          "type": "boolean"
+        },
+        "exact_plane_normal": {
+          "$ref": "#/$defs/ExactVector3V1"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "reconstruction_law": {
+          "enum": [
+            "O_PLUS_U_A_PLUS_V_B_V1"
+          ],
+          "type": "string"
+        },
+        "source_vertex_ids": {
+          "items": {
+            "$ref": "#/$defs/SourceVertexId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "certificate_id",
+        "patch_domain_id",
+        "admission_law",
+        "exact",
+        "exact_plane_normal",
+        "source_vertex_ids",
+        "reconstruction_law"
+      ],
+      "type": "object"
+    },
+    "ExactSourceVertexCoordinateV2": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactSourceVertexCoordinateV2"
+        },
+        "domain_coordinate": {
+          "$ref": "#/$defs/ExactPoint2V1"
+        },
+        "source_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        }
+      },
+      "required": [
+        "$type",
+        "source_vertex_id",
+        "domain_coordinate"
+      ],
+      "type": "object"
+    },
+    "ExactVector3V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactVector3V1"
+        },
+        "x": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "y": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "z": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "x",
+        "y",
+        "z"
+      ],
+      "type": "object"
+    },
+    "LineageId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "LineageId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PatchDomainId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PatchDomainId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PlanarityCertificateId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PlanarityCertificateId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "RationalAffinePlanarMetricV2": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "RationalAffinePlanarMetricV2"
+        },
+        "chart_orientation": {
+          "enum": [
+            "COORDINATE_CCW_MATCHES_OWNER_PATCH",
+            "COORDINATE_CW_MATCHES_OWNER_PATCH"
+          ],
+          "type": "string"
+        },
+        "exact_basis_a": {
+          "$ref": "#/$defs/ExactVector3V1"
+        },
+        "exact_basis_b": {
+          "$ref": "#/$defs/ExactVector3V1"
+        },
+        "exact_gram_matrix": {
+          "$ref": "#/$defs/ExactMatrix2V1"
+        },
+        "exact_inverse_gram_matrix": {
+          "$ref": "#/$defs/ExactMatrix2V1"
+        },
+        "exact_origin": {
+          "$ref": "#/$defs/ExactPoint3V1"
+        },
+        "exact_source_vertex_coordinates": {
+          "items": {
+            "$ref": "#/$defs/ExactSourceVertexCoordinateV2"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "frame_selection_law": {
+          "enum": [
+            "CANONICAL_SOURCE_VERTEX_BASIS_V1"
+          ],
+          "type": "string"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "planarity_certificate": {
+          "$ref": "#/$defs/ExactSourcePlaneCertificateV1"
+        },
+        "reference_metric_id": {
+          "$ref": "#/$defs/ReferenceMetricId"
+        },
+        "source_lineage": {
+          "items": {
+            "$ref": "#/$defs/LineageId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source_revision": {
+          "$ref": "#/$defs/SourceRevision"
+        }
+      },
+      "required": [
+        "$type",
+        "reference_metric_id",
+        "patch_domain_id",
+        "source_revision",
+        "exact_origin",
+        "exact_basis_a",
+        "exact_basis_b",
+        "exact_gram_matrix",
+        "exact_inverse_gram_matrix",
+        "exact_source_vertex_coordinates",
+        "chart_orientation",
+        "frame_selection_law",
+        "planarity_certificate",
+        "source_lineage"
+      ],
+      "type": "object"
+    },
+    "ReferenceMetricId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "ReferenceMetricId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SourceRevision": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceRevision"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SourceVertexId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceVertexId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "cftuv.envelope.rational_affine_planar_metric.v2",
+  "$ref": "#/$defs/RationalAffinePlanarMetricV2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RationalAffinePlanarMetricV2"
+}

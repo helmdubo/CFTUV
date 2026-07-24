@@ -1,0 +1,314 @@
+{
+  "$defs": {
+    "Binary64Matrix2V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "Binary64Matrix2V1"
+        },
+        "m00": {
+          "type": "number"
+        },
+        "m01": {
+          "type": "number"
+        },
+        "m10": {
+          "type": "number"
+        },
+        "m11": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "$type",
+        "m00",
+        "m01",
+        "m10",
+        "m11"
+      ],
+      "type": "object"
+    },
+    "Binary64Point2V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "Binary64Point2V1"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "$type",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "Binary64Point3V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "Binary64Point3V1"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "$type",
+        "x",
+        "y",
+        "z"
+      ],
+      "type": "object"
+    },
+    "Binary64SourceVertexCoordinateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "Binary64SourceVertexCoordinateV1"
+        },
+        "domain_coordinate": {
+          "$ref": "#/$defs/Binary64Point2V1"
+        },
+        "source_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        }
+      },
+      "required": [
+        "$type",
+        "source_vertex_id",
+        "domain_coordinate"
+      ],
+      "type": "object"
+    },
+    "Binary64Vector3V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "Binary64Vector3V1"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "$type",
+        "x",
+        "y",
+        "z"
+      ],
+      "type": "object"
+    },
+    "DerivedBinary64AffineViewV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "DerivedBinary64AffineViewV1"
+        },
+        "basis_a": {
+          "$ref": "#/$defs/Binary64Vector3V1"
+        },
+        "basis_b": {
+          "$ref": "#/$defs/Binary64Vector3V1"
+        },
+        "gram_matrix": {
+          "$ref": "#/$defs/Binary64Matrix2V1"
+        },
+        "inverse_gram_matrix": {
+          "$ref": "#/$defs/Binary64Matrix2V1"
+        },
+        "origin": {
+          "$ref": "#/$defs/Binary64Point3V1"
+        },
+        "source_vertex_coordinates": {
+          "items": {
+            "$ref": "#/$defs/Binary64SourceVertexCoordinateV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "origin",
+        "basis_a",
+        "basis_b",
+        "gram_matrix",
+        "inverse_gram_matrix",
+        "source_vertex_coordinates"
+      ],
+      "type": "object"
+    },
+    "ReferenceMetricId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "ReferenceMetricId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "RuntimeMetricFallbackContractV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "RuntimeMetricFallbackContractV1"
+        },
+        "authoritative_reference_metric_id": {
+          "$ref": "#/$defs/ReferenceMetricId"
+        },
+        "fallback_law": {
+          "enum": [
+            "AUTHORITATIVE_REFERENCE_METRIC_V2"
+          ],
+          "type": "string"
+        },
+        "rounded_runtime_reconstruction_forbidden": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "$type",
+        "fallback_law",
+        "authoritative_reference_metric_id",
+        "rounded_runtime_reconstruction_forbidden"
+      ],
+      "type": "object"
+    },
+    "RuntimeMetricId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "RuntimeMetricId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "RuntimePlanarMetricV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "RuntimePlanarMetricV1"
+        },
+        "derived_binary64_view": {
+          "$ref": "#/$defs/DerivedBinary64AffineViewV1"
+        },
+        "fallback_contract": {
+          "$ref": "#/$defs/RuntimeMetricFallbackContractV1"
+        },
+        "predicate_filter_contract": {
+          "$ref": "#/$defs/RuntimePredicateFilterContractV1"
+        },
+        "reference_metric_id": {
+          "$ref": "#/$defs/ReferenceMetricId"
+        },
+        "runtime_metric_id": {
+          "$ref": "#/$defs/RuntimeMetricId"
+        }
+      },
+      "required": [
+        "$type",
+        "runtime_metric_id",
+        "reference_metric_id",
+        "derived_binary64_view",
+        "predicate_filter_contract",
+        "fallback_contract"
+      ],
+      "type": "object"
+    },
+    "RuntimePredicateFilterContractV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "RuntimePredicateFilterContractV1"
+        },
+        "exact_zero_requires_fallback": {
+          "type": "boolean"
+        },
+        "filter_law": {
+          "enum": [
+            "BINARY64_OUTWARD_INTERVAL_V1"
+          ],
+          "type": "string"
+        },
+        "semantic_identity_law": {
+          "enum": [
+            "EXACT_CONSTRUCTION_CERTIFICATES_ONLY"
+          ],
+          "type": "string"
+        },
+        "uncertain_result": {
+          "enum": [
+            "CERTIFIED_NEGATIVE",
+            "CERTIFIED_ZERO",
+            "CERTIFIED_POSITIVE",
+            "EXACT_FALLBACK_REQUIRED"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "filter_law",
+        "uncertain_result",
+        "exact_zero_requires_fallback",
+        "semantic_identity_law"
+      ],
+      "type": "object"
+    },
+    "SourceVertexId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceVertexId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "cftuv.envelope.runtime_planar_metric.v1",
+  "$ref": "#/$defs/RuntimePlanarMetricV1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RuntimePlanarMetricV1"
+}

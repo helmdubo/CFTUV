@@ -1,0 +1,146 @@
+{
+  "schema": "cftuv.envelope.ec0.boundary_metamorphic_matrix.v3",
+  "policy_id": "BOUNDARY_LIMITED_PROPAGATION",
+  "scenarios": [
+    "BLP-01",
+    "BLP-02",
+    "BLP-03",
+    "BLP-04",
+    "BLP-05",
+    "BLP-06",
+    "BLP-07",
+    "BLP-08",
+    "BLP-09",
+    "BLP-10"
+  ],
+  "verdicts": [
+    {
+      "transform": "front_vertex_resampling",
+      "definition": "Resample front vertices.",
+      "by_scenario": {
+        "BLP-01": "INVARIANT",
+        "BLP-02": "INVARIANT",
+        "BLP-03": "INVARIANT",
+        "BLP-04": "INVARIANT",
+        "BLP-05": "INVARIANT",
+        "BLP-06": "INVARIANT",
+        "BLP-07": "INVARIANT",
+        "BLP-08": "INVARIANT",
+        "BLP-09": "INVARIANT",
+        "BLP-10": "INVARIANT"
+      }
+    },
+    {
+      "transform": "boundary_resegmentation_same_contour",
+      "definition": "Resegment the same contour.",
+      "by_scenario": {
+        "BLP-01": "INVARIANT",
+        "BLP-02": "INVARIANT",
+        "BLP-03": "INVARIANT",
+        "BLP-04": "INVARIANT",
+        "BLP-05": "INVARIANT",
+        "BLP-06": "INVARIANT",
+        "BLP-07": "INVARIANT",
+        "BLP-08": "INVARIANT",
+        "BLP-09": "INVARIANT",
+        "BLP-10": "INVARIANT"
+      }
+    },
+    {
+      "transform": "endpoint_to_interior_contact",
+      "definition": "Change contact topology.",
+      "by_scenario": {
+        "BLP-01": "SEMANTIC_CHANGE",
+        "BLP-02": "SEMANTIC_CHANGE",
+        "BLP-03": "INVARIANT",
+        "BLP-04": "SEMANTIC_CHANGE",
+        "BLP-05": "SEMANTIC_CHANGE",
+        "BLP-06": "SEMANTIC_CHANGE",
+        "BLP-07": "INVARIANT",
+        "BLP-08": "INVARIANT",
+        "BLP-09": "INVARIANT",
+        "BLP-10": "INVARIANT"
+      }
+    },
+    {
+      "transform": "barrier_role_toggle",
+      "definition": "Toggle BARRIER role.",
+      "by_scenario": {
+        "BLP-01": "INVARIANT",
+        "BLP-02": "INVARIANT",
+        "BLP-03": "INVARIANT",
+        "BLP-04": "INVARIANT",
+        "BLP-05": "INVARIANT",
+        "BLP-06": "INVARIANT",
+        "BLP-07": "INVARIANT",
+        "BLP-08": "SEMANTIC_CHANGE",
+        "BLP-09": "INVARIANT",
+        "BLP-10": "INVARIANT"
+      }
+    },
+    {
+      "transform": "source_launch_blocks_origin",
+      "definition": "Block the originating seed.",
+      "by_scenario": {
+        "BLP-01": "SEMANTIC_CHANGE",
+        "BLP-02": "SEMANTIC_CHANGE",
+        "BLP-03": "SEMANTIC_CHANGE",
+        "BLP-04": "SEMANTIC_CHANGE",
+        "BLP-05": "SEMANTIC_CHANGE",
+        "BLP-06": "SEMANTIC_CHANGE",
+        "BLP-07": "SEMANTIC_CHANGE",
+        "BLP-08": "SEMANTIC_CHANGE",
+        "BLP-09": "SEMANTIC_CHANGE",
+        "BLP-10": "SEMANTIC_CHANGE"
+      }
+    },
+    {
+      "transform": "obstacle_bypass_enable",
+      "definition": "Enable split/merge bypass.",
+      "by_scenario": {
+        "BLP-01": "INVARIANT",
+        "BLP-02": "INVARIANT",
+        "BLP-03": "INVARIANT",
+        "BLP-04": "INVARIANT",
+        "BLP-05": "SEMANTIC_CHANGE",
+        "BLP-06": "SEMANTIC_CHANGE",
+        "BLP-07": "INVARIANT",
+        "BLP-08": "SEMANTIC_CHANGE",
+        "BLP-09": "INVARIANT",
+        "BLP-10": "INVARIANT"
+      }
+    },
+    {
+      "transform": "local_capacity_to_global_stop",
+      "definition": "Stop another component or Patch.",
+      "by_scenario": {
+        "BLP-01": "INVARIANT",
+        "BLP-02": "INVARIANT",
+        "BLP-03": "INVARIANT",
+        "BLP-04": "INVARIANT",
+        "BLP-05": "INVARIANT",
+        "BLP-06": "INVARIANT",
+        "BLP-07": "INVARIANT",
+        "BLP-08": "INVARIANT",
+        "BLP-09": "SEMANTIC_CHANGE",
+        "BLP-10": "SEMANTIC_CHANGE"
+      }
+    },
+    {
+      "transform": "downstream_tessellation_change_preserve_arrangement",
+      "definition": "Change only internal downstream faces after semantic coalescing.",
+      "by_scenario": {
+        "BLP-01": "INVARIANT",
+        "BLP-02": "INVARIANT",
+        "BLP-03": "INVARIANT",
+        "BLP-04": "INVARIANT",
+        "BLP-05": "INVARIANT",
+        "BLP-06": "INVARIANT",
+        "BLP-07": "INVARIANT",
+        "BLP-08": "INVARIANT",
+        "BLP-09": "INVARIANT",
+        "BLP-10": "INVARIANT"
+      }
+    }
+  ]
+}

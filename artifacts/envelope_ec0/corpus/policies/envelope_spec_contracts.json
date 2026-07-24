@@ -1,0 +1,247 @@
+{
+  "schema": "cftuv.envelope.ec0.envelope_spec_contracts.v2",
+  "status": "A1_A2_ANGLE_DRIVEN_LINEAR_REFLEX_ACCEPTED",
+  "envelope_spec_variants": [
+    "StripEnvelopeSpec",
+    "AngularEnvelopeSpec",
+    "JunctionEnvelopeSpec",
+    "CapEnvelopeSpec"
+  ],
+  "envelope_spec_union_authority": "USER_REQUIRED",
+  "angular_profile_families": [
+    {
+      "angular_profile_id": "LINEAR_REFLEX_EQUAL_V1",
+      "authority": "USER_REQUIRED",
+      "family": "LinearReflexProfile",
+      "eligible_sector_angle_class": "STRICT_REFLEX_PI_TO_2PI",
+      "reflex_excess_law": "DELTA_EQUALS_PHI_MINUS_PI",
+      "subdivision_policy": "EQUAL_REFLEX_EXCESS",
+      "subturn_count_law": "K_PLUS_ONE",
+      "subturn_law": "DELTA_OVER_K_PLUS_ONE",
+      "hidden_edge_count_source": "ANGLE_DRIVEN_SELECTION_POLICY_CERTIFICATE",
+      "all_support_normal_speed": "UNIT",
+      "vertex_speed_law": "ONE_OVER_COS_DELTA_OVER_TWO_K_PLUS_TWO",
+      "forbidden": [
+        "MANUAL_PER_CORNER_K_SELECTOR",
+        "HISTORIC_CASE_NAME_SELECTS_K",
+        "FIXTURE_SELECTS_K",
+        "TESSELLATION_SELECTS_K"
+      ]
+    }
+  ],
+  "angular_profile_selection_policies": [
+    {
+      "selection_policy_id": "MIN_K_FOR_MAX_SUBTURN_V1",
+      "authority": "USER_REQUIRED",
+      "input_measure": "CERTIFIED_ORIENTED_REFLEX_EXCESS_DELTA",
+      "parameter_ref": "LINEAR_REFLEX_MAX_SUBTURN_V1",
+      "parameter_symbol": "DELTA_MAX",
+      "parameter_constraint": "ZERO_LT_DELTA_MAX_LT_PI",
+      "result_law": "K_EQUALS_MAX_ZERO_CEIL_DELTA_OVER_DELTA_MAX_MINUS_ONE",
+      "minimality_lower_bound": "K_EQ_ZERO_OR_K_TIMES_DELTA_MAX_LT_DELTA",
+      "admissibility_upper_bound": "DELTA_LEQ_K_PLUS_ONE_TIMES_DELTA_MAX",
+      "resolved_subturn_guarantee": "DELTA_OVER_K_PLUS_ONE_LEQ_DELTA_MAX",
+      "selection_certificate_form": "OPEN_K_LT_DELTA_OVER_DELTA_MAX_LEQ_K_PLUS_ONE_CLOSED",
+      "selection_authority": "NAMED_ANGLE_DRIVEN_PRODUCT_POLICY",
+      "forbidden_inputs": [
+        "FIXTURE_NAME",
+        "LEGACY_JOIN_LABEL",
+        "SAMPLING_TOLERANCE",
+        "TESSELLATION",
+        "RUNTIME_FACE_COUNT"
+      ]
+    }
+  ],
+  "angular_profile_parameters": [
+    {
+      "parameter_id": "LINEAR_REFLEX_MAX_SUBTURN_V1",
+      "authority": "USER_REQUIRED",
+      "quantity": "MAX_ALLOWED_REFLEX_SUBTURN",
+      "symbol": "DELTA_MAX",
+      "constraint": "ZERO_LT_DELTA_MAX_LT_PI",
+      "value_authority": "NAMED_PRODUCT_PARAMETER",
+      "default_status": "USER_APPROVED",
+      "approved_default_value": {
+        "value_id": "LINEAR_REFLEX_MAX_SUBTURN_60_DEGREES_V1",
+        "exact_radian_expression": "PI_OVER_3",
+        "degrees": 60,
+        "turn_fraction": "1/6",
+        "unit": "ANGLE"
+      },
+      "change_control": "PRODUCT_SEMANTIC_CHANGE_REQUIRES_CORPUS_REVALIDATION_AND_USER_ACCEPTANCE",
+      "coordinate_free_case_use": "CERTIFIED_COMPARISON_ONLY"
+    }
+  ],
+  "angular_profile_regression_fixtures": [
+    {
+      "fixture_id": "LINEAR_REFLEX_K0_EQUAL_FIXTURE_V1",
+      "authority": "MATHEMATICALLY_REQUIRED",
+      "expected_resolved_hidden_edge_count": 0,
+      "selection_certificate_class": "DELTA_LEQ_DELTA_MAX",
+      "role": "REGRESSION_RESULT_NOT_PRODUCT_SELECTOR"
+    },
+    {
+      "fixture_id": "LINEAR_REFLEX_K1_EQUAL_FIXTURE_V1",
+      "authority": "MATHEMATICALLY_REQUIRED",
+      "expected_resolved_hidden_edge_count": 1,
+      "selection_certificate_class": "DELTA_MAX_LT_DELTA_LEQ_TWO_TIMES_DELTA_MAX",
+      "role": "REGRESSION_RESULT_NOT_PRODUCT_SELECTOR"
+    }
+  ],
+  "oriented_angular_sector_contracts": [
+    {
+      "contract_id": "ORIENTED_OWNER_ANGULAR_SECTOR_V1",
+      "authority": "MATHEMATICALLY_REQUIRED",
+      "required_analysis_facts": [
+        "OWNER_SECTOR_ID",
+        "ORDERED_INCIDENT_CHAIN_USE_IDS",
+        "INCOMING_SOURCE_SUPPORT_REF",
+        "OUTGOING_SOURCE_SUPPORT_REF",
+        "TURN_ORIENTATION_IN_OWNER_PATCH",
+        "REFLEX_ANGLE_MEASURE_REF"
+      ],
+      "angle_law": "ORIENTED_OWNER_SECTOR_ANGLE",
+      "strict_range": "STRICT_PI_LT_PHI_LT_2PI",
+      "hidden_support_direction_law": "ROTATE_INCOMING_SUPPORT_TOWARD_OUTGOING_INSIDE_ORIENTED_OWNER_SECTOR_BY_ORDINAL_SUBTURN",
+      "forbidden": [
+        "UNORDERED_INCIDENT_SUPPORTS",
+        "UNORIENTED_SHORTEST_ROTATION",
+        "OUTSIDE_OWNER_SECTOR_SUPPORT",
+        "KERNEL_RECONSTRUCTS_HOST_SECTOR"
+      ]
+    }
+  ],
+  "hidden_support_generation_laws": [
+    {
+      "generation_law_id": "LINEAR_REFLEX_HIDDEN_SUPPORTS_V1",
+      "authority": "MATHEMATICALLY_REQUIRED",
+      "hidden_support_ordinals": "ONE_THROUGH_K",
+      "turn_fraction_law": "ORDINAL_OVER_K_PLUS_ONE",
+      "direction_law": "ROTATE_INCOMING_SUPPORT_TOWARD_OUTGOING_INSIDE_ORIENTED_OWNER_SECTOR_BY_ORDINAL_SUBTURN",
+      "zero_length_at_alpha_zero": true,
+      "scope": "ANGULAR_ENVELOPE_SPEC_LOCAL",
+      "active_support_count_law": "K_PLUS_TWO",
+      "local_profile_segment_count_law": "K_PLUS_TWO_BEFORE_CLIP_UNION_INTERACTION",
+      "exposure_law": "EACH_LOCAL_PROFILE_SEGMENT_IS_EXPOSED_ONLY_IF_PRESENT_ON_RESOLVED_COVERAGE_SILHOUETTE",
+      "lineage": [
+        "SOURCE_RELATION_ID",
+        "OWNER_SECTOR_ID",
+        "ANGULAR_PROFILE_ID",
+        "SELECTION_CERTIFICATE_ID"
+      ]
+    }
+  ],
+  "strip_support_laws": [
+    {
+      "support_law_id": "PLANAR_LINEAR_NORMAL_OFFSET_V1",
+      "authority": "MATHEMATICALLY_REQUIRED",
+      "source_support_law": "N_DOT_POSITION_EQUALS_C",
+      "moving_support_law": "N_DOT_POSITION_EQUALS_C_PLUS_ALPHA",
+      "normal_speed": "UNIT",
+      "orientation": "OWNER_INTERIOR",
+      "longitudinal_boundaries": "PARALLEL_SUPPORT_FEATURES",
+      "terminal_interfaces": "SUPPLIED_BY_REFERENCED_ANGULAR_JUNCTION_OR_CAP_SPEC",
+      "station_model": "SEMANTIC_CHAIN_USE_S",
+      "transverse_model": "SIGNED_OWNER_INTERIOR_R"
+    }
+  ],
+  "junction_support_laws": [
+    {
+      "support_law_id": "DECLARED_JUNCTION_RELATION_SUPPORTS_V1",
+      "authority": "USER_REQUIRED",
+      "relation_authority": "ANALYSIS_JUNCTION_RELATION",
+      "route_pairing_authority": "DECLARED_RELATION_ONLY",
+      "cross_patch_policy": "SHARED_ANCHOR_WITH_PER_PATCH_PROJECTIONS_NO_COLLISION"
+    }
+  ],
+  "cap_closure_laws": [
+    {
+      "closure_law_id": "PHYSICAL_TERMINAL_LINEAR_CLOSURE_V1",
+      "authority": "MATHEMATICALLY_REQUIRED",
+      "eligible_source": "PHYSICAL_ROUTE_ENDPOINT_OR_TERMINAL_RELATION",
+      "closure_law": "CONNECT_INCIDENT_STRIP_LONGITUDINAL_BOUNDARIES_AT_PHYSICAL_ENDPOINT",
+      "station_law": "CONSTANT_PHYSICAL_ENDPOINT_S",
+      "alpha_law": "FOLLOW_INCIDENT_STRIP_EFFECTIVE_ALPHA",
+      "exact_two_pi_policy": "TERMINAL_OR_JUNCTION_NEVER_ANGULAR_PROFILE",
+      "forbidden": [
+        "CAP_AT_DATA_RECORD_SPLIT",
+        "CAP_AS_OVERLAY_MATTER",
+        "IMPLICIT_FAN",
+        "ANGULAR_PROFILE_AT_EXACT_TWO_PI"
+      ]
+    }
+  ],
+  "ownership_partition_contracts": [
+    {
+      "contract_id": "TOTAL_DISJOINT_RESOLVED_COVERAGE_V1",
+      "authority": "MATHEMATICALLY_REQUIRED",
+      "claim_interiors": "PAIRWISE_DISJOINT",
+      "claim_closure_union": "EQUALS_RESOLVED_COVERAGE",
+      "equality_boundary_owner": "NONE",
+      "silhouette_effect": "NONE",
+      "selection_authority": "CASE_DECLARED_EXACT_SEMANTIC_CELL_LAW",
+      "named_unproven_outcome": "OWNERSHIP_PARTITION_UNPROVEN",
+      "forbidden": [
+        "FIRST_WINS",
+        "SMALLEST_ID_WINS",
+        "TOLERANCE_SELECTED_OWNER",
+        "POST_BOOLEAN_PROVENANCE_RECONSTRUCTION"
+      ]
+    }
+  ],
+  "event_ledger_contracts": [
+    {
+      "contract_id": "LAZY_DETERMINISTIC_EVENT_LEDGER_V1",
+      "authority": "USER_REQUIRED",
+      "startup_compiles": [
+        "IMMUTABLE_ENVELOPE_LAWS",
+        "CURRENT_EXACT_STATE",
+        "EVENT_PREDICATES",
+        "TRANSITION_TYPES",
+        "IMMEDIATELY_REACHABLE_CANDIDATES"
+      ],
+      "successor_scheduling": "LAZY_AFTER_ATOMIC_EVENT_BATCH",
+      "same_alpha_policy": "ATOMIC_DETERMINISTIC_BATCH",
+      "backward_drag": "CHECKPOINT_REPLAY_OR_DETERMINISTIC_UNDO",
+      "publish_policy": "COMPLETE_EXACT_STATE_ONLY",
+      "pending_outcome": "PENDING_EXACT_EVALUATION",
+      "forbidden": [
+        "EAGER_COMPLETE_FUTURE_SCHEDULE_AT_STARTUP",
+        "SMALL_STEP_SIMULATION",
+        "PARTIAL_MESH_PUBLICATION",
+        "RUNTIME_SEMANTIC_RULE_DISCOVERY"
+      ]
+    }
+  ],
+  "downstream_tessellation_contracts": [
+    {
+      "contract_id": "DOWNSTREAM_TESSELLATION_AFTER_SEMANTIC_COALESCING_V1",
+      "authority": "USER_REQUIRED",
+      "starts_after": "SEMANTIC_COALESCING",
+      "input_authority": "RESOLVED_OWNERSHIP_UV_STATION_ARRANGEMENT",
+      "allowed_variation": [
+        "INTERNAL_TRIANGULATION",
+        "INTERNAL_POLYGONIZATION",
+        "FACE_ORDER",
+        "SEMANTICALLY_EQUIVALENT_INTERNAL_DIAGONALS"
+      ],
+      "must_preserve": [
+        "RESOLVED_COVERAGE_SILHOUETTE",
+        "PROFILE_CONTROLLED_BOUNDARY_CHAIN",
+        "OWNERSHIP_BOUNDARIES",
+        "UV_AND_STATION_INTERFACES",
+        "SOURCE_PROVENANCE",
+        "SHARED_VERTEX_IDENTITIES"
+      ],
+      "canonical_digest_policy": "ALL_VALID_TESSELLATIONS_SHARE_ONE_SEMANTIC_DIGEST",
+      "forbidden": [
+        "PROFILE_SELECTION",
+        "HIDDEN_EDGE_COUNT_SELECTION",
+        "SILHOUETTE_GENERATION_OR_REPAIR",
+        "OWNER_OR_PROVENANCE_INFERENCE",
+        "PROFILE_BOUNDARY_DISSOLVE",
+        "FACE_COUNT_AS_SEMANTIC_AUTHORITY"
+      ]
+    }
+  ]
+}

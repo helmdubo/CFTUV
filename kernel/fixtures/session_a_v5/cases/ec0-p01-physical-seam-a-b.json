@@ -1,0 +1,532 @@
+{
+  "schema": "cftuv.envelope.ec0.case.v5",
+  "case_id": "EC0-P01",
+  "slug": "physical-seam-a-b",
+  "title": "Physical seam with two Patch uses",
+  "status": "DEFINED",
+  "global_contract_ids": [
+    "EC0-G01",
+    "EC0-G02",
+    "EC0-G03",
+    "EC0-G04",
+    "EC0-G05",
+    "EC0-G06",
+    "EC0-G07",
+    "EC0-G08",
+    "EC0-G09",
+    "EC0-G10",
+    "EC0-G11",
+    "EC0-G12",
+    "EC0-G13",
+    "EC0-G14",
+    "EC0-G15",
+    "EC0-G16",
+    "EC0-G17",
+    "EC0-G18"
+  ],
+  "semantic_contracts": [
+    {
+      "id": "EC0-P01-S1",
+      "authority": "USER_REQUIRED",
+      "rule": "One PhysicalChain has two ChainUses and one FrontComponent per PatchDomain."
+    },
+    {
+      "id": "EC0-P01-AM11",
+      "authority": "USER_REQUIRED",
+      "rule": "Envelope material is defined by the typed AM11 EnvelopeSpec union; downstream tessellation cannot select or repair its silhouette."
+    },
+    {
+      "id": "EC0-P01-A1A2",
+      "authority": "USER_REQUIRED",
+      "rule": "LinearReflex hidden-edge count is selected from the certified oriented reflex angle by MIN_K_FOR_MAX_SUBTURN_V1; ordered supports and owner-sector orientation make every hidden support direction unambiguous."
+    }
+  ],
+  "analysis_snapshot": {
+    "patches": [
+      {
+        "id": "patch_a"
+      },
+      {
+        "id": "patch_b"
+      }
+    ],
+    "patch_domains": [
+      {
+        "id": "domain_a",
+        "owner_patch_id": "patch_a",
+        "surface_regime": "INTRINSIC_PATCH_SURFACE",
+        "boundary_constraint_ids": [
+          "launch_a"
+        ],
+        "sectors": [
+          {
+            "id": "seam_use_a_owner_sector",
+            "chain_use_id": "seam_use_a",
+            "analysis_proven": true,
+            "multiplicity_reason": "SINGLE_OWNER_INTERIOR_SECTOR"
+          }
+        ]
+      },
+      {
+        "id": "domain_b",
+        "owner_patch_id": "patch_b",
+        "surface_regime": "INTRINSIC_PATCH_SURFACE",
+        "boundary_constraint_ids": [
+          "launch_b"
+        ],
+        "sectors": [
+          {
+            "id": "seam_use_b_owner_sector",
+            "chain_use_id": "seam_use_b",
+            "analysis_proven": true,
+            "multiplicity_reason": "SINGLE_OWNER_INTERIOR_SECTOR"
+          }
+        ]
+      }
+    ],
+    "source_vertices": [],
+    "physical_chains": [
+      {
+        "id": "seam_physical",
+        "kind": "PHYSICAL_SEAM",
+        "source_lineage": "shared_seam_line"
+      }
+    ],
+    "chain_uses": [
+      {
+        "id": "seam_use_a",
+        "physical_chain_id": "seam_physical",
+        "owner_patch_id": "patch_a",
+        "patch_domain_id": "domain_a",
+        "orientation": "A_START_TO_END",
+        "roles": [
+          "DECAL_SOURCE"
+        ],
+        "launch_locus": {
+          "boundary_id": "launch_a",
+          "direction": "OWNER_INTERIOR",
+          "source_support_non_blocking": true
+        }
+      },
+      {
+        "id": "seam_use_b",
+        "physical_chain_id": "seam_physical",
+        "owner_patch_id": "patch_b",
+        "patch_domain_id": "domain_b",
+        "orientation": "B_START_TO_END",
+        "roles": [
+          "DECAL_SOURCE"
+        ],
+        "launch_locus": {
+          "boundary_id": "launch_b",
+          "direction": "OWNER_INTERIOR",
+          "source_support_non_blocking": true
+        }
+      }
+    ],
+    "boundary_constraints": [
+      {
+        "id": "launch_a",
+        "constraint_kind": "SOURCE_LAUNCH_BOUNDARY",
+        "owner": "NONE",
+        "originating_chain_use_id": "seam_use_a",
+        "blocks_originating_seed": false,
+        "blocks_other_fronts": true
+      },
+      {
+        "id": "launch_b",
+        "constraint_kind": "SOURCE_LAUNCH_BOUNDARY",
+        "owner": "NONE",
+        "originating_chain_use_id": "seam_use_b",
+        "blocks_originating_seed": false,
+        "blocks_other_fronts": true
+      }
+    ],
+    "corner_relations": [],
+    "junction_relations": [],
+    "angular_owner_sectors": [],
+    "reflex_angle_certificates": []
+  },
+  "decal_request": {
+    "decal_request_id": "request_shared",
+    "selected_chain_use_ids": [
+      "seam_use_a",
+      "seam_use_b"
+    ],
+    "requested_alpha": "REQUEST_ALPHA",
+    "material_policy": "ONE_DECAL_REQUEST",
+    "uv_policy": "SEMANTIC_STATION_FLOW",
+    "angular_profile_selection_bindings": []
+  },
+  "expected_compiled_plan": {
+    "patch_evaluations": [
+      {
+        "id": "evaluation_a",
+        "plan_key": {
+          "decal_request_id": "request_shared",
+          "patch_domain_id": "domain_a"
+        },
+        "owner_patch_id": "patch_a",
+        "source_seed_ids": [
+          "front_seed_seam_use_a"
+        ],
+        "seeds": [
+          {
+            "id": "front_seed_seam_use_a",
+            "kind": "FrontSeed",
+            "chain_use_id": "seam_use_a",
+            "owner_patch_id": "patch_a",
+            "sector_ids": [
+              "seam_use_a_owner_sector"
+            ]
+          }
+        ],
+        "front_components": [
+          {
+            "id": "front_component_seam_use_a",
+            "front_seed_id": "front_seed_seam_use_a",
+            "chain_use_id": "seam_use_a",
+            "owner_patch_id": "patch_a",
+            "sector_id": "seam_use_a_owner_sector",
+            "active_interval_model": "CONTINUOUS_INTERVAL_SET",
+            "initial_branch_count": 1,
+            "branch_count_policy": "NON_INCREASING",
+            "lifecycle": "COMPILE_TRACKED"
+          }
+        ],
+        "boundary_events": [],
+        "capacity_states": [
+          {
+            "front_component_id": "front_component_seam_use_a",
+            "requested_alpha": "REQUEST_ALPHA",
+            "effective_alpha": "REQUEST_ALPHA",
+            "capacity_reason": "NONE",
+            "terminal_outcome": "NONE"
+          }
+        ],
+        "patch_coverage": {
+          "id": "patch_coverage_a",
+          "decal_request_id": "request_shared",
+          "patch_domain_id": "domain_a",
+          "operation": "EXACT_SINGLE_COVER_UNION",
+          "reachability": "PROVEN_FROM_SOURCE_SEEDS",
+          "envelope_instance_ids": [
+            "strip_instance_seam_use_a"
+          ],
+          "raw_coverage_stage": "AFTER_BOUNDARY_RESOLVED_ENVELOPE_INSTANCES"
+        },
+        "interactions": [],
+        "ownership": {
+          "coverage_id": "patch_coverage_a",
+          "partition_contract_ref": "TOTAL_DISJOINT_RESOLVED_COVERAGE_V1",
+          "total": true,
+          "disjoint": true,
+          "tie_boundary_owner": "NONE",
+          "silhouette_effect": "NONE",
+          "named_unproven_outcome": "OWNERSHIP_PARTITION_UNPROVEN",
+          "claims": [
+            {
+              "id": "ownership_claim_strip_spec_seam_use_a",
+              "coverage_id": "patch_coverage_a",
+              "claimant_kind": "EnvelopeSpec",
+              "claimant_id": "strip_spec_seam_use_a",
+              "envelope_spec_ids": [
+                "strip_spec_seam_use_a"
+              ],
+              "envelope_instance_ids": [
+                "strip_instance_seam_use_a"
+              ],
+              "selection_law": "SOLE_RESOLVED_COVERAGE_OPEN_CELL",
+              "station_model_ref": "PLAN_STATION_FLOW"
+            }
+          ],
+          "proof_obligations": {
+            "claim_interiors": "PAIRWISE_DISJOINT",
+            "claim_closure_union": "EQUALS_RESOLVED_COVERAGE",
+            "equality_boundaries": "OWNERLESS"
+          }
+        },
+        "station_flow": {
+          "authority": "SEMANTIC_CHAIN_USE_ORIENTATION",
+          "longitudinal": "s",
+          "transverse": "r",
+          "storage_reversal_effect": "NONE"
+        },
+        "topology_events": [],
+        "geometry_batch_provenance": {
+          "decal_request_id": "request_shared",
+          "patch_domain_id": "domain_a",
+          "patch_coverage_id": "patch_coverage_a"
+        },
+        "envelope_specs": [
+          {
+            "id": "strip_spec_seam_use_a",
+            "variant": "StripEnvelopeSpec",
+            "source_seed_id": "front_seed_seam_use_a",
+            "decal_request_id": "request_shared",
+            "patch_domain_id": "domain_a",
+            "source_lineage_ids": [
+              "front_seed_seam_use_a",
+              "seam_use_a"
+            ],
+            "front_component_ids": [
+              "front_component_seam_use_a"
+            ],
+            "support_law_id": "PLANAR_LINEAR_NORMAL_OFFSET_V1",
+            "station_model_id": "SEMANTIC_CHAIN_USE_S",
+            "transverse_model_id": "SIGNED_OWNER_INTERIOR_R",
+            "terminal_interface_spec_ids": [],
+            "terminal_interface_policy": "DOMAIN_OR_REQUEST_TERMINAL"
+          }
+        ],
+        "envelope_instances": [
+          {
+            "id": "strip_instance_seam_use_a",
+            "spec_id": "strip_spec_seam_use_a",
+            "spec_variant": "StripEnvelopeSpec",
+            "decal_request_id": "request_shared",
+            "patch_domain_id": "domain_a",
+            "effective_alpha_binding": {
+              "kind": "INCIDENT_FRONT_COMPONENT_VECTOR",
+              "front_component_ids": [
+                "front_component_seam_use_a"
+              ]
+            },
+            "boundary_resolution": "REQUIRED_BEFORE_PATCH_UNION"
+          }
+        ],
+        "event_ledger": {
+          "contract_ref": "LAZY_DETERMINISTIC_EVENT_LEDGER_V1",
+          "startup_scope": "LAWS_PREDICATES_TRANSITIONS_AND_IMMEDIATE_CANDIDATES",
+          "successor_scheduling": "LAZY",
+          "same_alpha_policy": "ATOMIC_DETERMINISTIC_BATCH",
+          "publish_policy": "COMPLETE_EXACT_STATE_ONLY",
+          "pending_outcome": "PENDING_EXACT_EVALUATION"
+        },
+        "downstream_tessellation": {
+          "contract_ref": "DOWNSTREAM_TESSELLATION_AFTER_SEMANTIC_COALESCING_V1",
+          "starts_after": "SEMANTIC_COALESCING",
+          "input_authority": "RESOLVED_OWNERSHIP_UV_STATION_ARRANGEMENT",
+          "profile_controlled_boundary_policy": "PRESERVE",
+          "semantic_digest_equivalence": "ALL_VALID_TESSELLATIONS_SHARE_ONE_SEMANTIC_DIGEST",
+          "allowed_internal_variation": [
+            "INTERNAL_TRIANGULATION",
+            "INTERNAL_POLYGONIZATION",
+            "FACE_ORDER",
+            "SEMANTICALLY_EQUIVALENT_INTERNAL_DIAGONALS"
+          ],
+          "forbidden": [
+            "PROFILE_SELECTION",
+            "HIDDEN_EDGE_COUNT_SELECTION",
+            "SILHOUETTE_GENERATION_OR_REPAIR",
+            "OWNER_OR_PROVENANCE_INFERENCE",
+            "PROFILE_BOUNDARY_DISSOLVE",
+            "FACE_COUNT_AS_SEMANTIC_AUTHORITY"
+          ]
+        },
+        "angular_profile_selection_certificates": []
+      },
+      {
+        "id": "evaluation_b",
+        "plan_key": {
+          "decal_request_id": "request_shared",
+          "patch_domain_id": "domain_b"
+        },
+        "owner_patch_id": "patch_b",
+        "source_seed_ids": [
+          "front_seed_seam_use_b"
+        ],
+        "seeds": [
+          {
+            "id": "front_seed_seam_use_b",
+            "kind": "FrontSeed",
+            "chain_use_id": "seam_use_b",
+            "owner_patch_id": "patch_b",
+            "sector_ids": [
+              "seam_use_b_owner_sector"
+            ]
+          }
+        ],
+        "front_components": [
+          {
+            "id": "front_component_seam_use_b",
+            "front_seed_id": "front_seed_seam_use_b",
+            "chain_use_id": "seam_use_b",
+            "owner_patch_id": "patch_b",
+            "sector_id": "seam_use_b_owner_sector",
+            "active_interval_model": "CONTINUOUS_INTERVAL_SET",
+            "initial_branch_count": 1,
+            "branch_count_policy": "NON_INCREASING",
+            "lifecycle": "COMPILE_TRACKED"
+          }
+        ],
+        "boundary_events": [],
+        "capacity_states": [
+          {
+            "front_component_id": "front_component_seam_use_b",
+            "requested_alpha": "REQUEST_ALPHA",
+            "effective_alpha": "REQUEST_ALPHA",
+            "capacity_reason": "NONE",
+            "terminal_outcome": "NONE"
+          }
+        ],
+        "patch_coverage": {
+          "id": "patch_coverage_b",
+          "decal_request_id": "request_shared",
+          "patch_domain_id": "domain_b",
+          "operation": "EXACT_SINGLE_COVER_UNION",
+          "reachability": "PROVEN_FROM_SOURCE_SEEDS",
+          "envelope_instance_ids": [
+            "strip_instance_seam_use_b"
+          ],
+          "raw_coverage_stage": "AFTER_BOUNDARY_RESOLVED_ENVELOPE_INSTANCES"
+        },
+        "interactions": [],
+        "ownership": {
+          "coverage_id": "patch_coverage_b",
+          "partition_contract_ref": "TOTAL_DISJOINT_RESOLVED_COVERAGE_V1",
+          "total": true,
+          "disjoint": true,
+          "tie_boundary_owner": "NONE",
+          "silhouette_effect": "NONE",
+          "named_unproven_outcome": "OWNERSHIP_PARTITION_UNPROVEN",
+          "claims": [
+            {
+              "id": "ownership_claim_strip_spec_seam_use_b",
+              "coverage_id": "patch_coverage_b",
+              "claimant_kind": "EnvelopeSpec",
+              "claimant_id": "strip_spec_seam_use_b",
+              "envelope_spec_ids": [
+                "strip_spec_seam_use_b"
+              ],
+              "envelope_instance_ids": [
+                "strip_instance_seam_use_b"
+              ],
+              "selection_law": "SOLE_RESOLVED_COVERAGE_OPEN_CELL",
+              "station_model_ref": "PLAN_STATION_FLOW"
+            }
+          ],
+          "proof_obligations": {
+            "claim_interiors": "PAIRWISE_DISJOINT",
+            "claim_closure_union": "EQUALS_RESOLVED_COVERAGE",
+            "equality_boundaries": "OWNERLESS"
+          }
+        },
+        "station_flow": {
+          "authority": "SEMANTIC_CHAIN_USE_ORIENTATION",
+          "longitudinal": "s",
+          "transverse": "r",
+          "storage_reversal_effect": "NONE"
+        },
+        "topology_events": [],
+        "geometry_batch_provenance": {
+          "decal_request_id": "request_shared",
+          "patch_domain_id": "domain_b",
+          "patch_coverage_id": "patch_coverage_b"
+        },
+        "envelope_specs": [
+          {
+            "id": "strip_spec_seam_use_b",
+            "variant": "StripEnvelopeSpec",
+            "source_seed_id": "front_seed_seam_use_b",
+            "decal_request_id": "request_shared",
+            "patch_domain_id": "domain_b",
+            "source_lineage_ids": [
+              "front_seed_seam_use_b",
+              "seam_use_b"
+            ],
+            "front_component_ids": [
+              "front_component_seam_use_b"
+            ],
+            "support_law_id": "PLANAR_LINEAR_NORMAL_OFFSET_V1",
+            "station_model_id": "SEMANTIC_CHAIN_USE_S",
+            "transverse_model_id": "SIGNED_OWNER_INTERIOR_R",
+            "terminal_interface_spec_ids": [],
+            "terminal_interface_policy": "DOMAIN_OR_REQUEST_TERMINAL"
+          }
+        ],
+        "envelope_instances": [
+          {
+            "id": "strip_instance_seam_use_b",
+            "spec_id": "strip_spec_seam_use_b",
+            "spec_variant": "StripEnvelopeSpec",
+            "decal_request_id": "request_shared",
+            "patch_domain_id": "domain_b",
+            "effective_alpha_binding": {
+              "kind": "INCIDENT_FRONT_COMPONENT_VECTOR",
+              "front_component_ids": [
+                "front_component_seam_use_b"
+              ]
+            },
+            "boundary_resolution": "REQUIRED_BEFORE_PATCH_UNION"
+          }
+        ],
+        "event_ledger": {
+          "contract_ref": "LAZY_DETERMINISTIC_EVENT_LEDGER_V1",
+          "startup_scope": "LAWS_PREDICATES_TRANSITIONS_AND_IMMEDIATE_CANDIDATES",
+          "successor_scheduling": "LAZY",
+          "same_alpha_policy": "ATOMIC_DETERMINISTIC_BATCH",
+          "publish_policy": "COMPLETE_EXACT_STATE_ONLY",
+          "pending_outcome": "PENDING_EXACT_EVALUATION"
+        },
+        "downstream_tessellation": {
+          "contract_ref": "DOWNSTREAM_TESSELLATION_AFTER_SEMANTIC_COALESCING_V1",
+          "starts_after": "SEMANTIC_COALESCING",
+          "input_authority": "RESOLVED_OWNERSHIP_UV_STATION_ARRANGEMENT",
+          "profile_controlled_boundary_policy": "PRESERVE",
+          "semantic_digest_equivalence": "ALL_VALID_TESSELLATIONS_SHARE_ONE_SEMANTIC_DIGEST",
+          "allowed_internal_variation": [
+            "INTERNAL_TRIANGULATION",
+            "INTERNAL_POLYGONIZATION",
+            "FACE_ORDER",
+            "SEMANTICALLY_EQUIVALENT_INTERNAL_DIAGONALS"
+          ],
+          "forbidden": [
+            "PROFILE_SELECTION",
+            "HIDDEN_EDGE_COUNT_SELECTION",
+            "SILHOUETTE_GENERATION_OR_REPAIR",
+            "OWNER_OR_PROVENANCE_INFERENCE",
+            "PROFILE_BOUNDARY_DISSOLVE",
+            "FACE_COUNT_AS_SEMANTIC_AUTHORITY"
+          ]
+        },
+        "angular_profile_selection_certificates": []
+      }
+    ]
+  },
+  "acceptance": {
+    "coverage": "TWO_INDEPENDENT_PATCH_COVERAGES",
+    "ownership": "PER_PATCH",
+    "adjacency": [
+      "SHARED_PHYSICAL_ID_ONLY"
+    ],
+    "s_direction": "PER_CHAIN_USE",
+    "alpha_evolution": [
+      "BOTH_GROW_INDEPENDENTLY"
+    ],
+    "forbidden": [
+      "ONE_GLOBAL_FRONT",
+      "CROSS_PATCH_COLLISION"
+    ]
+  },
+  "metamorphic_expectations": {
+    "matrix_case_id": "EC0-P01",
+    "matrix_file": "artifacts/envelope_ec0/corpus/matrices/pivot_metamorphic_matrix.json"
+  },
+  "canonical_geometry_digest": {
+    "include": [
+      "analysis_snapshot",
+      "decal_request",
+      "expected_compiled_plan",
+      "acceptance"
+    ],
+    "exclude": [
+      "record_order",
+      "presentation_visuals",
+      "downstream_face_order",
+      "internal_fill_diagonals",
+      "valid_internal_triangulation",
+      "runtime_face_count"
+    ]
+  }
+}

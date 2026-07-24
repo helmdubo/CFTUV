@@ -1,0 +1,11 @@
+{
+  "files": {
+    "README.md": "f459ea8afe46713456b1927fd483379628368b0d409c2138d2cd2cc6c95f378a",
+    "cases.json": "2fe49c3c48bf8839aa3808fd5c53e043bb2290c6fb3e9f663f32160dd050d661",
+    "manifest.json": "df067dc49a22d24cdb7b975907e63f61dadf75f1a98904dd7edbcce71df15f13"
+  },
+  "hash_law": "SHA256_UTF8_LF_NORMALIZED_V1",
+  "schema": "cftuv.envelope.session_c.planar_fixture_hash_manifest.v1",
+  "source_commit": "a18bd486ba198d6a14b81b703184c2402681576e",
+  "source_schema": "cftuv.envelope.session_c.planar_fixture_set.v1"
+}

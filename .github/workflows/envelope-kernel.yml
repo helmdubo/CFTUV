@@ -1,0 +1,166 @@
+name: Envelope kernel contracts and reference evaluator
+
+on:
+  push:
+    paths:
+      - "kernel/**"
+      - "cftuv/envelope_*.py"
+      - "cftuv/envelope_host_adapter.py"
+      - "cftuv/envelope_debug_renderer.py"
+      - "cftuv/debug.py"
+      - "cftuv/operators.py"
+      - "tests/test_envelope_host_adapter.py"
+      - "tests/test_envelope_debug_renderer_contract.py"
+      - "tests/blender/test_envelope_debug_bridge.py"
+      - ".github/workflows/envelope-kernel.yml"
+  pull_request:
+    paths:
+      - "kernel/**"
+      - "cftuv/envelope_*.py"
+      - "cftuv/envelope_host_adapter.py"
+      - "cftuv/envelope_debug_renderer.py"
+      - "cftuv/debug.py"
+      - "cftuv/operators.py"
+      - "tests/test_envelope_host_adapter.py"
+      - "tests/test_envelope_debug_renderer_contract.py"
+      - "tests/blender/test_envelope_debug_bridge.py"
+      - ".github/workflows/envelope-kernel.yml"
+
+jobs:
+  kernel-hermetic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: kernel
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Build wheel
+        run: |
+          python -m pip install --disable-pip-version-check build
+          python -m build --wheel kernel
+      - name: Test wheel outside checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          VENV="$RUNNER_TEMP/kernel-wheel-venv"
+          STANDALONE="$RUNNER_TEMP/kernel-wheel-tests"
+          python -m venv "$VENV"
+          "$VENV/bin/python" -m pip install --disable-pip-version-check kernel/dist/*.whl pytest
+          mkdir -p "$STANDALONE"
+          cp -R kernel/tests kernel/fixtures kernel/schema "$STANDALONE/"
+          cd "$STANDALONE"
+          env -u PYTHONPATH "$VENV/bin/python" -I -m pytest -q -p no:cacheprovider tests
+
+  kernel-extraction-readiness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: kernel
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Copy kernel into an empty repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXTRACTED="$RUNNER_TEMP/extracted-kernel"
+          mkdir -p "$EXTRACTED"
+          cp -R kernel/. "$EXTRACTED/"
+          cd "$EXTRACTED"
+          git init
+          git config user.name "Envelope CI"
+          git config user.email "envelope-ci@example.invalid"
+          git add .
+          git commit -m "extracted kernel"
+      - name: Build and test extracted package
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXTRACTED="$RUNNER_TEMP/extracted-kernel"
+          VENV="$RUNNER_TEMP/extracted-kernel-venv"
+          python -m pip install --disable-pip-version-check build
+          python -m build --wheel "$EXTRACTED"
+          python -m venv "$VENV"
+          "$VENV/bin/python" -m pip install --disable-pip-version-check "$EXTRACTED"/dist/*.whl pytest
+          cd "$EXTRACTED"
+          env -u PYTHONPATH "$VENV/bin/python" -I -m pytest -q -p no:cacheprovider tests
+          env -u PYTHONPATH "$VENV/bin/python" -I tools/check_forbidden_imports.py src/cftuv_envelope
+          env -u PYTHONPATH "$VENV/bin/python" -I tools/sync_session_a_fixtures.py --check --fixture-root fixtures/session_a_v5
+          test -z "$(git status --porcelain)"
+
+  blender-free-host-bridge-v0b:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /kernel/
+            /cftuv/__init__.py
+            /cftuv/constants.py
+            /cftuv/debug.py
+            /cftuv/envelope_debug_profile.py
+            /cftuv/envelope_debug_renderer.py
+            /cftuv/envelope_debug_session.py
+            /cftuv/envelope_host_adapter.py
+            /cftuv/envelope_metric_export.py
+            /cftuv/envelope_request_export.py
+            /cftuv/envelope_topology_debug.py
+            /cftuv/envelope_topology_export.py
+            /cftuv/model.py
+            /cftuv/surface_ir.py
+            /tests/conftest.py
+            /tests/test_envelope_debug_renderer_contract.py
+            /tests/test_envelope_host_adapter.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install exact host-test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check pytest sympy==1.14.0
+      - name: Test AnalysisBundle to DebugScene bridge
+        env:
+          PYTHONPATH: kernel/src
+        run: |
+          python -m pytest -q \
+            tests/test_envelope_host_adapter.py \
+            tests/test_envelope_debug_renderer_contract.py
+      - name: Prove debug bridge does not import legacy decal geometry
+        shell: bash
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          imports = set()
+          for path in (
+              Path("cftuv/envelope_debug_session.py"),
+              Path("cftuv/envelope_host_adapter.py"),
+              Path("cftuv/envelope_metric_export.py"),
+              Path("cftuv/envelope_request_export.py"),
+              Path("cftuv/envelope_topology_export.py"),
+              Path("cftuv/envelope_debug_renderer.py"),
+          ):
+              tree = ast.parse(
+                  path.read_text(encoding="utf-8"),
+                  filename=str(path),
+              )
+              for node in ast.walk(tree):
+                  if isinstance(node, ast.Import):
+                      imports.update(alias.name for alias in node.names)
+                  elif isinstance(node, ast.ImportFrom):
+                      imports.add(node.module or "")
+          forbidden = {
+              "cftuv.decal_voronoi",
+              "cftuv.decals",
+              "decal_voronoi",
+              "decals",
+          }
+          found = sorted(imports & forbidden)
+          if found:
+              raise SystemExit(f"forbidden host-adapter imports: {found}")
+          print("Envelope debug bridge legacy-import scan: OK")
+          PY

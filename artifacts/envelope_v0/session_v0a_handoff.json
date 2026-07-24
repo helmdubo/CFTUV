@@ -1,0 +1,163 @@
+{
+  "schema": "cftuv.envelope.v0.session_v0a_handoff.v1",
+  "status": "SESSION_V0_A_READY_FOR_REVIEW",
+  "session": "V0-A",
+  "scope": "HOST_SNAPSHOT_BRIDGE_AND_BLENDER_FREE_DEBUG_SCENE",
+  "branch": "codex/v0-blender-envelope-debug",
+  "accepted_session_d_r1_base_sha": "d90c0c366ed32dd0bee3647e21e89772e26c3a83",
+  "implementation_sha": "bf13ca8404e556e4d5581cd9ff85c1bbd2c225e2",
+  "ci_tested_sha": "bf13ca8404e556e4d5581cd9ff85c1bbd2c225e2",
+  "ci": {
+    "workflow": "Envelope kernel contracts and reference evaluator",
+    "run_id": 30019412578,
+    "run_url": "https://github.com/helmdubo/CFTUV/actions/runs/30019412578",
+    "conclusion": "success",
+    "started_at": "2026-07-23T15:11:59Z",
+    "completed_at": "2026-07-23T15:15:17Z",
+    "jobs": [
+      {
+        "name": "blender-free-host-bridge-v0a",
+        "job_id": 89247892012,
+        "conclusion": "success",
+        "url": "https://github.com/helmdubo/CFTUV/actions/runs/30019412578/job/89247892012"
+      },
+      {
+        "name": "kernel-hermetic",
+        "job_id": 89247892119,
+        "conclusion": "success",
+        "url": "https://github.com/helmdubo/CFTUV/actions/runs/30019412578/job/89247892119"
+      },
+      {
+        "name": "kernel-extraction-readiness",
+        "job_id": 89247892120,
+        "conclusion": "success",
+        "url": "https://github.com/helmdubo/CFTUV/actions/runs/30019412578/job/89247892120"
+      }
+    ]
+  },
+  "local_validation": {
+    "kernel_source": {
+      "result": "172 passed",
+      "duration_seconds": 137.74
+    },
+    "host_bridge": {
+      "result": "10 passed",
+      "covers": [
+        "real AnalysisBundle full static pipeline",
+        "whole-chain and partial-chain selection",
+        "exact-frame rejection",
+        "one physical seam in two PatchDomains",
+        "SEAM_SELF as two uses in one PatchDomain",
+        "no inferred self-contact declaration",
+        "exact K0 K1 K2 Angular compilation",
+        "unselected PatchDomain projection exclusion",
+        "closed-chain canonical rotation and reversal"
+      ]
+    },
+    "wheel_outside_checkout": {
+      "result": "172 passed",
+      "duration_seconds": 143.20
+    },
+    "extracted_empty_repository": {
+      "result": "172 passed",
+      "duration_seconds": 155.75,
+      "post_build_git_status": "clean"
+    },
+    "forbidden_kernel_import_scan": "OK",
+    "host_legacy_import_scan": "OK",
+    "generated_contract_schemas": "OK",
+    "accepted_session_a_fixture_projection": "OK"
+  },
+  "input": [
+    "AnalysisBundle",
+    "selected complete PhysicalChain edge routes",
+    "requested alpha"
+  ],
+  "outputs": [
+    "AnalysisSnapshotV1",
+    "DecalRequestV1",
+    "ReferenceEnvelopeCompilationV1[]",
+    "RawCoverageResultV1[]",
+    "InteractionResolutionResultV1[]",
+    "EnvelopeDebugSceneV1"
+  ],
+  "implemented": [
+    "deterministic host identity mapping from SourceRevision and topology facts",
+    "original source vertices, physical edges, face cycles, Blender triangles, and provenance mapping",
+    "PhysicalChain and directed ChainUse mapping for ordinary boundary, physical seam, and SEAM_SELF",
+    "whole-PhysicalChain selection without implicit splitting",
+    "exact PlanarPatchFrameV1 admission without basis rounding or tolerance",
+    "exact owner-side support directions and certified rational Angular intervals",
+    "public compile, RawCoverage, interaction, and staged DebugScene facade",
+    "immutable typed DebugScene contracts, canonical codec, generated JSON schema, and kernel package version 0.4.0",
+    "analysis, compile, envelope, raw, interaction, resolved, and diagnostic style-layer projection",
+    "CLEAR staging law: a new failure never returns a prior successful DebugScene"
+  ],
+  "named_host_outcomes": [
+    "ENVELOPE_DEBUG_KERNEL_UNAVAILABLE",
+    "ENVELOPE_DEBUG_SYMPY_VERSION_UNSUPPORTED",
+    "ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID",
+    "ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE",
+    "ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE",
+    "ENVELOPE_DEBUG_MULTIPLE_ANGULAR_RELATIONS_PER_CHAIN_UNSUPPORTED",
+    "ENVELOPE_DEBUG_PHYSICAL_CHAIN_INVALID",
+    "ENVELOPE_DEBUG_CHAIN_USE_PAIR_UNAVAILABLE",
+    "ENVELOPE_DEBUG_SELF_SEAM_USE_PAIR_UNAVAILABLE",
+    "ENVELOPE_DEBUG_EMPTY_SELECTION",
+    "ENVELOPE_DEBUG_SELECTED_EDGE_UNKNOWN",
+    "ENVELOPE_DEBUG_PARTIAL_CHAIN_SELECTION_UNSUPPORTED",
+    "ENVELOPE_DEBUG_PIPELINE_STAGE_FAILED"
+  ],
+  "semantic_invariants": [
+    "the adapter maps host facts and never repairs Envelope geometry",
+    "only selected same-request PatchDomains are evaluated and projected",
+    "cross-Patch interaction remains forbidden",
+    "SEAM_SELF never implies or synthesizes self-contact",
+    "DebugScene reads ready kernel results and performs no solve or clipping",
+    "exact expression strings remain semantic; future display floats cannot return to the kernel",
+    "RawCoverage semantics, Policy B, and accepted Envelope geometry are unchanged"
+  ],
+  "documentation": [
+    "docs/envelope_v0_debug_bridge.md",
+    "docs/envelope_blender_debug_setup.md"
+  ],
+  "addon_install_v0a": {
+    "copy": [
+      "cftuv/envelope_host_adapter.py -> installed cftuv add-on package"
+    ],
+    "install": [
+      "locally built cftuv-envelope-core 0.4.0 wheel into Blender Python",
+      "sympy==1.14.0 into Blender Python"
+    ],
+    "ui_available": false
+  },
+  "not_implemented": [
+    "Grease Pencil renderer",
+    "Blender operator, panel, and registration",
+    "Blender background smoke",
+    "viewport screenshot evidence",
+    "ownership",
+    "station or UV flow",
+    "tessellation",
+    "GeometryBatch production",
+    "production decal mesh",
+    "modal drag or event scheduler",
+    "native runtime",
+    "curved PatchDomain evaluation",
+    "legacy decal fallback"
+  ],
+  "restricted_session": {
+    "worktree": "C:/tmp/CFTUV-v0-blender-envelope-debug",
+    "legacy_decal_voronoi_present": false,
+    "legacy_decals_present": false,
+    "legacy_decal_geometry_read": false,
+    "v0_b_started": false,
+    "session_e_opened": false
+  },
+  "next_gate": {
+    "v0_a": "REVIEW_REQUIRED",
+    "v0_b": "NOT_OPEN_UNTIL_V0_A_ACCEPTED",
+    "session_e": "NOT_OPEN"
+  },
+  "special_opinion": "V0-A is ready for reviewer acceptance. Blender smoke and viewport evidence are deliberately deferred because they require the separately gated V0-B Grease Pencil runtime. Production decal mesh remains not ready."
+}
