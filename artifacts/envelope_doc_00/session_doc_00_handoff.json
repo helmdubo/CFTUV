@@ -1,0 +1,137 @@
+{
+  "schema": "cftuv.envelope.documentation.doc_00_handoff.v1",
+  "session": "DOC-00_DOCUMENTATION_AUTHORITY_AND_AI_ONBOARDING_CORRECTION",
+  "status": "DOC_00_READY_FOR_HUMAN_REVIEW",
+  "branch": "codex/doc-00-documentation-authority",
+  "branch_url": "https://github.com/helmdubo/CFTUV/tree/codex/doc-00-documentation-authority",
+  "base_integration_sha": "e4db68371cab83a6a26368bf9a95eda74ae8d02e",
+  "implementation_sha": "779371b2cb62bce7295c522a51c05a968c8f653b",
+  "ci_tested_sha": "779371b2cb62bce7295c522a51c05a968c8f653b",
+  "accepted_predecessor_gate": {
+    "id": "BASE-00",
+    "status": "ACCEPTED_WITH_DOCS_ONLY_AMENDMENT",
+    "sha": "e4db68371cab83a6a26368bf9a95eda74ae8d02e",
+    "accepted_by": [
+      "RELEASE_OWNER",
+      "REVIEWER"
+    ]
+  },
+  "contracts": {
+    "status_manifest": "cftuv.architecture_status.v1",
+    "analysis_snapshot": "AnalysisSnapshotV1",
+    "decal_request": "DecalRequestV1",
+    "compiled_patch_evaluation_plan": "CompiledPatchEvaluationPlanV1",
+    "reference_metric": "RationalAffinePlanarMetricV2",
+    "runtime_metric": "RuntimePlanarMetricV1",
+    "raw_coverage": "RawCoverageResultV2",
+    "raw_coverage_schema": "cftuv.envelope.raw_coverage_result.v2"
+  },
+  "changed_paths": {
+    "card_allowlist": [
+      "AGENTS.md",
+      "README.md",
+      "docs/envelope_engine_start_here.md",
+      "docs/envelope_external_agent_session_manifest.md",
+      "docs/architecture_status.json",
+      "docs/adr_index.md"
+    ],
+    "protocol_required_handoff_receipts": [
+      "artifacts/envelope_doc_00/session_doc_00_handoff.md",
+      "artifacts/envelope_doc_00/session_doc_00_handoff.json"
+    ]
+  },
+  "public_api_or_contract_schema_changed": false,
+  "geometry_or_runtime_algorithm_changed": false,
+  "control_metadata_changes": [
+    "ranked authority order",
+    "machine-readable document labels",
+    "current-card routing",
+    "accepted BASE-00 state",
+    "active blocker and structured dispatch"
+  ],
+  "baseline_audit": {
+    "result": "STALE_AUTHORITY_AND_DISPATCH_CONFIRMED",
+    "embedded_active_slice": "BASE-00",
+    "embedded_accepted_sha": "955213c64b62f96df8d76de568671a31dd3310c5",
+    "canonical_accepted_sha": "e4db68371cab83a6a26368bf9a95eda74ae8d02e",
+    "geometry_semantic_conflict_found": false
+  },
+  "validation": {
+    "status_manifest_schema": "PASS",
+    "active_slice_manifest_lookup": "DOC-00:READY_AFTER_BASE",
+    "documentation_link_validator": "PASS",
+    "documentation_link_scope": "AUTHORITY_LINK_SCOPE_V1",
+    "authority_local_paths_checked": 21,
+    "canonical_receipt_paths_checked": 2,
+    "validator_error_count": 0,
+    "doc_00_allowlist_gate": "PASS",
+    "git_diff_check": "PASS",
+    "independent_no_context_review": {
+      "initial_actionable_findings": 3,
+      "findings_remediated": 3,
+      "final_result": "PASS"
+    },
+    "remote_ci": {
+      "status": "NOT_RUN",
+      "reason": "DOC_00_CI_HOOK_OUTSIDE_ALLOWLIST"
+    }
+  },
+  "accepted_predecessor_ci": {
+    "run_id": 30095478731,
+    "url": "https://github.com/helmdubo/CFTUV/actions/runs/30095478731",
+    "wheel_and_extraction": "224 passed",
+    "blender_free_host_bridge": "26 passed",
+    "conclusion": "success"
+  },
+  "semantic_digest_comparison": {
+    "method": "BYTE_IDENTICAL_GIT_TREE_OID_V1",
+    "result": "IDENTICAL_TO_E4DB683",
+    "kernel_tree_oid": "51485c555b6739326fa46b5a507fdc795da8aab9",
+    "cftuv_tree_oid": "c9df63347ff5fe216f4b3e4dd15d9d257fbef814",
+    "tests_tree_oid": "c1e129238931054bbb6fa7468c41e1e17493547a",
+    "workflow_tree_oid": "f37881cbf99f372aa4d22d508f869b9e447ce2ad"
+  },
+  "named_unsupported_outcomes": [
+    "MULTIWAY_INTERACTION_POLICY_UNPROVEN",
+    "REFERENCE_TOUCHING_HOLE_TOPOLOGY_UNPROVEN",
+    "RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED",
+    "COMPILED_ENVELOPE_CACHE_ALPHA_DEPENDENCE",
+    "HOST_REQUEST_EXPORT_COMPLEXITY",
+    "DOC_00_CI_HOOK_OUTSIDE_ALLOWLIST"
+  ],
+  "scope_guards": {
+    "legacy_geometry_read_or_invoked": false,
+    "kernel_changed": false,
+    "host_changed": false,
+    "contracts_changed": false,
+    "tests_changed": false,
+    "workflows_changed": false,
+    "source_mesh_opened_or_mutated": false,
+    "fix_00_started": false,
+    "d_r2_00_started": false
+  },
+  "assumptions_not_proven": [
+    "Publication of this branch does not itself update the canonical control ref.",
+    "DOC-00 remains human-acceptance pending after publication.",
+    "A remote CI hook requires a separately allowlisted control-plane maintenance slice."
+  ],
+  "next_agent_allowlist": {
+    "doc_00_review": [
+      "AGENTS.md",
+      "README.md",
+      "docs/envelope_engine_start_here.md",
+      "docs/envelope_external_agent_session_manifest.md",
+      "docs/architecture_status.json",
+      "docs/adr_index.md",
+      "artifacts/envelope_doc_00/session_doc_00_handoff.md",
+      "artifacts/envelope_doc_00/session_doc_00_handoff.json"
+    ],
+    "dispatch_rules": [
+      "FIX-00 remains a separate exact-card branch and session.",
+      "D-R2-00 requires accepted DOC-00 and FIX-00.",
+      "C-R2C-01 through C-R2C-04 are superseded and non-dispatchable."
+    ]
+  },
+  "suggested_next_card": "FIX-00_IF_NOT_ALREADY_RUNNING_IN_PARALLEL",
+  "rollback": "Revert the implementation commit and the subsequent handoff-receipt commit."
+}

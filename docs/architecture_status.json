@@ -179,7 +179,7 @@
     "base_00_remote_ci": "success",
     "baseline_doc_audit": "STALE_EMBEDDED_STATUS_AND_AM11_SESSION_DISPATCH_CONFIRMED",
     "documentation_link_validator_scope": "AUTHORITY_LINK_SCOPE_V1",
-    "documentation_link_validator": "PASS_21_LOCAL_PATHS_2_CANONICAL_RECEIPTS",
+    "documentation_link_validator": "PASS_23_LOCAL_PATHS_2_CANONICAL_RECEIPTS",
     "status_manifest_schema": "PASS",
     "independent_context_review": "PASS_AFTER_3_ACTIONABLE_FINDINGS_REMEDIATED",
     "git_diff_check": "PASS",
