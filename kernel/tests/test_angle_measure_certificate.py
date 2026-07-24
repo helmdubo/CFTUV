@@ -25,6 +25,7 @@ import math
 
 import pytest
 import sympy as sp
+from mpmath import iv
 
 from cftuv_envelope.codec import canonical_json_bytes
 from cftuv_envelope.contracts.analysis import (
@@ -288,3 +289,49 @@ def test_interval_endpoints_stay_closed():
     for interval in (phi, delta):
         assert interval.lower_kind is IntervalEndpointKind.CLOSED
         assert interval.upper_kind is IntervalEndpointKind.CLOSED
+
+
+# --------------------------------------------------------------------------
+# Чем именно оболочка держится за mpmath
+# --------------------------------------------------------------------------
+
+
+def test_mpmath_interval_endpoints_stay_exactly_readable():
+    """`_mpi_` + `libmp.to_rational` — приватный контракт mpmath, и он держит всё.
+
+    Точного публичного способа прочитать границу у mpmath нет: `.a`/`.b`
+    отдают вырожденный интервал, а не число, а `float()` срезал бы разряды и
+    превратил сертификат в оценку. Поэтому версия mpmath, которая уберёт
+    `_mpi_` или сменит его форму, обязана падать здесь — громко и по имени, а
+    не тихой потерей точности внутри `_enclose_fraction_of_pi`.
+    """
+
+    saved = iv.prec
+    iv.prec = 200
+    try:
+        representable = iv.mpf(1) / iv.mpf(4)
+        irreducible = iv.mpf(1) / iv.mpf(3)
+    finally:
+        iv.prec = saved
+
+    assert hasattr(representable, "_mpi_"), (
+        "mpmath больше не отдаёт `_mpi_`. Оболочка читала границы через него; "
+        "нужен другой точный доступ, приблизительный не годится."
+    )
+    assert len(representable._mpi_) == 2
+
+    # Точно представимое значение читается точно обеими границами.
+    assert {
+        angle_measure._endpoint(item) for item in representable._mpi_
+    } == {Fraction(1, 4)}
+
+    # Непредставимое — двоичными дробями строго по обе стороны от истины,
+    # в порядке (нижняя, верхняя).
+    lower, upper = (angle_measure._endpoint(item) for item in irreducible._mpi_)
+    assert lower < Fraction(1, 3) < upper
+    for endpoint in (lower, upper):
+        denominator = endpoint.denominator
+        assert denominator & (denominator - 1) == 0, (
+            f"граница {endpoint} не двоичная дробь — чтение перестало быть точным"
+        )
+    assert upper - lower < Fraction(1, 2**150)
