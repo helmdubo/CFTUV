@@ -60,7 +60,8 @@ V0 accepts only `PLANAR_EXACT` domains:
 - every projected coordinate has an exact round-trip through the public
   float-valued frame contract;
 - Angular relations have exact owner-side support directions and a certified
-  rational interval for `phi/pi` and `(phi-pi)/pi`.
+  interval for `phi/pi` and `(phi-pi)/pi` — an exact rational when the angle is
+  one, an outward-rounded enclosure otherwise.
 
 An unproved frame returns
 `ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE`. An unproved Angular relation
