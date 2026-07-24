@@ -1,0 +1,166 @@
+{
+  "schema": "cftuv.envelope.baseline.base_00_handoff.v1",
+  "session": "BASE-00_CANONICAL_INTEGRATION_BASELINE_AND_BRANCH_RECOVERY",
+  "status": "BASE_00_READY_FOR_REVIEW",
+  "branch": "codex/base-00-canonical-integration",
+  "reviewed_baseline_sha": "df587ed166cfb0e0b615148f08c583b4477c5ac4",
+  "selected_code_baseline": {
+    "branch": "codex/fix-host-reflex-corner-envelope",
+    "sha": "c2622d07020338e5231b81f41655fe6c74cdca72",
+    "selection_authority": "explicit user integration decision"
+  },
+  "execution_pack": {
+    "source_branch": "main",
+    "source_sha": "30211467886e2717e3fcc2bcb157563b35f40945",
+    "replayed_sha": "955213c64b62f96df8d76de568671a31dd3310c5",
+    "scope": "docs/agent_execution/envelope_v1/**",
+    "changed_files": 46,
+    "geometry_or_contract_changes": false
+  },
+  "accepted_integration_sha": "955213c64b62f96df8d76de568671a31dd3310c5",
+  "implementation_sha": "955213c64b62f96df8d76de568671a31dd3310c5",
+  "ci_tested_sha": "c2622d07020338e5231b81f41655fe6c74cdca72",
+  "package": {
+    "name": "cftuv-envelope-core",
+    "version": "0.7.0"
+  },
+  "contracts": {
+    "analysis_snapshot": "AnalysisSnapshotV1",
+    "decal_request": "DecalRequestV1",
+    "compiled_patch_evaluation_plan": "CompiledPatchEvaluationPlanV1",
+    "reference_metric": "RationalAffinePlanarMetricV2",
+    "runtime_metric": "RuntimePlanarMetricV1",
+    "raw_coverage": "RawCoverageResultV2",
+    "raw_coverage_schema": "cftuv.envelope.raw_coverage_result.v2"
+  },
+  "remote_ci": {
+    "workflow": "Envelope kernel contracts and reference evaluator",
+    "run_id": 30095478731,
+    "run_url": "https://github.com/helmdubo/CFTUV/actions/runs/30095478731",
+    "head_sha": "c2622d07020338e5231b81f41655fe6c74cdca72",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "kernel-hermetic",
+        "job_id": 89488403364,
+        "result": "224 passed"
+      },
+      {
+        "name": "kernel-extraction-readiness",
+        "job_id": 89488403231,
+        "result": "224 passed; forbidden-import-scan OK; session-a-fixtures OK"
+      },
+      {
+        "name": "blender-free-host-bridge-v0b",
+        "job_id": 89488403367,
+        "result": "26 passed; legacy-import scan OK"
+      }
+    ]
+  },
+  "local_validation": {
+    "python": "3.13",
+    "wheel_outside_checkout": {
+      "result": "224 passed",
+      "duration_seconds": 301.34
+    },
+    "extracted_kernel": {
+      "result": "224 passed",
+      "duration_seconds": 299.27,
+      "forbidden_import_scan": "OK",
+      "session_a_fixture_projection": "OK",
+      "git_tree_clean": true
+    },
+    "blender_free_host_bridge": {
+      "result": "26 passed",
+      "duration_seconds": 12.54,
+      "legacy_import_scan": "OK"
+    },
+    "base_00_metadata_diff_check": "OK",
+    "execution_pack_diff_check": "KNOWN_MARKDOWN_HARD_BREAKS_PRESERVED_FROM_3021146"
+  },
+  "compare_tree": {
+    "reviewed_baseline_to_selected_code_baseline": {
+      "from": "df587ed166cfb0e0b615148f08c583b4477c5ac4",
+      "to": "c2622d07020338e5231b81f41655fe6c74cdca72",
+      "commits": 3,
+      "files_changed": 27,
+      "insertions": 2274,
+      "deletions": 132,
+      "semantic_impact": "accepted exact boundary rotation and host reflex-corner export; package 0.6.0 to 0.7.0"
+    },
+    "selected_code_baseline_to_integration": {
+      "from": "c2622d07020338e5231b81f41655fe6c74cdca72",
+      "to": "955213c64b62f96df8d76de568671a31dd3310c5",
+      "files_changed": 46,
+      "insertions": 5266,
+      "deletions": 0,
+      "scope": "docs/agent_execution/envelope_v1/** only"
+    },
+    "integration_to_main_before_base00_metadata": {
+      "integration": "955213c64b62f96df8d76de568671a31dd3310c5",
+      "main": "30211467886e2717e3fcc2bcb157563b35f40945",
+      "tree_oid": "ff75de519f0410193808ea8c474b82effe9ae1c1",
+      "tree_equal": true,
+      "changed_paths": 0,
+      "history_note": "trees are identical; merge histories differ"
+    }
+  },
+  "semantic_digest_comparison": {
+    "method": "BYTE_IDENTICAL_GIT_TREE_OID_V1",
+    "result": "IDENTICAL_TO_SELECTED_CODE_BASELINE",
+    "kernel_tree_oid": "51485c555b6739326fa46b5a507fdc795da8aab9",
+    "cftuv_tree_oid": "c9df63347ff5fe216f4b3e4dd15d9d257fbef814",
+    "tests_tree_oid": "c1e129238931054bbb6fa7468c41e1e17493547a",
+    "workflow_tree_oid": "f37881cbf99f372aa4d22d508f869b9e447ce2ad"
+  },
+  "named_unsupported_outcomes": [
+    "MULTIWAY_INTERACTION_POLICY_UNPROVEN",
+    "REFERENCE_TOUCHING_HOLE_TOPOLOGY_UNPROVEN",
+    "REFERENCE_ARRANGEMENT_ROTATION_SYSTEM_UNPROVEN",
+    "REFERENCE_ARRANGEMENT_COLLINEAR_BRANCH_UNPROVEN",
+    "RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED"
+  ],
+  "source_mesh_mutation_check": {
+    "source_mesh_opened": false,
+    "tracked_mesh_diff_from_selected_code_baseline": false,
+    "predecessor_building_002_fingerprint": "3205834b7ead22cf1eb8985902144ca1c7295a88b8015556b364be17d8ac9021",
+    "result": "UNCHANGED_BY_BASE_00"
+  },
+  "changed_paths": {
+    "execution_pack": "docs/agent_execution/envelope_v1/** (46 files)",
+    "base_00_metadata": [
+      "docs/architecture_status.json",
+      "docs/adr_index.md",
+      "artifacts/envelope_baseline/session_base_00_handoff.json",
+      "artifacts/envelope_baseline/session_base_00_handoff.md"
+    ]
+  },
+  "scope_guards": {
+    "legacy_geometry_read_or_invoked": false,
+    "main_merged": false,
+    "geometry_changed_by_base00": false,
+    "contracts_changed_by_base00": false,
+    "tests_changed_by_base00": false,
+    "workflow_changed_by_base00": false
+  },
+  "assumptions_not_proven": [
+    "GitHub branch protection is not configured by this card; the ref is clearly named and immutable SHAs are recorded.",
+    "Human acceptance of BASE-00 remains pending.",
+    "The source execution pack intentionally uses two-space Markdown hard breaks; full-range git diff --check reports them and BASE-00 preserves them byte-for-byte."
+  ],
+  "next_agent_allowlist": {
+    "condition": "BASE-00 human acceptance",
+    "cards": [
+      "DOC-00",
+      "FIX-00"
+    ],
+    "authority": [
+      "docs/architecture_status.json",
+      "docs/agent_execution/envelope_v1/01_GLOBAL_CANON.md",
+      "docs/agent_execution/envelope_v1/02_AGENT_PROTOCOL.md",
+      "the exact selected card",
+      "accepted predecessor handoffs",
+      "the selected card allowlist"
+    ]
+  }
+}
