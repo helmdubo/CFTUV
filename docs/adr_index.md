@@ -4,7 +4,7 @@
 
 | Decision | Status | Immutable content SHA | Record |
 |---|---|---|---|
-| BASE-00: recover the canonical integration baseline from `codex/fix-host-reflex-corner-envelope`, import the Envelope v1 execution pack, and reconcile it with the selected consolidated C-R2C gate | Amendment ready for human review | `e4db68371cab83a6a26368bf9a95eda74ae8d02e` | `artifacts/envelope_baseline/session_base_00_control_plane_amendment.md` |
+| BASE-00: recover the canonical integration baseline from `codex/fix-host-reflex-corner-envelope`, import the Envelope v1 execution pack, and reconcile it with the selected consolidated C-R2C gate | Accepted by release owner with docs-only amendment | `e4db68371cab83a6a26368bf9a95eda74ae8d02e` | `artifacts/envelope_baseline/session_base_00_control_plane_amendment.md` |
 
 The accepted content SHA deliberately precedes the BASE-00 control-metadata
 commit. This avoids a self-referential manifest hash: agents read

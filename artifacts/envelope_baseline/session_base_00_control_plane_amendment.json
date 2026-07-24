@@ -1,13 +1,19 @@
 {
   "schema": "cftuv.envelope.baseline.control_plane_amendment.v1",
-  "status": "READY_FOR_HUMAN_REVIEW",
-  "acceptance_state": "HUMAN_ACCEPTANCE_PENDING",
+  "status": "ACCEPTED",
+  "acceptance_state": "ACCEPTED_BY_RELEASE_OWNER",
   "branch": "codex/base-00-canonical-integration",
   "selected_code_baseline_sha": "c2622d07020338e5231b81f41655fe6c74cdca72",
   "previous_content_sha": "955213c64b62f96df8d76de568671a31dd3310c5",
   "amended_content_sha": "e4db68371cab83a6a26368bf9a95eda74ae8d02e",
   "amended_content_tree_oid": "70579a29715aa846d88e409c85c53144b341386b",
   "execution_pack_version": "1.1.1",
+  "human_acceptance": {
+    "decision": "ACCEPTED_WITH_DOCS_ONLY_AMENDMENT",
+    "accepted_by": "RELEASE_OWNER",
+    "accepted_on": "2026-07-24",
+    "authority": "explicit user instruction"
+  },
   "commits": [
     "49cfa218d7d6704f30ae1de6788cd350e0e52f83",
     "729e33025409f51a7dae816b300bd1ed618acf5e",

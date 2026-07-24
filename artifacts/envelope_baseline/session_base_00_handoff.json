@@ -1,7 +1,7 @@
 {
   "schema": "cftuv.envelope.baseline.base_00_handoff.v1",
   "session": "BASE-00_CANONICAL_INTEGRATION_BASELINE_AND_BRANCH_RECOVERY",
-  "status": "BASE_00_AMENDMENT_READY_FOR_REVIEW",
+  "status": "BASE_00_ACCEPTED",
   "branch": "codex/base-00-canonical-integration",
   "reviewed_baseline_sha": "df587ed166cfb0e0b615148f08c583b4477c5ac4",
   "selected_code_baseline": {
@@ -30,6 +30,12 @@
   "accepted_integration_sha": "e4db68371cab83a6a26368bf9a95eda74ae8d02e",
   "implementation_sha": "e4db68371cab83a6a26368bf9a95eda74ae8d02e",
   "ci_tested_sha": "c2622d07020338e5231b81f41655fe6c74cdca72",
+  "human_acceptance": {
+    "decision": "ACCEPTED_WITH_DOCS_ONLY_AMENDMENT",
+    "accepted_by": "RELEASE_OWNER",
+    "accepted_on": "2026-07-24",
+    "authority": "explicit user instruction"
+  },
   "package": {
     "name": "cftuv-envelope-core",
     "version": "0.7.0"
@@ -170,11 +176,10 @@
   ],
   "assumptions_not_proven": [
     "GitHub branch protection is not configured by this card; the ref is clearly named and immutable SHAs are recorded.",
-    "Human acceptance of BASE-00 remains pending.",
     "The immutable content commit cannot contain its own hash; agents read status and handoffs from the canonical control ref."
   ],
   "next_agent_allowlist": {
-    "condition": "BASE-00 human acceptance",
+    "condition": "BASE-00 accepted",
     "cards": [
       "DOC-00",
       "FIX-00"

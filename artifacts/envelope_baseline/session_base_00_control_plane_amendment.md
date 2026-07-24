@@ -1,8 +1,8 @@
 # BASE-00 docs-only control-plane amendment
 
-Status: `READY_FOR_HUMAN_REVIEW`
+Status: `ACCEPTED`
 
-Human acceptance: `PENDING`
+Human acceptance: `ACCEPTED_BY_RELEASE_OWNER` on `2026-07-24`
 
 The selected baseline `c2622d0…` already includes the accepted consolidated
 C-R2C gate. The imported v1.1 execution pack nevertheless described
@@ -35,5 +35,5 @@ tests and workflows retain their exact selected-baseline tree OIDs. Existing
 CI evidence remains GitHub Actions run `30095478731`; amendment-specific
 manifest, packet-builder, syntax and diff gates pass.
 
-This receipt does not grant human acceptance. The release owner must still
-accept BASE-00 before successor cards are dispatched.
+The release owner explicitly accepted BASE-00 with this docs-only amendment.
+`DOC-00` and `FIX-00` may be dispatched as separate baseline-parallel cards.

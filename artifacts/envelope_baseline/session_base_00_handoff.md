@@ -17,7 +17,7 @@ CI-tested SHA:
 `c2622d07020338e5231b81f41655fe6c74cdca72`
 
 Human acceptance:
-`HUMAN_ACCEPTANCE_PENDING`
+`ACCEPTED_BY_RELEASE_OWNER` on `2026-07-24`
 
 ## Amendment
 
@@ -91,7 +91,7 @@ The immutable content commit cannot contain its own hash. Agents must read
 `BASELINE_RECONCILIATION.md` from the canonical control ref, then create a
 card branch from the `accepted_integration_sha` stored in that status.
 
-After human acceptance, run `DOC-00` and `FIX-00` in separate fresh branches.
+Human acceptance is recorded. Run `DOC-00` and `FIX-00` in separate fresh branches.
 `D-R2-00` follows both. Do not dispatch `C-R2C-01` through `C-R2C-04`.
 
 No legacy decal geometry was opened or invoked, and no source mesh was opened
