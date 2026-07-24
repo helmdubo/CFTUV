@@ -1,0 +1,131 @@
+{
+  "schema": "cftuv.envelope.d_r2_handoff.v1",
+  "status": "D_R2_CONTRACT_READY_FOR_HUMAN_REVIEW",
+  "active_slice": "D-R2-00",
+  "branch": "codex/d-r2-00-conditional-atomic-multiway",
+  "published_branch": "https://github.com/helmdubo/CFTUV/tree/codex/d-r2-00-conditional-atomic-multiway",
+  "base_integration_sha": "361102a6539ffbbe6fa8957a04bf12a9bae42bd8",
+  "implementation_sha": "e81e1186caf906d5ba0cc549330ce4a02d14f22e",
+  "ci_tested_sha": "e81e1186caf906d5ba0cc549330ce4a02d14f22e",
+  "product_owner_decision": {
+    "contract": "ATOMIC_OWNERLESS_POINT_CONTACT_V1",
+    "decision": "ACCEPTED_FOR_IMPLEMENTATION",
+    "accepted_on": "2026-07-24",
+    "authority": "explicit release-owner authorization to solve the reported issues as reviewer/architect"
+  },
+  "contract_versions": {
+    "analysis_snapshot": "AnalysisSnapshotV1",
+    "decal_request": "DecalRequestV1",
+    "compiled_plan": "CompiledPatchEvaluationPlanV1",
+    "raw_coverage": "RawCoverageResultV2",
+    "resolved_coverage": "ResolvedCoverageResultV1",
+    "d_r2_contract": "ATOMIC_OWNERLESS_POINT_CONTACT_V1",
+    "d_r2_fixture": "cftuv.envelope.session_d_r2_atomic_point_contact_contract.v1"
+  },
+  "changed_paths": [
+    "docs/session_d_r2_multiway_contract.md",
+    "kernel/src/cftuv_envelope/interactions/contracts.py",
+    "kernel/fixtures/session_d_interactions_v1/README.md",
+    "kernel/fixtures/session_d_interactions_v1/manifest.json",
+    "kernel/fixtures/session_d_interactions_v1/fixture_hash_manifest.json",
+    "kernel/fixtures/session_d_interactions_v1/d_r2_atomic_point_contact_cases.json",
+    "kernel/tests/test_session_d_interaction_edges.py",
+    "artifacts/envelope_d_r2/session_d_r2_handoff.md",
+    "artifacts/envelope_d_r2/session_d_r2_handoff.json"
+  ],
+  "public_api_or_schema_changes": {
+    "additive": true,
+    "contract_id": "ATOMIC_OWNERLESS_POINT_CONTACT_V1",
+    "coverage_effect": "ATOMIC_OWNERLESS_POINT_CONTACT_IDENTITY",
+    "existing_record_fields_changed": false,
+    "existing_schema_ids_changed": false
+  },
+  "implementation_boundary": {
+    "contract_gate_only": true,
+    "runtime_resolver_changed": false,
+    "pairwise_sequential_application": "FORBIDDEN",
+    "current_runtime_outcome": "MULTIWAY_INTERACTION_POLICY_UNPROVEN"
+  },
+  "field_case": {
+    "portable_fixture_hash": "efbae17746688b517ce40fa71efa85c2ff7b8ba59573ada93fb3758663a70515",
+    "interaction_components": 3,
+    "arrival_models": 3,
+    "candidates": 3,
+    "proven_pairs": 2,
+    "event_alpha": "Integer(0)",
+    "equality_segment_count": 0,
+    "equality_anchor_count": 2,
+    "pairwise_positive_area_intersections": [
+      "Integer(0)",
+      "Integer(0)",
+      "Integer(0)"
+    ],
+    "exact_area": "Rational(122766786560, 373821260323)",
+    "raw_semantic_digest": "622e1f6eec09e64bc1294c37643af19f630086005f9af21f10ac4cd6ed0e987a",
+    "contractual_result": "EXACT_IDENTITY_WITH_TWO_OWNERLESS_POINT_LOCI"
+  },
+  "permutation_evidence": {
+    "current_runtime_permutations": 216,
+    "distinct_current_runtime_projections": 1,
+    "current_runtime_outcome": "MULTIWAY_INTERACTION_POLICY_UNPROVEN",
+    "contract_fixture_participant_and_hyperedge_permutations": "PASS"
+  },
+  "unsafe_pairwise_evidence": {
+    "orders_checked": 2,
+    "resolved_area": "Integer(0)",
+    "outcome": "INTERACTION_POLICY_B_PARTITION_UNPROVEN",
+    "contribution_digests_order_dependent": true
+  },
+  "validation": {
+    "baseline": "17 passed in 4.23s",
+    "focused": "45 passed in 78.10s",
+    "wheel_only_external": "230 passed in 296.12s",
+    "earlier_misconfigured_external_attempt": "226 passed, 4 failed due to copied-path/cwd layout",
+    "source_forbidden_import_scan": "OK",
+    "extracted_forbidden_import_scan": "OK",
+    "source_generated_schema_check": "OK",
+    "extracted_generated_schema_check": "OK",
+    "extracted_wheel_build": "PASS",
+    "py_compile": "PASS",
+    "git_diff_check": "PASS"
+  },
+  "semantic_digest_result": {
+    "raw_and_contractual_resolved_digest": "622e1f6eec09e64bc1294c37643af19f630086005f9af21f10ac4cd6ed0e987a",
+    "new_contract_fixture_hash": "89d27d8d308eecfed74df54c5d29ad2e3e1f38cd5ced80671de6ff05c6eaea44",
+    "original_session_d_cases_hash": "2b54fc9061612b2c1fff85b1fda0a542f7442e1aa2991b4fde68c3af042b015c"
+  },
+  "named_unsupported_outcomes": [
+    "MULTIWAY_INTERACTION_POLICY_UNPROVEN",
+    "INTERACTION_COINCIDENT_ARRIVAL_LAWS_UNPROVEN",
+    "INTERACTION_EXACT_PREDICATE_UNDECIDABLE",
+    "ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE"
+  ],
+  "assumptions_not_proven": [
+    "No general multiway Policy B partition is defined.",
+    "The point-only identity contract is not yet wired into the runtime resolver.",
+    "Publishing this branch does not itself update the canonical control ref."
+  ],
+  "scope_guards": {
+    "legacy_geometry_read_or_invoked": false,
+    "runtime_resolver_changed": false,
+    "host_changed": false,
+    "ownership_changed": false,
+    "source_mesh_opened_or_mutated": false
+  },
+  "next_agent_allowlist": {
+    "review": [
+      "docs/session_d_r2_multiway_contract.md",
+      "kernel/src/cftuv_envelope/interactions/contracts.py",
+      "kernel/fixtures/session_d_interactions_v1/**",
+      "kernel/tests/test_session_d_interaction_edges.py",
+      "artifacts/envelope_d_r2/session_d_r2_handoff.md",
+      "artifacts/envelope_d_r2/session_d_r2_handoff.json"
+    ],
+    "instruction": "Keep the current resolver guard until a separately allowlisted implementation consumes the atomic identity contract."
+  },
+  "suggested_next_cards": [
+    "HOST-ANGULAR-CERT-00",
+    "C-R2D-01_AFTER_D_R2_ACCEPTANCE"
+  ],
+  "rollback": "Revert e81e1186caf906d5ba0cc549330ce4a02d14f22e and the subsequent handoff commit."
+}
