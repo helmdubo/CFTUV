@@ -1,0 +1,127 @@
+{
+  "schema": "cftuv.envelope.session_c_r2c_boundary_rotation_manifest.v1",
+  "session": "SESSION_C_R2C_REGULARIZED_BOUNDARY_ROTATION_SYSTEM",
+  "semantic_rule": "POINT_CONTACT_PRESERVES_GEOMETRIC_EQUALITY_WITHOUT_AREA_CONNECTIVITY",
+  "cases": [
+    {
+      "case_id": "R2C-001",
+      "fixture": "TWO_RECTANGLES_CORNER_TOUCH",
+      "expected": "TWO_REGIONS_ONE_ARRANGEMENT_POINT_TWO_OCCURRENCES",
+      "pytest_nodeid": "test_boundary_rotation_system.py::test_two_rectangles_touching_at_one_corner_remain_two_area_regions"
+    },
+    {
+      "case_id": "R2C-002",
+      "fixture": "THREE_ROTATED_RECTANGLES_ONE_POINT",
+      "expected": "THREE_REGIONS_ONE_ARRANGEMENT_POINT_THREE_OCCURRENCES",
+      "pytest_nodeid": "test_boundary_rotation_system.py::test_three_exact_rotated_rectangles_touch_only_at_one_point"
+    },
+    {
+      "case_id": "R2C-003",
+      "fixture": "FOUR_SIDED_POINT_TOUCH",
+      "expected": "FOUR_REGIONS_ONE_ARRANGEMENT_POINT_FOUR_OCCURRENCES",
+      "pytest_nodeid": "test_boundary_rotation_system.py::test_four_sided_point_touch_keeps_four_topological_occurrences"
+    },
+    {
+      "case_id": "R2C-004",
+      "fixture": "TANGENTIAL_POINT_CONTACT",
+      "expected": "TWO_INTERIOR_COMPONENTS",
+      "pytest_nodeid": "test_boundary_rotation_system.py::test_tangential_vertex_to_edge_contact_does_not_weld_components"
+    },
+    {
+      "case_id": "R2C-005",
+      "fixture": "BEFORE_AT_AFTER_EXACT_CONTACT",
+      "expected": "CONTACT_EVENT_ONLY_AT_EXACT_ALPHA",
+      "pytest_nodeid": "test_boundary_rotation_system.py::test_before_at_after_contact_changes_only_at_exact_area_event"
+    },
+    {
+      "case_id": "R2C-006",
+      "fixture": "SHARED_COORDINATE_DIFFERENT_PROVENANCE",
+      "expected": "DISTINCT_OCCURRENCES_TOTAL_PROVENANCE",
+      "pytest_nodeid": "test_boundary_rotation_system.py::test_two_rectangles_touching_at_one_corner_remain_two_area_regions"
+    },
+    {
+      "case_id": "R2C-007",
+      "fixture": "POINT_TOUCH_OUTER_COMPONENTS",
+      "expected": "DISTINCT_RAW_COVERAGE_REGIONS",
+      "pytest_nodeid": "test_boundary_rotation_system.py::test_three_components_touching_one_exact_point_have_three_occurrences"
+    },
+    {
+      "case_id": "R2C-008",
+      "fixture": "HOLE_TOUCHES_OUTER",
+      "expected": "REFERENCE_TOUCHING_HOLE_TOPOLOGY_UNPROVEN",
+      "pytest_nodeid": "test_boundary_rotation_system.py::test_touching_hole_and_touching_holes_fail_with_named_exact_boundary"
+    },
+    {
+      "case_id": "R2C-009",
+      "fixture": "TWO_HOLES_TOUCH",
+      "expected": "REFERENCE_TOUCHING_HOLE_TOPOLOGY_UNPROVEN",
+      "pytest_nodeid": "test_boundary_rotation_system.py::test_touching_hole_and_touching_holes_fail_with_named_exact_boundary"
+    },
+    {
+      "case_id": "R2C-010",
+      "fixture": "CONCAVE_LOOP_BRANCH_POINT",
+      "expected": "EXACT_POINT_CONTACT",
+      "pytest_nodeid": "test_boundary_rotation_system.py::test_concave_component_can_point_touch_an_independent_component"
+    },
+    {
+      "case_id": "R2C-011",
+      "fixture": "PARTIAL_COINCIDENT_COLLINEAR_SEGMENTS",
+      "expected": "ONE_ATOMIC_HISTORY_PER_COMMON_PART",
+      "pytest_nodeid": "test_arrangement_broadphase.py::test_broadphase_matches_exhaustive_on_exact_fixture_matrix"
+    },
+    {
+      "case_id": "R2C-012",
+      "fixture": "EQUIVALENT_GENERATORS_ONE_ATOMIC_EDGE",
+      "expected": "MERGED_PROVENANCE_NO_DUPLICATE_BOUNDARY",
+      "pytest_nodeid": "test_boundary_rotation_system.py::test_internalized_equivalent_generators_merge_provenance_not_edges"
+    },
+    {
+      "case_id": "R2C-013",
+      "fixture": "AMBIGUOUS_COLLINEAR_BRANCH",
+      "expected": "REFERENCE_ARRANGEMENT_COLLINEAR_BRANCH_UNPROVEN",
+      "pytest_nodeid": "test_boundary_rotation_system.py::test_duplicate_collinear_outgoing_rays_fail_without_id_tie_break"
+    },
+    {
+      "case_id": "R2C-014",
+      "fixture": "INPUT_PERMUTATION",
+      "expected": "IDENTICAL_ROTATION_SYSTEM",
+      "pytest_nodeid": "test_boundary_rotation_system.py::test_input_permutation_and_cyclic_loop_shift_preserve_rotation_system"
+    },
+    {
+      "case_id": "R2C-015",
+      "fixture": "REVERSED_STORAGE_SEMANTIC_ORIENTATION_PRESERVED",
+      "expected": "IDENTICAL_ROTATION_SYSTEM",
+      "pytest_nodeid": "test_boundary_rotation_system.py::test_input_permutation_and_cyclic_loop_shift_preserve_rotation_system"
+    },
+    {
+      "case_id": "R2C-016",
+      "fixture": "RIGID_ROTATION",
+      "expected": "IDENTICAL_TOPOLOGY_AND_PROVENANCE",
+      "pytest_nodeid": "test_boundary_rotation_system.py::test_rigid_rotation_and_uniform_scale_preserve_semantic_topology"
+    },
+    {
+      "case_id": "R2C-017",
+      "fixture": "UNIFORM_SCALE",
+      "expected": "IDENTICAL_TOPOLOGY_AREA_SCALED",
+      "pytest_nodeid": "test_boundary_rotation_system.py::test_rigid_rotation_and_uniform_scale_preserve_semantic_topology"
+    },
+    {
+      "case_id": "R2C-018",
+      "fixture": "BROADPHASE_EXHAUSTIVE_ROTATION_DIFFERENTIAL",
+      "expected": "EXACT_RECORD_EQUALITY",
+      "pytest_nodeid": "test_boundary_rotation_system.py::test_broadphase_and_exhaustive_share_one_rotation_face_walk"
+    },
+    {
+      "case_id": "R2C-019",
+      "fixture": "U_SHAPED_THREE_CHAIN_PATCH",
+      "expected": "RAW_READY_MULTIWAY_INTERACTION_MAY_REJECT",
+      "pytest_nodeid": "test_boundary_rotation_asset_artifact.py::test_building_patch_zero_reaches_raw_ready"
+    },
+    {
+      "case_id": "R2C-020",
+      "fixture": "BUILDING_002_EDGES_2_3_7",
+      "expected": "PATCH_ZERO_RAW_READY",
+      "pytest_nodeid": "test_boundary_rotation_asset_artifact.py::test_building_patch_zero_reaches_raw_ready"
+    }
+  ]
+}

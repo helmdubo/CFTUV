@@ -110,6 +110,8 @@ def _semantic_digest(result: ArrangementUnionV1) -> str:
         "atomic_edges": result.edges,
         "loops": result.loops,
         "regions": result.regions,
+        "boundary_vertex_occurrences": result.boundary_vertex_occurrences,
+        "point_contacts": result.point_contacts,
         "exact_area_expression": result.exact_area_expression,
     }
     return sha256(canonical_json_bytes(semantic_projection)).hexdigest()
@@ -135,6 +137,11 @@ def _assert_differential_equivalence(
     assert broadphase.edges == exhaustive.edges
     assert broadphase.loops == exhaustive.loops
     assert broadphase.regions == exhaustive.regions
+    assert (
+        broadphase.boundary_vertex_occurrences
+        == exhaustive.boundary_vertex_occurrences
+    )
+    assert broadphase.point_contacts == exhaustive.point_contacts
     assert broadphase.exact_area_expression == exhaustive.exact_area_expression
     assert broadphase.intersection_count == exhaustive.intersection_count
     assert broadphase.atomic_edge_count == exhaustive.atomic_edge_count

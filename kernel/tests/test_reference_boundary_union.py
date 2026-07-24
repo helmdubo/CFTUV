@@ -13,6 +13,7 @@ from cftuv_envelope import (
     ChainUseOrientation,
     LineageId,
     PhysicalEdgeSequenceConstraintTargetV1,
+    RawCoverageResultV2,
     SurfacePayloadMode,
     validate_analysis_snapshot,
 )
@@ -56,6 +57,9 @@ def test_straight_strip_has_physical_caps_exact_area_and_total_provenance():
     assert evaluated.outcome is ReferenceOutcome.EXACT
     assert sum(isinstance(item, CapEnvelopeSpec) for item in compiled.compilation.envelope_specs) == 2
     raw = evaluated.raw_coverage
+    assert isinstance(raw, RawCoverageResultV2)
+    assert raw.schema_version == "cftuv.envelope.raw_coverage_result.v2"
+    assert raw.boundary_vertex_occurrences
     assert sp.sympify(raw.exact_area_expression) == 20
     assert len(raw.regions) == 1
     assert len(raw.loops) == 1

@@ -1,0 +1,26 @@
+{
+  "alpha": 0.25,
+  "domain_status": "Patch 0: INTERACTION_REJECTED",
+  "gp_boundary_occurrence_strokes": 4,
+  "gp_object": "CFTUV_DEBUG_Envelope_building.002",
+  "gp_point_contact_strokes": 4,
+  "gp_total_strokes": 243,
+  "mesh_fingerprint_after": "0db9f30b2353d4145bd2ab9064f8f2a5f73732fc2711c9394bbeff4db86d6f09",
+  "mesh_fingerprint_before": "0db9f30b2353d4145bd2ab9064f8f2a5f73732fc2711c9394bbeff4db86d6f09",
+  "operator": "hotspotuv.build_exact_reference_envelope_debug",
+  "operator_result": [
+    "FINISHED"
+  ],
+  "outcome": "MULTIWAY_INTERACTION_POLICY_UNPROVEN",
+  "profile_text_datablock": "CFTUV_EnvelopeProfile_building.002.json",
+  "selected_physical_edge_ids": [
+    2,
+    3,
+    7
+  ],
+  "sidecar_text_datablock": "CFTUV_EnvelopeDebug_building.002.json",
+  "source_mesh_unchanged": true,
+  "source_object": "building.002",
+  "stage_summary": "Topology: 4/4 | Metric: 4/4 | Raw: 4/4 | Resolved: 3/4",
+  "status": "Topology built; Exact Envelope unavailable for 1/4 domains"
+}

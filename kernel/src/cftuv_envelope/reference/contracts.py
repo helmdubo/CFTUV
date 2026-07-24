@@ -33,6 +33,7 @@ from .provenance import ReferenceProvenanceV1
 
 REFERENCE_COMPILATION_SCHEMA_V1 = "cftuv.envelope.reference_compilation.v1"
 RAW_COVERAGE_RESULT_SCHEMA_V1 = "cftuv.envelope.raw_coverage_result.v1"
+RAW_COVERAGE_RESULT_SCHEMA_V2 = "cftuv.envelope.raw_coverage_result.v2"
 
 
 class ReferenceOutcome(str, Enum):
@@ -82,6 +83,15 @@ class ReferenceOutcome(str, Enum):
         "REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE"
     )
     REFERENCE_ARRANGEMENT_NON_MANIFOLD = "REFERENCE_ARRANGEMENT_NON_MANIFOLD"
+    REFERENCE_ARRANGEMENT_ROTATION_SYSTEM_UNPROVEN = (
+        "REFERENCE_ARRANGEMENT_ROTATION_SYSTEM_UNPROVEN"
+    )
+    REFERENCE_ARRANGEMENT_COLLINEAR_BRANCH_UNPROVEN = (
+        "REFERENCE_ARRANGEMENT_COLLINEAR_BRANCH_UNPROVEN"
+    )
+    REFERENCE_TOUCHING_HOLE_TOPOLOGY_UNPROVEN = (
+        "REFERENCE_TOUCHING_HOLE_TOPOLOGY_UNPROVEN"
+    )
     RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED = (
         "RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED"
     )
@@ -223,6 +233,33 @@ class RawCoverageRegionV1:
 
 
 @dataclass(frozen=True, slots=True)
+class BoundaryVertexOccurrenceV1:
+    """Один топологический проход boundary через exact arrangement point."""
+
+    boundary_occurrence_id: str
+    arrangement_point_id: str
+    loop_id: str
+    incoming_boundary_edge_id: str
+    outgoing_boundary_edge_id: str
+    covered_sector_id: str
+    construction_certificates: frozenset[ConstructionCertificate]
+    provenance: ReferenceProvenanceV1
+
+
+@dataclass(frozen=True, slots=True)
+class PointContactRecordV1:
+    """Lower-dimensional contact без area-connectivity."""
+
+    point_contact_id: str
+    arrangement_point_id: str
+    participating_loop_ids: tuple[str, ...]
+    participating_envelope_instance_ids: frozenset[str]
+    participating_front_component_ids: frozenset[str]
+    construction_certificates: frozenset[ConstructionCertificate]
+    provenance: ReferenceProvenanceV1
+
+
+@dataclass(frozen=True, slots=True)
 class ComponentEffectiveAlphaV1:
     front_component_id: str
     requested_alpha: LocalLengthV1
@@ -246,6 +283,14 @@ class RawCoverageResultV1:
     exact_area_expression: str
     semantic_digest: str
     diagnostics: tuple[ReferenceEvaluationDiagnosticV1, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RawCoverageResultV2(RawCoverageResultV1):
+    """V2 adds explicit boundary occurrences without changing point identity."""
+
+    boundary_vertex_occurrences: frozenset[BoundaryVertexOccurrenceV1]
+    point_contacts: frozenset[PointContactRecordV1]
 
 
 @dataclass(frozen=True, slots=True)

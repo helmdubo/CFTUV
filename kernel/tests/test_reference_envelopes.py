@@ -11,7 +11,11 @@ from cftuv_envelope.reference import (
     compile_reference_envelopes,
     evaluate_reference_raw_coverage,
 )
-from cftuv_envelope.reference.arrangement import ExactArrangementNonManifold
+from cftuv_envelope.reference.arrangement import (
+    ExactArrangementCollinearBranchUnproven,
+    ExactArrangementRotationSystemUnproven,
+    ExactTouchingHoleTopologyUnproven,
+)
 from cftuv_envelope.reference import raw_coverage as raw_coverage_module
 from cftuv_envelope.reference.planar_types import exact_sign
 
@@ -54,21 +58,21 @@ def test_linear_reflex_k_uses_one_angle_driven_algorithm(hidden_count):
     )
 
 
-def test_proven_non_manifold_union_has_precise_named_outcome(monkeypatch):
+def test_unproven_rotation_system_has_precise_named_outcome(monkeypatch):
     snapshot, request = angular_snapshot(0)
     compilation = compile_reference_envelopes(
         snapshot, request
     ).compilation
 
-    def reject_non_manifold(*args, **kwargs):
-        raise ExactArrangementNonManifold(
-            "exact union boundary is non-manifold at a construction vertex"
+    def reject_rotation_system(*args, **kwargs):
+        raise ExactArrangementRotationSystemUnproven(
+            "exact boundary rotation system is unproven"
         )
 
     monkeypatch.setattr(
         raw_coverage_module.REFERENCE_ARRANGEMENT_BACKEND,
         "exact_union",
-        reject_non_manifold,
+        reject_rotation_system,
     )
     evaluated = evaluate_reference_raw_coverage(
         compilation, request.requested_alpha
@@ -76,9 +80,46 @@ def test_proven_non_manifold_union_has_precise_named_outcome(monkeypatch):
 
     assert (
         evaluated.outcome
-        is ReferenceOutcome.REFERENCE_ARRANGEMENT_NON_MANIFOLD
+        is ReferenceOutcome.REFERENCE_ARRANGEMENT_ROTATION_SYSTEM_UNPROVEN
     )
-    assert "non-manifold" in evaluated.diagnostics[0].message
+    assert "rotation system" in evaluated.diagnostics[0].message
+
+
+@pytest.mark.parametrize(
+    ("failure_type", "outcome"),
+    (
+        (
+            ExactArrangementCollinearBranchUnproven,
+            ReferenceOutcome.REFERENCE_ARRANGEMENT_COLLINEAR_BRANCH_UNPROVEN,
+        ),
+        (
+            ExactTouchingHoleTopologyUnproven,
+            ReferenceOutcome.REFERENCE_TOUCHING_HOLE_TOPOLOGY_UNPROVEN,
+        ),
+    ),
+)
+def test_specific_rotation_failures_keep_specific_outcomes(
+    monkeypatch, failure_type, outcome
+):
+    snapshot, request = angular_snapshot(0)
+    compilation = compile_reference_envelopes(
+        snapshot, request
+    ).compilation
+
+    def reject(*args, **kwargs):
+        raise failure_type(outcome.value)
+
+    monkeypatch.setattr(
+        raw_coverage_module.REFERENCE_ARRANGEMENT_BACKEND,
+        "exact_union",
+        reject,
+    )
+
+    evaluated = evaluate_reference_raw_coverage(
+        compilation, request.requested_alpha
+    )
+
+    assert evaluated.outcome is outcome
 
 
 def test_deleted_hidden_support_fails_named_instead_of_approximating_profile():

@@ -33,6 +33,8 @@ ENVELOPE_DEBUG_LAYER_STYLES = {
     "ENV_22_HIDDEN_SUPPORTS": ((0.85, 0.20, 1.00, 1.0), 7),
     "ENV_30_ENVELOPE_INSTANCES": ((0.10, 0.95, 0.70, 1.0), 4),
     "ENV_40_RAW_COVERAGE": ((0.15, 0.80, 1.00, 1.0), 8),
+    "ENV_53_POINT_CONTACTS": ((1.00, 0.85, 0.05, 1.0), 11),
+    "ENV_54_BOUNDARY_OCCURRENCES": ((0.95, 0.55, 1.00, 1.0), 6),
     "ENV_50_INTERACTION_COMPONENTS": ((0.80, 0.45, 1.00, 1.0), 4),
     "ENV_51_FRONT_READINGS": ((1.00, 0.30, 0.80, 1.0), 6),
     "ENV_52_EQUALITY_LOCI": ((1.00, 1.00, 1.00, 1.0), 10),
@@ -63,7 +65,11 @@ _VISIBILITY_GROUPS = {
         "ENV_22_HIDDEN_SUPPORTS",
     ),
     "envelope_debug_show_envelopes": ("ENV_30_ENVELOPE_INSTANCES",),
-    "envelope_debug_show_raw": ("ENV_40_RAW_COVERAGE",),
+    "envelope_debug_show_raw": (
+        "ENV_40_RAW_COVERAGE",
+        "ENV_53_POINT_CONTACTS",
+        "ENV_54_BOUNDARY_OCCURRENCES",
+    ),
     "envelope_debug_show_readings": (
         "ENV_50_INTERACTION_COMPONENTS",
         "ENV_51_FRONT_READINGS",

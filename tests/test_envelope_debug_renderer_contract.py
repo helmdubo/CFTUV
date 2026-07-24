@@ -28,6 +28,8 @@ REQUIRED_LAYERS = {
     "ENV_22_HIDDEN_SUPPORTS",
     "ENV_30_ENVELOPE_INSTANCES",
     "ENV_40_RAW_COVERAGE",
+    "ENV_53_POINT_CONTACTS",
+    "ENV_54_BOUNDARY_OCCURRENCES",
     "ENV_50_INTERACTION_COMPONENTS",
     "ENV_51_FRONT_READINGS",
     "ENV_52_EQUALITY_LOCI",
@@ -75,6 +77,8 @@ def test_visibility_groups_map_to_runtime_layers_without_geometry_changes():
     assert visibility["ENV_14_SEAM_SELF_PAIRS"] is True
     assert visibility["ENV_20_SOURCE_SUPPORTS"] is False
     assert visibility["ENV_40_RAW_COVERAGE"] is False
+    assert visibility["ENV_53_POINT_CONTACTS"] is False
+    assert visibility["ENV_54_BOUNDARY_OCCURRENCES"] is False
     assert visibility["ENV_51_FRONT_READINGS"] is True
     assert visibility["ENV_52_EQUALITY_LOCI"] is False
     assert visibility["ENV_60_RESOLVED_COVERAGE"] is True

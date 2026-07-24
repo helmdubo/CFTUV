@@ -18,8 +18,10 @@ from ..contracts.envelopes import (
 from ..numeric import LocalLengthV1, MetricSpace
 from .angular import evaluate_angular_envelope
 from .arrangement import (
-    ExactArrangementNonManifold,
+    ExactArrangementCollinearBranchUnproven,
+    ExactArrangementRotationSystemUnproven,
     ExactSegmentArrangementBackend,
+    ExactTouchingHoleTopologyUnproven,
     segment_intersections,
 )
 from .boundary import (
@@ -31,8 +33,8 @@ from .cap import evaluate_cap_envelope
 from .common import GeometryContext, ReferenceGeometryError, make_segment
 from .contracts import (
     BoundaryResolvedEnvelopeV1,
-    RAW_COVERAGE_RESULT_SCHEMA_V1,
-    RawCoverageResultV1,
+    RAW_COVERAGE_RESULT_SCHEMA_V2,
+    RawCoverageResultV2,
     ReachabilityCertificateV1,
     ReferenceDiagnosticSeverity,
     ReferenceEnvelopeCompilationV1,
@@ -457,6 +459,24 @@ def evaluate_reference_raw_coverage(
                         "ARRANGEMENT_ATOMIC_SEGMENTS": (
                             union.atomic_edge_count
                         ),
+                        "ARRANGEMENT_BRANCH_POINTS": (
+                            union.branch_point_count
+                        ),
+                        "ARRANGEMENT_MAX_INCIDENT_DEGREE": (
+                            union.max_incident_degree
+                        ),
+                        "ARRANGEMENT_BOUNDARY_OCCURRENCES": len(
+                            union.boundary_vertex_occurrences
+                        ),
+                        "ARRANGEMENT_POINT_CONTACTS": len(
+                            union.point_contacts
+                        ),
+                        "ARRANGEMENT_ROTATION_COMPARISONS": (
+                            union.rotation_comparison_count
+                        ),
+                        "ARRANGEMENT_FACE_WALKS": (
+                            union.face_walk_count
+                        ),
                     }
                 )
             _emit_telemetry(
@@ -465,8 +485,8 @@ def evaluate_reference_raw_coverage(
                 stage_started,
                 union_counters,
             )
-        result = RawCoverageResultV1(
-            schema_version=RAW_COVERAGE_RESULT_SCHEMA_V1,
+        result = RawCoverageResultV2(
+            schema_version=RAW_COVERAGE_RESULT_SCHEMA_V2,
             source_revision=compilation.source_revision,
             plan_key=compilation.plan_key,
             requested_alpha=alpha_value,
@@ -482,6 +502,8 @@ def evaluate_reference_raw_coverage(
             exact_area_expression=union.exact_area_expression,
             semantic_digest="",
             diagnostics=boundary_diagnostics,
+            boundary_vertex_occurrences=union.boundary_vertex_occurrences,
+            point_contacts=union.point_contacts,
         )
         result = replace(
             result,
@@ -502,9 +524,19 @@ def evaluate_reference_raw_coverage(
         )
     except ReferenceGeometryError as exc:
         return _failure(exc.outcome, str(exc))
-    except ExactArrangementNonManifold as exc:
+    except ExactArrangementCollinearBranchUnproven as exc:
         return _failure(
-            ReferenceOutcome.REFERENCE_ARRANGEMENT_NON_MANIFOLD,
+            ReferenceOutcome.REFERENCE_ARRANGEMENT_COLLINEAR_BRANCH_UNPROVEN,
+            str(exc),
+        )
+    except ExactTouchingHoleTopologyUnproven as exc:
+        return _failure(
+            ReferenceOutcome.REFERENCE_TOUCHING_HOLE_TOPOLOGY_UNPROVEN,
+            str(exc),
+        )
+    except ExactArrangementRotationSystemUnproven as exc:
+        return _failure(
+            ReferenceOutcome.REFERENCE_ARRANGEMENT_ROTATION_SYSTEM_UNPROVEN,
             str(exc),
         )
     except CertifiedPredicateUndecidable as exc:

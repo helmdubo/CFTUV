@@ -180,6 +180,7 @@ class ConstructionCertificate:
     boundary_constraint_ids: frozenset[str] = frozenset()
     physical_edge_ids: frozenset[str] = frozenset()
     event_key: str | None = None
+    generator_segment_ids: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)

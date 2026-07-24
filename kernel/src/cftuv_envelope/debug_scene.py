@@ -57,6 +57,9 @@ from .reference.planar_types import (
     ExactPlanarPoint,
     ExactScalar,
     PlanarRegion,
+    point_add,
+    point_sub,
+    vector_scale,
 )
 
 
@@ -125,6 +128,28 @@ def _raw_loop_points(result, loop) -> tuple[DebugExactPoint2V1, ...]:
         _debug_point(vertex_by_id[edge_by_id[edge_id].start_vertex_id].point)
         for edge_id in loop.ordered_edge_ids
     )
+
+
+def _boundary_occurrence_tick_points(
+    result,
+    occurrence,
+) -> tuple[DebugExactPoint2V1, ...]:
+    edge_by_id = {edge.edge_id: edge for edge in result.edges}
+    vertex_by_id = {vertex.vertex_id: vertex for vertex in result.vertices}
+    point = vertex_by_id[occurrence.arrangement_point_id].point
+    incoming = edge_by_id[occurrence.incoming_boundary_edge_id]
+    outgoing = edge_by_id[occurrence.outgoing_boundary_edge_id]
+    incoming_start = vertex_by_id[incoming.start_vertex_id].point
+    outgoing_end = vertex_by_id[outgoing.end_vertex_id].point
+    before = point_add(
+        point,
+        vector_scale(point_sub(incoming_start, point), ExactScalar.from_value("1/8")),
+    )
+    after = point_add(
+        point,
+        vector_scale(point_sub(outgoing_end, point), ExactScalar.from_value("1/8")),
+    )
+    return (_debug_point(before), _debug_point(point), _debug_point(after))
 
 
 def _frame_points(snapshot: AnalysisSnapshotV1):
@@ -536,6 +561,55 @@ def build_envelope_debug_scene(
                     _lineage(region.provenance.lineage_ids),
                     "ENV_40_RAW_COVERAGE",
                     region.region_id,
+                )
+            )
+        point_by_id = {item.vertex_id: item for item in raw.vertices}
+        contact_point_ids = {
+            item.arrangement_point_id for item in raw.point_contacts
+        }
+        for contact in sorted(
+            raw.point_contacts, key=lambda item: item.point_contact_id
+        ):
+            point = point_by_id[contact.arrangement_point_id]
+            points.append(
+                DebugPointV1(
+                    _primitive_id(
+                        "POINT_CONTACT", contact.point_contact_id
+                    ),
+                    domain_id,
+                    EnvelopeDebugStage.RAW_COVERAGE,
+                    DebugPrimitiveKind.EVENT_ANCHOR,
+                    _debug_point(point.point),
+                    _lineage(contact.provenance.lineage_ids),
+                    "ENV_53_POINT_CONTACTS",
+                    (
+                        f"{contact.point_contact_id} "
+                        f"loops={len(contact.participating_loop_ids)}"
+                    ),
+                )
+            )
+        for occurrence in sorted(
+            (
+                item
+                for item in raw.boundary_vertex_occurrences
+                if item.arrangement_point_id in contact_point_ids
+            ),
+            key=lambda item: item.boundary_occurrence_id,
+        ):
+            paths.append(
+                DebugPathV1(
+                    _primitive_id(
+                        "BOUNDARY_OCCURRENCE",
+                        occurrence.boundary_occurrence_id,
+                    ),
+                    domain_id,
+                    EnvelopeDebugStage.RAW_COVERAGE,
+                    DebugPrimitiveKind.RAW_COVERAGE,
+                    _boundary_occurrence_tick_points(raw, occurrence),
+                    False,
+                    _lineage(occurrence.provenance.lineage_ids),
+                    "ENV_54_BOUNDARY_OCCURRENCES",
+                    occurrence.boundary_occurrence_id,
                 )
             )
         for diagnostic in raw.diagnostics:

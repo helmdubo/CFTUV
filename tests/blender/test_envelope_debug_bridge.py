@@ -25,6 +25,8 @@ REQUIRED_LAYERS = {
     "ENV_22_HIDDEN_SUPPORTS",
     "ENV_30_ENVELOPE_INSTANCES",
     "ENV_40_RAW_COVERAGE",
+    "ENV_53_POINT_CONTACTS",
+    "ENV_54_BOUNDARY_OCCURRENCES",
     "ENV_50_INTERACTION_COMPONENTS",
     "ENV_51_FRONT_READINGS",
     "ENV_52_EQUALITY_LOCI",
@@ -160,13 +162,15 @@ def _assert_debug_result(
     *,
     expect_resolved,
 ):
+    import cftuv_envelope as kernel
+
     object_name = "CFTUV_DEBUG_Envelope_" + source_obj.name
     text_name = "CFTUV_EnvelopeDebug_" + source_obj.name + ".json"
     gp_obj = bpy.data.objects.get(object_name)
     assert gp_obj is not None
     assert gp_obj.type in {"GPENCIL", "GREASEPENCIL"}
     assert {_layer_name(layer) for layer in gp_obj.data.layers} == REQUIRED_LAYERS
-    assert gp_obj["kernel_version"] == "0.5.0"
+    assert gp_obj["kernel_version"] == kernel.__version__
     assert len(json.loads(gp_obj["patch_domain_ids"])) == expected_domain_count
     assert json.loads(gp_obj["raw_coverage_digests"])
     resolved_digests = json.loads(gp_obj["resolved_coverage_digests"])
