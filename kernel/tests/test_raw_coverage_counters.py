@@ -31,6 +31,8 @@ class _StubUnion:
     edges: tuple = (1, 2, 3, 4)
     loops: tuple = (1, 2)
     regions: tuple = (1,)
+    point_location_segment_scan_count: int = 1904
+    max_coordinate_chars: int = 143
 
 
 def test_failed_stage_still_reports_its_input():
@@ -60,6 +62,10 @@ def test_successful_stage_reports_both_sides_of_the_arrangement():
     assert counters["ARRANGEMENT_OUTPUT_EDGES"] == 4
     assert counters["ARRANGEMENT_OUTPUT_LOOPS"] == 2
     assert counters["ARRANGEMENT_OUTPUT_REGIONS"] == 1
+    # Работа локализации точки и длина координат: ни одна считаемая величина
+    # не объяснила полевые времена, и это две, которых там не хватало.
+    assert counters["ARRANGEMENT_POINT_LOCATION_SCANS"] == 1904
+    assert counters["ARRANGEMENT_MAX_COORDINATE_CHARS"] == 143
 
 
 def test_every_counter_is_a_plain_number():

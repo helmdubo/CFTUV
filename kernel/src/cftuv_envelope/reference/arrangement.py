@@ -101,6 +101,11 @@ class ArrangementBuildCountersV1:
     narrowphase_tests: int
     actual_intersections: int
     atomic_edges: int
+    # Длина канонической записи самой длинной координаты. Мерится строкой, а не
+    # разрядностью: строка уже построена, а `int(p).bit_length()` потребовал бы
+    # разбора выражения на каждую точку — наблюдение не должно стоить дороже
+    # наблюдаемого.
+    max_coordinate_chars: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -260,9 +265,24 @@ def _parameter(segment: BoundedSupportSegment, point: ExactPlanarPoint) -> sp.Ex
     return exact_normalize(dot(point_sub(point, segment.start), direction) / dot(direction, direction))
 
 
+# Сегменты, предложенные локализации точки. Полевые счётчики показали, что ни
+# одна считаемая величина не объясняет время: входы выросли в 5-7 раз, пары в
+# 15-29, а RAW_UNION в 656. Локализация точки — линейный проход по всей петле на
+# каждый запрос, и её работа до сих пор не считалась ничем.
+#
+# Считается модульным счётчиком, а не возвратом из предиката: `_point_in_loop`
+# зовут из шести мест, и протаскивать аккумулятор через каждое значило бы менять
+# сигнатуры ради наблюдения. Инкремент один на вызов, а не на сегмент: на горячем
+# цикле это разница между наблюдением и его стоимостью. Величина — верхняя
+# оценка: выход по `_point_on_segment` считается целиком, и это ровно то `O(грани
+# x сегменты)`, которое надо подтвердить или опровергнуть.
+POINT_LOCATION_SEGMENT_SCANS = {"count": 0}
+
+
 def _point_in_loop(point: ExactPlanarPoint, loop: PlanarLoop) -> int:
     """Return 1 inside, 0 on boundary, -1 outside using exact winding."""
 
+    POINT_LOCATION_SEGMENT_SCANS["count"] += len(loop.segments)
     winding = 0
     _, py = point.expressions()
     for segment in loop.segments:
@@ -318,6 +338,9 @@ def _side_membership(
     midpoint = ExactPlanarPoint.from_values(
         (start.x.as_expr() + end.x.as_expr()) / 2,
         (start.y.as_expr() + end.y.as_expr()) / 2,
+    )
+    POINT_LOCATION_SEGMENT_SCANS["count"] += sum(
+        len(loop.segments) for loop in (region.outer, *region.holes)
     )
     matching = [
         segment
@@ -827,6 +850,15 @@ class ExactSegmentArrangementBackend:
                     history.start_certificates.update(right.certificates)
                     history.end_certificates.update(left.certificates)
         input_segment_count = len(boundaries)
+        max_coordinate_chars = max(
+            (
+                len(scalar.expression)
+                for history in atomic.values()
+                for point in (history.start, history.end)
+                for scalar in (point.x, point.y)
+            ),
+            default=0,
+        )
         counters = ArrangementBuildCountersV1(
             input_segments=input_segment_count,
             all_possible_pairs=(
@@ -836,6 +868,7 @@ class ExactSegmentArrangementBackend:
             narrowphase_tests=len(candidate_pairs),
             actual_intersections=intersection_count,
             atomic_edges=len(atomic),
+            max_coordinate_chars=max_coordinate_chars,
         )
         return _ArrangementBuildState(
             boundaries=boundaries,
@@ -849,6 +882,7 @@ class ExactSegmentArrangementBackend:
         domain_regions: tuple[PlanarRegion, ...],
         reachability_by_instance: dict[str, ReachabilityCertificateV1],
     ) -> ArrangementUnionV2:
+        scans_before = POINT_LOCATION_SEGMENT_SCANS["count"]
         build = self.build_arrangement(
             contribution_regions, domain_regions
         )
@@ -1251,6 +1285,10 @@ class ExactSegmentArrangementBackend:
             max_incident_degree=topology.max_incident_degree,
             rotation_comparison_count=topology.rotation_comparison_count,
             face_walk_count=len(loops),
+            point_location_segment_scan_count=(
+                POINT_LOCATION_SEGMENT_SCANS["count"] - scans_before
+            ),
+            max_coordinate_chars=build.counters.max_coordinate_chars,
         )
 
 

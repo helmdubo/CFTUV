@@ -13,6 +13,7 @@ from .debug import (
     ENVELOPE_DEBUG_GP_PREFIX,
     GreasePencilDebugWriter,
 )
+from .envelope_debug_profile import EnvelopeDomainStage
 
 
 ENVELOPE_DEBUG_TEXT_PREFIX = "CFTUV_EnvelopeDebug_"
@@ -547,6 +548,8 @@ _SCALING_COUNTER_COLUMNS = (
     ("hits", "ARRANGEMENT_INTERSECTIONS"),
     ("atomic", "ARRANGEMENT_ATOMIC_SEGMENTS"),
     ("faces", "ARRANGEMENT_OUTPUT_REGIONS"),
+    ("scans", "ARRANGEMENT_POINT_LOCATION_SCANS"),
+    ("chars", "ARRANGEMENT_MAX_COORDINATE_CHARS"),
     ("cands", "INTERACTION_CANDIDATES"),
 )
 
@@ -624,6 +627,21 @@ def _print_profile(profile) -> None:
         f"Raw {summary['raw']}/{summary['total']} | "
         f"Resolved {summary['resolved']}/{summary['total']}"
     )
+    # «Resolved 6/7» само по себе не говорит ни какой домен упал, ни почему.
+    # Именованный отказ, который надо искать в JSON, — это почти тихий отказ.
+    for receipt in sorted(
+        (
+            item
+            for item in profile.receipts
+            if item.stage is not EnvelopeDomainStage.RESOLVED
+        ),
+        key=lambda item: item.patch_domain_id,
+    ):
+        print(
+            f"  REJECTED {_domain_text(receipt.patch_domain_id)} "
+            f"{receipt.stage.value}: {receipt.outcome}"
+        )
+        print(f"    {receipt.message}")
     cache_parts = []
     for layer in (
         "ANALYSIS_BUNDLE",

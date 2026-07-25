@@ -213,6 +213,12 @@ def _union_counters(union, input_segments: int) -> dict[str, int | float]:
             "ARRANGEMENT_OUTPUT_EDGES": len(union.edges),
             "ARRANGEMENT_OUTPUT_LOOPS": len(union.loops),
             "ARRANGEMENT_OUTPUT_REGIONS": len(union.regions),
+            # Две величины, которых не хватило, чтобы объяснить полевые времена
+            # по счётчикам: работа локализации точки и длина точных координат.
+            "ARRANGEMENT_POINT_LOCATION_SCANS": (
+                union.point_location_segment_scan_count
+            ),
+            "ARRANGEMENT_MAX_COORDINATE_CHARS": union.max_coordinate_chars,
         }
     )
     return counters

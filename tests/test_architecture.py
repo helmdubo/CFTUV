@@ -279,7 +279,10 @@ FUNCTION_LINE_ALLOWANCE = {
     "kernel/src/cftuv_envelope/interactions/policy_b.py": 480,
     "cftuv/decal_rails.py": 445,
     "kernel/src/cftuv_envelope/validation.py": 426,
-    "kernel/src/cftuv_envelope/reference/arrangement.py": 408,
+    # +5: снятие дельты счётчика локализации точки и два поля в union. Плата за
+    # то, чтобы следующий полевой прогон отвечал на вопрос, а не ставил его
+    # заново; `exact_union` всё равно подлежит разбиению на этапы конвейера.
+    "kernel/src/cftuv_envelope/reference/arrangement.py": 413,
     "cftuv/decal_rail_geometry.py": 392,
     "kernel/src/cftuv_envelope/interactions/mutual_arrival.py": 385,
     "cftuv/frontier_rescue.py": 353,
