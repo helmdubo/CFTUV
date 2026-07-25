@@ -669,6 +669,35 @@ def _print_profile(profile) -> None:
     _print_counters(profile)
 
 
+def _print_diagnostics(diagnostics) -> None:
+    """Все диагностики ядра, не только отказы.
+
+    Печаталось только `REJECTED`, поэтому именованное событие в поле было
+    невидимо: в прошлом срезе нельзя было сказать, формировался ли
+    `MULTIWAY_MEET_RESOLVED_AS_ONE_EVENT` вообще. Тот же класс дефекта, который
+    уже чинили печатью отказов, — исход, который надо искать в JSON, почти
+    неотличим от несостоявшегося.
+    """
+
+    rows = [item for item in diagnostics if _diagnostic_severity(item) != "EXACT"]
+    if not rows:
+        return
+    print(f"  Diagnostics ({len(rows)}):")
+    for item in rows:
+        outcome = getattr(item, "outcome", "")
+        outcome = getattr(outcome, "value", outcome)
+        domain = _domain_text(getattr(item, "patch_domain_id", None))
+        print(f"    {_diagnostic_severity(item):<12} {domain:<24} {outcome}")
+        message = getattr(item, "message", "")
+        if message:
+            print(f"      {message}")
+
+
+def _diagnostic_severity(item) -> str:
+    severity = getattr(item, "severity", "")
+    return str(getattr(severity, "value", severity) or "")
+
+
 def render_staged_envelope_debug(
     topology_scene,
     exact_scenes,
@@ -842,6 +871,7 @@ def render_staged_envelope_debug(
             final_profile.to_payload(),
         )
         _print_profile(final_profile)
+        _print_diagnostics(diagnostics)
     return EnvelopeDebugRenderSummaryV1(
         object_name,
         text_name,

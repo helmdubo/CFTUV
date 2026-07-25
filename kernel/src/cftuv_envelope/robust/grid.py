@@ -99,6 +99,47 @@ def unsnap_value(coordinate: int, grid: GridSpecV1) -> Fraction:
     return Fraction(coordinate, grid.scale)
 
 
+# Наблюдение за привязкой. Заводится ДО решётки намеренно: R1 иначе нечем
+# принимать, а счётчик, появившийся вместе с изменением, не может показать,
+# что было до него. Пока `snap_point` никем не вызывается, все четыре нуля —
+# и это честный ответ «привязок не было», а не отсутствие измерения.
+#
+# `merged_points` — то, ради чего вся миграция: сколько РАЗЛИЧНЫХ точек легло
+# в один узел. Это восстановленное вырождение, которое binary64 разнёс.
+SNAP_COUNTS = {
+    "points_total": 0,
+    "points_moved": 0,
+    "merged_points": 0,
+}
+# Максимум квадрата сдвига держится дробью отдельно: складывать его с
+# целочисленными счётчиками в одном словаре значило бы смешать разные величины.
+SNAP_DISPLACEMENT_MAX_SQUARED = [Fraction(0)]
+# Узлы, уже занятые привязкой, — источник `merged_points`. Сбрасывается вместе
+# со счётчиками на границе домена: слияние осмысленно только внутри одного.
+_SNAPPED_NODES: set[tuple[int, int]] = set()
+
+
+def reset_snap_counts() -> None:
+    """Обнулить наблюдение на границе домена."""
+
+    for key in SNAP_COUNTS:
+        SNAP_COUNTS[key] = 0
+    SNAP_DISPLACEMENT_MAX_SQUARED[0] = Fraction(0)
+    _SNAPPED_NODES.clear()
+
+
+def _record_snap(node: tuple[int, int], squared: Fraction, moved: bool) -> None:
+    SNAP_COUNTS["points_total"] += 1
+    if moved:
+        SNAP_COUNTS["points_moved"] += 1
+    if node in _SNAPPED_NODES:
+        SNAP_COUNTS["merged_points"] += 1
+    else:
+        _SNAPPED_NODES.add(node)
+    if squared > SNAP_DISPLACEMENT_MAX_SQUARED[0]:
+        SNAP_DISPLACEMENT_MAX_SQUARED[0] = squared
+
+
 def snap_point(
     x: Fraction | int,
     y: Fraction | int,
@@ -116,6 +157,7 @@ def snap_point(
     residual_x = Fraction(x) - unsnap_value(grid_x, grid)
     residual_y = Fraction(y) - unsnap_value(grid_y, grid)
     squared = residual_x * residual_x + residual_y * residual_y
+    _record_snap((grid_x, grid_y), squared, bool(residual_x or residual_y))
 
     if squared == 0:
         outcome = SnapOutcome.ON_GRID

@@ -2907,6 +2907,11 @@ def evaluate_envelope_debug_staged(
             "cftuv_envelope.reference.planar_types"
         ).SYMBOLIC_FALLBACK_COUNTS
         algebraic_before = fallbacks["canonical"] + fallbacks["normalize"]
+        # Наблюдение за привязкой к решётке. Заведено до самой решётки: срез,
+        # который её вводит, иначе нечем принимать. Сейчас печатает нули, и это
+        # ответ «привязок не было», а не отсутствие измерения.
+        grid = importlib.import_module("cftuv_envelope.robust.grid")
+        grid.reset_snap_counts()
         with _measure(profile, "COMPILE", domain_id):
             compile_result = kernel.compile_reference_envelopes(
                 snapshot,
@@ -2984,6 +2989,29 @@ def evaluate_envelope_debug_staged(
                     ("INTERACTION_CANDIDATES", interaction_result.candidates),
                 ):
                     profile.set_counter(name, len(value), domain_id)
+                for name, value in (
+                    ("SNAP_POINTS_TOTAL", grid.SNAP_COUNTS["points_total"]),
+                    ("SNAP_POINTS_MOVED", grid.SNAP_COUNTS["points_moved"]),
+                    ("SNAP_MERGED_POINTS", grid.SNAP_COUNTS["merged_points"]),
+                    (
+                        "SNAP_DISPLACEMENT_MAX_SQUARED",
+                        float(grid.SNAP_DISPLACEMENT_MAX_SQUARED[0]),
+                    ),
+                ):
+                    profile.set_counter(name, value, domain_id)
+                # Ненадзорные диагностики ядра пробрасываются НА УСПЕХЕ тоже.
+                # Раньше `diagnostics.extend(...)` стоял только в ветках отказа,
+                # поэтому именованное событие на разрешившемся домене исчезало
+                # молча — печать в рендерере его бы всё равно не увидела.
+                diagnostics.extend(
+                    _host_diagnostic_from_stage(
+                        item.outcome,
+                        item.message,
+                        compilation.plan_key.patch_domain_id,
+                    )
+                    for item in interaction_result.diagnostics
+                    if item.severity is not kernel.InteractionDiagnosticSeverity.UNSUPPORTED
+                )
                 profile.set_counter(
                     "ALGEBRAIC_CANONICALIZATIONS",
                     fallbacks["canonical"]
