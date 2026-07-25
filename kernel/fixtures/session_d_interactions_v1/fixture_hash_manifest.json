@@ -1,8 +1,8 @@
 {
   "files": {
-    "README.md": "697ba84346b3a19d86ac53d1c486febc8287c8fdd3232c10922da5b00593d70c",
-    "cases.json": "2b54fc9061612b2c1fff85b1fda0a542f7442e1aa2991b4fde68c3af042b015c",
-    "manifest.json": "f53119f792b15fc363f5f7cf74c6339e5aed2f68e0933afc1b2b97155924ddd9"
+    "cases.json": "005ebf628846b3d94e75efb1dadaa43673847b039939419311af9a8ce4d18267",
+    "manifest.json": "f53119f792b15fc363f5f7cf74c6339e5aed2f68e0933afc1b2b97155924ddd9",
+    "README.md": "697ba84346b3a19d86ac53d1c486febc8287c8fdd3232c10922da5b00593d70c"
   },
   "hash_law": "SHA256_UTF8_LF_NORMALIZED_V1",
   "schema": "cftuv.envelope.session_d.interaction_fixture_hash_manifest.v1",

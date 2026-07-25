@@ -106,11 +106,11 @@
       "expected": {"proof_count": 2, "diagnostics": [], "batch_count": 1}
     },
     {
-      "id": "SD-I16-TRIPLE-MEETING-NAMED-UNPROVEN",
+      "id": "SD-I16-TRIPLE-MEETING-ONE-EVENT",
       "scenario": "proof_edge",
       "parameters": {"kind": "triple"},
       "source_stage": ["BoundaryResolvedEnvelopeV1"],
-      "expected": {"proof_count": 0, "diagnostics": ["MULTIWAY_INTERACTION_POLICY_UNPROVEN"], "batch_count": 0}
+      "expected": {"proof_count": 3, "diagnostics": ["MULTIWAY_MEET_RESOLVED_AS_ONE_EVENT"], "batch_count": 1}
     },
     {
       "id": "SD-I17-CAP-CONTACT-ENDPOINT-BOUNDED",

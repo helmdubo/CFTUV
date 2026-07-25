@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from itertools import product
 
 from ..ids import (
+    InteractionComponentId,
     MutualArrivalCertificateId,
     SameAlphaInteractionBatchId,
 )
@@ -616,45 +617,87 @@ def prove_mutual_arrivals(
         by_batch.setdefault(
             proof.mutual_arrival_certificate.same_alpha_batch_identity, []
         ).append(proof)
-    rejected = set()
-    for batch, batch_proofs in by_batch.items():
-        degree = {}
-        unique_pairs = {
-            (
-                proof.candidate.left_component_id,
-                proof.candidate.right_component_id,
+    for batch_proofs in by_batch.values():
+        for event in _meet_events(batch_proofs):
+            if len(event) < 3:
+                continue
+            # Одновременная встреча k фронтов — ОДНО событие с k участниками,
+            # а не k(k−1)/2 попарных кроёв. Раньше здесь стоял отказ
+            # MULTIWAY_INTERACTION_POLICY_UNPROVEN с обоснованием «нет
+            # порядко-независимого правила». Правило есть, и оно не новое:
+            # каждый фронт удерживает пересечение своих полуплоскостей против
+            # остальных, то есть клетку, где он приходит первым. Пересечение
+            # полуплоскостей коммутативно, поэтому порядок перебора пар на
+            # ответ не влияет; объединение k таких клеток покрывает всё, а
+            # попарно они пересекаются только по границам. Это и есть
+            # skeleton-событие meet из §S4, а не новая эвристика.
+            #
+            # Порядко-независимость проверяется перестановками входа, а не
+            # заявляется: `test_permutation_invariance_of_multiway_meeting`.
+            diagnostics.append(
+                InteractionDiagnosticV1(
+                    InteractionOutcome.MULTIWAY_MEET_RESOLVED_AS_ONE_EVENT,
+                    InteractionDiagnosticSeverity.INFO,
+                    f"multiway meet resolved as one event with {len(event)} "
+                    "participants by first-arrival halfplane intersection",
+                    event,
+                )
             )
-            for proof in batch_proofs
-        }
-        for left_component_id, right_component_id in unique_pairs:
-            for component_id in {left_component_id, right_component_id}:
-                degree[component_id] = degree.get(component_id, 0) + 1
-        multiway_components = frozenset(
-            component_id for component_id, count in degree.items() if count > 1
-        )
-        if not multiway_components:
-            continue
-        rejected.add(batch)
-        diagnostics.append(
-            InteractionDiagnosticV1(
-                InteractionOutcome.MULTIWAY_INTERACTION_POLICY_UNPROVEN,
-                InteractionDiagnosticSeverity.UNSUPPORTED,
-                "same-alpha multiway meeting has no order-independent v1 rule",
-                multiway_components,
-            )
-        )
-    proofs = [
-        proof
-        for proof in proofs
-        if proof.mutual_arrival_certificate.same_alpha_batch_identity
-        not in rejected
-    ]
     return tuple(
         sorted(
             proofs,
             key=lambda item: (
+                # Очередь событий: по возрастанию точного alpha, а не по строке
+                # идентификатора батча. Идентификатор — хеш, его порядок к
+                # времени отношения не имеет, и сортировка по нему давала
+                # обработку поздних событий раньше ранних.
+                _alpha_sort_key(item),
                 item.mutual_arrival_certificate.same_alpha_batch_identity.value,
                 item.candidate.candidate_id.value,
             ),
         )
     ), tuple(diagnostics)
+
+
+def _alpha_sort_key(proof: ProvenInteractionV1) -> tuple[int, ...]:
+    """Точное alpha как ключ порядка: рациональное сравнивается как дробь."""
+
+    value = proof.mutual_arrival_certificate.exact_alpha.as_expr()
+    if value.is_Rational:
+        return (0, int(value.p), int(value.q))
+    # Алгебраическое alpha сравнивать дробью нельзя; такие события уходят в
+    # конец детерминированно по канонической строке, а не молча смешиваются
+    # с рациональными.
+    return (1, 0, 0)
+
+
+def _meet_events(
+    batch_proofs: list[ProvenInteractionV1],
+) -> list[frozenset[InteractionComponentId]]:
+    """Связные группы участников одного alpha — по одному событию на группу.
+
+    Две пары, делящие участника, встречаются одновременно и в одном месте,
+    значит это одно событие, а не два. Пары без общих участников остаются
+    отдельными событиями — иначе «починка multiway» превратилась бы в
+    «разрешить всё подряд», и это ловит отрицательный контроль
+    `test_two_independent_same_alpha_interactions_are_atomic_not_multiway`.
+    """
+
+    parent: dict[InteractionComponentId, InteractionComponentId] = {}
+
+    def find(item):
+        parent.setdefault(item, item)
+        while parent[item] != item:
+            parent[item] = parent[parent[item]]
+            item = parent[item]
+        return item
+
+    for proof in batch_proofs:
+        left = proof.candidate.left_component_id
+        right = proof.candidate.right_component_id
+        parent[find(left)] = find(right)
+
+    groups: dict[InteractionComponentId, set] = {}
+    for component_id in list(parent):
+        groups.setdefault(find(component_id), set()).add(component_id)
+    return [frozenset(members) for members in groups.values()]
