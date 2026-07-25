@@ -21,6 +21,8 @@ from cftuv_envelope.robust.grid import (
 )
 from cftuv_envelope.robust.snapping import (
     GridSnappingLawV1,
+    GridWindowOutcome,
+    grid_window_for_patch,
     grid_for_extent,
     law_for,
     snap_intersection,
@@ -339,3 +341,77 @@ def test_snapping_a_computed_point_merges_only_by_chance():
     assert 0.3 < half < 0.8, half
     # Даже вдесятеро крупнее — не гарантия.
     assert merge_fraction(separation * 10) < 1.0
+
+
+# --------------------------------------------------------------------------
+# Окно шага: две границы и именованный отказ при их пересечении
+# --------------------------------------------------------------------------
+
+
+FIELD_ANGLE = Fraction(7, 10**6)
+DECAL_DETAIL = Fraction(1, 1000)
+
+
+def _window(extent):
+    return grid_window_for_patch(
+        extent=extent,
+        author_angular_error=FIELD_ANGLE,
+        decal_detail=DECAL_DETAIL,
+    )
+
+
+def test_building_002_scale_has_a_window():
+    """Габарит 4 м при полевом угле 7e-6 и детали 1 мм — запас есть."""
+
+    window = _window(4)
+
+    assert window.outcome is GridWindowOutcome.WINDOW_AVAILABLE
+    assert window.lower_bound < window.upper_bound
+    assert window.grid is not None
+
+
+def test_a_large_patch_closes_the_window_and_that_is_a_named_refusal():
+    """На 100 м окна нет вовсе: шум растёт с габаритом, деталь декали — нет.
+
+    Это отказ, а не повод взять шаг покрупнее: крупный шаг съест деталь, ради
+    которой декаль и рисуется.
+    """
+
+    window = _window(100)
+
+    assert window.outcome is GridWindowOutcome.GRID_WINDOW_CLOSED
+    assert window.lower_bound > window.upper_bound
+    assert window.grid is None, "у закрытого окна не может быть решётки"
+
+
+def test_the_window_closes_monotonically_with_patch_size():
+    """Граница одна и она предсказуема, а не подбирается на глаз."""
+
+    open_extents = [
+        extent
+        for extent in (1, 4, 10, 40, 100, 400)
+        if _window(extent).outcome is GridWindowOutcome.WINDOW_AVAILABLE
+    ]
+
+    assert open_extents == sorted(open_extents)
+    assert 4 in open_extents and 100 not in open_extents
+
+
+def test_step_sits_at_the_lower_bound_to_spare_the_detail():
+    """Шаг берётся у нижней границы: чинит вход и минимально трогает деталь."""
+
+    window = _window(4)
+    step = Fraction(1, window.grid.scale)
+
+    assert step <= window.upper_bound
+
+
+def test_degenerate_inputs_are_errors_not_silent_defaults():
+    with pytest.raises(ValueError):
+        grid_window_for_patch(
+            extent=0, author_angular_error=FIELD_ANGLE, decal_detail=DECAL_DETAIL
+        )
+    with pytest.raises(ValueError):
+        grid_window_for_patch(
+            extent=4, author_angular_error=FIELD_ANGLE, decal_detail=Fraction(0)
+        )

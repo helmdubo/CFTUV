@@ -25,6 +25,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
 from fractions import Fraction
 from typing import Iterable
@@ -127,3 +128,65 @@ def law_for(function_name: str) -> GridSnappingLawV1:
     if function_name not in laws:
         raise KeyError(f"нет объявленного закона привязки для {function_name}")
     return laws[function_name]
+
+
+class GridWindowOutcome(str, Enum):
+    """Есть ли шаг решётки, который чинит вход и не портит деталь декали."""
+
+    WINDOW_AVAILABLE = "WINDOW_AVAILABLE"
+    GRID_WINDOW_CLOSED = "GRID_WINDOW_CLOSED"
+
+
+@dataclass(frozen=True, slots=True)
+class GridWindowV1:
+    """Границы допустимого шага и исход. Закрытое окно — отказ, а не крупный шаг."""
+
+    outcome: GridWindowOutcome
+    lower_bound: Fraction
+    upper_bound: Fraction
+    grid: GridSpecV1 | None
+
+
+def grid_window_for_patch(
+    *,
+    extent: Fraction | int,
+    author_angular_error: Fraction,
+    decal_detail: Fraction,
+    merge_confidence: int = 100,
+) -> GridWindowV1:
+    """Окно шага для привязки ИСТОЧНИКА, с обеими границами и исходом.
+
+    Нижняя граница. Привязка вершин восстанавливает задуманное отношение, когда
+    авторская ошибка меньше половины ячейки. Ошибка растёт как `угол × длина`,
+    поэтому она зависит от габарита патча: на большом патче шум больше, а деталь
+    декали — нет.
+
+    Верхняя граница — деталь декали: шаг крупнее детали её и съест.
+
+    `merge_confidence` существует потому, что слияние ВЫЧИСЛЕННОЙ точки —
+    вероятность, а не свойство: `P ≈ 1 − d/шаг`, и надёжное слияние требует шага
+    в сотню раз крупнее расхождения. Для привязки источника этот множитель не
+    нужен — там механизм детерминированный, — но параметр оставлен явным, чтобы
+    прежнее ошибочное обоснование нельзя было вернуть молча.
+
+    Окно может не существовать вовсе: при габарите ~100 м, угле 7e-6 и детали
+    1 мм нижняя граница уходит выше верхней. Это `GRID_WINDOW_CLOSED` —
+    именованный отказ, а не повод взять шаг покрупнее и надеяться.
+    """
+
+    if extent <= 0 or author_angular_error < 0 or decal_detail <= 0:
+        raise ValueError("габарит и деталь положительны, ошибка неотрицательна")
+    lower = Fraction(2) * Fraction(author_angular_error) * Fraction(extent)
+    upper = Fraction(decal_detail)
+    if lower > upper:
+        return GridWindowV1(
+            GridWindowOutcome.GRID_WINDOW_CLOSED, lower, upper, None
+        )
+    # Шаг берётся у нижней границы: он чинит вход и максимально щадит деталь.
+    step = lower if lower > 0 else upper
+    scale = 1
+    while Fraction(1, scale) > step:
+        scale *= 2
+    return GridWindowV1(
+        GridWindowOutcome.WINDOW_AVAILABLE, lower, upper, GridSpecV1(scale=scale)
+    )
