@@ -186,6 +186,12 @@ from .runtime_metric import (
     evaluate_filtered_runtime_raw_coverage,
 )
 from .version import __version__
+# Импортируется здесь, а не при первом обращении из теста, намеренно: механизм
+# импорта привязывает подпакет к родителю ТОЛЬКО при первой загрузке, и если
+# первая загрузка случится снаружи, имя всплывёт в `dir(cftuv_envelope)` уже
+# после уборки ниже — и снимок публичного API упадёт в полном прогоне, но не
+# поодиночке. Так же заведены `reference`, `interactions`, `planar_metric`.
+from . import robust  # noqa: F401
 
 
 _PUBLIC_VALUE_MODULES = (
@@ -695,6 +701,7 @@ for _module_name in (
     "debug_scene",
     "planar_metric",
     "runtime_metric",
+    "robust",
 ):
     globals().pop(_module_name, None)
 

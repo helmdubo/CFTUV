@@ -184,3 +184,31 @@ def test_interval_filter_restores_global_precision():
     planar_types._certified_interval_sign(sp.sqrt(2) - sp.Rational(1, 3))
     planar_types._certified_interval_sign(sp.Symbol("q"))
     assert iv.prec == before
+
+
+def test_rational_sign_never_wakes_the_sympy_assumption_engine():
+    """`is_positive` на ещё не виденном числе стоит 39 мкс против 0.03 у `.p`.
+
+    Разница в 400x, и она невидима в микробенчмарке: SymPy кеширует вывод на
+    самом объекте, поэтому повторный вызов на ОДНОМ значении дешёвый. В поле
+    каждая точка пересечения уникальна, так что дешёвого повтора не бывает.
+    Замер на одном значении ровно этим и обманул, а профиль, который на это
+    указывал, был списан как «cProfile врёт».
+
+    Проверяется наблюдаемый след: запрос предположения дописывает факты в
+    `_assumptions` объекта. Быстрый путь обязан оставить кеш нетронутым.
+    """
+
+    value = sp.Rational(1000003, 7919) - sp.Rational(31, 1009)
+    if not hasattr(value, "_assumptions"):
+        pytest.skip("SymPy больше не хранит кеш предположений на объекте")
+
+    before = len(value._assumptions)
+    assert exact_sign(value) == 1
+    assert len(value._assumptions) == before, (
+        "exact_sign разбудил машину предположений SymPy на рациональном числе"
+    )
+
+    # Контроль: след действительно наблюдаем, иначе проверка выше проходит зря.
+    value.is_positive
+    assert len(value._assumptions) > before

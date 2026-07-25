@@ -96,10 +96,18 @@ def _contributions(count: int):
 
     regions = []
     for index in range(count):
-        low = Fraction(1) + Fraction(index, 2)
-        high = Fraction(10) - Fraction(index, 3)
+        # Первая версия задавала high = 10 - index/3 и low = 1 + index/2, и с
+        # индекса 11 высота становилась ОТРИЦАТЕЛЬНОЙ: прямоугольник
+        # выворачивался. Стенд при этом ничего не говорил, а показатель степени
+        # взлетал с 2.15 до 3.30 ровно на границе вырождения. Излом принимали
+        # за геометрию — это была фикстура. Отсюда и проверка ниже.
+        low = Fraction(1) + Fraction(index % 7, 2)
+        high = low + Fraction(5)
         left = Fraction(1) + Fraction(index, 4)
         right = Fraction(19) - Fraction(index, 5)
+        assert right > left and high > low, (
+            f"вклад {index} вырожден: {float(right - left)}x{float(high - low)}"
+        )
         regions.append(
             _region(
                 f"contribution{index}",

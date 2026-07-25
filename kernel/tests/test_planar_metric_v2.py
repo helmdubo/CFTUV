@@ -478,7 +478,14 @@ def test_filtered_runtime_emits_the_authoritative_exact_raw_coverage():
         + runtime.performance.exact_fallback_count
         == runtime.performance.filtered_predicate_count
     )
-    assert runtime.performance.peak_memory_bytes > 0
+    # По умолчанию память не мерится: tracemalloc стоит 3.75x на этом коде.
+    # Ноль обязан означать «не мерили», а не «нисколько» — поэтому проверяются
+    # оба режима, иначе выключение замера прошло бы незамеченным.
+    assert runtime.performance.peak_memory_bytes == 0
+    measured = evaluate_filtered_runtime_raw_coverage(
+        compilation, request.requested_alpha, measure_peak_memory=True
+    )
+    assert measured.performance.peak_memory_bytes > 0
 
 
 @pytest.mark.parametrize(
