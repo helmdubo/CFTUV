@@ -299,3 +299,43 @@ def test_a_grid_that_restores_degeneracy_can_still_destroy_real_detail():
     inside = grid_for_extent(contour, nodes_across=4096)
     assert merges(inside, noise)
     assert not merges(inside, detail)
+
+
+def test_snapping_a_computed_point_merges_only_by_chance():
+    """Слияние вычисленной точки — вероятность, а не свойство.
+
+    Первая редакция R1b обосновывала привязку смещений и пересечений тем, что
+    она восстанавливает задуманное вырождение. Замер это опроверг: доля
+    положений, в которых пара на расстоянии d сливается при шаге step, идёт как
+    1 − d/step. При step/d = 1.2 сливается 18.5%, при 9.8 — 90%.
+
+    Значит надёжное слияние требует шага в сотню раз крупнее шума, а деталь
+    декали требует шага мельче себя. Для шума 1e-4 и детали 1 мм окна нет.
+    Восстановление вырождения обязано идти от ИСТОЧНИКА, а привязка
+    вычисленных точек оправдывается только устранением радикалов.
+    """
+
+    from fractions import Fraction
+
+    from cftuv_envelope.robust.grid import GridSpecV1, snap_point
+
+    separation = Fraction(1, 10**4)
+
+    def merge_fraction(step: Fraction, samples: int = 200) -> float:
+        grid = GridSpecV1(scale=int(1 / step))
+        merged = 0
+        for index in range(samples):
+            base = Fraction(2) + step * Fraction(index, samples)
+            left = snap_point(base, Fraction(2), grid)
+            right = snap_point(base + separation, Fraction(2), grid)
+            if (left.x, left.y) == (right.x, right.y):
+                merged += 1
+        return merged / samples
+
+    # Шаг мельче расстояния — не сливает никогда.
+    assert merge_fraction(separation / 2) == 0.0
+    # Шаг вдвое крупнее — сливает примерно в половине положений, не всегда.
+    half = merge_fraction(separation * 2)
+    assert 0.3 < half < 0.8, half
+    # Даже вдесятеро крупнее — не гарантия.
+    assert merge_fraction(separation * 10) < 1.0
