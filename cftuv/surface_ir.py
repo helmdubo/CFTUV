@@ -203,16 +203,25 @@ class HostGridPolicy(str, Enum):
     INTEGER_GRID_SNAP_V1 = "INTEGER_GRID_SNAP_V1"
 
 
-# Замерено на `building.002`, патч 0 (`kernel/tests/test_grid_wiring.py`,
-# `test_the_field_mesh_reports_whether_the_declared_error_was_enough`):
-# объявленная авторская ошибка числит задуманно прямыми три угла, шаг окна
-# 1/4096 м, восстановлен один — то есть `INTEGER_GRID_SNAP_V1` на этом меше
-# даёт `SOURCE_SNAP_DID_NOT_RESTORE_RELATIONS` и отвергает патч целиком.
-# Причина найдена и записана в `DECISIONS.md`: одна координата лежит РОВНО на
-# середине ячейки при этом шаге, а правило «половина вверх» уводит её в
-# соседний узел; при 1/2048, 1/8192 и 1/16384 восстанавливаются все три.
-# Шаг выбирает владелец, поэтому хост пока объявляет нынешнее поведение, а не
-# ломает единственный полевой меш до этого выбора.
+# Прежняя причина оставаться на `UNSNAPPED_EXACT_V1` снята: масштаб больше не
+# берётся у нижней границы окна, его выбирает объявленный закон перебора, и на
+# `building.002` он восстанавливает все три задуманно прямых угла (пробует
+# 1/4096 — один из трёх, берёт 1/2048 — три из трёх). Замер:
+# `kernel/tests/test_grid_wiring.py::test_the_field_mesh_restores_every_intended_right_corner`.
+#
+# Осталась ДРУГАЯ, и она измерена: полный прогон полевого меша с привязкой
+# отказывает `REFERENCE_ARRANGEMENT_ROTATION_SYSTEM_UNPROVEN` («boundary point
+# does not have balanced incoming/outgoing half-edges»), и так на каждом
+# масштабе окна. Отказ локализован и он не в выборе масштаба: при привязке
+# одного только ИСТОЧНИКА тот же прогон даёт `EXACT` и ту же топологию, что и
+# без решётки (3 петли, 3 региона, 2 точечных контакта). Ломает привязка
+# КОНСТРУКЦИЙ — `offset_support_g` и `segment_intersections`, то самое слияние
+# вычисленных точек, которое карточка R1b сама числит лотереей, а не
+# механизмом. Пин:
+# `kernel/tests/test_grid_wiring.py::test_the_field_mesh_still_refuses_downstream_of_the_restored_corners`.
+#
+# Поэтому хост по-прежнему объявляет нынешнее поведение: включение сегодня
+# заменило бы декаль на именованный отказ на единственном полевом меше.
 HOST_GRID_POLICY = HostGridPolicy.UNSNAPPED_EXACT_V1
 
 
