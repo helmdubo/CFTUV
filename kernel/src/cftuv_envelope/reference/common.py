@@ -20,6 +20,7 @@ from ..contracts.metric import (
     RationalAffinePlanarMetricV2,
 )
 from ..ids import ChainUseId, PhysicalEdgeId, SourceVertexId
+from ..robust.grid import reset_snap_counts, set_active_grid
 from .contracts import ReferenceEnvelopeCompilationV1, ReferenceOutcome
 from .planar_types import (
     BoundedSupportSegment,
@@ -106,11 +107,17 @@ class GeometryContext:
                     coordinate.y.numerator, coordinate.y.denominator
                 )
             points[item.source_vertex_id] = ExactPlanarPoint.from_values(x, y)
+        metric = ExactPlanarMetric.from_descriptor(frame)
+        # Граница домена. Слияние осмысленно только внутри одного домена,
+        # поэтому наблюдение обнуляется здесь, а решётка объявляется здесь же:
+        # метрика — её единственный источник, всё остальное её только читает.
+        reset_snap_counts()
+        set_active_grid(metric.chart_grid)
         return cls(
             compilation=compilation,
             snapshot=snapshot,
             frame=frame,
-            metric=ExactPlanarMetric.from_descriptor(frame),
+            metric=metric,
             points_by_id=points,
             uses_by_id={item.chain_use_id: item for item in snapshot.chain_uses},
             chains_by_id={item.physical_chain_id: item for item in snapshot.physical_chains},

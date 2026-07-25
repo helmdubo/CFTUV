@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from fractions import Fraction
+import math
 
 import sympy as sp
 
@@ -11,16 +13,20 @@ from ..contracts.metric import (
     AffineChartOrientationV1,
     ExactMatrix2V1,
     ExactRationalV1,
+    GridSnappingLawV1,
     RationalAffinePlanarMetricV2,
 )
+from ..robust.grid import GridSpecV1, record_snap
 from .planar_types import (
     ConstructionCertificate,
     ExactPlanarPoint,
     ExactPlanarVector,
     ExactScalar,
+    IntervalEnclosureUnsupported,
     OrientedSupportLine,
     exact_normalize,
     exact_sign,
+    interval_enclosure,
     point_add,
     vector_scale,
 )
@@ -37,6 +43,103 @@ def _matrix(value: ExactMatrix2V1) -> tuple[tuple[sp.Expr, sp.Expr], ...]:
     )
 
 
+class SnapDisplacementExceedsBudget(ValueError):
+    """Привязка сдвинула точку дальше объявленного бюджета."""
+
+
+def _floor_exact(expression: sp.Expr) -> int:
+    """Целая часть точного значения. Сначала фильтр, потом точный путь.
+
+    Оболочка округляется наружу, поэтому совпадение целых частей у обеих её
+    границ ДОКАЗЫВАЕТ целую часть; несовпадение уступает символьному
+    `sp.floor`. Порога здесь нет — есть сертификат либо уступка.
+    """
+
+    if expression.is_Rational:
+        return int(sp.floor(expression))
+    try:
+        enclosure = interval_enclosure(expression)
+    except (IntervalEnclosureUnsupported, ArithmeticError, ValueError, TypeError):
+        enclosure = None
+    if enclosure is not None:
+        lower, upper = math.floor(enclosure.a), math.floor(enclosure.b)
+        if lower == upper:
+            return int(lower)
+    return int(sp.floor(expression))
+
+
+def _residual_bound(expression: sp.Expr) -> Fraction:
+    """Верхняя граница `|expression|` дробью, для счётчика сдвига.
+
+    Счётчик — наблюдение, а не сертификат, и величина в нём объявлена
+    границей: у алгебраической невязки точной дроби не существует, а врать про
+    неё нельзя. Границу даёт та же оболочка, что и целую часть.
+    """
+
+    if expression.is_Rational:
+        return Fraction(int(expression.p), int(expression.q))
+    try:
+        enclosure = interval_enclosure(expression)
+    except (IntervalEnclosureUnsupported, ArithmeticError, ValueError, TypeError):
+        return Fraction(1, 2)
+    bound = max(abs(float(enclosure.a)), abs(float(enclosure.b)))
+    if not math.isfinite(bound):
+        return Fraction(1, 2)
+    return min(Fraction(1, 2), Fraction(*float(bound).as_integer_ratio()))
+
+
+def snap_exact_point(
+    point: ExactPlanarPoint,
+    grid: GridSpecV1,
+    squared_budget: Fraction | None,
+    law: str,
+) -> ExactPlanarPoint:
+    """Привязать точную (в общем случае алгебраическую) точку к решётке карты.
+
+    Узел решается точно: `floor(v·scale + 1/2)` — то же правило «половина
+    вверх», что и у `snap_value`, только вычисленное там, где дроби нет.
+    """
+
+    x, y = point.expressions()
+    scale = grid.scale
+    node_x = _floor_exact(x * scale + sp.Rational(1, 2))
+    node_y = _floor_exact(y * scale + sp.Rational(1, 2))
+    residual_x = _residual_bound(x * scale - node_x)
+    residual_y = _residual_bound(y * scale - node_y)
+    squared = (
+        residual_x * residual_x + residual_y * residual_y
+    ) / Fraction(scale * scale)
+    record_snap(
+        (node_x, node_y),
+        (point.x.expression, point.y.expression),
+        squared,
+        bool(residual_x or residual_y),
+    )
+    if squared_budget is not None and squared > squared_budget:
+        raise SnapDisplacementExceedsBudget(
+            f"{law}: сдвиг привязки {squared} превысил бюджет {squared_budget}"
+        )
+    return ExactPlanarPoint.from_values(
+        sp.Rational(node_x, scale), sp.Rational(node_y, scale)
+    )
+
+
+def _chart_grid(
+    descriptor: RationalAffinePlanarMetricV2, gram
+) -> tuple[GridSpecV1 | None, Fraction | None]:
+    """Решётка карты и шаг решётки источника, если закон требует привязки."""
+
+    certificate = descriptor.grid_certificate
+    if certificate.snapping_law is not GridSnappingLawV1.INTEGER_GRID_SNAP_V1:
+        return None, None
+    from ..source_grid import chart_grid_for
+
+    step = Fraction(
+        certificate.window_step.numerator, certificate.window_step.denominator
+    )
+    return chart_grid_for(gram, step), step
+
+
 @dataclass(frozen=True, slots=True)
 class ExactPlanarMetric:
     gram: tuple[tuple[sp.Expr, sp.Expr], tuple[sp.Expr, sp.Expr]]
@@ -44,6 +147,10 @@ class ExactPlanarMetric:
         tuple[sp.Expr, sp.Expr], tuple[sp.Expr, sp.Expr]
     ]
     owner_orientation_sign: int
+    # Решётка карты и шаг решётки источника в метрах. `None` — закон
+    # `UNSNAPPED_EXACT_V1`: конструкции остаются точными и непривязанными.
+    chart_grid: GridSpecV1 | None = None
+    source_step: Fraction | None = None
 
     @classmethod
     def from_descriptor(
@@ -62,11 +169,30 @@ class ExactPlanarMetric:
             is AffineChartOrientationV1.COORDINATE_CCW_MATCHES_OWNER_PATCH
             else -1
         )
+        gram = _matrix(descriptor.exact_gram_matrix)
+        chart_grid, source_step = _chart_grid(descriptor, gram)
         return cls(
-            _matrix(descriptor.exact_gram_matrix),
+            gram,
             _matrix(descriptor.exact_inverse_gram_matrix),
             orientation,
+            chart_grid,
+            source_step,
         )
+
+    @property
+    def squared_snap_budget(self) -> Fraction | None:
+        """Объявленный бюджет сдвига привязки, в координатах карты.
+
+        Привязка к решётке двигает точку не больше чем на половину ячейки по
+        каждой оси, поэтому бюджет равен `2·(1/(2·scale))²`. На задуманном пути
+        он не срабатывает никогда — и это не делает его лишним: функция
+        объявляет границу, и её собственный результат обязан ей удовлетворять,
+        иначе граница существует как заявление, которого никто не проверил.
+        """
+
+        if self.chart_grid is None:
+            return None
+        return Fraction(1, 2 * self.chart_grid.scale * self.chart_grid.scale)
 
     def dot_g(
         self, left: ExactPlanarVector, right: ExactPlanarVector
@@ -133,7 +259,21 @@ class ExactPlanarMetric:
         unit_normal: ExactPlanarVector,
         distance: object,
     ) -> ExactPlanarPoint:
-        return point_add(point, vector_scale(unit_normal, distance))
+        """Сместить опору на `distance` вдоль единичной нормали.
+
+        Здесь и рождается радикал: `unit_normal` несёт `sqrt`, поэтому каждая
+        построенная вершина огибающей алгебраична, и дальше это течёт во всё.
+        Привязка ставится ВНУТРИ, один раз: функцию зовут из пяти мест
+        (`strip.py:58,61`, `angular.py:209,210`, `cap.py:39`), и привязка в
+        каждом из них была бы пятью разными законами вместо одного.
+        """
+
+        moved = point_add(point, vector_scale(unit_normal, distance))
+        if self.chart_grid is None:
+            return moved
+        return snap_exact_point(
+            moved, self.chart_grid, self.squared_snap_budget, "offset_support_g"
+        )
 
     def support_covector_g(
         self, unit_normal: ExactPlanarVector
