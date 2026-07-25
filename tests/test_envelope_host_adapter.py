@@ -1043,7 +1043,29 @@ def test_exact_profile_exposes_named_stage_timings_and_counters():
         "ARRANGEMENT_PAIR_TESTS",
         "ARRANGEMENT_INTERSECTIONS",
         "ARRANGEMENT_ATOMIC_SEGMENTS",
+        # Выход arrangement и обе стороны клипа. Без них по счётчикам не
+        # отличить «пришло много» от «расплодилось на пересечениях».
+        "ARRANGEMENT_OUTPUT_VERTICES",
+        "ARRANGEMENT_OUTPUT_EDGES",
+        "ARRANGEMENT_OUTPUT_LOOPS",
+        "ARRANGEMENT_OUTPUT_REGIONS",
+        "ENVELOPE_INSTANCES",
+        "ENVELOPE_INSTANCE_SEGMENTS",
+        "CLIP_SEGMENTS_IN",
+        "CLIP_SEGMENTS_OUT",
+        # INTERACTION — самая дорогая стадия в поле.
+        "INTERACTION_COMPONENTS",
+        "INTERACTION_ARRIVAL_MODELS",
+        "INTERACTION_CANDIDATES",
+        "INTERACTION_APPLICATIONS",
+        "INTERACTION_EQUALITY_LOCI",
+        "RESOLVED_REGIONS",
+        "RESOLVED_EDGES",
     } <= counter_names
+    assert {item.patch_domain_id for item in snapshot.counters} != {None}, (
+        "счётчики обязаны быть привязаны к домену: без этого нельзя сравнить "
+        "большой патч с мелким, ради чего они и заведены"
+    )
 
 
 def test_staged_multi_domain_selection_slices_edges_but_keeps_request_identity():
@@ -1239,3 +1261,47 @@ def test_source_revision_and_data_replacement_invalidate_all_dependent_caches():
     assert controller.build_counts["TOPOLOGY_EXPORT"] == 3
     assert controller.build_counts["PATCH_METRIC"] == 3
     assert controller.build_counts["DOMAIN_GEOMETRY"] == 3
+
+
+def test_console_profile_shows_counters_for_each_domain(capsys):
+    """Счётчики обязаны быть видны в консоли, а не только в sidecar JSON.
+
+    Приёмка задачи — прогон в Blender: владелец читает консоль. Счётчик,
+    который попал в JSON и не попал на экран, для этого прогона не существует.
+    """
+
+    from cftuv.envelope_debug_renderer import _print_profile
+
+    profile = EnvelopeDebugProfileBuilderV1("v0-plane", "EXACT_REFERENCE")
+    evaluate_envelope_debug_staged(
+        _two_patch_seam_bundle(),
+        frozenset({0, 5}),
+        0.25,
+        profile=profile,
+    )
+    snapshot = profile.snapshot()
+    capsys.readouterr()
+    _print_profile(snapshot)
+    printed = capsys.readouterr().out
+
+    domains = sorted(
+        {
+            item.patch_domain_id
+            for item in snapshot.counters
+            if item.patch_domain_id is not None
+        }
+    )
+    assert len(domains) == 2
+    for domain in domains:
+        # Домен печатается хвостом: у всех общий префикс, и обрезка слева
+        # давала одинаковые строки. Живой след стадий печатает так же.
+        assert domain[-24:] in printed
+    for name in (
+        "ARRANGEMENT_INPUT_SEGMENTS",
+        "ARRANGEMENT_OUTPUT_REGIONS",
+        "CLIP_SEGMENTS_IN",
+        "INTERACTION_CANDIDATES",
+    ):
+        assert name in printed
+    # Сводка масштабирования — то, ради чего счётчики и заведены.
+    assert "Scaling" in printed

@@ -533,6 +533,71 @@ def _render_exact_scene(
     return diagnostics, stage_counts, point_count
 
 
+# Столбцы масштабирования: по ним видно, какая величина растёт нелинейно у
+# большого патча против мелкого. Порядок — как в конвейере: сколько сегментов
+# домена, сколько принесли огибающие до и после клипа, сколько пар отсеял
+# broadphase, сколько пересечений нашлось, во что это развернулось на выходе.
+_SCALING_COUNTER_COLUMNS = (
+    ("dom", "ARRANGEMENT_DOMAIN_SEGMENTS"),
+    ("clip>", "CLIP_SEGMENTS_IN"),
+    ("clip<", "CLIP_SEGMENTS_OUT"),
+    ("in", "ARRANGEMENT_INPUT_SEGMENTS"),
+    ("allpair", "ARRANGEMENT_ALL_POSSIBLE_PAIRS"),
+    ("broad", "ARRANGEMENT_BROADPHASE_CANDIDATE_PAIRS"),
+    ("hits", "ARRANGEMENT_INTERSECTIONS"),
+    ("atomic", "ARRANGEMENT_ATOMIC_SEGMENTS"),
+    ("faces", "ARRANGEMENT_OUTPUT_REGIONS"),
+    ("cands", "INTERACTION_CANDIDATES"),
+)
+
+
+def _counter_text(value) -> str:
+    return str(int(value)) if float(value).is_integer() else f"{value:g}"
+
+
+def _domain_text(patch_domain_id) -> str:
+    # Хвост, а не начало: у всех доменов общий префикс `host-v0:patch-domain:`,
+    # и обрезка слева давала одинаковые строки. Живой след стадий уже печатает
+    # последние три символа, и владелец называет патчи именно так («bf6»).
+    return (patch_domain_id or "-")[-24:]
+
+
+def _print_counters(profile) -> None:
+    """Счётчики по каждому домену: сводка масштабирования, затем всё остальное.
+
+    Сводка отвечает на вопрос, ради которого счётчики и заведены. Полный список
+    печатается следом и намеренно: счётчик, для которого не завели столбца, иначе
+    выглядел бы как несделанное измерение, а не как невыведенное.
+    """
+
+    by_domain: dict[str, dict[str, float]] = {}
+    for item in profile.counters:
+        by_domain.setdefault(_domain_text(item.patch_domain_id), {})[
+            item.name
+        ] = item.value
+    scaled = {
+        domain: values
+        for domain, values in by_domain.items()
+        if any(name in values for _, name in _SCALING_COUNTER_COLUMNS)
+    }
+    if scaled:
+        header = "".join(f"{title:>9}" for title, _ in _SCALING_COUNTER_COLUMNS)
+        print(f"  Scaling  {'Domain':<24}{header}")
+        for domain, values in sorted(scaled.items()):
+            row = "".join(
+                f"{_counter_text(values[name]) if name in values else '-':>9}"
+                for _, name in _SCALING_COUNTER_COLUMNS
+            )
+            print(f"  {'':<9}{domain:<24}{row}")
+    print("  Counter                                  Domain                   value")
+    for domain, values in sorted(by_domain.items()):
+        for name in sorted(values):
+            print(
+                f"  {name:<40} {domain:<24} "
+                f"{_counter_text(values[name]):>8}"
+            )
+
+
 def _print_profile(profile) -> None:
     print(
         f"[CFTUV][EnvelopeProfile] {profile.source_name} "
@@ -540,9 +605,9 @@ def _print_profile(profile) -> None:
     )
     print("  Stage                         Domain                     ms")
     for timing in profile.timings:
-        domain = timing.patch_domain_id or "-"
+        domain = _domain_text(timing.patch_domain_id)
         print(
-            f"  {timing.stage:<29} {domain[:24]:<24} "
+            f"  {timing.stage:<29} {domain:<24} "
             f"{timing.elapsed_seconds * 1000.0:9.3f}"
         )
     dominant = profile.dominant_stage
@@ -580,6 +645,7 @@ def _print_profile(profile) -> None:
             cache_parts.append(f"{layer} H{hits}/M{misses}")
     if cache_parts:
         print("  Cache: " + " | ".join(cache_parts))
+    _print_counters(profile)
 
 
 def render_staged_envelope_debug(

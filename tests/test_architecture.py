@@ -253,12 +253,14 @@ NEW_FUNCTION_LINE_LIMIT = 120
 MODULE_LINE_ALLOWANCE = {
     "cftuv/decal_voronoi.py": 16889,
     "cftuv/decal_rail_geometry.py": 5583,
-    # −56 к заморозке: измерение угла ушло в ядро
-    # (`reference/angle_measure.py`), в хосте остался проброс отказа. Файл
-    # по-прежнему числится открытым блокером HOST_REQUEST_EXPORT_COMPLEXITY,
-    # и его настоящее лечение — генерация маппера из JSON-схемы, а не бритьё
-    # строк; храповик опущен потому, что подняться назад он не должен.
-    "cftuv/envelope_request_export.py": 3053,
+    # 3107 -> 3053 (измерение угла ушло в ядро) -> 3070. +17 куплены осознанно:
+    # семь счётчиков стадии INTERACTION, самой дорогой в поле (4595 мс из
+    # 11.8 с на центральном патче) и единственной, про которую до них нечего
+    # было сказать. Оптимизировать вслепую дороже семнадцати строк. Файл всё
+    # ещё на 37 строк меньше, чем был до этой ветки, и по-прежнему числится
+    # открытым блокером HOST_REQUEST_EXPORT_COMPLEXITY: его настоящее лечение —
+    # генерация маппера из JSON-схемы, а не бритьё строк.
+    "cftuv/envelope_request_export.py": 3070,
     "cftuv/operators.py": 2913,
     "cftuv/decals.py": 2823,
     "cftuv/decal_rails.py": 2486,
@@ -284,7 +286,8 @@ FUNCTION_LINE_ALLOWANCE = {
     "kernel/src/cftuv_envelope/interactions/arrival.py": 344,
     "cftuv/decals.py": 337,
     "cftuv/analysis_validation.py": 336,
-    "kernel/src/cftuv_envelope/reference/raw_coverage.py": 319,
+    # −28: словарь счётчиков arrangement вынесен в `_union_counters`.
+    "kernel/src/cftuv_envelope/reference/raw_coverage.py": 291,
     "cftuv/solve_transfer.py": 317,
     "cftuv/solve_reporting.py": 293,
     "cftuv/solve_report_anomalies.py": 250,

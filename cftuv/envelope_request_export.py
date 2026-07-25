@@ -2966,6 +2966,15 @@ def evaluate_envelope_debug_staged(
                         raw_result.boundary_resolved_envelopes,
                         raw_result,
                     )
+                # Наблюдение по возвращённому контракту, как ENVELOPE_SPECS выше.
+                # INTERACTION — самая дорогая стадия в поле, и без этих чисел
+                # она остаётся единственной, про которую нечего сказать.
+                for name, value in (
+                    ("INTERACTION_COMPONENTS", interaction_result.interaction_components),
+                    ("INTERACTION_ARRIVAL_MODELS", interaction_result.arrival_models),
+                    ("INTERACTION_CANDIDATES", interaction_result.candidates),
+                ):
+                    profile.set_counter(name, len(value), domain_id)
                 if interaction_result.resolved_coverage is None:
                     diagnostics.extend(
                         _host_diagnostic_from_stage(
@@ -2983,6 +2992,14 @@ def evaluate_envelope_debug_staged(
                         diagnostic,
                     )
                 else:
+                    resolved = interaction_result.resolved_coverage
+                    for name, value in (
+                        ("RESOLVED_REGIONS", resolved.regions),
+                        ("RESOLVED_EDGES", resolved.edges),
+                        ("INTERACTION_APPLICATIONS", resolved.interaction_applications),
+                        ("INTERACTION_EQUALITY_LOCI", resolved.equality_loci),
+                    ):
+                        profile.set_counter(name, len(value), domain_id)
                     receipt = EnvelopeDomainStageReceiptV1(
                         patch_id,
                         domain_id,
