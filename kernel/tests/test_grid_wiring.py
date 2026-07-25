@@ -412,6 +412,65 @@ def test_the_snap_result_satisfies_the_budget_the_metric_declares():
     assert exact.squared_snap_budget >= maximum
 
 
+def test_the_exact_node_solver_agrees_with_the_proven_rounding_rule():
+    """Дифференциально против R1a: то же правило, вычисленное там, где дроби нет.
+
+    `snap_value` округляет `floor(x + 1/2)` на дробях; `snap_exact_point` решает
+    тот же узел для алгебраического значения — сначала интервальной оболочкой,
+    потом символьным `sp.floor`. Совпадение обязано быть точным, а не похожим,
+    иначе привязка означает разное в разных местах конвейера. 400 рациональных
+    и 200 алгебраических проб, расхождений 0.
+    """
+
+    import random
+
+    from cftuv_envelope.robust.grid import snap_point
+
+    random.seed(1)
+    grid = GridSpecV1(scale=256)
+    for _ in range(400):
+        values = [
+            Fraction(
+                random.randint(-10**4, 10**4),
+                random.choice((1, 2, 3, 256, 512, 7)),
+            )
+            for _ in range(2)
+        ]
+        reset_snap_counts()
+        rational = snap_point(values[0], values[1], grid)
+        reset_snap_counts()
+        exact = snap_exact_point(
+            ExactPlanarPoint.from_values(
+                *(sp.Rational(item.numerator, item.denominator) for item in values)
+            ),
+            grid,
+            None,
+            "differential",
+        )
+        assert (rational.x, rational.y) == (
+            int(sp.sympify(exact.x.expression) * grid.scale),
+            int(sp.sympify(exact.y.expression) * grid.scale),
+        )
+
+    for _ in range(200):
+        radicand = random.choice((2, 3, 5, 7, 45))
+        offset = Fraction(random.randint(-500, 500), random.choice((1, 4, 16)))
+        weight = Fraction(random.randint(-50, 50), random.choice((1, 3, 8)))
+        expression = sp.Rational(
+            offset.numerator, offset.denominator
+        ) + sp.Rational(weight.numerator, weight.denominator) * sp.sqrt(radicand)
+        reset_snap_counts()
+        point = snap_exact_point(
+            ExactPlanarPoint.from_values(expression, expression),
+            grid,
+            None,
+            "differential",
+        )
+        assert int(sp.sympify(point.x.expression) * grid.scale) == int(
+            sp.floor(expression * grid.scale + sp.Rational(1, 2))
+        )
+
+
 def test_a_budget_smaller_than_the_cell_fires_a_named_refusal():
     grid = GridSpecV1(scale=4)
     reset_snap_counts()
