@@ -169,6 +169,55 @@ def _emit_telemetry(
         return
 
 
+def _union_counters(union, input_segments: int) -> dict[str, int | float]:
+    """Наблюдение за arrangement: что пришло, что отсеялось, что получилось.
+
+    `union` может быть None: телеметрия эмитится из `finally`, и стадия,
+    упавшая на точном предикате, обязана оставить хотя бы вход. Стадия без
+    единого числа — это стадия, про которую нечего сказать.
+    """
+
+    counters: dict[str, int | float] = {
+        "ARRANGEMENT_INPUT_SEGMENTS": input_segments,
+        "ARRANGEMENT_ALL_POSSIBLE_PAIRS": (
+            input_segments * (input_segments - 1) // 2
+        ),
+    }
+    if union is None:
+        return counters
+    counters.update(
+        {
+            "ARRANGEMENT_BROADPHASE_CANDIDATE_PAIRS": (
+                union.broadphase_candidate_pair_count
+            ),
+            "ARRANGEMENT_NARROWPHASE_TESTS": union.narrowphase_test_count,
+            # Совместимый alias: теперь это фактические exact tests,
+            # а не теоретическое число всех пар.
+            "ARRANGEMENT_PAIR_TESTS": union.narrowphase_test_count,
+            "ARRANGEMENT_INTERSECTIONS": union.intersection_count,
+            "ARRANGEMENT_ATOMIC_SEGMENTS": union.atomic_edge_count,
+            "ARRANGEMENT_BRANCH_POINTS": union.branch_point_count,
+            "ARRANGEMENT_MAX_INCIDENT_DEGREE": union.max_incident_degree,
+            "ARRANGEMENT_BOUNDARY_OCCURRENCES": len(
+                union.boundary_vertex_occurrences
+            ),
+            "ARRANGEMENT_POINT_CONTACTS": len(union.point_contacts),
+            "ARRANGEMENT_ROTATION_COMPARISONS": (
+                union.rotation_comparison_count
+            ),
+            "ARRANGEMENT_FACE_WALKS": union.face_walk_count,
+            # Выход arrangement. Вход уже есть выше; без выхода по паре чисел
+            # не отличить «пришло много» от «расплодилось на пересечениях»,
+            # а это разные болезни с разным лечением.
+            "ARRANGEMENT_OUTPUT_VERTICES": len(union.vertices),
+            "ARRANGEMENT_OUTPUT_EDGES": len(union.edges),
+            "ARRANGEMENT_OUTPUT_LOOPS": len(union.loops),
+            "ARRANGEMENT_OUTPUT_REGIONS": len(union.regions),
+        }
+    )
+    return counters
+
+
 def _region_segment_count(regions: tuple[PlanarRegion, ...]) -> int:
     return sum(
         len(region.outer.segments)
@@ -287,6 +336,11 @@ def evaluate_reference_raw_coverage(
         instances = []
         boundary_resolved = []
         instance_elapsed = 0.0
+        # Сегменты до и после клипа. Клип — вторая по стоимости стадия в поле,
+        # и без этих двух чисел непонятно, растёт ли она от размера огибающих
+        # или от размера домена, о который их режут.
+        clip_segments_in = 0
+        clip_segments_out = 0
         try:
             for spec in sorted(
                 compilation.envelope_specs,
@@ -329,6 +383,7 @@ def evaluate_reference_raw_coverage(
                 else:  # pragma: no cover - EC1 union is closed and validated.
                     raise TypeError(type(spec).__name__)
                 instance_elapsed += time.perf_counter() - stage_started
+                clip_segments_in += _region_segment_count(instance.regions)
                 if isinstance(spec, AngularEnvelopeSpec) and any(
                     segment_intersections(exposed, barrier.segment)
                     for exposed in instance.exposed_segments
@@ -374,6 +429,7 @@ def evaluate_reference_raw_coverage(
                         f"{spec.envelope_spec_id} would require obstacle bypass",
                         existing=boundary_diagnostics,
                     )
+                clip_segments_out += _region_segment_count(clipped.regions)
                 capacity_outcomes = {
                     item.capacity_outcome
                     for item in component_resolutions
@@ -406,9 +462,19 @@ def evaluate_reference_raw_coverage(
                     telemetry(
                         "ENVELOPE_INSTANCE_BUILD",
                         instance_elapsed,
-                        None,
+                        {
+                            "ENVELOPE_INSTANCES": len(instances),
+                            "ENVELOPE_INSTANCE_SEGMENTS": clip_segments_in,
+                        },
                     )
-                    telemetry("DOMAIN_CLIP", clip_elapsed, None)
+                    telemetry(
+                        "DOMAIN_CLIP",
+                        clip_elapsed,
+                        {
+                            "CLIP_SEGMENTS_IN": clip_segments_in,
+                            "CLIP_SEGMENTS_OUT": clip_segments_out,
+                        },
+                    )
                 except Exception:
                     pass
 
@@ -431,59 +497,14 @@ def evaluate_reference_raw_coverage(
                 reachability_by_instance,
             )
         finally:
-            union_counters = {
-                "ARRANGEMENT_INPUT_SEGMENTS": arrangement_input_segments,
-                "ARRANGEMENT_ALL_POSSIBLE_PAIRS": (
-                    arrangement_input_segments
-                    * (arrangement_input_segments - 1)
-                    // 2
-                ),
-            }
-            if "union" in locals():
-                union_counters.update(
-                    {
-                        "ARRANGEMENT_BROADPHASE_CANDIDATE_PAIRS": (
-                            union.broadphase_candidate_pair_count
-                        ),
-                        "ARRANGEMENT_NARROWPHASE_TESTS": (
-                            union.narrowphase_test_count
-                        ),
-                        # Совместимый alias: теперь это фактические exact tests,
-                        # а не теоретическое число всех пар.
-                        "ARRANGEMENT_PAIR_TESTS": (
-                            union.narrowphase_test_count
-                        ),
-                        "ARRANGEMENT_INTERSECTIONS": (
-                            union.intersection_count
-                        ),
-                        "ARRANGEMENT_ATOMIC_SEGMENTS": (
-                            union.atomic_edge_count
-                        ),
-                        "ARRANGEMENT_BRANCH_POINTS": (
-                            union.branch_point_count
-                        ),
-                        "ARRANGEMENT_MAX_INCIDENT_DEGREE": (
-                            union.max_incident_degree
-                        ),
-                        "ARRANGEMENT_BOUNDARY_OCCURRENCES": len(
-                            union.boundary_vertex_occurrences
-                        ),
-                        "ARRANGEMENT_POINT_CONTACTS": len(
-                            union.point_contacts
-                        ),
-                        "ARRANGEMENT_ROTATION_COMPARISONS": (
-                            union.rotation_comparison_count
-                        ),
-                        "ARRANGEMENT_FACE_WALKS": (
-                            union.face_walk_count
-                        ),
-                    }
-                )
             _emit_telemetry(
                 telemetry,
                 "RAW_UNION",
                 stage_started,
-                union_counters,
+                _union_counters(
+                    locals().get("union"),
+                    arrangement_input_segments,
+                ),
             )
         result = RawCoverageResultV2(
             schema_version=RAW_COVERAGE_RESULT_SCHEMA_V2,
