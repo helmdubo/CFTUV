@@ -1305,3 +1305,55 @@ def test_console_profile_shows_counters_for_each_domain(capsys):
         assert name in printed
     # Сводка масштабирования — то, ради чего счётчики и заведены.
     assert "Scaling" in printed
+
+
+def test_non_fatal_kernel_diagnostics_reach_the_host_evaluation(monkeypatch):
+    """INFO-диагностика ядра доходит до хоста на УСПЕШНОМ домене.
+
+    Раньше `diagnostics.extend(...)` стоял только в ветках отказа, поэтому
+    именованное событие на разрешившемся домене исчезало молча — печать в
+    рендерере его бы всё равно не увидела.
+
+    Проверяется тракт, а не геометрия: фикстуры INFO-диагностик не порождают, и
+    доказывать проброс полевой случайностью нельзя. Поэтому исход подменяется
+    здесь явно, а тест падает ровно тогда, когда проброс исчезнет.
+    """
+
+    import cftuv_envelope as kernel
+    from dataclasses import replace as _replace
+
+    from cftuv.envelope_request_export import EnvelopeDebugHostSeverity
+
+    original = kernel.resolve_coverage_interactions
+    marker = kernel.InteractionDiagnosticV1(
+        kernel.InteractionOutcome.MULTIWAY_MEET_RESOLVED_AS_ONE_EVENT,
+        kernel.InteractionDiagnosticSeverity.INFO,
+        "probe: multiway meet resolved as one event",
+    )
+
+    def with_marker(*args, **kwargs):
+        result = original(*args, **kwargs)
+        if result.resolved_coverage is None:
+            return result
+        return _replace(result, diagnostics=(*result.diagnostics, marker))
+
+    monkeypatch.setattr(kernel, "resolve_coverage_interactions", with_marker)
+
+    evaluation = evaluate_envelope_debug_staged(
+        _single_patch_bundle(),
+        frozenset({0}),
+        0.25,
+    )
+
+    outcomes = {
+        item.outcome.value if hasattr(item.outcome, "value") else str(item.outcome)
+        for item in evaluation.diagnostics
+    }
+    assert "MULTIWAY_MEET_RESOLVED_AS_ONE_EVENT" in outcomes, (
+        "ненадзорная диагностика ядра не дошла до хоста на успешном домене"
+    )
+    # Severity обязана сохраниться: иначе INFO неотличим от отказа в выводе.
+    assert any(
+        item.severity is not EnvelopeDebugHostSeverity.ERROR
+        for item in evaluation.diagnostics
+    )
