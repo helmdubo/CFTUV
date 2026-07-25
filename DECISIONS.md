@@ -306,6 +306,55 @@ and does not really attempt to fix the algorithm». Лицензия мягче 
 свидетельство, что multiway не решён никем из них — значит копировать нечего, а
 блокер настоящий.
 
+**2026-07-25** — Linear axis отличается от straight skeleton **только начальным
+условием**, и это снимает целый слой нашей конструкции. Huber, §1.5.1,
+дословно: «The difference between the linear axis and the straight skeleton is a
+more general definition of the initial wavefront at reflex vertices of P… The
+skeleton structure which results from this initial wavefront **and the ordinary
+straight-skeleton wavefront propagation** is called linear axis.» И там же: «for
+each vi the two incident edges span identical angles» — это буквально `EQUAL` из
+нашего `LINEAR_REFLEX_EQUAL_V1`.
+
+Следствие: строить надо ОДИН обычный straight-skeleton-движок, а весь угловой
+профиль (ROUND_k, reflex-политика) живёт в засеве начальной волны и больше нигде.
+В цикле распространения угловой машинерии быть не должно. Это подтверждает §S4
+(«corner-seeded straight wavefront») против первоисточника и объясняет сагу
+угловых багов: их чинили в цикле, а место у них — в начальном условии.
+
+**2026-07-25** — Привязка к решётке — решение о **корректности**, а не только о
+скорости. Huber, §2.5.4, объясняет, почему точная арифметика на неточном входе
+не спасает: «if we assume that the coordinates in the input files are imprecise…
+we are basically forced to resort to ε-based comparisons… Otherwise, it is
+virtually impossible to construct non-trivial input data, for which we intend
+that a vertex event happens». Симметричный контур, задуманный так, чтобы две
+долины сошлись в одной точке, из-за шума координат даёт две близкие вершины
+вместо одной.
+
+Это ровно диагноз bf6: пять юбок задуманы сходящимися в одну точку, координаты
+меша — binary64, и наше точное ядро добросовестно считает скелет ШУМА. Вывод
+Huber'а (ε-сравнения) нам запрещён, но есть третий путь, которого он не
+рассматривает, потому что берёт входной файл как данность: **snap rounding
+восстанавливает задуманное вырождение структурно**, и дальше точная арифметика
+на решётке даёт и точный, и задуманный ответ одновременно. Это усиливает
+обоснование `robust/`: раньше он оправдывался скоростью, теперь — тем, что без
+него правильного ответа не существует.
+
+**2026-07-25** — Ориентиры по цене, из §2.5.4 (замеры Huber'а, до 2·10⁶ вершин):
+`Bone` — 10–30·n log n мкс; **CGAL — 0.17–1.7·n² log n мкс, то есть на практике
+квадратичен**; точные предикаты против неточных в CGAL — примерно 3.4×; MPFR на
+212 и 1000 битах — замедление 10–20×, «still reasonable for real-world
+applications». Значит точность стоит 3–20×, а не 100×, и наши 98× на orient2d —
+плата за Python, а не за точность. Планку задаёт не CGAL: он сам квадратичен.
+
+**2026-07-25** — Одновременное схлопывание было открытой задачей в состоянии
+искусства. Huber, заключение: «we plan to enhance the numerical stability in the
+presence of parallel wavefronts that collapse simultaneously. Detecting the
+simultaneous collapse of larger parts of the wavefront is simplified by
+exploiting the **convex tessellation induced by the motorcycle graph**». То есть
+самая быстрая реализация на 2011 год числила наш блокер в будущих работах и
+назвала инструмент. Это третье независимое подтверждение (после `Lichtso` с
+`# TODO` и `bpypolyskel` с постобработкой), что копировать решение неоткуда.
+
 **2026-07-25** — CGAL для straight skeleton рекомендует
 `Exact_predicates_inexact_constructions_kernel` и прямо пишет: «This algorithm
 requires exact predicates but not exact constructions». Точные конструкции нужны
