@@ -159,7 +159,12 @@ def main() -> None:
         print("  Всё на месте. Можно запускать Build Envelope Debug.")
 
 
-if "--fingerprint" in sys.argv:
+if "--fingerprint-path" in sys.argv:
+    # Отпечаток произвольного каталога — тем же законом, что и репозиторный.
+    # Нужен установщику: он сравнивает СКОПИРОВАННУЮ копию с исходной, а не
+    # верит тому, что копирование прошло без ошибки.
+    print(_fingerprint(sys.argv[sys.argv.index("--fingerprint-path") + 1]))
+elif "--fingerprint" in sys.argv:
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     for label, relative in (
         ("cftuv_envelope", "kernel/src/cftuv_envelope"),
