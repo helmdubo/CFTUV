@@ -320,6 +320,46 @@ owner каждой юбки. Это straight skeleton, а не медиальн�
 ровно одно исходное опорное ребро. Подсветка owner'ов в debug-режиме не
 требует отдельного вычисления, она выпадает из структуры.
 
+**2026-07-25** — Готовые straight-skeleton реализации для Blender изучены и
+**в зависимости не берутся**. Смотрели две:
+
+`Lichtso/straight_skeleton` (GPL-3.0, ~600 строк, Huber & Held / motorcycle
+graph) — архитектура верная, очередь событий по времени, и это независимое
+подтверждение направления. Но восемь абсолютных допусков (`tollerance=0.0001`,
+`0.001`, `arrival_tollerance=0.001`), а главное — многосторонняя встреча, ровно
+наш блокер, помечена в коде как `'Manyfold collision' # TODO`.
+
+`prochitecture/bpypolyskel` (GPL-3.0, порт Botffy/polyskel, Felkel & Obdržálek
+1998) — 99.99% на 320 000 крыш OSM, но собственный README говорит: «not a
+straight skeleton in a mathematical sense», а исправляют результат «cleaning and
+merging algorithms». Это пост-хилинг, запрещённый RM4, и 0.01% отказов без
+именованного исхода.
+
+Причина отказа от кода, помимо этого: обе GPL-3.0, а `kernel/` намеренно
+Blender-free и извлекаем — job `kernel-extraction-readiness`
+(`.github/workflows/envelope-kernel.yml:56`) на каждом коммите копирует его в
+пустой репозиторий и собирает wheel. GPL-3 в ядре уничтожает именно то
+свойство, ради которого ядро отделяли.
+
+`botffy/polyskel` (LGPL-3.0) — апстрим `bpypolyskel`, и он же самый дальний из
+трёх. Его собственный README: «The algorithm itself is fairly dated, and **shown
+to be incorrect for certain input polygons**. This implementation is a bit crap,
+and does not really attempt to fix the algorithm». Лицензия мягче остальных, но
+вопрос снимается раньше лицензии: заведомо некорректный алгоритм в проекте,
+построенном на сертифицированных предикатах и именованных отказах, не
+рассматривается.
+
+Показательно, что `polyskel` отсылает читателя к тезису Хубера, а `Lichtso`
+на нём построен: два независимых проекта указывают в одно место. Ссылка внесена
+в карточку.
+
+Что берём: motorcycle graph как способ находить split-события; наблюдение
+`polyskel`, что дыры задаются отдельными контурами, — у нас `PlanarRegion.holes`
+есть, но полем не пройден ни один домен с дырой (`DOMAIN_HOLE_LOOPS = 0` во всех
+семи), и это внесено в карточку как незакрытый случай; и все три проекта как
+свидетельство, что multiway не решён никем из них — значит копировать нечего, а
+блокер настоящий.
+
 **2026-07-25** — CGAL для straight skeleton рекомендует
 `Exact_predicates_inexact_constructions_kernel` и прямо пишет: «This algorithm
 requires exact predicates but not exact constructions». Точные конструкции нужны
