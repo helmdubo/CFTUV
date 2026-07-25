@@ -62,9 +62,55 @@ class GridWindowOutcomeV1(str, Enum):
     NO_POWER_OF_TWO_STEP_IN_WINDOW = "NO_POWER_OF_TWO_STEP_IN_WINDOW"
 
 
+class GridScaleSearchOrderV1(str, Enum):
+    """С какого конца окна перебираются степени двойки.
+
+    Порядок — часть закона, а не деталь реализации: он однозначно определяет,
+    какой масштаб будет выбран, поэтому обязан быть записан рядом с выбором.
+    Два конца окна названы оба, потому что оба осмысленны и замерены; какой из
+    них объявляет ядро — сказано в `source_grid.GRID_SCALE_SEARCH_ORDER`.
+    """
+
+    # От самого МЕЛКОГО допустимого шага (наибольший масштаб) к крупному.
+    FINEST_ADMISSIBLE_FIRST_V1 = "FINEST_ADMISSIBLE_FIRST_V1"
+    # От самого КРУПНОГО допустимого шага (наименьший масштаб) к мелкому.
+    COARSEST_ADMISSIBLE_FIRST_V1 = "COARSEST_ADMISSIBLE_FIRST_V1"
+
+
+class GridScaleTrialOutcomeV1(str, Enum):
+    """Чем кончилась проба одного масштаба. Третьего исхода нет."""
+
+    RELATIONS_RESTORED = "RELATIONS_RESTORED"
+    RELATIONS_NOT_RESTORED = "RELATIONS_NOT_RESTORED"
+
+
+@dataclass(frozen=True, slots=True)
+class GridScaleTrialV1:
+    """Одна проба перебора: что пробовали и что из этого вышло.
+
+    Записывается каждая проба, а не только победившая. Иначе выбор
+    невоспроизводим: по картинке в Blender видно, какая геометрия получилась,
+    но не видно, почему выбран именно этот шаг, — а он выбран потому, что
+    предыдущие пробы отказали, и отказ каждой из них здесь назван числом.
+    """
+
+    scale: int
+    step: ExactRationalV1
+    restored_right_corners: int
+    outcome: GridScaleTrialOutcomeV1
+
+    def __post_init__(self) -> None:
+        if self.scale <= 0 or self.scale & (self.scale - 1):
+            raise ValueError("масштаб пробы — положительная степень двойки")
+        if self.restored_right_corners < 0:
+            raise ValueError("счётчик восстановленных углов неотрицателен")
+        if self.step != ExactRationalV1(1, self.scale):
+            raise ValueError("шаг пробы обязан быть обратным её масштабу")
+
+
 @dataclass(frozen=True, slots=True)
 class IntegerGridCertificateV1:
-    """Решётка домена: обе границы окна, выбранный шаг и доказательство.
+    """Решётка домена: обе границы окна, весь перебор и доказательство.
 
     Записывается ВСЕГДА, в том числе когда привязки не было: тот же вход с
     другим шагом даёт другой результат, и дайджест обязан их различать.
@@ -75,6 +121,11 @@ class IntegerGridCertificateV1:
     в тех координатах, которые метрика реально несёт. Две названные величины —
     два поля: расхождение между числом названного и числом измеренного само по
     себе дефект.
+
+    `window_step` и `source_scale` при `INTEGER_GRID_SNAP_V1` — ВЫБРАННЫЙ
+    перебором шаг, то есть последняя проба в `scale_trials`. При
+    `UNSNAPPED_EXACT_V1` перебора не было, и это первый кандидат окна: шаг,
+    который окно предлагает у своей нижней границы.
     """
 
     snapping_law: GridSnappingLawV1
@@ -89,6 +140,8 @@ class IntegerGridCertificateV1:
     magnitude_bound: int | None
     intended_right_corners: int
     restored_right_corners: int
+    search_order: GridScaleSearchOrderV1
+    scale_trials: tuple[GridScaleTrialV1, ...]
 
     def __post_init__(self) -> None:
         if self.intended_right_corners < 0 or self.restored_right_corners < 0:
@@ -97,7 +150,25 @@ class IntegerGridCertificateV1:
             raise ValueError(
                 "восстановлено не может быть больше, чем задумано прямыми"
             )
+        for trial in self.scale_trials:
+            if trial.restored_right_corners > self.intended_right_corners:
+                raise ValueError(
+                    "проба восстановила больше углов, чем задумано прямыми"
+                )
+            restored = (
+                trial.restored_right_corners == self.intended_right_corners
+            )
+            if restored is not (
+                trial.outcome is GridScaleTrialOutcomeV1.RELATIONS_RESTORED
+            ):
+                raise ValueError(
+                    "исход пробы расходится с её же числом восстановленных"
+                )
         if self.snapping_law is GridSnappingLawV1.UNSNAPPED_EXACT_V1:
+            if self.scale_trials:
+                raise ValueError(
+                    "UNSNAPPED_EXACT_V1 не перебирает масштабы: проб быть не может"
+                )
             return
         if self.window_outcome is not GridWindowOutcomeV1.WINDOW_AVAILABLE:
             raise ValueError(
@@ -113,6 +184,49 @@ class IntegerGridCertificateV1:
             raise ValueError(
                 "INTEGER_GRID_SNAP_V1 не восстановил все задуманно прямые углы"
             )
+        self._check_trials()
+
+    def _check_trials(self) -> None:
+        """Перебор обязан быть тем самым, который объявлен законом.
+
+        Проверяется не «что-то записано», а четыре свойства объявленного
+        закона: перебор непуст, победил ПЕРВЫЙ прошедший, победитель — это и
+        есть выбранный шаг, и все пробы шли объявленным порядком внутри окна.
+        Без этих проверок запись перебора была бы украшением, а не
+        доказательством выбора.
+        """
+
+        if not self.scale_trials:
+            raise ValueError("привязка без записанного перебора невозможна")
+        winner = self.scale_trials[-1]
+        if winner.outcome is not GridScaleTrialOutcomeV1.RELATIONS_RESTORED:
+            raise ValueError("последняя проба перебора обязана быть прошедшей")
+        if winner.scale != self.source_scale or winner.step != self.window_step:
+            raise ValueError("выбранный шаг не совпадает с прошедшей пробой")
+        if any(
+            trial.outcome is GridScaleTrialOutcomeV1.RELATIONS_RESTORED
+            for trial in self.scale_trials[:-1]
+        ):
+            raise ValueError(
+                "закон берёт ПЕРВЫЙ прошедший масштаб: прошедшая проба до "
+                "победителя означает, что выбран не он"
+            )
+        scales = [trial.scale for trial in self.scale_trials]
+        descending = (
+            self.search_order is GridScaleSearchOrderV1.FINEST_ADMISSIBLE_FIRST_V1
+        )
+        expected = sorted(scales, reverse=descending)
+        if scales != expected or len(set(scales)) != len(scales):
+            raise ValueError("перебор идёт не тем порядком, который объявлен")
+        for trial in self.scale_trials:
+            if not (
+                self.window_lower_bound.numerator
+                * trial.step.denominator
+                <= trial.step.numerator * self.window_lower_bound.denominator
+                and trial.step.numerator * self.window_upper_bound.denominator
+                <= self.window_upper_bound.numerator * trial.step.denominator
+            ):
+                raise ValueError("проба перебора вышла за границы окна")
 
 
 class NearPlanarResidualBudgetLawV1(str, Enum):

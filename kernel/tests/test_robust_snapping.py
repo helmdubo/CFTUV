@@ -453,6 +453,50 @@ def test_the_returned_grid_lies_inside_the_window_it_reports():
         )
 
 
+def test_every_admissible_scale_lies_inside_the_window_that_produced_it():
+    """Функция объявляет границу — её собственный результат ей удовлетворяет.
+
+    Множество кандидатов задаётся окном и от закона выбора не зависит, поэтому
+    проверяется здесь и по обеим границам сразу: шаг каждого кандидата обязан
+    лежать между ними, кандидаты обязаны идти по возрастанию масштаба и
+    кончаться самым мелким допустимым шагом — тем, который возвращает само
+    окно. Без последнего «внутри окна» и «то, что вернуло окно» могли бы
+    разойтись молча.
+    """
+
+    from cftuv_envelope.robust.snapping import admissible_scales
+
+    for extent in (1, 4, 10, 40):
+        window = _window(extent)
+        if window.outcome is not GridWindowOutcome.WINDOW_AVAILABLE:
+            continue
+        scales = admissible_scales(window)
+        assert scales, f"габарит {extent}: окно открыто, а кандидатов нет"
+        assert list(scales) == sorted(scales)
+        assert len(set(scales)) == len(scales)
+        assert scales[-1] == window.grid.scale
+        for scale in scales:
+            step = Fraction(1, scale)
+            assert window.lower_bound <= step <= window.upper_bound, (
+                f"габарит {extent}: кандидат {scale} даёт шаг "
+                f"{float(step):.3e} вне окна"
+            )
+            # И то условие, ради которого нижняя граница существует: авторская
+            # ошибка меньше половины ячейки. Оно обязано держаться на КАЖДОМ
+            # кандидате, а не только на том, который вернуло окно.
+            assert FIELD_ANGLE * extent < step / 2
+
+
+def test_a_closed_window_offers_no_candidates_at_all():
+    """У закрытого окна кандидатов нет — ни одного, а не «ближайший»."""
+
+    from cftuv_envelope.robust.snapping import admissible_scales
+
+    window = _window(100)
+    assert window.outcome is GridWindowOutcome.GRID_WINDOW_CLOSED
+    assert admissible_scales(window) == ()
+
+
 def test_a_window_with_no_power_of_two_inside_is_named_not_forced():
     """Границы разошлись, но степени двойки между ними нет — отдельный исход."""
 

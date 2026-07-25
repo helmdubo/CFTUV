@@ -120,10 +120,131 @@ def _destroyed_separations(grid) -> list[float]:
     return destroyed
 
 
+def measure_window_search(fixture: str) -> list[dict]:
+    """Перебор масштабов окна на настоящем снимке анализа, оба порядка.
+
+    Стенд не выбирает и здесь: он показывает, что выбирает объявленный закон и
+    чего стоит обратный порядок. Замеряется на свежих значениях — позиции
+    читаются из файла, кеша между строками нет.
+    """
+
+    import cftuv_envelope as kernel
+    from cftuv_envelope.contracts.metric import GridScaleSearchOrderV1
+    from cftuv_envelope.numeric import LocalPoint3V1
+    from cftuv_envelope.robust.grid import GridSpecV1
+    from cftuv_envelope.robust.snapping import admissible_scales, grid_window_for_patch
+    from cftuv_envelope.source_grid import (
+        AUTHOR_ANGULAR_ERROR,
+        DECAL_DETAIL,
+        intended_right_corners,
+        restored_right_corners,
+        select_grid_scale,
+        snap_positions,
+        source_extent,
+    )
+
+    with open(fixture, "rb") as handle:
+        snapshot = kernel.AnalysisSnapshotCodecV1.loads(handle.read())
+    descriptor = next(iter(snapshot.surface_metric_descriptors))
+    domain = next(
+        item
+        for item in snapshot.patch_domains
+        if item.patch_domain_id == descriptor.patch_domain_id
+    )
+    faces = tuple(
+        sorted(
+            (
+                item
+                for item in snapshot.surface_ir.source_faces
+                if item.patch_id == domain.owner_patch_id
+            ),
+            key=lambda item: item.face_id.value,
+        )
+    )
+    wanted = {vertex_id for face in faces for vertex_id in face.vertex_cycle}
+    positions = {
+        item.vertex_id: tuple(
+            Fraction(*float(value).as_integer_ratio())
+            for value in (item.position.x, item.position.y, item.position.z)
+        )
+        for item in snapshot.source_vertices
+        if item.vertex_id in wanted and isinstance(item.position, LocalPoint3V1)
+    }
+    window = grid_window_for_patch(
+        extent=source_extent(positions),
+        author_angular_error=AUTHOR_ANGULAR_ERROR,
+        decal_detail=DECAL_DETAIL,
+    )
+    intended = intended_right_corners(positions, faces)
+    rows = []
+    for scale in admissible_scales(window):
+        grid = GridSpecV1(scale=scale)
+        snapped = snap_positions(positions, grid)
+        rows.append(
+            {
+                "scale": scale,
+                "step_metres": float(Fraction(1, scale)),
+                "restored": restored_right_corners(snapped, intended),
+                "intended": len(intended),
+                "displacement_max": float(
+                    max(
+                        max(abs(a - b) for a, b in zip(snapped[key], positions[key]))
+                        for key in positions
+                    )
+                ),
+                "minimum_alpha": float(4 * Fraction(1, scale)),
+            }
+        )
+    for order in GridScaleSearchOrderV1:
+        grid, trials = select_grid_scale(
+            positions=positions,
+            intended=intended,
+            window=window,
+            search_order=order,
+        )
+        for row in rows:
+            row.setdefault("chosen_by", [])
+            if row["scale"] == grid.scale:
+                row["chosen_by"].append(order.value)
+            if any(item.scale == row["scale"] for item in trials):
+                row.setdefault("tried_by", []).append(order.value)
+    print(
+        f"\n=== {fixture}: габарит {float(source_extent(positions)):g} м, окно "
+        f"{float(window.lower_bound):.2e} … {float(window.upper_bound):.2e} м ==="
+    )
+    print("  масштаб      шаг, м  восст.  сдвиг max, м  мин. alpha, м  выбирает")
+    for row in rows:
+        chosen = ", ".join(row.get("chosen_by", ())) or "—"
+        print(
+            f"  {row['scale']:>7}  {row['step_metres']:10.2e}  "
+            f"{row['restored']}/{row['intended']}     {row['displacement_max']:10.2e}"
+            f"     {row['minimum_alpha']:10.2e}  {chosen}"
+        )
+    return rows
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", type=str, default=None)
+    parser.add_argument(
+        "--fixture",
+        type=str,
+        default=None,
+        help="analysis_snapshot.json: перебор масштабов окна на настоящем меше",
+    )
     arguments = parser.parse_args()
+
+    if arguments.fixture:
+        rows = measure_window_search(arguments.fixture)
+        if arguments.json:
+            with open(arguments.json, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {"schema": "cftuv.envelope.grid_scale_search.v1", "rows": rows},
+                    handle,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+        return
 
     rows = measure((64, 256, 1024, 4096, 16384, 65536))
 
@@ -165,7 +286,12 @@ def main() -> None:
             "  привязка не может одновременно сливать одно и сохранять другое.\n"
             "  Это не настройка, а именованный отказ."
         )
-    print("  Выбор внутри окна — владельца по картинке в Blender, не стенда.")
+    print(
+        "  Выбор внутри окна делает объявленный закон (`select_grid_scale`), а\n"
+        "  не стенд и не глаз: перебрать степени двойки окна от мелкого шага к\n"
+        "  крупному и взять первую, на которой все задуманно прямые углы стали\n"
+        "  точными. Что этот перебор даёт на настоящем меше — `--fixture`."
+    )
 
     if arguments.json:
         with open(arguments.json, "w", encoding="utf-8") as handle:

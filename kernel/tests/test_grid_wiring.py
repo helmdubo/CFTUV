@@ -18,6 +18,9 @@ import sympy as sp
 from reference_factories import straight_snapshot
 
 from cftuv_envelope import (
+    GridScaleSearchOrderV1,
+    GridScaleTrialOutcomeV1,
+    GridScaleTrialV1,
     GridSnappingLawV1,
     GridWindowOutcomeV1,
     IntegerGridCertificateV1,
@@ -56,8 +59,10 @@ from cftuv_envelope.robust.grid import (
     reset_snap_counts,
     set_active_grid,
 )
+from cftuv_envelope.robust.snapping import grid_window_for_patch
 from cftuv_envelope.source_grid import (
     AUTHOR_ANGULAR_ERROR,
+    DECAL_DETAIL,
     chart_grid_for,
     intended_right_corners,
 )
@@ -144,12 +149,16 @@ def test_the_grid_specification_reaches_the_digest_and_distinguishes_scales():
     assert first.raw_coverage.semantic_digest == second.raw_coverage.semantic_digest
 
     metric, _ = _evaluated(GridSnappingLawV1.INTEGER_GRID_SNAP_V1)
+    certificate = metric.grid_certificate
+    winner = certificate.scale_trials[-1]
     coarse = replace(
         metric,
         grid_certificate=replace(
-            metric.grid_certificate,
+            certificate,
             window_step=ExactRationalV1(1, 1024),
             source_scale=1024,
+            scale_trials=certificate.scale_trials[:-1]
+            + (replace(winner, scale=1024, step=ExactRationalV1(1, 1024)),),
         ),
     )
     from cftuv_envelope import canonical_json_bytes
@@ -321,6 +330,42 @@ def test_a_nearly_right_corner_is_named_intended_right():
     assert len(named) <= 4 * len(faces)
 
 
+def _field_certificate(**overrides):
+    """Сертификат с числами полевого патча; переопределяется по полю."""
+
+    facts = dict(
+        snapping_law=GridSnappingLawV1.INTEGER_GRID_SNAP_V1,
+        window_outcome=GridWindowOutcomeV1.WINDOW_AVAILABLE,
+        patch_extent=ExactRationalV1(11, 1),
+        author_angular_error=ExactRationalV1(7, 10**6),
+        decal_detail=ExactRationalV1(1, 100),
+        window_lower_bound=ExactRationalV1(77, 500000),
+        window_upper_bound=ExactRationalV1(1, 100),
+        window_step=ExactRationalV1(1, 2048),
+        source_scale=2048,
+        magnitude_bound=25,
+        intended_right_corners=3,
+        restored_right_corners=3,
+        search_order=GridScaleSearchOrderV1.FINEST_ADMISSIBLE_FIRST_V1,
+        scale_trials=(
+            GridScaleTrialV1(
+                scale=4096,
+                step=ExactRationalV1(1, 4096),
+                restored_right_corners=1,
+                outcome=GridScaleTrialOutcomeV1.RELATIONS_NOT_RESTORED,
+            ),
+            GridScaleTrialV1(
+                scale=2048,
+                step=ExactRationalV1(1, 2048),
+                restored_right_corners=3,
+                outcome=GridScaleTrialOutcomeV1.RELATIONS_RESTORED,
+            ),
+        ),
+    )
+    facts.update(overrides)
+    return IntegerGridCertificateV1(**facts)
+
+
 def test_the_snap_refuses_when_it_restores_nothing():
     """Отказ строится там же, где привязка, и он именованный.
 
@@ -329,32 +374,81 @@ def test_the_snap_refuses_when_it_restores_nothing():
     """
 
     with pytest.raises(ValueError) as failure:
-        IntegerGridCertificateV1(
-            snapping_law=GridSnappingLawV1.INTEGER_GRID_SNAP_V1,
-            window_outcome=GridWindowOutcomeV1.WINDOW_AVAILABLE,
-            patch_extent=ExactRationalV1(11, 1),
-            author_angular_error=ExactRationalV1(7, 10**6),
-            decal_detail=ExactRationalV1(1, 100),
-            window_lower_bound=ExactRationalV1(77, 500000),
-            window_upper_bound=ExactRationalV1(1, 100),
-            window_step=ExactRationalV1(1, 4096),
-            source_scale=4096,
-            magnitude_bound=25,
-            intended_right_corners=3,
+        _field_certificate(
             restored_right_corners=1,
+            scale_trials=(
+                GridScaleTrialV1(
+                    scale=2048,
+                    step=ExactRationalV1(1, 2048),
+                    restored_right_corners=1,
+                    outcome=GridScaleTrialOutcomeV1.RELATIONS_NOT_RESTORED,
+                ),
+            ),
         )
     assert "не восстановил" in str(failure.value)
 
 
-def test_the_field_mesh_reports_whether_the_declared_error_was_enough():
-    """Замер на реальном меше, а не вера в константу.
+def test_the_certificate_refuses_a_search_that_contradicts_its_own_law():
+    """Записанный перебор — доказательство выбора, а не украшение при нём.
 
-    `building.002`, патч 0: три угла объявленная ошибка числит задуманно
-    прямыми, шаг окна 1/4096, восстановлен один. Отказ именованный.
-    Воспроизведение: этот тест.
+    Закон объявляет четыре свойства (перебор непуст, победил ПЕРВЫЙ прошедший,
+    победитель и есть выбранный шаг, порядок объявленный) — и на каждое здесь
+    приходится проба. Без этого «перебор записан» проверяло бы наличие поля,
+    а не то, что в нём записан ТОТ перебор.
     """
 
-    import json
+    passed = GridScaleTrialV1(
+        scale=2048,
+        step=ExactRationalV1(1, 2048),
+        restored_right_corners=3,
+        outcome=GridScaleTrialOutcomeV1.RELATIONS_RESTORED,
+    )
+    failed = GridScaleTrialV1(
+        scale=4096,
+        step=ExactRationalV1(1, 4096),
+        restored_right_corners=1,
+        outcome=GridScaleTrialOutcomeV1.RELATIONS_NOT_RESTORED,
+    )
+    cases = {
+        "перебора": dict(scale_trials=()),
+        "прошедшей": dict(scale_trials=(passed, failed)),
+        "не совпадает": dict(scale_trials=(failed, replace(passed, scale=1024,
+                                                           step=ExactRationalV1(1, 1024)))),
+        "порядком": dict(
+            search_order=GridScaleSearchOrderV1.COARSEST_ADMISSIBLE_FIRST_V1,
+            scale_trials=(failed, passed),
+        ),
+        "границы окна": dict(
+            scale_trials=(
+                GridScaleTrialV1(
+                    scale=2**20,
+                    step=ExactRationalV1(1, 2**20),
+                    restored_right_corners=1,
+                    outcome=GridScaleTrialOutcomeV1.RELATIONS_NOT_RESTORED,
+                ),
+                passed,
+            )
+        ),
+        "расходится": dict(
+            scale_trials=(replace(failed, restored_right_corners=3), passed)
+        ),
+    }
+    for fragment, overrides in cases.items():
+        with pytest.raises(ValueError) as failure:
+            _field_certificate(**overrides)
+        assert fragment in str(failure.value), (fragment, str(failure.value))
+
+
+def test_an_unsnapped_certificate_cannot_carry_a_search_it_never_ran():
+    with pytest.raises(ValueError) as failure:
+        _field_certificate(
+            snapping_law=GridSnappingLawV1.UNSNAPPED_EXACT_V1,
+            restored_right_corners=1,
+        )
+    assert "не перебирает" in str(failure.value)
+
+
+def _field_snapshot():
     from pathlib import Path
 
     import cftuv_envelope as kernel
@@ -363,33 +457,253 @@ def test_the_field_mesh_reports_whether_the_declared_error_was_enough():
         Path(__file__).resolve().parents[1]
         / "fixtures"
         / "building_002_point_contact_v1"
-        / "analysis_snapshot.json"
     )
-    snapshot = kernel.AnalysisSnapshotCodecV1.loads(fixture.read_bytes())
+    return (
+        kernel.AnalysisSnapshotCodecV1.loads(
+            (fixture / "analysis_snapshot.json").read_bytes()
+        ),
+        kernel.DecalRequestCodecV1.loads((fixture / "decal_request.json").read_bytes()),
+    )
+
+
+def _field_metric(snapshot, law):
+    import cftuv_envelope as kernel
+
     descriptor = next(iter(snapshot.surface_metric_descriptors))
     domain = next(
         item
         for item in snapshot.patch_domains
         if item.patch_domain_id == descriptor.patch_domain_id
     )
-    assert descriptor.grid_certificate.intended_right_corners == 3
-    assert descriptor.grid_certificate.source_scale == 4096
-
-    with pytest.raises(PlanarMetricAdmissionError) as failure:
-        build_rational_affine_planar_metric(
-            source_revision=snapshot.source_revision,
-            patch_domain_id=descriptor.patch_domain_id,
-            owner_patch_id=domain.owner_patch_id,
-            source_vertices=snapshot.source_vertices,
-            source_faces=snapshot.surface_ir.source_faces,
-            planarity_policy=kernel.PlanarityAdmissionLawV1.NEAR_PLANAR_PROJECTION_V1,
-            grid_policy=GridSnappingLawV1.INTEGER_GRID_SNAP_V1,
-        )
-    assert (
-        failure.value.outcome
-        is NamedOutcome.SOURCE_SNAP_DID_NOT_RESTORE_RELATIONS
+    return build_rational_affine_planar_metric(
+        source_revision=snapshot.source_revision,
+        patch_domain_id=descriptor.patch_domain_id,
+        owner_patch_id=domain.owner_patch_id,
+        source_vertices=snapshot.source_vertices,
+        source_faces=snapshot.surface_ir.source_faces,
+        planarity_policy=kernel.PlanarityAdmissionLawV1.NEAR_PLANAR_PROJECTION_V1,
+        grid_policy=law,
+        source_lineage=descriptor.source_lineage,
     )
-    assert "восстановлено=1" in str(failure.value)
+
+
+def test_the_field_mesh_restores_every_intended_right_corner():
+    """Главные ворота среза, на реальном меше, а не на синтетике.
+
+    `building.002`, патч 0: три угла объявленная ошибка числит задуманно
+    прямыми. Прежний закон брал шаг у нижней границы окна — 1/4096 — и
+    восстанавливал ОДИН из трёх, потому что координата вершины `…:3` по Y
+    равна 27.4752197265625 и при этом масштабе ложится ровно в середину
+    ячейки. Закон перебора пробует 4096, получает 1 из 3, идёт дальше и берёт
+    2048, где восстановлены все три.
+
+    Проверяется и то, и другое: и что выбран 2048, и что 4096 действительно
+    пробовали и он действительно отказал. Иначе «перебор работает» нельзя
+    отличить от «повезло с первым кандидатом».
+    """
+
+    snapshot, _ = _field_snapshot()
+    metric = _field_metric(snapshot, GridSnappingLawV1.INTEGER_GRID_SNAP_V1)
+    certificate = metric.grid_certificate
+
+    assert certificate.intended_right_corners == 3
+    assert certificate.restored_right_corners == 3
+    assert certificate.source_scale == 2048
+    assert certificate.search_order is (
+        GridScaleSearchOrderV1.FINEST_ADMISSIBLE_FIRST_V1
+    )
+    assert [
+        (item.scale, item.restored_right_corners, item.outcome)
+        for item in certificate.scale_trials
+    ] == [
+        (4096, 1, GridScaleTrialOutcomeV1.RELATIONS_NOT_RESTORED),
+        (2048, 3, GridScaleTrialOutcomeV1.RELATIONS_RESTORED),
+    ]
+
+
+def test_the_field_search_records_every_scale_it_tried_not_only_the_winner():
+    """Перебор записан целиком, иначе выбор невоспроизводим.
+
+    Отказавшая проба — это причина, по которой выбран следующий масштаб.
+    Записать только победителя значило бы записать следствие без причины: по
+    сертификату было бы не отличить «4096 не пробовали» от «4096 отказал».
+    """
+
+    snapshot, _ = _field_snapshot()
+    certificate = _field_metric(
+        snapshot, GridSnappingLawV1.INTEGER_GRID_SNAP_V1
+    ).grid_certificate
+
+    assert len(certificate.scale_trials) == 2
+    assert certificate.scale_trials[0].scale != certificate.source_scale
+    assert certificate.scale_trials[-1].scale == certificate.source_scale
+    # Каждая проба несёт свой шаг дробью, а не только масштаб: сертификат
+    # читается без пересчёта, и шаг в нём тот же, что в окне.
+    assert [item.step for item in certificate.scale_trials] == [
+        ExactRationalV1(1, 4096),
+        ExactRationalV1(1, 2048),
+    ]
+
+
+def test_no_scale_in_the_window_is_a_named_refusal_not_a_silent_choice():
+    """Пустой перебор кончается именем, а не «ближайшим» масштабом.
+
+    Предикат приёмки подменяется на заведомо непроходимый — так проверяется
+    именно ветка «ни один не прошёл», а не удача полевого меша. Строится тот
+    же вызов, что и в продукте, поэтому проверяется и то, что отказ доходит
+    наружу, а не гасится по дороге.
+    """
+
+    from cftuv_envelope import source_grid
+
+    snapshot, _ = _field_snapshot()
+    original = source_grid.restored_right_corners
+    source_grid.restored_right_corners = lambda positions, corners: 0
+    try:
+        with pytest.raises(PlanarMetricAdmissionError) as failure:
+            _field_metric(snapshot, GridSnappingLawV1.INTEGER_GRID_SNAP_V1)
+    finally:
+        source_grid.restored_right_corners = original
+
+    assert (
+        failure.value.outcome is NamedOutcome.NO_GRID_SCALE_RESTORES_RELATIONS
+    )
+    # Отказ называет ВЕСЬ перебор, а не только последнюю пробу: иначе по
+    # сообщению не отличить «окно пусто» от «одна проба отказала».
+    message = str(failure.value)
+    for scale in (128, 256, 512, 1024, 2048, 4096):
+        assert f"{scale}→0" in message
+
+
+def test_the_declared_order_starts_where_the_old_law_stopped():
+    """Новый закон — расширение прежнего, а не другой закон.
+
+    Прежний брал шаг у нижней границы окна и на этом заканчивал. Объявленный
+    порядок начинает ровно с него, поэтому на всяком патче, где прежний закон
+    работал, выбирается тот же масштаб и ничего не двигается; перебор виден
+    только там, где прежний закон отказывал.
+    """
+
+    from cftuv_envelope.robust.snapping import admissible_scales
+
+    for extent in (Fraction(1), Fraction(4), Fraction(11), Fraction(40)):
+        window = grid_window_for_patch(
+            extent=extent,
+            author_angular_error=AUTHOR_ANGULAR_ERROR,
+            decal_detail=DECAL_DETAIL,
+        )
+        candidates = admissible_scales(window)
+        assert candidates[-1] == window.grid.scale
+
+
+def test_the_search_order_changes_the_scale_and_the_cost_of_that_is_measured():
+    """Оба конца окна проходят проверку 2 — и стоят разного. Замер, не вкус.
+
+    На полевом патче объявленный порядок (от мелкого шага) берёт 2048 со
+    сдвигом вершины 2.29e-04 м, обратный — 128 со сдвигом 3.76e-03 м, в 16.4
+    раза больше при том же результате проверки. Во столько же раз поднимается
+    и минимально допустимая alpha (4 x шаг). Тест держит оба числа, чтобы
+    выбор порядка нельзя было поменять, не заметив цены.
+    """
+
+    from cftuv_envelope.source_grid import (
+        select_grid_scale,
+        snap_positions,
+        source_extent,
+    )
+
+    snapshot, _ = _field_snapshot()
+    descriptor = next(iter(snapshot.surface_metric_descriptors))
+    domain = next(
+        item
+        for item in snapshot.patch_domains
+        if item.patch_domain_id == descriptor.patch_domain_id
+    )
+    faces = tuple(
+        sorted(
+            (
+                item
+                for item in snapshot.surface_ir.source_faces
+                if item.patch_id == domain.owner_patch_id
+            ),
+            key=lambda item: item.face_id.value,
+        )
+    )
+    positions = _positions(snapshot, faces)
+    positions = {
+        vertex_id: value
+        for vertex_id, value in positions.items()
+        if any(vertex_id in face.vertex_cycle for face in faces)
+    }
+    window = grid_window_for_patch(
+        extent=source_extent(positions),
+        author_angular_error=AUTHOR_ANGULAR_ERROR,
+        decal_detail=DECAL_DETAIL,
+    )
+    intended = intended_right_corners(positions, faces)
+    assert len(intended) == 3
+
+    chosen = {}
+    for order in GridScaleSearchOrderV1:
+        grid, trials = select_grid_scale(
+            positions=positions,
+            intended=intended,
+            window=window,
+            search_order=order,
+        )
+        snapped = snap_positions(positions, grid)
+        displacement = max(
+            max(abs(a - b) for a, b in zip(snapped[key], positions[key]))
+            for key in positions
+        )
+        chosen[order] = (grid.scale, displacement, len(trials))
+
+    fine = chosen[GridScaleSearchOrderV1.FINEST_ADMISSIBLE_FIRST_V1]
+    coarse = chosen[GridScaleSearchOrderV1.COARSEST_ADMISSIBLE_FIRST_V1]
+    assert (fine[0], fine[2]) == (2048, 2)
+    assert (coarse[0], coarse[2]) == (128, 1)
+    assert fine[1] == Fraction(15, 65536) and coarse[1] == Fraction(493, 131072)
+    # 16.4x — цена одной сэкономленной пробы, и она платится геометрией.
+    assert coarse[1] / fine[1] > 16
+
+
+def test_the_field_mesh_still_refuses_downstream_of_the_restored_corners():
+    """Почему `HOST_GRID_POLICY` остался `UNSNAPPED_EXACT_V1` — числом, а не прозой.
+
+    Проверка 2 на полевом меше теперь проходит (3 из 3), но полный прогон с
+    привязкой отказывает: `REFERENCE_ARRANGEMENT_ROTATION_SYSTEM_UNPROVEN`,
+    «boundary point does not have balanced incoming/outgoing half-edges», и
+    так на КАЖДОМ масштабе окна (128, 256, 512, 1024, 2048 — 4096 отсеивается
+    раньше, проверкой 2).
+
+    Отказ локализован и он не в выборе масштаба: при привязке одного только
+    ИСТОЧНИКА (решётка карты выключена) тот же прогон даёт `EXACT` и ту же
+    топологию, что и без решётки — 3 петли, 3 региона, 2 точечных контакта.
+    Ломает привязка КОНСТРУКЦИЙ — `offset_support_g` и `segment_intersections`,
+    то есть то самое слияние вычисленных точек, которое карточка R1b сама
+    называет лотереей, а не механизмом. На полевом меше оно сливает 3 точки и
+    оставляет две висячие полурёбра вместо замкнутой границы.
+
+    Тест держит этот факт исполняемым: пока он красный по-другому, включать
+    политику в хосте нельзя, а когда он покраснеет — блокер снят.
+    """
+
+    import cftuv_envelope as kernel
+
+    snapshot, request = _field_snapshot()
+    metric = _field_metric(snapshot, GridSnappingLawV1.INTEGER_GRID_SNAP_V1)
+    assert metric.grid_certificate.restored_right_corners == 3
+
+    snapshot = replace(snapshot, surface_metric_descriptors=frozenset({metric}))
+    compiled = kernel.compile_reference_envelopes(snapshot, request)
+    assert compiled.compilation is not None
+    result = kernel.evaluate_reference_raw_coverage(
+        compiled.compilation, request.requested_alpha
+    )
+    assert (
+        result.outcome
+        is ReferenceOutcome.REFERENCE_ARRANGEMENT_ROTATION_SYSTEM_UNPROVEN
+    )
 
 
 # --------------------------------------------------------------------------

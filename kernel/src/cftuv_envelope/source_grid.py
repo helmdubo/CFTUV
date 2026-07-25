@@ -12,9 +12,17 @@
 Отсюда обязательная проверка: угол, который объявленная авторская ошибка числит
 задуманно прямым, после привязки обязан дать точно рациональную долю π.
 `rational_intervals_over_pi` возвращает `None`, когда доля не рациональна,
-поэтому проверка исполняемая, а не декларативная. Не сработало —
-`SOURCE_SNAP_DID_NOT_RESTORE_RELATIONS`, а не тихое продолжение: константа
-7·10⁻⁶ описывает намерение автора вообще, а проверка отвечает за ЭТОТ меш.
+поэтому проверка исполняемая, а не декларативная. Константа 7·10⁻⁶ описывает
+намерение автора вообще, а проверка отвечает за ЭТОТ меш.
+
+Она же выбирает масштаб. Ничья при привязке (`x·2^m` ровно в середине ячейки)
+случается у каждой вершины ровно на одном масштабе и предсказуема заранее,
+поэтому шаг у нижней границы окна — не выбор, а лотерея: на `building.002`
+ничья попала ровно на него. Закон выбора — `select_grid_scale`: перебрать
+степени двойки внутри окна объявленным порядком и взять ПЕРВУЮ, на которой
+проверка проходит; ни одной такой нет — `NO_GRID_SCALE_RESTORES_RELATIONS`, а
+не «взять ближайший». Весь перебор идёт в сертификат: иначе по картинке в
+Blender не видно, почему геометрия получилась именно эта.
 """
 
 from __future__ import annotations
@@ -27,6 +35,7 @@ import sympy as sp
 
 from .contracts.metric import (
     ExactRationalV1,
+    GridScaleSearchOrderV1,
     GridSnappingLawV1,
     GridWindowOutcomeV1,
     IntegerGridCertificateV1,
@@ -46,6 +55,11 @@ from .robust.snapping import GridWindowOutcome, grid_window_for_patch
 # в которой окно закрывается.
 DECAL_DETAIL = Fraction(1, 100)
 AUTHOR_ANGULAR_ERROR = Fraction(7, 10**6)
+
+# Объявленный порядок перебора масштабов внутри окна. Не параметр входа и не
+# настройка: одно значение на всё ядро, записываемое в каждый сертификат.
+# Обоснование замером — в `select_grid_scale` и в `DECISIONS.md`.
+GRID_SCALE_SEARCH_ORDER = GridScaleSearchOrderV1.FINEST_ADMISSIBLE_FIRST_V1
 
 _WINDOW_OUTCOMES = {
     GridWindowOutcome.WINDOW_AVAILABLE: GridWindowOutcomeV1.WINDOW_AVAILABLE,
@@ -226,8 +240,79 @@ def chart_grid_for(gram, step: Fraction) -> GridSpecV1:
     return GridSpecV1(scale=scale)
 
 
-def resolve_source_grid(*, positions, faces, snapping_law: GridSnappingLawV1):
-    """Окно шага, привязка источника и сертификат — или именованный отказ.
+def select_grid_scale(*, positions, intended, window, search_order):
+    """Первый масштаб окна, на котором проверка 2 проходит, и весь перебор.
+
+    ЭТО НЕ ПОДГОНКА, и различие принципиально. Подгонка — это свободный
+    параметр, который крутят, пока результат не понравится. Здесь свободного
+    параметра нет: множество кандидатов задано окном (`admissible_scales`),
+    порядок обхода объявлен (`search_order`), предикат приёмки объявлен
+    (все задуманно прямые углы дают точно рациональную долю π), и берётся
+    ПЕРВЫЙ прошедший. Другой исполнитель с тем же входом обязан получить тот
+    же масштаб, а не «похожий»; весь перебор при этом записан в сертификат,
+    поэтому проверить это можно по записи, а не повторным запуском.
+
+    Перебор нужен потому, что ничья при привязке — правило, а не случайность.
+    Координата binary64 есть `p/2^k`, масштаб есть `2^m`, поэтому произведение
+    равно ровно `.5` тогда и только тогда, когда `k − m = 1` при нечётном `p`.
+    Каждая вершина даёт ничью ровно на ОДНОМ масштабе, и правило «половина
+    вверх» уводит её в соседний узел. Выбрать масштаб «на глаз» нельзя:
+    владелец не видит, где ничьи, а на `building.002` ничья попала ровно на
+    тот масштаб, который прежний закон брал без перебора.
+
+    Порядок объявлен `FINEST_ADMISSIBLE_FIRST_V1` — от самого мелкого
+    допустимого шага к крупному. Обоснование замером (`DECISIONS.md` за
+    2026-07-25, воспроизведение — `tools/benchmark_grid_scale.py --fixture`):
+    нижняя граница окна и есть условие «авторская ошибка меньше половины
+    ячейки», ради которого привязка вообще работает, поэтому любой кандидат
+    окна уже достаточно крупен, и брать крупнее не покупается ничем
+    объявленным, а стоит сдвигом вершин. На `building.002` крупный конец даёт
+    шаг 7.81e-03 при сдвиге 3.76e-03 м, мелкий — 4.88e-04 при сдвиге 2.29e-04
+    м: в 16 раз больше при том же результате проверки 2. Во столько же раз
+    поднимается и минимальная допустимая alpha (3.13e-02 против 1.95e-03 м),
+    то есть крупный конец сужает множество принимаемых запросов декали.
+    """
+
+    from .contracts.metric import (
+        GridScaleTrialOutcomeV1,
+        GridScaleTrialV1,
+    )
+    from .contracts.metric import GridScaleSearchOrderV1 as _Order
+    from .robust.snapping import admissible_scales
+
+    candidates = admissible_scales(window)
+    if search_order is _Order.FINEST_ADMISSIBLE_FIRST_V1:
+        candidates = tuple(reversed(candidates))
+    trials = []
+    for scale in candidates:
+        grid = GridSpecV1(scale=scale)
+        restored = restored_right_corners(snap_positions(positions, grid), intended)
+        passed = restored == len(intended)
+        trials.append(
+            GridScaleTrialV1(
+                scale=scale,
+                step=_rational(Fraction(1, scale)),
+                restored_right_corners=restored,
+                outcome=(
+                    GridScaleTrialOutcomeV1.RELATIONS_RESTORED
+                    if passed
+                    else GridScaleTrialOutcomeV1.RELATIONS_NOT_RESTORED
+                ),
+            )
+        )
+        if passed:
+            return grid, tuple(trials)
+    raise _no_scale_refusal(len(intended), tuple(trials))
+
+
+def resolve_source_grid(
+    *,
+    positions,
+    faces,
+    snapping_law: GridSnappingLawV1,
+    search_order: GridScaleSearchOrderV1 = GRID_SCALE_SEARCH_ORDER,
+):
+    """Окно шага, выбор масштаба законом, привязка и сертификат — или отказ.
 
     Возвращаемые позиции при `UNSNAPPED_EXACT_V1` — те же самые объекты: закон
     описывает, что с координатами сделали, и «ничего» тоже записывается.
@@ -267,20 +352,30 @@ def resolve_source_grid(*, positions, faces, snapping_law: GridSnappingLawV1):
             certificate=IntegerGridCertificateV1(
                 snapping_law=snapping_law,
                 restored_right_corners=restored_right_corners(positions, intended),
+                search_order=search_order,
+                scale_trials=(),
                 **facts,
             ),
         )
     if window.grid is None:
         raise _refusal(outcome.value, extent, window)
-    snapped = snap_positions(positions, window.grid)
-    restored = restored_right_corners(snapped, intended)
-    if restored != len(intended):
-        raise _restoration_refusal(len(intended), restored, step)
+    grid, trials = select_grid_scale(
+        positions=positions,
+        intended=intended,
+        window=window,
+        search_order=search_order,
+    )
+    snapped = snap_positions(positions, grid)
+    facts["window_step"] = _rational(Fraction(1, grid.scale))
+    facts["source_scale"] = grid.scale
+    facts["magnitude_bound"] = grid.magnitude_bound
     return SourceGridFactsV1(
         positions=snapped,
         certificate=IntegerGridCertificateV1(
             snapping_law=snapping_law,
-            restored_right_corners=restored,
+            restored_right_corners=trials[-1].restored_right_corners,
+            search_order=search_order,
+            scale_trials=trials,
             **facts,
         ),
     )
@@ -299,13 +394,16 @@ def _refusal(outcome_value: str, extent: Fraction, window):
     )
 
 
-def _restoration_refusal(intended: int, restored: int, step):
+def _no_scale_refusal(intended: int, trials):
     from .outcomes import NamedOutcome
     from .planar_metric import PlanarMetricAdmissionError
 
+    tried = ", ".join(
+        f"{trial.scale}→{trial.restored_right_corners}" for trial in trials
+    )
     return PlanarMetricAdmissionError(
-        NamedOutcome.SOURCE_SNAP_DID_NOT_RESTORE_RELATIONS,
-        "привязка источника не восстановила задуманные отношения: "
-        f"задумано прямых={intended}, восстановлено={restored}, "
-        f"шаг={float(step):.6g}",
+        NamedOutcome.NO_GRID_SCALE_RESTORES_RELATIONS,
+        "ни один масштаб окна не восстановил задуманные отношения: "
+        f"задумано прямых={intended}, "
+        f"пробы (масштаб→восстановлено): {tried}",
     )

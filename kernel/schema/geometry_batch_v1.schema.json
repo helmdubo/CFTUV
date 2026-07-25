@@ -210,7 +210,7 @@
             "NEAR_PLANAR_RESIDUAL_BUDGET_EXCEEDED",
             "GRID_WINDOW_CLOSED",
             "NO_POWER_OF_TWO_STEP_IN_WINDOW",
-            "SOURCE_SNAP_DID_NOT_RESTORE_RELATIONS"
+            "NO_GRID_SCALE_RESTORES_RELATIONS"
           ],
           "type": "string"
         },

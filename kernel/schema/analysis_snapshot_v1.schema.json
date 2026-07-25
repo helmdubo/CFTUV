@@ -833,6 +833,38 @@
       ],
       "type": "object"
     },
+    "GridScaleTrialV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "GridScaleTrialV1"
+        },
+        "outcome": {
+          "enum": [
+            "RELATIONS_RESTORED",
+            "RELATIONS_NOT_RESTORED"
+          ],
+          "type": "string"
+        },
+        "restored_right_corners": {
+          "type": "integer"
+        },
+        "scale": {
+          "type": "integer"
+        },
+        "step": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "scale",
+        "step",
+        "restored_right_corners",
+        "outcome"
+      ],
+      "type": "object"
+    },
     "IntegerGridCertificateV1": {
       "additionalProperties": false,
       "properties": {
@@ -863,6 +895,19 @@
         },
         "restored_right_corners": {
           "type": "integer"
+        },
+        "scale_trials": {
+          "items": {
+            "$ref": "#/$defs/GridScaleTrialV1"
+          },
+          "type": "array"
+        },
+        "search_order": {
+          "enum": [
+            "FINEST_ADMISSIBLE_FIRST_V1",
+            "COARSEST_ADMISSIBLE_FIRST_V1"
+          ],
+          "type": "string"
         },
         "snapping_law": {
           "enum": [
@@ -919,7 +964,9 @@
         "source_scale",
         "magnitude_bound",
         "intended_right_corners",
-        "restored_right_corners"
+        "restored_right_corners",
+        "search_order",
+        "scale_trials"
       ],
       "type": "object"
     },
