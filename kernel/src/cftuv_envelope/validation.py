@@ -52,6 +52,7 @@ from .contracts.metric import (
     ExactPoint3V1,
     ExactRationalV1,
     ExactVector3V1,
+    GridSnappingLawV1,
     MetricSemanticIdentityLawV1,
     PlanarityAdmissionLawV1,
     RuntimeMetricFallbackLawV1,
@@ -220,6 +221,41 @@ def _fraction_point3(
     value: ExactPoint3V1 | ExactVector3V1,
 ) -> tuple[Fraction, Fraction, Fraction]:
     return _fraction(value.x), _fraction(value.y), _fraction(value.z)
+
+
+def _position_under_grid_law(
+    position: LocalPoint3V1, certificate
+) -> tuple[Fraction, Fraction, Fraction]:
+    """Позиция источника такой, какой её делает ОБЪЯВЛЕННЫЙ закон решётки.
+
+    Проверка «карта восстанавливает вершину точно» обязана сверяться с тем
+    входом, который метрика реально получила. До решётки это была сама
+    координата binary64; при `INTEGER_GRID_SNAP_V1` — её узел. Сверяться с
+    непривязанной координатой значило бы требовать от привязанной метрики
+    невозможного, а снять проверку — потерять единственное место, где карта
+    сверяется с источником.
+
+    Узел перевычисляется здесь заново, из объявленного в сертификате масштаба,
+    а не берётся у построителя: так проверяется и то, что метрика привязана к
+    ТОМУ масштабу, который она объявляет.
+    """
+
+    from .robust.grid import GridSpecV1, snap_value
+
+    exact = tuple(
+        Fraction(*float(value).as_integer_ratio())
+        for value in (position.x, position.y, position.z)
+    )
+    if (
+        certificate.snapping_law is not GridSnappingLawV1.INTEGER_GRID_SNAP_V1
+        or certificate.source_scale is None
+    ):
+        return exact
+    grid = GridSpecV1(scale=certificate.source_scale)
+    return tuple(
+        Fraction(snap_value(item, grid), certificate.source_scale)
+        for item in exact
+    )
 
 
 def _fraction_matrix2(
@@ -612,13 +648,8 @@ def validate_analysis_snapshot(snapshot: AnalysisSnapshotV1) -> tuple[Validation
                 )
                 if source is None or not isinstance(source.position, LocalPoint3V1):
                     continue
-                position = tuple(
-                    Fraction(*float(value).as_integer_ratio())
-                    for value in (
-                        source.position.x,
-                        source.position.y,
-                        source.position.z,
-                    )
+                position = _position_under_grid_law(
+                    source.position, descriptor.grid_certificate
                 )
                 coordinate = coordinate_by_id[vertex_id]
                 u = _fraction(coordinate.x)
@@ -630,7 +661,7 @@ def validate_analysis_snapshot(snapshot: AnalysisSnapshotV1) -> tuple[Validation
                     for index in range(3)
                 )
                 if reconstructed != position:
-                    _issue(issues, ValidationCode.SURFACE_METRIC, path + ("exact_source_vertex_coordinates", str(vertex_id)), "exact affine reconstruction disagrees with source binary64 position")
+                    _issue(issues, ValidationCode.SURFACE_METRIC, path + ("exact_source_vertex_coordinates", str(vertex_id)), "exact affine reconstruction disagrees with the source position the declared grid law produces")
         elif isinstance(descriptor, IntrinsicSurfaceMetricDescriptorV1):
             if descriptor.surface_regime != domain.surface_regime or descriptor.surface_regime is SurfaceRegime.PLANAR:
                 _issue(issues, ValidationCode.SURFACE_METRIC, path, "intrinsic metric regime must match a non-planar PatchDomain")
