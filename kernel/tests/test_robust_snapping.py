@@ -415,3 +415,61 @@ def test_degenerate_inputs_are_errors_not_silent_defaults():
         grid_window_for_patch(
             extent=4, author_angular_error=FIELD_ANGLE, decal_detail=Fraction(0)
         )
+
+
+def test_the_returned_grid_lies_inside_the_window_it_reports():
+    """Окно считалось верно и не использовалось — вот проверка на это.
+
+    Первая редакция округляла масштаб вверх, то есть шаг вниз, и при окне
+    5.6e-05 … 1.0e-03 возвращала 3.05e-05. Все тесты проходили, потому что ни
+    один не сверял возвращённую решётку с собственными границами функции.
+    """
+
+    from fractions import Fraction
+
+    from cftuv_envelope.robust.snapping import (
+        GridWindowOutcome,
+        grid_window_for_patch,
+    )
+
+    for extent in (1, 4, 10, 40):
+        window = grid_window_for_patch(
+            extent=extent,
+            author_angular_error=Fraction(7, 10**6),
+            decal_detail=Fraction(1, 1000),
+        )
+        if window.outcome is not GridWindowOutcome.WINDOW_AVAILABLE:
+            continue
+        step = Fraction(1, window.grid.scale)
+        assert window.lower_bound <= step <= window.upper_bound, (
+            f"габарит {extent}: шаг {float(step):.3e} вне окна "
+            f"{float(window.lower_bound):.3e}…{float(window.upper_bound):.3e}"
+        )
+        # И то условие, ради которого нижняя граница вообще существует.
+        author_error = Fraction(7, 10**6) * extent
+        assert author_error < step / 2, (
+            f"габарит {extent}: ошибка {float(author_error):.3e} не меньше "
+            f"половины ячейки {float(step / 2):.3e} — вход не чинится"
+        )
+
+
+def test_a_window_with_no_power_of_two_inside_is_named_not_forced():
+    """Границы разошлись, но степени двойки между ними нет — отдельный исход."""
+
+    from fractions import Fraction
+
+    from cftuv_envelope.robust.snapping import (
+        GridWindowOutcome,
+        grid_window_for_patch,
+    )
+
+    # lower = 2 * 3e-4 * 1 = 6e-4; upper = 9e-4. Между ними степеней двойки нет:
+    # 1/2048 = 4.88e-4 ниже, 1/1024 = 9.77e-4 выше.
+    window = grid_window_for_patch(
+        extent=1,
+        author_angular_error=Fraction(3, 10**4),
+        decal_detail=Fraction(9, 10**4),
+    )
+    assert window.lower_bound < window.upper_bound, "вещественное окно открыто"
+    assert window.outcome is GridWindowOutcome.NO_POWER_OF_TWO_STEP_IN_WINDOW
+    assert window.grid is None

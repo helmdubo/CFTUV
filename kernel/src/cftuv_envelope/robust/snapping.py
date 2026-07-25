@@ -135,6 +135,10 @@ class GridWindowOutcome(str, Enum):
 
     WINDOW_AVAILABLE = "WINDOW_AVAILABLE"
     GRID_WINDOW_CLOSED = "GRID_WINDOW_CLOSED"
+    # Границы разошлись, но ни одна СТЕПЕНЬ ДВОЙКИ между ними не помещается.
+    # Отдельный исход, а не «закрыто»: причина другая и лечится она иначе —
+    # ослаблением требования к степени двойки, а не к геометрии.
+    NO_POWER_OF_TWO_STEP_IN_WINDOW = "NO_POWER_OF_TWO_STEP_IN_WINDOW"
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,11 +186,26 @@ def grid_window_for_patch(
         return GridWindowV1(
             GridWindowOutcome.GRID_WINDOW_CLOSED, lower, upper, None
         )
-    # Шаг берётся у нижней границы: он чинит вход и максимально щадит деталь.
-    step = lower if lower > 0 else upper
+    # Шаг берётся у НИЖНЕЙ границы, но обязательно НЕ НИЖЕ её.
+    #
+    # Первая редакция округляла масштаб вверх, то есть шаг ВНИЗ, и возвращала
+    # 3.05e-05 при окне 5.6e-05 … 1.0e-03. Условие, ради которого окно и
+    # считается, при этом не выполнялось: авторская ошибка 2.8e-05 не меньше
+    # половины ячейки 1.53e-05. Окно считалось верно и не использовалось.
+    #
+    # Шаги — степени двойки, поэтому идём вниз по масштабу, пока шаг не станет
+    # не меньше нижней границы, и только потом проверяем верхнюю.
     scale = 1
-    while Fraction(1, scale) > step:
+    while Fraction(1, scale) >= lower:
         scale *= 2
+    scale //= 2  # последний масштаб, при котором шаг ещё не меньше нижней границы
+    step = Fraction(1, scale)
+    if step > upper:
+        # Вещественное окно открыто, но между границами нет ни одной степени
+        # двойки. Причина не в геометрии, поэтому и исход отдельный.
+        return GridWindowV1(
+            GridWindowOutcome.NO_POWER_OF_TWO_STEP_IN_WINDOW, lower, upper, None
+        )
     return GridWindowV1(
         GridWindowOutcome.WINDOW_AVAILABLE, lower, upper, GridSpecV1(scale=scale)
     )
