@@ -26,6 +26,7 @@ from .contracts.metric import (
     ExactSourcePlaneCertificateV1,
     ExactSourceVertexCoordinateV2,
     ExactVector3V1,
+    GridSnappingLawV1,
     MetricSemanticIdentityLawV1,
     NearPlanarProjectionCertificateV1,
     NearPlanarResidualBudgetLawV1,
@@ -51,6 +52,7 @@ from .ids import (
 )
 from .numeric import LocalPoint3V1
 from .outcomes import NamedOutcome
+from .source_grid import resolve_source_grid
 
 
 class PlanarMetricAdmissionError(ValueError):
@@ -255,6 +257,7 @@ def build_rational_affine_planar_metric(
     planarity_policy: PlanarityAdmissionLawV1 = (
         PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1
     ),
+    grid_policy: GridSnappingLawV1 = GridSnappingLawV1.UNSNAPPED_EXACT_V1,
 ) -> RationalAffinePlanarMetricV2:
     """Build the canonical exact chart from stable source identities.
 
@@ -294,6 +297,13 @@ def build_rational_affine_planar_metric(
         vertex_id: _point3(vertex_by_id[vertex_id].position)
         for vertex_id in required_ids
     }
+    # Привязка ИСТОЧНИКА идёт здесь и только здесь: базис, матрица Грама и все
+    # углы обязаны считаться уже от привязанных координат, иначе восстановленное
+    # отношение живёт в позициях, а метрика по-прежнему несёт шум.
+    grid_facts = resolve_source_grid(
+        positions=positions, faces=faces, snapping_law=grid_policy
+    )
+    positions = grid_facts.positions
     origin_id = required_ids[0]
     origin = positions[origin_id]
     candidates = tuple(
@@ -405,6 +415,43 @@ def build_rational_affine_planar_metric(
         required_ids=required_ids,
         near_planar_facts=near_planar_facts,
     )
+    return _metric_record(
+        metric_id=metric_id,
+        patch_domain_id=patch_domain_id,
+        source_revision=source_revision,
+        origin=origin,
+        first=first,
+        second=second,
+        gram=((g00, g01), (g01, g11)),
+        inverse=inverse,
+        required_ids=required_ids,
+        coordinates=coordinates,
+        chart_orientation=chart_orientation,
+        certificate=certificate,
+        source_lineage=source_lineage,
+        grid_certificate=grid_facts.certificate,
+    )
+
+
+def _metric_record(
+    *,
+    metric_id,
+    patch_domain_id,
+    source_revision,
+    origin,
+    first,
+    second,
+    gram,
+    inverse,
+    required_ids,
+    coordinates,
+    chart_orientation,
+    certificate,
+    source_lineage,
+    grid_certificate,
+) -> RationalAffinePlanarMetricV2:
+    """Собрать запись метрики. Вынесено ради бюджета длины строителя."""
+
     return RationalAffinePlanarMetricV2(
         reference_metric_id=metric_id,
         patch_domain_id=patch_domain_id,
@@ -412,9 +459,7 @@ def build_rational_affine_planar_metric(
         exact_origin=_point3_record(origin),
         exact_basis_a=_vector3_record(first),
         exact_basis_b=_vector3_record(second),
-        exact_gram_matrix=_matrix2_record(
-            ((g00, g01), (g01, g11))
-        ),
+        exact_gram_matrix=_matrix2_record(gram),
         exact_inverse_gram_matrix=_matrix2_record(inverse),
         exact_source_vertex_coordinates=frozenset(
             ExactSourceVertexCoordinateV2(
@@ -432,6 +477,7 @@ def build_rational_affine_planar_metric(
         ),
         planarity_certificate=certificate,
         source_lineage=source_lineage,
+        grid_certificate=grid_certificate,
     )
 
 

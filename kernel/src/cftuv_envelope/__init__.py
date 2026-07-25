@@ -529,6 +529,9 @@ __all__ = (
     "REFERENCE_PLANAR_METRIC_SCHEMA_V2",
     "RUNTIME_PLANAR_METRIC_SCHEMA_V1",
     "PlanarityAdmissionLawV1",
+    "GridSnappingLawV1",
+    "GridWindowOutcomeV1",
+    "IntegerGridCertificateV1",
     "AffineFrameSelectionLawV1",
     "AffineReconstructionLawV1",
     "AffineChartOrientationV1",
@@ -700,6 +703,7 @@ for _module_name in (
     "interactions",
     "debug_scene",
     "planar_metric",
+    "source_grid",
     "runtime_metric",
     "robust",
 ):

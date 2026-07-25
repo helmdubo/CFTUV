@@ -28,8 +28,13 @@ from cftuv_envelope import (
 )
 
 
-PUBLIC_API_C_R2C_SHA256 = (
-    "31cc1ec8fcd2768c5c69bb3ae15c0e754f58668f9eb775267e174241fb2480cb"
+# Имя среза в константе меняется вместе с самим API: под старым именем
+# новое число — враньё в заголовке. Прежнее закрепление среза C-R2C:
+# 31cc1ec8fcd2768c5c69bb3ae15c0e754f58668f9eb775267e174241fb2480cb.
+# Разница — три имени закона решётки, без которых хост не может назвать
+# политику: GridSnappingLawV1, GridWindowOutcomeV1, IntegerGridCertificateV1.
+PUBLIC_API_GRID_R1B_SHA256 = (
+    "9748dfddf08b289d4786f918b40940669ba5f1d5bf1fd1333dd5864df12ed566"
 )
 
 
@@ -81,7 +86,7 @@ def test_top_level_public_api_is_explicit_and_snapshotted():
     assert public_names == set(cftuv_envelope.__all__)
     assert len(cftuv_envelope.__all__) == len(set(cftuv_envelope.__all__))
     digest = hashlib.sha256("\n".join(cftuv_envelope.__all__).encode("utf-8")).hexdigest()
-    assert digest == PUBLIC_API_C_R2C_SHA256
+    assert digest == PUBLIC_API_GRID_R1B_SHA256
 
 
 def test_public_dto_annotations_have_no_mutable_or_untyped_containers():

@@ -32,6 +32,89 @@ class PlanarityAdmissionLawV1(str, Enum):
     NEAR_PLANAR_PROJECTION_V1 = "NEAR_PLANAR_PROJECTION_V1"
 
 
+class GridSnappingLawV1(str, Enum):
+    """Как координаты источника попали в эту метрику.
+
+    Форма взята с `PlanarityAdmissionLawV1`: закон существует в контракте
+    отдельно от того, какое значение объявляет хост, поэтому переключение
+    политики видно в сертификате, а не только в поведении.
+    """
+
+    # Нынешнее поведение: координаты binary64 читаются как точные дроби и
+    # больше ничем не трогаются.
+    UNSNAPPED_EXACT_V1 = "UNSNAPPED_EXACT_V1"
+    # Вершины источника привязаны к целочисленной решётке ДО построения
+    # базиса, поэтому базис, матрица Грама и все углы считаются уже от
+    # привязанных координат.
+    INTEGER_GRID_SNAP_V1 = "INTEGER_GRID_SNAP_V1"
+
+
+class GridWindowOutcomeV1(str, Enum):
+    """Существует ли шаг решётки, который чинит вход и не съедает деталь.
+
+    Границ у окна две, поэтому и исходов закрытия два: «границы разошлись» и
+    «между границами нет степени двойки» лечатся разным, и сливать их в один
+    отказ значило бы потерять причину.
+    """
+
+    WINDOW_AVAILABLE = "WINDOW_AVAILABLE"
+    GRID_WINDOW_CLOSED = "GRID_WINDOW_CLOSED"
+    NO_POWER_OF_TWO_STEP_IN_WINDOW = "NO_POWER_OF_TWO_STEP_IN_WINDOW"
+
+
+@dataclass(frozen=True, slots=True)
+class IntegerGridCertificateV1:
+    """Решётка домена: обе границы окна, выбранный шаг и доказательство.
+
+    Записывается ВСЕГДА, в том числе когда привязки не было: тот же вход с
+    другим шагом даёт другой результат, и дайджест обязан их различать.
+
+    `intended_right_corners` — сколько углов патча объявленная авторская
+    ошибка числит задуманно прямыми, не будучи таковыми точно.
+    `restored_right_corners` — сколько из них дают точно рациональную долю π
+    в тех координатах, которые метрика реально несёт. Две названные величины —
+    два поля: расхождение между числом названного и числом измеренного само по
+    себе дефект.
+    """
+
+    snapping_law: GridSnappingLawV1
+    window_outcome: GridWindowOutcomeV1
+    patch_extent: ExactRationalV1
+    author_angular_error: ExactRationalV1
+    decal_detail: ExactRationalV1
+    window_lower_bound: ExactRationalV1
+    window_upper_bound: ExactRationalV1
+    window_step: ExactRationalV1 | None
+    source_scale: int | None
+    magnitude_bound: int | None
+    intended_right_corners: int
+    restored_right_corners: int
+
+    def __post_init__(self) -> None:
+        if self.intended_right_corners < 0 or self.restored_right_corners < 0:
+            raise ValueError("угловые счётчики решётки неотрицательны")
+        if self.restored_right_corners > self.intended_right_corners:
+            raise ValueError(
+                "восстановлено не может быть больше, чем задумано прямыми"
+            )
+        if self.snapping_law is GridSnappingLawV1.UNSNAPPED_EXACT_V1:
+            return
+        if self.window_outcome is not GridWindowOutcomeV1.WINDOW_AVAILABLE:
+            raise ValueError(
+                "INTEGER_GRID_SNAP_V1 требует открытого окна шага"
+            )
+        if self.window_step is None or self.source_scale is None:
+            raise ValueError("привязка без объявленного шага невозможна")
+        # Сертификат, объявляющий восстановление, обязан ему удовлетворять.
+        # Иначе «привязка сработала» существует как заявление, которого никто
+        # не проверил, — а проверять его больше негде: дальше по конвейеру
+        # исходные координаты уже недоступны.
+        if self.restored_right_corners != self.intended_right_corners:
+            raise ValueError(
+                "INTEGER_GRID_SNAP_V1 не восстановил все задуманно прямые углы"
+            )
+
+
 class NearPlanarResidualBudgetLawV1(str, Enum):
     # max(relative_extent_factor * max(planar_extent, minimum_extent),
     #     coordinate_ulp_multiplier * max_coordinate_ulp)
@@ -220,6 +303,7 @@ class RationalAffinePlanarMetricV2:
         ExactSourcePlaneCertificateV1 | NearPlanarProjectionCertificateV1
     )
     source_lineage: frozenset[LineageId]
+    grid_certificate: IntegerGridCertificateV1
 
 
 @dataclass(frozen=True, slots=True)
