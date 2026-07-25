@@ -551,6 +551,9 @@ _SCALING_COUNTER_COLUMNS = (
     ("scans", "ARRANGEMENT_POINT_LOCATION_SCANS"),
     ("chars", "ARRANGEMENT_MAX_COORDINATE_CHARS"),
     ("cands", "INTERACTION_CANDIDATES"),
+    # Последним и намеренно: именно этот столбец объяснил полевое время, когда
+    # все предыдущие его не объяснили.
+    ("algebra", "ALGEBRAIC_CANONICALIZATIONS"),
 )
 
 

@@ -260,7 +260,11 @@ MODULE_LINE_ALLOWANCE = {
     # ещё на 37 строк меньше, чем был до этой ветки, и по-прежнему числится
     # открытым блокером HOST_REQUEST_EXPORT_COMPLEXITY: его настоящее лечение —
     # генерация маппера из JSON-схемы, а не бритьё строк.
-    "cftuv/envelope_request_export.py": 3070,
+    # 3070 -> 3086. +16 за ALGEBRAIC_CANONICALIZATIONS — единственную величину,
+    # которая объяснила полевое время после того, как его не объяснили ни
+    # пересечения, ни число вкладов, ни длина чисел, ни сканы локализации точки.
+    # Профиль bf6: 95 с из 158 в `_canonical_expr`.
+    "cftuv/envelope_request_export.py": 3086,
     "cftuv/operators.py": 2913,
     "cftuv/decals.py": 2823,
     "cftuv/decal_rails.py": 2486,

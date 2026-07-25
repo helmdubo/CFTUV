@@ -2898,6 +2898,15 @@ def evaluate_envelope_debug_staged(
             )
             continue
 
+        # Величина, которая на самом деле объясняет полевое время. Профиль bf6:
+        # `_canonical_expr` — 95 с из 158, и это не предикаты (интервальный
+        # фильтр знака отдаёт в символьный путь 33 запроса из 13347), а
+        # конструирование: каждое алгебраическое значение канонизируется через
+        # factor(cancel(...)) по ~6 мс против 0.25 мкс у рационального.
+        fallbacks = importlib.import_module(
+            "cftuv_envelope.reference.planar_types"
+        ).SYMBOLIC_FALLBACK_COUNTS
+        algebraic_before = fallbacks["canonical"] + fallbacks["normalize"]
         with _measure(profile, "COMPILE", domain_id):
             compile_result = kernel.compile_reference_envelopes(
                 snapshot,
@@ -2975,6 +2984,13 @@ def evaluate_envelope_debug_staged(
                     ("INTERACTION_CANDIDATES", interaction_result.candidates),
                 ):
                     profile.set_counter(name, len(value), domain_id)
+                profile.set_counter(
+                    "ALGEBRAIC_CANONICALIZATIONS",
+                    fallbacks["canonical"]
+                    + fallbacks["normalize"]
+                    - algebraic_before,
+                    domain_id,
+                )
                 if interaction_result.resolved_coverage is None:
                     diagnostics.extend(
                         _host_diagnostic_from_stage(
