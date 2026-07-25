@@ -187,6 +187,96 @@
       ],
       "type": "object"
     },
+    "IntegerGridCertificateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "IntegerGridCertificateV1"
+        },
+        "author_angular_error": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "decal_detail": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "intended_right_corners": {
+          "type": "integer"
+        },
+        "magnitude_bound": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "patch_extent": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "restored_right_corners": {
+          "type": "integer"
+        },
+        "snapping_law": {
+          "enum": [
+            "UNSNAPPED_EXACT_V1",
+            "INTEGER_GRID_SNAP_V1"
+          ],
+          "type": "string"
+        },
+        "source_scale": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "window_lower_bound": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "window_outcome": {
+          "enum": [
+            "WINDOW_AVAILABLE",
+            "GRID_WINDOW_CLOSED",
+            "NO_POWER_OF_TWO_STEP_IN_WINDOW"
+          ],
+          "type": "string"
+        },
+        "window_step": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ExactRationalV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "window_upper_bound": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "snapping_law",
+        "window_outcome",
+        "patch_extent",
+        "author_angular_error",
+        "decal_detail",
+        "window_lower_bound",
+        "window_upper_bound",
+        "window_step",
+        "source_scale",
+        "magnitude_bound",
+        "intended_right_corners",
+        "restored_right_corners"
+      ],
+      "type": "object"
+    },
     "LineageId": {
       "additionalProperties": false,
       "properties": {
@@ -373,6 +463,9 @@
           ],
           "type": "string"
         },
+        "grid_certificate": {
+          "$ref": "#/$defs/IntegerGridCertificateV1"
+        },
         "patch_domain_id": {
           "$ref": "#/$defs/PatchDomainId"
         },
@@ -414,7 +507,8 @@
         "chart_orientation",
         "frame_selection_law",
         "planarity_certificate",
-        "source_lineage"
+        "source_lineage",
+        "grid_certificate"
       ],
       "type": "object"
     },

@@ -120,6 +120,36 @@ def test_fixture_contracts_hashes_and_ids_are_stable():
     )
 
 
+def test_the_metric_descriptor_is_a_rebuild_of_the_fixtures_own_source():
+    """Дескриптор метрики — не отдельные данные, а функция от вершин и граней.
+
+    Проверяется побитово, и это же делает фикстуру перегенерируемой без
+    Blender: когда контракт метрики меняется, дескриптор пересобирается ровно
+    этим вызовом, а не правится руками.
+    """
+
+    _, _, snapshot, _ = _load_contracts()
+    descriptor = next(iter(snapshot.surface_metric_descriptors))
+    domain = next(
+        item
+        for item in snapshot.patch_domains
+        if item.patch_domain_id == descriptor.patch_domain_id
+    )
+    rebuilt = kernel.build_rational_affine_planar_metric(
+        source_revision=snapshot.source_revision,
+        patch_domain_id=descriptor.patch_domain_id,
+        owner_patch_id=domain.owner_patch_id,
+        source_vertices=snapshot.source_vertices,
+        source_faces=snapshot.surface_ir.source_faces,
+        planarity_policy=kernel.PlanarityAdmissionLawV1.NEAR_PLANAR_PROJECTION_V1,
+        grid_policy=kernel.GridSnappingLawV1.UNSNAPPED_EXACT_V1,
+        source_lineage=descriptor.source_lineage,
+    )
+    assert kernel.canonical_json_bytes(rebuilt) == kernel.canonical_json_bytes(
+        descriptor
+    )
+
+
 def test_selected_kernel_reaches_accepted_raw_coverage_v2():
     manifest = json.loads((FIXTURE / "manifest.json").read_text(encoding="utf-8"))
     _, _, snapshot, request = _load_contracts()

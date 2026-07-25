@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import replace
 from decimal import Decimal
+from fractions import Fraction
 from typing import Callable
 
 import sympy as sp
@@ -279,6 +280,37 @@ def _clip_instance_to_domain(
     return replace(instance, regions=regions, exposed_segments=exposed), None
 
 
+# Полоса огибающей обязана быть хотя бы в СТОЛЬКО ячеек решётки.
+#
+# Три ячейки — это уже фигура, различимая на решётке лишь в одном положении;
+# четыре — первое число, при котором полоса имеет внутренность при любом
+# сдвиге относительно сетки. Проверка нужна потому, что `decal_detail`
+# описывает НАМЕРЕНИЕ (самая тонкая деталь, которую рисует декаль), а alpha —
+# то, что запрошено на самом деле, и расходиться они могут: полоса в 2 мм на
+# стометровом патче при шаге 1.95 мм — одна ячейка, то есть уничтожена, а
+# объявленный сантиметр при этом скажет `WINDOW_AVAILABLE`.
+BAND_MINIMUM_CELLS = 4
+
+_NEGATIVE_ALPHA = "reference alpha must be non-negative"
+
+
+def _require_band_against_grid(metric, alpha_value) -> None:
+    """`alpha >= 4 x шаг` либо именованный отказ."""
+
+    if metric.source_step is None:
+        return
+    requested = Fraction(str(alpha_value.value))
+    minimum = BAND_MINIMUM_CELLS * metric.source_step
+    if requested >= minimum:
+        return
+    raise ReferenceGeometryError(
+        ReferenceOutcome.ENVELOPE_BAND_BELOW_GRID_RESOLUTION,
+        "полоса огибающей тоньше четырёх ячеек решётки: "
+        f"alpha={float(requested):.6g}, шаг={float(metric.source_step):.6g}, "
+        f"минимум={float(minimum):.6g}",
+    )
+
+
 def evaluate_reference_raw_coverage(
     compilation: ReferenceEnvelopeCompilationV1,
     alpha: LocalLengthV1 | Decimal | int | str,
@@ -292,10 +324,7 @@ def evaluate_reference_raw_coverage(
     except (ValueError, ArithmeticError) as exc:
         return _failure(ReferenceOutcome.REFERENCE_INVALID_ALPHA, str(exc))
     if alpha_value.value < 0:
-        return _failure(
-            ReferenceOutcome.REFERENCE_INVALID_ALPHA,
-            "reference alpha must be non-negative",
-        )
+        return _failure(ReferenceOutcome.REFERENCE_INVALID_ALPHA, _NEGATIVE_ALPHA)
     frame, payload_diagnostics = validate_reference_geometry_payload(
         compilation.analysis_snapshot, compilation.plan_key.patch_domain_id
     )
@@ -305,6 +334,7 @@ def evaluate_reference_raw_coverage(
         )
     try:
         context = GeometryContext.build(compilation, frame)
+        _require_band_against_grid(context.metric, alpha_value)
         stage_started = time.perf_counter()
         domain = build_domain_geometry(context)
         _emit_telemetry(

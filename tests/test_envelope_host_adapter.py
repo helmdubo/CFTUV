@@ -567,6 +567,32 @@ def test_real_analysis_bundle_runs_public_static_pipeline():
     )
 
 
+def test_the_declared_grid_policy_reaches_the_metric_certificate():
+    """Политика хоста — не комментарий: она видна в сертификате метрики.
+
+    Без этой проверки `HOST_GRID_POLICY` можно было бы переключить и не
+    заметить, что экспорт его не читает; ровно так однажды «установленная»
+    правка оказалась неустановленной.
+    """
+
+    from cftuv.surface_ir import HOST_GRID_POLICY
+
+    snapshot = build_envelope_analysis_snapshot(_single_patch_bundle())
+    descriptors = [
+        item
+        for item in snapshot.surface_metric_descriptors
+        if hasattr(item, "grid_certificate")
+    ]
+    assert descriptors
+    for descriptor in descriptors:
+        assert descriptor.grid_certificate.snapping_law.value == (
+            HOST_GRID_POLICY.value
+        )
+        # Обе границы окна названы — обе и записаны.
+        assert descriptor.grid_certificate.window_lower_bound.numerator > 0
+        assert descriptor.grid_certificate.window_upper_bound.numerator > 0
+
+
 @pytest.mark.parametrize("hidden_count", (0, 1, 2))
 def test_real_analysis_bundle_compiles_exact_k0_k1_k2_angular(hidden_count):
     snapshot = build_envelope_analysis_snapshot(_reflex_bundle(hidden_count))

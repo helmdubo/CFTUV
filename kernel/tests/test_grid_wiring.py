@@ -1,0 +1,678 @@
+"""Проводка целочисленной решётки: источник, конструкции и обе проверки.
+
+Здесь доказывается не решётка — она доказана в `test_robust_grid.py` и
+`test_robust_snapping.py` — а то, что она подключена: что закон доходит до
+сертификата, сертификат до дайджеста, привязка до `offset_support_g` и
+`segment_intersections`, а обе объявленные проверки исполняются и отказывают.
+"""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from fractions import Fraction
+import math
+
+import pytest
+import sympy as sp
+
+from reference_factories import straight_snapshot
+
+from cftuv_envelope import (
+    GridSnappingLawV1,
+    GridWindowOutcomeV1,
+    IntegerGridCertificateV1,
+    build_rational_affine_planar_metric,
+    compile_reference_envelopes,
+    evaluate_reference_raw_coverage,
+)
+from cftuv_envelope.contracts.metric import ExactRationalV1
+from cftuv_envelope.numeric import LocalPoint3V1
+from cftuv_envelope.contracts.analysis import SourceVertexV1
+from cftuv_envelope.outcomes import NamedOutcome
+from cftuv_envelope.planar_metric import PlanarMetricAdmissionError
+from cftuv_envelope.reference.arrangement import ExactSegmentArrangementBackend
+from cftuv_envelope.reference.common import make_segment
+from cftuv_envelope.reference.contracts import (
+    ReachabilityCertificateV1,
+    ReferenceOutcome,
+)
+from cftuv_envelope.reference.metric import (
+    ExactPlanarMetric,
+    SnapDisplacementExceedsBudget,
+    snap_exact_point,
+)
+from cftuv_envelope.reference.planar_types import (
+    SYMBOLIC_FALLBACK_COUNTS,
+    ConstructionCertificate,
+    ConstructionKind,
+    ExactPlanarPoint,
+    PlanarLoop,
+    PlanarRegion,
+)
+from cftuv_envelope.reference.provenance import make_reference_provenance
+from cftuv_envelope.robust.grid import (
+    SNAP_COUNTS,
+    GridSpecV1,
+    reset_snap_counts,
+    set_active_grid,
+)
+from cftuv_envelope.source_grid import (
+    AUTHOR_ANGULAR_ERROR,
+    chart_grid_for,
+    intended_right_corners,
+)
+
+
+SQUARE = (((0.0, 0.0), (6.0, 0.0), (6.0, 4.0), (0.0, 4.0)),)
+BOTTOM = ({"name": "bottom", "points": ((0.0, 0.0), (6.0, 0.0))},)
+
+# Косой четырёхугольник: базис (2,1,0) и (3,3,0). Метрика не осевая, и,
+# главное, `det(G)*g00 = 9*5 = 45` — не полный квадрат, поэтому `unit_g` даёт
+# настоящий радикал. Осевые и параллелограммные фикстуры для этой роли не
+# годятся: у них `|n|^2_g = det(G)*|t|^2_g` оказывается точным квадратом, и
+# алгебра не рождается вовсе — счётчик показал бы ноль ДО привязки тоже. Вершины при этом целые,
+# то есть лежат в узлах любой решётки: повёрнутый прямоугольник для этой роли
+# не годится, у него задуманные координаты иррациональны и в узел не попадают
+# ни при каком шаге. Это не обход теста, а следствие механизма: привязка
+# восстанавливает отношение только там, где задуманное положение — узел.
+SKEWED = (((0.0, 0.0), (2.0, 1.0), (3.0, 3.0), (1.0, 2.0)),)
+SKEWED_BOTTOM = ({"name": "bottom", "points": ((0.0, 0.0), (2.0, 1.0))},)
+
+
+def _evaluated(law, *, alpha="1", faces=SQUARE, routes=BOTTOM, transform=None):
+    snapshot, request = straight_snapshot(
+        faces=faces,
+        source_routes=routes,
+        alpha=alpha,
+        revision_name=f"grid-{law.value}",
+    )
+    if transform is not None:
+        snapshot = replace(
+            snapshot,
+            source_vertices=frozenset(
+                SourceVertexV1(
+                    item.vertex_id,
+                    LocalPoint3V1(
+                        *transform(
+                            item.position.x, item.position.y, item.position.z
+                        )
+                    ),
+                )
+                for item in snapshot.source_vertices
+            ),
+        )
+    domain = next(iter(snapshot.patch_domains))
+    metric = build_rational_affine_planar_metric(
+        source_revision=snapshot.source_revision,
+        patch_domain_id=domain.patch_domain_id,
+        owner_patch_id=domain.owner_patch_id,
+        source_vertices=snapshot.source_vertices,
+        source_faces=snapshot.surface_ir.source_faces,
+        grid_policy=law,
+    )
+    snapshot = replace(snapshot, surface_metric_descriptors=frozenset({metric}))
+    compilation = compile_reference_envelopes(snapshot, request).compilation
+    result = evaluate_reference_raw_coverage(compilation, request.requested_alpha)
+    return metric, result
+
+
+# --------------------------------------------------------------------------
+# Закон доходит до сертификата, сертификат — до дайджеста
+# --------------------------------------------------------------------------
+
+
+def test_every_metric_records_which_grid_law_produced_it():
+    for law in GridSnappingLawV1:
+        metric, _ = _evaluated(law)
+        certificate = metric.grid_certificate
+        assert certificate.snapping_law is law
+        # Обе границы окна названы — обе и записаны.
+        assert certificate.window_lower_bound.numerator > 0
+        assert certificate.window_upper_bound.numerator > 0
+        assert certificate.window_outcome is GridWindowOutcomeV1.WINDOW_AVAILABLE
+
+
+def test_the_grid_specification_reaches_the_digest_and_distinguishes_scales():
+    """Одна спецификация — один дайджест; разные спецификации — разные.
+
+    Второе — тоже проверка: если дайджест не различает решётки, значит
+    спецификация в сертификат не попала, и воспроизвести результат нечем.
+    """
+
+    first = _evaluated(GridSnappingLawV1.INTEGER_GRID_SNAP_V1)[1]
+    second = _evaluated(GridSnappingLawV1.INTEGER_GRID_SNAP_V1)[1]
+    assert first.raw_coverage.semantic_digest == second.raw_coverage.semantic_digest
+
+    metric, _ = _evaluated(GridSnappingLawV1.INTEGER_GRID_SNAP_V1)
+    coarse = replace(
+        metric,
+        grid_certificate=replace(
+            metric.grid_certificate,
+            window_step=ExactRationalV1(1, 1024),
+            source_scale=1024,
+        ),
+    )
+    from cftuv_envelope import canonical_json_bytes
+
+    assert canonical_json_bytes(coarse) != canonical_json_bytes(metric)
+
+
+# --------------------------------------------------------------------------
+# Дифференциальный: топология та же, координаты — не дальше половины ячейки
+# --------------------------------------------------------------------------
+
+
+def _points(result):
+    return {
+        (vertex.point.x.expression, vertex.point.y.expression)
+        for vertex in result.raw_coverage.vertices
+    }
+
+
+def test_snapping_keeps_the_topology_it_found_without_the_grid():
+    unsnapped_metric, unsnapped = _evaluated(
+        GridSnappingLawV1.UNSNAPPED_EXACT_V1, faces=SKEWED, routes=SKEWED_BOTTOM, alpha="0.25"
+    )
+    snapped_metric, snapped = _evaluated(
+        GridSnappingLawV1.INTEGER_GRID_SNAP_V1, faces=SKEWED, routes=SKEWED_BOTTOM, alpha="0.25"
+    )
+    assert unsnapped.outcome is ReferenceOutcome.EXACT
+    assert snapped.outcome is ReferenceOutcome.EXACT
+    assert len(snapped.raw_coverage.regions) == len(unsnapped.raw_coverage.regions)
+    assert len(snapped.raw_coverage.loops) == len(unsnapped.raw_coverage.loops)
+    assert len(snapped.raw_coverage.edges) == len(unsnapped.raw_coverage.edges)
+
+    grid = ExactPlanarMetric.from_descriptor(snapped_metric).chart_grid
+    half_cell = Fraction(1, 2 * grid.scale)
+    before = sorted(
+        (float(sp.sympify(x)), float(sp.sympify(y))) for x, y in _points(unsnapped)
+    )
+    after = sorted(
+        (float(sp.sympify(x)), float(sp.sympify(y))) for x, y in _points(snapped)
+    )
+    assert len(before) == len(after)
+    for (bx, by), (ax, ay) in zip(before, after):
+        assert abs(ax - bx) <= float(half_cell)
+        assert abs(ay - by) <= float(half_cell)
+
+
+def _canonicalization_sites(law, monkeypatch):
+    """Откуда именно приходят алгебраические канонизации. Не «сколько», а «где».
+
+    «Ноль» тут недостижим и не был бы правдой: `unit_g` несёт `sqrt` по
+    определению, и привязать направление некуда — привязывается точка. Вопрос,
+    ради которого счётчик заведён, другой: течёт ли радикал ДАЛЬШЕ конструкции.
+    Ответ на него даёт место вызова, а не сумма.
+    """
+
+    import traceback
+    from collections import Counter
+    from pathlib import Path as _Path
+
+    from cftuv_envelope.reference import planar_types
+
+    original = planar_types._canonical_expr
+    sites = Counter()
+
+    def traced(value):
+        if not value.is_Rational:
+            stack = traceback.extract_stack()[:-1]
+            frame = next(
+                (
+                    item
+                    for item in reversed(stack)
+                    if "planar_types" not in item.filename
+                ),
+                stack[-1],
+            )
+            sites[_Path(frame.filename).name] += 1
+        return original(value)
+
+    monkeypatch.setattr(planar_types, "_canonical_expr", traced)
+    _evaluated(law, faces=SKEWED, routes=SKEWED_BOTTOM, alpha="0.25")
+    return sites
+
+
+def test_snapping_keeps_the_radical_inside_the_construction_that_makes_it(
+    monkeypatch,
+):
+    """Ядро среза: после привязки радикал не течёт из конструкции дальше.
+
+    Замер на этой фикстуре: 901 алгебраическая канонизация без решётки против
+    41 с ней, и все 41 — внутри `reference/metric.py` (`unit_g`,
+    `owner_normal_g` и вход самой привязки в `offset_support_g`). В arrangement
+    их ноль, а именно он платит за них дороже всех.
+    """
+
+    unsnapped = _canonicalization_sites(
+        GridSnappingLawV1.UNSNAPPED_EXACT_V1, monkeypatch
+    )
+    snapped = _canonicalization_sites(
+        GridSnappingLawV1.INTEGER_GRID_SNAP_V1, monkeypatch
+    )
+    assert unsnapped["arrangement.py"] > 0, (
+        "без решётки радикал обязан дотекать до arrangement, иначе фикстура "
+        "не проверяет ничего"
+    )
+    assert snapped["arrangement.py"] == 0, (
+        f"радикал всё ещё течёт в arrangement: {dict(snapped)}"
+    )
+    assert set(snapped) == {"metric.py"}, dict(snapped)
+    assert sum(snapped.values()) < sum(unsnapped.values()) / 10
+
+
+# --------------------------------------------------------------------------
+# Проверка 1 — alpha против шага
+# --------------------------------------------------------------------------
+
+
+def test_a_band_thinner_than_four_cells_is_a_named_refusal():
+    metric, result = _evaluated(
+        GridSnappingLawV1.INTEGER_GRID_SNAP_V1, alpha="0.0001"
+    )
+    step = Fraction(
+        metric.grid_certificate.window_step.numerator,
+        metric.grid_certificate.window_step.denominator,
+    )
+    assert Fraction("0.0001") < 4 * step
+    assert result.outcome is ReferenceOutcome.ENVELOPE_BAND_BELOW_GRID_RESOLUTION
+
+
+def test_the_same_band_passes_without_a_grid():
+    """Отказ принадлежит решётке, а не полосе: без решётки та же alpha проходит."""
+
+    _, result = _evaluated(GridSnappingLawV1.UNSNAPPED_EXACT_V1, alpha="0.0001")
+    assert result.outcome is not ReferenceOutcome.ENVELOPE_BAND_BELOW_GRID_RESOLUTION
+
+
+# --------------------------------------------------------------------------
+# Проверка 2 — привязка обязана доказать, что сработала
+# --------------------------------------------------------------------------
+
+
+def _positions(snapshot, faces):
+    return {
+        item.vertex_id: (
+            Fraction(*float(item.position.x).as_integer_ratio()),
+            Fraction(*float(item.position.y).as_integer_ratio()),
+            Fraction(*float(item.position.z).as_integer_ratio()),
+        )
+        for item in snapshot.source_vertices
+    }
+
+
+def test_a_nearly_right_corner_is_named_intended_right():
+    """Классификация угла записана, а не спрятана: она видна в сертификате."""
+
+    snapshot, _ = straight_snapshot(
+        faces=SQUARE, source_routes=BOTTOM, revision_name="corners"
+    )
+    faces = tuple(snapshot.surface_ir.source_faces)
+    square = _positions(snapshot, faces)
+    assert intended_right_corners(square, faces) == ()
+
+    tilted = dict(square)
+    key = next(k for k, v in square.items() if v[0] == 6 and v[1] == 0)
+    # Сдвиг на 3 мкм по вертикали при плече 4 м — это 7.5e-7 рад, внутри
+    # объявленной авторской ошибки.
+    tilted[key] = (square[key][0] + Fraction(3, 10**6), square[key][1], square[key][2])
+    named = intended_right_corners(tilted, faces)
+    assert named, "угол в пределах объявленной ошибки обязан быть назван"
+    assert len(named) <= 4 * len(faces)
+
+
+def test_the_snap_refuses_when_it_restores_nothing():
+    """Отказ строится там же, где привязка, и он именованный.
+
+    Сертификат, объявляющий восстановление, не может существовать с
+    невосстановленным углом: это запрещено конструктивно.
+    """
+
+    with pytest.raises(ValueError) as failure:
+        IntegerGridCertificateV1(
+            snapping_law=GridSnappingLawV1.INTEGER_GRID_SNAP_V1,
+            window_outcome=GridWindowOutcomeV1.WINDOW_AVAILABLE,
+            patch_extent=ExactRationalV1(11, 1),
+            author_angular_error=ExactRationalV1(7, 10**6),
+            decal_detail=ExactRationalV1(1, 100),
+            window_lower_bound=ExactRationalV1(77, 500000),
+            window_upper_bound=ExactRationalV1(1, 100),
+            window_step=ExactRationalV1(1, 4096),
+            source_scale=4096,
+            magnitude_bound=25,
+            intended_right_corners=3,
+            restored_right_corners=1,
+        )
+    assert "не восстановил" in str(failure.value)
+
+
+def test_the_field_mesh_reports_whether_the_declared_error_was_enough():
+    """Замер на реальном меше, а не вера в константу.
+
+    `building.002`, патч 0: три угла объявленная ошибка числит задуманно
+    прямыми, шаг окна 1/4096, восстановлен один. Отказ именованный.
+    Воспроизведение: этот тест.
+    """
+
+    import json
+    from pathlib import Path
+
+    import cftuv_envelope as kernel
+
+    fixture = (
+        Path(__file__).resolve().parents[1]
+        / "fixtures"
+        / "building_002_point_contact_v1"
+        / "analysis_snapshot.json"
+    )
+    snapshot = kernel.AnalysisSnapshotCodecV1.loads(fixture.read_bytes())
+    descriptor = next(iter(snapshot.surface_metric_descriptors))
+    domain = next(
+        item
+        for item in snapshot.patch_domains
+        if item.patch_domain_id == descriptor.patch_domain_id
+    )
+    assert descriptor.grid_certificate.intended_right_corners == 3
+    assert descriptor.grid_certificate.source_scale == 4096
+
+    with pytest.raises(PlanarMetricAdmissionError) as failure:
+        build_rational_affine_planar_metric(
+            source_revision=snapshot.source_revision,
+            patch_domain_id=descriptor.patch_domain_id,
+            owner_patch_id=domain.owner_patch_id,
+            source_vertices=snapshot.source_vertices,
+            source_faces=snapshot.surface_ir.source_faces,
+            planarity_policy=kernel.PlanarityAdmissionLawV1.NEAR_PLANAR_PROJECTION_V1,
+            grid_policy=GridSnappingLawV1.INTEGER_GRID_SNAP_V1,
+        )
+    assert (
+        failure.value.outcome
+        is NamedOutcome.SOURCE_SNAP_DID_NOT_RESTORE_RELATIONS
+    )
+    assert "восстановлено=1" in str(failure.value)
+
+
+# --------------------------------------------------------------------------
+# Бюджет сдвига: объявленная граница проверяется на собственном результате
+# --------------------------------------------------------------------------
+
+
+def test_the_snap_result_satisfies_the_budget_the_metric_declares():
+    metric, _ = _evaluated(
+        GridSnappingLawV1.INTEGER_GRID_SNAP_V1,
+        faces=SKEWED,
+        routes=SKEWED_BOTTOM,
+        alpha="0.25",
+    )
+    exact = ExactPlanarMetric.from_descriptor(metric)
+    assert exact.chart_grid is not None
+    # Привязка не двигает точку дальше половины ячейки по каждой оси, поэтому
+    # объявленный бюджет обязан быть не меньше этого максимума.
+    maximum = Fraction(1, 2) ** 2 * 2 / Fraction(exact.chart_grid.scale**2)
+    assert exact.squared_snap_budget >= maximum
+
+
+def test_the_exact_node_solver_agrees_with_the_proven_rounding_rule():
+    """Дифференциально против R1a: то же правило, вычисленное там, где дроби нет.
+
+    `snap_value` округляет `floor(x + 1/2)` на дробях; `snap_exact_point` решает
+    тот же узел для алгебраического значения — сначала интервальной оболочкой,
+    потом символьным `sp.floor`. Совпадение обязано быть точным, а не похожим,
+    иначе привязка означает разное в разных местах конвейера. 400 рациональных
+    и 200 алгебраических проб, расхождений 0.
+    """
+
+    import random
+
+    from cftuv_envelope.robust.grid import snap_point
+
+    random.seed(1)
+    grid = GridSpecV1(scale=256)
+    for _ in range(400):
+        values = [
+            Fraction(
+                random.randint(-10**4, 10**4),
+                random.choice((1, 2, 3, 256, 512, 7)),
+            )
+            for _ in range(2)
+        ]
+        reset_snap_counts()
+        rational = snap_point(values[0], values[1], grid)
+        reset_snap_counts()
+        exact = snap_exact_point(
+            ExactPlanarPoint.from_values(
+                *(sp.Rational(item.numerator, item.denominator) for item in values)
+            ),
+            grid,
+            None,
+            "differential",
+        )
+        assert (rational.x, rational.y) == (
+            int(sp.sympify(exact.x.expression) * grid.scale),
+            int(sp.sympify(exact.y.expression) * grid.scale),
+        )
+
+    for _ in range(200):
+        radicand = random.choice((2, 3, 5, 7, 45))
+        offset = Fraction(random.randint(-500, 500), random.choice((1, 4, 16)))
+        weight = Fraction(random.randint(-50, 50), random.choice((1, 3, 8)))
+        expression = sp.Rational(
+            offset.numerator, offset.denominator
+        ) + sp.Rational(weight.numerator, weight.denominator) * sp.sqrt(radicand)
+        reset_snap_counts()
+        point = snap_exact_point(
+            ExactPlanarPoint.from_values(expression, expression),
+            grid,
+            None,
+            "differential",
+        )
+        assert int(sp.sympify(point.x.expression) * grid.scale) == int(
+            sp.floor(expression * grid.scale + sp.Rational(1, 2))
+        )
+
+
+def test_a_budget_smaller_than_the_cell_fires_a_named_refusal():
+    grid = GridSpecV1(scale=4)
+    reset_snap_counts()
+    point = ExactPlanarPoint.from_values(sp.Rational(1, 3), sp.Rational(1, 3))
+    with pytest.raises(SnapDisplacementExceedsBudget):
+        snap_exact_point(point, grid, Fraction(1, 10**9), "test")
+
+
+# --------------------------------------------------------------------------
+# Регион с дырой: путь, который поле не проходит ни разу
+# --------------------------------------------------------------------------
+
+
+def _loop(name, coordinates, provenance):
+    points = tuple(ExactPlanarPoint.from_values(*item) for item in coordinates)
+    certificates = tuple(
+        ConstructionCertificate(
+            ConstructionKind.SOURCE_VERTEX,
+            source_vertex_ids=frozenset({f"vertex:{name}:{index}"}),
+        )
+        for index in range(len(points))
+    )
+    return PlanarLoop(
+        f"loop:{name}",
+        tuple(
+            make_segment(
+                f"segment:{name}:{index}",
+                points[index],
+                points[(index + 1) % len(points)],
+                support_ids=provenance.support_ids,
+                provenance=provenance,
+                start_certificates=frozenset({certificates[index]}),
+                end_certificates=frozenset(
+                    {certificates[(index + 1) % len(points)]}
+                ),
+                boundary_constraint_ids=provenance.boundary_constraint_ids,
+            )
+            for index in range(len(points))
+        ),
+    )
+
+
+def _holed_region(name, outer, holes, *, domain=False):
+    provenance = make_reference_provenance(
+        envelope_spec_ids=frozenset() if domain else frozenset({f"spec:{name}"}),
+        envelope_instance_ids=(
+            frozenset() if domain else frozenset({f"instance:{name}"})
+        ),
+        support_ids=frozenset({f"support:{name}"}),
+        physical_edge_ids=frozenset({f"edge:{name}"}),
+        chain_use_ids=frozenset({f"use:{name}"}),
+        patch_domain_ids=frozenset({"domain"}),
+        boundary_constraint_ids=(
+            frozenset({f"constraint:{name}"}) if domain else frozenset()
+        ),
+    )
+    return PlanarRegion(
+        region_id=f"region:{name}",
+        outer=_loop(f"{name}:outer", outer, provenance),
+        holes=tuple(
+            _loop(f"{name}:hole:{index}", item, provenance)
+            for index, item in enumerate(holes)
+        ),
+        contributor_instance_ids=(
+            frozenset() if domain else frozenset({f"instance:{name}"})
+        ),
+        contributor_spec_ids=(
+            frozenset() if domain else frozenset({f"spec:{name}"})
+        ),
+    )
+
+
+@pytest.mark.parametrize("grid", (None, GridSpecV1(scale=64)))
+def test_a_region_with_a_hole_survives_the_grid(grid):
+    """`DOMAIN_HOLE_LOOPS = 0` во всех семи полевых доменах — поле этот путь
+    не проходит ни разу, поэтому синтетика обязана его пройти до поля."""
+
+    region = _holed_region(
+        "holed",
+        ((0, 0), (8, 0), (8, 8), (0, 8)),
+        (((2, 2), (2, 4), (4, 4), (4, 2)),),
+    )
+    domain = _holed_region(
+        "domain", ((-20, -20), (20, -20), (20, 20), (-20, 20)), (), domain=True
+    )
+    reachability = {
+        "instance:holed": ReachabilityCertificateV1(
+            front_component_ids=frozenset({"front:holed"}),
+            source_launch_reachable=True,
+            initial_branch_count=1,
+            effective_branch_count=1,
+            boundary_event_keys=(),
+            bypass_used=False,
+        )
+    }
+    reset_snap_counts()
+    set_active_grid(grid)
+    try:
+        result = ExactSegmentArrangementBackend().exact_union(
+            (region,), (domain,), reachability
+        )
+    finally:
+        set_active_grid(None)
+    # 64 - 4 = 60: площадь квадрата за вычетом дыры, и дыра осталась петлёй.
+    assert sp.sympify(result.exact_area_expression) == 60
+    assert len(result.loops) == 2
+
+
+# --------------------------------------------------------------------------
+# Слияние вырождения, которое binary64 разнёс
+# --------------------------------------------------------------------------
+
+
+def test_the_grid_merges_points_binary64_split_apart():
+    """Три отрезка, задуманно сходящиеся в одну точку, разнесены на 1e-9.
+
+    Без решётки пересечения различны; с решёткой они ложатся в один узел, и
+    `merged_points` это показывает. Слияние здесь — наблюдаемое следствие, а не
+    механизм: механизм — привязка источника, и он проверяется отдельно.
+    """
+
+    provenance = make_reference_provenance(
+        envelope_spec_ids=frozenset({"spec:x"}),
+        envelope_instance_ids=frozenset({"instance:x"}),
+        support_ids=frozenset({"support:x"}),
+        physical_edge_ids=frozenset({"edge:x"}),
+        chain_use_ids=frozenset({"use:x"}),
+        patch_domain_ids=frozenset({"domain"}),
+        boundary_constraint_ids=frozenset(),
+    )
+    drift = sp.Rational(1, 10**9)
+    certificate = ConstructionCertificate(
+        ConstructionKind.SOURCE_VERTEX, source_vertex_ids=frozenset({"vertex:x"})
+    )
+
+    def segment(name, start, end):
+        return make_segment(
+            name,
+            ExactPlanarPoint.from_values(*start),
+            ExactPlanarPoint.from_values(*end),
+            support_ids=provenance.support_ids,
+            provenance=provenance,
+            start_certificates=frozenset({certificate}),
+            end_certificates=frozenset({certificate}),
+        )
+
+    horizontal = segment("h", (-2, 0), (2, 0))
+    from cftuv_envelope.reference.arrangement import segment_intersections
+
+    crossings = [
+        segment(f"leg{index}", (offset - 1, -1), (offset + 1, 1))
+        for index, offset in enumerate((0, drift, 2 * drift))
+    ]
+
+    reset_snap_counts()
+    set_active_grid(None)
+    exact = {
+        segment_intersections(horizontal, leg)[0].x.expression for leg in crossings
+    }
+    assert len(exact) == 3, "без решётки три задуманно совпавшие точки различны"
+    assert SNAP_COUNTS["merged_points"] == 0
+
+    reset_snap_counts()
+    set_active_grid(GridSpecV1(scale=1024))
+    try:
+        merged = {
+            segment_intersections(horizontal, leg)[0].x.expression
+            for leg in crossings
+        }
+    finally:
+        set_active_grid(None)
+    assert len(merged) == 1, "с решёткой они обязаны стать одной"
+    assert SNAP_COUNTS["merged_points"] == 2
+
+
+# --------------------------------------------------------------------------
+# Решётка карты: объявленная граница проверяется на собственном результате
+# --------------------------------------------------------------------------
+
+
+def test_a_chart_cell_is_never_coarser_than_the_source_cell():
+    """Координаты карты — не метры, поэтому шаг источника переносится с
+    доказанной верхней границей метрической длины, а не как есть."""
+
+    step = Fraction(1, 4096)
+    for gram in (
+        ((sp.Integer(1), sp.Integer(0)), (sp.Integer(0), sp.Integer(1))),
+        ((sp.Integer(36), sp.Integer(0)), (sp.Integer(0), sp.Integer(16))),
+        ((sp.Rational(25), sp.Rational(7)), (sp.Rational(7), sp.Rational(9))),
+    ):
+        grid = chart_grid_for(gram, step)
+        cell = Fraction(1, grid.scale)
+        longest = math.sqrt(
+            float(gram[0][0]) + 2 * abs(float(gram[0][1])) + float(gram[1][1])
+        )
+        assert float(cell) * longest <= float(step)
+
+
+def test_the_declared_author_error_is_the_one_the_certificate_carries():
+    metric, _ = _evaluated(GridSnappingLawV1.INTEGER_GRID_SNAP_V1)
+    certificate = metric.grid_certificate
+    assert Fraction(
+        certificate.author_angular_error.numerator,
+        certificate.author_angular_error.denominator,
+    ) == AUTHOR_ANGULAR_ERROR

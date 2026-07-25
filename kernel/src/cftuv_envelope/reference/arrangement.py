@@ -9,11 +9,14 @@ and emits precisely those atomic edges separating coverage from non-coverage.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from fractions import Fraction
 from functools import cmp_to_key
 
 import sympy as sp
 
+from ..robust.grid import active_grid
 from .arrangement_protocol import ArrangementUnionV2
+from .metric import snap_exact_point
 from .common import stable_id
 from .contracts import (
     BoundaryVertexOccurrenceV1,
@@ -236,6 +239,19 @@ def _intersection_certificate(
 def segment_intersections(
     left: BoundedSupportSegment, right: BoundedSupportSegment
 ) -> tuple[ExactPlanarPoint, ...]:
+    """Точки пересечения двух отрезков, привязанные к решётке домена.
+
+    Привязка стоит ВНУТРИ и один раз: функцию зовут из четырёх мест
+    (`raw_coverage.py:394`, `arrangement.py:782`, `policy_b.py:286`,
+    `equality_locus.py` — четырежды), и привязка в местах вызова была бы
+    четырьмя разными законами. Решётка берётся из объявленной на домене:
+    сигнатуре она не передаётся, потому что тогда её пришлось бы протаскивать
+    через все эти вызовы, а единственный её источник — метрика домена.
+
+    Общие концы (коллинеарная ветка ниже) не привязываются: они уже пришли из
+    привязанных построений, и повторная привязка узла — тождество.
+    """
+
     p = left.start
     q = right.start
     r = point_sub(left.end, left.start)
@@ -248,7 +264,16 @@ def segment_intersections(
         if _between(t, sp.Integer(0), sp.Integer(1)) and _between(
             u, sp.Integer(0), sp.Integer(1)
         ):
-            return (point_add(p, vector_scale(r, t)),)
+            crossing = point_add(p, vector_scale(r, t))
+            grid = active_grid()
+            if grid is not None:
+                crossing = snap_exact_point(
+                    crossing,
+                    grid,
+                    Fraction(1, 2 * grid.scale * grid.scale),
+                    "segment_intersections",
+                )
+            return (crossing,)
         return ()
     if exact_sign(cross(q_minus_p, r)) != 0:
         return ()

@@ -20,7 +20,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from .model import ChainNeighborKind, LoopKind, PatchType
-from .surface_ir import HOST_PLANARITY_POLICY
+from .surface_ir import HOST_GRID_POLICY, HOST_PLANARITY_POLICY
 from .envelope_debug_profile import (
     EnvelopeDebugProfileBuilderV1,
     EnvelopeDebugTimingV1,
@@ -1813,6 +1813,7 @@ def _rational_affine_metric(
             source_vertices=source_vertices,
             source_faces=source_faces,
             planarity_policy=kernel.PlanarityAdmissionLawV1(HOST_PLANARITY_POLICY.value),
+            grid_policy=kernel.GridSnappingLawV1(HOST_GRID_POLICY.value),
             source_lineage=frozenset(
                 {
                     kernel.LineageId(

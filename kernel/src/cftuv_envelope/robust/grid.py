@@ -123,7 +123,26 @@ SNAP_DISPLACEMENT_MAX_SQUARED = [Fraction(0)]
 # порядка числа сегментов при ЛЮБОМ масштабе решётки — то есть величину,
 # по которой владелец выбирает шаг, невозможно было бы отличить от шума.
 # Сбрасывается на границе домена: слияние осмысленно только внутри одного.
-_SNAPPED_NODES: dict[tuple[int, int], set[tuple[Fraction, Fraction]]] = {}
+_SNAPPED_NODES: dict[tuple[int, ...], set[tuple[Fraction, ...]]] = {}
+
+# Решётка карты, действующая на текущем домене, либо None.
+#
+# Публикуется здесь потому, что `segment_intersections` получает два отрезка и
+# больше ничего: протаскивать решётку через её четыре места вызова значило бы
+# привязывать точку в местах вызова, а привязка обязана быть ВНУТРИ функции и
+# ровно один раз. Единственный источник истины — метрика домена; это её
+# публикация для тех функций, которым метрику не передают.
+_ACTIVE_GRID: list[GridSpecV1 | None] = [None]
+
+
+def set_active_grid(grid: GridSpecV1 | None) -> None:
+    """Объявить решётку карты на время текущего домена."""
+
+    _ACTIVE_GRID[0] = grid
+
+
+def active_grid() -> GridSpecV1 | None:
+    return _ACTIVE_GRID[0]
 
 
 def reset_snap_counts() -> None:
@@ -135,9 +154,27 @@ def reset_snap_counts() -> None:
     _SNAPPED_NODES.clear()
 
 
+def record_snap(
+    node: tuple[int, ...],
+    source: tuple,
+    squared: Fraction,
+    moved: bool,
+) -> None:
+    """Записать одну привязку в наблюдение.
+
+    Отделено от `snap_point` потому, что не всякая привязываемая координата
+    рациональна: результат смещения на alpha несёт `sqrt`, его узел решается
+    точно, а `source` для такой точки — её каноническая запись, а не дробь.
+    Ключ узла от этого не меняется: слиянием считается вторая РАЗЛИЧНАЯ точка
+    в одном узле, а чем именно точка представлена — дело вызывающего.
+    """
+
+    _record_snap(node, source, squared, moved)
+
+
 def _record_snap(
-    node: tuple[int, int],
-    source: tuple[Fraction, Fraction],
+    node: tuple[int, ...],
+    source: tuple,
     squared: Fraction,
     moved: bool,
 ) -> None:
