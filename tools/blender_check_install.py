@@ -101,9 +101,13 @@ def main() -> None:
     addon = _probe("cftuv", "панели и операторы")
     if addon is not None:
         try:
-            from cftuv.envelope_request_export import HOST_PLANARITY_POLICY
+            from cftuv.envelope_request_export import (
+                HOST_GRID_POLICY,
+                HOST_PLANARITY_POLICY,
+            )
 
             _line("ОК ", f"политика планарности хоста: {HOST_PLANARITY_POLICY}")
+            _line("ОК ", f"политика решётки хоста: {HOST_GRID_POLICY}")
         except Exception as error:  # noqa: BLE001
             _line("НЕТ", f"хост-адаптер не читается: {error}")
 

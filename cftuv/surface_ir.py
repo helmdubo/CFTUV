@@ -191,6 +191,31 @@ class HostPlanarityPolicy(str, Enum):
 HOST_PLANARITY_POLICY = HostPlanarityPolicy.NEAR_PLANAR_PROJECTION_V1
 
 
+class HostGridPolicy(str, Enum):
+    """Привязывает ли хост вершины источника к целочисленной решётке.
+
+    Объявляется явно по тем же причинам, что и планарность: ядро не выбирает
+    политику за хост, и переключение видно в сертификате метрики, а значит и в
+    дайджесте.
+    """
+
+    UNSNAPPED_EXACT_V1 = "UNSNAPPED_EXACT_V1"
+    INTEGER_GRID_SNAP_V1 = "INTEGER_GRID_SNAP_V1"
+
+
+# Замерено на `building.002`, патч 0 (`kernel/tests/test_grid_wiring.py`,
+# `test_the_field_mesh_reports_whether_the_declared_error_was_enough`):
+# объявленная авторская ошибка числит задуманно прямыми три угла, шаг окна
+# 1/4096 м, восстановлен один — то есть `INTEGER_GRID_SNAP_V1` на этом меше
+# даёт `SOURCE_SNAP_DID_NOT_RESTORE_RELATIONS` и отвергает патч целиком.
+# Причина найдена и записана в `DECISIONS.md`: одна координата лежит РОВНО на
+# середине ячейки при этом шаге, а правило «половина вверх» уводит её в
+# соседний узел; при 1/2048, 1/8192 и 1/16384 восстанавливаются все три.
+# Шаг выбирает владелец, поэтому хост пока объявляет нынешнее поведение, а не
+# ломает единственный полевой меш до этого выбора.
+HOST_GRID_POLICY = HostGridPolicy.UNSNAPPED_EXACT_V1
+
+
 class PreviewFailurePolicy(str, Enum):
     CLEAR = "CLEAR"
 
@@ -208,7 +233,9 @@ __all__ = (
     "AnalysisSchemaError",
     "CapacityPolicy",
     "DecalBackendKind",
+    "HOST_GRID_POLICY",
     "HOST_PLANARITY_POLICY",
+    "HostGridPolicy",
     "HostPlanarityPolicy",
     "PatchSurfaceIR",
     "PreviewFailurePolicy",
