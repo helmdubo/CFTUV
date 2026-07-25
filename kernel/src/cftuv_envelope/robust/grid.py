@@ -114,9 +114,16 @@ SNAP_COUNTS = {
 # Максимум квадрата сдвига держится дробью отдельно: складывать его с
 # целочисленными счётчиками в одном словаре значило бы смешать разные величины.
 SNAP_DISPLACEMENT_MAX_SQUARED = [Fraction(0)]
-# Узлы, уже занятые привязкой, — источник `merged_points`. Сбрасывается вместе
-# со счётчиками на границе домена: слияние осмысленно только внутри одного.
-_SNAPPED_NODES: set[tuple[int, int]] = set()
+# Узел -> точные координаты ДО привязки, уже легшие в него. Хранится именно
+# исходная точка, а не только занятость узла: иначе повторная привязка ОДНОЙ И
+# ТОЙ ЖЕ точки считалась бы слиянием.
+#
+# Это не теоретическая тонкость. Общий конец двух соседних сегментов
+# привязывается дважды, поэтому «занятость узла» дала бы `merged_points`
+# порядка числа сегментов при ЛЮБОМ масштабе решётки — то есть величину,
+# по которой владелец выбирает шаг, невозможно было бы отличить от шума.
+# Сбрасывается на границе домена: слияние осмысленно только внутри одного.
+_SNAPPED_NODES: dict[tuple[int, int], set[tuple[Fraction, Fraction]]] = {}
 
 
 def reset_snap_counts() -> None:
@@ -128,14 +135,21 @@ def reset_snap_counts() -> None:
     _SNAPPED_NODES.clear()
 
 
-def _record_snap(node: tuple[int, int], squared: Fraction, moved: bool) -> None:
+def _record_snap(
+    node: tuple[int, int],
+    source: tuple[Fraction, Fraction],
+    squared: Fraction,
+    moved: bool,
+) -> None:
     SNAP_COUNTS["points_total"] += 1
     if moved:
         SNAP_COUNTS["points_moved"] += 1
-    if node in _SNAPPED_NODES:
-        SNAP_COUNTS["merged_points"] += 1
-    else:
-        _SNAPPED_NODES.add(node)
+    sources = _SNAPPED_NODES.setdefault(node, set())
+    if source not in sources:
+        # Вторая и каждая следующая РАЗЛИЧНАЯ точка в этом узле — слияние.
+        if sources:
+            SNAP_COUNTS["merged_points"] += 1
+        sources.add(source)
     if squared > SNAP_DISPLACEMENT_MAX_SQUARED[0]:
         SNAP_DISPLACEMENT_MAX_SQUARED[0] = squared
 
@@ -153,11 +167,17 @@ def snap_point(
     квадратов эквивалентно сравнению расстояний и остаётся в дробях.
     """
 
-    grid_x, grid_y = snap_value(x, grid), snap_value(y, grid)
-    residual_x = Fraction(x) - unsnap_value(grid_x, grid)
-    residual_y = Fraction(y) - unsnap_value(grid_y, grid)
+    exact_x, exact_y = Fraction(x), Fraction(y)
+    grid_x, grid_y = snap_value(exact_x, grid), snap_value(exact_y, grid)
+    residual_x = exact_x - unsnap_value(grid_x, grid)
+    residual_y = exact_y - unsnap_value(grid_y, grid)
     squared = residual_x * residual_x + residual_y * residual_y
-    _record_snap((grid_x, grid_y), squared, bool(residual_x or residual_y))
+    _record_snap(
+        (grid_x, grid_y),
+        (exact_x, exact_y),
+        squared,
+        bool(residual_x or residual_y),
+    )
 
     if squared == 0:
         outcome = SnapOutcome.ON_GRID

@@ -230,3 +230,57 @@ def test_the_robust_core_never_imports_sympy():
                 assert not name.startswith(("sympy", "mpmath")), (
                     f"{path.name} импортирует {name}"
                 )
+
+
+def test_merged_points_counts_distinct_sources_not_repeated_snaps():
+    """`merged_points` — величина, по которой владелец выбирает шаг решётки.
+
+    Первая редакция считала слиянием любую привязку в занятый узел. Общий конец
+    двух соседних сегментов привязывается дважды, поэтому счётчик показывал бы
+    примерно число сегментов при ЛЮБОМ масштабе — то есть сигнал, по которому
+    надо настраивать, был бы неотличим от шума.
+    """
+
+    from cftuv_envelope.robust import grid as grid_module
+
+    fine = GridSpecV1(scale=100)
+
+    grid_module.reset_snap_counts()
+    snap_point(Fraction(1, 2), Fraction(1, 2), fine)
+    snap_point(Fraction(1, 2), Fraction(1, 2), fine)
+    assert grid_module.SNAP_COUNTS["points_total"] == 2
+    assert grid_module.SNAP_COUNTS["merged_points"] == 0, (
+        "повторная привязка той же точки — не слияние"
+    )
+
+    grid_module.reset_snap_counts()
+    snap_point(Fraction(1, 2), Fraction(1, 2), fine)
+    snap_point(Fraction(1, 2) + Fraction(1, 10**6), Fraction(1, 2), fine)
+    assert grid_module.SNAP_COUNTS["merged_points"] == 1, (
+        "две различные точки в одном узле — ровно одно слияние"
+    )
+
+    # Третья различная точка в том же узле — ещё одно слияние, не два.
+    snap_point(Fraction(1, 2) + Fraction(1, 10**7), Fraction(1, 2), fine)
+    assert grid_module.SNAP_COUNTS["merged_points"] == 2
+
+    # На мелкой решётке те же точки расходятся по узлам — слияний нет.
+    grid_module.reset_snap_counts()
+    coarse = GridSpecV1(scale=10**9)
+    snap_point(Fraction(1, 2), Fraction(1, 2), coarse)
+    snap_point(Fraction(1, 2) + Fraction(1, 10**6), Fraction(1, 2), coarse)
+    assert grid_module.SNAP_COUNTS["merged_points"] == 0, (
+        "иначе счётчик не реагирует на масштаб, а именно это от него и нужно"
+    )
+
+
+def test_snap_counters_reset_at_the_domain_boundary():
+    from cftuv_envelope.robust import grid as grid_module
+
+    grid_module.reset_snap_counts()
+    snap_point(Fraction(1, 3), Fraction(1, 7), GRID)
+    assert grid_module.SNAP_COUNTS["points_total"] == 1
+    assert grid_module.SNAP_DISPLACEMENT_MAX_SQUARED[0] > 0
+    grid_module.reset_snap_counts()
+    assert grid_module.SNAP_COUNTS["points_total"] == 0
+    assert grid_module.SNAP_DISPLACEMENT_MAX_SQUARED[0] == 0
