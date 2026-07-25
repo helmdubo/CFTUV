@@ -37,6 +37,19 @@ from cftuv_envelope.robust.snapping import grid_for_extent, snap_offset
 PATCH_EXTENT = 4
 FIELD_NOISE = Fraction(1, 10**4)
 
+# Расстояния между РАЗЛИЧНЫМИ деталями декали, которые обязаны выжить.
+#
+# Без этой оси стенд оптимистичен по построению: группы «задуманных совпадений»
+# разнесены на 0.67 м, поэтому даже шаг 6 см показывает «вырождение
+# восстановлено» — хотя на нём две настоящие детали в 1 см сливаются в одну.
+# Замерено: при шаге 6.25e-2 сливается всё вплоть до 1 см, при 3.91e-3 — 1 мм.
+# Одной границы недостаточно, чтобы выбрать шаг; нужны обе.
+FEATURE_SEPARATIONS = (
+    Fraction(1, 1000),
+    Fraction(5, 1000),
+    Fraction(1, 100),
+)
+
 
 def _intended_meetings(groups: int, per_group: int):
     """Точки, задуманные совпадающими, разнесённые полевым шумом."""
@@ -82,10 +95,29 @@ def measure(node_counts: tuple[int, ...], groups: int = 5, per_group: int = 3):
                 "intended_nodes": intended,
                 "restored": distinct == intended,
                 "displacement_max": float(SNAP_DISPLACEMENT_MAX_SQUARED[0]) ** 0.5,
+                "destroyed": _destroyed_separations(grid),
             }
         )
     reset_snap_counts()
     return rows
+
+
+def _destroyed_separations(grid) -> list[float]:
+    """Расстояния из `FEATURE_SEPARATIONS`, которые этот шаг СХЛОПЫВАЕТ.
+
+    Две точки на расстоянии d — не задуманное совпадение, а настоящая деталь.
+    Если решётка кладёт их в один узел, деталь уничтожена, и никакой счётчик
+    «вырождение восстановлено» об этом не скажет.
+    """
+
+    destroyed = []
+    anchor = Fraction(PATCH_EXTENT, 2)
+    for separation in FEATURE_SEPARATIONS:
+        left = snap_offset(anchor, anchor, grid)
+        right = snap_offset(anchor + separation, anchor, grid)
+        if (left.x, left.y) == (right.x, right.y):
+            destroyed.append(float(separation))
+    return destroyed
 
 
 def main() -> None:
@@ -97,24 +129,43 @@ def main() -> None:
 
     print(f"\n=== габарит патча {PATCH_EXTENT} м, шум {float(FIELD_NOISE):g} м ===")
     print(
-        "  узлов  масштаб    шаг, м   слито  сдвинуто  узлов/задумано  "
-        "макс.сдвиг, м  вырождение"
+        "     шаг, м  узлов/задумано  макс.сдвиг, м  вырождение        "
+        "уничтожает детали"
     )
+    usable = []
     for row in rows:
-        verdict = "восстановлено" if row["restored"] else "НЕ восстановлено"
+        verdict = "восстановлено   " if row["restored"] else "НЕ восстановлено"
+        if row["destroyed"]:
+            damage = ", ".join(f"{item * 1000:g} мм" for item in row["destroyed"])
+        else:
+            damage = "—"
+        if row["restored"] and not row["destroyed"]:
+            usable.append(row["step_metres"])
         print(
-            f"  {row['nodes_across']:5d}  {row['scale']:7d}  {row['step_metres']:8.2e}"
-            f"  {row['merged_points']:5d}  {row['points_moved']:8d}"
-            f"  {row['distinct_nodes']:6d}/{row['intended_nodes']:<8d}"
-            f"  {row['displacement_max']:12.2e}  {verdict}"
+            f"  {row['step_metres']:9.2e}  {row['distinct_nodes']:6d}/"
+            f"{row['intended_nodes']:<8d}  {row['displacement_max']:12.2e}"
+            f"  {verdict}  {damage}"
         )
 
     print(
-        "\n  Шаг обязан быть КРУПНЕЕ шума, иначе задуманное совпадение не\n"
-        "  восстанавливается. Он же обязан быть мельче того, что видно глазом\n"
-        "  на декали. Между этими двумя границами и выбирается значение —\n"
-        "  выбор владельца по картинке в Blender, не стенда."
+        "\n  Границ ДВЕ, и обе меряются здесь. Снизу: шаг обязан быть крупнее\n"
+        "  шума, иначе задуманное совпадение не восстанавливается. Сверху: шаг\n"
+        "  обязан быть мельче самой мелкой настоящей детали декали, иначе она\n"
+        "  схлопывается — а счётчик «вырождение восстановлено» об этом молчит,\n"
+        "  потому что меряет другое."
     )
+    if usable:
+        print(
+            f"\n  Пригодное окно по этим двум границам: "
+            f"{min(usable):.2e} … {max(usable):.2e} м."
+        )
+    else:
+        print(
+            "\n  Пригодного окна НЕТ: самая мелкая деталь мельче шума, и\n"
+            "  привязка не может одновременно сливать одно и сохранять другое.\n"
+            "  Это не настройка, а именованный отказ."
+        )
+    print("  Выбор внутри окна — владельца по картинке в Blender, не стенда.")
 
     if arguments.json:
         with open(arguments.json, "w", encoding="utf-8") as handle:

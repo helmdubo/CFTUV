@@ -254,3 +254,48 @@ def test_every_snapping_site_declares_its_law():
 def test_an_undeclared_site_is_an_error_not_a_default():
     with pytest.raises(KeyError):
         law_for("somewhere_else")
+
+
+def test_a_grid_that_restores_degeneracy_can_still_destroy_real_detail():
+    """Две границы, а не одна — иначе выбор шага делается по половине картины.
+
+    «Вырождение восстановлено» меряет, слились ли точки, которые ОБЯЗАНЫ были
+    слиться. Оно ничего не говорит про точки, которые обязаны были остаться
+    разными. Стенд подбора масштаба сначала мерил только первое, и группы в
+    нём были разнесены на 0.67 м — поэтому даже шаг 6 см проходил как годный,
+    хотя на нём две настоящие детали в 1 см становятся одной.
+    """
+
+    from fractions import Fraction
+
+    from cftuv_envelope.robust.snapping import grid_for_extent, snap_offset
+
+    contour = [
+        (Fraction(0), Fraction(0)),
+        (Fraction(4), Fraction(0)),
+        (Fraction(4), Fraction(4)),
+        (Fraction(0), Fraction(4)),
+    ]
+    noise = Fraction(1, 10**4)
+    detail = Fraction(1, 100)
+
+    def merges(grid, distance):
+        left = snap_offset(Fraction(2), Fraction(2), grid)
+        right = snap_offset(Fraction(2) + distance, Fraction(2), grid)
+        return (left.x, left.y) == (right.x, right.y)
+
+    coarse = grid_for_extent(contour, nodes_across=64)
+    assert merges(coarse, noise), "крупный шаг обязан сливать шум"
+    assert merges(coarse, detail), (
+        "и он же уничтожает настоящую деталь в 1 см — это и есть верхняя граница"
+    )
+
+    fine = grid_for_extent(contour, nodes_across=65536)
+    assert not merges(fine, noise), "мелкий шаг шум не сливает — нижняя граница"
+    assert not merges(fine, detail)
+
+    # Между границами есть шаг, делающий и то и другое правильно. Если его нет,
+    # решётка для этих данных не настройка, а именованный отказ.
+    inside = grid_for_extent(contour, nodes_across=4096)
+    assert merges(inside, noise)
+    assert not merges(inside, detail)
