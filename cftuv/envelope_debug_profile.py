@@ -125,6 +125,25 @@ class EnvelopeDebugProfileV1:
         }
 
 
+# Живой след стадий. Включён по умолчанию: до него длинный прогон было не
+# отличить от зависшего, а именно так и выглядел первый успешный проход
+# центрального патча building.002.
+LIVE_STAGE_TRACE = True
+
+# Только те стадии, которые могут идти долго. Остальные дают доли миллисекунды
+# и превратили бы след в шум.
+LIVE_TRACED_STAGES = frozenset({
+    "ANGULAR_RELATIONS",
+    "COMPILE",
+    "DOMAIN_BUILD",
+    "ENVELOPE_INSTANCE_BUILD",
+    "DOMAIN_CLIP",
+    "RAW_UNION",
+    "INTERACTION",
+    "GP_RENDER",
+})
+
+
 class EnvelopeDebugProfileBuilderV1:
     """Local mutable collector; published snapshots remain immutable."""
 
@@ -139,15 +158,21 @@ class EnvelopeDebugProfileBuilderV1:
 
     @contextmanager
     def measure(self, stage: str, patch_domain_id: str | None = None):
+        live = LIVE_STAGE_TRACE and stage in LIVE_TRACED_STAGES
+        if live:
+            # Строка печатается ДО работы и не закрывается до её конца. Долгий
+            # прогон при этом читается, а не выглядит зависшим: последняя
+            # незакрытая строка и есть место, где всё стоит.
+            suffix = f" {patch_domain_id[-3:]}" if patch_domain_id else ""
+            print(f"  [CFTUV] {stage}{suffix} ...", end="", flush=True)
         started = time.perf_counter()
         try:
             yield
         finally:
-            self.add_timing(
-                stage,
-                time.perf_counter() - started,
-                patch_domain_id,
-            )
+            elapsed = time.perf_counter() - started
+            if live:
+                print(f" {elapsed * 1000:.1f} ms", flush=True)
+            self.add_timing(stage, elapsed, patch_domain_id)
 
     def add_timing(
         self,
