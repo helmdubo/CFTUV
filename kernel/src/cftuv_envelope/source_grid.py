@@ -316,6 +316,12 @@ def resolve_source_grid(
 
     Возвращаемые позиции при `UNSNAPPED_EXACT_V1` — те же самые объекты: закон
     описывает, что с координатами сделали, и «ничего» тоже записывается.
+
+    Ветка выбирается по `snaps_source`, а не по имени закона: источник
+    `SOURCE_ONLY_GRID_SNAP_V1` и `INTEGER_GRID_SNAP_V1` двигают ОДИНАКОВО, и
+    расходятся они ниже — на привязке конструкций, до которой этот модуль не
+    доходит. Сравнение с именем здесь означало бы, что добавление третьего
+    закона молча меняет поведение источника, а оно не менялось.
     """
 
     extent = source_extent(positions)
@@ -346,7 +352,7 @@ def resolve_source_grid(
         ),
         "intended_right_corners": len(intended),
     }
-    if snapping_law is GridSnappingLawV1.UNSNAPPED_EXACT_V1:
+    if not snapping_law.snaps_source:
         return SourceGridFactsV1(
             positions=positions,
             certificate=IntegerGridCertificateV1(

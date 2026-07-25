@@ -52,7 +52,6 @@ from .contracts.metric import (
     ExactPoint3V1,
     ExactRationalV1,
     ExactVector3V1,
-    GridSnappingLawV1,
     MetricSemanticIdentityLawV1,
     PlanarityAdmissionLawV1,
     RuntimeMetricFallbackLawV1,
@@ -230,10 +229,15 @@ def _position_under_grid_law(
 
     Проверка «карта восстанавливает вершину точно» обязана сверяться с тем
     входом, который метрика реально получила. До решётки это была сама
-    координата binary64; при `INTEGER_GRID_SNAP_V1` — её узел. Сверяться с
-    непривязанной координатой значило бы требовать от привязанной метрики
-    невозможного, а снять проверку — потерять единственное место, где карта
-    сверяется с источником.
+    координата binary64; у всякого закона, который двигает источник, — её
+    узел. Сверяться с непривязанной координатой значило бы требовать от
+    привязанной метрики невозможного, а снять проверку — потерять
+    единственное место, где карта сверяется с источником.
+
+    Условие — `snaps_source`, а не имя закона: привязку конструкций эта
+    проверка не видит вовсе (она про вершины источника), поэтому
+    `SOURCE_ONLY_GRID_SNAP_V1` обязан идти здесь тем же путём, что и
+    `INTEGER_GRID_SNAP_V1`.
 
     Узел перевычисляется здесь заново, из объявленного в сертификате масштаба,
     а не берётся у построителя: так проверяется и то, что метрика привязана к
@@ -247,7 +251,7 @@ def _position_under_grid_law(
         for value in (position.x, position.y, position.z)
     )
     if (
-        certificate.snapping_law is not GridSnappingLawV1.INTEGER_GRID_SNAP_V1
+        not certificate.snapping_law.snaps_source
         or certificate.source_scale is None
     ):
         return exact

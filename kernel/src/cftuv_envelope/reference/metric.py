@@ -13,7 +13,6 @@ from ..contracts.metric import (
     AffineChartOrientationV1,
     ExactMatrix2V1,
     ExactRationalV1,
-    GridSnappingLawV1,
     RationalAffinePlanarMetricV2,
 )
 from ..robust.grid import GridSpecV1, record_snap
@@ -127,16 +126,32 @@ def snap_exact_point(
 def _chart_grid(
     descriptor: RationalAffinePlanarMetricV2, gram
 ) -> tuple[GridSpecV1 | None, Fraction | None]:
-    """Решётка карты и шаг решётки источника, если закон требует привязки."""
+    """Решётка карты и шаг решётки источника — по РАЗНЫМ свойствам закона.
+
+    Две величины, и они принадлежат двум разным привязкам:
+
+    - `chart_grid` — привязка КОНСТРУКЦИЙ. Существует только у
+      `INTEGER_GRID_SNAP_V1`; именно её `SOURCE_ONLY_GRID_SNAP_V1` и снимает.
+    - `source_step` — шаг, которым двигали ИСТОЧНИК, в метрах. Существует у
+      всякого закона, который источник двигает. Его читает проверка
+      `alpha >= 4 x шаг`, и она обязана работать и без решётки карты:
+      источник сдвинут на половину ячейки этого шага, поэтому полоса тоньше
+      четырёх его ячеек тоньше внесённого самой привязкой сдвига.
+
+    Возвращать их одним условием значило бы объявить, что привязок одна.
+    """
 
     certificate = descriptor.grid_certificate
-    if certificate.snapping_law is not GridSnappingLawV1.INTEGER_GRID_SNAP_V1:
+    law = certificate.snapping_law
+    if not law.snaps_source:
         return None, None
-    from ..source_grid import chart_grid_for
-
     step = Fraction(
         certificate.window_step.numerator, certificate.window_step.denominator
     )
+    if not law.snaps_constructions:
+        return None, step
+    from ..source_grid import chart_grid_for
+
     return chart_grid_for(gram, step), step
 
 
@@ -147,9 +162,10 @@ class ExactPlanarMetric:
         tuple[sp.Expr, sp.Expr], tuple[sp.Expr, sp.Expr]
     ]
     owner_orientation_sign: int
-    # Решётка карты и шаг решётки источника в метрах. `None` — закон
-    # `UNSNAPPED_EXACT_V1`: конструкции остаются точными и непривязанными.
+    # Решётка карты: `None` у всякого закона, который конструкций не
+    # привязывает, то есть у `UNSNAPPED_EXACT_V1` и `SOURCE_ONLY_GRID_SNAP_V1`.
     chart_grid: GridSpecV1 | None = None
+    # Шаг решётки ИСТОЧНИКА в метрах: `None` только у `UNSNAPPED_EXACT_V1`.
     source_step: Fraction | None = None
 
     @classmethod

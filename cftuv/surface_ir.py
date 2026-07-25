@@ -200,29 +200,31 @@ class HostGridPolicy(str, Enum):
     """
 
     UNSNAPPED_EXACT_V1 = "UNSNAPPED_EXACT_V1"
+    # Привязывается только источник; конструкции остаются точными.
+    SOURCE_ONLY_GRID_SNAP_V1 = "SOURCE_ONLY_GRID_SNAP_V1"
     INTEGER_GRID_SNAP_V1 = "INTEGER_GRID_SNAP_V1"
 
 
-# Прежняя причина оставаться на `UNSNAPPED_EXACT_V1` снята: масштаб больше не
-# берётся у нижней границы окна, его выбирает объявленный закон перебора, и на
-# `building.002` он восстанавливает все три задуманно прямых угла (пробует
-# 1/4096 — один из трёх, берёт 1/2048 — три из трёх). Замер:
-# `kernel/tests/test_grid_wiring.py::test_the_field_mesh_restores_every_intended_right_corner`.
+# Хост запрашивает привязку ИСТОЧНИКА и не запрашивает привязку конструкций.
+# Разрез не выбран, а измерен на `building.002` — единственном полевом меше:
 #
-# Осталась ДРУГАЯ, и она измерена: полный прогон полевого меша с привязкой
-# отказывает `REFERENCE_ARRANGEMENT_ROTATION_SYSTEM_UNPROVEN` («boundary point
-# does not have balanced incoming/outgoing half-edges»), и так на каждом
-# масштабе окна. Отказ локализован и он не в выборе масштаба: при привязке
-# одного только ИСТОЧНИКА тот же прогон даёт `EXACT` и ту же топологию, что и
-# без решётки (3 петли, 3 региона, 2 точечных контакта). Ломает привязка
-# КОНСТРУКЦИЙ — `offset_support_g` и `segment_intersections`, то самое слияние
+#   UNSNAPPED_EXACT_V1        EXACT, восстановлено 0 из 3 задуманно прямых
+#   SOURCE_ONLY_GRID_SNAP_V1  EXACT, восстановлено 3 из 3, топология та же
+#                             (3 петли, 3 региона, 2 точечных контакта)
+#   INTEGER_GRID_SNAP_V1      REFERENCE_ARRANGEMENT_ROTATION_SYSTEM_UNPROVEN
+#
+# То есть выигрыш даёт привязка источника, а отказ приносит привязка
+# конструкций — `offset_support_g` и `segment_intersections`, то самое слияние
 # вычисленных точек, которое карточка R1b сама числит лотереей, а не
-# механизмом. Пин:
-# `kernel/tests/test_grid_wiring.py::test_the_field_mesh_still_refuses_downstream_of_the_restored_corners`.
+# механизмом: на полевом меше оно сливает три вычисленные точки и оставляет
+# две висячие полурёбра вместо замкнутой границы.
 #
-# Поэтому хост по-прежнему объявляет нынешнее поведение: включение сегодня
-# заменило бы декаль на именованный отказ на единственном полевом меше.
-HOST_GRID_POLICY = HostGridPolicy.UNSNAPPED_EXACT_V1
+# `INTEGER_GRID_SNAP_V1` не удалён: он нужен, когда привязку конструкций
+# починят topology-preserving snap rounding'ом. До тех пор его отказ сторожит
+# `kernel/tests/test_grid_wiring.py::test_the_field_mesh_still_refuses_downstream_of_the_restored_corners`,
+# а выигрыш нового закона —
+# `...::test_the_field_mesh_keeps_its_topology_when_only_the_source_is_snapped`.
+HOST_GRID_POLICY = HostGridPolicy.SOURCE_ONLY_GRID_SNAP_V1
 
 
 class PreviewFailurePolicy(str, Enum):

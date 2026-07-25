@@ -38,15 +38,45 @@ class GridSnappingLawV1(str, Enum):
     Форма взята с `PlanarityAdmissionLawV1`: закон существует в контракте
     отдельно от того, какое значение объявляет хост, поэтому переключение
     политики видно в сертификате, а не только в поведении.
+
+    Привязок в конвейере ДВЕ, и они независимы: вершины ИСТОЧНИКА (до базиса,
+    механизм детерминированный) и точки КОНСТРУКЦИЙ (`offset_support_g`,
+    `segment_intersections` — механизм вероятностный, карточка R1b сама числит
+    его лотереей). Поэтому и законов три, а не два: разрез между ними
+    измерен — на `building.002` привязка одного источника даёт `EXACT` и ту же
+    топологию, а привязка конструкций поверх неё сливает три вычисленные точки
+    и оставляет две висячие полурёбра.
     """
 
     # Нынешнее поведение: координаты binary64 читаются как точные дроби и
     # больше ничем не трогаются.
     UNSNAPPED_EXACT_V1 = "UNSNAPPED_EXACT_V1"
     # Вершины источника привязаны к целочисленной решётке ДО построения
+    # базиса, конструкции — НЕ привязаны и остаются точными. Восстановленное
+    # задуманное отношение живёт в метрике, а вырождение вычисленных точек
+    # по-прежнему не сливается.
+    SOURCE_ONLY_GRID_SNAP_V1 = "SOURCE_ONLY_GRID_SNAP_V1"
+    # Вершины источника привязаны к целочисленной решётке ДО построения
     # базиса, поэтому базис, матрица Грама и все углы считаются уже от
-    # привязанных координат.
+    # привязанных координат; сверх того привязаны и конструкции.
     INTEGER_GRID_SNAP_V1 = "INTEGER_GRID_SNAP_V1"
+
+    @property
+    def snaps_source(self) -> bool:
+        """Двигает ли закон вершины источника до построения базиса."""
+
+        return self is not GridSnappingLawV1.UNSNAPPED_EXACT_V1
+
+    @property
+    def snaps_constructions(self) -> bool:
+        """Двигает ли закон вычисленные точки (`offset_support_g` и пересечения).
+
+        Отдельным свойством, а не сравнением с именем в четырёх местах: разрез
+        между двумя привязками — это то, чем закон `SOURCE_ONLY_GRID_SNAP_V1`
+        отличается от `INTEGER_GRID_SNAP_V1`, и он обязан быть назван один раз.
+        """
+
+        return self is GridSnappingLawV1.INTEGER_GRID_SNAP_V1
 
 
 class GridWindowOutcomeV1(str, Enum):
@@ -122,10 +152,17 @@ class IntegerGridCertificateV1:
     два поля: расхождение между числом названного и числом измеренного само по
     себе дефект.
 
-    `window_step` и `source_scale` при `INTEGER_GRID_SNAP_V1` — ВЫБРАННЫЙ
+    `window_step` и `source_scale` у всякого закона, который двигает источник
+    (`SOURCE_ONLY_GRID_SNAP_V1`, `INTEGER_GRID_SNAP_V1`), — ВЫБРАННЫЙ
     перебором шаг, то есть последняя проба в `scale_trials`. При
     `UNSNAPPED_EXACT_V1` перебора не было, и это первый кандидат окна: шаг,
     который окно предлагает у своей нижней границы.
+
+    Привязку конструкций сертификат не описывает и описывать не обязан: она
+    происходит ниже, в карте, и её решётка выводится из `window_step`
+    (`source_grid.chart_grid_for`). Два закона со снятой привязкой источника
+    здесь неразличимы намеренно — различие между ними живёт там, где оно
+    действует.
     """
 
     snapping_law: GridSnappingLawV1
@@ -164,7 +201,12 @@ class IntegerGridCertificateV1:
                 raise ValueError(
                     "исход пробы расходится с её же числом восстановленных"
                 )
-        if self.snapping_law is GridSnappingLawV1.UNSNAPPED_EXACT_V1:
+        # Проверки ниже принадлежат привязке ИСТОЧНИКА, а не одному закону:
+        # окно, перебор и доказательство восстановления одинаковы у
+        # `SOURCE_ONLY_GRID_SNAP_V1` и `INTEGER_GRID_SNAP_V1`, потому что
+        # источник они двигают одинаково, а различаются ниже — привязкой
+        # конструкций, которой в этом сертификате нет.
+        if not self.snapping_law.snaps_source:
             if self.scale_trials:
                 raise ValueError(
                     "UNSNAPPED_EXACT_V1 не перебирает масштабы: проб быть не может"
@@ -172,7 +214,7 @@ class IntegerGridCertificateV1:
             return
         if self.window_outcome is not GridWindowOutcomeV1.WINDOW_AVAILABLE:
             raise ValueError(
-                "INTEGER_GRID_SNAP_V1 требует открытого окна шага"
+                f"{self.snapping_law.value} требует открытого окна шага"
             )
         if self.window_step is None or self.source_scale is None:
             raise ValueError("привязка без объявленного шага невозможна")
@@ -182,7 +224,8 @@ class IntegerGridCertificateV1:
         # исходные координаты уже недоступны.
         if self.restored_right_corners != self.intended_right_corners:
             raise ValueError(
-                "INTEGER_GRID_SNAP_V1 не восстановил все задуманно прямые углы"
+                f"{self.snapping_law.value} не восстановил все задуманно "
+                "прямые углы"
             )
         self._check_trials()
 

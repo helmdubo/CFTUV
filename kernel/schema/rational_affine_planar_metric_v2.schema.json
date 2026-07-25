@@ -266,6 +266,7 @@
         "snapping_law": {
           "enum": [
             "UNSNAPPED_EXACT_V1",
+            "SOURCE_ONLY_GRID_SNAP_V1",
             "INTEGER_GRID_SNAP_V1"
           ],
           "type": "string"

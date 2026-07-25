@@ -237,8 +237,15 @@ def _canonicalization_sites(law, monkeypatch):
             sites[_Path(frame.filename).name] += 1
         return original(value)
 
+    # Патч снимается СВОИМ же вызовом, а не в конце теста. Иначе второй замер
+    # оборачивает трассировщик первого, первый продолжает считать чужой прогон,
+    # и его число оказывается суммой всех последующих — то есть замер меряет
+    # порядок вызовов, а не закон.
     monkeypatch.setattr(planar_types, "_canonical_expr", traced)
-    _evaluated(law, faces=SKEWED, routes=SKEWED_BOTTOM, alpha="0.25")
+    try:
+        _evaluated(law, faces=SKEWED, routes=SKEWED_BOTTOM, alpha="0.25")
+    finally:
+        monkeypatch.undo()
     return sites
 
 
@@ -667,43 +674,223 @@ def test_the_search_order_changes_the_scale_and_the_cost_of_that_is_measured():
     assert coarse[1] / fine[1] > 16
 
 
-def test_the_field_mesh_still_refuses_downstream_of_the_restored_corners():
-    """Почему `HOST_GRID_POLICY` остался `UNSNAPPED_EXACT_V1` — числом, а не прозой.
-
-    Проверка 2 на полевом меше теперь проходит (3 из 3), но полный прогон с
-    привязкой отказывает: `REFERENCE_ARRANGEMENT_ROTATION_SYSTEM_UNPROVEN`,
-    «boundary point does not have balanced incoming/outgoing half-edges», и
-    так на КАЖДОМ масштабе окна (128, 256, 512, 1024, 2048 — 4096 отсеивается
-    раньше, проверкой 2).
-
-    Отказ локализован и он не в выборе масштаба: при привязке одного только
-    ИСТОЧНИКА (решётка карты выключена) тот же прогон даёт `EXACT` и ту же
-    топологию, что и без решётки — 3 петли, 3 региона, 2 точечных контакта.
-    Ломает привязка КОНСТРУКЦИЙ — `offset_support_g` и `segment_intersections`,
-    то есть то самое слияние вычисленных точек, которое карточка R1b сама
-    называет лотереей, а не механизмом. На полевом меше оно сливает 3 точки и
-    оставляет две висячие полурёбра вместо замкнутой границы.
-
-    Тест держит этот факт исполняемым: пока он красный по-другому, включать
-    политику в хосте нельзя, а когда он покраснеет — блокер снят.
-    """
+def _field_evaluated(law):
+    """Полный прогон полевого меша под названным законом решётки."""
 
     import cftuv_envelope as kernel
 
     snapshot, request = _field_snapshot()
-    metric = _field_metric(snapshot, GridSnappingLawV1.INTEGER_GRID_SNAP_V1)
-    assert metric.grid_certificate.restored_right_corners == 3
-
+    metric = _field_metric(snapshot, law)
     snapshot = replace(snapshot, surface_metric_descriptors=frozenset({metric}))
     compiled = kernel.compile_reference_envelopes(snapshot, request)
     assert compiled.compilation is not None
-    result = kernel.evaluate_reference_raw_coverage(
+    return metric, kernel.evaluate_reference_raw_coverage(
         compiled.compilation, request.requested_alpha
     )
+
+
+def test_the_field_mesh_still_refuses_downstream_of_the_restored_corners():
+    """Почему хост НЕ доходит до `INTEGER_GRID_SNAP_V1` — числом, а не прозой.
+
+    Проверка 2 на полевом меше проходит (3 из 3), но полный прогон с привязкой
+    КОНСТРУКЦИЙ отказывает: `REFERENCE_ARRANGEMENT_ROTATION_SYSTEM_UNPROVEN`,
+    «boundary point does not have balanced incoming/outgoing half-edges», и
+    так на КАЖДОМ масштабе окна (128, 256, 512, 1024, 2048 — 4096 отсеивается
+    раньше, проверкой 2).
+
+    Отказ локализован разрезом, а не рассуждением: при привязке одного только
+    ИСТОЧНИКА (`SOURCE_ONLY_GRID_SNAP_V1`, решётка карты выключена) тот же
+    прогон даёт `EXACT` и ту же топологию, что и без решётки — 3 петли, 3
+    региона, 2 точечных контакта; это держит соседний тест. Ломает привязка
+    КОНСТРУКЦИЙ — `offset_support_g` и `segment_intersections`, то есть то
+    самое слияние вычисленных точек, которое карточка R1b сама называет
+    лотереей, а не механизмом. На полевом меше оно сливает 3 точки и оставляет
+    две висячие полурёбра вместо замкнутой границы.
+
+    Тест держит этот факт исполняемым: пока он красный по-другому, доводить
+    политику хоста до привязки конструкций нельзя, а когда он покраснеет —
+    блокер снят. Именно поэтому `INTEGER_GRID_SNAP_V1` не удалён вместе с
+    переключением хоста на `SOURCE_ONLY_GRID_SNAP_V1`: без него сторожить
+    блокер было бы нечем.
+    """
+
+    metric, result = _field_evaluated(GridSnappingLawV1.INTEGER_GRID_SNAP_V1)
+    assert metric.grid_certificate.restored_right_corners == 3
     assert (
         result.outcome
         is ReferenceOutcome.REFERENCE_ARRANGEMENT_ROTATION_SYSTEM_UNPROVEN
     )
+
+
+# --------------------------------------------------------------------------
+# Третий закон: привязан источник, конструкции — нет
+# --------------------------------------------------------------------------
+
+
+def _topology(result):
+    raw = result.raw_coverage
+    return (len(raw.loops), len(raw.regions), len(raw.point_contacts))
+
+
+def test_the_field_mesh_keeps_its_topology_when_only_the_source_is_snapped():
+    """То, ради чего срез: привязка источника не ломает того, что уже работало.
+
+    Сравнивается не с записанным числом, а с прогоном ПОД УМОЛЧАНИЕМ в этом же
+    тесте: «та же топология» — утверждение об отношении двух законов, и держать
+    его константой значило бы проверять, что константа не изменилась, а не что
+    законы согласны. Литеральные (3, 3, 2) стоят рядом, чтобы совпадение двух
+    сломанных прогонов не читалось как согласие.
+    """
+
+    _, default = _field_evaluated(GridSnappingLawV1.UNSNAPPED_EXACT_V1)
+    _, source_only = _field_evaluated(GridSnappingLawV1.SOURCE_ONLY_GRID_SNAP_V1)
+
+    assert default.outcome is ReferenceOutcome.EXACT
+    assert source_only.outcome is ReferenceOutcome.EXACT
+    assert _topology(default) == (3, 3, 2)
+    assert _topology(source_only) == _topology(default)
+
+
+def test_the_source_only_law_restores_every_intended_right_corner():
+    """Выигрыш нового закона: 3 из 3 там, где умолчание даёт 0 из 3.
+
+    Оба числа в одном тесте намеренно. «Восстановлено 3» само по себе ничего
+    не говорит: если бы умолчание тоже давало 3, восстанавливать было бы
+    нечего и закон не покупал бы ничего.
+    """
+
+    snapshot, _ = _field_snapshot()
+    default = _field_metric(
+        snapshot, GridSnappingLawV1.UNSNAPPED_EXACT_V1
+    ).grid_certificate
+    snapped = _field_metric(
+        snapshot, GridSnappingLawV1.SOURCE_ONLY_GRID_SNAP_V1
+    ).grid_certificate
+
+    assert default.intended_right_corners == 3
+    assert default.restored_right_corners == 0
+    assert snapped.intended_right_corners == 3
+    assert snapped.restored_right_corners == 3
+    # Тот же перебор, что и у привязки конструкций: источник они двигают
+    # одинаково, и расходятся ниже.
+    assert snapped.source_scale == 2048
+    assert [
+        (item.scale, item.restored_right_corners) for item in snapped.scale_trials
+    ] == [(4096, 1), (2048, 3)]
+
+
+def test_the_source_only_law_moves_the_source_and_leaves_constructions_exact():
+    """Разрез назван двумя величинами — значит и проверяется двумя.
+
+    `source_step` принадлежит привязке ИСТОЧНИКА (в метрах, её читает проверка
+    `alpha >= 4 x шаг`), `chart_grid` — привязке КОНСТРУКЦИЙ. Ровно этим
+    `SOURCE_ONLY_GRID_SNAP_V1` и отличается от `INTEGER_GRID_SNAP_V1`, поэтому
+    одной проверки «решётка есть/нет» тут недостаточно: она не отличила бы
+    снятую привязку конструкций от снятой привязки вовсе.
+    """
+
+    snapshot, _ = _field_snapshot()
+    expected = {
+        GridSnappingLawV1.UNSNAPPED_EXACT_V1: (None, None),
+        GridSnappingLawV1.SOURCE_ONLY_GRID_SNAP_V1: (Fraction(1, 2048), None),
+        # Решётка карты мельче решётки источника (32768 против 2048): её шаг
+        # выводится из метрического, а не берётся равным, и ячейка карты по
+        # доказанной границе никогда не крупнее ячейки источника.
+        GridSnappingLawV1.INTEGER_GRID_SNAP_V1: (Fraction(1, 2048), 32768),
+    }
+    for law, (step, chart_scale) in expected.items():
+        exact = ExactPlanarMetric.from_descriptor(_field_metric(snapshot, law))
+        assert exact.source_step == step, law
+        assert (
+            None if exact.chart_grid is None else exact.chart_grid.scale
+        ) == chart_scale, law
+        # Бюджет сдвига объявляется только там, где есть что сдвигать.
+        assert (exact.squared_snap_budget is None) is (chart_scale is None), law
+
+
+def test_the_source_only_snap_moves_a_field_vertex_by_a_measured_amount():
+    """Сдвиг вершины — цена закона, и она названа точной дробью, а не оценкой.
+
+    15/65536 = 2.288818e-04 м на `building.002`. Это ровно половина ячейки
+    выбранного шага 1/2048 = 4.882812e-04 м, то есть максимум, который привязка
+    вообще может стоить: функция объявляет границу, и её собственный результат
+    ей удовлетворяет.
+    """
+
+    from cftuv_envelope.source_grid import resolve_source_grid
+
+    snapshot, _ = _field_snapshot()
+    descriptor = next(iter(snapshot.surface_metric_descriptors))
+    domain = next(
+        item
+        for item in snapshot.patch_domains
+        if item.patch_domain_id == descriptor.patch_domain_id
+    )
+    faces = tuple(
+        sorted(
+            (
+                item
+                for item in snapshot.surface_ir.source_faces
+                if item.patch_id == domain.owner_patch_id
+            ),
+            key=lambda item: item.face_id.value,
+        )
+    )
+    before = {
+        vertex_id: value
+        for vertex_id, value in _positions(snapshot, faces).items()
+        if any(vertex_id in face.vertex_cycle for face in faces)
+    }
+    facts = resolve_source_grid(
+        positions=before,
+        faces=faces,
+        snapping_law=GridSnappingLawV1.SOURCE_ONLY_GRID_SNAP_V1,
+    )
+    after = facts.positions
+    shift = max(
+        max(abs(a - b) for a, b in zip(after[key], before[key], strict=True))
+        for key in before
+    )
+    step = Fraction(1, facts.certificate.source_scale)
+    assert shift == Fraction(15, 65536)
+    assert shift <= step / 2
+
+
+def test_snapping_the_source_alone_buys_no_algebraic_reduction(monkeypatch):
+    """Замер, отвечающий «нет»: производительности привязка источника не даёт.
+
+    Вопрос был открыт — покупает ли новый закон хоть сколько-нибудь алгебры,
+    ради которой решётка затевалась. Ответ измерен и он отрицательный:
+    901 канонизация без решётки, 901 с привязкой ОДНОГО источника, 41 с
+    привязкой конструкций. Механизм объясняет ровно это: радикал рождается в
+    `unit_g`, то есть у НАПРАВЛЕНИЯ, а привязать можно точку; источник
+    двигается, но ни одна алгебраическая конструкция от этого не исчезает.
+    Убирает их привязка конструкций — та самая, которая ломает полевую
+    топологию.
+
+    Отсюда честная формулировка среза: `SOURCE_ONLY_GRID_SNAP_V1` покупается
+    КОРРЕКТНОСТЬЮ (3 восстановленных прямых угла из 3), а не скоростью.
+    Счётчик считает вызовы `_canonical_expr`, а он не кэширован, поэтому три
+    закона в одном процессе дают три независимых числа.
+    """
+
+    unsnapped = _canonicalization_sites(
+        GridSnappingLawV1.UNSNAPPED_EXACT_V1, monkeypatch
+    )
+    source_only = _canonicalization_sites(
+        GridSnappingLawV1.SOURCE_ONLY_GRID_SNAP_V1, monkeypatch
+    )
+    snapped = _canonicalization_sites(
+        GridSnappingLawV1.INTEGER_GRID_SNAP_V1, monkeypatch
+    )
+
+    assert sum(source_only.values()) == sum(unsnapped.values())
+    assert dict(source_only) == dict(unsnapped)
+    # Радикал по-прежнему дотекает до arrangement: его останавливает не
+    # источник, а конструкции.
+    assert source_only["arrangement.py"] > 0
+    assert snapped["arrangement.py"] == 0
+    assert sum(snapped.values()) < sum(source_only.values()) / 10
 
 
 # --------------------------------------------------------------------------

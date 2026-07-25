@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from fractions import Fraction
 import sys
 from pathlib import Path
 
@@ -45,6 +46,7 @@ from cftuv.model import (  # noqa: E402
     WorldFacing,
 )
 from cftuv.surface_ir import (  # noqa: E402
+    HOST_GRID_POLICY,
     AnalysisBundle,
     PatchSurfaceIR,
     SourceEdge,
@@ -53,7 +55,10 @@ from cftuv.surface_ir import (  # noqa: E402
     SourceVertex,
     SurfaceTriangle,
 )
-from cftuv_envelope import compile_reference_envelopes  # noqa: E402
+from cftuv_envelope import (  # noqa: E402
+    PlanarityAdmissionLawV1,
+    compile_reference_envelopes,
+)
 
 
 def _single_patch_bundle(*, approximate_frame: bool = False, combined_chain: bool = False):
@@ -684,12 +689,34 @@ def test_affine_metric_uses_canonical_source_vertex_origin_exactly():
     assert evaluation.snapshot is not None
     metric = next(iter(evaluation.snapshot.surface_metric_descriptors))
     exact_origin = metric.exact_origin
-    expected = tuple(value.as_integer_ratio() for value in positions[0])
+    # Начало — вершина источника ТОЧНО, а не подгонка. «Точно» означает
+    # позицию под ОБЪЯВЛЕННЫМ законом решётки, а не сырую binary64: ровно так
+    # эту же сверку делает `validation._position_under_grid_law`
+    # (`DECISIONS.md` за 2026-07-25). Узел пересчитывается здесь заново из
+    # масштаба, который называет сертификат, поэтому проверяется ещё и то, что
+    # метрика привязана к ТОМУ масштабу, который объявляет.
+    from fractions import Fraction
+
+    from cftuv_envelope.robust.grid import GridSpecV1, snap_value
+
+    certificate = metric.grid_certificate
+    raw = tuple(Fraction(*value.as_integer_ratio()) for value in positions[0])
+    if certificate.snapping_law.snaps_source:
+        grid = GridSpecV1(scale=certificate.source_scale)
+        expected_origin = tuple(
+            Fraction(snap_value(item, grid), certificate.source_scale)
+            for item in raw
+        )
+    else:
+        expected_origin = raw
     assert (
-        (exact_origin.x.numerator, exact_origin.x.denominator),
-        (exact_origin.y.numerator, exact_origin.y.denominator),
-        (exact_origin.z.numerator, exact_origin.z.denominator),
-    ) == expected
+        Fraction(exact_origin.x.numerator, exact_origin.x.denominator),
+        Fraction(exact_origin.y.numerator, exact_origin.y.denominator),
+        Fraction(exact_origin.z.numerator, exact_origin.z.denominator),
+    ) == expected_origin
+    # Закон обязан быть тем, который объявил хост, иначе сверка выше
+    # проверяет саму себя.
+    assert certificate.snapping_law.value == HOST_GRID_POLICY.value
 
 
 def test_exact_plane_with_irrational_unit_normal_uses_rational_affine_metric():
@@ -853,7 +880,7 @@ def test_unselected_nonexact_patch_does_not_block_selected_exact_domain():
     assert len(evaluation.debug_scene.patch_domain_ids) == 1
 
 
-def test_selected_non_coplanar_patch_still_fails_exact_frame_admission():
+def _seam_bundle_with_off_plane_vertex(z: float):
     bundle = _two_patch_seam_bundle()
     root = 2.0**-0.5
     bundle.patch_graph.nodes[1].basis_u = Vector((root, root, 0.0))
@@ -861,21 +888,35 @@ def test_selected_non_coplanar_patch_still_fails_exact_frame_admission():
     surface = replace(
         bundle.patch_surface,
         vertices=tuple(
-            replace(vertex, position=(4.0, 2.0, 0.000001))
+            replace(vertex, position=(4.0, 2.0, z))
             if vertex.vertex_id == 5
             else vertex
             for vertex in bundle.patch_surface.vertices
         ),
     )
-    bundle = AnalysisBundle(
+    return AnalysisBundle(
         bundle.source_revision,
         bundle.patch_graph,
         surface,
         bundle.capabilities,
     )
 
+
+def test_selected_non_coplanar_patch_still_fails_exact_frame_admission():
+    """Отклонение, ПЕРЕЖИВШЕЕ решётку, по-прежнему отвергается бюджетом.
+
+    Отклонение здесь 1e-2, а не прежние 1e-6, и число сменилось не для
+    удобства: с `HOST_GRID_POLICY = SOURCE_ONLY_GRID_SNAP_V1` вершины источника
+    привязываются ДО проверки планарности, а выбранный на этом патче шаг —
+    1/256, то есть половина ячейки 1.95e-03. Всё, что ближе к плоскости,
+    привязка кладёт в неё точно, и отвергать становится нечего; это не обход
+    проверки, а её механизм — соседний тест держит именно этот факт.
+    1e-2 больше половины ячейки, поэтому переживает привязку и обязано быть
+    отвергнутым бюджетом невязки, как и прежде.
+    """
+
     evaluation = evaluate_envelope_debug(
-        bundle,
+        _seam_bundle_with_off_plane_vertex(0.01),
         frozenset({4}),
         0.25,
     )
@@ -884,13 +925,46 @@ def test_selected_non_coplanar_patch_still_fails_exact_frame_admission():
     assert evaluation.diagnostics[0].outcome is (
         EnvelopeDebugHostOutcome.RUNTIME_NEAR_PLANAR_PROJECTION_POLICY_REQUIRED
     )
-    # Хост объявляет NEAR_PLANAR_PROJECTION_V1, поэтому отказ теперь
-    # приходит от бюджета невязки, а не от требования побитовой
-    # компланарности. Отклонение 1e-6 при размере патча 4 превышает
-    # бюджет ~4e-7 и обязано быть отвергнутым по-прежнему.
+    # Хост объявляет NEAR_PLANAR_PROJECTION_V1, поэтому отказ приходит от
+    # бюджета невязки, а не от требования побитовой компланарности.
     assert "beyond the declared near-planar budget" in (
         evaluation.diagnostics[0].message
     )
+
+
+def test_a_deviation_below_half_a_cell_is_absorbed_by_the_source_snap():
+    """Новое следствие привязки источника, записанное как факт, а не как побочка.
+
+    Вершина в 1 мкм от плоскости при половине ячейки 1.53e-05 ложится в
+    плоскость ТОЧНО, и патч проходит `EXACT_SOURCE_PLANE_V1` — не «в пределах
+    бюджета», а побитово. Это ровно тот механизм, ради которого решётка и
+    вводилась (задуманное отношение восстанавливается структурно, а не
+    допуском), но у него есть цена, которую видно только отсюда: порогом
+    планарности на практике становится половина ячейки, а она на четыре
+    порядка крупнее бюджета невязки. Прежде этот вход отвергался.
+
+    Тест держит обе стороны: и что отклонение исчезло, и что исчезло оно
+    ТОЧНО, а не было прощено.
+    """
+
+    evaluation = evaluate_envelope_debug(
+        _seam_bundle_with_off_plane_vertex(0.000001),
+        frozenset({4}),
+        0.25,
+    )
+
+    assert evaluation.diagnostics == ()
+    assert evaluation.snapshot is not None
+    for descriptor in evaluation.snapshot.surface_metric_descriptors:
+        certificate = descriptor.planarity_certificate
+        assert certificate.admission_law is (
+            PlanarityAdmissionLawV1.EXACT_SOURCE_PLANE_V1
+        )
+        assert certificate.exact is True
+        grid = descriptor.grid_certificate
+        assert grid.snapping_law.snaps_source
+        # Половина ячейки — та величина, которая отклонение и поглотила.
+        assert Fraction(1, 2 * grid.source_scale) > Fraction(1, 10**6)
 
 
 def test_seam_self_maps_to_two_uses_in_one_domain_without_self_contact_guessing():
@@ -961,11 +1035,20 @@ def test_topology_scene_uses_host_facts_without_loading_exact_kernel(monkeypatch
 
 
 def test_staged_exact_keeps_topology_when_one_domain_rejects_metric():
+    """Отклонение 1e-2, а не прежнее 1e-3, по той же причине, что и выше.
+
+    Выбранный на этом патче шаг — 1/256, половина ячейки 1.95e-03, поэтому
+    прежний 1 мм привязка кладёт в плоскость точно и отвергать становится
+    нечего: домен доходит до `RESOLVED`, и тест перестаёт проверять то, ради
+    чего написан, — что отказ ОДНОГО домена не уносит топологию остальных.
+    1e-2 переживает привязку, поэтому отказ остаётся настоящим.
+    """
+
     bundle = _two_patch_seam_bundle()
     surface = replace(
         bundle.patch_surface,
         vertices=tuple(
-            replace(vertex, position=(4.0, 2.0, 0.001))
+            replace(vertex, position=(4.0, 2.0, 0.01))
             if vertex.vertex_id == 5
             else vertex
             for vertex in bundle.patch_surface.vertices
