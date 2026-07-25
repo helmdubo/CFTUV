@@ -145,7 +145,7 @@ def measure(
         build_seconds = time.perf_counter() - started
 
         started = time.perf_counter()
-        backend.exact_union(contribution, domain, {})
+        union = backend.exact_union(contribution, domain, {})
         union_seconds = time.perf_counter() - started
 
         rows.append(
@@ -157,6 +157,10 @@ def measure(
                 "narrowphase_tests": build.counters.narrowphase_tests,
                 "actual_intersections": build.counters.actual_intersections,
                 "atomic_edges": build.counters.atomic_edges,
+                # Те же оси, что профиль хоста печатает по каждому домену:
+                # иначе стенд и поле не сравнить, а стенд затем и нужен.
+                "output_regions": len(union.regions),
+                "output_edges": len(union.edges),
             }
         )
     return rows
