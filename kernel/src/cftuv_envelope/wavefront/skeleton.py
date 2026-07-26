@@ -22,11 +22,23 @@ BSD-3-Clause, C++, код не переносился) и совпадает с 
    на число рёбер (наивный поиск). Выход за бюджет — ИМЕНОВАННЫЙ исход, а не
    `return`, как `bestt == 1e100` у Трики.
 
-ШОВ, объявленный открыто. Кандидаты в split ищутся перебором «reflex-вершина x
-ребро», то есть O(n*r) на построение и O(n) на каждую новую reflex-вершину.
-Именно это даёт Трики 100.89 с на 1024 вершинах. Motorcycle graph (Huber, теорема
-2.11) в этот срез не поместился; шов назван `MotorcycleSeam` в `events.py` и
-измерен в `tools/benchmark_wavefront_scaling.py`.
+ПОИСК SPLIT-КАНДИДАТОВ. Способов два, и оба живые — второй существует потому,
+что первый обязан быть чем-то проверен.
+
+| способ | кандидатов при 2002 вершинах | зачем он есть |
+|---|---:|---|
+| `EXHAUSTIVE` | 1 998 000 (ровно `reflex * рёбра`) | эталон дифференциального теста |
+| `MOTORCYCLE` | см. `split_candidates_examined` | рабочий путь |
+
+`MOTORCYCLE` опирается на теорему 2.11 Huber'а (`motorcycle.py`): reflex-вершина
+волны не уходит за свою трассу, поэтому расстояние от точки split до несущей
+прямой рассекаемого ребра не больше времени крушения, и кандидаты берутся из
+ячеек вокруг трассы. Наивная проверка «точка попала в текущий отрезок фронта»
+остаётся на месте: она необходима, но НЕ достаточна — это измерено.
+
+`EXHAUSTIVE` не «старый код, который забыли убрать»: оптимизация законна ровно
+настолько, насколько даёт тот же ответ, а сравнивать не с чем, если эталон
+удалить.
 """
 
 from __future__ import annotations
@@ -37,6 +49,7 @@ from fractions import Fraction
 from functools import cmp_to_key
 
 from .event_time import (
+    ZERO_TIME,
     EventPointV1,
     EventTimeV1,
     EventTimeOutcome,
@@ -46,11 +59,21 @@ from .event_time import (
     event_point,
 )
 from .events import CandidateEventV1, EventKind, EventQueueV1, cluster_by_point
+from .motorcycle import (
+    MotorcycleGraphV1,
+    TraceCandidateIndexV1,
+    TraceV1,
+    build_motorcycle_graph,
+)
 from .polygon import PolygonV1
 from .sqrt_sum import SqrtSumV1
 
 
-ZERO_TIME = EventTimeV1(Fraction(0), SqrtSumV1.rational(1))
+class SplitSearch(str, Enum):
+    """Чем ищутся split-кандидаты. Оба пути обязаны давать один ответ."""
+
+    MOTORCYCLE = "MOTORCYCLE"
+    EXHAUSTIVE = "EXHAUSTIVE"
 
 
 class SkeletonOutcome(str, Enum):
@@ -122,17 +145,26 @@ def level_budget(polygon: PolygonV1) -> int:
     return 4 * n + 4 * n * r + 16
 
 
-def build_skeleton(polygon: PolygonV1) -> SkeletonV1:
+def build_skeleton(
+    polygon: PolygonV1,
+    *,
+    split_search: SplitSearch = SplitSearch.MOTORCYCLE,
+) -> SkeletonV1:
     """Скелет области как последовательность событий по возрастанию времени."""
 
-    return _Builder(polygon).run()
+    return _Builder(polygon, split_search).run()
 
 
 class _Builder:
     """Носитель состояния цикла. Разбит на короткие этапы конвейера."""
 
-    def __init__(self, polygon: PolygonV1) -> None:
+    def __init__(
+        self,
+        polygon: PolygonV1,
+        split_search: SplitSearch = SplitSearch.MOTORCYCLE,
+    ) -> None:
         self.polygon = polygon
+        self.split_search = split_search
         self.edges: list[_Edge] = []
         self.vertices: list[_Vertex] = []
         self.queue = EventQueueV1()
@@ -140,6 +172,16 @@ class _Builder:
         self.edge_end: dict[int, int] = {}
         self.nodes: list[SkeletonNodeV1] = []
         self.refusal: SkeletonOutcome | None = None
+        # Трассы мотоциклов и двусторонний индекс. `None` — путь полного
+        # перебора: эталон, с которым сверяется рабочий путь.
+        self.graph: MotorcycleGraphV1 | None = None
+        self.index: TraceCandidateIndexV1 | None = None
+        self.traces: dict[int, TraceV1] = {}
+        self.line_id: dict[tuple[int, int, int, int], int] = {}
+        self.edges_by_line: dict[int, list[int]] = {}
+        # Reflex-вершины, за которые индекс НЕ отвечает: их кандидаты всегда
+        # перебираются полностью. Забыть их означало бы потерять события молча.
+        self.unindexed_reflex: set[int] = set()
         # Время уже снятого уровня. Кандидат раньше него — событие в прошлом
         # фронта, а не будущее: очередь его уже прошла. Без этой отсечки
         # ВЫДАВАЕМОЕ время переставало быть неубывающим на входах, где фронт
@@ -154,6 +196,9 @@ class _Builder:
             "multi_participant_nodes": 0,
             "discarded_stale_candidates": 0,
             "split_candidates_examined": 0,
+            "split_candidates_beyond_trace": 0,
+            "split_search_exhaustive_vertices": 0,
+            "split_search_exhaustive_segments": 0,
             "coincident_split_targets": 0,
             "peaks": 0,
             "ridges": 0,
@@ -165,6 +210,12 @@ class _Builder:
     def _seed(self) -> None:
         """`InitSlav` на каждый контур, включая каждую дыру."""
 
+        self._seed_loops()
+        self._seed_traces()
+        for vertex in self.vertices:
+            self._enqueue_for(vertex)
+
+    def _seed_loops(self) -> None:
         for loop in self.polygon.loops:
             points = loop.points
             reflex = loop.reflex_flags()
@@ -197,8 +248,51 @@ class _Builder:
                     )
                 )
                 self._register(self.vertices[-1])
+        for edge in self.edges:
+            self._register_line(edge)
+
+    def _register_line(self, edge: _Edge) -> int:
+        """Ребро под свою НЕСУЩУЮ ПРЯМУЮ. Близнецы разреза делят одну прямую.
+
+        Индекс опрашивается по прямым, а не по рёбрам: рассечённое ребро
+        размножается в счёте на несколько отрезков фронта с одним и тем же
+        геометрическим ключом, и разметка от этого не меняется — меняется только
+        список владельцев.
+        """
+
+        ident = self.line_id.get(edge.key)
+        if ident is None:
+            ident = len(self.line_id)
+            self.line_id[edge.key] = ident
+            self.edges_by_line[ident] = []
+        self.edges_by_line[ident].append(edge.ident)
+        return ident
+
+    def _seed_traces(self) -> None:
+        """Motorcycle graph по входу и двусторонний индекс по его трассам."""
+
+        if self.split_search is not SplitSearch.MOTORCYCLE:
+            return
+        self.graph = build_motorcycle_graph(self.polygon)
+        self.index = TraceCandidateIndexV1.covering(self.polygon, self.graph)
+        for line_key, ident in self.line_id.items():
+            self.index.register_line(
+                ident, SupportLineV1(*line_key)
+            )
         for vertex in self.vertices:
-            self._enqueue_for(vertex)
+            if not vertex.reflex:
+                continue
+            self._adopt_trace(vertex, self.graph.traces.get(vertex.ident))
+
+    def _adopt_trace(self, vertex: _Vertex, trace: TraceV1 | None) -> None:
+        """Принять трассу вершины либо честно объявить её неиндексируемой."""
+
+        if trace is None or trace.crash_time is None:
+            self.unindexed_reflex.add(vertex.ident)
+            return
+        self.traces[vertex.ident] = trace
+        if not self.index.register_trace(vertex.ident, trace):
+            self.unindexed_reflex.add(vertex.ident)
 
     # ---- порождение кандидатов ------------------------------------------
 
@@ -230,15 +324,29 @@ class _Builder:
         )
 
     def _enqueue_split_events(self, vertex: _Vertex) -> None:
-        """Наивный перебор рёбер. Это и есть объявленный шов O(n*r)."""
+        """Кандидаты с трассы, если индекс за вершину отвечает; иначе перебор."""
 
+        if self.index is not None and self.index.knows_vertex(vertex.ident):
+            self._enqueue_splits_from_trace(vertex)
+            return
+        self.counters["split_search_exhaustive_vertices"] += 1
         for edge in self.edges:
-            if edge.ident in (vertex.prev_edge, vertex.next_edge):
-                continue
-            self.counters["split_candidates_examined"] += 1
-            candidate = self._split_candidate(vertex, edge)
-            if candidate is not None:
-                self.queue.push(candidate)
+            self._try_split(vertex, edge)
+
+    def _enqueue_splits_from_trace(self, vertex: _Vertex) -> None:
+        """Только рёбра тех прямых, что заходят в рамку трассы этой вершины."""
+
+        for line_ident in self.index.lines_near(vertex.ident):
+            for edge_ident in self.edges_by_line[line_ident]:
+                self._try_split(vertex, self.edges[edge_ident])
+
+    def _try_split(self, vertex: _Vertex, edge: _Edge) -> None:
+        if edge.ident in (vertex.prev_edge, vertex.next_edge):
+            return
+        self.counters["split_candidates_examined"] += 1
+        candidate = self._split_candidate(vertex, edge)
+        if candidate is not None:
+            self.queue.push(candidate)
 
     def _split_candidate(
         self, vertex: _Vertex, edge: _Edge
@@ -253,6 +361,13 @@ class _Builder:
         if time.sign <= 0 or compare_times(time, vertex.birth) <= 0:
             return None
         if compare_times(time, self.now) < 0:
+            return None
+        # ТЕОРЕМА 2.11: вершина не уходит за свою трассу, значит событие позже
+        # крушения невозможно. Это и есть достаточное условие, которого наивной
+        # проверке попадания в отрезок не хватало.
+        trace = self.traces.get(vertex.ident)
+        if trace is not None and not trace.bounds_time(time):
+            self.counters["split_candidates_beyond_trace"] += 1
             return None
         point = self._vertex_position(vertex, time)
         if point is None or not self._edge_span_contains(edge, point, time):
@@ -365,11 +480,16 @@ class _Builder:
         return self._finish(outcome, levels)
 
     def _finish(self, outcome: SkeletonOutcome, levels: int) -> SkeletonV1:
+        counters = dict(self.counters)
+        if self.graph is not None:
+            # Цена графа входит в отчёт. Иначе выигрыш в кандидатах мерился бы
+            # против базы, у которой этой статьи расхода просто нет.
+            counters.update(self.graph.counters)
         return SkeletonV1(
             outcome=outcome,
             nodes=tuple(self.nodes),
             levels=levels,
-            counters=tuple(sorted(self.counters.items())),
+            counters=tuple(sorted(counters.items())),
         )
 
     def _apply_level(self, level: tuple[CandidateEventV1, ...]) -> None:
@@ -634,23 +754,40 @@ class _Builder:
         self._enqueue_edge_event(span_start)
 
     def _enqueue_splits_against(self, edge: _Edge) -> None:
-        """Кандидаты всех живых reflex-вершин против ВНОВЬ ПОЯВИВШЕГОСЯ отрезка.
+        """Кандидаты живых reflex-вершин против ВНОВЬ ПОЯВИВШЕГОСЯ отрезка.
 
         Без этого срез теряет события молча, и потеря видна не сразу: у
         квадрата с двумя дырами четыре верхних угла дыр целят в одно и то же
         верхнее ребро в один и тот же момент, первый разрез рассекает это ребро
-        надвое, и оставшиеся кандидаты перестают попадать в СВОЙ отрезок. Это
-        ровно цена наивного поиска: он ищет по рёбрам, а рёбра во время счёта
-        размножаются.
+        надвое, и оставшиеся кандидаты перестают попадать в СВОЙ отрезок. Рёбра
+        во время счёта размножаются, поэтому перепорождение обязательно.
+
+        Запрос обратный к `lines_near` и по построению согласован с ним: пара
+        попадает в кандидаты тогда и только тогда, когда у вершины и прямой есть
+        общая ячейка. Несогласованность двух направлений теряла бы ровно те
+        события, которые нашёл первый проход.
         """
 
-        for vertex in self.vertices:
+        for ident in self._split_partners(edge):
+            vertex = self.vertices[ident]
             if not (vertex.alive and vertex.reflex):
                 continue
             self.counters["split_candidates_examined"] += 1
             candidate = self._split_candidate(vertex, edge)
             if candidate is not None:
                 self.queue.push(candidate)
+
+    def _split_partners(self, edge: _Edge) -> tuple[int, ...]:
+        line_ident = self.line_id.get(edge.key)
+        if (
+            self.index is None
+            or line_ident is None
+            or not self.index.knows_line(line_ident)
+        ):
+            self.counters["split_search_exhaustive_segments"] += 1
+            return tuple(range(len(self.vertices)))
+        near = set(self.index.vertices_near(line_ident))
+        return tuple(sorted(near | self.unindexed_reflex))
 
     def _twin(self, edge: _Edge) -> _Edge:
         """Копия ребра под новым идентификатором и с ТЕМ ЖЕ ключом.
@@ -663,6 +800,7 @@ class _Builder:
 
         twin = _Edge(len(self.edges), edge.line)
         self.edges.append(twin)
+        self._register_line(twin)
         return twin
 
     def _emit_split_node(
@@ -686,6 +824,19 @@ class _Builder:
         )
         self.vertices.append(vertex)
         self._register(vertex)
+        if vertex.reflex and self.graph is not None:
+            # У рождённой вершины motorcycle graph трассы не имеет: граф
+            # определён на reflex-вершинах ВХОДА. Её граница — стенная, то есть
+            # слабее теоремы 2.11, но верна без всякой теоремы.
+            self._adopt_trace(
+                vertex,
+                self.graph.trace_for(
+                    self.edges[vertex.prev_edge].line,
+                    self.edges[vertex.next_edge].line,
+                    vertex.birth,
+                    vertex.point,
+                ),
+            )
         return vertex
 
     def _emit(

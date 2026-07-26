@@ -41,11 +41,32 @@ class EventKind(str, Enum):
 
 
 class MotorcycleSeam(str, Enum):
-    """Почему `START` и `SWITCH` не появляются. Шов назван, а не замолчан."""
+    """Почему `START` и `SWITCH` не появляются. Шов назван, а не замолчан.
+
+    Первая запись ОТМЕНЕНА: граф построен (`motorcycle.py`), split-кандидаты
+    берутся с трасс, и `MotorcycleSeamOutcome.current()` её больше не возвращает.
+    Она оставлена, потому что отмена должна быть видимой, а не молчаливой.
+
+    Осталось второе, и оно уже точнее первого. `START` и `SWITCH` рождаются не
+    из графа как такового, а из РАСШИРЕННОГО фронта: Steiner-вершины графа
+    обязаны стать вершинами самого фронта, а фронт — вестись по ячейкам
+    арранжемента трасс, не пересекая их. Граф Steiner-вершины даёт и считает
+    (`resting_steiner_vertices`), фронт по ячейкам не ведётся, поэтому оба типа
+    недостижимы и их счётчики равны нулю С НАЗВАННОЙ ПРИЧИНОЙ.
+    """
 
     MOTORCYCLE_GRAPH_NOT_BUILT_IN_THIS_SLICE = (
         "MOTORCYCLE_GRAPH_NOT_BUILT_IN_THIS_SLICE"
     )
+    EXTENDED_WAVEFRONT_NOT_BUILT_IN_THIS_SLICE = (
+        "EXTENDED_WAVEFRONT_NOT_BUILT_IN_THIS_SLICE"
+    )
+
+    @staticmethod
+    def current() -> "MotorcycleSeam":
+        """Шов, действующий СЕЙЧАС. Одно значение, а не список исторических."""
+
+        return MotorcycleSeam.EXTENDED_WAVEFRONT_NOT_BUILT_IN_THIS_SLICE
 
 
 @dataclass(frozen=True, slots=True)
