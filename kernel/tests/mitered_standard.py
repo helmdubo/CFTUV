@@ -121,6 +121,7 @@ class RectilinearStandardV1:
     mitered_covered: Fraction
     strip_covered: Fraction
     reflex_count: int
+    reflex_square_union: Fraction
     detail: str = ""
 
     @property
@@ -131,11 +132,17 @@ class RectilinearStandardV1:
 
     @property
     def reflex_square_budget(self) -> Fraction:
-        """Верхняя граница разности: по `alpha^2` на каждую вогнутую вершину.
+        """Сумма `alpha^2` по вогнутым вершинам. Верхняя граница разности.
 
-        Граница достигается только когда квадраты вогнутых вершин попарно не
-        пересекаются и ни одна чужая полоса до них не дошла. Иначе разность
-        строго меньше — и это не дефект, а пересечение квадратов.
+        Разложение разности на три числа существует затем, чтобы «меньше суммы»
+        не превратилось в «непонятно почему меньше»:
+
+            strip_deficit <= reflex_square_union <= reflex_square_budget
+
+        Первое неравенство строгое, когда до квадрата вогнутой вершины дошла
+        ЧУЖАЯ юбка. Второе — когда квадраты соседних вершин ПЕРЕСЕКАЮТСЯ либо
+        квадрат вылез из фигуры. Оба случая законны и оба обязаны быть названы
+        числом, а не оговоркой.
         """
 
         return self.reflex_count * self.alpha * self.alpha
@@ -279,6 +286,49 @@ def mitered_inset_rectangles(
     return tuple(inset)
 
 
+def reflex_squares(polygon: PolygonV1, alpha: Fraction) -> tuple[Rect, ...]:
+    """Квадраты `alpha x alpha` у вогнутых вершин — то, чего не накрывает ни юбка.
+
+    Квадрат растёт из вершины по ВНУТРЕННИМ нормалям обоих её рёбер: юбка каждого
+    ребра обрезана концом ребра, поэтому за концом остаётся незакрытый угол, а
+    митрованный отступ его накрывает целиком. Сторона выводится из ориентации
+    («влево от хода» — внутрь, это нормировано `PolygonV1.build`), а не задаётся
+    параметром, иначе выбор стороны стал бы второй точкой принятия решения.
+    """
+
+    squares: list[Rect] = []
+    for loop in polygon.loops:
+        points = loop.points
+        for index, is_reflex in enumerate(loop.reflex_flags()):
+            if not is_reflex:
+                continue
+            previous = points[index - 1]
+            current = points[index]
+            following = points[(index + 1) % len(points)]
+            incoming = (
+                -(current[1] - previous[1]),
+                current[0] - previous[0],
+            )
+            outgoing = (
+                -(following[1] - current[1]),
+                following[0] - current[0],
+            )
+            towards_x = incoming[0] + outgoing[0]
+            towards_y = incoming[1] + outgoing[1]
+            x_low, x_high = (
+                (Fraction(current[0]), current[0] + alpha)
+                if towards_x > 0
+                else (current[0] - alpha, Fraction(current[0]))
+            )
+            y_low, y_high = (
+                (Fraction(current[1]), current[1] + alpha)
+                if towards_y > 0
+                else (current[1] - alpha, Fraction(current[1]))
+            )
+            squares.append((x_low, x_high, y_low, y_high))
+    return tuple(squares)
+
+
 def _refined_axis(values: tuple[int, ...], alpha: Fraction) -> tuple[Fraction, ...]:
     """Ось сжатой сетки: сами координаты входа и они же, сдвинутые на +-alpha.
 
@@ -312,6 +362,7 @@ def _refused(
         Fraction(0),
         Fraction(0),
         polygon.reflex_count,
+        Fraction(0),
         detail,
     )
 
@@ -341,6 +392,7 @@ def rectilinear_standard(
 
     inset = mitered_inset_rectangles(polygon, alpha)
     strips = tuple(strip_of(start, end, alpha) for start, end in edges)
+    squares = reflex_squares(polygon, alpha)
     grid_x = _refined_axis(
         tuple(sorted({x for loop in polygon.loops for x, _ in loop.points})), alpha
     )
@@ -351,6 +403,7 @@ def rectilinear_standard(
     cells_area = Fraction(0)
     inset_area = Fraction(0)
     strip_area = Fraction(0)
+    square_area = Fraction(0)
     for i in range(len(grid_x) - 1):
         centre_x = (grid_x[i] + grid_x[i + 1]) / 2
         width = grid_x[i + 1] - grid_x[i]
@@ -364,6 +417,8 @@ def rectilinear_standard(
                 inset_area += size
             if _in_any(strips, centre_x, centre_y):
                 strip_area += size
+            if _in_any(squares, centre_x, centre_y):
+                square_area += size
     if cells_area != area:
         return _refused(
             StandardOutcome.CELLS_DO_NOT_REPRODUCE_THE_POLYGON,
@@ -380,4 +435,5 @@ def rectilinear_standard(
         area - inset_area,
         strip_area,
         polygon.reflex_count,
+        square_area,
     )
