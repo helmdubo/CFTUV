@@ -354,31 +354,55 @@ def print_table(rows: tuple[Row, ...]) -> None:
             f"{row.seconds_pairwise:6.2f} {row.seconds_queue:6.2f}"
         )
     print()
-    print("Расхождения, где они есть (точные выражения):")
+    print(
+        "Расхождения площадей. Вердикт точный (`exact_sign`), числа рядом — "
+        "для чтения, решения по ним не принимаются."
+    )
     any_defect = False
     for row in rows:
-        if row.outcome != BENCH_EXACT:
+        if row.raw_area is None or row.queue_area is None:
             continue
         queue_defect = row.queue_defect
-        resolved_defect = row.resolved_defect
-        if queue_defect is not None and queue_defect != 0:
+        if queue_defect is not None and exact_sign(queue_defect) != 0:
             any_defect = True
-            print(f"  {row.case} alpha={row.alpha}: raw - queue = {queue_defect}")
-        if resolved_defect is not None and resolved_defect != 0:
+            print(
+                f"  {row.case} alpha={row.alpha}: raw - queue = "
+                f"{_number(queue_defect)}  "
+                f"(raw {_number(row.raw_area)}, queue {_number(row.queue_area)})"
+            )
+        resolved_defect = row.resolved_defect
+        if resolved_defect is not None and exact_sign(resolved_defect) != 0:
             any_defect = True
             print(
                 f"  {row.case} alpha={row.alpha}: raw - resolved = "
-                f"{resolved_defect} = {float(resolved_defect):.9f}"
+                f"{_number(resolved_defect)}"
             )
-        if row.resolved_area is None:
+        if row.resolved_area is None and row.outcome == BENCH_EXACT:
             any_defect = True
             print(
                 f"  {row.case} alpha={row.alpha}: попарный крой отказал — "
-                f"{row.pairwise_outcome}, площади нет вовсе; "
-                f"raw = {row.raw_area}, queue = {row.queue_area}"
+                f"{row.pairwise_outcome}; площади нет вовсе, "
+                f"raw = {_number(row.raw_area)}, "
+                f"queue = {_number(row.queue_area)}"
             )
     if not any_defect:
         print("  нет ни одного")
+
+
+def _number(expression: sp.Expr) -> str:
+    """Читаемое число рядом с точным вердиктом.
+
+    Короткое выражение печатается как есть, длинное — только числом: на
+    полевом контуре точная разность занимает несколько экранов и в таблице
+    ничего не сообщает. Решение о равенстве при этом уже принято `exact_sign`,
+    а не этой строкой.
+    """
+
+    text = str(expression)
+    value = float(expression)
+    if len(text) <= 40:
+        return f"{text} = {value:.9f}"
+    return f"{value:.9f} (точное выражение из {len(text)} знаков)"
 
 
 def main() -> int:
