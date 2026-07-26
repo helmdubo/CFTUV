@@ -297,12 +297,16 @@ def test_exhausting_the_declared_budget_is_a_named_outcome_not_a_silent_return()
     assert skeleton.levels == 1
 
 
-def test_the_missing_motorcycle_graph_is_a_named_seam_not_a_silence():
-    """Типов событий четыре; два из них требуют Steiner-вершин, которых нет.
+def test_the_unbuilt_extended_wavefront_is_a_named_seam_not_a_silence():
+    """Типов событий четыре; два из них требуют РАСШИРЕННОГО фронта, которого нет.
 
     Счётчики `start_events`/`switch_events` существуют и равны нулю, а причина
     названа. Ноль с названной причиной — измерение; отсутствие счётчика —
     умолчание.
+
+    Прежняя причина («граф не построен») отменена срезом Q2 и здесь же
+    проверяется отменённой: значение осталось в перечислении, чтобы отмена была
+    видимой, но действующий шов — уже другой.
     """
 
     assert {kind.value for kind in EventKind} == {
@@ -312,8 +316,12 @@ def test_the_missing_motorcycle_graph_is_a_named_seam_not_a_silence():
         "SWITCH",
     }
     assert (
-        MotorcycleSeam.MOTORCYCLE_GRAPH_NOT_BUILT_IN_THIS_SLICE.value
-        == "MOTORCYCLE_GRAPH_NOT_BUILT_IN_THIS_SLICE"
+        MotorcycleSeam.current()
+        is MotorcycleSeam.EXTENDED_WAVEFRONT_NOT_BUILT_IN_THIS_SLICE
+    )
+    assert (
+        MotorcycleSeam.current()
+        is not MotorcycleSeam.MOTORCYCLE_GRAPH_NOT_BUILT_IN_THIS_SLICE
     )
     for outer, holes in CORPUS.values():
         skeleton = _skeleton(outer, holes)
