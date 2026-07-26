@@ -692,6 +692,14 @@ for _module in _PUBLIC_VALUE_MODULES:
         if _name not in globals() and hasattr(_module, _name):
             globals()[_name] = getattr(_module, _name)
 
+# `wavefront` подтягивается сюда ровно затем, чтобы быть тут же убранным из
+# пространства имён пакета, — как это уже сделано с `robust`. Без раннего
+# импорта первый же `import cftuv_envelope.wavefront` у любого потребителя
+# ПРИВЯЗАЛ БЫ имя подмодуля к пакету, и `dir(cftuv_envelope)` разошёлся бы с
+# `__all__`. Публичного API это не расширяет: имя удаляется ниже, `__all__`
+# не меняется, дайджест публичного API остаётся прежним.
+from . import wavefront as _wavefront
+
 for _module_name in (
     "canonical",
     "codec",
@@ -709,7 +717,8 @@ for _module_name in (
     "source_grid",
     "runtime_metric",
     "robust",
+    "wavefront",
 ):
     globals().pop(_module_name, None)
 
-del _module, _module_name, _name
+del _module, _module_name, _name, _wavefront

@@ -1,0 +1,81 @@
+"""Волновой фронт: очередь событий по ТОЧНОМУ времени, отдельным модулем.
+
+Модуль живёт рядом с `robust/` и, как он, ни к чему не подключён: проводка —
+следующий срез. Здесь строится и доказывается только одно — что события можно
+упорядочить и сгруппировать точно, без порогов и без вычисления времени.
+
+Главный результат среза, вынесенный сюда, чтобы его нельзя было не заметить:
+
+    время события в общем случае ИРРАЦИОНАЛЬНО (алгебраическое степени до 8),
+    но очередь его НЕ ВЫЧИСЛЯЕТ: `t = -D0/S` хранится парой (целое, SqrtSum),
+    и обе нужные операции — сравнение и проверка одновременности — сводятся
+    к целочисленной арифметике.
+
+Равенство времён при этом ЧИСТО РАЦИОНАЛЬНО: разность обращается в ноль тогда
+и только тогда, когда пуст канонический набор коэффициентов. Именно поэтому
+«одновременно» и «та же точка» решаются точно, а не допуском `1e-10` (Kendzi)
+и не квантованием к 1 мм (Трики).
+
+Что здесь есть:
+- `sqrt_sum` — сумма корней с рациональными коэффициентами, точный знак;
+- `event_time` — время и место события как определитель трёх движущихся прямых;
+- `polygon` — вход с дырами, ориентация нормируется на входе;
+- `events` — четыре типа Huber, очередь уровнями, кластеры по точке;
+- `skeleton` — цикл событий.
+
+Чего здесь нет: порогов, ε-сравнений, пост-хилинга, тихих отказов и
+motorcycle graph — последний назван швом `MotorcycleSeam`, а не замолчан.
+"""
+
+from .event_time import (
+    EventPointV1,
+    EventTimeOutcome,
+    EventTimeV1,
+    SupportLineV1,
+    compare_times,
+    concurrency_time,
+    event_point,
+    times_are_equal,
+)
+from .events import (
+    CandidateEventV1,
+    EventKind,
+    EventQueueV1,
+    MotorcycleSeam,
+    cluster_by_point,
+)
+from .polygon import LoopV1, PolygonOutcome, PolygonRejected, PolygonV1
+from .skeleton import (
+    SkeletonNodeV1,
+    SkeletonOutcome,
+    SkeletonV1,
+    build_skeleton,
+    level_budget,
+)
+from .sqrt_sum import SqrtSumV1
+
+__all__ = [
+    "CandidateEventV1",
+    "EventKind",
+    "EventPointV1",
+    "EventQueueV1",
+    "EventTimeOutcome",
+    "EventTimeV1",
+    "LoopV1",
+    "MotorcycleSeam",
+    "PolygonOutcome",
+    "PolygonRejected",
+    "PolygonV1",
+    "SkeletonNodeV1",
+    "SkeletonOutcome",
+    "SkeletonV1",
+    "SqrtSumV1",
+    "SupportLineV1",
+    "build_skeleton",
+    "cluster_by_point",
+    "compare_times",
+    "concurrency_time",
+    "event_point",
+    "level_budget",
+    "times_are_equal",
+]
