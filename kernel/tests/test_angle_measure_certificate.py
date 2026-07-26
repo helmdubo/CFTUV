@@ -288,3 +288,43 @@ def test_interval_endpoints_stay_closed():
     for interval in (phi, delta):
         assert interval.lower_kind is IntervalEndpointKind.CLOSED
         assert interval.upper_kind is IntervalEndpointKind.CLOSED
+
+
+def test_the_private_mpmath_endpoint_api_still_behaves_as_assumed():
+    """`_mpi_` — приватный API mpmath, и на нём стоит точность сертификата.
+
+    Публичные `.a`/`.b` отдают вырожденный интервал, а не число, поэтому точных
+    границ через них не получить; `float()` потерял бы разряды. Приватный путь
+    выбран осознанно (`angle_measure.py`), но у приватного API нет обещания
+    совместимости: обновление mpmath может убрать его или сменить форму, и тогда
+    измерение угла отвалится молча.
+
+    Этот тест — сторож на такое обновление. Он не проверяет геометрию: он
+    проверяет ровно те три допущения, на которых держится `_endpoint`.
+    """
+
+    from mpmath import iv, libmp
+
+    enclosure = iv.mpf(1) / iv.mpf(3)
+
+    # 1. Атрибут существует и это пара.
+    assert hasattr(enclosure, "_mpi_"), (
+        "mpmath убрал _mpi_; angle_measure._endpoint надо переписать"
+    )
+    endpoints = enclosure._mpi_
+    assert isinstance(endpoints, tuple) and len(endpoints) == 2
+
+    # 2. `libmp.to_rational` принимает эти границы и даёт пару целых.
+    lower, upper = endpoints
+    for endpoint in (lower, upper):
+        numerator, denominator = libmp.to_rational(endpoint)
+        assert isinstance(numerator, int) and isinstance(denominator, int)
+        assert denominator > 0
+
+    # 3. Границы действительно охватывают значение и не совпадают: 1/3 в
+    #    двоичной арифметике не представимо, поэтому оболочка обязана быть
+    #    невырожденной. Если она вырождена — mpmath сменил семантику, и
+    #    «оболочка либо доказывает, либо уступает» перестало быть правдой.
+    low = Fraction(*libmp.to_rational(lower))
+    high = Fraction(*libmp.to_rational(upper))
+    assert low < Fraction(1, 3) < high, (low, high)
