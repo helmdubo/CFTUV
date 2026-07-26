@@ -288,7 +288,14 @@ FUNCTION_LINE_ALLOWANCE = {
     "tools/validate_envelope_ec0.py": 594,
     "kernel/src/cftuv_envelope/reference/compile.py": 538,
     "cftuv/envelope_request_export.py": 509,
-    "kernel/src/cftuv_envelope/interactions/policy_b.py": 480,
+    # 480 -> 487. +7 за развязку эталона закона сохранения от `RawCoverage`:
+    # параметр `conservation` со значением по умолчанию, его строка разрешения
+    # и четыре строки докстроки о том, что от эталона требуется. Логика
+    # инварианта не тронута — `_loop_set_signature` была общей на обе подписи
+    # ещё до среза, к `RawCoverage` был привязан только аргумент. Долг признан:
+    # `apply_policy_b` подлежит разбиению на этапы конвейера (сбор вкладов,
+    # крой, доказательство), и семь строк этого не отменяют.
+    "kernel/src/cftuv_envelope/interactions/policy_b.py": 487,
     "cftuv/decal_rails.py": 445,
     "kernel/src/cftuv_envelope/validation.py": 426,
     # +5: снятие дельты счётчика локализации точки и два поля в union. Плата за
