@@ -321,7 +321,7 @@ def test_a_convex_figure_leaves_the_two_paths_nothing_to_disagree_about():
 
 
 def test_the_deficit_is_the_whole_budget_where_the_reflex_squares_are_disjoint():
-    """Разность = сумме `alpha^2` по вогнутым вершинам. Пятнадцать строк из тридцати трёх.
+    """Разность = сумме `alpha^2` по вогнутым вершинам: 15 строк из 24 вогнутых.
 
     Это и есть измеренное подтверждение того, что теряют именно квадраты вогнутых
     вершин, а не что-то ещё: у `ell` вершина одна и разность `alpha^2`, у
