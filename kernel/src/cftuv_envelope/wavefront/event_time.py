@@ -141,6 +141,9 @@ class EventTimeV1:
         return min(candidates), max(candidates)
 
 
+ZERO_TIME = EventTimeV1(Fraction(0), SqrtSumV1.rational(1))
+
+
 def compare_times(left: EventTimeV1, right: EventTimeV1) -> int:
     """Точный знак `left - right`. Ни деления, ни корня, ни порога.
 
