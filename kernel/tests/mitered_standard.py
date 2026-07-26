@@ -103,6 +103,14 @@ class StandardOutcome(str, Enum):
     # Сумма клеток сжатой сетки не дала площадь многоугольника. Это отказ
     # эталона от собственного результата, а не повод его подправить.
     CELLS_DO_NOT_REPRODUCE_THE_POLYGON = "CELLS_DO_NOT_REPRODUCE_THE_POLYGON"
+    # Отступ запрошен КОНТУРОМ, а не площадью, но при этой alpha он уже не
+    # односвязен либо выродился: сдвиг рёбер даёт петлю другой площади.
+    INSET_IS_NOT_ONE_LOOP = "INSET_IS_NOT_ONE_LOOP"
+    # Контур отступа запрошен у фигуры с дырами. Дыра при росте alpha даёт свою
+    # петлю, и «один контур» перестаёт быть верным описанием.
+    INSET_LOOP_NEEDS_A_FIGURE_WITHOUT_HOLES = (
+        "INSET_LOOP_NEEDS_A_FIGURE_WITHOUT_HOLES"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,6 +292,68 @@ def mitered_inset_rectangles(
         if left < right and low < high:
             inset.append((left, right, low, high))
     return tuple(inset)
+
+
+def mitered_inset_loop(
+    polygon: PolygonV1, alpha: Fraction
+) -> tuple[tuple[Fraction, Fraction], ...] | StandardOutcome:
+    """Контур митрованного отступа: каждое ребро сдвинуто внутрь на alpha.
+
+    Нужен не для площади — её даёт `rectilinear_standard` — а для того, чтобы
+    эталон можно было предъявить закону сохранения `policy_b.py` как МНОЖЕСТВО
+    ПЕТЕЛЬ, а не как одно число. Вершина отступа есть пересечение двух сдвинутых
+    прямых, и у прямоугольной фигуры они всегда перпендикулярны, поэтому
+    пересечение берётся покоординатно, без деления и без радикалов.
+
+    Построение НЕ доказывает себя само: сдвиг рёбер верен только пока отступ
+    остаётся односвязным, а при большой alpha он рвётся либо вырождается. Поэтому
+    площадь полученной петли сверяется с площадью отступа, посчитанной
+    независимо, и расхождение даёт исход `INSET_IS_NOT_ONE_LOOP`, а не молчаливо
+    неверный контур. Возвращается либо контур, либо исход — третьего нет.
+    """
+
+    if polygon.holes:
+        return StandardOutcome.INSET_LOOP_NEEDS_A_FIGURE_WITHOUT_HOLES
+    standard = rectilinear_standard(polygon, alpha)
+    if standard.outcome is not StandardOutcome.EXACT:
+        return standard.outcome
+
+    points = polygon.outer.points
+    size = len(points)
+    loop: list[tuple[Fraction, Fraction]] = []
+    for index in range(size):
+        previous = points[index - 1]
+        current = points[index]
+        following = points[(index + 1) % size]
+        shifted_x = shifted_y = None
+        for start, end in ((previous, current), (current, following)):
+            if start[1] == end[1]:
+                shifted_y = (
+                    current[1] + alpha if end[0] > start[0] else current[1] - alpha
+                )
+            else:
+                shifted_x = (
+                    current[0] - alpha if end[1] > start[1] else current[0] + alpha
+                )
+        if shifted_x is None or shifted_y is None:
+            return StandardOutcome.EDGE_IS_NOT_AXIS_PARALLEL
+        loop.append((Fraction(shifted_x), Fraction(shifted_y)))
+
+    doubled = Fraction(0)
+    for index in range(size):
+        x0, y0 = loop[index]
+        x1, y1 = loop[(index + 1) % size]
+        doubled += x0 * y1 - x1 * y0
+    # Три разных способа не быть контуром, и все три — один исход, потому что
+    # различать их нечем: сдвиг рёбер перестал описывать отступ. Совпавшие
+    # соседние вершины (два ребра слились), нулевая площадь (ядро выродилось) и
+    # несошедшаяся площадь (отступ распался) — каждый из них делает петлю
+    # неверной, а не приблизительной.
+    if len(set(loop)) != size or standard.inset_area == 0:
+        return StandardOutcome.INSET_IS_NOT_ONE_LOOP
+    if doubled / 2 != standard.inset_area:
+        return StandardOutcome.INSET_IS_NOT_ONE_LOOP
+    return tuple(loop)
 
 
 def reflex_squares(polygon: PolygonV1, alpha: Fraction) -> tuple[Rect, ...]:

@@ -550,14 +550,37 @@ def _component_intersection_area(
     return ExactScalar(intersection.exact_area_expression).as_expr()
 
 
+# Почему у эталона сохранения появился параметр, а сам закон не тронут.
+#
+# Проверка ниже — ЗАКОН СОХРАНЕНИЯ: разбиение обязано воспроизвести то же
+# точечное множество, что дал производитель покрытия. Инвариант верен, и менять
+# его логику не нужно. Неверна была только ЖЁСТКАЯ привязка эталона к
+# `RawCoverage`: тот сам построен попарным путём, поэтому вопрос «а верно ли
+# само множество» здесь не задавался никогда — сравнивалось покрытие с самим
+# собой до кроя. Ровно поэтому дыра `alpha^2` у вогнутой вершины прожила
+# незамеченной (`DECISIONS.md`, 2026-07-26).
+#
+# Логика уже была общей: `_set_signature` и `_raw_set_signature` обе сводятся к
+# `_loop_set_signature`, и к `RawCoverage` был привязан только АРГУМЕНТ. Здесь
+# он стал параметром со значением по умолчанию, поэтому поведение конвейера не
+# изменилось ни на бит: `resolved_coverage.py` вызывает функцию без него.
+# Живой потребитель параметра — независимый митрованный эталон
+# (`kernel/tests/mitered_standard.py`), и он ловит дыру `alpha^2` там, где
+# привязка к `RawCoverage` молчит.
 def apply_policy_b(
     proofs: tuple[ProvenInteractionV1, ...],
     components,
     boundary_resolved_envelopes: tuple[BoundaryResolvedEnvelopeV1, ...],
     raw_coverage: RawCoverageResultV1,
     domain_regions: tuple[PlanarRegion, ...],
+    conservation: RawCoverageResultV1 | None = None,
 ) -> PolicyBResultV1:
-    """Clip existing contributions only, then prove union and disjointness."""
+    """Clip existing contributions only, then prove union and disjointness.
+
+    `conservation` — эталон закона сохранения; по умолчанию это `raw_coverage`,
+    и тогда поведение прежнее. Требуется от него ровно то же, что берётся у
+    `RawCoverage`: `vertices`, `edges`, `loops` и `exact_area_expression`.
+    """
 
     component_by_id = {
         item.interaction_component_id: item for item in components
@@ -965,11 +988,12 @@ def apply_policy_b(
         domain_regions,
         reachability,
     )
-    raw_area = ExactScalar(raw_coverage.exact_area_expression).as_expr()
+    standard = raw_coverage if conservation is None else conservation
+    raw_area = ExactScalar(standard.exact_area_expression).as_expr()
     resolved_area = ExactScalar(resolved_union.exact_area_expression).as_expr()
     if (
         exact_sign(raw_area - resolved_area) != 0
-        or _raw_set_signature(raw_coverage) != _set_signature(resolved_union)
+        or _raw_set_signature(standard) != _set_signature(resolved_union)
     ):
         diagnostics.append(
             InteractionDiagnosticV1(
