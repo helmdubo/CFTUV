@@ -52,6 +52,7 @@ from cftuv_envelope.wavefront import (
     evaluate_conveyor_coverage,
     prepare_conveyor,
 )
+from cftuv_envelope.wavefront import conveyor as conveyor_module
 from cftuv_envelope.wavefront.bridge import BridgeOutcome
 from cftuv_envelope.wavefront.coverage import CoverageOutcome
 from cftuv_envelope.wavefront.conveyor import _arrival_laws, exact_rational
@@ -624,6 +625,126 @@ def test_a_step_that_cannot_proceed_answers_by_name_not_by_crash(
     # стадия, про которую нечего сказать.
     assert prepared.timings
     assert all(elapsed >= 0.0 for _, elapsed in prepared.timings)
+
+
+@pytest.mark.parametrize(
+    "alpha,kind",
+    (
+        (Fraction(1, 4), "Fraction"),
+        (0.25, "float"),
+    ),
+    ids=("fraction", "float"),
+)
+def test_an_alpha_outside_the_declared_type_is_refused_by_name(
+    field_preparation, alpha, kind
+):
+    """Чужой тип alpha отвергается ИМЕНЕМ, а не трассой из `decimal`.
+
+    До этой проверки `conveyor_coverage(prepared, Fraction(1, 4))` падал голым
+    `decimal.InvalidOperation` из `Decimal(str(alpha))` — сообщением про
+    десятичный модуль вместо ответа про контракт. Соседний `coverage_at` в
+    ЭТОМ ЖЕ пакете `Fraction` принимает, поэтому контраст обязан объясняться
+    сам: адаптер хоста спотыкается о него первым.
+
+    Оба типа отвергаются по одной причине, и это не вкус:
+
+    | тип | что подменяется молча |
+    |---|---|
+    | `Fraction` | `1/3` в `Decimal` округляется до двадцати восьми девяток |
+    | `float` | `0.1` есть `0.1000000000000000055511151231257827`, а `Decimal(str(0.1))` — ровно `1/10` |
+
+    Дальше ядро считает ТОЧНО, поэтому подменённое значение уже не отличить от
+    задуманного ничем.
+    """
+
+    with pytest.raises(TypeError) as refusal:
+        conveyor_coverage(field_preparation, alpha)
+    message = str(refusal.value)
+    assert kind in message
+    # Сообщение называет и контракт, и способ передать то же число без потерь.
+    assert "LocalLengthV1, Decimal, int или str" in message
+    assert '"0.25"' in message
+
+
+def test_the_alpha_type_is_checked_before_the_preparation_is_paid_for():
+    """Проверка типа стоит ДО подготовки, и это доказано счётом, а не временем.
+
+    Секундомер здесь мерил бы машину. Считается другое: сколько раз
+    `evaluate_conveyor_coverage` успел позвать компиляцию плана — первую же
+    ступень подготовки. Ноль означает, что 53 мс скелета за чужой тип alpha не
+    заплачены.
+    """
+
+    snapshot, request = _field_input()
+    calls: list[int] = []
+    original = conveyor_module.compile_reference_envelopes
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    conveyor_module.compile_reference_envelopes = counting
+    try:
+        with pytest.raises(TypeError):
+            evaluate_conveyor_coverage(snapshot, request, alpha=Fraction(1, 4))
+        refused_calls = len(calls)
+        # Положительный контроль: с объявленным типом компиляция ВЫЗЫВАЕТСЯ.
+        covered = evaluate_conveyor_coverage(snapshot, request, alpha="0.25")
+    finally:
+        conveyor_module.compile_reference_envelopes = original
+
+    assert refused_calls == 0
+    assert len(calls) == 1
+    assert covered.outcome is ConveyorOutcome.EXACT
+
+
+def test_an_unreadable_alpha_string_is_refused_by_name_too():
+    """Строка объявленного типа, но нечитаемая, — тоже именованный отказ.
+
+    `Decimal("шире")` бросает `InvalidOperation`, и на границе это снова
+    трасса про десятичный модуль. Тип здесь верный, поэтому исключение другое
+    (`ValueError`, не `TypeError`), а требование то же.
+    """
+
+    snapshot, request = _field_input()
+    with pytest.raises(ValueError) as refusal:
+        evaluate_conveyor_coverage(snapshot, request, alpha="шире")
+    message = str(refusal.value)
+    assert "не читается десятичной записью" in message
+    assert "LocalLengthV1, Decimal, int или str" in message
+
+
+def test_every_declared_alpha_type_gives_the_very_same_coverage(
+    field_preparation,
+):
+    """Положительный контроль контракта: объявленные типы принимаются и равны.
+
+    Без него «отвергает Fraction и float» проходило бы и у входа, который
+    отвергает вообще всё. Четыре записи одного числа — `None` (alpha запроса),
+    строка, `Decimal` и `LocalLengthV1` — обязаны дать ПОБИТОВО одну площадь,
+    а не близкую.
+    """
+
+    baseline = conveyor_coverage(field_preparation)
+    assert baseline.outcome is ConveyorOutcome.EXACT
+    for alpha in (
+        "0.25",
+        Decimal("0.25"),
+        LocalLengthV1(Decimal("0.25"), MetricSpace.SOURCE_LOCAL_INTRINSIC),
+    ):
+        covered = conveyor_coverage(field_preparation, alpha)
+        assert covered.outcome is ConveyorOutcome.EXACT
+        assert covered.alpha == baseline.alpha
+        assert covered.lattice_alpha == baseline.lattice_alpha
+        assert covered.doubled_area.terms == baseline.doubled_area.terms
+        assert [face.envelope_instance_id for face in covered.faces] == [
+            face.envelope_instance_id for face in baseline.faces
+        ]
+    # `int` тоже объявлен, и он не должен отвергаться заодно с дробью.
+    at_zero = conveyor_coverage(field_preparation, 0)
+    assert at_zero.outcome is ConveyorOutcome.EXACT
+    assert at_zero.lattice_alpha == 0
+    assert at_zero.doubled_area.is_zero
 
 
 def test_the_chart_lattice_is_derived_from_the_certificate_and_not_chosen():

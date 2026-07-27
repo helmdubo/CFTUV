@@ -718,6 +718,75 @@ def _region_coverage(
     )
 
 
+# Типы alpha, объявленные входом. Список тот же, что у
+# `evaluate_reference_raw_coverage`, и совпадение не случайно: два входа ядра,
+# принимающие alpha по-разному, разошлись бы на первом же хосте.
+DECLARED_ALPHA_TYPES = (LocalLengthV1, Decimal, int, str)
+
+_ALPHA_CONTRACT = (
+    "alpha объявлена ДЕСЯТИЧНОЙ: LocalLengthV1, Decimal, int или str "
+    '(и None — взять alpha запроса). Дробь со знаменателем вида 2^a*5^b '
+    'передаётся строкой без потерь: conveyor_coverage(prepared, "0.25").'
+)
+
+
+def _require_declared_alpha(alpha) -> None:
+    """Тип alpha проверяется НА ГРАНИЦЕ, и отказ носит имя.
+
+    Без этой проверки `Fraction(1, 4)` уходил вглубь и падал голым
+    `decimal.InvalidOperation` из `Decimal(str(alpha))` — трассой про
+    десятичный модуль вместо ответа про контракт. Соседний `coverage_at` в
+    этом же пакете `Fraction` принимает, поэтому контраст тем более обязан
+    объясняться сам, а не через чтение стека.
+
+    `Fraction` и `float` отвергаются по ОДНОЙ причине, и она не в удобстве:
+    оба переводятся в `Decimal` с молчаливой подменой значения, а дальше ядро
+    считает ТОЧНО — то есть точно не то число, которое имел в виду
+    вызывающий. У дроби подмена от округления, у double — от того, что его
+    десятичная запись не равна ему самому.
+    """
+
+    if alpha is None or isinstance(alpha, DECLARED_ALPHA_TYPES):
+        return
+    if isinstance(alpha, Fraction):
+        reason = (
+            "перевод произвольной дроби в Decimal округляет: 1/3 стало бы "
+            "двадцатью восемью девятками, и расхождение с эталонным путём "
+            "было бы тихим"
+        )
+    elif isinstance(alpha, float):
+        reason = (
+            "double не равен своей десятичной записи: 0.1 есть "
+            "0.1000000000000000055511151231257827, а Decimal(str(0.1)) — "
+            "ровно 1/10, то есть ДРУГОЕ число, и считаться дальше оно будет "
+            "точно"
+        )
+    else:
+        reason = "перевод в Decimal для этого типа не объявлен"
+    raise TypeError(
+        f"{type(alpha).__name__} не принимается как alpha: {reason}. "
+        f"{_ALPHA_CONTRACT}"
+    )
+
+
+def _declared_alpha(alpha) -> LocalLengthV1:
+    """alpha объявленного типа и читаемого значения, либо именованный отказ.
+
+    Неразбираемая строка — тот же случай, что и чужой тип: `Decimal("шире")`
+    бросает `InvalidOperation`, и на границе это снова трасса про десятичный
+    модуль вместо ответа про контракт.
+    """
+
+    _require_declared_alpha(alpha)
+    try:
+        return normalize_requested_alpha(alpha)
+    except (ArithmeticError, ValueError) as exc:
+        raise ValueError(
+            f"alpha {alpha!r} не читается десятичной записью ({exc}). "
+            f"{_ALPHA_CONTRACT}"
+        ) from exc
+
+
 def _empty_coverage(
     outcome: ConveyorOutcome,
     detail: str,
@@ -750,19 +819,19 @@ def conveyor_coverage(
     переводится в единицы решётки умножением на `lattice.scale`: полигон
     привязан к ней, поэтому и время фронта считается в её единицах.
 
-    Тип alpha — тот же, что у `evaluate_reference_raw_coverage`, и `Fraction`
-    в него намеренно НЕ входит. Alpha запроса объявлена десятичной
-    (`LocalLengthV1` держит `Decimal`), а перевод произвольной дроби в
-    `Decimal` округляет: `1/3` стало бы двадцатью восемью девятками, и
-    расхождение с эталонным путём было бы тихим. Дробь со знаменателем вида
-    `2^a*5^b` передаётся строкой без потерь.
+    Тип alpha — тот же, что у `evaluate_reference_raw_coverage`, и ни
+    `Fraction`, ни `float` в него намеренно не входят: оба переводятся в
+    `Decimal` с молчаливой подменой значения. Проверка стоит на границе и
+    отвечает `TypeError`, называющим контракт (`_require_declared_alpha`), —
+    голой трассы из `decimal` здесь быть не должно, тем более что соседний
+    `coverage_at` в этом же пакете `Fraction` принимает.
     """
 
     clock = _Clock()
     if alpha is None:
         alpha_value = prepared.requested_alpha
     else:
-        alpha_value = normalize_requested_alpha(alpha)
+        alpha_value = _declared_alpha(alpha)
     alpha_fraction = (
         Fraction(0) if alpha_value is None else Fraction(str(alpha_value.value))
     )
@@ -858,10 +927,16 @@ def evaluate_conveyor_coverage(
     """Обе ступени подряд, для вызывающего, которому кэш не нужен.
 
     Разрез при этом не исчезает: `prepare_conveyor` остаётся отдельным входом
-    именно потому, что стоит 59 мс против 9 мс у покрытия, и хост, считающий
+    именно потому, что стоит 53 мс против 7 мс у покрытия, и хост, считающий
     несколько alpha на одном домене, платит подготовку один раз.
+
+    Тип alpha проверяется ДО подготовки, а не внутри неё. Иначе неверный тип
+    стоил бы 53 мс на скелет, который заведомо будет выброшен, — и хост,
+    перебирающий alpha в цикле, платил бы за каждую свою опечатку полную
+    подготовку.
     """
 
+    _require_declared_alpha(alpha)
     return conveyor_coverage(
         prepare_conveyor(snapshot, request, patch_domain_id=patch_domain_id),
         alpha,
