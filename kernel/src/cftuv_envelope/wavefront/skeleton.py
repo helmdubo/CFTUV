@@ -134,6 +134,12 @@ class CandidateRefusal(str, Enum):
     FILTER_POINT_OUTSIDE_FRONT = "FILTER_POINT_OUTSIDE_FRONT"
     FILTER_BEYOND_TRACE = "FILTER_BEYOND_TRACE"
     FILTER_EDGE_IS_OWN = "FILTER_EDGE_IS_OWN"
+    # Схлопываемый отрезок фронта к назначенному моменту НЕ сжался в точку:
+    # его концы стоят на разных проекциях, и это доказано точным равенством, а
+    # не оценено. Edge-событие означает исчезновение отрезка; отрезок
+    # положительной длины исчезнуть не может, и «три прямые сошлись» этого не
+    # заменяет — тройка отвечает про ПРЯМЫЕ, а гаснет ОТРЕЗОК.
+    FILTER_SPAN_DOES_NOT_COLLAPSE = "FILTER_SPAN_DOES_NOT_COLLAPSE"
 
     # -- NO_RULE: конфигурация без правила ---------------------------------
     # Тройка прямых сошлась НАВСЕГДА: определитель равен нулю тождественно.
@@ -527,6 +533,15 @@ class _Builder:
             return self._refuse(CandidateRefusal.NO_RULE_TRIPLE_ALWAYS_CONCURRENT)
         if not self._is_future(time, vertex, peer):
             return self._refuse(CandidateRefusal.FILTER_EVENT_IN_THE_PAST)
+        # ФРОНТ НЕ ГАСИТ ТОГО, ЧЕГО НЕ КАСАЕТСЯ ПО МЕРЕ. `concurrency_time`
+        # отвечает про три ПРЯМЫЕ, а гаснет ОТРЕЗОК, и это не одно и то же:
+        # когда движущаяся прямая источника наезжает на прямую коллинеарной
+        # СТЕНЫ, тройка честно сходится, хотя отрезки перекрываются в одной
+        # точке и стена не сжимается ни на шаг. Отрезок положительной длины
+        # исчезнуть не может, поэтому проверяется он, а не тройка.
+        span = self._collapsing_span(vertex, peer, time)
+        if span is not None and not span.is_zero:
+            return self._refuse(CandidateRefusal.FILTER_SPAN_DOES_NOT_COLLAPSE)
         point = self._vertex_position(vertex, time)
         if point is None:
             return
@@ -674,8 +689,8 @@ class _Builder:
         if start is None or end is None:
             return False
         here = _project(edge.line, point)
-        low = self._span_end(start, edge, time)
-        high = self._span_end(end, edge, time)
+        low = self._span_end(start, edge, time, at_start=True)
+        high = self._span_end(end, edge, time, at_start=False)
         if low is not None and (here - low).sign() < 0:
             return False
         if high is not None and (high - here).sign() < 0:
@@ -683,7 +698,12 @@ class _Builder:
         return True
 
     def _span_end(
-        self, vertex: _Vertex, edge: _Edge, time: EventTimeV1
+        self,
+        vertex: _Vertex,
+        edge: _Edge,
+        time: EventTimeV1,
+        *,
+        at_start: bool,
     ) -> SqrtSumV1 | None:
         """Проекция конца отрезка фронта, либо `None`, если конца нет.
 
@@ -692,12 +712,59 @@ class _Builder:
         число, а для скользящей пересечения не существует и второй способ
         отвечал бы «граница отсутствует» там, где она есть. Отсутствует она
         ровно у антипараллельного стыка — у вывернувшегося фронта.
+
+        У НЕПОДВИЖНОГО ребра (`q = 0`) есть второй ответ, и он точный.
+        Отрезок фронта такого ребра лежит на прямой, которая не двигается
+        вовсе, поэтому он есть ПОДОТРЕЗОК самого ребра при любом `t`: расти ему
+        некуда, у него нет собственной скорости. Значит даже когда вершина на
+        конце позиции не имеет, конец отрезка ограничен концом РЕБРА, и `None`
+        там означал бы «границы нет» — то есть неограниченный отрезок фронта у
+        ребра, которое не сдвинулось ни на шаг.
+
+        Различие «неподвижное против движущегося» здесь не подгонка: у
+        движущегося ребра отрезок фронта РАСТЁТ за пределы своего ребра всякий
+        раз, когда рядом стоит вогнутая вершина, и подставить ему концы входа
+        было бы неверно. У неподвижного расти нечему — прямая та же самая.
+
+        `at_start` говорит, КОТОРЫЙ из двух концов ребра берётся: проекция
+        вдоль направления `(b, -a)` монотонно растёт от начала ребра к концу
+        (разность равна `|d|^2 > 0`), поэтому начало отрезка — это начало
+        ребра, а конец — конец.
         """
 
         place = self._position(vertex, time)
-        if place is None:
+        if place is not None:
+            return _project(edge.line, place)
+        if not edge.line.is_stationary:
             return None
-        return _project(edge.line, place)
+        x0, y0, x1, y1 = edge.span
+        node_x, node_y = (x0, y0) if at_start else (x1, y1)
+        return SqrtSumV1.rational(
+            node_x * edge.line.b - node_y * edge.line.a
+        )
+
+    def _collapsing_span(
+        self, vertex: _Vertex, peer: _Vertex, time: EventTimeV1
+    ) -> SqrtSumV1 | None:
+        """Длина схлопываемого отрезка в проекции, либо `None`, если её нет.
+
+        Edge-событие означает ровно одно: отрезок фронта между двумя соседними
+        вершинами СЖАЛСЯ В ТОЧКУ. Проекция на направление ребра монотонна вдоль
+        него, поэтому «сжался в точку» — это точное равенство двух проекций, а
+        не «стало мало». Обе вершины лежат на прямой этого ребра, поэтому
+        равенство проекций влечёт совпадение точек.
+
+        `None` означает, что длину доказать нечем: у конца нет позиции, и ребро
+        при этом движется. Такой случай НЕ отвергается — отсутствие
+        доказательства не есть доказательство отсутствия.
+        """
+
+        edge = self.edges[vertex.next_edge]
+        low = self._span_end(vertex, edge, time, at_start=True)
+        high = self._span_end(peer, edge, time, at_start=False)
+        if low is None or high is None:
+            return None
+        return high - low
 
     def _register(self, vertex: _Vertex) -> None:
         self.edge_start[vertex.next_edge] = vertex.ident

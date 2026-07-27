@@ -26,6 +26,13 @@
 стены внутрь области. Это не дефект и не пропуск: обе объявленные границы
 (`WAVEFRONT_LEFT_UNRESOLVED` у скелета, `FACE_AREA_DOES_NOT_REPRODUCE_POLYGON` у
 сборщика) срабатывают ГРОМКО, и тихого неверного числа ни на одной из них нет.
+
+**КОЛЛИНЕАРНАЯ НЕПОДВИЖНАЯ СТЕНА.** Отдельный раздел ниже держит разбор одной
+конкретной болезни и её числа. Движущаяся прямая источника наезжает на прямую
+коллинеарной стены; тройка прямых сходится честно, но ОТРЕЗКИ перекрываются в
+единственной точке, и стена не сжимается ни на шаг. Скелет тем не менее гасил её
+целиком, фронт скачком расширялся вдвое и заметал то, чего достичь не мог. Три
+фигуры корпуса, одна болезнь, и её числа заморожены ниже поточечно.
 """
 
 from __future__ import annotations
@@ -34,11 +41,14 @@ from fractions import Fraction
 
 import pytest
 
+from cftuv_envelope.wavefront import skeleton as skeleton_module
 from cftuv_envelope.wavefront.coverage import CoverageOutcome, coverage_at
 from cftuv_envelope.wavefront.event_time import (
     SupportLineV1,
     ZERO_TIME,
+    EventTimeOutcome,
     EventTimeV1,
+    compare_times,
     sliding_point,
 )
 from cftuv_envelope.wavefront.faces import (
@@ -52,13 +62,16 @@ from cftuv_envelope.wavefront.polygon import (
     PolygonOutcome,
     PolygonRejected,
     PolygonV1,
+    signed_double_area,
     unit_speed_squared,
     with_edge_speeds,
     with_source_spans,
 )
 from cftuv_envelope.wavefront.skeleton import (
+    CandidateRefusal,
     SkeletonOutcome,
     build_skeleton,
+    refusal_counter,
 )
 from cftuv_envelope.wavefront.sqrt_sum import SqrtSumV1
 
@@ -455,14 +468,17 @@ def test_the_partial_source_corpus_splits_into_three_named_parts():
             SkeletonOutcome.WAVEFRONT_LEFT_UNRESOLVED,
             FaceOutcome.SKELETON_IS_NOT_EXACT,
         ),
-        # Источник — верхнее ребро левого рукава. Здесь фронт доходит до конца
-        # и скелет ЗАКРЫВАЕТСЯ, а незаметённой остаётся часть правого рукава,
-        # поэтому громко говорит уже сборщик граней. Два разных отказа на одной
-        # фигуре при разных источниках — и оба названы.
+        # Источник — верхнее ребро ЛЕВОГО рукава. Раньше эта строка стояла с
+        # `EXACT` у скелета и отказом у сборщика, и обе половины были неверны по
+        # одной причине: фронт гасил коллинеарную стену `(12,6) -> (6,6)`, с
+        # которой его отрезок не перекрывался, скачком расширялся вдвое и
+        # доезжал до конца через правый рукав, которого достичь не мог. Теперь
+        # фиктивное схлопывание отвергнуто по имени, фронт остаётся шириной 6, и
+        # правый рукав честно недостижим — вершины фронта остаются живы.
         (
             ((6, 12), (0, 12)),
-            SkeletonOutcome.EXACT,
-            FaceOutcome.FACE_AREA_DOES_NOT_REPRODUCE_POLYGON,
+            SkeletonOutcome.WAVEFRONT_LEFT_UNRESOLVED,
+            FaceOutcome.SKELETON_IS_NOT_EXACT,
         ),
     ),
 )
@@ -472,9 +488,15 @@ def test_the_reflex_vertex_with_the_source_on_one_side_is_refused_loudly(
     """Вогнутая вершина, у которой источник по одну сторону, — названный отказ.
 
     Разбор, ради которого фигуры заведены: незаметённая часть фигуры обязана
-    называться, а не превращаться в тихо заниженное покрытие. Обе объявленные
-    границы ловят её, и какая именно — зависит от того, успевает ли фронт
-    умереть; поэтому в проверке стоят обе, поимённо.
+    называться, а не превращаться в тихо заниженное покрытие.
+
+    Обе строки теперь отказывают на одной ступени, и это не потеря
+    различительной силы, а исправленный диагноз: вторая строка отказывала
+    ПОЗЖЕ только потому, что скелет её досчитывал по неверному фронту. Строка,
+    где отказ действительно приходит от сборщика, в корпусе есть и проверяется
+    отдельно — `staircase_source_edges_7_0`, у которой эталон при любой alpha
+    заметает фигуру ЦЕЛИКОМ (192 из 192 удвоенных), то есть незаметённой части
+    нет вовсе и остаётся чистый дефект порядка сборки.
     """
 
     figure = with_source_spans(ell(12), (span,))
@@ -608,50 +630,324 @@ def test_the_extended_standard_agrees_with_the_old_one_where_it_applies(
 
 
 # --------------------------------------------------------------------------
-# 5. Почему кандидат на замену порядка сборки НЕ поставлен: числа противоречия
+# 6. Коллинеарная неподвижная стена: диагноз числами и его починка
+# --------------------------------------------------------------------------
+
+#: Три фигуры корпуса, где коллинеарная стена гасилась фронтом, которого не
+#: касалась, и числа их конфигурации. Список фиксирован здесь, а не собирается
+#: перебором: перечень входов берётся из корпуса и по ходу не дополняется.
+#:
+#: | поле | что это |
+#: |---|---|
+#: | `wall` | вхождение ребра-СТЕНЫ, которое гасилось |
+#: | `source` | вхождение ребра-ИСТОЧНИКА, чей фронт на неё наезжал |
+#: | `moment` | момент наезда, целое (у всех трёх время рационально) |
+#: | `meeting` | ЕДИНСТВЕННАЯ общая точка двух отрезков |
+#: | `node` | точка, в которой рождался фиктивный узел — дальний конец стены |
+#: | `wall_span` | отрезок фронта СТЕНЫ в проекции на общее направление |
+#: | `source_span` | отрезок фронта ИСТОЧНИКА в той же проекции |
+COLLINEAR_WALL_CASES = (
+    (
+        "ell_12_source_edge_4",
+        (12, 6, 6, 6),
+        (6, 12, 0, 12),
+        6,
+        (6, 6),
+        (12, 6),
+        (-72, -36),
+        (-36, 0),
+    ),
+    (
+        "staircase_source_edge_6",
+        (8, 8, 4, 8),
+        (4, 12, 0, 12),
+        4,
+        (4, 8),
+        (8, 8),
+        (-32, -16),
+        (-16, 0),
+    ),
+    (
+        "staircase_source_edges_4_5",
+        (12, 4, 8, 4),
+        (8, 8, 4, 8),
+        4,
+        (8, 4),
+        (12, 4),
+        (-48, -32),
+        (-32, 0),
+    ),
+)
+
+COLLINEAR_WALL_IDS = tuple(row[0] for row in COLLINEAR_WALL_CASES)
+
+
+def _codirectional_wall_joint(builder):
+    """Живая вершина, у которой соседи КОЛЛИНЕАРНЫ и разной скорости.
+
+    Именно она и есть разрыв фронта: у стены скорость ноль, у источника нет, их
+    прямые совпадают на одно мгновение и тут же расходятся, и позиции у такой
+    вершины не существует — не «её трудно посчитать», а её нет.
+    """
+
+    for vertex in builder.vertices:
+        if not vertex.alive:
+            continue
+        prev_line = builder.edges[vertex.prev_edge].line
+        next_line = builder.edges[vertex.next_edge].line
+        if prev_line.a * next_line.b - next_line.a * prev_line.b:
+            continue
+        if skeleton_module._joint_kind(prev_line, next_line) is (
+            CandidateRefusal.NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS
+        ):
+            return vertex
+    return None
+
+
+def _run_until_the_wall_is_reached(name):
+    """Цикл событий, доведённый до уровня, где фронт встал на прямую стены.
+
+    Строитель гоняется по тем же правилам, что и `run()`, а не по своим:
+    измерять надо то, что делает очередь, а не то, что похоже на неё.
+    """
+
+    builder = skeleton_module._Builder(dict(PARTIAL)[name])
+    while len(builder.queue):
+        level = builder.queue.pop_level()
+        builder.now = level[0].time
+        builder._apply_level(level)
+        builder._close_short_lavs()
+        joint = _codirectional_wall_joint(builder)
+        if joint is not None:
+            return builder, joint
+    raise AssertionError(f"{name}: коллинеарный стык не встретился")
+
+
+@pytest.mark.parametrize(
+    "name,wall,source,moment,meeting,node,wall_span,source_span",
+    COLLINEAR_WALL_CASES,
+    ids=COLLINEAR_WALL_IDS,
+)
+def test_the_front_and_the_collinear_wall_touch_in_exactly_one_point(
+    name, wall, source, moment, meeting, node, wall_span, source_span
+):
+    """ДИАГНОЗ ЧИСЛАМИ: отрезки касаются в одной точке, а не перекрываются.
+
+    Что измеряется, по шагам и на фигуре ИЗ КОРПУСА:
+
+    1. фронт источника встаёт на прямую стены в момент `moment`, и тройка
+       прямых сходится ТОЧНО — `EventTimeOutcome.EXACT`, никакого «почти»;
+    2. фиктивный узел рождался бы в точке `node` — это место ПРЕДШЕСТВЕННИКА,
+       то есть дальний конец стены, а вовсе не место встречи;
+    3. отрезок фронта стены есть `wall_span`, отрезок фронта источника —
+       `source_span`, и оба меряются проекцией на ОБЩЕЕ направление, поэтому
+       сравнимы напрямую;
+    4. пересечение этих отрезков — единственная точка: нижняя граница
+       пересечения равна верхней, и это проверяется точным предикатом
+       `SqrtSumV1.is_zero`, а не разностью чисел с плавающей точкой.
+
+    Начало отрезка источника берётся из ТОЧКИ РОЖДЕНИЯ стыка, и это законно
+    ровно потому, что стык рождён в этот же самый момент: `birth == moment`
+    проверяется здесь же. Спрашивать у стыка позицию бессмысленно — её нет.
+    """
+
+    builder, joint = _run_until_the_wall_is_reached(name)
+    wall_edge = builder.edges[joint.prev_edge]
+    source_edge = builder.edges[joint.next_edge]
+    assert wall_edge.span == wall
+    assert wall_edge.line.is_stationary
+    assert source_edge.span == source
+    assert not source_edge.line.is_stationary
+
+    before = builder.vertices[joint.prev]
+    time, outcome = builder._edge_event_time(before, joint)
+    assert outcome is EventTimeOutcome.EXACT
+    assert time is not None
+    # Момент рационален у всех трёх: сравнение с целым идёт через разность
+    # времён, а не через вычисление значения.
+    assert compare_times(
+        time, EventTimeV1.normalized(moment, SqrtSumV1.rational(1))
+    ) == 0
+    assert compare_times(joint.birth, time) == 0
+    assert (joint.point.x - SqrtSumV1.rational(meeting[0])).is_zero
+    assert (joint.point.y - SqrtSumV1.rational(meeting[1])).is_zero
+    # Место стыка не существует: его соседи параллельны и разной скорости.
+    assert builder._position(joint, time) is None
+
+    place = builder._position(before, time)
+    assert (place.x - SqrtSumV1.rational(node[0])).is_zero
+    assert (place.y - SqrtSumV1.rational(node[1])).is_zero
+
+    low = builder._span_end(before, wall_edge, time, at_start=True)
+    high = builder._span_end(joint, wall_edge, time, at_start=False)
+    assert low.as_rational() == wall_span[0]
+    assert high.as_rational() == wall_span[1]
+
+    tail = builder._edge_end_vertex(source_edge.ident)
+    source_low = skeleton_module._project(source_edge.line, joint.point)
+    source_high = builder._span_end(tail, source_edge, time, at_start=False)
+    assert source_low.as_rational() == source_span[0]
+    assert source_high.as_rational() == source_span[1]
+
+    # ПЕРЕКРЫТИЕ ПО МЕРЕ: нижняя граница пересечения равна верхней, значит
+    # длина пересечения ровно ноль. Отрезок стены при этом не пуст.
+    assert (source_low - high).is_zero
+    assert not (high - low).is_zero
+
+
+@pytest.mark.parametrize(
+    "name,wall,source,moment,meeting,node,wall_span,source_span",
+    COLLINEAR_WALL_CASES,
+    ids=COLLINEAR_WALL_IDS,
+)
+def test_the_fictitious_collapse_is_refused_under_its_own_name(
+    name, wall, source, moment, meeting, node, wall_span, source_span
+):
+    """ПОЧИНКА: отрезок положительной длины не схлопывается, и это названо.
+
+    Правило спрашивается ровно там, где рождается кандидат, и отвечает точным
+    равенством: длина схлопываемого отрезка в проекции равна `wall_span[1] -
+    wall_span[0]`, то есть не ноль. Событие в очередь не попадает, а счётчик
+    несёт его имя — тихо не исчезает ничего.
+    """
+
+    builder, joint = _run_until_the_wall_is_reached(name)
+    before = builder.vertices[joint.prev]
+    time, _ = builder._edge_event_time(before, joint)
+    span = builder._collapsing_span(before, joint, time)
+    assert span is not None
+    assert span.as_rational() == wall_span[1] - wall_span[0]
+    assert not span.is_zero
+
+    counter = refusal_counter(CandidateRefusal.FILTER_SPAN_DOES_NOT_COLLAPSE)
+    was = builder.counters[counter]
+    builder._enqueue_edge_event(before)
+    assert builder.counters[counter] == was + 1
+
+
+@pytest.mark.parametrize("name,polygon", PARTIAL, ids=PARTIAL_IDS)
+def test_a_stationary_edge_never_reaches_beyond_its_own_span(name, polygon):
+    """Отрезок фронта НЕПОДВИЖНОГО ребра — подотрезок самого ребра, всегда.
+
+    Это и есть тот второй ответ `_span_end`, без которого стена с вырожденным
+    концом выглядела бы отрезком без границы. Проверяется он не на одной
+    фигуре, а на всём корпусе и в момент рождения: концы отрезка обязаны лежать
+    между концами ребра по проекции. У ДВИЖУЩЕГОСЯ ребра такого утверждения
+    нет и быть не может — его отрезок растёт за свои концы всякий раз, когда
+    рядом стоит вогнутая вершина.
+    """
+
+    builder = skeleton_module._Builder(polygon)
+    for edge in builder.edges:
+        if not edge.line.is_stationary:
+            continue
+        x0, y0, x1, y1 = edge.span
+        start = SqrtSumV1.rational(x0 * edge.line.b - y0 * edge.line.a)
+        end = SqrtSumV1.rational(x1 * edge.line.b - y1 * edge.line.a)
+        assert (end - start).sign() > 0
+        for vertex, at_start in (
+            (builder._edge_start_vertex(edge.ident), True),
+            (builder._edge_end_vertex(edge.ident), False),
+        ):
+            assert vertex is not None
+            here = builder._span_end(vertex, edge, ZERO_TIME, at_start=at_start)
+            assert here is not None
+            assert (here - start).sign() >= 0
+            assert (end - here).sign() >= 0
+
+
+@pytest.mark.parametrize("name,polygon", CORPUS, ids=CORPUS_IDS)
+def test_the_new_rule_never_fires_where_every_edge_is_a_source(name, polygon):
+    """ОТРИЦАТЕЛЬНЫЙ КОНТРОЛЬ, и он важнее самой починки.
+
+    На корпусе, где источником является ВСЯ граница, нового отказа нет ни
+    одного, и второй ответ `_span_end` не спрашивается ни разу: неподвижных
+    рёбер там нет вовсе. Отсюда следует, что замороженные ответы этого корпуса
+    сдвинуться не могли — не «мы проверили, что они те же», а «их нечем было
+    сдвинуть». `FROZEN_DIGESTS` это подтверждает независимо.
+    """
+
+    skeleton = build_skeleton(polygon)
+    assert skeleton.counter(
+        refusal_counter(CandidateRefusal.FILTER_SPAN_DOES_NOT_COLLAPSE)
+    ) == 0
+    assert all(not line.is_stationary for line in _support_lines(polygon))
+
+
+def _support_lines(polygon):
+    return tuple(
+        SupportLineV1.with_speed(start, end, speed)
+        for start, end, speed in polygon.edges()
+    )
+
+
+#: Касание в одной точке у ДВИЖУЩИХСЯ рёбер — законное событие, и вот его
+#: счётчики на обоих корпусах. Числа заморожены затем, что починка стены
+#: обязана была их не тронуть: правило различает неподвижное и движущееся, а не
+#: «касание» и «перекрытие».
+TOUCHING_STAYS_LEGITIMATE = {
+    "ell": {"vertex_meeting_events": 1},
+    "hole_1": {"vertex_meeting_events": 4},
+    "holes_2": {"vertex_meeting_events": 4},
+    "cross": {"vertex_meeting_events": 3},
+    "u_shape": {"vertex_meeting_events": 2},
+    "double_notch": {"coincident_split_targets": 2},
+}
+
+
+@pytest.mark.parametrize("name", sorted(TOUCHING_STAYS_LEGITIMATE))
+def test_touching_in_one_point_is_still_an_event_for_moving_edges(name):
+    """Обратная сторона правила: у движущихся рёбер касание событием ОСТАЛОСЬ.
+
+    Вершина, пришедшая в угол фронта, — это `coincident_split_targets`, а
+    встреча вершин — `vertex_meeting_events`; обе конфигурации суть касание в
+    одной точке, и обе законны. Различие проходит по «неподвижное против
+    движущегося», и оно не подгонка: у движущегося ребра отрезок фронта в этот
+    момент действительно сжимается в точку, у неподвижной стены — нет, она
+    сохраняет всю свою длину. Первое есть событие, второе — его отсутствие.
+    """
+
+    polygon = dict(CORPUS)[name]
+    skeleton = build_skeleton(polygon)
+    for counter, value in TOUCHING_STAYS_LEGITIMATE[name].items():
+        assert skeleton.counter(counter) == value
+
+
+# --------------------------------------------------------------------------
+# 5. Препятствие кандидату на замену порядка сборки: было три фигуры, стало ноль
 # --------------------------------------------------------------------------
 
 
-def test_the_adjacency_rule_would_answer_where_the_standard_says_refuse():
-    """ЕДИНСТВЕННАЯ причина, по которой правило смежности не поставлено.
+def test_the_adjacency_rule_stopped_contradicting_the_standard_after_the_wall_fix():
+    """Препятствие кандидату СНЯТО, и снято оно в скелете, а не в сборщике.
 
-    Кандидат измерен целиком и чинит обе известные поломки порядка — полевой
-    патч `bf6` и весь остаток креста (`test_wavefront_faces.py`). Но ЗДЕСЬ он
-    делает хуже, и это записано числами, а не оговоркой.
-
-    На четырёх фигурах корпуса частичного источника поставленное правило
-    отвечает `FACE_AREA_DOES_NOT_REPRODUCE_POLYGON` — недостатком площади.
-    Кандидат на всех четырёх сводит недостаток В НОЛЬ, то есть по всем трём
-    объявленным границам отвечает `EXACT`. Но на ТРЁХ из четырёх полученное
-    покрытие ПРОТИВОРЕЧИТ независимому митрованному эталону:
+    БЫЛО (замер прошлого среза, до разбора коллинеарной стены). Поставленное
+    правило отказывало `FACE_AREA_DOES_NOT_REPRODUCE_POLYGON` на ЧЕТЫРЁХ
+    фигурах корпуса, кандидат на всех четырёх сводил недостаток в ноль, и на
+    ТРЁХ из четырёх полученное покрытие противоречило независимому эталону:
 
     | фигура | alpha | кандидат x2 | эталон x2 |
     |---|---:|---:|---:|
     | `ell_12_source_edge_4` | 8 | 120 | 96 |
     | `ell_12_source_edge_4` | 12 | 216 | 144 |
     | `staircase_source_edge_6` | 6 | 64 | 48 |
+    | `staircase_source_edge_6` | 8 | 96 | 64 |
     | `staircase_source_edge_6` | 12 | 192 | 96 |
     | `staircase_source_edges_4_5` | 6 | 144 | 128 |
     | `staircase_source_edges_4_5` | 12 | 192 | 160 |
 
-    Четвёртая — `staircase_source_edges_7_0` — совпадает с эталоном при каждой
-    alpha, то есть её прежний отказ был ЧИСТЫМ дефектом порядка и ничем больше.
+    СТАЛО. У всех трёх скелет теперь отказывает `WAVEFRONT_LEFT_UNRESOLVED`,
+    потому что фиктивное схлопывание коллинеарной стены отвергнуто по имени, и
+    до сборщика дело не доходит вовсе. Числа выше поэтому не «исправились» —
+    их больше НЕТ, и это ровно тот исход, которого требовал порядок работ:
+    тихого неверного числа не появится, когда кандидат поставят.
 
-    КОРЕНЬ ПРОТИВОРЕЧИЯ ИЗМЕРЕН, И ОН НЕ В СБОРЩИКЕ. У `ell_12_source_edge_4`
-    источник — верхнее ребро левого рукава, ширина 6. Фронт едет вниз и в
-    момент `t = 6` встаёт на прямую `y = 6`, на которой лежит стена
-    `(12,6) -> (6,6)`. Стена ей КОЛЛИНЕАРНА, но их отрезки не перекрываются
-    нигде, кроме единственной точки `(6,6)`. Скелет тем не менее гасит стену
-    целиком в этот же момент (узел `(12,6)`, `t = 6`), и фронт СКАЧКОМ
-    расширяется с ширины 6 до ширины 12. Дальше он заметает правый рукав,
-    которого достичь не мог.
-
-    Прежний неверный порядок это скрывал СЛУЧАЙНО: он давал недостаток площади,
-    и громкий отказ по границе 3 выглядел верным ответом, будучи верным по
-    неверной причине. Отсюда порядок работ, а не оговорка: сперва разбор
-    коллинеарной неподвижной стены в `skeleton.py`, потом замена правила
-    сборки. Поменять их местами значит поставить тихое неверное число на трёх
-    фигурах — ровно то, против чего заведён тест выше.
+    Остаётся ОДНА фигура, `staircase_source_edges_7_0`, и её случай чистый:
+    эталон при любой alpha заметает фигуру целиком (192 из 192 удвоенных), то
+    есть незаметённой части нет вовсе, а поставленное правило всё равно теряет
+    площадь. Кандидат сводит недостаток в ноль и совпадает с эталоном на ВСЕХ
+    восьми alpha корпуса. Это и есть чистый дефект порядка сборки — то, что
+    следующий срез обязан поставить.
     """
 
     turned_exact = []
@@ -685,26 +981,65 @@ def test_the_adjacency_rule_would_answer_where_the_standard_says_refuse():
         if mismatches:
             contradicting.append((name, mismatches))
 
-    assert turned_exact == [
-        "ell_12_source_edge_4",
-        "staircase_source_edge_6",
-        "staircase_source_edges_4_5",
-        "staircase_source_edges_7_0",
-    ]
-    assert [name for name, _ in contradicting] == [
-        "ell_12_source_edge_4",
-        "staircase_source_edge_6",
-        "staircase_source_edges_4_5",
-    ]
-    assert dict(contradicting)["ell_12_source_edge_4"] == [
-        (Fraction(8), Fraction(120), Fraction(96)),
-        (Fraction(12), Fraction(216), Fraction(144)),
-    ]
-    assert dict(contradicting)["staircase_source_edge_6"] == [
-        (Fraction(6), Fraction(64), Fraction(48)),
-        (Fraction(8), Fraction(96), Fraction(64)),
-        (Fraction(12), Fraction(192), Fraction(96)),
-    ]
+    assert turned_exact == ["staircase_source_edges_7_0"]
+    assert contradicting == []
+
+
+@pytest.mark.parametrize(
+    "name", ("ell_12_source_edge_4", "staircase_source_edge_6",
+             "staircase_source_edges_4_5")
+)
+def test_the_three_contradicting_figures_are_now_refused_before_any_number(name):
+    """Те самые три фигуры: отказ приходит от СКЕЛЕТА, а не от сборщика.
+
+    Проверяется поимённо, а не «отказала как-нибудь»: раньше скелет на них
+    отвечал `EXACT`, и именно этот `EXACT` был единственным, что отделяло
+    корпус от тихого неверного числа.
+    """
+
+    polygon = dict(PARTIAL)[name]
+    skeleton = build_skeleton(polygon)
+    assert skeleton.outcome is SkeletonOutcome.WAVEFRONT_LEFT_UNRESOLVED
+    assert (
+        build_faces(polygon, skeleton).outcome
+        is FaceOutcome.SKELETON_IS_NOT_EXACT
+    )
+    # Фиктивное схлопывание сосчитано под своим именем, а не пропало.
+    assert skeleton.counter(
+        refusal_counter(CandidateRefusal.FILTER_SPAN_DOES_NOT_COLLAPSE)
+    ) > 0
+
+
+@pytest.mark.parametrize(
+    "name,polygon_doubled_area,swept_doubled_area",
+    (
+        ("ell_12_source_edge_4", 216, 144),
+        ("staircase_source_edge_6", 192, 96),
+        ("staircase_source_edges_4_5", 192, 160),
+        ("staircase_source_edges_7_0", 192, 192),
+    ),
+)
+def test_what_the_source_can_reach_at_all_is_a_number_from_the_standard(
+    name, polygon_doubled_area, swept_doubled_area
+):
+    """Сколько фигуры источник заметает В ПРЕДЕЛЕ — и почему это решает всё.
+
+    Число берётся у НЕЗАВИСИМОГО эталона при заведомо большой alpha, а не у
+    очереди. Оно объясняет, почему `EXACT` у сборщика на первых трёх фигурах
+    невозможен НИ ПРИ КАКОЙ починке порядка: граница 1 сборщика требует, чтобы
+    сумма граней воспроизвела площадь многоугольника, а источник до части
+    фигуры не доходит вовсе — 72, 96 и 32 удвоенных единицы соответственно.
+    Четвёртая строка — контроль: там незаметённого НОЛЬ, и потому её отказ
+    действительно был чистым дефектом порядка.
+    """
+
+    polygon = dict(PARTIAL)[name]
+    assert sum(
+        signed_double_area(loop.points) for loop in polygon.loops
+    ) == polygon_doubled_area
+    limit = partial_source_standard(polygon, Fraction(10**6))
+    assert limit.outcome is StandardOutcome.EXACT
+    assert 2 * limit.covered == swept_doubled_area
 
 
 def _chained_coverage(polygon, skeleton, alpha):
