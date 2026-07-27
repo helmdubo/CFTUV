@@ -565,6 +565,54 @@ def test_markdown_document_count_does_not_grow():
     )
 
 
+# Конструкции, которых нет в Windows PowerShell 5.1. Ключ в том, что каждая из
+# них — ошибка РАЗБОРА, а не выполнения: скрипт падает целиком, не выполнив ни
+# строки, поэтому никакая проверка внутри скрипта от них не спасает.
+POWERSHELL_7_ONLY = (
+    ("??", "оператор ?? (null-coalescing) появился в PowerShell 7"),
+    ("?.", "оператор ?. (null-conditional) появился в PowerShell 7"),
+    ("-Parallel", "ForEach-Object -Parallel появился в PowerShell 7"),
+    ("-AsHashtable", "ConvertFrom-Json -AsHashtable появился в PowerShell 6"),
+    ("Join-String", "командлет Join-String появился в PowerShell 6"),
+    ("$PSStyle", "$PSStyle появился в PowerShell 7.2"),
+)
+
+
+def test_windows_scripts_stay_within_powershell_5_1():
+    """Скрипты установки обязаны разбираться Windows PowerShell 5.1.
+
+    Оплачено полем. `install_to_blender.ps1` содержал `??`, и у владельца
+    установка не запускалась ВООБЩЕ: в 5.1 это ошибка разбора, а не выполнения,
+    поэтому скрипт падал целиком, не выполнив ни строки и не напечатав ни одной
+    своей диагностики. Владелец увидел `Unexpected token '??'` и всё.
+
+    Почему правилом, а не аккуратностью. PowerShell 7 ставится отдельно, а в
+    Windows штатно стоит 5.1 — значит писать надо под 5.1, и проверять это
+    обязан не человек, а тест: в контейнере PowerShell'а нет, разобрать скрипт
+    здесь нечем, и единственная защита от повторения — запрет на конструкции,
+    которых в 5.1 не существует.
+
+    Список намеренно узкий: только то, что ломает РАЗБОР. Расширять его до
+    полноты не нужно — он должен ловить класс, который уже случился.
+    """
+
+    offenders: list[str] = []
+    for path in sorted((REPO_ROOT / "tools").glob("*.ps1")):
+        text = path.read_text(encoding="utf-8")
+        for number, line in enumerate(text.splitlines(), start=1):
+            code = line.split("#", 1)[0]
+            for token, reason in POWERSHELL_7_ONLY:
+                if token in code:
+                    offenders.append(
+                        f"{_relative(path)}:{number}: {reason}\n    {line.strip()}"
+                    )
+    assert not offenders, (
+        "В скриптах установки есть синтаксис, которого нет в Windows "
+        "PowerShell 5.1. Это ошибка РАЗБОРА: скрипт не выполнит ни строки.\n"
+        + "\n".join(offenders)
+    )
+
+
 def test_binary_evidence_is_declared_binary():
     """`.gitattributes` помечает типы бинарных свидетельств как binary.
 

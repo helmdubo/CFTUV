@@ -100,7 +100,16 @@ if (-not $blenderPython) {
     $blenderPython = Get-Command python -ErrorAction SilentlyContinue
 }
 if (-not $blenderPython) { Fail "не найден python для проверки отпечатков" }
-$py = $blenderPython.Source ?? $blenderPython.FullName
+# Оператор `??` появился только в PowerShell 7, а в Windows штатно стоит 5.1, и
+# там это ошибка РАЗБОРА: скрипт падает целиком, не выполнив ни строки и не
+# напечатав ни одной своей диагностики. Так у владельца установка и не пошла.
+# `Get-ChildItem` возвращает FileInfo (у него `FullName`), `Get-Command` —
+# ApplicationInfo (у него `Source`), поэтому берётся тот, который есть.
+$py = if ($blenderPython.PSObject.Properties['Source'] -and $blenderPython.Source) {
+    $blenderPython.Source
+} else {
+    $blenderPython.FullName
+}
 $checker = Join-Path $repo "tools\blender_check_install.py"
 
 function Fingerprint($path) {
