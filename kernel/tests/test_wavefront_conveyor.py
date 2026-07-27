@@ -26,7 +26,6 @@ from __future__ import annotations
 from dataclasses import replace
 from decimal import Decimal
 from fractions import Fraction
-from pathlib import Path
 
 import pytest
 import sympy as sp
