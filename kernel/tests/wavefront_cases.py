@@ -31,7 +31,13 @@ import math
 from pathlib import Path
 
 from cftuv_envelope.robust.grid import GridSpecV1, snap_value
-from cftuv_envelope.wavefront.polygon import LoopV1, PolygonV1
+from cftuv_envelope.wavefront.polygon import (
+    LoopV1,
+    PolygonV1,
+    unit_speed_squared,
+    with_edge_speeds,
+    with_source_spans,
+)
 
 
 KERNEL_ROOT = Path(__file__).resolve().parents[1]
@@ -134,11 +140,11 @@ def cross(
     В `named_corpus()` крест ВОШЁЛ (`cross`, блок `6 x 4`), и вошёл он с
     третьей попытки. Мешали по очереди две разные вещи, и обе названы, чтобы
     возврат был виден: сперва сборщик граней терял площадь у пересечения
-    гребней, потом `bridge_arrival_laws` отказывал
-    `SOURCE_IS_NOT_THE_WHOLE_BOUNDARY` — мост сопоставлял законы прихода рёбрам
-    по НЕСУЩЕЙ ПРЯМОЙ, а у креста две пары коллинеарных сонаправленных рёбер,
-    и `next(...)` отдавал им один индекс. Сопоставление стало биекцией по
-    классам прямых, и 12 законов ложатся на 12 рёбер.
+    гребней, потом `bridge_arrival_laws` отказывал «источник — не вся граница»
+    (исход с тех пор удалён вместе с самой причиной) — мост сопоставлял законы
+    прихода рёбрам по НЕСУЩЕЙ ПРЯМОЙ, а у креста две пары коллинеарных
+    сонаправленных рёбер, и `next(...)` отдавал им один индекс. Сопоставление
+    стало биекцией по классам прямых, и 12 законов ложатся на 12 рёбер.
 
     Свидетельство и числа — `test_wavefront_degenerate_event.py` (сетка 3..9 на
     трёх толщинах рукава), `test_wavefront_faces.py`,
@@ -326,6 +332,146 @@ def named_corpus() -> tuple[tuple[str, PolygonV1], ...]:
         if polygon is not None:
             entries.append((f"star_9_seed_{seed}", polygon))
     return tuple(entries)
+
+
+#: Фигуры, на которых перебираются подмножества источников, и их alpha.
+#: Список фиксирован здесь, а не собирается в стенде: перечень входов берётся
+#: из корпуса целиком и по ходу не дополняется (`DECISIONS.md`, 2026-07-27,
+#: оплачено тремя ошибками подряд).
+PARTIAL_SOURCE_BASES = (
+    ("rect_12x8", lambda: axis_rectangle(12, 8)),
+    ("ell_12", lambda: ell(12)),
+    ("staircase", staircase),
+)
+
+#: Значения alpha, на которых сверяется частичный источник. Крупные включены
+#: намеренно: у частичного источника фронт идёт через всю фигуру, и расхождение
+#: моделей у конца цепочки проявляется поздно, а не сразу.
+PARTIAL_SOURCE_ALPHAS = (
+    Fraction(1),
+    Fraction(3, 2),
+    Fraction(2),
+    Fraction(3),
+    Fraction(4),
+    Fraction(6),
+    Fraction(8),
+    Fraction(12),
+)
+
+
+def _edge_spans(polygon: PolygonV1) -> tuple[tuple[tuple[int, int], tuple[int, int]], ...]:
+    return tuple((start, end) for start, end, _ in polygon.edges())
+
+
+def partial_source_corpus() -> tuple[tuple[str, PolygonV1], ...]:
+    """Корпус ЧАСТИЧНОГО источника: фигура плюс подмножество рёбер-источников.
+
+    Он отдельный от `named_corpus()`, и это не удобство. У `named_corpus()`
+    контракт «источником является ВСЯ граница», на нём заморожены дайджесты,
+    таблицы среза и сверка с попарным кроем; фигура с двумя стенами отвечала бы
+    там на другой вопрос. Отдельный корпус сохраняет прежний контракт целым и
+    при этом остаётся корпусом: перечень фиксирован, порядок воспроизводим,
+    стенд его не дополняет.
+
+    Подмножества перебираются ПОЛНО по двум семействам — одно ребро и пара
+    соседних, — а не подбираются по одному. Полный перебор здесь дешевле
+    выбора: он не даёт спрятать неудобную конфигурацию, а именно так и
+    находится расхождение у конца цепочки источников.
+
+    Сверх них две именованные записи, которых в семействах нет:
+
+    - `ell_12_source_without_the_reflex_pair` — источник по ОБЕ стороны от
+      вогнутой вершины, а стенами оказались как раз два ребра при ней;
+    - `rect_12x8_source_bottom_at_double_speed` — ВЗВЕШЕННОЕ ребро (`q = 4|d|^2`,
+      евклидова скорость 2). Оно здесь затем, что стена и вес — одно обобщение,
+      и корпус обязан щупать обе его стороны, а не только нулевую.
+    """
+
+    entries: list[tuple[str, PolygonV1]] = []
+    for base_name, factory in PARTIAL_SOURCE_BASES:
+        base = factory()
+        spans = _edge_spans(base)
+        size = len(spans)
+        for index in range(size):
+            entries.append(
+                (
+                    f"{base_name}_source_edge_{index}",
+                    with_source_spans(base, (spans[index],)),
+                )
+            )
+        for index in range(size):
+            following = (index + 1) % size
+            entries.append(
+                (
+                    f"{base_name}_source_edges_{index}_{following}",
+                    with_source_spans(
+                        base, (spans[index], spans[following])
+                    ),
+                )
+            )
+    shape = ell(12)
+    entries.append(
+        (
+            "ell_12_source_without_the_reflex_pair",
+            with_source_spans(
+                shape,
+                tuple(
+                    span
+                    for span in _edge_spans(shape)
+                    if (6, 6) not in span
+                ),
+            ),
+        )
+    )
+    rectangle = axis_rectangle(12, 8)
+    bottom = _edge_spans(rectangle)[0]
+    entries.append(
+        (
+            "rect_12x8_source_bottom_at_double_speed",
+            with_edge_speeds(
+                rectangle,
+                ((bottom[0], bottom[1], 4 * unit_speed_squared(*bottom)),),
+            ),
+        )
+    )
+    entries.extend(_weighted_entries())
+    return tuple(entries)
+
+
+def _weighted_entries() -> tuple[tuple[str, PolygonV1], ...]:
+    """Фигуры, где источником является ВСЁ, но скорости рёбер РАЗНЫЕ.
+
+    Стена и вес — одно обобщение (`q` не равно `a^2 + b^2`), и корпус обязан
+    щупать обе его стороны. Здесь щупается вторая: `speed_bound_of` равен двум,
+    то есть обобщённая теорема 2.11 работает не в вырожденном случае, а с
+    настоящим множителем, и делает это при вогнутой вершине, а не на выпуклой
+    фигуре, где индекс кандидатов вообще не спрашивают.
+
+    Третья запись — граница МОДЕЛИ ЭТАЛОНА, а не очереди: у неё в вогнутой
+    вершине сходятся два источника разных скоростей, митрованный угол там уже
+    не квадратный, и эталон обязан отказаться считать, а не посчитать неверно.
+    """
+
+    shape = ell(12)
+    steps = staircase()
+
+    def weighted(figure: PolygonV1, fast: tuple[int, ...]) -> PolygonV1:
+        return with_edge_speeds(
+            figure,
+            tuple(
+                (start, end, (4 if index in fast else 1) * unit_speed_squared(start, end))
+                for index, (start, end, _) in enumerate(figure.edges())
+            ),
+        )
+
+    return (
+        ("ell_12_all_sources_bottom_at_double_speed", weighted(shape, (0,))),
+        ("staircase_all_sources_bottom_at_double_speed", weighted(steps, (0,))),
+        (
+            "ell_12_all_sources_mixed_speeds_at_the_reflex_vertex",
+            weighted(shape, (0, 3)),
+        ),
+    )
 
 
 def loop_points(polygon: PolygonV1) -> tuple[LoopV1, ...]:

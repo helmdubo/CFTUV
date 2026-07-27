@@ -15,12 +15,16 @@
 входов вместо 15 и вдвое медленнее.
 
 Из теоремы следует и пространственное сужение, ради которого срез. Точка split
-лежит на трассе, а расстояние от неё до несущей прямой рассекаемого ребра РАВНО
-времени события: нормаль в `SupportLineV1` не единична, её длина ровно
-`sqrt(q)`, поэтому из `a*p_x + b*p_y = c + t*sqrt(q)` следует
-`dist(p, line) = t`. Значит несущая прямая кандидата проходит не дальше
-`t_crash` от трассы, и кандидатов можно брать из ячеек сетки вокруг трассы
-вместо перебора всех рёбер. Это `TraceCandidateIndexV1`.
+лежит на трассе, а расстояние от неё до несущей прямой рассекаемого ребра равно
+времени события, УМНОЖЕННОМУ НА ЕВКЛИДОВУ СКОРОСТЬ этого ребра: из
+`a*p_x + b*p_y = c + t*sqrt(q)` следует `dist(p, line) = t*sqrt(q)/|(a, b)|`.
+При единичной скорости `q = a^2 + b^2`, множитель равен единице, и получается
+прежнее `dist(p, line) = t` — то самое утверждение, на котором теорема стояла,
+пока стен и весов не было. Значит несущая прямая кандидата проходит не дальше
+`t_crash * speed_bound` от трассы, и кандидатов можно брать из ячеек сетки
+вокруг трассы вместо перебора всех рёбер. Это `TraceCandidateIndexV1`, а
+`speed_bound_of` — та самая целая граница скорости, равная единице всюду, где
+скорости единичны.
 
 Слабейшая форма условия, верная ВСЕГДА и не требующая теоремы: волна не выходит
 за границу области, поэтому вершина не уходит за первое пересечение своей
@@ -462,6 +466,28 @@ def _reaches(
 # --------------------------------------------------------------------------
 
 
+def speed_bound_of(polygon: PolygonV1) -> int:
+    """Целое `s`, для которого доказано `s >= sqrt(q/|n|^2)` у КАЖДОГО ребра.
+
+    Ровно та величина, на которую обобщается теорема 2.11: расстояние от точки
+    split до несущей прямой равно `t * sqrt(q)/|n|`, а не `t`, поэтому запас
+    рамки умножается на верхнюю границу евклидовой скорости.
+
+    Считается в дробях и без корня: сравнивается `q * 1` с `s^2 * |n|^2`, то
+    есть целые с целыми. При единичных скоростях ответ ровно `1` — это и есть
+    та причина, по которой обобщение НЕ двигает ни один прежний счёт
+    кандидатов. Стены (`q = 0`) границу не поднимают вовсе.
+    """
+
+    bound = 1
+    for start, end, speed_squared in polygon.edges():
+        dx, dy = end[0] - start[0], end[1] - start[1]
+        normal_squared = dx * dx + dy * dy
+        while bound * bound * normal_squared < speed_squared:
+            bound *= 2
+    return bound
+
+
 def polygon_box(polygon: PolygonV1) -> tuple[int, int, int, int]:
     points = [point for loop in polygon.loops for point in loop.points]
     xs = [x for x, _ in points]
@@ -510,13 +536,21 @@ def _seed_traces(
     for loop in polygon.loops:
         size = len(loop.points)
         reflex = loop.reflex_flags()
+        speeds = loop.edge_speeds_squared
         for index in range(size):
             if reflex[index]:
-                left = SupportLineV1.through(
-                    loop.points[(index - 1) % size], loop.points[index]
+                # Скорости соседних рёбер — из петли: биссектриса вогнутой
+                # вершины между стеной и источником идёт ВДОЛЬ стены, а не по
+                # середине угла, и `through` этого не знает.
+                left = SupportLineV1.with_speed(
+                    loop.points[(index - 1) % size],
+                    loop.points[index],
+                    speeds[(index - 1) % size],
                 )
-                right = SupportLineV1.through(
-                    loop.points[index], loop.points[(index + 1) % size]
+                right = SupportLineV1.with_speed(
+                    loop.points[index],
+                    loop.points[(index + 1) % size],
+                    speeds[index],
                 )
                 origin = EventPointV1(
                     SqrtSumV1.rational(loop.points[index][0]),
@@ -731,13 +765,25 @@ class TraceCandidateIndexV1:
     события, которые нашёл первый проход.
 
     Полнота обоих запросов держится на одном включении: точка split лежит на
-    трассе, её расстояние до несущей прямой равно времени события, а время не
-    больше `reach`. Значит прямая заходит в рамку трассы, расширенную на `reach`.
-    Если эта рамка выходит за область сетки, запрос НЕПОЛОН, и вершина честно
-    объявляется неиндексируемой — вызывающий уходит на полный перебор.
+    трассе, её расстояние до несущей прямой равно `t * sqrt(q)/|n|`, то есть
+    ВРЕМЕНИ, УМНОЖЕННОМУ НА ЕВКЛИДОВУ СКОРОСТЬ прямой, а время не больше
+    `reach`. Значит прямая заходит в рамку трассы, расширенную на
+    `reach * speed_bound`. Если эта рамка выходит за область сетки, запрос
+    НЕПОЛОН, и вершина честно объявляется неиндексируемой — вызывающий уходит
+    на полный перебор.
+
+    Теорема 2.11 в прежнем виде опиралась на `dist(p, line) = t`, и это верно
+    ровно при `q = a^2 + b^2`. Обобщение оказалось дешевле отказа от индекса:
+    множитель `speed_bound` — одно целое на весь полигон, при единичных
+    скоростях он равен единице, и тогда рамка та же до последней ячейки. Отказ
+    же от индекса на неединичных рёбрах вернул бы полный перебор `reflex * рёбра`
+    (на корпусе это 1 998 000 кандидатов против 6 488 при 2002 вершинах).
     """
 
     grid: CellGridV1
+    #: Целая верхняя граница евклидовой скорости ЛЮБОГО ребра полигона.
+    #: Единица при единичных скоростях, ноль скоростей её не поднимает.
+    speed_bound: int = 1
     lines: CellIndexV1 = field(default_factory=CellIndexV1)
     vertices: CellIndexV1 = field(default_factory=CellIndexV1)
     line_cells: dict[int, tuple[tuple[int, int], ...]] = field(
@@ -761,12 +807,14 @@ class TraceCandidateIndexV1:
         reaches = [
             trace.reach for trace in graph.traces.values() if trace.reach is not None
         ]
-        margin = math.ceil(max(reaches)) if reaches else 0
+        bound = speed_bound_of(polygon)
+        margin = math.ceil(max(reaches) * bound) if reaches else 0
         return TraceCandidateIndexV1(
             CellGridV1.covering(
                 (x_min - margin, y_min - margin, x_max + margin, y_max + margin),
                 targets=max(4, polygon.vertex_count),
-            )
+            ),
+            bound,
         )
 
     def register_line(self, key: int, line: SupportLineV1) -> None:
@@ -782,7 +830,7 @@ class TraceCandidateIndexV1:
         box = trace.box()
         if box is None or trace.reach is None:
             return False
-        margin = trace.reach
+        margin = trace.reach * self.speed_bound
         x_low, x_high, y_low, y_high = box
         window = (
             x_low - margin,

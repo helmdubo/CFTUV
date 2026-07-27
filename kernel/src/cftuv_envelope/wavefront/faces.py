@@ -119,6 +119,10 @@ class FaceV1:
     source_end: tuple[int, int]
     points: tuple[tuple[SqrtSumV1, SqrtSumV1], ...]
     doubled_area: SqrtSumV1
+    #: `q` опорного ребра. Хранится, а не пересчитывается по концам: у
+    #: взвешенного ребра из концов его не вывести, а усечение по времени
+    #: (`coverage.py`) спрашивает именно скорость.
+    speed_squared: int = 0
 
     @property
     def node_count(self) -> int:
@@ -185,17 +189,17 @@ def as_number(value: SqrtSumV1) -> str:
 def polygon_edges(
     polygon: PolygonV1,
 ) -> tuple[tuple[tuple[int, int], tuple[int, int], SupportLineV1], ...]:
-    """Рёбра всех петель области в том же порядке, в каком их видит скелет."""
+    """Рёбра всех петель области в том же порядке, в каком их видит скелет.
 
-    edges = []
-    for loop in polygon.loops:
-        points = loop.points
-        size = len(points)
-        for index in range(size):
-            start = points[index]
-            end = points[(index + 1) % size]
-            edges.append((start, end, SupportLineV1.through(start, end)))
-    return tuple(edges)
+    Скорость берётся из `polygon.edges()`, а не восстанавливается через
+    `through`: у стены `q = 0`, и `through` вернул бы ей `|d|^2`, то есть
+    сборщик увидел бы источник там, где вход задал стену.
+    """
+
+    return tuple(
+        (start, end, SupportLineV1.with_speed(start, end, speed_squared))
+        for start, end, speed_squared in polygon.edges()
+    )
 
 
 def edge_key(start: tuple[int, int], end: tuple[int, int]) -> EdgeKey:
@@ -371,7 +375,14 @@ def build_faces(polygon: PolygonV1, skeleton: SkeletonV1) -> FacePartitionV1:
 
     faces: list[FaceV1] = []
     total = SqrtSumV1.zero()
-    for start, end, _ in edges:
+    for start, end, line in edges:
+        if line.is_stationary:
+            # Стена не заметает НИЧЕГО: её отрезок фронта остаётся на своей
+            # прямой, только укорачивается. Грань нулевой площади — не грань, и
+            # граница «каждая грань строго положительна» отвергла бы её. Узлы
+            # стены при этом никуда не деваются: они входят в грани соседей как
+            # участники, и сумма площадей по-прежнему обязана дать всю область.
+            continue
         key = edge_key(start, end)
         candidates = nodes_by_key.get(key, ())
         if not candidates:
@@ -386,7 +397,7 @@ def build_faces(polygon: PolygonV1, skeleton: SkeletonV1) -> FacePartitionV1:
             start, end, tuple((n.point.x, n.point.y) for n in candidates)
         )
         doubled = doubled_shoelace(points)
-        faces.append(FaceV1(key, start, end, points, doubled))
+        faces.append(FaceV1(key, start, end, points, doubled, line.q))
         total = total + doubled
 
     assembled = FacePartitionV1(

@@ -2,10 +2,17 @@
 
 Вывод, на котором держится весь модуль. Ребро `i` целочисленной решётки с
 направлением `d_i` задаёт несущую прямую `a_i*x + b_i*y = c_i` с ЦЕЛЫМИ
-`a_i = -d_iy`, `b_i = d_ix`, `c_i = a_i*x_i + b_i*y_i`. Фронт идёт с единичной
-скоростью по нормали, а нормаль здесь не единичная, поэтому прямая в момент t:
+`a_i = -d_iy`, `b_i = d_ix`, `c_i = a_i*x_i + b_i*y_i`. Нормаль здесь не
+единичная, поэтому прямая в момент t:
 
-    a_i*x + b_i*y = c_i + t*sqrt(q_i),   q_i = |d_i|^2  (целое)
+    a_i*x + b_i*y = c_i + t*sqrt(q_i),   q_i >= 0  (целое)
+
+`q_i` — квадрат скорости В ЕДИНИЦАХ НОРМАЛИ, а евклидова скорость фронта равна
+`sqrt(q_i)/|(a_i, b_i)|`. Единичная скорость — это `q_i = |d_i|^2 = a_i^2 +
+b_i^2`, стена — `q_i = 0`, взвешенное ребро — что угодно между и сверх. Ни одна
+формула ниже единичности не требует: `q` входит в них ТОЛЬКО под корнем, в роли
+скорости. Единственное место, где нужна длина нормали, — определитель системы
+скольжения, и там стоит `normal_squared`, а не `q`.
 
 Событие — это момент, когда ТРИ такие прямые сходятся в одной точке, то есть
 обращается в ноль определитель
@@ -75,19 +82,54 @@ class SupportLineV1:
     c: int
     q: int
 
+    @property
+    def normal_squared(self) -> int:
+        """`a^2 + b^2` — КВАДРАТ ДЛИНЫ НОРМАЛИ, и это не то же, что `q`.
+
+        Две роли одной сущности, и они развязаны здесь. `q` отвечает на вопрос
+        «как быстро», `a^2 + b^2` — на вопрос «какой длины нормаль»; совпадают
+        они ровно при единичной евклидовой скорости, потому что `through`
+        кладёт `q = |d|^2 = a^2 + b^2` ПО ПОСТРОЕНИЮ. Пока в модуле не было ни
+        стен (`q = 0`), ни весов, совпадение держалось на всех рёбрах, и
+        определитель системы скольжения брался из `q`. Стена делает это
+        делением на ноль, а вес — просто неверным.
+        """
+
+        return self.a * self.a + self.b * self.b
+
+    @property
+    def is_stationary(self) -> bool:
+        """Прямая не двигается: `q = 0`. Фронта от такого ребра нет вовсе."""
+
+        return self.q == 0
+
     @staticmethod
     def through(start: tuple[int, int], end: tuple[int, int]) -> "SupportLineV1":
         """Прямая ребра `start -> end` с нормалью, смотрящей ВЛЕВО от хода.
 
         Для контура, обойдённого против часовой стрелки, «влево» — внутрь,
-        то есть в ту сторону, куда идёт фронт.
+        то есть в ту сторону, куда идёт фронт. Скорость единичная: `q = |d|^2`.
+        """
+
+        dx, dy = end[0] - start[0], end[1] - start[1]
+        return SupportLineV1.with_speed(start, end, dx * dx + dy * dy)
+
+    @staticmethod
+    def with_speed(
+        start: tuple[int, int], end: tuple[int, int], speed_squared: int
+    ) -> "SupportLineV1":
+        """Та же прямая с ЗАДАННЫМ `q`: стена (`0`), источник, взвешенное ребро.
+
+        Направление ребра задаёт нормаль, скорость задаётся отдельно — ровно
+        потому, что это два независимых свойства и совмещал их лишь частный
+        случай единичной скорости.
         """
 
         dx, dy = end[0] - start[0], end[1] - start[1]
         if dx == 0 and dy == 0:
             raise DegenerateEdgeError(f"ребро нулевой длины в {start}")
         a, b = -dy, dx
-        return SupportLineV1(a, b, a * start[0] + b * start[1], dx * dx + dy * dy)
+        return SupportLineV1(a, b, a * start[0] + b * start[1], speed_squared)
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,14 +258,21 @@ def sliding_point(
         a*x + b*y = c + t*sqrt(q)      — вершина на прямой
         b*x - a*y = along             — проекция вдоль прямой сохраняется
 
-    Определитель системы равен `a^2 + b^2 = q`, и он не ноль ни для одного
+    Определитель системы равен `a^2 + b^2`, и он не ноль ни для одного
     невырожденного ребра, поэтому решение всегда есть и оно единственно.
+
+    Раньше здесь стояло `q`, и это было верно лишь по совпадению: `through`
+    кладёт `q = a^2 + b^2`, так что на всех 173 рёбрах корпуса числа равны. У
+    стены (`q = 0`) то же выражение — деление на ноль, у взвешенного ребра —
+    неверный масштаб. Роли развязаны: `q` осталось там, где спрашивают
+    СКОРОСТЬ (насколько сдвинулась прямая), `normal_squared` — там, где
+    спрашивают ДЛИНУ НОРМАЛИ.
     """
 
     moving = SqrtSumV1.rational(line.c) + (
         SqrtSumV1.radical(time.dividend, line.q) / time.divisor
     )
-    scale = Fraction(1, line.q)
+    scale = Fraction(1, line.normal_squared)
     x = (moving.scaled(line.a) + along.scaled(line.b)).scaled(scale)
     y = (moving.scaled(line.b) - along.scaled(line.a)).scaled(scale)
     return EventPointV1(x, y)
@@ -237,24 +286,28 @@ def sliding_time(
     Подстановка решения из `sliding_point` в `a2*x + b2*y = c2 + t*sqrt(q2)`
     даёт уравнение, АФФИННОЕ по t, ровно как у тройки прямых:
 
-        t * (K*sqrt(q1) - q1*sqrt(q2)) = q1*c2 + D*along - K*c1
+        t * (K*sqrt(q1) - N1*sqrt(q2)) = N1*c2 + D*along - K*c1
 
-    где `K = a1*a2 + b1*b2` и `D = a1*b2 - a2*b1` — целые. Отличие от
-    `concurrency_time` только одно, и оно принципиальное: числитель здесь
-    ИРРАЦИОНАЛЕН (в нём `along`), поэтому ответ хранится как `1/(S/N)`, а не как
-    `-D0/S`. Значение то же самое, форма другая: `EventTimeV1` требует
-    рационального числителя, и деление `SqrtSumV1` замкнуто и точно, поэтому
-    перенос иррациональности в знаменатель ничего не приближает.
+    где `K = a1*a2 + b1*b2`, `D = a1*b2 - a2*b1` и `N1 = a1^2 + b1^2` — целые.
+    `N1` пришло из определителя системы скольжения и НЕ равно `q1` вне
+    единичной скорости; раньше на его месте стояло `q1`, и на корпусе это
+    совпадало по построению. Отличие от `concurrency_time` только одно, и оно
+    принципиальное: числитель здесь ИРРАЦИОНАЛЕН (в нём `along`), поэтому ответ
+    хранится как `1/(S/N)`, а не как `-D0/S`. Значение то же самое, форма
+    другая: `EventTimeV1` требует рационального числителя, и деление
+    `SqrtSumV1` замкнуто и точно, поэтому перенос иррациональности в
+    знаменатель ничего не приближает.
     """
 
     weight = line.a * other.a + line.b * other.b
     cross = line.a * other.b - other.a * line.b
+    norm = line.normal_squared
     numerator = (
-        SqrtSumV1.rational(line.q * other.c)
+        SqrtSumV1.rational(norm * other.c)
         + along.scaled(cross)
         - SqrtSumV1.rational(weight * line.c)
     )
-    speed = SqrtSumV1.radical(weight, line.q) - SqrtSumV1.radical(line.q, other.q)
+    speed = SqrtSumV1.radical(weight, line.q) - SqrtSumV1.radical(norm, other.q)
     if speed.is_zero:
         if numerator.is_zero:
             return None, EventTimeOutcome.WAVEFRONT_TRIPLE_ALWAYS_CONCURRENT

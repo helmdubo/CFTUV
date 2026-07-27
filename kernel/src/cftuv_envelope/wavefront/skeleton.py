@@ -149,6 +149,14 @@ class CandidateRefusal(str, Enum):
     # сторону: угол ровно развёрнутый. Пересечения двух прямых нет, и позиция
     # вершины ВДОЛЬ прямой парой рёбер не определяется вовсе.
     NO_RULE_JOINT_IS_CODIRECTIONAL = "NO_RULE_JOINT_IS_CODIRECTIONAL"
+    # То же коллинеарное сонаправленное соседство, но скорости РАЗНЫЕ: прямые
+    # совпали на одно мгновение и уже расходятся. Развёрнутым углом это не
+    # является, закреплённой проекции у такой вершины нет, и правила для неё в
+    # модуле тоже нет. Рождается конфигурация только с приходом стен и весов:
+    # при единичной скорости коллинеарность соседей влекла совпадение прямых.
+    NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS = (
+        "NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS"
+    )
     # Отрезок, который собирались резать, к моменту применения потерял концы.
     NO_RULE_SPAN_VANISHED = "NO_RULE_SPAN_VANISHED"
     # Вершины фронта встретились в одной точке, а сшить их концы однозначно
@@ -374,16 +382,19 @@ class _Builder:
         for loop in self.polygon.loops:
             points = loop.points
             reflex = loop.reflex_flags()
+            speeds = loop.edge_speeds_squared
             size = len(points)
             first_edge = len(self.edges)
             first_vertex = len(self.vertices)
             for index in range(size):
                 start = points[index]
                 end = points[(index + 1) % size]
+                # Скорость берётся из петли, а не из `through`: иначе стена
+                # молча стала бы источником единичной скорости.
                 self.edges.append(
                     _Edge(
                         first_edge + index,
-                        SupportLineV1.through(start, end),
+                        SupportLineV1.with_speed(start, end, speeds[index]),
                         (start[0], start[1], end[0], end[1]),
                     )
                 )
@@ -1287,6 +1298,12 @@ class _Builder:
         if (
             first.a * second.b - second.a * first.b == 0
             and first.a * second.a + first.b * second.b > 0
+            # Скорости обязаны совпадать: развёрнутый угол — это ОДНА
+            # движущаяся прямая, а две коллинеарные прямые разных скоростей
+            # совпадают ровно в одно мгновение и тут же расходятся. Закреплять
+            # им общую проекцию значило бы объявить мгновение вечностью.
+            and first.q * second.normal_squared
+            == second.q * first.normal_squared
         ):
             # Развёрнутый угол: закрепляем проекцию вдоль общей прямой прямо в
             # момент рождения. Позже её взять неоткуда — вершина к тому времени
@@ -1432,12 +1449,18 @@ def _joint_kind(
     вопрос точно и целочисленно: положительное — рёбра смотрят в одну сторону
     (угол развёрнутый, вершина скользит вдоль прямой), отрицательное — навстречу
     (фронт вывернулся, два его отрезка совпали).
+
+    У сонаправленного стыка спрашивается ещё и равенство скоростей `q1/N1` и
+    `q2/N2`: прямые разных скоростей совпадают на одно мгновение, и называть
+    такой стык развёрнутым углом было бы неверным диагнозом, а не огрублением.
     """
 
     dot = first.b * second.b + first.a * second.a
-    if dot > 0:
-        return CandidateRefusal.NO_RULE_JOINT_IS_CODIRECTIONAL
-    return CandidateRefusal.NO_RULE_JOINT_IS_ANTIPARALLEL
+    if dot <= 0:
+        return CandidateRefusal.NO_RULE_JOINT_IS_ANTIPARALLEL
+    if first.q * second.normal_squared != second.q * first.normal_squared:
+        return CandidateRefusal.NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS
+    return CandidateRefusal.NO_RULE_JOINT_IS_CODIRECTIONAL
 
 
 def _is_reflex(first: SupportLineV1, second: SupportLineV1) -> bool:
