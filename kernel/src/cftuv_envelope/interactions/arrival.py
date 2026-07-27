@@ -65,6 +65,33 @@ def _line_constant(normal, point) -> ExactScalar:
     return ExactScalar.from_value(nx * px + ny * py)
 
 
+# Скорость фронта Strip. Единица здесь не значение по умолчанию, а запись
+# самого закона `n*p = c + alpha*s`: у Strip параметр `alpha` и есть смещение
+# вдоль ковектора нормали, поэтому `s = 1` тождественно. Константа объявлена
+# затем, чтобы второй путь (`wavefront/conveyor.py`) брал её отсюда, а не
+# вписывал единицу у себя: вписанная единица — это гипотеза о чужом законе.
+STRIP_FRONT_NORMAL_SPEED = ExactScalar.from_value(1)
+
+
+def strip_front_support_line(context: GeometryContext, source):
+    """Несущая прямая фронта опорного сегмента: ковектор нормали и константа.
+
+    Весь геометрический смысл закона прихода Strip — эти две величины; всё
+    остальное в `StripArrivalModelV1` есть идентичность и активность, то есть
+    ответ на вопрос «чей закон» и «где он ещё жив», а не сам закон.
+
+    Разрез сделан ради второго вызывающего. Вход очереди событий строит ТЕ ЖЕ
+    законы, но ему не нужны ни юбки, ни их клип о домен, ни союз: измерено на
+    `building_002_point_contact_v1` — прямая сборка законов 0.8 мс против
+    DOMAIN_CLIP 69 мс плюс RAW_UNION 50 мс плюс 56 мс на активность в
+    `compile_arrival_models`. Копия этих двух строк у второго пути означала бы,
+    что расхождение законов между путями возможно и притом молча.
+    """
+
+    normal = context.metric.support_covector_g(source.owner_normal)
+    return normal, _line_constant(normal, source.start)
+
+
 def _segment_on_front(
     segment: BoundedSupportSegment,
     law: ExactFrontArrivalLawV1,
@@ -363,16 +390,15 @@ def compile_arrival_models(
                         )
                     )
                     continue
-                line_normal = context.metric.support_covector_g(
-                    source.owner_normal
+                line_normal, constant = strip_front_support_line(
+                    context, source
                 )
-                constant = _line_constant(line_normal, source.start)
                 law = ExactFrontArrivalLawV1(
                     law_id=declaration.arrival_law_id,
                     support_id=support_id,
                     normal=line_normal,
                     source_constant=constant,
-                    normal_speed=ExactScalar.from_value(1),
+                    normal_speed=STRIP_FRONT_NORMAL_SPEED,
                 )
                 moved_support_id = stable_id("moving-support", source.support_id)
                 active_boundary = (

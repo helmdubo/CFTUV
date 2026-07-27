@@ -1,0 +1,943 @@
+"""Публичный вход очереди: снапшот и запрос — в покрытие с владельцами.
+
+Рецепт входа очереди до этого модуля существовал только приватным хелпером
+теста (`_field_bridge_input` в `test_wavefront_differential.py`) и проходил
+через `evaluate_reference_raw_coverage`, то есть платил за СОЮЗ, который
+очереди не нужен вовсе. Здесь тот же рецепт становится входом ядра и теряет
+союз; всё остальное — те же функции, что и были.
+
+ЦЕНА, ИЗМЕРЕННАЯ НА `building_002_point_contact_v1` (3 источника, 12 рёбер):
+
+| ступень | было | стало |
+|---|---:|---:|
+| `evaluate_reference_raw_coverage` целиком | 171 мс | не вызывается |
+| в т.ч. `DOMAIN_CLIP` | 69 мс | не вызывается |
+| в т.ч. `RAW_UNION` | 50 мс | не вызывается |
+| `compile_arrival_models` (активность юбок) | 56 мс | не вызывается |
+| перевод sympy → `Fraction` (24 координаты + 12 полей закона) | 304 мс | 0.1 мс |
+| `prepare` целиком | — | 59 мс |
+| `coverage` на тёплой подготовке | — | 9 мс |
+
+ГДЕ ПРОХОДИТ РАЗРЕЗ И ПОЧЕМУ ИМЕННО ТАМ. Закон прихода Strip есть ковектор
+нормали опоры и его константа (`strip_front_support_line`) — обе величины
+выводятся из `GeometryContext` и спеки, и ни юбки, ни её клипа о домен, ни
+союза в этот вывод не входит. Это ПРОВЕРЕНО, а не предположено: множество
+законов, собранных здесь, совпадает с множеством законов
+`compile_arrival_models` на фикстуре поточечно (три закона, те же дроби).
+
+Разница между путями при этом есть, и она названа, а не спрятана. Полный путь
+эмитит закон только если у юбки нашёлся сегмент НА ФРОНТЕ при эффективной
+alpha; здесь такого отбора нет — берутся все опорные сегменты всех Strip-спек.
+Лишний закон не исчезает молча: мост отвечает `ARRIVAL_LAW_IS_NOT_A_DOMAIN_EDGE`
+или `MORE_ARRIVAL_LAWS_THAN_EDGES_ON_ONE_LINE`, то есть отказ приходит с
+именем и числом. На фикстуре отбор не отбрасывает ничего (по одному опорному
+сегменту на каждую из трёх Strip-спек), и оба пути дают три закона.
+
+ALPHA ВХОДИТ РОВНО В ДВУХ МЕСТАХ, и оба измерены:
+
+1. усечение граней по времени (`coverage_at`) — то, ради чего разрез и сделан;
+2. ИМЯ экземпляра юбки. `strip_envelope_instance_id` стоит на ЭФФЕКТИВНОЙ
+   alpha, поэтому при alpha 0.25 и 0.5 три имени различны все три. Гипотеза
+   «alpha входит только в `coverage_at`» этим ОПРОВЕРГНУТА, и опровержение
+   стоило одной ступени: имена экземпляров выводятся в alpha-зависимой части,
+   а alpha-независимая знает владельца по `envelope_spec_id`.
+
+Геометрия же от alpha не зависит ни в чём: петли домена, законы, решётка карты,
+мост, скелет и разбиение при alpha 0.25 и 0.5 совпадают ПОБИТОВО, включая
+`semantic_digest` скелета. Поэтому `prepare` кэшируем, а `coverage` — нет.
+
+ЧЕГО ЗДЕСЬ НЕТ. `resolve_coverage_interactions` и `policy_b` не вызываются:
+попарный крой на этом же домене теряет ВСЮ площадь покрытия
+(`test_wavefront_differential.py`), и очередь существует именно вместо него.
+`exact_union` не вызывается ни разу — ни один из четырёх бэкендов
+`ExactSegmentArrangementBackend` в этот путь не входит.
+"""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass
+from decimal import Decimal
+from enum import Enum
+from fractions import Fraction
+
+import sympy as sp
+
+from ..contracts.envelopes import StripEnvelopeSpec
+from ..contracts.analysis import AnalysisSnapshotV1
+from ..contracts.request import DecalRequestV1
+from ..ids import PatchDomainId
+from ..interactions.arrival import (
+    STRIP_FRONT_NORMAL_SPEED,
+    strip_front_support_line,
+)
+from ..numeric import LocalLengthV1
+from ..reference.boundary import (
+    build_domain_geometry,
+    resolve_component_alphas,
+)
+from ..reference.common import GeometryContext, ReferenceGeometryError
+from ..reference.compile import compile_reference_envelopes
+from ..reference.metric import ExactPlanarMetric
+from ..reference.raw_coverage import (
+    normalize_requested_alpha,
+    spec_effective_alpha,
+)
+from ..reference.strip import strip_envelope_instance_id
+from ..reference.validation import validate_reference_geometry_payload
+from ..robust.grid import GridSpecV1
+from ..source_grid import chart_grid_for
+from .bridge import BridgeOutcome, BridgeReportV1, PlainArrivalLawV1, bridge_arrival_laws
+from .coverage import CoverageOutcome, coverage_at
+from .faces import EdgeKey, FaceOutcome, FacePartitionV1, build_faces
+from .skeleton import SkeletonOutcome, SkeletonV1, build_skeleton
+from .sqrt_sum import SqrtSumV1
+
+
+class ConveyorOutcome(str, Enum):
+    """Чем кончился вход очереди. Тихого «не получилось» здесь нет.
+
+    Исход называет СТУПЕНЬ, на которой путь остановился; собственный отказ
+    ступени лежит рядом своим типом (`BridgeOutcome`, `SkeletonOutcome`,
+    `FaceOutcome`, `CoverageOutcome`) и в строку не сплющивается.
+    """
+
+    EXACT = "EXACT"
+    # План не скомпилировался — дальше идти не с чем.
+    PLAN_IS_NOT_COMPILED = "PLAN_IS_NOT_COMPILED"
+    # У домена нет планарного кадра: координат нет, значит нет и петель.
+    DOMAIN_FRAME_IS_UNAVAILABLE = "DOMAIN_FRAME_IS_UNAVAILABLE"
+    # Геометрия домена построилась, а регионов в ней ноль. Отличается от
+    # «регион пуст»: пустой список регионов означает, что резать нечего.
+    DOMAIN_HAS_NO_REGIONS = "DOMAIN_HAS_NO_REGIONS"
+    # Координата домена не рациональна. Порога здесь быть не может: `PolygonV1`
+    # живёт на решётке, а к решётке привязывают ДРОБЬ, не корень.
+    DOMAIN_POINT_IS_NOT_RATIONAL = "DOMAIN_POINT_IS_NOT_RATIONAL"
+    # Поле закона прихода не рационально. То же самое и по той же причине:
+    # `PlainArrivalLawV1` объявлен в точных дробях.
+    ARRIVAL_LAW_IS_NOT_RATIONAL = "ARRIVAL_LAW_IS_NOT_RATIONAL"
+    # В плане нет ни одной Strip-спеки, то есть источника фронта нет вовсе.
+    NO_STRIP_SOURCE_IN_THE_PLAN = "NO_STRIP_SOURCE_IN_THE_PLAN"
+    # У кадра патча нет сертификата решётки, то есть решётку карты выводить не
+    # из чего. Подобрать её здесь нельзя: масштаб определяет, какой домен
+    # вообще отобразится, и выбранный «на глаз» превратил бы ответ в свойство
+    # выбора. Кадром без сертификата бывает `PlanarPatchFrameV1` — путь,
+    # объявленный до закона решётки.
+    CHART_LATTICE_IS_NOT_DECLARED = "CHART_LATTICE_IS_NOT_DECLARED"
+    # Геометрия домена отказала своим исходом (`ReferenceOutcome`), и он лежит
+    # в `reference_outcome`, а не пересказан словами.
+    DOMAIN_GEOMETRY_REFUSED = "DOMAIN_GEOMETRY_REFUSED"
+    BRIDGE_DID_NOT_MAP = "BRIDGE_DID_NOT_MAP"
+    SKELETON_DID_NOT_CLOSE = "SKELETON_DID_NOT_CLOSE"
+    FACES_DID_NOT_ASSEMBLE = "FACES_DID_NOT_ASSEMBLE"
+    # Покрытие спрошено у подготовки, которая сама не `EXACT`.
+    PREPARATION_IS_NOT_EXACT = "PREPARATION_IS_NOT_EXACT"
+    COVERAGE_DID_NOT_CLOSE = "COVERAGE_DID_NOT_CLOSE"
+    # Вектор эффективных alpha у одной огибающей неоднороден. Имя экземпляра
+    # стоит на эффективной alpha, поэтому двух alpha ему мало не бывает.
+    SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN = (
+        "SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN"
+    )
+
+
+Counters = tuple[tuple[str, int], ...]
+Timings = tuple[tuple[str, float], ...]
+
+
+class _Clock:
+    """Часы стадий. Ни одна ступень не проходит без своей строки времени."""
+
+    __slots__ = ("_marks",)
+
+    def __init__(self) -> None:
+        self._marks: dict[str, float] = {}
+
+    def add(self, stage: str, started: float) -> None:
+        self._marks[stage] = self._marks.get(stage, 0.0) + (
+            time.perf_counter() - started
+        )
+
+    def timings(self) -> Timings:
+        return tuple(self._marks.items())
+
+
+def exact_rational(expression) -> Fraction | None:
+    """Точная дробь из выражения SymPy, БЕЗ `nsimplify`.
+
+    `nsimplify` здесь стоил 304 мс на 36 значений фикстуры — по 8.5 мс на
+    значение, — и всё это на числах, которые уже были `Rational`: он ИЩЕТ
+    рациональное приближение, а искать нечего. Прямое чтение `p/q` даёт те же
+    36 значений за 0.1 мс, и совпадение проверено поэлементно, а не по сумме.
+
+    ЦЕНА БЫЛА НЕ ЕДИНСТВЕННОЙ БЕДОЙ, и вторая тяжелее. Прежний рецепт
+    `Fraction(*map(int, sp.fraction(sp.nsimplify(x))))` на ИРРАЦИОНАЛЬНОМ
+    входе не падает — он молча усекает: `sqrt(2)/2` даёт `(sqrt(2), 2)`, а
+    `int(sqrt(2))` есть 1, то есть ответ `1/2` при истинном `0.7071...`,
+    ошибка 29 %. Тихого исхода здесь быть не должно, поэтому
+
+    `None` — выражение не рационально. Это ответ, а не сбой: вызывающий обязан
+    назвать исход (`DOMAIN_POINT_IS_NOT_RATIONAL`, `ARRIVAL_LAW_IS_NOT_RATIONAL`)
+    вместо того, чтобы округлить. Исход достижим не в теории: на треугольнике
+    `straight_snapshot` нормаль гипотенузы иррациональна, и вход отвечает
+    именем, а прежний хелпер ответил бы числом, которого нет.
+    """
+
+    value = sp.sympify(expression)
+    if not value.is_Rational:
+        return None
+    return Fraction(int(value.p), int(value.q))
+
+
+def chart_lattice_for_frame(frame) -> GridSpecV1 | None:
+    """Решётка карты патча — ПО ОБЪЯВЛЕННОМУ ЗАКОНУ, а не подобранная.
+
+    Шага здесь два, и оба уже объявлены ядром. Шаг источника берётся из
+    сертификата самого патча (`window_step`, он же самый мелкий допустимый шаг
+    окна по `FINEST_ADMISSIBLE_FIRST_V1`), а решётка карты выводится из него
+    `chart_grid_for`: координаты карты — кратные базисным векторам, а не метры,
+    поэтому шаг переносить напрямую нельзя.
+
+    Свободного числа здесь нет вовсе, и это главное свойство функции.
+    «Удобный» масштаб превратил бы «вход отобразился» в утверждение про
+    подобранную решётку вместо утверждения про закон, который ядро объявляет
+    для всех патчей одинаково.
+
+    `None` — у кадра сертификата решётки нет. Кадр бывает двух видов
+    (`validate_reference_geometry_payload` возвращает либо
+    `RationalAffinePlanarMetricV2`, либо `PlanarPatchFrameV1`), и закон решётки
+    объявлен только у первого. Взять «какой-нибудь» масштаб для второго нельзя:
+    масштаб решает, отобразится ли домен вообще.
+    """
+
+    certificate = getattr(frame, "grid_certificate", None)
+    if certificate is None:
+        return None
+    step = Fraction(
+        certificate.window_step.numerator, certificate.window_step.denominator
+    )
+    return chart_grid_for(ExactPlanarMetric.from_descriptor(frame).gram, step)
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedRegionV1:
+    """Один регион домена, доведённый до разбиения. Отказ — тоже результат."""
+
+    region_id: str
+    bridge: BridgeReportV1
+    skeleton: SkeletonV1 | None
+    partition: FacePartitionV1 | None
+    bridge_outcome: BridgeOutcome
+    skeleton_outcome: SkeletonOutcome | None
+    face_outcome: FaceOutcome | None
+    # Владелец каждого ребра-источника — `envelope_spec_id`, имя, от alpha
+    # НЕ зависящее. Имя экземпляра (`envelope_instance_id`) выводится ступенью
+    # покрытия, потому что зависит.
+    owner_by_edge: tuple[tuple[EdgeKey, str], ...]
+    # Рёбра домена без закона прихода: у них грани нет, фронт от них не идёт.
+    wall_spans: tuple[EdgeKey, ...]
+    wall_edge_count: int
+    # Рёбра, у которых источник есть, а КОТОРЫЙ именно — по входу не записано.
+    ambiguous_owner_spans: tuple[EdgeKey, ...]
+
+    @property
+    def is_exact(self) -> bool:
+        return (
+            self.bridge_outcome is BridgeOutcome.EXACT
+            and self.skeleton_outcome is SkeletonOutcome.EXACT
+            and self.face_outcome is FaceOutcome.EXACT
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ConveyorPreparationV1:
+    """Alpha-НЕЗАВИСИМАЯ часть входа очереди. Её и следует кэшировать.
+
+    Независимость измерена, а не объявлена: при alpha запроса 0.25 и 0.5
+    `semantic_digest` скелета, состав граней и `owner_by_edge` совпадают
+    побитово. Что от alpha зависит — имена экземпляров — сюда не входит.
+    """
+
+    outcome: ConveyorOutcome
+    regions: tuple[PreparedRegionV1, ...]
+    lattice: GridSpecV1 | None
+    law_names: tuple[str, ...]
+    counters: Counters
+    timings: Timings
+    detail: str = ""
+    # Внутренние опоры alpha-зависимой ступени. Они здесь не для читателя, а
+    # потому что второй раз строить их было бы вторым способом их построить.
+    compilation: object | None = None
+    context: GeometryContext | None = None
+    domain: object | None = None
+    requested_alpha: LocalLengthV1 | None = None
+
+    def counter(self, name: str) -> int:
+        return dict(self.counters).get(name, 0)
+
+    def timing(self, stage: str) -> float:
+        return dict(self.timings).get(stage, 0.0)
+
+
+@dataclass(frozen=True, slots=True)
+class ConveyorFaceCoverageV1:
+    """Кусок покрытия и его владелец, названный обоими именами."""
+
+    region_id: str
+    owner: EdgeKey
+    envelope_spec_id: str
+    # Имя экземпляра юбки при ЭТОЙ alpha. `None` — вывести не удалось, и
+    # причина лежит в исходе всего результата, а не подменена пустой строкой.
+    envelope_instance_id: str | None
+    doubled_area: SqrtSumV1
+
+
+@dataclass(frozen=True, slots=True)
+class ConveyorRegionCoverageV1:
+    """Покрытие одного региона домена к моменту alpha."""
+
+    region_id: str
+    outcome: CoverageOutcome
+    faces: tuple[ConveyorFaceCoverageV1, ...]
+    doubled_area: SqrtSumV1
+    polygon_doubled_area: int
+    wall_spans: tuple[EdgeKey, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ConveyorCoverageV1:
+    """Покрытие всего домена плана очередью, с владельцем у каждого куска."""
+
+    outcome: ConveyorOutcome
+    alpha: Fraction
+    # Та же alpha в единицах привязанной решётки: `alpha * lattice.scale`.
+    lattice_alpha: Fraction
+    regions: tuple[ConveyorRegionCoverageV1, ...]
+    doubled_area: SqrtSumV1
+    polygon_doubled_area: int
+    preparation: ConveyorPreparationV1
+    counters: Counters
+    timings: Timings
+    detail: str = ""
+
+    @property
+    def faces(self) -> tuple[ConveyorFaceCoverageV1, ...]:
+        return tuple(face for region in self.regions for face in region.faces)
+
+    def counter(self, name: str) -> int:
+        return dict(self.counters).get(name, 0)
+
+    def timing(self, stage: str) -> float:
+        return dict(self.timings).get(stage, 0.0)
+
+
+def _refused(
+    outcome: ConveyorOutcome, detail: str, clock: _Clock
+) -> ConveyorPreparationV1:
+    return ConveyorPreparationV1(
+        outcome=outcome,
+        regions=(),
+        lattice=None,
+        law_names=(),
+        counters=(),
+        timings=clock.timings(),
+        detail=detail,
+    )
+
+
+def _arrival_laws(
+    context: GeometryContext,
+) -> tuple[tuple[PlainArrivalLawV1, ...], str | None]:
+    """Законы прихода всех Strip-источников плана, без юбок и без союза.
+
+    Имя закона — `envelope_spec_id`, а не `envelope_instance_id`, и это не
+    удобство: имя экземпляра стоит на эффективной alpha и потому alpha-зависимо
+    (измерено: три различных имени при 0.25 против 0.5). Спека же — сама
+    идентичность источника, и она от alpha не двигается.
+    """
+
+    compilation = context.compilation
+    laws: list[PlainArrivalLawV1] = []
+    for spec in sorted(
+        compilation.envelope_specs, key=lambda item: item.envelope_spec_id.value
+    ):
+        if not isinstance(spec, StripEnvelopeSpec):
+            continue
+        seed = next(
+            item
+            for item in compilation.seeds
+            if getattr(item, "seed_id", None) == spec.source_seed_id
+        )
+        for source in context.support_segments_for_use(
+            seed.chain_use_id, spec.envelope_spec_id.value
+        ):
+            normal, constant = strip_front_support_line(context, source)
+            fields = [
+                exact_rational(item) for item in normal.expressions()
+            ] + [
+                exact_rational(constant.as_expr()),
+                exact_rational(STRIP_FRONT_NORMAL_SPEED.as_expr()),
+            ]
+            if any(item is None for item in fields):
+                return (), (
+                    f"{spec.envelope_spec_id.value}/{source.support_id}: "
+                    "поле закона прихода не рационально"
+                )
+            normal_x, normal_y, law_constant, speed = fields
+            laws.append(
+                PlainArrivalLawV1(
+                    name=spec.envelope_spec_id.value,
+                    normal_x=normal_x,
+                    normal_y=normal_y,
+                    constant=law_constant,
+                    speed_squared=speed * speed,
+                )
+            )
+    return tuple(laws), None
+
+
+def _region_loops(region):
+    """Петли региона точными дробями: внешняя первой, дальше дыры."""
+
+    loops: list[tuple[tuple[Fraction, Fraction], ...]] = []
+    for source in (region.outer, *region.holes):
+        points: list[tuple[Fraction, Fraction]] = []
+        for point in source.points:
+            x = exact_rational(point.x.as_expr())
+            y = exact_rational(point.y.as_expr())
+            if x is None or y is None:
+                return None, f"{region.region_id}: координата не рациональна"
+            points.append((x, y))
+        loops.append(tuple(points))
+    return tuple(loops), None
+
+
+def _prepare_region(
+    region, laws, lattice: GridSpecV1, clock: _Clock
+) -> tuple[PreparedRegionV1 | None, str | None]:
+    started = time.perf_counter()
+    loops, issue = _region_loops(region)
+    clock.add("DOMAIN_LOOPS", started)
+    if loops is None:
+        return None, issue
+
+    started = time.perf_counter()
+    report = bridge_arrival_laws(
+        loops, laws, lattice=lattice, weighted_fronts=True
+    )
+    clock.add("BRIDGE", started)
+    prepared = PreparedRegionV1(
+        region_id=region.region_id,
+        bridge=report,
+        skeleton=None,
+        partition=None,
+        bridge_outcome=report.outcome,
+        skeleton_outcome=None,
+        face_outcome=None,
+        owner_by_edge=report.owner_by_edge,
+        wall_spans=report.wall_spans,
+        wall_edge_count=report.wall_edge_count,
+        ambiguous_owner_spans=report.ambiguous_owner_spans,
+    )
+    if report.polygon is None:
+        return prepared, None
+
+    started = time.perf_counter()
+    skeleton = build_skeleton(report.polygon)
+    clock.add("SKELETON", started)
+    if skeleton.outcome is not SkeletonOutcome.EXACT:
+        return (
+            _with_skeleton(prepared, skeleton, None),
+            None,
+        )
+
+    started = time.perf_counter()
+    partition = build_faces(report.polygon, skeleton)
+    clock.add("FACES", started)
+    return _with_skeleton(prepared, skeleton, partition), None
+
+
+def _with_skeleton(
+    prepared: PreparedRegionV1,
+    skeleton: SkeletonV1,
+    partition: FacePartitionV1 | None,
+) -> PreparedRegionV1:
+    return PreparedRegionV1(
+        region_id=prepared.region_id,
+        bridge=prepared.bridge,
+        skeleton=skeleton,
+        partition=partition,
+        bridge_outcome=prepared.bridge_outcome,
+        skeleton_outcome=skeleton.outcome,
+        face_outcome=None if partition is None else partition.outcome,
+        owner_by_edge=prepared.owner_by_edge,
+        wall_spans=prepared.wall_spans,
+        wall_edge_count=prepared.wall_edge_count,
+        ambiguous_owner_spans=prepared.ambiguous_owner_spans,
+    )
+
+
+def _preparation_outcome(
+    regions: tuple[PreparedRegionV1, ...],
+) -> tuple[ConveyorOutcome, str]:
+    """Первый неудавшийся регион называет ступень; исход ступени лежит при нём.
+
+    Порядок проверок совпадает с порядком ступеней, и другого быть не может:
+    скелет без полигона не строится, грани без скелета — тоже.
+    """
+
+    for region in regions:
+        if region.bridge_outcome is not BridgeOutcome.EXACT:
+            return (
+                ConveyorOutcome.BRIDGE_DID_NOT_MAP,
+                f"{region.region_id}: {region.bridge_outcome.value}",
+            )
+        if region.skeleton_outcome is not SkeletonOutcome.EXACT:
+            return (
+                ConveyorOutcome.SKELETON_DID_NOT_CLOSE,
+                f"{region.region_id}: {region.skeleton_outcome}",
+            )
+        if region.face_outcome is not FaceOutcome.EXACT:
+            return (
+                ConveyorOutcome.FACES_DID_NOT_ASSEMBLE,
+                f"{region.region_id}: {region.face_outcome}",
+            )
+    return ConveyorOutcome.EXACT, ""
+
+
+def _preparation_counters(
+    regions: tuple[PreparedRegionV1, ...],
+    laws: tuple[PlainArrivalLawV1, ...],
+    lattice: GridSpecV1,
+) -> Counters:
+    return (
+        ("CONVEYOR_DOMAIN_REGIONS", len(regions)),
+        ("CONVEYOR_ARRIVAL_LAWS", len(laws)),
+        ("CONVEYOR_LATTICE_SCALE", lattice.scale),
+        ("CONVEYOR_DOMAIN_EDGES", sum(item.bridge.edge_count for item in regions)),
+        (
+            "CONVEYOR_SOURCE_EDGES",
+            sum(item.bridge.matched_edge_count for item in regions),
+        ),
+        ("CONVEYOR_WALL_EDGES", sum(item.wall_edge_count for item in regions)),
+        (
+            "CONVEYOR_AMBIGUOUS_OWNER_EDGES",
+            sum(len(item.ambiguous_owner_spans) for item in regions),
+        ),
+        (
+            "CONVEYOR_WEIGHTED_SOURCE_EDGES",
+            sum(item.bridge.weighted_edge_count for item in regions),
+        ),
+        (
+            "CONVEYOR_SKELETON_NODES",
+            sum(
+                0 if item.skeleton is None else len(item.skeleton.nodes)
+                for item in regions
+            ),
+        ),
+        (
+            "CONVEYOR_FACES",
+            sum(
+                0 if item.partition is None else len(item.partition.faces)
+                for item in regions
+            ),
+        ),
+    )
+
+
+def prepare_conveyor(
+    snapshot: AnalysisSnapshotV1,
+    request: DecalRequestV1,
+    *,
+    patch_domain_id: PatchDomainId | None = None,
+) -> ConveyorPreparationV1:
+    """Alpha-независимая подготовка очереди для домена плана.
+
+    Союз не считается, попарный крой не зовётся, `exact_union` не вызывается ни
+    разу.
+
+    Проходятся ВСЕ регионы домена, а не первый: хелпер теста брал
+    `domain_regions[0]`, и разница была невидима, то есть непроверяема. Сколько
+    их на самом деле — ИЗМЕРЕНО, и ответ сильнее фикстуры:
+    `SparsePatchDomainGeometryV1.domain_regions` возвращает РОВНО ОДИН регион
+    по построению, а при нескольких внешних петлях отказывает
+    `REFERENCE_INPUT_CONTRACT_INVALID`. То есть в v1 второго региона не бывает
+    вовсе, и цикл здесь — не запас на будущее, а отсутствие молчаливой
+    зависимости от этого контракта. Число регионов лежит счётчиком
+    `CONVEYOR_DOMAIN_REGIONS`, и оно на фикстуре равно 1 не случайно.
+    """
+
+    clock = _Clock()
+    started = time.perf_counter()
+    compiled = compile_reference_envelopes(snapshot, request, patch_domain_id)
+    clock.add("PLAN_COMPILE", started)
+    compilation = compiled.compilation
+    if compilation is None:
+        return _refused(
+            ConveyorOutcome.PLAN_IS_NOT_COMPILED, compiled.outcome.value, clock
+        )
+
+    started = time.perf_counter()
+    frame, payload_diagnostics = validate_reference_geometry_payload(
+        compilation.analysis_snapshot, compilation.plan_key.patch_domain_id
+    )
+    if frame is None:
+        clock.add("DOMAIN_BUILD", started)
+        return _refused(
+            ConveyorOutcome.DOMAIN_FRAME_IS_UNAVAILABLE,
+            payload_diagnostics[0].outcome.value,
+            clock,
+        )
+    try:
+        context = GeometryContext.build(compilation, frame)
+        domain = build_domain_geometry(context)
+    except ReferenceGeometryError as exc:
+        clock.add("DOMAIN_BUILD", started)
+        return _refused(
+            ConveyorOutcome.DOMAIN_GEOMETRY_REFUSED, exc.outcome.value, clock
+        )
+    clock.add("DOMAIN_BUILD", started)
+    if not domain.domain_regions:
+        return _refused(
+            ConveyorOutcome.DOMAIN_HAS_NO_REGIONS,
+            str(compilation.plan_key.patch_domain_id),
+            clock,
+        )
+
+    started = time.perf_counter()
+    try:
+        laws, law_issue = _arrival_laws(context)
+    except ReferenceGeometryError as exc:
+        clock.add("ARRIVAL_LAWS", started)
+        return _refused(
+            ConveyorOutcome.DOMAIN_GEOMETRY_REFUSED, exc.outcome.value, clock
+        )
+    clock.add("ARRIVAL_LAWS", started)
+    if law_issue is not None:
+        return _refused(
+            ConveyorOutcome.ARRIVAL_LAW_IS_NOT_RATIONAL, law_issue, clock
+        )
+    if not laws:
+        return _refused(
+            ConveyorOutcome.NO_STRIP_SOURCE_IN_THE_PLAN,
+            str(compilation.plan_key.patch_domain_id),
+            clock,
+        )
+
+    started = time.perf_counter()
+    lattice = chart_lattice_for_frame(frame)
+    clock.add("CHART_LATTICE", started)
+    if lattice is None:
+        return _refused(
+            ConveyorOutcome.CHART_LATTICE_IS_NOT_DECLARED,
+            type(frame).__name__,
+            clock,
+        )
+
+    prepared_regions: list[PreparedRegionV1] = []
+    for region in domain.domain_regions:
+        prepared, issue = _prepare_region(region, laws, lattice, clock)
+        if prepared is None:
+            return _refused(
+                ConveyorOutcome.DOMAIN_POINT_IS_NOT_RATIONAL, issue or "", clock
+            )
+        prepared_regions.append(prepared)
+
+    regions = tuple(prepared_regions)
+    outcome, detail = _preparation_outcome(regions)
+    return ConveyorPreparationV1(
+        outcome=outcome,
+        regions=regions,
+        lattice=lattice,
+        law_names=tuple(law.name for law in laws),
+        counters=_preparation_counters(regions, laws, lattice),
+        timings=clock.timings(),
+        detail=detail,
+        compilation=compilation,
+        context=context,
+        domain=domain,
+        requested_alpha=normalize_requested_alpha(request.requested_alpha),
+    )
+
+
+def _instance_ids_by_spec(
+    prepared: ConveyorPreparationV1, alpha_value: LocalLengthV1
+) -> tuple[dict[str, str] | None, str]:
+    """Имя экземпляра юбки на ЭТОЙ alpha, по одному на Strip-спеку.
+
+    Alpha сюда входит дважды и оба раза по существу: резолвер границы может
+    УКОРОТИТЬ её до эффективной, а имя экземпляра стоит именно на эффективной.
+    Вывести имя из запрошенной было бы дешевле на 5.3 мс (медиана пяти
+    прогонов на фикстуре) и неверно ровно там, где резолвер сработал, — то
+    есть молча.
+    """
+
+    resolutions, _ = resolve_component_alphas(
+        prepared.context, alpha_value, prepared.domain
+    )
+    names: dict[str, str] = {}
+    for spec in prepared.compilation.envelope_specs:
+        if not isinstance(spec, StripEnvelopeSpec):
+            continue
+        effective = spec_effective_alpha(
+            prepared.compilation, spec, resolutions, alpha_value
+        )
+        if effective is None:
+            return None, spec.envelope_spec_id.value
+        names[spec.envelope_spec_id.value] = strip_envelope_instance_id(
+            spec, effective
+        )
+    return names, ""
+
+
+def _region_coverage(
+    region: PreparedRegionV1,
+    lattice_alpha: Fraction,
+    instance_ids: dict[str, str],
+) -> ConveyorRegionCoverageV1:
+    owner_names = dict(region.owner_by_edge)
+    covered = coverage_at(region.partition, lattice_alpha)
+    faces = tuple(
+        ConveyorFaceCoverageV1(
+            region_id=region.region_id,
+            owner=face.owner,
+            envelope_spec_id=owner_names.get(face.owner, ""),
+            envelope_instance_id=instance_ids.get(
+                owner_names.get(face.owner, "")
+            ),
+            doubled_area=face.doubled_area,
+        )
+        for face in covered.faces
+    )
+    return ConveyorRegionCoverageV1(
+        region_id=region.region_id,
+        outcome=covered.outcome,
+        faces=faces,
+        doubled_area=covered.doubled_area,
+        polygon_doubled_area=covered.polygon_doubled_area,
+        wall_spans=region.wall_spans,
+    )
+
+
+# Типы alpha, объявленные входом. Список тот же, что у
+# `evaluate_reference_raw_coverage`, и совпадение не случайно: два входа ядра,
+# принимающие alpha по-разному, разошлись бы на первом же хосте.
+DECLARED_ALPHA_TYPES = (LocalLengthV1, Decimal, int, str)
+
+_ALPHA_CONTRACT = (
+    "alpha объявлена ДЕСЯТИЧНОЙ: LocalLengthV1, Decimal, int или str "
+    '(и None — взять alpha запроса). Дробь со знаменателем вида 2^a*5^b '
+    'передаётся строкой без потерь: conveyor_coverage(prepared, "0.25").'
+)
+
+
+def _require_declared_alpha(alpha) -> None:
+    """Тип alpha проверяется НА ГРАНИЦЕ, и отказ носит имя.
+
+    Без этой проверки `Fraction(1, 4)` уходил вглубь и падал голым
+    `decimal.InvalidOperation` из `Decimal(str(alpha))` — трассой про
+    десятичный модуль вместо ответа про контракт. Соседний `coverage_at` в
+    этом же пакете `Fraction` принимает, поэтому контраст тем более обязан
+    объясняться сам, а не через чтение стека.
+
+    `Fraction` и `float` отвергаются по ОДНОЙ причине, и она не в удобстве:
+    оба переводятся в `Decimal` с молчаливой подменой значения, а дальше ядро
+    считает ТОЧНО — то есть точно не то число, которое имел в виду
+    вызывающий. У дроби подмена от округления, у double — от того, что его
+    десятичная запись не равна ему самому.
+    """
+
+    if alpha is None or isinstance(alpha, DECLARED_ALPHA_TYPES):
+        return
+    if isinstance(alpha, Fraction):
+        reason = (
+            "перевод произвольной дроби в Decimal округляет: 1/3 стало бы "
+            "двадцатью восемью девятками, и расхождение с эталонным путём "
+            "было бы тихим"
+        )
+    elif isinstance(alpha, float):
+        reason = (
+            "double не равен своей десятичной записи: 0.1 есть "
+            "0.1000000000000000055511151231257827, а Decimal(str(0.1)) — "
+            "ровно 1/10, то есть ДРУГОЕ число, и считаться дальше оно будет "
+            "точно"
+        )
+    else:
+        reason = "перевод в Decimal для этого типа не объявлен"
+    raise TypeError(
+        f"{type(alpha).__name__} не принимается как alpha: {reason}. "
+        f"{_ALPHA_CONTRACT}"
+    )
+
+
+def _declared_alpha(alpha) -> LocalLengthV1:
+    """alpha объявленного типа и читаемого значения, либо именованный отказ.
+
+    Неразбираемая строка — тот же случай, что и чужой тип: `Decimal("шире")`
+    бросает `InvalidOperation`, и на границе это снова трасса про десятичный
+    модуль вместо ответа про контракт.
+    """
+
+    _require_declared_alpha(alpha)
+    try:
+        return normalize_requested_alpha(alpha)
+    except (ArithmeticError, ValueError) as exc:
+        raise ValueError(
+            f"alpha {alpha!r} не читается десятичной записью ({exc}). "
+            f"{_ALPHA_CONTRACT}"
+        ) from exc
+
+
+def _empty_coverage(
+    outcome: ConveyorOutcome,
+    detail: str,
+    prepared: ConveyorPreparationV1,
+    alpha: Fraction,
+    lattice_alpha: Fraction,
+    clock: _Clock,
+) -> ConveyorCoverageV1:
+    return ConveyorCoverageV1(
+        outcome=outcome,
+        alpha=alpha,
+        lattice_alpha=lattice_alpha,
+        regions=(),
+        doubled_area=SqrtSumV1.zero(),
+        polygon_doubled_area=0,
+        preparation=prepared,
+        counters=(),
+        timings=clock.timings(),
+        detail=detail,
+    )
+
+
+def conveyor_coverage(
+    prepared: ConveyorPreparationV1,
+    alpha: LocalLengthV1 | Decimal | int | str | None = None,
+) -> ConveyorCoverageV1:
+    """Покрытие домена очередью к моменту alpha на готовом разбиении.
+
+    `alpha=None` берёт alpha запроса, ту же, что видела подготовка. Alpha
+    переводится в единицы решётки умножением на `lattice.scale`: полигон
+    привязан к ней, поэтому и время фронта считается в её единицах.
+
+    Тип alpha — тот же, что у `evaluate_reference_raw_coverage`, и ни
+    `Fraction`, ни `float` в него намеренно не входят: оба переводятся в
+    `Decimal` с молчаливой подменой значения. Проверка стоит на границе и
+    отвечает `TypeError`, называющим контракт (`_require_declared_alpha`), —
+    голой трассы из `decimal` здесь быть не должно, тем более что соседний
+    `coverage_at` в этом же пакете `Fraction` принимает.
+    """
+
+    clock = _Clock()
+    if alpha is None:
+        alpha_value = prepared.requested_alpha
+    else:
+        alpha_value = _declared_alpha(alpha)
+    alpha_fraction = (
+        Fraction(0) if alpha_value is None else Fraction(str(alpha_value.value))
+    )
+    scale = 1 if prepared.lattice is None else prepared.lattice.scale
+    lattice_alpha = alpha_fraction * scale
+
+    if prepared.outcome is not ConveyorOutcome.EXACT:
+        return _empty_coverage(
+            ConveyorOutcome.PREPARATION_IS_NOT_EXACT,
+            prepared.outcome.value,
+            prepared,
+            alpha_fraction,
+            lattice_alpha,
+            clock,
+        )
+
+    started = time.perf_counter()
+    instance_ids, issue = _instance_ids_by_spec(prepared, alpha_value)
+    clock.add("EFFECTIVE_ALPHA", started)
+    if instance_ids is None:
+        return _empty_coverage(
+            ConveyorOutcome.SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN,
+            issue,
+            prepared,
+            alpha_fraction,
+            lattice_alpha,
+            clock,
+        )
+
+    started = time.perf_counter()
+    regions = tuple(
+        _region_coverage(region, lattice_alpha, instance_ids)
+        for region in prepared.regions
+    )
+    clock.add("COVERAGE_CLIP", started)
+
+    total = SqrtSumV1.zero()
+    for region in regions:
+        total = total + region.doubled_area
+    refused = tuple(
+        region
+        for region in regions
+        if region.outcome is not CoverageOutcome.EXACT
+    )
+    outcome = (
+        ConveyorOutcome.EXACT
+        if not refused
+        else ConveyorOutcome.COVERAGE_DID_NOT_CLOSE
+    )
+    return ConveyorCoverageV1(
+        outcome=outcome,
+        alpha=alpha_fraction,
+        lattice_alpha=lattice_alpha,
+        regions=regions,
+        doubled_area=total,
+        polygon_doubled_area=sum(
+            region.polygon_doubled_area for region in regions
+        ),
+        preparation=prepared,
+        counters=(
+            ("CONVEYOR_COVERED_REGIONS", len(regions)),
+            (
+                "CONVEYOR_COVERED_FACES",
+                sum(len(region.faces) for region in regions),
+            ),
+            ("CONVEYOR_COVERAGE_TERMS", len(total.terms)),
+            (
+                "CONVEYOR_NAMED_OWNERS",
+                sum(
+                    1
+                    for region in regions
+                    for face in region.faces
+                    if face.envelope_instance_id
+                ),
+            ),
+            (
+                "CONVEYOR_WALL_EDGES",
+                sum(len(region.wall_spans) for region in regions),
+            ),
+        ),
+        timings=clock.timings(),
+        detail="" if not refused else refused[0].outcome.value,
+    )
+
+
+def evaluate_conveyor_coverage(
+    snapshot: AnalysisSnapshotV1,
+    request: DecalRequestV1,
+    *,
+    alpha: LocalLengthV1 | Decimal | int | str | None = None,
+    patch_domain_id: PatchDomainId | None = None,
+) -> ConveyorCoverageV1:
+    """Обе ступени подряд, для вызывающего, которому кэш не нужен.
+
+    Разрез при этом не исчезает: `prepare_conveyor` остаётся отдельным входом
+    именно потому, что стоит 53 мс против 7 мс у покрытия, и хост, считающий
+    несколько alpha на одном домене, платит подготовку один раз.
+
+    Тип alpha проверяется ДО подготовки, а не внутри неё. Иначе неверный тип
+    стоил бы 53 мс на скелет, который заведомо будет выброшен, — и хост,
+    перебирающий alpha в цикле, платил бы за каждую свою опечатку полную
+    подготовку.
+    """
+
+    _require_declared_alpha(alpha)
+    return conveyor_coverage(
+        prepare_conveyor(snapshot, request, patch_domain_id=patch_domain_id),
+        alpha,
+    )

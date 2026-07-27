@@ -92,7 +92,9 @@ def _failure(
     return ReferenceEvaluationResultV1(outcome, None, (*existing, diagnostic))
 
 
-def _normalize_alpha(alpha: LocalLengthV1 | Decimal | int | str) -> LocalLengthV1:
+def normalize_requested_alpha(
+    alpha: LocalLengthV1 | Decimal | int | str,
+) -> LocalLengthV1:
     if isinstance(alpha, LocalLengthV1):
         return alpha
     return LocalLengthV1(Decimal(str(alpha)), MetricSpace.SOURCE_LOCAL_INTRINSIC)
@@ -114,6 +116,37 @@ def _component_ids_for_spec(compilation, spec) -> frozenset[str]:
         )
         return frozenset(item.value for item in strip.front_component_ids)
     return frozenset()
+
+
+def spec_effective_alpha(compilation, spec, resolutions, alpha_value):
+    """Эффективная alpha спеки — одна на все её инцидентные компоненты.
+
+    `None` означает НЕОДНОРОДНЫЙ вектор: у инцидентных компонентов эффективные
+    alpha разные, а одна огибающая с двумя alpha в v1 не доказана. Возвращать
+    здесь «какую-нибудь» из них значило бы выбрать за вызывающего, поэтому
+    отсутствие ответа отличимо от ответа, а имя исхода даёт вызывающий: у
+    полного пути это `SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN`, у входа очереди —
+    свой одноимённый по смыслу исход.
+
+    Пустое множество компонентов — не ошибка: тогда эффективная alpha равна
+    ЗАПРОШЕННОЙ, потому что резолвер к этой спеке не прикасался.
+
+    Вынесено ради второго вызывающего: вход очереди (`wavefront/conveyor.py`)
+    юбок не строит, но имя экземпляра юбки (`strip_envelope_instance_id`) стоит
+    именно на эффективной alpha, и вывести её вторым способом значило бы
+    получить второе имя для того же экземпляра.
+    """
+
+    effective_values = {
+        resolutions[item].effective_alpha.expression
+        for item in _component_ids_for_spec(compilation, spec)
+        if item in resolutions
+    }
+    if len(effective_values) > 1:
+        return None
+    if effective_values:
+        return ExactScalar(next(iter(effective_values))).as_expr()
+    return sp.Rational(str(alpha_value.value))
 
 
 def _arrangement_regions(arrangement) -> tuple[PlanarRegion, ...]:
@@ -320,7 +353,7 @@ def evaluate_reference_raw_coverage(
     """Rebuild one exact request/domain RawCoverage state from scratch."""
 
     try:
-        alpha_value = _normalize_alpha(alpha)
+        alpha_value = normalize_requested_alpha(alpha)
     except (ValueError, ArithmeticError) as exc:
         return _failure(ReferenceOutcome.REFERENCE_INVALID_ALPHA, str(exc))
     if alpha_value.value < 0:
@@ -383,22 +416,15 @@ def evaluate_reference_raw_coverage(
                 key=lambda item: item.envelope_spec_id.value,
             ):
                 component_ids = _component_ids_for_spec(compilation, spec)
-                effective_values = {
-                    resolutions[item].effective_alpha.expression
-                    for item in component_ids
-                    if item in resolutions
-                }
-                if len(effective_values) > 1:
+                effective = spec_effective_alpha(
+                    compilation, spec, resolutions, alpha_value
+                )
+                if effective is None:
                     return _failure(
                         ReferenceOutcome.SHARED_ENVELOPE_MIXED_ALPHA_UNPROVEN,
                         f"{spec.envelope_spec_id} has a non-uniform incident effective-alpha vector",
                         existing=boundary_diagnostics,
                     )
-                effective = (
-                    ExactScalar(next(iter(effective_values))).as_expr()
-                    if effective_values
-                    else sp.Rational(str(alpha_value.value))
-                )
                 stage_started = time.perf_counter()
                 if isinstance(spec, StripEnvelopeSpec):
                     instance = evaluate_strip_envelope(
