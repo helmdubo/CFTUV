@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import replace
 from decimal import Decimal
 from fractions import Fraction
@@ -31,9 +32,13 @@ import pytest
 import sympy as sp
 
 import cftuv_envelope as kernel
+from cftuv_envelope.interactions import arrival as arrival_module
+from cftuv_envelope.interactions import policy_b as policy_b_module
 from cftuv_envelope.interactions.arrival import compile_arrival_models
 from cftuv_envelope.interactions.components import compile_interaction_components
 from cftuv_envelope.numeric import LocalLengthV1, MetricSpace
+from cftuv_envelope.reference import domain_oracle as domain_oracle_module
+from cftuv_envelope.reference import raw_coverage as raw_coverage_module
 from cftuv_envelope.reference.arrangement import ExactSegmentArrangementBackend
 from cftuv_envelope.reference.boundary import build_domain_geometry
 from cftuv_envelope.reference.common import GeometryContext
@@ -70,6 +75,66 @@ def _field_input():
         (FIXTURE / "decal_request.json").read_bytes()
     )
     return snapshot, request
+
+
+def _union_singletons():
+    """Все экземпляры бэкенда союза, живущие в ядре модульными одиночками.
+
+    Список явный, а не найденный обходом: обход по `gc` поймал бы и чужие
+    объекты, а пропуск здесь виден сразу — положительным контролем, который
+    перестал бы считать.
+    """
+
+    return (
+        raw_coverage_module.REFERENCE_ARRANGEMENT_BACKEND,
+        arrival_module._ARRANGEMENT,
+        policy_b_module._ARRANGEMENT,
+        domain_oracle_module._ORACLE_BACKEND,
+    )
+
+
+@contextmanager
+def _counting_unions():
+    """Счётчик вызовов союза, который ловит и класс, и уже созданных одиночек.
+
+    Подмены одного метода КЛАССА мало, и это не осторожность, а измеренная
+    причина падения. `test_reference_envelopes.py` подменяет `exact_union` на
+    ЭКЗЕМПЛЯРЕ `REFERENCE_ARRANGEMENT_BACKEND` через `monkeypatch.setattr`;
+    отмена такой подмены не удаляет атрибут, а ЗАПИСЫВАЕТ в `__dict__`
+    экземпляра связанный метод, снятый до подмены. Тень остаётся на весь
+    процесс, и с этого момента подмена класса тому экземпляру не видна:
+    полный прогон давал `0 == 4` при зелёном одиночном.
+
+    Поэтому здесь подменяются оба уровня, а прежнее содержимое `__dict__`
+    восстанавливается ровно таким, каким было, — включая его отсутствие.
+    """
+
+    calls: list[str] = []
+    original = ExactSegmentArrangementBackend.exact_union
+
+    def counting(self, *args, **kwargs):
+        calls.append(type(self).__name__)
+        return original(self, *args, **kwargs)
+
+    shadows = [
+        (backend, vars(backend).get("exact_union", _MISSING))
+        for backend in _union_singletons()
+    ]
+    ExactSegmentArrangementBackend.exact_union = counting
+    for backend, _ in shadows:
+        backend.exact_union = counting.__get__(backend)
+    try:
+        yield calls
+    finally:
+        ExactSegmentArrangementBackend.exact_union = original
+        for backend, previous in shadows:
+            if previous is _MISSING:
+                del backend.exact_union
+            else:
+                backend.exact_union = previous
+
+
+_MISSING = object()
 
 
 @pytest.fixture(scope="module")
@@ -149,11 +214,12 @@ def test_the_public_entry_never_calls_the_exact_union(field_preparation):
     """Союз не вызывается НИ РАЗУ — счётом вызовов, а не отсутствием стадии.
 
     Отсутствие стадии в таймингах доказывало бы только то, что её забыли
-    объявить. Здесь подменяется сам метод КЛАССА `ExactSegmentArrangementBackend`,
-    поэтому под счётчик попадают все четыре его экземпляра в ядре
-    (`reference/raw_coverage.py`, `interactions/arrival.py`,
-    `interactions/policy_b.py`, `reference/domain_oracle.py`) — то есть
-    единственный способ посчитать союз в этом процессе.
+    объявить. Здесь считаются ВЫЗОВЫ: подменяется и метод класса
+    `ExactSegmentArrangementBackend`, и `exact_union` у всех четырёх его
+    экземпляров-одиночек в ядре (`reference/raw_coverage.py`,
+    `interactions/arrival.py`, `interactions/policy_b.py`,
+    `reference/domain_oracle.py`). Почему обоих уровней, а не одного —
+    в `_counting_unions`: это не запас, а починенное падение полного прогона.
 
     Положительный контроль обязателен: без него «ноль вызовов» неотличимо от
     «счётчик не работает». Эталонный путь на том же входе вызывает союз ЧЕТЫРЕ
@@ -161,15 +227,7 @@ def test_the_public_entry_never_calls_the_exact_union(field_preparation):
     """
 
     snapshot, request = _field_input()
-    calls: list[str] = []
-    original = ExactSegmentArrangementBackend.exact_union
-
-    def counting(self, *args, **kwargs):
-        calls.append(type(self).__name__)
-        return original(self, *args, **kwargs)
-
-    ExactSegmentArrangementBackend.exact_union = counting
-    try:
+    with _counting_unions() as calls:
         covered = evaluate_conveyor_coverage(snapshot, request)
         conveyor_calls = len(calls)
         calls.clear()
@@ -178,8 +236,6 @@ def test_the_public_entry_never_calls_the_exact_union(field_preparation):
             compiled.compilation, request.requested_alpha
         )
         reference_calls = len(calls)
-    finally:
-        ExactSegmentArrangementBackend.exact_union = original
 
     assert covered.outcome is ConveyorOutcome.EXACT, covered.detail
     assert conveyor_calls == 0
