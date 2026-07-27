@@ -79,6 +79,10 @@ from ..reference.boundary import (
 from ..reference.common import GeometryContext, ReferenceGeometryError
 from ..reference.compile import compile_reference_envelopes
 from ..reference.metric import ExactPlanarMetric
+from ..reference.planar_types import (
+    CertifiedPredicateUndecidable,
+    exact_sign,
+)
 from ..reference.raw_coverage import (
     normalize_requested_alpha,
     spec_effective_alpha,
@@ -331,22 +335,159 @@ class ConveyorCoverageV1:
 
 
 def _refused(
-    outcome: ConveyorOutcome, detail: str, clock: _Clock
+    outcome: ConveyorOutcome,
+    detail: str,
+    clock: _Clock,
+    counters: Counters = (),
 ) -> ConveyorPreparationV1:
+    """Отказ подготовки, несущий то, что успел узнать.
+
+    `counters` не для симметрии. Пере-масштабирование закона происходит ДО
+    решётки и до моста, поэтому отказ на любой из поздних ступеней иначе унёс
+    бы вместе с собой единственное свидетельство того, что законы вообще
+    пришлось переписывать, — а «законы были рациональны» и «законы спасены
+    масштабом, а споткнулись мы дальше» лечатся по-разному.
+    """
+
     return ConveyorPreparationV1(
         outcome=outcome,
         regions=(),
         lattice=None,
         law_names=(),
-        counters=(),
+        counters=counters,
         timings=clock.timings(),
         detail=detail,
     )
 
 
-def _arrival_laws(
-    context: GeometryContext,
-) -> tuple[tuple[PlainArrivalLawV1, ...], str | None]:
+def _positive_common_factor(normal_x, normal_y):
+    """Положительный множитель записи закона: первая ненулевая компонента нормали.
+
+    Положительный, а не первый попавшийся, и это НЕ вкус. Деление всей записи
+    на отрицательное число перевернуло бы нормаль, то есть поменяло сторону,
+    в которую идёт материал, — а сторона у фронта и есть половина ответа.
+    Знак снимается точным предикатом ядра (`exact_sign`), поэтому «первая
+    ненулевая» здесь означает доказанно ненулевую, а не «не похожая на ноль».
+
+    `None` — либо нормаль нулевая (прямой у закона нет вовсе, и мост скажет
+    это своим именем), либо знак компоненты не доказуем. Второе отличимо от
+    первого текстом, потому что лечится оно по-разному.
+    """
+
+    for value in (normal_x, normal_y):
+        try:
+            sign = exact_sign(value)
+        except CertifiedPredicateUndecidable as exc:
+            return None, f"знак компоненты нормали не доказан ({exc})"
+        if sign == 0:
+            continue
+        return (value if sign > 0 else -value), ""
+    return None, "нормаль закона нулевая, прямой у него нет"
+
+
+def _rational_after_scaling(value, scale) -> Fraction | None:
+    """Точная дробь `value/scale`, ДОКАЗАННАЯ обратной подстановкой.
+
+    Одного `is_Rational` у частного было бы мало: он отвечает про то
+    выражение, которое получилось, а вопрос стоит про исходное. Поэтому
+    найденная дробь `r` возвращается только если `value - r*scale`
+    обращается в ноль ТОЧНО (`is_zero is True`, а не «не отличается от нуля»).
+    Ни порога, ни численной проверки здесь нет.
+
+    `None` — доказательства нет. Тогда вызывающий обязан оставить прежний
+    именованный отказ, а не принять запись «на глаз».
+    """
+
+    candidate = exact_rational(sp.radsimp(value / scale))
+    if candidate is None:
+        return None
+    residue = sp.simplify(
+        value - sp.Rational(candidate.numerator, candidate.denominator) * scale
+    )
+    return candidate if residue.is_zero is True else None
+
+
+def _read_arrival_law(
+    name: str, normal, constant, speed_squared
+) -> tuple[PlainArrivalLawV1 | None, bool, str]:
+    """Запись закона в точных дробях: как есть либо пере-масштабированная.
+
+    ПОЧЕМУ ПЕРЕ-МАСШТАБИРОВАНИЕ ЗАКОННО. Закон прихода есть равенство
+    `n*p = c + t*s`, и умножение всего равенства на положительное число даёт
+    ТО ЖЕ множество точек в те же моменты времени: прямая та же, движение то
+    же, сторона та же. Значит запись `(n, c, s)` — не сам закон, а одна из его
+    записей, и выбор записи вызывающему ничего не стоит.
+
+    ЗАЧЕМ ОНА НУЖНА. У полевых законов `s = 1` тождественно, и на доменах
+    `building_002_weighted_normals_v1` нормаль при этом ИРРАЦИОНАЛЬНА:
+    `n = (-sqrt(426753013)/8192, 0)`, `c = -sqrt(426753013)/8192`. Очередь же
+    живёт в точных дробях. Деление всей записи на `|λ| = sqrt(426753013)/8192`
+    даёт `n' = (-1, 0)`, `c' = -1`, `s'^2 = 67108864/426753013` — всё
+    рационально, потому что `λ^2` рационально, даже когда сам `λ` нет.
+
+    ЧТО ПРИ ЭТОМ НЕ ДВИГАЕТСЯ, и это главное. Мост берёт у закона ровно две
+    вещи: класс несущей прямой (`line_class`, нормировка делением на модуль
+    первой ненулевой компоненты) и отношение `(s/|n|)^2`. Обе инвариантны
+    относительно умножения записи на положительное число — у отношения
+    множитель сокращается в числителе и знаменателе, у класса он снимается
+    самой нормировкой. Поэтому пере-масштабирование меняет ЗАПИСЬ и не может
+    изменить ни сопоставление закона с ребром, ни `q` этого ребра.
+
+    Порядок попыток тоже не косметика: сначала читается запись как есть, и
+    только на её отказе пробуется масштаб. Отсюда следует, что на входах, где
+    законы уже рациональны, счётчик `CONVEYOR_RESCALED_ARRIVAL_LAWS` равен
+    нулю — и это проверяемое утверждение, а не намерение.
+    """
+
+    normal_x, normal_y = normal.expressions()
+    law_constant = constant.as_expr()
+    plain = (
+        exact_rational(normal_x),
+        exact_rational(normal_y),
+        exact_rational(law_constant),
+        exact_rational(speed_squared),
+    )
+    if all(item is not None for item in plain):
+        return _plain_law(name, plain), False, ""
+
+    scale, issue = _positive_common_factor(normal_x, normal_y)
+    if scale is None:
+        return None, False, issue
+    scaled = tuple(
+        _rational_after_scaling(value, divisor)
+        for value, divisor in (
+            (normal_x, scale),
+            (normal_y, scale),
+            (law_constant, scale),
+            (speed_squared, scale * scale),
+        )
+    )
+    if any(item is None for item in scaled):
+        return None, False, "запись закона не рациональна и после масштаба"
+    return _plain_law(name, scaled), True, ""
+
+
+def _plain_law(name: str, fields) -> PlainArrivalLawV1:
+    normal_x, normal_y, law_constant, speed_squared = fields
+    return PlainArrivalLawV1(
+        name=name,
+        normal_x=normal_x,
+        normal_y=normal_y,
+        constant=law_constant,
+        speed_squared=speed_squared,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _ArrivalLawsV1:
+    """Законы плана, счёт пере-масштабированных и причина отказа, если он есть."""
+
+    laws: tuple[PlainArrivalLawV1, ...]
+    rescaled_count: int
+    detail: str | None
+
+
+def _arrival_laws(context: GeometryContext) -> _ArrivalLawsV1:
     """Законы прихода всех Strip-источников плана, без юбок и без союза.
 
     Имя закона — `envelope_spec_id`, а не `envelope_instance_id`, и это не
@@ -357,6 +498,10 @@ def _arrival_laws(
 
     compilation = context.compilation
     laws: list[PlainArrivalLawV1] = []
+    rescaled_count = 0
+    speed_squared = (
+        STRIP_FRONT_NORMAL_SPEED.as_expr() * STRIP_FRONT_NORMAL_SPEED.as_expr()
+    )
     for spec in sorted(
         compilation.envelope_specs, key=lambda item: item.envelope_spec_id.value
     ):
@@ -371,28 +516,19 @@ def _arrival_laws(
             seed.chain_use_id, spec.envelope_spec_id.value
         ):
             normal, constant = strip_front_support_line(context, source)
-            fields = [
-                exact_rational(item) for item in normal.expressions()
-            ] + [
-                exact_rational(constant.as_expr()),
-                exact_rational(STRIP_FRONT_NORMAL_SPEED.as_expr()),
-            ]
-            if any(item is None for item in fields):
-                return (), (
-                    f"{spec.envelope_spec_id.value}/{source.support_id}: "
-                    "поле закона прихода не рационально"
-                )
-            normal_x, normal_y, law_constant, speed = fields
-            laws.append(
-                PlainArrivalLawV1(
-                    name=spec.envelope_spec_id.value,
-                    normal_x=normal_x,
-                    normal_y=normal_y,
-                    constant=law_constant,
-                    speed_squared=speed * speed,
-                )
+            law, rescaled, issue = _read_arrival_law(
+                spec.envelope_spec_id.value, normal, constant, speed_squared
             )
-    return tuple(laws), None
+            if law is None:
+                return _ArrivalLawsV1(
+                    (),
+                    rescaled_count,
+                    f"{spec.envelope_spec_id.value}/{source.support_id}: "
+                    f"{issue}",
+                )
+            laws.append(law)
+            rescaled_count += int(rescaled)
+    return _ArrivalLawsV1(tuple(laws), rescaled_count, None)
 
 
 def _region_loops(region):
@@ -506,12 +642,17 @@ def _preparation_outcome(
 
 def _preparation_counters(
     regions: tuple[PreparedRegionV1, ...],
-    laws: tuple[PlainArrivalLawV1, ...],
+    reading: _ArrivalLawsV1,
     lattice: GridSpecV1,
 ) -> Counters:
     return (
         ("CONVEYOR_DOMAIN_REGIONS", len(regions)),
-        ("CONVEYOR_ARRIVAL_LAWS", len(laws)),
+        ("CONVEYOR_ARRIVAL_LAWS", len(reading.laws)),
+        # Сколько законов пришлось переписать делением на положительный
+        # множитель. Ноль — все записи были рациональны сами; ненулевое число
+        # означает, что столько полевых законов очередь получила только через
+        # смену записи, и без счётчика это было бы неотличимо.
+        ("CONVEYOR_RESCALED_ARRIVAL_LAWS", reading.rescaled_count),
         ("CONVEYOR_LATTICE_SCALE", lattice.scale),
         ("CONVEYOR_DOMAIN_EDGES", sum(item.bridge.edge_count for item in regions)),
         (
@@ -567,78 +708,26 @@ def prepare_conveyor(
     """
 
     clock = _Clock()
-    started = time.perf_counter()
-    compiled = compile_reference_envelopes(snapshot, request, patch_domain_id)
-    clock.add("PLAN_COMPILE", started)
-    compilation = compiled.compilation
-    if compilation is None:
-        return _refused(
-            ConveyorOutcome.PLAN_IS_NOT_COMPILED, compiled.outcome.value, clock
-        )
-
-    started = time.perf_counter()
-    frame, payload_diagnostics = validate_reference_geometry_payload(
-        compilation.analysis_snapshot, compilation.plan_key.patch_domain_id
+    inputs, refusal = _prepare_inputs(snapshot, request, patch_domain_id, clock)
+    if inputs is None:
+        return refusal
+    compilation, context, domain, reading, lattice = inputs
+    laws = reading.laws
+    # Всё, что уже известно про законы, переживает любой поздний отказ.
+    law_counters: Counters = (
+        ("CONVEYOR_ARRIVAL_LAWS", len(laws)),
+        ("CONVEYOR_RESCALED_ARRIVAL_LAWS", reading.rescaled_count),
     )
-    if frame is None:
-        clock.add("DOMAIN_BUILD", started)
-        return _refused(
-            ConveyorOutcome.DOMAIN_FRAME_IS_UNAVAILABLE,
-            payload_diagnostics[0].outcome.value,
-            clock,
-        )
-    try:
-        context = GeometryContext.build(compilation, frame)
-        domain = build_domain_geometry(context)
-    except ReferenceGeometryError as exc:
-        clock.add("DOMAIN_BUILD", started)
-        return _refused(
-            ConveyorOutcome.DOMAIN_GEOMETRY_REFUSED, exc.outcome.value, clock
-        )
-    clock.add("DOMAIN_BUILD", started)
-    if not domain.domain_regions:
-        return _refused(
-            ConveyorOutcome.DOMAIN_HAS_NO_REGIONS,
-            str(compilation.plan_key.patch_domain_id),
-            clock,
-        )
-
-    started = time.perf_counter()
-    try:
-        laws, law_issue = _arrival_laws(context)
-    except ReferenceGeometryError as exc:
-        clock.add("ARRIVAL_LAWS", started)
-        return _refused(
-            ConveyorOutcome.DOMAIN_GEOMETRY_REFUSED, exc.outcome.value, clock
-        )
-    clock.add("ARRIVAL_LAWS", started)
-    if law_issue is not None:
-        return _refused(
-            ConveyorOutcome.ARRIVAL_LAW_IS_NOT_RATIONAL, law_issue, clock
-        )
-    if not laws:
-        return _refused(
-            ConveyorOutcome.NO_STRIP_SOURCE_IN_THE_PLAN,
-            str(compilation.plan_key.patch_domain_id),
-            clock,
-        )
-
-    started = time.perf_counter()
-    lattice = chart_lattice_for_frame(frame)
-    clock.add("CHART_LATTICE", started)
-    if lattice is None:
-        return _refused(
-            ConveyorOutcome.CHART_LATTICE_IS_NOT_DECLARED,
-            type(frame).__name__,
-            clock,
-        )
 
     prepared_regions: list[PreparedRegionV1] = []
     for region in domain.domain_regions:
         prepared, issue = _prepare_region(region, laws, lattice, clock)
         if prepared is None:
             return _refused(
-                ConveyorOutcome.DOMAIN_POINT_IS_NOT_RATIONAL, issue or "", clock
+                ConveyorOutcome.DOMAIN_POINT_IS_NOT_RATIONAL,
+                issue or "",
+                clock,
+                law_counters,
             )
         prepared_regions.append(prepared)
 
@@ -649,7 +738,7 @@ def prepare_conveyor(
         regions=regions,
         lattice=lattice,
         law_names=tuple(law.name for law in laws),
-        counters=_preparation_counters(regions, laws, lattice),
+        counters=_preparation_counters(regions, reading, lattice),
         timings=clock.timings(),
         detail=detail,
         compilation=compilation,
@@ -657,6 +746,93 @@ def prepare_conveyor(
         domain=domain,
         requested_alpha=normalize_requested_alpha(request.requested_alpha),
     )
+
+
+def _prepare_inputs(snapshot, request, patch_domain_id, clock: _Clock):
+    """Всё, что нужно очереди до первого региона: план, домен, законы, решётка.
+
+    Вынесено из `prepare_conveyor` не ради красоты, а потому что ступеней тут
+    пять и каждая со своим именованным отказом; вместе с циклом по регионам
+    функция перевалила объявленный предел в 120 строк. Предел — храповик, и
+    поднимать его вместо разбиения значило бы менять правило под код.
+
+    Возвращает либо `(inputs, None)`, либо `(None, отказ)`. Два значения, а не
+    исключение: отказ здесь — обычный ответ подготовки, несущий тайминги и
+    счётчики, а не аварийная ситуация.
+    """
+
+    started = time.perf_counter()
+    compiled = compile_reference_envelopes(snapshot, request, patch_domain_id)
+    clock.add("PLAN_COMPILE", started)
+    compilation = compiled.compilation
+    if compilation is None:
+        return None, _refused(
+            ConveyorOutcome.PLAN_IS_NOT_COMPILED, compiled.outcome.value, clock
+        )
+
+    started = time.perf_counter()
+    frame, payload_diagnostics = validate_reference_geometry_payload(
+        compilation.analysis_snapshot, compilation.plan_key.patch_domain_id
+    )
+    if frame is None:
+        clock.add("DOMAIN_BUILD", started)
+        return None, _refused(
+            ConveyorOutcome.DOMAIN_FRAME_IS_UNAVAILABLE,
+            payload_diagnostics[0].outcome.value,
+            clock,
+        )
+    try:
+        context = GeometryContext.build(compilation, frame)
+        domain = build_domain_geometry(context)
+    except ReferenceGeometryError as exc:
+        clock.add("DOMAIN_BUILD", started)
+        return None, _refused(
+            ConveyorOutcome.DOMAIN_GEOMETRY_REFUSED, exc.outcome.value, clock
+        )
+    clock.add("DOMAIN_BUILD", started)
+    if not domain.domain_regions:
+        return None, _refused(
+            ConveyorOutcome.DOMAIN_HAS_NO_REGIONS,
+            str(compilation.plan_key.patch_domain_id),
+            clock,
+        )
+
+    started = time.perf_counter()
+    try:
+        reading = _arrival_laws(context)
+    except ReferenceGeometryError as exc:
+        clock.add("ARRIVAL_LAWS", started)
+        return None, _refused(
+            ConveyorOutcome.DOMAIN_GEOMETRY_REFUSED, exc.outcome.value, clock
+        )
+    clock.add("ARRIVAL_LAWS", started)
+    if reading.detail is not None:
+        return None, _refused(
+            ConveyorOutcome.ARRIVAL_LAW_IS_NOT_RATIONAL, reading.detail, clock
+        )
+    law_counters: Counters = (
+        ("CONVEYOR_ARRIVAL_LAWS", len(reading.laws)),
+        ("CONVEYOR_RESCALED_ARRIVAL_LAWS", reading.rescaled_count),
+    )
+    if not reading.laws:
+        return None, _refused(
+            ConveyorOutcome.NO_STRIP_SOURCE_IN_THE_PLAN,
+            str(compilation.plan_key.patch_domain_id),
+            clock,
+            law_counters,
+        )
+
+    started = time.perf_counter()
+    lattice = chart_lattice_for_frame(frame)
+    clock.add("CHART_LATTICE", started)
+    if lattice is None:
+        return None, _refused(
+            ConveyorOutcome.CHART_LATTICE_IS_NOT_DECLARED,
+            type(frame).__name__,
+            clock,
+            law_counters,
+        )
+    return (compilation, context, domain, reading, lattice), None
 
 
 def _instance_ids_by_spec(
