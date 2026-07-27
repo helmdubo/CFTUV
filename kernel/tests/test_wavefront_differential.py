@@ -39,7 +39,10 @@ from cftuv_envelope.wavefront import build_skeleton
 from cftuv_envelope.wavefront.bridge import (
     BridgeOutcome,
     PlainArrivalLawV1,
+    _proportional_positive,
+    _rational_edge_lines,
     bridge_arrival_laws,
+    line_class,
     unit_speed_laws_of,
 )
 from cftuv_envelope.wavefront.coverage import coverage_at
@@ -52,7 +55,7 @@ from cftuv_envelope.wavefront.faces import (
 from cftuv_envelope.wavefront.polygon import PolygonV1
 
 from reference_factories import straight_snapshot
-from wavefront_cases import FIELD_FIXTURE, named_corpus
+from wavefront_cases import FIELD_FIXTURE, cross, holes_grid, named_corpus
 
 
 FIXTURE = FIELD_FIXTURE.parent
@@ -63,14 +66,16 @@ FIXTURE = FIELD_FIXTURE.parent
 # --------------------------------------------------------------------------
 
 
-def _distinct_line_corpus():
-    for name, polygon in named_corpus():
-        keys = [line_key(line) for _, _, line in polygon_edges(polygon)]
-        if len(set(keys)) == len(keys):
-            yield name, polygon
-
-
-CORPUS = tuple(_distinct_line_corpus())
+# Мост берёт корпус ЦЕЛИКОМ, а не только фигуры с различными несущими
+# прямыми. Отбор существовал, пока сопоставление закона с ребром шло
+# `next(...)` по первой попавшейся прямой: коллинеарные сонаправленные рёбра
+# схлопывались в один индекс, и мост отказывал на верном входе. Теперь
+# сопоставление — биекция по классам прямых, поэтому `holes_2` и крест
+# проходят наравне со всеми, и это ровно та проверка, которую отбор скрывал.
+CORPUS = named_corpus() + (
+    ("cross_6x4", cross(wide=6, tall=4)),
+    ("cross_4x4", cross(wide=4, tall=4)),
+)
 CORPUS_IDS = tuple(name for name, _ in CORPUS)
 
 
@@ -96,6 +101,139 @@ def test_the_bridge_accepts_the_laws_it_itself_produced(name, polygon):
     assert report.off_lattice_points == ()
     assert report.polygon is not None
     assert report.polygon.vertex_count == polygon.vertex_count
+
+
+def _loops_of(polygon):
+    return tuple(
+        tuple((Fraction(x), Fraction(y)) for x, y in loop.points)
+        for loop in polygon.loops
+    )
+
+
+@pytest.mark.parametrize(
+    "name,polygon,edges,classes",
+    (
+        ("cross_6x4", cross(wide=6, tall=4), 12, 8),
+        ("cross_4x4", cross(wide=4, tall=4), 12, 8),
+        ("holes_2", holes_grid(1, 2), 12, 10),
+        ("holes_2x2", holes_grid(2, 2), 20, 12),
+    ),
+)
+def test_two_collinear_edges_are_two_sources_and_not_one(
+    name, polygon, edges, classes
+):
+    """Источником является КАЖДОЕ ребро, и мост обязан это увидеть.
+
+    Прежнее сопоставление искало ребро для закона `next(...)` по первой
+    пропорциональной несущей прямой, поэтому два коллинеарных сонаправленных
+    ребра получали ОДИН индекс, счёт недосчитывался, и срабатывал
+    `SOURCE_IS_NOT_THE_WHOLE_BOUNDARY` на входе, где источником было всё:
+
+    | фигура | рёбер | классов прямых | сопоставлено было | стало |
+    |---|---:|---:|---:|---:|
+    | `cross(6, 4)` | 12 | 8 | 8 | 12 |
+    | `cross(4, 4)` | 12 | 8 | 8 | 12 |
+    | `holes_2` | 12 | 10 | 10 | 12 |
+    | `holes_2x2` | 20 | 12 | 12 | 20 |
+
+    Число классов проверяется здесь же, а не подразумевается: без него
+    «стало 12» ничем не отличалось бы от «фигура и так была чистой».
+    """
+
+    loops = _loops_of(polygon)
+    laws = unit_speed_laws_of(polygon)
+    report = bridge_arrival_laws(loops, laws)
+    assert report.edge_count == edges
+    assert report.law_count == edges
+    assert len({line_class(line) for line in _rational_edge_lines(loops)}) == classes
+    assert report.matched_edge_count == edges
+    assert report.findings == (), name
+    assert report.outcome is BridgeOutcome.EXACT
+
+
+def test_the_line_class_is_exactly_the_old_proportionality_predicate():
+    """Группировка по классу обязана совпасть с прежним предикатом ПОТОЧЕЧНО.
+
+    Замена поиска `next(...)` на словарь законна ровно потому, что равенство
+    классов и `_proportional_positive` — одно и то же отношение. Это не
+    рассуждение: здесь сверяются ВСЕ пары прямых корпуса, включая пары из
+    разных фигур, то есть заведомо непропорциональные.
+    """
+
+    lines = []
+    for _, polygon in CORPUS:
+        lines.extend(_rational_edge_lines(_loops_of(polygon)))
+    assert len(lines) == 185
+    checked = 0
+    for left in lines:
+        for right in lines:
+            checked += 1
+            same_class = line_class(left) == line_class(right)
+            assert same_class is _proportional_positive(left, right), (
+                left,
+                right,
+            )
+    assert checked == len(lines) * len(lines)
+
+
+def test_ownership_inside_one_support_line_is_named_undetermined_not_guessed():
+    """Закон не несёт протяжённости, значит «чьё это ребро» во входе нет.
+
+    Это и есть измеренный ответ на вопрос «чем различать коллинеарные
+    сонаправленные рёбра»: проекциями концов — нельзя, потому что у
+    `PlainArrivalLawV1` концов НЕТ ни в каком виде. Поля закона — имя, нормаль,
+    константа и квадрат скорости, и это проверяется здесь же.
+
+    Поэтому мост считает, СКОЛЬКО рёбер имеют источник (это точный размер
+    наибольшего паросочетания), и называет те рёбра, у которых владелец не
+    определён, вместо того чтобы поставить им первого попавшегося.
+    """
+
+    assert PlainArrivalLawV1.__slots__ == (
+        "name",
+        "normal_x",
+        "normal_y",
+        "constant",
+        "speed_squared",
+    )
+
+    polygon = cross(wide=6, tall=4)
+    report = bridge_arrival_laws(
+        _loops_of(polygon), unit_speed_laws_of(polygon)
+    )
+    # Четыре класса из восьми несут по два ребра, значит восемь рёбер
+    # неопределённых и четыре с вынужденным владельцем.
+    assert len(report.ambiguous_owner_spans) == 8
+    assert len(report.owner_by_edge) == 4
+    assert len(report.ambiguous_owner_spans) + len(report.owner_by_edge) == 12
+    # Ключ владельца — ВХОЖДЕНИЕ ребра, а не `(a, b, c, q)`: у `holes_2` два
+    # коллинеарных ребра одной длины давали один ключ, и запись пропадала.
+    for span, _ in report.owner_by_edge:
+        assert len(span) == 4
+    assert len(set(report.ambiguous_owner_spans)) == 8
+
+
+def test_a_surplus_law_on_one_line_is_named_instead_of_overwriting_silently():
+    """Два закона на одну прямую при одном ребре — ИМЕНОВАННЫЙ исход.
+
+    До биекции такой закон исчезал молча: `next(...)` возвращал обоим один
+    индекс, второй затирал первого в карте владельцев, а в `unmatched_laws` он
+    не попадал — прямая-то домену принадлежит. Отрицательный контроль на
+    «тихое исчезновение»: счёт сопоставленных рёбер при этом остаётся 4 из 4,
+    то есть по нему подмену было НЕ ВИДНО.
+    """
+
+    from dataclasses import replace
+
+    polygon = PolygonV1.build(((0, 0), (8, 0), (8, 8), (0, 8)))
+    laws = unit_speed_laws_of(polygon)
+    doubled = laws + (replace(laws[0], name="duplicate-of-edge-0"),)
+    report = bridge_arrival_laws(_loops_of(polygon), doubled)
+    assert report.outcome is BridgeOutcome.MORE_ARRIVAL_LAWS_THAN_EDGES_ON_ONE_LINE
+    assert report.surplus_laws == ("duplicate-of-edge-0",)
+    assert report.unmatched_laws == ()
+    assert (report.matched_edge_count, report.edge_count) == (4, 4)
+    assert report.law_count == 5
 
 
 def test_a_non_unit_speed_law_is_named_and_measured_not_rounded():
