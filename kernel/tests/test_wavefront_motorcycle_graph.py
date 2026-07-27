@@ -386,6 +386,48 @@ def test_the_digest_shift_is_the_key_encoding_and_not_the_answer(name):
         ), f"{name}/{search.value}: сдвинулся ОТВЕТ, а не запись ключа"
 
 
+def test_the_two_holes_digest_shifted_last_slice_is_now_checked_independently():
+    """Закрытие ЗАПИСАННОГО ОТКРЫТОГО СЧЁТА, а не новая проверка про запас.
+
+    Прошлый срез сдвинул дайджесты трёх фигур и проверил две из них независимо
+    (`ell` — замкнутой формулой митрованного отступа, `hole` — сохранением
+    площади). Третью, `two_holes`, проверить было нечем: её грани отказывали
+    `SUPPORT_LINE_SHARED_BY_SEVERAL_EDGES`, потому что ключом участника служила
+    несущая прямая, а у рёбер двух дыр они попарно совпадают. Сдвиг был принят
+    на доверии к общей причине, и это записано как открытый счёт.
+
+    Причина отменена сменой ключа на вхождение ребра, и счёт закрывается двумя
+    независимыми числами: сумма площадей граней 1408 из 1408 ТОЧНО, а покрытие
+    совпадает с митрованным эталоном, посчитанным вне обоих путей.
+    """
+
+    from fractions import Fraction
+
+    from cftuv_envelope.wavefront.coverage import CoverageOutcome, coverage_at
+    from cftuv_envelope.wavefront.faces import FaceOutcome, build_faces
+    from mitered_standard import StandardOutcome, rectilinear_standard
+
+    polygon = _polygon("two_holes")
+    partition = build_faces(polygon, build_skeleton(polygon))
+    assert partition.outcome is FaceOutcome.EXACT, partition.detail
+    assert partition.polygon_doubled_area == 1408
+    assert partition.doubled_area.as_rational() == Fraction(1408)
+    assert partition.area_defect.terms == ()
+    assert len(partition.faces) == 12
+    assert len({face.owner for face in partition.faces}) == 12
+
+    measured = []
+    for alpha in (Fraction(1), Fraction(2)):
+        standard = rectilinear_standard(polygon, alpha)
+        assert standard.outcome is StandardOutcome.EXACT, standard.detail
+        coverage = coverage_at(partition, alpha)
+        assert coverage.outcome is CoverageOutcome.EXACT
+        area = coverage.doubled_area.as_rational() / 2
+        assert area == standard.mitered_covered, alpha
+        measured.append(area)
+    assert measured == [Fraction(180), Fraction(368)]
+
+
 def test_split_events_match_the_exhaustive_search_on_a_hundred_general_polygons():
     """Сто контуров общего положения: один и тот же ответ на обоих путях."""
 
