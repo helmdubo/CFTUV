@@ -9,7 +9,10 @@
 и они отвечают на разное:
 
 - `test_the_field_patch_input_does_not_map_onto_the_queue_and_here_is_why`
-  — вход `bf6` в очередь НЕ отображается, и причин три, каждая с числом;
+  — вход `bf6` в очередь НЕ отображается, и причин ДВЕ, каждая с числом. Третья
+  («источник — не вся граница») ушла вместе со срезом частичного источника: она
+  была границей очереди, а не свойством входа, и девять рёбер из двенадцати
+  теперь размечаются стенами;
 - `test_the_field_patch_pairwise_clipping_destroys_all_of_its_own_coverage`
   — что именно там ломается у попарного кроя: он теряет ВСЮ площадь.
 
@@ -122,8 +125,8 @@ def test_two_collinear_edges_are_two_sources_and_not_one(
 
     Прежнее сопоставление искало ребро для закона `next(...)` по первой
     пропорциональной несущей прямой, поэтому два коллинеарных сонаправленных
-    ребра получали ОДИН индекс, счёт недосчитывался, и срабатывал
-    `SOURCE_IS_NOT_THE_WHOLE_BOUNDARY` на входе, где источником было всё:
+    ребра получали ОДИН индекс, счёт недосчитывался, и мост отказывал на входе,
+    где источником было всё:
 
     | фигура | рёбер | классов прямых | сопоставлено было | стало |
     |---|---:|---:|---:|---:|
@@ -257,8 +260,16 @@ def test_a_non_unit_speed_law_is_named_and_measured_not_rounded():
     assert report.non_unit_speed_laws[0][1] == Fraction(65, 64)
 
 
-def test_a_source_that_is_not_the_whole_boundary_is_named():
-    """Очередь пускает фронт от каждого ребра. Часть рёбер — уже другой вход."""
+def test_a_source_that_is_not_the_whole_boundary_becomes_walls_not_a_refusal():
+    """Ребро без закона — СТЕНА, и вход отображается, а не отвергается.
+
+    До среза здесь стоял отказ `SOURCE_IS_NOT_THE_WHOLE_BOUNDARY`: очередь
+    пускала фронт от каждого ребра, и часть границы без закона выражать было
+    нечем. Теперь у ребра есть своё `q`, ноль означает неподвижную прямую, и
+    мост ставит его сам. Проверяется не только исход: разметка обязана лечь на
+    ТЕ ЖЕ рёбра, у которых закон, — иначе стены встали бы верным числом, но не
+    на своё место.
+    """
 
     polygon = PolygonV1.build(((0, 0), (8, 0), (8, 8), (0, 8)))
     loops = ((
@@ -267,9 +278,89 @@ def test_a_source_that_is_not_the_whole_boundary_is_named():
         (Fraction(8), Fraction(8)),
         (Fraction(0), Fraction(8)),
     ),)
-    report = bridge_arrival_laws(loops, unit_speed_laws_of(polygon)[:2])
-    assert report.outcome is BridgeOutcome.SOURCE_IS_NOT_THE_WHOLE_BOUNDARY
+    laws = unit_speed_laws_of(polygon)[:2]
+    report = bridge_arrival_laws(loops, laws)
+    assert report.outcome is BridgeOutcome.EXACT
+    assert report.findings == ()
     assert (report.matched_edge_count, report.edge_count) == (2, 4)
+    assert report.wall_edge_count == 2
+    assert report.undetermined_source_count == 0
+    assert report.polygon is not None
+    assert report.polygon.source_edge_count == 2
+    assert report.wall_spans == ((0, 8, 0, 0), (8, 8, 0, 8))
+    sources = {
+        frozenset((start, end))
+        for start, end, speed in report.polygon.edges()
+        if speed > 0
+    }
+    assert sources == {
+        frozenset(((0, 0), (8, 0))),
+        frozenset(((8, 0), (8, 8))),
+    }
+
+
+def test_the_bridge_closes_on_a_partially_marked_polygon_in_both_directions():
+    """Мост туда-обратно сохраняет РАЗМЕТКУ, а не только форму.
+
+    `unit_speed_laws_of` выдаёт законы только рёбрам-источникам — у стены закона
+    нет по определению, — а `bridge_arrival_laws` обратно превращает рёбра без
+    закона в стены. Значит замыкание проверяемо, и проверяется оно на
+    подмножестве, а не на полной границе, где стен нет вовсе.
+    """
+
+    from wavefront_cases import partial_source_corpus
+
+    checked = 0
+    for name, polygon in partial_source_corpus():
+        loops = _loops_of(polygon)
+        report = bridge_arrival_laws(loops, unit_speed_laws_of(polygon))
+        if report.findings:
+            # Взвешенное ребро мост обязан назвать неединичным — и называет.
+            assert report.findings == (
+                BridgeOutcome.ARRIVAL_LAW_IS_NOT_UNIT_SPEED,
+            ), name
+            continue
+        assert report.polygon is not None, name
+        assert report.wall_edge_count == polygon.wall_edge_count, name
+        assert {
+            frozenset((start, end))
+            for start, end, speed in report.polygon.edges()
+            if speed > 0
+        } == {
+            frozenset((start, end))
+            for start, end, speed in polygon.edges()
+            if speed > 0
+        }, name
+        checked += 1
+    assert checked == 37
+
+
+def test_a_partially_covered_line_class_leaves_the_source_undetermined():
+    """Два ребра на одной прямой и ОДИН закон: какое из них источник — неизвестно.
+
+    Придуманная пометка выглядела бы как знание, которого во входе нет, и цена
+    ошибки здесь полная: стена и источник — разная геометрия, а не разный вес.
+    Поэтому вход отвергается по имени, а не размечается наугад.
+    """
+
+    polygon = holes_grid(1, 2)
+    loops = _loops_of(polygon)
+    laws = unit_speed_laws_of(polygon)
+    shared = [
+        law
+        for law in laws
+        if line_class((law.normal_x, law.normal_y, law.constant))
+        == line_class(_rational_edge_lines(loops)[4])
+    ]
+    assert len(shared) == 2, "у holes_2 есть класс ровно из двух рёбер"
+    trimmed = tuple(law for law in laws if law is not shared[0])
+    report = bridge_arrival_laws(loops, trimmed)
+    assert (
+        BridgeOutcome.SOURCE_EDGE_INSIDE_A_LINE_CLASS_IS_UNDETERMINED
+        in report.findings
+    )
+    assert report.undetermined_source_count == 2
+    assert report.polygon is None
 
 
 # --------------------------------------------------------------------------
@@ -305,7 +396,7 @@ def _as_fraction(expression) -> Fraction:
 
 
 def test_the_field_patch_input_does_not_map_onto_the_queue_and_here_is_why():
-    """`bf6` в очередь НЕ отображается, и причин ровно три, каждая с числом.
+    """`bf6` в очередь НЕ отображается, и причин осталось ДВЕ, каждая с числом.
 
     Это и есть ответ на главный вопрос среза в той его части, которая про
     отображение. Он не «нет», а «вход другой», и разница названа точно:
@@ -314,7 +405,19 @@ def test_the_field_patch_input_does_not_map_onto_the_queue_and_here_is_why():
     |---|---|
     | домен не на целой решётке | 9 вершин из 12 |
     | скорости прихода не единичные | `(s/|n|)^2` = 137438953472/844687660141 и 17179869184/1439659412197 |
-    | источник не вся граница | 3 ребра из 12 |
+
+    **Третья находка УБРАНА, и вот единственная убранная строка.**
+    `SOURCE_IS_NOT_THE_WHOLE_BOUNDARY` — «источник не вся граница, 3 ребра из
+    12» — был не свойством входа, а границей очереди: `PolygonV1` знал только
+    контур, у которого источником является всё. Теперь у ребра есть своё `q`,
+    девять рёбер без закона становятся стенами (`q = 0`), и вход в этой части
+    отображается. Числа при этом не исчезли, а переехали в утверждение: 3
+    источника и 9 стен из 12 проверяются здесь же, и проверяется ещё одно —
+    что разметка ОДНОЗНАЧНА (`undetermined_source_count == 0`), то есть какие
+    именно девять рёбер стены, следует из входа, а не выбрано.
+
+    Две оставшиеся находки НЕ ослаблены ни на строку: числа те же самые,
+    включая спред скоростей 13.634951522381032.
     """
 
     compilation, _, raw, boundary_resolved = _field_state()
@@ -359,7 +462,6 @@ def test_the_field_patch_input_does_not_map_onto_the_queue_and_here_is_why():
     assert report.findings == (
         BridgeOutcome.DOMAIN_IS_NOT_ON_THE_INTEGER_LATTICE,
         BridgeOutcome.ARRIVAL_LAW_IS_NOT_UNIT_SPEED,
-        BridgeOutcome.SOURCE_IS_NOT_THE_WHOLE_BOUNDARY,
     )
     # Домен: 9 вершин из 12 не лежат в узлах решётки.
     assert (len(report.off_lattice_points), report.edge_count) == (9, 12)
@@ -376,9 +478,19 @@ def test_the_field_patch_input_does_not_map_onto_the_queue_and_here_is_why():
         137438953472 * 1439659412197, 844687660141 * 17179869184
     )
     assert float(high / low) == pytest.approx(13.634951522, abs=1e-6)
-    # Источник: три ребра домена из двенадцати. Остальные девять — стены.
+    # Источник: три ребра домена из двенадцати. Остальные девять — СТЕНЫ, и это
+    # теперь утверждение о размётке, а не находка. Однозначность разметки
+    # проверяется отдельным числом: ни одно ребро не осталось «источник или
+    # стена, неизвестно».
     assert (report.matched_edge_count, report.edge_count) == (3, 12)
+    assert report.wall_edge_count == 9
+    assert report.undetermined_source_count == 0
     assert report.unmatched_laws == ()
+    # Полигона всё ещё нет, и причина ровно одна из двух оставшихся: домен не
+    # на решётке. Стены тут ни при чём, и это видно по тому, что список стен
+    # пуст, а их ЧИСЛО известно.
+    assert report.polygon is None
+    assert report.wall_spans == ()
 
 
 def test_the_field_patch_pairwise_clipping_destroys_all_of_its_own_coverage():

@@ -35,15 +35,23 @@ CCW, дыры CW, «влево от хода» — в сторону матер�
    `SupportLineV1.through` строит только `q = |d|^2`, а теорема 2.11 в
    `motorcycle.py` опирается на `dist(p, line) = t`, что при `s != |n|` неверно, —
    значит индекс кандидатов по ячейкам теряет право фильтровать.
-3. `SOURCE_IS_NOT_THE_WHOLE_BOUNDARY` — очередь пускает фронт от КАЖДОГО ребра
-   контура, а покрытие растёт только от выбранных цепочек. Неподвижная стена
-   представима (`SupportLineV1` с `q = 0`), но `PolygonV1` её не выражает.
-4. `ARRIVAL_LAW_IS_NOT_A_DOMAIN_EDGE` — закон, чья прямая не является несущей
+3. `ARRIVAL_LAW_IS_NOT_A_DOMAIN_EDGE` — закон, чья прямая не является несущей
    прямой ни одного ребра домена. Такому источнику ребра контура не
    соответствует вовсе.
-5. `MORE_ARRIVAL_LAWS_THAN_EDGES_ON_ONE_LINE` — на одной несущей прямой законов
+4. `MORE_ARRIVAL_LAWS_THAN_EDGES_ON_ONE_LINE` — на одной несущей прямой законов
    больше, чем рёбер домена. Лишний закон источником быть не может: у очереди
    ребро одно, а претендентов на него два.
+5. `SOURCE_EDGE_INSIDE_A_LINE_CLASS_IS_UNDETERMINED` — на одной несущей прямой
+   рёбер больше, чем законов, но законов не ноль. Какое именно из рёбер класса
+   источник, во входе НЕ ЗАПИСАНО: закон протяжённости не несёт. Выбрать одно
+   значило бы придумать пометку.
+
+ЧАСТИЧНЫЙ ИСТОЧНИК БОЛЬШЕ НЕ ОТКАЗ. Исход `SOURCE_IS_NOT_THE_WHOLE_BOUNDARY`
+удалён, а не переименован: он говорил «`PolygonV1` неподвижную часть границы не
+выражает», и это перестало быть правдой — у ребра появилось своё `q`, и ребро
+без закона становится СТЕНОЙ (`q = 0`). Оставить исход членом перечисления
+значило бы держать в диагностике причину, которой нет: он не сработал бы больше
+никогда, и отличить «не бывает» от «не проверяется» стало бы нечем.
 
 СОПОСТАВЛЕНИЕ ЗАКОНА С РЕБРОМ — БИЕКЦИЯ, и это не украшение. Раньше ребро для
 закона искалось `next(...)` по первой попавшейся пропорциональной прямой, и два
@@ -84,7 +92,7 @@ from enum import Enum
 from fractions import Fraction
 
 from .event_time import SupportLineV1
-from .polygon import LoopV1, PolygonV1
+from .polygon import LoopV1, PolygonV1, with_source_spans
 
 
 class BridgeOutcome(str, Enum):
@@ -105,7 +113,13 @@ class BridgeOutcome(str, Enum):
     MORE_ARRIVAL_LAWS_THAN_EDGES_ON_ONE_LINE = (
         "MORE_ARRIVAL_LAWS_THAN_EDGES_ON_ONE_LINE"
     )
-    SOURCE_IS_NOT_THE_WHOLE_BOUNDARY = "SOURCE_IS_NOT_THE_WHOLE_BOUNDARY"
+    # Класс несущей прямой покрыт законами ЧАСТИЧНО: рёбер больше, чем законов,
+    # и оба числа не ноль. Кто из рёбер класса источник, а кто стена, во входе
+    # не записано, и придумать это нельзя — пометка попала бы не на то ребро,
+    # а разница между стеной и источником в геометрии полная.
+    SOURCE_EDGE_INSIDE_A_LINE_CLASS_IS_UNDETERMINED = (
+        "SOURCE_EDGE_INSIDE_A_LINE_CLASS_IS_UNDETERMINED"
+    )
 
 
 # Порядок объявлен, а не выведен из порядка проверок: чем ниже, тем глубже
@@ -116,7 +130,7 @@ _OUTCOME_ORDER = (
     BridgeOutcome.ARRIVAL_LAW_IS_NOT_UNIT_SPEED,
     BridgeOutcome.ARRIVAL_LAW_IS_NOT_A_DOMAIN_EDGE,
     BridgeOutcome.MORE_ARRIVAL_LAWS_THAN_EDGES_ON_ONE_LINE,
-    BridgeOutcome.SOURCE_IS_NOT_THE_WHOLE_BOUNDARY,
+    BridgeOutcome.SOURCE_EDGE_INSIDE_A_LINE_CLASS_IS_UNDETERMINED,
 )
 
 
@@ -178,6 +192,26 @@ class BridgeReportV1:
     # на их несущей прямой несколько рёбер и несколько законов, а закон
     # протяжённости не несёт. Перечислены, а не заполнены наугад.
     ambiguous_owner_spans: tuple[tuple[int, int, int, int], ...] = ()
+    # Рёбра домена, ставшие СТЕНАМИ: закона у них нет, фронт от них не идёт.
+    # Перечислены только на решётке — вне её полигона нет вовсе; ЧИСЛО их
+    # доступно всегда через `wall_edge_count`, и это тот самый размер
+    # частичного источника, ради которого срез.
+    wall_spans: tuple[tuple[int, int, int, int], ...] = ()
+    # Сколько рёбер лежат в классах, покрытых законами ЧАСТИЧНО: источник среди
+    # них есть, а какое именно — во входе не записано. Ноль означает, что
+    # разметка «источник или стена» определена входом однозначно.
+    undetermined_source_count: int = 0
+
+    @property
+    def wall_edge_count(self) -> int:
+        """Рёбра домена БЕЗ закона прихода. Они и есть неподвижная часть границы.
+
+        Считается вычитанием, а не длиной списка стен: список существует только
+        на решётке, а число — свойство сопоставления, и оно осмысленно и тогда,
+        когда полигон построить нельзя.
+        """
+
+        return self.edge_count - self.matched_edge_count
 
     @property
     def maps(self) -> bool:
@@ -325,9 +359,94 @@ def bridge_arrival_laws(
     # по отдельности.
     rational_edges = _rational_edges(loops)
 
-    # Двудольный граф «закон — ребро» сворачивается в классы несущих прямых:
-    # внутри класса он полный, между классами рёбер нет. Поэтому наибольшее
-    # паросочетание считается сложением `min` по классам, и счёт точен.
+    matching = _match_by_line_class(rational_edges, laws)
+    if matching.unmatched:
+        findings.append(BridgeOutcome.ARRIVAL_LAW_IS_NOT_A_DOMAIN_EDGE)
+    if matching.surplus:
+        findings.append(BridgeOutcome.MORE_ARRIVAL_LAWS_THAN_EDGES_ON_ONE_LINE)
+    if matching.undetermined:
+        findings.append(
+            BridgeOutcome.SOURCE_EDGE_INSIDE_A_LINE_CLASS_IS_UNDETERMINED
+        )
+
+    polygon: PolygonV1 | None = None
+    owner_by_edge: dict[tuple[int, int, int, int], str] = {}
+    lattice_ambiguous: list[tuple[int, int, int, int]] = []
+    wall_spans: tuple[tuple[int, int, int, int], ...] = ()
+    if (
+        not off_lattice
+        and loops
+        and matching.source_edges
+        and not matching.undetermined
+    ):
+        polygon = _polygon_with_walls(loops, matching.source_edges)
+        wall_spans = tuple(
+            sorted(
+                (start[0], start[1], end[0], end[1])
+                for start, end, speed in polygon.edges()
+                if speed == 0
+            )
+        )
+        # Ключом служит САМО ребро, взятое из тех же `rational_edges`, что и
+        # сопоставление. Прежний код нумеровал рёбра заново по `polygon.loops`
+        # и надеялся, что порядок совпадёт, — а `PolygonV1.build` нормирует
+        # ориентацию и может РАЗВЕРНУТЬ петлю, после чего номер означал другое
+        # ребро. Здесь совпадать нечему: список один.
+        for edge, name in matching.forced_owner.items():
+            owner_by_edge[_lattice_span(edge)] = name
+        lattice_ambiguous = [_lattice_span(edge) for edge in matching.ambiguous]
+
+    ordered = tuple(
+        outcome for outcome in _OUTCOME_ORDER if outcome in findings
+    )
+    return BridgeReportV1(
+        outcome=ordered[0] if ordered else BridgeOutcome.EXACT,
+        findings=ordered,
+        polygon=polygon if not ordered else None,
+        edge_count=len(rational_edges),
+        law_count=len(laws),
+        matched_edge_count=matching.matched_edge_count,
+        off_lattice_points=tuple(off_lattice),
+        non_unit_speed_laws=non_unit,
+        unmatched_laws=tuple(matching.unmatched),
+        surplus_laws=tuple(matching.surplus),
+        owner_by_edge=tuple(sorted(owner_by_edge.items())),
+        ambiguous_owner_spans=tuple(sorted(lattice_ambiguous)),
+        wall_spans=wall_spans,
+        undetermined_source_count=len(matching.undetermined),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _MatchingV1:
+    """Итог сопоставления законов с рёбрами по классам несущих прямых."""
+
+    matched_edge_count: int
+    source_edges: tuple[RationalEdge, ...]
+    undetermined: tuple[RationalEdge, ...]
+    unmatched: tuple[str, ...]
+    surplus: tuple[str, ...]
+    forced_owner: dict[RationalEdge, str]
+    ambiguous: tuple[RationalEdge, ...]
+
+
+def _match_by_line_class(
+    rational_edges: tuple[RationalEdge, ...],
+    laws: tuple[PlainArrivalLawV1, ...],
+) -> _MatchingV1:
+    """Кто источник, кто стена и что осталось неопределённым — по классам прямых.
+
+    Двудольный граф «закон — ребро» сворачивается в классы несущих прямых:
+    внутри класса он полный, между классами рёбер нет. Поэтому наибольшее
+    паросочетание считается сложением `min` по классам, и счёт точен — ни
+    перебора, ни порога.
+
+    Этап вынесен отдельной функцией не для красоты: `bridge_arrival_laws`
+    переросла бюджет функции, а разметка «источник или стена» — самостоятельный
+    вопрос со своим ответом, и держать его внутри сборки отчёта означало бы
+    мерить его вместе с ней.
+    """
+
     edges_by_class: dict[RationalLine, list[RationalEdge]] = {}
     for edge in rational_edges:
         key = line_class(edge[2])
@@ -346,11 +465,21 @@ def bridge_arrival_laws(
     surplus: list[str] = []
     forced_owner: dict[RationalEdge, str] = {}
     ambiguous: list[RationalEdge] = []
+    source_edges: list[RationalEdge] = []
+    undetermined: list[RationalEdge] = []
     for key, names in laws_by_class.items():
         block = edges_by_class[key]
         matched_edge_count += min(len(names), len(block))
         if len(names) > len(block):
             surplus.extend(names[len(block):])
+        if len(names) < len(block):
+            # Класс покрыт ЧАСТИЧНО: источником в нём является не всякое ребро,
+            # а какое именно — во входе не записано. Это не «источник не вся
+            # граница» (та задача решена стенами), а неопределённость ВНУТРИ
+            # класса, и она называется отдельно.
+            undetermined.extend(block)
+        else:
+            source_edges.extend(block)
         if len(names) == 1 and len(block) == 1:
             # Пара ВЫНУЖДЕНА: класс из одного закона и одного ребра.
             forced_owner[block[0]] = names[0]
@@ -358,68 +487,66 @@ def bridge_arrival_laws(
             # Класс, где рёбер несколько: закон протяжённости не несёт, значит
             # чьё ребро чей — во входе не записано. Перечисляем, а не гадаем.
             ambiguous.extend(block[: min(len(names), len(block))])
-
-    if unmatched:
-        findings.append(BridgeOutcome.ARRIVAL_LAW_IS_NOT_A_DOMAIN_EDGE)
-    if surplus:
-        findings.append(BridgeOutcome.MORE_ARRIVAL_LAWS_THAN_EDGES_ON_ONE_LINE)
-    if laws and matched_edge_count != len(rational_edges):
-        findings.append(BridgeOutcome.SOURCE_IS_NOT_THE_WHOLE_BOUNDARY)
-
-    polygon: PolygonV1 | None = None
-    owner_by_edge: dict[tuple[int, int, int, int], str] = {}
-    lattice_ambiguous: list[tuple[int, int, int, int]] = []
-    if not off_lattice and loops:
-        polygon = PolygonV1.build(
-            LoopV1(tuple((int(x), int(y)) for x, y in loops[0])),
-            tuple(
-                LoopV1(tuple((int(x), int(y)) for x, y in loop))
-                for loop in loops[1:]
-            ),
-        )
-        # Ключом служит САМО ребро, взятое из тех же `rational_edges`, что и
-        # сопоставление. Прежний код нумеровал рёбра заново по `polygon.loops`
-        # и надеялся, что порядок совпадёт, — а `PolygonV1.build` нормирует
-        # ориентацию и может РАЗВЕРНУТЬ петлю, после чего номер означал другое
-        # ребро. Здесь совпадать нечему: список один.
-        for edge, name in forced_owner.items():
-            owner_by_edge[_lattice_span(edge)] = name
-        lattice_ambiguous = [_lattice_span(edge) for edge in ambiguous]
-
-    ordered = tuple(
-        outcome for outcome in _OUTCOME_ORDER if outcome in findings
-    )
-    return BridgeReportV1(
-        outcome=ordered[0] if ordered else BridgeOutcome.EXACT,
-        findings=ordered,
-        polygon=polygon if not ordered else None,
-        edge_count=len(rational_edges),
-        law_count=len(laws),
+    return _MatchingV1(
         matched_edge_count=matched_edge_count,
-        off_lattice_points=tuple(off_lattice),
-        non_unit_speed_laws=non_unit,
-        unmatched_laws=tuple(unmatched),
-        surplus_laws=tuple(surplus),
-        owner_by_edge=tuple(sorted(owner_by_edge.items())),
-        ambiguous_owner_spans=tuple(sorted(lattice_ambiguous)),
+        source_edges=tuple(source_edges),
+        undetermined=tuple(undetermined),
+        unmatched=tuple(unmatched),
+        surplus=tuple(surplus),
+        forced_owner=forced_owner,
+        ambiguous=tuple(ambiguous),
     )
+
+
+def _polygon_with_walls(
+    loops: tuple[tuple[tuple[Fraction, Fraction], ...], ...],
+    source_edges: tuple[RationalEdge, ...] | list[RationalEdge],
+) -> PolygonV1:
+    """Полигон, где рёбра с законом — источники, а ОСТАЛЬНЫЕ — стены.
+
+    Пометка ставится по концам ребра, а не по его номеру: `PolygonV1.build`
+    нормирует ориентацию и может развернуть петлю, после чего номер означал бы
+    другое ребро. Ровно на этом уже обжигались (`DECISIONS.md`, 2026-07-27),
+    поэтому здесь номера не участвуют вовсе.
+    """
+
+    polygon = PolygonV1.build(
+        LoopV1(tuple((int(x), int(y)) for x, y in loops[0])),
+        tuple(
+            LoopV1(tuple((int(x), int(y)) for x, y in loop))
+            for loop in loops[1:]
+        ),
+    )
+    spans = tuple(
+        ((int(start[0]), int(start[1])), (int(end[0]), int(end[1])))
+        for start, end, _ in source_edges
+    )
+    return with_source_spans(polygon, spans)
 
 
 def unit_speed_laws_of(polygon: PolygonV1) -> tuple[PlainArrivalLawV1, ...]:
-    """Законы прихода, отвечающие КАЖДОМУ ребру контура, с единичной скоростью.
+    """Законы прихода рёбер-ИСТОЧНИКОВ контура, с единичной скоростью.
 
     Обратное направление моста, и оно нужно стенду: чтобы сравнить два пути на
     одном входе, попарному крою надо выдать ровно те законы, которые очередь
     видит у себя. `s^2 = q = |d|^2` — то есть скорость ровно единичная.
+
+    У стены закона НЕТ, и это не пропуск, а само определение стены: фронт от
+    неё не идёт, значит и закона прихода у неё быть не может. Отсюда замыкание
+    моста в обе стороны: `bridge_arrival_laws(loops, unit_speed_laws_of(p))`
+    возвращает полигон с ТОЙ ЖЕ разметкой стен, что у `p`.
     """
 
     laws: list[PlainArrivalLawV1] = []
     for loop_index, loop in enumerate(polygon.loops):
         points = loop.points
+        speeds = loop.edge_speeds_squared
         for index in range(len(points)):
+            if speeds[index] == 0:
+                continue
             start = points[index]
             end = points[(index + 1) % len(points)]
-            line = SupportLineV1.through(start, end)
+            line = SupportLineV1.with_speed(start, end, speeds[index])
             laws.append(
                 PlainArrivalLawV1(
                     name=f"loop{loop_index}-edge{index}",
