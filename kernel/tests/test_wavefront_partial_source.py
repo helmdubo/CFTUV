@@ -26,6 +26,13 @@
 стены внутрь области. Это не дефект и не пропуск: обе объявленные границы
 (`WAVEFRONT_LEFT_UNRESOLVED` у скелета, `FACE_AREA_DOES_NOT_REPRODUCE_POLYGON` у
 сборщика) срабатывают ГРОМКО, и тихого неверного числа ни на одной из них нет.
+
+**КОЛЛИНЕАРНАЯ НЕПОДВИЖНАЯ СТЕНА.** Отдельный раздел ниже держит разбор одной
+конкретной болезни и её числа. Движущаяся прямая источника наезжает на прямую
+коллинеарной стены; тройка прямых сходится честно, но ОТРЕЗКИ перекрываются в
+единственной точке, и стена не сжимается ни на шаг. Скелет тем не менее гасил её
+целиком, фронт скачком расширялся вдвое и заметал то, чего достичь не мог. Три
+фигуры корпуса, одна болезнь, и её числа заморожены ниже поточечно.
 """
 
 from __future__ import annotations
@@ -34,11 +41,14 @@ from fractions import Fraction
 
 import pytest
 
+from cftuv_envelope.wavefront import skeleton as skeleton_module
 from cftuv_envelope.wavefront.coverage import CoverageOutcome, coverage_at
 from cftuv_envelope.wavefront.event_time import (
     SupportLineV1,
     ZERO_TIME,
+    EventTimeOutcome,
     EventTimeV1,
+    compare_times,
     sliding_point,
 )
 from cftuv_envelope.wavefront.faces import (
@@ -617,6 +627,290 @@ def test_the_extended_standard_agrees_with_the_old_one_where_it_applies(
         assert new.covered == old.mitered_covered
         assert new.source_edge_count == polygon.edge_count
         assert new.wall_edge_count == 0
+
+
+# --------------------------------------------------------------------------
+# 6. Коллинеарная неподвижная стена: диагноз числами и его починка
+# --------------------------------------------------------------------------
+
+#: Три фигуры корпуса, где коллинеарная стена гасилась фронтом, которого не
+#: касалась, и числа их конфигурации. Список фиксирован здесь, а не собирается
+#: перебором: перечень входов берётся из корпуса и по ходу не дополняется.
+#:
+#: | поле | что это |
+#: |---|---|
+#: | `wall` | вхождение ребра-СТЕНЫ, которое гасилось |
+#: | `source` | вхождение ребра-ИСТОЧНИКА, чей фронт на неё наезжал |
+#: | `moment` | момент наезда, целое (у всех трёх время рационально) |
+#: | `meeting` | ЕДИНСТВЕННАЯ общая точка двух отрезков |
+#: | `node` | точка, в которой рождался фиктивный узел — дальний конец стены |
+#: | `wall_span` | отрезок фронта СТЕНЫ в проекции на общее направление |
+#: | `source_span` | отрезок фронта ИСТОЧНИКА в той же проекции |
+COLLINEAR_WALL_CASES = (
+    (
+        "ell_12_source_edge_4",
+        (12, 6, 6, 6),
+        (6, 12, 0, 12),
+        6,
+        (6, 6),
+        (12, 6),
+        (-72, -36),
+        (-36, 0),
+    ),
+    (
+        "staircase_source_edge_6",
+        (8, 8, 4, 8),
+        (4, 12, 0, 12),
+        4,
+        (4, 8),
+        (8, 8),
+        (-32, -16),
+        (-16, 0),
+    ),
+    (
+        "staircase_source_edges_4_5",
+        (12, 4, 8, 4),
+        (8, 8, 4, 8),
+        4,
+        (8, 4),
+        (12, 4),
+        (-48, -32),
+        (-32, 0),
+    ),
+)
+
+COLLINEAR_WALL_IDS = tuple(row[0] for row in COLLINEAR_WALL_CASES)
+
+
+def _codirectional_wall_joint(builder):
+    """Живая вершина, у которой соседи КОЛЛИНЕАРНЫ и разной скорости.
+
+    Именно она и есть разрыв фронта: у стены скорость ноль, у источника нет, их
+    прямые совпадают на одно мгновение и тут же расходятся, и позиции у такой
+    вершины не существует — не «её трудно посчитать», а её нет.
+    """
+
+    for vertex in builder.vertices:
+        if not vertex.alive:
+            continue
+        prev_line = builder.edges[vertex.prev_edge].line
+        next_line = builder.edges[vertex.next_edge].line
+        if prev_line.a * next_line.b - next_line.a * prev_line.b:
+            continue
+        if skeleton_module._joint_kind(prev_line, next_line) is (
+            CandidateRefusal.NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS
+        ):
+            return vertex
+    return None
+
+
+def _run_until_the_wall_is_reached(name):
+    """Цикл событий, доведённый до уровня, где фронт встал на прямую стены.
+
+    Строитель гоняется по тем же правилам, что и `run()`, а не по своим:
+    измерять надо то, что делает очередь, а не то, что похоже на неё.
+    """
+
+    builder = skeleton_module._Builder(dict(PARTIAL)[name])
+    while len(builder.queue):
+        level = builder.queue.pop_level()
+        builder.now = level[0].time
+        builder._apply_level(level)
+        builder._close_short_lavs()
+        joint = _codirectional_wall_joint(builder)
+        if joint is not None:
+            return builder, joint
+    raise AssertionError(f"{name}: коллинеарный стык не встретился")
+
+
+@pytest.mark.parametrize(
+    "name,wall,source,moment,meeting,node,wall_span,source_span",
+    COLLINEAR_WALL_CASES,
+    ids=COLLINEAR_WALL_IDS,
+)
+def test_the_front_and_the_collinear_wall_touch_in_exactly_one_point(
+    name, wall, source, moment, meeting, node, wall_span, source_span
+):
+    """ДИАГНОЗ ЧИСЛАМИ: отрезки касаются в одной точке, а не перекрываются.
+
+    Что измеряется, по шагам и на фигуре ИЗ КОРПУСА:
+
+    1. фронт источника встаёт на прямую стены в момент `moment`, и тройка
+       прямых сходится ТОЧНО — `EventTimeOutcome.EXACT`, никакого «почти»;
+    2. фиктивный узел рождался бы в точке `node` — это место ПРЕДШЕСТВЕННИКА,
+       то есть дальний конец стены, а вовсе не место встречи;
+    3. отрезок фронта стены есть `wall_span`, отрезок фронта источника —
+       `source_span`, и оба меряются проекцией на ОБЩЕЕ направление, поэтому
+       сравнимы напрямую;
+    4. пересечение этих отрезков — единственная точка: нижняя граница
+       пересечения равна верхней, и это проверяется точным предикатом
+       `SqrtSumV1.is_zero`, а не разностью чисел с плавающей точкой.
+
+    Начало отрезка источника берётся из ТОЧКИ РОЖДЕНИЯ стыка, и это законно
+    ровно потому, что стык рождён в этот же самый момент: `birth == moment`
+    проверяется здесь же. Спрашивать у стыка позицию бессмысленно — её нет.
+    """
+
+    builder, joint = _run_until_the_wall_is_reached(name)
+    wall_edge = builder.edges[joint.prev_edge]
+    source_edge = builder.edges[joint.next_edge]
+    assert wall_edge.span == wall
+    assert wall_edge.line.is_stationary
+    assert source_edge.span == source
+    assert not source_edge.line.is_stationary
+
+    before = builder.vertices[joint.prev]
+    time, outcome = builder._edge_event_time(before, joint)
+    assert outcome is EventTimeOutcome.EXACT
+    assert time is not None
+    # Момент рационален у всех трёх: сравнение с целым идёт через разность
+    # времён, а не через вычисление значения.
+    assert compare_times(
+        time, EventTimeV1.normalized(moment, SqrtSumV1.rational(1))
+    ) == 0
+    assert compare_times(joint.birth, time) == 0
+    assert (joint.point.x - SqrtSumV1.rational(meeting[0])).is_zero
+    assert (joint.point.y - SqrtSumV1.rational(meeting[1])).is_zero
+    # Место стыка не существует: его соседи параллельны и разной скорости.
+    assert builder._position(joint, time) is None
+
+    place = builder._position(before, time)
+    assert (place.x - SqrtSumV1.rational(node[0])).is_zero
+    assert (place.y - SqrtSumV1.rational(node[1])).is_zero
+
+    low = builder._span_end(before, wall_edge, time, at_start=True)
+    high = builder._span_end(joint, wall_edge, time, at_start=False)
+    assert low.as_rational() == wall_span[0]
+    assert high.as_rational() == wall_span[1]
+
+    tail = builder._edge_end_vertex(source_edge.ident)
+    source_low = skeleton_module._project(source_edge.line, joint.point)
+    source_high = builder._span_end(tail, source_edge, time, at_start=False)
+    assert source_low.as_rational() == source_span[0]
+    assert source_high.as_rational() == source_span[1]
+
+    # ПЕРЕКРЫТИЕ ПО МЕРЕ: нижняя граница пересечения равна верхней, значит
+    # длина пересечения ровно ноль. Отрезок стены при этом не пуст.
+    assert (source_low - high).is_zero
+    assert not (high - low).is_zero
+
+
+@pytest.mark.parametrize(
+    "name,wall,source,moment,meeting,node,wall_span,source_span",
+    COLLINEAR_WALL_CASES,
+    ids=COLLINEAR_WALL_IDS,
+)
+def test_the_fictitious_collapse_is_refused_under_its_own_name(
+    name, wall, source, moment, meeting, node, wall_span, source_span
+):
+    """ПОЧИНКА: отрезок положительной длины не схлопывается, и это названо.
+
+    Правило спрашивается ровно там, где рождается кандидат, и отвечает точным
+    равенством: длина схлопываемого отрезка в проекции равна `wall_span[1] -
+    wall_span[0]`, то есть не ноль. Событие в очередь не попадает, а счётчик
+    несёт его имя — тихо не исчезает ничего.
+    """
+
+    builder, joint = _run_until_the_wall_is_reached(name)
+    before = builder.vertices[joint.prev]
+    time, _ = builder._edge_event_time(before, joint)
+    span = builder._collapsing_span(before, joint, time)
+    assert span is not None
+    assert span.as_rational() == wall_span[1] - wall_span[0]
+    assert not span.is_zero
+
+    counter = refusal_counter(CandidateRefusal.FILTER_SPAN_DOES_NOT_COLLAPSE)
+    was = builder.counters[counter]
+    builder._enqueue_edge_event(before)
+    assert builder.counters[counter] == was + 1
+
+
+@pytest.mark.parametrize("name,polygon", PARTIAL, ids=PARTIAL_IDS)
+def test_a_stationary_edge_never_reaches_beyond_its_own_span(name, polygon):
+    """Отрезок фронта НЕПОДВИЖНОГО ребра — подотрезок самого ребра, всегда.
+
+    Это и есть тот второй ответ `_span_end`, без которого стена с вырожденным
+    концом выглядела бы отрезком без границы. Проверяется он не на одной
+    фигуре, а на всём корпусе и в момент рождения: концы отрезка обязаны лежать
+    между концами ребра по проекции. У ДВИЖУЩЕГОСЯ ребра такого утверждения
+    нет и быть не может — его отрезок растёт за свои концы всякий раз, когда
+    рядом стоит вогнутая вершина.
+    """
+
+    builder = skeleton_module._Builder(polygon)
+    for edge in builder.edges:
+        if not edge.line.is_stationary:
+            continue
+        x0, y0, x1, y1 = edge.span
+        start = SqrtSumV1.rational(x0 * edge.line.b - y0 * edge.line.a)
+        end = SqrtSumV1.rational(x1 * edge.line.b - y1 * edge.line.a)
+        assert (end - start).sign() > 0
+        for vertex, at_start in (
+            (builder._edge_start_vertex(edge.ident), True),
+            (builder._edge_end_vertex(edge.ident), False),
+        ):
+            assert vertex is not None
+            here = builder._span_end(vertex, edge, ZERO_TIME, at_start=at_start)
+            assert here is not None
+            assert (here - start).sign() >= 0
+            assert (end - here).sign() >= 0
+
+
+@pytest.mark.parametrize("name,polygon", CORPUS, ids=CORPUS_IDS)
+def test_the_new_rule_never_fires_where_every_edge_is_a_source(name, polygon):
+    """ОТРИЦАТЕЛЬНЫЙ КОНТРОЛЬ, и он важнее самой починки.
+
+    На корпусе, где источником является ВСЯ граница, нового отказа нет ни
+    одного, и второй ответ `_span_end` не спрашивается ни разу: неподвижных
+    рёбер там нет вовсе. Отсюда следует, что замороженные ответы этого корпуса
+    сдвинуться не могли — не «мы проверили, что они те же», а «их нечем было
+    сдвинуть». `FROZEN_DIGESTS` это подтверждает независимо.
+    """
+
+    skeleton = build_skeleton(polygon)
+    assert skeleton.counter(
+        refusal_counter(CandidateRefusal.FILTER_SPAN_DOES_NOT_COLLAPSE)
+    ) == 0
+    assert all(not line.is_stationary for line in _support_lines(polygon))
+
+
+def _support_lines(polygon):
+    return tuple(
+        SupportLineV1.with_speed(start, end, speed)
+        for start, end, speed in polygon.edges()
+    )
+
+
+#: Касание в одной точке у ДВИЖУЩИХСЯ рёбер — законное событие, и вот его
+#: счётчики на обоих корпусах. Числа заморожены затем, что починка стены
+#: обязана была их не тронуть: правило различает неподвижное и движущееся, а не
+#: «касание» и «перекрытие».
+TOUCHING_STAYS_LEGITIMATE = {
+    "ell": {"vertex_meeting_events": 1},
+    "hole_1": {"vertex_meeting_events": 4},
+    "holes_2": {"vertex_meeting_events": 4},
+    "cross": {"vertex_meeting_events": 3},
+    "u_shape": {"vertex_meeting_events": 2},
+    "double_notch": {"coincident_split_targets": 2},
+}
+
+
+@pytest.mark.parametrize("name", sorted(TOUCHING_STAYS_LEGITIMATE))
+def test_touching_in_one_point_is_still_an_event_for_moving_edges(name):
+    """Обратная сторона правила: у движущихся рёбер касание событием ОСТАЛОСЬ.
+
+    Вершина, пришедшая в угол фронта, — это `coincident_split_targets`, а
+    встреча вершин — `vertex_meeting_events`; обе конфигурации суть касание в
+    одной точке, и обе законны. Различие проходит по «неподвижное против
+    движущегося», и оно не подгонка: у движущегося ребра отрезок фронта в этот
+    момент действительно сжимается в точку, у неподвижной стены — нет, она
+    сохраняет всю свою длину. Первое есть событие, второе — его отсутствие.
+    """
+
+    polygon = dict(CORPUS)[name]
+    skeleton = build_skeleton(polygon)
+    for counter, value in TOUCHING_STAYS_LEGITIMATE[name].items():
+        assert skeleton.counter(counter) == value
 
 
 # --------------------------------------------------------------------------
