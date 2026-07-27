@@ -1,14 +1,16 @@
-"""Грани скелета: обе объявленные границы проверяются на СОБСТВЕННОМ результате.
+"""Грани скелета: все объявленные границы проверяются на СОБСТВЕННОМ результате.
 
 Правило проекта, поймавшее настоящий дефект пять раз: если функция объявляет
 границу — тест обязан проверить, что её собственный результат этой границе
-удовлетворяет. `faces.py` объявляет ровно две границы, и здесь по столбцу на
-каждую:
+удовлетворяет. `faces.py` объявляет ТРИ границы, и здесь по столбцу на каждую.
+Порядок — тот же, в котором их опрашивает сама `build_faces`, от причины к
+следствию:
 
 | граница | что проверяется |
 |---|---|
-| 1. сумма площадей граней = площадь многоугольника | `area_reproduces_polygon` |
+| 1. контур каждой грани простой | `every_contour_is_simple` |
 | 2. площадь каждой грани строго положительна | `every_face_is_positive` |
+| 3. сумма площадей граней = площадь многоугольника | `area_reproduces_polygon` |
 
 С этого среза границы проверяет и САМА `build_faces` перед возвратом `EXACT`, у
 каждой границы свой член `FaceOutcome`, и в `detail` лежит ЧИСЛО потери. Ниже —
@@ -32,18 +34,22 @@ from cftuv_envelope.wavefront.coverage import CoverageOutcome, coverage_at
 from cftuv_envelope.wavefront.faces import (
     FaceOutcome,
     build_faces,
+    contour_crossings,
     doubled_shoelace,
     edge_key,
     face_contour,
     line_key,
+    orientation,
     polygon_edges,
     projection,
+    segments_cross,
 )
 from cftuv_envelope.wavefront.polygon import PolygonV1, signed_double_area
 from cftuv_envelope.wavefront.skeleton import SkeletonOutcome, SplitSearch
 from cftuv_envelope.wavefront.sqrt_sum import SqrtSumV1
 
 import wavefront_cases
+from adjacency_chain import chained_contours
 from wavefront_cases import named_corpus
 
 
@@ -58,7 +64,7 @@ CORPUS_IDS = tuple(name for name, _ in CORPUS)
 
 @pytest.mark.parametrize("name,polygon", CORPUS, ids=CORPUS_IDS)
 def test_the_face_partition_reproduces_the_polygon_area_exactly(name, polygon):
-    """Граница 1 на собственном результате: площадь сходится ТОЧНО."""
+    """Граница 3 на собственном результате: площадь сходится ТОЧНО."""
 
     partition = build_faces(polygon, build_skeleton(polygon))
     assert partition.outcome is FaceOutcome.EXACT, partition.detail
@@ -78,6 +84,29 @@ def test_every_face_of_the_partition_has_strictly_positive_area(name, polygon):
     assert partition.every_face_is_positive
     for face in partition.faces:
         assert face.doubled_area.sign() > 0, f"{name}: грань {face.owner}"
+
+
+@pytest.mark.parametrize("name,polygon", CORPUS, ids=CORPUS_IDS)
+def test_every_face_contour_of_the_partition_is_simple(name, polygon):
+    """Граница 1 на собственном результате: перекрученных контуров нет.
+
+    Границы 2 и 3 обе читают ПЛОЩАДЬ, а площадь берётся формулой трапеций по
+    контуру: перекрути контур — и та же формула посчитает кусок дважды либо с
+    обратным знаком. Обе прежние границы такой контур пропускали молча, и
+    именно так он и прошёл на полевом патче `bf6`.
+
+    Проверяется не флагом, а ПАРАМИ сегментов: `contour_crossings` возвращает
+    список, и пустота списка на каждой грани по отдельности — более сильное
+    утверждение, чем «ни одна грань не пожаловалась».
+    """
+
+    partition = build_faces(polygon, build_skeleton(polygon))
+    assert partition.outcome is FaceOutcome.EXACT, partition.detail
+    assert partition.every_contour_is_simple
+    for face in partition.faces:
+        assert contour_crossings(face.points) == (), (
+            f"{name}: грань {face.owner}"
+        )
 
 
 @pytest.mark.parametrize("name,polygon", CORPUS, ids=CORPUS_IDS)
@@ -223,7 +252,7 @@ def _skeleton_without_the_ridge_crossing(wide: int, tall: int):
 
 
 def test_a_partition_that_loses_area_refuses_loudly_with_the_defect_as_a_number():
-    """Граница 1 нарушена — исход названный, и в нём ЧИСЛО, а не слово.
+    """Граница 3 нарушена — исход названный, и в нём ЧИСЛО, а не слово.
 
     До этого среза потеря была ТИХОЙ: исход говорил `EXACT`, граница 2
     держалась, а односторонняя проверка покрытия «не превысил многоугольник»
@@ -237,9 +266,129 @@ def test_a_partition_that_loses_area_refuses_loudly_with_the_defect_as_a_number(
     )
     assert partition.detail == "-28"
     assert partition.area_defect.as_rational() == Fraction(-28)
-    # Граница 2 при этом ДЕРЖИТСЯ, и это ровно то, почему исходы разные: один
-    # общий член слил бы «потерян клин» и «грань вывернута» в одно слово.
+    # Границы 1 и 2 при этом ДЕРЖАТСЯ, и это ровно то, почему исходы разные:
+    # один общий член слил бы «потерян клин», «грань вывернута» и «контур
+    # перекручен» в одно слово. Потеря клина — единственная из трёх, которая
+    # НЕ трогает порядок обхода: узел просто отсутствует.
     assert partition.every_face_is_positive
+    assert partition.every_contour_is_simple
+
+
+def test_a_twisted_contour_refuses_loudly_with_the_crossing_pairs_as_numbers():
+    """Граница 1 нарушена — исход названный, и в нём ПАРЫ СЕГМЕНТОВ.
+
+    Вход берётся из корпуса и не строится по памяти: крест с рукавом 2 при
+    `wide = 3, tall = 9` — это строка остатка, где `|wide - tall| >= 2 * arm`.
+    До третьей границы она отвечала `FACE_IS_NOT_POSITIVE`, то есть называла
+    СЛЕДСТВИЕ: контур перекручен, и от этого формула трапеций дала грани
+    отрицательную площадь.
+
+    Пары в `detail` — не украшение. Без них «контур не простой» не отличает
+    один перекрут от трёх и не показывает, какой кусок цепочки поставлен не
+    туда; на `bf6` починку искали ровно по этим парам.
+    """
+
+    figure = wavefront_cases.cross(wide=3, tall=9, arm=2)
+    partition = build_faces(figure, build_skeleton(figure))
+    assert partition.outcome is FaceOutcome.FACE_CONTOUR_IS_NOT_SIMPLE
+    # Число пересечений стоит в `detail` числом, а не словом «нарушено».
+    assert partition.detail.startswith("1 пересечений на 1 гранях из 12")
+    assert "(2, 11, 0, 11): [(1, 3)]" in partition.detail
+    guilty = [
+        face for face in partition.faces if contour_crossings(face.points)
+    ]
+    assert len(guilty) == 1
+    assert contour_crossings(guilty[0].points) == ((1, 3),)
+    # Грани НЕ обнуляются: дефект без них нечем измерить.
+    assert len(partition.faces) == 12
+    # Прежний отказ остался следствием и никуда не делся.
+    assert not partition.every_face_is_positive
+
+
+def test_the_twisted_contour_is_named_before_the_face_it_makes_negative():
+    """Порядок опроса границ доказан ПАРОЙ ВХОДОВ, а не рассуждением.
+
+    Утверждение: самопересечение — причина, неположительность — следствие, и
+    поэтому первым называется самопересечение. Доказывается тем, что связь
+    односторонняя:
+
+    - есть вход, где нарушены обе границы (остаток креста), и там называется
+      именно перекрут;
+    - есть вход, где нарушена ТОЛЬКО граница 2 (подделанная площадь при целом
+      контуре), и там называется неположительность.
+
+    Если бы порядок был обратным, первый вход отвечал бы следствием, а корень
+    пришлось бы искать руками — ровно то, что и случилось на `bf6`, где
+    названная сумма не давала прочесть причину.
+    """
+
+    from dataclasses import replace
+
+    both = wavefront_cases.cross(wide=3, tall=9, arm=2)
+    broken_both = build_faces(both, build_skeleton(both))
+    assert not broken_both.every_contour_is_simple
+    assert not broken_both.every_face_is_positive
+    assert broken_both.outcome is FaceOutcome.FACE_CONTOUR_IS_NOT_SIMPLE
+
+    polygon = PolygonV1.build(((0, 0), (8, 0), (8, 8), (0, 8)))
+    intact = build_faces(polygon, build_skeleton(polygon))
+    assert intact.outcome is FaceOutcome.EXACT
+    only_negative = replace(
+        intact,
+        faces=(
+            replace(intact.faces[0], doubled_area=SqrtSumV1.rational(-32)),
+        )
+        + intact.faces[1:],
+    )
+    assert only_negative.every_contour_is_simple
+    assert not only_negative.every_face_is_positive
+
+
+def test_the_simplicity_boundary_is_transversal_crossing_and_here_is_why():
+    """Почему объявлена трансверсальность, а не «нет общих точек» вовсе.
+
+    Более строгий вариант отверг бы ВЕРНЫЕ ответы, и это измерено на корпусе
+    частичного источника: у пяти его фигур с `EXACT` и точно сходящейся
+    площадью два узла скелета стоят в ОДНОЙ точке, отчего в контуре появляется
+    сегмент нулевой длины. Он ни с чем не пересекается трансверсально и площадь
+    не двигает — но «никаких общих точек» на нём срабатывает.
+
+    Граница, отвергающая верный ответ, — не граница. Поэтому объявлено ровно
+    то, что портит площадь.
+
+    Проверяется здесь ДВУМЯ утверждениями сразу: что вырожденный сегмент
+    предикат не считает пересечением, и что настоящий крест — считает.
+    """
+
+    def point(x, y):
+        return (SqrtSumV1.rational(x), SqrtSumV1.rational(y))
+
+    # Настоящий крест: диагонали единичного квадрата.
+    assert segments_cross(
+        point(0, 0), point(4, 4), point(0, 4), point(4, 0)
+    )
+    # Касание концом — не пересечение.
+    assert not segments_cross(
+        point(0, 0), point(4, 4), point(4, 4), point(8, 0)
+    )
+    # Конец одного строго ВНУТРИ другого — тоже не трансверсальность.
+    assert not segments_cross(
+        point(0, 0), point(4, 0), point(2, 0), point(2, 4)
+    )
+    # Сегмент нулевой длины — тот самый случай из корпуса частичного источника.
+    assert not segments_cross(
+        point(2, 2), point(2, 2), point(0, 0), point(4, 4)
+    )
+    # Коллинеарное наложение — не трансверсальность.
+    assert not segments_cross(
+        point(0, 0), point(4, 0), point(2, 0), point(6, 0)
+    )
+    # Предикат ориентации — на ИРРАЦИОНАЛЬНЫХ координатах тоже, иначе
+    # «точно» проверялось бы только на решётке.
+    root = SqrtSumV1.radical(2, Fraction(1))
+    assert orientation(point(0, 0), (root, root), (root, SqrtSumV1.zero())) < 0
+    assert orientation(point(0, 0), (root, root), (SqrtSumV1.zero(), root)) > 0
+    assert orientation(point(0, 0), (root, root), (root, root)) == 0
 
 
 def test_the_two_broken_boundaries_are_two_different_outcomes_not_one():
@@ -517,13 +666,27 @@ def test_the_repair_is_not_tuned_to_one_arm_thickness(arm: int):
     пропущенные строки оказались верными: 51 / 79 / 81. У остатка граница
     названа и не сдвинулась — он начинается ровно там, где `|wide - tall|`
     достигает `2 * arm`. Это ДРУГАЯ вырожденная конфигурация, а не недоделанная
-    эта, и её отказ громкий (`FACE_IS_NOT_POSITIVE`).
+    эта.
 
     | рукав | было EXACT | пропускалось | стало EXACT | остаток |
     |---|---:|---:|---:|---:|
     | 2 | 51 | 0 | 51 | 30 |
     | 4 | 70 | 9 | 79 | 2 |
     | 6 | 64 | 17 | 81 | 0 |
+
+    ЧЕМ ИМЕННО ОТКАЗЫВАЕТ ОСТАТОК — переименовано с появлением третьей границы,
+    и это находка, а не косметика. Раньше он назывался `FACE_IS_NOT_POSITIVE`;
+    теперь `FACE_CONTOUR_IS_NOT_SIMPLE`, потому что вывернутость там —
+    СЛЕДСТВИЕ, а корень в перекрученном контуре. Доказано числом, а не порядком
+    проверок: обе границы нарушены на ВСЕХ 32 строках остатка (проверяется здесь
+    же — `every_face_is_positive` ложно на каждой), а на всех 211 строках с
+    `EXACT` трансверсального пересечения нет ни одного. То есть новая граница
+    не добавила ни одного отказа и не сняла ни одного, она назвала их корень.
+
+    Своё же предсказание сборщика это и подтверждает: докстрока `order_along_edge`
+    называла эту конфигурацию заранее — «если вся дальняя граница грани
+    перпендикулярна ребру, правило её перевернёт». Перевёрнутый обход и есть
+    перекрученный контур.
     """
 
     exact = 0
@@ -543,10 +706,20 @@ def test_the_repair_is_not_tuned_to_one_arm_thickness(arm: int):
             partition = build_faces(figure, build_skeleton(figure))
             if partition.outcome is FaceOutcome.EXACT:
                 assert partition.area_defect.is_zero, (arm, wide, tall)
+                # Верная строка обязана быть простой ПО КАЖДОЙ грани, а не в
+                # среднем: третья граница проверяется здесь же на собственном
+                # результате функции.
+                assert partition.every_contour_is_simple, (arm, wide, tall)
                 exact += 1
                 assert abs(wide - tall) < 2 * arm, (arm, wide, tall)
             else:
-                assert partition.outcome is FaceOutcome.FACE_IS_NOT_POSITIVE
+                assert partition.outcome is (
+                    FaceOutcome.FACE_CONTOUR_IS_NOT_SIMPLE
+                ), (arm, wide, tall)
+                # Прежний отказ НЕ исчез и не ослаблен — он остался следствием.
+                # Без этой строки «переименовали» было бы неотличимо от
+                # «подменили границу более слабой».
+                assert not partition.every_face_is_positive, (arm, wide, tall)
                 beyond += 1
                 assert abs(wide - tall) >= 2 * arm, (arm, wide, tall)
     assert (exact, shared_line, beyond) == {
@@ -554,3 +727,124 @@ def test_the_repair_is_not_tuned_to_one_arm_thickness(arm: int):
         4: (79, 9, 2),
         6: (81, 17, 0),
     }[arm]
+
+
+# --------------------------------------------------------------------------
+# Кандидат на замену порядка сборки: правило СМЕЖНОСТИ. Измерен целиком и НЕ
+# поставлен, и оба факта проверяются здесь, а не пересказываются.
+# --------------------------------------------------------------------------
+
+
+def _chain_agreement(polygon):
+    """Совпало / разошлось / не сложилось — по граням одной фигуры.
+
+    Сравнение ПОТОЧЕЧНОЕ и точное: `is_zero` разности координат, не «похоже».
+    """
+
+    skeleton = build_skeleton(polygon)
+    if skeleton.outcome is not SkeletonOutcome.EXACT:
+        return None
+    contours, why = chained_contours(polygon, skeleton)
+    if why:
+        return 0, 0, 1
+    partition = build_faces(polygon, skeleton)
+    same = differ = 0
+    for face in partition.faces:
+        chained = contours[face.owner]
+        if len(chained) == len(face.points) and all(
+            (a[0] - b[0]).is_zero and (a[1] - b[1]).is_zero
+            for a, b in zip(chained, face.points)
+        ):
+            same += 1
+        else:
+            differ += 1
+    return same, differ, 0
+
+
+def test_the_adjacency_rule_reproduces_the_shipped_order_where_it_is_right():
+    """Правило смежности — ОБОБЩЕНИЕ поставленного, а не второе мнение.
+
+    Это первая половина измерения кандидата, и без неё вторая ничего не стоила
+    бы: «новое правило чинит сломанное» без «новое правило не трогает верное»
+    есть просто другое правило.
+
+    Числа заморожены как ратчет:
+
+    | корпус | граней | совпало | разошлось |
+    |---|---:|---:|---:|
+    | `named_corpus()` + `cross_4x4` | 185 | 185 | 0 |
+    | сетка крестов 3..11 x толщины 2, 4, 6 | 2916 | 2884 | 32 |
+
+    Разошедшиеся 32 — ровно те строки сетки, где поставленное правило отвечает
+    `FACE_CONTOUR_IS_NOT_SIMPLE`, и это проверяется здесь же, а не сверяется
+    глазами по двум таблицам.
+    """
+
+    same = differ = broken = 0
+    for _, polygon in named_corpus() + (
+        ("cross_4x4", wavefront_cases.cross(wide=4, tall=4)),
+    ):
+        agreement = _chain_agreement(polygon)
+        assert agreement is not None
+        same += agreement[0]
+        differ += agreement[1]
+        broken += agreement[2]
+    assert (same, differ, broken) == (185, 0, 0)
+
+    same = differ = broken = 0
+    twisted_rows = differing_rows = 0
+    for arm in (2, 4, 6):
+        for wide in range(3, 12):
+            for tall in range(3, 12):
+                figure = wavefront_cases.cross(wide=wide, tall=tall, arm=arm)
+                agreement = _chain_agreement(figure)
+                assert agreement is not None
+                same += agreement[0]
+                differ += agreement[1]
+                broken += agreement[2]
+                if agreement[1]:
+                    differing_rows += 1
+                partition = build_faces(figure, build_skeleton(figure))
+                if partition.outcome is (
+                    FaceOutcome.FACE_CONTOUR_IS_NOT_SIMPLE
+                ):
+                    twisted_rows += 1
+                    # Разошлись ровно там, где поставленное правило и врёт.
+                    assert agreement[1] == 1, (arm, wide, tall)
+                else:
+                    assert agreement[1] == 0, (arm, wide, tall)
+    assert (same, differ, broken) == (2884, 32, 0)
+    assert twisted_rows == differing_rows == 32
+
+
+def test_the_adjacency_rule_closes_the_cross_remainder_that_the_shipped_one_cannot():
+    """Кандидат чинит остаток креста ТОЧНО, и это его вторая половина.
+
+    На всех 32 строках, где поставленное правило перекручивает контур, правило
+    смежности даёт сумму площадей РОВНО в площадь фигуры и контуры без единого
+    трансверсального пересечения. То есть остаток креста — не отдельная
+    вырожденная конфигурация, а тот же дефект порядка, что и на `bf6`.
+    """
+
+    fixed = 0
+    for arm in (2, 4, 6):
+        for wide in range(3, 12):
+            for tall in range(3, 12):
+                figure = wavefront_cases.cross(wide=wide, tall=tall, arm=arm)
+                skeleton = build_skeleton(figure)
+                if build_faces(figure, skeleton).outcome is FaceOutcome.EXACT:
+                    continue
+                contours, why = chained_contours(figure, skeleton)
+                assert not why, (arm, wide, tall)
+                total = SqrtSumV1.zero()
+                for points in contours.values():
+                    assert contour_crossings(points) == (), (arm, wide, tall)
+                    total = total + doubled_shoelace(points)
+                expected = sum(
+                    signed_double_area(loop.points) for loop in figure.loops
+                )
+                assert (
+                    total - SqrtSumV1.rational(expected)
+                ).is_zero, (arm, wide, tall)
+                fixed += 1
+    assert fixed == 32

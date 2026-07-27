@@ -41,7 +41,11 @@ from cftuv_envelope.wavefront.event_time import (
     EventTimeV1,
     sliding_point,
 )
-from cftuv_envelope.wavefront.faces import FaceOutcome, build_faces
+from cftuv_envelope.wavefront.faces import (
+    FaceOutcome,
+    build_faces,
+    doubled_shoelace,
+)
 from cftuv_envelope.wavefront.motorcycle import speed_bound_of
 from cftuv_envelope.wavefront.polygon import (
     LoopV1,
@@ -58,6 +62,7 @@ from cftuv_envelope.wavefront.skeleton import (
 )
 from cftuv_envelope.wavefront.sqrt_sum import SqrtSumV1
 
+from adjacency_chain import chained_contours, chained_doubled_area
 from mitered_standard import (
     StandardOutcome,
     partial_source_standard,
@@ -600,3 +605,132 @@ def test_the_extended_standard_agrees_with_the_old_one_where_it_applies(
         assert new.covered == old.mitered_covered
         assert new.source_edge_count == polygon.edge_count
         assert new.wall_edge_count == 0
+
+
+# --------------------------------------------------------------------------
+# 5. Почему кандидат на замену порядка сборки НЕ поставлен: числа противоречия
+# --------------------------------------------------------------------------
+
+
+def test_the_adjacency_rule_would_answer_where_the_standard_says_refuse():
+    """ЕДИНСТВЕННАЯ причина, по которой правило смежности не поставлено.
+
+    Кандидат измерен целиком и чинит обе известные поломки порядка — полевой
+    патч `bf6` и весь остаток креста (`test_wavefront_faces.py`). Но ЗДЕСЬ он
+    делает хуже, и это записано числами, а не оговоркой.
+
+    На четырёх фигурах корпуса частичного источника поставленное правило
+    отвечает `FACE_AREA_DOES_NOT_REPRODUCE_POLYGON` — недостатком площади.
+    Кандидат на всех четырёх сводит недостаток В НОЛЬ, то есть по всем трём
+    объявленным границам отвечает `EXACT`. Но на ТРЁХ из четырёх полученное
+    покрытие ПРОТИВОРЕЧИТ независимому митрованному эталону:
+
+    | фигура | alpha | кандидат x2 | эталон x2 |
+    |---|---:|---:|---:|
+    | `ell_12_source_edge_4` | 8 | 120 | 96 |
+    | `ell_12_source_edge_4` | 12 | 216 | 144 |
+    | `staircase_source_edge_6` | 6 | 64 | 48 |
+    | `staircase_source_edge_6` | 12 | 192 | 96 |
+    | `staircase_source_edges_4_5` | 6 | 144 | 128 |
+    | `staircase_source_edges_4_5` | 12 | 192 | 160 |
+
+    Четвёртая — `staircase_source_edges_7_0` — совпадает с эталоном при каждой
+    alpha, то есть её прежний отказ был ЧИСТЫМ дефектом порядка и ничем больше.
+
+    КОРЕНЬ ПРОТИВОРЕЧИЯ ИЗМЕРЕН, И ОН НЕ В СБОРЩИКЕ. У `ell_12_source_edge_4`
+    источник — верхнее ребро левого рукава, ширина 6. Фронт едет вниз и в
+    момент `t = 6` встаёт на прямую `y = 6`, на которой лежит стена
+    `(12,6) -> (6,6)`. Стена ей КОЛЛИНЕАРНА, но их отрезки не перекрываются
+    нигде, кроме единственной точки `(6,6)`. Скелет тем не менее гасит стену
+    целиком в этот же момент (узел `(12,6)`, `t = 6`), и фронт СКАЧКОМ
+    расширяется с ширины 6 до ширины 12. Дальше он заметает правый рукав,
+    которого достичь не мог.
+
+    Прежний неверный порядок это скрывал СЛУЧАЙНО: он давал недостаток площади,
+    и громкий отказ по границе 3 выглядел верным ответом, будучи верным по
+    неверной причине. Отсюда порядок работ, а не оговорка: сперва разбор
+    коллинеарной неподвижной стены в `skeleton.py`, потом замена правила
+    сборки. Поменять их местами значит поставить тихое неверное число на трёх
+    фигурах — ровно то, против чего заведён тест выше.
+    """
+
+    turned_exact = []
+    contradicting = []
+    for name, polygon in PARTIAL:
+        skeleton = build_skeleton(polygon)
+        if skeleton.outcome is not SkeletonOutcome.EXACT:
+            continue
+        shipped = build_faces(polygon, skeleton)
+        if shipped.outcome is FaceOutcome.EXACT:
+            continue
+        assert shipped.outcome is (
+            FaceOutcome.FACE_AREA_DOES_NOT_REPRODUCE_POLYGON
+        ), name
+        chained = chained_doubled_area(polygon, skeleton)
+        assert chained is not None, name
+        # Кандидат закрывает недостаток ТОЧНО, а не «почти».
+        assert (
+            chained - SqrtSumV1.rational(shipped.polygon_doubled_area)
+        ).is_zero, name
+        turned_exact.append(name)
+
+        mismatches = []
+        for alpha in PARTIAL_SOURCE_ALPHAS:
+            standard = partial_source_standard(polygon, alpha)
+            if standard.outcome is not StandardOutcome.EXACT:
+                continue
+            covered = _chained_coverage(polygon, skeleton, alpha)
+            if covered != 2 * standard.covered:
+                mismatches.append((alpha, covered, 2 * standard.covered))
+        if mismatches:
+            contradicting.append((name, mismatches))
+
+    assert turned_exact == [
+        "ell_12_source_edge_4",
+        "staircase_source_edge_6",
+        "staircase_source_edges_4_5",
+        "staircase_source_edges_7_0",
+    ]
+    assert [name for name, _ in contradicting] == [
+        "ell_12_source_edge_4",
+        "staircase_source_edge_6",
+        "staircase_source_edges_4_5",
+    ]
+    assert dict(contradicting)["ell_12_source_edge_4"] == [
+        (Fraction(8), Fraction(120), Fraction(96)),
+        (Fraction(12), Fraction(216), Fraction(144)),
+    ]
+    assert dict(contradicting)["staircase_source_edge_6"] == [
+        (Fraction(6), Fraction(64), Fraction(48)),
+        (Fraction(8), Fraction(96), Fraction(64)),
+        (Fraction(12), Fraction(192), Fraction(96)),
+    ]
+
+
+def _chained_coverage(polygon, skeleton, alpha):
+    """Покрытие по граням кандидата — тем же `coverage_at`, что и всегда.
+
+    Партиция подделывается не ярлыком, а собранными контурами: иначе сравнение
+    с эталоном проверяло бы усечение, а не порядок сборки.
+    """
+
+    from dataclasses import replace
+
+    contours, why = chained_contours(polygon, skeleton)
+    assert not why
+    shipped = build_faces(polygon, skeleton)
+    faces = tuple(
+        replace(
+            face,
+            points=contours[face.owner],
+            doubled_area=doubled_shoelace(contours[face.owner]),
+        )
+        for face in shipped.faces
+    )
+    total = SqrtSumV1.zero()
+    for face in faces:
+        total = total + face.doubled_area
+    partition = replace(
+        shipped, outcome=FaceOutcome.EXACT, faces=faces, doubled_area=total
+    )
+    return coverage_at(partition, alpha).doubled_area.as_rational()
