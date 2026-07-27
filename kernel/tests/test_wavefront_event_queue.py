@@ -254,7 +254,13 @@ def test_two_holes_aiming_at_one_edge_are_cut_at_once_not_one_after_another():
 
     skeleton = _skeleton(TWO_HOLES_OUTER, TWO_HOLES)
     assert skeleton.outcome is SkeletonOutcome.EXACT
-    assert skeleton.counter("split_events") >= 8
+    # Считать надо ОБА разбора, а не один: с этого среза часть таких кандидатов
+    # приходит не в ребро, а в вершину фронта, и разбирается встречей вершин.
+    # Сумма не изменилась — изменилось, каким правилом каждый разобран.
+    assert (
+        skeleton.counter("split_events")
+        + skeleton.counter("vertex_meeting_events") * 2
+    ) >= 8
 
 
 # --------------------------------------------------------------------------
