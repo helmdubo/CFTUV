@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from fractions import Fraction
 
 import pytest
@@ -34,10 +35,13 @@ from cftuv_envelope.interactions.components import compile_interaction_component
 from cftuv_envelope.interactions.contracts import InteractionOutcome
 from cftuv_envelope.reference.boundary import build_domain_geometry
 from cftuv_envelope.reference.common import GeometryContext
+from cftuv_envelope.reference.metric import ExactPlanarMetric
 from cftuv_envelope.reference.planar_types import ExactScalar, exact_sign
 from cftuv_envelope.reference.validation import (
     validate_reference_geometry_payload,
 )
+from cftuv_envelope.robust.grid import GridSpecV1
+from cftuv_envelope.source_grid import chart_grid_for
 from cftuv_envelope.wavefront import build_skeleton
 from cftuv_envelope.wavefront.bridge import (
     BridgeOutcome,
@@ -49,8 +53,16 @@ from cftuv_envelope.wavefront.bridge import (
     unit_speed_laws_of,
 )
 from cftuv_envelope.wavefront.coverage import coverage_at
+from cftuv_envelope.wavefront.digest import semantic_digest
+from cftuv_envelope.wavefront.events import EventKind
 from cftuv_envelope.wavefront.faces import FaceOutcome, build_faces
-from cftuv_envelope.wavefront.polygon import PolygonV1
+from cftuv_envelope.wavefront.polygon import (
+    PolygonV1,
+    unit_speed_squared,
+    with_edge_speeds,
+)
+from cftuv_envelope.wavefront.skeleton import SkeletonOutcome, SplitSearch
+from cftuv_envelope.wavefront.sqrt_sum import SqrtSumV1
 
 from reference_factories import straight_snapshot
 from wavefront_cases import FIELD_FIXTURE, cross, holes_grid, named_corpus
@@ -106,6 +118,28 @@ def _loops_of(polygon):
     return tuple(
         tuple((Fraction(x), Fraction(y)) for x, y in loop.points)
         for loop in polygon.loops
+    )
+
+
+def _unit_laws_for(loops) -> tuple[PlainArrivalLawV1, ...]:
+    """Закон единичной скорости на КАЖДОЕ ребро дробного домена.
+
+    `unit_speed_laws_of` требует уже построенного `PolygonV1`, то есть домена
+    на решётке, — а тесты привязки живут именно там, где домена на решётке ещё
+    нет. Скорость берётся `s^2 = |n|^2`, то есть ровно единичной, поэтому
+    находка про скорость в таких тестах не срабатывает и не мешает читать ту,
+    ради которой тест написан.
+    """
+
+    return tuple(
+        PlainArrivalLawV1(
+            name=f"line{index}",
+            normal_x=a,
+            normal_y=b,
+            constant=c,
+            speed_squared=a * a + b * b,
+        )
+        for index, (a, b, c) in enumerate(_rational_edge_lines(loops))
     )
 
 
@@ -363,6 +397,123 @@ def test_a_partially_covered_line_class_leaves_the_source_undetermined():
     assert report.polygon is None
 
 
+def test_a_lattice_on_a_domain_already_in_the_nodes_changes_nothing():
+    """Отрицательный контроль привязки: где двигать нечего, она не двигает.
+
+    Без него «привязка отобразила `bf6`» не отличалось бы от «привязка меняет
+    ответ вообще везде». Берётся весь корпус — фигуры и так на решётке, — и
+    требуется ПОБИТОВОЕ совпадение полигона и нулевая невязка. Ноль здесь
+    отличается от `None`: привязка была и ничего не сдвинула.
+    """
+
+    for name, polygon in CORPUS:
+        loops = _loops_of(polygon)
+        laws = unit_speed_laws_of(polygon)
+        without = bridge_arrival_laws(loops, laws)
+        snapped = bridge_arrival_laws(loops, laws, lattice=GridSpecV1(scale=1))
+        assert snapped.outcome is BridgeOutcome.EXACT, name
+        assert snapped.snap_residual == 0, name
+        assert without.snap_residual is None, name
+        assert snapped.polygon == without.polygon, name
+        assert snapped.weighted_edge_count == 0, name
+
+
+def test_a_weighted_law_needs_the_caller_to_say_so_and_then_maps():
+    """Взвешенность включается вызывающим, и обе стороны переключателя видны.
+
+    Без параметра неединичный закон — находка, ровно как был. С параметром
+    находки нет, а `q` ребра равно `(s/|n|)^2 * |d|^2`, то есть ЧЕТВЕРТИ
+    квадрата длины при скорости вдвое меньшей. Число проверяется целиком, а не
+    «отличается от `|d|^2`»: половинная скорость и нулевая тоже отличаются.
+    """
+
+    polygon = PolygonV1.build(((0, 0), (8, 0), (8, 8), (0, 8)))
+    loops = _loops_of(polygon)
+    laws = tuple(
+        PlainArrivalLawV1(
+            name=law.name,
+            normal_x=law.normal_x,
+            normal_y=law.normal_y,
+            constant=law.constant,
+            speed_squared=law.speed_squared / 4,
+        )
+        for law in unit_speed_laws_of(polygon)
+    )
+    refused = bridge_arrival_laws(loops, laws)
+    assert refused.findings == (BridgeOutcome.ARRIVAL_LAW_IS_NOT_UNIT_SPEED,)
+
+    mapped = bridge_arrival_laws(loops, laws, weighted_fronts=True)
+    assert mapped.maps
+    assert mapped.weighted_edge_count == 4
+    assert {speed for _, _, speed in mapped.polygon.edges()} == {16}
+    assert build_skeleton(mapped.polygon).outcome is SkeletonOutcome.EXACT
+
+
+def test_a_lattice_that_collapses_an_edge_is_named_and_not_left_to_the_polygon():
+    """Привязка склеила ребро — отказ у МОСТА, а не у полигона.
+
+    Разница не в словах. `PolygonV1` сказал бы `LOOP_HAS_REPEATED_POINT` —
+    правду про петлю, — и по этому имени нельзя понять, что вершины двигал
+    мост и что вместе с ребром исчез его закон.
+    """
+
+    # Ребро длиной 1/10 при шаге 1 обязано склеиться: оба конца ближе к
+    # одному узлу, чем к разным.
+    loops = (
+        (
+            (Fraction(0), Fraction(0)),
+            (Fraction(8), Fraction(0)),
+            (Fraction(8), Fraction(1, 10)),
+            (Fraction(0), Fraction(8)),
+        ),
+    )
+    report = bridge_arrival_laws(
+        loops, _unit_laws_for(loops), lattice=GridSpecV1(scale=1)
+    )
+    assert report.findings == (
+        BridgeOutcome.LATTICE_SNAP_COLLAPSES_A_DOMAIN_EDGE,
+    )
+    assert report.polygon is None
+    # Без решётки тот же вход отвечает про решётку, а не про склейку: обе
+    # причины существуют по отдельности и не подменяют друг друга.
+    assert bridge_arrival_laws(loops, _unit_laws_for(loops)).findings == (
+        BridgeOutcome.DOMAIN_IS_NOT_ON_THE_INTEGER_LATTICE,
+    )
+
+
+def test_two_speeds_on_one_support_line_leave_the_speed_undetermined():
+    """Разные скорости в одном классе прямых — отказ, а не выбор одной из них.
+
+    Тяжелее неопределённости ВЛАДЕЛЬЦА, и потому названо отдельно: не зная
+    имени закона, геометрию всё равно строишь одну, а не зная скорости — разную.
+    Проверяется на кресте, где класс несёт два коллинеарных ребра.
+    """
+
+    polygon = cross(wide=6, tall=4)
+    loops = _loops_of(polygon)
+    laws = list(unit_speed_laws_of(polygon))
+    classes = [
+        line_class((law.normal_x, law.normal_y, law.constant)) for law in laws
+    ]
+    shared = next(
+        key for key in classes if classes.count(key) == 2
+    )
+    first = classes.index(shared)
+    laws[first] = PlainArrivalLawV1(
+        name=laws[first].name,
+        normal_x=laws[first].normal_x,
+        normal_y=laws[first].normal_y,
+        constant=laws[first].constant,
+        speed_squared=laws[first].speed_squared / 4,
+    )
+    report = bridge_arrival_laws(loops, tuple(laws), weighted_fronts=True)
+    assert (
+        BridgeOutcome.EDGE_SPEED_INSIDE_A_LINE_CLASS_IS_UNDETERMINED
+        in report.findings
+    )
+    assert report.polygon is None
+
+
 # --------------------------------------------------------------------------
 # 2. Полевой патч bf6: почему вход не отображается, с числами
 # --------------------------------------------------------------------------
@@ -395,29 +546,13 @@ def _as_fraction(expression) -> Fraction:
     return Fraction(int(numerator), int(denominator))
 
 
-def test_the_field_patch_input_does_not_map_onto_the_queue_and_here_is_why():
-    """`bf6` в очередь НЕ отображается, и причин осталось ДВЕ, каждая с числом.
+def _field_bridge_input():
+    """Домен и законы `bf6` в точных дробях плюс кадр патча.
 
-    Это и есть ответ на главный вопрос среза в той его части, которая про
-    отображение. Он не «нет», а «вход другой», и разница названа точно:
-
-    | причина | число |
-    |---|---|
-    | домен не на целой решётке | 9 вершин из 12 |
-    | скорости прихода не единичные | `(s/|n|)^2` = 137438953472/844687660141 и 17179869184/1439659412197 |
-
-    **Третья находка УБРАНА, и вот единственная убранная строка.**
-    `SOURCE_IS_NOT_THE_WHOLE_BOUNDARY` — «источник не вся граница, 3 ребра из
-    12» — был не свойством входа, а границей очереди: `PolygonV1` знал только
-    контур, у которого источником является всё. Теперь у ребра есть своё `q`,
-    девять рёбер без закона становятся стенами (`q = 0`), и вход в этой части
-    отображается. Числа при этом не исчезли, а переехали в утверждение: 3
-    источника и 9 стен из 12 проверяются здесь же, и проверяется ещё одно —
-    что разметка ОДНОЗНАЧНА (`undetermined_source_count == 0`), то есть какие
-    именно девять рёбер стены, следует из входа, а не выбрано.
-
-    Две оставшиеся находки НЕ ослаблены ни на строку: числа те же самые,
-    включая спред скоростей 13.634951522381032.
+    Общий этап у обоих полевых тестов — того, что вход НЕ отображается
+    умолчанием, и того, что он отображается решёткой с весами. Общий он
+    намеренно: если бы каждый собирал вход по-своему, «две находки исчезли»
+    объяснялось бы разницей сборки, а не изменением моста.
     """
 
     compilation, _, raw, boundary_resolved = _field_state()
@@ -430,7 +565,6 @@ def test_the_field_patch_input_does_not_map_onto_the_queue_and_here_is_why():
     )
     domain = build_domain_geometry(GeometryContext.build(compilation, frame))
     region = domain.domain_regions[0]
-
     loops = (
         tuple(
             (_as_fraction(point.x.as_expr()), _as_fraction(point.y.as_expr()))
@@ -456,6 +590,56 @@ def test_the_field_patch_input_does_not_map_onto_the_queue_and_here_is_why():
         )
         for model in sorted(models, key=lambda item: str(item.arrival_model_id))
     )
+    return loops, laws, frame
+
+
+def _field_chart_lattice(frame) -> GridSpecV1:
+    """Решётка карты для `bf6` — ПО ОБЪЯВЛЕННОМУ ЗАКОНУ, а не подобранная.
+
+    Два шага, и оба уже объявлены в ядре. Шаг источника берётся из сертификата
+    самого патча (`window_step`, он же самый мелкий допустимый шаг окна по
+    `FINEST_ADMISSIBLE_FIRST_V1`), а решётка карты выводится из него
+    `chart_grid_for`: координаты карты — кратные базисным векторам, а не метры,
+    поэтому шаг переносить напрямую нельзя.
+
+    Число здесь не выбирается вовсе, и это главное свойство теста. Подставь
+    сюда «удобный» масштаб — и «вход отобразился» стало бы утверждением про
+    подобранную решётку, а не про закон, который ядро объявляет для всех.
+    """
+
+    certificate = frame.grid_certificate
+    step = Fraction(
+        certificate.window_step.numerator, certificate.window_step.denominator
+    )
+    return chart_grid_for(ExactPlanarMetric.from_descriptor(frame).gram, step)
+
+
+def test_the_field_patch_input_does_not_map_onto_the_queue_and_here_is_why():
+    """`bf6` в очередь НЕ отображается, и причин осталось ДВЕ, каждая с числом.
+
+    Это и есть ответ на главный вопрос среза в той его части, которая про
+    отображение. Он не «нет», а «вход другой», и разница названа точно:
+
+    | причина | число |
+    |---|---|
+    | домен не на целой решётке | 9 вершин из 12 |
+    | скорости прихода не единичные | `(s/|n|)^2` = 137438953472/844687660141 и 17179869184/1439659412197 |
+
+    **Третья находка УБРАНА, и вот единственная убранная строка.**
+    `SOURCE_IS_NOT_THE_WHOLE_BOUNDARY` — «источник не вся граница, 3 ребра из
+    12» — был не свойством входа, а границей очереди: `PolygonV1` знал только
+    контур, у которого источником является всё. Теперь у ребра есть своё `q`,
+    девять рёбер без закона становятся стенами (`q = 0`), и вход в этой части
+    отображается. Числа при этом не исчезли, а переехали в утверждение: 3
+    источника и 9 стен из 12 проверяются здесь же, и проверяется ещё одно —
+    что разметка ОДНОЗНАЧНА (`undetermined_source_count == 0`), то есть какие
+    именно девять рёбер стены, следует из входа, а не выбрано.
+
+    Две оставшиеся находки НЕ ослаблены ни на строку: числа те же самые,
+    включая спред скоростей 13.634951522381032.
+    """
+
+    loops, laws, _ = _field_bridge_input()
 
     report = bridge_arrival_laws(loops, laws)
     assert not report.maps
@@ -491,6 +675,142 @@ def test_the_field_patch_input_does_not_map_onto_the_queue_and_here_is_why():
     # пуст, а их ЧИСЛО известно.
     assert report.polygon is None
     assert report.wall_spans == ()
+
+
+def test_the_field_patch_maps_onto_the_queue_on_the_declared_chart_lattice():
+    """`bf6` ОТОБРАЖАЕТСЯ, и обе оставшиеся находки уходят вместе, не по одной.
+
+    Это ответ на главный вопрос среза. Вход отображается ровно тогда, когда
+    вызывающий называет две вещи, которые мост не имеет права решить за него:
+    решётку, к которой домен привязать, и согласие на ВЗВЕШЕННЫЙ фронт. Обе
+    названы законом, а не подобраны: решётка выводится из сертификата самого
+    патча (`_field_chart_lattice`), взвешенность следует из измеренных законов.
+
+    | что было находкой | чем стало |
+    |---|---|
+    | `DOMAIN_IS_NOT_ON_THE_INTEGER_LATTICE`, 9 вершин из 12 | привязка, невязка 7.34e-06 ед. карты |
+    | `ARRIVAL_LAW_IS_NOT_UNIT_SPEED`, спред 13.635 | `q` рациональное у 3 рёбер |
+
+    Числа прежнего теста при этом НЕ отменены: без обоих параметров мост
+    отвечает ровно то же, что отвечал, и это проверяет тест выше. Здесь
+    проверяется другое — что при названных параметрах находок ноль.
+    """
+
+    loops, laws, frame = _field_bridge_input()
+    lattice = _field_chart_lattice(frame)
+    # Решётка выведена, а не выбрана: шаг источника 1/4096 из сертификата.
+    assert lattice.scale == 65536
+
+    report = bridge_arrival_laws(
+        loops, laws, lattice=lattice, weighted_fronts=True
+    )
+    assert report.maps
+    assert report.findings == ()
+    assert report.outcome is BridgeOutcome.EXACT
+    # Разметка та же самая, что мерил прежний тест: три источника, девять стен.
+    assert (report.matched_edge_count, report.edge_count) == (3, 12)
+    assert report.wall_edge_count == 9
+    assert report.undetermined_source_count == 0
+    assert len(report.wall_spans) == 9
+    # Все три источника ВЗВЕШЕННЫЕ. Ноль здесь означал бы, что скорость по
+    # дороге потерялась и стала единичной, а находка ушла подгонкой.
+    assert report.weighted_edge_count == 3
+    assert report.lattice_scale == 65536
+    # Цена привязки названа числом, а не словом «мала».
+    assert report.snap_residual == Fraction(179789606827, 24498750116528128)
+    assert report.snap_residual * lattice.scale < Fraction(1, 2)
+
+    polygon = report.polygon
+    # `q` у источников — РАЦИОНАЛЬНОЕ, и знаменатели те самые, из-за которых
+    # маршрут с подъёмом масштаба и оказался невозможен.
+    weighted = [speed for _, _, speed in polygon.edges() if speed]
+    assert len(weighted) == 3
+    assert {Fraction(speed).denominator for speed in weighted} <= {
+        844687660141,
+        1439659412197,
+        64975973857,
+    }
+    assert all(not isinstance(speed, int) for speed in weighted)
+
+
+def test_the_field_patch_skeleton_is_exact_and_both_search_paths_agree():
+    """Очередь считается на ПОЛЕВОЙ геометрии до конца, и ответ у неё один.
+
+    Первое измерение очереди на настоящем патче, поэтому проверяется не только
+    исход, но и то, что он не зависит от пути поиска split-кандидатов: сужение
+    по трассам motorcycle graph и полный перебор обязаны дать один дайджест.
+    Совпадение ЧИСЛА узлов этого не доказало бы — совпадение суммы не
+    доказывает совпадения множества, и здесь сверяется именно множество.
+
+    Грани при этом ОТКАЗЫВАЮТ `FACE_AREA_DOES_NOT_REPRODUCE_POLYGON`, и это
+    записано как есть: у `bf6` девять стен из двенадцати, то есть он попадает
+    в уже открытый счёт причин этого исхода. Единственное новое — ЗНАК:
+    сумма граней ПРЕВОСХОДИТ площадь полигона, а в корпусе частичного
+    источника все четыре случая этого исхода были недостатком.
+    """
+
+    loops, laws, frame = _field_bridge_input()
+    report = bridge_arrival_laws(
+        loops,
+        laws,
+        lattice=_field_chart_lattice(frame),
+        weighted_fronts=True,
+    )
+    polygon = report.polygon
+
+    by_trace = build_skeleton(polygon, split_search=SplitSearch.MOTORCYCLE)
+    exhaustive = build_skeleton(polygon, split_search=SplitSearch.EXHAUSTIVE)
+    assert by_trace.outcome is SkeletonOutcome.EXACT
+    assert exhaustive.outcome is SkeletonOutcome.EXACT
+    assert semantic_digest(by_trace) == semantic_digest(exhaustive)
+    assert len(by_trace.nodes) == 10
+    kinds = Counter(node.kind for node in by_trace.nodes)
+    assert kinds == Counter({EventKind.EDGE: 6, EventKind.SPLIT: 4})
+
+    partition = build_faces(polygon, by_trace)
+    assert partition.outcome is (
+        FaceOutcome.FACE_AREA_DOES_NOT_REPRODUCE_POLYGON
+    )
+    assert len(partition.faces) == 3
+    # Знак расхождения — ИЗБЫТОК. Проверяется точным предикатом на сумме
+    # корней, а не разностью чисел с плавающей точкой.
+    deficit = partition.doubled_area - SqrtSumV1.rational(
+        partition.polygon_doubled_area
+    )
+    assert deficit.sign() > 0
+
+
+def test_the_field_patch_needs_the_weights_and_not_only_the_lattice():
+    """Отрицательный контроль: на решётке БЕЗ весов очередь не досчитывает.
+
+    Без него «`bf6` отобразился» свелось бы к «домен привязали», и вклад
+    рационального `q` остался бы недоказанным. Берётся ТОТ ЖЕ привязанный
+    полигон и те же три ребра-источника, но скорость каждого заменяется
+    единичной — и фронт остаётся неразрешённым.
+
+    То есть взвешенность на `bf6` покупает не точность и не удобство, а сам
+    ответ: `WAVEFRONT_LEFT_UNRESOLVED` против `EXACT` на одной геометрии.
+    """
+
+    loops, laws, frame = _field_bridge_input()
+    report = bridge_arrival_laws(
+        loops,
+        laws,
+        lattice=_field_chart_lattice(frame),
+        weighted_fronts=True,
+    )
+    unit = with_edge_speeds(
+        report.polygon,
+        tuple(
+            (start, end, unit_speed_squared(start, end))
+            for start, end, speed in report.polygon.edges()
+            if speed
+        ),
+    )
+    assert unit.source_edge_count == report.polygon.source_edge_count
+    assert build_skeleton(unit).outcome is (
+        SkeletonOutcome.WAVEFRONT_LEFT_UNRESOLVED
+    )
 
 
 def test_the_field_patch_pairwise_clipping_destroys_all_of_its_own_coverage():
