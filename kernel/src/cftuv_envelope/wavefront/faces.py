@@ -19,8 +19,10 @@
 `SqrtSumV1` (у неё есть произведение), и сравнение с целой площадью
 многоугольника — это `is_zero` разности, то есть чисто рациональная проверка.
 
-ОБЪЯВЛЕННЫЕ ГРАНИЦЫ (границ две, и обе проверяются тестом на собственном
-результате этой функции — `test_wavefront_faces.py`):
+ОБЪЯВЛЕННЫЕ ГРАНИЦЫ (границ две, и обе проверяются САМОЙ `build_faces` перед
+тем, как она вернёт `EXACT`, — у каждой свой член `FaceOutcome` и число потери
+в `detail`; тест `test_wavefront_faces.py` проверяет их же на собственном
+результате функции):
 
 1. **Сумма площадей граней РАВНА площади многоугольника.** Точно, не «почти».
    Это и есть ровно то утверждение, которое попарный крой о себе не доказывает.
@@ -42,7 +44,7 @@ from dataclasses import dataclass
 from enum import Enum
 from functools import cmp_to_key
 
-from .event_time import EventPointV1, SupportLineV1
+from .event_time import SupportLineV1
 from .polygon import PolygonV1, signed_double_area
 from .skeleton import SkeletonNodeV1, SkeletonOutcome, SkeletonV1
 from .sqrt_sum import SqrtSumV1
@@ -64,6 +66,16 @@ class FaceOutcome(str, Enum):
     )
     # У ребра нет ни одного узла. Грань не замкнуть двумя точками.
     FACE_HAS_NO_SKELETON_NODE = "FACE_HAS_NO_SKELETON_NODE"
+    # Граница 1 нарушена: сумма площадей граней НЕ равна площади многоугольника.
+    # Член отдельный, а не общий с границей 2, потому что это другой дефект:
+    # здесь разбиение потеряло (или удвоило) кусок ПЛОЩАДИ, и величина потери
+    # лежит числом в `detail`. Слить их в один исход означало бы в диагностике
+    # не отличить «клин потерян» от «грань вывернута».
+    FACE_AREA_DOES_NOT_REPRODUCE_POLYGON = "FACE_AREA_DOES_NOT_REPRODUCE_POLYGON"
+    # Граница 2 нарушена: у какой-то грани площадь не строго положительна.
+    # Это дефект СБОРКИ одной грани (порядок обхода вывернул её либо схлопнул),
+    # а не арифметики суммы, поэтому он назван своим именем.
+    FACE_IS_NOT_POSITIVE = "FACE_IS_NOT_POSITIVE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +102,10 @@ class FaceV1:
 class FacePartitionV1:
     """Разбиение многоугольника гранями скелета и обе объявленные границы."""
 
+    # При отказе по границе 1 или 2 грани НЕ обнуляются, в отличие от отказов,
+    # случившихся до счёта: там граней просто нет, а тут они посчитаны, и без
+    # них дефект нечем измерить. Смотреть на них можно только после проверки
+    # `outcome`, и потребитель это делает (`coverage.py:160`).
     outcome: FaceOutcome
     faces: tuple[FaceV1, ...]
     doubled_area: SqrtSumV1
@@ -122,6 +138,23 @@ class FacePartitionV1:
         return self.doubled_area - SqrtSumV1.rational(self.polygon_doubled_area)
 
 
+def as_number(value: SqrtSumV1) -> str:
+    """Величина ЧИСЛОМ для `detail`, а не словом «нарушено».
+
+    Отказ, у которого в причине стоит слово, нельзя ни сравнить с прошлым
+    прогоном, ни отличить потерю в 1/2 от потери в 18. Рациональная величина
+    печатается дробью, иррациональная — своим каноническим набором
+    коэффициентов: он тоже число, просто записанное в базисе корней.
+    """
+
+    rational = value.as_rational()
+    if rational is not None:
+        return str(rational)
+    return " + ".join(
+        f"{coefficient}*sqrt({radicand})" for radicand, coefficient in value.terms
+    )
+
+
 def polygon_edges(
     polygon: PolygonV1,
 ) -> tuple[tuple[tuple[int, int], tuple[int, int], SupportLineV1], ...]:
@@ -142,10 +175,50 @@ def line_key(line: SupportLineV1) -> LineKey:
     return (line.a, line.b, line.c, line.q)
 
 
-def _projection(point: EventPointV1, dx: int, dy: int) -> SqrtSumV1:
+Point = tuple[SqrtSumV1, SqrtSumV1]
+
+
+def projection(point: Point, dx: int, dy: int) -> SqrtSumV1:
     """Проекция точки на направление `(dx, dy)`. Без нормировки: знак важен."""
 
-    return point.x.scaled(dx) + point.y.scaled(dy)
+    return point[0].scaled(dx) + point[1].scaled(dy)
+
+
+def order_along_edge(
+    points: tuple[Point, ...], dx: int, dy: int
+) -> tuple[Point, ...]:
+    """Порядок узлов грани: по УБЫВАНИЮ проекции на ребро, потом на нормаль.
+
+    Вынесено из `build_faces` отдельной функцией не для красоты: стенд, который
+    проверяет ГИПОТЕЗУ о причине дефекта, обязан сортировать тем же самым
+    правилом, а не своей копией. Копия доказывала бы про копию.
+
+    Второй ключ не украшение: два узла грани могут лежать на одном
+    перпендикуляре к ребру, и без него порядок зависел бы от того, в каком
+    порядке события легли в список.
+    """
+
+    def compare(left: Point, right: Point) -> int:
+        along = projection(right, dx, dy) - projection(left, dx, dy)
+        sign = along.sign()
+        if sign:
+            return sign
+        across = projection(right, -dy, dx) - projection(left, -dy, dx)
+        return across.sign()
+
+    return tuple(sorted(points, key=cmp_to_key(compare)))
+
+
+def face_contour(
+    start: tuple[int, int], end: tuple[int, int], nodes: tuple[Point, ...]
+) -> tuple[Point, ...]:
+    """Контур грани: опорное ребро, затем его узлы в порядке монотонности."""
+
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    return (
+        (SqrtSumV1.rational(start[0]), SqrtSumV1.rational(start[1])),
+        (SqrtSumV1.rational(end[0]), SqrtSumV1.rational(end[1])),
+    ) + order_along_edge(nodes, dx, dy)
 
 
 def doubled_shoelace(
@@ -214,39 +287,52 @@ def build_faces(polygon: PolygonV1, skeleton: SkeletonV1) -> FacePartitionV1:
                 empty.polygon_doubled_area,
                 f"ребро {start} -> {end} без узлов",
             )
-        dx, dy = end[0] - start[0], end[1] - start[1]
-
-        def compare(left: SkeletonNodeV1, right: SkeletonNodeV1) -> int:
-            """По убыванию проекции на ребро; при равенстве — на нормаль.
-
-            Второй ключ не украшение: два узла грани могут лежать на одном
-            перпендикуляре к ребру, и без него порядок зависел бы от того, в
-            каком порядке события легли в список.
-            """
-
-            along = _projection(right.point, dx, dy) - _projection(
-                left.point, dx, dy
-            )
-            sign = along.sign()
-            if sign:
-                return sign
-            across = _projection(right.point, -dy, dx) - _projection(
-                left.point, -dy, dx
-            )
-            return across.sign()
-
-        ordered = sorted(candidates, key=cmp_to_key(compare))
-        points = (
-            (SqrtSumV1.rational(start[0]), SqrtSumV1.rational(start[1])),
-            (SqrtSumV1.rational(end[0]), SqrtSumV1.rational(end[1])),
-        ) + tuple((node.point.x, node.point.y) for node in ordered)
+        points = face_contour(
+            start, end, tuple((n.point.x, n.point.y) for n in candidates)
+        )
         doubled = doubled_shoelace(points)
         faces.append(FaceV1(key, start, end, points, doubled))
         total = total + doubled
 
-    return FacePartitionV1(
+    assembled = FacePartitionV1(
         FaceOutcome.EXACT,
         tuple(faces),
         total,
         empty.polygon_doubled_area,
     )
+
+    # Обе объявленные границы проверяются ЗДЕСЬ, до возврата `EXACT`, а не
+    # только тестом. Причина измерена, а не гигиеническая: на кресте сборка
+    # теряла клин площади, отдавала `EXACT`, и потеря протекала до самого
+    # ответа — граница 2 при этом ДЕРЖАЛАСЬ (все грани положительны), а
+    # `coverage_at.does_not_exceed_the_polygon` проходила, потому что потеря
+    # делает покрытие МЕНЬШЕ, а не больше. Все прочие защиты односторонние,
+    # ловит только двусторонняя проверка на равенство, и она стоит ниже.
+    #
+    # Порядок проверок не произволен: неположительная грань — дефект ОДНОЙ
+    # грани, и он же поднимает (или гасит) сумму, поэтому он называется первым.
+    # Иначе корень был бы спрятан за его следствием.
+    #
+    # Проверки точные и бесплатные: обе величины уже посчитаны, сравнение с
+    # нулём — `is_zero` разности и `sign()`, ни одного порога.
+    if not assembled.every_face_is_positive:
+        guilty = [
+            face for face in faces if face.doubled_area.sign() <= 0
+        ]
+        areas = ", ".join(as_number(face.doubled_area) for face in guilty[:3])
+        return FacePartitionV1(
+            FaceOutcome.FACE_IS_NOT_POSITIVE,
+            assembled.faces,
+            total,
+            empty.polygon_doubled_area,
+            f"{len(guilty)} из {len(faces)}, удвоенные площади: {areas}",
+        )
+    if not assembled.area_reproduces_polygon:
+        return FacePartitionV1(
+            FaceOutcome.FACE_AREA_DOES_NOT_REPRODUCE_POLYGON,
+            assembled.faces,
+            total,
+            empty.polygon_doubled_area,
+            as_number(assembled.area_defect),
+        )
+    return assembled

@@ -28,6 +28,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from fractions import Fraction
 
 import pytest
@@ -563,18 +564,20 @@ def test_the_cross_breaks_the_face_assembler_and_the_standard_is_what_showed_it(
     | крест        | что делает очередь | число |
     |--------------|--------------------|-------|
     | `4 x 4` блок | `WAVEFRONT_LEFT_UNRESOLVED` | граней нет |
-    | `5 x 4` блок | `FaceOutcome.EXACT`, но граница 1 НАРУШЕНА | удвоенный дефект −1 |
-    | `6 x 4` блок | `FaceOutcome.EXACT`, но граница 1 НАРУШЕНА | удвоенный дефект −4 |
+    | `5 x 4` блок | `FACE_AREA_DOES_NOT_REPRODUCE_POLYGON` | удвоенный дефект −1 |
+    | `6 x 4` блок | `FACE_AREA_DOES_NOT_REPRODUCE_POLYGON` | удвоенный дефект −4 |
 
-    Второй случай — тихий: исход говорит `EXACT`, а сумма площадей граней меньше
-    площади фигуры на 1/2 либо 2. Ровно поэтому покрытие расходится с эталоном:
-    при alpha = 3 крест `5 x 4` даёт 303/2 вместо 152, крест `6 x 4` — 166 вместо
-    168, и разность в точности равна дефекту разбиения, а не профилю вогнутого
-    угла. Оба поиска split-кандидатов дают один и тот же скелет из 18 узлов,
-    значит дело в СБОРЩИКЕ, а не в очереди событий.
+    Второй случай БЫЛ тихим: исход говорил `EXACT`, а сумма площадей граней
+    меньше площади фигуры на 1/2 либо 2. Ровно поэтому покрытие расходилось с
+    эталоном: при alpha = 3 крест `5 x 4` давал 303/2 вместо 152, крест `6 x 4` —
+    166 вместо 168, и разность в точности равна дефекту разбиения, а не профилю
+    вогнутого угла. Оба поиска split-кандидатов дают один и тот же скелет из 18
+    узлов, значит дело в СБОРЩИКЕ, а не в очереди событий.
 
-    Починка — не этот срез. Тест существует затем, чтобы находка была записана
-    числом и чтобы её исчезновение заметили.
+    Теперь тихого нет: `build_faces` зовёт собственную границу 1 и отказывает
+    названным исходом с числом потери в `detail`. Утёкшие числа тест всё равно
+    предъявляет — на партиции, которой ВРУЧНУЮ возвращён ярлык `EXACT`. Это не
+    обход защиты, а её свидетельство: видно ровно то, что защита остановила.
     """
 
     square_block = cross(wide=4, tall=4)
@@ -594,13 +597,25 @@ def test_the_cross_breaks_the_face_assembler_and_the_standard_is_what_showed_it(
     ):
         figure = cross(wide=wide, tall=4)
         partition = build_faces(figure, build_skeleton(figure))
-        assert partition.outcome is FaceOutcome.EXACT
+        assert partition.outcome is (
+            FaceOutcome.FACE_AREA_DOES_NOT_REPRODUCE_POLYGON
+        )
         assert not partition.area_reproduces_polygon
         assert partition.area_defect.as_rational() == defect
+        # Причина отказа — число, а не слово: иначе −1 и −4 не различить.
+        assert partition.detail == str(defect)
         standard = _standard(figure, Fraction(3))
         assert standard.mitered_covered == covered
+        # Ярлык возвращается вручную ровно затем, чтобы предъявить утечку,
+        # которую защита теперь останавливает. Через `build_faces` она наружу
+        # больше не выходит — это проверяет следующий assert.
+        relabelled = replace(partition, outcome=FaceOutcome.EXACT)
         assert (
-            coverage_at(partition, Fraction(3)).doubled_area.as_rational() / 2
+            coverage_at(relabelled, Fraction(3)).doubled_area.as_rational() / 2
         ) == queue
+        # А по-настоящему покрытие отказывает и ничего не считает.
+        refused = coverage_at(partition, Fraction(3))
+        assert refused.outcome is CoverageOutcome.PARTITION_IS_NOT_EXACT
+        assert refused.doubled_area.is_zero
         # Расхождение покрытия — это ровно дефект разбиения, ничего сверх него.
         assert covered - queue == -defect / 2
