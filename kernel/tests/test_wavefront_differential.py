@@ -55,7 +55,11 @@ from cftuv_envelope.wavefront.bridge import (
 from cftuv_envelope.wavefront.coverage import coverage_at
 from cftuv_envelope.wavefront.digest import semantic_digest
 from cftuv_envelope.wavefront.events import EventKind
-from cftuv_envelope.wavefront.faces import FaceOutcome, build_faces
+from cftuv_envelope.wavefront.faces import (
+    FaceOutcome,
+    build_faces,
+    contour_crossings,
+)
 from cftuv_envelope.wavefront.polygon import (
     PolygonV1,
     unit_speed_squared,
@@ -742,11 +746,19 @@ def test_the_field_patch_skeleton_is_exact_and_both_search_paths_agree():
     Совпадение ЧИСЛА узлов этого не доказало бы — совпадение суммы не
     доказывает совпадения множества, и здесь сверяется именно множество.
 
-    Грани при этом ОТКАЗЫВАЮТ `FACE_AREA_DOES_NOT_REPRODUCE_POLYGON`, и это
-    записано как есть: у `bf6` девять стен из двенадцати, то есть он попадает
-    в уже открытый счёт причин этого исхода. Единственное новое — ЗНАК:
-    сумма граней ПРЕВОСХОДИТ площадь полигона, а в корпусе частичного
-    источника все четыре случая этого исхода были недостатком.
+    Грани при этом ОТКАЗЫВАЮТ, и с появлением третьей объявленной границы
+    отказ называет не следствие, а корень: `FACE_CONTOUR_IS_NOT_SIMPLE`, три
+    трансверсальных самопересечения на одной грани из трёх, пары сегментов
+    `(5, 9)`, `(6, 9)`, `(7, 9)`. Сегмент 9 — замыкающий, от последнего узла
+    обратно к `source_start`, то есть не туда поставлен ХВОСТ цепочки.
+
+    Прежнее наблюдение не отменяется, а становится следствием и проверяется
+    здесь же: сумма граней по-прежнему ПРЕВОСХОДИТ площадь полигона
+    (112 055 108 527 против 108 901 947 644, избыток +2.90%), а в корпусе
+    частичного источника все четыре случая `FACE_AREA_DOES_NOT_REPRODUCE_POLYGON`
+    были НЕДОСТАТКОМ. Знак разошёлся именно потому, что причина другая:
+    недостаток — это незаметённый кусок фигуры, избыток — перекрут контура, на
+    котором формула трапеций считает кусок дважды.
     """
 
     loops, laws, frame = _field_bridge_input()
@@ -768,16 +780,28 @@ def test_the_field_patch_skeleton_is_exact_and_both_search_paths_agree():
     assert kinds == Counter({EventKind.EDGE: 6, EventKind.SPLIT: 4})
 
     partition = build_faces(polygon, by_trace)
-    assert partition.outcome is (
-        FaceOutcome.FACE_AREA_DOES_NOT_REPRODUCE_POLYGON
-    )
+    assert partition.outcome is FaceOutcome.FACE_CONTOUR_IS_NOT_SIMPLE
     assert len(partition.faces) == 3
+    # Перекручена РОВНО ОДНА грань из трёх, и это та, у которой восемь узлов;
+    # две другие по два узла и просты. Пары сегментов проверяются буквально:
+    # без них «контур не простой» не показывает, какой кусок цепочки не там.
+    twisted = [
+        face for face in partition.faces if contour_crossings(face.points)
+    ]
+    assert len(twisted) == 1
+    assert twisted[0].node_count == 8
+    assert contour_crossings(twisted[0].points) == ((5, 9), (6, 9), (7, 9))
+    assert sorted(face.node_count for face in partition.faces) == [2, 2, 8]
+    # Граница 2 при этом ДЕРЖИТСЯ: все три грани положительны. Именно поэтому
+    # перекрут и проходил молча, пока границ было две.
+    assert partition.every_face_is_positive
     # Знак расхождения — ИЗБЫТОК. Проверяется точным предикатом на сумме
     # корней, а не разностью чисел с плавающей точкой.
     deficit = partition.doubled_area - SqrtSumV1.rational(
         partition.polygon_doubled_area
     )
     assert deficit.sign() > 0
+    assert partition.polygon_doubled_area == 108901947644
 
 
 def test_the_field_patch_needs_the_weights_and_not_only_the_lattice():
