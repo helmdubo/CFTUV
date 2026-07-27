@@ -20,6 +20,30 @@ from .planar_types import ExactScalar
 from .provenance import make_reference_provenance, merge_provenance
 
 
+def strip_envelope_instance_id(
+    spec: StripEnvelopeSpec, effective_alpha: sp.Expr
+) -> str:
+    """Имя экземпляра юбки: спека и ЭФФЕКТИВНАЯ alpha, а не запрошенная.
+
+    Вынесено в отдельную функцию потому, что имя понадобилось второму пути —
+    входу очереди (`wavefront/conveyor.py`), который саму юбку не строит вовсе.
+    Повторить эту строку у себя он не вправе: тогда два пути называли бы один
+    экземпляр по-разному при первом же изменении рецепта, и расхождение было бы
+    тихим. Одна функция на оба пути делает расхождение невозможным.
+
+    Alpha входит в имя, и это не украшение: `evaluate_strip_envelope` строит
+    ГЕОМЕТРИЮ юбки на эффективной alpha, поэтому при разных alpha это разные
+    экземпляры. Отсюда же следует, что имя экземпляра от alpha ЗАВИСИТ, и
+    alpha-независимой ступени конвейера оно не принадлежит.
+    """
+
+    return stable_id(
+        "envelope-instance",
+        spec.envelope_spec_id,
+        ExactScalar.from_value(effective_alpha).expression,
+    )
+
+
 def evaluate_strip_envelope(
     context: GeometryContext,
     spec: StripEnvelopeSpec,
@@ -32,11 +56,7 @@ def evaluate_strip_envelope(
         if getattr(item, "seed_id", None) == spec.source_seed_id
     )
     chain_use_id: ChainUseId = front_seed.chain_use_id
-    instance_id = stable_id(
-        "envelope-instance",
-        spec.envelope_spec_id,
-        ExactScalar.from_value(effective_alpha).expression,
-    )
+    instance_id = strip_envelope_instance_id(spec, effective_alpha)
     cap_by_role = {
         item.endpoint_role.value: item
         for item in context.compilation.envelope_specs

@@ -38,6 +38,18 @@
 """
 
 from .cell_grid import CellGridRejected, CellGridV1, CellIndexV1
+from .conveyor import (
+    ConveyorCoverageV1,
+    ConveyorFaceCoverageV1,
+    ConveyorOutcome,
+    ConveyorPreparationV1,
+    ConveyorRegionCoverageV1,
+    PreparedRegionV1,
+    chart_lattice_for_frame,
+    conveyor_coverage,
+    evaluate_conveyor_coverage,
+    prepare_conveyor,
+)
 from .event_time import (
     ZERO_TIME,
     EventPointV1,
@@ -83,6 +95,11 @@ __all__ = [
     "CellGridRejected",
     "CellGridV1",
     "CellIndexV1",
+    "ConveyorCoverageV1",
+    "ConveyorFaceCoverageV1",
+    "ConveyorOutcome",
+    "ConveyorPreparationV1",
+    "ConveyorRegionCoverageV1",
     "CrashKind",
     "EventKind",
     "EventPointV1",
@@ -95,6 +112,7 @@ __all__ = [
     "PolygonOutcome",
     "PolygonRejected",
     "PolygonV1",
+    "PreparedRegionV1",
     "SkeletonNodeV1",
     "SkeletonOutcome",
     "SkeletonV1",
@@ -108,12 +126,16 @@ __all__ = [
     "ZERO_TIME",
     "build_motorcycle_graph",
     "build_skeleton",
+    "chart_lattice_for_frame",
     "cluster_by_point",
     "compare_times",
     "concurrency_time",
+    "conveyor_coverage",
+    "evaluate_conveyor_coverage",
     "event_point",
     "level_budget",
     "march_budget",
+    "prepare_conveyor",
     "times_are_equal",
     "walls_of",
 ]
