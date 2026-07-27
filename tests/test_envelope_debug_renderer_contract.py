@@ -41,9 +41,17 @@ REQUIRED_LAYERS = {
     "ENV_LABELS",
 }
 
+# Слои движка QUEUE. Отдельным множеством, а не влитые в предыдущее: на
+# движке LEGACY они в GP-объекте НЕ создаются вовсе, и разделение здесь —
+# то же утверждение, только исполняемое.
+QUEUE_LAYERS = {
+    "ENV_90_QUEUE_SKELETON",
+    "ENV_91_QUEUE_WALLS",
+} | {f"ENV_92_QUEUE_OWNER_{slot:02d}" for slot in range(8)}
+
 
 def test_v0b_layer_contract_is_complete_and_named():
-    assert set(ENVELOPE_DEBUG_LAYER_STYLES) == REQUIRED_LAYERS
+    assert set(ENVELOPE_DEBUG_LAYER_STYLES) == REQUIRED_LAYERS | QUEUE_LAYERS
     assert ENVELOPE_DEBUG_LABEL_LAYER == "ENV_LABELS"
     assert envelope_debug_object_name("Cube") == "CFTUV_DEBUG_Envelope_Cube"
     assert (

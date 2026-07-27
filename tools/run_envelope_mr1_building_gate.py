@@ -114,9 +114,90 @@ def _runtime_payload(
     }, raw
 
 
-def _run_scope(bundle, name: str, edge_ids: tuple[int, ...]) -> dict:
-    profile = EnvelopeDebugProfileBuilderV1("building.002", "M_R1_FIELD")
+def _queue_payload(patch_id: int, domain_id: str, snapshot, request) -> dict:
+    """Стадия QUEUE рядом с RAW: подготовка, покрытие, их цена и исход.
+
+    Столбцы RAW не трогаются: очередь считается ДОПОЛНИТЕЛЬНО, на тех же
+    снапшоте и запросе, и её числа лежат отдельным разделом. Иначе сравнивать
+    было бы нечего — осталась бы одна колонка, и та новая.
+    """
+
+    from cftuv.envelope_queue_export import run_queue_domain
+
+    alpha_text = str(request.requested_alpha.value)
+    prepared, domain = run_queue_domain(
+        patch_id,
+        domain_id,
+        snapshot,
+        request,
+        alpha_text,
+    )
+    if domain.preparation_outcome != "EXACT":
+        stage = "QUEUE_PREPARE_REJECTED"
+    elif domain.coverage_outcome != "EXACT":
+        stage = "QUEUE_COVERAGE_REJECTED"
+    else:
+        stage = "QUEUE_RESOLVED"
+    return {
+        "stage": stage,
+        "alpha": alpha_text,
+        "preparation_outcome": domain.preparation_outcome,
+        "coverage_outcome": domain.coverage_outcome,
+        "detail": domain.detail,
+        "prepare_seconds": domain.prepare_seconds,
+        "coverage_seconds": domain.coverage_seconds,
+        "contour_seconds": domain.contour_seconds,
+        "faces": len(domain.faces),
+        "wall_edges": sum(item.wall_edge_count for item in domain.regions),
+        "owners": sorted({face.envelope_spec_id for face in domain.faces}),
+        "lattice_scale": domain.lattice_scale,
+        "region_outcomes": [
+            {
+                "region_id": item.region_id,
+                "bridge": item.bridge_outcome,
+                "skeleton": item.skeleton_outcome,
+                "faces": item.face_outcome,
+                "coverage": item.coverage_outcome,
+                "findings": list(item.findings),
+            }
+            for item in domain.regions
+        ],
+        "preparation": prepared,
+    }
+
+
+def _queue_alpha_change(entries, alpha_text: str) -> dict:
+    """Цена смены alpha на ТЁПЛЫХ подготовках, по всем доменам сразу.
+
+    Это и есть число приёмки: подготовка alpha-независима, поэтому ползунок
+    обязан платить только за покрытие. Меряется здесь, а не в Blender, потому
+    что фоновый прогон воспроизводим.
+    """
+
+    from cftuv.envelope_queue_export import recompute_queue_coverage
+
+    if not entries:
+        return {"domains": 0, "elapsed_seconds": 0.0, "outcomes": []}
     started = time.perf_counter()
+    scene = recompute_queue_coverage(entries, alpha_text)
+    elapsed = time.perf_counter() - started
+    return {
+        "domains": len(scene.domains),
+        "alpha": alpha_text,
+        "elapsed_seconds": elapsed,
+        "faces": sum(len(item.faces) for item in scene.domains),
+        "owner_palette_slots": [
+            {"envelope_spec_id": spec_id, "palette_slot": slot}
+            for spec_id, slot in scene.palette
+        ],
+        "palette_wrapped": scene.palette_wrapped,
+        "outcomes": [item.coverage_outcome for item in scene.domains],
+    }
+
+
+def _scope_inputs(bundle, edge_ids: tuple[int, ...], profile):
+    """Топология и адресация доменов одного scope. Вынесено из `_run_scope`."""
+
     topology = build_envelope_topology_debug_scene(
         bundle,
         frozenset(edge_ids),
@@ -155,8 +236,21 @@ def _run_scope(bundle, name: str, edge_ids: tuple[int, ...]) -> dict:
             )
         ),
     )
+    return revision, patch_ids, selected_edges_by_domain, request_id
+
+
+def _run_scope(bundle, name: str, edge_ids: tuple[int, ...]) -> dict:
+    profile = EnvelopeDebugProfileBuilderV1("building.002", "M_R1_FIELD")
+    started = time.perf_counter()
+    (
+        revision,
+        patch_ids,
+        selected_edges_by_domain,
+        request_id,
+    ) = _scope_inputs(bundle, edge_ids, profile)
     elapsed = time.perf_counter() - started
     domains = []
+    queue_entries = []
     for patch_id in patch_ids:
         domain_id = _typed_value("patch-domain", revision, patch_id)
         try:
@@ -191,9 +285,15 @@ def _run_scope(bundle, name: str, edge_ids: tuple[int, ...]) -> dict:
                     "message": str(exc),
                     "raw_semantic_digest": None,
                     "runtime": None,
+                    "queue": None,
                 }
             )
             continue
+        with profile.measure("QUEUE_PREPARE", domain_id):
+            queue = _queue_payload(patch_id, domain_id, snapshot, request)
+        preparation = queue.pop("preparation")
+        if queue["stage"] == "QUEUE_RESOLVED":
+            queue_entries.append((patch_id, domain_id, preparation))
         with profile.measure("COMPILE", domain_id):
             compiled = kernel.compile_reference_envelopes(snapshot, request)
         if compiled.compilation is None:
@@ -208,6 +308,7 @@ def _run_scope(bundle, name: str, edge_ids: tuple[int, ...]) -> dict:
                     ),
                     "raw_semantic_digest": None,
                     "runtime": None,
+                    "queue": queue,
                 }
             )
             continue
@@ -242,6 +343,7 @@ def _run_scope(bundle, name: str, edge_ids: tuple[int, ...]) -> dict:
                     else None
                 ),
                 "runtime": runtime_payload,
+                "queue": queue,
             }
         )
     return {
@@ -250,6 +352,9 @@ def _run_scope(bundle, name: str, edge_ids: tuple[int, ...]) -> dict:
         "topology_elapsed_seconds": elapsed,
         "profile": profile.snapshot().to_payload(),
         "domains": domains,
+        # Смена alpha на тёплых подготовках: ровно то число, которым срез
+        # принимается. Вторая alpha намеренно отличается от alpha запроса.
+        "queue_alpha_change": _queue_alpha_change(queue_entries, "0.5"),
     }
 
 

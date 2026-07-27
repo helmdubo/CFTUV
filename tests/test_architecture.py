@@ -272,8 +272,20 @@ MODULE_LINE_ALLOWANCE = {
     # решётки хост обязан называть сам — ядро её за него не выбирает, ровно как
     # с планарностью, — и одна строка это ровно тот минимум, которым это
     # называется.
-    "cftuv/envelope_request_export.py": 3115,
-    "cftuv/operators.py": 2913,
+    # 3115 -> 3098. −17: пролог постадийного прогона (сцена топологии, перечень
+    # доменов, их выделенные рёбра и `DecalRequestId`) вынесен в
+    # `envelope_topology_export.stage_domain_inputs`. Второй движок (QUEUE)
+    # обязан адресовать домены ТЕМИ ЖЕ номерами, иначе его колонка несравнима
+    # с эталонной; копия пролога сделала бы сравнимость свойством копии.
+    # Блокер HOST_REQUEST_EXPORT_COMPLEXITY остаётся открытым — файл стал
+    # меньше, но не перестал быть слишком большим.
+    "cftuv/envelope_request_export.py": 3098,
+    # 2913 -> 3055. +142 за движок QUEUE в панели: EnumProperty движка,
+    # строка тайминга, чекбокс слоёв очереди, update-callback ползунка alpha
+    # (лёгкий путь без единой компиляции) и запоминание тёплой сессии. Панель
+    # Envelope Debug при этом вынесена из `draw` отдельной функцией, и предел
+    # самой длинной функции файла упал с 228 до 208 строк.
+    "cftuv/operators.py": 3055,
     "cftuv/decals.py": 2823,
     "cftuv/decal_rails.py": 2486,
 }
@@ -313,14 +325,20 @@ FUNCTION_LINE_ALLOWANCE = {
     "cftuv/solve_transfer.py": 317,
     "cftuv/solve_reporting.py": 293,
     "cftuv/solve_report_anomalies.py": 250,
-    "cftuv/operators.py": 228,
+    # 228 -> 208: панель Envelope Debug вынесена из `draw` в
+    # `_draw_envelope_debug_box`, поэтому самой длинной стала `execute`.
+    "cftuv/operators.py": 208,
     "cftuv/structural_tokens.py": 201,
     "cftuv/frontier_eval.py": 201,
     "cftuv/solve_frontier.py": 197,
     "kernel/src/cftuv_envelope/reference/boundary.py": 193,
     "kernel/src/cftuv_envelope/planar_metric.py": 190,
     # +1: печать диагностик ядра, а не только отказов.
-    "cftuv/envelope_debug_renderer.py": 180,
+    # 180 -> 174: сборка sidecar и запись свойств GP-объекта вынесены из
+    # `render_staged_envelope_debug` отдельными функциями, и свойства объекта
+    # теперь берутся из того же payload, что и sidecar, а не из второго
+    # источника тех же полей.
+    "cftuv/envelope_debug_renderer.py": 174,
     "cftuv/decal_chart_admission.py": 170,
     "kernel/src/cftuv_envelope/interactions/validation.py": 167,
     "cftuv/analysis_boundary_loops.py": 163,
@@ -331,7 +349,10 @@ FUNCTION_LINE_ALLOWANCE = {
     "cftuv/analysis_surface.py": 146,
     "kernel/src/cftuv_envelope/reference/angular.py": 145,
     "cftuv/frontier_finalize.py": 142,
-    "tools/run_envelope_mr1_building_gate.py": 136,
+    # 136 -> 116: пролог scope (топология и адресация доменов) вынесен в
+    # `_scope_inputs`, чтобы стадия QUEUE встала рядом с RAW, а не вместо
+    # чьей-нибудь строки.
+    "tools/run_envelope_mr1_building_gate.py": 116,
     "cftuv/debug.py": 135,
     "kernel/src/cftuv_envelope/reference/strip.py": 134,
     "cftuv/solve_report_metrics.py": 133,

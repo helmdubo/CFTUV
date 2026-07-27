@@ -18,6 +18,12 @@ class EnvelopeDomainStage(str, Enum):
     RAW_REJECTED = "RAW_REJECTED"
     INTERACTION_REJECTED = "INTERACTION_REJECTED"
     RESOLVED = "RESOLVED"
+    # Стадии движка QUEUE. Названы отдельно от RAW/INTERACTION намеренно:
+    # очередь не проходит ни союз, ни попарный крой, и «RAW_REJECTED» на её
+    # отказе означал бы ступень, которой в этом пути нет вовсе.
+    QUEUE_PREPARE_REJECTED = "QUEUE_PREPARE_REJECTED"
+    QUEUE_COVERAGE_REJECTED = "QUEUE_COVERAGE_REJECTED"
+    QUEUE_RESOLVED = "QUEUE_RESOLVED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,16 +84,25 @@ class EnvelopeDebugProfileV1:
             }
             for receipt in self.receipts
         )
+        # QUEUE_RESOLVED засчитывается в те же два столбца, что и RESOLVED:
+        # столбцы называют «домен дошёл до покрытия», а не «каким движком».
+        # Новых ключей не заводится — сводка читается одинаково обоими путями.
         raw = sum(
             receipt.stage
             in {
                 EnvelopeDomainStage.INTERACTION_REJECTED,
                 EnvelopeDomainStage.RESOLVED,
+                EnvelopeDomainStage.QUEUE_COVERAGE_REJECTED,
+                EnvelopeDomainStage.QUEUE_RESOLVED,
             }
             for receipt in self.receipts
         )
         resolved = sum(
-            receipt.stage is EnvelopeDomainStage.RESOLVED
+            receipt.stage
+            in {
+                EnvelopeDomainStage.RESOLVED,
+                EnvelopeDomainStage.QUEUE_RESOLVED,
+            }
             for receipt in self.receipts
         )
         return {
@@ -141,6 +156,8 @@ LIVE_TRACED_STAGES = frozenset({
     "RAW_UNION",
     "INTERACTION",
     "GP_RENDER",
+    "QUEUE_PREPARE",
+    "QUEUE_COVERAGE",
 })
 
 

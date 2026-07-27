@@ -68,6 +68,24 @@ class CompiledEnvelopeCacheKeyV1:
 
 
 @dataclass(frozen=True, slots=True)
+class QueueSessionStateV1:
+    """Последний прогон движка QUEUE: чем перерисовать при смене alpha.
+
+    Хранится сессией, а не панелью: подготовка — самая дорогая часть, и
+    ползунок обязан находить её там же, где её оставила кнопка. Сцены
+    неизменяемы, поэтому лёгкий путь переиспользует их как есть.
+    """
+
+    source_object_name: str
+    topology_scene: object
+    exact_scenes: tuple
+    #: `(patch_id, patch_domain_id, ConveyorPreparationV1)` по каждому домену,
+    #: дошедшему до подготовки. Домены, отказавшие раньше, сюда не попадают.
+    entries: tuple
+    receipts: tuple
+
+
+@dataclass(frozen=True, slots=True)
 class _CachedMetricFailure:
     outcome: object
     message: str
@@ -104,12 +122,20 @@ class EnvelopeDebugSessionController:
         self._compiled_envelope_cache: dict[
             CompiledEnvelopeCacheKeyV1, object
         ] = {}
+        # Подготовка очереди alpha-НЕЗАВИСИМА (ядро доказало это побитовым
+        # совпадением скелета при alpha 0.25 и 0.5), поэтому ключ её и не
+        # содержит: только ревизия источника, домен и выделенные рёбра домена.
+        self._conveyor_preparation_cache: dict[
+            tuple[str, str, frozenset[int]], object
+        ] = {}
+        self._queue_session: QueueSessionStateV1 | None = None
         self._build_counts: dict[str, int] = {
             "ANALYSIS_BUNDLE": 0,
             "TOPOLOGY_EXPORT": 0,
             "PATCH_METRIC": 0,
             "DOMAIN_GEOMETRY": 0,
             "COMPILED_ENVELOPE": 0,
+            "CONVEYOR_PREPARATION": 0,
         }
         self._cache_build_counts: dict[tuple[str, object], int] = {}
         self._invalidation_count = 0
@@ -122,6 +148,10 @@ class EnvelopeDebugSessionController:
     def invalidation_count(self) -> int:
         return self._invalidation_count
 
+    @property
+    def queue_session(self) -> QueueSessionStateV1 | None:
+        return self._queue_session
+
     def clear(self) -> None:
         self._source_state_by_object.clear()
         self._analysis_bundle_cache.clear()
@@ -129,6 +159,8 @@ class EnvelopeDebugSessionController:
         self._patch_metric_cache.clear()
         self._domain_geometry_cache.clear()
         self._compiled_envelope_cache.clear()
+        self._conveyor_preparation_cache.clear()
+        self._queue_session = None
         self._invalidation_count += 1
 
     def _prepare_source(
@@ -395,6 +427,55 @@ class EnvelopeDebugSessionController:
         )
         return geometry
 
+    def get_conveyor_preparation(
+        self,
+        source_revision_value: str,
+        patch_domain_id: str,
+        selected_edge_ids: frozenset[int],
+        build,
+        *,
+        profile: EnvelopeDebugProfileBuilderV1 | None = None,
+    ):
+        """Подготовка очереди из кэша либо построенная и запомненная.
+
+        Ключ не содержит alpha намеренно: alpha-независимость подготовки
+        доказана ядром побитово, и включение alpha в ключ обнуляло бы кэш на
+        каждом движении ползунка — то есть отменяло бы весь смысл разреза.
+        """
+
+        key = (
+            str(source_revision_value),
+            str(patch_domain_id),
+            frozenset(int(item) for item in selected_edge_ids),
+        )
+        cached = self._conveyor_preparation_cache.get(key)
+        if cached is not None:
+            self._record_cache(
+                profile,
+                "CONVEYOR_PREPARATION",
+                True,
+                patch_domain_id=patch_domain_id,
+                cache_key=key,
+            )
+            return cached
+        prepared = build()
+        self._conveyor_preparation_cache[key] = prepared
+        self._build_counts["CONVEYOR_PREPARATION"] += 1
+        self._cache_build_counts[("CONVEYOR_PREPARATION", key)] = (
+            self._cache_build_counts.get(("CONVEYOR_PREPARATION", key), 0) + 1
+        )
+        self._record_cache(
+            profile,
+            "CONVEYOR_PREPARATION",
+            False,
+            patch_domain_id=patch_domain_id,
+            cache_key=key,
+        )
+        return prepared
+
+    def remember_queue_session(self, state: QueueSessionStateV1) -> None:
+        self._queue_session = state
+
     def evaluate_staged(
         self,
         analysis_bundle: AnalysisBundle,
@@ -404,7 +485,12 @@ class EnvelopeDebugSessionController:
         source_object_key: Hashable,
         source_data_key: Hashable,
         profile: EnvelopeDebugProfileBuilderV1 | None = None,
+        engine: str = "LEGACY",
     ):
+        from .envelope_queue_export import (
+            ENVELOPE_DEBUG_ENGINE_QUEUE,
+            evaluate_envelope_queue_staged,
+        )
         from .envelope_request_export import (
             evaluate_envelope_debug_staged as _evaluate,
         )
@@ -440,13 +526,43 @@ class EnvelopeDebugSessionController:
                 profile=profile,
             ).snapshot
 
-        return _evaluate(
+        if str(engine) != ENVELOPE_DEBUG_ENGINE_QUEUE:
+            return _evaluate(
+                analysis_bundle,
+                selected_physical_edge_ids,
+                alpha,
+                profile=profile,
+                topology_export=topology_export,
+                domain_snapshot_provider=snapshot_provider,
+            )
+
+        revision = topology_export.source_revision_value
+
+        def preparation_provider(
+            _patch_id,
+            domain_id,
+            selected_edges,
+            snapshot,
+            request,
+        ):
+            from cftuv_envelope.wavefront import prepare_conveyor
+
+            return self.get_conveyor_preparation(
+                revision,
+                domain_id,
+                selected_edges,
+                lambda: prepare_conveyor(snapshot, request),
+                profile=profile,
+            )
+
+        return evaluate_envelope_queue_staged(
             analysis_bundle,
             selected_physical_edge_ids,
             alpha,
             profile=profile,
             topology_export=topology_export,
             domain_snapshot_provider=snapshot_provider,
+            preparation_provider=preparation_provider,
         )
 
 
@@ -459,10 +575,15 @@ def evaluate_envelope_debug_staged(
     controller: EnvelopeDebugSessionController | None = None,
     source_object_key: Hashable | None = None,
     source_data_key: Hashable | None = None,
+    engine: str = "LEGACY",
 ):
     """Compatibility entry point with optional persistent session reuse."""
 
     if controller is None:
+        from .envelope_queue_export import (
+            ENVELOPE_DEBUG_ENGINE_QUEUE,
+            evaluate_envelope_queue_staged,
+        )
         from .envelope_request_export import (
             evaluate_envelope_debug_staged as _evaluate,
         )
@@ -471,7 +592,12 @@ def evaluate_envelope_debug_staged(
             analysis_bundle,
             profile=profile,
         )
-        return _evaluate(
+        run = (
+            evaluate_envelope_queue_staged
+            if str(engine) == ENVELOPE_DEBUG_ENGINE_QUEUE
+            else _evaluate
+        )
+        return run(
             analysis_bundle,
             selected_physical_edge_ids,
             alpha,
@@ -489,6 +615,7 @@ def evaluate_envelope_debug_staged(
         source_object_key=source_object_key,
         source_data_key=source_data_key,
         profile=profile,
+        engine=engine,
     )
 
 
@@ -565,6 +692,7 @@ __all__ = (
     "COMPILE_CONTRACT_ALPHA_INDEPENDENT",
     "CompiledEnvelopeCacheKeyV1",
     "EnvelopeDebugSessionController",
+    "QueueSessionStateV1",
     "WINDOW_MANAGER_SESSION_ATTRIBUTE",
     "evaluate_envelope_debug_staged",
     "register_window_manager_session_attribute",
