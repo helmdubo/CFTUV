@@ -54,7 +54,7 @@ from cftuv_envelope.wavefront import (
 )
 from cftuv_envelope.wavefront.bridge import BridgeOutcome
 from cftuv_envelope.wavefront.coverage import CoverageOutcome
-from cftuv_envelope.wavefront.conveyor import exact_rational
+from cftuv_envelope.wavefront.conveyor import _arrival_laws, exact_rational
 from cftuv_envelope.wavefront.digest import semantic_digest
 from cftuv_envelope.wavefront.faces import FaceOutcome
 from cftuv_envelope.wavefront.skeleton import SkeletonOutcome
@@ -308,9 +308,8 @@ def test_the_arrival_laws_are_the_same_set_as_the_clipped_path_produces():
         compilation.analysis_snapshot, compilation.plan_key.patch_domain_id
     )
     context = GeometryContext.build(compilation, frame)
-    # Вход очереди строит законы этой же функцией — она одна на оба пути.
-    from cftuv_envelope.wavefront.conveyor import _arrival_laws
-
+    # Законы очереди берутся у самой очереди, а не пересобираются здесь:
+    # пересборка проверяла бы формулу теста, а не формулу входа.
     laws, issue = _arrival_laws(context)
     assert issue is None
     queue_laws = {

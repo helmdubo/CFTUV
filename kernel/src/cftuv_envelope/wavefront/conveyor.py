@@ -604,7 +604,13 @@ def prepare_conveyor(
         )
 
     started = time.perf_counter()
-    laws, law_issue = _arrival_laws(context)
+    try:
+        laws, law_issue = _arrival_laws(context)
+    except ReferenceGeometryError as exc:
+        clock.add("ARRIVAL_LAWS", started)
+        return _refused(
+            ConveyorOutcome.DOMAIN_GEOMETRY_REFUSED, exc.outcome.value, clock
+        )
     clock.add("ARRIVAL_LAWS", started)
     if law_issue is not None:
         return _refused(
@@ -658,10 +664,11 @@ def _instance_ids_by_spec(
 ) -> tuple[dict[str, str] | None, str]:
     """Имя экземпляра юбки на ЭТОЙ alpha, по одному на Strip-спеку.
 
-    Alpha сюда входит дважды и обе раза по существу: резолвер границы может
+    Alpha сюда входит дважды и оба раза по существу: резолвер границы может
     УКОРОТИТЬ её до эффективной, а имя экземпляра стоит именно на эффективной.
-    Вывести имя из запрошенной было бы дешевле на 6.6 мс и неверно ровно там,
-    где резолвер сработал, — то есть молча.
+    Вывести имя из запрошенной было бы дешевле на 5.3 мс (медиана пяти
+    прогонов на фикстуре) и неверно ровно там, где резолвер сработал, — то
+    есть молча.
     """
 
     resolutions, _ = resolve_component_alphas(
