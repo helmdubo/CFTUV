@@ -125,6 +125,9 @@ class EnvelopeDebugDomainEvaluationV1:
     debug_scene: envelope_kernel.EnvelopeDebugSceneV1 | None
     receipt: EnvelopeDomainStageReceiptV1
     diagnostics: tuple[EnvelopeDebugHostDiagnosticV1, ...]
+    # Результат движка QUEUE. `None` на движке LEGACY — и это не «нет данных»,
+    # а «этот путь очередь не проходил».
+    queue: object | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +138,12 @@ class EnvelopeDebugStagedEvaluationV1:
     @property
     def receipts(self) -> tuple[EnvelopeDomainStageReceiptV1, ...]:
         return tuple(item.receipt for item in self.domains)
+
+    @property
+    def queue_domains(self) -> tuple:
+        return tuple(
+            item.queue for item in self.domains if item.queue is not None
+        )
 
     @property
     def exact_debug_scenes(
@@ -2751,51 +2760,25 @@ def evaluate_envelope_debug_staged(
 ) -> EnvelopeDebugStagedEvaluationV1:
     """Evaluate exact reference coverage per domain after host topology."""
 
+    from .envelope_topology_export import stage_domain_inputs
+
     if profile is None:
         profile = EnvelopeDebugProfileBuilderV1(
             analysis_bundle.source_revision.source_name,
             "EXACT_REFERENCE",
         )
-    topology_scene = build_envelope_topology_debug_scene(
+    (
+        topology_scene,
+        revision,
+        patch_ids,
+        global_request_id,
+        selected_edges_by_domain,
+    ) = stage_domain_inputs(
         analysis_bundle,
         selected_physical_edge_ids,
         profile=profile,
         topology_export=topology_export,
     )
-    revision = _revision_value(analysis_bundle.source_revision)
-    patch_ids = tuple(
-        sorted(
-            int(patch_id)
-            for patch_id in analysis_bundle.patch_graph.nodes
-            if _typed_value("patch-domain", revision, int(patch_id))
-            in topology_scene.patch_domain_ids
-        )
-    )
-    global_request_id = _typed_value(
-        "decal-request",
-        revision,
-        tuple(
-            sorted(
-                path.physical_chain_id
-                for path in topology_scene.paths
-                if path.kind is EnvelopeTopologyPathKind.SELECTED_SOURCE
-                and path.physical_chain_id is not None
-            )
-        ),
-    )
-    selected_edges_by_domain: dict[str, set[int]] = {
-        domain_id: set()
-        for domain_id in topology_scene.patch_domain_ids
-    }
-    for path in topology_scene.paths:
-        if (
-            path.kind is EnvelopeTopologyPathKind.DIRECTED_CHAIN_USE
-            and path.selected
-            and path.patch_domain_id is not None
-        ):
-            selected_edges_by_domain[path.patch_domain_id].update(
-                path.host_edge_ids
-            )
     domain_evaluations = []
 
     try:

@@ -1264,6 +1264,9 @@ def test_session_reuses_analysis_topology_metric_and_domain_for_alpha_changes():
         "PATCH_METRIC": 1,
         "DOMAIN_GEOMETRY": 1,
         "COMPILED_ENVELOPE": 0,
+        # Движок LEGACY подготовку очереди не строит ни разу — и ноль здесь
+        # утверждение, а не умолчание.
+        "CONVEYOR_PREPARATION": 0,
     }
     assert [
         str(item.domains[0].request.requested_alpha.value)

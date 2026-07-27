@@ -14,6 +14,15 @@ from .debug import (
     GreasePencilDebugWriter,
 )
 from .envelope_debug_profile import EnvelopeDomainStage
+from .envelope_queue_export import (
+    QUEUE_LAYER_STYLES,
+    QUEUE_OWNER_LAYERS,
+    QUEUE_OWNER_PALETTE_WRAPPED,
+    QUEUE_SKELETON_LAYER,
+    QUEUE_VISIBILITY_PROPERTY,
+    QUEUE_WALL_LAYER,
+    queue_scene_payload,
+)
 
 
 ENVELOPE_DEBUG_TEXT_PREFIX = "CFTUV_EnvelopeDebug_"
@@ -45,7 +54,14 @@ ENVELOPE_DEBUG_LAYER_STYLES = {
     "ENV_70_EVENT_ANCHORS": ((1.00, 1.00, 0.10, 1.0), 9),
     "ENV_80_DIAGNOSTICS": ((1.00, 0.05, 0.05, 1.0), 11),
     ENVELOPE_DEBUG_LABEL_LAYER: ((1.00, 1.00, 1.00, 1.0), 4),
+    # Слои движка QUEUE дописаны В КОНЕЦ намеренно: порядковый номер слоя
+    # задаёт высоту подъёма над поверхностью, и вставка в середину сдвинула бы
+    # подъём всех последующих слоёв эталонного пути. На движке LEGACY эти слои
+    # не создаются вовсе (см. `_active_layer_styles`).
+    **QUEUE_LAYER_STYLES,
 }
+
+QUEUE_LAYER_NAMES = frozenset(QUEUE_LAYER_STYLES)
 
 _VISIBILITY_GROUPS = {
     "envelope_debug_show_domains": (
@@ -86,7 +102,29 @@ _VISIBILITY_GROUPS = {
     ),
     "envelope_debug_show_diagnostics": ("ENV_80_DIAGNOSTICS",),
     "envelope_debug_show_labels": (ENVELOPE_DEBUG_LABEL_LAYER,),
+    QUEUE_VISIBILITY_PROPERTY: (
+        QUEUE_SKELETON_LAYER,
+        QUEUE_WALL_LAYER,
+        *QUEUE_OWNER_LAYERS,
+    ),
 }
+
+
+def _active_layer_styles(queue_scene):
+    """Слои этого прогона. Слои очереди создаются только при её результате.
+
+    Иначе движок LEGACY получал бы в GP-объекте десять пустых слоёв очереди, и
+    «ничего не изменилось» пришлось бы доказывать чтением, а не сравнением
+    набора слоёв.
+    """
+
+    if queue_scene is not None and queue_scene.domains:
+        return ENVELOPE_DEBUG_LAYER_STYLES
+    return {
+        name: style
+        for name, style in ENVELOPE_DEBUG_LAYER_STYLES.items()
+        if name not in QUEUE_LAYER_NAMES
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,15 +217,24 @@ def _kind_value(record) -> str:
     return _identity_value(record.kind)
 
 
-def _lift_point(point, frame, layer_ordinal, sympy) -> Vector:
-    x = float(sympy.sympify(point.x_expression))
-    y = float(sympy.sympify(point.y_expression))
+def _lift_plane_point(x: float, y: float, frame, layer_ordinal) -> Vector:
+    """Точка карты патча в 3D хоста. Один кадр на все слои одного домена."""
+
     origin = _vector3(frame.origin)
     axis_u = _vector3(frame.axis_u)
     axis_v = _vector3(frame.axis_v)
     normal = _vector3(frame.normal)
     lift = 0.002 + 0.00035 * float(layer_ordinal)
     return origin + axis_u * x + axis_v * y + normal * lift
+
+
+def _lift_point(point, frame, layer_ordinal, sympy) -> Vector:
+    return _lift_plane_point(
+        float(sympy.sympify(point.x_expression)),
+        float(sympy.sympify(point.y_expression)),
+        frame,
+        layer_ordinal,
+    )
 
 
 def _marker_segments(anchor, frame, layer_ordinal, sympy):
@@ -534,6 +581,106 @@ def _render_exact_scene(
     return diagnostics, stage_counts, point_count
 
 
+def queue_frames_by_domain(exact_scenes) -> dict:
+    """Кадр патча по строковому идентификатору домена, для слоёв очереди."""
+
+    return {
+        _identity_value(frame.patch_domain_id): frame
+        for scene in exact_scenes
+        for frame in scene.patch_frames
+    }
+
+
+def _queue_stroke_mapping(domain, layer_name, stroke_index, kind, payload):
+    return {
+        "layer": layer_name,
+        "stroke_index": stroke_index,
+        "stage": "QUEUE",
+        "kind": kind,
+        "patch_domain_id": domain.patch_domain_id,
+        **payload,
+    }
+
+
+def render_queue_scene(
+    queue_scene,
+    frame_by_domain,
+    writer,
+    layer_ordinals,
+    stroke_map,
+) -> int:
+    """Слои очереди: скелет, стены и грани покрытия по цвету владельца.
+
+    Домен без кадра патча пропускается НЕ молча: он остаётся в sidecar своим
+    исходом, а здесь для него просто нет системы координат, в которой его
+    можно было бы поднять в 3D.
+    """
+
+    point_count = 0
+    for domain in queue_scene.domains:
+        frame = frame_by_domain.get(domain.patch_domain_id)
+        if frame is None:
+            continue
+        for segment in domain.segments:
+            ordinal = layer_ordinals[segment.layer]
+            points = [
+                _lift_plane_point(x, y, frame, ordinal)
+                for x, y in segment.points
+            ]
+            stroke_index = writer.add_path(
+                segment.layer,
+                points,
+                line_width=ENVELOPE_DEBUG_LAYER_STYLES[segment.layer][1],
+            )
+            point_count += len(points)
+            if stroke_index is not None:
+                stroke_map.append(
+                    _queue_stroke_mapping(
+                        domain,
+                        segment.layer,
+                        stroke_index,
+                        segment.label,
+                        {"region_id": segment.region_id},
+                    )
+                )
+        for face in domain.faces:
+            layer_name = queue_scene.layer_of(face.envelope_spec_id)
+            ordinal = layer_ordinals[layer_name]
+            points = [
+                _lift_plane_point(x, y, frame, ordinal)
+                for x, y in face.points
+            ]
+            stroke_index = writer.add_path(
+                layer_name,
+                points,
+                line_width=ENVELOPE_DEBUG_LAYER_STYLES[layer_name][1],
+                cyclic=True,
+            )
+            point_count += len(points)
+            if stroke_index is not None:
+                stroke_map.append(
+                    _queue_stroke_mapping(
+                        domain,
+                        layer_name,
+                        stroke_index,
+                        "QUEUE_COVERAGE_FACE",
+                        {
+                            "region_id": face.region_id,
+                            "owner": list(face.owner),
+                            "envelope_spec_id": face.envelope_spec_id,
+                            "envelope_instance_id": (
+                                face.envelope_instance_id
+                            ),
+                            "palette_slot": queue_scene.slot_of(
+                                face.envelope_spec_id
+                            ),
+                            "doubled_area": face.doubled_area_text,
+                        },
+                    )
+                )
+    return point_count
+
+
 # Столбцы масштабирования: по ним видно, какая величина растёт нелинейно у
 # большого патча против мелкого. Порядок — как в конвейере: сколько сегментов
 # домена, сколько принесли огибающие до и после клипа, сколько пар отсеял
@@ -698,6 +845,77 @@ def _diagnostic_severity(item) -> str:
     return str(getattr(severity, "value", severity) or "")
 
 
+def _write_gp_properties(gp_obj, sidecar) -> None:
+    """Свойства GP-объекта — из того же payload, что и sidecar.
+
+    Второй источник тех же полей рано или поздно разошёлся бы с первым, и
+    расхождение читалось бы как расхождение движка с самим собой.
+    """
+
+    gp_obj["kernel_version"] = sidecar["kernel_version"]
+    gp_obj["source_revision"] = sidecar["source_revision"]
+    gp_obj["requested_alpha"] = sidecar["requested_alpha"]
+    for key in (
+        "decal_request_ids",
+        "patch_domain_ids",
+        "raw_coverage_digests",
+        "resolved_coverage_digests",
+        "stage_outcomes",
+        "stage_receipts",
+    ):
+        gp_obj[key] = json.dumps(sidecar[key], sort_keys=True)
+
+
+def _staged_sidecar(
+    object_name,
+    kernel_version,
+    source_revision,
+    identities,
+    stage_counts,
+    receipt_payload,
+    pair_payloads,
+    topology_scene,
+    stroke_map,
+    diagnostics,
+    queue_scene,
+) -> dict:
+    """Sidecar постадийного прогона. Раздел очереди появляется вместе с ней."""
+
+    request_ids, domain_ids, raw_digests, resolved_digests, alpha = identities
+    payload = {
+        "schema": "cftuv.envelope.staged_debug_runtime_sidecar.v1",
+        "object_name": object_name,
+        "kernel_version": kernel_version,
+        "source_revision": source_revision,
+        "decal_request_ids": request_ids,
+        "patch_domain_ids": domain_ids,
+        "requested_alpha": alpha,
+        "raw_coverage_digests": raw_digests,
+        "resolved_coverage_digests": resolved_digests,
+        "stage_outcomes": stage_counts,
+        "stage_receipts": receipt_payload,
+        "topology_pairs": pair_payloads,
+        "topology_selection_diagnostics": (
+            [
+                {
+                    "code": item.code,
+                    "message": item.message,
+                    "patch_domain_id": item.patch_domain_id,
+                    "physical_chain_id": item.physical_chain_id,
+                }
+                for item in topology_scene.selection_diagnostics
+            ]
+            if topology_scene is not None
+            else []
+        ),
+        "strokes": stroke_map,
+        "diagnostics": diagnostics,
+    }
+    if queue_scene is not None and queue_scene.domains:
+        payload["queue"] = queue_scene_payload(queue_scene)
+    return payload
+
+
 def render_staged_envelope_debug(
     topology_scene,
     exact_scenes,
@@ -705,6 +923,7 @@ def render_staged_envelope_debug(
     *,
     visibility_by_layer=None,
     profile=None,
+    queue_scene=None,
 ) -> EnvelopeDebugRenderSummaryV1:
     """Render topology plus any admitted exact-domain scenes atomically."""
 
@@ -723,11 +942,10 @@ def render_staged_envelope_debug(
     text_name = envelope_debug_text_name(source_obj)
     clear_envelope_debug(source_obj)
     writer = GreasePencilDebugWriter(source_obj, object_name)
-    visibility = {
-        name: True for name in ENVELOPE_DEBUG_LAYER_STYLES
-    }
+    active_styles = _active_layer_styles(queue_scene)
+    visibility = {name: True for name in active_styles}
     visibility.update(visibility_by_layer or {})
-    for layer_name, (color, _line_width) in ENVELOPE_DEBUG_LAYER_STYLES.items():
+    for layer_name, (color, _line_width) in active_styles.items():
         writer.ensure_layer(
             layer_name,
             color,
@@ -790,6 +1008,17 @@ def render_staged_envelope_debug(
         source_revision = _identity_value(scene.source_revision)
     if topology_scene is not None:
         stage_counts["TOPOLOGY"] = len(topology_scene.paths)
+    if queue_scene is not None and queue_scene.domains:
+        point_count += render_queue_scene(
+            queue_scene,
+            queue_frames_by_domain(exact_scenes),
+            writer,
+            layer_ordinals,
+            stroke_map,
+        )
+        stage_counts["QUEUE"] = sum(
+            len(item.faces) for item in queue_scene.domains
+        )
 
     request_ids = sorted(set(request_ids))
     domain_ids = sorted(set(domain_ids))
@@ -807,19 +1036,26 @@ def render_staged_envelope_debug(
         else []
     )
 
-    gp_obj = writer.object
-    gp_obj["kernel_version"] = kernel_version
-    gp_obj["source_revision"] = source_revision
-    gp_obj["decal_request_ids"] = json.dumps(request_ids)
-    gp_obj["patch_domain_ids"] = json.dumps(domain_ids)
-    gp_obj["requested_alpha"] = requested_alpha
-    gp_obj["raw_coverage_digests"] = json.dumps(raw_digests)
-    gp_obj["resolved_coverage_digests"] = json.dumps(resolved_digests)
-    gp_obj["stage_outcomes"] = json.dumps(stage_counts, sort_keys=True)
-    gp_obj["stage_receipts"] = json.dumps(
+    sidecar = _staged_sidecar(
+        object_name,
+        kernel_version,
+        source_revision,
+        (
+            request_ids,
+            domain_ids,
+            raw_digests,
+            resolved_digests,
+            requested_alpha,
+        ),
+        stage_counts,
         receipt_payload,
-        sort_keys=True,
+        pair_payloads,
+        topology_scene,
+        stroke_map,
+        diagnostics,
+        queue_scene,
     )
+    _write_gp_properties(writer.object, sidecar)
 
     if profile is not None:
         profile.add_timing(
@@ -828,36 +1064,12 @@ def render_staged_envelope_debug(
         )
         profile.set_counter("GP_STROKES", writer.stroke_count())
         profile.set_counter("GP_POINTS", point_count)
+        if queue_scene is not None:
+            profile.set_counter(
+                QUEUE_OWNER_PALETTE_WRAPPED,
+                queue_scene.palette_wrapped,
+            )
 
-    sidecar = {
-        "schema": "cftuv.envelope.staged_debug_runtime_sidecar.v1",
-        "object_name": object_name,
-        "kernel_version": kernel_version,
-        "source_revision": source_revision,
-        "decal_request_ids": request_ids,
-        "patch_domain_ids": domain_ids,
-        "requested_alpha": requested_alpha,
-        "raw_coverage_digests": raw_digests,
-        "resolved_coverage_digests": resolved_digests,
-        "stage_outcomes": stage_counts,
-        "stage_receipts": receipt_payload,
-        "topology_pairs": pair_payloads,
-        "topology_selection_diagnostics": (
-            [
-                {
-                    "code": item.code,
-                    "message": item.message,
-                    "patch_domain_id": item.patch_domain_id,
-                    "physical_chain_id": item.physical_chain_id,
-                }
-                for item in topology_scene.selection_diagnostics
-            ]
-            if topology_scene is not None
-            else []
-        ),
-        "strokes": stroke_map,
-        "diagnostics": diagnostics,
-    }
     sidecar_started = time.perf_counter()
     _write_sidecar(text_name, sidecar)
     if profile is not None:
@@ -875,10 +1087,143 @@ def render_staged_envelope_debug(
     return EnvelopeDebugRenderSummaryV1(
         object_name,
         text_name,
-        len(ENVELOPE_DEBUG_LAYER_STYLES),
+        len(active_styles),
         writer.stroke_count(),
         point_count,
     )
+
+
+def redraw_envelope_queue_layers(
+    source_obj_or_name,
+    exact_scenes,
+    queue_scene,
+    *,
+    visibility_by_layer=None,
+    profile=None,
+) -> EnvelopeDebugRenderSummaryV1 | None:
+    """Лёгкая перерисовка ТОЛЬКО слоёв очереди на готовом GP-объекте.
+
+    Полный проход удаляет объект и строит его заново; при перетаскивании
+    ползунка alpha это и лишняя работа, и удаление объекта прямо внутри
+    update-callback свойства. Здесь объект тот же, а переписываются ровно
+    десять слоёв очереди.
+
+    `None` — GP-объекта нет (кнопку ещё не нажимали либо результат очищен).
+    Это ответ вызывающему, а не тихое бездействие.
+    """
+
+    render_started = time.perf_counter()
+    object_name = envelope_debug_object_name(source_obj_or_name)
+    writer = GreasePencilDebugWriter.attach(object_name)
+    if writer is None:
+        return None
+    visibility = {name: True for name in QUEUE_LAYER_NAMES}
+    visibility.update(
+        {
+            name: value
+            for name, value in (visibility_by_layer or {}).items()
+            if name in QUEUE_LAYER_NAMES
+        }
+    )
+    for layer_name in QUEUE_LAYER_STYLES:
+        writer.ensure_layer(
+            layer_name,
+            QUEUE_LAYER_STYLES[layer_name][0],
+            visible=visibility.get(layer_name, True),
+        )
+    layer_ordinals = {
+        name: ordinal
+        for ordinal, name in enumerate(ENVELOPE_DEBUG_LAYER_STYLES)
+    }
+    stroke_map: list[dict] = []
+    point_count = render_queue_scene(
+        queue_scene,
+        queue_frames_by_domain(tuple(exact_scenes)),
+        writer,
+        layer_ordinals,
+        stroke_map,
+    )
+    text_name = envelope_debug_text_name(source_obj_or_name)
+    text = bpy.data.texts.get(text_name)
+    if text is not None:
+        payload = json.loads(text.as_string())
+        payload["strokes"] = [
+            item
+            for item in payload.get("strokes", ())
+            if item.get("stage") != "QUEUE"
+        ] + stroke_map
+        payload["queue"] = queue_scene_payload(queue_scene)
+        _write_sidecar(text_name, payload)
+    writer.object["requested_alpha"] = (
+        queue_scene.domains[0].alpha if queue_scene.domains else ""
+    )
+    if profile is not None:
+        profile.add_timing(
+            "QUEUE_REDRAW",
+            time.perf_counter() - render_started,
+        )
+        profile.set_counter(
+            QUEUE_OWNER_PALETTE_WRAPPED,
+            queue_scene.palette_wrapped,
+        )
+    return EnvelopeDebugRenderSummaryV1(
+        object_name,
+        text_name,
+        len(QUEUE_LAYER_STYLES),
+        writer.stroke_count(),
+        point_count,
+    )
+
+
+def update_queue_alpha(
+    controller,
+    source_name,
+    alpha,
+    *,
+    settings=None,
+    profile=None,
+) -> str | None:
+    """Пересчёт покрытия очереди на ТЁПЛОЙ подготовке плюс перерисовка слоёв.
+
+    `None` — тёплого кэша нет (кнопку ещё не нажимали, движок другой либо
+    источник сменился). Тогда ползунок не считает ВООБЩЕ: подготовка стоит
+    десятки миллисекунд на домен, и запускать её на каждое движение мыши
+    значило бы подвесить интерфейс.
+    """
+
+    from .envelope_queue_export import (
+        queue_timing_text,
+        recompute_queue_coverage,
+    )
+
+    session = getattr(controller, "queue_session", None)
+    if (
+        session is None
+        or str(session.source_object_name) != str(source_name)
+        or not session.entries
+    ):
+        return None
+    started = time.perf_counter()
+    scene = recompute_queue_coverage(
+        session.entries,
+        str(float(alpha)),
+        profile=profile,
+    )
+    summary = redraw_envelope_queue_layers(
+        source_name,
+        session.exact_scenes,
+        scene,
+        visibility_by_layer=(
+            visibility_from_settings(settings)
+            if settings is not None
+            else None
+        ),
+        profile=profile,
+    )
+    if summary is None:
+        return None
+    elapsed = (time.perf_counter() - started) * 1000.0
+    return f"{queue_timing_text(scene)} | alpha redraw {elapsed:.0f} ms"
 
 
 def render_envelope_topology_debug_scene(
@@ -916,14 +1261,19 @@ def render_envelope_debug_scene(
 __all__ = (
     "ENVELOPE_DEBUG_LABEL_LAYER",
     "ENVELOPE_DEBUG_LAYER_STYLES",
+    "QUEUE_LAYER_NAMES",
     "EnvelopeDebugRenderSummaryV1",
     "apply_envelope_debug_visibility",
     "clear_envelope_debug",
     "envelope_debug_object_name",
     "envelope_debug_profile_text_name",
     "envelope_debug_text_name",
+    "queue_frames_by_domain",
+    "redraw_envelope_queue_layers",
     "render_envelope_debug_scene",
     "render_envelope_topology_debug_scene",
+    "render_queue_scene",
     "render_staged_envelope_debug",
+    "update_queue_alpha",
     "visibility_from_settings",
 )

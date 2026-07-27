@@ -235,10 +235,85 @@ def build_envelope_topology_debug_scene(
     )
 
 
+def stage_domain_inputs(
+    analysis_bundle: AnalysisBundle,
+    selected_physical_edge_ids: frozenset[int],
+    *,
+    profile: EnvelopeDebugProfileBuilderV1 | None = None,
+    topology_export: EnvelopeTopologyExportV1 | None = None,
+):
+    """Сцена топологии плюс адресация доменов одного постадийного прогона.
+
+    Возвращает `(topology_scene, revision, patch_ids, decal_request_id,
+    selected_edges_by_domain)`.
+
+    Общая точка ОБОИХ движков (LEGACY и QUEUE) намеренно: одинаковая нумерация
+    доменов и один `DecalRequestId` — это и есть то, чем их результаты
+    сравнимы. Две разошедшиеся копии этого пролога сделали бы сравнение
+    свойством копии, а не свойством движков.
+    """
+
+    from .envelope_request_export import (
+        _revision_value,
+        _typed_value,
+        build_envelope_topology_debug_scene as _build_scene,
+    )
+    from .envelope_topology_debug import EnvelopeTopologyPathKind
+
+    topology_scene = _build_scene(
+        analysis_bundle,
+        selected_physical_edge_ids,
+        profile=profile,
+        topology_export=topology_export,
+    )
+    revision = _revision_value(analysis_bundle.source_revision)
+    patch_ids = tuple(
+        sorted(
+            int(patch_id)
+            for patch_id in analysis_bundle.patch_graph.nodes
+            if _typed_value("patch-domain", revision, int(patch_id))
+            in topology_scene.patch_domain_ids
+        )
+    )
+    decal_request_id = _typed_value(
+        "decal-request",
+        revision,
+        tuple(
+            sorted(
+                path.physical_chain_id
+                for path in topology_scene.paths
+                if path.kind is EnvelopeTopologyPathKind.SELECTED_SOURCE
+                and path.physical_chain_id is not None
+            )
+        ),
+    )
+    selected_edges_by_domain: dict[str, set[int]] = {
+        domain_id: set()
+        for domain_id in topology_scene.patch_domain_ids
+    }
+    for path in topology_scene.paths:
+        if (
+            path.kind is EnvelopeTopologyPathKind.DIRECTED_CHAIN_USE
+            and path.selected
+            and path.patch_domain_id is not None
+        ):
+            selected_edges_by_domain[path.patch_domain_id].update(
+                path.host_edge_ids
+            )
+    return (
+        topology_scene,
+        revision,
+        patch_ids,
+        decal_request_id,
+        selected_edges_by_domain,
+    )
+
+
 __all__ = (
     "AnalysisBundleIdView",
     "EnvelopeTopologyExportV1",
     "build_analysis_bundle_id_view",
     "build_envelope_topology_debug_scene",
     "build_envelope_topology_export",
+    "stage_domain_inputs",
 )
