@@ -112,11 +112,17 @@ def _components_of_selected_edges(mesh):
                     stack.append(following)
         ends = [v for v in members if len(neighbours[v]) == 1]
         forks = [v for v in members if len(neighbours[v]) >= 3]
+        # Рёбра нужны для проверки Эйлера: у замкнутой сети швов на замкнутой
+        # поверхности число доменов равно `2 - V + E`, и это единственный способ
+        # узнать ЧИСЛО доменов, не строя их. Без него зонд говорит про размер
+        # сети, но молчит про то, на сколько кусков она эту поверхность делит.
+        edge_count = sum(len(neighbours[v]) for v in members) // 2
         components.append(
             {
                 "members": members,
                 "ends": len(ends),
                 "forks": len(forks),
+                "edges": edge_count,
                 "neighbours": neighbours,
             }
         )
@@ -163,8 +169,8 @@ def main() -> None:
 
     print()
     print(f"Меш: {obj.name}")
-    print(f"{'кусок':>6} {'вершин':>7} {'развилок':>9} {'концов':>7} "
-          f"{'вогнутых':>9} {'замкнут':>8} {'оценка очереди':>16}")
+    print(f"{'кусок':>6} {'вершин':>7} {'рёбер':>6} {'развилок':>9} "
+          f"{'концов':>7} {'вогнутых':>9} {'замкнут':>8} {'оценка очереди':>16}")
     worst = 0
     for number, component in enumerate(components):
         size = len(component["members"])
@@ -187,12 +193,22 @@ def main() -> None:
         # Печатается ВИЛКА, а не одно число: форму по счёту вершин не угадать.
         low = 2.1e-3 * size
         high = 1.63e-1 * size * (size / 129.0)
-        print(f"{number:>6} {size:>7} {component['forks']:>9} "
-              f"{component['ends']:>7} {reflex_text:>9} {closed_text:>8} "
+        print(f"{number:>6} {size:>7} {component['edges']:>6} "
+              f"{component['forks']:>9} {component['ends']:>7} "
+              f"{reflex_text:>9} {closed_text:>8} "
               f"{low:>7.2f}-{high:<8.2f} с")
+        if component["ends"] == 0 and component["forks"]:
+            # Замкнутая сеть швов делит поверхность на грани, и это ДОМЕНЫ.
+            # Формула Эйлера для сферы: V - E + F = 2. На поверхности другого
+            # рода число выйдет меньше — расхождение с числом доменов полевого
+            # прогона тогда и есть измерение рода, а не ошибка.
+            faces = 2 - size + component["edges"]
+            print(f"       замкнутая сеть: доменов по Эйлеру (сфера) = "
+                  f"2 - {size} + {component['edges']} = {faces}, "
+                  f"в среднем {2 * component['edges'] / faces:.1f} шва на домен")
 
     print()
-    print(f"Максимум вершин на цепочку: {worst}")
+    print(f"Максимум вершин на кусок сети: {worst}")
     if worst <= 30:
         print("  -> очереди хватает с запасом при ЛЮБОЙ форме контура.")
     elif worst <= 100:
