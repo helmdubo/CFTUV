@@ -49,6 +49,7 @@ from cftuv_envelope.wavefront.skeleton import SkeletonOutcome, SplitSearch
 from cftuv_envelope.wavefront.sqrt_sum import SqrtSumV1
 
 import wavefront_cases
+from adjacency_chain import chained_contours
 from wavefront_cases import named_corpus
 
 
@@ -726,3 +727,124 @@ def test_the_repair_is_not_tuned_to_one_arm_thickness(arm: int):
         4: (79, 9, 2),
         6: (81, 17, 0),
     }[arm]
+
+
+# --------------------------------------------------------------------------
+# Кандидат на замену порядка сборки: правило СМЕЖНОСТИ. Измерен целиком и НЕ
+# поставлен, и оба факта проверяются здесь, а не пересказываются.
+# --------------------------------------------------------------------------
+
+
+def _chain_agreement(polygon):
+    """Совпало / разошлось / не сложилось — по граням одной фигуры.
+
+    Сравнение ПОТОЧЕЧНОЕ и точное: `is_zero` разности координат, не «похоже».
+    """
+
+    skeleton = build_skeleton(polygon)
+    if skeleton.outcome is not SkeletonOutcome.EXACT:
+        return None
+    contours, why = chained_contours(polygon, skeleton)
+    if why:
+        return 0, 0, 1
+    partition = build_faces(polygon, skeleton)
+    same = differ = 0
+    for face in partition.faces:
+        chained = contours[face.owner]
+        if len(chained) == len(face.points) and all(
+            (a[0] - b[0]).is_zero and (a[1] - b[1]).is_zero
+            for a, b in zip(chained, face.points)
+        ):
+            same += 1
+        else:
+            differ += 1
+    return same, differ, 0
+
+
+def test_the_adjacency_rule_reproduces_the_shipped_order_where_it_is_right():
+    """Правило смежности — ОБОБЩЕНИЕ поставленного, а не второе мнение.
+
+    Это первая половина измерения кандидата, и без неё вторая ничего не стоила
+    бы: «новое правило чинит сломанное» без «новое правило не трогает верное»
+    есть просто другое правило.
+
+    Числа заморожены как ратчет:
+
+    | корпус | граней | совпало | разошлось |
+    |---|---:|---:|---:|
+    | `named_corpus()` + `cross_4x4` | 185 | 185 | 0 |
+    | сетка крестов 3..11 x толщины 2, 4, 6 | 2916 | 2884 | 32 |
+
+    Разошедшиеся 32 — ровно те строки сетки, где поставленное правило отвечает
+    `FACE_CONTOUR_IS_NOT_SIMPLE`, и это проверяется здесь же, а не сверяется
+    глазами по двум таблицам.
+    """
+
+    same = differ = broken = 0
+    for _, polygon in named_corpus() + (
+        ("cross_4x4", wavefront_cases.cross(wide=4, tall=4)),
+    ):
+        agreement = _chain_agreement(polygon)
+        assert agreement is not None
+        same += agreement[0]
+        differ += agreement[1]
+        broken += agreement[2]
+    assert (same, differ, broken) == (185, 0, 0)
+
+    same = differ = broken = 0
+    twisted_rows = differing_rows = 0
+    for arm in (2, 4, 6):
+        for wide in range(3, 12):
+            for tall in range(3, 12):
+                figure = wavefront_cases.cross(wide=wide, tall=tall, arm=arm)
+                agreement = _chain_agreement(figure)
+                assert agreement is not None
+                same += agreement[0]
+                differ += agreement[1]
+                broken += agreement[2]
+                if agreement[1]:
+                    differing_rows += 1
+                partition = build_faces(figure, build_skeleton(figure))
+                if partition.outcome is (
+                    FaceOutcome.FACE_CONTOUR_IS_NOT_SIMPLE
+                ):
+                    twisted_rows += 1
+                    # Разошлись ровно там, где поставленное правило и врёт.
+                    assert agreement[1] == 1, (arm, wide, tall)
+                else:
+                    assert agreement[1] == 0, (arm, wide, tall)
+    assert (same, differ, broken) == (2884, 32, 0)
+    assert twisted_rows == differing_rows == 32
+
+
+def test_the_adjacency_rule_closes_the_cross_remainder_that_the_shipped_one_cannot():
+    """Кандидат чинит остаток креста ТОЧНО, и это его вторая половина.
+
+    На всех 32 строках, где поставленное правило перекручивает контур, правило
+    смежности даёт сумму площадей РОВНО в площадь фигуры и контуры без единого
+    трансверсального пересечения. То есть остаток креста — не отдельная
+    вырожденная конфигурация, а тот же дефект порядка, что и на `bf6`.
+    """
+
+    fixed = 0
+    for arm in (2, 4, 6):
+        for wide in range(3, 12):
+            for tall in range(3, 12):
+                figure = wavefront_cases.cross(wide=wide, tall=tall, arm=arm)
+                skeleton = build_skeleton(figure)
+                if build_faces(figure, skeleton).outcome is FaceOutcome.EXACT:
+                    continue
+                contours, why = chained_contours(figure, skeleton)
+                assert not why, (arm, wide, tall)
+                total = SqrtSumV1.zero()
+                for points in contours.values():
+                    assert contour_crossings(points) == (), (arm, wide, tall)
+                    total = total + doubled_shoelace(points)
+                expected = sum(
+                    signed_double_area(loop.points) for loop in figure.loops
+                )
+                assert (
+                    total - SqrtSumV1.rational(expected)
+                ).is_zero, (arm, wide, tall)
+                fixed += 1
+    assert fixed == 32
