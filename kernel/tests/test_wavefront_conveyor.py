@@ -19,6 +19,19 @@
 - `test_the_rational_translation_is_exact_where_nsimplify_silently_truncated`
   — перевод в дроби чинится не только по цене: прежний рецепт на
   иррациональном входе врал молча.
+
+Второй полевой домен (`building_002_weighted_normals_v1`) добавлен позже и
+отвечает на другой вопрос: что делать с законом, у которого нормаль
+ИРРАЦИОНАЛЬНА при единичной скорости. Ответ — переписать запись, а не задачу:
+
+- `test_the_weighted_normals_domain_needs_the_rescale_and_then_closes`
+  — домен доходит до `EXACT`, спасено масштабом 2 закона из 4;
+- `test_the_weighted_normals_coverage_matches_an_independent_closed_form`
+  — покрытие сверено с замкнутой формулой площади, а не с самим собой;
+- `test_the_rescale_changes_the_record_and_not_the_geometry`
+  — класс прямой и отношение `(s/|n|)^2` переживают смену записи точно;
+- `test_a_record_no_single_factor_can_rationalise_is_still_refused`
+  — прежний отказ достижим и после починки.
 """
 
 from __future__ import annotations
@@ -32,9 +45,14 @@ import pytest
 import sympy as sp
 
 import cftuv_envelope as kernel
+from cftuv_envelope.contracts.envelopes import StripEnvelopeSpec
 from cftuv_envelope.interactions import arrival as arrival_module
 from cftuv_envelope.interactions import policy_b as policy_b_module
-from cftuv_envelope.interactions.arrival import compile_arrival_models
+from cftuv_envelope.interactions.arrival import (
+    STRIP_FRONT_NORMAL_SPEED,
+    compile_arrival_models,
+    strip_front_support_line,
+)
 from cftuv_envelope.interactions.components import compile_interaction_components
 from cftuv_envelope.numeric import LocalLengthV1, MetricSpace
 from cftuv_envelope.reference import domain_oracle as domain_oracle_module
@@ -42,6 +60,7 @@ from cftuv_envelope.reference import raw_coverage as raw_coverage_module
 from cftuv_envelope.reference.arrangement import ExactSegmentArrangementBackend
 from cftuv_envelope.reference.boundary import build_domain_geometry
 from cftuv_envelope.reference.common import GeometryContext
+from cftuv_envelope.reference.planar_types import ExactScalar, exact_sign
 from cftuv_envelope.reference.validation import (
     validate_reference_geometry_payload,
 )
@@ -53,9 +72,14 @@ from cftuv_envelope.wavefront import (
     prepare_conveyor,
 )
 from cftuv_envelope.wavefront import conveyor as conveyor_module
-from cftuv_envelope.wavefront.bridge import BridgeOutcome
+from cftuv_envelope.wavefront.bridge import BridgeOutcome, line_class
 from cftuv_envelope.wavefront.coverage import CoverageOutcome
-from cftuv_envelope.wavefront.conveyor import _arrival_laws, exact_rational
+from cftuv_envelope.wavefront.conveyor import (
+    _arrival_laws,
+    _rational_after_scaling,
+    _read_arrival_law,
+    exact_rational,
+)
 from cftuv_envelope.wavefront.digest import semantic_digest
 from cftuv_envelope.wavefront.faces import FaceOutcome
 from cftuv_envelope.wavefront.skeleton import SkeletonOutcome
@@ -66,16 +90,27 @@ from wavefront_cases import FIELD_FIXTURE
 
 
 FIXTURE = FIELD_FIXTURE.parent
+# Второй полевой домен того же меша: у его опор нормаль ИРРАЦИОНАЛЬНА при
+# единичной скорости, и до пере-масштабирования записи вход на нём отказывал.
+WEIGHTED_FIXTURE = FIXTURE.parent / "building_002_weighted_normals_v1"
+
+
+def _load(root):
+    snapshot = kernel.AnalysisSnapshotCodecV1.loads(
+        (root / "analysis_snapshot.json").read_bytes()
+    )
+    request = kernel.DecalRequestCodecV1.loads(
+        (root / "decal_request.json").read_bytes()
+    )
+    return snapshot, request
 
 
 def _field_input():
-    snapshot = kernel.AnalysisSnapshotCodecV1.loads(
-        (FIXTURE / "analysis_snapshot.json").read_bytes()
-    )
-    request = kernel.DecalRequestCodecV1.loads(
-        (FIXTURE / "decal_request.json").read_bytes()
-    )
-    return snapshot, request
+    return _load(FIXTURE)
+
+
+def _weighted_input():
+    return _load(WEIGHTED_FIXTURE)
 
 
 def _union_singletons():
@@ -152,6 +187,14 @@ def field_preparation():
     return prepare_conveyor(snapshot, request)
 
 
+@pytest.fixture(scope="module")
+def weighted_preparation():
+    """Подготовка второго полевого домена — того, что требует масштаба записи."""
+
+    snapshot, request = _weighted_input()
+    return prepare_conveyor(snapshot, request)
+
+
 # --------------------------------------------------------------------------
 # 1. Полевые числа воспроизводятся, и союз при этом не считается
 # --------------------------------------------------------------------------
@@ -182,6 +225,11 @@ def test_the_public_entry_reproduces_the_field_numbers_without_the_union(
     assert dict(prepared.counters) == {
         "CONVEYOR_DOMAIN_REGIONS": 1,
         "CONVEYOR_ARRIVAL_LAWS": 3,
+        # Ни один закон этой фикстуры не пришлось переписывать: все три
+        # записи рациональны сами. Ноль здесь — половина утверждения о
+        # пере-масштабировании, вторая половина (двойка) на фикстуре
+        # `building_002_weighted_normals_v1`.
+        "CONVEYOR_RESCALED_ARRIVAL_LAWS": 0,
         "CONVEYOR_LATTICE_SCALE": 65536,
         "CONVEYOR_DOMAIN_EDGES": 12,
         "CONVEYOR_SOURCE_EDGES": 3,
@@ -311,8 +359,12 @@ def test_the_arrival_laws_are_the_same_set_as_the_clipped_path_produces():
     context = GeometryContext.build(compilation, frame)
     # Законы очереди берутся у самой очереди, а не пересобираются здесь:
     # пересборка проверяла бы формулу теста, а не формулу входа.
-    laws, issue = _arrival_laws(context)
-    assert issue is None
+    reading = _arrival_laws(context)
+    assert reading.detail is None
+    # Записи этой фикстуры рациональны сами, поэтому сравнивать есть что:
+    # пере-масштабирование сюда не вмешалось ни разу.
+    assert reading.rescaled_count == 0
+    laws = reading.laws
     queue_laws = {
         (law.normal_x, law.normal_y, law.constant, law.speed_squared)
         for law in laws
@@ -568,35 +620,49 @@ def test_every_domain_region_goes_through_the_queue_and_the_count_is_named(
 
 
 @pytest.mark.parametrize(
-    "name,face,expected",
+    "name,face,expected,rescaled",
     (
         (
             "triangle",
             ((0, 0), (12, 0), (0, 12)),
-            ConveyorOutcome.ARRIVAL_LAW_IS_NOT_RATIONAL,
+            ConveyorOutcome.CHART_LATTICE_IS_NOT_DECLARED,
+            1,
         ),
         (
             "square",
             ((0, 0), (8, 0), (8, 8), (0, 8)),
             ConveyorOutcome.CHART_LATTICE_IS_NOT_DECLARED,
+            0,
         ),
     ),
 )
 def test_a_step_that_cannot_proceed_answers_by_name_not_by_crash(
-    name, face, expected
+    name, face, expected, rescaled
 ):
     """Отказы достижимы на настоящем входе корпуса и приходят ИМЕНЕМ.
 
-    Оба случая найдены замером, а не придуманы:
+    Оба случая найдены замером, а не придуманы. Квадрат до появления этого
+    теста отвечал не отказом, а `AttributeError` — падением без имени.
 
-    | вход | исход | почему |
-    |---|---|---|
-    | треугольник `straight_snapshot` | `ARRIVAL_LAW_IS_NOT_RATIONAL` | нормаль гипотенузы иррациональна |
-    | квадрат `straight_snapshot` | `CHART_LATTICE_IS_NOT_DECLARED` | кадр `PlanarPatchFrameV1` без сертификата решётки |
+    ТРЕУГОЛЬНИК ПЕРЕЕХАЛ, и это измеренная находка, а не правка ожидания под
+    зелёный. Он отвечал `ARRIVAL_LAW_IS_NOT_RATIONAL`, потому что нормаль
+    гипотенузы иррациональна; пере-масштабирование записи чинит ровно это, и
+    один его закон теперь спасается (`CONVEYOR_RESCALED_ARRIVAL_LAWS = 1`), а
+    отказ сдвигается на СЛЕДУЮЩУЮ ступень — решётку карты. То есть починка,
+    снятая с полевого домена, оказалась не частным случаем этого домена.
 
-    Второй до этого теста был не отказом, а `AttributeError` — то есть падением
-    без имени. Это и есть та причина, по которой перечень исходов пишется от
-    прогона, а не от чтения.
+    | вход | исход | спасено масштабом |
+    |---|---|---:|
+    | треугольник | `CHART_LATTICE_IS_NOT_DECLARED` | 1 из 3 |
+    | квадрат | `CHART_LATTICE_IS_NOT_DECLARED` | 0 из 4 |
+
+    Счётчик на отказавшей подготовке виден потому, что `_refused` несёт то,
+    что успел узнать: иначе «законы были рациональны» и «законы спасены, а
+    споткнулись мы дальше» выглядели бы одинаково.
+
+    `ARRIVAL_LAW_IS_NOT_RATIONAL` от этого не осиротел — он остался
+    достижимым и проверяется прямо, на записи, которую не спасает никакой
+    множитель: `test_a_record_no_single_factor_can_rationalise_is_still_refused`.
     """
 
     routes = tuple(
@@ -615,6 +681,7 @@ def test_a_step_that_cannot_proceed_answers_by_name_not_by_crash(
     prepared = prepare_conveyor(snapshot, request)
     assert prepared.outcome is expected
     assert prepared.detail
+    assert prepared.counter("CONVEYOR_RESCALED_ARRIVAL_LAWS") == rescaled
     # Ступень покрытия не притворяется, что покрытие есть.
     covered = conveyor_coverage(prepared)
     assert covered.outcome is ConveyorOutcome.PREPARATION_IS_NOT_EXACT
@@ -745,6 +812,333 @@ def test_every_declared_alpha_type_gives_the_very_same_coverage(
     assert at_zero.outcome is ConveyorOutcome.EXACT
     assert at_zero.lattice_alpha == 0
     assert at_zero.doubled_area.is_zero
+
+
+# --------------------------------------------------------------------------
+# 6. Иррациональная единичная нормаль: та же прямая в рациональной записи
+# --------------------------------------------------------------------------
+
+
+def test_the_weighted_normals_domain_needs_the_rescale_and_then_closes(
+    weighted_preparation,
+):
+    """Полевой домен с иррациональной нормалью доходит до конца — через масштаб.
+
+    ЧТО БЫЛО. `prepare_conveyor` отвечал
+    `ARRIVAL_LAW_IS_NOT_RATIONAL` на `strip-spec:1e831f0c…`: полевой закон
+    приходит с единичной скоростью (`s = 1`), и нормаль при этом
+    `n = (-sqrt(426753013)/8192, 0)`, константа `c = -sqrt(426753013)/8192`.
+    Два домена из тринадцати в поле падали ровно здесь.
+
+    ЧТО СТАЛО. Деление записи на `|λ| = sqrt(426753013)/8192` даёт
+    `n' = (-1, 0)`, `c' = -1`, `s'^2 = 67108864/426753013`. Прямая, движение и
+    сторона те же; рациональны все четыре поля.
+
+    | величина | число |
+    |---|---:|
+    | законов / спасено масштабом | 4 / **2** |
+    | рёбер домена / источников / стен | 4 / 4 / 0 |
+    | взвешенных рёбер-источников | 2 |
+    | масштаб решётки | 65536 |
+    | узлов скелета | 2 |
+    | граней, по узлам | 4, `[1, 1, 2, 2]` |
+    | удвоенная площадь домена | 8 589 934 592 |
+
+    Гипотеза карточки «после рескейла домен решается до конца» —
+    ПОДТВЕРЖДЕНА: следующей именованной ступени за снятым отказом не нашлось,
+    мост, скелет и сборщик все три `EXACT`.
+    """
+
+    prepared = weighted_preparation
+    assert prepared.outcome is ConveyorOutcome.EXACT, prepared.detail
+    assert dict(prepared.counters) == {
+        "CONVEYOR_DOMAIN_REGIONS": 1,
+        "CONVEYOR_ARRIVAL_LAWS": 4,
+        "CONVEYOR_RESCALED_ARRIVAL_LAWS": 2,
+        "CONVEYOR_LATTICE_SCALE": 65536,
+        "CONVEYOR_DOMAIN_EDGES": 4,
+        "CONVEYOR_SOURCE_EDGES": 4,
+        "CONVEYOR_WALL_EDGES": 0,
+        "CONVEYOR_AMBIGUOUS_OWNER_EDGES": 0,
+        "CONVEYOR_WEIGHTED_SOURCE_EDGES": 2,
+        "CONVEYOR_SKELETON_NODES": 2,
+        "CONVEYOR_FACES": 4,
+    }
+
+    (region,) = prepared.regions
+    assert region.bridge_outcome is BridgeOutcome.EXACT
+    assert region.skeleton_outcome is SkeletonOutcome.EXACT
+    assert region.face_outcome is FaceOutcome.EXACT
+    assert region.bridge.findings == ()
+    assert len(region.skeleton.nodes) == 2
+    assert sorted(face.node_count for face in region.partition.faces) == [
+        1,
+        1,
+        2,
+        2,
+    ]
+    assert region.partition.polygon_doubled_area == 8589934592
+    assert region.partition.area_defect.terms == ()
+    # Источником служит КАЖДОЕ ребро домена, стен нет ни одной, и владелец у
+    # каждого ребра свой — на квадрате это ровно четыре различных имени.
+    assert region.wall_spans == ()
+    assert len({name for _, name in region.owner_by_edge}) == 4
+    assert region.ambiguous_owner_spans == ()
+
+
+def test_the_weighted_normals_coverage_matches_an_independent_closed_form(
+    weighted_preparation,
+):
+    """Покрытие домена сверено НЕ с самим собой, а с замкнутой формулой.
+
+    Домен — квадрат со стороной 65536 (единица карты), источник на каждой
+    стороне. Перпендикулярный ход фронта равен `alpha * s/|n|`: у верхней и
+    нижней сторон это `16384`, у левой и правой — `16384 * 8192/sqrt(N)`,
+    где `N = 426753013`. Непокрытым остаётся прямоугольник между фронтами,
+    поэтому
+
+        покрыто = L^2 - (L - 2*alpha) * (L - 2*d),  d = alpha*8192/sqrt(N)
+
+    Это утверждение геометрии, а не очереди: оно выведено из четырёх
+    полуплоскостей и не знает ни про скелет, ни про грани. Совпадение точное —
+    разность канонических наборов пуста, а не мала.
+
+    Числа: `EXACT`, **2 члена**, удвоенная площадь
+    `4294967296 + 17592186044416/sqrt(426753013)`, то есть 59.91 % домена.
+    """
+
+    covered = conveyor_coverage(weighted_preparation)
+    assert covered.outcome is ConveyorOutcome.EXACT, covered.detail
+    assert covered.alpha == Fraction(1, 4)
+    assert covered.lattice_alpha == 16384
+    assert covered.polygon_doubled_area == 8589934592
+    assert len(covered.doubled_area.terms) == 2
+
+    radicand = 426753013
+    side = 65536
+    alpha = 16384
+    rational_part = side * side - (side - 2 * alpha) * side
+    radical_numerator = 2 * alpha * 8192 * (side - 2 * alpha)
+    expected = SqrtSumV1.rational(2 * rational_part) + SqrtSumV1.radical(
+        Fraction(2 * radical_numerator, radicand), radicand
+    )
+    assert (covered.doubled_area - expected).is_zero
+
+    # Покрытие строго внутри домена и строго положительно.
+    assert covered.doubled_area.sign() > 0
+    assert (
+        SqrtSumV1.rational(covered.polygon_doubled_area) - covered.doubled_area
+    ).sign() > 0
+    # Владелец назван у каждого из четырёх кусков, и все имена различны.
+    assert len(covered.faces) == 4
+    assert len({face.envelope_instance_id for face in covered.faces}) == 4
+    assert len({face.envelope_spec_id for face in covered.faces}) == 4
+
+
+def test_the_rescale_changes_the_record_and_not_the_geometry():
+    """Пере-масштабирование доказано инвариантами, а не осмотром результата.
+
+    Мост берёт у закона ровно две вещи, и обе обязаны пережить смену записи:
+
+    1. **класс несущей прямой** — он и решает, какому ребру закон достался;
+    2. **отношение `(s/|n|)^2`** — из него считается `q` ребра, то есть
+       скорость фронта.
+
+    Второе проверяется против ИСХОДНОЙ иррациональной записи: отношение
+    считается прямо из `sqrt(426753013)`-нормали и сравнивается с рациональным
+    отношением пере-масштабированного закона точным нулём разности. Совпадение
+    здесь и означает, что переписана запись, а не задача.
+
+    Знак проверяется тем же сравнением: деление шло на `|λ|`, поэтому нормаль
+    смотрит туда же. Делили бы на `λ`, у двух законов из четырёх нормаль
+    перевернулась бы, класс прямой сменился бы на противоположный, и это
+    сравнение бы упало.
+    """
+
+    snapshot, request = _weighted_input()
+    compiled = kernel.compile_reference_envelopes(snapshot, request)
+    compilation = compiled.compilation
+    frame, _ = validate_reference_geometry_payload(
+        compilation.analysis_snapshot, compilation.plan_key.patch_domain_id
+    )
+    context = GeometryContext.build(compilation, frame)
+    reading = _arrival_laws(context)
+    assert reading.detail is None
+    assert len(reading.laws) == 4
+    assert reading.rescaled_count == 2
+
+    by_name = {law.name: law for law in reading.laws}
+    irrational_names = set()
+    for spec in sorted(
+        compilation.envelope_specs, key=lambda item: item.envelope_spec_id.value
+    ):
+        if not isinstance(spec, StripEnvelopeSpec):
+            continue
+        seed = next(
+            item
+            for item in compilation.seeds
+            if getattr(item, "seed_id", None) == spec.source_seed_id
+        )
+        for source in context.support_segments_for_use(
+            seed.chain_use_id, spec.envelope_spec_id.value
+        ):
+            normal, constant = strip_front_support_line(context, source)
+            normal_x, normal_y = normal.expressions()
+            speed_squared = (
+                STRIP_FRONT_NORMAL_SPEED.as_expr()
+                * STRIP_FRONT_NORMAL_SPEED.as_expr()
+            )
+            if exact_rational(normal_x) is None or exact_rational(normal_y) is None:
+                irrational_names.add(spec.envelope_spec_id.value)
+            law = by_name[spec.envelope_spec_id.value]
+
+            # 1. Отношение (s/|n|)^2 исходной записи и переписанной — одно.
+            raw_ratio = speed_squared / (
+                normal_x * normal_x + normal_y * normal_y
+            )
+            rewritten = sp.Rational(
+                law.speed_ratio_squared.numerator,
+                law.speed_ratio_squared.denominator,
+            )
+            assert sp.simplify(raw_ratio - rewritten).is_zero is True, law.name
+
+            # 2. Класс прямой исходной записи и переписанной — один. Считается
+            #    той же функцией моста, которой он считается в работе.
+            raw_class = _sympy_line_class(
+                normal_x, normal_y, constant.as_expr()
+            )
+            assert raw_class is not None, law.name
+            rewritten_class = line_class(
+                (law.normal_x, law.normal_y, law.constant)
+            )
+            assert all(
+                sp.simplify(
+                    left - sp.Rational(right.numerator, right.denominator)
+                ).is_zero
+                is True
+                for left, right in zip(raw_class, rewritten_class, strict=True)
+            ), law.name
+
+    # Переписаны ровно те два закона, у которых запись была иррациональна.
+    assert len(irrational_names) == 2
+    assert all(
+        not by_name[name].is_unit_speed for name in irrational_names
+    )
+
+
+def _sympy_line_class(normal_x, normal_y, constant):
+    """Класс несущей прямой в SymPy — тот же закон, что у `bridge.line_class`.
+
+    Считается здесь, а не берётся у моста, ровно потому, что вход тут
+    иррациональный: `line_class` объявлен на дробях. Нормировка та же —
+    деление на модуль первой ненулевой компоненты.
+    """
+
+    for value in (normal_x, normal_y):
+        if exact_sign(value) != 0:
+            scale = sp.Abs(value)
+            return (normal_x / scale, normal_y / scale, constant / scale)
+    return None
+
+
+def test_a_record_no_single_factor_can_rationalise_is_still_refused():
+    """`ARRIVAL_LAW_IS_NOT_RATIONAL` не осиротел: он достижим и проверен.
+
+    Пере-масштабирование делит всю запись на ОДНО число, поэтому оно спасает
+    только запись с ОБЩИМ множителем. Нормаль `(1, sqrt(2))` общего множителя
+    не имеет: рационализировать первую компоненту и вторую одновременно нечем,
+    и отказ обязан остаться прежним, а не превратиться в приближение.
+
+    Три случая, и каждый отвечает своей причиной:
+
+    | запись | ответ |
+    |---|---|
+    | `n = (1, sqrt(2))` | масштаб не помогает |
+    | `n = (sqrt(3), sqrt(2))` | масштаб не помогает |
+    | `n = (0, 0)`, `c = sqrt(2)` | нормали нет вовсе, делить не на что |
+    """
+
+    zero = ExactScalar.from_value(0)
+    one = sp.Integer(1)
+
+    law, rescaled, issue = _read_arrival_law(
+        "no-common-factor", _Normal(one, sp.sqrt(2)), zero, one
+    )
+    assert law is None and rescaled is False
+    assert "не рациональна и после масштаба" in issue
+
+    law, rescaled, issue = _read_arrival_law(
+        "two-radicals", _Normal(sp.sqrt(3), sp.sqrt(2)), zero, one
+    )
+    assert law is None and rescaled is False
+    assert "не рациональна и после масштаба" in issue
+
+    law, rescaled, issue = _read_arrival_law(
+        "zero-normal",
+        _Normal(sp.Integer(0), sp.Integer(0)),
+        ExactScalar.from_value(sp.sqrt(2)),
+        one,
+    )
+    assert law is None and rescaled is False
+    assert "нормаль закона нулевая" in issue
+
+    # Положительный контроль: запись С общим множителем спасается, и запись
+    # уже рациональная проходит БЕЗ масштаба.
+    law, rescaled, issue = _read_arrival_law(
+        "common-factor",
+        _Normal(-sp.sqrt(7) / 4, sp.Integer(0)),
+        ExactScalar.from_value(-sp.sqrt(7) / 4),
+        one,
+    )
+    assert issue == "" and rescaled is True
+    assert (law.normal_x, law.normal_y, law.constant) == (
+        Fraction(-1),
+        Fraction(0),
+        Fraction(-1),
+    )
+    assert law.speed_squared == Fraction(16, 7)
+
+    law, rescaled, issue = _read_arrival_law(
+        "already-rational", _Normal(sp.Integer(0), sp.Integer(3)), zero, one
+    )
+    assert issue == "" and rescaled is False
+    assert (law.normal_x, law.normal_y, law.speed_squared) == (
+        Fraction(0),
+        Fraction(3),
+        Fraction(1),
+    )
+
+
+class _Normal:
+    """Нормаль-ковектор синтетического закона: только то, что читает вход."""
+
+    def __init__(self, x, y) -> None:
+        self._values = (x, y)
+
+    def expressions(self):
+        return self._values
+
+
+def test_a_rescale_that_cannot_be_proven_is_not_applied():
+    """Дробь принимается только с доказательством, и это проверяется подменой.
+
+    `_rational_after_scaling` возвращает дробь лишь тогда, когда
+    `value - r*scale` обращается в ноль ТОЧНО. Без положительного контроля
+    «доказательство есть» неотличимо от «проверка не выполняется», поэтому
+    здесь стоят обе половины: доказуемая пара даёт дробь, недоказуемая — `None`.
+    """
+
+    radical = sp.sqrt(426753013) / 8192
+    # Доказуемо: -radical поделённое на radical есть ровно -1.
+    assert _rational_after_scaling(-radical, radical) == Fraction(-1)
+    assert _rational_after_scaling(sp.Integer(0), radical) == Fraction(0)
+    # Квадрат множителя рационален, даже когда сам множитель нет.
+    assert _rational_after_scaling(sp.Integer(1), radical * radical) == Fraction(
+        67108864, 426753013
+    )
+    # Недоказуемо: другой радикал общего множителя не имеет.
+    assert _rational_after_scaling(sp.sqrt(2), radical) is None
+    assert _rational_after_scaling(radical + 1, radical) is None
 
 
 def test_the_chart_lattice_is_derived_from_the_certificate_and_not_chosen():
