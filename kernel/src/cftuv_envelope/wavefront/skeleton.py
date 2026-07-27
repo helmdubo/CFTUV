@@ -85,6 +85,67 @@ class SkeletonOutcome(str, Enum):
     WAVEFRONT_LEFT_UNRESOLVED = "WAVEFRONT_LEFT_UNRESOLVED"
 
 
+class CandidateRefusal(str, Enum):
+    """Почему кандидат в события не родился. Две категории, и они РАЗНЫЕ.
+
+    Отклонить кандидата — штатная работа фильтра, а не потеря: событие в
+    прошлом фронта, точка вне текущего отрезка, кандидат за трассой (теорема
+    2.11), тройка прямых, которая не сходится никогда. У всего этого правило
+    ЕСТЬ, и правило говорит «события нет». Такие члены помечены `FILTER`.
+
+    Тихая потеря — это когда правила нет вовсе: конфигурация встретилась, а
+    алгоритм вместо названного исхода просто ничего не делает. Такие члены
+    помечены `NO_RULE`, и каждый из них — открытый счёт, а не оговорка.
+    Именно ради этого различения перечисление заведено: без него счётчик
+    отказов утонул бы в штатном шуме и потеря в нём не была бы видна.
+    """
+
+    # -- FILTER: правило есть, и оно говорит «события нет» -----------------
+    FILTER_SOLO_VERTEX = "FILTER_SOLO_VERTEX"
+    FILTER_TRIPLE_NEVER_CONCURRENT = "FILTER_TRIPLE_NEVER_CONCURRENT"
+    FILTER_EVENT_IN_THE_PAST = "FILTER_EVENT_IN_THE_PAST"
+    FILTER_POINT_OUTSIDE_FRONT = "FILTER_POINT_OUTSIDE_FRONT"
+    FILTER_BEYOND_TRACE = "FILTER_BEYOND_TRACE"
+    FILTER_EDGE_IS_OWN = "FILTER_EDGE_IS_OWN"
+
+    # -- NO_RULE: конфигурация без правила ---------------------------------
+    # Тройка прямых сошлась НАВСЕГДА: определитель равен нулю тождественно.
+    # Формула `t = -D0/S` тут не отвечает не потому, что события нет, а потому,
+    # что вопрос ей задан неверный: две из трёх прямых — одна и та же движущаяся
+    # прямая. Что при этом происходит с фронтом, формула не знает.
+    NO_RULE_TRIPLE_ALWAYS_CONCURRENT = "NO_RULE_TRIPLE_ALWAYS_CONCURRENT"
+    # Соседние рёбра вершины лежат на одной движущейся прямой и смотрят В РАЗНЫЕ
+    # стороны: фронт локально вывернулся, два его отрезка совпали. У вершины нет
+    # позиции — не «её трудно посчитать», а её нет.
+    NO_RULE_JOINT_IS_ANTIPARALLEL = "NO_RULE_JOINT_IS_ANTIPARALLEL"
+    # Соседние рёбра вершины лежат на одной движущейся прямой и смотрят В ОДНУ
+    # сторону: угол ровно развёрнутый. Пересечения двух прямых нет, и позиция
+    # вершины ВДОЛЬ прямой парой рёбер не определяется вовсе.
+    NO_RULE_JOINT_IS_CODIRECTIONAL = "NO_RULE_JOINT_IS_CODIRECTIONAL"
+    # Разрез пришёлся ровно в КОНЕЦ рассекаемого отрезка фронта, то есть
+    # reflex-вершина встретила не ребро, а другую вершину фронта. Это событие
+    # вершины, а не разрез; разрезом оно обрабатывается неверно — рождается
+    # отрезок-близнец нулевой длины.
+    NO_RULE_SPLIT_HITS_FRONT_VERTEX = "NO_RULE_SPLIT_HITS_FRONT_VERTEX"
+    # Отрезок, который собирались резать, к моменту применения потерял концы.
+    NO_RULE_SPAN_VANISHED = "NO_RULE_SPAN_VANISHED"
+
+
+def refusal_counter(reason: CandidateRefusal) -> str:
+    """Имя счётчика отказов данного вида. Одна функция на весь репозиторий.
+
+    Имя выводится из члена, а не пишется рядом с ним: иначе перечисление и
+    отчёт можно было бы рассогласовать правкой одного из двух, и отказ, у
+    которого счётчик назвали иначе, исчез бы из диагностики молча.
+    """
+
+    return f"refused_{reason.value.lower()}"
+
+
+#: Счётчик на каждый член `CandidateRefusal`.
+REFUSAL_COUNTERS = tuple(refusal_counter(member) for member in CandidateRefusal)
+
+
 @dataclass(slots=True)
 class _Edge:
     ident: int
@@ -202,8 +263,29 @@ class _Builder:
             "coincident_split_targets": 0,
             "peaks": 0,
             "ridges": 0,
+            # Отрезки фронта нулевой длины, рождённые разрезом в конец отрезка.
+            # Это не «мелочь учёта»: близнец нулевой длины живёт в LAV и уводит
+            # соседей по ложной траектории.
+            "zero_length_front_segments": 0,
         }
+        self.counters.update({name: 0 for name in REFUSAL_COUNTERS})
         self._seed()
+
+    def _refuse(self, reason: CandidateRefusal) -> None:
+        """Отказ кандидата ПОД ИМЕНЕМ. Ни один `return` не проходит мимо.
+
+        Возвращает `None`, чтобы место отказа читалось одной строкой
+        `return self._refuse(...)`, и чтобы забыть счётчик было труднее, чем
+        его поставить.
+        """
+
+        self.counters[refusal_counter(reason)] += 1
+        return None
+
+    def counter_of(self, reason: CandidateRefusal) -> int:
+        """Сколько раз отказ этого вида случился. Для стендов и отчётов."""
+
+        return self.counters[refusal_counter(reason)]
 
     # ---- инициализация ---------------------------------------------------
 
@@ -304,16 +386,18 @@ class _Builder:
     def _enqueue_edge_event(self, vertex: _Vertex) -> None:
         peer = self.vertices[vertex.next]
         if peer.ident == vertex.ident:
-            return
+            return self._refuse(CandidateRefusal.FILTER_SOLO_VERTEX)
         time, outcome = concurrency_time(
             self.edges[vertex.prev_edge].line,
             self.edges[vertex.next_edge].line,
             self.edges[peer.next_edge].line,
         )
+        if outcome is EventTimeOutcome.WAVEFRONT_TRIPLE_NEVER_CONCURRENT:
+            return self._refuse(CandidateRefusal.FILTER_TRIPLE_NEVER_CONCURRENT)
         if outcome is not EventTimeOutcome.EXACT or time is None:
-            return
+            return self._refuse(CandidateRefusal.NO_RULE_TRIPLE_ALWAYS_CONCURRENT)
         if not self._is_future(time, vertex, peer):
-            return
+            return self._refuse(CandidateRefusal.FILTER_EVENT_IN_THE_PAST)
         point = self._vertex_position(vertex, time)
         if point is None:
             return
@@ -342,7 +426,7 @@ class _Builder:
 
     def _try_split(self, vertex: _Vertex, edge: _Edge) -> None:
         if edge.ident in (vertex.prev_edge, vertex.next_edge):
-            return
+            return self._refuse(CandidateRefusal.FILTER_EDGE_IS_OWN)
         self.counters["split_candidates_examined"] += 1
         candidate = self._split_candidate(vertex, edge)
         if candidate is not None:
@@ -356,22 +440,26 @@ class _Builder:
             self.edges[vertex.next_edge].line,
             edge.line,
         )
+        if outcome is EventTimeOutcome.WAVEFRONT_TRIPLE_NEVER_CONCURRENT:
+            return self._refuse(CandidateRefusal.FILTER_TRIPLE_NEVER_CONCURRENT)
         if outcome is not EventTimeOutcome.EXACT or time is None:
-            return None
+            return self._refuse(CandidateRefusal.NO_RULE_TRIPLE_ALWAYS_CONCURRENT)
         if time.sign <= 0 or compare_times(time, vertex.birth) <= 0:
-            return None
+            return self._refuse(CandidateRefusal.FILTER_EVENT_IN_THE_PAST)
         if compare_times(time, self.now) < 0:
-            return None
+            return self._refuse(CandidateRefusal.FILTER_EVENT_IN_THE_PAST)
         # ТЕОРЕМА 2.11: вершина не уходит за свою трассу, значит событие позже
         # крушения невозможно. Это и есть достаточное условие, которого наивной
         # проверке попадания в отрезок не хватало.
         trace = self.traces.get(vertex.ident)
         if trace is not None and not trace.bounds_time(time):
             self.counters["split_candidates_beyond_trace"] += 1
-            return None
+            return self._refuse(CandidateRefusal.FILTER_BEYOND_TRACE)
         point = self._vertex_position(vertex, time)
-        if point is None or not self._edge_span_contains(edge, point, time):
+        if point is None:
             return None
+        if not self._edge_span_contains(edge, point, time):
+            return self._refuse(CandidateRefusal.FILTER_POINT_OUTSIDE_FRONT)
         return CandidateEventV1(
             EventKind.SPLIT, time, point, vertex.ident, -1, edge.ident
         )
@@ -390,10 +478,18 @@ class _Builder:
     def _vertex_position(
         self, vertex: _Vertex, time: EventTimeV1
     ) -> EventPointV1 | None:
+        """Место вершины в момент `time` — пересечение её двух прямых.
+
+        Параллельность соседних прямых — не «трудный случай», а ДВА разных
+        вырождения, и путать их нельзя: у одного фронт вывернулся, у другого
+        угол ровно развёрнут. Оба считаются отдельно и оба названы, потому что
+        чинятся они разным.
+        """
+
         first = self.edges[vertex.prev_edge].line
         second = self.edges[vertex.next_edge].line
         if first.a * second.b - second.a * first.b == 0:
-            return None
+            return self._refuse(_joint_kind(first, second))
         return event_point(first, second, time)
 
     # ---- геометрические проверки ----------------------------------------
@@ -511,6 +607,7 @@ class _Builder:
         self.counters["discarded_stale_candidates"] += len(splits) - len(
             live_splits
         )
+        self._count_splits_that_hit_a_front_vertex(live_splits)
         separated = self._dedupe_by_vertex(live_splits)
         if separated is None:
             return
@@ -525,6 +622,41 @@ class _Builder:
         )
         for cluster in cluster_by_point(tuple(live_collapses)):
             self._apply_multi_edge(list(cluster))
+
+    def _count_splits_that_hit_a_front_vertex(
+        self, splits: list[CandidateEventV1]
+    ) -> None:
+        """Разрезы, пришедшие ровно в КОНЕЦ отрезка, а не внутрь него.
+
+        Такой «разрез» — вовсе не разрез: reflex-вершина встретила не ребро, а
+        другую ВЕРШИНУ фронта, стоящую на его конце. Разрезом это обрабатывается
+        неверно, и неверность видна числом: отрезок-близнец получает нулевую
+        длину, остаётся жить в LAV и уводит соседей по ложной траектории.
+
+        Спрашивается ЗДЕСЬ, до первого применения, и это не вкусовщина: разрез,
+        применённый раньше, переписывает концы отрезка соседа, и та же вершина
+        со второго взгляда уже не видна. На кресте разница между «до» и «после»
+        ровно двукратная — 4 против 2.
+        """
+
+        for event in splits:
+            span = (
+                self._edge_start_vertex(event.edge),
+                self._edge_end_vertex(event.edge),
+            )
+            for vertex in span:
+                if vertex is None:
+                    continue
+                place = self._vertex_position(vertex, event.time)
+                if place is None:
+                    continue
+                if (
+                    (place.x - event.point.x).is_zero
+                    and (place.y - event.point.y).is_zero
+                ):
+                    self._refuse(CandidateRefusal.NO_RULE_SPLIT_HITS_FRONT_VERTEX)
+                    self.counters["zero_length_front_segments"] += 1
+                    break
 
     def _dedupe_by_vertex(
         self, splits: list[CandidateEventV1]
@@ -684,6 +816,7 @@ class _Builder:
         span_end = self._edge_end_vertex(edge_id)
         if span_start is None or span_end is None:
             self.counters["discarded_stale_candidates"] += len(group)
+            self._refuse(CandidateRefusal.NO_RULE_SPAN_VANISHED)
             return
         # segments[i] — отрезок между p_{i-1} и p_i; последний примыкает к
         # `span_end` и сохраняет исходный идентификатор ребра.
@@ -870,6 +1003,23 @@ def _project(line: SupportLineV1, point: EventPointV1) -> SqrtSumV1:
     """Проекция на направление ребра `(b, -a)`. Целые коэффициенты."""
 
     return point.x.scaled(line.b) - point.y.scaled(line.a)
+
+
+def _joint_kind(
+    first: SupportLineV1, second: SupportLineV1
+) -> CandidateRefusal:
+    """Какое именно вырождение у стыка двух ПАРАЛЛЕЛЬНЫХ прямых фронта.
+
+    Направление ребра — `(b, -a)`. Скалярное произведение направлений решает
+    вопрос точно и целочисленно: положительное — рёбра смотрят в одну сторону
+    (угол развёрнутый, вершина скользит вдоль прямой), отрицательное — навстречу
+    (фронт вывернулся, два его отрезка совпали).
+    """
+
+    dot = first.b * second.b + first.a * second.a
+    if dot > 0:
+        return CandidateRefusal.NO_RULE_JOINT_IS_CODIRECTIONAL
+    return CandidateRefusal.NO_RULE_JOINT_IS_ANTIPARALLEL
 
 
 def _is_reflex(first: SupportLineV1, second: SupportLineV1) -> bool:
