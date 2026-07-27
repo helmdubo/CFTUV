@@ -35,14 +35,12 @@ from cftuv_envelope.interactions.components import compile_interaction_component
 from cftuv_envelope.interactions.contracts import InteractionOutcome
 from cftuv_envelope.reference.boundary import build_domain_geometry
 from cftuv_envelope.reference.common import GeometryContext
-from cftuv_envelope.reference.metric import ExactPlanarMetric
 from cftuv_envelope.reference.planar_types import ExactScalar, exact_sign
 from cftuv_envelope.reference.validation import (
     validate_reference_geometry_payload,
 )
 from cftuv_envelope.robust.grid import GridSpecV1
-from cftuv_envelope.source_grid import chart_grid_for
-from cftuv_envelope.wavefront import build_skeleton
+from cftuv_envelope.wavefront import build_skeleton, chart_lattice_for_frame
 from cftuv_envelope.wavefront.bridge import (
     BridgeOutcome,
     PlainArrivalLawV1,
@@ -609,13 +607,16 @@ def _field_chart_lattice(frame) -> GridSpecV1:
     Число здесь не выбирается вовсе, и это главное свойство теста. Подставь
     сюда «удобный» масштаб — и «вход отобразился» стало бы утверждением про
     подобранную решётку, а не про закон, который ядро объявляет для всех.
+
+    Сам ЗАКОН переехал в ядро (`wavefront.conveyor.chart_lattice_for_frame`),
+    потому что публичному входу очереди он нужен тоже. Здесь остался вызов, а
+    не копия: две копии одного закона разошлись бы при первой же правке, и
+    тогда тест проверял бы свою решётку, а не решётку ядра.
     """
 
-    certificate = frame.grid_certificate
-    step = Fraction(
-        certificate.window_step.numerator, certificate.window_step.denominator
-    )
-    return chart_grid_for(ExactPlanarMetric.from_descriptor(frame).gram, step)
+    lattice = chart_lattice_for_frame(frame)
+    assert lattice is not None
+    return lattice
 
 
 def test_the_field_patch_input_does_not_map_onto_the_queue_and_here_is_why():

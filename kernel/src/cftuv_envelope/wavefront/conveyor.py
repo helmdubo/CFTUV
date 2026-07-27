@@ -118,6 +118,12 @@ class ConveyorOutcome(str, Enum):
     ARRIVAL_LAW_IS_NOT_RATIONAL = "ARRIVAL_LAW_IS_NOT_RATIONAL"
     # В плане нет ни одной Strip-спеки, то есть источника фронта нет вовсе.
     NO_STRIP_SOURCE_IN_THE_PLAN = "NO_STRIP_SOURCE_IN_THE_PLAN"
+    # У кадра патча нет сертификата решётки, то есть решётку карты выводить не
+    # из чего. Подобрать её здесь нельзя: масштаб определяет, какой домен
+    # вообще отобразится, и выбранный «на глаз» превратил бы ответ в свойство
+    # выбора. Кадром без сертификата бывает `PlanarPatchFrameV1` — путь,
+    # объявленный до закона решётки.
+    CHART_LATTICE_IS_NOT_DECLARED = "CHART_LATTICE_IS_NOT_DECLARED"
     # Геометрия домена отказала своим исходом (`ReferenceOutcome`), и он лежит
     # в `reference_outcome`, а не пересказан словами.
     DOMAIN_GEOMETRY_REFUSED = "DOMAIN_GEOMETRY_REFUSED"
@@ -163,9 +169,17 @@ def exact_rational(expression) -> Fraction | None:
     рациональное приближение, а искать нечего. Прямое чтение `p/q` даёт те же
     36 значений за 0.1 мс, и совпадение проверено поэлементно, а не по сумме.
 
+    ЦЕНА БЫЛА НЕ ЕДИНСТВЕННОЙ БЕДОЙ, и вторая тяжелее. Прежний рецепт
+    `Fraction(*map(int, sp.fraction(sp.nsimplify(x))))` на ИРРАЦИОНАЛЬНОМ
+    входе не падает — он молча усекает: `sqrt(2)/2` даёт `(sqrt(2), 2)`, а
+    `int(sqrt(2))` есть 1, то есть ответ `1/2` при истинном `0.7071...`,
+    ошибка 29 %. Тихого исхода здесь быть не должно, поэтому
+
     `None` — выражение не рационально. Это ответ, а не сбой: вызывающий обязан
     назвать исход (`DOMAIN_POINT_IS_NOT_RATIONAL`, `ARRIVAL_LAW_IS_NOT_RATIONAL`)
-    вместо того, чтобы округлить.
+    вместо того, чтобы округлить. Исход достижим не в теории: на треугольнике
+    `straight_snapshot` нормаль гипотенузы иррациональна, и вход отвечает
+    именем, а прежний хелпер ответил бы числом, которого нет.
     """
 
     value = sp.sympify(expression)
@@ -174,7 +188,7 @@ def exact_rational(expression) -> Fraction | None:
     return Fraction(int(value.p), int(value.q))
 
 
-def chart_lattice_for_frame(frame) -> GridSpecV1:
+def chart_lattice_for_frame(frame) -> GridSpecV1 | None:
     """Решётка карты патча — ПО ОБЪЯВЛЕННОМУ ЗАКОНУ, а не подобранная.
 
     Шага здесь два, и оба уже объявлены ядром. Шаг источника берётся из
@@ -187,9 +201,17 @@ def chart_lattice_for_frame(frame) -> GridSpecV1:
     «Удобный» масштаб превратил бы «вход отобразился» в утверждение про
     подобранную решётку вместо утверждения про закон, который ядро объявляет
     для всех патчей одинаково.
+
+    `None` — у кадра сертификата решётки нет. Кадр бывает двух видов
+    (`validate_reference_geometry_payload` возвращает либо
+    `RationalAffinePlanarMetricV2`, либо `PlanarPatchFrameV1`), и закон решётки
+    объявлен только у первого. Взять «какой-нибудь» масштаб для второго нельзя:
+    масштаб решает, отобразится ли домен вообще.
     """
 
-    certificate = frame.grid_certificate
+    certificate = getattr(frame, "grid_certificate", None)
+    if certificate is None:
+        return None
     step = Fraction(
         certificate.window_step.numerator, certificate.window_step.denominator
     )
@@ -531,10 +553,17 @@ def prepare_conveyor(
     """Alpha-независимая подготовка очереди для домена плана.
 
     Союз не считается, попарный крой не зовётся, `exact_union` не вызывается ни
-    разу. Проходятся ВСЕ регионы домена, а не первый: хелпер теста брал
-    `domain_regions[0]`, и на однорегиональной фикстуре разница была невидима,
-    то есть непроверяема. Число регионов лежит счётчиком
-    `CONVEYOR_DOMAIN_REGIONS`.
+    разу.
+
+    Проходятся ВСЕ регионы домена, а не первый: хелпер теста брал
+    `domain_regions[0]`, и разница была невидима, то есть непроверяема. Сколько
+    их на самом деле — ИЗМЕРЕНО, и ответ сильнее фикстуры:
+    `SparsePatchDomainGeometryV1.domain_regions` возвращает РОВНО ОДИН регион
+    по построению, а при нескольких внешних петлях отказывает
+    `REFERENCE_INPUT_CONTRACT_INVALID`. То есть в v1 второго региона не бывает
+    вовсе, и цикл здесь — не запас на будущее, а отсутствие молчаливой
+    зависимости от этого контракта. Число регионов лежит счётчиком
+    `CONVEYOR_DOMAIN_REGIONS`, и оно на фикстуре равно 1 не случайно.
     """
 
     clock = _Clock()
@@ -591,6 +620,12 @@ def prepare_conveyor(
     started = time.perf_counter()
     lattice = chart_lattice_for_frame(frame)
     clock.add("CHART_LATTICE", started)
+    if lattice is None:
+        return _refused(
+            ConveyorOutcome.CHART_LATTICE_IS_NOT_DECLARED,
+            type(frame).__name__,
+            clock,
+        )
 
     prepared_regions: list[PreparedRegionV1] = []
     for region in domain.domain_regions:
