@@ -110,6 +110,48 @@ def test_prime_support_is_deterministic():
     assert prime_support(1) == ()
 
 
+def test_a_rational_radicand_is_the_identity_and_not_an_approximation():
+    """`sqrt(p/r) = (1/r)*sqrt(p*r)`, и это проверяется ВОЗВЕДЕНИЕМ В КВАДРАТ.
+
+    Проверка идёт квадратом, а не сравнением с `math.sqrt`: возведение остаётся
+    внутри той же точной алгебры, поэтому доказывает тождество, а не согласие с
+    плавающей точкой на первых пятнадцати знаках.
+    """
+
+    for numerator, denominator in ((1, 2), (137438953472, 844687660141), (9, 4)):
+        value = SqrtSumV1.radical(1, Fraction(numerator, denominator))
+        assert (value * value).as_rational() == Fraction(numerator, denominator)
+    # Дробь, у которой корень рационален, канонизируется в чистую дробь.
+    assert SqrtSumV1.radical(1, Fraction(9, 4)).as_rational() == Fraction(3, 2)
+
+
+def test_an_integer_valued_fraction_radicand_gives_the_integer_result_exactly():
+    """`Fraction(50)` и `50` под корнем — ОДНО значение, а не два похожих.
+
+    Это не педантизм про типы: `SqrtSumV1` хешируется и попадает в дайджест,
+    поэтому два представления одного числа означали бы два дайджеста у одной
+    геометрии. Ветка рационального радиканда обязана не выполняться вовсе,
+    когда знаменатель равен единице.
+    """
+
+    assert SqrtSumV1.radical(3, Fraction(50)) == SqrtSumV1.radical(3, 50)
+    assert SqrtSumV1.radical(3, Fraction(50)).terms == ((2, Fraction(15)),)
+
+
+def test_a_rational_radicand_keeps_the_sign_decidable_without_a_threshold():
+    """Знак дробного радиканда решается тем же путём, что и целого.
+
+    Отрицательный контроль к тождеству выше: мало превратить дробь в целое под
+    корнем — величина обязана остаться сравнимой. Берётся пара, разность которой
+    ТОЧНЫЙ ноль, и пара, где она заведомо не ноль.
+    """
+
+    left = SqrtSumV1.radical(1, Fraction(1, 2))
+    right = SqrtSumV1.radical(Fraction(1, 2), 2)
+    assert (left - right).is_zero
+    assert (left - SqrtSumV1.radical(1, Fraction(1, 3))).sign() > 0
+
+
 # --------------------------------------------------------------------------
 # Время события
 # --------------------------------------------------------------------------

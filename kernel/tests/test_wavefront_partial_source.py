@@ -214,17 +214,52 @@ def test_a_hole_keeps_its_marks_through_the_orientation_normalisation():
     "speeds,outcome",
     (
         ((1, 2, 3), PolygonOutcome.LOOP_SPEED_COUNT_DOES_NOT_MATCH_EDGES),
-        ((True, False, True, False), PolygonOutcome.LOOP_SPEED_IS_NOT_INTEGER),
-        ((Fraction(1, 2), 1, 1, 1), PolygonOutcome.LOOP_SPEED_IS_NOT_INTEGER),
+        ((True, False, True, False), PolygonOutcome.LOOP_SPEED_IS_NOT_RATIONAL),
+        ((0.5, 1, 1, 1), PolygonOutcome.LOOP_SPEED_IS_NOT_RATIONAL),
+        (("1/2", 1, 1, 1), PolygonOutcome.LOOP_SPEED_IS_NOT_RATIONAL),
         ((-1, 1, 1, 1), PolygonOutcome.LOOP_SPEED_IS_NEGATIVE),
+        ((Fraction(-1, 2), 1, 1, 1), PolygonOutcome.LOOP_SPEED_IS_NEGATIVE),
     ),
 )
 def test_a_broken_mark_is_rejected_under_its_own_name(speeds, outcome):
-    """Каждый способ испортить пометку назван отдельно, а не свален в один."""
+    """Каждый способ испортить пометку назван отдельно, а не свален в один.
+
+    `Fraction(1, 2)` из этого списка УБРАН и переехал в тест ниже: дробное `q`
+    перестало быть поломкой и стало входом. Отвергается по-прежнему всё, что
+    не рационально ТОЧНО, — `bool`, `float`, строка, — и это не педантизм:
+    `float` прошёл бы каждое сравнение ниже и отравил бы каноническую форму,
+    единственность которой держится на точных дробях.
+    """
 
     with pytest.raises(PolygonRejected) as error:
         LoopV1(((0, 0), (4, 0), (4, 3), (0, 3)), speeds)
     assert error.value.outcome is outcome
+
+
+def test_a_rational_speed_is_accepted_and_an_integer_valued_fraction_is_int():
+    """Дробное `q` — вход, а не поломка, и оно НОРМИРУЕТСЯ при знаменателе 1.
+
+    Обе половины важны, и вторая важнее. Приём дроби — это то, ради чего
+    снималось требование целого. Нормировка — это то, чем держится дайджест:
+    `Fraction(16)` и `16` равны по значению, но как ключи прямой различались бы,
+    и один и тот же четырёхугольник давал бы два разных дайджеста в зависимости
+    от того, каким типом записана его скорость.
+    """
+
+    loop = LoopV1(((0, 0), (4, 0), (4, 3), (0, 3)), (Fraction(1, 2), 16, 0, 9))
+    assert loop.speeds_squared == (Fraction(1, 2), 16, 0, 9)
+    # Нормировка проверяется ТИПОМ, а не равенством: `Fraction(16) == 16`.
+    assert [type(value) for value in loop.speeds_squared] == [
+        Fraction,
+        int,
+        int,
+        int,
+    ]
+    integral = LoopV1(
+        ((0, 0), (4, 0), (4, 3), (0, 3)),
+        (Fraction(16), Fraction(16), Fraction(0), Fraction(9)),
+    )
+    assert all(type(value) is int for value in integral.speeds_squared)
 
 
 def test_a_polygon_without_a_single_source_is_rejected_by_name():

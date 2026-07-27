@@ -38,6 +38,24 @@ def _fraction_record(value: Fraction) -> list[int]:
     return [value.numerator, value.denominator]
 
 
+def _participant_record(key: tuple) -> list:
+    """Ключ прямой `(a, b, c, q)` в JSON. `q` бывает РАЦИОНАЛЬНЫМ.
+
+    `a`, `b`, `c` целые всегда, `q` — только при единичной скорости и у стены.
+    Дробное `q` записывается парой `[числитель, знаменатель]`, и это не выбор
+    формата, а требование однозначности: `json` дробь не сериализует вовсе, а
+    записать её строкой значило бы завести второе представление одного числа.
+
+    На ЦЕЛОМ `q` запись остаётся прежней до байта, потому что `int` проходит
+    мимо ветки. Ровно этим держится неподвижность `FROZEN_DIGESTS`.
+    """
+
+    return [
+        _fraction_record(item) if isinstance(item, Fraction) else item
+        for item in key
+    ]
+
+
 def node_record(node: SkeletonNodeV1) -> dict:
     """Каноническая запись узла. Ровно то, что входит в дайджест."""
 
@@ -48,7 +66,7 @@ def node_record(node: SkeletonNodeV1) -> dict:
         "time_divisor": _sqrt_sum_record(time.divisor),
         "point_x": _sqrt_sum_record(node.point.x),
         "point_y": _sqrt_sum_record(node.point.y),
-        "participants": [list(key) for key in node.participants],
+        "participants": [_participant_record(key) for key in node.participants],
         "converging_vertices": node.converging_vertices,
     }
 

@@ -87,12 +87,18 @@ tall=4)` — 12 законов на 12 рёбер и отказ, на `holes_2` 
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from fractions import Fraction
 
-from .event_time import SupportLineV1
-from .polygon import LoopV1, PolygonV1, with_source_spans
+from ..robust.grid import GridSpecV1, snap_value
+from .event_time import SupportLineV1, normalized_speed
+from .polygon import (
+    LoopV1,
+    PolygonRejected,
+    PolygonV1,
+    with_edge_speeds,
+)
 
 
 class BridgeOutcome(str, Enum):
@@ -120,6 +126,25 @@ class BridgeOutcome(str, Enum):
     SOURCE_EDGE_INSIDE_A_LINE_CLASS_IS_UNDETERMINED = (
         "SOURCE_EDGE_INSIDE_A_LINE_CLASS_IS_UNDETERMINED"
     )
+    # Привязка склеила два конца ребра в один узел. Ребро при этом ИСЧЕЗАЕТ, а
+    # вместе с ним и его закон, поэтому исход отдельный: `PolygonV1` сказал бы
+    # `LOOP_HAS_REPEATED_POINT` — правду про петлю и не про причину.
+    LATTICE_SNAP_COLLAPSES_A_DOMAIN_EDGE = (
+        "LATTICE_SNAP_COLLAPSES_A_DOMAIN_EDGE"
+    )
+    # Привязанный домен `PolygonV1` не принял. Отказ полигона пересказывается
+    # своим именем ровно потому, что вершины двигал МОСТ: назвать это отказом
+    # входа значило бы свалить свою работу на вызывающего.
+    LATTICE_SNAP_BREAKS_THE_DOMAIN_POLYGON = (
+        "LATTICE_SNAP_BREAKS_THE_DOMAIN_POLYGON"
+    )
+    # В одном классе несущей прямой законы РАЗНЫХ скоростей, а рёбер больше
+    # одного. Какому ребру какая скорость — во входе не записано, и здесь это
+    # тяжелее, чем неопределённость владельца: у владельца хотя бы геометрия
+    # одна, а разные скорости дают разную геометрию.
+    EDGE_SPEED_INSIDE_A_LINE_CLASS_IS_UNDETERMINED = (
+        "EDGE_SPEED_INSIDE_A_LINE_CLASS_IS_UNDETERMINED"
+    )
 
 
 # Порядок объявлен, а не выведен из порядка проверок: чем ниже, тем глубже
@@ -127,10 +152,13 @@ class BridgeOutcome(str, Enum):
 _OUTCOME_ORDER = (
     BridgeOutcome.NO_ARRIVAL_LAW_GIVEN,
     BridgeOutcome.DOMAIN_IS_NOT_ON_THE_INTEGER_LATTICE,
+    BridgeOutcome.LATTICE_SNAP_COLLAPSES_A_DOMAIN_EDGE,
+    BridgeOutcome.LATTICE_SNAP_BREAKS_THE_DOMAIN_POLYGON,
     BridgeOutcome.ARRIVAL_LAW_IS_NOT_UNIT_SPEED,
     BridgeOutcome.ARRIVAL_LAW_IS_NOT_A_DOMAIN_EDGE,
     BridgeOutcome.MORE_ARRIVAL_LAWS_THAN_EDGES_ON_ONE_LINE,
     BridgeOutcome.SOURCE_EDGE_INSIDE_A_LINE_CLASS_IS_UNDETERMINED,
+    BridgeOutcome.EDGE_SPEED_INSIDE_A_LINE_CLASS_IS_UNDETERMINED,
 )
 
 
@@ -201,6 +229,17 @@ class BridgeReportV1:
     # них есть, а какое именно — во входе не записано. Ноль означает, что
     # разметка «источник или стена» определена входом однозначно.
     undetermined_source_count: int = 0
+    # Масштаб решётки, к которой мост ПРИВЯЗАЛ домен. `None` — домен лежал в
+    # узлах сам, и мост не двигал ни одной вершины.
+    lattice_scale: int | None = None
+    # Наибольшее смещение вершины при привязке, точной дробью. Ноль означает
+    # «привязка ничего не сдвинула», `None` — «привязки не было вовсе»; путать
+    # эти два ответа нельзя, потому что первый — измерение, а второй — его
+    # отсутствие.
+    snap_residual: Fraction | None = None
+    # Рёбра-источники, чья скорость НЕ единичная. Их `q` рационально, а не
+    # `|d|^2`, и это ровно та величина, ради которой снималась единичность.
+    weighted_edge_count: int = 0
 
     @property
     def wall_edge_count(self) -> int:
@@ -235,11 +274,23 @@ def _as_lattice(value: Fraction) -> int | None:
     return int(value) if value.denominator == 1 else None
 
 
-def _lattice_span(edge: "RationalEdge") -> tuple[int, int, int, int]:
-    """Вхождение ребра целыми числами: `(x0, y0, x1, y1)`. Только на решётке."""
+LatticeLoops = tuple[tuple[tuple[int, int], ...], ...]
 
-    (x0, y0), (x1, y1), _ = edge
-    return (int(x0), int(y0), int(x1), int(y1))
+
+def _lattice_span(
+    edge: "RationalEdge", lattice_loops: LatticeLoops
+) -> tuple[int, int, int, int]:
+    """Вхождение ребра узлами решётки: `(x0, y0, x1, y1)`.
+
+    Берётся не из самого ребра, а из его образа В РЕШЁТКЕ по ПОЛОЖЕНИЮ, потому
+    что при привязке образ уже не равен оригиналу. Когда домен и так на решётке,
+    образ ей тождественно равен, и число выходит то же самое.
+    """
+
+    loop = lattice_loops[edge.loop_index]
+    x0, y0 = loop[edge.edge_index]
+    x1, y1 = loop[(edge.edge_index + 1) % len(loop)]
+    return (x0, y0, x1, y1)
 
 
 def _proportional_positive(
@@ -264,14 +315,32 @@ def _proportional_positive(
 
 RationalPoint = tuple[Fraction, Fraction]
 RationalLine = tuple[Fraction, Fraction, Fraction]
-#: Ребро домена: два его конца и его несущая прямая.
-RationalEdge = tuple[RationalPoint, RationalPoint, RationalLine]
+
+
+@dataclass(frozen=True, slots=True)
+class RationalEdge:
+    """Ребро домена: где оно в петлях, два его конца и его несущая прямая.
+
+    ПОЛОЖЕНИЕ (`loop_index`, `edge_index`) хранится вместе с геометрией, и это
+    не удобство. Привязка домена к решётке НЕ СОХРАНЯЕТ классы несущих прямых —
+    на `bf6` совпало 0 классов из 12 на всех проверенных масштабах, — поэтому
+    сопоставление закона с ребром обязано идти по дорешёточным дробям, а
+    разметка переноситься на привязанный полигон по положению ребра в петле.
+    Другого моста между двумя видами одного ребра нет: по прямой их уже не
+    узнать, а по концам — тем более.
+    """
+
+    loop_index: int
+    edge_index: int
+    start: RationalPoint
+    end: RationalPoint
+    line: RationalLine
 
 
 def _rational_edges(
     loops: tuple[tuple[tuple[Fraction, Fraction], ...], ...],
 ) -> tuple[RationalEdge, ...]:
-    """Рёбра всех петель в точных дробях: концы и несущая прямая `(a, b, c)`.
+    """Рёбра всех петель в точных дробях: положение, концы и прямая `(a, b, c)`.
 
     Концы хранятся вместе с прямой, а не отбрасываются: два коллинеарных
     сонаправленных ребра различаются ТОЛЬКО ими, и карте владельцев нужен ключ,
@@ -281,7 +350,7 @@ def _rational_edges(
     """
 
     edges: list[RationalEdge] = []
-    for loop in loops:
+    for loop_index, loop in enumerate(loops):
         size = len(loop)
         for index in range(size):
             start = loop[index]
@@ -290,7 +359,15 @@ def _rational_edges(
             if dx == 0 and dy == 0:
                 continue
             a, b = -dy, dx
-            edges.append((start, end, (a, b, a * start[0] + b * start[1])))
+            edges.append(
+                RationalEdge(
+                    loop_index,
+                    index,
+                    start,
+                    end,
+                    (a, b, a * start[0] + b * start[1]),
+                )
+            )
     return tuple(edges)
 
 
@@ -299,7 +376,7 @@ def _rational_edge_lines(
 ) -> tuple[RationalLine, ...]:
     """Только несущие прямые. Оставлено для читателей, которым концы не нужны."""
 
-    return tuple(line for _, _, line in _rational_edges(loops))
+    return tuple(edge.line for edge in _rational_edges(loops))
 
 
 def line_class(line: RationalLine) -> RationalLine | None:
@@ -327,21 +404,44 @@ def line_class(line: RationalLine) -> RationalLine | None:
 def bridge_arrival_laws(
     loops: tuple[tuple[tuple[Fraction, Fraction], ...], ...],
     laws: tuple[PlainArrivalLawV1, ...],
+    *,
+    lattice: GridSpecV1 | None = None,
+    weighted_fronts: bool = False,
 ) -> BridgeReportV1:
     """Собрать вход очереди из домена и законов прихода попарного кроя.
 
     Первая петля — внешний контур, остальные — дыры. Ориентацию нормирует
     `PolygonV1.build`, поэтому от вызывающего она не требуется.
+
+    ОБА РАСШИРЕНИЯ ВЫКЛЮЧЕНЫ ПО УМОЛЧАНИЮ, и это не осторожность, а разница в
+    том, кто отвечает за ответ.
+
+    `lattice` — решётка, к которой мост ПРИВЯЖЕТ домен. Привязка двигает
+    вершины, то есть меняет задачу, и делать это молча нельзя: без параметра
+    нецелый домен остаётся находкой `DOMAIN_IS_NOT_ON_THE_INTEGER_LATTICE`, ровно
+    как раньше. С параметром находки нет, а есть измеренная цена —
+    `snap_residual`, наибольшее смещение вершины точной дробью.
+
+    `weighted_fronts` — согласие вызывающего на ВЗВЕШЕННЫЙ скелет. Геометрия
+    очереди его держит, арифметика тоже (`q` рационально), но времена очереди
+    тогда совпадают с alpha закона лишь потому, что `q = (lambda*s)^2`, а не
+    потому, что скорость единичная, — и вызывающему, который сравнивает очередь
+    с попарным кроем, разницу надо знать. Без параметра неединичный закон
+    остаётся находкой `ARRIVAL_LAW_IS_NOT_UNIT_SPEED`.
+
+    Сопоставление закона с ребром идёт по ДОРЕШЁТОЧНЫМ дробям при любом
+    значении `lattice`, и это измерено, а не выбрано: после привязки `bf6`
+    совпало 0 классов несущих прямых из 12. Разметка переносится на привязанный
+    полигон по ПОЛОЖЕНИЮ ребра в петле — единственному, что привязка сохраняет.
     """
 
     findings: list[BridgeOutcome] = []
-    off_lattice: list[tuple[Fraction, Fraction]] = []
-    for loop in loops:
-        for x, y in loop:
-            if _as_lattice(x) is None or _as_lattice(y) is None:
-                off_lattice.append((x, y))
-    if off_lattice:
+    lattice_loops, off_lattice, residual = _lattice_image(loops, lattice)
+    if lattice_loops is None:
         findings.append(BridgeOutcome.DOMAIN_IS_NOT_ON_THE_INTEGER_LATTICE)
+    elif _collapsed_edges(loops, lattice_loops):
+        findings.append(BridgeOutcome.LATTICE_SNAP_COLLAPSES_A_DOMAIN_EDGE)
+        lattice_loops = None
     if not laws:
         findings.append(BridgeOutcome.NO_ARRIVAL_LAW_GIVEN)
 
@@ -350,7 +450,7 @@ def bridge_arrival_laws(
         for law in laws
         if not law.is_unit_speed
     )
-    if non_unit:
+    if non_unit and not weighted_fronts:
         findings.append(BridgeOutcome.ARRIVAL_LAW_IS_NOT_UNIT_SPEED)
 
     # Несущие прямые рёбер считаются в ТОЧНЫХ ДРОБЯХ, до всякой решётки.
@@ -360,61 +460,212 @@ def bridge_arrival_laws(
     rational_edges = _rational_edges(loops)
 
     matching = _match_by_line_class(rational_edges, laws)
-    if matching.unmatched:
-        findings.append(BridgeOutcome.ARRIVAL_LAW_IS_NOT_A_DOMAIN_EDGE)
-    if matching.surplus:
-        findings.append(BridgeOutcome.MORE_ARRIVAL_LAWS_THAN_EDGES_ON_ONE_LINE)
-    if matching.undetermined:
-        findings.append(
-            BridgeOutcome.SOURCE_EDGE_INSIDE_A_LINE_CLASS_IS_UNDETERMINED
-        )
-
-    polygon: PolygonV1 | None = None
-    owner_by_edge: dict[tuple[int, int, int, int], str] = {}
-    lattice_ambiguous: list[tuple[int, int, int, int]] = []
-    wall_spans: tuple[tuple[int, int, int, int], ...] = ()
-    if (
-        not off_lattice
-        and loops
-        and matching.source_edges
-        and not matching.undetermined
+    for present, outcome in (
+        (matching.unmatched, BridgeOutcome.ARRIVAL_LAW_IS_NOT_A_DOMAIN_EDGE),
+        (
+            matching.surplus,
+            BridgeOutcome.MORE_ARRIVAL_LAWS_THAN_EDGES_ON_ONE_LINE,
+        ),
+        (
+            matching.undetermined,
+            BridgeOutcome.SOURCE_EDGE_INSIDE_A_LINE_CLASS_IS_UNDETERMINED,
+        ),
+        (
+            matching.undetermined_speed,
+            BridgeOutcome.EDGE_SPEED_INSIDE_A_LINE_CLASS_IS_UNDETERMINED,
+        ),
     ):
-        polygon = _polygon_with_walls(loops, matching.source_edges)
-        wall_spans = tuple(
-            sorted(
-                (start[0], start[1], end[0], end[1])
-                for start, end, speed in polygon.edges()
-                if speed == 0
-            )
-        )
-        # Ключом служит САМО ребро, взятое из тех же `rational_edges`, что и
-        # сопоставление. Прежний код нумеровал рёбра заново по `polygon.loops`
-        # и надеялся, что порядок совпадёт, — а `PolygonV1.build` нормирует
-        # ориентацию и может РАЗВЕРНУТЬ петлю, после чего номер означал другое
-        # ребро. Здесь совпадать нечему: список один.
-        for edge, name in matching.forced_owner.items():
-            owner_by_edge[_lattice_span(edge)] = name
-        lattice_ambiguous = [_lattice_span(edge) for edge in matching.ambiguous]
+        if present:
+            findings.append(outcome)
 
+    built = _built_polygon(loops, lattice_loops, matching, findings, lattice)
     ordered = tuple(
         outcome for outcome in _OUTCOME_ORDER if outcome in findings
     )
     return BridgeReportV1(
         outcome=ordered[0] if ordered else BridgeOutcome.EXACT,
         findings=ordered,
-        polygon=polygon if not ordered else None,
+        polygon=built.polygon if not ordered else None,
         edge_count=len(rational_edges),
         law_count=len(laws),
         matched_edge_count=matching.matched_edge_count,
-        off_lattice_points=tuple(off_lattice),
+        off_lattice_points=off_lattice,
         non_unit_speed_laws=non_unit,
         unmatched_laws=tuple(matching.unmatched),
         surplus_laws=tuple(matching.surplus),
-        owner_by_edge=tuple(sorted(owner_by_edge.items())),
-        ambiguous_owner_spans=tuple(sorted(lattice_ambiguous)),
-        wall_spans=wall_spans,
+        owner_by_edge=tuple(sorted(built.owner_by_edge.items())),
+        ambiguous_owner_spans=tuple(sorted(built.ambiguous_spans)),
+        wall_spans=built.wall_spans,
         undetermined_source_count=len(matching.undetermined),
+        lattice_scale=None if lattice is None else lattice.scale,
+        snap_residual=residual,
+        weighted_edge_count=built.weighted_edge_count,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class _BuiltPolygonV1:
+    """Полигон очереди и всё, что известно про его рёбра. Пустой — тоже ответ."""
+
+    polygon: PolygonV1 | None = None
+    owner_by_edge: dict[tuple[int, int, int, int], str] = field(
+        default_factory=dict
+    )
+    ambiguous_spans: tuple[tuple[int, int, int, int], ...] = ()
+    wall_spans: tuple[tuple[int, int, int, int], ...] = ()
+    weighted_edge_count: int = 0
+
+
+def _lattice_image(
+    loops: tuple[tuple[tuple[Fraction, Fraction], ...], ...],
+    lattice: GridSpecV1 | None,
+) -> tuple[
+    LatticeLoops | None, tuple[tuple[Fraction, Fraction], ...], Fraction | None
+]:
+    """Образ домена в узлах решётки, вершины вне узлов и цена привязки.
+
+    Два режима, и они отвечают на разные вопросы. Без решётки спрашивается «а
+    домен и так целый?» — и ответ «нет» перечисляет ИМЕННО ТЕ вершины, которые
+    целыми не оказались. С решёткой домен привязывается, вершин вне узлов не
+    остаётся по построению, а вместо них возвращается наибольшее смещение —
+    цена, которую привязка взяла.
+
+    Ноль в `snap_residual` и `None` — разные ответы: первый значит «привязка
+    была и ничего не сдвинула», второй — «привязки не было». Свести их к одному
+    значило бы потерять единственное свидетельство того, что мост домен не
+    трогал.
+    """
+
+    if lattice is None:
+        off_lattice = tuple(
+            (x, y)
+            for loop in loops
+            for x, y in loop
+            if _as_lattice(x) is None or _as_lattice(y) is None
+        )
+        if off_lattice:
+            return None, off_lattice, None
+        image = tuple(
+            tuple((int(x), int(y)) for x, y in loop) for loop in loops
+        )
+        return image, (), None
+    image = tuple(
+        tuple(
+            (snap_value(x, lattice), snap_value(y, lattice)) for x, y in loop
+        )
+        for loop in loops
+    )
+    residual = max(
+        (
+            abs(Fraction(node, lattice.scale) - value)
+            for loop, snapped in zip(loops, image)
+            for point, node_pair in zip(loop, snapped)
+            for value, node in zip(point, node_pair)
+        ),
+        default=Fraction(0),
+    )
+    return image, (), residual
+
+
+def _collapsed_edges(
+    loops: tuple[tuple[tuple[Fraction, Fraction], ...], ...],
+    lattice_loops: LatticeLoops,
+) -> tuple[tuple[int, int], ...]:
+    """Рёбра, у которых привязка склеила оба конца в один узел.
+
+    Проверяется до `PolygonV1`, потому что полигон сказал бы про ПЕТЛЮ
+    («повторившаяся точка»), а причина — в ребре: закон, привязанный к
+    исчезнувшему ребру, исчез бы вместе с ним и молча.
+    """
+
+    collapsed: list[tuple[int, int]] = []
+    for loop_index, (loop, snapped) in enumerate(zip(loops, lattice_loops)):
+        size = len(loop)
+        for index in range(size):
+            following = (index + 1) % size
+            if loop[index] == loop[following]:
+                continue
+            if snapped[index] == snapped[following]:
+                collapsed.append((loop_index, index))
+    return tuple(collapsed)
+
+
+def _built_polygon(
+    loops: tuple[tuple[tuple[Fraction, Fraction], ...], ...],
+    lattice_loops: LatticeLoops | None,
+    matching: "_MatchingV1",
+    findings: list[BridgeOutcome],
+    lattice: GridSpecV1 | None,
+) -> _BuiltPolygonV1:
+    """Полигон очереди из привязанного домена и разметки по классам прямых.
+
+    `q` источника считается ОДНОЙ формулой на все три случая: `q = ratio *
+    |d|^2`, где `ratio = (s/|n|)^2` закона. У единичного закона `ratio = 1`, и
+    число выходит ровно то же `|d|^2`, которое клал прежний путь, — поэтому
+    ветки «взвешенный или нет» здесь нет вовсе и разойтись ей негде.
+    """
+
+    if (
+        lattice_loops is None
+        or not loops
+        or not matching.source_edges
+        or matching.undetermined
+        or matching.undetermined_speed
+    ):
+        return _BuiltPolygonV1()
+    speeds = tuple(
+        _weighted_span(edge, lattice_loops, matching.speed_ratio[edge])
+        for edge in matching.source_edges
+    )
+    try:
+        polygon = with_edge_speeds(
+            PolygonV1.build(
+                LoopV1(lattice_loops[0]),
+                tuple(LoopV1(loop) for loop in lattice_loops[1:]),
+            ),
+            speeds,
+        )
+    except PolygonRejected as refusal:
+        if lattice is None:
+            # Вершины двигал не мост — отказ полигона принадлежит вызывающему
+            # и пересказу своими словами не подлежит.
+            raise
+        findings.append(BridgeOutcome.LATTICE_SNAP_BREAKS_THE_DOMAIN_POLYGON)
+        _ = refusal
+        return _BuiltPolygonV1()
+    return _BuiltPolygonV1(
+        polygon=polygon,
+        owner_by_edge={
+            _lattice_span(edge, lattice_loops): name
+            for edge, name in matching.forced_owner.items()
+        },
+        ambiguous_spans=tuple(
+            _lattice_span(edge, lattice_loops) for edge in matching.ambiguous
+        ),
+        wall_spans=tuple(
+            sorted(
+                (start[0], start[1], end[0], end[1])
+                for start, end, speed in polygon.edges()
+                if speed == 0
+            )
+        ),
+        # Считается по ОТНОШЕНИЮ скоростей, а не по сравнению `q` с `|d|^2`:
+        # второе повторило бы формулу, по которой `q` только что посчитано, и
+        # проверяло бы арифметику вместо входа.
+        weighted_edge_count=sum(
+            1 for edge in matching.source_edges if matching.speed_ratio[edge] != 1
+        ),
+    )
+
+
+def _weighted_span(
+    edge: RationalEdge, lattice_loops: LatticeLoops, ratio: Fraction
+) -> tuple[tuple[int, int], tuple[int, int], int | Fraction]:
+    """Ребро решётки со своим `q = ratio * |d|^2`, уже нормированным."""
+
+    x0, y0, x1, y1 = _lattice_span(edge, lattice_loops)
+    dx, dy = x1 - x0, y1 - y0
+    return (x0, y0), (x1, y1), normalized_speed(ratio * (dx * dx + dy * dy))
 
 
 @dataclass(frozen=True, slots=True)
@@ -428,6 +679,14 @@ class _MatchingV1:
     surplus: tuple[str, ...]
     forced_owner: dict[RationalEdge, str]
     ambiguous: tuple[RationalEdge, ...]
+    #: `(s/|n|)^2` каждого ребра-источника. Есть у ВСЕХ `source_edges`, потому
+    #: что скорость определена классом, а не владельцем: чьё именно ребро чей
+    #: закон, знать не обязательно, пока все законы класса идут одинаково.
+    speed_ratio: dict[RationalEdge, Fraction] = field(default_factory=dict)
+    #: Рёбра классов, где законы идут РАЗНЫМИ скоростями, а рёбер больше одного.
+    #: Тяжелее неопределённости владельца: там геометрия одна на всех кандидатов,
+    #: здесь у каждой скорости своя.
+    undetermined_speed: tuple[RationalEdge, ...] = ()
 
 
 def _match_by_line_class(
@@ -449,17 +708,17 @@ def _match_by_line_class(
 
     edges_by_class: dict[RationalLine, list[RationalEdge]] = {}
     for edge in rational_edges:
-        key = line_class(edge[2])
+        key = line_class(edge.line)
         if key is not None:
             edges_by_class.setdefault(key, []).append(edge)
-    laws_by_class: dict[RationalLine, list[str]] = {}
+    laws_by_class: dict[RationalLine, list[PlainArrivalLawV1]] = {}
     unmatched: list[str] = []
     for law in laws:
         key = line_class((law.normal_x, law.normal_y, law.constant))
         if key is None or key not in edges_by_class:
             unmatched.append(law.name)
             continue
-        laws_by_class.setdefault(key, []).append(law.name)
+        laws_by_class.setdefault(key, []).append(law)
 
     matched_edge_count = 0
     surplus: list[str] = []
@@ -467,19 +726,31 @@ def _match_by_line_class(
     ambiguous: list[RationalEdge] = []
     source_edges: list[RationalEdge] = []
     undetermined: list[RationalEdge] = []
-    for key, names in laws_by_class.items():
+    undetermined_speed: list[RationalEdge] = []
+    speed_ratio: dict[RationalEdge, Fraction] = {}
+    for key, block_laws in laws_by_class.items():
+        names = [law.name for law in block_laws]
         block = edges_by_class[key]
         matched_edge_count += min(len(names), len(block))
         if len(names) > len(block):
             surplus.extend(names[len(block):])
+        ratios = {law.speed_ratio_squared for law in block_laws}
         if len(names) < len(block):
             # Класс покрыт ЧАСТИЧНО: источником в нём является не всякое ребро,
             # а какое именно — во входе не записано. Это не «источник не вся
             # граница» (та задача решена стенами), а неопределённость ВНУТРИ
             # класса, и она называется отдельно.
             undetermined.extend(block)
+        elif len(ratios) > 1 and len(block) > 1:
+            # Скорости в классе разные, а рёбер несколько: какому ребру какая —
+            # во входе не записано. Владельца тут не хватило бы и подавно, но
+            # разница в том, что неизвестное имя оставляет геометрию одной, а
+            # неизвестная скорость делает её другой.
+            undetermined_speed.extend(block)
         else:
             source_edges.extend(block)
+            for edge in block:
+                speed_ratio[edge] = next(iter(ratios))
         if len(names) == 1 and len(block) == 1:
             # Пара ВЫНУЖДЕНА: класс из одного закона и одного ребра.
             forced_owner[block[0]] = names[0]
@@ -495,33 +766,9 @@ def _match_by_line_class(
         surplus=tuple(surplus),
         forced_owner=forced_owner,
         ambiguous=tuple(ambiguous),
+        speed_ratio=speed_ratio,
+        undetermined_speed=tuple(undetermined_speed),
     )
-
-
-def _polygon_with_walls(
-    loops: tuple[tuple[tuple[Fraction, Fraction], ...], ...],
-    source_edges: tuple[RationalEdge, ...] | list[RationalEdge],
-) -> PolygonV1:
-    """Полигон, где рёбра с законом — источники, а ОСТАЛЬНЫЕ — стены.
-
-    Пометка ставится по концам ребра, а не по его номеру: `PolygonV1.build`
-    нормирует ориентацию и может развернуть петлю, после чего номер означал бы
-    другое ребро. Ровно на этом уже обжигались (`DECISIONS.md`, 2026-07-27),
-    поэтому здесь номера не участвуют вовсе.
-    """
-
-    polygon = PolygonV1.build(
-        LoopV1(tuple((int(x), int(y)) for x, y in loops[0])),
-        tuple(
-            LoopV1(tuple((int(x), int(y)) for x, y in loop))
-            for loop in loops[1:]
-        ),
-    )
-    spans = tuple(
-        ((int(start[0]), int(start[1])), (int(end[0]), int(end[1])))
-        for start, end, _ in source_edges
-    )
-    return with_source_spans(polygon, spans)
 
 
 def unit_speed_laws_of(polygon: PolygonV1) -> tuple[PlainArrivalLawV1, ...]:
