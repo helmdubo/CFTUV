@@ -29,13 +29,32 @@
 2. **Площадь каждой грани строго положительна.** Грань — двумерный кусок, а не
    вырожденная щепка и не кусок с вывернутой ориентацией.
 
-Чего здесь нет и почему это названо, а не замолчано: ключ участника —
-геометрический ключ НЕСУЩЕЙ ПРЯМОЙ `(a, b, c, q)`, а не тождество ребра. Два
-различных ребра входа могут лежать на одной прямой (в корпусе это `holes_2`:
-рёбра соседних дыр коллинеарны), и тогда узлы двух разных граней попадают в один
-список, монотонность ломается, и площадь не сходится: 1584 вместо 1344. Это
-НЕ починено подгонкой — это отдельный исход
-`SUPPORT_LINE_SHARED_BY_SEVERAL_EDGES`, и он возвращается до всякого счёта.
+ТОЖДЕСТВО УЧАСТНИКА — ВХОЖДЕНИЕ РЕБРА `(x0, y0, x1, y1)`, А НЕ НЕСУЩАЯ ПРЯМАЯ,
+и это измеренный ответ, а не вкус. Ключом был `(a, b, c, q)`, то есть прямая с
+ненормированной нормалью; он совпадал у двух коллинеарных сонаправленных рёбер
+ОДНОЙ длины, узлы двух РАЗНЫХ граней сливались в один список, монотонность
+ломалась, и площадь не сходилась: 1584 вместо 1344 на `holes_2`. Отказ
+`SUPPORT_LINE_SHARED_BY_SEVERAL_EDGES` ловил это громко, но ловил уже, чем
+обещал: у креста рёбра тоже коллинеарны, а ключи различны, потому что `q`
+вносит ДЛИНУ.
+
+Довод в пользу прямой был назван и он не отменён: биссектриса straight skeleton
+равноудалена от несущих ПРЯМЫХ, а не от отрезков, и этим straight skeleton
+отличается от медиальной оси. Но этот довод — про ГЕОМЕТРИЮ, и геометрия
+по-прежнему идёт через `SupportLineV1`: время события, положение вершины,
+полуплоскость усечения. Ключ же решает другой вопрос — ЧЬЯ это грань, — и у
+двух рёбер на одной прямой граней две. Одна сущность исполняла две роли, и
+починка в том, чтобы их разделить, а не выбрать между ними.
+
+Что проверено этим измерением, а не принято на слово: сумма площадей граней
+`holes_2` сходится точно (1344 из 1344), все двенадцать граней положительны,
+владельцы различны, а покрытие совпадает с НЕЗАВИСИМЫМ митрованным эталоном —
+188 / 384 / 588 при alpha = 1, 2, 3.
+
+Исход `TWO_EDGES_SHARE_ONE_SPAN` остался на месте: два вхождения с одинаковыми
+концами означали бы, что вход задан дважды, и грань у них была бы одна на двоих.
+На корпусе он не срабатывает ни разу, но убирать проверку нельзя — `LoopV1`
+непересекаемости петель не требует.
 """
 
 from __future__ import annotations
@@ -50,7 +69,10 @@ from .skeleton import SkeletonNodeV1, SkeletonOutcome, SkeletonV1
 from .sqrt_sum import SqrtSumV1
 
 
-LineKey = tuple[int, int, int, int]
+#: Ключ УЧАСТНИКА события и владельца грани: вхождение ребра `(x0, y0, x1, y1)`.
+#: Имя `LineKey` не оставлено даже синонимом: тип у него тот же, и молчаливый
+#: синоним означал бы, что смысл ключа выясняется по значению, а не по имени.
+EdgeKey = tuple[int, int, int, int]
 
 
 class FaceOutcome(str, Enum):
@@ -59,11 +81,11 @@ class FaceOutcome(str, Enum):
     EXACT = "EXACT"
     # Скелет не доказан — граней у него нет, и придумывать их нельзя.
     SKELETON_IS_NOT_EXACT = "SKELETON_IS_NOT_EXACT"
-    # Два ребра входа делят одну несущую прямую: ключ участника не различает
-    # их грани. См. докстроку: `holes_2` в корпусе.
-    SUPPORT_LINE_SHARED_BY_SEVERAL_EDGES = (
-        "SUPPORT_LINE_SHARED_BY_SEVERAL_EDGES"
-    )
+    # Два вхождения с одинаковыми концами: вход задал одно ребро дважды, и грань
+    # у них была бы одна на двоих. Заменил `SUPPORT_LINE_SHARED_BY_SEVERAL_EDGES`,
+    # который отказывал на коллинеарных рёбрах РАЗНЫХ граней, — это оказалось
+    # свойством ключа, а не входа, и вылечено сменой ключа.
+    TWO_EDGES_SHARE_ONE_SPAN = "TWO_EDGES_SHARE_ONE_SPAN"
     # У ребра нет ни одного узла. Грань не замкнуть двумя точками.
     FACE_HAS_NO_SKELETON_NODE = "FACE_HAS_NO_SKELETON_NODE"
     # Граница 1 нарушена: сумма площадей граней НЕ равна площади многоугольника.
@@ -82,12 +104,17 @@ class FaceOutcome(str, Enum):
 class FaceV1:
     """Грань скелета: её owner, её контур и её точная удвоенная площадь.
 
-    `owner` — геометрический ключ опорного ребра. Это и есть тот самый owner
+    `owner` — ключ ВХОЖДЕНИЯ опорного ребра. Это и есть тот самый owner
     покрытия, который в попарном крое приходится вычислять отдельно: здесь он
     выпадает из структуры, потому что грань определена ребром.
+
+    Несущая прямая по owner'у больше не восстанавливается — она берётся из
+    `source_start`/`source_end` (`SupportLineV1.through`). Восстановление из
+    ключа было возможно, пока ключ был прямой, и ровно этим совмещением ролей
+    два коллинеарных ребра и сливались в одну грань.
     """
 
-    owner: LineKey
+    owner: EdgeKey
     source_start: tuple[int, int]
     source_end: tuple[int, int]
     points: tuple[tuple[SqrtSumV1, SqrtSumV1], ...]
@@ -171,7 +198,24 @@ def polygon_edges(
     return tuple(edges)
 
 
-def line_key(line: SupportLineV1) -> LineKey:
+def edge_key(start: tuple[int, int], end: tuple[int, int]) -> EdgeKey:
+    """Ключ вхождения ребра. Тот же, что `_Edge.span` в `skeleton.py`.
+
+    Функция одна на модуль и одна на репозиторий именно затем, чтобы сборщик и
+    очередь не могли разойтись в тождестве участника правкой одного из двух.
+    """
+
+    return (start[0], start[1], end[0], end[1])
+
+
+def line_key(line: SupportLineV1) -> tuple[int, int, int, int]:
+    """Ключ несущей ПРЯМОЙ. Участником он больше не служит.
+
+    Оставлен для тех, кто спрашивает про прямую именно как про прямую: например
+    чтобы посчитать, сколько рёбер её делят. Смешивать его с `edge_key` нельзя,
+    и типы у них поэтому не одноимённые.
+    """
+
     return (line.a, line.b, line.c, line.q)
 
 
@@ -309,26 +353,26 @@ def build_faces(polygon: PolygonV1, skeleton: SkeletonV1) -> FacePartitionV1:
         )
 
     edges = polygon_edges(polygon)
-    keys = [line_key(line) for _, _, line in edges]
+    keys = [edge_key(start, end) for start, end, _ in edges]
     if len(set(keys)) != len(keys):
         shared = sorted({key for key in keys if keys.count(key) > 1})
         return FacePartitionV1(
-            FaceOutcome.SUPPORT_LINE_SHARED_BY_SEVERAL_EDGES,
+            FaceOutcome.TWO_EDGES_SHARE_ONE_SPAN,
             (),
             SqrtSumV1.zero(),
             empty.polygon_doubled_area,
-            f"{len(shared)} прямых на нескольких рёбрах: {shared[:3]}",
+            f"{len(shared)} вхождений на нескольких рёбрах: {shared[:3]}",
         )
 
-    nodes_by_key: dict[LineKey, list[SkeletonNodeV1]] = {}
+    nodes_by_key: dict[EdgeKey, list[SkeletonNodeV1]] = {}
     for node in skeleton.nodes:
         for key in node.participants:
             nodes_by_key.setdefault(key, []).append(node)
 
     faces: list[FaceV1] = []
     total = SqrtSumV1.zero()
-    for start, end, line in edges:
-        key = line_key(line)
+    for start, end, _ in edges:
+        key = edge_key(start, end)
         candidates = nodes_by_key.get(key, ())
         if not candidates:
             return FacePartitionV1(

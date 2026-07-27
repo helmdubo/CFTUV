@@ -14,6 +14,11 @@
 каждой границы свой член `FaceOutcome`, и в `detail` лежит ЧИСЛО потери. Ниже —
 столбец тестов и на это: что отказ громкий, что число то самое, и что цепочка
 до `coverage_at` закрыта (она не считает по неточному разбиению).
+
+Корпус берётся ЦЕЛИКОМ, без единого отбора. Отбор «только фигуры с различными
+несущими прямыми» держался на том, что ключом участника была прямая, а не
+вхождение ребра; ключ сменился, и `holes_2` — фигура, ради которой отбор
+существовал, — проверяется здесь наравне со всеми и отдельным тестом с числами.
 """
 
 from __future__ import annotations
@@ -28,6 +33,7 @@ from cftuv_envelope.wavefront.faces import (
     FaceOutcome,
     build_faces,
     doubled_shoelace,
+    edge_key,
     face_contour,
     line_key,
     polygon_edges,
@@ -41,16 +47,12 @@ import wavefront_cases
 from wavefront_cases import named_corpus
 
 
-# Корпус, у которого несущие прямые рёбер различны. `holes_2` вынесен отдельным
-# тестом: он и есть свидетельство исхода SUPPORT_LINE_SHARED_BY_SEVERAL_EDGES.
-def _distinct_line_corpus():
-    for name, polygon in named_corpus():
-        keys = [line_key(line) for _, _, line in polygon_edges(polygon)]
-        if len(set(keys)) == len(keys):
-            yield name, polygon
-
-
-CORPUS = tuple(_distinct_line_corpus())
+# Корпус берётся ЦЕЛИКОМ. Отбор «только фигуры с различными несущими прямыми»
+# существовал, пока ключом участника была прямая: `holes_2` вылетал из него,
+# потому что два ребра соседних дыр коллинеарны и одной длины. Ключ стал
+# вхождением ребра, и отбирать больше нечего — отбор ровно и скрывал бы
+# починку.
+CORPUS = named_corpus()
 CORPUS_IDS = tuple(name for name, _ in CORPUS)
 
 
@@ -79,34 +81,86 @@ def test_every_face_of_the_partition_has_strictly_positive_area(name, polygon):
 
 
 @pytest.mark.parametrize("name,polygon", CORPUS, ids=CORPUS_IDS)
-def test_there_is_exactly_one_face_per_input_edge_and_owner_is_its_line(
+def test_there_is_exactly_one_face_per_input_edge_and_owner_is_its_span(
     name, polygon
 ):
-    """Owner выпадает из структуры: одна грань на ребро, ключ — его прямая."""
+    """Owner выпадает из структуры: одна грань на ребро, ключ — его вхождение.
+
+    Вхождение, а не несущая прямая, и разница проверяется здесь же числом: у
+    `holes_2` двенадцать рёбер и только десять различных прямых, поэтому
+    прежний ключ давал бы десять граней на двенадцать рёбер.
+    """
 
     partition = build_faces(polygon, build_skeleton(polygon))
     edges = polygon_edges(polygon)
     assert len(partition.faces) == len(edges)
     assert {face.owner for face in partition.faces} == {
-        line_key(line) for _, _, line in edges
+        edge_key(start, end) for start, end, _ in edges
     }
+    assert len({face.owner for face in partition.faces}) == len(edges)
 
 
-def test_a_shared_support_line_is_a_named_outcome_not_a_wrong_area():
-    """`holes_2`: коллинеарные рёбра дают ИСХОД, а не подогнанную площадь.
+def test_two_collinear_edges_of_one_length_get_two_faces_and_the_area_closes():
+    """`holes_2`: та самая фигура, на которой сборщик отказывал. Числа целиком.
 
-    Числа, ради которых тест существует: наивная сборка выдаёт удвоенную
-    площадь 1584 при истинной 1344. Молча её принять означало бы поверить
-    разбиению, которого нет.
+    Было: ключом участника служила несущая прямая `(a, b, c, q)`, у рёбер
+    соседних дыр она совпадала (обе длины 8), узлы двух РАЗНЫХ граней сливались
+    в один список, и наивная сборка давала удвоенную площадь 1584 при истинной
+    1344. Отказ `SUPPORT_LINE_SHARED_BY_SEVERAL_EDGES` возвращался до счёта.
+
+    Стало: двенадцать граней на двенадцать рёбер, сумма 1344 из 1344 ТОЧНО, все
+    грани строго положительны, владельцы различны. Проверяется не только сумма —
+    правило «совпадение суммы не доказывает совпадение множества» здесь и
+    записано: сверяется множество владельцев и площадь КАЖДОЙ грани.
     """
 
-    polygon = next(
-        item for name, item in named_corpus() if name == "holes_2"
-    )
+    polygon = dict(named_corpus())["holes_2"]
+    edges = polygon_edges(polygon)
+    lines = [line_key(line) for _, _, line in edges]
+    # Болезнь на месте, её просто больше не касается ключ участника.
+    assert (len(edges), len(set(lines))) == (12, 10)
+
     partition = build_faces(polygon, build_skeleton(polygon))
-    assert partition.outcome is FaceOutcome.SUPPORT_LINE_SHARED_BY_SEVERAL_EDGES
-    assert partition.faces == ()
+    assert partition.outcome is FaceOutcome.EXACT, partition.detail
     assert partition.polygon_doubled_area == 1344
+    assert partition.doubled_area.as_rational() == Fraction(1344)
+    assert partition.area_defect.terms == ()
+    assert partition.every_face_is_positive
+    assert len(partition.faces) == 12
+    assert len({face.owner for face in partition.faces}) == 12
+    # Площадь каждой грани по отдельности, а не только их сумма.
+    assert sorted(
+        int(face.doubled_area.as_rational()) for face in partition.faces
+    ) == [66, 66, 66, 66, 66, 66, 102, 102, 132, 132, 240, 240]
+
+
+def test_one_edge_given_twice_is_still_a_named_outcome_not_one_shared_face():
+    """Два вхождения с одинаковыми концами — исход, а не грань на двоих.
+
+    Проверка не выдумана про запас: `LoopV1` требует различных вершин ВНУТРИ
+    петли и ничего не говорит о разных петлях, поэтому вход, задавший одно
+    ребро дважды, синтаксически законен. Грань у таких вхождений была бы одна
+    на двоих, и молча сложить их значило бы посчитать площадь дважды.
+    """
+
+    from dataclasses import replace
+
+    polygon = PolygonV1.build(
+        ((0, 0), (12, 0), (12, 12), (0, 12)),
+        (((4, 4), (4, 8), (8, 8), (8, 4)),),
+    )
+    skeleton = build_skeleton(polygon)
+    assert skeleton.outcome is SkeletonOutcome.EXACT
+    assert build_faces(polygon, skeleton).outcome is FaceOutcome.EXACT
+
+    # Та же дыра, записанная дважды: четыре вхождения повторяются. Скелет
+    # берётся от ЗАКОННОЙ фигуры, иначе отказ пришёл бы раньше — из проверки
+    # `SKELETON_IS_NOT_EXACT`, — и про вхождения ничего не сказал бы.
+    twice = replace(polygon, holes=polygon.holes + (polygon.holes[0],))
+    refused = build_faces(twice, skeleton)
+    assert refused.outcome is FaceOutcome.TWO_EDGES_SHARE_ONE_SPAN
+    assert refused.faces == ()
+    assert refused.detail.startswith("4 вхождений")
 
 
 def test_the_two_split_searches_give_the_same_faces():
@@ -383,8 +437,8 @@ def test_the_ridge_crossing_is_emitted_and_its_participants_say_which_ridge():
             assert len(crossing) == 1, (wide, tall)
             late = CROSS_WALLS if wide > tall else CROSS_CAPS
             expected = {
-                line_key(line)
-                for index, (_, _, line) in enumerate(polygon_edges(figure))
+                edge_key(start, end)
+                for index, (start, end, _) in enumerate(polygon_edges(figure))
                 if index in late
             }
             assert set(crossing[0].participants) == expected, (wide, tall)
@@ -410,8 +464,8 @@ def test_two_distinct_skeleton_points_of_a_cross_DO_share_a_projection_now():
         for tall in range(3, 10):
             figure, skeleton, partition = _cross_partition(wide, tall)
             assert partition.outcome is FaceOutcome.EXACT, (wide, tall)
-            for index, (start, end, line) in enumerate(polygon_edges(figure)):
-                key = line_key(line)
+            for index, (start, end, _) in enumerate(polygon_edges(figure)):
+                key = edge_key(start, end)
                 dx, dy = end[0] - start[0], end[1] - start[1]
                 buckets: dict[object, set] = {}
                 for node in skeleton.nodes:
@@ -455,34 +509,48 @@ def test_the_repair_is_not_tuned_to_one_arm_thickness(arm: int):
     самодельном кресте с рукавом 6. Поэтому фигура берётся из корпуса, толщина
     задаётся её собственным параметром, и сетка берётся шире объявленной.
 
-    Числа ДО починки: ноль верных строк на каждой из трёх толщин (81 из 81
-    сломано). Числа ПОСЛЕ — ниже, и у остатка названа граница: он начинается
-    ровно там, где `|wide - tall|` достигает `2 * arm`. Это ДРУГАЯ вырожденная
-    конфигурация, а не недоделанная эта, и её отказ громкий.
+    Числа ДО починки вырожденной точки: ноль верных строк на каждой из трёх
+    толщин (81 из 81 сломано). Числа ПОСЛЕ неё — 51 / 70 / 64, и ещё 0 / 9 / 17
+    строк ПРОПУСКАЛИСЬ, потому что у фигуры два ребра делили несущую прямую.
+
+    Со сменой ключа участника на вхождение ребра пропускать больше нечего, и
+    пропущенные строки оказались верными: 51 / 79 / 81. У остатка граница
+    названа и не сдвинулась — он начинается ровно там, где `|wide - tall|`
+    достигает `2 * arm`. Это ДРУГАЯ вырожденная конфигурация, а не недоделанная
+    эта, и её отказ громкий (`FACE_IS_NOT_POSITIVE`).
+
+    | рукав | было EXACT | пропускалось | стало EXACT | остаток |
+    |---|---:|---:|---:|---:|
+    | 2 | 51 | 0 | 51 | 30 |
+    | 4 | 70 | 9 | 79 | 2 |
+    | 6 | 64 | 17 | 81 | 0 |
     """
 
     exact = 0
-    shared = 0
+    shared_line = 0
     beyond = 0
     for wide in range(3, 12):
         for tall in range(3, 12):
             figure = wavefront_cases.cross(wide=wide, tall=tall, arm=arm)
-            keys = [line_key(line) for _, _, line in polygon_edges(figure)]
-            if len(set(keys)) != len(keys):
-                # Известная отдельная болезнь: два ребра делят несущую прямую.
-                # В этот срез она не входит.
-                shared += 1
-                continue
+            edges = polygon_edges(figure)
+            lines = [line_key(line) for _, _, line in edges]
+            if len(set(lines)) != len(lines):
+                # Строка, которая раньше ПРОПУСКАЛАСЬ. Считается отдельно, чтобы
+                # «стало больше» не сводилось к «стало считаться больше строк».
+                shared_line += 1
+            spans = [edge_key(start, end) for start, end, _ in edges]
+            assert len(set(spans)) == len(spans), (arm, wide, tall)
             partition = build_faces(figure, build_skeleton(figure))
             if partition.outcome is FaceOutcome.EXACT:
                 assert partition.area_defect.is_zero, (arm, wide, tall)
                 exact += 1
                 assert abs(wide - tall) < 2 * arm, (arm, wide, tall)
             else:
+                assert partition.outcome is FaceOutcome.FACE_IS_NOT_POSITIVE
                 beyond += 1
                 assert abs(wide - tall) >= 2 * arm, (arm, wide, tall)
-    assert (exact, shared, beyond) == {
+    assert (exact, shared_line, beyond) == {
         2: (51, 0, 30),
-        4: (70, 9, 2),
-        6: (64, 17, 0),
+        4: (79, 9, 2),
+        6: (81, 17, 0),
     }[arm]

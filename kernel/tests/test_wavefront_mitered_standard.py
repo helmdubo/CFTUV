@@ -18,8 +18,13 @@
 | разность = сумме `alpha^2`, когда квадраты не пересеклись| `..._deficit_is_the_whole_budget_...` |
 | разность МЕНЬШЕ суммы, и обе причины разделены          | `..._deficit_falls_below_...` |
 | модель полос — это и есть `RawCoverage` конвейера        | `..._strip_model_is_the_raw_coverage_...` |
-| не поддержанные фигуры названы исходом, а не обойдены    | `..._named_refusal_...`, `..._holes_2_...` |
-| крест ломает сборщик граней, и это нашёл эталон          | `..._cross_breaks_the_face_assembler_...` |
+| не поддержанные фигуры названы исходом, а не обойдены    | `..._named_refusal_...` |
+| `holes_2` дошёл до эталона, которого раньше не достигал  | `..._holes_2_queue_now_reaches_...` |
+| крест сходится с эталоном на всей сетке 3..9             | `..._cross_now_agrees_with_...` |
+
+Пропущенных строк в сверке очереди с эталоном НЕТ НИ ОДНОЙ. Оговорка про
+`holes_2` («очередь до счёта не дошла») снята срезом, сменившим ключ участника
+с несущей прямой на вхождение ребра.
 
 Точка семейства названа явно и здесь тоже: эталон МИТРОВАННЫЙ. Круглый отступ
 (Минковский, «эрозия») даёт третье число `43 + pi/4` и эталоном не является;
@@ -70,6 +75,10 @@ LADDER = {
     "ell": ("1", "3/2", "2", "3"),
     "hole_1": ("1", "2", "3", "6"),
     "holes_2": ("1", "2", "3"),
+    # Крест вошёл в корпус этим срезом. Ступени 3 и 4 взяты не для полноты: при
+    # alpha = 3 квадраты `alpha^2` четырёх вогнутых вершин ПЕРЕСЕКАЮТСЯ (24
+    # против бюджета 36), а при alpha = 4 покрытие уже вся фигура.
+    "cross": ("1", "2", "3", "4"),
     "staircase": ("1", "2", "4", "5"),
     "u_shape": ("1", "2", "3", "5"),
     "double_notch": ("1", "3/2", "2", "3", "4"),
@@ -99,6 +108,10 @@ EXPECTED = {
     ("holes_2", "1"): ("188", "180", "8", "8", "8"),
     ("holes_2", "2"): ("384", "352", "32", "32", "32"),
     ("holes_2", "3"): ("588", "516", "72", "72", "72"),
+    ("cross", "1"): ("72", "68", "4", "4", "4"),
+    ("cross", "2"): ("136", "120", "16", "16", "16"),
+    ("cross", "3"): ("168", "144", "24", "24", "36"),
+    ("cross", "4"): ("168", "144", "24", "24", "64"),
     ("staircase", "1"): ("44", "42", "2", "2", "2"),
     ("staircase", "2"): ("80", "72", "8", "8", "8"),
     ("staircase", "4"): ("96", "96", "0", "32", "32"),
@@ -256,9 +269,11 @@ def test_the_queue_coverage_equals_the_independent_mitered_standard_exactly(
 
     standard = _standard(polygon, alpha)
     queue = _queue_area(polygon, alpha)
-    if queue is None:
-        assert name == "holes_2", f"{name}: очередь молча пропала при alpha={alpha}"
-        return
+    # Пропусков больше НЕТ ни одного. Раньше здесь стояла оговорка про `holes_2`:
+    # сборщик граней отказывал на нём, потому что ключом участника была несущая
+    # прямая, а у рёбер соседних дыр она общая. Ключ стал вхождением ребра, и
+    # три строки `holes_2` перешли из «сравнивать нечем» в «совпало точно».
+    assert queue is not None, f"{name}: очередь не дошла при alpha={alpha}"
     assert queue == standard.mitered_covered, (
         f"{name} при alpha={alpha}: очередь {queue}, эталон "
         f"{standard.mitered_covered}, разность {queue - standard.mitered_covered}"
@@ -346,6 +361,8 @@ def test_the_deficit_is_the_whole_budget_where_the_reflex_squares_are_disjoint()
         ("holes_2", "1", "8"),
         ("holes_2", "2", "32"),
         ("holes_2", "3", "72"),
+        ("cross", "1", "4"),
+        ("cross", "2", "16"),
         ("staircase", "1", "2"),
         ("staircase", "2", "8"),
         ("u_shape", "1", "2"),
@@ -391,6 +408,8 @@ def test_the_deficit_falls_below_the_budget_when_the_reflex_squares_intersect():
                 )
             )
     assert measured == [
+        ("cross", "3", "24", "36"),
+        ("cross", "4", "24", "64"),
         ("staircase", "5", "39", "50"),
         ("double_notch", "3", "33", "36"),
         ("double_notch", "4", "44", "64"),
@@ -526,31 +545,39 @@ def test_the_strip_model_is_the_raw_coverage_of_the_pairwise_path(
 # --------------------------------------------------------------------------
 
 
-def test_the_holes_2_standard_exists_where_the_face_assembler_refuses():
-    """Эталон достаёт дальше очереди, и разрыв назван именем и числом.
+def test_the_holes_2_queue_now_reaches_the_standard_that_used_to_outrun_it():
+    """`holes_2` перешёл из «эталон достаёт дальше» в «оба дают одно и то же».
 
-    `holes_2` — прямоугольник с двумя квадратными дырами, рёбра соседних дыр
-    коллинеарны и одной длины, поэтому ключ участника их не различает и сборщик
-    граней отказывает `SUPPORT_LINE_SHARED_BY_SEVERAL_EDGES` ДО всякого счёта.
-    Эталон при этом считается и говорит, чего именно очередь не сказала: 188, 384,
-    588 против 180, 352, 516 у полос, восемь вогнутых вершин, разность `8*alpha^2`.
+    Было: рёбра соседних дыр коллинеарны и ОДНОЙ длины, ключом участника
+    служила несущая прямая `(a, b, c, q)`, и сборщик отказывал
+    `SUPPORT_LINE_SHARED_BY_SEVERAL_EDGES` ДО всякого счёта. Эталон при этом
+    считался и говорил, чего очередь не сказала: 188, 384, 588 против 180, 352,
+    516 у полос.
+
+    Стало: ключ участника — вхождение ребра, грани собираются, и очередь даёт
+    ровно те же 188, 384, 588. Это и есть независимая проверка починки: эталон
+    посчитан в `mitered_standard.py` точными дробями через вписанные
+    прямоугольники и про сборщик граней не знает ничего.
     """
 
     polygon = dict(named_corpus())["holes_2"]
     partition = build_faces(polygon, build_skeleton(polygon))
-    assert partition.outcome is FaceOutcome.SUPPORT_LINE_SHARED_BY_SEVERAL_EDGES
-    assert partition.faces == ()
+    assert partition.outcome is FaceOutcome.EXACT, partition.detail
+    assert len(partition.faces) == 12
+    assert partition.area_defect.terms == ()
 
     got = []
     for alpha in ("1", "2", "3"):
         standard = _standard(polygon, Fraction(alpha))
         assert standard.reflex_count == 8
         assert standard.strip_deficit == 8 * Fraction(alpha) ** 2
-        got.append((standard.mitered_covered, standard.strip_covered))
+        queue = _queue_area(polygon, Fraction(alpha))
+        assert queue == standard.mitered_covered, alpha
+        got.append((standard.mitered_covered, standard.strip_covered, queue))
     assert got == [
-        (Fraction(188), Fraction(180)),
-        (Fraction(384), Fraction(352)),
-        (Fraction(588), Fraction(516)),
+        (Fraction(188), Fraction(180), Fraction(188)),
+        (Fraction(384), Fraction(352), Fraction(384)),
+        (Fraction(588), Fraction(516), Fraction(588)),
     ]
 
 

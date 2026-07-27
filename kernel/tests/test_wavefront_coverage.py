@@ -25,21 +25,17 @@ from cftuv_envelope.wavefront.coverage import (
     coverage_at,
 )
 from cftuv_envelope.wavefront.event_time import SupportLineV1
-from cftuv_envelope.wavefront.faces import FaceOutcome, build_faces, line_key, polygon_edges
+from cftuv_envelope.wavefront.faces import FaceOutcome, build_faces
 from cftuv_envelope.wavefront.polygon import PolygonV1
 from cftuv_envelope.wavefront.sqrt_sum import SqrtSumV1
 
 from wavefront_cases import named_corpus
 
 
-def _mapped_corpus():
-    for name, polygon in named_corpus():
-        keys = [line_key(line) for _, _, line in polygon_edges(polygon)]
-        if len(set(keys)) == len(keys):
-            yield name, polygon
-
-
-CORPUS = tuple(_mapped_corpus())
+# Корпус ЦЕЛИКОМ. Отбор «фигуры с различными несущими прямыми» держался на
+# том, что ключом участника была прямая; ключ стал вхождением ребра, и `holes_2`
+# доходит до покрытия наравне со всеми.
+CORPUS = named_corpus()
 CORPUS_IDS = tuple(name for name, _ in CORPUS)
 
 
@@ -160,7 +156,7 @@ def test_the_coverage_of_an_unproven_partition_is_refused_not_invented():
     polygon = PolygonV1.build(((0, 0), (8, 0), (8, 8), (0, 8)))
     partition = replace(
         _partition(polygon),
-        outcome=FaceOutcome.SUPPORT_LINE_SHARED_BY_SEVERAL_EDGES,
+        outcome=FaceOutcome.TWO_EDGES_SHARE_ONE_SPAN,
     )
     coverage = coverage_at(partition, Fraction(1))
     assert coverage.outcome is CoverageOutcome.PARTITION_IS_NOT_EXACT
