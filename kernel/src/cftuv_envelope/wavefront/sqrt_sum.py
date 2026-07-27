@@ -186,12 +186,39 @@ class SqrtSumV1:
         return SqrtSumV1(((1, value),)) if value else SqrtSumV1(())
 
     @staticmethod
-    def radical(coefficient: Fraction | int, radicand: int) -> "SqrtSumV1":
-        """`coefficient * sqrt(radicand)`, приведённое к канонической форме."""
+    def radical(
+        coefficient: Fraction | int, radicand: Fraction | int
+    ) -> "SqrtSumV1":
+        """`coefficient * sqrt(radicand)`, приведённое к канонической форме.
+
+        Радиканд бывает РАЦИОНАЛЬНЫМ, и это не послабление типа, а требование
+        входа. Квадрат скорости фронта `q` равен `(s/|n|)^2 * |d|^2`, и у
+        полевого патча `(s/|n|)^2` — дробь со знаменателем 844687660141 либо
+        1439659412197 (оба БЕСКВАДРАТНЫ), поэтому целым `q` может стать лишь
+        при ребре длиной в сам знаменатель узлов решётки. Доступно 942 195 при
+        самом мелком допустимом шаге окна — меньше в 896 510 раз. Целочисленный
+        радиканд означал бы «полевой вход не отображается», а не «типы строже».
+
+        Приведение точное и однострочное: `sqrt(p/r) = (1/r)*sqrt(p*r)`, потому
+        что `p/r = p*r/r^2` и `r > 0`. Знаменатель уезжает в коэффициент, где
+        `Fraction` его держит и так, а под корнем остаётся целое, и всё, что
+        ниже — бесквадратное разложение, сопряжение, оболочка — работает без
+        единой правки.
+
+        На ЦЕЛОМ радиканде ветка не выполняется вовсе, поэтому прежний путь
+        остаётся побитово тем же: `Fraction(4).denominator == 1`, и `int(4)`
+        возвращает то же самое `4`, которое сюда приходило раньше. Ровно этим
+        сохраняется неподвижность `FROZEN_DIGESTS`.
+        """
 
         coefficient = Fraction(coefficient)
         if coefficient == 0 or radicand == 0:
             return SqrtSumV1(())
+        if isinstance(radicand, Fraction) and radicand.denominator != 1:
+            coefficient /= radicand.denominator
+            radicand = radicand.numerator * radicand.denominator
+        else:
+            radicand = int(radicand)
         outside, inside = squarefree_split(radicand)
         return SqrtSumV1(((inside, coefficient * outside),))
 

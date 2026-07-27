@@ -43,8 +43,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from fractions import Fraction
 
 from ..robust.predicates import orient2d
+from .event_time import (
+    NegativeSpeedError,
+    NonRationalSpeedError,
+    normalized_speed,
+)
 
 
 class PolygonOutcome(str, Enum):
@@ -60,11 +66,19 @@ class PolygonOutcome(str, Enum):
     LOOP_SPEED_COUNT_DOES_NOT_MATCH_EDGES = (
         "LOOP_SPEED_COUNT_DOES_NOT_MATCH_EDGES"
     )
-    # `q` обязано быть целым: под корнем у `SqrtSumV1` стоит целое, и дробное
-    # `q` пришлось бы округлять — то есть менять задачу молча. `bool` тоже
-    # отвергается, хотя формально он `int`: `(True, False, ...)` означало бы
-    # «скорости 1 и 0», а написать это хотели как «источник и стена».
-    LOOP_SPEED_IS_NOT_INTEGER = "LOOP_SPEED_IS_NOT_INTEGER"
+    # `q` обязано быть РАЦИОНАЛЬНЫМ. Прежде здесь стояло требование целого
+    # (`LOOP_SPEED_IS_NOT_INTEGER`), и оно было границей `SqrtSumV1`, а не
+    # свойством задачи: закон прихода со скоростью `s` даёт `q = (s/|n|)^2 *
+    # |d|^2`, и у полевого патча знаменатель этой дроби БЕСКВАДРАТЕН, поэтому
+    # целым `q` не станет ни при каком допустимом шаге решётки. Требование
+    # снято тождеством `sqrt(p/r) = (1/r)*sqrt(p*r)`, а не округлением.
+    #
+    # `bool` отвергается по-прежнему, хотя формально он `int`: `(True, False,
+    # ...)` означало бы «скорости 1 и 0», а написать это хотели как «источник
+    # и стена». `float` отвергается тем же членом: приблизительное `q`
+    # отравило бы каноническую форму, у которой единственность держится на
+    # точных дробях.
+    LOOP_SPEED_IS_NOT_RATIONAL = "LOOP_SPEED_IS_NOT_RATIONAL"
     LOOP_SPEED_IS_NEGATIVE = "LOOP_SPEED_IS_NEGATIVE"
     # Ни одного ребра-источника: фронту неоткуда пойти. Отдельный исход, потому
     # что иначе очередь ответила бы `WAVEFRONT_LEFT_UNRESOLVED` — верно по
@@ -123,7 +137,7 @@ class LoopV1:
     """
 
     points: tuple[tuple[int, int], ...]
-    speeds_squared: tuple[int, ...] | None = None
+    speeds_squared: tuple[int | Fraction, ...] | None = None
 
     def __post_init__(self) -> None:
         if len(self.points) < 3:
@@ -151,6 +165,13 @@ class LoopV1:
         Проверка стоит отдельным методом, потому что `__post_init__` иначе
         перерос бы бюджет функции, а дробить условия по вызывающим значило бы
         завести второе место, где пометка может пройти незамеченной.
+
+        Пометка ещё и НОРМИРУЕТСЯ здесь: дробь со знаменателем 1 становится
+        `int`. Иначе `Fraction(4)` и `4` были бы двумя разными пометками при
+        одном числе, и петля с одной и той же геометрией давала бы два разных
+        `line_key`, то есть два разных дайджеста. Нормировка одна на репозиторий
+        (`event_time.normalized_speed`), потому что второе её место немедленно
+        разошлось бы с первым.
         """
 
         speeds = self.speeds_squared
@@ -161,18 +182,22 @@ class LoopV1:
                 PolygonOutcome.LOOP_SPEED_COUNT_DOES_NOT_MATCH_EDGES,
                 f"{len(speeds)} скоростей при {len(self.points)} рёбрах",
             )
+        normalized: list[int | Fraction] = []
         for value in speeds:
-            if isinstance(value, bool) or not isinstance(value, int):
+            try:
+                normalized.append(normalized_speed(value))
+            except NonRationalSpeedError:
                 raise PolygonRejected(
-                    PolygonOutcome.LOOP_SPEED_IS_NOT_INTEGER, repr(value)
-                )
-            if value < 0:
+                    PolygonOutcome.LOOP_SPEED_IS_NOT_RATIONAL, repr(value)
+                ) from None
+            except NegativeSpeedError:
                 raise PolygonRejected(
                     PolygonOutcome.LOOP_SPEED_IS_NEGATIVE, str(value)
-                )
+                ) from None
+        object.__setattr__(self, "speeds_squared", tuple(normalized))
 
     @property
-    def edge_speeds_squared(self) -> tuple[int, ...]:
+    def edge_speeds_squared(self) -> tuple[int | Fraction, ...]:
         """`q` каждого ребра, с умолчанием, уже раскрытым в числа."""
 
         if self.speeds_squared is not None:
@@ -289,7 +314,11 @@ class PolygonV1:
     def reflex_count(self) -> int:
         return sum(sum(loop.reflex_flags()) for loop in self.loops)
 
-    def edges(self) -> tuple[tuple[tuple[int, int], tuple[int, int], int], ...]:
+    def edges(
+        self,
+    ) -> tuple[
+        tuple[tuple[int, int], tuple[int, int], int | Fraction], ...
+    ]:
         """Рёбра всех петель: концы и `q`, в порядке обхода петель.
 
         ЕДИНСТВЕННОЕ место, откуда потребители берут скорость ребра. Пока
@@ -299,7 +328,9 @@ class PolygonV1:
         потерю невозможной, а не маловероятной.
         """
 
-        records: list[tuple[tuple[int, int], tuple[int, int], int]] = []
+        records: list[
+            tuple[tuple[int, int], tuple[int, int], int | Fraction]
+        ] = []
         for loop in self.loops:
             points = loop.points
             speeds = loop.edge_speeds_squared
@@ -360,7 +391,9 @@ def with_source_spans(
 
 def with_edge_speeds(
     polygon: PolygonV1,
-    speeds: tuple[tuple[tuple[int, int], tuple[int, int], int], ...],
+    speeds: tuple[
+        tuple[tuple[int, int], tuple[int, int], int | Fraction], ...
+    ],
 ) -> PolygonV1:
     """Тот же полигон с ПРОИЗВОЛЬНЫМИ `q` у перечисленных рёбер, прочие стены.
 
