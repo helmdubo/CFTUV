@@ -554,68 +554,41 @@ def test_the_holes_2_standard_exists_where_the_face_assembler_refuses():
     ]
 
 
-def test_the_cross_breaks_the_face_assembler_and_the_standard_is_what_showed_it():
-    """Находка среза: на кресте сборщик граней ломается, и ломается ДВУМЯ способами.
+def test_the_cross_now_agrees_with_the_independent_standard_on_the_whole_grid():
+    """Крест был находкой среза и стал его ПРОВЕРКОЙ, и проверка независимая.
 
-    Крест — прямоугольная фигура с четырьмя вогнутыми вершинами, у которой все
-    двенадцать несущих прямых различны (ключ включает `q = |d|^2`, поэтому
-    коллинеарные рёбра РАЗНОЙ длины ключом различаются). Тем не менее:
+    Эталон посчитан вне обоих путей — точными дробями, замкнутой формой через
+    вписанные прямоугольники. Он не знает ни про очередь событий, ни про
+    сборщик граней, поэтому совпадение с ним не может быть следствием общей
+    ошибки. Именно он показал, что на кресте сборщик ломается.
 
-    | крест        | что делает очередь | число |
-    |--------------|--------------------|-------|
-    | `4 x 4` блок | `WAVEFRONT_LEFT_UNRESOLVED` | граней нет |
-    | `5 x 4` блок | `FACE_AREA_DOES_NOT_REPRODUCE_POLYGON` | удвоенный дефект −1 |
-    | `6 x 4` блок | `FACE_AREA_DOES_NOT_REPRODUCE_POLYGON` | удвоенный дефект −4 |
+    История, ради которой запись остаётся видимой:
 
-    Второй случай БЫЛ тихим: исход говорил `EXACT`, а сумма площадей граней
-    меньше площади фигуры на 1/2 либо 2. Ровно поэтому покрытие расходилось с
-    эталоном: при alpha = 3 крест `5 x 4` давал 303/2 вместо 152, крест `6 x 4` —
-    166 вместо 168, и разность в точности равна дефекту разбиения, а не профилю
-    вогнутого угла. Оба поиска split-кандидатов дают один и тот же скелет из 18
-    узлов, значит дело в СБОРЩИКЕ, а не в очереди событий.
+    | крест        | было | стало |
+    |--------------|------|-------|
+    | `4 x 4` блок | `WAVEFRONT_LEFT_UNRESOLVED`, граней нет | `EXACT`, покрытие 72 / 136 / 136 |
+    | `5 x 4` блок | `FACE_AREA_DOES_NOT_REPRODUCE_POLYGON`, дефект −1, покрытие 303/2 вместо 152 | `EXACT`, 152 |
+    | `6 x 4` блок | то же, дефект −4, покрытие 166 вместо 168 | `EXACT`, 168 |
 
-    Теперь тихого нет: `build_faces` зовёт собственную границу 1 и отказывает
-    названным исходом с числом потери в `detail`. Утёкшие числа тест всё равно
-    предъявляет — на партиции, которой ВРУЧНУЮ возвращён ярлык `EXACT`. Это не
-    обход защиты, а её свидетельство: видно ровно то, что защита остановила.
+    Проверяется не три строки, а вся сетка `wide, tall` из 3..9 на четырёх
+    alpha: 49 * 4 = 196 сравнений с эталоном, и все точные.
     """
 
-    square_block = cross(wide=4, tall=4)
-    skeleton = build_skeleton(square_block)
-    assert skeleton.outcome is SkeletonOutcome.WAVEFRONT_LEFT_UNRESOLVED
-    partition = build_faces(square_block, skeleton)
-    assert partition.outcome is FaceOutcome.SKELETON_IS_NOT_EXACT
-    # Эталон на той же фигуре считается и даёт ответ: 72 / 136 / 136.
     assert [
-        _standard(square_block, Fraction(alpha)).mitered_covered
+        _standard(cross(wide=4, tall=4), Fraction(alpha)).mitered_covered
         for alpha in (1, 2, 3)
     ] == [Fraction(72), Fraction(136), Fraction(136)]
 
-    for wide, defect, covered, queue in (
-        (5, Fraction(-1), Fraction(152), Fraction(303, 2)),
-        (6, Fraction(-4), Fraction(168), Fraction(166)),
-    ):
-        figure = cross(wide=wide, tall=4)
-        partition = build_faces(figure, build_skeleton(figure))
-        assert partition.outcome is (
-            FaceOutcome.FACE_AREA_DOES_NOT_REPRODUCE_POLYGON
-        )
-        assert not partition.area_reproduces_polygon
-        assert partition.area_defect.as_rational() == defect
-        # Причина отказа — число, а не слово: иначе −1 и −4 не различить.
-        assert partition.detail == str(defect)
-        standard = _standard(figure, Fraction(3))
-        assert standard.mitered_covered == covered
-        # Ярлык возвращается вручную ровно затем, чтобы предъявить утечку,
-        # которую защита теперь останавливает. Через `build_faces` она наружу
-        # больше не выходит — это проверяет следующий assert.
-        relabelled = replace(partition, outcome=FaceOutcome.EXACT)
-        assert (
-            coverage_at(relabelled, Fraction(3)).doubled_area.as_rational() / 2
-        ) == queue
-        # А по-настоящему покрытие отказывает и ничего не считает.
-        refused = coverage_at(partition, Fraction(3))
-        assert refused.outcome is CoverageOutcome.PARTITION_IS_NOT_EXACT
-        assert refused.doubled_area.is_zero
-        # Расхождение покрытия — это ровно дефект разбиения, ничего сверх него.
-        assert covered - queue == -defect / 2
+    compared = 0
+    for wide in range(3, 10):
+        for tall in range(3, 10):
+            figure = cross(wide=wide, tall=tall)
+            partition = build_faces(figure, build_skeleton(figure))
+            assert partition.outcome is FaceOutcome.EXACT, (wide, tall)
+            assert partition.area_reproduces_polygon, (wide, tall)
+            for alpha in (Fraction(0), Fraction(1), Fraction(2), Fraction(3)):
+                queue = _queue_area(figure, alpha)
+                standard = _standard(figure, alpha)
+                assert queue == standard.mitered_covered, (wide, tall, alpha)
+                compared += 1
+    assert compared == 49 * 4

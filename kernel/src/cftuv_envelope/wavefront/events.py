@@ -151,11 +151,11 @@ def cluster_by_point(
         key = (event.point.x.terms, event.point.y.terms)
         buckets.setdefault(key, []).append(event)
     return tuple(
-        tuple(buckets[key]) for key in sorted(buckets, key=_point_sort_key)
+        tuple(buckets[key]) for key in sorted(buckets, key=point_sort_key)
     )
 
 
-def _point_sort_key(key: tuple) -> tuple:
+def point_sort_key(key: tuple) -> tuple:
     """Полный порядок на канонических точках. Только для воспроизводимости."""
 
     return tuple(

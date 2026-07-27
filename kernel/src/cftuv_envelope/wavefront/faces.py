@@ -187,26 +187,77 @@ def projection(point: Point, dx: int, dy: int) -> SqrtSumV1:
 def order_along_edge(
     points: tuple[Point, ...], dx: int, dy: int
 ) -> tuple[Point, ...]:
-    """Порядок узлов грани: по УБЫВАНИЮ проекции на ребро, потом на нормаль.
+    """Порядок узлов грани: по УБЫВАНИЮ проекции на ребро; ничьи — по ГЛУБИНЕ.
 
     Вынесено из `build_faces` отдельной функцией не для красоты: стенд, который
     проверяет ГИПОТЕЗУ о причине дефекта, обязан сортировать тем же самым
     правилом, а не своей копией. Копия доказывала бы про копию.
 
-    Второй ключ не украшение: два узла грани могут лежать на одном
-    перпендикуляре к ребру, и без него порядок зависел бы от того, в каком
-    порядке события легли в список.
+    Ничья по проекции — не редкость и не шум: она означает, что кусок дальней
+    границы грани ПЕРПЕНДИКУЛЯРЕН опорному ребру. Такой кусок рождается там, где
+    вершина фронта с развёрнутым углом скользит по своей прямой, — то есть ровно
+    в вырожденной точке, ради которой сделан срез.
+
+    Разрешить ничью одним знаком нельзя, и это ИЗМЕРЕНО, а не выведено: на
+    кресте один и тот же перпендикулярный кусок `(8,6)-(7,6)` входит в грань
+    ребра 1 и в грань ребра 5, и обходится он в них В РАЗНОМ ПОРЯДКЕ. Любое
+    фиксированное «сначала глубже» или «сначала мельче» ошибается ровно на
+    половине граней: 18 вместо 23 и 58 вместо 71.
+
+    Правило, которое верно для обеих: **глубина вдоль обхода УНИМОДАЛЬНА.**
+    Дальняя граница грани — это следы двух концов движущегося отрезка, у каждого
+    глубина равна времени и потому монотонна. Обход идёт от `end` вверх по следу
+    одного конца до самой дальней точки и обратно вниз по следу другого. Значит
+    группы до самой глубокой обходятся ПО ВОЗРАСТАНИЮ глубины, после неё — по
+    убыванию. Когда ничьих нет, каждая группа состоит из одного узла и правило
+    возвращает прежний порядок в точности.
+
+    ГРАНИЦА правила названа, а не замолчана: оно опирается на то, что самая
+    глубокая точка обхода лежит в КОНЦЕ своей группы. Если вся дальняя граница
+    грани перпендикулярна ребру (группа одна, и самая глубокая точка стоит в её
+    начале), правило её перевернёт, и грань выйдет вырожденной либо вывернутой.
+    Такое встречается на кресте при `|wide - tall| >= 2 * arm`, и там оно ловится
+    громко — `FACE_IS_NOT_POSITIVE`, а не тихой потерей площади.
     """
 
-    def compare(left: Point, right: Point) -> int:
-        along = projection(right, dx, dy) - projection(left, dx, dy)
-        sign = along.sign()
-        if sign:
-            return sign
-        across = projection(right, -dy, dx) - projection(left, -dy, dx)
-        return across.sign()
+    def depth(point: Point) -> SqrtSumV1:
+        """Удаление от несущей прямой ребра. Оно же — время прихода фронта."""
 
-    return tuple(sorted(points, key=cmp_to_key(compare)))
+        return projection(point, -dy, dx)
+
+    buckets: dict[tuple, list[Point]] = {}
+    for point in points:
+        buckets.setdefault(projection(point, dx, dy).terms, []).append(point)
+    lanes = sorted(
+        buckets,
+        key=cmp_to_key(
+            lambda left, right: (SqrtSumV1(right) - SqrtSumV1(left)).sign()
+        ),
+    )
+
+    deepest = 0
+    best: SqrtSumV1 | None = None
+    for index, lane in enumerate(lanes):
+        for point in buckets[lane]:
+            if best is None or (depth(point) - best).sign() > 0:
+                deepest, best = index, depth(point)
+
+    ordered: list[Point] = []
+    for index, lane in enumerate(lanes):
+        rising = index <= deepest
+        ordered.extend(
+            sorted(
+                buckets[lane],
+                key=cmp_to_key(
+                    lambda left, right, rising=rising: (
+                        (depth(left) - depth(right)).sign()
+                        if rising
+                        else (depth(right) - depth(left)).sign()
+                    )
+                ),
+            )
+        )
+    return tuple(ordered)
 
 
 def face_contour(

@@ -39,6 +39,24 @@ BSD-3-Clause, C++, код не переносился) и совпадает с 
 `EXHAUSTIVE` не «старый код, который забыли убрать»: оптимизация законна ровно
 настолько, насколько даёт тот же ответ, а сравнивать не с чем, если эталон
 удалить.
+
+ВЫРОЖДЕННАЯ ТОЧКА. Разрезов у уровня на самом деле два вида, и второй до сих пор
+разбирался первым — неверно. Кандидат, чья точка совпала с КОНЦОМ рассекаемого
+отрезка фронта, означает, что вершина встретила не ребро, а другую ВЕРШИНУ.
+Разрезом такая встреча даёт отрезок-близнец нулевой длины, тот остаётся жить в
+LAV и уводит соседей по ложной траектории; на кресте из-за этого терялось
+пересечение гребней. Теперь встреча разбирается пересоединением: все
+встретившиеся вершины умирают, а их концы сшиваются заново по ЛУЧАМ — концы на
+одном луче аннигилируют (схлопнувшийся по всей длине рукав), остаток сшивается в
+единственную оставшуюся пару.
+
+Оттуда же берётся третий вид вершины фронта. У стыка двух коллинеарных
+СОНАПРАВЛЕННЫХ рёбер угол ровно развёрнутый, точки пересечения нет — но
+биссектриса развёрнутого угла перпендикулярна сторонам, поэтому вершина идёт
+поперёк общей прямой, не сдвигаясь вдоль неё. Она хранит свою проекцию вдоль
+прямой (`_Vertex.sliding`), а место и времена ей считают `sliding_point` и
+`sliding_time`, а не тройка прямых: тройке тут задан неверный вопрос, две её
+прямые — одна и та же движущаяся прямая.
 """
 
 from __future__ import annotations
@@ -47,6 +65,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from fractions import Fraction
 from functools import cmp_to_key
+from math import gcd
 
 from .event_time import (
     ZERO_TIME,
@@ -57,8 +76,16 @@ from .event_time import (
     compare_times,
     concurrency_time,
     event_point,
+    sliding_point,
+    sliding_time,
 )
-from .events import CandidateEventV1, EventKind, EventQueueV1, cluster_by_point
+from .events import (
+    CandidateEventV1,
+    EventKind,
+    EventQueueV1,
+    cluster_by_point,
+    point_sort_key as _point_sort_key,
+)
 from .motorcycle import (
     MotorcycleGraphV1,
     TraceCandidateIndexV1,
@@ -122,13 +149,13 @@ class CandidateRefusal(str, Enum):
     # сторону: угол ровно развёрнутый. Пересечения двух прямых нет, и позиция
     # вершины ВДОЛЬ прямой парой рёбер не определяется вовсе.
     NO_RULE_JOINT_IS_CODIRECTIONAL = "NO_RULE_JOINT_IS_CODIRECTIONAL"
-    # Разрез пришёлся ровно в КОНЕЦ рассекаемого отрезка фронта, то есть
-    # reflex-вершина встретила не ребро, а другую вершину фронта. Это событие
-    # вершины, а не разрез; разрезом оно обрабатывается неверно — рождается
-    # отрезок-близнец нулевой длины.
-    NO_RULE_SPLIT_HITS_FRONT_VERTEX = "NO_RULE_SPLIT_HITS_FRONT_VERTEX"
     # Отрезок, который собирались резать, к моменту применения потерял концы.
     NO_RULE_SPAN_VANISHED = "NO_RULE_SPAN_VANISHED"
+    # Вершины фронта встретились в одной точке, а сшить их концы однозначно
+    # нечем: два конца одного рода легли на один луч (фронт сложился вдвое) либо
+    # среди встретившихся оказались соседи по LAV. Кандидаты возвращаются
+    # прежнему разбору — разрезу, — и это признанный долг, а не решение.
+    NO_RULE_MEETING_NOT_RECONNECTABLE = "NO_RULE_MEETING_NOT_RECONNECTABLE"
 
 
 def refusal_counter(reason: CandidateRefusal) -> str:
@@ -169,6 +196,13 @@ class _Vertex:
     point: EventPointV1
     reflex: bool
     alive: bool = True
+    # Проекция ВДОЛЬ общей прямой соседних рёбер, если те коллинеарны и
+    # сонаправлены. У такой вершины угол ровно развёрнутый, точки пересечения
+    # двух прямых нет, а есть прямая плюс это сохраняющееся число: биссектриса
+    # развёрнутого угла перпендикулярна сторонам, поэтому вершина скользит по
+    # прямой, не сдвигаясь вдоль неё. `None` — обычная вершина либо стык
+    # антипараллельный, у которого позиции нет вовсе.
+    sliding: SqrtSumV1 | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,6 +277,10 @@ class _Builder:
         # Reflex-вершины, за которые индекс НЕ отвечает: их кандидаты всегда
         # перебираются полностью. Забыть их означало бы потерять события молча.
         self.unindexed_reflex: set[int] = set()
+        # Вершины с развёрнутым углом. Индекс трасс за них не отвечает (трассы
+        # определены на reflex-вершинах ВХОДА), а кандидаты им нужны: развёрнутая
+        # вершина встречает встречный фронт ровно так же, как вогнутая.
+        self.sliding_vertices: set[int] = set()
         # Время уже снятого уровня. Кандидат раньше него — событие в прошлом
         # фронта, а не будущее: очередь его уже прошла. Без этой отсечки
         # ВЫДАВАЕМОЕ время переставало быть неубывающим на входах, где фронт
@@ -263,10 +301,9 @@ class _Builder:
             "coincident_split_targets": 0,
             "peaks": 0,
             "ridges": 0,
-            # Отрезки фронта нулевой длины, рождённые разрезом в конец отрезка.
-            # Это не «мелочь учёта»: близнец нулевой длины живёт в LAV и уводит
-            # соседей по ложной траектории.
-            "zero_length_front_segments": 0,
+            # Встречи ВЕРШИН фронта, разобранные пересоединением. До среза они
+            # молча обрабатывались как разрезы и рождали отрезки нулевой длины.
+            "vertex_meeting_events": 0,
         }
         self.counters.update({name: 0 for name in REFUSAL_COUNTERS})
         self._seed()
@@ -380,18 +417,59 @@ class _Builder:
 
     def _enqueue_for(self, vertex: _Vertex) -> None:
         self._enqueue_edge_event(vertex)
-        if vertex.reflex:
+        if vertex.reflex or vertex.sliding is not None:
             self._enqueue_split_events(vertex)
+
+    def _edge_event_time(
+        self, vertex: _Vertex, peer: _Vertex
+    ) -> tuple[EventTimeV1 | None, EventTimeOutcome]:
+        """Момент встречи двух соседей фронта. Три случая, и они РАЗНЫЕ.
+
+        Обычная пара — тройка прямых (`prev` вершины, общее ребро, `next`
+        соседа) сходится в точке, и это `concurrency_time`.
+
+        Если один из двух — вершина с развёрнутым углом, тройка вырождается:
+        две её прямые оказываются ОДНОЙ движущейся прямой, определитель равен
+        нулю тождественно, и формула отвечает «сошлись навсегда» вместо времени.
+        Вопрос ей задан неверный. Верный вопрос — когда обычный сосед доедет до
+        закреплённой проекции скользящего, и на него отвечает `sliding_time`.
+
+        Если развёрнуты ОБА, они стоят на одной прямой и идут вместе: встреча
+        либо была всегда (проекции совпали), либо не будет никогда. Оба ответа
+        названы, и ни один не молчит.
+        """
+
+        if vertex.sliding is not None and peer.sliding is not None:
+            here = self._position(vertex, self.now)
+            there = self._position(peer, self.now)
+            if (here.x - there.x).is_zero and (here.y - there.y).is_zero:
+                # Оба уже в одной точке и идут вместе: отрезок между ними имеет
+                # нулевую длину, и событие не «когда-нибудь», а СЕЙЧАС.
+                return self.now, EventTimeOutcome.EXACT
+            return None, EventTimeOutcome.WAVEFRONT_TRIPLE_NEVER_CONCURRENT
+        if vertex.sliding is not None:
+            return sliding_time(
+                self.edges[vertex.prev_edge].line,
+                vertex.sliding,
+                self.edges[peer.next_edge].line,
+            )
+        if peer.sliding is not None:
+            return sliding_time(
+                self.edges[peer.prev_edge].line,
+                peer.sliding,
+                self.edges[vertex.prev_edge].line,
+            )
+        return concurrency_time(
+            self.edges[vertex.prev_edge].line,
+            self.edges[vertex.next_edge].line,
+            self.edges[peer.next_edge].line,
+        )
 
     def _enqueue_edge_event(self, vertex: _Vertex) -> None:
         peer = self.vertices[vertex.next]
         if peer.ident == vertex.ident:
             return self._refuse(CandidateRefusal.FILTER_SOLO_VERTEX)
-        time, outcome = concurrency_time(
-            self.edges[vertex.prev_edge].line,
-            self.edges[vertex.next_edge].line,
-            self.edges[peer.next_edge].line,
-        )
+        time, outcome = self._edge_event_time(vertex, peer)
         if outcome is EventTimeOutcome.WAVEFRONT_TRIPLE_NEVER_CONCURRENT:
             return self._refuse(CandidateRefusal.FILTER_TRIPLE_NEVER_CONCURRENT)
         if outcome is not EventTimeOutcome.EXACT or time is None:
@@ -410,7 +488,11 @@ class _Builder:
     def _enqueue_split_events(self, vertex: _Vertex) -> None:
         """Кандидаты с трассы, если индекс за вершину отвечает; иначе перебор."""
 
-        if self.index is not None and self.index.knows_vertex(vertex.ident):
+        if (
+            vertex.sliding is None
+            and self.index is not None
+            and self.index.knows_vertex(vertex.ident)
+        ):
             self._enqueue_splits_from_trace(vertex)
             return
         self.counters["split_search_exhaustive_vertices"] += 1
@@ -435,11 +517,18 @@ class _Builder:
     def _split_candidate(
         self, vertex: _Vertex, edge: _Edge
     ) -> CandidateEventV1 | None:
-        time, outcome = concurrency_time(
-            self.edges[vertex.prev_edge].line,
-            self.edges[vertex.next_edge].line,
-            edge.line,
-        )
+        if vertex.sliding is None:
+            time, outcome = concurrency_time(
+                self.edges[vertex.prev_edge].line,
+                self.edges[vertex.next_edge].line,
+                edge.line,
+            )
+        else:
+            # У развёрнутой вершины двух прямых нет — есть одна и закреплённая
+            # проекция вдоль неё. Тройка тут вырождена, и спрашивать её незачем.
+            time, outcome = sliding_time(
+                self.edges[vertex.prev_edge].line, vertex.sliding, edge.line
+            )
         if outcome is EventTimeOutcome.WAVEFRONT_TRIPLE_NEVER_CONCURRENT:
             return self._refuse(CandidateRefusal.FILTER_TRIPLE_NEVER_CONCURRENT)
         if outcome is not EventTimeOutcome.EXACT or time is None:
@@ -475,22 +564,48 @@ class _Builder:
             and compare_times(time, self.now) >= 0
         )
 
-    def _vertex_position(
+    def _position(
         self, vertex: _Vertex, time: EventTimeV1
     ) -> EventPointV1 | None:
-        """Место вершины в момент `time` — пересечение её двух прямых.
+        """Место вершины в момент `time`. Без счётчика — для внутренних опросов.
 
         Параллельность соседних прямых — не «трудный случай», а ДВА разных
-        вырождения, и путать их нельзя: у одного фронт вывернулся, у другого
-        угол ровно развёрнут. Оба считаются отдельно и оба названы, потому что
-        чинятся они разным.
+        вырождения, и путать их нельзя.
+
+        Сонаправленный стык: угол развёрнутый, вершина скользит по общей прямой
+        с сохраняющейся проекцией вдоль неё — место есть, и оно точное.
+        Антипараллельный: фронт вывернулся, два его отрезка совпали — места нет
+        не потому, что его трудно посчитать, а потому, что его нет.
         """
 
         first = self.edges[vertex.prev_edge].line
         second = self.edges[vertex.next_edge].line
-        if first.a * second.b - second.a * first.b == 0:
-            return self._refuse(_joint_kind(first, second))
-        return event_point(first, second, time)
+        if first.a * second.b - second.a * first.b:
+            return event_point(first, second, time)
+        if vertex.sliding is None:
+            return None
+        return sliding_point(first, vertex.sliding, time)
+
+    def _vertex_position(
+        self, vertex: _Vertex, time: EventTimeV1
+    ) -> EventPointV1 | None:
+        """То же место, но с ИМЕНОВАННЫМ отказом, когда места нет.
+
+        Разделение на две функции не косметика: счётчик обязан считать
+        конфигурации, встреченные ЦИКЛОМ СОБЫТИЙ, а не опросы, которыми стенд и
+        внутренние проверки перебирают вершины. Иначе число отказов зависело бы
+        от того, сколько раз мы посмотрели, а не от того, что случилось.
+        """
+
+        place = self._position(vertex, time)
+        if place is None:
+            self._refuse(
+                _joint_kind(
+                    self.edges[vertex.prev_edge].line,
+                    self.edges[vertex.next_edge].line,
+                )
+            )
+        return place
 
     # ---- геометрические проверки ----------------------------------------
 
@@ -508,8 +623,8 @@ class _Builder:
         if start is None or end is None:
             return False
         here = _project(edge.line, point)
-        low = self._span_end(start, edge, time, at_start=True)
-        high = self._span_end(end, edge, time, at_start=False)
+        low = self._span_end(start, edge, time)
+        high = self._span_end(end, edge, time)
         if low is not None and (here - low).sign() < 0:
             return False
         if high is not None and (high - here).sign() < 0:
@@ -517,16 +632,21 @@ class _Builder:
         return True
 
     def _span_end(
-        self, vertex: _Vertex, edge: _Edge, time: EventTimeV1, *, at_start: bool
+        self, vertex: _Vertex, edge: _Edge, time: EventTimeV1
     ) -> SqrtSumV1 | None:
-        other = self.edges[
-            vertex.prev_edge if at_start else vertex.next_edge
-        ].line
-        if edge.line.a * other.b - other.a * edge.line.b == 0:
-            # Параллельный сосед: с этой стороны отрезок фронта не ограничен.
+        """Проекция конца отрезка фронта, либо `None`, если конца нет.
+
+        Конец отрезка — это сама вершина, поэтому спрашивается её место, а не
+        пересечение двух прямых заново: для обычной вершины это одно и то же
+        число, а для скользящей пересечения не существует и второй способ
+        отвечал бы «граница отсутствует» там, где она есть. Отсутствует она
+        ровно у антипараллельного стыка — у вывернувшегося фронта.
+        """
+
+        place = self._position(vertex, time)
+        if place is None:
             return None
-        position = event_point(edge.line, other, time)
-        return _project(edge.line, position)
+        return _project(edge.line, place)
 
     def _register(self, vertex: _Vertex) -> None:
         self.edge_start[vertex.next_edge] = vertex.ident
@@ -607,8 +727,10 @@ class _Builder:
         self.counters["discarded_stale_candidates"] += len(splits) - len(
             live_splits
         )
-        self._count_splits_that_hit_a_front_vertex(live_splits)
-        separated = self._dedupe_by_vertex(live_splits)
+        meetings, cuts = self._separate_vertex_meetings(live_splits)
+        cuts += self._apply_vertex_meetings(meetings)
+        cuts = [event for event in cuts if self._split_is_live(event)]
+        separated = self._dedupe_by_vertex(cuts)
         if separated is None:
             return
         for edge_id, group in self._group_splits(separated):
@@ -623,40 +745,201 @@ class _Builder:
         for cluster in cluster_by_point(tuple(live_collapses)):
             self._apply_multi_edge(list(cluster))
 
-    def _count_splits_that_hit_a_front_vertex(
+    def _separate_vertex_meetings(
         self, splits: list[CandidateEventV1]
-    ) -> None:
-        """Разрезы, пришедшие ровно в КОНЕЦ отрезка, а не внутрь него.
+    ) -> tuple[dict, list[CandidateEventV1]]:
+        """Отделить встречи ВЕРШИН от настоящих разрезов.
 
-        Такой «разрез» — вовсе не разрез: reflex-вершина встретила не ребро, а
-        другую ВЕРШИНУ фронта, стоящую на его конце. Разрезом это обрабатывается
-        неверно, и неверность видна числом: отрезок-близнец получает нулевую
-        длину, остаётся жить в LAV и уводит соседей по ложной траектории.
+        Кандидат, чья точка совпала с концом рассекаемого отрезка фронта, — не
+        разрез: вершина встретила не ребро, а другую вершину. Разрезом такая
+        встреча обрабатывается неверно, и неверность видна числом — рождается
+        отрезок-близнец нулевой длины, он остаётся жить в LAV и уводит соседей
+        по ложной траектории. Именно так у креста терялось пересечение гребней.
 
         Спрашивается ЗДЕСЬ, до первого применения, и это не вкусовщина: разрез,
         применённый раньше, переписывает концы отрезка соседа, и та же вершина
-        со второго взгляда уже не видна. На кресте разница между «до» и «после»
-        ровно двукратная — 4 против 2.
+        со второго взгляда уже не видна — на кресте видно 2 встречи вместо 4.
+
+        Соседство по LAV пересоединением не описывается — там между вершинами
+        схлопывается ребро, и сосед не остаётся, а умирает. Такой кандидат идёт
+        ПРЕЖНИМ путём, разрезом, и считается под именем; отбросить его нельзя,
+        это измерено (см. `_apply_vertex_meetings`).
         """
 
+        meetings: dict[tuple, dict] = {}
+        cuts: list[CandidateEventV1] = []
         for event in splits:
-            span = (
-                self._edge_start_vertex(event.edge),
-                self._edge_end_vertex(event.edge),
+            met, adjacent = self._front_vertex_met_by(event)
+            if met is None:
+                cuts.append(event)
+                continue
+            if adjacent:
+                # Встреченная вершина — сосед по LAV. Пересоединение её не
+                # описывает (у пересоединения сосед считается остающимся, а он
+                # умирает), поэтому кандидат идёт прежним путём — разрезом.
+                # Отбрасывать его нельзя: измерено, что на фигурах общего
+                # положения это теряет до шести настоящих событий из восьми.
+                self._refuse(CandidateRefusal.NO_RULE_MEETING_NOT_RECONNECTABLE)
+                cuts.append(event)
+                continue
+            key = (event.point.x.terms, event.point.y.terms)
+            entry = meetings.setdefault(
+                key, {"event": event, "vertices": set(), "events": []}
             )
-            for vertex in span:
-                if vertex is None:
-                    continue
-                place = self._vertex_position(vertex, event.time)
-                if place is None:
-                    continue
-                if (
-                    (place.x - event.point.x).is_zero
-                    and (place.y - event.point.y).is_zero
-                ):
-                    self._refuse(CandidateRefusal.NO_RULE_SPLIT_HITS_FRONT_VERTEX)
-                    self.counters["zero_length_front_segments"] += 1
-                    break
+            entry["vertices"].add(event.vertex)
+            entry["vertices"].add(met.ident)
+            entry["events"].append(event)
+        return meetings, cuts
+
+    def _front_vertex_met_by(
+        self, event: CandidateEventV1
+    ) -> tuple[_Vertex | None, bool]:
+        """Вершина фронта, стоящая ровно в точке кандидата, и её соседство.
+
+        Второе значение — «эта вершина является соседом по LAV». Различать
+        обязательно: у соседа встреча означает схлопывание ребра между ними,
+        то есть штатное edge-событие, а у не-соседа — пересоединение.
+        """
+
+        vertex = self.vertices[event.vertex]
+        for other in (
+            self._edge_start_vertex(event.edge),
+            self._edge_end_vertex(event.edge),
+        ):
+            if other is None or other.ident == vertex.ident:
+                continue
+            place = self._position(other, event.time)
+            if place is None:
+                continue
+            if (
+                (place.x - event.point.x).is_zero
+                and (place.y - event.point.y).is_zero
+            ):
+                return other, (
+                    vertex.next == other.ident or other.next == vertex.ident
+                )
+        return None, False
+
+    def _apply_vertex_meetings(
+        self, meetings: dict
+    ) -> list[CandidateEventV1]:
+        """Все встречи вершин этого уровня. Возвращает НЕразобранные кандидаты.
+
+        Порядок обхода — по каноническому ключу точки, значит от порядка входа
+        не зависит. Встречи разных точек независимы: они трогают разные участки
+        LAV.
+
+        Встреча, для которой сшивка не доказана, НЕ отбрасывается и не отказывает
+        всё построение: её кандидаты возвращаются прежнему разбору — разрезу — и
+        считаются под именем. Это признанный долг, а не решение: разрезом такая
+        конфигурация обрабатывается неверно (рождается отрезок нулевой длины), но
+        измерено, что на фигурах общего положения прежний разбор даёт точный
+        ответ, а отказ отнял бы его. Число в счётчике — размер этого долга.
+        """
+
+        deferred: list[CandidateEventV1] = []
+        for key in sorted(meetings, key=_point_sort_key):
+            entry = meetings[key]
+            live = sorted(
+                ident
+                for ident in entry["vertices"]
+                if self.vertices[ident].alive
+            )
+            if len(live) < 2:
+                self.counters["discarded_stale_candidates"] += 1
+                continue
+            meeting = [self.vertices[ident] for ident in live]
+            pairs = _reconnect_by_rays(
+                tuple(
+                    (
+                        _incoming_ray(self.edges[vertex.prev_edge].line),
+                        _outgoing_ray(self.edges[vertex.next_edge].line),
+                        vertex,
+                    )
+                    for vertex in meeting
+                )
+            )
+            if pairs is None or self._meeting_touches_itself(meeting):
+                self._refuse(CandidateRefusal.NO_RULE_MEETING_NOT_RECONNECTABLE)
+                deferred.extend(entry["events"])
+                continue
+            self._apply_vertex_meeting(meeting, pairs, entry["event"])
+        return deferred
+
+    def _meeting_touches_itself(self, meeting: list[_Vertex]) -> bool:
+        """Есть ли среди встретившихся пара СОСЕДЕЙ по LAV.
+
+        Соседи, пришедшие в одну точку, — это схлопнувшееся ребро, то есть
+        штатное edge-событие, и разбирать его пересоединением нельзя: у
+        пересоединения сосед считается остающимся, а он умирает.
+        """
+
+        idents = {vertex.ident for vertex in meeting}
+        return any(
+            vertex.next in idents or vertex.prev in idents for vertex in meeting
+        )
+
+    def _apply_vertex_meeting(
+        self,
+        meeting: list[_Vertex],
+        pairs: tuple[tuple[_Vertex, _Vertex], ...],
+        event: CandidateEventV1,
+    ) -> None:
+        """Вершины фронта встретились в одной точке: ПЕРЕСОЕДИНЕНИЕ по лучам.
+
+        Вокруг точки сходятся концы рёбер — по два от каждой встретившейся
+        вершины. Все вершины умирают, и на их месте рождаются новые: каждая
+        сшивает ВХОДЯЩЕЕ ребро одной с ИСХОДЯЩИМ ребром другой. Какое с каким —
+        решают лучи (`_reconnect_by_rays`), а не порядок в списке, поэтому от
+        перестановки входа результат не зависит.
+
+        Узел скелета один, и участников у него столько, сколько различных рёбер
+        сошлось, — четыре при встрече двух вершин, до восьми при встрече
+        четырёх. Ровно такого узла у креста и не хватало: на пересечении гребней
+        встречаются четыре стенки блока, и грань каждой обязана его знать.
+        """
+
+        participants = sorted(
+            {self.edges[vertex.prev_edge].key for vertex in meeting}
+            | {self.edges[vertex.next_edge].key for vertex in meeting}
+        )
+        self._emit(EventKind.SPLIT, event, tuple(participants), len(meeting))
+        self.counters["vertex_meeting_events"] += 1
+        if len(participants) > 3:
+            self.counters["multi_participant_nodes"] += 1
+
+        # Соседи снимаются ДО первой правки: пересоединение переписывает ссылки,
+        # и вторая пара увидела бы уже переписанные.
+        joints = tuple(
+            (
+                self.vertices[incoming.prev],
+                incoming.prev_edge,
+                self.vertices[outgoing.next],
+                outgoing.next_edge,
+            )
+            for incoming, outgoing in pairs
+        )
+        for vertex in meeting:
+            vertex.alive = False
+        born: list[_Vertex] = []
+        for before, prev_edge, after, next_edge in joints:
+            merged = self._new_vertex(
+                prev_edge=prev_edge,
+                next_edge=next_edge,
+                prev=before.ident,
+                next=after.ident,
+                birth=event.time,
+                point=event.point,
+            )
+            before.next = merged.ident
+            after.prev = merged.ident
+            born.append(merged)
+        for merged in born:
+            self._enqueue_for(merged)
+        for before, _, _, _ in joints:
+            # У предшественника сменился сосед, значит сменилась и третья прямая
+            # его собственного edge-события. Не пересчитать — потерять событие.
+            self._enqueue_edge_event(before)
 
     def _dedupe_by_vertex(
         self, splits: list[CandidateEventV1]
@@ -903,7 +1186,9 @@ class _Builder:
 
         for ident in self._split_partners(edge):
             vertex = self.vertices[ident]
-            if not (vertex.alive and vertex.reflex):
+            if not vertex.alive or not (
+                vertex.reflex or vertex.sliding is not None
+            ):
                 continue
             self.counters["split_candidates_examined"] += 1
             candidate = self._split_candidate(vertex, edge)
@@ -920,7 +1205,9 @@ class _Builder:
             self.counters["split_search_exhaustive_segments"] += 1
             return tuple(range(len(self.vertices)))
         near = set(self.index.vertices_near(line_ident))
-        return tuple(sorted(near | self.unindexed_reflex))
+        return tuple(
+            sorted(near | self.unindexed_reflex | self.sliding_vertices)
+        )
 
     def _twin(self, edge: _Edge) -> _Edge:
         """Копия ребра под новым идентификатором и с ТЕМ ЖЕ ключом.
@@ -952,9 +1239,18 @@ class _Builder:
     def _new_vertex(self, **fields) -> _Vertex:
         ident = len(self.vertices)
         vertex = _Vertex(ident=ident, reflex=False, **fields)
-        vertex.reflex = _is_reflex(
-            self.edges[vertex.prev_edge].line, self.edges[vertex.next_edge].line
-        )
+        first = self.edges[vertex.prev_edge].line
+        second = self.edges[vertex.next_edge].line
+        vertex.reflex = _is_reflex(first, second)
+        if (
+            first.a * second.b - second.a * first.b == 0
+            and first.a * second.a + first.b * second.b > 0
+        ):
+            # Развёрнутый угол: закрепляем проекцию вдоль общей прямой прямо в
+            # момент рождения. Позже её взять неоткуда — вершина к тому времени
+            # уже уедет, а начальное место останется только в этом числе.
+            vertex.sliding = _project(first, vertex.point)
+            self.sliding_vertices.add(ident)
         self.vertices.append(vertex)
         self._register(vertex)
         if vertex.reflex and self.graph is not None:
@@ -1003,6 +1299,86 @@ def _project(line: SupportLineV1, point: EventPointV1) -> SqrtSumV1:
     """Проекция на направление ребра `(b, -a)`. Целые коэффициенты."""
 
     return point.x.scaled(line.b) - point.y.scaled(line.a)
+
+
+def _direction(line: SupportLineV1) -> tuple[int, int]:
+    """Направление ребра по его несущей прямой, приведённое к примитивному.
+
+    Приведение обязательно: у двух коллинеарных рёбер разной длины `(b, -a)`
+    отличается множителем, а луч у них один и тот же. Сравнивать надо лучи, а не
+    их масштаб.
+    """
+
+    dx, dy = line.b, -line.a
+    common = gcd(abs(dx), abs(dy))
+    return (dx // common, dy // common)
+
+
+def _incoming_ray(line: SupportLineV1) -> tuple[int, int]:
+    """Куда от точки встречи уходит отрезок фронта, который в неё ВХОДИТ."""
+
+    dx, dy = _direction(line)
+    return (-dx, -dy)
+
+
+def _outgoing_ray(line: SupportLineV1) -> tuple[int, int]:
+    """Куда от точки встречи уходит отрезок фронта, который из неё ВЫХОДИТ."""
+
+    return _direction(line)
+
+
+def _reconnect_by_rays(
+    ends: tuple[tuple[tuple[int, int], tuple[int, int], _Vertex], ...]
+) -> tuple[tuple[_Vertex, _Vertex], ...] | None:
+    """Кого с кем сшивать после встречи вершин. Решают ЛУЧИ, а не порядок.
+
+    Вокруг точки встречи каждая вершина оставляет два конца отрезка фронта:
+    входящий (её `prev_edge`) и исходящий (`next_edge`). Каждый конец — это
+    луч, и весь вопрос в том, какой входящий продолжается каким исходящим.
+
+    Первое условие — РАЗЛИЧИМОСТЬ: два конца одного рода на одном луче означают
+    два отрезка фронта, идущих от точки в одну сторону, то есть фронт сложился
+    вдвое. Такую конфигурацию пересоединение не описывает вовсе.
+
+    Двум вершинам сшивка навязана арифметикой: двух входящих и двух исходящих
+    концов хватает ровно на два полных паросочетания, и второе — «каждая со
+    своими», то есть отсутствие события. Значит остаётся крест-накрест.
+
+    Троим и более решают лучи. Входящий и исходящий концы на ОДНОМ луче — это
+    два совпавших отрезка, идущих навстречу: рукав, схлопнувшийся по всей длине.
+    Они аннигилируют и сшиваются друг с другом; всё, что осталось, сшивается в
+    единственную оставшуюся пару. Проверено на квадратном блоке креста, где в
+    одной точке встречаются все четыре вогнутые вершины: четыре аннигилирующие
+    пары и ни одного остатка.
+
+    `None` означает, что правила НЕТ: концы неразличимы по лучам либо остатка
+    больше одной пары. Взять любую из возможных сшивок значило бы вернуть
+    зависимость от порядка входа чёрным ходом.
+    """
+
+    incoming: dict[tuple[int, int], list[_Vertex]] = {}
+    outgoing: dict[tuple[int, int], list[_Vertex]] = {}
+    for ray_in, ray_out, vertex in ends:
+        incoming.setdefault(ray_in, []).append(vertex)
+        outgoing.setdefault(ray_out, []).append(vertex)
+    if len(incoming) != len(ends) or len(outgoing) != len(ends):
+        return None
+    if len(ends) == 2:
+        (_, _, first), (_, _, second) = ends
+        return ((first, second), (second, first))
+
+    pairs: list[tuple[_Vertex, _Vertex]] = []
+    for ray in sorted(set(incoming) & set(outgoing)):
+        pairs.append((incoming.pop(ray)[0], outgoing.pop(ray)[0]))
+    rest_in = [vertex for group in incoming.values() for vertex in group]
+    rest_out = [vertex for group in outgoing.values() for vertex in group]
+    if len(rest_in) != len(rest_out):
+        return None
+    if len(rest_in) > 1:
+        return None
+    if rest_in:
+        pairs.append((rest_in[0], rest_out[0]))
+    return tuple(pairs)
 
 
 def _joint_kind(

@@ -1,14 +1,39 @@
-"""Кратное одновременное событие в ВЫРОЖДЕННОЙ точке: что там происходит.
+"""Кратное одновременное событие в ВЫРОЖДЕННОЙ точке: измерение и починка.
 
-Стенд отвечает ровно на один вопрос: почему у креста среди узлов скелета нет
-пересечения гребней. Ответ измеряется числом на каждом шаге пути, а не выводится
+Стенд отвечает на один вопрос: что происходит там, где у креста терялось
+пересечение гребней. Ответ измеряется числом на каждом шаге пути, а не выводится
 из чтения кода, — потому что предыдущая записанная причина («ломается порядок
 сортировки узлов») была именно выведена, и измерение её опровергло.
+
+ЧТО ИЗМЕРЕНИЕ ПОКАЗАЛО (числа на кресте 6x4, до починки):
+
+| вопрос | число |
+|---|---|
+| событий в уровне схлопывания рукавов | 6 (4 разреза + 2 схлопывания) в 4 точках |
+| уровень того же времени снимался | 4 раза подряд: 6, 8, 2, 2 события |
+| «разрезов», пришедших в ВЕРШИНУ, а не в ребро | 4 из 4 |
+| отрезков фронта нулевой длины после уровня | 4 |
+| пар живых вершин, стоящих в одной точке | 2 |
+| стыков сонаправленных, о которых спросили | 0 |
+| стыков антипараллельных | 8 |
+
+Последние две строки разрешают противоречие двух прежних замеров. Записано было,
+что причина дефекта — вершина между сонаправленными стенками, и одновременно
+что таких стыков ноль. Спора нет: сонаправленный стык не СОЗДАВАЛСЯ вовсе.
+Вместо одной вершины между стенками стояли ДВЕ, разделённые отрезком нулевой
+длины, поэтому вопрос о её позиции никому не задавался. «Не создаётся» и
+«создаётся и молчит» — разные болезни, и лечатся они разным.
+
+ЧТО ПОЧИНЕНО. Кандидат, чья точка совпала с концом рассекаемого отрезка, — не
+разрез, а встреча ВЕРШИН, и разбирается она пересоединением по лучам. Вершина с
+развёрнутым углом получила позицию (скольжение по общей прямой) и собственные
+времена событий. Дефект стал нулевым на всей сетке 3..9, включая диагональ.
 
 Фигура берётся ИЗ КОРПУСА (`wavefront_cases.cross`), а не воспроизводится здесь
 по памяти. Это правило, купленное ошибкой: своя копия креста отличалась толщиной
 рукава (6 вместо 4), и именно эта разница задавала границу измеряемого явления,
-из-за чего закон дефекта был записан без своей области.
+из-за чего закон дефекта был записан без своей области. Толщина теперь параметр
+самой корпусной фигуры, поэтому второй копии не заводится и здесь.
 """
 
 from __future__ import annotations
@@ -20,10 +45,13 @@ import pytest
 import wavefront_cases
 from cftuv_envelope.wavefront import skeleton as skeleton_module
 from cftuv_envelope.wavefront.event_time import (
+    EventPointV1,
     EventTimeOutcome,
+    EventTimeV1,
     concurrency_time,
+    sliding_point,
+    sliding_time,
 )
-from cftuv_envelope.wavefront.events import EventKind
 from cftuv_envelope.wavefront.skeleton import (
     CandidateRefusal,
     SkeletonOutcome,
@@ -33,11 +61,12 @@ from cftuv_envelope.wavefront.skeleton import (
 from cftuv_envelope.wavefront.sqrt_sum import SqrtSumV1
 
 
-# Толщина рукава у `wavefront_cases.cross`: `left == bottom == 4`. Отсюда время
-# схлопывания горизонтальной полосы равно `tall/2`, вертикальной — `wide/2`.
+# Толщина рукава у `wavefront_cases.cross` по умолчанию: `left == bottom == 4`.
+# Отсюда время схлопывания горизонтальной полосы равно `tall/2`, вертикальной —
+# `wide/2`.
 CROSS_ARM = 4
 
-# Рабочая строка сетки: дефект есть, закон `-(w-t)^2` на ней в силе.
+# Рабочая строка сетки: до починки дефект на ней был, и закон `-(w-t)^2` в силе.
 WIDE, TALL = 6, 4
 
 
@@ -80,12 +109,27 @@ def _levels_until(polygon, limit: Fraction):
     return builder, described
 
 
+def _projection_of(line, x: int, y: int) -> SqrtSumV1:
+    """Проекция целой точки на направление прямой — тем же правилом, что в коде."""
+
+    return skeleton_module._project(
+        line, EventPointV1(SqrtSumV1.rational(x), SqrtSumV1.rational(y))
+    )
+
+
+def _at(elapsed: int) -> EventTimeV1:
+    """Целый момент времени в том же виде, в каком его хранит очередь."""
+
+    return EventTimeV1(Fraction(elapsed), SqrtSumV1.rational(1))
+
+
 def _live_pairs_on_one_moving_line(builder):
     """Соседние ЖИВЫЕ вершины, чьи внешние рёбра лежат на одной прямой.
 
-    Такая пара — это отрезок фронта между двумя вершинами, которые обязаны
-    стоять в одной точке во все времена: их внешние прямые совпадают, значит
-    обе вершины лежат на пересечении одной и той же пары прямых.
+    Такая пара — отрезок фронта между двумя вершинами, которые обязаны стоять в
+    одной точке во все времена: их внешние прямые совпадают. Ровно из-за таких
+    пар сонаправленный стык не рождался; после починки их не должно остаться ни
+    одной, и это проверяется.
     """
 
     found = []
@@ -99,8 +143,8 @@ def _live_pairs_on_one_moving_line(builder):
         outer_right = builder.edges[peer.next_edge].line
         if outer_left.a * outer_right.b - outer_right.a * outer_left.b:
             continue
-        here = builder._vertex_position(vertex, builder.now)
-        there = builder._vertex_position(peer, builder.now)
+        here = builder._position(vertex, builder.now)
+        there = builder._position(peer, builder.now)
         if here is None or there is None:
             continue
         if not (here.x - there.x).is_zero or not (here.y - there.y).is_zero:
@@ -110,13 +154,18 @@ def _live_pairs_on_one_moving_line(builder):
 
 
 def test_the_arms_of_a_cross_collapse_in_one_level_of_six_simultaneous_events():
-    """ШАГ 1, пункт первый: какой уровень срабатывает и из чего он состоит.
+    """Какой уровень срабатывает в вырожденной точке и из чего он состоит.
 
     Горизонтальная полоса креста схлопывается в момент `tall/2`, и это ОДИН
     уровень очереди: шесть событий одного точного времени в четырёх различных
-    точках. Четыре из них — разрезы (по одному на каждую вогнутую вершину),
-    два — схлопывания торцов рукавов. Числа записаны, потому что «несколько
-    событий» и «шесть событий в четырёх точках» — разные утверждения.
+    точках. Четыре из них приходят от вогнутых вершин, два — схлопывания торцов
+    рукавов. Числа записаны, потому что «несколько событий» и «шесть событий в
+    четырёх точках» — разные утверждения.
+
+    Уровень того же времени снимается не один раз: применение рождает новых
+    кандидатов на ТОМ ЖЕ времени. До починки таких заходов было четыре
+    (6, 8, 2, 2 события) — ровно потому, что разрезы плодили отрезки нулевой
+    длины и те схлопывались следующими заходами. Теперь их два.
     """
 
     figure = wavefront_cases.cross(wide=WIDE, tall=TALL)
@@ -126,94 +175,105 @@ def test_the_arms_of_a_cross_collapse_in_one_level_of_six_simultaneous_events():
     assert first["events"] == 6
     assert first["kinds"] == (("EDGE", 2), ("SPLIT", 4))
     assert first["points"] == 4
-    # Уровень одного и того же времени снимается не один раз: применение
-    # событий рождает новых кандидатов на ТОМ ЖЕ времени. Это тоже число.
-    assert [level["time"] for level in levels] == [Fraction(TALL, 2)] * 4
-    assert [level["events"] for level in levels] == [6, 8, 2, 2]
+    assert [level["time"] for level in levels] == [Fraction(TALL, 2)] * 2
+    assert [level["events"] for level in levels] == [6, 2]
 
 
-def test_every_split_of_that_level_lands_on_a_front_vertex_not_inside_an_edge():
-    """ШАГ 1, пункт второй: это не разрезы, а встречи ВЕРШИН.
+def test_every_split_of_that_level_is_a_meeting_of_vertices_not_a_cut():
+    """Это не разрезы, а встречи ВЕРШИН, и разбираются они как встречи.
 
-    Все четыре «разреза» уровня приходят ровно в конец рассекаемого отрезка
-    фронта, то есть вогнутая вершина встречает не ребро, а другую вершину. Для
-    такой встречи у алгоритма правила нет: разрезом она обрабатывается неверно,
-    и неверность немедленно видна числом — рождается ровно столько отрезков
-    фронта нулевой длины, сколько было таких «разрезов».
+    Все четыре кандидата уровня приходят ровно в конец рассекаемого отрезка
+    фронта, то есть вогнутая вершина встречает не ребро, а другую вершину. До
+    починки правила для этого не было: разрезом такая встреча обрабатывалась
+    неверно и рождала ровно четыре отрезка фронта нулевой длины. Теперь четыре
+    кандидата дают ДВЕ встречи вершин — по две вершины в каждой из двух
+    вырожденных точек.
     """
 
     figure = wavefront_cases.cross(wide=WIDE, tall=TALL)
     builder, _ = _levels_until(figure, Fraction(TALL, 2))
-    assert builder.counter_of(
-        CandidateRefusal.NO_RULE_SPLIT_HITS_FRONT_VERTEX
-    ) == 4
-    assert builder.counters["zero_length_front_segments"] == 4
+    assert builder.counters["vertex_meeting_events"] == 2
 
 
-def test_the_zero_length_front_edge_survives_because_its_triple_never_resolves():
-    """ШАГ 1, пункт третий: что именно осталось в LAV после уровня.
+def test_the_codirectional_joint_is_born_as_ONE_vertex_and_it_slides():
+    """Что осталось в LAV после уровня: одна вершина вместо пары.
 
-    После схлопывания рукавов в LAV остаются ДВЕ пары живых вершин, каждая пара
-    стоит в одной точке, между вершинами пары — отрезок фронта нулевой длины.
-    Внешние рёбра пары — это четыре стенки центрального блока, и они попарно
-    коллинеарны и СОНАПРАВЛЕНЫ (скалярное произведение нормалей положительно).
+    До починки после схлопывания рукавов оставались ДВЕ пары живых вершин,
+    каждая пара стояла в одной точке с отрезком нулевой длины между вершинами.
+    Пара не схлопывалась никогда: тройка прямых её edge-события сходилась
+    ТОЖДЕСТВЕННО, и на этот ответ вызывающий молча ничего не делал.
 
-    Пара не схлопывается никогда, и причина названа: тройка прямых её
-    edge-события сходится ТОЖДЕСТВЕННО (две из трёх — одна и та же движущаяся
-    прямая), поэтому формула `t = -D0/S` отвечает «сошлись навсегда», а
-    вызывающий на этот ответ молча ничего не делает.
+    Теперь на месте каждой пары стоит ОДНА вершина с развёрнутым углом. Её
+    соседние рёбра — стенки блока, коллинеарные и сонаправленные (скалярное
+    произведение нормалей положительно), и позиция у неё есть: она скользит по
+    общей прямой, не сдвигаясь вдоль неё.
     """
 
     figure = wavefront_cases.cross(wide=WIDE, tall=TALL)
     builder, _ = _levels_until(figure, Fraction(TALL, 2))
-    pairs = _live_pairs_on_one_moving_line(builder)
-    assert len(pairs) == 2
-    for vertex, peer, outer_left, outer_right in pairs:
-        assert outer_left.a * outer_right.a + outer_left.b * outer_right.b > 0
-        _, outcome = concurrency_time(
-            builder.edges[vertex.prev_edge].line,
-            builder.edges[vertex.next_edge].line,
-            builder.edges[peer.next_edge].line,
+    assert _live_pairs_on_one_moving_line(builder) == []
+    sliding = [
+        vertex
+        for vertex in builder.vertices
+        if vertex.alive and vertex.sliding is not None
+    ]
+    assert len(sliding) == 2
+    for vertex in sliding:
+        first = builder.edges[vertex.prev_edge].line
+        second = builder.edges[vertex.next_edge].line
+        assert first.a * second.b - second.a * first.b == 0
+        assert first.a * second.a + first.b * second.b > 0
+        assert builder._position(vertex, builder.now) is not None
+
+
+def test_the_sliding_vertex_keeps_its_place_along_the_line_and_only_that():
+    """Скольжение — точное утверждение, и оно проверяется на самих числах.
+
+    Вершина с развёрнутым углом идёт ПЕРПЕНДИКУЛЯРНО общей прямой, потому что
+    биссектриса развёрнутого угла перпендикулярна обеим сторонам. Значит её
+    проекция вдоль прямой не меняется ни в один момент, а расстояние до
+    исходного положения прямой равно прошедшему времени.
+
+    Проверяется на стенке креста `x = 4` (ребро 11, `(4,4) -> (4,0)`): точка,
+    закреплённая на высоте 6, обязана идти по `y = 6`, `x = 4 + t`.
+    """
+
+    figure = wavefront_cases.cross(wide=WIDE, tall=TALL)
+    builder = skeleton_module._Builder(figure)
+    wall, facing = builder.edges[11].line, builder.edges[1].line
+    frozen = _projection_of(wall, 6, 6)
+
+    # Стенка `x = 4` идёт вправо с единичной скоростью, значит закреплённая на
+    # высоте 6 точка обязана стоять в `(4 + t, 6)` в любой момент.
+    for elapsed in (0, 1, 2, 3):
+        where = sliding_point(wall, frozen, _at(elapsed))
+        assert (where.x.as_rational(), where.y.as_rational()) == (
+            Fraction(4 + elapsed),
+            Fraction(6),
         )
-        assert outcome is EventTimeOutcome.WAVEFRONT_TRIPLE_ALWAYS_CONCURRENT
 
-
-def test_the_codirectional_joint_never_forms_so_it_is_never_even_asked_about():
-    """ШАГ 1, пункт четвёртый: разрешение противоречия между двумя замерами.
-
-    Записаны были два измерения, и на первый взгляд они спорят. Первое: ветка
-    «позиции вершины нет» срабатывает на кресте, и все срабатывания —
-    АНТИпараллельные, сонаправленных ноль. Второе: причина дефекта — вершина
-    между двумя сонаправленными стенками.
-
-    Спора нет, и разрешается он так: сонаправленный стык в LAV не РОЖДАЕТСЯ
-    вовсе. Вместо одной вершины между стенками стоят ДВЕ, разделённые отрезком
-    нулевой длины (тест выше), поэтому вопрос о позиции сонаправленного стыка
-    никому не задаётся. Это разные болезни: «не создаётся» и «создаётся и
-    молчит», и лечатся они разным.
-    """
-
-    figure = wavefront_cases.cross(wide=WIDE, tall=TALL)
-    skeleton = build_skeleton(figure)
-    assert skeleton.outcome is SkeletonOutcome.EXACT
-    codirectional = skeleton.counter(
-        refusal_counter(CandidateRefusal.NO_RULE_JOINT_IS_CODIRECTIONAL)
+    # Встреча со встречной стенкой `x = 10` (ребро 1): стенки сходятся на
+    # `x = 7`, то есть каждая проходит по 3.
+    time, outcome = sliding_time(wall, frozen, facing)
+    assert outcome is EventTimeOutcome.EXACT
+    where = sliding_point(wall, frozen, time)
+    assert (where.x.as_rational(), where.y.as_rational()) == (
+        Fraction(7),
+        Fraction(6),
     )
-    antiparallel = skeleton.counter(
-        refusal_counter(CandidateRefusal.NO_RULE_JOINT_IS_ANTIPARALLEL)
-    )
-    assert (codirectional, antiparallel) == (0, 8)
 
 
-def test_the_walls_meet_at_four_points_and_none_of_them_is_the_ridge_crossing():
-    """ШАГ 1, пункт пятый: чем кончается второй вырожденный уровень.
+def test_the_ridge_crossing_is_the_meeting_of_the_two_sliding_vertices():
+    """Чем кончается второй вырожденный уровень: узел в пересечении гребней.
 
     Стенки блока встречаются в момент `wide/2`. Уровень снова кратный — шесть
-    событий, — и его точки лежат на вертикальном гребне `x = 4 + wide/2`. Но
-    пересечения гребней среди них НЕТ: две пары вершин, оставшиеся от первого
-    уровня, разъехались по ложным траекториям вдоль рухнувших крышек рукавов и
-    пришли на гребень в точки `y = 4 + tall/2 -+ (wide - tall)/2`, а не в
-    `y = 4 + tall/2`.
+    событий, — и его точки лежат на вертикальном гребне `x = 4 + wide/2`. До
+    починки две пары вершин разъезжались по ложным траекториям вдоль рухнувших
+    крышек рукавов и приходили на гребень в `y = 4 + tall/2 -+ (wide - tall)/2`:
+    узлы стояли в 3, 5, 5, 7, 7, 17, а самого пересечения `(7, 6)` не было.
+
+    Теперь на гребне ровно три узла — 3, 6, 17, — и средний из них есть встреча
+    двух скользящих вершин.
     """
 
     figure = wavefront_cases.cross(wide=WIDE, tall=TALL)
@@ -223,55 +283,72 @@ def test_the_walls_meet_at_four_points_and_none_of_them_is_the_ridge_crossing():
     assert walls[0]["kinds"] == (("EDGE", 2), ("SPLIT", 4))
 
     skeleton = build_skeleton(figure)
+    assert skeleton.outcome is SkeletonOutcome.EXACT
     ridge_x = SqrtSumV1.rational(Fraction(4) + Fraction(WIDE, 2))
-    ridge_y = SqrtSumV1.rational(Fraction(4) + Fraction(TALL, 2))
     on_ridge = sorted(
         node.point.y.as_rational()
         for node in skeleton.nodes
         if (node.point.x - ridge_x).is_zero
     )
-    assert on_ridge == [3, 5, 5, 7, 7, 17]
-    assert not any(
-        (node.point.x - ridge_x).is_zero and (node.point.y - ridge_y).is_zero
-        for node in skeleton.nodes
-    )
+    assert on_ridge == [3, 6, 17]
+    assert skeleton.counter("vertex_meeting_events") == 3
 
 
 def test_a_square_block_puts_every_event_of_the_cross_into_one_single_point():
-    """ШАГ 1, пункт шестой: почему `wide == tall` ОТКАЗЫВАЕТ, а не теряет тихо.
+    """Почему `wide == tall` отказывал, и почему теперь не отказывает.
 
-    Отказ и тихая потеря сидят на одной фигуре по разные стороны от `w = t`, и
+    Отказ и тихая потеря сидели на одной фигуре по разные стороны от `w = t`, и
     разница измерима. При `wide != tall` вырожденных точек ДВЕ и в каждой
     встречаются по две вогнутые вершины. При `wide == tall` она ОДНА, и в ней
-    встречаются все четыре сразу: уровень несёт 20 событий вместо шести, из них
-    16 разрезов, и каждый из них приходит в вершину фронта, а не в ребро.
+    встречаются все четыре сразу: уровень несёт 20 событий вместо шести.
 
-    Правило «встретились две вершины» ещё можно было бы дописать парой; правила
-    «встретились четыре» нет и подавно, поэтому квадратный блок распадается на
-    куски, которые очередь потом не сводит, и четыре вершины остаются живыми.
-    Это и есть `WAVEFRONT_LEFT_UNRESOLVED`: не другая болезнь, а та же, но без
-    остатка, за который смогла бы зацепиться неверная сборка.
+    Правило сшивки по лучам разбирает и такую встречу, потому что оно не про
+    «две вершины», а про то, какие концы отрезков фронта совпали направлением.
+    Четыре вогнутые вершины дают четыре аннигилирующие пары и ни одного остатка,
+    поэтому квадратный блок больше не оставляет неразрешённого фронта.
     """
 
     figure = wavefront_cases.cross(wide=TALL, tall=TALL)
     builder, levels = _levels_until(figure, Fraction(TALL, 2))
     assert levels[0]["events"] == 20
     assert levels[0]["kinds"] == (("EDGE", 4), ("SPLIT", 16))
-    assert builder.counter_of(
-        CandidateRefusal.NO_RULE_SPLIT_HITS_FRONT_VERTEX
-    ) == 16
+    assert builder.counters["vertex_meeting_events"] == 1
     skeleton = build_skeleton(figure)
-    assert skeleton.outcome is SkeletonOutcome.WAVEFRONT_LEFT_UNRESOLVED
+    assert skeleton.outcome is SkeletonOutcome.EXACT
+
+
+def test_the_triple_that_is_always_concurrent_is_never_asked_about_a_sliding_vertex():
+    """Вырожденной тройке больше не задаётся вопрос, на который она не отвечает.
+
+    У вершины с развёрнутым углом две соседние прямые — ОДНА движущаяся прямая,
+    поэтому определитель тройки равен нулю тождественно и `concurrency_time`
+    отвечает «сошлись навсегда» вместо времени. Это не «события нет», это
+    неверно заданный вопрос. Верный вопрос задаёт `sliding_time`, и здесь
+    проверяется, что оба ответа расходятся именно так.
+    """
+
+    figure = wavefront_cases.cross(wide=WIDE, tall=TALL)
+    builder = skeleton_module._Builder(figure)
+    wall_low, wall_high, facing = (
+        builder.edges[11].line,
+        builder.edges[7].line,
+        builder.edges[1].line,
+    )
+    _, outcome = concurrency_time(wall_high, wall_low, facing)
+    assert outcome is EventTimeOutcome.WAVEFRONT_TRIPLE_ALWAYS_CONCURRENT
+    frozen = _projection_of(wall_low, 6, 6)
+    time, sliding_outcome = sliding_time(wall_low, frozen, facing)
+    assert sliding_outcome is EventTimeOutcome.EXACT
+    assert time is not None
 
 
 @pytest.mark.parametrize(
     "name,polygon", wavefront_cases.named_corpus(), ids=lambda value: value
 )
 def test_the_named_corpus_reports_every_refusal_under_a_name(name, polygon):
-    """ШАГ 2: ни один отказ кандидата не исчезает без имени.
+    """Ни один отказ кандидата не исчезает без имени.
 
-    Проверка идёт на самом результате: сумма именованных отказов не может быть
-    меньше числа отказов без правила, а все члены `CandidateRefusal` обязаны
+    Проверка идёт на самом результате: все члены `CandidateRefusal` обязаны
     иметь свой счётчик в отчёте. Без этого «отказов нет» и «счётчика нет»
     выглядели бы одинаково.
     """
@@ -280,3 +357,22 @@ def test_the_named_corpus_reports_every_refusal_under_a_name(name, polygon):
     reported = dict(skeleton.counters)
     for member in CandidateRefusal:
         assert refusal_counter(member) in reported, member
+
+
+@pytest.mark.parametrize(
+    "name,polygon", wavefront_cases.named_corpus(), ids=lambda value: value
+)
+def test_no_codirectional_joint_is_ever_left_without_a_position(name, polygon):
+    """Развёрнутый стык больше не остаётся без правила НИ РАЗУ на корпусе.
+
+    Это и есть проверка починки на собственном результате: счётчик «стык
+    сонаправлен, позиции нет» обязан быть нулём везде. Антипараллельный стык
+    нулём не обязан — у него позиции нет по существу, фронт там вывернулся, — но
+    такая вершина обязана умереть, и это ловит `WAVEFRONT_LEFT_UNRESOLVED`.
+    """
+
+    skeleton = build_skeleton(polygon)
+    assert skeleton.counter(
+        refusal_counter(CandidateRefusal.NO_RULE_JOINT_IS_CODIRECTIONAL)
+    ) == 0
+    assert skeleton.outcome is SkeletonOutcome.EXACT

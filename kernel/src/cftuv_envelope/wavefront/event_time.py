@@ -199,6 +199,74 @@ def concurrency_time(
     return EventTimeV1.normalized(-offset, speed), EventTimeOutcome.EXACT
 
 
+def sliding_point(
+    line: SupportLineV1, along: SqrtSumV1, time: EventTimeV1
+) -> "EventPointV1":
+    """Точка на движущейся прямой с ЗАКРЕПЛЁННОЙ проекцией вдоль неё.
+
+    Зачем это нужно. У вершины фронта, чьи соседние рёбра лежат на одной
+    движущейся прямой и смотрят в одну сторону, угол ровно развёрнутый.
+    Биссектриса развёрнутого угла перпендикулярна обеим сторонам, поэтому такая
+    вершина идёт ПЕРПЕНДИКУЛЯРНО прямой, а её координата ВДОЛЬ прямой не
+    меняется. Пересечения двух прямых у неё нет — и придумывать его не надо:
+    вершина задана прямой и одним сохраняющимся числом.
+
+    Решается система (обе строки точные, деления на корень нет):
+
+        a*x + b*y = c + t*sqrt(q)      — вершина на прямой
+        b*x - a*y = along             — проекция вдоль прямой сохраняется
+
+    Определитель системы равен `a^2 + b^2 = q`, и он не ноль ни для одного
+    невырожденного ребра, поэтому решение всегда есть и оно единственно.
+    """
+
+    moving = SqrtSumV1.rational(line.c) + (
+        SqrtSumV1.radical(time.dividend, line.q) / time.divisor
+    )
+    scale = Fraction(1, line.q)
+    x = (moving.scaled(line.a) + along.scaled(line.b)).scaled(scale)
+    y = (moving.scaled(line.b) - along.scaled(line.a)).scaled(scale)
+    return EventPointV1(x, y)
+
+
+def sliding_time(
+    line: SupportLineV1, along: SqrtSumV1, other: SupportLineV1
+) -> tuple[EventTimeV1 | None, EventTimeOutcome]:
+    """Когда скользящая точка `line`/`along` окажется на прямой `other`.
+
+    Подстановка решения из `sliding_point` в `a2*x + b2*y = c2 + t*sqrt(q2)`
+    даёт уравнение, АФФИННОЕ по t, ровно как у тройки прямых:
+
+        t * (K*sqrt(q1) - q1*sqrt(q2)) = q1*c2 + D*along - K*c1
+
+    где `K = a1*a2 + b1*b2` и `D = a1*b2 - a2*b1` — целые. Отличие от
+    `concurrency_time` только одно, и оно принципиальное: числитель здесь
+    ИРРАЦИОНАЛЕН (в нём `along`), поэтому ответ хранится как `1/(S/N)`, а не как
+    `-D0/S`. Значение то же самое, форма другая: `EventTimeV1` требует
+    рационального числителя, и деление `SqrtSumV1` замкнуто и точно, поэтому
+    перенос иррациональности в знаменатель ничего не приближает.
+    """
+
+    weight = line.a * other.a + line.b * other.b
+    cross = line.a * other.b - other.a * line.b
+    numerator = (
+        SqrtSumV1.rational(line.q * other.c)
+        + along.scaled(cross)
+        - SqrtSumV1.rational(weight * line.c)
+    )
+    speed = SqrtSumV1.radical(weight, line.q) - SqrtSumV1.radical(line.q, other.q)
+    if speed.is_zero:
+        if numerator.is_zero:
+            return None, EventTimeOutcome.WAVEFRONT_TRIPLE_ALWAYS_CONCURRENT
+        return None, EventTimeOutcome.WAVEFRONT_TRIPLE_NEVER_CONCURRENT
+    if numerator.is_zero:
+        return ZERO_TIME, EventTimeOutcome.EXACT
+    return (
+        EventTimeV1.normalized(1, speed / numerator),
+        EventTimeOutcome.EXACT,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class EventPointV1:
     """Точка события в канонической форме: две `SqrtSumV1`.
