@@ -76,6 +76,40 @@
 
 Тихого исчезновения нет: не осевое ребро, отрицательная alpha и несошедшаяся
 сетка — каждое даёт названный исход, а не пустой результат.
+
+**ЧАСТИЧНЫЙ ИСТОЧНИК СЧИТАЕТСЯ ЗДЕСЬ ЖЕ И ДРУГОЙ ФОРМУЛОЙ**
+(`partial_source_standard`). Когда источником является не вся граница, «отступ
+целиком» отвечать перестаёт: незакрытым остаётся не только тонкий слой у
+границы, а всё, докуда фронт не дошёл. Верное множество — ОБЪЕДИНЕНИЕ
+МИТРОВАННЫХ ПОЛОС рёбер-источников:
+
+    C(alpha) = P ∩ ⋃ { p : dist_inf(p, e) <= alpha * speed(e) }   по источникам e
+
+`dist_inf` — расстояние Чебышёва до ОТРЕЗКА, а не до его несущей прямой, и
+именно это делает полосу МИТРОВАННОЙ: шар Чебышёва квадратный, поэтому у конца
+отрезка и у вогнутой вершины цепочки полоса заворачивает ровно квадратным углом
+— тем самым, который отличает митрованный ответ 44 от полос 43 и от круглого
+`43 + pi/4`. Ни одного радикала здесь не появляется даже при взвешенном
+источнике: скорость входит множителем, а не под корень, и проверяется
+сравнением дробей.
+
+Формула ОДНА на оба случая, и это проверяется, а не заявляется: у фигуры, где
+источниками помечены ВСЕ рёбра, `partial_source_standard` обязан дать ровно
+`rectilinear_standard(...).mitered_covered`, то есть 44 / 63 / 80 / 108 у `ell`
+при alpha = 1, 3/2, 2, 3. Совпадение двух РАЗНЫХ вычислений (объединение сжатых
+вписанных прямоугольников против объединения шаров Чебышёва) — и есть
+отрицательный контроль расширения.
+
+ОБЪЯВЛЕННАЯ ГРАНИЦА ЭТОЙ МОДЕЛИ, и она названа, потому что дорога. Модель
+описывает фронт от цепочки источников, свободно заворачивающий у её концов. У
+очереди событий стена — это НЕПОДВИЖНАЯ ПРЯМАЯ, и конец цепочки едет по ней
+дальше, чем стена существует как отрезок границы. Там, где продолжение прямой
+стены уходит внутрь фигуры, две модели расходятся — и расхождение видно не
+догадкой, а собственной объявленной границей очереди: `build_faces` отказывает
+`FACE_AREA_DOES_NOT_REPRODUCE_POLYGON`, потому что источник не заметает фигуру
+целиком. Поэтому эталон применяется к паре «фигура + подмножество источников»
+ровно там, где очередь отвечает, и это проверяется на корпусе, а не
+предполагается.
 """
 
 from __future__ import annotations
@@ -83,8 +117,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from fractions import Fraction
+from math import isqrt
 
-from cftuv_envelope.wavefront.polygon import PolygonV1, signed_double_area
+from cftuv_envelope.wavefront.polygon import (
+    PolygonV1,
+    signed_double_area,
+    unit_speed_squared,
+)
 
 
 # Осевой прямоугольник `(x_low, x_high, y_low, y_high)` в точных дробях.
@@ -111,6 +150,10 @@ class StandardOutcome(str, Enum):
     INSET_LOOP_NEEDS_A_FIGURE_WITHOUT_HOLES = (
         "INSET_LOOP_NEEDS_A_FIGURE_WITHOUT_HOLES"
     )
+    # У ребра-источника скорость `sqrt(q/|d|^2)` иррациональна. Тогда границы
+    # полосы лежат не в дробях, и точной сетки под них нет. Эталон, который
+    # округлил бы их, перестал бы быть эталоном.
+    SOURCE_SPEED_IS_NOT_RATIONAL = "SOURCE_SPEED_IS_NOT_RATIONAL"
 
 
 @dataclass(frozen=True, slots=True)
@@ -412,6 +455,274 @@ def _refined_axis(values: tuple[int, ...], alpha: Fraction) -> tuple[Fraction, .
             | {value + alpha for value in values}
             | {value - alpha for value in values}
         )
+    )
+
+
+def _refined_axis_by_reaches(
+    values: tuple[int, ...], reaches: tuple[Fraction, ...]
+) -> tuple[Fraction, ...]:
+    """Ось сжатой сетки, сдвинутая на КАЖДУЮ глубину полосы, а не на одну alpha.
+
+    При единичных скоростях глубина ровно одна и равна alpha, поэтому ось
+    совпадает с `_refined_axis` до последнего узла. Разные скорости дают разные
+    глубины, и каждая ломает индикатор на своей паре прямых.
+    """
+
+    nodes = {Fraction(value) for value in values}
+    for reach in reaches:
+        nodes |= {value + reach for value in values}
+        nodes |= {value - reach for value in values}
+    return tuple(sorted(nodes))
+
+
+@dataclass(frozen=True, slots=True)
+class PartialSourceStandardV1:
+    """Покрытие фигуры с ПОДМНОЖЕСТВОМ рёбер-источников, в точных дробях."""
+
+    outcome: StandardOutcome
+    alpha: Fraction
+    polygon_area: Fraction
+    covered: Fraction
+    source_edge_count: int
+    wall_edge_count: int
+    detail: str = ""
+
+
+def chebyshev_to_segment(
+    x: Fraction, y: Fraction, start: tuple[int, int], end: tuple[int, int]
+) -> Fraction:
+    """Расстояние Чебышёва от точки до ОСЕВОГО отрезка. Точная дробь.
+
+    Отрезок здесь именно отрезок: `max` по обеим осям после прижатия к его
+    диапазону. Взять расстояние до несущей ПРЯМОЙ значило бы посчитать полосу
+    бесконечной, то есть накрыть ею то, докуда фронт этого ребра не доходит
+    никогда.
+    """
+
+    low_x, high_x = min(start[0], end[0]), max(start[0], end[0])
+    low_y, high_y = min(start[1], end[1]), max(start[1], end[1])
+    away_x = max(Fraction(low_x) - x, x - high_x, Fraction(0))
+    away_y = max(Fraction(low_y) - y, y - high_y, Fraction(0))
+    return max(away_x, away_y)
+
+
+def source_speeds(
+    polygon: PolygonV1,
+) -> tuple[tuple[tuple[int, int], tuple[int, int], Fraction], ...] | StandardOutcome:
+    """Рёбра-источники с их ЕВКЛИДОВОЙ скоростью дробью, либо названный отказ.
+
+    Скорость равна `sqrt(q)/|d|`, то есть `sqrt(q*|d|^2)/|d|^2`, и рациональна
+    ровно когда `q*|d|^2` — полный квадрат. Проверка целочисленная: `isqrt` и
+    сравнение, без единого приближения.
+    """
+
+    speeds = []
+    for start, end, speed_squared in polygon.edges():
+        if speed_squared == 0:
+            continue
+        normal_squared = unit_speed_squared(start, end)
+        product = speed_squared * normal_squared
+        root = isqrt(product)
+        if root * root != product:
+            return StandardOutcome.SOURCE_SPEED_IS_NOT_RATIONAL
+        speeds.append((start, end, Fraction(root, normal_squared)))
+    return tuple(speeds)
+
+
+@dataclass(frozen=True, slots=True)
+class _CellFieldV1:
+    """Сжатая сетка фигуры: какие клетки внутри и префиксная сумма по ним.
+
+    Префикс нужен ровно для одного вопроса — «лежит ли осевой прямоугольник
+    целиком в фигуре» — и отвечает на него за постоянное время. Без него
+    проверка коридора стоила бы клеток в квадрате, то есть эталон считался бы
+    дольше самой очереди, которую он проверяет.
+    """
+
+    xs: tuple[Fraction, ...]
+    ys: tuple[Fraction, ...]
+    filled: tuple[tuple[bool, ...], ...]
+    prefix: tuple[tuple[int, ...], ...]
+    index_x: dict[Fraction, int]
+    index_y: dict[Fraction, int]
+
+    @staticmethod
+    def of(
+        polygon: PolygonV1, xs: tuple[Fraction, ...], ys: tuple[Fraction, ...]
+    ) -> "_CellFieldV1":
+        columns, rows = len(xs) - 1, len(ys) - 1
+        filled = tuple(
+            tuple(
+                _inside(
+                    polygon,
+                    (xs[i] + xs[i + 1]) / 2,
+                    (ys[j] + ys[j + 1]) / 2,
+                )
+                for j in range(rows)
+            )
+            for i in range(columns)
+        )
+        prefix = [[0] * (rows + 1) for _ in range(columns + 1)]
+        for i in range(columns):
+            for j in range(rows):
+                prefix[i + 1][j + 1] = (
+                    prefix[i][j + 1]
+                    + prefix[i + 1][j]
+                    - prefix[i][j]
+                    + int(filled[i][j])
+                )
+        return _CellFieldV1(
+            xs,
+            ys,
+            filled,
+            tuple(tuple(row) for row in prefix),
+            {value: index for index, value in enumerate(xs)},
+            {value: index for index, value in enumerate(ys)},
+        )
+
+    @property
+    def filled_area(self) -> Fraction:
+        total = Fraction(0)
+        for i, column in enumerate(self.filled):
+            width = self.xs[i + 1] - self.xs[i]
+            for j, is_filled in enumerate(column):
+                if is_filled:
+                    total += width * (self.ys[j + 1] - self.ys[j])
+        return total
+
+    def _fits(self, i0: int, i1: int, j0: int, j1: int) -> bool:
+        """Все клетки прямоугольника `[i0, i1) x [j0, j1)` лежат в фигуре."""
+
+        count = (
+            self.prefix[i1][j1]
+            - self.prefix[i0][j1]
+            - self.prefix[i1][j0]
+            + self.prefix[i0][j0]
+        )
+        return count == (i1 - i0) * (j1 - j0)
+
+    def _span(
+        self, index: int, centre: Fraction, target: Fraction, axis: dict
+    ) -> tuple[int, int]:
+        """Диапазон клеток между центром клетки `index` и узлом `target`."""
+
+        if target == centre:
+            return index, index + 1
+        if target > centre:
+            return index, axis[target]
+        return axis[target], index + 1
+
+    def covered_area(
+        self,
+        sources: tuple[tuple[tuple[int, int], tuple[int, int], Fraction], ...],
+        alpha: Fraction,
+    ) -> Fraction:
+        """Площадь объединения ВИДИМЫХ митрованных полос рёбер-источников."""
+
+        total = Fraction(0)
+        for i, column in enumerate(self.filled):
+            centre_x = (self.xs[i] + self.xs[i + 1]) / 2
+            width = self.xs[i + 1] - self.xs[i]
+            for j, is_filled in enumerate(column):
+                if not is_filled:
+                    continue
+                centre_y = (self.ys[j] + self.ys[j + 1]) / 2
+                if self._is_reached(i, j, centre_x, centre_y, sources, alpha):
+                    total += width * (self.ys[j + 1] - self.ys[j])
+        return total
+
+    def _is_reached(
+        self,
+        i: int,
+        j: int,
+        centre_x: Fraction,
+        centre_y: Fraction,
+        sources: tuple[tuple[tuple[int, int], tuple[int, int], Fraction], ...],
+        alpha: Fraction,
+    ) -> bool:
+        for start, end, speed in sources:
+            if (
+                chebyshev_to_segment(centre_x, centre_y, start, end)
+                > alpha * speed
+            ):
+                continue
+            witness_x = min(max(centre_x, min(start[0], end[0])), max(start[0], end[0]))
+            witness_y = min(max(centre_y, min(start[1], end[1])), max(start[1], end[1]))
+            i0, i1 = self._span(i, centre_x, witness_x, self.index_x)
+            j0, j1 = self._span(j, centre_y, witness_y, self.index_y)
+            if self._fits(i0, i1, j0, j1):
+                return True
+        return False
+
+
+def _partial_refused(
+    outcome: StandardOutcome,
+    polygon: PolygonV1,
+    alpha: Fraction,
+    area: Fraction,
+    detail: str,
+) -> PartialSourceStandardV1:
+    return PartialSourceStandardV1(
+        outcome,
+        alpha,
+        area,
+        Fraction(0),
+        polygon.source_edge_count,
+        polygon.wall_edge_count,
+        detail,
+    )
+
+
+def partial_source_standard(
+    polygon: PolygonV1, alpha: Fraction
+) -> PartialSourceStandardV1:
+    """Объединение митрованных полос рёбер-источников. Площадь точной дробью."""
+
+    alpha = Fraction(alpha)
+    area = Fraction(
+        sum(signed_double_area(loop.points) for loop in polygon.loops), 2
+    )
+    if axis_edges(polygon) is None:
+        return _partial_refused(
+            StandardOutcome.EDGE_IS_NOT_AXIS_PARALLEL,
+            polygon,
+            alpha,
+            area,
+            "у фигуры есть не осевое ребро",
+        )
+    if alpha < 0:
+        return _partial_refused(
+            StandardOutcome.ALPHA_IS_NEGATIVE, polygon, alpha, area, str(alpha)
+        )
+    sources = source_speeds(polygon)
+    if isinstance(sources, StandardOutcome):
+        return _partial_refused(sources, polygon, alpha, area, "sqrt(q/|d|^2)")
+
+    reaches = tuple(sorted({alpha * speed for _, _, speed in sources}))
+    grid_x = _refined_axis_by_reaches(
+        tuple(sorted({x for loop in polygon.loops for x, _ in loop.points})),
+        reaches,
+    )
+    grid_y = _refined_axis_by_reaches(
+        tuple(sorted({y for loop in polygon.loops for _, y in loop.points})),
+        reaches,
+    )
+    grid = _CellFieldV1.of(polygon, grid_x, grid_y)
+    if grid.filled_area != area:
+        return _partial_refused(
+            StandardOutcome.CELLS_DO_NOT_REPRODUCE_THE_POLYGON,
+            polygon,
+            alpha,
+            area,
+            f"клетки дали {grid.filled_area}, площадь {area}",
+        )
+    return PartialSourceStandardV1(
+        StandardOutcome.EXACT,
+        alpha,
+        area,
+        grid.covered_area(sources, alpha),
+        polygon.source_edge_count,
+        polygon.wall_edge_count,
     )
 
 

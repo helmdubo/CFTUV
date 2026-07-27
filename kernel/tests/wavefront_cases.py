@@ -31,7 +31,13 @@ import math
 from pathlib import Path
 
 from cftuv_envelope.robust.grid import GridSpecV1, snap_value
-from cftuv_envelope.wavefront.polygon import LoopV1, PolygonV1
+from cftuv_envelope.wavefront.polygon import (
+    LoopV1,
+    PolygonV1,
+    unit_speed_squared,
+    with_edge_speeds,
+    with_source_spans,
+)
 
 
 KERNEL_ROOT = Path(__file__).resolve().parents[1]
@@ -325,6 +331,109 @@ def named_corpus() -> tuple[tuple[str, PolygonV1], ...]:
         polygon = star(9, seed)
         if polygon is not None:
             entries.append((f"star_9_seed_{seed}", polygon))
+    return tuple(entries)
+
+
+#: Фигуры, на которых перебираются подмножества источников, и их alpha.
+#: Список фиксирован здесь, а не собирается в стенде: перечень входов берётся
+#: из корпуса целиком и по ходу не дополняется (`DECISIONS.md`, 2026-07-27,
+#: оплачено тремя ошибками подряд).
+PARTIAL_SOURCE_BASES = (
+    ("rect_12x8", lambda: axis_rectangle(12, 8)),
+    ("ell_12", lambda: ell(12)),
+    ("staircase", staircase),
+)
+
+#: Значения alpha, на которых сверяется частичный источник. Крупные включены
+#: намеренно: у частичного источника фронт идёт через всю фигуру, и расхождение
+#: моделей у конца цепочки проявляется поздно, а не сразу.
+PARTIAL_SOURCE_ALPHAS = (
+    Fraction(1),
+    Fraction(3, 2),
+    Fraction(2),
+    Fraction(3),
+    Fraction(4),
+    Fraction(6),
+    Fraction(8),
+    Fraction(12),
+)
+
+
+def _edge_spans(polygon: PolygonV1) -> tuple[tuple[tuple[int, int], tuple[int, int]], ...]:
+    return tuple((start, end) for start, end, _ in polygon.edges())
+
+
+def partial_source_corpus() -> tuple[tuple[str, PolygonV1], ...]:
+    """Корпус ЧАСТИЧНОГО источника: фигура плюс подмножество рёбер-источников.
+
+    Он отдельный от `named_corpus()`, и это не удобство. У `named_corpus()`
+    контракт «источником является ВСЯ граница», на нём заморожены дайджесты,
+    таблицы среза и сверка с попарным кроем; фигура с двумя стенами отвечала бы
+    там на другой вопрос. Отдельный корпус сохраняет прежний контракт целым и
+    при этом остаётся корпусом: перечень фиксирован, порядок воспроизводим,
+    стенд его не дополняет.
+
+    Подмножества перебираются ПОЛНО по двум семействам — одно ребро и пара
+    соседних, — а не подбираются по одному. Полный перебор здесь дешевле
+    выбора: он не даёт спрятать неудобную конфигурацию, а именно так и
+    находится расхождение у конца цепочки источников.
+
+    Сверх них две именованные записи, которых в семействах нет:
+
+    - `ell_12_source_without_the_reflex_pair` — источник по ОБЕ стороны от
+      вогнутой вершины, а стенами оказались как раз два ребра при ней;
+    - `rect_12x8_source_bottom_at_double_speed` — ВЗВЕШЕННОЕ ребро (`q = 4|d|^2`,
+      евклидова скорость 2). Оно здесь затем, что стена и вес — одно обобщение,
+      и корпус обязан щупать обе его стороны, а не только нулевую.
+    """
+
+    entries: list[tuple[str, PolygonV1]] = []
+    for base_name, factory in PARTIAL_SOURCE_BASES:
+        base = factory()
+        spans = _edge_spans(base)
+        size = len(spans)
+        for index in range(size):
+            entries.append(
+                (
+                    f"{base_name}_source_edge_{index}",
+                    with_source_spans(base, (spans[index],)),
+                )
+            )
+        for index in range(size):
+            following = (index + 1) % size
+            entries.append(
+                (
+                    f"{base_name}_source_edges_{index}_{following}",
+                    with_source_spans(
+                        base, (spans[index], spans[following])
+                    ),
+                )
+            )
+    shape = ell(12)
+    entries.append(
+        (
+            "ell_12_source_without_the_reflex_pair",
+            with_source_spans(
+                shape,
+                tuple(
+                    span
+                    for span in _edge_spans(shape)
+                    if (6, 6) not in span
+                ),
+            ),
+        )
+    )
+    rectangle = axis_rectangle(12, 8)
+    bottom = _edge_spans(rectangle)[0]
+    entries.append(
+        (
+            "rect_12x8_source_bottom_at_double_speed",
+            with_edge_speeds(
+                rectangle,
+                ((bottom[0], bottom[1], 4 * unit_speed_squared(*bottom)),),
+            ),
+        )
+    )
     return tuple(entries)
 
 
