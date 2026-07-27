@@ -20,12 +20,15 @@
 Чебышёва), и совпадение их — единственное свидетельство, что расширение не
 подменило модель.
 
-**Отказ очереди — тоже ответ, и он тоже сверяется.** Из 38 фигур корпуса
-частичного источника на 18 очередь отвечает ИМЕНОВАННЫМ отказом: источник не
+**Отказ очереди — тоже ответ, и он тоже сверяется.** Из 41 фигуры корпуса
+частичного источника на 17 очередь отвечает ИМЕНОВАННЫМ отказом: источник не
 заметает фигуру целиком, потому что конец цепочки едет по продолжению прямой
 стены внутрь области. Это не дефект и не пропуск: обе объявленные границы
 (`WAVEFRONT_LEFT_UNRESOLVED` у скелета, `FACE_AREA_DOES_NOT_REPRODUCE_POLYGON` у
 сборщика) срабатывают ГРОМКО, и тихого неверного числа ни на одной из них нет.
+Восемнадцатой фигурой был `staircase_source_edges_7_0`, и её отказ оказался не
+свойством входа, а дефектом ПОРЯДКА СБОРКИ: с правилом смежности она отвечает
+`EXACT` и совпадает с эталоном на всех восьми alpha.
 
 **КОЛЛИНЕАРНАЯ НЕПОДВИЖНАЯ СТЕНА.** Отдельный раздел ниже держит разбор одной
 конкретной болезни и её числа. Движущаяся прямая источника наезжает на прямую
@@ -51,11 +54,7 @@ from cftuv_envelope.wavefront.event_time import (
     compare_times,
     sliding_point,
 )
-from cftuv_envelope.wavefront.faces import (
-    FaceOutcome,
-    build_faces,
-    doubled_shoelace,
-)
+from cftuv_envelope.wavefront.faces import FaceOutcome, build_faces
 from cftuv_envelope.wavefront.motorcycle import speed_bound_of
 from cftuv_envelope.wavefront.polygon import (
     LoopV1,
@@ -75,7 +74,6 @@ from cftuv_envelope.wavefront.skeleton import (
 )
 from cftuv_envelope.wavefront.sqrt_sum import SqrtSumV1
 
-from adjacency_chain import chained_contours, chained_doubled_area
 from mitered_standard import (
     StandardOutcome,
     partial_source_standard,
@@ -114,8 +112,13 @@ NAMED_STANDARD_REFUSALS = (
 #: Как корпус частичного источника раскладывается на три названные доли. Числа
 #: заморожены не как цель, а как ратчет: их сдвиг означает, что изменилось
 #: поведение на частичном источнике, и он обязан быть виден в диффе.
-FIGURES_WHERE_THE_QUEUE_MATCHES_THE_STANDARD = 22
-FIGURES_WHERE_THE_QUEUE_REFUSES_BY_NAME = 18
+#:
+#: Расклад 22 / 18 / 1 держался до постановки правила смежности. С ней
+#: `staircase_source_edges_7_0` переехал из «очередь отказала» в «совпал с
+#: эталоном»: его отказ был чистым дефектом порядка сборки, а не свойством
+#: входа. Остальные 40 строк не двинулись ни одной.
+FIGURES_WHERE_THE_QUEUE_MATCHES_THE_STANDARD = 23
+FIGURES_WHERE_THE_QUEUE_REFUSES_BY_NAME = 17
 FIGURES_WHERE_THE_STANDARD_REFUSES_BY_NAME = 1
 
 
@@ -492,11 +495,14 @@ def test_the_reflex_vertex_with_the_source_on_one_side_is_refused_loudly(
 
     Обе строки теперь отказывают на одной ступени, и это не потеря
     различительной силы, а исправленный диагноз: вторая строка отказывала
-    ПОЗЖЕ только потому, что скелет её досчитывал по неверному фронту. Строка,
-    где отказ действительно приходит от сборщика, в корпусе есть и проверяется
-    отдельно — `staircase_source_edges_7_0`, у которой эталон при любой alpha
-    заметает фигуру ЦЕЛИКОМ (192 из 192 удвоенных), то есть незаметённой части
-    нет вовсе и остаётся чистый дефект порядка сборки.
+    ПОЗЖЕ только потому, что скелет её досчитывал по неверному фронту.
+
+    Строки, где отказ приходит от СБОРЩИКА, в корпусе не осталось ни одной.
+    Последней была `staircase_source_edges_7_0`, у которой эталон при любой
+    alpha заметает фигуру ЦЕЛИКОМ (192 из 192 удвоенных): незаметённой части
+    там нет вовсе, и терять площадь было нечему, кроме порядка сборки. Правило
+    смежности её закрыло — числа в
+    `test_the_last_pure_order_defect_of_the_corpus_is_closed_and_agrees_with_the_standard`.
     """
 
     figure = with_source_spans(ell(12), (span,))
@@ -914,75 +920,75 @@ def test_touching_in_one_point_is_still_an_event_for_moving_edges(name):
 
 
 # --------------------------------------------------------------------------
-# 5. Препятствие кандидату на замену порядка сборки: было три фигуры, стало ноль
+# 5. Дефект порядка сборки, оставшийся на корпусе, и его закрытие смежностью
 # --------------------------------------------------------------------------
 
 
-def test_the_adjacency_rule_stopped_contradicting_the_standard_after_the_wall_fix():
-    """Препятствие кандидату СНЯТО, и снято оно в скелете, а не в сборщике.
+def test_the_last_pure_order_defect_of_the_corpus_is_closed_and_agrees_with_the_standard():
+    """Сборщик на корпусе больше не теряет площадь НИ НА ОДНОЙ фигуре.
 
-    БЫЛО (замер прошлого среза, до разбора коллинеарной стены). Поставленное
-    правило отказывало `FACE_AREA_DOES_NOT_REPRODUCE_POLYGON` на ЧЕТЫРЁХ
-    фигурах корпуса, кандидат на всех четырёх сводил недостаток в ноль, и на
-    ТРЁХ из четырёх полученное покрытие противоречило независимому эталону:
+    ИСТОРИЯ, и без неё число ничего не значит. Прежнее правило порядка
+    (монотонность) отказывало `FACE_AREA_DOES_NOT_REPRODUCE_POLYGON` на ЧЕТЫРЁХ
+    фигурах корпуса. Три из них лечились не здесь: под их отказом лежал дефект
+    СКЕЛЕТА — фронт гасил коллинеарную неподвижную стену, с которой его отрезок
+    не перекрывался, и скачком расширялся вдвое. Стена разобрана, и все три
+    теперь отказывают `WAVEFRONT_LEFT_UNRESOLVED` до всякого числа
+    (`test_the_three_contradicting_figures_are_now_refused_before_any_number`).
 
-    | фигура | alpha | кандидат x2 | эталон x2 |
-    |---|---:|---:|---:|
-    | `ell_12_source_edge_4` | 8 | 120 | 96 |
-    | `ell_12_source_edge_4` | 12 | 216 | 144 |
-    | `staircase_source_edge_6` | 6 | 64 | 48 |
-    | `staircase_source_edge_6` | 8 | 96 | 64 |
-    | `staircase_source_edge_6` | 12 | 192 | 96 |
-    | `staircase_source_edges_4_5` | 6 | 144 | 128 |
-    | `staircase_source_edges_4_5` | 12 | 192 | 160 |
+    Четвёртая, `staircase_source_edges_7_0`, была чистым дефектом ПОРЯДКА:
+    эталон заметает фигуру целиком (192 из 192 удвоенных), незаметённой части
+    нет вовсе, а монотонность всё равно теряла площадь. Правило смежности
+    закрывает её, и это проверяется не суммой, а поточечно — сумма совпала бы и
+    у неверного разбиения:
 
-    СТАЛО. У всех трёх скелет теперь отказывает `WAVEFRONT_LEFT_UNRESOLVED`,
-    потому что фиктивное схлопывание коллинеарной стены отвергнуто по имени, и
-    до сборщика дело не доходит вовсе. Числа выше поэтому не «исправились» —
-    их больше НЕТ, и это ровно тот исход, которого требовал порядок работ:
-    тихого неверного числа не появится, когда кандидат поставят.
+    | alpha | 1 | 3/2 | 2 | 3 | 4 | 6 | 8 | 12 |
+    |---|---:|---:|---:|---:|---:|---:|---:|---:|
+    | покрытие x2 | 46 | 135/2 | 88 | 126 | 160 | 184 | 192 | 192 |
 
-    Остаётся ОДНА фигура, `staircase_source_edges_7_0`, и её случай чистый:
-    эталон при любой alpha заметает фигуру целиком (192 из 192 удвоенных), то
-    есть незаметённой части нет вовсе, а поставленное правило всё равно теряет
-    площадь. Кандидат сводит недостаток в ноль и совпадает с эталоном на ВСЕХ
-    восьми alpha корпуса. Это и есть чистый дефект порядка сборки — то, что
-    следующий срез обязан поставить.
+    Числа — у НЕЗАВИСИМОГО митрованного эталона, и сверяются все восемь alpha
+    корпуса, а не одна.
     """
 
-    turned_exact = []
-    contradicting = []
+    losing_area = []
     for name, polygon in PARTIAL:
         skeleton = build_skeleton(polygon)
         if skeleton.outcome is not SkeletonOutcome.EXACT:
             continue
-        shipped = build_faces(polygon, skeleton)
-        if shipped.outcome is FaceOutcome.EXACT:
-            continue
-        assert shipped.outcome is (
-            FaceOutcome.FACE_AREA_DOES_NOT_REPRODUCE_POLYGON
-        ), name
-        chained = chained_doubled_area(polygon, skeleton)
-        assert chained is not None, name
-        # Кандидат закрывает недостаток ТОЧНО, а не «почти».
-        assert (
-            chained - SqrtSumV1.rational(shipped.polygon_doubled_area)
-        ).is_zero, name
-        turned_exact.append(name)
+        partition = build_faces(polygon, skeleton)
+        if partition.outcome is not FaceOutcome.EXACT:
+            losing_area.append((name, partition.outcome.value, partition.detail))
+    assert losing_area == []
 
-        mismatches = []
-        for alpha in PARTIAL_SOURCE_ALPHAS:
-            standard = partial_source_standard(polygon, alpha)
-            if standard.outcome is not StandardOutcome.EXACT:
-                continue
-            covered = _chained_coverage(polygon, skeleton, alpha)
-            if covered != 2 * standard.covered:
-                mismatches.append((alpha, covered, 2 * standard.covered))
-        if mismatches:
-            contradicting.append((name, mismatches))
+    polygon = dict(PARTIAL)["staircase_source_edges_7_0"]
+    partition = build_faces(polygon, build_skeleton(polygon))
+    assert partition.outcome is FaceOutcome.EXACT
+    assert partition.polygon_doubled_area == 192
+    assert partition.area_defect.terms == ()
+    # Владельцы — РОВНО рёбра-источники, поимённо: совпадение суммы не
+    # доказывает совпадения множества.
+    assert {face.owner for face in partition.faces} == {
+        (0, 0, 12, 0),
+        (0, 12, 0, 0),
+    }
 
-    assert turned_exact == ["staircase_source_edges_7_0"]
-    assert contradicting == []
+    measured = []
+    for alpha in PARTIAL_SOURCE_ALPHAS:
+        covered = coverage_at(partition, alpha)
+        standard = partial_source_standard(polygon, alpha)
+        assert covered.outcome is CoverageOutcome.EXACT, alpha
+        assert standard.outcome is StandardOutcome.EXACT, alpha
+        assert covered.doubled_area.as_rational() == 2 * standard.covered, alpha
+        measured.append(covered.doubled_area.as_rational())
+    assert measured == [
+        Fraction(46),
+        Fraction(135, 2),
+        Fraction(88),
+        Fraction(126),
+        Fraction(160),
+        Fraction(184),
+        Fraction(192),
+        Fraction(192),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -1042,30 +1048,3 @@ def test_what_the_source_can_reach_at_all_is_a_number_from_the_standard(
     assert 2 * limit.covered == swept_doubled_area
 
 
-def _chained_coverage(polygon, skeleton, alpha):
-    """Покрытие по граням кандидата — тем же `coverage_at`, что и всегда.
-
-    Партиция подделывается не ярлыком, а собранными контурами: иначе сравнение
-    с эталоном проверяло бы усечение, а не порядок сборки.
-    """
-
-    from dataclasses import replace
-
-    contours, why = chained_contours(polygon, skeleton)
-    assert not why
-    shipped = build_faces(polygon, skeleton)
-    faces = tuple(
-        replace(
-            face,
-            points=contours[face.owner],
-            doubled_area=doubled_shoelace(contours[face.owner]),
-        )
-        for face in shipped.faces
-    )
-    total = SqrtSumV1.zero()
-    for face in faces:
-        total = total + face.doubled_area
-    partition = replace(
-        shipped, outcome=FaceOutcome.EXACT, faces=faces, doubled_area=total
-    )
-    return coverage_at(partition, alpha).doubled_area.as_rational()

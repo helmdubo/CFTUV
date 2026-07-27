@@ -23,7 +23,6 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import replace
 from fractions import Fraction
 
 import pytest
@@ -60,7 +59,6 @@ from cftuv_envelope.wavefront.faces import (
     FaceOutcome,
     build_faces,
     contour_crossings,
-    doubled_shoelace,
 )
 from cftuv_envelope.wavefront.polygon import (
     PolygonV1,
@@ -70,7 +68,6 @@ from cftuv_envelope.wavefront.polygon import (
 from cftuv_envelope.wavefront.skeleton import SkeletonOutcome, SplitSearch
 from cftuv_envelope.wavefront.sqrt_sum import SqrtSumV1
 
-from adjacency_chain import chained_contours
 from reference_factories import straight_snapshot
 from wavefront_cases import FIELD_FIXTURE, cross, holes_grid, named_corpus
 
@@ -749,19 +746,25 @@ def test_the_field_patch_skeleton_is_exact_and_both_search_paths_agree():
     Совпадение ЧИСЛА узлов этого не доказало бы — совпадение суммы не
     доказывает совпадения множества, и здесь сверяется именно множество.
 
-    Грани при этом ОТКАЗЫВАЮТ, и с появлением третьей объявленной границы
-    отказ называет не следствие, а корень: `FACE_CONTOUR_IS_NOT_SIMPLE`, три
-    трансверсальных самопересечения на одной грани из трёх, пары сегментов
-    `(5, 9)`, `(6, 9)`, `(7, 9)`. Сегмент 9 — замыкающий, от последнего узла
-    обратно к `source_start`, то есть не туда поставлен ХВОСТ цепочки.
+    ГРАНИ ТЕПЕРЬ СХОДЯТСЯ, и это сдвиг ровно одной ступени — сборщика, а не
+    скелета: числа скелета в этом тесте не двинулись ни одно. История отказа
+    сохраняется здесь, потому что ею и найден корень.
 
-    Прежнее наблюдение не отменяется, а становится следствием и проверяется
-    здесь же: сумма граней по-прежнему ПРЕВОСХОДИТ площадь полигона
-    (112 055 108 527 против 108 901 947 644, избыток +2.90%), а в корпусе
-    частичного источника все четыре случая `FACE_AREA_DOES_NOT_REPRODUCE_POLYGON`
-    были НЕДОСТАТКОМ. Знак разошёлся именно потому, что причина другая:
-    недостаток — это незаметённый кусок фигуры, избыток — перекрут контура, на
-    котором формула трапеций считает кусок дважды.
+    | что было при правиле монотонности | число |
+    |---|---|
+    | исход сборщика | `FACE_CONTOUR_IS_NOT_SIMPLE` |
+    | перекрученных граней | 1 из 3, та, у которой восемь узлов |
+    | пары сегментов | `(5, 9)`, `(6, 9)`, `(7, 9)` |
+    | сумма граней против площади домена | 112 055 108 527 против 108 901 947 644, ИЗБЫТОК +2.90 % |
+
+    Сегмент 9 — замыкающий, от последнего узла обратно к `source_start`, то есть
+    не туда вставал ХВОСТ цепочки. Знак расхождения тогда разошёлся со всем
+    корпусом частичного источника, где все случаи
+    `FACE_AREA_DOES_NOT_REPRODUCE_POLYGON` были НЕДОСТАТКОМ, и именно
+    разошедшийся знак назвал причину: недостаток — незаметённый кусок фигуры,
+    избыток — перекрут контура, на котором формула трапеций считает кусок
+    дважды. Домен `bf6` имеет два выступа, монотонность на нём не выполняется, и
+    правило смежности эту грань собирает верно.
     """
 
     loops, laws, frame = _field_bridge_input()
@@ -783,28 +786,27 @@ def test_the_field_patch_skeleton_is_exact_and_both_search_paths_agree():
     assert kinds == Counter({EventKind.EDGE: 6, EventKind.SPLIT: 4})
 
     partition = build_faces(polygon, by_trace)
-    assert partition.outcome is FaceOutcome.FACE_CONTOUR_IS_NOT_SIMPLE
+    assert partition.outcome is FaceOutcome.EXACT, partition.detail
     assert len(partition.faces) == 3
-    # Перекручена РОВНО ОДНА грань из трёх, и это та, у которой восемь узлов;
-    # две другие по два узла и просты. Пары сегментов проверяются буквально:
-    # без них «контур не простой» не показывает, какой кусок цепочки не там.
-    twisted = [
-        face for face in partition.faces if contour_crossings(face.points)
-    ]
-    assert len(twisted) == 1
-    assert twisted[0].node_count == 8
-    assert contour_crossings(twisted[0].points) == ((5, 9), (6, 9), (7, 9))
+    # Форма разбиения не изменилась и проверяется поимённо: одна грань с восемью
+    # узлами и две по два. Сдвинулся ПОРЯДОК обхода внутри восьмиузловой, а не
+    # состав граней, и без этого числа «стало EXACT» не отличалось бы от «стало
+    # собираться что-то другое».
     assert sorted(face.node_count for face in partition.faces) == [2, 2, 8]
-    # Граница 2 при этом ДЕРЖИТСЯ: все три грани положительны. Именно поэтому
-    # перекрут и проходил молча, пока границ было две.
+    # Ни одного трансверсального самопересечения — по КАЖДОЙ грани, а не «в
+    # среднем». Раньше их было три, все на восьмиузловой.
+    for face in partition.faces:
+        assert contour_crossings(face.points) == (), face.owner
+    assert partition.every_contour_is_simple
     assert partition.every_face_is_positive
-    # Знак расхождения — ИЗБЫТОК. Проверяется точным предикатом на сумме
-    # корней, а не разностью чисел с плавающей точкой.
-    deficit = partition.doubled_area - SqrtSumV1.rational(
-        partition.polygon_doubled_area
-    )
-    assert deficit.sign() > 0
+    # Сумма граней воспроизводит площадь домена ТОЧНО: пустой канонический
+    # набор коэффициентов, а не «около нуля». Прежний избыток был +2.90 %.
     assert partition.polygon_doubled_area == 108901947644
+    assert partition.area_defect.terms == ()
+    assert (
+        partition.doubled_area
+        - SqrtSumV1.rational(partition.polygon_doubled_area)
+    ).is_zero
 
 
 def test_the_field_patch_needs_the_weights_and_not_only_the_lattice():
@@ -1049,30 +1051,29 @@ def test_a_reflex_vertex_makes_the_two_paths_cover_DIFFERENT_SETS():
         )
 
 
-def test_the_adjacency_rule_would_close_the_field_patch_but_is_not_shipped():
-    """`bf6` под правилом смежности сходится ТОЧНО, и вот его первое покрытие.
+def test_the_field_patch_closes_under_the_shipped_order_and_gets_its_coverage():
+    """`bf6` сходится ТОЧНО через `build_faces`, и вот его первое покрытие.
 
-    Это измерение кандидата на полевом входе — том самом, ради которого срез и
-    делался. Поставленное правило перекручивает одну грань из трёх; правило
-    смежности собирает все три просто, положительно и с суммой РОВНО в площадь
-    домена `108 901 947 644`.
+    Это ответ полевого входа — того самого, ради которого срез и делался.
+    Правило смежности собирает все три грани просто, положительно и с суммой
+    РОВНО в площадь домена `108 901 947 644`. Проверяется здесь именно
+    ПОСТАВЛЕННЫЙ путь: `build_faces` и `coverage_at`, без единой подделки
+    разбиения; пока правило было кандидатом, партицию приходилось собирать в
+    стенде, и это утверждение было про стенд.
 
-    Первое покрытие очереди на настоящей геометрии, посчитанное здесь же:
-    при alpha из запроса (`decal_request.json`, `0.25` в собственной метрике
-    источника, то есть `16384` в единицах привязанной решётки масштаба 65536)
-    удвоенная площадь покрытия равна `2.7717 %` площади домена. Число
-    иррациональное — шесть членов в каноническом наборе, — поэтому проверяется
-    оболочкой, а не равенством дроби, и границы оболочки целые по построению.
+    Покрытие очереди на настоящей геометрии, посчитанное здесь же: при alpha из
+    запроса (`decal_request.json`, `0.25` в собственной метрике источника, то
+    есть `16384` в единицах привязанной решётки масштаба 65536) удвоенная
+    площадь покрытия равна `2.7717 %` площади домена. Число иррациональное —
+    шесть членов в каноническом наборе, — поэтому читается оно ЦЕЛИКОМ
+    оболочкой, а не по частям, и границы оболочки целые по построению.
 
-    ПРЕПЯТСТВИЕ К ПОСТАНОВКЕ СНЯТО, и снято оно в скелете, а не здесь:
-    `skeleton.py` больше не гасит коллинеарную неподвижную стену, с которой
-    отрезок фронта не перекрывается, и три фигуры корпуса частичного источника
-    перестали давать число, противоречащее эталону. Числа этого перехода —
-    `test_wavefront_partial_source.py`
-    `test_the_adjacency_rule_stopped_contradicting_the_standard_after_the_wall_fix`.
-    Сама постановка — отдельный срез: этот тест держит измерение кандидата, а
-    не его поставку, и переименовывать его до поставки значило бы назвать
-    несделанное сделанным.
+    ПОРЯДОК РАБОТ, которым эта строка оплачена. Смежность нельзя было ставить до
+    разбора коллинеарной неподвижной стены в `skeleton.py`: на трёх фигурах
+    корпуса частичного источника она превращала верный ГРОМКИЙ ОТКАЗ в число,
+    противоречащее независимому митрованному эталону. Стена разобрана, три
+    фигуры отказывают СКЕЛЕТОМ до всякого числа, и только после этого порядок
+    сборки заменён. Числа перехода — `test_wavefront_partial_source.py`.
     """
 
     loops, laws, frame = _field_bridge_input()
@@ -1084,35 +1085,21 @@ def test_the_adjacency_rule_would_close_the_field_patch_but_is_not_shipped():
     )
     polygon = report.polygon
     skeleton = build_skeleton(polygon)
-    shipped = build_faces(polygon, skeleton)
-    assert shipped.outcome is FaceOutcome.FACE_CONTOUR_IS_NOT_SIMPLE
-
-    contours, why = chained_contours(polygon, skeleton)
-    assert not why
-    assert len(contours) == 3
-    total = SqrtSumV1.zero()
-    for points in contours.values():
-        area = doubled_shoelace(points)
+    partition = build_faces(polygon, skeleton)
+    assert partition.outcome is FaceOutcome.EXACT, partition.detail
+    assert len(partition.faces) == 3
+    assert sorted(face.node_count for face in partition.faces) == [2, 2, 8]
+    for face in partition.faces:
         # Каждая грань по отдельности: простая и строго положительная.
-        assert contour_crossings(points) == ()
-        assert area.sign() > 0
-        total = total + area
+        assert contour_crossings(face.points) == (), face.owner
+        assert face.doubled_area.sign() > 0, face.owner
+    assert partition.polygon_doubled_area == 108901947644
+    assert partition.area_defect.terms == ()
     assert (
-        total - SqrtSumV1.rational(shipped.polygon_doubled_area)
+        partition.doubled_area
+        - SqrtSumV1.rational(partition.polygon_doubled_area)
     ).is_zero
-    assert shipped.polygon_doubled_area == 108901947644
 
-    faces = tuple(
-        replace(
-            face,
-            points=contours[face.owner],
-            doubled_area=doubled_shoelace(contours[face.owner]),
-        )
-        for face in shipped.faces
-    )
-    partition = replace(
-        shipped, outcome=FaceOutcome.EXACT, faces=faces, doubled_area=total
-    )
     # alpha запроса 1/4 в метрике источника; решётка карты масштаба 65536,
     # поэтому в её единицах это 16384. Масштаб взят из самого отчёта моста, а
     # не вписан числом, иначе проверялась бы подставленная решётка.
@@ -1120,14 +1107,12 @@ def test_the_adjacency_rule_would_close_the_field_patch_but_is_not_shipped():
     covered = coverage_at(partition, Fraction(1, 4) * report.lattice_scale)
     assert covered.outcome is CoverageOutcome.EXACT
     assert len(covered.faces) == 3
-    # Величина иррациональна: шесть членов в каноническом наборе. Читается она
-    # ЦЕЛИКОМ оболочкой, а не по частям — правило проекта.
     assert len(covered.doubled_area.terms) == 6
     low, high = covered.doubled_area.enclosure(80)
     assert 3018411397 < low <= high < 3018411399
     # Покрытие строго внутри домена и строго положительно.
     assert covered.doubled_area.sign() > 0
     assert (
-        SqrtSumV1.rational(shipped.polygon_doubled_area)
+        SqrtSumV1.rational(partition.polygon_doubled_area)
         - covered.doubled_area
     ).sign() > 0
