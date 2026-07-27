@@ -44,7 +44,7 @@ from dataclasses import dataclass
 from enum import Enum
 from functools import cmp_to_key
 
-from .event_time import EventPointV1, SupportLineV1
+from .event_time import SupportLineV1
 from .polygon import PolygonV1, signed_double_area
 from .skeleton import SkeletonNodeV1, SkeletonOutcome, SkeletonV1
 from .sqrt_sum import SqrtSumV1
@@ -175,10 +175,50 @@ def line_key(line: SupportLineV1) -> LineKey:
     return (line.a, line.b, line.c, line.q)
 
 
-def _projection(point: EventPointV1, dx: int, dy: int) -> SqrtSumV1:
+Point = tuple[SqrtSumV1, SqrtSumV1]
+
+
+def projection(point: Point, dx: int, dy: int) -> SqrtSumV1:
     """Проекция точки на направление `(dx, dy)`. Без нормировки: знак важен."""
 
-    return point.x.scaled(dx) + point.y.scaled(dy)
+    return point[0].scaled(dx) + point[1].scaled(dy)
+
+
+def order_along_edge(
+    points: tuple[Point, ...], dx: int, dy: int
+) -> tuple[Point, ...]:
+    """Порядок узлов грани: по УБЫВАНИЮ проекции на ребро, потом на нормаль.
+
+    Вынесено из `build_faces` отдельной функцией не для красоты: стенд, который
+    проверяет ГИПОТЕЗУ о причине дефекта, обязан сортировать тем же самым
+    правилом, а не своей копией. Копия доказывала бы про копию.
+
+    Второй ключ не украшение: два узла грани могут лежать на одном
+    перпендикуляре к ребру, и без него порядок зависел бы от того, в каком
+    порядке события легли в список.
+    """
+
+    def compare(left: Point, right: Point) -> int:
+        along = projection(right, dx, dy) - projection(left, dx, dy)
+        sign = along.sign()
+        if sign:
+            return sign
+        across = projection(right, -dy, dx) - projection(left, -dy, dx)
+        return across.sign()
+
+    return tuple(sorted(points, key=cmp_to_key(compare)))
+
+
+def face_contour(
+    start: tuple[int, int], end: tuple[int, int], nodes: tuple[Point, ...]
+) -> tuple[Point, ...]:
+    """Контур грани: опорное ребро, затем его узлы в порядке монотонности."""
+
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    return (
+        (SqrtSumV1.rational(start[0]), SqrtSumV1.rational(start[1])),
+        (SqrtSumV1.rational(end[0]), SqrtSumV1.rational(end[1])),
+    ) + order_along_edge(nodes, dx, dy)
 
 
 def doubled_shoelace(
@@ -247,32 +287,9 @@ def build_faces(polygon: PolygonV1, skeleton: SkeletonV1) -> FacePartitionV1:
                 empty.polygon_doubled_area,
                 f"ребро {start} -> {end} без узлов",
             )
-        dx, dy = end[0] - start[0], end[1] - start[1]
-
-        def compare(left: SkeletonNodeV1, right: SkeletonNodeV1) -> int:
-            """По убыванию проекции на ребро; при равенстве — на нормаль.
-
-            Второй ключ не украшение: два узла грани могут лежать на одном
-            перпендикуляре к ребру, и без него порядок зависел бы от того, в
-            каком порядке события легли в список.
-            """
-
-            along = _projection(right.point, dx, dy) - _projection(
-                left.point, dx, dy
-            )
-            sign = along.sign()
-            if sign:
-                return sign
-            across = _projection(right.point, -dy, dx) - _projection(
-                left.point, -dy, dx
-            )
-            return across.sign()
-
-        ordered = sorted(candidates, key=cmp_to_key(compare))
-        points = (
-            (SqrtSumV1.rational(start[0]), SqrtSumV1.rational(start[1])),
-            (SqrtSumV1.rational(end[0]), SqrtSumV1.rational(end[1])),
-        ) + tuple((node.point.x, node.point.y) for node in ordered)
+        points = face_contour(
+            start, end, tuple((n.point.x, n.point.y) for n in candidates)
+        )
         doubled = doubled_shoelace(points)
         faces.append(FaceV1(key, start, end, points, doubled))
         total = total + doubled

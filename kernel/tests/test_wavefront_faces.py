@@ -28,8 +28,10 @@ from cftuv_envelope.wavefront.faces import (
     FaceOutcome,
     build_faces,
     doubled_shoelace,
+    face_contour,
     line_key,
     polygon_edges,
+    projection,
 )
 from cftuv_envelope.wavefront.polygon import PolygonV1, signed_double_area
 from cftuv_envelope.wavefront.skeleton import SplitSearch
@@ -238,3 +240,230 @@ def test_the_face_area_of_the_axis_square_is_the_quarter_it_must_be():
         face.doubled_area.as_rational() for face in partition.faces
     ] == [Fraction(32)] * 4
     assert partition.doubled_area.as_rational() == Fraction(128)
+
+
+# --------------------------------------------------------------------------
+# Крест: измеренный диагноз дефекта, а не гипотеза о нём
+#
+# Ниже — стенд, который отвечает на вопрос «что именно теряет сборщик» ЧИСЛАМИ
+# по всей сетке `wide, tall` из 3..9, а не на двух фигурах, попавших в тест.
+# Три измерения, и каждое опровергает или подтверждает свою версию причины:
+#
+# | версия причины                     | измерение | вывод |
+# |------------------------------------|-----------|-------|
+# | «узлы с равной проекцией, порядок» | 0 пар различных точек с равной проекцией | ОПРОВЕРГНУТА |
+# | «в списке лишний узел (состав)»    | правка ложится ровно на 4 грани поровну | не подтверждена |
+# | «нужной вершины НЕТ среди узлов»   | точка пересечения гребней отсутствует во всех 42 | ПОДТВЕРЖДЕНА |
+# --------------------------------------------------------------------------
+
+
+# Дефект по всей сетке, измеренный, а не выведенный. Первые два числа — `wide`
+# и `tall`, третье — удвоенный дефект площади. Диагональ `wide == tall` сюда не
+# входит: там скелет отказывает `WAVEFRONT_LEFT_UNRESOLVED` и граней нет.
+CROSS_GRID_DEFECT = (
+    (3, 4, -1), (3, 5, -4), (3, 6, -9), (3, 7, -16), (3, 8, -20), (3, 9, -24),
+    (4, 3, -1), (4, 5, -1), (4, 6, -4), (4, 7, -9), (4, 8, -16), (4, 9, -20),
+    (5, 3, -4), (5, 4, -1), (5, 6, -1), (5, 7, -4), (5, 8, -9), (5, 9, -16),
+    (6, 3, -9), (6, 4, -4), (6, 5, -1), (6, 7, -1), (6, 8, -4), (6, 9, -9),
+    (7, 3, -16), (7, 4, -9), (7, 5, -4), (7, 6, -1), (7, 8, -1), (7, 9, -4),
+    (8, 3, -20), (8, 4, -16), (8, 5, -9), (8, 6, -4), (8, 7, -1), (8, 9, -1),
+    (9, 3, -24), (9, 4, -20), (9, 5, -16), (9, 6, -9), (9, 7, -4), (9, 8, -1),
+)
+
+# Толщина рукавов у `wavefront_cases.cross`: `left == bottom == 4`. Это не
+# декорация, а граница области, где закон дефекта имеет силу, — см. тест ниже.
+CROSS_ARM = 4
+
+# Четыре стенки центрального блока и четыре его «крышки» в порядке рёбер
+# `polygon_edges`. Пересечение двух гребней сидит между ними.
+CROSS_WALLS = (1, 5, 7, 11)
+CROSS_CAPS = (2, 4, 8, 10)
+
+
+def _cross_partition(wide: int, tall: int):
+    figure = wavefront_cases.cross(wide=wide, tall=tall)
+    skeleton = build_skeleton(figure)
+    return figure, skeleton, build_faces(figure, skeleton)
+
+
+def _reassembled_total(figure, skeleton, extra):
+    """Пересборка ТЕМ ЖЕ правилом, но с дополнительными точками на ребро.
+
+    Правило берётся из `faces.py` (`face_contour`), а не переписывается здесь:
+    стенд, доказывающий про свою копию правила, не доказывает ничего.
+    """
+
+    total = SqrtSumV1.zero()
+    areas = {}
+    for index, (start, end, line) in enumerate(polygon_edges(figure)):
+        key = line_key(line)
+        nodes = tuple(
+            (node.point.x, node.point.y)
+            for node in skeleton.nodes
+            if key in node.participants
+        ) + tuple(extra.get(index, ()))
+        doubled = doubled_shoelace(face_contour(start, end, nodes))
+        areas[index] = doubled
+        total = total + doubled
+    return total, areas
+
+
+def test_the_cross_defect_is_measured_over_the_whole_grid_not_over_two_figures():
+    """42 строки сетки, и у каждой дефект — записанное число.
+
+    Смысл таблицы в том, что её нельзя подогнать: она не про две фигуры,
+    попавшие в отчёт, а про всю сетку `wide, tall` из 3..9. Семь диагональных
+    строк `wide == tall` в неё не входят — там отказывает скелет, а не сборщик.
+    """
+
+    measured = []
+    for wide in range(3, 10):
+        for tall in range(3, 10):
+            _, _, partition = _cross_partition(wide, tall)
+            if partition.outcome is FaceOutcome.SKELETON_IS_NOT_EXACT:
+                assert wide == tall, (wide, tall, partition.detail)
+                continue
+            assert partition.outcome is (
+                FaceOutcome.FACE_AREA_DOES_NOT_REPRODUCE_POLYGON
+            ), (wide, tall)
+            measured.append(
+                (wide, tall, partition.area_defect.as_rational())
+            )
+    assert len(measured) == 42
+    assert measured == [
+        (wide, tall, Fraction(defect))
+        for wide, tall, defect in CROSS_GRID_DEFECT
+    ]
+
+
+def test_the_defect_law_holds_only_while_the_gap_fits_inside_the_arm():
+    """`-(wide - tall)^2` — закон с ОБЛАСТЬЮ, и область измерена, а не додумана.
+
+    Записанный ранее закон «удвоенный дефект = -(wide - tall)^2 на всех 42
+    строках» верен на 36 из 42. Он ломается ровно там, где `|wide - tall|`
+    перерастает толщину рукава (у `cross` она 4): 6 строк — (3,8), (3,9),
+    (4,9), (8,3), (9,3), (9,4) — дают −20 и −24 вместо −25 и −36. Причина не в
+    длине рукавов: те же 6 строк расходятся и при `right, top` = 40, 44 и 60,
+    64. Причина в толщине: потерянный клин упирается в рукав и обрезается.
+    """
+
+    inside = [
+        (wide, tall, defect)
+        for wide, tall, defect in CROSS_GRID_DEFECT
+        if abs(wide - tall) <= CROSS_ARM
+    ]
+    outside = [
+        (wide, tall, defect)
+        for wide, tall, defect in CROSS_GRID_DEFECT
+        if abs(wide - tall) > CROSS_ARM
+    ]
+    assert len(inside) == 36 and len(outside) == 6
+    assert all(defect == -((wide - tall) ** 2) for wide, tall, defect in inside)
+    # Снаружи области закон не просто «неточен» — он завышает потерю, и на
+    # сколько именно, тоже число.
+    assert [
+        (wide, tall, defect, -((wide - tall) ** 2))
+        for wide, tall, defect in outside
+    ] == [
+        (3, 8, -20, -25),
+        (3, 9, -24, -36),
+        (4, 9, -20, -25),
+        (8, 3, -20, -25),
+        (9, 3, -24, -36),
+        (9, 4, -20, -25),
+    ]
+
+
+def test_no_two_distinct_skeleton_points_of_a_cross_share_a_projection():
+    """ОПРОВЕРЖЕНИЕ гипотезы «порядок ломается на равных проекциях».
+
+    Равные проекции на кресте есть, и их много — до 26 пар на фигуру. Но все
+    они между записями узлов, стоящими в ОДНОЙ И ТОЙ ЖЕ точке: из 18 узлов
+    скелета креста 10 — повторы по точке. Пар РАЗЛИЧНЫХ точек с равной
+    проекцией нет ни одной ни на одной из 42 строк, а порядок совпадающих
+    точек на площадь не влияет никак. Значит переставлять нечего, и чинить
+    сортировку бессмысленно.
+    """
+
+    coincident_ties = 0
+    for wide, tall, _ in CROSS_GRID_DEFECT:
+        figure, skeleton, _ = _cross_partition(wide, tall)
+        for start, end, line in polygon_edges(figure):
+            key = line_key(line)
+            dx, dy = end[0] - start[0], end[1] - start[1]
+            buckets: dict[object, set] = {}
+            for node in skeleton.nodes:
+                if key not in node.participants:
+                    continue
+                point = (node.point.x, node.point.y)
+                buckets.setdefault(
+                    projection(point, dx, dy), set()
+                ).add(point)
+            for places in buckets.values():
+                assert len(places) == 1, (wide, tall, start, end)
+            coincident_ties += sum(
+                1
+                for node in skeleton.nodes
+                if key in node.participants
+            ) - len(buckets)
+    # Совпадения проекций всё-таки есть — и это делает измерение измерением,
+    # а не пустой проверкой на пустом множестве.
+    assert coincident_ties == 26 * 42
+
+
+def test_the_defect_is_the_ridge_crossing_that_the_skeleton_never_emits():
+    """ПОДТВЕРЖДЕНИЕ настоящей причины: нужной вершины НЕТ среди узлов.
+
+    У креста два гребня: горизонтальный (центральный блок схлопывается по
+    высоте) и вертикальный (по ширине). Пересекаются они в центре блока —
+    точке `(4 + wide/2, 4 + tall/2)`. Именно там сходятся грани четырёх
+    коллинеарных стенок, и именно её среди узлов скелета НЕТ ни на одной из 42
+    строк. Добавь её кандидатом к четырём стенкам — и дефект обнуляется ТОЧНО
+    на всех 36 строках, где закон имеет силу, а правка ложится ровно на эти
+    четыре грани и поровну на каждую.
+
+    Отсюда вывод, меняющий план: дело не в порядке обхода и не в составе
+    списка. Сборщику НЕЧЕМ собрать правильную грань — вершины ему не дали.
+    Корень в `skeleton.py`, а не в `faces.py`, и `build_faces` тут не чинится.
+    """
+
+    zeroed = 0
+    for wide, tall, defect in CROSS_GRID_DEFECT:
+        figure, skeleton, partition = _cross_partition(wide, tall)
+        crossing = (
+            SqrtSumV1.rational(Fraction(4) + Fraction(wide, 2)),
+            SqrtSumV1.rational(Fraction(4) + Fraction(tall, 2)),
+        )
+        places = {(node.point.x, node.point.y) for node in skeleton.nodes}
+        assert crossing not in places, (wide, tall)
+
+        target = CROSS_WALLS if wide > tall else CROSS_CAPS
+        before, before_areas = _reassembled_total(figure, skeleton, {})
+        after, after_areas = _reassembled_total(
+            figure, skeleton, {index: (crossing,) for index in target}
+        )
+        assert before == partition.doubled_area
+        moved = {
+            index
+            for index in before_areas
+            if not (after_areas[index] - before_areas[index]).is_zero
+        }
+        if abs(wide - tall) > CROSS_ARM:
+            # Снаружи области закона одной вершины мало: остаток остаётся, и
+            # он тоже число, а не «почти сошлось».
+            residual = after - SqrtSumV1.rational(
+                partition.polygon_doubled_area
+            )
+            assert not residual.is_zero, (wide, tall)
+            continue
+        assert moved == set(target), (wide, tall)
+        gains = {
+            (after_areas[index] - before_areas[index]).as_rational()
+            for index in target
+        }
+        assert gains == {Fraction(-defect, 4)}, (wide, tall)
+        assert (
+            after - SqrtSumV1.rational(partition.polygon_doubled_area)
+        ).is_zero, (wide, tall)
+        zeroed += 1
+    assert zeroed == 36
