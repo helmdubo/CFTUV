@@ -9,6 +9,11 @@
 |---|---|
 | 1. сумма площадей граней = площадь многоугольника | `area_reproduces_polygon` |
 | 2. площадь каждой грани строго положительна | `every_face_is_positive` |
+
+С этого среза границы проверяет и САМА `build_faces` перед возвратом `EXACT`, у
+каждой границы свой член `FaceOutcome`, и в `detail` лежит ЧИСЛО потери. Ниже —
+столбец тестов и на это: что отказ громкий, что число то самое, и что цепочка
+до `coverage_at` закрыта (она не считает по неточному разбиению).
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ from fractions import Fraction
 import pytest
 
 from cftuv_envelope.wavefront import build_skeleton
+from cftuv_envelope.wavefront.coverage import CoverageOutcome, coverage_at
 from cftuv_envelope.wavefront.faces import (
     FaceOutcome,
     build_faces,
@@ -132,6 +138,78 @@ def test_the_faces_of_an_unproven_skeleton_are_refused_not_invented():
     assert partition.outcome is FaceOutcome.SKELETON_IS_NOT_EXACT
     assert partition.faces == ()
     assert partition.detail == "WAVEFRONT_LEFT_UNRESOLVED"
+
+
+def test_a_partition_that_loses_area_refuses_loudly_with_the_defect_as_a_number():
+    """Граница 1 нарушена — исход названный, и в нём ЧИСЛО, а не слово.
+
+    Крест `5 x 4` теряет клин удвоенной площади 1. До этого среза `build_faces`
+    отдавала на нём `EXACT`, и потеря протекала до самого ответа: граница 2
+    держалась, а односторонняя проверка покрытия «не превысил многоугольник»
+    проходила, потому что потеря делает покрытие МЕНЬШЕ.
+    """
+
+    figure = wavefront_cases.cross(wide=5, tall=4)
+    partition = build_faces(figure, build_skeleton(figure))
+    assert partition.outcome is (
+        FaceOutcome.FACE_AREA_DOES_NOT_REPRODUCE_POLYGON
+    )
+    assert partition.detail == "-1"
+    assert partition.area_defect.as_rational() == Fraction(-1)
+    # Граница 2 при этом ДЕРЖИТСЯ, и это ровно то, почему исходы разные: один
+    # общий член слил бы «потерян клин» и «грань вывернута» в одно слово.
+    assert partition.every_face_is_positive
+
+
+def test_the_two_broken_boundaries_are_two_different_outcomes_not_one():
+    """Отдельный член на каждую границу — иначе диагностика их путает.
+
+    Вывернутая грань подделывается `replace` над готовой партицией: своей
+    фигуры, ломающей ИМЕННО границу 2, в корпусе нет, а проверить надо, что
+    членов два и они не подменяют друг друга.
+    """
+
+    from dataclasses import replace
+
+    assert (
+        FaceOutcome.FACE_IS_NOT_POSITIVE
+        is not FaceOutcome.FACE_AREA_DOES_NOT_REPRODUCE_POLYGON
+    )
+    polygon = PolygonV1.build(((0, 0), (8, 0), (8, 8), (0, 8)))
+    partition = build_faces(polygon, build_skeleton(polygon))
+    assert partition.outcome is FaceOutcome.EXACT
+    flipped = replace(
+        partition.faces[0], doubled_area=SqrtSumV1.rational(-32)
+    )
+    broken = replace(partition, faces=(flipped,) + partition.faces[1:])
+    assert not broken.every_face_is_positive
+    # Свойство границы 1 у подделки тоже сломано, и это как раз показывает,
+    # почему `build_faces` спрашивает про положительность ПЕРВОЙ: корень —
+    # одна грань, а расхождение суммы — его следствие.
+    assert broken.area_reproduces_polygon
+
+
+def test_an_inexact_partition_never_reaches_the_coverage_answer():
+    """Цепочка закрыта ДОКАЗАННО: `coverage_at` отказывает, а не считает.
+
+    Проверяется на фигуре, где разбиение действительно неточно, а не на
+    подделке: крест `6 x 4`, удвоенный дефект −4. Раньше на ней покрытие
+    считалось и отдавало 166 вместо эталонных 168.
+    """
+
+    figure = wavefront_cases.cross(wide=6, tall=4)
+    partition = build_faces(figure, build_skeleton(figure))
+    assert partition.outcome is (
+        FaceOutcome.FACE_AREA_DOES_NOT_REPRODUCE_POLYGON
+    )
+    for alpha in (Fraction(0), Fraction(1), Fraction(3)):
+        coverage = coverage_at(partition, alpha)
+        assert coverage.outcome is CoverageOutcome.PARTITION_IS_NOT_EXACT
+        assert coverage.faces == ()
+        assert coverage.doubled_area.is_zero
+        assert coverage.detail == (
+            FaceOutcome.FACE_AREA_DOES_NOT_REPRODUCE_POLYGON.value
+        )
 
 
 def test_the_shoelace_over_sqrt_sums_agrees_with_the_integer_one():

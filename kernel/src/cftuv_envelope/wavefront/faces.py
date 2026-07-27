@@ -19,8 +19,10 @@
 `SqrtSumV1` (у неё есть произведение), и сравнение с целой площадью
 многоугольника — это `is_zero` разности, то есть чисто рациональная проверка.
 
-ОБЪЯВЛЕННЫЕ ГРАНИЦЫ (границ две, и обе проверяются тестом на собственном
-результате этой функции — `test_wavefront_faces.py`):
+ОБЪЯВЛЕННЫЕ ГРАНИЦЫ (границ две, и обе проверяются САМОЙ `build_faces` перед
+тем, как она вернёт `EXACT`, — у каждой свой член `FaceOutcome` и число потери
+в `detail`; тест `test_wavefront_faces.py` проверяет их же на собственном
+результате функции):
 
 1. **Сумма площадей граней РАВНА площади многоугольника.** Точно, не «почти».
    Это и есть ровно то утверждение, которое попарный крой о себе не доказывает.
@@ -64,6 +66,16 @@ class FaceOutcome(str, Enum):
     )
     # У ребра нет ни одного узла. Грань не замкнуть двумя точками.
     FACE_HAS_NO_SKELETON_NODE = "FACE_HAS_NO_SKELETON_NODE"
+    # Граница 1 нарушена: сумма площадей граней НЕ равна площади многоугольника.
+    # Член отдельный, а не общий с границей 2, потому что это другой дефект:
+    # здесь разбиение потеряло (или удвоило) кусок ПЛОЩАДИ, и величина потери
+    # лежит числом в `detail`. Слить их в один исход означало бы в диагностике
+    # не отличить «клин потерян» от «грань вывернута».
+    FACE_AREA_DOES_NOT_REPRODUCE_POLYGON = "FACE_AREA_DOES_NOT_REPRODUCE_POLYGON"
+    # Граница 2 нарушена: у какой-то грани площадь не строго положительна.
+    # Это дефект СБОРКИ одной грани (порядок обхода вывернул её либо схлопнул),
+    # а не арифметики суммы, поэтому он назван своим именем.
+    FACE_IS_NOT_POSITIVE = "FACE_IS_NOT_POSITIVE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +102,10 @@ class FaceV1:
 class FacePartitionV1:
     """Разбиение многоугольника гранями скелета и обе объявленные границы."""
 
+    # При отказе по границе 1 или 2 грани НЕ обнуляются, в отличие от отказов,
+    # случившихся до счёта: там граней просто нет, а тут они посчитаны, и без
+    # них дефект нечем измерить. Смотреть на них можно только после проверки
+    # `outcome`, и потребитель это делает (`coverage.py:160`).
     outcome: FaceOutcome
     faces: tuple[FaceV1, ...]
     doubled_area: SqrtSumV1
@@ -120,6 +136,23 @@ class FacePartitionV1:
         """Расхождение площадей. Ноль означает совпадение, и это доказано."""
 
         return self.doubled_area - SqrtSumV1.rational(self.polygon_doubled_area)
+
+
+def as_number(value: SqrtSumV1) -> str:
+    """Величина ЧИСЛОМ для `detail`, а не словом «нарушено».
+
+    Отказ, у которого в причине стоит слово, нельзя ни сравнить с прошлым
+    прогоном, ни отличить потерю в 1/2 от потери в 18. Рациональная величина
+    печатается дробью, иррациональная — своим каноническим набором
+    коэффициентов: он тоже число, просто записанное в базисе корней.
+    """
+
+    rational = value.as_rational()
+    if rational is not None:
+        return str(rational)
+    return " + ".join(
+        f"{coefficient}*sqrt({radicand})" for radicand, coefficient in value.terms
+    )
 
 
 def polygon_edges(
@@ -244,9 +277,45 @@ def build_faces(polygon: PolygonV1, skeleton: SkeletonV1) -> FacePartitionV1:
         faces.append(FaceV1(key, start, end, points, doubled))
         total = total + doubled
 
-    return FacePartitionV1(
+    assembled = FacePartitionV1(
         FaceOutcome.EXACT,
         tuple(faces),
         total,
         empty.polygon_doubled_area,
     )
+
+    # Обе объявленные границы проверяются ЗДЕСЬ, до возврата `EXACT`, а не
+    # только тестом. Причина измерена, а не гигиеническая: на кресте сборка
+    # теряла клин площади, отдавала `EXACT`, и потеря протекала до самого
+    # ответа — граница 2 при этом ДЕРЖАЛАСЬ (все грани положительны), а
+    # `coverage_at.does_not_exceed_the_polygon` проходила, потому что потеря
+    # делает покрытие МЕНЬШЕ, а не больше. Все прочие защиты односторонние,
+    # ловит только двусторонняя проверка на равенство, и она стоит ниже.
+    #
+    # Порядок проверок не произволен: неположительная грань — дефект ОДНОЙ
+    # грани, и он же поднимает (или гасит) сумму, поэтому он называется первым.
+    # Иначе корень был бы спрятан за его следствием.
+    #
+    # Проверки точные и бесплатные: обе величины уже посчитаны, сравнение с
+    # нулём — `is_zero` разности и `sign()`, ни одного порога.
+    if not assembled.every_face_is_positive:
+        guilty = [
+            face for face in faces if face.doubled_area.sign() <= 0
+        ]
+        areas = ", ".join(as_number(face.doubled_area) for face in guilty[:3])
+        return FacePartitionV1(
+            FaceOutcome.FACE_IS_NOT_POSITIVE,
+            assembled.faces,
+            total,
+            empty.polygon_doubled_area,
+            f"{len(guilty)} из {len(faces)}, удвоенные площади: {areas}",
+        )
+    if not assembled.area_reproduces_polygon:
+        return FacePartitionV1(
+            FaceOutcome.FACE_AREA_DOES_NOT_REPRODUCE_POLYGON,
+            assembled.faces,
+            total,
+            empty.polygon_doubled_area,
+            as_number(assembled.area_defect),
+        )
+    return assembled
