@@ -154,6 +154,13 @@ class StandardOutcome(str, Enum):
     # полосы лежат не в дробях, и точной сетки под них нет. Эталон, который
     # округлил бы их, перестал бы быть эталоном.
     SOURCE_SPEED_IS_NOT_RATIONAL = "SOURCE_SPEED_IS_NOT_RATIONAL"
+    # В вогнутой вершине сходятся два источника РАЗНЫХ скоростей. Митрованная
+    # полоса накрывает такой угол КВАДРАТОМ, а это верно ровно при равных
+    # скоростях: у разных фронт заворачивает по взвешенной биссектрисе, и угол
+    # выходит несимметричным. Модель здесь не огрубляется — она не применима.
+    SOURCE_SPEEDS_DIFFER_AT_A_REFLEX_VERTEX = (
+        "SOURCE_SPEEDS_DIFFER_AT_A_REFLEX_VERTEX"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -655,6 +662,36 @@ class _CellFieldV1:
         return False
 
 
+def _reflex_vertex_with_mixed_speeds(
+    polygon: PolygonV1,
+) -> tuple[int, int] | None:
+    """Вогнутая вершина, где сходятся два источника РАЗНЫХ скоростей, либо `None`.
+
+    Именно там митрованная полоса перестаёт описывать фронт: угол у неё
+    квадратный, а взвешенная биссектриса делит его не пополам. Сравнение
+    скоростей целочисленное — `q1*N2` против `q2*N1`, — поэтому граница модели
+    решается точно, а не «примерно равными» скоростями.
+    """
+
+    for loop in polygon.loops:
+        points = loop.points
+        speeds = loop.edge_speeds_squared
+        size = len(points)
+        for index, is_reflex in enumerate(loop.reflex_flags()):
+            if not is_reflex:
+                continue
+            before, after = (index - 1) % size, index
+            if speeds[before] == 0 or speeds[after] == 0:
+                continue
+            first = unit_speed_squared(points[before], points[index])
+            second = unit_speed_squared(
+                points[index], points[(index + 1) % size]
+            )
+            if speeds[before] * second != speeds[after] * first:
+                return points[index]
+    return None
+
+
 def _partial_refused(
     outcome: StandardOutcome,
     polygon: PolygonV1,
@@ -697,6 +734,15 @@ def partial_source_standard(
     sources = source_speeds(polygon)
     if isinstance(sources, StandardOutcome):
         return _partial_refused(sources, polygon, alpha, area, "sqrt(q/|d|^2)")
+    corner = _reflex_vertex_with_mixed_speeds(polygon)
+    if corner is not None:
+        return _partial_refused(
+            StandardOutcome.SOURCE_SPEEDS_DIFFER_AT_A_REFLEX_VERTEX,
+            polygon,
+            alpha,
+            area,
+            f"вогнутая вершина {corner}",
+        )
 
     reaches = tuple(sorted({alpha * speed for _, _, speed in sources}))
     grid_x = _refined_axis_by_reaches(

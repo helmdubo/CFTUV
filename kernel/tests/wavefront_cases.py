@@ -434,7 +434,44 @@ def partial_source_corpus() -> tuple[tuple[str, PolygonV1], ...]:
             ),
         )
     )
+    entries.extend(_weighted_entries())
     return tuple(entries)
+
+
+def _weighted_entries() -> tuple[tuple[str, PolygonV1], ...]:
+    """Фигуры, где источником является ВСЁ, но скорости рёбер РАЗНЫЕ.
+
+    Стена и вес — одно обобщение (`q` не равно `a^2 + b^2`), и корпус обязан
+    щупать обе его стороны. Здесь щупается вторая: `speed_bound_of` равен двум,
+    то есть обобщённая теорема 2.11 работает не в вырожденном случае, а с
+    настоящим множителем, и делает это при вогнутой вершине, а не на выпуклой
+    фигуре, где индекс кандидатов вообще не спрашивают.
+
+    Третья запись — граница МОДЕЛИ ЭТАЛОНА, а не очереди: у неё в вогнутой
+    вершине сходятся два источника разных скоростей, митрованный угол там уже
+    не квадратный, и эталон обязан отказаться считать, а не посчитать неверно.
+    """
+
+    shape = ell(12)
+    steps = staircase()
+
+    def weighted(figure: PolygonV1, fast: tuple[int, ...]) -> PolygonV1:
+        return with_edge_speeds(
+            figure,
+            tuple(
+                (start, end, (4 if index in fast else 1) * unit_speed_squared(start, end))
+                for index, (start, end, _) in enumerate(figure.edges())
+            ),
+        )
+
+    return (
+        ("ell_12_all_sources_bottom_at_double_speed", weighted(shape, (0,))),
+        ("staircase_all_sources_bottom_at_double_speed", weighted(steps, (0,))),
+        (
+            "ell_12_all_sources_mixed_speeds_at_the_reflex_vertex",
+            weighted(shape, (0, 3)),
+        ),
+    )
 
 
 def loop_points(polygon: PolygonV1) -> tuple[LoopV1, ...]:

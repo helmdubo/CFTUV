@@ -85,12 +85,20 @@ NAMED_PARTIAL_REFUSALS = (
     FaceOutcome.FACE_AREA_DOES_NOT_REPRODUCE_POLYGON,
 )
 
-#: Сколько фигур корпуса частичного источника очередь ЗАМЕТАЕТ целиком и
-#: сколько отвергает. Числа заморожены не как цель, а как ратчет: их сдвиг
-#: означает, что изменилось поведение очереди на частичном источнике, и такой
-#: сдвиг обязан быть виден в диффе.
-FIGURES_WHERE_THE_SOURCE_SWEEPS_THE_WHOLE_FIGURE = 20
+#: Исходы, которыми ЭТАЛОН имеет право сказать «моя модель здесь не описывает
+#: фронт». Отказ эталона — такой же законный ответ, как отказ очереди, и
+#: перечислен он поимённо ровно по той же причине.
+NAMED_STANDARD_REFUSALS = (
+    StandardOutcome.SOURCE_SPEEDS_DIFFER_AT_A_REFLEX_VERTEX,
+    StandardOutcome.SOURCE_SPEED_IS_NOT_RATIONAL,
+)
+
+#: Как корпус частичного источника раскладывается на три названные доли. Числа
+#: заморожены не как цель, а как ратчет: их сдвиг означает, что изменилось
+#: поведение на частичном источнике, и он обязан быть виден в диффе.
+FIGURES_WHERE_THE_QUEUE_MATCHES_THE_STANDARD = 22
 FIGURES_WHERE_THE_QUEUE_REFUSES_BY_NAME = 18
+FIGURES_WHERE_THE_STANDARD_REFUSES_BY_NAME = 1
 
 
 # --------------------------------------------------------------------------
@@ -330,11 +338,10 @@ def test_the_queue_either_matches_the_standard_or_refuses_by_name(
 ):
     """Главная проверка среза: тихого неверного числа нет ни на одной фигуре.
 
-    Ответов у очереди на частичном источнике ровно два, и оба законны: либо
-    источник заметает фигуру целиком и тогда покрытие обязано совпасть с
-    независимым эталоном ТОЧНО при каждой alpha, либо источник её не заметает и
-    тогда очередь отказывает ИМЕНОВАННЫМ исходом. Третьего — числа, которое
-    никем не проверено, — быть не должно.
+    Исходов ровно три, и все три названы: очередь отказывает своей объявленной
+    границей; эталон отказывает своей (модель не применима); либо оба отвечают,
+    и тогда числа обязаны совпасть ТОЧНО при каждой alpha. Четвёртого — числа,
+    которое никем не проверено, — быть не должно.
     """
 
     partition = build_faces(polygon, build_skeleton(polygon))
@@ -346,32 +353,43 @@ def test_the_queue_either_matches_the_standard_or_refuses_by_name(
         covered = coverage_at(partition, alpha)
         standard = partial_source_standard(polygon, alpha)
         assert covered.outcome is CoverageOutcome.EXACT
-        assert standard.outcome is StandardOutcome.EXACT, standard.detail
+        if standard.outcome is not StandardOutcome.EXACT:
+            assert standard.outcome in NAMED_STANDARD_REFUSALS, standard.detail
+            continue
         assert covered.doubled_area.as_rational() == 2 * standard.covered, (
             name,
             alpha,
         )
 
 
-def test_the_partial_source_corpus_splits_into_two_named_halves():
-    """Сколько фигур очередь заметает, а сколько отвергает, — число, а не «часть».
+def test_the_partial_source_corpus_splits_into_three_named_parts():
+    """Сколько фигур сверено, сколько отвергла очередь, сколько эталон.
 
-    Ратчет: сдвиг любого из двух чисел означает смену поведения на частичном
+    Ратчет: сдвиг любого из трёх чисел означает смену поведения на частичном
     источнике. Он законен, но обязан быть виден в диффе, а не растворяться в
-    «тесты зелёные».
+    «тесты зелёные». Сумма трёх долей обязана дать корпус целиком — иначе
+    какая-то фигура не проверяется вовсе, и этого не было бы видно.
     """
 
-    swept = refused = 0
+    matched = refused_by_queue = refused_by_standard = 0
     for _, polygon in PARTIAL:
         partition = build_faces(polygon, build_skeleton(polygon))
-        if partition.outcome is FaceOutcome.EXACT:
-            swept += 1
-        else:
+        if partition.outcome is not FaceOutcome.EXACT:
             assert partition.outcome in NAMED_PARTIAL_REFUSALS
-            refused += 1
-    assert swept == FIGURES_WHERE_THE_SOURCE_SWEEPS_THE_WHOLE_FIGURE
-    assert refused == FIGURES_WHERE_THE_QUEUE_REFUSES_BY_NAME
-    assert swept + refused == len(PARTIAL)
+            refused_by_queue += 1
+            continue
+        standard = partial_source_standard(polygon, Fraction(1))
+        if standard.outcome is StandardOutcome.EXACT:
+            matched += 1
+        else:
+            assert standard.outcome in NAMED_STANDARD_REFUSALS
+            refused_by_standard += 1
+    assert matched == FIGURES_WHERE_THE_QUEUE_MATCHES_THE_STANDARD
+    assert refused_by_queue == FIGURES_WHERE_THE_QUEUE_REFUSES_BY_NAME
+    assert refused_by_standard == FIGURES_WHERE_THE_STANDARD_REFUSES_BY_NAME
+    assert (
+        matched + refused_by_queue + refused_by_standard == len(PARTIAL) == 41
+    )
 
 
 @pytest.mark.parametrize(
@@ -433,6 +451,68 @@ def test_the_reflex_vertex_with_the_source_on_both_sides_is_answered(
         coverage_at(partition, Fraction(alpha)).doubled_area.as_rational()
         for alpha in (1, 2, 3, 6)
     ] == [26, 56, 90, 216]
+
+
+def test_a_weighted_edge_next_to_a_reflex_vertex_uses_the_generalised_bound():
+    """Взвешенное ребро при ВОГНУТОЙ вершине — там, где индекс кандидатов живой.
+
+    Без этой фигуры обобщение теоремы 2.11 осталось бы непроверенным: у
+    выпуклого прямоугольника reflex-вершин нет вовсе, трасс нет, и множитель
+    `speed_bound` ни разу не участвует. Здесь он равен двум, трасса есть, и
+    кандидаты по ней действительно перебираются.
+    """
+
+    shape = ell(12)
+    figure = with_edge_speeds(
+        shape,
+        tuple(
+            (start, end, (4 if index == 0 else 1) * unit_speed_squared(start, end))
+            for index, (start, end, _) in enumerate(shape.edges())
+        ),
+    )
+    assert speed_bound_of(figure) == 2
+    assert figure.reflex_count == 1
+    skeleton = build_skeleton(figure)
+    assert skeleton.outcome is SkeletonOutcome.EXACT
+    assert skeleton.counter("split_candidates_examined") > 0
+    partition = build_faces(figure, skeleton)
+    assert partition.outcome is FaceOutcome.EXACT
+    for alpha in (Fraction(1), Fraction(3, 2), Fraction(2), Fraction(3)):
+        standard = partial_source_standard(figure, alpha)
+        assert standard.outcome is StandardOutcome.EXACT
+        assert (
+            coverage_at(partition, alpha).doubled_area.as_rational()
+            == 2 * standard.covered
+        )
+
+
+def test_the_standard_refuses_mixed_speeds_at_a_reflex_vertex_by_name():
+    """Граница МОДЕЛИ эталона, а не очереди, и она названа своим исходом.
+
+    Митрованная полоса заворачивает вогнутый угол КВАДРАТОМ, и это верно ровно
+    при равных скоростях сходящихся там источников. У разных фронт заворачивает
+    по взвешенной биссектрисе, угол выходит несимметричным, и эталон обязан
+    сказать «не считаю», а не посчитать. Очередь при этом отвечает — отказ здесь
+    именно эталона, и различать это важно: иначе граница модели выглядела бы
+    дефектом очереди.
+    """
+
+    shape = ell(12)
+    figure = with_edge_speeds(
+        shape,
+        tuple(
+            (start, end, (4 if index in (0, 3) else 1) * unit_speed_squared(start, end))
+            for index, (start, end, _) in enumerate(shape.edges())
+        ),
+    )
+    partition = build_faces(figure, build_skeleton(figure))
+    assert partition.outcome is FaceOutcome.EXACT
+    standard = partial_source_standard(figure, Fraction(1))
+    assert (
+        standard.outcome
+        is StandardOutcome.SOURCE_SPEEDS_DIFFER_AT_A_REFLEX_VERTEX
+    )
+    assert "(6, 6)" in standard.detail
 
 
 # --------------------------------------------------------------------------
