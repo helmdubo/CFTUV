@@ -1,0 +1,88 @@
+{
+  "contract_validation": {
+    "analysis_snapshot_issue_count": 0,
+    "cross_reference_issue_count": 0,
+    "decal_request_issue_count": 0
+  },
+  "description": "Minimal portable building.002 patch-0 point-contact reproducer; no proprietary .blend content is included.",
+  "expected_kernel_results": {
+    "c2622d07020338e5231b81f41655fe6c74cdca72": {
+      "boundary_occurrence_count": 12,
+      "exact_area_expression": "Rational(122766786560, 373821260323)",
+      "loop_count": 3,
+      "outcome": "EXACT",
+      "point_contact_count": 2,
+      "raw_schema_version": "cftuv.envelope.raw_coverage_result.v2",
+      "region_count": 3,
+      "semantic_digest": "622e1f6eec09e64bc1294c37643af19f630086005f9af21f10ac4cd6ed0e987a",
+      "stage": "RAW_READY"
+    },
+    "df587ed166cfb0e0b615148f08c583b4477c5ac4": {
+      "outcome": "REFERENCE_ARRANGEMENT_NON_MANIFOLD",
+      "stage": "RAW_REJECTED"
+    }
+  },
+  "files": {
+    "analysis_snapshot.json": "e5bbf6b3210ee195c227b4f09ac776418dd1f723592cefdbefe1acfd844693a3",
+    "decal_request.json": "9d24e52ace9543d2748d2771185cfe08247d0ef261235d0c80c5d69fdc980677",
+    "host_mesh.json": "ae40130f684dcbf7870a9b622e6857fe68d8f473b32addb5ca928e0ddb46f633"
+  },
+  "fixture_hash": "29046a58337b2fe4ce7395d64c496fcbb544053873df347d7a2cd301d55473d5",
+  "fixture_id": "building_002_point_contact_v1",
+  "mesh_counts": {
+    "edges": 38,
+    "faces": 15,
+    "vertices": 24
+  },
+  "object_name": "building.002",
+  "patch_domain_ids": [
+    "host-v0:patch-domain:e6497c2fff9e1e4d3ac2806c"
+  ],
+  "patch_id": 1,
+  "physical_chain_ids": [
+    "host-v0:physical-chain:4062e6e11005f3fa40b0309f",
+    "host-v0:physical-chain:4c185ce942a18a16b12f7ed7",
+    "host-v0:physical-chain:50336e3cf5c91a7d5f076308",
+    "host-v0:physical-chain:64c894e5b6d3887f93703c82"
+  ],
+  "provenance": {
+    "accepted_exporter_sha": "43e69d3889d273ed19daee9239ae0e311a1b213d",
+    "source_kind": "DEVELOPER_LOCAL_BUILDING_002",
+    "source_path_included": false
+  },
+  "requested_alpha": "0.25",
+  "schema": "cftuv.envelope.building_002_weighted_normals_fixture.v1",
+  "selected_chain_use_ids": [
+    "host-v0:chain-use:0210273b4c94fa5c61751aa8",
+    "host-v0:chain-use:17de6d0614e96b36a37d6b47",
+    "host-v0:chain-use:6d88aba87d07922b12fb4181",
+    "host-v0:chain-use:90d24723e1cdcd29301ee104"
+  ],
+  "selected_chain_use_to_physical_chain": [
+    {
+      "chain_use_id": "host-v0:chain-use:0210273b4c94fa5c61751aa8",
+      "physical_chain_id": "host-v0:physical-chain:4062e6e11005f3fa40b0309f"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:17de6d0614e96b36a37d6b47",
+      "physical_chain_id": "host-v0:physical-chain:50336e3cf5c91a7d5f076308"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:6d88aba87d07922b12fb4181",
+      "physical_chain_id": "host-v0:physical-chain:64c894e5b6d3887f93703c82"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:90d24723e1cdcd29301ee104",
+      "physical_chain_id": "host-v0:physical-chain:4c185ce942a18a16b12f7ed7"
+    }
+  ],
+  "selected_physical_edge_ids": [
+    4,
+    16,
+    25,
+    27
+  ],
+  "source_mesh_fingerprint": "3205834b7ead22cf1eb8985902144ca1c7295a88b8015556b364be17d8ac9021",
+  "source_mesh_unchanged": true,
+  "source_revision": "host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002"
+}
