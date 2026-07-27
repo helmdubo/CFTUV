@@ -195,6 +195,33 @@ def _run_alpha_change_reuses_the_preparation(source_obj, payload):
     )
 
 
+def _profile_counter_values(name):
+    profile = json.loads(
+        bpy.data.texts[
+            "CFTUV_EnvelopeProfile_EnvelopeTwoPatch.json"
+        ].as_string()
+    )
+    return sorted(
+        item["value"]
+        for item in profile["counters"]
+        if item["name"] == name
+    )
+
+
+def _run_repeat_press_hits_the_preparation_cache():
+    """Вторая кнопка на том же выделении берёт подготовку из кэша сессии."""
+
+    controller = _controller()
+    before = controller.build_counts["CONVEYOR_PREPARATION"]
+    assert (
+        bpy.ops.hotspotuv.build_exact_reference_envelope_debug()
+        == {"FINISHED"}
+    )
+    assert controller.build_counts["CONVEYOR_PREPARATION"] == before
+    assert _profile_counter_values("CONVEYOR_PREPARATION_CACHE_HIT") == [1, 1]
+    assert _profile_counter_values("CONVEYOR_PREPARATION_CACHE_MISS") == [0, 0]
+
+
 def _visibility_toggle_hides_only_queue(source_obj):
     settings = _settings()
     settings.envelope_debug_show_queue = False
@@ -222,6 +249,7 @@ def _main():
     _run_legacy_default_creates_no_queue_layer()
     source_obj, payload = _run_queue_engine_paints_owners()
     _run_alpha_change_reuses_the_preparation(source_obj, payload)
+    _run_repeat_press_hits_the_preparation_cache()
     _visibility_toggle_hides_only_queue(source_obj)
     print("ENVELOPE_QUEUE_BLENDER_SMOKE_OK")
 
