@@ -348,7 +348,17 @@ def test_the_queue_either_matches_the_standard_or_refuses_by_name(
     if partition.outcome is not FaceOutcome.EXACT:
         assert partition.outcome in NAMED_PARTIAL_REFUSALS, partition.detail
         return
+    # Совпадение суммы не доказывает совпадение множества (`DECISIONS.md`,
+    # 2026-07-27), поэтому сверяется не только площадь: владельцы граней обязаны
+    # быть РОВНО рёбрами-источниками, поимённо. Верная сумма при владельце-стене
+    # означала бы, что грань собрана не из того ребра.
+    assert {face.owner for face in partition.faces} == {
+        (start[0], start[1], end[0], end[1])
+        for start, end, speed in polygon.edges()
+        if speed > 0
+    }
     assert len(partition.faces) == polygon.source_edge_count
+    assert partition.every_face_is_positive
     for alpha in PARTIAL_SOURCE_ALPHAS:
         covered = coverage_at(partition, alpha)
         standard = partial_source_standard(polygon, alpha)
