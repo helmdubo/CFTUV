@@ -54,12 +54,7 @@ from cftuv_envelope import (
 from cftuv_envelope.reference.planar_types import ExactScalar, exact_sign
 from cftuv_envelope.wavefront import build_skeleton
 from cftuv_envelope.wavefront.coverage import CoverageOutcome, coverage_at
-from cftuv_envelope.wavefront.faces import (
-    FaceOutcome,
-    build_faces,
-    line_key,
-    polygon_edges,
-)
+from cftuv_envelope.wavefront.faces import FaceOutcome, build_faces
 from cftuv_envelope.wavefront import sqrt_sum as sqrt_sum_module
 from cftuv_envelope.wavefront.sqrt_sum import SqrtSumV1
 
@@ -73,7 +68,11 @@ class BenchOutcome(str):
 
 # Стенд отказывается сам, а не подсовывает нули. Каждая строка — причина.
 BENCH_HOLE_NOT_ONE_FACE = "HOLE_IS_NOT_ONE_SOURCE_FACE"
-BENCH_SHARED_SUPPORT_LINE = "SUPPORT_LINE_SHARED_BY_SEVERAL_EDGES"
+# `SUPPORT_LINE_SHARED_BY_SEVERAL_EDGES` отсюда УБРАН, а не переименован: стенд
+# отсекал фигуру заранее, потому что сборщик граней отказывал на коллинеарных
+# рёбрах. Ключ участника стал вхождением ребра, отказ исчез, и заранее отсекать
+# нечего. Если сборщик всё же откажет, стенд назовёт исход через
+# `BENCH_QUEUE_REFUSED` — то есть отказ по-прежнему громкий, просто не свой.
 BENCH_QUEUE_REFUSED = "QUEUE_REFUSED"
 BENCH_PAIRWISE_COMPILE_REFUSED = "PAIRWISE_COMPILE_REFUSED"
 BENCH_PAIRWISE_RAW_REFUSED = "PAIRWISE_RAW_REFUSED"
@@ -237,9 +236,6 @@ def pairwise_coverage(name: str, polygon, alpha: Fraction):
 
 def run_case(name: str, polygon, alpha: Fraction) -> Row:
     reset_caches()
-    keys = [line_key(line) for _, _, line in polygon_edges(polygon)]
-    if len(set(keys)) != len(keys):
-        return Row(name, alpha, BENCH_SHARED_SUPPORT_LINE)
     if polygon.holes:
         return Row(name, alpha, BENCH_HOLE_NOT_ONE_FACE)
 

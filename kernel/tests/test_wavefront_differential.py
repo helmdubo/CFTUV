@@ -46,12 +46,7 @@ from cftuv_envelope.wavefront.bridge import (
     unit_speed_laws_of,
 )
 from cftuv_envelope.wavefront.coverage import coverage_at
-from cftuv_envelope.wavefront.faces import (
-    FaceOutcome,
-    build_faces,
-    line_key,
-    polygon_edges,
-)
+from cftuv_envelope.wavefront.faces import FaceOutcome, build_faces
 from cftuv_envelope.wavefront.polygon import PolygonV1
 
 from reference_factories import straight_snapshot
@@ -72,10 +67,11 @@ FIXTURE = FIELD_FIXTURE.parent
 # схлопывались в один индекс, и мост отказывал на верном входе. Теперь
 # сопоставление — биекция по классам прямых, поэтому `holes_2` и крест
 # проходят наравне со всеми, и это ровно та проверка, которую отбор скрывал.
-CORPUS = named_corpus() + (
-    ("cross_6x4", cross(wide=6, tall=4)),
-    ("cross_4x4", cross(wide=4, tall=4)),
-)
+#
+# Крест `6 x 4` лежит уже в самом корпусе (`named_corpus()`), поэтому здесь
+# добавляется только квадратный блок: у него гребни приходят в точку
+# одновременно, и мост обязан принять его так же.
+CORPUS = named_corpus() + (("cross_4x4", cross(wide=4, tall=4)),)
 CORPUS_IDS = tuple(name for name, _ in CORPUS)
 
 

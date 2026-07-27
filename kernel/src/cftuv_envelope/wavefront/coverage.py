@@ -34,10 +34,10 @@ from fractions import Fraction
 
 from .event_time import SupportLineV1
 from .faces import (
+    EdgeKey,
     FaceOutcome,
     FacePartitionV1,
     FaceV1,
-    LineKey,
     doubled_shoelace,
 )
 from .sqrt_sum import SqrtSumV1
@@ -58,7 +58,7 @@ class CoverageOutcome(str, Enum):
 class FaceCoverageV1:
     """Часть грани, до которой фронт её ребра дошёл к моменту alpha."""
 
-    owner: LineKey
+    owner: EdgeKey
     points: tuple[Point, ...]
     doubled_area: SqrtSumV1
 
@@ -74,7 +74,7 @@ class CoverageV1:
     polygon_doubled_area: int
     detail: str = ""
 
-    def doubled_area_of(self, owner: LineKey) -> SqrtSumV1:
+    def doubled_area_of(self, owner: EdgeKey) -> SqrtSumV1:
         for face in self.faces:
             if face.owner == owner:
                 return face.doubled_area
@@ -148,7 +148,14 @@ def clip_to_halfplane(
 
 
 def _line_of(face: FaceV1) -> SupportLineV1:
-    return SupportLineV1(*face.owner)
+    """Несущая прямая грани — из КОНЦОВ её ребра, а не из ключа владельца.
+
+    Раньше здесь стояло `SupportLineV1(*face.owner)`: ключ владельца и был
+    прямой. Совмещение ролей и сливало грани двух коллинеарных рёбер, поэтому
+    ключ теперь — вхождение, а прямая берётся оттуда, откуда она есть всегда.
+    """
+
+    return SupportLineV1.through(face.source_start, face.source_end)
 
 
 def coverage_at(

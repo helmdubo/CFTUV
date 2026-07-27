@@ -95,7 +95,50 @@ CORPUS = {
 # митрованным эталоном (`test_wavefront_mitered_standard.py`), у обоих сумма
 # площадей граней точно равна площади фигуры. Остальные пять фигур не
 # сдвинулись — встреч вершин на них нет.
+#
+# СДВИГ 2026-07-27 ВТОРОЙ, ВОСЕМЬ ФИГУР ИЗ ВОСЬМИ, и он ДРУГОГО РОДА: сменился
+# не ответ, а ЗАПИСЬ участника. Ключом участника была несущая прямая
+# `(a, b, c, q)`, стало вхождение ребра `(x0, y0, x1, y1)`; в дайджест участники
+# входят буквально, поэтому сдвинулось всё восемь. Значения ниже — прежние
+# рядом с новыми:
+#
+# | фигура | было (ключ — прямая) | стало (ключ — вхождение) |
+# |---|---|---|
+# | `comb`      | e2c414a29a0a86b3… | b454deaf48ae7849… |
+# | `diamond`   | b5df4dfbe4debfd0… | 9ea7f5e065760f25… |
+# | `ell`       | b521cec89869c506… | 1c329d51eff1a96a… |
+# | `hole`      | ea480720c06fa04e… | b631437d083548ec… |
+# | `rectangle` | c54d463de4123011… | 881d8d89ae7490ba… |
+# | `square`    | 7cadb8a12f8edacf… | 05db9afe7cdbb59c… |
+# | `triangle`  | f701cba697d9f8e9… | dfdcbeed3283fab0… |
+# | `two_holes` | 5d474a7e6be2daca… | b5e81ff224868236… |
+#
+# Условие «новый ответ проверен НЕ этим числом» выполнено СИЛЬНЕЕ, чем обычно:
+# если перевести участников нового скелета обратно в прямые, получается прежнее
+# замороженное число ПОБИТОВО, на всех восьми фигурах и обоих поисках. То есть
+# доказано не «новый ответ тоже верен», а «ответ ТОТ ЖЕ САМЫЙ». Это проверяет
+# `test_the_digest_shift_is_the_key_encoding_and_not_the_answer`, и прежние
+# значения для него лежат в `DIGESTS_BEFORE_THE_PARTICIPANT_KEY_CHANGED`.
+#
+# Сверх того закрыт открытый счёт по `two_holes`: прежний сдвиг был принят на
+# доверии, потому что грани этой фигуры отказывали. Теперь они не отказывают —
+# сумма площадей 1408 из 1408, а покрытие совпадает с независимым митрованным
+# эталоном (180 при alpha = 1, 368 при alpha = 2).
 FROZEN_DIGESTS = {
+    "comb": "b454deaf48ae78496745f5609623e8cc60231a806eb4932db9b84a73d3263ff1",
+    "diamond": "9ea7f5e065760f256c71e23f79b9b9a0eda3c0fc8e341da1c743af7d4712641e",
+    "ell": "1c329d51eff1a96a127b7c5ebab0ea035b9be023e8ad1d557812c49c5506573e",
+    "hole": "b631437d083548ec634a40e84c91d015800150a43f996d6b34a951d2f79140a1",
+    "rectangle": "881d8d89ae7490bad41c6bb012e2a4acf78516a6d97e62830f4efff64e4c0808",
+    "square": "05db9afe7cdbb59ca7fd4840410047c80fcd7e4e4a38fb30014517e41dbff9d8",
+    "triangle": "dfdcbeed3283fab0acc04169a198b024d4cefe1776c5f03d4e9f5d21d4a6e8a3",
+    "two_holes": "b5e81ff224868236ff22a164eb7ff44d0f76bd3d3a47cd12fc1baaeffe721e04",
+}
+
+#: Те же дайджесты, но с прежним ключом участника — несущей прямой. Хранятся не
+#: как история: по ним проверяется, что сдвиг выше есть смена записи, а не
+#: смена ответа. Удалить их значило бы принять сдвиг на слово.
+DIGESTS_BEFORE_THE_PARTICIPANT_KEY_CHANGED = {
     "comb": "e2c414a29a0a86b36ce6a1834618dac82d9085434be3576cb7d48ac6de5b0c0a",
     "diamond": "b5df4dfbe4debfd0ed62423de538bbc33f030f54b717f6a299ebae7cb6a803e6",
     "ell": "b521cec89869c506e3f9cad4fe91723a07d98358ec618eb70d6718467b53fb2a",
@@ -306,6 +349,41 @@ def test_the_digest_has_not_moved_since_before_the_slice(name):
             semantic_digest(build_skeleton(polygon, split_search=search))
             == FROZEN_DIGESTS[name]
         ), f"{name}/{search.value}: дайджест сдвинулся"
+
+
+@pytest.mark.parametrize("name", sorted(CORPUS))
+def test_the_digest_shift_is_the_key_encoding_and_not_the_answer(name):
+    """Сдвиг храповика на восьми фигурах обязан быть сменой ЗАПИСИ, не ответа.
+
+    Правило проекта разрешает двигать `FROZEN_DIGESTS` при условии, что новый
+    ответ проверен НЕ этим числом. Здесь условие выполнено сильнее: участники
+    нового скелета переводятся обратно в несущие прямые, и дайджест получается
+    ПРЕЖНИЙ побитово. То есть проверено не «новый ответ тоже хорош», а «ответ
+    тот же самый, записан иначе».
+
+    Перевод односторонний по построению: у вхождения ребра прямая считается
+    однозначно (`SupportLineV1.through`), у прямой вхождение — нет. Именно эта
+    односторонность и была болезнью: ключ терял то, чего в нём нет.
+    """
+
+    from dataclasses import replace
+
+    from cftuv_envelope.wavefront.event_time import SupportLineV1
+
+    polygon = _polygon(name)
+    for search in SplitSearch:
+        skeleton = build_skeleton(polygon, split_search=search)
+        translated = []
+        for node in skeleton.nodes:
+            lines = set()
+            for x0, y0, x1, y1 in node.participants:
+                line = SupportLineV1.through((x0, y0), (x1, y1))
+                lines.add((line.a, line.b, line.c, line.q))
+            translated.append(replace(node, participants=tuple(sorted(lines))))
+        assert (
+            semantic_digest(replace(skeleton, nodes=tuple(translated)))
+            == DIGESTS_BEFORE_THE_PARTICIPANT_KEY_CHANGED[name]
+        ), f"{name}/{search.value}: сдвинулся ОТВЕТ, а не запись ключа"
 
 
 def test_split_events_match_the_exhaustive_search_on_a_hundred_general_polygons():
