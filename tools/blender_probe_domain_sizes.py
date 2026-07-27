@@ -70,38 +70,80 @@ def _reflex_count(points, normal) -> int:
     return reflex
 
 
-def _loops_of_selected_edges(mesh) -> list[list[int]]:
-    """Замкнутые цепочки из выделенных рёбер. Незамкнутые тоже возвращаются."""
+def _components_of_selected_edges(mesh):
+    """Связные куски выделенного графа швов, с их СТЕПЕНЯМИ.
+
+    Почему не «цепочки». Первая версия зонда шла по рёбрам и на развилке брала
+    первого попавшегося соседа, а остальные ветки теряла. Для простой цепочки
+    это верно, а для графа с развилками — нет: весь выделенный граф выходил
+    одной «цепочкой», и колонки «вогнутых» и «замкнута» у неё смысла не имели,
+    хотя печатались. Поймано полем: владелец выделил все швы и получил строку
+    «24 вершины, 6 вогнутых, не замкнута», где верно было только число вершин.
+
+    Теперь возвращается компонента целиком, а форма НЕ утверждается: считаются
+    вершины степени 1 (концы) и степени 3+ (развилки). Простая цепочка — это
+    ровно «развилок ноль», и только для неё имеет смысл говорить про вогнутость
+    и замкнутость.
+    """
 
     selected = [edge for edge in mesh.edges if edge.select]
     if not selected:
         return []
-    neighbours: dict[int, list[int]] = {}
+    neighbours: dict[int, set[int]] = {}
     for edge in selected:
         a, b = edge.verts[0].index, edge.verts[1].index
-        neighbours.setdefault(a, []).append(b)
-        neighbours.setdefault(b, []).append(a)
+        neighbours.setdefault(a, set()).add(b)
+        neighbours.setdefault(b, set()).add(a)
 
     seen: set[int] = set()
-    loops: list[list[int]] = []
+    components = []
     for start in neighbours:
         if start in seen:
             continue
-        chain = [start]
+        stack = [start]
         seen.add(start)
-        current, previous = start, None
-        while True:
-            following = [
-                item for item in neighbours[current] if item != previous
-            ]
-            following = [item for item in following if item not in seen]
-            if not following:
-                break
-            previous, current = current, following[0]
-            seen.add(current)
-            chain.append(current)
-        loops.append(chain)
-    return loops
+        members: list[int] = []
+        while stack:
+            current = stack.pop()
+            members.append(current)
+            for following in neighbours[current]:
+                if following not in seen:
+                    seen.add(following)
+                    stack.append(following)
+        ends = [v for v in members if len(neighbours[v]) == 1]
+        forks = [v for v in members if len(neighbours[v]) >= 3]
+        components.append(
+            {
+                "members": members,
+                "ends": len(ends),
+                "forks": len(forks),
+                "neighbours": neighbours,
+            }
+        )
+    return components
+
+
+def _ordered_simple_chain(component) -> list[int] | None:
+    """Порядок обхода, если компонента — ПРОСТАЯ цепочка; иначе None."""
+
+    if component["forks"]:
+        return None
+    neighbours = component["neighbours"]
+    members = component["members"]
+    ends = [v for v in members if len(neighbours[v]) == 1]
+    if len(ends) not in (0, 2):
+        return None
+    start = ends[0] if ends else members[0]
+    chain = [start]
+    previous, current = None, start
+    while True:
+        following = [v for v in neighbours[current] if v != previous]
+        following = [v for v in following if v not in chain]
+        if not following:
+            break
+        previous, current = current, following[0]
+        chain.append(current)
+    return chain if len(chain) == len(members) else None
 
 
 def main() -> None:
@@ -114,34 +156,39 @@ def main() -> None:
     mesh.verts.ensure_lookup_table()
     mesh.edges.ensure_lookup_table()
 
-    loops = _loops_of_selected_edges(mesh)
-    if not loops:
+    components = _components_of_selected_edges(mesh)
+    if not components:
         print("Не выделено ни одного ребра.")
         return
 
     print()
     print(f"Меш: {obj.name}")
-    print(f"{'цепочка':>9} {'вершин':>7} {'вогнутых':>9} {'замкнута':>9} "
-          f"{'оценка очереди':>16}")
+    print(f"{'кусок':>6} {'вершин':>7} {'развилок':>9} {'концов':>7} "
+          f"{'вогнутых':>9} {'замкнут':>8} {'оценка очереди':>16}")
     worst = 0
-    for number, chain in enumerate(loops):
-        points = [tuple(mesh.verts[index].co) for index in chain]
-        closed = len(chain) > 2 and any(
-            edge.select
-            and {edge.verts[0].index, edge.verts[1].index}
-            == {chain[0], chain[-1]}
-            for edge in mesh.edges
-        )
-        normal = _loop_normal(points)
-        reflex = _reflex_count(points, normal) if len(points) >= 3 else 0
-        size = len(chain)
+    for number, component in enumerate(components):
+        size = len(component["members"])
         worst = max(worst, size)
+        chain = _ordered_simple_chain(component)
+        if chain is None:
+            # Форма не утверждается: у графа с развилками «вогнутых» и
+            # «замкнут» смысла не имеют, и печатать туда число значило бы
+            # соврать точно так же, как печатала первая версия зонда.
+            reflex_text, closed_text = "—", "—"
+        else:
+            points = [tuple(mesh.verts[index].co) for index in chain]
+            closed_text = str(component["ends"] == 0)
+            normal = _loop_normal(points)
+            reflex_text = str(
+                _reflex_count(points, normal) if len(points) >= 3 else 0
+            )
         # Оценка по замеренным константам: гребёнка ~2100 мкс/вершину при
         # O(n^1.05), общее положение ~163 000 мкс/вершину при O(n^2.0).
         # Печатается ВИЛКА, а не одно число: форму по счёту вершин не угадать.
         low = 2.1e-3 * size
         high = 1.63e-1 * size * (size / 129.0)
-        print(f"{number:>9} {size:>7} {reflex:>9} {str(closed):>9} "
+        print(f"{number:>6} {size:>7} {component['forks']:>9} "
+              f"{component['ends']:>7} {reflex_text:>9} {closed_text:>8} "
               f"{low:>7.2f}-{high:<8.2f} с")
 
     print()
