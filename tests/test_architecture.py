@@ -279,13 +279,25 @@ MODULE_LINE_ALLOWANCE = {
     # с эталонной; копия пролога сделала бы сравнимость свойством копии.
     # Блокер HOST_REQUEST_EXPORT_COMPLEXITY остаётся открытым — файл стал
     # меньше, но не перестал быть слишком большим.
-    "cftuv/envelope_request_export.py": 3098,
+    # 3098 -> 3055. −43: разрешение выделения владельца (дополнение до полных
+    # PhysicalChain, области доменов, проверка пары швов) вынесено в
+    # `envelope_topology_export.resolve_selection_scope`. Выделение — факт
+    # топологии хоста, а не запроса: тот же ответ нужен обоим движкам и
+    # совместимому пути, и три копии дополнения разошлись бы. Блокер по-прежнему
+    # открыт.
+    "cftuv/envelope_request_export.py": 3055,
     # 2913 -> 3055. +142 за движок QUEUE в панели: EnumProperty движка,
     # строка тайминга, чекбокс слоёв очереди, update-callback ползунка alpha
     # (лёгкий путь без единой компиляции) и запоминание тёплой сессии. Панель
     # Envelope Debug при этом вынесена из `draw` отдельной функцией, и предел
     # самой длинной функции файла упал с 228 до 208 строк.
-    "cftuv/operators.py": 3055,
+    # 3055 -> 3044. −11: файл стоял РОВНО на своём потолке, и чекбокс видимости
+    # нового слоя отказа было некуда положить. Оплачено переносом двух функций
+    # туда, где живут их данные: сборка строки сводки — в
+    # `envelope_debug_profile.stage_summary_text`, запоминание тёплой сессии
+    # очереди — в `envelope_debug_session.remember_queue_session`. Оператор
+    # остался вызывающим, а не владельцем этих правил.
+    "cftuv/operators.py": 3044,
     "cftuv/decals.py": 2823,
     "cftuv/decal_rails.py": 2486,
 }
@@ -338,7 +350,10 @@ FUNCTION_LINE_ALLOWANCE = {
     # `render_staged_envelope_debug` отдельными функциями, и свойства объекта
     # теперь берутся из того же payload, что и sidecar, а не из второго
     # источника тех же полей.
-    "cftuv/envelope_debug_renderer.py": 174,
+    # 174 -> 154: отрисовка точных сцен доменов и сборка их идентичностей ушли
+    # в `_accumulate_exact_scenes`. Функция стояла РОВНО на потолке, и слой
+    # отказа домена было некуда вызвать.
+    "cftuv/envelope_debug_renderer.py": 154,
     "cftuv/decal_chart_admission.py": 170,
     "kernel/src/cftuv_envelope/interactions/validation.py": 167,
     "cftuv/analysis_boundary_loops.py": 163,

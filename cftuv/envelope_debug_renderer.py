@@ -29,6 +29,27 @@ ENVELOPE_DEBUG_TEXT_PREFIX = "CFTUV_EnvelopeDebug_"
 ENVELOPE_DEBUG_PROFILE_TEXT_PREFIX = "CFTUV_EnvelopeProfile_"
 ENVELOPE_DEBUG_LABEL_LAYER = "ENV_LABELS"
 
+# Слой отказавших доменов. Отказ домена был виден ТОЛЬКО строкой статуса, и
+# владелец читал «Resolved 1/2» как «строит с ошибкой на одну сторону»: во
+# вьюпорте отказавшая сторона выглядела ровно как несуществующая. Здесь она
+# получает контур.
+ENVELOPE_DEBUG_REFUSED_LAYER = "ENV_93_QUEUE_REFUSED"
+
+#: Стадия штрихов отказа в sidecar. Отдельная от `TOPOLOGY` и `QUEUE`: это не
+#: результат движка, а объявление того, что результата у домена нет.
+ENVELOPE_DEBUG_REFUSED_STAGE = "REFUSED"
+
+#: Построение, у которого стадия `TOPOLOGY_READY` — это УСПЕХ, а не отказ.
+#: Без этого имени чисто топологический прогон красил бы красным все домены.
+ENVELOPE_DEBUG_TOPOLOGY_BUILD_KIND = "TOPOLOGY"
+
+ENVELOPE_DEBUG_RESOLVED_STAGES = frozenset(
+    {
+        EnvelopeDomainStage.RESOLVED,
+        EnvelopeDomainStage.QUEUE_RESOLVED,
+    }
+)
+
 ENVELOPE_DEBUG_LAYER_STYLES = {
     "ENV_00_PATCH_DOMAIN": ((0.90, 0.90, 0.90, 1.0), 5),
     "ENV_01_HOLES": ((0.20, 0.45, 1.00, 1.0), 6),
@@ -59,6 +80,10 @@ ENVELOPE_DEBUG_LAYER_STYLES = {
     # подъём всех последующих слоёв эталонного пути. На движке LEGACY эти слои
     # не создаются вовсе (см. `_active_layer_styles`).
     **QUEUE_LAYER_STYLES,
+    # Тот же красный, что у барьеров: смысл здесь тот же — «сюда нельзя», — и
+    # новый цвет в палитре означал бы новый смысл. Слой создаётся ОБОИМИ
+    # движками: METRIC_REJECTED случается и на LEGACY.
+    ENVELOPE_DEBUG_REFUSED_LAYER: ((1.00, 0.15, 0.15, 1.0), 9),
 }
 
 QUEUE_LAYER_NAMES = frozenset(QUEUE_LAYER_STYLES)
@@ -101,6 +126,7 @@ _VISIBILITY_GROUPS = {
         "ENV_62_REMOVED_REGIONS",
     ),
     "envelope_debug_show_diagnostics": ("ENV_80_DIAGNOSTICS",),
+    "envelope_debug_show_refused": (ENVELOPE_DEBUG_REFUSED_LAYER,),
     "envelope_debug_show_labels": (ENVELOPE_DEBUG_LABEL_LAYER,),
     QUEUE_VISIBILITY_PROPERTY: (
         QUEUE_SKELETON_LAYER,
@@ -581,6 +607,86 @@ def _render_exact_scene(
     return diagnostics, stage_counts, point_count
 
 
+def refused_receipts(profile_snapshot) -> tuple:
+    """Домены, не дошедшие до покрытия, в порядке их идентификаторов.
+
+    На чисто топологическом построении таких НЕТ: там `TOPOLOGY_READY` — это
+    терминальный успех, и красить его отказом значило бы объявлять отказавшими
+    все домены каждого топологического прогона.
+    """
+
+    if profile_snapshot is None:
+        return ()
+    if profile_snapshot.build_kind == ENVELOPE_DEBUG_TOPOLOGY_BUILD_KIND:
+        return ()
+    return tuple(
+        sorted(
+            (
+                item
+                for item in profile_snapshot.receipts
+                if item.stage not in ENVELOPE_DEBUG_RESOLVED_STAGES
+            ),
+            key=lambda item: item.patch_domain_id,
+        )
+    )
+
+
+def render_refused_domains(
+    topology_scene,
+    receipts,
+    writer,
+    layer_ordinals,
+    stroke_map,
+) -> int:
+    """Контур каждого отказавшего домена красным, с именем исхода в штрихе.
+
+    Петли домена уже посчитаны сценой топологии (`PATCH_OUTER_LOOP` и
+    `PATCH_HOLE_LOOP`), поэтому здесь не появляется второго источника геометрии
+    домена: тот же путь рисуется вторым слоем.
+    """
+
+    if topology_scene is None or not receipts:
+        return 0
+    receipt_by_domain = {item.patch_domain_id: item for item in receipts}
+    ordinal = layer_ordinals[ENVELOPE_DEBUG_REFUSED_LAYER]
+    line_width = ENVELOPE_DEBUG_LAYER_STYLES[ENVELOPE_DEBUG_REFUSED_LAYER][1]
+    point_count = 0
+    for record in topology_scene.paths:
+        if record.kind.value not in {"PATCH_OUTER_LOOP", "PATCH_HOLE_LOOP"}:
+            continue
+        receipt = receipt_by_domain.get(record.patch_domain_id)
+        if receipt is None:
+            continue
+        points = _topology_lift(record, ordinal)
+        stroke_index = writer.add_path(
+            ENVELOPE_DEBUG_REFUSED_LAYER,
+            points,
+            line_width=line_width,
+            cyclic=record.closed,
+        )
+        point_count += len(points)
+        if stroke_index is None:
+            continue
+        stroke_map.append(
+            {
+                "layer": ENVELOPE_DEBUG_REFUSED_LAYER,
+                "stroke_index": stroke_index,
+                "stage": ENVELOPE_DEBUG_REFUSED_STAGE,
+                "kind": record.kind.value,
+                "patch_domain_id": record.patch_domain_id,
+                "boundary_loop_id": record.boundary_loop_id,
+                "domain_stage": receipt.stage.value,
+                "outcome": receipt.outcome,
+                "message": receipt.message,
+                "label": (
+                    f"{record.label} REFUSED "
+                    f"{receipt.stage.value}: {receipt.outcome}"
+                ),
+            }
+        )
+    return point_count
+
+
 def queue_frames_by_domain(exact_scenes) -> dict:
     """Кадр патча по строковому идентификатору домена, для слоёв очереди."""
 
@@ -916,6 +1022,65 @@ def _staged_sidecar(
     return payload
 
 
+def _accumulate_exact_scenes(
+    topology_scene,
+    exact_scenes,
+    writer,
+    layer_ordinals,
+    stroke_map,
+    sympy,
+) -> tuple[list, dict, tuple, str, int]:
+    """Отрисовать точные сцены доменов и собрать их сводные идентичности.
+
+    Идентичности возвращаются уже отсортированным множеством: собирать их в
+    вызывающем значило бы держать второй экземпляр той же сводки.
+    """
+
+    diagnostics = []
+    stage_counts: dict[str, int] = {}
+    request_ids: list[str] = []
+    domain_ids = list(
+        topology_scene.patch_domain_ids if topology_scene is not None else ()
+    )
+    raw_digests: list[str] = []
+    resolved_digests: list[str] = []
+    requested_alpha = ""
+    source_revision = (
+        topology_scene.source_revision if topology_scene is not None else ""
+    )
+    point_count = 0
+    for scene in exact_scenes:
+        scene_diagnostics, scene_counts, scene_points = _render_exact_scene(
+            scene,
+            writer,
+            layer_ordinals,
+            stroke_map,
+            sympy,
+        )
+        diagnostics.extend(scene_diagnostics)
+        point_count += scene_points
+        for stage, count in scene_counts.items():
+            stage_counts[stage] = stage_counts.get(stage, 0) + count
+        request_ids.extend(
+            _identity_value(item) for item in scene.request_ids
+        )
+        domain_ids.extend(
+            _identity_value(item) for item in scene.patch_domain_ids
+        )
+        raw_digests.extend(scene.raw_coverage_digests)
+        resolved_digests.extend(scene.resolved_coverage_digests)
+        requested_alpha = str(scene.requested_alpha.value)
+        source_revision = _identity_value(scene.source_revision)
+    identities = (
+        sorted(set(request_ids)),
+        sorted(set(domain_ids)),
+        sorted(set(raw_digests)),
+        sorted(set(resolved_digests)),
+        requested_alpha,
+    )
+    return diagnostics, stage_counts, identities, source_revision, point_count
+
+
 def render_staged_envelope_debug(
     topology_scene,
     exact_scenes,
@@ -968,46 +1133,37 @@ def render_staged_envelope_debug(
         )
         point_count += topology_points
 
-    diagnostics = []
-    stage_counts = {}
-    request_ids = []
-    domain_ids = list(
-        topology_scene.patch_domain_ids
-        if topology_scene is not None
-        else ()
+    (
+        diagnostics,
+        stage_counts,
+        identities,
+        source_revision,
+        exact_points,
+    ) = _accumulate_exact_scenes(
+        topology_scene,
+        exact_scenes,
+        writer,
+        layer_ordinals,
+        stroke_map,
+        sympy,
     )
-    raw_digests = []
-    resolved_digests = []
-    requested_alpha = ""
-    source_revision = (
-        topology_scene.source_revision
-        if topology_scene is not None
-        else ""
-    )
-    for scene in exact_scenes:
-        scene_diagnostics, scene_counts, scene_points = _render_exact_scene(
-            scene,
-            writer,
-            layer_ordinals,
-            stroke_map,
-            sympy,
-        )
-        diagnostics.extend(scene_diagnostics)
-        point_count += scene_points
-        for stage, count in scene_counts.items():
-            stage_counts[stage] = stage_counts.get(stage, 0) + count
-        request_ids.extend(
-            _identity_value(item) for item in scene.request_ids
-        )
-        domain_ids.extend(
-            _identity_value(item) for item in scene.patch_domain_ids
-        )
-        raw_digests.extend(scene.raw_coverage_digests)
-        resolved_digests.extend(scene.resolved_coverage_digests)
-        requested_alpha = str(scene.requested_alpha.value)
-        source_revision = _identity_value(scene.source_revision)
+    point_count += exact_points
     if topology_scene is not None:
         stage_counts["TOPOLOGY"] = len(topology_scene.paths)
+
+    # Отказ домена рисуется ДО сборки sidecar: его штрихи обязаны попасть в тот
+    # же перечень, что и всё остальное, иначе имя исхода снова окажется только
+    # в строке статуса.
+    profile_snapshot = profile.snapshot() if profile is not None else None
+    refused = refused_receipts(profile_snapshot)
+    point_count += render_refused_domains(
+        topology_scene,
+        refused,
+        writer,
+        layer_ordinals,
+        stroke_map,
+    )
+    stage_counts[ENVELOPE_DEBUG_REFUSED_STAGE] = len(refused)
     if queue_scene is not None and queue_scene.domains:
         point_count += render_queue_scene(
             queue_scene,
@@ -1020,16 +1176,11 @@ def render_staged_envelope_debug(
             len(item.faces) for item in queue_scene.domains
         )
 
-    request_ids = sorted(set(request_ids))
-    domain_ids = sorted(set(domain_ids))
-    raw_digests = sorted(set(raw_digests))
-    resolved_digests = sorted(set(resolved_digests))
     kernel_version = (
         cftuv_envelope.__version__
         if cftuv_envelope is not None
         else "NOT_LOADED_TOPOLOGY_ONLY"
     )
-    profile_snapshot = profile.snapshot() if profile is not None else None
     receipt_payload = (
         profile_snapshot.to_payload()["receipts"]
         if profile_snapshot is not None
@@ -1040,13 +1191,7 @@ def render_staged_envelope_debug(
         object_name,
         kernel_version,
         source_revision,
-        (
-            request_ids,
-            domain_ids,
-            raw_digests,
-            resolved_digests,
-            requested_alpha,
-        ),
+        identities,
         stage_counts,
         receipt_payload,
         pair_payloads,
@@ -1261,6 +1406,8 @@ def render_envelope_debug_scene(
 __all__ = (
     "ENVELOPE_DEBUG_LABEL_LAYER",
     "ENVELOPE_DEBUG_LAYER_STYLES",
+    "ENVELOPE_DEBUG_REFUSED_LAYER",
+    "ENVELOPE_DEBUG_REFUSED_STAGE",
     "QUEUE_LAYER_NAMES",
     "EnvelopeDebugRenderSummaryV1",
     "apply_envelope_debug_visibility",
@@ -1270,9 +1417,11 @@ __all__ = (
     "envelope_debug_text_name",
     "queue_frames_by_domain",
     "redraw_envelope_queue_layers",
+    "refused_receipts",
     "render_envelope_debug_scene",
     "render_envelope_topology_debug_scene",
     "render_queue_scene",
+    "render_refused_domains",
     "render_staged_envelope_debug",
     "update_queue_alpha",
     "visibility_from_settings",

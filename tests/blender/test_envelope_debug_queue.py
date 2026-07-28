@@ -41,6 +41,9 @@ from test_envelope_debug_bridge import (  # noqa: E402
 )
 
 
+# Слои, которые создаются ТОЛЬКО движком QUEUE. `ENV_93_QUEUE_REFUSED` сюда не
+# входит намеренно: несмотря на имя, он создаётся обоими движками и живёт в
+# `REQUIRED_LAYERS`.
 QUEUE_LAYERS = {
     "ENV_90_QUEUE_SKELETON",
     "ENV_91_QUEUE_WALLS",
