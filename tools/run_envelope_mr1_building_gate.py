@@ -239,6 +239,43 @@ def _scope_inputs(bundle, edge_ids: tuple[int, ...], profile):
     return revision, patch_ids, selected_edges_by_domain, request_id
 
 
+def _domain_row(
+    patch_id: int,
+    domain_id: str,
+    stage: str,
+    outcome: str,
+    message: str,
+    queue: dict | None,
+    raw=None,
+    runtime: dict | None = None,
+) -> dict:
+    """Строка домена в отчёте — одна форма на все четыре исхода scope."""
+
+    return {
+        "patch_id": patch_id,
+        "patch_domain_id": domain_id,
+        "stage": stage,
+        "outcome": outcome,
+        "message": message,
+        "raw_semantic_digest": (
+            raw.semantic_digest if raw is not None else None
+        ),
+        "runtime": runtime,
+        "queue": queue,
+    }
+
+
+def _metric_seconds(profile, domain_id) -> float:
+    """Сумма FRAME_ADMISSION домена — цена метрики, уже уплаченная профилем."""
+
+    return sum(
+        item.elapsed_seconds
+        for item in profile.snapshot().timings
+        if item.stage == "FRAME_ADMISSION"
+        and item.patch_domain_id == domain_id
+    )
+
+
 def _run_scope(
     bundle,
     name: str,
@@ -283,16 +320,9 @@ def _run_scope(
                 else "COMPILE_REJECTED"
             )
             domains.append(
-                {
-                    "patch_id": patch_id,
-                    "patch_domain_id": domain_id,
-                    "stage": stage,
-                    "outcome": exc.outcome.value,
-                    "message": str(exc),
-                    "raw_semantic_digest": None,
-                    "runtime": None,
-                    "queue": None,
-                }
+                _domain_row(
+                    patch_id, domain_id, stage, exc.outcome.value, str(exc), None
+                )
             )
             continue
         with profile.measure("QUEUE_PREPARE", domain_id):
@@ -304,69 +334,53 @@ def _run_scope(
             # QUEUE-only: на большом выделении RAW стоит часы, и его отсутствие
             # объявлено выбором движков, а не потерей колонки.
             domains.append(
-                {
-                    "patch_id": patch_id,
-                    "patch_domain_id": domain_id,
-                    "stage": queue["stage"],
-                    "outcome": queue["preparation_outcome"],
-                    "message": "raw engine skipped by request",
-                    "raw_semantic_digest": None,
-                    "runtime": None,
-                    "queue": queue,
-                }
+                _domain_row(
+                    patch_id,
+                    domain_id,
+                    queue["stage"],
+                    queue["preparation_outcome"],
+                    "raw engine skipped by request",
+                    queue,
+                )
             )
             continue
         with profile.measure("COMPILE", domain_id):
             compiled = kernel.compile_reference_envelopes(snapshot, request)
         if compiled.compilation is None:
             domains.append(
-                {
-                    "patch_id": patch_id,
-                    "patch_domain_id": domain_id,
-                    "stage": "COMPILE_REJECTED",
-                    "outcome": compiled.outcome.value,
-                    "message": "; ".join(
-                        item.message for item in compiled.diagnostics
-                    ),
-                    "raw_semantic_digest": None,
-                    "runtime": None,
-                    "queue": queue,
-                }
+                _domain_row(
+                    patch_id,
+                    domain_id,
+                    "COMPILE_REJECTED",
+                    compiled.outcome.value,
+                    "; ".join(item.message for item in compiled.diagnostics),
+                    queue,
+                )
             )
             continue
-        metric_seconds = sum(
-            item.elapsed_seconds
-            for item in profile.snapshot().timings
-            if item.stage == "FRAME_ADMISSION"
-            and item.patch_domain_id == domain_id
-        )
         with profile.measure("RAW_UNION", domain_id):
             runtime_payload, raw = _runtime_payload(
                 compiled.compilation,
                 request,
-                metric_seconds,
+                _metric_seconds(profile, domain_id),
             )
         raw_result = runtime_payload["outcome"]
         stage = "RAW_READY" if raw is not None else "RAW_REJECTED"
         domains.append(
-            {
-                "patch_id": patch_id,
-                "patch_domain_id": domain_id,
-                "stage": stage,
-                "outcome": raw_result,
-                "message": (
+            _domain_row(
+                patch_id,
+                domain_id,
+                stage,
+                raw_result,
+                (
                     "authoritative exact RawCoverage available"
                     if raw is not None
                     else "authoritative exact RawCoverage unavailable"
                 ),
-                "raw_semantic_digest": (
-                    raw.semantic_digest
-                    if raw is not None
-                    else None
-                ),
-                "runtime": runtime_payload,
-                "queue": queue,
-            }
+                queue,
+                raw=raw,
+                runtime=runtime_payload,
+            )
         )
     return {
         "scope": name,
