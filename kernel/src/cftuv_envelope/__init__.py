@@ -592,6 +592,8 @@ __all__ = (
     "SelectionIntervalCertificateV1",
     "AngularProfileSelectionCertificateV1",
     "HiddenSupportSpecV1",
+    "DirectionBindingCertificateV1",
+    "CertifiedBoundHiddenSupportSpecV1",
     "StripEnvelopeSpec",
     "AngularEnvelopeSpec",
     "JunctionEnvelopeSpec",

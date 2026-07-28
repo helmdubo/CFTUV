@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
 from fractions import Fraction
+from math import gcd
 
 from .canonical import geometry_batch_semantic_digest
 from .contracts.analysis import (
@@ -39,7 +40,9 @@ from .contracts.coverage import CoverageEffect
 from .contracts.envelopes import (
     AngularEnvelopeSpec,
     CapEnvelopeSpec,
+    CertifiedBoundHiddenSupportSpecV1,
     EnvelopeSpecVariant,
+    HiddenSupportDirectionLaw,
     JunctionEnvelopeSpec,
     StripEnvelopeSpec,
 )
@@ -1003,6 +1006,30 @@ def validate_compiled_plan(plan: CompiledPatchEvaluationPlanV1) -> tuple[Validat
                 for support in spec.hidden_supports:
                     if support.turn_fraction.numerator != support.ordinal or support.turn_fraction.denominator != k + 1:
                         _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, path + ("hidden_supports", str(support.ordinal)), "turn fraction must be ordinal/(k+1)")
+                    if isinstance(support, CertifiedBoundHiddenSupportSpecV1):
+                        binding = support.direction_binding
+                        vector = binding.bound_primitive_integer_vector
+                        if (
+                            len(vector) != 2
+                            or any(type(value) is not int for value in vector)
+                            or vector == (0, 0)
+                            or gcd(abs(vector[0]), abs(vector[1])) != 1
+                        ):
+                            _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, path + ("hidden_supports", str(support.ordinal), "direction_binding", "bound_primitive_integer_vector"), "bound direction must be a nonzero primitive integer vector")
+                        lower = binding.ideal_window_lower_slope_envelope
+                        upper = binding.ideal_window_upper_slope_envelope
+                        width = binding.certified_window_width_lower_bound
+                        if lower.upper >= upper.lower or width <= 0 or width > upper.lower - lower.upper:
+                            _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, path + ("hidden_supports", str(support.ordinal), "direction_binding"), "certified slope envelopes must be strictly ordered and cover the declared positive width")
+                        expected_predicates = {
+                            "BINDING_MONOTONE",
+                            "BINDING_SUBTURN_LE_DELTA_MAX",
+                            "BINDING_INSIDE_OWN_ORDINAL_WINDOW",
+                        }
+                        if set(binding.proven_predicates) != expected_predicates:
+                            _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, path + ("hidden_supports", str(support.ordinal), "direction_binding", "proven_predicates"), "direction binding must name exactly the three required predicates")
+                        if support.direction_law is not HiddenSupportDirectionLaw.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1:
+                            _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, path + ("hidden_supports", str(support.ordinal), "direction_law"), "bound support must declare the certified rational binding law")
             if spec.all_support_normal_speed != 1:
                 _issue(issues, ValidationCode.POLICY_MISMATCH, path + ("all_support_normal_speed",), "v1 support speed is UNIT")
         elif isinstance(spec, JunctionEnvelopeSpec):

@@ -36,8 +36,9 @@ from cftuv_envelope import (
 # Разница R1C — ещё три: `GridScaleSearchOrderV1`, `GridScaleTrialOutcomeV1`
 # и `GridScaleTrialV1`. Масштаб теперь выбирается перебором, и читатель
 # сертификата обязан уметь назвать типы, которыми этот перебор записан.
-PUBLIC_API_GRID_R1C_SHA256 = (
-    "1834e853d1f7ffb411197220b2447ad8cb58a2b716430e70ffd851eec5a4b92c"
+# FAN-DIR-BIND добавляет два обязательных tagged public record, не меняя V1.
+PUBLIC_API_FAN_DIR_BIND_SHA256 = (
+    "626e79a73fd3047861e5dedd45d5f3742696bec7499732fda685c3e2731d04c0"
 )
 
 
@@ -89,7 +90,7 @@ def test_top_level_public_api_is_explicit_and_snapshotted():
     assert public_names == set(cftuv_envelope.__all__)
     assert len(cftuv_envelope.__all__) == len(set(cftuv_envelope.__all__))
     digest = hashlib.sha256("\n".join(cftuv_envelope.__all__).encode("utf-8")).hexdigest()
-    assert digest == PUBLIC_API_GRID_R1C_SHA256
+    assert digest == PUBLIC_API_FAN_DIR_BIND_SHA256
 
 
 def test_public_dto_annotations_have_no_mutable_or_untyped_containers():

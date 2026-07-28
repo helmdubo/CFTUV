@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import Enum
 
 from ..ids import (
@@ -29,7 +30,7 @@ from ..ids import (
     SourceVertexId,
     TerminalRelationId,
 )
-from ..numeric import ExactRatioV1
+from ..numeric import CertifiedDecimalIntervalV1, ExactRatioV1
 from .request import (
     AngularProfileFamilyId,
     AngularProfileSelectionPolicyId,
@@ -71,6 +72,9 @@ class AngularSubdivisionPolicy(str, Enum):
 class HiddenSupportDirectionLaw(str, Enum):
     ORIENTED_OWNER_SECTOR_ORDINAL_SUBTURN = (
         "ROTATE_INCOMING_SUPPORT_TOWARD_OUTGOING_INSIDE_ORIENTED_OWNER_SECTOR_BY_ORDINAL_SUBTURN"
+    )
+    CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1 = (
+        "CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1"
     )
 
 
@@ -184,6 +188,29 @@ class HiddenSupportSpecV1:
 
 
 @dataclass(frozen=True, slots=True)
+class DirectionBindingCertificateV1:
+    bound_primitive_integer_vector: tuple[int, int]
+    ideal_window_lower_slope_envelope: CertifiedDecimalIntervalV1
+    ideal_window_upper_slope_envelope: CertifiedDecimalIntervalV1
+    certified_window_width_lower_bound: Decimal
+    proven_predicates: frozenset[str]
+
+
+@dataclass(frozen=True, slots=True)
+class CertifiedBoundHiddenSupportSpecV1:
+    hidden_support_id: HiddenSupportId
+    ordinal: int
+    turn_fraction: ExactRatioV1
+    direction_law: HiddenSupportDirectionLaw
+    zero_length_at_alpha_zero: bool
+    scope: HiddenSupportScope
+    source_relation_id: CornerRelationId
+    owner_sector_id: OwnerSectorId
+    selection_certificate_id: SelectionCertificateId
+    direction_binding: DirectionBindingCertificateV1
+
+
+@dataclass(frozen=True, slots=True)
 class StripEnvelopeSpec:
     envelope_spec_id: EnvelopeSpecId
     source_seed_id: FrontSeedId
@@ -212,7 +239,9 @@ class AngularEnvelopeSpec:
     profile_family_id: AngularProfileFamilyId
     resolved_hidden_edge_count: int
     subdivision_policy: AngularSubdivisionPolicy
-    hidden_supports: frozenset[HiddenSupportSpecV1]
+    hidden_supports: frozenset[
+        HiddenSupportSpecV1 | CertifiedBoundHiddenSupportSpecV1
+    ]
     incident_front_component_ids: tuple[FrontComponentId, ...]
     all_support_normal_speed: int
     exposure_policy: AngularExposurePolicy
