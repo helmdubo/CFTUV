@@ -79,6 +79,22 @@ def test_v0b_layer_contract_is_complete_and_named():
     )
 
 
+def test_refused_layer_reuses_the_barrier_red_and_lifts_above_every_other():
+    """Цвет отказа взят из палитры, а не изобретён, и это утверждение исполняемое.
+
+    Порядок ключей задаёт высоту подъёма над поверхностью, поэтому слой стоит
+    ПОСЛЕДНИМ: вставка в середину сдвинула бы подъём всех следующих слоёв.
+    """
+
+    color, line_width = ENVELOPE_DEBUG_LAYER_STYLES[ENVELOPE_DEBUG_REFUSED_LAYER]
+    assert color == ENVELOPE_DEBUG_LAYER_STYLES["ENV_02_BARRIERS"][0]
+    assert line_width > 0
+    assert list(ENVELOPE_DEBUG_LAYER_STYLES)[-1] == ENVELOPE_DEBUG_REFUSED_LAYER
+    # Слой отказа не принадлежит движку QUEUE, несмотря на имя: METRIC_REJECTED
+    # бывает и на LEGACY, поэтому он создаётся всегда.
+    assert ENVELOPE_DEBUG_REFUSED_LAYER not in QUEUE_LAYERS
+
+
 def test_visibility_groups_map_to_runtime_layers_without_geometry_changes():
     settings = SimpleNamespace(
         envelope_debug_show_domains=False,
