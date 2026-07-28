@@ -156,6 +156,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from enum import Enum
+from fractions import Fraction
 
 from .event_time import SupportLineV1
 from .polygon import PolygonV1, signed_double_area
@@ -163,10 +164,16 @@ from .skeleton import SkeletonNodeV1, SkeletonOutcome, SkeletonV1
 from .sqrt_sum import SqrtSumV1
 
 
-#: Ключ УЧАСТНИКА события и владельца грани: вхождение ребра `(x0, y0, x1, y1)`.
-#: Имя `LineKey` не оставлено даже синонимом: тип у него тот же, и молчаливый
-#: синоним означал бы, что смысл ключа выясняется по значению, а не по имени.
-EdgeKey = tuple[int, int, int, int]
+#: Ключ УЧАСТНИКА события и владельца грани: вхождение ребра `(x0, y0, x1, y1)`,
+#: а у скрытой опоры веера — `(x, y, x, y, ordinal)`. Имя `LineKey` не оставлено
+#: даже синонимом: тип у него тот же, и молчаливый синоним означал бы, что смысл
+#: ключа выясняется по значению, а не по имени.
+#:
+#: Ординал в ключе веера обязателен, и это не запас на будущее: `k` опор одной
+#: вершины стоят в ОДНОЙ точке, вхождения у них вырождены и совпадают все до
+#: одного, а граней у них `k`. Без ординала они слились бы в одного участника, и
+#: `TWO_EDGES_SHARE_ONE_SPAN` был бы верным ответом на неверно заданный вопрос.
+EdgeKey = tuple[int, ...]
 
 
 class FaceOutcome(str, Enum):
@@ -233,10 +240,23 @@ class FaceV1:
     source_end: tuple[int, int]
     points: tuple[tuple[SqrtSumV1, SqrtSumV1], ...]
     doubled_area: SqrtSumV1
-    #: `q` опорного ребра. Хранится, а не пересчитывается по концам: у
-    #: взвешенного ребра из концов его не вывести, а усечение по времени
-    #: (`coverage.py`) спрашивает именно скорость.
-    speed_squared: int = 0
+    #: Несущая прямая опорного ребра ЦЕЛИКОМ. Хранилось `q`, а прямая
+    #: восстанавливалась по концам (`SupportLineV1.with_speed`), — у ребра
+    #: НУЛЕВОЙ ДЛИНЫ этот путь падает `DegenerateEdgeError`, потому что нормаль
+    #: из совпавших концов не выводится. У скрытой опоры веера нормаль задана
+    #: входом и ниоткуда больше не следует, поэтому хранится она, а не её
+    #: половина.
+    line: SupportLineV1 | None = None
+
+    @property
+    def speed_squared(self) -> int | Fraction:
+        return 0 if self.line is None else self.line.q
+
+    @property
+    def is_fan_support(self) -> bool:
+        """Грань скрытой опоры веера: её ребро имеет нулевую длину."""
+
+        return self.source_start == self.source_end
 
     @property
     def node_count(self) -> int:
@@ -314,12 +334,41 @@ def polygon_edges(
     Скорость берётся из `polygon.edges()`, а не восстанавливается через
     `through`: у стены `q = 0`, и `through` вернул бы ей `|d|^2`, то есть
     сборщик увидел бы источник там, где вход задал стену.
+
+    Рёбра ВЕЕРА сюда не входят: у них нулевая длина, а функция отдаёт пару
+    концов, из которой вызывающие выводят направление. Полный список фронтов —
+    `polygon_fronts`.
     """
 
     return tuple(
         (start, end, SupportLineV1.with_speed(start, end, speed_squared))
         for start, end, speed_squared in polygon.edges()
     )
+
+
+def polygon_fronts(
+    polygon: PolygonV1,
+) -> tuple[tuple[EdgeKey, tuple[int, int], tuple[int, int], SupportLineV1], ...]:
+    """ВСЕ фронты области: контурные рёбра, затем скрытые опоры вееров.
+
+    Ключ идёт первым полем, а не выводится из концов, ровно потому, что у
+    скрытой опоры концы совпадают и различает такие опоры только ординал.
+    Прямая веера берётся из `polygon.fan_edges()` — единственного места, где она
+    объявлена; порядок между собой детерминирован сортировкой по точке, чтобы
+    отчёт не зависел от порядка объявления вееров.
+    """
+
+    records: list[
+        tuple[EdgeKey, tuple[int, int], tuple[int, int], SupportLineV1]
+    ] = [
+        (edge_key(start, end), start, end, line)
+        for start, end, line in polygon_edges(polygon)
+    ]
+    records.extend(
+        (fan_edge_key(point, ordinal), point, point, line)
+        for point, ordinal, line in polygon.fan_edges()
+    )
+    return tuple(records)
 
 
 def edge_key(start: tuple[int, int], end: tuple[int, int]) -> EdgeKey:
@@ -330,6 +379,18 @@ def edge_key(start: tuple[int, int], end: tuple[int, int]) -> EdgeKey:
     """
 
     return (start[0], start[1], end[0], end[1])
+
+
+def fan_edge_key(point: tuple[int, int], ordinal: int) -> EdgeKey:
+    """Ключ вхождения скрытой опоры веера: вырожденный отрезок плюс ординал.
+
+    Ординал начинается с единицы и совпадает с `HiddenSupportSpecV1.ordinal`
+    эталона. Пятый элемент отличает ключ веера от ключа контурного ребра и в
+    сортировке ставит его сразу за вырожденным отрезком — то есть порядок
+    остаётся полным и без единого исключения по типу.
+    """
+
+    return (point[0], point[1], point[0], point[1], ordinal)
 
 
 def line_key(line: SupportLineV1) -> tuple[int, int, int, int]:
@@ -430,20 +491,32 @@ def edge_neighbours(
     Сосед может оказаться стеной, и это законно: у стены нет своей грани, но
     вершина фронта между ребром и стеной существует и оставляет след — именно
     она и замыкает цепочку.
+
+    ВЕЕР ВСТАЁТ В ЭТОТ ЖЕ ЦИКЛ, а не рядом с ним: скрытые опоры вставлены в LAV
+    между входящим и исходящим ребром вершины, значит и в кольце соседства они
+    стоят там же. Отдельная ветка «а если веер» означала бы второй порядок
+    обхода, который мог бы разойтись с первым — и разошёлся бы молча, потому что
+    концы цепочки берутся отсюда.
     """
 
     neighbours: dict[EdgeKey, tuple[EdgeKey, EdgeKey]] = {}
     for loop in polygon.loops:
         points = loop.points
         size = len(points)
-        spans = [
-            edge_key(points[index], points[(index + 1) % size])
-            for index in range(size)
-        ]
-        for index, span in enumerate(spans):
+        ring: list[EdgeKey] = []
+        for index in range(size):
+            fan = polygon.fan_at(points[index])
+            if fan is not None:
+                ring.extend(
+                    fan_edge_key(points[index], ordinal)
+                    for ordinal in range(1, len(fan.supports) + 1)
+                )
+            ring.append(edge_key(points[index], points[(index + 1) % size]))
+        total = len(ring)
+        for index, span in enumerate(ring):
             neighbours[span] = (
-                spans[(index - 1) % size],
-                spans[(index + 1) % size],
+                ring[(index - 1) % total],
+                ring[(index + 1) % total],
             )
     return neighbours
 
@@ -565,8 +638,8 @@ def build_faces(polygon: PolygonV1, skeleton: SkeletonV1) -> FacePartitionV1:
             skeleton.outcome.value,
         )
 
-    edges = polygon_edges(polygon)
-    keys = [edge_key(start, end) for start, end, _ in edges]
+    edges = polygon_fronts(polygon)
+    keys = [key for key, _, _, _ in edges]
     if len(set(keys)) != len(keys):
         shared = sorted({key for key in keys if keys.count(key) > 1})
         return FacePartitionV1(
@@ -585,7 +658,7 @@ def build_faces(polygon: PolygonV1, skeleton: SkeletonV1) -> FacePartitionV1:
 
     faces: list[FaceV1] = []
     total = SqrtSumV1.zero()
-    for start, end, line in edges:
+    for key, start, end, line in edges:
         if line.is_stationary:
             # Стена не заметает НИЧЕГО: её отрезок фронта остаётся на своей
             # прямой, только укорачивается. Грань нулевой площади — не грань, и
@@ -593,7 +666,6 @@ def build_faces(polygon: PolygonV1, skeleton: SkeletonV1) -> FacePartitionV1:
             # стены при этом никуда не деваются: они входят в грани соседей как
             # участники, и сумма площадей по-прежнему обязана дать всю область.
             continue
-        key = edge_key(start, end)
         candidates = nodes_by_key.get(key, ())
         if not candidates:
             return FacePartitionV1(
@@ -618,7 +690,7 @@ def build_faces(polygon: PolygonV1, skeleton: SkeletonV1) -> FacePartitionV1:
             (SqrtSumV1.rational(end[0]), SqrtSumV1.rational(end[1])),
         ) + tuple((node.point.x, node.point.y) for node in chain)
         doubled = doubled_shoelace(points)
-        faces.append(FaceV1(key, start, end, points, doubled, line.q))
+        faces.append(FaceV1(key, start, end, points, doubled, line))
         total = total + doubled
 
     return check_declared_boundaries(

@@ -485,6 +485,12 @@ def speed_bound_of(polygon: PolygonV1) -> int:
         normal_squared = dx * dx + dy * dy
         while bound * bound * normal_squared < speed_squared:
             bound *= 2
+    for _, _, line in polygon.fan_edges():
+        # Ребро веера в `edges()` не входит (у него нет длины), а скорость у
+        # него есть, и теорема 2.11 расширяет рамку на скорость ЛЮБОГО фронта.
+        # Пропустить его значило бы сузить рамку под фронт, который в ней есть.
+        while bound * bound * line.normal_squared < line.q:
+            bound *= 2
     return bound
 
 
