@@ -86,6 +86,9 @@ class EnvelopeDebugHostOutcome(str, Enum):
     ENVELOPE_DEBUG_PARTIAL_CHAIN_SELECTION_UNSUPPORTED = (
         "ENVELOPE_DEBUG_PARTIAL_CHAIN_SELECTION_UNSUPPORTED"
     )
+    ENVELOPE_DEBUG_SELECTED_EDGE_OFF_PHYSICAL_CHAIN = (
+        "ENVELOPE_DEBUG_SELECTED_EDGE_OFF_PHYSICAL_CHAIN"
+    )
     ENVELOPE_DEBUG_PIPELINE_STAGE_FAILED = (
         "ENVELOPE_DEBUG_PIPELINE_STAGE_FAILED"
     )
@@ -613,88 +616,19 @@ def _validate_chain_group_topology(
         )
 
 
-def _selected_chain_keys_and_patch_scope(
+def _selected_scope(
     analysis_bundle: AnalysisBundle,
     selected_physical_edge_ids: frozenset[int],
-    host_chains: tuple[_HostChainRecord, ...],
-) -> tuple[
-    frozenset[tuple[bool, tuple[int, ...], tuple[int, ...]]],
-    frozenset[int],
-]:
-    """Resolve whole-chain selection from already collected host topology."""
-
-    if not selected_physical_edge_ids:
-        raise EnvelopeHostAdapterError(
-            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EMPTY_SELECTION,
-            "Envelope debug requires at least one selected physical edge",
-        )
-    selected_edges = frozenset(int(item) for item in selected_physical_edge_ids)
-    known_edges = {
-        int(item.edge_id) for item in analysis_bundle.patch_surface.edges
-    }
-    unknown = selected_edges - known_edges
-    if unknown:
-        raise EnvelopeHostAdapterError(
-            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_SELECTED_EDGE_UNKNOWN,
-            f"selected physical edges are absent from AnalysisBundle: {sorted(unknown)}",
-        )
-
-    chain_groups = _group_host_chains(host_chains)
-    selected_keys = set()
-    covered = set()
-    for key in sorted(chain_groups):
-        chain_edges = frozenset(key[1])
-        overlap = selected_edges & chain_edges
-        if not overlap:
-            continue
-        if overlap != chain_edges:
-            raise EnvelopeHostAdapterError(
-                EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_PARTIAL_CHAIN_SELECTION_UNSUPPORTED,
-                "V0 accepts only complete PhysicalChain selection; "
-                f"selected={sorted(overlap)} chain={sorted(chain_edges)}",
-            )
-        selected_keys.add(key)
-        covered.update(chain_edges)
-    if covered != set(selected_edges):
-        raise EnvelopeHostAdapterError(
-            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_PARTIAL_CHAIN_SELECTION_UNSUPPORTED,
-            "selected edges do not resolve to an exact set of whole PhysicalChains",
-        )
-
-    selected_patch_ids = frozenset(
-        record.patch_id
-        for key in selected_keys
-        for record in chain_groups[key]
-    )
-    if not selected_patch_ids:
-        raise EnvelopeHostAdapterError(
-            EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EMPTY_SELECTION,
-            "whole-chain selection resolved to no PatchDomain",
-        )
-
-    # Exact-frame admission is request-scoped, but topology is not guessed.
-    # Every seam touching a selected domain must still have its real counterpart
-    # in the original AnalysisBundle before the opposite unselected domain is
-    # omitted from the evaluation slice.
-    for records in chain_groups.values():
-        if any(record.patch_id in selected_patch_ids for record in records):
-            _validate_chain_group_topology(records)
-    return frozenset(selected_keys), selected_patch_ids
-
-
-def _selected_patch_scope(
-    analysis_bundle: AnalysisBundle,
-    selected_physical_edge_ids: frozenset[int],
-) -> frozenset[int]:
+):
     """Resolve whole-chain selection before any per-domain metric admission."""
 
-    host_chains = _collect_host_chains(analysis_bundle)
-    _, selected_patch_ids = _selected_chain_keys_and_patch_scope(
+    from .envelope_topology_export import resolve_selection_scope
+
+    return resolve_selection_scope(
         analysis_bundle,
         selected_physical_edge_ids,
-        host_chains,
+        _collect_host_chains(analysis_bundle),
     )
-    return selected_patch_ids
 
 
 def _host_local_points(
@@ -731,14 +665,20 @@ def build_envelope_topology_debug_scene(
     else:
         revision = topology_export.source_revision_value
         host_chains = topology_export.host_chains
+    from .envelope_topology_export import (
+        SELECTION_COMPLETED_DIAGNOSTIC_CODE,
+        resolve_selection_scope,
+    )
+
     with _measure(profile, "SELECTION_SCOPE"):
-        selected_keys, selected_patch_ids = (
-            _selected_chain_keys_and_patch_scope(
-                analysis_bundle,
-                selected_physical_edge_ids,
-                host_chains,
-            )
+        scope = resolve_selection_scope(
+            analysis_bundle,
+            selected_physical_edge_ids,
+            host_chains,
+            profile=profile,
         )
+    selected_keys = scope.chain_keys
+    selected_patch_ids = scope.patch_ids
 
     domain_by_patch = {
         patch_id: _typed_value("patch-domain", revision, patch_id)
@@ -749,6 +689,25 @@ def build_envelope_topology_debug_scene(
     paths: list[EnvelopeTopologyDebugPathV1] = []
     pairs: list[EnvelopeTopologyDebugPairV1] = []
     selection_diagnostics = []
+
+    # Дополнение выделения объявляется сценой, а не только счётчиком: владелец
+    # должен увидеть в sidecar, КАКАЯ цепочка была достроена и какими рёбрами.
+    for key in scope.completed_chain_keys:
+        selection_diagnostics.append(
+            EnvelopeTopologySelectionDiagnosticV1(
+                SELECTION_COMPLETED_DIAGNOSTIC_CODE,
+                "Partial selection completed to the whole PhysicalChain; "
+                f"added host edges "
+                f"{sorted(frozenset(key[1]) - scope.requested_edge_ids)}",
+                physical_chain_id=_typed_value(
+                    "physical-chain",
+                    revision,
+                    key[0],
+                    key[1],
+                    key[2],
+                ),
+            )
+        )
 
     if profile is not None:
         profile.set_counter(
@@ -1011,7 +970,7 @@ def build_envelope_topology_debug_scene(
             ENVELOPE_TOPOLOGY_DEBUG_SCENE_SCHEMA_V1,
             revision,
             tuple(domain_by_patch.values()),
-            tuple(sorted(int(item) for item in selected_physical_edge_ids)),
+            tuple(sorted(scope.edge_ids)),
             tuple(paths),
             tuple(pairs),
             tuple(selection_diagnostics),
@@ -1998,7 +1957,7 @@ def build_envelope_analysis_snapshot(
             chain_kind = kernel.PhysicalChainKind.SEAM_SELF
         elif neighbor_kind is ChainNeighborKind.PATCH:
             # A request-scoped snapshot may contain one use of a seam whose
-            # opposite PatchDomain was not selected. _selected_patch_scope()
+            # opposite PatchDomain was not selected. resolve_selection_scope()
             # has already proved the complete pair in the source bundle.
             exact_pair = len(records) == 2 and len(patch_group) == 2
             external_scoped_use = (
@@ -2549,16 +2508,19 @@ def evaluate_envelope_debug(
     started = time.perf_counter()
     try:
         kernel, _ = _load_kernel()
-        included_patch_ids = _selected_patch_scope(
+        scope = _selected_scope(
             analysis_bundle,
             selected_physical_edge_ids,
         )
         snapshot = build_envelope_analysis_snapshot(
             analysis_bundle,
-            included_patch_ids=included_patch_ids,
+            included_patch_ids=scope.patch_ids,
         )
+        # Запрос собирается по ДОПОЛНЕННОМУ выделению: ядро принимает только
+        # полные цепочки, и передать сюда исходное значило бы вернуть тот же
+        # отказ на слое ниже.
         request = build_envelope_decal_request(
-            snapshot, selected_physical_edge_ids, alpha
+            snapshot, scope.edge_ids, alpha
         )
     except EnvelopeHostAdapterError as exc:
         timings.append(

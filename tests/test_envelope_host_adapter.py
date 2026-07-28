@@ -34,6 +34,10 @@ from cftuv.envelope_topology_debug import (  # noqa: E402
     EnvelopeTopologyPairKind,
     EnvelopeTopologyPathKind,
 )
+from cftuv.envelope_topology_export import (  # noqa: E402
+    SELECTION_COMPLETED_DIAGNOSTIC_CODE,
+    SELECTION_COMPLETION_COUNTERS,
+)
 from cftuv.model import (  # noqa: E402
     BoundaryChain,
     BoundaryCorner,
@@ -630,14 +634,143 @@ def test_real_analysis_bundle_compiles_exact_k0_k1_k2_angular(hidden_count):
     )
 
 
-def test_partial_chain_selection_fails_named_without_expansion():
+def test_partial_chain_selection_is_completed_to_the_whole_chain():
+    """Частичное выделение цепочки больше не гасит билд, а достраивается.
+
+    Полевой факт, которым это оплачено: на мешах с многорёберными швами
+    (`wall_noise_top`, `sagging_wall`, `CFTUV_D_PERIODIC_CYLINDER`) попадание
+    мышью в одно ребро шва валило ВЕСЬ прогон именованным отказом, и владелец
+    видел warning вместо результата.
+    """
+
     evaluation = evaluate_envelope_debug(
         _single_patch_bundle(combined_chain=True),
         frozenset({0}),
         1.0,
     )
+    # Фикстура даёт ещё и `PLANAR_CHAIN_SUPPORT_NOT_LINEAR` (её цепочка гнётся
+    # в вершине 1), и это утверждение — про отсутствие ОТКАЗА ВЫДЕЛЕНИЯ, а не
+    # про пустой список диагностик.
+    assert not {
+        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_PARTIAL_CHAIN_SELECTION_UNSUPPORTED,
+        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_SELECTED_EDGE_OFF_PHYSICAL_CHAIN,
+    } & {item.outcome for item in evaluation.diagnostics}
+    assert evaluation.debug_scene is not None
+    assert evaluation.request is not None
+    # Цепочка `[0, 1]` выделена целиком, хотя владелец указал только ребро 0.
+    chain_edges = {
+        _host_edge_number(edge_id)
+        for chain in evaluation.snapshot.physical_chains
+        for edge_id in chain.ordered_physical_edge_ids
+        if chain.physical_chain_id
+        in {
+            item.physical_chain_id
+            for item in evaluation.snapshot.chain_uses
+            if item.chain_use_id in evaluation.request.selected_chain_use_ids
+        }
+    }
+    assert chain_edges == {0, 1}
+
+
+def test_selection_completion_is_counted_and_named_in_the_scene():
+    profile = EnvelopeDebugProfileBuilderV1("v0-plane", "TOPOLOGY")
+
+    scene = build_envelope_topology_debug_scene(
+        _single_patch_bundle(combined_chain=True),
+        frozenset({0}),
+        profile=profile,
+    )
+
+    assert scene.selected_physical_edge_ids == (0, 1)
+    codes = {item.code for item in scene.selection_diagnostics}
+    assert SELECTION_COMPLETED_DIAGNOSTIC_CODE in codes
+    completed = next(
+        item
+        for item in scene.selection_diagnostics
+        if item.code == SELECTION_COMPLETED_DIAGNOSTIC_CODE
+    )
+    assert "[1]" in completed.message
+    assert completed.physical_chain_id is not None
+    counters = {
+        item.name: item.value for item in profile.snapshot().counters
+    }
+    assert counters["SELECTION_COMPLETED_CHAINS"] == 1
+    assert counters["SELECTION_COMPLETED_EDGES"] == 1
+
+
+def test_whole_chain_selection_counts_zero_completion_rather_than_silence():
+    """Нулевое дополнение — объявленный ноль, а не отсутствие измерения."""
+
+    profile = EnvelopeDebugProfileBuilderV1("v0-plane", "TOPOLOGY")
+
+    scene = build_envelope_topology_debug_scene(
+        _single_patch_bundle(combined_chain=True),
+        frozenset({0, 1}),
+        profile=profile,
+    )
+
+    assert scene.selected_physical_edge_ids == (0, 1)
+    assert all(
+        item.code != SELECTION_COMPLETED_DIAGNOSTIC_CODE
+        for item in scene.selection_diagnostics
+    )
+    counters = {
+        item.name: item.value for item in profile.snapshot().counters
+    }
+    for name in SELECTION_COMPLETION_COUNTERS:
+        assert counters[name] == 0
+
+
+def test_edge_outside_every_physical_chain_is_refused_by_its_own_name():
+    """Дополнение НЕВОЗМОЖНО ровно тогда, когда ребро не лежит ни в одной цепочке.
+
+    Внутреннее ребро патча принадлежит поверхности, но не входит ни в одну
+    граничную цепочку: достраивать его не до чего. Это и есть единственный
+    случай, в котором жёсткий отказ на этом слое остаётся достижимым.
+    """
+
+    evaluation = evaluate_envelope_debug(
+        _two_patch_seam_bundle(),
+        frozenset({99}),
+        1.0,
+    )
     assert evaluation.debug_scene is None
     assert evaluation.diagnostics[0].outcome is (
+        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_SELECTED_EDGE_UNKNOWN
+    )
+
+    bundle = _single_patch_bundle()
+    interior = replace(
+        bundle.patch_surface,
+        edges=bundle.patch_surface.edges
+        + (SourceEdge(11, (0, 2), (0,)),),
+    )
+    evaluation = evaluate_envelope_debug(
+        replace(bundle, patch_surface=interior),
+        frozenset({11}),
+        1.0,
+    )
+    assert evaluation.debug_scene is None
+    assert evaluation.diagnostics[0].outcome is (
+        EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_SELECTED_EDGE_OFF_PHYSICAL_CHAIN
+    )
+
+
+def test_kernel_request_still_refuses_a_hand_made_partial_chain():
+    """Отказ V0 на слое запроса ядра остаётся достижимым и остаётся нужным.
+
+    Хост дополняет выделение владельца, но `build_envelope_decal_request` —
+    публичная точка входа: вызывающий подаёт номера рёбер напрямую (так делают
+    инструменты и тесты), и там частичная цепочка обязана называться отказом, а
+    не молча доезжать до ядра.
+    """
+
+    snapshot = build_envelope_analysis_snapshot(
+        _single_patch_bundle(combined_chain=True)
+    )
+    with pytest.raises(Exception) as error:
+        build_envelope_decal_request(snapshot, frozenset({0}), 1.0)
+    assert error.value.outcome is (
         EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_PARTIAL_CHAIN_SELECTION_UNSUPPORTED
     )
 
