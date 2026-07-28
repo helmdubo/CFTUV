@@ -32,6 +32,17 @@
   — класс прямой и отношение `(s/|n|)^2` переживают смену записи точно;
 - `test_a_record_no_single_factor_can_rationalise_is_still_refused`
   — прежний отказ достижим и после починки.
+
+Сильнейший критерий — равенство с ЭТАЛОННЫМ `RawCoverage`, и он разобран на два
+теста, потому что ответ у него разный и оба ответа измерены:
+
+- `test_the_queue_equals_the_reference_raw_coverage_when_the_source_is_whole`
+  — на `building_002_weighted_normals_v1` (4 источника из 4, стен ноль)
+  разность ДОКАЗАННО нулевая;
+- `test_the_queue_exceeds_the_reference_raw_coverage_on_a_partial_source`
+  — на `bf6` (3 источника из 12, девять стен) очередь накрывает НА 7.00 %
+  больше, и это объявленная разница моделей: юбка обрезана концами своего
+  ребра, отрезок фронта едет вдоль неподвижной прямой стены дальше.
 """
 
 from __future__ import annotations
@@ -954,6 +965,104 @@ def test_the_weighted_normals_coverage_matches_an_independent_closed_form(
     assert len(covered.faces) == 4
     assert len({face.envelope_instance_id for face in covered.faces}) == 4
     assert len({face.envelope_spec_id for face in covered.faces}) == 4
+
+
+def _chart_area(covered, prepared):
+    """Площадь покрытия очереди в единицах КАРТЫ, символьным выражением.
+
+    Очередь считает удвоенную площадь на решётке масштаба `lattice.scale`,
+    эталон — площадь в координатах карты. Пересчёт делением на `2*scale^2` —
+    это смена единиц, а не приближение: множитель точный и рациональный.
+    """
+
+    scale = prepared.lattice.scale
+    total = sp.Integer(0)
+    for radicand, coefficient in covered.doubled_area.terms:
+        total += sp.Rational(
+            coefficient.numerator, coefficient.denominator
+        ) * sp.sqrt(radicand)
+    return total / (2 * scale * scale)
+
+
+def test_the_queue_equals_the_reference_raw_coverage_when_the_source_is_whole(
+    weighted_preparation,
+):
+    """ТОЧНОЕ равенство очереди с эталонным `RawCoverage` — на целом источнике.
+
+    Это сильнейший критерий среза, и он проверяется точным предикатом на
+    РАЗНОСТИ, а не оболочкой: `sp.simplify(radsimp(...)).is_zero`, то есть
+    доказанный ноль, а не «совпало на 30 знаках».
+
+    Совпадение здесь не случайность и не совпадение чисел: у этого домена
+    ИСТОЧНИКОМ ЯВЛЯЕТСЯ ВСЯ ГРАНИЦА (4 ребра из 4, стен ноль), а на целом
+    источнике союз юбок и заметание фронтом описывают одно и то же множество.
+    Что бывает при частичном источнике — соседний тест, и там разность НЕ ноль.
+    """
+
+    covered = conveyor_coverage(weighted_preparation)
+    assert weighted_preparation.counter("CONVEYOR_WALL_EDGES") == 0
+    snapshot, request = _weighted_input()
+    evaluated = kernel.evaluate_reference_raw_coverage(
+        kernel.compile_reference_envelopes(snapshot, request).compilation,
+        request.requested_alpha,
+    )
+    difference = sp.simplify(
+        sp.radsimp(
+            _chart_area(covered, weighted_preparation)
+            - sp.sympify(evaluated.raw_coverage.exact_area_expression)
+        )
+    )
+    assert difference.is_zero is True
+
+
+def test_the_queue_exceeds_the_reference_raw_coverage_on_a_partial_source(
+    field_preparation,
+):
+    """ГИПОТЕЗА «множества совпадают целиком» на `bf6` ОПРОВЕРГНУТА, и числом.
+
+    У `bf6` источником является 3 ребра из 12, остальные девять — СТЕНЫ. Юбка
+    эталона обрезана концами СВОЕГО ребра; отрезок фронта очереди концами ребра
+    не ограничен — он едет вдоль неподвижной прямой стены дальше, чем стена
+    существует как отрезок границы. Это объявленная разница двух моделей
+    (`mitered_standard.py`, «ОБЪЯВЛЕННАЯ ГРАНИЦА ЭТОЙ МОДЕЛИ»), а не дефект
+    одной из них, и здесь она измерена:
+
+    | величина | число |
+    |---|---:|
+    | очередь, площадь карты | `0.351389334264933965` |
+    | эталон `RawCoverage`   | `0.328410391784360909` |
+    | ИЗБЫТОК очереди        | `0.0229789424805730560`, то есть **+7.00 %** |
+
+    Прежние митрованные числа `bf6` при этом НЕ СДВИНУЛИСЬ, и это тоже
+    измерение, а не совпадение: снапшот не объявляет ни одного вогнутого угла,
+    поэтому веера в плане нет (`test_wavefront_vertex_fan.py`), и покрытие
+    осталось прежним — 6 членов, оболочка внутри `(3018411397, 3018411399)`,
+    2.77 % площади домена.
+    """
+
+    covered = conveyor_coverage(field_preparation)
+    assert field_preparation.counter("CONVEYOR_WALL_EDGES") == 9
+    assert field_preparation.counter("CONVEYOR_SOURCE_EDGES") == 3
+    assert len(covered.doubled_area.terms) == 6
+    low, high = covered.doubled_area.enclosure(64)
+    assert 3018411397 < low <= high < 3018411399
+    assert covered.polygon_doubled_area == 108901947644
+
+    snapshot, request = _field_input()
+    evaluated = kernel.evaluate_reference_raw_coverage(
+        kernel.compile_reference_envelopes(snapshot, request).compilation,
+        request.requested_alpha,
+    )
+    reference = sp.sympify(evaluated.raw_coverage.exact_area_expression)
+    excess = sp.simplify(
+        sp.radsimp(_chart_area(covered, field_preparation) - reference)
+    )
+    assert excess.is_zero is not True
+    # Знак доказан численно с запасом в 20 знаков: избыток, а не недобор.
+    assert sp.N(excess, 20) > 0
+    assert abs(sp.N(excess / reference * 100, 8) - sp.Float("6.9970205")) < sp.Float(
+        "1e-6"
+    )
 
 
 def test_the_rescale_changes_the_record_and_not_the_geometry():
