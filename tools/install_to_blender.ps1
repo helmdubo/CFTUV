@@ -137,6 +137,19 @@ Write-Host ""
 if ($failed) {
     Fail "отпечатки разошлись — установленная копия НЕ совпадает с репозиторием"
 }
+
+# --- штамп версии -------------------------------------------------------------
+# Пишется ПОСЛЕ сверки отпечатков (Deploy стирает цель целиком, так что штамп
+# прошлой установки не переживает копирование и не портит сверку). Причина
+# существования: владелец ставил сборку из чекаута, отставшего на день, и
+# «каждый раз запускал старый» — без штампа это неотличимо от поломки.
+$commit = (git -C $repo rev-parse --short HEAD 2>$null)
+$branch = (git -C $repo rev-parse --abbrev-ref HEAD 2>$null)
+$stamp = "commit $commit ($branch), установлено $(Get-Date -Format 'yyyy-MM-dd HH:mm') из $repo"
+foreach ($target in @($addonTarget, $kernelTarget)) {
+    Set-Content -Path (Join-Path $target "_install_stamp.txt") -Value $stamp -Encoding utf8
+}
+Write-Host "  Штамп: $stamp" -ForegroundColor Cyan
 Write-Host "  Установлено и сверено." -ForegroundColor Green
 Write-Host "  Дальше: Blender -> Edit -> Preferences -> Add-ons -> включить CFTUV,"
 Write-Host "  затем Scripting -> открыть tools\blender_check_install.py -> Run Script."
