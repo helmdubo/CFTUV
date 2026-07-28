@@ -31,7 +31,13 @@ param(
     [string]$Scene = "E:\testscene.blend",
     [string]$BlenderExe = "",
     [string]$Output = "",
-    [int]$TimeoutSeconds = 1800
+    [int]$TimeoutSeconds = 1800,
+    # Имя меша в сцене. Ворота по умолчанию заточены на building.002; для
+    # другого меша осмыслен только scope all_seam_chains_l0.
+    [string]$ObjectName = "building.002",
+    # "raw,queue" либо "queue": RAW на сотнях цепочек стоит часы, пропуск
+    # обязан быть явным выбором.
+    [string]$Engines = "raw,queue"
 )
 
 $ErrorActionPreference = "Stop"
@@ -53,15 +59,19 @@ if ($Install) {
 }
 
 if (-not $Output) {
-    $Output = Join-Path $repo "artifacts\envelope_runtime_r1\building_002_field_run.json"
+    $slug = ($ObjectName -replace '[^0-9A-Za-z]+', '_').ToLower()
+    $Output = Join-Path $repo "artifacts\envelope_runtime_r1\${slug}_field_run.json"
 }
 $gate = Join-Path $repo "tools\run_envelope_mr1_building_gate.py"
+# Позиционные аргументы ворот: выход, scope'ы, объект, движки. Литерал "all"
+# сохраняет прежнее умолчание «все scope», позволяя передать объект позиционно.
+$scopeArg = if ($Scopes) { $Scopes } else { "all" }
+$tailArgs = @($Output, $scopeArg, $ObjectName, $Engines)
 
 if ($Live) {
     # Живой сеанс: интерфейс владельца будет занят на всё время счёта.
     Write-Host "=== полевой прогон в ЖИВОМ сеансе (порт 9876) ===" -ForegroundColor Cyan
-    $scriptArgs = @("--", $Output)
-    if ($Scopes) { $scriptArgs += $Scopes }
+    $scriptArgs = @("--") + $tailArgs
     & python (Join-Path $repo "tools\blender_remote.py") run `
         --file $gate --timeout $TimeoutSeconds --script-args @scriptArgs
     if ($LASTEXITCODE -ne 0) { Fail "живой сеанс вернул ошибку" }
@@ -75,9 +85,8 @@ if ($Live) {
     }
     Write-Host "=== полевой прогон фоновым Blender ===" -ForegroundColor Cyan
     Write-Host "  $BlenderExe"
-    Write-Host "  сцена: $Scene"
-    $gateArgs = @("-b", $Scene, "--python", $gate, "--", $Output)
-    if ($Scopes) { $gateArgs += $Scopes }
+    Write-Host "  сцена: $Scene, меш: $ObjectName, движки: $Engines"
+    $gateArgs = @("-b", $Scene, "--python", $gate, "--") + $tailArgs
     & $BlenderExe @gateArgs
     if ($LASTEXITCODE -ne 0) { Fail "фоновый Blender вернул код $LASTEXITCODE" }
 }

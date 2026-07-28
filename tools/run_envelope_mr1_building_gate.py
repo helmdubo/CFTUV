@@ -239,8 +239,14 @@ def _scope_inputs(bundle, edge_ids: tuple[int, ...], profile):
     return revision, patch_ids, selected_edges_by_domain, request_id
 
 
-def _run_scope(bundle, name: str, edge_ids: tuple[int, ...]) -> dict:
-    profile = EnvelopeDebugProfileBuilderV1("building.002", "M_R1_FIELD")
+def _run_scope(
+    bundle,
+    name: str,
+    edge_ids: tuple[int, ...],
+    object_name: str = "building.002",
+    engines: frozenset[str] = frozenset({"raw", "queue"}),
+) -> dict:
+    profile = EnvelopeDebugProfileBuilderV1(object_name, "M_R1_FIELD")
     started = time.perf_counter()
     (
         revision,
@@ -294,6 +300,22 @@ def _run_scope(bundle, name: str, edge_ids: tuple[int, ...]) -> dict:
         preparation = queue.pop("preparation")
         if queue["stage"] == "QUEUE_RESOLVED":
             queue_entries.append((patch_id, domain_id, preparation))
+        if "raw" not in engines:
+            # QUEUE-only: на большом выделении RAW стоит часы, и его отсутствие
+            # объявлено выбором движков, а не потерей колонки.
+            domains.append(
+                {
+                    "patch_id": patch_id,
+                    "patch_domain_id": domain_id,
+                    "stage": queue["stage"],
+                    "outcome": queue["preparation_outcome"],
+                    "message": "raw engine skipped by request",
+                    "raw_semantic_digest": None,
+                    "runtime": None,
+                    "queue": queue,
+                }
+            )
+            continue
         with profile.measure("COMPILE", domain_id):
             compiled = kernel.compile_reference_envelopes(snapshot, request)
         if compiled.compilation is None:
@@ -359,19 +381,34 @@ def _run_scope(bundle, name: str, edge_ids: tuple[int, ...]) -> dict:
 
 
 def main() -> None:
+    # Аргументы после `--`: [выход.json] [scope,scope] [имя_объекта] [движки]
+    # Движки: "raw,queue" (умолчание) либо "queue" — RAW на большом выделении
+    # стоит часы, и его пропуск обязан быть явным выбором, а не тихой потерей.
     arguments = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
     output = (
         Path(arguments[0])
         if arguments
         else ROOT / "artifacts" / "envelope_runtime_r1" / "building_002.json"
     )
-    obj = bpy.data.objects.get("building.002")
+    object_name = arguments[2] if len(arguments) > 2 else "building.002"
+    engines = frozenset(
+        (arguments[3] if len(arguments) > 3 else "raw,queue").split(",")
+    )
+    if not engines <= {"raw", "queue"}:
+        raise ValueError(f"неизвестные движки: {sorted(engines)}")
+    obj = bpy.data.objects.get(object_name)
     if obj is None or obj.type != "MESH":
-        raise RuntimeError("building.002 mesh object is unavailable")
+        raise RuntimeError(f"{object_name} mesh object is unavailable")
     before = _mesh_fingerprint(obj)
-    bm = bmesh.new()
+    # Анализ хоста писан под EDIT MODE (классификатор много-петлевых патчей
+    # зовёт `bmesh.update_edit_mesh`), и живой оператор всегда в нём. Фоновые
+    # ворота обязаны дать анализу ту же среду: на `building.002` object-mode
+    # прощался только потому, что ветка UV-классификации не срабатывала.
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    bpy.ops.object.mode_set(mode="EDIT")
     try:
-        bm.from_mesh(obj.data)
+        bm = bmesh.from_edit_mesh(obj.data)
         bm.faces.ensure_lookup_table()
         bundle = build_analysis_bundle(
             bm,
@@ -379,7 +416,7 @@ def main() -> None:
             obj,
         )
     finally:
-        bm.free()
+        bpy.ops.object.mode_set(mode="OBJECT")
 
     seam_edges = tuple(
         edge.index for edge in obj.data.edges if edge.use_seam
@@ -391,7 +428,7 @@ def main() -> None:
         ("ten_chains_l0", tuple(range(1, 11))),
         ("all_seam_chains_l0", seam_edges),
     )
-    if len(arguments) > 1:
+    if len(arguments) > 1 and arguments[1] != "all":
         requested_scopes = frozenset(arguments[1].split(","))
         scopes = tuple(
             item for item in scopes if item[0] in requested_scopes
@@ -402,7 +439,7 @@ def main() -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     for name, edges in scopes:
         print(f"M-R1 field scope start: {name}", flush=True)
-        runs.append(_run_scope(bundle, name, edges))
+        runs.append(_run_scope(bundle, name, edges, obj.name, engines))
         checkpoint = {
             "schema": "cftuv.envelope.runtime_metric_building_gate.v1",
             "source_file": bpy.data.filepath,

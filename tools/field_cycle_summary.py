@@ -99,7 +99,9 @@ def summarise(path: Path) -> int:
             if seconds is not None:
                 line += f"  raw {seconds:.3f} c"
             print(line + _queue_column(domain))
-            if domain.get("stage") not in ("RAW_READY",):
+            # QUEUE_RESOLVED — штатный итог QUEUE-only прогона (RAW пропущен
+            # по явному выбору движков), а не отказ.
+            if domain.get("stage") not in ("RAW_READY", "QUEUE_RESOLVED"):
                 message = (domain.get("message") or "").splitlines()
                 if message:
                     print(f"        {message[0][:120]}")
