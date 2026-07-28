@@ -11,6 +11,7 @@ import pytest
 import cftuv_envelope as kernel
 from cftuv_envelope import (
     AngularEnvelopeSpec,
+    CertifiedBoundHiddenSupportDirectionLawV1,
     CertifiedBoundHiddenSupportSpecV1,
     CertifiedDecimalIntervalV1,
     ContractCodecError,
@@ -149,20 +150,21 @@ def test_m4_unknown_tag_inside_hidden_support_union_fails_closed():
         _AngularEnvelopeCodecV1.loads(json.dumps(data))
 
 
-def test_bound_record_is_a_distinct_mandatory_tagged_shape():
-    spec = _angular_spec(*angular_snapshot(1))
-    legacy = next(iter(spec.hidden_supports))
-    closed = lambda value: CertifiedDecimalIntervalV1(
+def _closed(value):
+    return CertifiedDecimalIntervalV1(
         Decimal(value),
         Decimal(value),
         IntervalEndpointKind.CLOSED,
         IntervalEndpointKind.CLOSED,
         Decimal(0),
     )
-    certificate = DirectionBindingCertificateV1(
+
+
+def _binding():
+    return DirectionBindingCertificateV1(
         bound_primitive_integer_vector=(3, 4),
-        ideal_window_lower_slope_envelope=closed("0.7"),
-        ideal_window_upper_slope_envelope=closed("0.9"),
+        ideal_window_lower_slope_envelope=_closed("0.7"),
+        ideal_window_upper_slope_envelope=_closed("0.9"),
         certified_window_width_lower_bound=Decimal("0.2"),
         proven_predicates=frozenset(
             {
@@ -172,66 +174,187 @@ def test_bound_record_is_a_distinct_mandatory_tagged_shape():
             }
         ),
     )
+
+
+def _bound_support(legacy):
     values = {
         field.name: getattr(legacy, field.name)
         for field in fields(legacy)
         if field.name != "direction_law"
     }
-    bound = CertifiedBoundHiddenSupportSpecV1(
+    return CertifiedBoundHiddenSupportSpecV1(
         **values,
         direction_law=(
-            HiddenSupportDirectionLaw.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1
+            CertifiedBoundHiddenSupportDirectionLawV1.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1
         ),
-        direction_binding=certificate,
+        direction_binding=_binding(),
     )
+
+
+def test_legacy_tag_rejects_certified_law_without_certificate():
+    spec, support = _legacy_support_data()
+    support["direction_law"] = (
+        CertifiedBoundHiddenSupportDirectionLawV1.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1.value
+    )
+    data = json.loads(_AngularEnvelopeCodecV1.dumps(spec))
+    data["hidden_supports"] = [support]
+
+    with pytest.raises(ContractCodecError) as caught:
+        _AngularEnvelopeCodecV1.loads(json.dumps(data))
+
+    assert str(caught.value) == (
+        "'CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1' is not a valid "
+        "HiddenSupportDirectionLaw"
+    )
+
+
+def test_bound_tag_rejects_legacy_law_even_with_certificate():
+    spec = _angular_spec(*angular_snapshot(1))
+    legacy = next(iter(spec.hidden_supports))
+    bound_spec = replace(
+        spec,
+        hidden_supports=frozenset({_bound_support(legacy)}),
+    )
+    data = json.loads(_AngularEnvelopeCodecV1.dumps(bound_spec))
+    data["hidden_supports"][0]["direction_law"] = (
+        HiddenSupportDirectionLaw.ORIENTED_OWNER_SECTOR_ORDINAL_SUBTURN.value
+    )
+
+    with pytest.raises(ContractCodecError) as caught:
+        _AngularEnvelopeCodecV1.loads(json.dumps(data))
+
+    assert str(caught.value) == (
+        "'ROTATE_INCOMING_SUPPORT_TOWARD_OUTGOING_INSIDE_ORIENTED_OWNER_"
+        "SECTOR_BY_ORDINAL_SUBTURN' is not a valid "
+        "CertifiedBoundHiddenSupportDirectionLawV1"
+    )
+
+
+def test_bound_record_is_a_distinct_mandatory_tagged_shape():
+    spec = _angular_spec(*angular_snapshot(1))
+    bound = _bound_support(next(iter(spec.hidden_supports)))
     encoded = canonical_json_bytes(bound)
     assert b'"$type":"CertifiedBoundHiddenSupportSpecV1"' in encoded
     assert b'"direction_binding"' in encoded
 
 
-def _bound_plan(projections):
+def _legacy_plan(projections):
     plan = next(item for item in projections if item.case_id == "EC0-C03").plans[0]
     angular = next(
         item for item in plan.envelope_specs if isinstance(item, AngularEnvelopeSpec)
     )
-    legacy = next(iter(angular.hidden_supports))
-    closed = lambda value: CertifiedDecimalIntervalV1(
-        Decimal(value),
-        Decimal(value),
-        IntervalEndpointKind.CLOSED,
-        IntervalEndpointKind.CLOSED,
-        Decimal(0),
-    )
-    binding = DirectionBindingCertificateV1(
-        (3, 4),
-        closed("0.7"),
-        closed("0.9"),
-        Decimal("0.2"),
-        frozenset(
-            {
-                "BINDING_MONOTONE",
-                "BINDING_SUBTURN_LE_DELTA_MAX",
-                "BINDING_INSIDE_OWN_ORDINAL_WINDOW",
-            }
-        ),
-    )
-    values = {
-        field.name: getattr(legacy, field.name)
-        for field in fields(legacy)
-        if field.name != "direction_law"
-    }
-    bound = CertifiedBoundHiddenSupportSpecV1(
-        **values,
-        direction_law=(
-            HiddenSupportDirectionLaw.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1
-        ),
-        direction_binding=binding,
-    )
+    return plan, angular, next(iter(angular.hidden_supports))
+
+
+def _bound_plan(projections):
+    plan, angular, legacy = _legacy_plan(projections)
+    bound = _bound_support(legacy)
     changed = replace(angular, hidden_supports=frozenset({bound}))
     return replace(
         plan,
         envelope_specs=(plan.envelope_specs - {angular}) | {changed},
     ), changed, bound
+
+
+def test_full_plan_codec_rejects_legacy_tag_with_certified_law(projections):
+    plan, angular, legacy = _legacy_plan(projections)
+    forged = replace(
+        legacy,
+        direction_law=(
+            CertifiedBoundHiddenSupportDirectionLawV1.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1
+        ),
+    )
+    changed = replace(angular, hidden_supports=frozenset({forged}))
+    invalid = replace(
+        plan,
+        envelope_specs=(plan.envelope_specs - {angular}) | {changed},
+    )
+    payload = kernel.CompiledPlanCodecV1.dumps(invalid)
+    assert payload == kernel.CompiledPlanCodecV1.dumps(invalid)
+
+    with pytest.raises(ContractCodecError) as caught:
+        kernel.CompiledPlanCodecV1.loads(payload)
+
+    assert str(caught.value) == (
+        "'CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1' is not a valid "
+        "HiddenSupportDirectionLaw"
+    )
+
+
+def test_full_plan_codec_rejects_bound_tag_with_legacy_law(projections):
+    plan, angular, bound = _bound_plan(projections)
+    forged = replace(
+        bound,
+        direction_law=(
+            HiddenSupportDirectionLaw.ORIENTED_OWNER_SECTOR_ORDINAL_SUBTURN
+        ),
+    )
+    changed = replace(angular, hidden_supports=frozenset({forged}))
+    invalid = replace(
+        plan,
+        envelope_specs=(plan.envelope_specs - {angular}) | {changed},
+    )
+    payload = kernel.CompiledPlanCodecV1.dumps(invalid)
+    assert payload == kernel.CompiledPlanCodecV1.dumps(invalid)
+
+    with pytest.raises(ContractCodecError) as caught:
+        kernel.CompiledPlanCodecV1.loads(payload)
+
+    assert str(caught.value) == (
+        "'ROTATE_INCOMING_SUPPORT_TOWARD_OUTGOING_INSIDE_ORIENTED_OWNER_"
+        "SECTOR_BY_ORDINAL_SUBTURN' is not a valid "
+        "CertifiedBoundHiddenSupportDirectionLawV1"
+    )
+
+
+def test_validator_rejects_cross_enum_legacy_direction_law(projections):
+    plan, angular, legacy = _legacy_plan(projections)
+    forged = replace(
+        legacy,
+        direction_law=(
+            CertifiedBoundHiddenSupportDirectionLawV1.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1
+        ),
+    )
+    changed = replace(angular, hidden_supports=frozenset({forged}))
+    invalid = replace(
+        plan,
+        envelope_specs=(plan.envelope_specs - {angular}) | {changed},
+    )
+
+    issues = validate_compiled_plan(invalid)
+
+    assert any(
+        issue.code is ValidationCode.ANGULAR_CERTIFICATE
+        and issue.path[-1] == "direction_law"
+        and issue.message
+        == "legacy hidden support must declare the oriented owner-sector ordinal subturn law"
+        for issue in issues
+    )
+
+
+def test_validator_rejects_cross_enum_bound_direction_law(projections):
+    plan, angular, bound = _bound_plan(projections)
+    forged = replace(
+        bound,
+        direction_law=(
+            HiddenSupportDirectionLaw.ORIENTED_OWNER_SECTOR_ORDINAL_SUBTURN
+        ),
+    )
+    changed = replace(angular, hidden_supports=frozenset({forged}))
+    invalid = replace(
+        plan,
+        envelope_specs=(plan.envelope_specs - {angular}) | {changed},
+    )
+
+    issues = validate_compiled_plan(invalid)
+
+    assert any(
+        issue.code is ValidationCode.ANGULAR_CERTIFICATE
+        and issue.path[-1] == "direction_law"
+        and issue.message
+        == "bound support must declare the certified rational binding law"
+        for issue in issues
+    )
 
 
 @pytest.mark.parametrize("vector", [(0, 0), (6, 8)])

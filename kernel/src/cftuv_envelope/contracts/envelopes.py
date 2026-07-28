@@ -73,6 +73,9 @@ class HiddenSupportDirectionLaw(str, Enum):
     ORIENTED_OWNER_SECTOR_ORDINAL_SUBTURN = (
         "ROTATE_INCOMING_SUPPORT_TOWARD_OUTGOING_INSIDE_ORIENTED_OWNER_SECTOR_BY_ORDINAL_SUBTURN"
     )
+
+
+class CertifiedBoundHiddenSupportDirectionLawV1(str, Enum):
     CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1 = (
         "CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1"
     )
@@ -201,7 +204,7 @@ class CertifiedBoundHiddenSupportSpecV1:
     hidden_support_id: HiddenSupportId
     ordinal: int
     turn_fraction: ExactRatioV1
-    direction_law: HiddenSupportDirectionLaw
+    direction_law: CertifiedBoundHiddenSupportDirectionLawV1
     zero_length_at_alpha_zero: bool
     scope: HiddenSupportScope
     source_relation_id: CornerRelationId

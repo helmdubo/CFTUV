@@ -10,6 +10,7 @@ import sympy as sp
 import cftuv_envelope as kernel
 from cftuv_envelope import (
     AngularEnvelopeSpec,
+    CertifiedBoundHiddenSupportDirectionLawV1,
     CertifiedBoundHiddenSupportSpecV1,
     HiddenSupportDirectionLaw,
     HiddenSupportSpecV1,
@@ -80,7 +81,7 @@ def test_compiler_binds_only_the_field_ordinal_that_needs_it():
     assert spec.envelope_spec_id.value == _BOUND_SPEC
     assert support.ordinal == 1
     assert support.direction_law is (
-        HiddenSupportDirectionLaw.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1
+        CertifiedBoundHiddenSupportDirectionLawV1.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1
     )
     assert support.direction_binding.bound_primitive_integer_vector == (1, 3)
 
@@ -132,6 +133,38 @@ def _forged_compilation(compilation):
     return forged, forged_spec
 
 
+def _replace_angular_support(compilation, spec, support):
+    changed_spec = replace(spec, hidden_supports=frozenset({support}))
+    changed = replace(
+        compilation,
+        envelope_specs=(compilation.envelope_specs - {spec}) | {changed_spec},
+    )
+    return changed, changed_spec
+
+
+def _assert_reference_and_queue_refuse(context, spec, request):
+    expected = (
+        "direction binding certificate is not proven: "
+        "привязка: сертификат не доказан (BINDING_MONOTONE)"
+    )
+    consumers = (
+        lambda: evaluate_angular_envelope(
+            context,
+            spec,
+            request.requested_alpha,
+            sp.Rational(1, 4),
+        ),
+        lambda: angular_hidden_support_lines(context, spec),
+    )
+    for consume in consumers:
+        with pytest.raises(ReferenceGeometryError) as caught:
+            consume()
+        assert caught.value.outcome is (
+            ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE
+        )
+        assert str(caught.value) == expected
+
+
 def test_reference_and_queue_recheck_the_same_forged_plan_record():
     _, request, compilation = _compiled(_FULL)
     forged, forged_spec = _forged_compilation(compilation)
@@ -141,27 +174,60 @@ def test_reference_and_queue_recheck_the_same_forged_plan_record():
         if getattr(item, "envelope_spec_id", None)
         == forged_spec.envelope_spec_id
     ) is forged_spec
-    context = _context(forged)
-    expected = (
-        "direction binding certificate is not proven: "
-        "привязка: сертификат не доказан (BINDING_MONOTONE)"
+    _assert_reference_and_queue_refuse(
+        _context(forged),
+        forged_spec,
+        request,
     )
-    consumers = (
-        lambda: evaluate_angular_envelope(
-            context,
-            forged_spec,
-            request.requested_alpha,
-            sp.Rational(1, 4),
-        ),
-        lambda: angular_hidden_support_lines(context, forged_spec),
-    )
-    for consume in consumers:
-        with pytest.raises(ReferenceGeometryError) as caught:
-            consume()
-        assert caught.value.outcome is (
-            ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE
+
+
+@pytest.mark.parametrize("record_kind", ("legacy", "bound"))
+def test_reference_and_queue_reject_cross_enum_direction_law(record_kind):
+    if record_kind == "legacy":
+        snapshot, request = angular_snapshot(1)
+        result = kernel.compile_reference_envelopes(snapshot, request)
+        assert result.outcome is ReferenceOutcome.EXACT
+        compilation = result.compilation
+        spec = next(
+            item
+            for item in compilation.envelope_specs
+            if isinstance(item, AngularEnvelopeSpec)
         )
-        assert str(caught.value) == expected
+        support = next(iter(spec.hidden_supports))
+        assert type(support) is HiddenSupportSpecV1
+        forged_support = replace(
+            support,
+            direction_law=(
+                CertifiedBoundHiddenSupportDirectionLawV1.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1
+            ),
+        )
+    else:
+        _, request, compilation = _compiled(_FULL)
+        spec = next(
+            item
+            for item in compilation.envelope_specs
+            if isinstance(item, AngularEnvelopeSpec)
+            and item.envelope_spec_id.value == _BOUND_SPEC
+        )
+        support = next(iter(spec.hidden_supports))
+        assert type(support) is CertifiedBoundHiddenSupportSpecV1
+        forged_support = replace(
+            support,
+            direction_law=(
+                HiddenSupportDirectionLaw.ORIENTED_OWNER_SECTOR_ORDINAL_SUBTURN
+            ),
+        )
+    forged, forged_spec = _replace_angular_support(
+        compilation,
+        spec,
+        forged_support,
+    )
+
+    _assert_reference_and_queue_refuse(
+        _context(forged),
+        forged_spec,
+        request,
+    )
 
 
 def test_compile_refusal_uses_the_existing_named_outcome(monkeypatch):

@@ -26,6 +26,7 @@ from ..contracts.envelopes import (
     AngularSubdivisionPolicy,
     CapClosureLawId,
     CapEnvelopeSpec,
+    CertifiedBoundHiddenSupportDirectionLawV1,
     CertifiedBoundHiddenSupportSpecV1,
     EffectiveAlphaBindingKind,
     ExactTwoPiHandling,
@@ -368,7 +369,7 @@ def _bound_support(support, certificate):
         ordinal=support.ordinal,
         turn_fraction=support.turn_fraction,
         direction_law=(
-            HiddenSupportDirectionLaw.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1
+            CertifiedBoundHiddenSupportDirectionLawV1.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1
         ),
         zero_length_at_alpha_zero=support.zero_length_at_alpha_zero,
         scope=support.scope,

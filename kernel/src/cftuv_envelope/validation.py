@@ -40,9 +40,11 @@ from .contracts.coverage import CoverageEffect
 from .contracts.envelopes import (
     AngularEnvelopeSpec,
     CapEnvelopeSpec,
+    CertifiedBoundHiddenSupportDirectionLawV1,
     CertifiedBoundHiddenSupportSpecV1,
     EnvelopeSpecVariant,
     HiddenSupportDirectionLaw,
+    HiddenSupportSpecV1,
     JunctionEnvelopeSpec,
     StripEnvelopeSpec,
 )
@@ -995,6 +997,34 @@ def validate_compiled_plan(plan: CompiledPatchEvaluationPlanV1) -> tuple[Validat
             _require_refs(issues, {spec.source_seed_id}, corner_seed_ids, path + ("source_seed_id",))
             _require_refs(issues, {spec.selection_certificate_id}, certificate_ids, path + ("selection_certificate_id",))
             _require_refs(issues, set(spec.incident_front_component_ids), component_ids, path + ("incident_front_component_ids",))
+            for support in spec.hidden_supports:
+                support_path = path + (
+                    "hidden_supports",
+                    str(support.ordinal),
+                    "direction_law",
+                )
+                if (
+                    type(support) is HiddenSupportSpecV1
+                    and support.direction_law
+                    is not HiddenSupportDirectionLaw.ORIENTED_OWNER_SECTOR_ORDINAL_SUBTURN
+                ):
+                    _issue(
+                        issues,
+                        ValidationCode.ANGULAR_CERTIFICATE,
+                        support_path,
+                        "legacy hidden support must declare the oriented owner-sector ordinal subturn law",
+                    )
+                elif (
+                    type(support) is CertifiedBoundHiddenSupportSpecV1
+                    and support.direction_law
+                    is not CertifiedBoundHiddenSupportDirectionLawV1.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1
+                ):
+                    _issue(
+                        issues,
+                        ValidationCode.ANGULAR_CERTIFICATE,
+                        support_path,
+                        "bound support must declare the certified rational binding law",
+                    )
             certificate = certificate_by_id.get(spec.selection_certificate_id)
             if certificate is not None:
                 k = certificate.resolved_hidden_edge_count
@@ -1028,8 +1058,6 @@ def validate_compiled_plan(plan: CompiledPatchEvaluationPlanV1) -> tuple[Validat
                         }
                         if set(binding.proven_predicates) != expected_predicates:
                             _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, path + ("hidden_supports", str(support.ordinal), "direction_binding", "proven_predicates"), "direction binding must name exactly the three required predicates")
-                        if support.direction_law is not HiddenSupportDirectionLaw.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1:
-                            _issue(issues, ValidationCode.ANGULAR_CERTIFICATE, path + ("hidden_supports", str(support.ordinal), "direction_law"), "bound support must declare the certified rational binding law")
             if spec.all_support_normal_speed != 1:
                 _issue(issues, ValidationCode.POLICY_MISMATCH, path + ("all_support_normal_speed",), "v1 support speed is UNIT")
         elif isinstance(spec, JunctionEnvelopeSpec):

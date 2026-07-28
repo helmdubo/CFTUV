@@ -36,9 +36,10 @@ from cftuv_envelope import (
 # Разница R1C — ещё три: `GridScaleSearchOrderV1`, `GridScaleTrialOutcomeV1`
 # и `GridScaleTrialV1`. Масштаб теперь выбирается перебором, и читатель
 # сертификата обязан уметь назвать типы, которыми этот перебор записан.
-# FAN-DIR-BIND добавляет два обязательных tagged public record, не меняя V1.
+# FAN-DIR-BIND добавляет два обязательных tagged public record, а corrective
+# seal — отдельный закон bound-tag, чтобы tag/law не могли расходиться.
 PUBLIC_API_FAN_DIR_BIND_SHA256 = (
-    "626e79a73fd3047861e5dedd45d5f3742696bec7499732fda685c3e2731d04c0"
+    "f69f2078142db5a8b50f24363e0640303b0603f47a8f32c16efd98a35eb92358"
 )
 
 

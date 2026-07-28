@@ -446,7 +446,6 @@
         },
         "direction_law": {
           "enum": [
-            "ROTATE_INCOMING_SUPPORT_TOWARD_OUTGOING_INSIDE_ORIENTED_OWNER_SECTOR_BY_ORDINAL_SUBTURN",
             "CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1"
           ],
           "type": "string"
@@ -1749,8 +1748,7 @@
         },
         "direction_law": {
           "enum": [
-            "ROTATE_INCOMING_SUPPORT_TOWARD_OUTGOING_INSIDE_ORIENTED_OWNER_SECTOR_BY_ORDINAL_SUBTURN",
-            "CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1"
+            "ROTATE_INCOMING_SUPPORT_TOWARD_OUTGOING_INSIDE_ORIENTED_OWNER_SECTOR_BY_ORDINAL_SUBTURN"
           ],
           "type": "string"
         },

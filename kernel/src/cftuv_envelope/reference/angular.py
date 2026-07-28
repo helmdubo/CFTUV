@@ -7,7 +7,10 @@ import sympy as sp
 from ..contracts.analysis import TurnOrientation
 from ..contracts.envelopes import (
     AngularEnvelopeSpec,
+    CertifiedBoundHiddenSupportDirectionLawV1,
     CertifiedBoundHiddenSupportSpecV1,
+    HiddenSupportDirectionLaw,
+    HiddenSupportSpecV1,
     StripEnvelopeSpec,
 )
 from ..numeric import LocalLengthV1
@@ -22,6 +25,7 @@ from .common import (
 )
 from .contracts import ReferenceEnvelopeInstanceV1, ReferenceOutcome
 from .direction_binding import (
+    BINDING_MONOTONE,
     DirectionBindingCertificateUnproven,
     bound_unit_normal,
     verify_direction_bindings,
@@ -160,6 +164,31 @@ def angular_support_data(context: GeometryContext, spec: AngularEnvelopeSpec):
         if item.owner_sector_id == spec.owner_sector_id
     )
     anchor = context.points_by_id[relation.source_vertex_id]
+    hidden_by_ordinal = {item.ordinal: item for item in spec.hidden_supports}
+    expected_ordinals = set(range(1, spec.resolved_hidden_edge_count + 1))
+    if set(hidden_by_ordinal) != expected_ordinals or len(hidden_by_ordinal) != len(
+        spec.hidden_supports
+    ):
+        raise ReferenceGeometryError(
+            ReferenceOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN,
+            "AngularEnvelope hidden-support records do not match the selected K",
+        )
+    for support in hidden_by_ordinal.values():
+        law_matches_tag = (
+            type(support) is HiddenSupportSpecV1
+            and support.direction_law
+            is HiddenSupportDirectionLaw.ORIENTED_OWNER_SECTOR_ORDINAL_SUBTURN
+        ) or (
+            type(support) is CertifiedBoundHiddenSupportSpecV1
+            and support.direction_law
+            is CertifiedBoundHiddenSupportDirectionLawV1.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1
+        )
+        if not law_matches_tag:
+            exc = DirectionBindingCertificateUnproven(BINDING_MONOTONE)
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
+                f"direction binding certificate is not proven: {exc}",
+            ) from exc
     incoming, incoming_support_id = _incident_normal(
         context,
         sector.ordered_incident_chain_use_ids[0],
@@ -177,15 +206,6 @@ def angular_support_data(context: GeometryContext, spec: AngularEnvelopeSpec):
         spec.resolved_hidden_edge_count,
         sector.turn_orientation,
     )
-    hidden_by_ordinal = {item.ordinal: item for item in spec.hidden_supports}
-    expected_ordinals = set(range(1, spec.resolved_hidden_edge_count + 1))
-    if set(hidden_by_ordinal) != expected_ordinals or len(hidden_by_ordinal) != len(
-        spec.hidden_supports
-    ):
-        raise ReferenceGeometryError(
-            ReferenceOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN,
-            "AngularEnvelope hidden-support records do not match the selected K",
-        )
     certificates = tuple(
         (
             hidden_by_ordinal[ordinal].direction_binding

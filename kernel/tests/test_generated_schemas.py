@@ -5,10 +5,12 @@ from pathlib import Path
 
 from cftuv_envelope import (
     AnalysisSnapshotV1,
+    CertifiedBoundHiddenSupportDirectionLawV1,
     CompiledPatchEvaluationPlanV1,
     DecalRequestV1,
     EnvelopeDebugSceneV1,
     GeometryBatchV1,
+    HiddenSupportDirectionLaw,
     RationalAffinePlanarMetricV2,
     RuntimePlanarMetricV1,
     json_schema_for,
@@ -52,4 +54,29 @@ def test_checked_in_schemas_are_generated_from_public_types():
     for filename, (record_type, schema_id) in expected.items():
         checked_in = json.loads((SCHEMA_ROOT / filename).read_text(encoding="utf-8"))
         assert checked_in == json_schema_for(record_type, schema_id)
+
+
+def test_hidden_support_tag_schemas_reject_the_other_tags_direction_law():
+    schema = json_schema_for(
+        CompiledPatchEvaluationPlanV1,
+        "cftuv.envelope.compiled_patch_evaluation_plan.v1",
+    )
+    definitions = schema["$defs"]
+    legacy_values = definitions["HiddenSupportSpecV1"]["properties"][
+        "direction_law"
+    ]["enum"]
+    bound_values = definitions["CertifiedBoundHiddenSupportSpecV1"][
+        "properties"
+    ]["direction_law"]["enum"]
+    legacy_law = (
+        HiddenSupportDirectionLaw.ORIENTED_OWNER_SECTOR_ORDINAL_SUBTURN.value
+    )
+    bound_law = (
+        CertifiedBoundHiddenSupportDirectionLawV1.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1.value
+    )
+
+    assert legacy_values == [legacy_law]
+    assert bound_values == [bound_law]
+    assert bound_law not in legacy_values
+    assert legacy_law not in bound_values
 

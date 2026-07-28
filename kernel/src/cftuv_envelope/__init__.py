@@ -575,6 +575,7 @@ __all__ = (
     "TerminalInterfacePolicy",
     "AngularSubdivisionPolicy",
     "HiddenSupportDirectionLaw",
+    "CertifiedBoundHiddenSupportDirectionLawV1",
     "HiddenSupportScope",
     "AngularExposurePolicy",
     "JunctionSupportLawId",
