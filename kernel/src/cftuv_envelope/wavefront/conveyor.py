@@ -129,18 +129,6 @@ class ConveyorOutcome(str, Enum):
     # Поле закона прихода не рационально. То же самое и по той же причине:
     # `PlainArrivalLawV1` объявлен в точных дробях.
     ARRIVAL_LAW_IS_NOT_RATIONAL = "ARRIVAL_LAW_IS_NOT_RATIONAL"
-    # Направление скрытой опоры веера не рационально даже после рескейла.
-    # В общем положении так и есть: при `k = 1` биссектриса есть сумма двух
-    # единичных нормалей с РАЗНЫМИ радикалами, при `k = 2` направление — корень
-    # кубики тройного угла. Рационален веер ровно при равных радикалах опор
-    # (перпендикулярные и симметричные углы — весь полевой корпус `building.002`).
-    #
-    # ЭТО ОТКАЗ, А НЕ ОТКАТ. Посчитать здесь митрованный угол значило бы выдать
-    # острый апекс за мягкий: очередь ответила бы числом, которое продукту не
-    # соответствует, и отличить его было бы нечем. В `detail` — сколько вершин.
-    ANGULAR_PROFILE_DIRECTION_IS_NOT_RATIONAL = (
-        "ANGULAR_PROFILE_DIRECTION_IS_NOT_RATIONAL"
-    )
     # В плане нет ни одной Strip-спеки, то есть источника фронта нет вовсе.
     NO_STRIP_SOURCE_IN_THE_PLAN = "NO_STRIP_SOURCE_IN_THE_PLAN"
     # У кадра патча нет сертификата решётки, то есть решётку карты выводить не
@@ -244,6 +232,38 @@ def chart_lattice_for_frame(frame) -> GridSpecV1 | None:
 
 
 @dataclass(frozen=True, slots=True)
+class DegradedMiterCornerV1:
+    """Вогнутая вершина, оставленная МИТРОВАННОЙ, потому что веер не записался.
+
+    ПОЧЕМУ ЭТО НАХОДКА, А НЕ ОТКАЗ ДОМЕНА. Прежде такая вершина отвечала
+    `ANGULAR_PROFILE_DIRECTION_IS_NOT_RATIONAL` на весь домен, и на полевом входе
+    `building_002_full_selection_v1` это ИЗМЕРЕНО как одна вершина из четырёх:
+    три рациональных веера пропадали вместе с четвёртой, а владелец не получал
+    домена вовсе. Решение владельца: домен обязан строиться. Мягкий угол на такой
+    вершине вернёт ступень «сертифицированная привязка направлений»; до неё вершина
+    остаётся острой — но НАЗВАННОЙ.
+
+    ТИХОЙ ПОДМЕНЫ ПРИ ЭТОМ НЕ ПОЯВИЛОСЬ, и это главное свойство типа. Митр вместо
+    мягкого угла — другой продукт, а не приближение к нему, поэтому деградация
+    выходит наружу дважды: счётчиком `CONVEYOR_DEGRADED_MITER_CORNERS` и этой
+    записью на КОНКРЕТНОЙ вершине. Счётчик отвечает «сколько», запись — «где и
+    почему»; одного числа было бы мало ровно там, где вершин несколько и лечить
+    надо не любую, а свою.
+
+    `anchor` — якорь угла точными дробями либо `None`, если не рационален и он.
+    Причин деградации ровно две (нерациональный якорь и нерациональное направление
+    опоры), они не взаимоисключающие, и `reason` перечисляет ВСЕ сработавшие через
+    `; `. Оставить одну значило бы, что у вершины с обеими бедами вторая невидима,
+    и лечение искали бы не там.
+    """
+
+    envelope_spec_id: str
+    corner_relation_id: str
+    anchor: tuple[Fraction, Fraction] | None
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class PreparedRegionV1:
     """Один регион домена, доведённый до разбиения. Отказ — тоже результат."""
 
@@ -263,6 +283,12 @@ class PreparedRegionV1:
     wall_edge_count: int
     # Рёбра, у которых источник есть, а КОТОРЫЙ именно — по входу не записано.
     ambiguous_owner_spans: tuple[EdgeKey, ...]
+    # Вогнутые вершины, оставшиеся острыми: веер требовался, а записан не был.
+    # Поле, а не строка в `detail`, по той же причине, что и `ambiguous_owner_spans`:
+    # хосту нужно знать, КАКУЮ вершину он видит острой, а не сколько их.
+    # Без значения по умолчанию намеренно: пустой кортеж «на всякий случай» дал бы
+    # будущему месту сборки региона право забыть деградацию молча.
+    degraded_miter_corners: tuple[DegradedMiterCornerV1, ...]
 
     @property
     def is_exact(self) -> bool:
@@ -553,10 +579,10 @@ class _ArrivalLawsV1:
     detail: str | None
     #: Вееры вогнутых вершин, чьи направления РАЦИОНАЛЬНЫ (после рескейла).
     fans: tuple[PlainVertexFanV1, ...] = ()
-    #: Сколько вееров пришлось отклонить: направление алгебраично и записью в
-    #: точных дробях не выражается. Тихого отката к митрованному углу здесь нет
-    #: — вызывающий обязан ответить `ANGULAR_PROFILE_DIRECTION_IS_NOT_RATIONAL`.
-    irrational_fan_count: int = 0
+    #: Вершины, чей веер записать не удалось: они остаются острыми, и каждая
+    #: названа поимённо (`DegradedMiterCornerV1`). Домен от этого не отказывает —
+    #: рациональные вееры того же домена сеются как раньше.
+    degraded_corners: tuple[DegradedMiterCornerV1, ...] = ()
     #: Вогнутые вершины, у которых профиль выбрал `k = 0`. Веера у них нет, и это
     #: не отказ: митрованный угол есть законный член семейства.
     mitered_corner_count: int = 0
@@ -616,18 +642,18 @@ def _arrival_laws(context: GeometryContext) -> _ArrivalLawsV1:
         rescaled_count + fans.rescaled_count,
         None,
         fans.fans,
-        fans.irrational_fan_count,
+        fans.degraded_corners,
         fans.mitered_corner_count,
     )
 
 
 @dataclass(frozen=True, slots=True)
 class _AngularFansV1:
-    """Вееры плана, счёт отклонённых и счёт митрованных углов."""
+    """Вееры плана, деградировавшие вершины и счёт законно митрованных углов."""
 
     fans: tuple[PlainVertexFanV1, ...]
     rescaled_count: int
-    irrational_fan_count: int
+    degraded_corners: tuple[DegradedMiterCornerV1, ...]
     mitered_corner_count: int
 
 
@@ -647,9 +673,20 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
     рескейла значило бы отклонять весь полевой корпус на записи, а не на
     геометрии.
 
-    Отклонённый веер НЕ заменяется митром. Счёт отклонённых уходит наверх, и
-    вызывающий обязан ответить именем: молча посчитать острый угол там, где
-    продукт требует мягкий, — это подмена ответа, а не приближение.
+    ОТКЛОНЁННЫЙ ВЕЕР ОСТАВЛЯЕТ ВЕРШИНУ ОСТРОЙ, И ЭТО ВИДНО. Прежде он валил весь
+    домен именем `ANGULAR_PROFILE_DIRECTION_IS_NOT_RATIONAL`, и на полевом входе
+    `building_002_full_selection_v1` цена этого измерена: ОДНА вершина из четырёх
+    уносила с собой три рациональных веера и весь домен. Решением владельца домен
+    обязан строиться, поэтому веер такой вершины просто не сеется — а вершина
+    попадает в `degraded_corners` со своим именем спеки, именем углового отношения
+    и причиной. Тихой подмены мягкого угла митром от этого не появилось: подменой
+    было бы посчитать острый угол БЕЗ следа, а здесь след двойной — счётчик и
+    пер-вершинная запись.
+
+    Рескейлы деградировавшей вершины наверх НЕ уходят. Счётчик
+    `CONVEYOR_RESCALED_ARRIVAL_LAWS` считает законы, попавшие в очередь; веер с
+    двумя опорами, из которых первая переписалась масштабом, а вторая не
+    записалась вовсе, добавил бы к нему единицу за закон, которого в очереди нет.
     """
 
     speed_squared = (
@@ -658,7 +695,7 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
     )
     fans: list[PlainVertexFanV1] = []
     rescaled_count = 0
-    irrational = 0
+    degraded: list[DegradedMiterCornerV1] = []
     mitered = 0
     for spec in sorted(
         context.compilation.envelope_specs,
@@ -671,24 +708,63 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
             # семейства: скрытых опор нет, вставлять в фронт нечего.
             mitered += 1
             continue
-        name = spec.envelope_spec_id.value
-        _, anchor, hidden = angular_hidden_support_lines(context, spec)
-        point = _rational_point(anchor)
-        supports: list[tuple[int, int, Fraction]] = []
-        for support_id, normal, constant in hidden:
-            law, rescaled, _ = _read_arrival_law(
-                f"{name}/{support_id}", normal, constant, speed_squared
-            )
-            if law is None:
-                supports = []
-                break
-            rescaled_count += int(rescaled)
-            supports.append(_integer_normal(law))
-        if point is None or not supports:
-            irrational += 1
+        fan, rescaled, corner = _one_fan(context, spec, speed_squared)
+        if fan is None:
+            degraded.append(corner)
             continue
-        fans.append(PlainVertexFanV1(name, point, tuple(supports)))
-    return _AngularFansV1(tuple(fans), rescaled_count, irrational, mitered)
+        rescaled_count += rescaled
+        fans.append(fan)
+    return _AngularFansV1(
+        tuple(fans), rescaled_count, tuple(degraded), mitered
+    )
+
+
+def _one_fan(context: GeometryContext, spec, speed_squared):
+    """Веер одной вершины: либо запись в точных дробях, либо названная деградация.
+
+    Возвращает `(веер, сколько его опор переписано масштабом, None)` либо
+    `(None, 0, DegradedMiterCornerV1)`. Два выхода вместо одного и `None`-полей
+    затем, что второй случай несёт СВОИ данные — вершину и причину, — а не
+    отсутствие первых.
+
+    Причин деградации две, и они НЕ взаимоисключающие: нерациональный якорь
+    вершины и нерациональное направление опоры. Поэтому причины собираются
+    списком, а не последней записью: у вершины с обеими бедами вторая иначе
+    затирала бы первую, и лечение искали бы не там.
+
+    Пустой список опор при пустом списке причин здесь невозможен: `k >= 1` по
+    построению вызывающего, а `angular_hidden_support_lines` эмитит опору на
+    каждый ordinal от `1` до `k`. Поэтому отдельной ветки «опор нет» нет — она
+    была бы кодом, который не сработал бы ни на одном входе.
+    """
+
+    name = spec.envelope_spec_id.value
+    _, anchor, hidden = angular_hidden_support_lines(context, spec)
+    point = _rational_point(anchor)
+    supports: list[tuple[int, int, Fraction]] = []
+    rescaled_count = 0
+    reasons: list[str] = [] if point is not None else ["якорь не рационален"]
+    for support_id, normal, constant in hidden:
+        law, rescaled, issue = _read_arrival_law(
+            f"{name}/{support_id}", normal, constant, speed_squared
+        )
+        if law is None:
+            reasons.append(f"{support_id}: {issue}")
+            break
+        rescaled_count += int(rescaled)
+        supports.append(_integer_normal(law))
+    if reasons:
+        return (
+            None,
+            0,
+            DegradedMiterCornerV1(
+                envelope_spec_id=name,
+                corner_relation_id=spec.source_relation_id.value,
+                anchor=point,
+                reason="; ".join(reasons),
+            ),
+        )
+    return PlainVertexFanV1(name, point, tuple(supports)), rescaled_count, None
 
 
 def _rational_point(point) -> tuple[Fraction, Fraction] | None:
@@ -746,6 +822,7 @@ def _prepare_region(
         wall_spans=report.wall_spans,
         wall_edge_count=report.wall_edge_count,
         ambiguous_owner_spans=report.ambiguous_owner_spans,
+        degraded_miter_corners=reading.degraded_corners,
     )
     if report.polygon is None:
         return prepared, None
@@ -782,6 +859,7 @@ def _with_skeleton(
         wall_spans=prepared.wall_spans,
         wall_edge_count=prepared.wall_edge_count,
         ambiguous_owner_spans=prepared.ambiguous_owner_spans,
+        degraded_miter_corners=prepared.degraded_miter_corners,
     )
 
 
@@ -819,13 +897,24 @@ def _law_counters(reading: _ArrivalLawsV1) -> Counters:
     Переживает любой поздний отказ: «законы были рациональны», «законы спасены
     масштабом» и «веер отклонён» лечатся по-разному, и без счётчика поздний
     отказ унёс бы это различение с собой.
+
+    ТРИ СЧЁТЧИКА НА ТРИ СУДЬБЫ ВОГНУТОЙ ВЕРШИНЫ, и сумма их равна числу угловых
+    спек плана: веер посеян (`RATIONAL_VERTEX_FANS`), профиль выбрал `k = 0`
+    (`MITERED_CORNERS` — законный митр), веер потребовался и не записался
+    (`DEGRADED_MITER_CORNERS` — митр вынужденный). Свести последние два в один
+    было бы нельзя ни при какой экономии: первый есть ответ продукта, второй —
+    его отсутствие, и различает их только имя.
+
+    Счёт деградаций стоит на ДОМЕННОМ чтении, а не на сумме по регионам, хотя
+    сама запись лежит в регионе. Причина арифметическая: вееры выводятся один раз
+    на домен, и сумма по регионам умножила бы одну вершину на число регионов.
     """
 
     return (
         ("CONVEYOR_ARRIVAL_LAWS", len(reading.laws)),
         ("CONVEYOR_RESCALED_ARRIVAL_LAWS", reading.rescaled_count),
         ("CONVEYOR_RATIONAL_VERTEX_FANS", len(reading.fans)),
-        ("CONVEYOR_IRRATIONAL_VERTEX_FANS", reading.irrational_fan_count),
+        ("CONVEYOR_DEGRADED_MITER_CORNERS", len(reading.degraded_corners)),
         ("CONVEYOR_MITERED_CORNERS", reading.mitered_corner_count),
         (
             "CONVEYOR_FAN_SUPPORTS",
@@ -1000,14 +1089,6 @@ def _prepare_inputs(snapshot, request, patch_domain_id, clock: _Clock):
             ConveyorOutcome.ARRIVAL_LAW_IS_NOT_RATIONAL, reading.detail, clock
         )
     law_counters: Counters = _law_counters(reading)
-    if reading.irrational_fan_count:
-        return None, _refused(
-            ConveyorOutcome.ANGULAR_PROFILE_DIRECTION_IS_NOT_RATIONAL,
-            f"{reading.irrational_fan_count} вогнутых вершин из "
-            f"{reading.irrational_fan_count + len(reading.fans)} с веером",
-            clock,
-            law_counters,
-        )
     if not reading.laws:
         return None, _refused(
             ConveyorOutcome.NO_STRIP_SOURCE_IN_THE_PLAN,
