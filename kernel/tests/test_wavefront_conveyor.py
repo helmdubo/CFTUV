@@ -266,11 +266,14 @@ def test_the_public_entry_reproduces_the_field_numbers_without_the_union(
         # ВЕЕРА У ЭТОГО ДОМЕНА ТЕПЕРЬ ЕСТЬ: снапшот объявляет 4 `CornerRelation`,
         # компилятор строит из них 2 `AngularEnvelopeSpec` (по числу углов,
         # попавших на выбранные рёбра запроса 2/3/7), и оба веера РАЦИОНАЛЬНЫ.
-        # Три нуля рядом — не украшение, а разделение исходов: ни один веер не
-        # отклонён по иррациональности (`IRRATIONAL`), ни один угол не выбрал
+        # Три нуля рядом — не украшение, а разделение исходов: ни одна вершина не
+        # деградировала в митр (`DEGRADED_MITER_CORNERS`), ни один угол не выбрал
         # `k = 0` (`MITERED`), то есть 2 = 2 + 0 + 0 поимённо, а не по сумме.
+        # Ноль деградаций здесь — положительный контроль к
+        # `building_002_full_selection_v1`, где та же величина равна единице:
+        # счётчик считает, а не молчит по построению.
         "CONVEYOR_RATIONAL_VERTEX_FANS": 2,
-        "CONVEYOR_IRRATIONAL_VERTEX_FANS": 0,
+        "CONVEYOR_DEGRADED_MITER_CORNERS": 0,
         "CONVEYOR_MITERED_CORNERS": 0,
         "CONVEYOR_FAN_SUPPORTS": 2,
         "CONVEYOR_FAN_EDGES": 2,
@@ -303,6 +306,9 @@ def test_the_public_entry_reproduces_the_field_numbers_without_the_union(
     assert region.wall_edge_count == 9
     assert len(region.wall_spans) == 9
     assert region.ambiguous_owner_spans == ()
+    # Ни одна вершина не осталась острой вынужденно: пер-вершинная запись пуста,
+    # а не «счётчик ноль». Числу можно верить только вместе с ней.
+    assert region.degraded_miter_corners == ()
     # Владельцев пять, и разбиение сверяется ПОИМЁННО: три юбки помечены
     # четвёркой (span ребра), два веера — пятёркой (вырожденный span плюс `q`).
     # Сумма «5» держалась бы и при неверном составе.
@@ -1011,7 +1017,7 @@ def test_the_weighted_normals_domain_needs_the_rescale_and_then_closes(
         # ни одного объявленного вогнутого угла. Ноль здесь — измерение входа,
         # а не тишина очереди.
         "CONVEYOR_RATIONAL_VERTEX_FANS": 0,
-        "CONVEYOR_IRRATIONAL_VERTEX_FANS": 0,
+        "CONVEYOR_DEGRADED_MITER_CORNERS": 0,
         "CONVEYOR_MITERED_CORNERS": 0,
         "CONVEYOR_FAN_SUPPORTS": 0,
         "CONVEYOR_FAN_EDGES": 0,
@@ -1044,6 +1050,7 @@ def test_the_weighted_normals_domain_needs_the_rescale_and_then_closes(
     assert region.wall_spans == ()
     assert len({name for _, name in region.owner_by_edge}) == 4
     assert region.ambiguous_owner_spans == ()
+    assert region.degraded_miter_corners == ()
 
 
 def test_the_weighted_normals_coverage_matches_an_independent_closed_form(
