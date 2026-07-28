@@ -22,8 +22,8 @@
 | нерациональный веер больше не валит домен, исход УДАЛЁН       | `..._an_irrational_fan_no_longer_refuses_the_domain_and_the_outcome_is_gone` |
 | деградация всех вееров = митрованный домен ПОБИТОВО           | `..._every_fan_degrading_leaves_the_field_domain_mitered_bit_for_bit` |
 | полевые фикстуры объявляют углы: 4, 4 и 0; вееров 2, 4 и 0    | `..._the_field_fixtures_declare_their_corner_relations_by_name` |
-| полное выделение: домен `EXACT` при 3 веерах и 1 деградации   | `..._the_full_selection_domain_builds_with_one_degraded_corner` |
-| цена деградации против эталона — `+0.09225 %`, а не ноль      | `..._the_degraded_corner_costs_a_measured_excess_over_the_reference_path` |
+| полное выделение: домен `EXACT`, 4 веера, 0 деградаций        | `..._the_full_selection_domain_builds_with_four_rational_fans` |
+| после binding остаётся exact canonical sliver двух геометрий  | `..._bound_full_selection_freezes_the_exact_queue_reference_sliver` |
 
 Ни одна строка сверки не пропущена: `ell`, `staircase`, `u_shape` при каждой
 alpha, для которой независимость квадратов доказана самим митрованным эталоном.
@@ -535,6 +535,57 @@ DEGRADED_SUPPORT = "hidden-support:36a61d30ef0657696ba6f3a0"
 # фикстуре `point_contact`. Здесь она обязана СОВПАСТЬ: выделение запроса другое,
 # а домен тот же, и это отделяет «переписали фикстуру» от «выбрали больше швов».
 BF6_DOUBLED_AREA = 27224141715
+FULL_SELECTION_SLIVER_PROJECTION = (
+    (
+        1,
+        -32760370170769515943782596878464889863314396137215851124364992057288761041375893298426919779094145354990494928895896481867486209029817817043,
+        16381362189677002231500200280039403729977453338560685993927289108788062591548374450266605252017726090141743409074391949315776949488502911250,
+    ),
+    (2, -98304, 1426085),
+    (165133, -16384, 360799505),
+    (266669, -74432, 368215147),
+    (44035851977, -16384, 234256993393),
+    (355697254093, 1, 8251520),
+    (711394508186, 32768, 1701042789875),
+    (2300590626205, 11, 20628800),
+    (2856933890605, 65536, 6817919287725),
+    (5713867781210, 1, 20628800),
+    (35567098911805, 1, 82515200),
+    (71134197823610, 8192, 4252913666925),
+    (934341031240685, 1, 137154880),
+    (25438578787060210, 1, 2811675040),
+    (170962881381695341, 1, 2249340032),
+    (308813560755902945, 1, 5623350080),
+    (341925762763390682, 879615279104, 15828538430110778961995),
+    (399646465898033210, 1, 11246700160),
+    (19497871955518329185, 1, 11246700160),
+    (38995743911036658370, 16384, 6297051055227305),
+    (297513663411907677816353, -16384, 777846928859140375),
+    (864679808037807823744061, -8, 647515592700475),
+    (3219742089630608253306605, 16384, 1593174185986412145),
+    (8100173827195581712794298, -557056, 137993518029402265175),
+    (332342539198733583484373705, -32768, 51995676302758403925),
+    (16162756466265633743701502905, 1, 1097159818705024),
+    (28418143324800742775510146949, -2, 29346257673784425),
+    (36776916529638856010871450722, -32768, 546969297554948422125),
+    (439344098428476115533587790629, -8192, 472670056077527729425),
+    (
+        2669004463543842896998660279211365,
+        16384,
+        57674213732698744339351,
+    ),
+    (
+        258375540036545773940152217388442350424059002,
+        -65536,
+        91695830202823208533800348421,
+    ),
+)
+FULL_SELECTION_SLIVER_SHA256 = (
+    "9ec373daa7609fefbf0cc0d651354956c2d26fb0c887f49d95a75c8e1c949dd2"
+)
+FULL_SELECTION_DOMAIN_AREA_SLIVER = Fraction(
+    79051943949, 612498843631616
+)
 
 
 def _full_selection_input():
@@ -796,7 +847,10 @@ def test_the_field_fixtures_declare_their_corner_relations_by_name():
     """
 
     import cftuv_envelope as kernel
-    from cftuv_envelope.contracts.envelopes import AngularEnvelopeSpec
+    from cftuv_envelope.contracts.envelopes import (
+        AngularEnvelopeSpec,
+        CertifiedBoundHiddenSupportSpecV1,
+    )
     from cftuv_envelope.reference.compile import compile_reference_envelopes
 
     from wavefront_cases import FIELD_FIXTURE
@@ -837,55 +891,34 @@ def test_the_field_fixtures_declare_their_corner_relations_by_name():
         assert all(spec.resolved_hidden_edge_count == 1 for spec in angular), name
 
 
-def test_the_full_selection_domain_builds_with_one_degraded_corner():
-    """Сценарий владельца: домен СТРОИТСЯ, и одна вершина названа острой.
+def test_every_named_fixture_manifest_matches_its_directory():
+    """Именованный manifest не имеет права называться соседней фикстурой.
 
-    ЧТО БЫЛО. На этих же байтах `prepare_conveyor` отвечал
-    `ANGULAR_PROFILE_DIRECTION_IS_NOT_RATIONAL` с деталью «1 вогнутых вершин из 4
-    с веером»: одна вершина уносила с собой три РАЦИОНАЛЬНЫХ веера и весь домен,
-    и владелец не получал ничего. Решение владельца отменило цену, не отменяя
-    громкости: вершина остаётся митрованной, но названной.
+    Отсутствие `fixture_id` разрешено и не является отказом. Сейчас такой
+    exporter-format debt фактически несут ровно четыре существующих каталога:
+    `session_a_v5`, `session_c_planar_v1`,
+    `session_c_r2c_boundary_rotation_v1`, `session_d_interactions_v1`.
+    Они здесь не переписываются и проходят guard отсутствием поля.
+    """
 
-    ПОЧЕМУ ДЕГРАДИРОВАЛА ИМЕННО ЭТА ВЕРШИНА — проверено НЕ машинерией веера, а
-    независимой величиной снапшота, сертификатом угла:
+    import json
+    from pathlib import Path
 
-    | угол | `phi/pi` сертификата | судьба веера |
-    |---|---|---|
-    | `739252a7…`, `7dde3e10…`, `fac6c5eb…` | ровно `1.5`, оба конца | рациональный веер |
-    | `66cf5e6f…` | `[1.500123280352543932868625829, 1.50012328035254393286862583]` | ДЕГРАДИРОВАЛ в митр |
+    fixture_root = Path(__file__).parents[1] / "fixtures"
+    for manifest_path in sorted(fixture_root.rglob("manifest.json")):
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if "fixture_id" not in manifest:
+            continue
+        assert manifest["fixture_id"] == manifest_path.parent.name, manifest_path
 
-    У деградировавшей вершины сертификат — не точка, а оболочка (концы округлены
-    НАРУЖУ кодеком хоста), и это не мешает утверждению: вся оболочка лежит СТРОГО
-    выше `1.5`, то есть «угол не прямой» доказано, а не следует из ширины записи.
-    У трёх остальных оба конца совпадают и равны `1.5` ровно.
 
-    Читается это так: при `phi = 3pi/2` обе скрытые опоры несут ОДИН радикал
-    (`sqrt(2)`), и биссектриса после рескейла целочисленна; отклонение угла на
-    `1.2e-4` от прямого даёт вложенный радикал
-    `sqrt(1333345 - sqrt(266669))`, который записью в точных дробях не выражается
-    ни при каком множителе. То есть деградация — свойство УГЛА, а не сбой ступени,
-    и предсказывается она полем, которое очередь не считает.
+def test_the_full_selection_domain_builds_with_four_rational_fans():
+    """Привязанный ordinal снимает единственную деградацию и достраивает веер.
 
-    ЧТО ДЕГРАДАЦИЯ ЕСТЬ РОВНО МИТР, проверено вторым входом на тех же байтах: со
-    снятым угловым отношением этой вершины (веер не требуется вовсе) очередь даёт
-    ПОБИТОВО тот же скелет и то же покрытие. Совпадение исключает третий ответ —
-    например, веер с пустыми опорами или сдвинутый якорь.
-
-    ЧИСЛА ДОМЕНА, измеренные этим прогоном:
-
-    | величина | число |
-    |---|---:|
-    | законов прихода / спасено масштабом | 12 / 4 |
-    | вееров рациональных / деградировавших | **3 / 1** |
-    | рёбер домена / источников / стен | 12 / 12 / **0** |
-    | неопределённых владельцев | 4 |
-    | узлов скелета / граней | 13 / 15 |
-    | удвоенная площадь домена | 27 224 141 715 |
-    | членов покрытия при `alpha = 1/4` | 26 |
-
-    Ноль стен здесь не совпадение и не свойство меша: выбраны все 12 цепочек, то
-    есть источником служит КАЖДОЕ ребро домена. У `point_contact` того же патча
-    источников 3 и стен 9 — разница ровно в выделении.
+    На тех же байтах было 3 веера + 1 видимый митр, 13 узлов, 15 граней и
+    26 членов покрытия. Plan-authority запись `(1, 3)` даёт 4/0, один bound
+    direction, 14 узлов, 16 граней и 27 членов. Сумма граней по-прежнему равна
+    площади домена точно; стен нет, потому что выбраны все 12 источников.
     """
 
     from cftuv_envelope.wavefront import (
@@ -903,23 +936,21 @@ def test_the_full_selection_domain_builds_with_one_degraded_corner():
     assert dict(prepared.counters) == {
         "CONVEYOR_DOMAIN_REGIONS": 1,
         "CONVEYOR_ARRIVAL_LAWS": 12,
-        "CONVEYOR_RESCALED_ARRIVAL_LAWS": 4,
-        # 3 + 1 + 0 = 4 угловые спеки, поимённо: веер посеян, веер деградировал,
-        # профиль выбрал `k = 0`. Суммы «4» было бы мало — она держалась бы и при
-        # четырёх деградациях.
-        "CONVEYOR_RATIONAL_VERTEX_FANS": 3,
-        "CONVEYOR_DEGRADED_MITER_CORNERS": 1,
+        "CONVEYOR_RESCALED_ARRIVAL_LAWS": 5,
+        "CONVEYOR_RATIONAL_VERTEX_FANS": 4,
+        "CONVEYOR_DEGRADED_MITER_CORNERS": 0,
         "CONVEYOR_MITERED_CORNERS": 0,
-        "CONVEYOR_FAN_SUPPORTS": 3,
-        "CONVEYOR_FAN_EDGES": 3,
+        "CONVEYOR_BOUND_FAN_DIRECTIONS": 1,
+        "CONVEYOR_FAN_SUPPORTS": 4,
+        "CONVEYOR_FAN_EDGES": 4,
         "CONVEYOR_LATTICE_SCALE": 32768,
         "CONVEYOR_DOMAIN_EDGES": 12,
         "CONVEYOR_SOURCE_EDGES": 12,
         "CONVEYOR_WALL_EDGES": 0,
         "CONVEYOR_AMBIGUOUS_OWNER_EDGES": 4,
         "CONVEYOR_WEIGHTED_SOURCE_EDGES": 12,
-        "CONVEYOR_SKELETON_NODES": 13,
-        "CONVEYOR_FACES": 15,
+        "CONVEYOR_SKELETON_NODES": 14,
+        "CONVEYOR_FACES": 16,
     }
 
     (region,) = prepared.regions
@@ -927,9 +958,9 @@ def test_the_full_selection_domain_builds_with_one_degraded_corner():
     assert region.bridge.findings == ()
     assert region.skeleton_outcome is SkeletonOutcome.EXACT
     assert region.face_outcome is FaceOutcome.EXACT
-    assert len(region.skeleton.nodes) == 13
+    assert len(region.skeleton.nodes) == 14
     assert sorted(face.node_count for face in region.partition.faces) == [
-        1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 5, 5, 7,
+        1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 3, 3, 5, 6, 7,
     ]
     # Сумма граней есть площадь домена ТОЧНО: дефект — пустой набор членов, а не
     # «маленькое число». И площадь та же, что у `point_contact`: домен один.
@@ -938,35 +969,21 @@ def test_the_full_selection_domain_builds_with_one_degraded_corner():
     assert region.wall_spans == ()
     assert len(region.ambiguous_owner_spans) == 4
 
-    # Деградация названа НА ВЕРШИНЕ: спека, угловое отношение, якорь и причина.
-    (corner,) = region.degraded_miter_corners
-    assert corner.envelope_spec_id == DEGRADED_SPEC
-    assert corner.corner_relation_id == DEGRADED_RELATION
-    assert corner.anchor == (
-        Fraction(169074147, 11408680),
-        Fraction(-22588627, 5704340),
-    )
-    assert corner.reason == (
-        f"{DEGRADED_SUPPORT}: запись закона не рациональна и после масштаба"
-    )
-
-    _assert_the_degraded_corner_is_the_only_one_off_the_right_angle(snapshot)
+    assert region.degraded_miter_corners == ()
+    _assert_the_bound_corner_is_the_only_one_off_the_right_angle(snapshot)
 
     covered = conveyor_coverage(prepared)
     assert covered.outcome is ConveyorOutcome.EXACT, covered.detail
     assert covered.alpha == Fraction(1, 4)
     assert covered.lattice_alpha == Fraction(8192)
-    assert len(covered.doubled_area.terms) == 26
+    assert len(covered.doubled_area.terms) == 27
     low, high = covered.doubled_area.enclosure(64)
-    assert 4604827284 < low <= high < 4604827285
+    assert 4600667989 < low <= high < 4600667990
     assert covered.polygon_doubled_area == BF6_DOUBLED_AREA
-    # 15 граней = 8 названных владельцев + 4 неопределённых + 3 веера. Имя
-    # экземпляра у веера не выводится (открытый счёт, `DECISIONS.md`), и здесь
-    # это ЧИСЛО, а не умолчание.
-    assert covered.counter("CONVEYOR_COVERED_FACES") == 15
+    assert covered.counter("CONVEYOR_COVERED_FACES") == 16
     assert covered.counter("CONVEYOR_NAMED_OWNERS") == 8
     assert (
-        sum(1 for face in covered.faces if face.envelope_instance_id is None) == 7
+        sum(1 for face in covered.faces if face.envelope_instance_id is None) == 8
     )
     # При заведомо большой alpha фронт съедает домен целиком, и покрытие сходится
     # с его площадью в один рациональный член — тот же точный ноль, но с другой
@@ -978,18 +995,19 @@ def test_the_full_selection_domain_builds_with_one_degraded_corner():
     assert trimmed.outcome is ConveyorOutcome.EXACT, trimmed.detail
     assert trimmed.counter("CONVEYOR_DEGRADED_MITER_CORNERS") == 0
     assert trimmed.counter("CONVEYOR_RATIONAL_VERTEX_FANS") == 3
+    assert trimmed.counter("CONVEYOR_BOUND_FAN_DIRECTIONS") == 0
     (trimmed_region,) = trimmed.regions
-    assert semantic_digest(trimmed_region.skeleton) == semantic_digest(
+    assert semantic_digest(trimmed_region.skeleton) != semantic_digest(
         region.skeleton
     )
     assert (
         conveyor_coverage(trimmed).doubled_area.terms
-        == covered.doubled_area.terms
+        != covered.doubled_area.terms
     )
 
 
-def _assert_the_degraded_corner_is_the_only_one_off_the_right_angle(snapshot):
-    """Судьба веера предсказана сертификатом угла, а не самой машинерией веера.
+def _assert_the_bound_corner_is_the_only_one_off_the_right_angle(snapshot):
+    """Привязывается ровно не-прямой вход; три прямых остаются pass-through.
 
     Проверка стоит отдельной функцией не ради длины: она утверждает про ВХОД, а не
     про ответ очереди, и потому обязана читаться независимо от того, что очередь
@@ -999,7 +1017,10 @@ def _assert_the_degraded_corner_is_the_only_one_off_the_right_angle(snapshot):
     from decimal import Decimal
 
     import cftuv_envelope as kernel
-    from cftuv_envelope.contracts.envelopes import AngularEnvelopeSpec
+    from cftuv_envelope.contracts.envelopes import (
+        AngularEnvelopeSpec,
+        CertifiedBoundHiddenSupportSpecV1,
+    )
 
     compilation = kernel.compile_reference_envelopes(
         snapshot, _full_selection_input()[1]
@@ -1008,60 +1029,212 @@ def _assert_the_degraded_corner_is_the_only_one_off_the_right_angle(snapshot):
         item.certificate_id: item for item in snapshot.reflex_angle_certificates
     }
     seen = {}
+    bound_supports = {}
     for spec in compilation.envelope_specs:
         if not isinstance(spec, AngularEnvelopeSpec):
             continue
         seen[spec.envelope_spec_id.value] = by_certificate[
             spec.angle_certificate_id
         ].measure_payload.phi_over_pi
+        bound_supports[spec.envelope_spec_id.value] = tuple(
+            item
+            for item in spec.hidden_supports
+            if isinstance(item, CertifiedBoundHiddenSupportSpecV1)
+        )
     assert len(seen) == 4
-    degraded = seen.pop(DEGRADED_SPEC)
-    # ВСЯ оболочка деградировавшего угла лежит строго выше прямого: утверждение
-    # «не прямой» стоит на нижнем конце, а не на середине записи.
-    assert degraded.lower > Decimal("1.5")
-    assert str(degraded.lower) == "1.500123280352543932868625829"
-    assert str(degraded.upper) == "1.50012328035254393286862583"
+    bound_interval = seen.pop(DEGRADED_SPEC)
+    assert bound_interval.lower > Decimal("1.5")
+    assert str(bound_interval.lower) == "1.500123280352543932868625829"
+    assert str(bound_interval.upper) == "1.50012328035254393286862583"
+    assert len(bound_supports[DEGRADED_SPEC]) == 1
+    assert (
+        bound_supports[DEGRADED_SPEC][0]
+        .direction_binding.bound_primitive_integer_vector
+        == (1, 3)
+    )
+    assert all(
+        not supports
+        for name, supports in bound_supports.items()
+        if name != DEGRADED_SPEC
+    )
     # У трёх рациональных вееров сертификат — ТОЧКА: оба конца равны `1.5`, то
     # есть угол прямой доказанно, а не в пределах округления.
     for name, interval in seen.items():
         assert str(interval.lower) == str(interval.upper) == "1.5", name
 
 
-def test_the_degraded_corner_costs_a_measured_excess_over_the_reference_path():
-    """ГИПОТЕЗА КАРТОЧКИ «разность близка к нулю» ОПРОВЕРГНУТА, и числом.
+def _canonical_sqrt_sum(expression) -> SqrtSumV1:
+    result = SqrtSumV1.zero()
+    for term in sp.Add.make_args(sp.expand(expression)):
+        coefficient, radical = term.as_coeff_Mul(rational=True)
+        rational = Fraction(int(coefficient.p), int(coefficient.q))
+        if radical == 1:
+            result = result + SqrtSumV1.rational(rational)
+            continue
+        base, exponent = radical.as_base_exp()
+        assert exponent == sp.Rational(1, 2), term
+        assert base.is_Rational, term
+        radicand = Fraction(int(base.p), int(base.q))
+        result = result + SqrtSumV1.radical(rational, radicand)
+    return result
 
-    Ожидание было такое: у `point_contact` веера есть у ОБОИХ путей, и остаток
-    там `+0.00026651 %`; на `full_selection` стен нет вовсе (источником служат все
-    12 рёбер), значит объявленная разница моделей у стен исчезает и разность
-    обязана упасть ещё ниже. Прогон отвечает иначе:
 
-    | вход | стен | остаток очереди над эталоном |
-    |---|---:|---:|
-    | `point_contact` (2 веера у обоих путей) | 9 | `+0.00026651 %` |
-    | `full_selection` (3 веера у очереди, 4 у эталона) | **0** | **`+0.09225 %`** |
+def test_full_selection_whole_domain_area_sliver_is_frozen_exactly():
+    """Разные evaluation geometry дают именованный exact whole-domain sliver."""
 
-    Разность выросла в 346 раз ПРИ ИСЧЕЗНОВЕНИИ стен, то есть объяснить её
-    моделью стены нельзя по построению: `CONVEYOR_WALL_EDGES` здесь ноль, и это
-    проверено здесь же. Остаётся ровно одна названная причина — деградировавшая
-    вершина: очередь считает её МИТРОМ, эталон — цепью `k = 1`, а митр накрывает
-    больше цепи. Знак это подтверждает: избыток, а не недобор.
+    import cftuv_envelope as kernel
+    from cftuv_envelope.reference.boundary import build_domain_geometry
+    from cftuv_envelope.reference.common import GeometryContext
+    from cftuv_envelope.reference.planar_types import polygon_signed_area
+    from cftuv_envelope.reference.validation import (
+        validate_reference_geometry_payload,
+    )
+    from cftuv_envelope.wavefront import prepare_conveyor
 
-    ЧТО ПРИЧИНА ИМЕННО В ЭТОЙ ВЕРШИНЕ, измерено третьим прогоном (в гейт он не
-    включён — эталонный путь на этих байтах стоит 74 с, и второй такой же удвоил
-    бы цену ради знака, который уже доказан): со снятым угловым отношением
-    деградировавшей вершины эталон теряет свою угловую заплату и опускается до
-    `2.1327932877294125741`, тогда как ОЧЕРЕДЬ не двигается ни на бит
-    (`2.1442898010911475551`, точная сверка членов — в соседнем тесте). Из трёх
-    чисел следует разложение: заплата цепи стоит `+0.0095202`, митр очереди
-    `+0.0114965`, разница между ними `+0.0019763` — ровно измеренный здесь
-    остаток.
+    snapshot, request = _full_selection_input()
+    compilation = kernel.compile_reference_envelopes(
+        snapshot, request
+    ).compilation
+    assert compilation is not None
+    frame, diagnostics = validate_reference_geometry_payload(
+        compilation.analysis_snapshot,
+        compilation.plan_key.patch_domain_id,
+    )
+    assert frame is not None, diagnostics
+    context = GeometryContext.build(compilation, frame)
+    domain = build_domain_geometry(context)
+    reference_area = sum(
+        (
+            polygon_signed_area(region.outer.points)
+            - sum(
+                (
+                    polygon_signed_area(hole.points)
+                    for hole in region.holes
+                ),
+                sp.Integer(0),
+            )
+            for region in domain.domain_regions
+        ),
+        sp.Integer(0),
+    )
+    prepared = prepare_conveyor(snapshot, request)
+    queue_area = sp.Rational(
+        prepared.regions[0].partition.polygon_doubled_area,
+        2 * prepared.lattice.scale * prepared.lattice.scale,
+    )
+    sliver = sp.cancel(reference_area - queue_area)
+    assert sliver.is_Rational
+    assert Fraction(int(sliver.p), int(sliver.q)) == (
+        FULL_SELECTION_DOMAIN_AREA_SLIVER
+    )
 
-    Число заморожено затем, чтобы следующая ступень — сертифицированная привязка
-    направлений — могла показать, что она его УБРАЛА, а не «улучшила». Цена
-    заморозки названа, а не спрятана: тест стоит 78 с из 448 с всего гейта ядра
-    (было 347 с), и почти всё это — эталонный союз шестнадцати юбок (`74 с`);
-    очередь на тех же байтах отвечает за `0.9 с`.
+
+def test_the_only_common_anchor_line_is_outside_the_reflex_sector():
+    """Sliver нельзя снять направлением: общая anchor-line лежит вне сектора."""
+
+    from math import gcd
+
+    import cftuv_envelope as kernel
+    from cftuv_envelope.reference.common import GeometryContext
+    from cftuv_envelope.reference.validation import (
+        validate_reference_geometry_payload,
+    )
+    from cftuv_envelope.robust.grid import snap_value
+    from cftuv_envelope.wavefront import prepare_conveyor
+
+    snapshot, request = _full_selection_input()
+    compilation = kernel.compile_reference_envelopes(
+        snapshot, request
+    ).compilation
+    assert compilation is not None
+    frame, diagnostics = validate_reference_geometry_payload(
+        compilation.analysis_snapshot,
+        compilation.plan_key.patch_domain_id,
+    )
+    assert frame is not None, diagnostics
+    context = GeometryContext.build(compilation, frame)
+    relation = next(
+        item
+        for item in snapshot.corner_relations
+        if item.corner_relation_id.value == DEGRADED_RELATION
+    )
+    anchor = context.points_by_id[relation.source_vertex_id]
+    x, y = (
+        Fraction(int(value.p), int(value.q))
+        for value in anchor.expressions()
+    )
+    lattice = prepare_conveyor(snapshot, request).lattice
+    node = (snap_value(x, lattice), snap_value(y, lattice))
+    displacement = (
+        Fraction(node[0]) - x * lattice.scale,
+        Fraction(node[1]) - y * lattice.scale,
+    )
+    assert displacement == (
+        Fraction(561163, 1426085),
+        Fraction(94954, 1426085),
+    )
+
+    # В 2D ненулевому displacement ортогонален один класс ковекторов.
+    # Primitive и положительный первый компонент выбирают его единственную
+    # каноническую запись.
+    denominator = (
+        displacement[0].denominator
+        * displacement[1].denominator
+        // gcd(
+            displacement[0].denominator,
+            displacement[1].denominator,
+        )
+    )
+    dx = int(displacement[0] * denominator)
+    dy = int(displacement[1] * denominator)
+    common = gcd(abs(dx), abs(dy))
+    common_line_covector = (dy // common, -dx // common)
+    assert common_line_covector == (94954, -561163)
+    assert (
+        common_line_covector[0] * displacement[0]
+        + common_line_covector[1] * displacement[1]
+        == 0
+    )
+
+    incoming = (2582, 9011)
+    outgoing = (3261066, 5676553)
+    cross = lambda left, right: (
+        left[0] * right[1] - left[1] * right[0]
+    )
+    sign = lambda value: (value > 0) - (value < 0)
+    expected = (-1, -1)
+    for candidate in (
+        common_line_covector,
+        (-common_line_covector[0], -common_line_covector[1]),
+    ):
+        actual = (
+            sign(cross(incoming, candidate)),
+            sign(cross(candidate, outgoing)),
+        )
+        assert actual != expected
+    assert (
+        sign(cross(incoming, common_line_covector)),
+        sign(cross(common_line_covector, outgoing)),
+    ) == (-1, 1)
+
+
+def test_bound_full_selection_freezes_the_exact_queue_reference_sliver():
+    """Binding снимает miter, но оставляет exact sliver двух геометрий.
+
+    Baseline был `+0.09225%`: miter плюс sliver. После covector binding `(1, 3)`
+    остался только sliver `~3.4066e-6`, примерно в 271 раз меньше. Его удаление
+    принадлежит следующей карточке общей `CHART_LATTICE_BOUND` геометрии.
+
+    У `point_contact` открытый счёт `+0.00026651%` требует разложения
+    wall+sliver в той же bound-geometry карточке, а не retune этой фикстуры.
+
+    Эталонный union шестнадцати юбок стоит около 74 секунд; цена намеренно
+    остаётся в полном kernel gate. Авторитет — полный canonical `SqrtSumV1`
+    projection и его digest; десятичная оболочка только читаемый спутник.
     """
+
+    from hashlib import sha256
+    import json
 
     import cftuv_envelope as kernel
     from cftuv_envelope.wavefront import (
@@ -1077,29 +1250,32 @@ def test_the_degraded_corner_costs_a_measured_excess_over_the_reference_path():
     # Стен нет ни одной: объяснение остатка моделью стены исключено ЧИСЛОМ.
     assert prepared.counter("CONVEYOR_WALL_EDGES") == 0
     assert prepared.counter("CONVEYOR_SOURCE_EDGES") == 12
-    assert prepared.counter("CONVEYOR_DEGRADED_MITER_CORNERS") == 1
+    assert prepared.counter("CONVEYOR_DEGRADED_MITER_CORNERS") == 0
+    assert prepared.counter("CONVEYOR_BOUND_FAN_DIRECTIONS") == 1
 
     scale = prepared.lattice.scale
-    queue = sum(
-        (
-            sp.Rational(coefficient.numerator, coefficient.denominator)
-            * sp.sqrt(radicand)
-            for radicand, coefficient in covered.doubled_area.terms
-        ),
-        sp.Integer(0),
-    ) / (2 * scale * scale)
+    queue = covered.doubled_area.scaled(Fraction(1, 2 * scale * scale))
     evaluated = kernel.evaluate_reference_raw_coverage(
         kernel.compile_reference_envelopes(snapshot, request).compilation,
         request.requested_alpha,
     )
-    reference = sp.sympify(evaluated.raw_coverage.exact_area_expression)
-    excess = sp.simplify(sp.radsimp(queue - reference))
-    # Разность НЕ ноль — и это доказанное «не ноль», а не «не сошлось численно».
-    assert excess.is_zero is not True
-    assert sp.N(excess, 20) > 0
-    assert abs(
-        sp.N(excess / reference * 100, 8) - sp.Float("0.092249631")
-    ) < sp.Float("1e-9")
+    reference = _canonical_sqrt_sum(
+        sp.sympify(evaluated.raw_coverage.exact_area_expression)
+    )
+    difference = queue - reference
+    projection = tuple(
+        (radicand, coefficient.numerator, coefficient.denominator)
+        for radicand, coefficient in difference.terms
+    )
+    assert projection == FULL_SELECTION_SLIVER_PROJECTION
+    payload = json.dumps(
+        projection, separators=(",", ":")
+    ).encode("ascii")
+    assert sha256(payload).hexdigest() == FULL_SELECTION_SLIVER_SHA256
+    low, high = difference.enclosure(128)
+    assert Fraction(340, 100_000_000) < low <= high
+    assert high < Fraction(341, 100_000_000)
+    assert difference.sign() == 1
 
 
 def test_the_closed_form_shortfall_does_not_apply_to_the_field_domain():

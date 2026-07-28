@@ -44,7 +44,14 @@
         },
         "hidden_supports": {
           "items": {
-            "$ref": "#/$defs/HiddenSupportSpecV1"
+            "oneOf": [
+              {
+                "$ref": "#/$defs/HiddenSupportSpecV1"
+              },
+              {
+                "$ref": "#/$defs/CertifiedBoundHiddenSupportSpecV1"
+              }
+            ]
           },
           "type": "array",
           "uniqueItems": true
@@ -428,6 +435,108 @@
       ],
       "type": "object"
     },
+    "CertifiedBoundHiddenSupportSpecV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "CertifiedBoundHiddenSupportSpecV1"
+        },
+        "direction_binding": {
+          "$ref": "#/$defs/DirectionBindingCertificateV1"
+        },
+        "direction_law": {
+          "enum": [
+            "ROTATE_INCOMING_SUPPORT_TOWARD_OUTGOING_INSIDE_ORIENTED_OWNER_SECTOR_BY_ORDINAL_SUBTURN",
+            "CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1"
+          ],
+          "type": "string"
+        },
+        "hidden_support_id": {
+          "$ref": "#/$defs/HiddenSupportId"
+        },
+        "ordinal": {
+          "type": "integer"
+        },
+        "owner_sector_id": {
+          "$ref": "#/$defs/OwnerSectorId"
+        },
+        "scope": {
+          "enum": [
+            "ANGULAR_ENVELOPE_SPEC_LOCAL"
+          ],
+          "type": "string"
+        },
+        "selection_certificate_id": {
+          "$ref": "#/$defs/SelectionCertificateId"
+        },
+        "source_relation_id": {
+          "$ref": "#/$defs/CornerRelationId"
+        },
+        "turn_fraction": {
+          "$ref": "#/$defs/ExactRatioV1"
+        },
+        "zero_length_at_alpha_zero": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "$type",
+        "hidden_support_id",
+        "ordinal",
+        "turn_fraction",
+        "direction_law",
+        "zero_length_at_alpha_zero",
+        "scope",
+        "source_relation_id",
+        "owner_sector_id",
+        "selection_certificate_id",
+        "direction_binding"
+      ],
+      "type": "object"
+    },
+    "CertifiedDecimalIntervalV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "CertifiedDecimalIntervalV1"
+        },
+        "absolute_error_bound": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        },
+        "lower": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        },
+        "lower_kind": {
+          "enum": [
+            "OPEN",
+            "CLOSED"
+          ],
+          "type": "string"
+        },
+        "upper": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        },
+        "upper_kind": {
+          "enum": [
+            "OPEN",
+            "CLOSED"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "$type",
+        "lower",
+        "upper",
+        "lower_kind",
+        "upper_kind",
+        "absolute_error_bound"
+      ],
+      "type": "object"
+    },
     "ChainUseId": {
       "additionalProperties": false,
       "properties": {
@@ -754,6 +863,53 @@
       "required": [
         "$id_type",
         "value"
+      ],
+      "type": "object"
+    },
+    "DirectionBindingCertificateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "DirectionBindingCertificateV1"
+        },
+        "bound_primitive_integer_vector": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "certified_window_width_lower_bound": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        },
+        "ideal_window_lower_slope_envelope": {
+          "$ref": "#/$defs/CertifiedDecimalIntervalV1"
+        },
+        "ideal_window_upper_slope_envelope": {
+          "$ref": "#/$defs/CertifiedDecimalIntervalV1"
+        },
+        "proven_predicates": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "bound_primitive_integer_vector",
+        "ideal_window_lower_slope_envelope",
+        "ideal_window_upper_slope_envelope",
+        "certified_window_width_lower_bound",
+        "proven_predicates"
       ],
       "type": "object"
     },
@@ -1593,7 +1749,8 @@
         },
         "direction_law": {
           "enum": [
-            "ROTATE_INCOMING_SUPPORT_TOWARD_OUTGOING_INSIDE_ORIENTED_OWNER_SECTOR_BY_ORDINAL_SUBTURN"
+            "ROTATE_INCOMING_SUPPORT_TOWARD_OUTGOING_INSIDE_ORIENTED_OWNER_SECTOR_BY_ORDINAL_SUBTURN",
+            "CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1"
           ],
           "type": "string"
         },

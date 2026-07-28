@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,7 @@ from cftuv_envelope.reference.common import GeometryContext, ReferenceGeometryEr
 from cftuv_envelope.reference.validation import validate_reference_geometry_payload
 
 from reference_factories import angular_snapshot
+from direction_binding_oracle import assert_k1_dual_metric_binding
 
 
 _FIXTURES = Path(__file__).parents[1] / "fixtures"
@@ -222,3 +224,33 @@ def test_irrational_anchor_degrades_before_bound_support_consumption(
     assert rescaled == 0
     assert corner.anchor is None
     assert corner.reason == "якорь не рационален"
+
+
+def test_full_selection_bound_vector_passes_the_independent_oracle():
+    _, _, compilation = _compiled(_FULL)
+    spec = next(
+        item
+        for item in compilation.envelope_specs
+        if isinstance(item, AngularEnvelopeSpec)
+        and item.envelope_spec_id.value == _BOUND_SPEC
+    )
+    support = next(iter(spec.hidden_supports))
+    # Входные primitive covectors и G^-1 сняты с fixture facts независимо от
+    # production direction_binding; oracle-модуль его даже не импортирует.
+    dual_metric = (
+        (
+            Fraction(225566851072, 81348737089),
+            Fraction(-341439021056, 406743685445),
+        ),
+        (
+            Fraction(-341439021056, 406743685445),
+            Fraction(108323405824, 406743685445),
+        ),
+    )
+    assert_k1_dual_metric_binding(
+        dual_metric,
+        (2582, 9011),
+        (3261066, 5676553),
+        support.direction_binding.bound_primitive_integer_vector,
+        clockwise=True,
+    )

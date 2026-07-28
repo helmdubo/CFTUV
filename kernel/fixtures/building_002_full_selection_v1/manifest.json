@@ -28,7 +28,7 @@
     "host_mesh.json": "ae40130f684dcbf7870a9b622e6857fe68d8f473b32addb5ca928e0ddb46f633"
   },
   "fixture_hash": "240e3a58fd818510d577366cc1f39544f71a35c80438ba6f5c052b93e3d4dcd8",
-  "fixture_id": "building_002_point_contact_v1",
+  "fixture_id": "building_002_full_selection_v1",
   "mesh_counts": {
     "edges": 38,
     "faces": 15,
