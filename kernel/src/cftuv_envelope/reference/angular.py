@@ -106,10 +106,11 @@ def _interpolated_normals(
         )
     cosine_delta = exact_normalize(metric.dot_g(incoming, outgoing))
     root_symbol = sp.Symbol("linear_reflex_cos_subturn", real=True)
-    candidates = sp.solve(
-        sp.Eq(4 * root_symbol**3 - 3 * root_symbol, cosine_delta),
+    candidates = sp.roots(
+        4 * root_symbol**3 - 3 * root_symbol - cosine_delta,
         root_symbol,
-    )
+        extension=True,
+    ).keys()
     admissible = []
     for candidate in candidates:
         try:

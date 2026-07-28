@@ -4,22 +4,92 @@ from dataclasses import replace
 from decimal import Decimal
 
 import pytest
+import sympy as sp
 
-from cftuv_envelope import AngularEnvelopeSpec, ExactAngleV1, validate_analysis_snapshot
+from cftuv_envelope import (
+    AngularEnvelopeSpec,
+    ExactAngleV1,
+    TurnOrientation,
+    validate_analysis_snapshot,
+)
 from cftuv_envelope.reference import (
     ReferenceOutcome,
     compile_reference_envelopes,
     evaluate_reference_raw_coverage,
 )
+from cftuv_envelope.reference import angular as angular_module
+from cftuv_envelope.reference.angular import _interpolated_normals
 from cftuv_envelope.reference.arrangement import (
     ExactArrangementCollinearBranchUnproven,
     ExactArrangementRotationSystemUnproven,
     ExactTouchingHoleTopologyUnproven,
 )
 from cftuv_envelope.reference import raw_coverage as raw_coverage_module
-from cftuv_envelope.reference.planar_types import exact_sign
+from cftuv_envelope.reference.metric import ExactPlanarMetric
+from cftuv_envelope.reference.planar_types import ExactPlanarVector, exact_sign
 
 from reference_factories import angular_snapshot
+
+
+def test_k2_exact_cubic_roots_preserve_pythagorean_directions_and_orientation():
+    metric = ExactPlanarMetric(
+        ((sp.Integer(1), sp.Integer(0)), (sp.Integer(0), sp.Integer(1))),
+        ((sp.Integer(1), sp.Integer(0)), (sp.Integer(0), sp.Integer(1))),
+        1,
+    )
+    incoming = ExactPlanarVector.from_values(1, 0)
+    outgoing = ExactPlanarVector.from_values(
+        sp.Rational(-117, 125),
+        sp.Rational(-44, 125),
+    )
+    expected = (
+        (sp.Integer(1), sp.Integer(0)),
+        (sp.Rational(3, 5), sp.Rational(-4, 5)),
+        (sp.Rational(-7, 25), sp.Rational(-24, 25)),
+        (sp.Rational(-117, 125), sp.Rational(-44, 125)),
+    )
+
+    clockwise = _interpolated_normals(
+        metric,
+        incoming,
+        outgoing,
+        2,
+        TurnOrientation.CW_IN_OWNER_PATCH_ORIENTATION,
+    )
+    counterclockwise = _interpolated_normals(
+        metric,
+        outgoing,
+        incoming,
+        2,
+        TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION,
+    )
+
+    assert tuple(item.expressions() for item in clockwise) == expected
+    assert tuple(item.expressions() for item in counterclockwise) == tuple(
+        reversed(expected)
+    )
+
+
+def test_k2_full_surface_compile_does_not_call_generic_solve(monkeypatch):
+    def forbid_generic_solve(*args, **kwargs):
+        raise AssertionError("K2 exact cubic must not use generic sp.solve")
+
+    monkeypatch.setattr(angular_module.sp, "solve", forbid_generic_solve)
+    snapshot, request = angular_snapshot(2)
+
+    compiled = compile_reference_envelopes(snapshot, request)
+
+    assert compiled.outcome is ReferenceOutcome.EXACT
+    angular = next(
+        item
+        for item in compiled.compilation.envelope_specs
+        if isinstance(item, AngularEnvelopeSpec)
+    )
+    assert all(
+        type(item).__name__ == "HiddenSupportSpecV1"
+        and not hasattr(item, "direction_binding")
+        for item in angular.hidden_supports
+    )
 
 
 @pytest.mark.parametrize("hidden_count", (0, 1, 2))
