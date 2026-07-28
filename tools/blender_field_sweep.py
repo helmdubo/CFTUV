@@ -39,8 +39,11 @@ def _settings():
 
 
 def _select_seams(obj, edge_indices=None):
-    bpy.ops.object.mode_set(mode="OBJECT")
+    # Активный объект назначается ДО mode_set: сцена может быть сохранена без
+    # активного объекта, и тогда poll оператора отказывает на первом же меше.
     bpy.context.view_layer.objects.active = obj
+    if bpy.context.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
     for other in bpy.context.selected_objects:
         other.select_set(False)
     obj.select_set(True)
