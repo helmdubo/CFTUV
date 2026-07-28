@@ -5,8 +5,11 @@
 утверждение стояло на своём числе:
 
 - `test_the_public_entry_reproduces_the_field_numbers_without_the_union`
-  — те же 3 источника / 9 стен / 10 узлов / 3 грани `[2, 2, 8]` / сумма
-  108 901 947 644, что мерил стенд;
+  — 3 источника / 9 стен / 12 узлов / 5 граней `[2, 2, 2, 5, 5]` / сумма
+  27 224 141 715. Против прежних (10 узлов, 3 грани `[2, 2, 8]`, сумма
+  108 901 947 644) числа сдвинулись по ДВУМ раздельно названным причинам:
+  закон решётки `SOURCE_ONLY_GRID_SNAP_V1` (масштаб карты 32768 вместо 65536) и
+  четыре `CornerRelation`, из которых два дают веера;
 - `test_the_public_entry_never_calls_the_exact_union`
   — союз не вызывается НИ РАЗУ, и это счёт вызовов, а не отсутствие стадии в
   таймингах: стадию можно забыть объявить, вызов — нет;
@@ -40,15 +43,20 @@
   — на `building_002_weighted_normals_v1` (4 источника из 4, стен ноль)
   разность ДОКАЗАННО нулевая;
 - `test_the_queue_exceeds_the_reference_raw_coverage_on_a_partial_source`
-  — на `bf6` (3 источника из 12, девять стен) очередь накрывает НА 7.00 %
-  больше, и это объявленная разница моделей: юбка обрезана концами своего
-  ребра, отрезок фронта едет вдоль неподвижной прямой стены дальше.
+  — на `bf6` (3 источника из 12, девять стен) очередь накрывает больше, и это
+  объявленная разница моделей: юбка обрезана концами своего ребра, отрезок
+  фронта едет вдоль неподвижной прямой стены дальше. Величина остатка —
+  **+0.00026651 %**, и прежние +7.00 % были объяснены НЕВЕРНО: они мерились,
+  когда веера не было ни у одного из путей, и почти целиком приходились на
+  отсутствие угловой модели у эталона, а не на стены. Разложение — таблицей
+  2x2 в самом тесте, на одних и тех же байтах.
 """
 
 from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import replace
+from collections import Counter
 from decimal import Decimal
 from fractions import Fraction
 
@@ -219,16 +227,30 @@ def test_the_public_entry_reproduces_the_field_numbers_without_the_union(
     Каждое число здесь уже стояло в `DECISIONS.md` за 2026-07-27 и получено
     там ЧЕРЕЗ союз. Совпадение показывает, что союз в этот ответ не входил:
 
-    | величина | число |
-    |---|---:|
-    | регионов домена | 1 |
-    | законов прихода | 3 |
-    | рёбер домена / источников / стен | 12 / 3 / 9 |
-    | неопределённых владельцев | 0 |
-    | масштаб решётки карты | 65536 |
-    | узлов скелета | 10 |
-    | граней | 3, по узлам `[2, 2, 8]` |
-    | удвоенная площадь домена | 108 901 947 644 |
+    | величина | было (митра, решётка 65536) | стало (веера, решётка 32768) |
+    |---|---:|---:|
+    | регионов домена | 1 | 1 |
+    | законов прихода (ЮБКИ) | 3 | 3 |
+    | рёбер домена / источников / стен | 12 / 3 / 9 | 12 / 3 / 9 |
+    | неопределённых владельцев | 0 | 0 |
+    | масштаб решётки карты | 65536 | **32768** |
+    | узлов скелета | 10 | **12** |
+    | граней | 3, по узлам `[2, 2, 8]` | **5, по узлам `[2, 2, 2, 5, 5]`** |
+    | удвоенная площадь домена | 108 901 947 644 | **27 224 141 715** |
+
+    ПРИЧИН СДВИГА ДВЕ, и они разложены, а не свалены в «фикстуру пересобрали»:
+
+    1. **закон решётки**. Снапшот объявляет `SOURCE_ONLY_GRID_SNAP_V1` с
+       `source_scale = 2048` (прежде решётки не было вовсе), поэтому решётка
+       карты `32768` вместо `65536`, а домен и все дроби записаны грубее.
+       Топологию этот закон НЕ двигает — проверено сравнением законов в
+       `test_grid_wiring.py`;
+    2. **четыре `CornerRelation`**. Два компилируются в `AngularEnvelopeSpec` на
+       запросе фикстуры, дают 2 веера, +2 узла скелета (оба `SPLIT`) и +2 грани.
+
+    Что состав рёберных событий скелета при этом НЕ двинулся (`EDGE` 6 и 6) —
+    отдельное число в `test_wavefront_differential.py`, и оно и отделяет «веер
+    добавил события» от «решётка пересобрала скелет заново».
     """
 
     prepared = field_preparation
@@ -236,32 +258,30 @@ def test_the_public_entry_reproduces_the_field_numbers_without_the_union(
     assert dict(prepared.counters) == {
         "CONVEYOR_DOMAIN_REGIONS": 1,
         "CONVEYOR_ARRIVAL_LAWS": 3,
-        # Ни один закон этой фикстуры не пришлось переписывать: все три
-        # записи рациональны сами. Ноль здесь — половина утверждения о
-        # пере-масштабировании, вторая половина (двойка) на фикстуре
-        # `building_002_weighted_normals_v1`.
-        "CONVEYOR_RESCALED_ARRIVAL_LAWS": 0,
-        # ВЕЕРОВ У ЭТОГО ДОМЕНА НЕТ, и все четыре нуля означают одно и то же
-        # измеренное обстоятельство: снапшот `building.002` не объявляет ни
-        # одного `CornerRelation`, поэтому компилятор не строит ни одной
-        # `AngularEnvelopeSpec`. Не «веер отклонён» (тогда стоял бы
-        # `CONVEYOR_IRRATIONAL_VERTEX_FANS`) и не «угол митрованный по профилю»
-        # (тогда `CONVEYOR_MITERED_CORNERS`), а «угла во входе нет вовсе».
-        # Отсюда и числа ниже не сдвинулись после появления мягкого угла:
-        # см. `test_wavefront_vertex_fan.py`.
-        "CONVEYOR_RATIONAL_VERTEX_FANS": 0,
+        # Два закона пришлось переписать масштабом, и это следствие ПРИВЯЗКИ:
+        # грубее рациональная запись метрики — иррациональнее единичная нормаль.
+        # Прежде на этой фикстуре был ноль, а двойку давал только
+        # `building_002_weighted_normals_v1`; теперь двойка у обеих.
+        "CONVEYOR_RESCALED_ARRIVAL_LAWS": 2,
+        # ВЕЕРА У ЭТОГО ДОМЕНА ТЕПЕРЬ ЕСТЬ: снапшот объявляет 4 `CornerRelation`,
+        # компилятор строит из них 2 `AngularEnvelopeSpec` (по числу углов,
+        # попавших на выбранные рёбра запроса 2/3/7), и оба веера РАЦИОНАЛЬНЫ.
+        # Три нуля рядом — не украшение, а разделение исходов: ни один веер не
+        # отклонён по иррациональности (`IRRATIONAL`), ни один угол не выбрал
+        # `k = 0` (`MITERED`), то есть 2 = 2 + 0 + 0 поимённо, а не по сумме.
+        "CONVEYOR_RATIONAL_VERTEX_FANS": 2,
         "CONVEYOR_IRRATIONAL_VERTEX_FANS": 0,
         "CONVEYOR_MITERED_CORNERS": 0,
-        "CONVEYOR_FAN_SUPPORTS": 0,
-        "CONVEYOR_FAN_EDGES": 0,
-        "CONVEYOR_LATTICE_SCALE": 65536,
+        "CONVEYOR_FAN_SUPPORTS": 2,
+        "CONVEYOR_FAN_EDGES": 2,
+        "CONVEYOR_LATTICE_SCALE": 32768,
         "CONVEYOR_DOMAIN_EDGES": 12,
         "CONVEYOR_SOURCE_EDGES": 3,
         "CONVEYOR_WALL_EDGES": 9,
         "CONVEYOR_AMBIGUOUS_OWNER_EDGES": 0,
         "CONVEYOR_WEIGHTED_SOURCE_EDGES": 3,
-        "CONVEYOR_SKELETON_NODES": 10,
-        "CONVEYOR_FACES": 3,
+        "CONVEYOR_SKELETON_NODES": 12,
+        "CONVEYOR_FACES": 5,
     }
 
     (region,) = prepared.regions
@@ -269,17 +289,27 @@ def test_the_public_entry_reproduces_the_field_numbers_without_the_union(
     assert region.skeleton_outcome is SkeletonOutcome.EXACT
     assert region.face_outcome is FaceOutcome.EXACT
     assert region.bridge.findings == ()
-    assert len(region.skeleton.nodes) == 10
-    assert sorted(face.node_count for face in region.partition.faces) == [2, 2, 8]
-    assert region.partition.polygon_doubled_area == 108901947644
+    assert len(region.skeleton.nodes) == 12
+    assert sorted(face.node_count for face in region.partition.faces) == [
+        2,
+        2,
+        2,
+        5,
+        5,
+    ]
+    assert region.partition.polygon_doubled_area == 27224141715
     assert region.partition.area_defect.terms == ()
     # Стены названы поимённо, а не только сосчитаны: девять рёбер без грани.
     assert region.wall_edge_count == 9
     assert len(region.wall_spans) == 9
     assert region.ambiguous_owner_spans == ()
-    # Ни одно ребро не бывает разом источником и стеной.
+    # Владельцев пять, и разбиение сверяется ПОИМЁННО: три юбки помечены
+    # четвёркой (span ребра), два веера — пятёркой (вырожденный span плюс `q`).
+    # Сумма «5» держалась бы и при неверном составе.
     owners = {edge for edge, _ in region.owner_by_edge}
-    assert len(owners) == 3
+    assert len(owners) == 5
+    assert sorted(len(owner) for owner in owners) == [4, 4, 4, 5, 5]
+    # Ни одно ребро не бывает разом источником и стеной.
     assert owners.isdisjoint(set(region.wall_spans))
 
 
@@ -312,8 +342,11 @@ def test_the_public_entry_never_calls_the_exact_union(field_preparation):
 
     assert covered.outcome is ConveyorOutcome.EXACT, covered.detail
     assert conveyor_calls == 0
-    # Положительный контроль: счётчик ловит союз там, где он есть.
-    assert reference_calls == 4
+    # Положительный контроль: счётчик ловит союз там, где он есть. Шесть, а не
+    # прежние четыре, и прибавка названа: клип каждой из ТРЁХ юбок и каждого из
+    # ДВУХ вееров о домен (5) плюс сам `RAW_UNION` (1). Прежде вееров не было, и
+    # слагаемых было 3 + 1.
+    assert reference_calls == 6
     # И то же самое видно с другой стороны: у входа нет стадии союза вовсе.
     stages = {stage for stage, _ in field_preparation.timings}
     assert "RAW_UNION" not in stages and "DOMAIN_CLIP" not in stages
@@ -385,17 +418,41 @@ def test_the_arrival_laws_are_the_same_set_as_the_clipped_path_produces():
     # пересборка проверяла бы формулу теста, а не формулу входа.
     reading = _arrival_laws(context)
     assert reading.detail is None
-    # Записи этой фикстуры рациональны сами, поэтому сравнивать есть что:
-    # пере-масштабирование сюда не вмешалось ни разу.
-    assert reading.rescaled_count == 0
+    # Пере-масштабирование вмешалось ДВА раза, и это не мешает сравнению: оно
+    # меняет ЗАПИСЬ закона, а не его геометрию, и обе стороны читают одну и ту
+    # же запись через `_read_arrival_law`. Что рескейл сохраняет класс прямой и
+    # отношение `(s/|n|)^2` точно — держит
+    # `test_the_rescale_changes_the_record_and_not_the_geometry`.
+    assert reading.rescaled_count == 2
     laws = reading.laws
     queue_laws = {
         (law.normal_x, law.normal_y, law.constant, law.speed_squared)
         for law in laws
     }
 
-    assert len(models) == 3
+    # Моделей эталона теперь ДЕВЯТЬ: 3 юбки и 6 угловых опор (по три на каждый
+    # из двух вееров — входящая, биссектрисная и исходящая прямые цепи k=1).
+    # Сравниваются ЮБКИ с ЮБКАМИ: у веера своя прямая, она проходит через саму
+    # вершину и ребром домена не является, поэтому в это множество не входит —
+    # см. `vertex_fans` в `bridge_arrival_laws`.
+    assert len(models) == 9
+    strip_models = [
+        model
+        for model in models
+        if str(model.arrival_model_id).startswith("strip-arrival-model:")
+    ]
+    assert len(strip_models) == 3
+    clipped_laws = {
+        (
+            exact_rational(model.arrival_law.normal.expressions()[0]),
+            exact_rational(model.arrival_law.normal.expressions()[1]),
+            exact_rational(model.arrival_law.source_constant.as_expr()),
+            exact_rational(model.arrival_law.normal_speed.as_expr()) ** 2,
+        )
+        for model in strip_models
+    }
     assert len(laws) == 3
+    assert len(reading.fans) == 2
     assert queue_laws == clipped_laws
 
 
@@ -411,51 +468,79 @@ def test_the_coverage_at_the_requested_alpha_is_exact_and_owned(
 
     Числа те же, что стенд получил через союз:
 
-    | величина | число |
-    |---|---|
-    | alpha запроса | 1/4, в единицах решётки 16384 |
-    | исход | `EXACT` |
-    | членов в каноническом наборе | 6 |
-    | оболочка удвоенной площади | строго в (3018411397, 3018411399) |
-    | граней с владельцем | 3, все имена различны |
-    | стен | 9 |
+    | величина | было | стало |
+    |---|---|---|
+    | alpha запроса | 1/4, решётка 16384 | 1/4, решётка **8192** |
+    | исход | `EXACT` | `EXACT` |
+    | членов в каноническом наборе | 6 | **7** |
+    | оболочка удвоенной площади | строго в (3018411397, 3018411399) | строго в **(746055834, 746055835)** |
+    | граней с владельцем | 3, все имена различны | **5**, спеки все различны |
+    | стен | 9 | 9 |
 
     Иррациональное число читается ЦЕЛИКОМ оболочкой, а не по частям: сумма
     членов совпадения множества не доказала бы, а оболочка — свойство самого
     значения.
+
+    ИМЯ ЭКЗЕМПЛЯРА ЕСТЬ НЕ У ВСЕХ ПЯТИ, и это измеренное ограничение ядра, а не
+    пропуск теста: `_instance_names` перебирает спеки и берёт только
+    `StripEnvelopeSpec`, поэтому alpha-зависимого имени у веера нет вовсе.
+    Три имени из пяти, и разбиение проверяется поимённо — иначе «пять граней с
+    владельцем» скрыло бы, что у двух владелец назван лишь спекой.
     """
 
     covered = conveyor_coverage(field_preparation)
     assert covered.outcome is ConveyorOutcome.EXACT, covered.detail
     assert covered.alpha == Fraction(1, 4)
-    assert covered.lattice_alpha == 16384
+    assert covered.lattice_alpha == 8192
     (region,) = covered.regions
     assert region.outcome is CoverageOutcome.EXACT
-    assert len(covered.doubled_area.terms) == 6
+    assert len(covered.doubled_area.terms) == 7
     low, high = covered.doubled_area.enclosure(80)
-    assert 3018411397 < low <= high < 3018411399
+    assert 746055834 < low <= high < 746055835
     assert covered.doubled_area.sign() > 0
     # Покрытие строго внутри домена.
     assert (
         SqrtSumV1.rational(covered.polygon_doubled_area) - covered.doubled_area
     ).sign() > 0
-    assert covered.polygon_doubled_area == 108901947644
+    assert covered.polygon_doubled_area == 27224141715
 
     assert dict(covered.counters) == {
         "CONVEYOR_COVERED_REGIONS": 1,
-        "CONVEYOR_COVERED_FACES": 3,
-        "CONVEYOR_COVERAGE_TERMS": 6,
+        "CONVEYOR_COVERED_FACES": 5,
+        "CONVEYOR_COVERAGE_TERMS": 7,
+        # Названных владельцев ТРИ при пяти гранях, и разрыв здесь не опечатка:
+        # счётчик считает имена ЭКЗЕМПЛЯРОВ, а у веера их нет.
         "CONVEYOR_NAMED_OWNERS": 3,
         "CONVEYOR_WALL_EDGES": 9,
     }
     faces = covered.faces
-    assert len(faces) == 3
-    assert len({face.envelope_instance_id for face in faces}) == 3
-    assert len({face.envelope_spec_id for face in faces}) == 3
-    assert all(
-        face.envelope_instance_id.startswith("envelope-instance:")
+    assert len(faces) == 5
+    # Спека различна у каждой из пяти: 3 юбки и 2 веера, поимённо по префиксу.
+    assert len({face.envelope_spec_id for face in faces}) == 5
+    assert sorted(face.envelope_spec_id.split(":")[0] for face in faces) == [
+        "angular-spec",
+        "angular-spec",
+        "strip-spec",
+        "strip-spec",
+        "strip-spec",
+    ]
+    named = {
+        face.envelope_instance_id
         for face in faces
-    )
+        if face.envelope_instance_id is not None
+    }
+    assert len(named) == 3
+    assert all(item.startswith("envelope-instance:") for item in named)
+    # И обратная половина: имени нет РОВНО у вееров, а не у случайных двух.
+    assert {
+        face.envelope_spec_id
+        for face in faces
+        if face.envelope_instance_id is None
+    } == {
+        face.envelope_spec_id
+        for face in faces
+        if face.envelope_spec_id.startswith("angular-spec:")
+    }
 
 
 def test_the_owner_names_are_the_very_instances_the_reference_path_builds():
@@ -465,6 +550,12 @@ def test_the_owner_names_are_the_very_instances_the_reference_path_builds():
     Имя экземпляра выводится `strip_envelope_instance_id` — одной функцией на
     оба пути, — поэтому совпадение здесь проверяет проводку, а не совпадение
     двух хешей по случайности.
+
+    Сверяются ИМЕНОВАННЫЕ владельцы, то есть юбки: у веера имени экземпляра нет
+    (`_instance_names` берёт только `StripEnvelopeSpec`), и `None` в множестве
+    сделал бы включение в имена эталона ложным по причине, к проводке отношения
+    не имеющей. Что `None` приходит ровно от вееров — держит
+    `test_the_coverage_at_the_requested_alpha_is_exact_and_owned`.
     """
 
     snapshot, request = _field_input()
@@ -478,13 +569,24 @@ def test_the_owner_names_are_the_very_instances_the_reference_path_builds():
         item.envelope_instance.envelope_instance_id
         for item in raw.boundary_resolved_envelopes
     }
-    queue_ids = {face.envelope_instance_id for face in covered.faces}
+    queue_ids = {
+        face.envelope_instance_id
+        for face in covered.faces
+        if face.envelope_instance_id is not None
+    }
     assert len(queue_ids) == 3
     assert queue_ids <= reference_ids
-    # Эталон строит девять экземпляров (3 Strip + 6 Cap), источником фронта
-    # служат три. Разница названа числом, чтобы «подмножество» не читалось как
-    # «а вдруг там пусто».
-    assert len(reference_ids) == 9
+    # Эталон строит СЕМЬ экземпляров (3 Strip + 2 Cap + 2 Angular), источником
+    # фронта служат три юбки. Прежде было девять (3 Strip + 6 Cap): объявление
+    # вогнутых углов заменило четыре шапки двумя угловыми огибающими. Разница
+    # названа числом, чтобы «подмножество» не читалось как «а вдруг там пусто».
+    assert len(reference_ids) == 7
+    kinds = Counter(
+        type(spec).__name__ for spec in compiled.compilation.envelope_specs
+    )
+    assert kinds == Counter(
+        {"StripEnvelopeSpec": 3, "CapEnvelopeSpec": 2, "AngularEnvelopeSpec": 2}
+    )
 
 
 # --------------------------------------------------------------------------
@@ -504,10 +606,16 @@ def test_the_preparation_does_not_depend_on_alpha_and_the_instance_name_does(
 
     ОПРОВЕРГНУТО, и вот где именно. `envelope_instance_id` стоит на
     ЭФФЕКТИВНОЙ alpha (`strip_envelope_instance_id`), поэтому при 0.25 и 0.5
-    все три имени различны — три из трёх. Значит имя владельца принадлежит
-    alpha-зависимой ступени, а alpha-независимая знает владельца только по
-    `envelope_spec_id`. Стоимость этого вывода — стадия `EFFECTIVE_ALPHA`
-    внутри `coverage`, и она названа отдельной строкой таймингов.
+    все три имени различны — три из трёх ИМЕНОВАННЫХ. Значит имя владельца
+    принадлежит alpha-зависимой ступени, а alpha-независимая знает владельца
+    только по `envelope_spec_id`. Стоимость этого вывода — стадия
+    `EFFECTIVE_ALPHA` внутри `coverage`, и она названа отдельной строкой
+    таймингов.
+
+    «Три из трёх», а не «из пяти», потому что владельцев теперь пять, а имя
+    экземпляра ядро выводит только юбкам. Для двух вееров утверждение об
+    alpha-зависимости имени просто НЕ ОПРЕДЕЛЕНО — имени нет ни при какой alpha,
+    — и это здесь проверяется отдельной строкой, а не обходится молчанием.
     """
 
     snapshot, request = _field_input()
@@ -540,10 +648,30 @@ def test_the_preparation_does_not_depend_on_alpha_and_the_instance_name_does(
     at_half = conveyor_coverage(prepared_quarter, "0.5")
     assert at_quarter.outcome is ConveyorOutcome.EXACT
     assert at_half.outcome is ConveyorOutcome.EXACT
-    quarter_names = {face.envelope_instance_id for face in at_quarter.faces}
-    half_names = {face.envelope_instance_id for face in at_half.faces}
+    quarter_names = {
+        face.envelope_instance_id
+        for face in at_quarter.faces
+        if face.envelope_instance_id is not None
+    }
+    half_names = {
+        face.envelope_instance_id
+        for face in at_half.faces
+        if face.envelope_instance_id is not None
+    }
     assert len(quarter_names) == len(half_names) == 3
     assert quarter_names.isdisjoint(half_names)
+    # Вторая половина утверждения: у вееров имени нет ни при одной из двух alpha.
+    # Без неё «три различных» скрыло бы, что двух владельцев просто не спросили.
+    for covered in (at_quarter, at_half):
+        assert {
+            face.envelope_spec_id
+            for face in covered.faces
+            if face.envelope_instance_id is None
+        } == {
+            face.envelope_spec_id
+            for face in covered.faces
+            if face.envelope_spec_id.startswith("angular-spec:")
+        }
     # Владелец по спеке при этом ОДИН И ТОТ ЖЕ: alpha-независимая половина
     # имени существует, и она названа.
     assert {face.envelope_spec_id for face in at_quarter.faces} == {
@@ -1025,28 +1153,42 @@ def test_the_queue_exceeds_the_reference_raw_coverage_on_a_partial_source(
     не ограничен — он едет вдоль неподвижной прямой стены дальше, чем стена
     существует как отрезок границы. Это объявленная разница двух моделей
     (`mitered_standard.py`, «ОБЪЯВЛЕННАЯ ГРАНИЦА ЭТОЙ МОДЕЛИ»), а не дефект
-    одной из них, и здесь она измерена:
+    одной из них.
 
-    | величина | число |
-    |---|---:|
-    | очередь, площадь карты | `0.351389334264933965` |
-    | эталон `RawCoverage`   | `0.328410391784360909` |
-    | ИЗБЫТОК очереди        | `0.0229789424805730560`, то есть **+7.00 %** |
+    **ПРЕЖНЕЕ ОБЪЯСНЕНИЕ ЭТИХ +7.00 % БЫЛО НЕВЕРНО, и опровергнуто оно тем же
+    прогоном, что и заморозило новое число.** Разность мерилась, когда веера не
+    было НИ У ОДНОГО из путей, и вся она списывалась на модель стен. Веер теперь
+    есть у обоих, и разность обвалилась на четыре порядка. Разложение сделано
+    таблицей 2x2 на ОДНИХ И ТЕХ ЖЕ байтах — «митр» здесь значит тот же снапшот
+    со снятыми угловыми отношениями:
 
-    Прежние митрованные числа `bf6` при этом НЕ СДВИНУЛИСЬ, и это тоже
-    измерение, а не совпадение: снапшот не объявляет ни одного вогнутого угла,
-    поэтому веера в плане нет (`test_wavefront_vertex_fan.py`), и покрытие
-    осталось прежним — 6 членов, оболочка внутри `(3018411397, 3018411399)`,
-    2.77 % площади домена.
+    | путь \\ угол | митр | веер |
+    |---|---:|---:|
+    | очередь  | 0.3513511549 | 0.3474093202 |
+    | эталон   | 0.3283731334 | 0.3474083943 |
+    | очередь − эталон | **+6.9975 %** | **+0.00026651 %** |
+
+    Читается таблица так: +7 % были почти целиком НЕ стенами, а отсутствием
+    угловой модели у эталона — объявление углов поднимает эталон на +5.797 % и
+    опускает очередь на −1.122 %, и два пути встречаются. Модель стен — это
+    остаток, `+0.00026651 %`, и он заморожен здесь СО ЗНАКОМ: очередь всё ещё
+    накрывает больше, как и обязана по объявленной границе.
+
+    Что остаток — действительно стены, проверено не собой, а двумя краями:
+    на `building_002_weighted_normals_v1` стен НОЛЬ и разность — доказанный ноль
+    (соседний тест), а митрованная половина этой же таблицы даёт прежние
+    +6.9975 % на тех же привязанных байтах, то есть решётка к разности отношения
+    не имеет.
     """
 
     covered = conveyor_coverage(field_preparation)
     assert field_preparation.counter("CONVEYOR_WALL_EDGES") == 9
     assert field_preparation.counter("CONVEYOR_SOURCE_EDGES") == 3
-    assert len(covered.doubled_area.terms) == 6
+    assert field_preparation.counter("CONVEYOR_FAN_SUPPORTS") == 2
+    assert len(covered.doubled_area.terms) == 7
     low, high = covered.doubled_area.enclosure(64)
-    assert 3018411397 < low <= high < 3018411399
-    assert covered.polygon_doubled_area == 108901947644
+    assert 746055834 < low <= high < 746055835
+    assert covered.polygon_doubled_area == 27224141715
 
     snapshot, request = _field_input()
     evaluated = kernel.evaluate_reference_raw_coverage(
@@ -1060,9 +1202,45 @@ def test_the_queue_exceeds_the_reference_raw_coverage_on_a_partial_source(
     assert excess.is_zero is not True
     # Знак доказан численно с запасом в 20 знаков: избыток, а не недобор.
     assert sp.N(excess, 20) > 0
-    assert abs(sp.N(excess / reference * 100, 8) - sp.Float("6.9970205")) < sp.Float(
-        "1e-6"
+    assert abs(
+        sp.N(excess / reference * 100, 8) - sp.Float("0.00026650827")
+    ) < sp.Float("1e-11")
+
+    # Митрованная половина таблицы, на ТЕХ ЖЕ байтах: прежние +7 % достижимы, и
+    # достижимы они снятием углов, а не откатом решётки. Без этой половины
+    # «разность упала» не отличалось бы от «разность считают иначе».
+    mitred_snapshot = replace(
+        snapshot,
+        corner_relations=frozenset(),
+        angular_owner_sectors=frozenset(),
+        reflex_angle_certificates=frozenset(),
     )
+    mitred_prepared = prepare_conveyor(mitred_snapshot, request)
+    assert mitred_prepared.outcome is ConveyorOutcome.EXACT
+    assert mitred_prepared.counter("CONVEYOR_FAN_SUPPORTS") == 0
+    # Решётка та же: привязка живёт в байтах, а не в угловых отношениях.
+    assert mitred_prepared.counter("CONVEYOR_LATTICE_SCALE") == 32768
+    mitred_covered = conveyor_coverage(mitred_prepared)
+    mitred_reference = sp.sympify(
+        kernel.evaluate_reference_raw_coverage(
+            kernel.compile_reference_envelopes(
+                mitred_snapshot, request
+            ).compilation,
+            request.requested_alpha,
+        ).raw_coverage.exact_area_expression
+    )
+    mitred_excess = sp.simplify(
+        sp.radsimp(
+            _chart_area(mitred_covered, mitred_prepared) - mitred_reference
+        )
+    )
+    assert sp.N(mitred_excess, 20) > 0
+    assert abs(
+        sp.N(mitred_excess / mitred_reference * 100, 8) - sp.Float("6.9975340")
+    ) < sp.Float("1e-6")
+    # Остаток со веерами МЕНЬШЕ митрованного на четыре порядка — числом, а не
+    # словом «мал».
+    assert sp.N(mitred_excess / excess, 8) > sp.Float("20000")
 
 
 def test_the_rescale_changes_the_record_and_not_the_geometry():
@@ -1272,7 +1450,14 @@ def test_a_rescale_that_cannot_be_proven_is_not_applied():
 
 
 def test_the_chart_lattice_is_derived_from_the_certificate_and_not_chosen():
-    """Масштаб решётки выведен законом; отсутствие закона — `None`, не догадка."""
+    """Масштаб решётки выведен законом; отсутствие закона — `None`, не догадка.
+
+    `32768` вместо прежних `65536`, и это НЕ выбор: шаг источника берётся из
+    сертификата решётки самой фикстуры. Он читается здесь же, рядом с итогом,
+    потому что «масштаб выведен» без входного шага было бы утверждением без
+    посылки: `source_scale = 2048` даёт шаг `1/2048`, из него `chart_grid_for`
+    выводит `32768`. Прежде фикстура объявляла шаг `1/4096`, отсюда и `65536`.
+    """
 
     snapshot, request = _field_input()
     compiled = kernel.compile_reference_envelopes(snapshot, request)
@@ -1280,9 +1465,15 @@ def test_the_chart_lattice_is_derived_from_the_certificate_and_not_chosen():
         compiled.compilation.analysis_snapshot,
         compiled.compilation.plan_key.patch_domain_id,
     )
+    # Посылка: шаг источника объявлен сертификатом, а не подставлен тестом.
+    certificate = frame.grid_certificate
+    assert certificate.snapping_law.value == "SOURCE_ONLY_GRID_SNAP_V1"
+    assert certificate.source_scale == 2048
     lattice = chart_lattice_for_frame(frame)
     assert lattice is not None
-    assert lattice.scale == 65536
+    assert lattice.scale == 32768
+    # Решётка карты никогда не крупнее решётки источника — по доказанной границе.
+    assert lattice.scale >= certificate.source_scale
 
     class _FrameWithoutCertificate:
         pass

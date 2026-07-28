@@ -20,7 +20,7 @@
 | очередь строит веер ТЕМ ЖЕ рецептом, что эталон              | `..._conveyor_builds_the_fan_with_the_reference_recipe` |
 | мост проводит веер своим каналом и называет владельца        | `..._bridge_carries_the_fan_through_its_own_channel` |
 | нерациональный веер — громкий отказ, а не откат к митру       | `..._an_irrational_fan_refuses_the_whole_domain` |
-| полевые фикстуры вееров НЕ содержат, и это измерено           | `..._the_field_fixtures_declare_no_corner_relation_at_all` |
+| полевые фикстуры объявляют углы: 4 и 0, вееров 2 и 0          | `..._the_field_fixtures_declare_their_corner_relations_by_name` |
 
 Ни одна строка сверки не пропущена: `ell`, `staircase`, `u_shape` при каждой
 alpha, для которой независимость квадратов доказана самим митрованным эталоном.
@@ -31,6 +31,7 @@ from __future__ import annotations
 from fractions import Fraction
 
 import pytest
+import sympy as sp
 
 from cftuv_envelope.wavefront.coverage import CoverageOutcome, coverage_at
 from cftuv_envelope.wavefront.faces import FaceOutcome, build_faces, fan_edge_key
@@ -568,22 +569,34 @@ def test_an_irrational_fan_refuses_the_whole_domain_and_counts_the_vertices():
     assert prepared.counter("CONVEYOR_RATIONAL_VERTEX_FANS") == 0
 
 
-def test_the_field_fixtures_declare_no_corner_relation_at_all():
-    """ИЗМЕРЕННАЯ находка: полевые фикстуры вееров не содержат вовсе.
+def test_the_field_fixtures_declare_their_corner_relations_by_name():
+    """ЧТО ИМЕННО объявляет каждая полевая фикстура, и почему числа у них разные.
 
-    Карточка среза объявляла сильнейшим критерием равенство с эталоном на `bf6`
-    и предупреждала, что прежние митрованные числа `bf6` СДВИНУТСЯ. Они не
-    сдвинулись, и причина не в очереди: снапшот `building.002` не объявляет НИ
-    ОДНОГО `CornerRelation`, поэтому компилятор не строит ни одной
-    `AngularEnvelopeSpec`, веера в плане нет, и оба пути — эталон и очередь —
-    считают ту же митрованную точку семейства, что и до среза.
+    Прежняя редакция этого теста называлась «фикстуры вееров не содержат вовсе»
+    и была верна: адаптер хоста углов не объявлял, поэтому прежние митрованные
+    числа `bf6` не сдвинулись, а сильнейший критерий среза — равенство путей —
+    был достижим, но пуст. Блокер снят на стороне хоста (сертификат угла
+    переживает запись, `cb444d5`), фикстура `point_contact` пересобрана, и
+    утверждение ИНВЕРТИРОВАЛОСЬ. Оставить прежнее было бы нельзя: оно сторожило
+    ровно то состояние, выход из которого и был целью.
 
-    Критерий, стало быть, ДОСТИЖИМ, но пуст: он проверяет равенство двух путей,
-    в которое веер не входит. Это не повод его снимать (равенство само по себе
-    ценно и проверяется в `test_wavefront_conveyor.py`), но повод записать
-    числом, чего именно на полевом входе нет. Мягкий угол на `building.002`
-    появится тогда, когда хост начнёт объявлять вогнутые углы домена, — и это
-    работа адаптера хоста, а не очереди.
+    Две фикстуры отвечают РАЗНОЕ, и обе цифры содержательны, поэтому тест
+    перечисляет их поимённо, а не сводит к «углы есть»:
+
+    | фикстура | углов | вееров на запросе | почему столько |
+    |---|---:|---:|---|
+    | `building_002_point_contact_v1`   | 4 | 2 | вырезы домена; на выбранные рёбра запроса (2/3/7) попадают два угла |
+    | `building_002_weighted_normals_v1`| 0 | 0 | домен ВЫПУКЛЫЙ прямоугольник — вогнутых углов в нём нет по построению |
+
+    Ноль у второй — не пропуск адаптера, и это здесь проверено, а не заявлено:
+    у выпуклого домена вогнутого угла не бывает, поэтому `CornerRelation` ему
+    взяться неоткуда. Именно поэтому равенство с эталоном на нём — точный ноль
+    (`test_wavefront_conveyor.py`), а на `bf6` со стенами остаётся остаток.
+
+    Сверх счёта проверяется СОГЛАСОВАННОСТЬ объявления: каждому углу отвечает
+    свой сектор и свой сертификат, и все три множества равномощны. Один счёт
+    углов этого не дал бы — снапшот с четырьмя углами и тремя сертификатами
+    прошёл бы проверку «углов 4».
     """
 
     import cftuv_envelope as kernel
@@ -592,11 +605,12 @@ def test_the_field_fixtures_declare_no_corner_relation_at_all():
 
     from wavefront_cases import FIELD_FIXTURE
 
+    expected = {
+        "building_002_point_contact_v1": (4, 2),
+        "building_002_weighted_normals_v1": (0, 0),
+    }
     root = FIELD_FIXTURE.parent
-    for name in (
-        "building_002_point_contact_v1",
-        "building_002_weighted_normals_v1",
-    ):
+    for name, (corner_count, fan_count) in expected.items():
         folder = root.parent / name
         snapshot = kernel.AnalysisSnapshotCodecV1.loads(
             (folder / "analysis_snapshot.json").read_bytes()
@@ -604,14 +618,157 @@ def test_the_field_fixtures_declare_no_corner_relation_at_all():
         request = kernel.DecalRequestCodecV1.loads(
             (folder / "decal_request.json").read_bytes()
         )
-        assert snapshot.corner_relations == frozenset(), name
-        assert snapshot.angular_owner_sectors == frozenset(), name
+        assert len(snapshot.corner_relations) == corner_count, name
+        # Объявление согласовано: угол, сектор и сертификат — по одному на угол.
+        assert len(snapshot.angular_owner_sectors) == corner_count, name
+        assert len(snapshot.reflex_angle_certificates) == corner_count, name
+        assert len(
+            {item.owner_sector_id for item in snapshot.corner_relations}
+        ) == corner_count, name
+        assert len(
+            {item.reflex_angle_certificate_id for item in snapshot.corner_relations}
+        ) == corner_count, name
         compilation = compile_reference_envelopes(snapshot, request).compilation
-        assert not [
+        assert compilation is not None, name
+        angular = [
             spec
             for spec in compilation.envelope_specs
             if isinstance(spec, AngularEnvelopeSpec)
-        ], name
+        ]
+        assert len(angular) == fan_count, name
+        # У каждой угловой спеки профиль выбрал k = 1, то есть цепь, а не митр.
+        assert all(spec.resolved_hidden_edge_count == 1 for spec in angular), name
+
+
+def test_the_closed_form_shortfall_does_not_apply_to_the_field_domain():
+    """ГИПОТЕЗА ОПРОВЕРГНУТА: `alpha^2*(3-2*sqrt(2))` на `bf6` не выполняется.
+
+    Ожидание было такое: у двух вееров ПРЯМЫХ углов недобор цепи против митра
+    известен замкнутой формой, значит на `bf6` расхождение митра и цепи обязано
+    объясняться ровно двумя веерами — `2*alpha^2*(6-4*sqrt(2))` в удвоенной
+    площади при `alpha = 8192` на решётке `32768`. Прогон это опровергает:
+
+    | величина | число |
+    |---|---:|
+    | измеренный недобор (удвоенная площадь) | `8 465 025.6685` |
+    | замкнутая форма для двух прямых углов  | `805306368 - 536870912*sqrt(2)` = `46 056 243.0060` |
+    | отношение измеренного к предсказанному | `0.1838` |
+
+    ПОСЫЛКА ПРО УГОЛ ПРИ ЭТОМ ВЕРНА, и это проверено здесь же: оба сертификата,
+    попавшие в веера, объявляют `phi/pi` РОВНО `1.5`, то есть угол 3pi/2 точно, а
+    не приближённо. Ломается не угол — ломаются две другие посылки замкнутой
+    формы, и обе названы числом:
+
+    1. **карта не ортонормальна.** Матрица Грама патча далека от единичной
+       (`m00 = 2066105/262144`, `m01 = 13024865/524288`), поэтому прямой угол
+       ИСТОЧНИКА прямым углом в координатах карты не является, а `alpha` в
+       единицах решётки не есть евклидов радиус в карте;
+    2. **скорости фронтов не единичные** — три взвешенных ребра-источника и два
+       пере-масштабированных закона.
+
+    Решающая улика — РАДИКАЛЫ. Замкнутая форма даёт величину вида `a + b*sqrt(2)`;
+    измеренный недобор несёт собственные радикалы домена (`sqrt(711394508186)`,
+    `sqrt(341925762763390682)` и далее), то есть принадлежит другому полю чисел
+    вовсе, и никаким выбором `r` в `r*alpha^2*(6-4*sqrt(2))` получен быть не
+    может. Проверено перебором `r` от 1 до 4.
+
+    Замкнутая форма от этого не отменяется: она держится на СИНТЕТИЧЕСКОМ корпусе
+    (`ell`, `staircase`, `u_shape` — семь строк в
+    `test_the_frozen_numbers_of_the_chain_are_written_down`), где все три посылки
+    выполнены. Область её применимости теперь названа границей, а не подразумевается.
+    """
+
+    from dataclasses import replace as dataclass_replace
+
+    import cftuv_envelope as kernel
+    from cftuv_envelope.contracts.envelopes import AngularEnvelopeSpec
+    from cftuv_envelope.wavefront import conveyor_coverage, prepare_conveyor
+
+    from wavefront_cases import FIELD_FIXTURE
+
+    folder = FIELD_FIXTURE.parent
+    snapshot = kernel.AnalysisSnapshotCodecV1.loads(
+        (folder / "analysis_snapshot.json").read_bytes()
+    )
+    request = kernel.DecalRequestCodecV1.loads(
+        (folder / "decal_request.json").read_bytes()
+    )
+
+    # Посылка про угол: оба веера стоят на РОВНО 3pi/2.
+    compilation = kernel.compile_reference_envelopes(snapshot, request).compilation
+    fan_certificate_ids = {
+        spec.angle_certificate_id
+        for spec in compilation.envelope_specs
+        if isinstance(spec, AngularEnvelopeSpec)
+    }
+    assert len(fan_certificate_ids) == 2
+    for certificate in snapshot.reflex_angle_certificates:
+        if certificate.certificate_id not in fan_certificate_ids:
+            continue
+        interval = certificate.measure_payload.phi_over_pi
+        assert str(interval.lower) == str(interval.upper) == "1.5"
+
+    # Посылка про карту: матрица Грама НЕ единичная, и это её и ломает.
+    gram = next(iter(snapshot.surface_metric_descriptors)).exact_gram_matrix
+    as_fraction = lambda value: Fraction(value.numerator, value.denominator)
+    assert as_fraction(gram.m00) == Fraction(2066105, 262144)
+    assert as_fraction(gram.m01) == Fraction(13024865, 524288)
+    assert as_fraction(gram.m00) != 1 or as_fraction(gram.m01) != 0
+
+    prepared = prepare_conveyor(snapshot, request)
+    covered = conveyor_coverage(prepared)
+    mitred = prepare_conveyor(
+        dataclass_replace(
+            snapshot,
+            corner_relations=frozenset(),
+            angular_owner_sectors=frozenset(),
+            reflex_angle_certificates=frozenset(),
+        ),
+        request,
+    )
+    mitred_covered = conveyor_coverage(mitred)
+    assert prepared.counter("CONVEYOR_FAN_SUPPORTS") == 2
+    assert mitred.counter("CONVEYOR_FAN_SUPPORTS") == 0
+    assert prepared.counter("CONVEYOR_WEIGHTED_SOURCE_EDGES") == 3
+    assert prepared.counter("CONVEYOR_RESCALED_ARRIVAL_LAWS") == 2
+
+    def symbolic(value):
+        return sum(
+            sp.Rational(coefficient.numerator, coefficient.denominator)
+            * sp.sqrt(radicand)
+            for radicand, coefficient in value.terms
+        )
+
+    shortfall = sp.simplify(
+        sp.radsimp(
+            symbolic(mitred_covered.doubled_area) - symbolic(covered.doubled_area)
+        )
+    )
+    # Недобор положителен: цепь накрывает МЕНЬШЕ митра, как и обязана.
+    assert sp.N(shortfall, 20) > 0
+    assert abs(sp.N(shortfall, 20) - sp.Float("8465025.6685360800")) < sp.Float("1e-4")
+
+    alpha = sp.Rational(
+        covered.lattice_alpha.numerator, covered.lattice_alpha.denominator
+    )
+    assert alpha == 8192
+    assert prepared.counter("CONVEYOR_LATTICE_SCALE") == 32768
+    # Ни одно целое число вееров замкнутую форму здесь не воспроизводит.
+    for count in (1, 2, 3, 4):
+        predicted = count * alpha**2 * (6 - 4 * sp.sqrt(2))
+        assert sp.simplify(sp.radsimp(shortfall - predicted)).is_zero is not True
+    predicted_two = 2 * alpha**2 * (6 - 4 * sp.sqrt(2))
+    assert abs(
+        sp.N(shortfall / predicted_two, 12) - sp.Float("0.183797572621")
+    ) < sp.Float("1e-10")
+
+    # Решающая улика: в недоборе живут радикалы САМОГО домена, а не только sqrt(2).
+    radicands = {radicand for radicand, _ in covered.doubled_area.terms} | {
+        radicand for radicand, _ in mitred_covered.doubled_area.terms
+    }
+    assert 711394508186 in radicands
+    assert 341925762763390682 in radicands
+    assert 2 not in radicands
 
 
 def test_the_corpus_without_fans_never_fires_the_new_filter():

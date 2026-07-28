@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import replace
 from fractions import Fraction
 
 import pytest
@@ -44,12 +45,14 @@ from cftuv_envelope.wavefront import build_skeleton, chart_lattice_for_frame
 from cftuv_envelope.wavefront.bridge import (
     BridgeOutcome,
     PlainArrivalLawV1,
+    VertexFanLawV1,
     _proportional_positive,
     _rational_edge_lines,
     bridge_arrival_laws,
     line_class,
     unit_speed_laws_of,
 )
+from cftuv_envelope.wavefront.conveyor import _arrival_laws
 from cftuv_envelope.wavefront.coverage import CoverageOutcome, coverage_at
 from cftuv_envelope.wavefront.digest import semantic_digest
 from cftuv_envelope.wavefront.events import EventKind
@@ -67,7 +70,13 @@ from cftuv_envelope.wavefront.skeleton import SkeletonOutcome, SplitSearch
 from cftuv_envelope.wavefront.sqrt_sum import SqrtSumV1
 
 from reference_factories import straight_snapshot
-from wavefront_cases import FIELD_FIXTURE, cross, holes_grid, named_corpus
+from wavefront_cases import (
+    FIELD_FIXTURE,
+    cross,
+    field_fixture_digest,
+    holes_grid,
+    named_corpus,
+)
 
 
 FIXTURE = FIELD_FIXTURE.parent
@@ -193,12 +202,20 @@ def test_the_line_class_is_exactly_the_old_proportionality_predicate():
     классов и `_proportional_positive` — одно и то же отношение. Это не
     рассуждение: здесь сверяются ВСЕ пары прямых корпуса, включая пары из
     разных фигур, то есть заведомо непропорциональные.
+
+    Прямых стало 203 против прежних 185, и +18 — это ровно цена ПОЧИНЕННОЙ
+    транскрипции полевого контура (`wavefront_cases.FIELD_NUMERATORS`): прежняя
+    запись держала 6 различных вершин вместо 12, и три полевые фигуры корпуса
+    (`scale_64/256/1024`) давали по 6 рёбер вместо 12. Число проверяется не
+    собой: 3 фигуры x (12 - 6) = 18, и площадь починенного контура сходится с
+    площадью самого домена — сверка записана в `wavefront_cases.py` и стоит
+    исполняемой в `test_the_transcribed_field_contour_is_the_fixtures_own`.
     """
 
     lines = []
     for _, polygon in CORPUS:
         lines.extend(_rational_edge_lines(_loops_of(polygon)))
-    assert len(lines) == 185
+    assert len(lines) == 203
     checked = 0
     for left in lines:
         for right in lines:
@@ -543,29 +560,73 @@ def _field_state():
     return compiled.compilation, request, raw, boundary_resolved
 
 
+def _field_mitred_state():
+    """Тот же отгруженный снапшот, но БЕЗ угловых отношений — то есть МИТР.
+
+    Это отрицательный контроль полевых тестов, и он стоит здесь, а не собирается
+    в каждом: варианта два, различаются они РОВНО угловыми отношениями, и
+    собирать их по-разному значило бы объяснять разницу исходов разницей сборки.
+
+    Снятие угловых отношений есть митрованный член того же семейства, а не
+    подделка входа: `test_wavefront_vertex_fan.py::test_an_empty_fan_is_the_miter_bit_for_bit`
+    держит это тождеством. Байты при этом ТЕ ЖЕ, включая закон решётки, поэтому
+    разница двух половин не может быть отнесена к привязке.
+    """
+
+    snapshot = kernel.AnalysisSnapshotCodecV1.loads(
+        (FIXTURE / "analysis_snapshot.json").read_bytes()
+    )
+    request = kernel.DecalRequestCodecV1.loads(
+        (FIXTURE / "decal_request.json").read_bytes()
+    )
+    mitred = replace(
+        snapshot,
+        corner_relations=frozenset(),
+        angular_owner_sectors=frozenset(),
+        reflex_angle_certificates=frozenset(),
+    )
+    compiled = kernel.compile_reference_envelopes(mitred, request)
+    assert compiled.compilation is not None
+    raw = kernel.evaluate_reference_raw_coverage(
+        compiled.compilation, request.requested_alpha
+    ).raw_coverage
+    assert raw is not None
+    return compiled.compilation, raw
+
+
 def _as_fraction(expression) -> Fraction:
     numerator, denominator = sp.fraction(sp.nsimplify(expression))
     return Fraction(int(numerator), int(denominator))
 
 
 def _field_bridge_input():
-    """Домен и законы `bf6` в точных дробях плюс кадр патча.
+    """Домен, законы ЮБОК, ВЕЕРА вогнутых вершин и кадр патча — точными дробями.
 
-    Общий этап у обоих полевых тестов — того, что вход НЕ отображается
+    Общий этап у всех полевых тестов — того, что вход НЕ отображается
     умолчанием, и того, что он отображается решёткой с весами. Общий он
     намеренно: если бы каждый собирал вход по-своему, «две находки исчезли»
     объяснялось бы разницей сборки, а не изменением моста.
+
+    ЮБКИ И ВЕЕРА РАЗДЕЛЕНЫ, и разделены они не здесь: берётся `_arrival_laws`
+    очереди, то есть ТОТ ЖЕ рецепт, которым конвейер читает план. Второй копии
+    рецепта в стенде нет намеренно — разойдись она с очередью, тест мерил бы
+    свой разбор плана, а не разбор ядра.
+
+    Раньше здесь стояло `compile_arrival_models`, и все его модели уходили в
+    один параметр `laws`. После пересборки фикстуры это стало неверно: моделей
+    девять (3 юбки + 6 угловых опор, по три на каждый из двух вееров), а прямая
+    скрытой опоры ребром домена не является ни при какой привязке — она
+    проходит через саму вершину. Мост отвечал на это `ARRIVAL_LAW_IS_NOT_A_DOMAIN_EDGE`,
+    и это был верный ответ на неверно заданный вопрос: у веера СВОЙ канал
+    (`vertex_fans`), и `bridge_arrival_laws` его объявляет.
     """
 
     compilation, _, raw, boundary_resolved = _field_state()
-    components = compile_interaction_components(compilation, boundary_resolved)
-    models, _ = compile_arrival_models(
-        compilation, components, boundary_resolved
-    )
     frame, _ = validate_reference_geometry_payload(
         compilation.analysis_snapshot, compilation.plan_key.patch_domain_id
     )
-    domain = build_domain_geometry(GeometryContext.build(compilation, frame))
+    context = GeometryContext.build(compilation, frame)
+    domain = build_domain_geometry(context)
     region = domain.domain_regions[0]
     loops = (
         tuple(
@@ -579,20 +640,12 @@ def _field_bridge_input():
         )
         for hole in region.holes
     )
-    laws = tuple(
-        PlainArrivalLawV1(
-            name=str(model.envelope_instance_id),
-            normal_x=_as_fraction(model.arrival_law.normal.expressions()[0]),
-            normal_y=_as_fraction(model.arrival_law.normal.expressions()[1]),
-            constant=_as_fraction(model.arrival_law.source_constant.as_expr()),
-            speed_squared=_as_fraction(
-                model.arrival_law.normal_speed.as_expr()
-            )
-            ** 2,
-        )
-        for model in sorted(models, key=lambda item: str(item.arrival_model_id))
+    reading = _arrival_laws(context)
+    assert reading.detail is None, reading.detail
+    fans = tuple(
+        VertexFanLawV1(fan.name, fan.point, fan.supports) for fan in reading.fans
     )
-    return loops, laws, frame
+    return loops, reading.laws, fans, frame
 
 
 def _field_chart_lattice(frame) -> GridSpecV1:
@@ -619,6 +672,51 @@ def _field_chart_lattice(frame) -> GridSpecV1:
     return lattice
 
 
+def test_the_transcribed_field_contour_is_the_fixtures_own():
+    """Транскрипция корпуса обязана БЫТЬ контуром фикстуры, а не помнить его.
+
+    Тест заведён потому, что молчания тут уже было достаточно. `wavefront_cases`
+    держит полевой контур точными дробями, чтобы корпус не тянул за собой весь
+    `reference/`, и держал он его НЕВЕРНО: 6 различных вершин вместо 12, каждая
+    продублирована. Сторож `field_fixture_digest()` при этом существовал и
+    сработать не мог по построению — он хэшировал `source_revision`, поле, от
+    контура не зависящее вовсе.
+
+    Здесь сверяются две вещи, и вторая нужна ровно затем, чтобы первая не
+    проверяла себя:
+
+    1. транскрипция совпадает с контуром, снятым с байтов ТЕМ ЖЕ путём, что её и
+       породил, — поточечно, а не по числу точек;
+    2. площадь транскрипции совпадает с `polygon_doubled_area` домена очереди с
+       точностью привязки. Прежняя запись эту сверку проваливала на 3.6 %, и
+       именно она называет ошибку ошибкой, а не другим соглашением о порядке.
+    """
+
+    from wavefront_cases import FIELD_DENOMINATOR, FIELD_NUMERATORS
+
+    loops, _, _, _ = _field_bridge_input()
+    measured = loops[0]
+    transcribed = tuple(
+        (Fraction(x, FIELD_DENOMINATOR), Fraction(y, FIELD_DENOMINATOR))
+        for x, y in FIELD_NUMERATORS
+    )
+    assert len(transcribed) == 12
+    assert measured == transcribed
+
+    # Сверка НЕ СОБОЙ: шнуровка транскрипции против площади домена очереди.
+    doubled = sum(
+        transcribed[index][0] * transcribed[(index + 1) % 12][1]
+        - transcribed[(index + 1) % 12][0] * transcribed[index][1]
+        for index in range(12)
+    )
+    assert doubled > 0
+    lattice_doubled = Fraction(27224141715, 32768 * 32768)
+    assert abs(doubled - lattice_doubled) < Fraction(1, 1000)
+    # И то, ради чего сторож вообще есть: отпечаток стоит на полях, от которых
+    # контур зависит, поэтому смена закона решётки его двигает.
+    assert field_fixture_digest() == "91d7c72707b64670"
+
+
 def test_the_field_patch_input_does_not_map_onto_the_queue_and_here_is_why():
     """`bf6` в очередь НЕ отображается, и причин осталось ДВЕ, каждая с числом.
 
@@ -628,7 +726,7 @@ def test_the_field_patch_input_does_not_map_onto_the_queue_and_here_is_why():
     | причина | число |
     |---|---|
     | домен не на целой решётке | 9 вершин из 12 |
-    | скорости прихода не единичные | `(s/|n|)^2` = 137438953472/844687660141 и 17179869184/1439659412197 |
+    | скорости прихода не единичные | `(s/|n|)^2` = 1048576/87864845 и 262144/1611625 |
 
     **Третья находка УБРАНА, и вот единственная убранная строка.**
     `SOURCE_IS_NOT_THE_WHOLE_BOUNDARY` — «источник не вся граница, 3 ребра из
@@ -640,13 +738,23 @@ def test_the_field_patch_input_does_not_map_onto_the_queue_and_here_is_why():
     что разметка ОДНОЗНАЧНА (`undetermined_source_count == 0`), то есть какие
     именно девять рёбер стены, следует из входа, а не выбрано.
 
-    Две оставшиеся находки НЕ ослаблены ни на строку: числа те же самые,
-    включая спред скоростей 13.634951522381032.
+    Две оставшиеся находки НЕ ослаблены ни на строку: они те же самые, и обе
+    названы теми же величинами. Сами величины сдвинулись, потому что фикстура
+    пересобрана хостом под законом решётки `SOURCE_ONLY_GRID_SNAP_V1` — метрика
+    патча стала грубее рациональной записью, и `(s/|n|)^2` вместе с ней. Что
+    сдвиг мелкий, видно по СПРЕДУ: 13.629852633 против прежних 13.634951522, то
+    есть отношение скоростей выжило с точностью 4e-4, хотя обе дроби сменились
+    целиком. Это и есть независимая проверка сдвига: привязка обязана менять
+    запись и почти не менять геометрию, и здесь она ровно это и делает.
+
+    ВЕЕРА ЗДЕСЬ НЕ МЕШАЮТ, и это тоже проверено: два веера фикстуры идут своим
+    каналом (`vertex_fans`), поэтому в вопрос «отображается ли домен» они не
+    входят — находок от них ноль, `fan_edge_count` без привязки ноль тоже.
     """
 
-    loops, laws, _ = _field_bridge_input()
+    loops, laws, fans, _ = _field_bridge_input()
 
-    report = bridge_arrival_laws(loops, laws)
+    report = bridge_arrival_laws(loops, laws, vertex_fans=fans)
     assert not report.maps
     assert report.findings == (
         BridgeOutcome.DOMAIN_IS_NOT_ON_THE_INTEGER_LATTICE,
@@ -657,16 +765,19 @@ def test_the_field_patch_input_does_not_map_onto_the_queue_and_here_is_why():
     # Скорости: три закона, две различные величины, и ни одна не единичная.
     assert len(report.non_unit_speed_laws) == 3
     assert {value for _, value in report.non_unit_speed_laws} == {
-        Fraction(137438953472, 844687660141),
-        Fraction(17179869184, 1439659412197),
+        Fraction(1048576, 87864845),
+        Fraction(262144, 1611625),
     }
     low, high = report.speed_ratio_spread
-    # Евклидовы скорости фронтов различаются в 13.63... раза по квадрату,
+    # Евклидовы скорости фронтов различаются в 13.62... раза по квадрату,
     # то есть в 3.69... раза сами. Единичного скелета здесь нет.
     assert high / low == Fraction(
-        137438953472 * 1439659412197, 844687660141 * 17179869184
+        262144 * 87864845, 1611625 * 1048576
     )
-    assert float(high / low) == pytest.approx(13.634951522, abs=1e-6)
+    assert float(high / low) == pytest.approx(13.629852633, abs=1e-6)
+    # Веер в этот вопрос не входит: ни находки, ни ребра до привязки.
+    assert report.fan_edge_count == 0
+    assert len(fans) == 2
     # Источник: три ребра домена из двенадцати. Остальные девять — СТЕНЫ, и это
     # теперь утверждение о размётке, а не находка. Однозначность разметки
     # проверяется отдельным числом: ни одно ребро не осталось «источник или
@@ -693,21 +804,33 @@ def test_the_field_patch_maps_onto_the_queue_on_the_declared_chart_lattice():
 
     | что было находкой | чем стало |
     |---|---|
-    | `DOMAIN_IS_NOT_ON_THE_INTEGER_LATTICE`, 9 вершин из 12 | привязка, невязка 7.34e-06 ед. карты |
-    | `ARRIVAL_LAW_IS_NOT_UNIT_SPEED`, спред 13.635 | `q` рациональное у 3 рёбер |
+    | `DOMAIN_IS_NOT_ON_THE_INTEGER_LATTICE`, 9 вершин из 12 | привязка, невязка 1.46e-05 ед. карты |
+    | `ARRIVAL_LAW_IS_NOT_UNIT_SPEED`, спред 13.630 | `q` рациональное у 3 рёбер |
 
     Числа прежнего теста при этом НЕ отменены: без обоих параметров мост
     отвечает ровно то же, что отвечал, и это проверяет тест выше. Здесь
     проверяется другое — что при названных параметрах находок ноль.
+
+    ТРЕТИЙ ПАРАМЕТР — ВЕЕРА, и он не «ещё один флаг»: их два, они входят своим
+    каналом, и `fan_edge_count == 2` — единственное число, которым видно, что
+    мягкий угол доехал до полигона, а не растворился в митре. Ноль здесь читался
+    бы как «веер потерялся», и потерялся бы молча.
+
+    Решётка карты стала `32768` вместо `65536`, и число это НЕ выбрано: шаг
+    источника берётся из сертификата решётки самой фикстуры, а он теперь
+    `1/2048` (`SOURCE_ONLY_GRID_SNAP_V1`, `source_scale = 2048`) вместо прежнего
+    `1/4096`. Сертификат при этом ещё и объясняет, ЗАЧЕМ хост выбрал 2048:
+    `scale_trials` = [(4096, 1), (2048, 3)], то есть на 4096 восстанавливался
+    один прямой угол из трёх, а на 2048 — все три.
     """
 
-    loops, laws, frame = _field_bridge_input()
+    loops, laws, fans, frame = _field_bridge_input()
     lattice = _field_chart_lattice(frame)
-    # Решётка выведена, а не выбрана: шаг источника 1/4096 из сертификата.
-    assert lattice.scale == 65536
+    # Решётка выведена, а не выбрана: шаг источника 1/2048 из сертификата.
+    assert lattice.scale == 32768
 
     report = bridge_arrival_laws(
-        loops, laws, lattice=lattice, weighted_fronts=True
+        loops, laws, lattice=lattice, weighted_fronts=True, vertex_fans=fans
     )
     assert report.maps
     assert report.findings == ()
@@ -720,9 +843,11 @@ def test_the_field_patch_maps_onto_the_queue_on_the_declared_chart_lattice():
     # Все три источника ВЗВЕШЕННЫЕ. Ноль здесь означал бы, что скорость по
     # дороге потерялась и стала единичной, а находка ушла подгонкой.
     assert report.weighted_edge_count == 3
-    assert report.lattice_scale == 65536
+    # Оба веера доехали до полигона своим каналом.
+    assert report.fan_edge_count == 2
+    assert report.lattice_scale == 32768
     # Цена привязки названа числом, а не словом «мала».
-    assert report.snap_residual == Fraction(179789606827, 24498750116528128)
+    assert report.snap_residual == Fraction(684097, 46729953280)
     assert report.snap_residual * lattice.scale < Fraction(1, 2)
 
     polygon = report.polygon
@@ -731,9 +856,9 @@ def test_the_field_patch_maps_onto_the_queue_on_the_declared_chart_lattice():
     weighted = [speed for _, _, speed in polygon.edges() if speed]
     assert len(weighted) == 3
     assert {Fraction(speed).denominator for speed in weighted} <= {
-        844687660141,
-        1439659412197,
-        64975973857,
+        322325,
+        1611625,
+        17572969,
     }
     assert all(not isinstance(speed, int) for speed in weighted)
 
@@ -766,14 +891,24 @@ def test_the_field_patch_skeleton_is_exact_and_both_search_paths_agree():
     избыток — перекрут контура, на котором формула трапеций считает кусок
     дважды. Домен `bf6` имеет два выступа, монотонность на нём не выполняется, и
     правило смежности эту грань собирает верно.
+
+    ЧИСЛА СКЕЛЕТА СДВИНУЛИСЬ после пересборки фикстуры, и сдвиг разложен:
+    12 узлов вместо 10, `SPLIT` 6 вместо 4. Прибавка ровно на два расщепления —
+    по одному на каждый из двух вееров: скрытая опора вогнутой вершины входит в
+    фронт своим ребром, и вершина, которая прежде схлопывалась одним EDGE,
+    теперь ещё и расщепляется. `EDGE` при этом не двинулся вовсе (6 и 6), то
+    есть привязка к решётке `32768` состав рёберных событий не изменила — а это
+    и есть та половина утверждения, которой отличается «веер добавил события» от
+    «решётка пересобрала скелет заново».
     """
 
-    loops, laws, frame = _field_bridge_input()
+    loops, laws, fans, frame = _field_bridge_input()
     report = bridge_arrival_laws(
         loops,
         laws,
         lattice=_field_chart_lattice(frame),
         weighted_fronts=True,
+        vertex_fans=fans,
     )
     polygon = report.polygon
 
@@ -782,18 +917,18 @@ def test_the_field_patch_skeleton_is_exact_and_both_search_paths_agree():
     assert by_trace.outcome is SkeletonOutcome.EXACT
     assert exhaustive.outcome is SkeletonOutcome.EXACT
     assert semantic_digest(by_trace) == semantic_digest(exhaustive)
-    assert len(by_trace.nodes) == 10
+    assert len(by_trace.nodes) == 12
     kinds = Counter(node.kind for node in by_trace.nodes)
-    assert kinds == Counter({EventKind.EDGE: 6, EventKind.SPLIT: 4})
+    assert kinds == Counter({EventKind.EDGE: 6, EventKind.SPLIT: 6})
 
     partition = build_faces(polygon, by_trace)
     assert partition.outcome is FaceOutcome.EXACT, partition.detail
-    assert len(partition.faces) == 3
-    # Форма разбиения не изменилась и проверяется поимённо: одна грань с восемью
-    # узлами и две по два. Сдвинулся ПОРЯДОК обхода внутри восьмиузловой, а не
-    # состав граней, и без этого числа «стало EXACT» не отличалось бы от «стало
-    # собираться что-то другое».
-    assert sorted(face.node_count for face in partition.faces) == [2, 2, 8]
+    assert len(partition.faces) == 5
+    # Форма разбиения проверяется ПОИМЁННО, а не счётом: три юбки дают
+    # `[2, 5, 5]`, два веера — по грани в два узла каждый. Одна сумма «5 граней»
+    # держалась бы и при неверном составе.
+    assert sorted(face.node_count for face in partition.faces) == [2, 2, 2, 5, 5]
+    assert sum(1 for face in partition.faces if len(face.owner) == 5) == 2
     # Ни одного трансверсального самопересечения — по КАЖДОЙ грани, а не «в
     # среднем». Раньше их было три, все на восьмиузловой.
     for face in partition.faces:
@@ -802,7 +937,7 @@ def test_the_field_patch_skeleton_is_exact_and_both_search_paths_agree():
     assert partition.every_face_is_positive
     # Сумма граней воспроизводит площадь домена ТОЧНО: пустой канонический
     # набор коэффициентов, а не «около нуля». Прежний избыток был +2.90 %.
-    assert partition.polygon_doubled_area == 108901947644
+    assert partition.polygon_doubled_area == 27224141715
     assert partition.area_defect.terms == ()
     assert (
         partition.doubled_area
@@ -820,15 +955,23 @@ def test_the_field_patch_needs_the_weights_and_not_only_the_lattice():
 
     То есть взвешенность на `bf6` покупает не точность и не удобство, а сам
     ответ: `WAVEFRONT_LEFT_UNRESOLVED` против `EXACT` на одной геометрии.
+
+    Контроль ПЕРЕЖИЛ пересборку фикстуры без ослабления: тот же отказ по имени
+    на той же привязанной геометрии, теперь ещё и с двумя веерами в полигоне.
+    Веер, стало быть, ответа за веса не покупает — и это отдельная строка,
+    потому что «стало EXACT само» было бы ровно тем, чего контроль не должен
+    допустить незамеченным.
     """
 
-    loops, laws, frame = _field_bridge_input()
+    loops, laws, fans, frame = _field_bridge_input()
     report = bridge_arrival_laws(
         loops,
         laws,
         lattice=_field_chart_lattice(frame),
         weighted_fronts=True,
+        vertex_fans=fans,
     )
+    assert report.fan_edge_count == 2
     unit = with_edge_speeds(
         report.polygon,
         tuple(
@@ -844,56 +987,118 @@ def test_the_field_patch_needs_the_weights_and_not_only_the_lattice():
 
 
 def test_the_field_patch_pairwise_clipping_destroys_all_of_its_own_coverage():
-    """Что именно ломается на `bf6`: крой теряет ВСЮ площадь, а не часть.
+    """Что ломается на `bf6` МИТРОВАННОМ и чего больше не ломается на веерном.
 
-    Числа, ради которых тест написан:
-    - `RawCoverage` = 122766786560/373821260323;
+    Числа, ради которых тест написан (митрованный `bf6`, то есть тот же самый
+    отгруженный снапшот с СНЯТЫМИ угловыми отношениями):
     - `ResolvedCoverage` = 0;
-    - расхождение = вся площадь покрытия, то есть 100%.
+    - расхождение = вся площадь покрытия, то есть 100%;
+    - три юбки ДО кроя попарно не пересекаются, значит верный ответ — не резать
+      ничего. Крой вместо этого стирает всё.
 
-    И главное: три юбки `bf6` ДО кроя попарно не пересекаются, значит верный
-    ответ — не резать ничего. Крой вместо этого стирает всё.
+    **ОБЪЯВЛЕНИЕ ВОГНУТЫХ УГЛОВ ЭТУ ПАТОЛОГИЮ СНИМАЕТ, и это измерено, а не
+    предположено.** На фикстуре КАК ОТГРУЖЕНА (4 `CornerRelation`) крой доходит
+    до `EXACT`, кандидатов ноль, а разность с `RawCoverage` — ДОКАЗАННЫЙ ноль.
+    Причина названа тем же прогоном: у митрованного входа диагностика говорит
+    «multiway meet resolved as one event with 3 participants», то есть крой
+    ломался на ТОЧЕЧНЫХ КОНТАКТАХ трёх юбок; с веерами точечных контактов ноль
+    (`point_contacts` 0 против 2), сходиться в точку стало нечему, и резать
+    нечего по-настоящему, а не по недосмотру.
+
+    Разложение обязательно, потому что причин сдвига было две. Закон решётки
+    (`SOURCE_ONLY_GRID_SNAP_V1`) на этот исход НЕ влияет: митрованная половина
+    теста считается на ТЕХ ЖЕ привязанных байтах и отказывает ровно как прежде,
+    тем же именем и с той же диагностикой. Разницу делают углы, не решётка.
     """
 
     compilation, _, raw, boundary_resolved = _field_state()
+
+    # Половина первая: фикстура как отгружена — крой СХОДИТСЯ.
     resolution = kernel.resolve_coverage_interactions(
         compilation, raw.boundary_resolved_envelopes, raw
     )
-    assert resolution.outcome is (
+    assert resolution.outcome is InteractionOutcome.EXACT
+    assert resolution.resolved_coverage is not None
+    assert resolution.candidates == ()
+    resolved_expression = resolution.resolved_coverage.exact_area_expression
+    difference = sp.simplify(
+        sp.radsimp(
+            ExactScalar(raw.exact_area_expression).as_expr()
+            - ExactScalar(resolved_expression).as_expr()
+        )
+    )
+    assert difference.is_zero is True
+    assert len(raw.point_contacts) == 0
+
+    # Половина вторая: тот же снапшот БЕЗ угловых отношений — прежний отказ
+    # достижим и назван. Это отрицательный контроль первой половины: без него
+    # «крой сошёлся» не отличалось бы от «крой перестали спрашивать».
+    mitred_compilation, mitred_raw = _field_mitred_state()
+    mitred = kernel.resolve_coverage_interactions(
+        mitred_compilation, mitred_raw.boundary_resolved_envelopes, mitred_raw
+    )
+    assert mitred.outcome is (
         InteractionOutcome.INTERACTION_POLICY_B_PARTITION_UNPROVEN
     )
-    assert resolution.resolved_coverage is None
+    assert mitred.resolved_coverage is None
     assert any(
         item.message == (
             "Policy B clipping did not reproduce the exact RawCoverage set"
         )
-        for item in resolution.diagnostics
+        for item in mitred.diagnostics
+    )
+    # Причина отказа названа поимённо: точечные контакты трёх юбок.
+    assert len(mitred_raw.point_contacts) == 2
+    assert any(
+        "multiway meet resolved as one event with 3 participants" in item.message
+        for item in mitred.diagnostics
     )
 
-    components = compile_interaction_components(compilation, boundary_resolved)
+    # Прежние числа кроя — все они про МИТРОВАННЫЙ вход, и все достижимы. Сдвиг
+    # у них ровно один: `RawCoverage` стал 468288/1426085 вместо
+    # 122766786560/373821260323, и это цена привязки источника, а не кроя —
+    # 0.328373 против 0.328410, четвёртый знак.
+    mitred_boundary_resolved = tuple(
+        sorted(
+            mitred_raw.boundary_resolved_envelopes,
+            key=lambda item: item.envelope_instance.envelope_instance_id,
+        )
+    )
+    components = compile_interaction_components(
+        mitred_compilation, mitred_boundary_resolved
+    )
     models, _ = compile_arrival_models(
-        compilation, components, boundary_resolved
+        mitred_compilation, components, mitred_boundary_resolved
     )
     from cftuv_envelope.interactions.candidates import (
         generate_interaction_candidates,
     )
     from cftuv_envelope.interactions.mutual_arrival import prove_mutual_arrivals
 
-    candidates = generate_interaction_candidates(components, models, compilation)
+    candidates = generate_interaction_candidates(
+        components, models, mitred_compilation
+    )
     proofs, _ = prove_mutual_arrivals(candidates, models)
     frame, _ = validate_reference_geometry_payload(
-        compilation.analysis_snapshot, compilation.plan_key.patch_domain_id
+        mitred_compilation.analysis_snapshot,
+        mitred_compilation.plan_key.patch_domain_id,
     )
-    domain = build_domain_geometry(GeometryContext.build(compilation, frame))
+    domain = build_domain_geometry(
+        GeometryContext.build(mitred_compilation, frame)
+    )
     policy = policy_b_module.apply_policy_b(
-        proofs, components, boundary_resolved, raw, domain.domain_regions
+        proofs,
+        components,
+        mitred_boundary_resolved,
+        mitred_raw,
+        domain.domain_regions,
     )
 
-    raw_area = ExactScalar(raw.exact_area_expression).as_expr()
+    raw_area = ExactScalar(mitred_raw.exact_area_expression).as_expr()
     resolved_area = ExactScalar(
         policy.resolved_union.exact_area_expression
     ).as_expr()
-    assert raw_area == sp.Rational(122766786560, 373821260323)
+    assert raw_area == sp.Rational(468288, 1426085)
     assert exact_sign(resolved_area) == 0
     assert exact_sign(raw_area - resolved_area) != 0
     assert all(
@@ -901,17 +1106,19 @@ def test_the_field_patch_pairwise_clipping_destroys_all_of_its_own_coverage():
         for contribution in policy.resolved_contributions
     )
 
-    # Юбки уже попарно не пересекаются: резать было нечего.
+    # Юбки уже попарно не пересекаются: резать было нечего. Компонент три —
+    # столько же, сколько было; веера их сливают в одну, и это ровно то число,
+    # которым первая половина отличается от второй (1 против 3).
     reachability = {
         str(item.envelope_instance.envelope_instance_id): item.reachability
-        for item in boundary_resolved
+        for item in mitred_boundary_resolved
     }
     regions_by_component = {}
     for component in components:
         regions = tuple(
             region
             for typed_id in component.envelope_instance_ids
-            for item in boundary_resolved
+            for item in mitred_boundary_resolved
             if item.envelope_instance.envelope_instance_id == typed_id.value
             for region in item.envelope_instance.regions
         )
@@ -927,6 +1134,10 @@ def test_the_field_patch_pairwise_clipping_destroys_all_of_its_own_coverage():
                 reachability,
             )
             assert exact_sign(overlap) == 0
+    # И само число, которым две половины отличаются: одна компонента против трёх.
+    assert len(
+        compile_interaction_components(compilation, boundary_resolved)
+    ) == 1
 
 
 # --------------------------------------------------------------------------
@@ -1056,18 +1267,25 @@ def test_the_field_patch_closes_under_the_shipped_order_and_gets_its_coverage():
     """`bf6` сходится ТОЧНО через `build_faces`, и вот его первое покрытие.
 
     Это ответ полевого входа — того самого, ради которого срез и делался.
-    Правило смежности собирает все три грани просто, положительно и с суммой
-    РОВНО в площадь домена `108 901 947 644`. Проверяется здесь именно
+    Правило смежности собирает все ПЯТЬ граней просто, положительно и с суммой
+    РОВНО в площадь домена `27 224 141 715`. Проверяется здесь именно
     ПОСТАВЛЕННЫЙ путь: `build_faces` и `coverage_at`, без единой подделки
     разбиения; пока правило было кандидатом, партицию приходилось собирать в
     стенде, и это утверждение было про стенд.
 
     Покрытие очереди на настоящей геометрии, посчитанное здесь же: при alpha из
     запроса (`decal_request.json`, `0.25` в собственной метрике источника, то
-    есть `16384` в единицах привязанной решётки масштаба 65536) удвоенная
-    площадь покрытия равна `2.7717 %` площади домена. Число иррациональное —
-    шесть членов в каноническом наборе, — поэтому читается оно ЦЕЛИКОМ
+    есть `8192` в единицах привязанной решётки масштаба 32768) удвоенная
+    площадь покрытия равна `2.7404 %` площади домена. Число иррациональное —
+    СЕМЬ членов в каноническом наборе, — поэтому читается оно ЦЕЛИКОМ
     оболочкой, а не по частям, и границы оболочки целые по построению.
+
+    Процент проверяется НЕ СОБОЙ, и это главное здесь число: тот же ответ даёт
+    ЭТАЛОННЫЙ путь `evaluate_reference_raw_coverage` на тех же байтах —
+    0.34740839 против 0.34740932 площади карты, то есть согласие до 2.7e-06
+    относительных. Две реализации сходятся к одному числу, и это сильнее любой
+    замороженной строки. Остаток разности — модель СТЕН, и он заморожен своим
+    числом в `test_wavefront_conveyor.py`.
 
     ПОРЯДОК РАБОТ, которым эта строка оплачена. Смежность нельзя было ставить до
     разбора коллинеарной неподвижной стены в `skeleton.py`: на трёх фигурах
@@ -1077,40 +1295,41 @@ def test_the_field_patch_closes_under_the_shipped_order_and_gets_its_coverage():
     сборки заменён. Числа перехода — `test_wavefront_partial_source.py`.
     """
 
-    loops, laws, frame = _field_bridge_input()
+    loops, laws, fans, frame = _field_bridge_input()
     report = bridge_arrival_laws(
         loops,
         laws,
         lattice=_field_chart_lattice(frame),
         weighted_fronts=True,
+        vertex_fans=fans,
     )
     polygon = report.polygon
     skeleton = build_skeleton(polygon)
     partition = build_faces(polygon, skeleton)
     assert partition.outcome is FaceOutcome.EXACT, partition.detail
-    assert len(partition.faces) == 3
-    assert sorted(face.node_count for face in partition.faces) == [2, 2, 8]
+    assert len(partition.faces) == 5
+    assert sorted(face.node_count for face in partition.faces) == [2, 2, 2, 5, 5]
     for face in partition.faces:
         # Каждая грань по отдельности: простая и строго положительная.
         assert contour_crossings(face.points) == (), face.owner
         assert face.doubled_area.sign() > 0, face.owner
-    assert partition.polygon_doubled_area == 108901947644
+    assert partition.polygon_doubled_area == 27224141715
     assert partition.area_defect.terms == ()
     assert (
         partition.doubled_area
         - SqrtSumV1.rational(partition.polygon_doubled_area)
     ).is_zero
 
-    # alpha запроса 1/4 в метрике источника; решётка карты масштаба 65536,
-    # поэтому в её единицах это 16384. Масштаб взят из самого отчёта моста, а
+    # alpha запроса 1/4 в метрике источника; решётка карты масштаба 32768,
+    # поэтому в её единицах это 8192. Масштаб взят из самого отчёта моста, а
     # не вписан числом, иначе проверялась бы подставленная решётка.
-    assert report.lattice_scale == 65536
+    assert report.lattice_scale == 32768
     covered = coverage_at(partition, Fraction(1, 4) * report.lattice_scale)
     assert covered.outcome is CoverageOutcome.EXACT
-    assert len(covered.faces) == 3
-    assert len(covered.doubled_area.terms) == 6
+    assert len(covered.faces) == 5
+    assert len(covered.doubled_area.terms) == 7
     low, high = covered.doubled_area.enclosure(80)
-    assert 3018411397 < low <= high < 3018411399
+    assert 746055834 < low <= high < 746055835
     # Покрытие строго внутри домена и строго положительно.
     assert covered.doubled_area.sign() > 0
     assert (

@@ -126,6 +126,20 @@ def test_the_metric_descriptor_is_a_rebuild_of_the_fixtures_own_source():
     Проверяется побитово, и это же делает фикстуру перегенерируемой без
     Blender: когда контракт метрики меняется, дескриптор пересобирается ровно
     этим вызовом, а не правится руками.
+
+    ЗАКОН РЕШЁТКИ БЕРЁТСЯ У САМОЙ ФИКСТУРЫ, а не вписан литералом, и это
+    починка, а не удобство. Литерал стоял `UNSNAPPED_EXACT_V1`, и после
+    пересборки фикстуры хостом он стал ложью: снапшот объявляет
+    `SOURCE_ONLY_GRID_SNAP_V1`, дескриптор собран под ним, и тест падал на
+    несовпадении, которое ничего про фикстуру не говорило — говорило про
+    устаревшую константу в тесте. Закон и политика планарности — часть
+    ОБЪЯВЛЕНИЯ дескриптора, поэтому читать их надо из него; тогда утверждение
+    остаётся тем же побитовым и переживает следующее переключение политики хоста
+    без правки руками.
+
+    Что закон при этом действительно РАЗЛИЧАЕТ ответы (а чтение из дескриптора
+    не выродилось в «подставить то, что подойдёт»), проверяется тут же: под
+    двумя другими законами перестройка даёт другие байты.
     """
 
     _, _, snapshot, _ = _load_contracts()
@@ -135,22 +149,74 @@ def test_the_metric_descriptor_is_a_rebuild_of_the_fixtures_own_source():
         for item in snapshot.patch_domains
         if item.patch_domain_id == descriptor.patch_domain_id
     )
-    rebuilt = kernel.build_rational_affine_planar_metric(
-        source_revision=snapshot.source_revision,
-        patch_domain_id=descriptor.patch_domain_id,
-        owner_patch_id=domain.owner_patch_id,
-        source_vertices=snapshot.source_vertices,
-        source_faces=snapshot.surface_ir.source_faces,
-        planarity_policy=kernel.PlanarityAdmissionLawV1.NEAR_PLANAR_PROJECTION_V1,
-        grid_policy=kernel.GridSnappingLawV1.UNSNAPPED_EXACT_V1,
-        source_lineage=descriptor.source_lineage,
-    )
-    assert kernel.canonical_json_bytes(rebuilt) == kernel.canonical_json_bytes(
-        descriptor
-    )
+
+    def rebuild(grid_policy):
+        return kernel.build_rational_affine_planar_metric(
+            source_revision=snapshot.source_revision,
+            patch_domain_id=descriptor.patch_domain_id,
+            owner_patch_id=domain.owner_patch_id,
+            source_vertices=snapshot.source_vertices,
+            source_faces=snapshot.surface_ir.source_faces,
+            planarity_policy=kernel.PlanarityAdmissionLawV1(
+                descriptor.planarity_certificate.admission_law.value
+            ),
+            grid_policy=grid_policy,
+            source_lineage=descriptor.source_lineage,
+        )
+
+    declared = descriptor.grid_certificate.snapping_law
+    assert declared is kernel.GridSnappingLawV1.SOURCE_ONLY_GRID_SNAP_V1
+    assert kernel.canonical_json_bytes(
+        rebuild(declared)
+    ) == kernel.canonical_json_bytes(descriptor)
+
+    # Отрицательный контроль: закон решётки — не декорация, он двигает байты.
+    for other in kernel.GridSnappingLawV1:
+        if other is declared:
+            continue
+        assert kernel.canonical_json_bytes(
+            rebuild(other)
+        ) != kernel.canonical_json_bytes(descriptor), other
 
 
 def test_selected_kernel_reaches_accepted_raw_coverage_v2():
+    """Текущее ядро на ОТГРУЖЕННЫХ байтах, и почему оракулом тут не манифест.
+
+    `expected_kernel_results` в манифесте ключуется РЕВИЗИЕЙ ЯДРА, то есть
+    описывает пару (ядро, байты). Байты пересобраны, и пара распалась: ядро
+    `c2622d0` эти байты не прочитало бы вовсе — в его контракте метрики нет поля
+    `grid_certificate`, а отгруженный дескриптор его несёт. Значит блок под
+    ключом `c2622d0` есть ИСТОРИЧЕСКАЯ запись о прежних байтах, а не ожидание
+    для нынешних, и подставлять в него новые числа значило бы приписать ядру
+    `c2622d0` ответ, которого оно дать не может.
+
+    Поэтому числа отгруженных байтов заморожены ЗДЕСЬ, а расхождение с
+    историческим блоком объявлено ИСПОЛНЯЕМО — иначе устаревание блока осталось
+    бы молчанием ровно того рода, каким уехала транскрипция полевого контура.
+
+    | величина | исторический блок (c2622d0) | отгруженные байты (HEAD) |
+    |---|---|---|
+    | `semantic_digest` | `622e1f6e...` | `60910ef0...` |
+    | площадь | `122766786560/373821260323` | `64/1426085 * (1024*sqrt(2) + 6293)` |
+    | вхождений границы | 12 | 14 |
+    | точечных контактов | 2 | **0** |
+    | петель / регионов | 3 / 3 | **1 / 1** |
+
+    ТОЧЕЧНЫХ КОНТАКТОВ НОЛЬ, и это стоит назвать прямо: фикстура носит имя
+    `point_contact`, а отгруженная больше не воспроизводит явление, ради которого
+    заведена. Явление не потеряно — оно достижимо на тех же байтах снятием
+    угловых отношений (`test_wavefront_differential.py::test_the_field_patch_pairwise_clipping_destroys_all_of_its_own_coverage`
+    держит его вторым краем: 2 контакта, 3 региона, прежний отказ кроя). Веер
+    вогнутого угла заполняет вырезы, три петли сливаются в одну, и контактам
+    сходиться в точку становится нечему.
+
+    Числа ниже проверены НЕ СОБОЙ: площадь эталона сверена с независимым путём
+    очереди (`test_wavefront_conveyor.py`) — 0.34740839 против 0.34740932, то
+    есть согласие двух реализаций до 2.7e-06 относительных, — а смена топологии
+    объяснена контролем с той же решёткой и снятыми углами, который даёт РОВНО
+    прежние (3, 3, 2).
+    """
+
     manifest = json.loads((FIXTURE / "manifest.json").read_text(encoding="utf-8"))
     _, _, snapshot, request = _load_contracts()
     compiled = kernel.compile_reference_envelopes(snapshot, request)
@@ -161,22 +227,56 @@ def test_selected_kernel_reaches_accepted_raw_coverage_v2():
         request.requested_alpha,
     )
     raw = result.raw_coverage
-    expected = manifest["expected_kernel_results"][SELECTED_SHA]
+    historical = manifest["expected_kernel_results"][SELECTED_SHA]
 
-    assert result.outcome.value == expected["outcome"]
+    # Структурная часть исторического блока ПЕРЕЖИЛА пересборку, и её оракулом
+    # остаётся манифест: исход и версия схемы результата те же.
+    assert result.outcome.value == historical["outcome"] == "EXACT"
     assert raw is not None
-    assert raw.schema_version == expected["raw_schema_version"]
-    assert raw.semantic_digest == expected["semantic_digest"]
-    assert raw.exact_area_expression == expected["exact_area_expression"]
-    assert len(raw.boundary_vertex_occurrences) == expected[
-        "boundary_occurrence_count"
-    ]
-    assert len(raw.point_contacts) == expected["point_contact_count"]
-    assert len(raw.loops) == expected["loop_count"]
-    assert len(raw.regions) == expected["region_count"]
+    assert raw.schema_version == historical["raw_schema_version"]
+
+    # Числовая часть заморожена здесь, потому что она про НЫНЕШНИЕ байты.
+    assert raw.semantic_digest == (
+        "60910ef04eb82db25ee5c5049c3021f801e15ea81f887b5ea31666f67bd3f23f"
+    )
+    assert raw.exact_area_expression == (
+        "Mul(Rational(64, 1426085), Add(Mul(Integer(1024), "
+        "Pow(Integer(2), Rational(1, 2))), Integer(6293)))"
+    )
+    assert len(raw.boundary_vertex_occurrences) == 14
+    assert len(raw.point_contacts) == 0
+    assert len(raw.loops) == 1
+    assert len(raw.regions) == 1
+
+    # И само устаревание — исполняемым утверждением, а не примечанием. Когда
+    # экспортёр перережет свои литералы `expected_kernel_results`, этот тест
+    # покраснеет и потребует решить, чем блок стал.
+    assert historical["semantic_digest"] != raw.semantic_digest
+    assert historical["exact_area_expression"] != raw.exact_area_expression
+    assert (
+        historical["boundary_occurrence_count"],
+        historical["point_contact_count"],
+        historical["loop_count"],
+        historical["region_count"],
+    ) == (12, 2, 3, 3)
 
 
 def test_historical_failure_and_selected_contacts_are_the_same_exact_topology():
+    """Сверка ДВУХ ЗАПИСАННЫХ отчётов, и оба они про ПРЕЖНИЕ байты фикстуры.
+
+    Тест не зовёт ядро вовсе — он читает `artifacts/envelope_c_r2c_fixture/`,
+    снятые на байтах до пересборки. Поэтому он и остался зелёным, когда числа
+    ядра сдвинулись, и поэтому же его зелёный цвет НЕ является утверждением об
+    отгруженной фикстуре: отгруженная даёт 0 точечных контактов, а здесь их 2.
+    Записано это явно, потому что «тест про point_contact проходит» иначе
+    читалось бы как «точечный контакт на месте».
+
+    Ценность сверки от этого не исчезает: она держит, что ОТКАЗ исторического
+    ядра и КОНТАКТЫ выбранного — одна и та же точная топология, а это
+    утверждение об алгоритмах, а не о том, какие байты сейчас в каталоге.
+    Открытый счёт — перерезать артефакты вместе с литералами экспортёра.
+    """
+
     historical = json.loads(
         (EVIDENCE / "historical_df587ed_result.json").read_text(encoding="utf-8")
     )

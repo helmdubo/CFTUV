@@ -675,13 +675,37 @@ def test_the_search_order_changes_the_scale_and_the_cost_of_that_is_measured():
 
 
 def _field_evaluated(law):
-    """Полный прогон полевого меша под названным законом решётки."""
+    """Полный прогон полевого меша под названным законом решётки.
+
+    УГЛОВЫЕ ОТНОШЕНИЯ СНИМАЮТСЯ, и снимаются они по необходимости, а не для
+    удобства. Сертификат угла привязан к МЕТРИКЕ, под которой он посчитан: в
+    нём лежит опорная прямая скрытой опоры, и компилятор её проверяет. Подменяя
+    дескриптор метрики на собранный под другим законом, мы оставили бы
+    сертификаты от прежней метрики — и компилятор честно отвечает
+    `REFERENCE_ANGLE_SUPPORT_CERTIFICATE_MISMATCH`, то есть верный ответ на
+    вопрос, которого этот тест не задаёт.
+
+    Вопрос здесь один и он про РЕШЁТКУ: меняет ли привязка источника топологию.
+    Чтобы он остался этим вопросом, из обоих прогонов убирается всё, что от
+    метрики зависит отдельно, — и убирается ОДИНАКОВО, поэтому сравнение двух
+    законов остаётся сравнением законов.
+
+    Что углы на топологию влияют, и сильно, мерится не здесь, а своим тестом
+    (`test_wavefront_differential.py`): с ними у отгруженной фикстуры 1 петля и
+    0 точечных контактов против 3 и 2 без них.
+    """
 
     import cftuv_envelope as kernel
 
     snapshot, request = _field_snapshot()
     metric = _field_metric(snapshot, law)
-    snapshot = replace(snapshot, surface_metric_descriptors=frozenset({metric}))
+    snapshot = replace(
+        snapshot,
+        surface_metric_descriptors=frozenset({metric}),
+        corner_relations=frozenset(),
+        angular_owner_sectors=frozenset(),
+        reflex_angle_certificates=frozenset(),
+    )
     compiled = kernel.compile_reference_envelopes(snapshot, request)
     assert compiled.compilation is not None
     return metric, kernel.evaluate_reference_raw_coverage(
