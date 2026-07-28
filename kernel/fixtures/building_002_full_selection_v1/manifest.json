@@ -1,0 +1,144 @@
+{
+  "contract_validation": {
+    "analysis_snapshot_issue_count": 0,
+    "cross_reference_issue_count": 0,
+    "decal_request_issue_count": 0
+  },
+  "description": "Minimal portable building.002 patch-0 point-contact reproducer; no proprietary .blend content is included.",
+  "expected_kernel_results": {
+    "c2622d07020338e5231b81f41655fe6c74cdca72": {
+      "boundary_occurrence_count": 12,
+      "exact_area_expression": "Rational(122766786560, 373821260323)",
+      "loop_count": 3,
+      "outcome": "EXACT",
+      "point_contact_count": 2,
+      "raw_schema_version": "cftuv.envelope.raw_coverage_result.v2",
+      "region_count": 3,
+      "semantic_digest": "622e1f6eec09e64bc1294c37643af19f630086005f9af21f10ac4cd6ed0e987a",
+      "stage": "RAW_READY"
+    },
+    "df587ed166cfb0e0b615148f08c583b4477c5ac4": {
+      "outcome": "REFERENCE_ARRANGEMENT_NON_MANIFOLD",
+      "stage": "RAW_REJECTED"
+    }
+  },
+  "files": {
+    "analysis_snapshot.json": "5c759cfc80548072eb3918f5fdc114d6f93ad077b70a5f0c663f10ede2f41d16",
+    "decal_request.json": "40a039e7f239d88283317a461be0d7cd3e2f3679f018ab5223f2c3d50d6bfe7d",
+    "host_mesh.json": "ae40130f684dcbf7870a9b622e6857fe68d8f473b32addb5ca928e0ddb46f633"
+  },
+  "fixture_hash": "240e3a58fd818510d577366cc1f39544f71a35c80438ba6f5c052b93e3d4dcd8",
+  "fixture_id": "building_002_point_contact_v1",
+  "mesh_counts": {
+    "edges": 38,
+    "faces": 15,
+    "vertices": 24
+  },
+  "object_name": "building.002",
+  "patch_domain_ids": [
+    "host-v0:patch-domain:bf66337616136188f314fb69"
+  ],
+  "patch_id": 0,
+  "physical_chain_ids": [
+    "host-v0:physical-chain:0919a9db792d678089755416",
+    "host-v0:physical-chain:1d7c9b055d2d3d04833864d1",
+    "host-v0:physical-chain:1f6e202aebf58dae76bcff64",
+    "host-v0:physical-chain:4062e6e11005f3fa40b0309f",
+    "host-v0:physical-chain:467a33041c5945382e0f02d2",
+    "host-v0:physical-chain:6aab8a2e12c4da8235c5a88e",
+    "host-v0:physical-chain:9bf8367f67cec1aa9b1ee1b1",
+    "host-v0:physical-chain:ab7f72e307df04dcf81f131c",
+    "host-v0:physical-chain:d4b88443f3d9cfe88f5f34a3",
+    "host-v0:physical-chain:d8aa402faffa2eabbdfe1bf7",
+    "host-v0:physical-chain:f7327f96d3141b1c8eebf742",
+    "host-v0:physical-chain:fdb46022e1662569c04f6060"
+  ],
+  "provenance": {
+    "accepted_exporter_sha": "cb444d5a4f0f08a92f3fa70e39ee86e70e84e984",
+    "source_kind": "DEVELOPER_LOCAL_BUILDING_002",
+    "source_path_included": false
+  },
+  "requested_alpha": "0.25",
+  "schema": "cftuv.envelope.building_002_full_selection_fixture.v1",
+  "selected_chain_use_ids": [
+    "host-v0:chain-use:10d2c628f7abf99a3e7cac96",
+    "host-v0:chain-use:34deda43365746e1b753c125",
+    "host-v0:chain-use:3562c29b17b05b8851d54210",
+    "host-v0:chain-use:55a91672dbf8e1cd6f62ba60",
+    "host-v0:chain-use:596a60ada6cb215b14c683f0",
+    "host-v0:chain-use:6d9faa2581ad0c02e518d297",
+    "host-v0:chain-use:80119f15cae40e97f3727976",
+    "host-v0:chain-use:abe3ec586d60bea450ab74ee",
+    "host-v0:chain-use:b0f5bd8218305496ed2c499f",
+    "host-v0:chain-use:b4e7558fce187cab081082aa",
+    "host-v0:chain-use:fefd7b48cd65d85d0f50b1d0",
+    "host-v0:chain-use:ff677ce60692e74fdbe13e2f"
+  ],
+  "selected_chain_use_to_physical_chain": [
+    {
+      "chain_use_id": "host-v0:chain-use:10d2c628f7abf99a3e7cac96",
+      "physical_chain_id": "host-v0:physical-chain:f7327f96d3141b1c8eebf742"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:34deda43365746e1b753c125",
+      "physical_chain_id": "host-v0:physical-chain:d4b88443f3d9cfe88f5f34a3"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:3562c29b17b05b8851d54210",
+      "physical_chain_id": "host-v0:physical-chain:6aab8a2e12c4da8235c5a88e"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:55a91672dbf8e1cd6f62ba60",
+      "physical_chain_id": "host-v0:physical-chain:467a33041c5945382e0f02d2"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:596a60ada6cb215b14c683f0",
+      "physical_chain_id": "host-v0:physical-chain:ab7f72e307df04dcf81f131c"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:6d9faa2581ad0c02e518d297",
+      "physical_chain_id": "host-v0:physical-chain:1f6e202aebf58dae76bcff64"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:80119f15cae40e97f3727976",
+      "physical_chain_id": "host-v0:physical-chain:9bf8367f67cec1aa9b1ee1b1"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:abe3ec586d60bea450ab74ee",
+      "physical_chain_id": "host-v0:physical-chain:4062e6e11005f3fa40b0309f"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:b0f5bd8218305496ed2c499f",
+      "physical_chain_id": "host-v0:physical-chain:0919a9db792d678089755416"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:b4e7558fce187cab081082aa",
+      "physical_chain_id": "host-v0:physical-chain:1d7c9b055d2d3d04833864d1"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:fefd7b48cd65d85d0f50b1d0",
+      "physical_chain_id": "host-v0:physical-chain:d8aa402faffa2eabbdfe1bf7"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:ff677ce60692e74fdbe13e2f",
+      "physical_chain_id": "host-v0:physical-chain:fdb46022e1662569c04f6060"
+    }
+  ],
+  "selected_physical_edge_ids": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+  ],
+  "source_mesh_fingerprint": "3205834b7ead22cf1eb8985902144ca1c7295a88b8015556b364be17d8ac9021",
+  "source_mesh_unchanged": true,
+  "source_revision": "host-source:63845922ce058ac94746bc8b624049f3fdde3b87a4c5fb1bd8a8bb0b217e081e:building.002"
+}
