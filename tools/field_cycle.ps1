@@ -86,7 +86,11 @@ if ($Live) {
     Write-Host "=== полевой прогон фоновым Blender ===" -ForegroundColor Cyan
     Write-Host "  $BlenderExe"
     Write-Host "  сцена: $Scene, меш: $ObjectName, движки: $Engines"
-    $gateArgs = @("-b", $Scene, "--python", $gate, "--") + $tailArgs
+    # Прошлый выход стирается ДО прогона: упавшие ворота не оставят файла, и
+    # сводка не сможет молча пересказать устаревший JSON. --python-exit-code
+    # обязателен: без него Blender выходит нулём даже при падении скрипта.
+    if (Test-Path $Output) { Remove-Item -Force $Output }
+    $gateArgs = @("-b", $Scene, "--python-exit-code", "1", "--python", $gate, "--") + $tailArgs
     & $BlenderExe @gateArgs
     if ($LASTEXITCODE -ne 0) { Fail "фоновый Blender вернул код $LASTEXITCODE" }
 }
