@@ -140,6 +140,18 @@ class CandidateRefusal(str, Enum):
     # положительной длины исчезнуть не может, и «три прямые сошлись» этого не
     # заменяет — тройка отвечает про ПРЯМЫЕ, а гаснет ОТРЕЗОК.
     FILTER_SPAN_DOES_NOT_COLLAPSE = "FILTER_SPAN_DOES_NOT_COLLAPSE"
+    # Схлопываемый отрезок фронта РОЖДЁН нулевым: событие назначено ровно на
+    # момент рождения ОБОИХ его концов, и длина в этот момент равна нулю точно.
+    # Положение вершины фронта аффинно по времени, значит и проекционная длина
+    # отрезка аффинна; аффинная функция, равная нулю в начале своего
+    # существования, положительной ДО него не была. Схлопываться такому отрезку
+    # не из чего: он открывается, а не закрывается.
+    #
+    # Конфигурация рождается ровно веером вогнутой вершины: три его прямые
+    # проходят через саму вершину, поэтому `concurrency_time` честно отвечает
+    # `t = 0`, и без этого фильтра ребро веера гасло бы на нулевом уровне — то
+    # есть мягкий угол молча превращался бы обратно в митрованный.
+    FILTER_SPAN_IS_BORN_ZERO = "FILTER_SPAN_IS_BORN_ZERO"
 
     # -- NO_RULE: конфигурация без правила ---------------------------------
     # Тройка прямых сошлась НАВСЕГДА: определитель равен нулю тождественно.
@@ -191,13 +203,13 @@ REFUSAL_COUNTERS = tuple(refusal_counter(member) for member in CandidateRefusal)
 class _Edge:
     ident: int
     line: SupportLineV1
-    #: Вхождение ИСХОДНОГО ребра входа: `(x0, y0, x1, y1)`. У близнецов разреза
-    #: оно то же, что у рассечённого: отрезки фронта — куски одного ребра, и
-    #: грань у них одна.
-    span: tuple[int, int, int, int]
+    #: Вхождение ИСХОДНОГО ребра входа: `(x0, y0, x1, y1)`, а у скрытой опоры
+    #: веера — `(x, y, x, y, ordinal)`. У близнецов разреза оно то же, что у
+    #: рассечённого: отрезки фронта — куски одного ребра, и грань у них одна.
+    span: tuple[int, ...]
 
     @property
-    def key(self) -> tuple[int, int, int, int]:
+    def key(self) -> tuple[int, ...]:
         """Тождество УЧАСТНИКА события: вхождение ребра, а не несущая прямая.
 
         Различие не терминологическое, и оно оплачено. Ключом участника была
@@ -267,7 +279,7 @@ class SkeletonNodeV1:
     kind: EventKind
     time: EventTimeV1
     point: EventPointV1
-    participants: tuple[tuple[int, int, int, int], ...]
+    participants: tuple[tuple[int, ...], ...]
     converging_vertices: int
 
 
@@ -283,10 +295,17 @@ class SkeletonV1:
 
 
 def level_budget(polygon: PolygonV1) -> int:
-    """Объявленная граница числа уровней. Превышение — именованный исход."""
+    """Объявленная граница числа уровней. Превышение — именованный исход.
 
-    n = polygon.vertex_count
-    r = polygon.reflex_count
+    Веер добавляет по одной вершине фронта и одному ребру на каждую скрытую
+    опору, и каждая такая подвершина вогнута по построению. Без этой поправки
+    бюджет считался бы по полигону БЕЗ веера, то есть был бы границей не той
+    задачи, которая решается.
+    """
+
+    fan = polygon.fan_edge_count
+    n = polygon.vertex_count + fan
+    r = polygon.reflex_count + fan
     return 4 * n + 4 * n * r + 16
 
 
@@ -331,6 +350,16 @@ class _Builder:
         # определены на reflex-вершинах ВХОДА), а кандидаты им нужны: развёрнутая
         # вершина встречает встречный фронт ровно так же, как вогнутая.
         self.sliding_vertices: set[int] = set()
+        # Подвершины вееров: у них биссектрисы ВХОДА нет, значит нет и трассы
+        # motorcycle graph. Ограничиваются слабейшей стенной границей, как и
+        # вершины, рождённые во время счёта.
+        self.fan_vertices: set[int] = set()
+        # Вершина входа `i` (нумерация motorcycle graph) — это вершина LAV
+        # `origin_vertex[i]`. Совпадают они тождественно ровно тогда, когда
+        # вееров нет; с веерами LAV длиннее, и без карты трасса уехала бы на
+        # чужую вершину МОЛЧА.
+        self.origin_vertex: dict[int, int] = {}
+        self.origin_count = 0
         # Время уже снятого уровня. Кандидат раньше него — событие в прошлом
         # фронта, а не будущее: очередь его уже прошла. Без этой отсечки
         # ВЫДАВАЕМОЕ время переставало быть неубывающим на входах, где фронт
@@ -386,43 +415,118 @@ class _Builder:
 
     def _seed_loops(self) -> None:
         for loop in self.polygon.loops:
-            points = loop.points
-            reflex = loop.reflex_flags()
-            speeds = loop.edge_speeds_squared
-            size = len(points)
-            first_edge = len(self.edges)
-            first_vertex = len(self.vertices)
-            for index in range(size):
-                start = points[index]
-                end = points[(index + 1) % size]
-                # Скорость берётся из петли, а не из `through`: иначе стена
-                # молча стала бы источником единичной скорости.
-                self.edges.append(
-                    _Edge(
-                        first_edge + index,
-                        SupportLineV1.with_speed(start, end, speeds[index]),
-                        (start[0], start[1], end[0], end[1]),
-                    )
-                )
-            for index in range(size):
-                self.vertices.append(
-                    _Vertex(
-                        ident=first_vertex + index,
-                        prev_edge=first_edge + (index - 1) % size,
-                        next_edge=first_edge + index,
-                        prev=first_vertex + (index - 1) % size,
-                        next=first_vertex + (index + 1) % size,
-                        birth=ZERO_TIME,
-                        point=EventPointV1(
-                            SqrtSumV1.rational(points[index][0]),
-                            SqrtSumV1.rational(points[index][1]),
-                        ),
-                        reflex=reflex[index],
-                    )
-                )
-                self._register(self.vertices[-1])
+            self._seed_one_loop(loop)
         for edge in self.edges:
             self._register_line(edge)
+
+    def _seed_one_loop(self, loop) -> None:
+        """LAV одного контура: его рёбра, его вееры и вершины между ними.
+
+        ВЕЕР ВСТАВЛЯЕТСЯ ЗДЕСЬ И БОЛЬШЕ НИГДЕ. Вершина с веером из `k` опор
+        рождает не одну вершину фронта, а `k + 1`: все в ОДНОЙ точке, все с
+        нулевой длиной разделяющих их рёбер. Дальше эти рёбра ничем не
+        отличаются от обычных движущихся — ни одного правила событий под них не
+        заведено, и это проверяемое утверждение, а не намерение.
+
+        Вогнутость подвершины веера считается ПО ПРЯМЫМ (`_is_reflex`), а не по
+        тройке точек контура: точки у всех `k + 1` подвершин одинаковы, и
+        `orient2d` на них ответил бы нулём для каждой. У вершины без веера
+        по-прежнему берётся `reflex_flags()` — то же самое число, посчитанное
+        целочисленно, и путь этот остаётся побитово прежним.
+        """
+
+        points = loop.points
+        reflex = loop.reflex_flags()
+        speeds = loop.edge_speeds_squared
+        size = len(points)
+        first_edge = len(self.edges)
+        for index in range(size):
+            start = points[index]
+            end = points[(index + 1) % size]
+            # Скорость берётся из петли, а не из `through`: иначе стена
+            # молча стала бы источником единичной скорости.
+            self.edges.append(
+                _Edge(
+                    first_edge + index,
+                    SupportLineV1.with_speed(start, end, speeds[index]),
+                    (start[0], start[1], end[0], end[1]),
+                )
+            )
+        first_vertex = len(self.vertices)
+        stops: list[tuple[int, int, tuple[int, int], bool | None]] = []
+        for index in range(size):
+            chain = self._seed_fan_edges(points[index])
+            ring = (first_edge + (index - 1) % size, *chain, first_edge + index)
+            for prev_edge, next_edge in zip(ring, ring[1:]):
+                stops.append(
+                    (
+                        prev_edge,
+                        next_edge,
+                        points[index],
+                        None if chain else reflex[index],
+                    )
+                )
+            if not chain:
+                # Нумерация motorcycle graph идёт по вершинам ВХОДА, а LAV с
+                # веерами их размножает. Соответствие пишется здесь и только
+                # для вершин БЕЗ веера: у вершины с веером биссектрисы входа
+                # больше не существует, значит и трасса её не про неё.
+                self.origin_vertex[self.origin_count] = first_vertex + len(stops) - 1
+            self.origin_count += 1
+        total = len(stops)
+        for offset, (prev_edge, next_edge, point, corner) in enumerate(stops):
+            vertex = _Vertex(
+                ident=first_vertex + offset,
+                prev_edge=prev_edge,
+                next_edge=next_edge,
+                prev=first_vertex + (offset - 1) % total,
+                next=first_vertex + (offset + 1) % total,
+                birth=ZERO_TIME,
+                point=EventPointV1(
+                    SqrtSumV1.rational(point[0]),
+                    SqrtSumV1.rational(point[1]),
+                ),
+                reflex=(
+                    _is_reflex(
+                        self.edges[prev_edge].line, self.edges[next_edge].line
+                    )
+                    if corner is None
+                    else corner
+                ),
+            )
+            self.vertices.append(vertex)
+            self._register(vertex)
+            if corner is None:
+                self.fan_vertices.add(vertex.ident)
+
+    def _seed_fan_edges(self, point: tuple[int, int]) -> tuple[int, ...]:
+        """Рёбра НУЛЕВОЙ ДЛИНЫ веера этой вершины, в порядке входа.
+
+        Вхождение такого ребра — вырожденный отрезок `(x, y, x, y)` плюс ординал
+        опоры. Ординал в ключе обязателен: без него `k` опор одной вершины были
+        бы ОДНИМ участником события и ОДНОЙ гранью на всех, а грани у них `k`.
+        """
+
+        fan = self.polygon.fan_at(point)
+        if fan is None:
+            return ()
+        idents: list[int] = []
+        for ordinal, support in enumerate(fan.supports, start=1):
+            ident = len(self.edges)
+            self.edges.append(
+                _Edge(
+                    ident,
+                    SupportLineV1(
+                        support.normal_x,
+                        support.normal_y,
+                        support.constant_at(point),
+                        support.speed_squared,
+                    ),
+                    (point[0], point[1], point[0], point[1], ordinal),
+                )
+            )
+            idents.append(ident)
+        return tuple(idents)
 
     def _register_line(self, edge: _Edge) -> int:
         """Ребро под свою НЕСУЩУЮ ПРЯМУЮ. Близнецы разреза делят одну прямую.
@@ -455,10 +559,29 @@ class _Builder:
             self.index.register_line(
                 ident, SupportLineV1(*line_key)
             )
-        for vertex in self.vertices:
+        for origin, ident in sorted(self.origin_vertex.items()):
+            vertex = self.vertices[ident]
             if not vertex.reflex:
                 continue
-            self._adopt_trace(vertex, self.graph.traces.get(vertex.ident))
+            self._adopt_trace(vertex, self.graph.traces.get(origin))
+        for ident in sorted(self.fan_vertices):
+            vertex = self.vertices[ident]
+            if not vertex.reflex:
+                continue
+            # У подвершины веера трассы входа нет: motorcycle graph строит их по
+            # биссектрисе между соседними рёбрами ВХОДА, а здесь одно из двух
+            # рёбер — скрытая опора. Берётся та же слабейшая стенная граница,
+            # что и у вершин, рождённых во время счёта: волна не выходит за
+            # границу области, и это верно без всякой теоремы.
+            self._adopt_trace(
+                vertex,
+                self.graph.trace_for(
+                    self.edges[vertex.prev_edge].line,
+                    self.edges[vertex.next_edge].line,
+                    vertex.birth,
+                    vertex.point,
+                ),
+            )
 
     def _adopt_trace(self, vertex: _Vertex, trace: TraceV1 | None) -> None:
         """Принять трассу вершины либо честно объявить её неиндексируемой."""
@@ -542,6 +665,13 @@ class _Builder:
         span = self._collapsing_span(vertex, peer, time)
         if span is not None and not span.is_zero:
             return self._refuse(CandidateRefusal.FILTER_SPAN_DOES_NOT_COLLAPSE)
+        if (
+            span is not None
+            and compare_times(time, vertex.birth) == 0
+            and compare_times(time, peer.birth) == 0
+        ):
+            # Отрезок нулевой в момент рождения обоих концов: он ОТКРЫВАЕТСЯ.
+            return self._refuse(CandidateRefusal.FILTER_SPAN_IS_BORN_ZERO)
         point = self._vertex_position(vertex, time)
         if point is None:
             return
@@ -1398,7 +1528,7 @@ class _Builder:
         self,
         kind: EventKind,
         event: CandidateEventV1,
-        participants: tuple[tuple[int, int, int, int], ...],
+        participants: tuple[tuple[int, ...], ...],
         converging: int,
     ) -> None:
         self.nodes.append(

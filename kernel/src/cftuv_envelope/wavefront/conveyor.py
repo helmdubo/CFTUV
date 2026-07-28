@@ -60,15 +60,18 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
 from fractions import Fraction
+from math import gcd
 
 import sympy as sp
 
-from ..contracts.envelopes import StripEnvelopeSpec
+from ..contracts.envelopes import AngularEnvelopeSpec, StripEnvelopeSpec
 from ..contracts.analysis import AnalysisSnapshotV1
 from ..contracts.request import DecalRequestV1
 from ..ids import PatchDomainId
 from ..interactions.arrival import (
+    ANGULAR_PROFILE_NORMAL_SPEED,
     STRIP_FRONT_NORMAL_SPEED,
+    angular_hidden_support_lines,
     strip_front_support_line,
 )
 from ..numeric import LocalLengthV1
@@ -91,7 +94,13 @@ from ..reference.strip import strip_envelope_instance_id
 from ..reference.validation import validate_reference_geometry_payload
 from ..robust.grid import GridSpecV1
 from ..source_grid import chart_grid_for
-from .bridge import BridgeOutcome, BridgeReportV1, PlainArrivalLawV1, bridge_arrival_laws
+from .bridge import (
+    BridgeOutcome,
+    BridgeReportV1,
+    PlainArrivalLawV1,
+    VertexFanLawV1,
+    bridge_arrival_laws,
+)
 from .coverage import CoverageOutcome, coverage_at
 from .faces import EdgeKey, FaceOutcome, FacePartitionV1, build_faces
 from .skeleton import SkeletonOutcome, SkeletonV1, build_skeleton
@@ -120,6 +129,18 @@ class ConveyorOutcome(str, Enum):
     # Поле закона прихода не рационально. То же самое и по той же причине:
     # `PlainArrivalLawV1` объявлен в точных дробях.
     ARRIVAL_LAW_IS_NOT_RATIONAL = "ARRIVAL_LAW_IS_NOT_RATIONAL"
+    # Направление скрытой опоры веера не рационально даже после рескейла.
+    # В общем положении так и есть: при `k = 1` биссектриса есть сумма двух
+    # единичных нормалей с РАЗНЫМИ радикалами, при `k = 2` направление — корень
+    # кубики тройного угла. Рационален веер ровно при равных радикалах опор
+    # (перпендикулярные и симметричные углы — весь полевой корпус `building.002`).
+    #
+    # ЭТО ОТКАЗ, А НЕ ОТКАТ. Посчитать здесь митрованный угол значило бы выдать
+    # острый апекс за мягкий: очередь ответила бы числом, которое продукту не
+    # соответствует, и отличить его было бы нечем. В `detail` — сколько вершин.
+    ANGULAR_PROFILE_DIRECTION_IS_NOT_RATIONAL = (
+        "ANGULAR_PROFILE_DIRECTION_IS_NOT_RATIONAL"
+    )
     # В плане нет ни одной Strip-спеки, то есть источника фронта нет вовсе.
     NO_STRIP_SOURCE_IN_THE_PLAN = "NO_STRIP_SOURCE_IN_THE_PLAN"
     # У кадра патча нет сертификата решётки, то есть решётку карты выводить не
@@ -478,6 +499,51 @@ def _plain_law(name: str, fields) -> PlainArrivalLawV1:
     )
 
 
+def _integer_normal(
+    law: PlainArrivalLawV1,
+) -> tuple[int, int, Fraction]:
+    """Запись закона с ЦЕЛОЙ нормалью: `(a, b, q)` для несущей прямой очереди.
+
+    Очередь живёт с целыми `a`, `b` (все её предикаты — целочисленные
+    определители) и рациональным `q` под корнем. Закон приходит с рациональной
+    нормалью, поэтому её надо умножить на общий знаменатель, а `q` — на КВАДРАТ
+    того же множителя: прямая `n*p = c + t*s` при замене `n -> λn` движется на
+    `s/|n|` за единицу времени по-прежнему, и чтобы `sqrt(q)/|λn|` дало то же
+    число, нужно `q = (λs)^2`.
+
+    Дальше `(a, b)` сокращается на свой НОД, и `q` — на его квадрат. Это не
+    косметика: `q` входит в `line_key`, ключ прямой попадает в дайджест, и две
+    записи одной прямой давали бы два разных дайджеста при одной геометрии.
+    """
+
+    scale = (
+        law.normal_x.denominator * law.normal_y.denominator
+        // gcd(law.normal_x.denominator, law.normal_y.denominator)
+    )
+    a = int(law.normal_x * scale)
+    b = int(law.normal_y * scale)
+    common = gcd(abs(a), abs(b)) or 1
+    a, b = a // common, b // common
+    return a, b, law.speed_squared * Fraction(scale, common) ** 2
+
+
+@dataclass(frozen=True, slots=True)
+class PlainVertexFanV1:
+    """Веер вогнутой вершины домена в ТОЧНЫХ ДРОБЯХ, до всякой решётки.
+
+    `point` — якорь угла (вершина домена), `supports` — целые нормали скрытых
+    опор с их `q`, в порядке от входящей опоры к исходящей. Константа прямой
+    здесь не хранится намеренно: после привязки к решётке якорь СДВИГАЕТСЯ, и
+    константа, посчитанная до привязки, описывала бы прямую, не проходящую через
+    вершину. Прямая веера определена тем, что проходит через СВОЮ вершину, и это
+    определение переживает привязку, а константа нет.
+    """
+
+    name: str
+    point: tuple[Fraction, Fraction]
+    supports: tuple[tuple[int, int, Fraction], ...]
+
+
 @dataclass(frozen=True, slots=True)
 class _ArrivalLawsV1:
     """Законы плана, счёт пере-масштабированных и причина отказа, если он есть."""
@@ -485,15 +551,31 @@ class _ArrivalLawsV1:
     laws: tuple[PlainArrivalLawV1, ...]
     rescaled_count: int
     detail: str | None
+    #: Вееры вогнутых вершин, чьи направления РАЦИОНАЛЬНЫ (после рескейла).
+    fans: tuple[PlainVertexFanV1, ...] = ()
+    #: Сколько вееров пришлось отклонить: направление алгебраично и записью в
+    #: точных дробях не выражается. Тихого отката к митрованному углу здесь нет
+    #: — вызывающий обязан ответить `ANGULAR_PROFILE_DIRECTION_IS_NOT_RATIONAL`.
+    irrational_fan_count: int = 0
+    #: Вогнутые вершины, у которых профиль выбрал `k = 0`. Веера у них нет, и это
+    #: не отказ: митрованный угол есть законный член семейства.
+    mitered_corner_count: int = 0
 
 
 def _arrival_laws(context: GeometryContext) -> _ArrivalLawsV1:
-    """Законы прихода всех Strip-источников плана, без юбок и без союза.
+    """Законы прихода Strip-источников плана и ВЕЕРЫ вогнутых вершин.
 
     Имя закона — `envelope_spec_id`, а не `envelope_instance_id`, и это не
     удобство: имя экземпляра стоит на эффективной alpha и потому alpha-зависимо
     (измерено: три различных имени при 0.25 против 0.5). Спека же — сама
     идентичность источника, и она от alpha не двигается.
+
+    ANGULAR-СПЕКИ БОЛЬШЕ НЕ ОТБРАСЫВАЮТСЯ. Прежде здесь стояло
+    `isinstance(spec, StripEnvelopeSpec)` и всё, что им не было, исчезало молча,
+    — то есть очередь считала МИТРОВАННЫЙ угол там, где продукт требует мягкий,
+    и разницу нечем было заметить. Теперь скрытые опоры угла идут отдельным
+    каналом: они проходят не через ребро домена (их прямые пересекаются в самой
+    вершине), а через пер-вершинную разметку `PlainVertexFanV1`.
     """
 
     compilation = context.compilation
@@ -528,7 +610,91 @@ def _arrival_laws(context: GeometryContext) -> _ArrivalLawsV1:
                 )
             laws.append(law)
             rescaled_count += int(rescaled)
-    return _ArrivalLawsV1(tuple(laws), rescaled_count, None)
+    fans = _angular_fans(context)
+    return _ArrivalLawsV1(
+        tuple(laws),
+        rescaled_count + fans.rescaled_count,
+        None,
+        fans.fans,
+        fans.irrational_fan_count,
+        fans.mitered_corner_count,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _AngularFansV1:
+    """Вееры плана, счёт отклонённых и счёт митрованных углов."""
+
+    fans: tuple[PlainVertexFanV1, ...]
+    rescaled_count: int
+    irrational_fan_count: int
+    mitered_corner_count: int
+
+
+def _angular_fans(context: GeometryContext) -> _AngularFansV1:
+    """Веер каждой вогнутой вершины домена — ТЕМ ЖЕ рецептом, что у эталона.
+
+    Направления берутся у `angular_hidden_support_lines`, то есть у
+    `_angular_support_data` / `_interpolated_normals` эталона. Второй реализации
+    поворота здесь нет: рецепт направлений и есть то, чем `LINEAR_REFLEX_EQUAL_V1`
+    отличается от любого другого профиля, и разойдись он между путями — очередь
+    считала бы другой продукт, а не другую запись.
+
+    РАЦИОНАЛЬНОСТЬ ПРОВЕРЯЕТСЯ ПОСЛЕ РЕСКЕЙЛА, и это не мелочь. Биссектриса
+    перпендикулярного угла есть сумма двух единичных нормалей, каждая из которых
+    иррациональна, а их сумма после деления на общий множитель — целый вектор:
+    `(-1/sqrt(2), -1/sqrt(2))` даёт `(-1, -1)` при `q = 2`. Проверять до
+    рескейла значило бы отклонять весь полевой корпус на записи, а не на
+    геометрии.
+
+    Отклонённый веер НЕ заменяется митром. Счёт отклонённых уходит наверх, и
+    вызывающий обязан ответить именем: молча посчитать острый угол там, где
+    продукт требует мягкий, — это подмена ответа, а не приближение.
+    """
+
+    speed_squared = (
+        ANGULAR_PROFILE_NORMAL_SPEED.as_expr()
+        * ANGULAR_PROFILE_NORMAL_SPEED.as_expr()
+    )
+    fans: list[PlainVertexFanV1] = []
+    rescaled_count = 0
+    irrational = 0
+    mitered = 0
+    for spec in sorted(
+        context.compilation.envelope_specs,
+        key=lambda item: item.envelope_spec_id.value,
+    ):
+        if not isinstance(spec, AngularEnvelopeSpec):
+            continue
+        if spec.resolved_hidden_edge_count == 0:
+            # `k = 0` — тот самый митрованный угол, и он законный член
+            # семейства: скрытых опор нет, вставлять в фронт нечего.
+            mitered += 1
+            continue
+        name = spec.envelope_spec_id.value
+        _, anchor, hidden = angular_hidden_support_lines(context, spec)
+        point = _rational_point(anchor)
+        supports: list[tuple[int, int, Fraction]] = []
+        for support_id, normal, constant in hidden:
+            law, rescaled, _ = _read_arrival_law(
+                f"{name}/{support_id}", normal, constant, speed_squared
+            )
+            if law is None:
+                supports = []
+                break
+            rescaled_count += int(rescaled)
+            supports.append(_integer_normal(law))
+        if point is None or not supports:
+            irrational += 1
+            continue
+        fans.append(PlainVertexFanV1(name, point, tuple(supports)))
+    return _AngularFansV1(tuple(fans), rescaled_count, irrational, mitered)
+
+
+def _rational_point(point) -> tuple[Fraction, Fraction] | None:
+    x = exact_rational(point.x.as_expr())
+    y = exact_rational(point.y.as_expr())
+    return None if x is None or y is None else (x, y)
 
 
 def _region_loops(region):
@@ -548,7 +714,7 @@ def _region_loops(region):
 
 
 def _prepare_region(
-    region, laws, lattice: GridSpecV1, clock: _Clock
+    region, reading: _ArrivalLawsV1, lattice: GridSpecV1, clock: _Clock
 ) -> tuple[PreparedRegionV1 | None, str | None]:
     started = time.perf_counter()
     loops, issue = _region_loops(region)
@@ -558,7 +724,14 @@ def _prepare_region(
 
     started = time.perf_counter()
     report = bridge_arrival_laws(
-        loops, laws, lattice=lattice, weighted_fronts=True
+        loops,
+        reading.laws,
+        lattice=lattice,
+        weighted_fronts=True,
+        vertex_fans=tuple(
+            VertexFanLawV1(fan.name, fan.point, fan.supports)
+            for fan in reading.fans
+        ),
     )
     clock.add("BRIDGE", started)
     prepared = PreparedRegionV1(
@@ -640,20 +813,39 @@ def _preparation_outcome(
     return ConveyorOutcome.EXACT, ""
 
 
+def _law_counters(reading: _ArrivalLawsV1) -> Counters:
+    """Всё, что известно про законы и вееры, ДО первого региона.
+
+    Переживает любой поздний отказ: «законы были рациональны», «законы спасены
+    масштабом» и «веер отклонён» лечатся по-разному, и без счётчика поздний
+    отказ унёс бы это различение с собой.
+    """
+
+    return (
+        ("CONVEYOR_ARRIVAL_LAWS", len(reading.laws)),
+        ("CONVEYOR_RESCALED_ARRIVAL_LAWS", reading.rescaled_count),
+        ("CONVEYOR_RATIONAL_VERTEX_FANS", len(reading.fans)),
+        ("CONVEYOR_IRRATIONAL_VERTEX_FANS", reading.irrational_fan_count),
+        ("CONVEYOR_MITERED_CORNERS", reading.mitered_corner_count),
+        (
+            "CONVEYOR_FAN_SUPPORTS",
+            sum(len(fan.supports) for fan in reading.fans),
+        ),
+    )
+
+
 def _preparation_counters(
     regions: tuple[PreparedRegionV1, ...],
     reading: _ArrivalLawsV1,
     lattice: GridSpecV1,
 ) -> Counters:
-    return (
+    return _law_counters(reading) + (
         ("CONVEYOR_DOMAIN_REGIONS", len(regions)),
-        ("CONVEYOR_ARRIVAL_LAWS", len(reading.laws)),
-        # Сколько законов пришлось переписать делением на положительный
-        # множитель. Ноль — все записи были рациональны сами; ненулевое число
-        # означает, что столько полевых законов очередь получила только через
-        # смену записи, и без счётчика это было бы неотличимо.
-        ("CONVEYOR_RESCALED_ARRIVAL_LAWS", reading.rescaled_count),
         ("CONVEYOR_LATTICE_SCALE", lattice.scale),
+        (
+            "CONVEYOR_FAN_EDGES",
+            sum(item.bridge.fan_edge_count for item in regions),
+        ),
         ("CONVEYOR_DOMAIN_EDGES", sum(item.bridge.edge_count for item in regions)),
         (
             "CONVEYOR_SOURCE_EDGES",
@@ -713,15 +905,12 @@ def prepare_conveyor(
         return refusal
     compilation, context, domain, reading, lattice = inputs
     laws = reading.laws
-    # Всё, что уже известно про законы, переживает любой поздний отказ.
-    law_counters: Counters = (
-        ("CONVEYOR_ARRIVAL_LAWS", len(laws)),
-        ("CONVEYOR_RESCALED_ARRIVAL_LAWS", reading.rescaled_count),
-    )
+    # Всё, что уже известно про законы и вееры, переживает любой поздний отказ.
+    law_counters: Counters = _law_counters(reading)
 
     prepared_regions: list[PreparedRegionV1] = []
     for region in domain.domain_regions:
-        prepared, issue = _prepare_region(region, laws, lattice, clock)
+        prepared, issue = _prepare_region(region, reading, lattice, clock)
         if prepared is None:
             return _refused(
                 ConveyorOutcome.DOMAIN_POINT_IS_NOT_RATIONAL,
@@ -810,10 +999,15 @@ def _prepare_inputs(snapshot, request, patch_domain_id, clock: _Clock):
         return None, _refused(
             ConveyorOutcome.ARRIVAL_LAW_IS_NOT_RATIONAL, reading.detail, clock
         )
-    law_counters: Counters = (
-        ("CONVEYOR_ARRIVAL_LAWS", len(reading.laws)),
-        ("CONVEYOR_RESCALED_ARRIVAL_LAWS", reading.rescaled_count),
-    )
+    law_counters: Counters = _law_counters(reading)
+    if reading.irrational_fan_count:
+        return None, _refused(
+            ConveyorOutcome.ANGULAR_PROFILE_DIRECTION_IS_NOT_RATIONAL,
+            f"{reading.irrational_fan_count} вогнутых вершин из "
+            f"{reading.irrational_fan_count + len(reading.fans)} с веером",
+            clock,
+            law_counters,
+        )
     if not reading.laws:
         return None, _refused(
             ConveyorOutcome.NO_STRIP_SOURCE_IN_THE_PLAN,

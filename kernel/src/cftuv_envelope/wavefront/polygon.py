@@ -37,6 +37,25 @@
 ребро `n - 2 - j`, взятое в обратную сторону. Без этой перестановки пометка
 молча уезжала бы на соседнее ребро у каждой петли, ориентацию которой пришлось
 править, — то есть у всех дыр.
+
+ВЕЕР ВОГНУТОЙ ВЕРШИНЫ. Продукту нужен МЯГКИЙ вогнутый угол, а straight skeleton
+по построению даёт только острый митрованный: вершина уходит внутрь по
+биссектрисе, и апекс остаётся точкой. Замковый камень — linear axis (Tanase &
+Veltkamp): начальный фронт есть ИЗМЕНЁННЫЙ полигон, у которого в вогнутой
+вершине вставлены рёбра НУЛЕВОЙ ДЛИНЫ; дальше они живут обычными движущимися
+рёбрами, и ни одного нового правила событий им не требуется.
+
+Веер поэтому НЕ является частью `LoopV1` и не может ею быть: петля запрещает
+повтор точки, а ребро нулевой длины — это ровно повторившаяся точка. Он
+объявлен пер-вершинной разметкой `VertexFanV1`, привязанной к КООРДИНАТАМ
+вершины: `PolygonV1.build` нормирует ориентацию и может развернуть петлю, после
+чего индекс вершины означал бы уже другую вершину, а координата остаётся собой.
+
+Длина веера здесь НЕ ограничена. Ограничение `k <= 2` живёт в разделяемом
+рецепте направлений (`reference/angular.py`), потому что оно вытекает из
+продуктового `delta_max = pi/3`, а не из машинерии фронта; плотность сегментов
+объявлена будущим пользовательским параметром, и вход, зашивший в себя `k <= 2`,
+пришлось бы переписывать вместе с ним.
 """
 
 from __future__ import annotations
@@ -49,6 +68,7 @@ from ..robust.predicates import orient2d
 from .event_time import (
     NegativeSpeedError,
     NonRationalSpeedError,
+    SupportLineV1,
     normalized_speed,
 )
 
@@ -87,6 +107,26 @@ class PolygonOutcome(str, Enum):
     # Помечено ребро, которого в полигоне нет. Пометка, не нашедшая своего
     # ребра, — это потеря, и она названа, а не проигнорирована.
     SOURCE_SPAN_IS_NOT_AN_EDGE = "SOURCE_SPAN_IS_NOT_AN_EDGE"
+    # Веер объявлен в точке, которая вершиной контура не является либо является
+    # ею дважды (объявлен два раза, либо точка принадлежит двум петлям). Веер
+    # вставляется МЕЖДУ входящим и исходящим ребром вершины, и без единственной
+    # вершины у него нет места.
+    VERTEX_FAN_POINT_IS_NOT_A_UNIQUE_VERTEX = (
+        "VERTEX_FAN_POINT_IS_NOT_A_UNIQUE_VERTEX"
+    )
+    # У скрытой опоры нулевая нормаль (прямой нет вовсе) либо `q = 0` (стена).
+    # Ребро веера обязано ДВИГАТЬСЯ: неподвижное ребро нулевой длины не заметает
+    # ничего и остаётся точкой, то есть веер молча вырождается в митр.
+    VERTEX_FAN_SUPPORT_IS_NOT_A_MOVING_LINE = (
+        "VERTEX_FAN_SUPPORT_IS_NOT_A_MOVING_LINE"
+    )
+    # Нормали веера не поворачивают ВНУТРЬ вогнутого сектора монотонно. Порядок
+    # опор — часть входа (от входящей нормали к исходящей), и опора, стоящая не
+    # в своём секторе, дала бы фронт, идущий не туда; отсортировать её здесь
+    # значило бы придумать порядок, которого во входе нет.
+    VERTEX_FAN_SUPPORT_IS_NOT_INSIDE_THE_REFLEX_SECTOR = (
+        "VERTEX_FAN_SUPPORT_IS_NOT_INSIDE_THE_REFLEX_SECTOR"
+    )
 
 
 class PolygonRejected(ValueError):
@@ -112,6 +152,14 @@ def unit_speed_squared(
 
     dx, dy = end[0] - start[0], end[1] - start[1]
     return dx * dx + dy * dy
+
+
+def _edge_normal(
+    start: tuple[int, int], end: tuple[int, int]
+) -> tuple[int, int]:
+    """Нормаль ребра ВЛЕВО от хода — та же `(-dy, dx)`, что у `SupportLineV1`."""
+
+    return (-(end[1] - start[1]), end[0] - start[0])
 
 
 def signed_double_area(points: tuple[tuple[int, int], ...]) -> int:
@@ -268,11 +316,76 @@ class LoopV1:
 
 
 @dataclass(frozen=True, slots=True)
+class FanSupportV1:
+    """Одна скрытая опора веера: несущая прямая ЧЕРЕЗ вершину и её `q`.
+
+    Константа прямой здесь НЕ хранится: она равна `a*x + b*y` в самой вершине по
+    определению веера, и второе место её записи немедленно разошлось бы с
+    первым. Нормаль целая, `q` рационально — те же требования, что у
+    `SupportLineV1`, и по той же причине: все предикаты ниже целочисленные, а
+    рациональность входит ровно под корень.
+    """
+
+    normal_x: int
+    normal_y: int
+    speed_squared: int | Fraction
+
+    def __post_init__(self) -> None:
+        if self.normal_x == 0 and self.normal_y == 0:
+            raise PolygonRejected(
+                PolygonOutcome.VERTEX_FAN_SUPPORT_IS_NOT_A_MOVING_LINE,
+                "нормаль скрытой опоры нулевая",
+            )
+        try:
+            speed = normalized_speed(self.speed_squared)
+        except NonRationalSpeedError:
+            raise PolygonRejected(
+                PolygonOutcome.LOOP_SPEED_IS_NOT_RATIONAL,
+                repr(self.speed_squared),
+            ) from None
+        except NegativeSpeedError:
+            raise PolygonRejected(
+                PolygonOutcome.LOOP_SPEED_IS_NEGATIVE, str(self.speed_squared)
+            ) from None
+        if speed == 0:
+            raise PolygonRejected(
+                PolygonOutcome.VERTEX_FAN_SUPPORT_IS_NOT_A_MOVING_LINE,
+                "q скрытой опоры равно нулю: ребро веера не двигалось бы",
+            )
+        object.__setattr__(self, "speed_squared", speed)
+
+    @property
+    def normal(self) -> tuple[int, int]:
+        return (self.normal_x, self.normal_y)
+
+    def constant_at(self, point: tuple[int, int]) -> int:
+        return self.normal_x * point[0] + self.normal_y * point[1]
+
+
+@dataclass(frozen=True, slots=True)
+class VertexFanV1:
+    """Веер скрытых опор в ОДНОЙ вершине: `k` рёбер нулевой длины подряд.
+
+    `supports` упорядочены от ВХОДЯЩЕГО ребра вершины к ИСХОДЯЩЕМУ, ровно как
+    `reference/angular.py` упорядочивает `_interpolated_normals`. Пустой веер
+    законен и означает митрованный угол (`k = 0`): вход тогда тождественно
+    равен полигону без веера, и это проверяемое свойство, а не соглашение.
+    """
+
+    point: tuple[int, int]
+    supports: tuple[FanSupportV1, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class PolygonV1:
     """Область с дырами. Внешний контур CCW, дыры CW — нормируется здесь."""
 
     outer: LoopV1
     holes: tuple[LoopV1, ...] = ()
+    #: Вееры вогнутых вершин: рёбра нулевой длины начального фронта. Привязаны
+    #: к КООРДИНАТАМ вершины, потому что нормировка ориентации переставляет
+    #: индексы, а координаты оставляет собой.
+    vertex_fans: tuple[VertexFanV1, ...] = ()
 
     def __post_init__(self) -> None:
         if not any(any(loop.source_flags) for loop in self.loops):
@@ -280,6 +393,60 @@ class PolygonV1:
                 PolygonOutcome.POLYGON_HAS_NO_SOURCE_EDGE,
                 f"{self.edge_count} рёбер, все стены",
             )
+        self._check_vertex_fans()
+
+    def _check_vertex_fans(self) -> None:
+        """Веер проверяется ЦЕЛИКОМ и до всякого счёта, как и пометка скоростей.
+
+        Проверок здесь две, и каждая ловит своё. Первая — что точка веера есть
+        ЕДИНСТВЕННАЯ вершина контуров: веер вставляется между входящим и
+        исходящим ребром, и у точки, принадлежащей двум петлям, таких пар две.
+        Вторая — что нормали поворачивают внутрь ВОГНУТОГО сектора монотонно:
+        `n_prev x n_1 < 0`, `n_1 x n_2 < 0`, ..., `n_k x n_next < 0`. Знак
+        векторного произведения целочислен, поэтому порога тут нет; строгое
+        неравенство отвергает и совпавшие направления (ребро веера, слившееся с
+        соседом), и развёрнутый на pi поворот.
+
+        Отрицательный знак — это и есть вогнутость: `_is_reflex` в `skeleton.py`
+        решает её ровно тем же произведением нормалей, и функция одна на смысл,
+        чтобы вход и цикл событий не могли разойтись правкой одного из двух.
+        """
+
+        if not self.vertex_fans:
+            return
+        corners: dict[tuple[int, int], tuple[tuple[int, int], tuple[int, int]]] = {}
+        shared: set[tuple[int, int]] = set()
+        for loop in self.loops:
+            points = loop.points
+            size = len(points)
+            for index in range(size):
+                if points[index] in corners:
+                    shared.add(points[index])
+                corners[points[index]] = (
+                    _edge_normal(points[(index - 1) % size], points[index]),
+                    _edge_normal(points[index], points[(index + 1) % size]),
+                )
+        seen: set[tuple[int, int]] = set()
+        for fan in self.vertex_fans:
+            corner = corners.get(fan.point)
+            if corner is None or fan.point in shared or fan.point in seen:
+                raise PolygonRejected(
+                    PolygonOutcome.VERTEX_FAN_POINT_IS_NOT_A_UNIQUE_VERTEX,
+                    str(fan.point),
+                )
+            seen.add(fan.point)
+            normals = (
+                corner[0],
+                *(support.normal for support in fan.supports),
+                corner[1],
+            )
+            for left, right in zip(normals, normals[1:]):
+                if left[0] * right[1] - left[1] * right[0] >= 0:
+                    raise PolygonRejected(
+                        PolygonOutcome
+                        .VERTEX_FAN_SUPPORT_IS_NOT_INSIDE_THE_REFLEX_SECTOR,
+                        f"{fan.point}: {left} -> {right}",
+                    )
 
     @staticmethod
     def build(
@@ -349,6 +516,53 @@ class PolygonV1:
     def wall_edge_count(self) -> int:
         return sum(1 for _, _, speed in self.edges() if speed == 0)
 
+    @property
+    def fan_edge_count(self) -> int:
+        """Сколько рёбер НУЛЕВОЙ ДЛИНЫ добавляют вееры в начальный фронт."""
+
+        return sum(len(fan.supports) for fan in self.vertex_fans)
+
+    def fan_edges(
+        self,
+    ) -> tuple[tuple[tuple[int, int], int, SupportLineV1], ...]:
+        """Рёбра вееров: вершина, порядковый номер опоры и её несущая прямая.
+
+        ЕДИНСТВЕННОЕ место, откуда потребители берут прямую скрытой опоры, —
+        по той же причине, по какой `edges()` единственный источник скорости
+        ребра: второе место немедленно разошлось бы с первым, и разошлось бы
+        молча. Ординал начинается с единицы и совпадает с `ordinal` у
+        `HiddenSupportSpecV1`, чтобы веер очереди и веер эталона нумеровались
+        одинаково.
+
+        Рёбра `edges()` веера НЕ содержат: у них нулевая длина, а `edges()`
+        отдаёт пары концов, из которых потребители выводят и `|d|^2`, и
+        направление. Ноль там означал бы деление на ноль в каждом втором
+        вызывающем.
+        """
+
+        records: list[tuple[tuple[int, int], int, SupportLineV1]] = []
+        for fan in sorted(self.vertex_fans, key=lambda item: item.point):
+            for ordinal, support in enumerate(fan.supports, start=1):
+                records.append(
+                    (
+                        fan.point,
+                        ordinal,
+                        SupportLineV1(
+                            support.normal_x,
+                            support.normal_y,
+                            support.constant_at(fan.point),
+                            support.speed_squared,
+                        ),
+                    )
+                )
+        return tuple(records)
+
+    def fan_at(self, point: tuple[int, int]) -> VertexFanV1 | None:
+        for fan in self.vertex_fans:
+            if fan.point == point:
+                return fan
+        return None
+
 
 def with_source_spans(
     polygon: PolygonV1,
@@ -386,7 +600,25 @@ def with_source_spans(
             PolygonOutcome.SOURCE_SPAN_IS_NOT_AN_EDGE,
             f"{len(missing)} из {len(wanted)}: {sorted(map(sorted, missing))}",
         )
-    return PolygonV1(loops[0], tuple(loops[1:]))
+    return PolygonV1(loops[0], tuple(loops[1:]), polygon.vertex_fans)
+
+
+def with_vertex_fans(
+    polygon: PolygonV1, fans: tuple[VertexFanV1, ...]
+) -> PolygonV1:
+    """Тот же полигон с ВЕЕРАМИ в перечисленных вершинах.
+
+    Отдельной функцией, а не параметром `build`, ровно по той же причине, что и
+    `with_edge_speeds`: `build` НОРМИРУЕТ ориентацию и может развернуть петлю, а
+    веер задан относительно входящего и исходящего ребра вершины. Привязка идёт
+    по координате, поэтому применять её надо к уже нормированному полигону —
+    иначе «входящее ребро» означало бы разное до и после разворота.
+
+    Проверки веера делает `PolygonV1.__post_init__`, и здесь они не дублируются:
+    второе место проверки — это второе место, где её можно ослабить.
+    """
+
+    return PolygonV1(polygon.outer, polygon.holes, tuple(fans))
 
 
 def with_edge_speeds(
@@ -425,4 +657,4 @@ def with_edge_speeds(
             PolygonOutcome.SOURCE_SPAN_IS_NOT_AN_EDGE,
             f"{len(missing)} из {len(wanted)}: {sorted(map(sorted, missing))}",
         )
-    return PolygonV1(loops[0], tuple(loops[1:]))
+    return PolygonV1(loops[0], tuple(loops[1:]), polygon.vertex_fans)

@@ -79,7 +79,15 @@ from .events import (
     MotorcycleSeam,
     cluster_by_point,
 )
-from .polygon import LoopV1, PolygonOutcome, PolygonRejected, PolygonV1
+from .polygon import (
+    FanSupportV1,
+    LoopV1,
+    PolygonOutcome,
+    PolygonRejected,
+    PolygonV1,
+    VertexFanV1,
+    with_vertex_fans,
+)
 from .skeleton import (
     SkeletonNodeV1,
     SkeletonOutcome,
@@ -106,6 +114,7 @@ __all__ = [
     "EventQueueV1",
     "EventTimeOutcome",
     "EventTimeV1",
+    "FanSupportV1",
     "LoopV1",
     "MotorcycleGraphV1",
     "MotorcycleSeam",
@@ -122,6 +131,7 @@ __all__ = [
     "TraceCandidateIndexV1",
     "TraceOutcome",
     "TraceV1",
+    "VertexFanV1",
     "WallV1",
     "ZERO_TIME",
     "build_motorcycle_graph",
@@ -138,4 +148,5 @@ __all__ = [
     "prepare_conveyor",
     "times_are_equal",
     "walls_of",
+    "with_vertex_fans",
 ]
