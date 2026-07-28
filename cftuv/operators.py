@@ -503,6 +503,11 @@ class HOTSPOTUV_Settings(bpy.types.PropertyGroup):
         default=True,
         update=_update_envelope_debug_visibility,
     )
+    envelope_debug_show_refused: BoolProperty(
+        name="Refused",
+        default=True,
+        update=_update_envelope_debug_visibility,
+    )
     envelope_debug_show_labels: BoolProperty(
         name="Labels",
         default=True,
@@ -2256,13 +2261,9 @@ def _envelope_debug_outcome_value(value):
 
 
 def _envelope_stage_summary_text(profile):
-    summary = profile.stage_summary()
-    return (
-        f"Topology: {summary['topology']}/{summary['total']} | "
-        f"Metric: {summary['metric']}/{summary['total']} | "
-        f"Raw: {summary['raw']}/{summary['total']} | "
-        f"Resolved: {summary['resolved']}/{summary['total']}"
-    )
+    from .envelope_debug_profile import stage_summary_text
+
+    return stage_summary_text(profile)
 
 
 def _envelope_runtime_key(value):
@@ -2346,6 +2347,7 @@ def _draw_envelope_debug_box(layout, s):
     visibility.prop(s, "envelope_debug_show_equality")
     visibility.prop(s, "envelope_debug_show_resolved")
     visibility.prop(s, "envelope_debug_show_diagnostics")
+    visibility.prop(s, "envelope_debug_show_refused")
     visibility.prop(s, "envelope_debug_show_labels")
     visibility.prop(s, "envelope_debug_show_queue")
 
@@ -2357,28 +2359,15 @@ def _remember_queue_session(
     exact_scenes,
     evaluation,
 ):
-    """Запомнить подготовки очереди, чтобы ползунок нашёл их тёплыми."""
+    from .envelope_debug_session import remember_queue_session
 
-    from .envelope_debug_session import QueueSessionStateV1
-    from .envelope_queue_export import build_queue_scene
-
-    queue_domains = evaluation.queue_domains
-    if not queue_domains:
-        return None
-    controller.remember_queue_session(
-        QueueSessionStateV1(
-            str(source_name),
-            topology_scene,
-            tuple(exact_scenes),
-            tuple(
-                (item.patch_id, item.patch_domain_id, item.preparation)
-                for item in queue_domains
-                if item.preparation is not None
-            ),
-            evaluation.receipts,
-        )
+    return remember_queue_session(
+        controller,
+        source_name,
+        topology_scene,
+        exact_scenes,
+        evaluation,
     )
-    return build_queue_scene(queue_domains)
 
 
 class _EnvelopeDebugBuildBase:

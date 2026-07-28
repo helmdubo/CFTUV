@@ -172,6 +172,32 @@ ANGULAR_STAGE_COUNTERS = (
 )
 
 
+def _counter_total(profile: EnvelopeDebugProfileV1, name: str) -> int:
+    return sum(int(item.value) for item in profile.counters if item.name == name)
+
+
+def stage_summary_text(profile: EnvelopeDebugProfileV1) -> str:
+    """Строка панели: сколько доменов дошло до какой ступени.
+
+    Дополнение выделения дописывается той же строкой, а не остаётся только
+    счётчиком в JSON: владелец нажимает кнопку одним ребром шва, а считается
+    вся цепочка, и молчание об этом читалось бы как «оно так и было выделено».
+    """
+
+    summary = profile.stage_summary()
+    text = (
+        f"Topology: {summary['topology']}/{summary['total']} | "
+        f"Metric: {summary['metric']}/{summary['total']} | "
+        f"Raw: {summary['raw']}/{summary['total']} | "
+        f"Resolved: {summary['resolved']}/{summary['total']}"
+    )
+    chains = _counter_total(profile, "SELECTION_COMPLETED_CHAINS")
+    edges = _counter_total(profile, "SELECTION_COMPLETED_EDGES")
+    if chains or edges:
+        text += f" | Selection completed: {chains} chains, +{edges} edges"
+    return text
+
+
 class EnvelopeDebugProfileBuilderV1:
     """Local mutable collector; published snapshots remain immutable."""
 
@@ -275,4 +301,5 @@ __all__ = (
     "EnvelopeDebugTimingV1",
     "EnvelopeDomainStage",
     "EnvelopeDomainStageReceiptV1",
+    "stage_summary_text",
 )

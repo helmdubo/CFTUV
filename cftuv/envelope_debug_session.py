@@ -566,6 +566,40 @@ class EnvelopeDebugSessionController:
         )
 
 
+def remember_queue_session(
+    controller: EnvelopeDebugSessionController,
+    source_name: str,
+    topology_scene,
+    exact_scenes,
+    evaluation,
+):
+    """Запомнить подготовки очереди, чтобы ползунок нашёл их тёплыми.
+
+    `None` — очередь не считалась (движок LEGACY либо ни один домен до
+    подготовки не дошёл), и рисовать её слои нечем.
+    """
+
+    from .envelope_queue_export import build_queue_scene
+
+    queue_domains = evaluation.queue_domains
+    if not queue_domains:
+        return None
+    controller.remember_queue_session(
+        QueueSessionStateV1(
+            str(source_name),
+            topology_scene,
+            tuple(exact_scenes),
+            tuple(
+                (item.patch_id, item.patch_domain_id, item.preparation)
+                for item in queue_domains
+                if item.preparation is not None
+            ),
+            evaluation.receipts,
+        )
+    )
+    return build_queue_scene(queue_domains)
+
+
 def evaluate_envelope_debug_staged(
     analysis_bundle: AnalysisBundle,
     selected_physical_edge_ids: frozenset[int],
@@ -696,5 +730,6 @@ __all__ = (
     "WINDOW_MANAGER_SESSION_ATTRIBUTE",
     "evaluate_envelope_debug_staged",
     "register_window_manager_session_attribute",
+    "remember_queue_session",
     "unregister_window_manager_session_attribute",
 )
