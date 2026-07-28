@@ -94,10 +94,13 @@ from fractions import Fraction
 from ..robust.grid import GridSpecV1, snap_value
 from .event_time import SupportLineV1, normalized_speed
 from .polygon import (
+    FanSupportV1,
     LoopV1,
     PolygonRejected,
     PolygonV1,
+    VertexFanV1,
     with_edge_speeds,
+    with_vertex_fans,
 )
 
 
@@ -145,6 +148,18 @@ class BridgeOutcome(str, Enum):
     EDGE_SPEED_INSIDE_A_LINE_CLASS_IS_UNDETERMINED = (
         "EDGE_SPEED_INSIDE_A_LINE_CLASS_IS_UNDETERMINED"
     )
+    # Веер объявлен в точке, которая вершиной ПРИВЯЗАННОГО домена не является.
+    # Якорь угла — вершина домена по построению, но привязка двигает вершины, и
+    # два разных якоря могут сесть в один узел либо якорь может уехать с петли.
+    # Сопоставить веер «ближайшей» вершине значило бы придумать вершину.
+    VERTEX_FAN_ANCHOR_IS_NOT_A_LATTICE_VERTEX = (
+        "VERTEX_FAN_ANCHOR_IS_NOT_A_LATTICE_VERTEX"
+    )
+    # Привязанный домен с веером `PolygonV1` не принял: направление скрытой
+    # опоры перестало лежать внутри вогнутого сектора решёточной вершины.
+    # Отдельно от `LATTICE_SNAP_BREAKS_THE_DOMAIN_POLYGON`, потому что причина
+    # другая — не петля, а угол, — и лечится она сменой шага решётки, а не формы.
+    LATTICE_SNAP_BREAKS_A_VERTEX_FAN = "LATTICE_SNAP_BREAKS_A_VERTEX_FAN"
 
 
 # Порядок объявлен, а не выведен из порядка проверок: чем ниже, тем глубже
@@ -159,7 +174,30 @@ _OUTCOME_ORDER = (
     BridgeOutcome.MORE_ARRIVAL_LAWS_THAN_EDGES_ON_ONE_LINE,
     BridgeOutcome.SOURCE_EDGE_INSIDE_A_LINE_CLASS_IS_UNDETERMINED,
     BridgeOutcome.EDGE_SPEED_INSIDE_A_LINE_CLASS_IS_UNDETERMINED,
+    BridgeOutcome.VERTEX_FAN_ANCHOR_IS_NOT_A_LATTICE_VERTEX,
+    BridgeOutcome.LATTICE_SNAP_BREAKS_A_VERTEX_FAN,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class VertexFanLawV1:
+    """Веер вогнутой вершины в дорешёточных дробях: якорь и целые нормали опор.
+
+    Отдельный канал входа, а не ещё один `PlainArrivalLawV1`, и это не
+    оформление. Закон прихода сопоставляется с РЕБРОМ домена по классу несущей
+    прямой; прямая скрытой опоры проходит через саму вершину и ребром домена не
+    является ни при какой привязке, поэтому в том сопоставлении она получила бы
+    `ARRIVAL_LAW_IS_NOT_A_DOMAIN_EDGE` — верный ответ на неверно заданный
+    вопрос.
+
+    Константы прямых здесь нет намеренно: привязка двигает якорь, и прямая
+    восстанавливается через УЗЕЛ решётки, а не через дорешёточную константу.
+    """
+
+    name: str
+    point: RationalPoint
+    #: `(a, b, q)` каждой скрытой опоры, от входящей к исходящей.
+    supports: tuple[tuple[int, int, Fraction], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,6 +278,10 @@ class BridgeReportV1:
     # Рёбра-источники, чья скорость НЕ единичная. Их `q` рационально, а не
     # `|d|^2`, и это ровно та величина, ради которой снималась единичность.
     weighted_edge_count: int = 0
+    # Рёбра НУЛЕВОЙ ДЛИНЫ, которые вееры добавили в начальный фронт. Ноль здесь
+    # означает митрованные углы, и отличить его от «вееров не подавали» можно
+    # только по входу — поэтому число, а не флаг.
+    fan_edge_count: int = 0
 
     @property
     def wall_edge_count(self) -> int:
@@ -407,6 +449,7 @@ def bridge_arrival_laws(
     *,
     lattice: GridSpecV1 | None = None,
     weighted_fronts: bool = False,
+    vertex_fans: tuple[VertexFanLawV1, ...] = (),
 ) -> BridgeReportV1:
     """Собрать вход очереди из домена и законов прихода попарного кроя.
 
@@ -433,6 +476,12 @@ def bridge_arrival_laws(
     значении `lattice`, и это измерено, а не выбрано: после привязки `bf6`
     совпало 0 классов несущих прямых из 12. Разметка переносится на привязанный
     полигон по ПОЛОЖЕНИЮ ребра в петле — единственному, что привязка сохраняет.
+
+    `vertex_fans` — скрытые опоры вогнутых углов, идущие СВОИМ каналом. Ребром
+    домена их прямые не являются ни при какой привязке (они пересекаются в самой
+    вершине), поэтому сопоставление по классам прямых их не касается вовсе, а
+    якорь ищется среди УЗЛОВ привязанного домена: только узел и переживает
+    привязку однозначно.
     """
 
     findings: list[BridgeOutcome] = []
@@ -478,7 +527,9 @@ def bridge_arrival_laws(
         if present:
             findings.append(outcome)
 
-    built = _built_polygon(loops, lattice_loops, matching, findings, lattice)
+    built = _built_polygon(
+        loops, lattice_loops, matching, findings, lattice, vertex_fans
+    )
     ordered = tuple(
         outcome for outcome in _OUTCOME_ORDER if outcome in findings
     )
@@ -500,6 +551,7 @@ def bridge_arrival_laws(
         lattice_scale=None if lattice is None else lattice.scale,
         snap_residual=residual,
         weighted_edge_count=built.weighted_edge_count,
+        fan_edge_count=built.fan_edge_count,
     )
 
 
@@ -508,12 +560,11 @@ class _BuiltPolygonV1:
     """Полигон очереди и всё, что известно про его рёбра. Пустой — тоже ответ."""
 
     polygon: PolygonV1 | None = None
-    owner_by_edge: dict[tuple[int, int, int, int], str] = field(
-        default_factory=dict
-    )
-    ambiguous_spans: tuple[tuple[int, int, int, int], ...] = ()
-    wall_spans: tuple[tuple[int, int, int, int], ...] = ()
+    owner_by_edge: dict[tuple[int, ...], str] = field(default_factory=dict)
+    ambiguous_spans: tuple[tuple[int, ...], ...] = ()
+    wall_spans: tuple[tuple[int, ...], ...] = ()
     weighted_edge_count: int = 0
+    fan_edge_count: int = 0
 
 
 def _lattice_image(
@@ -590,12 +641,62 @@ def _collapsed_edges(
     return tuple(collapsed)
 
 
+def _lattice_fans(
+    lattice_loops: LatticeLoops,
+    vertex_fans: tuple[VertexFanLawV1, ...],
+    lattice: GridSpecV1 | None,
+    findings: list[BridgeOutcome],
+) -> tuple[tuple[VertexFanV1, ...], dict[tuple[int, ...], str]] | None:
+    """Вееры на УЗЛАХ решётки плюс владелец каждой скрытой опоры.
+
+    Якорь ищется среди узлов привязанного домена, а не среди дорешёточных
+    вершин: прямая веера восстанавливается ЧЕРЕЗ УЗЕЛ, потому что привязка
+    двигает вершину, а прямая обязана проходить через ту вершину, в которой веер
+    сидит. Дорешёточная константа описывала бы прямую, сдвинутую на `snap_residual`
+    мимо своего угла — то есть веер, растущий не из вершины.
+
+    `None` — веер привязку не пережил, и в `findings` уже лежит имя. Тихого
+    выбрасывания веера нет: угол без веера — это МИТРОВАННЫЙ угол, то есть
+    другой продукт, и подменять один другим молча нельзя.
+    """
+
+    nodes = {point for loop in lattice_loops for point in loop}
+    fans: list[VertexFanV1] = []
+    owner: dict[tuple[int, ...], str] = {}
+    for fan in vertex_fans:
+        if lattice is None:
+            node = (int(fan.point[0]), int(fan.point[1]))
+        else:
+            node = (
+                snap_value(fan.point[0], lattice),
+                snap_value(fan.point[1], lattice),
+            )
+        if node not in nodes:
+            findings.append(
+                BridgeOutcome.VERTEX_FAN_ANCHOR_IS_NOT_A_LATTICE_VERTEX
+            )
+            return None
+        fans.append(
+            VertexFanV1(
+                node,
+                tuple(
+                    FanSupportV1(a, b, speed)
+                    for a, b, speed in fan.supports
+                ),
+            )
+        )
+        for ordinal in range(1, len(fan.supports) + 1):
+            owner[(node[0], node[1], node[0], node[1], ordinal)] = fan.name
+    return tuple(fans), owner
+
+
 def _built_polygon(
     loops: tuple[tuple[tuple[Fraction, Fraction], ...], ...],
     lattice_loops: LatticeLoops | None,
     matching: "_MatchingV1",
     findings: list[BridgeOutcome],
     lattice: GridSpecV1 | None,
+    vertex_fans: tuple[VertexFanLawV1, ...] = (),
 ) -> _BuiltPolygonV1:
     """Полигон очереди из привязанного домена и разметки по классам прямых.
 
@@ -617,6 +718,10 @@ def _built_polygon(
         _weighted_span(edge, lattice_loops, matching.speed_ratio[edge])
         for edge in matching.source_edges
     )
+    mapped = _lattice_fans(lattice_loops, vertex_fans, lattice, findings)
+    if mapped is None:
+        return _BuiltPolygonV1()
+    fans, fan_owner = mapped
     try:
         polygon = with_edge_speeds(
             PolygonV1.build(
@@ -633,12 +738,20 @@ def _built_polygon(
         findings.append(BridgeOutcome.LATTICE_SNAP_BREAKS_THE_DOMAIN_POLYGON)
         _ = refusal
         return _BuiltPolygonV1()
+    if fans:
+        try:
+            polygon = with_vertex_fans(polygon, fans)
+        except PolygonRejected as refusal:
+            findings.append(BridgeOutcome.LATTICE_SNAP_BREAKS_A_VERTEX_FAN)
+            _ = refusal
+            return _BuiltPolygonV1()
     return _BuiltPolygonV1(
         polygon=polygon,
         owner_by_edge={
             _lattice_span(edge, lattice_loops): name
             for edge, name in matching.forced_owner.items()
-        },
+        }
+        | fan_owner,
         ambiguous_spans=tuple(
             _lattice_span(edge, lattice_loops) for edge in matching.ambiguous
         ),
@@ -655,6 +768,7 @@ def _built_polygon(
         weighted_edge_count=sum(
             1 for edge in matching.source_edges if matching.speed_ratio[edge] != 1
         ),
+        fan_edge_count=polygon.fan_edge_count,
     )
 
 

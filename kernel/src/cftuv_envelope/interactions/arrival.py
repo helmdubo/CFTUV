@@ -92,6 +92,40 @@ def strip_front_support_line(context: GeometryContext, source):
     return normal, _line_constant(normal, source.start)
 
 
+# Скорость фронта скрытой опоры веера. Единица здесь — свойство профиля
+# `LINEAR_REFLEX_EQUAL_V1` (`AngularEnvelopeSpec.all_support_normal_speed`), а
+# не умолчание записи, и объявлена она затем же, зачем `STRIP_FRONT_NORMAL_SPEED`:
+# второй путь обязан взять её отсюда, а не вписать единицу у себя.
+ANGULAR_PROFILE_NORMAL_SPEED = ExactScalar.from_value(1)
+
+
+def angular_hidden_support_lines(
+    context: GeometryContext, spec: AngularEnvelopeSpec
+):
+    """Несущие прямые СКРЫТЫХ опор веера: якорь, ковектор нормали и константа.
+
+    Тот же разрез, что у `strip_front_support_line`, и ровно по той же причине:
+    вход очереди событий строит ТЕ ЖЕ прямые, но ни юбки, ни клипа, ни союза ему
+    не нужно. Направления берутся у общего рецепта `_angular_support_data`, то
+    есть у `reference/angular.py:_interpolated_normals`, — второй реализации
+    поворота здесь нет и быть не должно: рецепт направлений и есть то, что
+    отличает `LINEAR_REFLEX_EQUAL_V1` от любого другого профиля.
+
+    Возвращаются ТОЛЬКО скрытые опоры, без входящей и исходящей: те две уже
+    несут собственные Strip-законы своих рёбер, и повторить их здесь значило бы
+    подать очереди по два претендента на одну прямую.
+    """
+
+    relation, anchor, support_ids, normals = _angular_support_data(context, spec)
+    hidden = []
+    for ordinal in range(1, spec.resolved_hidden_edge_count + 1):
+        normal = context.metric.support_covector_g(normals[ordinal])
+        hidden.append(
+            (support_ids[ordinal], normal, _line_constant(normal, anchor))
+        )
+    return relation, anchor, tuple(hidden)
+
+
 def _segment_on_front(
     segment: BoundedSupportSegment,
     law: ExactFrontArrivalLawV1,
@@ -462,7 +496,7 @@ def compile_arrival_models(
                     source_constant=_line_constant(
                         context.metric.support_covector_g(normal), anchor
                     ),
-                    normal_speed=ExactScalar.from_value(1),
+                    normal_speed=ANGULAR_PROFILE_NORMAL_SPEED,
                 )
                 for ordinal, (support_id, normal) in enumerate(
                     zip(support_ids, normals, strict=True)

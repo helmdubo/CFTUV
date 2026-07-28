@@ -230,6 +230,19 @@ def test_the_public_entry_reproduces_the_field_numbers_without_the_union(
         # пере-масштабировании, вторая половина (двойка) на фикстуре
         # `building_002_weighted_normals_v1`.
         "CONVEYOR_RESCALED_ARRIVAL_LAWS": 0,
+        # ВЕЕРОВ У ЭТОГО ДОМЕНА НЕТ, и все четыре нуля означают одно и то же
+        # измеренное обстоятельство: снапшот `building.002` не объявляет ни
+        # одного `CornerRelation`, поэтому компилятор не строит ни одной
+        # `AngularEnvelopeSpec`. Не «веер отклонён» (тогда стоял бы
+        # `CONVEYOR_IRRATIONAL_VERTEX_FANS`) и не «угол митрованный по профилю»
+        # (тогда `CONVEYOR_MITERED_CORNERS`), а «угла во входе нет вовсе».
+        # Отсюда и числа ниже не сдвинулись после появления мягкого угла:
+        # см. `test_wavefront_vertex_fan.py`.
+        "CONVEYOR_RATIONAL_VERTEX_FANS": 0,
+        "CONVEYOR_IRRATIONAL_VERTEX_FANS": 0,
+        "CONVEYOR_MITERED_CORNERS": 0,
+        "CONVEYOR_FAN_SUPPORTS": 0,
+        "CONVEYOR_FAN_EDGES": 0,
         "CONVEYOR_LATTICE_SCALE": 65536,
         "CONVEYOR_DOMAIN_EDGES": 12,
         "CONVEYOR_SOURCE_EDGES": 3,
@@ -855,6 +868,14 @@ def test_the_weighted_normals_domain_needs_the_rescale_and_then_closes(
         "CONVEYOR_DOMAIN_REGIONS": 1,
         "CONVEYOR_ARRIVAL_LAWS": 4,
         "CONVEYOR_RESCALED_ARRIVAL_LAWS": 2,
+        # Вееров нет по той же причине, что и у соседней фикстуры: у домена нет
+        # ни одного объявленного вогнутого угла. Ноль здесь — измерение входа,
+        # а не тишина очереди.
+        "CONVEYOR_RATIONAL_VERTEX_FANS": 0,
+        "CONVEYOR_IRRATIONAL_VERTEX_FANS": 0,
+        "CONVEYOR_MITERED_CORNERS": 0,
+        "CONVEYOR_FAN_SUPPORTS": 0,
+        "CONVEYOR_FAN_EDGES": 0,
         "CONVEYOR_LATTICE_SCALE": 65536,
         "CONVEYOR_DOMAIN_EDGES": 4,
         "CONVEYOR_SOURCE_EDGES": 4,

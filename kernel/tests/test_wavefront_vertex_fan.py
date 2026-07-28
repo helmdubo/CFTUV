@@ -17,6 +17,10 @@
 | веер вне вогнутого сектора — именованный отказ               | `..._a_support_outside_the_reflex_sector_is_refused` |
 | веер не в вершине — именованный отказ                        | `..._a_fan_off_the_contour_is_refused` |
 | `k` опор одной вершины дают `k` РАЗНЫХ граней                | `..._two_supports_of_one_vertex_get_two_faces` |
+| очередь строит веер ТЕМ ЖЕ рецептом, что эталон              | `..._conveyor_builds_the_fan_with_the_reference_recipe` |
+| мост проводит веер своим каналом и называет владельца        | `..._bridge_carries_the_fan_through_its_own_channel` |
+| нерациональный веер — громкий отказ, а не откат к митру       | `..._an_irrational_fan_refuses_the_whole_domain` |
+| полевые фикстуры вееров НЕ содержат, и это измерено           | `..._the_field_fixtures_declare_no_corner_relation_at_all` |
 
 Ни одна строка сверки не пропущена: `ell`, `staircase`, `u_shape` при каждой
 alpha, для которой независимость квадратов доказана самим митрованным эталоном.
@@ -375,6 +379,239 @@ def test_the_chain_standard_refuses_when_the_reflex_squares_meet():
     standard = chamfered_standard(staircase(), Fraction(3))
     assert standard.outcome is ChamferOutcome.REFLEX_SQUARES_ARE_NOT_INDEPENDENT
     assert "против бюджета" in standard.detail
+
+
+def test_the_conveyor_builds_the_fan_with_the_reference_recipe():
+    """Веер очереди строится РЕЦЕПТОМ ЭТАЛОНА, и его числа заморожены.
+
+    Проверяется на единственном угловом входе, который в репозитории есть, —
+    `angular_snapshot(k)`. Направления берутся у `_interpolated_normals` через
+    `angular_hidden_support_lines`, второй реализации поворота нет, и это видно
+    по числам: у `k = 2` вторая опора получается УДВОЕНИЕМ первой ровно так, как
+    её строит эталон, а не независимым счётом.
+
+    | `k` | митрованных углов | вееров | опоры `(a, b, q)` |
+    |----:|------------------:|-------:|-------------------|
+    | 0   | 1                 | 0      | — (митр — законный член семейства) |
+    | 1   | 0                 | 1      | `(3, -4, 25)` |
+    | 2   | 0                 | 1      | `(3, -4, 25)`, `(-7, -24, 625)` |
+
+    ГИПОТЕЗА КАРТОЧКИ «`k = 2` даёт кубику тройного угла, значит направление
+    алгебраично» на этом входе ОПРОВЕРГНУТА: фикстура стоит на утроенном
+    пифагоровом угле (`cos 3t = -117/125` при `cos t = 3/5`), и трисекция выходит
+    рациональной. Отсюда и вход веера оставлен k-агностичным: ограничение живёт в
+    рецепте направлений, а не в машинерии.
+
+    `q = a^2 + b^2` у обеих опор — единичная евклидова скорость, то самое
+    `all_support_normal_speed = 1` профиля, прочитанное из записи, а не
+    вписанное.
+    """
+
+    from cftuv_envelope.reference.common import GeometryContext
+    from cftuv_envelope.reference.compile import compile_reference_envelopes
+    from cftuv_envelope.reference.validation import (
+        validate_reference_geometry_payload,
+    )
+    from cftuv_envelope.wavefront.conveyor import _angular_fans
+
+    from reference_factories import angular_snapshot
+
+    expected = {
+        0: ((), 1),
+        1: (((3, -4, Fraction(25)),), 0),
+        2: (((3, -4, Fraction(25)), (-7, -24, Fraction(625))), 0),
+    }
+    for hidden_count, (supports, mitered) in expected.items():
+        snapshot, request = angular_snapshot(hidden_count)
+        compilation = compile_reference_envelopes(snapshot, request).compilation
+        frame, _ = validate_reference_geometry_payload(
+            compilation.analysis_snapshot, compilation.plan_key.patch_domain_id
+        )
+        fans = _angular_fans(GeometryContext.build(compilation, frame))
+        assert fans.irrational_fan_count == 0, hidden_count
+        assert fans.mitered_corner_count == mitered, hidden_count
+        assert len(fans.fans) == (0 if mitered else 1), hidden_count
+        if supports:
+            assert fans.fans[0].supports == supports, hidden_count
+            assert fans.fans[0].point == (Fraction(0), Fraction(0))
+        # Единичная скорость проверяется РАВЕНСТВОМ, а не «похоже на единицу».
+        for a, b, speed in supports:
+            assert speed == a * a + b * b
+
+
+def test_the_bridge_carries_the_fan_through_its_own_channel():
+    """Мост проводит веер СВОИМ каналом: не по рёбрам, а по узлу вершины.
+
+    Прямая скрытой опоры проходит через саму вершину и ребром домена не является
+    ни при какой привязке, поэтому в сопоставлении по классам прямых она
+    получила бы `ARRIVAL_LAW_IS_NOT_A_DOMAIN_EDGE` — верный ответ на неверно
+    заданный вопрос. Здесь проверяется, что канал у неё отдельный: полигон
+    получает ребро нулевой длины, а владелец грани называется именем спеки.
+    """
+
+    from cftuv_envelope.wavefront.bridge import (
+        BridgeOutcome,
+        VertexFanLawV1,
+        bridge_arrival_laws,
+        unit_speed_laws_of,
+    )
+
+    figure = ell(12)
+    loops = tuple(
+        tuple((Fraction(x), Fraction(y)) for x, y in loop.points)
+        for loop in figure.loops
+    )
+    report = bridge_arrival_laws(
+        loops,
+        unit_speed_laws_of(figure),
+        vertex_fans=(
+            VertexFanLawV1(
+                "angular-spec:probe",
+                (Fraction(6), Fraction(6)),
+                ((-1, -1, Fraction(2)),),
+            ),
+        ),
+    )
+    assert report.outcome is BridgeOutcome.EXACT, report.findings
+    assert report.fan_edge_count == 1
+    assert dict(report.owner_by_edge)[fan_edge_key((6, 6), 1)] == (
+        "angular-spec:probe"
+    )
+    partition = build_faces(
+        report.polygon, build_skeleton(report.polygon)
+    )
+    assert partition.outcome is FaceOutcome.EXACT, partition.detail
+    covered = coverage_at(partition, Fraction(1))
+    assert covered.doubled_area.terms == ((1, Fraction(82)), (2, Fraction(4)))
+
+
+def test_a_fan_anchor_off_the_lattice_domain_is_refused_by_name():
+    """Якорь, не севший в узел домена, — именованный отказ моста.
+
+    Сопоставить веер «ближайшей» вершине значило бы придумать вершину, а веер,
+    выброшенный молча, превратил бы мягкий угол в митрованный без следа.
+    """
+
+    from cftuv_envelope.wavefront.bridge import (
+        BridgeOutcome,
+        VertexFanLawV1,
+        bridge_arrival_laws,
+        unit_speed_laws_of,
+    )
+
+    figure = ell(12)
+    loops = tuple(
+        tuple((Fraction(x), Fraction(y)) for x, y in loop.points)
+        for loop in figure.loops
+    )
+    report = bridge_arrival_laws(
+        loops,
+        unit_speed_laws_of(figure),
+        vertex_fans=(
+            VertexFanLawV1(
+                "angular-spec:probe",
+                (Fraction(7), Fraction(7)),
+                ((-1, -1, Fraction(2)),),
+            ),
+        ),
+    )
+    assert (
+        report.outcome is BridgeOutcome.VERTEX_FAN_ANCHOR_IS_NOT_A_LATTICE_VERTEX
+    )
+    assert report.polygon is None
+
+
+def test_an_irrational_fan_refuses_the_whole_domain_and_counts_the_vertices():
+    """Нерациональное направление — ОТКАЗ уровня домена, а не откат к митру.
+
+    Проверяется подменой рецепта направлений на заведомо алгебраическое: если
+    когда-нибудь появится тихая ветка «не вышло — посчитаем острый угол», этот
+    тест увидит `EXACT` там, где обязано стоять имя.
+    """
+
+    import sympy as sp
+
+    from cftuv_envelope.reference.planar_types import ExactPlanarVector
+    from cftuv_envelope.wavefront import conveyor as module
+
+    from reference_factories import angular_snapshot
+
+    snapshot, request = angular_snapshot(1)
+    original = module.angular_hidden_support_lines
+
+    def algebraic(context, spec):
+        relation, anchor, hidden = original(context, spec)
+        return (
+            relation,
+            anchor,
+            tuple(
+                (
+                    support_id,
+                    ExactPlanarVector.from_values(sp.sqrt(3), sp.Integer(1)),
+                    constant,
+                )
+                for support_id, _, constant in hidden
+            ),
+        )
+
+    module.angular_hidden_support_lines = algebraic
+    try:
+        prepared = module.prepare_conveyor(snapshot, request)
+    finally:
+        module.angular_hidden_support_lines = original
+    assert (
+        prepared.outcome
+        is module.ConveyorOutcome.ANGULAR_PROFILE_DIRECTION_IS_NOT_RATIONAL
+    )
+    assert prepared.detail.startswith("1 вогнутых вершин из 1")
+    assert prepared.counter("CONVEYOR_IRRATIONAL_VERTEX_FANS") == 1
+    assert prepared.counter("CONVEYOR_RATIONAL_VERTEX_FANS") == 0
+
+
+def test_the_field_fixtures_declare_no_corner_relation_at_all():
+    """ИЗМЕРЕННАЯ находка: полевые фикстуры вееров не содержат вовсе.
+
+    Карточка среза объявляла сильнейшим критерием равенство с эталоном на `bf6`
+    и предупреждала, что прежние митрованные числа `bf6` СДВИНУТСЯ. Они не
+    сдвинулись, и причина не в очереди: снапшот `building.002` не объявляет НИ
+    ОДНОГО `CornerRelation`, поэтому компилятор не строит ни одной
+    `AngularEnvelopeSpec`, веера в плане нет, и оба пути — эталон и очередь —
+    считают ту же митрованную точку семейства, что и до среза.
+
+    Критерий, стало быть, ДОСТИЖИМ, но пуст: он проверяет равенство двух путей,
+    в которое веер не входит. Это не повод его снимать (равенство само по себе
+    ценно и проверяется в `test_wavefront_conveyor.py`), но повод записать
+    числом, чего именно на полевом входе нет. Мягкий угол на `building.002`
+    появится тогда, когда хост начнёт объявлять вогнутые углы домена, — и это
+    работа адаптера хоста, а не очереди.
+    """
+
+    import cftuv_envelope as kernel
+    from cftuv_envelope.contracts.envelopes import AngularEnvelopeSpec
+    from cftuv_envelope.reference.compile import compile_reference_envelopes
+
+    from wavefront_cases import FIELD_FIXTURE
+
+    root = FIELD_FIXTURE.parent
+    for name in (
+        "building_002_point_contact_v1",
+        "building_002_weighted_normals_v1",
+    ):
+        folder = root.parent / name
+        snapshot = kernel.AnalysisSnapshotCodecV1.loads(
+            (folder / "analysis_snapshot.json").read_bytes()
+        )
+        request = kernel.DecalRequestCodecV1.loads(
+            (folder / "decal_request.json").read_bytes()
+        )
+        assert snapshot.corner_relations == frozenset(), name
+        assert snapshot.angular_owner_sectors == frozenset(), name
+        compilation = compile_reference_envelopes(snapshot, request).compilation
+        assert not [
+            spec
+            for spec in compilation.envelope_specs
+            if isinstance(spec, AngularEnvelopeSpec)
+        ], name
 
 
 def test_the_corpus_without_fans_never_fires_the_new_filter():
