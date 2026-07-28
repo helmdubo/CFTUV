@@ -27,7 +27,24 @@ SELECTED_EDGES = (2, 3, 7)
 ALPHA = 0.25
 HISTORICAL_BASE_SHA = "df587ed166cfb0e0b615148f08c583b4477c5ac4"
 SELECTED_IMPLEMENTATION_SHA = "c2622d07020338e5231b81f41655fe6c74cdca72"
-ACCEPTED_EXPORTER_SHA = "43e69d3889d273ed19daee9239ae0e311a1b213d"
+# Ревизия хоста, чей экспортёр признан извлекающей властью для отгруженных
+# байтов. Константу читает ТОЛЬКО `_export`, и только чтобы записать её в
+# `manifest.provenance.accepted_exporter_sha`; `_verify` её не читает вовсе,
+# поэтому verify-режим не ломается ни на старом значении, ни на новом.
+#
+# Было `43e69d3` — экспортёр C-R2C, признанный властью потому, что host того
+# времени отвергал точный сертификат угла до сериализации
+# (`artifacts/envelope_fix_00/session_fix_00_handoff.json`). Тот блокер снят
+# слиянием `cb444d5`, и полевая фикстура пересобрана уже починенным хостом.
+#
+# Что 43e69d3 НЕ МОГ записать эти байты — доказано, а не предположено:
+# оба отгруженных `grid_certificate` объявляют `SOURCE_ONLY_GRID_SNAP_V1`,
+# а этот закон появился в `4f596a9` (R1b, 25 июля), который НЕ является
+# предком `43e69d3` (24 июля). Сверх того дескриптор отгруженной фикстуры
+# побитово равен `build_rational_affine_planar_metric` под ровно теми
+# политиками, что хост передаёт в `envelope_request_export.py:1836-1837`
+# (`HOST_GRID_POLICY` / `HOST_PLANARITY_POLICY` из `cftuv/surface_ir.py`).
+ACCEPTED_EXPORTER_SHA = "cb444d5a4f0f08a92f3fa70e39ee86e70e84e984"
 
 
 def _arguments() -> argparse.Namespace:

@@ -101,16 +101,39 @@ def test_sqrt_sum_number_comes_from_the_enclosure_not_from_parts():
 
 
 def test_queue_domain_carries_owners_and_reaches_exact():
+    """Те же числа, которыми ядро описывает эту фикстуру. Взяты прогоном.
+
+    Числа сдвинулись после пересборки фикстуры хостом с починенным сертификатом
+    угла, и сдвинулись по ДВУМ независимым причинам, которые здесь названы
+    раздельно, потому что путать их значило бы объяснять одно другим:
+
+    1. **закон решётки**. Снапшот объявляет `SOURCE_ONLY_GRID_SNAP_V1` с шагом
+       источника `1/2048`, и метрика от этого стала грубее рациональной записью.
+       Отсюда решётка карты `32768` вместо `65536`. Топологию этот закон НЕ
+       двигает — проверено прямым сравнением с `UNSNAPPED_EXACT_V1` в
+       `kernel/tests/test_grid_wiring.py`;
+    2. **четыре `CornerRelation`**. Два из них компилируются в угловые спеки на
+       запросе фикстуры, и это даёт 2 веера сверх 3 юбок: 5 граней и 5
+       владельцев вместо 3 и 3. Стен по-прежнему 9, законов прихода 3.
+
+    `SNAP_RESIDUAL` в findings — цена первой причины, объявленная точной дробью,
+    а не округлённая: привязка источника сдвигает домен, и мост это печатает.
+    """
+
     domain = _run("0.25")
 
     assert domain.preparation_outcome == "EXACT"
     assert domain.coverage_outcome == "EXACT"
-    # Те же числа, которыми ядро описывает эту фикстуру: 3 источника, 9 стен,
-    # 3 грани. Числа взяты прогоном, а не из памяти.
+    # Законов прихода 3 — это ЮБКИ, и вееров среди них нет: у веера свой канал.
     assert len(domain.law_names) == 3
-    assert len(domain.faces) == 3
+    assert all(name.startswith("strip-spec:") for name in domain.law_names)
+    # 3 юбки + 2 веера. Разбиение сверяется ПОИМЁННО, а не только суммой: 5 = 3+2
+    # держалось бы и при неверном составе.
+    assert len(domain.faces) == 5
+    kinds = sorted(face.envelope_spec_id.split(":")[0] for face in domain.faces)
+    assert kinds == ["angular-spec", "angular-spec"] + ["strip-spec"] * 3
     assert domain.regions[0].wall_edge_count == 9
-    assert domain.lattice_scale == 65536
+    assert domain.lattice_scale == 32768
     assert all(face.envelope_spec_id for face in domain.faces)
     assert all(len(face.points) >= 3 for face in domain.faces)
     assert len(
@@ -122,6 +145,8 @@ def test_queue_domain_carries_owners_and_reaches_exact():
     # У полевой фикстуры скорости фронтов НЕ единичные, и мост говорит это
     # именем, а не молчанием.
     assert "NON_UNIT_SPEED_LAWS=3" in domain.regions[0].findings
+    # Остаток привязки источника назван точной дробью тем же мостом.
+    assert "SNAP_RESIDUAL=684097/46729953280" in domain.regions[0].findings
 
 
 def test_coverage_grows_with_alpha_and_geometry_does_not_move():
@@ -164,6 +189,21 @@ def test_alpha_change_on_a_warm_preparation_does_not_prepare_again():
 
 
 def test_scene_payload_maps_slot_colour_spec_and_instance():
+    """Слот, цвет и спека — у КАЖДОГО владельца; имя экземпляра — не у каждого.
+
+    Второе — ИЗМЕРЕННОЕ ограничение ядра, а не выбор хоста, и оно заморожено
+    здесь именем, чтобы не выглядеть случайным пропуском: `_instance_names`
+    (`kernel/src/cftuv_envelope/wavefront/conveyor.py:1048`) перебирает спеки и
+    пропускает всё, что не `StripEnvelopeSpec`, поэтому alpha-зависимого имени
+    экземпляра у веера НЕТ. Юбки его имеют все три, веера — ни один из двух.
+
+    Прежняя редакция требовала имя экземпляра у всех владельцев и была верна
+    ровно до тех пор, пока владельцами были только юбки. Открытый счёт: либо
+    ядро начинает называть экземпляр веера, либо контракт объявляет, что у
+    веера его не бывает; до тех пор цвет берётся из спеки, и это работает —
+    проверяется `test_owner_colour_survives_an_alpha_change`.
+    """
+
     scene = build_queue_scene((_run("0.25"),))
     payload = queue_scene_payload(scene)
 
@@ -173,9 +213,25 @@ def test_scene_payload_maps_slot_colour_spec_and_instance():
     for owner in payload["owners"]:
         assert owner["layer"] == QUEUE_OWNER_LAYERS[owner["palette_slot"]]
         assert len(owner["color"]) == 4
-        assert owner["envelope_instance_id"]
-        # Имя экземпляра зависит от alpha, имя спеки — нет; в цвет идёт спека.
-        assert owner["envelope_spec_id"] != owner["envelope_instance_id"]
+        assert owner["envelope_spec_id"]
+        if owner["envelope_instance_id"] is not None:
+            # Имя экземпляра зависит от alpha, имя спеки — нет; в цвет идёт спека.
+            assert owner["envelope_spec_id"] != owner["envelope_instance_id"]
+    # Разбиение владельцев по наличию имени экземпляра — ПОИМЁННО, а не счётом.
+    named = {
+        owner["envelope_spec_id"]
+        for owner in payload["owners"]
+        if owner["envelope_instance_id"] is not None
+    }
+    unnamed = {
+        owner["envelope_spec_id"]
+        for owner in payload["owners"]
+        if owner["envelope_instance_id"] is None
+    }
+    assert len(named) == 3 and all(item.startswith("strip-spec:") for item in named)
+    assert len(unnamed) == 2 and all(
+        item.startswith("angular-spec:") for item in unnamed
+    )
     assert payload["domains"][0]["coverage_outcome"] == "EXACT"
     assert payload["domains"][0]["regions"][0]["bridge_outcome"] == "EXACT"
 
