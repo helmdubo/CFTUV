@@ -21,7 +21,13 @@ from typing import TYPE_CHECKING
 
 from .model import ChainNeighborKind, LoopKind, PatchType
 from .surface_ir import HOST_GRID_POLICY, HOST_PLANARITY_POLICY
+from .envelope_angle_certificate import (
+    SnapshotExportRejected,
+    certified_reflex_measure,
+    validate_exported_snapshot,
+)
 from .envelope_debug_profile import (
+    ANGULAR_STAGE_COUNTERS,
     EnvelopeDebugProfileBuilderV1,
     EnvelopeDebugTimingV1,
     EnvelopeDomainStage,
@@ -1439,6 +1445,7 @@ def _build_angular_relations(
     launch_id_by_ref: dict[tuple[int, int, int], object],
     record_by_ref: dict[tuple[int, int, int], _HostChainRecord],
     vertex_ids: dict[int, object],
+    profile: EnvelopeDebugProfileBuilderV1 | None = None,
 ):
     scalar = lambda value: sympy.Rational(str(float(value)))
     metric_types = importlib.import_module(
@@ -1598,8 +1605,12 @@ def _build_angular_relations(
                 )
             return expressions(first), tangent
 
+        # Счётчики заводятся ДО обхода и всегда, даже нулями: «углов не
+        # нашлось» и «стадия ничего не смотрела» иначе — одна пустота.
+        stage_counters = dict.fromkeys(ANGULAR_STAGE_COUNTERS, 0)
         for loop_index, loop in enumerate(patch.boundary_loops):
             for corner_index, corner in enumerate(loop.corners):
+                stage_counters["ANGULAR_CORNERS_CONSIDERED"] += 1
                 prev_source_ref = (
                     patch_id,
                     loop_index,
@@ -1647,6 +1658,7 @@ def _build_angular_relations(
                         incoming_tangent_vector,
                         outgoing_tangent_vector,
                     ) > 0:
+                        stage_counters["ANGULAR_COLLINEAR_SKIPPED"] += 1
                         continue
                     raise EnvelopeHostAdapterError(
                         EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_ANGULAR_CERTIFICATE_UNAVAILABLE,
@@ -1680,14 +1692,20 @@ def _build_angular_relations(
                 )
                 if not is_reflex:
                     continue
+                stage_counters["ANGULAR_REFLEX_CORNERS"] += 1
                 cosine, sine = metric.angle_g(
                     incoming_vector, outgoing_vector
                 )
+                orientation = (
+                    kernel.TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION
+                    if turn_cross > 0
+                    else kernel.TurnOrientation.CW_IN_OWNER_PATCH_ORIENTATION
+                )
                 try:
-                    interval_phi, interval_delta = (
-                        angle_measure.reflex_angle_intervals_over_pi(
-                            sine, cosine
-                        )
+                    # δ выводится из φ уже после канонизации: иначе равенство
+                    # `δ == φ − 1` не доживает до записи (см. модуль меры).
+                    measure = certified_reflex_measure(
+                        kernel, angle_measure, sine, cosine, orientation
                     )
                 except angle_measure.CertifiedAngleUnavailable as error:
                     raise EnvelopeHostAdapterError(
@@ -1695,11 +1713,6 @@ def _build_angular_relations(
                         str(error),
                         patch_domain_id=domain_id.value,
                     ) from error
-                orientation = (
-                    kernel.TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION
-                    if turn_cross > 0
-                    else kernel.TurnOrientation.CW_IN_OWNER_PATCH_ORIENTATION
-                )
                 owner_sector_id = sector_id_by_ref[prev_ref]
                 if owner_sector_id in used_sector_ids:
                     raise EnvelopeHostAdapterError(
@@ -1770,12 +1783,7 @@ def _build_angular_relations(
                         kernel.AngleMeasureSource.HOST_ANALYSIS_EXACT_OR_CERTIFIED,
                         kernel.StrictAngleRangeCertificate.STRICT_PI_LT_PHI_LT_2PI,
                         kernel.ReflexExcessLaw.DELTA_EQUALS_PHI_MINUS_PI,
-                        kernel.CertifiedReflexAngleMeasureV1(
-                            interval_phi,
-                            interval_delta,
-                            orientation,
-                            kernel.AngleNormalizationLaw.VALUE_OVER_SYMBOLIC_PI_V1,
-                        ),
+                        measure,
                         False,
                     )
                 )
@@ -1796,6 +1804,10 @@ def _build_angular_relations(
                         False,
                     )
                 )
+                stage_counters["ANGULAR_RELATIONS_BUILT"] += 1
+        if profile is not None:
+            for name, value in sorted(stage_counters.items()):
+                profile.set_counter(name, value, domain_id.value)
     return (
         frozenset(angular_sectors),
         frozenset(angle_certificates),
@@ -2283,6 +2295,7 @@ def build_envelope_analysis_snapshot(
             launch_id_by_ref=launch_id_by_ref,
             record_by_ref=record_by_ref,
             vertex_ids=vertex_ids,
+            profile=profile,
         )
 
     domain_records = frozenset(
@@ -2329,35 +2342,17 @@ def build_envelope_analysis_snapshot(
         frozenset(terminal_relations),
     )
     with _measure(profile, "SNAPSHOT_VALIDATION", angular_timing_domain):
-        issues = kernel.validate_analysis_snapshot(snapshot)
-        if issues:
-            message = "; ".join(
-                f"{item.code.value}:{'.'.join(item.path)}:{item.message}"
-                for item in issues
-            )
+        # Оба валидатора ядра, и над объектом, и над каноническими байтами:
+        # полевой отказ прошёл именно здесь — в памяти снапшот был валиден, а
+        # выпущенные байты ядро отвергало целиком.
+        try:
+            validate_exported_snapshot(kernel, snapshot)
+        except SnapshotExportRejected as error:
             raise EnvelopeHostAdapterError(
-                EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_ANALYSIS_SNAPSHOT_INVALID,
-                message,
-            )
-        validation = importlib.import_module(
-            "cftuv_envelope.reference.validation"
-        )
-        for domain_id in sorted(
-            (item.patch_domain_id for item in snapshot.patch_domains),
-            key=lambda item: item.value,
-        ):
-            _, diagnostics = validation.validate_reference_geometry_payload(
-                snapshot, domain_id
-            )
-            if diagnostics:
-                raise EnvelopeHostAdapterError(
-                    EnvelopeDebugHostOutcome.ENVELOPE_DEBUG_EXACT_PLANAR_FRAME_UNAVAILABLE,
-                    "; ".join(
-                        f"{item.outcome.value}:{item.message}"
-                        for item in diagnostics
-                    ),
-                    patch_domain_id=domain_id.value,
-                )
+                EnvelopeDebugHostOutcome(error.outcome_name),
+                str(error),
+                patch_domain_id=error.patch_domain_id,
+            ) from error
     return snapshot
 
 

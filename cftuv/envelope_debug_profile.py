@@ -161,6 +161,17 @@ LIVE_TRACED_STAGES = frozenset({
 })
 
 
+# Стадия ANGULAR_RELATIONS писала только тайминг, поэтому её нулевой выход был
+# неотличим от отсутствия углов: пусто и пусто. Ключи объявлены перечнем, чтобы
+# стадия печатала все четыре числа даже там, где ни одно из них не выросло.
+ANGULAR_STAGE_COUNTERS = (
+    "ANGULAR_CORNERS_CONSIDERED",
+    "ANGULAR_COLLINEAR_SKIPPED",
+    "ANGULAR_REFLEX_CORNERS",
+    "ANGULAR_RELATIONS_BUILT",
+)
+
+
 class EnvelopeDebugProfileBuilderV1:
     """Local mutable collector; published snapshots remain immutable."""
 
@@ -256,6 +267,7 @@ class EnvelopeDebugProfileBuilderV1:
 
 
 __all__ = (
+    "ANGULAR_STAGE_COUNTERS",
     "ENVELOPE_DEBUG_PROFILE_SCHEMA_V1",
     "EnvelopeDebugCounterV1",
     "EnvelopeDebugProfileBuilderV1",
