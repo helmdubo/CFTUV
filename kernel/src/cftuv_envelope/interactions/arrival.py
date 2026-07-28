@@ -25,7 +25,7 @@ from ..ids import (
     LineageId,
     SourceSupportId,
 )
-from ..reference.angular import _incident_normal, _interpolated_normals
+from ..reference.angular import angular_support_data
 from ..reference.arrangement import ExactSegmentArrangementBackend
 from ..reference.boundary import build_domain_geometry
 from ..reference.common import GeometryContext, make_segment, stable_id
@@ -106,17 +106,15 @@ def angular_hidden_support_lines(
 
     Тот же разрез, что у `strip_front_support_line`, и ровно по той же причине:
     вход очереди событий строит ТЕ ЖЕ прямые, но ни юбки, ни клипа, ни союза ему
-    не нужно. Направления берутся у общего рецепта `_angular_support_data`, то
-    есть у `reference/angular.py:_interpolated_normals`, — второй реализации
-    поворота здесь нет и быть не должно: рецепт направлений и есть то, что
-    отличает `LINEAR_REFLEX_EQUAL_V1` от любого другого профиля.
+    не нужно. Направления берутся у общего `angular_support_data`, который
+    перепроверяет plan-authority binding; второй реализации поворота здесь нет.
 
     Возвращаются ТОЛЬКО скрытые опоры, без входящей и исходящей: те две уже
     несут собственные Strip-законы своих рёбер, и повторить их здесь значило бы
     подать очереди по два претендента на одну прямую.
     """
 
-    relation, anchor, support_ids, normals = _angular_support_data(context, spec)
+    relation, anchor, support_ids, normals = angular_support_data(context, spec)
     hidden = []
     for ordinal in range(1, spec.resolved_hidden_edge_count + 1):
         normal = context.metric.support_covector_g(normals[ordinal])
@@ -208,45 +206,6 @@ def _front_reading_declaration(
             interaction_component_ids=frozenset(),
         )
     return matches[0], None
-
-
-def _angular_support_data(context: GeometryContext, spec: AngularEnvelopeSpec):
-    relation = next(
-        item
-        for item in context.snapshot.corner_relations
-        if item.corner_relation_id == spec.source_relation_id
-    )
-    sector = next(
-        item
-        for item in context.snapshot.angular_owner_sectors
-        if item.owner_sector_id == spec.owner_sector_id
-    )
-    anchor = context.points_by_id[relation.source_vertex_id]
-    incoming, incoming_support_id = _incident_normal(
-        context,
-        sector.ordered_incident_chain_use_ids[0],
-        relation.source_vertex_id,
-    )
-    outgoing, outgoing_support_id = _incident_normal(
-        context,
-        sector.ordered_incident_chain_use_ids[-1],
-        relation.source_vertex_id,
-    )
-    normals = _interpolated_normals(
-        context.metric,
-        incoming,
-        outgoing,
-        spec.resolved_hidden_edge_count,
-        sector.turn_orientation,
-    )
-    hidden_by_ordinal = {item.ordinal: item for item in spec.hidden_supports}
-    support_ids = [incoming_support_id]
-    support_ids.extend(
-        hidden_by_ordinal[index].hidden_support_id.value
-        for index in range(1, spec.resolved_hidden_edge_count + 1)
-    )
-    support_ids.append(outgoing_support_id)
-    return relation, anchor, tuple(support_ids), normals
 
 
 def _select_cap_incident_reading(
@@ -483,7 +442,7 @@ def compile_arrival_models(
             continue
 
         if isinstance(spec, AngularEnvelopeSpec):
-            relation, anchor, support_ids, normals = _angular_support_data(
+            relation, anchor, support_ids, normals = angular_support_data(
                 context, spec
             )
             profile_laws = tuple(

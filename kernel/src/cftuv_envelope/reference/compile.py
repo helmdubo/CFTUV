@@ -26,6 +26,7 @@ from ..contracts.envelopes import (
     AngularSubdivisionPolicy,
     CapClosureLawId,
     CapEnvelopeSpec,
+    CertifiedBoundHiddenSupportSpecV1,
     EffectiveAlphaBindingKind,
     ExactTwoPiHandling,
     HiddenSupportDirectionLaw,
@@ -101,6 +102,12 @@ from .contracts import (
     ReferenceEnvelopeCompilationV1,
     ReferenceEvaluationDiagnosticV1,
     ReferenceOutcome,
+)
+from .direction_binding import (
+    DirectionBindingCertificateUnproven,
+    certify_direction_bindings,
+    has_rational_support_direction,
+    verify_direction_bindings,
 )
 from .provenance import make_reference_provenance
 from .validation import (
@@ -270,6 +277,123 @@ def _attach_front_reading_declarations(
         ),
         front_reading_declarations=frozenset(declarations),
         self_contact_pair_declarations=frozenset(),
+    )
+
+
+def _attach_direction_bindings(
+    compilation: ReferenceEnvelopeCompilationV1,
+) -> ReferenceEnvelopeCompilationV1 | ReferenceCompileResultV1:
+    """Привязать только нерациональные hidden ordinals до выдачи плана."""
+
+    from .angular import angular_support_data
+    from .common import GeometryContext, ReferenceGeometryError
+
+    if (
+        compilation.analysis_snapshot.surface_ir.payload_mode
+        is not SurfacePayloadMode.FULL_HOST_SURFACE
+    ):
+        return compilation
+    frame, diagnostics = validate_reference_geometry_payload(
+        compilation.analysis_snapshot,
+        compilation.plan_key.patch_domain_id,
+    )
+    if frame is None:
+        return ReferenceCompileResultV1(
+            diagnostics[0].outcome,
+            None,
+            diagnostics,
+        )
+    context = GeometryContext.build(compilation, frame)
+    changed_specs = set(compilation.envelope_specs)
+    try:
+        for spec in sorted(
+            (
+                item
+                for item in compilation.envelope_specs
+                if isinstance(item, AngularEnvelopeSpec)
+                and item.resolved_hidden_edge_count > 0
+            ),
+            key=lambda item: item.envelope_spec_id.value,
+        ):
+            sector = next(
+                item
+                for item in context.snapshot.angular_owner_sectors
+                if item.owner_sector_id == spec.owner_sector_id
+            )
+            _, _, _, ideal = angular_support_data(context, spec)
+            needs_binding = tuple(
+                not has_rational_support_direction(
+                    context.metric, ideal[ordinal]
+                )
+                for ordinal in range(1, spec.resolved_hidden_edge_count + 1)
+            )
+            if not any(needs_binding):
+                continue
+            certificates = certify_direction_bindings(
+                context.metric, ideal, sector.turn_orientation
+            )
+            selected_certificates = tuple(
+                certificate if needed else None
+                for needed, certificate in zip(
+                    needs_binding, certificates, strict=True
+                )
+            )
+            verify_direction_bindings(
+                context.metric,
+                ideal,
+                sector.turn_orientation,
+                selected_certificates,
+            )
+            supports = frozenset(
+                _bound_support(support, selected_certificates[support.ordinal - 1])
+                for support in spec.hidden_supports
+            )
+            changed_specs.remove(spec)
+            changed_specs.add(replace(spec, hidden_supports=supports))
+    except DirectionBindingCertificateUnproven as exc:
+        return _failure(
+            ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
+            f"direction binding certificate is not proven: {exc}",
+        )
+    except ReferenceGeometryError as exc:
+        return _failure(exc.outcome, str(exc))
+    return replace(compilation, envelope_specs=frozenset(changed_specs))
+
+
+def _bound_support(support, certificate):
+    if certificate is None:
+        return support
+    return CertifiedBoundHiddenSupportSpecV1(
+        hidden_support_id=support.hidden_support_id,
+        ordinal=support.ordinal,
+        turn_fraction=support.turn_fraction,
+        direction_law=(
+            HiddenSupportDirectionLaw.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1
+        ),
+        zero_length_at_alpha_zero=support.zero_length_at_alpha_zero,
+        scope=support.scope,
+        source_relation_id=support.source_relation_id,
+        owner_sector_id=support.owner_sector_id,
+        selection_certificate_id=support.selection_certificate_id,
+        direction_binding=certificate,
+    )
+
+
+def _finalize_compilation(
+    compilation: ReferenceEnvelopeCompilationV1,
+) -> ReferenceCompileResultV1:
+    compiled_with_bindings = _attach_direction_bindings(compilation)
+    if isinstance(compiled_with_bindings, ReferenceCompileResultV1):
+        return compiled_with_bindings
+    compiled_with_readings = _attach_front_reading_declarations(
+        compiled_with_bindings
+    )
+    if isinstance(compiled_with_readings, ReferenceCompileResultV1):
+        return compiled_with_readings
+    return ReferenceCompileResultV1(
+        ReferenceOutcome.EXACT,
+        compiled_with_readings,
+        (),
     )
 
 
@@ -891,11 +1015,4 @@ def compile_reference_envelopes(
             )
         ),
     )
-    compiled_with_readings = _attach_front_reading_declarations(compilation)
-    if isinstance(compiled_with_readings, ReferenceCompileResultV1):
-        return compiled_with_readings
-    return ReferenceCompileResultV1(
-        ReferenceOutcome.EXACT,
-        compiled_with_readings,
-        (),
-    )
+    return _finalize_compilation(compilation)

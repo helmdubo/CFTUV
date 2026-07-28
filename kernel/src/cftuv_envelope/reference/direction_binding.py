@@ -95,7 +95,7 @@ def verify_direction_bindings(
     metric: ExactPlanarMetric,
     ideal_unit_normals: tuple[ExactPlanarVector, ...],
     orientation: TurnOrientation,
-    certificates: tuple[DirectionBindingCertificateV1, ...],
+    certificates: tuple[DirectionBindingCertificateV1 | None, ...],
 ) -> None:
     """Перепроверить записанные plan-authority направления без их перестроения."""
 
@@ -104,6 +104,8 @@ def verify_direction_bindings(
     )
     if len(certificates) != max(0, len(ideal) - 2):
         raise DirectionBindingCertificateUnproven(BINDING_MONOTONE)
+    if not any(certificate is not None for certificate in certificates):
+        return
     windows = tuple(
         (
             _midpoint(metric, ideal[index - 1], ideal[index]),
@@ -171,23 +173,28 @@ def _certificate_in_window(
 
 def _failed_predicate(metric, ideal, orientation, certificates, windows):
     if any(
-        certificate.proven_predicates != _PROVEN_PREDICATES
-        or not _primitive_integer(certificate.bound_primitive_integer_vector)
+        certificate is not None
+        and (
+            certificate.proven_predicates != _PROVEN_PREDICATES
+            or not _primitive_integer(certificate.bound_primitive_integer_vector)
+        )
         for certificate in certificates
     ):
         return BINDING_MONOTONE
-    bound = tuple(
-        ExactPlanarVector.from_values(
+    resolved = tuple(
+        ideal[index]
+        if certificate is None
+        else ExactPlanarVector.from_values(
             *certificate.bound_primitive_integer_vector
         )
-        for certificate in certificates
+        for index, certificate in enumerate(certificates, start=1)
     )
     expected = (
         1
         if orientation is TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION
         else -1
     )
-    sequence = (ideal[0], *bound, ideal[-1])
+    sequence = (ideal[0], *resolved, ideal[-1])
     try:
         if any(
             exact_sign(_oriented_cross(metric, left, right)) != expected
@@ -195,11 +202,14 @@ def _failed_predicate(metric, ideal, orientation, certificates, windows):
         ):
             return BINDING_MONOTONE
         if any(
-            not _inside(metric, candidate, window, expected)
-            for candidate, window in zip(bound, windows, strict=True)
+            certificate is not None
+            and not _inside(metric, candidate, window, expected)
+            for certificate, candidate, window in zip(
+                certificates, resolved, windows, strict=True
+            )
         ):
             return BINDING_INSIDE_OWN_ORDINAL_WINDOW
-        if not _certificate_intervals_hold(ideal, bound, certificates):
+        if not _certificate_intervals_hold(ideal, resolved, certificates):
             return BINDING_INSIDE_OWN_ORDINAL_WINDOW
         if any(
             not _subturn_at_most_pi_over_three(metric, left, right)
@@ -243,6 +253,8 @@ def _certificate_intervals_hold(ideal, bound, certificates):
     for ideal_direction, candidate, certificate in zip(
         ideal[1:-1], bound, certificates, strict=True
     ):
+        if certificate is None:
+            continue
         lower = certificate.ideal_window_lower_slope_envelope
         upper = certificate.ideal_window_upper_slope_envelope
         width = certificate.certified_window_width_lower_bound

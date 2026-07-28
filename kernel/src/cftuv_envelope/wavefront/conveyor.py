@@ -64,7 +64,11 @@ from math import gcd
 
 import sympy as sp
 
-from ..contracts.envelopes import AngularEnvelopeSpec, StripEnvelopeSpec
+from ..contracts.envelopes import (
+    AngularEnvelopeSpec,
+    CertifiedBoundHiddenSupportSpecV1,
+    StripEnvelopeSpec,
+)
 from ..contracts.analysis import AnalysisSnapshotV1
 from ..contracts.request import DecalRequestV1
 from ..ids import PatchDomainId
@@ -586,6 +590,8 @@ class _ArrivalLawsV1:
     #: Вогнутые вершины, у которых профиль выбрал `k = 0`. Веера у них нет, и это
     #: не отказ: митрованный угол есть законный член семейства.
     mitered_corner_count: int = 0
+    #: Plan-authority направления, реально потреблённые посеянными веерами.
+    bound_direction_count: int = 0
 
 
 def _arrival_laws(context: GeometryContext) -> _ArrivalLawsV1:
@@ -644,6 +650,7 @@ def _arrival_laws(context: GeometryContext) -> _ArrivalLawsV1:
         fans.fans,
         fans.degraded_corners,
         fans.mitered_corner_count,
+        fans.bound_direction_count,
     )
 
 
@@ -655,16 +662,15 @@ class _AngularFansV1:
     rescaled_count: int
     degraded_corners: tuple[DegradedMiterCornerV1, ...]
     mitered_corner_count: int
+    bound_direction_count: int
 
 
 def _angular_fans(context: GeometryContext) -> _AngularFansV1:
     """Веер каждой вогнутой вершины домена — ТЕМ ЖЕ рецептом, что у эталона.
 
-    Направления берутся у `angular_hidden_support_lines`, то есть у
-    `_angular_support_data` / `_interpolated_normals` эталона. Второй реализации
-    поворота здесь нет: рецепт направлений и есть то, чем `LINEAR_REFLEX_EQUAL_V1`
-    отличается от любого другого профиля, и разойдись он между путями — очередь
-    считала бы другой продукт, а не другую запись.
+    Направления берутся у `angular_hidden_support_lines`, то есть у общего
+    `angular_support_data` эталона с перепроверкой plan-authority binding.
+    Второй реализации поворота здесь нет.
 
     РАЦИОНАЛЬНОСТЬ ПРОВЕРЯЕТСЯ ПОСЛЕ РЕСКЕЙЛА, и это не мелочь. Биссектриса
     перпендикулярного угла есть сумма двух единичных нормалей, каждая из которых
@@ -697,6 +703,7 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
     rescaled_count = 0
     degraded: list[DegradedMiterCornerV1] = []
     mitered = 0
+    bound_directions = 0
     for spec in sorted(
         context.compilation.envelope_specs,
         key=lambda item: item.envelope_spec_id.value,
@@ -713,9 +720,17 @@ def _angular_fans(context: GeometryContext) -> _AngularFansV1:
             degraded.append(corner)
             continue
         rescaled_count += rescaled
+        bound_directions += sum(
+            isinstance(item, CertifiedBoundHiddenSupportSpecV1)
+            for item in spec.hidden_supports
+        )
         fans.append(fan)
     return _AngularFansV1(
-        tuple(fans), rescaled_count, tuple(degraded), mitered
+        tuple(fans),
+        rescaled_count,
+        tuple(degraded),
+        mitered,
+        bound_directions,
     )
 
 
@@ -727,10 +742,10 @@ def _one_fan(context: GeometryContext, spec, speed_squared):
     затем, что второй случай несёт СВОИ данные — вершину и причину, — а не
     отсутствие первых.
 
-    Причин деградации две, и они НЕ взаимоисключающие: нерациональный якорь
-    вершины и нерациональное направление опоры. Поэтому причины собираются
-    списком, а не последней записью: у вершины с обеими бедами вторая иначе
-    затирала бы первую, и лечение искали бы не там.
+    Нерациональный якорь проверяется ПЕРВЫМ и не читает bound-support вовсе:
+    привязка направления не способна сделать координату вершины рациональной.
+    Только после этого потребляется plan-authority направление; старый
+    контроль деградации «якорь не рационален» поэтому остаётся независимым.
 
     Пустой список опор при пустом списке причин здесь невозможен: `k >= 1` по
     построению вызывающего, а `angular_hidden_support_lines` эмитит опору на
@@ -739,11 +754,28 @@ def _one_fan(context: GeometryContext, spec, speed_squared):
     """
 
     name = spec.envelope_spec_id.value
-    _, anchor, hidden = angular_hidden_support_lines(context, spec)
+    relation = next(
+        item
+        for item in context.snapshot.corner_relations
+        if item.corner_relation_id == spec.source_relation_id
+    )
+    anchor = context.points_by_id[relation.source_vertex_id]
     point = _rational_point(anchor)
+    if point is None:
+        return (
+            None,
+            0,
+            DegradedMiterCornerV1(
+                envelope_spec_id=name,
+                corner_relation_id=spec.source_relation_id.value,
+                anchor=None,
+                reason="якорь не рационален",
+            ),
+        )
+    _, _, hidden = angular_hidden_support_lines(context, spec)
     supports: list[tuple[int, int, Fraction]] = []
     rescaled_count = 0
-    reasons: list[str] = [] if point is not None else ["якорь не рационален"]
+    reasons: list[str] = []
     for support_id, normal, constant in hidden:
         law, rescaled, issue = _read_arrival_law(
             f"{name}/{support_id}", normal, constant, speed_squared
@@ -916,6 +948,7 @@ def _law_counters(reading: _ArrivalLawsV1) -> Counters:
         ("CONVEYOR_RATIONAL_VERTEX_FANS", len(reading.fans)),
         ("CONVEYOR_DEGRADED_MITER_CORNERS", len(reading.degraded_corners)),
         ("CONVEYOR_MITERED_CORNERS", reading.mitered_corner_count),
+        ("CONVEYOR_BOUND_FAN_DIRECTIONS", reading.bound_direction_count),
         (
             "CONVEYOR_FAN_SUPPORTS",
             sum(len(fan.supports) for fan in reading.fans),

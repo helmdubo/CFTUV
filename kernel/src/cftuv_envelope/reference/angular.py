@@ -5,7 +5,11 @@ from __future__ import annotations
 import sympy as sp
 
 from ..contracts.analysis import TurnOrientation
-from ..contracts.envelopes import AngularEnvelopeSpec, StripEnvelopeSpec
+from ..contracts.envelopes import (
+    AngularEnvelopeSpec,
+    CertifiedBoundHiddenSupportSpecV1,
+    StripEnvelopeSpec,
+)
 from ..numeric import LocalLengthV1
 from .common import (
     GeometryContext,
@@ -17,6 +21,11 @@ from .common import (
     support_vertex_certificate,
 )
 from .contracts import ReferenceEnvelopeInstanceV1, ReferenceOutcome
+from .direction_binding import (
+    DirectionBindingCertificateUnproven,
+    bound_unit_normal,
+    verify_direction_bindings,
+)
 from .planar_types import (
     ConstructionCertificate,
     ConstructionKind,
@@ -136,12 +145,9 @@ def _interpolated_normals(
     return incoming, hidden_one, hidden_two, outgoing
 
 
-def evaluate_angular_envelope(
-    context: GeometryContext,
-    spec: AngularEnvelopeSpec,
-    alpha_value: LocalLengthV1,
-    effective_alpha: sp.Expr,
-) -> ReferenceEnvelopeInstanceV1:
+def angular_support_data(context: GeometryContext, spec: AngularEnvelopeSpec):
+    """Опоры Angular из одной plan-authority записи, с перепроверкой binding."""
+
     relation = next(
         item
         for item in context.snapshot.corner_relations
@@ -153,13 +159,17 @@ def evaluate_angular_envelope(
         if item.owner_sector_id == spec.owner_sector_id
     )
     anchor = context.points_by_id[relation.source_vertex_id]
-    incoming, incoming_source_support = _incident_normal(
-        context, sector.ordered_incident_chain_use_ids[0], relation.source_vertex_id
+    incoming, incoming_support_id = _incident_normal(
+        context,
+        sector.ordered_incident_chain_use_ids[0],
+        relation.source_vertex_id,
     )
-    outgoing, outgoing_source_support = _incident_normal(
-        context, sector.ordered_incident_chain_use_ids[-1], relation.source_vertex_id
+    outgoing, outgoing_support_id = _incident_normal(
+        context,
+        sector.ordered_incident_chain_use_ids[-1],
+        relation.source_vertex_id,
     )
-    normals = _interpolated_normals(
+    ideal = _interpolated_normals(
         context.metric,
         incoming,
         outgoing,
@@ -175,12 +185,46 @@ def evaluate_angular_envelope(
             ReferenceOutcome.ANGULAR_PROFILE_SELECTION_UNCERTAIN,
             "AngularEnvelope hidden-support records do not match the selected K",
         )
-    support_ids = [incoming_source_support]
-    support_ids.extend(
-        hidden_by_ordinal[item].hidden_support_id.value
-        for item in range(1, spec.resolved_hidden_edge_count + 1)
+    certificates = tuple(
+        (
+            hidden_by_ordinal[ordinal].direction_binding
+            if isinstance(
+                hidden_by_ordinal[ordinal],
+                CertifiedBoundHiddenSupportSpecV1,
+            )
+            else None
+        )
+        for ordinal in range(1, spec.resolved_hidden_edge_count + 1)
     )
-    support_ids.append(outgoing_source_support)
+    try:
+        verify_direction_bindings(
+            context.metric, ideal, sector.turn_orientation, certificates
+        )
+    except DirectionBindingCertificateUnproven as exc:
+        raise ReferenceGeometryError(
+            ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
+            f"direction binding certificate is not proven: {exc}",
+        ) from exc
+    normals = list(ideal)
+    for ordinal, certificate in enumerate(certificates, start=1):
+        if certificate is not None:
+            normals[ordinal] = bound_unit_normal(context.metric, certificate)
+    support_ids = [incoming_support_id]
+    support_ids.extend(
+        hidden_by_ordinal[index].hidden_support_id.value
+        for index in range(1, spec.resolved_hidden_edge_count + 1)
+    )
+    support_ids.append(outgoing_support_id)
+    return relation, anchor, tuple(support_ids), tuple(normals)
+
+
+def evaluate_angular_envelope(
+    context: GeometryContext,
+    spec: AngularEnvelopeSpec,
+    alpha_value: LocalLengthV1,
+    effective_alpha: sp.Expr,
+) -> ReferenceEnvelopeInstanceV1:
+    relation, anchor, support_ids, normals = angular_support_data(context, spec)
     instance_id = stable_id(
         "envelope-instance",
         spec.envelope_spec_id,
