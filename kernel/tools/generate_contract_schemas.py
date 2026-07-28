@@ -11,6 +11,7 @@ from cftuv_envelope import (
     CompiledPatchEvaluationPlanV1,
     DecalRequestV1,
     EnvelopeDebugSceneV1,
+    EvaluationGeometryBindingV1,
     GeometryBatchV1,
     RationalAffinePlanarMetricV2,
     RuntimePlanarMetricV1,
@@ -25,6 +26,11 @@ SCHEMAS = (
         CompiledPatchEvaluationPlanV1,
         "cftuv.envelope.compiled_patch_evaluation_plan.v1",
         "compiled_patch_evaluation_plan_v1.schema.json",
+    ),
+    (
+        EvaluationGeometryBindingV1,
+        "cftuv.envelope.evaluation_geometry_binding.v1",
+        "evaluation_geometry_binding_v1.schema.json",
     ),
     (GeometryBatchV1, "cftuv.envelope.geometry_batch.v1", "geometry_batch_v1.schema.json"),
     (

@@ -273,6 +273,12 @@ class CompiledPlanCodecV1(ContractCodecV1[plan.CompiledPatchEvaluationPlanV1]):
     root_type = plan.CompiledPatchEvaluationPlanV1
 
 
+class EvaluationGeometryBindingCodecV1(
+    ContractCodecV1[plan.EvaluationGeometryBindingV1]
+):
+    root_type = plan.EvaluationGeometryBindingV1
+
+
 class GeometryBatchCodecV1(ContractCodecV1[geometry_batch.GeometryBatchV1]):
     root_type = geometry_batch.GeometryBatchV1
 

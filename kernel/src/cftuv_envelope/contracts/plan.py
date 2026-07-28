@@ -19,6 +19,7 @@ from ..ids import (
     PatchDomainId,
     PatchId,
     PhysicalEdgeId,
+    ReferenceMetricId,
     SemanticArrangementId,
     SelfContactPairDeclarationId,
     SharedSemanticAnchorId,
@@ -26,6 +27,7 @@ from ..ids import (
     SourceRevision,
     SourceVertexId,
 )
+from .metric import ExactPoint2V1
 from ..numeric import MetricLengthV1
 from ..outcomes import NamedOutcome
 from .coverage import InteractionDeclarationV1, RawCoverageRef, ResolvedCoverageRef
@@ -46,6 +48,34 @@ from .tessellation import TessellationPlanV1
 
 
 COMPILED_PLAN_SCHEMA_V1 = "cftuv.envelope.compiled_patch_evaluation_plan.v1"
+EVALUATION_GEOMETRY_BINDING_SCHEMA_V1 = (
+    "cftuv.envelope.evaluation_geometry_binding.v1"
+)
+
+
+class EvaluationGeometryBindingLawV1(str, Enum):
+    EVALUATION_GEOMETRY_CHART_LATTICE_BOUND_V1 = (
+        "EVALUATION_GEOMETRY_CHART_LATTICE_BOUND_V1"
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationGeometrySourceVertexV1:
+    source_vertex_id: SourceVertexId
+    domain_coordinate: ExactPoint2V1
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationGeometryBindingV1:
+    """Одна chart-lattice геометрия, которую обязаны читать оба evaluator'а."""
+
+    schema_version: str
+    source_revision: SourceRevision
+    patch_domain_id: PatchDomainId
+    reference_metric_id: ReferenceMetricId
+    binding_law: EvaluationGeometryBindingLawV1
+    lattice_scale: int
+    source_vertex_coordinates: frozenset[EvaluationGeometrySourceVertexV1]
 
 
 class ActiveIntervalModel(str, Enum):

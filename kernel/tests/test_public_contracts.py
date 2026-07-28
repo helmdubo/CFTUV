@@ -38,8 +38,11 @@ from cftuv_envelope import (
 # сертификата обязан уметь назвать типы, которыми этот перебор записан.
 # FAN-DIR-BIND добавляет два обязательных tagged public record, а corrective
 # seal — отдельный закон bound-tag, чтобы tag/law не могли расходиться.
-PUBLIC_API_FAN_DIR_BIND_SHA256 = (
-    "f69f2078142db5a8b50f24363e0640303b0603f47a8f32c16efd98a35eb92358"
+# CHART-LATTICE-BOUND добавляет отдельный binding record, его одноэлементный
+# закон, вершину и codec/validator: существующий CompiledPlanV1 не расширен,
+# поэтому EC0 plan bytes при этом остаются прежними.
+PUBLIC_API_CHART_LATTICE_BOUND_SHA256 = (
+    "c20b4f094bb3499156634169a9a242806c28f2e42f7359a72b3defa93c582a60"
 )
 
 
@@ -91,7 +94,7 @@ def test_top_level_public_api_is_explicit_and_snapshotted():
     assert public_names == set(cftuv_envelope.__all__)
     assert len(cftuv_envelope.__all__) == len(set(cftuv_envelope.__all__))
     digest = hashlib.sha256("\n".join(cftuv_envelope.__all__).encode("utf-8")).hexdigest()
-    assert digest == PUBLIC_API_FAN_DIR_BIND_SHA256
+    assert digest == PUBLIC_API_CHART_LATTICE_BOUND_SHA256
 
 
 def test_public_dto_annotations_have_no_mutable_or_untyped_containers():

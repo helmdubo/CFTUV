@@ -71,7 +71,13 @@ from .contracts.ownership import (
     OwnershipPartitionContractId,
     SilhouetteEffect,
 )
-from .contracts.plan import COMPILED_PLAN_SCHEMA_V1, CompiledPatchEvaluationPlanV1
+from .contracts.plan import (
+    COMPILED_PLAN_SCHEMA_V1,
+    EVALUATION_GEOMETRY_BINDING_SCHEMA_V1,
+    CompiledPatchEvaluationPlanV1,
+    EvaluationGeometryBindingLawV1,
+    EvaluationGeometryBindingV1,
+)
 from .contracts.request import (
     DECAL_REQUEST_SCHEMA_V1,
     AngularProfileFamilyId,
@@ -140,6 +146,7 @@ class ValidationCode(str, Enum):
     TERMINAL_RELATION = "TERMINAL_RELATION"
     ANGULAR_SELECTION_UNCERTAIN = "ANGULAR_SELECTION_UNCERTAIN"
     STATION_FACT = "STATION_FACT"
+    EVALUATION_GEOMETRY = "EVALUATION_GEOMETRY"
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,6 +281,74 @@ def _fraction_matrix2(
         (_fraction(value.m00), _fraction(value.m01)),
         (_fraction(value.m10), _fraction(value.m11)),
     )
+
+
+def validate_evaluation_geometry_binding(
+    binding: EvaluationGeometryBindingV1,
+) -> tuple[ValidationIssue, ...]:
+    """Проверить самодостаточную запись общей evaluation-геометрии."""
+
+    issues: list[ValidationIssue] = []
+    path = ("EvaluationGeometryBindingV1",)
+    if binding.schema_version != EVALUATION_GEOMETRY_BINDING_SCHEMA_V1:
+        _issue(
+            issues,
+            ValidationCode.SCHEMA_VERSION,
+            path + ("schema_version",),
+            "unexpected evaluation-geometry binding schema",
+        )
+    if (
+        binding.binding_law
+        is not EvaluationGeometryBindingLawV1.EVALUATION_GEOMETRY_CHART_LATTICE_BOUND_V1
+    ):
+        _issue(
+            issues,
+            ValidationCode.EVALUATION_GEOMETRY,
+            path + ("binding_law",),
+            "unsupported evaluation-geometry binding law",
+        )
+    scale = binding.lattice_scale
+    if type(scale) is not int or scale <= 0 or scale & (scale - 1):
+        _issue(
+            issues,
+            ValidationCode.EVALUATION_GEOMETRY,
+            path + ("lattice_scale",),
+            "chart-lattice scale must be a positive power of two",
+        )
+        return tuple(issues)
+    seen = set()
+    for vertex in binding.source_vertex_coordinates:
+        item_path = path + (
+            "source_vertex_coordinates",
+            vertex.source_vertex_id.value,
+        )
+        if vertex.source_vertex_id in seen:
+            _issue(
+                issues,
+                ValidationCode.DUPLICATE_ID,
+                item_path,
+                "source vertex occurs more than once",
+            )
+        seen.add(vertex.source_vertex_id)
+        for axis, value in (
+            ("x", vertex.domain_coordinate.x),
+            ("y", vertex.domain_coordinate.y),
+        ):
+            if value.numerator * scale % value.denominator:
+                _issue(
+                    issues,
+                    ValidationCode.EVALUATION_GEOMETRY,
+                    item_path + ("domain_coordinate", axis),
+                    "bound coordinate is not a node of the declared chart lattice",
+                )
+    if not seen:
+        _issue(
+            issues,
+            ValidationCode.EVALUATION_GEOMETRY,
+            path + ("source_vertex_coordinates",),
+            "evaluation geometry cannot be empty",
+        )
+    return tuple(issues)
 
 
 def _fraction_dot3(left, right) -> Fraction:

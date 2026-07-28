@@ -1,0 +1,183 @@
+{
+  "$defs": {
+    "EvaluationGeometryBindingV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "EvaluationGeometryBindingV1"
+        },
+        "binding_law": {
+          "enum": [
+            "EVALUATION_GEOMETRY_CHART_LATTICE_BOUND_V1"
+          ],
+          "type": "string"
+        },
+        "lattice_scale": {
+          "type": "integer"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "reference_metric_id": {
+          "$ref": "#/$defs/ReferenceMetricId"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "source_revision": {
+          "$ref": "#/$defs/SourceRevision"
+        },
+        "source_vertex_coordinates": {
+          "items": {
+            "$ref": "#/$defs/EvaluationGeometrySourceVertexV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "schema_version",
+        "source_revision",
+        "patch_domain_id",
+        "reference_metric_id",
+        "binding_law",
+        "lattice_scale",
+        "source_vertex_coordinates"
+      ],
+      "type": "object"
+    },
+    "EvaluationGeometrySourceVertexV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "EvaluationGeometrySourceVertexV1"
+        },
+        "domain_coordinate": {
+          "$ref": "#/$defs/ExactPoint2V1"
+        },
+        "source_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        }
+      },
+      "required": [
+        "$type",
+        "source_vertex_id",
+        "domain_coordinate"
+      ],
+      "type": "object"
+    },
+    "ExactPoint2V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactPoint2V1"
+        },
+        "x": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "y": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "ExactRationalV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactRationalV1"
+        },
+        "denominator": {
+          "type": "integer"
+        },
+        "numerator": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "$type",
+        "numerator",
+        "denominator"
+      ],
+      "type": "object"
+    },
+    "PatchDomainId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PatchDomainId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ReferenceMetricId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "ReferenceMetricId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SourceRevision": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceRevision"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SourceVertexId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceVertexId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "cftuv.envelope.evaluation_geometry_binding.v1",
+  "$ref": "#/$defs/EvaluationGeometryBindingV1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EvaluationGeometryBindingV1"
+}
