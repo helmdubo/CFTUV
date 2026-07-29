@@ -8,6 +8,7 @@ from pathlib import Path
 
 from cftuv_envelope import (
     AnalysisSnapshotV1,
+    ChainStraightEvaluationGeometryBindingV2,
     CompiledPatchEvaluationPlanV1,
     DecalRequestV1,
     EnvelopeDebugSceneV1,
@@ -31,6 +32,11 @@ SCHEMAS = (
         EvaluationGeometryBindingV1,
         "cftuv.envelope.evaluation_geometry_binding.v1",
         "evaluation_geometry_binding_v1.schema.json",
+    ),
+    (
+        ChainStraightEvaluationGeometryBindingV2,
+        "cftuv.envelope.chain_straight_evaluation_geometry_binding.v2",
+        "evaluation_geometry_binding_v2.schema.json",
     ),
     (GeometryBatchV1, "cftuv.envelope.geometry_batch.v1", "geometry_batch_v1.schema.json"),
     (
