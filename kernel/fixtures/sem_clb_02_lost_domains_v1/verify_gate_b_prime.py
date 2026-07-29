@@ -112,8 +112,13 @@ def _sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _file_sha256(path: Path) -> str:
-    return _sha256(path.read_bytes())
+def _canonical_lf(payload: bytes) -> bytes:
+    return payload.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+
+
+def _git_blob_oid(payload: bytes) -> str:
+    header = f"blob {len(payload)}\0".encode("ascii")
+    return hashlib.sha1(header + payload).hexdigest()
 
 
 def _ratio(value: Fraction | int) -> str:
@@ -160,6 +165,66 @@ def _git_bytes(root: Path, expression: str) -> bytes:
         capture_output=True,
     )
     return result.stdout
+
+
+def _tracked_utf8_seal(
+    root: Path,
+    path: Path,
+    git_expression: str,
+    binding: str,
+) -> tuple[bytes, dict[str, Any]]:
+    git_blob = _git_bytes(root, git_expression)
+    canonical_lf = _canonical_lf(git_blob)
+    canonical_lf.decode("utf-8")
+    workspace_lf = _canonical_lf(path.read_bytes())
+    observed_blob_oid = _git_value(root, git_expression)
+    computed_blob_oid = _git_blob_oid(git_blob)
+    return canonical_lf, {
+        "path": path.resolve().relative_to(root.resolve()).as_posix(),
+        "git_expression": git_expression,
+        "binding": binding,
+        "byte_domain": "UTF8_GIT_BLOB_CANONICAL_LF_V1",
+        "git_blob_oid": observed_blob_oid,
+        "git_blob_oid_recomputed": computed_blob_oid,
+        "git_blob_identity_exact": observed_blob_oid == computed_blob_oid,
+        "git_blob_is_canonical_lf": git_blob == canonical_lf,
+        "canonical_lf_bytes": len(canonical_lf),
+        "canonical_lf_sha256": _sha256(canonical_lf),
+        "canonical_lf_utf8": canonical_lf.decode("utf-8"),
+        "workspace_matches_after_lf_normalization": (
+            workspace_lf == canonical_lf
+        ),
+    }
+
+
+def _compact_tracked_utf8_seal(
+    record: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in record.items()
+        if key != "canonical_lf_utf8"
+    }
+
+
+def _tracked_utf8_seal_exact(
+    record: dict[str, Any],
+    canonical: bytes | None = None,
+) -> bool:
+    if canonical is None:
+        canonical = record["canonical_lf_utf8"].encode("utf-8")
+    return (
+        record["byte_domain"] == "UTF8_GIT_BLOB_CANONICAL_LF_V1"
+        and b"\r" not in canonical
+        and record["canonical_lf_bytes"] == len(canonical)
+        and record["canonical_lf_sha256"] == _sha256(canonical)
+        and record["git_blob_oid"]
+        == record["git_blob_oid_recomputed"]
+        == _git_blob_oid(canonical)
+        and record["git_blob_identity_exact"]
+        and record["git_blob_is_canonical_lf"]
+        and record["workspace_matches_after_lf_normalization"]
+    )
 
 
 def _activate_kernel(source_root: Path):
@@ -1024,6 +1089,7 @@ def _recompute_adapter_record(record: dict[str, Any]) -> dict[str, Any]:
 def _recompute_immutable_input(
     immutable: dict[str, Any],
 ) -> dict[str, Any]:
+    tracked_seals = immutable["tracked_input_byte_seals"]
     snapshot_before = immutable[
         "analysis_snapshot_input_utf8"
     ].encode("utf-8")
@@ -1047,6 +1113,18 @@ def _recompute_immutable_input(
             snapshot_before == snapshot_after
         ),
         "decal_request_bytes_equal": request_before == request_after,
+        "tracked_snapshot_matches_canonical_leaf": (
+            _tracked_utf8_seal_exact(
+                tracked_seals["analysis_snapshot.json"],
+                snapshot_before,
+            )
+        ),
+        "tracked_request_matches_canonical_leaf": (
+            _tracked_utf8_seal_exact(
+                tracked_seals["decal_request.json"],
+                request_before,
+            )
+        ),
         "v2_binding_bytes_equal": binding_before == binding_after,
         "v2_binding_nodes_rationals_equal": (
             binding_facts_before == binding_facts_after
@@ -1367,13 +1445,29 @@ def _historical_summary(manifest: dict[str, Any]) -> dict[str, Any]:
 
 
 def _fixture_integrity(
+    source_root: Path,
     fixture_dir: Path,
     accepted_fixture_hashes: dict[str, str],
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     failures = []
     manifest_path = fixture_dir / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    relative_manifest = manifest_path.relative_to(source_root).as_posix()
+    manifest_bytes, manifest_seal = _tracked_utf8_seal(
+        source_root,
+        manifest_path,
+        f"HEAD:{relative_manifest}",
+        "VALIDATED_HEAD_TRACKED_FIXTURE_INPUT",
+    )
+    manifest = json.loads(manifest_bytes)
     fixture_id = fixture_dir.name
+    if not _tracked_utf8_seal_exact(manifest_seal):
+        failures.append(
+            {
+                "code": "FIXTURE_TRACKED_BYTE_SEAL_MISMATCH",
+                "fixture_id": fixture_id,
+                "file": "manifest.json",
+            }
+        )
     if manifest["fixture_id"] != fixture_id:
         failures.append(
             {
@@ -1391,9 +1485,29 @@ def _fixture_integrity(
             }
         )
     observed_files = {}
+    tracked_file_seals = {
+        "manifest.json": _compact_tracked_utf8_seal(manifest_seal)
+    }
     for name, expected in sorted(manifest["files"].items()):
-        observed = _file_sha256(fixture_dir / name)
+        path = fixture_dir / name
+        relative_path = path.relative_to(source_root).as_posix()
+        canonical_bytes, seal = _tracked_utf8_seal(
+            source_root,
+            path,
+            f"HEAD:{relative_path}",
+            "VALIDATED_HEAD_TRACKED_FIXTURE_INPUT",
+        )
+        observed = _sha256(canonical_bytes)
         observed_files[name] = observed
+        tracked_file_seals[name] = _compact_tracked_utf8_seal(seal)
+        if not _tracked_utf8_seal_exact(seal):
+            failures.append(
+                {
+                    "code": "FIXTURE_TRACKED_BYTE_SEAL_MISMATCH",
+                    "fixture_id": fixture_id,
+                    "file": name,
+                }
+            )
         if observed != expected:
             failures.append(
                 {
@@ -1408,161 +1522,13 @@ def _fixture_integrity(
         "fixture_id": fixture_id,
         "fixture_hash": manifest["fixture_hash"],
         "manifest_file_sha256": observed_files,
+        "tracked_utf8_seals": tracked_file_seals,
     }, failures
-
-
-def _public_fixture_record(
-    modules: dict[str, Any],
-    fixture_dir: Path,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    kernel = modules["kernel"]
-    conveyor = modules["conveyor"]
-    skeleton_module = modules["skeleton"]
-    line_class = modules["line_class"]
-    snapshot = kernel.AnalysisSnapshotCodecV1.loads(
-        (fixture_dir / "analysis_snapshot.json").read_bytes()
-    )
-    request = kernel.DecalRequestCodecV1.loads(
-        (fixture_dir / "decal_request.json").read_bytes()
-    )
-    (domain,) = snapshot.patch_domains
-
-    compile_started = time.perf_counter()
-    compile_result = kernel.compile_reference_envelopes(
-        snapshot, request, domain.patch_domain_id
-    )
-    compile_seconds = time.perf_counter() - compile_started
-
-    captures: list[dict[str, Any]] = []
-    original_build_skeleton = conveyor.build_skeleton
-
-    def capturing_build_skeleton(polygon):
-        builder = skeleton_module._Builder(
-            polygon, skeleton_module.SplitSearch.MOTORCYCLE
-        )
-        seed = _seed_snapshot(builder, line_class)
-        result = builder.run()
-        captures.append(
-            {
-                "polygon": _polygon_record(polygon),
-                "seed": seed,
-                "terminal": _terminal_snapshot(
-                    builder, result, line_class
-                ),
-                "result": result,
-            }
-        )
-        return result
-
-    prepare_started = time.perf_counter()
-    conveyor.build_skeleton = capturing_build_skeleton
-    try:
-        prepared = conveyor.prepare_conveyor(
-            snapshot, request, patch_domain_id=domain.patch_domain_id
-        )
-    finally:
-        conveyor.build_skeleton = original_build_skeleton
-    prepare_seconds = time.perf_counter() - prepare_started
-
-    coverage_started = time.perf_counter()
-    coverage = conveyor.conveyor_coverage(prepared)
-    coverage_seconds = time.perf_counter() - coverage_started
-
-    if len(captures) != 1 or len(prepared.regions) != 1:
-        raise ValueError("expected exactly one captured sparse domain region")
-    capture = captures[0]
-    region = prepared.regions[0]
-    if region.skeleton != capture["result"]:
-        raise ValueError("capture adapter changed the public skeleton result")
-    if region.bridge.polygon is None:
-        raise ValueError("public bridge did not produce a polygon")
-    if _polygon_record(region.bridge.polygon) != capture["polygon"]:
-        raise ValueError("captured polygon differs from public bridge polygon")
-
-    manifest = json.loads(
-        (fixture_dir / "manifest.json").read_text(encoding="utf-8")
-    )
-    historical = _historical_summary(manifest)
-    current_skeleton_counters = dict(region.skeleton.counters)
-    current_prepare_counters = dict(prepared.counters)
-    binding = compile_result.compilation.evaluation_geometry_binding
-    current = {
-        "fixture_id": fixture_dir.name,
-        "patch_domain_id": domain.patch_domain_id.value,
-        "compile": {
-            "outcome": compile_result.outcome.value,
-            "compilation_available": compile_result.compilation is not None,
-            "diagnostics": [
-                item.outcome.value for item in compile_result.diagnostics
-            ],
-            "binding_type": type(binding).__name__,
-            "base_lattice_scale_S": binding.base_lattice_scale,
-            "refinement_power_r": binding.refinement_power,
-            "domain_lattice_scale_S_prime": binding.lattice_scale,
-        },
-        "prepare": {
-            "outcome": prepared.outcome.value,
-            "detail": prepared.detail,
-            "lattice_scale": prepared.lattice.scale,
-            "counters": current_prepare_counters,
-            "reported_timing_stage_names": [
-                name for name, _ in prepared.timings
-            ],
-        },
-        "coverage": {"outcome": coverage.outcome.value},
-        "region": {
-            "region_id": region.region_id,
-            "bridge_outcome": region.bridge_outcome.value,
-            "bridge_polygon": capture["polygon"],
-            "seed": capture["seed"],
-            "terminal": capture["terminal"],
-            "face_outcome": (
-                None
-                if region.face_outcome is None
-                else region.face_outcome.value
-            ),
-            "face_count": (
-                0 if region.partition is None else len(region.partition.faces)
-            ),
-        },
-        "historical_28f6_product_tree_summary": historical,
-        "deltas_from_historical_28f6_product_tree": {
-            "lattice_scale": (
-                prepared.lattice.scale - historical["lattice_scale"]
-            ),
-            "skeleton_levels": (
-                region.skeleton.levels - historical["skeleton_levels"]
-            ),
-            "skeleton_node_count": (
-                len(region.skeleton.nodes)
-                - historical["skeleton_node_count"]
-            ),
-            "face_count": (
-                (0 if region.partition is None else len(region.partition.faces))
-                - historical["face_count"]
-            ),
-            "prepare_counters": _counter_delta(
-                current_prepare_counters,
-                historical["prepare_counters"],
-            ),
-            "skeleton_counters": _counter_delta(
-                current_skeleton_counters,
-                historical["skeleton_counters"],
-            ),
-        },
-    }
-    timing = {
-        "fixture_id": fixture_dir.name,
-        "compile_seconds": compile_seconds,
-        "prepare_seconds": prepare_seconds,
-        "coverage_seconds": coverage_seconds,
-        "prepare_reported_seconds": dict(prepared.timings),
-    }
-    return current, timing
 
 
 def _public_fixture_record_phase1(
     modules: dict[str, Any],
+    source_root: Path,
     fixture_dir: Path,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Public canonical run plus proof-only exhaustive agreement witness."""
@@ -1571,8 +1537,22 @@ def _public_fixture_record_phase1(
     conveyor = modules["conveyor"]
     skeleton_module = modules["skeleton"]
     line_class = modules["line_class"]
-    snapshot_input = (fixture_dir / "analysis_snapshot.json").read_bytes()
-    request_input = (fixture_dir / "decal_request.json").read_bytes()
+    snapshot_path = fixture_dir / "analysis_snapshot.json"
+    request_path = fixture_dir / "decal_request.json"
+    snapshot_relative = snapshot_path.relative_to(source_root).as_posix()
+    request_relative = request_path.relative_to(source_root).as_posix()
+    snapshot_input, snapshot_input_seal = _tracked_utf8_seal(
+        source_root,
+        snapshot_path,
+        f"HEAD:{snapshot_relative}",
+        "VALIDATED_HEAD_TRACKED_FIXTURE_INPUT",
+    )
+    request_input, request_input_seal = _tracked_utf8_seal(
+        source_root,
+        request_path,
+        f"HEAD:{request_relative}",
+        "VALIDATED_HEAD_TRACKED_FIXTURE_INPUT",
+    )
     snapshot = kernel.AnalysisSnapshotCodecV1.loads(snapshot_input)
     request = kernel.DecalRequestCodecV1.loads(request_input)
     (domain,) = snapshot.patch_domains
@@ -1714,6 +1694,14 @@ def _public_fixture_record_phase1(
     ]
     assembler = _assembler_borders(region, coverage.regions[0])
     immutable_input = {
+        "tracked_input_byte_seals": {
+            "analysis_snapshot.json": _compact_tracked_utf8_seal(
+                snapshot_input_seal
+            ),
+            "decal_request.json": _compact_tracked_utf8_seal(
+                request_input_seal
+            ),
+        },
         "analysis_snapshot_input_utf8": snapshot_input.decode("utf-8"),
         "analysis_snapshot_after_utf8": snapshot_after.decode("utf-8"),
         "analysis_snapshot_input_sha256": _sha256(snapshot_input),
@@ -1754,6 +1742,8 @@ def _public_fixture_record_phase1(
         (
             immutable_input["analysis_snapshot_byte_identical"],
             immutable_input["decal_request_byte_identical"],
+            _tracked_utf8_seal_exact(snapshot_input_seal),
+            _tracked_utf8_seal_exact(request_input_seal),
             immutable_input["v2_binding_byte_identical"],
             immutable_input["bridge_polygon_byte_identical"],
             immutable_input["lattice_S_prime_unchanged"],
@@ -2044,7 +2034,7 @@ def _four_vertex_family(modules: dict[str, Any]) -> dict[str, Any]:
 
 
 def _source_predicate_audit(source_root: Path) -> dict[str, Any]:
-    path = (
+    skeleton_path = (
         source_root
         / "kernel"
         / "src"
@@ -2052,7 +2042,28 @@ def _source_predicate_audit(source_root: Path) -> dict[str, Any]:
         / "wavefront"
         / "skeleton.py"
     )
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    verifier_path = (
+        source_root
+        / "kernel"
+        / "fixtures"
+        / "sem_clb_02_lost_domains_v1"
+        / "verify_gate_b_prime.py"
+    )
+    skeleton_relative = skeleton_path.relative_to(source_root).as_posix()
+    verifier_relative = verifier_path.relative_to(source_root).as_posix()
+    skeleton_bytes, skeleton_seal = _tracked_utf8_seal(
+        source_root,
+        skeleton_path,
+        f"HEAD:{skeleton_relative}",
+        "VALIDATED_HEAD_PRODUCT_TREE_BLOB",
+    )
+    verifier_bytes, verifier_seal = _tracked_utf8_seal(
+        source_root,
+        verifier_path,
+        f":{verifier_relative}",
+        "STAGED_PROOF_VERIFIER_BLOB_FOR_COMMIT",
+    )
+    tree = ast.parse(skeleton_bytes.decode("utf-8"))
     functions = {
         node.name: node
         for node in ast.walk(tree)
@@ -2134,8 +2145,7 @@ def _source_predicate_audit(source_root: Path) -> dict[str, Any]:
         < collapsing_span_index
         < born_zero_filter_index
     )
-    verifier_path = Path(__file__).resolve()
-    verifier_tree = ast.parse(verifier_path.read_text(encoding="utf-8"))
+    verifier_tree = ast.parse(verifier_bytes.decode("utf-8"))
     classifier = next(
         node
         for node in ast.walk(verifier_tree)
@@ -2158,8 +2168,22 @@ def _source_predicate_audit(source_root: Path) -> dict[str, Any]:
             classifier_predicate == predicate
             == EXPECTED_NEW_VERTEX_PREDICATE
         ),
-        "product_skeleton_source_sha256": _file_sha256(path),
-        "phase1_verifier_sha256": _file_sha256(verifier_path),
+        "tracked_source_byte_seals": {
+            "product_skeleton.py": skeleton_seal,
+            "phase1_verifier.py": verifier_seal,
+        },
+        "tracked_source_byte_domain_law": (
+            "UTF8_GIT_BLOB_CANONICAL_LF_V1;_PRODUCT_FROM_VALIDATED_HEAD_"
+            "TREE;_VERIFIER_FROM_STAGED_INDEX_BLOB;_WORKSPACE_MUST_MATCH_"
+            "AFTER_CRLF_CR_TO_LF_NORMALIZATION;_RAW_CHECKOUT_BYTES_NEVER_"
+            "AUTHORIZE_A_SEAL"
+        ),
+        "product_skeleton_source_sha256": skeleton_seal[
+            "canonical_lf_sha256"
+        ],
+        "phase1_verifier_sha256": verifier_seal[
+            "canonical_lf_sha256"
+        ],
         "seed_constructor_count": len(seed_vertex_calls),
         "seed_constructor_sets_sliding": seed_sets_sliding,
         "event_born_constructor_sets_sliding": event_sets_sliding,
@@ -2180,6 +2204,98 @@ def _source_predicate_audit(source_root: Path) -> dict[str, Any]:
             )
             else "EVENT_BORN_AND_SEED_CLASSIFICATION_RELATION_UNKNOWN"
         ),
+    }
+
+
+def _cheap_checkout_byte_seal_audit(
+    source_root: Path,
+) -> dict[str, Any]:
+    fixture_base = (
+        source_root
+        / "kernel"
+        / "fixtures"
+        / "sem_clb_02_lost_domains_v1"
+    )
+    accepted_payloads = {}
+    accepted_records = {}
+    accepted_exact = True
+    for name, expected_sha256 in ACCEPTED_RECEIPT_SHA256.items():
+        path = fixture_base / name
+        relative = path.relative_to(source_root).as_posix()
+        canonical, seal = _tracked_utf8_seal(
+            source_root,
+            path,
+            f"HEAD:{relative}",
+            "VALIDATED_HEAD_ACCEPTED_PROOF_BLOB",
+        )
+        accepted_payloads[name] = json.loads(canonical)
+        exact = (
+            _sha256(canonical) == expected_sha256
+            and _tracked_utf8_seal_exact(seal)
+        )
+        accepted_exact = accepted_exact and exact
+        accepted_records[name] = {
+            "expected_sha256": expected_sha256,
+            "canonical_lf_sha256": _sha256(canonical),
+            "exact": exact,
+            "seal": _compact_tracked_utf8_seal(seal),
+        }
+    accepted_fixture_hashes = {
+        item["fixture_id"]: item["fixture_hash"]
+        for item in accepted_payloads[
+            "gate_a_triple_prime_receipt.json"
+        ]["fixtures"]
+    }
+    fixture_records = []
+    fixture_failures = []
+    for fixture_id in FIXTURE_IDS:
+        record, failures = _fixture_integrity(
+            source_root,
+            fixture_base / "cases" / fixture_id,
+            accepted_fixture_hashes,
+        )
+        fixture_records.append(record)
+        fixture_failures.extend(failures)
+    source_audit = _source_predicate_audit(source_root)
+    source_recomputed = _recompute_source_byte_seals(source_audit)
+    phase0_bytes = _git_bytes(
+        source_root,
+        f"{PROOF_BASE_REVISION}:{PHASE0_RECEIPT_PATH}",
+    )
+    phase0_exact = _sha256(phase0_bytes) == PHASE0_RECEIPT_SHA256
+    product_tree_oid = _git_value(source_root, "HEAD:kernel/src")
+    all_exact = (
+        accepted_exact
+        and not fixture_failures
+        and source_recomputed["passed"]
+        and phase0_exact
+        and product_tree_oid == EXPECTED_KERNEL_SRC_TREE_OID
+    )
+    return {
+        "byte_domain_law": (
+            "UTF8_GIT_BLOB_CANONICAL_LF_V1;_SEAL_SHA256_AND_BLOB_OID_"
+            "DERIVE_ONLY_FROM_TRACKED_GIT_BLOB_BYTES_NORMALIZED_TO_LF;_"
+            "WORKSPACE_BYTES_ARE_ADMISSION_ONLY_AND_MUST_MATCH_AFTER_"
+            "CRLF_CR_TO_LF_NORMALIZATION"
+        ),
+        "outcome": (
+            "BYTE_SEALS_EXACT"
+            if all_exact
+            else "BYTE_SEAL_AUDIT_REFUSED"
+        ),
+        "product_tree_oid": product_tree_oid,
+        "source_seals": source_recomputed,
+        "accepted_receipts": accepted_records,
+        "fixture_inputs": fixture_records,
+        "fixture_failures": fixture_failures,
+        "phase0_history": {
+            "git_expression": (
+                f"{PROOF_BASE_REVISION}:{PHASE0_RECEIPT_PATH}"
+            ),
+            "canonical_git_blob_sha256": _sha256(phase0_bytes),
+            "expected_sha256": PHASE0_RECEIPT_SHA256,
+            "exact": phase0_exact,
+        },
     }
 
 
@@ -2764,6 +2880,105 @@ def _decide(
     }
 
 
+def _recompute_source_byte_seals(
+    source_audit: dict[str, Any],
+) -> dict[str, Any]:
+    seals = source_audit["tracked_source_byte_seals"]
+    skeleton = seals["product_skeleton.py"]
+    verifier = seals["phase1_verifier.py"]
+    skeleton_bytes = skeleton["canonical_lf_utf8"].encode("utf-8")
+    verifier_bytes = verifier["canonical_lf_utf8"].encode("utf-8")
+    skeleton_tree = ast.parse(skeleton_bytes.decode("utf-8"))
+    verifier_tree = ast.parse(verifier_bytes.decode("utf-8"))
+    skeleton_functions = {
+        node.name: node
+        for node in ast.walk(skeleton_tree)
+        if isinstance(node, ast.FunctionDef)
+    }
+    verifier_functions = {
+        node.name: node
+        for node in ast.walk(verifier_tree)
+        if isinstance(node, ast.FunctionDef)
+    }
+    new_vertex = skeleton_functions["_new_vertex"]
+    new_vertex_if = next(
+        node for node in new_vertex.body if isinstance(node, ast.If)
+    )
+    product_predicate = ast.unparse(new_vertex_if.test)
+    classifier = verifier_functions["_exact_straight_classifier"]
+    classifier_return = next(
+        node for node in classifier.body if isinstance(node, ast.Return)
+    )
+    classifier_predicate = ast.unparse(classifier_return.value)
+    expected_records = {
+        "product_skeleton.py": {
+            "path": (
+                "kernel/src/cftuv_envelope/wavefront/skeleton.py"
+            ),
+            "git_expression": (
+                "HEAD:kernel/src/cftuv_envelope/wavefront/skeleton.py"
+            ),
+            "binding": "VALIDATED_HEAD_PRODUCT_TREE_BLOB",
+        },
+        "phase1_verifier.py": {
+            "path": (
+                "kernel/fixtures/sem_clb_02_lost_domains_v1/"
+                "verify_gate_b_prime.py"
+            ),
+            "git_expression": (
+                ":kernel/fixtures/sem_clb_02_lost_domains_v1/"
+                "verify_gate_b_prime.py"
+            ),
+            "binding": "STAGED_PROOF_VERIFIER_BLOB_FOR_COMMIT",
+        },
+    }
+    failures = 0
+    for name, expected in expected_records.items():
+        record = seals[name]
+        failures += int(not _tracked_utf8_seal_exact(record))
+        failures += sum(
+            record[field] != value
+            for field, value in expected.items()
+        )
+    failures += sum(
+        (
+            source_audit["product_skeleton_source_sha256"]
+            != skeleton["canonical_lf_sha256"],
+            source_audit["phase1_verifier_sha256"]
+            != verifier["canonical_lf_sha256"],
+            source_audit["event_born_new_vertex_predicate"]
+            != product_predicate,
+            source_audit["proof_local_seed_classifier_predicate"]
+            != classifier_predicate,
+            product_predicate != EXPECTED_NEW_VERTEX_PREDICATE,
+            classifier_predicate != EXPECTED_NEW_VERTEX_PREDICATE,
+            source_audit["tracked_source_byte_domain_law"]
+            != (
+                "UTF8_GIT_BLOB_CANONICAL_LF_V1;_PRODUCT_FROM_VALIDATED_"
+                "HEAD_TREE;_VERIFIER_FROM_STAGED_INDEX_BLOB;_WORKSPACE_"
+                "MUST_MATCH_AFTER_CRLF_CR_TO_LF_NORMALIZATION;_RAW_"
+                "CHECKOUT_BYTES_NEVER_AUTHORIZE_A_SEAL"
+            ),
+        )
+    )
+    return {
+        "failure_count": failures,
+        "product_predicate_recomputed": product_predicate,
+        "classifier_predicate_recomputed": classifier_predicate,
+        "seals": {
+            name: {
+                "canonical_lf_sha256": record[
+                    "canonical_lf_sha256"
+                ],
+                "git_blob_oid": record["git_blob_oid"],
+                "exact": _tracked_utf8_seal_exact(record),
+            }
+            for name, record in seals.items()
+        },
+        "passed": failures == 0,
+    }
+
+
 PHASE1_FAILURE_ORDER = (
     (
         "unknown_kernel_src_product_tree",
@@ -2773,6 +2988,10 @@ PHASE1_FAILURE_ORDER = (
     ("unknown_verifier_schema", "UNKNOWN_VERIFIER_SCHEMA"),
     ("phase0_history_not_sealed", "PHASE0_HISTORY_NOT_SEALED"),
     ("accepted_a_proof_seal_failures", "BF6_V1_G1_SEAL_FAILURE"),
+    (
+        "source_byte_seal_failures",
+        "SOURCE_BYTE_SEAL_FORGED_OR_STALE",
+    ),
     (
         "classifier_determinant_predicate_failures",
         "SEED_CLASSIFIER_DETERMINANT_PREDICATE_MISMATCH",
@@ -2942,6 +3161,12 @@ def _phase1_gate_audit(
     counters["accepted_a_proof_seal_failures"] = int(
         not accepted_a_proofs_ok
     )
+    source_seal_recomputed = _recompute_source_byte_seals(
+        source_audit
+    )
+    counters["source_byte_seal_failures"] = source_seal_recomputed[
+        "failure_count"
+    ]
 
     classifier = source_audit[
         "proof_local_seed_classifier_predicate"
@@ -3378,6 +3603,7 @@ def _phase1_gate_audit(
             "captured": forced_restoration,
             "recomputed": forced_restoration_recomputed,
         },
+        "source_byte_seal_recomputation": source_seal_recomputed,
         "sealed_obligations": {
             "product_tree": product_tree_ok,
             "fixture_form": fixture_form_ok,
@@ -3493,6 +3719,62 @@ def _phase1_negative_self_checks(
                 "kind": "DECISION_MATRIX_MUTATION",
             }
         )
+
+    forged_source_audit = copy.deepcopy(source_audit)
+    forged_source_audit["product_skeleton_source_sha256"] = "0" * 64
+    forged_h2_audit = _phase1_h2_audit(
+        fixtures, different_speed_control
+    )
+    forged_filter_audit = _filter_span_audit(
+        fixtures, synthetics, forged_source_audit
+    )
+    forged_source_gate = _phase1_gate_audit(
+        fixtures,
+        synthetics,
+        family,
+        forged_source_audit,
+        forged_h2_audit,
+        forged_filter_audit,
+        forced_restoration,
+        modules,
+        product_tree_ok=True,
+        fixture_form_ok=True,
+        verifier_schema_ok=True,
+        phase0_history_ok=True,
+        accepted_a_proofs_ok=True,
+    )
+    forged_outcome, forged_decision = _phase1_decide(
+        forged_source_gate
+    )
+    forged_counter = "source_byte_seal_failures"
+    forged_fact = "SOURCE_BYTE_SEAL_FORGED_OR_STALE"
+    checks.append(
+        {
+            "name": "FORGE_PRODUCT_SKELETON_SOURCE_SEAL",
+            "kind": "SOURCE_BYTE_SEAL_MUTATION_WITH_CANONICAL_LEAVES",
+            "mutated_counter": forged_counter,
+            "observed_counter_value": forged_source_gate[
+                "failure_counters"
+            ][forged_counter],
+            "expected_decision_outcome": "REFUSED",
+            "expected_named_fact": forged_fact,
+            "observed_decision_outcome": forged_outcome,
+            "observed_named_fact": forged_decision[
+                "named_first_exact_fact"
+            ],
+            "passed": (
+                forged_outcome == "REFUSED"
+                and forged_source_gate["failure_counters"][
+                    forged_counter
+                ]
+                > 0
+                and forged_decision["named_counter"]
+                == forged_counter
+                and forged_decision["named_first_exact_fact"]
+                == forged_fact
+            ),
+        }
+    )
 
     def decide_evidence(mutated_fixtures):
         mutated_h2 = _phase1_h2_audit(
@@ -3773,17 +4055,29 @@ def main() -> None:
     fixture_base = Path(__file__).resolve().parent
     failures: list[dict[str, Any]] = []
     product_tree_oid = None
-    receipt_hashes = {
-        name: _file_sha256(fixture_base / name)
-        for name in ACCEPTED_RECEIPT_SHA256
-    }
-    accepted_a_payloads = {
-        name: json.loads((fixture_base / name).read_text(encoding="utf-8"))
-        for name in ACCEPTED_RECEIPT_SHA256
-    }
+    receipt_hashes = {}
+    accepted_a_payloads = {}
+    accepted_receipt_seals = {}
+    for name in ACCEPTED_RECEIPT_SHA256:
+        path = fixture_base / name
+        relative_path = path.relative_to(
+            arguments.source_root
+        ).as_posix()
+        canonical_bytes, seal = _tracked_utf8_seal(
+            arguments.source_root,
+            path,
+            f"HEAD:{relative_path}",
+            "VALIDATED_HEAD_ACCEPTED_PROOF_BLOB",
+        )
+        receipt_hashes[name] = _sha256(canonical_bytes)
+        accepted_a_payloads[name] = json.loads(canonical_bytes)
+        accepted_receipt_seals[name] = seal
     accepted_a_proofs_ok = (
         all(
             receipt_hashes[name] == expected
+            and _tracked_utf8_seal_exact(
+                accepted_receipt_seals[name]
+            )
             for name, expected in ACCEPTED_RECEIPT_SHA256.items()
         )
         and accepted_a_payloads[
@@ -3891,6 +4185,7 @@ def main() -> None:
         for fixture_id in FIXTURE_IDS:
             fixture_dir = arguments.fixture_root / fixture_id
             integrity_record, integrity_failures = _fixture_integrity(
+                arguments.source_root,
                 fixture_dir, accepted_fixture_hashes
             )
             integrity.append(integrity_record)
@@ -3899,7 +4194,9 @@ def main() -> None:
             for fixture_id in FIXTURE_IDS:
                 try:
                     record, timing = _public_fixture_record_phase1(
-                        modules, arguments.fixture_root / fixture_id
+                        modules,
+                        arguments.source_root,
+                        arguments.fixture_root / fixture_id,
                     )
                     fixtures.append(record)
                     timings.append(timing)
@@ -3983,6 +4280,9 @@ def main() -> None:
             ),
             "UNKNOWN_FIXTURE_SET": "unknown_fixture_form",
             "UNKNOWN_ACCEPTED_A_PROOF": "accepted_a_proof_seal_failures",
+            "FIXTURE_TRACKED_BYTE_SEAL_MISMATCH": (
+                "source_byte_seal_failures"
+            ),
             "PHASE0_HISTORY_NOT_SEALED": "phase0_history_not_sealed",
         }
         gate_audit["failure_counters"][
@@ -4052,7 +4352,15 @@ def main() -> None:
             name: {
                 "expected_sha256": expected,
                 "observed_sha256": receipt_hashes[name],
-                "unchanged": receipt_hashes[name] == expected,
+                "unchanged": (
+                    receipt_hashes[name] == expected
+                    and _tracked_utf8_seal_exact(
+                        accepted_receipt_seals[name]
+                    )
+                ),
+                "tracked_byte_seal": _compact_tracked_utf8_seal(
+                    accepted_receipt_seals[name]
+                ),
             }
             for name, expected in ACCEPTED_RECEIPT_SHA256.items()
         },
