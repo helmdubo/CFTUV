@@ -99,7 +99,19 @@ def _arguments() -> argparse.Namespace:
         default=Path(__file__).resolve().parent / "cases",
     )
     parser.add_argument("--output-report", type=Path, required=True)
-    return parser.parse_args()
+    arguments = parser.parse_args()
+    arguments.source_root = arguments.source_root.resolve()
+    arguments.fixture_root = arguments.fixture_root.resolve()
+    arguments.output_report = arguments.output_report.resolve()
+    if not arguments.source_root.is_dir():
+        parser.error("UNKNOWN_SOURCE_ROOT")
+    if not arguments.fixture_root.is_dir():
+        parser.error("UNKNOWN_FIXTURE_ROOT")
+    try:
+        arguments.fixture_root.relative_to(arguments.source_root)
+    except ValueError:
+        parser.error("FIXTURE_ROOT_OUTSIDE_SOURCE_ROOT")
+    return arguments
 
 
 def _pretty_json(payload: Any) -> bytes:
