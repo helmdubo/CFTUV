@@ -233,24 +233,46 @@ def _declared_internal_corner_ids(snapshot, chain: PhysicalChainV1) -> set:
 
 def _declared_straight_chains(
     compilation: ReferenceEnvelopeCompilationV1,
+    frame: RationalAffinePlanarMetricV2,
 ) -> tuple[PhysicalChainV1, ...]:
     snapshot = compilation.analysis_snapshot
+    source_by_id = _source_coordinates(frame)
     domain_chain_ids = {
         item.physical_chain_id
         for item in snapshot.chain_uses
         if item.patch_domain_id == compilation.plan_key.patch_domain_id
     }
-    return tuple(
-        chain
-        for chain in sorted(
-            snapshot.physical_chains,
-            key=lambda item: item.physical_chain_id.value,
-        )
-        if chain.physical_chain_id in domain_chain_ids
-        and not chain.is_closed
-        and len(chain.ordered_source_vertex_ids) >= 3
-        and not _declared_internal_corner_ids(snapshot, chain)
-    )
+    result = []
+    for chain in sorted(
+        snapshot.physical_chains,
+        key=lambda item: item.physical_chain_id.value,
+    ):
+        if (
+            chain.physical_chain_id not in domain_chain_ids
+            or chain.is_closed
+            or len(chain.ordered_source_vertex_ids) < 3
+            or _declared_internal_corner_ids(snapshot, chain)
+        ):
+            continue
+        try:
+            source = tuple(
+                source_by_id[item]
+                for item in chain.ordered_source_vertex_ids
+            )
+        except KeyError as exc:
+            raise EvaluationGeometryBindingInvalid(
+                "declared chain references an unbound source vertex"
+            ) from exc
+        direction = _subtract(source[-1], source[0])
+        if direction == (0, 0) or any(
+            _cross(direction, _subtract(point, source[0])) != 0
+            for point in source
+        ):
+            # Непрямой route остаётся старому evaluator'у: его именованный
+            # PLANAR_CHAIN_SUPPORT_NOT_LINEAR не подменяется binding-отказом.
+            continue
+        result.append(chain)
+    return tuple(result)
 
 
 def _base_nodes(
@@ -658,7 +680,7 @@ def build_evaluation_geometry_binding(
         raise EvaluationGeometryBindingInvalid(
             "chart lattice requires RationalAffinePlanarMetricV2"
         )
-    declared_chains = _declared_straight_chains(compilation)
+    declared_chains = _declared_straight_chains(compilation, frame)
     if declared_chains:
         return _v2_binding(
             compilation,
@@ -726,7 +748,7 @@ def verify_evaluation_geometry_binding(
         raise EvaluationGeometryBindingInvalid(
             "declared chart lattice requires evaluation geometry binding"
         )
-    declared_chains = _declared_straight_chains(compilation)
+    declared_chains = _declared_straight_chains(compilation, frame)
     support_ids = _expected_support_ids(compilation)
     if declared_chains:
         if type(binding) is not ChainStraightEvaluationGeometryBindingV2:

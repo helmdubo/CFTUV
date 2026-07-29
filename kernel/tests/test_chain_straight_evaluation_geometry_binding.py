@@ -167,6 +167,23 @@ def test_v1_bytes_path_remains_selected_without_declared_multivertex_chain():
     assert prepared.lattice.scale == binding.lattice_scale
 
 
+def test_nonlinear_domain_routes_do_not_block_source_collinear_v2_authority():
+    *_, compilation = _compile_case(
+        "building_001_single_edge_patch_000_named_outcome_v1"
+    )
+    binding = compilation.evaluation_geometry_binding
+
+    assert isinstance(
+        binding,
+        kernel.ChainStraightEvaluationGeometryBindingV2,
+    )
+    assert kernel.PhysicalChainId(
+        "host-v0:physical-chain:722892ff0c5479743b66eacc"
+    ) in {
+        item.physical_chain_id for item in binding.straight_chain_bindings
+    }
+
+
 def test_forged_v1_is_refused_by_reference_and_queue(monkeypatch):
     snapshot, request, domain, frame, compilation = _compile_case(
         "building_all_seams_patch_105_lost_resolved_v1"
