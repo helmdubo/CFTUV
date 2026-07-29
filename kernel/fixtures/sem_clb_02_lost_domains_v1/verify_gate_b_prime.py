@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import copy
 from fractions import Fraction
 import hashlib
 import json
@@ -184,6 +185,12 @@ def _joint_record(builder, vertex, line_class) -> dict[str, Any]:
     dot = first.a * second.a + first.b * second.b
     speed_left = first.q * second.normal_squared
     speed_right = second.q * first.normal_squared
+    support_class = _line_class_record(first, line_class)
+    class_members = [
+        edge
+        for edge in builder.edges
+        if _line_class_record(edge.line, line_class) == support_class
+    ]
     previous = builder.vertices[vertex.prev]
     following = builder.vertices[vertex.next]
     previous_outcome = builder._edge_event_time(previous, vertex)[1]
@@ -213,8 +220,12 @@ def _joint_record(builder, vertex, line_class) -> dict[str, Any]:
         "speed_equality_right_q2_N1": _ratio(speed_right),
         "normalized_speeds_equal": speed_left == speed_right,
         "same_support_line_class": (
-            _line_class_record(first, line_class)
+            support_class
             == _line_class_record(second, line_class)
+        ),
+        "support_line_class_member_count": len(class_members),
+        "support_line_class_distinct_raw_key_count": len(
+            {edge.line_key for edge in class_members}
         ),
         "raw_line_keys_equal": first_edge.line_key == second_edge.line_key,
         "event_born_new_vertex_predicate": (
@@ -741,6 +752,51 @@ def _source_predicate_audit(source_root: Path) -> dict[str, Any]:
         )
         for node in ast.walk(new_vertex)
     )
+    enqueue = functions["_enqueue_edge_event"]
+    always_concurrent_index = next(
+        (
+            index
+            for index, node in enumerate(enqueue.body)
+            if isinstance(node, ast.If)
+            and "outcome is not EventTimeOutcome.EXACT"
+            in ast.unparse(node.test)
+            and "NO_RULE_TRIPLE_ALWAYS_CONCURRENT"
+            in ast.unparse(node)
+        ),
+        None,
+    )
+    collapsing_span_index = next(
+        (
+            index
+            for index, node in enumerate(enqueue.body)
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "span"
+                for target in node.targets
+            )
+            and "_collapsing_span" in ast.unparse(node.value)
+        ),
+        None,
+    )
+    born_zero_filter_index = next(
+        (
+            index
+            for index, node in enumerate(enqueue.body)
+            if isinstance(node, ast.If)
+            and "compare_times(time, vertex.birth) == 0"
+            in ast.unparse(node.test)
+            and "FILTER_SPAN_IS_BORN_ZERO" in ast.unparse(node)
+        ),
+        None,
+    )
+    observed_order = (
+        always_concurrent_index is not None
+        and collapsing_span_index is not None
+        and born_zero_filter_index is not None
+        and always_concurrent_index
+        < collapsing_span_index
+        < born_zero_filter_index
+    )
     return {
         "event_born_new_vertex_predicate": predicate,
         "expected_predicate": EXPECTED_NEW_VERTEX_PREDICATE,
@@ -748,6 +804,14 @@ def _source_predicate_audit(source_root: Path) -> dict[str, Any]:
         "seed_constructor_count": len(seed_vertex_calls),
         "seed_constructor_sets_sliding": seed_sets_sliding,
         "event_born_constructor_sets_sliding": event_sets_sliding,
+        "enqueue_edge_event_observed_order": {
+            "always_concurrent_refusal_body_index": (
+                always_concurrent_index
+            ),
+            "collapsing_span_body_index": collapsing_span_index,
+            "born_zero_filter_body_index": born_zero_filter_index,
+            "always_concurrent_precedes_span_and_filter": observed_order,
+        },
         "first_exact_structural_difference": (
             "SEED_VERTEX_CONSTRUCTION_OMITS_EVENT_BORN_SLIDING_CLASSIFICATION"
             if (
@@ -763,7 +827,15 @@ def _source_predicate_audit(source_root: Path) -> dict[str, Any]:
 def _filter_span_audit(
     fixtures: list[dict[str, Any]],
     synthetics: dict[str, dict[str, Any]],
+    source_audit: dict[str, Any],
 ) -> dict[str, Any]:
+    counters = {
+        "field_born_zero_fan_count_mismatches": 0,
+        "required_control_fan_edges": 0,
+        "required_control_born_zero_filters": 0,
+        "certified_seed_non_always_concurrent_adjacencies": 0,
+        "code_path_order_unproven": 0,
+    }
     field = []
     for fixture in fixtures:
         terminal = fixture["region"]["terminal"]
@@ -782,34 +854,462 @@ def _filter_span_audit(
                 ]["certified_straight_seed_vertex_count"],
             }
         )
+        counters["field_born_zero_fan_count_mismatches"] += int(
+            born_zero != fan_edges
+        )
+        for vertex in fixture["region"]["seed"][
+            "certified_straight_seed_vertices"
+        ]:
+            counters[
+                "certified_seed_non_always_concurrent_adjacencies"
+            ] += sum(
+                outcome != "WAVEFRONT_TRIPLE_ALWAYS_CONCURRENT"
+                for outcome in (
+                    vertex["previous_edge_event_outcome"],
+                    vertex["following_edge_event_outcome"],
+                )
+            )
     synthetic = []
     for name, case in synthetics.items():
         for mode, result in case["modes"].items():
+            filter_count = result["terminal"][
+                "named_candidate_rejection_counters"
+            ]["refused_filter_span_is_born_zero"]
+            fan_count = sum(
+                item["span_is_zero_length"]
+                for item in result["seed"]["edges"]
+            )
             synthetic.append(
                 {
                     "case": name,
                     "mode": mode,
-                    "filter_span_is_born_zero": result["terminal"][
-                        "named_candidate_rejection_counters"
-                    ]["refused_filter_span_is_born_zero"],
-                    "fan_edge_count": sum(
-                        item["span_is_zero_length"]
-                        for item in result["seed"]["edges"]
-                    ),
+                    "filter_span_is_born_zero": filter_count,
+                    "fan_edge_count": fan_count,
                 }
             )
+            if name in ("H1_REQUIRED", "H2_SCALE_CONTROL"):
+                counters["required_control_fan_edges"] += fan_count
+                counters[
+                    "required_control_born_zero_filters"
+                ] += filter_count
+    observed_order = source_audit["enqueue_edge_event_observed_order"][
+        "always_concurrent_precedes_span_and_filter"
+    ]
+    counters["code_path_order_unproven"] = int(not observed_order)
+    outcome = (
+        "FILTER_ORTHOGONALITY_CONFIRMED"
+        if not any(counters.values())
+        else "INSUFFICIENT_FILTER_ORTHOGONALITY_EVIDENCE"
+    )
     return {
+        "outcome": outcome,
         "existing_rule": "FILTER_SPAN_IS_BORN_ZERO",
+        "failure_counters": counters,
         "field_counts": field,
         "synthetic_counts": synthetic,
-        "control_flow_fact": (
-            "ALWAYS_CONCURRENT_OUTCOME_RETURNS_BEFORE_COLLAPSING_SPAN_"
-            "AND_BEFORE_FILTER_SPAN_IS_BORN_ZERO"
-        ),
+        "observed_control_flow": source_audit[
+            "enqueue_edge_event_observed_order"
+        ],
         "applicability_conclusion": (
             "NOT_THE_SEED_STRAIGHT_JOINT_RULE;_IT_FILTERS_A_BORN_ZERO_"
             "COLLAPSING_SPAN_AFTER_AN_EXACT_EVENT_TIME_EXISTS"
+            if outcome == "FILTER_ORTHOGONALITY_CONFIRMED"
+            else "NOT_PROVEN"
         ),
+    }
+
+
+def _terminal_signature(result: dict[str, Any]) -> dict[str, Any]:
+    terminal = result["terminal"]
+    return {
+        "outcome": terminal["outcome"],
+        "levels": terminal["levels"],
+        "node_count": terminal["node_count"],
+        "live_vertex_count": terminal["live_vertex_count"],
+        "named_candidate_rejection_counters": terminal[
+            "named_candidate_rejection_counters"
+        ],
+        "face_outcome": result["face_outcome"],
+        "face_count": result["face_count"],
+        "polygon_doubled_area": result["polygon_doubled_area"],
+    }
+
+
+def _h2_evidence_audit(
+    fixtures: list[dict[str, Any]],
+    synthetics: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    counters = {
+        "certified_rescaling_cases_missing": 0,
+        "certified_rescaling_class_multiplicity_failures": 0,
+        "certified_rescaling_distinct_raw_key_failures": 0,
+        "certified_rescaling_support_class_failures": 0,
+        "certified_rescaling_q_over_N_failures": 0,
+        "unequal_speed_certified_straight_vertices": 0,
+        "different_speed_named_refusals": 0,
+        "h1_control_same_representation_failures": 0,
+        "h2_control_rescaling_failures": 0,
+        "h2_control_terminal_signature_differences": 0,
+    }
+    certified = [
+        {
+            "fixture_id": fixture["fixture_id"],
+            **vertex,
+        }
+        for fixture in fixtures
+        for vertex in fixture["region"]["seed"][
+            "certified_straight_seed_vertices"
+        ]
+    ]
+    rescaling = [
+        item for item in certified if not item["raw_line_keys_equal"]
+    ]
+    counters["certified_rescaling_cases_missing"] = int(not rescaling)
+    for item in certified:
+        counters["unequal_speed_certified_straight_vertices"] += int(
+            not item["normalized_speeds_equal"]
+        )
+    for item in rescaling:
+        counters[
+            "certified_rescaling_class_multiplicity_failures"
+        ] += int(item["support_line_class_member_count"] < 2)
+        counters[
+            "certified_rescaling_distinct_raw_key_failures"
+        ] += int(item["support_line_class_distinct_raw_key_count"] < 2)
+        counters["certified_rescaling_support_class_failures"] += int(
+            not item["same_support_line_class"]
+        )
+        counters["certified_rescaling_q_over_N_failures"] += int(
+            item["prev_support"][
+                "normalized_speed_squared_q_over_N"
+            ]
+            != item["next_support"][
+                "normalized_speed_squared_q_over_N"
+            ]
+        )
+    for fixture in fixtures:
+        counters["different_speed_named_refusals"] += fixture["region"][
+            "terminal"
+        ]["named_candidate_rejection_counters"][
+            "refused_no_rule_joint_is_codirectional_at_different_speeds"
+        ]
+
+    control_facts = []
+    for mode in ("MOTORCYCLE", "EXHAUSTIVE"):
+        h1 = synthetics["H1_REQUIRED"]["modes"][mode]
+        h2 = synthetics["H2_SCALE_CONTROL"]["modes"][mode]
+        h1_straight = h1["seed"]["certified_straight_seed_vertices"]
+        h2_straight = h2["seed"]["certified_straight_seed_vertices"]
+        h1_same = (
+            len(h1_straight) == 1
+            and h1_straight[0]["raw_line_keys_equal"]
+            and h1_straight[0]["normalized_speeds_equal"]
+        )
+        h2_rescaled = (
+            len(h2_straight) == 1
+            and not h2_straight[0]["raw_line_keys_equal"]
+            and h2_straight[0]["same_support_line_class"]
+            and h2_straight[0]["support_line_class_member_count"] >= 2
+            and h2_straight[0][
+                "support_line_class_distinct_raw_key_count"
+            ]
+            >= 2
+            and h2_straight[0]["normalized_speeds_equal"]
+            and h2_straight[0]["prev_support"][
+                "normalized_speed_squared_q_over_N"
+            ]
+            == h2_straight[0]["next_support"][
+                "normalized_speed_squared_q_over_N"
+            ]
+        )
+        h1_diff_speed = h1["terminal"][
+            "named_candidate_rejection_counters"
+        ]["refused_no_rule_joint_is_codirectional_at_different_speeds"]
+        h2_diff_speed = h2["terminal"][
+            "named_candidate_rejection_counters"
+        ]["refused_no_rule_joint_is_codirectional_at_different_speeds"]
+        signatures_equal = _terminal_signature(h1) == _terminal_signature(h2)
+        counters["h1_control_same_representation_failures"] += int(
+            not h1_same
+        )
+        counters["h2_control_rescaling_failures"] += int(not h2_rescaled)
+        counters["different_speed_named_refusals"] += (
+            h1_diff_speed + h2_diff_speed
+        )
+        counters[
+            "h2_control_terminal_signature_differences"
+        ] += int(not signatures_equal)
+        control_facts.append(
+            {
+                "mode": mode,
+                "h1_same_raw_representation": h1_same,
+                "h2_integer_normal_rescaling": h2_rescaled,
+                "h1_different_speed_named_refusals": h1_diff_speed,
+                "h2_different_speed_named_refusals": h2_diff_speed,
+                "terminal_signatures_equal": signatures_equal,
+            }
+        )
+    outcome = (
+        "H2_REPRESENTATION_ONLY"
+        if not any(counters.values())
+        else "INSUFFICIENT_H2_EVIDENCE"
+    )
+    return {
+        "outcome": outcome,
+        "failure_counters": counters,
+        "certified_straight_vertex_count": len(certified),
+        "certified_integer_normal_rescaling_case_count": len(rescaling),
+        "certified_integer_normal_rescaling_cases": rescaling,
+        "controls": control_facts,
+    }
+
+
+def _negative_self_checks(
+    fixtures: list[dict[str, Any]],
+    synthetics: dict[str, dict[str, Any]],
+    source_audit: dict[str, Any],
+    family: dict[str, Any],
+) -> dict[str, Any]:
+    checks = []
+    self_checks_pass = {"all_passed": True, "checks": []}
+
+    def decision_for(
+        candidate_fixtures,
+        candidate_synthetics,
+        h2_audit,
+        filter_audit,
+    ):
+        return _decide(
+            candidate_fixtures,
+            candidate_synthetics,
+            family,
+            source_audit,
+            h2_audit,
+            filter_audit,
+            self_checks_pass,
+            [],
+        )
+
+    no_h2_fixtures = copy.deepcopy(fixtures)
+    no_h2_synthetics = copy.deepcopy(synthetics)
+    for fixture in no_h2_fixtures:
+        seed = fixture["region"]["seed"]
+        seed["certified_straight_seed_vertices"] = []
+        seed["certified_straight_seed_vertex_count"] = 0
+    for case in no_h2_synthetics.values():
+        for result in case["modes"].values():
+            seed = result["seed"]
+            seed["certified_straight_seed_vertices"] = []
+            seed["certified_straight_seed_vertex_count"] = 0
+    no_h2 = _h2_evidence_audit(no_h2_fixtures, no_h2_synthetics)
+    no_h2_decision = decision_for(
+        no_h2_fixtures,
+        no_h2_synthetics,
+        no_h2,
+        _filter_span_audit(
+            no_h2_fixtures, no_h2_synthetics, source_audit
+        ),
+    )
+    checks.append(
+        {
+            "name": "REMOVE_ALL_H2_FACTS",
+            "expected_outcome": "INSUFFICIENT_H2_EVIDENCE",
+            "expected_named_counter": "certified_rescaling_cases_missing",
+            "observed_outcome": no_h2["outcome"],
+            "observed_decision_outcome": no_h2_decision[0],
+            "observed_decision_fact": no_h2_decision[1][
+                "named_first_exact_fact"
+            ],
+            "observed_failure_counters": no_h2["failure_counters"],
+            "passed": (
+                no_h2["outcome"] == "INSUFFICIENT_H2_EVIDENCE"
+                and no_h2_decision[0] == "REFUSED"
+                and no_h2_decision[1]["named_first_exact_fact"]
+                == "INSUFFICIENT_H2_EVIDENCE"
+                and no_h2["failure_counters"][
+                    "certified_rescaling_cases_missing"
+                ]
+                > 0
+            ),
+        }
+    )
+
+    altered_q = copy.deepcopy(fixtures)
+    altered = next(
+        vertex
+        for fixture in altered_q
+        for vertex in fixture["region"]["seed"][
+            "certified_straight_seed_vertices"
+        ]
+        if not vertex["raw_line_keys_equal"]
+    )
+    altered["next_support"][
+        "normalized_speed_squared_q_over_N"
+    ] = "SELF_CHECK_ALTERED_Q_OVER_N"
+    altered_q_audit = _h2_evidence_audit(altered_q, synthetics)
+    altered_q_decision = decision_for(
+        altered_q,
+        synthetics,
+        altered_q_audit,
+        _filter_span_audit(altered_q, synthetics, source_audit),
+    )
+    checks.append(
+        {
+            "name": "ALTER_ONE_Q_OVER_N",
+            "expected_outcome": "INSUFFICIENT_H2_EVIDENCE",
+            "expected_named_counter": (
+                "certified_rescaling_q_over_N_failures"
+            ),
+            "observed_outcome": altered_q_audit["outcome"],
+            "observed_decision_outcome": altered_q_decision[0],
+            "observed_decision_fact": altered_q_decision[1][
+                "named_first_exact_fact"
+            ],
+            "observed_failure_counters": altered_q_audit[
+                "failure_counters"
+            ],
+            "passed": (
+                altered_q_audit["outcome"] == "INSUFFICIENT_H2_EVIDENCE"
+                and altered_q_decision[0] == "REFUSED"
+                and altered_q_decision[1]["named_first_exact_fact"]
+                == "INSUFFICIENT_H2_EVIDENCE"
+                and altered_q_audit["failure_counters"][
+                    "certified_rescaling_q_over_N_failures"
+                ]
+                > 0
+            ),
+        }
+    )
+
+    diff_speed = copy.deepcopy(fixtures)
+    diff_speed[0]["region"]["terminal"][
+        "named_candidate_rejection_counters"
+    ][
+        "refused_no_rule_joint_is_codirectional_at_different_speeds"
+    ] = 1
+    diff_speed_audit = _h2_evidence_audit(diff_speed, synthetics)
+    diff_speed_decision = decision_for(
+        diff_speed,
+        synthetics,
+        diff_speed_audit,
+        _filter_span_audit(diff_speed, synthetics, source_audit),
+    )
+    checks.append(
+        {
+            "name": "SET_DIFFERENT_SPEED_NAMED_REFUSAL",
+            "expected_outcome": "INSUFFICIENT_H2_EVIDENCE",
+            "expected_named_counter": "different_speed_named_refusals",
+            "observed_outcome": diff_speed_audit["outcome"],
+            "observed_decision_outcome": diff_speed_decision[0],
+            "observed_decision_fact": diff_speed_decision[1][
+                "named_first_exact_fact"
+            ],
+            "observed_failure_counters": diff_speed_audit[
+                "failure_counters"
+            ],
+            "passed": (
+                diff_speed_audit["outcome"]
+                == "INSUFFICIENT_H2_EVIDENCE"
+                and diff_speed_decision[0] == "REFUSED"
+                and diff_speed_decision[1]["named_first_exact_fact"]
+                == "INSUFFICIENT_H2_EVIDENCE"
+                and diff_speed_audit["failure_counters"][
+                    "different_speed_named_refusals"
+                ]
+                > 0
+            ),
+        }
+    )
+
+    altered_fan = copy.deepcopy(fixtures)
+    altered_fan[0]["region"]["bridge_polygon"]["fan_edge_count"] += 1
+    altered_fan_audit = _filter_span_audit(
+        altered_fan, synthetics, source_audit
+    )
+    altered_fan_decision = decision_for(
+        altered_fan,
+        synthetics,
+        _h2_evidence_audit(altered_fan, synthetics),
+        altered_fan_audit,
+    )
+    checks.append(
+        {
+            "name": "PERTURB_ONE_BORN_ZERO_FAN_COUNT",
+            "expected_outcome": (
+                "INSUFFICIENT_FILTER_ORTHOGONALITY_EVIDENCE"
+            ),
+            "expected_named_counter": (
+                "field_born_zero_fan_count_mismatches"
+            ),
+            "observed_outcome": altered_fan_audit["outcome"],
+            "observed_decision_outcome": altered_fan_decision[0],
+            "observed_decision_fact": altered_fan_decision[1][
+                "named_first_exact_fact"
+            ],
+            "observed_failure_counters": altered_fan_audit[
+                "failure_counters"
+            ],
+            "passed": (
+                altered_fan_audit["outcome"]
+                == "INSUFFICIENT_FILTER_ORTHOGONALITY_EVIDENCE"
+                and altered_fan_decision[0] == "REFUSED"
+                and altered_fan_decision[1]["named_first_exact_fact"]
+                == "INSUFFICIENT_FILTER_ORTHOGONALITY_EVIDENCE"
+                and altered_fan_audit["failure_counters"][
+                    "field_born_zero_fan_count_mismatches"
+                ]
+                > 0
+            ),
+        }
+    )
+
+    control_filter = copy.deepcopy(synthetics)
+    for name in ("H1_REQUIRED", "H2_SCALE_CONTROL"):
+        control_filter[name]["modes"]["MOTORCYCLE"]["terminal"][
+            "named_candidate_rejection_counters"
+        ]["refused_filter_span_is_born_zero"] = 1
+    control_filter_audit = _filter_span_audit(
+        fixtures, control_filter, source_audit
+    )
+    control_filter_decision = decision_for(
+        fixtures,
+        control_filter,
+        _h2_evidence_audit(fixtures, control_filter),
+        control_filter_audit,
+    )
+    checks.append(
+        {
+            "name": "SET_REQUIRED_CONTROL_FILTER_NONZERO",
+            "expected_outcome": (
+                "INSUFFICIENT_FILTER_ORTHOGONALITY_EVIDENCE"
+            ),
+            "expected_named_counter": (
+                "required_control_born_zero_filters"
+            ),
+            "observed_outcome": control_filter_audit["outcome"],
+            "observed_decision_outcome": control_filter_decision[0],
+            "observed_decision_fact": control_filter_decision[1][
+                "named_first_exact_fact"
+            ],
+            "observed_failure_counters": control_filter_audit[
+                "failure_counters"
+            ],
+            "passed": (
+                control_filter_audit["outcome"]
+                == "INSUFFICIENT_FILTER_ORTHOGONALITY_EVIDENCE"
+                and control_filter_decision[0] == "REFUSED"
+                and control_filter_decision[1]["named_first_exact_fact"]
+                == "INSUFFICIENT_FILTER_ORTHOGONALITY_EVIDENCE"
+                and control_filter_audit["failure_counters"][
+                    "required_control_born_zero_filters"
+                ]
+                > 0
+            ),
+        }
+    )
+    return {
+        "all_passed": all(item["passed"] for item in checks),
+        "checks": checks,
     }
 
 
@@ -818,6 +1318,9 @@ def _decide(
     synthetics: dict[str, dict[str, Any]],
     family: dict[str, Any],
     source_audit: dict[str, Any],
+    h2_audit: dict[str, Any],
+    filter_audit: dict[str, Any],
+    negative_self_checks: dict[str, Any],
     failures: list[dict[str, Any]],
 ) -> tuple[str, dict[str, Any]]:
     if failures:
@@ -832,15 +1335,26 @@ def _decide(
             "certified_straight_seed_vertices"
         ]
     ]
-    unequal = [
-        item for item in straight if not item["normalized_speeds_equal"]
-    ]
-    if unequal:
-        return "H2_ROOT", {
+    if h2_audit["outcome"] != "H2_REPRESENTATION_ONLY":
+        return "REFUSED", {
+            "named_first_exact_fact": "INSUFFICIENT_H2_EVIDENCE",
+            "failure_counters": h2_audit["failure_counters"],
+        }
+    if filter_audit["outcome"] != "FILTER_ORTHOGONALITY_CONFIRMED":
+        return "REFUSED", {
             "named_first_exact_fact": (
-                "SEED_STRAIGHT_SUPPORT_CLASS_HAS_UNEQUAL_NORMALIZED_SPEED"
+                "INSUFFICIENT_FILTER_ORTHOGONALITY_EVIDENCE"
             ),
-            "count": len(unequal),
+            "failure_counters": filter_audit["failure_counters"],
+        }
+    if not negative_self_checks["all_passed"]:
+        return "REFUSED", {
+            "named_first_exact_fact": "NEGATIVE_SELF_CHECK_FAILED",
+            "failed_checks": [
+                item["name"]
+                for item in negative_self_checks["checks"]
+                if not item["passed"]
+            ],
         }
     public_first_failure_is_skeleton = all(
         fixture["compile"]["outcome"] == "EXACT"
@@ -872,19 +1386,12 @@ def _decide(
             ),
             "certified_seed_straight_count": len(straight),
             "certified_seed_straight_sliding_count": 0,
-            "h2_classification": "H2_REPRESENTATION_ONLY",
+            "h2_classification": h2_audit["outcome"],
             "structural_resolution_obligation": (
                 "CLASSIFY_A_CERTIFIED_STRAIGHT_SEED_JOINT_AS_ONE_SLIDING_"
                 "MOVING_LINE_WITHOUT_CHANGING_THE_GLOBAL_S_PRIME_LATTICE_"
                 "OR_ANY_INPUT_COORDINATE"
             ),
-        }
-    if straight and not unequal:
-        return "H2_REPRESENTATION_ONLY", {
-            "named_first_exact_fact": (
-                "INTEGER_NORMAL_RESCALING_PRESERVES_Q_OVER_N"
-            ),
-            "h1_status": "NOT_CONFIRMED_BY_ALL_PHASE0_OBLIGATIONS",
         }
     return "THIRD_ROOT", {
         "named_first_exact_fact": "H1_AND_H2_PREDECLARED_FACTS_NOT_OBSERVED",
@@ -1005,13 +1512,32 @@ def main() -> None:
             family = _four_vertex_family(modules)
             source_audit = _source_predicate_audit(arguments.source_root)
 
-    outcome, decision = _decide(
-        fixtures, synthetics, family, source_audit, failures
+    h2_audit = (
+        {}
+        if failures
+        else _h2_evidence_audit(fixtures, synthetics)
     )
     filter_audit = (
         {}
         if failures
-        else _filter_span_audit(fixtures, synthetics)
+        else _filter_span_audit(fixtures, synthetics, source_audit)
+    )
+    negative_self_checks = (
+        {"all_passed": False, "checks": []}
+        if failures
+        else _negative_self_checks(
+            fixtures, synthetics, source_audit, family
+        )
+    )
+    outcome, decision = _decide(
+        fixtures,
+        synthetics,
+        family,
+        source_audit,
+        h2_audit,
+        filter_audit,
+        negative_self_checks,
+        failures,
     )
     payload = {
         "schema": SCHEMA,
@@ -1057,7 +1583,9 @@ def main() -> None:
         },
         "decision": decision,
         "source_predicate_audit": source_audit,
+        "h2_evidence_audit": h2_audit,
         "filter_span_is_born_zero_audit": filter_audit,
+        "negative_self_checks": negative_self_checks,
         "four_vertex_family_boundary": family,
         "synthetic_cases": synthetics,
         "fixture_integrity": integrity,
@@ -1073,6 +1601,14 @@ def main() -> None:
                 "outcome": outcome,
                 "report_sha256": _sha256(report_bytes),
                 "fixture_count": len(fixtures),
+                "h2_evidence_outcome": h2_audit.get("outcome"),
+                "filter_orthogonality_outcome": filter_audit.get(
+                    "outcome"
+                ),
+                "negative_self_checks": {
+                    item["name"]: item["passed"]
+                    for item in negative_self_checks["checks"]
+                },
                 "certified_straight_seed_counts": {
                     item["fixture_id"]: item["region"]["seed"][
                         "certified_straight_seed_vertex_count"
