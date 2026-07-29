@@ -1495,6 +1495,9 @@ def test_bound_point_contact_decomposes_wall_and_lattice_residual_to_zero():
     """
 
     import cftuv_envelope as kernel
+    from cftuv_envelope.reference.evaluation_geometry import (
+        evaluation_geometry_binding_residual,
+    )
     from cftuv_envelope.wavefront import (
         ConveyorOutcome,
         conveyor_coverage,
@@ -1511,6 +1514,12 @@ def test_bound_point_contact_decomposes_wall_and_lattice_residual_to_zero():
     assert prepared.counter("CONVEYOR_DEGRADED_MITER_CORNERS") == 0
 
     region = prepared.regions[0]
+    binding_residual = evaluation_geometry_binding_residual(
+        prepared.context.frame,
+        prepared.compilation.evaluation_geometry_binding,
+    )
+    assert binding_residual == Fraction(684097, 46729953280)
+    assert region.bridge.snap_residual == binding_residual
     assert region.partition.area_defect.is_zero
     assert len(region.wall_spans) == 9
     assert region.ambiguous_owner_spans == ()

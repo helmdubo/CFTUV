@@ -56,7 +56,7 @@ ALPHA ВХОДИТ РОВНО В ДВУХ МЕСТАХ, и оба измерен
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from enum import Enum
 from fractions import Fraction
@@ -85,7 +85,10 @@ from ..reference.boundary import (
 )
 from ..reference.common import GeometryContext, ReferenceGeometryError
 from ..reference.compile import compile_reference_envelopes
-from ..reference.evaluation_geometry import chart_lattice_for_frame
+from ..reference.evaluation_geometry import (
+    chart_lattice_for_frame,
+    evaluation_geometry_binding_residual,
+)
 from ..reference.metric import ExactPlanarMetric
 from ..reference.planar_types import (
     CertifiedPredicateUndecidable,
@@ -791,8 +794,19 @@ def _region_loops(region):
     return tuple(loops), None
 
 
+def _max_snap_residual(*values: Fraction | None) -> Fraction | None:
+    """Максимум измеренных стадий; `None` не подменяет измеренный ноль."""
+
+    present = tuple(value for value in values if value is not None)
+    return None if not present else max(present)
+
+
 def _prepare_region(
-    region, reading: _ArrivalLawsV1, lattice: GridSpecV1, clock: _Clock
+    region,
+    reading: _ArrivalLawsV1,
+    lattice: GridSpecV1,
+    binding_residual: Fraction,
+    clock: _Clock,
 ) -> tuple[PreparedRegionV1 | None, str | None]:
     started = time.perf_counter()
     loops, issue = _region_loops(region)
@@ -801,7 +815,7 @@ def _prepare_region(
         return None, issue
 
     started = time.perf_counter()
-    report = bridge_arrival_laws(
+    bound_report = bridge_arrival_laws(
         loops,
         reading.laws,
         lattice=lattice,
@@ -809,6 +823,12 @@ def _prepare_region(
         vertex_fans=tuple(
             VertexFanLawV1(fan.name, fan.point, fan.supports)
             for fan in reading.fans
+        ),
+    )
+    report = replace(
+        bound_report,
+        snap_residual=_max_snap_residual(
+            binding_residual, bound_report.snap_residual
         ),
     )
     clock.add("BRIDGE", started)
@@ -995,14 +1015,16 @@ def prepare_conveyor(
     inputs, refusal = _prepare_inputs(snapshot, request, patch_domain_id, clock)
     if inputs is None:
         return refusal
-    compilation, context, domain, reading, lattice = inputs
+    compilation, context, domain, reading, lattice, binding_residual = inputs
     laws = reading.laws
     # Всё, что уже известно про законы и вееры, переживает любой поздний отказ.
     law_counters: Counters = _law_counters(reading)
 
     prepared_regions: list[PreparedRegionV1] = []
     for region in domain.domain_regions:
-        prepared, issue = _prepare_region(region, reading, lattice, clock)
+        prepared, issue = _prepare_region(
+            region, reading, lattice, binding_residual, clock
+        )
         if prepared is None:
             return _refused(
                 ConveyorOutcome.DOMAIN_POINT_IS_NOT_RATIONAL,
@@ -1110,7 +1132,17 @@ def _prepare_inputs(snapshot, request, patch_domain_id, clock: _Clock):
             clock,
             law_counters,
         )
-    return (compilation, context, domain, reading, lattice), None
+    binding_residual = evaluation_geometry_binding_residual(
+        frame, compilation.evaluation_geometry_binding
+    )
+    return (
+        compilation,
+        context,
+        domain,
+        reading,
+        lattice,
+        binding_residual,
+    ), None
 
 
 def _instance_ids_by_spec(

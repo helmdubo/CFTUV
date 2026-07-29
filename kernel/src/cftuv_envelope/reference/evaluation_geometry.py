@@ -60,6 +60,55 @@ def _bound_coordinate(coordinate, lattice: GridSpecV1) -> ExactPoint2V1:
     return ExactPoint2V1(_exact_rational(bound_x), _exact_rational(bound_y))
 
 
+def _fraction_pair(coordinate: ExactPoint2V1) -> tuple[Fraction, Fraction]:
+    return (
+        Fraction(coordinate.x.numerator, coordinate.x.denominator),
+        Fraction(coordinate.y.numerator, coordinate.y.denominator),
+    )
+
+
+def evaluation_geometry_binding_residual(
+    frame: PlanarPatchFrameV1 | RationalAffinePlanarMetricV2,
+    binding: EvaluationGeometryBindingV1 | None,
+) -> Fraction:
+    """Точная цена binding как максимум сдвига одной координаты."""
+
+    if (
+        binding is None
+        or not isinstance(frame, RationalAffinePlanarMetricV2)
+        or binding.source_revision != frame.source_revision
+        or binding.patch_domain_id != frame.patch_domain_id
+        or binding.reference_metric_id != frame.reference_metric_id
+    ):
+        raise EvaluationGeometryBindingInvalid(
+            "evaluation geometry binding identity does not match its metric"
+        )
+    source = {
+        item.source_vertex_id: _fraction_pair(item.domain_coordinate)
+        for item in frame.exact_source_vertex_coordinates
+    }
+    bound = {
+        item.source_vertex_id: _fraction_pair(item.domain_coordinate)
+        for item in binding.source_vertex_coordinates
+    }
+    if (
+        len(source) != len(frame.exact_source_vertex_coordinates)
+        or len(bound) != len(binding.source_vertex_coordinates)
+        or source.keys() != bound.keys()
+    ):
+        raise EvaluationGeometryBindingInvalid(
+            "evaluation geometry binding source vertex identity mismatch"
+        )
+    return max(
+        (
+            abs(source_value - bound_value)
+            for vertex_id in source
+            for source_value, bound_value in zip(source[vertex_id], bound[vertex_id])
+        ),
+        default=Fraction(0),
+    )
+
+
 def build_evaluation_geometry_binding(
     compilation: ReferenceEnvelopeCompilationV1,
     frame: PlanarPatchFrameV1 | RationalAffinePlanarMetricV2,
