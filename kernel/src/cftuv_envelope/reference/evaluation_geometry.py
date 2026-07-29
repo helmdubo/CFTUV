@@ -469,32 +469,17 @@ def _chain_binding(
     )
 
 
-def _v2_binding(
-    compilation: ReferenceEnvelopeCompilationV1,
-    frame: RationalAffinePlanarMetricV2,
+def _v2_vertex_records(
+    source_by_id: dict[SourceVertexId, tuple[Fraction, Fraction]],
+    base_node_by_id: dict[SourceVertexId, tuple[int, int]],
+    chain_bindings: tuple[ChainStraightPhysicalChainBindingV2, ...],
     base_lattice: GridSpecV1,
-    declared_chains: tuple[PhysicalChainV1, ...],
-    bound_hidden_support_ids: frozenset,
-) -> ChainStraightEvaluationGeometryBindingV2:
-    source_by_id = _source_coordinates(frame)
-    base_node_by_id = _base_nodes(frame, base_lattice)
-    chain_infos = tuple(
-        _chain_info(chain, source_by_id, base_node_by_id)
-        for chain in declared_chains
-    )
-    refinement_power = _minimum_refinement_power(chain_infos)
-    factor = 1 << refinement_power
-    scale = base_lattice.scale * factor
-    gram = _gram_matrix(frame)
-    chain_bindings = tuple(
-        _chain_binding(
-            info,
-            base_lattice.scale,
-            refinement_power,
-            gram,
-        )
-        for info in chain_infos
-    )
+    factor: int,
+    scale: int,
+) -> tuple[
+    list[ChainStraightVertexAuthorityRecordV2],
+    list[EvaluationGeometrySourceVertexV1],
+]:
     memberships: dict[SourceVertexId, set[PhysicalChainId]] = {}
     internal_assignments = {}
     for chain_binding in chain_bindings:
@@ -566,6 +551,43 @@ def _v2_binding(
                 exact_offset_from_source=_exact_vector(offset),
             )
         )
+    return authority_records, coordinate_records
+
+
+def _v2_binding(
+    compilation: ReferenceEnvelopeCompilationV1,
+    frame: RationalAffinePlanarMetricV2,
+    base_lattice: GridSpecV1,
+    declared_chains: tuple[PhysicalChainV1, ...],
+    bound_hidden_support_ids: frozenset,
+) -> ChainStraightEvaluationGeometryBindingV2:
+    source_by_id = _source_coordinates(frame)
+    base_node_by_id = _base_nodes(frame, base_lattice)
+    chain_infos = tuple(
+        _chain_info(chain, source_by_id, base_node_by_id)
+        for chain in declared_chains
+    )
+    refinement_power = _minimum_refinement_power(chain_infos)
+    factor = 1 << refinement_power
+    scale = base_lattice.scale * factor
+    gram = _gram_matrix(frame)
+    chain_bindings = tuple(
+        _chain_binding(
+            info,
+            base_lattice.scale,
+            refinement_power,
+            gram,
+        )
+        for info in chain_infos
+    )
+    authority_records, coordinate_records = _v2_vertex_records(
+        source_by_id,
+        base_node_by_id,
+        chain_bindings,
+        base_lattice,
+        factor,
+        scale,
+    )
     deficits = frozenset()
     if refinement_power > 0:
         previous_power = refinement_power - 1
