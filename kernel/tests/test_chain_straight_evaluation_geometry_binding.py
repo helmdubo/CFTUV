@@ -14,6 +14,7 @@ from cftuv_envelope.reference.common import GeometryContext, ReferenceGeometryEr
 from cftuv_envelope.reference.evaluation_geometry import (
     EvaluationGeometryBindingInvalid,
     EvaluationGeometryRefinementBudgetExhausted,
+    _declared_straight_chains,
     _minimum_refinement_power,
     evaluation_geometry_binding_residual,
     verify_evaluation_geometry_binding,
@@ -165,6 +166,36 @@ def test_v1_bytes_path_remains_selected_without_declared_multivertex_chain():
     )
     assert prepared.lattice is not None
     assert prepared.lattice.scale == binding.lattice_scale
+
+
+def test_admitted_noncollinear_declaration_fails_with_frozen_named_outcome():
+    snapshot, request, domain, _ = _load_case(
+        "building_001_single_edge_patch_000_named_outcome_v1"
+    )
+    shell = SimpleNamespace(
+        analysis_snapshot=snapshot,
+        plan_key=SimpleNamespace(patch_domain_id=domain.patch_domain_id),
+    )
+    admitted = {
+        item.physical_chain_id
+        for item in _declared_straight_chains(shell)
+    }
+    assert kernel.PhysicalChainId(
+        "host-v0:physical-chain:9d42cda796feb85637960858"
+    ) in admitted
+
+    result = kernel.compile_reference_envelopes(
+        snapshot,
+        request,
+        domain.patch_domain_id,
+    )
+    assert result.outcome is (
+        kernel.ReferenceOutcome.SOURCE_DECLARED_STRAIGHT_CHAIN_IS_NOT_LINEAR
+    )
+    assert result.compilation is None
+    assert result.diagnostics[0].message == (
+        "SOURCE_DECLARED_STRAIGHT_CHAIN_IS_NOT_LINEAR"
+    )
 
 
 def test_forged_v1_is_refused_by_reference_and_queue(monkeypatch):

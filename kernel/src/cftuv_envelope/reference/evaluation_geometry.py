@@ -59,6 +59,18 @@ class EvaluationGeometryRefinementBudgetExhausted(
     pass
 
 
+class SourceDeclaredStraightEndpointsCoincide(
+    EvaluationGeometryBindingInvalid
+):
+    pass
+
+
+class SourceDeclaredStraightChainIsNotLinear(
+    EvaluationGeometryBindingInvalid
+):
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class _StraightChainInfo:
     chain: PhysicalChainV1
@@ -292,15 +304,15 @@ def _chain_info(
         ) from exc
     source_direction = _subtract(source[-1], source[0])
     if source_direction == (0, 0):
-        raise EvaluationGeometryBindingInvalid(
-            "declared straight chain endpoints coincide"
+        raise SourceDeclaredStraightEndpointsCoincide(
+            "SOURCE_DECLARED_STRAIGHT_ENDPOINTS_COINCIDE"
         )
     if any(
         _cross(source_direction, _subtract(point, source[0])) != 0
         for point in source
     ):
-        raise EvaluationGeometryBindingInvalid(
-            "declared straight chain is not exactly source-collinear"
+        raise SourceDeclaredStraightChainIsNotLinear(
+            "SOURCE_DECLARED_STRAIGHT_CHAIN_IS_NOT_LINEAR"
         )
     delta = _subtract(end_node, start_node)
     endpoint_span = gcd(abs(delta[0]), abs(delta[1]))

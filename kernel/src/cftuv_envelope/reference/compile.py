@@ -117,6 +117,8 @@ from .direction_binding import (
 from .evaluation_geometry import (
     EvaluationGeometryBindingInvalid,
     EvaluationGeometryRefinementBudgetExhausted,
+    SourceDeclaredStraightChainIsNotLinear,
+    SourceDeclaredStraightEndpointsCoincide,
     build_evaluation_geometry_binding,
     verify_evaluation_geometry_binding,
 )
@@ -523,6 +525,16 @@ def _attach_evaluation_geometry(
         )
     try:
         binding = build_evaluation_geometry_binding(compilation, frame)
+    except SourceDeclaredStraightEndpointsCoincide as exc:
+        return _failure(
+            ReferenceOutcome.SOURCE_DECLARED_STRAIGHT_ENDPOINTS_COINCIDE,
+            str(exc),
+        )
+    except SourceDeclaredStraightChainIsNotLinear as exc:
+        return _failure(
+            ReferenceOutcome.SOURCE_DECLARED_STRAIGHT_CHAIN_IS_NOT_LINEAR,
+            str(exc),
+        )
     except EvaluationGeometryRefinementBudgetExhausted as exc:
         return _failure(
             ReferenceOutcome.REFINEMENT_BUDGET_EXHAUSTED,
