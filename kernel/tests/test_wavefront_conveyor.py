@@ -36,20 +36,18 @@
 - `test_a_record_no_single_factor_can_rationalise_is_still_refused`
   — прежний отказ достижим и после починки.
 
-Сильнейший критерий — равенство с ЭТАЛОННЫМ `RawCoverage`, и он разобран на два
-теста, потому что ответ у него разный и оба ответа измерены:
+Сильнейший критерий — равенство с ЭТАЛОННЫМ `RawCoverage`, и он проверяется на
+двух разных составах границы:
 
 - `test_the_queue_equals_the_reference_raw_coverage_when_the_source_is_whole`
   — на `building_002_weighted_normals_v1` (4 источника из 4, стен ноль)
   разность ДОКАЗАННО нулевая;
-- `test_the_queue_exceeds_the_reference_raw_coverage_on_a_partial_source`
-  — на `bf6` (3 источника из 12, девять стен) очередь накрывает больше, и это
-  объявленная разница моделей: юбка обрезана концами своего ребра, отрезок
-  фронта едет вдоль неподвижной прямой стены дальше. Величина остатка —
-  **+0.00026651 %**, и прежние +7.00 % были объяснены НЕВЕРНО: они мерились,
-  когда веера не было ни у одного из путей, и почти целиком приходились на
-  отсутствие угловой модели у эталона, а не на стены. Разложение — таблицей
-  2x2 в самом тесте, на одних и тех же байтах.
+- `test_the_queue_equals_the_reference_raw_coverage_on_a_partial_source`
+  — на `bf6` (3 источника из 12, девять стен) разность тоже ДОКАЗАННО нулевая
+  после `CHART_LATTICE_BOUND`. Положительной остаётся другая величина:
+  `bound domain - coverage`, то есть собственно непокрытая стеновая часть.
+  Исторические `+0.00026651 %` сохранены в тексте теста как прежний
+  `wall+sliver`, а не переименованы задним числом в стеновую семантику.
 """
 
 from __future__ import annotations
@@ -79,7 +77,11 @@ from cftuv_envelope.reference import raw_coverage as raw_coverage_module
 from cftuv_envelope.reference.arrangement import ExactSegmentArrangementBackend
 from cftuv_envelope.reference.boundary import build_domain_geometry
 from cftuv_envelope.reference.common import GeometryContext
-from cftuv_envelope.reference.planar_types import ExactScalar, exact_sign
+from cftuv_envelope.reference.planar_types import (
+    ExactScalar,
+    exact_quadratic_value,
+    exact_sign,
+)
 from cftuv_envelope.reference.validation import (
     validate_reference_geometry_payload,
 )
@@ -258,11 +260,10 @@ def test_the_public_entry_reproduces_the_field_numbers_without_the_union(
     assert dict(prepared.counters) == {
         "CONVEYOR_DOMAIN_REGIONS": 1,
         "CONVEYOR_ARRIVAL_LAWS": 3,
-        # Два закона пришлось переписать масштабом, и это следствие ПРИВЯЗКИ:
-        # грубее рациональная запись метрики — иррациональнее единичная нормаль.
-        # Прежде на этой фикстуре был ноль, а двойку давал только
-        # `building_002_weighted_normals_v1`; теперь двойка у обеих.
-        "CONVEYOR_RESCALED_ARRIVAL_LAWS": 2,
+        # Переписаны три юбки и две сертифицированные bound-опоры веера.
+        # Счётчик считает записи обеих разновидностей, а не только три закона
+        # в `reading.laws`; состав держат два соседних счётчика.
+        "CONVEYOR_RESCALED_ARRIVAL_LAWS": 5,
         # ВЕЕРА У ЭТОГО ДОМЕНА ТЕПЕРЬ ЕСТЬ: снапшот объявляет 4 `CornerRelation`,
         # компилятор строит из них 2 `AngularEnvelopeSpec` (по числу углов,
         # попавших на выбранные рёбра запроса 2/3/7), и оба веера РАЦИОНАЛЬНЫ.
@@ -275,7 +276,7 @@ def test_the_public_entry_reproduces_the_field_numbers_without_the_union(
         "CONVEYOR_RATIONAL_VERTEX_FANS": 2,
         "CONVEYOR_DEGRADED_MITER_CORNERS": 0,
         "CONVEYOR_MITERED_CORNERS": 0,
-        "CONVEYOR_BOUND_FAN_DIRECTIONS": 0,
+        "CONVEYOR_BOUND_FAN_DIRECTIONS": 2,
         "CONVEYOR_FAN_SUPPORTS": 2,
         "CONVEYOR_FAN_EDGES": 2,
         "CONVEYOR_LATTICE_SCALE": 32768,
@@ -407,16 +408,6 @@ def test_the_arrival_laws_are_the_same_set_as_the_clipped_path_produces():
         compilation, components, boundary_resolved
     )
     assert diagnostics == ()
-    clipped_laws = {
-        (
-            exact_rational(model.arrival_law.normal.expressions()[0]),
-            exact_rational(model.arrival_law.normal.expressions()[1]),
-            exact_rational(model.arrival_law.source_constant.as_expr()),
-            exact_rational(model.arrival_law.normal_speed.as_expr()) ** 2,
-        )
-        for model in models
-    }
-
     frame, _ = validate_reference_geometry_payload(
         compilation.analysis_snapshot, compilation.plan_key.patch_domain_id
     )
@@ -425,12 +416,13 @@ def test_the_arrival_laws_are_the_same_set_as_the_clipped_path_produces():
     # пересборка проверяла бы формулу теста, а не формулу входа.
     reading = _arrival_laws(context)
     assert reading.detail is None
-    # Пере-масштабирование вмешалось ДВА раза, и это не мешает сравнению: оно
-    # меняет ЗАПИСЬ закона, а не его геометрию, и обе стороны читают одну и ту
-    # же запись через `_read_arrival_law`. Что рескейл сохраняет класс прямой и
-    # отношение `(s/|n|)^2` точно — держит
+    # Пере-масштабирование вмешалось ПЯТЬ раз: три юбки и две bound-опоры
+    # веера. Это не мешает сравнению юбок: оно меняет ЗАПИСЬ закона, а не его
+    # геометрию, и обе стороны читают одну и ту же запись через
+    # `_read_arrival_law`. Что рескейл сохраняет класс прямой и отношение
+    # `(s/|n|)^2` точно — держит
     # `test_the_rescale_changes_the_record_and_not_the_geometry`.
-    assert reading.rescaled_count == 2
+    assert reading.rescaled_count == 5
     laws = reading.laws
     queue_laws = {
         (law.normal_x, law.normal_y, law.constant, law.speed_squared)
@@ -449,17 +441,26 @@ def test_the_arrival_laws_are_the_same_set_as_the_clipped_path_produces():
         if str(model.arrival_model_id).startswith("strip-arrival-model:")
     ]
     assert len(strip_models) == 3
-    clipped_laws = {
-        (
-            exact_rational(model.arrival_law.normal.expressions()[0]),
-            exact_rational(model.arrival_law.normal.expressions()[1]),
-            exact_rational(model.arrival_law.source_constant.as_expr()),
-            exact_rational(model.arrival_law.normal_speed.as_expr()) ** 2,
+    clipped_plain = []
+    clipped_rescaled = 0
+    for model in strip_models:
+        law, rescaled, issue = _read_arrival_law(
+            str(model.arrival_model_id),
+            model.arrival_law.normal,
+            model.arrival_law.source_constant,
+            model.arrival_law.normal_speed.as_expr() ** 2,
         )
-        for model in strip_models
+        assert issue == ""
+        assert law is not None
+        clipped_plain.append(law)
+        clipped_rescaled += int(rescaled)
+    clipped_laws = {
+        (law.normal_x, law.normal_y, law.constant, law.speed_squared)
+        for law in clipped_plain
     }
     assert len(laws) == 3
     assert len(reading.fans) == 2
+    assert clipped_rescaled == 3
     assert queue_laws == clipped_laws
 
 
@@ -479,8 +480,8 @@ def test_the_coverage_at_the_requested_alpha_is_exact_and_owned(
     |---|---|---|
     | alpha запроса | 1/4, решётка 16384 | 1/4, решётка **8192** |
     | исход | `EXACT` | `EXACT` |
-    | членов в каноническом наборе | 6 | **7** |
-    | оболочка удвоенной площади | строго в (3018411397, 3018411399) | строго в **(746055834, 746055835)** |
+    | членов в каноническом наборе | 6 | **8** |
+    | оболочка удвоенной площади | строго в (3018411397, 3018411399) | строго в **(746152769, 746152770)** |
     | граней с владельцем | 3, все имена различны | **5**, спеки все различны |
     | стен | 9 | 9 |
 
@@ -501,9 +502,9 @@ def test_the_coverage_at_the_requested_alpha_is_exact_and_owned(
     assert covered.lattice_alpha == 8192
     (region,) = covered.regions
     assert region.outcome is CoverageOutcome.EXACT
-    assert len(covered.doubled_area.terms) == 7
+    assert len(covered.doubled_area.terms) == 8
     low, high = covered.doubled_area.enclosure(80)
-    assert 746055834 < low <= high < 746055835
+    assert 746152769 < low <= high < 746152770
     assert covered.doubled_area.sign() > 0
     # Покрытие строго внутри домена.
     assert (
@@ -514,7 +515,7 @@ def test_the_coverage_at_the_requested_alpha_is_exact_and_owned(
     assert dict(covered.counters) == {
         "CONVEYOR_COVERED_REGIONS": 1,
         "CONVEYOR_COVERED_FACES": 5,
-        "CONVEYOR_COVERAGE_TERMS": 7,
+        "CONVEYOR_COVERAGE_TERMS": 8,
         # Названных владельцев ТРИ при пяти гранях, и разрыв здесь не опечатка:
         # счётчик считает имена ЭКЗЕМПЛЯРОВ, а у веера их нет.
         "CONVEYOR_NAMED_OWNERS": 3,
@@ -708,9 +709,10 @@ def test_the_rational_translation_is_exact_where_nsimplify_silently_truncated():
     вызывающий обязан назвать исход.
 
     Цена тоже проверяется, но не секундомером — секундомер в тесте мерил бы
-    машину. Проверяется РАВЕНСТВО на всех рациональных значениях фикстуры:
-    именно оно и позволило `nsimplify` убрать (304 мс на 36 значений против
-    0.1 мс, замер в отчёте среза).
+    машину. На рациональных значениях bound-фикстуры новый путь возвращает
+    ТОЧНЫЕ дроби, а прежний рецепт уже на одном из 24 значений лжёт:
+    `20371/32768` превращает в `3/5`. Это отдельный положительный контроль к
+    иррациональному примеру выше.
     """
 
     def by_nsimplify(expression) -> Fraction:
@@ -723,7 +725,8 @@ def test_the_rational_translation_is_exact_where_nsimplify_silently_truncated():
     assert exact_rational(sp.sqrt(2)) is None
     assert exact_rational(sp.pi) is None
 
-    # 2. На рациональных значениях фикстуры оба пути дают одно и то же.
+    # 2. На рациональных значениях фикстуры новый путь точен, а старый
+    #    молча меняет ровно одну координату.
     snapshot, request = _field_input()
     compiled = kernel.compile_reference_envelopes(snapshot, request)
     frame, _ = validate_reference_geometry_payload(
@@ -736,10 +739,14 @@ def test_the_rational_translation_is_exact_where_nsimplify_silently_truncated():
     expressions = [point.x.as_expr() for point in region.outer.points]
     expressions += [point.y.as_expr() for point in region.outer.points]
     assert len(expressions) == 24
-    assert [exact_rational(item) for item in expressions] == [
-        by_nsimplify(item) for item in expressions
-    ]
-    assert all(exact_rational(item) is not None for item in expressions)
+    exact_values = [exact_rational(item) for item in expressions]
+    old_values = [by_nsimplify(item) for item in expressions]
+    assert all(item is not None for item in exact_values)
+    assert [
+        (index, exact_values[index], old_values[index])
+        for index in range(len(expressions))
+        if exact_values[index] != old_values[index]
+    ] == [(3, Fraction(20371, 32768), Fraction(3, 5))]
 
 
 # --------------------------------------------------------------------------
@@ -1152,51 +1159,33 @@ def test_the_queue_equals_the_reference_raw_coverage_when_the_source_is_whole(
     assert difference.is_zero is True
 
 
-def test_the_queue_exceeds_the_reference_raw_coverage_on_a_partial_source(
+def test_the_queue_equals_the_reference_raw_coverage_on_a_partial_source(
     field_preparation,
 ):
-    """ГИПОТЕЗА «множества совпадают целиком» на `bf6` ОПРОВЕРГНУТА, и числом.
+    """На частичном источнике QUEUE и exact union теперь совпадают точно.
 
-    У `bf6` источником является 3 ребра из 12, остальные девять — СТЕНЫ. Юбка
-    эталона обрезана концами СВОЕГО ребра; отрезок фронта очереди концами ребра
-    не ограничен — он едет вдоль неподвижной прямой стены дальше, чем стена
-    существует как отрезок границы. Это объявленная разница двух моделей
-    (`mitered_standard.py`, «ОБЪЯВЛЕННАЯ ГРАНИЦА ЭТОЙ МОДЕЛИ»), а не дефект
-    одной из них.
+    У `bf6` источником является 3 ребра из 12, остальные девять — СТЕНЫ.
+    Исторически до `CHART_LATTICE_BOUND` здесь были `+6.9975340 %` без вееров
+    и `+0.00026650827 %` после первого direction binding. Эти числа остаются
+    историческими фактами, но не новым контрактом: последний остаток был
+    `wall+sliver`, а не доказанная стеновая семантика.
 
-    **ПРЕЖНЕЕ ОБЪЯСНЕНИЕ ЭТИХ +7.00 % БЫЛО НЕВЕРНО, и опровергнуто оно тем же
-    прогоном, что и заморозило новое число.** Разность мерилась, когда веера не
-    было НИ У ОДНОГО из путей, и вся она списывалась на модель стен. Веер теперь
-    есть у обоих, и разность обвалилась на четыре порядка. Разложение сделано
-    таблицей 2x2 на ОДНИХ И ТЕХ ЖЕ байтах — «митр» здесь значит тот же снапшот
-    со снятыми угловыми отношениями:
+    Новый контракт разделяет величины:
 
-    | путь \\ угол | митр | веер |
-    |---|---:|---:|
-    | очередь  | 0.3513511549 | 0.3474093202 |
-    | эталон   | 0.3283731334 | 0.3474083943 |
-    | очередь − эталон | **+6.9975 %** | **+0.00026651 %** |
+    - `QUEUE - exact union` — доказанный exact zero;
+    - `bound domain - coverage` — положительная непокрытая стеновая часть.
 
-    Читается таблица так: +7 % были почти целиком НЕ стенами, а отсутствием
-    угловой модели у эталона — объявление углов поднимает эталон на +5.797 % и
-    опускает очередь на −1.122 %, и два пути встречаются. Модель стен — это
-    остаток, `+0.00026651 %`, и он заморожен здесь СО ЗНАКОМ: очередь всё ещё
-    накрывает больше, как и обязана по объявленной границе.
-
-    Что остаток — действительно стены, проверено не собой, а двумя краями:
-    на `building_002_weighted_normals_v1` стен НОЛЬ и разность — доказанный ноль
-    (соседний тест), а митрованная половина этой же таблицы даёт прежние
-    +6.9975 % на тех же привязанных байтах, то есть решётка к разности отношения
-    не имеет.
+    Поэтому девять стен не могут служить оправданием ненулевой разности двух
+    evaluator'ов: они одинаково входят в оба вычисления.
     """
 
     covered = conveyor_coverage(field_preparation)
     assert field_preparation.counter("CONVEYOR_WALL_EDGES") == 9
     assert field_preparation.counter("CONVEYOR_SOURCE_EDGES") == 3
     assert field_preparation.counter("CONVEYOR_FAN_SUPPORTS") == 2
-    assert len(covered.doubled_area.terms) == 7
+    assert len(covered.doubled_area.terms) == 8
     low, high = covered.doubled_area.enclosure(64)
-    assert 746055834 < low <= high < 746055835
+    assert 746152769 < low <= high < 746152770
     assert covered.polygon_doubled_area == 27224141715
 
     snapshot, request = _field_input()
@@ -1204,52 +1193,19 @@ def test_the_queue_exceeds_the_reference_raw_coverage_on_a_partial_source(
         kernel.compile_reference_envelopes(snapshot, request).compilation,
         request.requested_alpha,
     )
-    reference = sp.sympify(evaluated.raw_coverage.exact_area_expression)
-    excess = sp.simplify(
-        sp.radsimp(_chart_area(covered, field_preparation) - reference)
+    reference = exact_quadratic_value(
+        sp.sympify(evaluated.raw_coverage.exact_area_expression)
     )
-    assert excess.is_zero is not True
-    # Знак доказан численно с запасом в 20 знаков: избыток, а не недобор.
-    assert sp.N(excess, 20) > 0
-    assert abs(
-        sp.N(excess / reference * 100, 8) - sp.Float("0.00026650827")
-    ) < sp.Float("1e-11")
+    scale = field_preparation.lattice.scale
+    queue = covered.doubled_area.scaled(Fraction(1, 2 * scale * scale))
+    assert (queue - reference).terms == ()
+    assert queue == reference
 
-    # Митрованная половина таблицы, на ТЕХ ЖЕ байтах: прежние +7 % достижимы, и
-    # достижимы они снятием углов, а не откатом решётки. Без этой половины
-    # «разность упала» не отличалось бы от «разность считают иначе».
-    mitred_snapshot = replace(
-        snapshot,
-        corner_relations=frozenset(),
-        angular_owner_sectors=frozenset(),
-        reflex_angle_certificates=frozenset(),
+    domain = SqrtSumV1.rational(
+        Fraction(covered.polygon_doubled_area, 2 * scale * scale)
     )
-    mitred_prepared = prepare_conveyor(mitred_snapshot, request)
-    assert mitred_prepared.outcome is ConveyorOutcome.EXACT
-    assert mitred_prepared.counter("CONVEYOR_FAN_SUPPORTS") == 0
-    # Решётка та же: привязка живёт в байтах, а не в угловых отношениях.
-    assert mitred_prepared.counter("CONVEYOR_LATTICE_SCALE") == 32768
-    mitred_covered = conveyor_coverage(mitred_prepared)
-    mitred_reference = sp.sympify(
-        kernel.evaluate_reference_raw_coverage(
-            kernel.compile_reference_envelopes(
-                mitred_snapshot, request
-            ).compilation,
-            request.requested_alpha,
-        ).raw_coverage.exact_area_expression
-    )
-    mitred_excess = sp.simplify(
-        sp.radsimp(
-            _chart_area(mitred_covered, mitred_prepared) - mitred_reference
-        )
-    )
-    assert sp.N(mitred_excess, 20) > 0
-    assert abs(
-        sp.N(mitred_excess / mitred_reference * 100, 8) - sp.Float("6.9975340")
-    ) < sp.Float("1e-6")
-    # Остаток со веерами МЕНЬШЕ митрованного на четыре порядка — числом, а не
-    # словом «мал».
-    assert sp.N(mitred_excess / excess, 8) > sp.Float("20000")
+    wall_gap = domain - queue
+    assert wall_gap.sign() > 0
 
 
 def test_the_rescale_changes_the_record_and_not_the_geometry():

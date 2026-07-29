@@ -23,7 +23,7 @@
 | деградация всех вееров = митрованный домен ПОБИТОВО           | `..._every_fan_degrading_leaves_the_field_domain_mitered_bit_for_bit` |
 | полевые фикстуры объявляют углы: 4, 4 и 0; вееров 2, 4 и 0    | `..._the_field_fixtures_declare_their_corner_relations_by_name` |
 | полное выделение: домен `EXACT`, 4 веера, 0 деградаций        | `..._the_full_selection_domain_builds_with_four_rational_fans` |
-| после binding остаётся exact canonical sliver двух геометрий  | `..._bound_full_selection_freezes_the_exact_queue_reference_sliver` |
+| chart-lattice binding делает canonical разность точным нулём | `..._bound_full_selection_freezes_the_exact_queue_reference_sliver` |
 
 Ни одна строка сверки не пропущена: `ell`, `staircase`, `u_shape` при каждой
 alpha, для которой независимость квадратов доказана самим митрованным эталоном.
@@ -528,6 +528,7 @@ def test_a_fan_anchor_off_the_lattice_domain_is_refused_by_name():
 # Сценарий владельца: тот же патч `bf6`, но выбраны ВСЕ 12 цепочек шва. Домен
 # объявляет четыре вогнутых угла, и ровно один из них не прямой.
 FULL_SELECTION = "building_002_full_selection_v1"
+POINT_CONTACT = "building_002_point_contact_v1"
 DEGRADED_SPEC = "angular-spec:66cf5e6f75ddafed7cdb3dca"
 DEGRADED_RELATION = "host-v0:corner-relation:a2b66a4ed578c532315cd09b"
 DEGRADED_SUPPORT = "hidden-support:36a61d30ef0657696ba6f3a0"
@@ -916,9 +917,9 @@ def test_the_full_selection_domain_builds_with_four_rational_fans():
     """Привязанный ordinal снимает единственную деградацию и достраивает веер.
 
     На тех же байтах было 3 веера + 1 видимый митр, 13 узлов, 15 граней и
-    26 членов покрытия. Plan-authority запись `(1, 3)` даёт 4/0, один bound
-    direction, 14 узлов, 16 граней и 27 членов. Сумма граней по-прежнему равна
-    площади домена точно; стен нет, потому что выбраны все 12 источников.
+    26 членов покрытия. Общая bound-геометрия даёт 4/0, четыре plan-authority
+        directions, 14 узлов, 16 граней и 28 членов. Сумма граней по-прежнему
+        равна площади домена точно; стен нет, потому что выбраны все 12 источников.
     """
 
     from cftuv_envelope.wavefront import (
@@ -936,18 +937,18 @@ def test_the_full_selection_domain_builds_with_four_rational_fans():
     assert dict(prepared.counters) == {
         "CONVEYOR_DOMAIN_REGIONS": 1,
         "CONVEYOR_ARRIVAL_LAWS": 12,
-        "CONVEYOR_RESCALED_ARRIVAL_LAWS": 5,
+        "CONVEYOR_RESCALED_ARRIVAL_LAWS": 16,
         "CONVEYOR_RATIONAL_VERTEX_FANS": 4,
         "CONVEYOR_DEGRADED_MITER_CORNERS": 0,
         "CONVEYOR_MITERED_CORNERS": 0,
-        "CONVEYOR_BOUND_FAN_DIRECTIONS": 1,
+        "CONVEYOR_BOUND_FAN_DIRECTIONS": 4,
         "CONVEYOR_FAN_SUPPORTS": 4,
         "CONVEYOR_FAN_EDGES": 4,
         "CONVEYOR_LATTICE_SCALE": 32768,
         "CONVEYOR_DOMAIN_EDGES": 12,
         "CONVEYOR_SOURCE_EDGES": 12,
         "CONVEYOR_WALL_EDGES": 0,
-        "CONVEYOR_AMBIGUOUS_OWNER_EDGES": 4,
+        "CONVEYOR_AMBIGUOUS_OWNER_EDGES": 0,
         "CONVEYOR_WEIGHTED_SOURCE_EDGES": 12,
         "CONVEYOR_SKELETON_NODES": 14,
         "CONVEYOR_FACES": 16,
@@ -967,7 +968,7 @@ def test_the_full_selection_domain_builds_with_four_rational_fans():
     assert region.partition.polygon_doubled_area == BF6_DOUBLED_AREA
     assert region.partition.area_defect.terms == ()
     assert region.wall_spans == ()
-    assert len(region.ambiguous_owner_spans) == 4
+    assert region.ambiguous_owner_spans == ()
 
     assert region.degraded_miter_corners == ()
     _assert_the_bound_corner_is_the_only_one_off_the_right_angle(snapshot)
@@ -976,14 +977,15 @@ def test_the_full_selection_domain_builds_with_four_rational_fans():
     assert covered.outcome is ConveyorOutcome.EXACT, covered.detail
     assert covered.alpha == Fraction(1, 4)
     assert covered.lattice_alpha == Fraction(8192)
-    assert len(covered.doubled_area.terms) == 27
+    assert len(covered.doubled_area.terms) == 28
     low, high = covered.doubled_area.enclosure(64)
-    assert 4600667989 < low <= high < 4600667990
+    assert 4600769253 < low <= high < 4600769254
     assert covered.polygon_doubled_area == BF6_DOUBLED_AREA
     assert covered.counter("CONVEYOR_COVERED_FACES") == 16
-    assert covered.counter("CONVEYOR_NAMED_OWNERS") == 8
+    assert covered.counter("CONVEYOR_COVERAGE_TERMS") == 28
+    assert covered.counter("CONVEYOR_NAMED_OWNERS") == 12
     assert (
-        sum(1 for face in covered.faces if face.envelope_instance_id is None) == 8
+        sum(1 for face in covered.faces if face.envelope_instance_id is None) == 4
     )
     # При заведомо большой alpha фронт съедает домен целиком, и покрытие сходится
     # с его площадью в один рациональный член — тот же точный ноль, но с другой
@@ -995,7 +997,7 @@ def test_the_full_selection_domain_builds_with_four_rational_fans():
     assert trimmed.outcome is ConveyorOutcome.EXACT, trimmed.detail
     assert trimmed.counter("CONVEYOR_DEGRADED_MITER_CORNERS") == 0
     assert trimmed.counter("CONVEYOR_RATIONAL_VERTEX_FANS") == 3
-    assert trimmed.counter("CONVEYOR_BOUND_FAN_DIRECTIONS") == 0
+    assert trimmed.counter("CONVEYOR_BOUND_FAN_DIRECTIONS") == 3
     (trimmed_region,) = trimmed.regions
     assert semantic_digest(trimmed_region.skeleton) != semantic_digest(
         region.skeleton
@@ -1006,8 +1008,255 @@ def test_the_full_selection_domain_builds_with_four_rational_fans():
     )
 
 
+def _point_contact_input():
+    import cftuv_envelope as kernel
+
+    from wavefront_cases import FIELD_FIXTURE
+
+    folder = FIELD_FIXTURE.parent.parent / POINT_CONTACT
+    return (
+        kernel.AnalysisSnapshotCodecV1.loads(
+            (folder / "analysis_snapshot.json").read_bytes()
+        ),
+        kernel.DecalRequestCodecV1.loads(
+            (folder / "decal_request.json").read_bytes()
+        ),
+    )
+
+
+def _canonical_moving_line(normal_x, normal_y, constant, speed_squared):
+    """Положительно-нормированная запись `(a,b,c,q)` без production bridge."""
+
+    values = tuple(map(sp.sympify, (normal_x, normal_y)))
+    first = next(value for value in values if value != 0)
+    sign = sp.sign(first)
+    assert sign in (-1, 1)
+    scale = first if sign > 0 else -first
+
+    def rational(value):
+        exact = sp.cancel(sp.radsimp(value))
+        assert exact.is_Rational, exact
+        return Fraction(int(exact.p), int(exact.q))
+
+    return (
+        rational(values[0] / scale),
+        rational(values[1] / scale),
+        rational(sp.sympify(constant) / scale),
+        rational(sp.sympify(speed_squared) / (scale * scale)),
+    )
+
+
+def test_chart_lattice_binding_is_pointwise_one_geometry_and_one_line_set():
+    """B1/B2: домен и все moving supports тождественны ДО exact union."""
+
+    from dataclasses import replace
+
+    import cftuv_envelope as kernel
+    from cftuv_envelope.interactions.arrival import (
+        angular_hidden_support_lines,
+        strip_front_support_line,
+    )
+    from cftuv_envelope.reference.boundary import build_domain_geometry
+    from cftuv_envelope.reference.common import GeometryContext
+    from cftuv_envelope.reference.planar_types import polygon_signed_area
+    from cftuv_envelope.wavefront import prepare_conveyor
+    from cftuv_envelope.wavefront.event_time import SupportLineV1
+
+    snapshot, request = _full_selection_input()
+    prepared = prepare_conveyor(snapshot, request)
+    assert prepared.outcome.value == "EXACT", prepared.detail
+    compilation = prepared.compilation
+    context = prepared.context
+    binding = compilation.evaluation_geometry_binding
+    scale = prepared.lattice.scale
+    assert binding.lattice_scale == scale == 32768
+
+    # Независимый half-up рецепт по каждой source vertex: production snap
+    # helper для expected не вызывается.
+    frame_coordinates = {
+        item.source_vertex_id: item.domain_coordinate
+        for item in context.frame.exact_source_vertex_coordinates
+    }
+    bound_coordinates = {
+        item.source_vertex_id: item.domain_coordinate
+        for item in binding.source_vertex_coordinates
+    }
+    assert set(bound_coordinates) == set(frame_coordinates)
+    moved = 0
+    for vertex_id, source in frame_coordinates.items():
+        source_xy = tuple(
+            Fraction(value.numerator, value.denominator)
+            for value in (source.x, source.y)
+        )
+        expected_node = tuple(
+            (value * scale + Fraction(1, 2)).numerator
+            // (value * scale + Fraction(1, 2)).denominator
+            for value in source_xy
+        )
+        actual = bound_coordinates[vertex_id]
+        assert tuple(
+            Fraction(value.numerator, value.denominator)
+            for value in (actual.x, actual.y)
+        ) == tuple(Fraction(value, scale) for value in expected_node)
+        moved += int(
+            source_xy != tuple(Fraction(value, scale) for value in expected_node)
+        )
+    assert len(bound_coordinates) == 12
+    assert moved == 9
+
+    (domain_region,) = prepared.domain.domain_regions
+    reference_nodes = tuple(
+        tuple(
+            int(
+                Fraction(int(value.p), int(value.q))
+                * scale
+            )
+            for value in point.expressions()
+        )
+        for point in domain_region.outer.points
+    )
+    polygon = prepared.regions[0].bridge.polygon
+    assert polygon is not None
+    assert reference_nodes == polygon.outer.points
+    assert reference_nodes == (
+        (469074, -101640),
+        (212020, -27984),
+        (232392, -39678),
+        (20371, 21074),
+        (0, 32768),
+        (-113982, 65428),
+        (0, 0),
+        (65428, -18748),
+        (32768, 0),
+        (485615, -129758),
+        (518223, -148491),
+        (583056, -167068),
+    )
+    bound_area = polygon_signed_area(domain_region.outer.points)
+    queue_area = Fraction(
+        prepared.regions[0].partition.polygon_doubled_area,
+        2 * scale * scale,
+    )
+    assert bound_area == queue_area == Fraction(
+        27224141715,
+        2147483648,
+    )
+
+    source_context = GeometryContext.build(
+        replace(compilation, evaluation_geometry_binding=None),
+        context.frame,
+        require_evaluation_binding=False,
+    )
+    (source_region,) = build_domain_geometry(source_context).domain_regions
+    source_area = polygon_signed_area(source_region.outer.points)
+    assert source_area == Fraction(3615798, 285217)
+    assert source_area - bound_area == Fraction(
+        79051943949,
+        612498843631616,
+    )
+
+    reference_boundary = {}
+    for spec in compilation.envelope_specs:
+        if not isinstance(spec, kernel.StripEnvelopeSpec):
+            continue
+        seed = next(
+            item
+            for item in compilation.seeds
+            if getattr(item, "seed_id", None) == spec.source_seed_id
+        )
+        records = []
+        for source in context.support_segments_for_use(
+            seed.chain_use_id,
+            spec.envelope_spec_id.value,
+        ):
+            normal, constant = strip_front_support_line(context, source)
+            records.append(
+                _canonical_moving_line(
+                        *normal.expressions(),
+                        constant.as_expr() * scale,
+                        1,
+                )
+            )
+        reference_boundary[spec.envelope_spec_id.value] = tuple(
+            sorted(records)
+        )
+
+    owners = dict(prepared.regions[0].owner_by_edge)
+    queue_boundary = {}
+    for start, end, speed_squared in polygon.edges():
+        key = (*start, *end)
+        owner = owners[key]
+        line = SupportLineV1.with_speed(start, end, speed_squared)
+        queue_boundary.setdefault(owner, []).append(
+            _canonical_moving_line(line.a, line.b, line.c, line.q)
+        )
+    queue_boundary = {
+        owner: tuple(sorted(records))
+        for owner, records in queue_boundary.items()
+    }
+    assert sum(map(len, reference_boundary.values())) == 12
+    assert reference_boundary == queue_boundary
+
+    reference_fans = {}
+    relation_by_id = {
+        item.corner_relation_id: item for item in snapshot.corner_relations
+    }
+    node_by_vertex = {
+        item.source_vertex_id: (
+            int(
+                Fraction(
+                    item.domain_coordinate.x.numerator,
+                    item.domain_coordinate.x.denominator,
+                )
+                * scale
+            ),
+            int(
+                Fraction(
+                    item.domain_coordinate.y.numerator,
+                    item.domain_coordinate.y.denominator,
+                )
+                * scale
+            ),
+        )
+        for item in binding.source_vertex_coordinates
+    }
+    queue_fan_lines = {
+        (point, ordinal): line
+        for point, ordinal, line in polygon.fan_edges()
+    }
+    for spec in compilation.envelope_specs:
+        if not isinstance(spec, kernel.AngularEnvelopeSpec):
+            continue
+        _, _, hidden = angular_hidden_support_lines(context, spec)
+        by_ordinal = {item.ordinal: item for item in spec.hidden_supports}
+        relation = relation_by_id[spec.source_relation_id]
+        point = node_by_vertex[relation.source_vertex_id]
+        for ordinal, (support_id, normal, constant) in enumerate(
+            hidden,
+            start=1,
+        ):
+            plan_support = by_ordinal[ordinal]
+            assert support_id == plan_support.hidden_support_id.value
+            reference_fans[support_id] = _canonical_moving_line(
+                *normal.expressions(),
+                constant.as_expr() * scale,
+                1,
+            )
+            queue_line = queue_fan_lines[(point, ordinal)]
+            assert queue_line.c == (
+                queue_line.a * point[0] + queue_line.b * point[1]
+            )
+            assert reference_fans[support_id] == _canonical_moving_line(
+                queue_line.a,
+                queue_line.b,
+                queue_line.c,
+                queue_line.q,
+            )
+    assert len(reference_fans) == len(queue_fan_lines) == 4
+
+
 def _assert_the_bound_corner_is_the_only_one_off_the_right_angle(snapshot):
-    """Привязывается ровно не-прямой вход; три прямых остаются pass-through.
+    """K остаётся фактом source angle; directions принадлежат bound geometry.
 
     Проверка стоит отдельной функцией не ради длины: она утверждает про ВХОД, а не
     про ответ очереди, и потому обязана читаться независимо от того, что очередь
@@ -1046,17 +1295,20 @@ def _assert_the_bound_corner_is_the_only_one_off_the_right_angle(snapshot):
     assert bound_interval.lower > Decimal("1.5")
     assert str(bound_interval.lower) == "1.500123280352543932868625829"
     assert str(bound_interval.upper) == "1.50012328035254393286862583"
-    assert len(bound_supports[DEGRADED_SPEC]) == 1
+    assert all(len(supports) == 1 for supports in bound_supports.values())
     assert (
         bound_supports[DEGRADED_SPEC][0]
         .direction_binding.bound_primitive_integer_vector
         == (1, 3)
     )
-    assert all(
-        not supports
-        for name, supports in bound_supports.items()
-        if name != DEGRADED_SPEC
-    )
+    assert {
+        support.direction_binding.binding_reason.value
+        for supports in bound_supports.values()
+        for support in supports
+    } == {
+        "SOURCE_DIRECTION_IRRATIONAL",
+        "EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL",
+    }
     # У трёх рациональных вееров сертификат — ТОЧКА: оба конца равны `1.5`, то
     # есть угол прямой доказанно, а не в пределах округления.
     for name, interval in seen.items():
@@ -1079,8 +1331,13 @@ def _canonical_sqrt_sum(expression) -> SqrtSumV1:
     return result
 
 
-def test_full_selection_whole_domain_area_sliver_is_frozen_exactly():
-    """Разные evaluation geometry дают именованный exact whole-domain sliver."""
+def test_bound_full_selection_domain_area_is_shared_exactly():
+    """Bound-domain и partition читают одну площадь без прежнего sliver.
+
+    До `CHART_LATTICE_BOUND` точная разность была
+    `79051943949/612498843631616`. Константа сохранена ниже как исторический
+    факт, но новый контракт требует доказанный ноль на общей bound-геометрии.
+    """
 
     import cftuv_envelope as kernel
     from cftuv_envelope.reference.boundary import build_domain_geometry
@@ -1124,15 +1381,22 @@ def test_full_selection_whole_domain_area_sliver_is_frozen_exactly():
     )
     sliver = sp.cancel(reference_area - queue_area)
     assert sliver.is_Rational
-    assert Fraction(int(sliver.p), int(sliver.q)) == (
-        FULL_SELECTION_DOMAIN_AREA_SLIVER
+    assert Fraction(int(sliver.p), int(sliver.q)) == 0
+    assert FULL_SELECTION_DOMAIN_AREA_SLIVER == Fraction(
+        79051943949, 612498843631616
     )
+    assert FULL_SELECTION_DOMAIN_AREA_SLIVER > 0
 
 
-def test_the_only_common_anchor_line_is_outside_the_reflex_sector():
-    """Sliver нельзя снять направлением: общая anchor-line лежит вне сектора."""
+def test_the_bound_reflex_anchor_is_an_exact_lattice_vertex():
+    """Прежний смещённый anchor теперь точно совпадает с bound-узлом.
 
-    from math import gcd
+    До привязки displacement был
+    `(561163/1426085, 94954/1426085)` и никакое направление внутри reflex-sector
+    не могло одновременно пройти через source-anchor и snapped-node. После B1
+    это две записи одной точки `(485615, -129758)` на решётке 32768; искать
+    «исправляющий» ковектор больше не требуется.
+    """
 
     import cftuv_envelope as kernel
     from cftuv_envelope.reference.common import GeometryContext
@@ -1169,72 +1433,25 @@ def test_the_only_common_anchor_line_is_outside_the_reflex_sector():
         Fraction(node[0]) - x * lattice.scale,
         Fraction(node[1]) - y * lattice.scale,
     )
-    assert displacement == (
-        Fraction(561163, 1426085),
-        Fraction(94954, 1426085),
+    assert (x, y) == (
+        Fraction(485615, 32768),
+        Fraction(-64879, 16384),
     )
-
-    # В 2D ненулевому displacement ортогонален один класс ковекторов.
-    # Primitive и положительный первый компонент выбирают его единственную
-    # каноническую запись.
-    denominator = (
-        displacement[0].denominator
-        * displacement[1].denominator
-        // gcd(
-            displacement[0].denominator,
-            displacement[1].denominator,
-        )
-    )
-    dx = int(displacement[0] * denominator)
-    dy = int(displacement[1] * denominator)
-    common = gcd(abs(dx), abs(dy))
-    common_line_covector = (dy // common, -dx // common)
-    assert common_line_covector == (94954, -561163)
-    assert (
-        common_line_covector[0] * displacement[0]
-        + common_line_covector[1] * displacement[1]
-        == 0
-    )
-
-    incoming = (2582, 9011)
-    outgoing = (3261066, 5676553)
-    cross = lambda left, right: (
-        left[0] * right[1] - left[1] * right[0]
-    )
-    sign = lambda value: (value > 0) - (value < 0)
-    expected = (-1, -1)
-    for candidate in (
-        common_line_covector,
-        (-common_line_covector[0], -common_line_covector[1]),
-    ):
-        actual = (
-            sign(cross(incoming, candidate)),
-            sign(cross(candidate, outgoing)),
-        )
-        assert actual != expected
-    assert (
-        sign(cross(incoming, common_line_covector)),
-        sign(cross(common_line_covector, outgoing)),
-    ) == (-1, 1)
+    assert node == (485615, -129758)
+    assert displacement == (Fraction(0), Fraction(0))
 
 
 def test_bound_full_selection_freezes_the_exact_queue_reference_sliver():
-    """Binding снимает miter, но оставляет exact sliver двух геометрий.
+    """Оба evaluator'а на одной bound-геометрии дают доказанный exact zero.
 
-    Baseline был `+0.09225%`: miter плюс sliver. После covector binding `(1, 3)`
-    остался только sliver `~3.4066e-6`, примерно в 271 раз меньше. Его удаление
-    принадлежит следующей карточке общей `CHART_LATTICE_BOUND` геометрии.
+    История до `CHART_LATTICE_BOUND`: после первого direction binding остаток
+    имел 31 radical-term, digest `9ec373daa7609fefbf0cc0d651354956c2d26fb0c887f49d95a75c8e1c949dd2`
+    и положительную оболочку `~3.4065385e-6`. Это примерно в 580 раз меньше
+    исходного относительного дефекта `+0.09225%`, но всё ещё не ноль.
 
-    У `point_contact` открытый счёт `+0.00026651%` требует разложения
-    wall+sliver в той же bound-geometry карточке, а не retune этой фикстуры.
-
-    Эталонный union шестнадцати юбок стоит около 74 секунд; цена намеренно
-    остаётся в полном kernel gate. Авторитет — полный canonical `SqrtSumV1`
-    projection и его digest; десятичная оболочка только читаемый спутник.
+    Теперь canonical projection разности пуста. Десятичный tolerance здесь
+    запрещён: B1/B2 делают ноль следствием тождества входной геометрии и прямых.
     """
-
-    from hashlib import sha256
-    import json
 
     import cftuv_envelope as kernel
     from cftuv_envelope.wavefront import (
@@ -1251,7 +1468,7 @@ def test_bound_full_selection_freezes_the_exact_queue_reference_sliver():
     assert prepared.counter("CONVEYOR_WALL_EDGES") == 0
     assert prepared.counter("CONVEYOR_SOURCE_EDGES") == 12
     assert prepared.counter("CONVEYOR_DEGRADED_MITER_CORNERS") == 0
-    assert prepared.counter("CONVEYOR_BOUND_FAN_DIRECTIONS") == 1
+    assert prepared.counter("CONVEYOR_BOUND_FAN_DIRECTIONS") == 4
 
     scale = prepared.lattice.scale
     queue = covered.doubled_area.scaled(Fraction(1, 2 * scale * scale))
@@ -1263,19 +1480,78 @@ def test_bound_full_selection_freezes_the_exact_queue_reference_sliver():
         sp.sympify(evaluated.raw_coverage.exact_area_expression)
     )
     difference = queue - reference
-    projection = tuple(
-        (radicand, coefficient.numerator, coefficient.denominator)
-        for radicand, coefficient in difference.terms
+    assert difference.terms == ()
+    assert difference.is_zero
+
+
+def test_bound_point_contact_decomposes_wall_and_lattice_residual_to_zero():
+    """B4: девять стен остаются моделью покрытия, sliver исчезает отдельно.
+
+    До CHART_LATTICE_BOUND разность была `+0.00026650827%` и называлась
+    `wall+sliver`, не будучи разложенной. Теперь стеновая часть измерена как
+    `bound domain − coverage` и положительна, а QUEUE и exact union независимо
+    дают одно и то же покрытие. Поэтому lattice-sliver — отдельный точный ноль,
+    а не компенсация большой стеновой величиной.
+    """
+
+    import cftuv_envelope as kernel
+    from cftuv_envelope.wavefront import (
+        ConveyorOutcome,
+        conveyor_coverage,
+        prepare_conveyor,
     )
-    assert projection == FULL_SELECTION_SLIVER_PROJECTION
-    payload = json.dumps(
-        projection, separators=(",", ":")
-    ).encode("ascii")
-    assert sha256(payload).hexdigest() == FULL_SELECTION_SLIVER_SHA256
-    low, high = difference.enclosure(128)
-    assert Fraction(340, 100_000_000) < low <= high
-    assert high < Fraction(341, 100_000_000)
-    assert difference.sign() == 1
+
+    snapshot, request = _point_contact_input()
+    prepared = prepare_conveyor(snapshot, request)
+    covered = conveyor_coverage(prepared)
+    assert covered.outcome is ConveyorOutcome.EXACT, covered.detail
+    assert prepared.counter("CONVEYOR_SOURCE_EDGES") == 3
+    assert prepared.counter("CONVEYOR_WALL_EDGES") == 9
+    assert prepared.counter("CONVEYOR_BOUND_FAN_DIRECTIONS") == 2
+    assert prepared.counter("CONVEYOR_DEGRADED_MITER_CORNERS") == 0
+
+    region = prepared.regions[0]
+    assert region.partition.area_defect.is_zero
+    assert len(region.wall_spans) == 9
+    assert region.ambiguous_owner_spans == ()
+    scale = prepared.lattice.scale
+    domain_area = SqrtSumV1.rational(
+        Fraction(
+            region.partition.polygon_doubled_area,
+            2 * scale * scale,
+        )
+    )
+    queue_area = covered.doubled_area.scaled(
+        Fraction(1, 2 * scale * scale)
+    )
+    wall_residual = domain_area - queue_area
+    assert wall_residual.terms == (
+        (
+            1,
+            Fraction(
+                10683988724414818340594601845691056497874253431297883467,
+                839683950514132914842709869716805561674773758660837376,
+            ),
+        ),
+        (27851087972573, Fraction(-1, 73015552)),
+        (174086333192405, Fraction(-1, 182538880)),
+        (180146433272521, Fraction(-1, 73015552)),
+        (28747398459061414865, Fraction(-16384, 5983606356581395)),
+        (29748120965591210293, Fraction(-8192, 2421345159454085)),
+        (35827778823357770065, Fraction(-4096, 1549612092808361)),
+        (231741272493937377005, Fraction(-8192, 7462851791807771)),
+    )
+    assert wall_residual.sign() > 0
+
+    evaluated = kernel.evaluate_reference_raw_coverage(
+        kernel.compile_reference_envelopes(snapshot, request).compilation,
+        request.requested_alpha,
+    )
+    reference_area = _canonical_sqrt_sum(
+        sp.sympify(evaluated.raw_coverage.exact_area_expression)
+    )
+    assert domain_area - reference_area == wall_residual
+    assert queue_area - reference_area == SqrtSumV1.zero()
 
 
 def test_the_closed_form_shortfall_does_not_apply_to_the_field_domain():
@@ -1288,9 +1564,9 @@ def test_the_closed_form_shortfall_does_not_apply_to_the_field_domain():
 
     | величина | число |
     |---|---:|
-    | измеренный недобор (удвоенная площадь) | `8 465 025.6685` |
-    | замкнутая форма для двух прямых углов  | `805306368 - 536870912*sqrt(2)` = `46 056 243.0060` |
-    | отношение измеренного к предсказанному | `0.1838` |
+        | измеренный недобор (удвоенная площадь) | `8 384 741.4334` |
+        | замкнутая форма для двух прямых углов  | `805306368 - 536870912*sqrt(2)` = `46 056 243.0060` |
+        | отношение измеренного к предсказанному | `0.1821` |
 
     ПОСЫЛКА ПРО УГОЛ ПРИ ЭТОМ ВЕРНА, и это проверено здесь же: оба сертификата,
     попавшие в веера, объявляют `phi/pi` РОВНО `1.5`, то есть угол 3pi/2 точно, а
@@ -1302,13 +1578,14 @@ def test_the_closed_form_shortfall_does_not_apply_to_the_field_domain():
        ИСТОЧНИКА прямым углом в координатах карты не является, а `alpha` в
        единицах решётки не есть евклидов радиус в карте;
     2. **скорости фронтов не единичные** — три взвешенных ребра-источника и два
-       пере-масштабированных закона.
+       bound-направления; всего переписаны 3 юбки + 2 опоры веера.
 
     Решающая улика — РАДИКАЛЫ. Замкнутая форма даёт величину вида `a + b*sqrt(2)`;
-    измеренный недобор несёт собственные радикалы домена (`sqrt(711394508186)`,
-    `sqrt(341925762763390682)` и далее), то есть принадлежит другому полю чисел
-    вовсе, и никаким выбором `r` в `r*alpha^2*(6-4*sqrt(2))` получен быть не
-    может. Проверено перебором `r` от 1 до 4.
+    измеренный недобор несёт собственные радикалы bound-домена
+    (`sqrt(27851087972573)`, `sqrt(174086333192405)` и далее), то есть
+    принадлежит другому полю чисел вовсе, и никаким выбором `r` в
+    `r*alpha^2*(6-4*sqrt(2))` получен быть не может. Проверено перебором `r`
+    от 1 до 4.
 
     Замкнутая форма от этого не отменяется: она держится на СИНТЕТИЧЕСКОМ корпусе
     (`ell`, `staircase`, `u_shape` — семь строк в
@@ -1368,7 +1645,7 @@ def test_the_closed_form_shortfall_does_not_apply_to_the_field_domain():
     assert prepared.counter("CONVEYOR_FAN_SUPPORTS") == 2
     assert mitred.counter("CONVEYOR_FAN_SUPPORTS") == 0
     assert prepared.counter("CONVEYOR_WEIGHTED_SOURCE_EDGES") == 3
-    assert prepared.counter("CONVEYOR_RESCALED_ARRIVAL_LAWS") == 2
+    assert prepared.counter("CONVEYOR_RESCALED_ARRIVAL_LAWS") == 5
 
     def symbolic(value):
         return sum(
@@ -1384,7 +1661,9 @@ def test_the_closed_form_shortfall_does_not_apply_to_the_field_domain():
     )
     # Недобор положителен: цепь накрывает МЕНЬШЕ митра, как и обязана.
     assert sp.N(shortfall, 20) > 0
-    assert abs(sp.N(shortfall, 20) - sp.Float("8465025.6685360800")) < sp.Float("1e-4")
+    assert abs(
+        sp.N(shortfall, 20) - sp.Float("8384741.4333844053")
+    ) < sp.Float("1e-4")
 
     alpha = sp.Rational(
         covered.lattice_alpha.numerator, covered.lattice_alpha.denominator
@@ -1397,15 +1676,15 @@ def test_the_closed_form_shortfall_does_not_apply_to_the_field_domain():
         assert sp.simplify(sp.radsimp(shortfall - predicted)).is_zero is not True
     predicted_two = 2 * alpha**2 * (6 - 4 * sp.sqrt(2))
     assert abs(
-        sp.N(shortfall / predicted_two, 12) - sp.Float("0.183797572621")
+        sp.N(shortfall / predicted_two, 12) - sp.Float("0.182054394500")
     ) < sp.Float("1e-10")
 
     # Решающая улика: в недоборе живут радикалы САМОГО домена, а не только sqrt(2).
     radicands = {radicand for radicand, _ in covered.doubled_area.terms} | {
         radicand for radicand, _ in mitred_covered.doubled_area.terms
     }
-    assert 711394508186 in radicands
-    assert 341925762763390682 in radicands
+    assert 27851087972573 in radicands
+    assert 174086333192405 in radicands
     assert 2 not in radicands
 
 

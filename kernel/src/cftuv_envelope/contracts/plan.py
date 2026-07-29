@@ -13,6 +13,7 @@ from ..ids import (
     FrontComponentId,
     FrontReadingId,
     FrontSeedId,
+    HiddenSupportId,
     LineageId,
     LawId,
     OwnerSectorId,
@@ -76,6 +77,7 @@ class EvaluationGeometryBindingV1:
     binding_law: EvaluationGeometryBindingLawV1
     lattice_scale: int
     source_vertex_coordinates: frozenset[EvaluationGeometrySourceVertexV1]
+    bound_hidden_support_ids: frozenset[HiddenSupportId]
 
 
 class ActiveIntervalModel(str, Enum):

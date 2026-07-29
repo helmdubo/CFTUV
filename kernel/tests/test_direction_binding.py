@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from time import perf_counter
 
 import pytest
 import sympy as sp
@@ -11,6 +12,7 @@ from cftuv_envelope.reference.direction_binding import (
     BINDING_INSIDE_OWN_ORDINAL_WINDOW,
     BINDING_MONOTONE,
     BINDING_SUBTURN_LE_DELTA_MAX,
+    BINDING_SUBTURN_RATIONAL_DIRECTION_REQUIRED,
     DirectionBindingCertificateUnproven,
     bound_unit_normal,
     certify_direction_bindings,
@@ -189,3 +191,35 @@ def test_k2_recorded_vectors_pass_the_independent_decimal_cubic_oracle():
         for certificate in certificates
     )
     assert_k2_identity_binding(vectors)
+
+
+def test_irrational_incident_rays_refuse_structurally_without_narrowing_loop():
+    """B5: structural irrationality is not a retryable subturn failure."""
+
+    metric = ExactPlanarMetric(
+        ((sp.Integer(1), sp.Integer(0)), (sp.Integer(0), sp.Integer(1))),
+        ((sp.Integer(1), sp.Integer(0)), (sp.Integer(0), sp.Integer(1))),
+        1,
+    )
+    normals = (
+        ExactPlanarVector.from_values(
+            sp.sqrt(sp.Rational(2, 3)),
+            -1 / sp.sqrt(3),
+        ),
+        ExactPlanarVector.from_values(1, 0),
+        ExactPlanarVector.from_values(
+            sp.sqrt(sp.Rational(2, 3)),
+            1 / sp.sqrt(3),
+        ),
+    )
+    started = perf_counter()
+    with pytest.raises(DirectionBindingCertificateUnproven) as caught:
+        certify_direction_bindings(
+            metric,
+            normals,
+            TurnOrientation.CCW_IN_OWNER_PATCH_ORIENTATION,
+        )
+    assert perf_counter() - started < 2
+    assert caught.value.predicate == (
+        BINDING_SUBTURN_RATIONAL_DIRECTION_REQUIRED
+    )

@@ -23,6 +23,7 @@ from .arrangement import (
     ExactArrangementRotationSystemUnproven,
     ExactSegmentArrangementBackend,
     ExactTouchingHoleTopologyUnproven,
+    bound_evaluation_arrangement,
     segment_intersections,
 )
 from .boundary import (
@@ -345,6 +346,24 @@ def _require_band_against_grid(metric, alpha_value) -> None:
 
 
 def evaluate_reference_raw_coverage(
+    compilation: ReferenceEnvelopeCompilationV1,
+    alpha: LocalLengthV1 | Decimal | int | str,
+    *,
+    telemetry: ReferenceTelemetryCallback | None = None,
+) -> ReferenceEvaluationResultV1:
+    """Выполнить evaluator в режиме, объявленном compilation binding."""
+
+    with bound_evaluation_arrangement(
+        compilation.evaluation_geometry_binding is not None
+    ):
+        return _evaluate_reference_raw_coverage(
+            compilation,
+            alpha,
+            telemetry=telemetry,
+        )
+
+
+def _evaluate_reference_raw_coverage(
     compilation: ReferenceEnvelopeCompilationV1,
     alpha: LocalLengthV1 | Decimal | int | str,
     *,

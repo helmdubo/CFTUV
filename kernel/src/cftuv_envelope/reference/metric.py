@@ -8,6 +8,7 @@ import math
 
 import sympy as sp
 
+from ..exact_sqrt_sum import SqrtSumV1
 from ..contracts.analysis import PlanarPatchFrameV1
 from ..contracts.metric import (
     AffineChartOrientationV1,
@@ -111,6 +112,73 @@ def snap_exact_point(
     record_snap(
         (node_x, node_y),
         (point.x.expression, point.y.expression),
+        squared,
+        bool(residual_x or residual_y),
+    )
+    if squared_budget is not None and squared > squared_budget:
+        raise SnapDisplacementExceedsBudget(
+            f"{law}: сдвиг привязки {squared} превысил бюджет {squared_budget}"
+        )
+    return ExactPlanarPoint.from_values(
+        sp.Rational(node_x, scale), sp.Rational(node_y, scale)
+    )
+
+
+def _floor_exact_quadratic(value: SqrtSumV1) -> int:
+    """Целая часть quadratic-field значения без материализации SymPy."""
+
+    for bits in (64, 128, 256, 512, 1024, 2048, 4096):
+        lower, upper = value.enclosure(bits)
+        lower_floor = lower.numerator // lower.denominator
+        upper_floor = upper.numerator // upper.denominator
+        if lower_floor == upper_floor:
+            return lower_floor
+        if upper_floor - lower_floor <= 2:
+            for candidate in range(lower_floor, upper_floor + 1):
+                if (
+                    value - SqrtSumV1.rational(candidate)
+                ).is_zero:
+                    return candidate
+    raise CertifiedPredicateUndecidable(
+        "REFERENCE_EXACT_QUADRATIC_FLOOR_UNDECIDABLE"
+    )
+
+
+def _quadratic_residual_bound(value: SqrtSumV1) -> Fraction:
+    lower, upper = value.enclosure(80)
+    bound = max(abs(float(lower)), abs(float(upper)))
+    if not math.isfinite(bound):
+        return Fraction(1, 2)
+    return min(Fraction(1, 2), Fraction(*bound.as_integer_ratio()))
+
+
+def snap_exact_quadratic_point(
+    x: SqrtSumV1,
+    y: SqrtSumV1,
+    grid: GridSpecV1,
+    squared_budget: Fraction | None,
+    law: str,
+) -> ExactPlanarPoint:
+    """Привязать quadratic-field точку, не разворачивая её в SymPy."""
+
+    scale = grid.scale
+    half = SqrtSumV1.rational(Fraction(1, 2))
+    scaled_x = x.scaled(scale)
+    scaled_y = y.scaled(scale)
+    node_x = _floor_exact_quadratic(scaled_x + half)
+    node_y = _floor_exact_quadratic(scaled_y + half)
+    residual_x = _quadratic_residual_bound(
+        scaled_x - SqrtSumV1.rational(node_x)
+    )
+    residual_y = _quadratic_residual_bound(
+        scaled_y - SqrtSumV1.rational(node_y)
+    )
+    squared = (
+        residual_x * residual_x + residual_y * residual_y
+    ) / Fraction(scale * scale)
+    record_snap(
+        (node_x, node_y),
+        (x.terms, y.terms),
         squared,
         bool(residual_x or residual_y),
     )

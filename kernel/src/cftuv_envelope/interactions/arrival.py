@@ -26,7 +26,10 @@ from ..ids import (
     SourceSupportId,
 )
 from ..reference.angular import angular_support_data
-from ..reference.arrangement import ExactSegmentArrangementBackend
+from ..reference.arrangement import (
+    ExactSegmentArrangementBackend,
+    bound_evaluation_arrangement,
+)
 from ..reference.boundary import build_domain_geometry
 from ..reference.common import GeometryContext, make_segment, stable_id
 from ..reference.contracts import (
@@ -246,6 +249,23 @@ def _select_cap_incident_reading(
 
 
 def compile_arrival_models(
+    compilation: ReferenceEnvelopeCompilationV1,
+    components: tuple[InteractionComponentV1, ...],
+    boundary_resolved_envelopes: tuple[BoundaryResolvedEnvelopeV1, ...],
+) -> tuple[tuple[ArrivalModelV1, ...], tuple[InteractionDiagnosticV1, ...]]:
+    """Компилировать модели в режиме, объявленном compilation binding."""
+
+    with bound_evaluation_arrangement(
+        compilation.evaluation_geometry_binding is not None
+    ):
+        return _compile_arrival_models(
+            compilation,
+            components,
+            boundary_resolved_envelopes,
+        )
+
+
+def _compile_arrival_models(
     compilation: ReferenceEnvelopeCompilationV1,
     components: tuple[InteractionComponentV1, ...],
     boundary_resolved_envelopes: tuple[BoundaryResolvedEnvelopeV1, ...],

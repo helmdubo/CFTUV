@@ -8,6 +8,8 @@ and emits precisely those atomic edges separating coverage from non-coverage.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from fractions import Fraction
 from functools import cmp_to_key
@@ -16,7 +18,7 @@ import sympy as sp
 
 from ..robust.grid import active_grid
 from .arrangement_protocol import ArrangementUnionV2
-from .metric import snap_exact_point
+from .metric import snap_exact_point, snap_exact_quadratic_point
 from .common import stable_id
 from .contracts import (
     BoundaryVertexOccurrenceV1,
@@ -41,6 +43,8 @@ from .planar_types import (
     cross,
     dot,
     exact_normalize,
+    exact_quadratic_expr,
+    exact_quadratic_value,
     exact_sign,
     point_add,
     point_key,
@@ -65,6 +69,23 @@ class ExactArrangementCollinearBranchUnproven(
     ExactArrangementRotationSystemUnproven
 ):
     """Collinear incident rays remain ambiguous after exact atomic splitting."""
+
+
+_QUADRATIC_FAST_PATH: ContextVar[bool] = ContextVar(
+    "cftuv_arrangement_quadratic_fast_path",
+    default=False,
+)
+
+
+@contextmanager
+def bound_evaluation_arrangement(enabled: bool):
+    """Ограничить quadratic fast-path одной compilation-bound оценкой."""
+
+    token = _QUADRATIC_FAST_PATH.set(bool(enabled))
+    try:
+        yield
+    finally:
+        _QUADRATIC_FAST_PATH.reset(token)
 
 
 class ExactTouchingHoleTopologyUnproven(ExactArrangementRotationSystemUnproven):
@@ -169,6 +190,32 @@ def _compare(left: sp.Expr, right: sp.Expr) -> int:
     return exact_sign(left - right)
 
 
+def _quadratic_cross(
+    left: ExactPlanarVector,
+    right: ExactPlanarVector,
+):
+    left_x, left_y = (
+        exact_quadratic_value(item) for item in left.expressions()
+    )
+    right_x, right_y = (
+        exact_quadratic_value(item) for item in right.expressions()
+    )
+    return left_x * right_y - left_y * right_x
+
+
+def _quadratic_dot(
+    left: ExactPlanarVector,
+    right: ExactPlanarVector,
+):
+    left_x, left_y = (
+        exact_quadratic_value(item) for item in left.expressions()
+    )
+    right_x, right_y = (
+        exact_quadratic_value(item) for item in right.expressions()
+    )
+    return left_x * right_x + left_y * right_y
+
+
 def _exact_ordered_pair(left: sp.Expr, right: sp.Expr) -> tuple[sp.Expr, sp.Expr]:
     return (left, right) if _compare(left, right) <= 0 else (right, left)
 
@@ -202,11 +249,14 @@ def _between(value: sp.Expr, lower: sp.Expr, upper: sp.Expr) -> bool:
 def _point_on_segment(point: ExactPlanarPoint, segment: BoundedSupportSegment) -> bool:
     direction = point_sub(segment.end, segment.start)
     offset = point_sub(point, segment.start)
-    if exact_sign(cross(direction, offset)) != 0:
+    if _quadratic_cross(direction, offset).sign() != 0:
         return False
-    parameter_numerator = dot(offset, direction)
-    parameter_denominator = dot(direction, direction)
-    return _between(parameter_numerator, sp.Integer(0), parameter_denominator)
+    parameter_numerator = _quadratic_dot(offset, direction)
+    parameter_denominator = _quadratic_dot(direction, direction)
+    return (
+        parameter_numerator.sign() >= 0
+        and (parameter_denominator - parameter_numerator).sign() >= 0
+    )
 
 
 def _intersection_certificate(
@@ -252,6 +302,73 @@ def segment_intersections(
     привязанных построений, и повторная привязка узла — тождество.
     """
 
+    if not _QUADRATIC_FAST_PATH.get():
+        return _legacy_segment_intersections(left, right)
+
+    p = left.start
+    q = right.start
+    px, py = (exact_quadratic_value(item) for item in p.expressions())
+    qx, qy = (exact_quadratic_value(item) for item in q.expressions())
+    left_end_x, left_end_y = (
+        exact_quadratic_value(item) for item in left.end.expressions()
+    )
+    right_end_x, right_end_y = (
+        exact_quadratic_value(item) for item in right.end.expressions()
+    )
+    rx, ry = left_end_x - px, left_end_y - py
+    sx, sy = right_end_x - qx, right_end_y - qy
+    q_minus_p_x, q_minus_p_y = qx - px, qy - py
+    denominator = rx * sy - ry * sx
+    denominator_sign = denominator.sign()
+    if denominator_sign != 0:
+        t_numerator = q_minus_p_x * sy - q_minus_p_y * sx
+        u_numerator = q_minus_p_x * ry - q_minus_p_y * rx
+
+        def is_unit_parameter(numerator) -> bool:
+            if denominator_sign > 0:
+                return numerator.sign() >= 0 and (
+                    denominator - numerator
+                ).sign() >= 0
+            return numerator.sign() <= 0 and (
+                numerator - denominator
+            ).sign() >= 0
+
+        if is_unit_parameter(t_numerator) and is_unit_parameter(u_numerator):
+            t = t_numerator / denominator
+            crossing_x = px + rx * t
+            crossing_y = py + ry * t
+            grid = active_grid()
+            if grid is not None:
+                crossing = snap_exact_quadratic_point(
+                    crossing_x,
+                    crossing_y,
+                    grid,
+                    Fraction(1, 2 * grid.scale * grid.scale),
+                    "segment_intersections",
+                )
+            else:
+                crossing = ExactPlanarPoint.from_values(
+                    exact_quadratic_expr(crossing_x),
+                    exact_quadratic_expr(crossing_y),
+                )
+            return (crossing,)
+        return ()
+    if (q_minus_p_x * ry - q_minus_p_y * rx).sign() != 0:
+        return ()
+    candidates = []
+    for point in (left.start, left.end, right.start, right.end):
+        if _point_on_segment(point, left) and _point_on_segment(point, right):
+            if not any(points_equal(point, existing) for existing in candidates):
+                candidates.append(point)
+    return tuple(candidates)
+
+
+def _legacy_segment_intersections(
+    left: BoundedSupportSegment,
+    right: BoundedSupportSegment,
+) -> tuple[ExactPlanarPoint, ...]:
+    """Прежняя SymPy-ветвь для single-field корпусов без semantic drift."""
+
     p = left.start
     q = right.start
     r = point_sub(left.end, left.start)
@@ -290,6 +407,25 @@ def _parameter(segment: BoundedSupportSegment, point: ExactPlanarPoint) -> sp.Ex
     return exact_normalize(dot(point_sub(point, segment.start), direction) / dot(direction, direction))
 
 
+def _quadratic_parameter(segment: BoundedSupportSegment, point: ExactPlanarPoint):
+    start_x, start_y = (
+        exact_quadratic_value(item) for item in segment.start.expressions()
+    )
+    end_x, end_y = (
+        exact_quadratic_value(item) for item in segment.end.expressions()
+    )
+    point_x, point_y = (
+        exact_quadratic_value(item) for item in point.expressions()
+    )
+    direction_x, direction_y = end_x - start_x, end_y - start_y
+    offset_x, offset_y = point_x - start_x, point_y - start_y
+    return (
+        offset_x * direction_x + offset_y * direction_y
+    ) / (
+        direction_x * direction_x + direction_y * direction_y
+    )
+
+
 # Сегменты, предложенные локализации точки. Полевые счётчики показали, что ни
 # одна считаемая величина не объясняет время: входы выросли в 5-7 раз, пары в
 # 15-29, а RAW_UNION в 656. Локализация точки — линейный проход по всей петле на
@@ -326,9 +462,10 @@ def _point_in_loop(point: ExactPlanarPoint, loop: PlanarLoop) -> int:
         # требуем доказательства там, где ответ не используется.
         if not (upward or downward):
             continue
-        side = exact_sign(
-            cross(point_sub(segment.end, segment.start), point_sub(point, segment.start))
-        )
+        side = _quadratic_cross(
+            point_sub(segment.end, segment.start),
+            point_sub(point, segment.start),
+        ).sign()
         if upward and side > 0:
             winding += 1
         elif downward and side < 0:
@@ -349,21 +486,77 @@ def _point_in_region(point: ExactPlanarPoint, region: PlanarRegion) -> int:
     return 1
 
 
+def _loop_aabb(loop: PlanarLoop) -> ExactSegmentAabbV1:
+    points = tuple(
+        point
+        for segment in loop.segments
+        for point in (segment.start, segment.end)
+    )
+    if not points:
+        raise CertifiedPredicateUndecidable(
+            "empty exact loop has no point-location AABB"
+        )
+    x_values = [point.x.as_expr() for point in points]
+    y_values = [point.y.as_expr() for point in points]
+    min_x = max_x = x_values[0]
+    min_y = max_y = y_values[0]
+    for value in x_values[1:]:
+        if _compare(value, min_x) < 0:
+            min_x = value
+        if _compare(value, max_x) > 0:
+            max_x = value
+    for value in y_values[1:]:
+        if _compare(value, min_y) < 0:
+            min_y = value
+        if _compare(value, max_y) > 0:
+            max_y = value
+    return ExactSegmentAabbV1(
+        min_x=ExactScalar.from_value(min_x),
+        max_x=ExactScalar.from_value(max_x),
+        min_y=ExactScalar.from_value(min_y),
+        max_y=ExactScalar.from_value(max_y),
+    )
+
+
+def _point_strictly_outside_aabb(
+    point: ExactPlanarPoint,
+    aabb: ExactSegmentAabbV1,
+) -> bool:
+    x, y = point.expressions()
+    return (
+        _compare(x, aabb.min_x.as_expr()) < 0
+        or _compare(x, aabb.max_x.as_expr()) > 0
+        or _compare(y, aabb.min_y.as_expr()) < 0
+        or _compare(y, aabb.max_y.as_expr()) > 0
+    )
+
+
 def _same_direction(
     start: ExactPlanarPoint,
     end: ExactPlanarPoint,
     segment: BoundedSupportSegment,
 ) -> bool:
-    return exact_sign(dot(point_sub(end, start), point_sub(segment.end, segment.start))) > 0
+    return _quadratic_dot(
+        point_sub(end, start),
+        point_sub(segment.end, segment.start),
+    ).sign() > 0
 
 
 def _side_membership(
-    region: PlanarRegion, start: ExactPlanarPoint, end: ExactPlanarPoint
+    region: PlanarRegion,
+    start: ExactPlanarPoint,
+    end: ExactPlanarPoint,
+    region_aabb: ExactSegmentAabbV1 | None = None,
 ) -> tuple[bool, bool]:
     midpoint = ExactPlanarPoint.from_values(
         (start.x.as_expr() + end.x.as_expr()) / 2,
         (start.y.as_expr() + end.y.as_expr()) / 2,
     )
+    if (
+        region_aabb is not None
+        and _point_strictly_outside_aabb(midpoint, region_aabb)
+    ):
+        return False, False
     POINT_LOCATION_SEGMENT_SCANS["count"] += sum(
         len(loop.segments) for loop in (region.outer, *region.holes)
     )
@@ -372,7 +565,11 @@ def _side_membership(
         for loop in (region.outer, *region.holes)
         for segment in loop.segments
         if _point_on_segment(midpoint, segment)
-        and exact_sign(cross(point_sub(end, start), point_sub(segment.end, segment.start))) == 0
+        and _quadratic_cross(
+            point_sub(end, start),
+            point_sub(segment.end, segment.start),
+        ).sign()
+        == 0
     ]
     if matching:
         directions = {_same_direction(start, end, item) for item in matching}
@@ -685,6 +882,51 @@ def _certified_region_interior_witness(region: PlanarRegion) -> ExactPlanarPoint
     )
 
 
+def _covered_history_sides(
+    history: _AtomicHistory,
+    contribution_regions: tuple[PlanarRegion, ...],
+    domain_regions: tuple[PlanarRegion, ...],
+    region_aabbs: dict[int, ExactSegmentAabbV1],
+):
+    """Классифицировать обе стороны atomic edge относительно union/domain."""
+
+    contribution_left = []
+    contribution_right = []
+    domain_left = []
+    domain_right = []
+    for region in contribution_regions:
+        left, right = _side_membership(
+            region,
+            history.start,
+            history.end,
+            region_aabbs[id(region)],
+        )
+        if left:
+            contribution_left.append(region)
+        if right:
+            contribution_right.append(region)
+    for region in domain_regions:
+        left, right = _side_membership(
+            region,
+            history.start,
+            history.end,
+            region_aabbs[id(region)],
+        )
+        if left:
+            domain_left.append(region)
+        if right:
+            domain_right.append(region)
+    coverage_left = bool(contribution_left) and bool(domain_left)
+    coverage_right = bool(contribution_right) and bool(domain_right)
+    if coverage_left == coverage_right:
+        return None
+    return (
+        coverage_left,
+        contribution_left if coverage_left else contribution_right,
+        domain_left if coverage_left else domain_right,
+    )
+
+
 class ExactSegmentArrangementBackend:
     backend_identity = "CFTUV_EXACT_SEGMENT_ARRANGEMENT_WITH_HISTORY"
     backend_version = "3.0.0"
@@ -833,15 +1075,16 @@ class ExactSegmentArrangementBackend:
 
         atomic: dict[tuple[tuple[str, str], tuple[str, str]], _AtomicHistory] = {}
         for index, boundary in enumerate(boundaries):
-            points = sorted(
-                split_points[index],
+            parameterized_points = [
+                (point, _quadratic_parameter(boundary.segment, point.point))
+                for point in split_points[index]
+            ]
+            parameterized_points.sort(
                 key=cmp_to_key(
-                    lambda left, right: _compare(
-                        _parameter(boundary.segment, left.point),
-                        _parameter(boundary.segment, right.point),
-                    )
+                    lambda left, right: (left[1] - right[1]).sign()
                 ),
             )
+            points = [item[0] for item in parameterized_points]
             for left, right in zip(points, points[1:]):
                 if points_equal(left.point, right.point):
                     continue
@@ -912,30 +1155,21 @@ class ExactSegmentArrangementBackend:
             contribution_regions, domain_regions
         )
         atomic = build.atomic
+        region_aabbs = {
+            id(region): _loop_aabb(region.outer)
+            for region in (*contribution_regions, *domain_regions)
+        }
         outputs = []
         for history in atomic.values():
-            contribution_left = []
-            contribution_right = []
-            domain_left = []
-            domain_right = []
-            for region in contribution_regions:
-                left, right = _side_membership(region, history.start, history.end)
-                if left:
-                    contribution_left.append(region)
-                if right:
-                    contribution_right.append(region)
-            for region in domain_regions:
-                left, right = _side_membership(region, history.start, history.end)
-                if left:
-                    domain_left.append(region)
-                if right:
-                    domain_right.append(region)
-            coverage_left = bool(contribution_left) and bool(domain_left)
-            coverage_right = bool(contribution_right) and bool(domain_right)
-            if coverage_left == coverage_right:
+            covered_sides = _covered_history_sides(
+                history,
+                contribution_regions,
+                domain_regions,
+                region_aabbs,
+            )
+            if covered_sides is None:
                 continue
-            inside_contributions = contribution_left if coverage_left else contribution_right
-            inside_domains = domain_left if coverage_left else domain_right
+            coverage_left, inside_contributions, inside_domains = covered_sides
             boundary_generator = merge_boundary_generator_provenance(
                 *(
                     boundary.segment.provenance.boundary_generator

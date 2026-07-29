@@ -28,7 +28,9 @@ from ..contracts.envelopes import (
     CapEnvelopeSpec,
     CertifiedBoundHiddenSupportDirectionLawV1,
     CertifiedBoundHiddenSupportSpecV1,
+    DirectionBindingReasonV1,
     EffectiveAlphaBindingKind,
+    EvaluationGeometryDirectionBindingCertificateV1,
     ExactTwoPiHandling,
     HiddenSupportDirectionLaw,
     HiddenSupportScope,
@@ -109,6 +111,11 @@ from .direction_binding import (
     certify_direction_bindings,
     has_rational_support_direction,
     verify_direction_bindings,
+)
+from .evaluation_geometry import (
+    EvaluationGeometryBindingInvalid,
+    build_evaluation_geometry_binding,
+    verify_evaluation_geometry_binding,
 )
 from .provenance import make_reference_provenance
 from .validation import (
@@ -284,7 +291,7 @@ def _attach_front_reading_declarations(
 def _attach_direction_bindings(
     compilation: ReferenceEnvelopeCompilationV1,
 ) -> ReferenceEnvelopeCompilationV1 | ReferenceCompileResultV1:
-    """Привязать только нерациональные hidden ordinals до выдачи плана."""
+    """Сертифицировать фактические hidden directions evaluation-геометрии."""
 
     from .angular import angular_support_data
     from .common import GeometryContext, ReferenceGeometryError
@@ -304,7 +311,16 @@ def _attach_direction_bindings(
             None,
             diagnostics,
         )
-    context = GeometryContext.build(compilation, frame)
+    context = GeometryContext.build(
+        compilation,
+        frame,
+        require_certified_bound_supports=False,
+    )
+    source_context = GeometryContext.build(
+        replace(compilation, evaluation_geometry_binding=None),
+        frame,
+        require_evaluation_binding=False,
+    )
     changed_specs = set(compilation.envelope_specs)
     try:
         for spec in sorted(
@@ -322,11 +338,29 @@ def _attach_direction_bindings(
                 if item.owner_sector_id == spec.owner_sector_id
             )
             _, _, _, ideal = angular_support_data(context, spec)
-            needs_binding = tuple(
-                not has_rational_support_direction(
-                    context.metric, ideal[ordinal]
+            _, _, _, source_ideal = angular_support_data(source_context, spec)
+            source_is_rational = tuple(
+                has_rational_support_direction(
+                    source_context.metric,
+                    source_ideal[ordinal],
                 )
-                for ordinal in range(1, spec.resolved_hidden_edge_count + 1)
+                for ordinal in range(
+                    1,
+                    spec.resolved_hidden_edge_count + 1,
+                )
+            )
+            needs_binding = tuple(
+                (
+                    not source_is_rational[ordinal - 1]
+                    or not has_rational_support_direction(
+                        context.metric,
+                        ideal[ordinal],
+                    )
+                )
+                for ordinal in range(
+                    1,
+                    spec.resolved_hidden_edge_count + 1,
+                )
             )
             if not any(needs_binding):
                 continue
@@ -334,9 +368,26 @@ def _attach_direction_bindings(
                 context.metric, ideal, sector.turn_orientation
             )
             selected_certificates = tuple(
-                certificate if needed else None
-                for needed, certificate in zip(
-                    needs_binding, certificates, strict=True
+                (
+                    _evaluation_geometry_certificate(
+                        certificate,
+                        (
+                            DirectionBindingReasonV1.SOURCE_DIRECTION_IRRATIONAL
+                            if not source_rational
+                            else DirectionBindingReasonV1.EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL
+                        ),
+                    )
+                    if (
+                        needed
+                        and compilation.evaluation_geometry_binding is not None
+                    )
+                    else certificate if needed else None
+                )
+                for needed, source_rational, certificate in zip(
+                    needs_binding,
+                    source_is_rational,
+                    certificates,
+                    strict=True,
                 )
             )
             verify_direction_bindings(
@@ -361,6 +412,25 @@ def _attach_direction_bindings(
     return replace(compilation, envelope_specs=frozenset(changed_specs))
 
 
+def _evaluation_geometry_certificate(certificate, reason):
+    return EvaluationGeometryDirectionBindingCertificateV1(
+        bound_primitive_integer_vector=(
+            certificate.bound_primitive_integer_vector
+        ),
+        ideal_window_lower_slope_envelope=(
+            certificate.ideal_window_lower_slope_envelope
+        ),
+        ideal_window_upper_slope_envelope=(
+            certificate.ideal_window_upper_slope_envelope
+        ),
+        certified_window_width_lower_bound=(
+            certificate.certified_window_width_lower_bound
+        ),
+        proven_predicates=certificate.proven_predicates,
+        binding_reason=reason,
+    )
+
+
 def _bound_support(support, certificate):
     if certificate is None:
         return support
@@ -383,11 +453,19 @@ def _bound_support(support, certificate):
 def _finalize_compilation(
     compilation: ReferenceEnvelopeCompilationV1,
 ) -> ReferenceCompileResultV1:
-    compiled_with_bindings = _attach_direction_bindings(compilation)
+    compiled_with_geometry = _attach_evaluation_geometry(compilation)
+    if isinstance(compiled_with_geometry, ReferenceCompileResultV1):
+        return compiled_with_geometry
+    compiled_with_bindings = _attach_direction_bindings(compiled_with_geometry)
     if isinstance(compiled_with_bindings, ReferenceCompileResultV1):
         return compiled_with_bindings
-    compiled_with_readings = _attach_front_reading_declarations(
+    sealed_geometry = _seal_evaluation_geometry_authority(
         compiled_with_bindings
+    )
+    if isinstance(sealed_geometry, ReferenceCompileResultV1):
+        return sealed_geometry
+    compiled_with_readings = _attach_front_reading_declarations(
+        sealed_geometry
     )
     if isinstance(compiled_with_readings, ReferenceCompileResultV1):
         return compiled_with_readings
@@ -396,6 +474,82 @@ def _finalize_compilation(
         compiled_with_readings,
         (),
     )
+
+
+def _attach_evaluation_geometry(
+    compilation: ReferenceEnvelopeCompilationV1,
+) -> ReferenceEnvelopeCompilationV1 | ReferenceCompileResultV1:
+    """Построить общую geometry binding ровно один раз, до обоих consumers."""
+
+    if (
+        compilation.analysis_snapshot.surface_ir.payload_mode
+        is not SurfacePayloadMode.FULL_HOST_SURFACE
+    ):
+        return compilation
+    frame, diagnostics = validate_reference_geometry_payload(
+        compilation.analysis_snapshot,
+        compilation.plan_key.patch_domain_id,
+    )
+    if frame is None:
+        return ReferenceCompileResultV1(
+            diagnostics[0].outcome,
+            None,
+            diagnostics,
+        )
+    try:
+        binding = build_evaluation_geometry_binding(compilation, frame)
+    except EvaluationGeometryBindingInvalid as exc:
+        return _failure(
+            ReferenceOutcome.REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID,
+            str(exc),
+        )
+    return replace(compilation, evaluation_geometry_binding=binding)
+
+
+def _seal_evaluation_geometry_authority(
+    compilation: ReferenceEnvelopeCompilationV1,
+) -> ReferenceEnvelopeCompilationV1 | ReferenceCompileResultV1:
+    """Связать evaluation-запись с единственными plan-authority supports."""
+
+    binding = compilation.evaluation_geometry_binding
+    if binding is None:
+        return compilation
+    frame, diagnostics = validate_reference_geometry_payload(
+        compilation.analysis_snapshot,
+        compilation.plan_key.patch_domain_id,
+    )
+    if frame is None:
+        return ReferenceCompileResultV1(
+            diagnostics[0].outcome,
+            None,
+            diagnostics,
+        )
+    bound_ids = frozenset(
+        support.hidden_support_id
+        for spec in compilation.envelope_specs
+        if isinstance(spec, AngularEnvelopeSpec)
+        for support in spec.hidden_supports
+        if type(support) is CertifiedBoundHiddenSupportSpecV1
+    )
+    sealed = replace(
+        compilation,
+        evaluation_geometry_binding=replace(
+            binding,
+            bound_hidden_support_ids=bound_ids,
+        ),
+    )
+    try:
+        verify_evaluation_geometry_binding(
+            sealed.evaluation_geometry_binding,
+            sealed,
+            frame,
+        )
+    except EvaluationGeometryBindingInvalid as exc:
+        return _failure(
+            ReferenceOutcome.REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID,
+            str(exc),
+        )
+    return sealed
 
 
 def declare_reference_self_contacts(

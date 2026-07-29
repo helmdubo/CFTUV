@@ -12,6 +12,8 @@ from cftuv_envelope import (
     AngularEnvelopeSpec,
     CertifiedBoundHiddenSupportDirectionLawV1,
     CertifiedBoundHiddenSupportSpecV1,
+    DirectionBindingReasonV1,
+    EvaluationGeometryDirectionBindingCertificateV1,
     HiddenSupportDirectionLaw,
     HiddenSupportSpecV1,
     ReferenceOutcome,
@@ -59,7 +61,7 @@ def _context(compilation):
     return GeometryContext.build(compilation, frame)
 
 
-def test_compiler_binds_only_the_field_ordinal_that_needs_it():
+def test_compiler_binds_all_field_directions_against_bound_geometry():
     _, _, compilation = _compiled(_FULL)
     angular = sorted(
         (
@@ -76,27 +78,60 @@ def test_compiler_binds_only_the_field_ordinal_that_needs_it():
         if isinstance(support, CertifiedBoundHiddenSupportSpecV1)
     ]
     assert len(angular) == 4
-    assert len(bound) == 1
-    spec, support = bound[0]
-    assert spec.envelope_spec_id.value == _BOUND_SPEC
-    assert support.ordinal == 1
-    assert support.direction_law is (
-        CertifiedBoundHiddenSupportDirectionLawV1.CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1
+    assert len(bound) == 4
+    assert {
+        spec.envelope_spec_id.value: (
+            support.direction_binding.bound_primitive_integer_vector,
+            support.direction_binding.binding_reason,
+        )
+        for spec, support in bound
+    } == {
+        _BOUND_SPEC: (
+            (1, 3),
+            DirectionBindingReasonV1.SOURCE_DIRECTION_IRRATIONAL,
+        ),
+        "angular-spec:739252a710101eaedbeef0e7": (
+            (-1, -5),
+            DirectionBindingReasonV1.EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL,
+        ),
+        "angular-spec:7dde3e10be8587bd61e928d6": (
+            (-1, -3),
+            DirectionBindingReasonV1.EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL,
+        ),
+        "angular-spec:fac6c5ebb4bae4c6a1bef3a9": (
+            (1, 5),
+            DirectionBindingReasonV1.EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL,
+        ),
+    }
+    assert all(
+        type(support.direction_binding)
+        is EvaluationGeometryDirectionBindingCertificateV1
+        for _, support in bound
     )
-    assert support.direction_binding.bound_primitive_integer_vector == (1, 3)
+    assert compilation.evaluation_geometry_binding.bound_hidden_support_ids == {
+        support.hidden_support_id for _, support in bound
+    }
 
 
-def test_pass_through_corpora_keep_the_legacy_runtime_record_type():
-    for folder in (_POINT,):
-        _, _, compilation = _compiled(folder)
-        supports = [
-            support
-            for spec in compilation.envelope_specs
-            if isinstance(spec, AngularEnvelopeSpec)
-            for support in spec.hidden_supports
-        ]
-        assert supports
-        assert all(type(item) is HiddenSupportSpecV1 for item in supports)
+def test_point_contact_moves_by_named_reason_while_synthetics_pass_through():
+    _, _, point_compilation = _compiled(_POINT)
+    point_supports = [
+        support
+        for spec in point_compilation.envelope_specs
+        if isinstance(spec, AngularEnvelopeSpec)
+        for support in spec.hidden_supports
+    ]
+    assert len(point_supports) == 2
+    assert all(
+        type(item) is CertifiedBoundHiddenSupportSpecV1
+        for item in point_supports
+    )
+    assert {
+        item.direction_binding.binding_reason for item in point_supports
+    } == {
+        DirectionBindingReasonV1.EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL
+    }
+
     snapshot, request = angular_snapshot(2)
     compilation = kernel.compile_reference_envelopes(
         snapshot, request
@@ -181,6 +216,53 @@ def test_reference_and_queue_recheck_the_same_forged_plan_record():
     )
 
 
+def test_shared_context_gate_rejects_a_forged_binding_reason():
+    _, _, compilation = _compiled(_FULL)
+    spec = next(
+        item
+        for item in compilation.envelope_specs
+        if isinstance(item, AngularEnvelopeSpec)
+        and item.envelope_spec_id.value == _BOUND_SPEC
+    )
+    support = next(iter(spec.hidden_supports))
+    forged_support = replace(
+        support,
+        direction_binding=replace(
+            support.direction_binding,
+            binding_reason=(
+                DirectionBindingReasonV1.EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL
+            ),
+        ),
+    )
+    forged, forged_spec = _replace_angular_support(
+        compilation,
+        spec,
+        forged_support,
+    )
+    with pytest.raises(ReferenceGeometryError) as caught:
+        _context(forged)
+    assert caught.value.outcome is (
+        ReferenceOutcome.REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID
+    )
+    assert "bound direction reason is false" in str(caught.value)
+
+
+def test_context_rejects_a_forged_bound_support_identity_reference():
+    _, _, compilation = _compiled(_FULL)
+    forged = replace(
+        compilation,
+        evaluation_geometry_binding=replace(
+            compilation.evaluation_geometry_binding,
+            bound_hidden_support_ids=frozenset(),
+        ),
+    )
+    with pytest.raises(ReferenceGeometryError) as caught:
+        _context(forged)
+    assert caught.value.outcome is (
+        ReferenceOutcome.REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID
+    )
+
+
 @pytest.mark.parametrize("record_kind", ("legacy", "bound"))
 def test_reference_and_queue_reject_cross_enum_direction_law(record_kind):
     if record_kind == "legacy":
@@ -217,6 +299,7 @@ def test_reference_and_queue_reject_cross_enum_direction_law(record_kind):
                 HiddenSupportDirectionLaw.ORIENTED_OWNER_SECTOR_ORDINAL_SUBTURN
             ),
         )
+    original_context = _context(compilation)
     forged, forged_spec = _replace_angular_support(
         compilation,
         spec,
@@ -224,7 +307,7 @@ def test_reference_and_queue_reject_cross_enum_direction_law(record_kind):
     )
 
     _assert_reference_and_queue_refuse(
-        _context(forged),
+        replace(original_context, compilation=forged),
         forged_spec,
         request,
     )

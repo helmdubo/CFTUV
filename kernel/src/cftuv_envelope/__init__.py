@@ -580,6 +580,7 @@ __all__ = (
     "AngularSubdivisionPolicy",
     "HiddenSupportDirectionLaw",
     "CertifiedBoundHiddenSupportDirectionLawV1",
+    "DirectionBindingReasonV1",
     "HiddenSupportScope",
     "AngularExposurePolicy",
     "JunctionSupportLawId",
@@ -598,6 +599,7 @@ __all__ = (
     "AngularProfileSelectionCertificateV1",
     "HiddenSupportSpecV1",
     "DirectionBindingCertificateV1",
+    "EvaluationGeometryDirectionBindingCertificateV1",
     "CertifiedBoundHiddenSupportSpecV1",
     "StripEnvelopeSpec",
     "AngularEnvelopeSpec",
@@ -727,6 +729,7 @@ for _module_name in (
     "planar_metric",
     "source_grid",
     "runtime_metric",
+    "exact_sqrt_sum",
     "robust",
     "wavefront",
 ):

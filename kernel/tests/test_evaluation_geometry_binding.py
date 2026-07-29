@@ -32,6 +32,7 @@ def _binding() -> kernel.EvaluationGeometryBindingV1:
                 ),
             }
         ),
+        bound_hidden_support_ids=frozenset(),
     )
 
 

@@ -81,6 +81,13 @@ class CertifiedBoundHiddenSupportDirectionLawV1(str, Enum):
     )
 
 
+class DirectionBindingReasonV1(str, Enum):
+    SOURCE_DIRECTION_IRRATIONAL = "SOURCE_DIRECTION_IRRATIONAL"
+    EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL = (
+        "EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL"
+    )
+
+
 class HiddenSupportScope(str, Enum):
     ANGULAR_ENVELOPE_SPEC_LOCAL = "ANGULAR_ENVELOPE_SPEC_LOCAL"
 
@@ -200,6 +207,18 @@ class DirectionBindingCertificateV1:
 
 
 @dataclass(frozen=True, slots=True)
+class EvaluationGeometryDirectionBindingCertificateV1:
+    """Сертификат направления, доказанный на записанной evaluation-геометрии."""
+
+    bound_primitive_integer_vector: tuple[int, int]
+    ideal_window_lower_slope_envelope: CertifiedDecimalIntervalV1
+    ideal_window_upper_slope_envelope: CertifiedDecimalIntervalV1
+    certified_window_width_lower_bound: Decimal
+    proven_predicates: frozenset[str]
+    binding_reason: DirectionBindingReasonV1
+
+
+@dataclass(frozen=True, slots=True)
 class CertifiedBoundHiddenSupportSpecV1:
     hidden_support_id: HiddenSupportId
     ordinal: int
@@ -210,7 +229,10 @@ class CertifiedBoundHiddenSupportSpecV1:
     source_relation_id: CornerRelationId
     owner_sector_id: OwnerSectorId
     selection_certificate_id: SelectionCertificateId
-    direction_binding: DirectionBindingCertificateV1
+    direction_binding: (
+        DirectionBindingCertificateV1
+        | EvaluationGeometryDirectionBindingCertificateV1
+    )
 
 
 @dataclass(frozen=True, slots=True)

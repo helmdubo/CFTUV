@@ -10,7 +10,10 @@ from mpmath import iv, libmp
 import sympy as sp
 
 from ..contracts.analysis import TurnOrientation
-from ..contracts.envelopes import DirectionBindingCertificateV1
+from ..contracts.envelopes import (
+    DirectionBindingCertificateV1,
+    EvaluationGeometryDirectionBindingCertificateV1,
+)
 from ..numeric import CertifiedDecimalIntervalV1, IntervalEndpointKind
 from .metric import ExactPlanarMetric, _floor_exact
 from .planar_types import (
@@ -25,7 +28,11 @@ from .planar_types import (
 
 BINDING_MONOTONE = "BINDING_MONOTONE"
 BINDING_SUBTURN_LE_DELTA_MAX = "BINDING_SUBTURN_LE_DELTA_MAX"
+BINDING_SUBTURN_RATIONAL_DIRECTION_REQUIRED = (
+    "BINDING_SUBTURN_RATIONAL_DIRECTION_REQUIRED"
+)
 BINDING_INSIDE_OWN_ORDINAL_WINDOW = "BINDING_INSIDE_OWN_ORDINAL_WINDOW"
+BINDING_REFINEMENT_LIMIT = "BINDING_REFINEMENT_LIMIT"
 BINDING_REFUSAL_REASON = "привязка: сертификат не доказан ({predicate})"
 
 _PROVEN_PREDICATES = frozenset(
@@ -37,6 +44,7 @@ _PROVEN_PREDICATES = frozenset(
 )
 _DECIMAL_DIGITS = 27
 _DECIMAL_SCALE = 10**_DECIMAL_DIGITS
+_MAX_WINDOW_REFINEMENTS = 256
 
 
 class DirectionBindingCertificateUnproven(ValueError):
@@ -74,7 +82,7 @@ def certify_direction_bindings(
         ]
         for index in range(1, len(ideal) - 1)
     ]
-    while True:
+    for refinement in range(_MAX_WINDOW_REFINEMENTS + 1):
         certificates = tuple(
             _certificate_in_window(ideal[index], *windows[index - 1])
             for index in range(1, len(ideal) - 1)
@@ -86,16 +94,26 @@ def certify_direction_bindings(
             return certificates
         if predicate != BINDING_SUBTURN_LE_DELTA_MAX:
             raise DirectionBindingCertificateUnproven(predicate)
+        if refinement == _MAX_WINDOW_REFINEMENTS:
+            raise DirectionBindingCertificateUnproven(
+                BINDING_REFINEMENT_LIMIT
+            )
         for index, window in enumerate(windows, start=1):
             window[0] = _midpoint(metric, window[0], ideal[index])
             window[1] = _midpoint(metric, ideal[index], window[1])
+    raise DirectionBindingCertificateUnproven(BINDING_REFINEMENT_LIMIT)
 
 
 def verify_direction_bindings(
     metric: ExactPlanarMetric,
     ideal_unit_normals: tuple[ExactPlanarVector, ...],
     orientation: TurnOrientation,
-    certificates: tuple[DirectionBindingCertificateV1 | None, ...],
+    certificates: tuple[
+        DirectionBindingCertificateV1
+        | EvaluationGeometryDirectionBindingCertificateV1
+        | None,
+        ...,
+    ],
 ) -> None:
     """Перепроверить записанные plan-authority направления без их перестроения."""
 
@@ -121,7 +139,11 @@ def verify_direction_bindings(
 
 
 def bound_unit_normal(
-    metric: ExactPlanarMetric, certificate: DirectionBindingCertificateV1
+    metric: ExactPlanarMetric,
+    certificate: (
+        DirectionBindingCertificateV1
+        | EvaluationGeometryDirectionBindingCertificateV1
+    ),
 ) -> ExactPlanarVector:
     """Восстановить G-единичную нормаль из plan-authority ковектора."""
 
@@ -236,7 +258,7 @@ def _subturn_at_most_pi_over_three(metric, left, right):
     right_primitive = _primitive_direction(right)
     if left_primitive is None or right_primitive is None:
         raise DirectionBindingCertificateUnproven(
-            BINDING_SUBTURN_LE_DELTA_MAX
+            BINDING_SUBTURN_RATIONAL_DIRECTION_REQUIRED
         )
     dot = _dual_dot(metric, left_primitive, right_primitive)
     if exact_sign(dot) <= 0:

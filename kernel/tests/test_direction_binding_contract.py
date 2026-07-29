@@ -16,6 +16,8 @@ from cftuv_envelope import (
     CertifiedDecimalIntervalV1,
     ContractCodecError,
     DirectionBindingCertificateV1,
+    DirectionBindingReasonV1,
+    EvaluationGeometryDirectionBindingCertificateV1,
     HiddenSupportDirectionLaw,
     HiddenSupportSpecV1,
     IntervalEndpointKind,
@@ -28,7 +30,7 @@ from reference_factories import angular_snapshot
 
 
 # M1 снят на неизменённом f41cb2fea13c1065981a6647e971e45c77210b15.
-_FROZEN_HIDDEN_SUPPORTS = {
+_HIDDEN_SUPPORTS_BEFORE_POINT_CONTACT_BOUND = {
     "angular_snapshot_k1": (
         b'[{"$type":"HiddenSupportSpecV1","direction_law":"ROTATE_INCOMING_SUPPORT_TOWARD_OUTGOING_INSIDE_ORIENTED_OWNER_SECTOR_BY_ORDINAL_SUBTURN","hidden_support_id":{"$id_type":"HiddenSupportId","value":"hidden-support:7371da7719a16ff7d21ab16b"},"ordinal":1,"owner_sector_id":{"$id_type":"OwnerSectorId","value":"angular-sector"},"scope":"ANGULAR_ENVELOPE_SPEC_LOCAL","selection_certificate_id":{"$id_type":"SelectionCertificateId","value":"profile-selection:14a84cc3debd13a19b1dac42"},"source_relation_id":{"$id_type":"CornerRelationId","value":"corner"},"turn_fraction":{"$type":"ExactRatioV1","denominator":2,"numerator":1},"zero_length_at_alpha_zero":true}]',
         "b62bdd12cac29f25525399bdc651f1774264caee3fd825ac24fb9c093fecbca4",
@@ -44,6 +46,23 @@ _FROZEN_HIDDEN_SUPPORTS = {
     "point_contact_8e2a63": (
         b'[{"$type":"HiddenSupportSpecV1","direction_law":"ROTATE_INCOMING_SUPPORT_TOWARD_OUTGOING_INSIDE_ORIENTED_OWNER_SECTOR_BY_ORDINAL_SUBTURN","hidden_support_id":{"$id_type":"HiddenSupportId","value":"hidden-support:a5edc60ed729b5a626126fb1"},"ordinal":1,"owner_sector_id":{"$id_type":"OwnerSectorId","value":"host-v0:owner-sector:b4426220b8b8721bc83b51c0"},"scope":"ANGULAR_ENVELOPE_SPEC_LOCAL","selection_certificate_id":{"$id_type":"SelectionCertificateId","value":"profile-selection:27c820078d63ddb05421396e"},"source_relation_id":{"$id_type":"CornerRelationId","value":"host-v0:corner-relation:60fc81c8f39e546c88f9ff6a"},"turn_fraction":{"$type":"ExactRatioV1","denominator":2,"numerator":1},"zero_length_at_alpha_zero":true}]',
         "b6d89cdda82429920d766ca1c88116c0f2d0ac48fd4fdd6161399f2200ab1371",
+    ),
+}
+
+_FROZEN_HIDDEN_SUPPORTS = {
+    "angular_snapshot_k1": (
+        _HIDDEN_SUPPORTS_BEFORE_POINT_CONTACT_BOUND["angular_snapshot_k1"]
+    ),
+    "angular_snapshot_k2": (
+        _HIDDEN_SUPPORTS_BEFORE_POINT_CONTACT_BOUND["angular_snapshot_k2"]
+    ),
+    "point_contact_267dfe": (
+        b'[{"$type":"CertifiedBoundHiddenSupportSpecV1","direction_binding":{"$type":"EvaluationGeometryDirectionBindingCertificateV1","binding_reason":"EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL","bound_primitive_integer_vector":[-1,-3],"certified_window_width_lower_bound":"0.08025020126798924685159819","ideal_window_lower_slope_envelope":{"$type":"CertifiedDecimalIntervalV1","absolute_error_bound":"0.000000000000000000000000001","lower":"0.31296299706330317585668607","lower_kind":"CLOSED","upper":"0.312962997063303175856686071","upper_kind":"CLOSED"},"ideal_window_upper_slope_envelope":{"$type":"CertifiedDecimalIntervalV1","absolute_error_bound":"0.000000000000000000000000001","lower":"0.393213198331292422708284261","lower_kind":"CLOSED","upper":"0.393213198331292422708284262","upper_kind":"CLOSED"},"proven_predicates":["BINDING_INSIDE_OWN_ORDINAL_WINDOW","BINDING_MONOTONE","BINDING_SUBTURN_LE_DELTA_MAX"]},"direction_law":"CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1","hidden_support_id":{"$id_type":"HiddenSupportId","value":"hidden-support:ae06f5231674a1770bd535f0"},"ordinal":1,"owner_sector_id":{"$id_type":"OwnerSectorId","value":"host-v0:owner-sector:e65861ea6b0a157c0d043372"},"scope":"ANGULAR_ENVELOPE_SPEC_LOCAL","selection_certificate_id":{"$id_type":"SelectionCertificateId","value":"profile-selection:955b3036cd75b1e0bd56da0a"},"source_relation_id":{"$id_type":"CornerRelationId","value":"host-v0:corner-relation:05676524690dd8b689264248"},"turn_fraction":{"$type":"ExactRatioV1","denominator":2,"numerator":1},"zero_length_at_alpha_zero":true}]',
+        "02968666e72e53bec74a9073bddfd28a2dfe29deeff269687b50ef387d08897e",
+    ),
+    "point_contact_8e2a63": (
+        b'[{"$type":"CertifiedBoundHiddenSupportSpecV1","direction_binding":{"$type":"EvaluationGeometryDirectionBindingCertificateV1","binding_reason":"EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL","bound_primitive_integer_vector":[-1,-5],"certified_window_width_lower_bound":"0.109663603700431653678276885","ideal_window_lower_slope_envelope":{"$type":"CertifiedDecimalIntervalV1","absolute_error_bound":"0.000000000000000000000000001","lower":"0.120772471296262547485663174","lower_kind":"CLOSED","upper":"0.120772471296262547485663175","upper_kind":"CLOSED"},"ideal_window_upper_slope_envelope":{"$type":"CertifiedDecimalIntervalV1","absolute_error_bound":"0.000000000000000000000000001","lower":"0.23043607499669420116394006","lower_kind":"CLOSED","upper":"0.230436074996694201163940061","upper_kind":"CLOSED"},"proven_predicates":["BINDING_INSIDE_OWN_ORDINAL_WINDOW","BINDING_MONOTONE","BINDING_SUBTURN_LE_DELTA_MAX"]},"direction_law":"CERTIFIED_RATIONAL_BINDING_IN_ORDINAL_SUBTURN_V1","hidden_support_id":{"$id_type":"HiddenSupportId","value":"hidden-support:a5edc60ed729b5a626126fb1"},"ordinal":1,"owner_sector_id":{"$id_type":"OwnerSectorId","value":"host-v0:owner-sector:b4426220b8b8721bc83b51c0"},"scope":"ANGULAR_ENVELOPE_SPEC_LOCAL","selection_certificate_id":{"$id_type":"SelectionCertificateId","value":"profile-selection:27c820078d63ddb05421396e"},"source_relation_id":{"$id_type":"CornerRelationId","value":"host-v0:corner-relation:60fc81c8f39e546c88f9ff6a"},"turn_fraction":{"$type":"ExactRatioV1","denominator":2,"numerator":1},"zero_length_at_alpha_zero":true}]',
+        "66fc35ec93472762bedcb665130168fa8c1b316dcca75f36530ef8027dd767d4",
     ),
 }
 
@@ -79,7 +98,13 @@ def _point_contact_specs() -> dict[str, AngularEnvelopeSpec]:
     }
 
 
-def test_m1_legacy_hidden_support_bytes_and_digests_are_frozen():
+def test_m1_final_plan_bytes_move_only_with_named_geometry_binding():
+    """Synthetic pass-through is bitwise; point_contact moves with history.
+
+    M1 is a tripwire against unnamed movement, not a ban on changing the
+    authority record when the declared evaluation-geometry law applies.
+    """
+
     k1 = _angular_spec(*angular_snapshot(1))
     k2 = _angular_spec(*angular_snapshot(2))
     point_contact = _point_contact_specs()
@@ -94,8 +119,35 @@ def test_m1_legacy_hidden_support_bytes_and_digests_are_frozen():
         ],
     }
     for name, spec in actual.items():
-        assert all(type(item) is HiddenSupportSpecV1 for item in spec.hidden_supports)
+        if name.startswith("point_contact"):
+            assert all(
+                type(item) is CertifiedBoundHiddenSupportSpecV1
+                for item in spec.hidden_supports
+            )
+            assert {
+                item.direction_binding.binding_reason
+                for item in spec.hidden_supports
+            } == {
+                DirectionBindingReasonV1.EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL
+            }
+            historical_bytes, historical_digest = (
+                _HIDDEN_SUPPORTS_BEFORE_POINT_CONTACT_BOUND[name]
+            )
+            assert (
+                sha256(historical_bytes).hexdigest()
+                == historical_digest
+            )
+        else:
+            assert all(
+                type(item) is HiddenSupportSpecV1
+                for item in spec.hidden_supports
+            )
+            assert _FROZEN_HIDDEN_SUPPORTS[name] == (
+                _HIDDEN_SUPPORTS_BEFORE_POINT_CONTACT_BOUND[name]
+            )
         payload = canonical_json_bytes(spec.hidden_supports)
+        if name.startswith("point_contact"):
+            assert payload != historical_bytes
         expected_bytes, expected_digest = _FROZEN_HIDDEN_SUPPORTS[name]
         assert payload == expected_bytes, name
         assert sha256(payload).hexdigest() == expected_digest, name
@@ -176,6 +228,28 @@ def _binding():
     )
 
 
+def _evaluation_binding():
+    base = _binding()
+    return EvaluationGeometryDirectionBindingCertificateV1(
+        bound_primitive_integer_vector=(
+            base.bound_primitive_integer_vector
+        ),
+        ideal_window_lower_slope_envelope=(
+            base.ideal_window_lower_slope_envelope
+        ),
+        ideal_window_upper_slope_envelope=(
+            base.ideal_window_upper_slope_envelope
+        ),
+        certified_window_width_lower_bound=(
+            base.certified_window_width_lower_bound
+        ),
+        proven_predicates=base.proven_predicates,
+        binding_reason=(
+            DirectionBindingReasonV1.EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL
+        ),
+    )
+
+
 def _bound_support(legacy):
     values = {
         field.name: getattr(legacy, field.name)
@@ -236,6 +310,44 @@ def test_bound_record_is_a_distinct_mandatory_tagged_shape():
     encoded = canonical_json_bytes(bound)
     assert b'"$type":"CertifiedBoundHiddenSupportSpecV1"' in encoded
     assert b'"direction_binding"' in encoded
+
+
+def test_evaluation_bound_certificate_has_one_mandatory_reasoned_tag():
+    spec = _angular_spec(*angular_snapshot(1))
+    legacy = next(iter(spec.hidden_supports))
+    bound = replace(
+        _bound_support(legacy),
+        direction_binding=_evaluation_binding(),
+    )
+    changed = replace(spec, hidden_supports=frozenset({bound}))
+    encoded = _AngularEnvelopeCodecV1.dumps(changed)
+    round_trip = _AngularEnvelopeCodecV1.loads(encoded)
+    assert _AngularEnvelopeCodecV1.dumps(round_trip) == encoded
+
+    data = json.loads(encoded)
+    certificate = data["hidden_supports"][0]["direction_binding"]
+    assert certificate["$type"] == (
+        "EvaluationGeometryDirectionBindingCertificateV1"
+    )
+    assert certificate["binding_reason"] == (
+        "EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL"
+    )
+
+    old_tag = json.loads(encoded)
+    old_tag["hidden_supports"][0]["direction_binding"]["$type"] = (
+        "DirectionBindingCertificateV1"
+    )
+    missing_reason = json.loads(encoded)
+    missing_reason["hidden_supports"][0]["direction_binding"].pop(
+        "binding_reason"
+    )
+    unknown_reason = json.loads(encoded)
+    unknown_reason["hidden_supports"][0]["direction_binding"][
+        "binding_reason"
+    ] = "SILENT_REPAIR"
+    for malformed in (old_tag, missing_reason, unknown_reason):
+        with pytest.raises(ContractCodecError):
+            _AngularEnvelopeCodecV1.loads(json.dumps(malformed))
 
 
 def _legacy_plan(projections):

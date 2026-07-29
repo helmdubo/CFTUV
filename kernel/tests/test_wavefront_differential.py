@@ -34,9 +34,14 @@ from cftuv_envelope.interactions import policy_b as policy_b_module
 from cftuv_envelope.interactions.arrival import compile_arrival_models
 from cftuv_envelope.interactions.components import compile_interaction_components
 from cftuv_envelope.interactions.contracts import InteractionOutcome
+from cftuv_envelope.reference.arrangement import bound_evaluation_arrangement
 from cftuv_envelope.reference.boundary import build_domain_geometry
 from cftuv_envelope.reference.common import GeometryContext
-from cftuv_envelope.reference.planar_types import ExactScalar, exact_sign
+from cftuv_envelope.reference.planar_types import (
+    ExactScalar,
+    exact_quadratic_value,
+    exact_sign,
+)
 from cftuv_envelope.reference.validation import (
     validate_reference_geometry_payload,
 )
@@ -595,8 +600,9 @@ def _field_mitred_state():
 
 
 def _as_fraction(expression) -> Fraction:
-    numerator, denominator = sp.fraction(sp.nsimplify(expression))
-    return Fraction(int(numerator), int(denominator))
+    exact = sp.cancel(expression)
+    assert exact.is_Rational, exact
+    return Fraction(int(exact.p), int(exact.q))
 
 
 def _field_bridge_input():
@@ -726,7 +732,7 @@ def test_the_field_patch_input_does_not_map_onto_the_queue_and_here_is_why():
     | причина | число |
     |---|---|
     | домен не на целой решётке | 9 вершин из 12 |
-    | скорости прихода не единичные | `(s/|n|)^2` = 1048576/87864845 и 262144/1611625 |
+    | скорости прихода не единичные | три точные bound-величины, заморожены ниже |
 
     **Третья находка УБРАНА, и вот единственная убранная строка.**
     `SOURCE_IS_NOT_THE_WHOLE_BOUNDARY` — «источник не вся граница, 3 ребра из
@@ -738,14 +744,10 @@ def test_the_field_patch_input_does_not_map_onto_the_queue_and_here_is_why():
     что разметка ОДНОЗНАЧНА (`undetermined_source_count == 0`), то есть какие
     именно девять рёбер стены, следует из входа, а не выбрано.
 
-    Две оставшиеся находки НЕ ослаблены ни на строку: они те же самые, и обе
-    названы теми же величинами. Сами величины сдвинулись, потому что фикстура
-    пересобрана хостом под законом решётки `SOURCE_ONLY_GRID_SNAP_V1` — метрика
-    патча стала грубее рациональной записью, и `(s/|n|)^2` вместе с ней. Что
-    сдвиг мелкий, видно по СПРЕДУ: 13.629852633 против прежних 13.634951522, то
-    есть отношение скоростей выжило с точностью 4e-4, хотя обе дроби сменились
-    целиком. Это и есть независимая проверка сдвига: привязка обязана менять
-    запись и почти не менять геометрию, и здесь она ровно это и делает.
+    Две оставшиеся находки НЕ ослаблены ни на строку: они те же самые. После
+    `CHART_LATTICE_BOUND` три источника имеют три точные записи скорости, потому
+    что их bound-отрезки различны. Спред `13.632051778` остаётся близок к
+    прежнему `13.629852633`: привязка меняет запись, а не класс задачи.
 
     ВЕЕРА ЗДЕСЬ НЕ МЕШАЮТ, и это тоже проверено: два веера фикстуры идут своим
     каналом (`vertex_fans`), поэтому в вопрос «отображается ли домен» они не
@@ -762,19 +764,21 @@ def test_the_field_patch_input_does_not_map_onto_the_queue_and_here_is_why():
     )
     # Домен: 9 вершин из 12 не лежат в узлах решётки.
     assert (len(report.off_lattice_points), report.edge_count) == (9, 12)
-    # Скорости: три закона, две различные величины, и ни одна не единичная.
+    # Скорости: три закона, три различные величины, и ни одна не единичная.
     assert len(report.non_unit_speed_laws) == 3
     assert {value for _, value in report.non_unit_speed_laws} == {
-        Fraction(1048576, 87864845),
-        Fraction(262144, 1611625),
+        Fraction(36508550182711853056, 224411586007514383265),
+        Fraction(1825248901370544128, 11221407898274523445),
+        Fraction(47224306603791745024, 3957104371349379650105),
     }
     low, high = report.speed_ratio_spread
     # Евклидовы скорости фронтов различаются в 13.62... раза по квадрату,
     # то есть в 3.69... раза сами. Единичного скелета здесь нет.
     assert high / low == Fraction(
-        262144 * 87864845, 1611625 * 1048576
+        1354912815551995951514836,
+        99391701090710210255317,
     )
-    assert float(high / low) == pytest.approx(13.629852633, abs=1e-6)
+    assert float(high / low) == pytest.approx(13.632051778, abs=1e-6)
     # Веер в этот вопрос не входит: ни находки, ни ребра до привязки.
     assert report.fan_edge_count == 0
     assert len(fans) == 2
@@ -804,7 +808,7 @@ def test_the_field_patch_maps_onto_the_queue_on_the_declared_chart_lattice():
 
     | что было находкой | чем стало |
     |---|---|
-    | `DOMAIN_IS_NOT_ON_THE_INTEGER_LATTICE`, 9 вершин из 12 | привязка, невязка 1.46e-05 ед. карты |
+    | `DOMAIN_IS_NOT_ON_THE_INTEGER_LATTICE`, 9 вершин из 12 | bound-привязка, невязка точно 0 |
     | `ARRIVAL_LAW_IS_NOT_UNIT_SPEED`, спред 13.630 | `q` рациональное у 3 рёбер |
 
     Числа прежнего теста при этом НЕ отменены: без обоих параметров мост
@@ -846,19 +850,18 @@ def test_the_field_patch_maps_onto_the_queue_on_the_declared_chart_lattice():
     # Оба веера доехали до полигона своим каналом.
     assert report.fan_edge_count == 2
     assert report.lattice_scale == 32768
-    # Цена привязки названа числом, а не словом «мала».
-    assert report.snap_residual == Fraction(684097, 46729953280)
+    # Вход уже evaluation-bound: второй snap моста — точное тождество.
+    assert report.snap_residual == 0
     assert report.snap_residual * lattice.scale < Fraction(1, 2)
 
     polygon = report.polygon
-    # `q` у источников — РАЦИОНАЛЬНОЕ, и знаменатели те самые, из-за которых
-    # маршрут с подъёмом масштаба и оказался невозможен.
+    # `q` у источников — РАЦИОНАЛЬНОЕ. Два знаменателя принадлежат уже
+    # bound-отрезкам, а не прежней source-chart записи.
     weighted = [speed for _, _, speed in polygon.edges() if speed]
     assert len(weighted) == 3
-    assert {Fraction(speed).denominator for speed in weighted} <= {
-        322325,
-        1611625,
-        17572969,
+    assert {Fraction(speed).denominator for speed in weighted} == {
+        81348737089,
+        406743685445,
     }
     assert all(not isinstance(speed, int) for speed in weighted)
 
@@ -1054,90 +1057,108 @@ def test_the_field_patch_pairwise_clipping_destroys_all_of_its_own_coverage():
         for item in mitred.diagnostics
     )
 
-    # Прежние числа кроя — все они про МИТРОВАННЫЙ вход, и все достижимы. Сдвиг
-    # у них ровно один: `RawCoverage` стал 468288/1426085 вместо
-    # 122766786560/373821260323, и это цена привязки источника, а не кроя —
-    # 0.328373 против 0.328410, четвёртый знак.
-    mitred_boundary_resolved = tuple(
-        sorted(
-            mitred_raw.boundary_resolved_envelopes,
-            key=lambda item: item.envelope_instance.envelope_instance_id,
-        )
-    )
-    components = compile_interaction_components(
-        mitred_compilation, mitred_boundary_resolved
-    )
-    models, _ = compile_arrival_models(
-        mitred_compilation, components, mitred_boundary_resolved
-    )
-    from cftuv_envelope.interactions.candidates import (
-        generate_interaction_candidates,
-    )
-    from cftuv_envelope.interactions.mutual_arrival import prove_mutual_arrivals
-
-    candidates = generate_interaction_candidates(
-        components, models, mitred_compilation
-    )
-    proofs, _ = prove_mutual_arrivals(candidates, models)
-    frame, _ = validate_reference_geometry_payload(
-        mitred_compilation.analysis_snapshot,
-        mitred_compilation.plan_key.patch_domain_id,
-    )
-    domain = build_domain_geometry(
-        GeometryContext.build(mitred_compilation, frame)
-    )
-    policy = policy_b_module.apply_policy_b(
-        proofs,
-        components,
-        mitred_boundary_resolved,
-        mitred_raw,
-        domain.domain_regions,
-    )
-
-    raw_area = ExactScalar(mitred_raw.exact_area_expression).as_expr()
-    resolved_area = ExactScalar(
-        policy.resolved_union.exact_area_expression
-    ).as_expr()
-    assert raw_area == sp.Rational(468288, 1426085)
-    assert exact_sign(resolved_area) == 0
-    assert exact_sign(raw_area - resolved_area) != 0
-    assert all(
-        not contribution.retained_exact_regions
-        for contribution in policy.resolved_contributions
-    )
-
-    # Юбки уже попарно не пересекаются: резать было нечего. Компонент три —
-    # столько же, сколько было; веера их сливают в одну, и это ровно то число,
-    # которым первая половина отличается от второй (1 против 3).
-    reachability = {
-        str(item.envelope_instance.envelope_instance_id): item.reachability
-        for item in mitred_boundary_resolved
-    }
-    regions_by_component = {}
-    for component in components:
-        regions = tuple(
-            region
-            for typed_id in component.envelope_instance_ids
-            for item in mitred_boundary_resolved
-            if item.envelope_instance.envelope_instance_id == typed_id.value
-            for region in item.envelope_instance.regions
-        )
-        if regions:
-            regions_by_component[str(component.interaction_component_id)] = regions
-    assert len(regions_by_component) == 3
-    names = sorted(regions_by_component)
-    for left in range(len(names)):
-        for right in range(left + 1, len(names)):
-            overlap = policy_b_module._component_intersection_area(
-                regions_by_component[names[left]],
-                regions_by_component[names[right]],
-                reachability,
+    # Прежние числа кроя — все они про МИТРОВАННЫЙ вход, и все достижимы.
+    # Историческое рациональное RawCoverage сменилось exact quadratic
+    # выражением: это цена общей bound-геометрии, а не кроя.
+    with bound_evaluation_arrangement(
+        mitred_compilation.evaluation_geometry_binding is not None
+    ):
+        mitred_boundary_resolved = tuple(
+            sorted(
+                mitred_raw.boundary_resolved_envelopes,
+                key=lambda item: item.envelope_instance.envelope_instance_id,
             )
-            assert exact_sign(overlap) == 0
-    # И само число, которым две половины отличаются: одна компонента против трёх.
-    assert len(
-        compile_interaction_components(compilation, boundary_resolved)
-    ) == 1
+        )
+        components = compile_interaction_components(
+            mitred_compilation, mitred_boundary_resolved
+        )
+        models, _ = compile_arrival_models(
+            mitred_compilation, components, mitred_boundary_resolved
+        )
+        from cftuv_envelope.interactions.candidates import (
+            generate_interaction_candidates,
+        )
+        from cftuv_envelope.interactions.mutual_arrival import (
+            prove_mutual_arrivals,
+        )
+
+        candidates = generate_interaction_candidates(
+            components, models, mitred_compilation
+        )
+        proofs, _ = prove_mutual_arrivals(candidates, models)
+        frame, _ = validate_reference_geometry_payload(
+            mitred_compilation.analysis_snapshot,
+            mitred_compilation.plan_key.patch_domain_id,
+        )
+        domain = build_domain_geometry(
+            GeometryContext.build(mitred_compilation, frame)
+        )
+        policy = policy_b_module.apply_policy_b(
+            proofs,
+            components,
+            mitred_boundary_resolved,
+            mitred_raw,
+            domain.domain_regions,
+        )
+
+        raw_area = ExactScalar(mitred_raw.exact_area_expression).as_expr()
+        resolved_area = ExactScalar(
+            policy.resolved_union.exact_area_expression
+        ).as_expr()
+        assert exact_quadratic_value(raw_area).terms == (
+            (
+                1,
+                Fraction(
+                    -4415387860811427033088,
+                    12774729985721009594933894745,
+                ),
+            ),
+            (27851087972573, Fraction(1, 73015552)),
+            (174086333192405, Fraction(1, 182538880)),
+            (180146433272521, Fraction(1, 73015552)),
+        )
+        assert exact_sign(resolved_area) == 0
+        assert exact_sign(raw_area - resolved_area) != 0
+        assert all(
+            not contribution.retained_exact_regions
+            for contribution in policy.resolved_contributions
+        )
+
+        # Юбки уже попарно не пересекаются: резать было нечего. Компонент три —
+        # столько же, сколько было; веера их сливают в одну, и это ровно то число,
+        # которым первая половина отличается от второй (1 против 3).
+        reachability = {
+            str(item.envelope_instance.envelope_instance_id): item.reachability
+            for item in mitred_boundary_resolved
+        }
+        regions_by_component = {}
+        for component in components:
+            regions = tuple(
+                region
+                for typed_id in component.envelope_instance_ids
+                for item in mitred_boundary_resolved
+                if item.envelope_instance.envelope_instance_id == typed_id.value
+                for region in item.envelope_instance.regions
+            )
+            if regions:
+                regions_by_component[
+                    str(component.interaction_component_id)
+                ] = regions
+        assert len(regions_by_component) == 3
+        names = sorted(regions_by_component)
+        for left in range(len(names)):
+            for right in range(left + 1, len(names)):
+                overlap = policy_b_module._component_intersection_area(
+                    regions_by_component[names[left]],
+                    regions_by_component[names[right]],
+                    reachability,
+                )
+                assert exact_sign(overlap) == 0
+        # И само число, которым две половины отличаются:
+        # одна компонента против трёх.
+        assert len(
+            compile_interaction_components(compilation, boundary_resolved)
+        ) == 1
 
 
 # --------------------------------------------------------------------------
@@ -1276,16 +1297,16 @@ def test_the_field_patch_closes_under_the_shipped_order_and_gets_its_coverage():
     Покрытие очереди на настоящей геометрии, посчитанное здесь же: при alpha из
     запроса (`decal_request.json`, `0.25` в собственной метрике источника, то
     есть `8192` в единицах привязанной решётки масштаба 32768) удвоенная
-    площадь покрытия равна `2.7404 %` площади домена. Число иррациональное —
-    СЕМЬ членов в каноническом наборе, — поэтому читается оно ЦЕЛИКОМ
+    площадь покрытия равна примерно `2.7408 %` площади домена. Число
+    иррациональное — ВОСЕМЬ членов в каноническом наборе, — поэтому читается оно ЦЕЛИКОМ
     оболочкой, а не по частям, и границы оболочки целые по построению.
 
     Процент проверяется НЕ СОБОЙ, и это главное здесь число: тот же ответ даёт
     ЭТАЛОННЫЙ путь `evaluate_reference_raw_coverage` на тех же байтах —
-    0.34740839 против 0.34740932 площади карты, то есть согласие до 2.7e-06
-    относительных. Две реализации сходятся к одному числу, и это сильнее любой
-    замороженной строки. Остаток разности — модель СТЕН, и он заморожен своим
-    числом в `test_wavefront_conveyor.py`.
+    и после `CHART_LATTICE_BOUND` совпадает с QUEUE точно. Две реализации
+    сходятся к одному canonical `SqrtSum`, и это сильнее любой замороженной
+    десятичной строки. Стеновая часть измеряется отдельно как
+    `bound domain - coverage` в `test_wavefront_vertex_fan.py`.
 
     ПОРЯДОК РАБОТ, которым эта строка оплачена. Смежность нельзя было ставить до
     разбора коллинеарной неподвижной стены в `skeleton.py`: на трёх фигурах
@@ -1327,9 +1348,9 @@ def test_the_field_patch_closes_under_the_shipped_order_and_gets_its_coverage():
     covered = coverage_at(partition, Fraction(1, 4) * report.lattice_scale)
     assert covered.outcome is CoverageOutcome.EXACT
     assert len(covered.faces) == 5
-    assert len(covered.doubled_area.terms) == 7
+    assert len(covered.doubled_area.terms) == 8
     low, high = covered.doubled_area.enclosure(80)
-    assert 746055834 < low <= high < 746055835
+    assert 746152769 < low <= high < 746152770
     # Покрытие строго внутри домена и строго положительно.
     assert covered.doubled_area.sign() > 0
     assert (

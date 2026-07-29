@@ -12,6 +12,13 @@
           ],
           "type": "string"
         },
+        "bound_hidden_support_ids": {
+          "items": {
+            "$ref": "#/$defs/HiddenSupportId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
         "lattice_scale": {
           "type": "integer"
         },
@@ -43,7 +50,8 @@
         "reference_metric_id",
         "binding_law",
         "lattice_scale",
-        "source_vertex_coordinates"
+        "source_vertex_coordinates",
+        "bound_hidden_support_ids"
       ],
       "type": "object"
     },
@@ -104,6 +112,23 @@
         "$type",
         "numerator",
         "denominator"
+      ],
+      "type": "object"
+    },
+    "HiddenSupportId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "HiddenSupportId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
       ],
       "type": "object"
     },

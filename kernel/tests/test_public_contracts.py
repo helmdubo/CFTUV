@@ -41,8 +41,11 @@ from cftuv_envelope import (
 # CHART-LATTICE-BOUND добавляет отдельный binding record, его одноэлементный
 # закон, вершину и codec/validator: существующий CompiledPlanV1 не расширен,
 # поэтому EC0 plan bytes при этом остаются прежними.
+# Финальная recertification того же среза добавляет typed reason и отдельный
+# evaluation-geometry certificate; legacy certificate остаётся отдельным типом,
+# чтобы synthetic bytes не двигались.
 PUBLIC_API_CHART_LATTICE_BOUND_SHA256 = (
-    "c20b4f094bb3499156634169a9a242806c28f2e42f7359a72b3defa93c582a60"
+    "08c5548b2aee5d12bec84273e88b8346e4ae19d68fc9301a28abf261fef0d0b3"
 )
 
 

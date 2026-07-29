@@ -18,9 +18,15 @@ from typing import Iterable
 import sympy as sp
 from mpmath import iv
 
+from ..exact_sqrt_sum import SqrtSumV1
+
 
 class CertifiedPredicateUndecidable(ValueError):
     """Exact sign/equality could not be proven; tolerance fallback is forbidden."""
+
+
+class ExactQuadraticFieldUnsupported(CertifiedPredicateUndecidable):
+    """Exact scalar is outside the finite quadratic field used by arrangement."""
 
 
 def _expr(value: ExactScalar | sp.Expr | Decimal | Fraction | int | float | str) -> sp.Expr:
@@ -241,6 +247,84 @@ def exact_sign(value: ExactScalar | sp.Expr | Decimal | Fraction | int | float |
 
 def exact_equal(left: ExactScalar | sp.Expr, right: ExactScalar | sp.Expr) -> bool:
     return exact_sign(_expr(left) - _expr(right)) == 0
+
+
+@lru_cache(maxsize=32768)
+def exact_quadratic_value(expression: sp.Expr) -> SqrtSumV1:
+    """Строго прочитать SymPy-выражение как конечную сумму квадратных корней.
+
+    Это внутреннее представление предикатов, а не новый публичный контракт:
+    снаружи `ExactScalar` по-прежнему сериализуется прежним canonical `srepr`.
+    Неподдержанное алгебраическое поле не уходит в float или неограниченный
+    `simplify`, а даёт именованный fail-closed исход evaluator'а.
+    """
+
+    if expression.is_Rational:
+        return SqrtSumV1.rational(
+            Fraction(int(expression.p), int(expression.q))
+        )
+    if expression.is_Add:
+        result = SqrtSumV1.zero()
+        for term in expression.args:
+            result += exact_quadratic_value(term)
+        return result
+    if expression.is_Mul:
+        result = SqrtSumV1.rational(1)
+        for factor in expression.args:
+            result *= exact_quadratic_value(factor)
+        return result
+    if expression.is_Pow:
+        base, exponent = expression.args
+        if exponent.is_Integer:
+            power = int(exponent)
+            result = SqrtSumV1.rational(1)
+            factor = exact_quadratic_value(base)
+            for _ in range(abs(power)):
+                result *= factor
+            return (
+                result
+                if power >= 0
+                else SqrtSumV1.rational(1) / result
+            )
+        if (
+            exponent.is_Rational
+            and exponent.q == 2
+            and base.is_Rational
+            and exact_sign(base) >= 0
+        ):
+            power = int(exponent.p)
+            root = SqrtSumV1.radical(
+                1,
+                Fraction(int(base.p), int(base.q)),
+            )
+            result = SqrtSumV1.rational(1)
+            for _ in range(abs(power)):
+                result *= root
+            return (
+                result
+                if power >= 0
+                else SqrtSumV1.rational(1) / result
+            )
+    raise ExactQuadraticFieldUnsupported(
+        "REFERENCE_EXACT_QUADRATIC_FIELD_UNSUPPORTED: "
+        + sp.srepr(expression)
+    )
+
+
+def exact_quadratic_expr(value: SqrtSumV1) -> sp.Expr:
+    """Вернуть точное SymPy-представление без изменения публичного формата."""
+
+    return sp.Add(
+        *(
+            sp.Rational(coefficient.numerator, coefficient.denominator)
+            * (
+                sp.Integer(1)
+                if radicand == 1
+                else sp.sqrt(sp.Integer(radicand))
+            )
+            for radicand, coefficient in value.terms
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True)

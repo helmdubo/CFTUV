@@ -85,6 +85,7 @@ from ..reference.boundary import (
 )
 from ..reference.common import GeometryContext, ReferenceGeometryError
 from ..reference.compile import compile_reference_envelopes
+from ..reference.evaluation_geometry import chart_lattice_for_frame
 from ..reference.metric import ExactPlanarMetric
 from ..reference.planar_types import (
     CertifiedPredicateUndecidable,
@@ -97,7 +98,6 @@ from ..reference.raw_coverage import (
 from ..reference.strip import strip_envelope_instance_id
 from ..reference.validation import validate_reference_geometry_payload
 from ..robust.grid import GridSpecV1
-from ..source_grid import chart_grid_for
 from .bridge import (
     BridgeOutcome,
     BridgeReportV1,
@@ -203,36 +203,6 @@ def exact_rational(expression) -> Fraction | None:
     if not value.is_Rational:
         return None
     return Fraction(int(value.p), int(value.q))
-
-
-def chart_lattice_for_frame(frame) -> GridSpecV1 | None:
-    """Решётка карты патча — ПО ОБЪЯВЛЕННОМУ ЗАКОНУ, а не подобранная.
-
-    Шага здесь два, и оба уже объявлены ядром. Шаг источника берётся из
-    сертификата самого патча (`window_step`, он же самый мелкий допустимый шаг
-    окна по `FINEST_ADMISSIBLE_FIRST_V1`), а решётка карты выводится из него
-    `chart_grid_for`: координаты карты — кратные базисным векторам, а не метры,
-    поэтому шаг переносить напрямую нельзя.
-
-    Свободного числа здесь нет вовсе, и это главное свойство функции.
-    «Удобный» масштаб превратил бы «вход отобразился» в утверждение про
-    подобранную решётку вместо утверждения про закон, который ядро объявляет
-    для всех патчей одинаково.
-
-    `None` — у кадра сертификата решётки нет. Кадр бывает двух видов
-    (`validate_reference_geometry_payload` возвращает либо
-    `RationalAffinePlanarMetricV2`, либо `PlanarPatchFrameV1`), и закон решётки
-    объявлен только у первого. Взять «какой-нибудь» масштаб для второго нельзя:
-    масштаб решает, отобразится ли домен вообще.
-    """
-
-    certificate = getattr(frame, "grid_certificate", None)
-    if certificate is None:
-        return None
-    step = Fraction(
-        certificate.window_step.numerator, certificate.window_step.denominator
-    )
-    return chart_grid_for(ExactPlanarMetric.from_descriptor(frame).gram, step)
 
 
 @dataclass(frozen=True, slots=True)

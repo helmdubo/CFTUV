@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import sympy as sp
 
 from ..contracts.analysis import TurnOrientation
@@ -9,6 +11,8 @@ from ..contracts.envelopes import (
     AngularEnvelopeSpec,
     CertifiedBoundHiddenSupportDirectionLawV1,
     CertifiedBoundHiddenSupportSpecV1,
+    DirectionBindingReasonV1,
+    EvaluationGeometryDirectionBindingCertificateV1,
     HiddenSupportDirectionLaw,
     HiddenSupportSpecV1,
     StripEnvelopeSpec,
@@ -28,6 +32,7 @@ from .direction_binding import (
     BINDING_MONOTONE,
     DirectionBindingCertificateUnproven,
     bound_unit_normal,
+    has_rational_support_direction,
     verify_direction_bindings,
 )
 from .planar_types import (
@@ -150,9 +155,10 @@ def _interpolated_normals(
     return incoming, hidden_one, hidden_two, outgoing
 
 
-def angular_support_data(context: GeometryContext, spec: AngularEnvelopeSpec):
-    """Опоры Angular из одной plan-authority записи, с перепроверкой binding."""
-
+def _ideal_angular_support_data(
+    context: GeometryContext,
+    spec: AngularEnvelopeSpec,
+):
     relation = next(
         item
         for item in context.snapshot.corner_relations
@@ -206,6 +212,111 @@ def angular_support_data(context: GeometryContext, spec: AngularEnvelopeSpec):
         spec.resolved_hidden_edge_count,
         sector.turn_orientation,
     )
+    support_ids = [incoming_support_id]
+    support_ids.extend(
+        hidden_by_ordinal[index].hidden_support_id.value
+        for index in range(1, spec.resolved_hidden_edge_count + 1)
+    )
+    support_ids.append(outgoing_support_id)
+    return (
+        relation,
+        sector,
+        anchor,
+        hidden_by_ordinal,
+        tuple(support_ids),
+        ideal,
+    )
+
+
+def _verify_evaluation_binding_reasons(
+    context: GeometryContext,
+    source_context: GeometryContext,
+    spec: AngularEnvelopeSpec,
+    hidden_by_ordinal,
+    ideal,
+) -> None:
+    *_, source_ideal = _ideal_angular_support_data(source_context, spec)
+    for ordinal in range(1, spec.resolved_hidden_edge_count + 1):
+        support = hidden_by_ordinal[ordinal]
+        if type(support) is not CertifiedBoundHiddenSupportSpecV1:
+            continue
+        certificate = support.direction_binding
+        if type(certificate) is not EvaluationGeometryDirectionBindingCertificateV1:
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID,
+                "bound evaluation direction must carry its typed binding reason",
+            )
+        source_rational = has_rational_support_direction(
+            source_context.metric,
+            source_ideal[ordinal],
+        )
+        bound_rational = has_rational_support_direction(
+            context.metric,
+            ideal[ordinal],
+        )
+        reason_matches = (
+            certificate.binding_reason
+            is DirectionBindingReasonV1.SOURCE_DIRECTION_IRRATIONAL
+            and not source_rational
+        ) or (
+            certificate.binding_reason
+            is DirectionBindingReasonV1.EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL
+            and source_rational
+            and not bound_rational
+        )
+        if not reason_matches:
+            raise ReferenceGeometryError(
+                ReferenceOutcome.REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID,
+                f"bound direction reason is false for {support.hidden_support_id}",
+            )
+
+
+def verify_evaluation_direction_binding_reasons(
+    context: GeometryContext,
+) -> None:
+    """Один раз проверить причины всех bound directions при сборке context."""
+
+    if context.compilation.evaluation_geometry_binding is None:
+        return
+    source_context = GeometryContext.build(
+        replace(
+            context.compilation,
+            evaluation_geometry_binding=None,
+        ),
+        context.frame,
+        require_evaluation_binding=False,
+    )
+    for spec in context.compilation.envelope_specs:
+        if not isinstance(spec, AngularEnvelopeSpec):
+            continue
+        (
+            _,
+            _,
+            _,
+            hidden_by_ordinal,
+            _,
+            ideal,
+        ) = _ideal_angular_support_data(context, spec)
+        _verify_evaluation_binding_reasons(
+            context,
+            source_context,
+            spec,
+            hidden_by_ordinal,
+            ideal,
+        )
+
+
+def angular_support_data(context: GeometryContext, spec: AngularEnvelopeSpec):
+    """Опоры Angular из одной plan-authority записи, с перепроверкой binding."""
+
+    (
+        relation,
+        sector,
+        anchor,
+        hidden_by_ordinal,
+        support_ids,
+        ideal,
+    ) = _ideal_angular_support_data(context, spec)
     certificates = tuple(
         (
             hidden_by_ordinal[ordinal].direction_binding
@@ -230,13 +341,7 @@ def angular_support_data(context: GeometryContext, spec: AngularEnvelopeSpec):
     for ordinal, certificate in enumerate(certificates, start=1):
         if certificate is not None:
             normals[ordinal] = bound_unit_normal(context.metric, certificate)
-    support_ids = [incoming_support_id]
-    support_ids.extend(
-        hidden_by_ordinal[index].hidden_support_id.value
-        for index in range(1, spec.resolved_hidden_edge_count + 1)
-    )
-    support_ids.append(outgoing_support_id)
-    return relation, anchor, tuple(support_ids), tuple(normals)
+    return relation, anchor, support_ids, tuple(normals)
 
 
 def evaluate_angular_envelope(

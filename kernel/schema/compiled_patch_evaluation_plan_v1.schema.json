@@ -442,7 +442,14 @@
           "const": "CertifiedBoundHiddenSupportSpecV1"
         },
         "direction_binding": {
-          "$ref": "#/$defs/DirectionBindingCertificateV1"
+          "oneOf": [
+            {
+              "$ref": "#/$defs/DirectionBindingCertificateV1"
+            },
+            {
+              "$ref": "#/$defs/EvaluationGeometryDirectionBindingCertificateV1"
+            }
+          ]
         },
         "direction_law": {
           "enum": [
@@ -1141,6 +1148,61 @@
         "equality_boundary_id",
         "owner",
         "provenance"
+      ],
+      "type": "object"
+    },
+    "EvaluationGeometryDirectionBindingCertificateV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "EvaluationGeometryDirectionBindingCertificateV1"
+        },
+        "binding_reason": {
+          "enum": [
+            "SOURCE_DIRECTION_IRRATIONAL",
+            "EVALUATION_GEOMETRY_UNBINDS_SOURCE_RATIONAL"
+          ],
+          "type": "string"
+        },
+        "bound_primitive_integer_vector": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "certified_window_width_lower_bound": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "type": "string"
+        },
+        "ideal_window_lower_slope_envelope": {
+          "$ref": "#/$defs/CertifiedDecimalIntervalV1"
+        },
+        "ideal_window_upper_slope_envelope": {
+          "$ref": "#/$defs/CertifiedDecimalIntervalV1"
+        },
+        "proven_predicates": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "bound_primitive_integer_vector",
+        "ideal_window_lower_slope_envelope",
+        "ideal_window_upper_slope_envelope",
+        "certified_window_width_lower_bound",
+        "proven_predicates",
+        "binding_reason"
       ],
       "type": "object"
     },

@@ -88,9 +88,35 @@ class GeometryContext:
         cls,
         compilation: ReferenceEnvelopeCompilationV1,
         frame: PlanarPatchFrameV1 | RationalAffinePlanarMetricV2,
+        *,
+        require_evaluation_binding: bool = True,
+        require_certified_bound_supports: bool = True,
     ) -> GeometryContext:
         snapshot = compilation.analysis_snapshot
-        if isinstance(frame, PlanarPatchFrameV1):
+        from .evaluation_geometry import (
+            EvaluationGeometryBindingInvalid,
+            verify_evaluation_geometry_binding,
+        )
+
+        binding = compilation.evaluation_geometry_binding
+        if binding is not None or require_evaluation_binding:
+            try:
+                verify_evaluation_geometry_binding(
+                    binding,
+                    compilation,
+                    frame,
+                    require_certified_bound_supports=(
+                        require_certified_bound_supports
+                    ),
+                )
+            except EvaluationGeometryBindingInvalid as exc:
+                raise ReferenceGeometryError(
+                    ReferenceOutcome.REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID,
+                    str(exc),
+                ) from exc
+        if binding is not None:
+            coordinate_records = binding.source_vertex_coordinates
+        elif isinstance(frame, PlanarPatchFrameV1):
             coordinate_records = frame.source_vertex_coordinates
         else:
             coordinate_records = frame.exact_source_vertex_coordinates
@@ -113,7 +139,7 @@ class GeometryContext:
         # метрика — её единственный источник, всё остальное её только читает.
         reset_snap_counts()
         set_active_grid(metric.chart_grid)
-        return cls(
+        context = cls(
             compilation=compilation,
             snapshot=snapshot,
             frame=frame,
@@ -128,6 +154,11 @@ class GeometryContext:
                 for item in compilation.source_provenance
             },
         )
+        if binding is not None and require_certified_bound_supports:
+            from .angular import verify_evaluation_direction_binding_reasons
+
+            verify_evaluation_direction_binding_reasons(context)
+        return context
 
     def directed_chain_vertices(self, chain_use: ChainUseV1) -> tuple[SourceVertexId, ...]:
         chain = self.chains_by_id[chain_use.physical_chain_id]
@@ -278,6 +309,45 @@ class GeometryContext:
             )
         return None
 
+    def _validate_segment_corners(
+        self,
+        segments: list[SourceSupportSegment],
+        *,
+        chain_is_closed: bool,
+        chain_use_id: ChainUseId,
+    ) -> None:
+        """Проверить нелинейные стыки сегментов против объявленных углов."""
+
+        adjacent = tuple(zip(segments, segments[1:]))
+        if chain_is_closed and len(segments) > 1:
+            adjacent += ((segments[-1], segments[0]),)
+        sectors_by_id = {
+            item.owner_sector_id: item
+            for item in self.snapshot.angular_owner_sectors
+        }
+        declared_corner_vertices = {
+            relation.source_vertex_id
+            for relation in self.snapshot.corner_relations
+            if relation.owner_sector_id in sectors_by_id
+            and chain_use_id
+            in sectors_by_id[
+                relation.owner_sector_id
+            ].ordered_incident_chain_use_ids
+        }
+        for incoming, outgoing in adjacent:
+            if exact_sign(
+                self.metric.oriented_cross(
+                    incoming.tangent, outgoing.tangent
+                )
+            ) == 0:
+                continue
+            if incoming.source_vertex_end_id not in declared_corner_vertices:
+                raise ReferenceGeometryError(
+                    ReferenceOutcome.PLANAR_CHAIN_SUPPORT_NOT_LINEAR,
+                    "non-linear ChainUse requires an explicit segment-corner "
+                    f"support relation at {incoming.source_vertex_end_id}",
+                )
+
     def support_segments_for_use(
         self, chain_use_id: ChainUseId, spec_id: str
     ) -> tuple[SourceSupportSegment, ...]:
@@ -304,7 +374,17 @@ class GeometryContext:
                 ReferenceOutcome.PLANAR_OWNER_INTERIOR_DIRECTION_REQUIRED,
                 f"v1 geometry requires one owner-interior component for {chain_use_id}",
             )
-        analysis_direction = self._analysis_direction(chain_use_id)
+        # Chart-lattice binding двигает концы физического ребра и тем самым
+        # объявляет НОВУЮ evaluation-прямую. Analysis direction остаётся
+        # сертификатом исходной геометрии и после такого сдвига уже не обязана
+        # быть точно касательной/нормалью новой прямой. Сторону owner'а берём
+        # из того же face-cycle, но нормаль выводим из bound edge один раз для
+        # обоих consumers.
+        analysis_direction = (
+            None
+            if self.compilation.evaluation_geometry_binding is not None
+            else self._analysis_direction(chain_use_id)
+        )
         result = []
         for ordinal, (start_id, end_id) in enumerate(pairs):
             if start_id not in self.points_by_id or end_id not in self.points_by_id:
@@ -371,32 +451,11 @@ class GeometryContext:
                     provenance=provenance,
                 )
             )
-        adjacent = tuple(zip(result, result[1:]))
-        if chain.is_closed and len(result) > 1:
-            adjacent += ((result[-1], result[0]),)
-        sectors_by_id = {
-            item.owner_sector_id: item for item in self.snapshot.angular_owner_sectors
-        }
-        declared_corner_vertices = {
-            relation.source_vertex_id
-            for relation in self.snapshot.corner_relations
-            if relation.owner_sector_id in sectors_by_id
-            and chain_use_id
-            in sectors_by_id[relation.owner_sector_id].ordered_incident_chain_use_ids
-        }
-        for incoming, outgoing in adjacent:
-            if exact_sign(
-                self.metric.oriented_cross(
-                    incoming.tangent, outgoing.tangent
-                )
-            ) == 0:
-                continue
-            if incoming.source_vertex_end_id not in declared_corner_vertices:
-                raise ReferenceGeometryError(
-                    ReferenceOutcome.PLANAR_CHAIN_SUPPORT_NOT_LINEAR,
-                    "non-linear ChainUse requires an explicit segment-corner support relation "
-                    f"at {incoming.source_vertex_end_id}",
-                )
+        self._validate_segment_corners(
+            result,
+            chain_is_closed=chain.is_closed,
+            chain_use_id=chain_use_id,
+        )
         return tuple(result)
 
 

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from fractions import Fraction
 import hashlib
 import json
 from pathlib import Path
 
 import cftuv_envelope as kernel
+import sympy as sp
+
+from cftuv_envelope.exact_sqrt_sum import SqrtSumV1
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -26,6 +30,24 @@ def _canonical_json(payload) -> bytes:
 
 def _sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def _canonical_area(expression: sp.Expr) -> SqrtSumV1:
+    result = SqrtSumV1.zero()
+    for term in sp.Add.make_args(sp.expand(expression)):
+        coefficient, radical = term.as_coeff_Mul(rational=True)
+        rational = Fraction(int(coefficient.p), int(coefficient.q))
+        if radical == 1:
+            result += SqrtSumV1.rational(rational)
+            continue
+        base, exponent = radical.as_base_exp()
+        assert exponent == sp.Rational(1, 2), term
+        assert base.is_Rational, term
+        result += SqrtSumV1.radical(
+            rational,
+            Fraction(int(base.p), int(base.q)),
+        )
+    return result
 
 
 def _load_contracts():
@@ -196,8 +218,8 @@ def test_selected_kernel_reaches_accepted_raw_coverage_v2():
 
     | величина | исторический блок (c2622d0) | отгруженные байты (HEAD) |
     |---|---|---|
-    | `semantic_digest` | `622e1f6e...` | `60910ef0...` |
-    | площадь | `122766786560/373821260323` | `64/1426085 * (1024*sqrt(2) + 6293)` |
+    | `semantic_digest` | `622e1f6e...` | `402ec97a...` |
+    | площадь | `122766786560/373821260323` | exact bound-domain, 8 canonical radical terms |
     | вхождений границы | 12 | 14 |
     | точечных контактов | 2 | **0** |
     | петель / регионов | 3 / 3 | **1 / 1** |
@@ -210,11 +232,10 @@ def test_selected_kernel_reaches_accepted_raw_coverage_v2():
     вогнутого угла заполняет вырезы, три петли сливаются в одну, и контактам
     сходиться в точку становится нечему.
 
-    Числа ниже проверены НЕ СОБОЙ: площадь эталона сверена с независимым путём
-    очереди (`test_wavefront_conveyor.py`) — 0.34740839 против 0.34740932, то
-    есть согласие двух реализаций до 2.7e-06 относительных, — а смена топологии
-    объяснена контролем с той же решёткой и снятыми углами, который даёт РОВНО
-    прежние (3, 3, 2).
+    Числа ниже проверены НЕ СОБОЙ: CHART_LATTICE_BOUND свёл площадь эталона с
+    независимым путём очереди в точный canonical zero при сохранённых
+    3 источниках / 9 стенах / 2 веерах. Смена топологии объяснена контролем с
+    той же решёткой и снятыми углами, который даёт РОВНО прежние (3, 3, 2).
     """
 
     manifest = json.loads((FIXTURE / "manifest.json").read_text(encoding="utf-8"))
@@ -237,11 +258,23 @@ def test_selected_kernel_reaches_accepted_raw_coverage_v2():
 
     # Числовая часть заморожена здесь, потому что она про НЫНЕШНИЕ байты.
     assert raw.semantic_digest == (
-        "60910ef04eb82db25ee5c5049c3021f801e15ea81f887b5ea31666f67bd3f23f"
+        "402ec97a93567aad5890786f75079b2114b1ba397819904cdb665049b31715eb"
     )
-    assert raw.exact_area_expression == (
-        "Mul(Rational(64, 1426085), Add(Mul(Integer(1024), "
-        "Pow(Integer(2), Rational(1, 2))), Integer(6293)))"
+    assert _canonical_area(sp.sympify(raw.exact_area_expression)).terms == (
+        (
+            1,
+            Fraction(
+                -18218112888363808425096567105536628075372544,
+                391008309328059160543004921505602803861151337,
+            ),
+        ),
+        (27851087972573, Fraction(1, 73015552)),
+        (174086333192405, Fraction(1, 182538880)),
+        (180146433272521, Fraction(1, 73015552)),
+        (28747398459061414865, Fraction(16384, 5983606356581395)),
+        (29748120965591210293, Fraction(8192, 2421345159454085)),
+        (35827778823357770065, Fraction(4096, 1549612092808361)),
+        (231741272493937377005, Fraction(8192, 7462851791807771)),
     )
     assert len(raw.boundary_vertex_occurrences) == 14
     assert len(raw.point_contacts) == 0
