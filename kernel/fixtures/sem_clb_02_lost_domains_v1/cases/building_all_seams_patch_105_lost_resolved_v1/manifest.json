@@ -15,8 +15,8 @@
     649,
     655
   ],
-  "expected_kernel_results": {
-    "28f6c8c2b25c2ae32696fed57826f65a03b85c2b": {
+  "expected_kernel_results_by_kernel_src_tree": {
+    "d9574f7b7c193ed48fb3dc71aa58d28d62be3bcb": {
       "compile": {
         "compilation_available": true,
         "diagnostics": [],
@@ -339,7 +339,7 @@
       },
       "trace_sha256": "c3a195518f6d469e69434fb0023710ff65dc81d27da694f035d8a31f0dcdac22"
     },
-    "c975b7a2047017263cde067b9e1d7e8286d0cb37": {
+    "000fe75684dbd7dbc57dc782b52b1b569dd1d215": {
       "compile": {
         "compilation_available": true,
         "diagnostics": [],
@@ -500,7 +500,7 @@
     "source_path_included": true
   },
   "requested_alpha": "0.3",
-  "schema": "cftuv.envelope.sem_clb_02_domain_fixture.v1",
+  "schema": "cftuv.envelope.sem_clb_02_domain_fixture.v2",
   "selected_chain_use_ids": [
     "host-v0:chain-use:126aa7805e50ea92f5a7fa10",
     "host-v0:chain-use:2d329cfe033e8f04f2395483",

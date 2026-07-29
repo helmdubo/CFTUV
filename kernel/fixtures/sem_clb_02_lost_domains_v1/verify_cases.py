@@ -12,6 +12,9 @@ import sys
 from typing import Any
 
 
+EXPECTED_FIXTURE_COUNT = 7
+
+
 def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-root", type=Path, required=True)
@@ -21,6 +24,14 @@ def _arguments() -> argparse.Namespace:
         default=Path(__file__).resolve().parent / "cases",
     )
     parser.add_argument("--output-report", type=Path)
+    parser.add_argument(
+        "--self-check-unknown-product-tree",
+        action="store_true",
+        help=(
+            "Exercise the fail-closed oracle lookup with a deterministic "
+            "unknown kernel/src product-tree identity."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -29,6 +40,91 @@ def _git_sha(source_root: Path) -> str:
         ["git", "-C", str(source_root.resolve()), "rev-parse", "HEAD"],
         text=True,
     ).strip()
+
+
+def _kernel_src_product_tree_oid(source_root: Path) -> str:
+    return subprocess.check_output(
+        [
+            "git",
+            "-C",
+            str(source_root.resolve()),
+            "rev-parse",
+            "HEAD:kernel/src",
+        ],
+        text=True,
+    ).strip()
+
+
+class UnknownKernelSrcProductTreeError(RuntimeError):
+    """The corpus has no accepted oracle for this kernel/src product tree."""
+
+
+def _manifest(fixture_dir: Path) -> dict[str, Any]:
+    return json.loads(
+        (fixture_dir / "manifest.json").read_text(encoding="utf-8")
+    )
+
+
+def _expected_for_product_tree(
+    manifest: dict[str, Any],
+    product_tree_oid: str,
+    fixture_dir: Path,
+) -> dict[str, Any]:
+    registry = manifest.get(
+        "expected_kernel_results_by_kernel_src_tree"
+    )
+    if not isinstance(registry, dict) or product_tree_oid not in registry:
+        raise UnknownKernelSrcProductTreeError(
+            "UNKNOWN_KERNEL_SRC_PRODUCT_TREE: "
+            f"{fixture_dir.name} has no expected trace for "
+            f"kernel/src tree {product_tree_oid}"
+        )
+    expected = registry[product_tree_oid]
+    if not isinstance(expected, dict) or not expected:
+        raise UnknownKernelSrcProductTreeError(
+            "INVALID_KERNEL_SRC_PRODUCT_TREE_ORACLE: "
+            f"{fixture_dir.name} has an empty or malformed expected trace for "
+            f"kernel/src tree {product_tree_oid}"
+        )
+    return expected
+
+
+def _unknown_product_tree_self_check(fixture_dirs: list[Path]) -> None:
+    unknown_oid = "0" * 40
+    rejected = 0
+    for fixture_dir in fixture_dirs:
+        try:
+            _expected_for_product_tree(
+                _manifest(fixture_dir), unknown_oid, fixture_dir
+            )
+        except UnknownKernelSrcProductTreeError:
+            rejected += 1
+    if rejected != len(fixture_dirs):
+        print(
+            json.dumps(
+                {
+                    "outcome": "FAIL_OPEN_ORACLE_LOOKUP",
+                    "fixture_count": len(fixture_dirs),
+                    "unknown_product_tree_rejections": rejected,
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
+        raise SystemExit(4)
+    print(
+        json.dumps(
+            {
+                "outcome": "UNKNOWN_KERNEL_SRC_PRODUCT_TREE",
+                "fixture_count": len(fixture_dirs),
+                "kernel_src_product_tree_oid": unknown_oid,
+                "unknown_product_tree_rejections": rejected,
+            },
+            sort_keys=True,
+        ),
+        flush=True,
+    )
+    raise SystemExit(2)
 
 
 def _activate_source(source_root: Path):
@@ -455,13 +551,19 @@ def _evaluation(kernel, snapshot, request) -> dict[str, Any]:
     return trace
 
 
-def _verify_fixture(kernel, revision: str, fixture_dir: Path) -> dict[str, Any]:
-    manifest_path = fixture_dir / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+def _verify_fixture(
+    kernel,
+    product_tree_oid: str,
+    fixture_dir: Path,
+) -> dict[str, Any]:
+    manifest = _manifest(fixture_dir)
     if manifest["fixture_id"] != fixture_dir.name:
         raise RuntimeError(
             f"{fixture_dir}: fixture_id does not match directory name"
         )
+    expected = _expected_for_product_tree(
+        manifest, product_tree_oid, fixture_dir
+    )
     actual_hashes = {
         name: _sha256((fixture_dir / name).read_bytes())
         for name in sorted(manifest["files"])
@@ -502,29 +604,68 @@ def _verify_fixture(kernel, revision: str, fixture_dir: Path) -> dict[str, Any]:
     if any(issues.values()):
         raise RuntimeError(f"{fixture_dir}: contract validation failed: {issues}")
     evaluation = _evaluation(kernel, snapshot, request)
-    expected = manifest.get("expected_kernel_results", {}).get(revision)
     return {
         "fixture_id": manifest["fixture_id"],
         "fixture_hash": fixture_hash,
         "validation_issues": issues,
         "evaluation": evaluation,
-        "expected_result_recorded": expected is not None,
-        "expected_result_matches": expected == evaluation if expected else None,
+        "expected_result_recorded": True,
+        "expected_result_matches": expected == evaluation,
     }
 
 
 def main() -> None:
     arguments = _arguments()
-    kernel = _activate_source(arguments.source_root)
-    revision = _git_sha(arguments.source_root)
-    reports = [
-        _verify_fixture(kernel, revision, fixture_dir)
+    fixture_dirs = [
+        fixture_dir
         for fixture_dir in sorted(arguments.fixture_root.iterdir())
         if fixture_dir.is_dir()
     ]
+    if len(fixture_dirs) != EXPECTED_FIXTURE_COUNT:
+        print(
+            json.dumps(
+                {
+                    "outcome": "CORPUS_FIXTURE_COUNT_MISMATCH",
+                    "expected_fixture_count": EXPECTED_FIXTURE_COUNT,
+                    "actual_fixture_count": len(fixture_dirs),
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
+        raise SystemExit(2)
+    if arguments.self_check_unknown_product_tree:
+        _unknown_product_tree_self_check(fixture_dirs)
+    revision = _git_sha(arguments.source_root)
+    product_tree_oid = _kernel_src_product_tree_oid(arguments.source_root)
+    try:
+        for fixture_dir in fixture_dirs:
+            _expected_for_product_tree(
+                _manifest(fixture_dir), product_tree_oid, fixture_dir
+            )
+    except UnknownKernelSrcProductTreeError as error:
+        print(
+            json.dumps(
+                {
+                    "outcome": "UNKNOWN_KERNEL_SRC_PRODUCT_TREE",
+                    "kernel_revision": revision,
+                    "kernel_src_product_tree_oid": product_tree_oid,
+                    "detail": str(error),
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
+        raise SystemExit(2) from error
+    kernel = _activate_source(arguments.source_root)
+    reports = [
+        _verify_fixture(kernel, product_tree_oid, fixture_dir)
+        for fixture_dir in fixture_dirs
+    ]
     payload = {
-        "schema": "cftuv.envelope.sem_clb_02_verification.v1",
+        "schema": "cftuv.envelope.sem_clb_02_verification.v2",
         "kernel_revision": revision,
+        "kernel_src_product_tree_oid": product_tree_oid,
         "fixture_count": len(reports),
         "fixtures": reports,
     }
@@ -537,11 +678,7 @@ def main() -> None:
             newline="\n",
         )
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True), flush=True)
-    if any(
-        item["expected_result_recorded"]
-        and not item["expected_result_matches"]
-        for item in reports
-    ):
+    if any(not item["expected_result_matches"] for item in reports):
         raise SystemExit(1)
 
 

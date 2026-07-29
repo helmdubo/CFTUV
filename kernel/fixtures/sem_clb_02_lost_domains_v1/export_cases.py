@@ -60,7 +60,7 @@ CASES = (
     },
 )
 ALPHA = 0.3
-SCHEMA = "cftuv.envelope.sem_clb_02_domain_fixture.v1"
+SCHEMA = "cftuv.envelope.sem_clb_02_domain_fixture.v2"
 
 
 def _arguments() -> argparse.Namespace:
@@ -375,7 +375,7 @@ def _export_object_cases(
                 "decal_request_issue_count": 0,
                 "cross_reference_issue_count": 0,
             },
-            "expected_kernel_results": {},
+            "expected_kernel_results_by_kernel_src_tree": {},
             "files": file_hashes,
             "fixture_hash": fixture_hash,
         }
@@ -388,7 +388,7 @@ def _export_object_cases(
                 manifest_path.read_text(encoding="utf-8")
             )
             for field in (
-                "expected_kernel_results",
+                "expected_kernel_results_by_kernel_src_tree",
                 "semantic_change_receipt",
             ):
                 if field in previous:
