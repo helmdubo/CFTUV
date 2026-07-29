@@ -316,7 +316,7 @@ def test_reference_and_queue_reject_cross_enum_direction_law(record_kind):
 def test_compile_refusal_uses_the_existing_named_outcome(monkeypatch):
     import cftuv_envelope.reference.compile as compile_module
 
-    original = compile_module.certify_direction_bindings
+    original = compile_module._certify_k1_recipe_direction_bindings
 
     def forged(*args, **kwargs):
         certificates = original(*args, **kwargs)
@@ -332,7 +332,7 @@ def test_compile_refusal_uses_the_existing_named_outcome(monkeypatch):
         )
 
     monkeypatch.setattr(
-        compile_module, "certify_direction_bindings", forged
+        compile_module, "_certify_k1_recipe_direction_bindings", forged
     )
     snapshot, request = _inputs(_FULL)
     result = compile_module.compile_reference_envelopes(snapshot, request)

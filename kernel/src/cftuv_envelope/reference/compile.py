@@ -108,6 +108,8 @@ from .contracts import (
 )
 from .direction_binding import (
     DirectionBindingCertificateUnproven,
+    _certify_k1_recipe_direction_bindings,
+    _verify_k1_recipe_direction_bindings,
     certify_direction_bindings,
     has_rational_support_direction,
     verify_direction_bindings,
@@ -364,8 +366,20 @@ def _attach_direction_bindings(
             )
             if not any(needs_binding):
                 continue
-            certificates = certify_direction_bindings(
-                context.metric, ideal, sector.turn_orientation
+            certificates = (
+                _certify_k1_recipe_direction_bindings(
+                    context.metric,
+                    ideal[0],
+                    ideal[-1],
+                    ideal,
+                    sector.turn_orientation,
+                )
+                if spec.resolved_hidden_edge_count == 1
+                else certify_direction_bindings(
+                    context.metric,
+                    ideal,
+                    sector.turn_orientation,
+                )
             )
             selected_certificates = tuple(
                 (
@@ -390,12 +404,22 @@ def _attach_direction_bindings(
                     strict=True,
                 )
             )
-            verify_direction_bindings(
-                context.metric,
-                ideal,
-                sector.turn_orientation,
-                selected_certificates,
-            )
+            if spec.resolved_hidden_edge_count == 1:
+                _verify_k1_recipe_direction_bindings(
+                    context.metric,
+                    ideal[0],
+                    ideal[-1],
+                    ideal,
+                    sector.turn_orientation,
+                    selected_certificates,
+                )
+            else:
+                verify_direction_bindings(
+                    context.metric,
+                    ideal,
+                    sector.turn_orientation,
+                    selected_certificates,
+                )
             supports = frozenset(
                 _bound_support(support, selected_certificates[support.ordinal - 1])
                 for support in spec.hidden_supports

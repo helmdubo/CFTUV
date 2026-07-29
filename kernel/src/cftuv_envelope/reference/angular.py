@@ -31,6 +31,7 @@ from .contracts import ReferenceEnvelopeInstanceV1, ReferenceOutcome
 from .direction_binding import (
     BINDING_MONOTONE,
     DirectionBindingCertificateUnproven,
+    _verify_k1_recipe_direction_bindings,
     bound_unit_normal,
     has_rational_support_direction,
     verify_direction_bindings,
@@ -329,9 +330,22 @@ def angular_support_data(context: GeometryContext, spec: AngularEnvelopeSpec):
         for ordinal in range(1, spec.resolved_hidden_edge_count + 1)
     )
     try:
-        verify_direction_bindings(
-            context.metric, ideal, sector.turn_orientation, certificates
-        )
+        if spec.resolved_hidden_edge_count == 1:
+            _verify_k1_recipe_direction_bindings(
+                context.metric,
+                ideal[0],
+                ideal[-1],
+                ideal,
+                sector.turn_orientation,
+                certificates,
+            )
+        else:
+            verify_direction_bindings(
+                context.metric,
+                ideal,
+                sector.turn_orientation,
+                certificates,
+            )
     except DirectionBindingCertificateUnproven as exc:
         raise ReferenceGeometryError(
             ReferenceOutcome.REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE,
