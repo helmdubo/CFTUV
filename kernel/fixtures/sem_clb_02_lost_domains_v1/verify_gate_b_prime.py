@@ -1,9 +1,10 @@
-"""Proof-only exact seed-joint audit for SEM-CLB-02-R Gate B-prime.
+"""Proof-local Phase 1 candidate for SEM-CLB-02-R Gate B-prime.
 
-The verifier observes the frozen product without changing an event rule.  It
-captures the public Reference/QUEUE path, exact seed and terminal LAV state,
-and bounded synthetic controls.  Runtime timings are printed but deliberately
-excluded from the canonical receipt.
+The frozen product is never edited.  During verifier execution only, a scoped
+adapter applies the existing exact event-born straight/sliding predicate to
+seed vertices.  The adapter records the seed before and after classification
+and restores every patched callable on both normal and exceptional exits.
+Runtime timings are printed but deliberately excluded from the receipt.
 """
 
 from __future__ import annotations
@@ -21,8 +22,14 @@ import time
 from typing import Any
 
 
-SCHEMA = "cftuv.envelope.sem_clb_02_gate_b_prime_phase0.v1"
-PROOF_BASE_REVISION = "e04760106a310cfedd2794888f7e41d368ef59e9"
+SCHEMA = "cftuv.envelope.sem_clb_02_gate_b_prime_phase1.v1"
+PROOF_BASE_REVISION = "95c619e36ac0f23dc5cb4f8767f2bc143b78706f"
+PHASE0_RECEIPT_SHA256 = (
+    "16ed724fa6f7161d07efbd9f397458446aa1a63aca3dffe736e055b00c92969c"
+)
+PHASE0_RECEIPT_PATH = (
+    "kernel/fixtures/sem_clb_02_lost_domains_v1/gate_b_prime_receipt.json"
+)
 EXPECTED_KERNEL_SRC_TREE_OID = "66620708899272b0f249b583a40cd83bb1f70495"
 HISTORICAL_KERNEL_SRC_TREE_OID = "d9574f7b7c193ed48fb3dc71aa58d28d62be3bcb"
 FIXTURE_IDS = (
@@ -51,6 +58,32 @@ EXPECTED_NEW_VERTEX_PREDICATE = (
     "(first.q * second.normal_squared == "
     "second.q * first.normal_squared)"
 )
+EXPECTED_CLASSIFIED_COUNTS = {
+    "building_all_seams_patch_001_lost_resolved_v1": 4,
+    "building_all_seams_patch_006_lost_resolved_v1": 5,
+    "building_all_seams_patch_011_lost_resolved_v1": 3,
+    "building_all_seams_patch_105_lost_resolved_v1": 1,
+}
+EXPECTED_SYNTHETIC = {
+    "H1_SMALLER_CONCAVE": {
+        "polygon_doubled_area": 8,
+        "face_count": 5,
+        "levels": 3,
+        "node_count": 2,
+    },
+    "H1_REQUIRED": {
+        "polygon_doubled_area": 48,
+        "face_count": 5,
+        "levels": 3,
+        "node_count": 3,
+    },
+    "H2_SCALE_CONTROL": {
+        "polygon_doubled_area": 48,
+        "face_count": 5,
+        "levels": 4,
+        "node_count": 2,
+    },
+}
 
 
 def _arguments() -> argparse.Namespace:
@@ -119,6 +152,16 @@ def _git_value(root: Path, expression: str) -> str:
     return result.stdout.strip()
 
 
+def _git_bytes(root: Path, expression: str) -> bytes:
+    result = subprocess.run(
+        ["git", "show", expression],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    return result.stdout
+
+
 def _activate_kernel(source_root: Path):
     kernel_src = source_root / "kernel" / "src"
     sys.path.insert(0, str(kernel_src))
@@ -142,6 +185,241 @@ def _activate_kernel(source_root: Path):
         "LoopV1": LoopV1,
         "PolygonV1": PolygonV1,
         "signed_double_area": signed_double_area,
+    }
+
+
+def _exact_straight_classifier(first, second) -> bool:
+    """Тот же точный предикат, что у event-born `_new_vertex`."""
+
+    return (
+        first.a * second.b - second.a * first.b == 0
+        and first.a * second.a + first.b * second.b > 0
+        and first.q * second.normal_squared
+        == second.q * first.normal_squared
+    )
+
+
+def _adapter_vertex_state(builder, vertex) -> dict[str, Any]:
+    """Состояние seed-вершины без вывода новых геометрических фактов."""
+
+    first_edge = builder.edges[vertex.prev_edge]
+    second_edge = builder.edges[vertex.next_edge]
+    return {
+        "vertex_id": vertex.ident,
+        "birth": _event_time(vertex.birth),
+        "point": _event_point(vertex.point),
+        "prev_edge_id": vertex.prev_edge,
+        "next_edge_id": vertex.next_edge,
+        "prev_span": list(first_edge.span),
+        "next_span": list(second_edge.span),
+        "prev_raw_line_key": [
+            *first_edge.line_key[:3],
+            _ratio(first_edge.line_key[3]),
+        ],
+        "next_raw_line_key": [
+            *second_edge.line_key[:3],
+            _ratio(second_edge.line_key[3]),
+        ],
+        "prev_vertex_id": vertex.prev,
+        "next_vertex_id": vertex.next,
+        "reflex": vertex.reflex,
+        "sliding": (
+            None if vertex.sliding is None else _sqrt_sum(vertex.sliding)
+        ),
+    }
+
+
+def _state_without_sliding(records: list[dict[str, Any]]) -> bytes:
+    return _pretty_json(
+        [
+            {key: value for key, value in item.items() if key != "sliding"}
+            for item in records
+        ]
+    )
+
+
+class _SeedClassifierAdapter:
+    """Временная proof-local классификация seed с обязательным restore."""
+
+    def __init__(self, skeleton_module) -> None:
+        self.skeleton_module = skeleton_module
+        self.builder_type = skeleton_module._Builder
+        self.original_seed_one_loop = self.builder_type._seed_one_loop
+        self.original_new_vertex = self.builder_type._new_vertex
+        self.records: list[dict[str, Any]] = []
+        self.entered = False
+        self.restored = False
+
+    def __enter__(self):
+        if self.entered:
+            raise RuntimeError("SEED_CLASSIFIER_ADAPTER_REENTERED")
+        self.entered = True
+        adapter = self
+        original = self.original_seed_one_loop
+
+        def seed_one_loop_with_exact_classifier(builder, loop):
+            first_vertex = len(builder.vertices)
+            original(builder, loop)
+            seeded = builder.vertices[first_vertex:]
+            before = [
+                _adapter_vertex_state(builder, vertex)
+                for vertex in seeded
+            ]
+            classified = []
+            scope_excess = 0
+            for vertex in seeded:
+                first = builder.edges[vertex.prev_edge].line
+                second = builder.edges[vertex.next_edge].line
+                if not _exact_straight_classifier(first, second):
+                    continue
+                if vertex.ident < first_vertex:
+                    scope_excess += 1
+                    continue
+                vertex.sliding = adapter.skeleton_module._project(
+                    first, vertex.point
+                )
+                builder.sliding_vertices.add(vertex.ident)
+                classified.append(vertex.ident)
+            after = [
+                _adapter_vertex_state(builder, vertex)
+                for vertex in seeded
+            ]
+            before_immutable = _state_without_sliding(before)
+            after_immutable = _state_without_sliding(after)
+            adapter.records.append(
+                {
+                    "builder_identity": id(builder),
+                    "split_search": builder.split_search.value,
+                    "seed_vertex_ids": [
+                        vertex.ident for vertex in seeded
+                    ],
+                    "classified_vertex_ids": classified,
+                    "classified_count": len(classified),
+                    "seed_scope_excess_count": scope_excess,
+                    "immutable_seed_state_before_sha256": _sha256(
+                        before_immutable
+                    ),
+                    "immutable_seed_state_after_sha256": _sha256(
+                        after_immutable
+                    ),
+                    "immutable_seed_state_unchanged": (
+                        before_immutable == after_immutable
+                    ),
+                    "before": before,
+                    "after": after,
+                }
+            )
+
+        self.builder_type._seed_one_loop = seed_one_loop_with_exact_classifier
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> bool:
+        self.builder_type._seed_one_loop = self.original_seed_one_loop
+        self.restored = (
+            self.builder_type._seed_one_loop
+            is self.original_seed_one_loop
+            and self.builder_type._new_vertex is self.original_new_vertex
+        )
+        return False
+
+
+def _forced_exception_restoration_audit(skeleton_module) -> dict[str, Any]:
+    original_seed = skeleton_module._Builder._seed_one_loop
+    original_new = skeleton_module._Builder._new_vertex
+    observed = None
+    adapter = _SeedClassifierAdapter(skeleton_module)
+    try:
+        with adapter:
+            raise RuntimeError("FORCED_ADAPTER_EXCEPTION")
+    except RuntimeError as error:
+        observed = str(error)
+    return {
+        "forced_exception": observed,
+        "seed_hook_restored": (
+            skeleton_module._Builder._seed_one_loop is original_seed
+        ),
+        "event_born_hook_unchanged": (
+            skeleton_module._Builder._new_vertex is original_new
+        ),
+        "adapter_reported_restored": adapter.restored,
+        "passed": (
+            observed == "FORCED_ADAPTER_EXCEPTION"
+            and adapter.restored
+            and skeleton_module._Builder._seed_one_loop is original_seed
+            and skeleton_module._Builder._new_vertex is original_new
+        ),
+    }
+
+
+def _skeleton_node_record(node) -> dict[str, Any]:
+    return {
+        "kind": node.kind.value,
+        "time": _event_time(node.time),
+        "point": _event_point(node.point),
+        "participants": [list(item) for item in node.participants],
+        "converging_vertices": node.converging_vertices,
+    }
+
+
+def _skeleton_semantic_record(skeleton) -> dict[str, Any]:
+    return {
+        "outcome": skeleton.outcome.value,
+        "levels": skeleton.levels,
+        "nodes": [_skeleton_node_record(node) for node in skeleton.nodes],
+        "non_search_counters": {
+            key: value
+            for key, value in skeleton.counters
+            if not key.startswith("motorcycle_")
+            and not key.startswith("split_search_")
+        },
+    }
+
+
+def _binding_codec(kernel, binding):
+    if type(binding).__name__ == "ChainStraightEvaluationGeometryBindingV2":
+        return kernel.ChainStraightEvaluationGeometryBindingCodecV2
+    return kernel.EvaluationGeometryBindingCodecV1
+
+
+def _binding_fact_record(payload: bytes) -> dict[str, Any]:
+    decoded = json.loads(payload)
+    rational_count = 0
+    node_records = []
+
+    def visit(value, path: tuple[str, ...] = ()) -> None:
+        nonlocal rational_count
+        if isinstance(value, dict):
+            if value.get("$type") == "ExactRationalV1":
+                rational_count += 1
+            for key, child in sorted(value.items()):
+                visit(child, (*path, key))
+            return
+        if isinstance(value, list):
+            if (
+                path
+                and "node" in path[-1].lower()
+                and len(value) == 2
+                and all(isinstance(item, int) for item in value)
+            ):
+                node_records.append(
+                    {"path": list(path), "node": list(value)}
+                )
+            for index, child in enumerate(value):
+                visit(child, (*path, str(index)))
+
+    visit(decoded)
+    node_bytes = _pretty_json(node_records)
+    return {
+        "binding_type": decoded.get("$type"),
+        "lattice_scale_S_prime": decoded.get("lattice_scale"),
+        "source_vertex_coordinate_count": len(
+            decoded.get("source_vertex_coordinates", [])
+        ),
+        "exact_rational_record_count": rational_count,
+        "exact_node_record_count": len(node_records),
+        "exact_nodes_sha256": _sha256(node_bytes),
+        "canonical_bytes": len(payload),
+        "canonical_sha256": _sha256(payload),
     }
 
 
@@ -378,7 +656,14 @@ def _polygon_record(polygon) -> dict[str, Any]:
     def loop_record(loop):
         return {
             "points": [list(point) for point in loop.points],
-            "speeds_squared": [_ratio(item) for item in loop.speeds_squared],
+            "speeds_squared": (
+                None
+                if loop.speeds_squared is None
+                else [_ratio(item) for item in loop.speeds_squared]
+            ),
+            "effective_edge_speeds_squared": [
+                _ratio(item) for item in loop.edge_speeds_squared
+            ],
         }
 
     return {
@@ -400,6 +685,111 @@ def _polygon_record(polygon) -> dict[str, Any]:
         "fan_edge_count": polygon.fan_edge_count,
         "vertex_count": polygon.vertex_count,
         "reflex_count": polygon.reflex_count,
+    }
+
+
+def _partition_record(partition) -> dict[str, Any]:
+    return {
+        "outcome": partition.outcome.value,
+        "doubled_area": _sqrt_sum(partition.doubled_area),
+        "polygon_doubled_area": partition.polygon_doubled_area,
+        "area_defect": _sqrt_sum(partition.area_defect),
+        "faces": [
+            {
+                "owner": list(face.owner),
+                "source_start": list(face.source_start),
+                "source_end": list(face.source_end),
+                "doubled_area": _sqrt_sum(face.doubled_area),
+                "points": [
+                    {"x": _sqrt_sum(point[0]), "y": _sqrt_sum(point[1])}
+                    for point in face.points
+                ],
+                "line": (
+                    None
+                    if face.line is None
+                    else [
+                        face.line.a,
+                        face.line.b,
+                        face.line.c,
+                        _ratio(face.line.q),
+                    ]
+                ),
+            }
+            for face in partition.faces
+        ],
+    }
+
+
+def _assembler_borders(region, coverage_region) -> dict[str, Any]:
+    partition = region.partition
+    coverage_sum = coverage_region.doubled_area - coverage_region.doubled_area
+    for face in coverage_region.faces:
+        coverage_sum = coverage_sum + face.doubled_area
+    coverage_defect = coverage_sum - coverage_region.doubled_area
+    owner_by_edge = [tuple(item[0]) for item in region.owner_by_edge]
+    wall_spans = [tuple(item) for item in region.wall_spans]
+    ambiguous = [tuple(item) for item in region.ambiguous_owner_spans]
+    source_spans = owner_by_edge + wall_spans + ambiguous
+    partition_owners = [tuple(face.owner) for face in partition.faces]
+    coverage_owners = [tuple(face.owner) for face in coverage_region.faces]
+    ownership_exact = (
+        len(source_spans) == len(set(source_spans))
+        and len(partition_owners) == len(set(partition_owners))
+        and len(coverage_owners) == len(set(coverage_owners))
+        and set(source_spans) == set(partition_owners)
+        and set(partition_owners) == set(coverage_owners)
+    )
+    return {
+        "repository_border_names": [
+            "POLYGON_FACE_DOUBLED_AREA_EQUALITY",
+            "PARTITION_COVERAGE_DEFECT_ZERO",
+            "OWNERSHIP_SOURCE_SPAN_ACCOUNTING_EXACT",
+        ],
+        "POLYGON_FACE_DOUBLED_AREA_EQUALITY": {
+            "polygon_doubled_area": partition.polygon_doubled_area,
+            "face_doubled_area": _sqrt_sum(partition.doubled_area),
+            "partition_area_defect": _sqrt_sum(partition.area_defect),
+            "exact": partition.area_reproduces_polygon,
+        },
+        "PARTITION_COVERAGE_DEFECT_ZERO": {
+            "partition_area_defect": _sqrt_sum(partition.area_defect),
+            "coverage_sum_defect": _sqrt_sum(coverage_defect),
+            "coverage_polygon_doubled_area": (
+                coverage_region.polygon_doubled_area
+            ),
+            "coverage_doubled_area": _sqrt_sum(
+                coverage_region.doubled_area
+            ),
+            "exact": (
+                partition.area_defect.is_zero
+                and coverage_defect.is_zero
+                and coverage_region.polygon_doubled_area
+                == partition.polygon_doubled_area
+            ),
+        },
+        "OWNERSHIP_SOURCE_SPAN_ACCOUNTING_EXACT": {
+            "owner_by_edge_count": len(owner_by_edge),
+            "wall_span_count": len(wall_spans),
+            "ambiguous_owner_span_count": len(ambiguous),
+            "partition_owner_count": len(partition_owners),
+            "coverage_owner_count": len(coverage_owners),
+            "source_spans": [list(item) for item in sorted(source_spans)],
+            "partition_owners": [
+                list(item) for item in sorted(partition_owners)
+            ],
+            "coverage_owners": [
+                list(item) for item in sorted(coverage_owners)
+            ],
+            "exact": ownership_exact,
+        },
+        "all_exact": (
+            partition.area_reproduces_polygon
+            and partition.area_defect.is_zero
+            and coverage_defect.is_zero
+            and coverage_region.polygon_doubled_area
+            == partition.polygon_doubled_area
+            and ownership_exact
+        ),
     }
 
 
@@ -633,6 +1023,256 @@ def _public_fixture_record(
     return current, timing
 
 
+def _public_fixture_record_phase1(
+    modules: dict[str, Any],
+    fixture_dir: Path,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Public canonical run plus proof-only exhaustive agreement witness."""
+
+    kernel = modules["kernel"]
+    conveyor = modules["conveyor"]
+    skeleton_module = modules["skeleton"]
+    line_class = modules["line_class"]
+    snapshot_input = (fixture_dir / "analysis_snapshot.json").read_bytes()
+    request_input = (fixture_dir / "decal_request.json").read_bytes()
+    snapshot = kernel.AnalysisSnapshotCodecV1.loads(snapshot_input)
+    request = kernel.DecalRequestCodecV1.loads(request_input)
+    (domain,) = snapshot.patch_domains
+
+    compile_started = time.perf_counter()
+    compile_result = kernel.compile_reference_envelopes(
+        snapshot, request, domain.patch_domain_id
+    )
+    compile_seconds = time.perf_counter() - compile_started
+    if compile_result.compilation is None:
+        raise ValueError("public compile did not return a compilation")
+    binding = compile_result.compilation.evaluation_geometry_binding
+    binding_codec = _binding_codec(kernel, binding)
+    binding_before = binding_codec.dumps(binding)
+    binding_facts_before = _binding_fact_record(binding_before)
+
+    captures: list[dict[str, Any]] = []
+    original_build_skeleton = conveyor.build_skeleton
+    original_new_vertex = skeleton_module._Builder._new_vertex
+
+    def capturing_build_skeleton(polygon):
+        builder = skeleton_module._Builder(
+            polygon, skeleton_module.SplitSearch.MOTORCYCLE
+        )
+        seed = _seed_snapshot(builder, line_class)
+        result = builder.run()
+        captures.append(
+            {
+                "polygon": _polygon_record(polygon),
+                "seed": seed,
+                "terminal": _terminal_snapshot(
+                    builder, result, line_class
+                ),
+                "skeleton_semantics": _skeleton_semantic_record(result),
+                "result": result,
+            }
+        )
+        return result
+
+    adapter = _SeedClassifierAdapter(skeleton_module)
+    prepare_started = time.perf_counter()
+    conveyor.build_skeleton = capturing_build_skeleton
+    try:
+        with adapter:
+            prepared = conveyor.prepare_conveyor(
+                snapshot, request, patch_domain_id=domain.patch_domain_id
+            )
+            coverage = conveyor.conveyor_coverage(prepared)
+            if len(captures) != 1 or len(prepared.regions) != 1:
+                raise ValueError(
+                    "expected exactly one captured sparse domain region"
+                )
+            canonical_capture = captures[0]
+            region = prepared.regions[0]
+            if region.bridge.polygon is None:
+                raise ValueError("public bridge did not produce a polygon")
+            exhaustive_builder = skeleton_module._Builder(
+                region.bridge.polygon,
+                skeleton_module.SplitSearch.EXHAUSTIVE,
+            )
+            exhaustive_seed = _seed_snapshot(
+                exhaustive_builder, line_class
+            )
+            exhaustive_skeleton = exhaustive_builder.run()
+            exhaustive_partition = modules["build_faces"](
+                region.bridge.polygon, exhaustive_skeleton
+            )
+            exhaustive = {
+                "seed": exhaustive_seed,
+                "terminal": _terminal_snapshot(
+                    exhaustive_builder,
+                    exhaustive_skeleton,
+                    line_class,
+                ),
+                "skeleton_semantics": _skeleton_semantic_record(
+                    exhaustive_skeleton
+                ),
+                "partition": _partition_record(exhaustive_partition),
+            }
+    finally:
+        conveyor.build_skeleton = original_build_skeleton
+    prepare_seconds = time.perf_counter() - prepare_started
+
+    if not adapter.restored:
+        raise ValueError("proof-local seed adapter was not restored")
+    if skeleton_module._Builder._new_vertex is not original_new_vertex:
+        raise ValueError("event-born _new_vertex callable changed")
+    if region.skeleton != canonical_capture["result"]:
+        raise ValueError("capture adapter changed the public skeleton result")
+    polygon_after = _polygon_record(region.bridge.polygon)
+    if polygon_after != canonical_capture["polygon"]:
+        raise ValueError("captured polygon differs from public bridge polygon")
+    if len(coverage.regions) != 1:
+        raise ValueError("expected one public coverage region")
+
+    binding_after = binding_codec.dumps(
+        compile_result.compilation.evaluation_geometry_binding
+    )
+    binding_facts_after = _binding_fact_record(binding_after)
+    snapshot_after = kernel.AnalysisSnapshotCodecV1.dumps(snapshot)
+    request_after = kernel.DecalRequestCodecV1.dumps(request)
+    canonical_partition = _partition_record(region.partition)
+    canonical_skeleton = canonical_capture["skeleton_semantics"]
+    exhaustive_skeleton_record = exhaustive["skeleton_semantics"]
+    mode_agreement = {
+        "outcome_equal": (
+            canonical_skeleton["outcome"]
+            == exhaustive_skeleton_record["outcome"]
+        ),
+        "levels_equal": (
+            canonical_skeleton["levels"]
+            == exhaustive_skeleton_record["levels"]
+        ),
+        "nodes_byte_identical": (
+            _pretty_json(canonical_skeleton["nodes"])
+            == _pretty_json(exhaustive_skeleton_record["nodes"])
+        ),
+        "partition_byte_identical": (
+            _pretty_json(canonical_partition)
+            == _pretty_json(exhaustive["partition"])
+        ),
+    }
+    mode_agreement["all_exact_and_agree"] = (
+        canonical_skeleton["outcome"] == "EXACT"
+        and exhaustive_skeleton_record["outcome"] == "EXACT"
+        and region.partition.outcome.value == "EXACT"
+        and exhaustive_partition.outcome.value == "EXACT"
+        and mode_agreement["outcome_equal"]
+        and mode_agreement["nodes_byte_identical"]
+        and mode_agreement["partition_byte_identical"]
+    )
+    adapter_records = [
+        {
+            key: value
+            for key, value in record.items()
+            if key != "builder_identity"
+        }
+        for record in adapter.records
+    ]
+    canonical_adapter = adapter_records[0]
+    assembler = _assembler_borders(region, coverage.regions[0])
+    immutable_input = {
+        "analysis_snapshot_input_sha256": _sha256(snapshot_input),
+        "analysis_snapshot_after_sha256": _sha256(snapshot_after),
+        "analysis_snapshot_byte_identical": (
+            snapshot_input == snapshot_after
+        ),
+        "decal_request_input_sha256": _sha256(request_input),
+        "decal_request_after_sha256": _sha256(request_after),
+        "decal_request_byte_identical": request_input == request_after,
+        "v2_binding_before": binding_facts_before,
+        "v2_binding_after": binding_facts_after,
+        "v2_binding_byte_identical": binding_before == binding_after,
+        "bridge_polygon_byte_identical": (
+            _pretty_json(canonical_capture["polygon"])
+            == _pretty_json(polygon_after)
+        ),
+        "lattice_S_prime_unchanged": (
+            binding_facts_before["lattice_scale_S_prime"]
+            == binding_facts_after["lattice_scale_S_prime"]
+            == prepared.lattice.scale
+        ),
+    }
+    immutable_input["all_exact"] = all(
+        (
+            immutable_input["analysis_snapshot_byte_identical"],
+            immutable_input["decal_request_byte_identical"],
+            immutable_input["v2_binding_byte_identical"],
+            immutable_input["bridge_polygon_byte_identical"],
+            immutable_input["lattice_S_prime_unchanged"],
+            binding_facts_before["binding_type"]
+            == "ChainStraightEvaluationGeometryBindingV2",
+            binding_facts_before == binding_facts_after,
+        )
+    )
+
+    current = {
+        "fixture_id": fixture_dir.name,
+        "patch_domain_id": domain.patch_domain_id.value,
+        "compile": {
+            "outcome": compile_result.outcome.value,
+            "binding_type": type(binding).__name__,
+            "domain_lattice_scale_S_prime": binding.lattice_scale,
+        },
+        "prepare": {
+            "outcome": prepared.outcome.value,
+            "lattice_scale": prepared.lattice.scale,
+            "counters": dict(prepared.counters),
+        },
+        "coverage": {
+            "outcome": coverage.outcome.value,
+            "region_outcome": coverage.regions[0].outcome.value,
+        },
+        "public_split_search_contract": {
+            "canonical_mode": "MOTORCYCLE",
+            "public_request_exposes_split_search": False,
+            "reason": (
+                "prepare_conveyor_has_no_split_search_parameter;_"
+                "MOTORCYCLE_is_the_product_default"
+            ),
+            "proof_only_secondary_mode": "EXHAUSTIVE",
+            "agreement_law": (
+                "EXACT_OUTCOME_PLUS_BYTE_IDENTICAL_NODES_AND_PARTITION;_"
+                "LEVEL_AND_SEARCH_COUNTER_TRACES_ARE_FROZEN_PER_MODE"
+            ),
+            "mode_agreement": mode_agreement,
+        },
+        "immutable_input": immutable_input,
+        "adapter": {
+            "scope": "SEED_VERTICES_CREATED_BY__seed_one_loop_ONLY",
+            "normal_exit_restored": adapter.restored,
+            "event_born_new_vertex_callable_unchanged": (
+                skeleton_module._Builder._new_vertex
+                is original_new_vertex
+            ),
+            "records": adapter_records,
+        },
+        "region": {
+            "region_id": region.region_id,
+            "bridge_outcome": region.bridge_outcome.value,
+            "bridge_polygon": canonical_capture["polygon"],
+            "seed": canonical_capture["seed"],
+            "terminal": canonical_capture["terminal"],
+            "skeleton_semantics": canonical_skeleton,
+            "partition": canonical_partition,
+            "assembler_borders": assembler,
+            "exhaustive": exhaustive,
+        },
+    }
+    timing = {
+        "fixture_id": fixture_dir.name,
+        "compile_seconds": compile_seconds,
+        "prepare_and_secondary_mode_seconds": prepare_seconds,
+        "prepare_reported_seconds": dict(prepared.timings),
+    }
+    return current, timing
+
+
 def _synthetic_case(
     modules: dict[str, Any],
     name: str,
@@ -662,6 +1302,133 @@ def _synthetic_case(
         "points": [list(point) for point in points],
         "signed_doubled_area": modules["signed_double_area"](points),
         "modes": modes,
+    }
+
+
+def _synthetic_case_phase1(
+    modules: dict[str, Any],
+    name: str,
+    points: tuple[tuple[int, int], ...],
+) -> dict[str, Any]:
+    skeleton_module = modules["skeleton"]
+    line_class = modules["line_class"]
+    polygon = modules["PolygonV1"](modules["LoopV1"](points))
+    polygon_before = _pretty_json(_polygon_record(polygon))
+    modes = {}
+    original_new_vertex = skeleton_module._Builder._new_vertex
+    adapter = _SeedClassifierAdapter(skeleton_module)
+    with adapter:
+        for mode in skeleton_module.SplitSearch:
+            builder = skeleton_module._Builder(polygon, mode)
+            seed = _seed_snapshot(builder, line_class)
+            skeleton = builder.run()
+            partition = modules["build_faces"](polygon, skeleton)
+            modes[mode.value] = {
+                "seed": seed,
+                "terminal": _terminal_snapshot(
+                    builder, skeleton, line_class
+                ),
+                "skeleton_semantics": _skeleton_semantic_record(skeleton),
+                "partition": _partition_record(partition),
+                "face_outcome": partition.outcome.value,
+                "face_count": len(partition.faces),
+                "doubled_face_area": _sqrt_sum(partition.doubled_area),
+                "polygon_doubled_area": partition.polygon_doubled_area,
+                "assembler_borders": {
+                    "every_contour_is_simple": (
+                        partition.every_contour_is_simple
+                    ),
+                    "every_face_is_positive": (
+                        partition.every_face_is_positive
+                    ),
+                    "area_reproduces_polygon": (
+                        partition.area_reproduces_polygon
+                    ),
+                    "area_defect": _sqrt_sum(partition.area_defect),
+                },
+            }
+    polygon_after = _pretty_json(_polygon_record(polygon))
+    mode_values = list(modes.values())
+    agreement = {
+        "outcome_equal": (
+            mode_values[0]["terminal"]["outcome"]
+            == mode_values[1]["terminal"]["outcome"]
+        ),
+        "levels_equal": (
+            mode_values[0]["terminal"]["levels"]
+            == mode_values[1]["terminal"]["levels"]
+        ),
+        "nodes_byte_identical": (
+            _pretty_json(mode_values[0]["skeleton_semantics"]["nodes"])
+            == _pretty_json(mode_values[1]["skeleton_semantics"]["nodes"])
+        ),
+        "partition_byte_identical": (
+            _pretty_json(mode_values[0]["partition"])
+            == _pretty_json(mode_values[1]["partition"])
+        ),
+    }
+    agreement["all_exact_and_agree"] = (
+        all(
+            mode["terminal"]["outcome"] == "EXACT"
+            and mode["face_outcome"] == "EXACT"
+            for mode in mode_values
+        )
+        and all(agreement.values())
+    )
+    return {
+        "case": name,
+        "points": [list(point) for point in points],
+        "signed_doubled_area": modules["signed_double_area"](points),
+        "polygon_byte_identical": polygon_before == polygon_after,
+        "adapter_normal_exit_restored": adapter.restored,
+        "event_born_new_vertex_callable_unchanged": (
+            skeleton_module._Builder._new_vertex is original_new_vertex
+        ),
+        "adapter_records": [
+            {
+                key: value
+                for key, value in record.items()
+                if key != "builder_identity"
+            }
+            for record in adapter.records
+        ],
+        "mode_agreement": agreement,
+        "modes": modes,
+    }
+
+
+def _different_speed_local_control(modules: dict[str, Any]) -> dict[str, Any]:
+    skeleton_module = modules["skeleton"]
+    first = skeleton_module.SupportLineV1(0, 1, 0, 1)
+    second = skeleton_module.SupportLineV1(0, 2, 0, 8)
+    determinant = first.a * second.b - second.a * first.b
+    dot = first.a * second.a + first.b * second.b
+    speed_left = first.q * second.normal_squared
+    speed_right = second.q * first.normal_squared
+    outcome = skeleton_module._joint_kind(first, second)
+    return {
+        "control": "CODIRECTIONAL_SAME_SUPPORT_DIFFERENT_SPEED",
+        "determinant": determinant,
+        "dot": dot,
+        "q1_N2": _ratio(speed_left),
+        "q2_N1": _ratio(speed_right),
+        "normalized_speeds_unequal": speed_left != speed_right,
+        "classifier_rejects": not _exact_straight_classifier(first, second),
+        "named_local_outcome": (
+            None if outcome is None else outcome.value
+        ),
+        "expected_named_local_outcome": (
+            "NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS"
+        ),
+        "passed": (
+            determinant == 0
+            and dot > 0
+            and speed_left != speed_right
+            and not _exact_straight_classifier(first, second)
+            and outcome is not None
+            and outcome.value
+            == "NO_RULE_JOINT_IS_CODIRECTIONAL_AT_DIFFERENT_SPEEDS"
+        ),
     }
 
 
@@ -797,10 +1564,32 @@ def _source_predicate_audit(source_root: Path) -> dict[str, Any]:
         < collapsing_span_index
         < born_zero_filter_index
     )
+    verifier_path = Path(__file__).resolve()
+    verifier_tree = ast.parse(verifier_path.read_text(encoding="utf-8"))
+    classifier = next(
+        node
+        for node in ast.walk(verifier_tree)
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_exact_straight_classifier"
+    )
+    classifier_return = next(
+        node for node in classifier.body if isinstance(node, ast.Return)
+    )
+    classifier_predicate = ast.unparse(classifier_return.value)
     return {
         "event_born_new_vertex_predicate": predicate,
         "expected_predicate": EXPECTED_NEW_VERTEX_PREDICATE,
         "predicate_exact_match": predicate == EXPECTED_NEW_VERTEX_PREDICATE,
+        "proof_local_seed_classifier_predicate": classifier_predicate,
+        "proof_local_classifier_exact_match": (
+            classifier_predicate == EXPECTED_NEW_VERTEX_PREDICATE
+        ),
+        "product_predicate_and_proof_classifier_identical": (
+            classifier_predicate == predicate
+            == EXPECTED_NEW_VERTEX_PREDICATE
+        ),
+        "product_skeleton_source_sha256": _file_sha256(path),
+        "phase1_verifier_sha256": _file_sha256(verifier_path),
         "seed_constructor_count": len(seed_vertex_calls),
         "seed_constructor_sets_sliding": seed_sets_sliding,
         "event_born_constructor_sets_sliding": event_sets_sliding,
@@ -833,9 +1622,9 @@ def _filter_span_audit(
         "field_born_zero_fan_count_mismatches": 0,
         "required_control_fan_edges": 0,
         "required_control_born_zero_filters": 0,
-        "certified_seed_non_always_concurrent_adjacencies": 0,
         "code_path_order_unproven": 0,
     }
+    classified_seed_adjacency_diagnostic = 0
     field = []
     for fixture in fixtures:
         terminal = fixture["region"]["terminal"]
@@ -860,9 +1649,7 @@ def _filter_span_audit(
         for vertex in fixture["region"]["seed"][
             "certified_straight_seed_vertices"
         ]:
-            counters[
-                "certified_seed_non_always_concurrent_adjacencies"
-            ] += sum(
+            classified_seed_adjacency_diagnostic += sum(
                 outcome != "WAVEFRONT_TRIPLE_ALWAYS_CONCURRENT"
                 for outcome in (
                     vertex["previous_edge_event_outcome"],
@@ -907,6 +1694,14 @@ def _filter_span_audit(
         "failure_counters": counters,
         "field_counts": field,
         "synthetic_counts": synthetic,
+        "classified_seed_non_always_concurrent_adjacencies_diagnostic": (
+            classified_seed_adjacency_diagnostic
+        ),
+        "classified_seed_adjacency_is_non_gating_reason": (
+            "PHASE1_CLASSIFICATION_SUPPLIES_THE_EXACT_SLIDING_POSITION;_"
+            "THE_PHASE0_MISSING_POSITION_REFUSAL_IS_NO_LONGER_THE_RUNTIME_"
+            "OBLIGATION"
+        ),
         "observed_control_flow": source_audit[
             "enqueue_edge_event_observed_order"
         ],
@@ -1399,6 +2194,440 @@ def _decide(
     }
 
 
+PHASE1_FAILURE_ORDER = (
+    (
+        "unknown_kernel_src_product_tree",
+        "UNKNOWN_KERNEL_SRC_PRODUCT_TREE",
+    ),
+    ("unknown_fixture_form", "UNKNOWN_FIXTURE_FORM"),
+    ("unknown_verifier_schema", "UNKNOWN_VERIFIER_SCHEMA"),
+    ("phase0_history_not_sealed", "PHASE0_HISTORY_NOT_SEALED"),
+    ("accepted_a_proof_seal_failures", "BF6_V1_G1_SEAL_FAILURE"),
+    (
+        "classifier_determinant_predicate_failures",
+        "SEED_CLASSIFIER_DETERMINANT_PREDICATE_MISMATCH",
+    ),
+    (
+        "classifier_dot_predicate_failures",
+        "SEED_CLASSIFIER_DOT_PREDICATE_MISMATCH",
+    ),
+    (
+        "classifier_qN_predicate_failures",
+        "SEED_CLASSIFIER_QN_PREDICATE_MISMATCH",
+    ),
+    ("seed_scope_excess", "SEED_CLASSIFIER_SCOPE_EXCESS"),
+    (
+        "input_coordinate_or_node_mutations",
+        "INPUT_COORDINATE_OR_NODE_MUTATION",
+    ),
+    (
+        "participant_span_raw_key_merges",
+        "PARTICIPANT_SPAN_RAW_KEY_MERGE",
+    ),
+    ("adapter_restoration_failures", "ADAPTER_NOT_RESTORED"),
+    ("event_born_behavior_changes", "EVENT_BORN_BEHAVIOR_CHANGED"),
+    ("public_exactness_failures", "PUBLIC_EXACTNESS_FAILURE"),
+    ("public_mode_agreement_failures", "PUBLIC_MODE_AGREEMENT_FAILURE"),
+    ("synthetic_exactness_failures", "SYNTHETIC_EXACTNESS_FAILURE"),
+    ("assembler_border_failures", "ASSEMBLER_BORDER_FAILURE"),
+    ("h2_evidence_failures", "INSUFFICIENT_H2_EVIDENCE"),
+    (
+        "filter_orthogonality_failures",
+        "INSUFFICIENT_FILTER_ORTHOGONALITY_EVIDENCE",
+    ),
+    ("family_regression_failures", "BF6_FAMILY_REGRESSION"),
+    ("negative_self_check_failures", "NEGATIVE_SELF_CHECK_FAILED"),
+)
+
+
+def _phase1_h2_audit(
+    fixtures: list[dict[str, Any]],
+    different_speed_control: dict[str, Any],
+) -> dict[str, Any]:
+    counters = {
+        "certified_straight_count_mismatch": 0,
+        "classified_seed_count_mismatch": 0,
+        "unequal_q_over_N": 0,
+        "support_class_identity_failures": 0,
+        "rescaling_evidence_count_mismatch": 0,
+        "different_speed_control_failures": 0,
+    }
+    rescaling = []
+    total = 0
+    for fixture in fixtures:
+        seed = fixture["region"]["seed"]
+        vertices = seed["certified_straight_seed_vertices"]
+        total += len(vertices)
+        expected = EXPECTED_CLASSIFIED_COUNTS[fixture["fixture_id"]]
+        counters["certified_straight_count_mismatch"] += int(
+            len(vertices) != expected
+        )
+        counters["classified_seed_count_mismatch"] += int(
+            seed["certified_straight_seed_sliding_count"] != expected
+        )
+        for vertex in vertices:
+            left = vertex["prev_support"]
+            right = vertex["next_support"]
+            counters["unequal_q_over_N"] += int(
+                left["normalized_speed_squared_q_over_N"]
+                != right["normalized_speed_squared_q_over_N"]
+                or not vertex["normalized_speeds_equal"]
+            )
+            counters["support_class_identity_failures"] += int(
+                not vertex["same_support_line_class"]
+                or vertex["support_line_class_member_count"] < 2
+            )
+            if not vertex["raw_line_keys_equal"]:
+                rescaling.append(
+                    {
+                        "fixture_id": fixture["fixture_id"],
+                        "vertex_id": vertex["vertex_id"],
+                        "prev_span": vertex["prev_span"],
+                        "next_span": vertex["next_span"],
+                        "prev_raw_line_key": left["raw_line_key"],
+                        "next_raw_line_key": right["raw_line_key"],
+                        "support_line_class": left["support_line_class"],
+                        "q_over_N": (
+                            left[
+                                "normalized_speed_squared_q_over_N"
+                            ]
+                        ),
+                    }
+                )
+    counters["rescaling_evidence_count_mismatch"] = int(
+        len(rescaling) != 10
+    )
+    counters["different_speed_control_failures"] = int(
+        not different_speed_control["passed"]
+    )
+    return {
+        "outcome": (
+            "H2_REPRESENTATION_ONLY_RETAINED"
+            if not any(counters.values())
+            else "INSUFFICIENT_H2_EVIDENCE"
+        ),
+        "certified_straight_vertex_count": total,
+        "integer_normal_rescaling_case_count": len(rescaling),
+        "integer_normal_rescaling_cases": rescaling,
+        "different_speed_local_control": different_speed_control,
+        "failure_counters": counters,
+    }
+
+
+def _phase1_gate_audit(
+    fixtures: list[dict[str, Any]],
+    synthetics: dict[str, dict[str, Any]],
+    family: dict[str, Any],
+    source_audit: dict[str, Any],
+    h2_audit: dict[str, Any],
+    filter_audit: dict[str, Any],
+    forced_restoration: dict[str, Any],
+    *,
+    product_tree_ok: bool,
+    fixture_form_ok: bool,
+    verifier_schema_ok: bool,
+    phase0_history_ok: bool,
+    accepted_a_proofs_ok: bool,
+) -> dict[str, Any]:
+    counters = {name: 0 for name, _ in PHASE1_FAILURE_ORDER}
+    counters["unknown_kernel_src_product_tree"] = int(
+        not product_tree_ok
+    )
+    counters["unknown_fixture_form"] = int(not fixture_form_ok)
+    counters["unknown_verifier_schema"] = int(not verifier_schema_ok)
+    counters["phase0_history_not_sealed"] = int(not phase0_history_ok)
+    counters["accepted_a_proof_seal_failures"] = int(
+        not accepted_a_proofs_ok
+    )
+
+    classifier = source_audit[
+        "proof_local_seed_classifier_predicate"
+    ]
+    counters["classifier_determinant_predicate_failures"] = int(
+        "first.a * second.b - second.a * first.b == 0" not in classifier
+    )
+    counters["classifier_dot_predicate_failures"] = int(
+        "first.a * second.a + first.b * second.b > 0" not in classifier
+    )
+    counters["classifier_qN_predicate_failures"] = int(
+        "first.q * second.normal_squared == second.q * first.normal_squared"
+        not in classifier
+    )
+    counters["event_born_behavior_changes"] = int(
+        not source_audit[
+            "product_predicate_and_proof_classifier_identical"
+        ]
+        or not source_audit["event_born_constructor_sets_sliding"]
+    )
+
+    field_gate_records = []
+    for fixture in fixtures:
+        expected_count = EXPECTED_CLASSIFIED_COUNTS[
+            fixture["fixture_id"]
+        ]
+        seed = fixture["region"]["seed"]
+        terminal = fixture["region"]["terminal"]
+        canonical_ids = sorted(
+            ident
+            for record in fixture["adapter"]["records"]
+            if record["split_search"] == "MOTORCYCLE"
+            for ident in record["classified_vertex_ids"]
+        )
+        certified_ids = sorted(
+            vertex["vertex_id"]
+            for vertex in seed["certified_straight_seed_vertices"]
+        )
+        scope_excess = sum(
+            record["seed_scope_excess_count"]
+            for record in fixture["adapter"]["records"]
+        )
+        immutable_seed = all(
+            record["immutable_seed_state_unchanged"]
+            for record in fixture["adapter"]["records"]
+        )
+        counters["seed_scope_excess"] += scope_excess
+        counters["participant_span_raw_key_merges"] += int(
+            not immutable_seed or canonical_ids != certified_ids
+        )
+        counters["input_coordinate_or_node_mutations"] += int(
+            not fixture["immutable_input"]["all_exact"]
+        )
+        counters["adapter_restoration_failures"] += int(
+            not fixture["adapter"]["normal_exit_restored"]
+            or not fixture["adapter"][
+                "event_born_new_vertex_callable_unchanged"
+            ]
+        )
+        public_exact = (
+            fixture["compile"]["outcome"] == "EXACT"
+            and fixture["prepare"]["outcome"] == "EXACT"
+            and fixture["coverage"]["outcome"] == "EXACT"
+            and fixture["coverage"]["region_outcome"] == "EXACT"
+            and fixture["region"]["terminal"]["outcome"] == "EXACT"
+            and fixture["region"]["partition"]["outcome"] == "EXACT"
+            and seed["certified_straight_seed_vertex_count"]
+            == expected_count
+            and seed["certified_straight_seed_sliding_count"]
+            == expected_count
+            and terminal["live_vertex_count"] == 0
+            and terminal["queue_length"] == 0
+        )
+        mode_agreement = fixture["public_split_search_contract"][
+            "mode_agreement"
+        ]["all_exact_and_agree"]
+        assembler_exact = fixture["region"]["assembler_borders"][
+            "all_exact"
+        ]
+        counters["public_exactness_failures"] += int(not public_exact)
+        counters["public_mode_agreement_failures"] += int(
+            not mode_agreement
+        )
+        counters["assembler_border_failures"] += int(
+            not assembler_exact
+        )
+        field_gate_records.append(
+            {
+                "fixture_id": fixture["fixture_id"],
+                "expected_classified_count": expected_count,
+                "observed_classified_count": (
+                    seed["certified_straight_seed_sliding_count"]
+                ),
+                "classified_ids_equal_certified_ids": (
+                    canonical_ids == certified_ids
+                ),
+                "public_compile_prepare_coverage_exact": public_exact,
+                "canonical_exhaustive_agreement": mode_agreement,
+                "immutable_input_exact": fixture["immutable_input"][
+                    "all_exact"
+                ],
+                "assembler_borders_exact": assembler_exact,
+                "terminal_live_frontier": terminal["live_vertex_count"],
+                "terminal_queue": terminal["queue_length"],
+                "frozen_levels": terminal["levels"],
+                "frozen_node_count": terminal["node_count"],
+                "frozen_face_count": len(
+                    fixture["region"]["partition"]["faces"]
+                ),
+                "frozen_event_count": len(
+                    fixture["region"]["skeleton_semantics"]["nodes"]
+                ),
+                "frozen_counter_count": len(terminal["counters"]),
+            }
+        )
+
+    synthetic_gate_records = []
+    for name, expected in EXPECTED_SYNTHETIC.items():
+        case = synthetics[name]
+        case_exact = (
+            case["polygon_byte_identical"]
+            and case["adapter_normal_exit_restored"]
+            and case["event_born_new_vertex_callable_unchanged"]
+            and case["mode_agreement"]["all_exact_and_agree"]
+        )
+        for result in case["modes"].values():
+            case_exact = (
+                case_exact
+                and result["terminal"]["outcome"] == "EXACT"
+                and result["terminal"]["levels"] == expected["levels"]
+                and result["terminal"]["node_count"]
+                == expected["node_count"]
+                and result["terminal"]["live_vertex_count"] == 0
+                and result["terminal"]["queue_length"] == 0
+                and result["face_outcome"] == "EXACT"
+                and result["face_count"] == expected["face_count"]
+                and result["polygon_doubled_area"]
+                == expected["polygon_doubled_area"]
+                and result["assembler_borders"][
+                    "area_reproduces_polygon"
+                ]
+                and not result["assembler_borders"]["area_defect"]
+            )
+        counters["synthetic_exactness_failures"] += int(not case_exact)
+        counters["adapter_restoration_failures"] += int(
+            not case["adapter_normal_exit_restored"]
+        )
+        synthetic_gate_records.append(
+            {
+                "case": name,
+                "exact": case_exact,
+                "expected": expected,
+                "mode_agreement": case["mode_agreement"],
+            }
+        )
+
+    counters["adapter_restoration_failures"] += int(
+        not forced_restoration["passed"]
+    )
+    counters["h2_evidence_failures"] = sum(
+        h2_audit["failure_counters"].values()
+    )
+    counters["filter_orthogonality_failures"] = sum(
+        filter_audit["failure_counters"].values()
+    )
+    counters["family_regression_failures"] = family["non_exact_count"]
+    return {
+        "outcome": (
+            "ALL_PHASE1_GATES_SATISFIED"
+            if not any(counters.values())
+            else "PHASE1_GATE_REFUSED"
+        ),
+        "failure_counters": counters,
+        "field_gate_records": field_gate_records,
+        "synthetic_gate_records": synthetic_gate_records,
+        "forced_exception_restoration": forced_restoration,
+        "sealed_obligations": {
+            "product_tree": product_tree_ok,
+            "fixture_form": fixture_form_ok,
+            "verifier_schema": verifier_schema_ok,
+            "phase0_history": phase0_history_ok,
+            "accepted_A_proofs_and_bf6_V1_G1_behavior": (
+                accepted_a_proofs_ok
+            ),
+        },
+    }
+
+
+def _phase1_decide(
+    gate_audit: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    counters = gate_audit["failure_counters"]
+    for counter_name, named_fact in PHASE1_FAILURE_ORDER:
+        if counters[counter_name]:
+            return "REFUSED", {
+                "named_first_exact_fact": named_fact,
+                "named_counter": counter_name,
+                "counter_value": counters[counter_name],
+            }
+    return "GATE_B_PRIME_GO", {
+        "named_first_exact_fact": "ALL_PHASE1_GATES_SATISFIED",
+        "candidate_scope": (
+            "PROOF_LOCAL_SEED_CLASSIFICATION_OF_EXISTING_EVENT_SEMANTICS"
+        ),
+        "product_rule_implemented": False,
+    }
+
+
+def _phase1_negative_self_checks(
+    gate_audit: dict[str, Any],
+) -> dict[str, Any]:
+    mutations = (
+        (
+            "MUTATE_DETERMINANT_PREDICATE",
+            "classifier_determinant_predicate_failures",
+            "SEED_CLASSIFIER_DETERMINANT_PREDICATE_MISMATCH",
+        ),
+        (
+            "MUTATE_DOT_PREDICATE",
+            "classifier_dot_predicate_failures",
+            "SEED_CLASSIFIER_DOT_PREDICATE_MISMATCH",
+        ),
+        (
+            "MUTATE_QN_PREDICATE",
+            "classifier_qN_predicate_failures",
+            "SEED_CLASSIFIER_QN_PREDICATE_MISMATCH",
+        ),
+        (
+            "CLASSIFY_OUTSIDE_SEED_SCOPE",
+            "seed_scope_excess",
+            "SEED_CLASSIFIER_SCOPE_EXCESS",
+        ),
+        (
+            "MUTATE_INPUT_COORDINATE_OR_NODE",
+            "input_coordinate_or_node_mutations",
+            "INPUT_COORDINATE_OR_NODE_MUTATION",
+        ),
+        (
+            "MERGE_PARTICIPANT_OR_SPAN",
+            "participant_span_raw_key_merges",
+            "PARTICIPANT_SPAN_RAW_KEY_MERGE",
+        ),
+        (
+            "DO_NOT_RESTORE_ADAPTER",
+            "adapter_restoration_failures",
+            "ADAPTER_NOT_RESTORED",
+        ),
+        (
+            "UNKNOWN_PRODUCT_TREE",
+            "unknown_kernel_src_product_tree",
+            "UNKNOWN_KERNEL_SRC_PRODUCT_TREE",
+        ),
+        (
+            "UNKNOWN_FIXTURE_FORM",
+            "unknown_fixture_form",
+            "UNKNOWN_FIXTURE_FORM",
+        ),
+    )
+    checks = []
+    for name, counter_name, expected_fact in mutations:
+        mutated = copy.deepcopy(gate_audit)
+        mutated["failure_counters"][counter_name] += 1
+        outcome, decision = _phase1_decide(mutated)
+        checks.append(
+            {
+                "name": name,
+                "mutated_counter": counter_name,
+                "observed_counter_value": mutated["failure_counters"][
+                    counter_name
+                ],
+                "expected_decision_outcome": "REFUSED",
+                "expected_named_fact": expected_fact,
+                "observed_decision_outcome": outcome,
+                "observed_named_fact": decision[
+                    "named_first_exact_fact"
+                ],
+                "passed": (
+                    outcome == "REFUSED"
+                    and decision["named_first_exact_fact"] == expected_fact
+                    and decision["named_counter"] == counter_name
+                ),
+            }
+        )
+    return {
+        "all_passed": all(item["passed"] for item in checks),
+        "checks": checks,
+    }
+
+
 def main() -> None:
     arguments = _arguments()
     fixture_base = Path(__file__).resolve().parent
@@ -1408,31 +2637,68 @@ def main() -> None:
         name: _file_sha256(fixture_base / name)
         for name in ACCEPTED_RECEIPT_SHA256
     }
-    for name, expected in ACCEPTED_RECEIPT_SHA256.items():
-        if receipt_hashes[name] != expected:
-            failures.append(
-                {
-                    "code": "UNKNOWN_ACCEPTED_RECEIPT",
-                    "detail": name,
-                    "expected": expected,
-                    "observed": receipt_hashes[name],
-                }
-            )
+    accepted_a_payloads = {
+        name: json.loads((fixture_base / name).read_text(encoding="utf-8"))
+        for name in ACCEPTED_RECEIPT_SHA256
+    }
+    accepted_a_proofs_ok = (
+        all(
+            receipt_hashes[name] == expected
+            for name, expected in ACCEPTED_RECEIPT_SHA256.items()
+        )
+        and accepted_a_payloads[
+            "gate_a_triple_prime_receipt.json"
+        ].get("outcome")
+        == "GATE_A_TRIPLE_PRIME_GO"
+        and accepted_a_payloads[
+            "gate_a_triple_prime_receipt.json"
+        ].get("failures")
+        == []
+    )
+    if not accepted_a_proofs_ok:
+        failures.append(
+            {
+                "code": "UNKNOWN_ACCEPTED_A_PROOF",
+                "detail": receipt_hashes,
+            }
+        )
+    phase0_bytes = b""
+    phase0_payload = {}
+    phase0_history_ok = False
+    try:
+        phase0_bytes = _git_bytes(
+            arguments.source_root,
+            f"{PROOF_BASE_REVISION}:{PHASE0_RECEIPT_PATH}",
+        )
+        phase0_payload = json.loads(phase0_bytes)
+        phase0_history_ok = (
+            _sha256(phase0_bytes) == PHASE0_RECEIPT_SHA256
+            and phase0_payload.get("outcome") == "H1_CONFIRMED"
+            and phase0_payload.get("failures") == []
+        )
+    except Exception as error:
+        failures.append(
+            {
+                "code": "PHASE0_HISTORY_NOT_SEALED",
+                "detail": f"{type(error).__name__}: {error}",
+            }
+        )
     try:
         product_tree_oid = _git_value(arguments.source_root, "HEAD:kernel/src")
-        if product_tree_oid != EXPECTED_KERNEL_SRC_TREE_OID:
-            failures.append(
-                {
-                    "code": "UNKNOWN_KERNEL_SRC_PRODUCT_TREE",
-                    "detail": product_tree_oid,
-                    "expected": EXPECTED_KERNEL_SRC_TREE_OID,
-                }
-            )
     except Exception as error:
         failures.append(
             {
                 "code": "UNKNOWN_GIT_FORM",
                 "detail": f"{type(error).__name__}: {error}",
+            }
+        )
+    product_tree_ok = product_tree_oid == EXPECTED_KERNEL_SRC_TREE_OID
+    if not product_tree_ok:
+        failures.append(
+            {
+                "code": "UNKNOWN_KERNEL_SRC_PRODUCT_TREE",
+                "detail": product_tree_oid,
+                "expected": EXPECTED_KERNEL_SRC_TREE_OID,
             }
         )
 
@@ -1448,11 +2714,7 @@ def main() -> None:
         "first_non_exact_cases": [],
     }
     source_audit = {}
-    accepted_a3 = json.loads(
-        (fixture_base / "gate_a_triple_prime_receipt.json").read_text(
-            encoding="utf-8"
-        )
-    )
+    accepted_a3 = accepted_a_payloads["gate_a_triple_prime_receipt.json"]
     accepted_fixture_hashes = {
         item["fixture_id"]: item["fixture_hash"]
         for item in accepted_a3["fixtures"]
@@ -1462,7 +2724,8 @@ def main() -> None:
         for item in arguments.fixture_root.iterdir()
         if item.is_dir() and item.name in FIXTURE_IDS
     }
-    if present != set(FIXTURE_IDS):
+    fixture_form_ok = present == set(FIXTURE_IDS)
+    if not fixture_form_ok:
         failures.append(
             {
                 "code": "UNKNOWN_FIXTURE_SET",
@@ -1471,6 +2734,18 @@ def main() -> None:
             }
         )
 
+    forced_restoration = {"passed": False}
+    different_speed_control = {"passed": False}
+    h2_audit = {}
+    filter_audit = {}
+    gate_audit = {
+        "outcome": "PHASE1_GATE_REFUSED",
+        "failure_counters": {
+            name: 0 for name, _ in PHASE1_FAILURE_ORDER
+        },
+    }
+    negative_self_checks = {"all_passed": False, "checks": []}
+    modules = None
     if not failures:
         modules = _activate_kernel(arguments.source_root)
         for fixture_id in FIXTURE_IDS:
@@ -1483,7 +2758,7 @@ def main() -> None:
         if not failures:
             for fixture_id in FIXTURE_IDS:
                 try:
-                    record, timing = _public_fixture_record(
+                    record, timing = _public_fixture_record_phase1(
                         modules, arguments.fixture_root / fixture_id
                     )
                     fixtures.append(record)
@@ -1499,51 +2774,128 @@ def main() -> None:
                     break
         if not failures:
             synthetics = {
-                "H1_REQUIRED": _synthetic_case(
+                "H1_REQUIRED": _synthetic_case_phase1(
                     modules, "H1_REQUIRED", H1_POINTS
                 ),
-                "H2_SCALE_CONTROL": _synthetic_case(
+                "H2_SCALE_CONTROL": _synthetic_case_phase1(
                     modules, "H2_SCALE_CONTROL", H2_POINTS
                 ),
-                "H1_SMALLER_CONCAVE": _synthetic_case(
+                "H1_SMALLER_CONCAVE": _synthetic_case_phase1(
                     modules, "H1_SMALLER_CONCAVE", SMALL_H1_POINTS
                 ),
             }
+            forced_restoration = _forced_exception_restoration_audit(
+                modules["skeleton"]
+            )
+            different_speed_control = _different_speed_local_control(
+                modules
+            )
             family = _four_vertex_family(modules)
             source_audit = _source_predicate_audit(arguments.source_root)
+            h2_audit = _phase1_h2_audit(
+                fixtures, different_speed_control
+            )
+            filter_audit = _filter_span_audit(
+                fixtures, synthetics, source_audit
+            )
+            gate_audit = _phase1_gate_audit(
+                fixtures,
+                synthetics,
+                family,
+                source_audit,
+                h2_audit,
+                filter_audit,
+                forced_restoration,
+                product_tree_ok=product_tree_ok,
+                fixture_form_ok=fixture_form_ok,
+                verifier_schema_ok=(
+                    SCHEMA
+                    == "cftuv.envelope.sem_clb_02_gate_b_prime_phase1.v1"
+                ),
+                phase0_history_ok=phase0_history_ok,
+                accepted_a_proofs_ok=accepted_a_proofs_ok,
+            )
+            negative_self_checks = _phase1_negative_self_checks(
+                gate_audit
+            )
+            gate_audit["failure_counters"][
+                "negative_self_check_failures"
+            ] = int(not negative_self_checks["all_passed"])
+            gate_audit["outcome"] = (
+                "ALL_PHASE1_GATES_SATISFIED"
+                if not any(gate_audit["failure_counters"].values())
+                else "PHASE1_GATE_REFUSED"
+            )
 
-    h2_audit = (
-        {}
-        if failures
-        else _h2_evidence_audit(fixtures, synthetics)
-    )
-    filter_audit = (
-        {}
-        if failures
-        else _filter_span_audit(fixtures, synthetics, source_audit)
-    )
-    negative_self_checks = (
-        {"all_passed": False, "checks": []}
-        if failures
-        else _negative_self_checks(
-            fixtures, synthetics, source_audit, family
-        )
-    )
-    outcome, decision = _decide(
-        fixtures,
-        synthetics,
-        family,
-        source_audit,
-        h2_audit,
-        filter_audit,
-        negative_self_checks,
-        failures,
-    )
+    if failures:
+        first = failures[0]["code"]
+        mapping = {
+            "UNKNOWN_KERNEL_SRC_PRODUCT_TREE": (
+                "unknown_kernel_src_product_tree"
+            ),
+            "UNKNOWN_FIXTURE_SET": "unknown_fixture_form",
+            "UNKNOWN_ACCEPTED_A_PROOF": "accepted_a_proof_seal_failures",
+            "PHASE0_HISTORY_NOT_SEALED": "phase0_history_not_sealed",
+        }
+        gate_audit["failure_counters"][
+            mapping.get(first, "public_exactness_failures")
+        ] = 1
+
+    outcome, decision = _phase1_decide(gate_audit)
+    phase0_observation_history = {
+        "accepted_commit": PROOF_BASE_REVISION,
+        "receipt_path": PHASE0_RECEIPT_PATH,
+        "expected_sha256": PHASE0_RECEIPT_SHA256,
+        "observed_sha256": _sha256(phase0_bytes),
+        "unchanged": phase0_history_ok,
+        "outcome": phase0_payload.get("outcome"),
+        "decision": phase0_payload.get("decision"),
+        "h2_evidence_outcome": phase0_payload.get(
+            "h2_evidence_audit", {}
+        ).get("outcome"),
+        "filter_orthogonality_outcome": phase0_payload.get(
+            "filter_span_is_born_zero_audit", {}
+        ).get("outcome"),
+        "negative_self_checks_all_passed": phase0_payload.get(
+            "negative_self_checks", {}
+        ).get("all_passed"),
+    }
+    legacy_behavior_seal = {
+        "scope": "UNCHANGED_BY_CONSTRUCTION_NO_PRODUCT_BYTES_EDITED",
+        "bf6_point_contact": {
+            "basis": "ACCEPTED_A_PROOFS_AND_IDENTICAL_KERNEL_SRC_TREE",
+            "sealed": accepted_a_proofs_ok and product_tree_ok,
+        },
+        "V1_binding": {
+            "prior_v1_binding_failures": accepted_a3["aggregate"][
+                "canonical_gram_search_diagnostic_counters"
+            ]["prior_v1_binding_failures"],
+            "sealed": (
+                accepted_a3["aggregate"][
+                    "canonical_gram_search_diagnostic_counters"
+                ]["prior_v1_binding_failures"]
+                == 0
+                and accepted_a_proofs_ok
+                and product_tree_ok
+            ),
+        },
+        "G1_full_selection": {
+            "accepted_A3_all_hypotheses_match": accepted_a3["aggregate"][
+                "all_hypotheses_match"
+            ],
+            "sealed": (
+                accepted_a3["aggregate"]["all_hypotheses_match"]
+                and accepted_a_proofs_ok
+                and product_tree_ok
+            ),
+        },
+    }
     payload = {
         "schema": SCHEMA,
-        "phase": "GATE_B_PRIME_PHASE_0_PROOF_ONLY",
+        "phase": "GATE_B_PRIME_PHASE_1_PROOF_LOCAL_CANDIDATE",
         "outcome": outcome,
         "proof_base_revision": PROOF_BASE_REVISION,
+        "phase0_observation_history": phase0_observation_history,
         "kernel_src_product_tree_oid": product_tree_oid,
         "accepted_kernel_src_product_tree_oid": (
             EXPECTED_KERNEL_SRC_TREE_OID
@@ -1556,19 +2908,33 @@ def main() -> None:
             }
             for name, expected in ACCEPTED_RECEIPT_SHA256.items()
         },
+        "legacy_behavior_seal": legacy_behavior_seal,
+        "verifier_schema_seal": {
+            "schema": SCHEMA,
+            "verifier_sha256": source_audit.get(
+                "phase1_verifier_sha256"
+            ),
+            "sealed": (
+                SCHEMA
+                == "cftuv.envelope.sem_clb_02_gate_b_prime_phase1.v1"
+            ),
+        },
         "timing_capture": {
             "captured_to_process_stdout": True,
             "excluded_from_canonical_receipt": True,
             "reason": "WALL_CLOCK_TIMINGS_ARE_NONDETERMINISTIC",
         },
         "capture_adapter": {
-            "scope": "OBSERVATION_ONLY",
+            "scope": "PROOF_LOCAL_SEED_VERTICES_ONLY",
             "operation": (
-                "PUBLIC_PREPARE_USES_THE_UNMODIFIED__Builder.run_RESULT_"
-                "WHILE_THE_PROOF_RETAINS_ITS_SEED_AND_TERMINAL_STATE"
+                "APPLY_EXISTING_EVENT_BORN_EXACT_STRAIGHT_CLASSIFIER_"
+                "TO_SEED_VERTICES_WITHOUT_MOVEMENT_OR_RESNAPPING"
             ),
-            "candidate_rule_applied": False,
+            "candidate_rule_applied": True,
+            "new_event_rule_applied": False,
+            "filter_reused": False,
             "product_or_fixture_state_mutated": False,
+            "forced_exception_restoration": forced_restoration,
         },
         "hypotheses": {
             "H1": (
@@ -1582,6 +2948,7 @@ def main() -> None:
             ),
         },
         "decision": decision,
+        "phase1_gate_audit": gate_audit,
         "source_predicate_audit": source_audit,
         "h2_evidence_audit": h2_audit,
         "filter_span_is_born_zero_audit": filter_audit,
@@ -1600,7 +2967,11 @@ def main() -> None:
             {
                 "outcome": outcome,
                 "report_sha256": _sha256(report_bytes),
+                "report_bytes": len(report_bytes),
                 "fixture_count": len(fixtures),
+                "phase1_failure_counters": gate_audit[
+                    "failure_counters"
+                ],
                 "h2_evidence_outcome": h2_audit.get("outcome"),
                 "filter_orthogonality_outcome": filter_audit.get(
                     "outcome"
@@ -1635,7 +3006,7 @@ def main() -> None:
         ),
         flush=True,
     )
-    raise SystemExit(0 if outcome != "REFUSED" else 2)
+    raise SystemExit(0 if outcome == "GATE_B_PRIME_GO" else 2)
 
 
 if __name__ == "__main__":
