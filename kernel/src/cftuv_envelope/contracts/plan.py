@@ -20,6 +20,7 @@ from ..ids import (
     PatchDomainId,
     PatchId,
     PhysicalEdgeId,
+    PhysicalChainId,
     ReferenceMetricId,
     SemanticArrangementId,
     SelfContactPairDeclarationId,
@@ -28,7 +29,7 @@ from ..ids import (
     SourceRevision,
     SourceVertexId,
 )
-from .metric import ExactPoint2V1
+from .metric import ExactPoint2V1, ExactRationalV1, ExactVector2V1
 from ..numeric import MetricLengthV1
 from ..outcomes import NamedOutcome
 from .coverage import InteractionDeclarationV1, RawCoverageRef, ResolvedCoverageRef
@@ -52,11 +53,36 @@ COMPILED_PLAN_SCHEMA_V1 = "cftuv.envelope.compiled_patch_evaluation_plan.v1"
 EVALUATION_GEOMETRY_BINDING_SCHEMA_V1 = (
     "cftuv.envelope.evaluation_geometry_binding.v1"
 )
+CHAIN_STRAIGHT_EVALUATION_GEOMETRY_BINDING_SCHEMA_V2 = (
+    "cftuv.envelope.chain_straight_evaluation_geometry_binding.v2"
+)
 
 
 class EvaluationGeometryBindingLawV1(str, Enum):
     EVALUATION_GEOMETRY_CHART_LATTICE_BOUND_V1 = (
         "EVALUATION_GEOMETRY_CHART_LATTICE_BOUND_V1"
+    )
+
+
+class ChainStraightEvaluationGeometryBindingLawV2(str, Enum):
+    EVALUATION_GEOMETRY_CHART_LATTICE_BOUND_CHAIN_STRAIGHT_V2 = (
+        "EVALUATION_GEOMETRY_CHART_LATTICE_BOUND_CHAIN_STRAIGHT_V2"
+    )
+
+
+class ChainStraightVertexAuthorityV2(str, Enum):
+    BASE_BOUND_ENDPOINT_V1 = "BASE_BOUND_ENDPOINT_V1"
+    BASE_BOUND_NON_CHAIN_V1 = "BASE_BOUND_NON_CHAIN_V1"
+    CHAIN_STRAIGHT_INTERNAL_REFINED_V2 = (
+        "CHAIN_STRAIGHT_INTERNAL_REFINED_V2"
+    )
+
+
+class ChainStraightAssignmentDispositionV2(str, Enum):
+    UNCLAMPED_WITHIN_HALF_STEP = "UNCLAMPED_WITHIN_HALF_STEP"
+    CLAMPED_WITHIN_HALF_STEP = "CLAMPED_WITHIN_HALF_STEP"
+    CLAMPED_CONSTRAINT_EXCESS_ALLOWED = (
+        "CLAMPED_CONSTRAINT_EXCESS_ALLOWED"
     )
 
 
@@ -78,6 +104,88 @@ class EvaluationGeometryBindingV1:
     lattice_scale: int
     source_vertex_coordinates: frozenset[EvaluationGeometrySourceVertexV1]
     bound_hidden_support_ids: frozenset[HiddenSupportId]
+
+
+@dataclass(frozen=True, slots=True)
+class ChainStraightVertexAuthorityRecordV2:
+    source_vertex_id: SourceVertexId
+    authority: ChainStraightVertexAuthorityV2
+    physical_chain_ids: frozenset[PhysicalChainId]
+    source_domain_coordinate: ExactPoint2V1
+    base_bound_node: tuple[int, int]
+    base_bound_coordinate: ExactPoint2V1
+    assigned_refined_node: tuple[int, int]
+    assigned_domain_coordinate: ExactPoint2V1
+    exact_offset_from_source: ExactVector2V1
+
+
+@dataclass(frozen=True, slots=True)
+class ChainStraightInternalAssignmentV2:
+    physical_chain_id: PhysicalChainId
+    ordinal: int
+    source_vertex_id: SourceVertexId
+    lower_k: int
+    upper_k: int
+    projection_k_gram: ExactRationalV1
+    unconstrained_canonical_k: int
+    selected_k: int
+    clamped: bool
+    disposition: ChainStraightAssignmentDispositionV2
+    assigned_refined_node: tuple[int, int]
+    exact_offset_from_source: ExactVector2V1
+    exact_gram_displacement_squared: ExactRationalV1
+    half_step_gram_squared_bound: ExactRationalV1
+    exact_longitudinal_displacement_k: ExactRationalV1
+    longitudinal_half_step_bound_k: ExactRationalV1
+
+
+@dataclass(frozen=True, slots=True)
+class ChainStraightPhysicalChainBindingV2:
+    physical_chain_id: PhysicalChainId
+    ordered_source_vertex_ids: tuple[SourceVertexId, ...]
+    primitive_direction: tuple[int, int]
+    base_start_node: tuple[int, int]
+    base_end_node: tuple[int, int]
+    base_endpoint_span_k: int
+    refined_endpoint_span_k: int
+    internal_assignments: tuple[ChainStraightInternalAssignmentV2, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ChainStraightCapacityDeficitV2:
+    physical_chain_id: PhysicalChainId
+    previous_refinement_power: int
+    previous_endpoint_span_k: int
+    capacity_required: int
+    exact_deficit: int
+
+
+@dataclass(frozen=True, slots=True)
+class ChainStraightEvaluationGeometryBindingV2:
+    """Общая S' chart-lattice geometry с точным straight-chain authority."""
+
+    schema_version: str
+    source_revision: SourceRevision
+    patch_domain_id: PatchDomainId
+    reference_metric_id: ReferenceMetricId
+    binding_law: ChainStraightEvaluationGeometryBindingLawV2
+    base_lattice_scale: int
+    refinement_power: int
+    lattice_scale: int
+    source_vertex_coordinates: frozenset[EvaluationGeometrySourceVertexV1]
+    vertex_authorities: frozenset[ChainStraightVertexAuthorityRecordV2]
+    straight_chain_bindings: frozenset[
+        ChainStraightPhysicalChainBindingV2
+    ]
+    previous_refinement_capacity_deficits: frozenset[
+        ChainStraightCapacityDeficitV2
+    ]
+    bound_hidden_support_ids: frozenset[HiddenSupportId]
+
+
+EvaluationGeometryBinding = (
+    EvaluationGeometryBindingV1 | ChainStraightEvaluationGeometryBindingV2
+)
 
 
 class ActiveIntervalModel(str, Enum):

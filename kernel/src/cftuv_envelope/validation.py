@@ -72,8 +72,13 @@ from .contracts.ownership import (
     SilhouetteEffect,
 )
 from .contracts.plan import (
+    CHAIN_STRAIGHT_EVALUATION_GEOMETRY_BINDING_SCHEMA_V2,
     COMPILED_PLAN_SCHEMA_V1,
     EVALUATION_GEOMETRY_BINDING_SCHEMA_V1,
+    ChainStraightAssignmentDispositionV2,
+    ChainStraightEvaluationGeometryBindingLawV2,
+    ChainStraightEvaluationGeometryBindingV2,
+    ChainStraightVertexAuthorityV2,
     CompiledPatchEvaluationPlanV1,
     EvaluationGeometryBindingLawV1,
     EvaluationGeometryBindingV1,
@@ -348,6 +353,349 @@ def validate_evaluation_geometry_binding(
             path + ("source_vertex_coordinates",),
             "evaluation geometry cannot be empty",
         )
+    return tuple(issues)
+
+
+def validate_chain_straight_evaluation_geometry_binding(
+    binding: ChainStraightEvaluationGeometryBindingV2,
+) -> tuple[ValidationIssue, ...]:
+    """Проверить самодостаточную структуру V2 без доверия записанным offsets."""
+
+    issues: list[ValidationIssue] = []
+    path = ("ChainStraightEvaluationGeometryBindingV2",)
+    if (
+        binding.schema_version
+        != CHAIN_STRAIGHT_EVALUATION_GEOMETRY_BINDING_SCHEMA_V2
+    ):
+        _issue(
+            issues,
+            ValidationCode.SCHEMA_VERSION,
+            path + ("schema_version",),
+            "unexpected chain-straight evaluation-geometry schema",
+        )
+    if (
+        binding.binding_law
+        is not ChainStraightEvaluationGeometryBindingLawV2.EVALUATION_GEOMETRY_CHART_LATTICE_BOUND_CHAIN_STRAIGHT_V2
+    ):
+        _issue(
+            issues,
+            ValidationCode.EVALUATION_GEOMETRY,
+            path + ("binding_law",),
+            "unsupported chain-straight evaluation-geometry law",
+        )
+    base_scale = binding.base_lattice_scale
+    scale = binding.lattice_scale
+    refinement_power = binding.refinement_power
+    scales_valid = (
+        type(base_scale) is int
+        and base_scale > 0
+        and not base_scale & (base_scale - 1)
+        and type(refinement_power) is int
+        and 0 <= refinement_power <= 8
+        and type(scale) is int
+        and scale == base_scale * (1 << refinement_power)
+    )
+    if not scales_valid:
+        _issue(
+            issues,
+            ValidationCode.EVALUATION_GEOMETRY,
+            path + ("lattice_scale",),
+            "V2 scales must satisfy S'=S*2^r for r in 0..8",
+        )
+        return tuple(issues)
+
+    coordinates = {
+        item.source_vertex_id: item
+        for item in binding.source_vertex_coordinates
+    }
+    if len(coordinates) != len(binding.source_vertex_coordinates):
+        _issue(
+            issues,
+            ValidationCode.DUPLICATE_ID,
+            path + ("source_vertex_coordinates",),
+            "source vertex occurs more than once",
+        )
+    authorities = {
+        item.source_vertex_id: item for item in binding.vertex_authorities
+    }
+    if len(authorities) != len(binding.vertex_authorities):
+        _issue(
+            issues,
+            ValidationCode.DUPLICATE_ID,
+            path + ("vertex_authorities",),
+            "vertex authority occurs more than once",
+        )
+    if not coordinates or coordinates.keys() != authorities.keys():
+        _issue(
+            issues,
+            ValidationCode.EVALUATION_GEOMETRY,
+            path + ("vertex_authorities",),
+            "coordinate and authority identity sets must be equal and non-empty",
+        )
+    for vertex_id, authority in authorities.items():
+        item_path = path + ("vertex_authorities", vertex_id.value)
+        source = (
+            _fraction(authority.source_domain_coordinate.x),
+            _fraction(authority.source_domain_coordinate.y),
+        )
+        base = (
+            _fraction(authority.base_bound_coordinate.x),
+            _fraction(authority.base_bound_coordinate.y),
+        )
+        assigned = (
+            _fraction(authority.assigned_domain_coordinate.x),
+            _fraction(authority.assigned_domain_coordinate.y),
+        )
+        offset = (
+            _fraction(authority.exact_offset_from_source.x),
+            _fraction(authority.exact_offset_from_source.y),
+        )
+        expected_base = tuple(
+            Fraction(item, base_scale) for item in authority.base_bound_node
+        )
+        expected_base_node = tuple(
+            (
+                2 * (value * base_scale).numerator
+                + (value * base_scale).denominator
+            )
+            // (2 * (value * base_scale).denominator)
+            for value in source
+        )
+        expected_assigned = tuple(
+            Fraction(item, scale) for item in authority.assigned_refined_node
+        )
+        coordinate_record = coordinates.get(vertex_id)
+        if (
+            authority.base_bound_node != expected_base_node
+            or base != expected_base
+            or assigned != expected_assigned
+            or offset
+            != tuple(
+                assigned_value - source_value
+                for assigned_value, source_value in zip(
+                    assigned, source, strict=True
+                )
+            )
+            or coordinate_record is None
+            or coordinate_record.domain_coordinate
+            != authority.assigned_domain_coordinate
+        ):
+            _issue(
+                issues,
+                ValidationCode.EVALUATION_GEOMETRY,
+                item_path,
+                "vertex authority coordinates, nodes, or offset disagree",
+            )
+        base_authority = authority.authority in (
+            ChainStraightVertexAuthorityV2.BASE_BOUND_ENDPOINT_V1,
+            ChainStraightVertexAuthorityV2.BASE_BOUND_NON_CHAIN_V1,
+        )
+        if base_authority and (
+            assigned != base
+            or authority.assigned_refined_node
+            != tuple(
+                item * (1 << refinement_power)
+                for item in authority.base_bound_node
+            )
+        ):
+            _issue(
+                issues,
+                ValidationCode.EVALUATION_GEOMETRY,
+                item_path + ("authority",),
+                "BASE_BOUND authority must preserve the V1 coordinate",
+            )
+
+    chains = {
+        item.physical_chain_id: item
+        for item in binding.straight_chain_bindings
+    }
+    if not chains or len(chains) != len(binding.straight_chain_bindings):
+        _issue(
+            issues,
+            ValidationCode.DUPLICATE_ID,
+            path + ("straight_chain_bindings",),
+            "straight-chain identities must be unique and non-empty",
+        )
+    for chain_id, chain in chains.items():
+        item_path = path + ("straight_chain_bindings", chain_id.value)
+        ordered = chain.ordered_source_vertex_ids
+        if (
+            len(ordered) < 3
+            or len(set(ordered)) != len(ordered)
+            or chain.primitive_direction == (0, 0)
+            or gcd(*map(abs, chain.primitive_direction)) != 1
+            or chain.base_endpoint_span_k <= 0
+            or chain.base_end_node
+            != tuple(
+                start + chain.base_endpoint_span_k * direction
+                for start, direction in zip(
+                    chain.base_start_node,
+                    chain.primitive_direction,
+                    strict=True,
+                )
+            )
+            or chain.refined_endpoint_span_k
+            != chain.base_endpoint_span_k * (1 << refinement_power)
+        ):
+            _issue(
+                issues,
+                ValidationCode.EVALUATION_GEOMETRY,
+                item_path,
+                "straight-chain identity, primitive direction, or span is invalid",
+            )
+        assignments = chain.internal_assignments
+        if (
+            tuple(item.ordinal for item in assignments)
+            != tuple(range(1, len(ordered) - 1))
+            or tuple(item.source_vertex_id for item in assignments)
+            != ordered[1:-1]
+        ):
+            _issue(
+                issues,
+                ValidationCode.EVALUATION_GEOMETRY,
+                item_path + ("internal_assignments",),
+                "assignments must cover internal vertices in source order",
+            )
+        sequence = (
+            0,
+            *(item.selected_k for item in assignments),
+            chain.refined_endpoint_span_k,
+        )
+        if any(
+            current <= previous
+            for previous, current in zip(sequence, sequence[1:])
+        ):
+            _issue(
+                issues,
+                ValidationCode.EVALUATION_GEOMETRY,
+                item_path + ("internal_assignments",),
+                "selected k sequence must be strictly increasing",
+            )
+        for assignment in assignments:
+            assignment_path = item_path + (
+                "internal_assignments",
+                str(assignment.ordinal),
+            )
+            expected_clamped = (
+                assignment.selected_k
+                != assignment.unconstrained_canonical_k
+            )
+            excess_named = (
+                assignment.disposition
+                is ChainStraightAssignmentDispositionV2.CLAMPED_CONSTRAINT_EXCESS_ALLOWED
+            )
+            expected_dispositions = (
+                {
+                    ChainStraightAssignmentDispositionV2.CLAMPED_WITHIN_HALF_STEP,
+                    ChainStraightAssignmentDispositionV2.CLAMPED_CONSTRAINT_EXCESS_ALLOWED,
+                }
+                if assignment.clamped
+                else {
+                    ChainStraightAssignmentDispositionV2.UNCLAMPED_WITHIN_HALF_STEP
+                }
+            )
+            expected_node = tuple(
+                start * (1 << refinement_power)
+                + assignment.selected_k * direction
+                for start, direction in zip(
+                    chain.base_start_node,
+                    chain.primitive_direction,
+                    strict=True,
+                )
+            )
+            authority = authorities.get(assignment.source_vertex_id)
+            if (
+                assignment.physical_chain_id != chain_id
+                or assignment.clamped is not expected_clamped
+                or not assignment.lower_k
+                <= assignment.selected_k
+                <= assignment.upper_k
+                or excess_named and not assignment.clamped
+                or assignment.disposition not in expected_dispositions
+                or assignment.assigned_refined_node != expected_node
+                or authority is None
+                or authority.authority
+                is not ChainStraightVertexAuthorityV2.CHAIN_STRAIGHT_INTERNAL_REFINED_V2
+                or chain_id not in authority.physical_chain_ids
+                or authority.assigned_refined_node
+                != assignment.assigned_refined_node
+                or authority.exact_offset_from_source
+                != assignment.exact_offset_from_source
+            ):
+                _issue(
+                    issues,
+                    ValidationCode.EVALUATION_GEOMETRY,
+                    assignment_path,
+                    "CLAMPED, selected interval, or disposition is inconsistent",
+                )
+        start_authority = authorities.get(ordered[0]) if ordered else None
+        end_authority = authorities.get(ordered[-1]) if ordered else None
+        if (
+            start_authority is None
+            or end_authority is None
+            or start_authority.authority
+            is not ChainStraightVertexAuthorityV2.BASE_BOUND_ENDPOINT_V1
+            or end_authority.authority
+            is not ChainStraightVertexAuthorityV2.BASE_BOUND_ENDPOINT_V1
+            or chain_id not in start_authority.physical_chain_ids
+            or chain_id not in end_authority.physical_chain_ids
+            or start_authority.base_bound_node != chain.base_start_node
+            or end_authority.base_bound_node != chain.base_end_node
+        ):
+            _issue(
+                issues,
+                ValidationCode.EVALUATION_GEOMETRY,
+                item_path + ("ordered_source_vertex_ids",),
+                "chain endpoints must retain BASE_BOUND endpoint authority",
+            )
+
+    used_vertex_ids = frozenset(
+        vertex_id
+        for chain in chains.values()
+        for vertex_id in chain.ordered_source_vertex_ids
+    )
+    for vertex_id, authority in authorities.items():
+        is_non_chain = (
+            authority.authority
+            is ChainStraightVertexAuthorityV2.BASE_BOUND_NON_CHAIN_V1
+        )
+        if is_non_chain != (
+            vertex_id not in used_vertex_ids
+            and not authority.physical_chain_ids
+        ):
+            _issue(
+                issues,
+                ValidationCode.EVALUATION_GEOMETRY,
+                path + ("vertex_authorities", vertex_id.value, "authority"),
+                "non-chain authority must match straight-chain membership",
+            )
+
+    deficits = binding.previous_refinement_capacity_deficits
+    if refinement_power == 0 and deficits:
+        _issue(
+            issues,
+            ValidationCode.EVALUATION_GEOMETRY,
+            path + ("previous_refinement_capacity_deficits",),
+            "r=0 cannot have a previous-refinement witness",
+        )
+    for deficit in deficits:
+        if (
+            deficit.previous_refinement_power != refinement_power - 1
+            or deficit.physical_chain_id not in chains
+            or deficit.exact_deficit
+            != deficit.capacity_required - deficit.previous_endpoint_span_k
+            or deficit.exact_deficit <= 0
+        ):
+            _issue(
+                issues,
+                ValidationCode.EVALUATION_GEOMETRY,
+                path
+                + (
+                    "previous_refinement_capacity_deficits",
+                    deficit.physical_chain_id.value,
+                ),
+                "previous-refinement capacity witness is inconsistent",
+            )
     return tuple(issues)
 
 

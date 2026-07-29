@@ -6,6 +6,7 @@ from pathlib import Path
 from cftuv_envelope import (
     AnalysisSnapshotV1,
     CertifiedBoundHiddenSupportDirectionLawV1,
+    ChainStraightEvaluationGeometryBindingV2,
     CompiledPatchEvaluationPlanV1,
     DecalRequestV1,
     EnvelopeDebugSceneV1,
@@ -38,6 +39,10 @@ def test_checked_in_schemas_are_generated_from_public_types():
         "evaluation_geometry_binding_v1.schema.json": (
             EvaluationGeometryBindingV1,
             "cftuv.envelope.evaluation_geometry_binding.v1",
+        ),
+        "evaluation_geometry_binding_v2.schema.json": (
+            ChainStraightEvaluationGeometryBindingV2,
+            "cftuv.envelope.chain_straight_evaluation_geometry_binding.v2",
         ),
         "geometry_batch_v1.schema.json": (
             GeometryBatchV1,

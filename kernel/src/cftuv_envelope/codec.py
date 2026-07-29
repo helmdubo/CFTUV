@@ -279,6 +279,12 @@ class EvaluationGeometryBindingCodecV1(
     root_type = plan.EvaluationGeometryBindingV1
 
 
+class ChainStraightEvaluationGeometryBindingCodecV2(
+    ContractCodecV1[plan.ChainStraightEvaluationGeometryBindingV2]
+):
+    root_type = plan.ChainStraightEvaluationGeometryBindingV2
+
+
 class GeometryBatchCodecV1(ContractCodecV1[geometry_batch.GeometryBatchV1]):
     root_type = geometry_batch.GeometryBatchV1
 

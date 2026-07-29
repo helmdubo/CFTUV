@@ -1,0 +1,557 @@
+{
+  "$defs": {
+    "ChainStraightCapacityDeficitV2": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ChainStraightCapacityDeficitV2"
+        },
+        "capacity_required": {
+          "type": "integer"
+        },
+        "exact_deficit": {
+          "type": "integer"
+        },
+        "physical_chain_id": {
+          "$ref": "#/$defs/PhysicalChainId"
+        },
+        "previous_endpoint_span_k": {
+          "type": "integer"
+        },
+        "previous_refinement_power": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "$type",
+        "physical_chain_id",
+        "previous_refinement_power",
+        "previous_endpoint_span_k",
+        "capacity_required",
+        "exact_deficit"
+      ],
+      "type": "object"
+    },
+    "ChainStraightEvaluationGeometryBindingV2": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ChainStraightEvaluationGeometryBindingV2"
+        },
+        "base_lattice_scale": {
+          "type": "integer"
+        },
+        "binding_law": {
+          "enum": [
+            "EVALUATION_GEOMETRY_CHART_LATTICE_BOUND_CHAIN_STRAIGHT_V2"
+          ],
+          "type": "string"
+        },
+        "bound_hidden_support_ids": {
+          "items": {
+            "$ref": "#/$defs/HiddenSupportId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "lattice_scale": {
+          "type": "integer"
+        },
+        "patch_domain_id": {
+          "$ref": "#/$defs/PatchDomainId"
+        },
+        "previous_refinement_capacity_deficits": {
+          "items": {
+            "$ref": "#/$defs/ChainStraightCapacityDeficitV2"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "reference_metric_id": {
+          "$ref": "#/$defs/ReferenceMetricId"
+        },
+        "refinement_power": {
+          "type": "integer"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "source_revision": {
+          "$ref": "#/$defs/SourceRevision"
+        },
+        "source_vertex_coordinates": {
+          "items": {
+            "$ref": "#/$defs/EvaluationGeometrySourceVertexV1"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "straight_chain_bindings": {
+          "items": {
+            "$ref": "#/$defs/ChainStraightPhysicalChainBindingV2"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "vertex_authorities": {
+          "items": {
+            "$ref": "#/$defs/ChainStraightVertexAuthorityRecordV2"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "$type",
+        "schema_version",
+        "source_revision",
+        "patch_domain_id",
+        "reference_metric_id",
+        "binding_law",
+        "base_lattice_scale",
+        "refinement_power",
+        "lattice_scale",
+        "source_vertex_coordinates",
+        "vertex_authorities",
+        "straight_chain_bindings",
+        "previous_refinement_capacity_deficits",
+        "bound_hidden_support_ids"
+      ],
+      "type": "object"
+    },
+    "ChainStraightInternalAssignmentV2": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ChainStraightInternalAssignmentV2"
+        },
+        "assigned_refined_node": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "clamped": {
+          "type": "boolean"
+        },
+        "disposition": {
+          "enum": [
+            "UNCLAMPED_WITHIN_HALF_STEP",
+            "CLAMPED_WITHIN_HALF_STEP",
+            "CLAMPED_CONSTRAINT_EXCESS_ALLOWED"
+          ],
+          "type": "string"
+        },
+        "exact_gram_displacement_squared": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "exact_longitudinal_displacement_k": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "exact_offset_from_source": {
+          "$ref": "#/$defs/ExactVector2V1"
+        },
+        "half_step_gram_squared_bound": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "longitudinal_half_step_bound_k": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "lower_k": {
+          "type": "integer"
+        },
+        "ordinal": {
+          "type": "integer"
+        },
+        "physical_chain_id": {
+          "$ref": "#/$defs/PhysicalChainId"
+        },
+        "projection_k_gram": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "selected_k": {
+          "type": "integer"
+        },
+        "source_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        },
+        "unconstrained_canonical_k": {
+          "type": "integer"
+        },
+        "upper_k": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "$type",
+        "physical_chain_id",
+        "ordinal",
+        "source_vertex_id",
+        "lower_k",
+        "upper_k",
+        "projection_k_gram",
+        "unconstrained_canonical_k",
+        "selected_k",
+        "clamped",
+        "disposition",
+        "assigned_refined_node",
+        "exact_offset_from_source",
+        "exact_gram_displacement_squared",
+        "half_step_gram_squared_bound",
+        "exact_longitudinal_displacement_k",
+        "longitudinal_half_step_bound_k"
+      ],
+      "type": "object"
+    },
+    "ChainStraightPhysicalChainBindingV2": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ChainStraightPhysicalChainBindingV2"
+        },
+        "base_end_node": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "base_endpoint_span_k": {
+          "type": "integer"
+        },
+        "base_start_node": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "internal_assignments": {
+          "items": {
+            "$ref": "#/$defs/ChainStraightInternalAssignmentV2"
+          },
+          "type": "array"
+        },
+        "ordered_source_vertex_ids": {
+          "items": {
+            "$ref": "#/$defs/SourceVertexId"
+          },
+          "type": "array"
+        },
+        "physical_chain_id": {
+          "$ref": "#/$defs/PhysicalChainId"
+        },
+        "primitive_direction": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "refined_endpoint_span_k": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "$type",
+        "physical_chain_id",
+        "ordered_source_vertex_ids",
+        "primitive_direction",
+        "base_start_node",
+        "base_end_node",
+        "base_endpoint_span_k",
+        "refined_endpoint_span_k",
+        "internal_assignments"
+      ],
+      "type": "object"
+    },
+    "ChainStraightVertexAuthorityRecordV2": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ChainStraightVertexAuthorityRecordV2"
+        },
+        "assigned_domain_coordinate": {
+          "$ref": "#/$defs/ExactPoint2V1"
+        },
+        "assigned_refined_node": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "authority": {
+          "enum": [
+            "BASE_BOUND_ENDPOINT_V1",
+            "BASE_BOUND_NON_CHAIN_V1",
+            "CHAIN_STRAIGHT_INTERNAL_REFINED_V2"
+          ],
+          "type": "string"
+        },
+        "base_bound_coordinate": {
+          "$ref": "#/$defs/ExactPoint2V1"
+        },
+        "base_bound_node": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "exact_offset_from_source": {
+          "$ref": "#/$defs/ExactVector2V1"
+        },
+        "physical_chain_ids": {
+          "items": {
+            "$ref": "#/$defs/PhysicalChainId"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "source_domain_coordinate": {
+          "$ref": "#/$defs/ExactPoint2V1"
+        },
+        "source_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        }
+      },
+      "required": [
+        "$type",
+        "source_vertex_id",
+        "authority",
+        "physical_chain_ids",
+        "source_domain_coordinate",
+        "base_bound_node",
+        "base_bound_coordinate",
+        "assigned_refined_node",
+        "assigned_domain_coordinate",
+        "exact_offset_from_source"
+      ],
+      "type": "object"
+    },
+    "EvaluationGeometrySourceVertexV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "EvaluationGeometrySourceVertexV1"
+        },
+        "domain_coordinate": {
+          "$ref": "#/$defs/ExactPoint2V1"
+        },
+        "source_vertex_id": {
+          "$ref": "#/$defs/SourceVertexId"
+        }
+      },
+      "required": [
+        "$type",
+        "source_vertex_id",
+        "domain_coordinate"
+      ],
+      "type": "object"
+    },
+    "ExactPoint2V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactPoint2V1"
+        },
+        "x": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "y": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "ExactRationalV1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactRationalV1"
+        },
+        "denominator": {
+          "type": "integer"
+        },
+        "numerator": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "$type",
+        "numerator",
+        "denominator"
+      ],
+      "type": "object"
+    },
+    "ExactVector2V1": {
+      "additionalProperties": false,
+      "properties": {
+        "$type": {
+          "const": "ExactVector2V1"
+        },
+        "x": {
+          "$ref": "#/$defs/ExactRationalV1"
+        },
+        "y": {
+          "$ref": "#/$defs/ExactRationalV1"
+        }
+      },
+      "required": [
+        "$type",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "HiddenSupportId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "HiddenSupportId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PatchDomainId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PatchDomainId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PhysicalChainId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "PhysicalChainId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ReferenceMetricId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "ReferenceMetricId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SourceRevision": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceRevision"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SourceVertexId": {
+      "additionalProperties": false,
+      "properties": {
+        "$id_type": {
+          "const": "SourceVertexId"
+        },
+        "value": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "$id_type",
+        "value"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "cftuv.envelope.chain_straight_evaluation_geometry_binding.v2",
+  "$ref": "#/$defs/ChainStraightEvaluationGeometryBindingV2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChainStraightEvaluationGeometryBindingV2"
+}
