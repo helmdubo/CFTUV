@@ -318,8 +318,6 @@ def _boundary_for_assignment(
     assignment: dict[str, Any],
     gram,
 ) -> list[dict[str, Any]]:
-    if assignment["k_sequence"] is None:
-        return []
     factor = 1 << r
     scale = base_scale * factor
     anchor = (
@@ -332,10 +330,25 @@ def _boundary_for_assignment(
     )
     half_euclidean_squared = euclidean_period_squared / 4
     half_gram_squared = gram_period_squared / 4
+    if assignment["k_sequence"] is None:
+        selected_vertices = (
+            (0, source_vertex_ids[0], source[0], 0),
+            (
+                len(source) - 1,
+                source_vertex_ids[-1],
+                source[-1],
+                assignment["endpoint_k"],
+            ),
+        )
+    else:
+        selected_vertices = tuple(
+            (ordinal, source_vertex_id, source_point, k)
+            for ordinal, (source_vertex_id, source_point, k) in enumerate(
+                zip(source_vertex_ids, source, assignment["k_sequence"])
+            )
+        )
     result = []
-    for ordinal, (source_vertex_id, source_point, k) in enumerate(
-        zip(source_vertex_ids, source, assignment["k_sequence"])
-    ):
+    for ordinal, source_vertex_id, source_point, k in selected_vertices:
         assigned_node = (
             anchor[0] + k * direction[0],
             anchor[1] + k * direction[1],
@@ -374,6 +387,7 @@ def _boundary_for_assignment(
                 "assigned_coordinate": [
                     _fraction(item) for item in assigned_coordinate
                 ],
+                "source_coordinate": [_fraction(item) for item in source_point],
                 "exact_cross_with_bound_line": _fraction(cross),
                 "displacement": [_fraction(item) for item in displacement],
                 "displacement_squared_chart_euclidean": _fraction(
@@ -389,12 +403,10 @@ def _boundary_for_assignment(
                     half_gram_squared
                 ),
                 "full_vector_boundary_chart_euclidean_pass": (
-                    None
-                    if not internal
-                    else euclidean_squared <= half_euclidean_squared
+                    euclidean_squared <= half_euclidean_squared
                 ),
                 "full_vector_boundary_rational_affine_metric_pass": (
-                    None if not internal else gram_squared <= half_gram_squared
+                    gram_squared <= half_gram_squared
                 ),
                 "projection_k_chart_euclidean": _fraction(
                     projection_euclidean
@@ -409,15 +421,13 @@ def _boundary_for_assignment(
                     residual_gram
                 ),
                 "longitudinal_boundary_chart_euclidean_pass": (
-                    None
-                    if not internal
-                    else residual_euclidean <= Fraction(1, 2)
+                    residual_euclidean <= Fraction(1, 2)
                 ),
                 "longitudinal_boundary_rational_affine_metric_pass": (
-                    None if not internal else residual_gram <= Fraction(1, 2)
+                    residual_gram <= Fraction(1, 2)
                 ),
                 "boundary_scope": (
-                    "BASE_BOUND_ENDPOINT_AUTHORITY"
+                    "BASE_BOUND_ENDPOINT_AUTHORITY_FIXED_NOT_REFINED_BOUNDARY_REQUIRED"
                     if not internal
                     else "A_DOUBLE_PRIME_INTERNAL_ASSIGNMENT"
                 ),
@@ -555,6 +565,14 @@ def _attempt_chain(
         if norm_agreement
         else (euclidean_boundary, metric_boundary)
     )
+    reviewer_boundary_records = [
+        item for item in euclidean_boundary if item["is_endpoint"]
+    ] + [
+        item
+        for boundary in boundary_variants
+        for item in boundary
+        if not item["is_endpoint"]
+    ]
     matrix = {
         "capacity_failures": int(
             not euclidean["capacity_feasible"]
@@ -611,27 +629,19 @@ def _attempt_chain(
         + int(not endpoints_fixed_physically),
         "full_boundary_chart_euclidean_failures": sum(
             not item["full_vector_boundary_chart_euclidean_pass"]
-            for boundary in boundary_variants
-            for item in boundary
-            if not item["is_endpoint"]
+            for item in reviewer_boundary_records
         ),
         "full_boundary_rational_affine_metric_failures": sum(
             not item["full_vector_boundary_rational_affine_metric_pass"]
-            for boundary in boundary_variants
-            for item in boundary
-            if not item["is_endpoint"]
+            for item in reviewer_boundary_records
         ),
         "longitudinal_chart_euclidean_failures": sum(
             not item["longitudinal_boundary_chart_euclidean_pass"]
-            for boundary in boundary_variants
-            for item in boundary
-            if not item["is_endpoint"]
+            for item in reviewer_boundary_records
         ),
         "longitudinal_rational_affine_metric_failures": sum(
             not item["longitudinal_boundary_rational_affine_metric_pass"]
-            for boundary in boundary_variants
-            for item in boundary
-            if not item["is_endpoint"]
+            for item in reviewer_boundary_records
         ),
     }
     reviewer_admissible = all(value == 0 for value in matrix.values())
@@ -1021,6 +1031,19 @@ def _aggregate(
             if item["r"] == fixture["capacity_min_r"]
         )
         for chain in attempt["chain_attempts"]:
+            for vertex in chain["euclidean_boundary"]:
+                if not vertex["is_endpoint"]:
+                    continue
+                capacity_min_records.append(
+                    {
+                        "fixture_id": fixture["fixture_id"],
+                        "physical_chain_id": chain["physical_chain_id"],
+                        "source_vertex_id": vertex["source_vertex_id"],
+                        "r": fixture["capacity_min_r"],
+                        "assignment_norm": "COMMON_FIXED_ENDPOINT",
+                        "vertex": vertex,
+                    }
+                )
             for norm, boundary_name in (
                 ("CHART_EUCLIDEAN", "euclidean_boundary"),
                 (
@@ -1097,7 +1120,7 @@ def _aggregate(
         "domain_capacity_min_r": {
             item["fixture_id"]: item["capacity_min_r"] for item in fixtures
         },
-        "ratio_scope": "CAPACITY_MIN_R_DIAGNOSTIC",
+        "ratio_scope": "CAPACITY_MIN_R_ALL_CHAIN_VERTICES_DIAGNOSTIC",
         "failure_counters": counters,
         "observation_counters": observations,
         "max_full_vector_ratio_chart_euclidean_at_capacity_min": maximum_ratio(
@@ -1218,7 +1241,9 @@ def main() -> None:
                 "SOURCE_TO_ASSIGNED_NODE_SQUARED_NORM_LE_HALF_LINE_PERIOD_SQUARED"
             ),
             "longitudinal": "ABS_ASSIGNED_K_MINUS_PROJECTION_K_LE_ONE_HALF",
-            "endpoint_scope": "BASE_BOUND_ENDPOINT_AUTHORITY_NOT_REFINED",
+            "endpoint_scope": (
+                "BASE_BOUND_ENDPOINT_AUTHORITY_FIXED_NOT_REFINED_BOUNDARY_REQUIRED"
+            ),
             "internal_scope": "A_DOUBLE_PRIME_REFINEMENT",
         },
         "synthetic_budget_refusal_self_check": budget_self_check,
