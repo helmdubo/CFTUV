@@ -1261,6 +1261,76 @@ def _recompute_assembler_borders(
     }
 
 
+def _recompute_synthetic_assembler_borders(
+    result: dict[str, Any],
+    modules: dict[str, Any],
+) -> dict[str, Any]:
+    partition = result["partition"]
+    claims = result["assembler_borders"]
+    zero = modules["SqrtSumV1"].zero()
+    face_total = zero
+    face_area_mutations = 0
+    simple_contours = True
+    positive_faces = True
+    for face in partition["faces"]:
+        points = tuple(
+            _point_from_record(point, modules)
+            for point in face["points"]
+        )
+        recomputed_area = modules["doubled_shoelace"](points)
+        stored_area = _sqrt_sum_from_record(
+            face["doubled_area"], modules
+        )
+        face_area_mutations += int(recomputed_area != stored_area)
+        face_total = face_total + recomputed_area
+        simple_contours = (
+            simple_contours
+            and not modules["contour_crossings"](points)
+        )
+        positive_faces = positive_faces and recomputed_area.sign() > 0
+    stored_partition_area = _sqrt_sum_from_record(
+        partition["doubled_area"], modules
+    )
+    polygon_area = modules["SqrtSumV1"].rational(
+        partition["polygon_doubled_area"]
+    )
+    recomputed_defect = face_total - polygon_area
+    stored_partition_defect = _sqrt_sum_from_record(
+        partition["area_defect"], modules
+    )
+    stored_claim_defect = _sqrt_sum_from_record(
+        claims["area_defect"], modules
+    )
+    area_exact = (
+        face_area_mutations == 0
+        and face_total == stored_partition_area
+        and recomputed_defect.is_zero
+        and stored_partition_defect == recomputed_defect
+        and stored_claim_defect == recomputed_defect
+    )
+    summary_inconsistencies = sum(
+        (
+            claims["every_contour_is_simple"] != simple_contours,
+            claims["every_face_is_positive"] != positive_faces,
+            claims["area_reproduces_polygon"] != area_exact,
+            stored_claim_defect != recomputed_defect,
+        )
+    )
+    return {
+        "area_reproduces_polygon": area_exact,
+        "simple_contours": simple_contours,
+        "positive_faces": positive_faces,
+        "face_area_mutations": face_area_mutations,
+        "summary_inconsistencies": summary_inconsistencies,
+        "passed": (
+            area_exact
+            and simple_contours
+            and positive_faces
+            and summary_inconsistencies == 0
+        ),
+    }
+
+
 def _counter_delta(
     current: dict[str, int], historical: dict[str, int]
 ) -> dict[str, int]:
@@ -3203,7 +3273,16 @@ def _phase1_gate_audit(
                 for result in synthetic_adapter_recomputations
             )
         )
+        synthetic_assembler_recomputations = []
         for result in case["modes"].values():
+            assembler_recomputed = (
+                _recompute_synthetic_assembler_borders(
+                    result, modules
+                )
+            )
+            synthetic_assembler_recomputations.append(
+                assembler_recomputed
+            )
             case_exact = (
                 case_exact
                 and result["terminal"]["outcome"] == "EXACT"
@@ -3216,10 +3295,18 @@ def _phase1_gate_audit(
                 and result["face_count"] == expected["face_count"]
                 and result["polygon_doubled_area"]
                 == expected["polygon_doubled_area"]
-                and result["assembler_borders"][
-                    "area_reproduces_polygon"
-                ]
-                and not result["assembler_borders"]["area_defect"]
+            )
+            counters["assembler_border_failures"] += int(
+                not assembler_recomputed["area_reproduces_polygon"]
+            )
+            counters["assembler_summary_inconsistencies"] += (
+                assembler_recomputed["summary_inconsistencies"]
+            )
+            counters["assembler_contour_failures"] += int(
+                not assembler_recomputed["simple_contours"]
+            )
+            counters["assembler_face_area_mutations"] += (
+                assembler_recomputed["face_area_mutations"]
             )
         counters["synthetic_exactness_failures"] += int(not case_exact)
         counters["adapter_restoration_failures"] += int(
@@ -3239,6 +3326,9 @@ def _phase1_gate_audit(
                 ),
                 "adapter_recomputations": (
                     synthetic_adapter_recomputations
+                ),
+                "assembler_recomputations": (
+                    synthetic_assembler_recomputations
                 ),
             }
         )
@@ -3569,6 +3659,108 @@ def _phase1_negative_self_checks(
         ),
         "assembler_ownership_mutations",
         "ASSEMBLER_OWNERSHIP_SOURCE_SPAN_MUTATION",
+    )
+
+    def append_synthetic_assembler_check(
+        name: str,
+        field: str,
+        mode_names: tuple[str, ...],
+    ) -> None:
+        mutated_synthetics = copy.deepcopy(synthetics)
+        for mode_name in mode_names:
+            mutated_synthetics["H1_REQUIRED"]["modes"][mode_name][
+                "assembler_borders"
+            ][field] = False
+        mutated_h2 = _phase1_h2_audit(
+            fixtures, different_speed_control
+        )
+        mutated_filter = _filter_span_audit(
+            fixtures, mutated_synthetics, source_audit
+        )
+        mutated_gate = _phase1_gate_audit(
+            fixtures,
+            mutated_synthetics,
+            family,
+            source_audit,
+            mutated_h2,
+            mutated_filter,
+            forced_restoration,
+            modules,
+            product_tree_ok=True,
+            fixture_form_ok=True,
+            verifier_schema_ok=True,
+            phase0_history_ok=True,
+            accepted_a_proofs_ok=True,
+        )
+        outcome, decision = _phase1_decide(mutated_gate)
+        counter_name = "assembler_summary_inconsistencies"
+        counter_value = mutated_gate["failure_counters"][
+            counter_name
+        ]
+        case_record = next(
+            item
+            for item in mutated_gate["synthetic_gate_records"]
+            if item["case"] == "H1_REQUIRED"
+        )
+        mode_agreement_preserved = (
+            case_record["mode_agreement_recomputed"][
+                "all_exact_and_agree"
+            ]
+            and case_record["mode_summary_inconsistencies"] == 0
+        )
+        expected_count = len(mode_names)
+        expected_fact = "ASSEMBLER_SUMMARY_INCONSISTENT"
+        checks.append(
+            {
+                "name": name,
+                "kind": (
+                    "SYNTHETIC_ASSEMBLER_SUMMARY_MUTATION_"
+                    "WITH_EXACT_LEAF_RECOMPUTATION"
+                ),
+                "mutated_field": field,
+                "mutated_modes": list(mode_names),
+                "mutated_counter": counter_name,
+                "observed_counter_value": counter_value,
+                "expected_counter_value": expected_count,
+                "expected_decision_outcome": "REFUSED",
+                "expected_named_fact": expected_fact,
+                "observed_decision_outcome": outcome,
+                "observed_named_fact": decision[
+                    "named_first_exact_fact"
+                ],
+                "mode_agreement_preserved": (
+                    mode_agreement_preserved
+                ),
+                "passed": (
+                    outcome == "REFUSED"
+                    and counter_value == expected_count
+                    and decision["named_counter"] == counter_name
+                    and decision["named_first_exact_fact"]
+                    == expected_fact
+                    and mode_agreement_preserved
+                ),
+            }
+        )
+
+    append_synthetic_assembler_check(
+        "STALE_SYNTHETIC_CONTOUR_SIMPLE_ONE_MODE",
+        "every_contour_is_simple",
+        ("MOTORCYCLE",),
+    )
+    append_synthetic_assembler_check(
+        "STALE_SYNTHETIC_CONTOUR_SIMPLE_BOTH_MODES",
+        "every_contour_is_simple",
+        ("MOTORCYCLE", "EXHAUSTIVE"),
+    )
+    append_synthetic_assembler_check(
+        "STALE_SYNTHETIC_FACE_POSITIVE_ONE_MODE",
+        "every_face_is_positive",
+        ("MOTORCYCLE",),
+    )
+    append_synthetic_assembler_check(
+        "STALE_SYNTHETIC_FACE_POSITIVE_BOTH_MODES",
+        "every_face_is_positive",
+        ("MOTORCYCLE", "EXHAUSTIVE"),
     )
     return {
         "all_passed": all(item["passed"] for item in checks),
