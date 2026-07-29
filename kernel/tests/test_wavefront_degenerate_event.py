@@ -52,9 +52,12 @@ from cftuv_envelope.wavefront.event_time import (
     sliding_point,
     sliding_time,
 )
+from cftuv_envelope.wavefront.faces import FaceOutcome, build_faces
+from cftuv_envelope.wavefront.polygon import LoopV1, PolygonV1
 from cftuv_envelope.wavefront.skeleton import (
     CandidateRefusal,
     SkeletonOutcome,
+    SplitSearch,
     build_skeleton,
     refusal_counter,
 )
@@ -68,6 +71,96 @@ CROSS_ARM = 4
 
 # Рабочая строка сетки: до починки дефект на ней был, и закон `-(w-t)^2` в силе.
 WIDE, TALL = 6, 4
+
+
+def _assert_exact_straight_seed_case(
+    points,
+    split_search,
+    *,
+    expected_levels,
+    expected_nodes,
+    expected_faces,
+    expected_doubled_area,
+):
+    polygon = PolygonV1(LoopV1(points))
+    builder = skeleton_module._Builder(polygon, split_search)
+    sliding = [
+        vertex for vertex in builder.vertices if vertex.sliding is not None
+    ]
+    assert len(sliding) == 1
+    assert sliding[0].ident in builder.sliding_vertices
+
+    skeleton = builder.run()
+    assert skeleton.outcome is SkeletonOutcome.EXACT
+    assert skeleton.levels == expected_levels
+    assert len(skeleton.nodes) == expected_nodes
+
+    partition = build_faces(polygon, skeleton)
+    assert partition.outcome is FaceOutcome.EXACT, partition.detail
+    assert len(partition.faces) == expected_faces
+    assert partition.polygon_doubled_area == expected_doubled_area
+    assert partition.doubled_area.as_rational() == expected_doubled_area
+    assert partition.area_defect.is_zero
+
+
+@pytest.mark.parametrize(
+    "split_search", tuple(SplitSearch), ids=lambda item: item.value
+)
+def test_the_small_straight_seed_case_is_exact_in_both_search_modes(
+    split_search,
+):
+    _assert_exact_straight_seed_case(
+        ((0, 0), (2, 0), (4, 0), (1, 1), (0, 4)),
+        split_search,
+        expected_levels=3,
+        expected_nodes=2,
+        expected_faces=5,
+        expected_doubled_area=8,
+    )
+
+
+@pytest.mark.parametrize(
+    "split_search", tuple(SplitSearch), ids=lambda item: item.value
+)
+def test_the_required_straight_seed_case_is_exact_in_both_search_modes(
+    split_search,
+):
+    _assert_exact_straight_seed_case(
+        ((0, 0), (3, 0), (6, 0), (6, 4), (0, 4)),
+        split_search,
+        expected_levels=3,
+        expected_nodes=3,
+        expected_faces=5,
+        expected_doubled_area=48,
+    )
+
+
+@pytest.mark.parametrize(
+    "split_search", tuple(SplitSearch), ids=lambda item: item.value
+)
+def test_scaled_raw_q_still_has_one_exact_physical_seed_speed(
+    split_search,
+):
+    points = ((0, 0), (2, 0), (6, 0), (6, 4), (0, 4))
+    polygon = PolygonV1(LoopV1(points))
+    builder = skeleton_module._Builder(polygon, split_search)
+    vertex = builder.vertices[1]
+    first = builder.edges[vertex.prev_edge].line
+    second = builder.edges[vertex.next_edge].line
+    assert first.q != second.q
+    assert (
+        first.q * second.normal_squared
+        == second.q * first.normal_squared
+    )
+
+    _assert_exact_straight_seed_case(
+        points,
+        split_search,
+        expected_levels=4,
+        expected_nodes=2,
+        expected_faces=5,
+        expected_doubled_area=48,
+    )
 
 
 def _levels_until(polygon, limit: Fraction):

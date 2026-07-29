@@ -6,6 +6,13 @@ from functools import lru_cache
 from pathlib import Path
 
 import cftuv_envelope as kernel
+import pytest
+from cftuv_envelope.wavefront import conveyor_coverage, prepare_conveyor
+from cftuv_envelope.wavefront import skeleton as skeleton_module
+from cftuv_envelope.wavefront.skeleton import (
+    CandidateRefusal,
+    refusal_counter,
+)
 
 
 KERNEL_ROOT = Path(__file__).parents[1]
@@ -40,6 +47,36 @@ EXPECTED_K_SEQUENCES = {
     "building_all_seams_patch_105_lost_resolved_v1": (
         (0, 1, 2),
     ),
+}
+EXPECTED_PUBLIC_WAVEFRONT = {
+    "building_all_seams_patch_001_lost_resolved_v1": {
+        "sliding_seed_count": 4,
+        "skeleton_levels": 223,
+        "node_count": 62,
+        "face_count": 54,
+        "born_zero_refusal_count": 22,
+    },
+    "building_all_seams_patch_006_lost_resolved_v1": {
+        "sliding_seed_count": 5,
+        "skeleton_levels": 266,
+        "node_count": 73,
+        "face_count": 63,
+        "born_zero_refusal_count": 26,
+    },
+    "building_all_seams_patch_011_lost_resolved_v1": {
+        "sliding_seed_count": 3,
+        "skeleton_levels": 218,
+        "node_count": 62,
+        "face_count": 54,
+        "born_zero_refusal_count": 22,
+    },
+    "building_all_seams_patch_105_lost_resolved_v1": {
+        "sliding_seed_count": 1,
+        "skeleton_levels": 13,
+        "node_count": 6,
+        "face_count": 8,
+        "born_zero_refusal_count": 1,
+    },
 }
 
 
@@ -336,3 +373,43 @@ def test_point_contact_v1_binding_and_raw_topology_anchor_are_unchanged():
         len(raw.loops),
         len(raw.regions),
     ) == (0, 1, 1)
+
+
+@pytest.mark.parametrize(
+    "case_name",
+    tuple(EXPECTED_PUBLIC_WAVEFRONT),
+)
+def test_public_wavefront_classifies_exact_straight_seed_vertices(
+    case_name,
+):
+    expected = EXPECTED_PUBLIC_WAVEFRONT[case_name]
+    snapshot, request, domain, _ = _load_case(case_name)
+    prepared = prepare_conveyor(
+        snapshot,
+        request,
+        patch_domain_id=domain.patch_domain_id,
+    )
+    assert prepared.outcome.value == "EXACT", prepared.detail
+    (region,) = prepared.regions
+    assert region.is_exact
+    assert region.bridge.polygon is not None
+    assert region.skeleton is not None
+    assert region.partition is not None
+
+    seed = skeleton_module._Builder(region.bridge.polygon)
+    sliding = [
+        vertex for vertex in seed.vertices if vertex.sliding is not None
+    ]
+    assert len(sliding) == expected["sliding_seed_count"]
+    assert {vertex.ident for vertex in sliding} == seed.sliding_vertices
+    assert region.skeleton.levels == expected["skeleton_levels"]
+    assert len(region.skeleton.nodes) == expected["node_count"]
+    assert len(region.partition.faces) == expected["face_count"]
+    assert region.skeleton.counter(
+        refusal_counter(CandidateRefusal.FILTER_SPAN_IS_BORN_ZERO)
+    ) == expected["born_zero_refusal_count"]
+
+    coverage = conveyor_coverage(prepared)
+    assert coverage.outcome.value == "EXACT", coverage.detail
+    (covered_region,) = coverage.regions
+    assert covered_region.outcome.value == "EXACT"

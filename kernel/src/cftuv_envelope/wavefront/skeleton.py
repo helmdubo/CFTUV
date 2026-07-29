@@ -494,6 +494,7 @@ class _Builder:
                     else corner
                 ),
             )
+            self._classify_sliding(vertex)
             self.vertices.append(vertex)
             self._register(vertex)
             if corner is None:
@@ -1486,27 +1487,30 @@ class _Builder:
         self._emit(EventKind.SPLIT, event, tuple(participants), 1)
         self.counters["split_events"] += 1
 
+    def _classify_sliding(self, vertex: _Vertex) -> None:
+        """Развёрнутый стык одной физической прямой: точный общий закон."""
+
+        first = self.edges[vertex.prev_edge].line
+        second = self.edges[vertex.next_edge].line
+        if not (
+            first.a * second.b - second.a * first.b == 0
+            and first.a * second.a + first.b * second.b > 0
+            # Равны физические скорости, а не сырые `q`: нормали одного
+            # направления могут иметь разный целочисленный масштаб.
+            and first.q * second.normal_squared
+            == second.q * first.normal_squared
+        ):
+            return
+        vertex.sliding = _project(first, vertex.point)
+        self.sliding_vertices.add(vertex.ident)
+
     def _new_vertex(self, **fields) -> _Vertex:
         ident = len(self.vertices)
         vertex = _Vertex(ident=ident, reflex=False, **fields)
         first = self.edges[vertex.prev_edge].line
         second = self.edges[vertex.next_edge].line
         vertex.reflex = _is_reflex(first, second)
-        if (
-            first.a * second.b - second.a * first.b == 0
-            and first.a * second.a + first.b * second.b > 0
-            # Скорости обязаны совпадать: развёрнутый угол — это ОДНА
-            # движущаяся прямая, а две коллинеарные прямые разных скоростей
-            # совпадают ровно в одно мгновение и тут же расходятся. Закреплять
-            # им общую проекцию значило бы объявить мгновение вечностью.
-            and first.q * second.normal_squared
-            == second.q * first.normal_squared
-        ):
-            # Развёрнутый угол: закрепляем проекцию вдоль общей прямой прямо в
-            # момент рождения. Позже её взять неоткуда — вершина к тому времени
-            # уже уедет, а начальное место останется только в этом числе.
-            vertex.sliding = _project(first, vertex.point)
-            self.sliding_vertices.add(ident)
+        self._classify_sliding(vertex)
         self.vertices.append(vertex)
         self._register(vertex)
         if vertex.reflex and self.graph is not None:
