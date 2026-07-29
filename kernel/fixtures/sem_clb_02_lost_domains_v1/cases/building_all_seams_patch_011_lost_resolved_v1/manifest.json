@@ -1,0 +1,1581 @@
+{
+  "contract_validation": {
+    "analysis_snapshot_issue_count": 0,
+    "cross_reference_issue_count": 0,
+    "decal_request_issue_count": 0
+  },
+  "decal_request_id": "host-v0:decal-request:b9fd1b903fcd962d406fdb93",
+  "description": "SEM-CLB-02 building/all_seams patch 11 portable domain snapshot; no .blend content is included.",
+  "effective_domain_physical_edge_ids": [
+    38,
+    39,
+    73,
+    74,
+    75,
+    127,
+    146,
+    147,
+    171,
+    174,
+    178,
+    252,
+    269,
+    271,
+    291,
+    381,
+    382,
+    383,
+    384,
+    418,
+    446,
+    473,
+    479,
+    501,
+    503,
+    504,
+    553,
+    559,
+    561,
+    565,
+    598,
+    619
+  ],
+  "expected_kernel_results": {
+    "28f6c8c2b25c2ae32696fed57826f65a03b85c2b": {
+      "compile": {
+        "compilation_available": true,
+        "diagnostics": [],
+        "envelope_spec_count": 65,
+        "evaluation_geometry_binding": {
+          "binding_present": false,
+          "bound_coordinate_collisions": [],
+          "lattice_scale": null,
+          "source_collinear_bound_non_linear_triples": [],
+          "validation_issues": [],
+          "zero_length_bound_chain_edges": []
+        },
+        "outcome": "EXACT"
+      },
+      "prepare": {
+        "counters": [
+          [
+            "CONVEYOR_ARRIVAL_LAWS",
+            32
+          ],
+          [
+            "CONVEYOR_RESCALED_ARRIVAL_LAWS",
+            23
+          ],
+          [
+            "CONVEYOR_RATIONAL_VERTEX_FANS",
+            22
+          ],
+          [
+            "CONVEYOR_DEGRADED_MITER_CORNERS",
+            0
+          ],
+          [
+            "CONVEYOR_MITERED_CORNERS",
+            0
+          ],
+          [
+            "CONVEYOR_BOUND_FAN_DIRECTIONS",
+            2
+          ],
+          [
+            "CONVEYOR_FAN_SUPPORTS",
+            22
+          ],
+          [
+            "CONVEYOR_DOMAIN_REGIONS",
+            1
+          ],
+          [
+            "CONVEYOR_LATTICE_SCALE",
+            32768
+          ],
+          [
+            "CONVEYOR_FAN_EDGES",
+            22
+          ],
+          [
+            "CONVEYOR_DOMAIN_EDGES",
+            32
+          ],
+          [
+            "CONVEYOR_SOURCE_EDGES",
+            32
+          ],
+          [
+            "CONVEYOR_WALL_EDGES",
+            0
+          ],
+          [
+            "CONVEYOR_AMBIGUOUS_OWNER_EDGES",
+            16
+          ],
+          [
+            "CONVEYOR_WEIGHTED_SOURCE_EDGES",
+            32
+          ],
+          [
+            "CONVEYOR_SKELETON_NODES",
+            62
+          ],
+          [
+            "CONVEYOR_FACES",
+            54
+          ]
+        ],
+        "detail": "",
+        "first_geometry_failure": null,
+        "lattice_scale": 32768,
+        "law_names": [
+          "strip-spec:03e90bacd3ea6d934ea5e78a",
+          "strip-spec:0cd90d1b6749670e29adb31e",
+          "strip-spec:0e02ac36eff8307fe3485380",
+          "strip-spec:15fb59ec1a75fe128c5b0b1e",
+          "strip-spec:2bcf2978de5ae2f660ea8ceb",
+          "strip-spec:3337d3f2da32a9a7a3b30f45",
+          "strip-spec:35a6c6efb31aa375f3321794",
+          "strip-spec:3b832cf04eba5730f2021eda",
+          "strip-spec:4b1e7f7e95778082370eac01",
+          "strip-spec:4bf7684f1629b80cc3390ff4",
+          "strip-spec:629739aaa089c3ae80777910",
+          "strip-spec:71a7404dee2b0dbe35a307ef",
+          "strip-spec:7c9b6d2212a442fb0ea01cfb",
+          "strip-spec:819160c6938beed5ca40ae46",
+          "strip-spec:8918f2a80493f987fa7ee311",
+          "strip-spec:96d2a9632e13aa1194f8deb2",
+          "strip-spec:9adda59724bf905a3b89288a",
+          "strip-spec:9b595128a81f561f47cb1fb6",
+          "strip-spec:9d10abdab9020ca44e96c8aa",
+          "strip-spec:a9abbfaeb9f0850cd6ffa8b1",
+          "strip-spec:ae907de3b765f71e49e69792",
+          "strip-spec:b6d82f8a614d1c0269c736b6",
+          "strip-spec:b8b3f73fd32bbb1618942875",
+          "strip-spec:b8b3f73fd32bbb1618942875",
+          "strip-spec:b8b3f73fd32bbb1618942875",
+          "strip-spec:bc52c822f1cd56b3893ae587",
+          "strip-spec:c0cf724bf3c4c8dc8a686f52",
+          "strip-spec:c74c81edfdc00864b8408ca6",
+          "strip-spec:c74c81edfdc00864b8408ca6",
+          "strip-spec:ca44283b2960cc6f90bc9e5b",
+          "strip-spec:ce42b476c27225ad0c32247f",
+          "strip-spec:dab0b691fad284ef8beaf06c"
+        ],
+        "outcome": "EXACT",
+        "regions": [
+          {
+            "bridge": {
+              "ambiguous_owner_spans": [
+                [
+                  -643294,
+                  392505,
+                  -601393,
+                  350603
+                ],
+                [
+                  -601393,
+                  350603,
+                  -517923,
+                  267134
+                ],
+                [
+                  -517923,
+                  267134,
+                  0,
+                  0
+                ],
+                [
+                  -299113,
+                  187044,
+                  -163012,
+                  116846
+                ],
+                [
+                  -130244,
+                  84078,
+                  -266345,
+                  154276
+                ],
+                [
+                  0,
+                  0,
+                  877973,
+                  -452840
+                ],
+                [
+                  0,
+                  32768,
+                  136101,
+                  -37430
+                ],
+                [
+                  99741,
+                  9263,
+                  -643294,
+                  392505
+                ],
+                [
+                  168869,
+                  -70198,
+                  32768,
+                  0
+                ],
+                [
+                  542833,
+                  -247214,
+                  678934,
+                  -317412
+                ],
+                [
+                  545962,
+                  -220889,
+                  99741,
+                  9263
+                ],
+                [
+                  686859,
+                  -321499,
+                  822959,
+                  -391697
+                ],
+                [
+                  711702,
+                  -350180,
+                  575601,
+                  -279982
+                ],
+                [
+                  855727,
+                  -424465,
+                  719627,
+                  -354267
+                ],
+                [
+                  877973,
+                  -452840,
+                  1365414,
+                  -704252
+                ],
+                [
+                  1240043,
+                  -578881,
+                  701077,
+                  -300894
+                ]
+              ],
+              "edge_count": 32,
+              "fan_edge_count": 22,
+              "findings": [],
+              "lattice_scale": 32768,
+              "law_count": 32,
+              "matched_edge_count": 32,
+              "non_unit_speed_laws": [
+                [
+                  "strip-spec:03e90bacd3ea6d934ea5e78a",
+                  "16777216/479237161"
+                ],
+                [
+                  "strip-spec:0cd90d1b6749670e29adb31e",
+                  "16777216/479237161"
+                ],
+                [
+                  "strip-spec:0e02ac36eff8307fe3485380",
+                  "2097152/1565001"
+                ],
+                [
+                  "strip-spec:15fb59ec1a75fe128c5b0b1e",
+                  "2097152/1565001"
+                ],
+                [
+                  "strip-spec:2bcf2978de5ae2f660ea8ceb",
+                  "2097152/1565001"
+                ],
+                [
+                  "strip-spec:3337d3f2da32a9a7a3b30f45",
+                  "16777216/479237161"
+                ],
+                [
+                  "strip-spec:35a6c6efb31aa375f3321794",
+                  "16777216/479237161"
+                ],
+                [
+                  "strip-spec:3b832cf04eba5730f2021eda",
+                  "16777216/479237161"
+                ],
+                [
+                  "strip-spec:4b1e7f7e95778082370eac01",
+                  "2097152/1565001"
+                ],
+                [
+                  "strip-spec:4bf7684f1629b80cc3390ff4",
+                  "2097152/1565001"
+                ],
+                [
+                  "strip-spec:629739aaa089c3ae80777910",
+                  "2097152/1565001"
+                ],
+                [
+                  "strip-spec:71a7404dee2b0dbe35a307ef",
+                  "2097152/1565001"
+                ],
+                [
+                  "strip-spec:7c9b6d2212a442fb0ea01cfb",
+                  "2097152/1565001"
+                ],
+                [
+                  "strip-spec:819160c6938beed5ca40ae46",
+                  "16777216/479237161"
+                ],
+                [
+                  "strip-spec:8918f2a80493f987fa7ee311",
+                  "16777216/479237161"
+                ],
+                [
+                  "strip-spec:96d2a9632e13aa1194f8deb2",
+                  "676987865661440/19126873798524361"
+                ],
+                [
+                  "strip-spec:9adda59724bf905a3b89288a",
+                  "2097152/1565001"
+                ],
+                [
+                  "strip-spec:9b595128a81f561f47cb1fb6",
+                  "2097152/1565001"
+                ],
+                [
+                  "strip-spec:9d10abdab9020ca44e96c8aa",
+                  "16777216/479237161"
+                ],
+                [
+                  "strip-spec:a9abbfaeb9f0850cd6ffa8b1",
+                  "2097152/1565001"
+                ],
+                [
+                  "strip-spec:ae907de3b765f71e49e69792",
+                  "2097152/1565001"
+                ],
+                [
+                  "strip-spec:b6d82f8a614d1c0269c736b6",
+                  "16777216/479237161"
+                ],
+                [
+                  "strip-spec:b8b3f73fd32bbb1618942875",
+                  "16777216/479237161"
+                ],
+                [
+                  "strip-spec:b8b3f73fd32bbb1618942875",
+                  "16777216/479237161"
+                ],
+                [
+                  "strip-spec:b8b3f73fd32bbb1618942875",
+                  "16777216/479237161"
+                ],
+                [
+                  "strip-spec:bc52c822f1cd56b3893ae587",
+                  "2097152/1565001"
+                ],
+                [
+                  "strip-spec:c0cf724bf3c4c8dc8a686f52",
+                  "2097152/1565001"
+                ],
+                [
+                  "strip-spec:c74c81edfdc00864b8408ca6",
+                  "16777216/479237161"
+                ],
+                [
+                  "strip-spec:c74c81edfdc00864b8408ca6",
+                  "16777216/479237161"
+                ],
+                [
+                  "strip-spec:ca44283b2960cc6f90bc9e5b",
+                  "16777216/479237161"
+                ],
+                [
+                  "strip-spec:ce42b476c27225ad0c32247f",
+                  "16777216/479237161"
+                ],
+                [
+                  "strip-spec:dab0b691fad284ef8beaf06c",
+                  "2097152/1565001"
+                ]
+              ],
+              "off_lattice_points": [],
+              "outcome": "EXACT",
+              "owner_by_edge_count": 38,
+              "snap_residual": "644379/42910318592",
+              "surplus_laws": [],
+              "undetermined_source_count": 0,
+              "unmatched_laws": [],
+              "wall_spans": [],
+              "weighted_edge_count": 32
+            },
+            "faces": {
+              "face_count": 54,
+              "outcome": "EXACT"
+            },
+            "region_id": "sparse-patch-domain-region:dbf5e7636da3bf3273e60509",
+            "skeleton": {
+              "counters": [
+                [
+                  "coincident_split_targets",
+                  6
+                ],
+                [
+                  "discarded_stale_candidates",
+                  261
+                ],
+                [
+                  "edge_events",
+                  17
+                ],
+                [
+                  "motorcycle_march_steps",
+                  146
+                ],
+                [
+                  "motorcycle_trace_crashes",
+                  9
+                ],
+                [
+                  "motorcycle_trace_pairs",
+                  33
+                ],
+                [
+                  "motorcycle_traces",
+                  23
+                ],
+                [
+                  "motorcycle_unbounded_traces",
+                  0
+                ],
+                [
+                  "motorcycle_wall_crashes",
+                  23
+                ],
+                [
+                  "motorcycle_wall_tests",
+                  2183
+                ],
+                [
+                  "multi_participant_nodes",
+                  9
+                ],
+                [
+                  "peaks",
+                  9
+                ],
+                [
+                  "refused_filter_beyond_trace",
+                  1324
+                ],
+                [
+                  "refused_filter_edge_is_own",
+                  142
+                ],
+                [
+                  "refused_filter_event_in_the_past",
+                  2730
+                ],
+                [
+                  "refused_filter_point_outside_front",
+                  1026
+                ],
+                [
+                  "refused_filter_solo_vertex",
+                  0
+                ],
+                [
+                  "refused_filter_span_does_not_collapse",
+                  0
+                ],
+                [
+                  "refused_filter_span_is_born_zero",
+                  22
+                ],
+                [
+                  "refused_filter_triple_never_concurrent",
+                  809
+                ],
+                [
+                  "refused_no_rule_joint_is_antiparallel",
+                  4
+                ],
+                [
+                  "refused_no_rule_joint_is_codirectional",
+                  0
+                ],
+                [
+                  "refused_no_rule_joint_is_codirectional_at_different_speeds",
+                  0
+                ],
+                [
+                  "refused_no_rule_meeting_not_reconnectable",
+                  31
+                ],
+                [
+                  "refused_no_rule_span_vanished",
+                  0
+                ],
+                [
+                  "refused_no_rule_triple_always_concurrent",
+                  259
+                ],
+                [
+                  "resting_steiner_vertices",
+                  9
+                ],
+                [
+                  "ridges",
+                  32
+                ],
+                [
+                  "split_candidates_beyond_trace",
+                  1324
+                ],
+                [
+                  "split_candidates_examined",
+                  6273
+                ],
+                [
+                  "split_events",
+                  45
+                ],
+                [
+                  "split_search_exhaustive_segments",
+                  0
+                ],
+                [
+                  "split_search_exhaustive_vertices",
+                  4
+                ],
+                [
+                  "start_events",
+                  0
+                ],
+                [
+                  "switch_events",
+                  0
+                ],
+                [
+                  "vertex_meeting_events",
+                  0
+                ]
+              ],
+              "levels": 197,
+              "node_count": 62,
+              "outcome": "EXACT"
+            }
+          }
+        ]
+      },
+      "trace_sha256": "9a1b38bda4bb603c73b09d85f25c0393cd5ed4328379409670280b51c2a8b175"
+    },
+    "c975b7a2047017263cde067b9e1d7e8286d0cb37": {
+      "compile": {
+        "compilation_available": true,
+        "diagnostics": [],
+        "envelope_spec_count": 65,
+        "evaluation_geometry_binding": {
+          "binding_present": true,
+          "bound_coordinate_collisions": [],
+          "lattice_scale": 32768,
+          "source_collinear_bound_non_linear_triples": [
+            {
+              "bound_coordinates": [
+                [
+                  "-321647/16384",
+                  "392505/32768"
+                ],
+                [
+                  "99741/32768",
+                  "9263/32768"
+                ],
+                [
+                  "272981/16384",
+                  "-220889/32768"
+                ]
+              ],
+              "bound_oriented_cross": "-181419/536870912",
+              "physical_chain_id": "host-v0:physical-chain:72df03a7b10937c5019ee81f",
+              "source_coordinates": [
+                [
+                  "-77124589/3928557",
+                  "31371645/2619038"
+                ],
+                [
+                  "35873849/11785671",
+                  "740365/2619038"
+                ],
+                [
+                  "196366393/11785671",
+                  "-17654905/2619038"
+                ]
+              ],
+              "source_oriented_cross": "0",
+              "source_vertex_ids": [
+                "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:233",
+                "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:206",
+                "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:266"
+              ]
+            },
+            {
+              "bound_coordinates": [
+                [
+                  "-517923/32768",
+                  "133567/16384"
+                ],
+                [
+                  "0",
+                  "0"
+                ],
+                [
+                  "877973/32768",
+                  "-56605/4096"
+                ]
+              ],
+              "bound_oriented_cross": "94031/536870912",
+              "physical_chain_id": "host-v0:physical-chain:898b4651dba2ef2da0e85303",
+              "source_coordinates": [
+                [
+                  "-62093824/3928557",
+                  "21351135/2619038"
+                ],
+                [
+                  "0",
+                  "0"
+                ],
+                [
+                  "315780608/11785671",
+                  "-36194015/2619038"
+                ]
+              ],
+              "source_oriented_cross": "0",
+              "source_vertex_ids": [
+                "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:232",
+                "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:128",
+                "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:153"
+              ]
+            },
+            {
+              "bound_coordinates": [
+                [
+                  "0",
+                  "0"
+                ],
+                [
+                  "877973/32768",
+                  "-56605/4096"
+                ],
+                [
+                  "682707/16384",
+                  "-176063/8192"
+                ]
+              ],
+              "bound_oriented_cross": "-41359/268435456",
+              "physical_chain_id": "host-v0:physical-chain:898b4651dba2ef2da0e85303",
+              "source_coordinates": [
+                [
+                  "0",
+                  "0"
+                ],
+                [
+                  "315780608/11785671",
+                  "-36194015/2619038"
+                ],
+                [
+                  "491098624/11785671",
+                  "-56288545/2619038"
+                ]
+              ],
+              "source_oriented_cross": "0",
+              "source_vertex_ids": [
+                "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:128",
+                "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:153",
+                "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:231"
+              ]
+            }
+          ],
+          "validation_issues": [],
+          "zero_length_bound_chain_edges": []
+        },
+        "outcome": "EXACT"
+      },
+      "prepare": {
+        "counters": [],
+        "detail": "PLANAR_CHAIN_SUPPORT_NOT_LINEAR",
+        "first_geometry_failure": {
+          "chain_use_id": "host-v0:chain-use:638d15a12d7c6c85748059a1",
+          "declared_corner_vertex_ids": [],
+          "function": "_validate_segment_corners",
+          "incoming": {
+            "chain_use_id": "host-v0:chain-use:638d15a12d7c6c85748059a1",
+            "end": [
+              "ExactScalar(expression='Rational(877973, 32768)')",
+              "ExactScalar(expression='Rational(-56605, 4096)')"
+            ],
+            "physical_edge_id": "host-edge:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:553",
+            "source_vertex_end_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:153",
+            "source_vertex_start_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:231",
+            "start": [
+              "ExactScalar(expression='Rational(682707, 16384)')",
+              "ExactScalar(expression='Rational(-176063, 8192)')"
+            ],
+            "tangent": [
+              "ExactScalar(expression='Mul(Integer(-1), Rational(1996558336, 116247624995160111), Pow(Integer(38749208331720037), Rational(1, 2)))')",
+              "ExactScalar(expression='Mul(Rational(343261184, 38749208331720037), Pow(Integer(38749208331720037), Rational(1, 2)))')"
+            ]
+          },
+          "message": "non-linear ChainUse requires an explicit segment-corner support relation at host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:153",
+          "oriented_cross": "-2775555506176*sqrt(43841669074546202741222892973966297)/131525007223638608223668678921898891",
+          "outcome": "PLANAR_CHAIN_SUPPORT_NOT_LINEAR",
+          "outgoing": {
+            "chain_use_id": "host-v0:chain-use:638d15a12d7c6c85748059a1",
+            "end": [
+              "ExactScalar(expression='Integer(0)')",
+              "ExactScalar(expression='Integer(0)')"
+            ],
+            "physical_edge_id": "host-edge:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:504",
+            "source_vertex_end_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:128",
+            "source_vertex_start_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:153",
+            "start": [
+              "ExactScalar(expression='Rational(877973, 32768)')",
+              "ExactScalar(expression='Rational(-56605, 4096)')"
+            ],
+            "tangent": [
+              "ExactScalar(expression='Mul(Integer(-1), Rational(3596177408, 1131421026701530981), Pow(Integer(1131421026701530981), Rational(1, 2)))')",
+              "ExactScalar(expression='Mul(Rational(1854832640, 1131421026701530981), Pow(Integer(1131421026701530981), Rational(1, 2)))')"
+            ]
+          },
+          "shared_source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:153",
+          "source_geometry_oriented_cross": "0",
+          "source_geometry_vertex_coordinates": {
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:128": [
+              "ExactScalar(expression='Integer(0)')",
+              "ExactScalar(expression='Integer(0)')"
+            ],
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:153": [
+              "ExactScalar(expression='Rational(315780608, 11785671)')",
+              "ExactScalar(expression='Rational(-36194015, 2619038)')"
+            ],
+            "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:231": [
+              "ExactScalar(expression='Rational(491098624, 11785671)')",
+              "ExactScalar(expression='Rational(-56288545, 2619038)')"
+            ]
+          }
+        },
+        "lattice_scale": null,
+        "law_names": [],
+        "outcome": "DOMAIN_GEOMETRY_REFUSED",
+        "regions": []
+      },
+      "trace_sha256": "c00b87ad11bd2c9cee9dc5ae8face9b6b555841005b5e740d15a7fd8b51654a9"
+    }
+  },
+  "files": {
+    "analysis_snapshot.json": "2c877e0a1b967fbf647f4a4fdf10dee8a708b73f8fe4497a189c710cfa1a87ef",
+    "decal_request.json": "377f4fd4aac5f03b231f4148490ebb40599ad07dc295e347f390d96e3a6d3717",
+    "host_mesh.json": "30c27a75c7ed651d1d1be969ff722d5a7344ef0c3d7a741ab1d053ed41832b2d"
+  },
+  "fixture_hash": "4d72cc52cefb8fbcbb59e243dd11947a9741ecf7aae7128474d125c7331deb02",
+  "fixture_id": "building_all_seams_patch_011_lost_resolved_v1",
+  "mesh_counts": {
+    "edges": 688,
+    "faces": 312,
+    "vertices": 332
+  },
+  "object_data_name": "walls.010",
+  "object_name": "building",
+  "patch_domain_id": "host-v0:patch-domain:46033905eeec0e606564b0ab",
+  "patch_domain_ids": [
+    "host-v0:patch-domain:46033905eeec0e606564b0ab"
+  ],
+  "patch_id": 11,
+  "physical_chain_ids": [
+    "host-v0:physical-chain:003c39ffd206a14abf2e1742",
+    "host-v0:physical-chain:010a423354db0734a8649cf8",
+    "host-v0:physical-chain:010c2692729bd9c77940dfe1",
+    "host-v0:physical-chain:0286d3829a76b0b3cb2e9bcb",
+    "host-v0:physical-chain:075f6e652b7331476001e521",
+    "host-v0:physical-chain:0da2fdb77181ebbd552368ed",
+    "host-v0:physical-chain:100b37f80a0f6e7581cdff23",
+    "host-v0:physical-chain:35ccf632861e01a1a7a9f70e",
+    "host-v0:physical-chain:3c722a61be54d7a4001e7bae",
+    "host-v0:physical-chain:4b7d9febcda83adc4a591ed3",
+    "host-v0:physical-chain:5ede6ae27b3262ed92c64b01",
+    "host-v0:physical-chain:60756b1726f534e8e363a392",
+    "host-v0:physical-chain:612d3ae47520f885305d0106",
+    "host-v0:physical-chain:72df03a7b10937c5019ee81f",
+    "host-v0:physical-chain:7468320ead3876a4c69bfa1a",
+    "host-v0:physical-chain:881b958099ac738fc1f1f543",
+    "host-v0:physical-chain:898b4651dba2ef2da0e85303",
+    "host-v0:physical-chain:a64e80814b33bd2d5d70dbf5",
+    "host-v0:physical-chain:af747c9a4b239e51510a2368",
+    "host-v0:physical-chain:b10cc9006575c201677deb69",
+    "host-v0:physical-chain:b170701624fde6bfcc28412e",
+    "host-v0:physical-chain:b9ef6113d44aea3f0a612b45",
+    "host-v0:physical-chain:c5be64fcf33a57029cb43ac7",
+    "host-v0:physical-chain:c92d082c20c48dab6de4d201",
+    "host-v0:physical-chain:d99fc785e8a1a36ec2346595",
+    "host-v0:physical-chain:f1204342300de4cd620c0335",
+    "host-v0:physical-chain:f88d246fa6b794ea76cb112e",
+    "host-v0:physical-chain:f963cf78c62770b361bf47ba",
+    "host-v0:physical-chain:fc0fb932c330ce2c3de31988"
+  ],
+  "provenance": {
+    "accepted_exporter_sha": "c975b7a2047017263cde067b9e1d7e8286d0cb37",
+    "exporter": "kernel\\fixtures\\sem_clb_02_lost_domains_v1\\export_cases.py",
+    "source_blend_path": "E:\\testscene.blend",
+    "source_blend_sha256": "f657db491e1c6b9c3fe85a27d22dff3a209be57006bed4496a628ef128f7db5a",
+    "source_kind": "DEVELOPER_LOCAL_TESTSCENE_BLEND",
+    "source_path_included": true
+  },
+  "requested_alpha": "0.3",
+  "schema": "cftuv.envelope.sem_clb_02_domain_fixture.v1",
+  "selected_chain_use_ids": [
+    "host-v0:chain-use:156da2c1fe43eb4c260a65a6",
+    "host-v0:chain-use:1c838b153f14e8591212870c",
+    "host-v0:chain-use:2128d14c86738ef39adfe992",
+    "host-v0:chain-use:28a8317b0447e90428a01903",
+    "host-v0:chain-use:37f4e04c9b7e3b07e0cc6ec3",
+    "host-v0:chain-use:424a14e9c7db6220b83d21e1",
+    "host-v0:chain-use:43b850069be5fb789b917a03",
+    "host-v0:chain-use:59f25242492314efc75227d0",
+    "host-v0:chain-use:5b54666022440bc9a88a23ed",
+    "host-v0:chain-use:638d15a12d7c6c85748059a1",
+    "host-v0:chain-use:65e50c1cdcf78f4bd6e6bb7e",
+    "host-v0:chain-use:962ad831cc4acc6f045c2c77",
+    "host-v0:chain-use:9954977c7ff8de69eb6f8322",
+    "host-v0:chain-use:a14101d28bf381feb2d5d926",
+    "host-v0:chain-use:a32e31bb1cbb25b80bba879d",
+    "host-v0:chain-use:a9a431ab7d2232b454cef876",
+    "host-v0:chain-use:b2cf7bf5b4fb155057b9af1d",
+    "host-v0:chain-use:b36e087d110645dfce390d2d",
+    "host-v0:chain-use:ba68f44327fe86b42bf04ef9",
+    "host-v0:chain-use:c5e44615af821ffbdfdd3067",
+    "host-v0:chain-use:d0476c5f334240e25e80fa88",
+    "host-v0:chain-use:d0621c5f7dc3c2dacc67cc96",
+    "host-v0:chain-use:d7877d3b2caf9c7d7248be1a",
+    "host-v0:chain-use:d9aa0e7389e91e3b389a1939",
+    "host-v0:chain-use:e57b63919297955aa28b08e5",
+    "host-v0:chain-use:f688b784e4dfa5129d0848c8",
+    "host-v0:chain-use:f7fee721c24f51d73dde5b5c",
+    "host-v0:chain-use:f959f22e3d0296637b7e5bae",
+    "host-v0:chain-use:fed420a3d4524fea08915316"
+  ],
+  "selected_chain_use_to_physical_chain": [
+    {
+      "chain_use_id": "host-v0:chain-use:156da2c1fe43eb4c260a65a6",
+      "physical_chain_id": "host-v0:physical-chain:d99fc785e8a1a36ec2346595"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:1c838b153f14e8591212870c",
+      "physical_chain_id": "host-v0:physical-chain:0286d3829a76b0b3cb2e9bcb"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:2128d14c86738ef39adfe992",
+      "physical_chain_id": "host-v0:physical-chain:c5be64fcf33a57029cb43ac7"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:28a8317b0447e90428a01903",
+      "physical_chain_id": "host-v0:physical-chain:af747c9a4b239e51510a2368"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:37f4e04c9b7e3b07e0cc6ec3",
+      "physical_chain_id": "host-v0:physical-chain:3c722a61be54d7a4001e7bae"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:424a14e9c7db6220b83d21e1",
+      "physical_chain_id": "host-v0:physical-chain:60756b1726f534e8e363a392"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:43b850069be5fb789b917a03",
+      "physical_chain_id": "host-v0:physical-chain:b170701624fde6bfcc28412e"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:59f25242492314efc75227d0",
+      "physical_chain_id": "host-v0:physical-chain:010a423354db0734a8649cf8"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:5b54666022440bc9a88a23ed",
+      "physical_chain_id": "host-v0:physical-chain:f963cf78c62770b361bf47ba"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:638d15a12d7c6c85748059a1",
+      "physical_chain_id": "host-v0:physical-chain:898b4651dba2ef2da0e85303"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:65e50c1cdcf78f4bd6e6bb7e",
+      "physical_chain_id": "host-v0:physical-chain:b9ef6113d44aea3f0a612b45"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:962ad831cc4acc6f045c2c77",
+      "physical_chain_id": "host-v0:physical-chain:72df03a7b10937c5019ee81f"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:9954977c7ff8de69eb6f8322",
+      "physical_chain_id": "host-v0:physical-chain:003c39ffd206a14abf2e1742"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:a14101d28bf381feb2d5d926",
+      "physical_chain_id": "host-v0:physical-chain:010c2692729bd9c77940dfe1"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:a32e31bb1cbb25b80bba879d",
+      "physical_chain_id": "host-v0:physical-chain:4b7d9febcda83adc4a591ed3"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:a9a431ab7d2232b454cef876",
+      "physical_chain_id": "host-v0:physical-chain:075f6e652b7331476001e521"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:b2cf7bf5b4fb155057b9af1d",
+      "physical_chain_id": "host-v0:physical-chain:a64e80814b33bd2d5d70dbf5"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:b36e087d110645dfce390d2d",
+      "physical_chain_id": "host-v0:physical-chain:612d3ae47520f885305d0106"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:ba68f44327fe86b42bf04ef9",
+      "physical_chain_id": "host-v0:physical-chain:100b37f80a0f6e7581cdff23"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:c5e44615af821ffbdfdd3067",
+      "physical_chain_id": "host-v0:physical-chain:5ede6ae27b3262ed92c64b01"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:d0476c5f334240e25e80fa88",
+      "physical_chain_id": "host-v0:physical-chain:c92d082c20c48dab6de4d201"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:d0621c5f7dc3c2dacc67cc96",
+      "physical_chain_id": "host-v0:physical-chain:fc0fb932c330ce2c3de31988"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:d7877d3b2caf9c7d7248be1a",
+      "physical_chain_id": "host-v0:physical-chain:b10cc9006575c201677deb69"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:d9aa0e7389e91e3b389a1939",
+      "physical_chain_id": "host-v0:physical-chain:f88d246fa6b794ea76cb112e"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:e57b63919297955aa28b08e5",
+      "physical_chain_id": "host-v0:physical-chain:7468320ead3876a4c69bfa1a"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:f688b784e4dfa5129d0848c8",
+      "physical_chain_id": "host-v0:physical-chain:f1204342300de4cd620c0335"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:f7fee721c24f51d73dde5b5c",
+      "physical_chain_id": "host-v0:physical-chain:881b958099ac738fc1f1f543"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:f959f22e3d0296637b7e5bae",
+      "physical_chain_id": "host-v0:physical-chain:35ccf632861e01a1a7a9f70e"
+    },
+    {
+      "chain_use_id": "host-v0:chain-use:fed420a3d4524fea08915316",
+      "physical_chain_id": "host-v0:physical-chain:0da2fdb77181ebbd552368ed"
+    }
+  ],
+  "selected_physical_edge_ids": [
+    0,
+    1,
+    2,
+    4,
+    5,
+    6,
+    10,
+    11,
+    12,
+    13,
+    14,
+    16,
+    18,
+    19,
+    21,
+    22,
+    23,
+    24,
+    28,
+    32,
+    33,
+    34,
+    35,
+    37,
+    38,
+    39,
+    43,
+    45,
+    46,
+    47,
+    49,
+    51,
+    52,
+    55,
+    57,
+    59,
+    60,
+    61,
+    63,
+    64,
+    65,
+    66,
+    67,
+    68,
+    70,
+    72,
+    73,
+    74,
+    75,
+    76,
+    77,
+    78,
+    79,
+    80,
+    81,
+    82,
+    83,
+    88,
+    91,
+    98,
+    101,
+    103,
+    105,
+    106,
+    109,
+    112,
+    113,
+    114,
+    115,
+    116,
+    117,
+    118,
+    119,
+    120,
+    121,
+    122,
+    123,
+    124,
+    125,
+    127,
+    129,
+    130,
+    131,
+    132,
+    133,
+    134,
+    135,
+    136,
+    137,
+    138,
+    139,
+    140,
+    141,
+    143,
+    145,
+    146,
+    147,
+    148,
+    149,
+    154,
+    155,
+    156,
+    157,
+    158,
+    159,
+    160,
+    161,
+    162,
+    163,
+    165,
+    166,
+    167,
+    170,
+    171,
+    173,
+    174,
+    176,
+    178,
+    179,
+    181,
+    185,
+    187,
+    188,
+    191,
+    192,
+    193,
+    194,
+    195,
+    201,
+    202,
+    203,
+    204,
+    205,
+    206,
+    207,
+    208,
+    209,
+    210,
+    212,
+    214,
+    217,
+    218,
+    219,
+    220,
+    221,
+    222,
+    224,
+    226,
+    227,
+    230,
+    231,
+    232,
+    236,
+    238,
+    239,
+    240,
+    241,
+    242,
+    243,
+    244,
+    245,
+    247,
+    248,
+    251,
+    252,
+    253,
+    254,
+    257,
+    259,
+    260,
+    264,
+    266,
+    267,
+    268,
+    269,
+    270,
+    271,
+    273,
+    274,
+    275,
+    276,
+    277,
+    279,
+    280,
+    281,
+    282,
+    284,
+    285,
+    286,
+    287,
+    289,
+    291,
+    292,
+    297,
+    298,
+    299,
+    300,
+    301,
+    302,
+    303,
+    304,
+    305,
+    306,
+    309,
+    316,
+    317,
+    319,
+    321,
+    322,
+    324,
+    325,
+    326,
+    327,
+    328,
+    329,
+    330,
+    331,
+    333,
+    336,
+    337,
+    338,
+    339,
+    341,
+    342,
+    343,
+    344,
+    346,
+    347,
+    349,
+    351,
+    352,
+    353,
+    356,
+    358,
+    359,
+    360,
+    363,
+    364,
+    365,
+    366,
+    369,
+    370,
+    371,
+    372,
+    373,
+    374,
+    375,
+    376,
+    377,
+    379,
+    381,
+    382,
+    383,
+    384,
+    387,
+    388,
+    390,
+    393,
+    397,
+    398,
+    399,
+    401,
+    403,
+    405,
+    407,
+    408,
+    409,
+    410,
+    411,
+    412,
+    413,
+    414,
+    415,
+    416,
+    418,
+    420,
+    421,
+    422,
+    423,
+    424,
+    425,
+    426,
+    427,
+    428,
+    432,
+    433,
+    435,
+    436,
+    438,
+    439,
+    440,
+    441,
+    442,
+    443,
+    444,
+    445,
+    446,
+    447,
+    448,
+    449,
+    450,
+    453,
+    456,
+    457,
+    458,
+    459,
+    460,
+    461,
+    462,
+    463,
+    466,
+    467,
+    468,
+    469,
+    470,
+    471,
+    473,
+    475,
+    476,
+    477,
+    479,
+    483,
+    484,
+    485,
+    486,
+    487,
+    488,
+    489,
+    490,
+    492,
+    493,
+    495,
+    496,
+    497,
+    498,
+    501,
+    503,
+    504,
+    506,
+    507,
+    512,
+    513,
+    514,
+    515,
+    520,
+    521,
+    522,
+    523,
+    526,
+    527,
+    528,
+    529,
+    530,
+    532,
+    534,
+    536,
+    537,
+    542,
+    543,
+    547,
+    548,
+    549,
+    550,
+    551,
+    553,
+    554,
+    555,
+    558,
+    559,
+    560,
+    561,
+    564,
+    565,
+    566,
+    567,
+    568,
+    569,
+    570,
+    572,
+    573,
+    574,
+    576,
+    577,
+    581,
+    582,
+    584,
+    585,
+    588,
+    589,
+    592,
+    593,
+    595,
+    596,
+    598,
+    599,
+    600,
+    602,
+    603,
+    605,
+    607,
+    609,
+    611,
+    612,
+    614,
+    615,
+    617,
+    618,
+    619,
+    620,
+    621,
+    622,
+    623,
+    624,
+    625,
+    626,
+    627,
+    628,
+    629,
+    630,
+    632,
+    633,
+    634,
+    635,
+    636,
+    637,
+    639,
+    640,
+    641,
+    642,
+    643,
+    644,
+    645,
+    646,
+    647,
+    648,
+    649,
+    650,
+    652,
+    653,
+    654,
+    655,
+    657,
+    659,
+    660,
+    661,
+    663,
+    665,
+    666,
+    668,
+    671,
+    672,
+    673,
+    674,
+    675,
+    677,
+    682,
+    683,
+    686
+  ],
+  "selection_scenario": "all_seams",
+  "semantic_change_receipt": {
+    "current_revision": "c975b7a2047017263cde067b9e1d7e8286d0cb37",
+    "current_stage": {
+      "compile": "EXACT",
+      "detail": "PLANAR_CHAIN_SUPPORT_NOT_LINEAR",
+      "prepare": "DOMAIN_GEOMETRY_REFUSED"
+    },
+    "first_differing_fact": {
+      "exact_witness": {
+        "bound_coordinates": [
+          [
+            "-517923/32768",
+            "133567/16384"
+          ],
+          [
+            "0",
+            "0"
+          ],
+          [
+            "877973/32768",
+            "-56605/4096"
+          ]
+        ],
+        "bound_oriented_cross": "94031/536870912",
+        "physical_chain_id": "host-v0:physical-chain:898b4651dba2ef2da0e85303",
+        "source_coordinates": [
+          [
+            "-62093824/3928557",
+            "21351135/2619038"
+          ],
+          [
+            "0",
+            "0"
+          ],
+          [
+            "315780608/11785671",
+            "-36194015/2619038"
+          ]
+        ],
+        "source_oriented_cross": "0",
+        "source_vertex_ids": [
+          "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:232",
+          "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:128",
+          "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:153"
+        ]
+      },
+      "fact": "source-collinear PhysicalChain triple becomes non-linear after independent vertex-wise chart-lattice binding",
+      "first_geometry_failure": {
+        "chain_use_id": "host-v0:chain-use:638d15a12d7c6c85748059a1",
+        "declared_corner_vertex_ids": [],
+        "function": "_validate_segment_corners",
+        "incoming": {
+          "chain_use_id": "host-v0:chain-use:638d15a12d7c6c85748059a1",
+          "end": [
+            "ExactScalar(expression='Rational(877973, 32768)')",
+            "ExactScalar(expression='Rational(-56605, 4096)')"
+          ],
+          "physical_edge_id": "host-edge:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:553",
+          "source_vertex_end_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:153",
+          "source_vertex_start_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:231",
+          "start": [
+            "ExactScalar(expression='Rational(682707, 16384)')",
+            "ExactScalar(expression='Rational(-176063, 8192)')"
+          ],
+          "tangent": [
+            "ExactScalar(expression='Mul(Integer(-1), Rational(1996558336, 116247624995160111), Pow(Integer(38749208331720037), Rational(1, 2)))')",
+            "ExactScalar(expression='Mul(Rational(343261184, 38749208331720037), Pow(Integer(38749208331720037), Rational(1, 2)))')"
+          ]
+        },
+        "message": "non-linear ChainUse requires an explicit segment-corner support relation at host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:153",
+        "oriented_cross": "-2775555506176*sqrt(43841669074546202741222892973966297)/131525007223638608223668678921898891",
+        "outcome": "PLANAR_CHAIN_SUPPORT_NOT_LINEAR",
+        "outgoing": {
+          "chain_use_id": "host-v0:chain-use:638d15a12d7c6c85748059a1",
+          "end": [
+            "ExactScalar(expression='Integer(0)')",
+            "ExactScalar(expression='Integer(0)')"
+          ],
+          "physical_edge_id": "host-edge:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:504",
+          "source_vertex_end_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:128",
+          "source_vertex_start_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:153",
+          "start": [
+            "ExactScalar(expression='Rational(877973, 32768)')",
+            "ExactScalar(expression='Rational(-56605, 4096)')"
+          ],
+          "tangent": [
+            "ExactScalar(expression='Mul(Integer(-1), Rational(3596177408, 1131421026701530981), Pow(Integer(1131421026701530981), Rational(1, 2)))')",
+            "ExactScalar(expression='Mul(Rational(1854832640, 1131421026701530981), Pow(Integer(1131421026701530981), Rational(1, 2)))')"
+          ]
+        },
+        "shared_source_vertex_id": "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:153",
+        "source_geometry_oriented_cross": "0",
+        "source_geometry_vertex_coordinates": {
+          "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:128": [
+            "ExactScalar(expression='Integer(0)')",
+            "ExactScalar(expression='Integer(0)')"
+          ],
+          "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:153": [
+            "ExactScalar(expression='Rational(315780608, 11785671)')",
+            "ExactScalar(expression='Rational(-36194015, 2619038)')"
+          ],
+          "host-vertex:host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building:231": [
+            "ExactScalar(expression='Rational(491098624, 11785671)')",
+            "ExactScalar(expression='Rational(-56288545, 2619038)')"
+          ]
+        }
+      },
+      "lattice_scale": 32768
+    },
+    "historic_revision": "28f6c8c2b25c2ae32696fed57826f65a03b85c2b",
+    "historic_stage": {
+      "compile": "EXACT",
+      "prepare": "EXACT"
+    },
+    "hypotheses": {
+      "H1": {
+        "binding_validation_issue_count": 0,
+        "bound_coordinate_collision_count": 0,
+        "claim": "two exact source vertices collide at one bound coordinate and duplicate binding validation rejects the plan",
+        "status": "REFUTED",
+        "zero_length_bound_chain_edge_count": 0
+      },
+      "H2": {
+        "claim": "compile rejects an irrational incoming/outgoing ray with REFERENCE_CERTIFIED_PREDICATE_UNDECIDABLE and direction binding certificate is not proven",
+        "compile_diagnostic_count": 0,
+        "compile_outcome": "EXACT",
+        "status": "REFUTED"
+      }
+    }
+  },
+  "source_mesh_fingerprint": "59e852ff25b39090fb2c71be9cf4785f0a25bc8a865c785989702dc9bd43ef6f",
+  "source_mesh_fingerprint_after": "59e852ff25b39090fb2c71be9cf4785f0a25bc8a865c785989702dc9bd43ef6f",
+  "source_mesh_unchanged": true,
+  "source_revision": "host-source:2da23329d0c8c3069b49c833c0cbc5e2ea0d339f6fe913b8fc881df5bf3275f9:building"
+}

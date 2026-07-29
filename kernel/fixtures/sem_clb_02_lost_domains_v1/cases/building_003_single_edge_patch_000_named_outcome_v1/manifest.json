@@ -1,0 +1,564 @@
+{
+  "contract_validation": {
+    "analysis_snapshot_issue_count": 0,
+    "cross_reference_issue_count": 0,
+    "decal_request_issue_count": 0
+  },
+  "decal_request_id": "host-v0:decal-request:b3939c794feb3e1b3ab490d7",
+  "description": "SEM-CLB-02 building.003/single_edge patch 0 portable domain snapshot; no .blend content is included.",
+  "effective_domain_physical_edge_ids": [
+    1
+  ],
+  "expected_kernel_results": {
+    "28f6c8c2b25c2ae32696fed57826f65a03b85c2b": {
+      "compile": {
+        "compilation_available": true,
+        "diagnostics": [],
+        "envelope_spec_count": 3,
+        "evaluation_geometry_binding": {
+          "binding_present": false,
+          "bound_coordinate_collisions": [],
+          "lattice_scale": null,
+          "source_collinear_bound_non_linear_triples": [],
+          "validation_issues": [],
+          "zero_length_bound_chain_edges": []
+        },
+        "outcome": "EXACT"
+      },
+      "prepare": {
+        "counters": [
+          [
+            "CONVEYOR_ARRIVAL_LAWS",
+            1
+          ],
+          [
+            "CONVEYOR_RESCALED_ARRIVAL_LAWS",
+            0
+          ],
+          [
+            "CONVEYOR_RATIONAL_VERTEX_FANS",
+            0
+          ],
+          [
+            "CONVEYOR_DEGRADED_MITER_CORNERS",
+            0
+          ],
+          [
+            "CONVEYOR_MITERED_CORNERS",
+            0
+          ],
+          [
+            "CONVEYOR_BOUND_FAN_DIRECTIONS",
+            0
+          ],
+          [
+            "CONVEYOR_FAN_SUPPORTS",
+            0
+          ],
+          [
+            "CONVEYOR_DOMAIN_REGIONS",
+            1
+          ],
+          [
+            "CONVEYOR_LATTICE_SCALE",
+            65536
+          ],
+          [
+            "CONVEYOR_FAN_EDGES",
+            0
+          ],
+          [
+            "CONVEYOR_DOMAIN_EDGES",
+            12
+          ],
+          [
+            "CONVEYOR_SOURCE_EDGES",
+            1
+          ],
+          [
+            "CONVEYOR_WALL_EDGES",
+            11
+          ],
+          [
+            "CONVEYOR_AMBIGUOUS_OWNER_EDGES",
+            0
+          ],
+          [
+            "CONVEYOR_WEIGHTED_SOURCE_EDGES",
+            0
+          ],
+          [
+            "CONVEYOR_SKELETON_NODES",
+            0
+          ],
+          [
+            "CONVEYOR_FACES",
+            0
+          ]
+        ],
+        "detail": "sparse-patch-domain-region:7b5d990fa772f6dac4c084f6: SOURCE_EDGE_INSIDE_A_LINE_CLASS_IS_UNDETERMINED",
+        "first_geometry_failure": null,
+        "lattice_scale": 65536,
+        "law_names": [
+          "strip-spec:4e40843023fa05cb72e5779e"
+        ],
+        "outcome": "BRIDGE_DID_NOT_MAP",
+        "regions": [
+          {
+            "bridge": {
+              "ambiguous_owner_spans": [],
+              "edge_count": 12,
+              "fan_edge_count": 0,
+              "findings": [
+                "SOURCE_EDGE_INSIDE_A_LINE_CLASS_IS_UNDETERMINED"
+              ],
+              "lattice_scale": 65536,
+              "law_count": 1,
+              "matched_edge_count": 1,
+              "non_unit_speed_laws": [
+                [
+                  "strip-spec:4e40843023fa05cb72e5779e",
+                  "8388608/702965133"
+                ]
+              ],
+              "off_lattice_points": [],
+              "outcome": "SOURCE_EDGE_INSIDE_A_LINE_CLASS_IS_UNDETERMINED",
+              "owner_by_edge_count": 0,
+              "snap_residual": "7417045/996977508352",
+              "surplus_laws": [],
+              "undetermined_source_count": 2,
+              "unmatched_laws": [],
+              "wall_spans": [],
+              "weighted_edge_count": 0
+            },
+            "faces": null,
+            "region_id": "sparse-patch-domain-region:7b5d990fa772f6dac4c084f6",
+            "skeleton": null
+          }
+        ]
+      },
+      "trace_sha256": "cfafd47dfb2194b7c115023070e0edd2df38ca393bd67cb58bf4c77ea587c4c0"
+    },
+    "c975b7a2047017263cde067b9e1d7e8286d0cb37": {
+      "compile": {
+        "compilation_available": true,
+        "diagnostics": [],
+        "envelope_spec_count": 3,
+        "evaluation_geometry_binding": {
+          "binding_present": true,
+          "bound_coordinate_collisions": [],
+          "lattice_scale": 65536,
+          "source_collinear_bound_non_linear_triples": [],
+          "validation_issues": [],
+          "zero_length_bound_chain_edges": []
+        },
+        "outcome": "EXACT"
+      },
+      "prepare": {
+        "counters": [
+          [
+            "CONVEYOR_ARRIVAL_LAWS",
+            1
+          ],
+          [
+            "CONVEYOR_RESCALED_ARRIVAL_LAWS",
+            1
+          ],
+          [
+            "CONVEYOR_RATIONAL_VERTEX_FANS",
+            0
+          ],
+          [
+            "CONVEYOR_DEGRADED_MITER_CORNERS",
+            0
+          ],
+          [
+            "CONVEYOR_MITERED_CORNERS",
+            0
+          ],
+          [
+            "CONVEYOR_BOUND_FAN_DIRECTIONS",
+            0
+          ],
+          [
+            "CONVEYOR_FAN_SUPPORTS",
+            0
+          ],
+          [
+            "CONVEYOR_DOMAIN_REGIONS",
+            1
+          ],
+          [
+            "CONVEYOR_LATTICE_SCALE",
+            65536
+          ],
+          [
+            "CONVEYOR_FAN_EDGES",
+            0
+          ],
+          [
+            "CONVEYOR_DOMAIN_EDGES",
+            12
+          ],
+          [
+            "CONVEYOR_SOURCE_EDGES",
+            1
+          ],
+          [
+            "CONVEYOR_WALL_EDGES",
+            11
+          ],
+          [
+            "CONVEYOR_AMBIGUOUS_OWNER_EDGES",
+            0
+          ],
+          [
+            "CONVEYOR_WEIGHTED_SOURCE_EDGES",
+            1
+          ],
+          [
+            "CONVEYOR_SKELETON_NODES",
+            6
+          ],
+          [
+            "CONVEYOR_FACES",
+            0
+          ]
+        ],
+        "detail": "sparse-patch-domain-region:7b5d990fa772f6dac4c084f6: SkeletonOutcome.WAVEFRONT_LEFT_UNRESOLVED",
+        "first_geometry_failure": null,
+        "lattice_scale": 65536,
+        "law_names": [
+          "strip-spec:4e40843023fa05cb72e5779e"
+        ],
+        "outcome": "SKELETON_DID_NOT_CLOSE",
+        "regions": [
+          {
+            "bridge": {
+              "ambiguous_owner_spans": [],
+              "edge_count": 12,
+              "fan_edge_count": 0,
+              "findings": [],
+              "lattice_scale": 65536,
+              "law_count": 1,
+              "matched_edge_count": 1,
+              "non_unit_speed_laws": [
+                [
+                  "strip-spec:4e40843023fa05cb72e5779e",
+                  "29806281405405513908224/2497770670126906007467025"
+                ]
+              ],
+              "off_lattice_points": [],
+              "outcome": "EXACT",
+              "owner_by_edge_count": 1,
+              "snap_residual": "7417045/996977508352",
+              "surplus_laws": [],
+              "undetermined_source_count": 0,
+              "unmatched_laws": [],
+              "wall_spans": [
+                [
+                  -227927,
+                  130850,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  0,
+                  130850,
+                  -37496
+                ],
+                [
+                  0,
+                  65536,
+                  -227927,
+                  130850
+                ],
+                [
+                  40742,
+                  42147,
+                  0,
+                  65536
+                ],
+                [
+                  65536,
+                  0,
+                  971163,
+                  -259515
+                ],
+                [
+                  130850,
+                  -37496,
+                  65536,
+                  0
+                ],
+                [
+                  424022,
+                  -55971,
+                  464764,
+                  -79360
+                ],
+                [
+                  464764,
+                  -79360,
+                  40742,
+                  42147
+                ],
+                [
+                  971163,
+                  -259515,
+                  1036400,
+                  -296989
+                ],
+                [
+                  1036400,
+                  -296989,
+                  1166060,
+                  -334144
+                ],
+                [
+                  1166060,
+                  -334144,
+                  938133,
+                  -203294
+                ]
+              ],
+              "weighted_edge_count": 1
+            },
+            "faces": null,
+            "region_id": "sparse-patch-domain-region:7b5d990fa772f6dac4c084f6",
+            "skeleton": {
+              "counters": [
+                [
+                  "coincident_split_targets",
+                  0
+                ],
+                [
+                  "discarded_stale_candidates",
+                  12
+                ],
+                [
+                  "edge_events",
+                  2
+                ],
+                [
+                  "motorcycle_march_steps",
+                  102
+                ],
+                [
+                  "motorcycle_trace_crashes",
+                  0
+                ],
+                [
+                  "motorcycle_trace_pairs",
+                  0
+                ],
+                [
+                  "motorcycle_traces",
+                  4
+                ],
+                [
+                  "motorcycle_unbounded_traces",
+                  4
+                ],
+                [
+                  "motorcycle_wall_crashes",
+                  0
+                ],
+                [
+                  "motorcycle_wall_tests",
+                  486
+                ],
+                [
+                  "multi_participant_nodes",
+                  1
+                ],
+                [
+                  "peaks",
+                  1
+                ],
+                [
+                  "refused_filter_beyond_trace",
+                  13
+                ],
+                [
+                  "refused_filter_edge_is_own",
+                  16
+                ],
+                [
+                  "refused_filter_event_in_the_past",
+                  23
+                ],
+                [
+                  "refused_filter_point_outside_front",
+                  11
+                ],
+                [
+                  "refused_filter_solo_vertex",
+                  0
+                ],
+                [
+                  "refused_filter_span_does_not_collapse",
+                  0
+                ],
+                [
+                  "refused_filter_span_is_born_zero",
+                  0
+                ],
+                [
+                  "refused_filter_triple_never_concurrent",
+                  49
+                ],
+                [
+                  "refused_no_rule_joint_is_antiparallel",
+                  0
+                ],
+                [
+                  "refused_no_rule_joint_is_codirectional",
+                  0
+                ],
+                [
+                  "refused_no_rule_joint_is_codirectional_at_different_speeds",
+                  0
+                ],
+                [
+                  "refused_no_rule_meeting_not_reconnectable",
+                  3
+                ],
+                [
+                  "refused_no_rule_span_vanished",
+                  0
+                ],
+                [
+                  "refused_no_rule_triple_always_concurrent",
+                  27
+                ],
+                [
+                  "resting_steiner_vertices",
+                  0
+                ],
+                [
+                  "ridges",
+                  3
+                ],
+                [
+                  "split_candidates_beyond_trace",
+                  13
+                ],
+                [
+                  "split_candidates_examined",
+                  113
+                ],
+                [
+                  "split_events",
+                  4
+                ],
+                [
+                  "split_search_exhaustive_segments",
+                  0
+                ],
+                [
+                  "split_search_exhaustive_vertices",
+                  8
+                ],
+                [
+                  "start_events",
+                  0
+                ],
+                [
+                  "switch_events",
+                  0
+                ],
+                [
+                  "vertex_meeting_events",
+                  0
+                ]
+              ],
+              "levels": 11,
+              "node_count": 6,
+              "outcome": "WAVEFRONT_LEFT_UNRESOLVED"
+            }
+          }
+        ]
+      },
+      "trace_sha256": "6c2f99cda673d6d12d3cd5b2cce21bbeb0e541480370bd640455911bf83fc4f8"
+    }
+  },
+  "files": {
+    "analysis_snapshot.json": "3fbd7593a7a19b7ed45b40c8ebeeb80feba7910018ae32e5735352902fa7aa65",
+    "decal_request.json": "dd6e1b8b4c7016380df2879aebd210fb62b63fec999deb925ae0200f6aa910bb",
+    "host_mesh.json": "8d83a6c1dd6f4734ab37105f98b576e5df1ca408d5ed0b928cc2412f4090860b"
+  },
+  "fixture_hash": "907d59fe4fa732b4061b7e281e1eaf26ea53b459cf4347f011ee9827a91e82c3",
+  "fixture_id": "building_003_single_edge_patch_000_named_outcome_v1",
+  "mesh_counts": {
+    "edges": 16,
+    "faces": 5,
+    "vertices": 12
+  },
+  "object_data_name": "walls.007",
+  "object_name": "building.003",
+  "patch_domain_id": "host-v0:patch-domain:b8c2075d70d3a37fa39cd4b9",
+  "patch_domain_ids": [
+    "host-v0:patch-domain:b8c2075d70d3a37fa39cd4b9"
+  ],
+  "patch_id": 0,
+  "physical_chain_ids": [
+    "host-v0:physical-chain:04b6b00bb3c3b154a6a29b7f",
+    "host-v0:physical-chain:44ce0a501fd9fc6ad5a563df",
+    "host-v0:physical-chain:5c557e5a29dbe0dfd3e82d51",
+    "host-v0:physical-chain:808725645c16faa153af4230",
+    "host-v0:physical-chain:86c60f7ad8032a69cf46573d",
+    "host-v0:physical-chain:8d4f49a82ce2c58ce1c9af98",
+    "host-v0:physical-chain:96e3f9ed3693d64636a29ee2",
+    "host-v0:physical-chain:a334dfa65a87086e621a8fed",
+    "host-v0:physical-chain:bfef70b2932fbdda122d8afe",
+    "host-v0:physical-chain:c46b5bacc20f3b326845a95a",
+    "host-v0:physical-chain:edff18bd9aa00ce874a03c0a",
+    "host-v0:physical-chain:f1225bd17b8ed6993a49d052"
+  ],
+  "provenance": {
+    "accepted_exporter_sha": "c975b7a2047017263cde067b9e1d7e8286d0cb37",
+    "exporter": "kernel\\fixtures\\sem_clb_02_lost_domains_v1\\export_cases.py",
+    "source_blend_path": "E:\\testscene.blend",
+    "source_blend_sha256": "f657db491e1c6b9c3fe85a27d22dff3a209be57006bed4496a628ef128f7db5a",
+    "source_kind": "DEVELOPER_LOCAL_TESTSCENE_BLEND",
+    "source_path_included": true
+  },
+  "requested_alpha": "0.3",
+  "schema": "cftuv.envelope.sem_clb_02_domain_fixture.v1",
+  "selected_chain_use_ids": [
+    "host-v0:chain-use:8c9f3b89d68f889c4f630f9e"
+  ],
+  "selected_chain_use_to_physical_chain": [
+    {
+      "chain_use_id": "host-v0:chain-use:8c9f3b89d68f889c4f630f9e",
+      "physical_chain_id": "host-v0:physical-chain:c46b5bacc20f3b326845a95a"
+    }
+  ],
+  "selected_physical_edge_ids": [
+    1
+  ],
+  "selection_scenario": "single_edge",
+  "semantic_change_receipt": {
+    "current_revision": "c975b7a2047017263cde067b9e1d7e8286d0cb37",
+    "current_trace_sha256": "6c2f99cda673d6d12d3cd5b2cce21bbeb0e541480370bd640455911bf83fc4f8",
+    "first_differing_fact": {
+      "current_prepare_outcome": "SKELETON_DID_NOT_CLOSE",
+      "current_skeleton_outcome": "WAVEFRONT_LEFT_UNRESOLVED",
+      "current_value": "EXACT",
+      "field": "prepare.regions[0].bridge.outcome",
+      "historic_prepare_outcome": "BRIDGE_DID_NOT_MAP",
+      "historic_value": "SOURCE_EDGE_INSIDE_A_LINE_CLASS_IS_UNDETERMINED",
+      "region_id": "sparse-patch-domain-region:7b5d990fa772f6dac4c084f6"
+    },
+    "historic_revision": "28f6c8c2b25c2ae32696fed57826f65a03b85c2b",
+    "historic_trace_sha256": "cfafd47dfb2194b7c115023070e0edd2df38ca393bd67cb58bf4c77ea587c4c0",
+    "resolved_domain_count": "0/1",
+    "source_first_seam_edge_id": 1
+  },
+  "source_mesh_fingerprint": "c8d854808a378900dd5c8b1e7a7fb77ecd8f84e8b39d9179d62f2303b04e6462",
+  "source_mesh_fingerprint_after": "c8d854808a378900dd5c8b1e7a7fb77ecd8f84e8b39d9179d62f2303b04e6462",
+  "source_mesh_unchanged": true,
+  "source_revision": "host-source:c63988ded8a5cfb975a5eef5f34b35ca1d33db153b226e537dc5f569098f3c50:building.003"
+}
