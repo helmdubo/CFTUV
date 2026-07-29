@@ -116,6 +116,7 @@ from .direction_binding import (
 )
 from .evaluation_geometry import (
     EvaluationGeometryBindingInvalid,
+    EvaluationGeometryRefinementBudgetExhausted,
     build_evaluation_geometry_binding,
     verify_evaluation_geometry_binding,
 )
@@ -522,6 +523,11 @@ def _attach_evaluation_geometry(
         )
     try:
         binding = build_evaluation_geometry_binding(compilation, frame)
+    except EvaluationGeometryRefinementBudgetExhausted as exc:
+        return _failure(
+            ReferenceOutcome.REFINEMENT_BUDGET_EXHAUSTED,
+            str(exc),
+        )
     except EvaluationGeometryBindingInvalid as exc:
         return _failure(
             ReferenceOutcome.REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID,

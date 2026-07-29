@@ -86,8 +86,11 @@ from ..reference.boundary import (
 from ..reference.common import GeometryContext, ReferenceGeometryError
 from ..reference.compile import compile_reference_envelopes
 from ..reference.evaluation_geometry import (
+    EvaluationGeometryBindingInvalid,
     chart_lattice_for_frame,
     evaluation_geometry_binding_residual,
+    evaluation_geometry_lattice,
+    verify_evaluation_geometry_binding,
 )
 from ..reference.metric import ExactPlanarMetric
 from ..reference.planar_types import (
@@ -1123,7 +1126,24 @@ def _prepare_inputs(snapshot, request, patch_domain_id, clock: _Clock):
         )
 
     started = time.perf_counter()
-    lattice = chart_lattice_for_frame(frame)
+    try:
+        verify_evaluation_geometry_binding(
+            compilation.evaluation_geometry_binding,
+            compilation,
+            frame,
+        )
+        lattice = evaluation_geometry_lattice(
+            frame,
+            compilation.evaluation_geometry_binding,
+        )
+    except EvaluationGeometryBindingInvalid:
+        clock.add("CHART_LATTICE", started)
+        return None, _refused(
+            ConveyorOutcome.DOMAIN_GEOMETRY_REFUSED,
+            "REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID",
+            clock,
+            law_counters,
+        )
     clock.add("CHART_LATTICE", started)
     if lattice is None:
         return None, _refused(

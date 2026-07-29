@@ -12,7 +12,7 @@ from ..contracts.envelopes import (
 from ..contracts.analysis import AnalysisSnapshotV1
 from ..contracts.events import InitialFrontSpec
 from ..contracts.plan import (
-    EvaluationGeometryBindingV1,
+    EvaluationGeometryBinding,
     FrontComponentV1,
     FrontReadingDeclarationV1,
     PlanKeyV1,
@@ -67,6 +67,7 @@ class ReferenceOutcome(str, Enum):
     REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID = (
         "REFERENCE_EVALUATION_GEOMETRY_BINDING_INVALID"
     )
+    REFINEMENT_BUDGET_EXHAUSTED = "REFINEMENT_BUDGET_EXHAUSTED"
     REFERENCE_PATCH_DOMAIN_SELECTION_REQUIRED = (
         "REFERENCE_PATCH_DOMAIN_SELECTION_REQUIRED"
     )
@@ -163,7 +164,7 @@ class ReferenceEnvelopeCompilationV1:
     self_contact_pair_declarations: frozenset[
         SelfContactPairDeclarationV1
     ] = frozenset()
-    evaluation_geometry_binding: EvaluationGeometryBindingV1 | None = None
+    evaluation_geometry_binding: EvaluationGeometryBinding | None = None
     diagnostics: tuple[ReferenceEvaluationDiagnosticV1, ...] = ()
 
 
