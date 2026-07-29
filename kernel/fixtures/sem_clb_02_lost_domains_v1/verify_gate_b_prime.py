@@ -169,7 +169,12 @@ def _activate_kernel(source_root: Path):
     import cftuv_envelope.wavefront.conveyor as conveyor
     import cftuv_envelope.wavefront.skeleton as skeleton_module
     from cftuv_envelope.wavefront.bridge import line_class
-    from cftuv_envelope.wavefront.faces import build_faces
+    from cftuv_envelope.exact_sqrt_sum import SqrtSumV1
+    from cftuv_envelope.wavefront.faces import (
+        build_faces,
+        contour_crossings,
+        doubled_shoelace,
+    )
     from cftuv_envelope.wavefront.polygon import (
         LoopV1,
         PolygonV1,
@@ -182,6 +187,9 @@ def _activate_kernel(source_root: Path):
         "skeleton": skeleton_module,
         "line_class": line_class,
         "build_faces": build_faces,
+        "contour_crossings": contour_crossings,
+        "doubled_shoelace": doubled_shoelace,
+        "SqrtSumV1": SqrtSumV1,
         "LoopV1": LoopV1,
         "PolygonV1": PolygonV1,
         "signed_double_area": signed_double_area,
@@ -199,11 +207,20 @@ def _exact_straight_classifier(first, second) -> bool:
     )
 
 
-def _adapter_vertex_state(builder, vertex) -> dict[str, Any]:
+def _adapter_vertex_state(builder, vertex, line_class) -> dict[str, Any]:
     """Состояние seed-вершины без вывода новых геометрических фактов."""
 
     first_edge = builder.edges[vertex.prev_edge]
     second_edge = builder.edges[vertex.next_edge]
+    first = first_edge.line
+    second = second_edge.line
+    determinant = first.a * second.b - second.a * first.b
+    dot = first.a * second.a + first.b * second.b
+    q1_N2 = first.q * second.normal_squared
+    q2_N1 = second.q * first.normal_squared
+    frozen_projection = (
+        vertex.point.x.scaled(first.b) - vertex.point.y.scaled(first.a)
+    )
     return {
         "vertex_id": vertex.ident,
         "birth": _event_time(vertex.birth),
@@ -220,6 +237,30 @@ def _adapter_vertex_state(builder, vertex) -> dict[str, Any]:
             *second_edge.line_key[:3],
             _ratio(second_edge.line_key[3]),
         ],
+        "prev_support_line_class": (
+            None
+            if line_class is None
+            else _line_class_record(first, line_class)
+        ),
+        "next_support_line_class": (
+            None
+            if line_class is None
+            else _line_class_record(second, line_class)
+        ),
+        "prev_q_over_N": _ratio(
+            Fraction(first.q, first.normal_squared)
+        ),
+        "next_q_over_N": _ratio(
+            Fraction(second.q, second.normal_squared)
+        ),
+        "determinant": determinant,
+        "dot": dot,
+        "q1_N2": _ratio(q1_N2),
+        "q2_N1": _ratio(q2_N1),
+        "exact_classifier_result": (
+            determinant == 0 and dot > 0 and q1_N2 == q2_N1
+        ),
+        "frozen_projection": _sqrt_sum(frozen_projection),
         "prev_vertex_id": vertex.prev,
         "next_vertex_id": vertex.next,
         "reflex": vertex.reflex,
@@ -238,14 +279,37 @@ def _state_without_sliding(records: list[dict[str, Any]]) -> bytes:
     )
 
 
+def _callable_identity(function) -> dict[str, Any]:
+    code = function.__code__
+    code_payload = (
+        code.co_code
+        + repr(code.co_consts).encode("utf-8")
+        + repr(code.co_names).encode("utf-8")
+    )
+    return {
+        "module": function.__module__,
+        "qualname": function.__qualname__,
+        "code_sha256": _sha256(code_payload),
+    }
+
+
 class _SeedClassifierAdapter:
     """Временная proof-local классификация seed с обязательным restore."""
 
-    def __init__(self, skeleton_module) -> None:
+    def __init__(self, skeleton_module, line_class=None) -> None:
         self.skeleton_module = skeleton_module
+        self.line_class = line_class
         self.builder_type = skeleton_module._Builder
         self.original_seed_one_loop = self.builder_type._seed_one_loop
         self.original_new_vertex = self.builder_type._new_vertex
+        self.original_seed_identity = _callable_identity(
+            self.original_seed_one_loop
+        )
+        self.original_new_vertex_identity = _callable_identity(
+            self.original_new_vertex
+        )
+        self.restored_seed_identity = None
+        self.restored_new_vertex_identity = None
         self.records: list[dict[str, Any]] = []
         self.entered = False
         self.restored = False
@@ -262,7 +326,7 @@ class _SeedClassifierAdapter:
             original(builder, loop)
             seeded = builder.vertices[first_vertex:]
             before = [
-                _adapter_vertex_state(builder, vertex)
+                _adapter_vertex_state(builder, vertex, adapter.line_class)
                 for vertex in seeded
             ]
             classified = []
@@ -281,7 +345,7 @@ class _SeedClassifierAdapter:
                 builder.sliding_vertices.add(vertex.ident)
                 classified.append(vertex.ident)
             after = [
-                _adapter_vertex_state(builder, vertex)
+                _adapter_vertex_state(builder, vertex, adapter.line_class)
                 for vertex in seeded
             ]
             before_immutable = _state_without_sliding(before)
@@ -315,10 +379,16 @@ class _SeedClassifierAdapter:
 
     def __exit__(self, exc_type, exc_value, traceback) -> bool:
         self.builder_type._seed_one_loop = self.original_seed_one_loop
-        self.restored = (
+        self.restored_seed_identity = _callable_identity(
             self.builder_type._seed_one_loop
-            is self.original_seed_one_loop
-            and self.builder_type._new_vertex is self.original_new_vertex
+        )
+        self.restored_new_vertex_identity = _callable_identity(
+            self.builder_type._new_vertex
+        )
+        self.restored = (
+            self.restored_seed_identity == self.original_seed_identity
+            and self.restored_new_vertex_identity
+            == self.original_new_vertex_identity
         )
         return False
 
@@ -342,6 +412,12 @@ def _forced_exception_restoration_audit(skeleton_module) -> dict[str, Any]:
             skeleton_module._Builder._new_vertex is original_new
         ),
         "adapter_reported_restored": adapter.restored,
+        "seed_hook_before": adapter.original_seed_identity,
+        "seed_hook_after": adapter.restored_seed_identity,
+        "event_born_hook_before": (
+            adapter.original_new_vertex_identity
+        ),
+        "event_born_hook_after": adapter.restored_new_vertex_identity,
         "passed": (
             observed == "FORCED_ADAPTER_EXCEPTION"
             and adapter.restored
@@ -751,6 +827,8 @@ def _assembler_borders(region, coverage_region) -> dict[str, Any]:
             "partition_area_defect": _sqrt_sum(partition.area_defect),
             "exact": partition.area_reproduces_polygon,
         },
+        "every_contour_is_simple": partition.every_contour_is_simple,
+        "every_face_is_positive": partition.every_face_is_positive,
         "PARTITION_COVERAGE_DEFECT_ZERO": {
             "partition_area_defect": _sqrt_sum(partition.area_defect),
             "coverage_sum_defect": _sqrt_sum(coverage_defect),
@@ -782,14 +860,404 @@ def _assembler_borders(region, coverage_region) -> dict[str, Any]:
             ],
             "exact": ownership_exact,
         },
+        "leaf_evidence": {
+            "owner_by_edge": [
+                {
+                    "span": list(span),
+                    "envelope_spec_id": envelope_spec_id,
+                }
+                for span, envelope_spec_id in region.owner_by_edge
+            ],
+            "wall_spans": [list(item) for item in region.wall_spans],
+            "ambiguous_owner_spans": [
+                list(item) for item in region.ambiguous_owner_spans
+            ],
+            "coverage_faces": [
+                {
+                    "owner": list(face.owner),
+                    "doubled_area": _sqrt_sum(face.doubled_area),
+                }
+                for face in coverage_region.faces
+            ],
+            "coverage_doubled_area": _sqrt_sum(
+                coverage_region.doubled_area
+            ),
+            "coverage_polygon_doubled_area": (
+                coverage_region.polygon_doubled_area
+            ),
+        },
         "all_exact": (
             partition.area_reproduces_polygon
+            and partition.every_contour_is_simple
+            and partition.every_face_is_positive
             and partition.area_defect.is_zero
             and coverage_defect.is_zero
             and coverage_region.polygon_doubled_area
             == partition.polygon_doubled_area
             and ownership_exact
         ),
+    }
+
+
+def _fraction_from_ratio(value: str | int) -> Fraction:
+    if isinstance(value, int):
+        return Fraction(value)
+    return Fraction(value)
+
+
+def _sqrt_sum_from_record(
+    record: list[dict[str, Any]], modules: dict[str, Any]
+):
+    value = modules["SqrtSumV1"].zero()
+    for term in record:
+        value = value + modules["SqrtSumV1"].radical(
+            _fraction_from_ratio(term["coefficient"]),
+            term["radicand"],
+        )
+    return value
+
+
+def _point_from_record(
+    record: dict[str, Any], modules: dict[str, Any]
+):
+    return (
+        _sqrt_sum_from_record(record["x"], modules),
+        _sqrt_sum_from_record(record["y"], modules),
+    )
+
+
+def _recompute_adapter_record(record: dict[str, Any]) -> dict[str, Any]:
+    before = record["before"]
+    after = record["after"]
+    before_by_id = {item["vertex_id"]: item for item in before}
+    after_by_id = {item["vertex_id"]: item for item in after}
+    before_ids = sorted(before_by_id)
+    after_ids = sorted(after_by_id)
+    invariant_fields = (
+        "vertex_id",
+        "birth",
+        "point",
+        "prev_edge_id",
+        "next_edge_id",
+        "prev_span",
+        "next_span",
+        "prev_raw_line_key",
+        "next_raw_line_key",
+        "prev_support_line_class",
+        "next_support_line_class",
+        "prev_q_over_N",
+        "next_q_over_N",
+        "determinant",
+        "dot",
+        "q1_N2",
+        "q2_N1",
+        "exact_classifier_result",
+        "frozen_projection",
+        "prev_vertex_id",
+        "next_vertex_id",
+        "reflex",
+    )
+    field_mismatches = {
+        field: 0 for field in invariant_fields
+    }
+    projection_failures = 0
+    recomputed_classified = []
+    for ident in sorted(set(before_by_id) | set(after_by_id)):
+        left = before_by_id.get(ident)
+        right = after_by_id.get(ident)
+        if left is None or right is None:
+            for field in invariant_fields:
+                field_mismatches[field] += 1
+            continue
+        for field in invariant_fields:
+            field_mismatches[field] += int(
+                left[field] != right[field]
+            )
+        if left["exact_classifier_result"]:
+            recomputed_classified.append(ident)
+            projection_failures += int(left["sliding"] is not None)
+            projection_failures += int(
+                right["sliding"] != left["frozen_projection"]
+            )
+        else:
+            projection_failures += int(
+                right["sliding"] != left["sliding"]
+            )
+    before_immutable = _state_without_sliding(before)
+    after_immutable = _state_without_sliding(after)
+    recomputed_immutable = (
+        before_ids == after_ids
+        and not any(field_mismatches.values())
+    )
+    summary_inconsistencies = sum(
+        (
+            record["seed_vertex_ids"] != before_ids,
+            sorted(record["classified_vertex_ids"])
+            != sorted(recomputed_classified),
+            record["classified_count"] != len(recomputed_classified),
+            record["immutable_seed_state_before_sha256"]
+            != _sha256(before_immutable),
+            record["immutable_seed_state_after_sha256"]
+            != _sha256(after_immutable),
+            record["immutable_seed_state_unchanged"]
+            != recomputed_immutable,
+        )
+    )
+    return {
+        "before_after_vertex_id_sets_equal": before_ids == after_ids,
+        "recomputed_classified_vertex_ids": recomputed_classified,
+        "field_mismatch_counts": field_mismatches,
+        "projection_failures": projection_failures,
+        "summary_inconsistencies": summary_inconsistencies,
+        "recomputed_immutable_seed_state_unchanged": (
+            recomputed_immutable
+        ),
+        "passed": (
+            recomputed_immutable
+            and projection_failures == 0
+            and summary_inconsistencies == 0
+            and record["seed_scope_excess_count"] == 0
+        ),
+    }
+
+
+def _recompute_immutable_input(
+    immutable: dict[str, Any],
+) -> dict[str, Any]:
+    snapshot_before = immutable[
+        "analysis_snapshot_input_utf8"
+    ].encode("utf-8")
+    snapshot_after = immutable[
+        "analysis_snapshot_after_utf8"
+    ].encode("utf-8")
+    request_before = immutable["decal_request_input_utf8"].encode(
+        "utf-8"
+    )
+    request_after = immutable["decal_request_after_utf8"].encode(
+        "utf-8"
+    )
+    binding_before = immutable["v2_binding_before_utf8"].encode("utf-8")
+    binding_after = immutable["v2_binding_after_utf8"].encode("utf-8")
+    binding_facts_before = _binding_fact_record(binding_before)
+    binding_facts_after = _binding_fact_record(binding_after)
+    polygon_before = _pretty_json(immutable["bridge_polygon_before"])
+    polygon_after = _pretty_json(immutable["bridge_polygon_after"])
+    leaf_equalities = {
+        "analysis_snapshot_bytes_equal": (
+            snapshot_before == snapshot_after
+        ),
+        "decal_request_bytes_equal": request_before == request_after,
+        "v2_binding_bytes_equal": binding_before == binding_after,
+        "v2_binding_nodes_rationals_equal": (
+            binding_facts_before == binding_facts_after
+        ),
+        "bridge_polygon_equal": polygon_before == polygon_after,
+        "lattice_S_prime_equal": (
+            immutable["lattice_S_prime_before"]
+            == immutable["lattice_S_prime_after"]
+            == immutable["prepared_lattice_S_prime"]
+            == binding_facts_before["lattice_scale_S_prime"]
+            == binding_facts_after["lattice_scale_S_prime"]
+        ),
+    }
+    summary_inconsistencies = sum(
+        (
+            immutable["analysis_snapshot_input_sha256"]
+            != _sha256(snapshot_before),
+            immutable["analysis_snapshot_after_sha256"]
+            != _sha256(snapshot_after),
+            immutable["analysis_snapshot_byte_identical"]
+            != leaf_equalities["analysis_snapshot_bytes_equal"],
+            immutable["decal_request_input_sha256"]
+            != _sha256(request_before),
+            immutable["decal_request_after_sha256"]
+            != _sha256(request_after),
+            immutable["decal_request_byte_identical"]
+            != leaf_equalities["decal_request_bytes_equal"],
+            immutable["v2_binding_before"] != binding_facts_before,
+            immutable["v2_binding_after"] != binding_facts_after,
+            immutable["v2_binding_byte_identical"]
+            != leaf_equalities["v2_binding_bytes_equal"],
+            immutable["bridge_polygon_byte_identical"]
+            != leaf_equalities["bridge_polygon_equal"],
+            immutable["lattice_S_prime_unchanged"]
+            != leaf_equalities["lattice_S_prime_equal"],
+            immutable["all_exact"] != all(leaf_equalities.values()),
+        )
+    )
+    return {
+        "leaf_equalities": leaf_equalities,
+        "binding_facts_before": binding_facts_before,
+        "binding_facts_after": binding_facts_after,
+        "summary_inconsistencies": summary_inconsistencies,
+        "passed": (
+            all(leaf_equalities.values())
+            and summary_inconsistencies == 0
+            and binding_facts_before["binding_type"]
+            == "ChainStraightEvaluationGeometryBindingV2"
+        ),
+    }
+
+
+def _recompute_mode_agreement(
+    fixture: dict[str, Any],
+) -> dict[str, Any]:
+    canonical_skeleton = fixture["region"]["skeleton_semantics"]
+    exhaustive = fixture["region"]["exhaustive"]
+    exhaustive_skeleton = exhaustive["skeleton_semantics"]
+    canonical_partition = fixture["region"]["partition"]
+    exhaustive_partition = exhaustive["partition"]
+    recomputed = {
+        "outcome_equal": (
+            canonical_skeleton["outcome"]
+            == exhaustive_skeleton["outcome"]
+        ),
+        "levels_equal": (
+            canonical_skeleton["levels"]
+            == exhaustive_skeleton["levels"]
+        ),
+        "nodes_byte_identical": (
+            _pretty_json(canonical_skeleton["nodes"])
+            == _pretty_json(exhaustive_skeleton["nodes"])
+        ),
+        "partition_byte_identical": (
+            _pretty_json(canonical_partition)
+            == _pretty_json(exhaustive_partition)
+        ),
+    }
+    recomputed["all_exact_and_agree"] = (
+        canonical_skeleton["outcome"] == "EXACT"
+        and exhaustive_skeleton["outcome"] == "EXACT"
+        and canonical_partition["outcome"] == "EXACT"
+        and exhaustive_partition["outcome"] == "EXACT"
+        and recomputed["outcome_equal"]
+        and recomputed["nodes_byte_identical"]
+        and recomputed["partition_byte_identical"]
+    )
+    stored = fixture["public_split_search_contract"]["mode_agreement"]
+    return {
+        "recomputed": recomputed,
+        "summary_inconsistencies": sum(
+            stored[key] != value for key, value in recomputed.items()
+        ),
+        "passed": (
+            recomputed["all_exact_and_agree"]
+            and all(stored[key] == value for key, value in recomputed.items())
+        ),
+    }
+
+
+def _recompute_assembler_borders(
+    fixture: dict[str, Any],
+    modules: dict[str, Any],
+) -> dict[str, Any]:
+    partition = fixture["region"]["partition"]
+    claims = fixture["region"]["assembler_borders"]
+    leaves = claims["leaf_evidence"]
+    zero = modules["SqrtSumV1"].zero()
+    face_total = zero
+    face_area_mutations = 0
+    simple_contours = True
+    positive_faces = True
+    partition_owners = []
+    for face in partition["faces"]:
+        points = tuple(
+            _point_from_record(point, modules)
+            for point in face["points"]
+        )
+        recomputed_area = modules["doubled_shoelace"](points)
+        stored_area = _sqrt_sum_from_record(
+            face["doubled_area"], modules
+        )
+        face_area_mutations += int(recomputed_area != stored_area)
+        face_total = face_total + recomputed_area
+        simple_contours = (
+            simple_contours
+            and not modules["contour_crossings"](points)
+        )
+        positive_faces = positive_faces and recomputed_area.sign() > 0
+        partition_owners.append(tuple(face["owner"]))
+    stored_partition_area = _sqrt_sum_from_record(
+        partition["doubled_area"], modules
+    )
+    polygon_area = modules["SqrtSumV1"].rational(
+        partition["polygon_doubled_area"]
+    )
+    recomputed_partition_defect = face_total - polygon_area
+    stored_partition_defect = _sqrt_sum_from_record(
+        partition["area_defect"], modules
+    )
+    partition_area_exact = (
+        face_area_mutations == 0
+        and face_total == stored_partition_area
+        and recomputed_partition_defect.is_zero
+        and stored_partition_defect == recomputed_partition_defect
+    )
+
+    coverage_total = zero
+    coverage_owners = []
+    for face in leaves["coverage_faces"]:
+        coverage_total = coverage_total + _sqrt_sum_from_record(
+            face["doubled_area"], modules
+        )
+        coverage_owners.append(tuple(face["owner"]))
+    stored_coverage_area = _sqrt_sum_from_record(
+        leaves["coverage_doubled_area"], modules
+    )
+    coverage_defect_zero = coverage_total == stored_coverage_area
+    owner_by_edge = [
+        tuple(item["span"]) for item in leaves["owner_by_edge"]
+    ]
+    wall_spans = [tuple(item) for item in leaves["wall_spans"]]
+    ambiguous = [
+        tuple(item) for item in leaves["ambiguous_owner_spans"]
+    ]
+    source_spans = owner_by_edge + wall_spans + ambiguous
+    ownership_exact = (
+        len(source_spans) == len(set(source_spans))
+        and len(partition_owners) == len(set(partition_owners))
+        and len(coverage_owners) == len(set(coverage_owners))
+        and set(source_spans) == set(partition_owners)
+        and set(partition_owners) == set(coverage_owners)
+    )
+    border_values = {
+        "POLYGON_FACE_DOUBLED_AREA_EQUALITY": partition_area_exact,
+        "PARTITION_COVERAGE_DEFECT_ZERO": (
+            recomputed_partition_defect.is_zero
+            and coverage_defect_zero
+            and leaves["coverage_polygon_doubled_area"]
+            == partition["polygon_doubled_area"]
+        ),
+        "OWNERSHIP_SOURCE_SPAN_ACCOUNTING_EXACT": ownership_exact,
+    }
+    recomputed_all = (
+        all(border_values.values())
+        and simple_contours
+        and positive_faces
+    )
+    summary_inconsistencies = sum(
+        (
+            claims["every_contour_is_simple"] != simple_contours,
+            claims["every_face_is_positive"] != positive_faces,
+            claims["all_exact"] != recomputed_all,
+            claims["POLYGON_FACE_DOUBLED_AREA_EQUALITY"]["exact"]
+            != border_values["POLYGON_FACE_DOUBLED_AREA_EQUALITY"],
+            claims["PARTITION_COVERAGE_DEFECT_ZERO"]["exact"]
+            != border_values["PARTITION_COVERAGE_DEFECT_ZERO"],
+            claims["OWNERSHIP_SOURCE_SPAN_ACCOUNTING_EXACT"]["exact"]
+            != border_values[
+                "OWNERSHIP_SOURCE_SPAN_ACCOUNTING_EXACT"
+            ],
+        )
+    )
+    return {
+        "border_values": border_values,
+        "simple_contours": simple_contours,
+        "positive_faces": positive_faces,
+        "face_area_mutations": face_area_mutations,
+        "ownership_exact": ownership_exact,
+        "summary_inconsistencies": summary_inconsistencies,
+        "passed": recomputed_all and summary_inconsistencies == 0,
     }
 
 
@@ -1074,7 +1542,7 @@ def _public_fixture_record_phase1(
         )
         return result
 
-    adapter = _SeedClassifierAdapter(skeleton_module)
+    adapter = _SeedClassifierAdapter(skeleton_module, line_class)
     prepare_started = time.perf_counter()
     conveyor.build_skeleton = capturing_build_skeleton
     try:
@@ -1174,24 +1642,38 @@ def _public_fixture_record_phase1(
         }
         for record in adapter.records
     ]
-    canonical_adapter = adapter_records[0]
     assembler = _assembler_borders(region, coverage.regions[0])
     immutable_input = {
+        "analysis_snapshot_input_utf8": snapshot_input.decode("utf-8"),
+        "analysis_snapshot_after_utf8": snapshot_after.decode("utf-8"),
         "analysis_snapshot_input_sha256": _sha256(snapshot_input),
         "analysis_snapshot_after_sha256": _sha256(snapshot_after),
         "analysis_snapshot_byte_identical": (
             snapshot_input == snapshot_after
         ),
+        "decal_request_input_utf8": request_input.decode("utf-8"),
+        "decal_request_after_utf8": request_after.decode("utf-8"),
         "decal_request_input_sha256": _sha256(request_input),
         "decal_request_after_sha256": _sha256(request_after),
         "decal_request_byte_identical": request_input == request_after,
+        "v2_binding_before_utf8": binding_before.decode("utf-8"),
+        "v2_binding_after_utf8": binding_after.decode("utf-8"),
         "v2_binding_before": binding_facts_before,
         "v2_binding_after": binding_facts_after,
         "v2_binding_byte_identical": binding_before == binding_after,
+        "bridge_polygon_before": canonical_capture["polygon"],
+        "bridge_polygon_after": polygon_after,
         "bridge_polygon_byte_identical": (
             _pretty_json(canonical_capture["polygon"])
             == _pretty_json(polygon_after)
         ),
+        "lattice_S_prime_before": (
+            binding_facts_before["lattice_scale_S_prime"]
+        ),
+        "lattice_S_prime_after": (
+            binding_facts_after["lattice_scale_S_prime"]
+        ),
+        "prepared_lattice_S_prime": prepared.lattice.scale,
         "lattice_S_prime_unchanged": (
             binding_facts_before["lattice_scale_S_prime"]
             == binding_facts_after["lattice_scale_S_prime"]
@@ -1246,6 +1728,14 @@ def _public_fixture_record_phase1(
         "adapter": {
             "scope": "SEED_VERTICES_CREATED_BY__seed_one_loop_ONLY",
             "normal_exit_restored": adapter.restored,
+            "seed_hook_before": adapter.original_seed_identity,
+            "seed_hook_after": adapter.restored_seed_identity,
+            "event_born_hook_before": (
+                adapter.original_new_vertex_identity
+            ),
+            "event_born_hook_after": (
+                adapter.restored_new_vertex_identity
+            ),
             "event_born_new_vertex_callable_unchanged": (
                 skeleton_module._Builder._new_vertex
                 is original_new_vertex
@@ -1313,10 +1803,11 @@ def _synthetic_case_phase1(
     skeleton_module = modules["skeleton"]
     line_class = modules["line_class"]
     polygon = modules["PolygonV1"](modules["LoopV1"](points))
-    polygon_before = _pretty_json(_polygon_record(polygon))
+    polygon_before_record = _polygon_record(polygon)
+    polygon_before = _pretty_json(polygon_before_record)
     modes = {}
     original_new_vertex = skeleton_module._Builder._new_vertex
-    adapter = _SeedClassifierAdapter(skeleton_module)
+    adapter = _SeedClassifierAdapter(skeleton_module, line_class)
     with adapter:
         for mode in skeleton_module.SplitSearch:
             builder = skeleton_module._Builder(polygon, mode)
@@ -1347,7 +1838,8 @@ def _synthetic_case_phase1(
                     "area_defect": _sqrt_sum(partition.area_defect),
                 },
             }
-    polygon_after = _pretty_json(_polygon_record(polygon))
+    polygon_after_record = _polygon_record(polygon)
+    polygon_after = _pretty_json(polygon_after_record)
     mode_values = list(modes.values())
     agreement = {
         "outcome_equal": (
@@ -1379,8 +1871,16 @@ def _synthetic_case_phase1(
         "case": name,
         "points": [list(point) for point in points],
         "signed_doubled_area": modules["signed_double_area"](points),
+        "polygon_before": polygon_before_record,
+        "polygon_after": polygon_after_record,
         "polygon_byte_identical": polygon_before == polygon_after,
         "adapter_normal_exit_restored": adapter.restored,
+        "seed_hook_before": adapter.original_seed_identity,
+        "seed_hook_after": adapter.restored_seed_identity,
+        "event_born_hook_before": (
+            adapter.original_new_vertex_identity
+        ),
+        "event_born_hook_after": adapter.restored_new_vertex_identity,
         "event_born_new_vertex_callable_unchanged": (
             skeleton_module._Builder._new_vertex is original_new_vertex
         ),
@@ -2221,6 +2721,28 @@ PHASE1_FAILURE_ORDER = (
         "INPUT_COORDINATE_OR_NODE_MUTATION",
     ),
     (
+        "immutability_summary_inconsistencies",
+        "IMMUTABILITY_SUMMARY_INCONSISTENT",
+    ),
+    ("adapter_point_mutations", "ADAPTER_POINT_MUTATION"),
+    (
+        "adapter_participant_mutations",
+        "ADAPTER_PARTICIPANT_MUTATION",
+    ),
+    ("adapter_span_mutations", "ADAPTER_SPAN_MUTATION"),
+    (
+        "adapter_support_qN_mutations",
+        "ADAPTER_SUPPORT_QN_MUTATION",
+    ),
+    (
+        "adapter_projection_failures",
+        "ADAPTER_FROZEN_PROJECTION_MISMATCH",
+    ),
+    (
+        "adapter_summary_inconsistencies",
+        "ADAPTER_SUMMARY_INCONSISTENT",
+    ),
+    (
         "participant_span_raw_key_merges",
         "PARTICIPANT_SPAN_RAW_KEY_MERGE",
     ),
@@ -2229,6 +2751,16 @@ PHASE1_FAILURE_ORDER = (
     ("public_exactness_failures", "PUBLIC_EXACTNESS_FAILURE"),
     ("public_mode_agreement_failures", "PUBLIC_MODE_AGREEMENT_FAILURE"),
     ("synthetic_exactness_failures", "SYNTHETIC_EXACTNESS_FAILURE"),
+    ("assembler_contour_failures", "ASSEMBLER_CONTOUR_NOT_SIMPLE"),
+    ("assembler_face_area_mutations", "ASSEMBLER_FACE_AREA_MUTATION"),
+    (
+        "assembler_ownership_mutations",
+        "ASSEMBLER_OWNERSHIP_SOURCE_SPAN_MUTATION",
+    ),
+    (
+        "assembler_summary_inconsistencies",
+        "ASSEMBLER_SUMMARY_INCONSISTENT",
+    ),
     ("assembler_border_failures", "ASSEMBLER_BORDER_FAILURE"),
     ("h2_evidence_failures", "INSUFFICIENT_H2_EVIDENCE"),
     (
@@ -2322,6 +2854,7 @@ def _phase1_gate_audit(
     h2_audit: dict[str, Any],
     filter_audit: dict[str, Any],
     forced_restoration: dict[str, Any],
+    modules: dict[str, Any],
     *,
     product_tree_ok: bool,
     fixture_form_ok: bool,
@@ -2353,10 +2886,22 @@ def _phase1_gate_audit(
         "first.q * second.normal_squared == second.q * first.normal_squared"
         not in classifier
     )
+    recomputed_source_predicate_identity = (
+        source_audit["event_born_new_vertex_predicate"]
+        == source_audit["proof_local_seed_classifier_predicate"]
+        == source_audit["expected_predicate"]
+        == EXPECTED_NEW_VERTEX_PREDICATE
+    )
     counters["event_born_behavior_changes"] = int(
-        not source_audit[
+        not recomputed_source_predicate_identity
+        or source_audit[
             "product_predicate_and_proof_classifier_identical"
         ]
+        != recomputed_source_predicate_identity
+        or source_audit["predicate_exact_match"]
+        != recomputed_source_predicate_identity
+        or source_audit["proof_local_classifier_exact_match"]
+        != recomputed_source_predicate_identity
         or not source_audit["event_born_constructor_sets_sliding"]
     )
 
@@ -2367,11 +2912,18 @@ def _phase1_gate_audit(
         ]
         seed = fixture["region"]["seed"]
         terminal = fixture["region"]["terminal"]
+        adapter_recomputations = [
+            {
+                "split_search": record["split_search"],
+                **_recompute_adapter_record(record),
+            }
+            for record in fixture["adapter"]["records"]
+        ]
         canonical_ids = sorted(
             ident
-            for record in fixture["adapter"]["records"]
-            if record["split_search"] == "MOTORCYCLE"
-            for ident in record["classified_vertex_ids"]
+            for result in adapter_recomputations
+            if result["split_search"] == "MOTORCYCLE"
+            for ident in result["recomputed_classified_vertex_ids"]
         )
         certified_ids = sorted(
             vertex["vertex_id"]
@@ -2381,22 +2933,88 @@ def _phase1_gate_audit(
             record["seed_scope_excess_count"]
             for record in fixture["adapter"]["records"]
         )
-        immutable_seed = all(
-            record["immutable_seed_state_unchanged"]
-            for record in fixture["adapter"]["records"]
+        immutable_recomputed = _recompute_immutable_input(
+            fixture["immutable_input"]
+        )
+        mode_recomputed = _recompute_mode_agreement(fixture)
+        assembler_recomputed = _recompute_assembler_borders(
+            fixture, modules
         )
         counters["seed_scope_excess"] += scope_excess
+        counters["adapter_point_mutations"] += sum(
+            result["field_mismatch_counts"]["point"]
+            for result in adapter_recomputations
+        )
+        counters["adapter_participant_mutations"] += sum(
+            result["field_mismatch_counts"][field]
+            for result in adapter_recomputations
+            for field in (
+                "vertex_id",
+                "prev_edge_id",
+                "next_edge_id",
+                "prev_vertex_id",
+                "next_vertex_id",
+            )
+        )
+        counters["adapter_span_mutations"] += sum(
+            result["field_mismatch_counts"][field]
+            for result in adapter_recomputations
+            for field in ("prev_span", "next_span")
+        )
+        counters["adapter_support_qN_mutations"] += sum(
+            result["field_mismatch_counts"][field]
+            for result in adapter_recomputations
+            for field in (
+                "prev_raw_line_key",
+                "next_raw_line_key",
+                "prev_support_line_class",
+                "next_support_line_class",
+                "prev_q_over_N",
+                "next_q_over_N",
+                "determinant",
+                "dot",
+                "q1_N2",
+                "q2_N1",
+                "exact_classifier_result",
+            )
+        )
+        counters["adapter_projection_failures"] += sum(
+            result["projection_failures"]
+            + result["field_mismatch_counts"]["frozen_projection"]
+            for result in adapter_recomputations
+        )
+        counters["adapter_summary_inconsistencies"] += sum(
+            result["summary_inconsistencies"]
+            for result in adapter_recomputations
+        )
         counters["participant_span_raw_key_merges"] += int(
-            not immutable_seed or canonical_ids != certified_ids
+            canonical_ids != certified_ids
         )
         counters["input_coordinate_or_node_mutations"] += int(
-            not fixture["immutable_input"]["all_exact"]
+            not all(
+                immutable_recomputed["leaf_equalities"].values()
+            )
+        )
+        counters["immutability_summary_inconsistencies"] += (
+            immutable_recomputed["summary_inconsistencies"]
+        )
+        normal_restore_recomputed = (
+            fixture["adapter"]["seed_hook_before"]
+            == fixture["adapter"]["seed_hook_after"]
+            and fixture["adapter"]["event_born_hook_before"]
+            == fixture["adapter"]["event_born_hook_after"]
         )
         counters["adapter_restoration_failures"] += int(
-            not fixture["adapter"]["normal_exit_restored"]
-            or not fixture["adapter"][
+            not normal_restore_recomputed
+            or fixture["adapter"]["normal_exit_restored"]
+            != normal_restore_recomputed
+            or fixture["adapter"][
                 "event_born_new_vertex_callable_unchanged"
             ]
+            != (
+                fixture["adapter"]["event_born_hook_before"]
+                == fixture["adapter"]["event_born_hook_after"]
+            )
         )
         public_exact = (
             fixture["compile"]["outcome"] == "EXACT"
@@ -2412,18 +3030,26 @@ def _phase1_gate_audit(
             and terminal["live_vertex_count"] == 0
             and terminal["queue_length"] == 0
         )
-        mode_agreement = fixture["public_split_search_contract"][
-            "mode_agreement"
-        ]["all_exact_and_agree"]
-        assembler_exact = fixture["region"]["assembler_borders"][
-            "all_exact"
-        ]
+        mode_agreement = mode_recomputed["passed"]
+        assembler_exact = assembler_recomputed["passed"]
         counters["public_exactness_failures"] += int(not public_exact)
         counters["public_mode_agreement_failures"] += int(
             not mode_agreement
         )
         counters["assembler_border_failures"] += int(
-            not assembler_exact
+            not all(assembler_recomputed["border_values"].values())
+        )
+        counters["assembler_summary_inconsistencies"] += (
+            assembler_recomputed["summary_inconsistencies"]
+        )
+        counters["assembler_contour_failures"] += int(
+            not assembler_recomputed["simple_contours"]
+        )
+        counters["assembler_face_area_mutations"] += (
+            assembler_recomputed["face_area_mutations"]
+        )
+        counters["assembler_ownership_mutations"] += int(
+            not assembler_recomputed["ownership_exact"]
         )
         field_gate_records.append(
             {
@@ -2437,10 +3063,14 @@ def _phase1_gate_audit(
                 ),
                 "public_compile_prepare_coverage_exact": public_exact,
                 "canonical_exhaustive_agreement": mode_agreement,
-                "immutable_input_exact": fixture["immutable_input"][
-                    "all_exact"
-                ],
+                "mode_agreement_recomputation": mode_recomputed,
+                "immutable_input_exact": immutable_recomputed["passed"],
+                "immutable_input_recomputation": (
+                    immutable_recomputed
+                ),
                 "assembler_borders_exact": assembler_exact,
+                "assembler_recomputation": assembler_recomputed,
+                "adapter_recomputations": adapter_recomputations,
                 "terminal_live_frontier": terminal["live_vertex_count"],
                 "terminal_queue": terminal["queue_length"],
                 "frozen_levels": terminal["levels"],
@@ -2458,11 +3088,120 @@ def _phase1_gate_audit(
     synthetic_gate_records = []
     for name, expected in EXPECTED_SYNTHETIC.items():
         case = synthetics[name]
+        polygon_equal = (
+            _pretty_json(case["polygon_before"])
+            == _pretty_json(case["polygon_after"])
+        )
+        mode_values = list(case["modes"].values())
+        recomputed_mode = {
+            "outcome_equal": (
+                mode_values[0]["terminal"]["outcome"]
+                == mode_values[1]["terminal"]["outcome"]
+            ),
+            "levels_equal": (
+                mode_values[0]["terminal"]["levels"]
+                == mode_values[1]["terminal"]["levels"]
+            ),
+            "nodes_byte_identical": (
+                _pretty_json(
+                    mode_values[0]["skeleton_semantics"]["nodes"]
+                )
+                == _pretty_json(
+                    mode_values[1]["skeleton_semantics"]["nodes"]
+                )
+            ),
+            "partition_byte_identical": (
+                _pretty_json(mode_values[0]["partition"])
+                == _pretty_json(mode_values[1]["partition"])
+            ),
+        }
+        recomputed_mode["all_exact_and_agree"] = (
+            all(
+                mode["terminal"]["outcome"] == "EXACT"
+                and mode["partition"]["outcome"] == "EXACT"
+                for mode in mode_values
+            )
+            and all(
+                recomputed_mode[key]
+                for key in (
+                    "outcome_equal",
+                    "levels_equal",
+                    "nodes_byte_identical",
+                    "partition_byte_identical",
+                )
+            )
+        )
+        mode_summary_inconsistencies = sum(
+            case["mode_agreement"][key] != value
+            for key, value in recomputed_mode.items()
+        )
+        synthetic_adapter_recomputations = [
+            _recompute_adapter_record(record)
+            for record in case["adapter_records"]
+        ]
+        for result in synthetic_adapter_recomputations:
+            counters["adapter_point_mutations"] += result[
+                "field_mismatch_counts"
+            ]["point"]
+            counters["adapter_participant_mutations"] += sum(
+                result["field_mismatch_counts"][field]
+                for field in (
+                    "vertex_id",
+                    "prev_edge_id",
+                    "next_edge_id",
+                    "prev_vertex_id",
+                    "next_vertex_id",
+                )
+            )
+            counters["adapter_span_mutations"] += sum(
+                result["field_mismatch_counts"][field]
+                for field in ("prev_span", "next_span")
+            )
+            counters["adapter_support_qN_mutations"] += sum(
+                result["field_mismatch_counts"][field]
+                for field in (
+                    "prev_raw_line_key",
+                    "next_raw_line_key",
+                    "prev_support_line_class",
+                    "next_support_line_class",
+                    "prev_q_over_N",
+                    "next_q_over_N",
+                    "determinant",
+                    "dot",
+                    "q1_N2",
+                    "q2_N1",
+                    "exact_classifier_result",
+                )
+            )
+            counters["adapter_projection_failures"] += (
+                result["projection_failures"]
+                + result["field_mismatch_counts"]["frozen_projection"]
+            )
+            counters["adapter_summary_inconsistencies"] += result[
+                "summary_inconsistencies"
+            ]
+        synthetic_restore_recomputed = (
+            case["seed_hook_before"] == case["seed_hook_after"]
+            and case["event_born_hook_before"]
+            == case["event_born_hook_after"]
+        )
         case_exact = (
-            case["polygon_byte_identical"]
+            polygon_equal
+            and case["polygon_byte_identical"] == polygon_equal
+            and synthetic_restore_recomputed
             and case["adapter_normal_exit_restored"]
+            == synthetic_restore_recomputed
             and case["event_born_new_vertex_callable_unchanged"]
-            and case["mode_agreement"]["all_exact_and_agree"]
+            == (
+                case["event_born_hook_before"]
+                == case["event_born_hook_after"]
+            )
+            and recomputed_mode["all_exact_and_agree"]
+            and mode_summary_inconsistencies == 0
+            and all(
+                result["passed"]
+                for result in synthetic_adapter_recomputations
+            )
         )
         for result in case["modes"].values():
             case_exact = (
@@ -2484,7 +3223,9 @@ def _phase1_gate_audit(
             )
         counters["synthetic_exactness_failures"] += int(not case_exact)
         counters["adapter_restoration_failures"] += int(
-            not case["adapter_normal_exit_restored"]
+            not synthetic_restore_recomputed
+            or case["adapter_normal_exit_restored"]
+            != synthetic_restore_recomputed
         )
         synthetic_gate_records.append(
             {
@@ -2492,11 +3233,40 @@ def _phase1_gate_audit(
                 "exact": case_exact,
                 "expected": expected,
                 "mode_agreement": case["mode_agreement"],
+                "mode_agreement_recomputed": recomputed_mode,
+                "mode_summary_inconsistencies": (
+                    mode_summary_inconsistencies
+                ),
+                "adapter_recomputations": (
+                    synthetic_adapter_recomputations
+                ),
             }
         )
 
+    forced_restoration_recomputed = (
+        forced_restoration["forced_exception"]
+        == "FORCED_ADAPTER_EXCEPTION"
+        and forced_restoration["seed_hook_before"]
+        == forced_restoration["seed_hook_after"]
+        and forced_restoration["event_born_hook_before"]
+        == forced_restoration["event_born_hook_after"]
+    )
     counters["adapter_restoration_failures"] += int(
-        not forced_restoration["passed"]
+        not forced_restoration_recomputed
+        or forced_restoration["seed_hook_restored"]
+        != (
+            forced_restoration["seed_hook_before"]
+            == forced_restoration["seed_hook_after"]
+        )
+        or forced_restoration["event_born_hook_unchanged"]
+        != (
+            forced_restoration["event_born_hook_before"]
+            == forced_restoration["event_born_hook_after"]
+        )
+        or forced_restoration["adapter_reported_restored"]
+        != forced_restoration_recomputed
+        or forced_restoration["passed"]
+        != forced_restoration_recomputed
     )
     counters["h2_evidence_failures"] = sum(
         h2_audit["failure_counters"].values()
@@ -2514,7 +3284,10 @@ def _phase1_gate_audit(
         "failure_counters": counters,
         "field_gate_records": field_gate_records,
         "synthetic_gate_records": synthetic_gate_records,
-        "forced_exception_restoration": forced_restoration,
+        "forced_exception_restoration": {
+            "captured": forced_restoration,
+            "recomputed": forced_restoration_recomputed,
+        },
         "sealed_obligations": {
             "product_tree": product_tree_ok,
             "fixture_form": fixture_form_ok,
@@ -2549,6 +3322,13 @@ def _phase1_decide(
 
 def _phase1_negative_self_checks(
     gate_audit: dict[str, Any],
+    fixtures: list[dict[str, Any]],
+    synthetics: dict[str, dict[str, Any]],
+    family: dict[str, Any],
+    source_audit: dict[str, Any],
+    different_speed_control: dict[str, Any],
+    forced_restoration: dict[str, Any],
+    modules: dict[str, Any],
 ) -> dict[str, Any]:
     mutations = (
         (
@@ -2620,8 +3400,176 @@ def _phase1_negative_self_checks(
                     and decision["named_first_exact_fact"] == expected_fact
                     and decision["named_counter"] == counter_name
                 ),
+                "kind": "DECISION_MATRIX_MUTATION",
             }
         )
+
+    def decide_evidence(mutated_fixtures):
+        mutated_h2 = _phase1_h2_audit(
+            mutated_fixtures, different_speed_control
+        )
+        mutated_filter = _filter_span_audit(
+            mutated_fixtures, synthetics, source_audit
+        )
+        mutated_gate = _phase1_gate_audit(
+            mutated_fixtures,
+            synthetics,
+            family,
+            source_audit,
+            mutated_h2,
+            mutated_filter,
+            forced_restoration,
+            modules,
+            product_tree_ok=True,
+            fixture_form_ok=True,
+            verifier_schema_ok=True,
+            phase0_history_ok=True,
+            accepted_a_proofs_ok=True,
+        )
+        outcome, decision = _phase1_decide(mutated_gate)
+        return mutated_gate, outcome, decision
+
+    def append_evidence_check(
+        name: str,
+        mutate,
+        expected_counter: str,
+        expected_fact: str,
+    ) -> None:
+        mutated_fixtures = copy.deepcopy(fixtures)
+        mutate(mutated_fixtures)
+        mutated_gate, outcome, decision = decide_evidence(
+            mutated_fixtures
+        )
+        counter_value = mutated_gate["failure_counters"][
+            expected_counter
+        ]
+        checks.append(
+            {
+                "name": name,
+                "kind": "EVIDENCE_LEAF_MUTATION_WITH_STALE_SUMMARIES",
+                "mutated_counter": expected_counter,
+                "observed_counter_value": counter_value,
+                "expected_decision_outcome": "REFUSED",
+                "expected_named_fact": expected_fact,
+                "observed_decision_outcome": outcome,
+                "observed_named_fact": decision[
+                    "named_first_exact_fact"
+                ],
+                "passed": (
+                    outcome == "REFUSED"
+                    and counter_value > 0
+                    and decision["named_counter"] == expected_counter
+                    and decision["named_first_exact_fact"]
+                    == expected_fact
+                ),
+            }
+        )
+
+    append_evidence_check(
+        "STALE_ALL_EXACT_WITH_SNAPSHOT_BYTE_FLAG_FALSE",
+        lambda items: items[0]["immutable_input"].__setitem__(
+            "analysis_snapshot_byte_identical", False
+        ),
+        "immutability_summary_inconsistencies",
+        "IMMUTABILITY_SUMMARY_INCONSISTENT",
+    )
+    append_evidence_check(
+        "MUTATE_ADAPTER_AFTER_POINT",
+        lambda items: items[0]["adapter"]["records"][0]["after"][0][
+            "point"
+        ].__setitem__("x", []),
+        "adapter_point_mutations",
+        "ADAPTER_POINT_MUTATION",
+    )
+    append_evidence_check(
+        "MERGE_ADAPTER_AFTER_PREV_NEXT_PARTICIPANT",
+        lambda items: items[0]["adapter"]["records"][0]["after"][0].__setitem__(
+            "prev_vertex_id",
+            items[0]["adapter"]["records"][0]["after"][0][
+                "next_vertex_id"
+            ],
+        ),
+        "adapter_participant_mutations",
+        "ADAPTER_PARTICIPANT_MUTATION",
+    )
+    append_evidence_check(
+        "MUTATE_ADAPTER_AFTER_SPAN",
+        lambda items: items[0]["adapter"]["records"][0]["after"][0].__setitem__(
+            "prev_span",
+            [
+                *items[0]["adapter"]["records"][0]["after"][0][
+                    "prev_span"
+                ],
+                999999,
+            ],
+        ),
+        "adapter_span_mutations",
+        "ADAPTER_SPAN_MUTATION",
+    )
+    append_evidence_check(
+        "MUTATE_ADAPTER_AFTER_RAW_KEY",
+        lambda items: items[0]["adapter"]["records"][0]["after"][0].__setitem__(
+            "prev_raw_line_key",
+            [0, 0, 0, "MUTATED_RAW_KEY"],
+        ),
+        "adapter_support_qN_mutations",
+        "ADAPTER_SUPPORT_QN_MUTATION",
+    )
+    append_evidence_check(
+        "MUTATE_ADAPTER_AFTER_SUPPORT_CLASS",
+        lambda items: items[0]["adapter"]["records"][0]["after"][0].__setitem__(
+            "prev_support_line_class",
+            ["MUTATED_SUPPORT_CLASS"],
+        ),
+        "adapter_support_qN_mutations",
+        "ADAPTER_SUPPORT_QN_MUTATION",
+    )
+    append_evidence_check(
+        "MUTATE_ADAPTER_AFTER_Q_OVER_N",
+        lambda items: items[0]["adapter"]["records"][0]["after"][0].__setitem__(
+            "prev_q_over_N", "MUTATED_Q_OVER_N"
+        ),
+        "adapter_support_qN_mutations",
+        "ADAPTER_SUPPORT_QN_MUTATION",
+    )
+    append_evidence_check(
+        "STALE_CONTOUR_SIMPLE_SUMMARY_FALSE",
+        lambda items: items[0]["region"][
+            "assembler_borders"
+        ].__setitem__("every_contour_is_simple", False),
+        "assembler_summary_inconsistencies",
+        "ASSEMBLER_SUMMARY_INCONSISTENT",
+    )
+    def mutate_matching_mode_face_area(items) -> None:
+        items[0]["region"]["partition"]["faces"][0][
+            "doubled_area"
+        ] = []
+        items[0]["region"]["exhaustive"]["partition"]["faces"][0][
+            "doubled_area"
+        ] = []
+
+    append_evidence_check(
+        "MUTATE_PARTITION_FACE_AREA",
+        mutate_matching_mode_face_area,
+        "assembler_face_area_mutations",
+        "ASSEMBLER_FACE_AREA_MUTATION",
+    )
+    append_evidence_check(
+        "MUTATE_OWNERSHIP_SOURCE_SPAN",
+        lambda items: items[0]["region"]["assembler_borders"][
+            "leaf_evidence"
+        ]["owner_by_edge"][0].__setitem__(
+            "span",
+            [
+                *items[0]["region"]["assembler_borders"][
+                    "leaf_evidence"
+                ]["owner_by_edge"][0]["span"],
+                999999,
+            ],
+        ),
+        "assembler_ownership_mutations",
+        "ASSEMBLER_OWNERSHIP_SOURCE_SPAN_MUTATION",
+    )
     return {
         "all_passed": all(item["passed"] for item in checks),
         "checks": checks,
@@ -2806,6 +3754,7 @@ def main() -> None:
                 h2_audit,
                 filter_audit,
                 forced_restoration,
+                modules,
                 product_tree_ok=product_tree_ok,
                 fixture_form_ok=fixture_form_ok,
                 verifier_schema_ok=(
@@ -2816,7 +3765,14 @@ def main() -> None:
                 accepted_a_proofs_ok=accepted_a_proofs_ok,
             )
             negative_self_checks = _phase1_negative_self_checks(
-                gate_audit
+                gate_audit,
+                fixtures,
+                synthetics,
+                family,
+                source_audit,
+                different_speed_control,
+                forced_restoration,
+                modules,
             )
             gate_audit["failure_counters"][
                 "negative_self_check_failures"
