@@ -1,6 +1,9 @@
-"""Замкнутые внутренние правила Huber Density A без geometry evaluation."""
+"""Замкнутые внутренние policy/numeric authority Huber Density A."""
 
 from __future__ import annotations
+
+from mpmath import iv
+import sympy as sp
 
 from .contracts.envelopes import (
     AdmissibilityUpperBound,
@@ -18,6 +21,55 @@ from .contracts.request import (
     MaxSubturnValueId,
 )
 from .numeric import ExactAngleSymbol
+
+
+class DensityIntervalEnclosureUnsupported(Exception):
+    """Узел вне закрытой Density-only interval whitelist."""
+
+
+def density_interval_enclosure(expression: sp.Expr):
+    """Outward enclosure только для точных bounded Density-выражений."""
+
+    if expression.is_Integer:
+        return iv.mpf(int(expression))
+    if expression.is_Rational:
+        return iv.mpf(int(expression.p)) / iv.mpf(int(expression.q))
+    if expression is sp.pi:
+        return iv.pi
+    if expression.is_Add:
+        total = iv.mpf(0)
+        for term in expression.args:
+            total = total + density_interval_enclosure(term)
+        return total
+    if expression.is_Mul:
+        product = iv.mpf(1)
+        for term in expression.args:
+            product = product * density_interval_enclosure(term)
+        return product
+    if expression.is_Pow:
+        base, exponent = expression.args
+        enclosure = density_interval_enclosure(base)
+        if exponent.is_Integer:
+            return enclosure ** int(exponent)
+        if exponent.is_Rational and exponent.q == 2:
+            root = iv.sqrt(enclosure)
+            return root if exponent.p == 1 else root ** int(exponent.p)
+    if expression.func is sp.sin:
+        return iv.sin(density_interval_enclosure(expression.args[0]))
+    if expression.func is sp.cos:
+        return iv.cos(density_interval_enclosure(expression.args[0]))
+    if expression.func is sp.atan:
+        return iv.atan2(
+            density_interval_enclosure(expression.args[0]),
+            iv.mpf(1),
+        )
+    if expression.func is sp.atan2:
+        y, x = expression.args
+        return iv.atan2(
+            density_interval_enclosure(y),
+            density_interval_enclosure(x),
+        )
+    raise DensityIntervalEnclosureUnsupported(str(expression))
 
 
 def huber_density_value_contract(

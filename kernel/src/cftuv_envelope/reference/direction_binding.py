@@ -10,6 +10,10 @@ from math import gcd, isqrt
 from mpmath import iv, libmp
 import sympy as sp
 
+from .._density_policy import (
+    DensityIntervalEnclosureUnsupported,
+    density_interval_enclosure,
+)
 from ..contracts.analysis import TurnOrientation
 from ..contracts.envelopes import (
     DirectionBindingCertificateV1,
@@ -1082,8 +1086,8 @@ def _huber_density_certificate_in_window(
         if exact_sign(slopes[1] - slopes[0]) > 0
         else (slopes[1], slopes[0])
     )
-    lower_envelope = _decimal_envelope(lower_exact)
-    upper_envelope = _decimal_envelope(upper_exact)
+    lower_envelope = _density_decimal_envelope(lower_exact)
+    upper_envelope = _density_decimal_envelope(upper_exact)
     lower = Fraction(lower_envelope.upper)
     upper = Fraction(upper_envelope.lower)
     width = upper - lower
@@ -1494,6 +1498,42 @@ def _primitive_integer(vector):
         return False
     x, y = vector
     return (x != 0 or y != 0) and gcd(abs(x), abs(y)) == 1
+
+
+def _density_decimal_envelope(expression):
+    """Decimal-envelope только через замкнутую Density authority."""
+
+    saved = iv.prec
+    iv.prec = 160
+    try:
+        enclosure = density_interval_enclosure(expression)
+    except (
+        DensityIntervalEnclosureUnsupported,
+        ArithmeticError,
+        ValueError,
+        TypeError,
+    ):
+        raise DirectionBindingCertificateUnproven(
+            BINDING_INSIDE_OWN_ORDINAL_WINDOW
+        )
+    finally:
+        iv.prec = saved
+    lower, upper = (
+        Fraction(*libmp.to_rational(item)) for item in enclosure._mpi_
+    )
+    lower_units = lower.numerator * _DECIMAL_SCALE // lower.denominator
+    upper_units = -(
+        (-upper.numerator * _DECIMAL_SCALE) // upper.denominator
+    )
+    lower_decimal = Decimal(f"{lower_units}E-{_DECIMAL_DIGITS}")
+    upper_decimal = Decimal(f"{upper_units}E-{_DECIMAL_DIGITS}")
+    return CertifiedDecimalIntervalV1(
+        lower_decimal,
+        upper_decimal,
+        IntervalEndpointKind.CLOSED,
+        IntervalEndpointKind.CLOSED,
+        upper_decimal - lower_decimal,
+    )
 
 
 def _decimal_envelope(expression):
